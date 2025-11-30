@@ -4,9 +4,9 @@ Untitled
 #IYsym   IZsym   Zsym
 0       0   0
 #Sref    Cref    Bref
-0.08895645949334603 0.1393626120740106 0.7000000069728255
+0.06705206522220797 0.14221450924031404 0.5000000049876933
 #Xref    Yref    Zref
-0.06974215669508026 0.0 0.004161545045914108
+0.06595272502832046 0.0 0.0014722990681200615
 # CDp
 0
 #===============================================================================
@@ -25,7 +25,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
--0.048877175 0 0 0.1955087 0
+-0.047806496 0 0 0.19122598 0
 
 AFIL
 avl_debug\airplane.avl.af0
@@ -40,7 +40,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
--0.0065863173 0.10772043 0.0096962674 0.15321784 0
+-0.012503248 0.077169975 0.0036074909 0.15592274 0
 
 AFIL
 avl_debug\airplane.avl.af1
@@ -55,7 +55,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.031564817 0.20489644 0.018443397 0.11506671 0
+0.019344272 0.14678602 0.0068618554 0.12407522 0
 
 AFIL
 avl_debug\airplane.avl.af2
@@ -70,7 +70,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.061841728 0.28201576 0.025385158 0.084789797 0
+0.044618608 0.20203362 0.0094445337 0.098800881 0
 
 AFIL
 avl_debug\airplane.avl.af3
@@ -85,7 +85,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.081280702 0.3315294 0.029842042 0.065350824 0
+0.06084573 0.23750476 0.011102715 0.082573759 0
 
 AFIL
 avl_debug\airplane.avl.af4
@@ -100,7 +100,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.087978916 0.34859064 0.03137778 0.05865261 0
+0.066437215 0.24972729 0.011674086 0.076982273 0
 
 AFIL
 avl_debug\airplane.avl.af5
@@ -128,7 +128,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.41894967 0 0 0.054359498 0
+0.4268537 0 0 0.047194651 0
 
 AFIL
 avl_debug\airplane.avl.af6
@@ -143,7 +143,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.42317045 0.029897206 0 0.050138716 0
+0.43051816 0.025956608 0 0.043530188 0
 
 AFIL
 avl_debug\airplane.avl.af7
@@ -158,7 +158,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.42710359 0.057756967 0 0.046205574 0
+0.4339329 0.050144316 0 0.040115453 0
 
 AFIL
 avl_debug\airplane.avl.af8
@@ -173,7 +173,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.43048106 0.081680686 0 0.042828107 0
+0.4368652 0.070914772 0 0.037183153 0
 
 AFIL
 avl_debug\airplane.avl.af9
@@ -188,7 +188,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.43307268 0.100038 0 0.040236486 0
+0.43911523 0.086852503 0 0.034933121 0
 
 AFIL
 avl_debug\airplane.avl.af10
@@ -203,7 +203,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.43470184 0.11157789 0 0.038607325 0
+0.44052966 0.09687138 0 0.033518691 0
 
 AFIL
 avl_debug\airplane.avl.af11
@@ -218,7 +218,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.43525752 0.11551393 0 0.038051649 0
+0.4410121 0.10028863 0 0.033036255 0
 
 AFIL
 avl_debug\airplane.avl.af12
@@ -243,7 +243,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.16875898 0 0 0.064574252 0
+0.27727033 0 0 0.05606305 0
 
 AFIL
 avl_debug\airplane.avl.af13
@@ -258,7 +258,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.1754442 0 0.026740874 0.057889034 0
+0.2830744 0 0.023216296 0.050258976 0
 
 AFIL
 avl_debug\airplane.avl.af14
@@ -273,7 +273,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.18167383 0 0.051659402 0.051659402 0
+0.28848294 0 0.04485044 0.04485044 0
 
 AFIL
 avl_debug\airplane.avl.af15
@@ -288,7 +288,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.18702334 0 0.073057427 0.046309896 0
+0.29312735 0 0.0634281 0.040206025 0
 
 AFIL
 avl_debug\airplane.avl.af16
@@ -303,7 +303,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.19112816 0 0.089476708 0.042205075 0
+0.29669114 0 0.077683241 0.03664224 0
 
 AFIL
 avl_debug\airplane.avl.af17
@@ -318,7 +318,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.19370856 0 0.099798301 0.039624677 0
+0.29893143 0 0.086644396 0.034401951 0
 
 AFIL
 avl_debug\airplane.avl.af18
@@ -333,7 +333,7 @@ CDCL
 #--------------------------------------------------
 SECTION
 #Xle    Yle    Zle     Chord   Ainc  [Nspanwise   Sspace]
-0.19458868 0 0.1033188 0.038744551 0
+0.29969555 0 0.08970088 0.03363783 0
 
 AFIL
 avl_debug\airplane.avl.af19
