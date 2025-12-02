@@ -34,20 +34,20 @@ for v in airfoils.values():
 g = 9.81
 
 ### Operating point
-r_target     = 0.7
+r_target     = 2.0
 
 op_point = asb.OperatingPoint(
     velocity = opti.variable(init_guess = 15.5, lower_bound = 0.5, log_transform = True),
-    alpha    = opti.variable(init_guess = 0, lower_bound = -10, upper_bound = 10),
+    alpha    = opti.variable(init_guess = 0, lower_bound = -20, upper_bound = 20),
     beta     = 0.0, # coordinated turn
     p        = 0.0, # coordinated turn
     q        = 0.0, # coordinated turn
     r        = 0.0, # coordinated turn
 )
-phi          = opti.variable(init_guess = 30, lower_bound = 5.0, upper_bound = 65)
+
+phi          = np.degrees(np.arctan(op_point.velocity ** 2 / (g * r_target)))
 
 n_load = 1 / np.cos(np.radians(phi))
-r_turn = op_point.velocity ** 2 / (g * np.tan(np.radians(phi)))
 
 ### Take off gross weight 
 design_mass_TOGW = opti.variable(init_guess = 0.1, lower_bound = 1e-3)
@@ -103,8 +103,10 @@ wing = asb.Wing(name = "Main Wing", symmetric = True,
 ### Horizontal tailplane
 l_ht             = opti.variable(init_guess = 0.6, lower_bound = 0.2, upper_bound = 1.5)
 
-htail_span       = opti.variable(init_guess  = 0.15, lower_bound = 0.05, upper_bound = wing_span)
-htail_root_chord = opti.variable(init_guess  = 0.07, lower_bound = 1e-3, upper_bound = wing_root_chord)
+htail_span       = opti.variable(init_guess  = 0.15, lower_bound = 0.05, upper_bound = 0.5)
+# htail_root_chord = opti.variable(init_guess  = 0.07, lower_bound = 1e-3)
+
+htail_root_chord = htail_span * 0.5
 
 taper_ht = 1.0
 def htail_chord(y):
@@ -134,10 +136,14 @@ htail = asb.Wing(name = "HTail", symmetric = True,
 V_ht = htail.area() * l_ht / (wing.area() * wing.mean_aerodynamic_chord())
 
 ### Vertical tailplane
-l_vt             = opti.variable(init_guess = 0.6, lower_bound = 0.2, upper_bound = 1.5)
 
-vtail_span       = opti.variable(init_guess  = 0.09, lower_bound = 0.05, upper_bound = wing_span)
-vtail_root_chord = opti.variable(init_guess  = 0.06, lower_bound = 1e-3, upper_bound = wing_root_chord)
+l_vt             = l_ht
+# l_vt             = opti.variable(init_guess = 0.6, lower_bound = 0.2, upper_bound = 1.5)
+
+vtail_span       = opti.variable(init_guess  = 0.09, lower_bound = 0.05, upper_bound = 0.5)
+# vtail_root_chord = opti.variable(init_guess  = 0.06, lower_bound = 1e-3,)
+
+vtail_root_chord = vtail_span * 0.5
 
 taper_vt = 1.0
 
@@ -377,7 +383,7 @@ static_margin = (aero["x_np"] - mass_props_TOGW.x_cg) / wing.mean_aerodynamic_ch
 ##### Finalize Optimization Problem
 
 ### Objective
-objective = sink_rate
+objective = 100 * sink_rate
 penalty   = (mass_props["ballast"].x_cg / 1e3) ** 2
 
 opti.minimize(objective + penalty)
@@ -386,7 +392,7 @@ opti.minimize(objective + penalty)
 opti.subject_to([
 
     # coordinated turn
-    r_turn      == r_target,                          # enforce target turning radius               
+    opti.bounded(5.0, phi,            65.0),        
 
     # aerodynamics
     aero["L"]   == n_load * mass_props_TOGW.mass * g, # force balance in a coordinate turn
@@ -671,7 +677,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         # operating point
         "V_operate (m/s)"    : to_scalar(op_point.velocity),
         "alpha (deg)"        : to_scalar(op_point.alpha),
-        "phi (deg)"          : to_scalar(op_point.phi),
+        "phi (deg)"          : to_scalar(phi),
         "r_target (m)"       : to_scalar(r_target),
         "n_load"             : to_scalar(n_load),
 
@@ -707,10 +713,6 @@ if __name__ == '__main__': # only run this block when the file is executed direc
 
         # objective decomposition
         "objective_total"    : to_scalar(objective),
-        "obj_sink"           : to_scalar(obj_sink),
-        "obj_mass"           : to_scalar(obj_mass),
-        "obj_inertia"        : to_scalar(obj_inertia),
-        "obj_wingload"       : to_scalar(obj_wingload),
         "penalty"            : to_scalar(penalty),
 
         # CG location
