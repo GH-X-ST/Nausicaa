@@ -62,11 +62,11 @@ elevator_cs = asb.ControlSurface(
 g = 9.81
 
 ### Operating point
-r_target     = 0.7
+r_target     = 1.0
 
 op_point = asb.OperatingPoint(
     velocity = opti.variable(init_guess = 15.5, lower_bound = 0.5, log_transform = True),
-    alpha    = opti.variable(init_guess = 0, lower_bound = -7.0, upper_bound = 8.0),
+    alpha    = opti.variable(init_guess = 0, lower_bound = -8.0, upper_bound = 8.0),
     beta     = 0.0, # coordinated turn
     p        = 0.0, # coordinated turn
     q        = 0.0, # coordinated turn
