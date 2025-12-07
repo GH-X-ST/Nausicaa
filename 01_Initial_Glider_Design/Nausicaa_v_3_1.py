@@ -1,5 +1,6 @@
 import aerosandbox as asb
 import aerosandbox.numpy as np
+import numpy as onp
 import aerosandbox.tools.units as u
 import pandas as pd
 import copy
@@ -10,7 +11,7 @@ opti = asb.Opti()
 # variable_categories_to_freeze = "all",
 # freeze_style = "float"
 
-make_plots=True
+make_plots = True
 
 ###### Lifting Surface
 
@@ -19,32 +20,74 @@ density_wing = 33.0 # kg/m^3 for depron foam
 
 ### Airfoil
 airfoils = {
-    name: asb.Airfoil(name=name,) for name in ["ag04", "naca0008"]
+    name: asb.Airfoil(name=name,) for name in ["ag04", "naca0008", "s1223", "s3021"]
 }
 
 for v in airfoils.values():
    v.generate_polars(
        cache_filename = f"cache/{v.name}.json", alphas = np.linspace(-10, 10, 21)
-    ) # generating aerodynamic polars using XFoil
+    ) # generating aerodynamic polars using XFoil\
+
+
+###### Control Surface
+
+### Alieron
+aileron_cs = asb.ControlSurface(
+    name="aileron",
+    symmetric=False, # opposite sign on left and right
+    hinge_point=0.75,
+    trailing_edge=True,
+)
+
+### Rudder
+rudder_cs = asb.ControlSurface(
+    name="rudder",
+    symmetric=True,
+    hinge_point=0.75,
+    trailing_edge=True,
+)
+
+### Elevator
+elevator_cs = asb.ControlSurface(
+    name="elevator",
+    symmetric=True,  # same deflection on left and right
+    hinge_point=0.75,
+    trailing_edge=True,
+)
 
 
 ##### Overall Specs
 
+### Gravitational acceleration
+g = 9.81
+
 ### Operating point
+r_target     = 1.9
+
 op_point = asb.OperatingPoint(
-    velocity = opti.variable(init_guess = 14, lower_bound = 1, log_transform = True),
-    alpha    = opti.variable(init_guess = 0, lower_bound = -10, upper_bound = 10)
+    velocity = opti.variable(init_guess = 15.5, lower_bound = 0.5, log_transform = True),
+    alpha    = opti.variable(init_guess = 0, lower_bound = -8.0, upper_bound = 8.0),
+    beta     = 0.0, # coordinated turn
+    p        = 0.0, # coordinated turn
 )
+
+phi          = np.degrees(np.arctan(op_point.velocity ** 2 / (g * r_target)))
+
+n_load = 1 / np.cos(np.radians(phi))
+
+
+### Control surface deflection
+aileron_deflection  = opti.variable(init_guess = 0.0, lower_bound = -25.0, upper_bound = 25.0)
+rudder_deflection   = opti.variable(init_guess = 0.0, lower_bound = -30.0, upper_bound = 30.0)
+elevator_deflection = opti.variable(init_guess = 0.0, lower_bound = -25.0, upper_bound = 25.0)
 
 ### Take off gross weight 
 design_mass_TOGW = opti.variable(init_guess = 0.1, lower_bound = 1e-3)
 design_mass_TOGW = np.maximum(design_mass_TOGW, 1e-3) # numerical clamp
 
-### Cruise L/D
-LD_cruise = opti.variable(init_guess = 15, lower_bound = 0.1, log_transform = True)
+### Effective L/D during coordinated turn
+LD_turn = opti.variable(init_guess = 15, lower_bound = 0.1, log_transform = True)
 
-### Gravitational acceleration
-g = 9.81
 
 ##### Vehicle Definition
 # Datum (0, 0, 0) is coincident with the quarter-chord-point of the centerline cross section of the main wing
@@ -53,10 +96,11 @@ g = 9.81
 x_nose = opti.variable(init_guess = -0.1, upper_bound = 1e-3,)
 
 ### Wing
-wing_span               = opti.variable(init_guess = 0.5, lower_bound = 0.3, upper_bound = 0.5)
+wing_span               = opti.variable(init_guess = 0.3, lower_bound = 0.1, upper_bound = 10)
 wing_dihedral_angle_deg = opti.variable(init_guess = 11, lower_bound = 0, upper_bound = 20)
 wing_root_chord         = opti.variable(init_guess = 0.15, lower_bound = 1e-3,)
-wing_taper              = opti.variable(init_guess = 0.9, lower_bound = 0.7, upper_bound = 1)
+
+wing_taper              = 1.0
 
 def wing_rot(xyz):
  
@@ -78,84 +122,123 @@ def wing_twist(y):
 
 wing_ys = np.sinspace(0, wing_span / 2, 11, reverse_spacing = True) # y station
 
-wing = asb.Wing(name = "Main Wing", symmetric = True,
-    xsecs = [asb.WingXSec(xyz_le = wing_rot([-wing_chord(wing_ys[i]), wing_ys[i], 0.0]),
-                          chord = wing_chord(wing_ys[i]),
-                          airfoil = airfoils["ag04"],
-                          twist = wing_twist(wing_ys[i]),
-                          )
-                          for i in range(np.length(wing_ys))
-             ]      
+N_span        = 11
+span_fracs    = onp.linspace(0.0, 0.5, N_span)
+
+wing_xsecs = []
+for i, eta in enumerate(span_fracs):
+
+    y = eta * wing_span
+
+    if (eta >= 0.25) and (eta <= 0.45):
+        cs_list = [aileron_cs]
+    else:
+        cs_list = []
+
+    wing_xsecs.append(
+        asb.WingXSec(
+            xyz_le = wing_rot([-wing_chord(y), y, 0.0]),
+            chord  = wing_chord(y),
+            airfoil = airfoils["s3021"],
+            twist   = wing_twist(y),
+            control_surfaces = cs_list,
+        )
+    )
+
+wing = asb.Wing(
+    name      = "Main Wing",
+    symmetric = True,
+    xsecs     = wing_xsecs,
 ).translate([0.75 * wing_root_chord, 0, 0])
 
 ### Horizontal tailplane
-AR_ht    = 5.0
-taper_ht = 0.7
-# l_ht    = l_vt
-l_ht     = opti.variable(init_guess = 0.6, lower_bound = 0.2, upper_bound = 1.2)
-S_ht     = 0.12 * wing.area()
-# S_ht    = opti.variable(init_guess = 0.02, lower_bound = 1e-3, upper_bound = 0.15 * wing.area())
+l_ht             = opti.variable(init_guess = 0.6, lower_bound = 0.2, upper_bound = 1.5)
 
-b_ht         = np.sqrt(AR_ht * S_ht)
-half_span_ht = b_ht / 2
+AR_ht            = 4.0
+taper_ht         = 1.0
+
+htail_span       = opti.variable(init_guess = 0.15, lower_bound = 1e-3,)
+htail_root_chord = 2 * htail_span / (AR_ht * (1 + taper_ht))
 
 def htail_chord(y):
 
-    spanfrac  = np.abs(y) / half_span_ht
-    c_root_ht = 2 * S_ht / (b_ht * (1 + taper_ht))
-    c_tip_ht  = taper_ht * c_root_ht
+    half_span_ht     = htail_span / 2
+    htail_tip_chord  = taper_ht * htail_root_chord
+    spanfrac = np.abs(y) / half_span_ht
 
-    return (1 - spanfrac) * c_root_ht + spanfrac * c_tip_ht
+    return (1 - spanfrac) * htail_root_chord + spanfrac * htail_tip_chord
 
 def htail_twist(y):
 
     return np.zeros_like(y) # no twist
 
-htail_ys = np.sinspace(0, half_span_ht, 7, reverse_spacing=True) # y station
+htail_ys = np.sinspace(0, htail_span / 2, 7, reverse_spacing=True) # y station
 
-htail = asb.Wing(name = "HTail", symmetric = True,
-    xsecs = [asb.WingXSec(xyz_le = [l_ht - htail_chord(htail_ys[i]), htail_ys[i], 0.0],
-                          chord = htail_chord(htail_ys[i]),
-                          twist = htail_twist(htail_ys[i]),
-                          airfoil = airfoils["naca0008"],
-                          )
-                          for i in range(np.length(htail_ys))
-             ]
+htail_xsecs = []
+for i in range(np.length(htail_ys)):
+
+    y = htail_ys[i]
+
+    htail_xsecs.append(
+        asb.WingXSec(
+            xyz_le = [l_ht - htail_chord(y), y, 0.0],
+            chord  = htail_chord(y),
+            twist  = htail_twist(y),
+            airfoil = airfoils["naca0008"],
+            control_surfaces = [elevator_cs],
+        )
+    )
+
+htail = asb.Wing(
+    name      = "HTail",
+    symmetric = True,
+    xsecs     = htail_xsecs,
 )
 
 V_ht = htail.area() * l_ht / (wing.area() * wing.mean_aerodynamic_chord())
 
 ### Vertical tailplane
-AR_vt    = 2.0
-taper_vt = 0.6
-# l_vt    = l_ht
-l_vt     = opti.variable(init_guess = 0.6, lower_bound = 0.2, upper_bound = 1.2)
-S_vt     = 0.06 * wing.area()
-# S_vt    = opti.variable(init_guess = 0.01, lower_bound = 1e-3, upper_bound = 0.08 * wing.area())
 
-b_vt = np.sqrt(AR_vt * S_vt)
+l_vt             = l_ht
+
+AR_vt            = 2.0
+taper_vt         = 1.0
+
+vtail_span       = opti.variable(init_guess = 0.07, lower_bound = 1e-3,)
+vtail_root_chord = 2 * vtail_span / (AR_vt * (1 + taper_vt))
 
 def vtail_chord(z):
 
-    spanfrac  = np.abs(z) / b_vt
-    c_root_vt = 2 * S_vt / (b_vt * (1 + taper_vt))
-    c_tip_vt  = taper_vt * c_root_vt
-    return (1 - spanfrac) * c_root_vt + spanfrac * c_tip_vt
+    vtail_tip_chord = taper_vt * vtail_root_chord
+    spanfrac = np.abs(z) / vtail_span
+
+    return (1 - spanfrac) * vtail_root_chord + spanfrac * vtail_tip_chord
 
 def vtail_twist(z):
 
     return np.zeros_like(z) # no twist
 
-vtail_zs = np.sinspace(0, b_vt, 7, reverse_spacing=True) # z station
+vtail_zs = np.sinspace(0, vtail_span, 7, reverse_spacing=True) # z station
 
-vtail = asb.Wing(name = "VTail", symmetric = False,
-    xsecs = [asb.WingXSec(xyz_le = [l_vt - vtail_chord(vtail_zs[i]), 0.0, vtail_zs[i], ],
-                          chord = vtail_chord(vtail_zs[i]),
-                          twist = vtail_twist(vtail_zs[i]),
-                          airfoil = airfoils["naca0008"],
-                          )
-                          for i in range(np.length(vtail_zs))
-             ]
+vtail_xsecs = []
+for i in range(np.length(vtail_zs)):
+
+    z = vtail_zs[i]
+
+    vtail_xsecs.append(
+        asb.WingXSec(
+            xyz_le = [l_vt - vtail_chord(z), 0.0, z],
+            chord  = vtail_chord(z),
+            twist  = vtail_twist(z),
+            airfoil = airfoils["naca0008"],
+            control_surfaces = [rudder_cs],
+        )
+    )
+
+vtail = asb.Wing(
+    name      = "VTail",
+    symmetric = False,
+    xsecs     = vtail_xsecs,
 )
 
 V_vt = vtail.area() * l_vt / (wing.area() * wing_span)
@@ -176,79 +259,134 @@ airplane = asb.Airplane(
     fuselages = [fuselage]
 )
 
+airplane = airplane.with_control_deflections({
+    "aileron" : aileron_deflection,
+    "rudder"  : rudder_deflection,
+    "elevator": elevator_deflection,
+})
 
 ##### Internal Geometry and Weights
 mass_props = {}
 
-### Lifting surface centre of gravity
-def lifting_surface_planform_cg(wing: asb.Wing, span_axis: str = "y"):
+### Lifting surface centre of gravity and inertia tensor
+def lifting_surface_massprops_from_strips(wing: asb.Wing, density: float, thickness: float = None, span_axis: str = "y",):
+
+    # find thickness
+    if thickness is None:
+        A_planform = wing.area()
+        V_geom     = wing.volume()
+        thickness  = V_geom / A_planform
 
     # extract leading-edge positions and chords from xsecs
-    xyz_le = np.stack([xsec.xyz_le for xsec in wing.xsecs], axis=0) # (N, 3)
-    chords = np.array([xsec.chord for xsec in wing.xsecs]) # (N,)
+    xyz_le = np.stack([xsec.xyz_le for xsec in wing.xsecs], axis = 0)  # (N, 3)
+    chords = np.array([xsec.chord for xsec in wing.xsecs])             # (N,)
 
     x_le = xyz_le[:, 0]
     y_le = xyz_le[:, 1]
     z_le = xyz_le[:, 2]
 
     if span_axis == "y":
-        span = y_le
+        span_coord = y_le
     elif span_axis == "z":
-        span = z_le
+        span_coord = z_le
     else:
         raise ValueError(f"span_axis must be 'y' or 'z', got {span_axis}")
 
     # spanwise strips between stations
-    dspan = span[1:] - span[:-1] # strip width
-    c_mid = 0.5 * (chords[:-1] + chords[1:]) # average chord
+    dspan = span_coord[1:] - span_coord[:-1]    # (N-1,)
+    c_mid = 0.5 * (chords[:-1] + chords[1:])    # (N-1,)
 
-    # surface area
-    A_strip_half = c_mid * dspan
+    # half-surface area
+    A_strip_half = c_mid * dspan                # (N-1,)
 
-    if wing.symmetric and span_axis == "y":
-        A_strip = 2.0 * A_strip_half
-    else:
-        A_strip = A_strip_half
-
-    # centroid x,z of each strip
+    # centroid of each half-strip in x, y, z
     x_mid_i     = x_le[:-1] + 0.5 * chords[:-1]
-    x_mid_ip1   = x_le[1:] + 0.5 * chords[1:]
-    x_mid_strip = 0.5 * (x_mid_i + x_mid_ip1)
+    x_mid_ip1   = x_le[1:]  + 0.5 * chords[1:]
+    x_mid_strip = 0.5 * (x_mid_i + x_mid_ip1)   # (N-1,)
 
-    z_mid_strip = 0.5 * (z_le[:-1] + z_le[1:])
+    y_mid_strip = 0.5 * (y_le[:-1] + y_le[1:])  # (N-1,)
+    z_mid_strip = 0.5 * (z_le[:-1] + z_le[1:])  # (N-1,)
 
-    A_total = np.sum(A_strip)
+    # mass per half-strip
+    m_half = density * thickness * A_strip_half # (N-1,)
 
-    x_cg = np.sum(A_strip * x_mid_strip) / A_total
-    z_cg = np.sum(A_strip * z_mid_strip) / A_total
+    # build discrete point masses for full surface
+    if wing.symmetric and span_axis == "y":
 
-    return x_cg, z_cg
+        # mirror about y = 0
+        m_points = np.concatenate([m_half,      m_half      ], axis = 0)
+        x_points = np.concatenate([x_mid_strip, x_mid_strip ], axis = 0)
+        y_points = np.concatenate([y_mid_strip, -y_mid_strip], axis = 0)
+        z_points = np.concatenate([z_mid_strip, z_mid_strip ], axis = 0)
 
-### Wing
-x_cg_wing, z_cg_wing = lifting_surface_planform_cg(wing, span_axis = "y")
+    else:
+        m_points = m_half
+        x_points = x_mid_strip
+        y_points = y_mid_strip
+        z_points = z_mid_strip
 
-mass_props['wing'] = asb.mass_properties_from_radius_of_gyration(
-    mass = wing.volume() * density_wing,
-    x_cg = x_cg_wing,
-    z_cg = z_cg_wing,
+    # total mass from strips
+    M_raw    = np.sum(m_points)
+
+    # Target physical mass from geometry
+    M_target = wing.volume() * density
+    
+    # inertia tensor about CG
+    x_cg = np.sum(m_points * x_points) / M_raw
+    y_cg = np.sum(m_points * y_points) / M_raw
+    z_cg = np.sum(m_points * z_points) / M_raw
+
+    x_rel = x_points - x_cg
+    y_rel = y_points - y_cg
+    z_rel = z_points - z_cg
+
+    I_xx_raw = np.sum(m_points * (y_rel**2 + z_rel**2))
+    I_yy_raw = np.sum(m_points * (x_rel**2 + z_rel**2))
+    I_zz_raw = np.sum(m_points * (x_rel**2 + y_rel**2))
+
+    I_xy_raw = -np.sum(m_points * x_rel * y_rel)
+    I_xz_raw = -np.sum(m_points * x_rel * z_rel)
+    I_yz_raw = -np.sum(m_points * y_rel * z_rel)
+
+    I_xx = I_xx_raw * (M_target / M_raw)
+    I_yy = I_yy_raw * (M_target / M_raw)
+    I_zz = I_zz_raw * (M_target / M_raw)
+    I_xy = I_xy_raw * (M_target / M_raw)
+    I_xz = I_xz_raw * (M_target / M_raw)
+    I_yz = I_yz_raw * (M_target / M_raw)
+
+    return asb.MassProperties(
+        mass = M_target,
+        x_cg = x_cg,
+        y_cg = y_cg,
+        z_cg = z_cg,
+        Ixx  = I_xx,
+        Iyy  = I_yy,
+        Izz  = I_zz,
+        Ixy  = I_xy,
+        Ixz  = I_xz,
+        Iyz  = I_yz,
     )
 
-### Horizontal tailplane
-x_cg_ht, z_cg_ht = lifting_surface_planform_cg(htail, span_axis = "y")
+### Wing
+mass_props['wing'] = lifting_surface_massprops_from_strips(
+    wing      = wing,
+    density   = density_wing,
+    span_axis = "y",
+)
 
-mass_props["htail_surfaces"] = asb.mass_properties_from_radius_of_gyration(
-    mass = htail.volume() * density_wing,
-    x_cg = x_cg_ht,
-    z_cg = z_cg_ht,
+### Horizontal tailplane
+mass_props["htail_surfaces"] = lifting_surface_massprops_from_strips(
+    wing      = htail,
+    density   = density_wing,
+    span_axis = "y",
 )
 
 ### Vertical tailplane
-x_cg_vt, z_cg_vt = lifting_surface_planform_cg(vtail, span_axis = "z")
-
-mass_props["vtail_surfaces"] = asb.mass_properties_from_radius_of_gyration(
-    mass = vtail.volume() * density_wing,
-    x_cg = x_cg_vt,
-    z_cg = z_cg_vt,
+mass_props["vtail_surfaces"] = lifting_surface_massprops_from_strips(
+    wing      = vtail,
+    density   = density_wing,
+    span_axis = "z",
 )
 
 ### Linkages
@@ -303,15 +441,14 @@ mass_props_TOGW += mass_props['glue_weight']
 ### Centre of gravity
 x_cg_total, y_cg_total, z_cg_total = mass_props_TOGW.xyz_cg
 
-### Moment of inertia
-J_cg = mass_props_TOGW.inertia_tensor
-I_xx = J_cg[0, 0]
-
-
 ##### Aerodynamics and Stability
 
 ### Aerodynamic force-moment model
-ab = asb.AeroBuildup(airplane = airplane, op_point = op_point, xyz_ref = mass_props_TOGW.xyz_cg)
+ab = asb.AeroBuildup(
+    airplane = airplane,
+    op_point = op_point,
+    xyz_ref  = mass_props_TOGW.xyz_cg
+)
 
 ### Stability derivatives
 aero = ab.run_with_stability_derivatives(alpha = True, beta = True, p = True, q = True, r = True,)
@@ -324,14 +461,13 @@ static_margin = (aero["x_np"] - mass_props_TOGW.x_cg) / wing.mean_aerodynamic_ch
 
 
 ##### Finalize Optimization Problem
+obj_sink    = sink_rate
+obj_mass    = 2 * mass_props_TOGW.mass
+obj_span    = 1 * (wing_span + htail_span + vtail_span)
+obj_control = 1e-3 * (elevator_deflection**2 + aileron_deflection**2 + rudder_deflection**2)
 
 ### Objective
-obj_sink     = 0.7 * sink_rate
-obj_mass     = 2.0 * mass_props_TOGW.mass
-obj_inertia  = 200000.0 * I_xx
-obj_wingload = 0.02 * (mass_props_TOGW.mass * g / wing.area())
-
-objective = obj_sink + obj_mass + obj_inertia + obj_wingload
+objective = obj_sink + obj_mass + obj_span + obj_control
 penalty   = (mass_props["ballast"].x_cg / 1e3) ** 2
 
 opti.minimize(objective + penalty)
@@ -339,23 +475,25 @@ opti.minimize(objective + penalty)
 ### Optimization constraints
 opti.subject_to([
 
+    # coordinated turn
+    opti.bounded(5.0, phi,            65.0),        
+
     # aerodynamics
-    aero["L"]   >= 9.81 * mass_props_TOGW.mass, # lift >= weight
+    aero["L"]   == n_load * mass_props_TOGW.mass * g, # force balance in a coordinate turn
 
     # stability
-    aero["Cm"]  == 0,                           # trimmed flight
+    aero["Cm"]  == 0,                                 # trimmed in pitch
+    aero["Cl"]  == 0,                                 # trimmed in roll
     aero["Clb"] <= -0.025,
     opti.bounded(0.04, static_margin, 0.10),
-    opti.bounded(0.40, V_ht,         0.70),
-    (0.02, V_vt,         0.04),
-
-    # material
-    # x_tail - x_nose < 0.8                      # maximum carbon fibre tube length
+    opti.bounded(0.40, V_ht,          0.70),
+    opti.bounded(0.02, V_vt,          0.04),
 ])
 
 ### Additional constraint
+
 opti.subject_to([
-    LD_cruise == LD,
+    LD_turn == LD,
     design_mass_TOGW == mass_props_TOGW.mass
 ])
 
@@ -374,7 +512,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     airplane = sol(airplane)
 
     # lifting surfaces
-    wing = copy.deepcopy(airplane.wings[0])
+    wing  = copy.deepcopy(airplane.wings[0])
     htail = copy.deepcopy(airplane.wings[1])
     vtail = copy.deepcopy(airplane.wings[2])
 
@@ -385,17 +523,26 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     mass_props = sol(mass_props)
 
     # performance
-    aero = sol(aero)
+    aero      = sol(aero)
+    sink_rate = sol(sink_rate)
 
     ### Turn symbolic optimized values into numeric values
     # operating point
     op_point = sol(op_point)
+    phi      = sol(phi)
+    r_target = sol(r_target)
+    n_load   = sol(n_load)
+
+    # control surface deflections
+    elevator_deflection = sol(elevator_deflection)
+    aileron_deflection  = sol(aileron_deflection)
+    rudder_deflection   = sol(rudder_deflection)
 
     # take off gross weight 
     mass_props_TOGW = sol(mass_props_TOGW)
 
-    # cruise L/D
-    LD_cruise = sol(LD_cruise)
+    # effective L/D
+    LD_turn = sol(LD_turn)
 
     # nose and tail
     x_nose    = sol(x_nose)
@@ -408,18 +555,17 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     wing_taper              = sol(wing_taper)
 
     # horizontal tailplane
-    l_ht = sol(l_ht)
+    l_ht             = sol(l_ht)
+    htail_span       = sol(htail_span)
+    htail_root_chord = sol(htail_root_chord)
 
     # vertical tailplane
-    l_vt = sol(l_vt)
+    l_vt             = sol(l_vt)
+    vtail_span       = sol(vtail_span)
+    vtail_root_chord = sol(vtail_root_chord)
 
     ### Turn symbolic optimized problem into numeric values
     # objective
-    obj_sink     = sol(obj_sink)
-    obj_mass     = sol(obj_mass)
-    obj_inertia  = sol(obj_inertia)
-    obj_wingload = sol(obj_wingload)
-
     objective    = sol(objective)
     penalty      = sol(penalty)
 
@@ -472,14 +618,15 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     
     ### Optimisation problem summary
 
+    
     # breakdown
     print_title("Objective contribution breakdown")
     for k, v in {
     "Total Objective" : fmt(objective),
     "Sink rate"       : f"{fmt(obj_sink)} ({s(obj_sink) / s(objective) * 100:.1f}%)",
     "Weight"          : f"{fmt(obj_mass)} ({s(obj_mass) / s(objective) * 100:.1f}%)",
-    "Inertia I_xx"    : f"{fmt(obj_inertia)} ({s(obj_inertia) / s(objective) * 100:.1f}%)",
-    "Wing loading"    : f"{fmt(obj_wingload)} ({s(obj_wingload) / s(objective) * 100:.1f}%)",
+    "Span"            : f"{fmt(obj_span)} ({s(obj_span) / s(objective) * 100:.1f}%)",
+    "Control effect"  : f"{fmt(obj_control)} ({s(obj_control) / s(objective) * 100:.1f}%)",
     }.items():
         print(f"{k.rjust(25)} = {v}")
 
@@ -498,27 +645,34 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         status = " ,".join(hits) if hits else "OK"
         print(f"{name:25s} = {v: .6g}  [{status}]")
 
-    check_var("V (m/s)",           op_point.velocity,          lb = 1.0)
-    check_var("alpha (deg)",       op_point.alpha,             lb = -10.0,  ub = 10.0)
+    check_var("V (m/s)",           op_point.velocity,          lb = 0.5, ub = 15.0)
+    check_var("alpha (deg)",       op_point.alpha,             lb = -7.0,  ub = 8.0)
+    check_var("phi (deg)",         phi,                        lb = 5.0,  ub = 65.0)
 
     check_var("TOGW (kg)",         design_mass_TOGW,           lb = 1e-3)
 
     check_var("x_nose (m)",        x_nose,                     ub = 1e-3)
 
-    check_var("wing_span",         wing_span,                  lb = 0.3,    ub = 0.5)
+    check_var("wing_span",         wing_span,                  lb = 0.3,    ub = 10)
     check_var("wing_dihedral_deg", wing_dihedral_angle_deg,    lb = 0.0,    ub = 20.0)
     check_var("wing_root_chord",   wing_root_chord,            lb = 1e-3)
-    check_var("wing_taper",        wing_taper,                 lb = 0.7,    ub = 1.0)
 
-    check_var("l_ht",              l_ht,                       lb = 0.2,    ub = 1.2)
+    check_var("l_ht",              l_ht,                       lb = 0.2,    ub = 1.5)
+    check_var("htail_span",        htail_span,                 lb = 1e-3,)
 
-    check_var("l_vt",              l_vt,                       lb = 0.2,    ub = 1.2)
+    check_var("l_vt",              l_vt,                       lb = 0.2,    ub = 1.5)
+    check_var("vtail_span",        vtail_span,                 lb = 1e-3,)
 
     check_var("ballast_mass",      mass_props["ballast"].mass, lb = 0.0)
     check_var("ballast_x_cg",      mass_props["ballast"].x_cg, lb = x_nose, ub = x_tail)
 
+    check_var("elev_defl (deg)",   elevator_deflection,        lb = -20.0,  ub = 20.0)
+    check_var("ail_defl (deg)",    aileron_deflection,         lb = -20.0,  ub = 20.0)
+    check_var("rud_defl (deg)",    rudder_deflection,          lb = -20.0,  ub = 20.0)
+
     check_var("lift (N)",          aero["L"],                  lb = 9.81 * mass_props_TOGW.mass)
-    check_var("C_m",               aero["Cm"],                 lb = -1e-5,    ub = 1e-5)
+    check_var("C_m",               aero["Cm"],)
+    check_var("C_l",               aero["Cl"],)
     check_var("C_l_b",             aero["Clb"],                ub = -0.025)
     check_var("static_margin",     static_margin,              lb = 0.04,   ub = 0.10)
     check_var("V_ht",              V_ht,                       lb = 0.40,   ub = 0.70)
@@ -528,10 +682,12 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     print_title("Outputs")
     for k, v in {
         "mass_TOGW"             : f"{fmt(mass_props_TOGW.mass)} kg ({fmt(mass_props_TOGW.mass / u.lbm)} lbm)",
-        "L/D (actual)"          : fmt(LD_cruise),
-        "Cruise Airspeed"       : f"{fmt(op_point.velocity)} m/s",
-        "Cruise AoA"            : f"{fmt(op_point.alpha)} deg",
-        "Cruise CL"             : fmt(aero['CL']),
+        "L/D (turn)"            : fmt(LD_turn),
+        "Bank Angle"            : f"{fmt(phi)} deg",
+        "Load Factor"           : fmt(n_load),
+        "Turn Airspeed"         : f"{fmt(op_point.velocity)} m/s",
+        "Turn AoA"              : f"{fmt(op_point.alpha)} deg",
+        "Turn CL"               : fmt(aero['CL']),
         "Sink Rate"             : f"{fmt(sink_rate)} m/s",
         "Cma"                   : fmt(aero['Cma']),
         "Cnb"                   : fmt(aero['Cnb']),
@@ -554,14 +710,54 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     for k, v in mass_props.items():
         print(f"{k.rjust(25)} = {v.mass * 1e3:.2f} g ({v.mass / u.oz:.2f} oz)")
 
-    ### Plotting
+    ##### Plotting
     if make_plots:
-        # geometry
-        airplane.draw_three_view(show=False)
-        p.show_plot(tight_layout=False, savefig="figures/three_view.png")
 
-        # mass budget
-        fig, ax = plt.subplots(figsize=(12, 5), subplot_kw=dict(aspect="equal"), dpi=300)
+        ### Geometry
+
+        # main wing
+        visual_fixed_wing       = copy.deepcopy(wing)
+        visual_fixed_wing.color = "lightgray"
+
+        # alieron
+        aileron_only_xsecs = []
+        for xsec in wing.xsecs:
+
+            y = float(xsec.xyz_le[1])
+            eta = y / wing_span
+
+            # alieron region: 0.25 <= eta <= 0.45
+            if 0.25 <= eta <= 0.45:
+                aileron_only_xsecs.append(copy.deepcopy(xsec))
+
+        visual_aileron_wing = asb.Wing(
+            name="Aileron Visual",
+            symmetric=True,
+            xsecs=aileron_only_xsecs,
+        )
+        visual_aileron_wing.color = "red"
+
+        visual_htail = copy.deepcopy(htail)
+        visual_htail.color = "lightblue"
+
+        visual_vtail = copy.deepcopy(vtail)
+        visual_vtail.color = "lightgreen"
+
+        visual_fuselage = copy.deepcopy(fuselage)
+        visual_fuselage.color = "k"
+
+        visual_airplane = asb.Airplane(
+            name="Nausicaa_visual",
+            wings=[visual_fixed_wing, visual_aileron_wing, visual_htail, visual_vtail],
+            fuselages=[visual_fuselage],
+        )
+
+        visual_airplane.draw_three_view(show = False)
+        p.show_plot(tight_layout = False, savefig = "figures/three_view.png")
+
+        ### mass budget
+
+        fig, ax = plt.subplots(figsize = (12, 5), subplot_kw=dict(aspect = "equal"), dpi = 300)
 
         name_remaps = {
             **{
@@ -624,16 +820,20 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     design_results = {
 
         # operating point
-        "V_cruise"           : to_scalar(op_point.velocity),
-        "alpha_deg"          : to_scalar(op_point.alpha),
+        "V_operate (m/s)"    : to_scalar(op_point.velocity),
+        "alpha (deg)"        : to_scalar(op_point.alpha),
+        "phi (deg)"          : to_scalar(phi),
+        "r_target (m)"       : to_scalar(r_target),
+        "n_load"             : to_scalar(n_load),
 
         # global mass and performance
         "TOGW (kg)"          : to_scalar(mass_props_TOGW.mass),
-        "L/D_cruise"         : to_scalar(LD_cruise),
+        "L/D_turn"           : to_scalar(LD_turn),
         "sink_rate (m/s)"    : to_scalar(sink_rate),
         "static_margin"      : to_scalar(static_margin),
         "V_ht"               : to_scalar(V_ht),
         "V_vt"               : to_scalar(V_vt),
+        "Re_w"               : to_scalar(op_point.reynolds(sol(wing.mean_aerodynamic_chord()))),
 
         # geometry
         "x_nose (m)"         : to_scalar(x_nose),
@@ -643,39 +843,45 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         "dihedral_w (deg)"   : to_scalar(wing_dihedral_angle_deg),
         "c_root_w (m)"       : to_scalar(wing_root_chord),
         "taper_w"            : to_scalar(wing_taper),
+        "S_w (m^2)"          : to_scalar(wing.area()),
 
-        "AR_ht (m)"          : to_scalar(AR_ht),
-        "taper_ht"           : to_scalar(taper_ht),
         "l_ht (m)"           : to_scalar(l_ht),
-        "S_ht (m^2)"         : to_scalar(S_ht),
-        "b_ht (m)"           : to_scalar(b_ht),
+        "b_ht (m)"           : to_scalar(htail_span),
+        "c_root_ht (m)"      : to_scalar(htail_root_chord),
+        "taper_ht"           : to_scalar(taper_ht),
+        "S_ht (m^2)"         : to_scalar(htail.area()),
         
-        "AR_vt (m)"          : to_scalar(AR_vt),
-        "taper_vt"           : to_scalar(taper_vt),
         "l_vt (m)"           : to_scalar(l_vt),
-        "S_vt (m^2)"         : to_scalar(S_vt),
-        "b_vt (m)"           : to_scalar(b_vt),
+        "b_vt (m)"           : to_scalar(vtail_span),
+        "c_root_vt (m)"      : to_scalar(vtail_root_chord),
+        "taper_vt"           : to_scalar(taper_vt),
+        "S_vt (m^2)"         : to_scalar(vtail.area()),
+
+        # control surface deflections
+        "delta_e (deg)"      : to_scalar(elevator_deflection),
+        "delta_a (deg)"      : to_scalar(aileron_deflection),
+        "delta_r (deg)"      : to_scalar(rudder_deflection),
 
         # objective decomposition
         "objective_total"    : to_scalar(objective),
-        "obj_sink"           : to_scalar(obj_sink),
-        "obj_mass"           : to_scalar(obj_mass),
-        "obj_inertia"        : to_scalar(obj_inertia),
-        "obj_wingload"       : to_scalar(obj_wingload),
+        "objective_sink"     : to_scalar(obj_sink),
+        "objective_mass"     : to_scalar(obj_mass),
+        "objective_span"     : to_scalar(obj_span),
+        "objective_control"  : to_scalar(obj_control),
         "penalty"            : to_scalar(penalty),
 
         # CG location
-        "x_cg_m"             : to_scalar(mass_props_TOGW.xyz_cg[0]),
-        "y_cg_m"             : to_scalar(mass_props_TOGW.xyz_cg[1]),
-        "z_cg_m"             : to_scalar(mass_props_TOGW.xyz_cg[2]),
+        "x_cg (m)"           : to_scalar(mass_props_TOGW.xyz_cg[0]),
+        "y_cg (m)"           : to_scalar(mass_props_TOGW.xyz_cg[1]),
+        "z_cg (m)"           : to_scalar(mass_props_TOGW.xyz_cg[2]),
 
         # Inertia tensor (about CG)
-        "I_xx"               : to_scalar(mass_props_TOGW.inertia_tensor[0, 0]),
-        "I_yy"               : to_scalar(mass_props_TOGW.inertia_tensor[1, 1]),
-        "I_zz"               : to_scalar(mass_props_TOGW.inertia_tensor[2, 2]),
-        "I_xy"               : to_scalar(mass_props_TOGW.inertia_tensor[0, 1]),
-        "I_xz"               : to_scalar(mass_props_TOGW.inertia_tensor[0, 2]),
-        "I_yz"               : to_scalar(mass_props_TOGW.inertia_tensor[1, 2]),
+        "I_xx (kg m^2)"      : to_scalar(mass_props_TOGW.inertia_tensor[0, 0]),
+        "I_yy (kg m^2)"      : to_scalar(mass_props_TOGW.inertia_tensor[1, 1]),
+        "I_zz (kg m^2)"      : to_scalar(mass_props_TOGW.inertia_tensor[2, 2]),
+        "I_xy (kg m^2)"      : to_scalar(mass_props_TOGW.inertia_tensor[0, 1]),
+        "I_xz (kg m^2)"      : to_scalar(mass_props_TOGW.inertia_tensor[0, 2]),
+        "I_yz (kg m^2)"      : to_scalar(mass_props_TOGW.inertia_tensor[1, 2]),
     }
 
     # component masses
@@ -686,7 +892,6 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     ### Lifting surface leading-edge locations
 
     def LE_coords(xsec):
-        """Return (x, y, z) of leading edge of a given WingXSec."""
         return (
             to_scalar(xsec.xyz_le[0]),
             to_scalar(xsec.xyz_le[1]),
@@ -731,10 +936,41 @@ if __name__ == '__main__': # only run this block when the file is executed direc
 
     ### All aerodynamic and stability
     aero_results = {}
+
+    def extract_component_list(name, component_list, out_dict):
+
+        for i, comp in enumerate(component_list):
+            prefix = f"{name}_comp{i+1}"
+
+            out_dict[f"{prefix}_L (N)"]        = to_scalar(comp.L)
+            out_dict[f"{prefix}_D (N)"]        = to_scalar(comp.D)
+            out_dict[f"{prefix}_Y (N)"]        = to_scalar(comp.Y)
+
+            out_dict[f"{prefix}_l_b"]          = to_scalar(comp.l_b)
+            out_dict[f"{prefix}_m_b"]          = to_scalar(comp.m_b)
+            out_dict[f"{prefix}_n_b"]          = to_scalar(comp.n_b)
+
+            out_dict[f"{prefix}_span_eff (m)"] = to_scalar(comp.span_effective)
+            out_dict[f"{prefix}_oswald"]       = to_scalar(comp.oswalds_efficiency)
+
+    # loop through everything in aero
     for key, value in aero.items():
 
-        # Use the dictionary key directly as the column name
-        aero_results[f"aero_{key}"] = to_scalar(value)
+        # normal numeric aero outputs
+        if not isinstance(value, list):
+            aero_results[f"aero_{key}"] = to_scalar(value)
+
+        # value is a list of AeroComponentResults
+        else:
+            if len(value) > 0 and hasattr(value[0], "L") and hasattr(value[0], "span_effective"):
+                component_name = (
+                    key.replace("aero_", "")
+                    .replace("_aero_components", "")
+                )
+                extract_component_list(component_name, value, aero_results)
+            else:
+                for i, item in enumerate(value):
+                    aero_results[f"aero_{key}[{i}]"] = to_scalar(item)
 
     ### Combine everything into one flat dict
     all_results = {}
