@@ -12,7 +12,6 @@ import os
 
 ### Code version
 def get_git_version():
-
     try:
         desc = subprocess.check_output(
             ["git", "describe", "--always", "--dirty", "--tags"],
@@ -21,7 +20,6 @@ def get_git_version():
         return desc
     except Exception:
         return "unknown"
-
 
 CODE_VERSION = get_git_version()
 
@@ -44,11 +42,14 @@ density_wing = 33.0 # kg/m^3 for depron foam
 
 ### Operating point
 # target radius
-r_target = 1.9
+r_target = opti.variable(init_guess = 1.0, lower_bound = 0.1, upper_bound = 1.5)
+
+# operated height
+z = 1.00 
 
 # operating point
 op_point = asb.OperatingPoint(
-    velocity = opti.variable(init_guess = 15.5, lower_bound = 0.5, log_transform = True),
+    velocity = opti.variable(init_guess = 15.5, lower_bound = 0.1, log_transform = True),
     alpha    = opti.variable(init_guess = 0, lower_bound = -10.0, upper_bound = 10.0),
     beta     = 0.0, # coordinated turn
     p        = 0.0, # coordinated turn
@@ -446,6 +447,49 @@ mass_props_TOGW += mass_props['glue_weight']
 # centre of gravity
 x_cg_total, y_cg_total, z_cg_total = mass_props_TOGW.xyz_cg
 
+
+##### Thermal Vertical Velocity Field Model
+
+### Gaussian plume model
+# this is the simplified version of C_Thermal.py
+# by assume thermal at the center of the flighy arena
+def vertical_velocity_field(Q_v, r_th0, k, r, z, z0):
+    # Q_v      - Vertical volume flux (m^3/s)
+    # r_th0    - Core radius at z0 (m)
+    # k        - Empirical spreading rate
+    # z0       - referemce height for r_th0 (m)
+    # x_center - x-coordinate of thermal centre (m)
+    # y_center - y-coordinate of thermal centre (m)
+
+    # core radius as function of height
+    r_th = r_th0 + k * (z - z0)
+    r_th = np.maximum(r_th, 1e-6) # avoid negative radius 
+
+    # peak vertical velocity
+    w_th = Q_v / (np.pi * r_th ** 2)
+
+    # vertical velocity
+    w = w_th * np.exp(-(r / r_th) ** 2)
+
+    mask = z < z0
+    w = np.where(mask, 0.0, w)
+
+    return w
+
+### Setup
+# CAMAX30 fan parameters
+Q_v      = 1.69 # (m^3/s)
+x_center = 4.0  # (m)
+y_center = 2.5  # (m)
+
+# plume parameters
+r_th0 = 0.381 # assume core radius equal to fan radius (m)
+k     = 0.10  # typical turbulent plume spreading rate
+z0    = 0.50  # reference height at fan centre (m)
+
+# compute w(r, z)
+w = vertical_velocity_field(Q_v = Q_v, r_th0 = r_th0, k = k, r = r_target, z = z, z0 = z0)
+
 ##### Aerodynamics and Stability
 
 ### Aerodynamic force-moment model
@@ -463,10 +507,12 @@ LD            = aero["L"] / aero["D"]
 power_loss    = aero["D"] * op_point.velocity
 sink_rate     = power_loss / 9.81 / mass_props_TOGW.mass
 static_margin = (aero["x_np"] - mass_props_TOGW.x_cg) / wing.mean_aerodynamic_chord()
+climb_rate    = w - sink_rate
 
 
 ##### Finalize Optimization Problem
-obj_sink    = 1 * sink_rate
+obj_sink    = 0 * sink_rate
+obj_climb   = -1 * climb_rate
 obj_mass    = 2 * mass_props_TOGW.mass
 obj_span    = 1 * (wing_span + htail_span + vtail_span)
 obj_control = 1e-3 * (elevator_deflection ** 2 + aileron_deflection ** 2 + rudder_deflection ** 2)
@@ -528,8 +574,10 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     mass_props = sol(mass_props)
 
     # performance
-    aero      = sol(aero)
-    sink_rate = sol(sink_rate)
+    aero       = sol(aero)
+    sink_rate  = sol(sink_rate)
+    w          = sol(w)
+    climb_rate = sol(climb_rate)
 
     ### Turn symbolic optimized values into numeric values
     # operating point
@@ -581,6 +629,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
 
     # make objective components numeric too
     obj_sink    = sol(obj_sink)
+    obj_climb   = sol(obj_climb)
     obj_mass    = sol(obj_mass)
     obj_span    = sol(obj_span)
     obj_control = sol(obj_control)
@@ -608,6 +657,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     for k, v in {
     "Total Objective" : fmt(objective),
     "Sink rate"       : f"{fmt(obj_sink)} ({s(obj_sink) / s(objective) * 100:.1f}%)",
+    "Climb rate"      : f"{fmt(obj_climb)} ({s(obj_climb) / s(objective) * 100:.1f}%)",
     "Weight"          : f"{fmt(obj_mass)} ({s(obj_mass) / s(objective) * 100:.1f}%)",
     "Span"            : f"{fmt(obj_span)} ({s(obj_span) / s(objective) * 100:.1f}%)",
     "Control effect"  : f"{fmt(obj_control)} ({s(obj_control) / s(objective) * 100:.1f}%)",
@@ -629,7 +679,9 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         status = " ,".join(hits) if hits else "OK"
         print(f"{name:25s} = {v: .6g}  [{status}]")
 
-    check_var("V (m/s)",           op_point.velocity,          lb = 0.5,    ub = 15.0)
+    check_var("r_target (m)",      r_target,                   lb = 0.1,    ub = 1.2)
+
+    check_var("V (m/s)",           op_point.velocity,          lb = 0.1,    ub = 15.0)
     check_var("alpha (deg)",       op_point.alpha,             lb = -10.0,  ub = 10.0)
     check_var("phi (deg)",         phi,                        lb = 5.0,    ub = 65.0)
 
@@ -671,6 +723,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         "Turn AoA"              : f"{fmt(op_point.alpha)} deg",
         "Turn CL"               : fmt(aero['CL']),
         "Sink Rate"             : f"{fmt(sink_rate)} m/s",
+        "Climb Rate"            : f"{fmt(climb_rate)} m/s",
         "Cma"                   : fmt(aero['Cma']),
         "Cnb"                   : fmt(aero['Cnb']),
         "Cm"                    : fmt(aero['Cm']),
@@ -691,11 +744,11 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     ##### Plotting
     if make_plots:
         # geometry
-        airplane.draw_three_view(show=False)
-        p.show_plot(tight_layout=False, savefig="figures/three_view.png")
+        airplane.draw_three_view(show = False)
+        p.show_plot(tight_layout= False, savefig = "figures/three_view.png")
 
         # mass budget
-        fig, ax = plt.subplots(figsize=(12, 5), subplot_kw=dict(aspect="equal"), dpi=300)
+        fig, ax = plt.subplots(figsize = (12, 5), subplot_kw = dict(aspect = "equal"), dpi = 300)
 
         name_remaps = {
             **{
@@ -768,6 +821,8 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         "TOGW (kg)"          : to_scalar(mass_props_TOGW.mass),
         "L/D_turn"           : to_scalar(LD_turn),
         "sink_rate (m/s)"    : to_scalar(sink_rate),
+        "w (m/s)"            : to_scalar(w),
+        "climb_rate (m/s)"   : to_scalar(climb_rate),
         "static_margin"      : to_scalar(static_margin),
         "V_ht"               : to_scalar(V_ht),
         "V_vt"               : to_scalar(V_vt),
@@ -808,6 +863,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         # objective decomposition
         "objective_total"    : to_scalar(objective),
         "objective_sink"     : to_scalar(obj_sink),
+        "objective_climb"    : to_scalar(obj_climb),
         "objective_mass"     : to_scalar(obj_mass),
         "objective_span"     : to_scalar(obj_span),
         "objective_control"  : to_scalar(obj_control),

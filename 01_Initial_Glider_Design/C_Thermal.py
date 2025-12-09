@@ -46,8 +46,7 @@ cmap_white0 = mcolors.ListedColormap(colors)
 
 ##### Thermal Vertical Velocity Field Model
 
-### Compute w(x, y, z) using the Gaussian jet/plume model
-
+### Gaussian plume model to compute w(x, y, z)
 def vertical_velocity_field(Q_v, r_th0, k, x, y, z, z0, x_center, y_center):
     # Q_v      - Vertical volume flux (m^3/s)
     # r_th0    - Core radius at z0 (m)
@@ -78,8 +77,14 @@ def vertical_velocity_field(Q_v, r_th0, k, x, y, z, z0, x_center, y_center):
 
     return w
 
-### Setup
+### Gaussian plume model to compute w(x, y, z) for multiple fans
+def vertical_velocity_field_multi(Q_v, r_th0, k, x, y, z, z0, fan_centers):
+    w_total = 0.0
+    for (xc, yc) in fan_centers:
+        w_total += vertical_velocity_field(Q_v, r_th0, k, x, y, z, z0, xc, yc)
+    return w_total
 
+### Setup
 if __name__ == "__main__":
 
     # output
@@ -96,6 +101,16 @@ if __name__ == "__main__":
     k     = 0.10  # typical turbulent plume spreading rate
     z0    = 0.50  # reference height at fan centre (m)
 
+    # choose spacing between fan centres
+    fan_spacing = 2 * r_th0 + 0.5
+    
+    fan_centers = [
+        (x_center - fan_spacing / 2, y_center - fan_spacing / 2),
+        (x_center + fan_spacing / 2, y_center - fan_spacing / 2),
+        (x_center - fan_spacing / 2, y_center + fan_spacing / 2),
+        (x_center + fan_spacing / 2, y_center + fan_spacing / 2),
+        ]
+
     # flight arena volume
     x_min, x_max = 0.0, 8.0
     y_min, y_max = 0.0, 5.0
@@ -109,13 +124,13 @@ if __name__ == "__main__":
     X, Y = onp.meshgrid(x, y, indexing="xy")
 
     # choose a single height to visualise
-    z_plot = 1.5
+    z_plot = 1.0
     Z_slice = z_plot * onp.ones_like(X)
 
     # compute vertical velocity field at that height
-    W_slice = vertical_velocity_field(
+    W_slice = vertical_velocity_field_multi(
         Q_v = Q_v, r_th0 = r_th0, k = k, x = X, y = Y, z = Z_slice,
-        z0 = z0, x_center = x_center, y_center = y_center
+        z0 = z0, fan_centers = fan_centers
     )
 
     fig_2D, ax2 = plt.subplots(figsize=(6, 5))
@@ -151,10 +166,10 @@ if __name__ == "__main__":
 
     X3, Y3, Z3 = onp.meshgrid(x3, y3, z3, indexing = "ij")
 
-    W3 = vertical_velocity_field(
+    W3 = vertical_velocity_field_multi(
         Q_v = Q_v, r_th0 = r_th0, k = k,
         x = X3, y = Y3, z = Z3,
-        z0 = z0, x_center = x_center, y_center = y_center
+        z0 = z0, fan_centers = fan_centers
     )
     W3 = onp.where(Z3 >= z0, W3, 0.0)
 
