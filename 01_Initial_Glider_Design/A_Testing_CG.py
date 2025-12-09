@@ -3,6 +3,24 @@ import aerosandbox.numpy as np
 import aerosandbox.tools.units as u
 import pandas as pd
 import copy
+import subprocess
+import os
+
+### Code version
+def get_git_version():
+
+    try:
+        desc = subprocess.check_output(
+            ["git", "describe", "--always", "--dirty", "--tags"],
+            stderr = subprocess.DEVNULL,
+        ).decode("utf-8").strip()
+        return desc
+    except Exception:
+        return "unknown"
+
+
+CODE_VERSION = get_git_version()
+
 
 ###### AeroSandbox Setup
 
