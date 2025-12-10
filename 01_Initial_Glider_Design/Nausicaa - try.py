@@ -42,7 +42,7 @@ density_wing = 33.0 # kg/m^3 for depron foam
 
 ### Operating point
 # target radius
-r_target = opti.variable(init_guess = 1.0, lower_bound = 0.1, upper_bound = 1.5)
+r_target = opti.variable(init_guess = 1.0, lower_bound = 0.1, upper_bound = 2.0)
 
 # operated height
 z = 1.00 
@@ -451,15 +451,14 @@ x_cg_total, y_cg_total, z_cg_total = mass_props_TOGW.xyz_cg
 ##### Thermal Vertical Velocity Field Model
 
 ### Gaussian plume model
-# this is the simplified version of C_Thermal.py
-# by assume thermal at the center of the flighy arena
-def vertical_velocity_field(Q_v, r_th0, k, r, z, z0):
-    # Q_v      - Vertical volume flux (m^3/s)
-    # r_th0    - Core radius at z0 (m)
-    # k        - Empirical spreading rate
-    # z0       - referemce height for r_th0 (m)
-    # x_center - x-coordinate of thermal centre (m)
-    # y_center - y-coordinate of thermal centre (m)
+# 2×2 fan thermal model
+# partly hard coded for simplicity
+def vertical_velocity_field(Q_v, r_th0, k, r, z, z0, fan_spacing):
+    # Q_v         - Vertical volume flux (m^3/s)
+    # r_th0       - Core radius at z0 (m)
+    # k           - Empirical spreading rate
+    # z0          - referemce height for r_th0 (m)
+    # fan_spacing - spacing between each fan (m)
 
     # core radius as function of height
     r_th = r_th0 + k * (z - z0)
@@ -468,27 +467,57 @@ def vertical_velocity_field(Q_v, r_th0, k, r, z, z0):
     # peak vertical velocity
     w_th = Q_v / (np.pi * r_th ** 2)
 
-    # vertical velocity
-    w = w_th * np.exp(-(r / r_th) ** 2)
+    # fan centres
+    fan_centers = [
+        (-fan_spacing / 2, -fan_spacing / 2),
+        ( fan_spacing / 2, -fan_spacing / 2),
+        (-fan_spacing / 2,  fan_spacing / 2),
+        ( fan_spacing / 2,  fan_spacing / 2),
+    ]
 
-    mask = z < z0
-    w = np.where(mask, 0.0, w)
+    # total w at a single point (x, y) from all four fans
+    def w_at_xy(x, y):
+        w_total = 0.0
+        for (xc, yc) in fan_centers:
+            r_i = np.sqrt((x - xc) ** 2 + (y - yc) ** 2)
+            w_i = w_th * np.exp(-(r_i / r_th) ** 2)
+            w_i = np.where(z < z0, 0.0, w_i)
+            w_total = w_total + w_i
+        return w_total
+    
+    # sample 4 azimuth angles around the orbit
+    thetas = np.array([
+        np.pi / 4,
+        3 * np.pi / 4,
+        5 * np.pi / 4,
+        7 * np.pi / 4,
+    ])
 
-    return w
+    # total vertical velocity
+    w_sum = 0.0
+    for theta in thetas:
+        x = r * np.cos(theta)
+        y = r * np.sin(theta)
+        w_sum = w_sum + w_at_xy(x, y)
+    
+    # take average as assumption for glider operation
+    w_avg = w_sum / len(thetas)
+    return w_avg
 
 ### Setup
 # CAMAX30 fan parameters
-Q_v      = 1.69 # (m^3/s)
-x_center = 4.0  # (m)
-y_center = 2.5  # (m)
+Q_v      = 1.69
+x_center = 4.0
+y_center = 2.5
 
 # plume parameters
-r_th0 = 0.381 # assume core radius equal to fan radius (m)
+r_th0 = 0.381 # assume core radius equal to fan radius
 k     = 0.10  # typical turbulent plume spreading rate
-z0    = 0.50  # reference height at fan centre (m)
+z0    = 0.50  # reference height at fan centre
+fan_spacing = 2 * r_th0 + 0.7
 
-# compute w(r, z)
-w = vertical_velocity_field(Q_v = Q_v, r_th0 = r_th0, k = k, r = r_target, z = z, z0 = z0)
+# compute average w(r, z)
+w = vertical_velocity_field(Q_v = Q_v, r_th0 = r_th0, k = k, r = r_target, z = z, z0 = z0, fan_spacing = fan_spacing,)
 
 ##### Aerodynamics and Stability
 
@@ -513,9 +542,9 @@ climb_rate    = w - sink_rate
 ##### Finalize Optimization Problem
 obj_sink    = 0 * sink_rate
 obj_climb   = -1 * climb_rate
-obj_mass    = 2 * mass_props_TOGW.mass
-obj_span    = 1 * (wing_span + htail_span + vtail_span)
-obj_control = 1e-3 * (elevator_deflection ** 2 + aileron_deflection ** 2 + rudder_deflection ** 2)
+obj_mass    = 1e-7 * mass_props_TOGW.mass
+obj_span    = 1e-8 * (wing_span + htail_span + vtail_span)
+obj_control = 1e-15 * (elevator_deflection ** 2 + aileron_deflection ** 2 + rudder_deflection ** 2)
 
 ### Objective
 objective = obj_climb + obj_mass + obj_span + obj_control
@@ -679,7 +708,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         status = " ,".join(hits) if hits else "OK"
         print(f"{name:25s} = {v: .6g}  [{status}]")
 
-    check_var("r_target (m)",      r_target,                   lb = 0.1,    ub = 1.2)
+    check_var("r_target (m)",      r_target,                   lb = 0.1,    ub = 1.3)
 
     check_var("V (m/s)",           op_point.velocity,          lb = 0.1,    ub = 15.0)
     check_var("alpha (deg)",       op_point.alpha,             lb = -10.0,  ub = 10.0)
