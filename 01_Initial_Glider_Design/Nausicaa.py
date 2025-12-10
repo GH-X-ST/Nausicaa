@@ -45,7 +45,7 @@ density_wing = 33.0 # kg/m^3 for depron foam
 r_target = opti.variable(init_guess = 1.0, lower_bound = 0.1, upper_bound = 1.5)
 
 # operated height
-z = 1.00 
+z_op = 1.00 
 
 # operating point
 op_point = asb.OperatingPoint(
@@ -488,7 +488,7 @@ k     = 0.10  # typical turbulent plume spreading rate
 z0    = 0.50  # reference height at fan centre (m)
 
 # compute w(r, z)
-w = vertical_velocity_field(Q_v = Q_v, r_th0 = r_th0, k = k, r = r_target, z = z, z0 = z0)
+w = vertical_velocity_field(Q_v = Q_v, r_th0 = r_th0, k = k, r = r_target, z = z_op, z0 = z0)
 
 ##### Aerodynamics and Stability
 
@@ -509,10 +509,12 @@ sink_rate     = power_loss / 9.81 / mass_props_TOGW.mass
 static_margin = (aero["x_np"] - mass_props_TOGW.x_cg) / wing.mean_aerodynamic_chord()
 climb_rate    = w - sink_rate
 
+# how much we fail to meet zero climb
+climb_shortfall = np.minimum(0, climb_rate)
 
 ##### Finalize Optimization Problem
 obj_sink    = 0 * sink_rate
-obj_climb   = -1 * climb_rate
+obj_climb   = climb_shortfall ** 2 # only penalize the negative climb rate
 obj_mass    = 2 * mass_props_TOGW.mass
 obj_span    = 1 * (wing_span + htail_span + vtail_span)
 obj_control = 1e-3 * (elevator_deflection ** 2 + aileron_deflection ** 2 + rudder_deflection ** 2)
@@ -723,6 +725,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         "Turn AoA"              : f"{fmt(op_point.alpha)} deg",
         "Turn CL"               : fmt(aero['CL']),
         "Sink Rate"             : f"{fmt(sink_rate)} m/s",
+        "w"                     : f"{fmt(w)} m/s",
         "Climb Rate"            : f"{fmt(climb_rate)} m/s",
         "Cma"                   : fmt(aero['Cma']),
         "Cnb"                   : fmt(aero['Cnb']),
