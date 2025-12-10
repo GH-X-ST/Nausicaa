@@ -150,7 +150,7 @@ if __name__ == "__main__":
 
     # output
     fig_2D.tight_layout()
-    fig_2D.savefig(os.path.join(out_dir, "thermal_slice.png"),
+    fig_2D.savefig(os.path.join(out_dir, "multi_thermal_slice.png"),
                    dpi = 300, bbox_inches = "tight")
 
     ### Plot 3D plume shape coloured by w
@@ -231,7 +231,7 @@ if __name__ == "__main__":
     
     # output
     fig_3D.tight_layout()
-    fig_3D.savefig(os.path.join(out_dir, "thermal_plume.png"),
+    fig_3D.savefig(os.path.join(out_dir, "multi_thermal_plume.png"),
                    dpi = 300, bbox_inches = "tight") 
     
     plt.show()
