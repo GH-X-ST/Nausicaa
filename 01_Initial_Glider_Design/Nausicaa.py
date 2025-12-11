@@ -561,11 +561,12 @@ opti.subject_to([
     opti.bounded(5.0, phi,            65.0),        
 
     # aerodynamics
-    aero["L"]   == n_load * mass_props_TOGW.mass * g, # force balance in a coordinate turn
+    aero["L"]   >= n_load * mass_props_TOGW.mass * g, # force balance in a coordinate turn
 
     # stability
-    aero["Cm"]  == 0,                                 # trimmed in pitch
     aero["Cl"]  == 0,                                 # trimmed in roll
+    aero["Cm"]  == 0,                                 # trimmed in pitch
+    aero["Cn"]  == 0,                                 # trimmed in yaw
     aero["Clb"] <= -0.025,
     opti.bounded(0.04, static_margin, 0.10),
     opti.bounded(0.40, V_ht,          0.70),
