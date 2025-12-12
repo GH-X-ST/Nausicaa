@@ -41,14 +41,7 @@ make_plots = True
 
 base = plt.cm.YlOrRd
 colors = base(np.linspace(0, 1, 256))
-
-Nfade = 15 
-first_color = colors[Nfade]
-
-for i in range(Nfade):
-    t = i / (Nfade - 1)
-    colors[i] = (1-t) * np.array([1,1,1,1]) + t * first_color
-
+colors[0] = [1, 1, 1, 1]  # white
 cmap_white0 = mcolors.ListedColormap(colors)
 
 ##### Thermal Vertical Velocity Field Model
@@ -204,24 +197,11 @@ if __name__ == "__main__":
         mesh.set_edgecolor("none")
 
         ax3.add_collection3d(mesh)
-        
-    # 3D circle representing initial thermal radius
-    theta = onp.linspace(0, 2 * onp.pi, 200)
 
-    for (xc, yc) in fan_centers:
-        circle_x = xc + r_th0 * onp.cos(theta)
-        circle_y = yc + r_th0 * onp.sin(theta)
-        circle_z = z0 * onp.ones_like(theta)
-
-        ax3.plot(circle_x, circle_y, circle_z,
-                 color='k', linewidth = 1.3, zorder = 0)
-        
-    # axis limit
     ax3.set_xlim(x_min, x_max)
     ax3.set_ylim(y_min, y_max)
     ax3.set_zlim(z_min, z_max)
 
-    # label
     ax3.set_xlabel("x (m)")
     ax3.set_ylabel("y (m)")
     ax3.set_zlabel("z (m)")
@@ -247,7 +227,7 @@ if __name__ == "__main__":
     ax3.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
     ax3.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
 
-    ax3.view_init(elev = 7, azim = -111)
+    ax3.view_init(elev = 11, azim = -111)
     
     # output
     fig_3D.tight_layout()
