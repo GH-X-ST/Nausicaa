@@ -568,6 +568,7 @@ opti.subject_to([
     aero["Cm"]  == 0,                                 # trimmed in pitch
     aero["Cn"]  == 0,                                 # trimmed in yaw
     aero["Clb"] <= -0.025,
+    aero["Clda"] <= -0.05,
     opti.bounded(0.04, static_margin, 0.10),
     opti.bounded(0.40, V_ht,          0.70),
     opti.bounded(0.02, V_vt,          0.04),
