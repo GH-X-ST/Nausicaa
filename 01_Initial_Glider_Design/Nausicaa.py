@@ -56,10 +56,11 @@ op_point = asb.OperatingPoint(
 )
 
 # bank angle
-phi = np.degrees(np.arctan(op_point.velocity ** 2 / (g * r_target)))
+phi_rad = np.arctan(op_point.velocity ** 2 / (g * r_target))
+phi = np.degrees(phi_rad)
 
 # load factor
-n_load = 1 / np.cos(np.radians(phi))
+n_load = 1 / np.cos(phi_rad)
 
 # control surface deflection
 aileron_deflection  = opti.variable(init_guess = 0.0, lower_bound = -25.0, upper_bound = 25.0)
@@ -512,12 +513,85 @@ y_center = 2.5
 
 # plume parameters
 r_th0 = 0.381 # assume core radius equal to fan radius
-k     = 0.10  # typical turbulent plume spreading rate
+k_th   = 0.10  # typical turbulent plume spreading rate
 z0    = 0.50  # reference height at fan centre
 fan_spacing = 2 * r_th0 + 0.5
 
 # compute average w(r, z)
-w = vertical_velocity_field(Q_v = Q_v, r_th0 = r_th0, k = k, r = r_target, z = z_op, z0 = z0, fan_spacing = fan_spacing,)
+w = vertical_velocity_field(Q_v = Q_v, r_th0 = r_th0, k = k_th, r = r_target, z = z_op, z0 = z0, fan_spacing = fan_spacing,)
+
+
+##### Roll-In Manoeuvre
+
+### Kinematics
+# achievable constant roll rate during roll-in
+p_roll_deg = opti.variable(init_guess = 120, lower_bound = 5, upper_bound = 720)
+p_roll     = np.radians(p_roll_deg)
+
+# roll-in duration
+t_roll = phi_rad / p_roll
+
+# experiment volume bounds
+x_min, x_max = 0.0, 8.0
+y_min, y_max = 0.0, 5.0
+
+# worst-case entry condition
+x0 = 0.0
+y0 = y_center
+
+# initial heading
+psi0_deg = opti.variable(init_guess = 0, lower_bound = -90, upper_bound = 90)
+psi0     = np.radians(psi0_deg)
+
+# discretisation settings
+N_roll = 41
+dt = t_roll / (N_roll - 1)
+
+# state variables along roll-in
+psi = opti.variable(init_guess = 0.0 * np.ones(N_roll))
+x   = opti.variable(init_guess = x0  * np.ones(N_roll))
+y   = opti.variable(init_guess = y0  * np.ones(N_roll))
+
+### Roll-in constraints
+
+opti.subject_to([
+
+    # initial conditions
+    psi[0] == psi0,
+    x[0]   == x0,
+    y[0]   == y0,
+])
+
+# march forward with Euler integration
+for k in range(N_roll - 1):
+
+    # bank angle during roll-in
+    phi_k = p_roll * (k * dt)
+
+    # coordinated heading rate
+    r_k = g * np.tan(phi_k) / op_point.velocity
+
+    opti.subject_to([
+
+        # heading integration
+        psi[k + 1] == psi[k] + r_k * dt,
+
+        # position integration
+        x[k + 1] == x[k] + op_point.velocity * np.cos(psi[k]) * dt,
+        y[k + 1] == y[k] + op_point.velocity * np.sin(psi[k]) * dt,
+
+        # stay inside experimental box
+        opti.bounded(x_min, x[k + 1], x_max),
+        opti.bounded(y_min, y[k + 1], y_max),
+    ])
+
+# end of roll-in
+opti.subject_to([
+
+    # within target turn radius
+    (x[-1] - x_center) ** 2 + (y[-1] - y_center) ** 2 <= r_target ** 2,
+
+])
 
 ##### Aerodynamics and Stability
 
@@ -618,6 +692,21 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     r_target = sol(r_target)
     n_load   = sol(n_load)
 
+    # roll-in kinematics
+    p_roll_deg = sol(p_roll_deg)
+    p_roll     = sol(p_roll)
+    t_roll     = sol(t_roll)
+    psi0_deg   = sol(psi0_deg)
+    psi0       = sol(psi0)
+
+    # roll-in states (arrays of length N_roll)
+    psi_roll = sol(psi)
+    x_roll   = sol(x)
+    y_roll   = sol(y)
+
+    # roll-in time vector
+    t_roll_vec = onp.linspace(0.0, float(t_roll), int(len(onp.atleast_1d(x_roll))))
+
     # control surface
     aileron_cs  = sol(aileron_cs)
     rudder_cs   = sol(rudder_cs)
@@ -642,7 +731,6 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     wing_span               = sol(wing_span)
     wing_dihedral_angle_deg = sol(wing_dihedral_angle_deg)
     wing_root_chord         = sol(wing_root_chord)
-    wing_taper              = sol(wing_taper)
 
     # horizontal tailplane
     l_ht             = sol(l_ht)
@@ -671,10 +759,13 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     V_ht          = sol(V_ht)
     V_vt          = sol(V_vt)
 
+    
     ##### Result
 
     ### Help fomatting
     import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+    from matplotlib.collections import LineCollection
     import aerosandbox.tools.pretty_plots as p
     from aerosandbox.tools.string_formatting import eng_string
 
@@ -716,6 +807,9 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     check_var("V (m/s)",           op_point.velocity,          lb = 0.1,    ub = 15.0)
     check_var("alpha (deg)",       op_point.alpha,             lb = -10.0,  ub = 10.0)
     check_var("phi (deg)",         phi,                        lb = 5.0,    ub = 65.0)
+    
+    check_var("psi0 (deg)",        psi0_deg,                   lb = -90.0,  ub = 90.0)
+    check_var("p_roll (deg/s)",    p_roll_deg,                 lb = 5.0,    ub = 720.0)
 
     check_var("TOGW (kg)",         design_mass_TOGW,           lb = 1e-3)
 
@@ -776,11 +870,12 @@ if __name__ == '__main__': # only run this block when the file is executed direc
 
     ##### Plotting
     if make_plots:
-        # geometry
+
+        ### Geometry
         airplane.draw_three_view(show = False)
         p.show_plot(tight_layout= False, savefig = "figures/three_view.png")
 
-        # mass budget
+        ### Mass budget
         fig, ax = plt.subplots(figsize = (12, 5), subplot_kw = dict(aspect = "equal"), dpi = 300)
 
         name_remaps = {
@@ -810,6 +905,125 @@ if __name__ == '__main__': # only run this block when the file is executed direc
             y_max_labels = 1.1
         )
         p.show_plot(savefig="figures/mass_budget.png")
+
+        ### Thermal and roll-in trajectory
+        # colormap
+        base = plt.cm.YlOrRd
+        colors = base(onp.linspace(0, 1, 256))
+        Nfade = 15
+        first_color = colors[Nfade].copy()
+        for i in range(Nfade):
+            t_ = i / (Nfade - 1)
+            colors[i] = (1 - t_) * onp.array([1, 1, 1, 1]) + t_ * first_color
+        cmap_white0 = mcolors.ListedColormap(colors)
+
+        # thermal fan centers
+        fan_centers = [
+            (x_center - fan_spacing / 2, y_center - fan_spacing / 2),
+            (x_center + fan_spacing / 2, y_center - fan_spacing / 2),
+            (x_center - fan_spacing / 2, y_center + fan_spacing / 2),
+            (x_center + fan_spacing / 2, y_center + fan_spacing / 2),
+        ]
+
+        # multi-fan vertical velocity
+        def vertical_velocity_field_single(Q_v, r_th0, k, x, y, z, z0, x_center, y_center):
+
+            r = onp.sqrt((x - x_center) ** 2 + (y - y_center) ** 2)
+            r_th = r_th0 + k * (z - z0)
+            r_th = onp.maximum(r_th, 1e-6)
+
+            w_th = Q_v / (onp.pi * r_th ** 2)
+            w = w_th * onp.exp(-(r / r_th) ** 2)
+            w = onp.where(z < z0, 0.0, w)
+
+            return w
+        
+        def vertical_velocity_field_multi(Q_v, r_th0, k, x, y, z, z0, fan_centers):
+
+            w_total = 0.0
+
+            for (xc, yc) in fan_centers:
+                
+                w_total += vertical_velocity_field_single(Q_v, r_th0, k, x, y, z, z0, xc, yc)
+
+            return w_total
+        
+        # grid
+        Nx, Ny = 120, 80
+        xg = onp.linspace(x_min, x_max, Nx)
+        yg = onp.linspace(y_min, y_max, Ny)
+        Xg, Yg = onp.meshgrid(xg, yg, indexing = "xy")
+
+        # show thermal slice
+        z_plot = float(z_op)
+        Zg = z_plot * onp.ones_like(Xg)
+
+        W_slice = vertical_velocity_field_multi(
+            Q_v = Q_v, r_th0 = r_th0, k = k_th, x = Xg, y = Yg, z = Zg, z0 = z0, fan_centers = fan_centers
+        )
+
+        fig, ax = plt.subplots(figsize=(7.2, 4.8), dpi=300)
+        
+        # thermal background
+        levels = onp.linspace(W_slice.min(), W_slice.max(), 256)
+        cf = ax.contourf(Xg, Yg, W_slice, levels = levels, cmap = cmap_white0, zorder=1)
+        
+        # circle representing initial thermal radius
+        theta = onp.linspace(0, 2 * onp.pi, 200)
+        for (xc, yc) in fan_centers:
+            ax.plot(xc + r_th0 * onp.cos(theta), yc + r_th0 * onp.sin(theta),
+                    color='k', linewidth = 1.3, zorder = 0)
+            
+        # circle representing target radius
+        theta = onp.linspace(0, 2 * onp.pi, 200)
+        ax.plot(r_target * onp.cos(theta), r_target * onp.sin(theta),
+                color='k', linestyle = "--", linewidth = 1.3, zorder = 1000)
+            
+        x_txt = xc + float(r_target)
+        y_txt = yc
+            
+        ax.text(
+            x_txt + 0.05 * float(r_target),  # small offset
+            y_txt,
+            rf"$R_\mathrm{{target}} = {float(r_target):.2f}\,\mathrm{{m}}$",
+            fontsize=9,
+            color="k",
+            verticalalignment="center",
+            zorder=12100,
+        )
+            
+        # roll-in trajectory on top
+        xr = onp.asarray(x_roll, dtype=float)
+        yr = onp.asarray(y_roll, dtype=float)
+        t = onp.linspace(0, 1, len(xr))
+        points = onp.array([xr, yr]).T.reshape(-1, 1, 2)
+        segments = onp.concatenate([points[:-1], points[1:]], axis=1)
+        lc = LineCollection(segments, cmap = 'winter', array = t, linewidth = 1.5, zorder = 1100)
+        ax.add_collection(lc)
+
+        line_cmap = plt.cm.get_cmap("winter")
+        c_start = line_cmap(0.0)
+        c_end   = line_cmap(1.0)
+        
+        ax.scatter([xr[0]],  [yr[0]],  s=35, marker="o",
+                   facecolor=c_start, edgecolor="k", linewidth=0.6, zorder=1200)
+        
+        ax.scatter([xr[-1]], [yr[-1]], s=55, marker="X",
+                   facecolor=c_end, edgecolor="k", linewidth=0.6, zorder=1200)
+        
+        
+        # formatting
+        cbar = fig.colorbar(cf, ax = ax, shrink = 0.95)
+        cbar.set_label(f"w (m/s) at z = {z_plot:.2f} m")
+        ax.set_xlabel("x (m)")
+        ax.set_ylabel("y (m)")
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y_min, y_max)
+        ax.set_aspect("equal", adjustable = "box")
+        ax.grid(True, linestyle = ":", linewidth = 0.5)
+        
+        fig.tight_layout()
+        fig.savefig("figures/thermal_with_rollin_trajectory.png", dpi = 300, bbox_inches = "tight")
 
 
     ###### Save results to file
@@ -892,6 +1106,12 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         "delta_a (deg)"      : to_scalar(aileron_deflection),
         "delta_r (deg)"      : to_scalar(rudder_deflection),
         "delta_e (deg)"      : to_scalar(elevator_deflection),
+
+        # roll-in kinematics (NEW)
+        "p_roll (rad/s)"      : to_scalar(p_roll),
+        "p_roll (deg/s)"      : to_scalar(p_roll_deg),
+        "t_roll (s)"          : to_scalar(t_roll),
+        "psi_0 (deg)"         : to_scalar(psi0_deg),
 
         # objective decomposition
         "objective_total"    : to_scalar(objective),
@@ -1022,3 +1242,23 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     results_df.to_excel(excel_path, index=False)
 
     print(f"\nSaved results to:\n  {csv_path}\n  {excel_path}")
+    
+    ##### Save Roll-in Timeseries
+    
+    ### Export result
+    rollin_df = pd.DataFrame({
+        "t (s)"      : onp.asarray(t_roll_vec, dtype=float),
+        "x (m)"      : onp.asarray(x_roll, dtype=float),
+        "y (m)"      : onp.asarray(y_roll, dtype=float),
+        "psi (rad)"  : onp.asarray(psi_roll, dtype=float),
+        "psi (deg)"  : onp.degrees(onp.asarray(psi_roll, dtype=float)),
+    })
+
+    ### Write to .csv and Excel
+    rollin_csv_path   = os.path.join(results_dir, "nausicaa_rollin_timeseries.csv")
+    rollin_excel_path = os.path.join(results_dir, "nausicaa_rollin_timeseries.xlsx")
+
+    rollin_df.to_csv(rollin_csv_path, index=False)
+    rollin_df.to_excel(rollin_excel_path, index=False)
+
+    print(f"Saved roll-in timeseries to:\n  {rollin_csv_path}\n  {rollin_excel_path}")
