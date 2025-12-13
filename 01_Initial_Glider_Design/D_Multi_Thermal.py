@@ -109,7 +109,7 @@ if __name__ == "__main__":
     z0    = 0.50  # reference height at fan centre (m)
 
     # choose spacing between fan centres
-    fan_spacing = 2 * r_th0 + 0.7
+    fan_spacing = 2 * r_th0 + 0.5
     
     fan_centers = [
         (x_center - fan_spacing / 2, y_center - fan_spacing / 2),

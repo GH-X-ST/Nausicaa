@@ -514,7 +514,7 @@ y_center = 2.5
 r_th0 = 0.381 # assume core radius equal to fan radius
 k     = 0.10  # typical turbulent plume spreading rate
 z0    = 0.50  # reference height at fan centre
-fan_spacing = 2 * r_th0 + 0.7
+fan_spacing = 2 * r_th0 + 0.5
 
 # compute average w(r, z)
 w = vertical_velocity_field(Q_v = Q_v, r_th0 = r_th0, k = k, r = r_target, z = z_op, z0 = z0, fan_spacing = fan_spacing,)
@@ -568,7 +568,6 @@ opti.subject_to([
     aero["Cm"]  == 0,                                 # trimmed in pitch
     aero["Cn"]  == 0,                                 # trimmed in yaw
     aero["Clb"] <= -0.025,
-    aero["Clda"] <= -0.05,
     opti.bounded(0.04, static_margin, 0.10),
     opti.bounded(0.40, V_ht,          0.70),
     opti.bounded(0.02, V_vt,          0.04),
