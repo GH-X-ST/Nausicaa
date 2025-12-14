@@ -586,10 +586,20 @@ for k in range(N_roll - 1):
     ])
 
 # end of roll-in
+
+dx = x[-1] - x_center
+dy = y[-1] - y_center
+
 opti.subject_to([
 
     # within target turn radius
-    (x[-1] - x_center) ** 2 + (y[-1] - y_center) ** 2 <= r_target ** 2,
+    (x[-1] - x_center) ** 2 + (y[-1] - y_center) ** 2 == r_target ** 2,
+
+    # heading perpendicular to radius
+    np.cos(psi[-1]) * dx + np.sin(psi[-1]) * dy == 0,
+
+    # positive yaw rate (left turn around center)
+    -np.cos(psi[-1]) * dy + np.sin(psi[-1]) * dx >= 0,
 
 ])
 
@@ -619,7 +629,8 @@ climb_shortfall = np.minimum(0, climb_rate)
 obj_sink    = 0 * sink_rate
 obj_climb   = climb_shortfall ** 2 # only penalize the negative climb rate
 obj_mass    = 0 * mass_props_TOGW.mass
-obj_span    = 0.01 * (wing_span + htail_span + vtail_span)
+# obj_span    = 0.01 * (wing_span + htail_span + vtail_span)
+obj_span    = 0 * (wing_span + htail_span + vtail_span)
 obj_control = 1e-5 * (elevator_deflection ** 2 + aileron_deflection ** 2 + rudder_deflection ** 2)
 
 ### Objective
@@ -763,6 +774,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     ##### Result
 
     ### Help fomatting
+    import matplotlib as mpl
     import matplotlib.pyplot as plt
     import matplotlib.colors as mcolors
     from matplotlib.collections import LineCollection
@@ -976,20 +988,20 @@ if __name__ == '__main__': # only run this block when the file is executed direc
             
         # circle representing target radius
         theta = onp.linspace(0, 2 * onp.pi, 200)
-        ax.plot(r_target * onp.cos(theta), r_target * onp.sin(theta),
+        ax.plot(x_center + r_target * onp.cos(theta), y_center + r_target * onp.sin(theta),
                 color='k', linestyle = "--", linewidth = 1.3, zorder = 1000)
             
-        x_txt = xc + float(r_target)
-        y_txt = yc
+        x_txt = x_center + float(r_target)
+        y_txt = y_center
             
         ax.text(
-            x_txt + 0.05 * float(r_target),  # small offset
+            x_txt + 0.02 * float(r_target),
             y_txt,
             rf"$R_\mathrm{{target}} = {float(r_target):.2f}\,\mathrm{{m}}$",
-            fontsize=9,
+            fontsize=11.5,
             color="k",
             verticalalignment="center",
-            zorder=12100,
+            zorder=1200,
         )
             
         # roll-in trajectory on top
@@ -1001,7 +1013,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         lc = LineCollection(segments, cmap = 'winter', array = t, linewidth = 1.5, zorder = 1100)
         ax.add_collection(lc)
 
-        line_cmap = plt.cm.get_cmap("winter")
+        line_cmap = mpl.colormaps["winter"]
         c_start = line_cmap(0.0)
         c_end   = line_cmap(1.0)
         
@@ -1010,7 +1022,6 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         
         ax.scatter([xr[-1]], [yr[-1]], s=55, marker="X",
                    facecolor=c_end, edgecolor="k", linewidth=0.6, zorder=1200)
-        
         
         # formatting
         cbar = fig.colorbar(cf, ax = ax, shrink = 0.95)
