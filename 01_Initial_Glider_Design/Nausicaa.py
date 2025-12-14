@@ -517,7 +517,7 @@ y_center = 2.5
 
 # plume parameters
 r_th0 = 0.381 # assume core radius equal to fan radius
-k_th   = 0.10  # typical turbulent plume spreading rate
+k_th  = 0.10  # typical turbulent plume spreading rate
 z0    = 0.50  # reference height at fan centre
 fan_spacing = 2 * r_th0 + 0.5
 
@@ -584,19 +584,13 @@ sink_rate     = power_loss / 9.81 / mass_props_TOGW.mass
 static_margin = (aero["x_np"] - mass_props_TOGW.x_cg) / wing.mean_aerodynamic_chord()
 climb_rate    = w - sink_rate
 
-# how much we fail to meet zero climb
-climb_shortfall = np.minimum(0, climb_rate)
-
 ##### Finalize Optimization Problem
 # softmax
 k = 50.0
-shortfall = (1/k) * np.log(1 + np.exp(-k * climb_rate))
-obj_climb = shortfall**2
+shortfall = (1 / k) * np.log(1 + np.exp(-k * climb_rate))
+obj_climb = shortfall ** 2
 
-obj_sink    = 0 * sink_rate
-obj_mass    = 0 * mass_props_TOGW.mass
-obj_span    = 0.01 * (wing_span + htail_span + vtail_span)
-# obj_span    = 0 * (wing_span + htail_span + vtail_span)
+obj_span    = (wing_span + htail_span + vtail_span)
 
 obj_control = 1e-5 * (elevator_deflection ** 2 + aileron_deflection ** 2 + rudder_deflection ** 2)
 
@@ -619,8 +613,8 @@ opti.subject_to([
     aero["Cl"]  == 0,                                 # trimmed in roll
     aero["Cm"]  == 0,                                 # trimmed in pitch
     aero["Cn"]  == 0,                                 # trimmed in yaw
-    aero["Clb"] <= -0.08,
-    aero["Cnb"] >= 0.10,
+    aero["Clb"] <= -0.025,
+    aero["Cnb"] >= 0.03,
     opti.bounded(0.04, static_margin, 0.10),
     opti.bounded(0.40, V_ht,          0.70),
     opti.bounded(0.02, V_vt,          0.04),
@@ -638,7 +632,7 @@ opti.subject_to([
 
 ### Kinematics
 # achievable constant roll rate during roll-in
-p_roll_deg = opti.variable(init_guess = 120, lower_bound = 5, upper_bound = 720)
+p_roll_deg = opti.variable(init_guess = 60, lower_bound = 5,)
 p_roll     = np.radians(p_roll_deg)
 
 # roll-in duration
@@ -706,10 +700,10 @@ dy = y[-1] - y_center
 opti.subject_to([
 
     # within target turn radius
-    (x[-1] - x_center) ** 2 + (y[-1] - y_center) ** 2 <= r_target ** 2,
+    (x[-1] - x_center) ** 2 + (y[-1] - y_center) ** 2 == r_target ** 2,
 
     # heading perpendicular to radius
-    np.cos(psi[-1]) * dx + np.sin(psi[-1]) * dy <= 1e-5,
+    np.cos(psi[-1]) * dx + np.sin(psi[-1]) * dy == 0,
 
     # positive yaw rate (left turn around center)
     -np.cos(psi[-1]) * dy + np.sin(psi[-1]) * dx >= 0,
@@ -719,9 +713,9 @@ opti.subject_to([
 ### Roll-rate capability
 
 # peak roll-rate limit from bang-bang roll assumption
-L_roll_max = 0.5 * rho * op_point.velocity ** 2 * wing.area() * wing_span * Clda * delta_a_max
+L_roll_max = 0.5 * rho * op_point.velocity ** 2 * wing.area() * wing_span * np.abs(Clda) * delta_a_max
 p_dot_max  = L_roll_max / mass_props_TOGW.inertia_tensor[0, 0]
-p_roll_max = np.sqrt(np.maximum(phi_rad * p_dot_max, 1e-12))
+p_roll_max = np.sqrt(phi_rad * p_dot_max)
 
 # constraint on p_roll
 opti.subject_to(p_roll <= p_roll_max)
@@ -768,6 +762,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     # roll-in kinematics
     p_roll_deg = sol(p_roll_deg)
     p_roll     = sol(p_roll)
+    p_roll_max = sol(p_roll_max)
     t_roll     = sol(t_roll)
     psi0_deg   = sol(psi0_deg)
     psi0       = sol(psi0)
@@ -821,9 +816,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     penalty   = sol(penalty)
 
     # make objective components numeric too
-    obj_sink    = sol(obj_sink)
     obj_climb   = sol(obj_climb)
-    obj_mass    = sol(obj_mass)
     obj_span    = sol(obj_span)
     obj_control = sol(obj_control)
 
@@ -853,9 +846,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     print_title("Objective contribution breakdown")
     for k, v in {
     "Total Objective" : fmt(objective),
-    "Sink rate"       : f"{fmt(obj_sink)} ({s(obj_sink) / s(objective) * 100:.1f}%)",
     "Climb rate"      : f"{fmt(obj_climb)} ({s(obj_climb) / s(objective) * 100:.1f}%)",
-    "Weight"          : f"{fmt(obj_mass)} ({s(obj_mass) / s(objective) * 100:.1f}%)",
     "Span"            : f"{fmt(obj_span)} ({s(obj_span) / s(objective) * 100:.1f}%)",
     "Control effect"  : f"{fmt(obj_control)} ({s(obj_control) / s(objective) * 100:.1f}%)",
     }.items():
@@ -907,8 +898,8 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     check_var("lift (N)",          aero["L"],                  lb = n_load * mass_props_TOGW.mass * 9.81)
     check_var("C_m",               aero["Cm"],)
     check_var("C_l",               aero["Cl"],)
-    check_var("C_l_b",             aero["Clb"],                             ub = -0.08)
-    check_var("C_n_b",             aero["Cnb"],                lb = 0.10)
+    check_var("C_l_b",             aero["Clb"],                             ub = -0.025)
+    check_var("C_n_b",             aero["Cnb"],                lb = 0.03)
     check_var("static_margin",     static_margin,              lb = 0.04,   ub = 0.10)
     check_var("V_ht",              V_ht,                       lb = 0.40,   ub = 0.70)
     check_var("V_vt",              V_vt,                       lb = 0.02,   ub = 0.04)
@@ -926,6 +917,8 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         "Sink Rate"             : f"{fmt(sink_rate)} m/s",
         "w"                     : f"{fmt(w)} m/s",
         "Climb Rate"            : f"{fmt(climb_rate)} m/s",
+        "p_roll"                : f"{fmt(p_roll)} rad/s",
+        "p_roll_max"            : f"{fmt(p_roll_max)} rad/s",
         "Cma"                   : fmt(aero['Cma']),
         "Cnb"                   : fmt(aero['Cnb']),
         "Cm"                    : fmt(aero['Cm']),
@@ -1058,7 +1051,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         y_txt = y_center
             
         ax.text(
-            x_txt + 0.02 * float(r_target),
+            x_txt + 0.03 * float(r_target),
             y_txt,
             rf"$R_\mathrm{{target}} = {float(r_target):.2f}\,\mathrm{{m}}$",
             fontsize=11.5,
@@ -1184,15 +1177,14 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         # roll-in kinematics
         "p_roll (rad/s)"     : to_scalar(p_roll),
         "p_roll (deg/s)"     : to_scalar(p_roll_deg),
+        "p_roll_max (rad/s)" : to_scalar(p_roll_max),
         "t_roll (s)"         : to_scalar(t_roll),
         "psi_0 (deg)"        : to_scalar(psi0_deg),
         "Cl_da (rad^-1)"     : to_scalar(Clda),
 
         # objective decomposition
         "objective_total"    : to_scalar(objective),
-        "objective_sink"     : to_scalar(obj_sink),
         "objective_climb"    : to_scalar(obj_climb),
-        "objective_mass"     : to_scalar(obj_mass),
         "objective_span"     : to_scalar(obj_span),
         "objective_control"  : to_scalar(obj_control),
         "penalty"            : to_scalar(penalty),
