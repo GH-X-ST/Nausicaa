@@ -34,9 +34,6 @@ make_plots = True
 # gravitational acceleration
 g = 9.81
 
-# air density
-rho = 1.225
-
 # material
 density_wing = 33.0 # kg/m^3 for depron foam
 
@@ -52,7 +49,7 @@ z_op = 1.00
 
 # operating point
 op_point = asb.OperatingPoint(
-    velocity = opti.variable(init_guess = 5.0, lower_bound = 0.1, upper_bound = 10.0, log_transform = True),
+    velocity = opti.variable(init_guess = 15.5, lower_bound = 0.1, log_transform = True),
     alpha    = opti.variable(init_guess = 0, lower_bound = -10.0, upper_bound = 10.0),
     beta     = 0.0, # coordinated turn
     p        = 0.0, # coordinated turn
@@ -69,7 +66,6 @@ n_load = 1 / np.cos(phi_rad)
 aileron_deflection  = opti.variable(init_guess = 0.0, lower_bound = -25.0, upper_bound = 25.0)
 rudder_deflection   = opti.variable(init_guess = 0.0, lower_bound = -30.0, upper_bound = 30.0)
 elevator_deflection = opti.variable(init_guess = 0.0, lower_bound = -25.0, upper_bound = 25.0)
-delta_a_max         = np.radians(25.0)
 
 # effective L/D
 LD_turn = opti.variable(init_guess = 15, lower_bound = 0.1, log_transform = True)
@@ -525,115 +521,6 @@ fan_spacing = 2 * r_th0 + 0.5
 w = vertical_velocity_field(Q_v = Q_v, r_th0 = r_th0, k = k_th, r = r_target, z = z_op, z0 = z0, fan_spacing = fan_spacing,)
 
 
-##### Aerodynamics and Stability
-
-### Aerodynamic force-moment model
-ab = asb.AeroBuildup(
-    airplane = airplane,
-    op_point = op_point,
-    xyz_ref  = mass_props_TOGW.xyz_cg
-)
-
-### Stability derivatives
-aero = ab.run_with_stability_derivatives(alpha = True, beta = True, p = True, q = True, r = True,)
-
-### Aileron effectiveness
-# Small perturbation in degrees
-delta_a_fd = 1.0
-
-# positive aileron deflection
-airplane_plus = airplane.with_control_deflections({
-    "aileron": aileron_deflection + delta_a_fd,
-    "rudder": rudder_deflection,
-    "elevator": elevator_deflection,
-})
-
-ab_plus = asb.AeroBuildup(
-    airplane=airplane_plus,
-    op_point=op_point,
-    xyz_ref=mass_props_TOGW.xyz_cg,
-)
-
-aero_plus = ab_plus.run()
-Cl_plus = aero_plus["Cl"]
-
-# negative aileron deflection
-airplane_minus = airplane.with_control_deflections({
-    "aileron": aileron_deflection - delta_a_fd,
-    "rudder": rudder_deflection,
-    "elevator": elevator_deflection,
-})
-
-ab_minus = asb.AeroBuildup(
-    airplane=airplane_minus,
-    op_point=op_point,
-    xyz_ref=mass_props_TOGW.xyz_cg,
-)
-
-aero_minus = ab_minus.run()
-Cl_minus = aero_minus["Cl"]
-
-# compute aileron effectiveness
-Clda_deg = (Cl_plus - Cl_minus) / (2 * delta_a_fd)
-Clda     = Clda_deg * (180 / np.pi)
-
-### Performance quantities
-LD            = aero["L"] / aero["D"]
-power_loss    = aero["D"] * op_point.velocity
-sink_rate     = power_loss / 9.81 / mass_props_TOGW.mass
-static_margin = (aero["x_np"] - mass_props_TOGW.x_cg) / wing.mean_aerodynamic_chord()
-climb_rate    = w - sink_rate
-
-# how much we fail to meet zero climb
-climb_shortfall = np.minimum(0, climb_rate)
-
-##### Finalize Optimization Problem
-# softmax
-k = 50.0
-shortfall = (1/k) * np.log(1 + np.exp(-k * climb_rate))
-obj_climb = shortfall**2
-
-obj_sink    = 0 * sink_rate
-obj_mass    = 0 * mass_props_TOGW.mass
-obj_span    = 0.01 * (wing_span + htail_span + vtail_span)
-# obj_span    = 0 * (wing_span + htail_span + vtail_span)
-
-obj_control = 1e-5 * (elevator_deflection ** 2 + aileron_deflection ** 2 + rudder_deflection ** 2)
-
-### Objective
-objective = obj_climb + obj_span + obj_control
-penalty   = (mass_props["ballast"].x_cg / 1e3) ** 2
-
-opti.minimize(objective + penalty)
-
-### Optimization constraints
-opti.subject_to([
-
-    # coordinated turn
-    opti.bounded(5.0, phi,            65.0),        
-
-    # aerodynamics
-    aero["L"]   >= n_load * mass_props_TOGW.mass * g, # force balance in a coordinate turn
-
-    # stability
-    aero["Cl"]  == 0,                                 # trimmed in roll
-    aero["Cm"]  == 0,                                 # trimmed in pitch
-    aero["Cn"]  == 0,                                 # trimmed in yaw
-    aero["Clb"] <= -0.08,
-    aero["Cnb"] >= 0.10,
-    opti.bounded(0.04, static_margin, 0.10),
-    opti.bounded(0.40, V_ht,          0.70),
-    opti.bounded(0.02, V_vt,          0.04),
-])
-
-### Additional constraint
-
-opti.subject_to([
-    LD_turn == LD,
-    design_mass_TOGW == mass_props_TOGW.mass
-])
-
-
 ##### Roll-In Manoeuvre
 
 ### Kinematics
@@ -698,7 +585,7 @@ for k in range(N_roll - 1):
         opti.bounded(y_min, y[k + 1], y_max),
     ])
 
-### End of roll-in
+# end of roll-in
 
 dx = x[-1] - x_center
 dy = y[-1] - y_center
@@ -709,22 +596,77 @@ opti.subject_to([
     (x[-1] - x_center) ** 2 + (y[-1] - y_center) ** 2 <= r_target ** 2,
 
     # heading perpendicular to radius
-    np.cos(psi[-1]) * dx + np.sin(psi[-1]) * dy <= 1e-5,
+    np.cos(psi[-1]) * dx + np.sin(psi[-1]) * dy == 0,
 
     # positive yaw rate (left turn around center)
     -np.cos(psi[-1]) * dy + np.sin(psi[-1]) * dx >= 0,
 
 ])
 
-### Roll-rate capability
+##### Aerodynamics and Stability
 
-# peak roll-rate limit from bang-bang roll assumption
-L_roll_max = 0.5 * rho * op_point.velocity ** 2 * wing.area() * wing_span * Clda * delta_a_max
-p_dot_max  = L_roll_max / mass_props_TOGW.inertia_tensor[0, 0]
-p_roll_max = np.sqrt(np.maximum(phi_rad * p_dot_max, 1e-12))
+### Aerodynamic force-moment model
+ab = asb.AeroBuildup(
+    airplane = airplane,
+    op_point = op_point,
+    xyz_ref  = mass_props_TOGW.xyz_cg
+)
 
-# constraint on p_roll
-opti.subject_to(p_roll <= p_roll_max)
+### Stability derivatives
+aero = ab.run_with_stability_derivatives(alpha = True, beta = True, p = True, q = True, r = True,)
+
+### Performance quantities
+LD            = aero["L"] / aero["D"]
+power_loss    = aero["D"] * op_point.velocity
+sink_rate     = power_loss / 9.81 / mass_props_TOGW.mass
+static_margin = (aero["x_np"] - mass_props_TOGW.x_cg) / wing.mean_aerodynamic_chord()
+climb_rate    = w - sink_rate
+
+# how much we fail to meet zero climb
+climb_shortfall = np.minimum(0, climb_rate)
+
+##### Finalize Optimization Problem
+k = 50.0
+shortfall = (1 / k) * np.log(1 + np.exp(-k * climb_rate))
+obj_climb = shortfall ** 2
+
+obj_sink    = 0 * sink_rate
+obj_mass    = 0 * mass_props_TOGW.mass
+obj_span    = 0.01 * (wing_span + htail_span + vtail_span)
+# obj_span    = 0 * (wing_span + htail_span + vtail_span)
+obj_control = 1e-5 * (elevator_deflection ** 2 + aileron_deflection ** 2 + rudder_deflection ** 2)
+
+### Objective
+objective = obj_climb + obj_span + obj_control
+penalty   = (mass_props["ballast"].x_cg / 1e3) ** 2
+
+opti.minimize(objective + penalty)
+
+### Optimization constraints
+opti.subject_to([
+
+    # coordinated turn
+    opti.bounded(5.0, phi,            65.0),        
+
+    # aerodynamics
+    aero["L"]   >= n_load * mass_props_TOGW.mass * g, # force balance in a coordinate turn
+
+    # stability
+    aero["Cl"]  == 0,                                 # trimmed in roll
+    aero["Cm"]  == 0,                                 # trimmed in pitch
+    aero["Cn"]  == 0,                                 # trimmed in yaw
+    aero["Clb"] <= -0.025,
+    opti.bounded(0.04, static_margin, 0.10),
+    opti.bounded(0.40, V_ht,          0.70),
+    opti.bounded(0.02, V_vt,          0.04),
+])
+
+### Additional constraint
+
+opti.subject_to([
+    LD_turn == LD,
+    design_mass_TOGW == mass_props_TOGW.mass
+])
 
 
 ##### Solve Optimization Problem
@@ -753,7 +695,6 @@ if __name__ == '__main__': # only run this block when the file is executed direc
 
     # performance
     aero       = sol(aero)
-    Clda       = sol(Clda)
     sink_rate  = sol(sink_rate)
     w          = sol(w)
     climb_rate = sol(climb_rate)
@@ -878,7 +819,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
 
     check_var("r_target (m)",      r_target,                   lb = 0.1,    ub = 2.5)
 
-    check_var("V (m/s)",           op_point.velocity,          lb = 0.1,    ub = 10.0)
+    check_var("V (m/s)",           op_point.velocity,          lb = 0.1,    ub = 15.0)
     check_var("alpha (deg)",       op_point.alpha,             lb = -10.0,  ub = 10.0)
     check_var("phi (deg)",         phi,                        lb = 5.0,    ub = 65.0)
     
@@ -907,8 +848,7 @@ if __name__ == '__main__': # only run this block when the file is executed direc
     check_var("lift (N)",          aero["L"],                  lb = n_load * mass_props_TOGW.mass * 9.81)
     check_var("C_m",               aero["Cm"],)
     check_var("C_l",               aero["Cl"],)
-    check_var("C_l_b",             aero["Clb"],                             ub = -0.08)
-    check_var("C_n_b",             aero["Cnb"],                lb = 0.10)
+    check_var("C_l_b",             aero["Clb"],                             ub = -0.025)
     check_var("static_margin",     static_margin,              lb = 0.04,   ub = 0.10)
     check_var("V_ht",              V_ht,                       lb = 0.40,   ub = 0.70)
     check_var("V_vt",              V_vt,                       lb = 0.02,   ub = 0.04)
@@ -1181,12 +1121,11 @@ if __name__ == '__main__': # only run this block when the file is executed direc
         "delta_r (deg)"      : to_scalar(rudder_deflection),
         "delta_e (deg)"      : to_scalar(elevator_deflection),
 
-        # roll-in kinematics
-        "p_roll (rad/s)"     : to_scalar(p_roll),
-        "p_roll (deg/s)"     : to_scalar(p_roll_deg),
-        "t_roll (s)"         : to_scalar(t_roll),
-        "psi_0 (deg)"        : to_scalar(psi0_deg),
-        "Cl_da (rad^-1)"     : to_scalar(Clda),
+        # roll-in kinematics (NEW)
+        "p_roll (rad/s)"      : to_scalar(p_roll),
+        "p_roll (deg/s)"      : to_scalar(p_roll_deg),
+        "t_roll (s)"          : to_scalar(t_roll),
+        "psi_0 (deg)"         : to_scalar(psi0_deg),
 
         # objective decomposition
         "objective_total"    : to_scalar(objective),
