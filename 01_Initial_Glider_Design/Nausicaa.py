@@ -734,16 +734,9 @@ opti.subject_to(
 )
 
 
-##### Roll-In Manoeuvre
+##### Roll-In Manoeuvre (full roll dynamics)
 
 ### Kinematics
-
-# achievable constant roll rate p during roll-in
-p_roll_deg = opti.variable(init_guess=60.0, lower_bound=5.0)
-p_roll = np.radians(p_roll_deg)
-
-# roll-in duration
-t_roll = phi_rad / p_roll
 
 # experiment volume bounds
 x_min, x_max = 0.0, 8.0
@@ -753,94 +746,113 @@ y_min, y_max = 0.0, 5.0
 x0 = 0.0
 y0 = y_center
 
-# initial heading
+# initial heading ψ0 (decision variable)
 psi0_deg = opti.variable(init_guess=0.0, lower_bound=-90.0, upper_bound=90.0)
 psi0 = np.radians(psi0_deg)
 
-# discretisation settings
+# roll-in duration (decision variable)
+t_roll = opti.variable(init_guess=0.7, lower_bound=0.05, upper_bound=5.0)
+
+# time discretisation
 N_roll = 41
 dt = t_roll / (N_roll - 1)
 
-# state variables along roll-in
-psi = opti.variable(init_guess=0.0 * np.ones(N_roll))
-x = opti.variable(init_guess=x0 * np.ones(N_roll))
-y = opti.variable(init_guess=y0 * np.ones(N_roll))
+# state trajectories along roll-in
+p_roll = opti.variable(init_guess=np.zeros(N_roll))  # roll rate [rad/s]
+phi_roll = opti.variable(init_guess=np.zeros(N_roll))  # bank angle [rad]
+psi = opti.variable(init_guess=0.0 * np.ones(N_roll))  # heading [rad]
+x = opti.variable(init_guess=x0 * np.ones(N_roll))  # x(t) [m]
+y = opti.variable(init_guess=y0 * np.ones(N_roll))  # y(t) [m]
+delta_A_roll_deg = opti.variable(
+    init_guess=5.0 * onp.ones(N_roll),
+    lower_bound=-25.0,
+    upper_bound=25.0,
+)
+delta_A_roll_rad = np.radians(delta_A_roll_deg)
+delta_A_rate_max = 300.0
 
-### Roll-in constraints
-
+### Initial conditions
 opti.subject_to([
-
-    # initial conditions
+    p_roll[0] == 0.0,   # start from wings level
+    phi_roll[0] == 0.0, # start from zero bank angle
     psi[0] == psi0,
-    x[0]   == x0,
-    y[0]   == y0,
+    x[0] == x0,
+    y[0] == y0,
+    delta_A_roll_deg[0] == 0.0,
 ])
 
-# forward Euler integration along roll-in
-for k_idx in range(N_roll - 1):
-    # bank angle during roll-in
-    phi_k = p_roll * (k_idx * dt)
+### Roll dynamics and translational kinematics
 
-    # coordinated heading rate r = g tan(ϕ) / V
+# dynamic pressure and roll inertia
+q_dyn = 0.5 * rho * op_point.velocity ** 2
+S_W = wing.area()
+I_xx = mass_props_TOGW.inertia_tensor[0, 0]
+
+for k_idx in range(N_roll - 1):
+    phi_k = phi_roll[k_idx]
+    p_k = p_roll[k_idx]
+
+    # roll moment coefficient with aileron and roll damping Clp·p
+    Cl_eff_k = Cl_delta_A * delta_A_roll_rad[k_idx] + aero["Clp"] * p_k * b_W / (2 * op_point.velocity)
+
+    # roll moment
+    L_roll_k = q_dyn * S_W * b_W * Cl_eff_k
+
+    # roll angular acceleration
+    p_dot_k = L_roll_k / I_xx
+
+    # coordinated heading rate
     r_k = g * np.tan(phi_k) / op_point.velocity
 
-    opti.subject_to(
-        [
-            # heading integration
-            psi[k_idx + 1] == psi[k_idx] + r_k * dt,
+    opti.subject_to([
+        # roll rate integration
+        p_roll[k_idx + 1] == p_k + p_dot_k * dt,
 
-            # position integration
-            x[k_idx + 1] == x[k_idx] + op_point.velocity * np.cos(psi[k_idx]) * dt,
-            y[k_idx + 1] == y[k_idx] + op_point.velocity * np.sin(psi[k_idx]) * dt,
+        # bank angle integration
+        phi_roll[k_idx + 1] == phi_k + p_k * dt,
 
-            # stay inside experimental volume
-            opti.bounded(x_min, x[k_idx + 1], x_max),
-            opti.bounded(y_min, y[k_idx + 1], y_max),
-        ]
-    )
+        # heading integration
+        psi[k_idx + 1] == psi[k_idx] + r_k * dt,
 
-### End of roll-in constraints
+        # position integration
+        x[k_idx + 1] == x[k_idx] + op_point.velocity * np.cos(psi[k_idx]) * dt,
+        y[k_idx + 1] == y[k_idx] + op_point.velocity * np.sin(psi[k_idx]) * dt,
+
+        # stay inside experimental volume
+        opti.bounded(x_min, x[k_idx + 1], x_max),
+        opti.bounded(y_min, y[k_idx + 1], y_max),
+
+        # enforce monotonic left-roll (no reversal)
+        p_roll[k_idx + 1] >= 0.0,
+
+        # prevent crazy bang-bang aileron
+        (delta_A_roll_deg[k_idx + 1] - delta_A_roll_deg[k_idx]) <=  delta_A_rate_max * dt,
+        (delta_A_roll_deg[k_idx + 1] - delta_A_roll_deg[k_idx]) >= -delta_A_rate_max * dt,
+    ])
+
+### End-of-roll constraints
 
 dx_end = x[-1] - x_center
 dy_end = y[-1] - y_center
 
-opti.subject_to(
-    [
-        # reach the target turn radius R_target
-        (x[-1] - x_center) ** 2 + (y[-1] - y_center) ** 2 == R_target ** 2,
+opti.subject_to([
+    # steady-turn bank
+    p_roll[-1] == 0.0,
+    delta_A_roll_deg[-1] == delta_A_deg,
 
-        # heading perpendicular to radius at entry
-        np.cos(psi[-1]) * dx_end + np.sin(psi[-1]) * dy_end == 0.0,
+    # bank angle 
+    phi_roll[-1] == phi_rad,
 
-        # positive yaw rate (left turn about centre)
-        -np.cos(psi[-1]) * dy_end + np.sin(psi[-1]) * dx_end >= 0.0,
-    ]
-)
+    # reach the target turn radius
+    (x[-1] - x_center) ** 2 + (y[-1] - y_center) ** 2 == R_target ** 2,
 
-### Roll-rate capability
+    # heading perpendicular to radius at entry
+    np.cos(psi[-1]) * dx_end + np.sin(psi[-1]) * dy_end == 0.0,
 
-# peak roll-rate limit from bang–bang roll assumption with roll damping
-L_roll_max = (
-    0.5
-    * rho
-    * op_point.velocity ** 2
-    * wing.area()
-    * b_W
-    * (
-        Cl_delta_A * delta_A_eff_rad
-        + aero["Clp"] * p_roll
-    )
-)
+    # positive yaw rate (left turn about centre)
+    -np.cos(psi[-1]) * dy_end + np.sin(psi[-1]) * dx_end >= 0.0,
+])
 
-# ensure the chosen roll is dynamically achievable
-opti.subject_to(L_roll_max >= 0.0)
-
-p_dot_max = L_roll_max / mass_props_TOGW.inertia_tensor[0, 0]
-
-# constraint on p_roll
-opti.subject_to(p_roll**2 <= phi_rad * p_dot_max)
-
-p_roll_max = np.sqrt(phi_rad * p_dot_max)
 
 ##### Solve Optimization Problem
 
@@ -882,17 +894,22 @@ if __name__ == "__main__":
     n_load = sol(n_load)
 
     # roll-in kinematics
-    p_roll_deg = sol(p_roll_deg)
-    p_roll = sol(p_roll)
-    p_roll_max = sol(p_roll_max)
     t_roll = sol(t_roll)
+    p_roll = sol(p_roll)          # array over time [rad/s]
+    phi_roll = sol(phi_roll)      # array over time [rad]
     psi0_deg = sol(psi0_deg)
     psi0 = sol(psi0)
+    delta_A_roll_deg_sol = sol(delta_A_roll_deg)
 
     psi_roll = sol(psi)
     x_roll = sol(x)
     y_roll = sol(y)
 
+    # characteristic and peak roll rates for reporting
+    p_roll_char = phi_rad_val / t_roll
+    p_roll_peak = onp.max(onp.abs(onp.asarray(p_roll, dtype=float)))
+
+    # time vector for roll-in trajectory output
     t_roll_vec = onp.linspace(
         0.0, float(t_roll), int(len(onp.atleast_1d(x_roll)))
     )
@@ -949,6 +966,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import matplotlib.colors as mcolors
     from matplotlib.collections import LineCollection
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
     import aerosandbox.tools.pretty_plots as p
     from aerosandbox.tools.string_formatting import eng_string
 
@@ -988,7 +1006,7 @@ if __name__ == "__main__":
     check_var("ϕ (deg)", phi, lb=5.0, ub=65.0)
 
     check_var("ψ0 (deg)", psi0_deg, lb=-90.0, ub=90.0)
-    check_var("p_roll (deg/s)", p_roll_deg, lb=5.0, ub=720.0)
+    check_var("t_roll (s)", t_roll, lb=0.05, ub=5.0)
 
     check_var("TOGW (kg)", design_mass_TOGW, lb=1e-3)
 
@@ -1055,8 +1073,9 @@ if __name__ == "__main__":
     # roll performance
     print("\n--- Roll performance ---")
     for key, val in {
-        "p (rad/s)": fmt(p_roll),
-        "p_max (rad/s)": fmt(p_roll_max),
+        "p (rad/s)": f"{p_roll_char:.6g}",
+        "p_peak (rad/s)": f"{p_roll_peak:.6g}",
+        "t_roll (s)": f"{t_roll:.6g}",
     }.items():
         print(f"{key.rjust(25)} = {val}")
 
@@ -1236,6 +1255,10 @@ if __name__ == "__main__":
             zorder=1,
         )
 
+        # Create dedicated colorbar axes
+        divider = make_axes_locatable(ax)
+        cax_w = divider.append_axes("right", size="3.8%", pad=0.25)
+
         # initial thermal radius circles
         theta_circle = onp.linspace(0, 2 * onp.pi, 200)
         for x_c, y_c in fan_centres_plot:
@@ -1244,7 +1267,7 @@ if __name__ == "__main__":
                 y_c + R_th0 * onp.sin(theta_circle),
                 color="k",
                 linewidth=1.3,
-                zorder=0,
+                zorder=50,
             )
 
         # target orbit radius R_target
@@ -1254,7 +1277,7 @@ if __name__ == "__main__":
             color="k",
             linestyle="--",
             linewidth=1.3,
-            zorder=1000,
+            zorder=900,
         )
 
         x_txt = x_center + float(R_target)
@@ -1267,65 +1290,177 @@ if __name__ == "__main__":
             fontsize=11.5,
             color="k",
             verticalalignment="center",
-            zorder=1200,
+            zorder=950,
         )
 
-        # roll-in trajectory
+        # roll-in trajectory coloured by roll rate
         xr = onp.asarray(x_roll, dtype=float)
         yr = onp.asarray(y_roll, dtype=float)
-        t_param = onp.linspace(0, 1, len(xr))
+        p_roll_arr = onp.degrees(onp.asarray(p_roll, dtype=float))
 
-        points = onp.array([xr, yr]).T.reshape(-1, 1, 2)
-        segments = onp.concatenate([points[:-1], points[1:]], axis=1)
-        lc = LineCollection(
-            segments,
-            cmap="winter",
-            array=t_param,
-            linewidth=1.5,
-            zorder=1100,
-        )
-        ax.add_collection(lc)
+        if xr.size >= 2:
+            # build line segments
+            points = onp.stack([xr, yr], axis=1).reshape(-1, 1, 2)  # (N, 1, 2)
+            segments = onp.concatenate([points[:-1], points[1:]], axis=1)  # (N-1, 2, 2)
 
-        line_cmap = mpl.colormaps["winter"]
-        c_start = line_cmap(0.0)
-        c_end = line_cmap(1.0)
+            # one roll-rate value per segment
+            p_abs = onp.abs(p_roll_arr)
+            p_seg = 0.5 * (p_abs[:-1] + p_abs[1:])  # (N-1,)
 
-        ax.scatter(
-            [xr[0]],
-            [yr[0]],
-            s=35,
-            marker="o",
-            facecolor=c_start,
-            edgecolor="k",
-            linewidth=0.6,
-            zorder=1200,
-        )
+            # robust normalization (avoid vmin == vmax)
+            p_min = float(p_seg.min())
+            p_max = float(p_seg.max())
+            if p_max <= p_min:
+                p_max = p_min + 1e-6
 
-        ax.scatter(
-            [xr[-1]],
-            [yr[-1]],
-            s=55,
-            marker="X",
-            facecolor=c_end,
-            edgecolor="k",
-            linewidth=0.6,
-            zorder=1200,
-        )
+            norm_p = mpl.colors.Normalize(vmin=p_min, vmax=p_max)
 
-        cbar = fig.colorbar(cf, ax=ax, shrink=0.95)
-        cbar.set_label(f"w (m/s) at z = {z_plot:.2f} m")
+            # create line collection coloured by roll rate
+            lc = LineCollection(
+                segments,
+                cmap="winter",
+                norm=norm_p,
+                array=p_seg,
+                linewidth=1.5,
+                zorder=1100,
+            )
+            ax.add_collection(lc)
+
+            # markers at start and end, coloured consistently
+            cmap_p = mpl.colormaps["winter"]
+            c_start = cmap_p(norm_p(p_seg[0]))
+            c_end = cmap_p(norm_p(p_seg[-1]))
+
+            ax.scatter(
+                [xr[0]], [yr[0]],
+                s=35, marker="o",
+                facecolor=c_start, edgecolor="k", linewidth=0.5,
+                zorder=1200,
+            )
+
+            ax.scatter(
+                [xr[-1]], [yr[-1]],
+                s=55, marker="X",
+                facecolor=c_end, edgecolor="k", linewidth=0.5,
+                zorder=1200,
+            )
+
+            # Left axis: roll-rate colorbar
+            cax_p = divider.append_axes("left", size="3.8%", pad=0.55)
+            cbar_p = fig.colorbar(lc, cax=cax_p)
+            cax_p.yaxis.set_ticks_position("left")
+            cax_p.yaxis.set_label_position("left")
+            cbar_p.set_label(r"$p$ (deg/s)")
+
+            # right axis: thermal colorbar
+            cbar_w = fig.colorbar(cf, cax=cax_w)
+            cbar_w.set_label(f"w (m/s) at z = {z_plot:.2f} m")
+            
+        else:
+            # degenerate case: fallback to simple line plot
+            ax.plot(xr, yr, color="k", linewidth=1.5, zorder=1100)
+
+            cbar_w = fig.colorbar(cf, cax=cax_w)
+            cbar_w.set_label(f"w (m/s) at z = {z_plot:.2f} m")
+
         ax.set_xlabel("x (m)")
         ax.set_ylabel("y (m)")
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(y_min, y_max)
         ax.set_aspect("equal", adjustable="box")
-        ax.grid(True, linestyle=":", linewidth=0.5)
+
+        # make sure axes, ticks, and spines are black
+        ax.tick_params(axis="both", colors="k", which="both")
+        ax.xaxis.label.set_color("k")
+        ax.yaxis.label.set_color("k")
+        for spine in ax.spines.values():
+            spine.set_color("k")
+            spine.set_linewidth(1.0)
+        
+        ax.set_axisbelow(False)
+        ax.grid(
+            True,
+            linestyle=":",
+            linewidth=0.5,
+            color="k",
+            alpha=0.6,
+            zorder=1000,
+        )
 
         fig.tight_layout()
         fig.savefig(
             "figures/thermal_with_rollin_trajectory.png",
             dpi=300,
             bbox_inches="tight",
+        )
+
+        ### Roll rate and aileron deflection vs time 
+        fig_ts, ax_p = plt.subplots(
+            figsize=(7.2, 4.8),
+            dpi=300,
+            facecolor="white",
+        )
+        ax_p.set_facecolor("white")
+
+        t_ts = onp.asarray(t_roll_vec, dtype=float)
+        p_ts = onp.degrees(onp.asarray(p_roll, dtype=float))
+        da_ts = onp.asarray(delta_A_roll_deg_sol, dtype=float)
+
+        # left axis: roll rate
+        line_p, = ax_p.plot(
+            t_ts,
+            p_ts,
+            color="#0000CD",
+            alpha=0.75,
+            linewidth=1.3,
+        )
+        ax_p.set_xlabel("t (s)")
+        ax_p.set_ylabel("p (deg/s)")
+
+        # right axis: aileron deflection
+        ax_da = ax_p.twinx()
+        line_da, = ax_da.plot(
+            t_ts,
+            da_ts,
+            color="#DC143C",
+            alpha=0.75,
+            linewidth=1.3,
+        )
+        ax_da.set_ylabel(r"$\delta_A$ (deg)")
+
+        # make sure both axes are black
+        ax_p.tick_params(axis="both", colors="k", which="both")
+        ax_p.xaxis.label.set_color("k")
+        ax_p.yaxis.label.set_color("k")
+        for spine in ax_p.spines.values():
+            spine.set_color("k")
+            spine.set_linewidth(1.0)
+        
+        ax_da.tick_params(axis="y", colors="k", which="both")
+        ax_da.yaxis.label.set_color("k")
+        for spine in ax_da.spines.values():
+            spine.set_color("k")
+            spine.set_linewidth(1.0)
+
+        ax_p.grid(
+            True,
+            linestyle=":",
+            linewidth=0.5,
+            color="k",
+            alpha=0.6
+        )
+
+        # Combined legend (works even though axes are different)
+        lines = [line_p, line_da]
+        labels = ["p (deg/s)", r"$\delta_A$ (deg)"]
+        ax_p.legend(lines, labels, loc="best")
+
+        fig_ts.tight_layout()
+        fig_ts.savefig(
+            "figures/rollrate_and_aileron_vs_time.png",
+            dpi=300,
+            bbox_inches="tight",
+            facecolor=fig_ts.get_facecolor(),
         )
 
     ###### Save results to file
@@ -1403,9 +1538,8 @@ if __name__ == "__main__":
         "δ_E (deg)": to_scalar(delta_E_deg),
 
         # roll-in kinematics
-        "p (rad/s)": to_scalar(p_roll),
-        "p (deg/s)": to_scalar(p_roll_deg),
-        "p_max (rad/s)": to_scalar(p_roll_max),
+        "p (rad/s)": to_scalar(p_roll_char),
+        "p_peak (rad/s)": to_scalar(p_roll_peak),
         "t_roll (s)": to_scalar(t_roll),
         "ψ0 (deg)": to_scalar(psi0_deg),
         "Cl,δA (rad^-1)": to_scalar(Cl_delta_A),
@@ -1554,9 +1688,10 @@ if __name__ == "__main__":
             "x (m)": onp.asarray(x_roll, dtype=float),
             "y (m)": onp.asarray(y_roll, dtype=float),
             "ψ (rad)": onp.asarray(psi_roll, dtype=float),
-            "ψ (deg)": onp.degrees(
-                onp.asarray(psi_roll, dtype=float)
-            ),
+            "ψ (deg)": onp.degrees(onp.asarray(psi_roll, dtype=float)),
+            "p (rad/s)": onp.asarray(p_roll, dtype=float),
+            "ϕ (deg)": onp.degrees(onp.asarray(phi_roll, dtype=float)),
+            "δ_A_roll (deg)": onp.asarray(delta_A_roll_deg_sol, dtype=float),
         }
     )
 
