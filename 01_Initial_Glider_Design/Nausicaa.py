@@ -754,7 +754,7 @@ psi0 = np.radians(psi0_deg)
 t_roll = opti.variable(init_guess=0.7, lower_bound=0.05, upper_bound=5.0)
 
 # time discretisation
-N_roll = 41
+N_roll = 101
 dt = t_roll / (N_roll - 1)
 
 # state trajectories along roll-in
@@ -769,7 +769,7 @@ delta_A_roll_deg = opti.variable(
     upper_bound=25.0,
 )
 delta_A_roll_rad = np.radians(delta_A_roll_deg)
-delta_A_rate_max = 300.0
+delta_A_rate_max = 250.0
 
 ### Initial conditions
 opti.subject_to([
@@ -965,6 +965,7 @@ if __name__ == "__main__":
     import matplotlib as mpl
     import matplotlib.pyplot as plt
     import matplotlib.colors as mcolors
+    import matplotlib.ticker as mticker
     from matplotlib.collections import LineCollection
     from mpl_toolkits.axes_grid1 import make_axes_locatable
     import aerosandbox.tools.pretty_plots as p
@@ -1406,54 +1407,85 @@ if __name__ == "__main__":
         p_ts = onp.degrees(onp.asarray(p_roll, dtype=float))
         da_ts = onp.asarray(delta_A_roll_deg_sol, dtype=float)
 
+        c_p  = "#0000CD"   # roll-rate color
+        c_da = "#DC143C"   # aileron color
+
         # left axis: roll rate
         line_p, = ax_p.plot(
-            t_ts,
-            p_ts,
-            color="#0000CD",
-            alpha=0.75,
-            linewidth=1.3,
+            t_ts, p_ts,
+            color=c_p, alpha=0.75, linewidth=1.3,
+            label=r"$p$ (deg/s)",
         )
         ax_p.set_xlabel("t (s)")
         ax_p.set_ylabel("p (deg/s)")
 
+        p_top = 100.0
+        p_step = 20.0
+        ax_p.set_ylim(0.0, p_top)
+        ax_p.yaxis.set_major_locator(mticker.MultipleLocator(p_step))
+
+        ax_p.grid(True, which="major", linestyle=":", linewidth=0.5, color="k", alpha=0.35)
+        ax_p.set_axisbelow(True)
+
+        ax_p.tick_params(axis="y", colors=c_p, which="both")
+        ax_p.yaxis.label.set_color(c_p)
+
+        ax_p.tick_params(axis="x", colors="k", which="both")
+        ax_p.xaxis.label.set_color("k")
+
+        ax_p.spines["left"].set_visible(True)
+        ax_p.spines["bottom"].set_visible(True)
+        ax_p.spines["left"].set_color(c_p)
+        ax_p.spines["bottom"].set_color("k")
+        ax_p.spines["left"].set_linewidth(1.2)
+        ax_p.spines["bottom"].set_linewidth(1.2)
+        ax_p.spines["left"].set_zorder(10)
+        ax_p.spines["bottom"].set_zorder(10)
+        ax_p.spines["top"].set_color("k")
+        ax_p.spines["top"].set_linewidth(1.0)
+
         # right axis: aileron deflection
         ax_da = ax_p.twinx()
+        ax_da.set_facecolor("none")
+        ax_da.patch.set_alpha(0.0)
+
         line_da, = ax_da.plot(
-            t_ts,
-            da_ts,
-            color="#DC143C",
-            alpha=0.75,
-            linewidth=1.3,
+            t_ts, da_ts,
+            color=c_da, alpha=0.75, linewidth=1.3,
+            label=r"$\delta_A$ (deg)",
         )
         ax_da.set_ylabel(r"$\delta_A$ (deg)")
 
-        # make sure both axes are black
-        ax_p.tick_params(axis="both", colors="k", which="both")
-        ax_p.xaxis.label.set_color("k")
-        ax_p.yaxis.label.set_color("k")
-        for spine in ax_p.spines.values():
-            spine.set_color("k")
-            spine.set_linewidth(1.0)
-        
-        ax_da.tick_params(axis="y", colors="k", which="both")
-        ax_da.yaxis.label.set_color("k")
-        for spine in ax_da.spines.values():
-            spine.set_color("k")
-            spine.set_linewidth(1.0)
+        da_top = 25.0
+        da_step = 5.0
+        ax_da.set_ylim(0.0, da_top)
+        ax_da.yaxis.set_major_locator(mticker.MultipleLocator(da_step))
 
-        ax_p.grid(
-            True,
-            linestyle=":",
-            linewidth=0.5,
-            color="k",
-            alpha=0.6
+        ax_da.grid(False)
+
+        ax_da.tick_params(axis="y", colors=c_da, which="both")
+        ax_da.yaxis.label.set_color(c_da)
+        ax_da.spines["right"].set_color(c_da)
+        ax_da.spines["right"].set_linewidth(1.2)
+        ax_da.spines["right"].set_zorder(10)
+
+        ax_da.spines["top"].set_color("k")
+        ax_da.spines["top"].set_linewidth(1.0)
+        ax_da.spines["left"].set_visible(False)
+        ax_da.spines["bottom"].set_visible(False)
+
+        # legend
+        leg = ax_p.legend(
+            handles=[line_p, line_da],
+            labels=[line_p.get_label(), line_da.get_label()],
+            loc="upper right",
+            frameon=True,
         )
 
-        # Combined legend (works even though axes are different)
-        lines = [line_p, line_da]
-        labels = ["p (deg/s)", r"$\delta_A$ (deg)"]
-        ax_p.legend(lines, labels, loc="best")
+        leg.get_frame().set_facecolor("white")
+        leg.get_frame().set_alpha(1.0)
+        leg.get_frame().set_edgecolor((0, 0, 0, 0.75))
+        leg.get_frame().set_linewidth(0.75)
 
         fig_ts.tight_layout()
         fig_ts.savefig(
