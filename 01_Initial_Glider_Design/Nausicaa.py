@@ -306,7 +306,7 @@ vtail = asb.Wing(
 V_VT = vtail.area() * l_VT / (wing.area() * b_W)
 
 ### Fuselage
-x_tail = np.maximum(l_HT, l_VT)
+x_tail = l_HT
 
 # fuselage assembly
 fuselage = asb.Fuselage(
@@ -680,59 +680,6 @@ sink_rate = power_loss / g / mass_props_TOGW.mass
 K_n = (aero["x_np"] - mass_props_TOGW.x_cg) / wing.mean_aerodynamic_chord()
 climb_rate = w - sink_rate
 
-##### Finalize Optimization Problem
-
-# “softmax” style penalty on climb rate shortfall
-k_soft = 50.0
-shortfall = (1 / k_soft) * np.log(1 + np.exp(-k_soft * climb_rate))
-obj_climb = shortfall ** 2
-
-obj_span = b_W + b_HT + b_VT
-
-obj_control = 1e-5 * (
-    delta_E_deg ** 2 + delta_A_deg ** 2 + delta_R_deg ** 2
-)
-
-objective = obj_climb + obj_span + obj_control
-
-# tiny penalty on ballast CG position
-penalty = (mass_props["ballast"].x_cg / 1e3) ** 2
-
-opti.minimize(objective + penalty)
-
-### Optimization constraints
-opti.subject_to(
-    [
-
-        # coordinated turn bank-angle bounds
-        opti.bounded(5.0, phi, 65.0),
-
-        # aerodynamics (force balance in turn)
-        aero["L"] >= n_load * mass_props_TOGW.mass * g,
-
-        # trim and stability constraints
-        aero["Cl"] == 0.0,  # trimmed in roll
-        aero["Cm"] == 0.0,  # trimmed in pitch
-        aero["Cn"] == 0.0,  # trimmed in yaw
-
-        # stability derivatives
-        aero["Clb"] <= -0.025,
-        aero["Cnb"] >= 0.03,
-
-        opti.bounded(0.04, K_n, 0.10),  # static margin Kn
-        opti.bounded(0.40, V_HT, 0.70),
-        opti.bounded(0.02, V_VT, 0.04),
-    ]
-)
-
-### Additional constraints
-opti.subject_to(
-    [
-        L_over_D_turn == L_over_D,
-        design_mass_TOGW == mass_props_TOGW.mass,
-    ]
-)
-
 
 ##### Roll-In Manoeuvre (full roll dynamics)
 
@@ -751,7 +698,7 @@ psi0_deg = opti.variable(init_guess=0.0, lower_bound=-90.0, upper_bound=90.0)
 psi0 = np.radians(psi0_deg)
 
 # roll-in duration (decision variable)
-t_roll = opti.variable(init_guess=0.7, lower_bound=0.05, upper_bound=5.0)
+t_roll = opti.variable(init_guess=0.7, lower_bound=0.05, upper_bound=20.0)
 
 # time discretisation
 N_roll = 101
@@ -825,9 +772,13 @@ for k_idx in range(N_roll - 1):
         # enforce monotonic left-roll (no reversal)
         p_roll[k_idx + 1] >= 0.0,
 
+        # maximum roll rate
+        p_roll[k_idx + 1] <= 1.5,
+
         # prevent crazy bang-bang aileron
         (delta_A_roll_deg[k_idx + 1] - delta_A_roll_deg[k_idx]) <=  delta_A_rate_max * dt,
         (delta_A_roll_deg[k_idx + 1] - delta_A_roll_deg[k_idx]) >= -delta_A_rate_max * dt,
+        delta_A_roll_deg[k_idx + 1] <= 25.0
     ])
 
 ### End-of-roll constraints
@@ -852,6 +803,62 @@ opti.subject_to([
     # positive yaw rate (left turn about centre)
     -np.cos(psi[-1]) * dy_end + np.sin(psi[-1]) * dx_end >= 0.0,
 ])
+
+
+##### Finalize Optimization Problem
+
+# “softmax” style penalty on climb rate shortfall
+k_soft = 50.0
+shortfall = (1 / k_soft) * np.log(1 + np.exp(-k_soft * climb_rate))
+obj_climb = shortfall**2
+
+obj_span = b_W + b_HT + b_VT
+
+obj_rolltime = t_roll
+
+obj_control = 1e-5 * (
+    delta_E_deg**2 + delta_A_deg**2 + delta_R_deg**2
+)
+
+objective = obj_climb + obj_span + obj_rolltime + obj_control
+
+# tiny penalty on ballast CG position
+penalty = (mass_props["ballast"].x_cg / 1e3) ** 2
+
+opti.minimize(objective + penalty)
+
+### Optimization constraints
+opti.subject_to(
+    [
+
+        # coordinated turn bank-angle bounds
+        opti.bounded(5.0, phi, 65.0),
+
+        # aerodynamics (force balance in turn)
+        aero["L"] >= n_load * mass_props_TOGW.mass * g,
+
+        # trim and stability constraints
+        aero["Cl"] == 0.0,  # trimmed in roll
+        aero["Cm"] == 0.0,  # trimmed in pitch
+        aero["Cn"] == 0.0,  # trimmed in yaw
+
+        # stability derivatives
+        aero["Clb"] <= -0.025,
+        aero["Cnb"] >= 0.03,
+
+        opti.bounded(0.04, K_n, 0.10),  # static margin Kn
+        opti.bounded(0.40, V_HT, 0.70),
+        opti.bounded(0.02, V_VT, 0.04),
+    ]
+)
+
+### Additional constraints
+opti.subject_to(
+    [
+        L_over_D_turn == L_over_D,
+        design_mass_TOGW == mass_props_TOGW.mass,
+    ]
+)
 
 
 ##### Solve Optimization Problem
@@ -945,6 +952,7 @@ if __name__ == "__main__":
     penalty_val = sol(penalty)
     obj_climb = sol(obj_climb)
     obj_span = sol(obj_span)
+    obj_rolltime = sol(obj_rolltime)
     obj_control = sol(obj_control)
 
     # stability and volume coefficients
@@ -982,6 +990,7 @@ if __name__ == "__main__":
         "Total Objective": fmt(objective),
         "Climb rate": f"{fmt(obj_climb)} ({s(obj_climb) / s(objective) * 100:.1f}%)",
         "Span": f"{fmt(obj_span)} ({s(obj_span) / s(objective) * 100:.1f}%)",
+        "Roll-in-time": f"{fmt(obj_rolltime)} ({s(obj_rolltime) / s(objective) * 100:.1f}%)",
         "Control effect": f"{fmt(obj_control)} ({s(obj_control) / s(objective) * 100:.1f}%)",
     }.items():
         print(f"{key.rjust(25)} = {val}")
@@ -1029,8 +1038,8 @@ if __name__ == "__main__":
         ub=x_tail,
     )
 
-    check_var("δ_E (deg)", delta_E_deg, lb=-25.0, ub=25.0)
-    check_var("δ_A (deg)", delta_A_deg, lb=-30.0, ub=30.0)
+    check_var("δ_E (deg)", delta_E_deg, lb=-30.0, ub=30.0)
+    check_var("δ_A (deg)", delta_A_deg, lb=-25.0, ub=25.0)
     check_var("δ_R (deg)", delta_R_deg, lb=-25.0, ub=25.0)
 
     check_var(
@@ -1268,7 +1277,7 @@ if __name__ == "__main__":
                 y_c + R_th0 * onp.sin(theta_circle),
                 color="k",
                 linewidth=1.3,
-                zorder=50,
+                zorder=0,
             )
 
         # target orbit radius R_target
@@ -1421,6 +1430,7 @@ if __name__ == "__main__":
 
         p_top = 100.0
         p_step = 20.0
+        ax_p.set_xlim(left=0.0)
         ax_p.set_ylim(0.0, p_top)
         ax_p.yaxis.set_major_locator(mticker.MultipleLocator(p_step))
 
@@ -1478,7 +1488,7 @@ if __name__ == "__main__":
         leg = ax_p.legend(
             handles=[line_p, line_da],
             labels=[line_p.get_label(), line_da.get_label()],
-            loc="upper right",
+            loc="best",
             frameon=True,
         )
 
@@ -1580,6 +1590,7 @@ if __name__ == "__main__":
         "objective_total": to_scalar(objective_val),
         "objective_climb": to_scalar(obj_climb),
         "objective_span": to_scalar(obj_span),
+        "objective_roll in time": to_scalar(obj_rolltime),
         "objective_control": to_scalar(obj_control),
         "penalty": to_scalar(penalty_val),
 
