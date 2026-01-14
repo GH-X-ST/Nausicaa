@@ -3,8 +3,7 @@ from __future__ import annotations
 import aerosandbox as asb
 
 from config import Config
-from model.mass_strips import lifting_surface_massprops_from_strips
-
+from model.mass_simple import flat_plate_mass_properties
 
 def build_mass_properties(opti: asb.Opti, cfg: Config, geom: dict) -> dict:
     """Assemble aircraft mass properties (structure strips + discrete components)."""
@@ -18,14 +17,25 @@ def build_mass_properties(opti: asb.Opti, cfg: Config, geom: dict) -> dict:
 
     mass_props: dict[str, asb.MassProperties] = {}
 
-    mass_props["wing"] = lifting_surface_massprops_from_strips(
-        lifting_surface=wing, density=cst.density_wing, span_axis="y"
+    mass_props["wing"] = flat_plate_mass_properties(
+        lifting_surface=geom["wing"],
+        density_kg_m3=cst.density_wing,
+        thickness_m=cst.wing_thickness,
+        span_axis="y",
     )
-    mass_props["htail_surfaces"] = lifting_surface_massprops_from_strips(
-        lifting_surface=htail, density=cst.density_wing, span_axis="y"
+    
+    mass_props["htail_surfaces"] = flat_plate_mass_properties(
+        lifting_surface=geom["htail"],
+        density_kg_m3=cst.density_wing,
+        thickness_m=cst.tail_thickness,
+        span_axis="y",
     )
-    mass_props["vtail_surfaces"] = lifting_surface_massprops_from_strips(
-        lifting_surface=vtail, density=cst.density_wing, span_axis="z"
+    
+    mass_props["vtail_surfaces"] = flat_plate_mass_properties(
+        lifting_surface=geom["vtail"],
+        density_kg_m3=cst.density_wing,
+        thickness_m=cst.tail_thickness,
+        span_axis="z",
     )
 
     # Avionics / fuselage items

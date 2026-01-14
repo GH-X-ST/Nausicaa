@@ -31,12 +31,22 @@ def main() -> None:
 
     opti = asb.Opti()
 
+    print("[1/8] Building operating point...")
     mission = build_operating_point(opti, cfg)
+    
+    print("[2/8] Building airfoils...")
     airfoils = build_airfoils(cfg)
+    
+    print("[3/8] Building geometry...")
     geom = build_airplane(opti, cfg, airfoils, mission["controls"])
+    
+    print("[4/8] Building mass model...")
     mass = build_mass_properties(opti, cfg, geom)
-
+    
+    print("[5/8] Building thermal model...")
     thermal = build_thermal(cfg, mission["r_target"])
+    
+    print("[6/8] Building aerodynamics...")
     aero_pack = build_aero(
         cfg=cfg,
         airplane=geom["airplane"],
@@ -45,7 +55,8 @@ def main() -> None:
         geom=geom,
         controls=mission["controls"],
     )
-
+    
+    print("[7/8] Building roll-in model...")
     roll = add_roll_in_constraints(
         opti=opti,
         cfg=cfg,
@@ -56,6 +67,7 @@ def main() -> None:
         thermal=thermal,
     )
 
+    print("[8/8] Setting objective and constraints...")
     objective_pack = set_objective_and_constraints(
         opti=opti,
         cfg=cfg,
@@ -66,6 +78,8 @@ def main() -> None:
         aero_pack=aero_pack,
         roll=roll,
     )
+    
+    print("Initialisation complete. Starting solver...")
 
     # Solve
     try:

@@ -32,8 +32,9 @@ def set_objective_and_constraints(
     k_n = (aero["x_np"] - mass["mass_props_togw"].x_cg) / geom["wing"].mean_aerodynamic_chord()
 
     # “softmax” penalty on climb-rate shortfall
-    k_soft = cfg.k_soft
-    shortfall = (1 / k_soft) * np.log(1 + np.exp(-k_soft * climb_rate))
+    x = -cfg.k_soft * climb_rate
+    softplus = np.maximum(x, 0) + np.log1p(np.exp(-np.abs(x)))
+    shortfall = softplus / cfg.k_soft
     obj_climb = shortfall**2
 
     obj_span = geom["b_w"] + geom["b_ht"] + geom["b_vt"]
@@ -54,6 +55,7 @@ def set_objective_and_constraints(
     opti.subject_to(
         [
             aero["L"] >= n_load * mass["mass_props_togw"].mass * cst.g,
+            aero["D"] >= 1e-3,
             aero["Cl"] == 0.0,
             aero["Cm"] == 0.0,
             aero["Cn"] == 0.0,

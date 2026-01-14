@@ -56,7 +56,7 @@ def build_aero(
         fd_step_deg=1.0,
     )
 
-    l_over_d = aero["L"] / aero["D"]
+    l_over_d = aero["L"] / np.maximum(aero["D"], 1e-6)
     power_loss = aero["D"] * op_point.velocity
 
     return {

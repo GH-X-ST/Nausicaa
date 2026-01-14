@@ -13,6 +13,19 @@ class Paths:
 
 
 @dataclass(frozen=True)
+class AirfoilSettings:
+    generate_polars: bool = False
+    n_alpha: int = 21
+
+
+@dataclass(frozen=True)
+class FlatPlatePolar:
+    cd0: float = 0.02
+    k: float = 0.08
+    cl_max: float = 1.2
+
+
+@dataclass(frozen=True)
 class Bounds:
     # Operating point
     v_min: float = 0.1
@@ -58,6 +71,8 @@ class Constants:
     g: float = 9.81
     rho: float = 1.225
     density_wing: float = 33.0  # Depron foam approx
+    wing_thickness: float = 0.006  # 6 mm
+    tail_thickness: float = 0.003  # 3 mm
 
 
 @dataclass(frozen=True)
@@ -93,15 +108,18 @@ class PlotSettings:
 
 @dataclass(frozen=True)
 class RollInSettings:
-    n_roll: int = 101
+    n_roll: int = 21
 
 
 @dataclass(frozen=True)
 class Config:
     paths: Paths = Paths()
+    airfoils: AirfoilSettings = AirfoilSettings()
+    flat_plate: FlatPlatePolar = FlatPlatePolar()
     bounds: Bounds = Bounds()
     constants: Constants = Constants()
     mission: Mission = Mission()
+    arena: Arena = Arena()
     thermal: ThermalParams = ThermalParams()
     plot: PlotSettings = PlotSettings()
     roll_in: RollInSettings = RollInSettings()
