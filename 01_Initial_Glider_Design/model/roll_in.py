@@ -30,8 +30,9 @@ def add_roll_in_constraints(
     phi_rad = mission["phi_rad"]
     r_target = mission["r_target"]
 
-    x_min, x_max = 0.0, 8.0
-    y_min, y_max = 0.0, 5.0
+    a = cfg.arena
+    x_min, x_max = a.x_min, a.x_max
+    y_min, y_max = a.y_min, a.y_max
 
     x0 = 0.0
     y0 = thermal["y_center"]
@@ -131,3 +132,13 @@ def add_roll_in_constraints(
         "y": y,
         "delta_a_roll_deg": delta_a_roll_deg,
     }
+
+def orbit_r_max(cfg: Config, x_center: float, y_center: float) -> float:
+    """Maximum orbit radius so the entire circle stays inside the arena."""
+    a = cfg.arena
+    return min(
+        x_center - a.x_min,
+        a.x_max - x_center,
+        y_center - a.y_min,
+        a.y_max - y_center,
+    )

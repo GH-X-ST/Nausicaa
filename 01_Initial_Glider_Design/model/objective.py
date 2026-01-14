@@ -4,7 +4,7 @@ import aerosandbox as asb
 import aerosandbox.numpy as np
 
 from config import Config
-
+from model.roll_in import orbit_r_max
 
 def set_objective_and_constraints(
     opti: asb.Opti,
@@ -70,6 +70,14 @@ def set_objective_and_constraints(
         [
             mission["l_over_d_turn"] == l_over_d,
             mission["design_mass_togw"] == mass["mass_props_togw"].mass,
+        ]
+    )
+
+    # Orbit feasibility
+    r_max = orbit_r_max(cfg, thermal["x_center"], thermal["y_center"])
+    opti.subject_to(
+        [
+            mission["r_target"] <= r_max
         ]
     )
 

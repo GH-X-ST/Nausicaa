@@ -67,6 +67,14 @@ class Mission:
 
 
 @dataclass(frozen=True)
+class Arena:
+    x_min: float = 0.0
+    x_max: float = 8.0
+    y_min: float = 0.0
+    y_max: float = 5.0
+
+
+@dataclass(frozen=True)
 class ThermalParams:
     q_v: float = 1.69
     x_center: float = 4.0
