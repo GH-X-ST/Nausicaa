@@ -111,7 +111,7 @@ def vertical_velocity_field(
 if __name__ == "__main__" and make_plots:
 
     # Output directory for figures
-    output_dir = "figures"
+    output_dir = "B_figures"
     os.makedirs(output_dir, exist_ok=True)
 
     # CAMAX30 thermal parameters (single equivalent plume)
