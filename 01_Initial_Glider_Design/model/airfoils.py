@@ -15,7 +15,7 @@ def build_airfoils(cfg: Config) -> dict[str, asb.Airfoil]:
     - Named airfoils (optionally with cached polars)
     - An analytic 'flat_plate' airfoil with a simple geometry definition for plotting.
     """
-    airfoil_names = ["ag04", "naca0008", "s1223", "s3021"]
+    airfoil_names = ["ag04", "naca0002", "naca0008", "s1223", "s3021"]
     airfoils: dict[str, asb.Airfoil] = {name: asb.Airfoil(name=name) for name in airfoil_names}
 
     # flat plate model

@@ -64,7 +64,7 @@ def build_airplane(
             asb.WingXSec(
                 xyz_le=wing_rotation([-chord_w(y_w), y_w, 0.0]),
                 chord=chord_w(y_w),
-                airfoil=airfoils["flat_plate"],
+                airfoil=airfoils["naca0002"],
                 twist=twist_w(y_w),
                 control_surfaces=cs_list,
             )
@@ -103,7 +103,7 @@ def build_airplane(
                 xyz_le=[l_ht - chord_ht(y_ht), y_ht, 0.0],
                 chord=chord_ht(y_ht),
                 twist=twist_ht(y_ht),
-                airfoil=airfoils["flat_plate"],
+                airfoil=airfoils["naca0002"],
                 control_surfaces=[elevator_cs],
             )
         )
@@ -138,7 +138,7 @@ def build_airplane(
                 xyz_le=[l_vt - chord_vt(z_vt), 0.0, z_vt],
                 chord=chord_vt(z_vt),
                 twist=twist_vt(z_vt),
-                airfoil=airfoils["flat_plate"],
+                airfoil=airfoils["naca0002"],
                 control_surfaces=[rudder_cs],
             )
         )

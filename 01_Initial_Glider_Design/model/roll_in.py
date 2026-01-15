@@ -174,7 +174,7 @@ def add_roll_in_constraints(
 
 
 def orbit_r_max(cfg: Config, x_center: float, y_center: float) -> float:
-    """Find maximum allowable orbit radius."""
+    """Find maximum orbit radius."""
     a = cfg.arena
     return min(
         x_center - a.x_min,

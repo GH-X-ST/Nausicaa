@@ -23,7 +23,7 @@ def build_operating_point(opti: asb.Opti, cfg: Config) -> dict:
             log_transform=True,
         ),
         alpha=opti.variable(
-            init_guess=0.0,
+            init_guess=5.0,
             lower_bound=bnd.alpha_min_deg,
             upper_bound=bnd.alpha_max_deg,
         ),

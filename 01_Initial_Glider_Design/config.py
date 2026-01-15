@@ -14,7 +14,7 @@ class Paths:
 
 @dataclass(frozen=True)
 class AirfoilSettings:
-    generate_polars: bool = False
+    generate_polars: bool = True
     n_alpha: int = 21
 
 
@@ -77,7 +77,7 @@ class Constants:
 
 @dataclass(frozen=True)
 class Mission:
-    bank_angle_deg: float = 35.0
+    bank_angle_deg: float = 40.0
     z_th: float = 1.00
 
 
