@@ -153,8 +153,8 @@ if __name__ == "__main__" and make_plots:
 
     # CAMAX30 fan / thermal parameters
     Q_v = 1.69   # m^3 s^-1 per jet
-    x_th_centre = 4.0  # m, arena centre (thermal array centre)
-    y_th_centre = 2.5  # m
+    x_th_centre = 4.2  # m, arena centre (thermal array centre)
+    y_th_centre = 2.4  # m
 
     # Plume parameters (R_th(z) = R_th0 + k_th (z - z0))
     R_th0 = 0.381  # m, core radius at reference height
@@ -162,7 +162,7 @@ if __name__ == "__main__" and make_plots:
     z0 = 0.50      # m, reference height at fan centre
 
     # Fan / thermal layout
-    fan_spacing = 2.0 * R_th0 + 0.5  # m
+    fan_spacing = 2.0 * R_th0 + 1.7  # m
     thermal_centres = [
         (x_th_centre - fan_spacing / 2.0, y_th_centre - fan_spacing / 2.0),
         (x_th_centre + fan_spacing / 2.0, y_th_centre - fan_spacing / 2.0),
@@ -171,8 +171,8 @@ if __name__ == "__main__" and make_plots:
     ]
 
     # Flight arena bounds
-    x_min, x_max = 0.0, 8.0
-    y_min, y_max = 0.0, 5.0
+    x_min, x_max = 0.0, 8.4
+    y_min, y_max = 0.0, 4.8
     z_min, z_max = 0.0, 3.5
 
     ### 2D slice: contour of w(x, y, z_slice)

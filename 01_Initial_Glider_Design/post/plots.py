@@ -81,8 +81,8 @@ def _plot_thermal_with_rollin_trajectory(cfg: Config, solved: SolvedModel) -> No
     from mpl_toolkits.axes_grid1 import make_axes_locatable
 
     # Experiment volume bounds
-    x_min, x_max = 0.0, 8.0
-    y_min, y_max = 0.0, 5.0
+    x_min, x_max = float(cfg.arena.x_min), float(cfg.arena.x_max)
+    y_min, y_max = float(cfg.arena.y_min), float(cfg.arena.y_max)
 
     # Thermal parameters from solved
     q_v = float(solved.thermal["q_v"])

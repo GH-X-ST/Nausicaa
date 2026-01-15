@@ -55,7 +55,7 @@ def vertical_velocity_field(
 def build_thermal(cfg: Config, r_orbit) -> dict:
     """Build thermal model and return average updraft at orbit radius."""
     th = cfg.thermal
-    fan_spacing = 2 * th.r_th0 + 0.5
+    fan_spacing = 2 * th.r_th0 + 1.7
 
     w_avg = vertical_velocity_field(
         q_v=th.q_v,

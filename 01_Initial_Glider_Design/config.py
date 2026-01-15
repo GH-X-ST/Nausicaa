@@ -84,9 +84,9 @@ class Mission:
 @dataclass(frozen=True)
 class Arena:
     x_min: float = 0.0
-    x_max: float = 8.0
+    x_max: float = 8.4
     y_min: float = 0.0
-    y_max: float = 5.0
+    y_max: float = 4.8
 
 
 @dataclass(frozen=True)
