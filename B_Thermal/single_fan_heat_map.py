@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-import cmocean # ttps://matplotlib.org/cmocean
+import cmocean # https://matplotlib.org/cmocean
 
 ### User settings
 XLSX_PATH = "S01.xlsx"
@@ -21,7 +21,7 @@ OUT_DIR.mkdir(exist_ok=True)
 
 MASK_ZEROS_AS_NODATA = False
 
-# Units / labels (edit to match your notation)
+# Units / labels
 CBAR_LABEL = r"$w$ (m$\cdot$s$^{-1}$)"   # vertical velocity
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
@@ -30,7 +30,6 @@ YLABEL = r"$y$ (m)"
 CELL_EDGE_LW = 0.30
 AXIS_EDGE_LW = 0.30
 CBAR_EDGE_LW = 0.50
-CBAR_TICK_STEP = 0.50  # m/s
 
 # Helpers
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
@@ -90,7 +89,7 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     x_centers = 0.5 * (x_edges[:-1] + x_edges[1:])
     y_centers = 0.5 * (y_edges[:-1] + y_edges[1:])
 
-    # Figure styling (reasonable for IEEE 2-col; adjust if needed)
+    # Figure styling
     plt.rcParams.update({
         "font.size": 7,
         "axes.labelsize": 7,
@@ -102,7 +101,7 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
         "patch.edgecolor": "k",
     })
 
-    fig, ax = plt.subplots(figsize=(6.8, 5.6), dpi=700)  # larger for readability
+    fig, ax = plt.subplots(figsize=(6.8, 5.6), dpi=600)  # larger for readability
 
     # Heatmap with cell edges
     im = ax.pcolormesh(
@@ -115,7 +114,7 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
         linewidth=CELL_EDGE_LW,
     )
 
-    # Annotate each cell with its value (skip NaNs)
+    # Annotate each cell with its value
     for iy, y0 in enumerate(y_centers):
         for ix, x0 in enumerate(x_centers):
             val = W_plot[iy, ix]
@@ -139,15 +138,6 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     cbar = fig.colorbar(im, cax=cax)
     cbar.set_label(CBAR_LABEL)
     cbar.formatter = FormatStrFormatter("%.2f")
-    if CBAR_TICK_STEP:
-        finite_vals = W_plot[np.isfinite(W_plot)]
-        if finite_vals.size:
-            vmin = np.nanmin(finite_vals)
-            vmax = np.nanmax(finite_vals)
-            start = np.floor(vmin / CBAR_TICK_STEP) * CBAR_TICK_STEP
-            end = np.ceil(vmax / CBAR_TICK_STEP) * CBAR_TICK_STEP
-            ticks = np.arange(start, end + CBAR_TICK_STEP * 0.5, CBAR_TICK_STEP)
-            cbar.set_ticks(ticks)
     cbar.update_ticks()
     cbar.outline.set_linewidth(CBAR_EDGE_LW)
     cbar.outline.set_edgecolor("k")
@@ -171,7 +161,7 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     ax.set_yticklabels([f"{v:g}" for v in y])
     ax.tick_params(axis="both", which="major", length=2, width=0.6)
 
-    # Optional: tighten limits to data extents
+    # Tighten limits to data extents
     ax.set_xlim(x_edges[0], x_edges[-1])
     ax.set_ylim(y_edges[0], y_edges[-1])
 
@@ -180,12 +170,12 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
         outpath,
         bbox_inches="tight",
         facecolor="white",
-        dpi=2000,
+        dpi=600,
     )
     plt.close(fig)
 
 
-### Export each sheet as a PDF/PNG
+### Export each sheet as PNG
 def main():
     for sh in SHEETS:
         x, y, W = read_slice_from_sheet(XLSX_PATH, sh)
