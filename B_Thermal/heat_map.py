@@ -7,6 +7,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FormatStrFormatter
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+import cmocean # ttps://matplotlib.org/cmocean
 
 ### User settings
 XLSX_PATH = "S01.xlsx"
@@ -22,14 +26,16 @@ CBAR_LABEL = r"$w$ (m$\cdot$s$^{-1}$)"   # vertical velocity
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
+# Line widths
+CELL_EDGE_LW = 0.30
+AXIS_EDGE_LW = 0.30
+CBAR_EDGE_LW = 0.50
+CBAR_TICK_STEP = 0.50  # m/s
 
-# ----------------------------
 # Helpers
-# ----------------------------
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
     """
     Convert 1D array of cell centers -> cell edges for pcolormesh.
-    Works for nonuniform spacing.
     """
     c = np.asarray(c, dtype=float)
     if c.size < 2:
@@ -69,9 +75,8 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     return x, y, W
 
 
-def plot_heatmap(x, y, W, title: str, outpath: Path, mask_zeros: bool = True):
+def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     """
-    IEEE-ish single-panel heatmap with colorbar, equal aspect, clean layout.
     Uses pcolormesh with edges for nonuniform grids.
     """
     # Masking policy
@@ -82,57 +87,112 @@ def plot_heatmap(x, y, W, title: str, outpath: Path, mask_zeros: bool = True):
     # Convert center grids -> edges for pcolormesh
     x_edges = centers_to_edges(x)
     y_edges = centers_to_edges(y)
+    x_centers = 0.5 * (x_edges[:-1] + x_edges[1:])
+    y_centers = 0.5 * (y_edges[:-1] + y_edges[1:])
 
     # Figure styling (reasonable for IEEE 2-col; adjust if needed)
     plt.rcParams.update({
-        "font.size": 8,
-        "axes.labelsize": 8,
-        "axes.titlesize": 8,
-        "xtick.labelsize": 7,
-        "ytick.labelsize": 7,
+        "font.size": 7,
+        "axes.labelsize": 7,
+        "axes.titlesize": 7,
+        "xtick.labelsize": 6,
+        "ytick.labelsize": 6,
+        "axes.edgecolor": "k",
+        "axes.linewidth": AXIS_EDGE_LW,
+        "patch.edgecolor": "k",
     })
 
-    fig, ax = plt.subplots(figsize=(3.4, 2.8), dpi=300)  # ~single-column width
+    fig, ax = plt.subplots(figsize=(6.8, 5.6), dpi=700)  # larger for readability
 
-    # Heatmap
-    im = ax.pcolormesh(x_edges, y_edges, W_plot, shading="auto")
+    # Heatmap with cell edges
+    im = ax.pcolormesh(
+        x_edges,
+        y_edges,
+        W_plot,
+        shading="auto",
+        cmap=cmocean.cm.thermal,
+        edgecolors=(0, 0, 0, 0.3),
+        linewidth=CELL_EDGE_LW,
+    )
+
+    # Annotate each cell with its value (skip NaNs)
+    for iy, y0 in enumerate(y_centers):
+        for ix, x0 in enumerate(x_centers):
+            val = W_plot[iy, ix]
+            if np.isfinite(val):
+                r, g, b, _a = im.cmap(im.norm(val))
+                luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                text_color = "white" if luminance < 0.5 else "black"
+                ax.text(
+                    x0,
+                    y0,
+                    f"{val:.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=4,
+                    color=text_color,
+                )
 
     # Colorbar
-    cbar = fig.colorbar(im, ax=ax, pad=0.02)
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="3%", pad=0.15)
+    cbar = fig.colorbar(im, cax=cax)
     cbar.set_label(CBAR_LABEL)
+    cbar.formatter = FormatStrFormatter("%.2f")
+    if CBAR_TICK_STEP:
+        finite_vals = W_plot[np.isfinite(W_plot)]
+        if finite_vals.size:
+            vmin = np.nanmin(finite_vals)
+            vmax = np.nanmax(finite_vals)
+            start = np.floor(vmin / CBAR_TICK_STEP) * CBAR_TICK_STEP
+            end = np.ceil(vmax / CBAR_TICK_STEP) * CBAR_TICK_STEP
+            ticks = np.arange(start, end + CBAR_TICK_STEP * 0.5, CBAR_TICK_STEP)
+            cbar.set_ticks(ticks)
+    cbar.update_ticks()
+    cbar.outline.set_linewidth(CBAR_EDGE_LW)
+    cbar.outline.set_edgecolor("k")
+    cbar.outline.set_visible(True)
+    cbar.ax.patch.set_edgecolor("k")
+    cbar.ax.patch.set_linewidth(CBAR_EDGE_LW)
+    cbar.ax.set_frame_on(True)
+    for spine in cbar.ax.spines.values():
+        spine.set_edgecolor("k")
+        spine.set_linewidth(CBAR_EDGE_LW)
 
     # Axes
     ax.set_xlabel(XLABEL)
     ax.set_ylabel(YLABEL)
-    ax.set_title(title)
-    ax.set_aspect("equal")  # preserve geometry
+    ax.set_aspect("equal", adjustable="box")  # 1:1 grid without stretching
+    for spine in ax.spines.values():
+        spine.set_linewidth(AXIS_EDGE_LW)
+    ax.set_xticks(x_centers)
+    ax.set_yticks(y_centers)
+    ax.set_xticklabels([f"{v:g}" for v in x])
+    ax.set_yticklabels([f"{v:g}" for v in y])
+    ax.tick_params(axis="both", which="major", length=2, width=0.6)
 
     # Optional: tighten limits to data extents
     ax.set_xlim(x_edges[0], x_edges[-1])
     ax.set_ylim(y_edges[0], y_edges[-1])
 
     fig.tight_layout()
-    fig.savefig(outpath, bbox_inches="tight")
+    fig.savefig(
+        outpath,
+        bbox_inches="tight",
+        facecolor="white",
+        dpi=2000,
+    )
     plt.close(fig)
 
 
-# ----------------------------
-# Main: export each sheet as a PDF/PNG
-# ----------------------------
+### Export each sheet as a PDF/PNG
 def main():
     for sh in SHEETS:
         x, y, W = read_slice_from_sheet(XLSX_PATH, sh)
 
-        # Example title: z020 -> "z = 0.20 m" (edit if your naming means something else)
-        # If z020 means 0.20 m, this is appropriate:
-        z_m = float(sh[1:]) / 100.0
-        title = rf"Slice at $z = {z_m:.2f}$ m"
-
-        out_pdf = OUT_DIR / f"{sh}_heatmap.pdf"
         out_png = OUT_DIR / f"{sh}_heatmap.png"
 
-        plot_heatmap(x, y, W, title, out_pdf, mask_zeros=MASK_ZEROS_AS_NODATA)
-        plot_heatmap(x, y, W, title, out_png, mask_zeros=MASK_ZEROS_AS_NODATA)
+        plot_heatmap(x, y, W, out_png, mask_zeros=MASK_ZEROS_AS_NODATA)
 
     print(f"Saved figures to: {OUT_DIR.resolve()}")
 
