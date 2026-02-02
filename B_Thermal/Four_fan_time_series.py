@@ -6,12 +6,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
 from matplotlib.ticker import FormatStrFormatter
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-
-try:
-    import cmocean
-except ImportError:  # Fallback if cmocean isn't installed
-    cmocean = None
 
 
 # -----------------------------
@@ -94,7 +88,7 @@ def discover_measurement_heights(sheet_names):
 def build_summary(excel_path: str):
     """
     Build a tidy summary table with mean/std for each point, measurement height,
-    and outlet height case (general/lower/higher).
+    and outlet height case (TS only).
     """
     xls = pd.ExcelFile(excel_path)
     sheet_names = xls.sheet_names
@@ -102,8 +96,7 @@ def build_summary(excel_path: str):
     heights = discover_measurement_heights(sheet_names)
 
     cases = {
-        "TS":     {"sheet": lambda h: f"z{h:03d}_TS", "z_outlet": 960},
-        "Slower": {"sheet": lambda h: f"z{h:03d}_Slower", "z_outlet": 880},
+        "TS": {"sheet": lambda h: f"z{h:03d}_TS", "z_outlet": 960},
     }
 
     records = []
@@ -137,209 +130,103 @@ def build_summary(excel_path: str):
 
 
 # -----------------------------
-# Plotting (Poly3DCollection band for mean ± std)
+# Plotting (2D mean +/- std)
 # -----------------------------
-def add_mean_std_band(
-    ax, x, y_const, mean, std, color, alpha_band=0.32, alpha_mean=0.18
-):
-    """
-    Adds a filled polygon at y=y_const for the band [mean-std, mean+std].
-    """
-    upper = mean + std
-    lower = mean - std
-
-    verts_band = []
-    # upper curve forward
-    for xi, zi in zip(x, upper):
-        verts_band.append((xi, y_const, zi))
-    # lower curve backward to close
-    for xi, zi in zip(x[::-1], lower[::-1]):
-        verts_band.append((xi, y_const, zi))
-
-    poly_band = Poly3DCollection(
-        [verts_band], alpha=alpha_band, facecolor=color, edgecolor=color
-    )
-    ax.add_collection3d(poly_band)
-
-    z_base = min(0.0, float(np.min(lower)))
-    verts_mean = []
-    for xi, zi in zip(x, upper):
-        verts_mean.append((xi, y_const, zi))
-    for xi, zi in zip(x[::-1], np.full_like(x, z_base)[::-1]):
-        verts_mean.append((xi, y_const, zi))
-
-    poly_mean = Poly3DCollection(
-        [verts_mean], alpha=alpha_mean, facecolor=color, edgecolor="none"
-    )
-    ax.add_collection3d(poly_mean)
-
-    # mean line
-    ax.plot(x, np.full_like(x, y_const), mean, linewidth=1.5, color=color)
-
-    # whiskers at each height: mean +/- std
-    for xi, mi, si in zip(x, mean, std):
-        ax.plot(
-            [xi, xi],
-            [y_const, y_const],
-            [mi - si, mi + si],
-            linewidth=1,
-            color=color,
-        )
-
-
-def plot_point_3d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
+def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
     d = summary_df[summary_df["point"] == point_id].copy()
     if d.empty:
         return
 
-    # Sort outlet heights so the stacked "slices" are ordered (draw lowermost first)
-    outlet_levels = sorted(d["z_outlet_m"].unique(), reverse=True)
+    dd = d.sort_values("z_meas_m")
+    x = dd["z_meas_m"].to_numpy(dtype=float)
+    mean = dd["mean_w"].to_numpy(dtype=float)
+    std = dd["std_w"].to_numpy(dtype=float)
 
-    fig = plt.figure(figsize=(10, 5))
-    ax = fig.add_subplot(111, projection="3d")
-
+    fig, ax = plt.subplots(figsize=(5.67, 3.5), dpi=600)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
-    ax.grid(True)
-    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
-        axis.set_pane_color((1.0, 1.0, 1.0, 1.0))
-        axis._axinfo["grid"]["color"] = (0.85, 0.85, 0.85, 1.0)
-        axis._axinfo["grid"]["linewidth"] = 0.4
-    color_map = {
-        880: "#fcb431",
-        960: "#cc4a74",
-    }
+    ax.grid(True, color=(0.0, 0.0, 0.0, 0.1), linewidth=0.1)
 
-    for y0 in outlet_levels:
-        dd = d[d["z_outlet_m"] == y0].sort_values("z_meas_m")
-        x = dd["z_meas_m"].to_numpy(dtype=float)
-        mean = dd["mean_w"].to_numpy(dtype=float)
-        std = dd["std_w"].to_numpy(dtype=float)
+    color = "#16058b"
+    ax.plot(x, mean, color=color, linewidth=1.8, marker="o", markersize=3)
+    ax.errorbar(
+        x,
+        mean,
+        yerr=std,
+        fmt="none",
+        ecolor=color,
+        elinewidth=1.0,
+        capsize=2.0,
+        alpha=0.9,
+        zorder=5,
+    )
+    z_base = min(0.0, float(np.min(mean - std)))
+    ax.fill_between(
+        x,
+        z_base,
+        mean + std,
+        color=color,
+        alpha=0.18,
+        edgecolor="none",
+    )
+    ax.fill_between(
+        x,
+        mean - std,
+        mean + std,
+        color=color,
+        alpha=0.32,
+        edgecolor="none",
+    )
+    ax.plot(x, mean + std, color=color, linewidth=1.0, alpha=0.32)
+    ax.plot(x, mean - std, color=color, linewidth=1.0, alpha=0.32)
 
-        color = color_map.get(y0, "#4c78a8")
-        add_mean_std_band(
-            ax,
-            x=x,
-            y_const=y0,
-            mean=mean,
-            std=std,
+    y_range = float(np.max(mean + std) - np.min(mean - std))
+    y_text_offset = 0.03 * y_range if y_range > 0 else 0.03
+    for xi, mi in zip(x, mean):
+        ax.text(
+            xi,
+            mi + y_text_offset,
+            f"{mi:.2f}",
             color=color,
+            fontsize=8,
+            ha="center",
+            va="bottom",
+            clip_on=False,
+            zorder=20,
+            path_effects=[
+                pe.withStroke(
+                    linewidth=3,
+                    foreground=(1.0, 1.0, 1.0, 0.6),
+                )
+            ],
         )
 
-        # all raw points (small, semi-transparent)
-        for row in dd.itertuples(index=False):
-            w_vals = np.asarray(row.w_vals, dtype=float)
-            ax.scatter(
-                np.full(w_vals.shape, row.z_meas_m),
-                np.full(w_vals.shape, y0),
-                w_vals,
-                s=5,
-                color=color,
-                alpha=0.25,
-            )
-
-        # mean markers (solid)
+    # all raw points (small, semi-transparent)
+    for row in dd.itertuples(index=False):
+        w_vals = np.asarray(row.w_vals, dtype=float)
         ax.scatter(
-            x,
-            np.full_like(x, y0),
-            mean,
-            s=25,
+            np.full(w_vals.shape, row.z_meas_m),
+            w_vals,
+            s=5,
             color=color,
-            alpha=1.0,
-            edgecolors="none",
-            zorder=9,
+            alpha=0.25,
         )
 
-    # Connect points at the same measurement height (dashed, colored by z)
-    z_range = float(d["mean_w"].max() - d["mean_w"].min())
-    z_text_offset = 0.06 * z_range if z_range > 0 else 0.03
-    z_meas_vals = sorted(d["z_meas_m"].unique())
-    if cmocean is not None:
-        z_cmap = cmocean.cm.phase
-    else:
-        z_cmap = plt.get_cmap("plasma")
-    z_min = min(z_meas_vals)
-    z_max = max(z_meas_vals)
-    if z_min == z_max:
-        z_min -= 1e-6
-        z_max += 1e-6
-    for z_meas in sorted(d["z_meas_m"].unique()):
-        t = (z_meas - z_min) / (z_max - z_min)
-        line_color = z_cmap(t)
-        dd_z = d[d["z_meas_m"] == z_meas].sort_values("z_outlet_m")
-        if dd_z.empty:
-            continue
-        y_vals = dd_z["z_outlet_m"].to_numpy(dtype=float)
-        z_vals = dd_z["mean_w"].to_numpy(dtype=float)
-        x_vals = np.full_like(y_vals, z_meas)
-        ax.plot(
-            x_vals,
-            y_vals,
-            z_vals,
-            linestyle="--",
-            color=line_color,
-            linewidth=1,
-            alpha=0.45,
-            zorder=6,
-        )
-        for xi, yi, zi in zip(x_vals, y_vals, z_vals):
-            label_color = color_map.get(yi, "black")
-            if yi == 880:
-                label_zorder = 300
-            elif yi == 960:
-                label_zorder = 200
-            else:
-                label_zorder = 150
-            ax.text(
-                xi,
-                yi,
-                zi + z_text_offset,
-                f"{zi:.2f}",
-                color=label_color,
-                fontsize=8,
-                ha="center",
-                zorder=label_zorder,
-                clip_on=False,
-                path_effects=[
-                    pe.withStroke(
-                        linewidth=3,
-                        foreground=(1.0, 1.0, 1.0, 0.5),
-                    )
-                ],
-            )
-
-    # Labels / view
-    ax.set_xlabel("Measurement height above fan outlet, z (m)", labelpad=17)
-    ax.set_ylabel("Fan speed (rpm)", labelpad=5)
-    ax.set_zlabel("w (m/s)", labelpad=5)
+    ax.set_xlabel("Measurement height above fan outlet, z (m)")
+    ax.set_ylabel("w (m/s)")
     ax.set_xticks(sorted(d["z_meas_m"].unique()))
     for label in ax.get_xticklabels():
         label.set_rotation(-20)
-    ax.set_zlim(0, 7)
-    ax.zaxis.set_major_formatter(FormatStrFormatter("%.2f"))
-    try:
-        ax.set_box_aspect((3.0, 1.0, 1.5))
-    except AttributeError:
-        pass
-    ax.set_yticks([820, 880, 960, 1020])
-    ax.set_yticklabels(["", "880", "960", ""])
+    ax.set_ylim(0, 7)
+    ax.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
 
-    ax.view_init(elev=20, azim=-120)
-    fig.subplots_adjust(left=0.10, right=0.98, bottom=0.08, top=0.98)
-
-    extra_artists = (ax.xaxis.label, ax.yaxis.label, ax.zaxis.label)
-    fig.savefig(
-        out_path,
-        dpi=600,
-        bbox_inches="tight",
-        pad_inches=0.02,
-        bbox_extra_artists=extra_artists,
-    )
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=600)
     plt.close(fig)
 
 
 def main():
-    excel_path = "S01.xlsx"  # <-- change if needed
+    excel_path = "S02.xlsx"  # <-- change if needed
     out_dir = Path("A_figures") / "Sampling_Points"
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -348,7 +235,7 @@ def main():
     # Force P1..P6 in order (skip if missing)
     for k in range(1, 7):
         pid = f"P{k}"
-        plot_point_3d(summary, pid, out_dir / f"{pid}_fan_speed_3D.png")
+        plot_point_2d(summary, pid, out_dir / f"{pid}_four_fan_time_series.png")
 
     print(f"Done. Saved plots to: {out_dir.resolve()}")
 
