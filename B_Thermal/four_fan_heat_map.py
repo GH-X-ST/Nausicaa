@@ -29,7 +29,7 @@ YLABEL = r"$y$ (m)"
 # Line widths
 CELL_EDGE_LW = 0.30
 AXIS_EDGE_LW = 0.30
-CBAR_EDGE_LW = 0.50
+CBAR_EDGE_LW = 0.30
 
 # Helpers
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
@@ -144,6 +144,7 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     cbar.set_label(CBAR_LABEL)
     cbar.formatter = FormatStrFormatter("%.2f")
     cbar.update_ticks()
+    cbar.ax.tick_params(width=0.6, length=2)
     cbar.outline.set_linewidth(CBAR_EDGE_LW)
     cbar.outline.set_edgecolor("k")
     cbar.outline.set_visible(True)
