@@ -176,15 +176,17 @@ def add_mean_std_band(
     # mean line
     ax.plot(x, np.full_like(x, y_const), mean, linewidth=1.5, color=color)
 
-    # whiskers at each height: mean +/- std
-    for xi, mi, si in zip(x, mean, std):
-        ax.plot(
-            [xi, xi],
-            [y_const, y_const],
-            [mi - si, mi + si],
-            linewidth=1,
-            color=color,
-        )
+    # error bars at each height: mean +/- std
+    ax.errorbar(
+        x,
+        np.full_like(x, y_const),
+        mean,
+        zerr=std,
+        fmt="none",
+        ecolor=color,
+        elinewidth=1.0,
+        capsize=2.0,
+    )
 
 
 def plot_point_3d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
@@ -255,8 +257,6 @@ def plot_point_3d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
         )
 
     # Connect points at the same measurement height (dashed, colored by z)
-    z_range = float(d["mean_w"].max() - d["mean_w"].min())
-    z_text_offset = 0.06 * z_range if z_range > 0 else 0.03
     z_meas_vals = sorted(d["z_meas_m"].unique())
     if cmocean is not None:
         z_cmap = cmocean.cm.phase
@@ -275,6 +275,7 @@ def plot_point_3d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
             continue
         y_vals = dd_z["z_outlet_m"].to_numpy(dtype=float)
         z_vals = dd_z["mean_w"].to_numpy(dtype=float)
+        std_vals = dd_z["std_w"].to_numpy(dtype=float)
         x_vals = np.full_like(y_vals, z_meas)
         ax.plot(
             x_vals,
@@ -286,7 +287,9 @@ def plot_point_3d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
             alpha=0.45,
             zorder=6,
         )
-        for xi, yi, zi in zip(x_vals, y_vals, z_vals):
+        for xi, yi, zi, si in zip(x_vals, y_vals, z_vals, std_vals):
+            local_range = float(2.0 * si)
+            z_text_offset = max(0.35, 0.75 * local_range)
             label_color = color_map.get(yi, "black")
             if yi == 880:
                 label_zorder = 300
@@ -306,7 +309,7 @@ def plot_point_3d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
                 clip_on=False,
                 path_effects=[
                     pe.withStroke(
-                        linewidth=3,
+                        linewidth=2.5,
                         foreground=(1.0, 1.0, 1.0, 0.5),
                     )
                 ],

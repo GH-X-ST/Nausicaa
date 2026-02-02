@@ -128,6 +128,8 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
         W_plot,
         shading="auto",
         cmap=cmocean.cm.thermal,
+        vmin=0.0,
+        vmax=7.75,
         edgecolors=(0, 0, 0, 0.3),
         linewidth=CELL_EDGE_LW,
     )
@@ -233,7 +235,7 @@ def main():
     for sh in SHEETS:
         x, y, W = read_slice_from_sheet(XLSX_PATH, sh)
 
-        out_png = OUT_DIR / f"{sh}_heatmap.png"
+        out_png = OUT_DIR / f"{sh}_four_heatmap.png"
 
         plot_heatmap(x, y, W, out_png, mask_zeros=MASK_ZEROS_AS_NODATA)
 

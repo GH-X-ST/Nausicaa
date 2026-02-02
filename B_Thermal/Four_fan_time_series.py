@@ -146,6 +146,8 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
     ax.grid(True, color=(0.0, 0.0, 0.0, 0.1), linewidth=0.1)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
 
     color = "#16058b"
     ax.plot(x, mean, color=color, linewidth=1.8, marker="o", markersize=3)
@@ -180,9 +182,9 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
     ax.plot(x, mean + std, color=color, linewidth=1.0, alpha=0.32)
     ax.plot(x, mean - std, color=color, linewidth=1.0, alpha=0.32)
 
-    y_range = float(np.max(mean + std) - np.min(mean - std))
-    y_text_offset = 0.03 * y_range if y_range > 0 else 0.03
-    for xi, mi in zip(x, mean):
+    for xi, mi, si in zip(x, mean, std):
+        local_range = float(2.0 * si)
+        y_text_offset = max(0.35, 0.75 * local_range)
         ax.text(
             xi,
             mi + y_text_offset,
@@ -195,8 +197,8 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
             zorder=20,
             path_effects=[
                 pe.withStroke(
-                    linewidth=3,
-                    foreground=(1.0, 1.0, 1.0, 0.6),
+                    linewidth=2.5,
+                    foreground=(1.0, 1.0, 1.0, 0.5),
                 )
             ],
         )
@@ -217,7 +219,7 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
     ax.set_xticks(sorted(d["z_meas_m"].unique()))
     for label in ax.get_xticklabels():
         label.set_rotation(-20)
-    ax.set_ylim(0, 7)
+    ax.set_ylim(0, 7.75)
     ax.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
 
     fig.tight_layout()
