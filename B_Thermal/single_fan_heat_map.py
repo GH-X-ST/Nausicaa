@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
+from matplotlib.patches import Circle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import cmocean # https://matplotlib.org/cmocean
@@ -30,6 +31,14 @@ YLABEL = r"$y$ (m)"
 CELL_EDGE_LW = 0.30
 AXIS_EDGE_LW = 0.30
 CBAR_EDGE_LW = 0.30
+
+# Fan outlet marker (single fan)
+FAN_OUTLET_X = 4.2
+FAN_OUTLET_Y = 2.4
+FAN_OUTLET_DIAMETER = 0.8
+FAN_OUTLET_EDGE_LW = 0.9
+FAN_OUTLET_ALPHA = 0.5
+FAN_OUTLET_DASH = (0, (2, 2))
 
 # Helpers
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
@@ -96,11 +105,11 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
 
     # Figure styling
     plt.rcParams.update({
-        "font.size": 7,
-        "axes.labelsize": 7,
-        "axes.titlesize": 7,
-        "xtick.labelsize": 6,
-        "ytick.labelsize": 6,
+        "font.size": 8,
+        "axes.labelsize": 8,
+        "axes.titlesize": 8,
+        "xtick.labelsize": 7,
+        "ytick.labelsize": 7,
         "axes.edgecolor": "k",
         "axes.linewidth": AXIS_EDGE_LW,
         "patch.edgecolor": "k",
@@ -119,6 +128,19 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
         linewidth=CELL_EDGE_LW,
     )
 
+    # Fan outlet marker (thin dashed ring)
+    outlet = Circle(
+        (FAN_OUTLET_X, FAN_OUTLET_Y),
+        radius=FAN_OUTLET_DIAMETER / 2.0,
+        fill=False,
+        edgecolor=(0, 0, 0, FAN_OUTLET_ALPHA),
+        linewidth=FAN_OUTLET_EDGE_LW,
+        linestyle=FAN_OUTLET_DASH,
+        label="Fan outlet",
+        zorder=5,
+    )
+    ax.add_patch(outlet)
+
     # Annotate each cell with its value
     for iy, y0 in enumerate(y_centers):
         for ix, x0 in enumerate(x_centers):
@@ -133,13 +155,13 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
                     f"{val:.2f}",
                     ha="center",
                     va="center",
-                    fontsize=4,
+                    fontsize=5,
                     color=text_color,
                 )
 
     # Colorbar
     divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="3%", pad=0.15)
+    cax = divider.append_axes("right", size="2.6%", pad=0.15)
     cbar = fig.colorbar(im, cax=cax)
     cbar.set_label(CBAR_LABEL)
     cbar.formatter = FormatStrFormatter("%.2f")
@@ -166,12 +188,32 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     ax.set_xticklabels([f"{v:g}" for v in x])
     ax.set_yticklabels([f"{v:g}" for v in y])
     ax.tick_params(axis="both", which="major", length=2, width=0.6)
+    ax.legend(
+        loc="lower left",
+        bbox_to_anchor=(0.97, -0.13),
+        frameon=True,
+        framealpha=1.0,
+        edgecolor="black",
+        fontsize=7,
+        handlelength=1.5,
+        borderpad=0.7,
+        labelspacing=0.2,
+    )
+    leg = ax.get_legend()
+    if leg is not None:
+        leg.get_frame().set_linewidth(0.3)
 
     # Tighten limits to data extents
     ax.set_xlim(x_edges[0], x_edges[-1])
     ax.set_ylim(y_edges[0], y_edges[-1])
 
     fig.tight_layout()
+    # Shorten colorbar and align its bottom with the x-axis baseline
+    ax_pos = ax.get_position()
+    cax_pos = cax.get_position()
+    new_h = ax_pos.height * 0.82
+    new_y0 = ax_pos.y0
+    cax.set_position([cax_pos.x0, new_y0, cax_pos.width, new_h])
     fig.savefig(
         outpath,
         bbox_inches="tight",
