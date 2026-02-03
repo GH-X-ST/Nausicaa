@@ -1,3 +1,6 @@
+###### Initialization
+
+### Imports
 import re
 from pathlib import Path
 
@@ -10,13 +13,11 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 try:
     import cmocean
-except ImportError:  # Fallback if cmocean isn't installed
+except ImportError:
     cmocean = None
 
 
-# -----------------------------
-# Parsing utilities (your sheet layout)
-# -----------------------------
+### Parsing utilities (your sheet layout)
 def parse_points_multiheader(excel_path: str, sheet_name: str):
     """
     Parse TS-like sheets where 3 points are laid out across columns,
@@ -137,11 +138,19 @@ def build_summary(excel_path: str):
     return pd.DataFrame.from_records(records)
 
 
-# -----------------------------
-# Plotting (Poly3DCollection band for mean ± std)
-# -----------------------------
+### Plotting
 def add_mean_std_band(
-    ax, x, y_const, mean, std, color, alpha_band=0.32, alpha_mean=0.18
+    ax,
+    x,
+    y_const,
+    mean,
+    std,
+    color,
+    alpha_band=0.30,
+    alpha_mean=0.10,
+    mean_linewidth=1.0,
+    errorbar_linewidth=0.75,
+    errorbar_capsize=2.0,
 ):
     """
     Adds a filled polygon at y=y_const for the band [mean-std, mean+std].
@@ -175,7 +184,13 @@ def add_mean_std_band(
     ax.add_collection3d(poly_mean)
 
     # mean line
-    ax.plot(x, np.full_like(x, y_const), mean, linewidth=1.5, color=color)
+    ax.plot(
+        x,
+        np.full_like(x, y_const),
+        mean,
+        linewidth=mean_linewidth,
+        color=color,
+    )
 
     # error bars at each height: mean +/- std
     ax.errorbar(
@@ -185,12 +200,20 @@ def add_mean_std_band(
         zerr=std,
         fmt="none",
         ecolor=color,
-        elinewidth=1.0,
-        capsize=2.0,
+        elinewidth=errorbar_linewidth,
+        capsize=errorbar_capsize,
+        capthick=errorbar_linewidth,
     )
 
 
-def plot_point_3d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
+def plot_point_3d(
+    summary_df: pd.DataFrame,
+    point_id: str,
+    out_path: Path,
+    mean_linewidth=1.0,
+    errorbar_linewidth=0.75,
+    errorbar_capsize=2.0,
+):
     d = summary_df[summary_df["point"] == point_id].copy()
     if d.empty:
         return
@@ -228,9 +251,12 @@ def plot_point_3d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
             mean=mean,
             std=std,
             color=color,
+            mean_linewidth=mean_linewidth,
+            errorbar_linewidth=errorbar_linewidth,
+            errorbar_capsize=errorbar_capsize,
         )
 
-        # all raw points (small, semi-transparent)
+        # all raw points
         for row in dd.itertuples(index=False):
             w_vals = np.asarray(row.w_vals, dtype=float)
             ax.scatter(
@@ -242,19 +268,19 @@ def plot_point_3d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
                 alpha=0.25,
             )
 
-        # mean markers (solid)
+        # mean markers
         ax.scatter(
             x,
             np.full_like(x, y0),
             mean,
-            s=25,
+            s=15,
             color=color,
             alpha=1.0,
             edgecolors="none",
             zorder=9,
         )
 
-    # Connect points at the same measurement height (dashed, colored by z)
+    # Connect points at the same measurement height
     z_meas_vals = sorted(d["z_meas_m"].unique())
     if cmocean is not None:
         z_cmap = cmocean.cm.phase
@@ -348,13 +374,23 @@ def main():
     excel_path = "S01.xlsx"  # <-- change if needed
     out_dir = Path("A_figures") / "Sampling_Points"
     out_dir.mkdir(parents=True, exist_ok=True)
+    mean_linewidth = 1.0
+    errorbar_linewidth = 0.75
+    errorbar_capsize = 3.0
 
     summary = build_summary(excel_path)
 
     # Force P1..P6 in order (skip if missing)
     for k in range(1, 7):
         pid = f"P{k}"
-        plot_point_3d(summary, pid, out_dir / f"{pid}_ground_effect_3D.png")
+        plot_point_3d(
+            summary,
+            pid,
+            out_dir / f"{pid}_ground_effect_3D.png",
+            mean_linewidth=mean_linewidth,
+            errorbar_linewidth=errorbar_linewidth,
+            errorbar_capsize=errorbar_capsize,
+        )
 
     print(f"Done. Saved plots to: {out_dir.resolve()}")
 

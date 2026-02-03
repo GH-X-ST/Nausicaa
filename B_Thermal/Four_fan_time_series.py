@@ -1,3 +1,6 @@
+###### Initialization
+
+### Imports
 import re
 from pathlib import Path
 
@@ -8,9 +11,7 @@ import matplotlib.patheffects as pe
 from matplotlib.ticker import FormatStrFormatter
 
 
-# -----------------------------
-# Parsing utilities (your sheet layout)
-# -----------------------------
+### Parsing utilities
 def parse_points_multiheader(excel_path: str, sheet_name: str):
     """
     Parse TS-like sheets where 3 points are laid out across columns,
@@ -129,9 +130,7 @@ def build_summary(excel_path: str):
     return pd.DataFrame.from_records(records)
 
 
-# -----------------------------
-# Plotting (2D mean +/- std)
-# -----------------------------
+### Plotting
 def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
     d = summary_df[summary_df["point"] == point_id].copy()
     if d.empty:
@@ -145,21 +144,47 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
     fig, ax = plt.subplots(figsize=(5.67, 3.5), dpi=600)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
-    ax.grid(True, color=(0.0, 0.0, 0.0, 0.1), linewidth=0.1)
+    ax.set_axisbelow(True)
+    ax.grid(True, color=(0.85, 0.85, 0.85, 1.0), linewidth=0.4)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
+    mean_linewidth = 1.5
+    errorbar_linewidth = 1.0
+    errorbar_capsize = 3.0
+    alpha_mean = 0.10
+    alpha_band = 0.30
+    raw_point_size = 5
+    raw_point_alpha = 0.25
+    mean_marker_size = 15
+    mean_marker_alpha = 1.0
+    std_linewidth = 1.0
+    std_alpha = 0.30
+    axis_label_size = 12
+    tick_label_size = 11
+    value_label_size = 10
+
     color = "#16058b"
-    ax.plot(x, mean, color=color, linewidth=1.8, marker="o", markersize=3)
+    ax.plot(x, mean, color=color, linewidth=mean_linewidth, alpha=1.0)
+    ax.scatter(
+        x,
+        mean,
+        s=mean_marker_size,
+        color=color,
+        alpha=mean_marker_alpha,
+        edgecolors="none",
+        zorder=9,
+    )
     ax.errorbar(
         x,
         mean,
         yerr=std,
         fmt="none",
         ecolor=color,
-        elinewidth=1.0,
-        capsize=2.0,
-        alpha=0.9,
+        elinewidth=errorbar_linewidth,
+        capsize=errorbar_capsize,
+        capthick=errorbar_linewidth,
+        alpha=1.0,
         zorder=5,
     )
     z_base = min(0.0, float(np.min(mean - std)))
@@ -168,7 +193,7 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
         z_base,
         mean + std,
         color=color,
-        alpha=0.18,
+        alpha=alpha_mean,
         edgecolor="none",
     )
     ax.fill_between(
@@ -176,11 +201,11 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
         mean - std,
         mean + std,
         color=color,
-        alpha=0.32,
+        alpha=alpha_band,
         edgecolor="none",
     )
-    ax.plot(x, mean + std, color=color, linewidth=1.0, alpha=0.32)
-    ax.plot(x, mean - std, color=color, linewidth=1.0, alpha=0.32)
+    ax.plot(x, mean + std, color=color, linewidth=std_linewidth, alpha=std_alpha)
+    ax.plot(x, mean - std, color=color, linewidth=std_linewidth, alpha=std_alpha)
 
     for xi, mi, si in zip(x, mean, std):
         local_range = float(2.0 * si)
@@ -190,7 +215,7 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
             mi + y_text_offset,
             f"{mi:.2f}",
             color=color,
-            fontsize=8,
+            fontsize=value_label_size,
             ha="center",
             va="bottom",
             clip_on=False,
@@ -203,19 +228,20 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
             ],
         )
 
-    # all raw points (small, semi-transparent)
+    # all raw points
     for row in dd.itertuples(index=False):
         w_vals = np.asarray(row.w_vals, dtype=float)
         ax.scatter(
             np.full(w_vals.shape, row.z_meas_m),
             w_vals,
-            s=5,
+            s=raw_point_size,
             color=color,
-            alpha=0.25,
+            alpha=raw_point_alpha,
         )
 
-    ax.set_xlabel("Measurement height above fan outlet, z (m)")
-    ax.set_ylabel("w (m/s)")
+    ax.set_xlabel("Measurement height above fan outlet, z (m)", fontsize=axis_label_size)
+    ax.set_ylabel("w (m/s)", fontsize=axis_label_size)
+    ax.tick_params(axis="both", labelsize=tick_label_size)
     ax.set_xticks(sorted(d["z_meas_m"].unique()))
     for label in ax.get_xticklabels():
         label.set_rotation(-20)
@@ -234,7 +260,7 @@ def main():
 
     summary = build_summary(excel_path)
 
-    # Force P1..P6 in order (skip if missing)
+    # Force P1..P6 in order
     for k in range(1, 7):
         pid = f"P{k}"
         plot_point_2d(summary, pid, out_dir / f"{pid}_four_fan_time_series.png")
