@@ -35,13 +35,14 @@ YTICKS = [0, 0.8, 1.6, 2.4, 3.2, 4, 4.8]
 CELL_EDGE_LW = 0.30
 AXIS_EDGE_LW = 0.30
 CBAR_EDGE_LW = 0.30
+LEGEND_FONTSIZE = 8.5
 
 # Fan outlet marker (single fan)
 FAN_OUTLET_X = 4.2
 FAN_OUTLET_Y = 2.4
 FAN_OUTLET_DIAMETER = 0.8
-FAN_OUTLET_EDGE_LW = 1.1
-FAN_OUTLET_ALPHA = 0.6
+FAN_OUTLET_EDGE_LW = 1.3
+FAN_OUTLET_ALPHA = 0.7
 FAN_OUTLET_DASH = (0, (2, 2))
 
 # Helpers
@@ -114,6 +115,7 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
         "axes.titlesize": 10,
         "xtick.labelsize": 9,
         "ytick.labelsize": 9,
+        "legend.fontsize": LEGEND_FONTSIZE,
         "axes.edgecolor": "k",
         "axes.linewidth": AXIS_EDGE_LW,
         "patch.edgecolor": "k",
@@ -129,7 +131,7 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
         shading="auto",
         cmap=cmocean.cm.thermal,
         vmin=0.0,
-        vmax=7.0,
+        vmax=8.0,
         edgecolors=(0, 0, 0, 0.3),
         linewidth=CELL_EDGE_LW,
     )
@@ -147,30 +149,14 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     )
     ax.add_patch(outlet)
 
-    # Annotate each cell with its value
-    for iy, y0 in enumerate(y_centers):
-        for ix, x0 in enumerate(x_centers):
-            val = W_plot[iy, ix]
-            if np.isfinite(val):
-                r, g, b, _a = im.cmap(im.norm(val))
-                luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-                text_color = "white" if luminance < 0.5 else "black"
-                ax.text(
-                    x0,
-                    y0,
-                    f"{val:.1f}",
-                    ha="center",
-                    va="center",
-                    fontsize=4.8,
-                    color=text_color,
-                )
+    # Cell value annotations removed for cleaner heatmap.
 
     # Colorbar
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="2.6%", pad=0.15)
     cbar = fig.colorbar(im, cax=cax)
     cbar.set_label(CBAR_LABEL)
-    cbar.formatter = FormatStrFormatter("%.1f")
+    cbar.formatter = FormatStrFormatter("%.2f")
     cbar.update_ticks()
     cbar.ax.tick_params(width=0.6, length=2)
     cbar.outline.set_linewidth(CBAR_EDGE_LW)
@@ -193,18 +179,18 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     ytick_pos = [y_centers[np.argmin(np.abs(y_centers - v))] for v in YTICKS]
     ax.set_xticks(xtick_pos)
     ax.set_yticks(ytick_pos)
-    ax.set_xticklabels([f"{v:g}" for v in XTICKS])
-    ax.set_yticklabels([f"{v:g}" for v in YTICKS])
+    ax.set_xticklabels([f"{v:.2f}" for v in XTICKS])
+    ax.set_yticklabels([f"{v:.2f}" for v in YTICKS])
     ax.tick_params(axis="both", which="major", length=2, width=0.6)
     ax.legend(
         loc="lower left",
-        bbox_to_anchor=(0.97, -0.17),
+        bbox_to_anchor=(0.97, -0.22),
         frameon=True,
         framealpha=1.0,
         edgecolor="black",
-        fontsize=7,
+        fontsize=LEGEND_FONTSIZE,
         handlelength=1.5,
-        borderpad=0.7,
+        borderpad=0.5,
         labelspacing=0.2,
     )
     leg = ax.get_legend()

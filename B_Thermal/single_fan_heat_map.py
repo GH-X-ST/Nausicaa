@@ -125,7 +125,7 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
         shading="auto",
         cmap=cmocean.cm.thermal,
         vmin=0.0,
-        vmax=7.0,
+        vmax=8.0,
         edgecolors=(0, 0, 0, 0.3),
         linewidth=CELL_EDGE_LW,
     )
@@ -187,8 +187,9 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
         spine.set_linewidth(AXIS_EDGE_LW)
     ax.set_xticks(x_centers)
     ax.set_yticks(y_centers)
-    ax.set_xticklabels([f"{v:g}" for v in x])
-    ax.set_yticklabels([f"{v:g}" for v in y])
+    ax.set_xticklabels([f"{v:.2f}" for v in x])
+    ax.set_yticklabels([f"{v:.2f}" for v in y])
+    ax.tick_params(axis="x", labelrotation=-30)
     ax.tick_params(axis="both", which="major", length=2, width=0.6)
     ax.legend(
         loc="lower left",

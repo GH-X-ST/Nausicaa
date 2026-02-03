@@ -344,11 +344,12 @@ def plot_point_3d(
     # Labels / view
     ax.set_xlabel("Measurement height above fan outlet, z (m)", labelpad=17)
     ax.set_ylabel("Fan outlet height (m)", labelpad=5)
-    ax.set_zlabel("w (m/s)", labelpad=5)
+    ax.set_zlabel("w (m/s)", labelpad=5, rotation=90)
+    ax.zaxis.set_rotate_label(False)
     ax.set_xticks(sorted(d["z_meas_m"].unique()))
     for label in ax.get_xticklabels():
         label.set_rotation(-20)
-    ax.set_zlim(0, 7)
+    ax.set_zlim(0, 8)
     ax.zaxis.set_major_formatter(FormatStrFormatter("%.2f"))
     try:
         ax.set_box_aspect((3.0, 1.0, 1.5))
