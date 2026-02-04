@@ -16,6 +16,15 @@ try:
 except ImportError:  # Fallback if cmocean isn't installed
     cmocean = None
 
+# Legend styling (match single_fan_heat_map.py)
+LEGEND_FONT_SIZE = 9
+LEGEND_FRAME_LW = 0.3
+LEGEND_LOC = "upper right"
+LEGEND_BBOX_TO_ANCHOR = (0.95, 0.77)
+LEGEND_HANDLE_LENGTH = 1.5
+LEGEND_BORDERPAD = 0.5
+LEGEND_LABEL_SPACING = 0.2
+
 
 ### Parsing utilities
 def parse_points_multiheader(excel_path: str, sheet_name: str):
@@ -150,6 +159,7 @@ def add_mean_std_band(
     mean_linewidth=1.0,
     errorbar_linewidth=0.75,
     errorbar_capsize=2.0,
+    mean_label=None,
 ):
     """
     Adds a filled polygon at y=y_const for the band [mean-std, mean+std].
@@ -189,6 +199,7 @@ def add_mean_std_band(
         mean,
         linewidth=mean_linewidth,
         color=color,
+        label=mean_label if mean_label is not None else "_nolegend_",
     )
 
     # error bars at each height: mean +/- std
@@ -212,6 +223,13 @@ def plot_point_3d(
     mean_linewidth=1.0,
     errorbar_linewidth=0.75,
     errorbar_capsize=2.0,
+    legend_loc=LEGEND_LOC,
+    legend_fontsize=LEGEND_FONT_SIZE,
+    legend_frame_lw=LEGEND_FRAME_LW,
+    legend_bbox_to_anchor=LEGEND_BBOX_TO_ANCHOR,
+    legend_handlelength=LEGEND_HANDLE_LENGTH,
+    legend_borderpad=LEGEND_BORDERPAD,
+    legend_labelspacing=LEGEND_LABEL_SPACING,
 ):
     d = summary_df[summary_df["point"] == point_id].copy()
     if d.empty:
@@ -246,6 +264,7 @@ def plot_point_3d(
         std = dd["std_w"].to_numpy(dtype=float)
 
         color = color_map.get(y0, "#4c78a8")
+        mean_label = rf"$\overline{{\mathrm{{w}}}}$ (m/s) at $\omega$ = {int(y0)} rpm"
         add_mean_std_band(
             ax,
             x=x,
@@ -256,6 +275,7 @@ def plot_point_3d(
             mean_linewidth=mean_linewidth,
             errorbar_linewidth=errorbar_linewidth,
             errorbar_capsize=errorbar_capsize,
+            mean_label=mean_label,
         )
 
         # all raw points
@@ -268,6 +288,7 @@ def plot_point_3d(
                 s=5,
                 color=color,
                 alpha=0.25,
+                label="_nolegend_",
             )
 
         # mean markers
@@ -312,6 +333,7 @@ def plot_point_3d(
             linewidth=1,
             alpha=0.45,
             zorder=6,
+            label="_nolegend_",
         )
         for xi, yi, zi, si in zip(x_vals, y_vals, z_vals, std_vals):
             local_range = float(2.0 * si)
@@ -361,6 +383,22 @@ def plot_point_3d(
     ax.view_init(elev=20, azim=-120)
     fig.subplots_adjust(left=0.10, right=0.98, bottom=0.08, top=0.98)
 
+    legend_kwargs = {
+        "loc": legend_loc,
+        "frameon": True,
+        "framealpha": 1.0,
+        "edgecolor": "black",
+        "fontsize": legend_fontsize,
+        "handlelength": legend_handlelength,
+        "borderpad": legend_borderpad,
+        "labelspacing": legend_labelspacing,
+    }
+    if legend_bbox_to_anchor is not None:
+        legend_kwargs["bbox_to_anchor"] = legend_bbox_to_anchor
+    leg = ax.legend(**legend_kwargs)
+    if leg is not None:
+        leg.get_frame().set_linewidth(legend_frame_lw)
+
     if x_pos is not None and y_pos is not None:
         fig.text(
             0.98,
@@ -389,6 +427,13 @@ def main():
     mean_linewidth = 1.0
     errorbar_linewidth = 0.75
     errorbar_capsize = 3.0
+    legend_loc = LEGEND_LOC
+    legend_fontsize = LEGEND_FONT_SIZE
+    legend_frame_lw = LEGEND_FRAME_LW
+    legend_bbox_to_anchor = LEGEND_BBOX_TO_ANCHOR
+    legend_handlelength = LEGEND_HANDLE_LENGTH
+    legend_borderpad = LEGEND_BORDERPAD
+    legend_labelspacing = LEGEND_LABEL_SPACING
 
     summary = build_summary(excel_path)
 
@@ -402,6 +447,13 @@ def main():
             mean_linewidth=mean_linewidth,
             errorbar_linewidth=errorbar_linewidth,
             errorbar_capsize=errorbar_capsize,
+            legend_loc=legend_loc,
+            legend_fontsize=legend_fontsize,
+            legend_frame_lw=legend_frame_lw,
+            legend_bbox_to_anchor=legend_bbox_to_anchor,
+            legend_handlelength=legend_handlelength,
+            legend_borderpad=legend_borderpad,
+            legend_labelspacing=legend_labelspacing,
         )
 
     print(f"Done. Saved plots to: {out_dir.resolve()}")
