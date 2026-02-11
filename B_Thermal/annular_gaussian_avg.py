@@ -5,12 +5,9 @@ This script fits an annular (ring-shaped) Gaussian model to each height sheet
 (z020, z035, z050, z075, z110, z160, z220) and then interpolates parameters
 vs height z using PCHIP.
 
-Data expectations (mean-map sheets):
-- Sheet names: z020, z035, z050, z075, z110, z160, z220
-- Each sheet stores a rectangular grid:
-    Row 0, Col 1..end : x-coordinates (m)
-    Col 0, Row 1..end : y-coordinates (m)
-    Rows 1..end, Cols 1..end : mean vertical velocity w (m/s)
+Data expectations (annuli profile CSVs from annuli_cut.py):
+- Files: B_results/Annuli_Profile/z020_annuli_profile.csv, etc.
+- Required columns: r_m, w_mps, n
 
 Time-series sheets:
 - Sheet names: z020_TS, z035_TS, ..., z220_TS
@@ -23,15 +20,14 @@ Time-series sheets:
 Model (per height z_k), axisymmetric about (x_c, y_c):
     r = sqrt((x - x_c)^2 + (y - y_c)^2)
 
-    w_m(r; z_k) = w0(z_k) + A_r(z_k) * exp(-((r - r_p(z_k)) / sigma_r(z_k))^2)
+    w_m(r; z_k) = w0(z_k) + A_ring(z_k) * exp(-((r - r_ring(z_k)) / delta_r(z_k))^2)
 
-This ring model is minimal at r = 0 and increases for r in [0, r_p] (assuming
-A_r > 0 and r_p > 0), consistent with an annular peak.
+This ring model is minimal at r = 0 and increases for r in [0, r_ring] (assuming
+A_ring > 0 and r_ring > 0), consistent with an annular peak.
 
 Fitting procedure per height:
-1) Convert the 2D grid to (r_i, w_i).
-2) Bin in radius with bin width delta_r to obtain a 1D profile (r_j, w_j, n_j).
-3) Fit parameters [A_r, r_p, sigma_r, w0] by bounded robust least squares
+1) Read annuli profile (r_j, w_j, n_j) from CSV output of annuli_cut.py.
+2) Fit parameters [A_ring, r_ring, delta_r, w0] by bounded robust least squares
    using scipy.optimize.least_squares(loss="soft_l1").
    Residuals are normalised by sigma_z (estimated from *_TS), so f_scale can
    remain 1.0. The robust transition scale in physical units is ~sigma_z.
@@ -45,9 +41,14 @@ Notes:
 - Update FAN_CENTER_XY to match your coordinate system.
 """
 
+###### Initialization
+
+### Imports
+
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Iterable, Optional, Tuple
 
 import numpy as np
@@ -56,11 +57,11 @@ from scipy.interpolate import PchipInterpolator
 from scipy.optimize import least_squares
 
 
-# -----------------------------
-# User-configurable parameters
-# -----------------------------
+### User settings
 
 XLSX_PATH = "/mnt/data/S01.xlsx"
+ANNULI_PROFILE_DIR = Path("B_results/Annuli_Profile")
+OUT_XLSX_PATH = Path("B_results/annular_gaussian_avg_params.xlsx")
 
 # Update if your fan center is different.
 FAN_CENTER_XY = (4.2, 2.4)
@@ -73,20 +74,15 @@ FAN_RADIUS_M = FAN_DIAMETER_M / 2.0
 SHEET_HEIGHT_DIVISOR = 100.0
 
 
-# -----------------------------
-# Data classes
-# -----------------------------
+### Data classes
 
 @dataclass(frozen=True)
 class FitConfig:
     """Configuration for loading, profiling, and fitting."""
 
     xlsx_path: str = XLSX_PATH
+    annuli_profile_dir: Path = ANNULI_PROFILE_DIR
     fan_center_xy: Tuple[float, float] = FAN_CENTER_XY
-
-    # Radial bin width for constructing 1D radial profile from 2D grid (m).
-    # Choose comparable to your x/y spacing; 0.03–0.08 m is typical.
-    delta_r_m: float = 0.05
 
     # Robust least-squares options for scipy.optimize.least_squares.
     # Since residuals are normalised by sigma_z, keep f_scale ~ 1.
@@ -104,13 +100,13 @@ class FitConfig:
 class RingBounds:
     """Parameter bounds to keep fits identifiable and physically plausible."""
 
-    rp_min: float
-    rp_max: float
-    sigma_r_min: float = 0.15
-    sigma_r_max: float = 1.00
-    a_r_max: float = 50.0
-    w0_min: float = -0.50
-    w0_max: float = 0.50
+    r_ring_min: float
+    r_ring_max: float
+    delta_r_min: float = 0.15
+    delta_r_max: float = 1.00
+    a_ring_max: float = 50.0
+    w0_min: float = -0.0001
+    w0_max: float = 0.0001
 
 
 @dataclass
@@ -118,12 +114,12 @@ class SmoothRingModel:
     """
     Smooth model w(x, y, z) using PCHIP interpolators over z.
 
-    A_r(z) and sigma_r(z) are interpolated in log-space to ensure positivity.
+    A_ring(z) and delta_r(z) are interpolated in log-space to ensure positivity.
     """
 
-    a_r_log: PchipInterpolator
-    r_p: PchipInterpolator
-    sigma_r_log: PchipInterpolator
+    a_ring_log: PchipInterpolator
+    r_ring: PchipInterpolator
+    delta_r_log: PchipInterpolator
     w0: PchipInterpolator
     fan_center_xy: Tuple[float, float]
 
@@ -131,17 +127,14 @@ class SmoothRingModel:
         xc, yc = self.fan_center_xy
         r = np.sqrt((x - xc) ** 2 + (y - yc) ** 2)
 
-        a_r = float(np.exp(self.a_r_log(z)))
-        r_p = float(self.r_p(z))
-        sigma_r = float(np.exp(self.sigma_r_log(z)))
+        a_ring = float(np.exp(self.a_ring_log(z)))
+        r_ring = float(self.r_ring(z))
+        delta_r = float(np.exp(self.delta_r_log(z)))
         w0 = float(self.w0(z))
+        return ring_gaussian(r, a_ring=a_ring, r_ring=r_ring, delta_r=delta_r, w0=w0)
 
-        return ring_gaussian(r, a_r=a_r, r_p=r_p, sigma_r=sigma_r, w0=w0)
 
-
-# -----------------------------
-# Utilities: parsing and loading
-# -----------------------------
+# Helpers
 
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
@@ -242,13 +235,44 @@ def parse_ts_noise_scale(xlsx_path: str, ts_sheet_name: str) -> Optional[float]:
     return float(np.sqrt(mean_var))
 
 
-# -----------------------------
-# Model and profiling
-# -----------------------------
+def load_annuli_profile_csv(
+    profile_dir: Path,
+    sheet_name: str,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Load annuli profile CSV (r_m, w_mps, n) produced by annuli_cut.py.
+    """
+    csv_path = Path(profile_dir) / f"{sheet_name}_annuli_profile.csv"
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Missing annuli profile CSV: {csv_path}")
 
-def ring_gaussian(r: np.ndarray, a_r: float, r_p: float, sigma_r: float, w0: float) -> np.ndarray:
-    """Evaluate the ring Gaussian model w(r) = w0 + A_r * exp(-((r - r_p) / sigma_r)^2)."""
-    return w0 + a_r * np.exp(-((r - r_p) / sigma_r) ** 2)
+    df = pd.read_csv(csv_path)
+    if "r_m" not in df.columns or "w_mps" not in df.columns or "n" not in df.columns:
+        raise ValueError(
+            f"CSV {csv_path} must contain columns: r_m, w_mps, n."
+        )
+
+    r_bins = pd.to_numeric(df["r_m"], errors="coerce").to_numpy(dtype=float)
+    w_bins = pd.to_numeric(df["w_mps"], errors="coerce").to_numpy(dtype=float)
+    n_bins = pd.to_numeric(df["n"], errors="coerce").to_numpy(dtype=float)
+
+    mask = np.isfinite(r_bins) & np.isfinite(w_bins) & np.isfinite(n_bins)
+    r_bins = r_bins[mask]
+    w_bins = w_bins[mask]
+    n_bins = n_bins[mask].astype(int)
+
+    if r_bins.size == 0:
+        raise ValueError(f"No valid annuli data in {csv_path}.")
+
+    order = np.argsort(r_bins)
+    return r_bins[order], w_bins[order], n_bins[order]
+
+
+# Model
+
+def ring_gaussian(r: np.ndarray, a_ring: float, r_ring: float, delta_r: float, w0: float) -> np.ndarray:
+    """Evaluate the ring Gaussian model w(r) = w0 + A_ring * exp(-((r - r_ring) / delta_r)^2)."""
+    return w0 + a_ring * np.exp(-((r - r_ring) / delta_r) ** 2)
 
 
 def make_radial_profile(
@@ -317,13 +341,11 @@ def make_radial_profile(
     return r_bins[order], w_bins[order], n_bins[order]
 
 
-# -----------------------------
 # Fitting
-# -----------------------------
 
-def default_rp_bounds_by_z(z_m: float) -> Tuple[float, float]:
+def default_r_ring_bounds_by_z(z_m: float) -> Tuple[float, float]:
     """
-    Height-dependent bounds for ring peak radius r_p(z).
+    Height-dependent bounds for ring peak radius r_ring(z).
 
     Near the outlet, constrain around the fan radius band; higher up allow expansion.
     Adjust to taste based on your observed maps.
@@ -336,26 +358,26 @@ def default_rp_bounds_by_z(z_m: float) -> Tuple[float, float]:
 def initial_guess_ring(
     r_bins: np.ndarray,
     w_bins: np.ndarray,
-    rp_bounds: Tuple[float, float],
+    r_ring_bounds: Tuple[float, float],
 ) -> np.ndarray:
     """
-    Initial guess for parameters [A_r, r_p, sigma_r, w0].
+    Initial guess for parameters [A_ring, r_ring, delta_r, w0].
 
     - w0: median of outer bins
-    - r_p: radius at maximum profile value (clipped)
-    - A_r: peak - w0
-    - sigma_r: moderate default
+    - r_ring: radius at maximum profile value (clipped)
+    - A_ring: peak - w0
+    - delta_r: moderate default
     """
     tail_len = max(5, int(0.2 * w_bins.size))
     w0 = float(np.median(w_bins[-tail_len:]))
 
     peak_idx = int(np.argmax(w_bins))
-    r_p0 = float(np.clip(r_bins[peak_idx], rp_bounds[0], rp_bounds[1]))
+    r_ring0 = float(np.clip(r_bins[peak_idx], r_ring_bounds[0], r_ring_bounds[1]))
 
-    a_r0 = float(max(w_bins[peak_idx] - w0, 0.1))
-    sigma_r0 = 0.25
+    a_ring0 = float(max(w_bins[peak_idx] - w0, 0.1))
+    delta_r0 = 0.25
 
-    return np.array([a_r0, r_p0, sigma_r0, w0], dtype=float)
+    return np.array([a_ring0, r_ring0, delta_r0, w0], dtype=float)
 
 
 def fit_ring_at_height(
@@ -367,7 +389,7 @@ def fit_ring_at_height(
     config: FitConfig,
 ) -> np.ndarray:
     """
-    Fit parameters [A_r, r_p, sigma_r, w0] at a single height.
+    Fit parameters [A_ring, r_ring, delta_r, w0] at a single height.
 
     Residual definition (dimensionless):
         res_j = alpha_j * (w_pred(r_j) - w_j) / sigma_z
@@ -379,15 +401,15 @@ def fit_ring_at_height(
     if sigma_z <= 0.0:
         raise ValueError("sigma_z must be positive.")
 
-    p0 = initial_guess_ring(r_bins, w_bins, (bounds.rp_min, bounds.rp_max))
+    p0 = initial_guess_ring(r_bins, w_bins, (bounds.r_ring_min, bounds.r_ring_max))
 
-    lower = np.array([0.0, bounds.rp_min, bounds.sigma_r_min, bounds.w0_min], dtype=float)
-    upper = np.array([bounds.a_r_max, bounds.rp_max, bounds.sigma_r_max, bounds.w0_max], dtype=float)
+    lower = np.array([0.0, bounds.r_ring_min, bounds.delta_r_min, bounds.w0_min], dtype=float)
+    upper = np.array([bounds.a_ring_max, bounds.r_ring_max, bounds.delta_r_max, bounds.w0_max], dtype=float)
 
     alpha = np.sqrt(n_bins / np.max(n_bins))
 
     def residuals(p: np.ndarray) -> np.ndarray:
-        w_pred = ring_gaussian(r_bins, a_r=p[0], r_p=p[1], sigma_r=p[2], w0=p[3])
+        w_pred = ring_gaussian(r_bins, a_ring=p[0], r_ring=p[1], delta_r=p[2], w0=p[3])
         return alpha * (w_pred - w_bins) / sigma_z
 
     result = least_squares(
@@ -403,17 +425,16 @@ def fit_ring_at_height(
 def fit_all_heights(
     mean_sheet_names: Iterable[str],
     config: FitConfig,
-    rp_bounds_by_z: Callable[[float], Tuple[float, float]] = default_rp_bounds_by_z,
+    r_ring_bounds_by_z: Callable[[float], Tuple[float, float]] = default_r_ring_bounds_by_z,
 ) -> Tuple[np.ndarray, np.ndarray, SmoothRingModel]:
     """
     Fit ring model at all heights and build a smoothed model w(x, y, z).
 
     Returns:
         z_vals: shape (K,), heights in meters
-        params: shape (K, 4), fitted parameters [A_r, r_p, sigma_r, w0]
+        params: shape (K, 4), fitted parameters [A_ring, r_ring, delta_r, w0]
         model: SmoothRingModel callable
     """
-    xc, yc = config.fan_center_xy
     z_list = []
     params_list = []
 
@@ -421,24 +442,17 @@ def fit_all_heights(
         z_m = parse_sheet_height_m(sheet)
         ts_sheet = f"{sheet}_TS"
 
-        x_grid, y_grid, w_grid = load_mean_map(config.xlsx_path, sheet)
-
-        r = np.sqrt((x_grid - xc) ** 2 + (y_grid - yc) ** 2).ravel()
-        w = w_grid.ravel()
-
-        r_bins, w_bins, n_bins = make_radial_profile(
-            r=r,
-            w=w,
-            delta_r=config.delta_r_m,
-            use_median=config.use_median_profile,
+        r_bins, w_bins, n_bins = load_annuli_profile_csv(
+            profile_dir=config.annuli_profile_dir,
+            sheet_name=sheet,
         )
 
         sigma_z = parse_ts_noise_scale(config.xlsx_path, ts_sheet)
         if sigma_z is None:
             sigma_z = config.sigma_z_fallback
 
-        rp_min, rp_max = rp_bounds_by_z(z_m)
-        bounds = RingBounds(rp_min=rp_min, rp_max=rp_max)
+        r_ring_min, r_ring_max = r_ring_bounds_by_z(z_m)
+        bounds = RingBounds(r_ring_min=r_ring_min, r_ring_max=r_ring_max)
 
         p = fit_ring_at_height(
             r_bins=r_bins,
@@ -462,15 +476,15 @@ def fit_all_heights(
 
     # Smooth across z using PCHIP; enforce positivity using log-space.
     eps = 1e-12
-    a_r_log = PchipInterpolator(z_vals, np.log(np.maximum(params[:, 0], eps)))
-    r_p = PchipInterpolator(z_vals, params[:, 1])
-    sigma_r_log = PchipInterpolator(z_vals, np.log(np.maximum(params[:, 2], eps)))
+    a_ring_log = PchipInterpolator(z_vals, np.log(np.maximum(params[:, 0], eps)))
+    r_ring = PchipInterpolator(z_vals, params[:, 1])
+    delta_r_log = PchipInterpolator(z_vals, np.log(np.maximum(params[:, 2], eps)))
     w0 = PchipInterpolator(z_vals, params[:, 3])
 
     model = SmoothRingModel(
-        a_r_log=a_r_log,
-        r_p=r_p,
-        sigma_r_log=sigma_r_log,
+        a_ring_log=a_ring_log,
+        r_ring=r_ring,
+        delta_r_log=delta_r_log,
         w0=w0,
         fan_center_xy=config.fan_center_xy,
     )
@@ -478,9 +492,7 @@ def fit_all_heights(
     return z_vals, params, model
 
 
-# -----------------------------
-# Main
-# -----------------------------
+### Main
 
 def main() -> None:
     mean_sheets = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -488,7 +500,6 @@ def main() -> None:
     config = FitConfig(
         xlsx_path=XLSX_PATH,
         fan_center_xy=FAN_CENTER_XY,
-        delta_r_m=0.05,
         robust_loss="soft_l1",
         robust_f_scale=1.0,
         sigma_z_fallback=0.2,
@@ -498,9 +509,24 @@ def main() -> None:
     z_vals, params, _model = fit_all_heights(mean_sheets, config=config)
 
     print("Fitted ring-Gaussian parameters per height")
-    print("z [m]     A_r        r_p      sigma_r       w0")
-    for z_m, (a_r, r_p, sigma_r, w0) in zip(z_vals, params):
-        print(f"{z_m:5.2f}  {a_r:9.4f}  {r_p:8.4f}  {sigma_r:10.4f}  {w0:9.4f}")
+    print(" z [m]    A_ring    r_ring      delta_r      w0")
+    for z_m, (a_ring, r_ring, delta_r, w0) in zip(z_vals, params):
+        print(f"{z_m:5.2f}  {a_ring:9.4f}  {r_ring:8.4f}  {delta_r:10.4f}  {w0:9.4f}")
+
+    # Save results to Excel
+    out_dir = OUT_XLSX_PATH.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+    df_out = pd.DataFrame(
+        {
+            "z_m": z_vals,
+            "A_ring": params[:, 0],
+            "r_ring": params[:, 1],
+            "delta_r": params[:, 2],
+            "w0": params[:, 3],
+        }
+    )
+    df_out.to_excel(OUT_XLSX_PATH, index=False, sheet_name="ring_params")
+    print(f"Saved Excel results to: {OUT_XLSX_PATH.resolve()}")
 
 
 if __name__ == "__main__":
