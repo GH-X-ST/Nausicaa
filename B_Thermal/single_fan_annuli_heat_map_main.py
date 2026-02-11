@@ -26,10 +26,10 @@ import cmocean  # https://matplotlib.org/cmocean
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
-OUT_DIR = Path("A_figures/Annuli_Heat_Map")
+OUT_DIR = Path("A_figures/Single_Fan_Annuli_Heat_Map")
 OUT_DIR.mkdir(exist_ok=True)
 
-ANNULI_PROFILE_DIR = Path("B_results/Annuli_Profile")
+ANNULI_PROFILE_DIR = Path("B_results/Single_Fan_Annuli_Profile")
 
 MASK_ZEROS_AS_NODATA = False
 
@@ -48,10 +48,15 @@ CBAR_LABEL = r"$w$ (m$\cdot$s$^{-1}$)"  # vertical velocity
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
+# Tick positions for compact A4 layout
+XTICKS = [0, 1.2, 2.2, 3, 3.8, 4.6, 5.4, 6.2, 7.2, 8.4]
+YTICKS = [0, 0.8, 1.6, 2.4, 3.2, 4, 4.8]
+
 # Line widths
 CELL_EDGE_LW = 0.30
 AXIS_EDGE_LW = 0.30
 CBAR_EDGE_LW = 0.30
+LEGEND_FONTSIZE = 8.5
 
 # Fan outlet marker (single fan)
 FAN_OUTLET_X = 4.2
@@ -210,17 +215,18 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
 
     # Figure styling
     plt.rcParams.update({
-        "font.size": 8,
-        "axes.labelsize": 8,
-        "axes.titlesize": 8,
-        "xtick.labelsize": 7,
-        "ytick.labelsize": 7,
+        "font.size": 10,
+        "axes.labelsize": 10,
+        "axes.titlesize": 10,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
+        "legend.fontsize": LEGEND_FONTSIZE,
         "axes.edgecolor": "k",
         "axes.linewidth": AXIS_EDGE_LW,
         "patch.edgecolor": "k",
     })
 
-    fig, ax = plt.subplots(figsize=(6.8, 5.6), dpi=600)  # larger for readability
+    fig, ax = plt.subplots(figsize=(5.7, 3.9), dpi=600)  # 2-per-row on A4 landscape
 
     # Annulus rings
     vmin = 0.0
@@ -301,21 +307,22 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
     ax.set_aspect("equal", adjustable="box")  # 1:1 grid without stretching
     for spine in ax.spines.values():
         spine.set_linewidth(AXIS_EDGE_LW)
-    ax.set_xticks(x_centers)
-    ax.set_yticks(y_centers)
-    ax.set_xticklabels([f"{v:.2f}" for v in x])
-    ax.set_yticklabels([f"{v:.2f}" for v in y])
-    ax.tick_params(axis="x", labelrotation=-30)
+    xtick_pos = [x_centers[np.argmin(np.abs(x_centers - v))] for v in XTICKS]
+    ytick_pos = [y_centers[np.argmin(np.abs(y_centers - v))] for v in YTICKS]
+    ax.set_xticks(xtick_pos)
+    ax.set_yticks(ytick_pos)
+    ax.set_xticklabels([f"{v:.2f}" for v in XTICKS])
+    ax.set_yticklabels([f"{v:.2f}" for v in YTICKS])
     ax.tick_params(axis="both", which="major", length=2, width=0.6)
     ax.legend(
         loc="lower left",
-        bbox_to_anchor=(0.97, -0.13),
+        bbox_to_anchor=(0.97, -0.22),
         frameon=True,
         framealpha=1.0,
         edgecolor="black",
-        fontsize=7,
+        fontsize=LEGEND_FONTSIZE,
         handlelength=1.5,
-        borderpad=0.7,
+        borderpad=0.5,
         labelspacing=0.2,
     )
     leg = ax.get_legend()
@@ -360,7 +367,7 @@ def main():
             )
 
         delta_r = infer_delta_r(r_bins, DELTA_R_M)
-        out_png = OUT_DIR / f"{sh}_annuli_heatmap.png"
+        out_png = OUT_DIR / f"{sh}_single_annuli_heatmap_main.png"
         plot_annuli(x, y, r_bins, w_bins, delta_r, out_png)
 
     print(f"Saved figures to: {OUT_DIR.resolve()}")

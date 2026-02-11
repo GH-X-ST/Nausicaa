@@ -60,7 +60,7 @@ from scipy.optimize import least_squares
 ### User settings
 
 XLSX_PATH = "/mnt/data/S01.xlsx"
-ANNULI_PROFILE_DIR = Path("B_results/Annuli_Profile")
+ANNULI_PROFILE_DIR = Path("B_results/Single_Fan_Annuli_Profile")
 OUT_XLSX_PATH = Path("B_results/annular_gaussian_avg_params.xlsx")
 
 # Update if your fan center is different.
@@ -242,7 +242,7 @@ def load_annuli_profile_csv(
     """
     Load annuli profile CSV (r_m, w_mps, n) produced by annuli_cut.py.
     """
-    csv_path = Path(profile_dir) / f"{sheet_name}_annuli_profile.csv"
+    csv_path = Path(profile_dir) / f"{sheet_name}_single_annuli_profile.csv"
     if not csv_path.exists():
         raise FileNotFoundError(f"Missing annuli profile CSV: {csv_path}")
 
@@ -525,7 +525,7 @@ def main() -> None:
             "w0": params[:, 3],
         }
     )
-    df_out.to_excel(OUT_XLSX_PATH, index=False, sheet_name="ring_params")
+    df_out.to_excel(OUT_XLSX_PATH, index=False, sheet_name="single_annular_avg")
     print(f"Saved Excel results to: {OUT_XLSX_PATH.resolve()}")
 
 

@@ -23,7 +23,7 @@ import pandas as pd
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
-OUT_DIR = Path("B_results/Annuli_Profile")
+OUT_DIR = Path("B_results/Single_Fan_Annuli_Profile")
 OUT_DIR.mkdir(exist_ok=True)
 
 # Fan centre (x_c, y_c)
@@ -356,7 +356,7 @@ def main():
             sigma_min=SIGMA_MIN,
         )
 
-        out_csv = OUT_DIR / f"{sh}_annuli_profile.csv"
+        out_csv = OUT_DIR / f"{sh}_single_annuli_profile.csv"
         save_profile_csv(out_csv, r_bins, w_bins, n_bins, alpha_bins, sigma_bins)
 
     print(f"Saved annuli profiles to: {OUT_DIR.resolve()}")
