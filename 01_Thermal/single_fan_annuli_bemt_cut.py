@@ -1,7 +1,7 @@
 """
 This script reduces a 2D heat map to a radial profile by grouping samples
-with similar radii into annuli of width Δr. Each sample (r_i, w_i) is assigned
-to an annulus, and for each annulus j:
+with similar radii into annuli of width delta_r. Each sample (r_i, w_i) is
+assigned to an annulus, and for each annulus j:
   - r_j: representative radius
   - w_j: annulus-averaged mean vertical velocity
   - n_j: number of samples in the annulus
@@ -23,13 +23,13 @@ import pandas as pd
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
-OUT_DIR = Path("B_results/Single_Fan_Annuli_Profile")
+OUT_DIR = Path("B_results/Single_Fan_Annuli_BEMT_Profile")
 OUT_DIR.mkdir(exist_ok=True)
 
 # Fan centre (x_c, y_c)
 FAN_CENTER_XY = (4.2, 2.4)
 
-# Annulus thickness Δr (m)
+# Annulus thickness delta_r (m)
 DELTA_R_M = 0.30
 
 # Use median rather than mean within each annulus
@@ -61,20 +61,20 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     y = pd.to_numeric(raw.iloc[1:, 0], errors="coerce").to_numpy(dtype=float)
 
     # field values
-    W = raw.iloc[1:, 1:].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+    w_map = raw.iloc[1:, 1:].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
 
     # sanity checks
-    if W.shape != (y.size, x.size):
+    if w_map.shape != (y.size, x.size):
         raise ValueError(
-            f"Shape mismatch in {sheet_name}: W{W.shape}, y({y.size}), x({x.size})."
+            f"Shape mismatch in {sheet_name}: W{w_map.shape}, y({y.size}), x({x.size})."
         )
 
     # Ensure y increases bottom-to-top on the plot
     if y.size >= 2 and y[0] > y[-1]:
         y = y[::-1]
-        W = W[::-1, :]
+        w_map = w_map[::-1, :]
 
-    return x, y, W
+    return x, y, w_map
 
 
 def _cell_is_str(df: pd.DataFrame, r_idx: int, c_idx: int, text: str) -> bool:
@@ -210,7 +210,7 @@ def make_radial_profile(
     Construct a 1D radial profile by binning samples (r_i, w_i) into annuli
     using nearest-centre assignment:
 
-        r_i* = round(r_i / Δr) Δr
+        r_i* = round(r_i / delta_r) * delta_r
 
     Returns:
         r_bins: bin-centre radius per annulus, shape (M,)
@@ -228,9 +228,8 @@ def make_radial_profile(
     if r.size == 0:
         raise ValueError("No finite samples available to construct radial profile.")
 
-    # Nearest-centre binning (avoids NumPy's bankers rounding at exact half steps)
+    # Nearest-centre binning (avoids NumPy bankers rounding at exact half-steps)
     k = np.floor(r / delta_r + 0.5).astype(int)  # integer bin index
-    r_star = k.astype(float) * float(delta_r)    # r_i*
 
     # Group by bin index
     uniq_k = np.unique(k)
@@ -245,7 +244,7 @@ def make_radial_profile(
         if w_b.size == 0:
             continue
 
-        r_rep = float(kk) * float(delta_r)  # r_j = k Δr (bin centre)
+        r_rep = float(kk) * float(delta_r)  # r_j = k * delta_r (bin centre)
         w_rep = float(np.median(w_b) if use_median else np.mean(w_b))
         n_rep = int(w_b.size)
 
@@ -280,15 +279,15 @@ def build_annuli_profile(
     """
     Build annuli profile (r_j, w_j, n_j, alpha_j, sigma_j) for a height sheet.
     """
-    x, y, W = read_slice_from_sheet(xlsx_path, mean_sheet)
+    x, y, w_map = read_slice_from_sheet(xlsx_path, mean_sheet)
     if MASK_ZEROS_AS_NODATA:
-        W = W.copy()
-        W[W == 0.0] = np.nan
+        w_map = w_map.copy()
+        w_map[w_map == 0.0] = np.nan
 
     x_grid, y_grid = np.meshgrid(x, y)
     xc, yc = fan_center_xy
     r = np.sqrt((x_grid - xc) ** 2 + (y_grid - yc) ** 2).ravel()
-    w = W.ravel()
+    w = w_map.ravel()
 
     r_bins, w_bins, n_bins, alpha_bins = make_radial_profile(
         r=r,
@@ -344,7 +343,7 @@ def save_profile_csv(
 
 
 ### Export each sheet as CSV
-def main():
+def main() -> None:
     for sh in SHEETS:
         r_bins, w_bins, n_bins, alpha_bins, sigma_bins = build_annuli_profile(
             xlsx_path=XLSX_PATH,
@@ -356,7 +355,7 @@ def main():
             sigma_min=SIGMA_MIN,
         )
 
-        out_csv = OUT_DIR / f"{sh}_single_annuli_profile.csv"
+        out_csv = OUT_DIR / f"{sh}_single_annuli_bemt_profile.csv"
         save_profile_csv(out_csv, r_bins, w_bins, n_bins, alpha_bins, sigma_bins)
 
     print(f"Saved annuli profiles to: {OUT_DIR.resolve()}")

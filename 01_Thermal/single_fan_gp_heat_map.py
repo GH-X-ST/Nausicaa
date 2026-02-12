@@ -25,7 +25,7 @@ import cmocean  # https://matplotlib.org/cmocean
 ### User settings
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
-GP_GRID_XLSX = Path("B_results/Single_Fan_GP/single_fan_gp_grid_predictions.xlsx")
+GP_GRID_XLSX = Path("B_results/Single_Fan_GP/single_gp_grid_predictions.xlsx")
 OUT_DIR = Path("A_figures/Single_Fan_GP")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -264,7 +264,7 @@ def main() -> None:
         x_grid, y_grid = build_continuous_grid(x, y)
         w_dense = interpolate_to_continuous_grid(x, y, w_mean, x_grid, y_grid)
 
-        out_png = OUT_DIR / f"{sh}_single_fan_gp_heatmap.png"
+        out_png = OUT_DIR / f"{sh}_single_gp_heatmap.png"
         plot_continuous_heatmap(
             x=x_grid[0, :],
             y=y_grid[:, 0],

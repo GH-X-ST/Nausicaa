@@ -3,8 +3,8 @@ Plot annuli heat maps using the same plotting style as single_fan_heat_map.py.
 
 For each height sheet, annuli are plotted as rings using the radii stored in
 the annuli profile CSVs (r_m). This ensures the plot uses the exact r values
-from annuli_cut.py, while keeping the same x/y axis settings as the original
-heat map.
+from single_fan_annuli_bemt_cut.py, while keeping the same x/y axis settings
+as the original heat map.
 """
 
 ###### Initialization
@@ -26,7 +26,7 @@ import cmocean  # https://matplotlib.org/cmocean
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
-OUT_DIR = Path("A_figures/Single_Fan_Annuli_Heat_Map")
+OUT_DIR = Path("A_figures/Single_Fan_Annuli_BEMT_Heat_Map")
 OUT_DIR.mkdir(exist_ok=True)
 
 ANNULI_PROFILE_DIR = Path("B_results/Single_Fan_Annuli_Profile")
@@ -141,7 +141,7 @@ def build_annuli_bins(
     r_valid = r[valid]
     w_valid = W_work[valid]
 
-    # Nearest-centre binning (matches annuli_cut.py)
+    # Nearest-centre binning (matches single_fan_annuli_bemt_cut.py)
     k = np.floor(r_valid / delta_r + 0.5).astype(int)
     r_bins = k.astype(float) * float(delta_r)
 
@@ -351,7 +351,7 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
 def main():
     for sh in SHEETS:
         x, y, W = read_slice_from_sheet(XLSX_PATH, sh)
-        profile_path = ANNULI_PROFILE_DIR / f"{sh}_annuli_profile.csv"
+        profile_path = ANNULI_PROFILE_DIR / f"{sh}_single_annuli_profile.csv"
         if profile_path.exists():
             r_bins, w_bins = load_annuli_profile_csv(profile_path)
         else:
@@ -365,7 +365,7 @@ def main():
             )
 
         delta_r = infer_delta_r(r_bins, DELTA_R_M)
-        out_png = OUT_DIR / f"{sh}_single_annuli_heatmap_main.png"
+        out_png = OUT_DIR / f"{sh}_single_annuli_bemt_heatmap_main.png"
         plot_annuli(x, y, r_bins, w_bins, delta_r, out_png)
 
     print(f"Saved figures to: {OUT_DIR.resolve()}")

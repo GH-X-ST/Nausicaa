@@ -46,11 +46,11 @@ RANDOM_STATE = 42
 
 # Output locations.
 OUT_DIR = Path("B_results/Single_Fan_GP")
-TRAIN_PRED_CSV_PATH = OUT_DIR / "single_fan_gp_training_predictions.csv"
-SUMMARY_XLSX_PATH = OUT_DIR / "single_fan_gp_summary.xlsx"
-GRID_PRED_XLSX_PATH = OUT_DIR / "single_fan_gp_grid_predictions.xlsx"
-ANALYSIS_XLSX_PATH = "B_results/single_fan_gp_analysis.xlsx"
-ANALYSIS_SHEET_NAME = "single_fan_gp_analysis"
+TRAIN_PRED_CSV_PATH = OUT_DIR / "single_gp_training_predictions.csv"
+SUMMARY_XLSX_PATH = OUT_DIR / "single_gp_summary.xlsx"
+GRID_PRED_XLSX_PATH = OUT_DIR / "single_gp_grid_predictions.xlsx"
+ANALYSIS_XLSX_PATH = "B_results/single_gp_analysis.xlsx"
+ANALYSIS_SHEET_NAME = "single_gp_analysis"
 
 ### Data model
 @dataclass

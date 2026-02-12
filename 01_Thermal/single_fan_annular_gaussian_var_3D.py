@@ -34,7 +34,7 @@ PARAMS_XLSX = Path("B_results/single_annular_var_params_pchip.xls")
 PARAMS_SHEET = "single_annular_var_pchip"
 
 OUT_DIR = Path("A_figures/Single_Fan_Annular_Gaussian_Var")
-OUT_3D_NAME = "single_fan_annular_gaussian_var_3d.png"
+OUT_3D_NAME = "single_annular_gaussian_var_3d.png"
 # Match heat-map-main output aspect ratio
 FIGSIZE_3D = (7.45/1.3, 3.0)
 

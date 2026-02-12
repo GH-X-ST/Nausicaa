@@ -35,10 +35,10 @@ MAKE_PLOTS = True
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 SHEET_HEIGHT_DIVISOR = 100.0
 
-GRID_PRED_XLSX = Path("B_results/Single_Fan_GP/single_fan_gp_grid_predictions.xlsx")
+GRID_PRED_XLSX = Path("B_results/Single_Fan_GP/single_gp_grid_predictions.xlsx")
 
 OUT_DIR = Path("A_figures/Single_Fan_GP")
-OUT_3D_NAME = "single_fan_gp_3d.png"
+OUT_3D_NAME = "single_gp_3d.png"
 # Match heat-map-main output aspect ratio
 FIGSIZE_3D = (7.45 / 1.3, 3.0)
 
