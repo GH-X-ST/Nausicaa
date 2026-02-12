@@ -36,12 +36,12 @@ SHEET_HEIGHT_DIVISOR = 100.0
 USE_RADIAL_FEATURES = False
 
 # Noise assignment from *_TS.
-SIGMA_FALLBACK = 0.2
-SIGMA_MIN = 1e-3
+SIGMA_FALLBACK = 0.14
+SIGMA_MIN = 0.03
 ALPHA_JITTER = 1e-8
 
 # GP optimizer settings.
-N_RESTARTS_OPTIMIZER = 1
+N_RESTARTS_OPTIMIZER = 10
 RANDOM_STATE = 42
 
 # Output locations.
@@ -49,6 +49,8 @@ OUT_DIR = Path("B_results/Single_Fan_GP")
 TRAIN_PRED_CSV_PATH = OUT_DIR / "single_fan_gp_training_predictions.csv"
 SUMMARY_XLSX_PATH = OUT_DIR / "single_fan_gp_summary.xlsx"
 GRID_PRED_XLSX_PATH = OUT_DIR / "single_fan_gp_grid_predictions.xlsx"
+ANALYSIS_XLSX_PATH = "B_results/single_fan_gp_analysis.xlsx"
+ANALYSIS_SHEET_NAME = "single_fan_gp_analysis"
 
 ### Data model
 @dataclass
@@ -90,6 +92,13 @@ class GPModelBundle:
 
 
 ### Helpers
+def ensure_path(path_like: str | Path) -> Path:
+    """
+    Convert a string/Path into a Path object.
+    """
+    return path_like if isinstance(path_like, Path) else Path(path_like)
+
+
 def parse_sheet_height_m(sheet_name: str) -> float:
     if not sheet_name.startswith("z"):
         raise ValueError(f"Invalid sheet name (expected 'z###'): {sheet_name}")
@@ -252,7 +261,7 @@ def fit_gp_model(
         ConstantKernel(1.0, (1e-3, 1e3))
         * RBF(
             length_scale=np.ones(n_features, dtype=float),
-            length_scale_bounds=(1e-2, 1e2),
+            length_scale_bounds=(1e-1, 1e2),
         )
         + WhiteKernel(noise_level=1e-3, noise_level_bounds=(1e-6, 1e0))
     )
@@ -279,23 +288,47 @@ def fit_gp_model(
 def compute_regression_metrics(
     y_true: np.ndarray,
     y_pred: np.ndarray,
+    sigma_mps: np.ndarray | None = None,
 ) -> Dict[str, float]:
     """
-    Compute standard regression metrics.
+    Compute regression metrics (MAE, RMSE, R2, SAE, SSE, WRMSE).
+
+    WRMSE is computed with inverse-variance weights:
+        w_i = 1 / sigma_i^2
+    When sigma_mps is not provided, uniform weights are used.
     """
     y_true = np.asarray(y_true, dtype=float)
     y_pred = np.asarray(y_pred, dtype=float)
     err = y_pred - y_true
 
+    # Aggregate-error metrics requested for export.
+    sae = float(np.sum(np.abs(err)))
+    sse = float(np.sum(err**2))
+
     mae = float(np.mean(np.abs(err)))
     rmse = float(np.sqrt(np.mean(err**2)))
-    ss_res = float(np.sum(err**2))
+    ss_res = sse
     ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2))
     r2 = float(1.0 - ss_res / ss_tot) if ss_tot > 0.0 else float("nan")
+
+    if sigma_mps is None:
+        weights = np.ones_like(err, dtype=float)
+    else:
+        sigma_arr = np.asarray(sigma_mps, dtype=float)
+        if sigma_arr.size != err.size:
+            raise ValueError("sigma_mps must have the same length as y_true/y_pred.")
+        sigma_safe = np.maximum(sigma_arr, float(SIGMA_MIN))
+        weights = 1.0 / (sigma_safe**2)
+
+    w_sum = float(np.sum(weights))
+    wrmse = float(np.sqrt(np.sum(weights * (err**2)) / w_sum)) if w_sum > 0.0 else float("nan")
 
     return {
         "mae_mps": mae,
         "rmse_mps": rmse,
+        "sae_mps": sae,
+        "sse_mps2": sse,
+        "wrmse_mps": wrmse,
         "r2": r2,
         "n_samples": float(y_true.size),
     }
@@ -335,6 +368,7 @@ def summarize_by_sheet(pred_df: pd.DataFrame) -> pd.DataFrame:
         metrics = compute_regression_metrics(
             y_true=sub["w_obs_mps"].to_numpy(dtype=float),
             y_pred=sub["w_pred_mps"].to_numpy(dtype=float),
+            sigma_mps=sub["sigma_mps"].to_numpy(dtype=float),
         )
         rows.append(
             {
@@ -343,6 +377,9 @@ def summarize_by_sheet(pred_df: pd.DataFrame) -> pd.DataFrame:
                 "n_samples": int(sub.shape[0]),
                 "mae_mps": metrics["mae_mps"],
                 "rmse_mps": metrics["rmse_mps"],
+                "sae_mps": metrics["sae_mps"],
+                "sse_mps2": metrics["sse_mps2"],
+                "wrmse_mps": metrics["wrmse_mps"],
                 "r2": metrics["r2"],
                 "mean_pred_std_mps": float(
                     np.mean(sub["w_pred_std_mps"].to_numpy(dtype=float))
@@ -350,6 +387,76 @@ def summarize_by_sheet(pred_df: pd.DataFrame) -> pd.DataFrame:
             }
         )
 
+    return pd.DataFrame(rows)
+
+
+def build_analysis_style_metrics_table(pred_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build an analysis-style table (7 heights + TOTAL) for SAE/SSE/WRMSE.
+
+    Format mirrors single_fan_annular_gaussian_avg_analysis.py.
+    """
+    rows: List[Dict[str, float]] = []
+    total_sae = 0.0
+    total_sse = 0.0
+    total_weighted_sse = 0.0
+    total_weight_sum = 0.0
+    total_n = 0
+
+    for sheet in SHEETS:
+        sub = pred_df[pred_df["sheet"] == sheet]
+        if sub.empty:
+            continue
+
+        err = sub["err_mps"].to_numpy(dtype=float)
+        sigma = np.maximum(sub["sigma_mps"].to_numpy(dtype=float), float(SIGMA_MIN))
+        weights = 1.0 / (sigma**2)
+
+        sae_k = float(np.sum(np.abs(err)))
+        sse_k = float(np.sum(err**2))
+        weighted_sse_k = float(np.sum(weights * (err**2)))
+        weight_sum_k = float(np.sum(weights))
+        wrmse_k = (
+            float(np.sqrt(weighted_sse_k / weight_sum_k))
+            if weight_sum_k > 0.0
+            else float("nan")
+        )
+
+        total_sae += sae_k
+        total_sse += sse_k
+        total_weighted_sse += weighted_sse_k
+        total_weight_sum += weight_sum_k
+        total_n += int(sub.shape[0])
+
+        rows.append(
+            {
+                "sheet": sheet,
+                "z_m": float(sub["z_m"].iloc[0]),
+                "n_samples": int(sub.shape[0]),
+                "accumulate_SAE_mps": sae_k,
+                "SSE_mps2": sse_k,
+                "weighted_RMSE_mps": wrmse_k,
+                "weighted_SSE_term": weighted_sse_k,
+                "weight_sum_term": weight_sum_k,
+            }
+        )
+
+    if total_weight_sum <= 0.0:
+        raise ValueError("Total WRMSE denominator is non-positive.")
+    total_wrmse = float(np.sqrt(total_weighted_sse / total_weight_sum))
+
+    rows.append(
+        {
+            "sheet": "TOTAL",
+            "z_m": np.nan,
+            "n_samples": int(total_n),
+            "accumulate_SAE_mps": float(total_sae),
+            "SSE_mps2": float(total_sse),
+            "weighted_RMSE_mps": total_wrmse,
+            "weighted_SSE_term": float(total_weighted_sse),
+            "weight_sum_term": float(total_weight_sum),
+        }
+    )
     return pd.DataFrame(rows)
 
 
@@ -389,16 +496,17 @@ def make_grid_prediction_tables(
 
 
 def write_tables_to_excel(
-    out_xlsx: Path,
+    out_xlsx: str | Path,
     tables: Dict[str, pd.DataFrame],
 ) -> None:
     """
     Write multiple tables to Excel
     """
-    out_xlsx.parent.mkdir(parents=True, exist_ok=True)
-    if out_xlsx.exists():
+    out_path = ensure_path(out_xlsx)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if out_path.exists():
         with pd.ExcelWriter(
-            out_xlsx,
+            out_path,
             engine="openpyxl",
             mode="a",
             if_sheet_exists="replace",
@@ -406,14 +514,43 @@ def write_tables_to_excel(
             for sheet_name, table in tables.items():
                 table.to_excel(writer, index=True, sheet_name=sheet_name)
     else:
-        with pd.ExcelWriter(out_xlsx, engine="openpyxl", mode="w") as writer:
+        with pd.ExcelWriter(out_path, engine="openpyxl", mode="w") as writer:
             for sheet_name, table in tables.items():
                 table.to_excel(writer, index=True, sheet_name=sheet_name)
 
 
+def write_table_to_excel_no_index(
+    out_xlsx: str | Path,
+    table: pd.DataFrame,
+    sheet_name: str,
+) -> None:
+    """
+    Write one table to Excel using analysis-style formatting (index=False).
+    """
+    out_path = ensure_path(out_xlsx)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if out_path.exists():
+        with pd.ExcelWriter(
+            out_path,
+            engine="openpyxl",
+            mode="a",
+            if_sheet_exists="replace",
+        ) as writer:
+            table.to_excel(writer, index=False, sheet_name=sheet_name)
+    else:
+        with pd.ExcelWriter(out_path, engine="openpyxl", mode="w") as writer:
+            table.to_excel(writer, index=False, sheet_name=sheet_name)
+
+
 ### Main
 def main() -> None:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir = ensure_path(OUT_DIR)
+    train_pred_csv_path = ensure_path(TRAIN_PRED_CSV_PATH)
+    summary_xlsx_path = ensure_path(SUMMARY_XLSX_PATH)
+    analysis_xlsx_path = ensure_path(ANALYSIS_XLSX_PATH)
+    grid_pred_xlsx_path = ensure_path(GRID_PRED_XLSX_PATH)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     train_df = build_training_table(
         xlsx_path=XLSX_PATH,
@@ -432,11 +569,12 @@ def main() -> None:
     )
 
     pred_df = make_training_prediction_table(model, train_df)
-    pred_df.to_csv(TRAIN_PRED_CSV_PATH, index=False)
+    pred_df.to_csv(train_pred_csv_path, index=False)
 
     overall_metrics = compute_regression_metrics(
         y_true=pred_df["w_obs_mps"].to_numpy(dtype=float),
         y_pred=pred_df["w_pred_mps"].to_numpy(dtype=float),
+        sigma_mps=pred_df["sigma_mps"].to_numpy(dtype=float),
     )
     summary_metrics_df = pd.DataFrame([overall_metrics])
     summary_metrics_df["use_radial_features"] = bool(USE_RADIAL_FEATURES)
@@ -446,6 +584,7 @@ def main() -> None:
     summary_metrics_df["kernel"] = str(model.gp.kernel_)
 
     per_sheet_df = summarize_by_sheet(pred_df)
+    analysis_df = build_analysis_style_metrics_table(pred_df)
     hyper_df = pd.DataFrame(
         [
             {"parameter": "xlsx_path", "value": XLSX_PATH},
@@ -461,12 +600,24 @@ def main() -> None:
         ]
     )
     write_tables_to_excel(
-        SUMMARY_XLSX_PATH,
+        summary_xlsx_path,
         {
             "overall_metrics": summary_metrics_df,
             "per_sheet_metrics": per_sheet_df,
             "hyperparameters": hyper_df,
         },
+    )
+    # Add analysis-style SAE/SSE/WRMSE table into summary workbook.
+    write_table_to_excel_no_index(
+        summary_xlsx_path,
+        analysis_df,
+        ANALYSIS_SHEET_NAME,
+    )
+    # Also export the same analysis table independently.
+    write_table_to_excel_no_index(
+        analysis_xlsx_path,
+        analysis_df,
+        ANALYSIS_SHEET_NAME,
     )
 
     grid_tables = make_grid_prediction_tables(
@@ -474,7 +625,7 @@ def main() -> None:
         xlsx_path=XLSX_PATH,
         sheet_names=SHEETS,
     )
-    write_tables_to_excel(GRID_PRED_XLSX_PATH, grid_tables)
+    write_tables_to_excel(grid_pred_xlsx_path, grid_tables)
 
     print("Gaussian Process model fitted successfully.")
     print(f"Samples used: {int(train_df.shape[0])}")
@@ -485,9 +636,10 @@ def main() -> None:
         f"RMSE={overall_metrics['rmse_mps']:.4f} m/s, "
         f"R2={overall_metrics['r2']:.4f}"
     )
-    print(f"Training predictions CSV: {TRAIN_PRED_CSV_PATH.resolve()}")
-    print(f"Summary workbook: {SUMMARY_XLSX_PATH.resolve()}")
-    print(f"Grid predictions workbook: {GRID_PRED_XLSX_PATH.resolve()}")
+    print(f"Training predictions CSV: {train_pred_csv_path.resolve()}")
+    print(f"Summary workbook: {summary_xlsx_path.resolve()}")
+    print(f"Analysis workbook: {analysis_xlsx_path.resolve()}")
+    print(f"Grid predictions workbook: {grid_pred_xlsx_path.resolve()}")
 
 
 if __name__ == "__main__":

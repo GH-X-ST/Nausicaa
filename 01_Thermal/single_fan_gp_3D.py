@@ -80,7 +80,7 @@ FAN_VERTICAL_OFFSET_M = 0.330
 X_MIN, X_MAX = 0.0, 8.4
 Y_MIN, Y_MAX = 0.0, 4.8
 # Plotting range after adding fan vertical offset (+0.33 m).
-Z_MIN, Z_MAX = 0.53, 3.5
+Z_MIN, Z_MAX = 0.00, 3.5
 
 # 3D sampling resolution
 NX_3D, NY_3D, NZ_3D = 150, 100, 60
