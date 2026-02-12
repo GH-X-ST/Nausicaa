@@ -148,7 +148,7 @@ def vertical_velocity_field_multi(
 if __name__ == "__main__" and make_plots:
 
     # Output directory
-    output_dir = "B_figures"
+    output_dir = "A_figures/Four_Fan_Analytic"
     os.makedirs(output_dir, exist_ok=True)
 
     # CAMAX30 fan / thermal parameters

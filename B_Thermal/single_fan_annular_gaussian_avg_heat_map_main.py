@@ -26,7 +26,7 @@ import cmocean  # https://matplotlib.org/cmocean
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
-OUT_DIR = Path("A_figures/Single_Fan_Annular_Gaussian_Avg_Heat_Map")
+OUT_DIR = Path("A_figures/Single_Fan_Annular_Gaussian_Avg")
 OUT_DIR.mkdir(exist_ok=True)
 
 PARAMS_XLSX = Path("B_results/annular_gaussian_avg_params.xlsx")
