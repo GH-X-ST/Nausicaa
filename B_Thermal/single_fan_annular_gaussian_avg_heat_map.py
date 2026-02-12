@@ -1,10 +1,10 @@
 """
-Plot annuli heat maps using the same plotting style as single_fan_heat_map.py.
+Plot annular-Gaussian model heat maps using the same style as annuli heat maps.
 
-For each height sheet, annuli are plotted as rings using the radii stored in
-the annuli profile CSVs (r_m). This ensures the plot uses the exact r values
-from annuli_cut.py, while keeping the same x/y axis settings as the original
-heat map.
+For each height sheet, fitted ring parameters are loaded from
+B_results/annular_gaussian_avg_params.xlsx and used to generate a continuous
+model field w(x, y). The field is evaluated on a dense uniform grid (not the
+measurement grid) and then plotted.
 """
 
 ###### Initialization
@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
-from matplotlib.patches import Circle, Rectangle, Wedge
+from matplotlib.patches import Circle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import cmocean  # https://matplotlib.org/cmocean
@@ -26,19 +26,10 @@ import cmocean  # https://matplotlib.org/cmocean
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
-OUT_DIR = Path("A_figures/Single_Fan_Annuli_Heat_Map")
+OUT_DIR = Path("A_figures/Single_Fan_Annular_Gaussian_Avg_Heat_Map")
 OUT_DIR.mkdir(exist_ok=True)
 
-ANNULI_PROFILE_DIR = Path("B_results/Single_Fan_Annuli_Profile")
-
-MASK_ZEROS_AS_NODATA = False
-
-# Annulus thickness (m)
-# Used only as a fallback if spacing cannot be inferred from r_m.
-DELTA_R_M = 0.30
-
-# Use median rather than mean within each annulus
-USE_MEDIAN_PROFILE = False
+PARAMS_XLSX = Path("B_results/annular_gaussian_avg_params.xlsx")
 
 # Fan centre (x_c, y_c)
 FAN_CENTER_XY = (4.2, 2.4)
@@ -61,6 +52,17 @@ FAN_OUTLET_EDGE_LW = 1.1
 FAN_OUTLET_ALPHA = 0.6
 FAN_OUTLET_DASH = (0, (2, 2))
 
+# Color scale
+PLOT_VMIN = 0.0
+PLOT_VMAX = 8.0
+
+# Continuous grid resolution
+GRID_NX = 240
+GRID_NY = 180
+
+# z020 -> 0.20 m, z110 -> 1.10 m, etc.
+SHEET_HEIGHT_DIVISOR = 100.0
+
 
 # Helpers
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
@@ -75,6 +77,18 @@ def centers_to_edges(c: np.ndarray) -> np.ndarray:
     edges[0] = c[0] - 0.5 * (c[1] - c[0])
     edges[-1] = c[-1] + 0.5 * (c[-1] - c[-2])
     return edges
+
+
+def parse_sheet_height_m(sheet_name: str) -> float:
+    """
+    Parse height in meters from sheet names like 'z020', 'z110', 'z220'.
+    """
+    if not sheet_name.startswith("z"):
+        raise ValueError(f"Invalid sheet name (expected 'z###'): {sheet_name}")
+    suffix = sheet_name[1:]
+    if not suffix.isdigit():
+        raise ValueError(f"Invalid height code in sheet name: {sheet_name}")
+    return int(suffix) / SHEET_HEIGHT_DIVISOR
 
 
 def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
@@ -110,103 +124,52 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     return x, y, W
 
 
-def build_annuli_bins(
-    x: np.ndarray,
-    y: np.ndarray,
-    W: np.ndarray,
-    fan_center_xy: Tuple[float, float],
-    delta_r: float,
-    use_median: bool,
-) -> Tuple[np.ndarray, np.ndarray]:
+def build_continuous_grid(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Compute annulus centres and their aggregated values (fallback).
+    Build a dense uniform grid covering the measurement extents.
     """
-    if delta_r <= 0.0:
-        raise ValueError("delta_r must be positive.")
+    x_min = float(np.min(x))
+    x_max = float(np.max(x))
+    y_min = float(np.min(y))
+    y_max = float(np.max(y))
 
-    W_work = W.copy()
-    if MASK_ZEROS_AS_NODATA:
-        W_work[W_work == 0.0] = np.nan
-
-    x_grid, y_grid = np.meshgrid(x, y)
-    xc, yc = fan_center_xy
-    r = np.sqrt((x_grid - xc) ** 2 + (y_grid - yc) ** 2)
-
-    valid = np.isfinite(W_work) & np.isfinite(r)
-    if not np.any(valid):
-        raise ValueError("No finite samples available to construct annuli map.")
-
-    r_valid = r[valid]
-    w_valid = W_work[valid]
-
-    # Nearest-centre binning (matches annuli_cut.py)
-    k = np.floor(r_valid / delta_r + 0.5).astype(int)
-    r_bins = k.astype(float) * float(delta_r)
-
-    uniq_k = np.unique(k)
-    r_list = []
-    w_list = []
-    for kk in uniq_k:
-        in_bin = k == kk
-        w_slice = w_valid[in_bin]
-        if w_slice.size == 0:
-            continue
-        r_list.append(float(kk) * float(delta_r))
-        w_list.append(float(np.median(w_slice) if use_median else np.mean(w_slice)))
-
-    r_bins = np.array(r_list, dtype=float)
-    w_bins = np.array(w_list, dtype=float)
-    order = np.argsort(r_bins)
-    return r_bins[order], w_bins[order]
+    x_lin = np.linspace(x_min, x_max, GRID_NX, dtype=float)
+    y_lin = np.linspace(y_min, y_max, GRID_NY, dtype=float)
+    xg, yg = np.meshgrid(x_lin, y_lin)
+    return xg, yg
 
 
-def load_annuli_profile_csv(profile_path: Path) -> Tuple[np.ndarray, np.ndarray]:
+def load_ring_params(xlsx_path: Path) -> pd.DataFrame:
     """
-    Load annuli profile CSV (r_m, w_mps).
+    Load fitted ring parameters from Excel.
     """
-    df = pd.read_csv(profile_path)
-    r_bins = pd.to_numeric(df["r_m"], errors="coerce").to_numpy(dtype=float)
-    w_bins = pd.to_numeric(df["w_mps"], errors="coerce").to_numpy(dtype=float)
-
-    mask = np.isfinite(r_bins) & np.isfinite(w_bins)
-    r_bins = r_bins[mask]
-    w_bins = w_bins[mask]
-
-    order = np.argsort(r_bins)
-    return r_bins[order], w_bins[order]
+    df = pd.read_excel(xlsx_path)
+    required = {"z_m", "A_ring", "r_ring", "delta_r", "w0"}
+    if not required.issubset(df.columns):
+        missing = required - set(df.columns)
+        raise ValueError(f"Missing columns in {xlsx_path}: {sorted(missing)}")
+    return df.copy()
 
 
-def infer_delta_r(r_bins: np.ndarray, fallback: float) -> float:
+def params_for_height(df: pd.DataFrame, z_m: float) -> Tuple[float, float, float, float]:
     """
-    Infer annulus spacing from r_bins. Uses the smallest positive gap as base delta_r.
+    Extract [A_ring, r_ring, delta_r, w0] for a given height.
     """
-    if r_bins.size < 2:
-        return float(fallback)
-
-    r_unique = np.unique(r_bins)
-    if r_unique.size < 2:
-        return float(fallback)
-
-    diffs = np.diff(r_unique)
-    diffs = diffs[np.isfinite(diffs) & (diffs > 0.0)]
-    if diffs.size == 0:
-        return float(fallback)
-
-    return float(np.min(diffs))
+    mask = np.isclose(df["z_m"].to_numpy(dtype=float), float(z_m), atol=1e-6)
+    if not np.any(mask):
+        available = ", ".join([f"{v:.2f}" for v in df["z_m"].to_numpy(dtype=float)])
+        raise ValueError(f"No parameters for z={z_m:.2f}. Available: {available}")
+    row = df.loc[mask].iloc[0]
+    return float(row["A_ring"]), float(row["r_ring"]), float(row["delta_r"]), float(row["w0"])
 
 
-def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
+def plot_continuous_heatmap(x, y, W, outpath: Path):
     """
-    Plot annuli as rings using the same axis settings as single_fan_heat_map.py.
+    Plot continuous model heat map using the same axis settings as single_fan_heat_map.py.
     """
-    if delta_r <= 0.0:
-        raise ValueError("delta_r must be positive.")
-
-    # Convert center grids -> edges for axis settings
+    # Convert center grids -> edges for pcolormesh
     x_edges = centers_to_edges(x)
     y_edges = centers_to_edges(y)
-    x_centers = 0.5 * (x_edges[:-1] + x_edges[1:])
-    y_centers = 0.5 * (y_edges[:-1] + y_edges[1:])
 
     # Figure styling
     plt.rcParams.update({
@@ -222,44 +185,16 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
 
     fig, ax = plt.subplots(figsize=(6.8, 5.6), dpi=600)  # larger for readability
 
-    # Annulus rings
-    vmin = 0.0
-    vmax = 8.0
-    cmap = cmocean.cm.thermal
-    norm = plt.Normalize(vmin=vmin, vmax=vmax)
-
-    # Background fill for empty areas (w = 0)
-    bg = Rectangle(
-        (x_edges[0], y_edges[0]),
-        x_edges[-1] - x_edges[0],
-        y_edges[-1] - y_edges[0],
-        facecolor=cmap(norm(0.0)),
-        edgecolor="none",
-        zorder=0,
+    # Continuous heatmap
+    im = ax.pcolormesh(
+        x_edges,
+        y_edges,
+        W,
+        shading="auto",
+        cmap=cmocean.cm.thermal,
+        vmin=PLOT_VMIN,
+        vmax=PLOT_VMAX,
     )
-    ax.add_patch(bg)
-
-    for r_c, w_val in zip(r_bins, w_bins):
-        if not np.isfinite(w_val):
-            continue
-
-        r_in = max(float(r_c) - 0.5 * float(delta_r), 0.0)
-        r_out = float(r_c) + 0.5 * float(delta_r)
-        if r_out <= r_in:
-            continue
-
-        ring = Wedge(
-            (FAN_OUTLET_X, FAN_OUTLET_Y),
-            r_out,
-            0.0,
-            360.0,
-            width=r_out - r_in,
-            facecolor=cmap(norm(w_val)),
-            edgecolor=(0, 0, 0, 0.3),
-            linewidth=CELL_EDGE_LW,
-            clip_on=True,
-        )
-        ax.add_patch(ring)
 
     # Fan outlet marker (thin dashed ring)
     outlet = Circle(
@@ -278,9 +213,7 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
     # Colorbar
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="2.6%", pad=0.15)
-    mappable = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
-    mappable.set_array([])
-    cbar = fig.colorbar(mappable, cax=cax)
+    cbar = fig.colorbar(im, cax=cax)
     cbar.set_label(CBAR_LABEL)
     cbar.formatter = FormatStrFormatter("%.2f")
     cbar.update_ticks()
@@ -301,7 +234,7 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
     ax.set_aspect("equal", adjustable="box")  # 1:1 grid without stretching
     for spine in ax.spines.values():
         spine.set_linewidth(AXIS_EDGE_LW)
-    # Axis ticks: fixed spacing and range
+    # Axis ticks: fixed spacing and range to match annuli heat map
     xticks = np.arange(0.0, 8.4 + 1e-9, 0.6)
     yticks = np.arange(0.0, 4.8 + 1e-9, 0.4)
     ax.set_xticks(xticks)
@@ -325,7 +258,7 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
     if leg is not None:
         leg.get_frame().set_linewidth(0.3)
 
-    # Tighten limits to data extents
+    # Tighten limits to match annuli heat map extents
     ax.set_xlim(0.0, 8.4)
     ax.set_ylim(0.0, 4.8)
 
@@ -347,24 +280,26 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
 
 ### Export each sheet as PNG
 def main():
-    for sh in SHEETS:
-        x, y, W = read_slice_from_sheet(XLSX_PATH, sh)
-        profile_path = ANNULI_PROFILE_DIR / f"{sh}_annuli_profile.csv"
-        if profile_path.exists():
-            r_bins, w_bins = load_annuli_profile_csv(profile_path)
-        else:
-            r_bins, w_bins = build_annuli_bins(
-                x=x,
-                y=y,
-                W=W,
-                fan_center_xy=FAN_CENTER_XY,
-                delta_r=DELTA_R_M,
-                use_median=USE_MEDIAN_PROFILE,
-            )
+    params_df = load_ring_params(PARAMS_XLSX)
 
-        delta_r = infer_delta_r(r_bins, DELTA_R_M)
-        out_png = OUT_DIR / f"{sh}_single_annuli_heatmap.png"
-        plot_annuli(x, y, r_bins, w_bins, delta_r, out_png)
+    for sh in SHEETS:
+        x, y, _w = read_slice_from_sheet(XLSX_PATH, sh)
+        z_m = parse_sheet_height_m(sh)
+
+        a_ring, r_ring, delta_r_model, w0 = params_for_height(params_df, z_m)
+
+        x_grid, y_grid = build_continuous_grid(x, y)
+        xc, yc = FAN_CENTER_XY
+        r = np.sqrt((x_grid - xc) ** 2 + (y_grid - yc) ** 2)
+        W_model = a_ring * np.exp(-((r - r_ring) / delta_r_model) ** 2)
+
+        out_png = OUT_DIR / f"{sh}_single_annular_gaussian_avg_heatmap.png"
+        plot_continuous_heatmap(
+            x_grid[0, :],
+            y_grid[:, 0],
+            W_model,
+            outpath=out_png,
+        )
 
     print(f"Saved figures to: {OUT_DIR.resolve()}")
 
