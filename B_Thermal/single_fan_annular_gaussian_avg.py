@@ -61,7 +61,7 @@ from scipy.optimize import least_squares
 
 XLSX_PATH = "/mnt/data/S01.xlsx"
 ANNULI_PROFILE_DIR = Path("B_results/Single_Fan_Annuli_Profile")
-OUT_XLSX_PATH = Path("B_results/annular_gaussian_avg_params.xlsx")
+OUT_XLSX_PATH = Path("B_results/single_annular_avg_params.xlsx")
 
 # Update if your fan center is different.
 FAN_CENTER_XY = (4.2, 2.4)

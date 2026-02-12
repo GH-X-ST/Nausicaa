@@ -2,7 +2,7 @@
 Build a continuous annular-Gaussian model w_model(r, z) from fitted parameters.
 
 This script reads the output of single_fan_annular_gaussian_avg.py
-(B_results/annular_gaussian_avg_params.xlsx), interpolates the fitted
+(B_results/single_annular_avg_params.xlsx), interpolates the fitted
 parameters vs height z using PCHIP, and writes an interpolated parameter table
 to Excel for simulation use.
 
@@ -25,10 +25,10 @@ from scipy.interpolate import PchipInterpolator
 
 
 ### User settings
-PARAMS_XLSX = Path("B_results/annular_gaussian_avg_params.xlsx")
+PARAMS_XLSX = Path("B_results/single_annular_avg_params.xlsx")
 PARAMS_SHEET = "single_annular_avg"
 
-OUT_XLSX_PATH = Path("B_results/annular_gaussian_avg_params_pchip.xlsx")
+OUT_XLSX_PATH = Path("B_results/single_annular_avg_params_pchip.xlsx")
 OUT_SHEET_NAME = "single_annular_avg_pchip"
 
 # Output z grid (meters). Use None to infer from fitted data.

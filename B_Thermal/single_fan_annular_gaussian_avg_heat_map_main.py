@@ -2,7 +2,7 @@
 Plot annular-Gaussian model heat maps using the same style as annuli heat maps.
 
 For each height sheet, fitted ring parameters are loaded from
-B_results/annular_gaussian_avg_params.xlsx and used to generate a continuous
+B_results/single_annular_avg_params.xlsx and used to generate a continuous
 model field w(x, y). The field is evaluated on a dense uniform grid (not the
 measurement grid) and then plotted.
 """
@@ -29,7 +29,7 @@ SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 OUT_DIR = Path("A_figures/Single_Fan_Annular_Gaussian_Avg")
 OUT_DIR.mkdir(exist_ok=True)
 
-PARAMS_XLSX = Path("B_results/annular_gaussian_avg_params.xlsx")
+PARAMS_XLSX = Path("B_results/single_annular_avg_params.xlsx")
 
 # Fan centre (x_c, y_c)
 FAN_CENTER_XY = (4.2, 2.4)

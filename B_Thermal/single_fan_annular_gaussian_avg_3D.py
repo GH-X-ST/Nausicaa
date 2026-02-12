@@ -7,7 +7,7 @@ where [A_ring, r_ring, delta_r, w0] are read directly from the
 precomputed PCHIP table written by single_fan_annular_gaussian_avg_fit.py.
 
 Input is read from single_fan_annular_gaussian_avg_fit.py output
-(by default: B_results/annular_gaussian_avg_params_pchip.xls/.xlsx).
+(by default: B_results/single_annular_avg_params_pchip.xls/.xlsx).
 """
 
 ###### Initialization
@@ -30,7 +30,7 @@ from skimage.measure import marching_cubes
 ### User settings
 MAKE_PLOTS = True
 
-PARAMS_XLSX = Path("B_results/annular_gaussian_avg_params_pchip.xls")
+PARAMS_XLSX = Path("B_results/single_annular_avg_params_pchip.xls")
 PARAMS_SHEET = "single_annular_avg_pchip"
 
 OUT_DIR = Path("A_figures/Single_Fan_Annular_Gaussian_Avg")
