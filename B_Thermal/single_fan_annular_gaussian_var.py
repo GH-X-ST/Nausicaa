@@ -8,6 +8,8 @@ vs height z using PCHIP.
 Data expectations (annuli profile CSVs from annuli_cut.py):
 - Files: B_results/Annuli_Profile/z020_annuli_profile.csv, etc.
 - Required columns: r_m, w_mps, n
+- Optional column: sigma_mps (per-annulus sigma_j). If present, non-uniform
+  sigma_j weighting is used directly in fitting.
 
 Time-series sheets:
 - Sheet names: z020_TS, z035_TS, ..., z220_TS
@@ -30,8 +32,8 @@ Fitting procedure per height:
 2) Fit parameters [A_ring, r_ring, delta_r, w0] by bounded robust least squares
    using scipy.optimize.least_squares(loss="soft_l1").
    Residuals use u_j = alpha_j * (w_pred - w_j) / sigma_j.
-   In the current setting, sigma_j is set uniformly per height from sigma_z
-   (estimated from *_TS), so f_scale can remain 1.0.
+   sigma_j is read from per-annulus sigma_mps when available; otherwise it
+   falls back to a per-height uniform sigma_z estimated from *_TS.
 
 Outputs:
 - Printed fitted parameters per height.
@@ -62,7 +64,7 @@ from scipy.optimize import least_squares
 
 XLSX_PATH = "/mnt/data/S01.xlsx"
 ANNULI_PROFILE_DIR = Path("B_results/Single_Fan_Annuli_Profile")
-OUT_XLSX_PATH = Path("B_results/single_annular_avg_params.xlsx")
+OUT_XLSX_PATH = Path("B_results/single_annular_var_params.xlsx")
 
 # Update if your fan center is different.
 FAN_CENTER_XY = (4.2, 2.4)
@@ -239,9 +241,15 @@ def parse_ts_noise_scale(xlsx_path: str, ts_sheet_name: str) -> Optional[float]:
 def load_annuli_profile_csv(
     profile_dir: Path,
     sheet_name: str,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray]]:
     """
-    Load annuli profile CSV (r_m, w_mps, n) produced by annuli_cut.py.
+    Load annuli profile CSV produced by annuli_cut.py.
+
+    Returns:
+        r_bins: annulus radii
+        w_bins: annulus mean velocities
+        n_bins: annulus counts
+        sigma_bins: optional per-annulus sigma_j from sigma_mps column
     """
     csv_path = Path(profile_dir) / f"{sheet_name}_single_annuli_profile.csv"
     if not csv_path.exists():
@@ -256,17 +264,28 @@ def load_annuli_profile_csv(
     r_bins = pd.to_numeric(df["r_m"], errors="coerce").to_numpy(dtype=float)
     w_bins = pd.to_numeric(df["w_mps"], errors="coerce").to_numpy(dtype=float)
     n_bins = pd.to_numeric(df["n"], errors="coerce").to_numpy(dtype=float)
+    sigma_bins = None
+    if "sigma_mps" in df.columns:
+        sigma_bins = pd.to_numeric(df["sigma_mps"], errors="coerce").to_numpy(dtype=float)
 
     mask = np.isfinite(r_bins) & np.isfinite(w_bins) & np.isfinite(n_bins)
     r_bins = r_bins[mask]
     w_bins = w_bins[mask]
     n_bins = n_bins[mask].astype(int)
+    if sigma_bins is not None:
+        sigma_bins = sigma_bins[mask]
 
     if r_bins.size == 0:
         raise ValueError(f"No valid annuli data in {csv_path}.")
 
     order = np.argsort(r_bins)
-    return r_bins[order], w_bins[order], n_bins[order]
+    r_bins = r_bins[order]
+    w_bins = w_bins[order]
+    n_bins = n_bins[order]
+    if sigma_bins is not None:
+        sigma_bins = sigma_bins[order]
+
+    return r_bins, w_bins, n_bins, sigma_bins
 
 
 # Model
@@ -448,7 +467,7 @@ def fit_all_heights(
         z_m = parse_sheet_height_m(sheet)
         ts_sheet = f"{sheet}_TS"
 
-        r_bins, w_bins, n_bins = load_annuli_profile_csv(
+        r_bins, w_bins, n_bins, sigma_bins_csv = load_annuli_profile_csv(
             profile_dir=config.annuli_profile_dir,
             sheet_name=sheet,
         )
@@ -456,7 +475,14 @@ def fit_all_heights(
         sigma_z = parse_ts_noise_scale(config.xlsx_path, ts_sheet)
         if sigma_z is None:
             sigma_z = config.sigma_z_fallback
-        sigma_bins = np.full_like(w_bins, float(sigma_z), dtype=float)
+
+        if sigma_bins_csv is None:
+            sigma_bins = np.full_like(w_bins, float(sigma_z), dtype=float)
+        else:
+            sigma_bins = sigma_bins_csv.astype(float, copy=True)
+            bad = ~np.isfinite(sigma_bins) | (sigma_bins <= 0.0)
+            if np.any(bad):
+                sigma_bins[bad] = float(sigma_z)
 
         r_ring_min, r_ring_max = r_ring_bounds_by_z(z_m)
         bounds = RingBounds(r_ring_min=r_ring_min, r_ring_max=r_ring_max)
@@ -532,7 +558,7 @@ def main() -> None:
             "w0": params[:, 3],
         }
     )
-    df_out.to_excel(OUT_XLSX_PATH, index=False, sheet_name="single_annular_avg")
+    df_out.to_excel(OUT_XLSX_PATH, index=False, sheet_name="single_annular_var")
     print(f"Saved Excel results to: {OUT_XLSX_PATH.resolve()}")
 
 
