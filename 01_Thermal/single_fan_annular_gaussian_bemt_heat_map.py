@@ -1,17 +1,24 @@
 """
-Plot annular-Gaussian model heat maps using the same style as annuli heat maps.
+Plot non-axisymmetric annular-Gaussian BEMT heat maps.
 
-For each height sheet, fitted ring parameters are loaded from
-B_results/single_annular_var_params.xlsx and used to generate a continuous
-model field w(x, y). The field is evaluated on a dense uniform grid (not the
-measurement grid) and then plotted.
+For each height sheet, fitted non-axisymmetric parameters are loaded from
+B_results/single_annular_bemt_params.xlsx and used to generate a continuous
+model field w(x, y) on a dense uniform grid.
+
+Model:
+    theta = atan2(y - y_c, x - x_c)
+    r     = sqrt((x - x_c)^2 + (y - y_c)^2)
+    g(r)  = exp(-((r - r_ring) / delta_ring)^2)
+
+    A(theta) = a0 + sum_{n=1..N}(a_n cos(n theta) + b_n sin(n theta))
+    w_model(x, y) = w0 + g(r) * A(theta)
 """
 
 ###### Initialization
 
 ### Imports
 from pathlib import Path
-from typing import Tuple
+from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -26,10 +33,11 @@ import cmocean  # https://matplotlib.org/cmocean
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
-OUT_DIR = Path("A_figures/Single_Fan_Annular_Gaussian_Var")
+OUT_DIR = Path("A_figures/Single_Fan_Annular_Gaussian_BEMT")
 OUT_DIR.mkdir(exist_ok=True)
 
-PARAMS_XLSX = Path("B_results/single_annular_var_params.xlsx")
+PARAMS_XLSX = Path("B_results/single_annular_bemt_params.xlsx")
+PARAMS_SHEET = "single_bemt_az_fit"
 
 # Fan centre (x_c, y_c)
 FAN_CENTER_XY = (4.2, 2.4)
@@ -40,7 +48,6 @@ XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
 # Line widths
-CELL_EDGE_LW = 0.30
 AXIS_EDGE_LW = 0.30
 CBAR_EDGE_LW = 0.30
 
@@ -108,20 +115,20 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     y = pd.to_numeric(raw.iloc[1:, 0], errors="coerce").to_numpy(dtype=float)
 
     # field values
-    W = raw.iloc[1:, 1:].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+    w_map = raw.iloc[1:, 1:].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
 
     # sanity checks
-    if W.shape != (y.size, x.size):
+    if w_map.shape != (y.size, x.size):
         raise ValueError(
-            f"Shape mismatch in {sheet_name}: W{W.shape}, y({y.size}), x({x.size})."
+            f"Shape mismatch in {sheet_name}: W{w_map.shape}, y({y.size}), x({x.size})."
         )
 
     # Ensure y increases bottom-to-top on the plot (0 -> max)
     if y.size >= 2 and y[0] > y[-1]:
         y = y[::-1]
-        W = W[::-1, :]
+        w_map = w_map[::-1, :]
 
-    return x, y, W
+    return x, y, w_map
 
 
 def build_continuous_grid(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -139,33 +146,129 @@ def build_continuous_grid(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.
     return xg, yg
 
 
-def load_ring_params(xlsx_path: Path) -> pd.DataFrame:
+def discover_param_columns(df: pd.DataFrame) -> List[str]:
     """
-    Load fitted ring parameters from Excel.
+    Discover parameter columns:
+        [w0, r_ring, delta_ring, a0, a1, b1, ..., aN, bN]
     """
-    df = pd.read_excel(xlsx_path)
-    required = {"z_m", "A_ring", "r_ring", "delta_r", "w0"}
-    if not required.issubset(df.columns):
-        missing = required - set(df.columns)
-        raise ValueError(f"Missing columns in {xlsx_path}: {sorted(missing)}")
-    return df.copy()
+    base = ["w0", "r_ring", "delta_ring", "a0"]
+    missing = [col for col in base if col not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required parameter columns: {missing}")
+
+    a_orders = []
+    b_orders = []
+    for col in df.columns:
+        if col.startswith("a") and col[1:].isdigit():
+            order = int(col[1:])
+            if order >= 1:
+                a_orders.append(order)
+        if col.startswith("b") and col[1:].isdigit():
+            order = int(col[1:])
+            if order >= 1:
+                b_orders.append(order)
+
+    harmonic_orders = sorted(set(a_orders).intersection(set(b_orders)))
+
+    param_cols = list(base)
+    for n_idx in harmonic_orders:
+        param_cols.append(f"a{n_idx}")
+        param_cols.append(f"b{n_idx}")
+
+    return param_cols
 
 
-def params_for_height(df: pd.DataFrame, z_m: float) -> Tuple[float, float, float, float]:
+def load_bemt_params(
+    xlsx_path: Path,
+    sheet_name: str,
+) -> Tuple[pd.DataFrame, List[str]]:
     """
-    Extract [A_ring, r_ring, delta_r, w0] for a given height.
+    Load fitted non-axisymmetric BEMT parameters from Excel.
     """
-    mask = np.isclose(df["z_m"].to_numpy(dtype=float), float(z_m), atol=1e-6)
-    if not np.any(mask):
-        available = ", ".join([f"{v:.2f}" for v in df["z_m"].to_numpy(dtype=float)])
-        raise ValueError(f"No parameters for z={z_m:.2f}. Available: {available}")
-    row = df.loc[mask].iloc[0]
-    return float(row["A_ring"]), float(row["r_ring"]), float(row["delta_r"]), float(row["w0"])
+    if not xlsx_path.exists():
+        raise FileNotFoundError(f"Missing fitted-parameter file: {xlsx_path}")
+
+    xls = pd.ExcelFile(xlsx_path)
+    sheet_to_use = sheet_name if sheet_name in xls.sheet_names else xls.sheet_names[0]
+    df = pd.read_excel(xlsx_path, sheet_name=sheet_to_use)
+
+    param_cols = discover_param_columns(df)
+
+    for col in ["z_m"] + param_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(subset=param_cols).copy()
+    if df.empty:
+        raise ValueError("No valid fitted rows in fitted-parameter table.")
+
+    return df, param_cols
 
 
-def plot_continuous_heatmap(x, y, W, outpath: Path):
+def params_for_height(
+    df: pd.DataFrame,
+    param_cols: List[str],
+    sheet_name: str,
+) -> np.ndarray:
     """
-    Plot continuous model heat map using the same axis settings as single_fan_heat_map.py.
+    Select parameter vector for requested sheet.
+
+    Preference:
+    1) exact 'sheet' match (if available)
+    2) nearest z_m to parsed sheet height
+    """
+    if "sheet" in df.columns:
+        series = df["sheet"].astype(str).str.strip().str.lower()
+        mask = series == sheet_name.strip().lower()
+        if np.any(mask):
+            row = df.loc[mask].iloc[0]
+            return np.array([float(row[c]) for c in param_cols], dtype=float)
+
+    if "z_m" not in df.columns:
+        raise ValueError("Fitted table has neither matching 'sheet' nor 'z_m'.")
+
+    z_m = parse_sheet_height_m(sheet_name)
+    z_vals = pd.to_numeric(df["z_m"], errors="coerce").to_numpy(dtype=float)
+    if not np.any(np.isfinite(z_vals)):
+        raise ValueError("No finite z_m values in fitted table.")
+
+    idx = int(np.nanargmin(np.abs(z_vals - z_m)))
+    row = df.iloc[idx]
+    return np.array([float(row[c]) for c in param_cols], dtype=float)
+
+
+def evaluate_model(
+    x_grid: np.ndarray,
+    y_grid: np.ndarray,
+    params: np.ndarray,
+    fan_center_xy: Tuple[float, float],
+) -> np.ndarray:
+    """
+    Evaluate non-axisymmetric annular-Gaussian model on a grid.
+    """
+    w0 = float(params[0])
+    r_ring = float(params[1])
+    delta_ring = float(max(params[2], 1e-12))
+    coeffs = params[3:]
+
+    xc, yc = fan_center_xy
+    r = np.sqrt((x_grid - xc) ** 2 + (y_grid - yc) ** 2)
+    theta = np.arctan2(y_grid - yc, x_grid - xc)
+
+    amp = np.full_like(theta, float(coeffs[0]), dtype=float)  # a0
+    fourier_order = (coeffs.size - 1) // 2
+    for n_idx in range(1, fourier_order + 1):
+        a_n = float(coeffs[2 * n_idx - 1])
+        b_n = float(coeffs[2 * n_idx])
+        amp += a_n * np.cos(n_idx * theta) + b_n * np.sin(n_idx * theta)
+
+    g_r = np.exp(-((r - r_ring) / delta_ring) ** 2)
+    return w0 + g_r * amp
+
+
+def plot_continuous_heatmap(x, y, w_field, outpath: Path):
+    """
+    Plot continuous model heat map using the same axis settings as annuli heat maps.
     """
     # Convert center grids -> edges for pcolormesh
     x_edges = centers_to_edges(x)
@@ -189,7 +292,7 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
     im = ax.pcolormesh(
         x_edges,
         y_edges,
-        W,
+        w_field,
         shading="auto",
         cmap=cmocean.cm.thermal,
         vmin=PLOT_VMIN,
@@ -279,25 +382,22 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
 
 
 ### Export each sheet as PNG
-def main():
-    params_df = load_ring_params(PARAMS_XLSX)
+def main() -> None:
+    params_df, param_cols = load_bemt_params(PARAMS_XLSX, PARAMS_SHEET)
 
     for sh in SHEETS:
         x, y, _w = read_slice_from_sheet(XLSX_PATH, sh)
-        z_m = parse_sheet_height_m(sh)
 
-        a_ring, r_ring, delta_r_model, w0 = params_for_height(params_df, z_m)
+        params = params_for_height(params_df, param_cols, sh)
 
         x_grid, y_grid = build_continuous_grid(x, y)
-        xc, yc = FAN_CENTER_XY
-        r = np.sqrt((x_grid - xc) ** 2 + (y_grid - yc) ** 2)
-        W_model = a_ring * np.exp(-((r - r_ring) / delta_r_model) ** 2)
+        w_model = evaluate_model(x_grid, y_grid, params, fan_center_xy=FAN_CENTER_XY)
 
-        out_png = OUT_DIR / f"{sh}_single_annular_gaussian_var_heatmap.png"
+        out_png = OUT_DIR / f"{sh}_single_annular_gaussian_bemt_heatmap.png"
         plot_continuous_heatmap(
             x_grid[0, :],
             y_grid[:, 0],
-            W_model,
+            w_model,
             outpath=out_png,
         )
 

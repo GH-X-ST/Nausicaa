@@ -62,7 +62,20 @@ ROBUST_F_SCALE = 1.0
 DELTA_RING_MIN_M = 0.12
 DELTA_RING_MAX_M = 1.00
 COEFF_ABS_MAX_MPS = 10.0
+COEFF_ABS_MIN_MPS = 2.0
+COEFF_DYNAMIC_SPAN_SCALE = 1.25
+HARMONIC_BOUND_FRACTION = 0.70
+HARMONIC_BOUND_MIN_MPS = 0.5
 W0_MARGIN_MPS = 1.0
+
+# Harmonic regularization (applied in residual space)
+ENABLE_HARMONIC_REGULARIZATION = True
+HARMONIC_RIDGE_LAMBDA = 0.02
+HARMONIC_REL_CAP_LAMBDA = 0.10
+HARMONIC_REL_MAX_TO_A0 = 0.80
+HARMONIC_PRIOR_SCALE_MPS = 1.0
+HARMONIC_A0_FLOOR_MPS = 0.2
+HARMONIC_ORDER_WEIGHT_EXP = 1.0
 
 # z020 -> 0.20 m, z110 -> 1.10 m, etc.
 SHEET_HEIGHT_DIVISOR = 100.0
@@ -396,6 +409,24 @@ def build_param_bounds(
     """
     w_min = float(np.min(w_samples))
     w_max = float(np.max(w_samples))
+    w_floor = float(np.percentile(w_samples, 10.0))
+    w_peak = float(np.percentile(w_samples, 99.5))
+    ring_scale = max(w_peak - w_floor, 1e-6)
+
+    coeff_bound = float(
+        np.clip(
+            COEFF_DYNAMIC_SPAN_SCALE * ring_scale,
+            COEFF_ABS_MIN_MPS,
+            bounds.coeff_abs_max,
+        )
+    )
+    harmonic_bound = float(
+        np.clip(
+            HARMONIC_BOUND_FRACTION * coeff_bound,
+            HARMONIC_BOUND_MIN_MPS,
+            bounds.coeff_abs_max,
+        )
+    )
 
     lower = [
         w_min - W0_MARGIN_MPS,
@@ -407,12 +438,12 @@ def build_param_bounds(
         w_max + W0_MARGIN_MPS,
         bounds.r_ring_max,
         bounds.delta_ring_max,
-        bounds.coeff_abs_max,
+        coeff_bound,
     ]
 
     for _ in range(fourier_order):
-        lower.extend([-bounds.coeff_abs_max, -bounds.coeff_abs_max])
-        upper.extend([bounds.coeff_abs_max, bounds.coeff_abs_max])
+        lower.extend([-harmonic_bound, -harmonic_bound])
+        upper.extend([harmonic_bound, harmonic_bound])
 
     return np.array(lower, dtype=float), np.array(upper, dtype=float)
 
@@ -519,7 +550,37 @@ def fit_azimuthal_model(
             params=p,
             fourier_order=fourier_order,
         )
-        return (w_pred - w_samples) / sigma_safe
+        data_residual = (w_pred - w_samples) / sigma_safe
+
+        if not ENABLE_HARMONIC_REGULARIZATION or fourier_order <= 0:
+            return data_residual
+
+        coeffs = p[3:]
+        a0 = float(max(coeffs[0], HARMONIC_A0_FLOOR_MPS))
+        reg_terms = []
+        ridge_weight = float(np.sqrt(max(HARMONIC_RIDGE_LAMBDA, 0.0)))
+        relcap_weight = float(np.sqrt(max(HARMONIC_REL_CAP_LAMBDA, 0.0)))
+        scale = float(max(HARMONIC_PRIOR_SCALE_MPS, 1e-12))
+
+        for n_idx in range(1, fourier_order + 1):
+            a_n = float(coeffs[2 * n_idx - 1])
+            b_n = float(coeffs[2 * n_idx])
+            order_weight = float(n_idx ** HARMONIC_ORDER_WEIGHT_EXP)
+
+            if ridge_weight > 0.0:
+                reg_terms.append(ridge_weight * order_weight * a_n / scale)
+                reg_terms.append(ridge_weight * order_weight * b_n / scale)
+
+            if relcap_weight > 0.0:
+                harm_mag = float(np.sqrt(a_n**2 + b_n**2))
+                cap = float(HARMONIC_REL_MAX_TO_A0 * a0)
+                excess = max(harm_mag - cap, 0.0)
+                reg_terms.append(relcap_weight * order_weight * excess / scale)
+
+        if not reg_terms:
+            return data_residual
+
+        return np.concatenate([data_residual, np.asarray(reg_terms, dtype=float)])
 
     result = least_squares(
         residuals,

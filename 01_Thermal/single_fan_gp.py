@@ -31,9 +31,10 @@ FAN_CENTER_XY = (4.2, 2.4)
 SHEET_HEIGHT_DIVISOR = 100.0
 
 # Feature mode:
-#   True  -> use (r, z), enforcing axisymmetry
-#   False -> use (x, y, z), allowing asymmetric structure
-USE_RADIAL_FEATURES = False
+#   "polar"     -> use (r, cos(theta), sin(theta), z): annular + non-axisymmetric
+#   "radial"    -> use (r, z): axisymmetric annular
+#   "cartesian" -> use (x, y, z): fully unconstrained spatial structure
+FEATURE_MODE = "polar"
 
 # Noise assignment from *_TS.
 SIGMA_FALLBACK = 0.14
@@ -61,7 +62,7 @@ class GPModelBundle:
 
     gp: GaussianProcessRegressor
     scaler: StandardScaler
-    use_radial_features: bool
+    feature_mode: str
     fan_center_xy: Tuple[float, float]
 
     def predict(
@@ -78,7 +79,7 @@ class GPModelBundle:
             x_m=x_m,
             y_m=y_m,
             z_m=z_m,
-            use_radial_features=self.use_radial_features,
+            feature_mode=self.feature_mode,
             fan_center_xy=self.fan_center_xy,
         )
         feats_scaled = self.scaler.transform(feats)
@@ -112,7 +113,7 @@ def build_feature_matrix(
     x_m: np.ndarray,
     y_m: np.ndarray,
     z_m: np.ndarray,
-    use_radial_features: bool,
+    feature_mode: str,
     fan_center_xy: Tuple[float, float],
 ) -> np.ndarray:
     """
@@ -125,10 +126,20 @@ def build_feature_matrix(
     if not (x_arr.size == y_arr.size == z_arr.size):
         raise ValueError("x_m, y_m, z_m must have the same number of samples.")
 
-    if use_radial_features:
+    mode = str(feature_mode).strip().lower()
+    if mode not in {"polar", "radial", "cartesian"}:
+        raise ValueError(
+            f"Invalid FEATURE_MODE '{feature_mode}'. Use: polar, radial, cartesian."
+        )
+
+    if mode in {"polar", "radial"}:
         xc, yc = fan_center_xy
         r_arr = np.sqrt((x_arr - xc) ** 2 + (y_arr - yc) ** 2)
-        return np.column_stack([r_arr, z_arr])
+        if mode == "radial":
+            return np.column_stack([r_arr, z_arr])
+
+        theta_arr = np.arctan2(y_arr - yc, x_arr - xc)
+        return np.column_stack([r_arr, np.cos(theta_arr), np.sin(theta_arr), z_arr])
 
     return np.column_stack([x_arr, y_arr, z_arr])
 
@@ -230,7 +241,7 @@ def build_training_table(
 
 def fit_gp_model(
     train_df: pd.DataFrame,
-    use_radial_features: bool,
+    feature_mode: str,
     fan_center_xy: Tuple[float, float],
     n_restarts_optimizer: int,
     random_state: int,
@@ -248,7 +259,7 @@ def fit_gp_model(
         x_m=x_m,
         y_m=y_m,
         z_m=z_m,
-        use_radial_features=use_radial_features,
+        feature_mode=feature_mode,
         fan_center_xy=fan_center_xy,
     )
     alpha = np.maximum(sigma**2, float(ALPHA_JITTER))
@@ -280,7 +291,7 @@ def fit_gp_model(
     return GPModelBundle(
         gp=gp,
         scaler=scaler,
-        use_radial_features=use_radial_features,
+        feature_mode=str(feature_mode).strip().lower(),
         fan_center_xy=fan_center_xy,
     )
 
@@ -562,7 +573,7 @@ def main() -> None:
 
     model = fit_gp_model(
         train_df=train_df,
-        use_radial_features=USE_RADIAL_FEATURES,
+        feature_mode=FEATURE_MODE,
         fan_center_xy=FAN_CENTER_XY,
         n_restarts_optimizer=N_RESTARTS_OPTIMIZER,
         random_state=RANDOM_STATE,
@@ -577,7 +588,10 @@ def main() -> None:
         sigma_mps=pred_df["sigma_mps"].to_numpy(dtype=float),
     )
     summary_metrics_df = pd.DataFrame([overall_metrics])
-    summary_metrics_df["use_radial_features"] = bool(USE_RADIAL_FEATURES)
+    summary_metrics_df["feature_mode"] = str(FEATURE_MODE).strip().lower()
+    summary_metrics_df["use_radial_features"] = (
+        str(FEATURE_MODE).strip().lower() == "radial"
+    )
     summary_metrics_df["log_marginal_likelihood"] = float(
         model.gp.log_marginal_likelihood_value_
     )
@@ -591,7 +605,11 @@ def main() -> None:
             {"parameter": "sheet_count", "value": len(SHEETS)},
             {"parameter": "fan_center_x_m", "value": float(FAN_CENTER_XY[0])},
             {"parameter": "fan_center_y_m", "value": float(FAN_CENTER_XY[1])},
-            {"parameter": "use_radial_features", "value": bool(USE_RADIAL_FEATURES)},
+            {"parameter": "feature_mode", "value": str(FEATURE_MODE).strip().lower()},
+            {
+                "parameter": "use_radial_features",
+                "value": str(FEATURE_MODE).strip().lower() == "radial",
+            },
             {"parameter": "sigma_fallback_mps", "value": float(SIGMA_FALLBACK)},
             {"parameter": "sigma_min_mps", "value": float(SIGMA_MIN)},
             {"parameter": "n_restarts_optimizer", "value": int(N_RESTARTS_OPTIMIZER)},
@@ -629,6 +647,7 @@ def main() -> None:
 
     print("Gaussian Process model fitted successfully.")
     print(f"Samples used: {int(train_df.shape[0])}")
+    print(f"Feature mode: {str(FEATURE_MODE).strip().lower()}")
     print(f"Fitted kernel: {model.gp.kernel_}")
     print(
         "Overall metrics: "

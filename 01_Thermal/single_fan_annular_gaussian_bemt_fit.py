@@ -35,12 +35,154 @@ OUT_SHEET_NAME = "single_bemt_az_pchip"
 
 # Output z grid (meters). Use None to infer from fitted data.
 # NOTE: Setting Z_MIN_M below fitted min or Z_MAX_M above fitted max extrapolates.
-Z_MIN_M = None
-Z_MAX_M = None
+# Keep this aligned with single_fan_annular_gaussian_var_fit.py.
+Z_MIN_M = 0.0
+Z_MAX_M = 3.5
 Z_STEP_M = 0.01
+
+# For z values above this threshold, force extrapolation to use only these
+# anchor heights from the fitted data table.
+HIGH_Z_THRESHOLD_M = 2.20
+HIGH_Z_ANCHOR_POINTS_M = (1.10, 1.60, 2.20)
+HIGH_Z_ANCHOR_TOL_M = 1e-6
+# Smooth half-width (m) around HIGH_Z_THRESHOLD_M for blending between
+# main and anchor extrapolation. Set <= 0.0 to recover hard switching.
+HIGH_Z_BLEND_HALF_WIDTH_M = 0.10
+
+# Harmonic stabilization for extrapolated heights (z > HIGH_Z_THRESHOLD_M):
+# 1) exponentially damp Fourier harmonics with height,
+# 2) cap harmonic magnitude relative to a0.
+# This mitigates high-z spikes caused by unconstrained extrapolation.
+ENABLE_HARMONIC_STABILIZATION = True
+HARMONIC_DECAY_EFOLD_M = 0.60
+HARMONIC_MAX_REL_TO_A0 = 0.60
+HARMONIC_A0_FLOOR = 1e-3
+
+# Keep a0 positive (if fitted samples are positive) by using log-space
+# interpolation/extrapolation. This prevents sign-flip artifacts at high z.
+A0_LOG_INTERP_IF_POSITIVE = True
+
+# Below the first fitted z level, hold coefficients at the first fitted row
+# instead of extrapolating. This prevents artificial near-outlet blow-up.
+ENABLE_LOW_Z_EDGE_HOLD = True
 
 
 ### Helpers
+def select_anchor_indices(z_vals: np.ndarray) -> np.ndarray:
+    """
+    Locate indices for HIGH_Z_ANCHOR_POINTS_M in z_vals.
+    """
+    anchor_indices = []
+    for anchor_z in HIGH_Z_ANCHOR_POINTS_M:
+        matches = np.where(
+            np.isclose(z_vals, anchor_z, atol=HIGH_Z_ANCHOR_TOL_M, rtol=0.0)
+        )[0]
+        if matches.size == 0:
+            raise ValueError(
+                f"Anchor z={anchor_z:.2f} m was not found in fitted data. "
+                f"Available z range: [{np.min(z_vals):.2f}, {np.max(z_vals):.2f}] m."
+            )
+        anchor_indices.append(int(matches[0]))
+
+    if len(set(anchor_indices)) != len(anchor_indices):
+        raise ValueError(
+            "Duplicate anchor matches detected for HIGH_Z_ANCHOR_POINTS_M. "
+            "Check z spacing or HIGH_Z_ANCHOR_TOL_M."
+        )
+
+    return np.array(anchor_indices, dtype=int)
+
+
+def high_branch_weight(z_query: np.ndarray) -> np.ndarray:
+    """
+    Compute smooth high-branch blending weights in [0, 1].
+
+    The blend region is centered at HIGH_Z_THRESHOLD_M with half-width
+    HIGH_Z_BLEND_HALF_WIDTH_M. A smoothstep profile is used to keep first
+    derivatives continuous at both blend edges.
+    """
+    z_query = np.asarray(z_query, dtype=float)
+    half_width = float(HIGH_Z_BLEND_HALF_WIDTH_M)
+    threshold = float(HIGH_Z_THRESHOLD_M)
+
+    if half_width <= 0.0:
+        return (z_query > threshold).astype(float)
+
+    z0 = threshold - half_width
+    z1 = threshold + half_width
+    t = (z_query - z0) / (z1 - z0)
+    t = np.clip(t, 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+def harmonic_pairs(param_cols: List[str]) -> List[Tuple[int, int]]:
+    """
+    Return aligned (a_n_idx, b_n_idx) index pairs found in param_cols.
+    """
+    pairs = []
+    for col_name in param_cols:
+        if not (col_name.startswith("a") and col_name[1:].isdigit()):
+            continue
+        n_idx = int(col_name[1:])
+        if n_idx < 1:
+            continue
+        b_name = f"b{n_idx}"
+        if b_name in param_cols:
+            pairs.append((param_cols.index(col_name), param_cols.index(b_name)))
+    return pairs
+
+
+def stabilize_extrapolated_harmonics(
+    z_query: np.ndarray,
+    params_interp: np.ndarray,
+    param_cols: List[str],
+) -> np.ndarray:
+    """
+    Stabilize extrapolated Fourier terms to reduce high-z spikes.
+    """
+    if not ENABLE_HARMONIC_STABILIZATION:
+        return params_interp
+
+    z_query = np.asarray(z_query, dtype=float)
+    high_mask = z_query > float(HIGH_Z_THRESHOLD_M)
+    if not np.any(high_mask):
+        return params_interp
+
+    out = params_interp.copy()
+
+    a0_idx = param_cols.index("a0")
+    a0_vals = out[:, a0_idx]
+    if A0_LOG_INTERP_IF_POSITIVE:
+        a0_vals[high_mask] = np.maximum(a0_vals[high_mask], HARMONIC_A0_FLOOR)
+        out[:, a0_idx] = a0_vals
+
+    decay = np.ones_like(z_query)
+    if HARMONIC_DECAY_EFOLD_M > 0.0:
+        z_high = z_query[high_mask]
+        decay[high_mask] = np.exp(
+            -(z_high - float(HIGH_Z_THRESHOLD_M)) / float(HARMONIC_DECAY_EFOLD_M)
+        )
+
+    cap_ref = np.maximum(out[:, a0_idx], HARMONIC_A0_FLOOR)
+    pair_indices = harmonic_pairs(param_cols)
+    for a_idx, b_idx in pair_indices:
+        a_vals = out[:, a_idx]
+        b_vals = out[:, b_idx]
+        amp = np.sqrt(a_vals**2 + b_vals**2)
+        cap = float(HARMONIC_MAX_REL_TO_A0) * cap_ref
+
+        cap_scale = np.ones_like(amp)
+        cap_mask = high_mask & (amp > cap)
+        cap_scale[cap_mask] = cap[cap_mask] / np.maximum(amp[cap_mask], 1e-12)
+
+        total_scale = np.ones_like(amp)
+        total_scale[high_mask] = decay[high_mask] * cap_scale[high_mask]
+        out[:, a_idx] = a_vals * total_scale
+        out[:, b_idx] = b_vals * total_scale
+
+    return out
+
+
 def load_params_table(xlsx_path: Path, sheet_name: str) -> pd.DataFrame:
     """
     Load fitted parameters from Excel.
@@ -49,8 +191,14 @@ def load_params_table(xlsx_path: Path, sheet_name: str) -> pd.DataFrame:
         raise FileNotFoundError(f"Missing parameter file: {xlsx_path}")
 
     xls = pd.ExcelFile(xlsx_path)
-    sheet_to_use = sheet_name if sheet_name in xls.sheet_names else xls.sheet_names[0]
-    return pd.read_excel(xlsx_path, sheet_name=sheet_to_use)
+    if sheet_name not in xls.sheet_names:
+        available = ", ".join(xls.sheet_names)
+        raise ValueError(
+            f"Sheet '{sheet_name}' not found in '{xlsx_path}'. "
+            f"Available sheets: {available}"
+        )
+
+    return pd.read_excel(xlsx_path, sheet_name=sheet_name)
 
 
 def discover_param_columns(df: pd.DataFrame) -> List[str]:
@@ -152,20 +300,75 @@ def interpolate_params_pchip(
     Interpolate fitted parameters with PCHIP over z.
 
     delta_ring is interpolated in log-space to keep positivity.
+    a0 can also use log-space interpolation when all fitted values are positive.
+    For high z, extrapolation blends from the full-data PCHIP to the
+    anchor-only PCHIP around HIGH_Z_THRESHOLD_M.
     """
     if z_vals.size < 2:
         raise ValueError("Need at least two fitted heights for PCHIP interpolation.")
 
     params_interp = np.empty((z_query.size, params.shape[1]), dtype=float)
+    high_weight = high_branch_weight(z_query)
+    high_mask = high_weight > 0.0
+
+    anchor_idx = select_anchor_indices(z_vals)
+    z_anchor = z_vals[anchor_idx]
 
     for col_idx, col_name in enumerate(param_cols):
         if col_name == "delta_ring":
             vals = np.maximum(params[:, col_idx], 1e-12)
-            interp = PchipInterpolator(z_vals, np.log(vals))
-            params_interp[:, col_idx] = np.exp(interp(z_query))
+            interp_main = PchipInterpolator(z_vals, np.log(vals))
+            col_interp = np.exp(interp_main(z_query))
+
+            if np.any(high_mask):
+                vals_anchor = np.maximum(params[anchor_idx, col_idx], 1e-12)
+                interp_high = PchipInterpolator(z_anchor, np.log(vals_anchor))
+                high_vals = np.exp(interp_high(z_query[high_mask]))
+                col_interp[high_mask] = (
+                    (1.0 - high_weight[high_mask]) * col_interp[high_mask]
+                    + high_weight[high_mask] * high_vals
+                )
+        elif (
+            col_name == "a0"
+            and A0_LOG_INTERP_IF_POSITIVE
+            and np.all(params[:, col_idx] > 0.0)
+        ):
+            vals = np.maximum(params[:, col_idx], HARMONIC_A0_FLOOR)
+            interp_main = PchipInterpolator(z_vals, np.log(vals))
+            col_interp = np.exp(interp_main(z_query))
+
+            if np.any(high_mask):
+                vals_anchor = np.maximum(params[anchor_idx, col_idx], HARMONIC_A0_FLOOR)
+                interp_high = PchipInterpolator(z_anchor, np.log(vals_anchor))
+                high_vals = np.exp(interp_high(z_query[high_mask]))
+                col_interp[high_mask] = (
+                    (1.0 - high_weight[high_mask]) * col_interp[high_mask]
+                    + high_weight[high_mask] * high_vals
+                )
         else:
-            interp = PchipInterpolator(z_vals, params[:, col_idx])
-            params_interp[:, col_idx] = interp(z_query)
+            interp_main = PchipInterpolator(z_vals, params[:, col_idx])
+            col_interp = interp_main(z_query)
+
+            if np.any(high_mask):
+                interp_high = PchipInterpolator(z_anchor, params[anchor_idx, col_idx])
+                high_vals = interp_high(z_query[high_mask])
+                col_interp[high_mask] = (
+                    (1.0 - high_weight[high_mask]) * col_interp[high_mask]
+                    + high_weight[high_mask] * high_vals
+                )
+
+        params_interp[:, col_idx] = col_interp
+
+    params_interp = stabilize_extrapolated_harmonics(
+        z_query=z_query,
+        params_interp=params_interp,
+        param_cols=param_cols,
+    )
+
+    if ENABLE_LOW_Z_EDGE_HOLD:
+        low_mask = z_query < float(np.min(z_vals))
+        if np.any(low_mask):
+            params_interp[low_mask, :] = params[0, :]
 
     return params_interp
 
