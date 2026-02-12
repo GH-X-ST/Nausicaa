@@ -27,7 +27,11 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 
-from single_fan_annuli_cut import build_annuli_profile
+from single_fan_annuli_cut import (
+    assign_sigma_bins_nearest,
+    parse_ts_points_and_sigmas,
+    read_slice_from_sheet,
+)
 
 
 ### User settings
@@ -41,10 +45,8 @@ FIT_SHEET_NAME = "single_annular_avg_pchip"
 OUT_XLSX_PATH = Path("B_results/single_annular_avg_analysis.xlsx")
 OUT_SHEET_NAME = "single_annular_avg_analysis"
 
-# Keep profile settings aligned with single_fan_annuli_cut.py.
+# Keep settings aligned with single_fan_annuli_cut.py.
 FAN_CENTER_XY = (4.2, 2.4)
-DELTA_R_M = 0.30
-USE_MEDIAN_PROFILE = False
 SIGMA_FALLBACK = 0.2
 SIGMA_MIN = 1e-3
 
@@ -132,7 +134,7 @@ def params_at_z(fit_df: pd.DataFrame, z_m: float) -> Dict[str, float]:
 
 
 def compute_height_metrics(
-    r_bins: np.ndarray,
+    r_pts: np.ndarray,
     w_obs: np.ndarray,
     alpha: np.ndarray,
     sigma: np.ndarray,
@@ -144,7 +146,7 @@ def compute_height_metrics(
     """
     sigma_safe = np.maximum(sigma.astype(float), float(SIGMA_MIN))
     w_pred = ring_gaussian(
-        r_bins,
+        r_pts,
         a_ring=params["A_ring"],
         r_ring=params["r_ring"],
         delta_r=params["delta_r"],
@@ -161,7 +163,7 @@ def compute_height_metrics(
         raise ValueError("Non-positive total weight encountered in WRMSE calculation.")
     wrmse_k = float(np.sqrt(weighted_sse_k / weight_sum_k))
 
-    return sae_k, weighted_sse_k, weight_sum_k, wrmse_k, int(r_bins.size)
+    return sae_k, weighted_sse_k, weight_sum_k, wrmse_k, int(r_pts.size)
 
 
 def write_results(df: pd.DataFrame, out_xlsx: Path, sheet_name: str) -> None:
@@ -196,22 +198,48 @@ def main() -> None:
         z_m = parse_sheet_height_m(sheet)
         params = params_at_z(fit_df, z_m)
 
-        r_bins, w_bins, n_bins, alpha_bins, sigma_bins = build_annuli_profile(
-            xlsx_path=XLSX_PATH,
-            mean_sheet=sheet,
-            fan_center_xy=FAN_CENTER_XY,
-            delta_r=DELTA_R_M,
-            use_median=USE_MEDIAN_PROFILE,
-            sigma_fallback=SIGMA_FALLBACK,
-            sigma_min=SIGMA_MIN,
-        )
-        _ = n_bins  # Kept for clarity of returned profile tuple.
+        # Load raw grid samples directly from the mean sheet.
+        x_centers, y_centers, W = read_slice_from_sheet(XLSX_PATH, sheet)
+        x_grid, y_grid = np.meshgrid(x_centers, y_centers)
+        xc, yc = FAN_CENTER_XY
+        r_pts = np.sqrt((x_grid - xc) ** 2 + (y_grid - yc) ** 2).ravel()
+        w_obs = W.ravel()
 
-        sae_k, weighted_sse_k, weight_sum_k, wrmse_k, n_annuli = compute_height_metrics(
-            r_bins=r_bins,
-            w_obs=w_bins,
-            alpha=alpha_bins,
-            sigma=sigma_bins,
+        mask = np.isfinite(r_pts) & np.isfinite(w_obs)
+        r_pts = r_pts[mask]
+        w_obs = w_obs[mask]
+        if r_pts.size == 0:
+            raise ValueError(f"No valid raw samples found in sheet '{sheet}'.")
+
+        # Assign sigma per point using nearest-radius mapping from *_TS,
+        # falling back to SIGMA_FALLBACK if needed.
+        ts_sheet = f"{sheet}_TS"
+        ts_parsed = parse_ts_points_and_sigmas(
+            xlsx_path=XLSX_PATH,
+            ts_sheet_name=ts_sheet,
+            fan_center_xy=FAN_CENTER_XY,
+        )
+        if ts_parsed is None:
+            sigma_pts = np.full_like(r_pts, float(SIGMA_FALLBACK), dtype=float)
+            sigma_pts = np.maximum(sigma_pts, float(SIGMA_MIN))
+        else:
+            r_points, sigma_points = ts_parsed
+            sigma_pts = assign_sigma_bins_nearest(
+                r_bins=r_pts,
+                r_points=r_points,
+                sigma_points=sigma_points,
+                sigma_fallback=SIGMA_FALLBACK,
+                sigma_min=SIGMA_MIN,
+            )
+
+        # Raw-point comparison: use unit weights per sample.
+        alpha_pts = np.ones_like(r_pts, dtype=float)
+
+        sae_k, weighted_sse_k, weight_sum_k, wrmse_k, n_samples = compute_height_metrics(
+            r_pts=r_pts,
+            w_obs=w_obs,
+            alpha=alpha_pts,
+            sigma=sigma_pts,
             params=params,
         )
 
@@ -223,7 +251,7 @@ def main() -> None:
             {
                 "sheet": sheet,
                 "z_m": z_m,
-                "n_annuli": n_annuli,
+                "n_samples": n_samples,
                 "accumulate_SAE_mps": sae_k,
                 "weighted_RMSE_mps": wrmse_k,
                 "weighted_SSE_term": weighted_sse_k,
@@ -243,7 +271,7 @@ def main() -> None:
         {
             "sheet": "TOTAL",
             "z_m": np.nan,
-            "n_annuli": int(sum(int(r["n_annuli"]) for r in rows)),
+            "n_samples": int(sum(int(r["n_samples"]) for r in rows)),
             "accumulate_SAE_mps": float(total_sae),
             "weighted_RMSE_mps": total_wrmse,
             "weighted_SSE_term": float(total_weighted_sse),
