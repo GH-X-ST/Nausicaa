@@ -15,10 +15,9 @@ per-height fitted coefficients to Excel.
 
 PCHIP interpolation in z is handled by single_fan_annular_gaussian_bemt_fit.py.
 
-Upstream annuli profiles (used by plotting workflows) are exported by
-single_fan_annuli_bemt_cut.py to:
-    B_results/Single_Fan_Annuli_BEMT_Profile/
-    <sheet>_single_annuli_bemt_profile.csv
+Input annuli profiles are taken from single_fan_annuli_cut.py:
+    B_results/Single_Fan_Annuli_Profile/
+    <sheet>_single_annuli_profile.csv
 """
 
 ###### Initialization
@@ -38,6 +37,7 @@ from scipy.optimize import least_squares
 ### User settings
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
+ANNULI_PROFILE_DIR = Path("B_results/Single_Fan_Annuli_Profile")
 
 OUT_AZ_PARAMS_XLSX = Path("B_results/single_annular_bemt_params.xlsx")
 OUT_AZ_PARAMS_SHEET = "single_bemt_az_fit"
@@ -141,6 +141,50 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
         w_map = w_map[::-1, :]
 
     return x, y, w_map
+
+
+def load_annuli_profile_csv(
+    profile_dir: Path,
+    sheet_name: str,
+) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+    """
+    Load annuli profile CSV produced by single_fan_annuli_cut.py.
+
+    Returns:
+        r_bins: annulus radii
+        w_bins: annulus mean velocities
+        sigma_bins: optional per-annulus sigma_j from sigma_mps column
+    """
+    csv_path = Path(profile_dir) / f"{sheet_name}_single_annuli_profile.csv"
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Missing annuli profile CSV: {csv_path}")
+
+    df = pd.read_csv(csv_path)
+    if "r_m" not in df.columns or "w_mps" not in df.columns:
+        raise ValueError(f"CSV {csv_path} must contain columns: r_m, w_mps.")
+
+    r_bins = pd.to_numeric(df["r_m"], errors="coerce").to_numpy(dtype=float)
+    w_bins = pd.to_numeric(df["w_mps"], errors="coerce").to_numpy(dtype=float)
+    sigma_bins = None
+    if "sigma_mps" in df.columns:
+        sigma_bins = pd.to_numeric(df["sigma_mps"], errors="coerce").to_numpy(dtype=float)
+
+    mask = np.isfinite(r_bins) & np.isfinite(w_bins)
+    r_bins = r_bins[mask]
+    w_bins = w_bins[mask]
+    if sigma_bins is not None:
+        sigma_bins = sigma_bins[mask]
+
+    if r_bins.size == 0:
+        raise ValueError(f"No valid annuli data in {csv_path}.")
+
+    order = np.argsort(r_bins)
+    r_bins = r_bins[order]
+    w_bins = w_bins[order]
+    if sigma_bins is not None:
+        sigma_bins = sigma_bins[order]
+
+    return r_bins, w_bins, sigma_bins
 
 
 def _cell_is_str(df: pd.DataFrame, r_idx: int, c_idx: int, text: str) -> bool:
@@ -378,6 +422,8 @@ def initial_guess_azimuthal(
     w_samples: np.ndarray,
     bounds: AzimuthalBounds,
     fourier_order: int,
+    r_profile: Optional[np.ndarray] = None,
+    w_profile: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
     Initial guess for [w0, r_ring, delta_ring, a0, a1, b1, ...].
@@ -387,11 +433,28 @@ def initial_guess_azimuthal(
 
     p0 = np.zeros(4 + 2 * fourier_order, dtype=float)
 
-    w0_0 = float(np.percentile(w_samples, 10.0))
-    peak_idx = int(np.argmax(w_samples))
-    r_ring_0 = float(np.clip(r_samples[peak_idx], bounds.r_ring_min, bounds.r_ring_max))
+    use_profile_guess = (
+        r_profile is not None
+        and w_profile is not None
+        and r_profile.size > 0
+        and w_profile.size == r_profile.size
+    )
+
+    if use_profile_guess:
+        tail_len = max(3, int(0.2 * w_profile.size))
+        w0_0 = float(np.median(w_profile[-tail_len:]))
+        peak_idx = int(np.argmax(w_profile))
+        r_ring_seed = float(r_profile[peak_idx])
+        amp_seed = float(w_profile[peak_idx] - w0_0)
+    else:
+        w0_0 = float(np.percentile(w_samples, 10.0))
+        peak_idx = int(np.argmax(w_samples))
+        r_ring_seed = float(r_samples[peak_idx])
+        amp_seed = float(w_samples[peak_idx] - w0_0)
+
+    r_ring_0 = float(np.clip(r_ring_seed, bounds.r_ring_min, bounds.r_ring_max))
     delta_ring_0 = float(np.clip(0.25, bounds.delta_ring_min, bounds.delta_ring_max))
-    a0_0 = float(max(w_samples[peak_idx] - w0_0, 0.05))
+    a0_0 = float(max(amp_seed, 0.05))
     a0_0 = float(min(a0_0, bounds.coeff_abs_max))
 
     p0[0] = w0_0
@@ -409,6 +472,8 @@ def fit_azimuthal_model(
     fan_center_xy: Tuple[float, float],
     z_m: float,
     fourier_order: int,
+    r_profile: Optional[np.ndarray] = None,
+    w_profile: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, bool, float]:
     """
     Fit non-axisymmetric model parameters at a single height.
@@ -440,6 +505,8 @@ def fit_azimuthal_model(
         w_samples=w_samples,
         bounds=bounds,
         fourier_order=fourier_order,
+        r_profile=r_profile,
+        w_profile=w_profile,
     )
     p0 = np.clip(p0, lower + 1e-12, upper - 1e-12)
 
@@ -476,6 +543,10 @@ def fit_azimuthal_for_sheet(
     Fit non-axisymmetric annular-Gaussian model for one mean sheet.
     """
     x, y, w_map = read_slice_from_sheet(xlsx_path, mean_sheet)
+    r_profile, w_profile, sigma_profile = load_annuli_profile_csv(
+        profile_dir=ANNULI_PROFILE_DIR,
+        sheet_name=mean_sheet,
+    )
     if MASK_ZEROS_AS_NODATA:
         w_map = w_map.copy()
         w_map[w_map == 0.0] = np.nan
@@ -497,24 +568,42 @@ def fit_azimuthal_for_sheet(
     xc, yc = fan_center_xy
     r_samples = np.sqrt((x_samples - xc) ** 2 + (y_samples - yc) ** 2)
 
-    ts_sheet = f"{mean_sheet}_TS"
-    ts_parsed = parse_ts_points_and_sigmas(
-        xlsx_path=xlsx_path,
-        ts_sheet_name=ts_sheet,
-        fan_center_xy=fan_center_xy,
-    )
-
-    if ts_parsed is None:
-        sigma_samples = np.full_like(w_samples, float(sigma_fallback), dtype=float)
-    else:
-        r_points, sigma_points = ts_parsed
-        sigma_samples = assign_sigma_samples_nearest(
-            r_samples=r_samples,
-            r_points=r_points,
-            sigma_points=sigma_points,
-            sigma_fallback=sigma_fallback,
-            sigma_min=sigma_min,
+    # Prefer sigma from annuli profile output (single_fan_annuli_cut.py),
+    # then fall back to TS-derived nearest-radius mapping.
+    if sigma_profile is not None:
+        valid_sigma = (
+            np.isfinite(r_profile)
+            & np.isfinite(sigma_profile)
+            & (sigma_profile > 0.0)
         )
+        if np.any(valid_sigma):
+            sigma_samples = assign_sigma_samples_nearest(
+                r_samples=r_samples,
+                r_points=r_profile[valid_sigma],
+                sigma_points=sigma_profile[valid_sigma],
+                sigma_fallback=sigma_fallback,
+                sigma_min=sigma_min,
+            )
+        else:
+            sigma_samples = np.full_like(w_samples, float(sigma_fallback), dtype=float)
+    else:
+        ts_sheet = f"{mean_sheet}_TS"
+        ts_parsed = parse_ts_points_and_sigmas(
+            xlsx_path=xlsx_path,
+            ts_sheet_name=ts_sheet,
+            fan_center_xy=fan_center_xy,
+        )
+        if ts_parsed is None:
+            sigma_samples = np.full_like(w_samples, float(sigma_fallback), dtype=float)
+        else:
+            r_points, sigma_points = ts_parsed
+            sigma_samples = assign_sigma_samples_nearest(
+                r_samples=r_samples,
+                r_points=r_points,
+                sigma_points=sigma_points,
+                sigma_fallback=sigma_fallback,
+                sigma_min=sigma_min,
+            )
 
     sigma_samples = np.maximum(sigma_samples, float(sigma_min))
     z_m = parse_sheet_height_m(mean_sheet)
@@ -527,6 +616,8 @@ def fit_azimuthal_for_sheet(
         fan_center_xy=fan_center_xy,
         z_m=z_m,
         fourier_order=fourier_order,
+        r_profile=r_profile,
+        w_profile=w_profile,
     )
 
     theta_samples = np.arctan2(y_samples - yc, x_samples - xc)

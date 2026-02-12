@@ -10,9 +10,9 @@ Parameter vector format:
 
 The script auto-detects N from available a_n/b_n columns.
 
-Reference upstream profile naming from single_fan_annuli_bemt_cut.py:
-    B_results/Single_Fan_Annuli_BEMT_Profile/
-    <sheet>_single_annuli_bemt_profile.csv
+Reference upstream annuli profile naming from single_fan_annuli_cut.py:
+    B_results/Single_Fan_Annuli_Profile/
+    <sheet>_single_annuli_profile.csv
 """
 
 ###### Initialization
