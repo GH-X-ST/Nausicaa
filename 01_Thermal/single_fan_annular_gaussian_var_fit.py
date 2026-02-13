@@ -1,23 +1,24 @@
 """
 Build a continuous annular-Gaussian model w_model(r, z) from fitted parameters.
 
-This script reads the output of single_fan_annular_gaussian_var.py
-(B_results/single_annular_var_params.xlsx), interpolates the fitted
-parameters vs height z using PCHIP, and writes an interpolated parameter table
-to Excel for simulation use.
+This script reads output from single_fan_annular_gaussian_var.py
+(B_results/single_annular_var_params.xlsx), interpolates fitted parameters
+vs height z using PCHIP, and writes an interpolated parameter table to Excel.
 
 Model:
     w_model(r, z) = w0(z) + A_ring(z) * exp(-((r - r_ring(z)) / delta_r(z))**2)
 
-Positive parameters (A_ring and delta_r) are interpolated in log-space to
-enforce positivity.
+Fine-tuning additions in this version:
+- smooth blending into the high-z anchor branch,
+- low-z edge hold (no extrapolation below first fitted height),
+- anchor fallback if configured anchor heights are missing.
 """
 
 ###### Initialization
 
 ### Imports
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -33,25 +34,35 @@ OUT_SHEET_NAME = "single_annular_var_pchip"
 
 # Output z grid (meters). Use None to infer from fitted data.
 # NOTE: Setting Z_MIN_M below the fitted min or Z_MAX_M above the fitted max
-# will extrapolate with PCHIP.
+# extrapolates. Low-z extrapolation can be held with ENABLE_LOW_Z_EDGE_HOLD.
 Z_MIN_M = 0.0
 Z_MAX_M = 3.5
 Z_STEP_M = 0.01
 
-# For z values above this threshold, force extrapolation to use only these
-# anchor heights from the fitted data table.
+# For z values above this threshold, blend toward a branch built only from
+# these anchor heights. This stabilizes extrapolation behaviour.
 HIGH_Z_THRESHOLD_M = 2.20
 HIGH_Z_ANCHOR_POINTS_M = (1.10, 1.60, 2.20)
 HIGH_Z_ANCHOR_TOL_M = 1e-6
+HIGH_Z_BLEND_HALF_WIDTH_M = 0.10
+
+# If True, keep params fixed at the first fitted row for z below min(z_fit).
+ENABLE_LOW_Z_EDGE_HOLD = True
+
+# If True, and requested high-z anchors are not all present, continue using
+# only the main full-range branch (instead of raising an exception).
+ALLOW_ANCHOR_FALLBACK = True
 
 
 ### Helpers
 REQUIRED_COLUMNS = ("z_m", "A_ring", "r_ring", "delta_r", "w0")
 
 
-def select_anchor_indices(z_vals: np.ndarray) -> np.ndarray:
+def select_anchor_indices(z_vals: np.ndarray) -> Optional[np.ndarray]:
     """
     Locate indices for HIGH_Z_ANCHOR_POINTS_M in z_vals.
+
+    Returns None when anchors are missing and ALLOW_ANCHOR_FALLBACK is enabled.
     """
     anchor_indices = []
     for anchor_z in HIGH_Z_ANCHOR_POINTS_M:
@@ -59,6 +70,8 @@ def select_anchor_indices(z_vals: np.ndarray) -> np.ndarray:
             np.isclose(z_vals, anchor_z, atol=HIGH_Z_ANCHOR_TOL_M, rtol=0.0)
         )[0]
         if matches.size == 0:
+            if ALLOW_ANCHOR_FALLBACK:
+                return None
             raise ValueError(
                 f"Anchor z={anchor_z:.2f} m was not found in fitted data. "
                 f"Available z range: [{np.min(z_vals):.2f}, {np.max(z_vals):.2f}] m."
@@ -72,6 +85,27 @@ def select_anchor_indices(z_vals: np.ndarray) -> np.ndarray:
         )
 
     return np.array(anchor_indices, dtype=int)
+
+
+def high_branch_weight(z_query: np.ndarray) -> np.ndarray:
+    """
+    Compute smooth high-branch blending weights in [0, 1].
+
+    Blend region is centered at HIGH_Z_THRESHOLD_M with half-width
+    HIGH_Z_BLEND_HALF_WIDTH_M and uses a smoothstep profile.
+    """
+    z_query = np.asarray(z_query, dtype=float)
+    half_width = float(HIGH_Z_BLEND_HALF_WIDTH_M)
+    threshold = float(HIGH_Z_THRESHOLD_M)
+
+    if half_width <= 0.0:
+        return (z_query > threshold).astype(float)
+
+    z0 = threshold - half_width
+    z1 = threshold + half_width
+    t = (z_query - z0) / (z1 - z0)
+    t = np.clip(t, 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
 
 
 def load_params_table(xlsx_path: Path, sheet_name: str) -> pd.DataFrame:
@@ -159,17 +193,30 @@ class RingModel:
         self._delta_r_log = PchipInterpolator(z_vals, np.log(delta_r))
         self._w0 = PchipInterpolator(z_vals, w0)
 
-        # For z > HIGH_Z_THRESHOLD_M, extrapolate from only the requested anchors.
-        self._high_z_threshold = float(HIGH_Z_THRESHOLD_M)
-        anchor_idx = select_anchor_indices(z_vals)
-        z_anchor = z_vals[anchor_idx]
-        self._high_a_ring_log = PchipInterpolator(z_anchor, np.log(a_ring[anchor_idx]))
-        self._high_r_ring = PchipInterpolator(z_anchor, r_ring[anchor_idx])
-        self._high_delta_r_log = PchipInterpolator(
-            z_anchor, np.log(delta_r[anchor_idx])
+        self._z_min_fit = float(np.min(z_vals))
+        self._low_params = (
+            float(a_ring[0]),
+            float(r_ring[0]),
+            float(delta_r[0]),
+            float(w0[0]),
         )
-        self._high_w0 = PchipInterpolator(z_anchor, w0[anchor_idx])
 
+        self._high_anchor_enabled = False
+        self._high_z_threshold = float(HIGH_Z_THRESHOLD_M)
+
+        anchor_idx = select_anchor_indices(z_vals)
+        if anchor_idx is not None:
+            z_anchor = z_vals[anchor_idx]
+            self._high_a_ring_log = PchipInterpolator(z_anchor, np.log(a_ring[anchor_idx]))
+            self._high_r_ring = PchipInterpolator(z_anchor, r_ring[anchor_idx])
+            self._high_delta_r_log = PchipInterpolator(z_anchor, np.log(delta_r[anchor_idx]))
+            self._high_w0 = PchipInterpolator(z_anchor, w0[anchor_idx])
+            self._high_anchor_enabled = True
+
+    @property
+    def high_anchor_enabled(self) -> bool:
+        """Whether high-z anchor branch is available."""
+        return self._high_anchor_enabled
 
     def params_at(
         self, z: np.ndarray
@@ -185,13 +232,33 @@ class RingModel:
         delta_r = np.exp(self._delta_r_log(z_flat))
         w0 = self._w0(z_flat)
 
-        high_mask = z_flat > self._high_z_threshold
-        if np.any(high_mask):
-            z_high = z_flat[high_mask]
-            a_ring[high_mask] = np.exp(self._high_a_ring_log(z_high))
-            r_ring[high_mask] = self._high_r_ring(z_high)
-            delta_r[high_mask] = np.exp(self._high_delta_r_log(z_high))
-            w0[high_mask] = self._high_w0(z_high)
+        if self._high_anchor_enabled:
+            blend = high_branch_weight(z_flat)
+            high_mask = blend > 0.0
+            if np.any(high_mask):
+                z_high = z_flat[high_mask]
+                a_high = np.exp(self._high_a_ring_log(z_high))
+                r_high = self._high_r_ring(z_high)
+                delta_high = np.exp(self._high_delta_r_log(z_high))
+                w0_high = self._high_w0(z_high)
+
+                b = blend[high_mask]
+                a_ring[high_mask] = (1.0 - b) * a_ring[high_mask] + b * a_high
+                r_ring[high_mask] = (1.0 - b) * r_ring[high_mask] + b * r_high
+                delta_r[high_mask] = (1.0 - b) * delta_r[high_mask] + b * delta_high
+                w0[high_mask] = (1.0 - b) * w0[high_mask] + b * w0_high
+
+        if ENABLE_LOW_Z_EDGE_HOLD:
+            low_mask = z_flat < self._z_min_fit
+            if np.any(low_mask):
+                a_ring[low_mask] = self._low_params[0]
+                r_ring[low_mask] = self._low_params[1]
+                delta_r[low_mask] = self._low_params[2]
+                w0[low_mask] = self._low_params[3]
+
+        # Numerical safety for positive parameters.
+        a_ring = np.maximum(a_ring, 1e-12)
+        delta_r = np.maximum(delta_r, 1e-12)
 
         a_ring = a_ring.reshape(z.shape)
         r_ring = r_ring.reshape(z.shape)
@@ -218,6 +285,8 @@ def make_z_grid(z_vals: np.ndarray) -> np.ndarray:
 
     if Z_STEP_M <= 0.0:
         raise ValueError("Z_STEP_M must be positive.")
+    if z_max <= z_min:
+        raise ValueError("Z_MAX_M must be greater than Z_MIN_M.")
 
     steps = int(round((z_max - z_min) / Z_STEP_M))
     steps = max(steps, 1)
@@ -268,6 +337,7 @@ def main() -> None:
     print("Built continuous ring-Gaussian model using PCHIP.")
     print(f"Input:  {PARAMS_XLSX.resolve()}")
     print(f"Output: {OUT_XLSX_PATH.resolve()}")
+    print(f"High-z anchor branch enabled: {model.high_anchor_enabled}")
 
 
 if __name__ == "__main__":

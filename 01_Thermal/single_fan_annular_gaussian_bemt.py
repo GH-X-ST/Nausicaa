@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -77,6 +77,32 @@ HARMONIC_PRIOR_SCALE_MPS = 1.0
 HARMONIC_A0_FLOOR_MPS = 0.2
 HARMONIC_ORDER_WEIGHT_EXP = 1.0
 
+# Multi-start optimization
+ENABLE_MULTI_START = True
+MAX_NFEV = 8000
+MULTI_START_R_RING_FRACTIONS = (0.35, 0.65)
+MULTI_START_DELTA_SCALE = (0.75, 1.00, 1.35)
+MULTI_START_A0_SCALE = (0.85, 1.00, 1.15)
+MULTI_START_W0_SHIFT_FRACTION = 0.08
+
+# Auto-tune settings
+ENABLE_HYPERPARAM_AUTOTUNE = True
+AUTO_TUNE_MAE_GUARDRAIL_FRAC = 0.03
+AUTO_TUNE_MAX_RMSE_GUARDRAIL_FRAC = 0.10
+AUTO_TUNE_RMSE_TIE_TOL = 1.0e-4
+
+# Candidate format:
+# (name, fourier_order, robust_loss, robust_f_scale,
+#  harmonic_ridge_lambda, harmonic_rel_cap_lambda,
+#  harmonic_rel_max_to_a0, harmonic_order_weight_exp)
+AUTO_TUNE_CANDIDATES = (
+    ("baseline", 1, "soft_l1", 1.0, 0.02, 0.10, 0.80, 1.0),
+    ("order2_soft_rmse", 2, "soft_l1", 1.5, 0.05, 0.20, 0.70, 1.5),
+    ("order2_soft_bal", 2, "soft_l1", 1.0, 0.05, 0.20, 0.70, 1.5),
+    ("order2_huber_mae", 2, "huber", 0.5, 0.05, 0.05, 0.70, 1.5),
+    ("order2_soft_cons", 2, "soft_l1", 1.5, 0.03, 0.10, 0.80, 1.5),
+)
+
 # z020 -> 0.20 m, z110 -> 1.10 m, etc.
 SHEET_HEIGHT_DIVISOR = 100.0
 
@@ -93,6 +119,30 @@ class AzimuthalBounds:
     coeff_abs_max: float = COEFF_ABS_MAX_MPS
 
 
+@dataclass(frozen=True)
+class FitHyperParams:
+    """Hyper-parameters controlling one full BEMT fitting run."""
+
+    name: str
+    fourier_order: int
+    robust_loss: str
+    robust_f_scale: float
+    harmonic_ridge_lambda: float
+    harmonic_rel_cap_lambda: float
+    harmonic_rel_max_to_a0: float
+    harmonic_order_weight_exp: float
+
+
+@dataclass(frozen=True)
+class FitSummary:
+    """Global metrics for one fitted model over all heights."""
+
+    mean_rmse: float
+    mean_mae: float
+    max_rmse: float
+    total_samples: int
+
+
 @dataclass
 class AzimuthalFitResult:
     """Container for per-height fit outputs and diagnostics."""
@@ -105,6 +155,15 @@ class AzimuthalFitResult:
     mae_mps: float
     success: bool
     cost: float
+
+
+@dataclass
+class HyperTuneTrial:
+    """Container for one auto-tune trial."""
+
+    hyper: FitHyperParams
+    fit_results: List[AzimuthalFitResult]
+    summary: FitSummary
 
 
 ### Helpers
@@ -495,6 +554,58 @@ def initial_guess_azimuthal(
     return p0
 
 
+def build_multi_start_candidates(
+    p0: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    bounds: AzimuthalBounds,
+    w_samples: np.ndarray,
+    fourier_order: int,
+) -> List[np.ndarray]:
+    """Build seed vectors for multi-start fitting."""
+    p0 = np.asarray(p0, dtype=float)
+    seeds = [np.clip(p0, lower + 1e-12, upper - 1e-12)]
+
+    if not ENABLE_MULTI_START:
+        return seeds
+
+    r_span = float(bounds.r_ring_max - bounds.r_ring_min)
+    r_seeds = [float(p0[1])]
+    for frac in MULTI_START_R_RING_FRACTIONS:
+        r_seeds.append(float(bounds.r_ring_min + frac * r_span))
+
+    delta_seeds = [
+        float(np.clip(p0[2] * scale, bounds.delta_ring_min, bounds.delta_ring_max))
+        for scale in MULTI_START_DELTA_SCALE
+    ]
+
+    w_span = float(np.percentile(w_samples, 95.0) - np.percentile(w_samples, 5.0))
+    w_shift = float(max(0.02, MULTI_START_W0_SHIFT_FRACTION * max(w_span, 1e-6)))
+    w0_seeds = [float(p0[0] - w_shift), float(p0[0]), float(p0[0] + w_shift)]
+
+    a0_seeds = [float(max(0.0, p0[3] * scale)) for scale in MULTI_START_A0_SCALE]
+
+    for r_seed in r_seeds:
+        for d_seed in delta_seeds:
+            for w0_seed in w0_seeds:
+                for a0_seed in a0_seeds:
+                    cand = np.array(p0, dtype=float)
+                    cand[0] = w0_seed
+                    cand[1] = r_seed
+                    cand[2] = d_seed
+                    cand[3] = a0_seed
+                    if fourier_order > 0:
+                        cand[4:] = 0.0
+                    cand = np.clip(cand, lower + 1e-12, upper - 1e-12)
+                    seeds.append(cand)
+
+    unique = {}
+    for seed in seeds:
+        key = tuple(np.round(seed, 10).tolist())
+        unique[key] = seed
+    return list(unique.values())
+
+
 def fit_azimuthal_model(
     x_samples: np.ndarray,
     y_samples: np.ndarray,
@@ -502,7 +613,7 @@ def fit_azimuthal_model(
     sigma_samples: np.ndarray,
     fan_center_xy: Tuple[float, float],
     z_m: float,
-    fourier_order: int,
+    fit_hyper: FitHyperParams,
     r_profile: Optional[np.ndarray] = None,
     w_profile: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, bool, float]:
@@ -529,17 +640,25 @@ def fit_azimuthal_model(
     lower, upper = build_param_bounds(
         w_samples=w_samples,
         bounds=bounds,
-        fourier_order=fourier_order,
+        fourier_order=fit_hyper.fourier_order,
     )
     p0 = initial_guess_azimuthal(
         r_samples=r_samples,
         w_samples=w_samples,
         bounds=bounds,
-        fourier_order=fourier_order,
+        fourier_order=fit_hyper.fourier_order,
         r_profile=r_profile,
         w_profile=w_profile,
     )
     p0 = np.clip(p0, lower + 1e-12, upper - 1e-12)
+    p0_candidates = build_multi_start_candidates(
+        p0=p0,
+        lower=lower,
+        upper=upper,
+        bounds=bounds,
+        w_samples=w_samples,
+        fourier_order=fit_hyper.fourier_order,
+    )
 
     sigma_safe = np.maximum(sigma_samples.astype(float), float(SIGMA_MIN))
 
@@ -548,24 +667,24 @@ def fit_azimuthal_model(
             r=r_samples,
             theta=theta_samples,
             params=p,
-            fourier_order=fourier_order,
+            fourier_order=fit_hyper.fourier_order,
         )
         data_residual = (w_pred - w_samples) / sigma_safe
 
-        if not ENABLE_HARMONIC_REGULARIZATION or fourier_order <= 0:
+        if not ENABLE_HARMONIC_REGULARIZATION or fit_hyper.fourier_order <= 0:
             return data_residual
 
         coeffs = p[3:]
         a0 = float(max(coeffs[0], HARMONIC_A0_FLOOR_MPS))
         reg_terms = []
-        ridge_weight = float(np.sqrt(max(HARMONIC_RIDGE_LAMBDA, 0.0)))
-        relcap_weight = float(np.sqrt(max(HARMONIC_REL_CAP_LAMBDA, 0.0)))
+        ridge_weight = float(np.sqrt(max(fit_hyper.harmonic_ridge_lambda, 0.0)))
+        relcap_weight = float(np.sqrt(max(fit_hyper.harmonic_rel_cap_lambda, 0.0)))
         scale = float(max(HARMONIC_PRIOR_SCALE_MPS, 1e-12))
 
-        for n_idx in range(1, fourier_order + 1):
+        for n_idx in range(1, fit_hyper.fourier_order + 1):
             a_n = float(coeffs[2 * n_idx - 1])
             b_n = float(coeffs[2 * n_idx])
-            order_weight = float(n_idx ** HARMONIC_ORDER_WEIGHT_EXP)
+            order_weight = float(n_idx ** fit_hyper.harmonic_order_weight_exp)
 
             if ridge_weight > 0.0:
                 reg_terms.append(ridge_weight * order_weight * a_n / scale)
@@ -573,7 +692,7 @@ def fit_azimuthal_model(
 
             if relcap_weight > 0.0:
                 harm_mag = float(np.sqrt(a_n**2 + b_n**2))
-                cap = float(HARMONIC_REL_MAX_TO_A0 * a0)
+                cap = float(fit_hyper.harmonic_rel_max_to_a0 * a0)
                 excess = max(harm_mag - cap, 0.0)
                 reg_terms.append(relcap_weight * order_weight * excess / scale)
 
@@ -582,21 +701,30 @@ def fit_azimuthal_model(
 
         return np.concatenate([data_residual, np.asarray(reg_terms, dtype=float)])
 
-    result = least_squares(
-        residuals,
-        p0,
-        bounds=(lower, upper),
-        loss=ROBUST_LOSS,
-        f_scale=ROBUST_F_SCALE,
-    )
-    return result.x.astype(float), bool(result.success), float(result.cost)
+    best_result = None
+    for p0_i in p0_candidates:
+        result = least_squares(
+            residuals,
+            p0_i,
+            bounds=(lower, upper),
+            loss=fit_hyper.robust_loss,
+            f_scale=fit_hyper.robust_f_scale,
+            max_nfev=MAX_NFEV,
+        )
+        if best_result is None or result.cost < best_result.cost:
+            best_result = result
+
+    if best_result is None:
+        raise RuntimeError("least_squares failed for all multi-start seeds.")
+
+    return best_result.x.astype(float), bool(best_result.success), float(best_result.cost)
 
 
 def fit_azimuthal_for_sheet(
     xlsx_path: str,
     mean_sheet: str,
     fan_center_xy: Tuple[float, float],
-    fourier_order: int,
+    fit_hyper: FitHyperParams,
     sigma_fallback: float,
     sigma_min: float,
 ) -> AzimuthalFitResult:
@@ -676,7 +804,7 @@ def fit_azimuthal_for_sheet(
         sigma_samples=sigma_samples,
         fan_center_xy=fan_center_xy,
         z_m=z_m,
-        fourier_order=fourier_order,
+        fit_hyper=fit_hyper,
         r_profile=r_profile,
         w_profile=w_profile,
     )
@@ -686,7 +814,7 @@ def fit_azimuthal_for_sheet(
         r=r_samples,
         theta=theta_samples,
         params=params,
-        fourier_order=fourier_order,
+        fourier_order=fit_hyper.fourier_order,
     )
     err = w_pred - w_samples
     rmse = float(np.sqrt(np.mean(err ** 2)))
@@ -738,31 +866,172 @@ def save_azimuthal_fit_table(
     df_out.to_excel(out_path, index=False, sheet_name=sheet_name)
 
 
-### Main
-def main() -> None:
-    fit_results: List[AzimuthalFitResult] = []
+def summarize_fit_results(fit_results: Sequence[AzimuthalFitResult]) -> FitSummary:
+    """Compute global summary metrics across all fitted heights."""
+    if len(fit_results) == 0:
+        raise ValueError("No fit results to summarize.")
 
-    for sh in SHEETS:
+    rmses = np.array([res.rmse_mps for res in fit_results], dtype=float)
+    maes = np.array([res.mae_mps for res in fit_results], dtype=float)
+    samples = np.array([res.n_samples for res in fit_results], dtype=float)
+
+    total_samples = int(np.sum(samples))
+    if total_samples <= 0:
+        raise ValueError("Total sample count must be positive.")
+
+    mean_rmse = float(np.sum(rmses * samples) / np.sum(samples))
+    mean_mae = float(np.sum(maes * samples) / np.sum(samples))
+    max_rmse = float(np.max(rmses))
+
+    return FitSummary(
+        mean_rmse=mean_rmse,
+        mean_mae=mean_mae,
+        max_rmse=max_rmse,
+        total_samples=total_samples,
+    )
+
+
+def build_fit_hyper_from_globals() -> FitHyperParams:
+    """Capture baseline globals into a FitHyperParams object."""
+    return FitHyperParams(
+        name="baseline",
+        fourier_order=int(FOURIER_ORDER_N),
+        robust_loss=str(ROBUST_LOSS),
+        robust_f_scale=float(ROBUST_F_SCALE),
+        harmonic_ridge_lambda=float(HARMONIC_RIDGE_LAMBDA),
+        harmonic_rel_cap_lambda=float(HARMONIC_REL_CAP_LAMBDA),
+        harmonic_rel_max_to_a0=float(HARMONIC_REL_MAX_TO_A0),
+        harmonic_order_weight_exp=float(HARMONIC_ORDER_WEIGHT_EXP),
+    )
+
+
+def build_fit_hyper_candidates() -> List[FitHyperParams]:
+    """Build auto-tune hyper-parameter candidates."""
+    candidates = []
+    for row in AUTO_TUNE_CANDIDATES:
+        (
+            name,
+            fourier_order,
+            robust_loss,
+            robust_f_scale,
+            harmonic_ridge_lambda,
+            harmonic_rel_cap_lambda,
+            harmonic_rel_max_to_a0,
+            harmonic_order_weight_exp,
+        ) = row
+        candidates.append(
+            FitHyperParams(
+                name=str(name),
+                fourier_order=int(fourier_order),
+                robust_loss=str(robust_loss),
+                robust_f_scale=float(robust_f_scale),
+                harmonic_ridge_lambda=float(harmonic_ridge_lambda),
+                harmonic_rel_cap_lambda=float(harmonic_rel_cap_lambda),
+                harmonic_rel_max_to_a0=float(harmonic_rel_max_to_a0),
+                harmonic_order_weight_exp=float(harmonic_order_weight_exp),
+            )
+        )
+    if len(candidates) == 0:
+        raise ValueError("AUTO_TUNE_CANDIDATES must contain at least one candidate.")
+    return candidates
+
+
+def fit_all_sheets(
+    fit_hyper: FitHyperParams,
+    sheet_names: Iterable[str],
+) -> List[AzimuthalFitResult]:
+    """Fit all configured sheets with one hyper-parameter set."""
+    fit_results: List[AzimuthalFitResult] = []
+    for sheet in sheet_names:
         fit_result = fit_azimuthal_for_sheet(
             xlsx_path=XLSX_PATH,
-            mean_sheet=sh,
+            mean_sheet=sheet,
             fan_center_xy=FAN_CENTER_XY,
-            fourier_order=FOURIER_ORDER_N,
+            fit_hyper=fit_hyper,
             sigma_fallback=SIGMA_FALLBACK,
             sigma_min=SIGMA_MIN,
         )
         fit_results.append(fit_result)
+    return fit_results
+
+
+def autotune_fit_hyper(
+    sheet_names: Iterable[str],
+) -> Tuple[FitHyperParams, List[AzimuthalFitResult], List[HyperTuneTrial]]:
+    """
+    Auto-select fit hyper-parameters with RMSE objective and guardrails.
+    """
+    candidates = build_fit_hyper_candidates()
+    trials: List[HyperTuneTrial] = []
+
+    for hyper in candidates:
+        fit_results = fit_all_sheets(hyper, sheet_names=sheet_names)
+        summary = summarize_fit_results(fit_results)
+        trials.append(HyperTuneTrial(hyper=hyper, fit_results=fit_results, summary=summary))
+
+    baseline = trials[0]
+    mae_limit = baseline.summary.mean_mae * (1.0 + float(AUTO_TUNE_MAE_GUARDRAIL_FRAC))
+    max_rmse_limit = baseline.summary.max_rmse * (1.0 + float(AUTO_TUNE_MAX_RMSE_GUARDRAIL_FRAC))
+
+    eligible = [
+        trial
+        for trial in trials
+        if trial.summary.mean_mae <= mae_limit and trial.summary.max_rmse <= max_rmse_limit
+    ]
+    if len(eligible) == 0:
+        eligible = trials
+
+    min_rmse = min(trial.summary.mean_rmse for trial in eligible)
+    finalists = [
+        trial
+        for trial in eligible
+        if trial.summary.mean_rmse <= min_rmse + float(AUTO_TUNE_RMSE_TIE_TOL)
+    ]
+    selected = min(finalists, key=lambda trial: trial.summary.mean_mae)
+
+    print("Auto-tuning BEMT candidates:")
+    print(" name               N  loss     f_scale  mean_RMSE  mean_MAE   max_RMSE")
+    for trial in trials:
+        marker = "*" if trial.hyper.name == selected.hyper.name else " "
+        h = trial.hyper
+        s = trial.summary
+        print(
+            f"{marker}{h.name:17s}  {h.fourier_order:1d}  {h.robust_loss:7s}  "
+            f"{h.robust_f_scale:7.3f}  {s.mean_rmse:9.5f}  {s.mean_mae:9.5f}  {s.max_rmse:9.5f}"
+        )
+    print(
+        f"Selected: {selected.hyper.name} "
+        f"(MAE guardrail <= {mae_limit:.5f}, max-RMSE guardrail <= {max_rmse_limit:.5f})"
+    )
+
+    return selected.hyper, selected.fit_results, trials
+
+
+### Main
+def main() -> None:
+    if ENABLE_HYPERPARAM_AUTOTUNE:
+        selected_hyper, fit_results, _trials = autotune_fit_hyper(SHEETS)
+    else:
+        selected_hyper = build_fit_hyper_from_globals()
+        fit_results = fit_all_sheets(selected_hyper, sheet_names=SHEETS)
 
     save_azimuthal_fit_table(
         fit_results=fit_results,
         out_path=OUT_AZ_PARAMS_XLSX,
         sheet_name=OUT_AZ_PARAMS_SHEET,
-        fourier_order=FOURIER_ORDER_N,
+        fourier_order=selected_hyper.fourier_order,
     )
     print(f"Saved azimuthal fit parameters to: {OUT_AZ_PARAMS_XLSX.resolve()}")
 
-    param_names = build_param_column_names(FOURIER_ORDER_N)
+    summary = summarize_fit_results(fit_results)
+    param_names = build_param_column_names(selected_hyper.fourier_order)
     print("\nFitted non-axisymmetric annular-Gaussian parameters")
+    print(
+        f"Selected hyper: N={selected_hyper.fourier_order}, loss={selected_hyper.robust_loss}, "
+        f"f_scale={selected_hyper.robust_f_scale}, ridge={selected_hyper.harmonic_ridge_lambda}, "
+        f"relcap={selected_hyper.harmonic_rel_cap_lambda}, relmax={selected_hyper.harmonic_rel_max_to_a0}, "
+        f"order_exp={selected_hyper.harmonic_order_weight_exp}"
+    )
     print(" sheet   z [m]   RMSE      MAE     success")
     for fit_result in sorted(fit_results, key=lambda item: item.z_m):
         print(
@@ -771,6 +1040,10 @@ def main() -> None:
             f"{str(fit_result.success):>7}"
         )
 
+    print(
+        f"\nGlobal summary: mean_RMSE={summary.mean_rmse:.6f}, "
+        f"mean_MAE={summary.mean_mae:.6f}, max_RMSE={summary.max_rmse:.6f}"
+    )
     print("\nParameter order:")
     print(" " + ", ".join(param_names))
 

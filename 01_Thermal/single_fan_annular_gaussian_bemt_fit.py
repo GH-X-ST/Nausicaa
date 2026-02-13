@@ -19,7 +19,7 @@ Reference upstream annuli profile naming from single_fan_annuli_cut.py:
 
 ### Imports
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -66,9 +66,16 @@ A0_LOG_INTERP_IF_POSITIVE = True
 # instead of extrapolating. This prevents artificial near-outlet blow-up.
 ENABLE_LOW_Z_EDGE_HOLD = True
 
+# If anchors are missing in fitted z values, fall back to the main full-range
+# interpolation branch instead of raising an exception.
+ALLOW_ANCHOR_FALLBACK = True
+
+# Physical floor for interpolated ring radius.
+R_RING_MIN_CLIP_M = 0.0
+
 
 ### Helpers
-def select_anchor_indices(z_vals: np.ndarray) -> np.ndarray:
+def select_anchor_indices(z_vals: np.ndarray) -> Optional[np.ndarray]:
     """
     Locate indices for HIGH_Z_ANCHOR_POINTS_M in z_vals.
     """
@@ -78,6 +85,8 @@ def select_anchor_indices(z_vals: np.ndarray) -> np.ndarray:
             np.isclose(z_vals, anchor_z, atol=HIGH_Z_ANCHOR_TOL_M, rtol=0.0)
         )[0]
         if matches.size == 0:
+            if ALLOW_ANCHOR_FALLBACK:
+                return None
             raise ValueError(
                 f"Anchor z={anchor_z:.2f} m was not found in fitted data. "
                 f"Available z range: [{np.min(z_vals):.2f}, {np.max(z_vals):.2f}] m."
@@ -284,6 +293,8 @@ def make_z_grid(z_vals: np.ndarray) -> np.ndarray:
 
     if Z_STEP_M <= 0.0:
         raise ValueError("Z_STEP_M must be positive.")
+    if z_max <= z_min:
+        raise ValueError("Z_MAX_M must be greater than Z_MIN_M.")
 
     steps = int(round((z_max - z_min) / Z_STEP_M))
     steps = max(steps, 1)
@@ -312,7 +323,9 @@ def interpolate_params_pchip(
     high_mask = high_weight > 0.0
 
     anchor_idx = select_anchor_indices(z_vals)
-    z_anchor = z_vals[anchor_idx]
+    high_branch_enabled = anchor_idx is not None
+    if high_branch_enabled:
+        z_anchor = z_vals[anchor_idx]
 
     for col_idx, col_name in enumerate(param_cols):
         if col_name == "delta_ring":
@@ -320,7 +333,7 @@ def interpolate_params_pchip(
             interp_main = PchipInterpolator(z_vals, np.log(vals))
             col_interp = np.exp(interp_main(z_query))
 
-            if np.any(high_mask):
+            if high_branch_enabled and np.any(high_mask):
                 vals_anchor = np.maximum(params[anchor_idx, col_idx], 1e-12)
                 interp_high = PchipInterpolator(z_anchor, np.log(vals_anchor))
                 high_vals = np.exp(interp_high(z_query[high_mask]))
@@ -337,7 +350,7 @@ def interpolate_params_pchip(
             interp_main = PchipInterpolator(z_vals, np.log(vals))
             col_interp = np.exp(interp_main(z_query))
 
-            if np.any(high_mask):
+            if high_branch_enabled and np.any(high_mask):
                 vals_anchor = np.maximum(params[anchor_idx, col_idx], HARMONIC_A0_FLOOR)
                 interp_high = PchipInterpolator(z_anchor, np.log(vals_anchor))
                 high_vals = np.exp(interp_high(z_query[high_mask]))
@@ -349,7 +362,7 @@ def interpolate_params_pchip(
             interp_main = PchipInterpolator(z_vals, params[:, col_idx])
             col_interp = interp_main(z_query)
 
-            if np.any(high_mask):
+            if high_branch_enabled and np.any(high_mask):
                 interp_high = PchipInterpolator(z_anchor, params[anchor_idx, col_idx])
                 high_vals = interp_high(z_query[high_mask])
                 col_interp[high_mask] = (
@@ -369,6 +382,12 @@ def interpolate_params_pchip(
         low_mask = z_query < float(np.min(z_vals))
         if np.any(low_mask):
             params_interp[low_mask, :] = params[0, :]
+
+    # Keep physically constrained columns safe after interpolation.
+    r_idx = param_cols.index("r_ring")
+    d_idx = param_cols.index("delta_ring")
+    params_interp[:, r_idx] = np.maximum(params_interp[:, r_idx], float(R_RING_MIN_CLIP_M))
+    params_interp[:, d_idx] = np.maximum(params_interp[:, d_idx], 1e-12)
 
     return params_interp
 
@@ -397,6 +416,8 @@ def main() -> None:
     params_df = load_params_table(PARAMS_XLSX, PARAMS_SHEET)
     param_cols = discover_param_columns(params_df)
     z_vals, params = extract_params(params_df, param_cols)
+    anchor_idx = select_anchor_indices(z_vals)
+    high_branch_enabled = anchor_idx is not None
 
     z_grid = make_z_grid(z_vals)
     params_interp = interpolate_params_pchip(
@@ -417,6 +438,7 @@ def main() -> None:
     print("Built continuous non-axisymmetric annular-Gaussian model using PCHIP.")
     print(f"Input:  {PARAMS_XLSX.resolve()}")
     print(f"Output: {OUT_XLSX_PATH.resolve()}")
+    print(f"High-z anchor branch enabled: {high_branch_enabled}")
 
 
 if __name__ == "__main__":
