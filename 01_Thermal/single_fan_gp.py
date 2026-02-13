@@ -12,7 +12,14 @@ import numpy as np
 import pandas as pd
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import ConstantKernel, RBF, WhiteKernel
+from sklearn.gaussian_process.kernels import (
+    ConstantKernel,
+    Matern,
+    RBF,
+    RationalQuadratic,
+    WhiteKernel,
+)
+from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
 
 from single_fan_annuli_cut import (
@@ -35,6 +42,8 @@ SHEET_HEIGHT_DIVISOR = 100.0
 #   "radial"    -> use (r, z): axisymmetric annular
 #   "cartesian" -> use (x, y, z): fully unconstrained spatial structure
 FEATURE_MODE = "polar"
+KERNEL_FAMILY = "rbf_ard"
+ALPHA_SCALE = 1.0
 
 # Noise assignment from *_TS.
 SIGMA_FALLBACK = 0.14
@@ -44,6 +53,21 @@ ALPHA_JITTER = 1e-8
 # GP optimizer settings.
 N_RESTARTS_OPTIMIZER = 10
 RANDOM_STATE = 42
+
+# Automatic GP configuration tuning (grouped CV by sheet height).
+ENABLE_AUTO_TUNE = True
+AUTO_TUNE_CV_N_SPLITS = 3
+AUTO_TUNE_CV_RESTARTS_OPTIMIZER = 1
+AUTO_TUNE_RMSE_TIE_TOL = 1e-4
+
+# Candidate format: (name, feature_mode, kernel_family, alpha_scale)
+AUTO_TUNE_CANDIDATES = (
+    ("baseline", "polar", "rbf_ard", 1.0),
+    ("polar_matern32", "polar", "matern32_ard", 1.0),
+    ("polar_matern52", "polar", "matern52_ard", 1.0),
+    ("polar_rbf_high_alpha", "polar", "rbf_ard", 1.3),
+    ("radial_rbf", "radial", "rbf_ard", 1.0),
+)
 
 # Output locations.
 OUT_DIR = Path("B_results/Single_Fan_GP")
@@ -90,6 +114,29 @@ class GPModelBundle:
 
         w_mean = self.gp.predict(feats_scaled, return_std=False)
         return w_mean.astype(float), np.zeros_like(w_mean, dtype=float)
+
+
+@dataclass(frozen=True)
+class GPTuneCandidate:
+    """
+    One GP hyper-parameter candidate for grouped CV tuning.
+    """
+
+    name: str
+    feature_mode: str
+    kernel_family: str
+    alpha_scale: float
+
+
+@dataclass
+class GPTuneTrial:
+    """
+    Container for one grouped-CV tuning trial.
+    """
+
+    candidate: GPTuneCandidate
+    cv_metrics: Dict[str, float]
+    n_folds: int
 
 
 ### Helpers
@@ -142,6 +189,62 @@ def build_feature_matrix(
         return np.column_stack([r_arr, np.cos(theta_arr), np.sin(theta_arr), z_arr])
 
     return np.column_stack([x_arr, y_arr, z_arr])
+
+
+def build_gp_kernel(n_features: int, kernel_family: str):
+    """
+    Build a GP kernel by family name.
+    """
+    family = str(kernel_family).strip().lower()
+
+    if family == "rbf_ard":
+        return (
+            ConstantKernel(1.0, (1e-3, 1e3))
+            * RBF(
+                length_scale=np.ones(n_features, dtype=float),
+                length_scale_bounds=(1e-1, 1e2),
+            )
+            + WhiteKernel(noise_level=1e-3, noise_level_bounds=(1e-6, 1e0))
+        )
+
+    if family == "matern32_ard":
+        return (
+            ConstantKernel(1.0, (1e-3, 1e3))
+            * Matern(
+                length_scale=np.ones(n_features, dtype=float),
+                length_scale_bounds=(1e-1, 1e2),
+                nu=1.5,
+            )
+            + WhiteKernel(noise_level=1e-3, noise_level_bounds=(1e-6, 1e0))
+        )
+
+    if family == "matern52_ard":
+        return (
+            ConstantKernel(1.0, (1e-3, 1e3))
+            * Matern(
+                length_scale=np.ones(n_features, dtype=float),
+                length_scale_bounds=(1e-1, 1e2),
+                nu=2.5,
+            )
+            + WhiteKernel(noise_level=1e-3, noise_level_bounds=(1e-6, 1e0))
+        )
+
+    if family == "rq":
+        return (
+            ConstantKernel(1.0, (1e-3, 1e3))
+            * RationalQuadratic(
+                length_scale=1.0,
+                alpha=1.0,
+                length_scale_bounds=(1e-1, 1e2),
+                alpha_bounds=(1e-2, 1e3),
+            )
+            + WhiteKernel(noise_level=1e-3, noise_level_bounds=(1e-6, 1e0))
+        )
+
+    raise ValueError(
+        f"Invalid KERNEL_FAMILY '{kernel_family}'. "
+        "Use: rbf_ard, matern32_ard, matern52_ard, rq."
+    )
 
 
 def load_sheet_samples(
@@ -242,6 +345,8 @@ def build_training_table(
 def fit_gp_model(
     train_df: pd.DataFrame,
     feature_mode: str,
+    kernel_family: str,
+    alpha_scale: float,
     fan_center_xy: Tuple[float, float],
     n_restarts_optimizer: int,
     random_state: int,
@@ -262,20 +367,13 @@ def fit_gp_model(
         feature_mode=feature_mode,
         fan_center_xy=fan_center_xy,
     )
-    alpha = np.maximum(sigma**2, float(ALPHA_JITTER))
+    alpha = np.maximum(float(alpha_scale) * (sigma**2), float(ALPHA_JITTER))
 
     scaler = StandardScaler()
     features_scaled = scaler.fit_transform(features)
 
     n_features = int(features.shape[1])
-    kernel = (
-        ConstantKernel(1.0, (1e-3, 1e3))
-        * RBF(
-            length_scale=np.ones(n_features, dtype=float),
-            length_scale_bounds=(1e-1, 1e2),
-        )
-        + WhiteKernel(noise_level=1e-3, noise_level_bounds=(1e-6, 1e0))
-    )
+    kernel = build_gp_kernel(n_features=n_features, kernel_family=kernel_family)
 
     gp = GaussianProcessRegressor(
         kernel=kernel,
@@ -294,6 +392,163 @@ def fit_gp_model(
         feature_mode=str(feature_mode).strip().lower(),
         fan_center_xy=fan_center_xy,
     )
+
+
+def build_tune_candidates() -> List[GPTuneCandidate]:
+    """
+    Build GP tuning candidates from AUTO_TUNE_CANDIDATES.
+    """
+    candidates: List[GPTuneCandidate] = []
+    for row in AUTO_TUNE_CANDIDATES:
+        if len(row) != 4:
+            raise ValueError(
+                "Each AUTO_TUNE_CANDIDATES row must be "
+                "(name, feature_mode, kernel_family, alpha_scale)."
+            )
+        name, feature_mode, kernel_family, alpha_scale = row
+        candidates.append(
+            GPTuneCandidate(
+                name=str(name),
+                feature_mode=str(feature_mode),
+                kernel_family=str(kernel_family),
+                alpha_scale=float(alpha_scale),
+            )
+        )
+
+    if not candidates:
+        candidates.append(
+            GPTuneCandidate(
+                name="baseline",
+                feature_mode=str(FEATURE_MODE),
+                kernel_family=str(KERNEL_FAMILY),
+                alpha_scale=float(ALPHA_SCALE),
+            )
+        )
+    return candidates
+
+
+def evaluate_candidate_group_cv(
+    train_df: pd.DataFrame,
+    candidate: GPTuneCandidate,
+    fan_center_xy: Tuple[float, float],
+    n_splits: int,
+    n_restarts_optimizer: int,
+    random_state: int,
+) -> Tuple[Dict[str, float], int]:
+    """
+    Evaluate one candidate with grouped CV over sheet names.
+    """
+    groups = train_df["sheet"].astype(str).to_numpy()
+    unique_groups = np.unique(groups)
+    if unique_groups.size < 2:
+        raise ValueError("Need at least two unique sheets for grouped CV.")
+
+    n_splits_eff = int(np.clip(int(n_splits), 2, int(unique_groups.size)))
+    splitter = GroupKFold(n_splits=n_splits_eff)
+
+    y_true_all: List[np.ndarray] = []
+    y_pred_all: List[np.ndarray] = []
+    sigma_all: List[np.ndarray] = []
+
+    for fold_idx, (tr_idx, va_idx) in enumerate(splitter.split(train_df, groups=groups)):
+        train_fold = train_df.iloc[tr_idx].reset_index(drop=True)
+        val_fold = train_df.iloc[va_idx].reset_index(drop=True)
+
+        model_fold = fit_gp_model(
+            train_df=train_fold,
+            feature_mode=candidate.feature_mode,
+            kernel_family=candidate.kernel_family,
+            alpha_scale=candidate.alpha_scale,
+            fan_center_xy=fan_center_xy,
+            n_restarts_optimizer=n_restarts_optimizer,
+            random_state=int(random_state) + int(fold_idx),
+        )
+
+        y_pred_fold, _ = model_fold.predict(
+            x_m=val_fold["x_m"].to_numpy(dtype=float),
+            y_m=val_fold["y_m"].to_numpy(dtype=float),
+            z_m=val_fold["z_m"].to_numpy(dtype=float),
+            return_std=False,
+        )
+        y_true_fold = val_fold["w_obs_mps"].to_numpy(dtype=float)
+        sigma_fold = val_fold["sigma_mps"].to_numpy(dtype=float)
+
+        y_true_all.append(y_true_fold)
+        y_pred_all.append(y_pred_fold)
+        sigma_all.append(sigma_fold)
+
+    metrics = compute_regression_metrics(
+        y_true=np.concatenate(y_true_all),
+        y_pred=np.concatenate(y_pred_all),
+        sigma_mps=np.concatenate(sigma_all),
+    )
+    return metrics, n_splits_eff
+
+
+def select_gp_candidate(
+    train_df: pd.DataFrame,
+    fan_center_xy: Tuple[float, float],
+) -> Tuple[GPTuneCandidate, List[GPTuneTrial]]:
+    """
+    Run grouped-CV tuning and select the best GP candidate.
+    """
+    candidates = build_tune_candidates()
+    trials: List[GPTuneTrial] = []
+
+    for idx, candidate in enumerate(candidates):
+        try:
+            cv_metrics, n_folds = evaluate_candidate_group_cv(
+                train_df=train_df,
+                candidate=candidate,
+                fan_center_xy=fan_center_xy,
+                n_splits=AUTO_TUNE_CV_N_SPLITS,
+                n_restarts_optimizer=AUTO_TUNE_CV_RESTARTS_OPTIMIZER,
+                random_state=int(RANDOM_STATE) + 17 * idx,
+            )
+            trials.append(
+                GPTuneTrial(
+                    candidate=candidate,
+                    cv_metrics=cv_metrics,
+                    n_folds=n_folds,
+                )
+            )
+        except Exception as exc:
+            print(f"Auto-tune candidate '{candidate.name}' failed: {exc}")
+
+    if not trials:
+        selected = GPTuneCandidate(
+            name="fallback",
+            feature_mode=str(FEATURE_MODE),
+            kernel_family=str(KERNEL_FAMILY),
+            alpha_scale=float(ALPHA_SCALE),
+        )
+        return selected, []
+
+    min_wrmse = min(float(t.cv_metrics["wrmse_mps"]) for t in trials)
+    finalists = [
+        t for t in trials if float(t.cv_metrics["wrmse_mps"]) <= min_wrmse + float(AUTO_TUNE_RMSE_TIE_TOL)
+    ]
+    best_trial = min(
+        finalists,
+        key=lambda t: (
+            float(t.cv_metrics["mae_mps"]),
+            float(t.cv_metrics["rmse_mps"]),
+        ),
+    )
+
+    print("Auto-tuning GP candidates (grouped CV by sheet):")
+    print(" name               mode       kernel        alpha  CV_WRMSE  CV_RMSE   CV_MAE")
+    for trial in trials:
+        marker = "*" if trial.candidate.name == best_trial.candidate.name else " "
+        c = trial.candidate
+        m = trial.cv_metrics
+        print(
+            f"{marker}{c.name:17s}  {c.feature_mode:9s}  {c.kernel_family:12s}  "
+            f"{c.alpha_scale:5.2f}  {m['wrmse_mps']:8.5f}  {m['rmse_mps']:8.5f}  {m['mae_mps']:8.5f}"
+        )
+    print(f"Selected GP candidate: {best_trial.candidate.name}")
+
+    return best_trial.candidate, trials
 
 
 def compute_regression_metrics(
@@ -571,9 +826,25 @@ def main() -> None:
         sigma_min=SIGMA_MIN,
     )
 
+    if ENABLE_AUTO_TUNE:
+        selected_candidate, tune_trials = select_gp_candidate(
+            train_df=train_df,
+            fan_center_xy=FAN_CENTER_XY,
+        )
+    else:
+        selected_candidate = GPTuneCandidate(
+            name="manual",
+            feature_mode=str(FEATURE_MODE).strip().lower(),
+            kernel_family=str(KERNEL_FAMILY).strip().lower(),
+            alpha_scale=float(ALPHA_SCALE),
+        )
+        tune_trials = []
+
     model = fit_gp_model(
         train_df=train_df,
-        feature_mode=FEATURE_MODE,
+        feature_mode=selected_candidate.feature_mode,
+        kernel_family=selected_candidate.kernel_family,
+        alpha_scale=selected_candidate.alpha_scale,
         fan_center_xy=FAN_CENTER_XY,
         n_restarts_optimizer=N_RESTARTS_OPTIMIZER,
         random_state=RANDOM_STATE,
@@ -588,9 +859,13 @@ def main() -> None:
         sigma_mps=pred_df["sigma_mps"].to_numpy(dtype=float),
     )
     summary_metrics_df = pd.DataFrame([overall_metrics])
-    summary_metrics_df["feature_mode"] = str(FEATURE_MODE).strip().lower()
+    summary_metrics_df["feature_mode"] = selected_candidate.feature_mode
+    summary_metrics_df["kernel_family"] = selected_candidate.kernel_family
+    summary_metrics_df["alpha_scale"] = float(selected_candidate.alpha_scale)
+    summary_metrics_df["autotune_enabled"] = bool(ENABLE_AUTO_TUNE)
+    summary_metrics_df["autotune_selected"] = str(selected_candidate.name)
     summary_metrics_df["use_radial_features"] = (
-        str(FEATURE_MODE).strip().lower() == "radial"
+        selected_candidate.feature_mode == "radial"
     )
     summary_metrics_df["log_marginal_likelihood"] = float(
         model.gp.log_marginal_likelihood_value_
@@ -605,24 +880,75 @@ def main() -> None:
             {"parameter": "sheet_count", "value": len(SHEETS)},
             {"parameter": "fan_center_x_m", "value": float(FAN_CENTER_XY[0])},
             {"parameter": "fan_center_y_m", "value": float(FAN_CENTER_XY[1])},
-            {"parameter": "feature_mode", "value": str(FEATURE_MODE).strip().lower()},
+            {"parameter": "feature_mode", "value": selected_candidate.feature_mode},
+            {"parameter": "kernel_family", "value": selected_candidate.kernel_family},
+            {"parameter": "alpha_scale", "value": float(selected_candidate.alpha_scale)},
+            {"parameter": "autotune_enabled", "value": bool(ENABLE_AUTO_TUNE)},
+            {"parameter": "autotune_selected", "value": str(selected_candidate.name)},
             {
                 "parameter": "use_radial_features",
-                "value": str(FEATURE_MODE).strip().lower() == "radial",
+                "value": selected_candidate.feature_mode == "radial",
             },
             {"parameter": "sigma_fallback_mps", "value": float(SIGMA_FALLBACK)},
             {"parameter": "sigma_min_mps", "value": float(SIGMA_MIN)},
             {"parameter": "n_restarts_optimizer", "value": int(N_RESTARTS_OPTIMIZER)},
             {"parameter": "random_state", "value": int(RANDOM_STATE)},
+            {"parameter": "autotune_cv_n_splits", "value": int(AUTO_TUNE_CV_N_SPLITS)},
+            {
+                "parameter": "autotune_cv_restarts_optimizer",
+                "value": int(AUTO_TUNE_CV_RESTARTS_OPTIMIZER),
+            },
             {"parameter": "kernel_fitted", "value": str(model.gp.kernel_)},
         ]
     )
+    if tune_trials:
+        cv_rows: List[Dict[str, float]] = []
+        for trial in tune_trials:
+            row = {
+                "name": trial.candidate.name,
+                "feature_mode": trial.candidate.feature_mode,
+                "kernel_family": trial.candidate.kernel_family,
+                "alpha_scale": float(trial.candidate.alpha_scale),
+                "n_folds": int(trial.n_folds),
+                "cv_mae_mps": float(trial.cv_metrics["mae_mps"]),
+                "cv_rmse_mps": float(trial.cv_metrics["rmse_mps"]),
+                "cv_wrmse_mps": float(trial.cv_metrics["wrmse_mps"]),
+                "cv_sae_mps": float(trial.cv_metrics["sae_mps"]),
+                "cv_sse_mps2": float(trial.cv_metrics["sse_mps2"]),
+                "cv_r2": float(trial.cv_metrics["r2"]),
+                "is_selected": trial.candidate.name == selected_candidate.name,
+            }
+            cv_rows.append(row)
+        autotune_cv_df = pd.DataFrame(cv_rows).sort_values(
+            by=["cv_wrmse_mps", "cv_mae_mps"], ascending=[True, True]
+        )
+    else:
+        autotune_cv_df = pd.DataFrame(
+            [
+                {
+                    "name": selected_candidate.name,
+                    "feature_mode": selected_candidate.feature_mode,
+                    "kernel_family": selected_candidate.kernel_family,
+                    "alpha_scale": float(selected_candidate.alpha_scale),
+                    "n_folds": np.nan,
+                    "cv_mae_mps": np.nan,
+                    "cv_rmse_mps": np.nan,
+                    "cv_wrmse_mps": np.nan,
+                    "cv_sae_mps": np.nan,
+                    "cv_sse_mps2": np.nan,
+                    "cv_r2": np.nan,
+                    "is_selected": True,
+                }
+            ]
+        )
+
     write_tables_to_excel(
         summary_xlsx_path,
         {
             "overall_metrics": summary_metrics_df,
             "per_sheet_metrics": per_sheet_df,
             "hyperparameters": hyper_df,
+            "autotune_cv": autotune_cv_df,
         },
     )
     # Add analysis-style SAE/SSE/WRMSE table into summary workbook.
@@ -647,7 +973,13 @@ def main() -> None:
 
     print("Gaussian Process model fitted successfully.")
     print(f"Samples used: {int(train_df.shape[0])}")
-    print(f"Feature mode: {str(FEATURE_MODE).strip().lower()}")
+    print(
+        "Selected GP config: "
+        f"name={selected_candidate.name}, "
+        f"feature_mode={selected_candidate.feature_mode}, "
+        f"kernel_family={selected_candidate.kernel_family}, "
+        f"alpha_scale={selected_candidate.alpha_scale:.2f}"
+    )
     print(f"Fitted kernel: {model.gp.kernel_}")
     print(
         "Overall metrics: "
