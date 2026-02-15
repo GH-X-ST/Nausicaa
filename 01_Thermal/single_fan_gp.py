@@ -41,7 +41,7 @@ SHEET_HEIGHT_DIVISOR = 100.0
 #   "polar"     -> use (r, cos(theta), sin(theta), z): annular + non-axisymmetric
 #   "radial"    -> use (r, z): axisymmetric annular
 #   "cartesian" -> use (x, y, z): fully unconstrained spatial structure
-FEATURE_MODE = "polar"
+FEATURE_MODE = "cartesian"
 KERNEL_FAMILY = "rbf_ard"
 ALPHA_SCALE = 1.0
 

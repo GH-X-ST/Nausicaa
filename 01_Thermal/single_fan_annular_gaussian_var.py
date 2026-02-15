@@ -41,15 +41,18 @@ MEAN_SHEETS = ("z020", "z035", "z050", "z075", "z110", "z160", "z220")
 
 # Candidate robust solvers for automatic fine-tuning.
 SOLVER_CANDIDATES = (
-    ("baseline", "soft_l1", 1.0, 1.0e-4),
-    ("huber", "huber", 1.0, 1.0e-4),
-    ("cauchy", "cauchy", 0.5, 1.0e-4),
-    ("huber_w0_wide", "huber", 1.0, 5.0e-4),
-    ("soft_l1_w0_wide", "soft_l1", 1.0, 5.0e-4),
+    ("baseline", "soft_l1", 1.0),
+    ("huber", "huber", 1.0),
+    ("cauchy", "cauchy", 0.5),
 )
 
 # If WRMSE values are within this tolerance, prefer lower SAE.
 WRMSE_TIE_TOLERANCE = 1.0e-4
+
+# Plane-dependent w0 bounds follow the BEMT-style rule:
+#   w0_min = min(w_plane) - W0_MARGIN_MPS
+#   w0_max = max(w_plane) + W0_MARGIN_MPS
+W0_MARGIN_MPS = 1.0
 
 
 ### Data classes
@@ -66,9 +69,6 @@ class FitConfig:
     robust_loss: str = "soft_l1"
     robust_f_scale: float = 1.0
 
-    # Symmetric bounds for w0.
-    w0_abs_bound: float = 1.0e-4
-
     # If TS parsing fails, fallback sigma_z (m/s).
     sigma_z_fallback: float = 0.2
 
@@ -78,7 +78,7 @@ class FitConfig:
     # Solver behaviour.
     max_nfev: int = 5000
     multi_start_enabled: bool = True
-    delta_r_seed_values: Tuple[float, ...] = (0.15, 0.25, 0.35)
+    delta_r_seed_values: Tuple[float, ...] = (0.12, 0.25, 0.35)
 
     # Auto-tuning behaviour.
     enable_solver_autotune: bool = True
@@ -91,7 +91,7 @@ class RingBounds:
 
     r_ring_min: float
     r_ring_max: float
-    delta_r_min: float = 0.15
+    delta_r_min: float = 0.12
     delta_r_max: float = 1.00
     a_ring_max: float = 50.0
     w0_min: float = -1.0e-4
@@ -105,7 +105,6 @@ class SolverCandidate:
     name: str
     robust_loss: str
     robust_f_scale: float
-    w0_abs_bound: float
 
 
 @dataclass(frozen=True)
@@ -443,6 +442,19 @@ def default_r_ring_bounds_by_z(z_m: float) -> Tuple[float, float]:
     return 0.15, 0.95
 
 
+def w0_bounds_from_plane(
+    w_bins: np.ndarray,
+    margin_mps: float = W0_MARGIN_MPS,
+) -> Tuple[float, float]:
+    """
+    Build plane-dependent w0 bounds from observed annular means.
+    """
+    w_min = float(np.min(w_bins))
+    w_max = float(np.max(w_bins))
+    margin = float(margin_mps)
+    return w_min - margin, w_max + margin
+
+
 def initial_guess_ring(
     r_bins: np.ndarray,
     w_bins: np.ndarray,
@@ -489,9 +501,9 @@ def build_initial_guess_set(
     w0_seeds = np.array(
         [
             base[3],
-            0.0,
-            -0.5 * config.w0_abs_bound,
-            0.5 * config.w0_abs_bound,
+            0.5 * (bounds.w0_min + bounds.w0_max),
+            bounds.w0_min + 0.25 * (bounds.w0_max - bounds.w0_min),
+            bounds.w0_max - 0.25 * (bounds.w0_max - bounds.w0_min),
         ],
         dtype=float,
     )
@@ -605,14 +617,15 @@ def fit_all_heights(
                 sigma_bins[bad] = float(sigma_z)
 
         r_ring_min, r_ring_max = r_ring_bounds_by_z(z_m)
+        w0_min, w0_max = w0_bounds_from_plane(w_bins, margin_mps=W0_MARGIN_MPS)
         bounds = RingBounds(
             r_ring_min=r_ring_min,
             r_ring_max=r_ring_max,
-            delta_r_min=0.15,
+            delta_r_min=0.12,
             delta_r_max=1.00,
             a_ring_max=max(50.0, 3.0 * float(np.max(w_bins)) + 1.0),
-            w0_min=-float(config.w0_abs_bound),
-            w0_max=float(config.w0_abs_bound),
+            w0_min=float(w0_min),
+            w0_max=float(w0_max),
         )
 
         p = fit_ring_at_height(
@@ -740,9 +753,8 @@ def build_solver_candidates() -> Sequence[SolverCandidate]:
             name=name,
             robust_loss=robust_loss,
             robust_f_scale=float(robust_f_scale),
-            w0_abs_bound=float(w0_abs_bound),
         )
-        for (name, robust_loss, robust_f_scale, w0_abs_bound) in SOLVER_CANDIDATES
+        for (name, robust_loss, robust_f_scale) in SOLVER_CANDIDATES
     )
 
 
@@ -768,7 +780,6 @@ def run_solver_autotune(
             base_config,
             robust_loss=candidate.robust_loss,
             robust_f_scale=candidate.robust_f_scale,
-            w0_abs_bound=candidate.w0_abs_bound,
         )
         z_vals, params = fit_all_heights(mean_sheet_names, config=trial_config)
         metrics = evaluate_fit_on_raw_maps(
@@ -805,18 +816,17 @@ def run_solver_autotune(
         base_config,
         robust_loss=selected.candidate.robust_loss,
         robust_f_scale=selected.candidate.robust_f_scale,
-        w0_abs_bound=selected.candidate.w0_abs_bound,
     )
 
     print("Auto-tuning solver candidates (raw-map validation):")
-    print(" name               loss     f_scale   w0_abs    WRMSE      SAE")
+    print(" name               loss     f_scale   WRMSE      SAE")
     for trial in trials:
         marker = "*" if trial.candidate.name == selected.candidate.name else " "
         candidate = trial.candidate
         metrics = trial.metrics
         print(
             f"{marker}{candidate.name:17s}  {candidate.robust_loss:7s}  "
-            f"{candidate.robust_f_scale:7.3f}  {candidate.w0_abs_bound:7.4g}  "
+            f"{candidate.robust_f_scale:7.3f}  "
             f"{metrics.total_wrmse:8.5f}  {metrics.total_sae:8.4f}"
         )
     print(
@@ -836,12 +846,11 @@ def main() -> None:
         fan_center_xy=FAN_CENTER_XY,
         robust_loss="soft_l1",
         robust_f_scale=1.0,
-        w0_abs_bound=1.0e-4,
         sigma_z_fallback=0.2,
         use_count_weighting=True,
         max_nfev=5000,
         multi_start_enabled=True,
-        delta_r_seed_values=(0.15, 0.25, 0.35),
+        delta_r_seed_values=(0.12, 0.25, 0.35),
         enable_solver_autotune=True,
         sae_guardrail_fraction=0.02,
     )
@@ -856,7 +865,7 @@ def main() -> None:
     print("\nFitted ring-Gaussian parameters per height")
     print(
         f"Solver: loss={config.robust_loss}, f_scale={config.robust_f_scale}, "
-        f"w0_abs_bound={config.w0_abs_bound}"
+        f"w0_bounds=plane-dependent (w_min-{W0_MARGIN_MPS:.1f}, w_max+{W0_MARGIN_MPS:.1f})"
     )
     print(" z [m]    A_ring    r_ring      delta_r      w0")
     for z_m, (a_ring, r_ring, delta_r, w0) in zip(z_vals, params):
