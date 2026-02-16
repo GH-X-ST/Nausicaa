@@ -61,13 +61,11 @@ AUTO_TUNE_CV_RESTARTS_OPTIMIZER = 1
 AUTO_TUNE_RMSE_TIE_TOL = 1e-4
 
 # Candidate format: (name, feature_mode, kernel_family, alpha_scale)
-AUTO_TUNE_CANDIDATES = (
-    ("baseline", "polar", "rbf_ard", 1.0),
-    ("polar_matern32", "polar", "matern32_ard", 1.0),
-    ("polar_matern52", "polar", "matern52_ard", 1.0),
-    ("polar_rbf_high_alpha", "polar", "rbf_ard", 1.3),
-    ("radial_rbf", "radial", "rbf_ard", 1.0),
-)
+# If empty, a default candidate grid is built from FEATURE_MODE plus the
+# kernel/alpha settings below.
+AUTO_TUNE_CANDIDATES = ()
+AUTO_TUNE_DEFAULT_KERNEL_FAMILIES = ("rbf_ard", "matern32_ard", "matern52_ard")
+AUTO_TUNE_DEFAULT_ALPHA_SCALES = (1.0, 1.3)
 
 # Output locations.
 OUT_DIR = Path("B_results/Single_Fan_GP")
@@ -394,9 +392,81 @@ def fit_gp_model(
     )
 
 
+def normalize_feature_mode_name(feature_mode: str) -> str:
+    """
+    Normalize and validate feature mode token.
+    """
+    mode = str(feature_mode).strip().lower()
+    if mode not in {"polar", "radial", "cartesian"}:
+        raise ValueError(
+            f"Invalid FEATURE_MODE '{feature_mode}'. Use: polar, radial, cartesian."
+        )
+    return mode
+
+
+def normalize_kernel_family_name(kernel_family: str) -> str:
+    """
+    Normalize and validate kernel-family token.
+    """
+    family = str(kernel_family).strip().lower()
+    if family not in {"rbf_ard", "matern32_ard", "matern52_ard", "rq"}:
+        raise ValueError(
+            f"Invalid KERNEL_FAMILY '{kernel_family}'. "
+            "Use: rbf_ard, matern32_ard, matern52_ard, rq."
+        )
+    return family
+
+
+def build_default_tune_candidates() -> List[GPTuneCandidate]:
+    """
+    Build a default auto-tune grid anchored to FEATURE_MODE.
+    """
+    mode = normalize_feature_mode_name(FEATURE_MODE)
+    base_kernel = normalize_kernel_family_name(KERNEL_FAMILY)
+    base_alpha = float(ALPHA_SCALE)
+    if not np.isfinite(base_alpha) or base_alpha <= 0.0:
+        raise ValueError("ALPHA_SCALE must be a finite positive number.")
+
+    kernels: List[str] = [base_kernel]
+    for family in AUTO_TUNE_DEFAULT_KERNEL_FAMILIES:
+        fam = normalize_kernel_family_name(family)
+        if fam not in kernels:
+            kernels.append(fam)
+
+    alpha_scales: List[float] = [base_alpha]
+    for alpha_scale in AUTO_TUNE_DEFAULT_ALPHA_SCALES:
+        alpha = float(alpha_scale)
+        if not np.isfinite(alpha) or alpha <= 0.0:
+            raise ValueError("AUTO_TUNE_DEFAULT_ALPHA_SCALES must be finite and > 0.")
+        if all(abs(alpha - existing) > 1e-12 for existing in alpha_scales):
+            alpha_scales.append(alpha)
+
+    candidates: List[GPTuneCandidate] = []
+    for kernel_family in kernels:
+        for alpha_scale in alpha_scales:
+            if (
+                kernel_family == base_kernel
+                and abs(alpha_scale - base_alpha) <= 1e-12
+            ):
+                name = "baseline"
+            else:
+                alpha_tag = f"{alpha_scale:.3g}".replace(".", "p")
+                name = f"{mode}_{kernel_family}_a{alpha_tag}"
+            candidates.append(
+                GPTuneCandidate(
+                    name=name,
+                    feature_mode=mode,
+                    kernel_family=kernel_family,
+                    alpha_scale=alpha_scale,
+                )
+            )
+
+    return candidates
+
+
 def build_tune_candidates() -> List[GPTuneCandidate]:
     """
-    Build GP tuning candidates from AUTO_TUNE_CANDIDATES.
+    Build GP tuning candidates.
     """
     candidates: List[GPTuneCandidate] = []
     for row in AUTO_TUNE_CANDIDATES:
@@ -406,25 +476,21 @@ def build_tune_candidates() -> List[GPTuneCandidate]:
                 "(name, feature_mode, kernel_family, alpha_scale)."
             )
         name, feature_mode, kernel_family, alpha_scale = row
+        alpha = float(alpha_scale)
+        if not np.isfinite(alpha) or alpha <= 0.0:
+            raise ValueError("AUTO_TUNE_CANDIDATES alpha_scale must be finite and > 0.")
         candidates.append(
             GPTuneCandidate(
                 name=str(name),
-                feature_mode=str(feature_mode),
-                kernel_family=str(kernel_family),
-                alpha_scale=float(alpha_scale),
+                feature_mode=normalize_feature_mode_name(feature_mode),
+                kernel_family=normalize_kernel_family_name(kernel_family),
+                alpha_scale=alpha,
             )
         )
 
-    if not candidates:
-        candidates.append(
-            GPTuneCandidate(
-                name="baseline",
-                feature_mode=str(FEATURE_MODE),
-                kernel_family=str(KERNEL_FAMILY),
-                alpha_scale=float(ALPHA_SCALE),
-            )
-        )
-    return candidates
+    if candidates:
+        return candidates
+    return build_default_tune_candidates()
 
 
 def evaluate_candidate_group_cv(
@@ -518,8 +584,8 @@ def select_gp_candidate(
     if not trials:
         selected = GPTuneCandidate(
             name="fallback",
-            feature_mode=str(FEATURE_MODE),
-            kernel_family=str(KERNEL_FAMILY),
+            feature_mode=normalize_feature_mode_name(FEATURE_MODE),
+            kernel_family=normalize_kernel_family_name(KERNEL_FAMILY),
             alpha_scale=float(ALPHA_SCALE),
         )
         return selected, []
@@ -834,8 +900,8 @@ def main() -> None:
     else:
         selected_candidate = GPTuneCandidate(
             name="manual",
-            feature_mode=str(FEATURE_MODE).strip().lower(),
-            kernel_family=str(KERNEL_FAMILY).strip().lower(),
+            feature_mode=normalize_feature_mode_name(FEATURE_MODE),
+            kernel_family=normalize_kernel_family_name(KERNEL_FAMILY),
             alpha_scale=float(ALPHA_SCALE),
         )
         tune_trials = []
