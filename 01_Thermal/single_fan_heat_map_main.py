@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from matplotlib.ticker import FormatStrFormatter
 from matplotlib.patches import Circle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -33,8 +34,13 @@ YTICKS = [0, 0.8, 1.6, 2.4, 3.2, 4, 4.8]
 
 # Line widths
 CELL_EDGE_LW = 0.30
-AXIS_EDGE_LW = 0.30
-CBAR_EDGE_LW = 0.30
+AXIS_EDGE_LW = 0.80
+CBAR_EDGE_LW = AXIS_EDGE_LW
+
+
+# Exponential opacity mapping versus normalized w (= 0..1).
+# alpha(0) = 0 (fully transparent), alpha(1) = 1 (fully opaque).
+ALPHA_EXP_RATE = 0.005
 LEGEND_FONTSIZE = 8.5
 
 # Fan outlet marker (single fan)
@@ -46,6 +52,23 @@ FAN_OUTLET_ALPHA = 0.7
 FAN_OUTLET_DASH = (0, (2, 2))
 
 # Helpers
+def build_alpha_cmap() -> mcolors.ListedColormap:
+    """
+    Build a thermal colormap with exponential alpha versus normalized w.
+    """
+    base_cmap = cmocean.cm.thermal
+    colors = base_cmap(np.linspace(0.0, 1.0, 256))
+
+    t_norm = np.linspace(0.0, 1.0, colors.shape[0])
+    exp_scale = np.exp(ALPHA_EXP_RATE * t_norm)
+    exp_full = np.exp(ALPHA_EXP_RATE)
+    alpha = (exp_scale - 1.0) / (exp_full - 1.0)
+    alpha[0] = 0.0
+    alpha[-1] = 1.0
+    colors[:, 3] = alpha
+
+    return mcolors.ListedColormap(colors)
+
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
     """
     Convert 1D array of cell centers -> cell edges for pcolormesh.
@@ -124,16 +147,25 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     fig, ax = plt.subplots(figsize=(5.7, 3.9), dpi=600)  # 2-per-row on A4 landscape
 
     # Heatmap with cell edges
+    cmap_alpha = build_alpha_cmap()
     im = ax.pcolormesh(
         x_edges,
         y_edges,
         W_plot,
         shading="auto",
-        cmap=cmocean.cm.thermal,
+        cmap=cmap_alpha,
         vmin=0.0,
         vmax=8.0,
         edgecolors=(0, 0, 0, 0.3),
         linewidth=CELL_EDGE_LW,
+    )
+    ax.hlines(
+        y=float(y_edges[0]),
+        xmin=float(x_edges[0]),
+        xmax=float(x_edges[-1]),
+        colors=(0.0, 0.0, 0.0, 0.70),
+        linewidth=0.30,
+        zorder=4,
     )
 
     # Fan outlet marker (thin dashed ring)
@@ -232,3 +264,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+

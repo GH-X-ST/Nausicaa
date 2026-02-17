@@ -75,7 +75,7 @@ Y_MIN, Y_MAX = 0.0, 4.8
 Z_MIN, Z_MAX = 0.0, 3.5
 
 # 3D sampling resolution
-NX_3D, NY_3D, NZ_3D = 150, 100, 60
+NX_3D, NY_3D, NZ_3D = 240, 160, 100
 
 # Isosurface levels as fractions of max(w)
 ISO_MIN_FRAC = 0.15

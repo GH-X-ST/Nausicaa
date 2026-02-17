@@ -16,6 +16,7 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from matplotlib.ticker import FormatStrFormatter
 from matplotlib.patches import Circle, Rectangle, Wedge
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -51,9 +52,13 @@ YLABEL = r"$y$ (m)"
 # Tick positions for compact A4 layout
 # Line widths
 CELL_EDGE_LW = 0.30
-AXIS_EDGE_LW = 0.30
-CBAR_EDGE_LW = 0.30
+AXIS_EDGE_LW = 0.80
+CBAR_EDGE_LW = AXIS_EDGE_LW
 LEGEND_FONTSIZE = 8.5
+
+# Exponential opacity mapping versus normalized w (= 0..1).
+# alpha(0) = 0 (fully transparent), alpha(1) = 1 (fully opaque).
+ALPHA_EXP_RATE = 0.005
 
 # Fan outlet marker (single fan)
 FAN_OUTLET_X = 4.2
@@ -65,6 +70,24 @@ FAN_OUTLET_DASH = (0, (2, 2))
 
 
 # Helpers
+def build_alpha_cmap() -> mcolors.ListedColormap:
+    """
+    Build a thermal colormap with exponential alpha versus normalized w.
+    """
+    base_cmap = cmocean.cm.thermal
+    colors = base_cmap(np.linspace(0.0, 1.0, 256))
+
+    t_norm = np.linspace(0.0, 1.0, colors.shape[0])
+    exp_scale = np.exp(ALPHA_EXP_RATE * t_norm)
+    exp_full = np.exp(ALPHA_EXP_RATE)
+    alpha = (exp_scale - 1.0) / (exp_full - 1.0)
+    alpha[0] = 0.0
+    alpha[-1] = 1.0
+    colors[:, 3] = alpha
+
+    return mcolors.ListedColormap(colors)
+
+
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
     """
     Convert 1D array of cell centers -> cell edges for pcolormesh.
@@ -228,7 +251,7 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
     # Annulus rings
     vmin = 0.0
     vmax = 8.0
-    cmap = cmocean.cm.thermal
+    cmap_alpha = build_alpha_cmap()
     norm = plt.Normalize(vmin=vmin, vmax=vmax)
 
     # Background fill for empty areas (w = 0)
@@ -236,7 +259,7 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
         (x_edges[0], y_edges[0]),
         x_edges[-1] - x_edges[0],
         y_edges[-1] - y_edges[0],
-        facecolor=cmap(norm(0.0)),
+        facecolor=cmap_alpha(norm(0.0)),
         edgecolor="none",
         zorder=0,
     )
@@ -257,7 +280,7 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
             0.0,
             360.0,
             width=r_out - r_in,
-            facecolor=cmap(norm(w_val)),
+            facecolor=cmap_alpha(norm(w_val)),
             edgecolor=(0, 0, 0, 0.3),
             linewidth=CELL_EDGE_LW,
             clip_on=True,
@@ -281,7 +304,7 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
     # Colorbar
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="2.6%", pad=0.15)
-    mappable = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    mappable = plt.cm.ScalarMappable(norm=norm, cmap=cmap_alpha)
     mappable.set_array([])
     cbar = fig.colorbar(mappable, cax=cax)
     cbar.set_label(CBAR_LABEL)
@@ -373,3 +396,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
