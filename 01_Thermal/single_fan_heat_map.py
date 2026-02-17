@@ -24,7 +24,7 @@ OUT_DIR.mkdir(exist_ok=True)
 MASK_ZEROS_AS_NODATA = False
 
 # Units / labels
-CBAR_LABEL = r"$w$ (m$\cdot$s$^{-1}$)"   # vertical velocity
+CBAR_LABEL = r"$\overline{w}$ (m$\cdot$s$^{-1}$)"   # vertical velocity
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
@@ -258,7 +258,7 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     )
     leg = ax.get_legend()
     if leg is not None:
-        leg.get_frame().set_linewidth(0.3)
+        leg.get_frame().set_linewidth(AXIS_EDGE_LW)
 
     # Tighten limits to data extents
     ax.set_xlim(x_edges[0], x_edges[-1])
@@ -294,6 +294,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 

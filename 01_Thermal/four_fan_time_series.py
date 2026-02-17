@@ -239,8 +239,8 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
             alpha=raw_point_alpha,
         )
 
-    ax.set_xlabel("Measurement height above fan outlet, z (m)", fontsize=axis_label_size)
-    ax.set_ylabel("w (m/s)", fontsize=axis_label_size)
+    ax.set_xlabel("Measurement height above fan outlet plane, $z_{{\mathrm{{fan}}}}$ (m)", fontsize=axis_label_size)
+    ax.set_ylabel("$w$ (m/s)", fontsize=axis_label_size)
     ax.tick_params(axis="both", labelsize=tick_label_size)
     ax.set_xticks(sorted(d["z_meas_m"].unique()))
     ax.tick_params(axis="x", labelrotation=-30)

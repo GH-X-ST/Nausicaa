@@ -329,7 +329,7 @@ def plot_annuli(
     )
     leg = ax.get_legend()
     if leg is not None:
-        leg.get_frame().set_linewidth(0.3)
+        leg.get_frame().set_linewidth(AXIS_EDGE_LW)
 
     ax.set_xlim(0.0, 8.4)
     ax.set_ylim(0.0, 4.8)
@@ -363,5 +363,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 

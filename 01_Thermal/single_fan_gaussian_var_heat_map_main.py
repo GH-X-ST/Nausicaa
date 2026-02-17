@@ -291,7 +291,7 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
     )
     leg = ax.get_legend()
     if leg is not None:
-        leg.get_frame().set_linewidth(0.3)
+        leg.get_frame().set_linewidth(AXIS_EDGE_LW)
 
     # Tighten limits to match annuli heat map extents
     ax.set_xlim(0.0, 8.4)
@@ -326,7 +326,7 @@ def main():
         x_grid, y_grid = build_continuous_grid(x, y)
         xc, yc = FAN_CENTER_XY
         r = np.sqrt((x_grid - xc) ** 2 + (y_grid - yc) ** 2)
-        W_model = a * np.exp(-((r / delta_model) ** 2))
+        W_model = w0 + a * np.exp(-((r / delta_model) ** 2))
 
         out_png = OUT_DIR / f"{sh}_single_gaussian_var_heatmap_main.png"
         plot_continuous_heatmap(
@@ -341,6 +341,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 

@@ -394,7 +394,7 @@ def plot_continuous_heatmap(x, y, w_field, outpath: Path):
     )
     leg = ax.get_legend()
     if leg is not None:
-        leg.get_frame().set_linewidth(0.3)
+        leg.get_frame().set_linewidth(AXIS_EDGE_LW)
 
     # Tighten limits to match annuli heat map extents
     ax.set_xlim(0.0, 8.4)
@@ -441,6 +441,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 

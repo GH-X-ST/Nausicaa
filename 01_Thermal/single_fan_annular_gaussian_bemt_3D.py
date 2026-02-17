@@ -56,7 +56,8 @@ CBAR_W = 0.02
 CBAR_H = 0.77
 
 CBAR_LABEL = r"$w$ (m$\cdot$s$^{-1}$)"
-CBAR_EDGE_LW = 0.30
+AXIS_EDGE_LW = 0.80
+CBAR_EDGE_LW = AXIS_EDGE_LW
 CBAR_VMIN = 0.0
 CBAR_VMAX = 8.0
 CBAR_TICK_STEP = 1.0
@@ -86,16 +87,16 @@ Z_MIN, Z_MAX = 0.0, 3.5
 NX_3D, NY_3D, NZ_3D = 240, 160, 100
 
 # Isosurface levels as fractions of max(w)
-ISO_MIN_FRAC = 0.15
-ISO_MAX_FRAC = 0.95
+ISO_MIN_FRAC = 0.01
+ISO_MAX_FRAC = 0.97
 N_ISO_LEVELS = 10
 
 # Include baseline term w0(z) from fitted table.
-INCLUDE_W0 = False
+INCLUDE_W0 = True
 
 # Exponential opacity mapping versus normalized w (= 0..1).
 # alpha(0) = 0 (fully transparent), alpha(1) = 1 (fully opaque).
-ALPHA_EXP_RATE = 3.5
+ALPHA_EXP_RATE = 3.0
 
 # Interior visibility aids.
 SHOW_CENTER_SLICES = True
@@ -432,9 +433,9 @@ def plot_isosurfaces(
     ax3d.set_yticks(np.arange(Y_MIN, Y_MAX + 1e-9, 1.2))
     ax3d.set_zticks(np.arange(Z_MIN, Z_MAX + 1e-9, 0.7))
 
-    ax3d.set_xlabel("x (m)", labelpad=17)
-    ax3d.set_ylabel("y (m)", labelpad=10)
-    ax3d.set_zlabel("z (m)", labelpad=5, rotation=90)
+    ax3d.set_xlabel("$x$ (m)", labelpad=17)
+    ax3d.set_ylabel("$y$ (m)", labelpad=10)
+    ax3d.set_zlabel("$z$ (m)", labelpad=5, rotation=90)
     ax3d.zaxis.set_rotate_label(False)
     ax3d.xaxis.label.set_size(AXIS_LABEL_FONTSIZE)
     ax3d.yaxis.label.set_size(AXIS_LABEL_FONTSIZE)
@@ -464,7 +465,7 @@ def plot_isosurfaces(
         labelspacing=0.2,
     )
     if leg is not None:
-        leg.get_frame().set_linewidth(0.3)
+        leg.get_frame().set_linewidth(AXIS_EDGE_LW)
 
     try:
         # Use physical domain extents so x:y:z follows the real ratio.
@@ -546,3 +547,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

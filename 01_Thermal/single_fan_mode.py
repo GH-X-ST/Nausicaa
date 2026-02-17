@@ -18,7 +18,8 @@ except ImportError:  # Fallback if cmocean isn't installed
 
 # Legend styling (match single_fan_heat_map.py)
 LEGEND_FONT_SIZE = 9
-LEGEND_FRAME_LW = 0.3
+AXIS_EDGE_LW = 0.80
+LEGEND_FRAME_LW = AXIS_EDGE_LW
 LEGEND_LOC = "upper right"
 LEGEND_BBOX_TO_ANCHOR = (0.95, 0.77)
 LEGEND_HANDLE_LENGTH = 1.5
@@ -264,7 +265,7 @@ def plot_point_3d(
         std = dd["std_w"].to_numpy(dtype=float)
 
         color = color_map.get(y0, "#4c78a8")
-        mean_label = rf"$\overline{{\mathrm{{w}}}}$ (m/s) at $\omega$ = {int(y0)} rpm"
+        mean_label = rf"$\overline{{w}}$ (m/s) at $\omega$ = {int(y0)} rpm"
         add_mean_std_band(
             ax,
             x=x,
@@ -364,9 +365,9 @@ def plot_point_3d(
             )
 
     # Labels / view
-    ax.set_xlabel("Measurement height above fan outlet, z (m)", labelpad=17)
-    ax.set_ylabel("Fan speed (rpm)", labelpad=5)
-    ax.set_zlabel("w (m/s)", labelpad=5, rotation=90)
+    ax.set_xlabel("Measurement height above fan outlet plane, $z_{{\mathrm{{fan}}}}$ (m)", labelpad=17)
+    ax.set_ylabel("     Fan speed, $\omega$ (rpm)", labelpad=5)
+    ax.set_zlabel("$w$ (m/s)", labelpad=5, rotation=90)
     ax.zaxis.set_rotate_label(False)
     ax.set_xticks(sorted(d["z_meas_m"].unique()))
     for label in ax.get_xticklabels():
@@ -461,3 +462,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
