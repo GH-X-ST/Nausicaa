@@ -2,7 +2,7 @@
 Plot GP mean-field heat maps using the annular-Gaussian heat-map style.
 
 For each height sheet, GP mean predictions are loaded from:
-    B_results/Single_Fan_GP/single_fan_gp_grid_predictions.xlsx
+    B_results/Four_Fan_GP/four_gp_grid_predictions.xlsx
 Then the field is interpolated onto a dense uniform grid and plotted.
 """
 
@@ -25,8 +25,8 @@ import cmocean  # https://matplotlib.org/cmocean
 ### User settings
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
-GP_GRID_XLSX = Path("B_results/Single_Fan_GP/single_gp_grid_predictions.xlsx")
-OUT_DIR = Path("A_figures/Single_Fan_GP")
+GP_GRID_XLSX = Path("B_results/Four_Fan_GP/four_gp_grid_predictions.xlsx")
+OUT_DIR = Path("A_figures/Four_Fan_GP")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Units / labels
@@ -38,9 +38,13 @@ YLABEL = r"$y$ (m)"
 AXIS_EDGE_LW = 0.30
 CBAR_EDGE_LW = 0.30
 
-# Fan outlet marker (single fan)
-FAN_OUTLET_X = 4.2
-FAN_OUTLET_Y = 2.4
+# Fan outlet markers (four fan)
+FAN_OUTLET_POINTS = [
+    (3.0, 3.6),
+    (5.4, 3.6),
+    (5.4, 1.2),
+    (3.0, 1.2),
+]
 FAN_OUTLET_DIAMETER = 0.8
 FAN_OUTLET_EDGE_LW = 1.1
 FAN_OUTLET_ALPHA = 0.6
@@ -178,18 +182,19 @@ def plot_continuous_heatmap(x: np.ndarray, y: np.ndarray, w: np.ndarray, outpath
         vmax=PLOT_VMAX,
     )
 
-    outlet = Circle(
-        (FAN_OUTLET_X, FAN_OUTLET_Y),
-        radius=FAN_OUTLET_DIAMETER / 2.0,
-        fill=False,
-        edgecolor=(0, 0, 0, FAN_OUTLET_ALPHA),
-        linewidth=FAN_OUTLET_EDGE_LW,
-        linestyle=FAN_OUTLET_DASH,
-        label="Fan outlet",
-        zorder=5,
-        clip_on=True,
-    )
-    ax.add_patch(outlet)
+    for i, (fx, fy) in enumerate(FAN_OUTLET_POINTS):
+        outlet = Circle(
+            (fx, fy),
+            radius=FAN_OUTLET_DIAMETER / 2.0,
+            fill=False,
+            edgecolor=(0, 0, 0, FAN_OUTLET_ALPHA),
+            linewidth=FAN_OUTLET_EDGE_LW,
+            linestyle=FAN_OUTLET_DASH,
+            label="Fan outlet" if i == 0 else None,
+            zorder=5,
+            clip_on=True,
+        )
+        ax.add_patch(outlet)
 
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="2.6%", pad=0.15)
@@ -264,7 +269,7 @@ def main() -> None:
         x_grid, y_grid = build_continuous_grid(x, y)
         w_dense = interpolate_to_continuous_grid(x, y, w_mean, x_grid, y_grid)
 
-        out_png = OUT_DIR / f"{sh}_single_gp_heatmap.png"
+        out_png = OUT_DIR / f"{sh}_four_gp_heatmap.png"
         plot_continuous_heatmap(
             x=x_grid[0, :],
             y=y_grid[:, 0],

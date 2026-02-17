@@ -36,6 +36,13 @@ SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 # Fan centre (x_c, y_c) in meters.
 FAN_CENTER_XY = (4.2, 2.4)
 SHEET_HEIGHT_DIVISOR = 100.0
+FOUR_FAN_CENTERS_XY = (
+    (3.0, 3.6),
+    (5.4, 3.6),
+    (3.0, 1.2),
+    (5.4, 1.2),
+)
+FOUR_FAN_CORE_RADIUS_M = 0.4
 
 # Feature mode:
 #   "polar"     -> use (r, cos(theta), sin(theta), z): annular + non-axisymmetric
@@ -49,23 +56,32 @@ ALPHA_SCALE = 1.0
 SIGMA_FALLBACK = 0.14
 SIGMA_MIN = 0.03
 ALPHA_JITTER = 1e-8
+OVERLAP_RATIO_THRESHOLD = 1.25
+OVERLAP_WEIGHT_POWER = 2.0
+OVERLAP_SIGMA_BOOST = 1.12
 
 # GP optimizer settings.
-N_RESTARTS_OPTIMIZER = 12
+N_RESTARTS_OPTIMIZER = 4
 RANDOM_STATE = 42
 
 # Automatic GP configuration tuning (grouped CV by sheet height).
 ENABLE_AUTO_TUNE = True
 AUTO_TUNE_CV_N_SPLITS = 3
-AUTO_TUNE_CV_RESTARTS_OPTIMIZER = 2
+AUTO_TUNE_CV_RESTARTS_OPTIMIZER = 0
 AUTO_TUNE_RMSE_TIE_TOL = 1e-4
 
 # Candidate format: (name, feature_mode, kernel_family, alpha_scale)
 # If empty, a default candidate grid is built from FEATURE_MODE plus the
 # kernel/alpha settings below.
-AUTO_TUNE_CANDIDATES = ()
-AUTO_TUNE_DEFAULT_KERNEL_FAMILIES = ("matern32_ard", "matern52_ard", "rbf_ard", "rq")
-AUTO_TUNE_DEFAULT_ALPHA_SCALES = (0.8, 1.0, 1.3)
+AUTO_TUNE_CANDIDATES = (
+    ("baseline", "cartesian", "matern32_ard", 1.0),
+    ("cartesian_matern32_ard_a0p8", "cartesian", "matern32_ard", 0.8),
+    ("cartesian_matern32_ard_a1p2", "cartesian", "matern32_ard", 1.2),
+    ("cartesian_matern52_ard_a1", "cartesian", "matern52_ard", 1.0),
+    ("cartesian_rbf_ard_a1", "cartesian", "rbf_ard", 1.0),
+)
+AUTO_TUNE_DEFAULT_KERNEL_FAMILIES = ("matern32_ard", "matern52_ard", "rbf_ard")
+AUTO_TUNE_DEFAULT_ALPHA_SCALES = (0.8, 1.0, 1.2)
 
 # Output locations.
 OUT_DIR = Path("B_results/Four_Fan_GP")
@@ -74,6 +90,7 @@ SUMMARY_XLSX_PATH = OUT_DIR / "four_gp_summary.xlsx"
 GRID_PRED_XLSX_PATH = OUT_DIR / "four_gp_grid_predictions.xlsx"
 ANALYSIS_XLSX_PATH = "B_results/four_gp_analysis.xlsx"
 ANALYSIS_SHEET_NAME = "four_gp_analysis"
+CORE_STRENGTH_SHEET_NAME = "four_gp_core_strength"
 
 ### Data model
 @dataclass
@@ -245,6 +262,98 @@ def build_gp_kernel(n_features: int, kernel_family: str):
     )
 
 
+def assign_sigma_with_overlap_logic(
+    xlsx_path: str,
+    ts_sheet_name: str,
+    x_pts: np.ndarray,
+    y_pts: np.ndarray,
+    sigma_fallback: float,
+    sigma_min: float,
+) -> np.ndarray:
+    """
+    Four-fan uncertainty mapping:
+      1) nearest-fan radial sigma profile
+      2) overlap blend with second-nearest fan profile when fans are comparably close
+    """
+    fan_xy = np.asarray(FOUR_FAN_CENTERS_XY, dtype=float)
+    n_fans = fan_xy.shape[0]
+    n_samples = x_pts.size
+
+    fan_profiles: List[Tuple[np.ndarray, np.ndarray]] = []
+    for fan_idx in range(n_fans):
+        parsed = parse_ts_points_and_sigmas(
+            xlsx_path=xlsx_path,
+            ts_sheet_name=ts_sheet_name,
+            fan_center_xy=(float(fan_xy[fan_idx, 0]), float(fan_xy[fan_idx, 1])),
+        )
+        if parsed is None:
+            fan_profiles.append(
+                (np.asarray([], dtype=float), np.asarray([], dtype=float))
+            )
+        else:
+            fan_profiles.append(parsed)
+
+    d_sample_fan = np.sqrt(
+        (x_pts[:, None] - fan_xy[None, :, 0]) ** 2
+        + (y_pts[:, None] - fan_xy[None, :, 1]) ** 2
+    )
+    nearest_idx = np.argmin(d_sample_fan, axis=1)
+    nearest_r = d_sample_fan[np.arange(n_samples), nearest_idx]
+
+    sigma_primary = np.full(n_samples, float(sigma_fallback), dtype=float)
+    for fan_idx in range(n_fans):
+        mask = nearest_idx == fan_idx
+        if not np.any(mask):
+            continue
+        r_points, sigma_points = fan_profiles[fan_idx]
+        sigma_primary[mask] = assign_sigma_bins_nearest(
+            r_bins=nearest_r[mask],
+            r_points=r_points,
+            sigma_points=sigma_points,
+            sigma_fallback=sigma_fallback,
+            sigma_min=sigma_min,
+        )
+
+    if n_fans < 2:
+        return np.maximum(sigma_primary, float(sigma_min))
+
+    order = np.argsort(d_sample_fan, axis=1)
+    second_idx = order[:, 1]
+    second_r = d_sample_fan[np.arange(n_samples), second_idx]
+
+    overlap_ratio = second_r / np.maximum(nearest_r, 1e-9)
+    overlap_mask = overlap_ratio <= float(OVERLAP_RATIO_THRESHOLD)
+    if not np.any(overlap_mask):
+        return np.maximum(sigma_primary, float(sigma_min))
+
+    overlap_rows = np.where(overlap_mask)[0]
+    sigma_second = np.full(overlap_rows.size, float(sigma_fallback), dtype=float)
+    for fan_idx in range(n_fans):
+        mask_local = second_idx[overlap_rows] == fan_idx
+        if not np.any(mask_local):
+            continue
+        r_points, sigma_points = fan_profiles[fan_idx]
+        sigma_second[mask_local] = assign_sigma_bins_nearest(
+            r_bins=second_r[overlap_rows][mask_local],
+            r_points=r_points,
+            sigma_points=sigma_points,
+            sigma_fallback=sigma_fallback,
+            sigma_min=sigma_min,
+        )
+
+    r1 = np.maximum(nearest_r[overlap_rows], 1e-9)
+    r2 = np.maximum(second_r[overlap_rows], 1e-9)
+    w1 = 1.0 / (r1 ** float(OVERLAP_WEIGHT_POWER))
+    w2 = 1.0 / (r2 ** float(OVERLAP_WEIGHT_POWER))
+    sigma_blend = (w1 * sigma_primary[overlap_rows] + w2 * sigma_second) / (w1 + w2)
+    sigma_blend = np.maximum(sigma_blend, sigma_primary[overlap_rows])
+    sigma_blend *= float(OVERLAP_SIGMA_BOOST)
+
+    sigma_out = sigma_primary.copy()
+    sigma_out[overlap_rows] = sigma_blend
+    return np.maximum(sigma_out, float(sigma_min))
+
+
 def load_sheet_samples(
     xlsx_path: str,
     sheet_name: str,
@@ -263,8 +372,12 @@ def load_sheet_samples(
     y_pts = y_grid.ravel()
     w_obs = w_map.ravel()
 
-    xc, yc = fan_center_xy
-    r_pts = np.sqrt((x_pts - xc) ** 2 + (y_pts - yc) ** 2)
+    fan_xy = np.asarray(FOUR_FAN_CENTERS_XY, dtype=float)
+    d_sample_fan = np.sqrt(
+        (x_pts[:, None] - fan_xy[None, :, 0]) ** 2
+        + (y_pts[:, None] - fan_xy[None, :, 1]) ** 2
+    )
+    r_pts = np.min(d_sample_fan, axis=1)
 
     valid = (
         np.isfinite(x_pts)
@@ -280,24 +393,14 @@ def load_sheet_samples(
         raise ValueError(f"No valid samples found in sheet '{sheet_name}'.")
 
     ts_sheet = f"{sheet_name}_TS"
-    ts_parsed = parse_ts_points_and_sigmas(
+    sigma_pts = assign_sigma_with_overlap_logic(
         xlsx_path=xlsx_path,
         ts_sheet_name=ts_sheet,
-        fan_center_xy=fan_center_xy,
+        x_pts=x_pts,
+        y_pts=y_pts,
+        sigma_fallback=sigma_fallback,
+        sigma_min=sigma_min,
     )
-
-    if ts_parsed is None:
-        sigma_pts = np.full_like(r_pts, float(sigma_fallback), dtype=float)
-        sigma_pts = np.maximum(sigma_pts, float(sigma_min))
-    else:
-        r_points, sigma_points = ts_parsed
-        sigma_pts = assign_sigma_bins_nearest(
-            r_bins=r_pts,
-            r_points=r_points,
-            sigma_points=sigma_points,
-            sigma_fallback=sigma_fallback,
-            sigma_min=sigma_min,
-        )
 
     return pd.DataFrame(
         {
@@ -792,6 +895,92 @@ def build_analysis_style_metrics_table(pred_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def build_four_core_strength_table(pred_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build per-height four-core strength table:
+      - one row per fixed outlet centre (F01..F04)
+      - one TOTAL row (sum of outlet core strengths)
+    """
+    rows: List[Dict[str, float | str]] = []
+    for sheet in SHEETS:
+        sub = pred_df[pred_df["sheet"] == sheet]
+        if sub.empty:
+            continue
+
+        z_m = float(sub["z_m"].iloc[0])
+        x = sub["x_m"].to_numpy(dtype=float)
+        y = sub["y_m"].to_numpy(dtype=float)
+        w_obs = sub["w_obs_mps"].to_numpy(dtype=float)
+        w_pred = sub["w_pred_mps"].to_numpy(dtype=float)
+
+        outlet_strength_obs: List[float] = []
+        outlet_strength_pred: List[float] = []
+        n_core_total = 0
+
+        for idx, (cx, cy) in enumerate(FOUR_FAN_CENTERS_XY, start=1):
+            in_core = (x - cx) ** 2 + (y - cy) ** 2 <= FOUR_FAN_CORE_RADIUS_M**2
+            n_core = int(np.sum(in_core))
+            n_core_total += n_core
+
+            if n_core > 0:
+                core_strength_obs = float(np.max(w_obs[in_core]))
+                core_strength_pred = float(np.max(w_pred[in_core]))
+                core_mean_obs = float(np.mean(w_obs[in_core]))
+                core_mean_pred = float(np.mean(w_pred[in_core]))
+            else:
+                core_strength_obs = float("nan")
+                core_strength_pred = float("nan")
+                core_mean_obs = float("nan")
+                core_mean_pred = float("nan")
+
+            if np.isfinite(core_strength_obs):
+                outlet_strength_obs.append(core_strength_obs)
+            if np.isfinite(core_strength_pred):
+                outlet_strength_pred.append(core_strength_pred)
+
+            rows.append(
+                {
+                    "sheet": sheet,
+                    "z_m": z_m,
+                    "outlet_id": f"F{idx:02d}",
+                    "outlet_x_m": float(cx),
+                    "outlet_y_m": float(cy),
+                    "core_radius_m": float(FOUR_FAN_CORE_RADIUS_M),
+                    "n_core_samples": n_core,
+                    "core_strength_obs_mps": core_strength_obs,
+                    "core_strength_pred_mps": core_strength_pred,
+                    "core_mean_obs_mps": core_mean_obs,
+                    "core_mean_pred_mps": core_mean_pred,
+                }
+            )
+
+        rows.append(
+            {
+                "sheet": sheet,
+                "z_m": z_m,
+                "outlet_id": "TOTAL",
+                "outlet_x_m": np.nan,
+                "outlet_y_m": np.nan,
+                "core_radius_m": float(FOUR_FAN_CORE_RADIUS_M),
+                "n_core_samples": int(n_core_total),
+                "core_strength_obs_mps": float(np.sum(outlet_strength_obs))
+                if outlet_strength_obs
+                else np.nan,
+                "core_strength_pred_mps": float(np.sum(outlet_strength_pred))
+                if outlet_strength_pred
+                else np.nan,
+                "core_mean_obs_mps": float(np.mean(outlet_strength_obs))
+                if outlet_strength_obs
+                else np.nan,
+                "core_mean_pred_mps": float(np.mean(outlet_strength_pred))
+                if outlet_strength_pred
+                else np.nan,
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 def make_grid_prediction_tables(
     model: GPModelBundle,
     xlsx_path: str,
@@ -940,12 +1129,29 @@ def main() -> None:
 
     per_sheet_df = summarize_by_sheet(pred_df)
     analysis_df = build_analysis_style_metrics_table(pred_df)
+    core_strength_df = build_four_core_strength_table(pred_df)
+    fan_specs_df = pd.DataFrame(
+        [
+            {
+                "outlet_id": f"F{idx:02d}",
+                "x_m": float(cx),
+                "y_m": float(cy),
+                "core_radius_m": float(FOUR_FAN_CORE_RADIUS_M),
+            }
+            for idx, (cx, cy) in enumerate(FOUR_FAN_CENTERS_XY, start=1)
+        ]
+    )
     hyper_df = pd.DataFrame(
         [
             {"parameter": "xlsx_path", "value": XLSX_PATH},
             {"parameter": "sheet_count", "value": len(SHEETS)},
             {"parameter": "fan_center_x_m", "value": float(FAN_CENTER_XY[0])},
             {"parameter": "fan_center_y_m", "value": float(FAN_CENTER_XY[1])},
+            {"parameter": "four_fan_centers_xy", "value": str(FOUR_FAN_CENTERS_XY)},
+            {"parameter": "four_fan_core_radius_m", "value": float(FOUR_FAN_CORE_RADIUS_M)},
+            {"parameter": "overlap_ratio_threshold", "value": float(OVERLAP_RATIO_THRESHOLD)},
+            {"parameter": "overlap_weight_power", "value": float(OVERLAP_WEIGHT_POWER)},
+            {"parameter": "overlap_sigma_boost", "value": float(OVERLAP_SIGMA_BOOST)},
             {"parameter": "feature_mode", "value": selected_candidate.feature_mode},
             {"parameter": "kernel_family", "value": selected_candidate.kernel_family},
             {"parameter": "alpha_scale", "value": float(selected_candidate.alpha_scale)},
@@ -1013,6 +1219,7 @@ def main() -> None:
         {
             "overall_metrics": summary_metrics_df,
             "per_sheet_metrics": per_sheet_df,
+            "fan_specs": fan_specs_df,
             "hyperparameters": hyper_df,
             "autotune_cv": autotune_cv_df,
         },
@@ -1023,11 +1230,21 @@ def main() -> None:
         analysis_df,
         ANALYSIS_SHEET_NAME,
     )
+    write_table_to_excel_no_index(
+        summary_xlsx_path,
+        core_strength_df,
+        CORE_STRENGTH_SHEET_NAME,
+    )
     # Also export the same analysis table independently.
     write_table_to_excel_no_index(
         analysis_xlsx_path,
         analysis_df,
         ANALYSIS_SHEET_NAME,
+    )
+    write_table_to_excel_no_index(
+        analysis_xlsx_path,
+        core_strength_df,
+        CORE_STRENGTH_SHEET_NAME,
     )
 
     grid_tables = make_grid_prediction_tables(

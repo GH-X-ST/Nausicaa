@@ -2,8 +2,8 @@
 Plot a 3D GP updraft field using saved grid-prediction output.
 
 Input is read from:
-    B_results/Single_Fan_GP/single_fan_gp_grid_predictions.xlsx
-using the z###_gp_mean sheets written by single_fan_gp.py.
+    B_results/Four_Fan_GP/four_gp_grid_predictions.xlsx
+using the z###_gp_mean sheets written by four_fan_gp.py.
 """
 
 ###### Initialization
@@ -35,10 +35,10 @@ MAKE_PLOTS = True
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 SHEET_HEIGHT_DIVISOR = 100.0
 
-GRID_PRED_XLSX = Path("B_results/Single_Fan_GP/single_gp_grid_predictions.xlsx")
+GRID_PRED_XLSX = Path("B_results/Four_Fan_GP/four_gp_grid_predictions.xlsx")
 
-OUT_DIR = Path("A_figures/Single_Fan_GP")
-OUT_3D_NAME = "single_gp_3d.png"
+OUT_DIR = Path("A_figures/Four_Fan_GP")
+OUT_3D_NAME = "four_gp_3d.png"
 # Match heat-map-main output aspect ratio
 FIGSIZE_3D = (7.45 / 1.3, 3.0)
 
@@ -62,14 +62,20 @@ CBAR_TICK_STEP = 1.0
 CBAR_LABEL_FONTSIZE = 10
 CBAR_TICK_FONTSIZE = 9
 
-# Typography (match single_fan_gp_heat_map_main.py intent)
+# Typography (match four_fan_gp_heat_map_main.py intent)
 AXIS_LABEL_FONTSIZE = 10
 TICK_LABEL_FONTSIZE = 9
 LEGEND_FONTSIZE = 8.5
 
-# Single-fan centre in arena coordinates (m)
+# Four-fan array centre in arena coordinates (m)
 FAN_CENTER_X = 4.2
 FAN_CENTER_Y = 2.4
+FAN_OUTLET_POINTS = [
+    (3.0, 3.6),
+    (5.4, 3.6),
+    (5.4, 1.2),
+    (3.0, 1.2),
+]
 FAN_OUTLET_DIAMETER = 0.8
 FAN_OUTLET_EDGE_LW = 1.1
 FAN_OUTLET_ALPHA = 0.6
@@ -440,19 +446,20 @@ def plot_isosurfaces(
         ax3d.add_collection3d(mesh)
 
     theta = np.linspace(0.0, 2.0 * np.pi, 200)
-    circle_x = FAN_CENTER_X + 0.5 * FAN_OUTLET_DIAMETER * np.cos(theta)
-    circle_y = FAN_CENTER_Y + 0.5 * FAN_OUTLET_DIAMETER * np.sin(theta)
-    circle_z = FAN_VERTICAL_OFFSET_M * np.ones_like(theta)
-    ax3d.plot(
-        circle_x,
-        circle_y,
-        circle_z,
-        color=(0.0, 0.0, 0.0, FAN_OUTLET_ALPHA),
-        linewidth=FAN_OUTLET_EDGE_LW,
-        linestyle=FAN_OUTLET_DASH,
-        label="Fan outlet",
-        zorder=0,
-    )
+    for i, (fx, fy) in enumerate(FAN_OUTLET_POINTS):
+        circle_x = fx + 0.5 * FAN_OUTLET_DIAMETER * np.cos(theta)
+        circle_y = fy + 0.5 * FAN_OUTLET_DIAMETER * np.sin(theta)
+        circle_z = FAN_VERTICAL_OFFSET_M * np.ones_like(theta)
+        ax3d.plot(
+            circle_x,
+            circle_y,
+            circle_z,
+            color=(0.0, 0.0, 0.0, FAN_OUTLET_ALPHA),
+            linewidth=FAN_OUTLET_EDGE_LW,
+            linestyle=FAN_OUTLET_DASH,
+            label="Fan outlet" if i == 0 else None,
+            zorder=0,
+        )
 
     ax3d.set_xlim(X_MIN, X_MAX)
     ax3d.set_ylim(Y_MIN, Y_MAX)
