@@ -19,42 +19,42 @@ LEGEND_HANDLE_LENGTH = 1.5
 LEGEND_BORDERPAD = 0.7
 LEGEND_LABEL_SPACING = 0.7
 # Manual y-axis limits per plot
-WRMSE_Y_LIMITS = (0.0, 0.60)
-SAE_Y_LIMITS = (0.0, 50.0)
+WRMSE_Y_LIMITS = (0.0, 1.20)
+SAE_Y_LIMITS = (0.0, 140.0)
 
 
 MODEL_SPECS = [
     {
-        "key": "single_var",
+        "key": "four_var",
         "legend_label": "Plain Gaussian",
-        "excel": Path("B_results") / "single_var_analysis.xlsx",
+        "excel": Path("B_results") / "four_var_analysis.xlsx",
         "color": "#6badd7",
         "linestyle": "-",
         "marker": "^",
         "line_alpha": 0.40,
     },
     {
-        "key": "single_annular_var",
+        "key": "four_annular_var",
         "legend_label": "Annular Gaussian",
-        "excel": Path("B_results") / "single_annular_var_analysis.xlsx",
+        "excel": Path("B_results") / "four_annular_var_analysis.xlsx",
         "color": "#206fb6",
         "linestyle": "-",
         "marker": "s",
         "line_alpha": 0.60,
     },
     {
-        "key": "single_annular_bemt",
+        "key": "four_annular_bemt",
         "legend_label": "Harmonic annular-Gaussian",
-        "excel": Path("B_results") / "single_annular_bemt_analysis.xlsx",
+        "excel": Path("B_results") / "four_annular_bemt_analysis.xlsx",
         "color": "#073068",
         "linestyle": "-",
         "marker": "o",
         "line_alpha": 0.80,
     },
     {
-        "key": "single_gp",
+        "key": "four_gp",
         "legend_label": "Gaussian Process regression",
-        "excel": Path("B_results") / "single_gp_analysis.xlsx",
+        "excel": Path("B_results") / "four_gp_analysis.xlsx",
         "color": "#ee3b2a",
         "linestyle": "-",
         "marker": "D",
@@ -65,10 +65,10 @@ MODEL_SPECS = [
 # Visual stacking requested by user.
 # Top -> bottom: GP, HAG, AG, G
 STACK_ORDER_TOP_TO_BOTTOM = [
-    "single_gp",
-    "single_annular_bemt",
-    "single_annular_var",
-    "single_var",
+    "four_gp",
+    "four_annular_bemt",
+    "four_annular_var",
+    "four_var",
 ]
 STACK_ORDER_BOTTOM_TO_TOP = list(reversed(STACK_ORDER_TOP_TO_BOTTOM))
 
@@ -175,7 +175,7 @@ def plot_metric_2d(
             s=marker_size,
             marker=spec["marker"],
             color=spec["color"],
-            alpha=1.0,
+            alpha=spec["line_alpha"],
             edgecolors="none",
             zorder=float(draw_idx) + 10.0,
         )
@@ -253,14 +253,14 @@ def main():
         model_frames=model_frames,
         metric_key="weighted_rmse_per_height_mps",
         y_label="WRMSE per-height (m/s)",
-        out_path=out_dir / "single_total_weighted_rmse_per_height.png",
+        out_path=out_dir / "four_total_weighted_rmse_per_height.png",
         y_limits=WRMSE_Y_LIMITS,
     )
     plot_metric_2d(
         model_frames=model_frames,
         metric_key="sae_per_height_mps",
         y_label="SAE per-height (m/s)",
-        out_path=out_dir / "single_total_sae_per_height.png",
+        out_path=out_dir / "four_total_sae_per_height.png",
         y_limits=SAE_Y_LIMITS,
     )
 

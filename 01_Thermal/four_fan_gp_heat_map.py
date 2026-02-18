@@ -39,6 +39,8 @@ YLABEL = r"$y$ (m)"
 
 AXIS_EDGE_LW = 0.80
 CBAR_EDGE_LW = AXIS_EDGE_LW
+GRID_COLOR = (0.85, 0.85, 0.85, 1.0)
+GRID_LINEWIDTH = 0.4
 
 
 # Exponential opacity mapping versus normalized w (= 0..1).
@@ -249,6 +251,8 @@ def plot_continuous_heatmap(x: np.ndarray, y: np.ndarray, w: np.ndarray, outpath
     ax.set_xlabel(XLABEL)
     ax.set_ylabel(YLABEL)
     ax.set_aspect("equal", adjustable="box")
+    ax.set_axisbelow(True)
+    ax.grid(True, color=GRID_COLOR, linewidth=GRID_LINEWIDTH)
     for spine in ax.spines.values():
         spine.set_linewidth(AXIS_EDGE_LW)
     xticks = np.arange(0.0, 8.4 + 1e-9, 0.6)
