@@ -1,9 +1,9 @@
 """
-Plot plain-Gaussian model heat maps using the same style as annuli heat maps.
+Plot annular-Gaussian model heat maps using the same style as annuli heat maps.
 
-For each height sheet, fitted parameters are loaded from
-B_results/four_var_params.xlsx and used to generate a continuous model
-field w(x, y). The field is evaluated on a dense uniform grid (not the
+For each height sheet, fitted ring parameters are loaded from
+B_results/four_annular_var_params.xlsx and used to generate a continuous
+model field w(x, y). The field is evaluated on a dense uniform grid (not the
 measurement grid) and then plotted.
 """
 
@@ -28,10 +28,10 @@ import cmocean  # https://matplotlib.org/cmocean
 XLSX_PATH = "S02.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
-OUT_DIR = Path("A_figures/Four_Fan_Gaussian_Var")
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+OUT_DIR = Path("A_figures/Four_Fan_Annular_Gaussian_Var")
+OUT_DIR.mkdir(exist_ok=True)
 
-PARAMS_XLSX = Path("B_results/four_var_params.xlsx")
+PARAMS_XLSX = Path("B_results/four_annular_var_params.xlsx")
 
 FOUR_FAN_CENTERS_XY = (
     (3.0, 3.6),
@@ -45,26 +45,18 @@ CBAR_LABEL = r"$w$ (m$\cdot$s$^{-1}$)"  # vertical velocity
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
-# Tick positions for compact A4 layout
 # Line widths
 CELL_EDGE_LW = 0.30
 AXIS_EDGE_LW = 0.80
-
 CBAR_EDGE_LW = AXIS_EDGE_LW
 
 
 # Exponential opacity mapping versus normalized w (= 0..1).
 # alpha(0) = 0 (fully transparent), alpha(1) = 1 (fully opaque).
 ALPHA_EXP_RATE = 0.005
-LEGEND_FONTSIZE = 8.5
 
-# Fan outlet markers (four fan)
-FAN_OUTLET_POINTS = [
-    (3.0, 3.6),
-    (5.4, 3.6),
-    (5.4, 1.2),
-    (3.0, 1.2),
-]
+# Fan outlet markers (four fans)
+FAN_OUTLET_POINTS = list(FOUR_FAN_CENTERS_XY)
 FAN_OUTLET_DIAMETER = 0.8
 FAN_OUTLET_EDGE_LW = 1.1
 FAN_OUTLET_ALPHA = 0.6
@@ -99,7 +91,6 @@ def build_alpha_cmap() -> mcolors.ListedColormap:
     colors[:, 3] = alpha
 
     return mcolors.ListedColormap(colors)
-
 
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
     """
@@ -175,9 +166,9 @@ def build_continuous_grid(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.
     return xg, yg
 
 
-def load_gaussian_params(xlsx_path: Path) -> pd.DataFrame:
+def load_ring_params(xlsx_path: Path) -> pd.DataFrame:
     """
-    Load fitted Gaussian parameters from Excel.
+    Load fitted ring parameters from Excel.
     """
     df = pd.read_excel(xlsx_path)
     if "z_m" not in df.columns:
@@ -187,9 +178,9 @@ def load_gaussian_params(xlsx_path: Path) -> pd.DataFrame:
 
 def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     """
-    Discover fan IDs from columns like A_F01.
+    Discover fan IDs from columns like A_ring_F01.
     """
-    pattern = re.compile(r"^A_(F\d{2})$")
+    pattern = re.compile(r"^A_ring_(F\d{2})$")
     fan_ids = []
     for col in df.columns:
         match = pattern.match(str(col))
@@ -200,8 +191,9 @@ def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     valid = []
     for fan_id in fan_ids:
         required = (
-            f"A_{fan_id}",
-            f"delta_{fan_id}",
+            f"A_ring_{fan_id}",
+            f"r_ring_{fan_id}",
+            f"delta_r_{fan_id}",
             f"w0_{fan_id}",
         )
         if all(col in df.columns for col in required):
@@ -211,7 +203,7 @@ def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
 
 def params_for_height(df: pd.DataFrame, z_m: float, fan_ids: Tuple[str, ...]) -> np.ndarray:
     """
-    Extract per-fan [A, delta, w0] for a given height.
+    Extract per-fan [A_ring, r_ring, delta_r, w0] for a given height.
     """
     mask = np.isclose(df["z_m"].to_numpy(dtype=float), float(z_m), atol=1e-6)
     if not np.any(mask):
@@ -220,31 +212,51 @@ def params_for_height(df: pd.DataFrame, z_m: float, fan_ids: Tuple[str, ...]) ->
     row = df.loc[mask].iloc[0]
 
     if len(fan_ids) == 0:
-        required = ("A", "delta", "w0")
+        required = ("A_ring", "r_ring", "delta_r", "w0")
         missing = [c for c in required if c not in row.index]
         if missing:
             raise ValueError(f"Missing shared parameter columns: {missing}")
         shared = np.array(
             [
-                float(row["A"]),
-                float(row["delta"]),
+                float(row["A_ring"]),
+                float(row["r_ring"]),
+                float(row["delta_r"]),
                 float(row["w0"]),
             ],
             dtype=float,
         )
         return np.repeat(shared[None, :], len(FOUR_FAN_CENTERS_XY), axis=0)
 
-    params = np.empty((len(fan_ids), 3), dtype=float)
+    params = np.empty((len(fan_ids), 4), dtype=float)
     for fan_idx, fan_id in enumerate(fan_ids):
-        params[fan_idx, 0] = float(row[f"A_{fan_id}"])
-        params[fan_idx, 1] = float(row[f"delta_{fan_id}"])
-        params[fan_idx, 2] = float(row[f"w0_{fan_id}"])
+        params[fan_idx, 0] = float(row[f"A_ring_{fan_id}"])
+        params[fan_idx, 1] = float(row[f"r_ring_{fan_id}"])
+        params[fan_idx, 2] = float(row[f"delta_r_{fan_id}"])
+        params[fan_idx, 3] = float(row[f"w0_{fan_id}"])
     return params
+
+
+def nearest_fan_radius_map(
+    x_grid: np.ndarray,
+    y_grid: np.ndarray,
+    fan_centers_xy: Tuple[Tuple[float, float], ...],
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Compute nearest-fan index and radius for each grid point.
+    """
+    fan_xy = np.asarray(fan_centers_xy, dtype=float)
+    d_sample_fan = np.sqrt(
+        (x_grid[..., None] - fan_xy[:, 0]) ** 2
+        + (y_grid[..., None] - fan_xy[:, 1]) ** 2
+    )
+    nearest_idx = np.argmin(d_sample_fan, axis=-1)
+    nearest_r = np.min(d_sample_fan, axis=-1)
+    return nearest_idx, nearest_r
 
 
 def plot_continuous_heatmap(x, y, W, outpath: Path):
     """
-    Plot continuous model heat map using four_fan_heat_map.py axis settings.
+    Plot continuous model heat map using the same axis settings as single_fan_heat_map.py.
     """
     # Convert center grids -> edges for pcolormesh
     x_edges = centers_to_edges(x)
@@ -252,18 +264,17 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
 
     # Figure styling
     plt.rcParams.update({
-        "font.size": 10,
-        "axes.labelsize": 10,
-        "axes.titlesize": 10,
-        "xtick.labelsize": 9,
-        "ytick.labelsize": 9,
-        "legend.fontsize": LEGEND_FONTSIZE,
+        "font.size": 8,
+        "axes.labelsize": 8,
+        "axes.titlesize": 8,
+        "xtick.labelsize": 7,
+        "ytick.labelsize": 7,
         "axes.edgecolor": "k",
         "axes.linewidth": AXIS_EDGE_LW,
         "patch.edgecolor": "k",
     })
 
-    fig, ax = plt.subplots(figsize=(5.7, 3.9), dpi=600)  # 2-per-row on A4 landscape
+    fig, ax = plt.subplots(figsize=(6.8, 5.6), dpi=600)  # larger for readability
 
     # Continuous heatmap
     cmap_alpha = build_alpha_cmap()
@@ -285,7 +296,7 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
         zorder=4,
     )
 
-    for i, (fx, fy) in enumerate(FAN_OUTLET_POINTS):
+    for idx, (fx, fy) in enumerate(FAN_OUTLET_POINTS):
         outlet = Circle(
             (fx, fy),
             radius=FAN_OUTLET_DIAMETER / 2.0,
@@ -293,7 +304,7 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
             edgecolor=(0, 0, 0, FAN_OUTLET_ALPHA),
             linewidth=FAN_OUTLET_EDGE_LW,
             linestyle=FAN_OUTLET_DASH,
-            label="Fan outlet" if i == 0 else None,
+            label="Fan outlet" if idx == 0 else None,
             zorder=5,
             clip_on=True,
         )
@@ -323,23 +334,24 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
     ax.set_aspect("equal", adjustable="box")  # 1:1 grid without stretching
     for spine in ax.spines.values():
         spine.set_linewidth(AXIS_EDGE_LW)
-    # Fixed axis ticks (no centering) with 2-decimal labels
-    xticks = np.arange(0.0, 8.4 + 1e-9, 1.4)
-    yticks = np.arange(0.0, 4.8 + 1e-9, 0.8)
+    # Axis ticks: fixed spacing and range to match annuli heat map
+    xticks = np.arange(0.0, 8.4 + 1e-9, 0.6)
+    yticks = np.arange(0.0, 4.8 + 1e-9, 0.4)
     ax.set_xticks(xticks)
     ax.set_yticks(yticks)
     ax.set_xticklabels([f"{v:.2f}" for v in xticks])
     ax.set_yticklabels([f"{v:.2f}" for v in yticks])
+    ax.tick_params(axis="x", labelrotation=-30)
     ax.tick_params(axis="both", which="major", length=2, width=0.6)
     ax.legend(
         loc="lower left",
-        bbox_to_anchor=(0.97, -0.22),
+        bbox_to_anchor=(0.97, -0.18),
         frameon=True,
         framealpha=1.0,
         edgecolor="black",
-        fontsize=LEGEND_FONTSIZE,
+        fontsize=7,
         handlelength=1.5,
-        borderpad=0.5,
+        borderpad=0.7,
         labelspacing=0.2,
     )
     leg = ax.get_legend()
@@ -368,14 +380,12 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
 
 ### Export each sheet as PNG
 def main():
-    params_df = load_gaussian_params(PARAMS_XLSX)
+    params_df = load_ring_params(PARAMS_XLSX)
     fan_ids = discover_fan_ids(params_df)
     if len(fan_ids) > 0 and len(fan_ids) != len(FOUR_FAN_CENTERS_XY):
         raise ValueError(
             f"Parameter table has {len(fan_ids)} fan IDs but expected {len(FOUR_FAN_CENTERS_XY)}."
         )
-
-    fan_xy = np.asarray(FOUR_FAN_CENTERS_XY, dtype=float)
 
     for sh in SHEETS:
         x, y, _w = read_slice_from_sheet(XLSX_PATH, sh)
@@ -384,6 +394,7 @@ def main():
         params_fan = params_for_height(params_df, z_m, fan_ids=fan_ids)
 
         x_grid, y_grid = build_continuous_grid(x, y)
+        fan_xy = np.asarray(FOUR_FAN_CENTERS_XY, dtype=float)
         r_all = np.sqrt(
             (x_grid[:, :, None] - fan_xy[None, None, :, 0]) ** 2
             + (y_grid[:, :, None] - fan_xy[None, None, :, 1]) ** 2
@@ -393,9 +404,11 @@ def main():
         n_fans = len(FOUR_FAN_CENTERS_XY)
         for fan_idx in range(n_fans):
             p = params_fan[fan_idx]
-            W_model += p[2] + p[0] * np.exp(-((r_all[:, :, fan_idx] / p[1]) ** 2))
+            W_model += p[3] + p[0] * np.exp(
+                -((r_all[:, :, fan_idx] - p[1]) / p[2]) ** 2
+            )
 
-        out_png = OUT_DIR / f"{sh}_four_gaussian_var_heatmap_main.png"
+        out_png = OUT_DIR / f"{sh}_four_annular_gaussian_var_heatmap.png"
         plot_continuous_heatmap(
             x_grid[0, :],
             y_grid[:, 0],
@@ -408,3 +421,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+

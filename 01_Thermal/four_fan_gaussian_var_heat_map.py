@@ -12,6 +12,7 @@ measurement grid) and then plotted.
 ### Imports
 from pathlib import Path
 from typing import Tuple
+import re
 
 import numpy as np
 import pandas as pd
@@ -96,6 +97,7 @@ def build_alpha_cmap() -> mcolors.ListedColormap:
 
     return mcolors.ListedColormap(colors)
 
+
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
     """
     Convert 1D array of cell centers -> cell edges for pcolormesh.
@@ -170,44 +172,71 @@ def build_continuous_grid(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.
     return xg, yg
 
 
-def nearest_fan_radius_map(
-    x_grid: np.ndarray,
-    y_grid: np.ndarray,
-    fan_centers_xy: Tuple[Tuple[float, float], ...],
-) -> np.ndarray:
-    """
-    Compute nearest-fan radius map r(x, y) for each grid location.
-    """
-    fan_xy = np.asarray(fan_centers_xy, dtype=float)
-    d_sample_fan = np.sqrt(
-        (x_grid[:, :, None] - fan_xy[None, None, :, 0]) ** 2
-        + (y_grid[:, :, None] - fan_xy[None, None, :, 1]) ** 2
-    )
-    return np.min(d_sample_fan, axis=2)
-
-
 def load_gaussian_params(xlsx_path: Path) -> pd.DataFrame:
     """
     Load fitted Gaussian parameters from Excel.
     """
     df = pd.read_excel(xlsx_path)
-    required = {"z_m", "A", "delta", "w0"}
-    if not required.issubset(df.columns):
-        missing = required - set(df.columns)
-        raise ValueError(f"Missing columns in {xlsx_path}: {sorted(missing)}")
+    if "z_m" not in df.columns:
+        raise ValueError(f"Missing column 'z_m' in {xlsx_path}.")
     return df.copy()
 
 
-def params_for_height(df: pd.DataFrame, z_m: float) -> Tuple[float, float, float]:
+def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     """
-    Extract [A, delta, w0] for a given height.
+    Discover fan IDs from columns like A_F01.
+    """
+    pattern = re.compile(r"^A_(F\d{2})$")
+    fan_ids = []
+    for col in df.columns:
+        match = pattern.match(str(col))
+        if match is not None:
+            fan_ids.append(match.group(1))
+    fan_ids = sorted(set(fan_ids))
+
+    valid = []
+    for fan_id in fan_ids:
+        required = (
+            f"A_{fan_id}",
+            f"delta_{fan_id}",
+            f"w0_{fan_id}",
+        )
+        if all(col in df.columns for col in required):
+            valid.append(fan_id)
+    return tuple(valid)
+
+
+def params_for_height(df: pd.DataFrame, z_m: float, fan_ids: Tuple[str, ...]) -> np.ndarray:
+    """
+    Extract per-fan [A, delta, w0] for a given height.
     """
     mask = np.isclose(df["z_m"].to_numpy(dtype=float), float(z_m), atol=1e-6)
     if not np.any(mask):
         available = ", ".join([f"{v:.2f}" for v in df["z_m"].to_numpy(dtype=float)])
         raise ValueError(f"No parameters for z={z_m:.2f}. Available: {available}")
     row = df.loc[mask].iloc[0]
-    return float(row["A"]), float(row["delta"]), float(row["w0"])
+
+    if len(fan_ids) == 0:
+        required = ("A", "delta", "w0")
+        missing = [c for c in required if c not in row.index]
+        if missing:
+            raise ValueError(f"Missing shared parameter columns: {missing}")
+        shared = np.array(
+            [
+                float(row["A"]),
+                float(row["delta"]),
+                float(row["w0"]),
+            ],
+            dtype=float,
+        )
+        return np.repeat(shared[None, :], len(FOUR_FAN_CENTERS_XY), axis=0)
+
+    params = np.empty((len(fan_ids), 3), dtype=float)
+    for fan_idx, fan_id in enumerate(fan_ids):
+        params[fan_idx, 0] = float(row[f"A_{fan_id}"])
+        params[fan_idx, 1] = float(row[f"delta_{fan_id}"])
+        params[fan_idx, 2] = float(row[f"w0_{fan_id}"])
+    return params
 
 
 def plot_continuous_heatmap(x, y, W, outpath: Path):
@@ -337,20 +366,31 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
 ### Export each sheet as PNG
 def main():
     params_df = load_gaussian_params(PARAMS_XLSX)
+    fan_ids = discover_fan_ids(params_df)
+    if len(fan_ids) > 0 and len(fan_ids) != len(FOUR_FAN_CENTERS_XY):
+        raise ValueError(
+            f"Parameter table has {len(fan_ids)} fan IDs but expected {len(FOUR_FAN_CENTERS_XY)}."
+        )
+
+    fan_xy = np.asarray(FOUR_FAN_CENTERS_XY, dtype=float)
 
     for sh in SHEETS:
         x, y, _w = read_slice_from_sheet(XLSX_PATH, sh)
         z_m = parse_sheet_height_m(sh)
 
-        a, delta_model, w0 = params_for_height(params_df, z_m)
+        params_fan = params_for_height(params_df, z_m, fan_ids=fan_ids)
 
         x_grid, y_grid = build_continuous_grid(x, y)
-        r = nearest_fan_radius_map(
-            x_grid=x_grid,
-            y_grid=y_grid,
-            fan_centers_xy=FOUR_FAN_CENTERS_XY,
+        r_all = np.sqrt(
+            (x_grid[:, :, None] - fan_xy[None, None, :, 0]) ** 2
+            + (y_grid[:, :, None] - fan_xy[None, None, :, 1]) ** 2
         )
-        W_model = w0 + a * np.exp(-((r / delta_model) ** 2))
+
+        W_model = np.zeros((x_grid.shape[0], x_grid.shape[1]), dtype=float)
+        n_fans = len(FOUR_FAN_CENTERS_XY)
+        for fan_idx in range(n_fans):
+            p = params_fan[fan_idx]
+            W_model += p[2] + p[0] * np.exp(-((r_all[:, :, fan_idx] / p[1]) ** 2))
 
         out_png = OUT_DIR / f"{sh}_four_gaussian_var_heatmap.png"
         plot_continuous_heatmap(
@@ -365,10 +405,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-

@@ -68,8 +68,9 @@ OVERLAP_WEIGHT_POWER = 3.0
 OVERLAP_SIGMA_BOOST = 1.00
 
 # Per-fan robust settings for one-shot joint optimization (12 parameters).
-FAN_ROBUST_LOSS = ("soft_l1", "cauchy", "cauchy", "cauchy")
-FAN_ROBUST_F_SCALE = (1.0, 0.3, 0.2, 0.2)
+# Tuned by exhaustive candidate search with SAE guardrail on 2026-02-18.
+FAN_ROBUST_LOSS = ("soft_l1", "soft_l1", "soft_l1", "soft_l1")
+FAN_ROBUST_F_SCALE = (1.0, 1.0, 1.0, 1.0)
 
 
 ### Data classes
@@ -175,12 +176,16 @@ class SmoothGaussianModel:
     fan_centers_xy: Tuple[Tuple[float, float], ...]
 
     def __call__(self, x: np.ndarray, y: np.ndarray, z: float) -> np.ndarray:
-        r = nearest_fan_radius(x=x, y=y, fan_centers_xy=self.fan_centers_xy)
-
         a = float(np.exp(self.a_log(z)))
         delta = float(np.exp(self.delta_log(z)))
         w0 = float(self.w0(z))
-        return plain_gaussian(r, a=a, delta=delta, w0=w0)
+        x_arr = np.asarray(x, dtype=float)
+        y_arr = np.asarray(y, dtype=float)
+        w = np.zeros_like(x_arr, dtype=float)
+        for cx, cy in self.fan_centers_xy:
+            r = np.sqrt((x_arr - cx) ** 2 + (y_arr - cy) ** 2)
+            w += plain_gaussian(r, a=a, delta=delta, w0=w0)
+        return w
 
 
 # Helpers
@@ -919,7 +924,7 @@ def robust_residual_transform(
 def prepare_fan_fit_data_for_height(
     sheet_name: str,
     config: FitConfig,
-) -> List[dict]:
+) -> dict:
     """
     Build per-fan annular data for one height, to be solved jointly.
     """
@@ -1030,17 +1035,36 @@ def prepare_fan_fit_data_for_height(
             }
         )
 
-    return fan_data
+    return {
+        "fan_data": fan_data,
+        "x_pts": x_pts,
+        "y_pts": y_pts,
+        "w_obs": w_pts,
+        "sigma_safe": np.maximum(sigma_pts, float(config.sigma_min)),
+        "nearest_idx": nearest_idx,
+    }
 
 
 def fit_joint_gaussian_at_height(
-    fan_data: List[dict],
+    fit_data: dict,
     config: FitConfig,
 ) -> np.ndarray:
     """
     Jointly fit all fan parameters for one height (n_fans * 3 variables).
     """
+    fan_data = fit_data["fan_data"]
+    x_pts = fit_data["x_pts"]
+    y_pts = fit_data["y_pts"]
+    w_obs = fit_data["w_obs"]
+    sigma_safe = fit_data["sigma_safe"]
+    nearest_idx = fit_data["nearest_idx"]
+
     n_fans = len(fan_data)
+    fan_xy = np.asarray(config.fan_centers_xy, dtype=float)
+    r_all = np.sqrt(
+        (x_pts[:, None] - fan_xy[None, :, 0]) ** 2
+        + (y_pts[:, None] - fan_xy[None, :, 1]) ** 2
+    )
 
     lower_parts = []
     upper_parts = []
@@ -1069,27 +1093,31 @@ def fit_joint_gaussian_at_height(
         joint_seeds.append(p0)
 
     def residuals_joint(p: np.ndarray) -> np.ndarray:
-        parts = []
+        w_pred = np.zeros_like(w_obs, dtype=float)
         for fan_idx in range(n_fans):
             p_f = p[3 * fan_idx : 3 * fan_idx + 3]
-            r_fit = fan_data[fan_idx]["r_fit"]
-            w_fit = fan_data[fan_idx]["w_fit"]
-            alpha_fit = fan_data[fan_idx]["alpha_fit"]
-            sigma_fit = fan_data[fan_idx]["sigma_fit"]
-
-            w_pred = plain_gaussian(
-                r_fit,
+            w_pred += plain_gaussian(
+                r_all[:, fan_idx],
                 a=float(p_f[0]),
                 delta=float(p_f[1]),
                 w0=float(p_f[2]),
             )
-            raw_res = alpha_fit * (w_pred - w_fit) / sigma_fit
+
+        raw_res_all = (w_pred - w_obs) / sigma_safe
+        parts = []
+        for fan_idx in range(n_fans):
+            fan_mask = nearest_idx == fan_idx
+            if not np.any(fan_mask):
+                continue
             transformed = robust_residual_transform(
-                residual=raw_res,
+                residual=raw_res_all[fan_mask],
                 loss_name=config.fan_robust_loss[fan_idx],
                 f_scale=config.fan_robust_f_scale[fan_idx],
             )
             parts.append(transformed)
+
+        if len(parts) == 0:
+            return raw_res_all
         return np.concatenate(parts)
 
     best_result = None
@@ -1127,8 +1155,8 @@ def fit_all_heights_joint(
 
     for sheet in mean_sheet_names:
         z_m = parse_sheet_height_m(sheet)
-        fan_data = prepare_fan_fit_data_for_height(sheet_name=sheet, config=config)
-        params_joint = fit_joint_gaussian_at_height(fan_data=fan_data, config=config)
+        fit_data = prepare_fan_fit_data_for_height(sheet_name=sheet, config=config)
+        params_joint = fit_joint_gaussian_at_height(fit_data=fit_data, config=config)
         z_list.append(z_m)
         params_list.append(params_joint)
 
@@ -1164,7 +1192,11 @@ def evaluate_joint_fit_on_raw_maps(
     config: FitConfig,
 ) -> Tuple[RawMetrics, List[RawMetrics]]:
     """
-    Evaluate joint per-fan model on raw maps and return overall + per-fan metrics.
+    Evaluate the overlap-model on raw maps.
+
+    Returns:
+        overall: global metric over all points using the overlap prediction.
+        per_fan: nearest-region diagnostics from the same overlap prediction.
     """
     n_fans = len(config.fan_centers_xy)
     sae_f = np.zeros(n_fans, dtype=float)
@@ -1185,10 +1217,15 @@ def evaluate_joint_fit_on_raw_maps(
         y_pts = y_pts[valid]
         w_obs = w_obs[valid]
 
-        nearest_idx, nearest_r, _second_idx, _second_r = nearest_and_second_fan_distances(
+        nearest_idx, _nearest_r, _second_idx, _second_r = nearest_and_second_fan_distances(
             x_pts=x_pts,
             y_pts=y_pts,
             fan_centers_xy=config.fan_centers_xy,
+        )
+        fan_xy = np.asarray(config.fan_centers_xy, dtype=float)
+        r_all = np.sqrt(
+            (x_pts[:, None] - fan_xy[None, :, 0]) ** 2
+            + (y_pts[:, None] - fan_xy[None, :, 1]) ** 2
         )
 
         ts_sheet = f"{sheet}_TS"
@@ -1209,14 +1246,11 @@ def evaluate_joint_fit_on_raw_maps(
         )
         sigma_safe = np.maximum(sigma_pts, float(config.sigma_min))
 
-        w_pred = np.empty_like(w_obs, dtype=float)
+        w_pred = np.zeros_like(w_obs, dtype=float)
         for fan_idx in range(n_fans):
-            fan_mask = nearest_idx == fan_idx
-            if not np.any(fan_mask):
-                continue
             pf = p_fan[fan_idx]
-            w_pred[fan_mask] = plain_gaussian(
-                nearest_r[fan_mask],
+            w_pred += plain_gaussian(
+                r_all[:, fan_idx],
                 a=float(pf[0]),
                 delta=float(pf[1]),
                 w0=float(pf[2]),
@@ -1663,25 +1697,24 @@ def evaluate_fit_on_raw_maps(
         x_grid, y_grid, w_grid = load_mean_map(config.xlsx_path, sheet)
         x_pts = x_grid.ravel()
         y_pts = y_grid.ravel()
-        r_pts = nearest_fan_radius(
-            x=x_pts,
-            y=y_pts,
-            fan_centers_xy=config.fan_centers_xy,
+        fan_xy = np.asarray(config.fan_centers_xy, dtype=float)
+        r_all = np.sqrt(
+            (x_pts[:, None] - fan_xy[None, :, 0]) ** 2
+            + (y_pts[:, None] - fan_xy[None, :, 1]) ** 2
         )
         w_obs = w_grid.ravel()
 
         mask = (
             np.isfinite(x_pts)
             & np.isfinite(y_pts)
-            & np.isfinite(r_pts)
             & np.isfinite(w_obs)
         )
         x_pts = x_pts[mask]
         y_pts = y_pts[mask]
-        r_pts = r_pts[mask]
+        r_all = r_all[mask, :]
         w_obs = w_obs[mask]
 
-        if r_pts.size == 0:
+        if x_pts.size == 0:
             raise ValueError(f"No valid raw samples found in sheet '{sheet}'.")
 
         ts_sheet = f"{sheet}_TS"
@@ -1705,12 +1738,14 @@ def evaluate_fit_on_raw_maps(
         )
 
         sigma_safe = np.maximum(sigma_pts, 1e-3)
-        w_pred = plain_gaussian(
-            r_pts,
-            a=float(p[0]),
-            delta=float(p[1]),
-            w0=float(p[2]),
-        )
+        w_pred = np.zeros_like(w_obs, dtype=float)
+        for fan_idx in range(len(config.fan_centers_xy)):
+            w_pred += plain_gaussian(
+                r_all[:, fan_idx],
+                a=float(p[0]),
+                delta=float(p[1]),
+                w0=float(p[2]),
+            )
         err = w_pred - w_obs
 
         total_sae += float(np.sum(np.abs(err)))
@@ -1718,7 +1753,7 @@ def evaluate_fit_on_raw_maps(
         weights = 1.0 / (sigma_safe**2)
         total_weighted_sse += float(np.sum(weights * err**2))
         total_weight_sum += float(np.sum(weights))
-        total_samples += int(r_pts.size)
+        total_samples += int(x_pts.size)
 
     if total_weight_sum <= 0.0:
         raise ValueError("Total WRMSE denominator is non-positive.")
@@ -1882,10 +1917,18 @@ def main() -> None:
         f"core_ignore: inner_bins={config.inner_bins_to_ignore}, "
         f"radius={config.core_ignore_radius_m}"
     )
+    print(
+        f"\nOverall overlap-model raw-map metrics: WRMSE={overall_metrics.total_wrmse:.5f}, "
+        f"SAE={overall_metrics.total_sae:.4f}, n_samples={overall_metrics.n_samples}"
+    )
+    print(
+        "Nearest-region diagnostics below are computed from the same overlap-model "
+        "prediction, segmented by nearest fan center."
+    )
     for fan_idx in range(n_fans):
         fan_metrics = per_fan_metrics[fan_idx]
         print(
-            f"\nFan F{fan_idx + 1:02d} "
+            f"\nRegion near F{fan_idx + 1:02d} "
             f"(x={config.fan_centers_xy[fan_idx][0]:.2f}, "
             f"y={config.fan_centers_xy[fan_idx][1]:.2f}) "
             f"loss={config.fan_robust_loss[fan_idx]}, "
@@ -1895,10 +1938,6 @@ def main() -> None:
         print(" z [m]       A        delta       w0")
         for z_m, (a, delta, w0) in zip(z_vals, params_stack[:, fan_idx, :]):
             print(f"{z_m:5.2f}  {a:9.4f}  {delta:10.4f}  {w0:9.4f}")
-    print(
-        f"\nOverall raw-map metrics: WRMSE={overall_metrics.total_wrmse:.5f}, "
-        f"SAE={overall_metrics.total_sae:.4f}, n_samples={overall_metrics.n_samples}"
-    )
 
     out_dir = OUT_XLSX_PATH.parent
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1931,6 +1970,7 @@ def main() -> None:
                 "raw_wrmse_mps": float(fan_metrics.total_wrmse),
                 "raw_sae_mps": float(fan_metrics.total_sae),
                 "raw_n_samples": int(fan_metrics.n_samples),
+                "metric_scope": "nearest_region_overlap_model",
                 "inner_bins_to_ignore": int(config.inner_bins_to_ignore),
                 "profile_delta_r_m": float(config.profile_delta_r_m),
                 "overlap_ratio_threshold": float(config.overlap_ratio_threshold),

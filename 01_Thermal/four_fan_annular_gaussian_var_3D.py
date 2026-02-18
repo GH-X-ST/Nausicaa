@@ -1,10 +1,13 @@
 """
-Plot a 3D plain-Gaussian updraft field using fitted parameter output.
+Plot a 3D four-fan annular-Gaussian updraft field using fitted output.
 
 The model is
-    w_model(r, z) = w0(z) + A(z) * exp(-(r / delta(z))**2)
-where [A, delta, w0] are read directly from the precomputed PCHIP table
-written by four_fan_gaussian_var_fit.py.
+    w_model(r, z) = w0(z) + A_ring(z) * exp(-((r - r_ring(z)) / delta_r(z))**2)
+where [A_ring, r_ring, delta_r, w0] are read directly from the
+precomputed PCHIP table written by four_fan_annular_gaussian_var_fit.py.
+
+Input is read from four_fan_annular_gaussian_var_fit.py output
+(by default: B_results/four_annular_var_params_pchip.xls/.xlsx).
 """
 
 ###### Initialization
@@ -28,11 +31,11 @@ from skimage.measure import marching_cubes
 ### User settings
 MAKE_PLOTS = True
 
-PARAMS_XLSX = Path("B_results/four_var_params_pchip.xlsx")
-PARAMS_SHEET = "four_var_pchip"
+PARAMS_XLSX = Path("B_results/four_annular_var_params_pchip.xls")
+PARAMS_SHEET = "four_annular_var_pchip"
 
-OUT_DIR = Path("A_figures/Four_Fan_Gaussian_Var")
-OUT_3D_NAME = "four_gaussian_var_3d.png"
+OUT_DIR = Path("A_figures/Four_Fan_Annular_Gaussian_Var")
+OUT_3D_NAME = "four_annular_gaussian_var_3d.png"
 # Match heat-map-main output aspect ratio
 FIGSIZE_3D = (7.45 / 1.3, 3.0)
 
@@ -57,7 +60,7 @@ CBAR_TICK_STEP = 1.0
 CBAR_LABEL_FONTSIZE = 10
 CBAR_TICK_FONTSIZE = 9
 
-# Typography (match four_fan_gaussian_var_heat_map_main.py)
+# Typography (match four_fan_annular_gaussian_var_heat_map_main.py)
 AXIS_LABEL_FONTSIZE = 10
 TICK_LABEL_FONTSIZE = 9
 LEGEND_FONTSIZE = 8.5
@@ -69,12 +72,6 @@ FOUR_FAN_CENTERS_XY = (
     (3.0, 1.2),
     (5.4, 1.2),
 )
-FAN_OUTLET_POINTS = [
-    (3.0, 3.6),
-    (5.4, 3.6),
-    (5.4, 1.2),
-    (3.0, 1.2),
-]
 FAN_OUTLET_DIAMETER = 0.8
 FAN_OUTLET_EDGE_LW = 1.1
 FAN_OUTLET_ALPHA = 0.6
@@ -112,8 +109,8 @@ SLICE_EDGE_LW = 0.2
 
 
 ### Helpers
-REQUIRED_SHARED_COLUMNS = ("z_m", "A", "delta")
-FAN_COL_PATTERN = re.compile(r"^A_(F\d{2})$")
+REQUIRED_SHARED_COLUMNS = ("z_m", "A_ring", "r_ring", "delta_r")
+FAN_COL_PATTERN = re.compile(r"^A_ring_(F\d{2})$")
 
 
 def build_alpha_cmap() -> mcolors.ListedColormap:
@@ -162,7 +159,7 @@ def load_params_table(
 
 def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     """
-    Discover fan IDs from columns like A_F01.
+    Discover fan IDs from columns like A_ring_F01.
     """
     fan_ids = []
     for col in df.columns:
@@ -174,8 +171,9 @@ def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     valid = []
     for fan_id in fan_ids:
         required = (
-            f"A_{fan_id}",
-            f"delta_{fan_id}",
+            f"A_ring_{fan_id}",
+            f"r_ring_{fan_id}",
+            f"delta_r_{fan_id}",
             f"w0_{fan_id}",
         )
         if all(col in df.columns for col in required):
@@ -192,8 +190,8 @@ def extract_param_arrays(
 
     Returns:
         z_vals: shape (K,)
-        params_stack: shape (K, n_fans, 3),
-            with columns [A, delta, w0].
+        params_stack: shape (K, n_fans, 4),
+            with columns [A_ring, r_ring, delta_r, w0].
     """
     n_fans_expected = len(FOUR_FAN_CENTERS_XY)
 
@@ -206,15 +204,15 @@ def extract_param_arrays(
         if "w0" not in local.columns:
             local["w0"] = 0.0
 
-        for col in ("z_m", "A", "delta", "w0"):
+        for col in ("z_m", "A_ring", "r_ring", "delta_r", "w0"):
             local[col] = pd.to_numeric(local[col], errors="coerce")
 
-        local = local.dropna(subset=["z_m", "A", "delta", "w0"])
+        local = local.dropna(subset=["z_m", "A_ring", "r_ring", "delta_r", "w0"])
         if local.empty:
             raise ValueError("No valid shared parameter rows after cleaning.")
 
         z_vals = local["z_m"].to_numpy(dtype=float)
-        params = local[["A", "delta", "w0"]].to_numpy(dtype=float)
+        params = local[["A_ring", "r_ring", "delta_r", "w0"]].to_numpy(dtype=float)
 
         order = np.argsort(z_vals)
         z_vals = z_vals[order]
@@ -223,9 +221,9 @@ def extract_param_arrays(
         if np.any(np.diff(z_vals) <= 0.0):
             raise ValueError("z_m must be strictly increasing for interpolation.")
         if np.any(params[:, 0] <= 0.0):
-            raise ValueError("A must be positive for log-space interpolation.")
-        if np.any(params[:, 1] <= 0.0):
-            raise ValueError("delta must be positive for log-space interpolation.")
+            raise ValueError("A_ring must be positive for log-space interpolation.")
+        if np.any(params[:, 2] <= 0.0):
+            raise ValueError("delta_r must be positive for log-space interpolation.")
 
         params_stack = np.repeat(params[:, None, :], n_fans_expected, axis=1)
         return z_vals, params_stack
@@ -237,7 +235,14 @@ def extract_param_arrays(
 
     required_cols = ["z_m"]
     for fan_id in fan_ids:
-        required_cols.extend([f"A_{fan_id}", f"delta_{fan_id}", f"w0_{fan_id}"])
+        required_cols.extend(
+            [
+                f"A_ring_{fan_id}",
+                f"r_ring_{fan_id}",
+                f"delta_r_{fan_id}",
+                f"w0_{fan_id}",
+            ]
+        )
 
     missing = [col for col in required_cols if col not in df.columns]
     if missing:
@@ -258,16 +263,17 @@ def extract_param_arrays(
     if np.any(np.diff(z_vals) <= 0.0):
         raise ValueError("z_m must be strictly increasing for interpolation.")
 
-    params_stack = np.empty((z_vals.size, n_fans_expected, 3), dtype=float)
+    params_stack = np.empty((z_vals.size, n_fans_expected, 4), dtype=float)
     for fan_idx, fan_id in enumerate(fan_ids):
-        params_stack[:, fan_idx, 0] = local[f"A_{fan_id}"].to_numpy(dtype=float)[order]
-        params_stack[:, fan_idx, 1] = local[f"delta_{fan_id}"].to_numpy(dtype=float)[order]
-        params_stack[:, fan_idx, 2] = local[f"w0_{fan_id}"].to_numpy(dtype=float)[order]
+        params_stack[:, fan_idx, 0] = local[f"A_ring_{fan_id}"].to_numpy(dtype=float)[order]
+        params_stack[:, fan_idx, 1] = local[f"r_ring_{fan_id}"].to_numpy(dtype=float)[order]
+        params_stack[:, fan_idx, 2] = local[f"delta_r_{fan_id}"].to_numpy(dtype=float)[order]
+        params_stack[:, fan_idx, 3] = local[f"w0_{fan_id}"].to_numpy(dtype=float)[order]
 
     if np.any(params_stack[:, :, 0] <= 0.0):
-        raise ValueError("A must be positive for log-space interpolation.")
-    if np.any(params_stack[:, :, 1] <= 0.0):
-        raise ValueError("delta must be positive for log-space interpolation.")
+        raise ValueError("A_ring must be positive for log-space interpolation.")
+    if np.any(params_stack[:, :, 2] <= 0.0):
+        raise ValueError("delta_r must be positive for log-space interpolation.")
 
     return z_vals, params_stack
 
@@ -306,7 +312,6 @@ def evaluate_field(
         (x_grid[..., None] - fan_xy[:, 0]) ** 2
         + (y_grid[..., None] - fan_xy[:, 1]) ** 2
     )
-
     # Convert absolute z to model-relative z referenced at fan height.
     z_rel = z_grid - FAN_VERTICAL_OFFSET_M
 
@@ -323,11 +328,12 @@ def evaluate_field(
         r_eval = d_sample_fan[:, :, :, fan_idx][fan_mask]
 
         a_eval = np.interp(z_eval, z_vals, params_stack[:, fan_idx, 0])
-        delta_eval = np.interp(z_eval, z_vals, params_stack[:, fan_idx, 1])
+        r_ring_eval = np.interp(z_eval, z_vals, params_stack[:, fan_idx, 1])
+        delta_eval = np.interp(z_eval, z_vals, params_stack[:, fan_idx, 2])
 
-        w_eval = a_eval * np.exp(-((r_eval / delta_eval) ** 2))
+        w_eval = a_eval * np.exp(-((r_eval - r_ring_eval) / delta_eval) ** 2)
         if include_w0:
-            w_eval += np.interp(z_eval, z_vals, params_stack[:, fan_idx, 2])
+            w_eval += np.interp(z_eval, z_vals, params_stack[:, fan_idx, 3])
 
         w_grid[fan_mask] += w_eval
 
@@ -445,9 +451,9 @@ def plot_isosurfaces(
 
     # Fan outlet rings at the specified vertical offset.
     theta = np.linspace(0.0, 2.0 * np.pi, 200)
-    for idx, (fan_x, fan_y) in enumerate(FAN_OUTLET_POINTS):
-        circle_x = fan_x + 0.5 * FAN_OUTLET_DIAMETER * np.cos(theta)
-        circle_y = fan_y + 0.5 * FAN_OUTLET_DIAMETER * np.sin(theta)
+    for idx, (fcx, fcy) in enumerate(FOUR_FAN_CENTERS_XY):
+        circle_x = fcx + 0.5 * FAN_OUTLET_DIAMETER * np.cos(theta)
+        circle_y = fcy + 0.5 * FAN_OUTLET_DIAMETER * np.sin(theta)
         circle_z = FAN_VERTICAL_OFFSET_M * np.ones_like(theta)
         ax3d.plot(
             circle_x,
@@ -576,7 +582,7 @@ def main() -> None:
         output_path=out_3d,
     )
 
-    print(f"Saved 3D plain-Gaussian plot to: {out_3d.resolve()}")
+    print(f"Saved 3D annular-Gaussian plot to: {out_3d.resolve()}")
 
 
 if __name__ == "__main__":

@@ -1,12 +1,12 @@
 """
-Build a continuous plain-Gaussian model w_model(r, z) from fitted parameters.
+Build a continuous annular-Gaussian model w_model(r, z) from fitted parameters.
 
-This script reads output from four_fan_gaussian_var.py
-(B_results/four_var_params.xlsx), interpolates fitted parameters
+This script reads output from four_fan_annular_gaussian_var.py
+(B_results/four_annular_var_params.xlsx), interpolates fitted parameters
 vs height z using PCHIP, and writes an interpolated parameter table to Excel.
 
 Model:
-    w_model(r, z) = w0(z) + A(z) * exp(-(r / delta(z))**2)
+    w_model(r, z) = w0(z) + A_ring(z) * exp(-((r - r_ring(z)) / delta_r(z))**2)
 
 Fine-tuning additions in this version:
 - smooth blending into the high-z anchor branch,
@@ -27,11 +27,11 @@ from scipy.interpolate import PchipInterpolator
 
 
 ### User settings
-PARAMS_XLSX = Path("B_results/four_var_params.xlsx")
-PARAMS_SHEET = "four_var"
+PARAMS_XLSX = Path("B_results/four_annular_var_params.xlsx")
+PARAMS_SHEET = "four_annular_var"
 
-OUT_XLSX_PATH = Path("B_results/four_var_params_pchip.xlsx")
-OUT_SHEET_NAME = "four_var_pchip"
+OUT_XLSX_PATH = Path("B_results/four_annular_var_params_pchip.xlsx")
+OUT_SHEET_NAME = "four_annular_var_pchip"
 
 # Output z grid (meters). Use None to infer from fitted data.
 # NOTE: Setting Z_MIN_M below the fitted min or Z_MAX_M above the fitted max
@@ -56,8 +56,8 @@ ALLOW_ANCHOR_FALLBACK = True
 
 
 ### Helpers
-REQUIRED_COLUMNS = ("z_m", "A", "delta", "w0")
-FAN_COL_PATTERN = re.compile(r"^A_(F\d{2})$")
+REQUIRED_COLUMNS = ("z_m", "A_ring", "r_ring", "delta_r", "w0")
+FAN_COL_PATTERN = re.compile(r"^A_ring_(F\d{2})$")
 
 
 def select_anchor_indices(z_vals: np.ndarray) -> Optional[np.ndarray]:
@@ -122,9 +122,9 @@ def load_params_table(xlsx_path: Path, sheet_name: str) -> pd.DataFrame:
     return pd.read_excel(xlsx_path, sheet_name=sheet_to_use)
 
 
-def extract_params(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def extract_params(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Extract and validate fitted shared parameters from a DataFrame.
+    Extract and validate fitted parameters from a DataFrame.
     """
     missing = [col for col in REQUIRED_COLUMNS if col not in df.columns]
     if missing:
@@ -139,29 +139,33 @@ def extract_params(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray
         raise ValueError("No valid parameter rows found after cleaning.")
 
     z_vals = data["z_m"].to_numpy(dtype=float)
-    a = data["A"].to_numpy(dtype=float)
-    delta = data["delta"].to_numpy(dtype=float)
+    a_ring = data["A_ring"].to_numpy(dtype=float)
+    r_ring = data["r_ring"].to_numpy(dtype=float)
+    delta_r = data["delta_r"].to_numpy(dtype=float)
     w0 = data["w0"].to_numpy(dtype=float)
 
     order = np.argsort(z_vals)
     z_vals = z_vals[order]
-    a = a[order]
-    delta = delta[order]
+    a_ring = a_ring[order]
+    r_ring = r_ring[order]
+    delta_r = delta_r[order]
     w0 = w0[order]
 
     if np.any(np.diff(z_vals) <= 0.0):
         raise ValueError("z_m values must be strictly increasing for PCHIP.")
-    if np.any(a <= 0.0):
-        raise ValueError("A must be positive for log-space interpolation.")
-    if np.any(delta <= 0.0):
-        raise ValueError("delta must be positive for log-space interpolation.")
 
-    return z_vals, a, delta, w0
+    if np.any(a_ring <= 0.0):
+        raise ValueError("A_ring must be positive for log-space interpolation.")
+
+    if np.any(delta_r <= 0.0):
+        raise ValueError("delta_r must be positive for log-space interpolation.")
+
+    return z_vals, a_ring, r_ring, delta_r, w0
 
 
 def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     """
-    Discover fan IDs from columns like A_F01.
+    Discover fan IDs from columns like A_ring_F01.
     """
     fan_ids = []
     for col in df.columns:
@@ -172,7 +176,12 @@ def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     fan_ids = sorted(set(fan_ids))
     valid = []
     for fan_id in fan_ids:
-        required = (f"A_{fan_id}", f"delta_{fan_id}", f"w0_{fan_id}")
+        required = (
+            f"A_ring_{fan_id}",
+            f"r_ring_{fan_id}",
+            f"delta_r_{fan_id}",
+            f"w0_{fan_id}",
+        )
         if all(col in df.columns for col in required):
             valid.append(fan_id)
     return tuple(valid)
@@ -181,11 +190,17 @@ def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
 def extract_params_for_fan(
     df: pd.DataFrame,
     fan_id: str,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Extract and validate fitted per-fan parameters from a DataFrame.
     """
-    cols = ("z_m", f"A_{fan_id}", f"delta_{fan_id}", f"w0_{fan_id}")
+    cols = (
+        "z_m",
+        f"A_ring_{fan_id}",
+        f"r_ring_{fan_id}",
+        f"delta_r_{fan_id}",
+        f"w0_{fan_id}",
+    )
     missing = [col for col in cols if col not in df.columns]
     if missing:
         raise ValueError(f"Missing columns in parameter table for {fan_id}: {missing}")
@@ -199,59 +214,65 @@ def extract_params_for_fan(
         raise ValueError(f"No valid parameter rows found after cleaning for {fan_id}.")
 
     z_vals = data["z_m"].to_numpy(dtype=float)
-    a = data[f"A_{fan_id}"].to_numpy(dtype=float)
-    delta = data[f"delta_{fan_id}"].to_numpy(dtype=float)
+    a_ring = data[f"A_ring_{fan_id}"].to_numpy(dtype=float)
+    r_ring = data[f"r_ring_{fan_id}"].to_numpy(dtype=float)
+    delta_r = data[f"delta_r_{fan_id}"].to_numpy(dtype=float)
     w0 = data[f"w0_{fan_id}"].to_numpy(dtype=float)
 
     order = np.argsort(z_vals)
     z_vals = z_vals[order]
-    a = a[order]
-    delta = delta[order]
+    a_ring = a_ring[order]
+    r_ring = r_ring[order]
+    delta_r = delta_r[order]
     w0 = w0[order]
 
     if np.any(np.diff(z_vals) <= 0.0):
         raise ValueError(f"z_m values must be strictly increasing for {fan_id}.")
-    if np.any(a <= 0.0):
-        raise ValueError(f"A must be positive for log-space interpolation ({fan_id}).")
-    if np.any(delta <= 0.0):
-        raise ValueError(f"delta must be positive for log-space interpolation ({fan_id}).")
+    if np.any(a_ring <= 0.0):
+        raise ValueError(f"A_ring must be positive for log-space interpolation ({fan_id}).")
+    if np.any(delta_r <= 0.0):
+        raise ValueError(f"delta_r must be positive for log-space interpolation ({fan_id}).")
 
-    return z_vals, a, delta, w0
+    return z_vals, a_ring, r_ring, delta_r, w0
 
 
-def plain_gaussian(
+def ring_gaussian(
     r: np.ndarray,
-    a: np.ndarray,
-    delta: np.ndarray,
+    a_ring: np.ndarray,
+    r_ring: np.ndarray,
+    delta_r: np.ndarray,
     w0: np.ndarray,
 ) -> np.ndarray:
     """
-    Evaluate the plain-Gaussian model w(r) for given parameters.
+    Evaluate the ring-Gaussian model w(r) for given parameters.
     """
-    return w0 + a * np.exp(-((r / delta) ** 2))
+    return w0 + a_ring * np.exp(-((r - r_ring) / delta_r) ** 2)
 
 
-class GaussianModel:
+class RingModel:
     """
-    Continuous plain-Gaussian model w_model(r, z) using PCHIP interpolation.
+    Continuous ring-Gaussian model w_model(r, z) using PCHIP interpolation.
     """
 
     def __init__(
         self,
         z_vals: np.ndarray,
-        a: np.ndarray,
-        delta: np.ndarray,
+        a_ring: np.ndarray,
+        r_ring: np.ndarray,
+        delta_r: np.ndarray,
         w0: np.ndarray,
     ) -> None:
         # Main interpolators across the full fitted z range.
-        self._a_log = PchipInterpolator(z_vals, np.log(a))
-        self._delta_log = PchipInterpolator(z_vals, np.log(delta))
+        self._a_ring_log = PchipInterpolator(z_vals, np.log(a_ring))
+        self._r_ring = PchipInterpolator(z_vals, r_ring)
+        self._delta_r_log = PchipInterpolator(z_vals, np.log(delta_r))
         self._w0 = PchipInterpolator(z_vals, w0)
 
         self._z_min_fit = float(np.min(z_vals))
         self._low_params = (
-            float(a[0]),
-            float(delta[0]),
+            float(a_ring[0]),
+            float(r_ring[0]),
+            float(delta_r[0]),
             float(w0[0]),
         )
 
@@ -261,8 +282,9 @@ class GaussianModel:
         anchor_idx = select_anchor_indices(z_vals)
         if anchor_idx is not None:
             z_anchor = z_vals[anchor_idx]
-            self._high_a_log = PchipInterpolator(z_anchor, np.log(a[anchor_idx]))
-            self._high_delta_log = PchipInterpolator(z_anchor, np.log(delta[anchor_idx]))
+            self._high_a_ring_log = PchipInterpolator(z_anchor, np.log(a_ring[anchor_idx]))
+            self._high_r_ring = PchipInterpolator(z_anchor, r_ring[anchor_idx])
+            self._high_delta_r_log = PchipInterpolator(z_anchor, np.log(delta_r[anchor_idx]))
             self._high_w0 = PchipInterpolator(z_anchor, w0[anchor_idx])
             self._high_anchor_enabled = True
 
@@ -273,15 +295,16 @@ class GaussianModel:
 
     def params_at(
         self, z: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Evaluate interpolated parameters at height(s) z.
         """
         z = np.asarray(z, dtype=float)
         z_flat = z.reshape(-1)
 
-        a = np.exp(self._a_log(z_flat))
-        delta = np.exp(self._delta_log(z_flat))
+        a_ring = np.exp(self._a_ring_log(z_flat))
+        r_ring = self._r_ring(z_flat)
+        delta_r = np.exp(self._delta_r_log(z_flat))
         w0 = self._w0(z_flat)
 
         if self._high_anchor_enabled:
@@ -289,30 +312,34 @@ class GaussianModel:
             high_mask = blend > 0.0
             if np.any(high_mask):
                 z_high = z_flat[high_mask]
-                a_high = np.exp(self._high_a_log(z_high))
-                delta_high = np.exp(self._high_delta_log(z_high))
+                a_high = np.exp(self._high_a_ring_log(z_high))
+                r_high = self._high_r_ring(z_high)
+                delta_high = np.exp(self._high_delta_r_log(z_high))
                 w0_high = self._high_w0(z_high)
 
                 b = blend[high_mask]
-                a[high_mask] = (1.0 - b) * a[high_mask] + b * a_high
-                delta[high_mask] = (1.0 - b) * delta[high_mask] + b * delta_high
+                a_ring[high_mask] = (1.0 - b) * a_ring[high_mask] + b * a_high
+                r_ring[high_mask] = (1.0 - b) * r_ring[high_mask] + b * r_high
+                delta_r[high_mask] = (1.0 - b) * delta_r[high_mask] + b * delta_high
                 w0[high_mask] = (1.0 - b) * w0[high_mask] + b * w0_high
 
         if ENABLE_LOW_Z_EDGE_HOLD:
             low_mask = z_flat < self._z_min_fit
             if np.any(low_mask):
-                a[low_mask] = self._low_params[0]
-                delta[low_mask] = self._low_params[1]
-                w0[low_mask] = self._low_params[2]
+                a_ring[low_mask] = self._low_params[0]
+                r_ring[low_mask] = self._low_params[1]
+                delta_r[low_mask] = self._low_params[2]
+                w0[low_mask] = self._low_params[3]
 
         # Numerical safety for positive parameters.
-        a = np.maximum(a, 1e-12)
-        delta = np.maximum(delta, 1e-12)
+        a_ring = np.maximum(a_ring, 1e-12)
+        delta_r = np.maximum(delta_r, 1e-12)
 
-        a = a.reshape(z.shape)
-        delta = delta.reshape(z.shape)
+        a_ring = a_ring.reshape(z.shape)
+        r_ring = r_ring.reshape(z.shape)
+        delta_r = delta_r.reshape(z.shape)
         w0 = w0.reshape(z.shape)
-        return a, delta, w0
+        return a_ring, r_ring, delta_r, w0
 
     def __call__(self, r: np.ndarray, z: np.ndarray) -> np.ndarray:
         """
@@ -320,8 +347,8 @@ class GaussianModel:
         """
         r = np.asarray(r, dtype=float)
         z = np.asarray(z, dtype=float)
-        a, delta, w0 = self.params_at(z)
-        return plain_gaussian(r, a=a, delta=delta, w0=w0)
+        a_ring, r_ring, delta_r, w0 = self.params_at(z)
+        return ring_gaussian(r, a_ring=a_ring, r_ring=r_ring, delta_r=delta_r, w0=w0)
 
 
 def make_z_grid(z_vals: np.ndarray) -> np.ndarray:
@@ -343,20 +370,21 @@ def make_z_grid(z_vals: np.ndarray) -> np.ndarray:
 
 def write_interpolated_table(
     z_grid: np.ndarray,
-    model: GaussianModel,
+    model: RingModel,
     out_path: Path,
     sheet_name: str,
 ) -> None:
     """
-    Write interpolated shared parameters to an Excel sheet.
+    Write interpolated parameters to an Excel sheet.
     """
-    a, delta, w0 = model.params_at(z_grid)
+    a_ring, r_ring, delta_r, w0 = model.params_at(z_grid)
 
     df_out = pd.DataFrame(
         {
             "z_m": z_grid,
-            "A": a,
-            "delta": delta,
+            "A_ring": a_ring,
+            "r_ring": r_ring,
+            "delta_r": delta_r,
             "w0": w0,
         }
     )
@@ -368,7 +396,7 @@ def write_interpolated_table(
 def write_interpolated_table_multi(
     z_grid: np.ndarray,
     fan_ids: Tuple[str, ...],
-    fan_models: Tuple[GaussianModel, ...],
+    fan_models: Tuple[RingModel, ...],
     out_path: Path,
     sheet_name: str,
 ) -> None:
@@ -378,19 +406,23 @@ def write_interpolated_table_multi(
     out_data = {"z_m": z_grid}
 
     a_stack = []
+    r_stack = []
     d_stack = []
     w0_stack = []
     for fan_id, model in zip(fan_ids, fan_models):
-        a, delta, w0 = model.params_at(z_grid)
-        out_data[f"A_{fan_id}"] = a
-        out_data[f"delta_{fan_id}"] = delta
+        a_ring, r_ring, delta_r, w0 = model.params_at(z_grid)
+        out_data[f"A_ring_{fan_id}"] = a_ring
+        out_data[f"r_ring_{fan_id}"] = r_ring
+        out_data[f"delta_r_{fan_id}"] = delta_r
         out_data[f"w0_{fan_id}"] = w0
-        a_stack.append(a)
-        d_stack.append(delta)
+        a_stack.append(a_ring)
+        r_stack.append(r_ring)
+        d_stack.append(delta_r)
         w0_stack.append(w0)
 
-    out_data["A"] = np.mean(np.vstack(a_stack), axis=0)
-    out_data["delta"] = np.mean(np.vstack(d_stack), axis=0)
+    out_data["A_ring"] = np.mean(np.vstack(a_stack), axis=0)
+    out_data["r_ring"] = np.mean(np.vstack(r_stack), axis=0)
+    out_data["delta_r"] = np.mean(np.vstack(d_stack), axis=0)
     out_data["w0"] = np.mean(np.vstack(w0_stack), axis=0)
 
     df_out = pd.DataFrame(out_data)
@@ -404,11 +436,12 @@ def main() -> None:
     fan_ids = discover_fan_ids(params_df)
 
     if len(fan_ids) == 0:
-        z_vals, a, delta, w0 = extract_params(params_df)
-        model = GaussianModel(
+        z_vals, a_ring, r_ring, delta_r, w0 = extract_params(params_df)
+        model = RingModel(
             z_vals=z_vals,
-            a=a,
-            delta=delta,
+            a_ring=a_ring,
+            r_ring=r_ring,
+            delta_r=delta_r,
             w0=w0,
         )
         z_grid = make_z_grid(z_vals)
@@ -418,16 +451,17 @@ def main() -> None:
         models = []
         z_ref = None
         for fan_id in fan_ids:
-            z_vals, a, delta, w0 = extract_params_for_fan(params_df, fan_id)
+            z_vals, a_ring, r_ring, delta_r, w0 = extract_params_for_fan(params_df, fan_id)
             if z_ref is None:
                 z_ref = z_vals
             elif not np.allclose(z_ref, z_vals, atol=1e-12, rtol=0.0):
                 raise ValueError("Per-fan z grids are inconsistent.")
 
-            model = GaussianModel(
+            model = RingModel(
                 z_vals=z_vals,
-                a=a,
-                delta=delta,
+                a_ring=a_ring,
+                r_ring=r_ring,
+                delta_r=delta_r,
                 w0=w0,
             )
             models.append(model)
@@ -447,7 +481,7 @@ def main() -> None:
             [f"{fan_id}:{model.high_anchor_enabled}" for fan_id, model in zip(fan_ids, models)]
         )
 
-    print("Built continuous plain-Gaussian model using PCHIP.")
+    print("Built continuous ring-Gaussian model using PCHIP.")
     print(f"Input:  {PARAMS_XLSX.resolve()}")
     print(f"Output: {OUT_XLSX_PATH.resolve()}")
     print(f"High-z anchor branch enabled: {enabled_str}")
