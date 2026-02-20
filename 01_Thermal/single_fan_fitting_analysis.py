@@ -3,7 +3,6 @@
 ### Imports
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
@@ -90,6 +89,8 @@ def load_per_height_metrics(excel_path: Path):
 
     total_rows = d[d["sheet"].str.upper() == "TOTAL"].copy()
     per_height = d[d["sheet"].str.upper() != "TOTAL"].copy()
+    if total_rows.empty:
+        raise ValueError(f"{excel_path} does not contain a TOTAL row.")
 
     per_height["z_m"] = pd.to_numeric(per_height["z_m"], errors="coerce")
     per_height["n_samples"] = pd.to_numeric(per_height["n_samples"], errors="coerce")
@@ -101,20 +102,15 @@ def load_per_height_metrics(excel_path: Path):
     per_height["sae_per_height_mps"] = per_height["accumulate_SAE_mps"]
     per_height = per_height.sort_values("z_m")
 
-    if total_rows.empty:
-        total_sae = float(per_height["sae_per_height_mps"].sum())
-        total_n = float(per_height["n_samples"].sum())
-        total_weighted_rmse = np.nan
-    else:
-        total_row = total_rows.iloc[0]
-        total_sae = float(total_row["accumulate_SAE_mps"])
-        total_n = float(total_row["n_samples"])
-        total_weighted_rmse = float(total_row["weighted_RMSE_mps"])
+    total_row = total_rows.iloc[0]
+    total_mae = float(pd.to_numeric(total_row["accumulate_SAE_mps"], errors="coerce"))
+    total_wrsae = float(pd.to_numeric(total_row["weighted_RMSE_mps"], errors="coerce"))
+    total_n = int(pd.to_numeric(total_row["n_samples"], errors="coerce"))
 
     total_metrics = {
-        "total_n_samples": int(total_n),
-        "total_sae_mps": total_sae,
-        "total_weighted_rmse_mps": total_weighted_rmse,
+        "total_n_samples": total_n,
+        "total_mae_mps": total_mae,
+        "total_wrsae_mps": total_wrsae,
     }
 
     cols = ["sheet", "z_m", "n_samples", "sae_per_height_mps", "weighted_rmse_per_height_mps"]
@@ -243,9 +239,8 @@ def main():
         total_rows.append(
             {
                 "model": spec["key"],
-                "total_n_samples": total_metrics["total_n_samples"],
-                "total_sae_mps": total_metrics["total_sae_mps"],
-                "total_weighted_rmse_mps": total_metrics["total_weighted_rmse_mps"],
+                "total_mae_mps": total_metrics["total_mae_mps"],
+                "total_wrsae_mps": total_metrics["total_wrsae_mps"],
             }
         )
 
@@ -264,7 +259,7 @@ def main():
         y_limits=SAE_Y_LIMITS,
     )
 
-    totals_df = pd.DataFrame(total_rows)
+    totals_df = pd.DataFrame(total_rows, columns=["model", "total_mae_mps", "total_wrsae_mps"])
     print(totals_df.to_string(index=False))
     print(f"Done. Saved plots to: {out_dir.resolve()}")
 
