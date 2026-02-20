@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import subprocess
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
 import aerosandbox as asb
 import aerosandbox.numpy as np
@@ -27,15 +27,18 @@ PLOT_DPI = 300
 PRIMARY_AIRFOIL_NAME = "naca0002"
 TRY_FLAT_PLATE_AIRFOIL = False
 
+# Physical constants
 G = 9.81
 RHO = 1.225
 
-DESIGN_SPEED_MPS = 6.5
+# Trim operating-point envelope
+DESIGN_SPEED_MPS = 4.0
 ALPHA_MIN_DEG = -4.0
 ALPHA_MAX_DEG = 12.0
 STALL_ALPHA_LIMIT_DEG = 14.0
 MAX_CL_AT_DESIGN_POINT = 1.20
 
+# Control-surface deflection limits
 DELTA_A_MIN_DEG = -30.0
 DELTA_A_MAX_DEG = 30.0
 DELTA_E_MIN_DEG = -30.0
@@ -43,13 +46,16 @@ DELTA_E_MAX_DEG = 30.0
 DELTA_R_MIN_DEG = -30.0
 DELTA_R_MAX_DEG = 30.0
 
+# Fixed geometry assumptions
 DIHEDRAL_DEG = 10.0
 
+# Wing design bounds
 WING_SPAN_MIN_M = 0.65
-WING_SPAN_MAX_M = 1.40
+WING_SPAN_MAX_M = 1.00
 WING_CHORD_MIN_M = 0.08
 WING_CHORD_MAX_M = 0.22
 
+# Tail design bounds
 TAIL_ARM_MIN_M = 0.40
 TAIL_ARM_MAX_M = 0.85
 HT_SPAN_MIN_M = 0.18
@@ -57,18 +63,22 @@ HT_SPAN_MAX_M = 0.45
 VT_HEIGHT_MIN_M = 0.08
 VT_HEIGHT_MAX_M = 0.26
 
+# Tail aspect-ratio assumptions
 HT_AR = 4.0
 VT_AR = 2.0
 
+# Mesh density used for AeroSandbox lifting surfaces
 N_WING_XSECS = 11
 N_TAIL_XSECS = 7
 
+# Control-surface geometry
 AILERON_ETA_INBOARD = 0.25
 AILERON_ETA_OUTBOARD = 0.45
 AILERON_CHORD_FRACTION = 0.28
 ELEVATOR_CHORD_FRACTION = 0.30
 RUDDER_CHORD_FRACTION = 0.35
 
+# Mass model assumptions
 WING_DENSITY_KG_M3 = 33.0
 WING_THICKNESS_M = 0.004
 TAIL_THICKNESS_M = 0.003
@@ -78,6 +88,7 @@ BOOM_LINEAR_DENSITY_KG_M = 0.009
 GLUE_FRACTION = 0.08
 BALLAST_MAX_KG = 0.025
 
+# Static-stability design window
 STATIC_MARGIN_MIN = 0.05
 STATIC_MARGIN_MAX = 0.10
 VH_MIN = 0.50
@@ -85,28 +96,42 @@ VH_MAX = 0.70
 VV_MIN = 0.03
 VV_MAX = 0.05
 
+# Aerodynamic and loading constraints
 MIN_L_OVER_D = 8.0
 MIN_RE_WING = 20_000.0
 MIN_WING_LOADING_N_M2 = 2.0
 MAX_WING_LOADING_N_M2 = 20.0
 
+# Lateral-directional stability derivative limits
 CNB_MIN = 0.0
 CLB_MAX = 0.0
 CMQ_MAX = -0.01
 
+# Roll-performance targets
 MIN_ROLL_RATE_RAD_S = 0.6
 MIN_ROLL_ACCEL_RAD_S2 = 2.0
 MAX_ROLL_TAU_S = 0.45
 
+# Servo sizing assumptions
 SERVO_TORQUE_LIMIT_NM = 0.12
 SERVO_SAFETY_FACTOR = 1.5
 HINGE_MOMENT_COEFF = 4.0
 
+# Objective-function weights
 MASS_WEIGHT_IN_OBJECTIVE = 0.20
 BALLAST_WEIGHT_IN_OBJECTIVE = 0.40
 CONTROL_TRIM_WEIGHT = 2e-4
 
 SpanAxis = Literal["y", "z"]
+
+# Float during post-processing, symbolic expression during optimization
+Scalar: TypeAlias = Any
+AeroMap: TypeAlias = dict[str, Scalar]
+MassPropertiesMap: TypeAlias = dict[str, asb.MassProperties]
+ReportValue: TypeAlias = str | float | int | bool | None
+ReportRow: TypeAlias = dict[str, ReportValue]
+ReportRows: TypeAlias = list[ReportRow]
+PathMap: TypeAlias = dict[str, Path]
 
 
 # =============================================================================
@@ -133,7 +158,7 @@ def ensure_output_dirs() -> None:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def to_scalar(value: Any) -> Any:
+def to_scalar(value: Scalar) -> float | Scalar:
     try:
         array = onp.asarray(value)
         if array.shape == ():
@@ -151,6 +176,7 @@ def to_scalar(value: Any) -> Any:
 # =============================================================================
 
 def build_flat_plate_airfoil() -> asb.Airfoil:
+    # Thin rectangular surrogate airfoil used as a fallback/debug model.
     eps = 1e-4
     coordinates = onp.array(
         [
@@ -163,19 +189,31 @@ def build_flat_plate_airfoil() -> asb.Airfoil:
     )
     airfoil = asb.Airfoil(name="flat_plate", coordinates=coordinates)
 
-    def cl_function(alpha_deg: Any, re: Any = None, mach: Any = None) -> Any:
+    def cl_function(
+        alpha_deg: Scalar,
+        re: Scalar | None = None,
+        mach: Scalar | None = None,
+    ) -> Scalar:
         _ = re
         _ = mach
         alpha_rad = np.radians(alpha_deg)
         return 2.0 * np.sin(alpha_rad) * np.cos(alpha_rad)
 
-    def cd_function(alpha_deg: Any, re: Any = None, mach: Any = None) -> Any:
+    def cd_function(
+        alpha_deg: Scalar,
+        re: Scalar | None = None,
+        mach: Scalar | None = None,
+    ) -> Scalar:
         _ = re
         _ = mach
         alpha_rad = np.radians(alpha_deg)
         return 2.0 * np.sin(alpha_rad) ** 2
 
-    def cm_function(alpha_deg: Any, re: Any = None, mach: Any = None) -> Any:
+    def cm_function(
+        alpha_deg: Scalar,
+        re: Scalar | None = None,
+        mach: Scalar | None = None,
+    ) -> Scalar:
         _ = alpha_deg
         _ = re
         _ = mach
@@ -188,6 +226,7 @@ def build_flat_plate_airfoil() -> asb.Airfoil:
 
 
 def build_reference_airfoil() -> tuple[asb.Airfoil, str]:
+    # Try the analytic flat-plate model first when explicitly requested
     if TRY_FLAT_PLATE_AIRFOIL:
         try:
             flat_plate = build_flat_plate_airfoil()
@@ -202,6 +241,7 @@ def build_reference_airfoil() -> tuple[asb.Airfoil, str]:
 
     airfoil = asb.Airfoil(name=PRIMARY_AIRFOIL_NAME)
     if GENERATE_POLARS:
+        # Precompute/cache XFoil-like polars for faster repeat runs
         try:
             airfoil.generate_polars(
                 cache_filename=str(CACHE_DIR / f"{PRIMARY_AIRFOIL_NAME}.json"),
@@ -209,7 +249,10 @@ def build_reference_airfoil() -> tuple[asb.Airfoil, str]:
             )
         except Exception as exc:
             print(
-                f"[WARN] Polar generation failed ({exc}); using default aerodynamic model.",
+                (
+                    f"[WARN] Polar generation failed ({exc}); "
+                    "using default aerodynamic model."
+                ),
                 flush=True,
             )
 
@@ -219,7 +262,8 @@ def build_reference_airfoil() -> tuple[asb.Airfoil, str]:
 # Geometry builders
 # =============================================================================
 
-def build_main_wing(airfoil: asb.Airfoil, span_m: Any, chord_m: Any) -> asb.Wing:
+def build_main_wing(airfoil: asb.Airfoil, span_m: Scalar, chord_m: Scalar) -> asb.Wing:
+    # Ailerons live on the outboard quarter of the semispan
     aileron_surface = asb.ControlSurface(
         name="aileron",
         symmetric=False,
@@ -229,6 +273,7 @@ def build_main_wing(airfoil: asb.Airfoil, span_m: Any, chord_m: Any) -> asb.Wing
 
     xsecs = []
     for eta in onp.linspace(0.0, 1.0, N_WING_XSECS):
+        # Straight rectangular planform with fixed dihedral.
         y_le = eta * span_m / 2.0
         z_le = y_le * np.tan(np.radians(DIHEDRAL_DEG))
         controls = []
@@ -250,9 +295,10 @@ def build_main_wing(airfoil: asb.Airfoil, span_m: Any, chord_m: Any) -> asb.Wing
 
 def build_horizontal_tail(
     airfoil: asb.Airfoil,
-    tail_arm_m: Any,
-    span_m: Any,
-) -> tuple[asb.Wing, Any]:
+    tail_arm_m: Scalar,
+    span_m: Scalar,
+) -> tuple[asb.Wing, Scalar]:
+    # Rectangular horizontal tail from span and fixed aspect ratio
     chord_m = span_m / HT_AR
     elevator_surface = asb.ControlSurface(
         name="elevator",
@@ -280,9 +326,10 @@ def build_horizontal_tail(
 
 def build_vertical_tail(
     airfoil: asb.Airfoil,
-    tail_arm_m: Any,
-    height_m: Any,
-) -> tuple[asb.Wing, Any]:
+    tail_arm_m: Scalar,
+    height_m: Scalar,
+) -> tuple[asb.Wing, Scalar]:
+    # Rectangular vertical tail from height and fixed aspect ratio
     chord_m = height_m / VT_AR
     rudder_surface = asb.ControlSurface(
         name="rudder",
@@ -308,7 +355,8 @@ def build_vertical_tail(
     return vtail, chord_m
 
 
-def build_fuselage(tail_arm_m: Any, htail_chord_m: Any) -> asb.Fuselage:
+def build_fuselage(tail_arm_m: Scalar, htail_chord_m: Scalar) -> asb.Fuselage:
+    # Lightweight boom/pod representation with nose and tail stations
     tail_x_m = tail_arm_m + 1.05 * htail_chord_m
     return asb.Fuselage(
         name="Fuselage",
@@ -323,7 +371,8 @@ def build_fuselage(tail_arm_m: Any, htail_chord_m: Any) -> asb.Fuselage:
 # Mass model and dynamics helpers
 # =============================================================================
 
-def surface_span(surface: asb.Wing, span_axis: SpanAxis) -> Any:
+def surface_span(surface: asb.Wing, span_axis: SpanAxis) -> Scalar:
+    # Span along Y for horizontal surfaces, Z for the vertical tail.
     coords = []
     for xsec in surface.xsecs:
         coord = xsec.xyz_le[1] if span_axis == "y" else xsec.xyz_le[2]
@@ -338,7 +387,11 @@ def surface_span(surface: asb.Wing, span_axis: SpanAxis) -> Any:
     return np.max(coords) - np.min(coords)
 
 
-def surface_mid_chord_xyz(surface: asb.Wing, span_axis: SpanAxis) -> tuple[Any, Any, Any]:
+def surface_mid_chord_xyz(
+    surface: asb.Wing,
+    span_axis: SpanAxis,
+) -> tuple[Scalar, Scalar, Scalar]:
+    # Mid-chord centroid approximation between root and tip sections.
     root = surface.xsecs[0]
     tip = surface.xsecs[-1]
 
@@ -361,6 +414,7 @@ def flat_plate_mass_properties(
     thickness_m: float,
     span_axis: SpanAxis,
 ) -> asb.MassProperties:
+    # Thin-plate mass and inertia approximation for foam lifting surfaces.
     span_m = surface_span(surface, span_axis=span_axis)
     area_m2 = surface.area()
     chord_m = area_m2 / np.maximum(span_m, 1e-8)
@@ -400,11 +454,12 @@ def build_mass_model(
     wing: asb.Wing,
     htail: asb.Wing,
     vtail: asb.Wing,
-    wing_chord_m: Any,
-    tail_arm_m: Any,
-) -> tuple[dict[str, asb.MassProperties], asb.MassProperties, Any]:
-    mass_props: dict[str, asb.MassProperties] = {}
+    wing_chord_m: Scalar,
+    tail_arm_m: Scalar,
+) -> tuple[MassPropertiesMap, asb.MassProperties, Scalar]:
+    mass_props: MassPropertiesMap = {}
 
+    # Structural lifting-surface masses.
     mass_props["wing"] = flat_plate_mass_properties(
         surface=wing,
         density_kg_m3=WING_DENSITY_KG_M3,
@@ -424,6 +479,7 @@ def build_mass_model(
         span_axis="z",
     )
 
+    # Fixed onboard components.
     mass_props["linkages"] = asb.MassProperties(mass=0.001, x_cg=0.5 * tail_arm_m)
     mass_props["receiver"] = asb.mass_properties_from_radius_of_gyration(
         mass=0.005,
@@ -445,6 +501,7 @@ def build_mass_model(
     )
     mass_props["pod"] = asb.MassProperties(mass=0.007, x_cg=NOSE_X_M + 0.015)
 
+    # Ballast is optimized to close CG/stability constraints.
     ballast_mass_kg = opti.variable(
         init_guess=0.0,
         lower_bound=0.0,
@@ -459,6 +516,7 @@ def build_mass_model(
     for component in mass_props.values():
         subtotal = subtotal + component
 
+    # Lump glue/assembly overhead as a fraction of subtotal.
     mass_props["glue"] = subtotal * GLUE_FRACTION
     total_mass = subtotal + mass_props["glue"]
 
@@ -466,11 +524,12 @@ def build_mass_model(
 
 
 def aileron_effectiveness_proxy(
-    aero: dict[str, Any],
+    aero: AeroMap,
     eta_inboard: float,
     eta_outboard: float,
     chord_fraction: float,
-) -> Any:
+) -> Scalar:
+    # Quick control-power proxy: Cl_delta_a ~ CLa * tau * outboard leverage.
     c_l_alpha = np.maximum(np.abs(aero["CLa"]), 1e-3)
     span_factor = np.maximum(eta_outboard ** 2 - eta_inboard ** 2, 1e-4)
     tau_aileron = 0.9 * chord_fraction
@@ -479,11 +538,12 @@ def aileron_effectiveness_proxy(
 
 
 def estimate_servo_hinge_moment(
-    q_dyn: Any,
-    control_area_m2: Any,
-    mean_chord_m: Any,
-    deflection_deg: Any,
-) -> Any:
+    q_dyn: Scalar,
+    control_area_m2: Scalar,
+    mean_chord_m: Scalar,
+    deflection_deg: Scalar,
+) -> Scalar:
+    # Quasi-steady hinge moment estimate for servo sizing checks.
     delta_rad = np.radians(np.abs(deflection_deg))
     moment_arm_m = 0.25 * mean_chord_m
     return q_dyn * control_area_m2 * HINGE_MOMENT_COEFF * delta_rad * moment_arm_m
@@ -494,11 +554,12 @@ def estimate_servo_hinge_moment(
 
 def constraint_record(
     name: str,
-    value: Any,
+    value: Scalar,
     lower: float | None = None,
     upper: float | None = None,
     tol: float = 1e-6,
-) -> dict[str, Any]:
+) -> ReportRow:
+    # Store each constraint with pass/fail status for CSV/XLSX reporting.
     value_f = to_scalar(value)
     passed = True
 
@@ -518,10 +579,11 @@ def constraint_record(
 
 
 def build_mass_rows(
-    mass_props: dict[str, asb.MassProperties],
-) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+    mass_props: MassPropertiesMap,
+) -> ReportRows:
+    rows: ReportRows = []
 
+    # Component-by-component mass and principal inertia table.
     for name, mp in mass_props.items():
         rows.append(
             {
@@ -541,20 +603,22 @@ def build_mass_rows(
     return rows
 
 
-def build_aero_rows(aero: dict[str, Any]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+def build_aero_rows(aero: AeroMap) -> ReportRows:
+    # Flat coefficient table for easier post-processing.
+    rows: ReportRows = []
     for key in sorted(aero.keys()):
         rows.append({"Coefficient": key, "Value": to_scalar(aero[key])})
     return rows
 
 
 def save_results(
-    summary_rows: list[dict[str, Any]],
-    geometry_rows: list[dict[str, Any]],
-    mass_rows: list[dict[str, Any]],
-    aero_rows: list[dict[str, Any]],
-    constraint_rows: list[dict[str, Any]],
-) -> dict[str, Path]:
+    summary_rows: ReportRows,
+    geometry_rows: ReportRows,
+    mass_rows: ReportRows,
+    aero_rows: ReportRows,
+    constraint_rows: ReportRows,
+) -> PathMap:
+    # Persist a compact CSV plus a multi-sheet workbook.
     summary_df = pd.DataFrame(summary_rows)
     geometry_df = pd.DataFrame(geometry_rows)
     mass_df = pd.DataFrame(mass_rows)
@@ -581,18 +645,22 @@ def save_results(
 
 def make_plots(
     airplane: asb.Airplane,
-    mass_props: dict[str, asb.MassProperties],
+    mass_props: MassPropertiesMap,
     total_mass: asb.MassProperties,
-) -> dict[str, Path]:
-    figure_outputs: dict[str, Path] = {}
+) -> PathMap:
+    figure_outputs: PathMap = {}
 
     if not MAKE_PLOTS:
         return figure_outputs
 
+    # Local imports keep startup light when plotting is disabled.
     import aerosandbox.tools.pretty_plots as pretty
     import matplotlib
+
     matplotlib.use("Agg", force=True)
+
     import matplotlib.pyplot as plt
+
     plt.ioff()
 
     airplane.draw_three_view(show=False)
@@ -609,6 +677,7 @@ def make_plots(
 
     mass_copy = copy.deepcopy(mass_props)
     if "ballast" in mass_copy and to_scalar(mass_copy["ballast"].mass) < 1e-6:
+        # Hide zero-ballast slice to avoid clutter.
         mass_copy.pop("ballast")
 
     labels = [name.replace("_", " ").title() for name in mass_copy.keys()]
@@ -617,9 +686,14 @@ def make_plots(
     pretty.pie(
         values=values,
         names=labels,
-        center_text=f"$\\bf{{Mass\\ Budget}}$\nTOGW: {to_scalar(total_mass.mass) * 1e3:.2f} g",
+        center_text=(
+            f"$\\bf{{Mass\\ Budget}}$\n"
+            f"TOGW: {to_scalar(total_mass.mass) * 1e3:.2f} g"
+        ),
         label_format=(
-            lambda name, value, percentage: f"{name}, {value * 1e3:.2f} g, {percentage:.1f}%"
+            lambda name, value, percentage: (
+                f"{name}, {value * 1e3:.2f} g, {percentage:.1f}%"
+            )
         ),
         startangle=110,
         arm_length=30,
@@ -636,11 +710,11 @@ def make_plots(
 
 
 def print_console_report(
-    summary_rows: list[dict[str, Any]],
-    geometry_rows: list[dict[str, Any]],
-    constraint_rows: list[dict[str, Any]],
-    output_paths: dict[str, Path],
-    figure_paths: dict[str, Path],
+    summary_rows: ReportRows,
+    geometry_rows: ReportRows,
+    constraint_rows: ReportRows,
+    output_paths: PathMap,
+    figure_paths: PathMap,
 ) -> None:
     summary = {row["Metric"]: row["Value"] for row in summary_rows}
     geometry = {row["Parameter"]: row["Value"] for row in geometry_rows}
@@ -656,7 +730,11 @@ def print_console_report(
 
     print("\n=== Nausicaa Baseline Design Report ===", flush=True)
     print("Design assumptions:", flush=True)
-    print("  - Steady-flow reference condition (no updraft / no roll-in trajectory)", flush=True)
+    print(
+        "  - Steady-flow reference condition "
+        "(no updraft / no roll-in trajectory)",
+        flush=True,
+    )
     print("  - Rectangular wing, fixed dihedral, shared tail arm", flush=True)
     print("  - Control limits set to +/-30 deg", flush=True)
 
@@ -731,17 +809,20 @@ def main() -> None:
     version = get_git_version()
     print(f"CODE_VERSION: {version}", flush=True)
 
+    # Initialization.
     ensure_output_dirs()
     airfoil, airfoil_label = build_reference_airfoil()
 
     opti = asb.Opti()
 
+    # Trim-state design variables.
     alpha_deg = opti.variable(
         init_guess=4.0,
         lower_bound=ALPHA_MIN_DEG,
         upper_bound=ALPHA_MAX_DEG,
     )
 
+    # Control-surface trim variables.
     delta_a_deg = opti.variable(
         init_guess=0.0,
         lower_bound=DELTA_A_MIN_DEG,
@@ -758,6 +839,7 @@ def main() -> None:
         upper_bound=DELTA_R_MAX_DEG,
     )
 
+    # Primary geometry design variables.
     wing_span_m = opti.variable(
         init_guess=1.00,
         lower_bound=WING_SPAN_MIN_M,
@@ -784,6 +866,7 @@ def main() -> None:
         upper_bound=VT_HEIGHT_MAX_M,
     )
 
+    # Airframe assembly.
     wing = build_main_wing(airfoil=airfoil, span_m=wing_span_m, chord_m=wing_chord_m)
     htail, htail_chord_m = build_horizontal_tail(
         airfoil=airfoil,
@@ -809,6 +892,7 @@ def main() -> None:
         }
     )
 
+    # Reference operating condition for trimmed glide.
     op_point = asb.OperatingPoint(
         velocity=DESIGN_SPEED_MPS,
         alpha=alpha_deg,
@@ -827,6 +911,7 @@ def main() -> None:
         tail_arm_m=tail_arm_m,
     )
 
+    # Aerodynamics about current CG with stability derivatives enabled.
     aero = asb.AeroBuildup(
         airplane=airplane,
         op_point=op_point,
@@ -839,6 +924,7 @@ def main() -> None:
         r=True,
     )
 
+    # Derived performance and stability metrics.
     wing_area_m2 = wing.area()
     wing_mac_m = wing.mean_aerodynamic_chord()
     htail_area_m2 = htail.area()
@@ -867,6 +953,7 @@ def main() -> None:
         chord_fraction=AILERON_CHORD_FRACTION,
     )
 
+    # Linearized roll response estimates.
     q_dyn = 0.5 * RHO * DESIGN_SPEED_MPS ** 2
     i_xx = np.maximum(total_mass.inertia_tensor[0, 0], 1e-8)
     clp_mag = np.maximum(np.abs(aero["Clp"]), 1e-5)
@@ -895,6 +982,7 @@ def main() -> None:
         / clp_mag
     )
 
+    # Control-surface areas/chords for hinge-moment checks.
     aileron_area_m2 = (
         wing_area_m2
         * (AILERON_ETA_OUTBOARD - AILERON_ETA_INBOARD)
@@ -926,10 +1014,13 @@ def main() -> None:
         deflection_deg=np.abs(delta_r_deg),
     )
 
+    # Apply servo safety factor to rated torque.
     servo_torque_available_nm = SERVO_TORQUE_LIMIT_NM / SERVO_SAFETY_FACTOR
 
+    # Penalize unnecessary trim deflections.
     trim_effort = delta_e_deg ** 2 + 0.3 * delta_r_deg ** 2 + 0.15 * delta_a_deg ** 2
 
+    # Objective: sink rate with light penalties on mass, ballast, and trim effort.
     objective = (
         sink_rate_mps
         + MASS_WEIGHT_IN_OBJECTIVE * total_mass.mass
@@ -938,6 +1029,7 @@ def main() -> None:
     )
     opti.minimize(objective)
 
+    # Feasibility constraints.
     opti.subject_to(
         [
             aero["L"] >= total_mass.mass * G,
@@ -969,6 +1061,7 @@ def main() -> None:
         ]
     )
 
+    # IPOPT setup.
     plugin_options = {"print_time": False, "verbose": False}
     ipopt_options = {
         "max_iter": 3000,
@@ -985,6 +1078,7 @@ def main() -> None:
         print("No feasible design was found with the current settings.", flush=True)
         return
 
+    # Numeric post-processing for reports and exports.
     airplane_num = solution(airplane)
     wing_num = copy.deepcopy(airplane_num.wings[0])
     htail_num = copy.deepcopy(airplane_num.wings[1])
@@ -1040,6 +1134,7 @@ def main() -> None:
 
     tail_arm_num = to_scalar(solution(tail_arm_m))
 
+    # Report tables.
     summary_rows = [
         {"Metric": "code_version", "Value": version, "Unit": "-"},
         {"Metric": "airfoil_model", "Value": airfoil_label, "Unit": "-"},
@@ -1132,9 +1227,11 @@ def main() -> None:
         },
     ]
 
+    # Expanded per-component outputs.
     mass_rows = build_mass_rows(mass_props_num)
     aero_rows = build_aero_rows(aero_num)
 
+    # Constraint audit table (mirrors optimization constraints).
     constraint_rows = [
         constraint_record("Lift >= Weight", aero_num["L"], lower=mass_total_num * G),
         constraint_record("Drag >= 0", aero_num["D"], lower=1e-3),
@@ -1146,7 +1243,11 @@ def main() -> None:
             aero_num["CL"],
             upper=MAX_CL_AT_DESIGN_POINT,
         ),
-        constraint_record("Alpha <= stall margin", alpha_num, upper=STALL_ALPHA_LIMIT_DEG),
+        constraint_record(
+            "Alpha <= stall margin",
+            alpha_num,
+            upper=STALL_ALPHA_LIMIT_DEG,
+        ),
         constraint_record("L/D minimum", l_over_d_num, lower=MIN_L_OVER_D),
         constraint_record(
             "Wing loading minimum",
@@ -1159,8 +1260,16 @@ def main() -> None:
             upper=MAX_WING_LOADING_N_M2,
         ),
         constraint_record("Wing Reynolds", reynolds_num, lower=MIN_RE_WING),
-        constraint_record("Static margin minimum", static_margin_num, lower=STATIC_MARGIN_MIN),
-        constraint_record("Static margin maximum", static_margin_num, upper=STATIC_MARGIN_MAX),
+        constraint_record(
+            "Static margin minimum",
+            static_margin_num,
+            lower=STATIC_MARGIN_MIN,
+        ),
+        constraint_record(
+            "Static margin maximum",
+            static_margin_num,
+            upper=STATIC_MARGIN_MAX,
+        ),
         constraint_record("Vh minimum", tail_volume_h_num, lower=VH_MIN),
         constraint_record("Vh maximum", tail_volume_h_num, upper=VH_MAX),
         constraint_record("Vv minimum", tail_volume_v_num, lower=VV_MIN),
@@ -1168,8 +1277,16 @@ def main() -> None:
         constraint_record("Clb <= 0", aero_num["Clb"], upper=CLB_MAX),
         constraint_record("Cnb >= 0", aero_num["Cnb"], lower=CNB_MIN),
         constraint_record("Cmq <= -0.01", aero_num["Cmq"], upper=CMQ_MAX),
-        constraint_record("Roll rate minimum", roll_rate_num, lower=MIN_ROLL_RATE_RAD_S),
-        constraint_record("Roll accel minimum", roll_accel_num, lower=MIN_ROLL_ACCEL_RAD_S2),
+        constraint_record(
+            "Roll rate minimum",
+            roll_rate_num,
+            lower=MIN_ROLL_RATE_RAD_S,
+        ),
+        constraint_record(
+            "Roll accel minimum",
+            roll_accel_num,
+            lower=MIN_ROLL_ACCEL_RAD_S2,
+        ),
         constraint_record("Roll time constant", roll_tau_num, upper=MAX_ROLL_TAU_S),
         constraint_record(
             "Aileron servo torque",
@@ -1188,6 +1305,7 @@ def main() -> None:
         ),
     ]
 
+    # Persist outputs and figures.
     output_paths = save_results(
         summary_rows=summary_rows,
         geometry_rows=geometry_rows,
@@ -1196,7 +1314,7 @@ def main() -> None:
         constraint_rows=constraint_rows,
     )
 
-    figure_paths: dict[str, Path] = {}
+    figure_paths: PathMap = {}
     try:
         figure_paths = make_plots(
             airplane=airplane_num,
