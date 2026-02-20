@@ -112,10 +112,13 @@ MIN_ROLL_RATE_RAD_S = 0.6
 MIN_ROLL_ACCEL_RAD_S2 = 2.0
 MAX_ROLL_TAU_S = 0.45
 
-# Servo sizing assumptions
+# Servo sizing assumptions 
 SERVO_TORQUE_LIMIT_NM = 0.12
 SERVO_SAFETY_FACTOR = 1.5
 HINGE_MOMENT_COEFF = 4.0
+LINKAGE_EFFICIENCY = 0.80
+SERVO_ARM_M = 0.004
+CONTROL_HORN_ARM_M = 0.008
 
 # Objective-function weights
 MASS_WEIGHT_IN_OBJECTIVE = 0.20
@@ -1015,7 +1018,11 @@ def main() -> None:
     )
 
     # Apply servo safety factor to rated torque.
-    servo_torque_available_nm = SERVO_TORQUE_LIMIT_NM / SERVO_SAFETY_FACTOR
+    servo_torque_available_nm = (
+        SERVO_TORQUE_LIMIT_NM / SERVO_SAFETY_FACTOR
+        * (CONTROL_HORN_ARM_M / SERVO_ARM_M)
+        * LINKAGE_EFFICIENCY
+    )
 
     # Penalize unnecessary trim deflections.
     trim_effort = delta_e_deg ** 2 + 0.3 * delta_r_deg ** 2 + 0.15 * delta_a_deg ** 2
