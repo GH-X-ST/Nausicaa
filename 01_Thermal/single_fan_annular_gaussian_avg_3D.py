@@ -50,7 +50,7 @@ CBAR_Y = 0.15
 CBAR_W = 0.02
 CBAR_H = 0.77
 
-CBAR_LABEL = r"$w$ (m$\cdot$s$^{-1}$)"
+CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"
 AXIS_EDGE_LW = 0.80
 CBAR_EDGE_LW = AXIS_EDGE_LW
 CBAR_VMIN = 0.0
@@ -498,4 +498,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
 

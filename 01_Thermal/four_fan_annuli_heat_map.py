@@ -48,7 +48,7 @@ FOUR_FAN_CENTERS_XY = (
 )
 
 # Units / labels
-CBAR_LABEL = r"$w$ (m$\cdot$s$^{-1}$)"
+CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
@@ -462,6 +462,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
 
 
 

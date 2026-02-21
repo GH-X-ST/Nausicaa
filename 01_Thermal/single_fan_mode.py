@@ -265,7 +265,7 @@ def plot_point_3d(
         std = dd["std_w"].to_numpy(dtype=float)
 
         color = color_map.get(y0, "#4c78a8")
-        mean_label = rf"$\overline{{w}}$ (m/s) at $\omega$ = {int(y0)} rpm"
+        mean_label = rf"$\overline{{w}}$ (m $\!$s$^{{-1}}$) at $\omega$ = {int(y0)} rpm"
         add_mean_std_band(
             ax,
             x=x,
@@ -367,7 +367,7 @@ def plot_point_3d(
     # Labels / view
     ax.set_xlabel("Measurement height above fan outlet plane, $z_{{\mathrm{{fan}}}}$ (m)", labelpad=17)
     ax.set_ylabel("     Fan speed, $\omega$ (rpm)", labelpad=5)
-    ax.set_zlabel("$w$ (m/s)", labelpad=5, rotation=90)
+    ax.set_zlabel(r"$w$ (m $\!$s$^{-1}$)", labelpad=5, rotation=90)
     ax.zaxis.set_rotate_label(False)
     ax.set_xticks(sorted(d["z_meas_m"].unique()))
     for label in ax.get_xticklabels():
@@ -462,4 +462,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 

@@ -24,7 +24,7 @@ OUT_DIR.mkdir(exist_ok=True)
 MASK_ZEROS_AS_NODATA = False
 
 # Units / labels
-CBAR_LABEL = r"$\overline{w}$ (m$\cdot$s$^{-1}$)"   # vertical velocity
+CBAR_LABEL = r"$\overline{w}$ (m $\!$s$^{-1}$)"   # vertical velocity
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
@@ -261,6 +261,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
 
 

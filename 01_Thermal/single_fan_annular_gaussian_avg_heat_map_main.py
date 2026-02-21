@@ -36,7 +36,7 @@ PARAMS_XLSX = Path("B_results/single_annular_avg_params.xlsx")
 FAN_CENTER_XY = (4.2, 2.4)
 
 # Units / labels
-CBAR_LABEL = r"$w$ (m$\cdot$s$^{-1}$)"  # vertical velocity
+CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"  # vertical velocity
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
@@ -345,6 +345,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
 
 

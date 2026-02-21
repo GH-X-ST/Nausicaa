@@ -31,7 +31,7 @@ OUT_DIR = Path("A_figures/Four_Fan_GP")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Units / labels
-CBAR_LABEL = r"$w$ (m$\cdot$s$^{-1}$)"
+CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
@@ -320,6 +320,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
 
 
 

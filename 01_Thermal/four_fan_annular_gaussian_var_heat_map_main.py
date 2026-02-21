@@ -41,7 +41,7 @@ FOUR_FAN_CENTERS_XY = (
 )
 
 # Units / labels
-CBAR_LABEL = r"$w$ (m$\cdot$s$^{-1}$)"  # vertical velocity
+CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"  # vertical velocity
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
@@ -428,6 +428,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
