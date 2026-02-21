@@ -1,0 +1,24 @@
+Metric,Value,Unit
+code_version,a99069b-dirty,-
+airfoil_model,naca0002,-
+objective,0.48611862546769297,-
+design_speed_mps,4.0,m/s
+alpha_trim_deg,4.948056657649936,deg
+delta_a_trim_deg,6.014083662992938e-17,deg
+delta_e_trim_deg,0.883612080032152,deg
+delta_r_trim_deg,-8.295475058712677e-15,deg
+mass_total_kg,0.07007773737740047,kg
+mass_total_g,70.07773737740047,g
+mass_total_lbm,0.1544949651101946,lbm
+ballast_mass_kg,-1.0000746762338324e-08,kg
+sink_rate_mps,0.4719469279309158,m/s
+L_over_D,8.475529143488501,-
+wing_loading_n_m2,4.687449300794357,N/m^2
+reynolds_wing,39550.96498607255,-
+static_margin,0.10000000991700082,MAC fraction
+tail_volume_horizontal,0.49999999005418466,-
+tail_volume_vertical,0.0500000099349265,-
+roll_rate_ss_radps,0.9369224915803962,rad/s
+roll_accel0_rad_s2,86.48660579196596,rad/s^2
+roll_tau_s,0.010833151364895283,s
+max_servo_utilization,2.958862050697145e-05,fraction

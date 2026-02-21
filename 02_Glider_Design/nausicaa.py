@@ -54,8 +54,8 @@ DELTA_R_MAX_DEG = 30.0
 DIHEDRAL_DEG = 10.0
 
 # Wing design bounds
-WING_SPAN_MIN_M = 0.65
-WING_SPAN_MAX_M = 1.00
+WING_SPAN_MIN_M = 0.30
+WING_SPAN_MAX_M = 2.00
 WING_CHORD_MIN_M = 0.08
 WING_CHORD_MAX_M = 0.22
 
@@ -987,6 +987,21 @@ def legacy_single_run_main(
         upper_bound=VT_HEIGHT_MAX_M,
     )
 
+    variable_map = {
+        "alpha_deg": alpha_deg,
+        "delta_a_deg": delta_a_deg,
+        "delta_e_deg": delta_e_deg,
+        "delta_r_deg": delta_r_deg,
+        "wing_span_m": wing_span_m,
+        "wing_chord_m": wing_chord_m,
+        "tail_arm_m": tail_arm_m,
+        "htail_span_m": htail_span_m,
+        "vtail_height_m": vtail_height_m,
+    }
+    for name, variable in variable_map.items():
+        if name in init_override:
+            opti.set_initial(variable, float(init_override[name]))
+
     # Airframe assembly
     wing = build_main_wing(airfoil=airfoil, span_m=wing_span_m, chord_m=wing_chord_m)
     htail, htail_chord_m = build_horizontal_tail(
@@ -1192,6 +1207,8 @@ def legacy_single_run_main(
         "max_iter": 3000,
         "check_derivatives_for_naninf": "yes",
         "hessian_approximation": "limited-memory",
+        "print_level": 0,
+        "sb": "yes",
     }
     if ipopt_options is not None:
         solver_options.update(ipopt_options)
@@ -1742,7 +1759,12 @@ def trim_candidate_under_scenario(
     opti.solver(
         "ipopt",
         {"print_time": False, "verbose": False},
-        {"max_iter": 800, "hessian_approximation": "limited-memory"},
+        {
+            "max_iter": 800,
+            "hessian_approximation": "limited-memory",
+            "print_level": 0,
+            "sb": "yes",
+        },
     )
 
     try:
@@ -2001,11 +2023,46 @@ def save_workflow_workbook(
     ]
     robust_summary_df = robust_summary_df.reindex(columns=summary_columns)
 
+    correlation_columns = [
+        "candidate_id",
+        "scenario_id",
+        "mass_scale",
+        "cg_x_shift_mac",
+        "incidence_bias_deg",
+        "control_eff",
+        "drag_factor",
+        "alpha_deg",
+        "delta_a_deg",
+        "delta_e_deg",
+        "delta_r_deg",
+        "sink_rate_mps",
+        "L_over_D",
+        "CL",
+        "D",
+        "alpha_margin_deg",
+        "cl_margin_to_cap",
+        "delta_e_util",
+        "delta_r_util",
+        "delta_a_util",
+    ]
+    correlation_data_df = robust_scenarios_df[
+        robust_scenarios_df["trim_success"] == True
+    ].reindex(columns=correlation_columns)
+
+    numeric_df = correlation_data_df.select_dtypes(include=["number"]).copy()
+    if not numeric_df.empty:
+        numeric_df = numeric_df.loc[:, numeric_df.nunique(dropna=True) > 1]
+        correlation_matrix_df = numeric_df.corr(numeric_only=True)
+    else:
+        correlation_matrix_df = pd.DataFrame()
+
     with pd.ExcelWriter(workflow_path) as writer:
         run_info_df.to_excel(writer, sheet_name="RunInfo", index=False)
         candidates_df.to_excel(writer, sheet_name="Candidates", index=False)
         robust_scenarios_df.to_excel(writer, sheet_name="RobustScenarios", index=False)
         robust_summary_df.to_excel(writer, sheet_name="RobustSummary", index=False)
+        correlation_data_df.to_excel(writer, sheet_name="CorrelationData", index=False)
+        correlation_matrix_df.to_excel(writer, sheet_name="CorrelationMatrix", index=True)
 
         if selected_candidate is not None:
             if selected_candidate.summary_rows is not None:
@@ -2097,6 +2154,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--random-seed", type=int, default=WorkflowConfig.random_seed)
     parser.add_argument("--n-scenarios", type=int, default=WorkflowConfig.n_scenarios)
     parser.add_argument("--scenario-seed", type=int, default=WorkflowConfig.scenario_seed)
+    parser.add_argument("--dedup-span-m", type=float, default=WorkflowConfig.dedup_span_m)
+    parser.add_argument("--dedup-chord-m", type=float, default=WorkflowConfig.dedup_chord_m)
+    parser.add_argument(
+        "--dedup-tail-arm-m",
+        type=float,
+        default=WorkflowConfig.dedup_tail_arm_m,
+    )
     return parser.parse_args()
 
 
@@ -2111,6 +2175,9 @@ def main() -> None:
             random_seed=int(args.random_seed),
             n_scenarios=max(1, int(args.n_scenarios)),
             scenario_seed=int(args.scenario_seed),
+            dedup_span_m=max(1e-9, float(args.dedup_span_m)),
+            dedup_chord_m=max(1e-9, float(args.dedup_chord_m)),
+            dedup_tail_arm_m=max(1e-9, float(args.dedup_tail_arm_m)),
         )
         print(
             (
