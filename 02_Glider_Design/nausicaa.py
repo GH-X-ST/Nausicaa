@@ -35,8 +35,26 @@ TRY_FLAT_PLATE_AIRFOIL = False
 G = 9.81
 RHO = 1.225
 
+# Arena geometry (meters)
+ARENA_LENGTH_M = 8.4
+ARENA_WIDTH_M = 4.8
+ARENA_HEIGHT_M = 3.5
+
+# Two-speed design points
+V_TURN_MPS = 3.0
+V_NOM_MPS = 4.0
+
+# Manoeuvre definition (coordinated, level turn)
+TURN_BANK_DEG = 50.0
+WALL_CLEARANCE_M = 0.50
+TURN_DEFLECTION_UTIL_MAX = 0.80
+
+# Stall / margin settings for manoeuvre case
+TURN_ALPHA_MARGIN_DEG = 2.0
+TURN_CL_CAP = 0.90
+
 # Trim operating-point envelope
-DESIGN_SPEED_MPS = 4.0
+DESIGN_SPEED_MPS = V_NOM_MPS
 ALPHA_MIN_DEG = -4.0
 ALPHA_MAX_DEG = 12.0
 STALL_ALPHA_LIMIT_DEG = 14.0
@@ -202,6 +220,7 @@ class Candidate:
     mass_rows: ReportRows | None = None
     aero_rows: ReportRows | None = None
     constraint_rows: ReportRows | None = None
+    design_points_rows: ReportRows | None = None
     wing_area_m2: float = float("nan")
     wing_mac_m: float = float("nan")
     airfoil_label: str = ""
@@ -728,6 +747,7 @@ def save_results(
     mass_rows: ReportRows,
     aero_rows: ReportRows,
     constraint_rows: ReportRows,
+    design_points_rows: ReportRows | None = None,
 ) -> PathMap:
     # Persist a compact CSV plus a multi-sheet workbook
     summary_df = pd.DataFrame(summary_rows)
@@ -747,6 +767,12 @@ def save_results(
         mass_df.to_excel(writer, sheet_name="MassBreakdown", index=False)
         aero_df.to_excel(writer, sheet_name="Aerodynamics", index=False)
         constraints_df.to_excel(writer, sheet_name="Constraints", index=False)
+        if design_points_rows is not None:
+            pd.DataFrame(design_points_rows).to_excel(
+                writer,
+                sheet_name="DesignPoints",
+                index=False,
+            )
 
     return {
         "results_csv": csv_path,
@@ -851,7 +877,7 @@ def print_console_report(
 
     print("\nTrimmed flight point:", flush=True)
     print(
-        f"  V = {DESIGN_SPEED_MPS:.2f} m/s | alpha = {fmt('alpha_trim_deg', 3)} deg",
+        f"  V_nom = {V_NOM_MPS:.2f} m/s | alpha = {fmt('alpha_trim_deg', 3)} deg",
         flush=True,
     )
     print(
@@ -1028,9 +1054,23 @@ def legacy_single_run_main(
         }
     )
 
-    # Reference operating condition for trimmed glide
-    op_point = asb.OperatingPoint(
-        velocity=DESIGN_SPEED_MPS,
+    atmos = asb.Atmosphere(altitude=0.0)
+
+    # Nominal operating condition for efficiency objective
+    op_point_nom = asb.OperatingPoint(
+        atmosphere=atmos,
+        velocity=V_NOM_MPS,
+        alpha=alpha_deg,
+        beta=0.0,
+        p=0.0,
+        q=0.0,
+        r=0.0,
+    )
+
+    # Manoeuvre operating condition for arena-feasibility constraints
+    op_point_turn = asb.OperatingPoint(
+        atmosphere=atmos,
+        velocity=V_TURN_MPS,
         alpha=alpha_deg,
         beta=0.0,
         p=0.0,
@@ -1047,10 +1087,10 @@ def legacy_single_run_main(
         tail_arm_m=tail_arm_m,
     )
 
-    # Aerodynamics about current CG with stability derivatives enabled
-    aero = asb.AeroBuildup(
+    # Nominal aerodynamics about current CG with stability derivatives
+    aero_nom = asb.AeroBuildup(
         airplane=airplane,
-        op_point=op_point,
+        op_point=op_point_nom,
         xyz_ref=total_mass.xyz_cg,
     ).run_with_stability_derivatives(
         alpha=True,
@@ -1060,6 +1100,13 @@ def legacy_single_run_main(
         r=True,
     )
 
+    # Manoeuvre-point aerodynamics for two-speed constraints
+    aero_turn = asb.AeroBuildup(
+        airplane=airplane,
+        op_point=op_point_turn,
+        xyz_ref=total_mass.xyz_cg,
+    ).run()
+
     # Derived performance and stability metrics
     wing_area_m2 = wing.area()
     wing_mac_m = wing.mean_aerodynamic_chord()
@@ -1067,8 +1114,8 @@ def legacy_single_run_main(
     vtail_area_m2 = vtail.area()
 
     wing_loading_n_m2 = total_mass.mass * G / np.maximum(wing_area_m2, 1e-8)
-    reynolds_wing = op_point.reynolds(wing_mac_m)
-    static_margin = (aero["x_np"] - total_mass.x_cg) / np.maximum(wing_mac_m, 1e-8)
+    reynolds_wing = op_point_nom.reynolds(wing_mac_m)
+    static_margin = (aero_nom["x_np"] - total_mass.x_cg) / np.maximum(wing_mac_m, 1e-8)
 
     tail_volume_horizontal = htail_area_m2 * tail_arm_m / np.maximum(
         wing_area_m2 * wing_mac_m,
@@ -1079,20 +1126,22 @@ def legacy_single_run_main(
         1e-8,
     )
 
-    l_over_d = aero["L"] / np.maximum(aero["D"], 1e-8)
-    sink_rate_mps = aero["D"] * DESIGN_SPEED_MPS / np.maximum(total_mass.mass * G, 1e-8)
+    l_over_d = aero_nom["L"] / np.maximum(aero_nom["D"], 1e-8)
+    sink_rate_nom_mps = (
+        aero_nom["D"] * V_NOM_MPS / np.maximum(total_mass.mass * G, 1e-8)
+    )
 
     cl_delta_a = aileron_effectiveness_proxy(
-        aero=aero,
+        aero=aero_nom,
         eta_inboard=AILERON_ETA_INBOARD,
         eta_outboard=AILERON_ETA_OUTBOARD,
         chord_fraction=AILERON_CHORD_FRACTION,
     )
 
     # Linearized roll response estimates
-    q_dyn = 0.5 * RHO * DESIGN_SPEED_MPS ** 2
+    q_dyn = 0.5 * RHO * V_NOM_MPS ** 2
     i_xx = np.maximum(total_mass.inertia_tensor[0, 0], 1e-8)
-    clp_mag = np.maximum(np.abs(aero["Clp"]), 1e-5)
+    clp_mag = np.maximum(np.abs(aero_nom["Clp"]), 1e-5)
     delta_a_max_rad = np.radians(DELTA_A_MAX_DEG)
 
     roll_accel0_rad_s2 = (
@@ -1104,14 +1153,14 @@ def legacy_single_run_main(
         / i_xx
     )
 
-    roll_tau_s = (2.0 * i_xx * DESIGN_SPEED_MPS) / np.maximum(
+    roll_tau_s = (2.0 * i_xx * V_NOM_MPS) / np.maximum(
         q_dyn * wing_area_m2 * wing_span_m ** 2 * clp_mag,
         1e-8,
     )
 
     roll_rate_ss_radps = (
         2.0
-        * DESIGN_SPEED_MPS
+        * V_NOM_MPS
         / np.maximum(wing_span_m, 1e-8)
         * np.abs(cl_delta_a)
         * delta_a_max_rad
@@ -1160,9 +1209,13 @@ def legacy_single_run_main(
     # Penalize unnecessary trim deflections
     trim_effort = delta_e_deg ** 2 + 0.3 * delta_r_deg ** 2 + 0.15 * delta_a_deg ** 2
 
-    # Objective: sink rate with light penalties on mass, ballast, and trim effort
+    # Arena footprint for coordinated level turn
+    phi_turn_rad = np.radians(TURN_BANK_DEG)
+    turn_radius_m = V_TURN_MPS ** 2 / (G * np.tan(phi_turn_rad))
+
+    # Objective: nominal-speed sink with light penalties on mass, ballast, and trim effort
     objective = (
-        sink_rate_mps
+        sink_rate_nom_mps
         + MASS_WEIGHT_IN_OBJECTIVE * total_mass.mass
         + BALLAST_WEIGHT_IN_OBJECTIVE * ballast_mass_kg
         + CONTROL_TRIM_WEIGHT * trim_effort
@@ -1172,13 +1225,13 @@ def legacy_single_run_main(
     # Feasibility constraints
     opti.subject_to(
         [
-            aero["L"] >= total_mass.mass * G,
-            aero["D"] >= 1e-3,
-            aero["Cm"] == 0.0,
-            aero["Cl"] == 0.0,
-            aero["Cn"] == 0.0,
-            aero["CL"] <= MAX_CL_AT_DESIGN_POINT,
-            alpha_deg <= STALL_ALPHA_LIMIT_DEG,
+            # Nominal-speed trim/performance constraints
+            aero_nom["L"] >= total_mass.mass * G,
+            aero_nom["D"] >= 1e-3,
+            aero_nom["Cm"] == 0.0,
+            aero_nom["Cl"] == 0.0,
+            aero_nom["Cn"] == 0.0,
+            aero_nom["CL"] <= MAX_CL_AT_DESIGN_POINT,
             l_over_d >= MIN_L_OVER_D,
             opti.bounded(
                 MIN_WING_LOADING_N_M2,
@@ -1189,15 +1242,34 @@ def legacy_single_run_main(
             opti.bounded(STATIC_MARGIN_MIN, static_margin, STATIC_MARGIN_MAX),
             opti.bounded(VH_MIN, tail_volume_horizontal, VH_MAX),
             opti.bounded(VV_MIN, tail_volume_vertical, VV_MAX),
-            aero["Clb"] <= CLB_MAX,
-            aero["Cnb"] >= CNB_MIN,
-            aero["Cmq"] <= CMQ_MAX,
+            aero_nom["Clb"] <= CLB_MAX,
+            aero_nom["Cnb"] >= CNB_MIN,
+            aero_nom["Cmq"] <= CMQ_MAX,
             roll_rate_ss_radps >= MIN_ROLL_RATE_RAD_S,
             roll_accel0_rad_s2 >= MIN_ROLL_ACCEL_RAD_S2,
             roll_tau_s <= MAX_ROLL_TAU_S,
             hinge_moment_aileron_nm <= servo_torque_available_nm,
             hinge_moment_elevator_nm <= servo_torque_available_nm,
             hinge_moment_rudder_nm <= servo_torque_available_nm,
+            # Manoeuvre-speed constraints
+            turn_radius_m + 0.5 * wing_span_m + WALL_CLEARANCE_M <= 0.5 * ARENA_WIDTH_M,
+            aero_turn["CL"] <= TURN_CL_CAP,
+            alpha_deg <= (STALL_ALPHA_LIMIT_DEG - TURN_ALPHA_MARGIN_DEG),
+            opti.bounded(
+                -TURN_DEFLECTION_UTIL_MAX * DELTA_A_MAX_DEG,
+                delta_a_deg,
+                TURN_DEFLECTION_UTIL_MAX * DELTA_A_MAX_DEG,
+            ),
+            opti.bounded(
+                -TURN_DEFLECTION_UTIL_MAX * DELTA_E_MAX_DEG,
+                delta_e_deg,
+                TURN_DEFLECTION_UTIL_MAX * DELTA_E_MAX_DEG,
+            ),
+            opti.bounded(
+                -TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG,
+                delta_r_deg,
+                TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG,
+            ),
         ]
     )
 
@@ -1230,7 +1302,8 @@ def legacy_single_run_main(
 
     mass_props_num = solution(mass_props)
     total_mass_num = solution(total_mass)
-    aero_num = solution(aero)
+    aero_nom_num = solution(aero_nom)
+    aero_turn_num = solution(aero_turn)
 
     objective_num = to_scalar(solution(objective))
     alpha_num = to_scalar(solution(alpha_deg))
@@ -1238,7 +1311,7 @@ def legacy_single_run_main(
     delta_e_num = to_scalar(solution(delta_e_deg))
     delta_r_num = to_scalar(solution(delta_r_deg))
 
-    sink_rate_num = to_scalar(solution(sink_rate_mps))
+    sink_rate_num = to_scalar(solution(sink_rate_nom_mps))
     l_over_d_num = to_scalar(solution(l_over_d))
     mass_total_num = to_scalar(total_mass_num.mass)
     ballast_mass_num = to_scalar(solution(ballast_mass_kg))
@@ -1264,6 +1337,13 @@ def legacy_single_run_main(
         hinge_rudder_num,
     ) / servo_torque_available_nm
 
+    turn_radius_num = float(V_TURN_MPS ** 2 / (G * onp.tan(onp.radians(TURN_BANK_DEG))))
+    turn_footprint_lhs_num = (
+        turn_radius_num
+        + 0.5 * float(to_scalar(solution(wing_span_m)))
+        + WALL_CLEARANCE_M
+    )
+
     wing_span_num = to_scalar(wing_num.span())
     wing_area_num = to_scalar(wing_num.area())
     wing_chord_num = wing_area_num / max(wing_span_num, 1e-8)
@@ -1283,7 +1363,11 @@ def legacy_single_run_main(
         {"Metric": "code_version", "Value": version, "Unit": "-"},
         {"Metric": "airfoil_model", "Value": airfoil_label, "Unit": "-"},
         {"Metric": "objective", "Value": objective_num, "Unit": "-"},
-        {"Metric": "design_speed_mps", "Value": DESIGN_SPEED_MPS, "Unit": "m/s"},
+        {"Metric": "v_nom_mps", "Value": V_NOM_MPS, "Unit": "m/s"},
+        {"Metric": "v_turn_mps", "Value": V_TURN_MPS, "Unit": "m/s"},
+        {"Metric": "turn_bank_deg", "Value": TURN_BANK_DEG, "Unit": "deg"},
+        {"Metric": "arena_width_m", "Value": ARENA_WIDTH_M, "Unit": "m"},
+        {"Metric": "wall_clearance_m", "Value": WALL_CLEARANCE_M, "Unit": "m"},
         {"Metric": "alpha_trim_deg", "Value": alpha_num, "Unit": "deg"},
         {"Metric": "delta_a_trim_deg", "Value": delta_a_num, "Unit": "deg"},
         {"Metric": "delta_e_trim_deg", "Value": delta_e_num, "Unit": "deg"},
@@ -1298,6 +1382,9 @@ def legacy_single_run_main(
         {"Metric": "ballast_mass_kg", "Value": ballast_mass_num, "Unit": "kg"},
         {"Metric": "sink_rate_mps", "Value": sink_rate_num, "Unit": "m/s"},
         {"Metric": "L_over_D", "Value": l_over_d_num, "Unit": "-"},
+        {"Metric": "turn_radius_m", "Value": turn_radius_num, "Unit": "m"},
+        {"Metric": "turn_footprint_lhs_m", "Value": turn_footprint_lhs_num, "Unit": "m"},
+        {"Metric": "turn_CL", "Value": to_scalar(aero_turn_num["CL"]), "Unit": "-"},
         {
             "Metric": "wing_loading_n_m2",
             "Value": wing_loading_num,
@@ -1373,24 +1460,56 @@ def legacy_single_run_main(
 
     # Expanded per-component outputs
     mass_rows = build_mass_rows(mass_props_num)
-    aero_rows = build_aero_rows(aero_num)
+    aero_rows = []
+    aero_rows.extend(
+        {"Coefficient": f"nominal_{row['Coefficient']}", "Value": row["Value"]}
+        for row in build_aero_rows(aero_nom_num)
+    )
+    aero_rows.extend(
+        {"Coefficient": f"turn_{row['Coefficient']}", "Value": row["Value"]}
+        for row in build_aero_rows(aero_turn_num)
+    )
 
     # Constraint audit table (mirrors optimization constraints)
     constraint_rows = [
-        constraint_record("Lift >= Weight", aero_num["L"], lower=mass_total_num * G),
-        constraint_record("Drag >= 0", aero_num["D"], lower=1e-3),
-        constraint_record("Trim Cm", aero_num["Cm"], lower=0.0, upper=0.0, tol=1e-3),
-        constraint_record("Trim Cl", aero_num["Cl"], lower=0.0, upper=0.0, tol=1e-3),
-        constraint_record("Trim Cn", aero_num["Cn"], lower=0.0, upper=0.0, tol=1e-3),
+        constraint_record("Lift >= Weight", aero_nom_num["L"], lower=mass_total_num * G),
+        constraint_record("Drag >= 0", aero_nom_num["D"], lower=1e-3),
+        constraint_record(
+            "Nominal Trim Cm",
+            aero_nom_num["Cm"],
+            lower=0.0,
+            upper=0.0,
+            tol=1e-3,
+        ),
+        constraint_record(
+            "Nominal Trim Cl",
+            aero_nom_num["Cl"],
+            lower=0.0,
+            upper=0.0,
+            tol=1e-3,
+        ),
+        constraint_record(
+            "Nominal Trim Cn",
+            aero_nom_num["Cn"],
+            lower=0.0,
+            upper=0.0,
+            tol=1e-3,
+        ),
         constraint_record(
             "CL <= CLmax",
-            aero_num["CL"],
+            aero_nom_num["CL"],
             upper=MAX_CL_AT_DESIGN_POINT,
         ),
         constraint_record(
-            "Alpha <= stall margin",
+            "Alpha <= turn stall margin",
             alpha_num,
-            upper=STALL_ALPHA_LIMIT_DEG,
+            upper=STALL_ALPHA_LIMIT_DEG - TURN_ALPHA_MARGIN_DEG,
+        ),
+        constraint_record("Turn CL cap", aero_turn_num["CL"], upper=TURN_CL_CAP),
+        constraint_record(
+            "Turn footprint in width",
+            turn_footprint_lhs_num,
+            upper=0.5 * ARENA_WIDTH_M,
         ),
         constraint_record("L/D minimum", l_over_d_num, lower=MIN_L_OVER_D),
         constraint_record(
@@ -1418,9 +1537,9 @@ def legacy_single_run_main(
         constraint_record("Vh maximum", tail_volume_h_num, upper=VH_MAX),
         constraint_record("Vv minimum", tail_volume_v_num, lower=VV_MIN),
         constraint_record("Vv maximum", tail_volume_v_num, upper=VV_MAX),
-        constraint_record("Clb <= 0", aero_num["Clb"], upper=CLB_MAX),
-        constraint_record("Cnb >= 0", aero_num["Cnb"], lower=CNB_MIN),
-        constraint_record("Cmq <= -0.01", aero_num["Cmq"], upper=CMQ_MAX),
+        constraint_record("Clb <= 0", aero_nom_num["Clb"], upper=CLB_MAX),
+        constraint_record("Cnb >= 0", aero_nom_num["Cnb"], lower=CNB_MIN),
+        constraint_record("Cmq <= -0.01", aero_nom_num["Cmq"], upper=CMQ_MAX),
         constraint_record(
             "Roll rate minimum",
             roll_rate_num,
@@ -1447,13 +1566,130 @@ def legacy_single_run_main(
             hinge_rudder_num,
             upper=servo_torque_available_nm,
         ),
+        constraint_record(
+            "Turn aileron trim utilization",
+            abs(delta_a_num),
+            upper=TURN_DEFLECTION_UTIL_MAX * DELTA_A_MAX_DEG,
+        ),
+        constraint_record(
+            "Turn elevator trim utilization",
+            abs(delta_e_num),
+            upper=TURN_DEFLECTION_UTIL_MAX * DELTA_E_MAX_DEG,
+        ),
+        constraint_record(
+            "Turn rudder trim utilization",
+            abs(delta_r_num),
+            upper=TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG,
+        ),
+    ]
+
+    design_points_rows: ReportRows = [
+        {"DesignPoint": "Settings", "Metric": "V_NOM_MPS", "Value": V_NOM_MPS, "Unit": "m/s"},
+        {"DesignPoint": "Settings", "Metric": "V_TURN_MPS", "Value": V_TURN_MPS, "Unit": "m/s"},
+        {
+            "DesignPoint": "Settings",
+            "Metric": "TURN_BANK_DEG",
+            "Value": TURN_BANK_DEG,
+            "Unit": "deg",
+        },
+        {
+            "DesignPoint": "Settings",
+            "Metric": "WALL_CLEARANCE_M",
+            "Value": WALL_CLEARANCE_M,
+            "Unit": "m",
+        },
+        {"DesignPoint": "Arena", "Metric": "ARENA_LENGTH_M", "Value": ARENA_LENGTH_M, "Unit": "m"},
+        {"DesignPoint": "Arena", "Metric": "ARENA_WIDTH_M", "Value": ARENA_WIDTH_M, "Unit": "m"},
+        {"DesignPoint": "Arena", "Metric": "ARENA_HEIGHT_M", "Value": ARENA_HEIGHT_M, "Unit": "m"},
+        {
+            "DesignPoint": "Nominal",
+            "Metric": "alpha_nom_deg",
+            "Value": alpha_num,
+            "Unit": "deg",
+        },
+        {
+            "DesignPoint": "Nominal",
+            "Metric": "delta_a_nom_deg",
+            "Value": delta_a_num,
+            "Unit": "deg",
+        },
+        {
+            "DesignPoint": "Nominal",
+            "Metric": "delta_e_nom_deg",
+            "Value": delta_e_num,
+            "Unit": "deg",
+        },
+        {
+            "DesignPoint": "Nominal",
+            "Metric": "delta_r_nom_deg",
+            "Value": delta_r_num,
+            "Unit": "deg",
+        },
+        {
+            "DesignPoint": "Nominal",
+            "Metric": "sink_nom_mps",
+            "Value": sink_rate_num,
+            "Unit": "m/s",
+        },
+        {
+            "DesignPoint": "Nominal",
+            "Metric": "CL_nom",
+            "Value": to_scalar(aero_nom_num["CL"]),
+            "Unit": "-",
+        },
+        {
+            "DesignPoint": "Manoeuvre",
+            "Metric": "alpha_turn_deg",
+            "Value": alpha_num,
+            "Unit": "deg",
+        },
+        {
+            "DesignPoint": "Manoeuvre",
+            "Metric": "delta_a_turn_deg",
+            "Value": delta_a_num,
+            "Unit": "deg",
+        },
+        {
+            "DesignPoint": "Manoeuvre",
+            "Metric": "delta_e_turn_deg",
+            "Value": delta_e_num,
+            "Unit": "deg",
+        },
+        {
+            "DesignPoint": "Manoeuvre",
+            "Metric": "delta_r_turn_deg",
+            "Value": delta_r_num,
+            "Unit": "deg",
+        },
+        {
+            "DesignPoint": "Manoeuvre",
+            "Metric": "CL_turn",
+            "Value": to_scalar(aero_turn_num["CL"]),
+            "Unit": "-",
+        },
+        {
+            "DesignPoint": "Manoeuvre",
+            "Metric": "turn_radius_m",
+            "Value": turn_radius_num,
+            "Unit": "m",
+        },
+        {
+            "DesignPoint": "Manoeuvre",
+            "Metric": "turn_footprint_lhs_m",
+            "Value": turn_footprint_lhs_num,
+            "Unit": "m",
+        },
     ]
 
     aero_scalar_map: dict[str, float] = {}
-    for key, value in aero_num.items():
+    for key, value in aero_nom_num.items():
         maybe_scalar = to_float_if_possible(value)
         if maybe_scalar is not None:
-            aero_scalar_map[key] = maybe_scalar
+            aero_scalar_map[f"nominal_{key}"] = maybe_scalar
+    for key, value in aero_turn_num.items():
+        maybe_scalar = to_float_if_possible(value)
+        if maybe_scalar is not None:
+            aero_scalar_map[f"turn_{key}"] = maybe_scalar
 
     candidate = Candidate(
         candidate_id=-1,
@@ -1487,6 +1723,7 @@ def legacy_single_run_main(
         mass_rows=mass_rows,
         aero_rows=aero_rows,
         constraint_rows=constraint_rows,
+        design_points_rows=design_points_rows,
         wing_area_m2=float(to_scalar(wing_area_num)),
         wing_mac_m=float(to_scalar(wing_num.mean_aerodynamic_chord())),
         airfoil_label=airfoil_label,
@@ -1502,6 +1739,7 @@ def legacy_single_run_main(
         mass_rows=mass_rows,
         aero_rows=aero_rows,
         constraint_rows=constraint_rows,
+        design_points_rows=design_points_rows,
     )
 
     figure_paths: PathMap = {}
@@ -1724,7 +1962,7 @@ def trim_candidate_under_scenario(
     xyz_ref = [base_x_cg + cg_shift_m, base_y_cg, base_z_cg]
 
     op_point = asb.OperatingPoint(
-        velocity=DESIGN_SPEED_MPS,
+        velocity=V_NOM_MPS,
         alpha=alpha_deg + incidence_bias_deg,
         beta=0.0,
         p=0.0,
@@ -1739,7 +1977,7 @@ def trim_candidate_under_scenario(
 
     weight_n = mass_scale * candidate.mass_total_kg * G
     drag_with_factor = aero["D"] * drag_factor
-    sink_rate_mps = drag_with_factor * DESIGN_SPEED_MPS / np.maximum(weight_n, 1e-8)
+    sink_rate_mps = drag_with_factor * V_NOM_MPS / np.maximum(weight_n, 1e-8)
     max_alpha_cap = STALL_ALPHA_LIMIT_DEG - config.stall_alpha_margin_deg
     max_cl_cap = MAX_CL_AT_DESIGN_POINT - config.cl_margin
     trim_penalty = delta_e_deg ** 2 + 0.3 * delta_r_deg ** 2 + 0.15 * delta_a_deg ** 2
@@ -1802,7 +2040,7 @@ def trim_candidate_under_scenario(
     drag_num = float(to_scalar(aero_num["D"])) * drag_factor
     lift_num = float(to_scalar(aero_num["L"]))
     cl_num = float(to_scalar(aero_num["CL"]))
-    sink_rate_num = drag_num * DESIGN_SPEED_MPS / max(weight_n, 1e-8)
+    sink_rate_num = drag_num * V_NOM_MPS / max(weight_n, 1e-8)
     l_over_d_num = lift_num / max(drag_num, 1e-8)
 
     return {
@@ -2095,6 +2333,12 @@ def save_workflow_workbook(
                     sheet_name="Constraints",
                     index=False,
                 )
+            if selected_candidate.design_points_rows is not None:
+                pd.DataFrame(selected_candidate.design_points_rows).to_excel(
+                    writer,
+                    sheet_name="DesignPoints",
+                    index=False,
+                )
 
     return workflow_path
 
@@ -2115,6 +2359,7 @@ def export_selected_candidate(candidate: Candidate) -> tuple[PathMap, PathMap]:
         mass_rows=candidate.mass_rows,
         aero_rows=candidate.aero_rows,
         constraint_rows=candidate.constraint_rows,
+        design_points_rows=candidate.design_points_rows,
     )
 
     figure_paths: PathMap = {}
