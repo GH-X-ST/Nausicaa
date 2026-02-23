@@ -40,8 +40,8 @@ ARENA_WIDTH_M = 4.8
 ARENA_HEIGHT_M = 3.5
 
 # Two-speed design points
-V_TURN_MPS = 3.5
-V_NOM_MPS = 4.0
+V_TURN_MPS = 3.0
+V_NOM_MPS = 3.5
 
 # Manoeuvre definition (coordinated, level turn)
 TURN_BANK_DEG = 50.0
@@ -79,10 +79,10 @@ WING_CHORD_MAX_M = 0.22
 # Tail design bounds
 TAIL_ARM_MIN_M = 0.40
 TAIL_ARM_MAX_M = 0.85
-HT_SPAN_MIN_M = 0.18
+HT_SPAN_MIN_M = 0.20
 HT_SPAN_MAX_M = 0.45
-VT_HEIGHT_MIN_M = 0.08
-VT_HEIGHT_MAX_M = 0.26
+VT_HEIGHT_MIN_M = 0.10
+VT_HEIGHT_MAX_M = 0.30
 
 # Tail aspect-ratio assumptions
 HT_AR = 4.0
@@ -93,21 +93,39 @@ N_WING_XSECS = 11
 N_TAIL_XSECS = 7
 
 # Control-surface geometry
-AILERON_ETA_INBOARD = 0.25
-AILERON_ETA_OUTBOARD = 0.45
-AILERON_CHORD_FRACTION = 0.28
+AILERON_ETA_INBOARD = 0.30
+AILERON_ETA_OUTBOARD = 0.70
+AILERON_CHORD_FRACTION = 0.30
 ELEVATOR_CHORD_FRACTION = 0.30
 RUDDER_CHORD_FRACTION = 0.35
 
 # Mass model assumptions
 WING_DENSITY_KG_M3 = 33.0
-WING_THICKNESS_M = 0.004
+WING_THICKNESS_M = 0.006
 TAIL_THICKNESS_M = 0.003
 NOSE_X_M = -0.11
 FUSE_RADIUS_M = 0.002
 BOOM_LINEAR_DENSITY_KG_M = 0.009
 GLUE_FRACTION = 0.08
 BALLAST_MAX_KG = 0.025
+
+# Avionics / hardware masses (kg)
+BATTERY_MASS_KG = 0.0090
+RECEIVER_MASS_KG = 0.0050
+FLIGHT_CONTROLLER_MASS_KG = 0.0050
+REGULATOR_MASS_KG = 0.0004
+SERVO_MASS_KG = 0.0022
+
+# Servo layout (4 total): 2 aileron + elevator + rudder
+AILERON_SERVO_SPAN_ETA = 0.45
+TAIL_SERVO_X_FRAC = 0.30
+
+# Battery sliding range
+BATTERY_X_MAX_FRAC = 0.60
+BATTERY_X_MIN_M = NOSE_X_M + 0.015
+
+# Optional carbon spar as line-mass
+WING_SPAR_LINEAR_DENSITY_KG_M = 0.001
 
 # Static-stability design window
 STATIC_MARGIN_MIN = 0.05
@@ -148,6 +166,8 @@ CONTROL_HORN_ARM_M = 0.008
 MASS_WEIGHT_IN_OBJECTIVE = 0.20
 BALLAST_WEIGHT_IN_OBJECTIVE = 0.40
 CONTROL_TRIM_WEIGHT = 2e-4
+BOUNDARY_HIT_REL_TOL = 1e-3
+BOUNDARY_HIT_ABS_TOL = 1e-6
 
 SpanAxis = Literal["y", "z"]
 
@@ -219,6 +239,7 @@ class Candidate:
     mass_rows: ReportRows | None = None
     aero_rows: ReportRows | None = None
     constraint_rows: ReportRows | None = None
+    boundary_rows: ReportRows | None = None
     design_points_rows: ReportRows | None = None
     wing_area_m2: float = float("nan")
     wing_mac_m: float = float("nan")
@@ -474,6 +495,27 @@ def surface_mid_chord_xyz(
     return x_cg, y_cg, z_cg
 
 
+def point_mass(
+    mass_kg: Scalar,
+    x_m: Scalar,
+    y_m: Scalar = 0.0,
+    z_m: Scalar = 0.0,
+) -> asb.MassProperties:
+    # Avionics are modeled as point masses; offsets capture inertia via parallel-axis terms.
+    return asb.MassProperties(
+        mass=mass_kg,
+        x_cg=x_m,
+        y_cg=y_m,
+        z_cg=z_m,
+        Ixx=0.0,
+        Iyy=0.0,
+        Izz=0.0,
+        Ixy=0.0,
+        Ixz=0.0,
+        Iyz=0.0,
+    )
+
+
 def flat_plate_mass_properties(
     surface: asb.Wing,
     density_kg_m3: float,
@@ -522,7 +564,7 @@ def build_mass_model(
     vtail: asb.Wing,
     wing_chord_m: Scalar,
     tail_arm_m: Scalar,
-) -> tuple[MassPropertiesMap, asb.MassProperties, Scalar]:
+) -> tuple[MassPropertiesMap, asb.MassProperties, Scalar, Scalar]:
     mass_props: MassPropertiesMap = {}
 
     # Structural lifting-surface masses
@@ -546,18 +588,70 @@ def build_mass_model(
     )
 
     # Fixed onboard components
-    mass_props["linkages"] = asb.MassProperties(mass=0.001, x_cg=0.5 * tail_arm_m)
-    mass_props["receiver"] = asb.mass_properties_from_radius_of_gyration(
-        mass=0.005,
-        x_cg=NOSE_X_M + 0.010,
+    mass_props["linkages"] = point_mass(0.001, x_m=0.5 * tail_arm_m)
+
+    # Battery as a dedicated CG-trim slider
+    battery_eta = opti.variable(
+        init_guess=0.60,
+        lower_bound=0.0,
+        upper_bound=1.0,
     )
-    mass_props["battery"] = asb.mass_properties_from_radius_of_gyration(
-        mass=0.013,
-        x_cg=0.25 * wing_chord_m,
+    x_batt_max = BATTERY_X_MAX_FRAC * wing_chord_m
+    x_batt = BATTERY_X_MIN_M + battery_eta * (x_batt_max - BATTERY_X_MIN_M)
+    mass_props["battery"] = point_mass(BATTERY_MASS_KG, x_m=x_batt)
+
+    # Central avionics cluster near battery/pod region
+    x_pod = TAIL_SERVO_X_FRAC * wing_chord_m
+    mass_props["flight_controller"] = point_mass(
+        FLIGHT_CONTROLLER_MASS_KG,
+        x_m=x_batt + 0.015,
     )
-    mass_props["servos"] = asb.mass_properties_from_radius_of_gyration(
-        mass=4.0 * 0.0022,
-        x_cg=0.30 * wing_chord_m,
+    mass_props["regulator"] = point_mass(
+        REGULATOR_MASS_KG,
+        x_m=x_batt + 0.010,
+    )
+    mass_props["receiver"] = point_mass(
+        RECEIVER_MASS_KG,
+        x_m=x_batt + 0.020,
+    )
+
+    # Servo layout: elevator/rudder central, ailerons spanwise in wing
+    mass_props["servo_elevator"] = point_mass(
+        SERVO_MASS_KG,
+        x_m=x_pod,
+        y_m=0.0,
+        z_m=0.0,
+    )
+    mass_props["servo_rudder"] = point_mass(
+        SERVO_MASS_KG,
+        x_m=x_pod,
+        y_m=0.0,
+        z_m=0.0,
+    )
+
+    half_span = 0.5 * surface_span(wing, span_axis="y")
+    servo_eta = np.clip(AILERON_SERVO_SPAN_ETA, AILERON_ETA_INBOARD, AILERON_ETA_OUTBOARD)
+    y_servo = servo_eta * half_span
+    z_servo = np.abs(y_servo) * np.tan(np.radians(DIHEDRAL_DEG))
+    mass_props["servo_aileron_R"] = point_mass(
+        SERVO_MASS_KG,
+        x_m=x_pod,
+        y_m=y_servo,
+        z_m=z_servo,
+    )
+    mass_props["servo_aileron_L"] = point_mass(
+        SERVO_MASS_KG,
+        x_m=x_pod,
+        y_m=-y_servo,
+        z_m=z_servo,
+    )
+
+    # Optional wing spar represented as line-mass collapsed at quarter chord
+    mass_props["wing_spar"] = point_mass(
+        WING_SPAR_LINEAR_DENSITY_KG_M * surface_span(wing, span_axis="y"),
+        x_m=0.25 * wing_chord_m,
+        y_m=0.0,
+        z_m=0.0,
     )
 
     boom_length_m = np.maximum(tail_arm_m - NOSE_X_M, 0.05)
@@ -565,7 +659,7 @@ def build_mass_model(
         mass=BOOM_LINEAR_DENSITY_KG_M * boom_length_m,
         x_cg=0.5 * (NOSE_X_M + tail_arm_m),
     )
-    mass_props["pod"] = asb.MassProperties(mass=0.007, x_cg=NOSE_X_M + 0.015)
+    mass_props["pod"] = point_mass(0.004, x_m=x_pod)
 
     # Ballast is optimized to close CG/stability constraints
     ballast_mass_kg = opti.variable(
@@ -586,7 +680,7 @@ def build_mass_model(
     mass_props["glue"] = subtotal * GLUE_FRACTION
     total_mass = subtotal + mass_props["glue"]
 
-    return mass_props, total_mass, ballast_mass_kg
+    return mass_props, total_mass, ballast_mass_kg, battery_eta
 
 
 def aileron_effectiveness_proxy(
@@ -644,6 +738,57 @@ def constraint_record(
     }
 
 
+def design_variable_boundary_record(
+    name: str,
+    value: Scalar,
+    lower: float,
+    upper: float,
+    unit: str,
+    rel_tol: float = BOUNDARY_HIT_REL_TOL,
+    abs_tol: float = BOUNDARY_HIT_ABS_TOL,
+) -> ReportRow:
+    # Track variables that are effectively pinned to explicit box bounds.
+    value_f = float(to_scalar(value))
+    scale = max(abs(lower), abs(upper), abs(upper - lower), 1e-9)
+    tol = max(abs_tol, rel_tol * scale)
+    at_lower = value_f <= lower + tol
+    at_upper = value_f >= upper - tol
+
+    if at_lower and at_upper:
+        bound_hit = "both"
+        warning = (
+            f"[WARN] {name} is pinned by coincident bounds "
+            f"(value={value_f:.6g}, lower={lower:.6g}, upper={upper:.6g})."
+        )
+    elif at_lower:
+        bound_hit = "lower"
+        warning = (
+            f"[WARN] {name} hit lower bound "
+            f"(value={value_f:.6g}, lower={lower:.6g}, tol={tol:.2g})."
+        )
+    elif at_upper:
+        bound_hit = "upper"
+        warning = (
+            f"[WARN] {name} hit upper bound "
+            f"(value={value_f:.6g}, upper={upper:.6g}, tol={tol:.2g})."
+        )
+    else:
+        bound_hit = "none"
+        warning = ""
+
+    return {
+        "Variable": name,
+        "Value": value_f,
+        "Lower": lower,
+        "Upper": upper,
+        "Unit": unit,
+        "Tolerance": tol,
+        "BoundHit": bound_hit,
+        "IsAtBoundary": bound_hit != "none",
+        "Warning": warning,
+    }
+
+
 def build_mass_rows(
     mass_props: MassPropertiesMap,
 ) -> ReportRows:
@@ -684,6 +829,7 @@ def save_results(
     aero_rows: ReportRows,
     constraint_rows: ReportRows,
     design_points_rows: ReportRows | None = None,
+    boundary_rows: ReportRows | None = None,
 ) -> PathMap:
     # Persist a compact CSV plus a multi-sheet workbook
     summary_df = pd.DataFrame(summary_rows)
@@ -703,6 +849,12 @@ def save_results(
         mass_df.to_excel(writer, sheet_name="MassBreakdown", index=False)
         aero_df.to_excel(writer, sheet_name="Aerodynamics", index=False)
         constraints_df.to_excel(writer, sheet_name="Constraints", index=False)
+        if boundary_rows is not None:
+            pd.DataFrame(boundary_rows).to_excel(
+                writer,
+                sheet_name="DesignVarBounds",
+                index=False,
+            )
         if design_points_rows is not None:
             pd.DataFrame(design_points_rows).to_excel(
                 writer,
@@ -786,6 +938,7 @@ def print_console_report(
     summary_rows: ReportRows,
     geometry_rows: ReportRows,
     constraint_rows: ReportRows,
+    boundary_rows: ReportRows | None,
     output_paths: PathMap,
     figure_paths: PathMap,
 ) -> None:
@@ -866,6 +1019,16 @@ def print_console_report(
     )
 
     print(f"\nConstraint checks: {passed}/{total} passed", flush=True)
+
+    print("\nDesign-variable boundary warnings:", flush=True)
+    boundary_hits = [
+        row for row in (boundary_rows or []) if bool(row.get("IsAtBoundary", False))
+    ]
+    if not boundary_hits:
+        print("  None.", flush=True)
+    else:
+        for row in boundary_hits:
+            print(f"  {row['Warning']}", flush=True)
 
     print("\nSaved files:", flush=True)
     for key, path in output_paths.items():
@@ -1014,7 +1177,7 @@ def legacy_single_run_main(
         r=0.0,
     )
 
-    mass_props, total_mass, ballast_mass_kg = build_mass_model(
+    mass_props, total_mass, ballast_mass_kg, battery_eta = build_mass_model(
         opti=opti,
         wing=wing,
         htail=htail,
@@ -1246,11 +1409,22 @@ def legacy_single_run_main(
     delta_a_num = to_scalar(solution(delta_a_deg))
     delta_e_num = to_scalar(solution(delta_e_deg))
     delta_r_num = to_scalar(solution(delta_r_deg))
+    wing_span_design_num = to_scalar(solution(wing_span_m))
+    wing_chord_design_num = to_scalar(solution(wing_chord_m))
+    tail_arm_design_num = to_scalar(solution(tail_arm_m))
+    htail_span_design_num = to_scalar(solution(htail_span_m))
+    vtail_height_design_num = to_scalar(solution(vtail_height_m))
+    battery_eta_num = to_scalar(solution(battery_eta))
 
     sink_rate_num = to_scalar(solution(sink_rate_nom_mps))
     l_over_d_num = to_scalar(solution(l_over_d))
     mass_total_num = to_scalar(total_mass_num.mass)
     ballast_mass_num = to_scalar(solution(ballast_mass_kg))
+    battery_x_num = to_scalar(
+        BATTERY_X_MIN_M
+        + battery_eta_num
+        * (BATTERY_X_MAX_FRAC * wing_chord_design_num - BATTERY_X_MIN_M)
+    )
 
     static_margin_num = to_scalar(solution(static_margin))
     tail_volume_h_num = to_scalar(solution(tail_volume_horizontal))
@@ -1276,7 +1450,7 @@ def legacy_single_run_main(
     turn_radius_num = float(V_TURN_MPS ** 2 / (G * onp.tan(onp.radians(TURN_BANK_DEG))))
     turn_footprint_lhs_num = (
         turn_radius_num
-        + 0.5 * float(to_scalar(solution(wing_span_m)))
+        + 0.5 * float(wing_span_design_num)
         + WALL_CLEARANCE_M
     )
 
@@ -1292,7 +1466,87 @@ def legacy_single_run_main(
     vtail_area_num = to_scalar(vtail_num.area())
     vtail_chord_num = vtail_area_num / max(vtail_height_num, 1e-8)
 
-    tail_arm_num = to_scalar(solution(tail_arm_m))
+    tail_arm_num = tail_arm_design_num
+
+    boundary_rows = [
+        design_variable_boundary_record(
+            name="alpha_deg",
+            value=alpha_num,
+            lower=ALPHA_MIN_DEG,
+            upper=ALPHA_MAX_DEG,
+            unit="deg",
+        ),
+        design_variable_boundary_record(
+            name="delta_a_deg",
+            value=delta_a_num,
+            lower=DELTA_A_MIN_DEG,
+            upper=DELTA_A_MAX_DEG,
+            unit="deg",
+        ),
+        design_variable_boundary_record(
+            name="delta_e_deg",
+            value=delta_e_num,
+            lower=DELTA_E_MIN_DEG,
+            upper=DELTA_E_MAX_DEG,
+            unit="deg",
+        ),
+        design_variable_boundary_record(
+            name="delta_r_deg",
+            value=delta_r_num,
+            lower=DELTA_R_MIN_DEG,
+            upper=DELTA_R_MAX_DEG,
+            unit="deg",
+        ),
+        design_variable_boundary_record(
+            name="wing_span_m",
+            value=wing_span_design_num,
+            lower=WING_SPAN_MIN_M,
+            upper=WING_SPAN_MAX_M,
+            unit="m",
+        ),
+        design_variable_boundary_record(
+            name="wing_chord_m",
+            value=wing_chord_design_num,
+            lower=WING_CHORD_MIN_M,
+            upper=WING_CHORD_MAX_M,
+            unit="m",
+        ),
+        design_variable_boundary_record(
+            name="tail_arm_m",
+            value=tail_arm_design_num,
+            lower=TAIL_ARM_MIN_M,
+            upper=TAIL_ARM_MAX_M,
+            unit="m",
+        ),
+        design_variable_boundary_record(
+            name="htail_span_m",
+            value=htail_span_design_num,
+            lower=HT_SPAN_MIN_M,
+            upper=HT_SPAN_MAX_M,
+            unit="m",
+        ),
+        design_variable_boundary_record(
+            name="vtail_height_m",
+            value=vtail_height_design_num,
+            lower=VT_HEIGHT_MIN_M,
+            upper=VT_HEIGHT_MAX_M,
+            unit="m",
+        ),
+        design_variable_boundary_record(
+            name="ballast_mass_kg",
+            value=ballast_mass_num,
+            lower=0.0,
+            upper=BALLAST_MAX_KG,
+            unit="kg",
+        ),
+        design_variable_boundary_record(
+            name="battery_slider_eta",
+            value=battery_eta_num,
+            lower=0.0,
+            upper=1.0,
+            unit="-",
+        ),
+    ]
 
     # Report tables
     summary_rows = [
@@ -1316,6 +1570,8 @@ def legacy_single_run_main(
             "Unit": "lbm",
         },
         {"Metric": "ballast_mass_kg", "Value": ballast_mass_num, "Unit": "kg"},
+        {"Metric": "battery_slider_eta", "Value": battery_eta_num, "Unit": "-"},
+        {"Metric": "battery_x_m", "Value": battery_x_num, "Unit": "m"},
         {"Metric": "sink_rate_mps", "Value": sink_rate_num, "Unit": "m/s"},
         {"Metric": "L_over_D", "Value": l_over_d_num, "Unit": "-"},
         {"Metric": "turn_radius_m", "Value": turn_radius_num, "Unit": "m"},
@@ -1359,6 +1615,24 @@ def legacy_single_run_main(
             "Unit": "fraction",
         },
     ]
+    boundary_hits = [row for row in boundary_rows if bool(row["IsAtBoundary"])]
+    summary_rows.append(
+        {
+            "Metric": "design_var_bound_hits_count",
+            "Value": len(boundary_hits),
+            "Unit": "-",
+        }
+    )
+    if boundary_hits:
+        summary_rows.append(
+            {
+                "Metric": "design_var_bound_hits",
+                "Value": "; ".join(
+                    f"{row['Variable']}:{row['BoundHit']}" for row in boundary_hits
+                ),
+                "Unit": "-",
+            }
+        )
 
     geometry_rows = [
         {"Parameter": "wing_span_m", "Value": wing_span_num, "Unit": "m"},
@@ -1659,6 +1933,7 @@ def legacy_single_run_main(
         mass_rows=mass_rows,
         aero_rows=aero_rows,
         constraint_rows=constraint_rows,
+        boundary_rows=boundary_rows,
         design_points_rows=design_points_rows,
         wing_area_m2=float(to_scalar(wing_area_num)),
         wing_mac_m=float(to_scalar(wing_num.mean_aerodynamic_chord())),
@@ -1676,6 +1951,7 @@ def legacy_single_run_main(
         aero_rows=aero_rows,
         constraint_rows=constraint_rows,
         design_points_rows=design_points_rows,
+        boundary_rows=boundary_rows,
     )
 
     figure_paths: PathMap = {}
@@ -1692,6 +1968,7 @@ def legacy_single_run_main(
         summary_rows=summary_rows,
         geometry_rows=geometry_rows,
         constraint_rows=constraint_rows,
+        boundary_rows=boundary_rows,
         output_paths=output_paths,
         figure_paths=figure_paths,
     )
@@ -2269,6 +2546,12 @@ def save_workflow_workbook(
                     sheet_name="Constraints",
                     index=False,
                 )
+            if selected_candidate.boundary_rows is not None:
+                pd.DataFrame(selected_candidate.boundary_rows).to_excel(
+                    writer,
+                    sheet_name="DesignVarBounds",
+                    index=False,
+                )
             if selected_candidate.design_points_rows is not None:
                 pd.DataFrame(selected_candidate.design_points_rows).to_excel(
                     writer,
@@ -2296,6 +2579,7 @@ def export_selected_candidate(candidate: Candidate) -> tuple[PathMap, PathMap]:
         aero_rows=candidate.aero_rows,
         constraint_rows=candidate.constraint_rows,
         design_points_rows=candidate.design_points_rows,
+        boundary_rows=candidate.boundary_rows,
     )
 
     figure_paths: PathMap = {}
@@ -2317,6 +2601,7 @@ def export_selected_candidate(candidate: Candidate) -> tuple[PathMap, PathMap]:
         summary_rows=candidate.summary_rows,
         geometry_rows=candidate.geometry_rows,
         constraint_rows=candidate.constraint_rows,
+        boundary_rows=candidate.boundary_rows,
         output_paths=output_paths,
         figure_paths=figure_paths,
     )
