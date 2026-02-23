@@ -25,11 +25,10 @@ RESULTS_DIR = Path("C_results")
 GENERATE_POLARS = True
 N_ALPHA = 25
 MAKE_PLOTS = True
-PLOT_DPI = 300
+PLOT_DPI = 1000
 RUN_WORKFLOW = False
 
 PRIMARY_AIRFOIL_NAME = "naca0002"
-TRY_FLAT_PLATE_AIRFOIL = False
 
 # Physical constants
 G = 9.81
@@ -41,7 +40,7 @@ ARENA_WIDTH_M = 4.8
 ARENA_HEIGHT_M = 3.5
 
 # Two-speed design points
-V_TURN_MPS = 3.0
+V_TURN_MPS = 3.5
 V_NOM_MPS = 4.0
 
 # Manoeuvre definition (coordinated, level turn)
@@ -297,70 +296,7 @@ def to_float_if_possible(value: Scalar) -> float | None:
 # Airfoil setup
 # =============================================================================
 
-def build_flat_plate_airfoil() -> asb.Airfoil:
-    # Thin rectangular surrogate airfoil used as a fallback/debug model
-    eps = 1e-4
-    coordinates = onp.array(
-        [
-            [0.0, 0.0],
-            [1.0, 0.0],
-            [1.0, eps],
-            [0.0, eps],
-            [0.0, 0.0],
-        ]
-    )
-    airfoil = asb.Airfoil(name="flat_plate", coordinates=coordinates)
-
-    def cl_function(
-        alpha_deg: Scalar,
-        re: Scalar | None = None,
-        mach: Scalar | None = None,
-    ) -> Scalar:
-        _ = re
-        _ = mach
-        alpha_rad = np.radians(alpha_deg)
-        return 2.0 * np.sin(alpha_rad) * np.cos(alpha_rad)
-
-    def cd_function(
-        alpha_deg: Scalar,
-        re: Scalar | None = None,
-        mach: Scalar | None = None,
-    ) -> Scalar:
-        _ = re
-        _ = mach
-        alpha_rad = np.radians(alpha_deg)
-        return 2.0 * np.sin(alpha_rad) ** 2
-
-    def cm_function(
-        alpha_deg: Scalar,
-        re: Scalar | None = None,
-        mach: Scalar | None = None,
-    ) -> Scalar:
-        _ = alpha_deg
-        _ = re
-        _ = mach
-        return 0.0
-
-    airfoil.CL_function = cl_function
-    airfoil.CD_function = cd_function
-    airfoil.CM_function = cm_function
-    return airfoil
-
-
 def build_reference_airfoil() -> tuple[asb.Airfoil, str]:
-    # Try the analytic flat-plate model first when explicitly requested
-    if TRY_FLAT_PLATE_AIRFOIL:
-        try:
-            flat_plate = build_flat_plate_airfoil()
-            _ = flat_plate.CL_function(0.0)
-            print("Using flat-plate airfoil model.", flush=True)
-            return flat_plate, "flat_plate"
-        except Exception as exc:
-            print(
-                f"[WARN] Flat-plate setup failed ({exc}); falling back to NACA0002.",
-                flush=True,
-            )
-
     airfoil = asb.Airfoil(name=PRIMARY_AIRFOIL_NAME)
     if GENERATE_POLARS:
         # Precompute/cache XFoil-like polars for faster repeat runs

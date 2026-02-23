@@ -26,16 +26,16 @@ SAE_Y_LIMITS = (0.0, 50.0)
 MODEL_SPECS = [
     {
         "key": "single_var",
-        "legend_label": "Plain Gaussian",
+        "legend_label": "Axisymmetric Gaussian plume",
         "excel": Path("B_results") / "single_var_analysis.xlsx",
         "color": "#6badd7",
         "linestyle": "-",
         "marker": "^",
-        "line_alpha": 0.40,
+        "line_alpha": 0.50,
     },
     {
         "key": "single_annular_var",
-        "legend_label": "Annular Gaussian",
+        "legend_label": "Axisymmetric annular-Gaussian",
         "excel": Path("B_results") / "single_annular_var_analysis.xlsx",
         "color": "#206fb6",
         "linestyle": "-",
@@ -53,7 +53,7 @@ MODEL_SPECS = [
     },
     {
         "key": "single_gp",
-        "legend_label": "Gaussian Process regression",
+        "legend_label": "Gaussian process regression",
         "excel": Path("B_results") / "single_gp_analysis.xlsx",
         "color": "#ee3b2a",
         "linestyle": "-",
