@@ -26,7 +26,7 @@ GENERATE_POLARS = True
 N_ALPHA = 25
 MAKE_PLOTS = True
 PLOT_DPI = 1000
-RUN_WORKFLOW = False
+RUN_WORKFLOW = True
 
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -227,9 +227,9 @@ PathMap: TypeAlias = dict[str, Path]
 class WorkflowConfig:
     n_starts: int = 50
     keep_top_k: int = 10
-    random_seed: int = 1
+    random_seed: int = 15
     n_scenarios: int = 50
-    scenario_seed: int = 2
+    scenario_seed: int = 30
     dedup_span_m: float = 0.01
     dedup_chord_m: float = 0.005
     dedup_tail_arm_m: float = 0.01
@@ -361,6 +361,7 @@ def default_initial_guess() -> dict[str, float]:
 
 
 _AIRFOIL_CACHE: tuple[asb.Airfoil, str] | None = None
+_LAST_SOLVE_FAILURE_REASON: str | None = None
 
 
 # =============================================================================
@@ -1164,6 +1165,9 @@ def legacy_single_run_main(
     ipopt_options: dict[str, Any] | None = None,
     export_outputs: bool = True,
 ) -> Candidate | None:
+    global _LAST_SOLVE_FAILURE_REASON
+    _LAST_SOLVE_FAILURE_REASON = None
+
     version = get_git_version()
     print(f"CODE_VERSION: {version}", flush=True)
 
@@ -1605,6 +1609,7 @@ def legacy_single_run_main(
     try:
         solution = opti.solve()
     except RuntimeError as exc:
+        _LAST_SOLVE_FAILURE_REASON = str(exc)
         print(f"\n[SOLVE FAILED] {exc}", flush=True)
         print("No feasible design was found with the current settings", flush=True)
         return None
@@ -2331,12 +2336,15 @@ def legacy_single_run_main(
 def build_and_solve_once(
     init: dict[str, float],
     ipopt_options: dict[str, Any] | None = None,
-) -> Candidate | None:
-    return legacy_single_run_main(
+) -> tuple[Candidate | None, str | None]:
+    candidate = legacy_single_run_main(
         init_override=init,
         ipopt_options=ipopt_options,
         export_outputs=False,
     )
+    if candidate is None:
+        return candidate, (_LAST_SOLVE_FAILURE_REASON or "solve_failed_or_infeasible")
+    return candidate, None
 
 
 def sample_initial_guess(rng: onp.random.Generator) -> dict[str, float]:
@@ -2384,28 +2392,53 @@ def candidates_are_duplicates(
     )
 
 
-def run_multistart(config: WorkflowConfig) -> list[Candidate]:
+def run_multistart(config: WorkflowConfig) -> tuple[list[Candidate], pd.DataFrame]:
     rng = onp.random.default_rng(config.random_seed)
     feasible_candidates: list[Candidate] = []
+    all_starts_rows: list[dict[str, Any]] = []
 
     for start_index in range(config.n_starts):
+        start_id = start_index + 1
         init = sample_initial_guess(rng)
-        candidate = build_and_solve_once(init=init, ipopt_options=None)
+        candidate, failure_reason = build_and_solve_once(init=init, ipopt_options=None)
         if candidate is None:
-            print(f"[multistart] start {start_index + 1}/{config.n_starts} failed", flush=True)
+            print(f"[multistart] start {start_id}/{config.n_starts} failed", flush=True)
+            all_starts_rows.append(
+                {
+                    "start_index": start_id,
+                    "success": False,
+                    "status": "failed",
+                    "objective": float("nan"),
+                    "failure_reason": failure_reason or "solve_failed_or_infeasible",
+                    "kept_after_dedup": False,
+                    "kept_rank": float("nan"),
+                }
+            )
             continue
-        candidate.candidate_id = start_index + 1
+        candidate.candidate_id = start_id
         feasible_candidates.append(candidate)
+        all_starts_rows.append(
+            {
+                "start_index": start_id,
+                "success": True,
+                "status": "feasible",
+                "objective": float(candidate.objective),
+                "failure_reason": "",
+                "kept_after_dedup": False,
+                "kept_rank": float("nan"),
+            }
+        )
         print(
             (
-                f"[multistart] start {start_index + 1}/{config.n_starts} feasible "
+                f"[multistart] start {start_id}/{config.n_starts} feasible "
                 f"(objective={candidate.objective:.5f})"
             ),
             flush=True,
         )
 
     if not feasible_candidates:
-        return []
+        all_starts_df = pd.DataFrame(all_starts_rows).sort_values(by="start_index")
+        return [], all_starts_df
 
     deduped: list[Candidate] = []
     for candidate in sorted(feasible_candidates, key=lambda item: item.objective):
@@ -2414,9 +2447,22 @@ def run_multistart(config: WorkflowConfig) -> list[Candidate]:
         deduped.append(candidate)
 
     deduped = sorted(deduped, key=lambda item: item.objective)[: config.keep_top_k]
+    kept_rank_by_start: dict[int, int] = {}
     for idx, candidate in enumerate(deduped, start=1):
+        kept_rank_by_start[int(candidate.candidate_id)] = idx
         candidate.candidate_id = idx
-    return deduped
+
+    for row in all_starts_rows:
+        start_id = int(row["start_index"])
+        if bool(row.get("success", False)) and start_id in kept_rank_by_start:
+            row["kept_after_dedup"] = True
+            row["kept_rank"] = kept_rank_by_start[start_id]
+            row["status"] = "kept"
+        elif bool(row.get("success", False)):
+            row["status"] = "dropped_by_dedup_or_rank"
+
+    all_starts_df = pd.DataFrame(all_starts_rows).sort_values(by="start_index")
+    return deduped, all_starts_df
 
 
 def sample_scenarios(config: WorkflowConfig) -> pd.DataFrame:
@@ -3010,9 +3056,9 @@ def run_robust_postcheck(
 
         turn_util_values = onp.array(
             [
-                col_max(candidate_df, "turn_util_a"),
-                col_max(candidate_df, "turn_util_e"),
-                col_max(candidate_df, "turn_util_r"),
+                col_max(feasible_df, "turn_util_a"),
+                col_max(feasible_df, "turn_util_e"),
+                col_max(feasible_df, "turn_util_r"),
             ],
             dtype=float,
         )
@@ -3021,8 +3067,8 @@ def run_robust_postcheck(
 
         roll_tau_values = onp.array(
             [
-                col_max(candidate_df, "nom_roll_tau_s"),
-                col_max(candidate_df, "turn_roll_tau_s"),
+                col_max(feasible_df, "nom_roll_tau_s"),
+                col_max(feasible_df, "turn_roll_tau_s"),
             ],
             dtype=float,
         )
@@ -3038,17 +3084,17 @@ def run_robust_postcheck(
                 "sink_worst": sink_worst,
                 "sink_cvar_20": sink_cvar_20,
                 "max_turn_util_worst": max_turn_util_worst,
-                "min_turn_alpha_margin_worst": col_min(candidate_df, "turn_alpha_margin_deg"),
+                "min_turn_alpha_margin_worst": col_min(feasible_df, "turn_alpha_margin_deg"),
                 "max_turn_wing_defl_over_allow_worst": col_max(
-                    candidate_df,
+                    feasible_df,
                     "turn_wing_defl_over_allow",
                 ),
                 "max_roll_tau_worst": max_roll_tau_worst,
                 # Legacy-compatible summary aliases
-                "max_delta_e_util_worst": col_max(candidate_df, "nom_util_e"),
-                "max_alpha_worst": col_max(candidate_df, "nom_alpha_deg"),
-                "min_alpha_margin_worst": col_min(candidate_df, "nom_alpha_margin_deg"),
-                "min_cl_margin_worst": col_min(candidate_df, "nom_cl_margin_to_cap"),
+                "max_delta_e_util_worst": col_max(feasible_df, "nom_util_e"),
+                "max_alpha_worst": col_max(feasible_df, "nom_alpha_deg"),
+                "min_alpha_margin_worst": col_min(feasible_df, "nom_alpha_margin_deg"),
+                "min_cl_margin_worst": col_min(feasible_df, "nom_cl_margin_to_cap"),
                 "selection_score": selection_score,
                 "_objective_nominal": objective_by_candidate[candidate.candidate_id],
             }
@@ -3070,11 +3116,175 @@ def run_robust_postcheck(
     return robust_scenarios_df, robust_summary_df
 
 
+def build_worst_case_report(
+    candidates: list[Candidate],
+    robust_scenarios_df: pd.DataFrame,
+) -> pd.DataFrame:
+    core_columns = ["candidate_id", "metric", "mode", "value", "scenario_id"]
+    scenario_trace_candidates = [
+        "mass_scale",
+        "cg_x_shift_mac",
+        "incidence_bias_deg",
+        "eff_a",
+        "eff_e",
+        "eff_r",
+        "bias_a_deg",
+        "bias_e_deg",
+        "bias_r_deg",
+        "ixx_scale",
+        "iyy_scale",
+        "izz_scale",
+        "wing_E_scale",
+        "htail_E_scale",
+        "wing_thickness_scale",
+        "tail_thickness_scale",
+        "w_gust_nom",
+        "w_gust_turn",
+        "dw_dy",
+        "drag_factor",
+        "both_success",
+    ]
+    key_output_candidates = [
+        "nom_alpha_deg",
+        "nom_alpha_margin_deg",
+        "nom_CL",
+        "nom_cl_margin_to_cap",
+        "nom_sink_rate_mps",
+        "nom_util_a",
+        "nom_util_e",
+        "nom_util_r",
+        "nom_roll_tau_s",
+        "turn_alpha_deg",
+        "turn_alpha_margin_deg",
+        "turn_CL",
+        "turn_cl_margin_to_cap",
+        "turn_util_a",
+        "turn_util_e",
+        "turn_util_r",
+        "turn_wing_defl_over_allow",
+        "turn_htail_defl_over_allow",
+        "turn_roll_tau_s",
+    ]
+    scenario_trace_columns = [
+        col for col in scenario_trace_candidates if col in robust_scenarios_df.columns
+    ]
+    key_output_columns = [
+        col for col in key_output_candidates if col in robust_scenarios_df.columns
+    ]
+    report_columns = core_columns + scenario_trace_columns + key_output_columns
+
+    metric_specs: list[dict[str, Any]] = [
+        {"metric": "Nom sink rate", "mode": "max", "kind": "single", "column": "nom_sink_rate_mps"},
+        {"metric": "Nom alpha margin", "mode": "min", "kind": "single", "column": "nom_alpha_margin_deg"},
+        {"metric": "Nom CL margin to cap", "mode": "min", "kind": "single", "column": "nom_cl_margin_to_cap"},
+        {"metric": "Turn alpha margin", "mode": "min", "kind": "single", "column": "turn_alpha_margin_deg"},
+        {"metric": "Turn util a", "mode": "max", "kind": "single", "column": "turn_util_a"},
+        {"metric": "Turn util e", "mode": "max", "kind": "single", "column": "turn_util_e"},
+        {"metric": "Turn util r", "mode": "max", "kind": "single", "column": "turn_util_r"},
+        {
+            "metric": "Turn wing defl over allow",
+            "mode": "max",
+            "kind": "single",
+            "column": "turn_wing_defl_over_allow",
+        },
+        {
+            "metric": "Turn htail defl over allow",
+            "mode": "max",
+            "kind": "single",
+            "column": "turn_htail_defl_over_allow",
+        },
+        {
+            "metric": "Max roll tau",
+            "mode": "max",
+            "kind": "row_max",
+            "columns": ["nom_roll_tau_s", "turn_roll_tau_s"],
+        },
+    ]
+
+    report_rows: list[dict[str, Any]] = []
+
+    def make_empty_row(candidate_id: int, metric: str, mode: str) -> dict[str, Any]:
+        row: dict[str, Any] = {
+            "candidate_id": candidate_id,
+            "metric": metric,
+            "mode": mode,
+            "value": float("nan"),
+            "scenario_id": float("nan"),
+        }
+        for col in scenario_trace_columns:
+            row[col] = float("nan")
+        for col in key_output_columns:
+            row[col] = float("nan")
+        return row
+
+    for candidate in candidates:
+        candidate_df = robust_scenarios_df[
+            robust_scenarios_df["candidate_id"] == candidate.candidate_id
+        ]
+        if "both_success" in candidate_df.columns:
+            feasible_df = candidate_df[candidate_df["both_success"] == True]
+        elif "trim_success" in candidate_df.columns:
+            feasible_df = candidate_df[candidate_df["trim_success"] == True]
+        else:
+            feasible_df = candidate_df.iloc[0:0]
+
+        for spec in metric_specs:
+            row = make_empty_row(
+                candidate_id=candidate.candidate_id,
+                metric=spec["metric"],
+                mode=spec["mode"],
+            )
+            if feasible_df.empty:
+                report_rows.append(row)
+                continue
+
+            source_index: Any = None
+            metric_value = float("nan")
+            if spec["kind"] == "single":
+                metric_column = spec["column"]
+                if metric_column in feasible_df.columns:
+                    metric_series = feasible_df[metric_column].dropna()
+                    if not metric_series.empty:
+                        if spec["mode"] == "max":
+                            source_index = metric_series.idxmax()
+                        else:
+                            source_index = metric_series.idxmin()
+                        metric_value = float(metric_series.loc[source_index])
+            elif spec["kind"] == "row_max":
+                roll_columns = [col for col in spec["columns"] if col in feasible_df.columns]
+                if roll_columns:
+                    row_max_series = feasible_df[roll_columns].max(axis=1, skipna=True)
+                    row_max_series = row_max_series.dropna()
+                    if not row_max_series.empty:
+                        source_index = row_max_series.idxmax()
+                        metric_value = float(row_max_series.loc[source_index])
+
+            if source_index is None or source_index not in feasible_df.index:
+                report_rows.append(row)
+                continue
+
+            source_row = feasible_df.loc[source_index]
+            row["value"] = metric_value
+            if "scenario_id" in feasible_df.columns:
+                row["scenario_id"] = source_row["scenario_id"]
+            for col in scenario_trace_columns:
+                row[col] = source_row[col]
+            for col in key_output_columns:
+                row[col] = source_row[col]
+            report_rows.append(row)
+
+    worst_case_report_df = pd.DataFrame(report_rows)
+    if worst_case_report_df.empty:
+        return pd.DataFrame(columns=report_columns)
+    return worst_case_report_df.reindex(columns=report_columns)
+
+
 def save_workflow_workbook(
     config: WorkflowConfig,
     candidates: list[Candidate],
     robust_scenarios_df: pd.DataFrame,
     robust_summary_df: pd.DataFrame,
+    all_starts_df: pd.DataFrame | None,
     selected_candidate: Candidate | None,
 ) -> Path:
     workflow_path = RESULTS_DIR / "nausicaa_workflow.xlsx"
@@ -3225,6 +3435,10 @@ def save_workflow_workbook(
     robust_summary_df = robust_summary_df.reindex(
         columns=preferred_summary_columns + extra_summary_columns
     )
+    worst_case_report_df = build_worst_case_report(
+        candidates=candidates,
+        robust_scenarios_df=robust_scenarios_df,
+    )
 
     if "both_success" in robust_scenarios_df.columns:
         correlation_mask = robust_scenarios_df["both_success"] == True
@@ -3288,9 +3502,27 @@ def save_workflow_workbook(
 
     with pd.ExcelWriter(workflow_path) as writer:
         run_info_df.to_excel(writer, sheet_name="RunInfo", index=False)
+        if all_starts_df is not None:
+            preferred_all_starts_columns = [
+                "start_index",
+                "success",
+                "status",
+                "objective",
+                "failure_reason",
+                "kept_after_dedup",
+                "kept_rank",
+            ]
+            extra_all_starts_columns = sorted(
+                [col for col in all_starts_df.columns if col not in preferred_all_starts_columns]
+            )
+            all_starts_df = all_starts_df.reindex(
+                columns=preferred_all_starts_columns + extra_all_starts_columns
+            )
+            all_starts_df.to_excel(writer, sheet_name="AllStarts", index=False)
         candidates_df.to_excel(writer, sheet_name="Candidates", index=False)
         robust_scenarios_df.to_excel(writer, sheet_name="RobustScenarios", index=False)
         robust_summary_df.to_excel(writer, sheet_name="RobustSummary", index=False)
+        worst_case_report_df.to_excel(writer, sheet_name="WorstCaseReport", index=False)
         correlation_data_df.to_excel(writer, sheet_name="CorrelationData", index=False)
         correlation_matrix_df.to_excel(writer, sheet_name="CorrelationMatrix", index=True)
 
@@ -3434,7 +3666,7 @@ def main() -> None:
             flush=True,
         )
 
-        candidates = run_multistart(workflow_config)
+        candidates, all_starts_df = run_multistart(workflow_config)
         if not candidates:
             print("No feasible candidate found in multistart run", flush=True)
             return
@@ -3463,6 +3695,7 @@ def main() -> None:
             candidates=candidates,
             robust_scenarios_df=robust_scenarios_df,
             robust_summary_df=robust_summary_df,
+            all_starts_df=all_starts_df,
             selected_candidate=selected_candidate,
         )
         _output_paths, _figure_paths = export_selected_candidate(selected_candidate)
