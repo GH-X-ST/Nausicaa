@@ -2395,21 +2395,136 @@ def build_and_solve_once(
 
 
 def sample_initial_guess(rng: onp.random.Generator) -> dict[str, float]:
-    alpha_nom_deg = float(rng.uniform(ALPHA_MIN_DEG, ALPHA_MAX_DEG))
-    delta_a_nom_deg = float(rng.uniform(DELTA_A_MIN_DEG, DELTA_A_MAX_DEG))
-    delta_e_nom_deg = float(rng.uniform(DELTA_E_MIN_DEG, DELTA_E_MAX_DEG))
-    delta_r_nom_deg = float(rng.uniform(DELTA_R_MIN_DEG, DELTA_R_MAX_DEG))
-    alpha_turn_deg = float(rng.uniform(ALPHA_MIN_DEG, ALPHA_MAX_DEG))
-    delta_a_turn_deg = float(rng.uniform(DELTA_A_MIN_DEG, DELTA_A_MAX_DEG))
-    delta_e_turn_deg = float(rng.uniform(DELTA_E_MIN_DEG, DELTA_E_MAX_DEG))
-    delta_r_turn_deg = float(rng.uniform(DELTA_R_MIN_DEG, DELTA_R_MAX_DEG))
+    center = default_initial_guess()
+
+    def sample_bounded(
+        key: str,
+        lower: float,
+        upper: float,
+        sigma_frac: float,
+        min_sigma: float,
+    ) -> float:
+        midpoint = 0.5 * (lower + upper)
+        center_value = float(center.get(key, midpoint))
+        sigma = max(min_sigma, sigma_frac * (upper - lower))
+        value = float(rng.normal(center_value, sigma))
+        return float(onp.clip(value, lower, upper))
+
+    # Mostly exploit around a known-good seed, but keep some global exploration.
+    use_global_exploration = bool(rng.uniform() < 0.20)
+    if use_global_exploration:
+        alpha_nom_deg = float(rng.uniform(ALPHA_MIN_DEG, ALPHA_MAX_DEG))
+        delta_a_nom_deg = float(rng.uniform(DELTA_A_MIN_DEG, DELTA_A_MAX_DEG))
+        delta_e_nom_deg = float(rng.uniform(DELTA_E_MIN_DEG, DELTA_E_MAX_DEG))
+        delta_r_nom_deg = float(rng.uniform(DELTA_R_MIN_DEG, DELTA_R_MAX_DEG))
+        alpha_turn_deg = float(rng.uniform(ALPHA_MIN_DEG, ALPHA_MAX_DEG))
+        delta_a_turn_deg = float(rng.uniform(DELTA_A_MIN_DEG, DELTA_A_MAX_DEG))
+        delta_e_turn_deg = float(rng.uniform(DELTA_E_MIN_DEG, DELTA_E_MAX_DEG))
+        delta_r_turn_deg = float(rng.uniform(DELTA_R_MIN_DEG, DELTA_R_MAX_DEG))
+        wing_span_m = float(rng.uniform(WING_SPAN_MIN_M, WING_SPAN_MAX_M))
+        wing_chord_m = float(rng.uniform(WING_CHORD_MIN_M, WING_CHORD_MAX_M))
+        tail_arm_m = float(rng.uniform(TAIL_ARM_MIN_M, TAIL_ARM_MAX_M))
+        htail_span_m = float(rng.uniform(HT_SPAN_MIN_M, HT_SPAN_MAX_M))
+        vtail_height_m = float(rng.uniform(VT_HEIGHT_MIN_M, VT_HEIGHT_MAX_M))
+    else:
+        wing_span_m = sample_bounded(
+            "wing_span_m",
+            WING_SPAN_MIN_M,
+            WING_SPAN_MAX_M,
+            sigma_frac=0.05,
+            min_sigma=0.01,
+        )
+        wing_chord_m = sample_bounded(
+            "wing_chord_m",
+            WING_CHORD_MIN_M,
+            WING_CHORD_MAX_M,
+            sigma_frac=0.06,
+            min_sigma=0.003,
+        )
+        tail_arm_m = sample_bounded(
+            "tail_arm_m",
+            TAIL_ARM_MIN_M,
+            TAIL_ARM_MAX_M,
+            sigma_frac=0.05,
+            min_sigma=0.01,
+        )
+        htail_span_m = sample_bounded(
+            "htail_span_m",
+            HT_SPAN_MIN_M,
+            HT_SPAN_MAX_M,
+            sigma_frac=0.06,
+            min_sigma=0.004,
+        )
+        vtail_height_m = sample_bounded(
+            "vtail_height_m",
+            VT_HEIGHT_MIN_M,
+            VT_HEIGHT_MAX_M,
+            sigma_frac=0.06,
+            min_sigma=0.003,
+        )
+        alpha_nom_deg = sample_bounded(
+            "alpha_nom_deg",
+            ALPHA_MIN_DEG,
+            ALPHA_MAX_DEG,
+            sigma_frac=0.08,
+            min_sigma=0.4,
+        )
+        delta_a_nom_deg = sample_bounded(
+            "delta_a_nom_deg",
+            DELTA_A_MIN_DEG,
+            DELTA_A_MAX_DEG,
+            sigma_frac=0.07,
+            min_sigma=1.2,
+        )
+        delta_e_nom_deg = sample_bounded(
+            "delta_e_nom_deg",
+            DELTA_E_MIN_DEG,
+            DELTA_E_MAX_DEG,
+            sigma_frac=0.07,
+            min_sigma=1.2,
+        )
+        delta_r_nom_deg = sample_bounded(
+            "delta_r_nom_deg",
+            DELTA_R_MIN_DEG,
+            DELTA_R_MAX_DEG,
+            sigma_frac=0.07,
+            min_sigma=1.2,
+        )
+        alpha_turn_deg = sample_bounded(
+            "alpha_turn_deg",
+            ALPHA_MIN_DEG,
+            ALPHA_MAX_DEG,
+            sigma_frac=0.08,
+            min_sigma=0.5,
+        )
+        delta_a_turn_deg = sample_bounded(
+            "delta_a_turn_deg",
+            DELTA_A_MIN_DEG,
+            DELTA_A_MAX_DEG,
+            sigma_frac=0.08,
+            min_sigma=1.5,
+        )
+        delta_e_turn_deg = sample_bounded(
+            "delta_e_turn_deg",
+            DELTA_E_MIN_DEG,
+            DELTA_E_MAX_DEG,
+            sigma_frac=0.08,
+            min_sigma=1.5,
+        )
+        delta_r_turn_deg = sample_bounded(
+            "delta_r_turn_deg",
+            DELTA_R_MIN_DEG,
+            DELTA_R_MAX_DEG,
+            sigma_frac=0.08,
+            min_sigma=1.5,
+        )
 
     return {
-        "wing_span_m": float(rng.uniform(WING_SPAN_MIN_M, WING_SPAN_MAX_M)),
-        "wing_chord_m": float(rng.uniform(WING_CHORD_MIN_M, WING_CHORD_MAX_M)),
-        "tail_arm_m": float(rng.uniform(TAIL_ARM_MIN_M, TAIL_ARM_MAX_M)),
-        "htail_span_m": float(rng.uniform(HT_SPAN_MIN_M, HT_SPAN_MAX_M)),
-        "vtail_height_m": float(rng.uniform(VT_HEIGHT_MIN_M, VT_HEIGHT_MAX_M)),
+        "wing_span_m": wing_span_m,
+        "wing_chord_m": wing_chord_m,
+        "tail_arm_m": tail_arm_m,
+        "htail_span_m": htail_span_m,
+        "vtail_height_m": vtail_height_m,
         "alpha_nom_deg": alpha_nom_deg,
         "delta_a_nom_deg": delta_a_nom_deg,
         "delta_e_nom_deg": delta_e_nom_deg,
@@ -2446,7 +2561,8 @@ def run_multistart(config: WorkflowConfig) -> tuple[list[Candidate], pd.DataFram
 
     for start_index in range(config.n_starts):
         start_id = start_index + 1
-        init = sample_initial_guess(rng)
+        # First start is a deterministic warm seed; remaining starts are stochastic.
+        init = default_initial_guess() if start_index == 0 else sample_initial_guess(rng)
         candidate, failure_reason = build_and_solve_once(init=init, ipopt_options=None)
         if candidate is None:
             print(f"[multistart] start {start_id}/{config.n_starts} failed", flush=True)
