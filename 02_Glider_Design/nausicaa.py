@@ -26,7 +26,7 @@ GENERATE_POLARS = False
 N_ALPHA = 25
 MAKE_PLOTS = True
 PLOT_DPI = 1000
-RUN_WORKFLOW = False
+RUN_WORKFLOW = True
 
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -40,8 +40,8 @@ ARENA_WIDTH_M = 4.8
 ARENA_HEIGHT_M = 3.5
 
 # Two-speed design points
-V_TURN_MPS = 4.1
-V_NOM_MPS = 4.5
+V_TURN_MPS = 4.2
+V_NOM_MPS = 4.7
 
 # Manoeuvre definition (coordinated, banked turn feasibility)
 TURN_BANK_DEG = 50.0
@@ -54,7 +54,7 @@ BANK_ENTRY_TIME_S = 1.5
 # Stall / margin settings for manoeuvre case
 TURN_ALPHA_MARGIN_DEG = 2.0
 TURN_CL_CAP = 0.90
-K_LEVEL_TURN = 0.80
+K_LEVEL_TURN = 0.70
 
 # Trim operating-point envelope
 DESIGN_SPEED_MPS = V_NOM_MPS
@@ -93,12 +93,12 @@ VT_HEIGHT_MIN_M = 0.10
 VT_HEIGHT_MAX_M = 0.30
 
 # Tail aspect-ratio assumptions
-HT_AR = 3.5
+HT_AR = 4.0
 VT_AR = 2.0
 
 # Mesh density used for AeroSandbox lifting surfaces
-N_WING_XSECS = 11
-N_TAIL_XSECS = 7
+N_WING_XSECS = 7
+N_TAIL_XSECS = 5
 
 # Control-surface geometry
 AILERON_ETA_INBOARD = 0.30
@@ -1620,7 +1620,7 @@ def legacy_single_run_main(
     plugin_options = {"print_time": False, "verbose": False}
     solver_options = {
         "max_iter": 1000,
-        "check_derivatives_for_naninf": "yes",
+        "check_derivatives_for_naninf": "no",
         "hessian_approximation": "limited-memory",
         "print_level": 0,
         "sb": "yes",
@@ -1929,15 +1929,15 @@ def legacy_single_run_main(
             "Unit": "rad/s^2",
         },
         {"Metric": "roll_tau_s", "Value": roll_tau_num, "Unit": "s"},
-        {"Metric": "wing_tip_deflection_m", "Value": delta_tip_num, "Unit": "m"},
-        {"Metric": "wing_tip_deflection_allow_m", "Value": delta_allow_num, "Unit": "m"},
+        {"Metric": "wing_tip_deflection_proxy_m", "Value": delta_tip_num, "Unit": "m"},
+        {"Metric": "wing_tip_deflection_proxy_allow_m", "Value": delta_allow_num, "Unit": "m"},
         {
-            "Metric": "wing_tip_deflection_semispan_fraction",
+            "Metric": "wing_tip_deflection_proxy_semispan_fraction",
             "Value": delta_ratio_num,
             "Unit": "-",
         },
         {
-            "Metric": "wing_tip_deflection_over_allow",
+            "Metric": "wing_tip_deflection_proxy_over_allow",
             "Value": delta_tip_num / max(delta_allow_num, 1e-9),
             "Unit": "-",
         },
@@ -1947,22 +1947,22 @@ def legacy_single_run_main(
         {"Metric": "wing_struct_E_pa", "Value": WING_E_SECANT_PA, "Unit": "Pa"},
         {"Metric": "wing_struct_thickness_m", "Value": WING_THICKNESS_M, "Unit": "m"},
         {
-            "Metric": "htail_tip_deflection_m",
+            "Metric": "htail_tip_deflection_proxy_m",
             "Value": delta_ht_tip_num,
             "Unit": "m",
         },
         {
-            "Metric": "htail_tip_deflection_allow_m",
+            "Metric": "htail_tip_deflection_proxy_allow_m",
             "Value": delta_ht_allow_num,
             "Unit": "m",
         },
         {
-            "Metric": "htail_tip_deflection_semispan_fraction",
+            "Metric": "htail_tip_deflection_proxy_semispan_fraction",
             "Value": delta_ht_ratio_num,
             "Unit": "-",
         },
         {
-            "Metric": "htail_tip_deflection_over_allow",
+            "Metric": "htail_tip_deflection_proxy_over_allow",
             "Value": delta_ht_tip_num / max(delta_ht_allow_num, 1e-9),
             "Unit": "-",
         },
@@ -1972,12 +1972,12 @@ def legacy_single_run_main(
         {"Metric": "htail_struct_E_pa", "Value": HTAIL_E_SECANT_PA, "Unit": "Pa"},
         {"Metric": "htail_struct_thickness_m", "Value": TAIL_THICKNESS_M, "Unit": "m"},
         {
-            "Metric": "objective_struct_deflection_penalty",
+            "Metric": "objective_struct_deflection_proxy_penalty",
             "Value": struct_deflection_penalty_num,
             "Unit": "-",
         },
         {
-            "Metric": "objective_htail_deflection_penalty",
+            "Metric": "objective_htail_deflection_proxy_penalty",
             "Value": htail_deflection_penalty_num,
             "Unit": "-",
         },
@@ -2117,9 +2117,9 @@ def legacy_single_run_main(
             roll_rate_turn_num,
             lower=min_roll_rate_turn_num,
         ),
-        constraint_record("H-tail tip deflection (diag)", delta_ht_tip_num),
-        constraint_record("H-tail tip deflection allow (diag)", delta_ht_allow_num),
-        constraint_record("H-tail deflection penalty (diag)", htail_deflection_penalty_num),
+        constraint_record("H-tail tip deflection proxy (diag)", delta_ht_tip_num),
+        constraint_record("H-tail tip deflection proxy allow (diag)", delta_ht_allow_num),
+        constraint_record("H-tail deflection proxy penalty (diag)", htail_deflection_penalty_num),
         constraint_record("L/D minimum", l_over_d_num, lower=MIN_L_OVER_D),
         constraint_record(
             "Wing loading minimum",
@@ -2892,12 +2892,12 @@ def trim_candidate_at_point(
         f"{point}_roll_tau_s": onp.nan,
         f"{point}_roll_accel0": onp.nan,
         f"{point}_roll_rate_ss": onp.nan,
-        f"{point}_wing_tip_deflection_m": onp.nan,
-        f"{point}_wing_tip_deflection_allow_m": onp.nan,
-        f"{point}_wing_defl_over_allow": onp.nan,
-        f"{point}_htail_tip_deflection_m": onp.nan,
-        f"{point}_htail_tip_deflection_allow_m": onp.nan,
-        f"{point}_htail_defl_over_allow": onp.nan,
+        f"{point}_wing_tip_deflection_proxy_m": onp.nan,
+        f"{point}_wing_tip_deflection_proxy_allow_m": onp.nan,
+        f"{point}_wing_deflection_proxy_over_allow": onp.nan,
+        f"{point}_htail_tip_deflection_proxy_m": onp.nan,
+        f"{point}_htail_tip_deflection_proxy_allow_m": onp.nan,
+        f"{point}_htail_deflection_proxy_over_allow": onp.nan,
         f"{point}_ixx": ixx_scaled,
         f"{point}_iyy": iyy_scaled,
         f"{point}_izz": izz_scaled,
@@ -3013,16 +3013,16 @@ def trim_candidate_at_point(
         f"{point}_roll_tau_s": float(roll_tau_s),
         f"{point}_roll_accel0": float(roll_accel0),
         f"{point}_roll_rate_ss": float(roll_rate_ss),
-        f"{point}_wing_tip_deflection_m": wing_struct["delta_tip_m"],
-        f"{point}_wing_tip_deflection_allow_m": wing_struct["delta_allow_m"],
-        f"{point}_wing_defl_over_allow": wing_struct["defl_over_allow"],
+        f"{point}_wing_tip_deflection_proxy_m": wing_struct["delta_tip_m"],
+        f"{point}_wing_tip_deflection_proxy_allow_m": wing_struct["delta_allow_m"],
+        f"{point}_wing_deflection_proxy_over_allow": wing_struct["defl_over_allow"],
         f"{point}_wing_struct_semispan_m": wing_struct["semispan_m"],
         f"{point}_wing_struct_half_load_n": wing_struct["half_force_n"],
         f"{point}_wing_struct_E_pa": wing_struct["e_pa"],
         f"{point}_wing_struct_thickness_m": wing_struct["thickness_m"],
-        f"{point}_htail_tip_deflection_m": htail_struct["delta_tip_m"],
-        f"{point}_htail_tip_deflection_allow_m": htail_struct["delta_allow_m"],
-        f"{point}_htail_defl_over_allow": htail_struct["defl_over_allow"],
+        f"{point}_htail_tip_deflection_proxy_m": htail_struct["delta_tip_m"],
+        f"{point}_htail_tip_deflection_proxy_allow_m": htail_struct["delta_allow_m"],
+        f"{point}_htail_deflection_proxy_over_allow": htail_struct["defl_over_allow"],
         f"{point}_htail_struct_semispan_m": htail_struct["semispan_m"],
         f"{point}_htail_struct_half_load_n": htail_struct["half_force_n"],
         f"{point}_htail_struct_E_pa": htail_struct["e_pa"],
@@ -3145,9 +3145,9 @@ def run_robust_postcheck(
                 "sink_cvar_20": sink_cvar_20,
                 "max_turn_util_worst": max_turn_util_worst,
                 "min_turn_alpha_margin_worst": col_min(feasible_df, "turn_alpha_margin_deg"),
-                "max_turn_wing_defl_over_allow_worst": col_max(
+                "max_turn_wing_deflection_proxy_over_allow_worst": col_max(
                     feasible_df,
-                    "turn_wing_defl_over_allow",
+                    "turn_wing_deflection_proxy_over_allow",
                 ),
                 "max_roll_tau_worst": max_roll_tau_worst,
                 # Legacy-compatible summary aliases
@@ -3220,8 +3220,8 @@ def build_worst_case_report(
         "turn_util_a",
         "turn_util_e",
         "turn_util_r",
-        "turn_wing_defl_over_allow",
-        "turn_htail_defl_over_allow",
+        "turn_wing_deflection_proxy_over_allow",
+        "turn_htail_deflection_proxy_over_allow",
         "turn_roll_tau_s",
     ]
     scenario_trace_columns = [
@@ -3241,16 +3241,16 @@ def build_worst_case_report(
         {"metric": "Turn util e", "mode": "max", "kind": "single", "column": "turn_util_e"},
         {"metric": "Turn util r", "mode": "max", "kind": "single", "column": "turn_util_r"},
         {
-            "metric": "Turn wing defl over allow",
+            "metric": "Turn wing deflection proxy over allow",
             "mode": "max",
             "kind": "single",
-            "column": "turn_wing_defl_over_allow",
+            "column": "turn_wing_deflection_proxy_over_allow",
         },
         {
-            "metric": "Turn htail defl over allow",
+            "metric": "Turn htail deflection proxy over allow",
             "mode": "max",
             "kind": "single",
-            "column": "turn_htail_defl_over_allow",
+            "column": "turn_htail_deflection_proxy_over_allow",
         },
         {
             "metric": "Max roll tau",
@@ -3459,8 +3459,8 @@ def save_workflow_workbook(
         "turn_roll_tau_s",
         "turn_roll_accel0",
         "turn_roll_rate_ss",
-        "turn_wing_defl_over_allow",
-        "turn_htail_defl_over_allow",
+        "turn_wing_deflection_proxy_over_allow",
+        "turn_htail_deflection_proxy_over_allow",
     ]
     extra_scenario_columns = sorted(
         [col for col in robust_scenarios_df.columns if col not in preferred_scenario_columns]
@@ -3478,7 +3478,7 @@ def save_workflow_workbook(
         "sink_cvar_20",
         "max_turn_util_worst",
         "min_turn_alpha_margin_worst",
-        "max_turn_wing_defl_over_allow_worst",
+        "max_turn_wing_deflection_proxy_over_allow_worst",
         "max_roll_tau_worst",
         "max_delta_e_util_worst",
         "max_alpha_worst",
@@ -3543,8 +3543,8 @@ def save_workflow_workbook(
         "turn_util_a",
         "turn_util_e",
         "turn_util_r",
-        "turn_wing_defl_over_allow",
-        "turn_htail_defl_over_allow",
+        "turn_wing_deflection_proxy_over_allow",
+        "turn_htail_deflection_proxy_over_allow",
     ]
     correlation_data_df = robust_scenarios_df[
         correlation_mask
