@@ -224,10 +224,10 @@ PathMap: TypeAlias = dict[str, Path]
 
 @dataclass(frozen=True)
 class WorkflowConfig:
-    n_starts: int = 20
-    keep_top_k: int = 4
+    n_starts: int = 60
+    keep_top_k: int = 10
     random_seed: int = 15
-    n_scenarios: int = 15
+    n_scenarios: int = 100
     scenario_seed: int = 30
     dedup_span_m: float = 0.01
     dedup_chord_m: float = 0.005
