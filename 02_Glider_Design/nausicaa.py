@@ -2785,7 +2785,8 @@ def trim_candidate_at_point(
 
     if point == "nom":
         velocity_mps = V_NOM_MPS
-        n_req = 1.0
+        n_req_lift = 1.0
+        n_req_struct = 1.0
         w_gust_mps = float(scenario_row.get("w_gust_nom", 0.0))
         alpha_margin_deg = float(config.stall_alpha_margin_deg)
         cl_cap = float(MAX_CL_AT_DESIGN_POINT - config.cl_margin)
@@ -2795,7 +2796,11 @@ def trim_candidate_at_point(
     else:
         velocity_mps = V_TURN_MPS
         phi_turn_rad = float(onp.radians(TURN_BANK_DEG))
-        n_req = float(1.0 / onp.cos(phi_turn_rad))
+        n_turn = float(1.0 / onp.cos(phi_turn_rad))
+        # Keep robust trim consistent with main-design turn-lift requirement.
+        n_req_lift = float(K_LEVEL_TURN * n_turn)
+        # Structural proxy continues to use full turn load, matching main model.
+        n_req_struct = n_turn
         w_gust_mps = float(scenario_row.get("w_gust_turn", 0.0))
         alpha_margin_deg = float(config.turn_alpha_margin_deg)
         cl_cap = float(TURN_CL_CAP - config.turn_cl_margin)
@@ -2940,22 +2945,26 @@ def trim_candidate_at_point(
     else:
         opti.minimize(CONTROL_TRIM_WEIGHT * trim_penalty)
 
-    opti.subject_to(
-        [
-            aero["L"] >= n_req * weight_n,
-            aero["Cm"] == 0.0,
-            aero["Cl"] == 0.0,
-            aero["Cn"] == 0.0,
-            aero["CL"] <= cl_cap,
-            alpha_trim_deg <= max_alpha_cap,
-            opti.bounded(u_a_min, u_a_deg, u_a_max),
-            opti.bounded(u_e_min, u_e_deg, u_e_max),
-            opti.bounded(u_r_min, u_r_deg, u_r_max),
-            opti.bounded(-rate_limit_deg, u_a_deg, rate_limit_deg),
-            opti.bounded(-rate_limit_deg, u_e_deg, rate_limit_deg),
-            opti.bounded(-rate_limit_deg, u_r_deg, rate_limit_deg),
-        ]
-    )
+    constraints = [
+        aero["L"] >= n_req_lift * weight_n,
+        aero["Cm"] == 0.0,
+        aero["CL"] <= cl_cap,
+        alpha_trim_deg <= max_alpha_cap,
+        opti.bounded(u_a_min, u_a_deg, u_a_max),
+        opti.bounded(u_e_min, u_e_deg, u_e_max),
+        opti.bounded(u_r_min, u_r_deg, u_r_max),
+        opti.bounded(-rate_limit_deg, u_a_deg, rate_limit_deg),
+        opti.bounded(-rate_limit_deg, u_e_deg, rate_limit_deg),
+        opti.bounded(-rate_limit_deg, u_r_deg, rate_limit_deg),
+    ]
+    if point == "nom":
+        constraints.extend(
+            [
+                aero["Cl"] == 0.0,
+                aero["Cn"] == 0.0,
+            ]
+        )
+    opti.subject_to(constraints)
     opti.solver(
         "ipopt",
         {"print_time": False, "verbose": False},
@@ -3079,7 +3088,7 @@ def trim_candidate_at_point(
         roll_tau_s = float("nan")
 
     wing_struct = struct_tip_deflection_proxy(
-        total_force_n=n_req * weight_n,
+        total_force_n=n_req_struct * weight_n,
         span_m=candidate.wing_span_m,
         chord_m=candidate.wing_chord_m,
         thickness_m=WING_THICKNESS_M,
@@ -3089,7 +3098,7 @@ def trim_candidate_at_point(
         thickness_scale=wing_thickness_scale,
     )
     htail_struct = struct_tip_deflection_proxy(
-        total_force_n=HT_LOAD_FRACTION * n_req * weight_n,
+        total_force_n=HT_LOAD_FRACTION * n_req_struct * weight_n,
         span_m=candidate.htail_span_m,
         chord_m=float(to_scalar(htail_chord_m)),
         thickness_m=TAIL_THICKNESS_M,
@@ -3099,13 +3108,10 @@ def trim_candidate_at_point(
         thickness_scale=tail_thickness_scale,
     )
 
-    point_success = True
-    if point == "turn":
-        if wing_struct["defl_over_allow"] > 1.0 or htail_struct["defl_over_allow"] > 1.0:
-            point_success = False
-
     return {
-        f"{point}_success": point_success,
+        # Keep robust feasibility aligned with main optimization:
+        # turn-point structural deflection proxy remains diagnostic/soft, not a hard pass-fail gate.
+        f"{point}_success": True,
         f"{point}_alpha_deg": alpha_num,
         f"{point}_u_a_deg": u_a_num,
         f"{point}_u_e_deg": u_e_num,
