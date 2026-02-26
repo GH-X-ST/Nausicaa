@@ -26,7 +26,7 @@ GENERATE_POLARS = False
 N_ALPHA = 25
 MAKE_PLOTS = True
 PLOT_DPI = 1000
-RUN_WORKFLOW = False
+RUN_WORKFLOW = True
 
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -40,7 +40,7 @@ ARENA_WIDTH_M = 4.8
 ARENA_HEIGHT_M = 3.5
 
 # Two-speed design points
-V_TURN_MPS = 4.17
+V_TURN_MPS = 4.15
 V_NOM_MPS = 5.0
 
 # Manoeuvre definition (coordinated, banked turn feasibility)
@@ -768,7 +768,7 @@ def build_mass_model(
         z_m=z_servo,
     )
 
-    boom_end_x_m = tail_arm_m + 0.75 * htail_chord_m
+    boom_end_x_m = tail_arm_m + 0.70 * htail_chord_m
     boom_length_m = np.maximum(boom_end_x_m - NOSE_X_M, 0.05)
     boom_area_m2 = (np.pi / 4.0) * (
         BOOM_TUBE_OUTER_DIAMETER_M**2 - BOOM_TUBE_INNER_DIAMETER_M**2
