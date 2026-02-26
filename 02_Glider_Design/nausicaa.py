@@ -75,6 +75,11 @@ DELTA_R_MAX_DEG = 30.0
 DIHEDRAL_DEG = 10.0
 NOSE_X_M = -0.11
 
+# Vertical reference definitions (meters)
+WING_ROOT_LOWER_SURFACE_Z_M = 0.004
+VTAIL_ROOT_LOWER_SURFACE_Z_M = 0.004
+HTAIL_ROOT_LOWER_SURFACE_Z_M = -0.004
+
 # Wing design bounds
 WING_SPAN_MIN_M = 0.30
 WING_SPAN_MAX_M = 2.00
@@ -139,6 +144,12 @@ BOOM_EXTRA_MASS_KG = 0.0
 CENTRE_MODULE_MASS_KG = 0.032
 TAIL_MODULE_MASS_KG = 0.004
 TAIL_SUPPORT_MASS_KG = 0.001
+# X-location rules for aft hardware
+TAIL_GEAR_X_OFFSET_FROM_HTAIL_LE_M = -0.00895
+TAIL_MODULE_X_OFFSET_FROM_FUSELAGE_TAIL_M = -0.02234
+CENTRE_MODULE_Z_CG_M = 0.0009
+TAIL_MODULE_Z_CG_M = 0.001
+TAIL_SUPPORT_Z_CG_M = -0.00585
 
 GLUE_FRACTION = 0.08
 BALLAST_MAX_KG = 0.025
@@ -157,6 +168,7 @@ AILERON_SERVO_X_CHORD_FRAC = 0.30
 # Battery sliding range
 BATTERY_X_MAX_FRAC = 0.60
 BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M = 0.035
+AVIONICS_Z_CG_M = -0.015
 REGULATOR_X_OFFSET_FROM_BATTERY_M = 0.040
 RECEIVER_X_OFFSET_FROM_REGULATOR_M = 0.035
 FLIGHT_CONTROLLER_X_OFFSET_FROM_BATTERY_M = 0.015
@@ -228,7 +240,7 @@ PathMap: TypeAlias = dict[str, Path]
 class WorkflowConfig:
     n_starts: int = 30
     keep_top_k: int = 10
-    random_seed: int = 15
+    random_seed: int = 20
     n_scenarios: int = 50
     scenario_seed: int = 30
     dedup_span_m: float = 0.01
@@ -459,10 +471,11 @@ def build_main_wing(airfoil: asb.Airfoil, span_m: Scalar, chord_m: Scalar) -> as
     )
 
     xsecs = []
+    wing_root_centerline_z_m = WING_ROOT_LOWER_SURFACE_Z_M + 0.5 * WING_THICKNESS_M
     for eta in onp.linspace(0.0, 1.0, N_WING_XSECS):
         # Straight rectangular planform with fixed dihedral
         y_le = eta * span_m / 2.0
-        z_le = y_le * np.tan(np.radians(DIHEDRAL_DEG))
+        z_le = wing_root_centerline_z_m + y_le * np.tan(np.radians(DIHEDRAL_DEG))
         controls = []
         if AILERON_ETA_INBOARD <= eta <= AILERON_ETA_OUTBOARD:
             controls = [aileron_surface]
@@ -495,11 +508,12 @@ def build_horizontal_tail(
     )
 
     xsecs = []
+    htail_root_centerline_z_m = HTAIL_ROOT_LOWER_SURFACE_Z_M + 0.5 * TAIL_THICKNESS_M
     for eta in onp.linspace(0.0, 1.0, N_TAIL_XSECS):
         y_le = eta * span_m / 2.0
         xsecs.append(
             asb.WingXSec(
-                xyz_le=[tail_arm_m, y_le, 0.0],
+                xyz_le=[tail_arm_m, y_le, htail_root_centerline_z_m],
                 chord=chord_m,
                 twist=0.0,
                 airfoil=airfoil,
@@ -527,7 +541,7 @@ def build_vertical_tail(
 
     xsecs = []
     for eta in onp.linspace(0.0, 1.0, N_TAIL_XSECS):
-        z_le = eta * height_m
+        z_le = VTAIL_ROOT_LOWER_SURFACE_Z_M + eta * height_m
         xsecs.append(
             asb.WingXSec(
                 xyz_le=[tail_arm_m, 0.0, z_le],
@@ -664,7 +678,7 @@ def build_mass_model(
     vtail: asb.Wing,
     wing_chord_m: Scalar,
     tail_arm_m: Scalar,
-    htail_chord_m: Scalar,
+    boom_end_x_m: Scalar,
     vtail_chord_m: Scalar,
 ) -> tuple[MassPropertiesMap, asb.MassProperties, Scalar, Scalar]:
     mass_props: MassPropertiesMap = {}
@@ -696,6 +710,7 @@ def build_mass_model(
     mass_props["centre_module"] = point_mass(
         CENTRE_MODULE_MASS_KG,
         x_m=x_centre_module,
+        z_m=CENTRE_MODULE_Z_CG_M,
     )
 
     # Battery as a dedicated CG-trim slider.
@@ -708,33 +723,38 @@ def build_mass_model(
     x_batt_min = x_centre_module - BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M
     x_batt_max = BATTERY_X_MAX_FRAC * wing_chord_m
     x_batt = x_batt_min + battery_eta * (x_batt_max - x_batt_min)
-    mass_props["battery"] = point_mass(BATTERY_MASS_KG, x_m=x_batt)
+    mass_props["battery"] = point_mass(BATTERY_MASS_KG, x_m=x_batt, z_m=AVIONICS_Z_CG_M)
 
     # Remaining avionics keep fixed spacing from battery.
     mass_props["flight_controller"] = point_mass(
         FLIGHT_CONTROLLER_MASS_KG,
         x_m=x_batt + FLIGHT_CONTROLLER_X_OFFSET_FROM_BATTERY_M,
+        z_m=AVIONICS_Z_CG_M,
     )
     x_regulator = x_batt + REGULATOR_X_OFFSET_FROM_BATTERY_M
     mass_props["regulator"] = point_mass(
         REGULATOR_MASS_KG,
         x_m=x_regulator,
+        z_m=AVIONICS_Z_CG_M,
     )
     mass_props["receiver"] = point_mass(
         RECEIVER_MASS_KG,
         x_m=x_regulator + RECEIVER_X_OFFSET_FROM_REGULATOR_M,
+        z_m=AVIONICS_Z_CG_M,
     )
 
-    # Tail module and support are referenced from the vertical-tail LE root.
-    x_tail_module = tail_arm_m + 0.60 * vtail_chord_m
-    x_tail_support = tail_arm_m - 0.30 * vtail_chord_m
+    # Tail gear (tail support) from H-tail LE root; tail module from fuselage tail station.
+    x_tail_support = tail_arm_m + TAIL_GEAR_X_OFFSET_FROM_HTAIL_LE_M
+    x_tail_module = boom_end_x_m + TAIL_MODULE_X_OFFSET_FROM_FUSELAGE_TAIL_M
     mass_props["tail_module"] = point_mass(
         TAIL_MODULE_MASS_KG,
         x_m=x_tail_module,
+        z_m=TAIL_MODULE_Z_CG_M,
     )
     mass_props["tail_support"] = point_mass(
         TAIL_SUPPORT_MASS_KG,
         x_m=x_tail_support,
+        z_m=TAIL_SUPPORT_Z_CG_M,
     )
 
     # Tail-control servos co-located with tail module.
@@ -742,18 +762,19 @@ def build_mass_model(
         SERVO_MASS_KG,
         x_m=x_tail_module,
         y_m=0.0,
-        z_m=0.0,
+        z_m=TAIL_MODULE_Z_CG_M,
     )
     mass_props["servo_rudder"] = point_mass(
         SERVO_MASS_KG,
         x_m=x_tail_module,
         y_m=0.0,
-        z_m=0.0,
+        z_m=TAIL_MODULE_Z_CG_M,
     )
 
     wing_span_m = surface_span(wing, span_axis="y")
     y_servo = AILERON_SERVO_SPAN_FRAC * wing_span_m
-    z_servo = np.abs(y_servo) * np.tan(np.radians(DIHEDRAL_DEG))
+    wing_root_centerline_z_m = WING_ROOT_LOWER_SURFACE_Z_M + 0.5 * WING_THICKNESS_M
+    z_servo = wing_root_centerline_z_m + np.abs(y_servo) * np.tan(np.radians(DIHEDRAL_DEG))
     x_aileron_servo = AILERON_SERVO_X_CHORD_FRAC * wing_chord_m
     mass_props["servo_aileron_R"] = point_mass(
         SERVO_MASS_KG,
@@ -768,7 +789,6 @@ def build_mass_model(
         z_m=z_servo,
     )
 
-    boom_end_x_m = tail_arm_m + 0.70 * htail_chord_m
     boom_length_m = np.maximum(boom_end_x_m - NOSE_X_M, 0.05)
     boom_area_m2 = (np.pi / 4.0) * (
         BOOM_TUBE_OUTER_DIAMETER_M**2 - BOOM_TUBE_INNER_DIAMETER_M**2
@@ -949,6 +969,35 @@ def build_aero_rows(aero: AeroMap) -> ReportRows:
     return rows
 
 
+def weighted_cg_from_components(
+    mass_props: MassPropertiesMap,
+) -> tuple[float, float, float, float]:
+    # Independent weighted-CG reconstruction for audit/consistency checks.
+    total_mass = 0.0
+    x_moment = 0.0
+    y_moment = 0.0
+    z_moment = 0.0
+    for component in mass_props.values():
+        mass = float(to_scalar(component.mass))
+        x_cg = float(to_scalar(component.xyz_cg[0]))
+        y_cg = float(to_scalar(component.xyz_cg[1]))
+        z_cg = float(to_scalar(component.xyz_cg[2]))
+        total_mass += mass
+        x_moment += mass * x_cg
+        y_moment += mass * y_cg
+        z_moment += mass * z_cg
+
+    if abs(total_mass) < 1e-12:
+        return float("nan"), float("nan"), float("nan"), total_mass
+
+    return (
+        x_moment / total_mass,
+        y_moment / total_mass,
+        z_moment / total_mass,
+        total_mass,
+    )
+
+
 def save_results(
     summary_rows: ReportRows,
     geometry_rows: ReportRows,
@@ -1120,6 +1169,16 @@ def print_console_report(
         f"  Static margin = {fmt('static_margin', 4)} | "
         f"Vh = {fmt('tail_volume_horizontal', 4)} | "
         f"Vv = {fmt('tail_volume_vertical', 4)}",
+        flush=True,
+    )
+    print(
+        f"  Total CG = ({fmt('total_cg_x_m', 4)}, {fmt('total_cg_y_m', 4)}, "
+        f"{fmt('total_cg_z_m', 4)}) m",
+        flush=True,
+    )
+    print(
+        f"  CG check error = ({fmt('total_cg_x_error_m', 2)}, "
+        f"{fmt('total_cg_y_error_m', 2)}, {fmt('total_cg_z_error_m', 2)}) m",
         flush=True,
     )
     print(
@@ -1364,7 +1423,7 @@ def legacy_single_run_main(
         vtail=vtail,
         wing_chord_m=wing_chord_m,
         tail_arm_m=tail_arm_m,
-        htail_chord_m=htail_chord_m,
+        boom_end_x_m=boom_end_x_m,
         vtail_chord_m=vtail_chord_m,
     )
 
@@ -1678,6 +1737,15 @@ def legacy_single_run_main(
     sink_rate_num = to_scalar(solution(sink_rate_nom_mps))
     l_over_d_num = to_scalar(solution(l_over_d))
     mass_total_num = to_scalar(total_mass_num.mass)
+    total_cg_x_num = to_scalar(total_mass_num.x_cg)
+    total_cg_y_num = to_scalar(total_mass_num.y_cg)
+    total_cg_z_num = to_scalar(total_mass_num.z_cg)
+    weighted_cg_x_num, weighted_cg_y_num, weighted_cg_z_num, component_mass_sum_num = (
+        weighted_cg_from_components(mass_props_num)
+    )
+    total_cg_x_error_num = total_cg_x_num - weighted_cg_x_num
+    total_cg_y_error_num = total_cg_y_num - weighted_cg_y_num
+    total_cg_z_error_num = total_cg_z_num - weighted_cg_z_num
     ballast_mass_num = to_scalar(solution(ballast_mass_kg))
     ballast_mass_num = max(0.0, ballast_mass_num)
     x_centre_module_num = 0.5 * wing_chord_design_num
@@ -1889,6 +1957,16 @@ def legacy_single_run_main(
             "Value": mass_total_num / 0.45359237,
             "Unit": "lbm",
         },
+        {"Metric": "total_cg_x_m", "Value": total_cg_x_num, "Unit": "m"},
+        {"Metric": "total_cg_y_m", "Value": total_cg_y_num, "Unit": "m"},
+        {"Metric": "total_cg_z_m", "Value": total_cg_z_num, "Unit": "m"},
+        {"Metric": "total_cg_x_weighted_m", "Value": weighted_cg_x_num, "Unit": "m"},
+        {"Metric": "total_cg_y_weighted_m", "Value": weighted_cg_y_num, "Unit": "m"},
+        {"Metric": "total_cg_z_weighted_m", "Value": weighted_cg_z_num, "Unit": "m"},
+        {"Metric": "total_cg_x_error_m", "Value": total_cg_x_error_num, "Unit": "m"},
+        {"Metric": "total_cg_y_error_m", "Value": total_cg_y_error_num, "Unit": "m"},
+        {"Metric": "total_cg_z_error_m", "Value": total_cg_z_error_num, "Unit": "m"},
+        {"Metric": "mass_component_sum_kg", "Value": component_mass_sum_num, "Unit": "kg"},
         {"Metric": "ballast_mass_kg", "Value": ballast_mass_num, "Unit": "kg"},
         {"Metric": "battery_slider_eta", "Value": battery_eta_num, "Unit": "-"},
         {"Metric": "battery_x_m", "Value": battery_x_num, "Unit": "m"},
