@@ -26,7 +26,7 @@ GENERATE_POLARS = False
 N_ALPHA = 25
 MAKE_PLOTS = True
 PLOT_DPI = 1000
-RUN_WORKFLOW = True
+RUN_WORKFLOW = False
 
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -40,8 +40,8 @@ ARENA_WIDTH_M = 4.8
 ARENA_HEIGHT_M = 3.5
 
 # Two-speed design points
-V_TURN_MPS = 4.2
-V_NOM_MPS = 4.7
+V_TURN_MPS = 4.17
+V_NOM_MPS = 5.0
 
 # Manoeuvre definition (coordinated, banked turn feasibility)
 TURN_BANK_DEG = 50.0
@@ -53,7 +53,7 @@ BANK_ENTRY_TIME_S = 1.5
 
 # Stall / margin settings for manoeuvre case
 TURN_ALPHA_MARGIN_DEG = 2.0
-TURN_CL_CAP = 0.90
+TURN_CL_CAP = 1.00
 K_LEVEL_TURN = 0.70
 
 # Trim operating-point envelope
@@ -129,17 +129,16 @@ TAIL_DENSITY_KG_M3 = FOAM_RHO_G3_KG_M3
 WING_E_SECANT_PA = FOAM_ESEC10_G6_PA
 
 FUSE_RADIUS_M = 0.002
-# Boom: rod-only + mount modules
+# Boom: rod-only mass model
 BOOM_TUBE_OUTER_DIAMETER_M = 0.004
 BOOM_TUBE_INNER_DIAMETER_M = 0.002
 BOOM_ROD_DENSITY_KG_M3 = 1400.0
 BOOM_EXTRA_MASS_KG = 0.0
 
-# Wing root / tail mount modules (planned hardware)
-N_WING_ROOT_MODULES = 2
-N_TAIL_MOUNT_MODULES = 1
-WING_ROOT_MODULE_MASS_KG = 0.003
-TAIL_MOUNT_MODULE_MASS_KG = 0.004
+# Discrete hardware modules
+CENTRE_MODULE_MASS_KG = 0.032
+TAIL_MODULE_MASS_KG = 0.004
+TAIL_SUPPORT_MASS_KG = 0.001
 
 GLUE_FRACTION = 0.08
 BALLAST_MAX_KG = 0.025
@@ -152,12 +151,15 @@ REGULATOR_MASS_KG = 0.0004
 SERVO_MASS_KG = 0.0022
 
 # Servo layout (4 total): 2 aileron + elevator + rudder
-AILERON_SERVO_SPAN_ETA = 0.45
-TAIL_SERVO_X_FRAC = 0.30
+AILERON_SERVO_SPAN_FRAC = 0.30
+AILERON_SERVO_X_CHORD_FRAC = 0.30
 
 # Battery sliding range
 BATTERY_X_MAX_FRAC = 0.60
-BATTERY_X_MIN_M = NOSE_X_M + 0.015
+BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M = 0.035
+REGULATOR_X_OFFSET_FROM_BATTERY_M = 0.040
+RECEIVER_X_OFFSET_FROM_REGULATOR_M = 0.035
+FLIGHT_CONTROLLER_X_OFFSET_FROM_BATTERY_M = 0.015
 
 # Static-stability design window
 STATIC_MARGIN_MIN = 0.05
@@ -224,10 +226,10 @@ PathMap: TypeAlias = dict[str, Path]
 
 @dataclass(frozen=True)
 class WorkflowConfig:
-    n_starts: int = 60
+    n_starts: int = 30
     keep_top_k: int = 10
     random_seed: int = 15
-    n_scenarios: int = 100
+    n_scenarios: int = 50
     scenario_seed: int = 30
     dedup_span_m: float = 0.01
     dedup_chord_m: float = 0.005
@@ -336,7 +338,7 @@ class Candidate:
 
 def default_initial_guess() -> dict[str, float]:
     return {
-        "wing_span_m": 0.93,
+        "wing_span_m": 0.78,
         "wing_chord_m": 0.22,
         "tail_arm_m": 0.45,
         "htail_span_m": 0.38,
@@ -663,6 +665,7 @@ def build_mass_model(
     wing_chord_m: Scalar,
     tail_arm_m: Scalar,
     htail_chord_m: Scalar,
+    vtail_chord_m: Scalar,
 ) -> tuple[MassPropertiesMap, asb.MassProperties, Scalar, Scalar]:
     mass_props: MassPropertiesMap = {}
 
@@ -689,73 +692,78 @@ def build_mass_model(
     # Fixed onboard components
     mass_props["linkages"] = point_mass(0.001, x_m=0.5 * tail_arm_m)
 
-    # Battery as a dedicated CG-trim slider
+    x_centre_module = 0.5 * wing_chord_m
+    mass_props["centre_module"] = point_mass(
+        CENTRE_MODULE_MASS_KG,
+        x_m=x_centre_module,
+    )
+
+    # Battery as a dedicated CG-trim slider.
+    # Foremost position is tied to centre-module CG minus 35 mm.
     battery_eta = opti.variable(
         init_guess=0.60,
         lower_bound=0.0,
         upper_bound=1.0,
     )
+    x_batt_min = x_centre_module - BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M
     x_batt_max = BATTERY_X_MAX_FRAC * wing_chord_m
-    x_batt = BATTERY_X_MIN_M + battery_eta * (x_batt_max - BATTERY_X_MIN_M)
+    x_batt = x_batt_min + battery_eta * (x_batt_max - x_batt_min)
     mass_props["battery"] = point_mass(BATTERY_MASS_KG, x_m=x_batt)
 
-    # Central avionics cluster near battery/avionics tray region
-    x_avionics_tray = TAIL_SERVO_X_FRAC * wing_chord_m
+    # Remaining avionics keep fixed spacing from battery.
     mass_props["flight_controller"] = point_mass(
         FLIGHT_CONTROLLER_MASS_KG,
-        x_m=x_batt + 0.015,
+        x_m=x_batt + FLIGHT_CONTROLLER_X_OFFSET_FROM_BATTERY_M,
     )
+    x_regulator = x_batt + REGULATOR_X_OFFSET_FROM_BATTERY_M
     mass_props["regulator"] = point_mass(
         REGULATOR_MASS_KG,
-        x_m=x_batt + 0.010,
+        x_m=x_regulator,
     )
     mass_props["receiver"] = point_mass(
         RECEIVER_MASS_KG,
-        x_m=x_batt + 0.020,
+        x_m=x_regulator + RECEIVER_X_OFFSET_FROM_REGULATOR_M,
     )
 
-    # Wing root / tail mount modules as discrete hardware masses
-    x_wing_root_module = 0.30 * wing_chord_m
-    for i in range(N_WING_ROOT_MODULES):
-        mass_props[f"wing_root_module_{i + 1}"] = point_mass(
-            WING_ROOT_MODULE_MASS_KG,
-            x_m=x_wing_root_module,
-        )
+    # Tail module and support are referenced from the vertical-tail LE root.
+    x_tail_module = tail_arm_m + 0.60 * vtail_chord_m
+    x_tail_support = tail_arm_m - 0.30 * vtail_chord_m
+    mass_props["tail_module"] = point_mass(
+        TAIL_MODULE_MASS_KG,
+        x_m=x_tail_module,
+    )
+    mass_props["tail_support"] = point_mass(
+        TAIL_SUPPORT_MASS_KG,
+        x_m=x_tail_support,
+    )
 
-    x_tail_mount_module = tail_arm_m + 0.30 * htail_chord_m
-    for i in range(N_TAIL_MOUNT_MODULES):
-        mass_props[f"tail_mount_module_{i + 1}"] = point_mass(
-            TAIL_MOUNT_MODULE_MASS_KG,
-            x_m=x_tail_mount_module,
-        )
-
-    # Servo layout: elevator/rudder central, ailerons spanwise in wing
+    # Tail-control servos co-located with tail module.
     mass_props["servo_elevator"] = point_mass(
         SERVO_MASS_KG,
-        x_m=x_avionics_tray,
+        x_m=x_tail_module,
         y_m=0.0,
         z_m=0.0,
     )
     mass_props["servo_rudder"] = point_mass(
         SERVO_MASS_KG,
-        x_m=x_avionics_tray,
+        x_m=x_tail_module,
         y_m=0.0,
         z_m=0.0,
     )
 
-    half_span = 0.5 * surface_span(wing, span_axis="y")
-    servo_eta = np.clip(AILERON_SERVO_SPAN_ETA, AILERON_ETA_INBOARD, AILERON_ETA_OUTBOARD)
-    y_servo = servo_eta * half_span
+    wing_span_m = surface_span(wing, span_axis="y")
+    y_servo = AILERON_SERVO_SPAN_FRAC * wing_span_m
     z_servo = np.abs(y_servo) * np.tan(np.radians(DIHEDRAL_DEG))
+    x_aileron_servo = AILERON_SERVO_X_CHORD_FRAC * wing_chord_m
     mass_props["servo_aileron_R"] = point_mass(
         SERVO_MASS_KG,
-        x_m=x_avionics_tray,
+        x_m=x_aileron_servo,
         y_m=y_servo,
         z_m=z_servo,
     )
     mass_props["servo_aileron_L"] = point_mass(
         SERVO_MASS_KG,
-        x_m=x_avionics_tray,
+        x_m=x_aileron_servo,
         y_m=-y_servo,
         z_m=z_servo,
     )
@@ -772,7 +780,6 @@ def build_mass_model(
         mass=boom_mass_kg,
         x_cg=boom_x_cg_m,
     )
-    mass_props["avionics_tray"] = point_mass(0.004, x_m=x_avionics_tray)
 
     # Ballast is optimized to close CG/stability constraints
     ballast_mass_kg = opti.variable(
@@ -910,12 +917,12 @@ def build_mass_rows(
     # Component-by-component mass and principal inertia table
     for name, mp in mass_props.items():
         component_name = name
-        if name.startswith("wing_root_module_"):
-            component_name = name.replace("wing_root_module_", "wing root module ")
-        elif name.startswith("tail_mount_module_"):
-            component_name = name.replace("tail_mount_module_", "tail mount module ")
-        elif name == "avionics_tray":
-            component_name = "avionics tray"
+        if name == "centre_module":
+            component_name = "centre module"
+        elif name == "tail_module":
+            component_name = "tail module"
+        elif name == "tail_support":
+            component_name = "tail support"
         rows.append(
             {
                 "Component": component_name,
@@ -1358,6 +1365,7 @@ def legacy_single_run_main(
         wing_chord_m=wing_chord_m,
         tail_arm_m=tail_arm_m,
         htail_chord_m=htail_chord_m,
+        vtail_chord_m=vtail_chord_m,
     )
 
     # Nominal aerodynamics about current CG with stability derivatives
@@ -1672,10 +1680,12 @@ def legacy_single_run_main(
     mass_total_num = to_scalar(total_mass_num.mass)
     ballast_mass_num = to_scalar(solution(ballast_mass_kg))
     ballast_mass_num = max(0.0, ballast_mass_num)
+    x_centre_module_num = 0.5 * wing_chord_design_num
+    battery_x_min_num = x_centre_module_num - BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M
     battery_x_num = to_scalar(
-        BATTERY_X_MIN_M
+        battery_x_min_num
         + battery_eta_num
-        * (BATTERY_X_MAX_FRAC * wing_chord_design_num - BATTERY_X_MIN_M)
+        * (BATTERY_X_MAX_FRAC * wing_chord_design_num - battery_x_min_num)
     )
 
     static_margin_num = to_scalar(solution(static_margin))
