@@ -148,7 +148,7 @@ TAIL_SUPPORT_MASS_KG = 0.001
 # X-location rules for aft hardware
 TAIL_GEAR_X_OFFSET_FROM_HTAIL_LE_M = -0.00894
 TAIL_MODULE_X_OFFSET_FROM_FUSELAGE_TAIL_M = -0.02234
-CENTRE_MODULE_Z_CG_M = 0.003
+CENTRE_MODULE_Z_CG_M = 0.0025
 TAIL_MODULE_Z_CG_M = 0.0006
 TAIL_SUPPORT_Z_CG_M = -0.00587
 
@@ -1917,7 +1917,7 @@ def legacy_single_run_main(
     total_cg_z_error_num = total_cg_z_num - weighted_cg_z_num
     ballast_mass_num = to_scalar(solution(ballast_mass_kg))
     ballast_mass_num = max(0.0, ballast_mass_num)
-    x_centre_module_num = 0.5 * wing_chord_design_num
+    x_centre_module_num = 0.3 * wing_chord_design_num + 0.030476
     battery_x_min_num = x_centre_module_num - BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M
     battery_x_num = to_scalar(
         battery_x_min_num
