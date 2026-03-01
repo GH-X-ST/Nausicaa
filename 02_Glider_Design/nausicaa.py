@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import json
 import subprocess
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -26,7 +27,7 @@ GENERATE_POLARS = False
 N_ALPHA = 25
 MAKE_PLOTS = True
 PLOT_DPI = 1000
-RUN_WORKFLOW = True
+RUN_WORKFLOW = False
 
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -223,6 +224,7 @@ HTAIL_E_SECANT_PA = FOAM_ESEC10_G3_PA  # tail foam secant modulus (3 mm Depron p
 SOFTPLUS_K = 25.0
 BOUNDARY_HIT_REL_TOL = 1e-3
 BOUNDARY_HIT_ABS_TOL = 1e-6
+ACTIVE_SET_ABS_TOL = 1e-3
 
 SpanAxis = Literal["y", "z"]
 
@@ -341,8 +343,10 @@ class Candidate:
     mass_rows: ReportRows | None = None
     aero_rows: ReportRows | None = None
     constraint_rows: ReportRows | None = None
+    active_constraint_rows: ReportRows | None = None
     boundary_rows: ReportRows | None = None
     design_points_rows: ReportRows | None = None
+    solver_stats: dict[str, Any] | None = None
     wing_area_m2: float = float("nan")
     wing_mac_m: float = float("nan")
     airfoil_label: str = ""
@@ -868,6 +872,45 @@ def constraint_record(
     if upper is not None and value_f > upper + tol:
         passed = False
 
+    slack_lower = (value_f - lower) if lower is not None else None
+    slack_upper = (upper - value_f) if upper is not None else None
+    is_eq = (
+        lower is not None
+        and upper is not None
+        and abs(upper - lower) <= max(tol, 1e-12)
+    )
+    scale = max(
+        1.0,
+        abs(float(value_f)),
+        abs(float(lower)) if lower is not None else 0.0,
+        abs(float(upper)) if upper is not None else 0.0,
+    )
+
+    residual: float | None = None
+    abs_residual: float | None = None
+    margin: float | None = None
+    norm_margin: float | None = None
+    is_active = False
+    constraint_type = "eq" if is_eq else "ineq"
+
+    if is_eq:
+        residual = float(value_f - upper)
+        abs_residual = abs(residual)
+        margin = float(tol - abs_residual)
+        norm_margin = float(margin / scale)
+        is_active = abs_residual <= max(tol, ACTIVE_SET_ABS_TOL)
+    else:
+        if lower is not None and upper is not None:
+            margin = float(min(slack_lower, slack_upper))
+        elif lower is not None:
+            margin = float(slack_lower)
+        elif upper is not None:
+            margin = float(slack_upper)
+        else:
+            margin = float("nan")
+        norm_margin = float(margin / scale) if not onp.isnan(margin) else float("nan")
+        is_active = (not onp.isnan(margin) and margin <= ACTIVE_SET_ABS_TOL) or (not passed)
+
     return {
         "Constraint": name,
         "Value": value_f,
@@ -875,7 +918,100 @@ def constraint_record(
         "Upper": upper,
         "Tolerance": tol,
         "Pass": passed,
+        "Type": constraint_type,
+        "SlackLower": slack_lower,
+        "SlackUpper": slack_upper,
+        "Residual": residual,
+        "AbsResidual": abs_residual,
+        "Margin": margin,
+        "NormMargin": norm_margin,
+        "IsActive": bool(is_active),
     }
+
+
+def build_active_constraints_rows(
+    constraint_rows: ReportRows,
+    max_rows: int = 25,
+) -> ReportRows:
+    if not constraint_rows:
+        return []
+
+    constraint_df = pd.DataFrame(constraint_rows)
+    if constraint_df.empty:
+        return []
+
+    active_mask = pd.Series(False, index=constraint_df.index)
+    if "IsActive" in constraint_df.columns:
+        active_mask = active_mask | constraint_df["IsActive"].fillna(False).astype(bool)
+    if "Pass" in constraint_df.columns:
+        active_mask = active_mask | (~constraint_df["Pass"].fillna(False).astype(bool))
+
+    active_df = constraint_df.loc[active_mask].copy()
+    if active_df.empty:
+        return []
+
+    if "NormMargin" in active_df.columns:
+        active_df["__norm_margin_sort"] = pd.to_numeric(
+            active_df["NormMargin"],
+            errors="coerce",
+        )
+        active_df = active_df.sort_values(
+            by="__norm_margin_sort",
+            ascending=True,
+            na_position="last",
+        )
+        active_df = active_df.drop(columns="__norm_margin_sort")
+
+    if max_rows > 0:
+        active_df = active_df.head(max_rows)
+
+    return active_df.to_dict(orient="records")
+
+
+def _serialize_stat_value(value: Any) -> ReportValue:
+    if isinstance(value, onp.generic):
+        value = value.item()
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+
+    try:
+        return json.dumps(value, sort_keys=True)
+    except Exception:
+        return str(value)
+
+
+def flatten_stats(stats: dict[str, Any]) -> ReportRows:
+    rows: ReportRows = []
+
+    def walk(prefix: str, obj: Any) -> None:
+        if isinstance(obj, dict):
+            if not obj:
+                if prefix:
+                    rows.append({"Key": prefix, "Value": "{}"})
+                return
+            for key, value in obj.items():
+                next_prefix = f"{prefix}.{key}" if prefix else str(key)
+                walk(next_prefix, value)
+            return
+
+        if isinstance(obj, (list, tuple)):
+            if not obj:
+                rows.append({"Key": prefix, "Value": "[]"})
+                return
+            for idx, value in enumerate(obj):
+                walk(f"{prefix}[{idx}]", value)
+            return
+
+        rows.append(
+            {
+                "Key": prefix if prefix else "value",
+                "Value": _serialize_stat_value(obj),
+            }
+        )
+
+    walk("", stats if isinstance(stats, dict) else {})
+    rows.sort(key=lambda row: str(row.get("Key", "")))
+    return rows
 
 
 def design_variable_boundary_record(
@@ -1006,6 +1142,8 @@ def save_results(
     constraint_rows: ReportRows,
     design_points_rows: ReportRows | None = None,
     boundary_rows: ReportRows | None = None,
+    active_constraint_rows: ReportRows | None = None,
+    solver_stats: dict[str, Any] | None = None,
 ) -> PathMap:
     # Persist a compact CSV plus a multi-sheet workbook
     summary_df = pd.DataFrame(summary_rows)
@@ -1013,6 +1151,18 @@ def save_results(
     mass_df = pd.DataFrame(mass_rows)
     aero_df = pd.DataFrame(aero_rows)
     constraints_df = pd.DataFrame(constraint_rows)
+    solver_stats_df = pd.DataFrame(
+        flatten_stats(solver_stats or {}),
+        columns=["Key", "Value"],
+    )
+    active_constraints_rows = (
+        active_constraint_rows
+        if active_constraint_rows is not None
+        else build_active_constraints_rows(constraint_rows)
+    )
+    active_constraints_df = pd.DataFrame(active_constraints_rows)
+    if active_constraints_df.empty:
+        active_constraints_df = pd.DataFrame(columns=constraints_df.columns)
 
     csv_path = RESULTS_DIR / "nausicaa_results.csv"
     xlsx_path = RESULTS_DIR / "nausicaa_results.xlsx"
@@ -1025,6 +1175,12 @@ def save_results(
         mass_df.to_excel(writer, sheet_name="MassBreakdown", index=False)
         aero_df.to_excel(writer, sheet_name="Aerodynamics", index=False)
         constraints_df.to_excel(writer, sheet_name="Constraints", index=False)
+        active_constraints_df.to_excel(
+            writer,
+            sheet_name="ActiveConstraints",
+            index=False,
+        )
+        solver_stats_df.to_excel(writer, sheet_name="SolverStats", index=False)
         if boundary_rows is not None:
             pd.DataFrame(boundary_rows).to_excel(
                 writer,
@@ -1445,7 +1601,13 @@ def legacy_single_run_main(
         airplane=airplane_turn,
         op_point=op_point_turn,
         xyz_ref=total_mass.xyz_cg,
-    ).run()
+    ).run_with_stability_derivatives(
+        alpha=True,
+        beta=True,
+        p=True,
+        q=True,
+        r=True,
+    )
 
     # Derived performance and stability metrics
     wing_area_m2 = wing.area()
@@ -1482,6 +1644,7 @@ def legacy_single_run_main(
     q_dyn = 0.5 * RHO * V_NOM_MPS ** 2
     i_xx = np.maximum(total_mass.inertia_tensor[0, 0], 1e-8)
     clp_mag = np.maximum(np.abs(aero_nom["Clp"]), 1e-5)
+    clp_mag_turn = np.maximum(np.abs(aero_turn["Clp"]), 1e-5)
     delta_a_max_rad = np.radians(DELTA_A_MAX_DEG)
 
     roll_accel0_rad_s2 = (
@@ -1512,7 +1675,7 @@ def legacy_single_run_main(
         / np.maximum(wing_span_m, 1e-8)
         * np.abs(cl_delta_a)
         * delta_a_max_rad
-        / clp_mag
+        / clp_mag_turn
     )
 
     # Control-surface areas/chords for hinge-moment checks
@@ -1704,6 +1867,12 @@ def legacy_single_run_main(
         print(f"\n[SOLVE FAILED] {exc}", flush=True)
         print("No feasible design was found with the current settings", flush=True)
         return None
+    solve_stats: dict[str, Any] = {}
+    try:
+        stats_obj = solution.stats() if hasattr(solution, "stats") else {}
+        solve_stats = stats_obj if isinstance(stats_obj, dict) else {}
+    except Exception:
+        solve_stats = {}
 
     # Numeric post-processing for reports and exports
     airplane_num = solution(airplane_nom)
@@ -2279,6 +2448,7 @@ def legacy_single_run_main(
             upper=TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG,
         ),
     ]
+    active_constraint_rows = build_active_constraints_rows(constraint_rows)
 
     design_points_rows: ReportRows = [
         {"DesignPoint": "Settings", "Metric": "V_NOM_MPS", "Value": V_NOM_MPS, "Unit": "m/s"},
@@ -2426,8 +2596,10 @@ def legacy_single_run_main(
         mass_rows=mass_rows,
         aero_rows=aero_rows,
         constraint_rows=constraint_rows,
+        active_constraint_rows=active_constraint_rows,
         boundary_rows=boundary_rows,
         design_points_rows=design_points_rows,
+        solver_stats=solve_stats,
         wing_area_m2=float(to_scalar(wing_area_num)),
         wing_mac_m=float(to_scalar(wing_num.mean_aerodynamic_chord())),
         airfoil_label=airfoil_label,
@@ -2445,6 +2617,8 @@ def legacy_single_run_main(
         constraint_rows=constraint_rows,
         design_points_rows=design_points_rows,
         boundary_rows=boundary_rows,
+        active_constraint_rows=active_constraint_rows,
+        solver_stats=solve_stats,
     )
 
     figure_paths: PathMap = {}
@@ -3041,9 +3215,9 @@ def trim_candidate_at_point(
         opti.bounded(u_a_min, u_a_deg, u_a_max),
         opti.bounded(u_e_min, u_e_deg, u_e_max),
         opti.bounded(u_r_min, u_r_deg, u_r_max),
-        opti.bounded(-rate_limit_deg, u_a_deg, rate_limit_deg),
-        opti.bounded(-rate_limit_deg, u_e_deg, rate_limit_deg),
-        opti.bounded(-rate_limit_deg, u_r_deg, rate_limit_deg),
+        opti.bounded(-rate_limit_deg, u_a_deg - u_a_init, rate_limit_deg),
+        opti.bounded(-rate_limit_deg, u_e_deg - u_e_init, rate_limit_deg),
+        opti.bounded(-rate_limit_deg, u_r_deg - u_r_init, rate_limit_deg),
     ]
     if point == "nom":
         constraints.extend(
@@ -3086,6 +3260,12 @@ def trim_candidate_at_point(
         f"{point}_u_a_deg": onp.nan,
         f"{point}_u_e_deg": onp.nan,
         f"{point}_u_r_deg": onp.nan,
+        f"{point}_u_a_init": u_a_init,
+        f"{point}_u_e_init": u_e_init,
+        f"{point}_u_r_init": u_r_init,
+        f"{point}_u_delta_a": onp.nan,
+        f"{point}_u_delta_e": onp.nan,
+        f"{point}_u_delta_r": onp.nan,
         f"{point}_delta_a_deg": onp.nan,
         f"{point}_delta_e_deg": onp.nan,
         f"{point}_delta_r_deg": onp.nan,
@@ -3204,6 +3384,12 @@ def trim_candidate_at_point(
         f"{point}_u_a_deg": u_a_num,
         f"{point}_u_e_deg": u_e_num,
         f"{point}_u_r_deg": u_r_num,
+        f"{point}_u_a_init": u_a_init,
+        f"{point}_u_e_init": u_e_init,
+        f"{point}_u_r_init": u_r_init,
+        f"{point}_u_delta_a": u_a_num - u_a_init,
+        f"{point}_u_delta_e": u_e_num - u_e_init,
+        f"{point}_u_delta_r": u_r_num - u_r_init,
         f"{point}_delta_a_deg": delta_a_num,
         f"{point}_delta_e_deg": delta_e_num,
         f"{point}_delta_r_deg": delta_r_num,
@@ -3216,9 +3402,9 @@ def trim_candidate_at_point(
         f"{point}_util_a": abs(delta_a_num) / max(abs(DELTA_A_MAX_DEG), 1e-8),
         f"{point}_util_e": abs(delta_e_num) / max(abs(DELTA_E_MAX_DEG), 1e-8),
         f"{point}_util_r": abs(delta_r_num) / max(abs(DELTA_R_MAX_DEG), 1e-8),
-        f"{point}_u_rate_util_a": abs(u_a_num) / max(rate_limit_deg, 1e-8),
-        f"{point}_u_rate_util_e": abs(u_e_num) / max(rate_limit_deg, 1e-8),
-        f"{point}_u_rate_util_r": abs(u_r_num) / max(rate_limit_deg, 1e-8),
+        f"{point}_u_rate_util_a": abs(u_a_num - u_a_init) / max(rate_limit_deg, 1e-8),
+        f"{point}_u_rate_util_e": abs(u_e_num - u_e_init) / max(rate_limit_deg, 1e-8),
+        f"{point}_u_rate_util_r": abs(u_r_num - u_r_init) / max(rate_limit_deg, 1e-8),
         f"{point}_w_gust": w_gust_mps,
         f"{point}_roll_tau_s": float(roll_tau_s),
         f"{point}_roll_accel0": float(roll_accel0),
@@ -3824,6 +4010,34 @@ def save_workflow_workbook(
                     sheet_name="Constraints",
                     index=False,
                 )
+            selected_active_rows = selected_candidate.active_constraint_rows
+            if (
+                selected_active_rows is None
+                and selected_candidate.constraint_rows is not None
+            ):
+                selected_active_rows = build_active_constraints_rows(
+                    selected_candidate.constraint_rows
+                )
+            if selected_active_rows is not None:
+                selected_active_df = pd.DataFrame(selected_active_rows)
+                if selected_active_df.empty and selected_candidate.constraint_rows is not None:
+                    selected_active_df = pd.DataFrame(
+                        columns=pd.DataFrame(selected_candidate.constraint_rows).columns
+                    )
+                selected_active_df.to_excel(
+                    writer,
+                    sheet_name="ActiveConstraints",
+                    index=False,
+                )
+            if selected_candidate.solver_stats is not None:
+                pd.DataFrame(
+                    flatten_stats(selected_candidate.solver_stats),
+                    columns=["Key", "Value"],
+                ).to_excel(
+                    writer,
+                    sheet_name="SolverStats",
+                    index=False,
+                )
             if selected_candidate.boundary_rows is not None:
                 pd.DataFrame(selected_candidate.boundary_rows).to_excel(
                     writer,
@@ -3858,6 +4072,8 @@ def export_selected_candidate(candidate: Candidate) -> tuple[PathMap, PathMap]:
         constraint_rows=candidate.constraint_rows,
         design_points_rows=candidate.design_points_rows,
         boundary_rows=candidate.boundary_rows,
+        active_constraint_rows=candidate.active_constraint_rows,
+        solver_stats=candidate.solver_stats,
     )
 
     figure_paths: PathMap = {}
