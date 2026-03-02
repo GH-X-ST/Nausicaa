@@ -41,7 +41,7 @@ ARENA_WIDTH_M = 4.8
 ARENA_HEIGHT_M = 3.5
 
 # Two-speed design points
-V_TURN_MPS = 4.15
+V_TURN_MPS = 4.0
 V_NOM_MPS = 5.0
 
 # Manoeuvre definition (coordinated, banked turn feasibility)
@@ -141,9 +141,32 @@ BOOM_TUBE_INNER_DIAMETER_M = 0.002
 BOOM_ROD_DENSITY_KG_M3 = 1400.0
 BOOM_EXTRA_MASS_KG = 0.0
 
+# Wing spar (carry-through) + filament tape reinforcement
+WING_SPAR_ENABLE = True
+WING_SPAR_X_FRAC = 0.30
+WING_SPAR_OD_M = BOOM_TUBE_OUTER_DIAMETER_M
+WING_SPAR_ID_M = BOOM_TUBE_INNER_DIAMETER_M
+WING_SPAR_RHO_KG_M3 = BOOM_ROD_DENSITY_KG_M3
+WING_SPAR_E_FLEX_PA = 25e9
+WING_SPAR_Z_FROM_LOWER_M = 0.002
+WING_SPAR_SLOT_W_M = 0.004
+WING_SPAR_SLOT_H_M = 0.004
+
+TAPE_ENABLE_WING = True
+TAPE_ENABLE_TAIL = True
+TAPE_WIDTH_M = 0.050
+TAPE_THICKNESS_M = 0.00013
+TAPE_AREAL_DENSITY_KG_M2 = 0.12
+TAPE_E_EFFECTIVE_PA = 10e9
+TAPE_EFFICIENCY = 1.0
+
 # Discrete hardware modules
 CENTRE_MODULE_MASS_KG = 0.032
 TAIL_MODULE_MASS_KG = 0.004
+CENTRE_MODULE_VOLUME_M3 = 0.00002206
+TAIL_MODULE_VOLUME_M3 = 0.00000361
+CENTRE_MODULE_RHO_KG_M3 = CENTRE_MODULE_MASS_KG / CENTRE_MODULE_VOLUME_M3
+TAIL_MODULE_RHO_KG_M3 = TAIL_MODULE_MASS_KG / TAIL_MODULE_VOLUME_M3
 TAIL_SUPPORT_MASS_KG = 0.001
 # X-location rules for aft hardware
 TAIL_GEAR_X_OFFSET_FROM_HTAIL_LE_M = -0.00894
@@ -151,12 +174,21 @@ TAIL_MODULE_X_OFFSET_FROM_FUSELAGE_TAIL_M = -0.02234
 CENTRE_MODULE_Z_CG_M = 0.0025
 TAIL_MODULE_Z_CG_M = 0.0006
 TAIL_SUPPORT_Z_CG_M = -0.00587
+VTAIL_MOUNT_T_M = 0.002
+VTAIL_MOUNT_LB_M = 0.019
+VTAIL_MOUNT_LT_M = 0.0095
+VTAIL_MOUNT_H_M = 0.0215
+VTAIL_MOUNT_X0_OFFSET_FROM_BOOM_END_M = 0.0383
+VTAIL_MOUNT_ROOT_LOWER_Z_M = VTAIL_ROOT_LOWER_SURFACE_Z_M
 
 GLUE_FRACTION = 0.08
 BALLAST_MAX_KG = 0.025
 
 # Avionics / hardware masses (kg)
 BATTERY_MASS_KG = 0.0090
+BATTERY_DIM_X_M = 0.047
+BATTERY_DIM_Y_M = 0.017
+BATTERY_DIM_Z_M = 0.005
 RECEIVER_MASS_KG = 0.0050
 FLIGHT_CONTROLLER_MASS_KG = 0.0050
 REGULATOR_MASS_KG = 0.0004
@@ -169,7 +201,7 @@ AILERON_SERVO_X_CHORD_FRAC = 0.30
 # Battery sliding range
 BATTERY_X_MAX_FRAC = 0.60
 BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M = 0.035
-AVIONICS_Z_CG_M = -0.015
+AVIONICS_Z_CG_M = -0.008
 REGULATOR_X_OFFSET_FROM_BATTERY_M = 0.040
 RECEIVER_X_OFFSET_FROM_REGULATOR_M = 0.035
 FLIGHT_CONTROLLER_X_OFFSET_FROM_BATTERY_M = 0.015
@@ -213,13 +245,13 @@ CONTROL_HORN_ARM_M = 0.008
 MASS_WEIGHT_IN_OBJECTIVE = 0.20
 BALLAST_WEIGHT_IN_OBJECTIVE = 0.40
 CONTROL_TRIM_WEIGHT = 2e-4
-STRUCT_DEFLECTION_WEIGHT = 0.05
+STRUCT_DEFLECTION_WEIGHT = 5
 ROLL_TAU_WEIGHT_IN_OBJECTIVE = 0.05
 WING_DEFLECTION_ALLOW_FRAC = 0.08
 # Horizontal-tail stiffness proxy (soft regularizer)
 HT_LOAD_FRACTION = 0.25            # k_H in F = k_H * n_turn * W (start 0.20-0.35)
 HT_DEFLECTION_ALLOW_FRAC = 0.08    # allowed tip deflection fraction of semispan
-HT_STRUCT_DEFLECTION_WEIGHT = 0.05 # start small (0.005-0.05) and tune
+HT_STRUCT_DEFLECTION_WEIGHT = 1
 HTAIL_E_SECANT_PA = FOAM_ESEC10_G3_PA  # tail foam secant modulus (3 mm Depron proxy)
 SOFTPLUS_K = 25.0
 BOUNDARY_HIT_REL_TOL = 1e-3
@@ -634,6 +666,276 @@ def point_mass(
     )
 
 
+def tube_area_m2(od_m: Scalar, id_m: Scalar) -> Scalar:
+    return (np.pi / 4.0) * (od_m**2 - id_m**2)
+
+
+def tube_I_m4(od_m: Scalar, id_m: Scalar) -> Scalar:
+    # Second moment of area about tube centroid for bending in either transverse plane.
+    return (np.pi / 64.0) * (od_m**4 - id_m**4)
+
+
+def mass_properties_rect_prism(
+    mass_kg: Scalar,
+    dim_x_m: Scalar,
+    dim_y_m: Scalar,
+    dim_z_m: Scalar,
+    x_cg_m: Scalar,
+    y_cg_m: Scalar,
+    z_cg_m: Scalar,
+) -> asb.MassProperties:
+    # Uniform rectangular prism with body axes aligned to global x/y/z.
+    m = mass_kg
+    i_xx = (m / 12.0) * (dim_y_m**2 + dim_z_m**2)
+    i_yy = (m / 12.0) * (dim_x_m**2 + dim_z_m**2)
+    i_zz = (m / 12.0) * (dim_x_m**2 + dim_y_m**2)
+    return asb.MassProperties(
+        mass=m,
+        x_cg=x_cg_m,
+        y_cg=y_cg_m,
+        z_cg=z_cg_m,
+        Ixx=i_xx,
+        Iyy=i_yy,
+        Izz=i_zz,
+        Ixy=0.0,
+        Ixz=0.0,
+        Iyz=0.0,
+    )
+
+
+def mass_properties_spanwise_tube(
+    length_m: Scalar,
+    od_m: Scalar,
+    id_m: Scalar,
+    density_kg_m3: float,
+    x_cg_m: Scalar,
+    y_cg_m: Scalar,
+    z_cg_m: Scalar,
+) -> asb.MassProperties:
+    # Tube axis aligned with global y (spanwise).
+    area_m2 = tube_area_m2(od_m, id_m)
+    mass_kg = density_kg_m3 * area_m2 * length_m
+
+    r_outer_m = 0.5 * od_m
+    r_inner_m = 0.5 * id_m
+    r2 = r_outer_m**2 + r_inner_m**2
+
+    i_yy = 0.5 * mass_kg * r2
+    i_xx = (mass_kg / 12.0) * (length_m**2 + 3.0 * r2)
+    i_zz = i_xx
+
+    return asb.MassProperties(
+        mass=mass_kg,
+        x_cg=x_cg_m,
+        y_cg=y_cg_m,
+        z_cg=z_cg_m,
+        Ixx=i_xx,
+        Iyy=i_yy,
+        Izz=i_zz,
+        Ixy=0.0,
+        Ixz=0.0,
+        Iyz=0.0,
+    )
+
+
+def mass_properties_x_axis_tube(
+    length_m: Scalar,
+    od_m: Scalar,
+    id_m: Scalar,
+    density_kg_m3: float,
+    x_cg_m: Scalar,
+    y_cg_m: Scalar,
+    z_cg_m: Scalar,
+) -> asb.MassProperties:
+    # Tube axis aligned with global x.
+    area_m2 = tube_area_m2(od_m, id_m)
+    mass_kg = density_kg_m3 * area_m2 * length_m
+
+    r_outer_m = 0.5 * od_m
+    r_inner_m = 0.5 * id_m
+    r2 = r_outer_m**2 + r_inner_m**2
+
+    i_xx = 0.5 * mass_kg * r2
+    i_yy = (mass_kg / 12.0) * (length_m**2 + 3.0 * r2)
+    i_zz = i_yy
+
+    return asb.MassProperties(
+        mass=mass_kg,
+        x_cg=x_cg_m,
+        y_cg=y_cg_m,
+        z_cg=z_cg_m,
+        Ixx=i_xx,
+        Iyy=i_yy,
+        Izz=i_zz,
+        Ixy=0.0,
+        Ixz=0.0,
+        Iyz=0.0,
+    )
+
+
+def trapezoid_area_m2(base_bottom_m: Scalar, base_top_m: Scalar, height_m: Scalar) -> Scalar:
+    return 0.5 * (base_bottom_m + base_top_m) * height_m
+
+
+def trapezoid_centroid_from_base_m(
+    base_bottom_m: Scalar,
+    base_top_m: Scalar,
+    height_m: Scalar,
+) -> Scalar:
+    # Distance from the bottom base to the area centroid.
+    return height_m * (base_bottom_m + 2.0 * base_top_m) / (
+        3.0 * (base_bottom_m + base_top_m)
+    )
+
+
+def mean_abs_span_location_uniform(span_m: Scalar) -> Scalar:
+    # E[|y|] for a symmetric uniform spanwise distribution.
+    return 0.25 * span_m
+
+
+def dihedral_mean_z_offset_m(span_m: Scalar, dihedral_deg: float) -> Scalar:
+    return mean_abs_span_location_uniform(span_m) * np.tan(np.radians(dihedral_deg))
+
+
+def combine_mass_properties(mps: list[asb.MassProperties]) -> asb.MassProperties:
+    if len(mps) == 0:
+        return asb.MassProperties(
+            mass=0.0,
+            x_cg=0.0,
+            y_cg=0.0,
+            z_cg=0.0,
+            Ixx=0.0,
+            Iyy=0.0,
+            Izz=0.0,
+            Ixy=0.0,
+            Ixz=0.0,
+            Iyz=0.0,
+        )
+
+    total_mass = 0.0
+    x_moment = 0.0
+    y_moment = 0.0
+    z_moment = 0.0
+    for mp in mps:
+        m = mp.mass
+        total_mass = total_mass + m
+        x_moment = x_moment + m * mp.xyz_cg[0]
+        y_moment = y_moment + m * mp.xyz_cg[1]
+        z_moment = z_moment + m * mp.xyz_cg[2]
+
+    x_cg = x_moment / total_mass
+    y_cg = y_moment / total_mass
+    z_cg = z_moment / total_mass
+
+    i_xx = 0.0
+    i_yy = 0.0
+    i_zz = 0.0
+    i_xy = 0.0
+    i_xz = 0.0
+    i_yz = 0.0
+    for mp in mps:
+        m = mp.mass
+        dx = mp.xyz_cg[0] - x_cg
+        dy = mp.xyz_cg[1] - y_cg
+        dz = mp.xyz_cg[2] - z_cg
+        inertia_tensor = mp.inertia_tensor
+
+        i_xx = i_xx + inertia_tensor[0, 0] + m * (dy**2 + dz**2)
+        i_yy = i_yy + inertia_tensor[1, 1] + m * (dx**2 + dz**2)
+        i_zz = i_zz + inertia_tensor[2, 2] + m * (dx**2 + dy**2)
+        i_xy = i_xy + inertia_tensor[0, 1] - m * dx * dy
+        i_xz = i_xz + inertia_tensor[0, 2] - m * dx * dz
+        i_yz = i_yz + inertia_tensor[1, 2] - m * dy * dz
+
+    return asb.MassProperties(
+        mass=total_mass,
+        x_cg=x_cg,
+        y_cg=y_cg,
+        z_cg=z_cg,
+        Ixx=i_xx,
+        Iyy=i_yy,
+        Izz=i_zz,
+        Ixy=i_xy,
+        Ixz=i_xz,
+        Iyz=i_yz,
+    )
+
+
+def scale_mass_properties(mp: asb.MassProperties, scale: Scalar) -> asb.MassProperties:
+    inertia_tensor = mp.inertia_tensor
+    return asb.MassProperties(
+        mass=scale * mp.mass,
+        x_cg=mp.xyz_cg[0],
+        y_cg=mp.xyz_cg[1],
+        z_cg=mp.xyz_cg[2],
+        Ixx=scale * inertia_tensor[0, 0],
+        Iyy=scale * inertia_tensor[1, 1],
+        Izz=scale * inertia_tensor[2, 2],
+        Ixy=scale * inertia_tensor[0, 1],
+        Ixz=scale * inertia_tensor[0, 2],
+        Iyz=scale * inertia_tensor[1, 2],
+    )
+
+
+def composite_EI_flapwise(
+    chord_m: Scalar,
+    foam_thickness_m: Scalar,
+    e_foam_pa: Scalar,
+    spar_od_m: Scalar,
+    spar_id_m: Scalar,
+    e_spar_pa: Scalar,
+    spar_z_from_lower_m: Scalar,
+    include_spar: bool,
+    tape_width_m: Scalar,
+    tape_thickness_m: Scalar,
+    e_tape_pa: Scalar,
+    include_tape: bool,
+) -> tuple[Scalar, Scalar]:
+    # E-weighted transformed section; z measured from the lower surface.
+    t = np.maximum(foam_thickness_m, 1e-9)
+    c = np.maximum(chord_m, 1e-9)
+
+    a_foam = c * t
+    z_foam = 0.5 * t
+    i_foam = c * (t**3) / 12.0
+
+    a_spar = tube_area_m2(spar_od_m, spar_id_m)
+    z_spar = spar_z_from_lower_m
+    i_spar = tube_I_m4(spar_od_m, spar_id_m)
+
+    tape_w_m = np.minimum(np.maximum(tape_width_m, 0.0), c)
+    tape_t_m = np.maximum(tape_thickness_m, 1e-9)
+    a_tape = tape_w_m * tape_t_m
+    i_tape = tape_w_m * (tape_t_m**3) / 12.0
+    z_tape_bottom = 0.5 * tape_t_m
+    z_tape_top = t - 0.5 * tape_t_m
+
+    s_spar = 1.0 if include_spar else 0.0
+    s_tape = 1.0 if include_tape else 0.0
+
+    ea_sum = (
+        e_foam_pa * a_foam
+        + s_spar * (e_spar_pa * a_spar)
+        + s_tape * (e_tape_pa * a_tape)
+        + s_tape * (e_tape_pa * a_tape)
+    )
+    eaz_sum = (
+        e_foam_pa * a_foam * z_foam
+        + s_spar * (e_spar_pa * a_spar * z_spar)
+        + s_tape * (e_tape_pa * a_tape * z_tape_bottom)
+        + s_tape * (e_tape_pa * a_tape * z_tape_top)
+    )
+    z0 = eaz_sum / np.maximum(ea_sum, 1e-16)
+
+    ei = (
+        e_foam_pa * (i_foam + a_foam * (z_foam - z0) ** 2)
+        + s_spar * (e_spar_pa * (i_spar + a_spar * (z_spar - z0) ** 2))
+        + s_tape * (e_tape_pa * (i_tape + a_tape * (z_tape_bottom - z0) ** 2))
+        + s_tape * (e_tape_pa * (i_tape + a_tape * (z_tape_top - z0) ** 2))
+    )
+    return ei, z0
+
+
 def flat_plate_mass_properties(
     surface: asb.Wing,
     density_kg_m3: float,
@@ -707,14 +1009,211 @@ def build_mass_model(
         span_axis="z",
     )
 
+    wing_span_m = surface_span(wing, span_axis="y")
+    z_wing_lower_m = WING_ROOT_LOWER_SURFACE_Z_M
+    x_spar_m = WING_SPAR_X_FRAC * wing_chord_m
+    z_spar_m = z_wing_lower_m + WING_SPAR_Z_FROM_LOWER_M
+    z_dihedral_mean_m = dihedral_mean_z_offset_m(wing_span_m, DIHEDRAL_DEG)
+
+    if WING_SPAR_ENABLE:
+        mass_props["wing_spar_tube"] = mass_properties_spanwise_tube(
+            length_m=wing_span_m,
+            od_m=WING_SPAR_OD_M,
+            id_m=WING_SPAR_ID_M,
+            density_kg_m3=WING_SPAR_RHO_KG_M3,
+            x_cg_m=x_spar_m,
+            y_cg_m=0.0,
+            z_cg_m=z_spar_m + z_dihedral_mean_m,
+        )
+
+        slot_vol_m3 = WING_SPAR_SLOT_W_M * WING_SPAR_SLOT_H_M * wing_span_m
+        slot_mass_kg = WING_DENSITY_KG_M3 * slot_vol_m3
+        z_slot_cg_m = z_wing_lower_m + 0.5 * WING_SPAR_SLOT_H_M
+        mass_props["wing_spar_slot_void"] = mass_properties_rect_prism(
+            mass_kg=-slot_mass_kg,
+            dim_x_m=WING_SPAR_SLOT_W_M,
+            dim_y_m=wing_span_m,
+            dim_z_m=WING_SPAR_SLOT_H_M,
+            x_cg_m=x_spar_m,
+            y_cg_m=0.0,
+            z_cg_m=z_slot_cg_m + z_dihedral_mean_m,
+        )
+
+    if TAPE_ENABLE_WING:
+        tape_w_wing_m = np.minimum(TAPE_WIDTH_M, wing_chord_m)
+        tape_area_one_side_m2 = wing_span_m * tape_w_wing_m
+        tape_mass_one_side_kg = TAPE_AREAL_DENSITY_KG_M2 * tape_area_one_side_m2
+        mass_props["wing_tape_bottom"] = mass_properties_rect_prism(
+            mass_kg=tape_mass_one_side_kg,
+            dim_x_m=tape_w_wing_m,
+            dim_y_m=wing_span_m,
+            dim_z_m=TAPE_THICKNESS_M,
+            x_cg_m=x_spar_m,
+            y_cg_m=0.0,
+            z_cg_m=z_wing_lower_m + 0.5 * TAPE_THICKNESS_M + z_dihedral_mean_m,
+        )
+        mass_props["wing_tape_top"] = mass_properties_rect_prism(
+            mass_kg=tape_mass_one_side_kg,
+            dim_x_m=tape_w_wing_m,
+            dim_y_m=wing_span_m,
+            dim_z_m=TAPE_THICKNESS_M,
+            x_cg_m=x_spar_m,
+            y_cg_m=0.0,
+            z_cg_m=(
+                z_wing_lower_m
+                + WING_THICKNESS_M
+                - 0.5 * TAPE_THICKNESS_M
+                + z_dihedral_mean_m
+            ),
+        )
+
+    if TAPE_ENABLE_TAIL:
+        x_le_tail_m = tail_arm_m
+
+        htail_span_m = surface_span(htail, span_axis="y")
+        htail_area_m2 = htail.area()
+        htail_chord_est_m = htail_area_m2 / np.maximum(htail_span_m, 1e-8)
+        tape_w_htail_m = np.minimum(TAPE_WIDTH_M, htail_chord_est_m)
+        tape_area_one_side_ht_m2 = htail_span_m * tape_w_htail_m
+        tape_mass_one_side_ht_kg = TAPE_AREAL_DENSITY_KG_M2 * tape_area_one_side_ht_m2
+        z_htail_lower_m = HTAIL_ROOT_LOWER_SURFACE_Z_M
+        htail_tape_bottom = mass_properties_rect_prism(
+            mass_kg=tape_mass_one_side_ht_kg,
+            dim_x_m=tape_w_htail_m,
+            dim_y_m=htail_span_m,
+            dim_z_m=TAPE_THICKNESS_M,
+            x_cg_m=x_le_tail_m + 0.5 * tape_w_htail_m,
+            y_cg_m=0.0,
+            z_cg_m=z_htail_lower_m + 0.5 * TAPE_THICKNESS_M,
+        )
+        htail_tape_top = mass_properties_rect_prism(
+            mass_kg=tape_mass_one_side_ht_kg,
+            dim_x_m=tape_w_htail_m,
+            dim_y_m=htail_span_m,
+            dim_z_m=TAPE_THICKNESS_M,
+            x_cg_m=x_le_tail_m + 0.5 * tape_w_htail_m,
+            y_cg_m=0.0,
+            z_cg_m=z_htail_lower_m + TAIL_THICKNESS_M - 0.5 * TAPE_THICKNESS_M,
+        )
+        mass_props["htail_tape"] = combine_mass_properties(
+            [htail_tape_bottom, htail_tape_top]
+        )
+
+        vtail_span_m = surface_span(vtail, span_axis="z")
+        vtail_area_m2 = vtail.area()
+        vtail_chord_est_m = vtail_area_m2 / np.maximum(vtail_span_m, 1e-8)
+        tape_w_vtail_m = np.minimum(TAPE_WIDTH_M, vtail_chord_est_m)
+        tape_area_one_side_vt_m2 = vtail_span_m * tape_w_vtail_m
+        tape_mass_one_side_vt_kg = TAPE_AREAL_DENSITY_KG_M2 * tape_area_one_side_vt_m2
+        z_vtail_mid_m = VTAIL_ROOT_LOWER_SURFACE_Z_M + 0.5 * vtail_span_m
+        vtail_tape_side_a = mass_properties_rect_prism(
+            mass_kg=tape_mass_one_side_vt_kg,
+            dim_x_m=tape_w_vtail_m,
+            dim_y_m=TAPE_THICKNESS_M,
+            dim_z_m=vtail_span_m,
+            x_cg_m=x_le_tail_m + 0.5 * tape_w_vtail_m,
+            y_cg_m=0.0,
+            z_cg_m=z_vtail_mid_m,
+        )
+        vtail_tape_side_b = mass_properties_rect_prism(
+            mass_kg=tape_mass_one_side_vt_kg,
+            dim_x_m=tape_w_vtail_m,
+            dim_y_m=TAPE_THICKNESS_M,
+            dim_z_m=vtail_span_m,
+            x_cg_m=x_le_tail_m + 0.5 * tape_w_vtail_m,
+            y_cg_m=0.0,
+            z_cg_m=z_vtail_mid_m,
+        )
+        mass_props["vtail_tape"] = combine_mass_properties(
+            [vtail_tape_side_a, vtail_tape_side_b]
+        )
+
     # Fixed onboard components
     mass_props["linkages"] = point_mass(0.001, x_m=0.5 * tail_arm_m)
 
-    x_centre_module = 0.5 * wing_chord_m
-    mass_props["centre_module"] = point_mass(
-        CENTRE_MODULE_MASS_KG,
-        x_m=x_centre_module,
-        z_m=CENTRE_MODULE_Z_CG_M,
+    x_centre_module = 0.3 * wing_chord_m + 0.030476
+    centre_mount_thickness_m = 0.002
+    centre_mount_base_bottom_m = 0.0261
+    centre_mount_base_top_m = 0.0115
+    centre_mount_height_m = 0.086
+    centre_mount_dim_x_m = 0.5 * (centre_mount_base_bottom_m + centre_mount_base_top_m)
+    centre_mount_area_m2 = trapezoid_area_m2(
+        centre_mount_base_bottom_m,
+        centre_mount_base_top_m,
+        centre_mount_height_m,
+    )
+    centre_mount_volume_m3 = centre_mount_area_m2 * centre_mount_thickness_m
+    centre_mount_mass_kg = CENTRE_MODULE_RHO_KG_M3 * centre_mount_volume_m3
+    centre_mount_ybar_m = trapezoid_centroid_from_base_m(
+        centre_mount_base_bottom_m,
+        centre_mount_base_top_m,
+        centre_mount_height_m,
+    )
+    centre_mount_x0_fwd_m = 0.3 * wing_chord_m + 0.013069
+    centre_mount_x0_aft_m = 0.3 * wing_chord_m + 0.0557
+    centre_mount_z_root_bottom_m = 0.002
+    tan_dihedral = np.tan(np.radians(DIHEDRAL_DEG))
+
+    centre_mount_components: MassPropertiesMap = {}
+    for y_sign, side_label in ((1.0, "R"), (-1.0, "L")):
+        y_mount_m = y_sign * centre_mount_ybar_m
+        z_mount_m = (
+            centre_mount_z_root_bottom_m
+            + 0.5 * centre_mount_thickness_m
+            + np.abs(y_mount_m) * tan_dihedral
+        )
+        centre_mount_components[f"centre_module_mount_fwd_{side_label}"] = (
+            mass_properties_rect_prism(
+                mass_kg=centre_mount_mass_kg,
+                dim_x_m=centre_mount_dim_x_m,
+                dim_y_m=centre_mount_height_m,
+                dim_z_m=centre_mount_thickness_m,
+                x_cg_m=centre_mount_x0_fwd_m + 0.5 * centre_mount_dim_x_m,
+                y_cg_m=y_mount_m,
+                z_cg_m=z_mount_m,
+            )
+        )
+        centre_mount_components[f"centre_module_mount_aft_{side_label}"] = (
+            mass_properties_rect_prism(
+                mass_kg=centre_mount_mass_kg,
+                dim_x_m=centre_mount_dim_x_m,
+                dim_y_m=centre_mount_height_m,
+                dim_z_m=centre_mount_thickness_m,
+                x_cg_m=centre_mount_x0_aft_m + 0.5 * centre_mount_dim_x_m,
+                y_cg_m=y_mount_m,
+                z_cg_m=z_mount_m,
+            )
+        )
+
+    centre_mounts_total = combine_mass_properties(list(centre_mount_components.values()))
+    centre_mounts_mass_num = to_float_if_possible(centre_mounts_total.mass)
+    if (
+        centre_mounts_mass_num is not None
+        and centre_mounts_mass_num >= CENTRE_MODULE_MASS_KG
+    ):
+        centre_scale = 0.98 * CENTRE_MODULE_MASS_KG / max(centre_mounts_mass_num, 1e-12)
+        for name in list(centre_mount_components.keys()):
+            centre_mount_components[name] = scale_mass_properties(
+                centre_mount_components[name],
+                centre_scale,
+            )
+        centre_mounts_total = combine_mass_properties(list(centre_mount_components.values()))
+
+    mass_props.update(centre_mount_components)
+
+    centre_core_mass_kg = CENTRE_MODULE_MASS_KG - centre_mounts_total.mass
+    centre_core_x_m = (
+        CENTRE_MODULE_MASS_KG * x_centre_module
+        - centre_mounts_total.mass * centre_mounts_total.xyz_cg[0]
+    ) / centre_core_mass_kg
+    centre_core_z_m = (
+        CENTRE_MODULE_MASS_KG * CENTRE_MODULE_Z_CG_M
+        - centre_mounts_total.mass * centre_mounts_total.xyz_cg[2]
+    ) / centre_core_mass_kg
+    mass_props["centre_module_core"] = point_mass(
+        centre_core_mass_kg,
+        x_m=centre_core_x_m,
+        z_m=centre_core_z_m,
     )
 
     # Battery as a dedicated CG-trim slider.
@@ -727,7 +1226,15 @@ def build_mass_model(
     x_batt_min = x_centre_module - BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M
     x_batt_max = BATTERY_X_MAX_FRAC * wing_chord_m
     x_batt = x_batt_min + battery_eta * (x_batt_max - x_batt_min)
-    mass_props["battery"] = point_mass(BATTERY_MASS_KG, x_m=x_batt, z_m=AVIONICS_Z_CG_M)
+    mass_props["battery"] = mass_properties_rect_prism(
+        mass_kg=BATTERY_MASS_KG,
+        dim_x_m=BATTERY_DIM_X_M,
+        dim_y_m=BATTERY_DIM_Y_M,
+        dim_z_m=BATTERY_DIM_Z_M,
+        x_cg_m=x_batt,
+        y_cg_m=0.0,
+        z_cg_m=AVIONICS_Z_CG_M,
+    )
 
     # Remaining avionics keep fixed spacing from battery.
     mass_props["flight_controller"] = point_mass(
@@ -750,11 +1257,92 @@ def build_mass_model(
     # Tail gear (tail support) from H-tail LE root; tail module from fuselage tail station.
     x_tail_support = tail_arm_m + TAIL_GEAR_X_OFFSET_FROM_HTAIL_LE_M
     x_tail_module = boom_end_x_m + TAIL_MODULE_X_OFFSET_FROM_FUSELAGE_TAIL_M
-    mass_props["tail_module"] = point_mass(
-        TAIL_MODULE_MASS_KG,
-        x_m=x_tail_module,
-        z_m=TAIL_MODULE_Z_CG_M,
+    tail_mount_thickness_m = 0.0015
+    tail_mount_base_bottom_m = 0.019
+    tail_mount_base_top_m = 0.008
+    tail_mount_height_m = 0.034
+    tail_mount_dim_x_m = 0.5 * (tail_mount_base_bottom_m + tail_mount_base_top_m)
+    tail_mount_area_m2 = trapezoid_area_m2(
+        tail_mount_base_bottom_m,
+        tail_mount_base_top_m,
+        tail_mount_height_m,
     )
+    tail_mount_volume_m3 = tail_mount_area_m2 * tail_mount_thickness_m
+    tail_mount_mass_kg = TAIL_MODULE_RHO_KG_M3 * tail_mount_volume_m3
+    tail_mount_ybar_m = trapezoid_centroid_from_base_m(
+        tail_mount_base_bottom_m,
+        tail_mount_base_top_m,
+        tail_mount_height_m,
+    )
+    tail_mount_x0_m = boom_end_x_m - 0.0277
+    tail_mount_z_upper_m = -0.0025
+    tail_mount_z_cg_m = tail_mount_z_upper_m - 0.5 * tail_mount_thickness_m
+
+    tail_mount_components: MassPropertiesMap = {}
+    for y_sign, side_label in ((1.0, "R"), (-1.0, "L")):
+        tail_mount_components[f"tail_module_mount_{side_label}"] = mass_properties_rect_prism(
+            mass_kg=tail_mount_mass_kg,
+            dim_x_m=tail_mount_dim_x_m,
+            dim_y_m=tail_mount_height_m,
+            dim_z_m=tail_mount_thickness_m,
+            x_cg_m=tail_mount_x0_m + 0.5 * tail_mount_dim_x_m,
+            y_cg_m=y_sign * tail_mount_ybar_m,
+            z_cg_m=tail_mount_z_cg_m,
+        )
+
+    vtail_mount_area_m2 = trapezoid_area_m2(
+        VTAIL_MOUNT_LB_M,
+        VTAIL_MOUNT_LT_M,
+        VTAIL_MOUNT_H_M,
+    )
+    vtail_mount_zbar_m = trapezoid_centroid_from_base_m(
+        VTAIL_MOUNT_LB_M,
+        VTAIL_MOUNT_LT_M,
+        VTAIL_MOUNT_H_M,
+    )
+    vtail_mount_mass_kg = TAIL_MODULE_RHO_KG_M3 * vtail_mount_area_m2 * VTAIL_MOUNT_T_M
+    vtail_mount_x0_m = boom_end_x_m - VTAIL_MOUNT_X0_OFFSET_FROM_BOOM_END_M
+    vtail_mount_x_cg_m = vtail_mount_x0_m + 0.5 * VTAIL_MOUNT_LB_M
+    vtail_mount_z_cg_m = VTAIL_MOUNT_ROOT_LOWER_Z_M + vtail_mount_zbar_m
+    vtail_mount_dim_x_m = 0.5 * (VTAIL_MOUNT_LB_M + VTAIL_MOUNT_LT_M)
+    tail_mount_components["vtail_mount"] = mass_properties_rect_prism(
+        mass_kg=vtail_mount_mass_kg,
+        dim_x_m=vtail_mount_dim_x_m,
+        dim_y_m=VTAIL_MOUNT_T_M,
+        dim_z_m=VTAIL_MOUNT_H_M,
+        x_cg_m=vtail_mount_x_cg_m,
+        y_cg_m=0.0,
+        z_cg_m=vtail_mount_z_cg_m,
+    )
+
+    tail_mounts_total = combine_mass_properties(list(tail_mount_components.values()))
+    tail_mounts_mass_num = to_float_if_possible(tail_mounts_total.mass)
+    if tail_mounts_mass_num is not None and tail_mounts_mass_num >= TAIL_MODULE_MASS_KG:
+        tail_scale = 0.98 * TAIL_MODULE_MASS_KG / max(tail_mounts_mass_num, 1e-12)
+        for name in list(tail_mount_components.keys()):
+            tail_mount_components[name] = scale_mass_properties(
+                tail_mount_components[name],
+                tail_scale,
+            )
+        tail_mounts_total = combine_mass_properties(list(tail_mount_components.values()))
+
+    mass_props.update(tail_mount_components)
+
+    tail_core_mass_kg = TAIL_MODULE_MASS_KG - tail_mounts_total.mass
+    tail_core_x_m = (
+        TAIL_MODULE_MASS_KG * x_tail_module
+        - tail_mounts_total.mass * tail_mounts_total.xyz_cg[0]
+    ) / tail_core_mass_kg
+    tail_core_z_m = (
+        TAIL_MODULE_MASS_KG * TAIL_MODULE_Z_CG_M
+        - tail_mounts_total.mass * tail_mounts_total.xyz_cg[2]
+    ) / tail_core_mass_kg
+    mass_props["tail_module_core"] = point_mass(
+        tail_core_mass_kg,
+        x_m=tail_core_x_m,
+        z_m=tail_core_z_m,
+    )
+
     mass_props["tail_support"] = point_mass(
         TAIL_SUPPORT_MASS_KG,
         x_m=x_tail_support,
@@ -775,7 +1363,6 @@ def build_mass_model(
         z_m=TAIL_MODULE_Z_CG_M,
     )
 
-    wing_span_m = surface_span(wing, span_axis="y")
     y_servo = AILERON_SERVO_SPAN_FRAC * wing_span_m
     wing_root_centerline_z_m = WING_ROOT_LOWER_SURFACE_Z_M + 0.5 * WING_THICKNESS_M
     z_servo = wing_root_centerline_z_m + np.abs(y_servo) * np.tan(np.radians(DIHEDRAL_DEG))
@@ -794,16 +1381,22 @@ def build_mass_model(
     )
 
     boom_length_m = np.maximum(boom_end_x_m - NOSE_X_M, 0.05)
-    boom_area_m2 = (np.pi / 4.0) * (
-        BOOM_TUBE_OUTER_DIAMETER_M**2 - BOOM_TUBE_INNER_DIAMETER_M**2
-    )
-    boom_linear_density_kg_m = BOOM_ROD_DENSITY_KG_M3 * boom_area_m2
-    boom_mass_kg = boom_linear_density_kg_m * boom_length_m + BOOM_EXTRA_MASS_KG
     boom_x_cg_m = 0.5 * (NOSE_X_M + boom_end_x_m)
-    mass_props["boom"] = asb.mass_properties_from_radius_of_gyration(
-        mass=boom_mass_kg,
-        x_cg=boom_x_cg_m,
+    boom_tube = mass_properties_x_axis_tube(
+        length_m=boom_length_m,
+        od_m=BOOM_TUBE_OUTER_DIAMETER_M,
+        id_m=BOOM_TUBE_INNER_DIAMETER_M,
+        density_kg_m3=BOOM_ROD_DENSITY_KG_M3,
+        x_cg_m=boom_x_cg_m,
+        y_cg_m=0.0,
+        z_cg_m=0.0,
     )
+    if BOOM_EXTRA_MASS_KG > 0.0:
+        mass_props["boom"] = combine_mass_properties(
+            [boom_tube, point_mass(BOOM_EXTRA_MASS_KG, x_m=boom_x_cg_m)]
+        )
+    else:
+        mass_props["boom"] = boom_tube
 
     # Ballast is optimized to close CG/stability constraints
     ballast_mass_kg = opti.variable(
@@ -811,18 +1404,15 @@ def build_mass_model(
         lower_bound=0.0,
         upper_bound=BALLAST_MAX_KG,
     )
-    mass_props["ballast"] = asb.mass_properties_from_radius_of_gyration(
-        mass=ballast_mass_kg,
-        x_cg=0.30 * wing_chord_m,
+    mass_props["ballast"] = point_mass(
+        ballast_mass_kg,
+        x_m=0.30 * wing_chord_m,
+        z_m=0.0,
     )
 
-    subtotal = asb.MassProperties(mass=0.0)
-    for component in mass_props.values():
-        subtotal = subtotal + component
-
-    # Lump glue/assembly overhead as a fraction of subtotal
-    mass_props["glue"] = subtotal * GLUE_FRACTION
-    total_mass = subtotal + mass_props["glue"]
+    subtotal = combine_mass_properties(list(mass_props.values()))
+    mass_props["glue"] = scale_mass_properties(subtotal, GLUE_FRACTION)
+    total_mass = combine_mass_properties([subtotal, mass_props["glue"]])
 
     return mass_props, total_mass, ballast_mass_kg, battery_eta
 
@@ -1735,15 +2325,31 @@ def legacy_single_run_main(
     n_turn = 1.0 / np.cos(phi_turn_rad)
     L_semispan_m = 0.5 * wing_span_m
     weight_n = total_mass.mass * G
-    I_plate_m4 = wing_chord_m * (WING_THICKNESS_M ** 3) / 12.0
-    E_eff_pa = WING_E_SECANT_PA
+    e_foam_wing_pa = WING_E_SECANT_PA
+    e_spar_wing_pa = WING_SPAR_E_FLEX_PA
+    e_tape_pa = TAPE_EFFICIENCY * TAPE_E_EFFECTIVE_PA
+    tape_w_wing_m = np.minimum(TAPE_WIDTH_M, wing_chord_m)
+    ei_wing_nm2, _wing_z0_m = composite_EI_flapwise(
+        chord_m=wing_chord_m,
+        foam_thickness_m=WING_THICKNESS_M,
+        e_foam_pa=e_foam_wing_pa,
+        spar_od_m=WING_SPAR_OD_M,
+        spar_id_m=WING_SPAR_ID_M,
+        e_spar_pa=e_spar_wing_pa,
+        spar_z_from_lower_m=WING_SPAR_Z_FROM_LOWER_M,
+        include_spar=WING_SPAR_ENABLE,
+        tape_width_m=tape_w_wing_m,
+        tape_thickness_m=TAPE_THICKNESS_M,
+        e_tape_pa=e_tape_pa,
+        include_tape=TAPE_ENABLE_WING,
+    )
     wing_total_lift_n = n_turn * weight_n
     wing_half_load_n = 0.5 * wing_total_lift_n
     wing_line_load_n_m = wing_half_load_n / np.maximum(L_semispan_m, 1e-9)
     delta_tip_m = (
         wing_line_load_n_m
         * (L_semispan_m ** 4)
-        / (8.0 * E_eff_pa * np.maximum(I_plate_m4, 1e-12))
+        / (8.0 * np.maximum(ei_wing_nm2, 1e-12))
     )
     delta_allow_m = WING_DEFLECTION_ALLOW_FRAC * L_semispan_m
     t = SOFTPLUS_K * (delta_tip_m - delta_allow_m)
@@ -1754,8 +2360,20 @@ def legacy_single_run_main(
 
     # Horizontal-tail flexibility proxy: each half-tail is treated the same way.
     L_ht_semispan_m = 0.5 * htail_span_m
-    I_ht_plate_m4 = htail_chord_m * (TAIL_THICKNESS_M ** 3) / 12.0
-    E_ht_eff_pa = HTAIL_E_SECANT_PA
+    ei_ht_nm2, _ht_z0_m = composite_EI_flapwise(
+        chord_m=htail_chord_m,
+        foam_thickness_m=TAIL_THICKNESS_M,
+        e_foam_pa=HTAIL_E_SECANT_PA,
+        spar_od_m=WING_SPAR_OD_M,
+        spar_id_m=WING_SPAR_ID_M,
+        e_spar_pa=WING_SPAR_E_FLEX_PA,
+        spar_z_from_lower_m=0.0,
+        include_spar=False,
+        tape_width_m=np.minimum(TAPE_WIDTH_M, htail_chord_m),
+        tape_thickness_m=TAPE_THICKNESS_M,
+        e_tape_pa=e_tape_pa,
+        include_tape=TAPE_ENABLE_TAIL,
+    )
 
     # Load model 1: F_ht_design = k_H * n_turn * W
     F_ht_design_n = HT_LOAD_FRACTION * n_turn * weight_n
@@ -1765,7 +2383,7 @@ def legacy_single_run_main(
     delta_ht_tip_m = (
         ht_line_load_n_m
         * (L_ht_semispan_m ** 4)
-        / (8.0 * E_ht_eff_pa * np.maximum(I_ht_plate_m4, 1e-12))
+        / (8.0 * np.maximum(ei_ht_nm2, 1e-12))
     )
 
     delta_ht_allow_m = HT_DEFLECTION_ALLOW_FRAC * L_ht_semispan_m
@@ -1939,8 +2557,10 @@ def legacy_single_run_main(
     roll_tau_num = to_scalar(solution(roll_tau_s))
     delta_tip_num = to_scalar(solution(delta_tip_m))
     delta_allow_num = to_scalar(solution(delta_allow_m))
+    wing_ei_num = to_scalar(solution(ei_wing_nm2))
     delta_ht_tip_num = to_scalar(solution(delta_ht_tip_m))
     delta_ht_allow_num = to_scalar(solution(delta_ht_allow_m))
+    htail_ei_num = to_scalar(solution(ei_ht_nm2))
     delta_ratio_num = delta_tip_num / max(0.5 * float(wing_span_design_num), 1e-9)
     delta_ht_ratio_num = delta_ht_tip_num / max(0.5 * float(htail_span_design_num), 1e-9)
     struct_deflection_penalty_num = to_scalar(solution(struct_deflection_penalty))
@@ -2202,6 +2822,7 @@ def legacy_single_run_main(
         {"Metric": "wing_struct_half_load_n", "Value": wing_struct_half_load_num, "Unit": "N"},
         {"Metric": "wing_struct_line_load_n_m", "Value": wing_struct_line_load_num, "Unit": "N/m"},
         {"Metric": "wing_struct_E_pa", "Value": WING_E_SECANT_PA, "Unit": "Pa"},
+        {"Metric": "wing_struct_EI_Nm2", "Value": wing_ei_num, "Unit": "N*m^2"},
         {"Metric": "wing_struct_thickness_m", "Value": WING_THICKNESS_M, "Unit": "m"},
         {
             "Metric": "htail_tip_deflection_proxy_m",
@@ -2227,6 +2848,7 @@ def legacy_single_run_main(
         {"Metric": "htail_struct_half_load_n", "Value": htail_struct_half_load_num, "Unit": "N"},
         {"Metric": "htail_struct_line_load_n_m", "Value": htail_struct_line_load_num, "Unit": "N/m"},
         {"Metric": "htail_struct_E_pa", "Value": HTAIL_E_SECANT_PA, "Unit": "Pa"},
+        {"Metric": "htail_struct_EI_Nm2", "Value": htail_ei_num, "Unit": "N*m^2"},
         {"Metric": "htail_struct_thickness_m", "Value": TAIL_THICKNESS_M, "Unit": "m"},
         {
             "Metric": "objective_struct_deflection_proxy_penalty",
@@ -3021,6 +3643,71 @@ def struct_tip_deflection_proxy(
     }
 
 
+def struct_tip_deflection_proxy_composite(
+    total_force_n: float,
+    span_m: float,
+    chord_m: float,
+    foam_thickness_m: float,
+    e_foam_pa: float,
+    e_foam_scale: float,
+    allow_frac: float,
+    thickness_scale: float,
+    include_spar: bool,
+    spar_od_m: float,
+    spar_id_m: float,
+    e_spar_pa: float,
+    spar_z_from_lower_m: float,
+    include_tape: bool,
+    tape_width_m: float,
+    tape_thickness_m: float,
+    e_tape_pa: float,
+) -> dict[str, float]:
+    semispan_m = 0.5 * max(float(span_m), 1e-9)
+    t_eff_m = max(float(foam_thickness_m) * max(float(thickness_scale), 1e-6), 1e-6)
+    e_foam_eff_pa = max(float(e_foam_pa) * max(float(e_foam_scale), 1e-6), 1e-6)
+    chord_eff_m = max(float(chord_m), 1e-9)
+    tape_w_m = min(float(tape_width_m), chord_eff_m)
+
+    ei_nm2, z0_m = composite_EI_flapwise(
+        chord_m=chord_eff_m,
+        foam_thickness_m=t_eff_m,
+        e_foam_pa=e_foam_eff_pa,
+        spar_od_m=float(spar_od_m),
+        spar_id_m=float(spar_id_m),
+        e_spar_pa=float(e_spar_pa),
+        spar_z_from_lower_m=float(spar_z_from_lower_m),
+        include_spar=bool(include_spar),
+        tape_width_m=tape_w_m,
+        tape_thickness_m=float(tape_thickness_m),
+        e_tape_pa=float(e_tape_pa),
+        include_tape=bool(include_tape),
+    )
+
+    half_force_n = 0.5 * float(total_force_n)
+    line_load_n_m = half_force_n / max(semispan_m, 1e-9)
+    delta_tip_m = line_load_n_m * (semispan_m**4) / (8.0 * max(float(ei_nm2), 1e-12))
+    delta_allow_m = max(float(allow_frac) * semispan_m, 1e-9)
+    defl_over_allow = delta_tip_m / delta_allow_m
+
+    i_plate_m4 = chord_eff_m * (t_eff_m**3) / 12.0
+
+    return {
+        "delta_tip_m": float(delta_tip_m),
+        "delta_allow_m": float(delta_allow_m),
+        "defl_over_allow": float(defl_over_allow),
+        "semispan_m": float(semispan_m),
+        "half_force_n": float(half_force_n),
+        "line_load_n_m": float(line_load_n_m),
+        "thickness_m": float(t_eff_m),
+        "e_foam_pa": float(e_foam_eff_pa),
+        "EI_Nm2": float(ei_nm2),
+        "z0_m": float(z0_m),
+        # Legacy aliases kept for compatibility with existing downstream tables.
+        "e_pa": float(e_foam_eff_pa),
+        "i_m4": float(i_plate_m4),
+    }
+
+
 def trim_candidate_at_point(
     candidate: Candidate,
     scenario_row: dict[str, Any],
@@ -3288,9 +3975,11 @@ def trim_candidate_at_point(
         f"{point}_wing_tip_deflection_proxy_m": onp.nan,
         f"{point}_wing_tip_deflection_proxy_allow_m": onp.nan,
         f"{point}_wing_deflection_proxy_over_allow": onp.nan,
+        f"{point}_wing_struct_EI_Nm2": onp.nan,
         f"{point}_htail_tip_deflection_proxy_m": onp.nan,
         f"{point}_htail_tip_deflection_proxy_allow_m": onp.nan,
         f"{point}_htail_deflection_proxy_over_allow": onp.nan,
+        f"{point}_htail_struct_EI_Nm2": onp.nan,
         f"{point}_ixx": ixx_scaled,
         f"{point}_iyy": iyy_scaled,
         f"{point}_izz": izz_scaled,
@@ -3355,25 +4044,43 @@ def trim_candidate_at_point(
         roll_accel0 = float("nan")
         roll_tau_s = float("nan")
 
-    wing_struct = struct_tip_deflection_proxy(
+    wing_struct = struct_tip_deflection_proxy_composite(
         total_force_n=n_req_struct * weight_n,
         span_m=candidate.wing_span_m,
         chord_m=candidate.wing_chord_m,
-        thickness_m=WING_THICKNESS_M,
-        e_secant_pa=WING_E_SECANT_PA,
-        e_scale=wing_e_scale,
+        foam_thickness_m=WING_THICKNESS_M,
+        e_foam_pa=WING_E_SECANT_PA,
+        e_foam_scale=wing_e_scale,
         allow_frac=WING_DEFLECTION_ALLOW_FRAC,
         thickness_scale=wing_thickness_scale,
+        include_spar=WING_SPAR_ENABLE,
+        spar_od_m=float(WING_SPAR_OD_M),
+        spar_id_m=float(WING_SPAR_ID_M),
+        e_spar_pa=float(WING_SPAR_E_FLEX_PA),
+        spar_z_from_lower_m=float(WING_SPAR_Z_FROM_LOWER_M),
+        include_tape=TAPE_ENABLE_WING,
+        tape_width_m=float(TAPE_WIDTH_M),
+        tape_thickness_m=float(TAPE_THICKNESS_M),
+        e_tape_pa=float(TAPE_EFFICIENCY * TAPE_E_EFFECTIVE_PA),
     )
-    htail_struct = struct_tip_deflection_proxy(
+    htail_struct = struct_tip_deflection_proxy_composite(
         total_force_n=HT_LOAD_FRACTION * n_req_struct * weight_n,
         span_m=candidate.htail_span_m,
         chord_m=float(to_scalar(htail_chord_m)),
-        thickness_m=TAIL_THICKNESS_M,
-        e_secant_pa=HTAIL_E_SECANT_PA,
-        e_scale=htail_e_scale,
+        foam_thickness_m=TAIL_THICKNESS_M,
+        e_foam_pa=HTAIL_E_SECANT_PA,
+        e_foam_scale=htail_e_scale,
         allow_frac=HT_DEFLECTION_ALLOW_FRAC,
         thickness_scale=tail_thickness_scale,
+        include_spar=False,
+        spar_od_m=float(WING_SPAR_OD_M),
+        spar_id_m=float(WING_SPAR_ID_M),
+        e_spar_pa=float(WING_SPAR_E_FLEX_PA),
+        spar_z_from_lower_m=0.0,
+        include_tape=TAPE_ENABLE_TAIL,
+        tape_width_m=float(TAPE_WIDTH_M),
+        tape_thickness_m=float(TAPE_THICKNESS_M),
+        e_tape_pa=float(TAPE_EFFICIENCY * TAPE_E_EFFECTIVE_PA),
     )
 
     return {
@@ -3415,6 +4122,7 @@ def trim_candidate_at_point(
         f"{point}_wing_struct_semispan_m": wing_struct["semispan_m"],
         f"{point}_wing_struct_half_load_n": wing_struct["half_force_n"],
         f"{point}_wing_struct_E_pa": wing_struct["e_pa"],
+        f"{point}_wing_struct_EI_Nm2": wing_struct["EI_Nm2"],
         f"{point}_wing_struct_thickness_m": wing_struct["thickness_m"],
         f"{point}_htail_tip_deflection_proxy_m": htail_struct["delta_tip_m"],
         f"{point}_htail_tip_deflection_proxy_allow_m": htail_struct["delta_allow_m"],
@@ -3422,6 +4130,7 @@ def trim_candidate_at_point(
         f"{point}_htail_struct_semispan_m": htail_struct["semispan_m"],
         f"{point}_htail_struct_half_load_n": htail_struct["half_force_n"],
         f"{point}_htail_struct_E_pa": htail_struct["e_pa"],
+        f"{point}_htail_struct_EI_Nm2": htail_struct["EI_Nm2"],
         f"{point}_htail_struct_thickness_m": htail_struct["thickness_m"],
         f"{point}_ixx": ixx_scaled,
         f"{point}_iyy": iyy_scaled,
