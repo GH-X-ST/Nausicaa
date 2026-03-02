@@ -52,7 +52,7 @@ TURN_LATERAL_TRIM_TOL_CL = 0.02
 TURN_LATERAL_TRIM_TOL_CN = 0.02
 # Manoeuvre agility target: time to reach design bank angle at V_TURN_MPS.
 # Converted to a minimum steady-state roll-rate requirement.
-BANK_ENTRY_TIME_S = 1.5
+BANK_ENTRY_TIME_S = 0.8
 
 # Stall / margin settings for manoeuvre case
 TURN_ALPHA_MARGIN_DEG = 4.0
@@ -2483,8 +2483,14 @@ def legacy_single_run_main(
         aero_nom["D"] * V_NOM_MPS / np.maximum(total_mass.mass * G, 1e-8)
     )
 
-    cl_delta_a = aileron_effectiveness_proxy(
+    cl_delta_a_nom = aileron_effectiveness_proxy(
         aero=aero_nom,
+        eta_inboard=AILERON_ETA_INBOARD,
+        eta_outboard=AILERON_ETA_OUTBOARD,
+        chord_fraction=AILERON_CHORD_FRACTION,
+    )
+    cl_delta_a_turn = aileron_effectiveness_proxy(
+        aero=aero_turn,
         eta_inboard=AILERON_ETA_INBOARD,
         eta_outboard=AILERON_ETA_OUTBOARD,
         chord_fraction=AILERON_CHORD_FRACTION,
@@ -2512,7 +2518,7 @@ def legacy_single_run_main(
         q_dyn
         * wing_area_m2
         * wing_span_m
-        * np.abs(cl_delta_a)
+        * np.abs(cl_delta_a_nom)
         * delta_a_max_rad
         / i_xx
     )
@@ -2530,7 +2536,7 @@ def legacy_single_run_main(
         2.0
         * V_NOM_MPS
         / np.maximum(wing_span_m, 1e-8)
-        * np.abs(cl_delta_a)
+        * np.abs(cl_delta_a_nom)
         * delta_a_max_rad
         / clp_mag
     )
@@ -2538,7 +2544,7 @@ def legacy_single_run_main(
         2.0
         * V_TURN_MPS
         / np.maximum(wing_span_m, 1e-8)
-        * np.abs(cl_delta_a)
+        * np.abs(cl_delta_a_turn)
         * delta_a_turn_rad
         / clp_mag_turn
     )
@@ -2771,12 +2777,14 @@ def legacy_single_run_main(
     debug_guess("Ixx", total_mass.inertia_tensor[0, 0])
     debug_guess("aero_nom_Clp", aero_nom["Clp"])
     debug_guess("aero_turn_Clp", aero_turn["Clp"])
-    debug_guess("cl_delta_a_proxy", cl_delta_a)
+    debug_guess("cl_delta_a_nom_proxy", cl_delta_a_nom)
+    debug_guess("cl_delta_a_turn_proxy", cl_delta_a_turn)
     debug_guess("roll_tau_s", roll_tau_s)
     debug_guess("roll_tau_turn_s", roll_tau_turn_s)
     debug_guess("roll_accel0_rad_s2", roll_accel0_rad_s2)
     debug_guess("roll_rate_ss_turn_radps", roll_rate_ss_turn_radps)
     debug_guess("delta_a_turn_eff_deg", delta_a_turn_eff_deg)
+    debug_guess("bank_entry_dt_s", bank_entry_dt_s)
     debug_guess("bank_entry_margin_rad", bank_entry_margin_rad)
     debug_guess("bank_entry_phi_capture_proxy_rad", bank_entry_phi_capture_proxy_rad)
     debug_guess("bank_entry_phi_achieved_rad", bank_entry_phi_achieved_rad)
