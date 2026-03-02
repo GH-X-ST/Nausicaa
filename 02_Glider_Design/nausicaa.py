@@ -4,7 +4,7 @@ import argparse
 import copy
 import json
 import subprocess
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
@@ -14,6 +14,19 @@ import aerosandbox.numpy as np
 import numpy as onp
 import pandas as pd
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Imports
+# 2) Dataclasses + configuration
+# 3) Utilities
+# 4) Geometry builders
+# 5) Mass / CG / inertia model
+# 6) Aerodynamics + trim evaluation (nominal/turn)
+# 7) Optimization build + solver wrappers (single run / multistart)
+# 8) Robustness tools (scenario sampling + per-scenario re-trim + scoring)
+# 9) Reporting (XLSX / tables / plots / console summary)
+# 10) CLI (argparse + main + entrypoint)
 # =============================================================================
 # User settings
 # =============================================================================
@@ -48,11 +61,13 @@ V_NOM_MPS = 5.0
 TURN_BANK_DEG = 50.0
 WALL_CLEARANCE_M = 0.50
 TURN_DEFLECTION_UTIL_MAX = 0.80
-TURN_LATERAL_TRIM_TOL_CL = 0.02
-TURN_LATERAL_TRIM_TOL_CN = 0.02
+TURN_LATERAL_TRIM_TOL_CL = 0.08
+TURN_LATERAL_TRIM_TOL_CN = 0.06
 # Manoeuvre agility target: time to reach design bank angle at V_TURN_MPS.
 # Converted to a minimum steady-state roll-rate requirement.
 BANK_ENTRY_TIME_S = 0.8
+CM_TRIM_TOL = 0.08
+BANK_ENTRY_MARGIN_MIN_DEG = -5.0
 
 # Stall / margin settings for manoeuvre case
 TURN_ALPHA_MARGIN_DEG = 4.0
@@ -222,11 +237,11 @@ RECEIVER_X_OFFSET_FROM_REGULATOR_M = 0.035
 FLIGHT_CONTROLLER_X_OFFSET_FROM_BATTERY_M = 0.015
 
 # Static-stability design window
-STATIC_MARGIN_MIN = 0.05
+STATIC_MARGIN_MIN = 0.02
 STATIC_MARGIN_MAX = 0.15
 VH_MIN = 0.50
 VH_MAX = 1.00
-VV_MIN = 0.03
+VV_MIN = 0.015
 VV_MAX = 0.08
 
 # Aerodynamic and loading constraints
@@ -236,7 +251,7 @@ MIN_WING_LOADING_N_M2 = 2.0
 MAX_WING_LOADING_N_M2 = 20.0
 
 # Lateral-directional stability derivative limits
-CNB_MIN = 0.0
+CNB_MIN = -0.05
 CLB_MAX = 0.0
 CMQ_MAX = -0.01
 
@@ -277,6 +292,33 @@ SOFTPLUS_K = 25.0
 BOUNDARY_HIT_REL_TOL = 1e-3
 BOUNDARY_HIT_ABS_TOL = 1e-6
 ACTIVE_SET_ABS_TOL = 1e-3
+# Dimensionless-objective normalization scales
+SINK_OBJECTIVE_SCALE_MPS = 1.0
+MASS_OBJECTIVE_SCALE_KG = 0.10
+BALLAST_OBJECTIVE_SCALE_KG = 0.010
+TRIM_OBJECTIVE_SCALE_DEG = 10.0
+ROLL_TAU_OBJECTIVE_SCALE_S = MAX_ROLL_TAU_S
+
+# Weight-sweep settings
+WEIGHT_SWEEP_MIN_SAMPLES = 30
+WEIGHT_SWEEP_MAX_SAMPLES = 80
+WEIGHT_SWEEP_DEFAULT_SAMPLES = 40
+WEIGHT_SWEEP_LOG10_MIN = -2.0
+WEIGHT_SWEEP_LOG10_MAX = 2.0
+WEIGHT_SWEEP_SEED_OFFSET = 10_000
+
+# Robust-in-loop optimization defaults
+ROBUST_OPT_DEFAULT_SCENARIOS = 8
+ROBUST_OPT_MIN_SCENARIOS = 6
+ROBUST_OPT_MAX_SCENARIOS = 10
+ROBUST_OPT_SCENARIO_POOL_MULTIPLIER = 8
+ROBUST_OPT_CVAR_TAIL_FRACTION = 0.20
+ROBUST_OPT_SINK_MEAN_WEIGHT = 0.10
+ROBUST_OPT_BANK_MARGIN_PENALTY_WEIGHT = 10.0
+ROBUST_OPT_TURN_UTIL_PENALTY_WEIGHT = 4.0
+ROBUST_OPT_NOM_LATERAL_RESIDUAL_PENALTY_WEIGHT = 0.5
+ROBUST_OPT_TRIM_CONSTRAINT_PENALTY_WEIGHT = 20.0
+ROBUST_OPT_INCLUDE_GUST = True
 
 SpanAxis = Literal["y", "z"]
 
@@ -289,6 +331,314 @@ ReportRow: TypeAlias = dict[str, ReportValue]
 ReportRows: TypeAlias = list[ReportRow]
 PathMap: TypeAlias = dict[str, Path]
 
+
+@dataclass(frozen=True)
+class Config:
+    # Physical and arena setup
+    g: float = G
+    rho: float = RHO
+    arena_length_m: float = ARENA_LENGTH_M
+    arena_width_m: float = ARENA_WIDTH_M
+    arena_height_m: float = ARENA_HEIGHT_M
+
+    # Nominal/turn design points
+    v_nom_mps: float = V_NOM_MPS
+    v_turn_mps: float = V_TURN_MPS
+    turn_bank_deg: float = TURN_BANK_DEG
+    wall_clearance_m: float = WALL_CLEARANCE_M
+    bank_entry_time_s: float = BANK_ENTRY_TIME_S
+
+    # Trim envelope and caps
+    alpha_min_deg: float = ALPHA_MIN_DEG
+    alpha_max_deg: float = ALPHA_MAX_DEG
+    alpha_max_turn_deg: float = ALPHA_MAX_TURN_DEG
+    max_cl_nominal: float = MAX_CL_AT_DESIGN_POINT
+    max_cl_turn: float = TURN_CL_CAP
+    k_level_turn: float = K_LEVEL_TURN
+
+    # Control limits
+    delta_a_min_deg: float = DELTA_A_MIN_DEG
+    delta_a_max_deg: float = DELTA_A_MAX_DEG
+    delta_e_min_deg: float = DELTA_E_MIN_DEG
+    delta_e_max_deg: float = DELTA_E_MAX_DEG
+    delta_r_min_deg: float = DELTA_R_MIN_DEG
+    delta_r_max_deg: float = DELTA_R_MAX_DEG
+    turn_deflection_util_max: float = TURN_DEFLECTION_UTIL_MAX
+    turn_lat_trim_tol_cl: float = TURN_LATERAL_TRIM_TOL_CL
+    turn_lat_trim_tol_cn: float = TURN_LATERAL_TRIM_TOL_CN
+
+    # Geometry assumptions
+    dihedral_deg: float = DIHEDRAL_DEG
+    nose_x_m: float = NOSE_X_M
+    wing_root_lower_surface_z_m: float = WING_ROOT_LOWER_SURFACE_Z_M
+    htail_root_lower_surface_z_m: float = HTAIL_ROOT_LOWER_SURFACE_Z_M
+    vtail_root_lower_surface_z_m: float = VTAIL_ROOT_LOWER_SURFACE_Z_M
+    ht_ar: float = HT_AR
+    vt_ar: float = VT_AR
+    n_wing_xsecs: int = N_WING_XSECS
+    n_tail_xsecs: int = N_TAIL_XSECS
+    aileron_eta_inboard: float = AILERON_ETA_INBOARD
+    aileron_eta_outboard: float = AILERON_ETA_OUTBOARD
+    aileron_chord_fraction: float = AILERON_CHORD_FRACTION
+    elevator_chord_fraction: float = ELEVATOR_CHORD_FRACTION
+    rudder_chord_fraction: float = RUDDER_CHORD_FRACTION
+    fuse_radius_m: float = FUSE_RADIUS_M
+    # Geometry and stability limits
+    wing_span_min_m: float = WING_SPAN_MIN_M
+    wing_span_max_m: float = WING_SPAN_MAX_M
+    wing_chord_min_m: float = WING_CHORD_MIN_M
+    wing_chord_max_m: float = WING_CHORD_MAX_M
+    tail_arm_min_m: float = TAIL_ARM_MIN_M
+    tail_arm_max_m: float = TAIL_ARM_MAX_M
+    htail_span_min_m: float = HT_SPAN_MIN_M
+    htail_span_max_m: float = HT_SPAN_MAX_M
+    vtail_height_min_m: float = VT_HEIGHT_MIN_M
+    vtail_height_max_m: float = VT_HEIGHT_MAX_M
+    boom_length_min_m: float = BOOM_LENGTH_MIN_M
+    boom_length_max_m: float = BOOM_LENGTH_MAX_M
+
+    # Constraint and numerical tolerances
+    min_l_over_d: float = MIN_L_OVER_D
+    min_re_wing: float = MIN_RE_WING
+    min_wing_loading_n_m2: float = MIN_WING_LOADING_N_M2
+    max_wing_loading_n_m2: float = MAX_WING_LOADING_N_M2
+    max_roll_tau_s: float = MAX_ROLL_TAU_S
+    softplus_k: float = SOFTPLUS_K
+    active_set_abs_tol: float = ACTIVE_SET_ABS_TOL
+
+
+@dataclass(frozen=True)
+class Weights:
+    # Dimensionless objective weights
+    w_sink: float = 1.0
+    w_mass: float = MASS_WEIGHT_IN_OBJECTIVE
+    w_ballast: float = BALLAST_WEIGHT_IN_OBJECTIVE
+    w_trim_effort: float = CONTROL_TRIM_WEIGHT * (TRIM_OBJECTIVE_SCALE_DEG**2)
+    w_wing_deflection: float = STRUCT_DEFLECTION_WEIGHT
+    w_htail_deflection: float = HT_STRUCT_DEFLECTION_WEIGHT
+    w_roll_tau: float = ROLL_TAU_WEIGHT_IN_OBJECTIVE
+
+    # Dimensionless normalization scales
+    sink_scale_mps: float = SINK_OBJECTIVE_SCALE_MPS
+    mass_scale_kg: float = MASS_OBJECTIVE_SCALE_KG
+    ballast_scale_kg: float = BALLAST_OBJECTIVE_SCALE_KG
+    trim_scale_deg: float = TRIM_OBJECTIVE_SCALE_DEG
+    roll_tau_scale_s: float = ROLL_TAU_OBJECTIVE_SCALE_S
+
+    # Diagnostics
+    dominance_warning_fraction: float = 0.90
+
+
+@dataclass(frozen=True)
+class UncertaintyModel:
+    mass_scale_min: float = 0.90
+    mass_scale_max: float = 1.10
+    cg_x_shift_mac_min: float = -0.06
+    cg_x_shift_mac_max: float = 0.06
+    incidence_bias_deg_min: float = -2.0
+    incidence_bias_deg_max: float = 2.0
+    eff_a_min: float = 0.85
+    eff_a_max: float = 1.00
+    eff_e_min: float = 0.85
+    eff_e_max: float = 1.00
+    eff_r_min: float = 0.85
+    eff_r_max: float = 1.00
+    bias_a_deg_min: float = -3.0
+    bias_a_deg_max: float = 3.0
+    bias_e_deg_min: float = -3.0
+    bias_e_deg_max: float = 3.0
+    bias_r_deg_min: float = -3.0
+    bias_r_deg_max: float = 3.0
+    ixx_scale_min: float = 0.90
+    ixx_scale_max: float = 1.10
+    iyy_scale_min: float = 0.90
+    iyy_scale_max: float = 1.10
+    izz_scale_min: float = 0.90
+    izz_scale_max: float = 1.10
+    wing_E_scale_min: float = 0.80
+    wing_E_scale_max: float = 1.30
+    htail_E_scale_min: float = 0.80
+    htail_E_scale_max: float = 1.30
+    wing_thickness_scale_min: float = 1.00
+    wing_thickness_scale_max: float = 1.00
+    tail_thickness_scale_min: float = 1.00
+    tail_thickness_scale_max: float = 1.00
+    w_gust_nom_min: float = -0.30
+    w_gust_nom_max: float = 0.30
+    w_gust_turn_min: float = -0.20
+    w_gust_turn_max: float = 0.20
+    drag_factor_min: float = 1.00
+    drag_factor_max: float = 1.25
+
+    @staticmethod
+    def from_workflow_config(config: "WorkflowConfig") -> "UncertaintyModel":
+        return UncertaintyModel(
+            mass_scale_min=float(config.mass_scale_min),
+            mass_scale_max=float(config.mass_scale_max),
+            cg_x_shift_mac_min=float(config.cg_x_shift_mac_min),
+            cg_x_shift_mac_max=float(config.cg_x_shift_mac_max),
+            incidence_bias_deg_min=float(config.incidence_bias_deg_min),
+            incidence_bias_deg_max=float(config.incidence_bias_deg_max),
+            eff_a_min=float(config.eff_a_min),
+            eff_a_max=float(config.eff_a_max),
+            eff_e_min=float(config.eff_e_min),
+            eff_e_max=float(config.eff_e_max),
+            eff_r_min=float(config.eff_r_min),
+            eff_r_max=float(config.eff_r_max),
+            bias_a_deg_min=float(config.bias_a_deg_min),
+            bias_a_deg_max=float(config.bias_a_deg_max),
+            bias_e_deg_min=float(config.bias_e_deg_min),
+            bias_e_deg_max=float(config.bias_e_deg_max),
+            bias_r_deg_min=float(config.bias_r_deg_min),
+            bias_r_deg_max=float(config.bias_r_deg_max),
+            ixx_scale_min=float(config.ixx_scale_min),
+            ixx_scale_max=float(config.ixx_scale_max),
+            iyy_scale_min=float(config.iyy_scale_min),
+            iyy_scale_max=float(config.iyy_scale_max),
+            izz_scale_min=float(config.izz_scale_min),
+            izz_scale_max=float(config.izz_scale_max),
+            wing_E_scale_min=float(config.wing_E_scale_min),
+            wing_E_scale_max=float(config.wing_E_scale_max),
+            htail_E_scale_min=float(config.htail_E_scale_min),
+            htail_E_scale_max=float(config.htail_E_scale_max),
+            wing_thickness_scale_min=float(config.wing_thickness_scale_min),
+            wing_thickness_scale_max=float(config.wing_thickness_scale_max),
+            tail_thickness_scale_min=float(config.tail_thickness_scale_min),
+            tail_thickness_scale_max=float(config.tail_thickness_scale_max),
+            w_gust_nom_min=float(config.w_gust_nom_min),
+            w_gust_nom_max=float(config.w_gust_nom_max),
+            w_gust_turn_min=float(config.w_gust_turn_min),
+            w_gust_turn_max=float(config.w_gust_turn_max),
+            drag_factor_min=float(config.drag_factor_min),
+            drag_factor_max=float(config.drag_factor_max),
+        )
+
+
+@dataclass(frozen=True)
+class GeometryVars:
+    wing_span_m: float
+    wing_chord_m: float
+    tail_arm_m: float
+    htail_span_m: float
+    vtail_height_m: float
+
+    @staticmethod
+    def from_candidate(candidate: "Candidate") -> "GeometryVars":
+        return GeometryVars(
+            wing_span_m=float(candidate.wing_span_m),
+            wing_chord_m=float(candidate.wing_chord_m),
+            tail_arm_m=float(candidate.tail_arm_m),
+            htail_span_m=float(candidate.htail_span_m),
+            vtail_height_m=float(candidate.vtail_height_m),
+        )
+
+
+@dataclass(frozen=True)
+class Scenario:
+    scenario_id: int
+    mass_scale: float
+    cg_x_shift_mac: float
+    incidence_bias_deg: float
+    eff_a: float
+    eff_e: float
+    eff_r: float
+    bias_a_deg: float
+    bias_e_deg: float
+    bias_r_deg: float
+    ixx_scale: float = 1.0
+    iyy_scale: float = 1.0
+    izz_scale: float = 1.0
+    wing_E_scale: float = 1.0
+    htail_E_scale: float = 1.0
+    wing_thickness_scale: float = 1.0
+    tail_thickness_scale: float = 1.0
+    w_gust_nom: float = 0.0
+    w_gust_turn: float = 0.0
+    drag_factor: float = 1.0
+    control_eff: float = 1.0
+
+    @staticmethod
+    def from_row(row: dict[str, Any]) -> "Scenario":
+        eff_a = float(row.get("eff_a", row.get("control_eff", 1.0)))
+        eff_e = float(row.get("eff_e", row.get("control_eff", 1.0)))
+        eff_r = float(row.get("eff_r", row.get("control_eff", 1.0)))
+        return Scenario(
+            scenario_id=int(row.get("scenario_id", 0)),
+            mass_scale=float(row.get("mass_scale", 1.0)),
+            cg_x_shift_mac=float(row.get("cg_x_shift_mac", 0.0)),
+            incidence_bias_deg=float(row.get("incidence_bias_deg", 0.0)),
+            eff_a=eff_a,
+            eff_e=eff_e,
+            eff_r=eff_r,
+            bias_a_deg=float(row.get("bias_a_deg", 0.0)),
+            bias_e_deg=float(row.get("bias_e_deg", 0.0)),
+            bias_r_deg=float(row.get("bias_r_deg", 0.0)),
+            ixx_scale=float(row.get("ixx_scale", 1.0)),
+            iyy_scale=float(row.get("iyy_scale", 1.0)),
+            izz_scale=float(row.get("izz_scale", 1.0)),
+            wing_E_scale=float(row.get("wing_E_scale", 1.0)),
+            htail_E_scale=float(row.get("htail_E_scale", 1.0)),
+            wing_thickness_scale=float(row.get("wing_thickness_scale", 1.0)),
+            tail_thickness_scale=float(row.get("tail_thickness_scale", 1.0)),
+            w_gust_nom=float(row.get("w_gust_nom", 0.0)),
+            w_gust_turn=float(row.get("w_gust_turn", 0.0)),
+            drag_factor=float(row.get("drag_factor", 1.0)),
+            control_eff=float(row.get("control_eff", (eff_a + eff_e + eff_r) / 3.0)),
+        )
+
+    def to_row(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class TrimPointResult:
+    point: Literal["nom", "turn"]
+    success: bool
+    metrics: dict[str, float] = field(default_factory=dict)
+
+    def to_prefixed_row(self) -> dict[str, Any]:
+        return {
+            f"{self.point}_success": bool(self.success),
+            **{f"{self.point}_{key}": value for key, value in self.metrics.items()},
+        }
+
+
+@dataclass
+class CandidateResult:
+    candidate_id: int
+    geometry: GeometryVars
+    nominal: TrimPointResult | None
+    turn: TrimPointResult | None
+    objective_breakdown: dict[str, float]
+    feasible_nominal: bool
+    feasible_turn: bool
+    feasible: bool
+
+
+@dataclass(frozen=True)
+class RobustSummary:
+    candidate_id: int
+    feasible_rate: float
+    sink_mean: float
+    sink_std: float
+    sink_worst: float
+    sink_cvar_20: float
+    max_turn_util_worst: float
+    max_turn_control_util_max_worst: float
+    max_turn_control_util_violation_worst: float
+    min_turn_bank_entry_margin_deg_worst: float
+    min_turn_alpha_margin_worst: float
+    max_turn_wing_deflection_proxy_over_allow_worst: float
+    max_roll_tau_worst: float
+    max_delta_e_util_worst: float
+    max_alpha_worst: float
+    min_alpha_margin_worst: float
+    min_cl_margin_worst: float
+    selection_score: float
+
+
+_DEFAULT_CFG = Config()
+_DEFAULT_WEIGHTS = Weights()
 
 @dataclass(frozen=True)
 class WorkflowConfig:
@@ -360,7 +710,39 @@ class WorkflowConfig:
     turn_deflection_util: float = TURN_DEFLECTION_UTIL_MAX
     # Legacy trim utilization bound (used by nominal robust trim commands)
     max_trim_util_fraction: float = 1.00
+    # Robust-in-the-loop optimization settings
+    robust_opt_default_scenarios: int = ROBUST_OPT_DEFAULT_SCENARIOS
+    robust_opt_scenario_pool_multiplier: int = ROBUST_OPT_SCENARIO_POOL_MULTIPLIER
+    robust_opt_tail_fraction: float = ROBUST_OPT_CVAR_TAIL_FRACTION
+    robust_opt_sink_mean_weight: float = ROBUST_OPT_SINK_MEAN_WEIGHT
+    robust_opt_bank_margin_penalty_weight: float = ROBUST_OPT_BANK_MARGIN_PENALTY_WEIGHT
+    robust_opt_turn_util_penalty_weight: float = ROBUST_OPT_TURN_UTIL_PENALTY_WEIGHT
+    robust_opt_nom_lateral_penalty_weight: float = (
+        ROBUST_OPT_NOM_LATERAL_RESIDUAL_PENALTY_WEIGHT
+    )
+    robust_opt_trim_constraint_penalty_weight: float = (
+        ROBUST_OPT_TRIM_CONSTRAINT_PENALTY_WEIGHT
+    )
+    robust_opt_include_gust: bool = ROBUST_OPT_INCLUDE_GUST
 
+@dataclass(frozen=True)
+class ObjectiveScales:
+    sink_mps: float = SINK_OBJECTIVE_SCALE_MPS
+    mass_kg: float = MASS_OBJECTIVE_SCALE_KG
+    ballast_kg: float = BALLAST_OBJECTIVE_SCALE_KG
+    trim_deg: float = TRIM_OBJECTIVE_SCALE_DEG
+    roll_tau_s: float = ROLL_TAU_OBJECTIVE_SCALE_S
+
+
+@dataclass(frozen=True)
+class ObjectiveWeights:
+    w_sink: float = 1.0
+    w_mass: float = MASS_WEIGHT_IN_OBJECTIVE
+    w_ballast: float = BALLAST_WEIGHT_IN_OBJECTIVE
+    w_trim_effort: float = CONTROL_TRIM_WEIGHT * (TRIM_OBJECTIVE_SCALE_DEG ** 2)
+    w_wing_deflection: float = STRUCT_DEFLECTION_WEIGHT
+    w_htail_deflection: float = HT_STRUCT_DEFLECTION_WEIGHT
+    w_roll_tau: float = ROLL_TAU_WEIGHT_IN_OBJECTIVE
 
 @dataclass
 class Candidate:
@@ -401,8 +783,22 @@ class Candidate:
     solver_stats: dict[str, Any] | None = None
     wing_area_m2: float = float("nan")
     wing_mac_m: float = float("nan")
+    objective_contributions: dict[str, float] | None = None
+    objective_weights: dict[str, float] | None = None
+    objective_scales: dict[str, float] | None = None
     airfoil_label: str = ""
 
+@dataclass
+class AirframeBundle:
+    geometry: GeometryVars
+    wing: asb.Wing
+    htail: asb.Wing
+    vtail: asb.Wing
+    fuselage: asb.Fuselage
+    boom_end_x_m: float
+    htail_chord_m: float
+    vtail_chord_m: float
+    airplane_base: asb.Airplane
 
 def default_initial_guess() -> dict[str, float]:
     return {
@@ -428,6 +824,7 @@ def default_initial_guess() -> dict[str, float]:
 
 
 _AIRFOIL_CACHE: tuple[asb.Airfoil, str] | None = None
+_GEOMETRY_AIRFRAME_CACHE: dict[tuple[Any, ...], AirframeBundle] = {}
 _LAST_SOLVE_FAILURE_REASON: str | None = None
 
 
@@ -478,7 +875,41 @@ def to_float_if_possible(value: Scalar) -> float | None:
             return float(array[0])
     except Exception:
         return None
-    return None
+
+
+def to_objective_weights_and_scales(
+    weights: Weights | None = None,
+    objective_weights: ObjectiveWeights | None = None,
+    objective_scales: ObjectiveScales | None = None,
+) -> tuple[ObjectiveWeights, ObjectiveScales, Weights]:
+    if weights is None:
+        weights = _DEFAULT_WEIGHTS
+
+    resolved_objective_weights = (
+        objective_weights
+        if objective_weights is not None
+        else ObjectiveWeights(
+            w_sink=float(weights.w_sink),
+            w_mass=float(weights.w_mass),
+            w_ballast=float(weights.w_ballast),
+            w_trim_effort=float(weights.w_trim_effort),
+            w_wing_deflection=float(weights.w_wing_deflection),
+            w_htail_deflection=float(weights.w_htail_deflection),
+            w_roll_tau=float(weights.w_roll_tau),
+        )
+    )
+    resolved_objective_scales = (
+        objective_scales
+        if objective_scales is not None
+        else ObjectiveScales(
+            sink_mps=float(weights.sink_scale_mps),
+            mass_kg=float(weights.mass_scale_kg),
+            ballast_kg=float(weights.ballast_scale_kg),
+            trim_deg=float(weights.trim_scale_deg),
+            roll_tau_s=float(weights.roll_tau_scale_s),
+        )
+    )
+    return resolved_objective_weights, resolved_objective_scales, weights
 
 
 # =============================================================================
@@ -517,23 +948,29 @@ def get_reference_airfoil_cached() -> tuple[asb.Airfoil, str]:
 # Geometry builders
 # =============================================================================
 
-def build_main_wing(airfoil: asb.Airfoil, span_m: Scalar, chord_m: Scalar) -> asb.Wing:
+def build_main_wing(
+    airfoil: asb.Airfoil,
+    span_m: Scalar,
+    chord_m: Scalar,
+    cfg: Config | None = None,
+) -> asb.Wing:
     # Ailerons live on the outboard quarter of the semispan
+    cfg = cfg or _DEFAULT_CFG
     aileron_surface = asb.ControlSurface(
         name="aileron",
         symmetric=False,
-        hinge_point=1.0 - AILERON_CHORD_FRACTION,
+        hinge_point=1.0 - float(cfg.aileron_chord_fraction),
         trailing_edge=True,
     )
 
     xsecs = []
-    wing_root_centerline_z_m = WING_ROOT_LOWER_SURFACE_Z_M + 0.5 * WING_THICKNESS_M
-    for eta in onp.linspace(0.0, 1.0, N_WING_XSECS):
+    wing_root_centerline_z_m = float(cfg.wing_root_lower_surface_z_m) + 0.5 * WING_THICKNESS_M
+    for eta in onp.linspace(0.0, 1.0, int(cfg.n_wing_xsecs)):
         # Straight rectangular planform with fixed dihedral
         y_le = eta * span_m / 2.0
-        z_le = wing_root_centerline_z_m + y_le * np.tan(np.radians(DIHEDRAL_DEG))
+        z_le = wing_root_centerline_z_m + y_le * np.tan(np.radians(float(cfg.dihedral_deg)))
         controls = []
-        if AILERON_ETA_INBOARD <= eta <= AILERON_ETA_OUTBOARD:
+        if float(cfg.aileron_eta_inboard) <= eta <= float(cfg.aileron_eta_outboard):
             controls = [aileron_surface]
 
         xsecs.append(
@@ -553,19 +990,21 @@ def build_horizontal_tail(
     airfoil: asb.Airfoil,
     tail_arm_m: Scalar,
     span_m: Scalar,
+    cfg: Config | None = None,
 ) -> tuple[asb.Wing, Scalar]:
+    cfg = cfg or _DEFAULT_CFG
     # Rectangular horizontal tail from span and fixed aspect ratio
-    chord_m = span_m / HT_AR
+    chord_m = span_m / max(float(cfg.ht_ar), 1e-9)
     elevator_surface = asb.ControlSurface(
         name="elevator",
         symmetric=True,
-        hinge_point=1.0 - ELEVATOR_CHORD_FRACTION,
+        hinge_point=1.0 - float(cfg.elevator_chord_fraction),
         trailing_edge=True,
     )
 
     xsecs = []
-    htail_root_centerline_z_m = HTAIL_ROOT_LOWER_SURFACE_Z_M + 0.5 * TAIL_THICKNESS_M
-    for eta in onp.linspace(0.0, 1.0, N_TAIL_XSECS):
+    htail_root_centerline_z_m = float(cfg.htail_root_lower_surface_z_m) + 0.5 * TAIL_THICKNESS_M
+    for eta in onp.linspace(0.0, 1.0, int(cfg.n_tail_xsecs)):
         y_le = eta * span_m / 2.0
         xsecs.append(
             asb.WingXSec(
@@ -585,19 +1024,21 @@ def build_vertical_tail(
     airfoil: asb.Airfoil,
     tail_arm_m: Scalar,
     height_m: Scalar,
+    cfg: Config | None = None,
 ) -> tuple[asb.Wing, Scalar]:
+    cfg = cfg or _DEFAULT_CFG
     # Rectangular vertical tail from height and fixed aspect ratio
-    chord_m = height_m / VT_AR
+    chord_m = height_m / max(float(cfg.vt_ar), 1e-9)
     rudder_surface = asb.ControlSurface(
         name="rudder",
         symmetric=True,
-        hinge_point=1.0 - RUDDER_CHORD_FRACTION,
+        hinge_point=1.0 - float(cfg.rudder_chord_fraction),
         trailing_edge=True,
     )
 
     xsecs = []
-    for eta in onp.linspace(0.0, 1.0, N_TAIL_XSECS):
-        z_le = VTAIL_ROOT_LOWER_SURFACE_Z_M + eta * height_m
+    for eta in onp.linspace(0.0, 1.0, int(cfg.n_tail_xsecs)):
+        z_le = float(cfg.vtail_root_lower_surface_z_m) + eta * height_m
         xsecs.append(
             asb.WingXSec(
                 xyz_le=[tail_arm_m, 0.0, z_le],
@@ -612,18 +1053,92 @@ def build_vertical_tail(
     return vtail, chord_m
 
 
-def build_fuselage(boom_end_x_m: Scalar) -> asb.Fuselage:
+def build_fuselage(boom_end_x_m: Scalar, cfg: Config | None = None) -> asb.Fuselage:
+    cfg = cfg or _DEFAULT_CFG
     # Lightweight boom/avionics tray representation with nose and tail stations
     tail_x_m = boom_end_x_m
     return asb.Fuselage(
         name="Fuselage",
         xsecs=[
-            asb.FuselageXSec(xyz_c=[NOSE_X_M, 0.0, 0.0], radius=FUSE_RADIUS_M),
-            asb.FuselageXSec(xyz_c=[tail_x_m, 0.0, 0.0], radius=FUSE_RADIUS_M),
+            asb.FuselageXSec(xyz_c=[float(cfg.nose_x_m), 0.0, 0.0], radius=float(cfg.fuse_radius_m)),
+            asb.FuselageXSec(xyz_c=[tail_x_m, 0.0, 0.0], radius=float(cfg.fuse_radius_m)),
         ],
     )
 
 
+
+
+def geometry_cache_key(geometry: GeometryVars, cfg: Config | None = None) -> tuple[Any, ...]:
+    cfg = cfg or _DEFAULT_CFG
+    return (
+        float(geometry.wing_span_m),
+        float(geometry.wing_chord_m),
+        float(geometry.tail_arm_m),
+        float(geometry.htail_span_m),
+        float(geometry.vtail_height_m),
+        float(cfg.dihedral_deg),
+        float(cfg.ht_ar),
+        float(cfg.vt_ar),
+        int(cfg.n_wing_xsecs),
+        int(cfg.n_tail_xsecs),
+    )
+
+
+def build_airframe_bundle(
+    geometry: GeometryVars,
+    airfoil: asb.Airfoil,
+    cfg: Config | None = None,
+) -> AirframeBundle:
+    cfg = cfg or _DEFAULT_CFG
+    wing = build_main_wing(
+        airfoil=airfoil,
+        span_m=geometry.wing_span_m,
+        chord_m=geometry.wing_chord_m,
+        cfg=cfg,
+    )
+    htail, htail_chord_m = build_horizontal_tail(
+        airfoil=airfoil,
+        tail_arm_m=geometry.tail_arm_m,
+        span_m=geometry.htail_span_m,
+        cfg=cfg,
+    )
+    vtail, vtail_chord_m = build_vertical_tail(
+        airfoil=airfoil,
+        tail_arm_m=geometry.tail_arm_m,
+        height_m=geometry.vtail_height_m,
+        cfg=cfg,
+    )
+    boom_end_x_m = float(geometry.tail_arm_m) + BOOM_END_BEFORE_ELEV_FRAC * float(htail_chord_m)
+    fuselage = build_fuselage(boom_end_x_m=boom_end_x_m, cfg=cfg)
+    airplane_base = asb.Airplane(
+        name="Nausicaa cached airframe",
+        wings=[wing, htail, vtail],
+        fuselages=[fuselage],
+    )
+    return AirframeBundle(
+        geometry=geometry,
+        wing=wing,
+        htail=htail,
+        vtail=vtail,
+        fuselage=fuselage,
+        boom_end_x_m=float(boom_end_x_m),
+        htail_chord_m=float(htail_chord_m),
+        vtail_chord_m=float(vtail_chord_m),
+        airplane_base=airplane_base,
+    )
+
+
+def get_airframe_bundle_cached(
+    geometry: GeometryVars,
+    airfoil: asb.Airfoil,
+    cfg: Config | None = None,
+) -> AirframeBundle:
+    key = geometry_cache_key(geometry, cfg=cfg)
+    bundle = _GEOMETRY_AIRFRAME_CACHE.get(key)
+    if bundle is None:
+        bundle = build_airframe_bundle(geometry=geometry, airfoil=airfoil, cfg=cfg)
+        _GEOMETRY_AIRFRAME_CACHE[key] = bundle
+    return bundle
 # =============================================================================
 # Mass model and dynamics helpers
 # =============================================================================
@@ -1104,7 +1619,9 @@ def build_mass_model(
     tail_arm_m: Scalar,
     boom_end_x_m: Scalar,
     vtail_chord_m: Scalar,
+    cfg: Config | None = None,
 ) -> tuple[MassPropertiesMap, asb.MassProperties, Scalar, Scalar]:
+    cfg = cfg or _DEFAULT_CFG
     mass_props: MassPropertiesMap = {}
 
     # Structural lifting-surface masses
@@ -1480,7 +1997,7 @@ def build_mass_model(
     )
 
     y_servo = AILERON_SERVO_SPAN_FRAC * wing_span_m
-    wing_root_centerline_z_m = WING_ROOT_LOWER_SURFACE_Z_M + 0.5 * WING_THICKNESS_M
+    wing_root_centerline_z_m = float(cfg.wing_root_lower_surface_z_m) + 0.5 * WING_THICKNESS_M
     z_servo = (
         wing_root_centerline_z_m
         + np.abs(y_servo) * np.tan(np.radians(DIHEDRAL_DEG))
@@ -1563,13 +2080,143 @@ def estimate_servo_hinge_moment(
     return q_dyn * control_area_m2 * HINGE_MOMENT_COEFF * delta_rad * moment_arm_m
 
 
+
+
+
 def stable_softplus(x: Scalar, sharpness: float) -> Scalar:
     tx = sharpness * x
     return (1.0 / sharpness) * (
         np.fmax(tx, 0.0) + np.log1p(np.exp(-np.fabs(tx)))
     )
 
+def build_dimensionless_objective_terms(
+    *,
+    sink_rate_mps: Scalar,
+    mass_total_kg: Scalar,
+    ballast_mass_kg: Scalar,
+    trim_effort_deg2: Scalar,
+    wing_deflection_over_allow: Scalar,
+    htail_deflection_over_allow: Scalar,
+    roll_tau_s: Scalar,
+    scales: ObjectiveScales,
+    weights: ObjectiveWeights,
+) -> tuple[Scalar, dict[str, Scalar]]:
+    sink_scale = max(float(scales.sink_mps), 1e-9)
+    mass_scale = max(float(scales.mass_kg), 1e-9)
+    ballast_scale = max(float(scales.ballast_kg), 1e-9)
+    trim_scale = max(float(scales.trim_deg), 1e-9)
+    roll_tau_scale = max(float(scales.roll_tau_s), 1e-9)
 
+    sink_term = sink_rate_mps / sink_scale
+    mass_term = mass_total_kg / mass_scale
+    ballast_term = ballast_mass_kg / ballast_scale
+    trim_term = trim_effort_deg2 / (trim_scale ** 2)
+    wing_deflection_term = wing_deflection_over_allow
+    htail_deflection_term = htail_deflection_over_allow
+    roll_tau_term = roll_tau_s / roll_tau_scale
+
+    terms: dict[str, Scalar] = {
+        "J_sink": float(weights.w_sink) * sink_term,
+        "J_mass": float(weights.w_mass) * mass_term,
+        "J_ballast": float(weights.w_ballast) * ballast_term,
+        "J_trim": float(weights.w_trim_effort) * trim_term,
+        "J_wing_deflection": float(weights.w_wing_deflection) * wing_deflection_term,
+        "J_htail_deflection": float(weights.w_htail_deflection) * htail_deflection_term,
+        "J_roll_tau": float(weights.w_roll_tau) * roll_tau_term,
+    }
+    terms["J_total"] = sum_expr([terms[key] for key in terms.keys() if key != "J_total"])
+    return terms["J_total"], terms
+
+
+def evaluate_objective_contributions(
+    value_getter: Any,
+    objective_terms: dict[str, Scalar],
+) -> dict[str, float]:
+    contributions: dict[str, float] = {}
+    for key, expr in objective_terms.items():
+        try:
+            contributions[key] = float(to_scalar(value_getter(expr)))
+        except Exception:
+            contributions[key] = float("nan")
+
+    if "J_total" not in contributions:
+        subtotal = 0.0
+        for key, value in contributions.items():
+            if key == "J_total" or not onp.isfinite(value):
+                continue
+            subtotal += value
+        contributions["J_total"] = subtotal
+
+    ordered_keys = [
+        "J_sink",
+        "J_mass",
+        "J_ballast",
+        "J_trim",
+        "J_wing_deflection",
+        "J_htail_deflection",
+        "J_roll_tau",
+        "J_total",
+    ]
+    return {key: contributions.get(key, float("nan")) for key in ordered_keys}
+
+
+def objective_breakdown(
+    *,
+    sink_rate_mps: float,
+    mass_total_kg: float,
+    ballast_mass_kg: float,
+    trim_effort_deg2: float,
+    wing_deflection_over_allow: float,
+    htail_deflection_over_allow: float,
+    roll_tau_s: float,
+    weights: Weights | None = None,
+) -> dict[str, float]:
+    objective_weights, objective_scales, _resolved_weights = to_objective_weights_and_scales(weights=weights)
+    _, terms = build_dimensionless_objective_terms(
+        sink_rate_mps=float(sink_rate_mps),
+        mass_total_kg=float(mass_total_kg),
+        ballast_mass_kg=float(ballast_mass_kg),
+        trim_effort_deg2=float(trim_effort_deg2),
+        wing_deflection_over_allow=float(wing_deflection_over_allow),
+        htail_deflection_over_allow=float(htail_deflection_over_allow),
+        roll_tau_s=float(roll_tau_s),
+        scales=objective_scales,
+        weights=objective_weights,
+    )
+    return {key: float(to_scalar(value)) for key, value in terms.items()}
+
+
+def objective_dominance_warning(
+    contributions: dict[str, float],
+    threshold_fraction: float = 0.90,
+) -> str | None:
+    total = float(contributions.get("J_total", float("nan")))
+    if not onp.isfinite(total) or abs(total) <= 1e-12:
+        return None
+
+    dominant_key = ""
+    dominant_value = 0.0
+    for key, value in contributions.items():
+        if key == "J_total":
+            continue
+        value_f = float(value)
+        if not onp.isfinite(value_f):
+            continue
+        if abs(value_f) > abs(dominant_value):
+            dominant_key = key
+            dominant_value = value_f
+
+    if dominant_key and abs(dominant_value) >= float(threshold_fraction) * abs(total):
+        return (
+            f"[WARN] Objective term dominance: {dominant_key} contributes "
+            f"{100.0 * abs(dominant_value) / max(abs(total), 1e-12):.1f}% of |J_total|; "
+            "weights/scales may be ill-conditioned."
+        )
+    return None
+
+# =============================================================================
+# Aerodynamics + trim evaluation (nominal/turn)
+# =============================================================================
 def build_trim_constraints_and_metrics(
     *,
     opti: asb.Opti,
@@ -1585,10 +2232,12 @@ def build_trim_constraints_and_metrics(
     enforce_lateral_trim: bool = False,
     use_coordinated_turn: bool = False,
     atmosphere: asb.Atmosphere | None = None,
+    cfg: Config | None = None,
 ) -> dict[str, Any]:
+    cfg = cfg or _DEFAULT_CFG
     phi_turn_rad = np.radians(bank_angle_deg)
     n_load_factor = 1.0 / np.cos(phi_turn_rad)
-    turn_denom_raw = lift_k * G * np.tan(phi_turn_rad)
+    turn_denom_raw = lift_k * float(cfg.g) * np.tan(phi_turn_rad)
     turn_denom = np.sign(turn_denom_raw) * np.maximum(np.abs(turn_denom_raw), 1e-8)
     yaw_rate_rad_s = (
         turn_denom / np.maximum(velocity_mps, 1e-8)
@@ -1619,8 +2268,9 @@ def build_trim_constraints_and_metrics(
     )
 
     constraints: list[Scalar] = [
-        aero["L"] >= lift_k * n_load_factor * mass_kg * G,
-        aero["Cm"] == 0.0,
+        aero["L"] >= lift_k * n_load_factor * mass_kg * float(cfg.g),
+        aero["Cm"] >= -CM_TRIM_TOL,
+        aero["Cm"] <= CM_TRIM_TOL,
     ]
     if cl_cap is not None:
         constraints.append(aero["CL"] <= cl_cap)
@@ -1634,10 +2284,10 @@ def build_trim_constraints_and_metrics(
     elif mode == "turn":
         constraints.extend(
             [
-                aero["Cl"] >= -TURN_LATERAL_TRIM_TOL_CL,
-                aero["Cl"] <= TURN_LATERAL_TRIM_TOL_CL,
-                aero["Cn"] >= -TURN_LATERAL_TRIM_TOL_CN,
-                aero["Cn"] <= TURN_LATERAL_TRIM_TOL_CN,
+                aero["Cl"] >= -float(cfg.turn_lat_trim_tol_cl),
+                aero["Cl"] <= float(cfg.turn_lat_trim_tol_cl),
+                aero["Cn"] >= -float(cfg.turn_lat_trim_tol_cn),
+                aero["Cn"] <= float(cfg.turn_lat_trim_tol_cn),
             ]
         )
 
@@ -2006,6 +2656,7 @@ def save_results(
     boundary_rows: ReportRows | None = None,
     active_constraint_rows: ReportRows | None = None,
     solver_stats: dict[str, Any] | None = None,
+    objective_contributions: dict[str, float] | None = None,
 ) -> PathMap:
     # Persist a compact CSV plus a multi-sheet workbook
     summary_df = pd.DataFrame(summary_rows)
@@ -2026,6 +2677,13 @@ def save_results(
     if active_constraints_df.empty:
         active_constraints_df = pd.DataFrame(columns=constraints_df.columns)
 
+    objective_terms_df = pd.DataFrame(
+        [
+            {"Metric": key, "Value": value}
+            for key, value in (objective_contributions or {}).items()
+        ]
+    )
+
     csv_path = RESULTS_DIR / "nausicaa_results.csv"
     xlsx_path = RESULTS_DIR / "nausicaa_results.xlsx"
 
@@ -2043,6 +2701,7 @@ def save_results(
             index=False,
         )
         solver_stats_df.to_excel(writer, sheet_name="SolverStats", index=False)
+        objective_terms_df.to_excel(writer, sheet_name="ObjectiveTerms", index=False)
         if boundary_rows is not None:
             pd.DataFrame(boundary_rows).to_excel(
                 writer,
@@ -2135,6 +2794,7 @@ def print_console_report(
     boundary_rows: ReportRows | None,
     output_paths: PathMap,
     figure_paths: PathMap,
+    objective_contributions: dict[str, float] | None = None,
 ) -> None:
     summary = {row["Metric"]: row["Value"] for row in summary_rows}
     geometry = {row["Parameter"]: row["Value"] for row in geometry_rows}
@@ -2181,6 +2841,46 @@ def print_console_report(
         f"({to_scalar(summary.get('mass_total_kg', 0.0)) * 1e3:.1f} g)",
         flush=True,
     )
+
+    objective_contrib_map = objective_contributions or {
+        key: summary.get(key)
+        for key in [
+            "J_sink",
+            "J_mass",
+            "J_ballast",
+            "J_trim",
+            "J_wing_deflection",
+            "J_htail_deflection",
+            "J_roll_tau",
+            "J_total",
+        ]
+    }
+    if any(value is not None for value in objective_contrib_map.values()):
+        print("\nObjective contributions:", flush=True)
+        for key in [
+            "J_sink",
+            "J_mass",
+            "J_ballast",
+            "J_trim",
+            "J_wing_deflection",
+            "J_htail_deflection",
+            "J_roll_tau",
+            "J_total",
+        ]:
+            value = objective_contrib_map.get(key)
+            if isinstance(value, (int, float)) and onp.isfinite(float(value)):
+                print(f"  {key} = {float(value):.6f}", flush=True)
+
+        dominance_warning = objective_dominance_warning(
+            {
+                key: float(value)
+                for key, value in objective_contrib_map.items()
+                if isinstance(value, (int, float))
+            },
+            threshold_fraction=_DEFAULT_WEIGHTS.dominance_warning_fraction,
+        )
+        if dominance_warning is not None:
+            print(f"  {dominance_warning}", flush=True)
 
     print("\nStability and control:", flush=True)
     print(
@@ -2257,13 +2957,17 @@ def print_console_report(
         print(f"  figure_{key}: {path}", flush=True)
 
 # =============================================================================
-# Main optimization workflow
+# Optimization problem build + solver wrappers (single run / multistart)
 # =============================================================================
 
 def legacy_single_run_main(
     init_override: dict[str, float] | None = None,
     ipopt_options: dict[str, Any] | None = None,
     export_outputs: bool = True,
+    objective_weights: ObjectiveWeights | None = None,
+    objective_scales: ObjectiveScales | None = None,
+    cfg: Config | None = None,
+    weights: Weights | None = None,
 ) -> Candidate | None:
     global _LAST_SOLVE_FAILURE_REASON
     _LAST_SOLVE_FAILURE_REASON = None
@@ -2273,6 +2977,12 @@ def legacy_single_run_main(
 
     if init_override is None:
         init_override = {}
+    cfg = cfg or _DEFAULT_CFG
+    objective_weights, objective_scales, weights = to_objective_weights_and_scales(
+        weights=weights,
+        objective_weights=objective_weights,
+        objective_scales=objective_scales,
+    )
 
     def init_value(name: str, default: float) -> float:
         return float(init_override.get(name, default))
@@ -2377,18 +3087,20 @@ def legacy_single_run_main(
             opti.set_initial(variable, float(init_override[name]))
 
     # Airframe assembly
-    wing = build_main_wing(airfoil=airfoil, span_m=wing_span_m, chord_m=wing_chord_m)
+    wing = build_main_wing(airfoil=airfoil, span_m=wing_span_m, chord_m=wing_chord_m, cfg=cfg)
     htail, htail_chord_m = build_horizontal_tail(
         airfoil=airfoil,
         tail_arm_m=tail_arm_m,
         span_m=htail_span_m,
+        cfg=cfg,
     )
     vtail, vtail_chord_m = build_vertical_tail(
         airfoil=airfoil,
         tail_arm_m=tail_arm_m,
         height_m=vtail_height_m,
+        cfg=cfg,
     )
-    fuselage = build_fuselage(boom_end_x_m=boom_end_x_m)
+    fuselage = build_fuselage(boom_end_x_m=boom_end_x_m, cfg=cfg)
 
     airplane_base = asb.Airplane(
         name="Nausicaa",
@@ -2421,6 +3133,7 @@ def legacy_single_run_main(
         tail_arm_m=tail_arm_m,
         boom_end_x_m=boom_end_x_m,
         vtail_chord_m=vtail_chord_m,
+        cfg=cfg,
     )
 
     trim_nom = build_trim_constraints_and_metrics(
@@ -2434,9 +3147,10 @@ def legacy_single_run_main(
         bank_angle_deg=0.0,
         lift_k=1.0,
         cl_cap=MAX_CL_AT_DESIGN_POINT,
-        enforce_lateral_trim=True,
+        enforce_lateral_trim=False,
         use_coordinated_turn=False,
         atmosphere=atmos,
+        cfg=cfg,
     )
     trim_turn = build_trim_constraints_and_metrics(
         opti=opti,
@@ -2452,6 +3166,7 @@ def legacy_single_run_main(
         enforce_lateral_trim=False,
         use_coordinated_turn=True,
         atmosphere=atmos,
+        cfg=cfg,
     )
 
     op_point_nom = trim_nom["op_point"]
@@ -2641,9 +3356,7 @@ def legacy_single_run_main(
     )
     delta_allow_m = WING_DEFLECTION_ALLOW_FRAC * L_semispan_m
     delta_over_m = stable_softplus(delta_tip_m - delta_allow_m, SOFTPLUS_K)
-    struct_deflection_penalty = STRUCT_DEFLECTION_WEIGHT * (
-        delta_over_m / np.maximum(delta_allow_m, 1e-6)
-    ) ** 2
+    wing_deflection_over_allow = delta_over_m / np.maximum(delta_allow_m, 1e-6)
 
     # Horizontal-tail flexibility proxy: each half-tail is treated the same way.
     L_ht_semispan_m = 0.5 * htail_span_m
@@ -2675,24 +3388,22 @@ def legacy_single_run_main(
 
     delta_ht_allow_m = HT_DEFLECTION_ALLOW_FRAC * L_ht_semispan_m
     delta_ht_over_m = stable_softplus(delta_ht_tip_m - delta_ht_allow_m, SOFTPLUS_K)
+    htail_deflection_over_allow = delta_ht_over_m / np.maximum(delta_ht_allow_m, 1e-6)
 
-    htail_deflection_penalty = HT_STRUCT_DEFLECTION_WEIGHT * (
-        delta_ht_over_m / np.maximum(delta_ht_allow_m, 1e-6)
-    ) ** 2
-
-    # Roll agility regularizer: reward margin below hard roll time-constant cap.
-    roll_tau_penalty = ROLL_TAU_WEIGHT_IN_OBJECTIVE * (roll_tau_s / MAX_ROLL_TAU_S) ** 2
-
-    # Objective: nominal-speed sink with light penalties on mass, ballast, and trim effort
-    objective = (
-        sink_rate_nom_mps
-        + MASS_WEIGHT_IN_OBJECTIVE * total_mass.mass
-        + BALLAST_WEIGHT_IN_OBJECTIVE * ballast_mass_kg
-        + CONTROL_TRIM_WEIGHT * trim_effort
-        + struct_deflection_penalty
-        + htail_deflection_penalty
-        + roll_tau_penalty
+    objective, objective_terms_expr = build_dimensionless_objective_terms(
+        sink_rate_mps=sink_rate_nom_mps,
+        mass_total_kg=total_mass.mass,
+        ballast_mass_kg=ballast_mass_kg,
+        trim_effort_deg2=trim_effort,
+        wing_deflection_over_allow=wing_deflection_over_allow,
+        htail_deflection_over_allow=htail_deflection_over_allow,
+        roll_tau_s=roll_tau_s,
+        scales=objective_scales,
+        weights=objective_weights,
     )
+    struct_deflection_penalty = objective_terms_expr["J_wing_deflection"]
+    htail_deflection_penalty = objective_terms_expr["J_htail_deflection"]
+    roll_tau_penalty = objective_terms_expr["J_roll_tau"]
     opti.minimize(objective)
 
     # Feasibility constraints
@@ -2745,7 +3456,7 @@ def legacy_single_run_main(
                 delta_r_turn_deg,
                 TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG,
             ),
-            bank_entry_margin_rad >= 0.0,
+            bank_entry_margin_rad >= np.radians(BANK_ENTRY_MARGIN_MIN_DEG),
         ]
     )
 
@@ -2826,6 +3537,12 @@ def legacy_single_run_main(
         )
 
     objective_num = to_scalar(solution(objective))
+    objective_contributions_num = evaluate_objective_contributions(
+        value_getter=solution,
+        objective_terms=objective_terms_expr,
+    )
+    objective_weights_dict = asdict(objective_weights)
+    objective_scales_dict = asdict(objective_scales)
     alpha_nom_num = to_scalar(solution(alpha_nom_deg))
     delta_a_nom_num = to_scalar(solution(delta_a_nom_deg))
     delta_e_nom_num = to_scalar(solution(delta_e_nom_deg))
@@ -2936,6 +3653,7 @@ def legacy_single_run_main(
         yaw_rate_rad_s=0.0,
         step_deg=CL_DELTA_A_FD_STEP_DEG,
         atmosphere=asb.Atmosphere(altitude=0.0),
+        cfg=cfg,
     )
     turn_cl_delta_a_fd = cl_delta_a_finite_difference(
         airplane_base=airplane_base_num,
@@ -2948,6 +3666,7 @@ def legacy_single_run_main(
         yaw_rate_rad_s=yaw_rate_turn_num,
         step_deg=CL_DELTA_A_FD_STEP_DEG,
         atmosphere=asb.Atmosphere(altitude=0.0),
+        cfg=cfg,
     )
 
     wing_span_num = to_scalar(wing_num.span())
@@ -3270,6 +3989,31 @@ def legacy_single_run_main(
             "Unit": "fraction",
         },
     ]
+    for key, value in objective_contributions_num.items():
+        summary_rows.append(
+            {
+                "Metric": key,
+                "Value": value,
+                "Unit": "-",
+            }
+        )
+    for key, value in objective_weights_dict.items():
+        summary_rows.append(
+            {
+                "Metric": f"objective_weight_{key}",
+                "Value": value,
+                "Unit": "-",
+            }
+        )
+    for key, value in objective_scales_dict.items():
+        summary_rows.append(
+            {
+                "Metric": f"objective_scale_{key}",
+                "Value": value,
+                "Unit": "-",
+            }
+        )
+
     boundary_hits = [row for row in boundary_rows if bool(row["IsAtBoundary"])]
     summary_rows.append(
         {
@@ -3407,7 +4151,7 @@ def legacy_single_run_main(
             bank_entry_phi_capture_proxy_deg_num,
             lower=TURN_BANK_DEG,
         ),
-        constraint_record("Turn bank-entry margin", bank_entry_margin_deg_num, lower=0.0),
+        constraint_record("Turn bank-entry margin", bank_entry_margin_deg_num, lower=BANK_ENTRY_MARGIN_MIN_DEG),
         constraint_record("Turn bank-entry phi raw (diag)", bank_entry_phi_achieved_deg_num),
         constraint_record("H-tail tip deflection proxy (diag)", delta_ht_tip_num),
         constraint_record("H-tail tip deflection proxy allow (diag)", delta_ht_allow_num),
@@ -3689,6 +4433,9 @@ def legacy_single_run_main(
         solver_stats=solve_stats,
         wing_area_m2=float(to_scalar(wing_area_num)),
         wing_mac_m=float(to_scalar(wing_num.mean_aerodynamic_chord())),
+        objective_contributions=objective_contributions_num,
+        objective_weights=objective_weights_dict,
+        objective_scales=objective_scales_dict,
         airfoil_label=airfoil_label,
     )
 
@@ -3706,6 +4453,7 @@ def legacy_single_run_main(
         boundary_rows=boundary_rows,
         active_constraint_rows=active_constraint_rows,
         solver_stats=solve_stats,
+        objective_contributions=objective_contributions_num,
     )
 
     figure_paths: PathMap = {}
@@ -3725,6 +4473,7 @@ def legacy_single_run_main(
         boundary_rows=boundary_rows,
         output_paths=output_paths,
         figure_paths=figure_paths,
+        objective_contributions=objective_contributions_num,
     )
     return candidate
 
@@ -3732,11 +4481,15 @@ def legacy_single_run_main(
 def build_and_solve_once(
     init: dict[str, float],
     ipopt_options: dict[str, Any] | None = None,
+    objective_weights: ObjectiveWeights | None = None,
+    objective_scales: ObjectiveScales | None = None,
 ) -> tuple[Candidate | None, str | None]:
     candidate = legacy_single_run_main(
         init_override=init,
         ipopt_options=ipopt_options,
         export_outputs=False,
+        objective_weights=objective_weights,
+        objective_scales=objective_scales,
     )
     if candidate is None:
         return candidate, (_LAST_SOLVE_FAILURE_REASON or "solve_failed_or_infeasible")
@@ -3903,8 +4656,14 @@ def candidates_are_duplicates(
     )
 
 
-def run_multistart(config: WorkflowConfig) -> tuple[list[Candidate], pd.DataFrame]:
-    rng = onp.random.default_rng(config.random_seed)
+def run_multistart(
+    config: WorkflowConfig,
+    objective_weights: ObjectiveWeights | None = None,
+    objective_scales: ObjectiveScales | None = None,
+    rng: onp.random.Generator | None = None,
+    ipopt_options: dict[str, Any] | None = None,
+) -> tuple[list[Candidate], pd.DataFrame]:
+    rng = rng if rng is not None else onp.random.default_rng(int(config.random_seed))
     feasible_candidates: list[Candidate] = []
     all_starts_rows: list[dict[str, Any]] = []
 
@@ -3912,7 +4671,12 @@ def run_multistart(config: WorkflowConfig) -> tuple[list[Candidate], pd.DataFram
         start_id = start_index + 1
         # First start is a deterministic warm seed; remaining starts are stochastic.
         init = default_initial_guess() if start_index == 0 else sample_initial_guess(rng)
-        candidate, failure_reason = build_and_solve_once(init=init, ipopt_options=None)
+        candidate, failure_reason = build_and_solve_once(
+            init=init,
+            ipopt_options=ipopt_options,
+            objective_weights=objective_weights,
+            objective_scales=objective_scales,
+        )
         if candidate is None:
             print(f"[multistart] start {start_id}/{config.n_starts} failed", flush=True)
             all_starts_rows.append(
@@ -3977,78 +4741,979 @@ def run_multistart(config: WorkflowConfig) -> tuple[list[Candidate], pd.DataFram
     return deduped, all_starts_df
 
 
-def sample_scenarios(config: WorkflowConfig) -> pd.DataFrame:
-    rng = onp.random.default_rng(config.scenario_seed)
-    scenario_count = max(config.n_scenarios, 0)
-    eff_a = rng.uniform(config.eff_a_min, config.eff_a_max, scenario_count)
-    eff_e = rng.uniform(config.eff_e_min, config.eff_e_max, scenario_count)
-    eff_r = rng.uniform(config.eff_r_min, config.eff_r_max, scenario_count)
-    control_eff_legacy = (eff_a + eff_e + eff_r) / 3.0
+# =============================================================================
+# Robustness tools (scenario sampling + per-scenario re-trim + scoring)
+# =============================================================================
+def sample_scenario_objects(
+    config: WorkflowConfig,
+    uncertainty: UncertaintyModel | None = None,
+    rng: onp.random.Generator | None = None,
+    scenario_count: int | None = None,
+) -> list[Scenario]:
+    uncertainty = uncertainty or UncertaintyModel.from_workflow_config(config)
+    rng_local = rng if rng is not None else onp.random.default_rng(int(config.scenario_seed))
+    n_scen = int(max(0, config.n_scenarios if scenario_count is None else scenario_count))
 
-    return pd.DataFrame(
-        {
-            "scenario_id": onp.arange(scenario_count, dtype=int),
-            "mass_scale": rng.uniform(
-                config.mass_scale_min,
-                config.mass_scale_max,
-                scenario_count,
-            ),
-            "cg_x_shift_mac": rng.uniform(
-                config.cg_x_shift_mac_min,
-                config.cg_x_shift_mac_max,
-                scenario_count,
-            ),
-            "incidence_bias_deg": rng.uniform(
-                config.incidence_bias_deg_min,
-                config.incidence_bias_deg_max,
-                scenario_count,
-            ),
-            # Per-axis effectiveness and neutral-bias uncertainty
-            "eff_a": eff_a,
-            "eff_e": eff_e,
-            "eff_r": eff_r,
-            "bias_a_deg": rng.uniform(config.bias_a_deg_min, config.bias_a_deg_max, scenario_count),
-            "bias_e_deg": rng.uniform(config.bias_e_deg_min, config.bias_e_deg_max, scenario_count),
-            "bias_r_deg": rng.uniform(config.bias_r_deg_min, config.bias_r_deg_max, scenario_count),
-            # Legacy scalar control effectiveness (kept for compatibility)
-            "control_eff": control_eff_legacy,
-            # Inertia uncertainty scales
-            "ixx_scale": rng.uniform(config.ixx_scale_min, config.ixx_scale_max, scenario_count),
-            "iyy_scale": rng.uniform(config.iyy_scale_min, config.iyy_scale_max, scenario_count),
-            "izz_scale": rng.uniform(config.izz_scale_min, config.izz_scale_max, scenario_count),
-            # Structural uncertainty scales
-            "wing_E_scale": rng.uniform(
-                config.wing_E_scale_min,
-                config.wing_E_scale_max,
-                scenario_count,
-            ),
-            "htail_E_scale": rng.uniform(
-                config.htail_E_scale_min,
-                config.htail_E_scale_max,
-                scenario_count,
-            ),
-            "wing_thickness_scale": rng.uniform(
-                config.wing_thickness_scale_min,
-                config.wing_thickness_scale_max,
-                scenario_count,
-            ),
-            "tail_thickness_scale": rng.uniform(
-                config.tail_thickness_scale_min,
-                config.tail_thickness_scale_max,
-                scenario_count,
-            ),
-            # Updraft disturbance model
-            "w_gust_nom": rng.uniform(config.w_gust_nom_min, config.w_gust_nom_max, scenario_count),
-            "w_gust_turn": rng.uniform(config.w_gust_turn_min, config.w_gust_turn_max, scenario_count),
-            "drag_factor": rng.uniform(
-                config.drag_factor_min,
-                config.drag_factor_max,
-                scenario_count,
-            ),
-        }
+    if n_scen == 0:
+        return []
+
+    eff_a = rng_local.uniform(uncertainty.eff_a_min, uncertainty.eff_a_max, n_scen)
+    eff_e = rng_local.uniform(uncertainty.eff_e_min, uncertainty.eff_e_max, n_scen)
+    eff_r = rng_local.uniform(uncertainty.eff_r_min, uncertainty.eff_r_max, n_scen)
+
+    scenarios: list[Scenario] = []
+    for i in range(n_scen):
+        control_eff = float((eff_a[i] + eff_e[i] + eff_r[i]) / 3.0)
+        scenarios.append(
+            Scenario(
+                scenario_id=int(i),
+                mass_scale=float(rng_local.uniform(uncertainty.mass_scale_min, uncertainty.mass_scale_max)),
+                cg_x_shift_mac=float(
+                    rng_local.uniform(
+                        uncertainty.cg_x_shift_mac_min,
+                        uncertainty.cg_x_shift_mac_max,
+                    )
+                ),
+                incidence_bias_deg=float(
+                    rng_local.uniform(
+                        uncertainty.incidence_bias_deg_min,
+                        uncertainty.incidence_bias_deg_max,
+                    )
+                ),
+                eff_a=float(eff_a[i]),
+                eff_e=float(eff_e[i]),
+                eff_r=float(eff_r[i]),
+                bias_a_deg=float(rng_local.uniform(uncertainty.bias_a_deg_min, uncertainty.bias_a_deg_max)),
+                bias_e_deg=float(rng_local.uniform(uncertainty.bias_e_deg_min, uncertainty.bias_e_deg_max)),
+                bias_r_deg=float(rng_local.uniform(uncertainty.bias_r_deg_min, uncertainty.bias_r_deg_max)),
+                control_eff=control_eff,
+                ixx_scale=float(rng_local.uniform(uncertainty.ixx_scale_min, uncertainty.ixx_scale_max)),
+                iyy_scale=float(rng_local.uniform(uncertainty.iyy_scale_min, uncertainty.iyy_scale_max)),
+                izz_scale=float(rng_local.uniform(uncertainty.izz_scale_min, uncertainty.izz_scale_max)),
+                wing_E_scale=float(rng_local.uniform(uncertainty.wing_E_scale_min, uncertainty.wing_E_scale_max)),
+                htail_E_scale=float(
+                    rng_local.uniform(
+                        uncertainty.htail_E_scale_min,
+                        uncertainty.htail_E_scale_max,
+                    )
+                ),
+                wing_thickness_scale=float(
+                    rng_local.uniform(
+                        uncertainty.wing_thickness_scale_min,
+                        uncertainty.wing_thickness_scale_max,
+                    )
+                ),
+                tail_thickness_scale=float(
+                    rng_local.uniform(
+                        uncertainty.tail_thickness_scale_min,
+                        uncertainty.tail_thickness_scale_max,
+                    )
+                ),
+                w_gust_nom=float(rng_local.uniform(uncertainty.w_gust_nom_min, uncertainty.w_gust_nom_max)),
+                w_gust_turn=float(rng_local.uniform(uncertainty.w_gust_turn_min, uncertainty.w_gust_turn_max)),
+                drag_factor=float(
+                    rng_local.uniform(uncertainty.drag_factor_min, uncertainty.drag_factor_max)
+                ),
+            )
+        )
+
+    return scenarios
+
+
+def sample_scenarios(
+    config: WorkflowConfig,
+    uncertainty: UncertaintyModel | None = None,
+    rng: onp.random.Generator | None = None,
+    scenario_count: int | None = None,
+) -> pd.DataFrame:
+    scenarios = sample_scenario_objects(
+        config=config,
+        uncertainty=uncertainty,
+        rng=rng,
+        scenario_count=scenario_count,
+    )
+    return pd.DataFrame([scenario.to_row() for scenario in scenarios])
+
+
+def sample_objective_weight_vectors(
+    sample_count: int,
+    seed: int | None = None,
+    rng: onp.random.Generator | None = None,
+) -> list[ObjectiveWeights]:
+    n_vectors = int(onp.clip(int(sample_count), WEIGHT_SWEEP_MIN_SAMPLES, WEIGHT_SWEEP_MAX_SAMPLES))
+    if rng is not None:
+        rng_local = rng
+    else:
+        seed_local = 0 if seed is None else int(seed)
+        rng_local = onp.random.default_rng(seed_local)
+
+    weights_list: list[ObjectiveWeights] = []
+    for _ in range(n_vectors):
+        weights_list.append(
+            ObjectiveWeights(
+                w_sink=1.0,
+                w_mass=float(10.0 ** rng_local.uniform(WEIGHT_SWEEP_LOG10_MIN, WEIGHT_SWEEP_LOG10_MAX)),
+                w_ballast=float(10.0 ** rng_local.uniform(WEIGHT_SWEEP_LOG10_MIN, WEIGHT_SWEEP_LOG10_MAX)),
+                w_trim_effort=float(10.0 ** rng_local.uniform(WEIGHT_SWEEP_LOG10_MIN, WEIGHT_SWEEP_LOG10_MAX)),
+                w_wing_deflection=float(10.0 ** rng_local.uniform(WEIGHT_SWEEP_LOG10_MIN, WEIGHT_SWEEP_LOG10_MAX)),
+                w_htail_deflection=float(10.0 ** rng_local.uniform(WEIGHT_SWEEP_LOG10_MIN, WEIGHT_SWEEP_LOG10_MAX)),
+                w_roll_tau=float(10.0 ** rng_local.uniform(WEIGHT_SWEEP_LOG10_MIN, WEIGHT_SWEEP_LOG10_MAX)),
+            )
+        )
+    return weights_list
+
+def select_workflow_candidate(
+    candidates: list[Candidate],
+    robust_summary_df: pd.DataFrame,
+) -> Candidate | None:
+    if not candidates:
+        return None
+    if robust_summary_df.empty or "candidate_id" not in robust_summary_df.columns:
+        return min(candidates, key=lambda item: item.objective)
+
+    if "is_selected" in robust_summary_df.columns:
+        selected_ids = robust_summary_df.loc[
+            robust_summary_df["is_selected"] == True,
+            "candidate_id",
+        ]
+        if not selected_ids.empty:
+            selected_candidate_id = int(selected_ids.iloc[0])
+            for candidate in candidates:
+                if int(candidate.candidate_id) == selected_candidate_id:
+                    return candidate
+
+    return min(candidates, key=lambda item: item.objective)
+
+
+def run_workflow_with_postcheck(
+    config: WorkflowConfig,
+    objective_weights: ObjectiveWeights | None = None,
+    objective_scales: ObjectiveScales | None = None,
+    rng: onp.random.Generator | None = None,
+    uncertainty: UncertaintyModel | None = None,
+    ipopt_options: dict[str, Any] | None = None,
+) -> tuple[
+    list[Candidate],
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    Candidate | None,
+    ObjectiveWeights,
+    ObjectiveScales,
+]:
+    weights = objective_weights or ObjectiveWeights()
+    scales = objective_scales or ObjectiveScales()
+
+    candidates, all_starts_df = run_multistart(
+        config,
+        objective_weights=weights,
+        objective_scales=scales,
+        rng=rng,
+        ipopt_options=ipopt_options,
+    )
+    if not candidates:
+        return (
+            [],
+            all_starts_df,
+            pd.DataFrame(),
+            pd.DataFrame(),
+            None,
+            weights,
+            scales,
+        )
+
+    scenarios_df = sample_scenarios(
+        config,
+        uncertainty=uncertainty,
+        rng=rng,
+    )
+    robust_scenarios_df, robust_summary_df = run_robust_postcheck(
+        candidates=candidates,
+        scenarios_df=scenarios_df,
+        config=config,
+        cfg=_DEFAULT_CFG,
+    )
+    selected_candidate = select_workflow_candidate(candidates, robust_summary_df)
+    return (
+        candidates,
+        all_starts_df,
+        robust_scenarios_df,
+        robust_summary_df,
+        selected_candidate,
+        weights,
+        scales,
     )
 
 
+def run_weight_sweep(
+    config: WorkflowConfig,
+    sample_count: int,
+    objective_scales: ObjectiveScales | None = None,
+    rng: onp.random.Generator | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any] | None, PathMap]:
+    ensure_output_dirs()
+    scales = objective_scales or ObjectiveScales()
+    sweep_seed = int(config.random_seed) + WEIGHT_SWEEP_SEED_OFFSET
+    rng_local = rng if rng is not None else onp.random.default_rng(sweep_seed)
+    weights_list = sample_objective_weight_vectors(
+        sample_count=sample_count,
+        seed=sweep_seed,
+        rng=rng_local,
+    )
+    # Keep candidate-ranking noise fixed across all sampled weight vectors.
+    shared_workflow_rng_seed = int(rng_local.integers(0, onp.iinfo(onp.uint32).max))
+
+    sweep_rows: list[dict[str, Any]] = []
+    best_result: dict[str, Any] | None = None
+    best_rank: tuple[float, float, float] | None = None
+
+    for run_index, weights in enumerate(weights_list, start=1):
+        print(
+            f"[sweep] run {run_index}/{len(weights_list)} with sampled objective weights",
+            flush=True,
+        )
+
+        (
+            candidates,
+            all_starts_df,
+            robust_scenarios_df,
+            robust_summary_df,
+            selected_candidate,
+            run_weights,
+            run_scales,
+        ) = run_workflow_with_postcheck(
+            config=config,
+            objective_weights=weights,
+            objective_scales=scales,
+            rng=onp.random.default_rng(shared_workflow_rng_seed),
+        )
+
+        row: dict[str, Any] = {
+            "run_index": run_index,
+            **{f"objective_weight_{key}": value for key, value in asdict(run_weights).items()},
+            **{f"objective_scale_{key}": value for key, value in asdict(run_scales).items()},
+            "success": selected_candidate is not None,
+            "candidate_id": float("nan"),
+            "feasible_rate": float("nan"),
+            "sink_mean": float("nan"),
+            "sink_cvar_20": float("nan"),
+            "selection_score": float("nan"),
+            "objective": float("nan"),
+            "wing_span_m": float("nan"),
+            "wing_chord_m": float("nan"),
+            "tail_arm_m": float("nan"),
+            "htail_span_m": float("nan"),
+            "vtail_height_m": float("nan"),
+            "sink_rate_mps": float("nan"),
+            "mass_total_kg": float("nan"),
+            "objective_term_spread_ratio": float("nan"),
+        }
+
+        selected_summary_row: dict[str, Any] = {}
+        if selected_candidate is not None:
+            row["candidate_id"] = int(selected_candidate.candidate_id)
+            row["objective"] = float(selected_candidate.objective)
+            row["wing_span_m"] = float(selected_candidate.wing_span_m)
+            row["wing_chord_m"] = float(selected_candidate.wing_chord_m)
+            row["tail_arm_m"] = float(selected_candidate.tail_arm_m)
+            row["htail_span_m"] = float(selected_candidate.htail_span_m)
+            row["vtail_height_m"] = float(selected_candidate.vtail_height_m)
+            row["sink_rate_mps"] = float(selected_candidate.sink_rate_mps)
+            row["mass_total_kg"] = float(selected_candidate.mass_total_kg)
+
+            selected_summary_df = robust_summary_df
+            if (
+                not robust_summary_df.empty
+                and "candidate_id" in robust_summary_df.columns
+            ):
+                selected_summary_df = robust_summary_df[
+                    robust_summary_df["candidate_id"] == selected_candidate.candidate_id
+                ]
+                if selected_summary_df.empty:
+                    selected_summary_df = robust_summary_df.iloc[[0]]
+
+            if not selected_summary_df.empty:
+                selected_summary_row = selected_summary_df.iloc[0].to_dict()
+                row["feasible_rate"] = float(selected_summary_row.get("feasible_rate", float("nan")))
+                row["sink_mean"] = float(selected_summary_row.get("sink_mean", float("nan")))
+                row["sink_cvar_20"] = float(selected_summary_row.get("sink_cvar_20", float("nan")))
+                row["selection_score"] = float(selected_summary_row.get("selection_score", float("nan")))
+
+            if selected_candidate.objective_contributions is not None:
+                row.update(selected_candidate.objective_contributions)
+                contribution_values = [
+                    abs(float(value))
+                    for key, value in selected_candidate.objective_contributions.items()
+                    if key != "J_total" and onp.isfinite(float(value)) and abs(float(value)) > 1e-12
+                ]
+                if contribution_values:
+                    row["objective_term_spread_ratio"] = float(
+                        max(contribution_values) / max(min(contribution_values), 1e-12)
+                    )
+
+            feasible_rate = float(row["feasible_rate"]) if onp.isfinite(row["feasible_rate"]) else -onp.inf
+            sink_cvar = float(row["sink_cvar_20"]) if onp.isfinite(row["sink_cvar_20"]) else onp.inf
+            span_value = float(row["wing_span_m"]) if onp.isfinite(row["wing_span_m"]) else onp.inf
+            rank_key = (-feasible_rate, sink_cvar, span_value)
+            if best_rank is None or rank_key < best_rank:
+                best_rank = rank_key
+                best_result = {
+                    "objective_weights": run_weights,
+                    "objective_scales": run_scales,
+                    "candidates": candidates,
+                    "all_starts_df": all_starts_df,
+                    "robust_scenarios_df": robust_scenarios_df,
+                    "robust_summary_df": robust_summary_df,
+                    "selected_candidate": selected_candidate,
+                    "selected_summary_row": selected_summary_row,
+                    "sweep_row": row,
+                }
+
+        sweep_rows.append(row)
+
+    sweep_df = pd.DataFrame(sweep_rows)
+    sweep_csv_path = RESULTS_DIR / "weight_sweep.csv"
+    sweep_xlsx_path = RESULTS_DIR / "weight_sweep.xlsx"
+
+    run_info_rows = [
+        {"Key": "code_version", "Value": get_git_version()},
+        {"Key": "timestamp_utc", "Value": datetime.now(timezone.utc).isoformat()},
+        {"Key": "sample_count", "Value": len(weights_list)},
+        {"Key": "seed", "Value": sweep_seed},
+        {"Key": "workflow_rng_seed", "Value": shared_workflow_rng_seed},
+    ]
+    run_info_rows.extend(
+        {"Key": key, "Value": value}
+        for key, value in asdict(config).items()
+    )
+    run_info_df = pd.DataFrame(run_info_rows)
+
+    sweep_df.to_csv(sweep_csv_path, index=False)
+    with pd.ExcelWriter(sweep_xlsx_path) as writer:
+        run_info_df.to_excel(writer, sheet_name="RunInfo", index=False)
+        sweep_df.to_excel(writer, sheet_name="WeightSweep", index=False)
+
+    return sweep_df, best_result, {
+        "weight_sweep_csv": sweep_csv_path,
+        "weight_sweep_xlsx": sweep_xlsx_path,
+    }
+
+def sum_expr(values: list[Scalar]) -> Scalar:
+    total: Scalar = 0.0
+    for value in values:
+        total = total + value
+    return total
+
+
+def select_representative_scenarios(
+    config: WorkflowConfig,
+    n_select: int,
+    rng: onp.random.Generator | None = None,
+    uncertainty: UncertaintyModel | None = None,
+) -> pd.DataFrame:
+    n_pick = max(1, int(n_select))
+    pool_multiplier = max(1, int(config.robust_opt_scenario_pool_multiplier))
+    pool_size = max(n_pick, int(config.n_scenarios), pool_multiplier * n_pick)
+    pool_config = WorkflowConfig(
+        **{
+            **asdict(config),
+            "n_scenarios": pool_size,
+        }
+    )
+    pool_df = sample_scenarios(
+        pool_config,
+        uncertainty=uncertainty,
+        rng=rng,
+    )
+    if pool_df.empty:
+        return pool_df
+
+    # Deterministic seeded subset from the same uncertainty model.
+    selected_df = pool_df.iloc[:n_pick].copy().reset_index(drop=True)
+    selected_df["source_scenario_id"] = selected_df["scenario_id"].astype(int)
+    selected_df["scenario_id"] = onp.arange(len(selected_df), dtype=int)
+    return selected_df
+
+def robust_in_loop_optimize(
+    config: WorkflowConfig,
+    n_scenarios: int,
+    init_override: dict[str, float] | None = None,
+    ipopt_options: dict[str, Any] | None = None,
+    rng: onp.random.Generator | None = None,
+    uncertainty: UncertaintyModel | None = None,
+) -> tuple[Candidate | None, pd.DataFrame]:
+    global _LAST_SOLVE_FAILURE_REASON
+    _LAST_SOLVE_FAILURE_REASON = None
+
+    n_scen_use = int(onp.clip(int(n_scenarios), ROBUST_OPT_MIN_SCENARIOS, ROBUST_OPT_MAX_SCENARIOS))
+    scenarios_df = select_representative_scenarios(
+        config=config,
+        n_select=n_scen_use,
+        rng=rng,
+        uncertainty=uncertainty,
+    )
+    if scenarios_df.empty:
+        _LAST_SOLVE_FAILURE_REASON = "no_scenarios"
+        return None, scenarios_df
+
+    if init_override is None:
+        init_override = {}
+
+    def init_value(name: str, default: float) -> float:
+        return float(init_override.get(name, default))
+
+    ensure_output_dirs()
+    airfoil, airfoil_label = get_reference_airfoil_cached()
+
+    opti = asb.Opti()
+
+    wing_span_m = opti.variable(
+        init_guess=init_value("wing_span_m", 0.80),
+        lower_bound=WING_SPAN_MIN_M,
+        upper_bound=WING_SPAN_MAX_M,
+    )
+    wing_chord_m = opti.variable(
+        init_guess=init_value("wing_chord_m", 0.20),
+        lower_bound=WING_CHORD_MIN_M,
+        upper_bound=WING_CHORD_MAX_M,
+    )
+    tail_arm_m = opti.variable(
+        init_guess=init_value("tail_arm_m", 0.70),
+        lower_bound=TAIL_ARM_MIN_M,
+        upper_bound=TAIL_ARM_MAX_M,
+    )
+    htail_span_m = opti.variable(
+        init_guess=init_value("htail_span_m", 0.30),
+        lower_bound=HT_SPAN_MIN_M,
+        upper_bound=HT_SPAN_MAX_M,
+    )
+    vtail_height_m = opti.variable(
+        init_guess=init_value("vtail_height_m", 0.20),
+        lower_bound=VT_HEIGHT_MIN_M,
+        upper_bound=VT_HEIGHT_MAX_M,
+    )
+
+    boom_end_x_m = tail_arm_m + BOOM_END_BEFORE_ELEV_FRAC * (htail_span_m / HT_AR)
+    boom_length_m = boom_end_x_m - NOSE_X_M
+
+    wing = build_main_wing(airfoil=airfoil, span_m=wing_span_m, chord_m=wing_chord_m, cfg=cfg)
+    htail, htail_chord_m = build_horizontal_tail(
+        airfoil=airfoil,
+        tail_arm_m=tail_arm_m,
+        span_m=htail_span_m,
+        cfg=cfg,
+    )
+    vtail, vtail_chord_m = build_vertical_tail(
+        airfoil=airfoil,
+        tail_arm_m=tail_arm_m,
+        height_m=vtail_height_m,
+        cfg=cfg,
+    )
+    fuselage = build_fuselage(boom_end_x_m=boom_end_x_m, cfg=cfg)
+
+    airplane_base = asb.Airplane(
+        name="Nausicaa robust-opt",
+        wings=[wing, htail, vtail],
+        fuselages=[fuselage],
+    )
+
+    mass_props, total_mass, ballast_mass_kg, battery_eta = build_mass_model(
+        opti=opti,
+        wing=wing,
+        htail=htail,
+        vtail=vtail,
+        wing_chord_m=wing_chord_m,
+        tail_arm_m=tail_arm_m,
+        boom_end_x_m=boom_end_x_m,
+        vtail_chord_m=vtail_chord_m,
+        cfg=cfg,
+    )
+
+    wing_area_m2 = wing.area()
+    wing_mac_m = wing.mean_aerodynamic_chord()
+    htail_area_m2 = htail.area()
+    vtail_area_m2 = vtail.area()
+
+    wing_loading_n_m2 = total_mass.mass * G / np.maximum(wing_area_m2, 1e-8)
+    tail_volume_horizontal = htail_area_m2 * tail_arm_m / np.maximum(
+        wing_area_m2 * wing_mac_m,
+        1e-8,
+    )
+    tail_volume_vertical = vtail_area_m2 * tail_arm_m / np.maximum(
+        wing_area_m2 * wing_span_m,
+        1e-8,
+    )
+
+    q_dyn_turn = 0.5 * RHO * V_TURN_MPS**2
+    delta_a_turn_cmd_deg = TURN_DEFLECTION_UTIL_MAX * DELTA_A_MAX_DEG
+    delta_a_turn_rate_limited_deg = float(config.servo_rate_deg_s) * BANK_ENTRY_TIME_S
+    if INCLUDE_SERVO_RATE_IN_BANK_ENTRY:
+        delta_a_roll_cmd_deg = min(delta_a_turn_cmd_deg, delta_a_turn_rate_limited_deg)
+    else:
+        delta_a_roll_cmd_deg = delta_a_turn_cmd_deg
+
+    scenario_rows = scenarios_df.to_dict(orient="records")
+
+    sink_nom_values: list[Scalar] = []
+    bank_margin_penalties: list[Scalar] = []
+    turn_util_penalties: list[Scalar] = []
+    trim_constraint_penalties: list[Scalar] = []
+    nom_lateral_penalties: list[Scalar] = []
+    trim_effort_nom_terms: list[Scalar] = []
+    all_constraints: list[Scalar] = []
+
+    first_vars: dict[str, Scalar] = {}
+    first_trim_nom: dict[str, Any] | None = None
+    first_trim_turn: dict[str, Any] | None = None
+    first_airplane_nom: asb.Airplane | None = None
+    first_roll_tau_turn: Scalar = float("nan")
+    first_roll_rate_ss_turn: Scalar = float("nan")
+    first_bank_margin_rad: Scalar = float("nan")
+
+    for scenario_index, scenario in enumerate(scenario_rows):
+        mass_scale = float(scenario["mass_scale"])
+        cg_x_shift_mac = float(scenario["cg_x_shift_mac"])
+        incidence_bias_deg = float(scenario["incidence_bias_deg"])
+        eff_a = float(scenario.get("eff_a", scenario.get("control_eff", 1.0)))
+        eff_e = float(scenario.get("eff_e", scenario.get("control_eff", 1.0)))
+        eff_r = float(scenario.get("eff_r", scenario.get("control_eff", 1.0)))
+        bias_a_deg = float(scenario.get("bias_a_deg", 0.0))
+        bias_e_deg = float(scenario.get("bias_e_deg", 0.0))
+        bias_r_deg = float(scenario.get("bias_r_deg", 0.0))
+        ixx_scale = float(scenario.get("ixx_scale", 1.0))
+        drag_factor = float(scenario.get("drag_factor", 1.0))
+
+        if bool(config.robust_opt_include_gust):
+            alpha_gust_nom_deg = compute_alpha_gust_deg(
+                w_gust_mps=float(scenario.get("w_gust_nom", 0.0)),
+                v_mps=V_NOM_MPS,
+            )
+            alpha_gust_turn_deg = compute_alpha_gust_deg(
+                w_gust_mps=float(scenario.get("w_gust_turn", 0.0)),
+                v_mps=V_TURN_MPS,
+            )
+        else:
+            alpha_gust_nom_deg = 0.0
+            alpha_gust_turn_deg = 0.0
+
+        alpha_nom_deg = opti.variable(
+            init_guess=init_value("alpha_nom_deg", init_value("alpha_deg", 5.0)),
+            lower_bound=ALPHA_MIN_DEG,
+            upper_bound=ALPHA_MAX_DEG,
+        )
+        delta_a_nom_cmd_deg = opti.variable(
+            init_guess=init_value("delta_a_nom_deg", init_value("delta_a_deg", 0.0)),
+            lower_bound=DELTA_A_MIN_DEG,
+            upper_bound=DELTA_A_MAX_DEG,
+        )
+        delta_e_nom_cmd_deg = opti.variable(
+            init_guess=init_value("delta_e_nom_deg", init_value("delta_e_deg", 0.0)),
+            lower_bound=DELTA_E_MIN_DEG,
+            upper_bound=DELTA_E_MAX_DEG,
+        )
+        delta_r_nom_cmd_deg = opti.variable(
+            init_guess=init_value("delta_r_nom_deg", init_value("delta_r_deg", 0.0)),
+            lower_bound=DELTA_R_MIN_DEG,
+            upper_bound=DELTA_R_MAX_DEG,
+        )
+
+        alpha_turn_deg = opti.variable(
+            init_guess=init_value("alpha_turn_deg", 7.0),
+            lower_bound=ALPHA_MIN_DEG,
+            upper_bound=ALPHA_MAX_TURN_DEG,
+        )
+        delta_a_turn_cmd_deg = opti.variable(
+            init_guess=init_value("delta_a_turn_deg", 0.0),
+            lower_bound=DELTA_A_MIN_DEG,
+            upper_bound=DELTA_A_MAX_DEG,
+        )
+        delta_e_turn_cmd_deg = opti.variable(
+            init_guess=init_value("delta_e_turn_deg", 3.5),
+            lower_bound=DELTA_E_MIN_DEG,
+            upper_bound=DELTA_E_MAX_DEG,
+        )
+        delta_r_turn_cmd_deg = opti.variable(
+            init_guess=init_value("delta_r_turn_deg", 0.0),
+            lower_bound=DELTA_R_MIN_DEG,
+            upper_bound=DELTA_R_MAX_DEG,
+        )
+
+        delta_a_nom_eff_deg = bias_a_deg + eff_a * delta_a_nom_cmd_deg
+        delta_e_nom_eff_deg = bias_e_deg + eff_e * delta_e_nom_cmd_deg
+        delta_r_nom_eff_deg = bias_r_deg + eff_r * delta_r_nom_cmd_deg
+        delta_a_turn_eff_deg = bias_a_deg + eff_a * delta_a_turn_cmd_deg
+        delta_e_turn_eff_deg = bias_e_deg + eff_e * delta_e_turn_cmd_deg
+        delta_r_turn_eff_deg = bias_r_deg + eff_r * delta_r_turn_cmd_deg
+
+        airplane_nom = airplane_base.with_control_deflections(
+            {
+                "aileron": delta_a_nom_eff_deg,
+                "elevator": delta_e_nom_eff_deg,
+                "rudder": delta_r_nom_eff_deg,
+            }
+        )
+        airplane_turn = airplane_base.with_control_deflections(
+            {
+                "aileron": delta_a_turn_eff_deg,
+                "elevator": delta_e_turn_eff_deg,
+                "rudder": delta_r_turn_eff_deg,
+            }
+        )
+
+        cg_shift_m = cg_x_shift_mac * np.maximum(wing_mac_m, 1e-8)
+        xyz_ref_s = [
+            total_mass.x_cg + cg_shift_m,
+            total_mass.y_cg,
+            total_mass.z_cg,
+        ]
+        scenario_mass_kg = mass_scale * total_mass.mass
+
+        trim_nom = build_trim_constraints_and_metrics(
+            opti=opti,
+            airplane=airplane_nom,
+            xyz_ref=xyz_ref_s,
+            velocity_mps=V_NOM_MPS,
+            alpha_deg=alpha_nom_deg + incidence_bias_deg + alpha_gust_nom_deg,
+            mass_kg=scenario_mass_kg,
+            mode="nominal",
+            bank_angle_deg=0.0,
+            lift_k=1.0,
+            cl_cap=MAX_CL_AT_DESIGN_POINT,
+            enforce_lateral_trim=False,
+            use_coordinated_turn=False,
+            atmosphere=asb.Atmosphere(altitude=0.0),
+        )
+
+        trim_turn = build_trim_constraints_and_metrics(
+            opti=opti,
+            airplane=airplane_turn,
+            xyz_ref=xyz_ref_s,
+            velocity_mps=V_TURN_MPS,
+            alpha_deg=alpha_turn_deg + incidence_bias_deg + alpha_gust_turn_deg,
+            mass_kg=scenario_mass_kg,
+            mode="turn",
+            bank_angle_deg=TURN_BANK_DEG,
+            lift_k=K_LEVEL_TURN,
+            cl_cap=TURN_CL_CAP,
+            enforce_lateral_trim=False,
+            use_coordinated_turn=True,
+            atmosphere=asb.Atmosphere(altitude=0.0),
+        )
+
+        nom_lift_required_n = scenario_mass_kg * G
+        turn_lift_required_n = K_LEVEL_TURN * trim_turn["n_load_factor"] * scenario_mass_kg * G
+        trim_constraint_penalties.append(
+            stable_softplus(nom_lift_required_n - trim_nom["aero"]["L"], SOFTPLUS_K) ** 2
+            + trim_nom["aero"]["Cm"] ** 2
+            + stable_softplus(turn_lift_required_n - trim_turn["aero"]["L"], SOFTPLUS_K) ** 2
+            + trim_turn["aero"]["Cm"] ** 2
+            + stable_softplus(-TURN_LATERAL_TRIM_TOL_CL - trim_turn["aero"]["Cl"], SOFTPLUS_K) ** 2
+            + stable_softplus(trim_turn["aero"]["Cl"] - TURN_LATERAL_TRIM_TOL_CL, SOFTPLUS_K) ** 2
+            + stable_softplus(-TURN_LATERAL_TRIM_TOL_CN - trim_turn["aero"]["Cn"], SOFTPLUS_K) ** 2
+            + stable_softplus(trim_turn["aero"]["Cn"] - TURN_LATERAL_TRIM_TOL_CN, SOFTPLUS_K) ** 2
+        )
+
+        all_constraints.extend(
+            [
+                trim_nom["aero"]["CL"] <= MAX_CL_AT_DESIGN_POINT,
+                trim_turn["aero"]["CL"] <= TURN_CL_CAP,
+                trim_turn["turn_radius_m"] + 0.5 * wing_span_m + WALL_CLEARANCE_M
+                <= 0.5 * ARENA_WIDTH_M,
+            ]
+        )
+
+        sink_nom_s = (
+            np.maximum(trim_nom["aero"]["D"], 1e-3)
+            * drag_factor
+            * V_NOM_MPS
+            / np.maximum(scenario_mass_kg * G, 1e-8)
+        )
+        sink_nom_values.append(sink_nom_s)
+
+        trim_effort_nom_terms.append(
+            delta_e_nom_cmd_deg**2
+            + 0.3 * delta_r_nom_cmd_deg**2
+            + 0.15 * delta_a_nom_cmd_deg**2
+        )
+
+        turn_util_a = np.abs(delta_a_turn_cmd_deg) / max(abs(DELTA_A_MAX_DEG), 1e-8)
+        turn_util_e = np.abs(delta_e_turn_cmd_deg) / max(abs(DELTA_E_MAX_DEG), 1e-8)
+        turn_util_r = np.abs(delta_r_turn_cmd_deg) / max(abs(DELTA_R_MAX_DEG), 1e-8)
+
+        turn_util_penalties.append(
+            stable_softplus(turn_util_a - TURN_DEFLECTION_UTIL_MAX, SOFTPLUS_K) ** 2
+            + stable_softplus(turn_util_e - TURN_DEFLECTION_UTIL_MAX, SOFTPLUS_K) ** 2
+            + stable_softplus(turn_util_r - TURN_DEFLECTION_UTIL_MAX, SOFTPLUS_K) ** 2
+        )
+
+        if float(config.robust_opt_nom_lateral_penalty_weight) > 0.0:
+            nom_lateral_penalties.append(
+                trim_nom["aero"]["Cl"] ** 2 + trim_nom["aero"]["Cn"] ** 2
+            )
+
+        cl_delta_a_turn = aileron_effectiveness_proxy(
+            aero=trim_turn["aero"],
+            eta_inboard=AILERON_ETA_INBOARD,
+            eta_outboard=AILERON_ETA_OUTBOARD,
+            chord_fraction=AILERON_CHORD_FRACTION,
+        )
+        clp_mag_turn = np.maximum(np.abs(trim_turn["aero"]["Clp"]), 1e-5)
+        ixx_s = (
+            mass_scale
+            * ixx_scale
+            * np.maximum(total_mass.inertia_tensor[0, 0], 1e-8)
+        )
+        delta_a_roll_rad = np.radians(np.abs(eff_a) * delta_a_roll_cmd_deg)
+
+        roll_tau_turn_s = (
+            2.0
+            * ixx_s
+            * V_TURN_MPS
+            / np.maximum(
+                q_dyn_turn * wing_area_m2 * wing_span_m**2 * clp_mag_turn,
+                1e-8,
+            )
+        )
+        roll_rate_ss_turn_radps = (
+            2.0
+            * V_TURN_MPS
+            / np.maximum(wing_span_m, 1e-8)
+            * np.abs(cl_delta_a_turn)
+            * delta_a_roll_rad
+            / clp_mag_turn
+        )
+
+        tau_turn_eff_s = np.maximum(roll_tau_turn_s, 1e-4)
+        bank_entry_dt_s = np.fmax(BANK_ENTRY_TIME_S - tau_turn_eff_s, 0.0)
+        bank_entry_margin_rad = (
+            roll_rate_ss_turn_radps * bank_entry_dt_s
+            - np.radians(TURN_BANK_DEG)
+        )
+        bank_margin_penalties.append(stable_softplus(-bank_entry_margin_rad, SOFTPLUS_K) ** 2)
+
+        if scenario_index == 0:
+            first_vars = {
+                "alpha_nom_deg": alpha_nom_deg,
+                "delta_a_nom_cmd_deg": delta_a_nom_cmd_deg,
+                "delta_e_nom_cmd_deg": delta_e_nom_cmd_deg,
+                "delta_r_nom_cmd_deg": delta_r_nom_cmd_deg,
+                "alpha_turn_deg": alpha_turn_deg,
+                "delta_a_turn_cmd_deg": delta_a_turn_cmd_deg,
+                "delta_e_turn_cmd_deg": delta_e_turn_cmd_deg,
+                "delta_r_turn_cmd_deg": delta_r_turn_cmd_deg,
+            }
+            first_trim_nom = trim_nom
+            first_trim_turn = trim_turn
+            first_airplane_nom = airplane_nom
+            first_roll_tau_turn = roll_tau_turn_s
+            first_roll_rate_ss_turn = roll_rate_ss_turn_radps
+            first_bank_margin_rad = bank_entry_margin_rad
+
+    n_scen = max(len(sink_nom_values), 1)
+    sink_mean = sum_expr(sink_nom_values) / float(n_scen)
+    trim_effort_nom_mean = sum_expr(trim_effort_nom_terms) / float(n_scen)
+    bank_penalty_mean = sum_expr(bank_margin_penalties) / float(n_scen)
+    turn_util_penalty_mean = sum_expr(turn_util_penalties) / float(n_scen)
+    trim_constraint_penalty_mean = sum_expr(trim_constraint_penalties) / float(n_scen)
+
+    tail_fraction = float(onp.clip(
+        float(config.robust_opt_tail_fraction),
+        1.0 / float(n_scen),
+        1.0,
+    ))
+    eta_sink = opti.variable(init_guess=init_value("sink_eta", 0.35))
+    cvar_soft_tail_terms = [
+        stable_softplus(sink_s - eta_sink, SOFTPLUS_K)
+        for sink_s in sink_nom_values
+    ]
+    sink_cvar_like = eta_sink + (
+        sum_expr(cvar_soft_tail_terms)
+        / max(tail_fraction * float(n_scen), 1e-8)
+    )
+
+    nom_lateral_penalty = 0.0
+    if nom_lateral_penalties:
+        nom_lateral_penalty = sum_expr(nom_lateral_penalties) / float(len(nom_lateral_penalties))
+
+    objective = (
+        sink_cvar_like
+        + float(config.robust_opt_sink_mean_weight) * sink_mean
+        + MASS_WEIGHT_IN_OBJECTIVE * total_mass.mass
+        + BALLAST_WEIGHT_IN_OBJECTIVE * ballast_mass_kg
+        + CONTROL_TRIM_WEIGHT * trim_effort_nom_mean
+        + float(config.robust_opt_bank_margin_penalty_weight) * bank_penalty_mean
+        + float(config.robust_opt_turn_util_penalty_weight) * turn_util_penalty_mean
+        + float(config.robust_opt_trim_constraint_penalty_weight) * trim_constraint_penalty_mean
+        + float(config.robust_opt_nom_lateral_penalty_weight) * nom_lateral_penalty
+    )
+    opti.minimize(objective)
+
+    all_constraints.extend(
+        [
+            opti.bounded(BOOM_LENGTH_MIN_M, boom_length_m, BOOM_LENGTH_MAX_M),
+            total_mass.inertia_tensor[0, 0] >= 1e-8,
+            total_mass.inertia_tensor[1, 1] >= 1e-8,
+            total_mass.inertia_tensor[2, 2] >= 1e-8,
+        ]
+    )
+    opti.subject_to(all_constraints)
+
+    plugin_options = {"print_time": False, "verbose": False}
+    solver_options = {
+        "max_iter": 800,
+        "check_derivatives_for_naninf": "no",
+        "hessian_approximation": "limited-memory",
+        "print_level": 0,
+        "sb": "yes",
+        "acceptable_tol": 1e-1,
+        "acceptable_constr_viol_tol": 6e-2,
+        "acceptable_iter": 8,
+    }
+    if ipopt_options is not None:
+        solver_options.update(ipopt_options)
+    opti.solver("ipopt", plugin_options, solver_options)
+
+    try:
+        solution = opti.solve()
+    except RuntimeError as exc:
+        _LAST_SOLVE_FAILURE_REASON = str(exc)
+        print(f"[robust-opt] solve failed: {exc}", flush=True)
+        try:
+            opti.debug.show_infeasibilities()
+        except Exception:
+            pass
+        return None, scenarios_df
+
+    solve_stats: dict[str, Any] = {}
+    try:
+        stats_obj = solution.stats() if hasattr(solution, "stats") else {}
+        solve_stats = stats_obj if isinstance(stats_obj, dict) else {}
+    except Exception:
+        solve_stats = {}
+
+    wing_span_num = float(to_scalar(solution(wing_span_m)))
+    wing_chord_num = float(to_scalar(solution(wing_chord_m)))
+    tail_arm_num = float(to_scalar(solution(tail_arm_m)))
+    htail_span_num = float(to_scalar(solution(htail_span_m)))
+    vtail_height_num = float(to_scalar(solution(vtail_height_m)))
+
+    sink_nom_values_num = onp.array(
+        [float(to_scalar(solution(expr))) for expr in sink_nom_values],
+        dtype=float,
+    )
+    sink_mean_num = float(onp.mean(sink_nom_values_num)) if sink_nom_values_num.size else float("nan")
+    sink_cvar_20_num = sink_cvar(sink_nom_values_num, tail_fraction=0.20)
+
+    if first_trim_nom is None or first_trim_turn is None or first_airplane_nom is None:
+        _LAST_SOLVE_FAILURE_REASON = "missing_first_scenario_refs"
+        return None, scenarios_df
+
+    first_aero_nom_num = solution(first_trim_nom["aero"])
+    first_aero_turn_num = solution(first_trim_turn["aero"])
+    l_over_d_num = float(to_scalar(first_aero_nom_num["L"])) / max(
+        float(to_scalar(first_aero_nom_num["D"])),
+        1e-8,
+    )
+
+    mass_props_num = solution(mass_props)
+    total_mass_num = solution(total_mass)
+    ballast_mass_num = max(0.0, float(to_scalar(solution(ballast_mass_kg))))
+
+    first_alpha_nom_num = float(to_scalar(solution(first_vars["alpha_nom_deg"])))
+    first_delta_a_nom_num = float(to_scalar(solution(first_vars["delta_a_nom_cmd_deg"])))
+    first_delta_e_nom_num = float(to_scalar(solution(first_vars["delta_e_nom_cmd_deg"])))
+    first_delta_r_nom_num = float(to_scalar(solution(first_vars["delta_r_nom_cmd_deg"])))
+
+    static_margin_expr = (
+        first_trim_nom["aero"]["x_np"] - total_mass.x_cg
+    ) / np.maximum(wing_mac_m, 1e-8)
+    static_margin_num = float(to_scalar(solution(static_margin_expr)))
+    vh_num = float(to_scalar(solution(tail_volume_horizontal)))
+    vv_num = float(to_scalar(solution(tail_volume_vertical)))
+
+    roll_tau_num = float(to_scalar(solution(first_roll_tau_turn)))
+    roll_rate_ss_num = float(to_scalar(solution(first_roll_rate_ss_turn)))
+    max_servo_util_num = max(
+        abs(first_delta_a_nom_num) / max(abs(DELTA_A_MAX_DEG), 1e-8),
+        abs(first_delta_e_nom_num) / max(abs(DELTA_E_MAX_DEG), 1e-8),
+        abs(first_delta_r_nom_num) / max(abs(DELTA_R_MAX_DEG), 1e-8),
+    )
+
+    objective_num = float(to_scalar(solution(objective)))
+    sink_cvar_like_num = float(to_scalar(solution(sink_cvar_like)))
+    bank_penalty_num = float(to_scalar(solution(bank_penalty_mean)))
+    turn_util_penalty_num = float(to_scalar(solution(turn_util_penalty_mean)))
+    first_bank_margin_deg_num = float(onp.degrees(float(to_scalar(solution(first_bank_margin_rad)))))
+
+    wing_area_num = float(to_scalar(solution(wing_area_m2)))
+    wing_mac_num = float(to_scalar(solution(wing_mac_m)))
+
+    airplane_num = solution(first_airplane_nom)
+
+    aero_scalar_map: dict[str, float] = {}
+    for key, value in first_aero_nom_num.items():
+        maybe_scalar = to_float_if_possible(value)
+        if maybe_scalar is not None:
+            aero_scalar_map[f"nominal_{key}"] = maybe_scalar
+    for key, value in first_aero_turn_num.items():
+        maybe_scalar = to_float_if_possible(value)
+        if maybe_scalar is not None:
+            aero_scalar_map[f"turn_{key}"] = maybe_scalar
+
+    solve_stats = solve_stats.copy()
+    solve_stats["robust_opt"] = {
+        "n_scenarios": int(len(scenarios_df)),
+        "objective": objective_num,
+        "sink_mean": sink_mean_num,
+        "sink_cvar_like": sink_cvar_like_num,
+        "sink_cvar_20_from_samples": sink_cvar_20_num,
+        "bank_penalty_mean": bank_penalty_num,
+        "turn_util_penalty_mean": turn_util_penalty_num,
+        "first_bank_margin_deg": first_bank_margin_deg_num,
+    }
+
+    candidate = Candidate(
+        candidate_id=1,
+        objective=objective_num,
+        wing_span_m=wing_span_num,
+        wing_chord_m=wing_chord_num,
+        tail_arm_m=tail_arm_num,
+        htail_span_m=htail_span_num,
+        vtail_height_m=vtail_height_num,
+        alpha_deg=first_alpha_nom_num,
+        delta_a_deg=first_delta_a_nom_num,
+        delta_e_deg=first_delta_e_nom_num,
+        delta_r_deg=first_delta_r_nom_num,
+        sink_rate_mps=sink_mean_num,
+        l_over_d=l_over_d_num,
+        mass_total_kg=float(to_scalar(total_mass_num.mass)),
+        ballast_mass_kg=ballast_mass_num,
+        static_margin=static_margin_num,
+        vh=vh_num,
+        vv=vv_num,
+        roll_tau_s=roll_tau_num,
+        roll_rate_ss_radps=roll_rate_ss_num,
+        roll_accel0_rad_s2=float("nan"),
+        max_servo_util=max_servo_util_num,
+        airplane=airplane_num,
+        total_mass=total_mass_num,
+        mass_props=mass_props_num,
+        aero=aero_scalar_map,
+        summary_rows=None,
+        geometry_rows=None,
+        mass_rows=None,
+        aero_rows=None,
+        constraint_rows=None,
+        active_constraint_rows=None,
+        boundary_rows=None,
+        design_points_rows=None,
+        solver_stats=solve_stats,
+        wing_area_m2=wing_area_num,
+        wing_mac_m=wing_mac_num,
+        airfoil_label=airfoil_label,
+    )
+
+    return candidate, scenarios_df
 def compute_alpha_gust_deg(w_gust_mps: float, v_mps: float) -> float:
     return float(onp.degrees(onp.arctan(float(w_gust_mps) / max(float(v_mps), 1e-6))))
 
@@ -4173,34 +5838,56 @@ def struct_tip_deflection_proxy_composite(
     }
 
 
+
+
+def _trim_result_from_prefixed_row(point: Literal["nom", "turn"], row: dict[str, Any]) -> TrimPointResult:
+    prefix = f"{point}_"
+    metrics: dict[str, float] = {}
+    for key, value in row.items():
+        if not key.startswith(prefix) or key == f"{point}_success":
+            continue
+        try:
+            metrics[key[len(prefix):]] = float(value)
+        except Exception:
+            continue
+    return TrimPointResult(
+        point=point,
+        success=bool(row.get(f"{point}_success", False)),
+        metrics=metrics,
+    )
 def trim_candidate_at_point(
     candidate: Candidate,
-    scenario_row: dict[str, Any],
+    scenario: Scenario | dict[str, Any],
     config: WorkflowConfig,
     point: Literal["nom", "turn"],
-) -> dict[str, Any]:
-    mass_scale = float(scenario_row["mass_scale"])
-    cg_x_shift_mac = float(scenario_row["cg_x_shift_mac"])
-    incidence_bias_deg = float(scenario_row["incidence_bias_deg"])
-    eff_a = float(scenario_row.get("eff_a", scenario_row.get("control_eff", 1.0)))
-    eff_e = float(scenario_row.get("eff_e", scenario_row.get("control_eff", 1.0)))
-    eff_r = float(scenario_row.get("eff_r", scenario_row.get("control_eff", 1.0)))
-    bias_a_deg = float(scenario_row.get("bias_a_deg", 0.0))
-    bias_e_deg = float(scenario_row.get("bias_e_deg", 0.0))
-    bias_r_deg = float(scenario_row.get("bias_r_deg", 0.0))
-    ixx_scale = float(scenario_row.get("ixx_scale", 1.0))
-    iyy_scale = float(scenario_row.get("iyy_scale", 1.0))
-    izz_scale = float(scenario_row.get("izz_scale", 1.0))
-    wing_e_scale = float(scenario_row.get("wing_E_scale", 1.0))
-    htail_e_scale = float(scenario_row.get("htail_E_scale", 1.0))
-    wing_thickness_scale = float(scenario_row.get("wing_thickness_scale", 1.0))
-    tail_thickness_scale = float(scenario_row.get("tail_thickness_scale", 1.0))
-    drag_factor = float(scenario_row["drag_factor"])
+    cfg: Config | None = None,
+    airframe_bundle: AirframeBundle | None = None,
+) -> TrimPointResult:
+    cfg = cfg or _DEFAULT_CFG
+    scenario_obj = scenario if isinstance(scenario, Scenario) else Scenario.from_row(scenario)
+
+    mass_scale = float(scenario_obj.mass_scale)
+    cg_x_shift_mac = float(scenario_obj.cg_x_shift_mac)
+    incidence_bias_deg = float(scenario_obj.incidence_bias_deg)
+    eff_a = float(scenario_obj.eff_a)
+    eff_e = float(scenario_obj.eff_e)
+    eff_r = float(scenario_obj.eff_r)
+    bias_a_deg = float(scenario_obj.bias_a_deg)
+    bias_e_deg = float(scenario_obj.bias_e_deg)
+    bias_r_deg = float(scenario_obj.bias_r_deg)
+    ixx_scale = float(scenario_obj.ixx_scale)
+    iyy_scale = float(scenario_obj.iyy_scale)
+    izz_scale = float(scenario_obj.izz_scale)
+    wing_e_scale = float(scenario_obj.wing_E_scale)
+    htail_e_scale = float(scenario_obj.htail_E_scale)
+    wing_thickness_scale = float(scenario_obj.wing_thickness_scale)
+    tail_thickness_scale = float(scenario_obj.tail_thickness_scale)
+    drag_factor = float(scenario_obj.drag_factor)
 
     if point == "nom":
         velocity_mps = V_NOM_MPS
         n_req_struct = 1.0
-        w_gust_mps = float(scenario_row.get("w_gust_nom", 0.0))
+        w_gust_mps = float(scenario_obj.w_gust_nom)
         alpha_upper_bound = float(ALPHA_MAX_DEG)
         cl_cap = float(MAX_CL_AT_DESIGN_POINT)
         util_fraction = float(config.max_trim_util_fraction)
@@ -4215,7 +5902,7 @@ def trim_candidate_at_point(
         n_turn = float(1.0 / onp.cos(phi_turn_rad))
         # Structural proxy continues to use full turn load, matching main model.
         n_req_struct = n_turn
-        w_gust_mps = float(scenario_row.get("w_gust_turn", 0.0))
+        w_gust_mps = float(scenario_obj.w_gust_turn)
         alpha_upper_bound = float(ALPHA_MAX_TURN_DEG)
         cl_cap = float(TURN_CL_CAP)
         util_fraction = float(config.turn_deflection_util)
@@ -4286,32 +5973,20 @@ def trim_candidate_at_point(
     delta_e_deg = bias_e_deg + eff_e * u_e_deg
     delta_r_deg = bias_r_deg + eff_r * u_r_deg
 
-    airfoil, _ = get_reference_airfoil_cached()
-    wing = build_main_wing(
-        airfoil=airfoil,
-        span_m=candidate.wing_span_m,
-        chord_m=candidate.wing_chord_m,
-    )
-    htail, htail_chord_m = build_horizontal_tail(
-        airfoil=airfoil,
-        tail_arm_m=candidate.tail_arm_m,
-        span_m=candidate.htail_span_m,
-    )
-    vtail, _vtail_chord_m = build_vertical_tail(
-        airfoil=airfoil,
-        tail_arm_m=candidate.tail_arm_m,
-        height_m=candidate.vtail_height_m,
-    )
-    boom_end_x_m = candidate.tail_arm_m + BOOM_END_BEFORE_ELEV_FRAC * htail_chord_m
-    fuselage = build_fuselage(
-        boom_end_x_m=boom_end_x_m,
-    )
+    if airframe_bundle is None:
+        airfoil, _ = get_reference_airfoil_cached()
+        geometry = GeometryVars.from_candidate(candidate)
+        airframe_bundle = get_airframe_bundle_cached(
+            geometry=geometry,
+            airfoil=airfoil,
+            cfg=cfg,
+        )
 
-    airplane_base = asb.Airplane(
-        name=f"Nausicaa candidate {candidate.candidate_id}",
-        wings=[wing, htail, vtail],
-        fuselages=[fuselage],
-    )
+    wing = airframe_bundle.wing
+    htail = airframe_bundle.htail
+    vtail = airframe_bundle.vtail
+    htail_chord_m = float(airframe_bundle.htail_chord_m)
+    airplane_base = airframe_bundle.airplane_base
     airplane = airplane_base.with_control_deflections(
         {
             "aileron": delta_a_deg,
@@ -4345,6 +6020,7 @@ def trim_candidate_at_point(
         enforce_lateral_trim=(point == "nom"),
         use_coordinated_turn=use_coordinated_turn,
         atmosphere=asb.Atmosphere(altitude=0.0),
+        cfg=cfg,
     )
     op_point = trim_metrics["op_point"]
     aero = trim_metrics["aero"]
@@ -4444,7 +6120,7 @@ def trim_candidate_at_point(
     try:
         solution = opti.solve()
     except RuntimeError:
-        return nan_result
+        return _trim_result_from_prefixed_row(point, nan_result)
 
     alpha_num = float(to_scalar(solution(alpha_trim_deg)))
     u_a_num = float(to_scalar(solution(u_a_deg)))
@@ -4558,7 +6234,7 @@ def trim_candidate_at_point(
         e_tape_pa=float(TAPE_EFFICIENCY * TAPE_E_EFFECTIVE_PA),
     )
 
-    return {
+    result_row = {
         # Keep robust feasibility aligned with main optimization:
         # turn-point structural deflection proxy remains diagnostic/soft, not a hard pass-fail gate.
         f"{point}_success": True,
@@ -4612,6 +6288,7 @@ def trim_candidate_at_point(
         f"{point}_iyy": iyy_scaled,
         f"{point}_izz": izz_scaled,
     }
+    return _trim_result_from_prefixed_row(point, result_row)
 
 
 def sink_cvar(values: onp.ndarray, tail_fraction: float = 0.20) -> float:
@@ -4626,34 +6303,49 @@ def run_robust_postcheck(
     candidates: list[Candidate],
     scenarios_df: pd.DataFrame,
     config: WorkflowConfig,
+    cfg: Config | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     scenarios_df = scenarios_df.drop(
         columns=["dw_dy", "nom_dw_dy", "turn_dw_dy", "nom_Cl_bias", "turn_Cl_bias"],
         errors="ignore",
     )
     robust_rows: list[dict[str, Any]] = []
-    scenario_rows = scenarios_df.to_dict(orient="records")
+    scenario_objects = [Scenario.from_row(row) for row in scenarios_df.to_dict(orient="records")]
+
+    airfoil, _ = get_reference_airfoil_cached()
+    cfg = cfg or _DEFAULT_CFG
 
     for candidate in candidates:
-        for scenario in scenario_rows:
-            nom_row = trim_candidate_at_point(
+        geometry = GeometryVars.from_candidate(candidate)
+        airframe_bundle = get_airframe_bundle_cached(
+            geometry=geometry,
+            airfoil=airfoil,
+            cfg=cfg,
+        )
+        for scenario_obj in scenario_objects:
+            scenario_row = scenario_obj.to_row()
+            nom_result = trim_candidate_at_point(
                 candidate=candidate,
-                scenario_row=scenario,
+                scenario=scenario_obj,
                 config=config,
                 point="nom",
+                cfg=cfg,
+                airframe_bundle=airframe_bundle,
             )
-            turn_row = trim_candidate_at_point(
+            turn_result = trim_candidate_at_point(
                 candidate=candidate,
-                scenario_row=scenario,
+                scenario=scenario_obj,
                 config=config,
                 point="turn",
+                cfg=cfg,
+                airframe_bundle=airframe_bundle,
             )
-            both_success = bool(
-                nom_row.get("nom_success", False) and turn_row.get("turn_success", False)
-            )
+            nom_row = nom_result.to_prefixed_row()
+            turn_row = turn_result.to_prefixed_row()
+            both_success = bool(nom_result.success and turn_result.success)
             combined_row: dict[str, Any] = {
                 "candidate_id": candidate.candidate_id,
-                **scenario,
+                **scenario_row,
                 **nom_row,
                 **turn_row,
                 "both_success": both_success,
@@ -4663,6 +6355,43 @@ def run_robust_postcheck(
             robust_rows.append(combined_row)
 
     robust_scenarios_df = pd.DataFrame(robust_rows)
+    if not robust_scenarios_df.empty:
+        turn_util_columns = ["turn_util_a", "turn_util_e", "turn_util_r"]
+        turn_util_available = [
+            col for col in turn_util_columns if col in robust_scenarios_df.columns
+        ]
+        if turn_util_available:
+            robust_scenarios_df["turn_control_util_max"] = robust_scenarios_df[
+                turn_util_available
+            ].max(axis=1, skipna=True)
+            robust_scenarios_df["turn_control_util_violation"] = onp.maximum(
+                robust_scenarios_df["turn_control_util_max"] - TURN_DEFLECTION_UTIL_MAX,
+                0.0,
+            )
+        else:
+            robust_scenarios_df["turn_control_util_max"] = onp.nan
+            robust_scenarios_df["turn_control_util_violation"] = onp.nan
+
+        if {"turn_roll_tau_s", "turn_roll_rate_ss"}.issubset(robust_scenarios_df.columns):
+            tau_turn_eff_s = onp.maximum(
+                robust_scenarios_df["turn_roll_tau_s"].to_numpy(dtype=float),
+                1e-4,
+            )
+            bank_entry_dt_s = onp.maximum(BANK_ENTRY_TIME_S - tau_turn_eff_s, 0.0)
+            bank_capture_proxy_rad = (
+                robust_scenarios_df["turn_roll_rate_ss"].to_numpy(dtype=float)
+                * bank_entry_dt_s
+            )
+            robust_scenarios_df["turn_bank_entry_phi_capture_proxy_deg"] = onp.degrees(
+                bank_capture_proxy_rad
+            )
+            robust_scenarios_df["turn_bank_entry_margin_deg"] = onp.degrees(
+                bank_capture_proxy_rad - onp.radians(TURN_BANK_DEG)
+            )
+        else:
+            robust_scenarios_df["turn_bank_entry_phi_capture_proxy_deg"] = onp.nan
+            robust_scenarios_df["turn_bank_entry_margin_deg"] = onp.nan
+
     summary_rows: list[dict[str, Any]] = []
     objective_by_candidate = {candidate.candidate_id: candidate.objective for candidate in candidates}
 
@@ -4716,30 +6445,34 @@ def run_robust_postcheck(
         roll_tau_values = roll_tau_values[onp.isfinite(roll_tau_values)]
         max_roll_tau_worst = float(onp.max(roll_tau_values)) if roll_tau_values.size else float("nan")
 
-        summary_rows.append(
-            {
-                "candidate_id": candidate.candidate_id,
-                "feasible_rate": feasible_rate,
-                "sink_mean": sink_mean,
-                "sink_std": sink_std,
-                "sink_worst": sink_worst,
-                "sink_cvar_20": sink_cvar_20,
-                "max_turn_util_worst": max_turn_util_worst,
-                "min_turn_alpha_margin_worst": col_min(feasible_df, "turn_alpha_margin_deg"),
-                "max_turn_wing_deflection_proxy_over_allow_worst": col_max(
+        summary_obj = RobustSummary(
+            candidate_id=int(candidate.candidate_id),
+            feasible_rate=float(feasible_rate),
+            sink_mean=float(sink_mean),
+            sink_std=float(sink_std),
+            sink_worst=float(sink_worst),
+            sink_cvar_20=float(sink_cvar_20),
+            max_turn_util_worst=float(max_turn_util_worst),
+            max_turn_control_util_max_worst=float(col_max(candidate_df, "turn_control_util_max")),
+            max_turn_control_util_violation_worst=float(col_max(candidate_df, "turn_control_util_violation")),
+            min_turn_bank_entry_margin_deg_worst=float(col_min(candidate_df, "turn_bank_entry_margin_deg")),
+            min_turn_alpha_margin_worst=float(col_min(feasible_df, "turn_alpha_margin_deg")),
+            max_turn_wing_deflection_proxy_over_allow_worst=float(
+                col_max(
                     feasible_df,
                     "turn_wing_deflection_proxy_over_allow",
-                ),
-                "max_roll_tau_worst": max_roll_tau_worst,
-                # Legacy-compatible summary aliases
-                "max_delta_e_util_worst": col_max(feasible_df, "nom_util_e"),
-                "max_alpha_worst": col_max(feasible_df, "nom_alpha_deg"),
-                "min_alpha_margin_worst": col_min(feasible_df, "nom_alpha_margin_deg"),
-                "min_cl_margin_worst": col_min(feasible_df, "nom_cl_margin_to_cap"),
-                "selection_score": selection_score,
-                "_objective_nominal": objective_by_candidate[candidate.candidate_id],
-            }
+                )
+            ),
+            max_roll_tau_worst=float(max_roll_tau_worst),
+            max_delta_e_util_worst=float(col_max(feasible_df, "nom_util_e")),
+            max_alpha_worst=float(col_max(feasible_df, "nom_alpha_deg")),
+            min_alpha_margin_worst=float(col_min(feasible_df, "nom_alpha_margin_deg")),
+            min_cl_margin_worst=float(col_min(feasible_df, "nom_cl_margin_to_cap")),
+            selection_score=float(selection_score),
         )
+        summary_row = asdict(summary_obj)
+        summary_row["_objective_nominal"] = float(objective_by_candidate[candidate.candidate_id])
+        summary_rows.append(summary_row)
 
     robust_summary_df = pd.DataFrame(summary_rows)
     if robust_summary_df.empty:
@@ -4801,6 +6534,9 @@ def build_worst_case_report(
         "turn_util_a",
         "turn_util_e",
         "turn_util_r",
+        "turn_control_util_max",
+        "turn_control_util_violation",
+        "turn_bank_entry_margin_deg",
         "turn_wing_deflection_proxy_over_allow",
         "turn_htail_deflection_proxy_over_allow",
         "turn_roll_tau_s",
@@ -4926,6 +6662,8 @@ def save_workflow_workbook(
     robust_summary_df: pd.DataFrame,
     all_starts_df: pd.DataFrame | None,
     selected_candidate: Candidate | None,
+    objective_weights: ObjectiveWeights | None = None,
+    objective_scales: ObjectiveScales | None = None,
 ) -> Path:
     workflow_path = RESULTS_DIR / "nausicaa_workflow.xlsx"
     timestamp_utc = datetime.now(timezone.utc).isoformat()
@@ -4936,6 +6674,22 @@ def save_workflow_workbook(
     run_info_rows.extend(
         {"Key": key, "Value": value} for key, value in asdict(config).items()
     )
+    if objective_weights is not None:
+        run_info_rows.extend(
+            {
+                "Key": f"objective_weight_{key}",
+                "Value": value,
+            }
+            for key, value in asdict(objective_weights).items()
+        )
+    if objective_scales is not None:
+        run_info_rows.extend(
+            {
+                "Key": f"objective_scale_{key}",
+                "Value": value,
+            }
+            for key, value in asdict(objective_scales).items()
+        )
     run_info_df = pd.DataFrame(run_info_rows)
 
     candidate_rows = []
@@ -4969,6 +6723,19 @@ def save_workflow_workbook(
                 "roll_rate_ss_radps": candidate.roll_rate_ss_radps,
                 "roll_accel0_rad_s2": candidate.roll_accel0_rad_s2,
                 "max_servo_util": candidate.max_servo_util,
+                **(candidate.objective_contributions or {}),
+                **(
+                    {
+                        f"objective_weight_{key}": value
+                        for key, value in (candidate.objective_weights or {}).items()
+                    }
+                ),
+                **(
+                    {
+                        f"objective_scale_{key}": value
+                        for key, value in (candidate.objective_scales or {}).items()
+                    }
+                ),
             }
         )
     candidates_df = pd.DataFrame(candidate_rows)
@@ -5036,6 +6803,10 @@ def save_workflow_workbook(
         "turn_util_a",
         "turn_util_e",
         "turn_util_r",
+        "turn_control_util_max",
+        "turn_control_util_violation",
+        "turn_bank_entry_phi_capture_proxy_deg",
+        "turn_bank_entry_margin_deg",
         "turn_u_rate_util_a",
         "turn_u_rate_util_e",
         "turn_u_rate_util_r",
@@ -5060,6 +6831,9 @@ def save_workflow_workbook(
         "sink_worst",
         "sink_cvar_20",
         "max_turn_util_worst",
+        "max_turn_control_util_max_worst",
+        "max_turn_control_util_violation_worst",
+        "min_turn_bank_entry_margin_deg_worst",
         "min_turn_alpha_margin_worst",
         "max_turn_wing_deflection_proxy_over_allow_worst",
         "max_roll_tau_worst",
@@ -5126,6 +6900,9 @@ def save_workflow_workbook(
         "turn_util_a",
         "turn_util_e",
         "turn_util_r",
+        "turn_control_util_max",
+        "turn_control_util_violation",
+        "turn_bank_entry_margin_deg",
         "turn_wing_deflection_proxy_over_allow",
         "turn_htail_deflection_proxy_over_allow",
     ]
@@ -5171,6 +6948,17 @@ def save_workflow_workbook(
                 pd.DataFrame(selected_candidate.summary_rows).to_excel(
                     writer,
                     sheet_name="Summary",
+                    index=False,
+                )
+            if selected_candidate.objective_contributions is not None:
+                pd.DataFrame(
+                    [
+                        {"Metric": key, "Value": value}
+                        for key, value in selected_candidate.objective_contributions.items()
+                    ]
+                ).to_excel(
+                    writer,
+                    sheet_name="ObjectiveTerms",
                     index=False,
                 )
             if selected_candidate.geometry_rows is not None:
@@ -5261,6 +7049,7 @@ def export_selected_candidate(candidate: Candidate) -> tuple[PathMap, PathMap]:
         boundary_rows=candidate.boundary_rows,
         active_constraint_rows=candidate.active_constraint_rows,
         solver_stats=candidate.solver_stats,
+        objective_contributions=candidate.objective_contributions,
     )
 
     figure_paths: PathMap = {}
@@ -5285,9 +7074,142 @@ def export_selected_candidate(candidate: Candidate) -> tuple[PathMap, PathMap]:
         boundary_rows=candidate.boundary_rows,
         output_paths=output_paths,
         figure_paths=figure_paths,
+        objective_contributions=candidate.objective_contributions,
     )
     return output_paths, figure_paths
 
+
+# =============================================================================
+# CLI (argparse + main + entrypoint)
+# =============================================================================
+def spawn_child_rng(parent_rng: onp.random.Generator) -> onp.random.Generator:
+    child_seed = int(parent_rng.integers(0, onp.iinfo(onp.uint32).max))
+    return onp.random.default_rng(child_seed)
+
+
+def run_smoke_test_pipeline(
+    config: WorkflowConfig,
+    objective_weights: ObjectiveWeights,
+    objective_scales: ObjectiveScales,
+    seed: int | None,
+) -> None:
+    smoke_seed = int(config.random_seed if seed is None else seed)
+    smoke_root_rng = onp.random.default_rng(smoke_seed)
+    smoke_fast_ipopt_options = {
+        "max_iter": 120,
+        "tol": 5e-3,
+        "acceptable_tol": 2e-2,
+        "acceptable_iter": 4,
+        "print_level": 0,
+        "sb": "yes",
+        "hessian_approximation": "limited-memory",
+    }
+
+    print(
+        (
+            "Starting smoke-test mode "
+            f"(seed={smoke_seed}, n_starts=3, n_scenarios=5)"
+        ),
+        flush=True,
+    )
+
+    def run_single(ipopt_overrides: dict[str, Any] | None) -> Candidate | None:
+        return legacy_single_run_main(
+            init_override=default_initial_guess(),
+            ipopt_options=ipopt_overrides,
+            export_outputs=False,
+            objective_weights=objective_weights,
+            objective_scales=objective_scales,
+        )
+
+    single_candidate = run_single(smoke_fast_ipopt_options)
+    if single_candidate is None:
+        print(
+            "[smoke] fast single-solve failed; retrying with default solver settings.",
+            flush=True,
+        )
+        single_candidate = run_single(None)
+    if single_candidate is None:
+        raise RuntimeError("single nominal solve failed")
+
+    smoke_config = WorkflowConfig(
+        **{
+            **asdict(config),
+            "n_starts": 3,
+            "keep_top_k": min(3, max(1, int(config.keep_top_k))),
+            "n_scenarios": 5,
+        }
+    )
+
+    def run_smoke_workflow(
+        ipopt_overrides: dict[str, Any] | None,
+    ) -> tuple[
+        list[Candidate],
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        Candidate | None,
+        ObjectiveWeights,
+        ObjectiveScales,
+    ]:
+        return run_workflow_with_postcheck(
+            config=smoke_config,
+            objective_weights=objective_weights,
+            objective_scales=objective_scales,
+            rng=spawn_child_rng(smoke_root_rng),
+            ipopt_options=ipopt_overrides,
+        )
+
+    (
+        candidates,
+        _all_starts_df,
+        _robust_scenarios_df,
+        robust_summary_df,
+        selected_candidate,
+        _run_weights,
+        _run_scales,
+    ) = run_smoke_workflow(smoke_fast_ipopt_options)
+
+    if not candidates or selected_candidate is None:
+        print(
+            "[smoke] fast workflow solve failed; retrying with default solver settings.",
+            flush=True,
+        )
+        (
+            candidates,
+            _all_starts_df,
+            _robust_scenarios_df,
+            robust_summary_df,
+            selected_candidate,
+            _run_weights,
+            _run_scales,
+        ) = run_smoke_workflow(None)
+
+    if not candidates or selected_candidate is None:
+        raise RuntimeError("smoke workflow did not produce a feasible candidate")
+
+    summary_text = "summary unavailable"
+    if not robust_summary_df.empty:
+        selected_summary_df = robust_summary_df[
+            robust_summary_df["candidate_id"] == selected_candidate.candidate_id
+        ]
+        if selected_summary_df.empty:
+            selected_summary_df = robust_summary_df.iloc[[0]]
+        summary_row = selected_summary_df.iloc[0]
+        summary_text = (
+            f"feasible_rate={float(summary_row.get('feasible_rate', onp.nan)):.3f}, "
+            f"sink_cvar_20={float(summary_row.get('sink_cvar_20', onp.nan)):.4f}"
+        )
+
+    print(
+        (
+            "Smoke-test completed: "
+            f"single_objective={single_candidate.objective:.5f}, "
+            f"workflow_candidate_id={selected_candidate.candidate_id}, "
+            f"{summary_text}"
+        ),
+        flush=True,
+    )
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Nausicaa glider design optimizer")
@@ -5295,6 +7217,22 @@ def parse_args() -> argparse.Namespace:
         "--workflow",
         action="store_true",
         help="Enable multistart and robust post-check workflow",
+    )
+    parser.add_argument(
+        "--robust-opt",
+        action="store_true",
+        help="Enable robust-in-the-loop optimization with shared geometry and per-scenario trims",
+    )
+    parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help="Run a fast smoke test: 1 nominal solve, 3-start multistart, 5-scenario robust postcheck",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Master deterministic seed for all randomness (overrides --random-seed and --scenario-seed)",
     )
     parser.add_argument("--n-starts", type=int, default=WorkflowConfig.n_starts)
     parser.add_argument("--keep-top-k", type=int, default=WorkflowConfig.keep_top_k)
@@ -5308,24 +7246,177 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=WorkflowConfig.dedup_tail_arm_m,
     )
+    parser.add_argument(
+        "--sweep-weights",
+        action="store_true",
+        help="Run a workflow weight-sweep experiment (log-uniform objective weights)",
+    )
+    parser.add_argument(
+        "--sweep-samples",
+        type=int,
+        default=WEIGHT_SWEEP_DEFAULT_SAMPLES,
+        help=(
+            "Number of sampled weight vectors for --sweep-weights "
+            f"(clipped to [{WEIGHT_SWEEP_MIN_SAMPLES}, {WEIGHT_SWEEP_MAX_SAMPLES}])"
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     use_workflow = RUN_WORKFLOW or args.workflow
+    use_robust_opt = bool(args.robust_opt)
+    use_sweep_weights = bool(args.sweep_weights)
+    use_smoke_test = bool(args.smoke_test)
+
+    if use_sweep_weights and not use_workflow:
+        print("[WARN] --sweep-weights was set without --workflow; enabling workflow mode.", flush=True)
+        use_workflow = True
+
+    seed_override = None if args.seed is None else int(args.seed)
+    random_seed = seed_override if seed_override is not None else int(args.random_seed)
+    scenario_seed = seed_override if seed_override is not None else int(args.scenario_seed)
+    if seed_override is not None and (
+        int(args.random_seed) != seed_override or int(args.scenario_seed) != seed_override
+    ):
+        print(
+            (
+                "[INFO] --seed overrides --random-seed/--scenario-seed "
+                f"(master seed={seed_override})."
+            ),
+            flush=True,
+        )
+
+    workflow_config = WorkflowConfig(
+        n_starts=max(1, int(args.n_starts)),
+        keep_top_k=max(1, int(args.keep_top_k)),
+        random_seed=random_seed,
+        n_scenarios=max(1, int(args.n_scenarios)),
+        scenario_seed=scenario_seed,
+        dedup_span_m=max(1e-9, float(args.dedup_span_m)),
+        dedup_chord_m=max(1e-9, float(args.dedup_chord_m)),
+        dedup_tail_arm_m=max(1e-9, float(args.dedup_tail_arm_m)),
+    )
+
+    default_objective_weights = ObjectiveWeights()
+    default_objective_scales = ObjectiveScales()
+    ipopt_options: dict[str, Any] | None = None
+
+    master_seed = int(workflow_config.random_seed if seed_override is None else seed_override)
+    master_rng = onp.random.default_rng(master_seed)
+
+    def fmt_metric(value: Any, digits: int = 4) -> str:
+        try:
+            value_f = float(value)
+        except Exception:
+            return "nan"
+        if not onp.isfinite(value_f):
+            return "nan"
+        return f"{value_f:.{digits}f}"
+
+    if use_smoke_test:
+        if use_workflow or use_robust_opt:
+            print(
+                "[WARN] --smoke-test overrides --workflow/--robust-opt for this run.",
+                flush=True,
+            )
+        try:
+            run_smoke_test_pipeline(
+                config=workflow_config,
+                objective_weights=default_objective_weights,
+                objective_scales=default_objective_scales,
+                seed=seed_override,
+            )
+        except Exception as exc:
+            print(f"[SMOKE TEST FAILED] {exc}", flush=True)
+            raise SystemExit(1)
+        return
+
+    if use_robust_opt:
+        if use_workflow:
+            print(
+                "[WARN] Both --workflow and --robust-opt were set; running robust-opt only.",
+                flush=True,
+            )
+        if use_sweep_weights:
+            print("[WARN] --sweep-weights is ignored in --robust-opt mode.", flush=True)
+
+        robust_n_scenarios = int(
+            onp.clip(
+                int(args.n_scenarios),
+                ROBUST_OPT_MIN_SCENARIOS,
+                ROBUST_OPT_MAX_SCENARIOS,
+            )
+        )
+        print(
+            (
+                "Starting robust-opt mode "
+                f"(n_scenarios={robust_n_scenarios}, "
+                f"scenario_seed={workflow_config.scenario_seed})"
+            ),
+            flush=True,
+        )
+
+        candidate, design_scenarios_df = robust_in_loop_optimize(
+            config=workflow_config,
+            n_scenarios=robust_n_scenarios,
+            init_override=default_initial_guess(),
+            ipopt_options=ipopt_options,
+            rng=spawn_child_rng(master_rng),
+            uncertainty=UncertaintyModel.from_workflow_config(workflow_config),
+        )
+        if candidate is None:
+            failure_reason = _LAST_SOLVE_FAILURE_REASON or "solve_failed_or_infeasible"
+            print(f"Robust-opt solve failed: {failure_reason}", flush=True)
+            return
+
+        robust_scenarios_df, robust_summary_df = run_robust_postcheck(
+            candidates=[candidate],
+            scenarios_df=design_scenarios_df,
+            config=workflow_config,
+            cfg=_DEFAULT_CFG,
+        )
+
+        workflow_path = save_workflow_workbook(
+            config=workflow_config,
+            candidates=[candidate],
+            robust_scenarios_df=robust_scenarios_df,
+            robust_summary_df=robust_summary_df,
+            all_starts_df=None,
+            selected_candidate=candidate,
+        )
+
+        if robust_summary_df.empty:
+            print("Robust summary unavailable.", flush=True)
+        else:
+            summary_row = robust_summary_df.iloc[0]
+            print("Robust summary (post-check):", flush=True)
+            print(
+                (
+                    "  "
+                    f"feasible_rate={fmt_metric(summary_row.get('feasible_rate', onp.nan), 3)} | "
+                    f"sink_mean={fmt_metric(summary_row.get('sink_mean', onp.nan), 4)} m/s | "
+                    f"sink_cvar_20={fmt_metric(summary_row.get('sink_cvar_20', onp.nan), 4)} m/s"
+                ),
+                flush=True,
+            )
+            print(
+                (
+                    "  "
+                    "worst_margins: "
+                    f"bank_entry_margin_min={fmt_metric(summary_row.get('min_turn_bank_entry_margin_deg_worst', onp.nan), 3)} deg, "
+                    f"turn_control_util_violation_max={fmt_metric(summary_row.get('max_turn_control_util_violation_worst', onp.nan), 4)}, "
+                    f"turn_control_util_max={fmt_metric(summary_row.get('max_turn_control_util_max_worst', onp.nan), 4)}"
+                ),
+                flush=True,
+            )
+
+        print(f"Robust-opt workbook saved: {workflow_path}", flush=True)
+        print(f"Selected candidate id: {candidate.candidate_id}", flush=True)
+        return
 
     if use_workflow:
-        workflow_config = WorkflowConfig(
-            n_starts=max(1, int(args.n_starts)),
-            keep_top_k=max(1, int(args.keep_top_k)),
-            random_seed=int(args.random_seed),
-            n_scenarios=max(1, int(args.n_scenarios)),
-            scenario_seed=int(args.scenario_seed),
-            dedup_span_m=max(1e-9, float(args.dedup_span_m)),
-            dedup_chord_m=max(1e-9, float(args.dedup_chord_m)),
-            dedup_tail_arm_m=max(1e-9, float(args.dedup_tail_arm_m)),
-        )
         print(
             (
                 "Starting workflow mode "
@@ -5336,29 +7427,96 @@ def main() -> None:
             flush=True,
         )
 
-        candidates, all_starts_df = run_multistart(workflow_config)
-        if not candidates:
-            print("No feasible candidate found in multistart run", flush=True)
+        if use_sweep_weights:
+            sweep_df, best_result, sweep_paths = run_weight_sweep(
+                config=workflow_config,
+                sample_count=int(args.sweep_samples),
+                objective_scales=default_objective_scales,
+                rng=spawn_child_rng(master_rng),
+            )
+            print(
+                f"Weight-sweep report saved: {sweep_paths['weight_sweep_xlsx']}",
+                flush=True,
+            )
+
+            if best_result is None:
+                print("Weight sweep completed, but no successful workflow run was found.", flush=True)
+                return
+
+            selected_candidate = best_result.get("selected_candidate")
+            if not isinstance(selected_candidate, Candidate):
+                print("Weight sweep completed, but no best candidate is available.", flush=True)
+                return
+
+            best_weights = best_result.get("objective_weights", default_objective_weights)
+            best_scales = best_result.get("objective_scales", default_objective_scales)
+            best_row = best_result.get("sweep_row", {})
+
+            workflow_path = save_workflow_workbook(
+                config=workflow_config,
+                candidates=best_result.get("candidates", []),
+                robust_scenarios_df=best_result.get("robust_scenarios_df", pd.DataFrame()),
+                robust_summary_df=best_result.get("robust_summary_df", pd.DataFrame()),
+                all_starts_df=best_result.get("all_starts_df"),
+                selected_candidate=selected_candidate,
+                objective_weights=best_weights,
+                objective_scales=best_scales,
+            )
+
+            _output_paths, _figure_paths = export_selected_candidate(selected_candidate)
+
+            print(
+                "Best weight set (ranked by feasible_rate desc, sink_cvar_20 asc, span asc):",
+                flush=True,
+            )
+            print(
+                (
+                    "  "
+                    f"feasible_rate={fmt_metric(best_row.get('feasible_rate', onp.nan), 3)} | "
+                    f"sink_cvar_20={fmt_metric(best_row.get('sink_cvar_20', onp.nan), 4)} m/s | "
+                    f"wing_span={fmt_metric(best_row.get('wing_span_m', onp.nan), 4)} m"
+                ),
+                flush=True,
+            )
+            print(
+                (
+                    "  weights: "
+                    + ", ".join(
+                        f"{key}={fmt_metric(value, 4)}"
+                        for key, value in asdict(best_weights).items()
+                    )
+                ),
+                flush=True,
+            )
+            print(
+                (
+                    "  objective-term spread ratio="
+                    f"{fmt_metric(best_row.get('objective_term_spread_ratio', onp.nan), 3)}"
+                ),
+                flush=True,
+            )
+            print(f"Workflow workbook (best sweep run) saved: {workflow_path}", flush=True)
+            print(f"Selected candidate id: {selected_candidate.candidate_id}", flush=True)
             return
 
-        scenarios_df = sample_scenarios(workflow_config)
-        robust_scenarios_df, robust_summary_df = run_robust_postcheck(
-            candidates=candidates,
-            scenarios_df=scenarios_df,
+        (
+            candidates,
+            all_starts_df,
+            robust_scenarios_df,
+            robust_summary_df,
+            selected_candidate,
+            run_weights,
+            run_scales,
+        ) = run_workflow_with_postcheck(
             config=workflow_config,
+            objective_weights=default_objective_weights,
+            objective_scales=default_objective_scales,
+            rng=spawn_child_rng(master_rng),
         )
 
-        selected_ids = robust_summary_df.loc[
-            robust_summary_df["is_selected"] == True,
-            "candidate_id",
-        ]
-        if selected_ids.empty:
-            selected_candidate = min(candidates, key=lambda item: item.objective)
-        else:
-            selected_candidate_id = int(selected_ids.iloc[0])
-            selected_candidate = next(
-                item for item in candidates if item.candidate_id == selected_candidate_id
-            )
+        if not candidates or selected_candidate is None:
+            print("No feasible candidate found in multistart run", flush=True)
+            return
 
         workflow_path = save_workflow_workbook(
             config=workflow_config,
@@ -5367,6 +7525,8 @@ def main() -> None:
             robust_summary_df=robust_summary_df,
             all_starts_df=all_starts_df,
             selected_candidate=selected_candidate,
+            objective_weights=run_weights,
+            objective_scales=run_scales,
         )
         _output_paths, _figure_paths = export_selected_candidate(selected_candidate)
         print(f"Workflow workbook saved: {workflow_path}", flush=True)
@@ -5377,6 +7537,8 @@ def main() -> None:
         init_override=default_initial_guess(),
         ipopt_options=None,
         export_outputs=True,
+        objective_weights=default_objective_weights,
+        objective_scales=default_objective_scales,
     )
     if candidate is None:
         return
@@ -5384,3 +7546,11 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
