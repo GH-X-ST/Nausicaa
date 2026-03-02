@@ -48,6 +48,8 @@ V_NOM_MPS = 5.0
 TURN_BANK_DEG = 50.0
 WALL_CLEARANCE_M = 0.50
 TURN_DEFLECTION_UTIL_MAX = 0.80
+TURN_LATERAL_TRIM_TOL_CL = 0.02
+TURN_LATERAL_TRIM_TOL_CN = 0.02
 # Manoeuvre agility target: time to reach design bank angle at V_TURN_MPS.
 # Converted to a minimum steady-state roll-rate requirement.
 BANK_ENTRY_TIME_S = 1.5
@@ -202,8 +204,14 @@ REGULATOR_MASS_KG = 0.0004
 SERVO_MASS_KG = 0.0022
 
 # Servo layout (4 total): 2 aileron + elevator + rudder
-AILERON_SERVO_SPAN_FRAC = 0.30
+AILERON_SERVO_SPAN_FRAC = 0.40
 AILERON_SERVO_X_CHORD_FRAC = 0.30
+AILERON_SERVO_Z_OFFSET_M = 0.0
+SERVO_CENTERLINE_BASE_Z_M = -0.0065
+ELEVATOR_SERVO_X_OFFSET_FROM_CENTRE_CORE_M = 0.0
+ELEVATOR_SERVO_Z_OFFSET_FROM_AVIONICS_M = 0.0
+RUDDER_SERVO_X_OFFSET_FROM_CENTRE_CORE_M = 0.0
+RUDDER_SERVO_Z_OFFSET_FROM_AVIONICS_M = 0.0
 
 # Battery sliding range
 BATTERY_X_MAX_FRAC = 0.60
@@ -236,6 +244,7 @@ CMQ_MAX = -0.01
 MIN_ROLL_RATE_RAD_S = 0.6
 MIN_ROLL_ACCEL_RAD_S2 = 2.0
 MAX_ROLL_TAU_S = 0.45
+CL_DELTA_A_FD_STEP_DEG = 2.0
 
 # Servo sizing assumptions
 # Update from servo datasheet (N*m)
@@ -795,6 +804,104 @@ def trapezoid_centroid_from_base_m(
     )
 
 
+def polygon_area_centroid_moments_2d(
+    vertices_xy: list[tuple[float, float]],
+) -> tuple[float, float, float, float, float, float]:
+    # Signed-area polygon formulas for centroid and second moments.
+    area_twice = 0.0
+    c_x_num = 0.0
+    c_y_num = 0.0
+    i_xx_origin = 0.0
+    i_yy_origin = 0.0
+    i_xy_origin = 0.0
+
+    n = len(vertices_xy)
+    for i in range(n):
+        x0, y0 = vertices_xy[i]
+        x1, y1 = vertices_xy[(i + 1) % n]
+        cross = x0 * y1 - x1 * y0
+        area_twice += cross
+        c_x_num += (x0 + x1) * cross
+        c_y_num += (y0 + y1) * cross
+        i_xx_origin += (y0**2 + y0 * y1 + y1**2) * cross
+        i_yy_origin += (x0**2 + x0 * x1 + x1**2) * cross
+        i_xy_origin += (2.0 * x0 * y0 + x0 * y1 + x1 * y0 + 2.0 * x1 * y1) * cross
+
+    area = 0.5 * area_twice
+    if abs(area) < 1e-12:
+        raise ValueError("Degenerate polygon area in moment computation.")
+
+    c_x = c_x_num / (6.0 * area)
+    c_y = c_y_num / (6.0 * area)
+    i_xx_origin /= 12.0
+    i_yy_origin /= 12.0
+    i_xy_origin /= 24.0
+
+    if area < 0.0:
+        area = -area
+        i_xx_origin = -i_xx_origin
+        i_yy_origin = -i_yy_origin
+        i_xy_origin = -i_xy_origin
+
+    i_xx_centroid = i_xx_origin - area * c_y**2
+    i_yy_centroid = i_yy_origin - area * c_x**2
+    i_xy_centroid = i_xy_origin - area * c_x * c_y
+    return area, c_x, c_y, i_xx_centroid, i_yy_centroid, i_xy_centroid
+
+
+def mass_properties_isosceles_trapezoid_prism(
+    mass_kg: Scalar,
+    base_bottom_m: float,
+    base_top_m: float,
+    height_m: float,
+    thickness_m: float,
+    x_cg_m: Scalar,
+    y_cg_m: Scalar,
+    z_cg_m: Scalar,
+    height_axis: Literal["y", "z"],
+) -> asb.MassProperties:
+    # Exact prism inertia from 2D trapezoid polygon moments + extrusion thickness.
+    verts = [
+        (-0.5 * float(base_bottom_m), 0.0),
+        (+0.5 * float(base_bottom_m), 0.0),
+        (+0.5 * float(base_top_m), float(height_m)),
+        (-0.5 * float(base_top_m), float(height_m)),
+    ]
+    area, _cx, _cy, i_uu_area, i_vv_area, i_uv_area = polygon_area_centroid_moments_2d(verts)
+    t = float(thickness_m)
+    i_u = mass_kg * (i_uu_area / area + t**2 / 12.0)
+    i_v = mass_kg * (i_vv_area / area + t**2 / 12.0)
+    i_w = mass_kg * ((i_uu_area + i_vv_area) / area)
+    i_uv = -mass_kg * (i_uv_area / area)
+
+    if height_axis == "y":
+        return asb.MassProperties(
+            mass=mass_kg,
+            x_cg=x_cg_m,
+            y_cg=y_cg_m,
+            z_cg=z_cg_m,
+            Ixx=i_u,
+            Iyy=i_v,
+            Izz=i_w,
+            Ixy=i_uv,
+            Ixz=0.0,
+            Iyz=0.0,
+        )
+
+    return asb.MassProperties(
+        mass=mass_kg,
+        x_cg=x_cg_m,
+        y_cg=y_cg_m,
+        z_cg=z_cg_m,
+        Ixx=i_u,
+        Iyy=i_w,
+        Izz=i_v,
+        Ixy=0.0,
+        Ixz=i_uv,
+        Iyz=0.0,
+    )
+
+
 def mean_abs_span_location_uniform(span_m: Scalar) -> Scalar:
     # E[|y|] for a symmetric uniform spanwise distribution.
     return 0.25 * span_m
@@ -1034,15 +1141,17 @@ def build_mass_model(
         )
 
         slot_vol_m3 = WING_SPAR_SLOT_W_M * WING_SPAR_SLOT_H_M * wing_span_m
-        slot_mass_kg = WING_DENSITY_KG_M3 * slot_vol_m3
+        # Geometric foam mass represented by the slot volume.
+        slot_geometric_mass_kg = WING_DENSITY_KG_M3 * slot_vol_m3
         wing_skin_mass_kg = mass_props["wing"].mass
-        slot_mass_kg = np.minimum(
-            slot_mass_kg,
+        # Capped removed mass to avoid excessive subtraction in thin-wing cases.
+        slot_removed_mass_kg = np.minimum(
+            slot_geometric_mass_kg,
             SLOT_VOID_MASS_FRAC_MAX * np.maximum(wing_skin_mass_kg, 0.0),
         )
         z_slot_cg_m = z_wing_lower_m + 0.5 * WING_SPAR_SLOT_H_M
         mass_props["wing_spar_slot_void"] = mass_properties_rect_prism(
-            mass_kg=-slot_mass_kg,
+            mass_kg=-slot_removed_mass_kg,
             dim_x_m=WING_SPAR_SLOT_W_M,
             dim_y_m=wing_span_m,
             dim_z_m=WING_SPAR_SLOT_H_M,
@@ -1147,7 +1256,6 @@ def build_mass_model(
     centre_mount_base_bottom_m = 0.0261
     centre_mount_base_top_m = 0.0115
     centre_mount_height_m = 0.086
-    centre_mount_dim_x_m = centre_mount_base_bottom_m
     centre_mount_area_m2 = trapezoid_area_m2(
         centre_mount_base_bottom_m,
         centre_mount_base_top_m,
@@ -1174,25 +1282,29 @@ def build_mass_model(
             + np.abs(y_mount_m) * tan_dihedral
         )
         centre_mount_components[f"wing_mount_{side_label}_fwd"] = (
-            mass_properties_rect_prism(
+            mass_properties_isosceles_trapezoid_prism(
                 mass_kg=centre_mount_mass_kg,
-                dim_x_m=centre_mount_dim_x_m,
-                dim_y_m=centre_mount_height_m,
-                dim_z_m=centre_mount_thickness_m,
+                base_bottom_m=centre_mount_base_bottom_m,
+                base_top_m=centre_mount_base_top_m,
+                height_m=centre_mount_height_m,
+                thickness_m=centre_mount_thickness_m,
                 x_cg_m=centre_mount_x0_fwd_m + 0.5 * centre_mount_base_bottom_m,
                 y_cg_m=y_mount_m,
                 z_cg_m=z_mount_m,
+                height_axis="y",
             )
         )
         centre_mount_components[f"wing_mount_{side_label}_aft"] = (
-            mass_properties_rect_prism(
+            mass_properties_isosceles_trapezoid_prism(
                 mass_kg=centre_mount_mass_kg,
-                dim_x_m=centre_mount_dim_x_m,
-                dim_y_m=centre_mount_height_m,
-                dim_z_m=centre_mount_thickness_m,
+                base_bottom_m=centre_mount_base_bottom_m,
+                base_top_m=centre_mount_base_top_m,
+                height_m=centre_mount_height_m,
+                thickness_m=centre_mount_thickness_m,
                 x_cg_m=centre_mount_x0_aft_m + 0.5 * centre_mount_base_bottom_m,
                 y_cg_m=y_mount_m,
                 z_cg_m=z_mount_m,
+                height_axis="y",
             )
         )
 
@@ -1264,7 +1376,6 @@ def build_mass_model(
     tail_mount_base_bottom_m = 0.019
     tail_mount_base_top_m = 0.008
     tail_mount_height_m = 0.034
-    tail_mount_dim_x_m = 0.5 * (tail_mount_base_bottom_m + tail_mount_base_top_m)
     tail_mount_area_m2 = trapezoid_area_m2(
         tail_mount_base_bottom_m,
         tail_mount_base_top_m,
@@ -1283,14 +1394,16 @@ def build_mass_model(
 
     tail_mount_components: MassPropertiesMap = {}
     for y_sign, side_label in ((1.0, "R"), (-1.0, "L")):
-        tail_mount_components[f"htail_mount_{side_label}"] = mass_properties_rect_prism(
+        tail_mount_components[f"htail_mount_{side_label}"] = mass_properties_isosceles_trapezoid_prism(
             mass_kg=tail_mount_mass_kg,
-            dim_x_m=tail_mount_dim_x_m,
-            dim_y_m=tail_mount_height_m,
-            dim_z_m=tail_mount_thickness_m,
+            base_bottom_m=tail_mount_base_bottom_m,
+            base_top_m=tail_mount_base_top_m,
+            height_m=tail_mount_height_m,
+            thickness_m=tail_mount_thickness_m,
             x_cg_m=tail_mount_x0_m + 0.5 * tail_mount_base_bottom_m,
             y_cg_m=y_sign * tail_mount_ybar_m,
             z_cg_m=tail_mount_z_cg_m,
+            height_axis="y",
         )
 
     vtail_mount_area_m2 = trapezoid_area_m2(
@@ -1307,15 +1420,16 @@ def build_mass_model(
     vtail_mount_x0_m = boom_end_x_m - VTAIL_MOUNT_X0_OFFSET_FROM_BOOM_END_M
     vtail_mount_x_cg_m = vtail_mount_x0_m + 0.5 * VTAIL_MOUNT_LB_M
     vtail_mount_z_cg_m = VTAIL_MOUNT_ROOT_LOWER_Z_M + vtail_mount_zbar_m
-    vtail_mount_dim_x_m = 0.5 * (VTAIL_MOUNT_LB_M + VTAIL_MOUNT_LT_M)
-    tail_mount_components["vtail_mount"] = mass_properties_rect_prism(
+    tail_mount_components["vtail_mount"] = mass_properties_isosceles_trapezoid_prism(
         mass_kg=vtail_mount_mass_kg,
-        dim_x_m=vtail_mount_dim_x_m,
-        dim_y_m=VTAIL_MOUNT_T_M,
-        dim_z_m=VTAIL_MOUNT_H_M,
+        base_bottom_m=VTAIL_MOUNT_LB_M,
+        base_top_m=VTAIL_MOUNT_LT_M,
+        height_m=VTAIL_MOUNT_H_M,
+        thickness_m=VTAIL_MOUNT_T_M,
         x_cg_m=vtail_mount_x_cg_m,
         y_cg_m=0.0,
         z_cg_m=vtail_mount_z_cg_m,
+        height_axis="z",
     )
 
     tail_mounts_total = combine_mass_properties(list(tail_mount_components.values()))
@@ -1347,23 +1461,27 @@ def build_mass_model(
         z_m=TAIL_SUPPORT_Z_CG_M,
     )
 
-    # Tail-control servos co-located with tail-module core.
+    # Tail-control servos mounted near the centre module in the fuselage centerline.
     mass_props["servo_elevator"] = point_mass(
         SERVO_MASS_KG,
-        x_m=x_tail_core,
+        x_m=x_centre_core + ELEVATOR_SERVO_X_OFFSET_FROM_CENTRE_CORE_M,
         y_m=0.0,
-        z_m=TAIL_CORE_Z_CG_M,
+        z_m=SERVO_CENTERLINE_BASE_Z_M + ELEVATOR_SERVO_Z_OFFSET_FROM_AVIONICS_M,
     )
     mass_props["servo_rudder"] = point_mass(
         SERVO_MASS_KG,
-        x_m=x_tail_core,
+        x_m=x_centre_core + RUDDER_SERVO_X_OFFSET_FROM_CENTRE_CORE_M,
         y_m=0.0,
-        z_m=TAIL_CORE_Z_CG_M,
+        z_m=SERVO_CENTERLINE_BASE_Z_M + RUDDER_SERVO_Z_OFFSET_FROM_AVIONICS_M,
     )
 
-    y_servo = AILERON_SERVO_SPAN_FRAC * 0.5 * wing_span_m
+    y_servo = AILERON_SERVO_SPAN_FRAC * wing_span_m
     wing_root_centerline_z_m = WING_ROOT_LOWER_SURFACE_Z_M + 0.5 * WING_THICKNESS_M
-    z_servo = wing_root_centerline_z_m + np.abs(y_servo) * np.tan(np.radians(DIHEDRAL_DEG))
+    z_servo = (
+        wing_root_centerline_z_m
+        + np.abs(y_servo) * np.tan(np.radians(DIHEDRAL_DEG))
+        + AILERON_SERVO_Z_OFFSET_M
+    )
     x_aileron_servo = AILERON_SERVO_X_CHORD_FRAC * wing_chord_m
     mass_props["servo_aileron_R"] = point_mass(
         SERVO_MASS_KG,
@@ -1466,8 +1584,10 @@ def build_trim_constraints_and_metrics(
 ) -> dict[str, Any]:
     phi_turn_rad = np.radians(bank_angle_deg)
     n_load_factor = 1.0 / np.cos(phi_turn_rad)
+    turn_denom_raw = lift_k * G * np.tan(phi_turn_rad)
+    turn_denom = np.sign(turn_denom_raw) * np.maximum(np.abs(turn_denom_raw), 1e-8)
     yaw_rate_rad_s = (
-        G * np.tan(phi_turn_rad) / np.maximum(velocity_mps, 1e-8)
+        turn_denom / np.maximum(velocity_mps, 1e-8)
         if use_coordinated_turn
         else 0.0
     )
@@ -1507,10 +1627,19 @@ def build_trim_constraints_and_metrics(
                 aero["Cn"] == 0.0,
             ]
         )
+    elif mode == "turn":
+        constraints.extend(
+            [
+                aero["Cl"] >= -TURN_LATERAL_TRIM_TOL_CL,
+                aero["Cl"] <= TURN_LATERAL_TRIM_TOL_CL,
+                aero["Cn"] >= -TURN_LATERAL_TRIM_TOL_CN,
+                aero["Cn"] <= TURN_LATERAL_TRIM_TOL_CN,
+            ]
+        )
 
     turn_radius_m = float("inf")
     if abs(float(bank_angle_deg)) > 1e-12:
-        turn_radius_m = velocity_mps**2 / (G * np.tan(phi_turn_rad))
+        turn_radius_m = velocity_mps**2 / turn_denom
 
     return {
         "mode": mode,
@@ -1522,6 +1651,58 @@ def build_trim_constraints_and_metrics(
         "yaw_rate_rad_s": yaw_rate_rad_s,
         "turn_radius_m": turn_radius_m,
     }
+
+
+def cl_delta_a_finite_difference(
+    *,
+    airplane_base: asb.Airplane,
+    xyz_ref: list[float],
+    velocity_mps: float,
+    alpha_deg: float,
+    delta_a_center_deg: float,
+    delta_e_deg: float,
+    delta_r_deg: float,
+    yaw_rate_rad_s: float,
+    step_deg: float = CL_DELTA_A_FD_STEP_DEG,
+    atmosphere: asb.Atmosphere | None = None,
+) -> float:
+    step_deg_abs = max(abs(float(step_deg)), 1e-6)
+    step_rad = float(onp.radians(step_deg_abs))
+    atmos_use = atmosphere if atmosphere is not None else asb.Atmosphere(altitude=0.0)
+
+    def eval_cl_at(delta_a_eval_deg: float) -> float:
+        airplane_eval = airplane_base.with_control_deflections(
+            {
+                "aileron": delta_a_eval_deg,
+                "elevator": float(delta_e_deg),
+                "rudder": float(delta_r_deg),
+            }
+        )
+        op_point_eval = asb.OperatingPoint(
+            atmosphere=atmos_use,
+            velocity=float(velocity_mps),
+            alpha=float(alpha_deg),
+            beta=0.0,
+            p=0.0,
+            q=0.0,
+            r=float(yaw_rate_rad_s),
+        )
+        aero_eval = asb.AeroBuildup(
+            airplane=airplane_eval,
+            op_point=op_point_eval,
+            xyz_ref=xyz_ref,
+        ).run_with_stability_derivatives(
+            alpha=True,
+            beta=True,
+            p=True,
+            q=True,
+            r=True,
+        )
+        return float(to_scalar(aero_eval["Cl"]))
+
+    cl_plus = eval_cl_at(float(delta_a_center_deg) + step_deg_abs)
+    cl_minus = eval_cl_at(float(delta_a_center_deg) - step_deg_abs)
+    return (cl_plus - cl_minus) / (2.0 * step_rad)
 
 # =============================================================================
 # Reporting and export
@@ -2307,6 +2488,7 @@ def legacy_single_run_main(
 
     # Linearized roll response estimates
     q_dyn = 0.5 * RHO * V_NOM_MPS ** 2
+    q_dyn_turn = 0.5 * RHO * V_TURN_MPS ** 2
     i_xx = total_mass.inertia_tensor[0, 0]
     clp_mag = np.maximum(np.abs(aero_nom["Clp"]), 1e-5)
     clp_mag_turn = np.maximum(np.abs(aero_turn["Clp"]), 1e-5)
@@ -2324,6 +2506,10 @@ def legacy_single_run_main(
 
     roll_tau_s = (2.0 * i_xx * V_NOM_MPS) / np.maximum(
         q_dyn * wing_area_m2 * wing_span_m ** 2 * clp_mag,
+        1e-8,
+    )
+    roll_tau_turn_s = (2.0 * i_xx * V_TURN_MPS) / np.maximum(
+        q_dyn_turn * wing_area_m2 * wing_span_m ** 2 * clp_mag_turn,
         1e-8,
     )
 
@@ -2393,8 +2579,12 @@ def legacy_single_run_main(
 
     # Arena footprint for coordinated banked turn feasibility
     phi_turn_rad = trim_turn["bank_angle_rad"]
-    min_roll_rate_turn_radps = phi_turn_rad / max(BANK_ENTRY_TIME_S, 1e-6)
     turn_radius_m = trim_turn["turn_radius_m"]
+    tau_turn_eff_s = np.maximum(roll_tau_turn_s, 1e-4)
+    bank_entry_phi_achieved_rad = roll_rate_ss_turn_radps * (
+        BANK_ENTRY_TIME_S
+        - tau_turn_eff_s * (1.0 - np.exp(-BANK_ENTRY_TIME_S / tau_turn_eff_s))
+    )
 
     # Structural flexibility proxy: each half-wing is a semispan cantilever
     # with half of the total lift, modeled as a uniform line load.
@@ -2509,6 +2699,7 @@ def legacy_single_run_main(
             total_mass.inertia_tensor[0, 0] >= 1e-8,
             total_mass.inertia_tensor[1, 1] >= 1e-8,
             total_mass.inertia_tensor[2, 2] >= 1e-8,
+            # Coarse feasibility screen; not used as a primary sizing driver.
             hinge_moment_aileron_nm <= servo_torque_available_nm,
             hinge_moment_elevator_nm <= servo_torque_available_nm,
             hinge_moment_rudder_nm <= servo_torque_available_nm,
@@ -2530,7 +2721,7 @@ def legacy_single_run_main(
                 delta_r_turn_deg,
                 TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG,
             ),
-            roll_rate_ss_turn_radps >= min_roll_rate_turn_radps,
+            bank_entry_phi_achieved_rad >= phi_turn_rad,
         ]
     )
 
@@ -2559,8 +2750,10 @@ def legacy_single_run_main(
     debug_guess("aero_turn_Clp", aero_turn["Clp"])
     debug_guess("cl_delta_a_proxy", cl_delta_a)
     debug_guess("roll_tau_s", roll_tau_s)
+    debug_guess("roll_tau_turn_s", roll_tau_turn_s)
     debug_guess("roll_accel0_rad_s2", roll_accel0_rad_s2)
     debug_guess("roll_rate_ss_turn_radps", roll_rate_ss_turn_radps)
+    debug_guess("bank_entry_phi_achieved_rad", bank_entry_phi_achieved_rad)
 
     print("Starting optimization...", flush=True)
     try:
@@ -2582,6 +2775,7 @@ def legacy_single_run_main(
         solve_stats = {}
 
     # Numeric post-processing for reports and exports
+    airplane_base_num = solution(airplane_base)
     airplane_num = solution(airplane_nom)
     wing_num = copy.deepcopy(airplane_num.wings[0])
     htail_num = copy.deepcopy(airplane_num.wings[1])
@@ -2646,9 +2840,12 @@ def legacy_single_run_main(
 
     roll_rate_num = to_scalar(solution(roll_rate_ss_radps))
     roll_rate_turn_num = to_scalar(solution(roll_rate_ss_turn_radps))
-    min_roll_rate_turn_num = to_scalar(solution(min_roll_rate_turn_radps))
     roll_accel_num = to_scalar(solution(roll_accel0_rad_s2))
     roll_tau_num = to_scalar(solution(roll_tau_s))
+    roll_tau_turn_num = to_scalar(solution(roll_tau_turn_s))
+    bank_entry_phi_achieved_deg_num = np.degrees(
+        to_scalar(solution(bank_entry_phi_achieved_rad))
+    )
     delta_tip_num = to_scalar(solution(delta_tip_m))
     delta_allow_num = to_scalar(solution(delta_allow_m))
     wing_ei_num = to_scalar(solution(ei_wing_nm2))
@@ -2671,7 +2868,9 @@ def legacy_single_run_main(
         hinge_rudder_num,
     ) / servo_torque_available_nm
 
-    turn_radius_num = float(V_TURN_MPS ** 2 / (G * onp.tan(onp.radians(TURN_BANK_DEG))))
+    turn_radius_num = float(
+        V_TURN_MPS**2 / (K_LEVEL_TURN * G * onp.tan(onp.radians(TURN_BANK_DEG)))
+    )
     turn_footprint_lhs_num = (
         turn_radius_num
         + 0.5 * float(wing_span_design_num)
@@ -2679,6 +2878,35 @@ def legacy_single_run_main(
     )
     n_turn_num = float(1.0 / onp.cos(onp.radians(TURN_BANK_DEG)))
     turn_lift_required_num = K_LEVEL_TURN * n_turn_num * mass_total_num * G
+    yaw_rate_turn_num = float(
+        K_LEVEL_TURN * G * onp.tan(onp.radians(TURN_BANK_DEG)) / max(V_TURN_MPS, 1e-8)
+    )
+
+    xyz_ref_num = [float(total_cg_x_num), float(total_cg_y_num), float(total_cg_z_num)]
+    nominal_cl_delta_a_fd = cl_delta_a_finite_difference(
+        airplane_base=airplane_base_num,
+        xyz_ref=xyz_ref_num,
+        velocity_mps=V_NOM_MPS,
+        alpha_deg=float(alpha_nom_num),
+        delta_a_center_deg=float(delta_a_nom_num),
+        delta_e_deg=float(delta_e_nom_num),
+        delta_r_deg=float(delta_r_nom_num),
+        yaw_rate_rad_s=0.0,
+        step_deg=CL_DELTA_A_FD_STEP_DEG,
+        atmosphere=asb.Atmosphere(altitude=0.0),
+    )
+    turn_cl_delta_a_fd = cl_delta_a_finite_difference(
+        airplane_base=airplane_base_num,
+        xyz_ref=xyz_ref_num,
+        velocity_mps=V_TURN_MPS,
+        alpha_deg=float(alpha_turn_num),
+        delta_a_center_deg=float(delta_a_turn_num),
+        delta_e_deg=float(delta_e_turn_num),
+        delta_r_deg=float(delta_r_turn_num),
+        yaw_rate_rad_s=yaw_rate_turn_num,
+        step_deg=CL_DELTA_A_FD_STEP_DEG,
+        atmosphere=asb.Atmosphere(altitude=0.0),
+    )
 
     wing_span_num = to_scalar(wing_num.span())
     wing_area_num = to_scalar(wing_num.area())
@@ -2890,9 +3118,24 @@ def legacy_single_run_main(
             "Unit": "rad/s",
         },
         {
-            "Metric": "min_roll_rate_turn_radps",
-            "Value": min_roll_rate_turn_num,
-            "Unit": "rad/s",
+            "Metric": "roll_tau_turn_s",
+            "Value": roll_tau_turn_num,
+            "Unit": "s",
+        },
+        {
+            "Metric": "bank_entry_phi_achieved_deg",
+            "Value": bank_entry_phi_achieved_deg_num,
+            "Unit": "deg",
+        },
+        {
+            "Metric": "nominal_Cl_delta_a_fd",
+            "Value": nominal_cl_delta_a_fd,
+            "Unit": "1/rad",
+        },
+        {
+            "Metric": "turn_Cl_delta_a_fd",
+            "Value": turn_cl_delta_a_fd,
+            "Unit": "1/rad",
         },
         {
             "Metric": "roll_accel0_rad_s2",
@@ -3081,14 +3324,26 @@ def legacy_single_run_main(
             tol=1e-3,
         ),
         constraint_record(
+            "Turn Trim Cl tolerance",
+            aero_turn_num["Cl"],
+            lower=-TURN_LATERAL_TRIM_TOL_CL,
+            upper=TURN_LATERAL_TRIM_TOL_CL,
+        ),
+        constraint_record(
+            "Turn Trim Cn tolerance",
+            aero_turn_num["Cn"],
+            lower=-TURN_LATERAL_TRIM_TOL_CN,
+            upper=TURN_LATERAL_TRIM_TOL_CN,
+        ),
+        constraint_record(
             "Turn footprint in width",
             turn_footprint_lhs_num,
             upper=0.5 * ARENA_WIDTH_M,
         ),
         constraint_record(
-            "Turn roll-rate >= phi/BANK_ENTRY_TIME_S",
-            roll_rate_turn_num,
-            lower=min_roll_rate_turn_num,
+            "Turn bank-entry phi achieved",
+            bank_entry_phi_achieved_deg_num,
+            lower=TURN_BANK_DEG,
         ),
         constraint_record("H-tail tip deflection proxy (diag)", delta_ht_tip_num),
         constraint_record("H-tail tip deflection proxy allow (diag)", delta_ht_allow_num),
@@ -3227,6 +3482,12 @@ def legacy_single_run_main(
             "Unit": "-",
         },
         {
+            "DesignPoint": "Nominal",
+            "Metric": "Cl_delta_a_fd",
+            "Value": nominal_cl_delta_a_fd,
+            "Unit": "1/rad",
+        },
+        {
             "DesignPoint": "Manoeuvre",
             "Metric": "alpha_turn_deg",
             "Value": alpha_turn_num,
@@ -3268,6 +3529,24 @@ def legacy_single_run_main(
             "Value": turn_footprint_lhs_num,
             "Unit": "m",
         },
+        {
+            "DesignPoint": "Manoeuvre",
+            "Metric": "Cl_delta_a_fd",
+            "Value": turn_cl_delta_a_fd,
+            "Unit": "1/rad",
+        },
+        {
+            "DesignPoint": "Manoeuvre",
+            "Metric": "roll_tau_turn_s",
+            "Value": roll_tau_turn_num,
+            "Unit": "s",
+        },
+        {
+            "DesignPoint": "Manoeuvre",
+            "Metric": "bank_entry_phi_achieved_deg",
+            "Value": bank_entry_phi_achieved_deg_num,
+            "Unit": "deg",
+        },
     ]
 
     aero_scalar_map: dict[str, float] = {}
@@ -3279,6 +3558,8 @@ def legacy_single_run_main(
         maybe_scalar = to_float_if_possible(value)
         if maybe_scalar is not None:
             aero_scalar_map[f"turn_{key}"] = maybe_scalar
+    aero_scalar_map["nominal_Cl_delta_a_fd"] = float(nominal_cl_delta_a_fd)
+    aero_scalar_map["turn_Cl_delta_a_fd"] = float(turn_cl_delta_a_fd)
 
     candidate = Candidate(
         candidate_id=-1,
@@ -4044,6 +4325,7 @@ def trim_candidate_at_point(
         f"{point}_L_over_D": onp.nan,
         f"{point}_CL": onp.nan,
         f"{point}_D": onp.nan,
+        f"{point}_Cl_delta_a_fd": onp.nan,
         f"{point}_alpha_margin_deg": onp.nan,
         f"{point}_cl_margin_to_cap": onp.nan,
         f"{point}_util_a": onp.nan,
@@ -4088,7 +4370,7 @@ def trim_candidate_at_point(
     sink_rate_num = drag_num * velocity_mps / max(weight_n, 1e-8)
     l_over_d_num = lift_num / max(drag_num, 1e-8)
     clp_mag = max(abs(float(to_scalar(aero_num["Clp"]))), 1e-5)
-    cl_delta_a = float(
+    cl_delta_a_proxy = float(
         to_scalar(
             aileron_effectiveness_proxy(
                 aero=aero_num,
@@ -4098,6 +4380,21 @@ def trim_candidate_at_point(
             )
         )
     )
+    cl_delta_a_fd = float(
+        cl_delta_a_finite_difference(
+            airplane_base=airplane_base,
+            xyz_ref=[float(xyz_ref[0]), float(xyz_ref[1]), float(xyz_ref[2])],
+            velocity_mps=float(velocity_mps),
+            alpha_deg=float(alpha_num + incidence_bias_deg + alpha_gust_deg),
+            delta_a_center_deg=float(delta_a_num),
+            delta_e_deg=float(delta_e_num),
+            delta_r_deg=float(delta_r_num),
+            yaw_rate_rad_s=float(to_scalar(trim_metrics["yaw_rate_rad_s"])),
+            step_deg=CL_DELTA_A_FD_STEP_DEG,
+            atmosphere=asb.Atmosphere(altitude=0.0),
+        )
+    )
+    cl_delta_a_mag = abs(cl_delta_a_fd) if onp.isfinite(cl_delta_a_fd) else abs(cl_delta_a_proxy)
     delta_a_rate_rad = float(
         onp.radians(
             (TURN_DEFLECTION_UTIL_MAX if point == "turn" else 1.0) * DELTA_A_MAX_DEG
@@ -4109,7 +4406,7 @@ def trim_candidate_at_point(
         2.0
         * velocity_mps
         / max(candidate.wing_span_m, 1e-8)
-        * abs(cl_delta_a)
+        * cl_delta_a_mag
         * delta_a_rate_rad
         / clp_mag
     )
@@ -4118,7 +4415,7 @@ def trim_candidate_at_point(
             q_dyn
             * wing_area_m2
             * candidate.wing_span_m
-            * abs(cl_delta_a)
+            * cl_delta_a_mag
             * delta_a_rate_rad
             / max(ixx_scaled, 1e-8)
         )
@@ -4192,6 +4489,7 @@ def trim_candidate_at_point(
         f"{point}_L_over_D": l_over_d_num,
         f"{point}_CL": cl_num,
         f"{point}_D": drag_num,
+        f"{point}_Cl_delta_a_fd": cl_delta_a_fd,
         f"{point}_alpha_margin_deg": alpha_upper_bound - alpha_num,
         f"{point}_cl_margin_to_cap": cl_cap - cl_num,
         f"{point}_util_a": abs(delta_a_num) / max(abs(DELTA_A_MAX_DEG), 1e-8),
