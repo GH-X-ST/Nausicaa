@@ -55,7 +55,7 @@ BANK_ENTRY_TIME_S = 1.5
 # Stall / margin settings for manoeuvre case
 TURN_ALPHA_MARGIN_DEG = 2.0
 TURN_CL_CAP = 1.00
-K_LEVEL_TURN = 0.70
+K_LEVEL_TURN = 0.95
 
 # Trim operating-point envelope
 DESIGN_SPEED_MPS = V_NOM_MPS
@@ -126,6 +126,7 @@ FOAM_ESEC10_G6_PA = FOAM_SIGMA_D10_G6_PA / 0.10
 
 WING_THICKNESS_M = 0.006
 TAIL_THICKNESS_M = 0.003
+VTAIL_THICKNESS_M = TAIL_THICKNESS_M
 
 # Use density by sheet thickness (wing=6 mm, tails=3 mm)
 WING_DENSITY_KG_M3 = FOAM_RHO_G6_KG_M3
@@ -159,6 +160,7 @@ TAPE_THICKNESS_M = 0.00013
 TAPE_AREAL_DENSITY_KG_M2 = 0.12
 TAPE_E_EFFECTIVE_PA = 10e9
 TAPE_EFFICIENCY = 1.0
+VTAIL_TAPE_Y_OFFSET_M = 0.5 * VTAIL_THICKNESS_M + 0.5 * TAPE_THICKNESS_M
 
 # Discrete hardware modules
 CENTRE_MODULE_MASS_KG = 0.032
@@ -168,11 +170,13 @@ TAIL_MODULE_VOLUME_M3 = 0.00000361
 CENTRE_MODULE_RHO_KG_M3 = CENTRE_MODULE_MASS_KG / CENTRE_MODULE_VOLUME_M3
 TAIL_MODULE_RHO_KG_M3 = TAIL_MODULE_MASS_KG / TAIL_MODULE_VOLUME_M3
 TAIL_SUPPORT_MASS_KG = 0.001
+# CAD-derived core CG locations for module solids excluding mounts
+CENTRE_CORE_X_OFFSET_FROM_0p3C_M = 0.0256
+CENTRE_CORE_Z_CG_M = -0.00727
+TAIL_CORE_X_OFFSET_FROM_BOOM_END_M = 0.0231
+TAIL_CORE_Z_CG_M = -0.0005
 # X-location rules for aft hardware
 TAIL_GEAR_X_OFFSET_FROM_HTAIL_LE_M = -0.00894
-TAIL_MODULE_X_OFFSET_FROM_FUSELAGE_TAIL_M = -0.02234
-CENTRE_MODULE_Z_CG_M = 0.0025
-TAIL_MODULE_Z_CG_M = 0.0006
 TAIL_SUPPORT_Z_CG_M = -0.00587
 VTAIL_MOUNT_T_M = 0.002
 VTAIL_MOUNT_LB_M = 0.019
@@ -1100,9 +1104,8 @@ def build_mass_model(
         )
 
         vtail_span_m = surface_span(vtail, span_axis="z")
-        vtail_area_m2 = vtail.area()
-        vtail_chord_est_m = vtail_area_m2 / np.maximum(vtail_span_m, 1e-8)
-        tape_w_vtail_m = np.minimum(TAPE_WIDTH_M, vtail_chord_est_m)
+        vtail_chord_use_m = vtail_chord_m
+        tape_w_vtail_m = np.minimum(TAPE_WIDTH_M, vtail_chord_use_m)
         tape_area_one_side_vt_m2 = vtail_span_m * tape_w_vtail_m
         tape_mass_one_side_vt_kg = TAPE_AREAL_DENSITY_KG_M2 * tape_area_one_side_vt_m2
         z_vtail_mid_m = VTAIL_ROOT_LOWER_SURFACE_Z_M + 0.5 * vtail_span_m
@@ -1112,7 +1115,7 @@ def build_mass_model(
             dim_y_m=TAPE_THICKNESS_M,
             dim_z_m=vtail_span_m,
             x_cg_m=x_le_tail_m + 0.5 * tape_w_vtail_m,
-            y_cg_m=0.0,
+            y_cg_m=VTAIL_TAPE_Y_OFFSET_M,
             z_cg_m=z_vtail_mid_m,
         )
         vtail_tape_side_b = mass_properties_rect_prism(
@@ -1121,7 +1124,7 @@ def build_mass_model(
             dim_y_m=TAPE_THICKNESS_M,
             dim_z_m=vtail_span_m,
             x_cg_m=x_le_tail_m + 0.5 * tape_w_vtail_m,
-            y_cg_m=0.0,
+            y_cg_m=-VTAIL_TAPE_Y_OFFSET_M,
             z_cg_m=z_vtail_mid_m,
         )
         mass_props["vtail_tape"] = combine_mass_properties(
@@ -1131,7 +1134,7 @@ def build_mass_model(
     # Fixed onboard components
     mass_props["linkages"] = point_mass(0.001, x_m=0.5 * tail_arm_m)
 
-    x_centre_module = 0.3 * wing_chord_m + 0.030476
+    x_centre_core = 0.3 * wing_chord_m + CENTRE_CORE_X_OFFSET_FROM_0p3C_M
     centre_mount_thickness_m = 0.002
     centre_mount_base_bottom_m = 0.0261
     centre_mount_base_top_m = 0.0115
@@ -1162,58 +1165,50 @@ def build_mass_model(
             + 0.5 * centre_mount_thickness_m
             + np.abs(y_mount_m) * tan_dihedral
         )
-        centre_mount_components[f"centre_module_mount_fwd_{side_label}"] = (
+        centre_mount_components[f"wing_mount_{side_label}_fwd"] = (
             mass_properties_rect_prism(
                 mass_kg=centre_mount_mass_kg,
                 dim_x_m=centre_mount_dim_x_m,
                 dim_y_m=centre_mount_height_m,
                 dim_z_m=centre_mount_thickness_m,
-                x_cg_m=centre_mount_x0_fwd_m + 0.5 * centre_mount_dim_x_m,
+                x_cg_m=centre_mount_x0_fwd_m + 0.5 * centre_mount_base_bottom_m,
                 y_cg_m=y_mount_m,
                 z_cg_m=z_mount_m,
             )
         )
-        centre_mount_components[f"centre_module_mount_aft_{side_label}"] = (
+        centre_mount_components[f"wing_mount_{side_label}_aft"] = (
             mass_properties_rect_prism(
                 mass_kg=centre_mount_mass_kg,
                 dim_x_m=centre_mount_dim_x_m,
                 dim_y_m=centre_mount_height_m,
                 dim_z_m=centre_mount_thickness_m,
-                x_cg_m=centre_mount_x0_aft_m + 0.5 * centre_mount_dim_x_m,
+                x_cg_m=centre_mount_x0_aft_m + 0.5 * centre_mount_base_bottom_m,
                 y_cg_m=y_mount_m,
                 z_cg_m=z_mount_m,
             )
         )
 
     centre_mounts_total = combine_mass_properties(list(centre_mount_components.values()))
-    centre_mounts_mass_num = to_float_if_possible(centre_mounts_total.mass)
-    if (
-        centre_mounts_mass_num is not None
-        and centre_mounts_mass_num >= CENTRE_MODULE_MASS_KG
-    ):
-        centre_scale = 0.98 * CENTRE_MODULE_MASS_KG / max(centre_mounts_mass_num, 1e-12)
+    centre_core_mass_kg = CENTRE_MODULE_MASS_KG - centre_mounts_total.mass
+    centre_core_mass_num = to_float_if_possible(centre_core_mass_kg)
+    if centre_core_mass_num is not None and centre_core_mass_num <= 0.0:
+        centre_mounts_mass_num = to_float_if_possible(centre_mounts_total.mass)
+        assert centre_mounts_mass_num is not None
+        centre_scale = 0.90 * CENTRE_MODULE_MASS_KG / max(centre_mounts_mass_num, 1e-12)
         for name in list(centre_mount_components.keys()):
             centre_mount_components[name] = scale_mass_properties(
                 centre_mount_components[name],
                 centre_scale,
             )
         centre_mounts_total = combine_mass_properties(list(centre_mount_components.values()))
+        centre_core_mass_kg = CENTRE_MODULE_MASS_KG - centre_mounts_total.mass
 
     mass_props.update(centre_mount_components)
 
-    centre_core_mass_kg = CENTRE_MODULE_MASS_KG - centre_mounts_total.mass
-    centre_core_x_m = (
-        CENTRE_MODULE_MASS_KG * x_centre_module
-        - centre_mounts_total.mass * centre_mounts_total.xyz_cg[0]
-    ) / centre_core_mass_kg
-    centre_core_z_m = (
-        CENTRE_MODULE_MASS_KG * CENTRE_MODULE_Z_CG_M
-        - centre_mounts_total.mass * centre_mounts_total.xyz_cg[2]
-    ) / centre_core_mass_kg
     mass_props["centre_module_core"] = point_mass(
         centre_core_mass_kg,
-        x_m=centre_core_x_m,
-        z_m=centre_core_z_m,
+        x_m=x_centre_core,
+        z_m=CENTRE_CORE_Z_CG_M,
     )
 
     # Battery as a dedicated CG-trim slider.
@@ -1223,7 +1218,7 @@ def build_mass_model(
         lower_bound=0.0,
         upper_bound=1.0,
     )
-    x_batt_min = x_centre_module - BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M
+    x_batt_min = x_centre_core - BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M
     x_batt_max = BATTERY_X_MAX_FRAC * wing_chord_m
     x_batt = x_batt_min + battery_eta * (x_batt_max - x_batt_min)
     mass_props["battery"] = mass_properties_rect_prism(
@@ -1254,9 +1249,9 @@ def build_mass_model(
         z_m=AVIONICS_Z_CG_M,
     )
 
-    # Tail gear (tail support) from H-tail LE root; tail module from fuselage tail station.
+    # Tail gear (tail support) from H-tail LE root.
     x_tail_support = tail_arm_m + TAIL_GEAR_X_OFFSET_FROM_HTAIL_LE_M
-    x_tail_module = boom_end_x_m + TAIL_MODULE_X_OFFSET_FROM_FUSELAGE_TAIL_M
+    x_tail_core = boom_end_x_m - TAIL_CORE_X_OFFSET_FROM_BOOM_END_M
     tail_mount_thickness_m = 0.0015
     tail_mount_base_bottom_m = 0.019
     tail_mount_base_top_m = 0.008
@@ -1280,12 +1275,12 @@ def build_mass_model(
 
     tail_mount_components: MassPropertiesMap = {}
     for y_sign, side_label in ((1.0, "R"), (-1.0, "L")):
-        tail_mount_components[f"tail_module_mount_{side_label}"] = mass_properties_rect_prism(
+        tail_mount_components[f"htail_mount_{side_label}"] = mass_properties_rect_prism(
             mass_kg=tail_mount_mass_kg,
             dim_x_m=tail_mount_dim_x_m,
             dim_y_m=tail_mount_height_m,
             dim_z_m=tail_mount_thickness_m,
-            x_cg_m=tail_mount_x0_m + 0.5 * tail_mount_dim_x_m,
+            x_cg_m=tail_mount_x0_m + 0.5 * tail_mount_base_bottom_m,
             y_cg_m=y_sign * tail_mount_ybar_m,
             z_cg_m=tail_mount_z_cg_m,
         )
@@ -1316,31 +1311,26 @@ def build_mass_model(
     )
 
     tail_mounts_total = combine_mass_properties(list(tail_mount_components.values()))
-    tail_mounts_mass_num = to_float_if_possible(tail_mounts_total.mass)
-    if tail_mounts_mass_num is not None and tail_mounts_mass_num >= TAIL_MODULE_MASS_KG:
-        tail_scale = 0.98 * TAIL_MODULE_MASS_KG / max(tail_mounts_mass_num, 1e-12)
+    tail_core_mass_kg = TAIL_MODULE_MASS_KG - tail_mounts_total.mass
+    tail_core_mass_num = to_float_if_possible(tail_core_mass_kg)
+    if tail_core_mass_num is not None and tail_core_mass_num <= 0.0:
+        tail_mounts_mass_num = to_float_if_possible(tail_mounts_total.mass)
+        assert tail_mounts_mass_num is not None
+        tail_scale = 0.90 * TAIL_MODULE_MASS_KG / max(tail_mounts_mass_num, 1e-12)
         for name in list(tail_mount_components.keys()):
             tail_mount_components[name] = scale_mass_properties(
                 tail_mount_components[name],
                 tail_scale,
             )
         tail_mounts_total = combine_mass_properties(list(tail_mount_components.values()))
+        tail_core_mass_kg = TAIL_MODULE_MASS_KG - tail_mounts_total.mass
 
     mass_props.update(tail_mount_components)
 
-    tail_core_mass_kg = TAIL_MODULE_MASS_KG - tail_mounts_total.mass
-    tail_core_x_m = (
-        TAIL_MODULE_MASS_KG * x_tail_module
-        - tail_mounts_total.mass * tail_mounts_total.xyz_cg[0]
-    ) / tail_core_mass_kg
-    tail_core_z_m = (
-        TAIL_MODULE_MASS_KG * TAIL_MODULE_Z_CG_M
-        - tail_mounts_total.mass * tail_mounts_total.xyz_cg[2]
-    ) / tail_core_mass_kg
     mass_props["tail_module_core"] = point_mass(
         tail_core_mass_kg,
-        x_m=tail_core_x_m,
-        z_m=tail_core_z_m,
+        x_m=x_tail_core,
+        z_m=TAIL_CORE_Z_CG_M,
     )
 
     mass_props["tail_support"] = point_mass(
@@ -1349,18 +1339,18 @@ def build_mass_model(
         z_m=TAIL_SUPPORT_Z_CG_M,
     )
 
-    # Tail-control servos co-located with tail module.
+    # Tail-control servos co-located with tail-module core.
     mass_props["servo_elevator"] = point_mass(
         SERVO_MASS_KG,
-        x_m=x_tail_module,
+        x_m=x_tail_core,
         y_m=0.0,
-        z_m=TAIL_MODULE_Z_CG_M,
+        z_m=TAIL_CORE_Z_CG_M,
     )
     mass_props["servo_rudder"] = point_mass(
         SERVO_MASS_KG,
-        x_m=x_tail_module,
+        x_m=x_tail_core,
         y_m=0.0,
-        z_m=TAIL_MODULE_Z_CG_M,
+        z_m=TAIL_CORE_Z_CG_M,
     )
 
     y_servo = AILERON_SERVO_SPAN_FRAC * wing_span_m
@@ -1663,10 +1653,16 @@ def build_mass_rows(
     # Component-by-component mass and principal inertia table
     for name, mp in mass_props.items():
         component_name = name
-        if name == "centre_module":
-            component_name = "centre module"
-        elif name == "tail_module":
-            component_name = "tail module"
+        if name == "centre_module_core":
+            component_name = "centre module core"
+        elif name == "tail_module_core":
+            component_name = "tail module core"
+        elif name.startswith("wing_mount_"):
+            component_name = name.replace("wing_mount_", "wing mount ").replace("_", " ")
+        elif name.startswith("htail_mount_"):
+            component_name = name.replace("htail_mount_", "htail mount ").replace("_", " ")
+        elif name == "vtail_mount":
+            component_name = "vtail mount"
         elif name == "tail_support":
             component_name = "tail support"
         rows.append(
@@ -2232,7 +2228,7 @@ def legacy_single_run_main(
 
     # Linearized roll response estimates
     q_dyn = 0.5 * RHO * V_NOM_MPS ** 2
-    i_xx = np.maximum(total_mass.inertia_tensor[0, 0], 1e-8)
+    i_xx = total_mass.inertia_tensor[0, 0]
     clp_mag = np.maximum(np.abs(aero_nom["Clp"]), 1e-5)
     clp_mag_turn = np.maximum(np.abs(aero_turn["Clp"]), 1e-5)
     delta_a_max_rad = np.radians(DELTA_A_MAX_DEG)
@@ -2436,6 +2432,9 @@ def legacy_single_run_main(
             roll_rate_ss_radps >= MIN_ROLL_RATE_RAD_S,
             roll_accel0_rad_s2 >= MIN_ROLL_ACCEL_RAD_S2,
             roll_tau_s <= MAX_ROLL_TAU_S,
+            total_mass.inertia_tensor[0, 0] >= 1e-8,
+            total_mass.inertia_tensor[1, 1] >= 1e-8,
+            total_mass.inertia_tensor[2, 2] >= 1e-8,
             hinge_moment_aileron_nm <= servo_torque_available_nm,
             hinge_moment_elevator_nm <= servo_torque_available_nm,
             hinge_moment_rudder_nm <= servo_torque_available_nm,
@@ -2502,6 +2501,11 @@ def legacy_single_run_main(
     total_mass_num = solution(total_mass)
     aero_nom_num = solution(aero_nom)
     aero_turn_num = solution(aero_turn)
+    i_xx_num = to_scalar(total_mass_num.inertia_tensor[0, 0])
+    if (not onp.isfinite(i_xx_num)) or i_xx_num <= 0.0:
+        raise ValueError(
+            f"Invalid solved inertia: Ixx={i_xx_num:.6e} kg*m^2 (must be positive)."
+        )
 
     objective_num = to_scalar(solution(objective))
     alpha_nom_num = to_scalar(solution(alpha_nom_deg))
@@ -2535,8 +2539,8 @@ def legacy_single_run_main(
     total_cg_z_error_num = total_cg_z_num - weighted_cg_z_num
     ballast_mass_num = to_scalar(solution(ballast_mass_kg))
     ballast_mass_num = max(0.0, ballast_mass_num)
-    x_centre_module_num = 0.3 * wing_chord_design_num + 0.030476
-    battery_x_min_num = x_centre_module_num - BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M
+    x_centre_core_num = 0.3 * wing_chord_design_num + CENTRE_CORE_X_OFFSET_FROM_0p3C_M
+    battery_x_min_num = x_centre_core_num - BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M
     battery_x_num = to_scalar(
         battery_x_min_num
         + battery_eta_num
