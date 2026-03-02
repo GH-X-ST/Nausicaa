@@ -244,6 +244,10 @@ CMQ_MAX = -0.01
 MIN_ROLL_RATE_RAD_S = 0.6
 MIN_ROLL_ACCEL_RAD_S2 = 2.0
 MAX_ROLL_TAU_S = 0.45
+CL_DELTA_A_PROXY_MAX = 0.45
+CLP_NEG_EPS = 1e-4
+INCLUDE_SERVO_RATE_IN_BANK_ENTRY = True
+SERVO_RATE_DEG_S = 400.0
 CL_DELTA_A_FD_STEP_DEG = 2.0
 
 # Servo sizing assumptions
@@ -336,7 +340,7 @@ class WorkflowConfig:
     tail_thickness_scale_min: float = 1.00
     tail_thickness_scale_max: float = 1.00
     # Actuator-rate proxy settings
-    servo_rate_deg_s: float = 400.0
+    servo_rate_deg_s: float = SERVO_RATE_DEG_S
     nom_trim_time_s: float = 1.5
     turn_trim_time_s: float = BANK_ENTRY_TIME_S
     rate_util_fraction: float = 0.80
@@ -1541,10 +1545,10 @@ def aileron_effectiveness_proxy(
 ) -> Scalar:
     # Quick control-power proxy: Cl_delta_a ~ CLa * tau * outboard leverage
     c_l_alpha = np.maximum(np.abs(aero["CLa"]), 1e-3)
-    span_factor = np.maximum(eta_outboard ** 2 - eta_inboard ** 2, 1e-4)
+    span_factor = np.maximum(0.5 * (eta_outboard ** 2 - eta_inboard ** 2), 1e-4)
     tau_aileron = 0.9 * chord_fraction
     cl_delta_a = c_l_alpha * tau_aileron * span_factor
-    return np.clip(cl_delta_a, 1e-3, 2.0)
+    return np.clip(cl_delta_a, 1e-3, CL_DELTA_A_PROXY_MAX)
 
 
 def estimate_servo_hinge_moment(
@@ -2493,7 +2497,16 @@ def legacy_single_run_main(
     clp_mag = np.maximum(np.abs(aero_nom["Clp"]), 1e-5)
     clp_mag_turn = np.maximum(np.abs(aero_turn["Clp"]), 1e-5)
     delta_a_max_rad = np.radians(DELTA_A_MAX_DEG)
-    delta_a_turn_rad = np.radians(TURN_DEFLECTION_UTIL_MAX * DELTA_A_MAX_DEG)
+    delta_a_turn_cmd_deg = TURN_DEFLECTION_UTIL_MAX * DELTA_A_MAX_DEG
+    delta_a_turn_rate_limited_deg = SERVO_RATE_DEG_S * BANK_ENTRY_TIME_S
+    if INCLUDE_SERVO_RATE_IN_BANK_ENTRY:
+        delta_a_turn_eff_deg = np.fmin(
+            delta_a_turn_cmd_deg,
+            delta_a_turn_rate_limited_deg,
+        )
+    else:
+        delta_a_turn_eff_deg = delta_a_turn_cmd_deg
+    delta_a_turn_rad = np.radians(delta_a_turn_eff_deg)
 
     roll_accel0_rad_s2 = (
         q_dyn
@@ -2581,6 +2594,9 @@ def legacy_single_run_main(
     phi_turn_rad = trim_turn["bank_angle_rad"]
     turn_radius_m = trim_turn["turn_radius_m"]
     tau_turn_eff_s = np.maximum(roll_tau_turn_s, 1e-4)
+    bank_entry_dt_s = np.fmax(BANK_ENTRY_TIME_S - tau_turn_eff_s, 0.0)
+    bank_entry_phi_capture_proxy_rad = roll_rate_ss_turn_radps * bank_entry_dt_s
+    bank_entry_margin_rad = bank_entry_phi_capture_proxy_rad - phi_turn_rad
     bank_entry_phi_achieved_rad = roll_rate_ss_turn_radps * (
         BANK_ENTRY_TIME_S
         - tau_turn_eff_s * (1.0 - np.exp(-BANK_ENTRY_TIME_S / tau_turn_eff_s))
@@ -2693,6 +2709,8 @@ def legacy_single_run_main(
             aero_nom["Clb"] <= CLB_MAX,
             aero_nom["Cnb"] >= CNB_MIN,
             aero_nom["Cmq"] <= CMQ_MAX,
+            aero_nom["Clp"] <= -CLP_NEG_EPS,
+            aero_turn["Clp"] <= -CLP_NEG_EPS,
             roll_rate_ss_radps >= MIN_ROLL_RATE_RAD_S,
             roll_accel0_rad_s2 >= MIN_ROLL_ACCEL_RAD_S2,
             roll_tau_s <= MAX_ROLL_TAU_S,
@@ -2721,7 +2739,7 @@ def legacy_single_run_main(
                 delta_r_turn_deg,
                 TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG,
             ),
-            bank_entry_phi_achieved_rad >= phi_turn_rad,
+            bank_entry_margin_rad >= 0.0,
         ]
     )
 
@@ -2740,7 +2758,12 @@ def legacy_single_run_main(
 
     def debug_guess(label: str, expr: Scalar) -> None:
         try:
-            value = to_scalar(opti.value(expr, opti.initial()))
+            if isinstance(expr, (int, float, onp.floating, onp.integer)):
+                value = to_scalar(expr)
+            elif hasattr(opti, "debug") and hasattr(opti.debug, "value"):
+                value = to_scalar(opti.debug.value(expr))
+            else:
+                value = to_scalar(opti.value(expr, opti.initial()))
             print(f"[DEBUG INIT] {label} = {value:.6g}", flush=True)
         except Exception as exc:
             print(f"[DEBUG INIT] {label} unavailable ({exc})", flush=True)
@@ -2753,6 +2776,9 @@ def legacy_single_run_main(
     debug_guess("roll_tau_turn_s", roll_tau_turn_s)
     debug_guess("roll_accel0_rad_s2", roll_accel0_rad_s2)
     debug_guess("roll_rate_ss_turn_radps", roll_rate_ss_turn_radps)
+    debug_guess("delta_a_turn_eff_deg", delta_a_turn_eff_deg)
+    debug_guess("bank_entry_margin_rad", bank_entry_margin_rad)
+    debug_guess("bank_entry_phi_capture_proxy_rad", bank_entry_phi_capture_proxy_rad)
     debug_guess("bank_entry_phi_achieved_rad", bank_entry_phi_achieved_rad)
 
     print("Starting optimization...", flush=True)
@@ -2843,6 +2869,14 @@ def legacy_single_run_main(
     roll_accel_num = to_scalar(solution(roll_accel0_rad_s2))
     roll_tau_num = to_scalar(solution(roll_tau_s))
     roll_tau_turn_num = to_scalar(solution(roll_tau_turn_s))
+    try:
+        delta_a_turn_eff_deg_num = to_scalar(solution(delta_a_turn_eff_deg))
+    except Exception:
+        delta_a_turn_eff_deg_num = to_scalar(delta_a_turn_eff_deg)
+    bank_entry_margin_deg_num = np.degrees(to_scalar(solution(bank_entry_margin_rad)))
+    bank_entry_phi_capture_proxy_deg_num = np.degrees(
+        to_scalar(solution(bank_entry_phi_capture_proxy_rad))
+    )
     bank_entry_phi_achieved_deg_num = np.degrees(
         to_scalar(solution(bank_entry_phi_achieved_rad))
     )
@@ -3123,6 +3157,26 @@ def legacy_single_run_main(
             "Unit": "s",
         },
         {
+            "Metric": "delta_a_turn_eff_deg",
+            "Value": delta_a_turn_eff_deg_num,
+            "Unit": "deg",
+        },
+        {
+            "Metric": "bank_entry_phi_capture_proxy_deg",
+            "Value": bank_entry_phi_capture_proxy_deg_num,
+            "Unit": "deg",
+        },
+        {
+            "Metric": "bank_entry_margin_deg",
+            "Value": bank_entry_margin_deg_num,
+            "Unit": "deg",
+        },
+        {
+            "Metric": "bank_entry_phi_raw_deg",
+            "Value": bank_entry_phi_achieved_deg_num,
+            "Unit": "deg",
+        },
+        {
             "Metric": "bank_entry_phi_achieved_deg",
             "Value": bank_entry_phi_achieved_deg_num,
             "Unit": "deg",
@@ -3341,10 +3395,12 @@ def legacy_single_run_main(
             upper=0.5 * ARENA_WIDTH_M,
         ),
         constraint_record(
-            "Turn bank-entry phi achieved",
-            bank_entry_phi_achieved_deg_num,
+            "Turn bank-entry capture proxy",
+            bank_entry_phi_capture_proxy_deg_num,
             lower=TURN_BANK_DEG,
         ),
+        constraint_record("Turn bank-entry margin", bank_entry_margin_deg_num, lower=0.0),
+        constraint_record("Turn bank-entry phi raw (diag)", bank_entry_phi_achieved_deg_num),
         constraint_record("H-tail tip deflection proxy (diag)", delta_ht_tip_num),
         constraint_record("H-tail tip deflection proxy allow (diag)", delta_ht_allow_num),
         constraint_record("H-tail deflection proxy penalty (diag)", htail_deflection_penalty_num),
@@ -3377,6 +3433,8 @@ def legacy_single_run_main(
         constraint_record("Clb <= 0", aero_nom_num["Clb"], upper=CLB_MAX),
         constraint_record("Cnb >= 0", aero_nom_num["Cnb"], lower=CNB_MIN),
         constraint_record("Cmq <= -0.01", aero_nom_num["Cmq"], upper=CMQ_MAX),
+        constraint_record("Clp nominal <= -eps", aero_nom_num["Clp"], upper=-CLP_NEG_EPS),
+        constraint_record("Clp turn <= -eps", aero_turn_num["Clp"], upper=-CLP_NEG_EPS),
         constraint_record(
             "Roll rate minimum",
             roll_rate_num,
@@ -3540,6 +3598,30 @@ def legacy_single_run_main(
             "Metric": "roll_tau_turn_s",
             "Value": roll_tau_turn_num,
             "Unit": "s",
+        },
+        {
+            "DesignPoint": "Manoeuvre",
+            "Metric": "delta_a_turn_eff_deg",
+            "Value": delta_a_turn_eff_deg_num,
+            "Unit": "deg",
+        },
+        {
+            "DesignPoint": "Manoeuvre",
+            "Metric": "bank_entry_phi_capture_proxy_deg",
+            "Value": bank_entry_phi_capture_proxy_deg_num,
+            "Unit": "deg",
+        },
+        {
+            "DesignPoint": "Manoeuvre",
+            "Metric": "bank_entry_margin_deg",
+            "Value": bank_entry_margin_deg_num,
+            "Unit": "deg",
+        },
+        {
+            "DesignPoint": "Manoeuvre",
+            "Metric": "bank_entry_phi_raw_deg",
+            "Value": bank_entry_phi_achieved_deg_num,
+            "Unit": "deg",
         },
         {
             "DesignPoint": "Manoeuvre",
