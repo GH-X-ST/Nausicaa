@@ -2761,7 +2761,7 @@ def legacy_single_run_main(
             if isinstance(expr, (int, float, onp.floating, onp.integer)):
                 value = to_scalar(expr)
             elif hasattr(opti, "debug") and hasattr(opti.debug, "value"):
-                value = to_scalar(opti.debug.value(expr))
+                value = to_scalar(opti.debug.value(expr, opti.initial()))
             else:
                 value = to_scalar(opti.value(expr, opti.initial()))
             print(f"[DEBUG INIT] {label} = {value:.6g}", flush=True)
