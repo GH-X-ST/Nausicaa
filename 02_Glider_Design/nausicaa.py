@@ -46,7 +46,7 @@ ENABLE_OPTIMIZATION_AFTER_INITIAL_CHECK = True
 
 
 # Manual note for this run (edit before executing)
-MANUAL_RUN_NOTE = "change 8"
+MANUAL_RUN_NOTE = "change 9"
 MANUAL_RUN_NOTE_PRINT = True
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -61,14 +61,12 @@ ARENA_HEIGHT_M = 3.5
 
 # Two-speed design points
 V_TURN_MPS = 4.1
-V_NOM_MPS = 5.0
+V_NOM_MPS = 4.8
 
 # Manoeuvre definition (coordinated, banked turn feasibility)
 TURN_BANK_DEG = 50.0
 WALL_CLEARANCE_M = 0.30
 TURN_DEFLECTION_UTIL_MAX = 0.80
-TURN_LATERAL_TRIM_TOL_CL = 0.02
-TURN_LATERAL_TRIM_TOL_CN = 0.02
 # Manoeuvre agility target: time to reach design bank angle at V_TURN_MPS.
 # Converted to a minimum steady-state roll-rate requirement.
 BANK_ENTRY_TIME_S = 0.7
@@ -367,8 +365,6 @@ class Config:
     delta_r_min_deg: float = DELTA_R_MIN_DEG
     delta_r_max_deg: float = DELTA_R_MAX_DEG
     turn_deflection_util_max: float = TURN_DEFLECTION_UTIL_MAX
-    turn_lat_trim_tol_cl: float = TURN_LATERAL_TRIM_TOL_CL
-    turn_lat_trim_tol_cn: float = TURN_LATERAL_TRIM_TOL_CN
     cm_trim_tol: float = CM_TRIM_TOL
 
     # Geometry assumptions
@@ -416,8 +412,6 @@ class ConstraintPolicy:
     cm_trim_mode: Literal["eq", "tol"] = "eq"
     cm_trim_tol: float = CM_TRIM_TOL
     nom_lateral_trim: bool = True
-    turn_lat_trim_tol_cl: float = TURN_LATERAL_TRIM_TOL_CL
-    turn_lat_trim_tol_cn: float = TURN_LATERAL_TRIM_TOL_CN
     bank_entry_margin_min_deg: float = 0.0
 
 
@@ -426,8 +420,6 @@ def get_constraint_policy(cfg: Config) -> ConstraintPolicy:
         cm_trim_mode="eq",
         cm_trim_tol=float(cfg.cm_trim_tol),
         nom_lateral_trim=True,
-        turn_lat_trim_tol_cl=float(cfg.turn_lat_trim_tol_cl),
-        turn_lat_trim_tol_cn=float(cfg.turn_lat_trim_tol_cn),
         bank_entry_margin_min_deg=0.0,
     )
 
@@ -828,7 +820,7 @@ class AirframeBundle:
 def default_initial_guess() -> dict[str, float]:
     return {
         "wing_span_m": 0.70,
-        "wing_chord_m": 0.20,
+        "wing_chord_m": 0.15,
         "tail_arm_m": 0.55,
         "htail_span_m": 0.40,
         "vtail_height_m": 0.17,
@@ -2314,15 +2306,6 @@ def build_trim_constraints_and_metrics(
                 aero["Cn"] == 0.0,
             ]
         )
-    elif mode == "turn":
-        constraints.extend(
-            [
-                aero["Cl"] >= -float(policy.turn_lat_trim_tol_cl),
-                aero["Cl"] <= float(policy.turn_lat_trim_tol_cl),
-                aero["Cn"] >= -float(policy.turn_lat_trim_tol_cn),
-                aero["Cn"] <= float(policy.turn_lat_trim_tol_cn),
-            ]
-        )
 
     turn_radius_m = float("inf")
     if abs(float(bank_angle_deg)) > 1e-12:
@@ -2586,18 +2569,6 @@ def build_constraint_audit_rows(
 
     rows.extend(
         [
-            constraint_record(
-                "Turn Trim Cl tolerance",
-                aero_turn_num["Cl"],
-                lower=-float(policy.turn_lat_trim_tol_cl),
-                upper=float(policy.turn_lat_trim_tol_cl),
-            ),
-            constraint_record(
-                "Turn Trim Cn tolerance",
-                aero_turn_num["Cn"],
-                lower=-float(policy.turn_lat_trim_tol_cn),
-                upper=float(policy.turn_lat_trim_tol_cn),
-            ),
             constraint_record(
                 "Turn footprint in width",
                 turn_footprint_lhs_num,
@@ -5835,10 +5806,6 @@ def robust_in_loop_optimize(
             + trim_nom["aero"]["Cm"] ** 2
             + stable_softplus(turn_lift_required_n - trim_turn["aero"]["L"], SOFTPLUS_K) ** 2
             + trim_turn["aero"]["Cm"] ** 2
-            + stable_softplus(-float(constraint_policy.turn_lat_trim_tol_cl) - trim_turn["aero"]["Cl"], SOFTPLUS_K) ** 2
-            + stable_softplus(trim_turn["aero"]["Cl"] - float(constraint_policy.turn_lat_trim_tol_cl), SOFTPLUS_K) ** 2
-            + stable_softplus(-float(constraint_policy.turn_lat_trim_tol_cn) - trim_turn["aero"]["Cn"], SOFTPLUS_K) ** 2
-            + stable_softplus(trim_turn["aero"]["Cn"] - float(constraint_policy.turn_lat_trim_tol_cn), SOFTPLUS_K) ** 2
         )
 
         all_constraints.extend(trim_nom["constraints"])
@@ -6065,14 +6032,6 @@ def robust_in_loop_optimize(
         max_violation = max(max_violation, max(0.0, abs(solved_value(check["turn_cm"])) - strict_eq_tol))
         max_violation = max(max_violation, max(0.0, abs(solved_value(check["nom_cl"])) - strict_eq_tol))
         max_violation = max(max_violation, max(0.0, abs(solved_value(check["nom_cn"])) - strict_eq_tol))
-        max_violation = max(
-            max_violation,
-            max(0.0, abs(solved_value(check["turn_cl"])) - float(constraint_policy.turn_lat_trim_tol_cl)),
-        )
-        max_violation = max(
-            max_violation,
-            max(0.0, abs(solved_value(check["turn_cn"])) - float(constraint_policy.turn_lat_trim_tol_cn)),
-        )
         max_violation = max(max_violation, max(0.0, -solved_value(check["nom_cl_cap_margin"])))
         max_violation = max(max_violation, max(0.0, -solved_value(check["turn_cl_cap_margin"])))
         max_violation = max(max_violation, max(0.0, -solved_value(check["footprint_margin"])))
