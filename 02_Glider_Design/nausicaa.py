@@ -63,9 +63,9 @@ ARENA_WIDTH_M = 4.8
 ARENA_HEIGHT_M = 3.5
 
 # Fixed mission speed (single-speed agility mission)
-V_NOM_MPS = 6.0
+V_NOM_MPS = 6.5
 # Legacy diagnostic alias kept for compatibility with existing reports.
-V_TURN_MPS = V_NOM_MPS
+V_TURN_MPS = 3.5
 
 # Manoeuvre definition (banked-turn agility / curvature feasibility)
 TURN_BANK_DEG = 50.0
@@ -109,7 +109,7 @@ HTAIL_ROOT_LOWER_SURFACE_Z_M = -0.004
 
 # Wing design bounds
 WING_SPAN_MIN_M = 0.30
-WING_SPAN_MAX_M = 0.75
+WING_SPAN_MAX_M = 0.70
 WING_CHORD_MIN_M = 0.10
 WING_CHORD_MAX_M = 0.30
 
@@ -246,7 +246,7 @@ RECEIVER_X_OFFSET_FROM_REGULATOR_M = 0.035
 
 # Static-stability design window
 STATIC_MARGIN_MIN = 0.05
-STATIC_MARGIN_MAX = 0.20
+STATIC_MARGIN_MAX = 0.10
 VH_MIN = 0.50
 VH_MAX = 1.00
 VV_MIN = 0.03
@@ -2138,7 +2138,6 @@ def stable_softplus(x: Scalar, sharpness: float) -> Scalar:
 OBJECTIVE_TERM_ORDER: tuple[str, ...] = (
     "J_sink",
     "J_mass",
-    "J_ballast",
     "J_trim",
     "J_wing_deflection",
     "J_htail_deflection",
@@ -2148,7 +2147,6 @@ OBJECTIVE_TERM_ORDER: tuple[str, ...] = (
 OBJECTIVE_TERM_TO_WEIGHT_KEY: dict[str, str] = {
     "J_sink": "w_sink",
     "J_mass": "w_mass",
-    "J_ballast": "w_ballast",
     "J_trim": "w_trim_effort",
     "J_wing_deflection": "w_wing_deflection",
     "J_htail_deflection": "w_htail_deflection",
@@ -2233,8 +2231,6 @@ def build_dimensionless_objective_terms(
     *,
     sink_rate_mps: Scalar,
     mass_penalty_kg: Scalar,
-    ballast_mass_kg: Scalar,
-    ballast_x_cg_m: Scalar,
     trim_effort_deg2: Scalar,
     wing_deflection_over_allow: Scalar,
     htail_deflection_over_allow: Scalar,
@@ -2244,14 +2240,11 @@ def build_dimensionless_objective_terms(
 ) -> tuple[Scalar, dict[str, Scalar]]:
     sink_scale = max(float(scales.sink_mps), 1e-9)
     mass_scale = max(float(scales.mass_kg), 1e-9)
-    ballast_scale = max(float(scales.ballast_kg), 1e-9)
     trim_scale = max(float(scales.trim_deg), 1e-9)
     roll_tau_scale = max(float(scales.roll_tau_s), 1e-9)
 
     sink_term = sink_rate_mps / sink_scale
     mass_term = mass_penalty_kg / mass_scale
-    # Feather-style ballast-position penalty plus explicit ballast-mass penalty.
-    ballast_term = ballast_mass_kg / ballast_scale + (ballast_x_cg_m / 1e3) ** 2
     trim_term = trim_effort_deg2 / (trim_scale ** 2)
     wing_deflection_term = wing_deflection_over_allow
     htail_deflection_term = htail_deflection_over_allow
@@ -2260,7 +2253,6 @@ def build_dimensionless_objective_terms(
     terms: dict[str, Scalar] = {
         "J_sink": float(weights.w_sink) * sink_term,
         "J_mass": float(weights.w_mass) * mass_term,
-        "J_ballast": float(weights.w_ballast) * ballast_term,
         "J_trim": float(weights.w_trim_effort) * trim_term,
         "J_wing_deflection": float(weights.w_wing_deflection) * wing_deflection_term,
         "J_htail_deflection": float(weights.w_htail_deflection) * htail_deflection_term,
@@ -2296,8 +2288,6 @@ def objective_breakdown(
     *,
     sink_rate_mps: float,
     mass_total_kg: float,
-    ballast_mass_kg: float,
-    ballast_x_cg_m: float = 0.0,
     trim_effort_deg2: float,
     wing_deflection_over_allow: float,
     htail_deflection_over_allow: float,
@@ -2308,8 +2298,6 @@ def objective_breakdown(
     _, terms = build_dimensionless_objective_terms(
         sink_rate_mps=float(sink_rate_mps),
         mass_penalty_kg=float(mass_total_kg),
-        ballast_mass_kg=float(ballast_mass_kg),
-        ballast_x_cg_m=float(ballast_x_cg_m),
         trim_effort_deg2=float(trim_effort_deg2),
         wing_deflection_over_allow=float(wing_deflection_over_allow),
         htail_deflection_over_allow=float(htail_deflection_over_allow),
@@ -3035,9 +3023,6 @@ def make_plots(
     _ = fig
 
     mass_copy = copy.deepcopy(mass_props)
-    if "ballast" in mass_copy and to_scalar(mass_copy["ballast"].mass) < 1e-6:
-        # Hide zero-ballast slice to avoid clutter
-        mass_copy.pop("ballast")
 
     labels = [name.replace("_", " ").title() for name in mass_copy.keys()]
     values = [max(float(to_scalar(component.mass)), 0.0) for component in mass_copy.values()]
@@ -3411,7 +3396,7 @@ def legacy_single_run_main(
 
     atmos = asb.Atmosphere(altitude=0.0)
 
-    mass_props, total_mass, ballast_mass_kg, ballast_eta = build_mass_model(
+    mass_props, total_mass = build_mass_model(
         opti=opti,
         wing=wing,
         htail=htail,
@@ -3426,7 +3411,6 @@ def legacy_single_run_main(
         mass_props=mass_props,
         total_mass_kg=total_mass.mass,
     )
-    ballast_penalty_feather = (mass_props["ballast"].x_cg / 1e3) ** 2
 
     trim_nom = build_trim_constraints_and_metrics(
         opti=opti,
@@ -3678,8 +3662,6 @@ def legacy_single_run_main(
     objective, objective_terms_expr = build_dimensionless_objective_terms(
         sink_rate_mps=sink_rate_nom_mps,
         mass_penalty_kg=mass_penalty_mass_kg,
-        ballast_mass_kg=ballast_mass_kg,
-        ballast_x_cg_m=mass_props["ballast"].x_cg,
         trim_effort_deg2=trim_effort,
         wing_deflection_over_allow=wing_deflection_over_allow,
         htail_deflection_over_allow=htail_deflection_over_allow,
@@ -3864,8 +3846,6 @@ def legacy_single_run_main(
             ("boom_length_m", boom_length_m, BOOM_LENGTH_MIN_M, BOOM_LENGTH_MAX_M, "m"),
             ("htail_span_m", htail_span_m, HT_SPAN_MIN_M, HT_SPAN_MAX_M, "m"),
             ("vtail_height_m", vtail_height_m, VT_HEIGHT_MIN_M, VT_HEIGHT_MAX_M, "m"),
-            ("ballast_mass_kg", ballast_mass_kg, 0.0, BALLAST_MAX_KG, "kg"),
-            ("ballast_slider_eta", ballast_eta, 0.0, 1.0, "-"),
         ]
         boundary_init_rows: ReportRows = []
         for name, expr, lower, upper, unit in boundary_specs:
@@ -4383,32 +4363,20 @@ def legacy_single_run_main(
 
         sink_scale = max(float(objective_scales.sink_mps), 1e-9)
         mass_scale = max(float(objective_scales.mass_kg), 1e-9)
-        ballast_scale = max(float(objective_scales.ballast_kg), 1e-9)
         trim_scale = max(float(objective_scales.trim_deg), 1e-9)
         roll_tau_scale = max(float(objective_scales.roll_tau_s), 1e-9)
 
         sink_rate_init = eval_initial(sink_rate_nom_mps)
         mass_penalty_mass_init = eval_initial(mass_penalty_mass_kg)
-        ballast_mass_init = eval_initial(ballast_mass_kg)
-        ballast_x_init = eval_initial(mass_props["ballast"].x_cg)
         trim_effort_init = eval_initial(trim_effort)
         wing_defl_init = eval_initial(wing_deflection_over_allow)
         htail_defl_init = eval_initial(htail_deflection_over_allow)
         roll_tau_init = eval_initial(roll_tau_s)
 
-        ballast_pos_term_init = (
-            (ballast_x_init / 1e3) ** 2 if onp.isfinite(ballast_x_init) else float("nan")
-        )
-        ballast_mass_term_init = safe_div(ballast_mass_init, ballast_scale)
 
         normalized_terms = {
             "J_sink": safe_div(sink_rate_init, sink_scale),
             "J_mass": safe_div(mass_penalty_mass_init, mass_scale),
-            "J_ballast": (
-                ballast_mass_term_init + ballast_pos_term_init
-                if onp.isfinite(ballast_mass_term_init) and onp.isfinite(ballast_pos_term_init)
-                else float("nan")
-            ),
             "J_trim": safe_div(trim_effort_init, trim_scale**2),
             "J_wing_deflection": wing_defl_init,
             "J_htail_deflection": htail_defl_init,
@@ -4437,7 +4405,6 @@ def legacy_single_run_main(
         for term in [
             "J_sink",
             "J_mass",
-            "J_ballast",
             "J_trim",
             "J_wing_deflection",
             "J_htail_deflection",
@@ -4460,14 +4427,6 @@ def legacy_single_run_main(
                 f"delta={fmt_obj(delta_value)}",
                 flush=True,
             )
-            if term == "J_ballast":
-                print(
-                    "      ballast split: "
-                    f"mass/scale={fmt_obj(ballast_mass_term_init)} + "
-                    f"(x_ballast/1e3)^2={fmt_obj(ballast_pos_term_init)} "
-                    f"with x_ballast={fmt_obj(ballast_x_init)} m",
-                    flush=True,
-                )
 
         total_delta = (
             solver_total - manual_total
@@ -4563,13 +4522,11 @@ def legacy_single_run_main(
     boom_length_design_num = to_scalar(solution(boom_length_m))
     htail_span_design_num = to_scalar(solution(htail_span_m))
     vtail_height_design_num = to_scalar(solution(vtail_height_m))
-    ballast_eta_num = to_scalar(solution(ballast_eta))
 
     sink_rate_num = to_scalar(solution(sink_rate_nom_mps))
     l_over_d_num = to_scalar(solution(l_over_d))
     mass_total_num = to_scalar(total_mass_num.mass)
     mass_penalty_mass_num = to_scalar(solution(mass_penalty_mass_kg))
-    ballast_penalty_feather_num = to_scalar(solution(ballast_penalty_feather))
     total_cg_x_num = to_scalar(total_mass_num.x_cg)
     total_cg_y_num = to_scalar(total_mass_num.y_cg)
     total_cg_z_num = to_scalar(total_mass_num.z_cg)
@@ -4579,9 +4536,6 @@ def legacy_single_run_main(
     total_cg_x_error_num = total_cg_x_num - weighted_cg_x_num
     total_cg_y_error_num = total_cg_y_num - weighted_cg_y_num
     total_cg_z_error_num = total_cg_z_num - weighted_cg_z_num
-    ballast_mass_num = to_scalar(solution(ballast_mass_kg))
-    ballast_mass_num = max(0.0, ballast_mass_num)
-    ballast_x_num = to_scalar(mass_props_num["ballast"].x_cg)
     battery_x_num = 0.25 * wing_chord_design_num - BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M
 
     static_margin_num = to_scalar(solution(static_margin))
@@ -4778,20 +4732,6 @@ def legacy_single_run_main(
             upper=VT_HEIGHT_MAX_M,
             unit="m",
         ),
-        design_variable_boundary_record(
-            name="ballast_mass_kg",
-            value=ballast_mass_num,
-            lower=0.0,
-            upper=BALLAST_MAX_KG,
-            unit="kg",
-        ),
-        design_variable_boundary_record(
-            name="ballast_slider_eta",
-            value=ballast_eta_num,
-            lower=0.0,
-            upper=1.0,
-            unit="-",
-        ),
     ]
 
     # Report tables
@@ -4823,7 +4763,6 @@ def legacy_single_run_main(
             "Unit": "-",
         },
         {"Metric": "mass_penalty_reference_kg", "Value": mass_penalty_mass_num, "Unit": "kg"},
-        {"Metric": "ballast_penalty_feather_term", "Value": ballast_penalty_feather_num, "Unit": "-"},
         {"Metric": "mass_total_g", "Value": mass_total_num * 1e3, "Unit": "g"},
         {
             "Metric": "mass_total_lbm",
@@ -4840,9 +4779,6 @@ def legacy_single_run_main(
         {"Metric": "total_cg_y_error_m", "Value": total_cg_y_error_num, "Unit": "m"},
         {"Metric": "total_cg_z_error_m", "Value": total_cg_z_error_num, "Unit": "m"},
         {"Metric": "mass_component_sum_kg", "Value": component_mass_sum_num, "Unit": "kg"},
-        {"Metric": "ballast_mass_kg", "Value": ballast_mass_num, "Unit": "kg"},
-        {"Metric": "ballast_slider_eta", "Value": ballast_eta_num, "Unit": "-"},
-        {"Metric": "ballast_x_m", "Value": ballast_x_num, "Unit": "m"},
         {"Metric": "battery_x_m", "Value": battery_x_num, "Unit": "m"},
         {"Metric": "sink_rate_mps", "Value": sink_rate_num, "Unit": "m/s"},
         {"Metric": "L_over_D", "Value": l_over_d_num, "Unit": "-"},
@@ -5360,7 +5296,6 @@ def legacy_single_run_main(
         sink_rate_mps=float(to_scalar(sink_rate_num)),
         l_over_d=float(to_scalar(l_over_d_num)),
         mass_total_kg=float(to_scalar(mass_total_num)),
-        ballast_mass_kg=float(to_scalar(ballast_mass_num)),
         static_margin=float(to_scalar(static_margin_num)),
         vh=float(to_scalar(tail_volume_h_num)),
         vv=float(to_scalar(tail_volume_v_num)),
@@ -5769,7 +5704,6 @@ def sample_objective_weight_vectors(
             ObjectiveWeights(
                 w_sink=1.0,
                 w_mass=float(10.0 ** rng_local.uniform(WEIGHT_SWEEP_LOG10_MIN, WEIGHT_SWEEP_LOG10_MAX)),
-                w_ballast=float(10.0 ** rng_local.uniform(WEIGHT_SWEEP_LOG10_MIN, WEIGHT_SWEEP_LOG10_MAX)),
                 w_trim_effort=float(10.0 ** rng_local.uniform(WEIGHT_SWEEP_LOG10_MIN, WEIGHT_SWEEP_LOG10_MAX)),
                 w_wing_deflection=float(10.0 ** rng_local.uniform(WEIGHT_SWEEP_LOG10_MIN, WEIGHT_SWEEP_LOG10_MAX)),
                 w_htail_deflection=float(10.0 ** rng_local.uniform(WEIGHT_SWEEP_LOG10_MIN, WEIGHT_SWEEP_LOG10_MAX)),
@@ -6266,7 +6200,7 @@ def robust_in_loop_optimize(
         fuselages=[fuselage],
     )
 
-    mass_props, total_mass, ballast_mass_kg, ballast_eta = build_mass_model(
+    mass_props, total_mass = build_mass_model(
         opti=opti,
         wing=wing,
         htail=htail,
@@ -6281,7 +6215,6 @@ def robust_in_loop_optimize(
         mass_props=mass_props,
         total_mass_kg=total_mass.mass,
     )
-    ballast_penalty_feather = (mass_props["ballast"].x_cg / 1e3) ** 2
 
     wing_area_m2 = wing.area()
     wing_mac_m = wing.mean_aerodynamic_chord()
@@ -6561,7 +6494,6 @@ def robust_in_loop_optimize(
         sink_cvar_like
         + float(config.robust_opt_sink_mean_weight) * sink_mean
         + MASS_WEIGHT_IN_OBJECTIVE * mass_penalty_mass_kg
-        + BALLAST_WEIGHT_IN_OBJECTIVE * (ballast_mass_kg + ballast_penalty_feather)
         + CONTROL_TRIM_WEIGHT * trim_effort_nom_mean
         + float(config.robust_opt_trim_constraint_penalty_weight) * trim_constraint_penalty_mean
         + float(config.robust_opt_nom_lateral_penalty_weight) * nom_lateral_penalty
@@ -6668,7 +6600,6 @@ def robust_in_loop_optimize(
 
     mass_props_num = solution(mass_props)
     total_mass_num = solution(total_mass)
-    ballast_mass_num = max(0.0, float(to_scalar(solution(ballast_mass_kg))))
 
     first_alpha_nom_num = float(to_scalar(solution(first_vars["alpha_nom_deg"])))
     first_u_a_nom_num = float(to_scalar(solution(first_vars["u_a_nom_deg"])))
@@ -6736,7 +6667,6 @@ def robust_in_loop_optimize(
         sink_rate_mps=sink_mean_num,
         l_over_d=l_over_d_num,
         mass_total_kg=float(to_scalar(total_mass_num.mass)),
-        ballast_mass_kg=ballast_mass_num,
         static_margin=static_margin_num,
         vh=vh_num,
         vv=vv_num,
@@ -7673,7 +7603,6 @@ def save_workflow_workbook(
                 "sink_rate_mps": candidate.sink_rate_mps,
                 "L_over_D": candidate.l_over_d,
                 "mass_total_kg": candidate.mass_total_kg,
-                "ballast_mass_kg": candidate.ballast_mass_kg,
                 "static_margin": candidate.static_margin,
                 "vh": candidate.vh,
                 "vv": candidate.vv,
