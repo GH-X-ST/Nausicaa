@@ -49,7 +49,7 @@ IPOPT_VERBOSE_PRINT_LEVEL = 5
 
 
 # Manual note for this run (edit before executing)
-MANUAL_RUN_NOTE = "v3.5.1"
+MANUAL_RUN_NOTE = "v3.5.0"
 MANUAL_RUN_NOTE_PRINT = True
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -844,6 +844,10 @@ def default_initial_guess() -> dict[str, float]:
         "delta_a_nom_deg": 0.0,
         "delta_e_nom_deg": 1.2,
         "delta_r_nom_deg": 0.0,
+        "alpha_turn_deg": 9.0,
+        "delta_a_turn_deg": 0.0,
+        "delta_e_turn_deg": -2.0,
+        "delta_r_turn_deg": 0.0,
         # Legacy aliases retained for backward compatibility with old init files.
         "alpha_deg": 5.0,
         "delta_a_deg": 0.0,
@@ -2642,6 +2646,62 @@ def build_constraint_audit_rows(
                 aero_nom_num["CL"],
                 upper=float(cfg.max_cl_nominal),
             ),
+            constraint_record(
+                "Alpha turn bound",
+                alpha_turn_num,
+                upper=float(cfg.alpha_max_turn_deg),
+            ),
+            constraint_record("Turn CL cap", aero_turn_num["CL"], upper=float(cfg.max_cl_turn)),
+            constraint_record(
+                "Turn curvature margin (a_lat_ach - a_lat_req) >= 0",
+                turn_curvature_margin_num,
+                lower=0.0,
+            ),
+        ]
+    )
+
+    if policy.cm_trim_mode == "eq":
+        rows.append(
+            constraint_record(
+                "Turn Trim Cm == 0",
+                aero_turn_num["Cm"],
+                lower=0.0,
+                upper=0.0,
+                tol=1e-3,
+            )
+        )
+    else:
+        cm_tol = max(float(policy.cm_trim_tol), 0.0)
+        rows.append(
+            constraint_record(
+                "Turn Trim Cm tolerance",
+                aero_turn_num["Cm"],
+                lower=-cm_tol,
+                upper=cm_tol,
+            )
+        )
+
+    rows.extend(
+        [
+            constraint_record(
+                "Turn footprint in width",
+                turn_footprint_lhs_num,
+                upper=0.5 * float(cfg.arena_width_m),
+            ),
+            constraint_record(
+                "Turn bank-entry capture proxy",
+                bank_entry_phi_capture_proxy_deg_num,
+                lower=float(cfg.turn_bank_deg),
+            ),
+            constraint_record(
+                "Turn bank-entry margin",
+                bank_entry_margin_deg_num,
+                lower=float(policy.bank_entry_margin_min_deg),
+            ),
+            constraint_record("Turn bank-entry phi raw (diag)", bank_entry_phi_achieved_deg_num),
+            constraint_record("H-tail tip deflection proxy (diag)", delta_ht_tip_num),
+            constraint_record("H-tail tip deflection proxy allow (diag)", delta_ht_allow_num),
+            constraint_record("H-tail deflection proxy penalty (diag)", htail_deflection_penalty_num),
             constraint_record("L/D minimum", l_over_d_num, lower=float(cfg.min_l_over_d)),
             constraint_record(
                 "Wing loading minimum",
@@ -2671,9 +2731,18 @@ def build_constraint_audit_rows(
             constraint_record("Clb <= 0", aero_nom_num["Clb"], upper=CLB_MAX),
             constraint_record("Cnb >= 0", aero_nom_num["Cnb"], lower=CNB_MIN),
             constraint_record("Clp nominal <= -eps", aero_nom_num["Clp"], upper=-CLP_NEG_EPS),
-            constraint_record("Roll rate (diag)", roll_rate_num),
-            constraint_record("Roll accel0 (diag)", roll_accel_num),
-            constraint_record("Roll time constant (diag)", roll_tau_num),
+            constraint_record("Clp turn <= -eps", aero_turn_num["Clp"], upper=-CLP_NEG_EPS),
+            constraint_record(
+                "Roll rate minimum",
+                roll_rate_num,
+                lower=MIN_ROLL_RATE_RAD_S,
+            ),
+            constraint_record(
+                "Roll accel minimum",
+                roll_accel_num,
+                lower=MIN_ROLL_ACCEL_RAD_S2,
+            ),
+            constraint_record("Roll time constant", roll_tau_num, upper=float(cfg.max_roll_tau_s)),
             constraint_record(
                 "Aileron servo torque",
                 hinge_aileron_num,
@@ -2689,25 +2758,25 @@ def build_constraint_audit_rows(
                 hinge_rudder_num,
                 upper=servo_torque_available_nm,
             ),
-            # Turn-point quantities are kept as diagnostics only.
-            constraint_record("Turn alpha (diag)", alpha_turn_num),
-            constraint_record("Turn CL (diag)", aero_turn_num["CL"]),
-            constraint_record("Turn curvature margin (diag)", turn_curvature_margin_num),
-            constraint_record("Turn footprint lhs (diag)", turn_footprint_lhs_num),
-            constraint_record("Turn Cm (diag)", aero_turn_num["Cm"]),
-            constraint_record("Turn Clp (diag)", aero_turn_num["Clp"]),
-            constraint_record("Turn bank-entry capture proxy (diag)", bank_entry_phi_capture_proxy_deg_num),
-            constraint_record("Turn bank-entry margin (diag)", bank_entry_margin_deg_num),
-            constraint_record("Turn bank-entry phi raw (diag)", bank_entry_phi_achieved_deg_num),
-            constraint_record("Turn aileron trim util (diag)", abs(delta_a_turn_num)),
-            constraint_record("Turn elevator trim util (diag)", abs(delta_e_turn_num)),
-            constraint_record("Turn rudder trim util (diag)", abs(delta_r_turn_num)),
-            constraint_record("H-tail tip deflection proxy (diag)", delta_ht_tip_num),
-            constraint_record("H-tail tip deflection proxy allow (diag)", delta_ht_allow_num),
-            constraint_record("H-tail deflection proxy penalty (diag)", htail_deflection_penalty_num),
+            constraint_record(
+                "Turn aileron trim utilization",
+                abs(delta_a_turn_num),
+                upper=float(cfg.turn_deflection_util_max) * float(cfg.delta_a_max_deg),
+            ),
+            constraint_record(
+                "Turn elevator trim utilization",
+                abs(delta_e_turn_num),
+                upper=float(cfg.turn_deflection_util_max) * float(cfg.delta_e_max_deg),
+            ),
+            constraint_record(
+                "Turn rudder trim utilization",
+                abs(delta_r_turn_num),
+                upper=float(cfg.turn_deflection_util_max) * float(cfg.delta_r_max_deg),
+            ),
         ]
     )
     return rows
+
 def build_active_constraints_rows(
     constraint_rows: ReportRows,
     max_rows: int = 25,
@@ -3299,12 +3368,28 @@ def legacy_single_run_main(
         lower_bound=DELTA_R_MIN_DEG,
         upper_bound=DELTA_R_MAX_DEG,
     )
-    # Agility mission: no dedicated turn-trim decision variables.
-    # Turn-only metrics are evaluated diagnostically from the nominal trim state.
-    alpha_turn_deg = alpha_nom_deg
-    delta_a_turn_deg = delta_a_nom_deg
-    delta_e_turn_deg = delta_e_nom_deg
-    delta_r_turn_deg = delta_r_nom_deg
+
+    # Manoeuvre (turn) trim variables (used by manoeuvre feasibility constraints)
+    alpha_turn_deg = opti.variable(
+        init_guess=init_value("alpha_turn_deg", init_value("alpha_deg", 7.0)),
+        lower_bound=ALPHA_MIN_DEG,
+        upper_bound=ALPHA_MAX_TURN_DEG,
+    )
+    delta_a_turn_deg = opti.variable(
+        init_guess=init_value("delta_a_turn_deg", init_value("delta_a_deg", 0.0)),
+        lower_bound=DELTA_A_MIN_DEG,
+        upper_bound=DELTA_A_MAX_DEG,
+    )
+    delta_e_turn_deg = opti.variable(
+        init_guess=init_value("delta_e_turn_deg", init_value("delta_e_deg", 0.0)),
+        lower_bound=DELTA_E_MIN_DEG,
+        upper_bound=DELTA_E_MAX_DEG,
+    )
+    delta_r_turn_deg = opti.variable(
+        init_guess=init_value("delta_r_turn_deg", init_value("delta_r_deg", 0.0)),
+        lower_bound=DELTA_R_MIN_DEG,
+        upper_bound=DELTA_R_MAX_DEG,
+    )
 
     # Primary geometry design variables
     wing_span_m = opti.variable(
@@ -3341,6 +3426,10 @@ def legacy_single_run_main(
         "delta_a_nom_deg": delta_a_nom_deg,
         "delta_e_nom_deg": delta_e_nom_deg,
         "delta_r_nom_deg": delta_r_nom_deg,
+        "alpha_turn_deg": alpha_turn_deg,
+        "delta_a_turn_deg": delta_a_turn_deg,
+        "delta_e_turn_deg": delta_e_turn_deg,
+        "delta_r_turn_deg": delta_r_turn_deg,
         "wing_span_m": wing_span_m,
         "wing_chord_m": wing_chord_m,
         "tail_arm_m": tail_arm_m,
@@ -3627,6 +3716,7 @@ def legacy_single_run_main(
     k_sp = 50.0
     bank_entry_dt_s = stable_softplus(BANK_ENTRY_TIME_S - tau_turn_eff_s, sharpness=k_sp)
     bank_entry_phi_capture_proxy_rad = roll_rate_ss_turn_radps * bank_entry_dt_s
+    opti.subject_to(bank_entry_margin_rad >= 0.0)
 
     # Structural flexibility proxy: each half-wing is a semispan cantilever
     # with half of the total lift, modeled as a uniform line load.
@@ -3651,7 +3741,7 @@ def legacy_single_run_main(
         e_tape_pa=e_tape_pa,
         include_tape=TAPE_ENABLE_WING,
     )
-    wing_total_lift_n = np.maximum(aero_nom["L"], 0.0)
+    wing_total_lift_n = np.maximum(aero_turn["L"], 0.0)
     wing_half_load_n = 0.5 * wing_total_lift_n
     wing_line_load_n_m = wing_half_load_n / np.maximum(L_semispan_m, 1e-9)
     delta_tip_m = (
@@ -3681,7 +3771,7 @@ def legacy_single_run_main(
     )
 
     # Tail load proxy scaled with the actual turn lift demand (consistent with curvature feasibility)
-    F_ht_design_n = HT_LOAD_FRACTION * np.maximum(aero_nom["L"], 0.0)
+    F_ht_design_n = HT_LOAD_FRACTION * np.maximum(aero_turn["L"], 0.0)
     ht_half_load_n = 0.5 * F_ht_design_n
     ht_line_load_n_m = ht_half_load_n / np.maximum(L_ht_semispan_m, 1e-9)
 
@@ -3711,8 +3801,10 @@ def legacy_single_run_main(
     htail_deflection_penalty = objective_terms_expr["J_htail_deflection"]
     roll_tau_penalty = objective_terms_expr["J_roll_tau"]
     opti.minimize(objective)
-    # Feasibility constraints (nominal mission hard constraints only)
+
+    # Feasibility constraints
     trim_nom_constraints = list(trim_nom["constraints"])
+    trim_turn_constraints = list(trim_turn["constraints"])
 
     feasibility_constraints: list[tuple[str, Scalar]] = []
     feasibility_constraints.extend(
@@ -3739,16 +3831,60 @@ def legacy_single_run_main(
             ("clb_max", aero_nom["Clb"] <= CLB_MAX),
             ("cnb_min", aero_nom["Cnb"] >= CNB_MIN),
             ("clp_nominal_max", aero_nom["Clp"] <= -CLP_NEG_EPS),
+            ("clp_turn_max", aero_turn["Clp"] <= -CLP_NEG_EPS),
+            ("roll_rate_min", roll_rate_ss_radps >= MIN_ROLL_RATE_RAD_S),
+            ("roll_accel_min", roll_accel0_rad_s2 >= MIN_ROLL_ACCEL_RAD_S2),
+            ("roll_tau_max", roll_tau_s <= MAX_ROLL_TAU_S),
             ("Ixx_positive", total_mass.inertia_tensor[0, 0] >= 1e-8),
             ("Iyy_positive", total_mass.inertia_tensor[1, 1] >= 1e-8),
             ("Izz_positive", total_mass.inertia_tensor[2, 2] >= 1e-8),
             ("aileron_hinge_torque_max", hinge_moment_aileron_nm <= servo_torque_available_nm),
             ("elevator_hinge_torque_max", hinge_moment_elevator_nm <= servo_torque_available_nm),
             ("rudder_hinge_torque_max", hinge_moment_rudder_nm <= servo_torque_available_nm),
+            (
+                "turn_curvature_margin_nonnegative",
+                turn_curvature_margin_mps2 >= 0.0,
+            ),
+        ]
+    )
+    feasibility_constraints.extend(
+        [
+            (f"trim_turn[{idx + 1}]", c)
+            for idx, c in enumerate(trim_turn_constraints)
+        ]
+    )
+    feasibility_constraints.extend(
+        [
+            (
+                "delta_a_turn_min",
+                delta_a_turn_deg >= -TURN_DEFLECTION_UTIL_MAX * DELTA_A_MAX_DEG,
+            ),
+            (
+                "delta_a_turn_max",
+                delta_a_turn_deg <= TURN_DEFLECTION_UTIL_MAX * DELTA_A_MAX_DEG,
+            ),
+            (
+                "delta_e_turn_min",
+                delta_e_turn_deg >= -TURN_DEFLECTION_UTIL_MAX * DELTA_E_MAX_DEG,
+            ),
+            (
+                "delta_e_turn_max",
+                delta_e_turn_deg <= TURN_DEFLECTION_UTIL_MAX * DELTA_E_MAX_DEG,
+            ),
+            (
+                "delta_r_turn_min",
+                delta_r_turn_deg >= -TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG,
+            ),
+            (
+                "delta_r_turn_max",
+                delta_r_turn_deg <= TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG,
+            ),
+            ("bank_entry_margin_nonnegative", bank_entry_margin_rad >= 0.0),
         ]
     )
 
     opti.subject_to([expr for _, expr in feasibility_constraints])
+
     # IPOPT setup
     plugin_options = {"print_time": False, "verbose": False}
     solver_options = {
@@ -3776,12 +3912,18 @@ def legacy_single_run_main(
         if constraint_policy.cm_trim_mode == "eq"
         else float(constraint_policy.cm_trim_tol) - np.abs(aero_nom["Cm"])
     )
+    cm_tol_margin_turn = (
+        -np.abs(aero_turn["Cm"])
+        if constraint_policy.cm_trim_mode == "eq"
+        else float(constraint_policy.cm_trim_tol) - np.abs(aero_turn["Cm"])
+    )
+
     def print_failure_diagnostics() -> None:
         failed_flags: list[str] = []
         unavailable_flags = 0
         skipped_trim_constraints = 0
         for label, expr in feasibility_constraints:
-            if label.startswith("trim_nom["):
+            if label.startswith("trim_nom[") or label.startswith("trim_turn["):
                 skipped_trim_constraints += 1
                 continue
             try:
@@ -3815,6 +3957,23 @@ def legacy_single_run_main(
             ("vh_max", VH_MAX - tail_volume_horizontal),
             ("vv_min", tail_volume_vertical - VV_MIN),
             ("vv_max", VV_MAX - tail_volume_vertical),
+            ("turn_curvature_margin_mps2", turn_curvature_margin_mps2),
+            ("turn_cm_trim_margin", cm_tol_margin_turn),
+            ("turn_cl_cap_margin", TURN_CL_CAP - aero_turn["CL"]),
+            ("turn_footprint_margin_m", turn_footprint_margin),
+            ("bank_entry_margin_rad", bank_entry_margin_rad),
+            (
+                "turn_delta_a_margin_deg",
+                TURN_DEFLECTION_UTIL_MAX * DELTA_A_MAX_DEG - np.abs(delta_a_turn_deg),
+            ),
+            (
+                "turn_delta_e_margin_deg",
+                TURN_DEFLECTION_UTIL_MAX * DELTA_E_MAX_DEG - np.abs(delta_e_turn_deg),
+            ),
+            (
+                "turn_delta_r_margin_deg",
+                TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG - np.abs(delta_r_turn_deg),
+            ),
         ]
 
         margin_rows: list[tuple[str, float]] = []
@@ -3884,6 +4043,10 @@ def legacy_single_run_main(
             ("delta_a_nom_deg", delta_a_nom_deg, DELTA_A_MIN_DEG, DELTA_A_MAX_DEG, "deg"),
             ("delta_e_nom_deg", delta_e_nom_deg, DELTA_E_MIN_DEG, DELTA_E_MAX_DEG, "deg"),
             ("delta_r_nom_deg", delta_r_nom_deg, DELTA_R_MIN_DEG, DELTA_R_MAX_DEG, "deg"),
+            ("alpha_turn_deg", alpha_turn_deg, ALPHA_MIN_DEG, ALPHA_MAX_TURN_DEG, "deg"),
+            ("delta_a_turn_deg", delta_a_turn_deg, DELTA_A_MIN_DEG, DELTA_A_MAX_DEG, "deg"),
+            ("delta_e_turn_deg", delta_e_turn_deg, DELTA_E_MIN_DEG, DELTA_E_MAX_DEG, "deg"),
+            ("delta_r_turn_deg", delta_r_turn_deg, DELTA_R_MIN_DEG, DELTA_R_MAX_DEG, "deg"),
             ("wing_span_m", wing_span_m, WING_SPAN_MIN_M, WING_SPAN_MAX_M, "m"),
             ("wing_chord_m", wing_chord_m, WING_CHORD_MIN_M, WING_CHORD_MAX_M, "m"),
             ("tail_arm_m", tail_arm_m, TAIL_ARM_MIN_M, TAIL_ARM_MAX_M, "m"),
@@ -4014,15 +4177,14 @@ def legacy_single_run_main(
 
         initial_postcheck_exprs: dict[str, Scalar] = {
             "nom_lift_margin": aero_nom["L"] - total_mass.mass * G,
+            "turn_curvature_margin": turn_curvature_margin_mps2,
             "nom_cm": aero_nom["Cm"],
+            "turn_cm": aero_turn["Cm"],
             "nom_cl": aero_nom["Cl"],
             "nom_cn": aero_nom["Cn"],
-            "nom_cl_cap_margin": MAX_CL_AT_DESIGN_POINT - aero_nom["CL"],
-            # Agility mission diagnostics (not hard feasibility checks).
-            "turn_curvature_margin": turn_curvature_margin_mps2,
-            "turn_cm": aero_turn["Cm"],
             "turn_cl": aero_turn["Cl"],
             "turn_cn": aero_turn["Cn"],
+            "nom_cl_cap_margin": MAX_CL_AT_DESIGN_POINT - aero_nom["CL"],
             "turn_cl_cap_margin": TURN_CL_CAP - aero_turn["CL"],
             "bank_margin_rad": bank_entry_margin_rad,
             "footprint_margin": turn_footprint_margin,
@@ -4030,18 +4192,19 @@ def legacy_single_run_main(
 
         margin_specs: list[tuple[str, str, float, str]] = [
             ("nom_lift_margin", "ge", lift_tol_n, "N"),
+            ("turn_curvature_margin", "ge", margin_tol, "m/s^2"),
             ("nom_cm", "abs", cm_tol, "-"),
+            ("turn_cm", "abs", cm_tol, "-"),
             ("nom_cl", "abs", lat_tol, "-"),
             ("nom_cn", "abs", lat_tol, "-"),
-            ("nom_cl_cap_margin", "ge", cl_cap_tol, "-"),
-            ("turn_curvature_margin", "info", margin_tol, "m/s^2"),
-            ("turn_cm", "info", cm_tol, "-"),
             ("turn_cl", "info", lat_tol, "-"),
             ("turn_cn", "info", lat_tol, "-"),
-            ("turn_cl_cap_margin", "info", cl_cap_tol, "-"),
-            ("bank_margin_rad", "info", margin_tol, "rad"),
-            ("footprint_margin", "info", margin_tol, "m"),
+            ("nom_cl_cap_margin", "ge", cl_cap_tol, "-"),
+            ("turn_cl_cap_margin", "ge", cl_cap_tol, "-"),
+            ("bank_margin_rad", "ge", margin_tol, "rad"),
+            ("footprint_margin", "ge", margin_tol, "m"),
         ]
+
         margin_passed = 0
         margin_failed = 0
         margin_unavailable = 0
@@ -4193,7 +4356,7 @@ def legacy_single_run_main(
                     velocity_mps=float(velocity_mps),
                     alpha_deg=alpha_trim_deg,
                     mass_kg=float(trim_mass_kg),
-                    mode="nominal",
+                    mode="nominal" if prefix == "trim_nom" else "turn",
                     bank_angle_deg=float(bank_angle_deg),
                     lift_k=float(lift_k) if lift_k is not None else None,
                     cl_cap=float(cl_cap) if cl_cap is not None else None,
@@ -4282,25 +4445,68 @@ def legacy_single_run_main(
                     f"Cl={cl_value_lat:.6g}, Cn={cn_value_lat:.6g}",
                     flush=True,
                 )
-                print(
-                    f"    load: n={n_load_factor:.6g}, L_required={lift_required_n:.6g} N, "
-                    f"L_margin={lift_margin:.6g} N",
-                    flush=True,
-                )
+                if lift_k is not None:
+                    print(
+                        f"    load: n={n_load_factor:.6g}, L_required={lift_required_n:.6g} N, "
+                        f"L_margin={lift_margin:.6g} N",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"    load: n={n_load_factor:.6g}, L_required=disabled, L_margin=disabled",
+                        flush=True,
+                    )
                 if cl_cap_margin is not None:
                     print(
                         f"    CL cap: cap={float(cl_cap):.6g}, margin={cl_cap_margin:.6g}",
                         flush=True,
                     )
 
-                check_rows: list[tuple[str, bool, str]] = []
-                check_rows.append(
-                    (
-                        "lift_margin",
-                        bool(lift_margin >= -lift_tol_n),
-                        f"margin={lift_margin:.6g} N (tol={lift_tol_n:.3g})",
+                turn_curvature_margin: float | None = None
+                if lift_k is None:
+                    phi_turn_rad = float(onp.radians(bank_angle_deg))
+                    sin_phi_turn = float(onp.sin(phi_turn_rad))
+                    turn_radius_allow_raw = 0.5 * float(ARENA_WIDTH_M) - (
+                        0.5 * float(wing_span_init_m) + float(WALL_CLEARANCE_M)
                     )
-                )
+                    turn_radius_allow = max(turn_radius_allow_raw, 1e-6)
+                    a_lat_req = float(velocity_mps**2 / turn_radius_allow)
+                    a_lat_ach = float(lift_n * sin_phi_turn / max(float(trim_mass_kg), 1e-8))
+                    turn_curvature_margin = a_lat_ach - a_lat_req
+                    turn_radius_ach = float(velocity_mps**2 / max(a_lat_ach, 1e-6))
+                    turn_footprint_lhs = float(
+                        turn_radius_ach + 0.5 * float(wing_span_init_m) + float(WALL_CLEARANCE_M)
+                    )
+                    turn_footprint_margin = float(0.5 * float(ARENA_WIDTH_M) - turn_footprint_lhs)
+                    print(
+                        "    curvature: "
+                        f"R_allow={turn_radius_allow:.6g} m, a_lat_req={a_lat_req:.6g} m/s^2, "
+                        f"a_lat_ach={a_lat_ach:.6g} m/s^2, margin={turn_curvature_margin:.6g} m/s^2",
+                        flush=True,
+                    )
+                    print(
+                        "    footprint: "
+                        f"lhs={turn_footprint_lhs:.6g} m, margin={turn_footprint_margin:.6g} m",
+                        flush=True,
+                    )
+
+                check_rows: list[tuple[str, bool, str]] = []
+                if lift_k is not None:
+                    check_rows.append(
+                        (
+                            "lift_margin",
+                            bool(lift_margin >= -lift_tol_n),
+                            f"margin={lift_margin:.6g} N (tol={lift_tol_n:.3g})",
+                        )
+                    )
+                elif turn_curvature_margin is not None:
+                    check_rows.append(
+                        (
+                            "turn_curvature_margin",
+                            bool(turn_curvature_margin >= -1e-6),
+                            f"margin={turn_curvature_margin:.6g} m/s^2 (tol=1e-06)",
+                        )
+                    )
                 check_rows.append(
                     (
                         "cm_residual",
@@ -4367,6 +4573,23 @@ def legacy_single_run_main(
                 enforce_lateral_trim=constraint_policy.nom_lateral_trim,
                 use_coordinated_turn=False,
                 report_first_n=5,
+            )
+
+            run_trim_only_recheck(
+                label="turn",
+                prefix="trim_turn",
+                alpha_init_deg=float(debug_eval(alpha_turn_deg, use_initial=True)),
+                delta_a_init_deg=float(debug_eval(delta_a_turn_deg, use_initial=True)),
+                delta_e_init_deg=float(debug_eval(delta_e_turn_deg, use_initial=True)),
+                delta_r_init_deg=float(debug_eval(delta_r_turn_deg, use_initial=True)),
+                alpha_upper_bound_deg=ALPHA_MAX_TURN_DEG,
+                velocity_mps=V_TURN_MPS,
+                bank_angle_deg=TURN_BANK_DEG,
+                lift_k=None,  # no level-turn lift requirement; agility is enforced elsewhere via curvature constraint
+                cl_cap=TURN_CL_CAP,
+                enforce_lateral_trim=False,
+                use_coordinated_turn=False,
+                report_first_n=3,
             )
         except Exception as exc:
             print(f"  Trim-only solve recheck unavailable ({exc})", flush=True)
@@ -4770,6 +4993,34 @@ def legacy_single_run_main(
         design_variable_boundary_record(
             name="delta_r_nom_deg",
             value=delta_r_nom_num,
+            lower=DELTA_R_MIN_DEG,
+            upper=DELTA_R_MAX_DEG,
+            unit="deg",
+        ),
+        design_variable_boundary_record(
+            name="alpha_turn_deg",
+            value=alpha_turn_num,
+            lower=ALPHA_MIN_DEG,
+            upper=ALPHA_MAX_TURN_DEG,
+            unit="deg",
+        ),
+        design_variable_boundary_record(
+            name="delta_a_turn_deg",
+            value=delta_a_turn_num,
+            lower=DELTA_A_MIN_DEG,
+            upper=DELTA_A_MAX_DEG,
+            unit="deg",
+        ),
+        design_variable_boundary_record(
+            name="delta_e_turn_deg",
+            value=delta_e_turn_num,
+            lower=DELTA_E_MIN_DEG,
+            upper=DELTA_E_MAX_DEG,
+            unit="deg",
+        ),
+        design_variable_boundary_record(
+            name="delta_r_turn_deg",
+            value=delta_r_turn_num,
             lower=DELTA_R_MIN_DEG,
             upper=DELTA_R_MAX_DEG,
             unit="deg",
@@ -5509,6 +5760,10 @@ def sample_initial_guess(rng: onp.random.Generator) -> dict[str, float]:
         delta_a_nom_deg = float(rng.uniform(DELTA_A_MIN_DEG, DELTA_A_MAX_DEG))
         delta_e_nom_deg = float(rng.uniform(DELTA_E_MIN_DEG, DELTA_E_MAX_DEG))
         delta_r_nom_deg = float(rng.uniform(DELTA_R_MIN_DEG, DELTA_R_MAX_DEG))
+        alpha_turn_deg = float(rng.uniform(ALPHA_MIN_DEG, ALPHA_MAX_TURN_DEG))
+        delta_a_turn_deg = float(rng.uniform(DELTA_A_MIN_DEG, DELTA_A_MAX_DEG))
+        delta_e_turn_deg = float(rng.uniform(DELTA_E_MIN_DEG, DELTA_E_MAX_DEG))
+        delta_r_turn_deg = float(rng.uniform(DELTA_R_MIN_DEG, DELTA_R_MAX_DEG))
         wing_span_m = float(rng.uniform(WING_SPAN_MIN_M, min(WING_SPAN_MAX_M, 0.85)))
         wing_chord_m = float(rng.uniform(WING_CHORD_MIN_M, WING_CHORD_MAX_M))
         tail_arm_m = float(rng.uniform(TAIL_ARM_MIN_M, TAIL_ARM_MAX_M))
@@ -5578,6 +5833,34 @@ def sample_initial_guess(rng: onp.random.Generator) -> dict[str, float]:
             sigma_frac=0.07,
             min_sigma=1.2,
         )
+        alpha_turn_deg = sample_bounded(
+            "alpha_turn_deg",
+            ALPHA_MIN_DEG,
+            ALPHA_MAX_TURN_DEG,
+            sigma_frac=0.08,
+            min_sigma=0.5,
+        )
+        delta_a_turn_deg = sample_bounded(
+            "delta_a_turn_deg",
+            DELTA_A_MIN_DEG,
+            DELTA_A_MAX_DEG,
+            sigma_frac=0.08,
+            min_sigma=1.5,
+        )
+        delta_e_turn_deg = sample_bounded(
+            "delta_e_turn_deg",
+            DELTA_E_MIN_DEG,
+            DELTA_E_MAX_DEG,
+            sigma_frac=0.08,
+            min_sigma=1.5,
+        )
+        delta_r_turn_deg = sample_bounded(
+            "delta_r_turn_deg",
+            DELTA_R_MIN_DEG,
+            DELTA_R_MAX_DEG,
+            sigma_frac=0.08,
+            min_sigma=1.5,
+        )
 
     return {
         "wing_span_m": wing_span_m,
@@ -5589,6 +5872,10 @@ def sample_initial_guess(rng: onp.random.Generator) -> dict[str, float]:
         "delta_a_nom_deg": delta_a_nom_deg,
         "delta_e_nom_deg": delta_e_nom_deg,
         "delta_r_nom_deg": delta_r_nom_deg,
+        "alpha_turn_deg": alpha_turn_deg,
+        "delta_a_turn_deg": delta_a_turn_deg,
+        "delta_e_turn_deg": delta_e_turn_deg,
+        "delta_r_turn_deg": delta_r_turn_deg,
         # Legacy aliases retained for backward compatibility with old init files.
         "alpha_deg": alpha_nom_deg,
         "delta_a_deg": delta_a_nom_deg,
@@ -6477,12 +6764,27 @@ def robust_in_loop_optimize(
             lower_bound=u_r_nom_min,
             upper_bound=u_r_nom_max,
         )
-        # Agility mission: robust-in-loop uses only nominal trim decision variables.
-        # Turn-point quantities are derived from the nominal commands for soft diagnostics.
-        alpha_turn_deg = alpha_nom_deg
-        u_a_turn_deg = u_a_nom_deg
-        u_e_turn_deg = u_e_nom_deg
-        u_r_turn_deg = u_r_nom_deg
+
+        alpha_turn_deg = opti.variable(
+            init_guess=float(onp.clip(init_value("alpha_turn_deg", 7.0), alpha_turn_lb, alpha_turn_ub)),
+            lower_bound=alpha_turn_lb,
+            upper_bound=alpha_turn_ub,
+        )
+        u_a_turn_deg = opti.variable(
+            init_guess=float(onp.clip(u_a_turn_seed, u_a_turn_min, u_a_turn_max)),
+            lower_bound=u_a_turn_min,
+            upper_bound=u_a_turn_max,
+        )
+        u_e_turn_deg = opti.variable(
+            init_guess=float(onp.clip(u_e_turn_seed, u_e_turn_min, u_e_turn_max)),
+            lower_bound=u_e_turn_min,
+            upper_bound=u_e_turn_max,
+        )
+        u_r_turn_deg = opti.variable(
+            init_guess=float(onp.clip(u_r_turn_seed, u_r_turn_min, u_r_turn_max)),
+            lower_bound=u_r_turn_min,
+            upper_bound=u_r_turn_max,
+        )
 
         delta_a_nom_eff_deg = bias_a_deg + eff_a * u_a_nom_deg
         delta_e_nom_eff_deg = bias_e_deg + eff_e * u_e_nom_deg
@@ -6568,6 +6870,8 @@ def robust_in_loop_optimize(
         )
 
         all_constraints.extend(trim_nom["constraints"])
+        all_constraints.extend(trim_turn["constraints"])
+        all_constraints.append(turn_curvature_margin >= 0.0)
 
         sink_nom_s = (
             np.maximum(trim_nom["aero"]["D"], 1e-3)
@@ -6782,23 +7086,35 @@ def robust_in_loop_optimize(
 
     for check in postcheck_exprs:
         max_violation = max(max_violation, max(0.0, -solved_value(check["nom_lift_margin"])))
+        max_violation = max(max_violation, max(0.0, -solved_value(check["turn_curvature_margin"])))
         max_violation = max(max_violation, max(0.0, abs(solved_value(check["nom_cm"])) - strict_eq_tol))
+        max_violation = max(max_violation, max(0.0, abs(solved_value(check["turn_cm"])) - strict_eq_tol))
         max_violation = max(max_violation, max(0.0, abs(solved_value(check["nom_cl"])) - strict_eq_tol))
         max_violation = max(max_violation, max(0.0, abs(solved_value(check["nom_cn"])) - strict_eq_tol))
         max_violation = max(max_violation, max(0.0, -solved_value(check["nom_cl_cap_margin"])))
+        max_violation = max(max_violation, max(0.0, -solved_value(check["turn_cl_cap_margin"])))
+        max_violation = max(max_violation, max(0.0, -solved_value(check["footprint_margin"])))
+        max_violation = max(max_violation, max(0.0, -solved_value(check["bank_margin_rad"])))
 
         nom_alpha_eff = solved_value(check["nom_alpha_eff"])
+        turn_alpha_eff = solved_value(check["turn_alpha_eff"])
         max_violation = max(max_violation, max(0.0, ALPHA_MIN_DEG - nom_alpha_eff - strict_margin_tol))
         max_violation = max(max_violation, max(0.0, nom_alpha_eff - ALPHA_MAX_DEG - strict_margin_tol))
+        max_violation = max(max_violation, max(0.0, ALPHA_MIN_DEG - turn_alpha_eff - strict_margin_tol))
+        max_violation = max(max_violation, max(0.0, turn_alpha_eff - ALPHA_MAX_TURN_DEG - strict_margin_tol))
 
         for key, lower, upper in [
             ("delta_a_nom_eff", DELTA_A_MIN_DEG, DELTA_A_MAX_DEG),
             ("delta_e_nom_eff", DELTA_E_MIN_DEG, DELTA_E_MAX_DEG),
             ("delta_r_nom_eff", DELTA_R_MIN_DEG, DELTA_R_MAX_DEG),
+            ("delta_a_turn_eff", DELTA_A_MIN_DEG, DELTA_A_MAX_DEG),
+            ("delta_e_turn_eff", DELTA_E_MIN_DEG, DELTA_E_MAX_DEG),
+            ("delta_r_turn_eff", DELTA_R_MIN_DEG, DELTA_R_MAX_DEG),
         ]:
             val = solved_value(check[key])
             max_violation = max(max_violation, max(0.0, lower - val - strict_margin_tol))
             max_violation = max(max_violation, max(0.0, val - upper - strict_margin_tol))
+
     if max_violation > strict_margin_tol:
         _LAST_SOLVE_FAILURE_REASON = "postcheck_failed"
         print(f"[robust-opt] strict postcheck failed (max_violation={max_violation:.3e})", flush=True)
@@ -7258,8 +7574,8 @@ def trim_candidate_at_point(
         opti.bounded(-rate_limit_deg, u_e_deg - u_e_init, rate_limit_deg),
         opti.bounded(-rate_limit_deg, u_r_deg - u_r_init, rate_limit_deg),
     ]
+
     if point == "turn":
-        # Curvature/footprint are diagnostic-only in agility mission mode.
         sin_phi_turn = float(onp.sin(phi_turn_rad))
         turn_radius_allow_raw = 0.5 * float(ARENA_WIDTH_M) - (
             0.5 * float(candidate.wing_span_m) + float(WALL_CLEARANCE_M)
@@ -7267,6 +7583,8 @@ def trim_candidate_at_point(
         turn_radius_allow = max(turn_radius_allow_raw, 1e-6)
         a_lat_req = float(velocity_mps**2 / turn_radius_allow)
         a_lat_ach = aero["L"] * sin_phi_turn / np.maximum(mass_scale * candidate.mass_total_kg, 1e-8)
+        constraints.append(a_lat_ach - a_lat_req >= 0.0)
+
     opti.subject_to(constraints)
     opti.solver(
         "ipopt",
@@ -8777,31 +9095,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
