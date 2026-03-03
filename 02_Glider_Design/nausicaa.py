@@ -41,15 +41,15 @@ N_ALPHA = 25
 MAKE_PLOTS = True
 PLOT_DPI = 1000
 RUN_WORKFLOW = False
-ENABLE_INITIAL_DESIGN_CHECK = True
-ENABLE_OPTIMIZATION_AFTER_INITIAL_CHECK = False
+ENABLE_INITIAL_DESIGN_CHECK = False
+ENABLE_OPTIMIZATION_AFTER_INITIAL_CHECK = True
 INITIAL_CHECK_EXPECTED_NLP_BOUNDS = 72
 IPOPT_VERBOSE = False
 IPOPT_VERBOSE_PRINT_LEVEL = 5
 
 
 # Manual note for this run (edit before executing)
-MANUAL_RUN_NOTE = "v3.5.1"
+MANUAL_RUN_NOTE = "v3.5.5"
 MANUAL_RUN_NOTE_PRINT = True
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -62,18 +62,19 @@ ARENA_LENGTH_M = 8.4
 ARENA_WIDTH_M = 4.8
 ARENA_HEIGHT_M = 3.5
 
-# Two-speed design points
-V_TURN_MPS = 3.6
-V_NOM_MPS = 4.0
+# Fixed mission speed (single-speed agility mission)
+V_NOM_MPS = 6.0
+# Legacy diagnostic alias kept for compatibility with existing reports.
+V_TURN_MPS = V_NOM_MPS
 
 # Manoeuvre definition (banked-turn agility / curvature feasibility)
 TURN_BANK_DEG = 50.0
-WALL_CLEARANCE_M = 0.30
+WALL_CLEARANCE_M = 0.50
 TURN_DEFLECTION_UTIL_MAX = 0.80
 # Manoeuvre agility target: time to reach design bank angle at V_TURN_MPS.
 # Converted to a minimum steady-state roll-rate requirement.
 BANK_ENTRY_TIME_S = 0.7
-CM_TRIM_TOL = 0.08
+CM_TRIM_TOL = 0.001
 
 # Stall / margin settings for manoeuvre case
 TURN_ALPHA_MARGIN_DEG = 4.0
@@ -280,7 +281,7 @@ SERVO_ARM_M = 0.004
 CONTROL_HORN_ARM_M = 0.008
 
 # Objective-function weights
-MASS_WEIGHT_IN_OBJECTIVE = 0.20
+MASS_WEIGHT_IN_OBJECTIVE = 0.40
 BALLAST_WEIGHT_IN_OBJECTIVE = 0.40
 # Switch for mass penalty term:
 # True  -> use total aircraft mass in objective
@@ -294,14 +295,14 @@ MASS_PENALTY_WING_BOOM_COMPONENT_KEYS = (
     "wing_tape_top",
     "boom",
 )
-CONTROL_TRIM_WEIGHT = 2e-4
-STRUCT_DEFLECTION_WEIGHT = 5
-ROLL_TAU_WEIGHT_IN_OBJECTIVE = 0.05
+CONTROL_TRIM_WEIGHT = 5e-4
+STRUCT_DEFLECTION_WEIGHT = 0.5
+ROLL_TAU_WEIGHT_IN_OBJECTIVE = 0.2
 WING_DEFLECTION_ALLOW_FRAC = 0.08
 # Horizontal-tail stiffness proxy (soft regularizer)
 HT_LOAD_FRACTION = 0.25            # k_H in F = k_H * L_turn (start 0.20-0.35)
 HT_DEFLECTION_ALLOW_FRAC = 0.08    # allowed tip deflection fraction of semispan
-HT_STRUCT_DEFLECTION_WEIGHT = 1
+HT_STRUCT_DEFLECTION_WEIGHT = 0.1
 HTAIL_E_SECANT_PA = FOAM_ESEC10_G3_PA  # tail foam secant modulus (3 mm Depron proxy)
 SOFTPLUS_K = 25.0
 BOUNDARY_HIT_REL_TOL = 1e-3
@@ -324,8 +325,8 @@ WEIGHT_SWEEP_SEED_OFFSET = 10_000
 
 # Robust-in-loop optimization defaults
 ROBUST_OPT_DEFAULT_SCENARIOS = 8
-ROBUST_OPT_MIN_SCENARIOS = 6
-ROBUST_OPT_MAX_SCENARIOS = 10
+ROBUST_OPT_MIN_SCENARIOS = 4
+ROBUST_OPT_MAX_SCENARIOS = 8
 ROBUST_OPT_SCENARIO_POOL_MULTIPLIER = 8
 ROBUST_OPT_CVAR_TAIL_FRACTION = 0.20
 ROBUST_OPT_SINK_MEAN_WEIGHT = 0.10
@@ -655,12 +656,6 @@ class RobustSummary:
     sink_std: float
     sink_worst: float
     sink_cvar_20: float
-    max_turn_util_worst: float
-    max_turn_control_util_max_worst: float
-    max_turn_control_util_violation_worst: float
-    min_turn_bank_entry_margin_deg_worst: float
-    min_turn_alpha_margin_worst: float
-    max_turn_wing_deflection_proxy_over_allow_worst: float
     max_roll_tau_worst: float
     max_delta_e_util_worst: float
     max_alpha_worst: float
@@ -2568,7 +2563,7 @@ def build_constraint_audit_rows(
     aero_turn_num: AeroMap,
     mass_total_num: float,
     alpha_turn_num: float,
-    turn_curvature_margin_num: float,
+    agility_lateral_margin_num: float,
     turn_footprint_lhs_num: float,
     bank_entry_phi_capture_proxy_deg_num: float,
     bank_entry_margin_deg_num: float,
@@ -2692,7 +2687,7 @@ def build_constraint_audit_rows(
             # Turn-point quantities are kept as diagnostics only.
             constraint_record("Turn alpha (diag)", alpha_turn_num),
             constraint_record("Turn CL (diag)", aero_turn_num["CL"]),
-            constraint_record("Turn curvature margin (diag)", turn_curvature_margin_num),
+            constraint_record("Agility lateral margin (diag)", agility_lateral_margin_num),
             constraint_record("Turn footprint lhs (diag)", turn_footprint_lhs_num),
             constraint_record("Turn Cm (diag)", aero_turn_num["Cm"]),
             constraint_record("Turn Clp (diag)", aero_turn_num["Clp"]),
@@ -3033,28 +3028,56 @@ def make_plots(
         mass_copy.pop("ballast")
 
     labels = [name.replace("_", " ").title() for name in mass_copy.keys()]
-    values = [component.mass for component in mass_copy.values()]
+    values = [max(float(to_scalar(component.mass)), 0.0) for component in mass_copy.values()]
 
-    pretty.pie(
-        values=values,
-        names=labels,
-        center_text=(
-            f"$\\bf{{Mass\\ Budget}}$\n"
-            f"TOGW: {to_scalar(total_mass.mass) * 1e3:.2f} g"
-        ),
-        label_format=(
-            lambda name, value, percentage: (
-                f"{name}, {value * 1e3:.2f} g, {percentage:.1f}%"
-            )
-        ),
-        startangle=110,
-        arm_length=30,
-        arm_radius=20,
-        y_max_labels=1.1,
+    if not values or sum(values) <= 0.0:
+        labels = ["Total"]
+        values = [max(float(to_scalar(total_mass.mass)), 1e-9)]
+
+    center_text = (
+        f"$\\bf{{Mass\\ Budget}}$\n"
+        f"TOGW: {to_scalar(total_mass.mass) * 1e3:.2f} g"
     )
 
+    try:
+        pretty.pie(
+            values=values,
+            names=labels,
+            center_text=center_text,
+            label_format=(
+                lambda name, value, percentage: (
+                    f"{name}, {value * 1e3:.2f} g, {percentage:.1f}%"
+                )
+            ),
+            startangle=110,
+            arm_length=30,
+            arm_radius=20,
+            y_max_labels=1.1,
+        )
+    except Exception:
+        ax = plt.gca()
+        ax.clear()
+        wedges, _texts = ax.pie(values, startangle=110)
+        ax.axis("equal")
+        total_val = max(sum(values), 1e-12)
+        legend_labels = [
+            f"{name}, {value * 1e3:.2f} g, {100.0 * value / total_val:.1f}%"
+            for name, value in zip(labels, values)
+        ]
+        ax.legend(
+            wedges,
+            legend_labels,
+            loc="center left",
+            bbox_to_anchor=(1.0, 0.5),
+            frameon=False,
+        )
+        ax.text(0.0, 0.0, center_text, ha="center", va="center")
+
     mass_plot_path = FIGURES_DIR / "mass_budget.png"
-    pretty.show_plot(show=False, savefig=str(mass_plot_path))
+    try:
+        pretty.show_plot(show=False, savefig=str(mass_plot_path))
+    except Exception:
+        plt.savefig(str(mass_plot_path), dpi=PLOT_DPI, bbox_inches="tight")
     figure_outputs["mass_budget"] = mass_plot_path
 
     plt.close("all")
@@ -3299,13 +3322,6 @@ def legacy_single_run_main(
         lower_bound=DELTA_R_MIN_DEG,
         upper_bound=DELTA_R_MAX_DEG,
     )
-    # Agility mission: no dedicated turn-trim decision variables.
-    # Turn-only metrics are evaluated diagnostically from the nominal trim state.
-    alpha_turn_deg = alpha_nom_deg
-    delta_a_turn_deg = delta_a_nom_deg
-    delta_e_turn_deg = delta_e_nom_deg
-    delta_r_turn_deg = delta_r_nom_deg
-
     # Primary geometry design variables
     wing_span_m = opti.variable(
         init_guess=init_value("wing_span_m", 0.80),
@@ -3380,13 +3396,6 @@ def legacy_single_run_main(
             "rudder": delta_r_nom_deg,
         }
     )
-    airplane_turn = airplane_base.with_control_deflections(
-        {
-            "aileron": delta_a_turn_deg,
-            "elevator": delta_e_turn_deg,
-            "rudder": delta_r_turn_deg,
-        }
-    )
 
     atmos = asb.Atmosphere(altitude=0.0)
 
@@ -3424,28 +3433,10 @@ def legacy_single_run_main(
         cfg=cfg,
         policy=constraint_policy,
     )
-    trim_turn = build_trim_constraints_and_metrics(
-        opti=opti,
-        airplane=airplane_turn,
-        xyz_ref=total_mass.xyz_cg,
-        velocity_mps=V_TURN_MPS,
-        alpha_deg=alpha_turn_deg,
-        mass_kg=total_mass.mass,
-        mode="turn",
-        bank_angle_deg=TURN_BANK_DEG,
-        lift_k=None,  # turn feasibility enforced by curvature constraint (agility), not level-turn lift
-        cl_cap=TURN_CL_CAP,
-        enforce_lateral_trim=False,
-        use_coordinated_turn=False,  # no coordinated-turn yaw-rate assumption
-        atmosphere=atmos,
-        cfg=cfg,
-        policy=constraint_policy,
-    )
 
     op_point_nom = trim_nom["op_point"]
-    op_point_turn = trim_turn["op_point"]
     aero_nom = trim_nom["aero"]
-    aero_turn = trim_turn["aero"]
+    aero_turn = aero_nom
 
     # Derived performance and stability metrics
     wing_area_m2 = wing.area()
@@ -3584,31 +3575,8 @@ def legacy_single_run_main(
         + 0.15 * delta_a_nom_deg ** 2
     )
 
-    # -------------------------------------------------------------------------
-    # Arena agility (curvature) feasibility at the turn design point:
-    # Require sufficient lateral acceleration to fit within arena width.
-    # -------------------------------------------------------------------------
-    phi_turn_rad = trim_turn["bank_angle_rad"]  # fixed bank angle in radians (float)
-    sin_phi_turn = float(np.sin(phi_turn_rad))
-
-    # Maximum allowable turn radius in the arena width (geometry constraint).
-    # A softplus keeps the denominator positive and smooth near the geometric limit.
-    turn_radius_allow_raw_m = 0.5 * ARENA_WIDTH_M - (0.5 * wing_span_m + WALL_CLEARANCE_M)
-    turn_radius_allow_m = stable_softplus(turn_radius_allow_raw_m, SOFTPLUS_K) + 1e-6
-
-    # Required lateral acceleration for that allowable radius at V_TURN:
-    a_lat_req_mps2 = V_TURN_MPS**2 / turn_radius_allow_m
-
-    # Achievable lateral acceleration from available lift at the turn trim point:
-    a_lat_ach_mps2 = aero_turn["L"] * sin_phi_turn / np.maximum(total_mass.mass, 1e-8)
-
-    # Margin (>=0 is feasible)
-    turn_curvature_margin_mps2 = a_lat_ach_mps2 - a_lat_req_mps2
-
-    # For reporting / footprint values (not used as the primary constraint):
-    turn_radius_ach_m = V_TURN_MPS**2 / np.maximum(a_lat_ach_mps2, 1e-6)
-    turn_footprint_lhs_m = turn_radius_ach_m + 0.5 * wing_span_m + WALL_CLEARANCE_M
-    turn_footprint_margin = 0.5 * ARENA_WIDTH_M - turn_footprint_lhs_m
+    # Agility target reference bank angle for nominal roll-response proxy.
+    phi_turn_rad = np.radians(TURN_BANK_DEG)
 
     # Smooth tau floor (avoid np.maximum kink)
     TAU_FLOOR_S = 1e-4
@@ -3770,7 +3738,6 @@ def legacy_single_run_main(
             return to_scalar(opti.debug.value(expr))
         return to_scalar(opti.value(expr, opti.initial()))
 
-    # turn_footprint_margin is already computed from achieved curvature (see curvature block above)
     cm_tol_margin_nom = (
         -np.abs(aero_nom["Cm"])
         if constraint_policy.cm_trim_mode == "eq"
@@ -3865,11 +3832,6 @@ def legacy_single_run_main(
             ("bank_entry_margin_rad", bank_entry_margin_rad, "rad"),
             ("bank_entry_phi_capture_proxy_rad", bank_entry_phi_capture_proxy_rad, "rad"),
             ("bank_entry_phi_achieved_rad", bank_entry_phi_achieved_rad, "rad"),
-            ("turn_radius_allow_raw_m", turn_radius_allow_raw_m, "m"),
-            ("turn_radius_allow_m", turn_radius_allow_m, "m"),
-            ("turn_radius_ach_m", turn_radius_ach_m, "m"),
-            ("turn_footprint_m", turn_footprint_lhs_m, "m"),
-            ("turn_curvature_margin_mps2", turn_curvature_margin_mps2, "m/s^2"),
         ]
         for label, expr, unit in design_value_specs:
             try:
@@ -4019,13 +3981,7 @@ def legacy_single_run_main(
             "nom_cn": aero_nom["Cn"],
             "nom_cl_cap_margin": MAX_CL_AT_DESIGN_POINT - aero_nom["CL"],
             # Agility mission diagnostics (not hard feasibility checks).
-            "turn_curvature_margin": turn_curvature_margin_mps2,
-            "turn_cm": aero_turn["Cm"],
-            "turn_cl": aero_turn["Cl"],
-            "turn_cn": aero_turn["Cn"],
-            "turn_cl_cap_margin": TURN_CL_CAP - aero_turn["CL"],
             "bank_margin_rad": bank_entry_margin_rad,
-            "footprint_margin": turn_footprint_margin,
         }
 
         margin_specs: list[tuple[str, str, float, str]] = [
@@ -4034,13 +3990,7 @@ def legacy_single_run_main(
             ("nom_cl", "abs", lat_tol, "-"),
             ("nom_cn", "abs", lat_tol, "-"),
             ("nom_cl_cap_margin", "ge", cl_cap_tol, "-"),
-            ("turn_curvature_margin", "info", margin_tol, "m/s^2"),
-            ("turn_cm", "info", cm_tol, "-"),
-            ("turn_cl", "info", lat_tol, "-"),
-            ("turn_cn", "info", lat_tol, "-"),
-            ("turn_cl_cap_margin", "info", cl_cap_tol, "-"),
             ("bank_margin_rad", "info", margin_tol, "rad"),
-            ("footprint_margin", "info", margin_tol, "m"),
         ]
         margin_passed = 0
         margin_failed = 0
@@ -4590,10 +4540,10 @@ def legacy_single_run_main(
     delta_a_nom_num = to_scalar(solution(delta_a_nom_deg))
     delta_e_nom_num = to_scalar(solution(delta_e_nom_deg))
     delta_r_nom_num = to_scalar(solution(delta_r_nom_deg))
-    alpha_turn_num = to_scalar(solution(alpha_turn_deg))
-    delta_a_turn_num = to_scalar(solution(delta_a_turn_deg))
-    delta_e_turn_num = to_scalar(solution(delta_e_turn_deg))
-    delta_r_turn_num = to_scalar(solution(delta_r_turn_deg))
+    alpha_turn_num = alpha_nom_num
+    delta_a_turn_num = delta_a_nom_num
+    delta_e_turn_num = delta_e_nom_num
+    delta_r_turn_num = delta_r_nom_num
     wing_span_design_num = to_scalar(solution(wing_span_m))
     wing_chord_design_num = to_scalar(solution(wing_chord_m))
     tail_arm_design_num = to_scalar(solution(tail_arm_m))
@@ -4679,7 +4629,7 @@ def legacy_single_run_main(
 
     # Achievable lateral acceleration from solved turn lift
     a_lat_ach_num = (
-        float(max(float(aero_turn_num["L"]), 0.0))
+        float(max(float(aero_nom_num["L"]), 0.0))
         * sin_phi_turn_num
         / max(float(mass_total_num), 1e-8)
     )
@@ -4689,7 +4639,7 @@ def legacy_single_run_main(
     turn_footprint_lhs_num = turn_radius_ach_num + 0.5 * float(wing_span_design_num) + float(WALL_CLEARANCE_M)
 
     # Curvature margin
-    turn_curvature_margin_num = a_lat_ach_num - a_lat_req_num
+    agility_lateral_margin_num = a_lat_ach_num - a_lat_req_num
 
     # No coordinated-turn yaw-rate assumed in the turn trim point
     yaw_rate_turn_num = 0.0
@@ -4711,7 +4661,7 @@ def legacy_single_run_main(
     turn_cl_delta_a_fd = cl_delta_a_finite_difference(
         airplane_base=airplane_base_num,
         xyz_ref=xyz_ref_num,
-        velocity_mps=V_TURN_MPS,
+        velocity_mps=V_NOM_MPS,
         alpha_deg=float(alpha_turn_num),
         delta_a_center_deg=float(delta_a_turn_num),
         delta_e_deg=float(delta_e_turn_num),
@@ -4890,7 +4840,7 @@ def legacy_single_run_main(
         {"Metric": "a_lat_ach_mps2", "Value": a_lat_ach_num, "Unit": "m/s^2"},
         {"Metric": "turn_radius_ach_m", "Value": turn_radius_ach_num, "Unit": "m"},
         {"Metric": "turn_footprint_lhs_m", "Value": turn_footprint_lhs_num, "Unit": "m"},
-        {"Metric": "turn_curvature_margin_mps2", "Value": turn_curvature_margin_num, "Unit": "m/s^2"},
+        {"Metric": "agility_lateral_margin_mps2", "Value": agility_lateral_margin_num, "Unit": "m/s^2"},
         {"Metric": "turn_CL", "Value": to_scalar(aero_turn_num["CL"]), "Unit": "-"},
         {
             "Metric": "wing_loading_n_m2",
@@ -5160,7 +5110,7 @@ def legacy_single_run_main(
         aero_turn_num=aero_turn_num,
         mass_total_num=float(mass_total_num),
         alpha_turn_num=float(alpha_turn_num),
-        turn_curvature_margin_num=float(turn_curvature_margin_num),
+        agility_lateral_margin_num=float(agility_lateral_margin_num),
         turn_footprint_lhs_num=float(turn_footprint_lhs_num),
         bank_entry_phi_capture_proxy_deg_num=float(bank_entry_phi_capture_proxy_deg_num),
         bank_entry_margin_deg_num=float(bank_entry_margin_deg_num),
@@ -5323,8 +5273,8 @@ def legacy_single_run_main(
         },
         {
             "DesignPoint": "Manoeuvre",
-            "Metric": "turn_curvature_margin_mps2",
-            "Value": turn_curvature_margin_num,
+            "Metric": "agility_lateral_margin_mps2",
+            "Value": agility_lateral_margin_num,
             "Unit": "m/s^2",
         },
         {
@@ -6336,19 +6286,17 @@ def robust_in_loop_optimize(
         1e-8,
     )
 
-    q_dyn_turn = 0.5 * RHO * V_TURN_MPS**2
-    delta_a_turn_cmd_deg = float(config.turn_deflection_util) * DELTA_A_MAX_DEG
-    delta_a_turn_rate_limited_deg = float(config.servo_rate_deg_s) * BANK_ENTRY_TIME_S
+    q_dyn_agility = 0.5 * RHO * V_NOM_MPS**2
+    delta_a_agility_cmd_deg = float(config.turn_deflection_util) * DELTA_A_MAX_DEG
+    delta_a_agility_rate_limited_deg = float(config.servo_rate_deg_s) * BANK_ENTRY_TIME_S
     if INCLUDE_SERVO_RATE_IN_BANK_ENTRY:
-        delta_a_roll_cmd_deg = min(delta_a_turn_cmd_deg, delta_a_turn_rate_limited_deg)
+        delta_a_roll_cmd_deg = min(delta_a_agility_cmd_deg, delta_a_agility_rate_limited_deg)
     else:
-        delta_a_roll_cmd_deg = delta_a_turn_cmd_deg
+        delta_a_roll_cmd_deg = delta_a_agility_cmd_deg
 
     scenario_rows = scenarios_df.to_dict(orient="records")
 
     sink_nom_values: list[Scalar] = []
-    bank_margin_penalties: list[Scalar] = []
-    turn_util_penalties: list[Scalar] = []
     trim_constraint_penalties: list[Scalar] = []
     nom_lateral_penalties: list[Scalar] = []
     trim_effort_nom_terms: list[Scalar] = []
@@ -6357,10 +6305,9 @@ def robust_in_loop_optimize(
 
     first_vars: dict[str, Scalar] = {}
     first_trim_nom: dict[str, Any] | None = None
-    first_trim_turn: dict[str, Any] | None = None
     first_airplane_nom: asb.Airplane | None = None
-    first_roll_tau_turn: Scalar = float("nan")
-    first_roll_rate_ss_turn: Scalar = float("nan")
+    first_roll_tau_proxy: Scalar = float("nan")
+    first_roll_rate_ss_proxy: Scalar = float("nan")
     first_bank_margin_rad: Scalar = float("nan")
 
     for scenario_index, scenario in enumerate(scenario_rows):
@@ -6381,16 +6328,10 @@ def robust_in_loop_optimize(
                 w_gust_mps=float(scenario.get("w_gust_nom", 0.0)),
                 v_mps=V_NOM_MPS,
             )
-            alpha_gust_turn_deg = compute_alpha_gust_deg(
-                w_gust_mps=float(scenario.get("w_gust_turn", 0.0)),
-                v_mps=V_TURN_MPS,
-            )
         else:
             alpha_gust_nom_deg = 0.0
-            alpha_gust_turn_deg = 0.0
 
         alpha_bias_nom = incidence_bias_deg + alpha_gust_nom_deg
-        alpha_bias_turn = incidence_bias_deg + alpha_gust_turn_deg
 
         alpha_nom_lb = float(cfg.alpha_min_deg) - alpha_bias_nom
         alpha_nom_ub = float(cfg.alpha_max_deg) - alpha_bias_nom
@@ -6398,13 +6339,6 @@ def robust_in_loop_optimize(
             alpha_nom_mid = 0.5 * (alpha_nom_lb + alpha_nom_ub)
             alpha_nom_lb = alpha_nom_mid - 5e-4
             alpha_nom_ub = alpha_nom_mid + 5e-4
-
-        alpha_turn_lb = float(cfg.alpha_min_deg) - alpha_bias_turn
-        alpha_turn_ub = float(cfg.alpha_max_turn_deg) - alpha_bias_turn
-        if alpha_turn_ub <= alpha_turn_lb:
-            alpha_turn_mid = 0.5 * (alpha_turn_lb + alpha_turn_ub)
-            alpha_turn_lb = alpha_turn_mid - 5e-4
-            alpha_turn_ub = alpha_turn_mid + 5e-4
 
         u_a_nom_min, u_a_nom_max = servo_command_bounds(
             float(cfg.delta_a_min_deg),
@@ -6428,35 +6362,9 @@ def robust_in_loop_optimize(
             float(config.max_trim_util_fraction),
         )
 
-        u_a_turn_min, u_a_turn_max = servo_command_bounds(
-            float(cfg.delta_a_min_deg),
-            float(cfg.delta_a_max_deg),
-            eff_a,
-            bias_a_deg,
-            float(config.turn_deflection_util),
-        )
-        u_e_turn_min, u_e_turn_max = servo_command_bounds(
-            float(cfg.delta_e_min_deg),
-            float(cfg.delta_e_max_deg),
-            eff_e,
-            bias_e_deg,
-            float(config.turn_deflection_util),
-        )
-        u_r_turn_min, u_r_turn_max = servo_command_bounds(
-            float(cfg.delta_r_min_deg),
-            float(cfg.delta_r_max_deg),
-            eff_r,
-            bias_r_deg,
-            float(config.turn_deflection_util),
-        )
-
         u_a_nom_seed = init_value("u_a_nom_deg", (init_value("delta_a_nom_deg", init_value("delta_a_deg", 0.0)) - bias_a_deg) / max(abs(eff_a), 1e-3))
         u_e_nom_seed = init_value("u_e_nom_deg", (init_value("delta_e_nom_deg", init_value("delta_e_deg", 0.0)) - bias_e_deg) / max(abs(eff_e), 1e-3))
         u_r_nom_seed = init_value("u_r_nom_deg", (init_value("delta_r_nom_deg", init_value("delta_r_deg", 0.0)) - bias_r_deg) / max(abs(eff_r), 1e-3))
-        u_a_turn_seed = init_value("u_a_turn_deg", (init_value("delta_a_turn_deg", 0.0) - bias_a_deg) / max(abs(eff_a), 1e-3))
-        u_e_turn_seed = init_value("u_e_turn_deg", (init_value("delta_e_turn_deg", 3.5) - bias_e_deg) / max(abs(eff_e), 1e-3))
-        u_r_turn_seed = init_value("u_r_turn_deg", (init_value("delta_r_turn_deg", 0.0) - bias_r_deg) / max(abs(eff_r), 1e-3))
-
         alpha_nom_deg = opti.variable(
             init_guess=float(onp.clip(init_value("alpha_nom_deg", init_value("alpha_deg", 5.0)), alpha_nom_lb, alpha_nom_ub)),
             lower_bound=alpha_nom_lb,
@@ -6477,32 +6385,15 @@ def robust_in_loop_optimize(
             lower_bound=u_r_nom_min,
             upper_bound=u_r_nom_max,
         )
-        # Agility mission: robust-in-loop uses only nominal trim decision variables.
-        # Turn-point quantities are derived from the nominal commands for soft diagnostics.
-        alpha_turn_deg = alpha_nom_deg
-        u_a_turn_deg = u_a_nom_deg
-        u_e_turn_deg = u_e_nom_deg
-        u_r_turn_deg = u_r_nom_deg
-
         delta_a_nom_eff_deg = bias_a_deg + eff_a * u_a_nom_deg
         delta_e_nom_eff_deg = bias_e_deg + eff_e * u_e_nom_deg
         delta_r_nom_eff_deg = bias_r_deg + eff_r * u_r_nom_deg
-        delta_a_turn_eff_deg = bias_a_deg + eff_a * u_a_turn_deg
-        delta_e_turn_eff_deg = bias_e_deg + eff_e * u_e_turn_deg
-        delta_r_turn_eff_deg = bias_r_deg + eff_r * u_r_turn_deg
 
         airplane_nom = airplane_base.with_control_deflections(
             {
                 "aileron": delta_a_nom_eff_deg,
                 "elevator": delta_e_nom_eff_deg,
                 "rudder": delta_r_nom_eff_deg,
-            }
-        )
-        airplane_turn = airplane_base.with_control_deflections(
-            {
-                "aileron": delta_a_turn_eff_deg,
-                "elevator": delta_e_turn_eff_deg,
-                "rudder": delta_r_turn_eff_deg,
             }
         )
         cg_shift_m = cg_x_shift_mac * np.maximum(wing_mac_m, 1e-8)
@@ -6531,40 +6422,11 @@ def robust_in_loop_optimize(
             policy=constraint_policy,
         )
 
-        trim_turn = build_trim_constraints_and_metrics(
-            opti=opti,
-            airplane=airplane_turn,
-            xyz_ref=xyz_ref_s,
-            velocity_mps=V_TURN_MPS,
-            alpha_deg=alpha_turn_deg + alpha_bias_turn,
-            mass_kg=scenario_mass_kg,
-            mode="turn",
-            bank_angle_deg=TURN_BANK_DEG,
-            lift_k=None,
-            cl_cap=TURN_CL_CAP,
-            enforce_lateral_trim=False,
-            use_coordinated_turn=False,
-            atmosphere=asb.Atmosphere(altitude=0.0),
-            cfg=cfg,
-            policy=constraint_policy,
-        )
-
         nom_lift_required_n = scenario_mass_kg * G
-
-        # Curvature requirement for turn (agility)
-        phi_turn_rad = float(onp.radians(TURN_BANK_DEG))
-        sin_phi_turn = float(onp.sin(phi_turn_rad))
-        turn_radius_allow_raw = 0.5 * ARENA_WIDTH_M - (0.5 * wing_span_m + WALL_CLEARANCE_M)
-        turn_radius_allow = stable_softplus(turn_radius_allow_raw, SOFTPLUS_K) + 1e-6
-        a_lat_req = V_TURN_MPS**2 / turn_radius_allow
-        a_lat_ach = trim_turn["aero"]["L"] * sin_phi_turn / np.maximum(scenario_mass_kg, 1e-8)
-        turn_curvature_margin = a_lat_ach - a_lat_req
 
         trim_constraint_penalties.append(
             stable_softplus(nom_lift_required_n - trim_nom["aero"]["L"], SOFTPLUS_K) ** 2
             + trim_nom["aero"]["Cm"] ** 2
-            + stable_softplus(-turn_curvature_margin, SOFTPLUS_K) ** 2
-            + trim_turn["aero"]["Cm"] ** 2
         )
 
         all_constraints.extend(trim_nom["constraints"])
@@ -6583,30 +6445,17 @@ def robust_in_loop_optimize(
             + 0.15 * u_a_nom_deg**2
         )
 
-        u_a_turn_den = max(abs(u_a_turn_min), abs(u_a_turn_max), 1e-8)
-        u_e_turn_den = max(abs(u_e_turn_min), abs(u_e_turn_max), 1e-8)
-        u_r_turn_den = max(abs(u_r_turn_min), abs(u_r_turn_max), 1e-8)
-        turn_util_a = np.abs(u_a_turn_deg) / u_a_turn_den
-        turn_util_e = np.abs(u_e_turn_deg) / u_e_turn_den
-        turn_util_r = np.abs(u_r_turn_deg) / u_r_turn_den
-
-        turn_util_penalties.append(
-            stable_softplus(turn_util_a - 1.0, SOFTPLUS_K) ** 2
-            + stable_softplus(turn_util_e - 1.0, SOFTPLUS_K) ** 2
-            + stable_softplus(turn_util_r - 1.0, SOFTPLUS_K) ** 2
-        )
         if float(config.robust_opt_nom_lateral_penalty_weight) > 0.0:
             nom_lateral_penalties.append(
                 trim_nom["aero"]["Cl"] ** 2 + trim_nom["aero"]["Cn"] ** 2
             )
-
-        cl_delta_a_turn = aileron_effectiveness_proxy(
-            aero=trim_turn["aero"],
+        cl_delta_a_proxy = aileron_effectiveness_proxy(
+            aero=trim_nom["aero"],
             eta_inboard=AILERON_ETA_INBOARD,
             eta_outboard=AILERON_ETA_OUTBOARD,
             chord_fraction=AILERON_CHORD_FRACTION,
         )
-        clp_mag_turn = np.maximum(np.abs(trim_turn["aero"]["Clp"]), 1e-5)
+        clp_mag_proxy = np.maximum(np.abs(trim_nom["aero"]["Clp"]), 1e-5)
         ixx_s = (
             mass_scale
             * ixx_scale
@@ -6614,60 +6463,43 @@ def robust_in_loop_optimize(
         )
         delta_a_roll_rad = np.radians(np.abs(eff_a) * delta_a_roll_cmd_deg)
 
-        roll_tau_turn_s = (
+        roll_tau_proxy_s = (
             2.0
             * ixx_s
-            * V_TURN_MPS
+            * V_NOM_MPS
             / np.maximum(
-                q_dyn_turn * wing_area_m2 * wing_span_m**2 * clp_mag_turn,
+                q_dyn_agility * wing_area_m2 * wing_span_m**2 * clp_mag_proxy,
                 1e-8,
             )
         )
-        roll_rate_ss_turn_radps = (
+        roll_rate_ss_proxy_radps = (
             2.0
-            * V_TURN_MPS
+            * V_NOM_MPS
             / np.maximum(wing_span_m, 1e-8)
-            * np.abs(cl_delta_a_turn)
+            * np.abs(cl_delta_a_proxy)
             * delta_a_roll_rad
-            / clp_mag_turn
+            / clp_mag_proxy
         )
 
         tau_floor_s = 1e-4
-        tau_turn_eff_s = np.sqrt(roll_tau_turn_s**2 + tau_floor_s**2)
-        bank_entry_phi_achieved_rad = roll_rate_ss_turn_radps * (
+        tau_turn_eff_s = np.sqrt(roll_tau_proxy_s**2 + tau_floor_s**2)
+        bank_entry_phi_achieved_rad = roll_rate_ss_proxy_radps * (
             BANK_ENTRY_TIME_S
             - tau_turn_eff_s * (1.0 - np.exp(-BANK_ENTRY_TIME_S / tau_turn_eff_s))
         )
-        bank_entry_margin_rad = bank_entry_phi_achieved_rad - trim_turn["bank_angle_rad"]
-
-        # Debug-only capture proxy uses smooth softplus; not used for feasibility margin.
-        k_sp = 50.0
-        bank_entry_dt_s = stable_softplus(BANK_ENTRY_TIME_S - tau_turn_eff_s, sharpness=k_sp)
-        bank_margin_penalties.append(stable_softplus(-bank_entry_margin_rad, SOFTPLUS_K) ** 2)
+        bank_entry_margin_rad = bank_entry_phi_achieved_rad - float(onp.radians(TURN_BANK_DEG))
 
         postcheck_exprs.append(
             {
                 "nom_lift_margin": trim_nom["aero"]["L"] - nom_lift_required_n,
-                "turn_curvature_margin": turn_curvature_margin,
                 "nom_cm": trim_nom["aero"]["Cm"],
-                "turn_cm": trim_turn["aero"]["Cm"],
                 "nom_cl": trim_nom["aero"]["Cl"],
                 "nom_cn": trim_nom["aero"]["Cn"],
-                "turn_cl": trim_turn["aero"]["Cl"],
-                "turn_cn": trim_turn["aero"]["Cn"],
                 "nom_cl_cap_margin": MAX_CL_AT_DESIGN_POINT - trim_nom["aero"]["CL"],
-                "turn_cl_cap_margin": TURN_CL_CAP - trim_turn["aero"]["CL"],
-                "footprint_margin": 0.5 * ARENA_WIDTH_M
-                - (V_TURN_MPS**2 / np.maximum(a_lat_ach, 1e-6) + 0.5 * wing_span_m + WALL_CLEARANCE_M),
-                "bank_margin_rad": bank_entry_margin_rad,
                 "nom_alpha_eff": alpha_nom_deg + alpha_bias_nom,
-                "turn_alpha_eff": alpha_turn_deg + alpha_bias_turn,
                 "delta_a_nom_eff": delta_a_nom_eff_deg,
                 "delta_e_nom_eff": delta_e_nom_eff_deg,
                 "delta_r_nom_eff": delta_r_nom_eff_deg,
-                "delta_a_turn_eff": delta_a_turn_eff_deg,
-                "delta_e_turn_eff": delta_e_turn_eff_deg,
-                "delta_r_turn_eff": delta_r_turn_eff_deg,
             }
         )
 
@@ -6685,16 +6517,13 @@ def robust_in_loop_optimize(
                 "u_r_nom_den": max(abs(u_r_nom_min), abs(u_r_nom_max), 1e-8),
             }
             first_trim_nom = trim_nom
-            first_trim_turn = trim_turn
             first_airplane_nom = airplane_nom
-            first_roll_tau_turn = roll_tau_turn_s
-            first_roll_rate_ss_turn = roll_rate_ss_turn_radps
+            first_roll_tau_proxy = roll_tau_proxy_s
+            first_roll_rate_ss_proxy = roll_rate_ss_proxy_radps
             first_bank_margin_rad = bank_entry_margin_rad
     n_scen = max(len(sink_nom_values), 1)
     sink_mean = sum_expr(sink_nom_values) / float(n_scen)
     trim_effort_nom_mean = sum_expr(trim_effort_nom_terms) / float(n_scen)
-    bank_penalty_mean = sum_expr(bank_margin_penalties) / float(n_scen)
-    turn_util_penalty_mean = sum_expr(turn_util_penalties) / float(n_scen)
     trim_constraint_penalty_mean = sum_expr(trim_constraint_penalties) / float(n_scen)
 
     tail_fraction = float(onp.clip(
@@ -6722,8 +6551,6 @@ def robust_in_loop_optimize(
         + MASS_WEIGHT_IN_OBJECTIVE * mass_penalty_mass_kg
         + BALLAST_WEIGHT_IN_OBJECTIVE * (ballast_mass_kg + ballast_penalty_feather)
         + CONTROL_TRIM_WEIGHT * trim_effort_nom_mean
-        + float(config.robust_opt_bank_margin_penalty_weight) * bank_penalty_mean
-        + float(config.robust_opt_turn_util_penalty_weight) * turn_util_penalty_mean
         + float(config.robust_opt_trim_constraint_penalty_weight) * trim_constraint_penalty_mean
         + float(config.robust_opt_nom_lateral_penalty_weight) * nom_lateral_penalty
     )
@@ -6817,12 +6644,11 @@ def robust_in_loop_optimize(
     sink_mean_num = float(onp.mean(sink_nom_values_num)) if sink_nom_values_num.size else float("nan")
     sink_cvar_20_num = sink_cvar(sink_nom_values_num, tail_fraction=0.20)
 
-    if first_trim_nom is None or first_trim_turn is None or first_airplane_nom is None:
+    if first_trim_nom is None or first_airplane_nom is None:
         _LAST_SOLVE_FAILURE_REASON = "missing_first_scenario_refs"
         return None, scenarios_df
 
     first_aero_nom_num = solution(first_trim_nom["aero"])
-    first_aero_turn_num = solution(first_trim_turn["aero"])
     l_over_d_num = float(to_scalar(first_aero_nom_num["L"])) / max(
         float(to_scalar(first_aero_nom_num["D"])),
         1e-8,
@@ -6847,8 +6673,8 @@ def robust_in_loop_optimize(
     vh_num = float(to_scalar(solution(tail_volume_horizontal)))
     vv_num = float(to_scalar(solution(tail_volume_vertical)))
 
-    roll_tau_num = float(to_scalar(solution(first_roll_tau_turn)))
-    roll_rate_ss_num = float(to_scalar(solution(first_roll_rate_ss_turn)))
+    roll_tau_num = float(to_scalar(solution(first_roll_tau_proxy)))
+    roll_rate_ss_num = float(to_scalar(solution(first_roll_rate_ss_proxy)))
     max_servo_util_num = max(
         abs(first_u_a_nom_num) / max(float(first_vars["u_a_nom_den"]), 1e-8),
         abs(first_u_e_nom_num) / max(float(first_vars["u_e_nom_den"]), 1e-8),
@@ -6857,8 +6683,7 @@ def robust_in_loop_optimize(
 
     objective_num = float(to_scalar(solution(objective)))
     sink_cvar_like_num = float(to_scalar(solution(sink_cvar_like)))
-    bank_penalty_num = float(to_scalar(solution(bank_penalty_mean)))
-    turn_util_penalty_num = float(to_scalar(solution(turn_util_penalty_mean)))
+    bank_penalty_num = float("nan")
     first_bank_margin_deg_num = float(onp.degrees(float(to_scalar(solution(first_bank_margin_rad)))))
 
     wing_area_num = float(to_scalar(solution(wing_area_m2)))
@@ -6871,10 +6696,6 @@ def robust_in_loop_optimize(
         maybe_scalar = to_float_if_possible(value)
         if maybe_scalar is not None:
             aero_scalar_map[f"nominal_{key}"] = maybe_scalar
-    for key, value in first_aero_turn_num.items():
-        maybe_scalar = to_float_if_possible(value)
-        if maybe_scalar is not None:
-            aero_scalar_map[f"turn_{key}"] = maybe_scalar
 
     solve_stats = solve_stats.copy()
     solve_stats["robust_opt"] = {
@@ -6884,7 +6705,6 @@ def robust_in_loop_optimize(
         "sink_cvar_like": sink_cvar_like_num,
         "sink_cvar_20_from_samples": sink_cvar_20_num,
         "bank_penalty_mean": bank_penalty_num,
-        "turn_util_penalty_mean": turn_util_penalty_num,
         "first_bank_margin_deg": first_bank_margin_deg_num,
         "postcheck_max_violation": max_violation,
     }
@@ -7076,7 +6896,7 @@ def trim_candidate_at_point(
     candidate: Candidate,
     scenario: Scenario | dict[str, Any],
     config: WorkflowConfig,
-    point: Literal["nom", "turn"],
+    point: Literal["nom"],
     cfg: Config | None = None,
     airframe_bundle: AirframeBundle | None = None,
 ) -> TrimPointResult:
@@ -7101,30 +6921,16 @@ def trim_candidate_at_point(
     tail_thickness_scale = float(scenario_obj.tail_thickness_scale)
     drag_factor = float(scenario_obj.drag_factor)
 
-    if point == "nom":
-        velocity_mps = V_NOM_MPS
-        w_gust_mps = float(scenario_obj.w_gust_nom)
-        alpha_upper_bound = float(ALPHA_MAX_DEG)
-        cl_cap = float(MAX_CL_AT_DESIGN_POINT)
-        util_fraction = float(config.max_trim_util_fraction)
-        bank_angle_deg = 0.0
-        lift_k = 1.0
-        use_coordinated_turn = False
-        trim_time_s = float(config.nom_trim_time_s)
-        include_sink_in_objective = True
-    else:
-        velocity_mps = V_TURN_MPS
-        phi_turn_rad = float(onp.radians(TURN_BANK_DEG))
-        # Structural proxy will be evaluated using the solved turn lift (consistent with curvature model).
-        w_gust_mps = float(scenario_obj.w_gust_turn)
-        alpha_upper_bound = float(ALPHA_MAX_TURN_DEG)
-        cl_cap = float(TURN_CL_CAP)
-        util_fraction = float(config.turn_deflection_util)
-        bank_angle_deg = float(TURN_BANK_DEG)
-        lift_k = None
-        use_coordinated_turn = False
-        trim_time_s = float(config.turn_trim_time_s)
-        include_sink_in_objective = False
+    velocity_mps = V_NOM_MPS
+    w_gust_mps = float(scenario_obj.w_gust_nom)
+    alpha_upper_bound = float(ALPHA_MAX_DEG)
+    cl_cap = float(MAX_CL_AT_DESIGN_POINT)
+    util_fraction = float(config.max_trim_util_fraction)
+    bank_angle_deg = 0.0
+    lift_k = 1.0
+    use_coordinated_turn = False
+    trim_time_s = float(config.nom_trim_time_s)
+    include_sink_in_objective = True
 
     # Disturbance modeled as vertical gust -> AoA perturbation; spanwise shear-induced roll bias excluded at optimiser fidelity.
     alpha_gust_deg = compute_alpha_gust_deg(w_gust_mps=w_gust_mps, v_mps=velocity_mps)
@@ -7227,11 +7033,11 @@ def trim_candidate_at_point(
         velocity_mps=velocity_mps,
         alpha_deg=alpha_trim_deg + incidence_bias_deg + alpha_gust_deg,
         mass_kg=mass_scale * candidate.mass_total_kg,
-        mode="nominal" if point == "nom" else "turn",
+        mode="nominal",
         bank_angle_deg=bank_angle_deg,
         lift_k=lift_k,
         cl_cap=cl_cap,
-        enforce_lateral_trim=(point == "nom"),
+        enforce_lateral_trim=True,
         use_coordinated_turn=use_coordinated_turn,
         atmosphere=asb.Atmosphere(altitude=0.0),
         cfg=cfg,
@@ -7258,15 +7064,6 @@ def trim_candidate_at_point(
         opti.bounded(-rate_limit_deg, u_e_deg - u_e_init, rate_limit_deg),
         opti.bounded(-rate_limit_deg, u_r_deg - u_r_init, rate_limit_deg),
     ]
-    if point == "turn":
-        # Curvature/footprint are diagnostic-only in agility mission mode.
-        sin_phi_turn = float(onp.sin(phi_turn_rad))
-        turn_radius_allow_raw = 0.5 * float(ARENA_WIDTH_M) - (
-            0.5 * float(candidate.wing_span_m) + float(WALL_CLEARANCE_M)
-        )
-        turn_radius_allow = max(turn_radius_allow_raw, 1e-6)
-        a_lat_req = float(velocity_mps**2 / turn_radius_allow)
-        a_lat_ach = aero["L"] * sin_phi_turn / np.maximum(mass_scale * candidate.mass_total_kg, 1e-8)
     opti.subject_to(constraints)
     opti.solver(
         "ipopt",
@@ -7383,11 +7180,7 @@ def trim_candidate_at_point(
         )
     )
     cl_delta_a_mag = abs(cl_delta_a_fd) if onp.isfinite(cl_delta_a_fd) else abs(cl_delta_a_proxy)
-    delta_a_rate_rad = float(
-        onp.radians(
-            (TURN_DEFLECTION_UTIL_MAX if point == "turn" else 1.0) * DELTA_A_MAX_DEG
-        )
-    )
+    delta_a_rate_rad = float(onp.radians(DELTA_A_MAX_DEG))
     q_dyn = 0.5 * RHO * (velocity_mps ** 2)
     wing_area_m2 = float(to_scalar(wing.area()))
     roll_rate_ss = (
@@ -7417,7 +7210,7 @@ def trim_candidate_at_point(
         roll_accel0 = float("nan")
         roll_tau_s = float("nan")
 
-    struct_force_n = weight_n if point == "nom" else max(lift_num, 0.0)
+    struct_force_n = weight_n
 
     wing_struct = struct_tip_deflection_proxy_composite(
         total_force_n=struct_force_n,
@@ -7475,7 +7268,7 @@ def trim_candidate_at_point(
         f"{point}_delta_a_deg": delta_a_num,
         f"{point}_delta_e_deg": delta_e_num,
         f"{point}_delta_r_deg": delta_r_num,
-        f"{point}_sink_rate_mps": sink_rate_num if point == "nom" else onp.nan,
+        f"{point}_sink_rate_mps": sink_rate_num,
         f"{point}_L_over_D": l_over_d_num,
         f"{point}_CL": cl_num,
         f"{point}_D": drag_num,
@@ -7556,22 +7349,12 @@ def run_robust_postcheck(
                 cfg=cfg,
                 airframe_bundle=airframe_bundle,
             )
-            turn_result = trim_candidate_at_point(
-                candidate=candidate,
-                scenario=scenario_obj,
-                config=config,
-                point="turn",
-                cfg=cfg,
-                airframe_bundle=airframe_bundle,
-            )
             nom_row = nom_result.to_prefixed_row()
-            turn_row = turn_result.to_prefixed_row()
-            both_success = bool(nom_result.success and turn_result.success)
+            both_success = bool(nom_result.success)
             combined_row: dict[str, Any] = {
                 "candidate_id": candidate.candidate_id,
                 **scenario_row,
                 **nom_row,
-                **turn_row,
                 "both_success": both_success,
                 # Legacy compatibility alias
                 "trim_success": both_success,
@@ -7579,46 +7362,6 @@ def run_robust_postcheck(
             robust_rows.append(combined_row)
 
     robust_scenarios_df = pd.DataFrame(robust_rows)
-    if not robust_scenarios_df.empty:
-        turn_util_columns = ["turn_util_a", "turn_util_e", "turn_util_r"]
-        turn_util_available = [
-            col for col in turn_util_columns if col in robust_scenarios_df.columns
-        ]
-        if turn_util_available:
-            robust_scenarios_df["turn_control_util_max"] = robust_scenarios_df[
-                turn_util_available
-            ].max(axis=1, skipna=True)
-            robust_scenarios_df["turn_control_util_violation"] = onp.maximum(
-                robust_scenarios_df["turn_control_util_max"] - TURN_DEFLECTION_UTIL_MAX,
-                0.0,
-            )
-        else:
-            robust_scenarios_df["turn_control_util_max"] = onp.nan
-            robust_scenarios_df["turn_control_util_violation"] = onp.nan
-
-        if {"turn_roll_tau_s", "turn_roll_rate_ss"}.issubset(robust_scenarios_df.columns):
-            tau_floor_s = 1e-4
-            tau_raw_s = robust_scenarios_df["turn_roll_tau_s"].to_numpy(dtype=float)
-            tau_turn_eff_s = onp.sqrt(tau_raw_s**2 + tau_floor_s**2)
-            roll_rate_ss = robust_scenarios_df["turn_roll_rate_ss"].to_numpy(dtype=float)
-
-            bank_achieved_rad = roll_rate_ss * (
-                BANK_ENTRY_TIME_S
-                - tau_turn_eff_s * (1.0 - onp.exp(-BANK_ENTRY_TIME_S / tau_turn_eff_s))
-            )
-
-            k_sp = 50.0
-            bank_entry_dt_s = (1.0 / k_sp) * onp.log1p(onp.exp(k_sp * (BANK_ENTRY_TIME_S - tau_turn_eff_s)))
-            bank_capture_proxy_rad = roll_rate_ss * bank_entry_dt_s
-            robust_scenarios_df["turn_bank_entry_phi_capture_proxy_deg"] = onp.degrees(
-                bank_capture_proxy_rad
-            )
-            robust_scenarios_df["turn_bank_entry_margin_deg"] = onp.degrees(
-                bank_achieved_rad - onp.radians(TURN_BANK_DEG)
-            )
-        else:
-            robust_scenarios_df["turn_bank_entry_phi_capture_proxy_deg"] = onp.nan
-            robust_scenarios_df["turn_bank_entry_margin_deg"] = onp.nan
 
     summary_rows: list[dict[str, Any]] = []
     objective_by_candidate = {candidate.candidate_id: candidate.objective for candidate in candidates}
@@ -7652,22 +7395,8 @@ def run_robust_postcheck(
         penalty_value = sink_cvar_20 if onp.isfinite(sink_cvar_20) else 1e6
         selection_score = (1.0 - feasible_rate) * 1e3 + penalty_value
 
-        turn_util_values = onp.array(
-            [
-                col_max(feasible_df, "turn_util_a"),
-                col_max(feasible_df, "turn_util_e"),
-                col_max(feasible_df, "turn_util_r"),
-            ],
-            dtype=float,
-        )
-        turn_util_values = turn_util_values[onp.isfinite(turn_util_values)]
-        max_turn_util_worst = float(onp.max(turn_util_values)) if turn_util_values.size else float("nan")
-
         roll_tau_values = onp.array(
-            [
-                col_max(feasible_df, "nom_roll_tau_s"),
-                col_max(feasible_df, "turn_roll_tau_s"),
-            ],
+            [col_max(feasible_df, "nom_roll_tau_s")],
             dtype=float,
         )
         roll_tau_values = roll_tau_values[onp.isfinite(roll_tau_values)]
@@ -7680,17 +7409,6 @@ def run_robust_postcheck(
             sink_std=float(sink_std),
             sink_worst=float(sink_worst),
             sink_cvar_20=float(sink_cvar_20),
-            max_turn_util_worst=float(max_turn_util_worst),
-            max_turn_control_util_max_worst=float(col_max(candidate_df, "turn_control_util_max")),
-            max_turn_control_util_violation_worst=float(col_max(candidate_df, "turn_control_util_violation")),
-            min_turn_bank_entry_margin_deg_worst=float(col_min(candidate_df, "turn_bank_entry_margin_deg")),
-            min_turn_alpha_margin_worst=float(col_min(feasible_df, "turn_alpha_margin_deg")),
-            max_turn_wing_deflection_proxy_over_allow_worst=float(
-                col_max(
-                    feasible_df,
-                    "turn_wing_deflection_proxy_over_allow",
-                )
-            ),
             max_roll_tau_worst=float(max_roll_tau_worst),
             max_delta_e_util_worst=float(col_max(feasible_df, "nom_util_e")),
             max_alpha_worst=float(col_max(feasible_df, "nom_alpha_deg")),
@@ -8058,12 +7776,6 @@ def save_workflow_workbook(
         "sink_std",
         "sink_worst",
         "sink_cvar_20",
-        "max_turn_util_worst",
-        "max_turn_control_util_max_worst",
-        "max_turn_control_util_violation_worst",
-        "min_turn_bank_entry_margin_deg_worst",
-        "min_turn_alpha_margin_worst",
-        "max_turn_wing_deflection_proxy_over_allow_worst",
         "max_roll_tau_worst",
         "max_delta_e_util_worst",
         "max_alpha_worst",
@@ -8635,10 +8347,11 @@ def main() -> None:
             print(
                 (
                     "  "
-                    "worst_margins: "
-                    f"bank_entry_margin_min={fmt_metric(summary_row.get('min_turn_bank_entry_margin_deg_worst', onp.nan), 3)} deg, "
-                    f"turn_control_util_violation_max={fmt_metric(summary_row.get('max_turn_control_util_violation_worst', onp.nan), 4)}, "
-                    f"turn_control_util_max={fmt_metric(summary_row.get('max_turn_control_util_max_worst', onp.nan), 4)}"
+                    "worst_nominal: "
+                    f"max_roll_tau={fmt_metric(summary_row.get('max_roll_tau_worst', onp.nan), 4)} s, "
+                    f"max_alpha={fmt_metric(summary_row.get('max_alpha_worst', onp.nan), 4)} deg, "
+                    f"min_alpha_margin={fmt_metric(summary_row.get('min_alpha_margin_worst', onp.nan), 4)} deg, "
+                    f"min_cl_margin={fmt_metric(summary_row.get('min_cl_margin_worst', onp.nan), 4)}"
                 ),
                 flush=True,
             )
@@ -8777,6 +8490,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 
