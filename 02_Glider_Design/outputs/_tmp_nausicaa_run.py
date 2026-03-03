@@ -61,7 +61,7 @@ ARENA_HEIGHT_M = 3.5
 
 # Two-speed design points
 V_TURN_MPS = 4.0
-V_NOM_MPS = 4.6
+V_NOM_MPS = 5.0
 
 # Manoeuvre definition (coordinated, banked turn feasibility)
 TURN_BANK_DEG = 50.0
@@ -3680,19 +3680,17 @@ def legacy_single_run_main(
         [
             ("nominal_drag_positive", aero_nom["D"] >= 1e-3),
             ("l_over_d_min", l_over_d >= MIN_L_OVER_D),
-            (
-                "wing_loading_bounds",
-                opti.bounded(
-                    MIN_WING_LOADING_N_M2,
-                    wing_loading_n_m2,
-                    MAX_WING_LOADING_N_M2,
-                ),
-            ),
+            ("wing_loading_min", wing_loading_n_m2 >= MIN_WING_LOADING_N_M2),
+            ("wing_loading_max", wing_loading_n_m2 <= MAX_WING_LOADING_N_M2),
             ("reynolds_wing_min", reynolds_wing >= MIN_RE_WING),
-            ("static_margin_bounds", opti.bounded(STATIC_MARGIN_MIN, static_margin, STATIC_MARGIN_MAX)),
-            ("boom_length_bounds", opti.bounded(BOOM_LENGTH_MIN_M, boom_length_m, BOOM_LENGTH_MAX_M)),
-            ("vh_bounds", opti.bounded(VH_MIN, tail_volume_horizontal, VH_MAX)),
-            ("vv_bounds", opti.bounded(VV_MIN, tail_volume_vertical, VV_MAX)),
+            ("static_margin_min", static_margin >= STATIC_MARGIN_MIN),
+            ("static_margin_max", static_margin <= STATIC_MARGIN_MAX),
+            ("boom_length_min", boom_length_m >= BOOM_LENGTH_MIN_M),
+            ("boom_length_max", boom_length_m <= BOOM_LENGTH_MAX_M),
+            ("vh_min", tail_volume_horizontal >= VH_MIN),
+            ("vh_max", tail_volume_horizontal <= VH_MAX),
+            ("vv_min", tail_volume_vertical >= VV_MIN),
+            ("vv_max", tail_volume_vertical <= VV_MAX),
             ("clb_max", aero_nom["Clb"] <= CLB_MAX),
             ("cnb_min", aero_nom["Cnb"] >= CNB_MIN),
             ("clp_nominal_max", aero_nom["Clp"] <= -CLP_NEG_EPS),
@@ -3721,28 +3719,28 @@ def legacy_single_run_main(
     feasibility_constraints.extend(
         [
             (
-                "delta_a_turn_bounds",
-                opti.bounded(
-                    -TURN_DEFLECTION_UTIL_MAX * DELTA_A_MAX_DEG,
-                    delta_a_turn_deg,
-                    TURN_DEFLECTION_UTIL_MAX * DELTA_A_MAX_DEG,
-                ),
+                "delta_a_turn_min",
+                delta_a_turn_deg >= -TURN_DEFLECTION_UTIL_MAX * DELTA_A_MAX_DEG,
             ),
             (
-                "delta_e_turn_bounds",
-                opti.bounded(
-                    -TURN_DEFLECTION_UTIL_MAX * DELTA_E_MAX_DEG,
-                    delta_e_turn_deg,
-                    TURN_DEFLECTION_UTIL_MAX * DELTA_E_MAX_DEG,
-                ),
+                "delta_a_turn_max",
+                delta_a_turn_deg <= TURN_DEFLECTION_UTIL_MAX * DELTA_A_MAX_DEG,
             ),
             (
-                "delta_r_turn_bounds",
-                opti.bounded(
-                    -TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG,
-                    delta_r_turn_deg,
-                    TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG,
-                ),
+                "delta_e_turn_min",
+                delta_e_turn_deg >= -TURN_DEFLECTION_UTIL_MAX * DELTA_E_MAX_DEG,
+            ),
+            (
+                "delta_e_turn_max",
+                delta_e_turn_deg <= TURN_DEFLECTION_UTIL_MAX * DELTA_E_MAX_DEG,
+            ),
+            (
+                "delta_r_turn_min",
+                delta_r_turn_deg >= -TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG,
+            ),
+            (
+                "delta_r_turn_max",
+                delta_r_turn_deg <= TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG,
             ),
             ("bank_entry_margin_nonnegative", bank_entry_margin_rad >= 0.0),
         ]
