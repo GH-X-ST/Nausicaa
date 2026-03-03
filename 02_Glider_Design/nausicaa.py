@@ -41,12 +41,15 @@ N_ALPHA = 25
 MAKE_PLOTS = True
 PLOT_DPI = 1000
 RUN_WORKFLOW = False
-ENABLE_INITIAL_DESIGN_CHECK = True
+ENABLE_INITIAL_DESIGN_CHECK = False
 ENABLE_OPTIMIZATION_AFTER_INITIAL_CHECK = True
+INITIAL_CHECK_EXPECTED_NLP_BOUNDS = 72
+IPOPT_VERBOSE = False
+IPOPT_VERBOSE_PRINT_LEVEL = 5
 
 
 # Manual note for this run (edit before executing)
-MANUAL_RUN_NOTE = "change 9"
+MANUAL_RUN_NOTE = "v3.4.0"
 MANUAL_RUN_NOTE_PRINT = True
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -60,8 +63,8 @@ ARENA_WIDTH_M = 4.8
 ARENA_HEIGHT_M = 3.5
 
 # Two-speed design points
-V_TURN_MPS = 4.1
-V_NOM_MPS = 4.8
+V_TURN_MPS = 4.15
+V_NOM_MPS = 5.0
 
 # Manoeuvre definition (coordinated, banked turn feasibility)
 TURN_BANK_DEG = 50.0
@@ -75,7 +78,7 @@ CM_TRIM_TOL = 0.08
 # Stall / margin settings for manoeuvre case
 TURN_ALPHA_MARGIN_DEG = 4.0
 TURN_CL_CAP = 1.30
-K_LEVEL_TURN = 0.90
+K_LEVEL_TURN = 0.70
 
 # Trim operating-point envelope
 DESIGN_SPEED_MPS = V_NOM_MPS
@@ -186,9 +189,9 @@ TAPE_EFFICIENCY = 1.0
 VTAIL_TAPE_Y_OFFSET_M = 0.5 * VTAIL_THICKNESS_M + 0.5 * TAPE_THICKNESS_M
 
 # Discrete hardware modules
-CENTRE_MODULE_MASS_KG = 0.022
+CENTRE_MODULE_MASS_KG = 0.029
 TAIL_MODULE_MASS_KG = 0.004
-CENTRE_MODULE_VOLUME_M3 = 0.00002206
+CENTRE_MODULE_VOLUME_M3 = 0.00002372
 TAIL_MODULE_VOLUME_M3 = 0.00000361
 CENTRE_MODULE_RHO_KG_M3 = CENTRE_MODULE_MASS_KG / CENTRE_MODULE_VOLUME_M3
 TAIL_MODULE_RHO_KG_M3 = TAIL_MODULE_MASS_KG / TAIL_MODULE_VOLUME_M3
@@ -209,17 +212,16 @@ VTAIL_MOUNT_X0_OFFSET_FROM_BOOM_END_M = 0.0383
 VTAIL_MOUNT_ROOT_LOWER_Z_M = VTAIL_ROOT_LOWER_SURFACE_Z_M
 
 GLUE_FRACTION = 0.08
-BALLAST_MAX_KG = 0.005  # < 5 g cap
+BALLAST_MAX_KG = 0.005
 
 # Avionics / hardware masses (kg)
 BATTERY_MASS_KG = 0.0090
 BATTERY_DIM_X_M = 0.047
 BATTERY_DIM_Y_M = 0.017
 BATTERY_DIM_Z_M = 0.005
-RECEIVER_MASS_KG = 0.0050
-FLIGHT_CONTROLLER_MASS_KG = 0.0050
+RECEIVER_MASS_KG = 0.010
 REGULATOR_MASS_KG = 0.0004
-SERVO_MASS_KG = 0.0022
+SERVO_MASS_KG = 0.004
 
 # Servo layout (4 total): 2 aileron + elevator + rudder
 AILERON_SERVO_SPAN_FRAC = 0.40
@@ -236,7 +238,6 @@ BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M = 0.015
 AVIONICS_Z_CG_M = -0.008
 REGULATOR_X_OFFSET_FROM_BATTERY_M = 0.040
 RECEIVER_X_OFFSET_FROM_REGULATOR_M = 0.035
-FLIGHT_CONTROLLER_X_OFFSET_FROM_BATTERY_M = 0.015
 
 # Static-stability design window
 STATIC_MARGIN_MIN = 0.05
@@ -280,6 +281,18 @@ CONTROL_HORN_ARM_M = 0.008
 # Objective-function weights
 MASS_WEIGHT_IN_OBJECTIVE = 0.20
 BALLAST_WEIGHT_IN_OBJECTIVE = 0.40
+# Switch for mass penalty term:
+# True  -> use total aircraft mass in objective
+# False -> use only wing + boom structural masses in objective
+MASS_PENALTY_COUNT_ALL_MASS = True
+MASS_PENALTY_WING_BOOM_COMPONENT_KEYS = (
+    "wing",
+    "wing_spar_tube",
+    "wing_spar_slot_void",
+    "wing_tape_bottom",
+    "wing_tape_top",
+    "boom",
+)
 CONTROL_TRIM_WEIGHT = 2e-4
 STRUCT_DEFLECTION_WEIGHT = 5
 ROLL_TAU_WEIGHT_IN_OBJECTIVE = 0.05
@@ -365,7 +378,9 @@ class Config:
     delta_r_min_deg: float = DELTA_R_MIN_DEG
     delta_r_max_deg: float = DELTA_R_MAX_DEG
     turn_deflection_util_max: float = TURN_DEFLECTION_UTIL_MAX
+    cm_trim_mode: Literal["eq", "tol"] = "eq"
     cm_trim_tol: float = CM_TRIM_TOL
+    nom_lateral_trim: bool = True
 
     # Geometry assumptions
     dihedral_deg: float = DIHEDRAL_DEG
@@ -417,9 +432,9 @@ class ConstraintPolicy:
 
 def get_constraint_policy(cfg: Config) -> ConstraintPolicy:
     return ConstraintPolicy(
-        cm_trim_mode="eq",
-        cm_trim_tol=float(cfg.cm_trim_tol),
-        nom_lateral_trim=True,
+        cm_trim_mode=getattr(cfg, "cm_trim_mode", "eq"),
+        cm_trim_tol=float(getattr(cfg, "cm_trim_tol", CM_TRIM_TOL)),
+        nom_lateral_trim=bool(getattr(cfg, "nom_lateral_trim", True)),
         bank_entry_margin_min_deg=0.0,
     )
 
@@ -819,18 +834,18 @@ class AirframeBundle:
 
 def default_initial_guess() -> dict[str, float]:
     return {
-        "wing_span_m": 0.70,
-        "wing_chord_m": 0.15,
-        "tail_arm_m": 0.55,
-        "htail_span_m": 0.40,
-        "vtail_height_m": 0.17,
-        "alpha_nom_deg": 5.0,
+        "wing_span_m": 0.86,
+        "wing_chord_m": 0.21,
+        "tail_arm_m": 0.52,
+        "htail_span_m": 0.43,
+        "vtail_height_m": 0.14,
+        "alpha_nom_deg": 4.9,
         "delta_a_nom_deg": 0.0,
-        "delta_e_nom_deg": 1.0,
+        "delta_e_nom_deg": 1.2,
         "delta_r_nom_deg": 0.0,
         "alpha_turn_deg": 8.0,
         "delta_a_turn_deg": 0.0,
-        "delta_e_turn_deg": 3.5,
+        "delta_e_turn_deg": 5.9,
         "delta_r_turn_deg": 0.0,
         # Legacy aliases retained for backward compatibility with old init files.
         "alpha_deg": 5.0,
@@ -874,6 +889,13 @@ def ensure_output_dirs() -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ipopt_verbosity_options() -> dict[str, Any]:
+    return {
+        "print_level": int(IPOPT_VERBOSE_PRINT_LEVEL if IPOPT_VERBOSE else 0),
+        "sb": "no" if IPOPT_VERBOSE else "yes",
+    }
 
 
 def to_scalar(value: Scalar) -> float | Scalar:
@@ -1893,11 +1915,6 @@ def build_mass_model(
     )
 
     # Remaining avionics keep fixed spacing from battery.
-    mass_props["flight_controller"] = point_mass(
-        FLIGHT_CONTROLLER_MASS_KG,
-        x_m=x_batt + FLIGHT_CONTROLLER_X_OFFSET_FROM_BATTERY_M,
-        z_m=AVIONICS_Z_CG_M,
-    )
     x_regulator = x_batt + REGULATOR_X_OFFSET_FROM_BATTERY_M
     mass_props["regulator"] = point_mass(
         REGULATOR_MASS_KG,
@@ -2057,7 +2074,7 @@ def build_mass_model(
 
     # Ballast is optimized in both mass and position along the boom.
     ballast_mass_kg = opti.variable(
-        init_guess=0.003,
+        init_guess=0.0,
         lower_bound=0.0,
         upper_bound=BALLAST_MAX_KG,
     )
@@ -2113,11 +2130,107 @@ def stable_softplus(x: Scalar, sharpness: float) -> Scalar:
         np.fmax(tx, 0.0) + np.log1p(np.exp(-np.fabs(tx)))
     )
 
+
+OBJECTIVE_TERM_ORDER: tuple[str, ...] = (
+    "J_sink",
+    "J_mass",
+    "J_ballast",
+    "J_trim",
+    "J_wing_deflection",
+    "J_htail_deflection",
+    "J_roll_tau",
+    "J_total",
+)
+OBJECTIVE_TERM_TO_WEIGHT_KEY: dict[str, str] = {
+    "J_sink": "w_sink",
+    "J_mass": "w_mass",
+    "J_ballast": "w_ballast",
+    "J_trim": "w_trim_effort",
+    "J_wing_deflection": "w_wing_deflection",
+    "J_htail_deflection": "w_htail_deflection",
+    "J_roll_tau": "w_roll_tau",
+}
+
+
+def objective_weight_dict(
+    objective_weights: ObjectiveWeights | dict[str, float] | None,
+) -> dict[str, float]:
+    if objective_weights is None:
+        return {}
+    if isinstance(objective_weights, ObjectiveWeights):
+        source = asdict(objective_weights)
+    elif isinstance(objective_weights, dict):
+        source = objective_weights
+    else:
+        return {}
+
+    resolved: dict[str, float] = {}
+    for key, value in source.items():
+        try:
+            resolved[str(key)] = float(value)
+        except Exception:
+            continue
+    return resolved
+
+
+def objective_mass_penalty_mass_kg(
+    mass_props: MassPropertiesMap,
+    total_mass_kg: Scalar,
+) -> Scalar:
+    if MASS_PENALTY_COUNT_ALL_MASS:
+        return total_mass_kg
+
+    penalty_mass_kg: Scalar = 0.0
+    for key in MASS_PENALTY_WING_BOOM_COMPONENT_KEYS:
+        if key in mass_props:
+            penalty_mass_kg = penalty_mass_kg + mass_props[key].mass
+    return penalty_mass_kg
+
+
+def objective_breakdown_rows(
+    objective_contributions: dict[str, float] | None,
+    objective_weights: ObjectiveWeights | dict[str, float] | None = None,
+) -> ReportRows:
+    contributions = objective_contributions or {}
+    total_value = float(to_scalar(contributions.get("J_total", float("nan"))))
+    total_is_valid = onp.isfinite(total_value) and abs(total_value) > 1e-12
+    weight_map = objective_weight_dict(objective_weights)
+    rows: ReportRows = []
+
+    for term in OBJECTIVE_TERM_ORDER:
+        value = float(to_scalar(contributions.get(term, float("nan"))))
+        weight_key = OBJECTIVE_TERM_TO_WEIGHT_KEY.get(term, "-")
+        weight_value = (
+            float(weight_map.get(weight_key, float("nan")))
+            if weight_key != "-"
+            else float("nan")
+        )
+        percent = (
+            100.0 * value / total_value
+            if total_is_valid and onp.isfinite(value)
+            else float("nan")
+        )
+        if term == "J_total" and onp.isfinite(value):
+            percent = 100.0
+
+        rows.append(
+            {
+                "Term": term,
+                "WeightKey": weight_key,
+                "Weight": weight_value,
+                "Value": value,
+                "PercentOfTotal": percent,
+            }
+        )
+    return rows
+
+
 def build_dimensionless_objective_terms(
     *,
     sink_rate_mps: Scalar,
-    mass_total_kg: Scalar,
+    mass_penalty_kg: Scalar,
     ballast_mass_kg: Scalar,
+    ballast_x_cg_m: Scalar,
     trim_effort_deg2: Scalar,
     wing_deflection_over_allow: Scalar,
     htail_deflection_over_allow: Scalar,
@@ -2127,11 +2240,14 @@ def build_dimensionless_objective_terms(
 ) -> tuple[Scalar, dict[str, Scalar]]:
     sink_scale = max(float(scales.sink_mps), 1e-9)
     mass_scale = max(float(scales.mass_kg), 1e-9)
+    ballast_scale = max(float(scales.ballast_kg), 1e-9)
     trim_scale = max(float(scales.trim_deg), 1e-9)
     roll_tau_scale = max(float(scales.roll_tau_s), 1e-9)
 
     sink_term = sink_rate_mps / sink_scale
-    mass_term = mass_total_kg / mass_scale
+    mass_term = mass_penalty_kg / mass_scale
+    # Feather-style ballast-position penalty plus explicit ballast-mass penalty.
+    ballast_term = ballast_mass_kg / ballast_scale + (ballast_x_cg_m / 1e3) ** 2
     trim_term = trim_effort_deg2 / (trim_scale ** 2)
     wing_deflection_term = wing_deflection_over_allow
     htail_deflection_term = htail_deflection_over_allow
@@ -2140,6 +2256,7 @@ def build_dimensionless_objective_terms(
     terms: dict[str, Scalar] = {
         "J_sink": float(weights.w_sink) * sink_term,
         "J_mass": float(weights.w_mass) * mass_term,
+        "J_ballast": float(weights.w_ballast) * ballast_term,
         "J_trim": float(weights.w_trim_effort) * trim_term,
         "J_wing_deflection": float(weights.w_wing_deflection) * wing_deflection_term,
         "J_htail_deflection": float(weights.w_htail_deflection) * htail_deflection_term,
@@ -2168,16 +2285,7 @@ def evaluate_objective_contributions(
             subtotal += value
         contributions["J_total"] = subtotal
 
-    ordered_keys = [
-        "J_sink",
-        "J_mass",
-        "J_trim",
-        "J_wing_deflection",
-        "J_htail_deflection",
-        "J_roll_tau",
-        "J_total",
-    ]
-    return {key: contributions.get(key, float("nan")) for key in ordered_keys}
+    return {key: contributions.get(key, float("nan")) for key in OBJECTIVE_TERM_ORDER}
 
 
 def objective_breakdown(
@@ -2185,6 +2293,7 @@ def objective_breakdown(
     sink_rate_mps: float,
     mass_total_kg: float,
     ballast_mass_kg: float,
+    ballast_x_cg_m: float = 0.0,
     trim_effort_deg2: float,
     wing_deflection_over_allow: float,
     htail_deflection_over_allow: float,
@@ -2194,8 +2303,9 @@ def objective_breakdown(
     objective_weights, objective_scales, _resolved_weights = to_objective_weights_and_scales(weights=weights)
     _, terms = build_dimensionless_objective_terms(
         sink_rate_mps=float(sink_rate_mps),
-        mass_total_kg=float(mass_total_kg),
+        mass_penalty_kg=float(mass_total_kg),
         ballast_mass_kg=float(ballast_mass_kg),
+        ballast_x_cg_m=float(ballast_x_cg_m),
         trim_effort_deg2=float(trim_effort_deg2),
         wing_deflection_over_allow=float(wing_deflection_over_allow),
         htail_deflection_over_allow=float(htail_deflection_over_allow),
@@ -2335,6 +2445,7 @@ def cl_delta_a_finite_difference(
     yaw_rate_rad_s: float,
     step_deg: float = CL_DELTA_A_FD_STEP_DEG,
     atmosphere: asb.Atmosphere | None = None,
+    cfg: Config | None = None,
 ) -> float:
     step_deg_abs = max(abs(float(step_deg)), 1e-6)
     step_rad = float(onp.radians(step_deg_abs))
@@ -2885,6 +2996,7 @@ def save_results(
     active_constraint_rows: ReportRows | None = None,
     solver_stats: dict[str, Any] | None = None,
     objective_contributions: dict[str, float] | None = None,
+    objective_weights: dict[str, float] | None = None,
 ) -> PathMap:
     # Persist a compact CSV plus a multi-sheet workbook
     summary_df = pd.DataFrame(summary_rows)
@@ -2906,10 +3018,10 @@ def save_results(
         active_constraints_df = pd.DataFrame(columns=constraints_df.columns)
 
     objective_terms_df = pd.DataFrame(
-        [
-            {"Metric": key, "Value": value}
-            for key, value in (objective_contributions or {}).items()
-        ]
+        objective_breakdown_rows(
+            objective_contributions=objective_contributions,
+            objective_weights=objective_weights,
+        )
     )
 
     csv_path = RESULTS_DIR / "nausicaa_results.csv"
@@ -3023,6 +3135,7 @@ def print_console_report(
     output_paths: PathMap,
     figure_paths: PathMap,
     objective_contributions: dict[str, float] | None = None,
+    objective_weights: dict[str, float] | None = None,
 ) -> None:
     summary = {row["Metric"]: row["Value"] for row in summary_rows}
     geometry = {row["Parameter"]: row["Value"] for row in geometry_rows}
@@ -3072,36 +3185,48 @@ def print_console_report(
 
     objective_contrib_map = objective_contributions or {
         key: summary.get(key)
-        for key in [
-            "J_sink",
-            "J_mass",
-            "J_trim",
-            "J_wing_deflection",
-            "J_htail_deflection",
-            "J_roll_tau",
-            "J_total",
-        ]
+        for key in OBJECTIVE_TERM_ORDER
     }
-    if any(value is not None for value in objective_contrib_map.values()):
+    objective_weights_map = objective_weights or {
+        key.replace("objective_weight_", ""): value
+        for key, value in summary.items()
+        if isinstance(key, str) and key.startswith("objective_weight_")
+    }
+    objective_rows = objective_breakdown_rows(
+        objective_contributions={
+            key: float(to_scalar(value))
+            for key, value in objective_contrib_map.items()
+            if value is not None
+        },
+        objective_weights=objective_weights_map,
+    )
+    if any(onp.isfinite(float(to_scalar(row["Value"]))) for row in objective_rows):
         print("\nObjective contributions:", flush=True)
-        for key in [
-            "J_sink",
-            "J_mass",
-            "J_trim",
-            "J_wing_deflection",
-            "J_htail_deflection",
-            "J_roll_tau",
-            "J_total",
-        ]:
-            value = objective_contrib_map.get(key)
-            if isinstance(value, (int, float)) and onp.isfinite(float(value)):
-                print(f"  {key} = {float(value):.6f}", flush=True)
+        for row in objective_rows:
+            term = str(row["Term"])
+            value = float(to_scalar(row["Value"]))
+            percent = float(to_scalar(row["PercentOfTotal"]))
+            weight_key = str(row["WeightKey"])
+            weight = float(to_scalar(row["Weight"]))
+            if term == "J_total":
+                if onp.isfinite(value):
+                    print(f"  {term}: value={value:.6f} | share={percent:.2f}%", flush=True)
+                continue
+            if not onp.isfinite(value):
+                continue
+            weight_text = f"{weight:.6f}" if onp.isfinite(weight) else "n/a"
+            pct_text = f"{percent:.2f}%" if onp.isfinite(percent) else "n/a"
+            print(
+                f"  {term}: weight({weight_key})={weight_text} | value={value:.6f} | share={pct_text}",
+                flush=True,
+            )
 
         dominance_warning = objective_dominance_warning(
             {
-                key: float(value)
-                for key, value in objective_contrib_map.items()
-                if isinstance(value, (int, float))
+                str(row["Term"]): float(to_scalar(row["Value"]))
+                for row in objective_rows
+                if isinstance(row.get("Term"), str)
+                and onp.isfinite(float(to_scalar(row.get("Value", float("nan")))))
             },
             threshold_fraction=_DEFAULT_WEIGHTS.dominance_warning_fraction,
         )
@@ -3199,7 +3324,6 @@ def legacy_single_run_main(
     _LAST_SOLVE_FAILURE_REASON = None
 
     version = get_git_version()
-    print(f"CODE_VERSION: {version}", flush=True)
 
     if init_override is None:
         init_override = {}
@@ -3363,6 +3487,11 @@ def legacy_single_run_main(
         vtail_chord_m=vtail_chord_m,
         cfg=cfg,
     )
+    mass_penalty_mass_kg = objective_mass_penalty_mass_kg(
+        mass_props=mass_props,
+        total_mass_kg=total_mass.mass,
+    )
+    ballast_penalty_feather = (mass_props["ballast"].x_cg / 1e3) ** 2
 
     trim_nom = build_trim_constraints_and_metrics(
         opti=opti,
@@ -3544,14 +3673,25 @@ def legacy_single_run_main(
     # Arena footprint for coordinated banked turn feasibility
     phi_turn_rad = trim_turn["bank_angle_rad"]
     turn_radius_m = trim_turn["turn_radius_m"]
-    tau_turn_eff_s = np.maximum(roll_tau_turn_s, 1e-4)
-    bank_entry_dt_s = np.fmax(BANK_ENTRY_TIME_S - tau_turn_eff_s, 0.0)
-    bank_entry_phi_capture_proxy_rad = roll_rate_ss_turn_radps * bank_entry_dt_s
-    bank_entry_margin_rad = bank_entry_phi_capture_proxy_rad - phi_turn_rad
+
+    # Smooth tau floor (avoid np.maximum kink)
+    TAU_FLOOR_S = 1e-4
+    tau_turn_eff_s = np.sqrt(roll_tau_turn_s**2 + TAU_FLOOR_S**2)
+
+    # Smooth achieved-bank (first-order response to steady roll-rate command)
     bank_entry_phi_achieved_rad = roll_rate_ss_turn_radps * (
         BANK_ENTRY_TIME_S
         - tau_turn_eff_s * (1.0 - np.exp(-BANK_ENTRY_TIME_S / tau_turn_eff_s))
     )
+
+    # Feasibility margin MUST use achieved-bank (smooth everywhere)
+    bank_entry_margin_rad = bank_entry_phi_achieved_rad - phi_turn_rad
+
+    # Debug-only capture proxy (do not use in constraints); keep smooth for plots/prints
+    k_sp = 50.0
+    bank_entry_dt_s = stable_softplus(BANK_ENTRY_TIME_S - tau_turn_eff_s, sharpness=k_sp)
+    bank_entry_phi_capture_proxy_rad = roll_rate_ss_turn_radps * bank_entry_dt_s
+    opti.subject_to(bank_entry_margin_rad >= 0.0)
 
     # Structural flexibility proxy: each half-wing is a semispan cantilever
     # with half of the total lift, modeled as a uniform line load.
@@ -3622,8 +3762,9 @@ def legacy_single_run_main(
 
     objective, objective_terms_expr = build_dimensionless_objective_terms(
         sink_rate_mps=sink_rate_nom_mps,
-        mass_total_kg=total_mass.mass,
+        mass_penalty_kg=mass_penalty_mass_kg,
         ballast_mass_kg=ballast_mass_kg,
+        ballast_x_cg_m=mass_props["ballast"].x_cg,
         trim_effort_deg2=trim_effort,
         wing_deflection_over_allow=wing_deflection_over_allow,
         htail_deflection_over_allow=htail_deflection_over_allow,
@@ -3725,85 +3866,820 @@ def legacy_single_run_main(
         "max_iter": 1000,
         "check_derivatives_for_naninf": "no",
         "hessian_approximation": "limited-memory",
-        "print_level": 0,
-        "sb": "yes",
+        **ipopt_verbosity_options(),
     }
     if ipopt_options is not None:
         solver_options.update(ipopt_options)
     opti.solver("ipopt", plugin_options, solver_options)
 
-    if ENABLE_INITIAL_DESIGN_CHECK:
-        def debug_eval(expr: Scalar) -> float:
-            if isinstance(expr, (int, float, onp.floating, onp.integer)):
-                return to_scalar(expr)
-            if hasattr(opti, "debug") and hasattr(opti.debug, "value"):
+    def debug_eval(expr: Scalar, use_initial: bool = True) -> float:
+        if isinstance(expr, (int, float, onp.floating, onp.integer)):
+            return to_scalar(expr)
+        if hasattr(opti, "debug") and hasattr(opti.debug, "value"):
+            if use_initial:
                 return to_scalar(opti.debug.value(expr, opti.initial()))
-            return to_scalar(opti.value(expr, opti.initial()))
+            return to_scalar(opti.debug.value(expr))
+        return to_scalar(opti.value(expr, opti.initial()))
 
-        def debug_guess(label: str, expr: Scalar) -> None:
-            try:
-                value = debug_eval(expr)
-                print(f"[DEBUG INIT] {label} = {value:.6g}", flush=True)
-            except Exception as exc:
-                print(f"[DEBUG INIT] {label} unavailable ({exc})", flush=True)
+    turn_lift_required = K_LEVEL_TURN * trim_turn["n_load_factor"] * total_mass.mass * G
+    turn_footprint_margin = 0.5 * ARENA_WIDTH_M - (
+        turn_radius_m + 0.5 * wing_span_m + WALL_CLEARANCE_M
+    )
+    cm_tol_margin_nom = (
+        -np.abs(aero_nom["Cm"])
+        if constraint_policy.cm_trim_mode == "eq"
+        else float(constraint_policy.cm_trim_tol) - np.abs(aero_nom["Cm"])
+    )
+    cm_tol_margin_turn = (
+        -np.abs(aero_turn["Cm"])
+        if constraint_policy.cm_trim_mode == "eq"
+        else float(constraint_policy.cm_trim_tol) - np.abs(aero_turn["Cm"])
+    )
 
-        def debug_constraint(label: str, expr: Scalar) -> bool | None:
-            try:
-                value = debug_eval(expr)
-                passed = bool(value >= 0.5)
-                status = "PASS" if passed else "FAIL"
-                print(
-                    f"[DEBUG INIT][CONSTRAINT] {status} {label} (expr={value:.6g})",
-                    flush=True,
-                )
-                return passed
-            except Exception as exc:
-                print(
-                    f"[DEBUG INIT][CONSTRAINT] UNAVAILABLE {label} ({exc})",
-                    flush=True,
-                )
-                return None
-
-        debug_guess("Ixx", total_mass.inertia_tensor[0, 0])
-        debug_guess("static_margin", static_margin)
-        debug_guess("aero_nom_Clb", aero_nom["Clb"])
-        debug_guess("turn_footprint_m", turn_radius_m + 0.5 * wing_span_m + WALL_CLEARANCE_M)
-        debug_guess("aero_nom_Cl", aero_nom["Cl"])
-        debug_guess("aero_nom_Cn", aero_nom["Cn"])
-        debug_guess("aero_turn_Cl", aero_turn["Cl"])
-        debug_guess("aero_turn_Cn", aero_turn["Cn"])
-        debug_guess("tail_volume_horizontal", tail_volume_horizontal)
-        debug_guess("tail_volume_vertical", tail_volume_vertical)
-        debug_guess("aero_nom_Clp", aero_nom["Clp"])
-        debug_guess("aero_turn_Clp", aero_turn["Clp"])
-        debug_guess("cl_delta_a_nom_proxy", cl_delta_a_nom)
-        debug_guess("cl_delta_a_turn_proxy", cl_delta_a_turn)
-        debug_guess("roll_tau_s", roll_tau_s)
-        debug_guess("roll_tau_turn_s", roll_tau_turn_s)
-        debug_guess("roll_accel0_rad_s2", roll_accel0_rad_s2)
-        debug_guess("roll_rate_ss_turn_radps", roll_rate_ss_turn_radps)
-        debug_guess("delta_a_turn_eff_deg", delta_a_turn_eff_deg)
-        debug_guess("bank_entry_dt_s", bank_entry_dt_s)
-        debug_guess("bank_entry_margin_rad", bank_entry_margin_rad)
-        debug_guess("bank_entry_phi_capture_proxy_rad", bank_entry_phi_capture_proxy_rad)
-        debug_guess("bank_entry_phi_achieved_rad", bank_entry_phi_achieved_rad)
-
-        passed_constraints = 0
-        unavailable_constraints = 0
+    def print_failure_diagnostics() -> None:
+        failed_flags: list[str] = []
+        unavailable_flags = 0
+        skipped_trim_constraints = 0
         for label, expr in feasibility_constraints:
-            result = debug_constraint(label, expr)
-            if result is True:
-                passed_constraints += 1
-            elif result is None:
-                unavailable_constraints += 1
-        total_constraints = len(feasibility_constraints)
-        failed_constraints = total_constraints - passed_constraints - unavailable_constraints
+            if label.startswith("trim_nom[") or label.startswith("trim_turn["):
+                skipped_trim_constraints += 1
+                continue
+            try:
+                value = debug_eval(expr, use_initial=False)
+            except Exception:
+                unavailable_flags += 1
+                continue
+            if value < 0.5:
+                failed_flags.append(label)
+
+        if failed_flags:
+            print("[DEBUG FAIL] Failed boolean constraints at last iterate:", flush=True)
+            for label in failed_flags:
+                print(f"[DEBUG FAIL]   {label}", flush=True)
+        else:
+            print("[DEBUG FAIL] No boolean-flagged constraints reported at last iterate.", flush=True)
+        if unavailable_flags:
+            print(f"[DEBUG FAIL] Unavailable boolean checks: {unavailable_flags}", flush=True)
+        if skipped_trim_constraints:
+            print(f"[DEBUG FAIL] Skipped trim boolean checks: {skipped_trim_constraints}", flush=True)
+
+        margin_exprs: list[tuple[str, Scalar]] = [
+            ("nom_lift_margin_n", aero_nom["L"] - total_mass.mass * G),
+            ("nom_cm_trim_margin", cm_tol_margin_nom),
+            ("nom_cl_trim_margin", -np.abs(aero_nom["Cl"])),
+            ("nom_cn_trim_margin", -np.abs(aero_nom["Cn"])),
+            ("l_over_d_margin", l_over_d - MIN_L_OVER_D),
+            ("static_margin_min", static_margin - STATIC_MARGIN_MIN),
+            ("static_margin_max", STATIC_MARGIN_MAX - static_margin),
+            ("vh_min", tail_volume_horizontal - VH_MIN),
+            ("vh_max", VH_MAX - tail_volume_horizontal),
+            ("vv_min", tail_volume_vertical - VV_MIN),
+            ("vv_max", VV_MAX - tail_volume_vertical),
+            ("turn_lift_margin_n", aero_turn["L"] - turn_lift_required),
+            ("turn_cm_trim_margin", cm_tol_margin_turn),
+            ("turn_cl_cap_margin", TURN_CL_CAP - aero_turn["CL"]),
+            ("turn_footprint_margin_m", turn_footprint_margin),
+            ("bank_entry_margin_rad", bank_entry_margin_rad),
+            (
+                "turn_delta_a_margin_deg",
+                TURN_DEFLECTION_UTIL_MAX * DELTA_A_MAX_DEG - np.abs(delta_a_turn_deg),
+            ),
+            (
+                "turn_delta_e_margin_deg",
+                TURN_DEFLECTION_UTIL_MAX * DELTA_E_MAX_DEG - np.abs(delta_e_turn_deg),
+            ),
+            (
+                "turn_delta_r_margin_deg",
+                TURN_DEFLECTION_UTIL_MAX * DELTA_R_MAX_DEG - np.abs(delta_r_turn_deg),
+            ),
+        ]
+
+        margin_rows: list[tuple[str, float]] = []
+        for label, expr in margin_exprs:
+            try:
+                margin = float(debug_eval(expr, use_initial=False))
+            except Exception:
+                continue
+            if onp.isfinite(margin):
+                margin_rows.append((label, margin))
+
+        if not margin_rows:
+            return
+
+        margin_rows.sort(key=lambda row: row[1])
+        print("[DEBUG FAIL] Worst margin metrics (negative = violated):", flush=True)
+        for label, margin in margin_rows[:12]:
+            if margin < -1e-6:
+                status = "VIOL"
+            elif margin <= 1e-4:
+                status = "ACTIVE"
+            else:
+                status = "OK"
+            print(f"[DEBUG FAIL]   {status} {label}: {margin:.6g}", flush=True)
+
+    if ENABLE_INITIAL_DESIGN_CHECK:
+        print("\n[INITIAL CHECK][1/3] Design Value Check", flush=True)
+        design_value_specs: list[tuple[str, Scalar, str]] = [
+            ("Ixx", total_mass.inertia_tensor[0, 0], "kg*m^2"),
+            ("static_margin", static_margin, "-"),
+            ("tail_volume_horizontal", tail_volume_horizontal, "-"),
+            ("tail_volume_vertical", tail_volume_vertical, "-"),
+            ("aero_nom_Clb", aero_nom["Clb"], "-"),
+            ("aero_nom_Cl", aero_nom["Cl"], "-"),
+            ("aero_nom_Cn", aero_nom["Cn"], "-"),
+            ("aero_turn_Cl", aero_turn["Cl"], "-"),
+            ("aero_turn_Cn", aero_turn["Cn"], "-"),
+            ("aero_nom_Clp", aero_nom["Clp"], "-"),
+            ("aero_turn_Clp", aero_turn["Clp"], "-"),
+            ("cl_delta_a_nom_proxy", cl_delta_a_nom, "1/rad"),
+            ("cl_delta_a_turn_proxy", cl_delta_a_turn, "1/rad"),
+            ("roll_tau_s", roll_tau_s, "s"),
+            ("roll_tau_turn_s", roll_tau_turn_s, "s"),
+            ("roll_accel0_rad_s2", roll_accel0_rad_s2, "rad/s^2"),
+            ("roll_rate_ss_turn_radps", roll_rate_ss_turn_radps, "rad/s"),
+            ("delta_a_turn_eff_deg", delta_a_turn_eff_deg, "deg"),
+            ("bank_entry_dt_s", bank_entry_dt_s, "s"),
+            ("bank_entry_margin_rad", bank_entry_margin_rad, "rad"),
+            ("bank_entry_phi_capture_proxy_rad", bank_entry_phi_capture_proxy_rad, "rad"),
+            ("bank_entry_phi_achieved_rad", bank_entry_phi_achieved_rad, "rad"),
+            ("turn_footprint_m", turn_radius_m + 0.5 * wing_span_m + WALL_CLEARANCE_M, "m"),
+        ]
+        for label, expr, unit in design_value_specs:
+            try:
+                value = debug_eval(expr, use_initial=True)
+                print(f"  {label:32s} = {value:.6g} {unit}", flush=True)
+            except Exception as exc:
+                print(f"  {label:32s} = unavailable ({exc})", flush=True)
+
+        print("\n[INITIAL CHECK][2/3] Boundary Check (All Bounds)", flush=True)
+        boundary_specs: list[tuple[str, Scalar, float, float, str]] = [
+            ("alpha_nom_deg", alpha_nom_deg, ALPHA_MIN_DEG, ALPHA_MAX_DEG, "deg"),
+            ("delta_a_nom_deg", delta_a_nom_deg, DELTA_A_MIN_DEG, DELTA_A_MAX_DEG, "deg"),
+            ("delta_e_nom_deg", delta_e_nom_deg, DELTA_E_MIN_DEG, DELTA_E_MAX_DEG, "deg"),
+            ("delta_r_nom_deg", delta_r_nom_deg, DELTA_R_MIN_DEG, DELTA_R_MAX_DEG, "deg"),
+            ("alpha_turn_deg", alpha_turn_deg, ALPHA_MIN_DEG, ALPHA_MAX_TURN_DEG, "deg"),
+            ("delta_a_turn_deg", delta_a_turn_deg, DELTA_A_MIN_DEG, DELTA_A_MAX_DEG, "deg"),
+            ("delta_e_turn_deg", delta_e_turn_deg, DELTA_E_MIN_DEG, DELTA_E_MAX_DEG, "deg"),
+            ("delta_r_turn_deg", delta_r_turn_deg, DELTA_R_MIN_DEG, DELTA_R_MAX_DEG, "deg"),
+            ("wing_span_m", wing_span_m, WING_SPAN_MIN_M, WING_SPAN_MAX_M, "m"),
+            ("wing_chord_m", wing_chord_m, WING_CHORD_MIN_M, WING_CHORD_MAX_M, "m"),
+            ("tail_arm_m", tail_arm_m, TAIL_ARM_MIN_M, TAIL_ARM_MAX_M, "m"),
+            ("boom_length_m", boom_length_m, BOOM_LENGTH_MIN_M, BOOM_LENGTH_MAX_M, "m"),
+            ("htail_span_m", htail_span_m, HT_SPAN_MIN_M, HT_SPAN_MAX_M, "m"),
+            ("vtail_height_m", vtail_height_m, VT_HEIGHT_MIN_M, VT_HEIGHT_MAX_M, "m"),
+            ("ballast_mass_kg", ballast_mass_kg, 0.0, BALLAST_MAX_KG, "kg"),
+            ("ballast_slider_eta", ballast_eta, 0.0, 1.0, "-"),
+        ]
+        boundary_init_rows: ReportRows = []
+        for name, expr, lower, upper, unit in boundary_specs:
+            try:
+                value = debug_eval(expr, use_initial=True)
+            except Exception as exc:
+                print(f"  {name:24s} = unavailable ({exc})", flush=True)
+                continue
+            row = design_variable_boundary_record(
+                name=name,
+                value=value,
+                lower=lower,
+                upper=upper,
+                unit=unit,
+            )
+            boundary_init_rows.append(row)
+            status = (
+                f"HIT_{str(row['BoundHit']).upper()}"
+                if bool(row["IsAtBoundary"])
+                else "OK"
+            )
+            print(
+                f"  {name:24s} value={float(row['Value']):.6g} | "
+                f"[{float(row['Lower']):.6g}, {float(row['Upper']):.6g}] {unit} | {status}",
+                flush=True,
+            )
+
+        n_bound_hits = sum(1 for row in boundary_init_rows if bool(row["IsAtBoundary"]))
         print(
-            f"[DEBUG INIT] Constraint summary: passed={passed_constraints}, "
-            f"failed={failed_constraints}, unavailable={unavailable_constraints}, "
-            f"total={total_constraints}",
+            f"  Boundary summary: hits={n_bound_hits}, total={len(boundary_init_rows)}",
             flush=True,
         )
+
+        print("  NLP bound audit (all bounds defined in the problem):", flush=True)
+
+        def fmt_bound(value: float) -> str:
+            if onp.isposinf(value):
+                return "+inf"
+            if onp.isneginf(value):
+                return "-inf"
+            if not onp.isfinite(value):
+                return "nan"
+            return f"{value:.6g}"
+
+        try:
+            g_init = onp.asarray(
+                opti.debug.value(opti.g, opti.initial()),
+                dtype=float,
+            ).flatten()
+            lbg_init = onp.asarray(
+                opti.debug.value(opti.lbg, opti.initial()),
+                dtype=float,
+            ).flatten()
+            ubg_init = onp.asarray(
+                opti.debug.value(opti.ubg, opti.initial()),
+                dtype=float,
+            ).flatten()
+            n_nlp_bounds = int(min(g_init.size, lbg_init.size, ubg_init.size))
+            bound_pass_count = 0
+            bound_fail_count = 0
+            decl_map = dict(getattr(opti, "_constraint_declarations", {}))
+
+            for idx in range(n_nlp_bounds):
+                g_i = float(g_init[idx])
+                lb_i = float(lbg_init[idx])
+                ub_i = float(ubg_init[idx])
+
+                lb_ok = (not onp.isfinite(lb_i)) or (g_i >= lb_i - BOUNDARY_HIT_ABS_TOL)
+                ub_ok = (not onp.isfinite(ub_i)) or (g_i <= ub_i + BOUNDARY_HIT_ABS_TOL)
+                passed = bool(lb_ok and ub_ok)
+                status = "PASS" if passed else "FAIL"
+
+                if onp.isfinite(lb_i) and onp.isfinite(ub_i):
+                    if abs(ub_i - lb_i) <= max(BOUNDARY_HIT_ABS_TOL, 1e-12):
+                        bound_type = "eq"
+                    else:
+                        bound_type = "box"
+                elif onp.isfinite(lb_i):
+                    bound_type = "lower"
+                elif onp.isfinite(ub_i):
+                    bound_type = "upper"
+                else:
+                    bound_type = "free"
+
+                source_text = "-"
+                source_info = decl_map.get(idx)
+                if source_info is not None and len(source_info) >= 2:
+                    source_text = f"{Path(source_info[0]).name}:{source_info[1]}"
+
+                print(
+                    f"    [{status}] c[{idx:03d}] type={bound_type:5s} "
+                    f"g={fmt_bound(g_i):>10s} lb={fmt_bound(lb_i):>10s} "
+                    f"ub={fmt_bound(ub_i):>10s} src={source_text}",
+                    flush=True,
+                )
+
+                if passed:
+                    bound_pass_count += 1
+                else:
+                    bound_fail_count += 1
+            print(
+                f"  NLP bound summary: passed={bound_pass_count}, "
+                f"failed={bound_fail_count}, total={n_nlp_bounds} "
+                f"(expected check disabled)",
+                flush=True,
+            )
+        except Exception as exc:
+            print(f"  NLP bound audit unavailable ({exc})", flush=True)
+
+        print("  Feasibility margin check (numeric postcheck metrics):", flush=True)
+        try:
+            initial_mass_kg_for_tol = abs(float(debug_eval(total_mass.mass, use_initial=True)))
+        except Exception:
+            initial_mass_kg_for_tol = 1.0
+        lift_tol_n = max(1e-6 * initial_mass_kg_for_tol * G, 1e-6)
+        cm_tol = max(float(CM_TRIM_TOL), 1e-4)
+        lat_tol = 1e-3
+        cl_cap_tol = 1e-6
+        margin_tol = 1e-6
+
+        initial_postcheck_exprs: dict[str, Scalar] = {
+            "nom_lift_margin": aero_nom["L"] - total_mass.mass * G,
+            "turn_lift_margin": aero_turn["L"] - turn_lift_required,
+            "nom_cm": aero_nom["Cm"],
+            "turn_cm": aero_turn["Cm"],
+            "nom_cl": aero_nom["Cl"],
+            "nom_cn": aero_nom["Cn"],
+            "turn_cl": aero_turn["Cl"],
+            "turn_cn": aero_turn["Cn"],
+            "nom_cl_cap_margin": MAX_CL_AT_DESIGN_POINT - aero_nom["CL"],
+            "turn_cl_cap_margin": TURN_CL_CAP - aero_turn["CL"],
+            "bank_margin_rad": bank_entry_margin_rad,
+            "footprint_margin": turn_footprint_margin,
+        }
+
+        margin_specs: list[tuple[str, str, float, str]] = [
+            ("nom_lift_margin", "ge", lift_tol_n, "N"),
+            ("turn_lift_margin", "ge", lift_tol_n, "N"),
+            ("nom_cm", "abs", cm_tol, "-"),
+            ("turn_cm", "abs", cm_tol, "-"),
+            ("nom_cl", "abs", lat_tol, "-"),
+            ("nom_cn", "abs", lat_tol, "-"),
+            ("turn_cl", "info", lat_tol, "-"),
+            ("turn_cn", "info", lat_tol, "-"),
+            ("nom_cl_cap_margin", "ge", cl_cap_tol, "-"),
+            ("turn_cl_cap_margin", "ge", cl_cap_tol, "-"),
+            ("bank_margin_rad", "ge", margin_tol, "rad"),
+            ("footprint_margin", "ge", margin_tol, "m"),
+        ]
+
+        margin_passed = 0
+        margin_failed = 0
+        margin_unavailable = 0
+        margin_info = 0
+
+        for name, mode, tol, unit in margin_specs:
+            expr = initial_postcheck_exprs[name]
+            try:
+                value = float(debug_eval(expr, use_initial=True))
+            except Exception as exc:
+                margin_unavailable += 1
+                print(f"    [UNAVAILABLE] {name:20s} ({exc})", flush=True)
+                continue
+
+            if mode == "ge":
+                passed = bool(value >= -tol)
+                status = "PASS" if passed else "FAIL"
+                print(
+                    f"    [{status}] {name:20s} value={value:.6g} {unit} | target>=0 (tol={tol:.3g})",
+                    flush=True,
+                )
+                if passed:
+                    margin_passed += 1
+                else:
+                    margin_failed += 1
+                continue
+
+            if mode == "abs":
+                residual = abs(value)
+                passed = bool(residual <= tol)
+                status = "PASS" if passed else "FAIL"
+                print(
+                    f"    [{status}] {name:20s} value={value:.6g} {unit} | |value|={residual:.3g} <= {tol:.3g}",
+                    flush=True,
+                )
+                if passed:
+                    margin_passed += 1
+                else:
+                    margin_failed += 1
+                continue
+
+            margin_info += 1
+            print(
+                f"    [INFO] {name:20s} value={value:.6g} {unit} | diagnostic-only (turn lateral trim not enforced)",
+                flush=True,
+            )
+
+        print(
+            f"  Feasibility margin summary: passed={margin_passed}, "
+            f"failed={margin_failed}, info={margin_info}, unavailable={margin_unavailable}, "
+            f"total={len(margin_specs)}",
+            flush=True,
+        )
+        print("\n[INITIAL CHECK][2.5/3] Trim-Only Solve Recheck", flush=True)
+        try:
+            wing_span_init_m = float(debug_eval(wing_span_m, use_initial=True))
+            wing_chord_init_m = float(debug_eval(wing_chord_m, use_initial=True))
+            tail_arm_init_m = float(debug_eval(tail_arm_m, use_initial=True))
+            htail_span_init_m = float(debug_eval(htail_span_m, use_initial=True))
+            vtail_height_init_m = float(debug_eval(vtail_height_m, use_initial=True))
+            boom_end_x_init_m = (
+                tail_arm_init_m + BOOM_END_BEFORE_ELEV_FRAC * (htail_span_init_m / HT_AR)
+            )
+
+            trim_mass_kg = float(debug_eval(total_mass.mass, use_initial=True))
+            trim_xyz_ref = [
+                float(debug_eval(total_mass.x_cg, use_initial=True)),
+                float(debug_eval(total_mass.y_cg, use_initial=True)),
+                float(debug_eval(total_mass.z_cg, use_initial=True)),
+            ]
+
+            trim_wing = build_main_wing(
+                airfoil=airfoil,
+                span_m=wing_span_init_m,
+                chord_m=wing_chord_init_m,
+                cfg=cfg,
+            )
+            trim_htail, trim_htail_chord_m = build_horizontal_tail(
+                airfoil=airfoil,
+                tail_arm_m=tail_arm_init_m,
+                span_m=htail_span_init_m,
+                cfg=cfg,
+            )
+            trim_vtail, _trim_vtail_chord_m = build_vertical_tail(
+                airfoil=airfoil,
+                tail_arm_m=tail_arm_init_m,
+                htail_chord_m=trim_htail_chord_m,
+                height_m=vtail_height_init_m,
+                cfg=cfg,
+            )
+            trim_fuselage = build_fuselage(boom_end_x_m=boom_end_x_init_m, cfg=cfg)
+            trim_airplane_base = asb.Airplane(
+                name="Nausicaa initial trim-only",
+                wings=[trim_wing, trim_htail, trim_vtail],
+                fuselages=[trim_fuselage],
+            )
+
+            def run_trim_only_recheck(
+                *,
+                label: str,
+                prefix: str,
+                alpha_init_deg: float,
+                delta_a_init_deg: float,
+                delta_e_init_deg: float,
+                delta_r_init_deg: float,
+                alpha_upper_bound_deg: float,
+                velocity_mps: float,
+                bank_angle_deg: float,
+                lift_k: float,
+                cl_cap: float | None,
+                enforce_lateral_trim: bool,
+                use_coordinated_turn: bool,
+                report_first_n: int,
+            ) -> None:
+                trim_opti = asb.Opti()
+                alpha_trim_deg = trim_opti.variable(
+                    init_guess=float(alpha_init_deg),
+                    lower_bound=ALPHA_MIN_DEG,
+                    upper_bound=float(alpha_upper_bound_deg),
+                )
+                delta_a_trim_deg = trim_opti.variable(
+                    init_guess=float(delta_a_init_deg),
+                    lower_bound=DELTA_A_MIN_DEG,
+                    upper_bound=DELTA_A_MAX_DEG,
+                )
+                delta_e_trim_deg = trim_opti.variable(
+                    init_guess=float(delta_e_init_deg),
+                    lower_bound=DELTA_E_MIN_DEG,
+                    upper_bound=DELTA_E_MAX_DEG,
+                )
+                delta_r_trim_deg = trim_opti.variable(
+                    init_guess=float(delta_r_init_deg),
+                    lower_bound=DELTA_R_MIN_DEG,
+                    upper_bound=DELTA_R_MAX_DEG,
+                )
+
+                trim_airplane = trim_airplane_base.with_control_deflections(
+                    {
+                        "aileron": delta_a_trim_deg,
+                        "elevator": delta_e_trim_deg,
+                        "rudder": delta_r_trim_deg,
+                    }
+                )
+
+                trim_metrics = build_trim_constraints_and_metrics(
+                    opti=trim_opti,
+                    airplane=trim_airplane,
+                    xyz_ref=trim_xyz_ref,
+                    velocity_mps=float(velocity_mps),
+                    alpha_deg=alpha_trim_deg,
+                    mass_kg=float(trim_mass_kg),
+                    mode="nominal" if prefix == "trim_nom" else "turn",
+                    bank_angle_deg=float(bank_angle_deg),
+                    lift_k=float(lift_k),
+                    cl_cap=float(cl_cap) if cl_cap is not None else None,
+                    enforce_lateral_trim=bool(enforce_lateral_trim),
+                    use_coordinated_turn=bool(use_coordinated_turn),
+                    atmosphere=atmos,
+                    cfg=cfg,
+                    policy=constraint_policy,
+                )
+                trim_constraints_case = list(trim_metrics["constraints"])
+                trim_opti.subject_to(trim_constraints_case)
+                trim_opti.minimize(
+                    delta_e_trim_deg ** 2
+                    + 0.3 * delta_r_trim_deg ** 2
+                    + 0.15 * delta_a_trim_deg ** 2
+                )
+
+                trim_opti.solver(
+                    "ipopt",
+                    {"print_time": False, "verbose": False},
+                    {
+                        "max_iter": 500,
+                        "hessian_approximation": "limited-memory",
+                        **ipopt_verbosity_options(),
+                    },
+                )
+
+                print(f"  {label} trim-only solve:", flush=True)
+                solve_succeeded = True
+                trim_solution: Any | None = None
+                try:
+                    trim_solution = trim_opti.solve()
+                except RuntimeError as exc:
+                    solve_succeeded = False
+                    print(f"    [SOLVE_FAIL] {exc}", flush=True)
+                    print(
+                        "    [INFO] reporting diagnostics at IPOPT last iterate (not an optimal feasible solution)",
+                        flush=True,
+                    )
+
+                def solved_trim_value(expr: Scalar) -> float:
+                    if isinstance(expr, (int, float, onp.floating, onp.integer)):
+                        return float(expr)
+                    if solve_succeeded and trim_solution is not None:
+                        return float(to_scalar(trim_solution(expr)))
+                    return float(to_scalar(trim_opti.debug.value(expr)))
+
+                try:
+                    alpha_sol = solved_trim_value(alpha_trim_deg)
+                    delta_a_sol = solved_trim_value(delta_a_trim_deg)
+                    delta_e_sol = solved_trim_value(delta_e_trim_deg)
+                    delta_r_sol = solved_trim_value(delta_r_trim_deg)
+                except Exception as exc:
+                    print(f"    [DIAG_UNAVAILABLE] Could not evaluate trim state ({exc})", flush=True)
+                    return
+
+                solve_tag = "solved trim" if solve_succeeded else "last iterate"
+                print(
+                    f"    {solve_tag}: alpha={alpha_sol:.4f} deg, "
+                    f"da={delta_a_sol:.4f} deg, de={delta_e_sol:.4f} deg, dr={delta_r_sol:.4f} deg",
+                    flush=True,
+                )
+                trim_aero = trim_metrics["aero"]
+                lift_n = solved_trim_value(trim_aero["L"])
+                cl_value = solved_trim_value(trim_aero["CL"])
+                cm_value = solved_trim_value(trim_aero["Cm"])
+                cl_value_lat = solved_trim_value(trim_aero["Cl"])
+                cn_value_lat = solved_trim_value(trim_aero["Cn"])
+                n_load_factor = solved_trim_value(trim_metrics["n_load_factor"])
+
+                lift_required_n = float(lift_k) * n_load_factor * float(trim_mass_kg) * G
+                lift_margin = lift_n - lift_required_n
+                cl_cap_margin = float(cl_cap) - cl_value if cl_cap is not None else None
+
+                lift_tol_n = max(1e-6 * float(trim_mass_kg) * G, 1e-6)
+                cm_tol = max(float(CM_TRIM_TOL), 1e-4)
+                lat_tol = 1e-3
+                cl_cap_tol = 1e-6
+
+                print(
+                    f"    aero: L={lift_n:.6g} N, CL={cl_value:.6g}, Cm={cm_value:.6g}, "
+                    f"Cl={cl_value_lat:.6g}, Cn={cn_value_lat:.6g}",
+                    flush=True,
+                )
+                print(
+                    f"    load: n={n_load_factor:.6g}, L_required={lift_required_n:.6g} N, "
+                    f"L_margin={lift_margin:.6g} N",
+                    flush=True,
+                )
+                if cl_cap_margin is not None:
+                    print(
+                        f"    CL cap: cap={float(cl_cap):.6g}, margin={cl_cap_margin:.6g}",
+                        flush=True,
+                    )
+
+                check_rows: list[tuple[str, bool, str]] = []
+                check_rows.append(
+                    (
+                        "lift_margin",
+                        bool(lift_margin >= -lift_tol_n),
+                        f"margin={lift_margin:.6g} N (tol={lift_tol_n:.3g})",
+                    )
+                )
+                check_rows.append(
+                    (
+                        "cm_residual",
+                        bool(abs(cm_value) <= cm_tol),
+                        f"|Cm|={abs(cm_value):.6g} <= {cm_tol:.3g}",
+                    )
+                )
+                if cl_cap_margin is not None:
+                    check_rows.append(
+                        (
+                            "cl_cap_margin",
+                            bool(cl_cap_margin >= -cl_cap_tol),
+                            f"margin={cl_cap_margin:.6g} (tol={cl_cap_tol:.3g})",
+                        )
+                    )
+                if enforce_lateral_trim:
+                    check_rows.append(
+                        (
+                            "cl_residual",
+                            bool(abs(cl_value_lat) <= lat_tol),
+                            f"|Cl|={abs(cl_value_lat):.6g} <= {lat_tol:.3g}",
+                        )
+                    )
+                    check_rows.append(
+                        (
+                            "cn_residual",
+                            bool(abs(cn_value_lat) <= lat_tol),
+                            f"|Cn|={abs(cn_value_lat):.6g} <= {lat_tol:.3g}",
+                        )
+                    )
+                else:
+                    print(
+                        "    [INFO] lateral trim not enforced; Cl/Cn shown for diagnostics only",
+                        flush=True,
+                    )
+
+                pass_count = 0
+                fail_count = 0
+                for check_name, passed, detail in check_rows:
+                    status = "PASS" if passed else "FAIL"
+                    print(f"    [{status}] {check_name:12s} {detail}", flush=True)
+                    if passed:
+                        pass_count += 1
+                    else:
+                        fail_count += 1
+
+                print(
+                    f"    summary: passed={pass_count}, failed={fail_count}, checked={len(check_rows)}",
+                    flush=True,
+                )
+
+            run_trim_only_recheck(
+                label="nominal",
+                prefix="trim_nom",
+                alpha_init_deg=float(debug_eval(alpha_nom_deg, use_initial=True)),
+                delta_a_init_deg=float(debug_eval(delta_a_nom_deg, use_initial=True)),
+                delta_e_init_deg=float(debug_eval(delta_e_nom_deg, use_initial=True)),
+                delta_r_init_deg=float(debug_eval(delta_r_nom_deg, use_initial=True)),
+                alpha_upper_bound_deg=ALPHA_MAX_DEG,
+                velocity_mps=V_NOM_MPS,
+                bank_angle_deg=0.0,
+                lift_k=1.0,
+                cl_cap=MAX_CL_AT_DESIGN_POINT,
+                enforce_lateral_trim=constraint_policy.nom_lateral_trim,
+                use_coordinated_turn=False,
+                report_first_n=5,
+            )
+
+            run_trim_only_recheck(
+                label="turn",
+                prefix="trim_turn",
+                alpha_init_deg=float(debug_eval(alpha_turn_deg, use_initial=True)),
+                delta_a_init_deg=float(debug_eval(delta_a_turn_deg, use_initial=True)),
+                delta_e_init_deg=float(debug_eval(delta_e_turn_deg, use_initial=True)),
+                delta_r_init_deg=float(debug_eval(delta_r_turn_deg, use_initial=True)),
+                alpha_upper_bound_deg=ALPHA_MAX_TURN_DEG,
+                velocity_mps=V_TURN_MPS,
+                bank_angle_deg=TURN_BANK_DEG,
+                lift_k=K_LEVEL_TURN,
+                cl_cap=TURN_CL_CAP,
+                enforce_lateral_trim=False,
+                use_coordinated_turn=True,
+                report_first_n=3,
+            )
+        except Exception as exc:
+            print(f"  Trim-only solve recheck unavailable ({exc})", flush=True)
+        print("\n[INITIAL CHECK][3/3] Fake Objective Breakdown (Initial Guess)", flush=True)
+
+        def eval_initial(expr: Scalar) -> float:
+            try:
+                return float(debug_eval(expr, use_initial=True))
+            except Exception:
+                return float("nan")
+
+        def fmt_obj(value: float, digits: int = 6) -> str:
+            if not onp.isfinite(value):
+                return "nan"
+            return f"{value:.{digits}f}"
+
+        def safe_div(num: float, den: float) -> float:
+            if not onp.isfinite(num) or not onp.isfinite(den) or abs(den) <= 1e-12:
+                return float("nan")
+            return float(num / den)
+
+        fake_objective_contribs = evaluate_objective_contributions(
+            value_getter=lambda expr: debug_eval(expr, use_initial=True),
+            objective_terms=objective_terms_expr,
+        )
+        fake_objective_rows = objective_breakdown_rows(
+            objective_contributions=fake_objective_contribs,
+            objective_weights=objective_weights,
+        )
+
+        print("  [A] Solver-evaluated objective terms at initial guess:", flush=True)
+        for row in fake_objective_rows:
+            term = str(row["Term"])
+            value = float(to_scalar(row["Value"]))
+            percent = float(to_scalar(row["PercentOfTotal"]))
+            weight_key = str(row["WeightKey"])
+            weight = float(to_scalar(row["Weight"]))
+            share_text = f"{percent:.2f}%" if onp.isfinite(percent) else "n/a"
+            if term == "J_total":
+                print(
+                    f"    {term:20s} solver={fmt_obj(value)} | share={share_text}",
+                    flush=True,
+                )
+                continue
+
+            weight_text = fmt_obj(weight)
+            print(
+                f"    {term:20s} weight({weight_key})={weight_text} | "
+                f"solver={fmt_obj(value)} | share={share_text}",
+                flush=True,
+            )
+
+        sink_scale = max(float(objective_scales.sink_mps), 1e-9)
+        mass_scale = max(float(objective_scales.mass_kg), 1e-9)
+        ballast_scale = max(float(objective_scales.ballast_kg), 1e-9)
+        trim_scale = max(float(objective_scales.trim_deg), 1e-9)
+        roll_tau_scale = max(float(objective_scales.roll_tau_s), 1e-9)
+
+        sink_rate_init = eval_initial(sink_rate_nom_mps)
+        mass_penalty_mass_init = eval_initial(mass_penalty_mass_kg)
+        ballast_mass_init = eval_initial(ballast_mass_kg)
+        ballast_x_init = eval_initial(mass_props["ballast"].x_cg)
+        trim_effort_init = eval_initial(trim_effort)
+        wing_defl_init = eval_initial(wing_deflection_over_allow)
+        htail_defl_init = eval_initial(htail_deflection_over_allow)
+        roll_tau_init = eval_initial(roll_tau_s)
+
+        ballast_pos_term_init = (
+            (ballast_x_init / 1e3) ** 2 if onp.isfinite(ballast_x_init) else float("nan")
+        )
+        ballast_mass_term_init = safe_div(ballast_mass_init, ballast_scale)
+
+        normalized_terms = {
+            "J_sink": safe_div(sink_rate_init, sink_scale),
+            "J_mass": safe_div(mass_penalty_mass_init, mass_scale),
+            "J_ballast": (
+                ballast_mass_term_init + ballast_pos_term_init
+                if onp.isfinite(ballast_mass_term_init) and onp.isfinite(ballast_pos_term_init)
+                else float("nan")
+            ),
+            "J_trim": safe_div(trim_effort_init, trim_scale**2),
+            "J_wing_deflection": wing_defl_init,
+            "J_htail_deflection": htail_defl_init,
+            "J_roll_tau": safe_div(roll_tau_init, roll_tau_scale),
+        }
+
+        weight_map = objective_weight_dict(objective_weights)
+        manual_weighted_terms: dict[str, float] = {}
+        for term, norm_value in normalized_terms.items():
+            weight_key = OBJECTIVE_TERM_TO_WEIGHT_KEY.get(term, "")
+            weight_value = float(weight_map.get(weight_key, float("nan")))
+            if onp.isfinite(norm_value) and onp.isfinite(weight_value):
+                manual_weighted_terms[term] = float(weight_value * norm_value)
+            else:
+                manual_weighted_terms[term] = float("nan")
+
+        manual_total = (
+            float(sum(manual_weighted_terms.values()))
+            if all(onp.isfinite(v) for v in manual_weighted_terms.values())
+            else float("nan")
+        )
+        solver_total = float(fake_objective_contribs.get("J_total", float("nan")))
+        solver_objective_expr = eval_initial(objective)
+
+        print("  [B] Objective calculation trace (manual reconstruction vs solver):", flush=True)
+        for term in [
+            "J_sink",
+            "J_mass",
+            "J_ballast",
+            "J_trim",
+            "J_wing_deflection",
+            "J_htail_deflection",
+            "J_roll_tau",
+        ]:
+            norm_value = float(normalized_terms.get(term, float("nan")))
+            weight_key = OBJECTIVE_TERM_TO_WEIGHT_KEY.get(term, "")
+            weight_value = float(weight_map.get(weight_key, float("nan")))
+            manual_value = float(manual_weighted_terms.get(term, float("nan")))
+            solver_value = float(fake_objective_contribs.get(term, float("nan")))
+            delta_value = (
+                solver_value - manual_value
+                if onp.isfinite(solver_value) and onp.isfinite(manual_value)
+                else float("nan")
+            )
+            print(
+                f"    {term:20s} norm={fmt_obj(norm_value)} | "
+                f"weight({weight_key})={fmt_obj(weight_value)} | "
+                f"manual={fmt_obj(manual_value)} | solver={fmt_obj(solver_value)} | "
+                f"delta={fmt_obj(delta_value)}",
+                flush=True,
+            )
+            if term == "J_ballast":
+                print(
+                    "      ballast split: "
+                    f"mass/scale={fmt_obj(ballast_mass_term_init)} + "
+                    f"(x_ballast/1e3)^2={fmt_obj(ballast_pos_term_init)} "
+                    f"with x_ballast={fmt_obj(ballast_x_init)} m",
+                    flush=True,
+                )
+
+        total_delta = (
+            solver_total - manual_total
+            if onp.isfinite(solver_total) and onp.isfinite(manual_total)
+            else float("nan")
+        )
+        expr_vs_terms_delta = (
+            solver_objective_expr - solver_total
+            if onp.isfinite(solver_objective_expr) and onp.isfinite(solver_total)
+            else float("nan")
+        )
+        print(
+            f"    {'J_total':20s} manual_sum={fmt_obj(manual_total)} | "
+            f"solver_terms={fmt_obj(solver_total)} | "
+            f"solver_objective={fmt_obj(solver_objective_expr)}",
+            flush=True,
+        )
+        print(
+            "      total deltas: "
+            f"(solver_terms - manual_sum)={fmt_obj(total_delta)} | "
+            f"(solver_objective - solver_terms)={fmt_obj(expr_vs_terms_delta)}",
+            flush=True,
+        )
+
 
     if not ENABLE_OPTIMIZATION_AFTER_INITIAL_CHECK:
         print(
@@ -3823,6 +4699,10 @@ def legacy_single_run_main(
             opti.debug.show_infeasibilities()
         except Exception as infeas_exc:
             print(f"[WARN] show_infeasibilities() failed: {infeas_exc}", flush=True)
+        try:
+            print_failure_diagnostics()
+        except Exception as diag_exc:
+            print(f"[WARN] failure diagnostics unavailable: {diag_exc}", flush=True)
         print("No feasible design was found with the current settings", flush=True)
         return None
     solve_stats: dict[str, Any] = {}
@@ -3876,6 +4756,8 @@ def legacy_single_run_main(
     sink_rate_num = to_scalar(solution(sink_rate_nom_mps))
     l_over_d_num = to_scalar(solution(l_over_d))
     mass_total_num = to_scalar(total_mass_num.mass)
+    mass_penalty_mass_num = to_scalar(solution(mass_penalty_mass_kg))
+    ballast_penalty_feather_num = to_scalar(solution(ballast_penalty_feather))
     total_cg_x_num = to_scalar(total_mass_num.x_cg)
     total_cg_y_num = to_scalar(total_mass_num.y_cg)
     total_cg_z_num = to_scalar(total_mass_num.z_cg)
@@ -4072,6 +4954,13 @@ def legacy_single_run_main(
             unit="m",
         ),
         design_variable_boundary_record(
+            name="tail_arm_m",
+            value=tail_arm_design_num,
+            lower=TAIL_ARM_MIN_M,
+            upper=TAIL_ARM_MAX_M,
+            unit="m",
+        ),
+        design_variable_boundary_record(
             name="boom_length_m",
             value=boom_length_design_num,
             lower=BOOM_LENGTH_MIN_M,
@@ -4131,6 +5020,13 @@ def legacy_single_run_main(
         {"Metric": "delta_e_turn_deg", "Value": delta_e_turn_num, "Unit": "deg"},
         {"Metric": "delta_r_turn_deg", "Value": delta_r_turn_num, "Unit": "deg"},
         {"Metric": "mass_total_kg", "Value": mass_total_num, "Unit": "kg"},
+        {
+            "Metric": "mass_penalty_mode",
+            "Value": "all_mass" if MASS_PENALTY_COUNT_ALL_MASS else "wing_boom_only",
+            "Unit": "-",
+        },
+        {"Metric": "mass_penalty_reference_kg", "Value": mass_penalty_mass_num, "Unit": "kg"},
+        {"Metric": "ballast_penalty_feather_term", "Value": ballast_penalty_feather_num, "Unit": "-"},
         {"Metric": "mass_total_g", "Value": mass_total_num * 1e3, "Unit": "g"},
         {
             "Metric": "mass_total_lbm",
@@ -4304,6 +5200,34 @@ def legacy_single_run_main(
                 "Metric": key,
                 "Value": value,
                 "Unit": "-",
+            }
+        )
+
+    objective_rows_num = objective_breakdown_rows(
+        objective_contributions=objective_contributions_num,
+        objective_weights=objective_weights_dict,
+    )
+    for row in objective_rows_num:
+        term = str(row["Term"])
+        summary_rows.append(
+            {
+                "Metric": f"objective_term_{term}_value",
+                "Value": row["Value"],
+                "Unit": "-",
+            }
+        )
+        summary_rows.append(
+            {
+                "Metric": f"objective_term_{term}_weight",
+                "Value": row["Weight"],
+                "Unit": "-",
+            }
+        )
+        summary_rows.append(
+            {
+                "Metric": f"objective_term_{term}_pct_total",
+                "Value": row["PercentOfTotal"],
+                "Unit": "%",
             }
         )
     for key, value in objective_weights_dict.items():
@@ -4648,6 +5572,7 @@ def legacy_single_run_main(
         active_constraint_rows=active_constraint_rows,
         solver_stats=solve_stats,
         objective_contributions=objective_contributions_num,
+        objective_weights=objective_weights_dict,
     )
 
     figure_paths: PathMap = {}
@@ -4668,6 +5593,7 @@ def legacy_single_run_main(
         output_paths=output_paths,
         figure_paths=figure_paths,
         objective_contributions=objective_contributions_num,
+        objective_weights=objective_weights_dict,
     )
     return candidate
 
@@ -5555,6 +6481,11 @@ def robust_in_loop_optimize(
         vtail_chord_m=vtail_chord_m,
         cfg=cfg,
     )
+    mass_penalty_mass_kg = objective_mass_penalty_mass_kg(
+        mass_props=mass_props,
+        total_mass_kg=total_mass.mass,
+    )
+    ballast_penalty_feather = (mass_props["ballast"].x_cg / 1e3) ** 2
 
     wing_area_m2 = wing.area()
     wing_mac_m = wing.mean_aerodynamic_chord()
@@ -5812,8 +6743,6 @@ def robust_in_loop_optimize(
         all_constraints.extend(trim_turn["constraints"])
         all_constraints.extend(
             [
-                trim_nom["aero"]["CL"] <= MAX_CL_AT_DESIGN_POINT,
-                trim_turn["aero"]["CL"] <= TURN_CL_CAP,
                 trim_turn["turn_radius_m"] + 0.5 * wing_span_m + WALL_CLEARANCE_M
                 <= 0.5 * ARENA_WIDTH_M,
             ]
@@ -5882,12 +6811,17 @@ def robust_in_loop_optimize(
             / clp_mag_turn
         )
 
-        tau_turn_eff_s = np.maximum(roll_tau_turn_s, 1e-4)
-        bank_entry_dt_s = np.fmax(BANK_ENTRY_TIME_S - tau_turn_eff_s, 0.0)
-        bank_entry_margin_rad = (
-            roll_rate_ss_turn_radps * bank_entry_dt_s
-            - np.radians(TURN_BANK_DEG)
+        tau_floor_s = 1e-4
+        tau_turn_eff_s = np.sqrt(roll_tau_turn_s**2 + tau_floor_s**2)
+        bank_entry_phi_achieved_rad = roll_rate_ss_turn_radps * (
+            BANK_ENTRY_TIME_S
+            - tau_turn_eff_s * (1.0 - np.exp(-BANK_ENTRY_TIME_S / tau_turn_eff_s))
         )
+        bank_entry_margin_rad = bank_entry_phi_achieved_rad - trim_turn["bank_angle_rad"]
+
+        # Debug-only capture proxy uses smooth softplus; not used for feasibility margin.
+        k_sp = 50.0
+        bank_entry_dt_s = stable_softplus(BANK_ENTRY_TIME_S - tau_turn_eff_s, sharpness=k_sp)
         bank_margin_penalties.append(stable_softplus(-bank_entry_margin_rad, SOFTPLUS_K) ** 2)
 
         postcheck_exprs.append(
@@ -5964,7 +6898,8 @@ def robust_in_loop_optimize(
     objective = (
         sink_cvar_like
         + float(config.robust_opt_sink_mean_weight) * sink_mean
-        + MASS_WEIGHT_IN_OBJECTIVE * total_mass.mass
+        + MASS_WEIGHT_IN_OBJECTIVE * mass_penalty_mass_kg
+        + BALLAST_WEIGHT_IN_OBJECTIVE * (ballast_mass_kg + ballast_penalty_feather)
         + CONTROL_TRIM_WEIGHT * trim_effort_nom_mean
         + float(config.robust_opt_bank_margin_penalty_weight) * bank_penalty_mean
         + float(config.robust_opt_turn_util_penalty_weight) * turn_util_penalty_mean
@@ -5988,8 +6923,7 @@ def robust_in_loop_optimize(
         "max_iter": 800,
         "check_derivatives_for_naninf": "no",
         "hessian_approximation": "limited-memory",
-        "print_level": 0,
-        "sb": "yes",
+        **ipopt_verbosity_options(),
         "acceptable_tol": 1e-1,
         "acceptable_constr_viol_tol": 6e-2,
         "acceptable_iter": 8,
@@ -6525,8 +7459,7 @@ def trim_candidate_at_point(
         {
             "max_iter": 500,
             "hessian_approximation": "limited-memory",
-            "print_level": 0,
-            "sb": "yes",
+            **ipopt_verbosity_options(),
         },
     )
 
@@ -6847,20 +7780,24 @@ def run_robust_postcheck(
             robust_scenarios_df["turn_control_util_violation"] = onp.nan
 
         if {"turn_roll_tau_s", "turn_roll_rate_ss"}.issubset(robust_scenarios_df.columns):
-            tau_turn_eff_s = onp.maximum(
-                robust_scenarios_df["turn_roll_tau_s"].to_numpy(dtype=float),
-                1e-4,
+            tau_floor_s = 1e-4
+            tau_raw_s = robust_scenarios_df["turn_roll_tau_s"].to_numpy(dtype=float)
+            tau_turn_eff_s = onp.sqrt(tau_raw_s**2 + tau_floor_s**2)
+            roll_rate_ss = robust_scenarios_df["turn_roll_rate_ss"].to_numpy(dtype=float)
+
+            bank_achieved_rad = roll_rate_ss * (
+                BANK_ENTRY_TIME_S
+                - tau_turn_eff_s * (1.0 - onp.exp(-BANK_ENTRY_TIME_S / tau_turn_eff_s))
             )
-            bank_entry_dt_s = onp.maximum(BANK_ENTRY_TIME_S - tau_turn_eff_s, 0.0)
-            bank_capture_proxy_rad = (
-                robust_scenarios_df["turn_roll_rate_ss"].to_numpy(dtype=float)
-                * bank_entry_dt_s
-            )
+
+            k_sp = 50.0
+            bank_entry_dt_s = (1.0 / k_sp) * onp.log1p(onp.exp(k_sp * (BANK_ENTRY_TIME_S - tau_turn_eff_s)))
+            bank_capture_proxy_rad = roll_rate_ss * bank_entry_dt_s
             robust_scenarios_df["turn_bank_entry_phi_capture_proxy_deg"] = onp.degrees(
                 bank_capture_proxy_rad
             )
             robust_scenarios_df["turn_bank_entry_margin_deg"] = onp.degrees(
-                bank_capture_proxy_rad - onp.radians(TURN_BANK_DEG)
+                bank_achieved_rad - onp.radians(TURN_BANK_DEG)
             )
         else:
             robust_scenarios_df["turn_bank_entry_phi_capture_proxy_deg"] = onp.nan
@@ -7426,10 +8363,10 @@ def save_workflow_workbook(
                 )
             if selected_candidate.objective_contributions is not None:
                 pd.DataFrame(
-                    [
-                        {"Metric": key, "Value": value}
-                        for key, value in selected_candidate.objective_contributions.items()
-                    ]
+                    objective_breakdown_rows(
+                        objective_contributions=selected_candidate.objective_contributions,
+                        objective_weights=selected_candidate.objective_weights,
+                    )
                 ).to_excel(
                     writer,
                     sheet_name="ObjectiveTerms",
@@ -7524,6 +8461,7 @@ def export_selected_candidate(candidate: Candidate) -> tuple[PathMap, PathMap]:
         active_constraint_rows=candidate.active_constraint_rows,
         solver_stats=candidate.solver_stats,
         objective_contributions=candidate.objective_contributions,
+        objective_weights=candidate.objective_weights,
     )
 
     figure_paths: PathMap = {}
@@ -7549,6 +8487,7 @@ def export_selected_candidate(candidate: Candidate) -> tuple[PathMap, PathMap]:
         output_paths=output_paths,
         figure_paths=figure_paths,
         objective_contributions=candidate.objective_contributions,
+        objective_weights=candidate.objective_weights,
     )
     return output_paths, figure_paths
 
@@ -7574,8 +8513,7 @@ def run_smoke_test_pipeline(
         "tol": 5e-3,
         "acceptable_tol": 2e-2,
         "acceptable_iter": 4,
-        "print_level": 0,
-        "sb": "yes",
+        **ipopt_verbosity_options(),
         "hessian_approximation": "limited-memory",
     }
 
