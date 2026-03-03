@@ -1,5 +1,6 @@
 import itertools
 import json
+import math
 import re
 import subprocess
 from dataclasses import dataclass
@@ -18,8 +19,8 @@ ALL_CSV = OUTDIR / "all_runs.csv"
 # -------------------------
 # Sweep ranges (edit freely)
 # -------------------------
-V_NOM_LIST = [3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8]
-V_TURN_LIST = [3.8, 3.9, 4.0, 4.05, 4.1]
+V_NOM_LIST = [3.0, 3.2, 3.4, 3.6, 3.8, 4.0]
+V_TURN_LIST = [3.6, 3.7, 3.8, 3.9, 4.0, 4.1]
 K_LEVEL_LIST = [0.80, 0.85, 0.90, 0.95, 1.00]
 
 # -------------------------
@@ -32,6 +33,32 @@ MAX_CHORD = 0.20
 MAX_TAIL_ARM = 0.65
 MAX_HTAIL_AREA = 0.030
 MAX_VTAIL_AREA = 0.020
+
+# -------------------------
+# Analytical pruning (fast skip of impossible turn settings)
+# -------------------------
+USE_TURN_PRUNING = True
+
+# Conservative estimates used only for pruning (not for final validation)
+MASS_KG_EST = 0.10          # set 0.10 or 0.11 depending on your current target
+RHO_KG_M3 = 1.225
+
+TURN_BANK_DEG_EST = 45.0    # must match TURN_BANK_DEG in nausicaa.py
+TURN_CL_CAP_EST = 1.25      # must match TURN_CL_CAP in nausicaa.py
+K_LEVEL_IS_RADIUS_FACTOR = True  # code uses R = V^2/(K*g*tan(phi))
+
+ARENA_WIDTH_M_EST = 4.8     # must match ARENA_WIDTH_M in nausicaa.py
+WALL_CLEARANCE_M_EST = 0.30 # must match WALL_CLEARANCE_M in nausicaa.py
+
+# Assumed geometry used in footprint/CL pruning:
+# - MAX_SPAN is conservative (may skip feasible smaller-span designs)
+# - If you want less aggressive pruning, set span/chord lower
+PRUNE_SPAN_ASSUMED_M = MAX_SPAN
+PRUNE_CHORD_ASSUMED_M = MAX_CHORD  # for S estimate
+
+# Feasibility-first sweep behavior
+FEASIBILITY_FIRST_ORDER = True
+STOP_AT_FIRST_FEASIBLE = False
 
 # -------------------------
 # Output parsing patterns
@@ -147,6 +174,119 @@ def compute_score(metrics: Dict[str, float]) -> Optional[float]:
         return metrics["sink_rate_mps"]
     return None
 
+def estimate_turn_pruning(v_turn: float, k_level: float) -> Dict[str, float]:
+    v = max(float(v_turn), 1e-8)
+    k = max(float(k_level), 1e-8)
+
+    phi_rad = math.radians(float(TURN_BANK_DEG_EST))
+    tan_phi = math.tan(phi_rad)
+    cos_phi = math.cos(phi_rad)
+    if tan_phi <= 1e-8 or cos_phi <= 1e-8:
+        return {
+            "n_load_factor_est": float("inf"),
+            "q_dyn_turn_est": float("inf"),
+            "area_est_m2": 0.0,
+            "turn_cl_required_est": float("inf"),
+            "turn_cl_margin_est": float("-inf"),
+            "turn_radius_m_est": float("inf"),
+            "footprint_margin_m_est": float("-inf"),
+        }
+
+    n_load_factor = 1.0 / cos_phi
+    area_est_m2 = max(float(PRUNE_SPAN_ASSUMED_M) * float(PRUNE_CHORD_ASSUMED_M), 1e-8)
+    q_dyn_turn = 0.5 * float(RHO_KG_M3) * v * v
+
+    turn_lift_required_n = k * n_load_factor * float(MASS_KG_EST) * 9.81
+    turn_cl_required = turn_lift_required_n / max(q_dyn_turn * area_est_m2, 1e-8)
+
+    radius_denom = 9.81 * tan_phi
+    if K_LEVEL_IS_RADIUS_FACTOR:
+        radius_denom *= k
+    turn_radius_m = (v * v) / max(radius_denom, 1e-8)
+
+    half_arena_width = 0.5 * float(ARENA_WIDTH_M_EST)
+    footprint_need_m = turn_radius_m + 0.5 * float(PRUNE_SPAN_ASSUMED_M) + float(WALL_CLEARANCE_M_EST)
+    footprint_margin_m = half_arena_width - footprint_need_m
+
+    return {
+        "n_load_factor_est": n_load_factor,
+        "q_dyn_turn_est": q_dyn_turn,
+        "area_est_m2": area_est_m2,
+        "turn_cl_required_est": turn_cl_required,
+        "turn_cl_margin_est": float(TURN_CL_CAP_EST) - turn_cl_required,
+        "turn_radius_m_est": turn_radius_m,
+        "footprint_margin_m_est": footprint_margin_m,
+    }
+
+def check_turn_pair_possible(v_turn: float, k_level: float) -> Tuple[bool, Dict[str, float], str]:
+    est = estimate_turn_pruning(v_turn, k_level)
+    reasons: List[str] = []
+
+    if est["turn_cl_margin_est"] < 0.0:
+        reasons.append(
+            f"CL cap fail: need {est['turn_cl_required_est']:.3f} > cap {TURN_CL_CAP_EST:.3f}"
+        )
+    if est["footprint_margin_m_est"] < 0.0:
+        reasons.append(
+            f"Footprint fail: margin {est['footprint_margin_m_est']:.3f} m < 0"
+        )
+
+    return (len(reasons) == 0), est, "; ".join(reasons)
+
+def feasibility_sort_key(v_nom: float, v_turn: float, k_level: float, est: Dict[str, float]) -> Tuple[float, ...]:
+    cl_margin = est.get("turn_cl_margin_est", float("-inf"))
+    fp_margin = est.get("footprint_margin_m_est", float("-inf"))
+
+    cl_deficit = max(0.0, -cl_margin)
+    fp_deficit = max(0.0, -fp_margin)
+    any_deficit = 1 if (cl_deficit > 0.0 or fp_deficit > 0.0) else 0
+
+    # deficits dominate ordering; then prefer larger positive margins
+    deficit_score = (cl_deficit / max(float(TURN_CL_CAP_EST), 1e-8)) + (
+        fp_deficit / max(0.5 * float(ARENA_WIDTH_M_EST), 1e-8)
+    )
+    robust_slack = min(
+        cl_margin / max(float(TURN_CL_CAP_EST), 1e-8),
+        fp_margin / max(0.5 * float(ARENA_WIDTH_M_EST), 1e-8),
+    )
+
+    return (
+        any_deficit,
+        deficit_score,
+        -robust_slack,
+        abs(float(v_nom) - float(v_turn)),
+        -float(k_level),
+        float(v_turn),
+        float(v_nom),
+    )
+
+def build_sweep_candidates() -> Tuple[List[Tuple[float, float, float, Dict[str, float]]], List[str]]:
+    pair_eval: Dict[Tuple[float, float], Tuple[bool, Dict[str, float], str]] = {}
+    skipped_msgs: List[str] = []
+
+    for v_turn, k_level in itertools.product(V_TURN_LIST, K_LEVEL_LIST):
+        pair_eval[(v_turn, k_level)] = check_turn_pair_possible(v_turn, k_level)
+
+    candidates: List[Tuple[float, float, float, Dict[str, float]]] = []
+    for v_nom, v_turn, k_level in itertools.product(V_NOM_LIST, V_TURN_LIST, K_LEVEL_LIST):
+        possible, est, _ = pair_eval[(v_turn, k_level)]
+        if USE_TURN_PRUNING and not possible:
+            continue
+        candidates.append((v_nom, v_turn, k_level, est))
+
+    if USE_TURN_PRUNING:
+        for v_turn, k_level in itertools.product(V_TURN_LIST, K_LEVEL_LIST):
+            possible, _, reason = pair_eval[(v_turn, k_level)]
+            if not possible:
+                skipped_msgs.append(
+                    f"skip (V_TURN={v_turn}, K={k_level}) -> {reason}"
+                )
+
+    if FEASIBILITY_FIRST_ORDER:
+        candidates.sort(key=lambda c: feasibility_sort_key(c[0], c[1], c[2], c[3]))
+
+    return candidates, skipped_msgs
+
 def run_once(v_nom: float, v_turn: float, k_level: float) -> RunResult:
     OUTDIR.mkdir(parents=True, exist_ok=True)
 
@@ -208,10 +348,29 @@ def main():
     rows: List[RunResult] = []
     best: Optional[RunResult] = None
 
-    total = len(V_NOM_LIST) * len(V_TURN_LIST) * len(K_LEVEL_LIST)
+    candidates, skipped_msgs = build_sweep_candidates()
+    total_unpruned = len(V_NOM_LIST) * len(V_TURN_LIST) * len(K_LEVEL_LIST)
+    total = len(candidates)
     i = 0
 
-    for v_nom, v_turn, k in itertools.product(V_NOM_LIST, V_TURN_LIST, K_LEVEL_LIST):
+    if USE_TURN_PRUNING:
+        skipped_runs = total_unpruned - total
+        print(
+            f"Turn pruning active: skipping ~{skipped_runs} runs; evaluating {total}/{total_unpruned}."
+        )
+        if skipped_msgs:
+            preview_n = min(10, len(skipped_msgs))
+            for line in skipped_msgs[:preview_n]:
+                print(f"  {line}")
+            if len(skipped_msgs) > preview_n:
+                print(f"  ... and {len(skipped_msgs) - preview_n} more skipped pairs")
+
+    if total == 0:
+        print("\nNo sweep candidates left after analytical pruning.")
+        print("Try reducing PRUNE_SPAN_ASSUMED_M/PRUNE_CHORD_ASSUMED_M or disabling USE_TURN_PRUNING.")
+        return
+
+    for v_nom, v_turn, k, _ in candidates:
         i += 1
         r = run_once(v_nom, v_turn, k)
         rows.append(r)
@@ -231,6 +390,9 @@ def main():
                 elif best.score is None and r.score is None:
                     # no change
                     pass
+            if STOP_AT_FIRST_FEASIBLE:
+                print(f"[{i}/{total}] stop: first feasible found (STOP_AT_FIRST_FEASIBLE=True)")
+                break
         else:
             # keep log light
             print(f"[{i}/{total}] fail: V_NOM={v_nom}, V_TURN={v_turn}, K={k}")

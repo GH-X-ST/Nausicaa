@@ -42,6 +42,10 @@ MAKE_PLOTS = True
 PLOT_DPI = 1000
 RUN_WORKFLOW = False
 
+
+# Manual note for this run (edit before executing)
+MANUAL_RUN_NOTE = "change 4"
+MANUAL_RUN_NOTE_PRINT = True
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
 # Physical constants
@@ -54,11 +58,11 @@ ARENA_WIDTH_M = 4.8
 ARENA_HEIGHT_M = 3.5
 
 # Two-speed design points
-V_TURN_MPS = 3.8
+V_TURN_MPS = 4.0
 V_NOM_MPS = 4.0
 
 # Manoeuvre definition (coordinated, banked turn feasibility)
-TURN_BANK_DEG = 45.0
+TURN_BANK_DEG = 50.0
 WALL_CLEARANCE_M = 0.30
 TURN_DEFLECTION_UTIL_MAX = 0.80
 TURN_LATERAL_TRIM_TOL_CL = 0.02
@@ -70,7 +74,7 @@ CM_TRIM_TOL = 0.08
 
 # Stall / margin settings for manoeuvre case
 TURN_ALPHA_MARGIN_DEG = 4.0
-TURN_CL_CAP = 1.40
+TURN_CL_CAP = 1.30
 K_LEVEL_TURN = 0.95
 
 # Trim operating-point envelope
@@ -162,7 +166,7 @@ BOOM_END_BEFORE_ELEV_FRAC = 0.70
 
 # Wing spar (carry-through) + filament tape reinforcement
 WING_SPAR_ENABLE = True
-WING_SPAR_X_FRAC = 0.30
+WING_SPAR_X_FRAC = 0.25
 WING_SPAR_OD_M = BOOM_TUBE_OUTER_DIAMETER_M
 WING_SPAR_ID_M = BOOM_TUBE_INNER_DIAMETER_M
 WING_SPAR_RHO_KG_M3 = BOOM_ROD_DENSITY_KG_M3
@@ -205,7 +209,7 @@ VTAIL_MOUNT_X0_OFFSET_FROM_BOOM_END_M = 0.0383
 VTAIL_MOUNT_ROOT_LOWER_Z_M = VTAIL_ROOT_LOWER_SURFACE_Z_M
 
 GLUE_FRACTION = 0.08
-BALLAST_MAX_KG = 0.025
+BALLAST_MAX_KG = 0.005  # < 5 g cap
 
 # Avionics / hardware masses (kg)
 BATTERY_MASS_KG = 0.0090
@@ -227,8 +231,7 @@ ELEVATOR_SERVO_Z_OFFSET_FROM_AVIONICS_M = 0.0
 RUDDER_SERVO_X_OFFSET_FROM_WING = 0.0
 RUDDER_SERVO_Z_OFFSET_FROM_AVIONICS_M = 0.0
 
-# Battery sliding range
-BATTERY_X_MAX_FRAC = 0.60
+# Battery installation reference
 BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M = 0.015
 AVIONICS_Z_CG_M = -0.008
 REGULATOR_X_OFFSET_FROM_BATTERY_M = 0.040
@@ -865,6 +868,13 @@ def get_git_version() -> str:
     except Exception:
         return "unknown"
 
+
+def print_run_context_header() -> None:
+    if not MANUAL_RUN_NOTE_PRINT:
+        return
+    print("RUN_CONTEXT:", flush=True)
+    print(f"  CODE_VERSION: {get_git_version()}", flush=True)
+    print(f"  MANUAL_NOTE: {MANUAL_RUN_NOTE}", flush=True)
 
 def ensure_output_dirs() -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1796,7 +1806,7 @@ def build_mass_model(
     # Fixed onboard components
     mass_props["linkages"] = point_mass(0.001, x_m=0.5 * tail_arm_m)
 
-    x_centre_core = 0.3 * wing_chord_m + CENTRE_CORE_X_OFFSET_FROM_0p3C_M
+    x_centre_core = 0.25 * wing_chord_m + CENTRE_CORE_X_OFFSET_FROM_0p3C_M
     centre_mount_thickness_m = 0.002
     centre_mount_base_bottom_m = 0.0261
     centre_mount_base_top_m = 0.0115
@@ -1813,8 +1823,8 @@ def build_mass_model(
         centre_mount_base_top_m,
         centre_mount_height_m,
     )
-    centre_mount_x0_fwd_m = 0.3 * wing_chord_m + 0.013069
-    centre_mount_x0_aft_m = 0.3 * wing_chord_m + 0.0557
+    centre_mount_x0_fwd_m = 0.25 * wing_chord_m + 0.013069
+    centre_mount_x0_aft_m = 0.25 * wing_chord_m + 0.0557
     centre_mount_z_root_bottom_m = 0.002
     tan_dihedral = np.tan(np.radians(DIHEDRAL_DEG))
 
@@ -1876,16 +1886,8 @@ def build_mass_model(
         z_m=CENTRE_CORE_Z_CG_M,
     )
 
-    # Battery as a dedicated CG-trim slider.
-    # Foremost position is tied to centre-module CG minus 35 mm.
-    battery_eta = opti.variable(
-        init_guess=0.60,
-        lower_bound=0.0,
-        upper_bound=1.0,
-    )
-    x_batt_min = 0.3 * wing_chord_m - BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M
-    x_batt_max = BATTERY_X_MAX_FRAC * wing_chord_m
-    x_batt = x_batt_min + battery_eta * (x_batt_max - x_batt_min)
+    # Battery fixed at foremost allowable slider position.
+    x_batt = 0.25 * wing_chord_m - BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M
     mass_props["battery"] = mass_properties_rect_prism(
         mass_kg=BATTERY_MASS_KG,
         dim_x_m=BATTERY_DIM_X_M,
@@ -2009,13 +2011,13 @@ def build_mass_model(
     # Tail-control servos mounted near the centre module in the fuselage centerline.
     mass_props["servo_elevator"] = point_mass(
         SERVO_MASS_KG,
-        x_m=0.3 * wing_chord_m + ELEVATOR_SERVO_X_OFFSET_FROM_WING,
+        x_m=0.25 * wing_chord_m + ELEVATOR_SERVO_X_OFFSET_FROM_WING,
         y_m=0.0,
         z_m=SERVO_CENTERLINE_BASE_Z_M + ELEVATOR_SERVO_Z_OFFSET_FROM_AVIONICS_M,
     )
     mass_props["servo_rudder"] = point_mass(
         SERVO_MASS_KG,
-        x_m=0.3 * wing_chord_m + RUDDER_SERVO_X_OFFSET_FROM_WING,
+        x_m=0.25 * wing_chord_m + RUDDER_SERVO_X_OFFSET_FROM_WING,
         y_m=0.0,
         z_m=SERVO_CENTERLINE_BASE_Z_M + RUDDER_SERVO_Z_OFFSET_FROM_AVIONICS_M,
     )
@@ -2059,24 +2061,28 @@ def build_mass_model(
     else:
         mass_props["boom"] = boom_tube
 
-    # Ballast is optimized to close CG/stability constraints
+    # Ballast is optimized in both mass and position along the boom.
     ballast_mass_kg = opti.variable(
-        init_guess=0.0,
+        init_guess=0.003,
         lower_bound=0.0,
         upper_bound=BALLAST_MAX_KG,
     )
+    ballast_eta = opti.variable(
+        init_guess=0.0,
+        lower_bound=0.0,
+        upper_bound=1.0,
+    )
+    x_ballast = NOSE_X_M + ballast_eta * boom_length_m
     mass_props["ballast"] = point_mass(
         ballast_mass_kg,
-        x_m=0.30 * wing_chord_m,
+        x_m=x_ballast,
         z_m=0.0,
     )
 
     subtotal = combine_mass_properties(list(mass_props.values()))
     mass_props["glue"] = scale_mass_properties(subtotal, GLUE_FRACTION)
     total_mass = combine_mass_properties([subtotal, mass_props["glue"]])
-
-    return mass_props, total_mass, ballast_mass_kg, battery_eta
-
+    return mass_props, total_mass, ballast_mass_kg, ballast_eta
 
 def aileron_effectiveness_proxy(
     aero: AeroMap,
@@ -2127,13 +2133,11 @@ def build_dimensionless_objective_terms(
 ) -> tuple[Scalar, dict[str, Scalar]]:
     sink_scale = max(float(scales.sink_mps), 1e-9)
     mass_scale = max(float(scales.mass_kg), 1e-9)
-    ballast_scale = max(float(scales.ballast_kg), 1e-9)
     trim_scale = max(float(scales.trim_deg), 1e-9)
     roll_tau_scale = max(float(scales.roll_tau_s), 1e-9)
 
     sink_term = sink_rate_mps / sink_scale
     mass_term = mass_total_kg / mass_scale
-    ballast_term = ballast_mass_kg / ballast_scale
     trim_term = trim_effort_deg2 / (trim_scale ** 2)
     wing_deflection_term = wing_deflection_over_allow
     htail_deflection_term = htail_deflection_over_allow
@@ -2142,7 +2146,6 @@ def build_dimensionless_objective_terms(
     terms: dict[str, Scalar] = {
         "J_sink": float(weights.w_sink) * sink_term,
         "J_mass": float(weights.w_mass) * mass_term,
-        "J_ballast": float(weights.w_ballast) * ballast_term,
         "J_trim": float(weights.w_trim_effort) * trim_term,
         "J_wing_deflection": float(weights.w_wing_deflection) * wing_deflection_term,
         "J_htail_deflection": float(weights.w_htail_deflection) * htail_deflection_term,
@@ -2174,7 +2177,6 @@ def evaluate_objective_contributions(
     ordered_keys = [
         "J_sink",
         "J_mass",
-        "J_ballast",
         "J_trim",
         "J_wing_deflection",
         "J_htail_deflection",
@@ -2639,7 +2641,7 @@ def build_constraint_audit_rows(
             constraint_record("Vh maximum", tail_volume_h_num, upper=VH_MAX),
             constraint_record("Vv minimum", tail_volume_v_num, lower=VV_MIN),
             constraint_record("Vv maximum", tail_volume_v_num, upper=VV_MAX),
-            constraint_record("Clb <= 0", aero_nom_num["Clb"], upper=CLB_MAX),
+            constraint_record("Clb >= 0", aero_nom_num["Clb"], upper=CLB_MAX),
             constraint_record("Cnb >= 0", aero_nom_num["Cnb"], lower=CNB_MIN),
             constraint_record("Clp nominal <= -eps", aero_nom_num["Clp"], upper=-CLP_NEG_EPS),
             constraint_record("Clp turn <= -eps", aero_turn_num["Clp"], upper=-CLP_NEG_EPS),
@@ -3100,7 +3102,6 @@ def print_console_report(
         for key in [
             "J_sink",
             "J_mass",
-            "J_ballast",
             "J_trim",
             "J_wing_deflection",
             "J_htail_deflection",
@@ -3113,7 +3114,6 @@ def print_console_report(
         for key in [
             "J_sink",
             "J_mass",
-            "J_ballast",
             "J_trim",
             "J_wing_deflection",
             "J_htail_deflection",
@@ -3379,7 +3379,7 @@ def legacy_single_run_main(
 
     atmos = asb.Atmosphere(altitude=0.0)
 
-    mass_props, total_mass, ballast_mass_kg, battery_eta = build_mass_model(
+    mass_props, total_mass, ballast_mass_kg, ballast_eta = build_mass_model(
         opti=opti,
         wing=wing,
         htail=htail,
@@ -3680,7 +3680,7 @@ def legacy_single_run_main(
             opti.bounded(BOOM_LENGTH_MIN_M, boom_length_m, BOOM_LENGTH_MAX_M),
             opti.bounded(VH_MIN, tail_volume_horizontal, VH_MAX),
             opti.bounded(VV_MIN, tail_volume_vertical, VV_MAX),
-            aero_nom["Clb"] <= CLB_MAX,
+            aero_nom["Clb"] >= CLB_MAX,
             aero_nom["Cnb"] >= CNB_MIN,
             aero_nom["Clp"] <= -CLP_NEG_EPS,
             aero_turn["Clp"] <= -CLP_NEG_EPS,
@@ -3742,6 +3742,15 @@ def legacy_single_run_main(
             print(f"[DEBUG INIT] {label} unavailable ({exc})", flush=True)
 
     debug_guess("Ixx", total_mass.inertia_tensor[0, 0])
+    debug_guess("static_margin", static_margin)
+    debug_guess("aero_nom_Clb", aero_nom["Clb"])
+    debug_guess("turn_footprint_m", turn_radius_m + 0.5 * wing_span_m + WALL_CLEARANCE_M)
+    debug_guess("aero_nom_Cl", aero_nom["Cl"])
+    debug_guess("aero_nom_Cn", aero_nom["Cn"])
+    debug_guess("aero_turn_Cl", aero_turn["Cl"])
+    debug_guess("aero_turn_Cn", aero_turn["Cn"])
+    debug_guess("tail_volume_horizontal", tail_volume_horizontal)
+    debug_guess("tail_volume_vertical", tail_volume_vertical)
     debug_guess("aero_nom_Clp", aero_nom["Clp"])
     debug_guess("aero_turn_Clp", aero_turn["Clp"])
     debug_guess("cl_delta_a_nom_proxy", cl_delta_a_nom)
@@ -3814,7 +3823,7 @@ def legacy_single_run_main(
     boom_length_design_num = to_scalar(solution(boom_length_m))
     htail_span_design_num = to_scalar(solution(htail_span_m))
     vtail_height_design_num = to_scalar(solution(vtail_height_m))
-    battery_eta_num = to_scalar(solution(battery_eta))
+    ballast_eta_num = to_scalar(solution(ballast_eta))
 
     sink_rate_num = to_scalar(solution(sink_rate_nom_mps))
     l_over_d_num = to_scalar(solution(l_over_d))
@@ -3830,13 +3839,8 @@ def legacy_single_run_main(
     total_cg_z_error_num = total_cg_z_num - weighted_cg_z_num
     ballast_mass_num = to_scalar(solution(ballast_mass_kg))
     ballast_mass_num = max(0.0, ballast_mass_num)
-    x_centre_core_num = 0.3 * wing_chord_design_num + CENTRE_CORE_X_OFFSET_FROM_0p3C_M
-    battery_x_min_num = x_centre_core_num - BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M
-    battery_x_num = to_scalar(
-        battery_x_min_num
-        + battery_eta_num
-        * (BATTERY_X_MAX_FRAC * wing_chord_design_num - battery_x_min_num)
-    )
+    ballast_x_num = to_scalar(mass_props_num["ballast"].x_cg)
+    battery_x_num = 0.25 * wing_chord_design_num - BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M
 
     static_margin_num = to_scalar(solution(static_margin))
     tail_volume_h_num = to_scalar(solution(tail_volume_horizontal))
@@ -4048,8 +4052,8 @@ def legacy_single_run_main(
             unit="kg",
         ),
         design_variable_boundary_record(
-            name="battery_slider_eta",
-            value=battery_eta_num,
+            name="ballast_slider_eta",
+            value=ballast_eta_num,
             lower=0.0,
             upper=1.0,
             unit="-",
@@ -4096,7 +4100,8 @@ def legacy_single_run_main(
         {"Metric": "total_cg_z_error_m", "Value": total_cg_z_error_num, "Unit": "m"},
         {"Metric": "mass_component_sum_kg", "Value": component_mass_sum_num, "Unit": "kg"},
         {"Metric": "ballast_mass_kg", "Value": ballast_mass_num, "Unit": "kg"},
-        {"Metric": "battery_slider_eta", "Value": battery_eta_num, "Unit": "-"},
+        {"Metric": "ballast_slider_eta", "Value": ballast_eta_num, "Unit": "-"},
+        {"Metric": "ballast_x_m", "Value": ballast_x_num, "Unit": "m"},
         {"Metric": "battery_x_m", "Value": battery_x_num, "Unit": "m"},
         {"Metric": "sink_rate_mps", "Value": sink_rate_num, "Unit": "m/s"},
         {"Metric": "L_over_D", "Value": l_over_d_num, "Unit": "-"},
@@ -5491,7 +5496,7 @@ def robust_in_loop_optimize(
         fuselages=[fuselage],
     )
 
-    mass_props, total_mass, ballast_mass_kg, battery_eta = build_mass_model(
+    mass_props, total_mass, ballast_mass_kg, ballast_eta = build_mass_model(
         opti=opti,
         wing=wing,
         htail=htail,
@@ -5916,7 +5921,6 @@ def robust_in_loop_optimize(
         sink_cvar_like
         + float(config.robust_opt_sink_mean_weight) * sink_mean
         + MASS_WEIGHT_IN_OBJECTIVE * total_mass.mass
-        + BALLAST_WEIGHT_IN_OBJECTIVE * ballast_mass_kg
         + CONTROL_TRIM_WEIGHT * trim_effort_nom_mean
         + float(config.robust_opt_bank_margin_penalty_weight) * bank_penalty_mean
         + float(config.robust_opt_turn_util_penalty_weight) * turn_util_penalty_mean
@@ -7698,6 +7702,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    print_run_context_header()
     args = parse_args()
     use_workflow = RUN_WORKFLOW or args.workflow
     use_robust_opt = bool(args.robust_opt)
