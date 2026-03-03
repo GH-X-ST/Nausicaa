@@ -19,8 +19,8 @@ ALL_CSV = OUTDIR / "all_runs.csv"
 # -------------------------
 # Sweep ranges (edit freely)
 # -------------------------
-V_NOM_LIST = [3.0, 3.2, 3.4, 3.6, 3.8, 4.0]
-V_TURN_LIST = [3.6, 3.7, 3.8, 3.9, 4.0, 4.1]
+V_NOM_LIST = [4.6, 4.8, 5.0, 5.2, 5.4, 5.6]
+V_TURN_LIST = [4.0, 4.1, 4.2, 4.3, 4.4, 4.5]
 K_LEVEL_LIST = [0.80, 0.85, 0.90, 0.95, 1.00]
 
 # -------------------------
@@ -30,8 +30,8 @@ MAX_SPAN = 0.70
 MAX_CHORD = 0.20
 
 # "tail not ridiculously large" proxies (tune)
-MAX_TAIL_ARM = 0.65
-MAX_HTAIL_AREA = 0.030
+MAX_TAIL_ARM = 0.70
+MAX_HTAIL_AREA = 0.050
 MAX_VTAIL_AREA = 0.020
 
 # -------------------------
@@ -111,7 +111,7 @@ def replace_constant(text: str, name: str, value: float) -> Tuple[str, bool]:
     """
     # Match: optional spaces, NAME, optional spaces, =, rest of line
     pattern = re.compile(rf"^(\s*{re.escape(name)}\s*=\s*).*$", re.MULTILINE)
-    new_text, n = pattern.subn(rf"\1{value}", text)
+    new_text, n = pattern.subn(lambda m: f"{m.group(1)}{value}", text)
     return new_text, (n > 0)
 
 def patch_source(v_nom: float, v_turn: float, k_level: float) -> str:

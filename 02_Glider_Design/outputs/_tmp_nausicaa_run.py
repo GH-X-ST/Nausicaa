@@ -61,7 +61,7 @@ ARENA_HEIGHT_M = 3.5
 
 # Two-speed design points
 V_TURN_MPS = 4.0
-V_NOM_MPS = 4.0
+V_NOM_MPS = 4.6
 
 # Manoeuvre definition (coordinated, banked turn feasibility)
 TURN_BANK_DEG = 50.0
@@ -77,7 +77,7 @@ CM_TRIM_TOL = 0.08
 # Stall / margin settings for manoeuvre case
 TURN_ALPHA_MARGIN_DEG = 4.0
 TURN_CL_CAP = 1.30
-K_LEVEL_TURN = 0.90
+K_LEVEL_TURN = 1.0
 
 # Trim operating-point envelope
 DESIGN_SPEED_MPS = V_NOM_MPS
