@@ -49,7 +49,7 @@ IPOPT_VERBOSE_PRINT_LEVEL = 5
 
 
 # Manual note for this run (edit before executing)
-MANUAL_RUN_NOTE = "v3.5.5"
+MANUAL_RUN_NOTE = "v3.6.4"
 MANUAL_RUN_NOTE_PRINT = True
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -69,12 +69,12 @@ V_TURN_MPS = V_NOM_MPS
 
 # Manoeuvre definition (banked-turn agility / curvature feasibility)
 TURN_BANK_DEG = 50.0
-WALL_CLEARANCE_M = 0.50
+WALL_CLEARANCE_M = 0.30
 TURN_DEFLECTION_UTIL_MAX = 0.80
 # Manoeuvre agility target: time to reach design bank angle at V_TURN_MPS.
 # Converted to a minimum steady-state roll-rate requirement.
 BANK_ENTRY_TIME_S = 0.7
-CM_TRIM_TOL = 0.001
+CM_TRIM_TOL = 1e-6
 
 # Stall / margin settings for manoeuvre case
 TURN_ALPHA_MARGIN_DEG = 4.0
@@ -100,7 +100,7 @@ DELTA_R_MAX_DEG = 30.0
 
 # Fixed geometry assumptions
 DIHEDRAL_DEG = 10.0
-NOSE_X_M = -0.11
+NOSE_X_M = -0.10
 
 # Vertical reference definitions (meters)
 WING_ROOT_LOWER_SURFACE_Z_M = 0.004
@@ -109,15 +109,15 @@ HTAIL_ROOT_LOWER_SURFACE_Z_M = -0.004
 
 # Wing design bounds
 WING_SPAN_MIN_M = 0.30
-WING_SPAN_MAX_M = 2.00
+WING_SPAN_MAX_M = 0.75
 WING_CHORD_MIN_M = 0.10
 WING_CHORD_MAX_M = 0.30
 
 # Tail / boom design bounds
 BOOM_LENGTH_MIN_M = 0.35
-BOOM_LENGTH_MAX_M = 0.80
+BOOM_LENGTH_MAX_M = 0.70
 # Tail-arm position bounds are kept broad; boom-length constraint is authoritative.
-TAIL_ARM_MIN_M = 0.20
+TAIL_ARM_MIN_M = 0.50
 TAIL_ARM_MAX_M = 0.80
 HT_SPAN_MIN_M = 0.20
 HT_SPAN_MAX_M = 0.50
@@ -183,11 +183,15 @@ SLOT_VOID_MASS_FRAC_MAX = 0.05
 
 TAPE_ENABLE_WING = True
 TAPE_ENABLE_TAIL = True
-TAPE_WIDTH_M = 0.050
+TAPE_WIDTH_M = 0.010
 TAPE_THICKNESS_M = 0.00013
-TAPE_AREAL_DENSITY_KG_M2 = 0.12
+TAPE_AREAL_DENSITY_KG_M2 = 0.175
 TAPE_E_EFFECTIVE_PA = 10e9
 TAPE_EFFICIENCY = 1.0
+WING_TAPE_QUARTER_CHORD_X_FRAC = 0.25
+WING_TAPE_SPAN_FRACTION_OF_SEMISPAN = 0.50
+HTAIL_TAPE_X_FRAC = 0.30
+VTAIL_TAPE_X_FRAC = 0.30
 VTAIL_TAPE_Y_OFFSET_M = 0.5 * VTAIL_THICKNESS_M + 0.5 * TAPE_THICKNESS_M
 
 # Discrete hardware modules
@@ -214,7 +218,6 @@ VTAIL_MOUNT_X0_OFFSET_FROM_BOOM_END_M = 0.0383
 VTAIL_MOUNT_ROOT_LOWER_Z_M = VTAIL_ROOT_LOWER_SURFACE_Z_M
 
 GLUE_FRACTION = 0.08
-BALLAST_MAX_KG = 0.005
 
 # Avionics / hardware masses (kg)
 BATTERY_MASS_KG = 0.0090
@@ -250,7 +253,7 @@ VV_MIN = 0.03
 VV_MAX = 0.08
 
 # Aerodynamic and loading constraints
-MIN_L_OVER_D = 8.0
+MIN_L_OVER_D = 6.0
 MIN_RE_WING = 20_000.0
 MIN_WING_LOADING_N_M2 = 2.0
 MAX_WING_LOADING_N_M2 = 20.0
@@ -282,7 +285,6 @@ CONTROL_HORN_ARM_M = 0.008
 
 # Objective-function weights
 MASS_WEIGHT_IN_OBJECTIVE = 0.40
-BALLAST_WEIGHT_IN_OBJECTIVE = 0.40
 # Switch for mass penalty term:
 # True  -> use total aircraft mass in objective
 # False -> use only wing + boom structural masses in objective
@@ -311,7 +313,6 @@ ACTIVE_SET_ABS_TOL = 1e-3
 # Dimensionless-objective normalization scales
 SINK_OBJECTIVE_SCALE_MPS = 1.0
 MASS_OBJECTIVE_SCALE_KG = 0.10
-BALLAST_OBJECTIVE_SCALE_KG = 0.010
 TRIM_OBJECTIVE_SCALE_DEG = 10.0
 ROLL_TAU_OBJECTIVE_SCALE_S = MAX_ROLL_TAU_S
 
@@ -445,7 +446,6 @@ class Weights:
     # Dimensionless objective weights
     w_sink: float = 1.0
     w_mass: float = MASS_WEIGHT_IN_OBJECTIVE
-    w_ballast: float = BALLAST_WEIGHT_IN_OBJECTIVE
     w_trim_effort: float = CONTROL_TRIM_WEIGHT * (TRIM_OBJECTIVE_SCALE_DEG**2)
     w_wing_deflection: float = STRUCT_DEFLECTION_WEIGHT
     w_htail_deflection: float = HT_STRUCT_DEFLECTION_WEIGHT
@@ -454,7 +454,6 @@ class Weights:
     # Dimensionless normalization scales
     sink_scale_mps: float = SINK_OBJECTIVE_SCALE_MPS
     mass_scale_kg: float = MASS_OBJECTIVE_SCALE_KG
-    ballast_scale_kg: float = BALLAST_OBJECTIVE_SCALE_KG
     trim_scale_deg: float = TRIM_OBJECTIVE_SCALE_DEG
     roll_tau_scale_s: float = ROLL_TAU_OBJECTIVE_SCALE_S
 
@@ -756,7 +755,6 @@ class WorkflowConfig:
 class ObjectiveScales:
     sink_mps: float = SINK_OBJECTIVE_SCALE_MPS
     mass_kg: float = MASS_OBJECTIVE_SCALE_KG
-    ballast_kg: float = BALLAST_OBJECTIVE_SCALE_KG
     trim_deg: float = TRIM_OBJECTIVE_SCALE_DEG
     roll_tau_s: float = ROLL_TAU_OBJECTIVE_SCALE_S
 
@@ -765,7 +763,6 @@ class ObjectiveScales:
 class ObjectiveWeights:
     w_sink: float = 1.0
     w_mass: float = MASS_WEIGHT_IN_OBJECTIVE
-    w_ballast: float = BALLAST_WEIGHT_IN_OBJECTIVE
     w_trim_effort: float = CONTROL_TRIM_WEIGHT * (TRIM_OBJECTIVE_SCALE_DEG ** 2)
     w_wing_deflection: float = STRUCT_DEFLECTION_WEIGHT
     w_htail_deflection: float = HT_STRUCT_DEFLECTION_WEIGHT
@@ -787,7 +784,6 @@ class Candidate:
     sink_rate_mps: float
     l_over_d: float
     mass_total_kg: float
-    ballast_mass_kg: float
     static_margin: float
     vh: float
     vv: float
@@ -929,7 +925,6 @@ def to_objective_weights_and_scales(
         else ObjectiveWeights(
             w_sink=float(weights.w_sink),
             w_mass=float(weights.w_mass),
-            w_ballast=float(weights.w_ballast),
             w_trim_effort=float(weights.w_trim_effort),
             w_wing_deflection=float(weights.w_wing_deflection),
             w_htail_deflection=float(weights.w_htail_deflection),
@@ -942,7 +937,6 @@ def to_objective_weights_and_scales(
         else ObjectiveScales(
             sink_mps=float(weights.sink_scale_mps),
             mass_kg=float(weights.mass_scale_kg),
-            ballast_kg=float(weights.ballast_scale_kg),
             trim_deg=float(weights.trim_scale_deg),
             roll_tau_s=float(weights.roll_tau_scale_s),
         )
@@ -1662,7 +1656,7 @@ def build_mass_model(
     boom_end_x_m: Scalar,
     vtail_chord_m: Scalar,
     cfg: Config | None = None,
-) -> tuple[MassPropertiesMap, asb.MassProperties, Scalar, Scalar]:
+) -> tuple[MassPropertiesMap, asb.MassProperties]:
     cfg = cfg or _DEFAULT_CFG
     mass_props: MassPropertiesMap = {}
 
@@ -1724,91 +1718,127 @@ def build_mass_model(
         )
 
     if TAPE_ENABLE_WING:
-        tape_w_wing_m = np.minimum(TAPE_WIDTH_M, wing_chord_m)
-        tape_area_one_side_m2 = wing_span_m * tape_w_wing_m
-        tape_mass_one_side_kg = TAPE_AREAL_DENSITY_KG_M2 * tape_area_one_side_m2
-        mass_props["wing_tape_bottom"] = mass_properties_rect_prism(
-            mass_kg=tape_mass_one_side_kg,
+        # Wing tape: two 10 mm strips per side (LE + quarter-chord),
+        # each applied only over the inner 50% of semispan.
+        x_le_wing_m = wing.xsecs[0].xyz_le[0]
+        tape_w_wing_m = float(TAPE_WIDTH_M)
+        wing_tape_span_m = WING_TAPE_SPAN_FRACTION_OF_SEMISPAN * wing_span_m
+        tape_area_one_strip_m2 = wing_tape_span_m * tape_w_wing_m
+        tape_mass_one_strip_kg = TAPE_AREAL_DENSITY_KG_M2 * tape_area_one_strip_m2
+        z_tape_dihedral_mean_m = dihedral_mean_z_offset_m(wing_tape_span_m, DIHEDRAL_DEG)
+
+        x_tape_le_cg_m = x_le_wing_m + 0.5 * tape_w_wing_m
+        x_tape_quarter_cg_m = x_le_wing_m + WING_TAPE_QUARTER_CHORD_X_FRAC * wing_chord_m
+
+        wing_tape_bottom_le = mass_properties_rect_prism(
+            mass_kg=tape_mass_one_strip_kg,
             dim_x_m=tape_w_wing_m,
-            dim_y_m=wing_span_m,
+            dim_y_m=wing_tape_span_m,
             dim_z_m=TAPE_THICKNESS_M,
-            x_cg_m=x_spar_m,
+            x_cg_m=x_tape_le_cg_m,
             y_cg_m=0.0,
-            z_cg_m=z_wing_lower_m + 0.5 * TAPE_THICKNESS_M + z_dihedral_mean_m,
+            z_cg_m=z_wing_lower_m + 0.5 * TAPE_THICKNESS_M + z_tape_dihedral_mean_m,
         )
-        mass_props["wing_tape_top"] = mass_properties_rect_prism(
-            mass_kg=tape_mass_one_side_kg,
+        wing_tape_bottom_quarter = mass_properties_rect_prism(
+            mass_kg=tape_mass_one_strip_kg,
             dim_x_m=tape_w_wing_m,
-            dim_y_m=wing_span_m,
+            dim_y_m=wing_tape_span_m,
             dim_z_m=TAPE_THICKNESS_M,
-            x_cg_m=x_spar_m,
+            x_cg_m=x_tape_quarter_cg_m,
+            y_cg_m=0.0,
+            z_cg_m=z_wing_lower_m + 0.5 * TAPE_THICKNESS_M + z_tape_dihedral_mean_m,
+        )
+        mass_props["wing_tape_bottom"] = combine_mass_properties(
+            [wing_tape_bottom_le, wing_tape_bottom_quarter]
+        )
+
+        wing_tape_top_le = mass_properties_rect_prism(
+            mass_kg=tape_mass_one_strip_kg,
+            dim_x_m=tape_w_wing_m,
+            dim_y_m=wing_tape_span_m,
+            dim_z_m=TAPE_THICKNESS_M,
+            x_cg_m=x_tape_le_cg_m,
             y_cg_m=0.0,
             z_cg_m=(
                 z_wing_lower_m
                 + WING_THICKNESS_M
                 - 0.5 * TAPE_THICKNESS_M
-                + z_dihedral_mean_m
+                + z_tape_dihedral_mean_m
             ),
+        )
+        wing_tape_top_quarter = mass_properties_rect_prism(
+            mass_kg=tape_mass_one_strip_kg,
+            dim_x_m=tape_w_wing_m,
+            dim_y_m=wing_tape_span_m,
+            dim_z_m=TAPE_THICKNESS_M,
+            x_cg_m=x_tape_quarter_cg_m,
+            y_cg_m=0.0,
+            z_cg_m=(
+                z_wing_lower_m
+                + WING_THICKNESS_M
+                - 0.5 * TAPE_THICKNESS_M
+                + z_tape_dihedral_mean_m
+            ),
+        )
+        mass_props["wing_tape_top"] = combine_mass_properties(
+            [wing_tape_top_le, wing_tape_top_quarter]
         )
 
     if TAPE_ENABLE_TAIL:
-        x_le_tail_m = tail_arm_m
+        # Tail tape: 10 mm width, full-span coverage, centered at 30% local chord.
+        x_le_htail_m = htail.xsecs[0].xyz_le[0]
+        x_le_vtail_m = vtail.xsecs[0].xyz_le[0]
 
         htail_span_m = surface_span(htail, span_axis="y")
         htail_area_m2 = htail.area()
         htail_chord_est_m = htail_area_m2 / np.maximum(htail_span_m, 1e-8)
-        tape_w_htail_m = np.minimum(TAPE_WIDTH_M, htail_chord_est_m)
+        tape_w_htail_m = float(TAPE_WIDTH_M)
         tape_area_one_side_ht_m2 = htail_span_m * tape_w_htail_m
         tape_mass_one_side_ht_kg = TAPE_AREAL_DENSITY_KG_M2 * tape_area_one_side_ht_m2
         z_htail_lower_m = HTAIL_ROOT_LOWER_SURFACE_Z_M
-        htail_tape_bottom = mass_properties_rect_prism(
+        x_tape_htail_cg_m = x_le_htail_m + HTAIL_TAPE_X_FRAC * htail_chord_est_m
+        mass_props["htail_tape_bottom"] = mass_properties_rect_prism(
             mass_kg=tape_mass_one_side_ht_kg,
             dim_x_m=tape_w_htail_m,
             dim_y_m=htail_span_m,
             dim_z_m=TAPE_THICKNESS_M,
-            x_cg_m=x_le_tail_m + 0.5 * tape_w_htail_m,
+            x_cg_m=x_tape_htail_cg_m,
             y_cg_m=0.0,
             z_cg_m=z_htail_lower_m + 0.5 * TAPE_THICKNESS_M,
         )
-        htail_tape_top = mass_properties_rect_prism(
+        mass_props["htail_tape_top"] = mass_properties_rect_prism(
             mass_kg=tape_mass_one_side_ht_kg,
             dim_x_m=tape_w_htail_m,
             dim_y_m=htail_span_m,
             dim_z_m=TAPE_THICKNESS_M,
-            x_cg_m=x_le_tail_m + 0.5 * tape_w_htail_m,
+            x_cg_m=x_tape_htail_cg_m,
             y_cg_m=0.0,
             z_cg_m=z_htail_lower_m + TAIL_THICKNESS_M - 0.5 * TAPE_THICKNESS_M,
         )
-        mass_props["htail_tape"] = combine_mass_properties(
-            [htail_tape_bottom, htail_tape_top]
-        )
 
         vtail_span_m = surface_span(vtail, span_axis="z")
-        vtail_chord_use_m = vtail_chord_m
-        tape_w_vtail_m = np.minimum(TAPE_WIDTH_M, vtail_chord_use_m)
+        tape_w_vtail_m = float(TAPE_WIDTH_M)
         tape_area_one_side_vt_m2 = vtail_span_m * tape_w_vtail_m
         tape_mass_one_side_vt_kg = TAPE_AREAL_DENSITY_KG_M2 * tape_area_one_side_vt_m2
         z_vtail_mid_m = VTAIL_ROOT_LOWER_SURFACE_Z_M + 0.5 * vtail_span_m
-        vtail_tape_side_a = mass_properties_rect_prism(
+        x_tape_vtail_cg_m = x_le_vtail_m + VTAIL_TAPE_X_FRAC * vtail_chord_m
+        mass_props["vtail_tape_side_a"] = mass_properties_rect_prism(
             mass_kg=tape_mass_one_side_vt_kg,
             dim_x_m=tape_w_vtail_m,
             dim_y_m=TAPE_THICKNESS_M,
             dim_z_m=vtail_span_m,
-            x_cg_m=x_le_tail_m + 0.5 * tape_w_vtail_m,
+            x_cg_m=x_tape_vtail_cg_m,
             y_cg_m=VTAIL_TAPE_Y_OFFSET_M,
             z_cg_m=z_vtail_mid_m,
         )
-        vtail_tape_side_b = mass_properties_rect_prism(
+        mass_props["vtail_tape_side_b"] = mass_properties_rect_prism(
             mass_kg=tape_mass_one_side_vt_kg,
             dim_x_m=tape_w_vtail_m,
             dim_y_m=TAPE_THICKNESS_M,
             dim_z_m=vtail_span_m,
-            x_cg_m=x_le_tail_m + 0.5 * tape_w_vtail_m,
+            x_cg_m=x_tape_vtail_cg_m,
             y_cg_m=-VTAIL_TAPE_Y_OFFSET_M,
             z_cg_m=z_vtail_mid_m,
-        )
-        mass_props["vtail_tape"] = combine_mass_properties(
-            [vtail_tape_side_a, vtail_tape_side_b]
         )
 
     # Fixed onboard components
@@ -2064,28 +2094,10 @@ def build_mass_model(
     else:
         mass_props["boom"] = boom_tube
 
-    # Ballast is optimized in both mass and position along the boom.
-    ballast_mass_kg = opti.variable(
-        init_guess=0.0,
-        lower_bound=0.0,
-        upper_bound=BALLAST_MAX_KG,
-    )
-    ballast_eta = opti.variable(
-        init_guess=0.0,
-        lower_bound=0.0,
-        upper_bound=1.0,
-    )
-    x_ballast = NOSE_X_M + ballast_eta * boom_length_m
-    mass_props["ballast"] = point_mass(
-        ballast_mass_kg,
-        x_m=x_ballast,
-        z_m=0.0,
-    )
-
     subtotal = combine_mass_properties(list(mass_props.values()))
     mass_props["glue"] = scale_mass_properties(subtotal, GLUE_FRACTION)
     total_mass = combine_mass_properties([subtotal, mass_props["glue"]])
-    return mass_props, total_mass, ballast_mass_kg, ballast_eta
+    return mass_props, total_mass
 
 def aileron_effectiveness_proxy(
     aero: AeroMap,
@@ -3604,7 +3616,7 @@ def legacy_single_run_main(
     e_foam_wing_pa = WING_E_SECANT_PA
     e_spar_wing_pa = WING_SPAR_E_FLEX_PA
     e_tape_pa = TAPE_EFFICIENCY * TAPE_E_EFFECTIVE_PA
-    tape_w_wing_m = np.minimum(TAPE_WIDTH_M, wing_chord_m)
+    tape_w_wing_m = np.minimum(2.0 * TAPE_WIDTH_M * WING_TAPE_SPAN_FRACTION_OF_SEMISPAN, wing_chord_m)
     ei_wing_nm2, _wing_z0_m = composite_EI_flapwise(
         chord_m=wing_chord_m,
         foam_thickness_m=WING_THICKNESS_M,
@@ -3642,7 +3654,7 @@ def legacy_single_run_main(
         e_spar_pa=WING_SPAR_E_FLEX_PA,
         spar_z_from_lower_m=0.0,
         include_spar=False,
-        tape_width_m=np.minimum(TAPE_WIDTH_M, htail_chord_m),
+        tape_width_m=TAPE_WIDTH_M,
         tape_thickness_m=TAPE_THICKNESS_M,
         e_tape_pa=e_tape_pa,
         include_tape=TAPE_ENABLE_TAIL,
@@ -7227,7 +7239,7 @@ def trim_candidate_at_point(
         e_spar_pa=float(WING_SPAR_E_FLEX_PA),
         spar_z_from_lower_m=float(WING_SPAR_Z_FROM_LOWER_M),
         include_tape=TAPE_ENABLE_WING,
-        tape_width_m=float(TAPE_WIDTH_M),
+        tape_width_m=float(2.0 * TAPE_WIDTH_M * WING_TAPE_SPAN_FRACTION_OF_SEMISPAN),
         tape_thickness_m=float(TAPE_THICKNESS_M),
         e_tape_pa=float(TAPE_EFFICIENCY * TAPE_E_EFFECTIVE_PA),
     )
