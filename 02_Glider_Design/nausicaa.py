@@ -40,7 +40,7 @@ GENERATE_POLARS = False
 N_ALPHA = 25
 MAKE_PLOTS = True
 PLOT_DPI = 1000
-RUN_WORKFLOW = False
+RUN_WORKFLOW = True
 ENABLE_INITIAL_DESIGN_CHECK = False
 ENABLE_OPTIMIZATION_AFTER_INITIAL_CHECK = True
 INITIAL_CHECK_EXPECTED_NLP_BOUNDS = 72
@@ -49,7 +49,7 @@ IPOPT_VERBOSE_PRINT_LEVEL = 5
 
 
 # Manual note for this run (edit before executing)
-MANUAL_RUN_NOTE = "v3.6.4"
+MANUAL_RUN_NOTE = "v3.7.7"
 MANUAL_RUN_NOTE_PRINT = True
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -65,15 +65,15 @@ ARENA_HEIGHT_M = 3.5
 # Fixed mission speed (single-speed agility mission)
 V_NOM_MPS = 6.5
 # Legacy diagnostic alias kept for compatibility with existing reports.
-V_TURN_MPS = 4.5
+V_TURN_MPS = 4.0
 
 # Manoeuvre definition (banked-turn agility / curvature feasibility)
 TURN_BANK_DEG = 50.0
-WALL_CLEARANCE_M = 0.30
-TURN_DEFLECTION_UTIL_MAX = 0.80
+WALL_CLEARANCE_M = 0.20
+TURN_DEFLECTION_UTIL_MAX = 0.85
 # Manoeuvre agility target: time to reach design bank angle at V_TURN_MPS.
 # Converted to a minimum steady-state roll-rate requirement.
-BANK_ENTRY_TIME_S = 0.7
+BANK_ENTRY_TIME_S = 0.3
 CM_TRIM_TOL = 1e-6
 
 # Stall / margin settings for manoeuvre case
@@ -109,7 +109,7 @@ HTAIL_ROOT_LOWER_SURFACE_Z_M = -0.004
 
 # Wing design bounds
 WING_SPAN_MIN_M = 0.30
-WING_SPAN_MAX_M = 0.70
+WING_SPAN_MAX_M = 0.75
 WING_CHORD_MIN_M = 0.10
 WING_CHORD_MAX_M = 0.30
 
@@ -117,7 +117,7 @@ WING_CHORD_MAX_M = 0.30
 BOOM_LENGTH_MIN_M = 0.35
 BOOM_LENGTH_MAX_M = 0.70
 # Tail-arm position bounds are kept broad; boom-length constraint is authoritative.
-TAIL_ARM_MIN_M = 0.50
+TAIL_ARM_MIN_M = 0.40
 TAIL_ARM_MAX_M = 0.80
 HT_SPAN_MIN_M = 0.20
 HT_SPAN_MAX_M = 0.50
@@ -323,6 +323,15 @@ WEIGHT_SWEEP_DEFAULT_SAMPLES = 40
 WEIGHT_SWEEP_LOG10_MIN = -2.0
 WEIGHT_SWEEP_LOG10_MAX = 2.0
 WEIGHT_SWEEP_SEED_OFFSET = 10_000
+WEIGHT_SWEEP_RERUN_TOP_K_DEFAULT = 3
+WEIGHT_SWEEP_RERUN_N_STARTS_DEFAULT = 10
+WEIGHT_SWEEP_RERUN_KEEP_TOP_K_DEFAULT = 3
+WEIGHT_SWEEP_RERUN_N_SCENARIOS_DEFAULT = 20
+WEIGHT_SWEEP_RERUN_SEED_OFFSET = 20_000
+WEIGHT_SWEEP_FAST_N_STARTS = 2
+WEIGHT_SWEEP_FAST_KEEP_TOP_K = 1
+WEIGHT_SWEEP_FAST_N_SCENARIOS = 6
+WEIGHT_SWEEP_FAST_SAMPLES = 40
 
 # Robust-in-loop optimization defaults
 ROBUST_OPT_DEFAULT_SCENARIOS = 8
@@ -461,7 +470,7 @@ class Weights:
 
 @dataclass(frozen=True)
 class UncertaintyModel:
-    mass_scale_min: float = 0.90
+    mass_scale_min: float = 1.00
     mass_scale_max: float = 1.10
     cg_x_shift_mac_min: float = -0.06
     cg_x_shift_mac_max: float = 0.06
@@ -675,7 +684,7 @@ class WorkflowConfig:
     dedup_span_m: float = 0.01
     dedup_chord_m: float = 0.005
     dedup_tail_arm_m: float = 0.01
-    mass_scale_min: float = 0.90
+    mass_scale_min: float = 1.00
     mass_scale_max: float = 1.10
     cg_x_shift_mac_min: float = -0.06
     cg_x_shift_mac_max: float = 0.06
@@ -6131,6 +6140,295 @@ def run_weight_sweep(
         "weight_sweep_xlsx": sweep_xlsx_path,
     }
 
+
+
+def objective_weights_from_sweep_row(
+    row: pd.Series | dict[str, Any],
+) -> ObjectiveWeights:
+    row_dict = row.to_dict() if isinstance(row, pd.Series) else dict(row)
+    defaults = asdict(ObjectiveWeights())
+    parsed_weights: dict[str, float] = {}
+
+    for key, default_value in defaults.items():
+        source_key = f"objective_weight_{key}"
+        raw_value = row_dict.get(source_key, default_value)
+        try:
+            value = float(raw_value)
+        except Exception:
+            value = float(default_value)
+        if not onp.isfinite(value):
+            value = float(default_value)
+        parsed_weights[key] = value
+
+    return ObjectiveWeights(**parsed_weights)
+
+
+
+def select_top_weight_sweep_rows(
+    sweep_df: pd.DataFrame,
+    top_k: int,
+) -> pd.DataFrame:
+    k = max(0, int(top_k))
+    if k < 1 or sweep_df.empty:
+        return pd.DataFrame()
+
+    ranked_df = sweep_df.copy()
+    if "success" in ranked_df.columns:
+        ranked_df = ranked_df[ranked_df["success"] == True]
+    if ranked_df.empty:
+        return ranked_df
+
+    for rank_col in ["rank_feasible_rate", "rank_sink_cvar_20", "rank_wing_span_m", "run_index"]:
+        if rank_col not in ranked_df.columns:
+            ranked_df[rank_col] = float("inf")
+        ranked_df[rank_col] = pd.to_numeric(ranked_df[rank_col], errors="coerce")
+
+    ranked_df["rank_feasible_rate"] = ranked_df["rank_feasible_rate"].fillna(float("inf"))
+    ranked_df["rank_sink_cvar_20"] = ranked_df["rank_sink_cvar_20"].fillna(float("inf"))
+    ranked_df["rank_wing_span_m"] = ranked_df["rank_wing_span_m"].fillna(float("inf"))
+    ranked_df["run_index"] = ranked_df["run_index"].fillna(float("inf"))
+
+    ranked_df = ranked_df.sort_values(
+        by=["rank_feasible_rate", "rank_sink_cvar_20", "rank_wing_span_m", "run_index"],
+        ascending=[True, True, True, True],
+        kind="mergesort",
+    )
+    return ranked_df.head(k).reset_index(drop=True)
+
+
+
+def run_top_weight_set_reruns(
+    sweep_df: pd.DataFrame,
+    config: WorkflowConfig,
+    top_k: int = WEIGHT_SWEEP_RERUN_TOP_K_DEFAULT,
+    rerun_n_starts: int = WEIGHT_SWEEP_RERUN_N_STARTS_DEFAULT,
+    rerun_keep_top_k: int = WEIGHT_SWEEP_RERUN_KEEP_TOP_K_DEFAULT,
+    rerun_n_scenarios: int = WEIGHT_SWEEP_RERUN_N_SCENARIOS_DEFAULT,
+    objective_scales: ObjectiveScales | None = None,
+    rng: onp.random.Generator | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any] | None, PathMap]:
+    ensure_output_dirs()
+
+    top_rows_df = select_top_weight_sweep_rows(sweep_df, top_k)
+    scales = objective_scales or ObjectiveScales()
+    rerun_seed = int(config.random_seed) + WEIGHT_SWEEP_RERUN_SEED_OFFSET
+    rng_local = rng if rng is not None else onp.random.default_rng(rerun_seed)
+
+    n_starts_use = max(1, int(rerun_n_starts))
+    keep_top_k_use = max(1, min(int(rerun_keep_top_k), n_starts_use))
+    n_scenarios_use = max(1, int(rerun_n_scenarios))
+    rerun_config = WorkflowConfig(
+        **{
+            **asdict(config),
+            "n_starts": n_starts_use,
+            "keep_top_k": keep_top_k_use,
+            "n_scenarios": n_scenarios_use,
+        }
+    )
+
+    rerun_rows: list[dict[str, Any]] = []
+    all_starts_frames: list[pd.DataFrame] = []
+    best_result: dict[str, Any] | None = None
+    best_rank: tuple[float, float, float] | None = None
+
+    for rerun_rank, (_, sweep_row) in enumerate(top_rows_df.iterrows(), start=1):
+        try:
+            source_sweep_run_index = int(float(sweep_row.get("run_index", -1)))
+        except Exception:
+            source_sweep_run_index = -1
+
+        weights = objective_weights_from_sweep_row(sweep_row)
+        print(
+            (
+                f"[rerun] top weight set {rerun_rank}/{len(top_rows_df)} "
+                f"(source sweep run_index={source_sweep_run_index})"
+            ),
+            flush=True,
+        )
+
+        (
+            candidates,
+            all_starts_df,
+            robust_scenarios_df,
+            robust_summary_df,
+            selected_candidate,
+            run_weights,
+            run_scales,
+        ) = run_workflow_with_postcheck(
+            config=rerun_config,
+            objective_weights=weights,
+            objective_scales=scales,
+            rng=spawn_child_rng(rng_local),
+        )
+
+        row: dict[str, Any] = {
+            "rerun_rank": rerun_rank,
+            "source_sweep_run_index": source_sweep_run_index,
+            "success": selected_candidate is not None,
+            **{f"objective_weight_{key}": value for key, value in asdict(run_weights).items()},
+            **{f"objective_scale_{key}": value for key, value in asdict(run_scales).items()},
+            "candidate_id": float("nan"),
+            "feasible_rate": float("nan"),
+            "sink_mean": float("nan"),
+            "sink_cvar_20": float("nan"),
+            "objective": float("nan"),
+            "wing_span_m": float("nan"),
+            "wing_chord_m": float("nan"),
+            "tail_arm_m": float("nan"),
+            "htail_span_m": float("nan"),
+            "vtail_height_m": float("nan"),
+            "sink_rate_mps": float("nan"),
+            "mass_total_kg": float("nan"),
+            "objective_term_spread_ratio": float("nan"),
+            "rank_feasible_rate": float("inf"),
+            "rank_sink_cvar_20": float("inf"),
+            "rank_wing_span_m": float("inf"),
+            "is_best": False,
+        }
+
+        selected_summary_row: dict[str, Any] = {}
+        if selected_candidate is not None:
+            row["candidate_id"] = int(selected_candidate.candidate_id)
+            row["objective"] = float(selected_candidate.objective)
+            row["wing_span_m"] = float(selected_candidate.wing_span_m)
+            row["wing_chord_m"] = float(selected_candidate.wing_chord_m)
+            row["tail_arm_m"] = float(selected_candidate.tail_arm_m)
+            row["htail_span_m"] = float(selected_candidate.htail_span_m)
+            row["vtail_height_m"] = float(selected_candidate.vtail_height_m)
+            row["sink_rate_mps"] = float(selected_candidate.sink_rate_mps)
+            row["mass_total_kg"] = float(selected_candidate.mass_total_kg)
+
+            selected_summary_df = robust_summary_df
+            if (
+                not robust_summary_df.empty
+                and "candidate_id" in robust_summary_df.columns
+            ):
+                selected_summary_df = robust_summary_df[
+                    robust_summary_df["candidate_id"] == selected_candidate.candidate_id
+                ]
+                if selected_summary_df.empty:
+                    selected_summary_df = robust_summary_df.iloc[[0]]
+
+            if not selected_summary_df.empty:
+                selected_summary_row = selected_summary_df.iloc[0].to_dict()
+                row["feasible_rate"] = float(
+                    selected_summary_row.get("nom_success_rate", float("nan"))
+                )
+                row["sink_mean"] = float(
+                    selected_summary_row.get("nom_sink_mean", float("nan"))
+                )
+                row["sink_cvar_20"] = float(
+                    selected_summary_row.get("nom_sink_cvar_20", float("nan"))
+                )
+
+            if selected_candidate.objective_contributions is not None:
+                row.update(selected_candidate.objective_contributions)
+                contribution_values = [
+                    abs(float(value))
+                    for key, value in selected_candidate.objective_contributions.items()
+                    if key != "J_total" and onp.isfinite(float(value)) and abs(float(value)) > 1e-12
+                ]
+                if contribution_values:
+                    row["objective_term_spread_ratio"] = float(
+                        max(contribution_values) / max(min(contribution_values), 1e-12)
+                    )
+
+            feasible_rate_value = float(row["feasible_rate"])
+            sink_cvar_value = float(row["sink_cvar_20"])
+            span_value = float(row["wing_span_m"])
+            row["rank_feasible_rate"] = (
+                -feasible_rate_value if onp.isfinite(feasible_rate_value) else float("inf")
+            )
+            row["rank_sink_cvar_20"] = (
+                sink_cvar_value if onp.isfinite(sink_cvar_value) else float("inf")
+            )
+            row["rank_wing_span_m"] = (
+                span_value if onp.isfinite(span_value) else float("inf")
+            )
+
+            rank_key = (
+                float(row["rank_feasible_rate"]),
+                float(row["rank_sink_cvar_20"]),
+                float(row["rank_wing_span_m"]),
+            )
+            if best_rank is None or rank_key < best_rank:
+                best_rank = rank_key
+                best_result = {
+                    "objective_weights": run_weights,
+                    "objective_scales": run_scales,
+                    "candidates": candidates,
+                    "all_starts_df": all_starts_df,
+                    "robust_scenarios_df": robust_scenarios_df,
+                    "robust_summary_df": robust_summary_df,
+                    "selected_candidate": selected_candidate,
+                    "selected_summary_row": selected_summary_row,
+                    "rerun_row": row.copy(),
+                    "source_sweep_run_index": source_sweep_run_index,
+                    "rerun_config": rerun_config,
+                }
+
+        starts_df = all_starts_df.copy()
+        if not starts_df.empty:
+            starts_df["rerun_rank"] = rerun_rank
+            starts_df["source_sweep_run_index"] = source_sweep_run_index
+            for key, value in asdict(run_weights).items():
+                starts_df[f"objective_weight_{key}"] = value
+            all_starts_frames.append(starts_df)
+
+        rerun_rows.append(row)
+
+    rerun_df = pd.DataFrame(rerun_rows)
+    if "is_best" not in rerun_df.columns:
+        rerun_df["is_best"] = False
+    rerun_df["is_best"] = rerun_df["is_best"].astype(bool)
+    if best_result is not None:
+        best_rerun_rank = int(best_result["rerun_row"].get("rerun_rank", -1))
+        rerun_df.loc[rerun_df["rerun_rank"] == best_rerun_rank, "is_best"] = True
+
+    all_starts_combined_df = (
+        pd.concat(all_starts_frames, ignore_index=True)
+        if all_starts_frames
+        else pd.DataFrame()
+    )
+
+    rerun_csv_path = RESULTS_DIR / "weight_sweep_top_rerun.csv"
+    rerun_xlsx_path = RESULTS_DIR / "weight_sweep_top_rerun.xlsx"
+
+    run_info_rows = [
+        {"Key": "code_version", "Value": get_git_version()},
+        {"Key": "timestamp_utc", "Value": datetime.now(timezone.utc).isoformat()},
+        {"Key": "top_k_requested", "Value": int(top_k)},
+        {"Key": "top_k_available", "Value": int(len(top_rows_df))},
+        {"Key": "seed", "Value": rerun_seed},
+        {
+            "Key": "selection_rule",
+            "Value": "lexicographic: feasible_rate desc, sink_cvar_20 asc, wing_span_m asc",
+        },
+    ]
+    run_info_rows.extend(
+        {"Key": f"base_{key}", "Value": value}
+        for key, value in asdict(config).items()
+    )
+    run_info_rows.extend(
+        {"Key": f"rerun_{key}", "Value": value}
+        for key, value in asdict(rerun_config).items()
+    )
+    run_info_df = pd.DataFrame(run_info_rows)
+
+    rerun_df.to_csv(rerun_csv_path, index=False)
+    with pd.ExcelWriter(rerun_xlsx_path) as writer:
+        run_info_df.to_excel(writer, sheet_name="RunInfo", index=False)
+        top_rows_df.to_excel(writer, sheet_name="SelectedSweepRows", index=False)
+        rerun_df.to_excel(writer, sheet_name="TopRerunSummary", index=False)
+        if not all_starts_combined_df.empty:
+            all_starts_combined_df.to_excel(writer, sheet_name="TopRerunAllStarts", index=False)
+
+    return rerun_df, best_result, {
+        "weight_sweep_top_rerun_csv": rerun_csv_path,
+        "weight_sweep_top_rerun_xlsx": rerun_xlsx_path,
+    }
+
+
 def sum_expr(values: list[Scalar]) -> Scalar:
     total: Scalar = 0.0
     for value in values:
@@ -8614,16 +8912,40 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sweep-weights",
         action="store_true",
-        help="Run a workflow weight-sweep experiment (log-uniform objective weights)",
+        help="Legacy flag: workflow mode now runs weight sweep by default",
     )
     parser.add_argument(
         "--sweep-samples",
         type=int,
         default=WEIGHT_SWEEP_DEFAULT_SAMPLES,
         help=(
-            "Number of sampled weight vectors for --sweep-weights "
+            "Number of sampled weight vectors for workflow weight sweep "
             f"(clipped to [{WEIGHT_SWEEP_MIN_SAMPLES}, {WEIGHT_SWEEP_MAX_SAMPLES}])"
         ),
+    )
+    parser.add_argument(
+        "--rerun-top-k",
+        type=int,
+        default=WEIGHT_SWEEP_RERUN_TOP_K_DEFAULT,
+        help="After sweep, rerun top-K weight sets with stronger settings (set 0 to disable)",
+    )
+    parser.add_argument(
+        "--rerun-n-starts",
+        type=int,
+        default=WEIGHT_SWEEP_RERUN_N_STARTS_DEFAULT,
+        help="n_starts for each top-K rerun",
+    )
+    parser.add_argument(
+        "--rerun-keep-top-k",
+        type=int,
+        default=WEIGHT_SWEEP_RERUN_KEEP_TOP_K_DEFAULT,
+        help="keep_top_k for each top-K rerun",
+    )
+    parser.add_argument(
+        "--rerun-n-scenarios",
+        type=int,
+        default=WEIGHT_SWEEP_RERUN_N_SCENARIOS_DEFAULT,
+        help="n_scenarios for each top-K rerun",
     )
     return parser.parse_args()
 
@@ -8633,10 +8955,10 @@ def main() -> None:
     args = parse_args()
     use_workflow = RUN_WORKFLOW or args.workflow
     use_robust_opt = bool(args.robust_opt)
-    use_sweep_weights = bool(args.sweep_weights)
+    use_sweep_weights_flag = bool(args.sweep_weights)
     use_smoke_test = bool(args.smoke_test)
 
-    if use_sweep_weights and not use_workflow:
+    if use_sweep_weights_flag and not use_workflow:
         print("[WARN] --sweep-weights was set without --workflow; enabling workflow mode.", flush=True)
         use_workflow = True
 
@@ -8705,7 +9027,7 @@ def main() -> None:
                 "[WARN] Both --workflow and --robust-opt were set; running robust-opt only.",
                 flush=True,
             )
-        if use_sweep_weights:
+        if use_sweep_weights_flag:
             print("[WARN] --sweep-weights is ignored in --robust-opt mode.", flush=True)
 
         robust_n_scenarios = int(
@@ -8785,119 +9107,156 @@ def main() -> None:
         return
 
     if use_workflow:
+        sweep_config = WorkflowConfig(
+            **{
+                **asdict(workflow_config),
+                "n_starts": WEIGHT_SWEEP_FAST_N_STARTS,
+                "keep_top_k": WEIGHT_SWEEP_FAST_KEEP_TOP_K,
+                "n_scenarios": WEIGHT_SWEEP_FAST_N_SCENARIOS,
+            }
+        )
+        sweep_sample_count = int(WEIGHT_SWEEP_FAST_SAMPLES)
+
         print(
             (
                 "Starting workflow mode "
-                f"(n_starts={workflow_config.n_starts}, "
-                f"keep_top_k={workflow_config.keep_top_k}, "
-                f"n_scenarios={workflow_config.n_scenarios})"
+                f"(fast sweep: n_starts={sweep_config.n_starts}, "
+                f"keep_top_k={sweep_config.keep_top_k}, "
+                f"n_scenarios={sweep_config.n_scenarios}, "
+                f"sweep_samples={sweep_sample_count})"
             ),
             flush=True,
         )
 
-        if use_sweep_weights:
-            sweep_df, best_result, sweep_paths = run_weight_sweep(
+        if not use_sweep_weights_flag:
+            print(
+                "[INFO] Workflow mode includes weight sweep by default; running sweep.",
+                flush=True,
+            )
+        if int(args.sweep_samples) != sweep_sample_count:
+            print(
+                f"[INFO] Fast sweep profile overrides --sweep-samples to {sweep_sample_count}.",
+                flush=True,
+            )
+
+        sweep_df, best_result, sweep_paths = run_weight_sweep(
+            config=sweep_config,
+            sample_count=sweep_sample_count,
+            objective_scales=default_objective_scales,
+            rng=spawn_child_rng(master_rng),
+        )
+        print(
+            f"Weight-sweep report saved: {sweep_paths['weight_sweep_xlsx']}",
+            flush=True,
+        )
+
+        if best_result is None:
+            print("Weight sweep completed, but no successful workflow run was found.", flush=True)
+            return
+
+        rerun_top_k = max(0, int(args.rerun_top_k))
+        final_result = best_result
+        selection_source = "sweep-best"
+
+        if rerun_top_k > 0:
+            _rerun_df, rerun_best_result, rerun_paths = run_top_weight_set_reruns(
+                sweep_df=sweep_df,
                 config=workflow_config,
-                sample_count=int(args.sweep_samples),
+                top_k=rerun_top_k,
+                rerun_n_starts=int(args.rerun_n_starts),
+                rerun_keep_top_k=int(args.rerun_keep_top_k),
+                rerun_n_scenarios=int(args.rerun_n_scenarios),
                 objective_scales=default_objective_scales,
                 rng=spawn_child_rng(master_rng),
             )
             print(
-                f"Weight-sweep report saved: {sweep_paths['weight_sweep_xlsx']}",
+                f"Top-weight rerun report saved: {rerun_paths['weight_sweep_top_rerun_xlsx']}",
                 flush=True,
             )
+            if rerun_best_result is not None:
+                final_result = rerun_best_result
+                selection_source = "top-k rerun"
+            else:
+                print(
+                    "[WARN] Top-weight reruns produced no successful workflow run; using sweep-best result.",
+                    flush=True,
+                )
+        else:
+            print("[INFO] Top-weight rerun disabled (--rerun-top-k <= 0).", flush=True)
 
-            if best_result is None:
-                print("Weight sweep completed, but no successful workflow run was found.", flush=True)
-                return
+        selected_candidate = final_result.get("selected_candidate")
+        if not isinstance(selected_candidate, Candidate):
+            print("Workflow completed, but no best candidate is available.", flush=True)
+            return
 
-            selected_candidate = best_result.get("selected_candidate")
-            if not isinstance(selected_candidate, Candidate):
-                print("Weight sweep completed, but no best candidate is available.", flush=True)
-                return
+        best_weights = final_result.get("objective_weights", default_objective_weights)
+        best_scales = final_result.get("objective_scales", default_objective_scales)
+        best_row = final_result.get("rerun_row", final_result.get("sweep_row", {}))
 
-            best_weights = best_result.get("objective_weights", default_objective_weights)
-            best_scales = best_result.get("objective_scales", default_objective_scales)
-            best_row = best_result.get("sweep_row", {})
+        final_config_obj = final_result.get("rerun_config", workflow_config)
+        final_config = final_config_obj if isinstance(final_config_obj, WorkflowConfig) else workflow_config
 
-            workflow_path = save_workflow_workbook(
-                config=workflow_config,
-                candidates=best_result.get("candidates", []),
-                robust_scenarios_df=best_result.get("robust_scenarios_df", pd.DataFrame()),
-                robust_summary_df=best_result.get("robust_summary_df", pd.DataFrame()),
-                all_starts_df=best_result.get("all_starts_df"),
-                selected_candidate=selected_candidate,
-                objective_weights=best_weights,
-                objective_scales=best_scales,
-            )
+        workflow_path = save_workflow_workbook(
+            config=final_config,
+            candidates=final_result.get("candidates", []),
+            robust_scenarios_df=final_result.get("robust_scenarios_df", pd.DataFrame()),
+            robust_summary_df=final_result.get("robust_summary_df", pd.DataFrame()),
+            all_starts_df=final_result.get("all_starts_df"),
+            selected_candidate=selected_candidate,
+            objective_weights=best_weights,
+            objective_scales=best_scales,
+        )
 
-            _output_paths, _figure_paths = export_selected_candidate(selected_candidate)
+        _output_paths, _figure_paths = export_selected_candidate(selected_candidate)
 
-            print(
-                "Best weight set (ranked by feasible_rate desc, sink_cvar_20 asc, span asc):",
-                flush=True,
-            )
+        print(f"Final selection source: {selection_source}", flush=True)
+        if selection_source == "top-k rerun":
             print(
                 (
                     "  "
-                    f"feasible_rate={fmt_metric(best_row.get('feasible_rate', onp.nan), 3)} | "
-                    f"sink_cvar_20={fmt_metric(best_row.get('sink_cvar_20', onp.nan), 4)} m/s | "
-                    f"wing_span={fmt_metric(best_row.get('wing_span_m', onp.nan), 4)} m"
+                    f"source_sweep_run_index={int(final_result.get('source_sweep_run_index', -1))}, "
+                    f"rerun_rank={int(best_row.get('rerun_rank', -1))}"
                 ),
                 flush=True,
             )
-            print(
-                (
-                    "  weights: "
-                    + ", ".join(
-                        f"{key}={fmt_metric(value, 4)}"
-                        for key, value in asdict(best_weights).items()
-                    )
-                ),
-                flush=True,
-            )
-            print(
-                (
-                    "  objective-term spread ratio="
-                    f"{fmt_metric(best_row.get('objective_term_spread_ratio', onp.nan), 3)}"
-                ),
-                flush=True,
-            )
-            print(f"Workflow workbook (best sweep run) saved: {workflow_path}", flush=True)
-            print(f"Selected candidate id: {selected_candidate.candidate_id}", flush=True)
-            return
-
-        (
-            candidates,
-            all_starts_df,
-            robust_scenarios_df,
-            robust_summary_df,
-            selected_candidate,
-            run_weights,
-            run_scales,
-        ) = run_workflow_with_postcheck(
-            config=workflow_config,
-            objective_weights=default_objective_weights,
-            objective_scales=default_objective_scales,
-            rng=spawn_child_rng(master_rng),
+        print(
+            "Best weight set (ranked by feasible_rate desc, sink_cvar_20 asc, span asc):",
+            flush=True,
         )
-
-        if not candidates or selected_candidate is None:
-            print("No feasible candidate found in multistart run", flush=True)
-            return
-
-        workflow_path = save_workflow_workbook(
-            config=workflow_config,
-            candidates=candidates,
-            robust_scenarios_df=robust_scenarios_df,
-            robust_summary_df=robust_summary_df,
-            all_starts_df=all_starts_df,
-            selected_candidate=selected_candidate,
-            objective_weights=run_weights,
-            objective_scales=run_scales,
+        print(
+            (
+                "  "
+                f"feasible_rate={fmt_metric(best_row.get('feasible_rate', onp.nan), 3)} | "
+                f"sink_cvar_20={fmt_metric(best_row.get('sink_cvar_20', onp.nan), 4)} m/s | "
+                f"wing_span={fmt_metric(best_row.get('wing_span_m', onp.nan), 4)} m"
+            ),
+            flush=True,
         )
-        _output_paths, _figure_paths = export_selected_candidate(selected_candidate)
-        print(f"Workflow workbook saved: {workflow_path}", flush=True)
+        print(
+            (
+                "  mass_total="
+                f"{fmt_metric(getattr(selected_candidate, 'mass_total_kg', onp.nan), 4)} kg"
+            ),
+            flush=True,
+        )
+        print(
+            (
+                "  weights: "
+                + ", ".join(
+                    f"{key}={fmt_metric(value, 4)}"
+                    for key, value in asdict(best_weights).items()
+                )
+            ),
+            flush=True,
+        )
+        print(
+            (
+                "  objective-term spread ratio="
+                f"{fmt_metric(best_row.get('objective_term_spread_ratio', onp.nan), 3)}"
+            ),
+            flush=True,
+        )
+        print(f"Workflow workbook (final selected run) saved: {workflow_path}", flush=True)
         print(f"Selected candidate id: {selected_candidate.candidate_id}", flush=True)
         return
 
@@ -8911,9 +9270,22 @@ def main() -> None:
     if candidate is None:
         return
 
-
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
