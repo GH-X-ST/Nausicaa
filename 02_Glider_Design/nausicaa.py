@@ -65,7 +65,7 @@ ARENA_HEIGHT_M = 3.5
 # Fixed mission speed (single-speed agility mission)
 V_NOM_MPS = 6.5
 # Legacy diagnostic alias kept for compatibility with existing reports.
-V_TURN_MPS = 3.5
+V_TURN_MPS = 4.5
 
 # Manoeuvre definition (banked-turn agility / curvature feasibility)
 TURN_BANK_DEG = 50.0
@@ -331,8 +331,6 @@ ROBUST_OPT_MAX_SCENARIOS = 8
 ROBUST_OPT_SCENARIO_POOL_MULTIPLIER = 8
 ROBUST_OPT_CVAR_TAIL_FRACTION = 0.20
 ROBUST_OPT_SINK_MEAN_WEIGHT = 0.10
-ROBUST_OPT_BANK_MARGIN_PENALTY_WEIGHT = 10.0
-ROBUST_OPT_TURN_UTIL_PENALTY_WEIGHT = 4.0
 ROBUST_OPT_NOM_LATERAL_RESIDUAL_PENALTY_WEIGHT = 0.5
 ROBUST_OPT_TRIM_CONSTRAINT_PENALTY_WEIGHT = 20.0
 ROBUST_OPT_INCLUDE_GUST = True
@@ -588,6 +586,7 @@ class Scenario:
     w_gust_turn: float = 0.0
     drag_factor: float = 1.0
     control_eff: float = 1.0
+    scenario_tag: str = "lhs"
 
     @staticmethod
     def from_row(row: dict[str, Any]) -> "Scenario":
@@ -616,6 +615,7 @@ class Scenario:
             w_gust_turn=float(row.get("w_gust_turn", 0.0)),
             drag_factor=float(row.get("drag_factor", 1.0)),
             control_eff=float(row.get("control_eff", (eff_a + eff_e + eff_r) / 3.0)),
+            scenario_tag=str(row.get("scenario_tag", "lhs")),
         )
 
     def to_row(self) -> dict[str, Any]:
@@ -650,17 +650,16 @@ class CandidateResult:
 @dataclass(frozen=True)
 class RobustSummary:
     candidate_id: int
-    feasible_rate: float
-    sink_mean: float
-    sink_std: float
-    sink_worst: float
-    sink_cvar_20: float
-    max_roll_tau_worst: float
-    max_delta_e_util_worst: float
-    max_alpha_worst: float
-    min_alpha_margin_worst: float
-    min_cl_margin_worst: float
-    selection_score: float
+    nom_success_rate: float
+    nom_sink_mean: float
+    nom_sink_std: float
+    nom_sink_worst: float
+    nom_sink_cvar_20: float
+    nom_roll_tau_worst: float
+    nom_delta_e_util_worst: float
+    nom_alpha_worst: float
+    nom_alpha_margin_worst: float
+    nom_cl_margin_worst: float
 
 
 _DEFAULT_CFG = Config()
@@ -741,8 +740,6 @@ class WorkflowConfig:
     robust_opt_scenario_pool_multiplier: int = ROBUST_OPT_SCENARIO_POOL_MULTIPLIER
     robust_opt_tail_fraction: float = ROBUST_OPT_CVAR_TAIL_FRACTION
     robust_opt_sink_mean_weight: float = ROBUST_OPT_SINK_MEAN_WEIGHT
-    robust_opt_bank_margin_penalty_weight: float = ROBUST_OPT_BANK_MARGIN_PENALTY_WEIGHT
-    robust_opt_turn_util_penalty_weight: float = ROBUST_OPT_TURN_UTIL_PENALTY_WEIGHT
     robust_opt_nom_lateral_penalty_weight: float = (
         ROBUST_OPT_NOM_LATERAL_RESIDUAL_PENALTY_WEIGHT
     )
@@ -5595,80 +5592,213 @@ def run_multistart(
 # =============================================================================
 # Robustness tools (scenario sampling + per-scenario re-trim + scoring)
 # =============================================================================
+def build_stress_scenarios(unc: UncertaintyModel) -> list[Scenario]:
+    def midpoint(vmin: float, vmax: float) -> float:
+        return float(0.5 * (float(vmin) + float(vmax)))
+
+    mid_inc = midpoint(unc.incidence_bias_deg_min, unc.incidence_bias_deg_max)
+    mid_bias_a = midpoint(unc.bias_a_deg_min, unc.bias_a_deg_max)
+    mid_bias_e = midpoint(unc.bias_e_deg_min, unc.bias_e_deg_max)
+    mid_bias_r = midpoint(unc.bias_r_deg_min, unc.bias_r_deg_max)
+    mid_ixx = midpoint(unc.ixx_scale_min, unc.ixx_scale_max)
+    mid_iyy = midpoint(unc.iyy_scale_min, unc.iyy_scale_max)
+    mid_izz = midpoint(unc.izz_scale_min, unc.izz_scale_max)
+    mid_wing_E = midpoint(unc.wing_E_scale_min, unc.wing_E_scale_max)
+    mid_htail_E = midpoint(unc.htail_E_scale_min, unc.htail_E_scale_max)
+    mid_wing_t = midpoint(unc.wing_thickness_scale_min, unc.wing_thickness_scale_max)
+    mid_tail_t = midpoint(unc.tail_thickness_scale_min, unc.tail_thickness_scale_max)
+    mid_w_gust_nom = midpoint(unc.w_gust_nom_min, unc.w_gust_nom_max)
+    mid_w_gust_turn = midpoint(unc.w_gust_turn_min, unc.w_gust_turn_max)
+
+    base = {
+        "incidence_bias_deg": mid_inc,
+        "eff_a": float(unc.eff_a_min),
+        "eff_e": float(unc.eff_e_min),
+        "eff_r": float(unc.eff_r_min),
+        "bias_a_deg": mid_bias_a,
+        "bias_e_deg": mid_bias_e,
+        "bias_r_deg": mid_bias_r,
+        "ixx_scale": mid_ixx,
+        "iyy_scale": mid_iyy,
+        "izz_scale": mid_izz,
+        "wing_E_scale": mid_wing_E,
+        "htail_E_scale": mid_htail_E,
+        "wing_thickness_scale": mid_wing_t,
+        "tail_thickness_scale": mid_tail_t,
+        "w_gust_nom": mid_w_gust_nom,
+        "w_gust_turn": mid_w_gust_turn,
+        "drag_factor": float(unc.drag_factor_max),
+    }
+
+    stress_specs = [
+        {
+            "mass_scale": float(unc.mass_scale_max),
+            "cg_x_shift_mac": float(unc.cg_x_shift_mac_max),
+        },
+        {
+            "mass_scale": float(unc.mass_scale_max),
+            "cg_x_shift_mac": float(unc.cg_x_shift_mac_min),
+        },
+        {
+            "mass_scale": float(unc.mass_scale_min),
+            "cg_x_shift_mac": float(unc.cg_x_shift_mac_max),
+        },
+        {
+            "mass_scale": float(unc.mass_scale_min),
+            "cg_x_shift_mac": float(unc.cg_x_shift_mac_min),
+        },
+        {
+            "mass_scale": midpoint(unc.mass_scale_min, unc.mass_scale_max),
+            "cg_x_shift_mac": midpoint(unc.cg_x_shift_mac_min, unc.cg_x_shift_mac_max),
+            "w_gust_nom": float(unc.w_gust_nom_max),
+        },
+        {
+            "mass_scale": midpoint(unc.mass_scale_min, unc.mass_scale_max),
+            "cg_x_shift_mac": midpoint(unc.cg_x_shift_mac_min, unc.cg_x_shift_mac_max),
+            "w_gust_nom": float(unc.w_gust_nom_min),
+        },
+        {
+            "mass_scale": midpoint(unc.mass_scale_min, unc.mass_scale_max),
+            "cg_x_shift_mac": float(unc.cg_x_shift_mac_max),
+            "incidence_bias_deg": float(unc.incidence_bias_deg_max),
+        },
+        {
+            "mass_scale": midpoint(unc.mass_scale_min, unc.mass_scale_max),
+            "cg_x_shift_mac": float(unc.cg_x_shift_mac_min),
+            "incidence_bias_deg": float(unc.incidence_bias_deg_min),
+        },
+    ]
+
+    stress_scenarios: list[Scenario] = []
+    for idx, spec in enumerate(stress_specs):
+        row = {**base, **spec}
+        control_eff = float((row["eff_a"] + row["eff_e"] + row["eff_r"]) / 3.0)
+        stress_scenarios.append(
+            Scenario(
+                scenario_id=idx,
+                mass_scale=float(row["mass_scale"]),
+                cg_x_shift_mac=float(row["cg_x_shift_mac"]),
+                incidence_bias_deg=float(row["incidence_bias_deg"]),
+                eff_a=float(row["eff_a"]),
+                eff_e=float(row["eff_e"]),
+                eff_r=float(row["eff_r"]),
+                bias_a_deg=float(row["bias_a_deg"]),
+                bias_e_deg=float(row["bias_e_deg"]),
+                bias_r_deg=float(row["bias_r_deg"]),
+                ixx_scale=float(row["ixx_scale"]),
+                iyy_scale=float(row["iyy_scale"]),
+                izz_scale=float(row["izz_scale"]),
+                wing_E_scale=float(row["wing_E_scale"]),
+                htail_E_scale=float(row["htail_E_scale"]),
+                wing_thickness_scale=float(row["wing_thickness_scale"]),
+                tail_thickness_scale=float(row["tail_thickness_scale"]),
+                w_gust_nom=float(row["w_gust_nom"]),
+                w_gust_turn=float(row["w_gust_turn"]),
+                drag_factor=float(row["drag_factor"]),
+                control_eff=control_eff,
+                scenario_tag="stress",
+            )
+        )
+
+    return stress_scenarios
+
+
 def sample_scenario_objects(
     config: WorkflowConfig,
     uncertainty: UncertaintyModel | None = None,
     rng: onp.random.Generator | None = None,
     scenario_count: int | None = None,
 ) -> list[Scenario]:
-    uncertainty = uncertainty or UncertaintyModel.from_workflow_config(config)
-    rng_local = rng if rng is not None else onp.random.default_rng(int(config.scenario_seed))
-    n_scen = int(max(0, config.n_scenarios if scenario_count is None else scenario_count))
+    from scipy.stats import qmc
 
-    if n_scen == 0:
+    uncertainty = uncertainty or UncertaintyModel.from_workflow_config(config)
+    _ = rng
+    n_scen_total = int(max(0, config.n_scenarios if scenario_count is None else scenario_count))
+
+    if n_scen_total == 0:
         return []
 
-    eff_a = rng_local.uniform(uncertainty.eff_a_min, uncertainty.eff_a_max, n_scen)
-    eff_e = rng_local.uniform(uncertainty.eff_e_min, uncertainty.eff_e_max, n_scen)
-    eff_r = rng_local.uniform(uncertainty.eff_r_min, uncertainty.eff_r_max, n_scen)
+    stress = build_stress_scenarios(uncertainty)
+    n_stress = min(len(stress), n_scen_total)
+    n_lhs = n_scen_total - n_stress
 
-    scenarios: list[Scenario] = []
-    for i in range(n_scen):
-        control_eff = float((eff_a[i] + eff_e[i] + eff_r[i]) / 3.0)
-        scenarios.append(
-            Scenario(
-                scenario_id=int(i),
-                mass_scale=float(rng_local.uniform(uncertainty.mass_scale_min, uncertainty.mass_scale_max)),
-                cg_x_shift_mac=float(
-                    rng_local.uniform(
-                        uncertainty.cg_x_shift_mac_min,
-                        uncertainty.cg_x_shift_mac_max,
-                    )
-                ),
-                incidence_bias_deg=float(
-                    rng_local.uniform(
-                        uncertainty.incidence_bias_deg_min,
-                        uncertainty.incidence_bias_deg_max,
-                    )
-                ),
-                eff_a=float(eff_a[i]),
-                eff_e=float(eff_e[i]),
-                eff_r=float(eff_r[i]),
-                bias_a_deg=float(rng_local.uniform(uncertainty.bias_a_deg_min, uncertainty.bias_a_deg_max)),
-                bias_e_deg=float(rng_local.uniform(uncertainty.bias_e_deg_min, uncertainty.bias_e_deg_max)),
-                bias_r_deg=float(rng_local.uniform(uncertainty.bias_r_deg_min, uncertainty.bias_r_deg_max)),
-                control_eff=control_eff,
-                ixx_scale=float(rng_local.uniform(uncertainty.ixx_scale_min, uncertainty.ixx_scale_max)),
-                iyy_scale=float(rng_local.uniform(uncertainty.iyy_scale_min, uncertainty.iyy_scale_max)),
-                izz_scale=float(rng_local.uniform(uncertainty.izz_scale_min, uncertainty.izz_scale_max)),
-                wing_E_scale=float(rng_local.uniform(uncertainty.wing_E_scale_min, uncertainty.wing_E_scale_max)),
-                htail_E_scale=float(
-                    rng_local.uniform(
-                        uncertainty.htail_E_scale_min,
-                        uncertainty.htail_E_scale_max,
-                    )
-                ),
-                wing_thickness_scale=float(
-                    rng_local.uniform(
-                        uncertainty.wing_thickness_scale_min,
-                        uncertainty.wing_thickness_scale_max,
-                    )
-                ),
-                tail_thickness_scale=float(
-                    rng_local.uniform(
-                        uncertainty.tail_thickness_scale_min,
-                        uncertainty.tail_thickness_scale_max,
-                    )
-                ),
-                w_gust_nom=float(rng_local.uniform(uncertainty.w_gust_nom_min, uncertainty.w_gust_nom_max)),
-                w_gust_turn=float(rng_local.uniform(uncertainty.w_gust_turn_min, uncertainty.w_gust_turn_max)),
-                drag_factor=float(
-                    rng_local.uniform(uncertainty.drag_factor_min, uncertainty.drag_factor_max)
-                ),
+    scenarios: list[Scenario] = list(stress[:n_stress])
+
+    if n_lhs > 0:
+        dimensions: list[tuple[str, float, float]] = [
+            ("mass_scale", uncertainty.mass_scale_min, uncertainty.mass_scale_max),
+            ("cg_x_shift_mac", uncertainty.cg_x_shift_mac_min, uncertainty.cg_x_shift_mac_max),
+            ("incidence_bias_deg", uncertainty.incidence_bias_deg_min, uncertainty.incidence_bias_deg_max),
+            ("eff_a", uncertainty.eff_a_min, uncertainty.eff_a_max),
+            ("eff_e", uncertainty.eff_e_min, uncertainty.eff_e_max),
+            ("eff_r", uncertainty.eff_r_min, uncertainty.eff_r_max),
+            ("bias_a_deg", uncertainty.bias_a_deg_min, uncertainty.bias_a_deg_max),
+            ("bias_e_deg", uncertainty.bias_e_deg_min, uncertainty.bias_e_deg_max),
+            ("bias_r_deg", uncertainty.bias_r_deg_min, uncertainty.bias_r_deg_max),
+            ("ixx_scale", uncertainty.ixx_scale_min, uncertainty.ixx_scale_max),
+            ("iyy_scale", uncertainty.iyy_scale_min, uncertainty.iyy_scale_max),
+            ("izz_scale", uncertainty.izz_scale_min, uncertainty.izz_scale_max),
+            ("wing_E_scale", uncertainty.wing_E_scale_min, uncertainty.wing_E_scale_max),
+            ("htail_E_scale", uncertainty.htail_E_scale_min, uncertainty.htail_E_scale_max),
+            (
+                "wing_thickness_scale",
+                uncertainty.wing_thickness_scale_min,
+                uncertainty.wing_thickness_scale_max,
+            ),
+            (
+                "tail_thickness_scale",
+                uncertainty.tail_thickness_scale_min,
+                uncertainty.tail_thickness_scale_max,
+            ),
+            ("w_gust_nom", uncertainty.w_gust_nom_min, uncertainty.w_gust_nom_max),
+            ("w_gust_turn", uncertainty.w_gust_turn_min, uncertainty.w_gust_turn_max),
+            ("drag_factor", uncertainty.drag_factor_min, uncertainty.drag_factor_max),
+        ]
+        d = len(dimensions)
+        seed = int(config.scenario_seed)
+        sampler = qmc.LatinHypercube(d=d, seed=seed)
+        u = sampler.random(n=n_lhs)
+
+        def lerp(col: float, vmin: float, vmax: float) -> float:
+            return float(vmin + col * (vmax - vmin))
+
+        for i in range(n_lhs):
+            sampled = {
+                name: lerp(float(u[i, j]), float(vmin), float(vmax))
+                for j, (name, vmin, vmax) in enumerate(dimensions)
+            }
+            control_eff = float((sampled["eff_a"] + sampled["eff_e"] + sampled["eff_r"]) / 3.0)
+            scenarios.append(
+                Scenario(
+                    scenario_id=n_stress + i,
+                    mass_scale=float(sampled["mass_scale"]),
+                    cg_x_shift_mac=float(sampled["cg_x_shift_mac"]),
+                    incidence_bias_deg=float(sampled["incidence_bias_deg"]),
+                    eff_a=float(sampled["eff_a"]),
+                    eff_e=float(sampled["eff_e"]),
+                    eff_r=float(sampled["eff_r"]),
+                    bias_a_deg=float(sampled["bias_a_deg"]),
+                    bias_e_deg=float(sampled["bias_e_deg"]),
+                    bias_r_deg=float(sampled["bias_r_deg"]),
+                    ixx_scale=float(sampled["ixx_scale"]),
+                    iyy_scale=float(sampled["iyy_scale"]),
+                    izz_scale=float(sampled["izz_scale"]),
+                    wing_E_scale=float(sampled["wing_E_scale"]),
+                    htail_E_scale=float(sampled["htail_E_scale"]),
+                    wing_thickness_scale=float(sampled["wing_thickness_scale"]),
+                    tail_thickness_scale=float(sampled["tail_thickness_scale"]),
+                    w_gust_nom=float(sampled["w_gust_nom"]),
+                    w_gust_turn=float(sampled["w_gust_turn"]),
+                    drag_factor=float(sampled["drag_factor"]),
+                    control_eff=control_eff,
+                    scenario_tag="lhs",
+                )
             )
-        )
 
-    return scenarios
+    return [
+        Scenario.from_row({**scenario.to_row(), "scenario_id": idx})
+        for idx, scenario in enumerate(scenarios)
+    ]
 
 
 def sample_scenarios(
@@ -5816,6 +5946,7 @@ def run_weight_sweep(
     sweep_rows: list[dict[str, Any]] = []
     best_result: dict[str, Any] | None = None
     best_rank: tuple[float, float, float] | None = None
+    trade_fragile_threshold = 0.90
 
     for run_index, weights in enumerate(weights_list, start=1):
         print(
@@ -5847,7 +5978,6 @@ def run_weight_sweep(
             "feasible_rate": float("nan"),
             "sink_mean": float("nan"),
             "sink_cvar_20": float("nan"),
-            "selection_score": float("nan"),
             "objective": float("nan"),
             "wing_span_m": float("nan"),
             "wing_chord_m": float("nan"),
@@ -5857,6 +5987,11 @@ def run_weight_sweep(
             "sink_rate_mps": float("nan"),
             "mass_total_kg": float("nan"),
             "objective_term_spread_ratio": float("nan"),
+            "rank_feasible_rate": float("inf"),
+            "rank_sink_cvar_20": float("inf"),
+            "rank_wing_span_m": float("inf"),
+            "trade_label": "fail",
+            "is_best": False,
         }
 
         selected_summary_row: dict[str, Any] = {}
@@ -5884,10 +6019,15 @@ def run_weight_sweep(
 
             if not selected_summary_df.empty:
                 selected_summary_row = selected_summary_df.iloc[0].to_dict()
-                row["feasible_rate"] = float(selected_summary_row.get("feasible_rate", float("nan")))
-                row["sink_mean"] = float(selected_summary_row.get("sink_mean", float("nan")))
-                row["sink_cvar_20"] = float(selected_summary_row.get("sink_cvar_20", float("nan")))
-                row["selection_score"] = float(selected_summary_row.get("selection_score", float("nan")))
+                row["feasible_rate"] = float(
+                    selected_summary_row.get("nom_success_rate", float("nan"))
+                )
+                row["sink_mean"] = float(
+                    selected_summary_row.get("nom_sink_mean", float("nan"))
+                )
+                row["sink_cvar_20"] = float(
+                    selected_summary_row.get("nom_sink_cvar_20", float("nan"))
+                )
 
             if selected_candidate.objective_contributions is not None:
                 row.update(selected_candidate.objective_contributions)
@@ -5901,10 +6041,29 @@ def run_weight_sweep(
                         max(contribution_values) / max(min(contribution_values), 1e-12)
                     )
 
-            feasible_rate = float(row["feasible_rate"]) if onp.isfinite(row["feasible_rate"]) else -onp.inf
-            sink_cvar = float(row["sink_cvar_20"]) if onp.isfinite(row["sink_cvar_20"]) else onp.inf
-            span_value = float(row["wing_span_m"]) if onp.isfinite(row["wing_span_m"]) else onp.inf
-            rank_key = (-feasible_rate, sink_cvar, span_value)
+            feasible_rate_value = float(row["feasible_rate"])
+            sink_cvar_value = float(row["sink_cvar_20"])
+            span_value = float(row["wing_span_m"])
+            row["rank_feasible_rate"] = (
+                -feasible_rate_value if onp.isfinite(feasible_rate_value) else float("inf")
+            )
+            row["rank_sink_cvar_20"] = (
+                sink_cvar_value if onp.isfinite(sink_cvar_value) else float("inf")
+            )
+            row["rank_wing_span_m"] = (
+                span_value if onp.isfinite(span_value) else float("inf")
+            )
+            row["trade_label"] = (
+                "robust"
+                if onp.isfinite(feasible_rate_value) and feasible_rate_value >= trade_fragile_threshold
+                else "fragile"
+            )
+
+            rank_key = (
+                float(row["rank_feasible_rate"]),
+                float(row["rank_sink_cvar_20"]),
+                float(row["rank_wing_span_m"]),
+            )
             if best_rank is None or rank_key < best_rank:
                 best_rank = rank_key
                 best_result = {
@@ -5916,12 +6075,30 @@ def run_weight_sweep(
                     "robust_summary_df": robust_summary_df,
                     "selected_candidate": selected_candidate,
                     "selected_summary_row": selected_summary_row,
-                    "sweep_row": row,
+                    "sweep_row": row.copy(),
                 }
 
         sweep_rows.append(row)
 
     sweep_df = pd.DataFrame(sweep_rows)
+    for col in [col for col in sweep_df.columns if col.startswith("objective_weight_")]:
+        log_col = f"log10_{col}"
+        values = pd.to_numeric(sweep_df[col], errors="coerce")
+        sweep_df[log_col] = onp.where(values > 0.0, onp.log10(values), onp.nan)
+
+    if "is_best" not in sweep_df.columns:
+        sweep_df["is_best"] = False
+    sweep_df["is_best"] = sweep_df["is_best"].astype(bool)
+    if best_result is not None:
+        best_run_index = int(best_result["sweep_row"].get("run_index", -1))
+        sweep_df.loc[sweep_df["run_index"] == best_run_index, "is_best"] = True
+
+    trade_study_df = sweep_df.sort_values(
+        by=["rank_feasible_rate", "rank_sink_cvar_20", "rank_wing_span_m", "run_index"],
+        ascending=[True, True, True, True],
+        kind="mergesort",
+    )
+
     sweep_csv_path = RESULTS_DIR / "weight_sweep.csv"
     sweep_xlsx_path = RESULTS_DIR / "weight_sweep.xlsx"
 
@@ -5931,6 +6108,11 @@ def run_weight_sweep(
         {"Key": "sample_count", "Value": len(weights_list)},
         {"Key": "seed", "Value": sweep_seed},
         {"Key": "workflow_rng_seed", "Value": shared_workflow_rng_seed},
+        {
+            "Key": "selection_rule",
+            "Value": "lexicographic: feasible_rate desc, sink_cvar_20 asc, wing_span_m asc",
+        },
+        {"Key": "trade_fragile_threshold", "Value": trade_fragile_threshold},
     ]
     run_info_rows.extend(
         {"Key": key, "Value": value}
@@ -5942,6 +6124,7 @@ def run_weight_sweep(
     with pd.ExcelWriter(sweep_xlsx_path) as writer:
         run_info_df.to_excel(writer, sheet_name="RunInfo", index=False)
         sweep_df.to_excel(writer, sheet_name="WeightSweep", index=False)
+        trade_study_df.to_excel(writer, sheet_name="TradeStudy", index=False)
 
     return sweep_df, best_result, {
         "weight_sweep_csv": sweep_csv_path,
@@ -7292,14 +7475,14 @@ def run_robust_postcheck(
                 airframe_bundle=airframe_bundle,
             )
             nom_row = nom_result.to_prefixed_row()
-            both_success = bool(nom_result.success)
+            nom_success = bool(nom_result.success)
             combined_row: dict[str, Any] = {
                 "candidate_id": candidate.candidate_id,
                 **scenario_row,
                 **nom_row,
-                "both_success": both_success,
+                "nom_success": nom_success,
                 # Legacy compatibility alias
-                "trim_success": both_success,
+                "trim_success": nom_success,
             }
             robust_rows.append(combined_row)
 
@@ -7324,39 +7507,36 @@ def run_robust_postcheck(
         candidate_df = robust_scenarios_df[
             robust_scenarios_df["candidate_id"] == candidate.candidate_id
         ]
-        feasible_df = candidate_df[candidate_df["both_success"] == True]
+        feasible_df = candidate_df[candidate_df["nom_success"] == True]
 
         scenario_count = max(len(candidate_df), 1)
-        feasible_rate = len(feasible_df) / scenario_count
+        nom_success_rate = len(feasible_df) / scenario_count
         sink_values = feasible_df["nom_sink_rate_mps"].dropna().to_numpy(dtype=float)
 
-        sink_mean = float(onp.mean(sink_values)) if sink_values.size else float("nan")
-        sink_std = float(onp.std(sink_values)) if sink_values.size else float("nan")
-        sink_worst = float(onp.max(sink_values)) if sink_values.size else float("nan")
-        sink_cvar_20 = sink_cvar(sink_values, tail_fraction=0.20)
-        penalty_value = sink_cvar_20 if onp.isfinite(sink_cvar_20) else 1e6
-        selection_score = (1.0 - feasible_rate) * 1e3 + penalty_value
+        nom_sink_mean = float(onp.mean(sink_values)) if sink_values.size else float("nan")
+        nom_sink_std = float(onp.std(sink_values)) if sink_values.size else float("nan")
+        nom_sink_worst = float(onp.max(sink_values)) if sink_values.size else float("nan")
+        nom_sink_cvar_20 = sink_cvar(sink_values, tail_fraction=0.20)
 
         roll_tau_values = onp.array(
             [col_max(feasible_df, "nom_roll_tau_s")],
             dtype=float,
         )
         roll_tau_values = roll_tau_values[onp.isfinite(roll_tau_values)]
-        max_roll_tau_worst = float(onp.max(roll_tau_values)) if roll_tau_values.size else float("nan")
+        nom_roll_tau_worst = float(onp.max(roll_tau_values)) if roll_tau_values.size else float("nan")
 
         summary_obj = RobustSummary(
             candidate_id=int(candidate.candidate_id),
-            feasible_rate=float(feasible_rate),
-            sink_mean=float(sink_mean),
-            sink_std=float(sink_std),
-            sink_worst=float(sink_worst),
-            sink_cvar_20=float(sink_cvar_20),
-            max_roll_tau_worst=float(max_roll_tau_worst),
-            max_delta_e_util_worst=float(col_max(feasible_df, "nom_util_e")),
-            max_alpha_worst=float(col_max(feasible_df, "nom_alpha_deg")),
-            min_alpha_margin_worst=float(col_min(feasible_df, "nom_alpha_margin_deg")),
-            min_cl_margin_worst=float(col_min(feasible_df, "nom_cl_margin_to_cap")),
-            selection_score=float(selection_score),
+            nom_success_rate=float(nom_success_rate),
+            nom_sink_mean=float(nom_sink_mean),
+            nom_sink_std=float(nom_sink_std),
+            nom_sink_worst=float(nom_sink_worst),
+            nom_sink_cvar_20=float(nom_sink_cvar_20),
+            nom_roll_tau_worst=float(nom_roll_tau_worst),
+            nom_delta_e_util_worst=float(col_max(feasible_df, "nom_util_e")),
+            nom_alpha_worst=float(col_max(feasible_df, "nom_alpha_deg")),
+            nom_alpha_margin_worst=float(col_min(feasible_df, "nom_alpha_margin_deg")),
+            nom_cl_margin_worst=float(col_min(feasible_df, "nom_cl_margin_to_cap")),
         )
         summary_row = asdict(summary_obj)
         summary_row["_objective_nominal"] = float(objective_by_candidate[candidate.candidate_id])
@@ -7367,15 +7547,17 @@ def run_robust_postcheck(
         robust_summary_df["is_selected"] = False
         return robust_scenarios_df, robust_summary_df
 
-    robust_summary_df["_sink_cvar_sort"] = robust_summary_df["sink_cvar_20"].fillna(onp.inf)
+    robust_summary_df["_sink_cvar_sort"] = robust_summary_df["nom_sink_cvar_20"].fillna(onp.inf)
     ordered = robust_summary_df.sort_values(
-        by=["feasible_rate", "_sink_cvar_sort", "_objective_nominal"],
+        by=["nom_success_rate", "_sink_cvar_sort", "_objective_nominal"],
         ascending=[False, True, True],
     )
     selected_candidate_id = int(ordered.iloc[0]["candidate_id"])
     robust_summary_df["is_selected"] = robust_summary_df["candidate_id"] == selected_candidate_id
     robust_summary_df = robust_summary_df.drop(columns=["_sink_cvar_sort", "_objective_nominal"])
     return robust_scenarios_df, robust_summary_df
+
+
 
 
 def build_worst_case_report(
@@ -7403,7 +7585,7 @@ def build_worst_case_report(
         "w_gust_nom",
         "w_gust_turn",
         "drag_factor",
-        "both_success",
+        "nom_success",
     ]
     key_output_candidates = [
         "nom_alpha_deg",
@@ -7485,10 +7667,12 @@ def build_worst_case_report(
         candidate_df = robust_scenarios_df[
             robust_scenarios_df["candidate_id"] == candidate.candidate_id
         ]
-        if "both_success" in candidate_df.columns:
-            feasible_df = candidate_df[candidate_df["both_success"] == True]
+        if "nom_success" in candidate_df.columns:
+            feasible_df = candidate_df[candidate_df["nom_success"] == True]
         elif "trim_success" in candidate_df.columns:
             feasible_df = candidate_df[candidate_df["trim_success"] == True]
+        elif "both_success" in candidate_df.columns:
+            feasible_df = candidate_df[candidate_df["both_success"] == True]
         else:
             feasible_df = candidate_df.iloc[0:0]
 
@@ -7578,6 +7762,12 @@ def save_workflow_workbook(
             }
             for key, value in asdict(objective_scales).items()
         )
+    run_info_rows.append(
+        {
+            "Key": "selection_rule",
+            "Value": "lexicographic: nom_success_rate desc, nom_sink_cvar_20 asc, objective asc",
+        }
+    )
     run_info_df = pd.DataFrame(run_info_rows)
 
     candidate_rows = []
@@ -7630,6 +7820,7 @@ def save_workflow_workbook(
     preferred_scenario_columns = [
         "candidate_id",
         "scenario_id",
+        "scenario_tag",
         "mass_scale",
         "cg_x_shift_mac",
         "incidence_bias_deg",
@@ -7650,10 +7841,8 @@ def save_workflow_workbook(
         "w_gust_turn",
         "control_eff",
         "drag_factor",
-        "both_success",
-        "trim_success",
         "nom_success",
-        "turn_success",
+        "trim_success",
         "nom_alpha_deg",
         "nom_u_a_deg",
         "nom_u_e_deg",
@@ -7676,32 +7865,6 @@ def save_workflow_workbook(
         "nom_roll_tau_s",
         "nom_roll_accel0",
         "nom_roll_rate_ss",
-        "turn_alpha_deg",
-        "turn_u_a_deg",
-        "turn_u_e_deg",
-        "turn_u_r_deg",
-        "turn_delta_a_deg",
-        "turn_delta_e_deg",
-        "turn_delta_r_deg",
-        "turn_CL",
-        "turn_D",
-        "turn_alpha_margin_deg",
-        "turn_cl_margin_to_cap",
-        "turn_util_a",
-        "turn_util_e",
-        "turn_util_r",
-        "turn_control_util_max",
-        "turn_control_util_violation",
-        "turn_bank_entry_phi_capture_proxy_deg",
-        "turn_bank_entry_margin_deg",
-        "turn_u_rate_util_a",
-        "turn_u_rate_util_e",
-        "turn_u_rate_util_r",
-        "turn_roll_tau_s",
-        "turn_roll_accel0",
-        "turn_roll_rate_ss",
-        "turn_wing_deflection_proxy_over_allow",
-        "turn_htail_deflection_proxy_over_allow",
     ]
     extra_scenario_columns = sorted(
         [col for col in robust_scenarios_df.columns if col not in preferred_scenario_columns]
@@ -7712,17 +7875,16 @@ def save_workflow_workbook(
 
     preferred_summary_columns = [
         "candidate_id",
-        "feasible_rate",
-        "sink_mean",
-        "sink_std",
-        "sink_worst",
-        "sink_cvar_20",
-        "max_roll_tau_worst",
-        "max_delta_e_util_worst",
-        "max_alpha_worst",
-        "min_alpha_margin_worst",
-        "min_cl_margin_worst",
-        "selection_score",
+        "nom_success_rate",
+        "nom_sink_mean",
+        "nom_sink_std",
+        "nom_sink_worst",
+        "nom_sink_cvar_20",
+        "nom_roll_tau_worst",
+        "nom_delta_e_util_worst",
+        "nom_alpha_worst",
+        "nom_alpha_margin_worst",
+        "nom_cl_margin_worst",
         "is_selected",
     ]
     extra_summary_columns = sorted(
@@ -7736,8 +7898,8 @@ def save_workflow_workbook(
         robust_scenarios_df=robust_scenarios_df,
     )
 
-    if "both_success" in robust_scenarios_df.columns:
-        correlation_mask = robust_scenarios_df["both_success"] == True
+    if "nom_success" in robust_scenarios_df.columns:
+        correlation_mask = robust_scenarios_df["nom_success"] == True
     elif "trim_success" in robust_scenarios_df.columns:
         correlation_mask = robust_scenarios_df["trim_success"] == True
     else:
@@ -7746,6 +7908,7 @@ def save_workflow_workbook(
     correlation_columns = [
         "candidate_id",
         "scenario_id",
+        "scenario_tag",
         "mass_scale",
         "cg_x_shift_mac",
         "incidence_bias_deg",
@@ -7755,8 +7918,13 @@ def save_workflow_workbook(
         "bias_a_deg",
         "bias_e_deg",
         "bias_r_deg",
+        "ixx_scale",
+        "iyy_scale",
+        "izz_scale",
         "wing_E_scale",
         "htail_E_scale",
+        "wing_thickness_scale",
+        "tail_thickness_scale",
         "w_gust_nom",
         "w_gust_turn",
         "drag_factor",
@@ -7770,22 +7938,10 @@ def save_workflow_workbook(
         "nom_D",
         "nom_alpha_margin_deg",
         "nom_cl_margin_to_cap",
-        "turn_alpha_deg",
-        "turn_delta_a_deg",
-        "turn_delta_e_deg",
-        "turn_delta_r_deg",
-        "turn_CL",
-        "turn_D",
-        "turn_alpha_margin_deg",
-        "turn_cl_margin_to_cap",
-        "turn_util_a",
-        "turn_util_e",
-        "turn_util_r",
-        "turn_control_util_max",
-        "turn_control_util_violation",
-        "turn_bank_entry_margin_deg",
-        "turn_wing_deflection_proxy_over_allow",
-        "turn_htail_deflection_proxy_over_allow",
+        "nom_util_a",
+        "nom_util_e",
+        "nom_util_r",
+        "nom_roll_tau_s",
     ]
     correlation_data_df = robust_scenarios_df[
         correlation_mask
@@ -7797,6 +7953,329 @@ def save_workflow_workbook(
         correlation_matrix_df = numeric_df.corr(numeric_only=True)
     else:
         correlation_matrix_df = pd.DataFrame()
+
+    scenario_input_candidates = [
+        "mass_scale",
+        "cg_x_shift_mac",
+        "incidence_bias_deg",
+        "drag_factor",
+        "eff_a",
+        "eff_e",
+        "eff_r",
+        "bias_a_deg",
+        "bias_e_deg",
+        "bias_r_deg",
+        "w_gust_nom",
+        "w_gust_turn",
+        "ixx_scale",
+        "iyy_scale",
+        "izz_scale",
+        "wing_E_scale",
+        "htail_E_scale",
+        "wing_thickness_scale",
+        "tail_thickness_scale",
+        "control_eff",
+    ]
+    scenario_input_cols = [
+        col for col in scenario_input_candidates if col in robust_scenarios_df.columns
+    ]
+    scenario_input_id_vars = [
+        col for col in ["scenario_id", "scenario_tag"] if col in robust_scenarios_df.columns
+    ]
+    scenario_inputs_long_df = pd.DataFrame(
+        columns=["scenario_id", "scenario_tag", "input_name", "input_value"]
+    )
+    if scenario_input_cols and "scenario_id" in robust_scenarios_df.columns:
+        scenario_inputs_wide_df = robust_scenarios_df[
+            scenario_input_id_vars + scenario_input_cols
+        ].drop_duplicates(subset=["scenario_id"])
+        scenario_inputs_long_df = scenario_inputs_wide_df.melt(
+            id_vars=scenario_input_id_vars,
+            value_vars=scenario_input_cols,
+            var_name="input_name",
+            value_name="input_value",
+        )
+
+    robust_output_id_vars = [
+        col
+        for col in ["candidate_id", "scenario_id", "scenario_tag", "nom_success"]
+        if col in robust_scenarios_df.columns
+    ]
+    robust_output_value_cols = [
+        col
+        for col in robust_scenarios_df.columns
+        if col.startswith("nom_") and col not in {"nom_success"}
+    ]
+    robust_outputs_long_df = pd.DataFrame(
+        columns=["candidate_id", "scenario_id", "scenario_tag", "nom_success", "metric", "value", "point"]
+    )
+    if robust_output_id_vars and robust_output_value_cols:
+        robust_outputs_long_df = robust_scenarios_df[
+            robust_output_id_vars + robust_output_value_cols
+        ].melt(
+            id_vars=robust_output_id_vars,
+            value_vars=robust_output_value_cols,
+            var_name="metric",
+            value_name="value",
+        )
+        robust_outputs_long_df["point"] = "nom"
+
+    plot_data_columns = [
+        "candidate_id",
+        "scenario_id",
+        "scenario_tag",
+        "nom_success",
+        "nom_sink_rate_mps",
+        "nom_alpha_deg",
+        "nom_alpha_margin_deg",
+        "nom_cl_margin_to_cap",
+        "nom_util_a",
+        "nom_util_e",
+        "nom_util_r",
+        "nom_roll_tau_s",
+        "mass_scale",
+        "cg_x_shift_mac",
+        "incidence_bias_deg",
+        "drag_factor",
+        "eff_a",
+        "eff_e",
+        "eff_r",
+        "bias_a_deg",
+        "bias_e_deg",
+        "bias_r_deg",
+        "w_gust_nom",
+    ]
+    plot_data_df = robust_scenarios_df.reindex(
+        columns=[col for col in plot_data_columns if col in robust_scenarios_df.columns]
+    )
+
+    definitions_rows = [
+        {
+            "name": "nom_success",
+            "unit": "bool",
+            "definition": "Nominal trim success flag for a candidate-scenario evaluation.",
+            "computed_in": "run_robust_postcheck",
+            "notes": "Primary feasibility flag for robust postcheck.",
+        },
+        {
+            "name": "trim_success",
+            "unit": "bool",
+            "definition": "Legacy alias of nom_success.",
+            "computed_in": "run_robust_postcheck",
+            "notes": "Deprecated; kept for backward compatibility.",
+        },
+        {
+            "name": "nom_sink_rate_mps",
+            "unit": "m/s",
+            "definition": "Nominal sink rate in the postcheck trim.",
+            "computed_in": "trim_candidate_at_point",
+            "notes": "Lower is better.",
+        },
+        {
+            "name": "nom_alpha_deg",
+            "unit": "deg",
+            "definition": "Nominal angle of attack at trimmed condition.",
+            "computed_in": "trim_candidate_at_point",
+            "notes": "Compared against alpha bounds.",
+        },
+        {
+            "name": "nom_alpha_margin_deg",
+            "unit": "deg",
+            "definition": "Margin to nominal alpha upper bound.",
+            "computed_in": "trim_candidate_at_point",
+            "notes": "Higher is better.",
+        },
+        {
+            "name": "nom_cl_margin_to_cap",
+            "unit": "-",
+            "definition": "Margin between CL cap and nominal CL.",
+            "computed_in": "trim_candidate_at_point",
+            "notes": "Higher is better.",
+        },
+        {
+            "name": "nom_util_a/e/r",
+            "unit": "-",
+            "definition": "Absolute control deflection utilization for aileron/elevator/rudder.",
+            "computed_in": "trim_candidate_at_point",
+            "notes": "Near 1.0 means near control limits.",
+        },
+        {
+            "name": "nom_roll_tau_s",
+            "unit": "s",
+            "definition": "Roll time-constant proxy at nominal trim.",
+            "computed_in": "trim_candidate_at_point",
+            "notes": "Agility proxy; lower is generally faster response.",
+        },
+        {
+            "name": "nom_success_rate",
+            "unit": "-",
+            "definition": "Fraction of scenarios with nom_success=True for a candidate.",
+            "computed_in": "run_robust_postcheck",
+            "notes": "Primary robust summary ranking metric.",
+        },
+        {
+            "name": "nom_sink_mean",
+            "unit": "m/s",
+            "definition": "Mean nominal sink rate over successful scenarios.",
+            "computed_in": "run_robust_postcheck",
+            "notes": "NaN if no successful scenarios.",
+        },
+        {
+            "name": "nom_sink_std",
+            "unit": "m/s",
+            "definition": "Standard deviation of nominal sink over successful scenarios.",
+            "computed_in": "run_robust_postcheck",
+            "notes": "NaN if no successful scenarios.",
+        },
+        {
+            "name": "nom_sink_worst",
+            "unit": "m/s",
+            "definition": "Worst (largest) nominal sink among successful scenarios.",
+            "computed_in": "run_robust_postcheck",
+            "notes": "Tail risk indicator.",
+        },
+        {
+            "name": "nom_sink_cvar_20",
+            "unit": "m/s",
+            "definition": "CVaR over worst 20% of successful nominal sink outcomes.",
+            "computed_in": "run_robust_postcheck",
+            "notes": "Secondary lexicographic ranking metric.",
+        },
+        {
+            "name": "nom_roll_tau_worst",
+            "unit": "s",
+            "definition": "Worst nominal roll time-constant proxy over successful scenarios.",
+            "computed_in": "run_robust_postcheck",
+            "notes": "Agility proxy diagnostic.",
+        },
+        {
+            "name": "nom_delta_e_util_worst",
+            "unit": "-",
+            "definition": "Worst nominal elevator utilization over successful scenarios.",
+            "computed_in": "run_robust_postcheck",
+            "notes": "Near 1.0 indicates high elevator demand.",
+        },
+        {
+            "name": "nom_alpha_worst",
+            "unit": "deg",
+            "definition": "Worst nominal alpha over successful scenarios.",
+            "computed_in": "run_robust_postcheck",
+            "notes": "Compared against stall margin policy.",
+        },
+        {
+            "name": "nom_alpha_margin_worst",
+            "unit": "deg",
+            "definition": "Minimum nominal alpha margin across successful scenarios.",
+            "computed_in": "run_robust_postcheck",
+            "notes": "Lower values indicate tighter stall margin.",
+        },
+        {
+            "name": "nom_cl_margin_worst",
+            "unit": "-",
+            "definition": "Minimum nominal CL margin-to-cap across successful scenarios.",
+            "computed_in": "run_robust_postcheck",
+            "notes": "Lower values indicate tighter CL-cap margin.",
+        },
+        {
+            "name": "mass_scale",
+            "unit": "-",
+            "definition": "Multiplicative scaling applied to total mass.",
+            "computed_in": "sample_scenario_objects",
+            "notes": "Scenario input.",
+        },
+        {
+            "name": "cg_x_shift_mac",
+            "unit": "MAC",
+            "definition": "CG shift along x-axis as fraction of wing MAC.",
+            "computed_in": "sample_scenario_objects",
+            "notes": "Scenario input.",
+        },
+        {
+            "name": "incidence_bias_deg",
+            "unit": "deg",
+            "definition": "Wing incidence bias uncertainty.",
+            "computed_in": "sample_scenario_objects",
+            "notes": "Scenario input.",
+        },
+        {
+            "name": "drag_factor",
+            "unit": "-",
+            "definition": "Multiplicative drag scale factor.",
+            "computed_in": "sample_scenario_objects",
+            "notes": "Scenario input.",
+        },
+        {
+            "name": "eff_a/e/r",
+            "unit": "-",
+            "definition": "Per-axis control effectiveness for aileron/elevator/rudder.",
+            "computed_in": "sample_scenario_objects",
+            "notes": "Scenario input.",
+        },
+        {
+            "name": "bias_a/e/r",
+            "unit": "deg",
+            "definition": "Per-axis neutral bias for aileron/elevator/rudder.",
+            "computed_in": "sample_scenario_objects",
+            "notes": "Scenario input.",
+        },
+        {
+            "name": "w_gust_nom",
+            "unit": "m/s",
+            "definition": "Nominal-point vertical gust disturbance.",
+            "computed_in": "sample_scenario_objects",
+            "notes": "Scenario input.",
+        },
+        {
+            "name": "w_gust_turn",
+            "unit": "m/s",
+            "definition": "Turn-point vertical gust disturbance.",
+            "computed_in": "sample_scenario_objects",
+            "notes": "Scenario input; kept for compatibility.",
+        },
+        {
+            "name": "ixx/iyy/izz_scale",
+            "unit": "-",
+            "definition": "Inertia tensor scaling factors about principal axes.",
+            "computed_in": "sample_scenario_objects",
+            "notes": "Scenario input.",
+        },
+        {
+            "name": "wing_E_scale",
+            "unit": "-",
+            "definition": "Wing stiffness scaling factor.",
+            "computed_in": "sample_scenario_objects",
+            "notes": "Scenario input.",
+        },
+        {
+            "name": "htail_E_scale",
+            "unit": "-",
+            "definition": "Horizontal-tail stiffness scaling factor.",
+            "computed_in": "sample_scenario_objects",
+            "notes": "Scenario input.",
+        },
+        {
+            "name": "wing_thickness_scale",
+            "unit": "-",
+            "definition": "Wing thickness scaling for structural proxy.",
+            "computed_in": "sample_scenario_objects",
+            "notes": "Scenario input.",
+        },
+        {
+            "name": "tail_thickness_scale",
+            "unit": "-",
+            "definition": "Tail thickness scaling for structural proxy.",
+            "computed_in": "sample_scenario_objects",
+            "notes": "Scenario input.",
+        },
+        {
+            "name": "scenario_tag",
+            "unit": "label",
+            "definition": "Scenario provenance tag (stress vs lhs sampling).",
+            "computed_in": "sample_scenario_objects",
+            "notes": "Useful for stratified plots.",
+        },
+    ]
+    definitions_df = pd.DataFrame(definitions_rows)
 
     with pd.ExcelWriter(workflow_path) as writer:
         run_info_df.to_excel(writer, sheet_name="RunInfo", index=False)
@@ -7820,6 +8299,10 @@ def save_workflow_workbook(
         candidates_df.to_excel(writer, sheet_name="Candidates", index=False)
         robust_scenarios_df.to_excel(writer, sheet_name="RobustScenarios", index=False)
         robust_summary_df.to_excel(writer, sheet_name="RobustSummary", index=False)
+        scenario_inputs_long_df.to_excel(writer, sheet_name="ScenarioInputsLong", index=False)
+        robust_outputs_long_df.to_excel(writer, sheet_name="RobustOutputsLong", index=False)
+        plot_data_df.to_excel(writer, sheet_name="PlotDataRobust", index=False)
+        definitions_df.to_excel(writer, sheet_name="Definitions", index=False)
         worst_case_report_df.to_excel(writer, sheet_name="WorstCaseReport", index=False)
         correlation_data_df.to_excel(writer, sheet_name="CorrelationData", index=False)
         correlation_matrix_df.to_excel(writer, sheet_name="CorrelationMatrix", index=True)
@@ -8079,8 +8562,8 @@ def run_smoke_test_pipeline(
             selected_summary_df = robust_summary_df.iloc[[0]]
         summary_row = selected_summary_df.iloc[0]
         summary_text = (
-            f"feasible_rate={float(summary_row.get('feasible_rate', onp.nan)):.3f}, "
-            f"sink_cvar_20={float(summary_row.get('sink_cvar_20', onp.nan)):.4f}"
+            f"nom_success_rate={float(summary_row.get('nom_success_rate', onp.nan)):.3f}, "
+            f"nom_sink_cvar_20={float(summary_row.get('nom_sink_cvar_20', onp.nan)):.4f}"
         )
 
     print(
@@ -8279,9 +8762,9 @@ def main() -> None:
             print(
                 (
                     "  "
-                    f"feasible_rate={fmt_metric(summary_row.get('feasible_rate', onp.nan), 3)} | "
-                    f"sink_mean={fmt_metric(summary_row.get('sink_mean', onp.nan), 4)} m/s | "
-                    f"sink_cvar_20={fmt_metric(summary_row.get('sink_cvar_20', onp.nan), 4)} m/s"
+                    f"nom_success_rate={fmt_metric(summary_row.get('nom_success_rate', onp.nan), 3)} | "
+                    f"nom_sink_mean={fmt_metric(summary_row.get('nom_sink_mean', onp.nan), 4)} m/s | "
+                    f"nom_sink_cvar_20={fmt_metric(summary_row.get('nom_sink_cvar_20', onp.nan), 4)} m/s"
                 ),
                 flush=True,
             )
@@ -8289,10 +8772,10 @@ def main() -> None:
                 (
                     "  "
                     "worst_nominal: "
-                    f"max_roll_tau={fmt_metric(summary_row.get('max_roll_tau_worst', onp.nan), 4)} s, "
-                    f"max_alpha={fmt_metric(summary_row.get('max_alpha_worst', onp.nan), 4)} deg, "
-                    f"min_alpha_margin={fmt_metric(summary_row.get('min_alpha_margin_worst', onp.nan), 4)} deg, "
-                    f"min_cl_margin={fmt_metric(summary_row.get('min_cl_margin_worst', onp.nan), 4)}"
+                    f"nom_roll_tau_worst={fmt_metric(summary_row.get('nom_roll_tau_worst', onp.nan), 4)} s, "
+                    f"nom_alpha_worst={fmt_metric(summary_row.get('nom_alpha_worst', onp.nan), 4)} deg, "
+                    f"nom_alpha_margin_worst={fmt_metric(summary_row.get('nom_alpha_margin_worst', onp.nan), 4)} deg, "
+                    f"nom_cl_margin_worst={fmt_metric(summary_row.get('nom_cl_margin_worst', onp.nan), 4)}"
                 ),
                 flush=True,
             )
