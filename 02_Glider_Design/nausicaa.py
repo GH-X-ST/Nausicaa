@@ -49,7 +49,7 @@ IPOPT_VERBOSE_PRINT_LEVEL = 5
 
 
 # Manual note for this run (edit before executing)
-MANUAL_RUN_NOTE = "v3.7.7"
+MANUAL_RUN_NOTE = "v3.7.9"
 MANUAL_RUN_NOTE_PRINT = True
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -73,7 +73,7 @@ WALL_CLEARANCE_M = 0.20
 TURN_DEFLECTION_UTIL_MAX = 0.85
 # Manoeuvre agility target: time to reach design bank angle at V_TURN_MPS.
 # Converted to a minimum steady-state roll-rate requirement.
-BANK_ENTRY_TIME_S = 0.3
+BANK_ENTRY_TIME_S = 0.2
 CM_TRIM_TOL = 1e-6
 
 # Stall / margin settings for manoeuvre case
@@ -172,8 +172,8 @@ BOOM_END_BEFORE_ELEV_FRAC = 0.70
 # Wing spar (carry-through) + filament tape reinforcement
 WING_SPAR_ENABLE = True
 WING_SPAR_X_FRAC = 0.25
-WING_SPAR_OD_M = BOOM_TUBE_OUTER_DIAMETER_M
-WING_SPAR_ID_M = BOOM_TUBE_INNER_DIAMETER_M
+WING_SPAR_OD_M = 0.004
+WING_SPAR_ID_M = 0.003
 WING_SPAR_RHO_KG_M3 = BOOM_ROD_DENSITY_KG_M3
 WING_SPAR_E_FLEX_PA = 25e9
 WING_SPAR_Z_FROM_LOWER_M = 0.002
