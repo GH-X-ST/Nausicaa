@@ -195,7 +195,7 @@ VTAIL_TAPE_X_FRAC = 0.30
 VTAIL_TAPE_Y_OFFSET_M = 0.5 * VTAIL_THICKNESS_M + 0.5 * TAPE_THICKNESS_M
 
 # Discrete hardware modules
-CENTRE_MODULE_MASS_KG = 0.029
+CENTRE_MODULE_MASS_KG = 0.025
 TAIL_MODULE_MASS_KG = 0.004
 CENTRE_MODULE_VOLUME_M3 = 0.00002372
 TAIL_MODULE_VOLUME_M3 = 0.00000361
@@ -203,8 +203,8 @@ CENTRE_MODULE_RHO_KG_M3 = CENTRE_MODULE_MASS_KG / CENTRE_MODULE_VOLUME_M3
 TAIL_MODULE_RHO_KG_M3 = TAIL_MODULE_MASS_KG / TAIL_MODULE_VOLUME_M3
 TAIL_SUPPORT_MASS_KG = 0.001
 # CAD-derived core CG locations for module solids excluding mounts
-CENTRE_CORE_X_OFFSET_FROM_0p3C_M = 0.0256
-CENTRE_CORE_Z_CG_M = -0.00727
+CENTRE_CORE_X_OFFSET_FROM_0p3C_M = 0.0242
+CENTRE_CORE_Z_CG_M = -0.00773
 TAIL_CORE_X_OFFSET_FROM_BOOM_END_M = 0.0231
 TAIL_CORE_Z_CG_M = -0.0005
 # X-location rules for aft hardware
@@ -215,9 +215,13 @@ WING_MOUNT_T_M = 0.002
 WING_MOUNT_LB_M = 0.0261
 WING_MOUNT_LT_M = 0.0115
 WING_MOUNT_H_M = 0.086
-WING_MOUNT_X0_FWD_OFFSET_FROM_0p25C_M = 0.013069
-WING_MOUNT_X0_AFT_OFFSET_FROM_0p25C_M = 0.0557
+WING_MOUNT_X0_FWD_OFFSET_FROM_0p25C_M = -0.01305
+WING_MOUNT_X0_AFT_OFFSET_FROM_0p25C_M = 0.0589
 WING_MOUNT_ROOT_BOTTOM_Z_M = 0.002
+WING_SPAR_JOINER_W_M = 0.006
+WING_SPAR_JOINER_H_M = 0.005
+WING_SPAR_JOINER_SPAN_M = 0.02868
+WING_SPAR_JOINER_HOLE_D_M = 0.004
 
 HTAIL_MOUNT_T_M = 0.0015
 HTAIL_MOUNT_LB_M = 0.019
@@ -236,12 +240,12 @@ VTAIL_MOUNT_ROOT_LOWER_Z_M = VTAIL_ROOT_LOWER_SURFACE_Z_M
 GLUE_FRACTION = 0.08
 
 # Avionics / hardware masses (kg)
-BATTERY_MASS_KG = 0.0090
-BATTERY_DIM_X_M = 0.047
+BATTERY_MASS_KG = 0.005
+BATTERY_DIM_X_M = 0.027
 BATTERY_DIM_Y_M = 0.017
-BATTERY_DIM_Z_M = 0.005
-RECEIVER_MASS_KG = 0.010
-REGULATOR_MASS_KG = 0.0004
+BATTERY_DIM_Z_M = 0.009
+RECEIVER_MASS_KG = 0.006
+REGULATOR_MASS_KG = 0.001
 SERVO_MASS_KG = 0.004
 
 # Servo layout (4 total): 2 aileron + elevator + rudder
@@ -255,7 +259,7 @@ RUDDER_SERVO_X_OFFSET_FROM_WING = 0.0
 RUDDER_SERVO_Z_OFFSET_FROM_AVIONICS_M = 0.0
 
 # Battery installation reference
-BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M = 0.015
+BATTERY_FORE_OFFSET_FROM_CENTRE_MODULE_M = 0.025
 AVIONICS_Z_CG_M = -0.008
 REGULATOR_X_OFFSET_FROM_BATTERY_M = 0.040
 RECEIVER_X_OFFSET_FROM_REGULATOR_M = 0.035
@@ -1988,7 +1992,40 @@ def build_mass_model(
     wing_mount_z_root_bottom_m = WING_MOUNT_ROOT_BOTTOM_Z_M
     tan_dihedral = np.tan(np.radians(DIHEDRAL_DEG))
 
-    wing_mount_components: MassPropertiesMap = {}
+    wing_spar_joiner_x_cg_m = wing_mount_x0_fwd_m + 0.5 * wing_mount_base_bottom_m
+    wing_spar_joiner_z_cg_m = z_spar_m
+    wing_spar_joiner_outer = mass_properties_rect_prism(
+        mass_kg=(
+            CENTRE_MODULE_RHO_KG_M3
+            * WING_SPAR_JOINER_W_M
+            * WING_SPAR_JOINER_SPAN_M
+            * WING_SPAR_JOINER_H_M
+        ),
+        dim_x_m=WING_SPAR_JOINER_W_M,
+        dim_y_m=WING_SPAR_JOINER_SPAN_M,
+        dim_z_m=WING_SPAR_JOINER_H_M,
+        x_cg_m=wing_spar_joiner_x_cg_m,
+        y_cg_m=0.0,
+        z_cg_m=wing_spar_joiner_z_cg_m,
+    )
+    wing_spar_joiner_hole = scale_mass_properties(
+        mass_properties_spanwise_tube(
+            length_m=WING_SPAR_JOINER_SPAN_M,
+            od_m=WING_SPAR_JOINER_HOLE_D_M,
+            id_m=0.0,
+            density_kg_m3=CENTRE_MODULE_RHO_KG_M3,
+            x_cg_m=wing_spar_joiner_x_cg_m,
+            y_cg_m=0.0,
+            z_cg_m=wing_spar_joiner_z_cg_m,
+        ),
+        -1.0,
+    )
+
+    wing_mount_components: MassPropertiesMap = {
+        "wing_mount_spar_joiner_fwd": combine_mass_properties(
+            [wing_spar_joiner_outer, wing_spar_joiner_hole]
+        )
+    }
     for y_sign, side_label in ((1.0, "R"), (-1.0, "L")):
         y_mount_m = y_sign * wing_mount_ybar_m
         z_mount_m = (
