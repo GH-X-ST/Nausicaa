@@ -1479,6 +1479,100 @@ def mass_properties_isosceles_trapezoid_prism(
     )
 
 
+def right_trapezoid_vertices_uv(
+    base_bottom_m: float,
+    base_top_m: float,
+    height_m: float,
+    straight_side: Literal["fore", "aft"] = "aft",
+) -> list[tuple[float, float]]:
+    # Bottom base runs from u=0 -> u=base_bottom. `straight_side` sets which side is vertical.
+    b_bottom = float(base_bottom_m)
+    b_top = float(base_top_m)
+    h = float(height_m)
+    if straight_side == "aft":
+        return [
+            (0.0, 0.0),
+            (b_bottom, 0.0),
+            (b_bottom, h),
+            (b_bottom - b_top, h),
+        ]
+    return [
+        (0.0, 0.0),
+        (b_bottom, 0.0),
+        (b_top, h),
+        (0.0, h),
+    ]
+
+
+def right_trapezoid_centroid_u_from_bottom_fore_m(
+    base_bottom_m: float,
+    base_top_m: float,
+    height_m: float,
+    straight_side: Literal["fore", "aft"] = "aft",
+) -> float:
+    verts = right_trapezoid_vertices_uv(
+        base_bottom_m=base_bottom_m,
+        base_top_m=base_top_m,
+        height_m=height_m,
+        straight_side=straight_side,
+    )
+    _area, c_u, _c_v, _i_uu, _i_vv, _i_uv = polygon_area_centroid_moments_2d(verts)
+    return float(c_u)
+
+
+def mass_properties_right_trapezoid_prism(
+    mass_kg: Scalar,
+    base_bottom_m: float,
+    base_top_m: float,
+    height_m: float,
+    thickness_m: float,
+    x_cg_m: Scalar,
+    y_cg_m: Scalar,
+    z_cg_m: Scalar,
+    height_axis: Literal["y", "z"],
+    straight_side: Literal["fore", "aft"] = "aft",
+) -> asb.MassProperties:
+    # Exact prism inertia from 2D right-trapezoid polygon moments + extrusion thickness.
+    verts = right_trapezoid_vertices_uv(
+        base_bottom_m=base_bottom_m,
+        base_top_m=base_top_m,
+        height_m=height_m,
+        straight_side=straight_side,
+    )
+    area, _cx, _cy, i_uu_area, i_vv_area, i_uv_area = polygon_area_centroid_moments_2d(verts)
+    t = float(thickness_m)
+    i_u = mass_kg * (i_uu_area / area + t**2 / 12.0)
+    i_v = mass_kg * (i_vv_area / area + t**2 / 12.0)
+    i_w = mass_kg * ((i_uu_area + i_vv_area) / area)
+    i_uv = -mass_kg * (i_uv_area / area)
+
+    if height_axis == "y":
+        return asb.MassProperties(
+            mass=mass_kg,
+            x_cg=x_cg_m,
+            y_cg=y_cg_m,
+            z_cg=z_cg_m,
+            Ixx=i_u,
+            Iyy=i_v,
+            Izz=i_w,
+            Ixy=i_uv,
+            Ixz=0.0,
+            Iyz=0.0,
+        )
+
+    return asb.MassProperties(
+        mass=mass_kg,
+        x_cg=x_cg_m,
+        y_cg=y_cg_m,
+        z_cg=z_cg_m,
+        Ixx=i_u,
+        Iyy=i_w,
+        Izz=i_v,
+        Ixy=0.0,
+        Ixz=i_uv,
+        Iyz=0.0,
+    )
+
 def mean_abs_span_location_uniform(span_m: Scalar) -> Scalar:
     # E[|y|] for a symmetric uniform spanwise distribution.
     return 0.25 * span_m
@@ -1883,6 +1977,12 @@ def build_mass_model(
         wing_mount_base_top_m,
         wing_mount_height_m,
     )
+    wing_mount_xbar_m = right_trapezoid_centroid_u_from_bottom_fore_m(
+        base_bottom_m=wing_mount_base_bottom_m,
+        base_top_m=wing_mount_base_top_m,
+        height_m=wing_mount_height_m,
+        straight_side="aft",
+    )
     wing_mount_x0_fwd_m = 0.25 * wing_chord_m + WING_MOUNT_X0_FWD_OFFSET_FROM_0p25C_M
     wing_mount_x0_aft_m = 0.25 * wing_chord_m + WING_MOUNT_X0_AFT_OFFSET_FROM_0p25C_M
     wing_mount_z_root_bottom_m = WING_MOUNT_ROOT_BOTTOM_Z_M
@@ -1897,29 +1997,31 @@ def build_mass_model(
             + np.abs(y_mount_m) * tan_dihedral
         )
         wing_mount_components[f"wing_mount_{side_label}_fwd"] = (
-            mass_properties_isosceles_trapezoid_prism(
+            mass_properties_right_trapezoid_prism(
                 mass_kg=wing_mount_mass_kg,
                 base_bottom_m=wing_mount_base_bottom_m,
                 base_top_m=wing_mount_base_top_m,
                 height_m=wing_mount_height_m,
                 thickness_m=wing_mount_thickness_m,
-                x_cg_m=wing_mount_x0_fwd_m + 0.5 * wing_mount_base_bottom_m,
+                x_cg_m=wing_mount_x0_fwd_m + wing_mount_xbar_m,
                 y_cg_m=y_mount_m,
                 z_cg_m=z_mount_m,
                 height_axis="y",
+                straight_side="aft",
             )
         )
         wing_mount_components[f"wing_mount_{side_label}_aft"] = (
-            mass_properties_isosceles_trapezoid_prism(
+            mass_properties_right_trapezoid_prism(
                 mass_kg=wing_mount_mass_kg,
                 base_bottom_m=wing_mount_base_bottom_m,
                 base_top_m=wing_mount_base_top_m,
                 height_m=wing_mount_height_m,
                 thickness_m=wing_mount_thickness_m,
-                x_cg_m=wing_mount_x0_aft_m + 0.5 * wing_mount_base_bottom_m,
+                x_cg_m=wing_mount_x0_aft_m + wing_mount_xbar_m,
                 y_cg_m=y_mount_m,
                 z_cg_m=z_mount_m,
                 height_axis="y",
+                straight_side="aft",
             )
         )
 
