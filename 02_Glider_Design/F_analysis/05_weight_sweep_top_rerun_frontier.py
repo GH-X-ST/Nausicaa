@@ -2,7 +2,7 @@
 Plot top-K rerun frontier from weight-sweep follow-up optimization.
 
 Input workbook:
-    C_results/weight_sweep_top_rerun_iter3.xlsx
+    C_results/weight_sweep_top_rerun_iter5.xlsx
 Sheet:
     TopRerunSummary
 
@@ -29,7 +29,7 @@ except ImportError:
 
 
 ### User settings
-INPUT_XLSX = Path("C_results/weight_sweep_top_rerun_iter3.xlsx")
+INPUT_XLSX = Path("C_results/weight_sweep_top_rerun_iter5.xlsx")
 SHEET_NAME = "TopRerunSummary"
 OUT_DIR = Path("B_figures")
 OUT_PATH = OUT_DIR / "05_weight_sweep_top_rerun_frontier.png"

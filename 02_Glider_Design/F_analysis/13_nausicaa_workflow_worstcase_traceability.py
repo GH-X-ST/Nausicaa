@@ -2,7 +2,7 @@
 Plot worst-case traceability from WorstCaseReport.
 
 Input workbook:
-    C_results/nausicaa_workflow_iter3.xlsx
+    C_results/nausicaa_workflow_iter5.xlsx
 Sheet:
     WorstCaseReport
 
@@ -22,7 +22,7 @@ import pandas as pd
 
 
 ### User settings
-INPUT_XLSX = Path("C_results/nausicaa_workflow_iter3.xlsx")
+INPUT_XLSX = Path("C_results/nausicaa_workflow_iter5.xlsx")
 SHEET_NAME = "WorstCaseReport"
 OUT_DIR = Path("B_figures")
 OUT_PATH = OUT_DIR / "13_nausicaa_workflow_worstcase_traceability.png"

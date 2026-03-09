@@ -2,7 +2,7 @@
 Plot objective-term composition across the weight sweep.
 
 Input workbook:
-    C_results/weight_sweep_iter3.xlsx
+    C_results/weight_sweep_iter5.xlsx
 Preferred sheet:
     TradeStudy
 Fallback sheet:
@@ -27,7 +27,7 @@ from matplotlib.ticker import FormatStrFormatter
 
 
 ### User settings
-INPUT_XLSX = Path("C_results/weight_sweep_iter3.xlsx")
+INPUT_XLSX = Path("C_results/weight_sweep_iter5.xlsx")
 OUT_DIR = Path("B_figures")
 OUT_PATH = OUT_DIR / "03_weight_sweep_objective_term_shares.png"
 

@@ -2,7 +2,7 @@
 Plot candidate trade bubble chart and highlight robust-selected candidate.
 
 Input workbook:
-    C_results/nausicaa_workflow_iter3.xlsx
+    C_results/nausicaa_workflow_iter5.xlsx
 Sheets:
     Candidates
     RobustSummary
@@ -31,7 +31,7 @@ except ImportError:
 
 
 ### User settings
-INPUT_XLSX = Path("C_results/nausicaa_workflow_iter3.xlsx")
+INPUT_XLSX = Path("C_results/nausicaa_workflow_iter5.xlsx")
 SHEET_CANDIDATES = "Candidates"
 SHEET_ROBUST = "RobustSummary"
 OUT_DIR = Path("B_figures")

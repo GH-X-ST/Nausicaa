@@ -2,7 +2,7 @@
 Plot empirical CDF of nominal sink rate and mark mean/CVaR20/worst per candidate.
 
 Input workbook:
-    C_results/nausicaa_workflow_iter3.xlsx
+    C_results/nausicaa_workflow_iter5.xlsx
 Sheets:
     PlotDataRobust
     RobustSummary
@@ -23,7 +23,7 @@ import pandas as pd
 
 
 ### User settings
-INPUT_XLSX = Path("C_results/nausicaa_workflow_iter3.xlsx")
+INPUT_XLSX = Path("C_results/nausicaa_workflow_iter5.xlsx")
 SHEET_PLOT = "PlotDataRobust"
 SHEET_SUMMARY = "RobustSummary"
 OUT_DIR = Path("B_figures")

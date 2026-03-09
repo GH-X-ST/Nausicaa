@@ -2,7 +2,7 @@
 Plot workflow correlation heatmap (focused input-vs-output block by default).
 
 Input workbook:
-    C_results/nausicaa_workflow_iter3.xlsx
+    C_results/nausicaa_workflow_iter5.xlsx
 Preferred sheet:
     CorrelationMatrix
 Fallback sheet:
@@ -29,7 +29,7 @@ except ImportError:
 
 
 ### User settings
-INPUT_XLSX = Path("C_results/nausicaa_workflow_iter3.xlsx")
+INPUT_XLSX = Path("C_results/nausicaa_workflow_iter5.xlsx")
 OUT_DIR = Path("B_figures")
 OUT_PATH = OUT_DIR / "14_nausicaa_workflow_correlation_heatmap.png"
 

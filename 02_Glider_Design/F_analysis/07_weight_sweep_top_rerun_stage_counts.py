@@ -2,7 +2,7 @@
 Plot multistart selection-stage counts per rerun rank.
 
 Input workbook:
-    C_results/weight_sweep_top_rerun_iter3.xlsx
+    C_results/weight_sweep_top_rerun_iter5.xlsx
 Sheets:
     TopRerunAllStarts (required)
     RunInfo (optional, to infer KEEP_TOP_K)
@@ -23,7 +23,7 @@ import pandas as pd
 
 
 ### User settings
-INPUT_XLSX = Path("C_results/weight_sweep_top_rerun_iter3.xlsx")
+INPUT_XLSX = Path("C_results/weight_sweep_top_rerun_iter5.xlsx")
 STARTS_SHEET = "TopRerunAllStarts"
 RUNINFO_SHEET = "RunInfo"
 OUT_DIR = Path("B_figures")

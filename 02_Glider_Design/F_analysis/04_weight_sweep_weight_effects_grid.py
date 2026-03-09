@@ -2,7 +2,7 @@
 Plot weight-effect sensitivity panels for the 6D objective-weight sweep.
 
 Input workbook:
-    C_results/weight_sweep_iter3.xlsx
+    C_results/weight_sweep_iter5.xlsx
 Sheet:
     WeightSweep
 
@@ -31,7 +31,7 @@ except ImportError:
 
 
 ### User settings
-INPUT_XLSX = Path("C_results/weight_sweep_iter3.xlsx")
+INPUT_XLSX = Path("C_results/weight_sweep_iter5.xlsx")
 SHEET_NAME = "WeightSweep"
 OUT_DIR = Path("B_figures")
 OUT_PATH = OUT_DIR / "04_weight_sweep_weight_effects_grid.png"

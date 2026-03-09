@@ -2,7 +2,7 @@
 Plot multistart objective distributions for top rerun weight sets.
 
 Input workbook:
-    C_results/weight_sweep_top_rerun_iter3.xlsx
+    C_results/weight_sweep_top_rerun_iter5.xlsx
 Sheet:
     TopRerunAllStarts
 
@@ -23,7 +23,7 @@ from matplotlib.lines import Line2D
 
 
 ### User settings
-INPUT_XLSX = Path("C_results/weight_sweep_top_rerun_iter3.xlsx")
+INPUT_XLSX = Path("C_results/weight_sweep_top_rerun_iter5.xlsx")
 SHEET_NAME = "TopRerunAllStarts"
 OUT_DIR = Path("B_figures")
 OUT_PATH = OUT_DIR / "06_weight_sweep_top_rerun_multistart_distribution.png"

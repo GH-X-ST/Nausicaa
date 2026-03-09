@@ -2,7 +2,7 @@
 Plot key trade-study ranking metrics in final lexicographic selection order.
 
 Input workbook:
-    C_results/weight_sweep_iter3.xlsx
+    C_results/weight_sweep_iter5.xlsx
 Preferred sheet:
     TradeStudy
 Fallback sheet:
@@ -25,7 +25,7 @@ from matplotlib.ticker import FormatStrFormatter
 
 
 ### User settings
-INPUT_XLSX = Path("C_results/weight_sweep_iter3.xlsx")
+INPUT_XLSX = Path("C_results/weight_sweep_iter5.xlsx")
 OUT_DIR = Path("B_figures")
 OUT_PATH = OUT_DIR / "01_weight_sweep_selection_rule.png"
 

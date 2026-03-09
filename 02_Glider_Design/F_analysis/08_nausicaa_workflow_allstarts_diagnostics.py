@@ -2,7 +2,7 @@
 Plot multistart diagnostics for one workflow run.
 
 Input workbook:
-    C_results/nausicaa_workflow_iter3.xlsx
+    C_results/nausicaa_workflow_iter5.xlsx
 Sheet:
     AllStarts
 
@@ -22,7 +22,7 @@ from matplotlib.lines import Line2D
 
 
 ### User settings
-INPUT_XLSX = Path("C_results/nausicaa_workflow_iter3.xlsx")
+INPUT_XLSX = Path("C_results/nausicaa_workflow_iter5.xlsx")
 SHEET_NAME = "AllStarts"
 OUT_DIR = Path("B_figures")
 OUT_PATH = OUT_DIR / "08_nausicaa_workflow_allstarts_diagnostics.png"

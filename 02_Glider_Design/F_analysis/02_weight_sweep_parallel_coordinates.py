@@ -2,7 +2,7 @@
 Plot the 6D objective-weight sweep as parallel coordinates.
 
 Input workbook:
-    C_results/weight_sweep_iter3.xlsx
+    C_results/weight_sweep_iter5.xlsx
 Preferred sheet:
     WeightSweep
 Fallback sheet:
@@ -33,7 +33,7 @@ except ImportError:
 
 
 ### User settings
-INPUT_XLSX = Path("C_results/weight_sweep_iter3.xlsx")
+INPUT_XLSX = Path("C_results/weight_sweep_iter5.xlsx")
 OUT_DIR = Path("B_figures")
 OUT_PATH = OUT_DIR / "02_weight_sweep_parallel_coordinates.png"
 
