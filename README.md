@@ -1,3 +1,6 @@
-![Cover](02_Glider_Design/D_CAD/03_rendering/nausicaa_ASM_iter5_1.png)
-&nbsp;
-![Drawing](02_Glider_Design/D_CAD/01_engineering_drawing/nausicaa_ASM_iter5_Drawing.jpg)
+<p align="center">
+  <sub>The work is not completed yet...</sub><br>
+  <sub>Stay tuned.</sub><br>
+</p>
+
+![Cover](Cover.jpg)
