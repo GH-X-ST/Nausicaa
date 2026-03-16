@@ -1,6 +1,9 @@
 <p align="center">
-  <sub>The work is not completed yet...</sub><br>
-  <sub>Stay tuned.</sub><br>
+  <sub>A thesis submitted to the Department of Aeronautics</sub><br>
+  <sub>in partial fulfilment of the requirements for the degree of</sub><br>
+  <sub>Master of Engineering (MEng) in Aeronautical Engineering</sub><br>
+  <sub>at</sub><br>
+  <sub>Imperial College London</sub><br>
 </p>
 
 ![Cover](Cover.jpg)
