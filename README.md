@@ -8,6 +8,9 @@
 
 ![Cover](Cover.jpg)
 
+## About
+Stay tuned...
+
 ---
 
 ## Stargazers Over Time
