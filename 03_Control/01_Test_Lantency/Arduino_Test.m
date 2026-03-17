@@ -1,5 +1,9 @@
-function runData = Servo_Test(config)
-%SERVO_TEST Execute a servo-command latency test with Arduino and Vicon.
+function runData = Arduino_Test(config)
+%ARDUINO_TEST Execute an Arduino-only servo command test over WiFi.
+%   runData = Arduino_Test(config) connects to the Arduino Nano 33 IoT,
+%   commands one or all four servos with a configurable profile, logs the
+%   desired commands, and logs the Arduino-applied commands via
+%   readPosition.
 arguments
     config (1,1) struct = struct()
 end
@@ -8,52 +12,23 @@ config = normalizeConfig(config);
 runData = initializeRunData(config);
 runData.runInfo.startTime = datetime("now");
 
-assignin("base", "ServoTestLatestState", struct([]));
-assignin("base", "ServoTestRunData", runData);
+assignin("base", "ArduinoTestLatestState", struct([]));
+assignin("base", "ArduinoTestRunData", runData);
 
 arduinoConnection = [];
 servoObjects = {};
-viconClient = [];
-cleanupHandle = onCleanup(@() cleanupResources( ...
-    arduinoConnection, ...
-    servoObjects, ...
-    viconClient, ...
-    config));
+cleanupHandle = onCleanup(@() cleanupResources(arduinoConnection, servoObjects, config));
 
 try
     [arduinoConnection, servoObjects, arduinoInfo] = connectToArduino(config);
     runData.connectionInfo.arduino = arduinoInfo;
-    assignin("base", "ServoTestRunData", runData);
+    assignin("base", "ArduinoTestRunData", runData);
 
     if ~arduinoInfo.isConnected
         runData.runInfo.status = "arduino_connection_failed";
         runData.runInfo.reason = arduinoInfo.connectionMessage;
         runData.runInfo.stopTime = datetime("now");
-        assignin("base", "ServoTestRunData", runData);
-        printConnectionStatus(runData);
-        return;
-    end
-
-    [viconClient, viconInfo, trackedSubjects] = connectToVicon(config);
-    runData.connectionInfo.vicon = viconInfo;
-    runData.surfaceSetup.ViconSegmentName = reshape(string({trackedSubjects.segmentName}), [], 1);
-    assignin("base", "ServoTestRunData", runData);
-
-    if ~viconInfo.isConnected
-        runData.runInfo.status = "vicon_connection_failed";
-        runData.runInfo.reason = viconInfo.connectionMessage;
-        runData.runInfo.stopTime = datetime("now");
-        assignin("base", "ServoTestRunData", runData);
-        printConnectionStatus(runData);
-        return;
-    end
-
-    if config.requireAllViconSubjects && any(~[trackedSubjects.isAvailable].')
-        missingSubjects = string({trackedSubjects(~[trackedSubjects.isAvailable]).subjectName});
-        runData.runInfo.status = "vicon_subjects_missing";
-        runData.runInfo.reason = "Requested Vicon subjects are missing: " + join(missingSubjects, ", ");
-        runData.runInfo.stopTime = datetime("now");
-        assignin("base", "ServoTestRunData", runData);
+        assignin("base", "ArduinoTestRunData", runData);
         printConnectionStatus(runData);
         return;
     end
@@ -63,41 +38,22 @@ try
     moveServosToNeutral(servoObjects, config.servoNeutralPositions);
     pause(config.neutralSettleSeconds);
 
-    [neutralReference, neutralInfo] = captureNeutralReference(viconClient, trackedSubjects, config);
-    runData.neutralReference = neutralReference;
-    runData.neutralInfo = neutralInfo;
-    assignin("base", "ServoTestRunData", runData);
-
-    if ~neutralInfo.isSuccessful
-        runData.runInfo.status = "neutral_reference_failed";
-        runData.runInfo.reason = neutralInfo.message;
-        runData.runInfo.stopTime = datetime("now");
-        assignin("base", "ServoTestRunData", runData);
-        return;
-    end
-
-    [storage, runInfo] = executeLatencyTest( ...
-        servoObjects, ...
-        viconClient, ...
-        trackedSubjects, ...
-        neutralReference, ...
-        config);
-
+    [storage, runInfo] = executeArduinoTest(servoObjects, config);
     runData.runInfo = runInfo;
     runData.logs = buildLogTimetables(storage, config);
     runData.surfaceSummary = buildSurfaceSummary(storage, config);
     runData.artifacts = exportRunData(runData);
 
-    assignin("base", "ServoTestRunData", runData);
-    assignin("base", "ServoTestLatestState", buildLatestState(storage, config, storage.sampleCount));
+    assignin("base", "ArduinoTestRunData", runData);
+    assignin("base", "ArduinoTestLatestState", buildLatestState(storage, config, storage.sampleCount));
 
     clear cleanupHandle
-    cleanupResources(arduinoConnection, servoObjects, viconClient, config);
+    cleanupResources(arduinoConnection, servoObjects, config);
 catch executionException
     runData.runInfo.status = "failed";
     runData.runInfo.reason = string(executionException.message);
     runData.runInfo.stopTime = datetime("now");
-    assignin("base", "ServoTestRunData", runData);
+    assignin("base", "ArduinoTestRunData", runData);
     rethrow(executionException);
 end
 end
@@ -106,33 +62,19 @@ function config = normalizeConfig(config)
 rootFolder = fileparts(mfilename("fullpath"));
 defaultSurfaceNames = ["Aileron_L"; "Aileron_R"; "Rudder"; "Elevator"];
 defaultSurfacePins = ["D9"; "D10"; "D11"; "D12"];
-defaultHingeAxes = [0, 1, 0; 0, 1, 0; 0, 0, 1; 0, 1, 0];
 
 config.arduinoIPAddress = getTextScalarField(config, "arduinoIPAddress", "192.168.0.33");
 config.arduinoBoard = getTextScalarField(config, "arduinoBoard", "Nano33IoT");
 config.arduinoPort = getOptionalScalarField(config, "arduinoPort", NaN);
 
-config.viconHostName = getTextScalarField(config, "viconHostName", "192.168.0.100:801");
-config.viconStreamMode = getTextScalarField(config, "viconStreamMode", "ServerPush");
-config.viconAxisMapping = getTextScalarField(config, "viconAxisMapping", "ZUp");
-config.connectTimeoutSeconds = getPositiveScalarField(config, "connectTimeoutSeconds", 5);
-config.connectRetryPauseSeconds = getNonnegativeScalarField(config, "connectRetryPauseSeconds", 0.25);
-config.maxConnectionAttempts = getPositiveIntegerField(config, "maxConnectionAttempts", 3);
-config.frameWaitTimeoutSeconds = getPositiveScalarField(config, "frameWaitTimeoutSeconds", 0.2);
-config.requireAllViconSubjects = getLogicalField(config, "requireAllViconSubjects", true);
-
 config.surfaceNames = getStringArrayField(config, "surfaceNames", defaultSurfaceNames);
 config.surfacePins = getStringArrayField(config, "surfacePins", defaultSurfacePins);
-config.viconSubjectNames = getStringArrayField(config, "viconSubjectNames", config.surfaceNames);
-config.viconSegmentNames = getStringArrayField(config, "viconSegmentNames", strings(numel(config.surfaceNames), 1));
 config.servoNeutralPositions = getNumericColumnField(config, "servoNeutralPositions", 0.5 .* ones(numel(config.surfaceNames), 1));
 config.servoUnitsPerDegree = getNumericColumnField(config, "servoUnitsPerDegree", (1 / 180) .* ones(numel(config.surfaceNames), 1));
 config.servoMinimumPositions = getNumericColumnField(config, "servoMinimumPositions", zeros(numel(config.surfaceNames), 1));
 config.servoMaximumPositions = getNumericColumnField(config, "servoMaximumPositions", ones(numel(config.surfaceNames), 1));
 config.servoMinPulseDurationSeconds = getNumericColumnField(config, "servoMinPulseDurationSeconds", nan(numel(config.surfaceNames), 1));
 config.servoMaxPulseDurationSeconds = getNumericColumnField(config, "servoMaxPulseDurationSeconds", nan(numel(config.surfaceNames), 1));
-config.viconHingeAxesNeutralFrame = getNumericMatrixField(config, "viconHingeAxesNeutralFrame", defaultHingeAxes, [numel(config.surfaceNames), 3]);
-config.viconMeasurementSigns = getNumericColumnField(config, "viconMeasurementSigns", ones(numel(config.surfaceNames), 1));
 config.commandDeflectionScales = getNumericColumnField(config, "commandDeflectionScales", ones(numel(config.surfaceNames), 1));
 config.commandDeflectionOffsetsDegrees = getNumericColumnField(config, "commandDeflectionOffsetsDegrees", zeros(numel(config.surfaceNames), 1));
 
@@ -141,10 +83,9 @@ config.singleSurfaceName = getTextScalarField(config, "singleSurfaceName", "Aile
 config.commandProfile = normalizeCommandProfile(getFieldOrDefault(config, "commandProfile", struct()));
 
 config.neutralSettleSeconds = getPositiveScalarField(config, "neutralSettleSeconds", 1.0);
-config.neutralCalibrationSeconds = getPositiveScalarField(config, "neutralCalibrationSeconds", 1.0);
 config.returnToNeutralOnExit = getLogicalField(config, "returnToNeutralOnExit", true);
 
-config.outputFolder = getTextScalarField(config, "outputFolder", fullfile(rootFolder, "D_Servo_Test"));
+config.outputFolder = getTextScalarField(config, "outputFolder", fullfile(rootFolder, "C_Arduino_Test"));
 config.runLabel = getTextScalarField(config, "runLabel", "");
 
 if ~isfolder(config.outputFolder)
@@ -160,8 +101,6 @@ validateattributes(config.arduinoPort, {"numeric"}, {"real", "scalar"}, char(mfi
 
 surfaceCount = numel(config.surfaceNames);
 mustHaveMatchingLength(config.surfacePins, surfaceCount, "surfacePins");
-mustHaveMatchingLength(config.viconSubjectNames, surfaceCount, "viconSubjectNames");
-mustHaveMatchingLength(config.viconSegmentNames, surfaceCount, "viconSegmentNames");
 
 validateattributes(config.servoNeutralPositions, {"numeric"}, {"real", "finite", "column", "numel", surfaceCount}, char(mfilename), 'servoNeutralPositions');
 validateattributes(config.servoUnitsPerDegree, {"numeric"}, {"real", "finite", "column", "numel", surfaceCount}, char(mfilename), 'servoUnitsPerDegree');
@@ -169,42 +108,28 @@ validateattributes(config.servoMinimumPositions, {"numeric"}, {"real", "finite",
 validateattributes(config.servoMaximumPositions, {"numeric"}, {"real", "finite", "column", "numel", surfaceCount}, char(mfilename), 'servoMaximumPositions');
 validateattributes(config.servoMinPulseDurationSeconds, {"numeric"}, {"real", "column", "numel", surfaceCount}, char(mfilename), 'servoMinPulseDurationSeconds');
 validateattributes(config.servoMaxPulseDurationSeconds, {"numeric"}, {"real", "column", "numel", surfaceCount}, char(mfilename), 'servoMaxPulseDurationSeconds');
-validateattributes(config.viconMeasurementSigns, {"numeric"}, {"real", "finite", "column", "numel", surfaceCount}, char(mfilename), 'viconMeasurementSigns');
 validateattributes(config.commandDeflectionScales, {"numeric"}, {"real", "finite", "column", "numel", surfaceCount}, char(mfilename), 'commandDeflectionScales');
 validateattributes(config.commandDeflectionOffsetsDegrees, {"numeric"}, {"real", "finite", "column", "numel", surfaceCount}, char(mfilename), 'commandDeflectionOffsetsDegrees');
 
 if any(abs(config.servoUnitsPerDegree) <= eps)
-    error("Servo_Test:InvalidServoScale", "servoUnitsPerDegree must be nonzero for every surface.");
+    error("Arduino_Test:InvalidServoScale", "servoUnitsPerDegree must be nonzero for every surface.");
 end
 
 if any(config.servoMinimumPositions > config.servoMaximumPositions)
-    error("Servo_Test:InvalidServoLimits", "servoMinimumPositions must be less than or equal to servoMaximumPositions.");
+    error("Arduino_Test:InvalidServoLimits", "servoMinimumPositions must be less than or equal to servoMaximumPositions.");
 end
 
 if any(config.servoNeutralPositions < config.servoMinimumPositions) || any(config.servoNeutralPositions > config.servoMaximumPositions)
-    error("Servo_Test:NeutralOutsideLimits", "servoNeutralPositions must lie inside the configured servo limits.");
+    error("Arduino_Test:NeutralOutsideLimits", "servoNeutralPositions must lie inside the configured servo limits.");
 end
-
-if any(~ismember(config.viconMeasurementSigns, [-1; 1]))
-    error("Servo_Test:InvalidMeasurementSign", "viconMeasurementSigns must contain only -1 or 1.");
-end
-
-config.viconHingeAxesNeutralFrame = normalizeRowVectors(config.viconHingeAxesNeutralFrame, "viconHingeAxesNeutralFrame");
-
-validAxisMappings = ["XUp", "YUp", "ZUp"];
-if ~any(config.viconAxisMapping == validAxisMappings)
-    error("Servo_Test:InvalidAxisMapping", "viconAxisMapping must be XUp, YUp, or ZUp.");
-end
-
-config.viconStreamMode = resolveStreamModeName(config.viconStreamMode);
 
 validCommandModes = ["single", "all"];
 if ~any(config.commandMode == validCommandModes)
-    error("Servo_Test:InvalidCommandMode", "commandMode must be 'single' or 'all'.");
+    error("Arduino_Test:InvalidCommandMode", "commandMode must be 'single' or 'all'.");
 end
 
 if ~any(config.singleSurfaceName == config.surfaceNames)
-    error("Servo_Test:InvalidSingleSurface", ...
+    error("Arduino_Test:InvalidSingleSurface", ...
         "singleSurfaceName must match one of: %s.", ...
         char(join(config.surfaceNames, ", ")));
 end
@@ -218,7 +143,7 @@ end
 
 config.activeSurfaceMask = activeSurfaceMask;
 config.activeSurfaceNames = config.surfaceNames(activeSurfaceMask);
-config.surfaceSetup = buildSurfaceSetupTable(config, strings(surfaceCount, 1));
+config.surfaceSetup = buildSurfaceSetupTable(config);
 end
 
 function commandProfile = normalizeCommandProfile(commandProfileConfig)
@@ -243,13 +168,13 @@ commandProfile.customFunction = getFieldOrDefault(commandProfileConfig, "customF
 
 validProfileTypes = ["sine", "square", "doublet", "custom", "function"];
 if ~any(commandProfile.type == validProfileTypes)
-    error("Servo_Test:InvalidProfileType", ...
+    error("Arduino_Test:InvalidProfileType", ...
         "commandProfile.type must be one of: %s.", ...
         char(join(validProfileTypes, ", ")));
 end
 
 if ~isempty(commandProfile.customFunction) && ~isa(commandProfile.customFunction, "function_handle")
-    error("Servo_Test:InvalidCustomFunction", "commandProfile.customFunction must be a function handle when provided.");
+    error("Arduino_Test:InvalidCustomFunction", "commandProfile.customFunction must be a function handle when provided.");
 end
 
 if commandProfile.type == "doublet"
@@ -264,23 +189,21 @@ if commandProfile.type == "custom"
     commandProfile.customDeflectionDegrees = reshape(double(commandProfile.customDeflectionDegrees), [], 1);
 
     if any(diff(commandProfile.customTimeSeconds) <= 0)
-        error("Servo_Test:InvalidCustomTimeVector", "commandProfile.customTimeSeconds must be strictly increasing.");
+        error("Arduino_Test:InvalidCustomTimeVector", "commandProfile.customTimeSeconds must be strictly increasing.");
     end
 
     commandProfile.durationSeconds = commandProfile.customTimeSeconds(end);
 end
 
 if commandProfile.type == "function" && isempty(commandProfile.customFunction)
-    error("Servo_Test:MissingCustomFunction", "commandProfile.customFunction is required when type is 'function'.");
+    error("Arduino_Test:MissingCustomFunction", "commandProfile.customFunction is required when type is 'function'.");
 end
 end
 
 function runData = initializeRunData(config)
 runData = struct( ...
     "config", config, ...
-    "connectionInfo", struct( ...
-        "arduino", struct(), ...
-        "vicon", struct()), ...
+    "connectionInfo", struct("arduino", struct()), ...
     "runInfo", struct( ...
         "status", "initialized", ...
         "reason", "", ...
@@ -289,8 +212,6 @@ runData = struct( ...
         "sampleCount", 0, ...
         "scheduledDurationSeconds", NaN), ...
     "surfaceSetup", config.surfaceSetup, ...
-    "neutralReference", struct([]), ...
-    "neutralInfo", struct(), ...
     "logs", struct(), ...
     "surfaceSummary", table(), ...
     "artifacts", struct( ...
@@ -359,182 +280,11 @@ else
 end
 end
 
-function [client, connectionInfo, trackedSubjects] = connectToVicon(config)
-surfaceCount = numel(config.surfaceNames);
-trackedSubjects = repmat(struct( ...
-    "surfaceName", "", ...
-    "subjectName", "", ...
-    "rootSegmentName", "", ...
-    "segmentName", "", ...
-    "isAvailable", false), surfaceCount, 1);
-
-connectionInfo = struct( ...
-    "dllPath", "", ...
-    "hostName", config.viconHostName, ...
-    "isConnected", false, ...
-    "connectAttempts", 0, ...
-    "connectElapsedSeconds", NaN, ...
-    "connectionMessage", "", ...
-    "diagnostics", strings(0, 1), ...
-    "sdkVersion", "", ...
-    "streamMode", "", ...
-    "axisMapping", config.viconAxisMapping, ...
-    "frameRateHz", NaN, ...
-    "latencySeconds", NaN, ...
-    "subjectCount", 0, ...
-    "availableSubjectNames", strings(0, 1), ...
-    "missingSubjectNames", strings(0, 1), ...
-    "allRequestedSubjectsAvailable", false);
-
-client = [];
-
-try
-    dllPath = resolveSdkAssembly();
-    connectionInfo.dllPath = dllPath;
-    loadSdkAssembly(dllPath);
-catch connectionException
-    connectionInfo.connectionMessage = string(connectionException.message);
-    return;
-end
-
-client = ViconDataStreamSDK.DotNET.Client();
-connectionDiagnostics = strings(config.maxConnectionAttempts + 1, 1);
-diagnosticCount = 0;
-
-try
-    client.SetConnectionTimeout(uint32(round(config.connectTimeoutSeconds .* 1000)));
-catch
-    diagnosticCount = diagnosticCount + 1;
-    connectionDiagnostics(diagnosticCount) = "The SDK client does not expose SetConnectionTimeout in this MATLAB session.";
-end
-
-connectStart = tic;
-lastResult = "NotAttempted";
-
-for attemptIndex = 1:config.maxConnectionAttempts
-    try
-        connectOutput = client.Connect(char(config.viconHostName));
-        lastResult = netValueToString(connectOutput.Result);
-    catch connectionException
-        lastResult = string(connectionException.message);
-    end
-
-    if adaptLogical(client.IsConnected().Connected)
-        break;
-    end
-
-    diagnosticCount = diagnosticCount + 1;
-    connectionDiagnostics(diagnosticCount) = "Attempt " + attemptIndex + " failed: " + lastResult;
-    pause(config.connectRetryPauseSeconds);
-end
-
-connectionInfo.connectAttempts = attemptIndex;
-connectionInfo.connectElapsedSeconds = toc(connectStart);
-connectionInfo.connectionMessage = lastResult;
-connectionInfo.diagnostics = connectionDiagnostics(1:diagnosticCount);
-connectionInfo.isConnected = adaptLogical(client.IsConnected().Connected);
-
-if ~connectionInfo.isConnected
-    return;
-end
-
-client.EnableSegmentData();
-client.SetBufferSize(uint32(1));
-client.SetStreamMode(resolveStreamMode(config.viconStreamMode));
-applyAxisMapping(client, config.viconAxisMapping);
-
-versionOutput = client.GetVersion();
-connectionInfo.sdkVersion = join(string([versionOutput.Major, versionOutput.Minor, versionOutput.Point]), ".");
-connectionInfo.streamMode = resolveStreamModeName(config.viconStreamMode);
-connectionInfo.axisMapping = getAxisMappingString(client);
-
-if waitForFrame(client, config.frameWaitTimeoutSeconds)
-    connectionInfo.frameRateHz = double(client.GetFrameRate().FrameRateHz);
-    connectionInfo.latencySeconds = double(client.GetLatencyTotal().Total);
-end
-
-trackedSubjects = discoverTrackedSubjects(client, config);
-availableMask = reshape([trackedSubjects.isAvailable], [], 1);
-
-connectionInfo.subjectCount = double(client.GetSubjectCount().SubjectCount);
-connectionInfo.availableSubjectNames = reshape(string({trackedSubjects(availableMask).subjectName}), [], 1);
-connectionInfo.missingSubjectNames = reshape(string({trackedSubjects(~availableMask).subjectName}), [], 1);
-connectionInfo.allRequestedSubjectsAvailable = all(availableMask);
-
-if all(availableMask)
-    connectionInfo.connectionMessage = "Connected";
-else
-    connectionInfo.connectionMessage = "Connected, but one or more requested Vicon subjects are missing.";
-end
-end
-
-function dllPath = resolveSdkAssembly()
-rootFolder = fileparts(mfilename("fullpath"));
-dllPath = fullfile(rootFolder, "A_Vicon_Example", "dotNET", "ViconDataStreamSDK_DotNET.dll");
-
-if ~isfile(dllPath)
-    error("Servo_Test:MissingSdkDll", "Vicon SDK DLL not found at %s.", dllPath);
-end
-end
-
-function loadSdkAssembly(dllPath)
-NET.addAssembly(char(dllPath));
-end
-
-function trackedSubjects = discoverTrackedSubjects(client, config)
-surfaceCount = numel(config.surfaceNames);
-trackedSubjects = repmat(struct( ...
-    "surfaceName", "", ...
-    "subjectName", "", ...
-    "rootSegmentName", "", ...
-    "segmentName", "", ...
-    "isAvailable", false), surfaceCount, 1);
-
-availableSubjectCount = double(client.GetSubjectCount().SubjectCount);
-availableSubjectNames = strings(availableSubjectCount, 1);
-availableRootSegments = strings(availableSubjectCount, 1);
-
-for subjectIndex = 1:availableSubjectCount
-    availableSubjectNames(subjectIndex) = string(client.GetSubjectName(uint32(subjectIndex - 1)).SubjectName);
-    availableRootSegments(subjectIndex) = string(client.GetSubjectRootSegmentName(char(availableSubjectNames(subjectIndex))).SegmentName);
-end
-
-for surfaceIndex = 1:surfaceCount
-    subjectName = config.viconSubjectNames(surfaceIndex);
-    matchIndex = find(availableSubjectNames == subjectName, 1, "first");
-
-    trackedSubjects(surfaceIndex).surfaceName = config.surfaceNames(surfaceIndex);
-    trackedSubjects(surfaceIndex).subjectName = subjectName;
-
-    if isempty(matchIndex)
-        trackedSubjects(surfaceIndex).rootSegmentName = "";
-        trackedSubjects(surfaceIndex).segmentName = "";
-        trackedSubjects(surfaceIndex).isAvailable = false;
-        continue;
-    end
-
-    trackedSubjects(surfaceIndex).rootSegmentName = availableRootSegments(matchIndex);
-    trackedSubjects(surfaceIndex).segmentName = config.viconSegmentNames(surfaceIndex);
-    if strlength(trackedSubjects(surfaceIndex).segmentName) == 0
-        trackedSubjects(surfaceIndex).segmentName = trackedSubjects(surfaceIndex).rootSegmentName;
-    end
-    trackedSubjects(surfaceIndex).isAvailable = true;
-end
-end
-
 function printConnectionStatus(runData)
-fprintf("\nServo_Test connection summary\n");
+fprintf("\nArduino_Test connection summary\n");
 fprintf("  Arduino (%s): %s\n", ...
     runData.config.arduinoIPAddress, ...
     char(getStatusText(runData.connectionInfo.arduino)));
-fprintf("  Vicon   (%s): %s\n", ...
-    runData.config.viconHostName, ...
-    char(getStatusText(runData.connectionInfo.vicon)));
-
-if isfield(runData.connectionInfo, "vicon") && isfield(runData.connectionInfo.vicon, "missingSubjectNames") && ~isempty(runData.connectionInfo.vicon.missingSubjectNames)
-    fprintf("  Missing Vicon subjects: %s\n", char(join(runData.connectionInfo.vicon.missingSubjectNames, ", ")));
-end
-
 fprintf("  Active command surfaces: %s\n\n", char(join(runData.config.activeSurfaceNames, ", ")));
 end
 
@@ -552,74 +302,7 @@ else
 end
 end
 
-function [neutralReference, neutralInfo] = captureNeutralReference(client, trackedSubjects, config)
-surfaceCount = numel(config.surfaceNames);
-neutralReference = repmat(struct( ...
-    "surfaceName", "", ...
-    "subjectName", "", ...
-    "segmentName", "", ...
-    "quaternionXYZW", nan(1, 4), ...
-    "sampleCount", 0), surfaceCount, 1);
-
-for surfaceIndex = 1:surfaceCount
-    neutralReference(surfaceIndex).surfaceName = config.surfaceNames(surfaceIndex);
-    neutralReference(surfaceIndex).subjectName = config.viconSubjectNames(surfaceIndex);
-    neutralReference(surfaceIndex).segmentName = trackedSubjects(surfaceIndex).segmentName;
-end
-
-neutralInfo = struct( ...
-    "isSuccessful", false, ...
-    "message", "", ...
-    "durationSeconds", config.neutralCalibrationSeconds, ...
-    "surfaceValidSampleCounts", zeros(surfaceCount, 1));
-
-quaternionSamples = cell(surfaceCount, 1);
-calibrationStart = tic;
-
-while toc(calibrationStart) < config.neutralCalibrationSeconds
-    frameReady = waitForFrame(client, config.frameWaitTimeoutSeconds);
-    if ~frameReady
-        continue;
-    end
-
-    snapshot = readTrackedSurfaceSample( ...
-        client, ...
-        trackedSubjects, ...
-        struct([]), ...
-        config.viconHingeAxesNeutralFrame, ...
-        config.viconMeasurementSigns);
-
-    for surfaceIndex = 1:surfaceCount
-        if snapshot.isOccluded(surfaceIndex)
-            continue;
-        end
-
-        quaternionSamples{surfaceIndex}(end + 1, :) = snapshot.quaternionXYZW(surfaceIndex, :); %#ok<AGROW>
-    end
-end
-
-for surfaceIndex = 1:surfaceCount
-    neutralReference(surfaceIndex).sampleCount = size(quaternionSamples{surfaceIndex}, 1);
-    neutralInfo.surfaceValidSampleCounts(surfaceIndex) = neutralReference(surfaceIndex).sampleCount;
-
-    if ~trackedSubjects(surfaceIndex).isAvailable
-        neutralReference(surfaceIndex).quaternionXYZW = [NaN, NaN, NaN, NaN];
-        continue;
-    end
-
-    if neutralReference(surfaceIndex).sampleCount == 0
-        neutralInfo.message = "Neutral reference failed because no valid Vicon samples were captured for " + config.surfaceNames(surfaceIndex) + ".";
-        return;
-    end
-
-    neutralReference(surfaceIndex).quaternionXYZW = averageQuaternions(quaternionSamples{surfaceIndex});
-end
-
-neutralInfo.isSuccessful = true;
-neutralInfo.message = "Neutral reference captured successfully.";
-end
-
-function [storage, runInfo] = executeLatencyTest(servoObjects, client, trackedSubjects, neutralReference, config)
+function [storage, runInfo] = executeArduinoTest(servoObjects, config)
 [scheduledTimeSeconds, profileInfo] = buildCommandSchedule(config.commandProfile);
 surfaceCount = numel(config.surfaceNames);
 sampleCount = numel(scheduledTimeSeconds);
@@ -678,20 +361,6 @@ for sampleIndex = 1:sampleCount
         arduinoEchoSeconds, ...
         storage.arduinoReadStartSeconds(sampleIndex));
 
-    frameReady = waitForFrame(client, config.frameWaitTimeoutSeconds);
-    storage.viconSampleTimeSeconds(sampleIndex) = toc(testStart);
-
-    if frameReady
-        snapshot = readTrackedSurfaceSample( ...
-            client, ...
-            trackedSubjects, ...
-            neutralReference, ...
-            config.viconHingeAxesNeutralFrame, ...
-            config.viconMeasurementSigns);
-    else
-        snapshot = createEmptyViconSnapshot(surfaceCount);
-    end
-
     storage.sampleCount = sampleIndex;
     storage.baseCommandDegrees(sampleIndex) = baseCommandDegrees;
     storage.desiredDeflectionsDegrees(sampleIndex, :) = desiredDeflectionsDegrees;
@@ -700,15 +369,8 @@ for sampleIndex = 1:sampleCount
     storage.appliedServoPositions(sampleIndex, :) = appliedServoPositions;
     storage.appliedEquivalentDegrees(sampleIndex, :) = ...
         (appliedServoPositions - config.servoNeutralPositions.') ./ config.servoUnitsPerDegree.';
-    storage.viconFrameNumbers(sampleIndex) = snapshot.frameNumber;
-    storage.viconLatencySeconds(sampleIndex) = snapshot.latencySeconds;
-    storage.measuredDeflectionsDegrees(sampleIndex, :) = snapshot.measuredAnglesDegrees;
-    storage.viconPositionMillimeters(sampleIndex, :, :) = snapshot.positionMillimeters;
-    storage.viconPositionOccluded(sampleIndex, :) = snapshot.positionOccluded;
-    storage.viconOccluded(sampleIndex, :) = snapshot.isOccluded;
-    storage.viconQuaternionXYZW(sampleIndex, :, :) = snapshot.quaternionXYZW;
 
-    assignin("base", "ServoTestLatestState", buildLatestState(storage, config, sampleIndex));
+    assignin("base", "ArduinoTestLatestState", buildLatestState(storage, config, sampleIndex));
 end
 
 runInfo.status = "completed";
@@ -784,19 +446,11 @@ storage = struct( ...
     "arduinoReadStartSeconds", nan(sampleCount, 1), ...
     "arduinoReadStopSeconds", nan(sampleCount, 1), ...
     "arduinoEchoSeconds", nan(sampleCount, surfaceCount), ...
-    "viconSampleTimeSeconds", nan(sampleCount, 1), ...
-    "viconFrameNumbers", nan(sampleCount, 1), ...
-    "viconLatencySeconds", nan(sampleCount, 1), ...
     "desiredDeflectionsDegrees", nan(sampleCount, surfaceCount), ...
     "commandedServoPositions", nan(sampleCount, surfaceCount), ...
     "commandSaturated", false(sampleCount, surfaceCount), ...
     "appliedServoPositions", nan(sampleCount, surfaceCount), ...
     "appliedEquivalentDegrees", nan(sampleCount, surfaceCount), ...
-    "measuredDeflectionsDegrees", nan(sampleCount, surfaceCount), ...
-    "viconPositionMillimeters", nan(sampleCount, surfaceCount, 3), ...
-    "viconPositionOccluded", true(sampleCount, surfaceCount), ...
-    "viconOccluded", true(sampleCount, surfaceCount), ...
-    "viconQuaternionXYZW", nan(sampleCount, surfaceCount, 4), ...
     "profileInfo", struct());
 end
 
@@ -858,61 +512,6 @@ for surfaceIndex = 1:numel(servoObjects)
 end
 end
 
-function snapshot = readTrackedSurfaceSample(client, trackedSubjects, neutralReference, hingeAxesNeutralFrame, measurementSigns)
-surfaceCount = numel(trackedSubjects);
-snapshot = createEmptyViconSnapshot(surfaceCount);
-
-snapshot.frameNumber = double(client.GetFrameNumber().FrameNumber);
-snapshot.latencySeconds = double(client.GetLatencyTotal().Total);
-
-for surfaceIndex = 1:surfaceCount
-    if ~trackedSubjects(surfaceIndex).isAvailable
-        continue;
-    end
-
-    subjectName = char(trackedSubjects(surfaceIndex).subjectName);
-    segmentName = char(trackedSubjects(surfaceIndex).segmentName);
-
-    translationOutput = client.GetSegmentGlobalTranslation(subjectName, segmentName);
-    quaternionOutput = client.GetSegmentGlobalRotationQuaternion(subjectName, segmentName);
-    hasValidTranslation = isSuccessOutput(translationOutput) && ~adaptLogical(translationOutput.Occluded);
-    hasValidQuaternion = isSuccessOutput(quaternionOutput) && ~adaptLogical(quaternionOutput.Occluded);
-
-    if hasValidTranslation
-        snapshot.positionOccluded(surfaceIndex) = false;
-        snapshot.positionMillimeters(surfaceIndex, :) = reshape(double(translationOutput.Translation), 1, 3);
-    end
-
-    if ~hasValidQuaternion
-        continue;
-    end
-
-    quaternionXYZW = reshape(double(quaternionOutput.Rotation), 1, 4);
-    snapshot.isOccluded(surfaceIndex) = false;
-    snapshot.quaternionXYZW(surfaceIndex, :) = normalizeQuaternion(quaternionXYZW);
-
-    if ~isempty(neutralReference)
-        relativeQuaternion = multiplyQuaternions( ...
-            conjugateQuaternion(neutralReference(surfaceIndex).quaternionXYZW), ...
-            snapshot.quaternionXYZW(surfaceIndex, :));
-
-        hingeAngleRadians = extractTwistAngle(relativeQuaternion, hingeAxesNeutralFrame(surfaceIndex, :));
-        snapshot.measuredAnglesDegrees(surfaceIndex) = measurementSigns(surfaceIndex) .* rad2deg(hingeAngleRadians);
-    end
-end
-end
-
-function snapshot = createEmptyViconSnapshot(surfaceCount)
-snapshot = struct( ...
-    "frameNumber", NaN, ...
-    "latencySeconds", NaN, ...
-    "measuredAnglesDegrees", nan(1, surfaceCount), ...
-    "positionMillimeters", nan(surfaceCount, 3), ...
-    "positionOccluded", true(1, surfaceCount), ...
-    "isOccluded", true(1, surfaceCount), ...
-    "quaternionXYZW", nan(surfaceCount, 4));
-end
-
 function logs = buildLogTimetables(storage, config)
 sampleIndices = 1:storage.sampleCount;
 surfaceNames = config.surfaceNames;
@@ -950,7 +549,7 @@ arduinoLog.arduino_read_stop_s = storage.arduinoReadStopSeconds(sampleIndices);
 
 computerToArduinoLatencySeconds = ...
     storage.arduinoEchoSeconds(sampleIndices, :) - storage.commandDispatchSeconds(sampleIndices, :);
-computerToArduinoVariableNames = [ ...
+latencyVariableNames = [ ...
     buildSurfaceVariableNames(surfaceNames, "command_dispatch_s"), ...
     buildSurfaceVariableNames(surfaceNames, "arduino_echo_s"), ...
     buildSurfaceVariableNames(surfaceNames, "computer_to_arduino_latency_s")];
@@ -960,76 +559,13 @@ computerToArduinoLatencyLog = array2timetable( ...
     storage.arduinoEchoSeconds(sampleIndices, :), ...
     computerToArduinoLatencySeconds], ...
     'RowTimes', seconds(storage.arduinoReadStopSeconds(sampleIndices)), ...
-    'VariableNames', cellstr(computerToArduinoVariableNames));
+    'VariableNames', cellstr(latencyVariableNames));
 
 computerToArduinoLatencyLog.scheduled_time_s = storage.scheduledTimeSeconds(sampleIndices);
 computerToArduinoLatencyLog.command_write_start_s = storage.commandWriteStartSeconds(sampleIndices);
 computerToArduinoLatencyLog.command_write_stop_s = storage.commandWriteStopSeconds(sampleIndices);
 computerToArduinoLatencyLog.arduino_read_start_s = storage.arduinoReadStartSeconds(sampleIndices);
 computerToArduinoLatencyLog.arduino_read_stop_s = storage.arduinoReadStopSeconds(sampleIndices);
-
-viconPositionDataMatrix = [ ...
-    reshape(storage.viconPositionMillimeters(sampleIndices, :, 1), [], numel(surfaceNames)), ...
-    reshape(storage.viconPositionMillimeters(sampleIndices, :, 2), [], numel(surfaceNames)), ...
-    reshape(storage.viconPositionMillimeters(sampleIndices, :, 3), [], numel(surfaceNames)), ...
-    double(storage.viconPositionOccluded(sampleIndices, :))];
-viconPositionVariableNames = [ ...
-    buildSurfaceVariableNames(surfaceNames, "x_mm"), ...
-    buildSurfaceVariableNames(surfaceNames, "y_mm"), ...
-    buildSurfaceVariableNames(surfaceNames, "z_mm"), ...
-    buildSurfaceVariableNames(surfaceNames, "position_occluded")];
-viconPositionLog = array2timetable( ...
-    viconPositionDataMatrix, ...
-    'RowTimes', seconds(storage.viconSampleTimeSeconds(sampleIndices)), ...
-    'VariableNames', cellstr(viconPositionVariableNames));
-
-viconPositionLog.scheduled_time_s = storage.scheduledTimeSeconds(sampleIndices);
-viconPositionLog.vicon_sample_time_s = storage.viconSampleTimeSeconds(sampleIndices);
-viconPositionLog.vicon_frame_number = storage.viconFrameNumbers(sampleIndices);
-viconPositionLog.vicon_reported_latency_s = storage.viconLatencySeconds(sampleIndices);
-
-viconDataMatrix = [ ...
-    storage.measuredDeflectionsDegrees(sampleIndices, :), ...
-    double(storage.viconOccluded(sampleIndices, :)), ...
-    reshape(storage.viconQuaternionXYZW(sampleIndices, :, 1), [], numel(surfaceNames)), ...
-    reshape(storage.viconQuaternionXYZW(sampleIndices, :, 2), [], numel(surfaceNames)), ...
-    reshape(storage.viconQuaternionXYZW(sampleIndices, :, 3), [], numel(surfaceNames)), ...
-    reshape(storage.viconQuaternionXYZW(sampleIndices, :, 4), [], numel(surfaceNames))];
-
-viconTrackingVariableNames = [ ...
-    buildSurfaceVariableNames(surfaceNames, "measured_deg"), ...
-    buildSurfaceVariableNames(surfaceNames, "tracking_occluded"), ...
-    buildSurfaceVariableNames(surfaceNames, "qx"), ...
-    buildSurfaceVariableNames(surfaceNames, "qy"), ...
-    buildSurfaceVariableNames(surfaceNames, "qz"), ...
-    buildSurfaceVariableNames(surfaceNames, "qw")];
-
-viconTrackingOutputLog = array2timetable( ...
-    viconDataMatrix, ...
-    'RowTimes', seconds(storage.viconSampleTimeSeconds(sampleIndices)), ...
-    'VariableNames', cellstr(viconTrackingVariableNames));
-
-viconTrackingOutputLog.scheduled_time_s = storage.scheduledTimeSeconds(sampleIndices);
-viconTrackingOutputLog.vicon_sample_time_s = storage.viconSampleTimeSeconds(sampleIndices);
-viconTrackingOutputLog.vicon_frame_number = storage.viconFrameNumbers(sampleIndices);
-viconTrackingOutputLog.vicon_reported_latency_s = storage.viconLatencySeconds(sampleIndices);
-
-arduinoToViconLatencySeconds = ...
-    storage.viconSampleTimeSeconds(sampleIndices) - storage.arduinoEchoSeconds(sampleIndices, :);
-arduinoToViconVariableNames = [ ...
-    buildSurfaceVariableNames(surfaceNames, "arduino_echo_s"), ...
-    buildSurfaceVariableNames(surfaceNames, "arduino_to_vicon_latency_s")];
-arduinoToViconLatencyLog = array2timetable( ...
-    [ ...
-    storage.arduinoEchoSeconds(sampleIndices, :), ...
-    arduinoToViconLatencySeconds], ...
-    'RowTimes', seconds(storage.viconSampleTimeSeconds(sampleIndices)), ...
-    'VariableNames', cellstr(arduinoToViconVariableNames));
-
-arduinoToViconLatencyLog.scheduled_time_s = storage.scheduledTimeSeconds(sampleIndices);
-arduinoToViconLatencyLog.vicon_sample_time_s = storage.viconSampleTimeSeconds(sampleIndices);
-arduinoToViconLatencyLog.vicon_frame_number = storage.viconFrameNumbers(sampleIndices);
-arduinoToViconLatencyLog.vicon_reported_latency_s = storage.viconLatencySeconds(sampleIndices);
 
 sampleSummary = table( ...
     storage.scheduledTimeSeconds(sampleIndices), ...
@@ -1038,19 +574,13 @@ sampleSummary = table( ...
     storage.commandWriteStopSeconds(sampleIndices), ...
     storage.arduinoReadStartSeconds(sampleIndices), ...
     storage.arduinoReadStopSeconds(sampleIndices), ...
-    storage.viconSampleTimeSeconds(sampleIndices), ...
-    storage.viconFrameNumbers(sampleIndices), ...
-    storage.viconLatencySeconds(sampleIndices), ...
     'VariableNames', { ...
         'scheduled_time_s', ...
         'base_command_deg', ...
         'command_write_start_s', ...
         'command_write_stop_s', ...
         'arduino_read_start_s', ...
-        'arduino_read_stop_s', ...
-        'vicon_sample_time_s', ...
-        'vicon_frame_number', ...
-        'vicon_latency_s'});
+        'arduino_read_stop_s'});
 
 logs = struct( ...
     "inputSignal", commandLog, ...
@@ -1058,21 +588,15 @@ logs = struct( ...
     "arduinoEcho", arduinoLog, ...
     "arduino", arduinoLog, ...
     "computerToArduinoLatency", computerToArduinoLatencyLog, ...
-    "viconPosition", viconPositionLog, ...
-    "viconTrackingOutput", viconTrackingOutputLog, ...
-    "vicon", viconTrackingOutputLog, ...
-    "arduinoToViconLatency", arduinoToViconLatencyLog, ...
     "sampleSummary", sampleSummary);
 end
 
 function surfaceSummary = buildSurfaceSummary(storage, config)
 surfaceCount = numel(config.surfaceNames);
-validViconSampleCount = zeros(surfaceCount, 1);
 appliedSampleCount = zeros(surfaceCount, 1);
 saturationCount = zeros(surfaceCount, 1);
 
 for surfaceIndex = 1:surfaceCount
-    validViconSampleCount(surfaceIndex) = sum(~storage.viconOccluded(:, surfaceIndex) & isfinite(storage.measuredDeflectionsDegrees(:, surfaceIndex)));
     appliedSampleCount(surfaceIndex) = sum(isfinite(storage.appliedServoPositions(:, surfaceIndex)));
     saturationCount(surfaceIndex) = sum(storage.commandSaturated(:, surfaceIndex));
 end
@@ -1081,14 +605,12 @@ surfaceSummary = table( ...
     config.surfaceNames, ...
     config.surfacePins, ...
     config.activeSurfaceMask, ...
-    validViconSampleCount, ...
     appliedSampleCount, ...
     saturationCount, ...
     'VariableNames', { ...
         'SurfaceName', ...
         'ArduinoPin', ...
         'IsActive', ...
-        'ValidViconSampleCount', ...
         'AppliedCommandSampleCount', ...
         'SaturationSampleCount'});
 end
@@ -1100,11 +622,7 @@ surfaceStates = repmat(struct( ...
     "desired_deg", NaN, ...
     "command_position", NaN, ...
     "applied_position", NaN, ...
-    "applied_equivalent_deg", NaN, ...
-    "vicon_position_mm", nan(1, 3), ...
-    "position_occluded", true, ...
-    "measured_deg", NaN, ...
-    "is_occluded", true), surfaceCount, 1);
+    "applied_equivalent_deg", NaN), surfaceCount, 1);
 
 for surfaceIndex = 1:surfaceCount
     surfaceStates(surfaceIndex).name = config.surfaceNames(surfaceIndex);
@@ -1112,10 +630,6 @@ for surfaceIndex = 1:surfaceCount
     surfaceStates(surfaceIndex).command_position = storage.commandedServoPositions(sampleIndex, surfaceIndex);
     surfaceStates(surfaceIndex).applied_position = storage.appliedServoPositions(sampleIndex, surfaceIndex);
     surfaceStates(surfaceIndex).applied_equivalent_deg = storage.appliedEquivalentDegrees(sampleIndex, surfaceIndex);
-    surfaceStates(surfaceIndex).vicon_position_mm = reshape(storage.viconPositionMillimeters(sampleIndex, surfaceIndex, :), 1, 3);
-    surfaceStates(surfaceIndex).position_occluded = storage.viconPositionOccluded(sampleIndex, surfaceIndex);
-    surfaceStates(surfaceIndex).measured_deg = storage.measuredDeflectionsDegrees(sampleIndex, surfaceIndex);
-    surfaceStates(surfaceIndex).is_occluded = storage.viconOccluded(sampleIndex, surfaceIndex);
 end
 
 latestState = struct( ...
@@ -1123,43 +637,28 @@ latestState = struct( ...
     "scheduledTimeSeconds", storage.scheduledTimeSeconds(sampleIndex), ...
     "commandWriteTimeSeconds", storage.commandWriteStopSeconds(sampleIndex), ...
     "arduinoReadTimeSeconds", storage.arduinoReadStopSeconds(sampleIndex), ...
-    "viconSampleTimeSeconds", storage.viconSampleTimeSeconds(sampleIndex), ...
-    "viconFrameNumber", storage.viconFrameNumbers(sampleIndex), ...
-    "viconLatencySeconds", storage.viconLatencySeconds(sampleIndex), ...
     "surfaces", surfaceStates);
 end
 
-function surfaceSetup = buildSurfaceSetupTable(config, viconSegmentNames)
+function surfaceSetup = buildSurfaceSetupTable(config)
 surfaceSetup = table( ...
     config.surfaceNames, ...
     config.surfacePins, ...
-    config.viconSubjectNames, ...
-    viconSegmentNames, ...
     config.activeSurfaceMask, ...
     config.servoNeutralPositions, ...
     config.servoUnitsPerDegree, ...
     config.servoMinimumPositions, ...
     config.servoMaximumPositions, ...
-    config.viconHingeAxesNeutralFrame(:, 1), ...
-    config.viconHingeAxesNeutralFrame(:, 2), ...
-    config.viconHingeAxesNeutralFrame(:, 3), ...
-    config.viconMeasurementSigns, ...
     config.commandDeflectionScales, ...
     config.commandDeflectionOffsetsDegrees, ...
     'VariableNames', { ...
         'SurfaceName', ...
         'ArduinoPin', ...
-        'ViconSubjectName', ...
-        'ViconSegmentName', ...
         'IsActive', ...
         'ServoNeutralPosition', ...
         'ServoUnitsPerDegree', ...
         'ServoMinimumPosition', ...
         'ServoMaximumPosition', ...
-        'HingeAxisX', ...
-        'HingeAxisY', ...
-        'HingeAxisZ', ...
-        'MeasurementSign', ...
         'CommandScale', ...
         'CommandOffsetDeg'});
 end
@@ -1174,8 +673,6 @@ artifacts = struct( ...
 
 save(matFilePath, "runData", "-v7.3");
 
-neutralReferenceTable = buildNeutralReferenceTable(runData.neutralReference);
-
 writetable(buildCriticalSettingsTable(runData), workbookPath, 'Sheet', 'CriticalSettings');
 writetable(timetableToExportTable(runData.logs.inputSignal), workbookPath, 'Sheet', 'InputSignal');
 writetable(timetableToExportTable(runData.logs.arduinoEcho), workbookPath, 'Sheet', 'ArduinoEcho');
@@ -1184,19 +681,7 @@ writetable( ...
     workbookPath, ...
     'Sheet', ...
     'ComputerToArduinoLatency');
-writetable(timetableToExportTable(runData.logs.viconPosition), workbookPath, 'Sheet', 'ViconPosition');
-writetable( ...
-    timetableToExportTable(runData.logs.viconTrackingOutput), ...
-    workbookPath, ...
-    'Sheet', ...
-    'ViconTrackingOutput');
-writetable( ...
-    timetableToExportTable(runData.logs.arduinoToViconLatency), ...
-    workbookPath, ...
-    'Sheet', ...
-    'ArduinoToViconLatency');
 writetable(runData.surfaceSetup, workbookPath, 'Sheet', 'SurfaceSetup');
-writetable(neutralReferenceTable, workbookPath, 'Sheet', 'NeutralReference');
 writetable(runData.logs.sampleSummary, workbookPath, 'Sheet', 'SampleSummary');
 writetable(runData.surfaceSummary, workbookPath, 'Sheet', 'SurfaceSummary');
 end
@@ -1205,7 +690,6 @@ function criticalSettingsTable = buildCriticalSettingsTable(runData)
 config = runData.config;
 profile = config.commandProfile;
 arduinoInfo = runData.connectionInfo.arduino;
-viconInfo = runData.connectionInfo.vicon;
 
 settings = [ ...
     "Run", "RunLabel", formatSettingValue(config.runLabel); ...
@@ -1222,16 +706,6 @@ settings = [ ...
     "Arduino", "IsConnected", formatSettingValue(arduinoInfo.isConnected); ...
     "Arduino", "ConnectionMessage", formatSettingValue(arduinoInfo.connectionMessage); ...
     "Arduino", "ConnectElapsedSeconds", formatSettingValue(arduinoInfo.connectElapsedSeconds); ...
-    "Vicon", "HostName", formatSettingValue(config.viconHostName); ...
-    "Vicon", "StreamMode", formatSettingValue(config.viconStreamMode); ...
-    "Vicon", "AxisMapping", formatSettingValue(config.viconAxisMapping); ...
-    "Vicon", "IsConnected", formatSettingValue(viconInfo.isConnected); ...
-    "Vicon", "ConnectionMessage", formatSettingValue(viconInfo.connectionMessage); ...
-    "Vicon", "ConnectElapsedSeconds", formatSettingValue(viconInfo.connectElapsedSeconds); ...
-    "Vicon", "RequireAllSubjects", formatSettingValue(config.requireAllViconSubjects); ...
-    "NeutralReference", "IsSuccessful", formatSettingValue(runData.neutralInfo.isSuccessful); ...
-    "NeutralReference", "Message", formatSettingValue(runData.neutralInfo.message); ...
-    "NeutralReference", "CalibrationSeconds", formatSettingValue(config.neutralCalibrationSeconds); ...
     "Command", "Mode", formatSettingValue(config.commandMode); ...
     "Command", "SingleSurfaceName", formatSettingValue(config.singleSurfaceName); ...
     "Command", "ActiveSurfaces", formatSettingValue(config.activeSurfaceNames); ...
@@ -1249,14 +723,10 @@ settings = [ ...
     "Profile", "DoubletHoldSeconds", formatSettingValue(profile.doubletHoldSeconds); ...
     "Surfaces", "Names", formatSettingValue(config.surfaceNames); ...
     "Surfaces", "Pins", formatSettingValue(config.surfacePins); ...
-    "Surfaces", "ViconSubjectNames", formatSettingValue(config.viconSubjectNames); ...
-    "Surfaces", "ViconSegmentNames", formatSettingValue(runData.surfaceSetup.ViconSegmentName); ...
     "Surfaces", "ServoNeutralPositions", formatSettingValue(config.servoNeutralPositions); ...
     "Surfaces", "ServoUnitsPerDegree", formatSettingValue(config.servoUnitsPerDegree); ...
     "Surfaces", "ServoMinimumPositions", formatSettingValue(config.servoMinimumPositions); ...
     "Surfaces", "ServoMaximumPositions", formatSettingValue(config.servoMaximumPositions); ...
-    "Surfaces", "ViconHingeAxesNeutralFrame", formatSettingValue(config.viconHingeAxesNeutralFrame); ...
-    "Surfaces", "ViconMeasurementSigns", formatSettingValue(config.viconMeasurementSigns); ...
     "Surfaces", "CommandDeflectionScales", formatSettingValue(config.commandDeflectionScales); ...
     "Surfaces", "CommandDeflectionOffsetsDegrees", formatSettingValue(config.commandDeflectionOffsetsDegrees)];
 
@@ -1293,61 +763,16 @@ else
 end
 end
 
-function neutralReferenceTable = buildNeutralReferenceTable(neutralReference)
-surfaceCount = numel(neutralReference);
-surfaceNames = strings(surfaceCount, 1);
-subjectNames = strings(surfaceCount, 1);
-segmentNames = strings(surfaceCount, 1);
-sampleCounts = zeros(surfaceCount, 1);
-quaternionXYZW = nan(surfaceCount, 4);
-
-for surfaceIndex = 1:surfaceCount
-    surfaceNames(surfaceIndex) = neutralReference(surfaceIndex).surfaceName;
-    subjectNames(surfaceIndex) = neutralReference(surfaceIndex).subjectName;
-    segmentNames(surfaceIndex) = neutralReference(surfaceIndex).segmentName;
-    sampleCounts(surfaceIndex) = neutralReference(surfaceIndex).sampleCount;
-    quaternionXYZW(surfaceIndex, :) = neutralReference(surfaceIndex).quaternionXYZW;
-end
-
-neutralReferenceTable = table( ...
-    surfaceNames, ...
-    subjectNames, ...
-    segmentNames, ...
-    sampleCounts, ...
-    quaternionXYZW(:, 1), ...
-    quaternionXYZW(:, 2), ...
-    quaternionXYZW(:, 3), ...
-    quaternionXYZW(:, 4), ...
-    'VariableNames', { ...
-        'SurfaceName', ...
-        'SubjectName', ...
-        'SegmentName', ...
-        'SampleCount', ...
-        'qx', ...
-        'qy', ...
-        'qz', ...
-        'qw'});
-end
-
 function exportTable = timetableToExportTable(timetableData)
 exportTable = timetable2table(timetableData);
 exportTable.Properties.VariableNames{1} = 'time_s';
 exportTable.time_s = seconds(exportTable.time_s);
 end
 
-function cleanupResources(arduinoConnection, servoObjects, client, config)
+function cleanupResources(arduinoConnection, servoObjects, config)
 if ~isempty(servoObjects) && config.returnToNeutralOnExit
     try
         moveServosToNeutral(servoObjects, config.servoNeutralPositions);
-    catch
-    end
-end
-
-if ~isempty(client)
-    try
-        if adaptLogical(client.IsConnected().Connected)
-            client.Disconnect();
-        end
     catch
     end
 end
@@ -1381,178 +806,6 @@ while true
 end
 end
 
-function frameReady = waitForFrame(client, timeoutSeconds)
-frameReady = false;
-waitStart = tic;
-
-while toc(waitStart) < timeoutSeconds
-    getFrameOutput = client.GetFrame();
-    if isSuccessResult(getFrameOutput.Result)
-        frameReady = true;
-        return;
-    end
-
-    pause(0.005);
-end
-end
-
-function streamMode = resolveStreamMode(streamModeConfig)
-streamModeName = resolveStreamModeName(streamModeConfig);
-
-switch streamModeName
-    case "ClientPull"
-        streamMode = ViconDataStreamSDK.DotNET.StreamMode.ClientPull;
-    case "ClientPullPreFetch"
-        streamMode = ViconDataStreamSDK.DotNET.StreamMode.ClientPullPreFetch;
-    otherwise
-        streamMode = ViconDataStreamSDK.DotNET.StreamMode.ServerPush;
-end
-end
-
-function streamModeName = resolveStreamModeName(streamModeConfig)
-if isstring(streamModeConfig) || ischar(streamModeConfig)
-    streamModeName = string(streamModeConfig);
-else
-    streamModeName = netValueToString(streamModeConfig);
-end
-
-validModes = ["ClientPull", "ClientPullPreFetch", "ServerPush"];
-if ~any(streamModeName == validModes)
-    error("Servo_Test:InvalidStreamMode", ...
-        "Unsupported Vicon stream mode '%s'. Use ClientPull, ClientPullPreFetch, or ServerPush.", ...
-        streamModeName);
-end
-end
-
-function applyAxisMapping(client, axisMapping)
-switch axisMapping
-    case "XUp"
-        client.SetAxisMapping( ...
-            ViconDataStreamSDK.DotNET.Direction.Up, ...
-            ViconDataStreamSDK.DotNET.Direction.Forward, ...
-            ViconDataStreamSDK.DotNET.Direction.Left);
-    case "YUp"
-        client.SetAxisMapping( ...
-            ViconDataStreamSDK.DotNET.Direction.Forward, ...
-            ViconDataStreamSDK.DotNET.Direction.Up, ...
-            ViconDataStreamSDK.DotNET.Direction.Right);
-    otherwise
-        client.SetAxisMapping( ...
-            ViconDataStreamSDK.DotNET.Direction.Forward, ...
-            ViconDataStreamSDK.DotNET.Direction.Left, ...
-            ViconDataStreamSDK.DotNET.Direction.Up);
-end
-end
-
-function axisMappingString = getAxisMappingString(client)
-axisMappingOutput = client.GetAxisMapping();
-axisMappingString = "X-" + netValueToString(axisMappingOutput.XAxis) + ...
-    ", Y-" + netValueToString(axisMappingOutput.YAxis) + ...
-    ", Z-" + netValueToString(axisMappingOutput.ZAxis);
-end
-
-function success = isSuccessOutput(output)
-success = true;
-if isprop(output, "Result")
-    success = isSuccessResult(output.Result);
-end
-end
-
-function success = isSuccessResult(resultValue)
-success = netValueToString(resultValue) == "Success";
-end
-
-function valueString = netValueToString(value)
-if isstring(value)
-    valueString = value;
-elseif ischar(value)
-    valueString = string(value);
-else
-    valueString = string(char(value.ToString()));
-end
-end
-
-function value = adaptLogical(netLogical)
-if islogical(netLogical)
-    value = netLogical;
-else
-    value = strcmpi(netValueToString(netLogical), "True");
-end
-end
-
-function averageQuaternion = averageQuaternions(quaternionSamples)
-quaternionSamples = reshape(quaternionSamples, [], 4);
-accumulator = zeros(4, 4);
-
-for sampleIndex = 1:size(quaternionSamples, 1)
-    normalizedQuaternion = normalizeQuaternion(quaternionSamples(sampleIndex, :)).';
-    accumulator = accumulator + normalizedQuaternion * normalizedQuaternion.';
-end
-
-[eigenVectors, eigenValues] = eig(accumulator);
-[~, dominantIndex] = max(diag(eigenValues));
-averageQuaternion = eigenVectors(:, dominantIndex).';
-averageQuaternion = normalizeQuaternion(averageQuaternion);
-end
-
-function quaternion = normalizeQuaternion(quaternion)
-quaternion = reshape(quaternion, 1, 4);
-quaternionNorm = norm(quaternion);
-
-if quaternionNorm <= eps
-    quaternion = [0, 0, 0, 1];
-    return;
-end
-
-quaternion = quaternion ./ quaternionNorm;
-if quaternion(4) < 0
-    quaternion = -quaternion;
-end
-end
-
-function quaternionConjugate = conjugateQuaternion(quaternion)
-normalizedQuaternion = normalizeQuaternion(quaternion);
-quaternionConjugate = [-normalizedQuaternion(1:3), normalizedQuaternion(4)];
-end
-
-function productQuaternion = multiplyQuaternions(firstQuaternion, secondQuaternion)
-q1 = normalizeQuaternion(firstQuaternion);
-q2 = normalizeQuaternion(secondQuaternion);
-
-x1 = q1(1);
-y1 = q1(2);
-z1 = q1(3);
-w1 = q1(4);
-
-x2 = q2(1);
-y2 = q2(2);
-z2 = q2(3);
-w2 = q2(4);
-
-productQuaternion = [ ...
-    w1 .* x2 + x1 .* w2 + y1 .* z2 - z1 .* y2, ...
-    w1 .* y2 - x1 .* z2 + y1 .* w2 + z1 .* x2, ...
-    w1 .* z2 + x1 .* y2 - y1 .* x2 + z1 .* w2, ...
-    w1 .* w2 - x1 .* x2 - y1 .* y2 - z1 .* z2];
-
-productQuaternion = normalizeQuaternion(productQuaternion);
-end
-
-function twistAngleRadians = extractTwistAngle(relativeQuaternion, hingeAxis)
-hingeAxis = hingeAxis ./ norm(hingeAxis);
-relativeQuaternion = normalizeQuaternion(relativeQuaternion);
-
-projectedVector = dot(relativeQuaternion(1:3), hingeAxis) .* hingeAxis;
-twistQuaternion = normalizeQuaternion([projectedVector, relativeQuaternion(4)]);
-
-twistAngleRadians = 2 .* atan2(dot(twistQuaternion(1:3), hingeAxis), twistQuaternion(4));
-twistAngleRadians = wrapAngleToPi(twistAngleRadians);
-end
-
-function wrappedAngle = wrapAngleToPi(angleRadians)
-wrappedAngle = mod(angleRadians + pi, 2 .* pi) - pi;
-end
-
 function output = squareWave(phaseRadians)
 output = ones(size(phaseRadians));
 output(sin(phaseRadians) < 0) = -1;
@@ -1564,19 +817,6 @@ variableNames = strings(1, surfaceCount);
 
 for surfaceIndex = 1:surfaceCount
     variableNames(surfaceIndex) = matlab.lang.makeValidName(surfaceNames(surfaceIndex) + "_" + suffix);
-end
-end
-
-function normalizedRows = normalizeRowVectors(rowVectors, fieldName)
-normalizedRows = rowVectors;
-
-for rowIndex = 1:size(rowVectors, 1)
-    rowNorm = norm(rowVectors(rowIndex, :));
-    if rowNorm <= eps
-        error("Servo_Test:ZeroVector", "%s contains a zero-length vector in row %d.", fieldName, rowIndex);
-    end
-
-    normalizedRows(rowIndex, :) = rowVectors(rowIndex, :) ./ rowNorm;
 end
 end
 
@@ -1593,7 +833,7 @@ if ischar(value)
 end
 
 if ~(isstring(value) && isscalar(value))
-    error("Servo_Test:InvalidConfigType", "%s must be a text scalar.", fieldName);
+    error("Arduino_Test:InvalidConfigType", "%s must be a text scalar.", fieldName);
 end
 end
 
@@ -1608,7 +848,7 @@ elseif isstring(value)
 elseif isempty(value)
     value = strings(0, 1);
 else
-    error("Servo_Test:InvalidConfigType", ...
+    error("Arduino_Test:InvalidConfigType", ...
         "%s must be text, a string array, or a cell array of character vectors.", ...
         fieldName);
 end
@@ -1622,15 +862,15 @@ validateattributes(value, {"logical", "numeric"}, {"scalar"}, char(mfilename), c
 value = logical(value);
 end
 
-function value = getPositiveIntegerField(config, fieldName, defaultValue)
-value = getFieldOrDefault(config, fieldName, defaultValue);
-validateattributes(value, {"numeric"}, {"real", "finite", "scalar", "integer", "positive"}, char(mfilename), char(fieldName));
-value = double(value);
-end
-
 function value = getPositiveScalarField(config, fieldName, defaultValue)
 value = getFieldOrDefault(config, fieldName, defaultValue);
 validateattributes(value, {"numeric"}, {"real", "finite", "scalar", "positive"}, char(mfilename), char(fieldName));
+value = double(value);
+end
+
+function value = getPositiveIntegerField(config, fieldName, defaultValue)
+value = getFieldOrDefault(config, fieldName, defaultValue);
+validateattributes(value, {"numeric"}, {"real", "finite", "scalar", "integer", "positive"}, char(mfilename), char(fieldName));
 value = double(value);
 end
 
@@ -1662,12 +902,6 @@ validateattributes(value, {"numeric"}, {"real", "column"}, char(mfilename), char
 value = double(value);
 end
 
-function value = getNumericMatrixField(config, fieldName, defaultValue, expectedSize)
-value = getFieldOrDefault(config, fieldName, defaultValue);
-validateattributes(value, {"numeric"}, {"real", "finite", "size", expectedSize}, char(mfilename), char(fieldName));
-value = double(value);
-end
-
 function value = getNumericVectorField(config, fieldName, defaultValue)
 value = getFieldOrDefault(config, fieldName, defaultValue);
 if isempty(value)
@@ -1681,7 +915,7 @@ end
 
 function mustHaveMatchingLength(values, expectedLength, fieldName)
 if numel(values) ~= expectedLength
-    error("Servo_Test:InvalidArrayLength", ...
+    error("Arduino_Test:InvalidArrayLength", ...
         "%s must contain exactly %d elements.", ...
         fieldName, ...
         expectedLength);
