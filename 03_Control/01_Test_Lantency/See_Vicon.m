@@ -54,10 +54,8 @@ if rawStorage.sampleCount == 0
 end
 
 runData.subjects = buildSubjectOutputs(rawStorage, subjectInfo);
-[workbookPath, roomBoundsFigurePath, autoBoundsFigurePath] = exportRunData(runData);
+[workbookPath] = exportRunData(runData);
 runData.runInfo.workbookPath = workbookPath;
-runData.runInfo.roomBoundsFigurePath = roomBoundsFigurePath;
-runData.runInfo.autoBoundsFigurePath = autoBoundsFigurePath;
 
 assignin("base", "ViconRunData", runData);
 clear cleanupHandle
@@ -356,7 +354,7 @@ control.figure = figure( ...
     "HandleVisibility", "callback", ...
     "Position", [200, 200, 500, 220], ...
     "Resize", "off", ...
-    "CloseRequestFcn", @(source, ~) setControlCommand(source, "disconnect"));
+    "CloseRequestFcn", @(source, ~) requestShutdown(source));
 
 control.statusText = uicontrol( ...
     control.figure, ...
@@ -384,7 +382,7 @@ uicontrol( ...
     "Style", "pushbutton", ...
     "Position", [340, 80, 140, 40], ...
     "String", "Disconnect", ...
-    "Callback", @(~, ~) setControlCommand(control.figure, "disconnect"));
+    "Callback", @(~, ~) requestShutdown(control.figure));
 
 uicontrol( ...
     control.figure, ...
@@ -399,6 +397,13 @@ end
 function setControlCommand(controlFigure, command)
 if isgraphics(controlFigure)
     setappdata(controlFigure, "RecorderCommand", command);
+end
+end
+
+function requestShutdown(controlFigure)
+if isgraphics(controlFigure)
+    setappdata(controlFigure, "RecorderCommand", "disconnect");
+    set(controlFigure, 'Visible', 'off');
 end
 end
 
@@ -642,13 +647,13 @@ for subjectIndex = 1:numel(subjectInfo)
         bodyRatesRadps(:, 2), ...
         bodyRatesRadps(:, 3), ...
         isOccluded, ...
-        "VariableNames", { ...
-            "time_s", "frame_number", "latency_s", ...
-            "x_m", "y_m", "z_m", ...
-            "roll_rad", "pitch_rad", "yaw_rad", ...
-            "u_mps", "v_mps", "w_mps", ...
-            "p_radps", "q_radps", "r_radps", ...
-            "is_occluded"});
+        'VariableNames', { ...
+            'time_s', 'frame_number', 'latency_s', ...
+            'x_m', 'y_m', 'z_m', ...
+            'roll_rad', 'pitch_rad', 'yaw_rad', ...
+            'u_mps', 'v_mps', 'w_mps', ...
+            'p_radps', 'q_radps', 'r_radps', ...
+            'is_occluded'});
 end
 end
 
@@ -774,7 +779,7 @@ rotationMatrix = [ ...
     2 .* (qx .* qz - qy .* qw), 2 .* (qy .* qz + qx .* qw), 1 - 2 .* (qx.^2 + qy.^2)];
 end
 
-function [workbookPath, roomBoundsFigurePath, autoBoundsFigurePath] = exportRunData(runData)
+function workbookPath = exportRunData(runData)
 workbookPath = fullfile(runData.config.outputFolder, runData.config.runLabel + ".xlsx");
 metadataCell = {
     "Run Label", char(runData.config.runLabel); ...
@@ -794,7 +799,7 @@ metadataCell = {
     "Room Bounds (m)", mat2str(runData.config.roomBoundsMeters); ...
     "Subject Diagnostics", char(join(runData.connectionInfo.subjectDiagnostics, " | ")); ...
     "Fixed Bounds Source", "Configured roomBoundsMeters (the SDK baseline does not expose capture-volume edges directly)."};
-writecell(metadataCell, workbookPath, "Sheet", "Metadata");
+writecell(metadataCell, workbookPath, 'Sheet', 'Metadata');
 
 usedSheetNames = strings(numel(runData.subjects) + 1, 1);
 usedSheetNames(1) = "Metadata";
@@ -803,119 +808,7 @@ for subjectIndex = 1:numel(runData.subjects)
     sheetName = makeWorksheetName(runData.subjects(subjectIndex).name, usedSheetNames(1:usedSheetCount));
     usedSheetCount = usedSheetCount + 1;
     usedSheetNames(usedSheetCount) = sheetName;
-    writetable(runData.subjects(subjectIndex).samples, workbookPath, "Sheet", sheetName);
-end
-
-roomBoundsFigurePath = fullfile(runData.config.outputFolder, runData.config.runLabel + "_RoomBounds.png");
-autoBoundsFigurePath = fullfile(runData.config.outputFolder, runData.config.runLabel + "_AutoBounds.png");
-exportTrajectoryPlot(runData, runData.config.roomBoundsMeters, roomBoundsFigurePath, "Trajectory in Configured Vicon Bounds");
-exportTrajectoryPlot(runData, autoBoundsFromData(runData), autoBoundsFigurePath, "Trajectory with Auto-Tight Bounds");
-end
-
-function exportTrajectoryPlot(runData, axesBounds, figurePath, figureTitle)
-figureHandle = figure( ...
-    "Visible", "off", ...
-    "Color", "white", ...
-    "Name", char(figureTitle));
-
-axesHandle = axes(figureHandle);
-hold(axesHandle, "on");
-grid(axesHandle, "on");
-box(axesHandle, "on");
-view(axesHandle, 3);
-
-lineColors = lines(max(1, numel(runData.subjects)));
-hasTrajectory = false;
-for subjectIndex = 1:numel(runData.subjects)
-    samples = runData.subjects(subjectIndex).samples;
-    validMask = ~samples.is_occluded & all(isfinite(samples{:, ["x_m", "y_m", "z_m"]}), 2);
-    if any(validMask)
-        hasTrajectory = true;
-        plot3( ...
-            axesHandle, ...
-            samples.x_m(validMask), ...
-            samples.y_m(validMask), ...
-            samples.z_m(validMask), ...
-            "LineWidth", 1.5, ...
-            "Color", lineColors(subjectIndex, :), ...
-            "DisplayName", char(runData.subjects(subjectIndex).name));
-    end
-end
-
-plotBoundsBox(axesHandle, axesBounds);
-axis(axesHandle, "equal");
-xlabel(axesHandle, "x [m]");
-ylabel(axesHandle, "y [m]");
-zlabel(axesHandle, "z [m]");
-xlim(axesHandle, axesBounds(1, :));
-ylim(axesHandle, axesBounds(2, :));
-zlim(axesHandle, axesBounds(3, :));
-title(axesHandle, sprintf("%s\n%s", figureTitle, runData.config.runLabel), "Interpreter", "none");
-if hasTrajectory
-    legend(axesHandle, "Location", "bestoutside");
-end
-exportgraphics(figureHandle, figurePath, "Resolution", 300);
-close(figureHandle);
-end
-
-function axesBounds = autoBoundsFromData(runData)
-pointBlocks = cell(numel(runData.subjects), 1);
-pointCount = 0;
-
-for subjectIndex = 1:numel(runData.subjects)
-    samples = runData.subjects(subjectIndex).samples;
-    validMask = ~samples.is_occluded & all(isfinite(samples{:, ["x_m", "y_m", "z_m"]}), 2);
-    pointBlocks{subjectIndex} = samples{validMask, ["x_m", "y_m", "z_m"]};
-    pointCount = pointCount + size(pointBlocks{subjectIndex}, 1);
-end
-
-if pointCount == 0
-    axesBounds = runData.config.roomBoundsMeters;
-    return;
-end
-
-allPoints = zeros(pointCount, 3);
-cursor = 1;
-for subjectIndex = 1:numel(pointBlocks)
-    blockSize = size(pointBlocks{subjectIndex}, 1);
-    if blockSize == 0
-        continue;
-    end
-    allPoints(cursor:cursor + blockSize - 1, :) = pointBlocks{subjectIndex};
-    cursor = cursor + blockSize;
-end
-
-minimumPoint = min(allPoints, [], 1);
-maximumPoint = max(allPoints, [], 1);
-span = maximumPoint - minimumPoint;
-padding = max(0.05 .* span, 0.05);
-axesBounds = [minimumPoint - padding; maximumPoint + padding].';
-end
-
-function plotBoundsBox(axesHandle, axesBounds)
-xValues = axesBounds(1, :);
-yValues = axesBounds(2, :);
-zValues = axesBounds(3, :);
-
-vertices = [ ...
-    xValues(1), yValues(1), zValues(1); ...
-    xValues(2), yValues(1), zValues(1); ...
-    xValues(2), yValues(2), zValues(1); ...
-    xValues(1), yValues(2), zValues(1); ...
-    xValues(1), yValues(1), zValues(2); ...
-    xValues(2), yValues(1), zValues(2); ...
-    xValues(2), yValues(2), zValues(2); ...
-    xValues(1), yValues(2), zValues(2)];
-
-edgePairs = [ ...
-    1, 2; 2, 3; 3, 4; 4, 1; ...
-    5, 6; 6, 7; 7, 8; 8, 5; ...
-    1, 5; 2, 6; 3, 7; 4, 8];
-
-for edgeIndex = 1:size(edgePairs, 1)
-    edgeVertices = vertices(edgePairs(edgeIndex, :), :);
-    plot3(axesHandle, edgeVertices(:, 1), edgeVertices(:, 2), edgeVertices(:, 3), ...
-        "k--", "LineWidth", 0.8, "HandleVisibility", "off");
+    writetable(runData.subjects(subjectIndex).samples, workbookPath, 'Sheet', char(sheetName));
 end
 end
 
