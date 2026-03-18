@@ -213,6 +213,11 @@ void handleCommand(char* packetBuffer, uint32_t boardRxUs, const IPAddress& remo
     handleSetCommand(context, boardRxUs, remoteIp, remotePort);
     return;
   }
+    
+  if (strcmp(commandName, "SET_ALL") == 0) {
+    handleSetAllCommand(context, boardRxUs, remoteIp, remotePort);
+    return;
+  }
 
   sendErrorEvent(remoteIp, remotePort, F("UNKNOWN_COMMAND"));
 }
@@ -282,6 +287,66 @@ void handleSetCommand(char* context, uint32_t boardRxUs, const IPAddress& remote
   gUdp.print(',');
   gUdp.print(pulseUs);
   gUdp.endPacket();
+}
+
+void handleSetAllCommand(char* context, uint32_t boardRxUs, const IPAddress& remoteIp, uint16_t remotePort) {
+  char* sampleSequenceToken = strtok_r(nullptr, ",", &context);
+  char* surfaceCountToken = strtok_r(nullptr, ",", &context);
+
+  uint32_t sampleSequence = 0;
+  uint32_t surfaceCount = 0;
+
+  if (!parseUnsigned32(sampleSequenceToken, sampleSequence) ||
+      !parseUnsigned32(surfaceCountToken, surfaceCount)) {
+    sendErrorEvent(remoteIp, remotePort, F("SET_ALL_PARSE_ERROR"));
+    return;
+  }
+
+  if (surfaceCount == 0) {
+    sendErrorEvent(remoteIp, remotePort, F("SET_ALL_EMPTY"));
+    return;
+  }
+
+  for (uint32_t k = 0; k < surfaceCount; ++k) {
+    char* surfaceNameToken = strtok_r(nullptr, ",", &context);
+    char* sequenceToken = strtok_r(nullptr, ",", &context);
+    char* positionToken = strtok_r(nullptr, ",", &context);
+
+    int surfaceIndex = findSurfaceIndex(surfaceNameToken);
+    uint32_t commandSequence = 0;
+    float positionNorm = 0.0f;
+
+    if (surfaceIndex < 0 ||
+        !parseUnsigned32(sequenceToken, commandSequence) ||
+        !parseFloat(positionToken, positionNorm)) {
+      sendErrorEvent(remoteIp, remotePort, F("SET_ALL_ITEM_PARSE_ERROR"));
+      return;
+    }
+
+    positionNorm = constrain(positionNorm, 0.0f, 1.0f);
+    uint16_t pulseUs = applySurfacePosition(static_cast<size_t>(surfaceIndex), positionNorm);
+    uint32_t applyUs = micros();
+
+    appendCommandLog(commandSequence, boardRxUs, applyUs, positionNorm, pulseUs, static_cast<uint8_t>(surfaceIndex));
+
+    if (!beginEventPacket(remoteIp, remotePort)) {
+      continue;
+    }
+
+    gUdp.print(F("COMMAND_EVENT,"));
+    gUdp.print(Config::kSurfaceNames[surfaceIndex]);
+    gUdp.print(',');
+    gUdp.print(commandSequence);
+    gUdp.print(',');
+    gUdp.print(boardRxUs);
+    gUdp.print(',');
+    gUdp.print(applyUs);
+    gUdp.print(',');
+    gUdp.print(positionNorm, 6);
+    gUdp.print(',');
+    gUdp.print(pulseUs);
+    gUdp.endPacket();
+  }
 }
 
 bool beginEventPacket(const IPAddress& remoteIp, uint16_t remotePort) {
