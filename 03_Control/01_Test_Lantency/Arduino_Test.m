@@ -2,8 +2,9 @@ function runData = Arduino_Test(config)
 %ARDUINO_TEST Execute an Arduino-only servo command test over WiFi.
 %   runData = Arduino_Test(config) connects to the Arduino Nano 33 IoT,
 %   commands one or all four servos with a configurable profile, logs the
-%   desired commands, and logs the Arduino-applied commands via
-%   readPosition.
+%   desired commands, and optionally imports an Arduino-side echo log
+%   during post-processing to evaluate command latency without disturbing
+%   the inner loop.
 arguments
     config (1,1) struct = struct()
 end
@@ -15,12 +16,17 @@ runData.runInfo.startTime = datetime("now");
 assignin("base", "ArduinoTestLatestState", struct([]));
 assignin("base", "ArduinoTestRunData", runData);
 
-arduinoConnection = [];
-servoObjects = {};
-cleanupHandle = onCleanup(@() cleanupResources(arduinoConnection, servoObjects, config));
+commandInterface = struct();
+cleanupHandle = onCleanup(@() cleanupResources(commandInterface, config));
 
 try
-    [arduinoConnection, servoObjects, arduinoInfo] = connectToArduino(config);
+    [commandInterface, arduinoInfo] = connectToArduino(config);
+    config.arduinoTransport.resolvedMode = arduinoInfo.transportResolvedMode;
+    if arduinoInfo.isConnected && config.arduinoTransport.resolvedMode ~= "nano_logger_tcp"
+        config.arduinoTransport.captureMessage = ...
+            "No integrated Nano logger capture; transport resolved to " + config.arduinoTransport.resolvedMode + ".";
+    end
+    runData.config = config;
     runData.connectionInfo.arduino = arduinoInfo;
     assignin("base", "ArduinoTestRunData", runData);
 
@@ -35,10 +41,11 @@ try
 
     printConnectionStatus(runData);
 
-    moveServosToNeutral(servoObjects, config.servoNeutralPositions);
+    moveServosToNeutral(commandInterface, config.servoNeutralPositions);
     pause(config.neutralSettleSeconds);
 
-    [storage, runInfo] = executeArduinoTest(servoObjects, config);
+    [storage, runInfo, config] = executeArduinoTest(commandInterface, config);
+    runData.config = config;
     runData.runInfo = runInfo;
     runData.logs = buildLogTimetables(storage, config);
     runData.surfaceSummary = buildSurfaceSummary(storage, config);
@@ -48,7 +55,7 @@ try
     assignin("base", "ArduinoTestLatestState", buildLatestState(storage, config, storage.sampleCount));
 
     clear cleanupHandle
-    cleanupResources(arduinoConnection, servoObjects, config);
+    cleanupResources(commandInterface, config);
 catch executionException
     runData.runInfo.status = "failed";
     runData.runInfo.reason = string(executionException.message);
@@ -81,6 +88,9 @@ config.commandDeflectionOffsetsDegrees = getNumericColumnField(config, "commandD
 config.commandMode = getTextScalarField(config, "commandMode", "single");
 config.singleSurfaceName = getTextScalarField(config, "singleSurfaceName", "Aileron_L");
 config.commandProfile = normalizeCommandProfile(getFieldOrDefault(config, "commandProfile", struct()));
+config.arduinoEchoImport = normalizeArduinoEchoImportConfig( ...
+    getFieldOrDefault(config, "arduinoEchoImport", struct()), ...
+    rootFolder);
 
 config.neutralSettleSeconds = getPositiveScalarField(config, "neutralSettleSeconds", 1.0);
 config.returnToNeutralOnExit = getLogicalField(config, "returnToNeutralOnExit", true);
@@ -96,6 +106,11 @@ if strlength(config.runLabel) == 0
     timeStamp = string(datetime("now", "Format", "yyyyMMdd_HHmmss"));
     config.runLabel = timeStamp + "_Test";
 end
+
+config.arduinoTransport = normalizeArduinoTransportConfig( ...
+    getFieldOrDefault(config, "arduinoTransport", struct()), ...
+    config.outputFolder, ...
+    config.runLabel);
 
 validateattributes(config.arduinoPort, {"numeric"}, {"real", "scalar"}, char(mfilename), 'arduinoPort');
 
@@ -200,6 +215,72 @@ if commandProfile.type == "function" && isempty(commandProfile.customFunction)
 end
 end
 
+function arduinoEchoImport = normalizeArduinoEchoImportConfig(arduinoEchoImportConfig, rootFolder)
+if isempty(arduinoEchoImportConfig)
+    arduinoEchoImportConfig = struct();
+end
+
+arduinoEchoImport = struct( ...
+    "filePath", getOptionalTextScalarField(arduinoEchoImportConfig, "filePath", ""), ...
+    "sheetName", getOptionalTextScalarField(arduinoEchoImportConfig, "sheetName", ""), ...
+    "surfaceColumn", getTextScalarField(arduinoEchoImportConfig, "surfaceColumn", "surface_name"), ...
+    "sequenceColumn", getTextScalarField(arduinoEchoImportConfig, "sequenceColumn", "command_sequence"), ...
+    "latencyColumn", getTextScalarField(arduinoEchoImportConfig, "latencyColumn", "computer_to_arduino_latency_s"), ...
+    "echoTimeColumn", getOptionalTextScalarField(arduinoEchoImportConfig, "echoTimeColumn", ""), ...
+    "matlabTimeOffsetSeconds", getScalarField(arduinoEchoImportConfig, "matlabTimeOffsetSeconds", 0.0), ...
+    "appliedPositionColumn", getOptionalTextScalarField(arduinoEchoImportConfig, "appliedPositionColumn", "applied_position"), ...
+    "appliedEquivalentDegreesColumn", getOptionalTextScalarField(arduinoEchoImportConfig, "appliedEquivalentDegreesColumn", "applied_equivalent_deg"), ...
+    "autoDiscoverLatest", getLogicalField(arduinoEchoImportConfig, "autoDiscoverLatest", true), ...
+    "loggerOutputFolder", getOptionalTextScalarField( ...
+        arduinoEchoImportConfig, ...
+        "loggerOutputFolder", ...
+        fullfile(rootFolder, "E_Nano33IoT_Echo_Logger", "output")), ...
+    "tableData", table());
+
+if isfield(arduinoEchoImportConfig, "tableData")
+    tableData = arduinoEchoImportConfig.tableData;
+    if isempty(tableData)
+        tableData = table();
+    end
+
+    if ~istable(tableData)
+        error("Arduino_Test:InvalidArduinoEchoImport", "arduinoEchoImport.tableData must be a table when provided.");
+    end
+
+    arduinoEchoImport.tableData = tableData;
+end
+end
+
+function arduinoTransport = normalizeArduinoTransportConfig(arduinoTransportConfig, outputFolder, runLabel)
+if isempty(arduinoTransportConfig)
+    arduinoTransportConfig = struct();
+end
+
+defaultLoggerOutputFolder = fullfile(outputFolder, runLabel + "_ArduinoLogger");
+arduinoTransport = struct( ...
+    "mode", getTextScalarField(arduinoTransportConfig, "mode", "nano_logger_tcp"), ...
+    "resolvedMode", "", ...
+    "loggerPort", getPositiveIntegerField(arduinoTransportConfig, "loggerPort", 9500), ...
+    "loggerProbeTimeoutSeconds", getPositiveScalarField(arduinoTransportConfig, "loggerProbeTimeoutSeconds", 1.0), ...
+    "loggerTimeoutSeconds", getPositiveScalarField(arduinoTransportConfig, "loggerTimeoutSeconds", 5.0), ...
+    "syncCountBeforeRun", getNonnegativeIntegerField(arduinoTransportConfig, "syncCountBeforeRun", 10), ...
+    "syncCountAfterRun", getNonnegativeIntegerField(arduinoTransportConfig, "syncCountAfterRun", 10), ...
+    "syncPauseSeconds", getNonnegativeScalarField(arduinoTransportConfig, "syncPauseSeconds", 0.05), ...
+    "postRunSettleSeconds", getNonnegativeScalarField(arduinoTransportConfig, "postRunSettleSeconds", 0.25), ...
+    "clearLogsBeforeRun", getLogicalField(arduinoTransportConfig, "clearLogsBeforeRun", true), ...
+    "loggerOutputFolder", getOptionalTextScalarField(arduinoTransportConfig, "loggerOutputFolder", defaultLoggerOutputFolder), ...
+    "captureSucceeded", false, ...
+    "captureMessage", "", ...
+    "captureRowCount", 0);
+
+validTransportModes = ["auto", "mathworks_servo", "nano_logger_tcp"];
+if ~any(arduinoTransport.mode == validTransportModes)
+    error("Arduino_Test:InvalidArduinoTransportMode", ...
+        "arduinoTransport.mode must be one of: %s.", ...
+        char(join(validTransportModes, ", ")));
+end
+end
+
 function runData = initializeRunData(config)
 runData = struct( ...
     "config", config, ...
@@ -219,10 +300,8 @@ runData = struct( ...
         "workbookPath", ""));
 end
 
-function [arduinoConnection, servoObjects, connectionInfo] = connectToArduino(config)
-surfaceCount = numel(config.surfaceNames);
-servoObjects = cell(surfaceCount, 1);
-arduinoConnection = [];
+function [commandInterface, connectionInfo] = connectToArduino(config)
+commandInterface = struct();
 
 connectionInfo = struct( ...
     "ipAddress", config.arduinoIPAddress, ...
@@ -233,31 +312,156 @@ connectionInfo = struct( ...
     "connectionMessage", "", ...
     "availableLibraries", strings(0, 1), ...
     "surfaceNames", config.surfaceNames, ...
-    "surfacePins", config.surfacePins);
+    "surfacePins", config.surfacePins, ...
+    "transportRequestedMode", config.arduinoTransport.mode, ...
+    "transportResolvedMode", "", ...
+    "loggerPort", config.arduinoTransport.loggerPort, ...
+    "loggerGreeting", "", ...
+    "loggerFirmwareVersion", "", ...
+    "transportDiagnostics", strings(0, 1));
 
 connectStart = tic;
-try
-    arduinoConnection = createArduinoConnection(config);
+attemptModes = resolveArduinoTransportAttemptModes(config.arduinoTransport.mode);
+transportDiagnostics = strings(0, 1);
 
-    if isprop(arduinoConnection, "Libraries")
-        connectionInfo.availableLibraries = reshape(string(arduinoConnection.Libraries), [], 1);
+for attemptIndex = 1:numel(attemptModes)
+    attemptMode = attemptModes(attemptIndex);
+
+    try
+        switch attemptMode
+            case "nano_logger_tcp"
+                loggerTimeoutSeconds = config.arduinoTransport.loggerTimeoutSeconds;
+                if config.arduinoTransport.mode == "auto"
+                    loggerTimeoutSeconds = config.arduinoTransport.loggerProbeTimeoutSeconds;
+                end
+
+                [commandInterface, loggerGreeting, firmwareVersion] = ...
+                    createNanoLoggerCommandInterface(config, loggerTimeoutSeconds);
+                connectionInfo.loggerGreeting = loggerGreeting;
+                connectionInfo.loggerFirmwareVersion = firmwareVersion;
+                connectionInfo.connectionMessage = "Connected via Nano logger TCP.";
+            otherwise
+                [commandInterface, availableLibraries] = createMathWorksCommandInterface(config);
+                connectionInfo.availableLibraries = availableLibraries;
+                connectionInfo.connectionMessage = "Connected via MathWorks arduino()/servo().";
+        end
+
+        connectionInfo.isConnected = true;
+        connectionInfo.transportResolvedMode = attemptMode;
+        break;
+    catch connectionException
+        transportDiagnostics(end + 1, 1) = ...
+            attemptMode + ": " + string(connectionException.message); %#ok<AGROW>
     end
-
-    for surfaceIndex = 1:surfaceCount
-        servoObjects{surfaceIndex} = createServoObject( ...
-            arduinoConnection, ...
-            config.surfacePins(surfaceIndex), ...
-            config.servoMinPulseDurationSeconds(surfaceIndex), ...
-            config.servoMaxPulseDurationSeconds(surfaceIndex));
-    end
-
-    connectionInfo.isConnected = true;
-    connectionInfo.connectionMessage = "Connected";
-catch connectionException
-    connectionInfo.connectionMessage = string(connectionException.message);
 end
 
+if ~connectionInfo.isConnected
+    if ~isempty(transportDiagnostics)
+        connectionInfo.connectionMessage = transportDiagnostics(end);
+    else
+        connectionInfo.connectionMessage = "No Arduino transport attempts were made.";
+    end
+end
+
+connectionInfo.transportDiagnostics = transportDiagnostics;
 connectionInfo.connectElapsedSeconds = toc(connectStart);
+end
+
+function attemptModes = resolveArduinoTransportAttemptModes(requestedMode)
+switch requestedMode
+    case "auto"
+        attemptModes = ["nano_logger_tcp"; "mathworks_servo"];
+    case "nano_logger_tcp"
+        attemptModes = "nano_logger_tcp";
+    otherwise
+        attemptModes = "mathworks_servo";
+end
+end
+
+function [commandInterface, availableLibraries] = createMathWorksCommandInterface(config)
+surfaceCount = numel(config.surfaceNames);
+servoObjects = cell(surfaceCount, 1);
+arduinoConnection = createArduinoConnection(config);
+availableLibraries = strings(0, 1);
+
+if isprop(arduinoConnection, "Libraries")
+    availableLibraries = reshape(string(arduinoConnection.Libraries), [], 1);
+end
+
+for surfaceIndex = 1:surfaceCount
+    servoObjects{surfaceIndex} = createServoObject( ...
+        arduinoConnection, ...
+        config.surfacePins(surfaceIndex), ...
+        config.servoMinPulseDurationSeconds(surfaceIndex), ...
+        config.servoMaxPulseDurationSeconds(surfaceIndex));
+end
+
+commandInterface = struct( ...
+    "transportMode", "mathworks_servo", ...
+    "connection", arduinoConnection, ...
+    "servoObjects", {servoObjects}, ...
+    "surfaceNames", config.surfaceNames);
+end
+
+function [commandInterface, greeting, firmwareVersion] = createNanoLoggerCommandInterface(config, timeoutSeconds)
+loggerClient = tcpclient( ...
+    char(config.arduinoIPAddress), ...
+    config.arduinoTransport.loggerPort, ...
+    "ConnectTimeout", timeoutSeconds, ...
+    "Timeout", timeoutSeconds);
+
+greeting = waitForNanoLoggerHelloReply(loggerClient, timeoutSeconds);
+
+if strlength(greeting) == 0
+    error("Arduino_Test:MissingNanoLoggerGreeting", ...
+        "The Nano logger did not send a HELLO_REPLY on port %d.", ...
+        config.arduinoTransport.loggerPort);
+end
+
+[firmwareVersion, ~, ~] = parseNanoLoggerHelloReply(greeting);
+commandInterface = struct( ...
+    "transportMode", "nano_logger_tcp", ...
+    "connection", loggerClient, ...
+    "servoObjects", {cell(numel(config.surfaceNames), 1)}, ...
+    "surfaceNames", config.surfaceNames);
+end
+
+function [firmwareVersion, boardIpAddress, boardPort] = parseNanoLoggerHelloReply(greeting)
+greetingParts = split(string(strtrim(greeting)), ",");
+if numel(greetingParts) ~= 5 || greetingParts(1) ~= "HELLO_REPLY"
+    error("Arduino_Test:InvalidNanoLoggerGreeting", ...
+        "Unexpected Nano logger greeting: %s", ...
+        char(greeting));
+end
+
+firmwareVersion = greetingParts(2);
+boardIpAddress = greetingParts(3);
+boardPort = str2double(greetingParts(4));
+end
+
+function greeting = waitForNanoLoggerHelloReply(loggerClient, timeoutSeconds)
+greeting = "";
+requestHelloAfterSeconds = min(0.5, timeoutSeconds);
+pollIntervalSeconds = 0.05;
+waitStart = tic;
+helloRequested = false;
+
+while toc(waitStart) < timeoutSeconds
+    while loggerClient.NumBytesAvailable > 0
+        nextLine = string(strtrim(readline(loggerClient)));
+        if startsWith(nextLine, "HELLO_REPLY")
+            greeting = nextLine;
+            return;
+        end
+    end
+
+    if ~helloRequested && toc(waitStart) >= requestHelloAfterSeconds
+        writeline(loggerClient, "HELLO");
+        helloRequested = true;
+    end
+
+    pause(pollIntervalSeconds);
+end
 end
 
 function arduinoConnection = createArduinoConnection(config)
@@ -285,6 +489,10 @@ fprintf("\nArduino_Test connection summary\n");
 fprintf("  Arduino (%s): %s\n", ...
     runData.config.arduinoIPAddress, ...
     char(getStatusText(runData.connectionInfo.arduino)));
+if isfield(runData.connectionInfo.arduino, "transportResolvedMode") && ...
+        strlength(runData.connectionInfo.arduino.transportResolvedMode) > 0
+    fprintf("  Transport mode: %s\n", char(runData.connectionInfo.arduino.transportResolvedMode));
+end
 fprintf("  Active command surfaces: %s\n\n", char(join(runData.config.activeSurfaceNames, ", ")));
 end
 
@@ -302,7 +510,7 @@ else
 end
 end
 
-function [storage, runInfo] = executeArduinoTest(servoObjects, config)
+function [storage, runInfo, config] = executeArduinoTest(commandInterface, config)
 [scheduledTimeSeconds, profileInfo] = buildCommandSchedule(config.commandProfile);
 surfaceCount = numel(config.surfaceNames);
 sampleCount = numel(scheduledTimeSeconds);
@@ -319,11 +527,21 @@ runInfo = struct( ...
     "sampleCount", 0, ...
     "scheduledDurationSeconds", profileInfo.totalDurationSeconds);
 
-testStart = tic;
+if isNanoLoggerTransport(commandInterface)
+    loggerSession = startNanoLoggerSession(commandInterface, config, sampleCount);
+    testStart = loggerSession.hostTimer;
+    testStartOffsetSeconds = loggerSession.testStartOffsetSeconds;
+else
+    loggerSession = createEmptyNanoLoggerSession();
+    testStart = tic;
+    testStartOffsetSeconds = 0;
+end
+
+surfaceCommandCounts = zeros(1, surfaceCount);
 
 for sampleIndex = 1:sampleCount
     scheduledSampleTimeSeconds = scheduledTimeSeconds(sampleIndex);
-    waitForScheduledTime(testStart, scheduledSampleTimeSeconds);
+    waitForScheduledTime(testStart, testStartOffsetSeconds + scheduledSampleTimeSeconds);
 
     baseCommandDegrees = evaluateBaseCommandDegrees(profileInfo, scheduledSampleTimeSeconds);
     desiredDeflectionsDegrees = zeros(1, surfaceCount);
@@ -339,46 +557,45 @@ for sampleIndex = 1:sampleCount
         config.servoMaximumPositions.');
     saturatedMask = abs(commandedServoPositionsClipped - commandedServoPositions) > 10 .* eps;
 
-    storage.commandWriteStartSeconds(sampleIndex) = toc(testStart);
-    commandDispatchSeconds = writeServoPositions( ...
-        servoObjects, ...
+    nextCommandSequenceNumbers = nan(1, surfaceCount);
+    nextCommandSequenceNumbers(config.activeSurfaceMask.') = ...
+        surfaceCommandCounts(config.activeSurfaceMask.') + 1;
+
+    storage.commandWriteStartSeconds(sampleIndex) = max(0, toc(testStart) - testStartOffsetSeconds);
+    [commandDispatchSeconds, commandWriteStopSeconds, loggerSession] = writeServoPositions( ...
+        commandInterface, ...
         commandedServoPositionsClipped, ...
         testStart, ...
-        config.activeSurfaceMask.');
+        config.activeSurfaceMask.', ...
+        config.surfaceNames, ...
+        nextCommandSequenceNumbers, ...
+        loggerSession);
     storage.commandDispatchSeconds(sampleIndex, :) = commandDispatchSeconds;
-    storage.commandWriteStopSeconds(sampleIndex) = lastFiniteTimestamp( ...
-        commandDispatchSeconds, ...
-        storage.commandWriteStartSeconds(sampleIndex));
-
-    storage.arduinoReadStartSeconds(sampleIndex) = toc(testStart);
-    [appliedServoPositions, arduinoEchoSeconds] = readServoPositions( ...
-        servoObjects, ...
-        testStart, ...
-        config.activeSurfaceMask.');
-    appliedServoPositions(~config.activeSurfaceMask.') = config.servoNeutralPositions(~config.activeSurfaceMask).';
-    storage.arduinoEchoSeconds(sampleIndex, :) = arduinoEchoSeconds;
-    storage.arduinoReadStopSeconds(sampleIndex) = lastFiniteTimestamp( ...
-        arduinoEchoSeconds, ...
-        storage.arduinoReadStartSeconds(sampleIndex));
+    storage.commandWriteStopSeconds(sampleIndex) = commandWriteStopSeconds;
+    surfaceCommandCounts(config.activeSurfaceMask.') = nextCommandSequenceNumbers(config.activeSurfaceMask.');
+    storage.commandSequenceNumbers(sampleIndex, config.activeSurfaceMask.') = ...
+        nextCommandSequenceNumbers(config.activeSurfaceMask.');
 
     storage.sampleCount = sampleIndex;
     storage.baseCommandDegrees(sampleIndex) = baseCommandDegrees;
     storage.desiredDeflectionsDegrees(sampleIndex, :) = desiredDeflectionsDegrees;
     storage.commandedServoPositions(sampleIndex, :) = commandedServoPositionsClipped;
     storage.commandSaturated(sampleIndex, :) = saturatedMask;
-    storage.appliedServoPositions(sampleIndex, :) = appliedServoPositions;
-    storage.appliedEquivalentDegrees(sampleIndex, :) = ...
-        (appliedServoPositions - config.servoNeutralPositions.') ./ config.servoUnitsPerDegree.';
 
     assignin("base", "ArduinoTestLatestState", buildLatestState(storage, config, sampleIndex));
 end
 
+if isNanoLoggerTransport(commandInterface)
+    config = finalizeNanoLoggerSession(commandInterface, loggerSession, config);
+end
+
+storage = finalizeArduinoEcho(storage, config);
 runInfo.status = "completed";
 runInfo.stopTime = datetime("now");
 runInfo.sampleCount = storage.sampleCount;
 
 if config.returnToNeutralOnExit
-    moveServosToNeutral(servoObjects, config.servoNeutralPositions);
+    moveServosToNeutral(commandInterface, config.servoNeutralPositions);
 end
 end
 
@@ -443,6 +660,7 @@ storage = struct( ...
     "commandWriteStartSeconds", nan(sampleCount, 1), ...
     "commandWriteStopSeconds", nan(sampleCount, 1), ...
     "commandDispatchSeconds", nan(sampleCount, surfaceCount), ...
+    "commandSequenceNumbers", nan(sampleCount, surfaceCount), ...
     "arduinoReadStartSeconds", nan(sampleCount, 1), ...
     "arduinoReadStopSeconds", nan(sampleCount, 1), ...
     "arduinoEchoSeconds", nan(sampleCount, surfaceCount), ...
@@ -454,62 +672,793 @@ storage = struct( ...
     "profileInfo", struct());
 end
 
-function moveServosToNeutral(servoObjects, neutralPositions)
-neutralRow = reshape(neutralPositions, 1, []);
-writeServoPositions(servoObjects, neutralRow);
+function moveServosToNeutral(commandInterface, neutralPositions)
+if isempty(fieldnames(commandInterface))
+    return;
 end
 
-function dispatchTimesSeconds = writeServoPositions(servoObjects, servoPositions, referenceTimer, activeSurfaceMask)
+if isNanoLoggerTransport(commandInterface)
+    requestNanoLoggerReply(commandInterface.connection, "SET_NEUTRAL");
+    return;
+end
+
+neutralRow = reshape(neutralPositions, 1, []);
+writeServoPositions(commandInterface, neutralRow);
+end
+
+function [dispatchTimesSeconds, writeStopSeconds, loggerSession] = writeServoPositions( ...
+    commandInterface, ...
+    servoPositions, ...
+    referenceTimer, ...
+    activeSurfaceMask, ...
+    surfaceNames, ...
+    commandSequenceNumbers, ...
+    loggerSession)
 if nargin < 3
     referenceTimer = [];
 end
 
 if nargin < 4 || isempty(activeSurfaceMask)
-    activeSurfaceMask = true(1, numel(servoObjects));
+    activeSurfaceMask = true(1, numel(commandInterface.surfaceNames));
 end
 
-dispatchTimesSeconds = nan(1, numel(servoObjects));
+if nargin < 5 || isempty(surfaceNames)
+    surfaceNames = commandInterface.surfaceNames;
+end
 
-for surfaceIndex = 1:numel(servoObjects)
-    if ~activeSurfaceMask(surfaceIndex)
+if nargin < 6 || isempty(commandSequenceNumbers)
+    commandSequenceNumbers = nan(1, numel(surfaceNames));
+end
+
+if nargin < 7 || isempty(loggerSession)
+    loggerSession = createEmptyNanoLoggerSession();
+end
+
+dispatchTimesSeconds = nan(1, numel(surfaceNames));
+writeStopSeconds = NaN;
+
+switch commandInterface.transportMode
+    case "nano_logger_tcp"
+        for surfaceIndex = 1:numel(surfaceNames)
+            if ~activeSurfaceMask(surfaceIndex)
+                continue;
+            end
+
+            commandSequence = commandSequenceNumbers(surfaceIndex);
+            if ~isfinite(commandSequence)
+                error("Arduino_Test:MissingNanoLoggerSequence", ...
+                    "Missing command sequence for surface %s.", ...
+                    char(surfaceNames(surfaceIndex)));
+            end
+
+            dispatchAbsoluteUs = hostNowUs(loggerSession.hostTimer);
+            commandLine = sprintf( ...
+                "SET,%s,%u,%.6f", ...
+                char(surfaceNames(surfaceIndex)), ...
+                uint32(commandSequence), ...
+                servoPositions(surfaceIndex));
+            writeline(commandInterface.connection, commandLine);
+
+            loggerSession = appendNanoLoggerDispatchRow( ...
+                loggerSession, ...
+                surfaceNames(surfaceIndex), ...
+                commandSequence, ...
+                dispatchAbsoluteUs, ...
+                servoPositions(surfaceIndex));
+
+            if ~isempty(referenceTimer)
+                dispatchTimesSeconds(surfaceIndex) = max( ...
+                    0, ...
+                    (double(dispatchAbsoluteUs) - double(loggerSession.testStartOffsetUs)) ./ 1e6);
+            end
+        end
+
+        if ~isempty(referenceTimer)
+            writeStopSeconds = max(0, toc(referenceTimer) - loggerSession.testStartOffsetSeconds);
+        end
+    otherwise
+        for surfaceIndex = 1:numel(commandInterface.servoObjects)
+            if ~activeSurfaceMask(surfaceIndex)
+                continue;
+            end
+
+            writePosition(commandInterface.servoObjects{surfaceIndex}, servoPositions(surfaceIndex));
+
+            if ~isempty(referenceTimer)
+                dispatchTimesSeconds(surfaceIndex) = toc(referenceTimer);
+            end
+        end
+
+        if ~isempty(referenceTimer)
+            writeStopSeconds = toc(referenceTimer);
+        end
+end
+end
+
+function loggerSession = createEmptyNanoLoggerSession()
+loggerSession = struct( ...
+    "isEnabled", false, ...
+    "hostTimer", [], ...
+    "testStartOffsetUs", uint32(0), ...
+    "testStartOffsetSeconds", 0, ...
+    "dispatchCount", 0, ...
+    "dispatchSurfaceName", strings(0, 1), ...
+    "dispatchCommandSequence", zeros(0, 1), ...
+    "dispatchCommandUs", zeros(0, 1), ...
+    "dispatchPosition", zeros(0, 1), ...
+    "syncCount", 0, ...
+    "syncId", zeros(0, 1), ...
+    "syncHostTxUs", zeros(0, 1), ...
+    "syncHostRxUs", zeros(0, 1), ...
+    "syncBoardRxUs", zeros(0, 1), ...
+    "syncBoardTxUs", zeros(0, 1));
+end
+
+function loggerSession = startNanoLoggerSession(commandInterface, config, sampleCount)
+activeSurfaceCount = nnz(config.activeSurfaceMask);
+dispatchCapacity = sampleCount .* activeSurfaceCount;
+syncCapacity = config.arduinoTransport.syncCountBeforeRun + config.arduinoTransport.syncCountAfterRun;
+
+loggerSession = struct( ...
+    "isEnabled", true, ...
+    "hostTimer", tic, ...
+    "testStartOffsetUs", uint32(0), ...
+    "testStartOffsetSeconds", 0, ...
+    "dispatchCount", 0, ...
+    "dispatchSurfaceName", strings(dispatchCapacity, 1), ...
+    "dispatchCommandSequence", nan(dispatchCapacity, 1), ...
+    "dispatchCommandUs", nan(dispatchCapacity, 1), ...
+    "dispatchPosition", nan(dispatchCapacity, 1), ...
+    "syncCount", 0, ...
+    "syncId", nan(syncCapacity, 1), ...
+    "syncHostTxUs", nan(syncCapacity, 1), ...
+    "syncHostRxUs", nan(syncCapacity, 1), ...
+    "syncBoardRxUs", nan(syncCapacity, 1), ...
+    "syncBoardTxUs", nan(syncCapacity, 1));
+
+if config.arduinoTransport.clearLogsBeforeRun
+    requestNanoLoggerReply(commandInterface.connection, "CLEAR_LOGS");
+end
+
+for syncIndex = 1:config.arduinoTransport.syncCountBeforeRun
+    loggerSession = appendNanoLoggerSyncRow( ...
+        loggerSession, ...
+        sendNanoLoggerSync(commandInterface.connection, loggerSession.hostTimer, uint32(syncIndex)));
+    pause(config.arduinoTransport.syncPauseSeconds);
+end
+
+loggerSession.testStartOffsetUs = hostNowUs(loggerSession.hostTimer);
+loggerSession.testStartOffsetSeconds = double(loggerSession.testStartOffsetUs) ./ 1e6;
+end
+
+function config = finalizeNanoLoggerSession(commandInterface, loggerSession, config)
+if ~loggerSession.isEnabled
+    return;
+end
+
+try
+    if config.returnToNeutralOnExit
+        requestNanoLoggerReply(commandInterface.connection, "SET_NEUTRAL");
+    end
+
+    pause(config.arduinoTransport.postRunSettleSeconds);
+
+    for syncIndex = 1:config.arduinoTransport.syncCountAfterRun
+        syncId = uint32(config.arduinoTransport.syncCountBeforeRun + syncIndex);
+        loggerSession = appendNanoLoggerSyncRow( ...
+            loggerSession, ...
+            sendNanoLoggerSync(commandInterface.connection, loggerSession.hostTimer, syncId));
+        pause(config.arduinoTransport.syncPauseSeconds);
+    end
+
+    loggerOutputFolder = config.arduinoTransport.loggerOutputFolder;
+    if strlength(loggerOutputFolder) == 0
+        loggerOutputFolder = fullfile(config.outputFolder, config.runLabel + "_ArduinoLogger");
+        config.arduinoTransport.loggerOutputFolder = loggerOutputFolder;
+    end
+
+    if ~isfolder(loggerOutputFolder)
+        mkdir(loggerOutputFolder);
+    end
+
+    hostDispatchLog = buildNanoLoggerDispatchTable(loggerSession);
+    syncRoundTripLog = buildNanoLoggerSyncRoundTripTable(loggerSession);
+    commandDumpLines = requestNanoLoggerDump(commandInterface.connection, "DUMP_COMMAND_LOG", "#COMMAND_LOG_END");
+    syncDumpLines = requestNanoLoggerDump(commandInterface.connection, "DUMP_SYNC_LOG", "#SYNC_LOG_END");
+
+    hostDispatchCsvPath = fullfile(loggerOutputFolder, "host_dispatch_log.csv");
+    syncRoundTripCsvPath = fullfile(loggerOutputFolder, "host_sync_roundtrip.csv");
+    boardCommandLogCsvPath = fullfile(loggerOutputFolder, "board_command_log.csv");
+    boardSyncLogCsvPath = fullfile(loggerOutputFolder, "board_sync_log.csv");
+    echoImportCsvPath = fullfile(loggerOutputFolder, "arduino_echo_import.csv");
+
+    writetable(hostDispatchLog, hostDispatchCsvPath);
+    writetable(syncRoundTripLog, syncRoundTripCsvPath);
+    writelines(commandDumpLines, boardCommandLogCsvPath);
+    writelines(syncDumpLines, boardSyncLogCsvPath);
+
+    echoImportTable = buildArduinoEchoImportTableFromLoggerRawFiles( ...
+        hostDispatchCsvPath, ...
+        syncRoundTripCsvPath, ...
+        boardCommandLogCsvPath, ...
+        config.activeSurfaceNames);
+
+    if ismember("arduino_echo_time_s", string(echoImportTable.Properties.VariableNames))
+        echoImportTable.arduino_echo_time_s(:) = nan(height(echoImportTable), 1);
+    end
+
+    writetable(echoImportTable, echoImportCsvPath);
+
+    config.arduinoEchoImport.filePath = string(echoImportCsvPath);
+    config.arduinoEchoImport.loggerOutputFolder = string(loggerOutputFolder);
+    config.arduinoEchoImport.tableData = echoImportTable;
+    config.arduinoTransport.captureSucceeded = true;
+    config.arduinoTransport.captureMessage = ...
+        "Captured " + height(echoImportTable) + " Arduino logger rows.";
+    config.arduinoTransport.captureRowCount = height(echoImportTable);
+catch captureException
+    warning("Arduino_Test:ArduinoLoggerCaptureFailed", ...
+        "Failed to capture Arduino logger output: %s", ...
+        captureException.message);
+    config.arduinoEchoImport.tableData = table();
+    config.arduinoTransport.captureSucceeded = false;
+    config.arduinoTransport.captureMessage = string(captureException.message);
+    config.arduinoTransport.captureRowCount = 0;
+end
+end
+
+function loggerSession = appendNanoLoggerDispatchRow( ...
+    loggerSession, ...
+    surfaceName, ...
+    commandSequence, ...
+    commandDispatchUs, ...
+    commandPosition)
+loggerSession.dispatchCount = loggerSession.dispatchCount + 1;
+rowIndex = loggerSession.dispatchCount;
+
+loggerSession.dispatchSurfaceName(rowIndex) = string(surfaceName);
+loggerSession.dispatchCommandSequence(rowIndex) = double(commandSequence);
+loggerSession.dispatchCommandUs(rowIndex) = double(commandDispatchUs);
+loggerSession.dispatchPosition(rowIndex) = double(commandPosition);
+end
+
+function loggerSession = appendNanoLoggerSyncRow(loggerSession, syncRow)
+loggerSession.syncCount = loggerSession.syncCount + 1;
+rowIndex = loggerSession.syncCount;
+
+loggerSession.syncId(rowIndex) = syncRow.sync_id;
+loggerSession.syncHostTxUs(rowIndex) = syncRow.host_tx_us;
+loggerSession.syncHostRxUs(rowIndex) = syncRow.host_rx_us;
+loggerSession.syncBoardRxUs(rowIndex) = syncRow.board_rx_us;
+loggerSession.syncBoardTxUs(rowIndex) = syncRow.board_tx_us;
+end
+
+function dispatchLog = buildNanoLoggerDispatchTable(loggerSession)
+rowIndices = 1:loggerSession.dispatchCount;
+dispatchLog = table( ...
+    loggerSession.dispatchSurfaceName(rowIndices), ...
+    loggerSession.dispatchCommandSequence(rowIndices), ...
+    loggerSession.dispatchCommandUs(rowIndices), ...
+    loggerSession.dispatchPosition(rowIndices), ...
+    'VariableNames', { ...
+        'surface_name', ...
+        'command_sequence', ...
+        'command_dispatch_us', ...
+        'position_norm'});
+end
+
+function syncRoundTripLog = buildNanoLoggerSyncRoundTripTable(loggerSession)
+rowIndices = 1:loggerSession.syncCount;
+syncRoundTripLog = table( ...
+    loggerSession.syncId(rowIndices), ...
+    loggerSession.syncHostTxUs(rowIndices), ...
+    loggerSession.syncHostRxUs(rowIndices), ...
+    loggerSession.syncBoardRxUs(rowIndices), ...
+    loggerSession.syncBoardTxUs(rowIndices), ...
+    'VariableNames', { ...
+        'sync_id', ...
+        'host_tx_us', ...
+        'host_rx_us', ...
+        'board_rx_us', ...
+        'board_tx_us'});
+end
+
+function syncRow = sendNanoLoggerSync(loggerClient, hostTimer, syncId)
+hostTxUs = hostNowUs(hostTimer);
+writeline(loggerClient, sprintf("SYNC,%u,%u", uint32(syncId), uint32(hostTxUs)));
+reply = readNanoLoggerProtocolLine(loggerClient);
+hostRxUs = hostNowUs(hostTimer);
+
+replyParts = split(reply, ",");
+if numel(replyParts) ~= 5 || replyParts(1) ~= "SYNC_REPLY"
+    error("Arduino_Test:InvalidNanoLoggerSyncReply", ...
+        "Unexpected Nano logger SYNC reply: %s", ...
+        char(reply));
+end
+
+syncRow = table( ...
+    double(str2double(replyParts(2))), ...
+    double(str2double(replyParts(3))), ...
+    double(hostRxUs), ...
+    double(str2double(replyParts(4))), ...
+    double(str2double(replyParts(5))), ...
+    'VariableNames', { ...
+        'sync_id', ...
+        'host_tx_us', ...
+        'host_rx_us', ...
+        'board_rx_us', ...
+        'board_tx_us'});
+end
+
+function reply = requestNanoLoggerReply(loggerClient, requestLine)
+writeline(loggerClient, char(requestLine));
+reply = readNanoLoggerProtocolLine(loggerClient);
+if startsWith(reply, "ERR,")
+    error("Arduino_Test:NanoLoggerCommandFailed", ...
+        "Arduino logger command failed: %s", ...
+        char(reply));
+end
+end
+
+function dumpLines = requestNanoLoggerDump(loggerClient, requestLine, endMarker)
+writeline(loggerClient, char(requestLine));
+dumpLines = strings(0, 1);
+
+while true
+    nextLine = readNanoLoggerProtocolLine(loggerClient);
+    dumpLines(end + 1, 1) = nextLine; %#ok<AGROW>
+    if nextLine == endMarker
+        return;
+    end
+end
+end
+
+function nextLine = readNanoLoggerProtocolLine(loggerClient, firstLine)
+if nargin >= 2
+    nextLine = string(strtrim(firstLine));
+else
+    nextLine = string(strtrim(readline(loggerClient)));
+end
+
+while startsWith(nextLine, "HELLO_REPLY")
+    nextLine = string(strtrim(readline(loggerClient)));
+end
+end
+
+function nowUs = hostNowUs(hostTimer)
+nowUs = uint32(round(toc(hostTimer) .* 1e6));
+end
+
+function isLogger = isNanoLoggerTransport(commandInterface)
+isLogger = ...
+    isstruct(commandInterface) && ...
+    isfield(commandInterface, "transportMode") && ...
+    commandInterface.transportMode == "nano_logger_tcp";
+end
+
+function storage = finalizeArduinoEcho(storage, config)
+sampleIndices = 1:storage.sampleCount;
+
+if isempty(sampleIndices)
+    return;
+end
+
+storage.appliedServoPositions(sampleIndices, :) = nan(numel(sampleIndices), numel(config.surfaceNames));
+storage.appliedEquivalentDegrees(sampleIndices, :) = nan(numel(sampleIndices), numel(config.surfaceNames));
+storage.arduinoReadStartSeconds(sampleIndices) = nan(numel(sampleIndices), 1);
+storage.arduinoReadStopSeconds(sampleIndices) = nan(numel(sampleIndices), 1);
+storage.arduinoEchoSeconds(sampleIndices, :) = nan(numel(sampleIndices), numel(config.surfaceNames));
+
+echoImportTable = loadArduinoEchoImportTable(config, config.activeSurfaceNames);
+if isempty(echoImportTable)
+    return;
+end
+
+commandLookup = buildArduinoCommandLookupTable(storage, config, sampleIndices);
+echoAssignments = assignArduinoEchoToCommands(commandLookup, echoImportTable);
+
+for assignmentIndex = 1:height(echoAssignments)
+    sampleIndex = echoAssignments.sample_index(assignmentIndex);
+    surfaceIndex = echoAssignments.surface_index(assignmentIndex);
+    appliedPosition = echoAssignments.applied_position(assignmentIndex);
+    appliedEquivalentDegrees = echoAssignments.applied_equivalent_deg(assignmentIndex);
+
+    if ~isfinite(appliedEquivalentDegrees) && isfinite(appliedPosition)
+        appliedEquivalentDegrees = ...
+            (appliedPosition - config.servoNeutralPositions(surfaceIndex)) ./ ...
+            config.servoUnitsPerDegree(surfaceIndex);
+    elseif ~isfinite(appliedPosition) && isfinite(appliedEquivalentDegrees)
+        appliedPosition = ...
+            config.servoNeutralPositions(surfaceIndex) + ...
+            appliedEquivalentDegrees .* config.servoUnitsPerDegree(surfaceIndex);
+    end
+
+    storage.arduinoReadStartSeconds(sampleIndex) = storage.commandWriteStopSeconds(sampleIndex);
+    storage.arduinoEchoSeconds(sampleIndex, surfaceIndex) = echoAssignments.arduino_echo_time_s(assignmentIndex);
+    storage.appliedServoPositions(sampleIndex, surfaceIndex) = appliedPosition;
+    storage.appliedEquivalentDegrees(sampleIndex, surfaceIndex) = appliedEquivalentDegrees;
+end
+
+for sampleIndex = sampleIndices
+    if any(isfinite(storage.arduinoEchoSeconds(sampleIndex, :)))
+        storage.arduinoReadStopSeconds(sampleIndex) = lastFiniteTimestamp( ...
+            storage.arduinoEchoSeconds(sampleIndex, :), ...
+            storage.commandWriteStopSeconds(sampleIndex));
+    end
+end
+end
+
+function echoImportTable = loadArduinoEchoImportTable(config, activeSurfaceNames)
+echoImportTable = table();
+importConfig = config.arduinoEchoImport;
+
+if istable(importConfig.tableData) && ~isempty(importConfig.tableData)
+    rawEchoTable = importConfig.tableData;
+elseif strlength(importConfig.filePath) > 0
+    rawEchoTable = readArduinoEchoImportFile(importConfig);
+elseif importConfig.autoDiscoverLatest
+    [echoImportTable, isCanonicalTable] = discoverArduinoEchoImportTable(config, activeSurfaceNames);
+    if ~isempty(echoImportTable)
+        if isCanonicalTable
+            return;
+        end
+
+        rawEchoTable = echoImportTable;
+    else
+        return;
+    end
+else
+    return;
+end
+
+if isempty(rawEchoTable)
+    return;
+end
+
+echoImportTable = canonicalizeArduinoEchoImportTable(rawEchoTable, importConfig, activeSurfaceNames);
+end
+
+function [echoImportTable, isCanonicalTable] = discoverArduinoEchoImportTable(config, activeSurfaceNames)
+echoImportTable = table();
+isCanonicalTable = false;
+loggerOutputFolder = config.arduinoEchoImport.loggerOutputFolder;
+
+if strlength(loggerOutputFolder) == 0 || ~isfolder(loggerOutputFolder)
+    return;
+end
+
+latestImportCsvPath = findLatestMatchingFile(loggerOutputFolder, "arduino_echo_import*.csv");
+if strlength(latestImportCsvPath) > 0
+    echoImportTable = readtable(latestImportCsvPath);
+    return;
+end
+
+hostDispatchCsvPath = fullfile(loggerOutputFolder, "host_dispatch_log.csv");
+syncRoundTripCsvPath = fullfile(loggerOutputFolder, "host_sync_roundtrip.csv");
+boardCommandLogCsvPath = fullfile(loggerOutputFolder, "board_command_log.csv");
+
+if isfile(hostDispatchCsvPath) && isfile(syncRoundTripCsvPath) && isfile(boardCommandLogCsvPath)
+    echoImportTable = buildArduinoEchoImportTableFromLoggerRawFiles( ...
+        hostDispatchCsvPath, ...
+        syncRoundTripCsvPath, ...
+        boardCommandLogCsvPath, ...
+        activeSurfaceNames);
+    isCanonicalTable = true;
+end
+end
+
+function latestFilePath = findLatestMatchingFile(folderPath, filePattern)
+directoryListing = dir(fullfile(folderPath, char(filePattern)));
+
+if isempty(directoryListing)
+    latestFilePath = "";
+    return;
+end
+
+[~, latestIndex] = max([directoryListing.datenum]);
+latestFilePath = string(fullfile(directoryListing(latestIndex).folder, directoryListing(latestIndex).name));
+end
+
+function echoImportTable = buildArduinoEchoImportTableFromLoggerRawFiles( ...
+    hostDispatchCsvPath, ...
+    syncRoundTripCsvPath, ...
+    boardCommandLogCsvPath, ...
+    activeSurfaceNames)
+hostDispatchLog = readtable(hostDispatchCsvPath);
+syncRoundTripLog = readtable(syncRoundTripCsvPath);
+boardCommandLog = readCommentCsv(boardCommandLogCsvPath);
+
+validateLoggerHostDispatchLog(hostDispatchLog);
+validateLoggerSyncRoundTripLog(syncRoundTripLog);
+validateLoggerBoardCommandLog(boardCommandLog);
+
+[clockSlope, clockIntercept] = estimateBoardToHostClockMap(syncRoundTripLog);
+
+hostDispatchLog.surface_name = reshape(string(hostDispatchLog.surface_name), [], 1);
+hostDispatchLog.command_sequence = reshape(double(hostDispatchLog.command_sequence), [], 1);
+boardCommandLog.surface_name = reshape(string(boardCommandLog.surface_name), [], 1);
+boardCommandLog.command_sequence = reshape(double(boardCommandLog.command_sequence), [], 1);
+
+if ~ismember("surface_name", string(boardCommandLog.Properties.VariableNames)) && numel(activeSurfaceNames) == 1
+    boardCommandLog.surface_name = repmat(activeSurfaceNames(1), height(boardCommandLog), 1);
+end
+
+joinedTable = innerjoin( ...
+    hostDispatchLog(:, {'surface_name', 'command_sequence', 'command_dispatch_us'}), ...
+    boardCommandLog, ...
+    'Keys', {'surface_name', 'command_sequence'});
+
+applyHostUs = clockSlope .* double(joinedTable.apply_us) + clockIntercept;
+echoImportTable = table( ...
+    joinedTable.surface_name, ...
+    joinedTable.command_sequence, ...
+    nan(height(joinedTable), 1), ...
+    (applyHostUs - double(joinedTable.command_dispatch_us)) ./ 1e6, ...
+    joinedTable.applied_position, ...
+    nan(height(joinedTable), 1), ...
+    'VariableNames', { ...
+        'surface_name', ...
+        'command_sequence', ...
+        'arduino_echo_time_s', ...
+        'computer_to_arduino_latency_s', ...
+        'applied_position', ...
+        'applied_equivalent_deg'});
+end
+
+function tableData = readCommentCsv(filePath)
+options = detectImportOptions(filePath, "FileType", "text", "CommentStyle", "#");
+options.CommentStyle = "#";
+tableData = readtable(filePath, options);
+end
+
+function [clockSlope, clockIntercept] = estimateBoardToHostClockMap(syncRoundTripLog)
+hostMidUs = 0.5 .* (double(syncRoundTripLog.host_tx_us) + double(syncRoundTripLog.host_rx_us));
+boardMidUs = 0.5 .* (double(syncRoundTripLog.board_rx_us) + double(syncRoundTripLog.board_tx_us));
+
+if numel(hostMidUs) >= 2
+    fitCoefficients = polyfit(boardMidUs, hostMidUs, 1);
+    clockSlope = fitCoefficients(1);
+    clockIntercept = fitCoefficients(2);
+else
+    clockSlope = 1.0;
+    clockIntercept = hostMidUs(1) - boardMidUs(1);
+end
+end
+
+function validateLoggerHostDispatchLog(hostDispatchLog)
+assertHasLoggerColumns(hostDispatchLog, ["surface_name", "command_sequence", "command_dispatch_us"], "host dispatch log");
+end
+
+function validateLoggerSyncRoundTripLog(syncRoundTripLog)
+assertHasLoggerColumns( ...
+    syncRoundTripLog, ...
+    ["sync_id", "host_tx_us", "host_rx_us", "board_rx_us", "board_tx_us"], ...
+    "sync round-trip log");
+end
+
+function validateLoggerBoardCommandLog(boardCommandLog)
+assertHasLoggerColumns(boardCommandLog, ["surface_name", "command_sequence", "rx_us", "apply_us", "applied_position"], "board command log");
+end
+
+function assertHasLoggerColumns(tableData, requiredColumns, tableLabel)
+variableNames = string(tableData.Properties.VariableNames);
+missingColumns = requiredColumns(~ismember(requiredColumns, variableNames));
+if ~isempty(missingColumns)
+    error("Arduino_Test:MissingArduinoLoggerColumns", ...
+        "The %s is missing: %s", ...
+        tableLabel, ...
+        char(join(missingColumns, ", ")));
+end
+end
+
+function rawEchoTable = readArduinoEchoImportFile(importConfig)
+filePath = importConfig.filePath;
+if ~isfile(filePath)
+    error("Arduino_Test:MissingArduinoEchoImport", ...
+        "arduinoEchoImport.filePath does not exist: %s", ...
+        char(filePath));
+end
+
+[~, ~, fileExtension] = fileparts(char(filePath));
+fileExtension = string(lower(fileExtension));
+switch fileExtension
+    case {".xlsx", ".xls", ".xlsm"}
+        if strlength(importConfig.sheetName) == 0
+            rawEchoTable = readtable(filePath);
+        else
+            rawEchoTable = readtable(filePath, "Sheet", char(importConfig.sheetName));
+        end
+    case ".csv"
+        rawEchoTable = readtable(filePath);
+    case {".txt", ".tsv"}
+        rawEchoTable = readtable(filePath, "FileType", "text", "Delimiter", "\t");
+    otherwise
+        error("Arduino_Test:UnsupportedArduinoEchoImport", ...
+            "Unsupported arduinoEchoImport file extension '%s'.", ...
+            fileExtension);
+end
+end
+
+function echoImportTable = canonicalizeArduinoEchoImportTable(rawEchoTable, importConfig, activeSurfaceNames)
+rowCount = height(rawEchoTable);
+echoImportTable = table();
+
+surfaceColumnName = resolveTableVariableName(rawEchoTable, importConfig.surfaceColumn, false);
+if strlength(surfaceColumnName) == 0
+    if numel(activeSurfaceNames) ~= 1
+        error("Arduino_Test:AmbiguousArduinoEchoSurface", ...
+            "arduinoEchoImport.surfaceColumn is required when more than one surface is active.");
+    end
+
+    echoImportTable.surface_name = repmat(activeSurfaceNames(1), rowCount, 1);
+else
+    echoImportTable.surface_name = reshape(string(rawEchoTable.(char(surfaceColumnName))), [], 1);
+end
+
+sequenceColumnName = resolveTableVariableName(rawEchoTable, importConfig.sequenceColumn, false);
+if strlength(sequenceColumnName) == 0
+    echoImportTable.command_sequence = buildDefaultArduinoEchoSequences(echoImportTable.surface_name);
+else
+    echoImportTable.command_sequence = reshape(double(rawEchoTable.(char(sequenceColumnName))), [], 1);
+end
+
+latencyColumnName = resolveTableVariableName(rawEchoTable, importConfig.latencyColumn, false);
+echoTimeColumnName = resolveTableVariableName(rawEchoTable, importConfig.echoTimeColumn, false);
+if strlength(latencyColumnName) == 0 && strlength(echoTimeColumnName) == 0
+    error("Arduino_Test:MissingArduinoEchoTiming", ...
+        "arduinoEchoImport must provide either '%s' or '%s'.", ...
+        char(importConfig.latencyColumn), ...
+        char(importConfig.echoTimeColumn));
+end
+
+echoImportTable.computer_to_arduino_latency_s = nan(rowCount, 1);
+if strlength(latencyColumnName) > 0
+    echoImportTable.computer_to_arduino_latency_s = reshape(double(rawEchoTable.(char(latencyColumnName))), [], 1);
+end
+
+echoImportTable.arduino_echo_time_s = nan(rowCount, 1);
+if strlength(echoTimeColumnName) > 0
+    echoImportTable.arduino_echo_time_s = ...
+        reshape(double(rawEchoTable.(char(echoTimeColumnName))), [], 1) + importConfig.matlabTimeOffsetSeconds;
+end
+
+appliedPositionColumnName = resolveTableVariableName(rawEchoTable, importConfig.appliedPositionColumn, false);
+echoImportTable.applied_position = nan(rowCount, 1);
+if strlength(appliedPositionColumnName) > 0
+    echoImportTable.applied_position = reshape(double(rawEchoTable.(char(appliedPositionColumnName))), [], 1);
+end
+
+appliedEquivalentDegreesColumnName = resolveTableVariableName(rawEchoTable, importConfig.appliedEquivalentDegreesColumn, false);
+echoImportTable.applied_equivalent_deg = nan(rowCount, 1);
+if strlength(appliedEquivalentDegreesColumnName) > 0
+    echoImportTable.applied_equivalent_deg = reshape(double(rawEchoTable.(char(appliedEquivalentDegreesColumnName))), [], 1);
+end
+end
+
+function commandSequences = buildDefaultArduinoEchoSequences(surfaceNames)
+surfaceNames = reshape(string(surfaceNames), [], 1);
+commandSequences = nan(numel(surfaceNames), 1);
+uniqueSurfaceNames = unique(surfaceNames, "stable");
+
+for surfaceIndex = 1:numel(uniqueSurfaceNames)
+    surfaceMask = surfaceNames == uniqueSurfaceNames(surfaceIndex);
+    commandSequences(surfaceMask) = (1:nnz(surfaceMask)).';
+end
+end
+
+function commandLookup = buildArduinoCommandLookupTable(storage, config, sampleIndices)
+surfaceCount = numel(config.surfaceNames);
+rowCount = nnz(isfinite(storage.commandSequenceNumbers(sampleIndices, :)));
+
+commandLookup = table( ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    strings(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    'VariableNames', { ...
+        'sample_index', ...
+        'surface_index', ...
+        'surface_name', ...
+        'command_sequence', ...
+        'command_dispatch_s', ...
+        'command_position'});
+
+rowIndex = 0;
+for sampleOffset = 1:numel(sampleIndices)
+    sampleIndex = sampleIndices(sampleOffset);
+    for surfaceIndex = 1:surfaceCount
+        commandSequence = storage.commandSequenceNumbers(sampleIndex, surfaceIndex);
+        if ~isfinite(commandSequence)
+            continue;
+        end
+
+        rowIndex = rowIndex + 1;
+        commandLookup.sample_index(rowIndex) = sampleIndex;
+        commandLookup.surface_index(rowIndex) = surfaceIndex;
+        commandLookup.surface_name(rowIndex) = config.surfaceNames(surfaceIndex);
+        commandLookup.command_sequence(rowIndex) = commandSequence;
+        commandLookup.command_dispatch_s(rowIndex) = storage.commandDispatchSeconds(sampleIndex, surfaceIndex);
+        commandLookup.command_position(rowIndex) = storage.commandedServoPositions(sampleIndex, surfaceIndex);
+    end
+end
+end
+
+function echoAssignments = assignArduinoEchoToCommands(commandLookup, echoImportTable)
+echoAssignments = commandLookup(:, {'sample_index', 'surface_index'});
+rowCount = height(commandLookup);
+echoAssignments.arduino_echo_time_s = nan(rowCount, 1);
+echoAssignments.applied_position = nan(rowCount, 1);
+echoAssignments.applied_equivalent_deg = nan(rowCount, 1);
+
+for commandIndex = 1:rowCount
+    matchMask = ...
+        echoImportTable.surface_name == commandLookup.surface_name(commandIndex) & ...
+        echoImportTable.command_sequence == commandLookup.command_sequence(commandIndex);
+
+    if ~any(matchMask)
         continue;
     end
 
-    writePosition(servoObjects{surfaceIndex}, servoPositions(surfaceIndex));
-
-    if ~isempty(referenceTimer)
-        dispatchTimesSeconds(surfaceIndex) = toc(referenceTimer);
-    end
+    matchedRow = find(matchMask, 1, "first");
+    echoAssignments.arduino_echo_time_s(commandIndex) = resolveArduinoEchoTime( ...
+        echoImportTable, ...
+        matchedRow, ...
+        commandLookup.command_dispatch_s(commandIndex));
+    echoAssignments.applied_position(commandIndex) = echoImportTable.applied_position(matchedRow);
+    echoAssignments.applied_equivalent_deg(commandIndex) = echoImportTable.applied_equivalent_deg(matchedRow);
 end
 end
 
-function [servoPositions, echoTimesSeconds] = readServoPositions(servoObjects, referenceTimer, activeSurfaceMask)
-if nargin < 2
-    referenceTimer = [];
+function arduinoEchoTimeSeconds = resolveArduinoEchoTime(echoImportTable, matchedRow, commandDispatchSeconds)
+arduinoEchoTimeSeconds = echoImportTable.arduino_echo_time_s(matchedRow);
+if isfinite(arduinoEchoTimeSeconds)
+    return;
 end
 
-if nargin < 3 || isempty(activeSurfaceMask)
-    activeSurfaceMask = true(1, numel(servoObjects));
+latencySeconds = echoImportTable.computer_to_arduino_latency_s(matchedRow);
+if isfinite(latencySeconds)
+    arduinoEchoTimeSeconds = commandDispatchSeconds + latencySeconds;
+end
 end
 
-servoPositions = nan(1, numel(servoObjects));
-echoTimesSeconds = nan(1, numel(servoObjects));
-
-for surfaceIndex = 1:numel(servoObjects)
-    if ~activeSurfaceMask(surfaceIndex)
-        continue;
-    end
-
-    try
-        servoPositions(surfaceIndex) = readPosition(servoObjects{surfaceIndex});
-    catch
-        servoPositions(surfaceIndex) = NaN;
-    end
-
-    if ~isempty(referenceTimer)
-        echoTimesSeconds(surfaceIndex) = toc(referenceTimer);
-    end
+function rowTimesSeconds = chooseFiniteRowTimes(primaryTimesSeconds, fallbackTimesSeconds)
+rowTimesSeconds = primaryTimesSeconds;
+missingMask = ~isfinite(rowTimesSeconds);
+rowTimesSeconds(missingMask) = fallbackTimesSeconds(missingMask);
 end
+
+function variableName = resolveTableVariableName(tableData, requestedName, isRequired)
+if nargin < 3
+    isRequired = true;
+end
+
+if strlength(requestedName) == 0
+    variableName = "";
+    return;
+end
+
+variableNames = string(tableData.Properties.VariableNames);
+exactMask = variableNames == requestedName;
+if any(exactMask)
+    variableName = variableNames(find(exactMask, 1, "first"));
+    return;
+end
+
+caseInsensitiveMask = strcmpi(variableNames, requestedName);
+if any(caseInsensitiveMask)
+    variableName = variableNames(find(caseInsensitiveMask, 1, "first"));
+    return;
+end
+
+if isRequired
+    error("Arduino_Test:MissingArduinoEchoColumn", ...
+        "The Arduino echo import is missing column '%s'.", ...
+        char(requestedName));
+end
+
+variableName = "";
 end
 
 function logs = buildLogTimetables(storage, config)
@@ -533,32 +1482,40 @@ commandLog.scheduled_time_s = storage.scheduledTimeSeconds(sampleIndices);
 commandLog.command_write_start_s = storage.commandWriteStartSeconds(sampleIndices);
 commandLog.command_write_stop_s = storage.commandWriteStopSeconds(sampleIndices);
 
+arduinoRowTimesSeconds = chooseFiniteRowTimes( ...
+    storage.arduinoReadStopSeconds(sampleIndices), ...
+    storage.commandWriteStopSeconds(sampleIndices));
 arduinoVariableNames = [ ...
+    buildSurfaceVariableNames(surfaceNames, "command_sequence"), ...
     buildSurfaceVariableNames(surfaceNames, "applied_position"), ...
     buildSurfaceVariableNames(surfaceNames, "applied_equivalent_deg")];
 arduinoLog = array2timetable( ...
     [ ...
+    storage.commandSequenceNumbers(sampleIndices, :), ...
     storage.appliedServoPositions(sampleIndices, :), ...
     storage.appliedEquivalentDegrees(sampleIndices, :)], ...
-    'RowTimes', seconds(storage.arduinoReadStopSeconds(sampleIndices)), ...
+    'RowTimes', seconds(arduinoRowTimesSeconds), ...
     'VariableNames', cellstr(arduinoVariableNames));
 
 arduinoLog.scheduled_time_s = storage.scheduledTimeSeconds(sampleIndices);
 arduinoLog.arduino_read_start_s = storage.arduinoReadStartSeconds(sampleIndices);
 arduinoLog.arduino_read_stop_s = storage.arduinoReadStopSeconds(sampleIndices);
+arduinoLog.arduino_echo_available = any(isfinite(storage.arduinoEchoSeconds(sampleIndices, :)), 2);
 
 computerToArduinoLatencySeconds = ...
     storage.arduinoEchoSeconds(sampleIndices, :) - storage.commandDispatchSeconds(sampleIndices, :);
 latencyVariableNames = [ ...
+    buildSurfaceVariableNames(surfaceNames, "command_sequence"), ...
     buildSurfaceVariableNames(surfaceNames, "command_dispatch_s"), ...
     buildSurfaceVariableNames(surfaceNames, "arduino_echo_s"), ...
     buildSurfaceVariableNames(surfaceNames, "computer_to_arduino_latency_s")];
 computerToArduinoLatencyLog = array2timetable( ...
     [ ...
+    storage.commandSequenceNumbers(sampleIndices, :), ...
     storage.commandDispatchSeconds(sampleIndices, :), ...
     storage.arduinoEchoSeconds(sampleIndices, :), ...
     computerToArduinoLatencySeconds], ...
-    'RowTimes', seconds(storage.arduinoReadStopSeconds(sampleIndices)), ...
+    'RowTimes', seconds(arduinoRowTimesSeconds), ...
     'VariableNames', cellstr(latencyVariableNames));
 
 computerToArduinoLatencyLog.scheduled_time_s = storage.scheduledTimeSeconds(sampleIndices);
@@ -566,6 +1523,7 @@ computerToArduinoLatencyLog.command_write_start_s = storage.commandWriteStartSec
 computerToArduinoLatencyLog.command_write_stop_s = storage.commandWriteStopSeconds(sampleIndices);
 computerToArduinoLatencyLog.arduino_read_start_s = storage.arduinoReadStartSeconds(sampleIndices);
 computerToArduinoLatencyLog.arduino_read_stop_s = storage.arduinoReadStopSeconds(sampleIndices);
+computerToArduinoLatencyLog.arduino_echo_available = any(isfinite(storage.arduinoEchoSeconds(sampleIndices, :)), 2);
 
 sampleSummary = table( ...
     storage.scheduledTimeSeconds(sampleIndices), ...
@@ -574,13 +1532,15 @@ sampleSummary = table( ...
     storage.commandWriteStopSeconds(sampleIndices), ...
     storage.arduinoReadStartSeconds(sampleIndices), ...
     storage.arduinoReadStopSeconds(sampleIndices), ...
+    any(isfinite(storage.arduinoEchoSeconds(sampleIndices, :)), 2), ...
     'VariableNames', { ...
         'scheduled_time_s', ...
         'base_command_deg', ...
         'command_write_start_s', ...
         'command_write_stop_s', ...
         'arduino_read_start_s', ...
-        'arduino_read_stop_s'});
+        'arduino_read_stop_s', ...
+        'arduino_echo_available'});
 
 logs = struct( ...
     "inputSignal", commandLog, ...
@@ -706,6 +1666,31 @@ settings = [ ...
     "Arduino", "IsConnected", formatSettingValue(arduinoInfo.isConnected); ...
     "Arduino", "ConnectionMessage", formatSettingValue(arduinoInfo.connectionMessage); ...
     "Arduino", "ConnectElapsedSeconds", formatSettingValue(arduinoInfo.connectElapsedSeconds); ...
+    "ArduinoEchoImport", "FilePath", formatSettingValue(config.arduinoEchoImport.filePath); ...
+    "ArduinoEchoImport", "SheetName", formatSettingValue(config.arduinoEchoImport.sheetName); ...
+    "ArduinoEchoImport", "SurfaceColumn", formatSettingValue(config.arduinoEchoImport.surfaceColumn); ...
+    "ArduinoEchoImport", "SequenceColumn", formatSettingValue(config.arduinoEchoImport.sequenceColumn); ...
+    "ArduinoEchoImport", "LatencyColumn", formatSettingValue(config.arduinoEchoImport.latencyColumn); ...
+    "ArduinoEchoImport", "EchoTimeColumn", formatSettingValue(config.arduinoEchoImport.echoTimeColumn); ...
+    "ArduinoEchoImport", "MatlabTimeOffsetSeconds", formatSettingValue(config.arduinoEchoImport.matlabTimeOffsetSeconds); ...
+    "ArduinoEchoImport", "AppliedPositionColumn", formatSettingValue(config.arduinoEchoImport.appliedPositionColumn); ...
+    "ArduinoEchoImport", "AppliedEquivalentDegreesColumn", formatSettingValue(config.arduinoEchoImport.appliedEquivalentDegreesColumn); ...
+    "ArduinoEchoImport", "AutoDiscoverLatest", formatSettingValue(config.arduinoEchoImport.autoDiscoverLatest); ...
+    "ArduinoEchoImport", "LoggerOutputFolder", formatSettingValue(config.arduinoEchoImport.loggerOutputFolder); ...
+    "ArduinoTransport", "RequestedMode", formatSettingValue(config.arduinoTransport.mode); ...
+    "ArduinoTransport", "ResolvedMode", formatSettingValue(config.arduinoTransport.resolvedMode); ...
+    "ArduinoTransport", "LoggerPort", formatSettingValue(config.arduinoTransport.loggerPort); ...
+    "ArduinoTransport", "LoggerProbeTimeoutSeconds", formatSettingValue(config.arduinoTransport.loggerProbeTimeoutSeconds); ...
+    "ArduinoTransport", "LoggerTimeoutSeconds", formatSettingValue(config.arduinoTransport.loggerTimeoutSeconds); ...
+    "ArduinoTransport", "SyncCountBeforeRun", formatSettingValue(config.arduinoTransport.syncCountBeforeRun); ...
+    "ArduinoTransport", "SyncCountAfterRun", formatSettingValue(config.arduinoTransport.syncCountAfterRun); ...
+    "ArduinoTransport", "SyncPauseSeconds", formatSettingValue(config.arduinoTransport.syncPauseSeconds); ...
+    "ArduinoTransport", "PostRunSettleSeconds", formatSettingValue(config.arduinoTransport.postRunSettleSeconds); ...
+    "ArduinoTransport", "ClearLogsBeforeRun", formatSettingValue(config.arduinoTransport.clearLogsBeforeRun); ...
+    "ArduinoTransport", "LoggerOutputFolder", formatSettingValue(config.arduinoTransport.loggerOutputFolder); ...
+    "ArduinoTransport", "CaptureSucceeded", formatSettingValue(config.arduinoTransport.captureSucceeded); ...
+    "ArduinoTransport", "CaptureMessage", formatSettingValue(config.arduinoTransport.captureMessage); ...
+    "ArduinoTransport", "CaptureRowCount", formatSettingValue(config.arduinoTransport.captureRowCount); ...
     "Command", "Mode", formatSettingValue(config.commandMode); ...
     "Command", "SingleSurfaceName", formatSettingValue(config.singleSurfaceName); ...
     "Command", "ActiveSurfaces", formatSettingValue(config.activeSurfaceNames); ...
@@ -769,19 +1754,31 @@ exportTable.Properties.VariableNames{1} = 'time_s';
 exportTable.time_s = seconds(exportTable.time_s);
 end
 
-function cleanupResources(arduinoConnection, servoObjects, config)
-if ~isempty(servoObjects) && config.returnToNeutralOnExit
+function cleanupResources(commandInterface, config)
+if ~isempty(fieldnames(commandInterface)) && config.returnToNeutralOnExit
     try
-        moveServosToNeutral(servoObjects, config.servoNeutralPositions);
+        moveServosToNeutral(commandInterface, config.servoNeutralPositions);
     catch
     end
 end
 
-if ~isempty(arduinoConnection)
-    try
-        clear arduinoConnection %#ok<NASGU>
-    catch
-    end
+if isempty(fieldnames(commandInterface))
+    return;
+end
+
+switch commandInterface.transportMode
+    case "nano_logger_tcp"
+        try
+            loggerClient = commandInterface.connection;
+            clear loggerClient %#ok<NASGU>
+        catch
+        end
+    otherwise
+        try
+            arduinoConnection = commandInterface.connection;
+            clear arduinoConnection %#ok<NASGU>
+        catch
+        end
 end
 end
 
@@ -837,6 +1834,21 @@ if ~(isstring(value) && isscalar(value))
 end
 end
 
+function value = getOptionalTextScalarField(config, fieldName, defaultValue)
+value = getFieldOrDefault(config, fieldName, defaultValue);
+if isempty(value)
+    value = defaultValue;
+end
+
+if ischar(value)
+    value = string(value);
+end
+
+if ~(isstring(value) && isscalar(value))
+    error("Arduino_Test:InvalidConfigType", "%s must be a text scalar.", fieldName);
+end
+end
+
 function value = getStringArrayField(config, fieldName, defaultValue)
 value = getFieldOrDefault(config, fieldName, defaultValue);
 if ischar(value)
@@ -871,6 +1883,12 @@ end
 function value = getPositiveIntegerField(config, fieldName, defaultValue)
 value = getFieldOrDefault(config, fieldName, defaultValue);
 validateattributes(value, {"numeric"}, {"real", "finite", "scalar", "integer", "positive"}, char(mfilename), char(fieldName));
+value = double(value);
+end
+
+function value = getNonnegativeIntegerField(config, fieldName, defaultValue)
+value = getFieldOrDefault(config, fieldName, defaultValue);
+validateattributes(value, {"numeric"}, {"real", "finite", "scalar", "integer", "nonnegative"}, char(mfilename), char(fieldName));
 value = double(value);
 end
 
