@@ -32,11 +32,18 @@ importTable = innerjoin( ...
 
 matchedEchoUs = clockSlope .* importTable.(config.boardTimestampColumn) + clockIntercept;
 matchedReceiveUs = clockSlope .* importTable.rx_us + clockIntercept;
+latencyUs = matchedEchoUs - importTable.command_dispatch_us;
+minimumLatencyUs = min(latencyUs);
+if minimumLatencyUs < 0
+    % Re-anchor the fitted clock so matched commands cannot precede dispatch.
+    matchedEchoUs = matchedEchoUs - minimumLatencyUs;
+    matchedReceiveUs = matchedReceiveUs - minimumLatencyUs;
+    latencyUs = latencyUs - minimumLatencyUs;
+end
 
 importTable.arduino_echo_time_s = nan(height(importTable), 1);
 importTable.arduino_receive_time_s = matchedReceiveUs ./ 1e6;
-importTable.computer_to_arduino_latency_s = ...
-    (matchedEchoUs - importTable.command_dispatch_us) ./ 1e6;
+importTable.computer_to_arduino_latency_s = latencyUs ./ 1e6;
 importTable.computer_to_arduino_receive_latency_s = ...
     (matchedReceiveUs - importTable.command_dispatch_us) ./ 1e6;
 importTable.board_receive_to_apply_s = ...

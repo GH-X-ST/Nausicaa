@@ -1,9 +1,10 @@
 #include <SPI.h>
 #include <Servo.h>
 #include <WiFiNINA.h>
+#include <WiFiUdp.h>
 
 namespace Config {
-constexpr char kFirmwareVersion[] = "Nano33IoT_Echo_Logger_V1";
+constexpr char kFirmwareVersion[] = "Nano33IoT_Echo_Logger_V2_UDP";
 constexpr char kWifiSsid[] = "FlightArena_2.4G";
 constexpr char kWifiPassword[] = "R0b0t1c$";
 constexpr bool kUseStaticIp = true;
@@ -29,8 +30,7 @@ constexpr float kNeutralPositions[kSurfaceCount] = {0.5f, 0.5f, 0.5f, 0.5f};
 
 constexpr size_t kCommandLogCapacity = 1024;
 constexpr size_t kSyncLogCapacity = 128;
-constexpr size_t kLineBufferLength = 128;
-constexpr bool kReplyToSetCommands = false;
+constexpr size_t kPacketBufferLength = 160;
 }
 
 struct CommandLogEntry {
@@ -49,8 +49,7 @@ struct SyncLogEntry {
   uint32_t boardTxUs;
 };
 
-WiFiServer gServer(Config::kServerPort);
-WiFiClient gClient;
+WiFiUDP gUdp;
 Servo gServos[Config::kSurfaceCount];
 
 CommandLogEntry gCommandLog[Config::kCommandLogCapacity];
@@ -64,8 +63,7 @@ size_t gSyncLogCount = 0;
 size_t gSyncLogNextWriteIndex = 0;
 uint32_t gSyncLogOverflowCount = 0;
 
-char gLineBuffer[Config::kLineBufferLength];
-size_t gLineLength = 0;
+char gPacketBuffer[Config::kPacketBufferLength];
 uint32_t gLastWifiAttemptMs = 0;
 
 void setup() {
@@ -82,15 +80,14 @@ void setup() {
   }
 
   connectToWifi(true);
-  gServer.begin();
+  gUdp.begin(Config::kServerPort);
 
-  Serial.println(F("Nano33IoT echo logger ready."));
+  Serial.println(F("Nano33IoT UDP echo logger ready."));
 }
 
 void loop() {
   maintainWifiConnection();
-  acceptClientIfNeeded();
-  serviceClient();
+  serviceUdpDatagrams();
 }
 
 void maintainWifiConnection() {
@@ -142,6 +139,7 @@ void connectToWifi(bool blockUntilConnected) {
       Serial.println(localIp);
       WiFi.config(localIp, dns, gateway, subnet);
     }
+
     WiFi.begin(Config::kWifiSsid, Config::kWifiPassword);
 
     uint32_t waitStartMs = millis();
@@ -161,134 +159,94 @@ void connectToWifi(bool blockUntilConnected) {
   }
 }
 
-void acceptClientIfNeeded() {
-  if (gClient && gClient.connected()) {
-    return;
-  }
+void serviceUdpDatagrams() {
+  int packetSize = gUdp.parsePacket();
+  while (packetSize > 0) {
+    IPAddress remoteIp = gUdp.remoteIP();
+    uint16_t remotePort = static_cast<uint16_t>(gUdp.remotePort());
 
-  if (gClient) {
-    gClient.stop();
-  }
-
-  WiFiClient nextClient = gServer.available();
-  if (!nextClient) {
-    return;
-  }
-
-  gClient = nextClient;
-  gLineLength = 0;
-  sendHelloReply();
-}
-
-void serviceClient() {
-  if (!gClient || !gClient.connected()) {
-    return;
-  }
-
-  while (gClient.available() > 0) {
-    char nextChar = static_cast<char>(gClient.read());
-    if (nextChar == '\r') {
-      continue;
+    int bytesRead = gUdp.read(gPacketBuffer, Config::kPacketBufferLength - 1);
+    if (bytesRead > 0) {
+      gPacketBuffer[bytesRead] = '\0';
+      handleCommand(gPacketBuffer, micros(), remoteIp, remotePort);
     }
 
-    if (nextChar == '\n') {
-      if (gLineLength == 0) {
-        continue;
-      }
-
-      gLineBuffer[gLineLength] = '\0';
-      handleCommand(gLineBuffer, micros());
-      gLineLength = 0;
-      continue;
-    }
-
-    if (gLineLength + 1 >= Config::kLineBufferLength) {
-      gLineLength = 0;
-      sendError(F("LINE_TOO_LONG"));
-      continue;
-    }
-
-    gLineBuffer[gLineLength++] = nextChar;
+    packetSize = gUdp.parsePacket();
   }
 }
 
-void handleCommand(char* lineBuffer, uint32_t lineCompleteUs) {
+void handleCommand(char* packetBuffer, uint32_t boardRxUs, const IPAddress& remoteIp, uint16_t remotePort) {
   char* context = nullptr;
-  char* commandName = strtok_r(lineBuffer, ",", &context);
+  char* commandName = strtok_r(packetBuffer, ",", &context);
   if (commandName == nullptr) {
     return;
   }
 
   if (strcmp(commandName, "HELLO") == 0) {
-    sendHelloReply();
+    sendHelloEvent(remoteIp, remotePort);
     return;
   }
 
   if (strcmp(commandName, "STATUS") == 0) {
-    sendStatusReply();
+    sendStatusEvent(remoteIp, remotePort);
     return;
   }
 
   if (strcmp(commandName, "CLEAR_LOGS") == 0) {
     clearLogs();
-    sendOk(F("CLEAR_LOGS"));
+    sendOkEvent(remoteIp, remotePort, F("CLEAR_LOGS"));
     return;
   }
 
   if (strcmp(commandName, "SET_NEUTRAL") == 0) {
     applyNeutralToAllSurfaces();
-    sendOk(F("SET_NEUTRAL"));
+    sendOkEvent(remoteIp, remotePort, F("SET_NEUTRAL"));
     return;
   }
 
   if (strcmp(commandName, "SYNC") == 0) {
-    handleSyncCommand(context, lineCompleteUs);
+    handleSyncCommand(context, boardRxUs, remoteIp, remotePort);
     return;
   }
 
   if (strcmp(commandName, "SET") == 0) {
-    handleSetCommand(context, lineCompleteUs);
+    handleSetCommand(context, boardRxUs, remoteIp, remotePort);
     return;
   }
 
-  if (strcmp(commandName, "DUMP_COMMAND_LOG") == 0) {
-    dumpCommandLog();
-    return;
-  }
-
-  if (strcmp(commandName, "DUMP_SYNC_LOG") == 0) {
-    dumpSyncLog();
-    return;
-  }
-
-  sendError(F("UNKNOWN_COMMAND"));
+  sendErrorEvent(remoteIp, remotePort, F("UNKNOWN_COMMAND"));
 }
 
-void handleSyncCommand(char* context, uint32_t boardRxUs) {
+void handleSyncCommand(char* context, uint32_t boardRxUs, const IPAddress& remoteIp, uint16_t remotePort) {
   char* syncIdToken = strtok_r(nullptr, ",", &context);
   char* hostTxUsToken = strtok_r(nullptr, ",", &context);
 
   uint32_t syncId = 0;
   uint32_t hostTxUs = 0;
   if (!parseUnsigned32(syncIdToken, syncId) || !parseUnsigned32(hostTxUsToken, hostTxUs)) {
-    sendError(F("SYNC_PARSE_ERROR"));
+    sendErrorEvent(remoteIp, remotePort, F("SYNC_PARSE_ERROR"));
     return;
   }
 
   uint32_t boardTxUs = micros();
   appendSyncLog(syncId, hostTxUs, boardRxUs, boardTxUs);
 
-  gClient.print(F("SYNC_REPLY,"));
-  gClient.print(syncId);
-  gClient.print(',');
-  gClient.print(hostTxUs);
-  gClient.print(',');
-  gClient.print(boardRxUs);
-  gClient.print(',');
-  gClient.println(boardTxUs);
+  if (!beginEventPacket(remoteIp, remotePort)) {
+    return;
+  }
+
+  gUdp.print(F("SYNC_EVENT,"));
+  gUdp.print(syncId);
+  gUdp.print(',');
+  gUdp.print(hostTxUs);
+  gUdp.print(',');
+  gUdp.print(boardRxUs);
+  gUdp.print(',');
+  gUdp.print(boardTxUs);
+  gUdp.endPacket();
 }
 
-void handleSetCommand(char* context, uint32_t boardRxUs) {
+void handleSetCommand(char* context, uint32_t boardRxUs, const IPAddress& remoteIp, uint16_t remotePort) {
   char* surfaceNameToken = strtok_r(nullptr, ",", &context);
   char* sequenceToken = strtok_r(nullptr, ",", &context);
   char* positionToken = strtok_r(nullptr, ",", &context);
@@ -297,7 +255,7 @@ void handleSetCommand(char* context, uint32_t boardRxUs) {
   uint32_t commandSequence = 0;
   float positionNorm = 0.0f;
   if (surfaceIndex < 0 || !parseUnsigned32(sequenceToken, commandSequence) || !parseFloat(positionToken, positionNorm)) {
-    sendError(F("SET_PARSE_ERROR"));
+    sendErrorEvent(remoteIp, remotePort, F("SET_PARSE_ERROR"));
     return;
   }
 
@@ -307,55 +265,86 @@ void handleSetCommand(char* context, uint32_t boardRxUs) {
 
   appendCommandLog(commandSequence, boardRxUs, applyUs, positionNorm, pulseUs, static_cast<uint8_t>(surfaceIndex));
 
-  if (Config::kReplyToSetCommands) {
-    gClient.print(F("SET_REPLY,"));
-    gClient.print(Config::kSurfaceNames[surfaceIndex]);
-    gClient.print(',');
-    gClient.print(commandSequence);
-    gClient.print(',');
-    gClient.print(boardRxUs);
-    gClient.print(',');
-    gClient.println(applyUs);
-  }
-}
-
-void sendHelloReply() {
-  gClient.print(F("HELLO_REPLY,"));
-  gClient.print(Config::kFirmwareVersion);
-  gClient.print(',');
-  gClient.print(WiFi.localIP());
-  gClient.print(',');
-  gClient.print(Config::kServerPort);
-  gClient.print(',');
-  gClient.println(micros());
-}
-
-void sendStatusReply() {
-  gClient.print(F("STATUS_REPLY,"));
-  gClient.print(F("command_log_count="));
-  gClient.print(gCommandLogCount);
-  gClient.print(F(",command_log_overflow="));
-  gClient.print(gCommandLogOverflowCount);
-  gClient.print(F(",sync_log_count="));
-  gClient.print(gSyncLogCount);
-  gClient.print(F(",sync_log_overflow="));
-  gClient.print(gSyncLogOverflowCount);
-  gClient.print(F(",wifi_status="));
-  gClient.println(WiFi.status());
-}
-
-void sendOk(const __FlashStringHelper* message) {
-  gClient.print(F("OK,"));
-  gClient.println(message);
-}
-
-void sendError(const __FlashStringHelper* message) {
-  if (!gClient || !gClient.connected()) {
+  if (!beginEventPacket(remoteIp, remotePort)) {
     return;
   }
 
-  gClient.print(F("ERR,"));
-  gClient.println(message);
+  gUdp.print(F("COMMAND_EVENT,"));
+  gUdp.print(Config::kSurfaceNames[surfaceIndex]);
+  gUdp.print(',');
+  gUdp.print(commandSequence);
+  gUdp.print(',');
+  gUdp.print(boardRxUs);
+  gUdp.print(',');
+  gUdp.print(applyUs);
+  gUdp.print(',');
+  gUdp.print(positionNorm, 6);
+  gUdp.print(',');
+  gUdp.print(pulseUs);
+  gUdp.endPacket();
+}
+
+bool beginEventPacket(const IPAddress& remoteIp, uint16_t remotePort) {
+  if (remotePort == 0) {
+    return false;
+  }
+
+  return gUdp.beginPacket(remoteIp, remotePort) == 1;
+}
+
+void sendHelloEvent(const IPAddress& remoteIp, uint16_t remotePort) {
+  if (!beginEventPacket(remoteIp, remotePort)) {
+    return;
+  }
+
+  gUdp.print(F("HELLO_EVENT,"));
+  gUdp.print(Config::kFirmwareVersion);
+  gUdp.print(',');
+  gUdp.print(WiFi.localIP());
+  gUdp.print(',');
+  gUdp.print(Config::kServerPort);
+  gUdp.print(',');
+  gUdp.print(micros());
+  gUdp.endPacket();
+}
+
+void sendStatusEvent(const IPAddress& remoteIp, uint16_t remotePort) {
+  if (!beginEventPacket(remoteIp, remotePort)) {
+    return;
+  }
+
+  gUdp.print(F("STATUS_EVENT,"));
+  gUdp.print(F("command_log_count="));
+  gUdp.print(gCommandLogCount);
+  gUdp.print(F(",command_log_overflow="));
+  gUdp.print(gCommandLogOverflowCount);
+  gUdp.print(F(",sync_log_count="));
+  gUdp.print(gSyncLogCount);
+  gUdp.print(F(",sync_log_overflow="));
+  gUdp.print(gSyncLogOverflowCount);
+  gUdp.print(F(",wifi_status="));
+  gUdp.print(WiFi.status());
+  gUdp.endPacket();
+}
+
+void sendOkEvent(const IPAddress& remoteIp, uint16_t remotePort, const __FlashStringHelper* message) {
+  if (!beginEventPacket(remoteIp, remotePort)) {
+    return;
+  }
+
+  gUdp.print(F("OK_EVENT,"));
+  gUdp.print(message);
+  gUdp.endPacket();
+}
+
+void sendErrorEvent(const IPAddress& remoteIp, uint16_t remotePort, const __FlashStringHelper* message) {
+  if (!beginEventPacket(remoteIp, remotePort)) {
+    return;
+  }
+
+  gUdp.print(F("ERR_EVENT,"));
+  gUdp.print(message);
+  gUdp.endPacket();
 }
 
 void clearLogs() {
@@ -424,72 +413,6 @@ void advanceRingBuffer(size_t& count, size_t& nextWriteIndex, size_t capacity, u
   } else {
     ++overflowCount;
   }
-}
-
-void dumpCommandLog() {
-  gClient.println(F("#COMMAND_LOG_BEGIN,V1"));
-  gClient.print(F("#overflow_count="));
-  gClient.println(gCommandLogOverflowCount);
-  gClient.println(F("surface_name,command_sequence,rx_us,apply_us,receive_to_apply_us,applied_position,pulse_us"));
-
-  size_t startIndex = oldestCommandLogIndex();
-  for (size_t rowIndex = 0; rowIndex < gCommandLogCount; ++rowIndex) {
-    const CommandLogEntry& entry = gCommandLog[(startIndex + rowIndex) % Config::kCommandLogCapacity];
-    gClient.print(Config::kSurfaceNames[entry.surfaceIndex]);
-    gClient.print(',');
-    gClient.print(entry.commandSequence);
-    gClient.print(',');
-    gClient.print(entry.rxUs);
-    gClient.print(',');
-    gClient.print(entry.applyUs);
-    gClient.print(',');
-    gClient.print(entry.applyUs - entry.rxUs);
-    gClient.print(',');
-    gClient.print(entry.appliedPosition, 6);
-    gClient.print(',');
-    gClient.println(entry.pulseUs);
-  }
-
-  gClient.println(F("#COMMAND_LOG_END"));
-}
-
-void dumpSyncLog() {
-  gClient.println(F("#SYNC_LOG_BEGIN,V1"));
-  gClient.print(F("#overflow_count="));
-  gClient.println(gSyncLogOverflowCount);
-  gClient.println(F("sync_id,host_tx_us,board_rx_us,board_tx_us,board_turnaround_us"));
-
-  size_t startIndex = oldestSyncLogIndex();
-  for (size_t rowIndex = 0; rowIndex < gSyncLogCount; ++rowIndex) {
-    const SyncLogEntry& entry = gSyncLog[(startIndex + rowIndex) % Config::kSyncLogCapacity];
-    gClient.print(entry.syncId);
-    gClient.print(',');
-    gClient.print(entry.hostTxUs);
-    gClient.print(',');
-    gClient.print(entry.boardRxUs);
-    gClient.print(',');
-    gClient.print(entry.boardTxUs);
-    gClient.print(',');
-    gClient.println(entry.boardTxUs - entry.boardRxUs);
-  }
-
-  gClient.println(F("#SYNC_LOG_END"));
-}
-
-size_t oldestCommandLogIndex() {
-  if (gCommandLogCount < Config::kCommandLogCapacity) {
-    return 0;
-  }
-
-  return gCommandLogNextWriteIndex;
-}
-
-size_t oldestSyncLogIndex() {
-  if (gSyncLogCount < Config::kSyncLogCapacity) {
-    return 0;
-  }
-
-  return gSyncLogNextWriteIndex;
 }
 
 int findSurfaceIndex(const char* surfaceNameToken) {

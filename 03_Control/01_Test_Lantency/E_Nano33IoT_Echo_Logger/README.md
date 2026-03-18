@@ -1,249 +1,128 @@
 # Nano 33 IoT Echo Logger
 
-This folder adds a standalone latency-measurement path for the Nano 33 IoT.
+This folder contains the standalone Nano 33 IoT firmware used by [Arduino_Test.m](../Arduino_Test.m) and [Servo_Test.m](../Servo_Test.m) for wireless latency logging.
 
-It is not compatible with MATLAB's `arduino()` / `servo()` support-package firmware. If you upload this sketch, you must drive the board with a custom TCP client such as MATLAB `tcpclient`.
+It is not compatible with MATLAB's `arduino()` / `servo()` support-package firmware. Uploading the sketch switches the board to the custom logger transport.
 
-## Purpose
+## Transport
 
-The board timestamps:
+- Protocol: one-way UDP datagrams
+- Default board IP: `192.168.0.33`
+- Default port: `9500`
+- Firmware: `Nano33IoT_Echo_Logger_V2_UDP`
 
-- when a complete command line has been received
-- when the servo output has been applied
+MATLAB sends command datagrams to the Nano. The Nano timestamps reception and application on-board, then emits telemetry datagrams back to MATLAB. The MATLAB test scripts save those telemetry packets as:
 
-It stores those timestamps locally in ring buffers and only dumps them after the run, so the inner loop is not disturbed by per-command echo traffic.
+- `host_dispatch_log.csv`
+- `host_sync_roundtrip.csv`
+- `board_command_log.csv`
+- `board_sync_log.csv`
+- `arduino_echo_import.csv`
 
-## TCP Protocol
+No request-reply loop or post-run board dump is required anymore.
 
-Default port: `9500`
+## Command Datagrams
 
-Default network behavior: the sketch is configured to request static IP `192.168.0.33`.
-
-Commands are ASCII lines terminated by `\n`.
+Each UDP datagram carries one ASCII payload.
 
 ### `HELLO`
 
-Request:
+Outbound:
 
 ```text
 HELLO
 ```
 
-Reply:
+Telemetry:
 
 ```text
-HELLO_REPLY,Nano33IoT_Echo_Logger_V1,<board_ip>,9500,<board_now_us>
+HELLO_EVENT,Nano33IoT_Echo_Logger_V2_UDP,<board_ip>,9500,<board_now_us>
 ```
 
 ### `STATUS`
 
-Request:
+Outbound:
 
 ```text
 STATUS
 ```
 
-Reply:
+Telemetry:
 
 ```text
-STATUS_REPLY,command_log_count=<n>,command_log_overflow=<n>,sync_log_count=<n>,sync_log_overflow=<n>,wifi_status=<code>
+STATUS_EVENT,command_log_count=<n>,command_log_overflow=<n>,sync_log_count=<n>,sync_log_overflow=<n>,wifi_status=<code>
 ```
 
 ### `CLEAR_LOGS`
 
-Request:
+Outbound:
 
 ```text
 CLEAR_LOGS
 ```
 
-Reply:
+Telemetry:
 
 ```text
-OK,CLEAR_LOGS
+OK_EVENT,CLEAR_LOGS
 ```
 
 ### `SET_NEUTRAL`
 
-Request:
+Outbound:
 
 ```text
 SET_NEUTRAL
 ```
 
-Reply:
+Telemetry:
 
 ```text
-OK,SET_NEUTRAL
+OK_EVENT,SET_NEUTRAL
 ```
 
 ### `SYNC`
 
-Use this to align the host clock with the board clock.
-
-Request:
+Outbound:
 
 ```text
 SYNC,<sync_id>,<host_tx_us>
 ```
 
-Reply:
+Telemetry:
 
 ```text
-SYNC_REPLY,<sync_id>,<host_tx_us>,<board_rx_us>,<board_tx_us>
+SYNC_EVENT,<sync_id>,<host_tx_us>,<board_rx_us>,<board_tx_us>
 ```
-
-`host_tx_us` should be a host-relative monotonic timestamp, not wall clock time. Use one host timer reference for the whole session.
 
 ### `SET`
 
-Applies one servo command and logs it locally.
-
-Request:
+Outbound:
 
 ```text
 SET,<surface_name>,<command_sequence>,<position_norm>
 ```
 
-Example:
+Telemetry:
 
 ```text
-SET,Aileron_L,17,0.625000
+COMMAND_EVENT,<surface_name>,<command_sequence>,<board_rx_us>,<apply_us>,<applied_position>,<pulse_us>
 ```
 
-`position_norm` is expected in `[0, 1]`.
+## Upload
 
-By default the sketch does not reply to each `SET`, so the command loop stays one-way.
-
-### `DUMP_COMMAND_LOG`
-
-Request:
+1. Open `Nano33IoT_Echo_Logger/Nano33IoT_Echo_Logger.ino` in Arduino IDE.
+2. Select `Arduino Nano 33 IoT`.
+3. Upload the sketch.
+4. Open Serial Monitor at `115200`.
+5. Confirm:
 
 ```text
-DUMP_COMMAND_LOG
+Requesting static IP: 192.168.0.33
+Connected to WiFi, IP: 192.168.0.33
+Nano33IoT UDP echo logger ready.
 ```
 
-Reply:
+## Smoke Test
 
-```text
-#COMMAND_LOG_BEGIN,V1
-#overflow_count=<n>
-surface_name,command_sequence,rx_us,apply_us,receive_to_apply_us,applied_position,pulse_us
-Aileron_L,1,123456,123470,14,0.500000,1500
-...
-#COMMAND_LOG_END
-```
-
-### `DUMP_SYNC_LOG`
-
-Request:
-
-```text
-DUMP_SYNC_LOG
-```
-
-Reply:
-
-```text
-#SYNC_LOG_BEGIN,V1
-#overflow_count=<n>
-sync_id,host_tx_us,board_rx_us,board_tx_us,board_turnaround_us
-1,20000,8412,8420,8
-...
-#SYNC_LOG_END
-```
-
-## Offline Latency Estimation
-
-The board alone cannot know one-way MATLAB-to-Arduino latency, because the host and board clocks are different clocks.
-
-The intended workflow is:
-
-1. Host sends repeated `SYNC` requests before and after the run.
-2. Host records `host_tx_us` and `host_rx_us`.
-3. Board stores `board_rx_us` and `board_tx_us`.
-4. Offline, fit a clock map from board time to host time using sync midpoints.
-5. Convert `rx_us` or `apply_us` from the command dump into host time.
-6. Subtract the host command dispatch timestamp.
-
-For short tests, a linear fit is usually sufficient:
-
-```text
-host_mid_us  = 0.5 * (host_tx_us + host_rx_us)
-board_mid_us = 0.5 * (board_rx_us + board_tx_us)
-host_us ~= a * board_us + b
-```
-
-Then:
-
-```text
-arduino_echo_host_us = a * apply_us + b
-computer_to_arduino_latency_s = (arduino_echo_host_us - command_dispatch_us) / 1e6
-```
-
-## Integration With The MATLAB Importer
-
-The updated `Arduino_Test.m` and `Servo_Test.m` can now import post-processed Arduino echo files. The expected import columns are:
-
-```text
-surface_name
-command_sequence
-arduino_echo_time_s
-computer_to_arduino_latency_s
-applied_position
-applied_equivalent_deg
-```
-
-If you build a CSV with those columns, you can point the test config at it with:
-
-```matlab
-config.arduinoEchoImport.filePath = "C:\path\to\arduino_echo_import.csv";
-config.arduinoEchoImport.surfaceColumn = "surface_name";
-config.arduinoEchoImport.sequenceColumn = "command_sequence";
-config.arduinoEchoImport.echoTimeColumn = "arduino_echo_time_s";
-config.arduinoEchoImport.latencyColumn = "computer_to_arduino_latency_s";
-config.arduinoEchoImport.appliedPositionColumn = "applied_position";
-config.arduinoEchoImport.appliedEquivalentDegreesColumn = "applied_equivalent_deg";
-```
-
-## Included MATLAB Helpers
-
-This folder also includes:
-
-- `Nano33IoT_Echo_Client_Example.m`
-  It connects with `tcpclient`, performs sync bursts, sends `SET` commands, and saves:
-  `host_dispatch_log.csv`, `host_sync_roundtrip.csv`, `board_command_log.csv`, `board_sync_log.csv`
-- `Build_Arduino_Echo_Import_From_Dump.m`
-  It reads those files, estimates the board-to-host clock map, and produces:
-  `arduino_echo_import.csv`
-
-Typical sequence:
-
-```matlab
-artifacts = Nano33IoT_Echo_Client_Example();
-
-echoImport = Build_Arduino_Echo_Import_From_Dump(struct( ...
-    "hostDispatchCsvPath", artifacts.dispatchLogPath, ...
-    "syncRoundTripCsvPath", artifacts.syncRoundTripPath, ...
-    "boardCommandLogCsvPath", artifacts.commandDumpPath));
-```
-
-## Sketch Configuration
-
-Edit these constants before uploading:
-
-- `Config::kWifiSsid`
-- `Config::kWifiPassword`
-- `Config::kUseStaticIp`
-- `Config::kStaticIp`
-- `Config::kStaticGateway`
-- `Config::kStaticSubnet`
-- `Config::kStaticDns`
-- `Config::kSurfaceNames`
-- `Config::kServoPins`
-- `Config::kMinPulseUs`
-- `Config::kMaxPulseUs`
-- `Config::kNeutralPositions`
-
-The current defaults match the four-surface layout already used in this repo.
-The current network defaults request `192.168.0.33/24` with gateway and DNS at `192.168.0.1`, so change those if your LAN uses different values.
+Run [Smoke_Test.m](./Smoke_Test.m). It sends a UDP `HELLO` datagram and prints the `HELLO_EVENT` returned by the board.
