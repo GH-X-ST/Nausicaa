@@ -85,7 +85,7 @@ config.servoMaxPulseDurationSeconds = getNumericColumnField(config, "servoMaxPul
 config.commandDeflectionScales = getNumericColumnField(config, "commandDeflectionScales", ones(numel(config.surfaceNames), 1));
 config.commandDeflectionOffsetsDegrees = getNumericColumnField(config, "commandDeflectionOffsetsDegrees", zeros(numel(config.surfaceNames), 1));
 
-config.commandMode = getTextScalarField(config, "commandMode", "single");
+config.commandMode = getTextScalarField(config, "commandMode", "all");
 config.singleSurfaceName = getTextScalarField(config, "singleSurfaceName", "Aileron_L");
 config.commandProfile = normalizeCommandProfile(getFieldOrDefault(config, "commandProfile", struct()));
 config.arduinoEchoImport = normalizeArduinoEchoImportConfig( ...
