@@ -88,16 +88,24 @@ tableData = readtable(filePath, opts);
 end
 
 function [clockSlope, clockIntercept] = estimateBoardToHostClockMap(syncRoundTripLog)
-hostMidUs = 0.5 .* (double(syncRoundTripLog.host_tx_us) + double(syncRoundTripLog.host_rx_us));
-boardMidUs = 0.5 .* (double(syncRoundTripLog.board_rx_us) + double(syncRoundTripLog.board_tx_us));
+% Calibrate against host send time and board receive time only.
+% This avoids reply-side skew from delayed host reads.
+hostTxUs = double(syncRoundTripLog.host_tx_us);
+boardRxUs = double(syncRoundTripLog.board_rx_us);
 
-if numel(hostMidUs) >= 2
-    polynomialCoefficients = polyfit(boardMidUs, hostMidUs, 1);
+if numel(hostTxUs) >= 2
+    polynomialCoefficients = polyfit(boardRxUs, hostTxUs, 1);
     clockSlope = polynomialCoefficients(1);
     clockIntercept = polynomialCoefficients(2);
 else
     clockSlope = 1.0;
-    clockIntercept = hostMidUs(1) - boardMidUs(1);
+    clockIntercept = hostTxUs(1) - boardRxUs(1);
+end
+
+syncForwardLatencyUs = clockSlope .* boardRxUs + clockIntercept - hostTxUs;
+minimumForwardLatencyUs = min(syncForwardLatencyUs);
+if minimumForwardLatencyUs < 0
+    clockIntercept = clockIntercept - minimumForwardLatencyUs;
 end
 end
 

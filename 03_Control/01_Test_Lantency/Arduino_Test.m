@@ -318,6 +318,7 @@ connectionInfo = struct( ...
     "loggerPort", config.arduinoTransport.loggerPort, ...
     "loggerGreeting", "", ...
     "loggerFirmwareVersion", "", ...
+    "loggerBackend", "", ...
     "transportDiagnostics", strings(0, 1));
 
 connectStart = tic;
@@ -335,11 +336,12 @@ for attemptIndex = 1:numel(attemptModes)
                     loggerTimeoutSeconds = config.arduinoTransport.loggerProbeTimeoutSeconds;
                 end
 
-                [commandInterface, loggerGreeting, firmwareVersion] = ...
+                [commandInterface, loggerGreeting, firmwareVersion, loggerBackend] = ...
                     createNanoLoggerCommandInterface(config, loggerTimeoutSeconds);
                 connectionInfo.loggerGreeting = loggerGreeting;
                 connectionInfo.loggerFirmwareVersion = firmwareVersion;
-                connectionInfo.connectionMessage = "Connected via Nano logger TCP.";
+                connectionInfo.loggerBackend = loggerBackend;
+                connectionInfo.connectionMessage = "Connected via Nano logger TCP (" + loggerBackend + ").";
             otherwise
                 [commandInterface, availableLibraries] = createMathWorksCommandInterface(config);
                 connectionInfo.availableLibraries = availableLibraries;
@@ -403,14 +405,13 @@ commandInterface = struct( ...
     "surfaceNames", config.surfaceNames);
 end
 
-function [commandInterface, greeting, firmwareVersion] = createNanoLoggerCommandInterface(config, timeoutSeconds)
-loggerClient = tcpclient( ...
-    char(config.arduinoIPAddress), ...
+function [commandInterface, greeting, firmwareVersion, backendName] = createNanoLoggerCommandInterface(config, timeoutSeconds)
+[loggerConnection, backendName] = createNanoLoggerConnection( ...
+    config.arduinoIPAddress, ...
     config.arduinoTransport.loggerPort, ...
-    "ConnectTimeout", timeoutSeconds, ...
-    "Timeout", timeoutSeconds);
+    timeoutSeconds);
 
-greeting = waitForNanoLoggerHelloReply(loggerClient, timeoutSeconds);
+greeting = waitForNanoLoggerHelloReply(loggerConnection, timeoutSeconds);
 
 if strlength(greeting) == 0
     error("Arduino_Test:MissingNanoLoggerGreeting", ...
@@ -421,7 +422,7 @@ end
 [firmwareVersion, ~, ~] = parseNanoLoggerHelloReply(greeting);
 commandInterface = struct( ...
     "transportMode", "nano_logger_tcp", ...
-    "connection", loggerClient, ...
+    "connection", loggerConnection, ...
     "servoObjects", {cell(numel(config.surfaceNames), 1)}, ...
     "surfaceNames", config.surfaceNames);
 end
@@ -439,7 +440,64 @@ boardIpAddress = greetingParts(3);
 boardPort = str2double(greetingParts(4));
 end
 
-function greeting = waitForNanoLoggerHelloReply(loggerClient, timeoutSeconds)
+function [loggerConnection, backendName] = createNanoLoggerConnection(ipAddress, loggerPort, timeoutSeconds)
+javaConnectionException = [];
+
+try
+    [loggerConnection, backendName] = createJavaNanoLoggerConnection(ipAddress, loggerPort, timeoutSeconds);
+    return;
+catch connectionException
+    javaConnectionException = connectionException;
+end
+
+try
+    [loggerConnection, backendName] = createTcpclientNanoLoggerConnection(ipAddress, loggerPort, timeoutSeconds);
+    backendName = backendName + "_fallback";
+catch tcpConnectionException
+    error("Arduino_Test:NanoLoggerConnectFailed", ...
+        "Java no-delay socket failed (%s). tcpclient fallback failed (%s).", ...
+        char(string(javaConnectionException.message)), ...
+        char(string(tcpConnectionException.message)));
+end
+end
+
+function [loggerConnection, backendName] = createJavaNanoLoggerConnection(ipAddress, loggerPort, timeoutSeconds)
+timeoutMilliseconds = int32(max(1, ceil(timeoutSeconds .* 1000)));
+socket = javaObject("java.net.Socket");
+socket.setTcpNoDelay(true);
+socket.setKeepAlive(true);
+socket.connect(javaObject("java.net.InetSocketAddress", char(ipAddress), int32(loggerPort)), timeoutMilliseconds);
+socket.setSoTimeout(timeoutMilliseconds);
+
+reader = javaObject( ...
+    "java.io.BufferedReader", ...
+    javaObject("java.io.InputStreamReader", socket.getInputStream()));
+writer = javaObject("java.io.DataOutputStream", socket.getOutputStream());
+
+loggerConnection = struct( ...
+    "backend", "java_socket_nodelay", ...
+    "timeoutSeconds", timeoutSeconds, ...
+    "socket", socket, ...
+    "reader", reader, ...
+    "writer", writer);
+backendName = "java_socket_nodelay";
+end
+
+function [loggerConnection, backendName] = createTcpclientNanoLoggerConnection(ipAddress, loggerPort, timeoutSeconds)
+loggerClient = tcpclient( ...
+    char(ipAddress), ...
+    loggerPort, ...
+    "ConnectTimeout", timeoutSeconds, ...
+    "Timeout", timeoutSeconds);
+
+loggerConnection = struct( ...
+    "backend", "tcpclient", ...
+    "timeoutSeconds", timeoutSeconds, ...
+    "client", loggerClient);
+backendName = "tcpclient";
+end
+
+function greeting = waitForNanoLoggerHelloReply(loggerConnection, timeoutSeconds)
 greeting = "";
 requestHelloAfterSeconds = min(0.5, timeoutSeconds);
 pollIntervalSeconds = 0.05;
@@ -447,21 +505,63 @@ waitStart = tic;
 helloRequested = false;
 
 while toc(waitStart) < timeoutSeconds
-    while loggerClient.NumBytesAvailable > 0
-        nextLine = string(strtrim(readline(loggerClient)));
-        if startsWith(nextLine, "HELLO_REPLY")
-            greeting = nextLine;
-            return;
-        end
+    nextLine = tryReadNanoLoggerLine(loggerConnection, pollIntervalSeconds);
+    if strlength(nextLine) > 0 && startsWith(nextLine, "HELLO_REPLY")
+        greeting = nextLine;
+        return;
     end
 
     if ~helloRequested && toc(waitStart) >= requestHelloAfterSeconds
-        writeline(loggerClient, "HELLO");
+        sendNanoLoggerLine(loggerConnection, "HELLO");
         helloRequested = true;
     end
-
-    pause(pollIntervalSeconds);
 end
+end
+
+function sendNanoLoggerLine(loggerConnection, requestLine)
+requestText = char(string(requestLine));
+
+switch loggerConnection.backend
+    case "java_socket_nodelay"
+        loggerConnection.writer.writeBytes([requestText, newline]);
+        loggerConnection.writer.flush();
+    otherwise
+        writeline(loggerConnection.client, requestText);
+end
+end
+
+function nextLine = tryReadNanoLoggerLine(loggerConnection, timeoutSeconds)
+nextLine = "";
+
+switch loggerConnection.backend
+    case "java_socket_nodelay"
+        timeoutMilliseconds = int32(max(1, ceil(timeoutSeconds .* 1000)));
+        loggerConnection.socket.setSoTimeout(timeoutMilliseconds);
+        try
+            javaLine = loggerConnection.reader.readLine();
+            if ~isempty(javaLine)
+                nextLine = string(strtrim(char(javaLine)));
+            end
+        catch readException
+            if ~isNanoLoggerTimeoutException(readException)
+                rethrow(readException);
+            end
+        end
+    otherwise
+        waitStart = tic;
+        while toc(waitStart) < timeoutSeconds
+            if loggerConnection.client.NumBytesAvailable > 0
+                nextLine = string(strtrim(readline(loggerConnection.client)));
+                return;
+            end
+            pause(min(0.01, timeoutSeconds));
+        end
+end
+end
+
+function isTimeout = isNanoLoggerTimeoutException(readException)
+exceptionMessage = string(readException.message);
+isTimeout = contains(exceptionMessage, "timed out", 'IgnoreCase', true);
 end
 
 function arduinoConnection = createArduinoConnection(config)
@@ -492,6 +592,10 @@ fprintf("  Arduino (%s): %s\n", ...
 if isfield(runData.connectionInfo.arduino, "transportResolvedMode") && ...
         strlength(runData.connectionInfo.arduino.transportResolvedMode) > 0
     fprintf("  Transport mode: %s\n", char(runData.connectionInfo.arduino.transportResolvedMode));
+end
+if isfield(runData.connectionInfo.arduino, "loggerBackend") && ...
+        strlength(runData.connectionInfo.arduino.loggerBackend) > 0
+    fprintf("  Logger backend: %s\n", char(runData.connectionInfo.arduino.loggerBackend));
 end
 fprintf("  Active command surfaces: %s\n\n", char(join(runData.config.activeSurfaceNames, ", ")));
 end
@@ -737,7 +841,7 @@ switch commandInterface.transportMode
                 char(surfaceNames(surfaceIndex)), ...
                 uint32(commandSequence), ...
                 servoPositions(surfaceIndex));
-            writeline(commandInterface.connection, commandLine);
+            sendNanoLoggerLine(commandInterface.connection, commandLine);
 
             loggerSession = appendNanoLoggerDispatchRow( ...
                 loggerSession, ...
@@ -963,10 +1067,10 @@ syncRoundTripLog = table( ...
         'board_tx_us'});
 end
 
-function syncRow = sendNanoLoggerSync(loggerClient, hostTimer, syncId)
+function syncRow = sendNanoLoggerSync(loggerConnection, hostTimer, syncId)
 hostTxUs = hostNowUs(hostTimer);
-writeline(loggerClient, sprintf("SYNC,%u,%u", uint32(syncId), uint32(hostTxUs)));
-reply = readNanoLoggerProtocolLine(loggerClient);
+sendNanoLoggerLine(loggerConnection, sprintf("SYNC,%u,%u", uint32(syncId), uint32(hostTxUs)));
+reply = readNanoLoggerProtocolLine(loggerConnection);
 hostRxUs = hostNowUs(hostTimer);
 
 replyParts = split(reply, ",");
@@ -990,9 +1094,9 @@ syncRow = table( ...
         'board_tx_us'});
 end
 
-function reply = requestNanoLoggerReply(loggerClient, requestLine)
-writeline(loggerClient, char(requestLine));
-reply = readNanoLoggerProtocolLine(loggerClient);
+function reply = requestNanoLoggerReply(loggerConnection, requestLine)
+sendNanoLoggerLine(loggerConnection, requestLine);
+reply = readNanoLoggerProtocolLine(loggerConnection);
 if startsWith(reply, "ERR,")
     error("Arduino_Test:NanoLoggerCommandFailed", ...
         "Arduino logger command failed: %s", ...
@@ -1000,12 +1104,12 @@ if startsWith(reply, "ERR,")
 end
 end
 
-function dumpLines = requestNanoLoggerDump(loggerClient, requestLine, endMarker)
-writeline(loggerClient, char(requestLine));
+function dumpLines = requestNanoLoggerDump(loggerConnection, requestLine, endMarker)
+sendNanoLoggerLine(loggerConnection, requestLine);
 dumpLines = strings(0, 1);
 
 while true
-    nextLine = readNanoLoggerProtocolLine(loggerClient);
+    nextLine = readNanoLoggerProtocolLine(loggerConnection);
     dumpLines(end + 1, 1) = nextLine; %#ok<AGROW>
     if nextLine == endMarker
         return;
@@ -1013,15 +1117,22 @@ while true
 end
 end
 
-function nextLine = readNanoLoggerProtocolLine(loggerClient, firstLine)
+function nextLine = readNanoLoggerProtocolLine(loggerConnection, firstLine)
 if nargin >= 2
     nextLine = string(strtrim(firstLine));
 else
-    nextLine = string(strtrim(readline(loggerClient)));
+    nextLine = tryReadNanoLoggerLine(loggerConnection, loggerConnection.timeoutSeconds);
+    if strlength(nextLine) == 0
+        error("Arduino_Test:NanoLoggerReadTimeout", "Timed out waiting for a Nano logger reply.");
+    end
 end
 
 while startsWith(nextLine, "HELLO_REPLY")
-    nextLine = string(strtrim(readline(loggerClient)));
+    nextLine = tryReadNanoLoggerLine(loggerConnection, loggerConnection.timeoutSeconds);
+    if strlength(nextLine) == 0
+        error("Arduino_Test:NanoLoggerReadTimeout", ...
+            "Timed out waiting for a Nano logger reply after HELLO_REPLY.");
+    end
 end
 end
 
@@ -1212,16 +1323,24 @@ tableData = readtable(filePath, options);
 end
 
 function [clockSlope, clockIntercept] = estimateBoardToHostClockMap(syncRoundTripLog)
-hostMidUs = 0.5 .* (double(syncRoundTripLog.host_tx_us) + double(syncRoundTripLog.host_rx_us));
-boardMidUs = 0.5 .* (double(syncRoundTripLog.board_rx_us) + double(syncRoundTripLog.board_tx_us));
+% Calibrate against host send time and board receive time only.
+% This avoids reply-side skew from delayed host reads.
+hostTxUs = double(syncRoundTripLog.host_tx_us);
+boardRxUs = double(syncRoundTripLog.board_rx_us);
 
-if numel(hostMidUs) >= 2
-    fitCoefficients = polyfit(boardMidUs, hostMidUs, 1);
+if numel(hostTxUs) >= 2
+    fitCoefficients = polyfit(boardRxUs, hostTxUs, 1);
     clockSlope = fitCoefficients(1);
     clockIntercept = fitCoefficients(2);
 else
     clockSlope = 1.0;
-    clockIntercept = hostMidUs(1) - boardMidUs(1);
+    clockIntercept = hostTxUs(1) - boardRxUs(1);
+end
+
+syncForwardLatencyUs = clockSlope .* boardRxUs + clockIntercept - hostTxUs;
+minimumForwardLatencyUs = min(syncForwardLatencyUs);
+if minimumForwardLatencyUs < 0
+    clockIntercept = clockIntercept - minimumForwardLatencyUs;
 end
 end
 
@@ -1666,6 +1785,7 @@ settings = [ ...
     "Arduino", "IsConnected", formatSettingValue(arduinoInfo.isConnected); ...
     "Arduino", "ConnectionMessage", formatSettingValue(arduinoInfo.connectionMessage); ...
     "Arduino", "ConnectElapsedSeconds", formatSettingValue(arduinoInfo.connectElapsedSeconds); ...
+    "Arduino", "LoggerBackend", formatSettingValue(getFieldOrDefault(arduinoInfo, "loggerBackend", "")); ...
     "ArduinoEchoImport", "FilePath", formatSettingValue(config.arduinoEchoImport.filePath); ...
     "ArduinoEchoImport", "SheetName", formatSettingValue(config.arduinoEchoImport.sheetName); ...
     "ArduinoEchoImport", "SurfaceColumn", formatSettingValue(config.arduinoEchoImport.surfaceColumn); ...
@@ -1769,14 +1889,37 @@ end
 switch commandInterface.transportMode
     case "nano_logger_tcp"
         try
-            loggerClient = commandInterface.connection;
-            clear loggerClient %#ok<NASGU>
+            closeNanoLoggerConnection(commandInterface.connection);
         catch
         end
     otherwise
         try
             arduinoConnection = commandInterface.connection;
             clear arduinoConnection %#ok<NASGU>
+        catch
+        end
+end
+end
+
+function closeNanoLoggerConnection(loggerConnection)
+switch loggerConnection.backend
+    case "java_socket_nodelay"
+        try
+            loggerConnection.reader.close();
+        catch
+        end
+        try
+            loggerConnection.writer.close();
+        catch
+        end
+        try
+            loggerConnection.socket.close();
+        catch
+        end
+    otherwise
+        try
+            loggerClient = loggerConnection.client;
+            clear loggerClient %#ok<NASGU>
         catch
         end
 end
