@@ -23,7 +23,7 @@ LEGEND_LABEL_SPACING = 0.2
 
 ### Parsing utilities
 def find_latest_workbook(workbook_dir: Path):
-    workbook_paths = sorted(workbook_dir.glob("20260318_135711_Wire.xlsx"))
+    workbook_paths = sorted(workbook_dir.glob("20260318_144418_Test.xlsx"))
     if len(workbook_paths) == 0:
         raise FileNotFoundError(f"No .xlsx files were found in: {workbook_dir}")
     return workbook_paths[-1]
