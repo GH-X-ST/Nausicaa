@@ -243,7 +243,7 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     ax.set_yticks(y_centers)
     ax.set_xticklabels([f"{v:.2f}" for v in x])
     ax.set_yticklabels([f"{v:.2f}" for v in y])
-    ax.tick_params(axis="x", labelrotation=-30)
+    ax.tick_params(axis="x", labelrotation=30)
     ax.tick_params(axis="both", which="major", length=2, width=0.6)
     ax.legend(
         loc="lower left",

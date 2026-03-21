@@ -331,7 +331,7 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
     ax.set_yticks(yticks)
     ax.set_xticklabels([f"{v:.2f}" for v in xticks])
     ax.set_yticklabels([f"{v:.2f}" for v in yticks])
-    ax.tick_params(axis="x", labelrotation=-30)
+    ax.tick_params(axis="x", labelrotation=30)
     ax.tick_params(axis="both", which="major", length=2, width=0.6)
     ax.legend(
         loc="lower left",

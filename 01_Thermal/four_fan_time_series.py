@@ -243,7 +243,7 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
     ax.set_ylabel(r"$w$ (m $\!$s$^{-1}$)", fontsize=axis_label_size)
     ax.tick_params(axis="both", labelsize=tick_label_size)
     ax.set_xticks(sorted(d["z_meas_m"].unique()))
-    ax.tick_params(axis="x", labelrotation=-30)
+    ax.tick_params(axis="x", labelrotation=30)
     ax.set_ylim(0, 8.00)
     ax.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
 

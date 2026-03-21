@@ -37,7 +37,7 @@ PARAMS_SHEET = "four_annular_var_pchip"
 OUT_DIR = Path("A_figures/Four_Fan_Annular_Gaussian_Var")
 OUT_3D_NAME = "four_annular_gaussian_var_3d.png"
 # Match heat-map-main output aspect ratio
-FIGSIZE_3D = (7.45 / 1.3, 3.0)
+FIGSIZE_3D = (6.7, 3.0)
 
 # Layout controls (figure-fraction coordinates).
 AXES_X = 0.13
@@ -57,13 +57,13 @@ CBAR_EDGE_LW = AXIS_EDGE_LW
 CBAR_VMIN = 0.0
 CBAR_VMAX = 8.0
 CBAR_TICK_STEP = 1.0
-CBAR_LABEL_FONTSIZE = 10
-CBAR_TICK_FONTSIZE = 9
+CBAR_LABEL_FONTSIZE = 12
+CBAR_TICK_FONTSIZE = 11
 
 # Typography (match four_fan_annular_gaussian_var_heat_map_main.py)
-AXIS_LABEL_FONTSIZE = 10
-TICK_LABEL_FONTSIZE = 9
-LEGEND_FONTSIZE = 8.5
+AXIS_LABEL_FONTSIZE = 12
+TICK_LABEL_FONTSIZE = 11
+LEGEND_FONTSIZE = 10.5
 
 # Four-fan centres in arena coordinates (m)
 FOUR_FAN_CENTERS_XY = (
@@ -72,6 +72,7 @@ FOUR_FAN_CENTERS_XY = (
     (3.0, 1.2),
     (5.4, 1.2),
 )
+
 FAN_OUTLET_DIAMETER = 0.8
 FAN_OUTLET_EDGE_LW = 1.1
 FAN_OUTLET_ALPHA = 0.6
@@ -495,7 +496,7 @@ def plot_isosurfaces(
 
     leg = ax3d.legend(
         loc="upper right",
-        bbox_to_anchor=(1.1, 0.8),
+        bbox_to_anchor=(1.25, 0.8),
         frameon=True,
         framealpha=1.0,
         edgecolor="black",
@@ -538,7 +539,7 @@ def plot_isosurfaces(
         axis._axinfo["grid"]["color"] = (0.85, 0.85, 0.85, 1.0)
         axis._axinfo["grid"]["linewidth"] = 0.4
 
-    ax3d.view_init(elev=20, azim=-130)
+    ax3d.view_init(elev=20, azim=-120)
     ax3d.set_position([AXES_X, AXES_Y, AXES_W, AXES_H])
     ax3d.set_anchor("W")
 
@@ -587,5 +588,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 

@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.transforms as mtransforms
 from matplotlib.ticker import FormatStrFormatter
 from matplotlib.patches import Circle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -51,7 +52,7 @@ FAN_OUTLET_POINTS = [
     (3.0, 1.2),
 ]
 FAN_OUTLET_DIAMETER = 0.8
-FAN_OUTLET_EDGE_LW = 1.3
+FAN_OUTLET_EDGE_LW = 0.7
 FAN_OUTLET_ALPHA = 0.7
 FAN_OUTLET_DASH = (0, (2, 2))
 
@@ -138,7 +139,7 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     # Figure styling
     plt.rcParams.update({
         "font.size": 10,
-        "axes.labelsize": 10,
+        "axes.labelsize": 9,
         "axes.titlesize": 10,
         "xtick.labelsize": 9,
         "ytick.labelsize": 9,
@@ -148,7 +149,7 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
         "patch.edgecolor": "k",
     })
 
-    fig, ax = plt.subplots(figsize=(5.7, 3.9), dpi=600)  # 2-per-row on A4 landscape
+    fig, ax = plt.subplots(figsize=(5.2, 3.0), dpi=600)  # 2-per-row on A4 landscape
 
     # Heatmap with cell edges
     cmap_alpha = build_alpha_cmap()
@@ -182,12 +183,13 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
 
     # Colorbar
     divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="2.6%", pad=0.15)
+    cax = divider.append_axes("right", size="2.990%", pad=0.22)
     cbar = fig.colorbar(im, cax=cax)
-    cbar.set_label(CBAR_LABEL)
+    cbar.set_label(CBAR_LABEL, fontsize=9)
+    cbar.set_ticks(np.arange(0.0, 8.0 + 1e-9, 1.0))
     cbar.formatter = FormatStrFormatter("%.2f")
     cbar.update_ticks()
-    cbar.ax.tick_params(width=0.6, length=2)
+    cbar.ax.tick_params(width=0.6, length=2, labelsize=9)
     cbar.outline.set_linewidth(CBAR_EDGE_LW)
     cbar.outline.set_edgecolor("k")
     cbar.outline.set_visible(True)
@@ -199,7 +201,7 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
         spine.set_linewidth(CBAR_EDGE_LW)
 
     # Axes
-    ax.set_xlabel(XLABEL)
+    ax.set_xlabel(XLABEL, labelpad=1)
     ax.set_ylabel(YLABEL)
     ax.set_aspect("equal", adjustable="box")  # 1:1 grid without stretching
     for spine in ax.spines.values():
@@ -208,16 +210,20 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     ytick_pos = [y_centers[np.argmin(np.abs(y_centers - v))] for v in YTICKS]
     ax.set_xticks(xtick_pos)
     ax.set_yticks(ytick_pos)
-    ax.set_xticklabels([f"{v:.2f}" for v in XTICKS])
+    ax.set_xticklabels([f"{v:.2f}" for v in XTICKS], rotation=-30, ha="center")
     ax.set_yticklabels([f"{v:.2f}" for v in YTICKS])
+    ax.tick_params(axis="x", which="major", pad=1)
+    x_shift = mtransforms.ScaledTranslation(-1.5 / 72.0, 0.0, ax.figure.dpi_scale_trans)
+    for label in ax.get_xticklabels():
+        label.set_transform(label.get_transform() + x_shift)
     ax.tick_params(axis="both", which="major", length=2, width=0.6)
     ax.legend(
         loc="lower left",
-        bbox_to_anchor=(0.97, -0.22),
+        bbox_to_anchor=(1.15, -0.25),
         frameon=True,
         framealpha=1.0,
         edgecolor="black",
-        fontsize=LEGEND_FONTSIZE,
+        fontsize=(LEGEND_FONTSIZE - 0.2),
         handlelength=1.5,
         borderpad=0.5,
         labelspacing=0.2,

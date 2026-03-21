@@ -70,7 +70,7 @@ LEGEND_FONTSIZE = 8.5
 # Fan outlet markers (four fans)
 FAN_OUTLET_POINTS = list(FOUR_FAN_CENTERS_XY)
 FAN_OUTLET_DIAMETER = 0.8
-FAN_OUTLET_EDGE_LW = 1.1
+FAN_OUTLET_EDGE_LW = 0.7
 FAN_OUTLET_ALPHA = 0.6
 FAN_OUTLET_DASH = (0, (2, 2))
 
@@ -385,7 +385,7 @@ def plot_continuous_heatmap(
     plt.rcParams.update(
         {
             "font.size": 10,
-            "axes.labelsize": 10,
+            "axes.labelsize": 9,
             "axes.titlesize": 10,
             "xtick.labelsize": 9,
             "ytick.labelsize": 9,
@@ -396,7 +396,7 @@ def plot_continuous_heatmap(
         }
     )
 
-    fig, ax = plt.subplots(figsize=(5.7, 3.9), dpi=600)
+    fig, ax = plt.subplots(figsize=(5.2, 3.0), dpi=600)
 
     cmap_alpha = build_alpha_cmap()
     im = ax.pcolormesh(
@@ -432,12 +432,13 @@ def plot_continuous_heatmap(
         ax.add_patch(outlet)
 
     divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="2.6%", pad=0.15)
+    cax = divider.append_axes("right", size="2.990%", pad=0.22)
     cbar = fig.colorbar(im, cax=cax)
-    cbar.set_label(CBAR_LABEL)
+    cbar.set_label(CBAR_LABEL, fontsize=9)
+    cbar.set_ticks(np.arange(0.0, 8.0 + 1e-9, 1.0))
     cbar.formatter = FormatStrFormatter("%.2f")
     cbar.update_ticks()
-    cbar.ax.tick_params(width=0.6, length=2)
+    cbar.ax.tick_params(width=0.6, length=2, labelsize=9)
     cbar.outline.set_linewidth(CBAR_EDGE_LW)
     cbar.outline.set_edgecolor("k")
     cbar.outline.set_visible(True)
@@ -465,11 +466,11 @@ def plot_continuous_heatmap(
     ax.tick_params(axis="both", which="major", length=2, width=0.6)
     ax.legend(
         loc="lower left",
-        bbox_to_anchor=(0.97, -0.22),
+        bbox_to_anchor=(1.15, -0.25),
         frameon=True,
         framealpha=1.0,
         edgecolor="black",
-        fontsize=LEGEND_FONTSIZE,
+        fontsize=(LEGEND_FONTSIZE - 0.2),
         handlelength=1.5,
         borderpad=0.5,
         labelspacing=0.2,

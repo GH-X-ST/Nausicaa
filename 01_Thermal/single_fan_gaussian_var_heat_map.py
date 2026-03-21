@@ -56,7 +56,7 @@ ALPHA_EXP_RATE = 0.005
 FAN_OUTLET_X = 4.2
 FAN_OUTLET_Y = 2.4
 FAN_OUTLET_DIAMETER = 0.8
-FAN_OUTLET_EDGE_LW = 1.1
+FAN_OUTLET_EDGE_LW = 0.7
 FAN_OUTLET_ALPHA = 0.6
 FAN_OUTLET_DASH = (0, (2, 2))
 
@@ -277,7 +277,7 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
     ax.set_yticks(yticks)
     ax.set_xticklabels([f"{v:.2f}" for v in xticks])
     ax.set_yticklabels([f"{v:.2f}" for v in yticks])
-    ax.tick_params(axis="x", labelrotation=-30)
+    ax.tick_params(axis="x", labelrotation=30)
     ax.tick_params(axis="both", which="major", length=2, width=0.6)
     ax.legend(
         loc="lower left",

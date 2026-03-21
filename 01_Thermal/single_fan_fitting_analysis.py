@@ -182,7 +182,7 @@ def plot_metric_2d(
 
     if all_x:
         ax.set_xticks(sorted(all_x))
-    ax.tick_params(axis="x", labelrotation=-30)
+    ax.tick_params(axis="x", labelrotation=30)
     ax.tick_params(axis="both", labelsize=tick_label_size)
 
     y_min, y_max = y_limits
