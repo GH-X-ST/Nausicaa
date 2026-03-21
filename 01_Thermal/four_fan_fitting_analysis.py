@@ -10,11 +10,11 @@ from matplotlib.ticker import FormatStrFormatter
 
 
 # Legend styling
-LEGEND_FONT_SIZE = 9
+LEGEND_FONT_SIZE = 11
 AXIS_EDGE_LW = 0.80
 LEGEND_FRAME_LW = AXIS_EDGE_LW
 LEGEND_LOC = "upper right"
-LEGEND_BBOX_TO_ANCHOR = (0.95, 0.95)
+LEGEND_BBOX_TO_ANCHOR = (1.00, 1.05)
 LEGEND_HANDLE_LENGTH = 1.5
 LEGEND_BORDERPAD = 0.7
 LEGEND_LABEL_SPACING = 0.7
@@ -128,7 +128,7 @@ def plot_metric_2d(
     out_path: Path,
     y_limits: tuple[float, float],
 ):
-    fig, ax = plt.subplots(figsize=(5.67, 3.5), dpi=600)
+    fig, ax = plt.subplots(figsize=(7.0, 3.5), dpi=600)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
     ax.set_axisbelow(True)
@@ -271,5 +271,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
