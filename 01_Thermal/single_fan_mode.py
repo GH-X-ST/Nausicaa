@@ -16,12 +16,15 @@ try:
 except ImportError:  # Fallback if cmocean isn't installed
     cmocean = None
 
+FONT_SIZE_DELTA = 2
+plt.rcParams.update({"font.size": plt.rcParams.get("font.size", 10) + FONT_SIZE_DELTA})
+
 # Legend styling (match single_fan_heat_map.py)
-LEGEND_FONT_SIZE = 9
+LEGEND_FONT_SIZE = 9 + FONT_SIZE_DELTA
 AXIS_EDGE_LW = 0.80
 LEGEND_FRAME_LW = AXIS_EDGE_LW
 LEGEND_LOC = "upper right"
-LEGEND_BBOX_TO_ANCHOR = (0.95, 0.77)
+LEGEND_BBOX_TO_ANCHOR = (1.25, 0.80)
 LEGEND_HANDLE_LENGTH = 1.5
 LEGEND_BORDERPAD = 0.5
 LEGEND_LABEL_SPACING = 0.2
@@ -352,7 +355,7 @@ def plot_point_3d(
                 zi + z_text_offset,
                 f"{zi:.2f}",
                 color=label_color,
-                fontsize=8,
+                fontsize=8 + FONT_SIZE_DELTA,
                 ha="center",
                 zorder=label_zorder,
                 clip_on=False,
@@ -407,15 +410,13 @@ def plot_point_3d(
             f"x = {x_pos:.3g} m, y = {y_pos:.3g} m",
             ha="right",
             va="bottom",
-            fontsize=8,
+            fontsize=8 + FONT_SIZE_DELTA,
         )
 
     extra_artists = (ax.xaxis.label, ax.yaxis.label, ax.zaxis.label)
     fig.savefig(
         out_path,
         dpi=600,
-        bbox_inches="tight",
-        pad_inches=0.02,
         bbox_extra_artists=extra_artists,
     )
     plt.close(fig)

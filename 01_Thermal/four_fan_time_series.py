@@ -10,6 +10,9 @@ import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
 from matplotlib.ticker import FormatStrFormatter
 
+FONT_SIZE_DELTA = 2
+plt.rcParams.update({"font.size": plt.rcParams.get("font.size", 10) + FONT_SIZE_DELTA})
+
 
 ### Parsing utilities
 def parse_points_multiheader(excel_path: str, sheet_name: str):
@@ -141,7 +144,7 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
     mean = dd["mean_w"].to_numpy(dtype=float)
     std = dd["std_w"].to_numpy(dtype=float)
 
-    fig, ax = plt.subplots(figsize=(5.67, 3.5), dpi=600)
+    fig, ax = plt.subplots(figsize=(6.5, 3.5), dpi=600)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
     ax.set_axisbelow(True)
@@ -160,9 +163,9 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
     mean_marker_alpha = 1.0
     std_linewidth = 1.0
     std_alpha = 0.30
-    axis_label_size = 12
-    tick_label_size = 11
-    value_label_size = 10
+    axis_label_size = 12 + FONT_SIZE_DELTA
+    tick_label_size = 11 + FONT_SIZE_DELTA
+    value_label_size = 10 + FONT_SIZE_DELTA
 
     color = "#16058b"
     ax.plot(x, mean, color=color, linewidth=mean_linewidth, alpha=1.0)
