@@ -4,7 +4,7 @@
 #include <WiFiUdp.h>
 
 namespace Config {
-constexpr char kFirmwareVersion[] = "Nano33IoT_Echo_Logger_V2_UDP";
+constexpr char kFirmwareVersion[] = "Nano33IoT_Echo_Logger_V3_UDP";
 constexpr char kWifiSsid[] = "FlightArena_2.4G";
 constexpr char kWifiPassword[] = "R0b0t1c$";
 constexpr bool kUseStaticIp = true;
@@ -307,6 +307,17 @@ void handleSetAllCommand(char* context, uint32_t boardRxUs, const IPAddress& rem
     return;
   }
 
+  if (surfaceCount > Config::kSurfaceCount) {
+    sendErrorEvent(remoteIp, remotePort, F("SET_ALL_TOO_MANY_SURFACES"));
+    return;
+  }
+
+  uint8_t surfaceIndices[Config::kSurfaceCount];
+  uint32_t commandSequences[Config::kSurfaceCount];
+  float positionNorms[Config::kSurfaceCount];
+  uint16_t pulseUsValues[Config::kSurfaceCount];
+  uint32_t applyUsValues[Config::kSurfaceCount];
+
   for (uint32_t k = 0; k < surfaceCount; ++k) {
     char* surfaceNameToken = strtok_r(nullptr, ",", &context);
     char* sequenceToken = strtok_r(nullptr, ",", &context);
@@ -323,28 +334,42 @@ void handleSetAllCommand(char* context, uint32_t boardRxUs, const IPAddress& rem
       return;
     }
 
-    positionNorm = constrain(positionNorm, 0.0f, 1.0f);
-    uint16_t pulseUs = applySurfacePosition(static_cast<size_t>(surfaceIndex), positionNorm);
-    uint32_t applyUs = micros();
+    surfaceIndices[k] = static_cast<uint8_t>(surfaceIndex);
+    commandSequences[k] = commandSequence;
+    positionNorms[k] = constrain(positionNorm, 0.0f, 1.0f);
+  }
 
-    appendCommandLog(commandSequence, boardRxUs, applyUs, positionNorm, pulseUs, static_cast<uint8_t>(surfaceIndex));
+  // Apply the whole vector first so later surfaces are not delayed by telemetry output.
+  for (uint32_t k = 0; k < surfaceCount; ++k) {
+    pulseUsValues[k] = applySurfacePosition(surfaceIndices[k], positionNorms[k]);
+    applyUsValues[k] = micros();
+  }
+
+  for (uint32_t k = 0; k < surfaceCount; ++k) {
+    appendCommandLog(
+      commandSequences[k],
+      boardRxUs,
+      applyUsValues[k],
+      positionNorms[k],
+      pulseUsValues[k],
+      surfaceIndices[k]);
 
     if (!beginEventPacket(remoteIp, remotePort)) {
       continue;
     }
 
     gUdp.print(F("COMMAND_EVENT,"));
-    gUdp.print(Config::kSurfaceNames[surfaceIndex]);
+    gUdp.print(Config::kSurfaceNames[surfaceIndices[k]]);
     gUdp.print(',');
-    gUdp.print(commandSequence);
+    gUdp.print(commandSequences[k]);
     gUdp.print(',');
     gUdp.print(boardRxUs);
     gUdp.print(',');
-    gUdp.print(applyUs);
+    gUdp.print(applyUsValues[k]);
     gUdp.print(',');
-    gUdp.print(positionNorm, 6);
+    gUdp.print(positionNorms[k], 6);
     gUdp.print(',');
-    gUdp.print(pulseUs);
+    gUdp.print(pulseUsValues[k]);
     gUdp.endPacket();
   }
 }

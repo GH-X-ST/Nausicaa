@@ -9,7 +9,7 @@ It is not compatible with MATLAB's `arduino()` / `servo()` support-package firmw
 - Protocol: one-way UDP datagrams
 - Default board IP: `192.168.0.33`
 - Default port: `9500`
-- Firmware: `Nano33IoT_Echo_Logger_V2_UDP`
+- Firmware: `Nano33IoT_Echo_Logger_V3_UDP`
 
 MATLAB sends command datagrams to the Nano. The Nano timestamps reception and application on-board, then emits telemetry datagrams back to MATLAB. The MATLAB test scripts save those telemetry packets as:
 
@@ -20,6 +20,8 @@ MATLAB sends command datagrams to the Nano. The Nano timestamps reception and ap
 - `arduino_echo_import.csv`
 
 No request-reply loop or post-run board dump is required anymore.
+
+For `SET_ALL`, firmware `V3_UDP` parses the whole actuator vector, applies all surfaces first, records the per-surface `apply_us` timestamps, and only then emits telemetry. This avoids inflating later-surface apply latency with UDP telemetry transmission time.
 
 ## Command Datagrams
 
@@ -36,7 +38,7 @@ HELLO
 Telemetry:
 
 ```text
-HELLO_EVENT,Nano33IoT_Echo_Logger_V2_UDP,<board_ip>,9500,<board_now_us>
+HELLO_EVENT,Nano33IoT_Echo_Logger_V3_UDP,<board_ip>,9500,<board_now_us>
 ```
 
 ### `STATUS`
@@ -108,6 +110,29 @@ Telemetry:
 ```text
 COMMAND_EVENT,<surface_name>,<command_sequence>,<board_rx_us>,<apply_us>,<applied_position>,<pulse_us>
 ```
+
+### `SET_ALL`
+
+Outbound:
+
+```text
+SET_ALL,<sample_sequence>,<surface_count>,<surface_name_1>,<command_sequence_1>,<position_norm_1>,...
+```
+
+Telemetry:
+
+```text
+COMMAND_EVENT,<surface_name>,<command_sequence>,<board_rx_us>,<apply_us>,<applied_position>,<pulse_us>
+```
+
+One `COMMAND_EVENT` is emitted per surface after the full vector has already been applied.
+
+## Timing Interpretation
+
+- `board_rx_us` is common to all surfaces in a `SET_ALL` datagram.
+- `apply_us` is captured per surface immediately after each servo write.
+- In `V3_UDP`, per-surface `apply_us` is no longer biased by telemetry output for earlier surfaces.
+- Small surface-to-surface differences can still remain because servo writes are executed sequentially on the MCU.
 
 ## Upload
 
