@@ -10,11 +10,17 @@ from matplotlib.ticker import FormatStrFormatter
 LEGEND_FONT_SIZE = 9
 AXIS_EDGE_LW = 0.80
 LEGEND_FRAME_LW = AXIS_EDGE_LW
-LEGEND_LOC = "lower right"
-LEGEND_BBOX_TO_ANCHOR = (1.02, 0.02)
+LEGEND_LOC = "upper left"
+LEGEND_BBOX_TO_ANCHOR = (1.02, 1.00)
 LEGEND_HANDLE_LENGTH = 1.5
 LEGEND_BORDERPAD = 0.5
 LEGEND_LABEL_SPACING = 0.2
+FIGURE_LEFT = 0.07
+FIGURE_RIGHT = 0.80
+FIGURE_TOP = 0.83
+FIGURE_BOTTOM = 0.08
+FIGURE_HSPACE = 0.42
+FIGURE_WSPACE = 0.62
 MS_PER_SECOND = 1e3
 
 SURFACE_STYLES = [
@@ -56,7 +62,7 @@ LATENCY_METRICS = [
     {
         "sheet": "HostSchedulingDelay",
         "suffix": "_host_scheduling_delay_s",
-        "label": "Host scheduling",
+        "label": "Scheduled to dispatch",
         "summary_prefix": "HostSchedulingDelay",
         "color": "#264653",
     },
@@ -96,6 +102,12 @@ SUMMARY_STATS = [
     ("P99_s", "P99", "#f4a261"),
     ("Max_s", "Max", "#e76f51"),
 ]
+
+
+def normalize_text(value) -> str:
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
 
 
 def find_latest_workbook(workbook_dir: Path) -> Path:
@@ -138,6 +150,118 @@ def numeric_series(frame: pd.DataFrame, column_name: str) -> np.ndarray:
 def finite_pair(x: np.ndarray, y: np.ndarray):
     mask = np.isfinite(x) & np.isfinite(y)
     return x[mask], y[mask]
+
+
+def nanmedian_or_nan(values: np.ndarray) -> float:
+    finite_values = values[np.isfinite(values)]
+    if finite_values.size == 0:
+        return np.nan
+    return float(np.median(finite_values))
+
+
+def rowwise_nanmedian_or_nan(values: np.ndarray) -> np.ndarray:
+    if values.size == 0:
+        return np.array([], dtype=float)
+
+    aggregate_values = np.full(values.shape[0], np.nan, dtype=float)
+    for row_index, row_values in enumerate(values):
+        aggregate_values[row_index] = nanmedian_or_nan(np.asarray(row_values, dtype=float))
+    return aggregate_values
+
+
+def build_settings_lookup(critical_settings_df: pd.DataFrame) -> dict[tuple[str, str], str]:
+    if critical_settings_df.empty:
+        return {}
+
+    settings_lookup: dict[tuple[str, str], str] = {}
+    for _, row in critical_settings_df.iterrows():
+        category = normalize_text(row.get("Category"))
+        setting = normalize_text(row.get("Setting"))
+        value = normalize_text(row.get("Value"))
+        if category and setting:
+            settings_lookup[(category, setting)] = value
+
+    return settings_lookup
+
+
+def get_setting(settings_lookup: dict[tuple[str, str], str], category: str, setting: str, default: str = "") -> str:
+    return settings_lookup.get((category, setting), default)
+
+
+def format_operating_mode(operating_mode: str) -> str:
+    operating_mode_key = operating_mode.strip().lower()
+    if operating_mode_key == "controller":
+        return "Controller mode"
+    if operating_mode_key == "instrumentation":
+        return "Instrumentation mode"
+    if operating_mode:
+        return operating_mode
+    return "Mode not recorded"
+
+
+def format_command_encoding(command_encoding: str) -> str:
+    command_encoding_key = command_encoding.strip().lower()
+    if command_encoding_key == "binary_vector":
+        return "Binary vector command"
+    if command_encoding_key == "text_set_all":
+        return "ASCII SET_ALL command"
+    if command_encoding:
+        return command_encoding
+    return "Encoding not recorded"
+
+
+def build_workbook_metadata(
+    excel_path: Path,
+    critical_settings_df: pd.DataFrame,
+    active_surfaces: list[str],
+) -> dict:
+    settings_lookup = build_settings_lookup(critical_settings_df)
+    run_label = get_setting(settings_lookup, "Run", "RunLabel", excel_path.stem) or excel_path.stem
+    transport_mode = get_setting(settings_lookup, "ArduinoTransport", "ResolvedMode")
+    requested_mode = get_setting(settings_lookup, "ArduinoTransport", "RequestedMode")
+    operating_mode = get_setting(settings_lookup, "ArduinoTransport", "OperatingMode")
+    command_encoding = get_setting(settings_lookup, "ArduinoTransport", "CommandEncoding")
+    command_mode = get_setting(settings_lookup, "Command", "Mode")
+    profile_type = get_setting(settings_lookup, "Profile", "Type")
+    capture_message = get_setting(settings_lookup, "ArduinoTransport", "CaptureMessage")
+    status = get_setting(settings_lookup, "Run", "Status")
+
+    if not operating_mode:
+        operating_mode = "legacy"
+    if not command_encoding and transport_mode == "nano_logger_udp":
+        command_encoding = "legacy text logger"
+
+    metadata_lines = [
+        format_operating_mode(operating_mode),
+        format_command_encoding(command_encoding),
+    ]
+
+    transport_parts = [part for part in [transport_mode, requested_mode] if part]
+    if transport_parts:
+        transport_label = transport_parts[0]
+        if len(transport_parts) >= 2 and transport_parts[1] != transport_parts[0]:
+            transport_label = f"{transport_parts[0]} (requested {transport_parts[1]})"
+        metadata_lines.append(f"Transport: {transport_label}")
+
+    if command_mode:
+        metadata_lines.append(f"Command mode: {command_mode}")
+    if profile_type:
+        metadata_lines.append(f"Profile: {profile_type}")
+    metadata_lines.append(f"Active surfaces: {', '.join(active_surfaces)}")
+
+    note_lines = []
+    if status:
+        note_lines.append(f"Status: {status}")
+    if capture_message:
+        note_lines.append(capture_message)
+
+    return {
+        "run_label": run_label,
+        "operating_mode": operating_mode,
+        "command_encoding": command_encoding,
+        "metadata_line": " | ".join(metadata_lines),
+        "note_line": " | ".join(note_lines),
+    }
 
 
 def get_active_surfaces(latency_summary_df: pd.DataFrame) -> list[str]:
@@ -198,7 +322,7 @@ def aggregate_latency_series(frame: pd.DataFrame, suffix: str, active_surfaces: 
 
     time_s = numeric_series(frame, "time_s")
     values = frame[candidate_columns].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
-    aggregate_values = np.nanmedian(values, axis=1)
+    aggregate_values = rowwise_nanmedian_or_nan(values)
     return finite_pair(time_s, aggregate_values)
 
 
@@ -219,7 +343,7 @@ def summarize_latency_metrics(latency_summary_df: pd.DataFrame, active_surfaces:
             column_name = f"{metric['summary_prefix']}{stat_suffix}"
             if column_name in active_summary.columns:
                 values = pd.to_numeric(active_summary[column_name], errors="coerce").to_numpy(dtype=float)
-                row[stat_label] = np.nanmedian(values)
+                row[stat_label] = nanmedian_or_nan(values)
             else:
                 row[stat_label] = np.nan
         rows.append(row)
@@ -262,6 +386,7 @@ def build_integrity_table(integrity_summary_df: pd.DataFrame, active_surfaces: l
 def build_workbook_bundle(excel_path: Path) -> dict:
     excel_file = pd.ExcelFile(excel_path)
     workbook_sheets = {
+        "CriticalSettings": read_sheet(excel_file, "CriticalSettings"),
         "InputSignal": read_sheet(excel_file, "InputSignal", required=True),
         "ArduinoEcho": read_sheet(excel_file, "ArduinoEcho", required=True),
         "HostSchedulingDelay": read_sheet(excel_file, "HostSchedulingDelay"),
@@ -275,6 +400,7 @@ def build_workbook_bundle(excel_path: Path) -> dict:
     }
 
     active_surfaces = get_active_surfaces(workbook_sheets["LatencySummary"])
+    metadata = build_workbook_metadata(excel_path, workbook_sheets["CriticalSettings"], active_surfaces)
     host_time, host_command, responses = load_time_series(
         workbook_sheets["InputSignal"], workbook_sheets["ArduinoEcho"]
     )
@@ -289,6 +415,7 @@ def build_workbook_bundle(excel_path: Path) -> dict:
         "responses": responses,
         "latency_summary_df": latency_summary_df,
         "integrity_table_df": integrity_table_df,
+        "metadata": metadata,
     }
 
 
@@ -339,6 +466,7 @@ def add_legend(ax: plt.Axes):
     legend = ax.legend(**legend_kwargs)
     if legend is not None:
         legend.get_frame().set_linewidth(LEGEND_FRAME_LW)
+        legend.set_in_layout(False)
 
 
 def plot_time_series_panel(ax: plt.Axes, host_time: np.ndarray, host_command: np.ndarray, responses: list[dict], profile_events_df: pd.DataFrame):
@@ -396,7 +524,12 @@ def plot_time_series_panel(ax: plt.Axes, host_time: np.ndarray, host_command: np
     add_legend(ax)
 
 
-def plot_latency_panel(ax: plt.Axes, workbook_sheets: dict[str, pd.DataFrame], active_surfaces: list[str]):
+def plot_latency_panel(
+    ax: plt.Axes,
+    workbook_sheets: dict[str, pd.DataFrame],
+    active_surfaces: list[str],
+    metadata: dict,
+):
     configure_axes(ax)
 
     for metric in LATENCY_METRICS:
@@ -416,7 +549,8 @@ def plot_latency_panel(ax: plt.Axes, workbook_sheets: dict[str, pd.DataFrame], a
             label=metric["label"],
         )
 
-    ax.set_title("Latency decomposition", fontsize=12)
+    operating_mode = format_operating_mode(normalize_text(metadata.get("operating_mode", "")))
+    ax.set_title(f"Latency decomposition ({operating_mode})", fontsize=12)
     ax.set_xlabel(r"Time, $t$ (s)", fontsize=11)
     ax.set_ylabel("Latency (ms)", fontsize=11)
     ax.tick_params(axis="both", labelsize=10)
@@ -454,10 +588,23 @@ def plot_summary_panel(ax: plt.Axes, summary_df: pd.DataFrame):
     ax.set_ylabel("Latency (ms)", fontsize=11)
     ax.tick_params(axis="y", labelsize=10)
     ax.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
-    ax.legend(loc="upper left", frameon=True, framealpha=1.0, edgecolor="black", fontsize=9)
+    legend = ax.legend(
+        loc=LEGEND_LOC,
+        bbox_to_anchor=LEGEND_BBOX_TO_ANCHOR,
+        frameon=True,
+        framealpha=1.0,
+        edgecolor="black",
+        fontsize=LEGEND_FONT_SIZE,
+        handlelength=LEGEND_HANDLE_LENGTH,
+        borderpad=LEGEND_BORDERPAD,
+        labelspacing=LEGEND_LABEL_SPACING,
+    )
+    if legend is not None:
+        legend.get_frame().set_linewidth(LEGEND_FRAME_LW)
+        legend.set_in_layout(False)
 
 
-def plot_integrity_panel(ax: plt.Axes, integrity_table_df: pd.DataFrame):
+def plot_integrity_panel(ax: plt.Axes, integrity_table_df: pd.DataFrame, metadata: dict):
     ax.set_facecolor("white")
     ax.axis("off")
     ax.set_title("Integrity summary", fontsize=12)
@@ -489,12 +636,33 @@ def plot_integrity_panel(ax: plt.Axes, integrity_table_df: pd.DataFrame):
         else:
             cell.set_facecolor("#ffffff")
 
+    note_line = normalize_text(metadata.get("note_line", ""))
+    if note_line:
+        ax.text(
+            0.0,
+            1.10,
+            note_line,
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=8.5,
+            color="#4f5d75",
+        )
+
 
 def plot_arduino_summary_figure(excel_path: Path, out_path: Path, workbook_bundle: dict):
     workbook_sheets = workbook_bundle["sheets"]
-    fig = plt.figure(figsize=(11.5, 8.0), dpi=300, constrained_layout=True)
+    fig = plt.figure(figsize=(13.5, 8.4), dpi=300)
     fig.patch.set_facecolor("white")
-    grid = fig.add_gridspec(2, 2, hspace=0.30, wspace=0.20)
+    fig.subplots_adjust(
+        left=FIGURE_LEFT,
+        right=FIGURE_RIGHT,
+        top=FIGURE_TOP,
+        bottom=FIGURE_BOTTOM,
+        hspace=FIGURE_HSPACE,
+        wspace=FIGURE_WSPACE,
+    )
+    grid = fig.add_gridspec(2, 2)
 
     ax_time = fig.add_subplot(grid[0, 0])
     ax_latency = fig.add_subplot(grid[0, 1])
@@ -508,18 +676,26 @@ def plot_arduino_summary_figure(excel_path: Path, out_path: Path, workbook_bundl
         workbook_bundle["responses"],
         workbook_sheets["ProfileEvents"],
     )
-    plot_latency_panel(ax_latency, workbook_sheets, workbook_bundle["active_surfaces"])
+    plot_latency_panel(
+        ax_latency,
+        workbook_sheets,
+        workbook_bundle["active_surfaces"],
+        workbook_bundle["metadata"],
+    )
     plot_summary_panel(ax_summary, workbook_bundle["latency_summary_df"])
-    plot_integrity_panel(ax_integrity, workbook_bundle["integrity_table_df"])
+    plot_integrity_panel(ax_integrity, workbook_bundle["integrity_table_df"], workbook_bundle["metadata"])
 
-    fig.suptitle(excel_path.stem, fontsize=13, y=0.995)
+    fig.suptitle(workbook_bundle["metadata"]["run_label"], fontsize=13, y=0.975)
+    metadata_line = normalize_text(workbook_bundle["metadata"].get("metadata_line", ""))
+    if metadata_line:
+        fig.text(0.5, 0.935, metadata_line, ha="center", va="top", fontsize=9.5, color="#4f5d75")
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
 def main():
     workbook_dir = Path("C_Arduino_Test")
-    excel_path = "Seed_5.xlsx"
+    excel_path = "Seed_5_Controller.xlsx"
     out_dir = workbook_dir / "A_figures"
     out_dir.mkdir(parents=True, exist_ok=True)
 

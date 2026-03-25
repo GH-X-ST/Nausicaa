@@ -2,9 +2,11 @@
 #include <Servo.h>
 #include <WiFiNINA.h>
 #include <WiFiUdp.h>
+#include <stdlib.h>
+#include <string.h>
 
 namespace Config {
-constexpr char kFirmwareVersion[] = "Nano33IoT_Echo_Logger_V3_UDP";
+constexpr char kFirmwareVersion[] = "Nano33IoT_Echo_Logger_V4_UDP";
 constexpr char kWifiSsid[] = "FlightArena_2.4G";
 constexpr char kWifiPassword[] = "R0b0t1c$";
 constexpr bool kUseStaticIp = true;
@@ -28,43 +30,36 @@ constexpr uint16_t kMinPulseUs[kSurfaceCount] = {1000, 1000, 1000, 1000};
 constexpr uint16_t kMaxPulseUs[kSurfaceCount] = {2000, 2000, 2000, 2000};
 constexpr float kNeutralPositions[kSurfaceCount] = {0.5f, 0.5f, 0.5f, 0.5f};
 
-constexpr size_t kCommandLogCapacity = 1024;
-constexpr size_t kSyncLogCapacity = 128;
-constexpr size_t kPacketBufferLength = 160;
+constexpr size_t kPacketBufferLength = 192;
+constexpr size_t kBinaryVectorPacketLength = 7 + 2 * kSurfaceCount;
 }
 
-struct CommandLogEntry {
-  uint32_t commandSequence;
-  uint32_t rxUs;
-  uint32_t applyUs;
-  float appliedPosition;
-  uint16_t pulseUs;
-  uint8_t surfaceIndex;
+enum class TelemetryMode : uint8_t {
+  Controller = 0,
+  Instrumentation = 1
 };
 
-struct SyncLogEntry {
-  uint32_t syncId;
-  uint32_t hostTxUs;
-  uint32_t boardRxUs;
-  uint32_t boardTxUs;
+struct PendingVectorCommand {
+  bool isValid;
+  uint32_t sampleSequence;
+  uint32_t rxUs;
+  uint8_t activeMask;
+  uint16_t positionCodes[Config::kSurfaceCount];
+  IPAddress remoteIp;
+  uint16_t remotePort;
 };
 
 WiFiUDP gUdp;
 Servo gServos[Config::kSurfaceCount];
 
-CommandLogEntry gCommandLog[Config::kCommandLogCapacity];
-SyncLogEntry gSyncLog[Config::kSyncLogCapacity];
-
-size_t gCommandLogCount = 0;
-size_t gCommandLogNextWriteIndex = 0;
-uint32_t gCommandLogOverflowCount = 0;
-
-size_t gSyncLogCount = 0;
-size_t gSyncLogNextWriteIndex = 0;
-uint32_t gSyncLogOverflowCount = 0;
-
 char gPacketBuffer[Config::kPacketBufferLength];
 uint32_t gLastWifiAttemptMs = 0;
+TelemetryMode gTelemetryMode = TelemetryMode::Controller;
+
+uint32_t gVectorEventCount = 0;
+uint32_t gCommandEventCount = 0;
+uint32_t gSyncEventCount = 0;
+uint32_t gErrorCount = 0;
 
 void setup() {
   Serial.begin(Config::kSerialBaud);
@@ -76,7 +71,7 @@ void setup() {
       Config::kServoPins[surfaceIndex],
       Config::kMinPulseUs[surfaceIndex],
       Config::kMaxPulseUs[surfaceIndex]);
-    applySurfacePosition(surfaceIndex, Config::kNeutralPositions[surfaceIndex]);
+    applySurfacePosition(surfaceIndex, positionNormToCode(Config::kNeutralPositions[surfaceIndex]));
   }
 
   connectToWifi(true);
@@ -160,22 +155,161 @@ void connectToWifi(bool blockUntilConnected) {
 }
 
 void serviceUdpDatagrams() {
+  PendingVectorCommand latestVectorCommand = {};
+  latestVectorCommand.isValid = false;
+
   int packetSize = gUdp.parsePacket();
   while (packetSize > 0) {
     IPAddress remoteIp = gUdp.remoteIP();
     uint16_t remotePort = static_cast<uint16_t>(gUdp.remotePort());
 
-    int bytesRead = gUdp.read(gPacketBuffer, Config::kPacketBufferLength - 1);
+    int bytesRead = gUdp.read(reinterpret_cast<uint8_t*>(gPacketBuffer), Config::kPacketBufferLength - 1);
     if (bytesRead > 0) {
-      gPacketBuffer[bytesRead] = '\0';
-      handleCommand(gPacketBuffer, micros(), remoteIp, remotePort);
+      uint32_t boardRxUs = micros();
+      bool handled = tryParseBinaryVectorCommand(
+        reinterpret_cast<const uint8_t*>(gPacketBuffer),
+        static_cast<size_t>(bytesRead),
+        boardRxUs,
+        remoteIp,
+        remotePort,
+        latestVectorCommand);
+
+      if (!handled) {
+        gPacketBuffer[bytesRead] = '\0';
+        handled = tryParseTextVectorCommand(
+          gPacketBuffer,
+          boardRxUs,
+          remoteIp,
+          remotePort,
+          latestVectorCommand);
+      }
+
+      if (!handled) {
+        handleTextCommand(gPacketBuffer, boardRxUs, remoteIp, remotePort);
+      }
     }
 
     packetSize = gUdp.parsePacket();
   }
+
+  if (latestVectorCommand.isValid) {
+    applyLatestVectorCommand(latestVectorCommand);
+  }
 }
 
-void handleCommand(char* packetBuffer, uint32_t boardRxUs, const IPAddress& remoteIp, uint16_t remotePort) {
+bool tryParseBinaryVectorCommand(
+  const uint8_t* packetBytes,
+  size_t packetLength,
+  uint32_t boardRxUs,
+  const IPAddress& remoteIp,
+  uint16_t remotePort,
+  PendingVectorCommand& pendingCommand) {
+  if (packetLength == 0 || packetBytes[0] != static_cast<uint8_t>('V')) {
+    return false;
+  }
+
+  if (packetLength != Config::kBinaryVectorPacketLength) {
+    sendErrorEvent(remoteIp, remotePort, F("BINARY_VECTOR_LENGTH_ERROR"));
+    return true;
+  }
+
+  const uint8_t surfaceCount = packetBytes[1];
+  if (surfaceCount != Config::kSurfaceCount) {
+    sendErrorEvent(remoteIp, remotePort, F("BINARY_VECTOR_SURFACE_COUNT_ERROR"));
+    return true;
+  }
+
+  PendingVectorCommand candidate = {};
+  candidate.isValid = true;
+  candidate.sampleSequence = decodeUint32LittleEndian(packetBytes + 3);
+  candidate.rxUs = boardRxUs;
+  candidate.activeMask = packetBytes[2];
+  candidate.remoteIp = remoteIp;
+  candidate.remotePort = remotePort;
+
+  size_t readIndex = 7;
+  for (size_t surfaceIndex = 0; surfaceIndex < Config::kSurfaceCount; ++surfaceIndex) {
+    candidate.positionCodes[surfaceIndex] = decodeUint16LittleEndian(packetBytes + readIndex);
+    readIndex += 2;
+  }
+
+  pendingCommand = candidate;
+  return true;
+}
+
+bool tryParseTextVectorCommand(
+  char* packetBuffer,
+  uint32_t boardRxUs,
+  const IPAddress& remoteIp,
+  uint16_t remotePort,
+  PendingVectorCommand& pendingCommand) {
+  if (strncmp(packetBuffer, "SET_ALL", 7) != 0 ||
+      (packetBuffer[7] != ',' && packetBuffer[7] != '\0')) {
+    return false;
+  }
+
+  char parseBuffer[Config::kPacketBufferLength];
+  strncpy(parseBuffer, packetBuffer, Config::kPacketBufferLength - 1);
+  parseBuffer[Config::kPacketBufferLength - 1] = '\0';
+
+  char* context = nullptr;
+  char* commandName = strtok_r(parseBuffer, ",", &context);
+  if (commandName == nullptr) {
+    return false;
+  }
+
+  char* sampleSequenceToken = strtok_r(nullptr, ",", &context);
+  char* surfaceCountToken = strtok_r(nullptr, ",", &context);
+
+  uint32_t sampleSequence = 0;
+  uint32_t surfaceCount = 0;
+  if (!parseUnsigned32(sampleSequenceToken, sampleSequence) ||
+      !parseUnsigned32(surfaceCountToken, surfaceCount)) {
+    sendErrorEvent(remoteIp, remotePort, F("SET_ALL_PARSE_ERROR"));
+    return true;
+  }
+
+  if (surfaceCount == 0 || surfaceCount > Config::kSurfaceCount) {
+    sendErrorEvent(remoteIp, remotePort, F("SET_ALL_SURFACE_COUNT_ERROR"));
+    return true;
+  }
+
+  PendingVectorCommand candidate = {};
+  candidate.isValid = true;
+  candidate.sampleSequence = sampleSequence;
+  candidate.rxUs = boardRxUs;
+  candidate.activeMask = 0;
+  candidate.remoteIp = remoteIp;
+  candidate.remotePort = remotePort;
+
+  for (size_t surfaceIndex = 0; surfaceIndex < Config::kSurfaceCount; ++surfaceIndex) {
+    candidate.positionCodes[surfaceIndex] = 0;
+  }
+
+  for (uint32_t elementIndex = 0; elementIndex < surfaceCount; ++elementIndex) {
+    char* surfaceNameToken = strtok_r(nullptr, ",", &context);
+    char* sequenceToken = strtok_r(nullptr, ",", &context);
+    char* positionToken = strtok_r(nullptr, ",", &context);
+
+    int surfaceIndex = findSurfaceIndex(surfaceNameToken);
+    uint32_t commandSequence = 0;
+    float positionNorm = 0.0f;
+    if (surfaceIndex < 0 ||
+        !parseUnsigned32(sequenceToken, commandSequence) ||
+        !parseFloat(positionToken, positionNorm)) {
+      sendErrorEvent(remoteIp, remotePort, F("SET_ALL_ITEM_PARSE_ERROR"));
+      return true;
+    }
+
+    candidate.activeMask |= static_cast<uint8_t>(1U << static_cast<uint8_t>(surfaceIndex));
+    candidate.positionCodes[surfaceIndex] = positionNormToCode(positionNorm);
+  }
+
+  pendingCommand = candidate;
+  return true;
+}
+
+void handleTextCommand(char* packetBuffer, uint32_t boardRxUs, const IPAddress& remoteIp, uint16_t remotePort) {
   char* context = nullptr;
   char* commandName = strtok_r(packetBuffer, ",", &context);
   if (commandName == nullptr) {
@@ -192,8 +326,13 @@ void handleCommand(char* packetBuffer, uint32_t boardRxUs, const IPAddress& remo
     return;
   }
 
+  if (strcmp(commandName, "MODE") == 0) {
+    handleModeCommand(context, remoteIp, remotePort);
+    return;
+  }
+
   if (strcmp(commandName, "CLEAR_LOGS") == 0) {
-    clearLogs();
+    clearCounters();
     sendOkEvent(remoteIp, remotePort, F("CLEAR_LOGS"));
     return;
   }
@@ -213,13 +352,30 @@ void handleCommand(char* packetBuffer, uint32_t boardRxUs, const IPAddress& remo
     handleSetCommand(context, boardRxUs, remoteIp, remotePort);
     return;
   }
-    
-  if (strcmp(commandName, "SET_ALL") == 0) {
-    handleSetAllCommand(context, boardRxUs, remoteIp, remotePort);
+
+  sendErrorEvent(remoteIp, remotePort, F("UNKNOWN_COMMAND"));
+}
+
+void handleModeCommand(char* context, const IPAddress& remoteIp, uint16_t remotePort) {
+  char* modeToken = strtok_r(nullptr, ",", &context);
+  if (modeToken == nullptr) {
+    sendErrorEvent(remoteIp, remotePort, F("MODE_PARSE_ERROR"));
     return;
   }
 
-  sendErrorEvent(remoteIp, remotePort, F("UNKNOWN_COMMAND"));
+  if (strcmp(modeToken, "CONTROLLER") == 0) {
+    gTelemetryMode = TelemetryMode::Controller;
+    sendOkEvent(remoteIp, remotePort, F("MODE_CONTROLLER"));
+    return;
+  }
+
+  if (strcmp(modeToken, "INSTRUMENTATION") == 0) {
+    gTelemetryMode = TelemetryMode::Instrumentation;
+    sendOkEvent(remoteIp, remotePort, F("MODE_INSTRUMENTATION"));
+    return;
+  }
+
+  sendErrorEvent(remoteIp, remotePort, F("MODE_VALUE_ERROR"));
 }
 
 void handleSyncCommand(char* context, uint32_t boardRxUs, const IPAddress& remoteIp, uint16_t remotePort) {
@@ -234,7 +390,7 @@ void handleSyncCommand(char* context, uint32_t boardRxUs, const IPAddress& remot
   }
 
   uint32_t boardTxUs = micros();
-  appendSyncLog(syncId, hostTxUs, boardRxUs, boardTxUs);
+  ++gSyncEventCount;
 
   if (!beginEventPacket(remoteIp, remotePort)) {
     return;
@@ -264,11 +420,11 @@ void handleSetCommand(char* context, uint32_t boardRxUs, const IPAddress& remote
     return;
   }
 
-  positionNorm = constrain(positionNorm, 0.0f, 1.0f);
-  uint16_t pulseUs = applySurfacePosition(static_cast<size_t>(surfaceIndex), positionNorm);
-  uint32_t applyUs = micros();
+  const uint16_t positionCode = positionNormToCode(positionNorm);
+  const uint16_t pulseUs = applySurfacePosition(static_cast<size_t>(surfaceIndex), positionCode);
+  const uint32_t applyUs = micros();
 
-  appendCommandLog(commandSequence, boardRxUs, applyUs, positionNorm, pulseUs, static_cast<uint8_t>(surfaceIndex));
+  ++gCommandEventCount;
 
   if (!beginEventPacket(remoteIp, remotePort)) {
     return;
@@ -283,95 +439,88 @@ void handleSetCommand(char* context, uint32_t boardRxUs, const IPAddress& remote
   gUdp.print(',');
   gUdp.print(applyUs);
   gUdp.print(',');
-  gUdp.print(positionNorm, 6);
+  gUdp.print(positionCodeToNorm(positionCode), 6);
   gUdp.print(',');
   gUdp.print(pulseUs);
   gUdp.endPacket();
 }
 
-void handleSetAllCommand(char* context, uint32_t boardRxUs, const IPAddress& remoteIp, uint16_t remotePort) {
-  char* sampleSequenceToken = strtok_r(nullptr, ",", &context);
-  char* surfaceCountToken = strtok_r(nullptr, ",", &context);
+void applyLatestVectorCommand(const PendingVectorCommand& command) {
+  uint32_t applyUs[Config::kSurfaceCount] = {0, 0, 0, 0};
+  uint16_t pulseUs[Config::kSurfaceCount] = {0, 0, 0, 0};
 
-  uint32_t sampleSequence = 0;
-  uint32_t surfaceCount = 0;
-
-  if (!parseUnsigned32(sampleSequenceToken, sampleSequence) ||
-      !parseUnsigned32(surfaceCountToken, surfaceCount)) {
-    sendErrorEvent(remoteIp, remotePort, F("SET_ALL_PARSE_ERROR"));
-    return;
-  }
-
-  if (surfaceCount == 0) {
-    sendErrorEvent(remoteIp, remotePort, F("SET_ALL_EMPTY"));
-    return;
-  }
-
-  if (surfaceCount > Config::kSurfaceCount) {
-    sendErrorEvent(remoteIp, remotePort, F("SET_ALL_TOO_MANY_SURFACES"));
-    return;
-  }
-
-  uint8_t surfaceIndices[Config::kSurfaceCount];
-  uint32_t commandSequences[Config::kSurfaceCount];
-  float positionNorms[Config::kSurfaceCount];
-  uint16_t pulseUsValues[Config::kSurfaceCount];
-  uint32_t applyUsValues[Config::kSurfaceCount];
-
-  for (uint32_t k = 0; k < surfaceCount; ++k) {
-    char* surfaceNameToken = strtok_r(nullptr, ",", &context);
-    char* sequenceToken = strtok_r(nullptr, ",", &context);
-    char* positionToken = strtok_r(nullptr, ",", &context);
-
-    int surfaceIndex = findSurfaceIndex(surfaceNameToken);
-    uint32_t commandSequence = 0;
-    float positionNorm = 0.0f;
-
-    if (surfaceIndex < 0 ||
-        !parseUnsigned32(sequenceToken, commandSequence) ||
-        !parseFloat(positionToken, positionNorm)) {
-      sendErrorEvent(remoteIp, remotePort, F("SET_ALL_ITEM_PARSE_ERROR"));
-      return;
+  for (size_t surfaceIndex = 0; surfaceIndex < Config::kSurfaceCount; ++surfaceIndex) {
+    if ((command.activeMask & static_cast<uint8_t>(1U << surfaceIndex)) == 0U) {
+      continue;
     }
 
-    surfaceIndices[k] = static_cast<uint8_t>(surfaceIndex);
-    commandSequences[k] = commandSequence;
-    positionNorms[k] = constrain(positionNorm, 0.0f, 1.0f);
+    pulseUs[surfaceIndex] = applySurfacePosition(surfaceIndex, command.positionCodes[surfaceIndex]);
+    applyUs[surfaceIndex] = micros();
   }
 
-  // Apply the whole vector first so later surfaces are not delayed by telemetry output.
-  for (uint32_t k = 0; k < surfaceCount; ++k) {
-    pulseUsValues[k] = applySurfacePosition(surfaceIndices[k], positionNorms[k]);
-    applyUsValues[k] = micros();
+  if (gTelemetryMode == TelemetryMode::Instrumentation) {
+    sendCommandEvents(command, applyUs, pulseUs);
+  } else {
+    sendVectorEvent(command, applyUs, pulseUs);
   }
+}
 
-  for (uint32_t k = 0; k < surfaceCount; ++k) {
-    appendCommandLog(
-      commandSequences[k],
-      boardRxUs,
-      applyUsValues[k],
-      positionNorms[k],
-      pulseUsValues[k],
-      surfaceIndices[k]);
+void sendCommandEvents(
+  const PendingVectorCommand& command,
+  const uint32_t* applyUs,
+  const uint16_t* pulseUs) {
+  for (size_t surfaceIndex = 0; surfaceIndex < Config::kSurfaceCount; ++surfaceIndex) {
+    if ((command.activeMask & static_cast<uint8_t>(1U << surfaceIndex)) == 0U) {
+      continue;
+    }
 
-    if (!beginEventPacket(remoteIp, remotePort)) {
+    if (!beginEventPacket(command.remoteIp, command.remotePort)) {
       continue;
     }
 
     gUdp.print(F("COMMAND_EVENT,"));
-    gUdp.print(Config::kSurfaceNames[surfaceIndices[k]]);
+    gUdp.print(Config::kSurfaceNames[surfaceIndex]);
     gUdp.print(',');
-    gUdp.print(commandSequences[k]);
+    gUdp.print(command.sampleSequence);
     gUdp.print(',');
-    gUdp.print(boardRxUs);
+    gUdp.print(command.rxUs);
     gUdp.print(',');
-    gUdp.print(applyUsValues[k]);
+    gUdp.print(applyUs[surfaceIndex]);
     gUdp.print(',');
-    gUdp.print(positionNorms[k], 6);
+    gUdp.print(positionCodeToNorm(command.positionCodes[surfaceIndex]), 6);
     gUdp.print(',');
-    gUdp.print(pulseUsValues[k]);
+    gUdp.print(pulseUs[surfaceIndex]);
     gUdp.endPacket();
+    ++gCommandEventCount;
   }
+}
+
+void sendVectorEvent(
+  const PendingVectorCommand& command,
+  const uint32_t* applyUs,
+  const uint16_t* pulseUs) {
+  if (!beginEventPacket(command.remoteIp, command.remotePort)) {
+    return;
+  }
+
+  gUdp.print(F("VECTOR_EVENT,"));
+  gUdp.print(command.sampleSequence);
+  gUdp.print(',');
+  gUdp.print(command.activeMask);
+  gUdp.print(',');
+  gUdp.print(command.rxUs);
+
+  for (size_t surfaceIndex = 0; surfaceIndex < Config::kSurfaceCount; ++surfaceIndex) {
+    gUdp.print(',');
+    gUdp.print(applyUs[surfaceIndex]);
+    gUdp.print(',');
+    gUdp.print(command.positionCodes[surfaceIndex]);
+    gUdp.print(',');
+    gUdp.print(pulseUs[surfaceIndex]);
+  }
+
+  gUdp.endPacket();
+  ++gVectorEventCount;
 }
 
 bool beginEventPacket(const IPAddress& remoteIp, uint16_t remotePort) {
@@ -394,6 +543,8 @@ void sendHelloEvent(const IPAddress& remoteIp, uint16_t remotePort) {
   gUdp.print(',');
   gUdp.print(Config::kServerPort);
   gUdp.print(',');
+  gUdp.print(telemetryModeToText(gTelemetryMode));
+  gUdp.print(',');
   gUdp.print(micros());
   gUdp.endPacket();
 }
@@ -404,14 +555,16 @@ void sendStatusEvent(const IPAddress& remoteIp, uint16_t remotePort) {
   }
 
   gUdp.print(F("STATUS_EVENT,"));
-  gUdp.print(F("command_log_count="));
-  gUdp.print(gCommandLogCount);
-  gUdp.print(F(",command_log_overflow="));
-  gUdp.print(gCommandLogOverflowCount);
-  gUdp.print(F(",sync_log_count="));
-  gUdp.print(gSyncLogCount);
-  gUdp.print(F(",sync_log_overflow="));
-  gUdp.print(gSyncLogOverflowCount);
+  gUdp.print(F("telemetry_mode="));
+  gUdp.print(telemetryModeToText(gTelemetryMode));
+  gUdp.print(F(",vector_event_count="));
+  gUdp.print(gVectorEventCount);
+  gUdp.print(F(",command_event_count="));
+  gUdp.print(gCommandEventCount);
+  gUdp.print(F(",sync_event_count="));
+  gUdp.print(gSyncEventCount);
+  gUdp.print(F(",error_count="));
+  gUdp.print(gErrorCount);
   gUdp.print(F(",wifi_status="));
   gUdp.print(WiFi.status());
   gUdp.endPacket();
@@ -428,6 +581,8 @@ void sendOkEvent(const IPAddress& remoteIp, uint16_t remotePort, const __FlashSt
 }
 
 void sendErrorEvent(const IPAddress& remoteIp, uint16_t remotePort, const __FlashStringHelper* message) {
+  ++gErrorCount;
+
   if (!beginEventPacket(remoteIp, remotePort)) {
     return;
   }
@@ -437,72 +592,58 @@ void sendErrorEvent(const IPAddress& remoteIp, uint16_t remotePort, const __Flas
   gUdp.endPacket();
 }
 
-void clearLogs() {
-  gCommandLogCount = 0;
-  gCommandLogNextWriteIndex = 0;
-  gCommandLogOverflowCount = 0;
-
-  gSyncLogCount = 0;
-  gSyncLogNextWriteIndex = 0;
-  gSyncLogOverflowCount = 0;
+void clearCounters() {
+  gVectorEventCount = 0;
+  gCommandEventCount = 0;
+  gSyncEventCount = 0;
+  gErrorCount = 0;
 }
 
 void applyNeutralToAllSurfaces() {
   for (size_t surfaceIndex = 0; surfaceIndex < Config::kSurfaceCount; ++surfaceIndex) {
-    applySurfacePosition(surfaceIndex, Config::kNeutralPositions[surfaceIndex]);
+    applySurfacePosition(surfaceIndex, positionNormToCode(Config::kNeutralPositions[surfaceIndex]));
   }
 }
 
-uint16_t applySurfacePosition(size_t surfaceIndex, float positionNorm) {
-  uint16_t pulseUs = positionToPulseUs(surfaceIndex, positionNorm);
+uint16_t applySurfacePosition(size_t surfaceIndex, uint16_t positionCode) {
+  uint16_t pulseUs = positionCodeToPulseUs(surfaceIndex, positionCode);
   gServos[surfaceIndex].writeMicroseconds(pulseUs);
   return pulseUs;
 }
 
-uint16_t positionToPulseUs(size_t surfaceIndex, float positionNorm) {
-  float clippedPosition = constrain(positionNorm, 0.0f, 1.0f);
-  float pulseUs = static_cast<float>(Config::kMinPulseUs[surfaceIndex]) +
-    clippedPosition * static_cast<float>(Config::kMaxPulseUs[surfaceIndex] - Config::kMinPulseUs[surfaceIndex]);
-
-  return static_cast<uint16_t>(pulseUs + 0.5f);
+uint16_t positionCodeToPulseUs(size_t surfaceIndex, uint16_t positionCode) {
+  const uint32_t pulseRangeUs = static_cast<uint32_t>(Config::kMaxPulseUs[surfaceIndex] - Config::kMinPulseUs[surfaceIndex]);
+  const uint32_t scaledPulseUs = static_cast<uint32_t>(positionCode) * pulseRangeUs + 32767U;
+  return static_cast<uint16_t>(Config::kMinPulseUs[surfaceIndex] + scaledPulseUs / 65535U);
 }
 
-void appendCommandLog(
-  uint32_t commandSequence,
-  uint32_t rxUs,
-  uint32_t applyUs,
-  float appliedPosition,
-  uint16_t pulseUs,
-  uint8_t surfaceIndex) {
-  CommandLogEntry& entry = gCommandLog[gCommandLogNextWriteIndex];
-  entry.commandSequence = commandSequence;
-  entry.rxUs = rxUs;
-  entry.applyUs = applyUs;
-  entry.appliedPosition = appliedPosition;
-  entry.pulseUs = pulseUs;
-  entry.surfaceIndex = surfaceIndex;
-
-  advanceRingBuffer(gCommandLogCount, gCommandLogNextWriteIndex, Config::kCommandLogCapacity, gCommandLogOverflowCount);
+float positionCodeToNorm(uint16_t positionCode) {
+  return static_cast<float>(positionCode) / 65535.0f;
 }
 
-void appendSyncLog(uint32_t syncId, uint32_t hostTxUs, uint32_t boardRxUs, uint32_t boardTxUs) {
-  SyncLogEntry& entry = gSyncLog[gSyncLogNextWriteIndex];
-  entry.syncId = syncId;
-  entry.hostTxUs = hostTxUs;
-  entry.boardRxUs = boardRxUs;
-  entry.boardTxUs = boardTxUs;
-
-  advanceRingBuffer(gSyncLogCount, gSyncLogNextWriteIndex, Config::kSyncLogCapacity, gSyncLogOverflowCount);
+uint16_t positionNormToCode(float positionNorm) {
+  const float clippedPosition = constrain(positionNorm, 0.0f, 1.0f);
+  return static_cast<uint16_t>(clippedPosition * 65535.0f + 0.5f);
 }
 
-void advanceRingBuffer(size_t& count, size_t& nextWriteIndex, size_t capacity, uint32_t& overflowCount) {
-  nextWriteIndex = (nextWriteIndex + 1U) % capacity;
-
-  if (count < capacity) {
-    ++count;
-  } else {
-    ++overflowCount;
+const char* telemetryModeToText(TelemetryMode telemetryMode) {
+  if (telemetryMode == TelemetryMode::Instrumentation) {
+    return "INSTRUMENTATION";
   }
+
+  return "CONTROLLER";
+}
+
+uint16_t decodeUint16LittleEndian(const uint8_t* valueBytes) {
+  return static_cast<uint16_t>(valueBytes[0]) |
+    static_cast<uint16_t>(static_cast<uint16_t>(valueBytes[1]) << 8);
+}
+
+uint32_t decodeUint32LittleEndian(const uint8_t* valueBytes) {
+  return static_cast<uint32_t>(valueBytes[0]) |
+    static_cast<uint32_t>(static_cast<uint32_t>(valueBytes[1]) << 8) |
+    static_cast<uint32_t>(static_cast<uint32_t>(valueBytes[2]) << 16) |
+    static_cast<uint32_t>(static_cast<uint32_t>(valueBytes[3]) << 24);
 }
 
 int findSurfaceIndex(const char* surfaceNameToken) {

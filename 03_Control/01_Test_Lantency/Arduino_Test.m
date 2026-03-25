@@ -69,6 +69,9 @@ function config = normalizeConfig(config)
 rootFolder = fileparts(mfilename("fullpath"));
 defaultSurfaceNames = ["Aileron_L"; "Aileron_R"; "Rudder"; "Elevator"];
 defaultSurfacePins = ["D9"; "D10"; "D11"; "D12"];
+arduinoTransportConfig = getFieldOrDefault(config, "arduinoTransport", struct());
+requestedNanoLoggerOperatingMode = canonicalizeNanoLoggerOperatingMode( ...
+    getTextScalarField(arduinoTransportConfig, "operatingMode", "controller")); % or instrumentation
 
 config.arduinoIPAddress = getTextScalarField(config, "arduinoIPAddress", "192.168.0.33");
 config.arduinoBoard = getTextScalarField(config, "arduinoBoard", "Nano33IoT");
@@ -104,15 +107,19 @@ end
 
 if strlength(config.runLabel) == 0
     if isfinite(config.commandProfile.randomSeed)
-        config.runLabel = formatSeedRunLabel(config.commandProfile.randomSeed);
+        config.runLabel = ...
+            formatSeedRunLabel(config.commandProfile.randomSeed) + "_" + ...
+            formatNanoLoggerOperatingModeLabel(requestedNanoLoggerOperatingMode);
     else
         timeStamp = string(datetime("now", "Format", "yyyyMMdd_HHmmss"));
-        config.runLabel = timeStamp + "_Test";
+        config.runLabel = ...
+            timeStamp + "_" + ...
+            formatNanoLoggerOperatingModeLabel(requestedNanoLoggerOperatingMode);
     end
 end
 
 config.arduinoTransport = normalizeArduinoTransportConfig( ...
-    getFieldOrDefault(config, "arduinoTransport", struct()), ...
+    arduinoTransportConfig, ...
     config.outputFolder, ...
     config.runLabel);
 
@@ -171,7 +178,7 @@ if isempty(commandProfileConfig)
 end
 
 commandProfile.type = getTextScalarField(commandProfileConfig, "type", "latency_step_train");
-commandProfile.sampleTimeSeconds = getPositiveScalarField(commandProfileConfig, "sampleTimeSeconds", 0.10);
+commandProfile.sampleTimeSeconds = getPositiveScalarField(commandProfileConfig, "sampleTimeSeconds", 0.02);
 commandProfile.preCommandNeutralSeconds = getNonnegativeScalarField(commandProfileConfig, "preCommandNeutralSeconds", 0.0);
 commandProfile.postCommandNeutralSeconds = getNonnegativeScalarField(commandProfileConfig, "postCommandNeutralSeconds", 1.0);
 commandProfile.durationSeconds = getPositiveScalarField(commandProfileConfig, "durationSeconds", 59.0);
@@ -278,9 +285,14 @@ requestedMode = canonicalizeArduinoTransportMode( ...
 arduinoTransport = struct( ...
     "mode", requestedMode, ...
     "resolvedMode", "", ...
+    "operatingMode", canonicalizeNanoLoggerOperatingMode( ...
+        getTextScalarField(arduinoTransportConfig, "operatingMode", "controller")), ...
+    "commandEncoding", canonicalizeNanoLoggerCommandEncoding( ...
+        getTextScalarField(arduinoTransportConfig, "commandEncoding", "binary_vector")), ...
     "loggerPort", getPositiveIntegerField(arduinoTransportConfig, "loggerPort", 9500), ...
     "loggerProbeTimeoutSeconds", getPositiveScalarField(arduinoTransportConfig, "loggerProbeTimeoutSeconds", 1.0), ...
     "loggerTimeoutSeconds", getPositiveScalarField(arduinoTransportConfig, "loggerTimeoutSeconds", 5.0), ...
+    "syncReplyTimeoutSeconds", getPositiveScalarField(arduinoTransportConfig, "syncReplyTimeoutSeconds", 1.5), ...
     "syncCountBeforeRun", getNonnegativeIntegerField(arduinoTransportConfig, "syncCountBeforeRun", 10), ...
     "syncCountAfterRun", getNonnegativeIntegerField(arduinoTransportConfig, "syncCountAfterRun", 10), ...
     "syncPauseSeconds", getNonnegativeScalarField(arduinoTransportConfig, "syncPauseSeconds", 0.05), ...
@@ -299,6 +311,31 @@ if ~any(arduinoTransport.mode == validTransportModes)
 end
 end
 
+function operatingMode = canonicalizeNanoLoggerOperatingMode(operatingMode)
+operatingMode = lower(string(operatingMode));
+if ~any(operatingMode == ["controller", "instrumentation"])
+    error("Arduino_Test:InvalidNanoLoggerOperatingMode", ...
+        "arduinoTransport.operatingMode must be 'controller' or 'instrumentation'.");
+end
+end
+
+function commandEncoding = canonicalizeNanoLoggerCommandEncoding(commandEncoding)
+commandEncoding = lower(string(commandEncoding));
+if ~any(commandEncoding == ["binary_vector", "text_set_all"])
+    error("Arduino_Test:InvalidNanoLoggerCommandEncoding", ...
+        "arduinoTransport.commandEncoding must be 'binary_vector' or 'text_set_all'.");
+end
+end
+
+function modeLabel = formatNanoLoggerOperatingModeLabel(operatingMode)
+switch operatingMode
+    case "instrumentation"
+        modeLabel = "Instrumentation";
+    otherwise
+        modeLabel = "Controller";
+end
+end
+
 function transportMode = canonicalizeArduinoTransportMode(transportMode)
 transportMode = string(transportMode);
 if transportMode == "nano_logger_tcp"
@@ -313,6 +350,7 @@ runData = struct( ...
     "runInfo", struct( ...
         "status", "initialized", ...
         "reason", "", ...
+        "operatingMode", config.arduinoTransport.operatingMode, ...
         "startTime", NaT, ...
         "stopTime", NaT, ...
         "sampleCount", 0, ...
@@ -436,11 +474,12 @@ function [commandInterface, greeting, firmwareVersion, backendName] = createNano
     config.arduinoTransport.loggerPort, ...
     timeoutSeconds);
 
-greeting = "UDP_DATAGRAM_TRANSPORT";
-firmwareVersion = "unknown";
+[greeting, firmwareVersion] = probeNanoLoggerConnection(loggerConnection, timeoutSeconds);
 commandInterface = struct( ...
     "transportMode", "nano_logger_udp", ...
     "connection", loggerConnection, ...
+    "commandEncoding", config.arduinoTransport.commandEncoding, ...
+    "operatingMode", config.arduinoTransport.operatingMode, ...
     "servoObjects", {cell(numel(config.surfaceNames), 1)}, ...
     "surfaceNames", config.surfaceNames);
 end
@@ -449,7 +488,7 @@ function [loggerConnection, backendName] = createNanoLoggerConnection(ipAddress,
 timeoutMilliseconds = int32(max(1, ceil(timeoutSeconds .* 1000)));
 socket = javaObject("java.net.DatagramSocket");
 socket.setSoTimeout(timeoutMilliseconds);
-socket.setReceiveBufferSize(int32(262144));
+socket.setReceiveBufferSize(int32(1048576));
 remoteAddress = javaMethod("getByName", "java.net.InetAddress", char(ipAddress));
 socket.connect(remoteAddress, int32(loggerPort));
 
@@ -463,19 +502,52 @@ loggerConnection = struct( ...
 backendName = "java_datagram_socket";
 end
 
+function [greeting, firmwareVersion] = probeNanoLoggerConnection(loggerConnection, timeoutSeconds)
+sendNanoLoggerDatagram(loggerConnection, "HELLO");
+greeting = tryReadNanoLoggerDatagram(loggerConnection, timeoutSeconds);
+
+if strlength(greeting) == 0
+    error("Arduino_Test:NanoLoggerNoHello", ...
+        "No HELLO_EVENT was received from the Nano logger within %.3f s.", ...
+        timeoutSeconds);
+end
+
+telemetryParts = split(greeting, ",");
+if isempty(telemetryParts) || telemetryParts(1) ~= "HELLO_EVENT"
+    error("Arduino_Test:NanoLoggerUnexpectedHello", ...
+        "Expected HELLO_EVENT but received: %s", ...
+        char(greeting));
+end
+
+if numel(telemetryParts) >= 2
+    firmwareVersion = telemetryParts(2);
+else
+    firmwareVersion = "unknown";
+end
+end
+
 function sendNanoLoggerDatagram(loggerConnection, payloadText)
-payloadBytes = uint8(char(string(payloadText)));
+if ischar(payloadText) || (isstring(payloadText) && isscalar(payloadText))
+    payloadBytes = uint8(char(string(payloadText)));
+elseif isnumeric(payloadText)
+    payloadBytes = reshape(uint8(payloadText), 1, []);
+else
+    error("Arduino_Test:InvalidNanoLoggerPayload", ...
+        "Nano logger datagrams must be text or uint8 payloads.");
+end
+
 packet = javaObject( ...
     "java.net.DatagramPacket", ...
-    int8(payloadBytes), ...
+    typecast(payloadBytes, "int8"), ...
     numel(payloadBytes), ...
     loggerConnection.remoteAddress, ...
     int32(loggerConnection.remotePort));
 loggerConnection.socket.send(packet);
 end
 
-function nextDatagram = tryReadNanoLoggerDatagram(loggerConnection, timeoutSeconds)
+function [nextDatagram, hostReceiveUs] = tryReadNanoLoggerDatagram(loggerConnection, timeoutSeconds, hostTimer)
 nextDatagram = "";
+hostReceiveUs = nan;
 timeoutMilliseconds = int32(max(1, ceil(timeoutSeconds .* 1000)));
 loggerConnection.socket.setSoTimeout(timeoutMilliseconds);
 
@@ -486,12 +558,16 @@ receivePacket = javaObject( ...
 
 try
     loggerConnection.socket.receive(receivePacket);
+    if nargin >= 3 && ~isempty(hostTimer)
+        hostReceiveUs = double(hostNowUs(hostTimer));
+    end
+
     packetLength = double(receivePacket.getLength());
     if packetLength <= 0
         return;
     end
 
-    packetBytes = uint8(receivePacket.getData());
+    packetBytes = typecast(receivePacket.getData(), "uint8");
     packetBytes = reshape(packetBytes(1:packetLength), 1, []);
     nextDatagram = string(strtrim(char(packetBytes)));
 catch readException
@@ -579,6 +655,7 @@ storage.profileInfo = profileInfo;
 runInfo = struct( ...
     "status", "running", ...
     "reason", "", ...
+    "operatingMode", config.arduinoTransport.operatingMode, ...
     "startTime", datetime("now"), ...
     "stopTime", NaT, ...
     "sampleCount", 0, ...
@@ -847,13 +924,20 @@ switch commandInterface.transportMode
 
         % Build and send one datagram for the whole active actuator vector.
         dispatchAbsoluteUs = hostNowUs(loggerSession.hostTimer);
-        commandLine = buildNanoLoggerSetAllCommand( ...
-            surfaceNames, ...
-            commandSequenceNumbers, ...
-            servoPositions, ...
-            activeSurfaceMask);
+        if commandInterface.commandEncoding == "binary_vector"
+            commandPayload = buildNanoLoggerBinaryVectorCommand( ...
+                commandSequenceNumbers, ...
+                servoPositions, ...
+                activeSurfaceMask);
+        else
+            commandPayload = buildNanoLoggerSetAllCommand( ...
+                surfaceNames, ...
+                commandSequenceNumbers, ...
+                servoPositions, ...
+                activeSurfaceMask);
+        end
 
-        sendNanoLoggerDatagram(commandInterface.connection, commandLine);
+        sendNanoLoggerDatagram(commandInterface.connection, commandPayload);
 
         % Keep one dispatch log row per surface so downstream matching logic
         % can remain surface-wise.
@@ -911,7 +995,8 @@ loggerSession = struct( ...
     "syncHostTxUs", zeros(0, 1), ...
     "syncHostRxUs", zeros(0, 1), ...
     "syncBoardRxUs", zeros(0, 1), ...
-    "syncBoardTxUs", zeros(0, 1));
+    "syncBoardTxUs", zeros(0, 1), ...
+    "bufferedTelemetryLines", strings(0, 1));
 end
 
 function loggerSession = startNanoLoggerSession(commandInterface, config, sampleCount)
@@ -934,16 +1019,29 @@ loggerSession = struct( ...
     "syncHostTxUs", nan(syncCapacity, 1), ...
     "syncHostRxUs", nan(syncCapacity, 1), ...
     "syncBoardRxUs", nan(syncCapacity, 1), ...
-    "syncBoardTxUs", nan(syncCapacity, 1));
+    "syncBoardTxUs", nan(syncCapacity, 1), ...
+    "bufferedTelemetryLines", strings(0, 1));
+
+sendNanoLoggerControlBurst( ...
+    commandInterface.connection, ...
+    "MODE," + upper(config.arduinoTransport.operatingMode), ...
+    2, ...
+    0.02);
 
 if config.arduinoTransport.clearLogsBeforeRun
     sendNanoLoggerControlBurst(commandInterface.connection, "CLEAR_LOGS", 3, 0.02);
 end
 
 for syncIndex = 1:config.arduinoTransport.syncCountBeforeRun
+    [syncRow, loggerSession.bufferedTelemetryLines] = sendNanoLoggerSync( ...
+        commandInterface.connection, ...
+        loggerSession.hostTimer, ...
+        uint32(syncIndex), ...
+        config.arduinoTransport.syncReplyTimeoutSeconds, ...
+        loggerSession.bufferedTelemetryLines);
     loggerSession = appendNanoLoggerSyncRow( ...
         loggerSession, ...
-        sendNanoLoggerSync(commandInterface.connection, loggerSession.hostTimer, uint32(syncIndex)));
+        syncRow);
     pause(config.arduinoTransport.syncPauseSeconds);
 end
 
@@ -965,9 +1063,15 @@ try
 
     for syncIndex = 1:config.arduinoTransport.syncCountAfterRun
         syncId = uint32(config.arduinoTransport.syncCountBeforeRun + syncIndex);
+        [syncRow, loggerSession.bufferedTelemetryLines] = sendNanoLoggerSync( ...
+            commandInterface.connection, ...
+            loggerSession.hostTimer, ...
+            syncId, ...
+            config.arduinoTransport.syncReplyTimeoutSeconds, ...
+            loggerSession.bufferedTelemetryLines);
         loggerSession = appendNanoLoggerSyncRow( ...
             loggerSession, ...
-            sendNanoLoggerSync(commandInterface.connection, loggerSession.hostTimer, syncId));
+            syncRow);
         pause(config.arduinoTransport.syncPauseSeconds);
     end
 
@@ -984,9 +1088,19 @@ try
     hostDispatchLog = buildNanoLoggerDispatchTable(loggerSession);
     [telemetryLines, boardCommandLog, boardSyncLog] = collectNanoLoggerTelemetry( ...
         commandInterface.connection, ...
-        config.arduinoTransport.loggerTimeoutSeconds);
+        config.arduinoTransport.loggerTimeoutSeconds, ...
+        config.surfaceNames, ...
+        loggerSession.bufferedTelemetryLines);
 
-    if isempty(boardSyncLog)
+    syncRoundTripLog = mergeNanoLoggerSyncRoundTripLogs( ...
+        buildNanoLoggerSyncRoundTripTable(loggerSession), ...
+        boardSyncLog);
+    hasAnySyncTelemetry = ...
+        ~isempty(syncRoundTripLog) && ...
+        any(isfinite(syncRoundTripLog.board_rx_us)) && ...
+        any(isfinite(syncRoundTripLog.board_tx_us));
+
+    if ~hasAnySyncTelemetry
         error("Arduino_Test:MissingNanoLoggerSyncTelemetry", ...
             "No Nano logger SYNC_EVENT datagrams were received.");
     end
@@ -995,8 +1109,6 @@ try
         error("Arduino_Test:MissingNanoLoggerCommandTelemetry", ...
             "No Nano logger COMMAND_EVENT datagrams were received.");
     end
-
-    syncRoundTripLog = buildNanoLoggerSyncRoundTripTableFromEvents(boardSyncLog);
 
     hostDispatchCsvPath = fullfile(loggerOutputFolder, "host_dispatch_log.csv");
     syncRoundTripCsvPath = fullfile(loggerOutputFolder, "host_sync_roundtrip.csv");
@@ -1017,7 +1129,8 @@ try
         hostDispatchCsvPath, ...
         syncRoundTripCsvPath, ...
         boardCommandLogCsvPath, ...
-        config.activeSurfaceNames);
+        config.activeSurfaceNames, ...
+        double(loggerSession.testStartOffsetUs));
 
     writetable(echoImportTable, echoImportCsvPath);
 
@@ -1027,7 +1140,7 @@ try
     config.arduinoTransport.captureSucceeded = true;
     config.arduinoTransport.captureMessage = ...
         "Captured " + height(boardCommandLog) + " command telemetry rows and " + ...
-        height(boardSyncLog) + " sync telemetry rows.";
+        height(syncRoundTripLog) + " sync telemetry rows.";
     config.arduinoTransport.captureRowCount = height(echoImportTable);
 catch captureException
     warning("Arduino_Test:ArduinoLoggerCaptureFailed", ...
@@ -1111,7 +1224,68 @@ syncRoundTripLog = table( ...
         'board_tx_us'});
 end
 
-function syncRow = sendNanoLoggerSync(loggerConnection, hostTimer, syncId)
+function syncRoundTripLog = mergeNanoLoggerSyncRoundTripLogs(immediateSyncLog, deferredSyncLog)
+if isempty(immediateSyncLog)
+    syncRoundTripLog = buildNanoLoggerSyncRoundTripTableFromEvents(deferredSyncLog);
+    return;
+end
+
+syncRoundTripLog = immediateSyncLog;
+deferredRoundTripLog = buildNanoLoggerSyncRoundTripTableFromEvents(deferredSyncLog);
+if isempty(deferredRoundTripLog)
+    return;
+end
+
+deferredKeys = buildNanoLoggerSyncKeys( ...
+    deferredRoundTripLog.sync_id, ...
+    deferredRoundTripLog.host_tx_us);
+immediateKeys = buildNanoLoggerSyncKeys( ...
+    syncRoundTripLog.sync_id, ...
+    syncRoundTripLog.host_tx_us);
+[isMatched, matchedIndices] = ismember(immediateKeys, deferredKeys);
+
+matchedImmediateRows = find(isMatched);
+for rowOffset = 1:numel(matchedImmediateRows)
+    rowIndex = matchedImmediateRows(rowOffset);
+    matchedRowIndex = matchedIndices(rowIndex);
+
+    if ~isfinite(syncRoundTripLog.board_rx_us(rowIndex))
+        syncRoundTripLog.board_rx_us(rowIndex) = ...
+            deferredRoundTripLog.board_rx_us(matchedRowIndex);
+    end
+
+    if ~isfinite(syncRoundTripLog.board_tx_us(rowIndex))
+        syncRoundTripLog.board_tx_us(rowIndex) = ...
+            deferredRoundTripLog.board_tx_us(matchedRowIndex);
+    end
+end
+
+unmatchedDeferredMask = ~ismember(deferredKeys, immediateKeys);
+if any(unmatchedDeferredMask)
+    syncRoundTripLog = [syncRoundTripLog; deferredRoundTripLog(unmatchedDeferredMask, :)]; %#ok<AGROW>
+end
+end
+
+function syncKeys = buildNanoLoggerSyncKeys(syncId, hostTxUs)
+syncKeys = ...
+    compose("%.0f", double(syncId)) + "|" + ...
+    compose("%.0f", double(hostTxUs));
+end
+
+function [syncRow, bufferedTelemetryLines] = sendNanoLoggerSync( ...
+    loggerConnection, ...
+    hostTimer, ...
+    syncId, ...
+    timeoutSeconds, ...
+    bufferedTelemetryLines)
+if nargin < 4 || ~isfinite(timeoutSeconds) || timeoutSeconds <= 0
+    timeoutSeconds = 1.5;
+end
+
+if nargin < 5
+    bufferedTelemetryLines = strings(0, 1);
+end
+
 hostTxUs = hostNowUs(hostTimer);
 sendNanoLoggerDatagram(loggerConnection, sprintf("SYNC,%u,%u", uint32(syncId), uint32(hostTxUs)));
 
@@ -1127,12 +1301,52 @@ syncRow = table( ...
         'host_rx_us', ...
         'board_rx_us', ...
         'board_tx_us'});
+
+waitStart = tic;
+while toc(waitStart) < timeoutSeconds
+    remainingSeconds = timeoutSeconds - toc(waitStart);
+    perReadTimeoutSeconds = min(0.05, remainingSeconds);
+    [nextDatagram, hostRxUs] = tryReadNanoLoggerDatagram( ...
+        loggerConnection, ...
+        perReadTimeoutSeconds, ...
+        hostTimer);
+
+    if strlength(nextDatagram) == 0
+        continue;
+    end
+
+    [isMatchingSync, matchedSyncRow] = tryParseNanoLoggerSyncEvent( ...
+        nextDatagram, ...
+        uint32(syncId), ...
+        double(hostTxUs), ...
+        hostRxUs);
+    if isMatchingSync
+        syncRow = matchedSyncRow;
+        return;
+    end
+
+    bufferedTelemetryLines(end + 1, 1) = nextDatagram; %#ok<AGROW>
 end
 
-function [telemetryLines, boardCommandLog, boardSyncLog] = collectNanoLoggerTelemetry(loggerConnection, maxWaitSeconds)
-telemetryLines = strings(0, 1);
+% Fall back to deferred post-run parsing if the immediate reply is late.
+end
+
+function [telemetryLines, boardCommandLog, boardSyncLog] = collectNanoLoggerTelemetry( ...
+    loggerConnection, ...
+    maxWaitSeconds, ...
+    surfaceNames, ...
+    initialTelemetryLines)
+if nargin < 4
+    telemetryLines = strings(0, 1);
+else
+    telemetryLines = reshape(string(initialTelemetryLines), [], 1);
+end
+
 collectStart = tic;
 lastReceiveElapsedSeconds = 0;
+if ~isempty(telemetryLines)
+    lastReceiveElapsedSeconds = toc(collectStart);
+end
 idleTimeoutSeconds = 0.25;
 
 while toc(collectStart) < maxWaitSeconds
@@ -1152,10 +1366,63 @@ while toc(collectStart) < maxWaitSeconds
     end
 end
 
-[boardCommandLog, boardSyncLog] = parseNanoLoggerTelemetryDatagrams(telemetryLines);
+[boardCommandLog, boardSyncLog] = parseNanoLoggerTelemetryDatagrams(telemetryLines, surfaceNames);
 end
 
-function [boardCommandLog, boardSyncLog] = parseNanoLoggerTelemetryDatagrams(telemetryLines)
+function [isMatchingSync, syncRow] = tryParseNanoLoggerSyncEvent( ...
+    telemetryLine, ...
+    expectedSyncId, ...
+    expectedHostTxUs, ...
+    hostRxUs)
+isMatchingSync = false;
+syncRow = table( ...
+    nan(1, 1), ...
+    nan(1, 1), ...
+    nan(1, 1), ...
+    nan(1, 1), ...
+    nan(1, 1), ...
+    'VariableNames', { ...
+        'sync_id', ...
+        'host_tx_us', ...
+        'host_rx_us', ...
+        'board_rx_us', ...
+        'board_tx_us'});
+
+telemetryParts = split(string(strtrim(telemetryLine)), ",");
+if numel(telemetryParts) < 5 || telemetryParts(1) ~= "SYNC_EVENT"
+    return;
+end
+
+syncId = double(str2double(telemetryParts(2)));
+hostTxUs = double(str2double(telemetryParts(3)));
+boardRxUs = double(str2double(telemetryParts(4)));
+boardTxUs = double(str2double(telemetryParts(5)));
+
+if ~isfinite(syncId) || ~isfinite(hostTxUs) || ~isfinite(boardRxUs) || ~isfinite(boardTxUs)
+    return;
+end
+
+if uint32(syncId) ~= uint32(expectedSyncId) || hostTxUs ~= expectedHostTxUs
+    return;
+end
+
+isMatchingSync = true;
+syncRow = table( ...
+    syncId, ...
+    hostTxUs, ...
+    double(hostRxUs), ...
+    boardRxUs, ...
+    boardTxUs, ...
+    'VariableNames', { ...
+        'sync_id', ...
+        'host_tx_us', ...
+        'host_rx_us', ...
+        'board_rx_us', ...
+        'board_tx_us'});
+end
+
+function [boardCommandLog, boardSyncLog] = parseNanoLoggerTelemetryDatagrams(telemetryLines, surfaceNames)
+surfaceNames = reshape(string(surfaceNames), [], 1);
 commandSurfaceNames = strings(0, 1);
 commandSequence = nan(0, 1);
 commandRxUs = nan(0, 1);
@@ -1186,6 +1453,34 @@ for lineIndex = 1:numel(telemetryLines)
             commandApplyUs(end + 1, 1) = double(str2double(telemetryParts(5))); %#ok<AGROW>
             commandAppliedPosition(end + 1, 1) = double(str2double(telemetryParts(6))); %#ok<AGROW>
             commandPulseUs(end + 1, 1) = double(str2double(telemetryParts(7))); %#ok<AGROW>
+        case "VECTOR_EVENT"
+            expectedPartCount = 4 + 3 * numel(surfaceNames);
+            if numel(telemetryParts) < expectedPartCount
+                continue;
+            end
+
+            sampleSequence = double(str2double(telemetryParts(2)));
+            activeSurfaceMask = uint32(str2double(telemetryParts(3)));
+            vectorRxUs = double(str2double(telemetryParts(4)));
+            payloadIndex = 5;
+
+            for surfaceIndex = 1:numel(surfaceNames)
+                applyUsValue = double(str2double(telemetryParts(payloadIndex)));
+                positionCodeValue = double(str2double(telemetryParts(payloadIndex + 1)));
+                pulseUsValue = double(str2double(telemetryParts(payloadIndex + 2)));
+                payloadIndex = payloadIndex + 3;
+
+                if bitand(activeSurfaceMask, bitshift(uint32(1), surfaceIndex - 1)) == 0
+                    continue;
+                end
+
+                commandSurfaceNames(end + 1, 1) = surfaceNames(surfaceIndex); %#ok<AGROW>
+                commandSequence(end + 1, 1) = sampleSequence; %#ok<AGROW>
+                commandRxUs(end + 1, 1) = vectorRxUs; %#ok<AGROW>
+                commandApplyUs(end + 1, 1) = applyUsValue; %#ok<AGROW>
+                commandAppliedPosition(end + 1, 1) = positionCodeValue ./ 65535.0; %#ok<AGROW>
+                commandPulseUs(end + 1, 1) = pulseUsValue; %#ok<AGROW>
+            end
         case "SYNC_EVENT"
             if numel(telemetryParts) < 5
                 continue;
@@ -1380,12 +1675,6 @@ if strlength(loggerOutputFolder) == 0 || ~isfolder(loggerOutputFolder)
     return;
 end
 
-latestImportCsvPath = findLatestMatchingFile(loggerOutputFolder, "arduino_echo_import*.csv");
-if strlength(latestImportCsvPath) > 0
-    echoImportTable = readtable(latestImportCsvPath);
-    return;
-end
-
 hostDispatchCsvPath = fullfile(loggerOutputFolder, "host_dispatch_log.csv");
 syncRoundTripCsvPath = fullfile(loggerOutputFolder, "host_sync_roundtrip.csv");
 boardCommandLogCsvPath = fullfile(loggerOutputFolder, "board_command_log.csv");
@@ -1397,6 +1686,12 @@ if isfile(hostDispatchCsvPath) && isfile(syncRoundTripCsvPath) && isfile(boardCo
         boardCommandLogCsvPath, ...
         activeSurfaceNames);
     isCanonicalTable = true;
+    return;
+end
+
+latestImportCsvPath = findLatestMatchingFile(loggerOutputFolder, "arduino_echo_import*.csv");
+if strlength(latestImportCsvPath) > 0
+    echoImportTable = readtable(latestImportCsvPath);
 end
 end
 
@@ -1416,7 +1711,12 @@ function echoImportTable = buildArduinoEchoImportTableFromLoggerRawFiles( ...
     hostDispatchCsvPath, ...
     syncRoundTripCsvPath, ...
     boardCommandLogCsvPath, ...
-    activeSurfaceNames)
+    activeSurfaceNames, ...
+    hostTimeOriginUs)
+if nargin < 5
+    hostTimeOriginUs = 0.0;
+end
+
 hostDispatchLog = readtable(hostDispatchCsvPath);
 syncRoundTripLog = readtable(syncRoundTripCsvPath);
 boardCommandLog = readCommentCsv(boardCommandLogCsvPath);
@@ -1424,8 +1724,6 @@ boardCommandLog = readCommentCsv(boardCommandLogCsvPath);
 validateLoggerHostDispatchLog(hostDispatchLog);
 validateLoggerSyncRoundTripLog(syncRoundTripLog);
 validateLoggerBoardCommandLog(boardCommandLog);
-
-[clockSlope, clockIntercept] = estimateBoardToHostClockMap(syncRoundTripLog);
 
 hostDispatchLog.surface_name = reshape(string(hostDispatchLog.surface_name), [], 1);
 hostDispatchLog.command_sequence = reshape(double(hostDispatchLog.command_sequence), [], 1);
@@ -1440,6 +1738,10 @@ joinedTable = innerjoin( ...
     hostDispatchLog(:, {'surface_name', 'command_sequence', 'command_dispatch_us'}), ...
     boardCommandLog, ...
     'Keys', {'surface_name', 'command_sequence'});
+
+[clockSlope, clockIntercept] = estimateBoardToHostClockMapFromCommands( ...
+    joinedTable, ...
+    syncRoundTripLog);
 
 dispatchUs = double(joinedTable.command_dispatch_us);
 rxHostUs = clockSlope .* double(joinedTable.rx_us) + clockIntercept;
@@ -1463,7 +1765,7 @@ end
 echoImportTable = table( ...
     joinedTable.surface_name, ...
     joinedTable.command_sequence, ...
-    rxHostUs ./ 1e6, ...
+    (rxHostUs - hostTimeOriginUs) ./ 1e6, ...
     rxLatencyUs ./ 1e6, ...
     applyLatencyUs ./ 1e6, ...
     joinedTable.applied_position, ...
@@ -1487,24 +1789,97 @@ tableData = readtable(filePath, options);
 end
 
 function [clockSlope, clockIntercept] = estimateBoardToHostClockMap(syncRoundTripLog)
-% Calibrate against host send time and board receive time only.
-% This avoids reply-side skew from delayed host reads.
 hostTxUs = double(syncRoundTripLog.host_tx_us);
+hostRxUs = double(syncRoundTripLog.host_rx_us);
 boardRxUs = double(syncRoundTripLog.board_rx_us);
+boardTxUs = double(syncRoundTripLog.board_tx_us);
 
-if numel(hostTxUs) >= 2
-    fitCoefficients = polyfit(boardRxUs, hostTxUs, 1);
+midpointMask = ...
+    isfinite(hostTxUs) & ...
+    isfinite(hostRxUs) & ...
+    isfinite(boardRxUs) & ...
+    isfinite(boardTxUs);
+if any(midpointMask)
+    % Use host and board midpoints when direct round-trip timestamps exist.
+    hostReferenceUs = 0.5 .* (hostTxUs(midpointMask) + hostRxUs(midpointMask));
+    boardReferenceUs = 0.5 .* (boardRxUs(midpointMask) + boardTxUs(midpointMask));
+else
+    % Fallback for legacy captures without immediate SYNC_EVENT round trips.
+    hostReferenceUs = hostTxUs(isfinite(hostTxUs) & isfinite(boardRxUs));
+    boardReferenceUs = boardRxUs(isfinite(hostTxUs) & isfinite(boardRxUs));
+end
+
+if isempty(hostReferenceUs)
+    error("Arduino_Test:MissingNanoLoggerSyncTelemetry", ...
+        "No valid Nano logger sync timestamps were available for clock mapping.");
+end
+
+if numel(hostReferenceUs) >= 2
+    fitCoefficients = polyfit(boardReferenceUs, hostReferenceUs, 1);
     clockSlope = fitCoefficients(1);
     clockIntercept = fitCoefficients(2);
 else
     clockSlope = 1.0;
-    clockIntercept = hostTxUs(1) - boardRxUs(1);
+    clockIntercept = hostReferenceUs(1) - boardReferenceUs(1);
 end
 
-syncForwardLatencyUs = clockSlope .* boardRxUs + clockIntercept - hostTxUs;
+syncForwardLatencyUs = clockSlope .* boardReferenceUs + clockIntercept - hostReferenceUs;
 minimumForwardLatencyUs = min(syncForwardLatencyUs);
 if minimumForwardLatencyUs < 0
     clockIntercept = clockIntercept - minimumForwardLatencyUs;
+end
+end
+
+function [clockSlope, clockIntercept] = estimateBoardToHostClockMapFromCommands( ...
+    joinedTable, ...
+    syncRoundTripLog)
+commandRxUs = double(joinedTable.rx_us);
+commandDispatchUs = double(joinedTable.command_dispatch_us);
+validCommandMask = isfinite(commandRxUs) & isfinite(commandDispatchUs);
+
+if nnz(validCommandMask) < 2
+    [clockSlope, clockIntercept] = estimateBoardToHostClockMap(syncRoundTripLog);
+    return;
+end
+
+fitCoefficients = polyfit(commandRxUs(validCommandMask), commandDispatchUs(validCommandMask), 1);
+clockSlope = fitCoefficients(1);
+clockIntercept = fitCoefficients(2) + estimateNanoLoggerOneWayBaselineUs(syncRoundTripLog);
+end
+
+function oneWayBaselineUs = estimateNanoLoggerOneWayBaselineUs(syncRoundTripLog)
+hostTxUs = double(syncRoundTripLog.host_tx_us);
+hostRxUs = double(syncRoundTripLog.host_rx_us);
+validRoundTripMask = ...
+    isfinite(hostTxUs) & ...
+    isfinite(hostRxUs) & ...
+    hostRxUs >= hostTxUs;
+
+if ~any(validRoundTripMask)
+    oneWayBaselineUs = 0.0;
+    return;
+end
+
+validIndices = find(validRoundTripMask);
+preRunIndices = validIndices;
+if numel(validIndices) >= 2
+    hostTxGapsUs = diff(hostTxUs(validIndices));
+    [maximumGapUs, maximumGapIndex] = max(hostTxGapsUs);
+    if isfinite(maximumGapUs) && maximumGapUs > 0
+        preRunIndices = validIndices(1:maximumGapIndex);
+    end
+end
+
+roundTripUs = hostRxUs(preRunIndices) - hostTxUs(preRunIndices);
+roundTripUs = roundTripUs(roundTripUs >= 0);
+if isempty(roundTripUs)
+    oneWayBaselineUs = 0.0;
+    return;
+end
+
+oneWayBaselineUs = 0.5 .* median(roundTripUs, "omitnan");
+if ~isfinite(oneWayBaselineUs)
+    oneWayBaselineUs = 0.0;
 end
 end
 
@@ -2398,9 +2773,12 @@ settings = [ ...
     "ArduinoEchoImport", "LoggerOutputFolder", formatSettingValue(config.arduinoEchoImport.loggerOutputFolder); ...
     "ArduinoTransport", "RequestedMode", formatSettingValue(config.arduinoTransport.mode); ...
     "ArduinoTransport", "ResolvedMode", formatSettingValue(config.arduinoTransport.resolvedMode); ...
+    "ArduinoTransport", "OperatingMode", formatSettingValue(config.arduinoTransport.operatingMode); ...
+    "ArduinoTransport", "CommandEncoding", formatSettingValue(config.arduinoTransport.commandEncoding); ...
     "ArduinoTransport", "LoggerPort", formatSettingValue(config.arduinoTransport.loggerPort); ...
     "ArduinoTransport", "LoggerProbeTimeoutSeconds", formatSettingValue(config.arduinoTransport.loggerProbeTimeoutSeconds); ...
     "ArduinoTransport", "LoggerTimeoutSeconds", formatSettingValue(config.arduinoTransport.loggerTimeoutSeconds); ...
+    "ArduinoTransport", "SyncReplyTimeoutSeconds", formatSettingValue(config.arduinoTransport.syncReplyTimeoutSeconds); ...
     "ArduinoTransport", "SyncCountBeforeRun", formatSettingValue(config.arduinoTransport.syncCountBeforeRun); ...
     "ArduinoTransport", "SyncCountAfterRun", formatSettingValue(config.arduinoTransport.syncCountAfterRun); ...
     "ArduinoTransport", "SyncPauseSeconds", formatSettingValue(config.arduinoTransport.syncPauseSeconds); ...
@@ -3105,4 +3483,55 @@ for k = 1:surfaceCount
 end
 
 commandLine = join(payloadParts, ",");
+end
+
+function payloadBytes = buildNanoLoggerBinaryVectorCommand(commandSequenceNumbers, servoPositions, activeSurfaceMask)
+activeIndices = find(activeSurfaceMask);
+surfaceCount = numel(activeSurfaceMask);
+
+if isempty(activeIndices)
+    error("Arduino_Test:NoActiveSurfaces", "Binary vector command requires at least one active surface.");
+end
+
+sampleSequence = commandSequenceNumbers(activeIndices(1));
+if ~all(commandSequenceNumbers(activeIndices) == sampleSequence)
+    error("Arduino_Test:InconsistentBinaryVectorSequence", ...
+        "All active surfaces must share the same sample sequence.");
+end
+
+surfaceMask = uint8(0);
+for surfaceIndex = activeIndices(:).'
+    surfaceMask = bitor(surfaceMask, bitshift(uint8(1), surfaceIndex - 1));
+end
+
+positionCodes = uint16(round(min(max(reshape(servoPositions, 1, []), 0.0), 1.0) .* 65535.0));
+
+payloadBytes = zeros(1, 7 + 2 * surfaceCount, "uint8");
+payloadBytes(1) = uint8('V');
+payloadBytes(2) = uint8(surfaceCount);
+payloadBytes(3) = surfaceMask;
+payloadBytes(4:7) = encodeUint32LittleEndian(uint32(sampleSequence));
+
+writeIndex = 8;
+for surfaceIndex = 1:surfaceCount
+    payloadBytes(writeIndex:writeIndex + 1) = ...
+        encodeUint16LittleEndian(positionCodes(surfaceIndex));
+    writeIndex = writeIndex + 2;
+end
+end
+
+function encodedBytes = encodeUint16LittleEndian(value)
+value = uint16(value);
+encodedBytes = uint8([ ...
+    bitand(value, uint16(255)), ...
+    bitshift(value, -8)]);
+end
+
+function encodedBytes = encodeUint32LittleEndian(value)
+value = uint32(value);
+encodedBytes = uint8([ ...
+    bitand(value, uint32(255)), ...
+    bitand(bitshift(value, -8), uint32(255)), ...
+    bitand(bitshift(value, -16), uint32(255)), ...
+    bitshift(value, -24)]);
 end
