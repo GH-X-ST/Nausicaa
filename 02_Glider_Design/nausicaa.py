@@ -49,7 +49,7 @@ IPOPT_VERBOSE_PRINT_LEVEL = 5
 
 
 # Manual note for this run (edit before executing)
-MANUAL_RUN_NOTE = "v5.0.0"
+MANUAL_RUN_NOTE = "v5.1.2"
 MANUAL_RUN_NOTE_PRINT = True
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -363,6 +363,20 @@ ROBUST_OPT_SINK_MEAN_WEIGHT = 0.10
 ROBUST_OPT_NOM_LATERAL_RESIDUAL_PENALTY_WEIGHT = 0.5
 ROBUST_OPT_TRIM_CONSTRAINT_PENALTY_WEIGHT = 20.0
 ROBUST_OPT_INCLUDE_GUST = True
+ROBUST_SCENARIO_TAGS = (
+    "mild_build",
+    "harsh_build",
+    "gusty_only",
+    "mild_compound",
+    "harsh_compound",
+)
+ROBUST_OPT_TAG_PRIORITY = (
+    "harsh_compound",
+    "harsh_build",
+    "gusty_only",
+    "mild_compound",
+    "mild_build",
+)
 
 SpanAxis = Literal["y", "z"]
 
@@ -518,10 +532,6 @@ class UncertaintyModel:
     wing_E_scale_max: float = 1.30
     htail_E_scale_min: float = 0.80
     htail_E_scale_max: float = 1.30
-    wing_thickness_scale_min: float = 1.00
-    wing_thickness_scale_max: float = 1.00
-    tail_thickness_scale_min: float = 1.00
-    tail_thickness_scale_max: float = 1.00
     w_gust_nom_min: float = -0.30
     w_gust_nom_max: float = 0.30
     w_gust_turn_min: float = -0.20
@@ -560,10 +570,6 @@ class UncertaintyModel:
             wing_E_scale_max=float(config.wing_E_scale_max),
             htail_E_scale_min=float(config.htail_E_scale_min),
             htail_E_scale_max=float(config.htail_E_scale_max),
-            wing_thickness_scale_min=float(config.wing_thickness_scale_min),
-            wing_thickness_scale_max=float(config.wing_thickness_scale_max),
-            tail_thickness_scale_min=float(config.tail_thickness_scale_min),
-            tail_thickness_scale_max=float(config.tail_thickness_scale_max),
             w_gust_nom_min=float(config.w_gust_nom_min),
             w_gust_nom_max=float(config.w_gust_nom_max),
             w_gust_turn_min=float(config.w_gust_turn_min),
@@ -609,13 +615,12 @@ class Scenario:
     izz_scale: float = 1.0
     wing_E_scale: float = 1.0
     htail_E_scale: float = 1.0
-    wing_thickness_scale: float = 1.0
-    tail_thickness_scale: float = 1.0
     w_gust_nom: float = 0.0
     w_gust_turn: float = 0.0
     drag_factor: float = 1.0
     control_eff: float = 1.0
-    scenario_tag: str = "lhs"
+    scenario_tag: str = "mixed"
+    q: float = 0.0
 
     @staticmethod
     def from_row(row: dict[str, Any]) -> "Scenario":
@@ -638,13 +643,12 @@ class Scenario:
             izz_scale=float(row.get("izz_scale", 1.0)),
             wing_E_scale=float(row.get("wing_E_scale", 1.0)),
             htail_E_scale=float(row.get("htail_E_scale", 1.0)),
-            wing_thickness_scale=float(row.get("wing_thickness_scale", 1.0)),
-            tail_thickness_scale=float(row.get("tail_thickness_scale", 1.0)),
             w_gust_nom=float(row.get("w_gust_nom", 0.0)),
             w_gust_turn=float(row.get("w_gust_turn", 0.0)),
             drag_factor=float(row.get("drag_factor", 1.0)),
             control_eff=float(row.get("control_eff", (eff_a + eff_e + eff_r) / 3.0)),
-            scenario_tag=str(row.get("scenario_tag", "lhs")),
+            scenario_tag=str(row.get("scenario_tag", "mixed")),
+            q=float(row.get("q", 0.0)),
         )
 
     def to_row(self) -> dict[str, Any]:
@@ -683,7 +687,9 @@ class RobustSummary:
     nom_sink_mean: float
     nom_sink_std: float
     nom_sink_worst: float
+    nom_sink_tail_mean_k: float
     nom_sink_cvar_20: float
+    nom_resid_rmse_success_only: float
     nom_roll_tau_worst: float
     nom_delta_e_util_worst: float
     nom_alpha_worst: float
@@ -699,7 +705,7 @@ class WorkflowConfig:
     n_starts: int = 30
     keep_top_k: int = 10
     random_seed: int = 20
-    n_scenarios: int = 50
+    n_scenarios: int = 100
     scenario_seed: int = 30
     dedup_span_m: float = 0.01
     dedup_chord_m: float = 0.005
@@ -734,20 +740,17 @@ class WorkflowConfig:
     iyy_scale_max: float = 1.10
     izz_scale_min: float = 0.90
     izz_scale_max: float = 1.10
-    # Structural stiffness / thickness uncertainty scales
+    # Structural stiffness uncertainty scales
     wing_E_scale_min: float = 0.80
     wing_E_scale_max: float = 1.30
     htail_E_scale_min: float = 0.80
     htail_E_scale_max: float = 1.30
-    wing_thickness_scale_min: float = 1.00
-    wing_thickness_scale_max: float = 1.00
-    tail_thickness_scale_min: float = 1.00
-    tail_thickness_scale_max: float = 1.00
     # Actuator-rate proxy settings
     servo_rate_deg_s: float = SERVO_RATE_DEG_S
     nom_trim_time_s: float = 1.5
     turn_trim_time_s: float = BANK_ENTRY_TIME_S
     rate_util_fraction: float = 0.80
+    tau_gust_s: float = 0.5
     # Updraft disturbance model
     w_gust_nom_min: float = -0.30
     w_gust_nom_max: float = 0.30
@@ -5756,115 +5759,67 @@ def run_multistart(
 # =============================================================================
 # Robustness tools (scenario sampling + per-scenario re-trim + scoring)
 # =============================================================================
-def build_stress_scenarios(unc: UncertaintyModel) -> list[Scenario]:
-    def midpoint(vmin: float, vmax: float) -> float:
-        return float(0.5 * (float(vmin) + float(vmax)))
+def latin_hypercube(
+    n_samples: int,
+    n_dims: int,
+    rng: onp.random.Generator,
+) -> onp.ndarray:
+    lhs = onp.empty((n_samples, n_dims), dtype=float)
+    for col_idx in range(n_dims):
+        perm = rng.permutation(n_samples)
+        lhs[:, col_idx] = (perm + rng.random(n_samples)) / float(n_samples)
+    return lhs
 
-    mid_inc = midpoint(unc.incidence_bias_deg_min, unc.incidence_bias_deg_max)
-    mid_bias_a = midpoint(unc.bias_a_deg_min, unc.bias_a_deg_max)
-    mid_bias_e = midpoint(unc.bias_e_deg_min, unc.bias_e_deg_max)
-    mid_bias_r = midpoint(unc.bias_r_deg_min, unc.bias_r_deg_max)
-    mid_ixx = midpoint(unc.ixx_scale_min, unc.ixx_scale_max)
-    mid_iyy = midpoint(unc.iyy_scale_min, unc.iyy_scale_max)
-    mid_izz = midpoint(unc.izz_scale_min, unc.izz_scale_max)
-    mid_wing_E = midpoint(unc.wing_E_scale_min, unc.wing_E_scale_max)
-    mid_htail_E = midpoint(unc.htail_E_scale_min, unc.htail_E_scale_max)
-    mid_wing_t = midpoint(unc.wing_thickness_scale_min, unc.wing_thickness_scale_max)
-    mid_tail_t = midpoint(unc.tail_thickness_scale_min, unc.tail_thickness_scale_max)
-    mid_w_gust_nom = midpoint(unc.w_gust_nom_min, unc.w_gust_nom_max)
-    mid_w_gust_turn = midpoint(unc.w_gust_turn_min, unc.w_gust_turn_max)
 
-    base = {
-        "incidence_bias_deg": mid_inc,
-        "eff_a": float(unc.eff_a_min),
-        "eff_e": float(unc.eff_e_min),
-        "eff_r": float(unc.eff_r_min),
-        "bias_a_deg": mid_bias_a,
-        "bias_e_deg": mid_bias_e,
-        "bias_r_deg": mid_bias_r,
-        "ixx_scale": mid_ixx,
-        "iyy_scale": mid_iyy,
-        "izz_scale": mid_izz,
-        "wing_E_scale": mid_wing_E,
-        "htail_E_scale": mid_htail_E,
-        "wing_thickness_scale": mid_wing_t,
-        "tail_thickness_scale": mid_tail_t,
-        "w_gust_nom": mid_w_gust_nom,
-        "w_gust_turn": mid_w_gust_turn,
-        "drag_factor": float(unc.drag_factor_max),
-    }
+def build_scenario_tags(n_scenarios: int) -> onp.ndarray:
+    n_scen = max(0, int(n_scenarios))
+    if n_scen < len(ROBUST_SCENARIO_TAGS):
+        return onp.full(n_scen, "mixed", dtype=object)
 
-    stress_specs = [
-        {
-            "mass_scale": float(unc.mass_scale_max),
-            "cg_x_shift_mac": float(unc.cg_x_shift_mac_max),
-        },
-        {
-            "mass_scale": float(unc.mass_scale_max),
-            "cg_x_shift_mac": float(unc.cg_x_shift_mac_min),
-        },
-        {
-            "mass_scale": float(unc.mass_scale_min),
-            "cg_x_shift_mac": float(unc.cg_x_shift_mac_max),
-        },
-        {
-            "mass_scale": float(unc.mass_scale_min),
-            "cg_x_shift_mac": float(unc.cg_x_shift_mac_min),
-        },
-        {
-            "mass_scale": midpoint(unc.mass_scale_min, unc.mass_scale_max),
-            "cg_x_shift_mac": midpoint(unc.cg_x_shift_mac_min, unc.cg_x_shift_mac_max),
-            "w_gust_nom": float(unc.w_gust_nom_max),
-        },
-        {
-            "mass_scale": midpoint(unc.mass_scale_min, unc.mass_scale_max),
-            "cg_x_shift_mac": midpoint(unc.cg_x_shift_mac_min, unc.cg_x_shift_mac_max),
-            "w_gust_nom": float(unc.w_gust_nom_min),
-        },
-        {
-            "mass_scale": midpoint(unc.mass_scale_min, unc.mass_scale_max),
-            "cg_x_shift_mac": float(unc.cg_x_shift_mac_max),
-            "incidence_bias_deg": float(unc.incidence_bias_deg_max),
-        },
-        {
-            "mass_scale": midpoint(unc.mass_scale_min, unc.mass_scale_max),
-            "cg_x_shift_mac": float(unc.cg_x_shift_mac_min),
-            "incidence_bias_deg": float(unc.incidence_bias_deg_min),
-        },
-    ]
+    base_count = n_scen // len(ROBUST_SCENARIO_TAGS)
+    remainder = n_scen % len(ROBUST_SCENARIO_TAGS)
+    counts = {tag: base_count for tag in ROBUST_SCENARIO_TAGS}
+    counts["harsh_compound"] += remainder
 
-    stress_scenarios: list[Scenario] = []
-    for idx, spec in enumerate(stress_specs):
-        row = {**base, **spec}
-        control_eff = float((row["eff_a"] + row["eff_e"] + row["eff_r"]) / 3.0)
-        stress_scenarios.append(
-            Scenario(
-                scenario_id=idx,
-                mass_scale=float(row["mass_scale"]),
-                cg_x_shift_mac=float(row["cg_x_shift_mac"]),
-                incidence_bias_deg=float(row["incidence_bias_deg"]),
-                eff_a=float(row["eff_a"]),
-                eff_e=float(row["eff_e"]),
-                eff_r=float(row["eff_r"]),
-                bias_a_deg=float(row["bias_a_deg"]),
-                bias_e_deg=float(row["bias_e_deg"]),
-                bias_r_deg=float(row["bias_r_deg"]),
-                ixx_scale=float(row["ixx_scale"]),
-                iyy_scale=float(row["iyy_scale"]),
-                izz_scale=float(row["izz_scale"]),
-                wing_E_scale=float(row["wing_E_scale"]),
-                htail_E_scale=float(row["htail_E_scale"]),
-                wing_thickness_scale=float(row["wing_thickness_scale"]),
-                tail_thickness_scale=float(row["tail_thickness_scale"]),
-                w_gust_nom=float(row["w_gust_nom"]),
-                w_gust_turn=float(row["w_gust_turn"]),
-                drag_factor=float(row["drag_factor"]),
-                control_eff=control_eff,
-                scenario_tag="stress",
-            )
-        )
+    tags: list[str] = []
+    for tag in ROBUST_SCENARIO_TAGS:
+        tags.extend([tag] * counts[tag])
+    return onp.asarray(tags, dtype=object)
 
-    return stress_scenarios
+
+def tag_severity_and_gust(tag: str) -> tuple[float, bool]:
+    if tag == "mild_build":
+        return 0.5, False
+    if tag == "harsh_build":
+        return 1.0, False
+    if tag == "gusty_only":
+        return 0.0, True
+    if tag == "mild_compound":
+        return 0.5, True
+    if tag == "harsh_compound":
+        return 1.0, True
+    return 1.0, True
+
+
+def scale_centered_interval(
+    u_col: onp.ndarray,
+    vmin: float,
+    vmax: float,
+    severity: onp.ndarray,
+) -> onp.ndarray:
+    midpoint = 0.5 * (float(vmin) + float(vmax))
+    half_span = 0.5 * (float(vmax) - float(vmin))
+    return midpoint + (2.0 * u_col - 1.0) * half_span * severity
+
+
+def scale_unit_anchored_interval(
+    u_col: onp.ndarray,
+    vmin: float,
+    vmax: float,
+    severity: onp.ndarray,
+) -> onp.ndarray:
+    raw_values = float(vmin) + u_col * (float(vmax) - float(vmin))
+    return 1.0 + severity * (raw_values - 1.0)
 
 
 def sample_scenario_objects(
@@ -5873,8 +5828,6 @@ def sample_scenario_objects(
     rng: onp.random.Generator | None = None,
     scenario_count: int | None = None,
 ) -> list[Scenario]:
-    from scipy.stats import qmc
-
     uncertainty = uncertainty or UncertaintyModel.from_workflow_config(config)
     _ = rng
     n_scen_total = int(max(0, config.n_scenarios if scenario_count is None else scenario_count))
@@ -5882,87 +5835,156 @@ def sample_scenario_objects(
     if n_scen_total == 0:
         return []
 
-    stress = build_stress_scenarios(uncertainty)
-    n_stress = min(len(stress), n_scen_total)
-    n_lhs = n_scen_total - n_stress
+    rng_local = onp.random.default_rng(int(config.scenario_seed))
+    scenario_tags = build_scenario_tags(n_scen_total)
+    lhs = latin_hypercube(n_scen_total, 13, rng_local)
 
-    scenarios: list[Scenario] = list(stress[:n_stress])
+    severities = onp.empty(n_scen_total, dtype=float)
+    gust_enabled = onp.empty(n_scen_total, dtype=bool)
+    for idx, tag in enumerate(scenario_tags):
+        severity, gust_on = tag_severity_and_gust(str(tag))
+        severities[idx] = severity
+        gust_enabled[idx] = gust_on
 
-    if n_lhs > 0:
-        dimensions: list[tuple[str, float, float]] = [
-            ("mass_scale", uncertainty.mass_scale_min, uncertainty.mass_scale_max),
-            ("cg_x_shift_mac", uncertainty.cg_x_shift_mac_min, uncertainty.cg_x_shift_mac_max),
-            ("incidence_bias_deg", uncertainty.incidence_bias_deg_min, uncertainty.incidence_bias_deg_max),
-            ("eff_a", uncertainty.eff_a_min, uncertainty.eff_a_max),
-            ("eff_e", uncertainty.eff_e_min, uncertainty.eff_e_max),
-            ("eff_r", uncertainty.eff_r_min, uncertainty.eff_r_max),
-            ("bias_a_deg", uncertainty.bias_a_deg_min, uncertainty.bias_a_deg_max),
-            ("bias_e_deg", uncertainty.bias_e_deg_min, uncertainty.bias_e_deg_max),
-            ("bias_r_deg", uncertainty.bias_r_deg_min, uncertainty.bias_r_deg_max),
-            ("ixx_scale", uncertainty.ixx_scale_min, uncertainty.ixx_scale_max),
-            ("iyy_scale", uncertainty.iyy_scale_min, uncertainty.iyy_scale_max),
-            ("izz_scale", uncertainty.izz_scale_min, uncertainty.izz_scale_max),
-            ("wing_E_scale", uncertainty.wing_E_scale_min, uncertainty.wing_E_scale_max),
-            ("htail_E_scale", uncertainty.htail_E_scale_min, uncertainty.htail_E_scale_max),
-            (
-                "wing_thickness_scale",
-                uncertainty.wing_thickness_scale_min,
-                uncertainty.wing_thickness_scale_max,
-            ),
-            (
-                "tail_thickness_scale",
-                uncertainty.tail_thickness_scale_min,
-                uncertainty.tail_thickness_scale_max,
-            ),
-            ("w_gust_nom", uncertainty.w_gust_nom_min, uncertainty.w_gust_nom_max),
-            ("w_gust_turn", uncertainty.w_gust_turn_min, uncertainty.w_gust_turn_max),
-            ("drag_factor", uncertainty.drag_factor_min, uncertainty.drag_factor_max),
-        ]
-        d = len(dimensions)
-        seed = int(config.scenario_seed)
-        sampler = qmc.LatinHypercube(d=d, seed=seed)
-        u = sampler.random(n=n_lhs)
+    q_col = lhs[:, 0]
+    eps_col = lhs[:, 1]
+    cg_col = lhs[:, 2]
+    incidence_col = lhs[:, 3]
+    bias_a_col = lhs[:, 4]
+    bias_e_col = lhs[:, 5]
+    bias_r_col = lhs[:, 6]
+    ixx_col = lhs[:, 7]
+    iyy_col = lhs[:, 8]
+    izz_col = lhs[:, 9]
+    wing_e_col = lhs[:, 10]
+    htail_e_col = lhs[:, 11]
+    gust_base_col = lhs[:, 12]
 
-        def lerp(col: float, vmin: float, vmax: float) -> float:
-            return float(vmin + col * (vmax - vmin))
+    mass_scale = 1.0 + q_col * severities * (float(uncertainty.mass_scale_max) - 1.0)
+    drag_factor = 1.0 + q_col * severities * (float(uncertainty.drag_factor_max) - 1.0)
+    eff_a = 1.0 - q_col * severities * (1.0 - float(uncertainty.eff_a_min))
+    eff_e = 1.0 - q_col * severities * (1.0 - float(uncertainty.eff_e_min))
+    eff_r = 1.0 - q_col * severities * (1.0 - float(uncertainty.eff_r_min))
+    cg_x_shift_mac = scale_centered_interval(
+        cg_col,
+        uncertainty.cg_x_shift_mac_min,
+        uncertainty.cg_x_shift_mac_max,
+        severities,
+    )
+    incidence_bias_deg = scale_centered_interval(
+        incidence_col,
+        uncertainty.incidence_bias_deg_min,
+        uncertainty.incidence_bias_deg_max,
+        severities,
+    )
+    bias_a_deg = scale_centered_interval(
+        bias_a_col,
+        uncertainty.bias_a_deg_min,
+        uncertainty.bias_a_deg_max,
+        severities,
+    )
+    bias_e_deg = scale_centered_interval(
+        bias_e_col,
+        uncertainty.bias_e_deg_min,
+        uncertainty.bias_e_deg_max,
+        severities,
+    )
+    bias_r_deg = scale_centered_interval(
+        bias_r_col,
+        uncertainty.bias_r_deg_min,
+        uncertainty.bias_r_deg_max,
+        severities,
+    )
+    ixx_scale = scale_unit_anchored_interval(
+        ixx_col,
+        uncertainty.ixx_scale_min,
+        uncertainty.ixx_scale_max,
+        severities,
+    )
+    iyy_scale = scale_unit_anchored_interval(
+        iyy_col,
+        uncertainty.iyy_scale_min,
+        uncertainty.iyy_scale_max,
+        severities,
+    )
+    izz_scale = scale_unit_anchored_interval(
+        izz_col,
+        uncertainty.izz_scale_min,
+        uncertainty.izz_scale_max,
+        severities,
+    )
+    wing_e_scale = scale_unit_anchored_interval(
+        wing_e_col,
+        uncertainty.wing_E_scale_min,
+        uncertainty.wing_E_scale_max,
+        severities,
+    )
+    htail_e_scale = scale_unit_anchored_interval(
+        htail_e_col,
+        uncertainty.htail_E_scale_min,
+        uncertainty.htail_E_scale_max,
+        severities,
+    )
 
-        for i in range(n_lhs):
-            sampled = {
-                name: lerp(float(u[i, j]), float(vmin), float(vmax))
-                for j, (name, vmin, vmax) in enumerate(dimensions)
-            }
-            control_eff = float((sampled["eff_a"] + sampled["eff_e"] + sampled["eff_r"]) / 3.0)
-            scenarios.append(
-                Scenario(
-                    scenario_id=n_stress + i,
-                    mass_scale=float(sampled["mass_scale"]),
-                    cg_x_shift_mac=float(sampled["cg_x_shift_mac"]),
-                    incidence_bias_deg=float(sampled["incidence_bias_deg"]),
-                    eff_a=float(sampled["eff_a"]),
-                    eff_e=float(sampled["eff_e"]),
-                    eff_r=float(sampled["eff_r"]),
-                    bias_a_deg=float(sampled["bias_a_deg"]),
-                    bias_e_deg=float(sampled["bias_e_deg"]),
-                    bias_r_deg=float(sampled["bias_r_deg"]),
-                    ixx_scale=float(sampled["ixx_scale"]),
-                    iyy_scale=float(sampled["iyy_scale"]),
-                    izz_scale=float(sampled["izz_scale"]),
-                    wing_E_scale=float(sampled["wing_E_scale"]),
-                    htail_E_scale=float(sampled["htail_E_scale"]),
-                    wing_thickness_scale=float(sampled["wing_thickness_scale"]),
-                    tail_thickness_scale=float(sampled["tail_thickness_scale"]),
-                    w_gust_nom=float(sampled["w_gust_nom"]),
-                    w_gust_turn=float(sampled["w_gust_turn"]),
-                    drag_factor=float(sampled["drag_factor"]),
-                    control_eff=control_eff,
-                    scenario_tag="lhs",
-                )
+    w_gust_nom = onp.zeros(n_scen_total, dtype=float)
+    w_gust_turn = onp.zeros(n_scen_total, dtype=float)
+    dt_phase_s = float(BANK_ENTRY_TIME_S) if BANK_ENTRY_TIME_S > 0.0 else 0.2
+    tau_gust_s = max(float(config.tau_gust_s), 1e-6)
+    gust_decay = float(onp.exp(-dt_phase_s / tau_gust_s))
+    turn_half_range = 0.5 * (
+        float(uncertainty.w_gust_turn_max) - float(uncertainty.w_gust_turn_min)
+    )
+    g_innov_scaled = (2.0 * eps_col - 1.0) * turn_half_range
+    gust_nom_base = (
+        float(uncertainty.w_gust_nom_min)
+        + gust_base_col
+        * (
+            float(uncertainty.w_gust_nom_max)
+            - float(uncertainty.w_gust_nom_min)
+        )
+    )
+    gust_turn_raw = (
+        gust_decay * gust_nom_base
+        + onp.sqrt(max(0.0, 1.0 - gust_decay**2)) * g_innov_scaled
+    )
+    gust_mask = gust_enabled.astype(float)
+    w_gust_nom = gust_nom_base * gust_mask
+    w_gust_turn = onp.clip(
+        gust_turn_raw,
+        float(uncertainty.w_gust_turn_min),
+        float(uncertainty.w_gust_turn_max),
+    ) * gust_mask
+
+    scenarios: list[Scenario] = []
+    for idx in range(n_scen_total):
+        control_eff = float((eff_a[idx] + eff_e[idx] + eff_r[idx]) / 3.0)
+        scenarios.append(
+            Scenario(
+                scenario_id=idx,
+                mass_scale=float(mass_scale[idx]),
+                cg_x_shift_mac=float(cg_x_shift_mac[idx]),
+                incidence_bias_deg=float(incidence_bias_deg[idx]),
+                eff_a=float(eff_a[idx]),
+                eff_e=float(eff_e[idx]),
+                eff_r=float(eff_r[idx]),
+                bias_a_deg=float(bias_a_deg[idx]),
+                bias_e_deg=float(bias_e_deg[idx]),
+                bias_r_deg=float(bias_r_deg[idx]),
+                ixx_scale=float(ixx_scale[idx]),
+                iyy_scale=float(iyy_scale[idx]),
+                izz_scale=float(izz_scale[idx]),
+                wing_E_scale=float(wing_e_scale[idx]),
+                htail_E_scale=float(htail_e_scale[idx]),
+                w_gust_nom=float(w_gust_nom[idx]),
+                w_gust_turn=float(w_gust_turn[idx]),
+                drag_factor=float(drag_factor[idx]),
+                control_eff=control_eff,
+                scenario_tag=str(scenario_tags[idx]),
+                q=float(q_col[idx]),
             )
+        )
 
-    return [
-        Scenario.from_row({**scenario.to_row(), "scenario_id": idx})
-        for idx, scenario in enumerate(scenarios)
-    ]
+    return scenarios
 
 
 def sample_scenarios(
@@ -6141,7 +6163,7 @@ def run_weight_sweep(
             "candidate_id": float("nan"),
             "feasible_rate": float("nan"),
             "sink_mean": float("nan"),
-            "sink_cvar_20": float("nan"),
+            "sink_tail_mean_k": float("nan"),
             "objective": float("nan"),
             "wing_span_m": float("nan"),
             "wing_chord_m": float("nan"),
@@ -6152,7 +6174,7 @@ def run_weight_sweep(
             "mass_total_kg": float("nan"),
             "objective_term_spread_ratio": float("nan"),
             "rank_feasible_rate": float("inf"),
-            "rank_sink_cvar_20": float("inf"),
+            "rank_sink_tail_mean_k": float("inf"),
             "rank_wing_span_m": float("inf"),
             "trade_label": "fail",
             "is_best": False,
@@ -6189,8 +6211,8 @@ def run_weight_sweep(
                 row["sink_mean"] = float(
                     selected_summary_row.get("nom_sink_mean", float("nan"))
                 )
-                row["sink_cvar_20"] = float(
-                    selected_summary_row.get("nom_sink_cvar_20", float("nan"))
+                row["sink_tail_mean_k"] = float(
+                    selected_summary_row.get("nom_sink_tail_mean_k", float("nan"))
                 )
 
             if selected_candidate.objective_contributions is not None:
@@ -6206,13 +6228,13 @@ def run_weight_sweep(
                     )
 
             feasible_rate_value = float(row["feasible_rate"])
-            sink_cvar_value = float(row["sink_cvar_20"])
+            sink_tail_mean_value = float(row["sink_tail_mean_k"])
             span_value = float(row["wing_span_m"])
             row["rank_feasible_rate"] = (
                 -feasible_rate_value if onp.isfinite(feasible_rate_value) else float("inf")
             )
-            row["rank_sink_cvar_20"] = (
-                sink_cvar_value if onp.isfinite(sink_cvar_value) else float("inf")
+            row["rank_sink_tail_mean_k"] = (
+                sink_tail_mean_value if onp.isfinite(sink_tail_mean_value) else float("inf")
             )
             row["rank_wing_span_m"] = (
                 span_value if onp.isfinite(span_value) else float("inf")
@@ -6225,7 +6247,7 @@ def run_weight_sweep(
 
             rank_key = (
                 float(row["rank_feasible_rate"]),
-                float(row["rank_sink_cvar_20"]),
+                float(row["rank_sink_tail_mean_k"]),
                 float(row["rank_wing_span_m"]),
             )
             if best_rank is None or rank_key < best_rank:
@@ -6258,7 +6280,7 @@ def run_weight_sweep(
         sweep_df.loc[sweep_df["run_index"] == best_run_index, "is_best"] = True
 
     trade_study_df = sweep_df.sort_values(
-        by=["rank_feasible_rate", "rank_sink_cvar_20", "rank_wing_span_m", "run_index"],
+        by=["rank_feasible_rate", "rank_sink_tail_mean_k", "rank_wing_span_m", "run_index"],
         ascending=[True, True, True, True],
         kind="mergesort",
     )
@@ -6274,7 +6296,7 @@ def run_weight_sweep(
         {"Key": "workflow_rng_seed", "Value": shared_workflow_rng_seed},
         {
             "Key": "selection_rule",
-            "Value": "lexicographic: feasible_rate desc, sink_cvar_20 asc, wing_span_m asc",
+            "Value": "lexicographic: feasible_rate desc, sink_tail_mean_k asc, wing_span_m asc",
         },
         {"Key": "trade_fragile_threshold", "Value": trade_fragile_threshold},
     ]
@@ -6333,18 +6355,18 @@ def select_top_weight_sweep_rows(
     if ranked_df.empty:
         return ranked_df
 
-    for rank_col in ["rank_feasible_rate", "rank_sink_cvar_20", "rank_wing_span_m", "run_index"]:
+    for rank_col in ["rank_feasible_rate", "rank_sink_tail_mean_k", "rank_wing_span_m", "run_index"]:
         if rank_col not in ranked_df.columns:
             ranked_df[rank_col] = float("inf")
         ranked_df[rank_col] = pd.to_numeric(ranked_df[rank_col], errors="coerce")
 
     ranked_df["rank_feasible_rate"] = ranked_df["rank_feasible_rate"].fillna(float("inf"))
-    ranked_df["rank_sink_cvar_20"] = ranked_df["rank_sink_cvar_20"].fillna(float("inf"))
+    ranked_df["rank_sink_tail_mean_k"] = ranked_df["rank_sink_tail_mean_k"].fillna(float("inf"))
     ranked_df["rank_wing_span_m"] = ranked_df["rank_wing_span_m"].fillna(float("inf"))
     ranked_df["run_index"] = ranked_df["run_index"].fillna(float("inf"))
 
     ranked_df = ranked_df.sort_values(
-        by=["rank_feasible_rate", "rank_sink_cvar_20", "rank_wing_span_m", "run_index"],
+        by=["rank_feasible_rate", "rank_sink_tail_mean_k", "rank_wing_span_m", "run_index"],
         ascending=[True, True, True, True],
         kind="mergesort",
     )
@@ -6425,7 +6447,7 @@ def run_top_weight_set_reruns(
             "candidate_id": float("nan"),
             "feasible_rate": float("nan"),
             "sink_mean": float("nan"),
-            "sink_cvar_20": float("nan"),
+            "sink_tail_mean_k": float("nan"),
             "objective": float("nan"),
             "wing_span_m": float("nan"),
             "wing_chord_m": float("nan"),
@@ -6436,7 +6458,7 @@ def run_top_weight_set_reruns(
             "mass_total_kg": float("nan"),
             "objective_term_spread_ratio": float("nan"),
             "rank_feasible_rate": float("inf"),
-            "rank_sink_cvar_20": float("inf"),
+            "rank_sink_tail_mean_k": float("inf"),
             "rank_wing_span_m": float("inf"),
             "is_best": False,
         }
@@ -6472,8 +6494,8 @@ def run_top_weight_set_reruns(
                 row["sink_mean"] = float(
                     selected_summary_row.get("nom_sink_mean", float("nan"))
                 )
-                row["sink_cvar_20"] = float(
-                    selected_summary_row.get("nom_sink_cvar_20", float("nan"))
+                row["sink_tail_mean_k"] = float(
+                    selected_summary_row.get("nom_sink_tail_mean_k", float("nan"))
                 )
 
             if selected_candidate.objective_contributions is not None:
@@ -6489,13 +6511,13 @@ def run_top_weight_set_reruns(
                     )
 
             feasible_rate_value = float(row["feasible_rate"])
-            sink_cvar_value = float(row["sink_cvar_20"])
+            sink_tail_mean_value = float(row["sink_tail_mean_k"])
             span_value = float(row["wing_span_m"])
             row["rank_feasible_rate"] = (
                 -feasible_rate_value if onp.isfinite(feasible_rate_value) else float("inf")
             )
-            row["rank_sink_cvar_20"] = (
-                sink_cvar_value if onp.isfinite(sink_cvar_value) else float("inf")
+            row["rank_sink_tail_mean_k"] = (
+                sink_tail_mean_value if onp.isfinite(sink_tail_mean_value) else float("inf")
             )
             row["rank_wing_span_m"] = (
                 span_value if onp.isfinite(span_value) else float("inf")
@@ -6503,7 +6525,7 @@ def run_top_weight_set_reruns(
 
             rank_key = (
                 float(row["rank_feasible_rate"]),
-                float(row["rank_sink_cvar_20"]),
+                float(row["rank_sink_tail_mean_k"]),
                 float(row["rank_wing_span_m"]),
             )
             if best_rank is None or rank_key < best_rank:
@@ -6557,7 +6579,7 @@ def run_top_weight_set_reruns(
         {"Key": "seed", "Value": rerun_seed},
         {
             "Key": "selection_rule",
-            "Value": "lexicographic: feasible_rate desc, sink_cvar_20 asc, wing_span_m asc",
+            "Value": "lexicographic: feasible_rate desc, sink_tail_mean_k asc, wing_span_m asc",
         },
     ]
     run_info_rows.extend(
@@ -6591,6 +6613,32 @@ def sum_expr(values: list[Scalar]) -> Scalar:
     return total
 
 
+def build_sink_tail_mean_expression(
+    opti: asb.Opti,
+    values: list[Scalar],
+    tail_fraction: float,
+    min_k: int = 1,
+) -> tuple[Scalar, list[Scalar], int]:
+    n_values = len(values)
+    if n_values == 0:
+        return float("nan"), [], 0
+
+    tail_count = min(
+        n_values,
+        max(int(min_k), int(onp.ceil(float(tail_fraction) * float(n_values)))),
+    )
+    eta = opti.variable(init_guess=0.35)
+    slack_terms = [
+        opti.variable(init_guess=0.0, lower_bound=0.0)
+        for _ in range(n_values)
+    ]
+    constraints = []
+    for slack_term, value in zip(slack_terms, values):
+        constraints.append(slack_term >= value - eta)
+    tail_mean = eta + sum_expr(slack_terms) / float(tail_count)
+    return tail_mean, constraints, tail_count
+
+
 def select_representative_scenarios(
     config: WorkflowConfig,
     n_select: int,
@@ -6599,7 +6647,7 @@ def select_representative_scenarios(
 ) -> pd.DataFrame:
     n_pick = max(1, int(n_select))
     pool_multiplier = max(1, int(config.robust_opt_scenario_pool_multiplier))
-    pool_size = max(n_pick, int(config.n_scenarios), pool_multiplier * n_pick)
+    pool_size = max(n_pick, pool_multiplier * n_pick)
     pool_config = WorkflowConfig(
         **{
             **asdict(config),
@@ -6619,130 +6667,50 @@ def select_representative_scenarios(
         pool_df["scenario_id"] = onp.arange(len(pool_df), dtype=int)
     pool_df["scenario_id"] = pd.to_numeric(pool_df["scenario_id"], errors="coerce").fillna(0).astype(int)
 
-    feature_cols = [
-        "mass_scale",
-        "cg_x_shift_mac",
-        "incidence_bias_deg",
-        "drag_factor",
-        "eff_a",
-        "eff_e",
-        "eff_r",
-        "bias_a_deg",
-        "bias_e_deg",
-        "bias_r_deg",
-    ]
-    for gust_col in ["w_gust_nom", "w_gust_turn"]:
-        if gust_col in pool_df.columns:
-            feature_cols.append(gust_col)
+    sort_cols = ["q", "scenario_id"]
+    sort_asc = [False, True]
+    selected_indices: list[int] = []
+    selected_set: set[int] = set()
 
-    feature_df = pool_df.reindex(columns=feature_cols).copy()
-    for col in feature_cols:
-        feature_df[col] = pd.to_numeric(feature_df[col], errors="coerce").fillna(0.0)
-
-    x_raw = feature_df.to_numpy(dtype=float)
-    x_min = onp.min(x_raw, axis=0)
-    x_span = onp.maximum(onp.max(x_raw, axis=0) - x_min, 1e-9)
-    x_norm = (x_raw - x_min) / x_span
-
-    nominal_values = {
-        "mass_scale": 1.0,
-        "cg_x_shift_mac": 0.0,
-        "incidence_bias_deg": 0.0,
-        "drag_factor": 1.0,
-        "eff_a": 1.0,
-        "eff_e": 1.0,
-        "eff_r": 1.0,
-        "bias_a_deg": 0.0,
-        "bias_e_deg": 0.0,
-        "bias_r_deg": 0.0,
-        "w_gust_nom": 0.0,
-        "w_gust_turn": 0.0,
-    }
-    x_nom_raw = onp.array([float(nominal_values.get(col, 0.0)) for col in feature_cols], dtype=float)
-    x_nom = (x_nom_raw - x_min) / x_span
-
-    nominal_dist = onp.linalg.norm(x_norm - x_nom.reshape(1, -1), axis=1)
-    s0_idx = int(
-        pool_df.assign(_nom_dist=nominal_dist)
-        .sort_values(by=["_nom_dist", "scenario_id"], ascending=[True, True], kind="mergesort")
-        .index[0]
-    )
-
-    alpha_scale = max(abs(ALPHA_MAX_DEG), 1e-6)
-    max_delta_a = max(abs(DELTA_A_MIN_DEG), abs(DELTA_A_MAX_DEG), 1e-6)
-    max_delta_e = max(abs(DELTA_E_MIN_DEG), abs(DELTA_E_MAX_DEG), 1e-6)
-    max_delta_r = max(abs(DELTA_R_MIN_DEG), abs(DELTA_R_MAX_DEG), 1e-6)
-
-    sink_proxy = (
-        feature_df["drag_factor"].to_numpy(dtype=float)
-        * feature_df["mass_scale"].to_numpy(dtype=float)
-        * (1.0 + 0.5 * onp.abs(feature_df["incidence_bias_deg"].to_numpy(dtype=float)) / alpha_scale)
-    )
-    infeas_proxy = (
-        3.0 * (
-            onp.maximum(0.0, 1.0 - feature_df["eff_a"].to_numpy(dtype=float))
-            + onp.maximum(0.0, 1.0 - feature_df["eff_e"].to_numpy(dtype=float))
-            + onp.maximum(0.0, 1.0 - feature_df["eff_r"].to_numpy(dtype=float))
-        )
-        + 2.0 * (
-            onp.abs(feature_df["bias_a_deg"].to_numpy(dtype=float)) / max_delta_a
-            + onp.abs(feature_df["bias_e_deg"].to_numpy(dtype=float)) / max_delta_e
-            + onp.abs(feature_df["bias_r_deg"].to_numpy(dtype=float)) / max_delta_r
-        )
-        + 1.5 * onp.maximum(0.0, feature_df["mass_scale"].to_numpy(dtype=float) - 1.0)
-        + 1.2 * onp.abs(feature_df["cg_x_shift_mac"].to_numpy(dtype=float))
-        + 1.2 * onp.abs(feature_df["incidence_bias_deg"].to_numpy(dtype=float)) / alpha_scale
-    )
-
-    scored_df = pool_df.assign(_sink_proxy=sink_proxy, _infeas_proxy=infeas_proxy)
-    k_sink = max(1, n_pick // 3)
-    k_inf = max(1, n_pick // 3)
-    sink_tail = list(
-        scored_df.sort_values(by=["_sink_proxy", "scenario_id"], ascending=[False, True], kind="mergesort").index[:k_sink]
-    )
-    infeas_tail = list(
-        scored_df.sort_values(by=["_infeas_proxy", "scenario_id"], ascending=[False, True], kind="mergesort").index[:k_inf]
-    )
-
-    selected_indices: list[int] = [s0_idx]
-    selected_set = {s0_idx}
-
-    for idx in sink_tail + infeas_tail:
-        idx_i = int(idx)
-        if idx_i in selected_set or len(selected_indices) >= n_pick:
-            continue
-        selected_indices.append(idx_i)
-        selected_set.add(idx_i)
-
-    while len(selected_indices) < n_pick and len(selected_set) < len(pool_df):
-        remaining = [idx for idx in range(len(pool_df)) if idx not in selected_set]
-        selected_matrix = x_norm[onp.array(selected_indices, dtype=int), :]
-        remaining_matrix = x_norm[onp.array(remaining, dtype=int), :]
-        distance_matrix = onp.linalg.norm(
-            remaining_matrix[:, None, :] - selected_matrix[None, :, :],
-            axis=2,
-        )
-        min_distance = onp.min(distance_matrix, axis=1)
-        choice_df = pd.DataFrame(
-            {
-                "idx": remaining,
-                "min_distance": min_distance,
-                "scenario_id": pool_df.loc[remaining, "scenario_id"].to_numpy(dtype=int),
-            }
-        ).sort_values(by=["min_distance", "scenario_id"], ascending=[False, True], kind="mergesort")
-        next_idx = int(choice_df.iloc[0]["idx"])
-        selected_indices.append(next_idx)
-        selected_set.add(next_idx)
-
-    if len(selected_indices) < n_pick:
-        for idx in pool_df.sort_values(by="scenario_id", ascending=True, kind="mergesort").index:
-            idx_i = int(idx)
-            if idx_i in selected_set:
+    def append_from_rows(rows_df: pd.DataFrame) -> None:
+        for idx in rows_df.index:
+            idx_int = int(idx)
+            if idx_int in selected_set or len(selected_indices) >= n_pick:
                 continue
-            selected_indices.append(idx_i)
-            selected_set.add(idx_i)
-            if len(selected_indices) >= n_pick:
-                break
+            selected_indices.append(idx_int)
+            selected_set.add(idx_int)
+
+    mixed_only = set(pool_df["scenario_tag"].astype(str)) == {"mixed"}
+    if mixed_only:
+        ordered_df = pool_df.sort_values(
+            by=sort_cols,
+            ascending=sort_asc,
+            kind="mergesort",
+        )
+        append_from_rows(ordered_df)
+    else:
+        for tag in ROBUST_OPT_TAG_PRIORITY:
+            tag_df = pool_df[pool_df["scenario_tag"] == tag].sort_values(
+                by=sort_cols,
+                ascending=sort_asc,
+                kind="mergesort",
+            )
+            append_from_rows(tag_df.head(1))
+
+        for tag in ("harsh_compound", "harsh_build"):
+            tag_df = pool_df[pool_df["scenario_tag"] == tag].sort_values(
+                by=sort_cols,
+                ascending=sort_asc,
+                kind="mergesort",
+            )
+            append_from_rows(tag_df)
+
+        remaining_df = pool_df.sort_values(
+            by=sort_cols,
+            ascending=sort_asc,
+            kind="mergesort",
+        )
+        append_from_rows(remaining_df)
 
     selected_df = pool_df.loc[selected_indices[:n_pick]].copy().reset_index(drop=True)
     selected_df["source_scenario_id"] = selected_df["scenario_id"].astype(int)
@@ -7107,27 +7075,30 @@ def robust_in_loop_optimize(
     trim_effort_nom_mean = sum_expr(trim_effort_nom_terms) / float(n_scen)
     trim_constraint_penalty_mean = sum_expr(trim_constraint_penalties) / float(n_scen)
 
-    tail_fraction = float(onp.clip(
-        float(config.robust_opt_tail_fraction),
-        1.0 / float(n_scen),
-        1.0,
-    ))
-    eta_sink = opti.variable(init_guess=init_value("sink_eta", 0.35))
-    cvar_soft_tail_terms = [
-        stable_softplus(sink_s - eta_sink, SOFTPLUS_K)
-        for sink_s in sink_nom_values
-    ]
-    sink_cvar_like = eta_sink + (
-        sum_expr(cvar_soft_tail_terms)
-        / max(tail_fraction * float(n_scen), 1e-8)
+    tail_fraction = float(
+        onp.clip(
+            float(config.robust_opt_tail_fraction),
+            1.0 / float(n_scen),
+            1.0,
+        )
     )
+    tail_min_k = 3 if n_scen < 25 else 1
+    sink_tail_mean_expr, tail_constraints, _tail_count = (
+        build_sink_tail_mean_expression(
+            opti=opti,
+            values=sink_nom_values,
+            tail_fraction=tail_fraction,
+            min_k=tail_min_k,
+        )
+    )
+    all_constraints.extend(tail_constraints)
 
     nom_lateral_penalty = 0.0
     if nom_lateral_penalties:
         nom_lateral_penalty = sum_expr(nom_lateral_penalties) / float(len(nom_lateral_penalties))
 
     objective = (
-        sink_cvar_like
+        sink_tail_mean_expr
         + float(config.robust_opt_sink_mean_weight) * sink_mean
         + MASS_WEIGHT_IN_OBJECTIVE * mass_penalty_mass_kg
         + CONTROL_TRIM_WEIGHT * trim_effort_nom_mean
@@ -7222,7 +7193,11 @@ def robust_in_loop_optimize(
         dtype=float,
     )
     sink_mean_num = float(onp.mean(sink_nom_values_num)) if sink_nom_values_num.size else float("nan")
-    sink_cvar_20_num = sink_cvar(sink_nom_values_num, tail_fraction=0.20)
+    sink_tail_mean_num = sink_tail_mean_k(
+        sink_nom_values_num,
+        tail_fraction=tail_fraction,
+        min_k=tail_min_k,
+    )
 
     if first_trim_nom is None or first_airplane_nom is None:
         _LAST_SOLVE_FAILURE_REASON = "missing_first_scenario_refs"
@@ -7261,7 +7236,7 @@ def robust_in_loop_optimize(
     )
 
     objective_num = float(to_scalar(solution(objective)))
-    sink_cvar_like_num = float(to_scalar(solution(sink_cvar_like)))
+    sink_tail_mean_expr_num = float(to_scalar(solution(sink_tail_mean_expr)))
     bank_penalty_num = float("nan")
     first_bank_margin_deg_num = float(onp.degrees(float(to_scalar(solution(first_bank_margin_rad)))))
 
@@ -7281,8 +7256,9 @@ def robust_in_loop_optimize(
         "n_scenarios": int(len(scenarios_df)),
         "objective": objective_num,
         "sink_mean": sink_mean_num,
-        "sink_cvar_like": sink_cvar_like_num,
-        "sink_cvar_20_from_samples": sink_cvar_20_num,
+        "sink_tail_mean_expr": sink_tail_mean_expr_num,
+        "sink_tail_mean_k_from_samples": sink_tail_mean_num,
+        "sink_cvar_20_from_samples": sink_tail_mean_num,
         "bank_penalty_mean": bank_penalty_num,
         "first_bank_margin_deg": first_bank_margin_deg_num,
         "postcheck_max_violation": max_violation,
@@ -7495,8 +7471,6 @@ def trim_candidate_at_point(
     izz_scale = float(scenario_obj.izz_scale)
     wing_e_scale = float(scenario_obj.wing_E_scale)
     htail_e_scale = float(scenario_obj.htail_E_scale)
-    wing_thickness_scale = float(scenario_obj.wing_thickness_scale)
-    tail_thickness_scale = float(scenario_obj.tail_thickness_scale)
     drag_factor = float(scenario_obj.drag_factor)
 
     velocity_mps = V_NOM_MPS
@@ -7689,6 +7663,7 @@ def trim_candidate_at_point(
         f"{point}_CL": onp.nan,
         f"{point}_D": onp.nan,
         f"{point}_Cl_delta_a_fd": onp.nan,
+        f"{point}_lateral_residual": onp.nan,
         f"{point}_alpha_margin_deg": onp.nan,
         f"{point}_cl_margin_to_cap": onp.nan,
         f"{point}_util_a": onp.nan,
@@ -7730,8 +7705,11 @@ def trim_candidate_at_point(
     drag_num = float(to_scalar(aero_num["D"])) * drag_factor
     lift_num = float(to_scalar(aero_num["L"]))
     cl_num = float(to_scalar(aero_num["CL"]))
+    cl_lat_num = float(to_scalar(aero_num["Cl"]))
+    cn_lat_num = float(to_scalar(aero_num["Cn"]))
     sink_rate_num = drag_num * velocity_mps / max(weight_n, 1e-8)
     l_over_d_num = lift_num / max(drag_num, 1e-8)
+    lateral_residual_num = float(onp.hypot(cl_lat_num, cn_lat_num))
     clp_mag = max(abs(float(to_scalar(aero_num["Clp"]))), 1e-5)
     cl_delta_a_proxy = float(
         to_scalar(
@@ -7798,7 +7776,7 @@ def trim_candidate_at_point(
         e_foam_pa=WING_E_SECANT_PA,
         e_foam_scale=wing_e_scale,
         allow_frac=WING_DEFLECTION_ALLOW_FRAC,
-        thickness_scale=wing_thickness_scale,
+        thickness_scale=1.0,
         include_spar=WING_SPAR_ENABLE,
         spar_od_m=float(WING_SPAR_OD_M),
         spar_id_m=float(WING_SPAR_ID_M),
@@ -7817,7 +7795,7 @@ def trim_candidate_at_point(
         e_foam_pa=HTAIL_E_SECANT_PA,
         e_foam_scale=htail_e_scale,
         allow_frac=HT_DEFLECTION_ALLOW_FRAC,
-        thickness_scale=tail_thickness_scale,
+        thickness_scale=1.0,
         include_spar=False,
         spar_od_m=float(WING_SPAR_OD_M),
         spar_id_m=float(WING_SPAR_ID_M),
@@ -7851,6 +7829,7 @@ def trim_candidate_at_point(
         f"{point}_CL": cl_num,
         f"{point}_D": drag_num,
         f"{point}_Cl_delta_a_fd": cl_delta_a_fd,
+        f"{point}_lateral_residual": lateral_residual_num,
         f"{point}_alpha_margin_deg": alpha_upper_bound - alpha_num,
         f"{point}_cl_margin_to_cap": cl_cap - cl_num,
         f"{point}_util_a": abs(delta_a_num) / max(abs(DELTA_A_MAX_DEG), 1e-8),
@@ -7886,12 +7865,105 @@ def trim_candidate_at_point(
     return _trim_result_from_prefixed_row(point, result_row)
 
 
-def sink_cvar(values: onp.ndarray, tail_fraction: float = 0.20) -> float:
+def sink_tail_mean_k(
+    values: onp.ndarray,
+    tail_fraction: float = 0.20,
+    min_k: int = 3,
+) -> float:
     if values.size == 0:
         return float("nan")
-    tail_count = max(1, int(onp.ceil(tail_fraction * values.size)))
+    tail_count = min(
+        values.size,
+        max(int(min_k), int(onp.ceil(float(tail_fraction) * values.size))),
+    )
     sorted_desc = onp.sort(values)[::-1]
     return float(onp.mean(sorted_desc[:tail_count]))
+
+
+def compute_rmse(values: onp.ndarray) -> float:
+    if values.size == 0:
+        return float("nan")
+    return float(onp.sqrt(onp.mean(values**2)))
+
+
+def summarize_robust_slice(
+    scenarios_df: pd.DataFrame,
+    tail_fraction: float,
+) -> dict[str, float]:
+    n_total = int(len(scenarios_df))
+    feasible_df = scenarios_df[scenarios_df["nom_success"] == True]
+    n_success = int(len(feasible_df))
+    success_rate = float(n_success / n_total) if n_total > 0 else float("nan")
+
+    sink_values = feasible_df["nom_sink_rate_mps"].dropna().to_numpy(dtype=float)
+    lateral_values = feasible_df["nom_lateral_residual"].dropna().to_numpy(dtype=float)
+    sink_tail_mean = sink_tail_mean_k(
+        sink_values,
+        tail_fraction=tail_fraction,
+        min_k=3,
+    )
+
+    return {
+        "n_total": float(n_total),
+        "n_success": float(n_success),
+        "success_rate": success_rate,
+        "nom_sink_mean": (
+            float(onp.mean(sink_values)) if sink_values.size else float("nan")
+        ),
+        "nom_sink_std": (
+            float(onp.std(sink_values)) if sink_values.size else float("nan")
+        ),
+        "nom_sink_worst": (
+            float(onp.max(sink_values)) if sink_values.size else float("nan")
+        ),
+        "nom_sink_tail_mean_k": sink_tail_mean,
+        "nom_sink_cvar_20": sink_tail_mean,
+        "nom_resid_rmse_success_only": compute_rmse(lateral_values),
+    }
+
+
+def build_robust_summary_by_tag(
+    robust_scenarios_df: pd.DataFrame,
+    tail_fraction: float,
+) -> pd.DataFrame:
+    if robust_scenarios_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "candidate_id",
+                "scenario_tag",
+                "n_total",
+                "n_success",
+                "success_rate",
+                "sink_mean",
+                "sink_worst",
+                "sink_tail_mean_k",
+                "nom_sink_cvar_20",
+                "nom_resid_rmse_success_only",
+            ]
+        )
+
+    summary_rows: list[dict[str, Any]] = []
+    grouped = robust_scenarios_df.groupby(["candidate_id", "scenario_tag"], sort=False)
+    for (candidate_id, scenario_tag), tag_df in grouped:
+        metrics = summarize_robust_slice(tag_df, tail_fraction=tail_fraction)
+        summary_rows.append(
+            {
+                "candidate_id": int(candidate_id),
+                "scenario_tag": str(scenario_tag),
+                "n_total": int(metrics["n_total"]),
+                "n_success": int(metrics["n_success"]),
+                "success_rate": float(metrics["success_rate"]),
+                "sink_mean": float(metrics["nom_sink_mean"]),
+                "sink_worst": float(metrics["nom_sink_worst"]),
+                "sink_tail_mean_k": float(metrics["nom_sink_tail_mean_k"]),
+                "nom_sink_cvar_20": float(metrics["nom_sink_cvar_20"]),
+                "nom_resid_rmse_success_only": float(
+                    metrics["nom_resid_rmse_success_only"]
+                ),
+            }
+        )
+
+    return pd.DataFrame(summary_rows)
 
 
 def run_robust_postcheck(
@@ -7943,6 +8015,7 @@ def run_robust_postcheck(
 
     summary_rows: list[dict[str, Any]] = []
     objective_by_candidate = {candidate.candidate_id: candidate.objective for candidate in candidates}
+    tail_fraction = float(config.robust_opt_tail_fraction)
 
     def col_max(df: pd.DataFrame, column: str) -> float:
         if df.empty or column not in df.columns:
@@ -7961,15 +8034,10 @@ def run_robust_postcheck(
             robust_scenarios_df["candidate_id"] == candidate.candidate_id
         ]
         feasible_df = candidate_df[candidate_df["nom_success"] == True]
-
-        scenario_count = max(len(candidate_df), 1)
-        nom_success_rate = len(feasible_df) / scenario_count
-        sink_values = feasible_df["nom_sink_rate_mps"].dropna().to_numpy(dtype=float)
-
-        nom_sink_mean = float(onp.mean(sink_values)) if sink_values.size else float("nan")
-        nom_sink_std = float(onp.std(sink_values)) if sink_values.size else float("nan")
-        nom_sink_worst = float(onp.max(sink_values)) if sink_values.size else float("nan")
-        nom_sink_cvar_20 = sink_cvar(sink_values, tail_fraction=0.20)
+        summary_metrics = summarize_robust_slice(
+            candidate_df,
+            tail_fraction=tail_fraction,
+        )
 
         roll_tau_values = onp.array(
             [col_max(feasible_df, "nom_roll_tau_s")],
@@ -7980,11 +8048,15 @@ def run_robust_postcheck(
 
         summary_obj = RobustSummary(
             candidate_id=int(candidate.candidate_id),
-            nom_success_rate=float(nom_success_rate),
-            nom_sink_mean=float(nom_sink_mean),
-            nom_sink_std=float(nom_sink_std),
-            nom_sink_worst=float(nom_sink_worst),
-            nom_sink_cvar_20=float(nom_sink_cvar_20),
+            nom_success_rate=float(summary_metrics["success_rate"]),
+            nom_sink_mean=float(summary_metrics["nom_sink_mean"]),
+            nom_sink_std=float(summary_metrics["nom_sink_std"]),
+            nom_sink_worst=float(summary_metrics["nom_sink_worst"]),
+            nom_sink_tail_mean_k=float(summary_metrics["nom_sink_tail_mean_k"]),
+            nom_sink_cvar_20=float(summary_metrics["nom_sink_cvar_20"]),
+            nom_resid_rmse_success_only=float(
+                summary_metrics["nom_resid_rmse_success_only"]
+            ),
             nom_roll_tau_worst=float(nom_roll_tau_worst),
             nom_delta_e_util_worst=float(col_max(feasible_df, "nom_util_e")),
             nom_alpha_worst=float(col_max(feasible_df, "nom_alpha_deg")),
@@ -8000,14 +8072,18 @@ def run_robust_postcheck(
         robust_summary_df["is_selected"] = False
         return robust_scenarios_df, robust_summary_df
 
-    robust_summary_df["_sink_cvar_sort"] = robust_summary_df["nom_sink_cvar_20"].fillna(onp.inf)
+    robust_summary_df["_sink_tail_sort"] = robust_summary_df["nom_sink_tail_mean_k"].fillna(
+        onp.inf
+    )
     ordered = robust_summary_df.sort_values(
-        by=["nom_success_rate", "_sink_cvar_sort", "_objective_nominal"],
+        by=["nom_success_rate", "_sink_tail_sort", "_objective_nominal"],
         ascending=[False, True, True],
     )
     selected_candidate_id = int(ordered.iloc[0]["candidate_id"])
     robust_summary_df["is_selected"] = robust_summary_df["candidate_id"] == selected_candidate_id
-    robust_summary_df = robust_summary_df.drop(columns=["_sink_cvar_sort", "_objective_nominal"])
+    robust_summary_df = robust_summary_df.drop(
+        columns=["_sink_tail_sort", "_objective_nominal"]
+    )
     return robust_scenarios_df, robust_summary_df
 
 
@@ -8033,8 +8109,7 @@ def build_worst_case_report(
         "izz_scale",
         "wing_E_scale",
         "htail_E_scale",
-        "wing_thickness_scale",
-        "tail_thickness_scale",
+        "q",
         "w_gust_nom",
         "w_gust_turn",
         "drag_factor",
@@ -8218,7 +8293,10 @@ def save_workflow_workbook(
     run_info_rows.append(
         {
             "Key": "selection_rule",
-            "Value": "lexicographic: nom_success_rate desc, nom_sink_cvar_20 asc, objective asc",
+            "Value": (
+                "lexicographic: nom_success_rate desc, "
+                "nom_sink_tail_mean_k asc, objective asc"
+            ),
         }
     )
     run_info_df = pd.DataFrame(run_info_rows)
@@ -8274,6 +8352,7 @@ def save_workflow_workbook(
         "candidate_id",
         "scenario_id",
         "scenario_tag",
+        "q",
         "mass_scale",
         "cg_x_shift_mac",
         "incidence_bias_deg",
@@ -8288,8 +8367,6 @@ def save_workflow_workbook(
         "izz_scale",
         "wing_E_scale",
         "htail_E_scale",
-        "wing_thickness_scale",
-        "tail_thickness_scale",
         "w_gust_nom",
         "w_gust_turn",
         "control_eff",
@@ -8307,6 +8384,7 @@ def save_workflow_workbook(
         "nom_L_over_D",
         "nom_CL",
         "nom_D",
+        "nom_lateral_residual",
         "nom_alpha_margin_deg",
         "nom_cl_margin_to_cap",
         "nom_util_a",
@@ -8332,7 +8410,9 @@ def save_workflow_workbook(
         "nom_sink_mean",
         "nom_sink_std",
         "nom_sink_worst",
+        "nom_sink_tail_mean_k",
         "nom_sink_cvar_20",
+        "nom_resid_rmse_success_only",
         "nom_roll_tau_worst",
         "nom_delta_e_util_worst",
         "nom_alpha_worst",
@@ -8345,6 +8425,10 @@ def save_workflow_workbook(
     )
     robust_summary_df = robust_summary_df.reindex(
         columns=preferred_summary_columns + extra_summary_columns
+    )
+    robust_summary_by_tag_df = build_robust_summary_by_tag(
+        robust_scenarios_df=robust_scenarios_df,
+        tail_fraction=float(config.robust_opt_tail_fraction),
     )
     worst_case_report_df = build_worst_case_report(
         candidates=candidates,
@@ -8376,8 +8460,7 @@ def save_workflow_workbook(
         "izz_scale",
         "wing_E_scale",
         "htail_E_scale",
-        "wing_thickness_scale",
-        "tail_thickness_scale",
+        "q",
         "w_gust_nom",
         "w_gust_turn",
         "drag_factor",
@@ -8395,6 +8478,7 @@ def save_workflow_workbook(
         "nom_util_e",
         "nom_util_r",
         "nom_roll_tau_s",
+        "nom_lateral_residual",
     ]
     correlation_data_df = robust_scenarios_df[
         correlation_mask
@@ -8425,8 +8509,7 @@ def save_workflow_workbook(
         "izz_scale",
         "wing_E_scale",
         "htail_E_scale",
-        "wing_thickness_scale",
-        "tail_thickness_scale",
+        "q",
         "control_eff",
     ]
     scenario_input_cols = [
@@ -8560,6 +8643,13 @@ def save_workflow_workbook(
             "notes": "Agility proxy; lower is generally faster response.",
         },
         {
+            "name": "nom_lateral_residual",
+            "unit": "-",
+            "definition": "Combined nominal lateral trim residual sqrt(Cl^2 + Cn^2).",
+            "computed_in": "trim_candidate_at_point",
+            "notes": "Used for success-only RMSE reporting.",
+        },
+        {
             "name": "nom_success_rate",
             "unit": "-",
             "definition": "Fraction of scenarios with nom_success=True for a candidate.",
@@ -8590,9 +8680,23 @@ def save_workflow_workbook(
         {
             "name": "nom_sink_cvar_20",
             "unit": "m/s",
-            "definition": "CVaR over worst 20% of successful nominal sink outcomes.",
+            "definition": "Backward-compatible alias of nom_sink_tail_mean_k.",
             "computed_in": "run_robust_postcheck",
-            "notes": "Secondary lexicographic ranking metric.",
+            "notes": "Matches the worst-k tail-mean metric numerically.",
+        },
+        {
+            "name": "nom_sink_tail_mean_k",
+            "unit": "m/s",
+            "definition": "Mean of the worst-k successful nominal sink outcomes.",
+            "computed_in": "run_robust_postcheck",
+            "notes": "Primary tail-risk ranking metric.",
+        },
+        {
+            "name": "nom_resid_rmse_success_only",
+            "unit": "-",
+            "definition": "RMSE of nominal lateral residual over successful scenarios only.",
+            "computed_in": "run_robust_postcheck",
+            "notes": "Uses nom_lateral_residual and excludes failed solves.",
         },
         {
             "name": "nom_roll_tau_worst",
@@ -8707,23 +8811,16 @@ def save_workflow_workbook(
             "notes": "Scenario input.",
         },
         {
-            "name": "wing_thickness_scale",
+            "name": "q",
             "unit": "-",
-            "definition": "Wing thickness scaling for structural proxy.",
+            "definition": "Latent pessimistic build-quality severity variable.",
             "computed_in": "sample_scenario_objects",
-            "notes": "Scenario input.",
-        },
-        {
-            "name": "tail_thickness_scale",
-            "unit": "-",
-            "definition": "Tail thickness scaling for structural proxy.",
-            "computed_in": "sample_scenario_objects",
-            "notes": "Scenario input.",
+            "notes": "Correlates mass, drag, and control effectiveness loss.",
         },
         {
             "name": "scenario_tag",
             "unit": "label",
-            "definition": "Scenario provenance tag (stress vs lhs sampling).",
+            "definition": "Original stratified robust-scenario family tag.",
             "computed_in": "sample_scenario_objects",
             "notes": "Useful for stratified plots.",
         },
@@ -8752,6 +8849,11 @@ def save_workflow_workbook(
         candidates_df.to_excel(writer, sheet_name="Candidates", index=False)
         robust_scenarios_df.to_excel(writer, sheet_name="RobustScenarios", index=False)
         robust_summary_df.to_excel(writer, sheet_name="RobustSummary", index=False)
+        robust_summary_by_tag_df.to_excel(
+            writer,
+            sheet_name="RobustSummaryByTag",
+            index=False,
+        )
         scenario_inputs_long_df.to_excel(writer, sheet_name="ScenarioInputsLong", index=False)
         robust_outputs_long_df.to_excel(writer, sheet_name="RobustOutputsLong", index=False)
         plot_data_df.to_excel(writer, sheet_name="PlotDataRobust", index=False)
@@ -9016,7 +9118,7 @@ def run_smoke_test_pipeline(
         summary_row = selected_summary_df.iloc[0]
         summary_text = (
             f"nom_success_rate={float(summary_row.get('nom_success_rate', onp.nan)):.3f}, "
-            f"nom_sink_cvar_20={float(summary_row.get('nom_sink_cvar_20', onp.nan)):.4f}"
+            f"nom_sink_tail_mean_k={float(summary_row.get('nom_sink_tail_mean_k', onp.nan)):.4f}"
         )
 
     print(
@@ -9241,7 +9343,7 @@ def main() -> None:
                     "  "
                     f"nom_success_rate={fmt_metric(summary_row.get('nom_success_rate', onp.nan), 3)} | "
                     f"nom_sink_mean={fmt_metric(summary_row.get('nom_sink_mean', onp.nan), 4)} m/s | "
-                    f"nom_sink_cvar_20={fmt_metric(summary_row.get('nom_sink_cvar_20', onp.nan), 4)} m/s"
+                    f"nom_sink_tail_mean_k={fmt_metric(summary_row.get('nom_sink_tail_mean_k', onp.nan), 4)} m/s"
                 ),
                 flush=True,
             )
@@ -9375,14 +9477,14 @@ def main() -> None:
                 flush=True,
             )
         print(
-            "Best weight set (ranked by feasible_rate desc, sink_cvar_20 asc, span asc):",
+            "Best weight set (ranked by feasible_rate desc, sink_tail_mean_k asc, span asc):",
             flush=True,
         )
         print(
             (
                 "  "
                 f"feasible_rate={fmt_metric(best_row.get('feasible_rate', onp.nan), 3)} | "
-                f"sink_cvar_20={fmt_metric(best_row.get('sink_cvar_20', onp.nan), 4)} m/s | "
+                f"sink_tail_mean_k={fmt_metric(best_row.get('sink_tail_mean_k', onp.nan), 4)} m/s | "
                 f"wing_span={fmt_metric(best_row.get('wing_span_m', onp.nan), 4)} m"
             ),
             flush=True,
