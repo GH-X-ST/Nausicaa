@@ -101,6 +101,12 @@ def sort_tags(tags: list[str] | pd.Index | pd.Series) -> list[str]:
     return sorted(unique_tags, key=lambda tag: (tag_lookup.get(tag, len(TAG_ORDER)), tag))
 
 
+def _point_positions(center: float, count: int, span: float = 0.18) -> np.ndarray:
+    if count <= 1:
+        return np.array([center], dtype=float)
+    return np.linspace(center - span / 2.0, center + span / 2.0, count)
+
+
 def _boxplot_by_tag(
     ax: plt.Axes,
     unique_scenarios_df: pd.DataFrame,
@@ -118,6 +124,41 @@ def _boxplot_by_tag(
         patch.set_facecolor("#9ecae1")
         patch.set_edgecolor("black")
         patch.set_alpha(0.85)
+
+    for index, values in enumerate(data, start=1):
+        if values.size == 0:
+            continue
+        ax.scatter(
+            _point_positions(float(index), int(values.size)),
+            values,
+            s=18,
+            facecolors="white",
+            edgecolors="#3b3b3b",
+            linewidths=0.5,
+            alpha=0.85,
+            zorder=3,
+        )
+        ax.scatter(
+            [float(index)],
+            [float(np.mean(values))],
+            marker="D",
+            s=26,
+            facecolors="#1f1f1f",
+            edgecolors="white",
+            linewidths=0.5,
+            zorder=4,
+        )
+        ax.text(
+            float(index),
+            0.03,
+            f"n={values.size}",
+            transform=ax.get_xaxis_transform(),
+            ha="center",
+            va="bottom",
+            fontsize=7,
+            color="#4a4a4a",
+        )
+
     ax.set_title(column)
     ax.tick_params(axis="x", rotation=25)
     ax.grid(True, axis="y", alpha=0.2)
@@ -140,6 +181,56 @@ def _boxplot_columns(
         patch.set_facecolor(color)
         patch.set_edgecolor("black")
         patch.set_alpha(0.85)
+
+    column_positions = np.arange(1, len(columns) + 1, dtype=float)
+    for _, row in data_df[columns].iterrows():
+        values = row.to_numpy(dtype=float)
+        finite_mask = np.isfinite(values)
+        if finite_mask.sum() < 2:
+            continue
+        ax.plot(
+            column_positions[finite_mask],
+            values[finite_mask],
+            color="#7a7a7a",
+            linewidth=0.6,
+            alpha=0.18,
+            zorder=2,
+        )
+
+    for index, values in enumerate(data, start=1):
+        if values.size == 0:
+            continue
+        ax.scatter(
+            _point_positions(float(index), int(values.size)),
+            values,
+            s=18,
+            facecolors="white",
+            edgecolors="#3b3b3b",
+            linewidths=0.5,
+            alpha=0.85,
+            zorder=3,
+        )
+        ax.scatter(
+            [float(index)],
+            [float(np.mean(values))],
+            marker="D",
+            s=26,
+            facecolors="#1f1f1f",
+            edgecolors="white",
+            linewidths=0.5,
+            zorder=4,
+        )
+        ax.text(
+            float(index),
+            0.03,
+            f"n={values.size}",
+            transform=ax.get_xaxis_transform(),
+            ha="center",
+            va="bottom",
+            fontsize=7,
+            color="#4a4a4a",
+        )
+
     ax.grid(True, axis="y", alpha=0.2)
 
 
@@ -154,7 +245,7 @@ def make_scenario_generation_figure(
     unique_scenarios_df = get_unique_scenarios(robust_scenarios_df)
     tags = sort_tags(unique_scenarios_df["scenario_tag"])
 
-    fig = plt.figure(figsize=(12, 8), constrained_layout=True)
+    fig = plt.figure(figsize=(12, 24), constrained_layout=True)
     outer = fig.add_gridspec(2, 2, height_ratios=[1.0, 1.6], width_ratios=[1.0, 1.0])
     counts_ax = fig.add_subplot(outer[0, 0])
     control_grid = outer[0, 1].subgridspec(2, 1, hspace=0.35)
@@ -179,6 +270,15 @@ def make_scenario_generation_figure(
     counts_ax.set_ylabel("Unique scenarios")
     counts_ax.tick_params(axis="x", rotation=25)
     counts_ax.grid(True, axis="y", alpha=0.25)
+    for index, value in enumerate(counts.values):
+        counts_ax.text(
+            index,
+            float(value) + 0.05,
+            str(int(value)),
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
 
     for ax, column in zip(input_axes, available_inputs, strict=False):
         _boxplot_by_tag(ax, unique_scenarios_df, tags, column)
