@@ -164,6 +164,54 @@ def build_stage_position_map(ids: list[int]) -> dict[int, float]:
     }
 
 
+def _stable_jitter(identifier: int, scale: float) -> float:
+    value = np.sin(float(identifier) * 12.9898) * 43758.5453
+    frac = value - np.floor(value)
+    return scale * (frac - 0.5)
+
+
+def _jittered_y(base_y: float, identifier: int, scale: float) -> float:
+    return float(base_y) + _stable_jitter(identifier, scale)
+
+
+def _draw_curve(
+    ax: plt.Axes,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    color: str,
+    linewidth: float,
+    alpha: float,
+    zorder: int,
+) -> None:
+    t = np.linspace(0.0, 1.0, 40)
+    c1x = x0 + 0.35 * (x1 - x0)
+    c2x = x0 + 0.65 * (x1 - x0)
+    c1y = y0
+    c2y = y1
+    x = (
+        (1.0 - t) ** 3 * x0
+        + 3.0 * (1.0 - t) ** 2 * t * c1x
+        + 3.0 * (1.0 - t) * t**2 * c2x
+        + t**3 * x1
+    )
+    y = (
+        (1.0 - t) ** 3 * y0
+        + 3.0 * (1.0 - t) ** 2 * t * c1y
+        + 3.0 * (1.0 - t) * t**2 * c2y
+        + t**3 * y1
+    )
+    ax.plot(
+        x,
+        y,
+        color=color,
+        linewidth=linewidth,
+        alpha=alpha,
+        zorder=zorder,
+    )
+
+
 def make_candidate_selection_plot(
     all_starts_df: pd.DataFrame,
     candidates_df: pd.DataFrame,
@@ -180,9 +228,7 @@ def make_candidate_selection_plot(
 
     all_sorted_df = _sort_all_starts(all_starts_df)
     feasible_df = _sort_feasible(all_sorted_df.loc[all_sorted_df["success"]].copy())
-    kept_df = _sort_kept(
-        feasible_df.loc[feasible_df["kept_after_dedup"]].copy()
-    )
+    kept_df = _sort_kept(feasible_df.loc[feasible_df["kept_after_dedup"]].copy())
     ranked_sorted_df = ranked_df.sort_values(
         by=["robust_rank"],
         kind="mergesort",
@@ -195,6 +241,23 @@ def make_candidate_selection_plot(
         ranked_sorted_df["candidate_id"].astype(int).tolist()
     )
     kept_to_candidate_map = _resolve_kept_candidate_map(kept_df, ranked_sorted_df)
+
+    all_y_map = {
+        identifier: _jittered_y(base_y, identifier, 0.08)
+        for identifier, base_y in all_map.items()
+    }
+    feasible_y_map = {
+        identifier: _jittered_y(base_y, identifier, 0.07)
+        for identifier, base_y in feasible_map.items()
+    }
+    kept_y_map = {
+        identifier: _jittered_y(base_y, identifier, 0.05)
+        for identifier, base_y in kept_map.items()
+    }
+    robust_y_map = {
+        identifier: _jittered_y(base_y, identifier, 0.04)
+        for identifier, base_y in robust_map.items()
+    }
 
     all_x = 0.0
     feasible_x = 1.0
@@ -216,14 +279,46 @@ def make_candidate_selection_plot(
     kept_color = "#4e79a7"
     selected_color = "#f28e2b"
 
+    for x_center in [all_x, feasible_x, kept_x, robust_x]:
+        ax_trace.axvspan(
+            x_center - 0.10,
+            x_center + 0.10,
+            facecolor="#d9d9d9",
+            alpha=0.08,
+            zorder=0,
+        )
+        ax_trace.axvline(
+            x_center,
+            color="#c7c7c7",
+            linewidth=0.6,
+            alpha=0.45,
+            zorder=0,
+        )
+
     for _, row in discarded_df.iterrows():
         start_id = int(row["start_index"])
-        ax_trace.plot(
-            [all_x, feasible_x],
-            [all_map[start_id], feasible_map[start_id]],
+        all_y = all_y_map[start_id]
+        feasible_y = feasible_y_map[start_id]
+        _draw_curve(
+            ax_trace,
+            all_x,
+            all_y,
+            feasible_x,
+            feasible_y,
             color=discarded_color,
             linewidth=0.8,
-            alpha=0.18,
+            alpha=0.16,
+            zorder=1,
+        )
+        _draw_curve(
+            ax_trace,
+            feasible_x,
+            feasible_y,
+            feasible_x + 0.42 * (kept_x - feasible_x),
+            feasible_y,
+            color=discarded_color,
+            linewidth=0.6,
+            alpha=0.08,
             zorder=1,
         )
 
@@ -232,29 +327,42 @@ def make_candidate_selection_plot(
         candidate_id = kept_to_candidate_map.get(start_id)
         if candidate_id is None or candidate_id not in robust_map:
             continue
-        ax_trace.plot(
-            [all_x, feasible_x],
-            [all_map[start_id], feasible_map[start_id]],
+        all_y = all_y_map[start_id]
+        feasible_y = feasible_y_map[start_id]
+        kept_y = kept_y_map[start_id]
+        robust_y = robust_y_map[candidate_id]
+        _draw_curve(
+            ax_trace,
+            all_x,
+            all_y,
+            feasible_x,
+            feasible_y,
             color=kept_color,
-            linewidth=0.9,
-            alpha=0.3,
-            zorder=1,
+            linewidth=0.95,
+            alpha=0.28,
+            zorder=2,
         )
-        ax_trace.plot(
-            [feasible_x, kept_x],
-            [feasible_map[start_id], kept_map[start_id]],
+        _draw_curve(
+            ax_trace,
+            feasible_x,
+            feasible_y,
+            kept_x,
+            kept_y,
             color=kept_color,
-            linewidth=0.9,
-            alpha=0.3,
-            zorder=1,
+            linewidth=0.95,
+            alpha=0.28,
+            zorder=2,
         )
-        ax_trace.plot(
-            [kept_x, robust_x],
-            [kept_map[start_id], robust_map[candidate_id]],
+        _draw_curve(
+            ax_trace,
+            kept_x,
+            kept_y,
+            robust_x,
+            robust_y,
             color=kept_color,
-            linewidth=0.9,
-            alpha=0.3,
-            zorder=1,
+            linewidth=0.95,
+            alpha=0.28,
+            zorder=2,
         )
 
     selected_row = ranked_sorted_df.loc[ranked_sorted_df["is_selected"]].iloc[0]
@@ -266,35 +374,55 @@ def make_candidate_selection_plot(
     ]
     if selected_start_ids:
         selected_start_id = int(selected_start_ids[0])
-        ax_trace.plot(
-            [all_x, feasible_x, kept_x, robust_x],
-            [
-                all_map[selected_start_id],
-                feasible_map[selected_start_id],
-                kept_map[selected_start_id],
-                robust_map[selected_candidate_id],
-            ],
+        _draw_curve(
+            ax_trace,
+            all_x,
+            all_y_map[selected_start_id],
+            feasible_x,
+            feasible_y_map[selected_start_id],
             color=selected_color,
-            linewidth=2.2,
-            alpha=0.95,
-            zorder=3,
+            linewidth=2.4,
+            alpha=0.96,
+            zorder=4,
+        )
+        _draw_curve(
+            ax_trace,
+            feasible_x,
+            feasible_y_map[selected_start_id],
+            kept_x,
+            kept_y_map[selected_start_id],
+            color=selected_color,
+            linewidth=2.4,
+            alpha=0.96,
+            zorder=4,
+        )
+        _draw_curve(
+            ax_trace,
+            kept_x,
+            kept_y_map[selected_start_id],
+            robust_x,
+            robust_y_map[selected_candidate_id],
+            color=selected_color,
+            linewidth=2.4,
+            alpha=0.96,
+            zorder=4,
         )
 
     if not failed_df.empty:
         ax_trace.scatter(
             np.full(len(failed_df), all_x),
-            failed_df["start_index"].map(all_map),
+            failed_df["start_index"].map(all_y_map),
             marker="x",
-            s=18,
+            s=20,
             color=discarded_color,
             linewidths=0.8,
-            alpha=0.7,
+            alpha=0.65,
             zorder=4,
         )
 
     ax_trace.scatter(
         np.full(len(feasible_df), all_x),
-        feasible_df["start_index"].map(all_map),
+        feasible_df["start_index"].map(all_y_map),
         s=16,
         facecolors="#bfbfbf",
         edgecolors="none",
@@ -303,7 +431,7 @@ def make_candidate_selection_plot(
     )
     ax_trace.scatter(
         np.full(len(discarded_df), feasible_x),
-        discarded_df["start_index"].map(feasible_map),
+        discarded_df["start_index"].map(feasible_y_map),
         s=24,
         facecolors="white",
         edgecolors=discarded_color,
@@ -313,7 +441,7 @@ def make_candidate_selection_plot(
     )
     ax_trace.scatter(
         np.full(len(kept_df), feasible_x),
-        kept_df["start_index"].map(feasible_map),
+        kept_df["start_index"].map(feasible_y_map),
         s=24,
         facecolors=kept_color,
         edgecolors="white",
@@ -323,7 +451,7 @@ def make_candidate_selection_plot(
     )
     ax_trace.scatter(
         np.full(len(kept_df), kept_x),
-        kept_df["start_index"].map(kept_map),
+        kept_df["start_index"].map(kept_y_map),
         s=28,
         facecolors=kept_color,
         edgecolors="white",
@@ -335,7 +463,7 @@ def make_candidate_selection_plot(
     if selected_start_ids:
         ax_trace.scatter(
             [kept_x],
-            [kept_map[selected_start_id]],
+            [kept_y_map[selected_start_id]],
             s=46,
             facecolors=selected_color,
             edgecolors="black",
@@ -343,7 +471,7 @@ def make_candidate_selection_plot(
             zorder=6,
         )
 
-    trace_scatter = ax_trade.scatter(
+    trade_scatter = ax_trade.scatter(
         ranked_sorted_df["objective"],
         ranked_sorted_df[tail_metric_col],
         c=ranked_sorted_df["nom_success_rate"],
@@ -355,15 +483,18 @@ def make_candidate_selection_plot(
         zorder=2,
     )
 
-    if "mass_total_kg" in ranked_sorted_df.columns and ranked_sorted_df["mass_total_kg"].notna().any():
+    if (
+        "mass_total_kg" in ranked_sorted_df.columns
+        and ranked_sorted_df["mass_total_kg"].notna().any()
+    ):
         mass = ranked_sorted_df["mass_total_kg"].to_numpy(dtype=float)
         span = np.nanmax(mass) - np.nanmin(mass)
         sizes = 70.0 + 110.0 * (mass - np.nanmin(mass)) / max(span, 1e-9)
-        trace_scatter.set_sizes(sizes)
+        trade_scatter.set_sizes(sizes)
 
     ax_trace.scatter(
         np.full(len(ranked_sorted_df), robust_x),
-        ranked_sorted_df["candidate_id"].map(robust_map),
+        ranked_sorted_df["candidate_id"].map(robust_y_map),
         c=ranked_sorted_df["nom_success_rate"],
         cmap="viridis",
         vmin=float(ranked_sorted_df["nom_success_rate"].min()),
@@ -376,7 +507,7 @@ def make_candidate_selection_plot(
     )
     ax_trace.scatter(
         [robust_x],
-        [robust_map[selected_candidate_id]],
+        [robust_y_map[selected_candidate_id]],
         marker="*",
         s=180,
         c="#ffcc00",
@@ -385,9 +516,11 @@ def make_candidate_selection_plot(
         zorder=7,
     )
 
+    selected_x = float(selected_row["objective"])
+    selected_y = float(selected_row[tail_metric_col])
     ax_trade.scatter(
-        [selected_row["objective"]],
-        [selected_row[tail_metric_col]],
+        [selected_x],
+        [selected_y],
         marker="*",
         s=260,
         c="#ffcc00",
@@ -397,15 +530,15 @@ def make_candidate_selection_plot(
     )
     ax_trade.annotate(
         "selected",
-        xy=(selected_row["objective"], selected_row[tail_metric_col]),
-        xytext=(10, 10),
+        xy=(selected_x, selected_y),
+        xytext=(8, 8),
         textcoords="offset points",
         fontsize=10,
         fontweight="bold",
     )
     ax_trace.annotate(
         "selected",
-        xy=(robust_x, robust_map[selected_candidate_id]),
+        xy=(robust_x, robust_y_map[selected_candidate_id]),
         xytext=(8, 8),
         textcoords="offset points",
         fontsize=9,
@@ -426,7 +559,7 @@ def make_candidate_selection_plot(
         )
         ax_trace.annotate(
             label,
-            xy=(robust_x, robust_map[int(row["candidate_id"])]),
+            xy=(robust_x, robust_y_map[int(row["candidate_id"])]),
             xytext=(6, -10),
             textcoords="offset points",
             fontsize=8,
@@ -469,7 +602,7 @@ def make_candidate_selection_plot(
     ax_trace.spines["top"].set_visible(False)
     ax_trace.grid(False)
 
-    colorbar = fig.colorbar(trace_scatter, ax=ax_trade)
+    colorbar = fig.colorbar(trade_scatter, ax=ax_trade)
     colorbar.set_label("Nominal robust success rate")
 
     metric_label = (
@@ -481,6 +614,30 @@ def make_candidate_selection_plot(
     ax_trade.set_xlabel("Nominal objective")
     ax_trade.set_ylabel(metric_label)
     ax_trade.grid(True, alpha=0.2)
+
+    x_limits = ax_trade.get_xlim()
+    y_limits = ax_trade.get_ylim()
+    ax_trade.plot(
+        [x_limits[0], selected_x],
+        [selected_y, selected_y],
+        color="#777777",
+        linewidth=0.8,
+        linestyle="--",
+        alpha=0.35,
+        zorder=1,
+    )
+    ax_trade.plot(
+        [selected_x, selected_x],
+        [y_limits[0], selected_y],
+        color="#777777",
+        linewidth=0.8,
+        linestyle="--",
+        alpha=0.35,
+        zorder=1,
+    )
+    ax_trade.set_xlim(x_limits)
+    ax_trade.set_ylim(y_limits)
+
     ax_trade.text(
         0.03,
         0.97,
