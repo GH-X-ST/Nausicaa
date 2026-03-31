@@ -10,6 +10,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.lines import Line2D
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RESULTS_DIR = PROJECT_ROOT / "C_results"
@@ -70,6 +71,32 @@ EDGE_STYLE_MAP = {
         "alpha": 0.98,
         "zorder": 7,
     },
+}
+TRADEOFF_STAGE_ORDER = [
+    "Weight sweep",
+    "Selected sweep rows",
+    "Top rerun summary",
+    "Top rerun all starts",
+    "All starts",
+    "Candidates",
+    "Robust summary",
+]
+TRADEOFF_STAGE_STYLES = {
+    "Weight sweep": {"color": "#bdbdbd", "marker": "o", "size": 34.0, "alpha": 0.30},
+    "Selected sweep rows": {"color": "#4e79a7", "marker": "s", "size": 54.0, "alpha": 0.58},
+    "Top rerun summary": {"color": "#59a14f", "marker": "^", "size": 66.0, "alpha": 0.72},
+    "Top rerun all starts": {"color": "#76b7b2", "marker": "X", "size": 44.0, "alpha": 0.42},
+    "All starts": {"color": "#edc948", "marker": "D", "size": 40.0, "alpha": 0.42},
+    "Candidates": {"color": "#e15759", "marker": "P", "size": 78.0, "alpha": 0.76},
+    "Robust summary": {"color": "#af7aa1", "marker": "h", "size": 88.0, "alpha": 0.88},
+}
+TRACE_STAGE_MARKERS = {
+    "Weight sweep": "o",
+    "Selected sweep rows": "s",
+    "Top rerun starts": "X",
+    "Final rerun starts": "D",
+    "Final kept": "P",
+    "Robust rank": "h",
 }
 
 
@@ -265,6 +292,333 @@ def build_rank_columns(df: pd.DataFrame, tail_metric_col: str) -> pd.DataFrame:
         ranked_df["is_selected"] = ranked_df["robust_rank"].eq(1)
 
     return ranked_df
+
+
+def _resolve_objective_column(df: pd.DataFrame) -> str:
+    if "objective_nominal" in df.columns:
+        return "objective_nominal"
+    if "objective" in df.columns:
+        return "objective"
+    raise KeyError("Neither 'objective_nominal' nor 'objective' is available.")
+
+
+def _resolve_tradeoff_tail_metric_column(
+    df: pd.DataFrame,
+    preferred_tail_metric_col: str,
+) -> str:
+    if preferred_tail_metric_col in df.columns:
+        return preferred_tail_metric_col
+    if "nom_sink_tail_mean_k" in df.columns:
+        return "nom_sink_tail_mean_k"
+    if "sink_tail_mean_k" in df.columns:
+        return "sink_tail_mean_k"
+    if "nom_sink_cvar_20" in df.columns:
+        return "nom_sink_cvar_20"
+    raise KeyError(
+        "No tail-risk sink metric is available for trade-off plotting."
+    )
+
+
+def _build_tradeoff_stage_points(
+    df: pd.DataFrame,
+    stage: str,
+    preferred_tail_metric_col: str,
+) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(
+            columns=[
+                "stage",
+                "objective_plot",
+                "tail_metric_plot",
+                "nom_success_rate",
+                "candidate_id",
+                "is_selected",
+            ]
+        )
+
+    try:
+        objective_col = _resolve_objective_column(df)
+        tail_metric_col = _resolve_tradeoff_tail_metric_column(
+            df,
+            preferred_tail_metric_col,
+        )
+    except KeyError:
+        return pd.DataFrame(
+            columns=[
+                "stage",
+                "objective_plot",
+                "tail_metric_plot",
+                "nom_success_rate",
+                "candidate_id",
+                "is_selected",
+            ]
+        )
+
+    stage_df = df.copy()
+    stage_df["objective_plot"] = pd.to_numeric(
+        stage_df[objective_col],
+        errors="coerce",
+    )
+    stage_df["tail_metric_plot"] = pd.to_numeric(
+        stage_df[tail_metric_col],
+        errors="coerce",
+    )
+    if "nom_success_rate" in stage_df.columns:
+        stage_df["nom_success_rate"] = pd.to_numeric(
+            stage_df["nom_success_rate"],
+            errors="coerce",
+        )
+    else:
+        stage_df["nom_success_rate"] = np.nan
+
+    if "candidate_id" in stage_df.columns:
+        stage_df["candidate_id"] = pd.to_numeric(
+            stage_df["candidate_id"],
+            errors="coerce",
+        )
+    else:
+        stage_df["candidate_id"] = np.nan
+
+    if "is_selected" in stage_df.columns:
+        is_selected = stage_df["is_selected"]
+        if is_selected.dtype != bool:
+            is_selected = _coerce_bool_series(is_selected)
+        stage_df["is_selected"] = is_selected
+    else:
+        stage_df["is_selected"] = False
+
+    stage_df = stage_df.loc[
+        stage_df["objective_plot"].notna() & stage_df["tail_metric_plot"].notna()
+    ].copy()
+    stage_df["stage"] = stage
+
+    return stage_df[
+        [
+            "stage",
+            "objective_plot",
+            "tail_metric_plot",
+            "nom_success_rate",
+            "candidate_id",
+            "is_selected",
+        ]
+    ].reset_index(drop=True)
+
+
+def _coerce_float(value: object) -> float:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    return float(numeric) if pd.notna(numeric) else float("nan")
+
+
+def _extract_tradeoff_pair(
+    row: pd.Series | dict[str, object],
+    preferred_tail_metric_col: str,
+) -> tuple[float, float]:
+    source = row if isinstance(row, dict) else row.to_dict()
+    objective = float("nan")
+    for key in ["objective_nominal", "objective"]:
+        if key in source:
+            objective = _coerce_float(source.get(key))
+        if np.isfinite(objective):
+            break
+
+    tail_metric = float("nan")
+    for key in [
+        preferred_tail_metric_col,
+        "nom_sink_tail_mean_k",
+        "sink_tail_mean_k",
+        "nom_sink_cvar_20",
+    ]:
+        if key in source:
+            tail_metric = _coerce_float(source.get(key))
+        if np.isfinite(tail_metric):
+            break
+
+    return objective, tail_metric
+
+
+def build_tradeoff_points(
+    data: CandidateSelectionData,
+    ranked_df: pd.DataFrame,
+    tail_metric_col: str,
+) -> pd.DataFrame:
+    stage_frames = [
+        _build_tradeoff_stage_points(
+            data.weight_sweep_df,
+            stage="Weight sweep",
+            preferred_tail_metric_col=tail_metric_col,
+        ),
+        _build_tradeoff_stage_points(
+            data.selected_sweep_rows_df,
+            stage="Selected sweep rows",
+            preferred_tail_metric_col=tail_metric_col,
+        ),
+        _build_tradeoff_stage_points(
+            data.top_rerun_summary_df,
+            stage="Top rerun summary",
+            preferred_tail_metric_col=tail_metric_col,
+        ),
+        _build_tradeoff_stage_points(
+            data.top_rerun_all_starts_df,
+            stage="Top rerun all starts",
+            preferred_tail_metric_col=tail_metric_col,
+        ),
+        _build_tradeoff_stage_points(
+            data.all_starts_df,
+            stage="All starts",
+            preferred_tail_metric_col=tail_metric_col,
+        ),
+        _build_tradeoff_stage_points(
+            data.candidates_df,
+            stage="Candidates",
+            preferred_tail_metric_col=tail_metric_col,
+        ),
+        _build_tradeoff_stage_points(
+            ranked_df,
+            stage="Robust summary",
+            preferred_tail_metric_col=tail_metric_col,
+        ),
+    ]
+
+    non_empty_stage_frames = [frame for frame in stage_frames if not frame.empty]
+    if not non_empty_stage_frames:
+        return pd.DataFrame(
+            columns=[
+                "stage",
+                "objective_plot",
+                "tail_metric_plot",
+                "nom_success_rate",
+                "candidate_id",
+                "is_selected",
+            ]
+        )
+
+    tradeoff_df = pd.concat(non_empty_stage_frames, ignore_index=True)
+    tradeoff_df["stage"] = pd.Categorical(
+        tradeoff_df["stage"],
+        categories=TRADEOFF_STAGE_ORDER,
+        ordered=True,
+    )
+    return tradeoff_df.sort_values(
+        by=["stage", "objective_plot", "tail_metric_plot"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def build_tradeoff_trace_nodes(
+    data: CandidateSelectionData,
+    nodes_df: pd.DataFrame,
+    ranked_df: pd.DataFrame,
+    tail_metric_col: str,
+) -> pd.DataFrame:
+    trace_nodes_df = nodes_df.copy()
+    trace_nodes_df["objective_plot"] = np.nan
+    trace_nodes_df["tail_metric_plot"] = np.nan
+
+    ranked_lookup = {
+        str(int(row["candidate_id"])): _extract_tradeoff_pair(row, tail_metric_col)
+        for _, row in ranked_df.iterrows()
+    }
+
+    weight_sweep_lookup = {
+        str(int(row["run_index"])): _extract_tradeoff_pair(row, tail_metric_col)
+        for _, row in data.weight_sweep_df.iterrows()
+        if pd.notna(row.get("run_index"))
+    }
+    selected_sweep_lookup = {
+        str(int(row["run_index"])): _extract_tradeoff_pair(row, tail_metric_col)
+        for _, row in data.selected_sweep_rows_df.iterrows()
+        if pd.notna(row.get("run_index"))
+    }
+
+    final_all_starts_df = _sort_all_starts(data.all_starts_df.copy())
+    top_rerun_all_starts_df = data.top_rerun_all_starts_df.sort_values(
+        by=["rerun_rank", "start_index"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    final_kept_df = _sort_kept(
+        final_all_starts_df.loc[final_all_starts_df["kept_after_dedup"]].copy()
+    )
+    kept_to_candidate_map = _resolve_final_kept_candidate_map(final_kept_df, ranked_df)
+    final_rerun_rank = infer_final_rerun_rank(
+        final_all_starts_df,
+        top_rerun_all_starts_df,
+    )
+
+    top_rerun_start_lookup: dict[str, tuple[float, float]] = {}
+    for _, row in top_rerun_all_starts_df.iterrows():
+        rerun_rank = int(row["rerun_rank"])
+        start_index = int(row["start_index"])
+        objective_value, tail_metric_value = _extract_tradeoff_pair(row, tail_metric_col)
+        if (
+            not np.isfinite(tail_metric_value)
+            and rerun_rank == final_rerun_rank
+            and pd.notna(row.get("kept_rank"))
+        ):
+            candidate_id = kept_to_candidate_map.get(int(row["kept_rank"]))
+            if candidate_id is not None:
+                _, tail_metric_value = ranked_lookup.get(
+                    str(int(candidate_id)),
+                    (float("nan"), float("nan")),
+                )
+        top_rerun_start_lookup[f"{rerun_rank}:{start_index}"] = (
+            objective_value,
+            tail_metric_value,
+        )
+
+    final_start_lookup: dict[str, tuple[float, float]] = {}
+    for _, row in final_all_starts_df.iterrows():
+        start_index = int(row["start_index"])
+        objective_value, tail_metric_value = _extract_tradeoff_pair(row, tail_metric_col)
+        if not np.isfinite(tail_metric_value) and pd.notna(row.get("kept_rank")):
+            candidate_id = kept_to_candidate_map.get(int(row["kept_rank"]))
+            if candidate_id is not None:
+                _, tail_metric_value = ranked_lookup.get(
+                    str(int(candidate_id)),
+                    (float("nan"), float("nan")),
+                )
+        final_start_lookup[str(start_index)] = (
+            objective_value,
+            tail_metric_value,
+        )
+
+    final_kept_lookup: dict[str, tuple[float, float]] = {}
+    for _, row in final_kept_df.iterrows():
+        kept_rank = int(row["kept_rank"])
+        objective_value, tail_metric_value = _extract_tradeoff_pair(row, tail_metric_col)
+        candidate_id = kept_to_candidate_map.get(kept_rank)
+        if candidate_id is not None:
+            _, ranked_tail_metric = ranked_lookup.get(
+                str(int(candidate_id)),
+                (float("nan"), float("nan")),
+            )
+            if not np.isfinite(tail_metric_value):
+                tail_metric_value = ranked_tail_metric
+        final_kept_lookup[str(kept_rank)] = (
+            objective_value,
+            tail_metric_value,
+        )
+
+    lookup_by_stage = {
+        "Weight sweep": weight_sweep_lookup,
+        "Selected sweep rows": selected_sweep_lookup,
+        "Top rerun starts": top_rerun_start_lookup,
+        "Final rerun starts": final_start_lookup,
+        "Final kept": final_kept_lookup,
+        "Robust rank": ranked_lookup,
+    }
+
+    for index, row in trace_nodes_df.iterrows():
+        stage_lookup = lookup_by_stage.get(str(row["stage"]))
+        if stage_lookup is None:
+            continue
+        objective_value, tail_metric_value = stage_lookup.get(
+            str(row["node_key"]),
+            (float("nan"), float("nan")),
+        )
+        trace_nodes_df.at[index, "objective_plot"] = objective_value
+        trace_nodes_df.at[index, "tail_metric_plot"] = tail_metric_value
+
+    return trace_nodes_df
 
 
 def _stable_jitter(identifier: int, scale: float) -> float:
@@ -994,32 +1348,104 @@ def draw_provenance_panel(
 
 def draw_tradeoff_panel(
     ax: plt.Axes,
+    tradeoff_df: pd.DataFrame,
+    trace_nodes_df: pd.DataFrame,
+    edges_df: pd.DataFrame,
     ranked_df: pd.DataFrame,
     tail_metric_col: str,
 ) -> None:
-    trade_scatter = ax.scatter(
-        ranked_df["objective"],
-        ranked_df[tail_metric_col],
-        c=ranked_df["nom_success_rate"],
-        cmap="viridis",
-        s=np.full(len(ranked_df), 100.0),
-        edgecolors="white",
-        linewidths=0.8,
-        alpha=0.95,
-        zorder=2,
-    )
+    legend_handles: list[Line2D] = []
+    for stage in TRADEOFF_STAGE_ORDER:
+        stage_df = tradeoff_df.loc[tradeoff_df["stage"] == stage].copy()
+        if stage_df.empty:
+            continue
+        style = TRADEOFF_STAGE_STYLES[stage]
+        ax.scatter(
+            stage_df["objective_plot"],
+            stage_df["tail_metric_plot"],
+            s=float(style["size"]),
+            c=str(style["color"]),
+            marker=str(style["marker"]),
+            edgecolors="white",
+            linewidths=0.6,
+            alpha=float(style["alpha"]),
+            zorder=2,
+        )
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                marker=str(style["marker"]),
+                color="w",
+                label=f"{stage} (n={len(stage_df)})",
+                markerfacecolor=str(style["color"]),
+                markeredgecolor="white",
+                markeredgewidth=0.6,
+                markersize=max(5.5, np.sqrt(float(style["size"]))),
+                alpha=float(style["alpha"]),
+                linewidth=0,
+            )
+        )
 
-    if (
-        "mass_total_kg" in ranked_df.columns
-        and ranked_df["mass_total_kg"].notna().any()
-    ):
-        mass = ranked_df["mass_total_kg"].to_numpy(dtype=float)
-        span = np.nanmax(mass) - np.nanmin(mass)
-        sizes = 70.0 + 110.0 * (mass - np.nanmin(mass)) / max(span, 1e-9)
-        trade_scatter.set_sizes(sizes)
+    trace_position_map: dict[tuple[str, str], tuple[float, float]] = {}
+    trace_plot_df = trace_nodes_df.loc[
+        trace_nodes_df["objective_plot"].notna() & trace_nodes_df["tail_metric_plot"].notna()
+    ].copy()
+    for _, row in trace_plot_df.iterrows():
+        trace_position_map[(str(row["stage"]), str(row["node_key"]))] = (
+            float(row["objective_plot"]),
+            float(row["tail_metric_plot"]),
+        )
+
+    plotted_trace_edges = 0
+    for _, edge in edges_df.iterrows():
+        source_key = (str(edge["source_stage"]), str(edge["source_key"]))
+        target_key = (str(edge["target_stage"]), str(edge["target_key"]))
+        if source_key not in trace_position_map or target_key not in trace_position_map:
+            continue
+        source_x, source_y = trace_position_map[source_key]
+        target_x, target_y = trace_position_map[target_key]
+        edge_style = EDGE_STYLE_MAP[str(edge["edge_class"])]
+        _draw_curve(
+            ax=ax,
+            x0=source_x,
+            y0=source_y,
+            x1=target_x,
+            y1=target_y,
+            color=str(edge_style["color"]),
+            linewidth=float(edge_style["linewidth"]),
+            alpha=float(edge_style["alpha"]),
+            zorder=int(edge_style["zorder"]) + 1,
+        )
+        plotted_trace_edges += 1
+
+    for stage in STAGE_ORDER:
+        stage_trace_df = trace_plot_df.loc[trace_plot_df["stage"] == stage].copy()
+        if stage_trace_df.empty:
+            continue
+        marker = TRACE_STAGE_MARKERS.get(stage, "o")
+        colors = [
+            EDGE_STYLE_MAP.get(str(status), EDGE_STYLE_MAP["background_terminated"])["color"]
+            for status in stage_trace_df["status_class"]
+        ]
+        sizes = [
+            92.0 if str(status) == "selected" else 54.0
+            for status in stage_trace_df["status_class"]
+        ]
+        ax.scatter(
+            stage_trace_df["objective_plot"],
+            stage_trace_df["tail_metric_plot"],
+            s=sizes,
+            c=colors,
+            marker=marker,
+            edgecolors="black",
+            linewidths=0.55,
+            alpha=0.9,
+            zorder=5,
+        )
 
     selected_row = ranked_df.loc[ranked_df["is_selected"]].iloc[0]
-    selected_x = float(selected_row["objective"])
+    selected_x = float(selected_row[_resolve_objective_column(ranked_df)])
     selected_y = float(selected_row[tail_metric_col])
     ax.scatter(
         [selected_x],
@@ -1052,15 +1478,20 @@ def draw_tradeoff_panel(
             fontsize=9,
         )
 
-    colorbar = plt.gcf().colorbar(trade_scatter, ax=ax)
-    colorbar.set_label("Nominal robust success rate")
+    if legend_handles:
+        ax.legend(
+            handles=legend_handles,
+            loc="upper right",
+            fontsize=8,
+            framealpha=0.9,
+        )
 
     metric_label = (
         "Tail-risk sink mean (worst 20%) [m/s]"
         if tail_metric_col == "nom_sink_tail_mean_k"
         else "Sink CVaR20 [m/s]"
     )
-    ax.set_title("Robust trade-off")
+    ax.set_title("Workflow trade-off space")
     ax.set_xlabel("Nominal objective")
     ax.set_ylabel(metric_label)
     ax.grid(True, alpha=0.2)
@@ -1097,6 +1528,9 @@ def draw_tradeoff_panel(
                 "tail risk asc",
                 "objective asc",
                 f"retained candidates: {len(ranked_df)}",
+                f"plotted points: {len(tradeoff_df)}",
+                f"trace nodes: {len(trace_plot_df)}",
+                f"trace edges: {plotted_trace_edges}",
             ]
         ),
         transform=ax.transAxes,
@@ -1110,6 +1544,17 @@ def draw_tradeoff_panel(
 def make_candidate_selection_plot(data: CandidateSelectionData) -> Path:
     nodes_df, edges_df, ranked_df, tail_metric_col, selected_candidate_id = (
         build_full_provenance(data)
+    )
+    tradeoff_df = build_tradeoff_points(
+        data=data,
+        ranked_df=ranked_df,
+        tail_metric_col=tail_metric_col,
+    )
+    trace_nodes_df = build_tradeoff_trace_nodes(
+        data=data,
+        nodes_df=nodes_df,
+        ranked_df=ranked_df,
+        tail_metric_col=tail_metric_col,
     )
     stage_x_map, position_map = build_stage_positions(nodes_df)
 
@@ -1130,6 +1575,9 @@ def make_candidate_selection_plot(data: CandidateSelectionData) -> Path:
     )
     draw_tradeoff_panel(
         ax=axes[1],
+        tradeoff_df=tradeoff_df,
+        trace_nodes_df=trace_nodes_df,
+        edges_df=edges_df,
         ranked_df=ranked_df,
         tail_metric_col=tail_metric_col,
     )

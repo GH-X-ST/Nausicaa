@@ -348,7 +348,7 @@ WEIGHT_SWEEP_RERUN_N_STARTS_DEFAULT = 6
 WEIGHT_SWEEP_RERUN_KEEP_TOP_K_DEFAULT = 3
 # Use a multiple of five so the five scenario families are populated evenly
 # in the final rerun workbook without inflating the fast sweep stage.
-WEIGHT_SWEEP_RERUN_N_SCENARIOS_DEFAULT = 15
+WEIGHT_SWEEP_RERUN_N_SCENARIOS_DEFAULT = 35
 WEIGHT_SWEEP_RERUN_SEED_OFFSET = 20_000
 WEIGHT_SWEEP_FAST_N_STARTS = 2
 WEIGHT_SWEEP_FAST_KEEP_TOP_K = 1
@@ -690,7 +690,6 @@ class RobustSummary:
     nom_sink_std: float
     nom_sink_worst: float
     nom_sink_tail_mean_k: float
-    objective_nominal: float
     nom_sink_cvar_20: float
     nom_resid_rmse_success_only: float
     nom_roll_tau_worst: float
@@ -6102,7 +6101,7 @@ def run_workflow_with_postcheck(
         config=config,
         cfg=_DEFAULT_CFG,
     )
-    all_starts_df = attach_selection_metrics_to_all_starts(
+    all_starts_df = attach_tail_metric_to_all_starts(
         all_starts_df=all_starts_df,
         robust_summary_df=robust_summary_df,
     )
@@ -6171,9 +6170,7 @@ def run_weight_sweep(
             "feasible_rate": float("nan"),
             "sink_mean": float("nan"),
             "sink_tail_mean_k": float("nan"),
-            "nom_sink_tail_mean_k": float("nan"),
             "objective": float("nan"),
-            "objective_nominal": float("nan"),
             "wing_span_m": float("nan"),
             "wing_chord_m": float("nan"),
             "tail_arm_m": float("nan"),
@@ -6193,7 +6190,6 @@ def run_weight_sweep(
         if selected_candidate is not None:
             row["candidate_id"] = int(selected_candidate.candidate_id)
             row["objective"] = float(selected_candidate.objective)
-            row["objective_nominal"] = float(selected_candidate.objective)
             row["wing_span_m"] = float(selected_candidate.wing_span_m)
             row["wing_chord_m"] = float(selected_candidate.wing_chord_m)
             row["tail_arm_m"] = float(selected_candidate.tail_arm_m)
@@ -6223,12 +6219,6 @@ def run_weight_sweep(
                 )
                 row["sink_tail_mean_k"] = float(
                     selected_summary_row.get("nom_sink_tail_mean_k", float("nan"))
-                )
-                row["nom_sink_tail_mean_k"] = float(
-                    selected_summary_row.get("nom_sink_tail_mean_k", float("nan"))
-                )
-                row["objective_nominal"] = float(
-                    selected_summary_row.get("objective_nominal", row["objective_nominal"])
                 )
 
             if selected_candidate.objective_contributions is not None:
@@ -6464,9 +6454,7 @@ def run_top_weight_set_reruns(
             "feasible_rate": float("nan"),
             "sink_mean": float("nan"),
             "sink_tail_mean_k": float("nan"),
-            "nom_sink_tail_mean_k": float("nan"),
             "objective": float("nan"),
-            "objective_nominal": float("nan"),
             "wing_span_m": float("nan"),
             "wing_chord_m": float("nan"),
             "tail_arm_m": float("nan"),
@@ -6485,7 +6473,6 @@ def run_top_weight_set_reruns(
         if selected_candidate is not None:
             row["candidate_id"] = int(selected_candidate.candidate_id)
             row["objective"] = float(selected_candidate.objective)
-            row["objective_nominal"] = float(selected_candidate.objective)
             row["wing_span_m"] = float(selected_candidate.wing_span_m)
             row["wing_chord_m"] = float(selected_candidate.wing_chord_m)
             row["tail_arm_m"] = float(selected_candidate.tail_arm_m)
@@ -6515,12 +6502,6 @@ def run_top_weight_set_reruns(
                 )
                 row["sink_tail_mean_k"] = float(
                     selected_summary_row.get("nom_sink_tail_mean_k", float("nan"))
-                )
-                row["nom_sink_tail_mean_k"] = float(
-                    selected_summary_row.get("nom_sink_tail_mean_k", float("nan"))
-                )
-                row["objective_nominal"] = float(
-                    selected_summary_row.get("objective_nominal", row["objective_nominal"])
                 )
 
             if selected_candidate.objective_contributions is not None:
@@ -7947,21 +7928,15 @@ def summarize_robust_slice(
     }
 
 
-def attach_selection_metrics_to_all_starts(
+def attach_tail_metric_to_all_starts(
     all_starts_df: pd.DataFrame,
     robust_summary_df: pd.DataFrame,
 ) -> pd.DataFrame:
     enriched_df = all_starts_df.copy()
-    if "objective" in enriched_df.columns:
-        enriched_df["objective_nominal"] = pd.to_numeric(
-            enriched_df["objective"],
-            errors="coerce",
-        )
-    elif "objective_nominal" not in enriched_df.columns:
-        enriched_df["objective_nominal"] = float("nan")
-
     if "nom_sink_tail_mean_k" not in enriched_df.columns:
         enriched_df["nom_sink_tail_mean_k"] = float("nan")
+    if "nom_sink_cvar_20" not in enriched_df.columns:
+        enriched_df["nom_sink_cvar_20"] = float("nan")
 
     if (
         enriched_df.empty
@@ -7988,14 +7963,7 @@ def attach_selection_metrics_to_all_starts(
 
     tail_metric_map = summary_df.set_index("candidate_id")["nom_sink_tail_mean_k"]
     enriched_df["nom_sink_tail_mean_k"] = join_values.map(tail_metric_map)
-
-    if "objective_nominal" in summary_df.columns:
-        objective_nominal_map = summary_df.set_index("candidate_id")["objective_nominal"]
-        enriched_df["objective_nominal"] = enriched_df["objective_nominal"].where(
-            enriched_df["objective_nominal"].notna(),
-            join_values.map(objective_nominal_map),
-        )
-
+    enriched_df["nom_sink_cvar_20"] = enriched_df["nom_sink_tail_mean_k"]
     return enriched_df
 
 
@@ -8091,6 +8059,7 @@ def run_robust_postcheck(
     robust_scenarios_df = pd.DataFrame(robust_rows)
 
     summary_rows: list[dict[str, Any]] = []
+    objective_by_candidate = {candidate.candidate_id: candidate.objective for candidate in candidates}
     tail_fraction = float(config.robust_opt_tail_fraction)
 
     def col_max(df: pd.DataFrame, column: str) -> float:
@@ -8129,7 +8098,6 @@ def run_robust_postcheck(
             nom_sink_std=float(summary_metrics["nom_sink_std"]),
             nom_sink_worst=float(summary_metrics["nom_sink_worst"]),
             nom_sink_tail_mean_k=float(summary_metrics["nom_sink_tail_mean_k"]),
-            objective_nominal=float(candidate.objective),
             nom_sink_cvar_20=float(summary_metrics["nom_sink_cvar_20"]),
             nom_resid_rmse_success_only=float(
                 summary_metrics["nom_resid_rmse_success_only"]
@@ -8140,7 +8108,9 @@ def run_robust_postcheck(
             nom_alpha_margin_worst=float(col_min(feasible_df, "nom_alpha_margin_deg")),
             nom_cl_margin_worst=float(col_min(feasible_df, "nom_cl_margin_to_cap")),
         )
-        summary_rows.append(asdict(summary_obj))
+        summary_row = asdict(summary_obj)
+        summary_row["_objective_nominal"] = float(objective_by_candidate[candidate.candidate_id])
+        summary_rows.append(summary_row)
 
     robust_summary_df = pd.DataFrame(summary_rows)
     if robust_summary_df.empty:
@@ -8151,13 +8121,13 @@ def run_robust_postcheck(
         onp.inf
     )
     ordered = robust_summary_df.sort_values(
-        by=["nom_success_rate", "_sink_tail_sort", "objective_nominal"],
+        by=["nom_success_rate", "_sink_tail_sort", "_objective_nominal"],
         ascending=[False, True, True],
     )
     selected_candidate_id = int(ordered.iloc[0]["candidate_id"])
     robust_summary_df["is_selected"] = robust_summary_df["candidate_id"] == selected_candidate_id
     robust_summary_df = robust_summary_df.drop(
-        columns=["_sink_tail_sort"]
+        columns=["_sink_tail_sort", "_objective_nominal"]
     )
     return robust_scenarios_df, robust_summary_df
 
@@ -8370,28 +8340,11 @@ def save_workflow_workbook(
             "Key": "selection_rule",
             "Value": (
                 "lexicographic: nom_success_rate desc, "
-                "nom_sink_tail_mean_k asc, objective_nominal asc"
+                "nom_sink_tail_mean_k asc, objective asc"
             ),
         }
     )
     run_info_df = pd.DataFrame(run_info_rows)
-
-    robust_tail_metric_by_candidate: dict[int, float] = {}
-    robust_objective_nominal_by_candidate: dict[int, float] = {}
-    if not robust_summary_df.empty and "candidate_id" in robust_summary_df.columns:
-        robust_summary_lookup_df = robust_summary_df.copy()
-        robust_summary_lookup_df["candidate_id"] = pd.to_numeric(
-            robust_summary_lookup_df["candidate_id"],
-            errors="coerce",
-        )
-        if "nom_sink_tail_mean_k" in robust_summary_lookup_df.columns:
-            robust_tail_metric_by_candidate = (
-                robust_summary_lookup_df.set_index("candidate_id")["nom_sink_tail_mean_k"].to_dict()
-            )
-        if "objective_nominal" in robust_summary_lookup_df.columns:
-            robust_objective_nominal_by_candidate = (
-                robust_summary_lookup_df.set_index("candidate_id")["objective_nominal"].to_dict()
-            )
 
     candidate_rows = []
     for candidate in candidates:
@@ -8399,18 +8352,6 @@ def save_workflow_workbook(
             {
                 "candidate_id": candidate.candidate_id,
                 "objective": candidate.objective,
-                "objective_nominal": float(
-                    robust_objective_nominal_by_candidate.get(
-                        float(candidate.candidate_id),
-                        candidate.objective,
-                    )
-                ),
-                "nom_sink_tail_mean_k": float(
-                    robust_tail_metric_by_candidate.get(
-                        float(candidate.candidate_id),
-                        float("nan"),
-                    )
-                ),
                 "wing_span_m": candidate.wing_span_m,
                 "wing_chord_m": candidate.wing_chord_m,
                 "boom_length_m": (
@@ -8515,7 +8456,6 @@ def save_workflow_workbook(
         "nom_sink_std",
         "nom_sink_worst",
         "nom_sink_tail_mean_k",
-        "objective_nominal",
         "nom_sink_cvar_20",
         "nom_resid_rmse_success_only",
         "nom_roll_tau_worst",
@@ -8797,13 +8737,6 @@ def save_workflow_workbook(
             "notes": "Primary tail-risk ranking metric.",
         },
         {
-            "name": "objective_nominal",
-            "unit": "-",
-            "definition": "Nominal optimization objective value carried through the selection workflow.",
-            "computed_in": "build_and_solve_once / run_robust_postcheck",
-            "notes": "Used as the final tie-breaker after robust feasibility and tail-risk sink mean.",
-        },
-        {
             "name": "nom_resid_rmse_success_only",
             "unit": "-",
             "definition": "RMSE of nominal lateral residual over successful scenarios only.",
@@ -8947,8 +8880,8 @@ def save_workflow_workbook(
                 "success",
                 "status",
                 "objective",
-                "objective_nominal",
                 "nom_sink_tail_mean_k",
+                "nom_sink_cvar_20",
                 "failure_reason",
                 "kept_after_dedup",
                 "kept_rank",
@@ -9643,9 +9576,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
 
 
 
