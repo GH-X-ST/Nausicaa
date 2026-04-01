@@ -1,0 +1,119 @@
+candidate_selection.py tuning notes
+
+1. Two-graph scale and positioning
+
+- Whole figure size:
+  fig = plt.figure(figsize=(12.8, 7.4))
+
+- Left graph box position and size:
+  left_ax = fig.add_axes([0.10, 0.05, 0.50, 0.40], projection="3d")
+
+- Right graph box position and size:
+  right_ax = fig.add_axes([0.40, 0.25, 0.50, 0.56], projection="3d")
+
+- Axes aspect ratios:
+  WEIGHT_BOX_ASPECT = (...)
+  REFINEMENT_BOX_ASPECT = (...)
+
+2. Marker scale and opacity by layer
+
+- Weight-sweep marker sizes:
+  WEIGHT_SPHERE_RADIUS_MAP = {
+      "cloud": ...,
+      "carry_over": ...,
+      "selected": ...,
+  }
+
+- Refinement marker sizes:
+  REFINEMENT_SPHERE_RADIUS_MAP = {
+      "Selected sweep rows": ...,
+      "Top rerun starts": ...,
+      "Final rerun starts": ...,
+      "Retained robust rank": ...,
+      "Selected final design": ...,
+  }
+
+- Weight-sweep marker opacity:
+  search in draw_weight_sweep_subplot() for:
+  alpha=0.32
+  alpha=0.96
+  alpha=0.98
+
+- Refinement marker opacity:
+  search in draw_refinement_subplot() for:
+  alpha=0.93
+  alpha=0.99
+
+3. Line width and opacity
+
+- Global line width:
+  TRACE_LINE_WIDTH = ...
+
+- Global line opacity:
+  TRACE_ALPHA_BACKGROUND = ...
+  TRACE_ALPHA_SELECTED_STEP = ...
+  TRACE_ALPHA_SELECTED_FULL = ...
+
+4. View angle of the two graphs
+
+- Weight-sweep view:
+  ax.view_init(elev=23, azim=-58)
+
+- Refinement view:
+  ax.view_init(elev=23, azim=-58)
+
+5. Font size of axis and legend
+
+- Weight-sweep axis and tick fonts:
+  search in draw_weight_sweep_subplot() for:
+  fontsize=8
+  ax.tick_params(... labelsize=8 ...)
+
+- Refinement axis and tick fonts:
+  search in draw_refinement_subplot() for:
+  fontsize=8
+  fontsize=9
+  ax.tick_params(... labelsize=8 ...)
+
+- Legend font size:
+  search in fig.legend(...) for:
+  fontsize=8
+
+6. Legend info and position
+
+- Legend content:
+  built from legend_handles in:
+  draw_weight_sweep_subplot()
+  draw_refinement_subplot()
+
+- Final combined legend placement:
+  fig.legend(
+      ...,
+      loc="upper center",
+      ncol=...,
+      bbox_to_anchor=(...),
+      fontsize=...,
+  )
+
+7. Sphere smoothness
+
+- Sphere mesh resolution:
+  SPHERE_RESOLUTION_U = ...
+  SPHERE_RESOLUTION_V = ...
+
+8. Color mapping
+
+- Colormap:
+  HALINE_CMAP = cmocean.cm.haline
+
+- Z-normalization:
+  search for _build_z_normalize()
+
+9. Line shape
+
+    source_scale_x = ... * x_span
+    source_scale_y =... * y_span
+    target_scale_x = ... * x_span
+    target_scale_y = ... * y_span
+    jitter_scale_x = ...* x_span
+    jitter_scale_y = ... * y_span

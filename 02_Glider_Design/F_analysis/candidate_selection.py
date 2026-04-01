@@ -31,24 +31,24 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 HALINE_CMAP = cmocean.cm.haline
 TRACE_LINE_WIDTH = 0.75
-TRACE_ALPHA_BACKGROUND = 0.30
-TRACE_ALPHA_SELECTED_STEP = 0.70
+TRACE_ALPHA_BACKGROUND = 0.20
+TRACE_ALPHA_SELECTED_STEP = 0.50
 TRACE_ALPHA_SELECTED_FULL = 1.00
 WEIGHT_BOX_ASPECT = (1.55, 1.08, 0.10)
 REFINEMENT_BOX_ASPECT = (1.20, 1.04, 1.28)
-SPHERE_RESOLUTION_U = 14
-SPHERE_RESOLUTION_V = 10
+SPHERE_RESOLUTION_U = 15
+SPHERE_RESOLUTION_V = 15
 WEIGHT_SPHERE_RADIUS_MAP = {
-    "cloud": 0.0105,
+    "cloud": 0.0135,
     "carry_over": 0.0150,
-    "selected": 0.0180,
+    "selected": 0.0155,
 }
 REFINEMENT_SPHERE_RADIUS_MAP = {
-    "Selected sweep rows": 0.0190,
-    "Top rerun starts": 0.0165,
-    "Final rerun starts": 0.0175,
-    "Retained robust rank": 0.0205,
-    "Selected final design": 0.0245,
+    "Selected sweep rows": 0.0170,
+    "Top rerun starts": 0.0190,
+    "Final rerun starts": 0.0210,
+    "Retained robust rank": 0.0230,
+    "Selected final design": 0.0250,
 }
 
 STAGE_ORDER = [
@@ -1369,11 +1369,11 @@ def _build_refinement_edge_bend_lookup(
         bend_lookup[_edge_key(edge)] = np.zeros(2, dtype=float)
 
     source_scale_x = 0.10 * x_span
-    source_scale_y = 0.15 * y_span
-    target_scale_x = 0.10 * x_span
-    target_scale_y = -0.15 * y_span
-    jitter_scale_x = 0.30* x_span
-    jitter_scale_y = 0.50 * y_span
+    source_scale_y = 0.10 * y_span
+    target_scale_x = 0.15 * x_span
+    target_scale_y = 0.15 * y_span
+    jitter_scale_x = 0.20* x_span
+    jitter_scale_y = 0.20 * y_span
 
     for _, group_df in refinement_edges_df.groupby(
         by=["source_stage", "source_key"],
@@ -2769,7 +2769,7 @@ def draw_weight_sweep_subplot(
         ax.set_box_aspect(WEIGHT_BOX_ASPECT)
     except AttributeError:
         pass
-    ax.view_init(elev=23, azim=-58)
+    ax.view_init(elev=15, azim=-45)
 
     legend_handles = [
         Line2D(
@@ -3132,7 +3132,7 @@ def draw_refinement_subplot(
         ax.set_box_aspect(REFINEMENT_BOX_ASPECT)
     except AttributeError:
         pass
-    ax.view_init(elev=23, azim=-58)
+    ax.view_init(elev=15, azim=-45)
 
     legend_handles = [
         Line2D(
@@ -3333,8 +3333,8 @@ def make_candidate_selection_plot(data: CandidateSelectionData) -> Path:
     fig = plt.figure(figsize=(12.8, 7.4))
     fig.patch.set_facecolor("white")
     # horizontal start position, vertical start position, width, height
-    left_ax = fig.add_axes([0.10, 0.05, 0.50, 0.40], projection="3d")
-    right_ax = fig.add_axes([0.40, 0.25, 0.50, 0.56], projection="3d")
+    left_ax = fig.add_axes([0.20, -0.40, 0.50, 0.70], projection="3d")
+    right_ax = fig.add_axes([0.30, 0.10, 0.50, 0.70], projection="3d")
 
     left_position_map, left_legend_handles = draw_weight_sweep_subplot(
         ax=left_ax,
