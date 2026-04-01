@@ -10,10 +10,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.colors import Normalize, to_rgb
 from matplotlib.lines import Line2D
-from matplotlib.patches import PathPatch
-from matplotlib.path import Path as MplPath
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from mpl_toolkits.mplot3d import proj3d
+
+import cmocean
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RESULTS_DIR = PROJECT_ROOT / "C_results"
@@ -26,6 +28,28 @@ FIGURE_PATH = FIGURES_DIR / "candidate_selection.png"
 
 FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+HALINE_CMAP = cmocean.cm.haline
+TRACE_LINE_WIDTH = 0.75
+TRACE_ALPHA_BACKGROUND = 0.30
+TRACE_ALPHA_SELECTED_STEP = 0.70
+TRACE_ALPHA_SELECTED_FULL = 1.00
+WEIGHT_BOX_ASPECT = (1.55, 1.08, 0.10)
+REFINEMENT_BOX_ASPECT = (1.20, 1.04, 1.28)
+SPHERE_RESOLUTION_U = 14
+SPHERE_RESOLUTION_V = 10
+WEIGHT_SPHERE_RADIUS_MAP = {
+    "cloud": 0.0105,
+    "carry_over": 0.0150,
+    "selected": 0.0180,
+}
+REFINEMENT_SPHERE_RADIUS_MAP = {
+    "Selected sweep rows": 0.0190,
+    "Top rerun starts": 0.0165,
+    "Final rerun starts": 0.0175,
+    "Retained robust rank": 0.0205,
+    "Selected final design": 0.0245,
+}
 
 STAGE_ORDER = [
     "Weight sweep",
@@ -1024,20 +1048,26 @@ def _draw_curve_3d(
     linewidth: float,
     alpha: float,
     zorder: int,
-) -> None:
-    t = np.linspace(0.0, 1.0, 40)
+    bend_x: float = 0.0,
+    bend_y: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    t = np.linspace(0.0, 1.0, 56)
+    c1x = x0 + 0.24 * (x1 - x0) + bend_x
+    c1y = y0 + 0.24 * (y1 - y0) + bend_y
+    c2x = x0 + 0.78 * (x1 - x0) + 0.34 * bend_x
+    c2y = y0 + 0.78 * (y1 - y0) + 0.34 * bend_y
     c1z = z0 + 0.35 * (z1 - z0)
     c2z = z0 + 0.65 * (z1 - z0)
     x = (
         (1.0 - t) ** 3 * x0
-        + 3.0 * (1.0 - t) ** 2 * t * x0
-        + 3.0 * (1.0 - t) * t**2 * x1
+        + 3.0 * (1.0 - t) ** 2 * t * c1x
+        + 3.0 * (1.0 - t) * t**2 * c2x
         + t**3 * x1
     )
     y = (
         (1.0 - t) ** 3 * y0
-        + 3.0 * (1.0 - t) ** 2 * t * y0
-        + 3.0 * (1.0 - t) * t**2 * y1
+        + 3.0 * (1.0 - t) ** 2 * t * c1y
+        + 3.0 * (1.0 - t) * t**2 * c2y
         + t**3 * y1
     )
     z = (
@@ -1046,15 +1076,369 @@ def _draw_curve_3d(
         + 3.0 * (1.0 - t) * t**2 * c2z
         + t**3 * z1
     )
-    ax.plot(
-        x,
-        y,
-        z,
-        color=color,
+    if color != "none":
+        ax.plot(
+            x,
+            y,
+            z,
+            color=color,
+            linewidth=linewidth,
+            alpha=alpha,
+            zorder=zorder,
+            solid_capstyle="butt",
+        )
+    return x, y, z
+
+
+def _draw_curve_3d_gradient(
+    ax: plt.Axes,
+    x0: float,
+    y0: float,
+    z0: float,
+    x1: float,
+    y1: float,
+    z1: float,
+    linewidth: float,
+    alpha: float,
+    zorder: int,
+    z_normalize: Normalize,
+    bend_x: float = 0.0,
+    bend_y: float = 0.0,
+) -> None:
+    x_values, y_values, z_values = _draw_curve_3d(
+        ax=ax,
+        x0=x0,
+        y0=y0,
+        z0=z0,
+        x1=x1,
+        y1=y1,
+        z1=z1,
+        color="none",
         linewidth=linewidth,
         alpha=alpha,
         zorder=zorder,
+        bend_x=bend_x,
+        bend_y=bend_y,
     )
+    for index in range(len(x_values) - 1):
+        z_mid = 0.5 * (z_values[index] + z_values[index + 1])
+        ax.plot(
+            x_values[index : index + 2],
+            y_values[index : index + 2],
+            z_values[index : index + 2],
+            color=_color_for_z(z_mid, z_normalize),
+            linewidth=linewidth,
+            alpha=alpha,
+            zorder=zorder,
+            solid_capstyle="butt",
+        )
+
+
+def _sample_figure_bezier_curve(
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    dx = x1 - x0
+    dy = y1 - y0
+    control_1 = (
+        x0 + 0.26 * dx,
+        y0 + max(0.05, 0.48 * dy),
+    )
+    control_2 = (
+        x0 + 0.76 * dx,
+        y0 + max(0.08, 1.02 * dy),
+    )
+    t = np.linspace(0.0, 1.0, 56)
+    x_values = (
+        (1.0 - t) ** 3 * x0
+        + 3.0 * (1.0 - t) ** 2 * t * control_1[0]
+        + 3.0 * (1.0 - t) * t**2 * control_2[0]
+        + t**3 * x1
+    )
+    y_values = (
+        (1.0 - t) ** 3 * y0
+        + 3.0 * (1.0 - t) ** 2 * t * control_1[1]
+        + 3.0 * (1.0 - t) * t**2 * control_2[1]
+        + t**3 * y1
+    )
+    return x_values, y_values, t
+
+
+def _shade_color(color: str, factor: float, alpha: float) -> tuple[float, float, float, float]:
+    red, green, blue = to_rgb(color)
+    shaded = np.clip(np.asarray([red, green, blue], dtype=float) * factor, 0.0, 1.0)
+    return float(shaded[0]), float(shaded[1]), float(shaded[2]), alpha
+
+
+def _build_z_normalize() -> Normalize:
+    stage_z_map = _build_refinement_stage_z_map()
+    return Normalize(vmin=0.0, vmax=stage_z_map["Selected final design"])
+
+
+def _color_for_z(z_value: float, z_normalize: Normalize) -> tuple[float, float, float, float]:
+    return HALINE_CMAP(float(z_normalize(z_value)))
+
+
+def _compute_sphere_radii(
+    x_span: float,
+    y_span: float,
+    z_span: float,
+    box_aspect: tuple[float, float, float],
+    visual_radius: float,
+) -> tuple[float, float, float]:
+    return (
+        visual_radius * x_span / box_aspect[0],
+        visual_radius * y_span / box_aspect[1],
+        visual_radius * z_span / box_aspect[2],
+    )
+
+
+def _draw_sphere_markers_3d(
+    ax: plt.Axes,
+    xs: pd.Series | np.ndarray | list[float],
+    ys: pd.Series | np.ndarray | list[float],
+    zs: pd.Series | np.ndarray | list[float],
+    radius_x: float,
+    radius_y: float,
+    radius_z: float,
+    facecolor: tuple[float, float, float, float],
+    edgecolor: tuple[float, float, float, float] | str,
+    alpha: float,
+    linewidth: float,
+) -> None:
+    x_values = np.asarray(xs, dtype=float)
+    y_values = np.asarray(ys, dtype=float)
+    z_values = np.asarray(zs, dtype=float)
+    if x_values.size == 0:
+        return
+
+    u = np.linspace(0.0, 2.0 * np.pi, SPHERE_RESOLUTION_U, dtype=float)
+    v = np.linspace(0.0, np.pi, SPHERE_RESOLUTION_V, dtype=float)
+    cos_u = np.cos(u)
+    sin_u = np.sin(u)
+    sin_v = np.sin(v)
+    cos_v = np.cos(v)
+    unit_x = np.outer(cos_u, sin_v)
+    unit_y = np.outer(sin_u, sin_v)
+    unit_z = np.outer(np.ones_like(u), cos_v)
+
+    for x_value, y_value, z_value in zip(x_values, y_values, z_values):
+        ax.plot_surface(
+            x_value + radius_x * unit_x,
+            y_value + radius_y * unit_y,
+            z_value + radius_z * unit_z,
+            rstride=1,
+            cstride=1,
+            color=facecolor,
+            edgecolor=edgecolor,
+            linewidth=linewidth,
+            antialiased=True,
+            shade=True,
+            alpha=alpha,
+        )
+
+
+def _edge_alpha(is_selected_path: bool) -> float:
+    return TRACE_ALPHA_SELECTED_STEP if is_selected_path else TRACE_ALPHA_BACKGROUND
+
+
+def _edge_color_for_segment(
+    z0: float,
+    z1: float,
+    z_normalize: Normalize,
+) -> tuple[float, float, float, float]:
+    return _color_for_z(0.5 * (z0 + z1), z_normalize)
+
+
+def _format_tradeoff_label(
+    objective_value: float,
+    tail_metric_value: float,
+) -> str:
+    return f"({objective_value:.2f}, {tail_metric_value:.3f})"
+
+
+def _make_cuboid_faces(
+    x_center: float,
+    y_center: float,
+    z_center: float,
+    size_x: float,
+    size_y: float,
+    size_z: float,
+) -> list[list[tuple[float, float, float]]]:
+    hx = 0.5 * size_x
+    hy = 0.5 * size_y
+    hz = 0.5 * size_z
+    p000 = (x_center - hx, y_center - hy, z_center - hz)
+    p001 = (x_center - hx, y_center - hy, z_center + hz)
+    p010 = (x_center - hx, y_center + hy, z_center - hz)
+    p011 = (x_center - hx, y_center + hy, z_center + hz)
+    p100 = (x_center + hx, y_center - hy, z_center - hz)
+    p101 = (x_center + hx, y_center - hy, z_center + hz)
+    p110 = (x_center + hx, y_center + hy, z_center - hz)
+    p111 = (x_center + hx, y_center + hy, z_center + hz)
+    return [
+        [p000, p100, p110, p010],
+        [p001, p101, p111, p011],
+        [p000, p100, p101, p001],
+        [p010, p110, p111, p011],
+        [p000, p010, p011, p001],
+        [p100, p110, p111, p101],
+    ]
+
+
+def _draw_cuboid_markers_3d(
+    ax: plt.Axes,
+    xs: pd.Series | np.ndarray | list[float],
+    ys: pd.Series | np.ndarray | list[float],
+    zs: pd.Series | np.ndarray | list[float],
+    size_x: float,
+    size_y: float,
+    size_z: float,
+    facecolor: str,
+    edgecolor: str,
+    alpha: float,
+    linewidth: float,
+    zorder: int,
+) -> None:
+    x_values = np.asarray(xs, dtype=float)
+    y_values = np.asarray(ys, dtype=float)
+    z_values = np.asarray(zs, dtype=float)
+    if x_values.size == 0:
+        return
+
+    face_groups: list[list[tuple[float, float, float]]] = []
+    face_colors: list[tuple[float, float, float, float]] = []
+    shade_factors = [0.78, 1.12, 0.94, 1.02, 0.86, 0.98]
+    for x_value, y_value, z_value in zip(x_values, y_values, z_values):
+        faces = _make_cuboid_faces(
+            x_center=float(x_value),
+            y_center=float(y_value),
+            z_center=float(z_value),
+            size_x=size_x,
+            size_y=size_y,
+            size_z=size_z,
+        )
+        face_groups.extend(faces)
+        face_colors.extend(
+            [_shade_color(facecolor, factor, alpha) for factor in shade_factors]
+        )
+
+    collection = Poly3DCollection(
+        face_groups,
+        facecolors=face_colors,
+        edgecolors=edgecolor,
+        linewidths=linewidth,
+    )
+    collection.set_zorder(zorder)
+    ax.add_collection3d(collection)
+
+
+def _centered_unit_offsets(count: int) -> np.ndarray:
+    if count <= 1:
+        return np.zeros(max(count, 1), dtype=float)
+    return np.linspace(-1.0, 1.0, count, dtype=float)
+
+
+def _stable_pair_offset(pair_key: str) -> float:
+    value = np.sin(float(sum(ord(char) for char in pair_key)) * 12.9898) * 43758.5453
+    return float((value - np.floor(value)) - 0.5)
+
+
+def _edge_key(edge: pd.Series) -> tuple[str, str, str, str]:
+    return (
+        str(edge["source_stage"]),
+        str(edge["source_key"]),
+        str(edge["target_stage"]),
+        str(edge["target_key"]),
+    )
+
+
+def _build_refinement_edge_bend_lookup(
+    refinement_edges_df: pd.DataFrame,
+    position_map: dict[tuple[str, str], tuple[float, float, float]],
+    x_span: float,
+    y_span: float,
+) -> dict[tuple[str, str, str, str], tuple[float, float]]:
+    bend_lookup: dict[tuple[str, str, str, str], np.ndarray] = {}
+    if refinement_edges_df.empty:
+        return {}
+
+    for _, edge in refinement_edges_df.iterrows():
+        bend_lookup[_edge_key(edge)] = np.zeros(2, dtype=float)
+
+    source_scale_x = 0.10 * x_span
+    source_scale_y = 0.15 * y_span
+    target_scale_x = 0.10 * x_span
+    target_scale_y = -0.15 * y_span
+    jitter_scale_x = 0.30* x_span
+    jitter_scale_y = 0.50 * y_span
+
+    for _, group_df in refinement_edges_df.groupby(
+        by=["source_stage", "source_key"],
+        sort=False,
+    ):
+        ordered_df = group_df.sort_values(
+            by=["target_stage", "target_key"],
+            kind="mergesort",
+        ).reset_index(drop=True)
+        offsets = _centered_unit_offsets(len(ordered_df))
+        for offset_value, (_, edge) in zip(offsets, ordered_df.iterrows()):
+            bend_lookup[_edge_key(edge)] += np.asarray(
+                [
+                    source_scale_x * offset_value,
+                    -source_scale_y * offset_value,
+                ],
+                dtype=float,
+            )
+
+    target_group_keys: list[tuple[str, float, float, float]] = []
+    for _, edge in refinement_edges_df.iterrows():
+        target_stage = str(edge["target_stage"])
+        target_key = str(edge["target_key"])
+        target_x, target_y, target_z = position_map[(target_stage, target_key)]
+        target_group_keys.append(
+            (
+                target_stage,
+                round(target_x, 6),
+                round(target_y, 6),
+                round(target_z, 3),
+            )
+        )
+    grouped_edges_df = refinement_edges_df.copy()
+    grouped_edges_df["target_group_key"] = target_group_keys
+
+    for _, group_df in grouped_edges_df.groupby("target_group_key", sort=False):
+        ordered_df = group_df.sort_values(
+            by=["source_stage", "source_key"],
+            kind="mergesort",
+        ).reset_index(drop=True)
+        offsets = _centered_unit_offsets(len(ordered_df))
+        for offset_value, (_, edge) in zip(offsets, ordered_df.iterrows()):
+            bend_lookup[_edge_key(edge)] += np.asarray(
+                [
+                    -target_scale_x * offset_value,
+                    target_scale_y * offset_value,
+                ],
+                dtype=float,
+            )
+
+    for _, edge in refinement_edges_df.iterrows():
+        key = _edge_key(edge)
+        jitter = _stable_pair_offset("|".join(key))
+        bend_lookup[key] += np.asarray(
+            [
+                jitter_scale_x * jitter,
+                jitter_scale_y * jitter,
+            ],
+            dtype=float,
+        )
+
+    return {
+        key: (float(value[0]), float(value[1]))
+        for key, value in bend_lookup.items()
+    }
 
 
 def infer_final_rerun_rank(
@@ -2229,9 +2613,10 @@ def _compute_padded_limits(values: pd.Series, pad_fraction: float) -> tuple[floa
 def _build_refinement_stage_z_map() -> dict[str, float]:
     return {
         "Selected sweep rows": 0.0,
-        "Top rerun starts": 1.0,
-        "Final rerun starts": 2.0,
-        "Retained robust rank": 3.0,
+        "Top rerun starts": 1.15,
+        "Final rerun starts": 2.35,
+        "Retained robust rank": 3.60,
+        "Selected final design": 4.85,
     }
 
 
@@ -2275,70 +2660,90 @@ def draw_weight_sweep_subplot(
     selected_mask = weight_trace_df["status_class"].eq("final_rerun")
 
     z_level = 0.0
-    z_cloud = np.full(len(weight_df), z_level, dtype=float)
-    ax.scatter(
-        weight_df["objective_plot"],
-        weight_df["tail_metric_plot"],
-        z_cloud,
-        s=float(TRADEOFF_STAGE_STYLES["Weight sweep"]["size"]),
-        c=TRADEOFF_STAGE_STYLES["Weight sweep"]["color"],
-        marker=TRADEOFF_STAGE_STYLES["Weight sweep"]["marker"],
-        edgecolors="white",
-        linewidths=0.45,
+    x_limits = _compute_padded_limits(weight_df["objective_plot"], pad_fraction=0.10)
+    y_limits = _compute_padded_limits(weight_df["tail_metric_plot"], pad_fraction=0.16)
+    x_span = max(x_limits[1] - x_limits[0], 1e-9)
+    y_span = max(y_limits[1] - y_limits[0], 1e-9)
+    z_span = 0.10
+    z_normalize = _build_z_normalize()
+    z_color = _color_for_z(z_level, z_normalize)
+
+    cloud_radius_x, cloud_radius_y, cloud_radius_z = _compute_sphere_radii(
+        x_span=x_span,
+        y_span=y_span,
+        z_span=z_span,
+        box_aspect=WEIGHT_BOX_ASPECT,
+        visual_radius=WEIGHT_SPHERE_RADIUS_MAP["cloud"],
+    )
+    _draw_sphere_markers_3d(
+        ax=ax,
+        xs=weight_df["objective_plot"],
+        ys=weight_df["tail_metric_plot"],
+        zs=np.full(len(weight_df), z_level, dtype=float),
+        radius_x=cloud_radius_x,
+        radius_y=cloud_radius_y,
+        radius_z=cloud_radius_z,
+        facecolor=z_color,
+        edgecolor=(1.0, 1.0, 1.0, 0.0),
         alpha=0.32,
-        depthshade=False,
-        zorder=2,
+        linewidth=0.0,
     )
 
     if promoted_mask.any():
         promoted_df = weight_trace_df.loc[promoted_mask].copy()
-        ax.scatter(
-            promoted_df["objective_plot"],
-            promoted_df["tail_metric_plot"],
-            np.full(len(promoted_df), z_level, dtype=float),
-            s=74.0,
-            c="#4e79a7",
-            marker="o",
-            edgecolors="white",
-            linewidths=0.75,
+        promoted_radius_x, promoted_radius_y, promoted_radius_z = _compute_sphere_radii(
+            x_span=x_span,
+            y_span=y_span,
+            z_span=z_span,
+            box_aspect=WEIGHT_BOX_ASPECT,
+            visual_radius=WEIGHT_SPHERE_RADIUS_MAP["carry_over"],
+        )
+        _draw_sphere_markers_3d(
+            ax=ax,
+            xs=promoted_df["objective_plot"],
+            ys=promoted_df["tail_metric_plot"],
+            zs=np.full(len(promoted_df), z_level + 0.0035, dtype=float),
+            radius_x=promoted_radius_x,
+            radius_y=promoted_radius_y,
+            radius_z=promoted_radius_z,
+            facecolor=z_color,
+            edgecolor=(1.0, 1.0, 1.0, 0.45),
             alpha=0.96,
-            depthshade=False,
-            zorder=5,
+            linewidth=0.22,
         )
 
     if selected_mask.any():
         selected_df = weight_trace_df.loc[selected_mask].copy()
-        ax.scatter(
-            selected_df["objective_plot"],
-            selected_df["tail_metric_plot"],
-            np.full(len(selected_df), z_level, dtype=float),
-            s=132.0,
-            c="#f28e2b",
-            marker="*",
-            edgecolors="black",
-            linewidths=0.9,
+        selected_radius_x, selected_radius_y, selected_radius_z = _compute_sphere_radii(
+            x_span=x_span,
+            y_span=y_span,
+            z_span=z_span,
+            box_aspect=WEIGHT_BOX_ASPECT,
+            visual_radius=WEIGHT_SPHERE_RADIUS_MAP["selected"],
+        )
+        _draw_sphere_markers_3d(
+            ax=ax,
+            xs=selected_df["objective_plot"],
+            ys=selected_df["tail_metric_plot"],
+            zs=np.full(len(selected_df), z_level + 0.0075, dtype=float),
+            radius_x=selected_radius_x,
+            radius_y=selected_radius_y,
+            radius_z=selected_radius_z,
+            facecolor=z_color,
+            edgecolor="black",
             alpha=0.98,
-            depthshade=False,
-            zorder=7,
+            linewidth=0.26,
         )
 
     carry_over_positions = {
         str(row["node_key"]): (
             float(row["objective_plot"]),
             float(row["tail_metric_plot"]),
-            z_level,
+            z_level + 0.0075,
         )
         for _, row in weight_trace_df.loc[promoted_mask].iterrows()
     }
 
-    x_limits = _compute_padded_limits(weight_df["objective_plot"], pad_fraction=0.10)
-    y_limits = _compute_padded_limits(weight_df["tail_metric_plot"], pad_fraction=0.16)
-    _draw_flat_trade_plane(
-        ax=ax,
-        x_limits=x_limits,
-        y_limits=y_limits,
-        z_level=z_level,
-    )
     ax.set_xlim(*x_limits)
     ax.set_ylim(*y_limits)
     ax.set_zlim(-0.015, 0.085)
@@ -2361,7 +2766,7 @@ def draw_weight_sweep_subplot(
         va="bottom",
     )
     try:
-        ax.set_box_aspect((1.55, 1.08, 0.10))
+        ax.set_box_aspect(WEIGHT_BOX_ASPECT)
     except AttributeError:
         pass
     ax.view_init(elev=23, azim=-58)
@@ -2373,7 +2778,7 @@ def draw_weight_sweep_subplot(
             marker="o",
             color="w",
             label=f"Weight sweep cloud (n={len(weight_df)})",
-            markerfacecolor=str(TRADEOFF_STAGE_STYLES["Weight sweep"]["color"]),
+            markerfacecolor=z_color,
             markeredgecolor="white",
             markeredgewidth=0.5,
             markersize=6.5,
@@ -2386,7 +2791,7 @@ def draw_weight_sweep_subplot(
             marker="o",
             color="w",
             label=f"Carry-over sweep rows (n={int(promoted_mask.sum())})",
-            markerfacecolor="#4e79a7",
+            markerfacecolor=z_color,
             markeredgecolor="white",
             markeredgewidth=0.7,
             markersize=7.5,
@@ -2395,14 +2800,14 @@ def draw_weight_sweep_subplot(
         Line2D(
             [0],
             [0],
-            marker="*",
-            color="w",
+            color=_edge_color_for_segment(
+                0.0,
+                _build_refinement_stage_z_map()["Selected sweep rows"],
+                z_normalize,
+            ),
             label="Selected handoff path",
-            markerfacecolor="#f28e2b",
-            markeredgecolor="black",
-            markeredgewidth=0.8,
-            markersize=10.5,
-            linewidth=0,
+            linewidth=TRACE_LINE_WIDTH,
+            alpha=TRACE_ALPHA_SELECTED_FULL,
         ),
     ]
     return carry_over_positions, legend_handles
@@ -2422,6 +2827,7 @@ def draw_refinement_subplot(
         "Retained robust rank",
     ]
     stage_z_map = _build_refinement_stage_z_map()
+    z_normalize = _build_z_normalize()
     refinement_df = trace_nodes_df.loc[
         trace_nodes_df["stage"].isin(refinement_stage_order)
         & trace_nodes_df["objective_plot"].notna()
@@ -2437,6 +2843,11 @@ def draw_refinement_subplot(
         )
         for _, row in refinement_df.iterrows()
     }
+    x_limits = _compute_padded_limits(refinement_df["objective_plot"], pad_fraction=0.18)
+    y_limits = _compute_padded_limits(refinement_df["tail_metric_plot"], pad_fraction=0.22)
+    x_span = max(x_limits[1] - x_limits[0], 1e-9)
+    y_span = max(y_limits[1] - y_limits[0], 1e-9)
+    z_span = stage_z_map["Selected final design"] - stage_z_map["Selected sweep rows"]
 
     edge_class_order = {
         "promoted": 0,
@@ -2460,6 +2871,12 @@ def draw_refinement_subplot(
         by=["draw_order", "source_stage", "target_stage", "trace_group"],
         kind="mergesort",
     )
+    edge_bend_lookup = _build_refinement_edge_bend_lookup(
+        refinement_edges_df=refinement_edges_df,
+        position_map=position_map,
+        x_span=x_span,
+        y_span=y_span,
+    )
 
     for _, edge in refinement_edges_df.iterrows():
         source_key = (str(edge["source_stage"]), str(edge["source_key"]))
@@ -2468,8 +2885,8 @@ def draw_refinement_subplot(
             continue
         source_x, source_y, source_z = position_map[source_key]
         target_x, target_y, target_z = position_map[target_key]
-        edge_style = EDGE_STYLE_MAP[str(edge["draw_class"])]
-        _draw_curve_3d(
+        bend_x, bend_y = edge_bend_lookup.get(_edge_key(edge), (0.0, 0.0))
+        _draw_curve_3d_gradient(
             ax=ax,
             x0=source_x,
             y0=source_y,
@@ -2477,59 +2894,93 @@ def draw_refinement_subplot(
             x1=target_x,
             y1=target_y,
             z1=target_z,
-            color=str(edge_style["color"]),
-            linewidth=float(edge_style["linewidth"]),
-            alpha=float(edge_style["alpha"]),
-            zorder=int(edge_style["zorder"]) + 1,
+            linewidth=TRACE_LINE_WIDTH,
+            alpha=_edge_alpha(bool(edge["is_selected_path"])),
+            zorder=4,
+            z_normalize=z_normalize,
+            bend_x=bend_x,
+            bend_y=bend_y,
         )
 
     stage_style_map = {
         "Selected sweep rows": {
-            "marker": "s",
-            "size": 64.0,
-            "facecolor": "#4e79a7",
-            "edgecolor": "white",
+            "edgecolor": (1.0, 1.0, 1.0, 0.45),
         },
         "Top rerun starts": {
-            "marker": "X",
-            "size": 58.0,
-            "facecolor": "#76b7b2",
-            "edgecolor": "white",
+            "edgecolor": (1.0, 1.0, 1.0, 0.45),
         },
         "Final rerun starts": {
-            "marker": "D",
-            "size": 56.0,
-            "facecolor": "#edc948",
-            "edgecolor": "white",
+            "edgecolor": (1.0, 1.0, 1.0, 0.45),
         },
         "Retained robust rank": {
-            "marker": "h",
-            "size": 72.0,
-            "facecolor": "#af7aa1",
-            "edgecolor": "white",
+            "edgecolor": (1.0, 1.0, 1.0, 0.45),
         },
     }
 
     selected_point_xyz: tuple[float, float, float] | None = None
+    selected_final_start_xyz: tuple[float, float, float] | None = None
     for stage in refinement_stage_order:
         stage_df = refinement_df.loc[refinement_df["stage"] == stage].copy()
         if stage_df.empty:
             continue
         stage_style = stage_style_map[stage]
-        ax.scatter(
-            stage_df["objective_plot"],
-            stage_df["tail_metric_plot"],
-            np.full(len(stage_df), stage_z_map[stage], dtype=float),
-            s=float(stage_style["size"]),
-            c=str(stage_style["facecolor"]),
-            marker=str(stage_style["marker"]),
-            edgecolors=str(stage_style["edgecolor"]),
-            linewidths=0.7,
-            alpha=0.92,
-            depthshade=False,
-            zorder=5,
+        radius_x, radius_y, radius_z = _compute_sphere_radii(
+            x_span=x_span,
+            y_span=y_span,
+            z_span=z_span,
+            box_aspect=REFINEMENT_BOX_ASPECT,
+            visual_radius=REFINEMENT_SPHERE_RADIUS_MAP[stage],
         )
+        stage_color = _color_for_z(stage_z_map[stage], z_normalize)
+        _draw_sphere_markers_3d(
+            ax=ax,
+            xs=stage_df["objective_plot"],
+            ys=stage_df["tail_metric_plot"],
+            zs=np.full(len(stage_df), stage_z_map[stage], dtype=float),
+            radius_x=radius_x,
+            radius_y=radius_y,
+            radius_z=radius_z,
+            facecolor=stage_color,
+            edgecolor=stage_style["edgecolor"],
+            alpha=0.93,
+            linewidth=0.18,
+        )
+        if stage == "Final rerun starts":
+            selected_edge_df = refinement_edges_df.loc[
+                (refinement_edges_df["source_stage"] == "Final rerun starts")
+                & refinement_edges_df["is_selected_path"]
+            ].copy()
+            if not selected_edge_df.empty:
+                selected_start_key = str(selected_edge_df.iloc[0]["source_key"])
+                selected_start_df = stage_df.loc[
+                    stage_df["node_key"] == selected_start_key
+                ].copy()
+                if not selected_start_df.empty:
+                    selected_row = selected_start_df.iloc[0]
+                    selected_final_start_xyz = (
+                        float(selected_row["objective_plot"]),
+                        float(selected_row["tail_metric_plot"]),
+                        stage_z_map[stage],
+                    )
         if stage == "Retained robust rank":
+            retained_offset_x = 0.020 * x_span
+            retained_offset_y = 0.030 * y_span
+            retained_offset_z = 0.08
+            for retained_index, (_, retained_row) in enumerate(stage_df.iterrows()):
+                retained_x = float(retained_row["objective_plot"])
+                retained_y = float(retained_row["tail_metric_plot"])
+                retained_z = stage_z_map[stage]
+                retained_label = _format_tradeoff_label(retained_x, retained_y)
+                ax.text(
+                    retained_x + retained_offset_x,
+                    retained_y + retained_offset_y * (0.55 - 0.45 * retained_index),
+                    retained_z + retained_offset_z,
+                    retained_label,
+                    fontsize=8,
+                    color="#222222",
+                    ha="left",
+                    va="bottom",
+                )
             selected_df = stage_df.loc[stage_df["status_class"] == "selected"].copy()
             if not selected_df.empty:
                 selected_row = selected_df.iloc[0]
@@ -2538,39 +2989,136 @@ def draw_refinement_subplot(
                     float(selected_row["tail_metric_plot"]),
                     stage_z_map[stage],
                 )
-                ax.scatter(
-                    [selected_point_xyz[0]],
-                    [selected_point_xyz[1]],
-                    [selected_point_xyz[2]],
-                    marker="*",
-                    s=240.0,
-                    c="#ffcc00",
-                    edgecolors="black",
-                    linewidths=1.0,
-                    depthshade=False,
-                    zorder=7,
-                )
                 ax.text(
                     selected_point_xyz[0],
                     selected_point_xyz[1],
                     selected_point_xyz[2] + 0.10,
-                    "selected",
+                    "retained",
                     fontsize=9,
                     fontweight="bold",
                 )
 
-    x_limits = _compute_padded_limits(refinement_df["objective_plot"], pad_fraction=0.18)
-    y_limits = _compute_padded_limits(refinement_df["tail_metric_plot"], pad_fraction=0.22)
+    selected_design_xyz: tuple[float, float, float] | None = None
+    if selected_point_xyz is not None:
+        selected_design_xyz = (
+            selected_point_xyz[0],
+            selected_point_xyz[1],
+            stage_z_map["Selected final design"],
+        )
+        final_radius_x, final_radius_y, final_radius_z = _compute_sphere_radii(
+            x_span=x_span,
+            y_span=y_span,
+            z_span=z_span,
+            box_aspect=REFINEMENT_BOX_ASPECT,
+            visual_radius=REFINEMENT_SPHERE_RADIUS_MAP["Selected final design"],
+        )
+        _draw_sphere_markers_3d(
+            ax=ax,
+            xs=[selected_design_xyz[0]],
+            ys=[selected_design_xyz[1]],
+            zs=[selected_design_xyz[2]],
+            radius_x=final_radius_x,
+            radius_y=final_radius_y,
+            radius_z=final_radius_z,
+            facecolor=_color_for_z(stage_z_map["Selected final design"], z_normalize),
+            edgecolor="black",
+            alpha=0.99,
+            linewidth=0.22,
+        )
+        ax.text(
+            selected_design_xyz[0],
+            selected_design_xyz[1],
+            selected_design_xyz[2] + 0.16,
+            "selected",
+            fontsize=9,
+            fontweight="bold",
+        )
+        ax.text(
+            selected_design_xyz[0] + 0.020 * x_span,
+            selected_design_xyz[1] + 0.036 * y_span,
+            selected_design_xyz[2] + 0.12,
+            _format_tradeoff_label(
+                selected_design_xyz[0],
+                selected_design_xyz[1],
+            ),
+            fontsize=8,
+            color="#222222",
+            ha="left",
+            va="bottom",
+        )
+
+    if selected_final_start_xyz is not None and selected_design_xyz is not None:
+        _draw_curve_3d_gradient(
+            ax=ax,
+            x0=selected_final_start_xyz[0],
+            y0=selected_final_start_xyz[1],
+            z0=selected_final_start_xyz[2],
+            x1=selected_design_xyz[0],
+            y1=selected_design_xyz[1],
+            z1=selected_design_xyz[2],
+            linewidth=TRACE_LINE_WIDTH,
+            alpha=TRACE_ALPHA_SELECTED_STEP,
+            zorder=9,
+            z_normalize=z_normalize,
+            bend_x=0.0,
+            bend_y=0.0,
+        )
+
+    selected_path_edges_df = refinement_edges_df.loc[
+        refinement_edges_df["is_selected_path"]
+    ].copy()
+    for _, edge in selected_path_edges_df.iterrows():
+        source_key = (str(edge["source_stage"]), str(edge["source_key"]))
+        target_key = (str(edge["target_stage"]), str(edge["target_key"]))
+        if source_key not in position_map or target_key not in position_map:
+            continue
+        source_x, source_y, source_z = position_map[source_key]
+        target_x, target_y, target_z = position_map[target_key]
+        bend_x, bend_y = edge_bend_lookup.get(_edge_key(edge), (0.0, 0.0))
+        _draw_curve_3d_gradient(
+            ax=ax,
+            x0=source_x,
+            y0=source_y,
+            z0=source_z,
+            x1=target_x,
+            y1=target_y,
+            z1=target_z,
+            linewidth=TRACE_LINE_WIDTH,
+            alpha=TRACE_ALPHA_SELECTED_FULL,
+            zorder=10,
+            z_normalize=z_normalize,
+            bend_x=bend_x,
+            bend_y=bend_y,
+        )
+    if selected_final_start_xyz is not None and selected_design_xyz is not None:
+        _draw_curve_3d_gradient(
+            ax=ax,
+            x0=selected_final_start_xyz[0],
+            y0=selected_final_start_xyz[1],
+            z0=selected_final_start_xyz[2],
+            x1=selected_design_xyz[0],
+            y1=selected_design_xyz[1],
+            z1=selected_design_xyz[2],
+            linewidth=TRACE_LINE_WIDTH,
+            alpha=TRACE_ALPHA_SELECTED_FULL,
+            zorder=11,
+            z_normalize=z_normalize,
+            bend_x=0.0,
+            bend_y=0.0,
+        )
+
     ax.set_xlim(*x_limits)
     ax.set_ylim(*y_limits)
-    ax.set_zlim(-0.2, float(len(refinement_stage_order) - 1) + 0.45)
+    ax.set_zlim(-0.2, stage_z_map["Selected final design"] + 0.42)
     ax.set_zticks(
-        [stage_z_map[stage] for stage in refinement_stage_order],
+        [stage_z_map[stage] for stage in refinement_stage_order]
+        + [stage_z_map["Selected final design"]],
         labels=[
             "Selected\nsweep rows",
             "Top rerun\nstarts",
             "Final rerun\nstarts",
             "Retained\nrobust rank",
+            "Selected\nfinal design",
         ],
     )
     ax.set_xlabel("Nominal objective", labelpad=10)
@@ -2581,7 +3129,7 @@ def draw_refinement_subplot(
     ax.tick_params(axis="y", labelsize=8, pad=2)
     ax.tick_params(axis="z", labelsize=8, pad=8)
     try:
-        ax.set_box_aspect((1.20, 1.04, 1.28))
+        ax.set_box_aspect(REFINEMENT_BOX_ASPECT)
     except AttributeError:
         pass
     ax.view_init(elev=23, azim=-58)
@@ -2590,10 +3138,10 @@ def draw_refinement_subplot(
         Line2D(
             [0],
             [0],
-            marker="s",
+            marker="o",
             color="w",
             label=f"Selected sweep rows (n={int((refinement_df['stage'] == 'Selected sweep rows').sum())})",
-            markerfacecolor="#4e79a7",
+            markerfacecolor=_color_for_z(stage_z_map["Selected sweep rows"], z_normalize),
             markeredgecolor="white",
             markeredgewidth=0.7,
             markersize=7.2,
@@ -2602,10 +3150,10 @@ def draw_refinement_subplot(
         Line2D(
             [0],
             [0],
-            marker="X",
+            marker="o",
             color="w",
             label=f"Top rerun starts (n={int((refinement_df['stage'] == 'Top rerun starts').sum())})",
-            markerfacecolor="#76b7b2",
+            markerfacecolor=_color_for_z(stage_z_map["Top rerun starts"], z_normalize),
             markeredgecolor="white",
             markeredgewidth=0.7,
             markersize=7.0,
@@ -2614,10 +3162,10 @@ def draw_refinement_subplot(
         Line2D(
             [0],
             [0],
-            marker="D",
+            marker="o",
             color="w",
             label=f"Final rerun starts (n={int((refinement_df['stage'] == 'Final rerun starts').sum())})",
-            markerfacecolor="#edc948",
+            markerfacecolor=_color_for_z(stage_z_map["Final rerun starts"], z_normalize),
             markeredgecolor="white",
             markeredgewidth=0.7,
             markersize=6.8,
@@ -2626,10 +3174,10 @@ def draw_refinement_subplot(
         Line2D(
             [0],
             [0],
-            marker="h",
+            marker="o",
             color="w",
             label=f"Retained robust rank (n={int((refinement_df['stage'] == 'Retained robust rank').sum())})",
-            markerfacecolor="#af7aa1",
+            markerfacecolor=_color_for_z(stage_z_map["Retained robust rank"], z_normalize),
             markeredgecolor="white",
             markeredgewidth=0.7,
             markersize=7.6,
@@ -2638,14 +3186,50 @@ def draw_refinement_subplot(
         Line2D(
             [0],
             [0],
-            marker="*",
+            marker="o",
             color="w",
             label="Selected final design",
-            markerfacecolor="#ffcc00",
+            markerfacecolor=_color_for_z(stage_z_map["Selected final design"], z_normalize),
             markeredgecolor="black",
             markeredgewidth=0.9,
             markersize=10.0,
             linewidth=0,
+        ),
+        Line2D(
+            [0],
+            [0],
+            color=_edge_color_for_segment(
+                stage_z_map["Selected sweep rows"],
+                stage_z_map["Top rerun starts"],
+                z_normalize,
+            ),
+            label="Non-selected paths (30%)",
+            linewidth=TRACE_LINE_WIDTH,
+            alpha=TRACE_ALPHA_BACKGROUND,
+        ),
+        Line2D(
+            [0],
+            [0],
+            color=_edge_color_for_segment(
+                stage_z_map["Top rerun starts"],
+                stage_z_map["Final rerun starts"],
+                z_normalize,
+            ),
+            label="Selected step paths (70%)",
+            linewidth=TRACE_LINE_WIDTH,
+            alpha=TRACE_ALPHA_SELECTED_STEP,
+        ),
+        Line2D(
+            [0],
+            [0],
+            color=_edge_color_for_segment(
+                stage_z_map["Final rerun starts"],
+                stage_z_map["Selected final design"],
+                z_normalize,
+            ),
+            label="Final selected path (100%)",
+            linewidth=TRACE_LINE_WIDTH,
+            alpha=TRACE_ALPHA_SELECTED_FULL,
         ),
     ]
     return position_map, legend_handles
@@ -2660,15 +3244,12 @@ def draw_cross_panel_handoff_connectors(
     right_position_map: dict[tuple[str, str], tuple[float, float, float]],
 ) -> None:
     fig.canvas.draw()
+    stage_z_map = _build_refinement_stage_z_map()
+    z_normalize = _build_z_normalize()
     handoff_edges_df = edges_df.loc[
         (edges_df["source_stage"] == "Weight sweep")
         & (edges_df["target_stage"] == "Selected sweep rows")
     ].copy()
-    handoff_edges_df["draw_class"] = np.where(
-        handoff_edges_df["is_selected_path"],
-        "selected",
-        handoff_edges_df["edge_class"],
-    )
 
     for _, edge in handoff_edges_df.iterrows():
         source_key = str(edge["source_key"])
@@ -2692,41 +3273,45 @@ def draw_cross_panel_handoff_connectors(
             right_y,
             right_z,
         )
+        x_values, y_values, t_values = _sample_figure_bezier_curve(
+            x0=x0_fig,
+            y0=y0_fig,
+            x1=x1_fig,
+            y1=y1_fig,
+        )
+        z_values = stage_z_map["Selected sweep rows"] * t_values
+        alpha_value = _edge_alpha(bool(edge["is_selected_path"]))
+        z_order = 20 if bool(edge["is_selected_path"]) else 12
+        for index in range(len(x_values) - 1):
+            z_mid = 0.5 * (z_values[index] + z_values[index + 1])
+            fig.add_artist(
+                Line2D(
+                    x_values[index : index + 2],
+                    y_values[index : index + 2],
+                    transform=fig.transFigure,
+                    color=_color_for_z(z_mid, z_normalize),
+                    linewidth=TRACE_LINE_WIDTH,
+                    alpha=alpha_value,
+                    zorder=z_order,
+                    solid_capstyle="butt",
+                )
+            )
 
-        draw_class = str(edge["draw_class"])
-        edge_style = EDGE_STYLE_MAP[draw_class]
-        dx = x1_fig - x0_fig
-        dy = y1_fig - y0_fig
-        control_1 = (
-            x0_fig + 0.26 * dx,
-            y0_fig + max(0.05, 0.48 * dy),
-        )
-        control_2 = (
-            x0_fig + 0.76 * dx,
-            y0_fig + max(0.08, 1.02 * dy),
-        )
-        path = MplPath(
-            [
-                (x0_fig, y0_fig),
-                control_1,
-                control_2,
-                (x1_fig, y1_fig),
-            ],
-            [MplPath.MOVETO, MplPath.CURVE4, MplPath.CURVE4, MplPath.CURVE4],
-        )
-        patch = PathPatch(
-            path,
-            transform=fig.transFigure,
-            facecolor="none",
-            edgecolor=str(edge_style["color"]),
-            linewidth=float(edge_style["linewidth"])
-            + (0.85 if draw_class == "selected" else 0.20),
-            alpha=0.96 if draw_class == "selected" else 0.52,
-            zorder=20 if draw_class == "selected" else 12,
-            capstyle="round",
-            joinstyle="round",
-        )
-        fig.add_artist(patch)
+        if bool(edge["is_selected_path"]):
+            for index in range(len(x_values) - 1):
+                z_mid = 0.5 * (z_values[index] + z_values[index + 1])
+                fig.add_artist(
+                    Line2D(
+                        x_values[index : index + 2],
+                        y_values[index : index + 2],
+                        transform=fig.transFigure,
+                        color=_color_for_z(z_mid, z_normalize),
+                        linewidth=TRACE_LINE_WIDTH,
+                        alpha=TRACE_ALPHA_SELECTED_FULL,
+                        zorder=22,
+                        solid_capstyle="butt",
+                    )
+                )
 
 
 def make_candidate_selection_plot(data: CandidateSelectionData) -> Path:
@@ -2747,8 +3332,9 @@ def make_candidate_selection_plot(data: CandidateSelectionData) -> Path:
 
     fig = plt.figure(figsize=(12.8, 7.4))
     fig.patch.set_facecolor("white")
-    left_ax = fig.add_axes([0.09, 0.07, 0.52, 0.40], projection="3d")
-    right_ax = fig.add_axes([0.50, 0.22, 0.41, 0.56], projection="3d")
+    # horizontal start position, vertical start position, width, height
+    left_ax = fig.add_axes([0.10, 0.05, 0.50, 0.40], projection="3d")
+    right_ax = fig.add_axes([0.40, 0.25, 0.50, 0.56], projection="3d")
 
     left_position_map, left_legend_handles = draw_weight_sweep_subplot(
         ax=left_ax,
