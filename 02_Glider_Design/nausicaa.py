@@ -49,7 +49,7 @@ IPOPT_VERBOSE_PRINT_LEVEL = 5
 
 
 # Manual note for this run (edit before executing)
-MANUAL_RUN_NOTE = "v5.3.1"
+MANUAL_RUN_NOTE = "v5.3.2"
 MANUAL_RUN_NOTE_PRINT = True
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -5679,9 +5679,10 @@ def run_multistart(
     objective_scales: ObjectiveScales | None = None,
     rng: onp.random.Generator | None = None,
     ipopt_options: dict[str, Any] | None = None,
-) -> tuple[list[Candidate], pd.DataFrame]:
+) -> tuple[list[Candidate], pd.DataFrame, list[Candidate]]:
     rng = rng if rng is not None else onp.random.default_rng(int(config.random_seed))
     feasible_candidates: list[Candidate] = []
+    exact_start_candidates: list[Candidate] = []
     all_starts_rows: list[dict[str, Any]] = []
 
     for start_index in range(config.n_starts):
@@ -5710,6 +5711,7 @@ def run_multistart(
             continue
         candidate.candidate_id = start_id
         feasible_candidates.append(candidate)
+        exact_start_candidates.append(copy.copy(candidate))
         all_starts_rows.append(
             {
                 "start_index": start_id,
@@ -5731,7 +5733,7 @@ def run_multistart(
 
     if not feasible_candidates:
         all_starts_df = pd.DataFrame(all_starts_rows).sort_values(by="start_index")
-        return [], all_starts_df
+        return [], all_starts_df, []
 
     deduped: list[Candidate] = []
     for candidate in sorted(feasible_candidates, key=lambda item: item.objective):
@@ -5755,7 +5757,7 @@ def run_multistart(
             row["status"] = "dropped_by_dedup_or_rank"
 
     all_starts_df = pd.DataFrame(all_starts_rows).sort_values(by="start_index")
-    return deduped, all_starts_df
+    return deduped, all_starts_df, exact_start_candidates
 
 
 # =============================================================================
@@ -6072,7 +6074,7 @@ def run_workflow_with_postcheck(
     weights = objective_weights or ObjectiveWeights()
     scales = objective_scales or ObjectiveScales()
 
-    candidates, all_starts_df = run_multistart(
+    candidates, all_starts_df, exact_start_candidates = run_multistart(
         config,
         objective_weights=weights,
         objective_scales=scales,
@@ -6095,17 +6097,38 @@ def run_workflow_with_postcheck(
         uncertainty=uncertainty,
         rng=rng,
     )
-    robust_scenarios_df, robust_summary_df = run_robust_postcheck(
-        candidates=candidates,
+    exact_robust_scenarios_df, exact_robust_summary_df = run_robust_postcheck(
+        candidates=exact_start_candidates,
         scenarios_df=scenarios_df,
         config=config,
         cfg=_DEFAULT_CFG,
     )
+    robust_scenarios_df, robust_summary_df = relabel_robust_results_to_kept_candidates(
+        all_starts_df=all_starts_df,
+        robust_scenarios_df=exact_robust_scenarios_df,
+        robust_summary_df=exact_robust_summary_df,
+    )
+    selected_candidate = select_workflow_candidate(candidates, robust_summary_df)
+    selected_tail_metric = float("nan")
+    if (
+        selected_candidate is not None
+        and not robust_summary_df.empty
+        and "candidate_id" in robust_summary_df.columns
+    ):
+        selected_summary_df = robust_summary_df[
+            robust_summary_df["candidate_id"] == selected_candidate.candidate_id
+        ]
+        if selected_summary_df.empty:
+            selected_summary_df = robust_summary_df.iloc[[0]]
+        selected_tail_metric = float(
+            selected_summary_df.iloc[0].get("nom_sink_tail_mean_k", float("nan"))
+        )
     all_starts_df = attach_tail_metric_to_all_starts(
         all_starts_df=all_starts_df,
         robust_summary_df=robust_summary_df,
+        exact_summary_df=exact_robust_summary_df,
+        fallback_tail_metric=selected_tail_metric,
     )
-    selected_candidate = select_workflow_candidate(candidates, robust_summary_df)
     return (
         candidates,
         all_starts_df,
@@ -7931,39 +7954,85 @@ def summarize_robust_slice(
 def attach_tail_metric_to_all_starts(
     all_starts_df: pd.DataFrame,
     robust_summary_df: pd.DataFrame,
+    exact_summary_df: pd.DataFrame | None = None,
+    fallback_tail_metric: float = float("nan"),
 ) -> pd.DataFrame:
     enriched_df = all_starts_df.copy()
     if "nom_sink_tail_mean_k" not in enriched_df.columns:
         enriched_df["nom_sink_tail_mean_k"] = float("nan")
     if "nom_sink_cvar_20" not in enriched_df.columns:
         enriched_df["nom_sink_cvar_20"] = float("nan")
+    if "trace_sink_tail_mean_k" not in enriched_df.columns:
+        enriched_df["trace_sink_tail_mean_k"] = float("nan")
+    if "trace_sink_cvar_20" not in enriched_df.columns:
+        enriched_df["trace_sink_cvar_20"] = float("nan")
 
     if (
-        enriched_df.empty
-        or robust_summary_df.empty
-        or "candidate_id" not in robust_summary_df.columns
-        or "nom_sink_tail_mean_k" not in robust_summary_df.columns
+        exact_summary_df is not None
+        and not enriched_df.empty
+        and not exact_summary_df.empty
+        and "start_index" in enriched_df.columns
+        and "candidate_id" in exact_summary_df.columns
+        and "nom_sink_tail_mean_k" in exact_summary_df.columns
     ):
-        return enriched_df
+        exact_df = exact_summary_df.copy()
+        exact_df["candidate_id"] = pd.to_numeric(
+            exact_df["candidate_id"],
+            errors="coerce",
+        )
+        start_indices = pd.to_numeric(enriched_df["start_index"], errors="coerce")
+        exact_tail_metric_map = exact_df.set_index("candidate_id")["nom_sink_tail_mean_k"]
+        exact_tail_metric = start_indices.map(exact_tail_metric_map)
+        enriched_df["nom_sink_tail_mean_k"] = exact_tail_metric.combine_first(
+            pd.to_numeric(enriched_df["nom_sink_tail_mean_k"], errors="coerce")
+        )
+        enriched_df["nom_sink_cvar_20"] = enriched_df["nom_sink_tail_mean_k"]
 
-    join_key = None
-    if "kept_rank" in enriched_df.columns:
-        join_key = "kept_rank"
-    elif "candidate_id" in enriched_df.columns:
-        join_key = "candidate_id"
-    if join_key is None:
-        return enriched_df
+    if (
+        not enriched_df.empty
+        and not robust_summary_df.empty
+        and "candidate_id" in robust_summary_df.columns
+        and "nom_sink_tail_mean_k" in robust_summary_df.columns
+    ):
+        join_key = None
+        if "kept_rank" in enriched_df.columns:
+            join_key = "kept_rank"
+        elif "candidate_id" in enriched_df.columns:
+            join_key = "candidate_id"
 
-    summary_df = robust_summary_df.copy()
-    summary_df["candidate_id"] = pd.to_numeric(
-        summary_df["candidate_id"],
+        if join_key is not None:
+            summary_df = robust_summary_df.copy()
+            summary_df["candidate_id"] = pd.to_numeric(
+                summary_df["candidate_id"],
+                errors="coerce",
+            )
+            join_values = pd.to_numeric(enriched_df[join_key], errors="coerce")
+            tail_metric_map = summary_df.set_index("candidate_id")["nom_sink_tail_mean_k"]
+            mapped_tail_metric = join_values.map(tail_metric_map)
+            enriched_df["nom_sink_tail_mean_k"] = mapped_tail_metric.combine_first(
+                pd.to_numeric(enriched_df["nom_sink_tail_mean_k"], errors="coerce")
+            )
+            enriched_df["nom_sink_cvar_20"] = enriched_df["nom_sink_tail_mean_k"]
+
+    enriched_df["trace_sink_tail_mean_k"] = pd.to_numeric(
+        enriched_df["nom_sink_tail_mean_k"],
         errors="coerce",
     )
-    join_values = pd.to_numeric(enriched_df[join_key], errors="coerce")
+    enriched_df["trace_sink_cvar_20"] = enriched_df["trace_sink_tail_mean_k"]
 
-    tail_metric_map = summary_df.set_index("candidate_id")["nom_sink_tail_mean_k"]
-    enriched_df["nom_sink_tail_mean_k"] = join_values.map(tail_metric_map)
-    enriched_df["nom_sink_cvar_20"] = enriched_df["nom_sink_tail_mean_k"]
+    if onp.isfinite(float(fallback_tail_metric)):
+        if "success" in enriched_df.columns:
+            success_mask = enriched_df["success"].fillna(False).astype(bool)
+        else:
+            success_mask = pd.Series(True, index=enriched_df.index)
+        missing_trace_mask = success_mask & enriched_df["trace_sink_tail_mean_k"].isna()
+        enriched_df.loc[missing_trace_mask, "trace_sink_tail_mean_k"] = float(
+            fallback_tail_metric
+        )
+        enriched_df.loc[missing_trace_mask, "trace_sink_cvar_20"] = float(
+            fallback_tail_metric
+        )
+
     return enriched_df
 
 
@@ -8130,6 +8199,100 @@ def run_robust_postcheck(
         columns=["_sink_tail_sort", "_objective_nominal"]
     )
     return robust_scenarios_df, robust_summary_df
+
+
+def relabel_robust_results_to_kept_candidates(
+    all_starts_df: pd.DataFrame,
+    robust_scenarios_df: pd.DataFrame,
+    robust_summary_df: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if all_starts_df.empty:
+        empty_summary_df = robust_summary_df.iloc[0:0].copy()
+        if "is_selected" not in empty_summary_df.columns:
+            empty_summary_df["is_selected"] = False
+        return robust_scenarios_df.iloc[0:0].copy(), empty_summary_df
+
+    kept_df = all_starts_df.loc[all_starts_df["kept_after_dedup"] == True].copy()
+    if kept_df.empty:
+        empty_summary_df = robust_summary_df.iloc[0:0].copy()
+        if "is_selected" not in empty_summary_df.columns:
+            empty_summary_df["is_selected"] = False
+        return robust_scenarios_df.iloc[0:0].copy(), empty_summary_df
+
+    kept_df["start_index"] = pd.to_numeric(kept_df["start_index"], errors="coerce")
+    kept_df["kept_rank"] = pd.to_numeric(kept_df["kept_rank"], errors="coerce")
+    kept_df["objective"] = pd.to_numeric(kept_df["objective"], errors="coerce")
+    kept_df = kept_df.loc[
+        kept_df["start_index"].notna() & kept_df["kept_rank"].notna()
+    ].copy()
+
+    start_to_kept_rank = {
+        int(row["start_index"]): int(row["kept_rank"])
+        for _, row in kept_df.iterrows()
+    }
+    kept_rank_objective_map = {
+        int(row["kept_rank"]): float(row["objective"])
+        for _, row in kept_df.iterrows()
+    }
+
+    relabeled_scenarios_df = robust_scenarios_df.copy()
+    if not relabeled_scenarios_df.empty and "candidate_id" in relabeled_scenarios_df.columns:
+        scenario_candidate_ids = pd.to_numeric(
+            relabeled_scenarios_df["candidate_id"],
+            errors="coerce",
+        )
+        relabeled_scenarios_df = relabeled_scenarios_df.loc[
+            scenario_candidate_ids.isin(start_to_kept_rank)
+        ].copy()
+        relabeled_scenarios_df["candidate_id"] = scenario_candidate_ids.loc[
+            relabeled_scenarios_df.index
+        ].map(start_to_kept_rank).astype(int)
+
+    relabeled_summary_df = robust_summary_df.copy()
+    if "candidate_id" not in relabeled_summary_df.columns:
+        relabeled_summary_df = relabeled_summary_df.iloc[0:0].copy()
+        relabeled_summary_df["is_selected"] = False
+        return relabeled_scenarios_df.reset_index(drop=True), relabeled_summary_df
+
+    summary_candidate_ids = pd.to_numeric(
+        relabeled_summary_df["candidate_id"],
+        errors="coerce",
+    )
+    relabeled_summary_df = relabeled_summary_df.loc[
+        summary_candidate_ids.isin(start_to_kept_rank)
+    ].copy()
+    relabeled_summary_df["candidate_id"] = summary_candidate_ids.loc[
+        relabeled_summary_df.index
+    ].map(start_to_kept_rank).astype(int)
+
+    if relabeled_summary_df.empty:
+        relabeled_summary_df["is_selected"] = False
+        return relabeled_scenarios_df.reset_index(drop=True), relabeled_summary_df
+
+    relabeled_summary_df["_objective_nominal"] = relabeled_summary_df["candidate_id"].map(
+        kept_rank_objective_map
+    )
+    relabeled_summary_df["_sink_tail_sort"] = relabeled_summary_df[
+        "nom_sink_tail_mean_k"
+    ].fillna(onp.inf)
+    ordered_df = relabeled_summary_df.sort_values(
+        by=["nom_success_rate", "_sink_tail_sort", "_objective_nominal"],
+        ascending=[False, True, True],
+        kind="mergesort",
+    )
+    selected_candidate_id = int(ordered_df.iloc[0]["candidate_id"])
+    relabeled_summary_df["is_selected"] = (
+        relabeled_summary_df["candidate_id"] == selected_candidate_id
+    )
+    relabeled_summary_df = relabeled_summary_df.drop(
+        columns=["_objective_nominal", "_sink_tail_sort"],
+        errors="ignore",
+    )
+    relabeled_summary_df = relabeled_summary_df.sort_values(
+        by=["candidate_id"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    return relabeled_scenarios_df.reset_index(drop=True), relabeled_summary_df
 
 
 
@@ -8882,6 +9045,8 @@ def save_workflow_workbook(
                 "objective",
                 "nom_sink_tail_mean_k",
                 "nom_sink_cvar_20",
+                "trace_sink_tail_mean_k",
+                "trace_sink_cvar_20",
                 "failure_reason",
                 "kept_after_dedup",
                 "kept_rank",
@@ -9576,12 +9741,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
 
 
 
