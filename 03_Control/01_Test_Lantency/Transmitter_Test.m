@@ -3626,7 +3626,9 @@ config.trainerPpm = struct( ...
 
 config.referenceStrobe = struct( ...
     "enabled", getLogicalField(referenceStrobeConfig, "enabled", true), ...
-    "pulseWidthUs", getPositiveIntegerField(referenceStrobeConfig, "pulseWidthUs", 20));
+    "mode", canonicalizeReferenceStrobeMode( ...
+        getTextScalarField(referenceStrobeConfig, "mode", "commit_only")), ...
+    "pulseWidthUs", getPositiveIntegerField(referenceStrobeConfig, "pulseWidthUs", 50));
 
 config.logicAnalyzer = struct( ...
     "enabled", getLogicalField(logicAnalyzerConfig, "enabled", false), ...
@@ -3683,6 +3685,17 @@ end
 config.activeSurfaceMask = activeSurfaceMask;
 config.activeSurfaceNames = config.surfaceNames(activeSurfaceMask);
 config.surfaceSetup = buildTransmitterSurfaceSetupTable(config);
+end
+
+function referenceStrobeMode = canonicalizeReferenceStrobeMode(referenceStrobeMode)
+referenceStrobeMode = lower(string(referenceStrobeMode));
+validModes = ["commit_only", "every_frame"];
+if ~any(referenceStrobeMode == validModes)
+    error( ...
+        "Transmitter_Test:InvalidReferenceStrobeMode", ...
+        "referenceStrobe.mode must be one of: %s.", ...
+        char(join(validModes, ", ")));
+end
 end
 
 function runData = initializeTransmitterRunData(config)
@@ -4724,7 +4737,10 @@ matchedEvents.computer_to_arduino_rx_latency_s(isRxMatched) = ...
     matchedEvents.board_rx_s(isRxMatched) - matchedEvents.command_dispatch_s(isRxMatched);
 
 commitUnique = deduplicateCommitTable(boardCommitLog);
-commitUnique.reference_strobe_s = matchReferenceCaptureTimes(commitUnique, referenceCapture);
+commitUnique.reference_strobe_s = matchReferenceCaptureTimes( ...
+    commitUnique, ...
+    referenceCapture, ...
+    config.referenceStrobe.mode);
 if ~isempty(commitUnique)
     [isCommitMatched, commitIndex] = ismember(double(matchedEvents.sample_sequence), double(commitUnique.sample_sequence));
     for rowIndex = 1:height(matchedEvents)
@@ -4755,15 +4771,12 @@ end
 commitTable = commitTable(sort(firstIndex), :);
 end
 
-function referenceTime = matchReferenceCaptureTimes(commitTable, referenceCapture)
-referenceTime = nan(height(commitTable), 1);
+function referenceTime = matchReferenceCaptureTimes(commitTable, referenceCapture, referenceStrobeMode)
+referenceTime = selectBoardReferenceTimes(commitTable);
 if isempty(commitTable)
     return;
 end
-if isempty(referenceCapture)
-    if ismember("strobe_time_s", string(commitTable.Properties.VariableNames))
-        referenceTime = commitTable.strobe_time_s;
-    end
+if referenceStrobeMode ~= "commit_only" || isempty(referenceCapture)
     return;
 end
 
@@ -4778,6 +4791,25 @@ for commitIndex = 1:height(commitTable)
     end
     referenceTime(commitIndex) = referenceCapture.time_s(referenceIndex);
     referenceIndex = referenceIndex + 1;
+end
+end
+
+function referenceTime = selectBoardReferenceTimes(commitTable)
+referenceTime = nan(height(commitTable), 1);
+if isempty(commitTable)
+    return;
+end
+
+variableNames = string(commitTable.Properties.VariableNames);
+if ismember("strobe_time_s", variableNames)
+    referenceTime = commitTable.strobe_time_s;
+    if any(isfinite(referenceTime))
+        return;
+    end
+end
+
+if ismember("commit_time_s", variableNames)
+    referenceTime = commitTable.commit_time_s;
 end
 end
 
@@ -5264,6 +5296,9 @@ settings = { ...
     "TrainerPPM", "FrameLengthUs", formatSettingValue(config.trainerPpm.frameLengthUs); ...
     "TrainerPPM", "MarkWidthUs", formatSettingValue(config.trainerPpm.markWidthUs); ...
     "TrainerPPM", "ChannelCount", formatSettingValue(config.trainerPpm.channelCount); ...
+    "ReferenceStrobe", "Enabled", formatSettingValue(config.referenceStrobe.enabled); ...
+    "ReferenceStrobe", "Mode", formatSettingValue(config.referenceStrobe.mode); ...
+    "ReferenceStrobe", "PulseWidthUs", formatSettingValue(config.referenceStrobe.pulseWidthUs); ...
     "Matching", "PpmChangeThresholdUs", formatSettingValue(config.matching.ppmChangeThresholdUs); ...
     "Matching", "ReceiverChangeThresholdUs", formatSettingValue(config.matching.receiverChangeThresholdUs); ...
     "Matching", "MaxResponseWindowSeconds", formatSettingValue(config.matching.maxResponseWindowSeconds)};

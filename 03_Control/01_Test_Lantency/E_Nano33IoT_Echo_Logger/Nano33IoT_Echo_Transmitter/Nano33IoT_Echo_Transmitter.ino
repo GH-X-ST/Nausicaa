@@ -19,10 +19,7 @@ constexpr uint16_t kMaximumPulseUs = 2000;
 constexpr uint16_t kNeutralPulseUs = 1500;
 constexpr uint16_t kFrameLengthUs = 22000;
 constexpr uint16_t kMarkWidthUs = 300;
-constexpr uint16_t kReferencePulseWidthUs = 20;
 constexpr uint32_t kCommandTimeoutUs = 250000;
-
-constexpr bool kReferenceStrobeEnabled = true;
 
 constexpr char kSurfaceNames[kSurfaceCount][16] = {
   "Aileron_L",
@@ -30,6 +27,17 @@ constexpr char kSurfaceNames[kSurfaceCount][16] = {
   "Rudder",
   "Elevator"
 };
+}
+
+enum class ReferencePulseMode : uint8_t {
+  CommitOnly,
+  EveryFrame
+};
+
+namespace Config {
+constexpr uint16_t kReferencePulseWidthUs = 50;
+constexpr bool kReferenceStrobeEnabled = true;
+constexpr ReferencePulseMode kReferencePulseMode = ReferencePulseMode::CommitOnly;
 }
 
 struct VectorCommand {
@@ -56,6 +64,8 @@ enum class PpmPhase : uint8_t {
   Space,
   SyncGap
 };
+
+const __FlashStringHelper* referencePulseModeLabel();
 
 char gCommandBuffer[Config::kCommandBufferLength];
 size_t gCommandLength = 0;
@@ -430,7 +440,11 @@ void sendStatusEvent() {
   Serial.print(F(",error_count="));
   Serial.print(gErrorCount);
   Serial.print(F(",latest_sequence="));
-  Serial.println(gLatestSequence);
+  Serial.print(gLatestSequence);
+  Serial.print(F(",reference_mode="));
+  Serial.print(referencePulseModeLabel());
+  Serial.print(F(",reference_pulse_us="));
+  Serial.println(Config::kReferencePulseWidthUs);
 }
 
 void sendRxEvent(const VectorCommand& command) {
@@ -452,7 +466,16 @@ void flushCommitQueue() {
   while (gCommitQueueTail != gCommitQueueHead) {
     CommitLogEntry entry = {};
     noInterrupts();
-    entry = gCommitQueue[gCommitQueueTail];
+    const volatile CommitLogEntry& queuedEntry = gCommitQueue[gCommitQueueTail];
+    entry.sampleSequence = queuedEntry.sampleSequence;
+    entry.activeMask = queuedEntry.activeMask;
+    entry.boardRxUs = queuedEntry.boardRxUs;
+    entry.boardCommitUs = queuedEntry.boardCommitUs;
+    entry.strobeUs = queuedEntry.strobeUs;
+    entry.frameIndex = queuedEntry.frameIndex;
+    for (size_t channelIndex = 0; channelIndex < Config::kPpmChannelCount; ++channelIndex) {
+      entry.ppmUs[channelIndex] = queuedEntry.ppmUs[channelIndex];
+    }
     gCommitQueueTail = static_cast<uint8_t>((gCommitQueueTail + 1U) % Config::kCommitQueueLength);
     interrupts();
 
@@ -554,6 +577,18 @@ uint32_t emitReferencePulseIsr() {
   return nowUs;
 }
 
+const __FlashStringHelper* referencePulseModeLabel() {
+  switch (Config::kReferencePulseMode) {
+    case ReferencePulseMode::CommitOnly:
+      return F("commit_only");
+
+    case ReferencePulseMode::EveryFrame:
+      return F("every_frame");
+  }
+
+  return F("commit_only");
+}
+
 void serviceReferencePulse() {
   if (!gReferencePulseActive) {
     return;
@@ -653,12 +688,20 @@ void enqueueCommitEventIsr(const VectorCommand& command, uint32_t boardCommitUs,
 
 void startNextFrameIsr() {
   ++gFrameIndex;
+  uint32_t frameStrobeUs = 0;
+
+  if (Config::kReferencePulseMode == ReferencePulseMode::EveryFrame) {
+    frameStrobeUs = emitReferencePulseIsr();
+  }
 
   if (gPendingVectorValid) {
     VectorCommand committed = gPendingVector;
     gPendingVectorValid = false;
     loadActiveVector(committed);
-    const uint32_t strobeUs = emitReferencePulseIsr();
+    uint32_t strobeUs = frameStrobeUs;
+    if (Config::kReferencePulseMode == ReferencePulseMode::CommitOnly) {
+      strobeUs = emitReferencePulseIsr();
+    }
     const uint32_t boardCommitUs = micros();
     enqueueCommitEventIsr(committed, boardCommitUs, strobeUs);
   }
