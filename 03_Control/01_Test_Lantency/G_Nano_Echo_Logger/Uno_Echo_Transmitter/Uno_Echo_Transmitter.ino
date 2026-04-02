@@ -11,8 +11,8 @@ constexpr size_t kBinaryVectorPacketLength = 15;
 constexpr size_t kCommandBufferLength = 192;
 constexpr size_t kCommitQueueLength = 32;
 
-constexpr uint8_t kTrainerPin = 3;
-constexpr uint8_t kReferencePin = 2;
+constexpr uint8_t kTrainerPin = 12;
+constexpr uint8_t kReferencePin = 10;
 
 constexpr uint16_t kMinimumPulseUs = 1000;
 constexpr uint16_t kMaximumPulseUs = 2000;

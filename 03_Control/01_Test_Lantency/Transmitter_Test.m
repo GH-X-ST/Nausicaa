@@ -4,19 +4,24 @@ function runData = Transmitter_Test(config)
 %   commands the four logical control surfaces as one compact vector, logs
 %   RX_EVENT and COMMIT_EVENT telemetry, and optionally matches imported
 %   downstream capture tables for trainer and receiver latency analysis.
+%   Default transmitter wiring uses D12 for trainer PPM and D10 for the
+%   reference strobe.
 arguments
     config (1,1) struct = struct()
 end
 
 config = normalizeTransmitterConfig(config);
+runPlan = buildTransmitterRunPlan(config);
 runData = initializeTransmitterRunData(config);
 runData.runInfo.startTime = datetime("now");
+runData.runInfo.scheduledDurationSeconds = runPlan.scheduledDurationSeconds;
 
 assignin("base", "TransmitterTestLatestState", struct([]));
 assignin("base", "TransmitterTestRunData", runData);
 
 commandInterface = struct();
-cleanupHandle = onCleanup(@() cleanupTransmitterResources(commandInterface, config));
+sigrokSession = createEmptySigrokSession();
+cleanupHandle = onCleanup(@() cleanupTransmitterResources(commandInterface, config, sigrokSession));
 
 try
     [commandInterface, arduinoInfo] = connectToTransmitter(config);
@@ -38,7 +43,25 @@ try
     moveTransmitterToNeutral(commandInterface);
     pause(config.neutralSettleSeconds);
 
-    [storage, runInfo, config] = executeTransmitterRun(commandInterface, config);
+    if isSigrokAutoMode(config)
+        [sigrokSession, config] = startSigrokSession(config, runPlan);
+        pause(config.logicAnalyzer.captureStartLeadSeconds);
+    end
+
+    [storage, runInfo, config] = executeTransmitterRun(commandInterface, config, runPlan);
+    loggerData = storage.rawLogs;
+
+    if isSigrokAutoMode(config)
+        sigrokSession = waitForSigrokSession(sigrokSession, config);
+        config = finalizeSigrokSession(sigrokSession, config);
+    end
+
+    [referenceCapture, trainerPpmCapture, receiverCapture] = importTransmitterCaptureData(config);
+    loggerData.referenceCapture = referenceCapture;
+    loggerData.trainerPpmCapture = trainerPpmCapture;
+    loggerData.receiverCapture = receiverCapture;
+    storage = finalizeTransmitterStorage(storage, config, loggerData);
+
     runData.config = config;
     runData.runInfo = runInfo;
     runData.logs = buildTransmitterLogs(storage, config);
@@ -49,7 +72,7 @@ try
     assignin("base", "TransmitterTestLatestState", buildTransmitterLatestState(storage, config, storage.sampleCount));
 
     clear cleanupHandle
-    cleanupTransmitterResources(commandInterface, config);
+    cleanupTransmitterResources(commandInterface, config, sigrokSession);
 catch executionException
     runData.runInfo.status = "failed";
     runData.runInfo.reason = string(executionException.message);
@@ -185,7 +208,7 @@ commandProfile.eventHoldSeconds = getPositiveScalarField(commandProfileConfig, "
 commandProfile.eventNeutralHoldSeconds = getNonnegativeScalarField(commandProfileConfig, "eventNeutralHoldSeconds", 0.10);
 commandProfile.eventDwellSeconds = getNonnegativeScalarField(commandProfileConfig, "eventDwellSeconds", 0.60);
 commandProfile.eventRandomJitterSeconds = getNonnegativeScalarField(commandProfileConfig, "eventRandomJitterSeconds", 0.05);
-commandProfile.randomSeed = getScalarField(commandProfileConfig, "randomSeed", 5);
+commandProfile.randomSeed = getScalarField(commandProfileConfig, "randomSeed", 1);
 commandProfile.customTimeSeconds = getNumericVectorField(commandProfileConfig, "customTimeSeconds", []);
 commandProfile.customDeflectionDegrees = getNumericVectorField(commandProfileConfig, "customDeflectionDegrees", []);
 commandProfile.customInterpolationMethod = getTextScalarField(commandProfileConfig, "customInterpolationMethod", "linear");
@@ -3534,6 +3557,8 @@ function config = normalizeTransmitterConfig(config)
 rootFolder = fileparts(mfilename("fullpath"));
 defaultSurfaceNames = ["Aileron_L"; "Aileron_R"; "Rudder"; "Elevator"];
 defaultTrainerChannelMap = [defaultSurfaceNames; ""; ""; ""; ""];
+defaultLogicAnalyzerChannels = [0 1 2 3 4 5];
+defaultLogicAnalyzerNames = ["RX_CH1"; "RX_CH2"; "RX_CH3"; "RX_CH4"; "REF_D10"; "TRAINER_PPM_D12"];
 transportConfig = getFieldOrDefault(config, "arduinoTransport", struct());
 trainerPpmConfig = getFieldOrDefault(config, "trainerPpm", struct());
 referenceStrobeConfig = getFieldOrDefault(config, "referenceStrobe", struct());
@@ -3617,12 +3642,18 @@ config.trainerPpm = struct( ...
     "idleHigh", getLogicalField(trainerPpmConfig, "idleHigh", true), ...
     "latchMode", getTextScalarField(trainerPpmConfig, "latchMode", "frame_boundary"), ...
     "commandTimeoutSeconds", getPositiveScalarField(trainerPpmConfig, "commandTimeoutSeconds", 0.25), ...
-    "outputPin", getTextScalarField(trainerPpmConfig, "outputPin", "D3"), ...
-    "referencePin", getTextScalarField(trainerPpmConfig, "referencePin", "D2"), ...
+    "outputPin", getTextScalarField(trainerPpmConfig, "outputPin", "D12"), ...
+    "referencePin", getTextScalarField(trainerPpmConfig, "referencePin", "D10"), ...
     "minimumPulseUs", getPositiveIntegerField(trainerPpmConfig, "minimumPulseUs", 1000), ...
     "maximumPulseUs", getPositiveIntegerField(trainerPpmConfig, "maximumPulseUs", 2000), ...
     "neutralPulseUs", getPositiveIntegerField(trainerPpmConfig, "neutralPulseUs", 1500), ...
     "channelSurfaceMap", getStringArrayField(trainerPpmConfig, "channelSurfaceMap", defaultTrainerChannelMap));
+
+if ~isfield(getFieldOrDefault(config, "commandProfile", struct()), "sampleTimeSeconds")
+    minimumRecommendedSampleTimeSeconds = ...
+        max(0.025, double(config.trainerPpm.frameLengthUs) ./ 1e6 + 0.002);
+    config.commandProfile.sampleTimeSeconds = minimumRecommendedSampleTimeSeconds;
+end
 
 config.referenceStrobe = struct( ...
     "enabled", getLogicalField(referenceStrobeConfig, "enabled", true), ...
@@ -3630,12 +3661,57 @@ config.referenceStrobe = struct( ...
         getTextScalarField(referenceStrobeConfig, "mode", "commit_only")), ...
     "pulseWidthUs", getPositiveIntegerField(referenceStrobeConfig, "pulseWidthUs", 50));
 
+logicAnalyzerEnabled = getLogicalField(logicAnalyzerConfig, "enabled", true);
+logicAnalyzerModeDefault = "import_only";
+if logicAnalyzerEnabled
+    logicAnalyzerModeDefault = "sigrok_auto";
+end
+
+logicAnalyzerMode = canonicalizeLogicAnalyzerMode( ...
+    getTextScalarField(logicAnalyzerConfig, "mode", logicAnalyzerModeDefault));
+automationModeDefault = "import_only";
+if logicAnalyzerMode == "sigrok_auto"
+    automationModeDefault = "capture_decode_import";
+end
+
+roleMapConfig = getFieldOrDefault(logicAnalyzerConfig, "channelRoleMap", struct());
+channelRoleMap = struct( ...
+    "receiver", getNumericVectorField(roleMapConfig, "receiver", [0 1 2 3]), ...
+    "reference", getNonnegativeIntegerField(roleMapConfig, "reference", 4), ...
+    "trainerPpm", getNonnegativeIntegerField(roleMapConfig, "trainerPpm", 5));
+logicAnalyzerArtifactPrefix = fullfile( ...
+    config.arduinoTransport.loggerOutputFolder, ...
+    config.runLabel + "_sigrok");
+
 config.logicAnalyzer = struct( ...
-    "enabled", getLogicalField(logicAnalyzerConfig, "enabled", false), ...
-    "mode", getTextScalarField(logicAnalyzerConfig, "mode", "import_only"), ...
-    "referenceCapturePath", getOptionalTextScalarField(logicAnalyzerConfig, "referenceCapturePath", ""), ...
-    "trainerPpmCapturePath", getOptionalTextScalarField(logicAnalyzerConfig, "trainerPpmCapturePath", ""), ...
-    "receiverCapturePath", getOptionalTextScalarField(logicAnalyzerConfig, "receiverCapturePath", ""));
+    "enabled", logicAnalyzerEnabled, ...
+    "mode", logicAnalyzerMode, ...
+    "automationMode", getTextScalarField(logicAnalyzerConfig, "automationMode", automationModeDefault), ...
+    "sigrokCliPath", getOptionalTextScalarField(logicAnalyzerConfig, "sigrokCliPath", "C:\Program Files\sigrok\sigrok-cli\sigrok-cli.exe"), ...
+    "deviceDriver", getTextScalarField(logicAnalyzerConfig, "deviceDriver", "fx2lafw"), ...
+    "deviceId", getOptionalTextScalarField(logicAnalyzerConfig, "deviceId", ""), ...
+    "sampleRateHz", getPositiveIntegerField(logicAnalyzerConfig, "sampleRateHz", 4000000), ...
+    "captureDurationSeconds", getOptionalScalarField(logicAnalyzerConfig, "captureDurationSeconds", NaN), ...
+    "captureStartLeadSeconds", getNonnegativeScalarField(logicAnalyzerConfig, "captureStartLeadSeconds", 0.25), ...
+    "captureStopLagSeconds", getNonnegativeScalarField(logicAnalyzerConfig, "captureStopLagSeconds", 0.50), ...
+    "channels", getNumericVectorField(logicAnalyzerConfig, "channels", defaultLogicAnalyzerChannels), ...
+    "channelNames", getStringArrayField(logicAnalyzerConfig, "channelNames", defaultLogicAnalyzerNames), ...
+    "channelRoleMap", channelRoleMap, ...
+    "outputFormat", getTextScalarField(logicAnalyzerConfig, "outputFormat", "logic_state_csv"), ...
+    "rawCapturePath", getOptionalTextScalarField(logicAnalyzerConfig, "rawCapturePath", logicAnalyzerArtifactPrefix + "_raw.sr"), ...
+    "logicStateExportPath", getOptionalTextScalarField(logicAnalyzerConfig, "logicStateExportPath", logicAnalyzerArtifactPrefix + "_logic_state.csv"), ...
+    "decodedReferencePath", getOptionalTextScalarField(logicAnalyzerConfig, "decodedReferencePath", logicAnalyzerArtifactPrefix + "_reference.csv"), ...
+    "decodedTrainerPpmPath", getOptionalTextScalarField(logicAnalyzerConfig, "decodedTrainerPpmPath", logicAnalyzerArtifactPrefix + "_trainer.csv"), ...
+    "decodedReceiverPath", getOptionalTextScalarField(logicAnalyzerConfig, "decodedReceiverPath", logicAnalyzerArtifactPrefix + "_receiver.csv"), ...
+    "storeStdoutPath", getOptionalTextScalarField(logicAnalyzerConfig, "storeStdoutPath", logicAnalyzerArtifactPrefix + "_stdout.txt"), ...
+    "storeStderrPath", getOptionalTextScalarField(logicAnalyzerConfig, "storeStderrPath", logicAnalyzerArtifactPrefix + "_stderr.txt"), ...
+    "deleteRawAfterDecode", getLogicalField(logicAnalyzerConfig, "deleteRawAfterDecode", false), ...
+    "useTrigger", getLogicalField(logicAnalyzerConfig, "useTrigger", false), ...
+    "triggerChannel", getOptionalTextScalarField(logicAnalyzerConfig, "triggerChannel", ""), ...
+    "triggerType", getOptionalTextScalarField(logicAnalyzerConfig, "triggerType", ""), ...
+    "referenceCapturePath", getOptionalTextScalarField(logicAnalyzerConfig, "referenceCapturePath", logicAnalyzerArtifactPrefix + "_reference.csv"), ...
+    "trainerPpmCapturePath", getOptionalTextScalarField(logicAnalyzerConfig, "trainerPpmCapturePath", logicAnalyzerArtifactPrefix + "_trainer.csv"), ...
+    "receiverCapturePath", getOptionalTextScalarField(logicAnalyzerConfig, "receiverCapturePath", logicAnalyzerArtifactPrefix + "_receiver.csv"));
 
 config.matching = struct( ...
     "referenceDebounceUs", getPositiveIntegerField(matchingConfig, "referenceDebounceUs", 100), ...
@@ -3652,6 +3728,12 @@ if config.trainerPpm.channelCount ~= 8
 end
 if numel(config.trainerPpm.channelSurfaceMap) ~= config.trainerPpm.channelCount
     error("Transmitter_Test:InvalidChannelSurfaceMap", "trainerPpm.channelSurfaceMap must contain one entry per PPM channel.");
+end
+if numel(config.logicAnalyzer.channels) ~= numel(config.logicAnalyzer.channelNames)
+    error("Transmitter_Test:InvalidLogicAnalyzerChannels", "logicAnalyzer.channels and logicAnalyzer.channelNames must have matching lengths.");
+end
+if numel(config.logicAnalyzer.channelRoleMap.receiver) ~= surfaceCount
+    error("Transmitter_Test:InvalidLogicAnalyzerReceiverRoleMap", "logicAnalyzer.channelRoleMap.receiver must contain one channel per logical surface.");
 end
 validateattributes(config.servoNeutralPositions, {"numeric"}, {"real", "finite", "column", "numel", surfaceCount}, char(mfilename), 'servoNeutralPositions');
 validateattributes(config.servoUnitsPerDegree, {"numeric"}, {"real", "finite", "column", "numel", surfaceCount}, char(mfilename), 'servoUnitsPerDegree');
@@ -3687,6 +3769,66 @@ config.activeSurfaceNames = config.surfaceNames(activeSurfaceMask);
 config.surfaceSetup = buildTransmitterSurfaceSetupTable(config);
 end
 
+function logicAnalyzerMode = canonicalizeLogicAnalyzerMode(logicAnalyzerMode)
+logicAnalyzerMode = lower(string(logicAnalyzerMode));
+validModes = ["import_only", "sigrok_auto"];
+if ~any(logicAnalyzerMode == validModes)
+    error( ...
+        "Transmitter_Test:InvalidLogicAnalyzerMode", ...
+        "logicAnalyzer.mode must be one of: %s.", ...
+        char(join(validModes, ", ")));
+end
+end
+
+function isEnabled = isSigrokAutoMode(config)
+isEnabled = ...
+    isfield(config, "logicAnalyzer") && ...
+    config.logicAnalyzer.enabled && ...
+    config.logicAnalyzer.mode == "sigrok_auto";
+end
+
+function sigrokSession = createEmptySigrokSession()
+sigrokSession = struct( ...
+    "process", [], ...
+    "processId", NaN, ...
+    "isActive", false, ...
+    "rawCaptureCommand", "", ...
+    "logicStateExportCommand", "", ...
+    "rawCapturePath", "", ...
+    "logicStateExportPath", "", ...
+    "decodedReferencePath", "", ...
+    "decodedTrainerPpmPath", "", ...
+    "decodedReceiverPath", "", ...
+    "stdoutPath", "", ...
+    "stderrPath", "", ...
+    "sampleRateHz", NaN, ...
+    "channelRoleMap", struct());
+end
+
+function captureDurationSeconds = computeSigrokCaptureDurationSeconds(config, runPlan)
+if isfinite(config.logicAnalyzer.captureDurationSeconds)
+    captureDurationSeconds = config.logicAnalyzer.captureDurationSeconds;
+    return;
+end
+
+statusAllowanceSeconds = 0.05;
+drainAllowanceSeconds = 2.0 + config.arduinoTransport.lineIdleTimeoutSeconds;
+syncAfterRunSeconds = ...
+    double(config.arduinoTransport.syncCountAfterRun) .* ...
+    config.arduinoTransport.syncPauseSeconds;
+postRunSerialCollectionSeconds = ...
+    config.arduinoTransport.postRunSettleSeconds + ...
+    syncAfterRunSeconds + ...
+    statusAllowanceSeconds + ...
+    drainAllowanceSeconds;
+captureDurationSeconds = ...
+    config.logicAnalyzer.captureStartLeadSeconds + ...
+    runPlan.scheduledDurationSeconds + ...
+    postRunSerialCollectionSeconds + ...
+    config.logicAnalyzer.captureStopLagSeconds + ...
+    0.25;
+end
+
 function referenceStrobeMode = canonicalizeReferenceStrobeMode(referenceStrobeMode)
 referenceStrobeMode = lower(string(referenceStrobeMode));
 validModes = ["commit_only", "every_frame"];
@@ -3716,7 +3858,14 @@ runData = struct( ...
     "artifacts", struct( ...
         "matFilePath", "", ...
         "workbookPath", "", ...
-        "loggerFolderPath", ""));
+        "loggerFolderPath", "", ...
+        "rawCapturePath", "", ...
+        "logicStateExportPath", "", ...
+        "decodedReferencePath", "", ...
+        "decodedTrainerPpmPath", "", ...
+        "decodedReceiverPath", "", ...
+        "sigrokStdoutPath", "", ...
+        "sigrokStderrPath", ""));
 end
 
 function [commandInterface, connectionInfo] = connectToTransmitter(config)
@@ -3816,7 +3965,11 @@ fprintf("  Arduino: %s\n", char(getStatusText(runData.connectionInfo.arduino)));
 fprintf("  Active surfaces: %s\n\n", char(join(runData.config.activeSurfaceNames, ", ")));
 end
 
-function cleanupTransmitterResources(commandInterface, config)
+function cleanupTransmitterResources(commandInterface, config, sigrokSession)
+if nargin >= 3
+    cleanupSigrokSession(sigrokSession);
+end
+
 if isempty(fieldnames(commandInterface))
     return;
 end
@@ -3851,10 +4004,20 @@ for repeatIndex = 1:repeatCount
 end
 end
 
-function [storage, runInfo, config] = executeTransmitterRun(commandInterface, config)
+function runPlan = buildTransmitterRunPlan(config)
 [scheduledTimeSeconds, profileInfo] = buildCommandSchedule(config.commandProfile);
+runPlan = struct( ...
+    "scheduledTimeSeconds", scheduledTimeSeconds, ...
+    "profileInfo", profileInfo, ...
+    "sampleCount", numel(scheduledTimeSeconds), ...
+    "scheduledDurationSeconds", profileInfo.totalDurationSeconds);
+end
+
+function [storage, runInfo, config] = executeTransmitterRun(commandInterface, config, runPlan)
 surfaceCount = numel(config.surfaceNames);
-sampleCount = numel(scheduledTimeSeconds);
+sampleCount = runPlan.sampleCount;
+scheduledTimeSeconds = runPlan.scheduledTimeSeconds;
+profileInfo = runPlan.profileInfo;
 
 storage = initializeTransmitterStorage(sampleCount, surfaceCount);
 storage.scheduledTimeSeconds = scheduledTimeSeconds;
@@ -3867,7 +4030,7 @@ runInfo = struct( ...
     "startTime", datetime("now"), ...
     "stopTime", NaT, ...
     "sampleCount", 0, ...
-    "scheduledDurationSeconds", profileInfo.totalDurationSeconds);
+    "scheduledDurationSeconds", runPlan.scheduledDurationSeconds);
 
 serialObject = commandInterface.connection;
 loggerSession = startTransmitterLoggerSession(serialObject, config, sampleCount, nnz(config.activeSurfaceMask));
@@ -3933,7 +4096,7 @@ for sampleIndex = 1:sampleCount
 end
 
 [loggerData, config] = finalizeTransmitterLoggerSession(serialObject, loggerSession, config);
-storage = finalizeTransmitterStorage(storage, config, loggerData);
+storage.rawLogs = loggerData;
 
 runInfo.status = "completed";
 runInfo.stopTime = datetime("now");
@@ -4327,11 +4490,6 @@ loggerData = struct( ...
         loggerSession.telemetryHostRxUs(1:loggerSession.telemetryLineCount), ...
         loggerSession.telemetryLineText(1:loggerSession.telemetryLineCount)));
 
-[referenceCapture, trainerPpmCapture, receiverCapture] = importTransmitterCaptureData(config);
-loggerData.referenceCapture = referenceCapture;
-loggerData.trainerPpmCapture = trainerPpmCapture;
-loggerData.receiverCapture = receiverCapture;
-
 config.arduinoTransport.captureSucceeded = true;
 config.arduinoTransport.captureRowCount = height(loggerData.boardCommitLog);
 config.arduinoTransport.captureMessage = ...
@@ -4339,6 +4497,435 @@ config.arduinoTransport.captureMessage = ...
     height(loggerData.boardRxLog) + " RX rows, " + ...
     height(loggerData.boardCommitLog) + " COMMIT rows, and " + ...
     height(loggerData.boardSyncLog) + " SYNC rows.";
+end
+
+function [sigrokSession, config] = startSigrokSession(config, runPlan)
+if ~isSigrokAutoMode(config)
+    sigrokSession = createEmptySigrokSession();
+    return;
+end
+
+createFolderIfMissing(config.arduinoTransport.loggerOutputFolder);
+deleteFileIfPresent(config.logicAnalyzer.rawCapturePath);
+deleteFileIfPresent(config.logicAnalyzer.logicStateExportPath);
+deleteFileIfPresent(config.logicAnalyzer.decodedReferencePath);
+deleteFileIfPresent(config.logicAnalyzer.decodedTrainerPpmPath);
+deleteFileIfPresent(config.logicAnalyzer.decodedReceiverPath);
+deleteFileIfPresent(config.logicAnalyzer.storeStdoutPath);
+deleteFileIfPresent(config.logicAnalyzer.storeStderrPath);
+
+config.logicAnalyzer.sigrokCliPath = validateSigrokExecutable(config.logicAnalyzer.sigrokCliPath);
+validateSigrokDevice(config);
+
+captureDurationSeconds = computeSigrokCaptureDurationSeconds(config, runPlan);
+rawCaptureCommand = buildSigrokRawCaptureCommand(config, captureDurationSeconds);
+processArguments = buildCmdExeArguments( ...
+    rawCaptureCommand + ...
+    " 1>" + quoteWindowsArgument(config.logicAnalyzer.storeStdoutPath) + ...
+    " 2>" + quoteWindowsArgument(config.logicAnalyzer.storeStderrPath));
+
+processStartInfo = System.Diagnostics.ProcessStartInfo();
+processStartInfo.FileName = 'cmd.exe';
+processStartInfo.Arguments = char(processArguments);
+processStartInfo.UseShellExecute = false;
+processStartInfo.CreateNoWindow = true;
+processStartInfo.WorkingDirectory = char(config.outputFolder);
+
+processHandle = System.Diagnostics.Process();
+processHandle.StartInfo = processStartInfo;
+if ~processHandle.Start()
+    error("Transmitter_Test:SigrokLaunchFailed", "Failed to launch sigrok-cli raw capture.");
+end
+
+sigrokSession = struct( ...
+    "process", processHandle, ...
+    "processId", double(processHandle.Id), ...
+    "isActive", true, ...
+    "rawCaptureCommand", rawCaptureCommand, ...
+    "logicStateExportCommand", "", ...
+    "rawCapturePath", config.logicAnalyzer.rawCapturePath, ...
+    "logicStateExportPath", config.logicAnalyzer.logicStateExportPath, ...
+    "decodedReferencePath", config.logicAnalyzer.decodedReferencePath, ...
+    "decodedTrainerPpmPath", config.logicAnalyzer.decodedTrainerPpmPath, ...
+    "decodedReceiverPath", config.logicAnalyzer.decodedReceiverPath, ...
+    "stdoutPath", config.logicAnalyzer.storeStdoutPath, ...
+    "stderrPath", config.logicAnalyzer.storeStderrPath, ...
+    "sampleRateHz", config.logicAnalyzer.sampleRateHz, ...
+    "channelRoleMap", config.logicAnalyzer.channelRoleMap);
+end
+
+function sigrokSession = waitForSigrokSession(sigrokSession, config)
+if ~sigrokSession.isActive
+    return;
+end
+
+sigrokSession.process.WaitForExit();
+exitCode = double(sigrokSession.process.ExitCode);
+sigrokSession.isActive = false;
+if exitCode ~= 0
+    error( ...
+        "Transmitter_Test:SigrokCaptureFailed", ...
+        "sigrok-cli raw capture failed with exit code %d. See %s.", ...
+        exitCode, ...
+        char(config.logicAnalyzer.storeStderrPath));
+end
+if ~isfile(sigrokSession.rawCapturePath)
+    error("Transmitter_Test:MissingSigrokCapture", "sigrok-cli finished without creating the raw capture file.");
+end
+end
+
+function config = finalizeSigrokSession(sigrokSession, config)
+logicStateExportCommand = buildSigrokLogicStateExportCommand(config);
+sigrokSession.logicStateExportCommand = logicStateExportCommand;
+[status, outputText] = runWindowsCommand( ...
+    logicStateExportCommand + ...
+    " 1>>" + quoteWindowsArgument(sigrokSession.stdoutPath) + ...
+    " 2>>" + quoteWindowsArgument(sigrokSession.stderrPath));
+if status ~= 0
+    error( ...
+        "Transmitter_Test:SigrokExportFailed", ...
+        "sigrok-cli logicStateExportPath export failed. %s", ...
+        strtrim(outputText));
+end
+
+logicStateTable = readLogicStateExportCsv(config.logicAnalyzer.logicStateExportPath);
+if isempty(logicStateTable)
+    error("Transmitter_Test:EmptyLogicStateExport", "logicStateExportPath did not contain any analyser samples.");
+end
+logicStateTable = normalizeLogicStateExportColumns(logicStateTable, config);
+logicState = convertLogicStateTableToSamples(logicStateTable, config.logicAnalyzer.sampleRateHz);
+
+referenceCapture = extractReferenceEdgesFromLogicState(logicState, config);
+trainerPpmCapture = extractTrainerPpmCaptureFromLogicState(logicState, config);
+receiverCapture = extractReceiverCaptureFromLogicState(logicState, config);
+if isempty(referenceCapture) && isempty(trainerPpmCapture) && isempty(receiverCapture)
+    error("Transmitter_Test:EmptyLogicStateDecode", "logicStateExportPath did not decode into any analyser events.");
+end
+
+writetable(referenceCapture, config.logicAnalyzer.decodedReferencePath);
+writetable(trainerPpmCapture, config.logicAnalyzer.decodedTrainerPpmPath);
+writetable(receiverCapture, config.logicAnalyzer.decodedReceiverPath);
+
+config.logicAnalyzer.referenceCapturePath = config.logicAnalyzer.decodedReferencePath;
+config.logicAnalyzer.trainerPpmCapturePath = config.logicAnalyzer.decodedTrainerPpmPath;
+config.logicAnalyzer.receiverCapturePath = config.logicAnalyzer.decodedReceiverPath;
+
+if config.logicAnalyzer.deleteRawAfterDecode
+    deleteFileIfPresent(config.logicAnalyzer.rawCapturePath);
+end
+end
+
+function commandText = buildSigrokRawCaptureCommand(config, captureDurationSeconds)
+driverSpec = buildSigrokDriverSpec(config.logicAnalyzer);
+channelAssignments = buildSigrokChannelAssignments(config.logicAnalyzer.channels, config.logicAnalyzer.channelNames);
+
+commandText = strjoin([ ...
+    quoteWindowsArgument(config.logicAnalyzer.sigrokCliPath), ...
+    "--driver", quoteWindowsArgument(driverSpec), ...
+    "--config", quoteWindowsArgument("samplerate=" + string(round(config.logicAnalyzer.sampleRateHz))), ...
+    "--channels", quoteWindowsArgument(channelAssignments), ...
+    "--time", quoteWindowsArgument(sprintf("%.6fs", captureDurationSeconds)), ...
+    "--output-file", quoteWindowsArgument(config.logicAnalyzer.rawCapturePath)], " ");
+
+if config.logicAnalyzer.useTrigger
+    commandText = strjoin([ ...
+        commandText, ...
+        "--triggers", quoteWindowsArgument(config.logicAnalyzer.triggerChannel + "=" + config.logicAnalyzer.triggerType), ...
+        "--wait-trigger"], ...
+        " ");
+end
+end
+
+function commandText = buildSigrokLogicStateExportCommand(config)
+outputFormatText = resolveSigrokLogicStateOutputFormat(config.logicAnalyzer.outputFormat);
+commandText = strjoin([ ...
+    quoteWindowsArgument(config.logicAnalyzer.sigrokCliPath), ...
+    "--input-file", quoteWindowsArgument(config.logicAnalyzer.rawCapturePath), ...
+    "--output-file", quoteWindowsArgument(config.logicAnalyzer.logicStateExportPath), ...
+    "--output-format", quoteWindowsArgument(outputFormatText)], " ");
+end
+
+function sigrokCliPath = validateSigrokExecutable(sigrokCliPath)
+sigrokCliPath = strtrim(string(sigrokCliPath));
+if strlength(sigrokCliPath) > 0
+    sigrokCliPath = resolveSigrokExecutablePath(sigrokCliPath);
+end
+if strlength(sigrokCliPath) == 0
+    sigrokCliPath = resolveSigrokExecutablePath("C:\Program Files\sigrok\sigrok-cli\sigrok-cli.exe");
+end
+if strlength(sigrokCliPath) == 0
+    sigrokCliPath = resolveSigrokExecutablePath("C:\Program Files\sigrok\sigrok-cli");
+end
+if strlength(sigrokCliPath) == 0
+    [status, whereOutput] = system('where.exe sigrok-cli');
+    if status ~= 0
+        error("Transmitter_Test:MissingSigrokCli", "Unable to locate sigrok-cli via where.exe.");
+    end
+    whereLines = splitlines(string(whereOutput));
+    whereLines = strtrim(whereLines(strlength(strtrim(whereLines)) > 0));
+    if isempty(whereLines)
+        error("Transmitter_Test:MissingSigrokCli", "where.exe did not return a sigrok-cli path.");
+    end
+    sigrokCliPath = resolveSigrokExecutablePath(whereLines(1));
+end
+
+if ~isfile(sigrokCliPath)
+    error("Transmitter_Test:InvalidSigrokCliPath", "sigrok-cli executable was not found: %s", char(sigrokCliPath));
+end
+
+[status, outputText] = runWindowsCommand(quoteWindowsArgument(sigrokCliPath) + " --version");
+if status ~= 0
+    error("Transmitter_Test:SigrokCliValidationFailed", "sigrok-cli validation failed. %s", strtrim(outputText));
+end
+end
+
+function sigrokCliPath = resolveSigrokExecutablePath(sigrokCliPath)
+sigrokCliPath = strtrim(string(sigrokCliPath));
+if strlength(sigrokCliPath) == 0
+    return;
+end
+
+candidatePaths = strings(0, 1);
+candidatePaths(end + 1, 1) = sigrokCliPath; %#ok<AGROW>
+
+if isfolder(sigrokCliPath)
+    candidatePaths(end + 1, 1) = fullfile(sigrokCliPath, "sigrok-cli", "sigrok-cli.exe"); %#ok<AGROW>
+    candidatePaths(end + 1, 1) = fullfile(sigrokCliPath, "sigrok-cli.exe"); %#ok<AGROW>
+elseif ~endsWith(lower(sigrokCliPath), ".exe")
+    candidatePaths(end + 1, 1) = sigrokCliPath + ".exe"; %#ok<AGROW>
+    candidatePaths(end + 1, 1) = fullfile(sigrokCliPath, "sigrok-cli.exe"); %#ok<AGROW>
+end
+
+for candidateIndex = 1:numel(candidatePaths)
+    candidatePath = strtrim(candidatePaths(candidateIndex));
+    if isfile(candidatePath)
+        sigrokCliPath = candidatePath;
+        return;
+    end
+end
+
+sigrokCliPath = "";
+end
+
+function validateSigrokDevice(config)
+sigrokCliPath = resolveSigrokCliPath(config.logicAnalyzer.sigrokCliPath);
+driverSpec = buildSigrokDriverSpec(config.logicAnalyzer);
+
+if strlength(config.logicAnalyzer.deviceId) > 0
+    validationCommand = strjoin([ ...
+        quoteWindowsArgument(sigrokCliPath), ...
+        "--driver", quoteWindowsArgument(driverSpec), ...
+        "--show"], " ");
+    [status, outputText] = runWindowsCommand(validationCommand);
+    if status ~= 0
+        error("Transmitter_Test:SigrokDeviceValidationFailed", "sigrok-cli device validation failed. %s", strtrim(outputText));
+    end
+else
+    [status, outputText] = runWindowsCommand(quoteWindowsArgument(sigrokCliPath) + " --scan");
+    if status ~= 0 || ~contains(lower(string(outputText)), lower(config.logicAnalyzer.deviceDriver))
+        error("Transmitter_Test:SigrokDeviceValidationFailed", "sigrok-cli scan did not confirm driver %s.", char(config.logicAnalyzer.deviceDriver));
+    end
+end
+end
+
+function logicStateTable = readLogicStateExportCsv(filePath)
+if ~isfile(filePath)
+    error("Transmitter_Test:MissingLogicStateExport", "logicStateExportPath file was not created: %s", char(filePath));
+end
+
+options = detectImportOptions(filePath, "FileType", "text", "CommentStyle", "#");
+options.CommentStyle = "#";
+logicStateTable = readtable(filePath, options, "VariableNamingRule", "preserve");
+end
+
+function logicStateTable = normalizeLogicStateExportColumns(rawTable, config)
+variableNames = string(rawTable.Properties.VariableNames);
+canonicalNames = canonicalizeLogicStateNames(variableNames);
+timeIndex = find(contains(canonicalNames, "time"), 1, "first");
+if isempty(timeIndex)
+    error("Transmitter_Test:MissingLogicStateTimeColumn", "logicStateExportPath is missing an explicit time column.");
+end
+
+timeSeconds = convertLogicStateColumnToNumeric(rawTable.(char(variableNames(timeIndex))));
+logicStateTable = table(timeSeconds, 'VariableNames', {'time_s'});
+sampleIndexColumn = find(ismember(canonicalNames, ["sampleindex", "samplenum", "sample"]), 1, "first");
+if ~isempty(sampleIndexColumn)
+    logicStateTable.sample_index = convertLogicStateColumnToNumeric(rawTable.(char(variableNames(sampleIndexColumn))));
+end
+
+for channelIndex = 1:numel(config.logicAnalyzer.channels)
+    targetName = string(config.logicAnalyzer.channelNames(channelIndex));
+    headerIndex = findMatchingLogicStateColumnIndex( ...
+        canonicalNames, ...
+        targetName, ...
+        config.logicAnalyzer.channels(channelIndex));
+    if isempty(headerIndex)
+        error( ...
+            "Transmitter_Test:MissingLogicStateChannel", ...
+            "logicStateExportPath is missing a logic column for channel %s.", ...
+            char(targetName));
+    end
+    logicStateTable.(char(targetName)) = convertLogicStateColumnToNumeric(rawTable.(char(variableNames(headerIndex))));
+end
+end
+
+function logicState = convertLogicStateTableToSamples(logicStateTable, sampleRateHz)
+variableNames = string(logicStateTable.Properties.VariableNames);
+sampleColumnIndex = find(ismember(variableNames, ["sample_index", "samplenum"]), 1, "first");
+if isempty(sampleColumnIndex)
+    sampleIndex = round(double(logicStateTable.time_s) .* double(sampleRateHz));
+else
+    sampleIndex = round(double(logicStateTable.(char(variableNames(sampleColumnIndex)))));
+end
+channelMask = variableNames ~= "time_s" & variableNames ~= "sample_index";
+
+logicState = struct( ...
+    "sampleIndex", reshape(sampleIndex, [], 1), ...
+    "sampleRateHz", double(sampleRateHz), ...
+    "channelNames", variableNames(channelMask), ...
+    "stateMatrix", double(logicStateTable{:, channelMask}));
+end
+
+function referenceCapture = extractReferenceEdgesFromLogicState(logicState, config)
+referenceColumnIndex = resolveLogicStateRoleColumnIndex(logicState, config, "reference");
+referenceStates = logicState.stateMatrix(:, referenceColumnIndex);
+edgeMask = [false; diff(referenceStates) > 0];
+edgeSamples = logicState.sampleIndex(edgeMask);
+debounceSamples = round(double(config.matching.referenceDebounceUs) .* logicState.sampleRateHz ./ 1e6);
+edgeSamples = applySampleDebounce(edgeSamples, debounceSamples);
+referenceCapture = table( ...
+    sampleIndexToTimeSeconds(edgeSamples, logicState.sampleRateHz), ...
+    edgeSamples, ...
+    repmat(logicState.sampleRateHz, numel(edgeSamples), 1), ...
+    'VariableNames', {'time_s', 'sample_index', 'sample_rate_hz'});
+end
+
+function trainerPpmCapture = extractTrainerPpmCaptureFromLogicState(logicState, config)
+trainerColumnIndex = resolveLogicStateRoleColumnIndex(logicState, config, "trainerPpm");
+trainerStates = logicState.stateMatrix(:, trainerColumnIndex);
+markStartMask = false(size(trainerStates));
+if config.trainerPpm.idleHigh
+    markStartMask(2:end) = diff(trainerStates) < 0;
+else
+    markStartMask(2:end) = diff(trainerStates) > 0;
+end
+
+markStartSamples = logicState.sampleIndex(markStartMask);
+if numel(markStartSamples) < 2
+    trainerPpmCapture = buildEmptyPulseCaptureTable(true);
+    return;
+end
+
+slotSampleCounts = diff(markStartSamples);
+syncGapThresholdSamples = round( ...
+    double(max(config.trainerPpm.maximumPulseUs + config.trainerPpm.markWidthUs, 2 .* config.trainerPpm.maximumPulseUs)) .* ...
+    logicState.sampleRateHz ./ ...
+    1e6);
+
+rowCapacity = numel(slotSampleCounts);
+surfaceNames = strings(rowCapacity, 1);
+timeSeconds = nan(rowCapacity, 1);
+sampleIndex = nan(rowCapacity, 1);
+sampleCount = nan(rowCapacity, 1);
+sampleRate = nan(rowCapacity, 1);
+frameIndex = nan(rowCapacity, 1);
+rowCount = 0;
+
+currentFrameIndex = 1;
+currentChannelIndex = 1;
+for slotIndex = 1:numel(slotSampleCounts)
+    slotCount = slotSampleCounts(slotIndex);
+    if slotCount > syncGapThresholdSamples
+        currentFrameIndex = currentFrameIndex + 1;
+        currentChannelIndex = 1;
+        continue;
+    end
+
+    if currentChannelIndex <= numel(config.trainerPpm.channelSurfaceMap)
+        mappedSurfaceName = string(config.trainerPpm.channelSurfaceMap(currentChannelIndex));
+        if any(mappedSurfaceName == config.surfaceNames)
+            rowCount = rowCount + 1;
+            surfaceNames(rowCount) = mappedSurfaceName;
+            sampleIndex(rowCount) = markStartSamples(slotIndex);
+            sampleCount(rowCount) = slotCount;
+            sampleRate(rowCount) = logicState.sampleRateHz;
+            timeSeconds(rowCount) = sampleIndexToTimeSeconds(markStartSamples(slotIndex), logicState.sampleRateHz);
+            frameIndex(rowCount) = currentFrameIndex;
+        end
+    end
+    currentChannelIndex = currentChannelIndex + 1;
+end
+
+trainerPpmCapture = table( ...
+    surfaceNames(1:rowCount), ...
+    timeSeconds(1:rowCount), ...
+    sampleCountToPulseUs(sampleCount(1:rowCount), logicState.sampleRateHz), ...
+    sampleIndex(1:rowCount), ...
+    sampleCount(1:rowCount), ...
+    sampleRate(1:rowCount), ...
+    frameIndex(1:rowCount), ...
+    'VariableNames', {'surface_name', 'time_s', 'pulse_us', 'sample_index', 'sample_count', 'sample_rate_hz', 'frame_index'});
+end
+
+function receiverCapture = extractReceiverCaptureFromLogicState(logicState, config)
+surfaceCount = numel(config.surfaceNames);
+surfaceCaptureTables = cell(surfaceCount, 1);
+
+for surfaceIndex = 1:surfaceCount
+    roleChannel = config.logicAnalyzer.channelRoleMap.receiver(surfaceIndex);
+    channelColumnIndex = resolveLogicStateChannelColumnIndex(logicState, config, roleChannel);
+    channelStates = logicState.stateMatrix(:, channelColumnIndex);
+    risingSamples = logicState.sampleIndex([false; diff(channelStates) > 0]);
+    fallingSamples = logicState.sampleIndex([false; diff(channelStates) < 0]);
+    [pulseStartSamples, pulseSampleCounts] = pairEdgeSamples(risingSamples, fallingSamples);
+    pulseCount = numel(pulseStartSamples);
+    if pulseCount == 0
+        continue;
+    end
+
+    surfaceCaptureTables{surfaceIndex} = table( ...
+        repmat(config.surfaceNames(surfaceIndex), pulseCount, 1), ...
+        sampleIndexToTimeSeconds(pulseStartSamples, logicState.sampleRateHz), ...
+        sampleCountToPulseUs(pulseSampleCounts, logicState.sampleRateHz), ...
+        pulseStartSamples, ...
+        pulseSampleCounts, ...
+        repmat(logicState.sampleRateHz, pulseCount, 1), ...
+        'VariableNames', {'surface_name', 'time_s', 'pulse_us', 'sample_index', 'sample_count', 'sample_rate_hz'});
+end
+
+surfaceCaptureTables = surfaceCaptureTables(~cellfun(@isempty, surfaceCaptureTables));
+if isempty(surfaceCaptureTables)
+    receiverCapture = buildEmptyPulseCaptureTable(false);
+    return;
+end
+
+receiverCapture = vertcat(surfaceCaptureTables{:});
+if ~isempty(receiverCapture)
+    receiverCapture = sortrows(receiverCapture, {'surface_name', 'sample_index'});
+end
+end
+
+function timeSeconds = sampleIndexToTimeSeconds(sampleIndex, sampleRateHz)
+timeSeconds = double(sampleIndex) ./ double(sampleRateHz);
+end
+
+function pulseUs = sampleCountToPulseUs(sampleCount, sampleRateHz)
+pulseUs = 1e6 .* double(sampleCount) ./ double(sampleRateHz);
+end
+
+function cleanupSigrokSession(sigrokSession)
+if ~isstruct(sigrokSession) || ~isfield(sigrokSession, "process")
+    return;
+end
+if isempty(sigrokSession.process)
+    return;
+end
+try
+    if ~sigrokSession.process.HasExited
+        sigrokSession.process.Kill();
+    end
+catch
+end
 end
 
 function hostDispatchLog = buildHostDispatchLogFromSession(loggerSession)
@@ -4469,27 +5056,43 @@ boardSyncLog = table( ...
 end
 
 function [referenceCapture, trainerPpmCapture, receiverCapture] = importTransmitterCaptureData(config)
+referenceCapture = normalizeReferenceCaptureTable(table(), config.matching.referenceDebounceUs);
+trainerPpmCapture = normalizePulseCaptureTable(table(), config);
+receiverCapture = normalizePulseCaptureTable(table(), config);
+
+if ~config.logicAnalyzer.enabled
+    return;
+end
+
+isRequired = isSigrokAutoMode(config);
 referenceCapture = normalizeReferenceCaptureTable( ...
-    readOptionalCaptureTable(config.logicAnalyzer.referenceCapturePath), ...
+    readCaptureTable(config.logicAnalyzer.referenceCapturePath, isRequired), ...
     config.matching.referenceDebounceUs);
 trainerPpmCapture = normalizePulseCaptureTable( ...
-    readOptionalCaptureTable(config.logicAnalyzer.trainerPpmCapturePath), ...
+    readCaptureTable(config.logicAnalyzer.trainerPpmCapturePath, isRequired), ...
     config);
 receiverCapture = normalizePulseCaptureTable( ...
-    readOptionalCaptureTable(config.logicAnalyzer.receiverCapturePath), ...
+    readCaptureTable(config.logicAnalyzer.receiverCapturePath, isRequired), ...
     config);
 end
 
-function captureTable = readOptionalCaptureTable(filePath)
+function captureTable = readCaptureTable(filePath, isRequired)
 captureTable = table();
 if strlength(filePath) == 0 || ~isfile(filePath)
+    if isRequired
+        error("Transmitter_Test:MissingCaptureTable", "Capture file was not found: %s", char(filePath));
+    end
     return;
 end
 captureTable = readCommentCsv(filePath);
 end
 
 function referenceCapture = normalizeReferenceCaptureTable(rawTable, debounceUs)
-referenceCapture = table(zeros(0, 1), 'VariableNames', {'time_s'});
+referenceCapture = table( ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    'VariableNames', {'time_s', 'sample_index', 'sample_rate_hz'});
 if isempty(rawTable)
     return;
 end
@@ -4505,28 +5108,49 @@ if strlength(timeColumn) == 0
     return;
 end
 
+sampleIndexColumn = resolveTableVariableName(rawTable, "sample_index", false);
+sampleRateColumn = resolveTableVariableName(rawTable, "sample_rate_hz", false);
+sampleIndex = nan(height(rawTable), 1);
+sampleRateHz = nan(height(rawTable), 1);
+if strlength(sampleIndexColumn) > 0
+    sampleIndex = reshape(double(rawTable.(char(sampleIndexColumn))), [], 1);
+end
+if strlength(sampleRateColumn) > 0
+    sampleRateHz = reshape(double(rawTable.(char(sampleRateColumn))), [], 1);
+end
+
 timeSeconds = reshape(double(rawTable.(char(timeColumn))), [], 1);
-timeSeconds = sort(timeSeconds(isfinite(timeSeconds)));
-if isempty(timeSeconds)
+sampleBasedMask = isfinite(sampleIndex) & isfinite(sampleRateHz) & sampleRateHz > 0;
+timeSeconds(sampleBasedMask) = sampleIndex(sampleBasedMask) ./ sampleRateHz(sampleBasedMask);
+
+validMask = isfinite(timeSeconds);
+if ~any(validMask)
     return;
 end
 
-keepMask = false(size(timeSeconds));
+referenceMatrix = [timeSeconds(validMask), sampleIndex(validMask), sampleRateHz(validMask)];
+referenceMatrix = sortrows(referenceMatrix, 1);
+
+keepMask = false(size(referenceMatrix, 1), 1);
 keepMask(1) = true;
 minimumSpacingSeconds = double(debounceUs) ./ 1e6;
-lastKeptTimeSeconds = timeSeconds(1);
-for rowIndex = 2:numel(timeSeconds)
-    if (timeSeconds(rowIndex) - lastKeptTimeSeconds) >= minimumSpacingSeconds
+lastKeptTimeSeconds = referenceMatrix(1, 1);
+for rowIndex = 2:size(referenceMatrix, 1)
+    if (referenceMatrix(rowIndex, 1) - lastKeptTimeSeconds) >= minimumSpacingSeconds
         keepMask(rowIndex) = true;
-        lastKeptTimeSeconds = timeSeconds(rowIndex);
+        lastKeptTimeSeconds = referenceMatrix(rowIndex, 1);
     end
 end
 
-referenceCapture = table(timeSeconds(keepMask), 'VariableNames', {'time_s'});
+referenceCapture = table( ...
+    referenceMatrix(keepMask, 1), ...
+    referenceMatrix(keepMask, 2), ...
+    referenceMatrix(keepMask, 3), ...
+    'VariableNames', {'time_s', 'sample_index', 'sample_rate_hz'});
 end
 
 function pulseCapture = normalizePulseCaptureTable(rawTable, config)
-pulseCapture = table(strings(0, 1), zeros(0, 1), zeros(0, 1), 'VariableNames', {'surface_name', 'time_s', 'pulse_us'});
+pulseCapture = buildEmptyPulseCaptureTable(false);
 if isempty(rawTable)
     return;
 end
@@ -4558,11 +5182,49 @@ if strlength(channelColumn) == 0
 end
 
 if strlength(timeColumn) == 0 || strlength(pulseColumn) == 0
-    return;
+    sampleIndexColumn = resolveTableVariableName(rawTable, "sample_index", false);
+    sampleCountColumn = resolveTableVariableName(rawTable, "sample_count", false);
+    sampleRateColumn = resolveTableVariableName(rawTable, "sample_rate_hz", false);
+    if strlength(sampleIndexColumn) == 0 || strlength(sampleCountColumn) == 0 || strlength(sampleRateColumn) == 0
+        return;
+    end
 end
 
-timeSeconds = reshape(double(rawTable.(char(timeColumn))), [], 1);
-pulseUs = reshape(double(rawTable.(char(pulseColumn))), [], 1);
+rowCount = height(rawTable);
+timeSeconds = nan(rowCount, 1);
+if strlength(timeColumn) > 0
+    timeSeconds = reshape(double(rawTable.(char(timeColumn))), [], 1);
+end
+pulseUs = nan(rowCount, 1);
+if strlength(pulseColumn) > 0
+    pulseUs = reshape(double(rawTable.(char(pulseColumn))), [], 1);
+end
+
+sampleIndexColumn = resolveTableVariableName(rawTable, "sample_index", false);
+sampleCountColumn = resolveTableVariableName(rawTable, "sample_count", false);
+sampleRateColumn = resolveTableVariableName(rawTable, "sample_rate_hz", false);
+frameIndexColumn = resolveTableVariableName(rawTable, "frame_index", false);
+sampleIndex = nan(rowCount, 1);
+sampleCount = nan(rowCount, 1);
+sampleRateHz = nan(rowCount, 1);
+frameIndex = nan(rowCount, 1);
+if strlength(sampleIndexColumn) > 0
+    sampleIndex = reshape(double(rawTable.(char(sampleIndexColumn))), [], 1);
+end
+if strlength(sampleCountColumn) > 0
+    sampleCount = reshape(double(rawTable.(char(sampleCountColumn))), [], 1);
+end
+if strlength(sampleRateColumn) > 0
+    sampleRateHz = reshape(double(rawTable.(char(sampleRateColumn))), [], 1);
+end
+if strlength(frameIndexColumn) > 0
+    frameIndex = reshape(double(rawTable.(char(frameIndexColumn))), [], 1);
+end
+
+sampleBasedTimeMask = isfinite(sampleIndex) & isfinite(sampleRateHz) & sampleRateHz > 0;
+timeSeconds(sampleBasedTimeMask) = sampleIndex(sampleBasedTimeMask) ./ sampleRateHz(sampleBasedTimeMask);
+sampleBasedPulseMask = isfinite(sampleCount) & isfinite(sampleRateHz) & sampleRateHz > 0;
+pulseUs(sampleBasedPulseMask) = 1e6 .* sampleCount(sampleBasedPulseMask) ./ sampleRateHz(sampleBasedPulseMask);
 
 if strlength(surfaceColumn) > 0
     surfaceNames = reshape(string(rawTable.(char(surfaceColumn))), [], 1);
@@ -4592,7 +5254,11 @@ pulseCapture = table( ...
     surfaceNames(validMask), ...
     timeSeconds(validMask), ...
     pulseUs(validMask), ...
-    'VariableNames', {'surface_name', 'time_s', 'pulse_us'});
+    sampleIndex(validMask), ...
+    sampleCount(validMask), ...
+    sampleRateHz(validMask), ...
+    frameIndex(validMask), ...
+    'VariableNames', {'surface_name', 'time_s', 'pulse_us', 'sample_index', 'sample_count', 'sample_rate_hz', 'frame_index'});
 pulseCapture = sortrows(pulseCapture, {'surface_name', 'time_s'});
 end
 
@@ -4716,6 +5382,13 @@ matchedEvents.board_commit_s = nan(height(matchedEvents), 1);
 matchedEvents.reference_strobe_s = nan(height(matchedEvents), 1);
 matchedEvents.trainer_ppm_s = nan(height(matchedEvents), 1);
 matchedEvents.receiver_response_s = nan(height(matchedEvents), 1);
+matchedEvents.reference_sample_index = nan(height(matchedEvents), 1);
+matchedEvents.trainer_sample_index = nan(height(matchedEvents), 1);
+matchedEvents.receiver_sample_index = nan(height(matchedEvents), 1);
+matchedEvents.reference_time_from_samples_s = nan(height(matchedEvents), 1);
+matchedEvents.trainer_time_from_samples_s = nan(height(matchedEvents), 1);
+matchedEvents.receiver_time_from_samples_s = nan(height(matchedEvents), 1);
+matchedEvents.analyzer_sample_rate_hz = nan(height(matchedEvents), 1);
 matchedEvents.expected_ppm_us = nan(height(matchedEvents), 1);
 matchedEvents.trainer_ppm_us = nan(height(matchedEvents), 1);
 matchedEvents.receiver_pulse_us = nan(height(matchedEvents), 1);
@@ -4726,6 +5399,8 @@ matchedEvents.computer_to_receiver_latency_s = nan(height(matchedEvents), 1);
 matchedEvents.scheduled_to_receiver_latency_s = nan(height(matchedEvents), 1);
 matchedEvents.dropped_before_commit = false(height(matchedEvents), 1);
 matchedEvents.is_observable_downstream = false(height(matchedEvents), 1);
+matchedEvents.used_sample_based_timing = false(height(matchedEvents), 1);
+matchedEvents.capture_source = repmat(config.logicAnalyzer.mode, height(matchedEvents), 1);
 
 rxUnique = deduplicateEchoImportTable(boardRxLog(:, {'surface_name', 'command_sequence', 'received_position_norm', 'rx_time_s'}));
 hostKeys = buildSurfaceSequenceKeys(matchedEvents.surface_name, matchedEvents.command_sequence);
@@ -4737,7 +5412,7 @@ matchedEvents.computer_to_arduino_rx_latency_s(isRxMatched) = ...
     matchedEvents.board_rx_s(isRxMatched) - matchedEvents.command_dispatch_s(isRxMatched);
 
 commitUnique = deduplicateCommitTable(boardCommitLog);
-commitUnique.reference_strobe_s = matchReferenceCaptureTimes( ...
+[commitUnique.reference_strobe_s, commitUnique.reference_sample_index, commitUnique.reference_sample_rate_hz] = matchReferenceCaptureTimes( ...
     commitUnique, ...
     referenceCapture, ...
     config.referenceStrobe.mode);
@@ -4752,6 +5427,12 @@ if ~isempty(commitUnique)
         commitRow = commitIndex(rowIndex);
         matchedEvents.board_commit_s(rowIndex) = commitUnique.commit_time_s(commitRow);
         matchedEvents.reference_strobe_s(rowIndex) = commitUnique.reference_strobe_s(commitRow);
+        matchedEvents.reference_sample_index(rowIndex) = commitUnique.reference_sample_index(commitRow);
+        matchedEvents.analyzer_sample_rate_hz(rowIndex) = commitUnique.reference_sample_rate_hz(commitRow);
+        if isfinite(commitUnique.reference_sample_index(commitRow)) && isfinite(commitUnique.reference_sample_rate_hz(commitRow))
+            matchedEvents.reference_time_from_samples_s(rowIndex) = ...
+                commitUnique.reference_sample_index(commitRow) ./ commitUnique.reference_sample_rate_hz(commitRow);
+        end
         matchedEvents.expected_ppm_us(rowIndex) = getCommitPulseForSurface(commitUnique(commitRow, :), matchedEvents.surface_index(rowIndex));
         if isfinite(matchedEvents.board_rx_s(rowIndex))
             matchedEvents.arduino_receive_to_ppm_commit_latency_s(rowIndex) = ...
@@ -4771,8 +5452,10 @@ end
 commitTable = commitTable(sort(firstIndex), :);
 end
 
-function referenceTime = matchReferenceCaptureTimes(commitTable, referenceCapture, referenceStrobeMode)
+function [referenceTime, referenceSampleIndex, referenceSampleRateHz] = matchReferenceCaptureTimes(commitTable, referenceCapture, referenceStrobeMode)
 referenceTime = selectBoardReferenceTimes(commitTable);
+referenceSampleIndex = nan(height(commitTable), 1);
+referenceSampleRateHz = nan(height(commitTable), 1);
 if isempty(commitTable)
     return;
 end
@@ -4790,6 +5473,12 @@ for commitIndex = 1:height(commitTable)
         return;
     end
     referenceTime(commitIndex) = referenceCapture.time_s(referenceIndex);
+    if ismember("sample_index", string(referenceCapture.Properties.VariableNames))
+        referenceSampleIndex(commitIndex) = referenceCapture.sample_index(referenceIndex);
+    end
+    if ismember("sample_rate_hz", string(referenceCapture.Properties.VariableNames))
+        referenceSampleRateHz(commitIndex) = referenceCapture.sample_rate_hz(referenceIndex);
+    end
     referenceIndex = referenceIndex + 1;
 end
 end
@@ -4840,7 +5529,7 @@ for rowIndex = 1:height(matchedEvents)
     end
 
     if matchedEvents.is_observable_downstream(rowIndex)
-        [trainerTime, trainerPulse, trainerNextIndex(surfaceIdx)] = findForwardPulseMatch( ...
+        [trainerTime, trainerPulse, trainerSampleIndex, trainerSampleRateHz, trainerNextIndex(surfaceIdx)] = findForwardPulseMatch( ...
             trainerTables{surfaceIdx}, ...
             trainerNextIndex(surfaceIdx), ...
             searchStartSeconds, ...
@@ -4849,13 +5538,20 @@ for rowIndex = 1:height(matchedEvents)
             config.matching.maxResponseWindowSeconds);
         matchedEvents.trainer_ppm_s(rowIndex) = trainerTime;
         matchedEvents.trainer_ppm_us(rowIndex) = trainerPulse;
+        matchedEvents.trainer_sample_index(rowIndex) = trainerSampleIndex;
+        if isfinite(trainerSampleRateHz)
+            matchedEvents.analyzer_sample_rate_hz(rowIndex) = trainerSampleRateHz;
+        end
+        if isfinite(trainerSampleIndex) && isfinite(trainerSampleRateHz)
+            matchedEvents.trainer_time_from_samples_s(rowIndex) = trainerSampleIndex ./ trainerSampleRateHz;
+        end
 
         receiverStartSeconds = searchStartSeconds;
         if isfinite(trainerTime)
             receiverStartSeconds = trainerTime;
         end
 
-        [receiverTime, receiverPulse, receiverNextIndex(surfaceIdx)] = findForwardPulseMatch( ...
+        [receiverTime, receiverPulse, receiverSampleIndex, receiverSampleRateHz, receiverNextIndex(surfaceIdx)] = findForwardPulseMatch( ...
             receiverTables{surfaceIdx}, ...
             receiverNextIndex(surfaceIdx), ...
             receiverStartSeconds, ...
@@ -4864,6 +5560,13 @@ for rowIndex = 1:height(matchedEvents)
             config.matching.maxResponseWindowSeconds);
         matchedEvents.receiver_response_s(rowIndex) = receiverTime;
         matchedEvents.receiver_pulse_us(rowIndex) = receiverPulse;
+        matchedEvents.receiver_sample_index(rowIndex) = receiverSampleIndex;
+        if isfinite(receiverSampleRateHz)
+            matchedEvents.analyzer_sample_rate_hz(rowIndex) = receiverSampleRateHz;
+        end
+        if isfinite(receiverSampleIndex) && isfinite(receiverSampleRateHz)
+            matchedEvents.receiver_time_from_samples_s(rowIndex) = receiverSampleIndex ./ receiverSampleRateHz;
+        end
     end
 
     if isfinite(matchedEvents.trainer_ppm_s(rowIndex)) && isfinite(matchedEvents.receiver_response_s(rowIndex))
@@ -4876,6 +5579,10 @@ for rowIndex = 1:height(matchedEvents)
         matchedEvents.scheduled_to_receiver_latency_s(rowIndex) = ...
             matchedEvents.receiver_response_s(rowIndex) - matchedEvents.scheduled_time_s(rowIndex);
     end
+    matchedEvents.used_sample_based_timing(rowIndex) = ...
+        isfinite(matchedEvents.reference_sample_index(rowIndex)) || ...
+        isfinite(matchedEvents.trainer_sample_index(rowIndex)) || ...
+        isfinite(matchedEvents.receiver_sample_index(rowIndex));
 
     previousExpectedUs(surfaceIdx) = expectedUs;
 end
@@ -4888,7 +5595,7 @@ for surfaceIndex = 1:numel(surfaceNames)
 end
 end
 
-function [matchedTime, matchedPulse, nextIndex] = findForwardPulseMatch( ...
+function [matchedTime, matchedPulse, matchedSampleIndex, matchedSampleRateHz, nextIndex] = findForwardPulseMatch( ...
     surfaceCapture, ...
     startIndex, ...
     startTimeSeconds, ...
@@ -4897,6 +5604,8 @@ function [matchedTime, matchedPulse, nextIndex] = findForwardPulseMatch( ...
     maxWindowSeconds)
 matchedTime = NaN;
 matchedPulse = NaN;
+matchedSampleIndex = NaN;
+matchedSampleRateHz = NaN;
 nextIndex = startIndex;
 if isempty(surfaceCapture)
     return;
@@ -4916,6 +5625,12 @@ while rowIndex <= height(surfaceCapture)
     if abs(surfaceCapture.pulse_us(rowIndex) - expectedPulseUs) <= toleranceUs
         matchedTime = surfaceCapture.time_s(rowIndex);
         matchedPulse = surfaceCapture.pulse_us(rowIndex);
+        if ismember("sample_index", string(surfaceCapture.Properties.VariableNames))
+            matchedSampleIndex = surfaceCapture.sample_index(rowIndex);
+        end
+        if ismember("sample_rate_hz", string(surfaceCapture.Properties.VariableNames))
+            matchedSampleRateHz = surfaceCapture.sample_rate_hz(rowIndex);
+        end
         nextIndex = rowIndex + 1;
         return;
     end
@@ -5240,7 +5955,14 @@ end
 artifacts = struct( ...
     "matFilePath", string(matFilePath), ...
     "workbookPath", string(workbookPath), ...
-    "loggerFolderPath", string(loggerFolderPath));
+    "loggerFolderPath", string(loggerFolderPath), ...
+    "rawCapturePath", string(runData.config.logicAnalyzer.rawCapturePath), ...
+    "logicStateExportPath", string(runData.config.logicAnalyzer.logicStateExportPath), ...
+    "decodedReferencePath", string(runData.config.logicAnalyzer.decodedReferencePath), ...
+    "decodedTrainerPpmPath", string(runData.config.logicAnalyzer.decodedTrainerPpmPath), ...
+    "decodedReceiverPath", string(runData.config.logicAnalyzer.decodedReceiverPath), ...
+    "sigrokStdoutPath", string(runData.config.logicAnalyzer.storeStdoutPath), ...
+    "sigrokStderrPath", string(runData.config.logicAnalyzer.storeStderrPath));
 
 save(matFilePath, "runData", "-v7.3");
 
@@ -5266,6 +5988,7 @@ writeWorkbookSheet(runData.logs.profileEvents, workbookPath, "ProfileEvents");
 writeWorkbookSheet(runData.surfaceSetup, workbookPath, "SurfaceSetup");
 writeWorkbookSheet(runData.logs.sampleSummary, workbookPath, "SampleSummary");
 writeWorkbookSheet(runData.surfaceSummary, workbookPath, "SurfaceSummary");
+writeWorkbookSheet(buildTransmitterLogicAnalyzerConfigTable(runData), workbookPath, "LogicAnalyzerConfig");
 writeWorkbookSheet(runData.logs.boardRxLog, workbookPath, "BoardRxLog");
 writeWorkbookSheet(runData.logs.boardCommitLog, workbookPath, "BoardCommitLog");
 writeWorkbookSheet(runData.logs.referenceCapture, workbookPath, "ReferenceCapture");
@@ -5299,10 +6022,41 @@ settings = { ...
     "ReferenceStrobe", "Enabled", formatSettingValue(config.referenceStrobe.enabled); ...
     "ReferenceStrobe", "Mode", formatSettingValue(config.referenceStrobe.mode); ...
     "ReferenceStrobe", "PulseWidthUs", formatSettingValue(config.referenceStrobe.pulseWidthUs); ...
+    "LogicAnalyzer", "Enabled", formatSettingValue(config.logicAnalyzer.enabled); ...
+    "LogicAnalyzer", "Mode", formatSettingValue(config.logicAnalyzer.mode); ...
+    "LogicAnalyzer", "SigrokCliPath", formatSettingValue(config.logicAnalyzer.sigrokCliPath); ...
+    "LogicAnalyzer", "DeviceDriver", formatSettingValue(config.logicAnalyzer.deviceDriver); ...
+    "LogicAnalyzer", "DeviceId", formatSettingValue(config.logicAnalyzer.deviceId); ...
+    "LogicAnalyzer", "SampleRateHz", formatSettingValue(config.logicAnalyzer.sampleRateHz); ...
+    "LogicAnalyzer", "LogicStateExportPath", formatSettingValue(config.logicAnalyzer.logicStateExportPath); ...
     "Matching", "PpmChangeThresholdUs", formatSettingValue(config.matching.ppmChangeThresholdUs); ...
     "Matching", "ReceiverChangeThresholdUs", formatSettingValue(config.matching.receiverChangeThresholdUs); ...
     "Matching", "MaxResponseWindowSeconds", formatSettingValue(config.matching.maxResponseWindowSeconds)};
 criticalSettingsTable = cell2table(settings, 'VariableNames', {'Category', 'Setting', 'Value'});
+end
+
+function logicAnalyzerConfigTable = buildTransmitterLogicAnalyzerConfigTable(runData)
+config = runData.config.logicAnalyzer;
+settings = { ...
+    "enabled", formatSettingValue(config.enabled); ...
+    "mode", formatSettingValue(config.mode); ...
+    "automationMode", formatSettingValue(config.automationMode); ...
+    "sigrokCliPath", formatSettingValue(config.sigrokCliPath); ...
+    "deviceDriver", formatSettingValue(config.deviceDriver); ...
+    "deviceId", formatSettingValue(config.deviceId); ...
+    "sampleRateHz", formatSettingValue(config.sampleRateHz); ...
+    "captureStartLeadSeconds", formatSettingValue(config.captureStartLeadSeconds); ...
+    "captureStopLagSeconds", formatSettingValue(config.captureStopLagSeconds); ...
+    "channels", formatSettingValue(config.channels); ...
+    "channelNames", formatSettingValue(config.channelNames); ...
+    "logicStateExportPath", formatSettingValue(config.logicStateExportPath); ...
+    "rawCapturePath", formatSettingValue(config.rawCapturePath); ...
+    "decodedReferencePath", formatSettingValue(config.decodedReferencePath); ...
+    "decodedTrainerPpmPath", formatSettingValue(config.decodedTrainerPpmPath); ...
+    "decodedReceiverPath", formatSettingValue(config.decodedReceiverPath); ...
+    "storeStdoutPath", formatSettingValue(config.storeStdoutPath); ...
+    "storeStderrPath", formatSettingValue(config.storeStderrPath)};
+logicAnalyzerConfigTable = cell2table(settings, 'VariableNames', {'Setting', 'Value'});
 end
 
 function writeWorkbookSheet(sheetData, workbookPath, requestedSheetName)
@@ -5321,5 +6075,195 @@ if sheetName == "ArduinoReceiveToPpmCommitLatency"
 end
 if strlength(sheetName) > 31
     sheetName = extractBefore(sheetName, 32);
+end
+end
+
+function createFolderIfMissing(folderPath)
+if strlength(folderPath) == 0
+    return;
+end
+if ~isfolder(folderPath)
+    mkdir(folderPath);
+end
+end
+
+function deleteFileIfPresent(filePath)
+if strlength(filePath) == 0 || ~isfile(filePath)
+    return;
+end
+delete(filePath);
+end
+
+function quotedText = quoteWindowsArgument(argumentText)
+argumentText = string(argumentText);
+quotedText = '"' + replace(argumentText, '"', '""') + '"';
+end
+
+function argumentsText = buildCmdExeArguments(commandText)
+argumentsText = '/d /s /c "' + string(commandText) + '"';
+end
+
+function [status, outputText] = runWindowsCommand(commandText)
+[status, outputText] = system(char("cmd.exe " + buildCmdExeArguments(commandText)));
+outputText = string(outputText);
+end
+
+function sigrokCliPath = resolveSigrokCliPath(sigrokCliPath)
+sigrokCliPath = strtrim(string(sigrokCliPath));
+if strlength(sigrokCliPath) == 0
+    error("Transmitter_Test:MissingSigrokCliPath", "sigrok-cli path must be resolved before use.");
+end
+end
+
+function driverSpec = buildSigrokDriverSpec(logicAnalyzer)
+driverSpec = string(logicAnalyzer.deviceDriver);
+deviceId = strtrim(string(logicAnalyzer.deviceId));
+if strlength(deviceId) == 0
+    return;
+end
+if contains(deviceId, "=")
+    driverSpec = driverSpec + ":" + deviceId;
+else
+    driverSpec = driverSpec + ":conn=" + deviceId;
+end
+end
+
+function channelAssignments = buildSigrokChannelAssignments(channels, channelNames)
+channelAssignments = strings(numel(channels), 1);
+for channelIndex = 1:numel(channels)
+    channelAssignments(channelIndex) = formatSigrokChannelName(channels(channelIndex)) + "=" + string(channelNames(channelIndex));
+end
+channelAssignments = join(channelAssignments, ",");
+end
+
+function channelName = formatSigrokChannelName(channelIndex)
+channelName = "D" + string(round(double(channelIndex)));
+end
+
+function outputFormatText = resolveSigrokLogicStateOutputFormat(outputFormatSetting)
+outputFormatSetting = string(outputFormatSetting);
+if outputFormatSetting == "logic_state_csv"
+    outputFormatText = "csv:header=true:label=channel:dedup=true:comment=#";
+else
+    outputFormatText = outputFormatSetting;
+end
+end
+
+function canonicalNames = canonicalizeLogicStateNames(variableNames)
+canonicalNames = lower(regexprep(string(variableNames), '[^a-zA-Z0-9]+', ''));
+end
+
+function columnIndex = findMatchingLogicStateColumnIndex(canonicalNames, targetName, channelNumber)
+aliasNames = unique([ ...
+    canonicalizeLogicStateNames(targetName), ...
+    canonicalizeLogicStateNames("D" + string(channelNumber)), ...
+    canonicalizeLogicStateNames("CH" + string(channelNumber)), ...
+    canonicalizeLogicStateNames("Channel" + string(channelNumber)), ...
+    canonicalizeLogicStateNames("logic" + string(channelNumber)), ...
+    canonicalizeLogicStateNames(string(channelNumber))]);
+columnIndex = [];
+for aliasIndex = 1:numel(aliasNames)
+    matchedIndex = find(canonicalNames == aliasNames(aliasIndex), 1, "first");
+    if ~isempty(matchedIndex)
+        columnIndex = matchedIndex;
+        return;
+    end
+end
+end
+
+function numericData = convertLogicStateColumnToNumeric(columnData)
+if isnumeric(columnData) || islogical(columnData)
+    numericData = reshape(double(columnData), [], 1);
+    return;
+end
+
+columnText = lower(strtrim(string(columnData)));
+numericData = nan(numel(columnText), 1);
+numericData(columnText == "1" | columnText == "high" | columnText == "true") = 1;
+numericData(columnText == "0" | columnText == "low" | columnText == "false") = 0;
+remainingMask = isnan(numericData) & strlength(columnText) > 0;
+if any(remainingMask)
+    numericData(remainingMask) = str2double(columnText(remainingMask));
+end
+end
+
+function columnIndex = resolveLogicStateRoleColumnIndex(logicState, config, roleName)
+switch string(roleName)
+    case "reference"
+        roleChannel = config.logicAnalyzer.channelRoleMap.reference;
+    case "trainerPpm"
+        roleChannel = config.logicAnalyzer.channelRoleMap.trainerPpm;
+    otherwise
+        error("Transmitter_Test:UnsupportedLogicStateRole", "Unsupported logic-state role: %s", char(roleName));
+end
+columnIndex = resolveLogicStateChannelColumnIndex(logicState, config, roleChannel);
+end
+
+function columnIndex = resolveLogicStateChannelColumnIndex(logicState, config, roleChannel)
+configurationIndex = find(double(config.logicAnalyzer.channels) == double(roleChannel), 1, "first");
+if isempty(configurationIndex)
+    error("Transmitter_Test:MissingLogicStateChannelRole", "Configured logic analyser channel %d was not found.", roleChannel);
+end
+configuredName = string(config.logicAnalyzer.channelNames(configurationIndex));
+columnIndex = find(logicState.channelNames == configuredName, 1, "first");
+if isempty(columnIndex)
+    error("Transmitter_Test:MissingLogicStateChannelColumn", "Logic-state data is missing channel %s.", char(configuredName));
+end
+end
+
+function debouncedSamples = applySampleDebounce(edgeSamples, debounceSamples)
+debouncedSamples = edgeSamples;
+if isempty(edgeSamples)
+    return;
+end
+
+keepMask = false(size(edgeSamples));
+keepMask(1) = true;
+lastSample = edgeSamples(1);
+for sampleIndex = 2:numel(edgeSamples)
+    if (edgeSamples(sampleIndex) - lastSample) >= debounceSamples
+        keepMask(sampleIndex) = true;
+        lastSample = edgeSamples(sampleIndex);
+    end
+end
+debouncedSamples = edgeSamples(keepMask);
+end
+
+function [pulseStartSamples, pulseSampleCounts] = pairEdgeSamples(risingSamples, fallingSamples)
+pulseStartSamples = zeros(0, 1);
+pulseSampleCounts = zeros(0, 1);
+if isempty(risingSamples) || isempty(fallingSamples)
+    return;
+end
+
+fallIndex = 1;
+for riseIndex = 1:numel(risingSamples)
+    while fallIndex <= numel(fallingSamples) && fallingSamples(fallIndex) <= risingSamples(riseIndex)
+        fallIndex = fallIndex + 1;
+    end
+    if fallIndex > numel(fallingSamples)
+        break;
+    end
+    pulseStartSamples(end + 1, 1) = risingSamples(riseIndex); %#ok<AGROW>
+    pulseSampleCounts(end + 1, 1) = fallingSamples(fallIndex) - risingSamples(riseIndex); %#ok<AGROW>
+    fallIndex = fallIndex + 1;
+end
+end
+
+function pulseCapture = buildEmptyPulseCaptureTable(includeFrameIndex)
+if nargin < 1
+    includeFrameIndex = false;
+end
+
+pulseCapture = table( ...
+    strings(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    'VariableNames', {'surface_name', 'time_s', 'pulse_us', 'sample_index', 'sample_count', 'sample_rate_hz'});
+if includeFrameIndex
+    pulseCapture.frame_index = zeros(0, 1);
 end
 end

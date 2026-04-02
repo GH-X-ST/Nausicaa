@@ -48,7 +48,6 @@ REFINEMENT_SPHERE_RADIUS_MAP = {
     "Top rerun starts": 0.0190,
     "Final rerun starts": 0.0210,
     "Retained robust rank": 0.0230,
-    "Selected final design": 0.0250,
 }
 
 STAGE_ORDER = [
@@ -127,7 +126,7 @@ TRACE_STAGE_Z_LABELS = {
     "Selected sweep rows": "Selected\nsweep rows",
     "Top rerun starts": "Top rerun\nstarts",
     "Final rerun starts": "Final rerun\nstarts",
-    "Retained robust rank": "Retained\nrobust rank",
+    "Retained robust rank": "Retained =\nfinal",
 }
 TRADEOFF_TO_TRACE_STAGE_MAP = {
     "Weight sweep": "Weight sweep",
@@ -1174,7 +1173,7 @@ def _shade_color(color: str, factor: float, alpha: float) -> tuple[float, float,
 
 def _build_z_normalize() -> Normalize:
     stage_z_map = _build_refinement_stage_z_map()
-    return Normalize(vmin=0.0, vmax=stage_z_map["Selected final design"])
+    return Normalize(vmin=0.0, vmax=stage_z_map["Retained robust rank"])
 
 
 def _color_for_z(z_value: float, z_normalize: Normalize) -> tuple[float, float, float, float]:
@@ -1561,6 +1560,49 @@ def _resolve_final_kept_candidate_map(
     }
 
 
+def _map_dropped_final_starts_to_retained_candidates(
+    final_all_starts_df: pd.DataFrame,
+    final_kept_df: pd.DataFrame,
+    kept_to_candidate_map: dict[int, int],
+    tail_metric_col: str,
+) -> dict[int, int]:
+    kept_points: list[tuple[int, float, float]] = []
+    for _, row in final_kept_df.iterrows():
+        kept_rank = int(row["kept_rank"])
+        candidate_id = kept_to_candidate_map.get(kept_rank)
+        if candidate_id is None:
+            continue
+        objective_value, tail_metric_value = _extract_tradeoff_pair(row, tail_metric_col)
+        if not (np.isfinite(objective_value) and np.isfinite(tail_metric_value)):
+            continue
+        kept_points.append((candidate_id, objective_value, tail_metric_value))
+
+    if not kept_points:
+        return {}
+
+    dropped_map: dict[int, int] = {}
+    for _, row in final_all_starts_df.iterrows():
+        if bool(row.get("kept_after_dedup")):
+            continue
+        if not bool(row.get("success")):
+            continue
+        if pd.isna(row.get("start_index")):
+            continue
+        objective_value, tail_metric_value = _extract_tradeoff_pair(row, tail_metric_col)
+        if not (np.isfinite(objective_value) and np.isfinite(tail_metric_value)):
+            continue
+
+        nearest_candidate_id = min(
+            kept_points,
+            key=lambda point: (
+                (objective_value - point[1]) ** 2 + (tail_metric_value - point[2]) ** 2
+            ),
+        )[0]
+        dropped_map[int(row["start_index"])] = int(nearest_candidate_id)
+
+    return dropped_map
+
+
 def build_full_provenance(
     data: CandidateSelectionData,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, str, int]:
@@ -1612,6 +1654,12 @@ def build_full_provenance(
     )
     start_to_candidate_map = _resolve_kept_candidate_map(final_kept_df, ranked_df)
     kept_to_candidate_map = _resolve_final_kept_candidate_map(final_kept_df, ranked_df)
+    dropped_start_to_candidate_map = _map_dropped_final_starts_to_retained_candidates(
+        final_all_starts_df=final_all_starts_df,
+        final_kept_df=final_kept_df,
+        kept_to_candidate_map=kept_to_candidate_map,
+        tail_metric_col=tail_metric_col,
+    )
     selected_start_id = next(
         start_id
         for start_id, candidate_id in start_to_candidate_map.items()
@@ -1772,6 +1820,19 @@ def build_full_provenance(
                 "edge_class": "kept",
                 "trace_group": f"candidate:{candidate_id}",
                 "is_selected_path": start_index == selected_start_id,
+            }
+        )
+
+    for start_index, candidate_id in dropped_start_to_candidate_map.items():
+        edge_rows.append(
+            {
+                "source_stage": "Final rerun starts",
+                "source_key": str(start_index),
+                "target_stage": "Retained robust rank",
+                "target_key": str(candidate_id),
+                "edge_class": "background_terminated",
+                "trace_group": f"dedup_fanin:{start_index}",
+                "is_selected_path": False,
             }
         )
 
@@ -2616,7 +2677,6 @@ def _build_refinement_stage_z_map() -> dict[str, float]:
         "Top rerun starts": 1.15,
         "Final rerun starts": 2.35,
         "Retained robust rank": 3.60,
-        "Selected final design": 4.85,
     }
 
 
@@ -2847,9 +2907,10 @@ def draw_refinement_subplot(
     y_limits = _compute_padded_limits(refinement_df["tail_metric_plot"], pad_fraction=0.22)
     x_span = max(x_limits[1] - x_limits[0], 1e-9)
     y_span = max(y_limits[1] - y_limits[0], 1e-9)
-    z_span = stage_z_map["Selected final design"] - stage_z_map["Selected sweep rows"]
+    z_span = stage_z_map["Retained robust rank"] - stage_z_map["Selected sweep rows"]
 
     edge_class_order = {
+        "background_terminated": 0,
         "promoted": 0,
         "final_rerun": 1,
         "kept": 2,
@@ -2871,6 +2932,15 @@ def draw_refinement_subplot(
         by=["draw_order", "source_stage", "target_stage", "trace_group"],
         kind="mergesort",
     )
+    refinement_edges_df = refinement_edges_df.loc[
+        refinement_edges_df.apply(
+            lambda row: (
+                (str(row["source_stage"]), str(row["source_key"])) in position_map
+                and (str(row["target_stage"]), str(row["target_key"])) in position_map
+            ),
+            axis=1,
+        )
+    ].reset_index(drop=True)
     edge_bend_lookup = _build_refinement_edge_bend_lookup(
         refinement_edges_df=refinement_edges_df,
         position_map=position_map,
@@ -2918,7 +2988,6 @@ def draw_refinement_subplot(
     }
 
     selected_point_xyz: tuple[float, float, float] | None = None
-    selected_final_start_xyz: tuple[float, float, float] | None = None
     for stage in refinement_stage_order:
         stage_df = refinement_df.loc[refinement_df["stage"] == stage].copy()
         if stage_df.empty:
@@ -2945,23 +3014,6 @@ def draw_refinement_subplot(
             alpha=0.93,
             linewidth=0.18,
         )
-        if stage == "Final rerun starts":
-            selected_edge_df = refinement_edges_df.loc[
-                (refinement_edges_df["source_stage"] == "Final rerun starts")
-                & refinement_edges_df["is_selected_path"]
-            ].copy()
-            if not selected_edge_df.empty:
-                selected_start_key = str(selected_edge_df.iloc[0]["source_key"])
-                selected_start_df = stage_df.loc[
-                    stage_df["node_key"] == selected_start_key
-                ].copy()
-                if not selected_start_df.empty:
-                    selected_row = selected_start_df.iloc[0]
-                    selected_final_start_xyz = (
-                        float(selected_row["objective_plot"]),
-                        float(selected_row["tail_metric_plot"]),
-                        stage_z_map[stage],
-                    )
         if stage == "Retained robust rank":
             retained_offset_x = 0.020 * x_span
             retained_offset_y = 0.030 * y_span
@@ -2993,76 +3045,10 @@ def draw_refinement_subplot(
                     selected_point_xyz[0],
                     selected_point_xyz[1],
                     selected_point_xyz[2] + 0.10,
-                    "retained",
+                    "retained = final",
                     fontsize=9,
                     fontweight="bold",
                 )
-
-    selected_design_xyz: tuple[float, float, float] | None = None
-    if selected_point_xyz is not None:
-        selected_design_xyz = (
-            selected_point_xyz[0],
-            selected_point_xyz[1],
-            stage_z_map["Selected final design"],
-        )
-        final_radius_x, final_radius_y, final_radius_z = _compute_sphere_radii(
-            x_span=x_span,
-            y_span=y_span,
-            z_span=z_span,
-            box_aspect=REFINEMENT_BOX_ASPECT,
-            visual_radius=REFINEMENT_SPHERE_RADIUS_MAP["Selected final design"],
-        )
-        _draw_sphere_markers_3d(
-            ax=ax,
-            xs=[selected_design_xyz[0]],
-            ys=[selected_design_xyz[1]],
-            zs=[selected_design_xyz[2]],
-            radius_x=final_radius_x,
-            radius_y=final_radius_y,
-            radius_z=final_radius_z,
-            facecolor=_color_for_z(stage_z_map["Selected final design"], z_normalize),
-            edgecolor="black",
-            alpha=0.99,
-            linewidth=0.22,
-        )
-        ax.text(
-            selected_design_xyz[0],
-            selected_design_xyz[1],
-            selected_design_xyz[2] + 0.16,
-            "selected",
-            fontsize=9,
-            fontweight="bold",
-        )
-        ax.text(
-            selected_design_xyz[0] + 0.020 * x_span,
-            selected_design_xyz[1] + 0.036 * y_span,
-            selected_design_xyz[2] + 0.12,
-            _format_tradeoff_label(
-                selected_design_xyz[0],
-                selected_design_xyz[1],
-            ),
-            fontsize=8,
-            color="#222222",
-            ha="left",
-            va="bottom",
-        )
-
-    if selected_final_start_xyz is not None and selected_design_xyz is not None:
-        _draw_curve_3d_gradient(
-            ax=ax,
-            x0=selected_final_start_xyz[0],
-            y0=selected_final_start_xyz[1],
-            z0=selected_final_start_xyz[2],
-            x1=selected_design_xyz[0],
-            y1=selected_design_xyz[1],
-            z1=selected_design_xyz[2],
-            linewidth=TRACE_LINE_WIDTH,
-            alpha=TRACE_ALPHA_SELECTED_STEP,
-            zorder=9,
-            z_normalize=z_normalize,
-            bend_x=0.0,
-            bend_y=0.0,
-        )
 
     selected_path_edges_df = refinement_edges_df.loc[
         refinement_edges_df["is_selected_path"]
@@ -3090,35 +3076,17 @@ def draw_refinement_subplot(
             bend_x=bend_x,
             bend_y=bend_y,
         )
-    if selected_final_start_xyz is not None and selected_design_xyz is not None:
-        _draw_curve_3d_gradient(
-            ax=ax,
-            x0=selected_final_start_xyz[0],
-            y0=selected_final_start_xyz[1],
-            z0=selected_final_start_xyz[2],
-            x1=selected_design_xyz[0],
-            y1=selected_design_xyz[1],
-            z1=selected_design_xyz[2],
-            linewidth=TRACE_LINE_WIDTH,
-            alpha=TRACE_ALPHA_SELECTED_FULL,
-            zorder=11,
-            z_normalize=z_normalize,
-            bend_x=0.0,
-            bend_y=0.0,
-        )
 
     ax.set_xlim(*x_limits)
     ax.set_ylim(*y_limits)
-    ax.set_zlim(-0.2, stage_z_map["Selected final design"] + 0.42)
+    ax.set_zlim(-0.2, stage_z_map["Retained robust rank"] + 0.42)
     ax.set_zticks(
-        [stage_z_map[stage] for stage in refinement_stage_order]
-        + [stage_z_map["Selected final design"]],
+        [stage_z_map[stage] for stage in refinement_stage_order],
         labels=[
             "Selected\nsweep rows",
             "Top rerun\nstarts",
             "Final rerun\nstarts",
-            "Retained\nrobust rank",
-            "Selected\nfinal design",
+            "Retained =\nfinal",
         ],
     )
     ax.set_xlabel("Nominal objective", labelpad=10)
@@ -3176,23 +3144,11 @@ def draw_refinement_subplot(
             [0],
             marker="o",
             color="w",
-            label=f"Retained robust rank (n={int((refinement_df['stage'] == 'Retained robust rank').sum())})",
+            label=f"Retained = final (n={int((refinement_df['stage'] == 'Retained robust rank').sum())})",
             markerfacecolor=_color_for_z(stage_z_map["Retained robust rank"], z_normalize),
-            markeredgecolor="white",
-            markeredgewidth=0.7,
-            markersize=7.6,
-            linewidth=0,
-        ),
-        Line2D(
-            [0],
-            [0],
-            marker="o",
-            color="w",
-            label="Selected final design",
-            markerfacecolor=_color_for_z(stage_z_map["Selected final design"], z_normalize),
             markeredgecolor="black",
             markeredgewidth=0.9,
-            markersize=10.0,
+            markersize=8.2,
             linewidth=0,
         ),
         Line2D(
@@ -3224,7 +3180,7 @@ def draw_refinement_subplot(
             [0],
             color=_edge_color_for_segment(
                 stage_z_map["Final rerun starts"],
-                stage_z_map["Selected final design"],
+                stage_z_map["Retained robust rank"],
                 z_normalize,
             ),
             label="Final selected path (100%)",
