@@ -65,6 +65,7 @@ struct CommitTelemetry {
   uint8_t activeMask;
   uint32_t boardRxUs;
   uint32_t boardCommitUs;
+  uint32_t receiveToCommitUs;
   uint32_t strobeUs;
   uint32_t frameIndex;
   uint16_t ppmUs[Config::kPpmChannelCount];
@@ -526,6 +527,7 @@ void serviceCommitTelemetry() {
   telemetry.activeMask = gCommitTelemetry.activeMask;
   telemetry.boardRxUs = gCommitTelemetry.boardRxUs;
   telemetry.boardCommitUs = gCommitTelemetry.boardCommitUs;
+  telemetry.receiveToCommitUs = gCommitTelemetry.receiveToCommitUs;
   telemetry.strobeUs = gCommitTelemetry.strobeUs;
   telemetry.frameIndex = gCommitTelemetry.frameIndex;
   for (size_t channelIndex = 0; channelIndex < Config::kPpmChannelCount; ++channelIndex) {
@@ -550,6 +552,8 @@ void serviceCommitTelemetry() {
     Serial.print(',');
     Serial.print(telemetry.ppmUs[channelIndex]);
   }
+  Serial.print(',');
+  Serial.print(telemetry.receiveToCommitUs);
   Serial.println();
 }
 
@@ -825,6 +829,7 @@ ISR(TIMER1_COMPA_vect) {
       gCommitTelemetry.activeMask = gPendingActiveMask;
       gCommitTelemetry.boardRxUs = gPendingRxUs;
       gCommitTelemetry.boardCommitUs = boardCommitUs;
+      gCommitTelemetry.receiveToCommitUs = boardCommitUs - gPendingRxUs;
       gCommitTelemetry.strobeUs = boardCommitUs;
       gCommitTelemetry.frameIndex = gFrameIndex;
       gCommitTelemetryPending = true;

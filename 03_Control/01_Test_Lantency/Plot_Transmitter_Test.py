@@ -152,6 +152,12 @@ def load_transmitter_time_series(
 ) -> tuple[np.ndarray, np.ndarray, list[dict]]:
     host_time = numeric_series(input_df, "time_s")
     host_command = numeric_series(input_df, "base_command_deg")
+    finite_host_command = host_command[np.isfinite(host_command)]
+    if finite_host_command.size > 0:
+        host_command_abs_max = float(np.nanmax(np.abs(finite_host_command)))
+    else:
+        host_command_abs_max = 45.0
+    response_angle_limit_deg = max(60.0, host_command_abs_max + 20.0)
 
     responses: list[dict] = []
     if receiver_capture_df.empty:
@@ -169,6 +175,9 @@ def load_transmitter_time_series(
 
         response_time = surface_rows["time_s"].to_numpy(dtype=float)
         response_value = pulse_us_to_equivalent_deg(surface_rows["pulse_us"].to_numpy(dtype=float))
+        valid_response_mask = np.isfinite(response_value) & (np.abs(response_value) <= response_angle_limit_deg)
+        response_time = response_time[valid_response_mask]
+        response_value = response_value[valid_response_mask]
         if not np.any(np.isfinite(response_value)):
             continue
 
@@ -332,11 +341,16 @@ def plot_time_series_panel(
     finite_blocks = [block for block in finite_blocks if block.size > 0]
     if finite_blocks:
         all_values = np.concatenate(finite_blocks)
-        y_min = float(np.min(all_values))
-        y_max = float(np.max(all_values))
-        y_span = y_max - y_min
-        y_pad = max(2.0, 0.05 * y_span if y_span > 0.0 else 2.0)
-        ax.set_ylim(y_min - y_pad, y_max + y_pad)
+        finite_values = all_values[np.isfinite(all_values)]
+        if finite_values.size > 0:
+            lower = float(np.nanpercentile(finite_values, 0.5))
+            upper = float(np.nanpercentile(finite_values, 99.5))
+            if not np.isfinite(lower) or not np.isfinite(upper) or upper <= lower:
+                lower = float(np.nanmin(finite_values))
+                upper = float(np.nanmax(finite_values))
+            y_span = upper - lower
+            y_pad = max(2.0, 0.08 * y_span if y_span > 0.0 else 2.0)
+            ax.set_ylim(lower - y_pad, upper + y_pad)
 
     finite_time_blocks = [host_x]
     finite_time_blocks.extend(finite_pair(response["time"], response["value"])[0] for response in responses)
