@@ -207,7 +207,50 @@ def _resolve_writable_workbook_path(requested_path: Path) -> Path:
         return requested_path.with_name(f"{requested_path.stem}_locked_{timestamp}{requested_path.suffix}")
 
 
-def _write_e2e_workbook(logger_folder: Path, event_prefix: str, workbook_path: Path) -> Path:
+def _trim_window(
+    events: pd.DataFrame,
+    receiver_capture: pd.DataFrame,
+    trim_start_s: float,
+    trim_end_s: float,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    trim_start_s = max(0.0, float(trim_start_s))
+    trim_end_s = max(0.0, float(trim_end_s))
+    if trim_start_s <= 0.0 and trim_end_s <= 0.0:
+        return events, receiver_capture
+
+    time_column = "command_dispatch_s" if "command_dispatch_s" in events.columns else "scheduled_time_s"
+    if time_column not in events.columns:
+        return events, receiver_capture
+
+    event_time = pd.to_numeric(events[time_column], errors="coerce")
+    finite_time = event_time[np.isfinite(event_time.to_numpy(dtype=float))]
+    if finite_time.empty:
+        return events, receiver_capture
+
+    start_time = float(finite_time.min()) + trim_start_s
+    stop_time = float(finite_time.max()) - trim_end_s
+    if stop_time <= start_time:
+        return events, receiver_capture
+
+    event_mask = event_time.between(start_time, stop_time, inclusive="both")
+    trimmed_events = events.loc[event_mask].copy()
+
+    trimmed_receiver = receiver_capture.copy()
+    if "time_s" in trimmed_receiver.columns:
+        receiver_time = pd.to_numeric(trimmed_receiver["time_s"], errors="coerce")
+        receiver_mask = receiver_time.between(start_time, stop_time, inclusive="both")
+        trimmed_receiver = trimmed_receiver.loc[receiver_mask].copy()
+
+    return trimmed_events, trimmed_receiver
+
+
+def _write_e2e_workbook(
+    logger_folder: Path,
+    event_prefix: str,
+    workbook_path: Path,
+    trim_start_s: float,
+    trim_end_s: float,
+) -> Path:
     events = _read_csv(logger_folder / f"{event_prefix}_event_latency.csv")
     receiver_capture = _read_csv(logger_folder / "receiver_capture.csv")
 
@@ -234,6 +277,7 @@ def _write_e2e_workbook(logger_folder: Path, event_prefix: str, workbook_path: P
     _to_numeric(receiver_capture, ["time_s", "pulse_us", "sample_index", "sample_rate_hz"])
     events["surface_name"] = events["surface_name"].astype(str)
     receiver_capture["surface_name"] = receiver_capture["surface_name"].astype(str)
+    events, receiver_capture = _trim_window(events, receiver_capture, trim_start_s, trim_end_s)
 
     if "host_scheduling_delay_s" not in events.columns:
         events["host_scheduling_delay_s"] = events["command_dispatch_s"] - events["scheduled_time_s"]
@@ -317,6 +361,8 @@ def _parse_args():
     parser.add_argument("--logger-folder", type=str, default="", help="*_TransmitterLogger folder path.")
     parser.add_argument("--root-folder", type=str, default="D_Transmitter_Test", help="Search root when logger folder omitted.")
     parser.add_argument("--event-prefix", type=str, default="e2e_shared_clock", help="Prefix used by Transmitter_Test_E2E outputs.")
+    parser.add_argument("--trim-start-s", type=float, default=10.0, help="Trim this many seconds from the start of event timeline.")
+    parser.add_argument("--trim-end-s", type=float, default=10.0, help="Trim this many seconds from the end of event timeline.")
     return parser.parse_args()
 
 
@@ -352,7 +398,13 @@ def main():
     run_label = logger_folder.name.replace("_TransmitterLogger", "")
     workbook_dir = logger_folder.parent
     workbook_path = workbook_dir / f"{run_label}.xlsx"
-    workbook_path = _write_e2e_workbook(logger_folder, args.event_prefix, workbook_path)
+    workbook_path = _write_e2e_workbook(
+        logger_folder,
+        args.event_prefix,
+        workbook_path,
+        trim_start_s=float(args.trim_start_s),
+        trim_end_s=float(args.trim_end_s),
+    )
 
     out_dir = workbook_dir / "A_figures"
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -12,15 +12,23 @@ transmitterConfig = getField(config, "transmitterConfig", struct());
 loggerFolder = string(getField(config, "loggerFolder", ""));
 frameWindowSeconds = double(getField(config, "frameWindowSeconds", 0.025));
 maxCommitAssociationSeconds = double(getField(config, "maxCommitAssociationSeconds", 0.25));
+maxRxAssociationSeconds = double(getField(config, "maxRxAssociationSeconds", 0.08));
 outputPrefix = string(getField(config, "outputPrefix", "e2e_shared_clock"));
 seed = double(getField(config, "seed", 1));
 enforceArduinoStepTrainDefaults = logical(getField(config, "enforceArduinoStepTrainDefaults", true));
+recordLeadSeconds = max(0, double(getField(config, "recordLeadSeconds", 10.0)));
+recordLagSeconds = max(0, double(getField(config, "recordLagSeconds", 10.0)));
+commandActiveSeconds = max(0, double(getField(config, "commandActiveSeconds", 59.0)));
+quality = buildQualityConfig(config, frameWindowSeconds, maxRxAssociationSeconds);
 
 if runHardware
     transmitterConfig = applyComparableProfileDefaults( ...
         transmitterConfig, ...
         seed, ...
-        enforceArduinoStepTrainDefaults);
+        enforceArduinoStepTrainDefaults, ...
+        recordLeadSeconds, ...
+        recordLagSeconds, ...
+        commandActiveSeconds);
     runData = Transmitter_Test(transmitterConfig);
     logs = runData.logs;
     loggerFolder = string(runData.artifacts.loggerFolderPath);
@@ -38,7 +46,7 @@ else
     logs.receiverCapture = readtable(fullfile(loggerFolder, "receiver_capture.csv"));
 end
 
-e2e = computeE2E(logs, frameWindowSeconds, maxCommitAssociationSeconds);
+e2e = computeE2E(logs, frameWindowSeconds, maxCommitAssociationSeconds, maxRxAssociationSeconds, quality);
 e2e.outputPaths = exportE2E(e2e, loggerFolder, outputPrefix);
 if runHardware
     runData.e2e = e2e;
@@ -48,10 +56,12 @@ fprintf("Transmitter_Test_E2E summary\n");
 fprintf("  Logger folder: %s\n", char(loggerFolder));
 fprintf("  Anchor rows: %d\n", height(e2e.anchorTable));
 fprintf("  Event rows: %d\n", height(e2e.eventLatency));
+fprintf("  Strict raw rows: %d\n", sum(e2e.eventLatency.is_true_e2e_raw));
 fprintf("  Strict true-E2E rows: %d\n", height(e2e.trueE2EEvents));
+fprintf("  Excluded non-realistic rows: %d\n", sum(e2e.eventLatency.excluded_non_realistic));
 end
 
-function e2e = computeE2E(logs, frameWindowSeconds, maxCommitAssociationSeconds)
+function e2e = computeE2E(logs, frameWindowSeconds, maxCommitAssociationSeconds, maxRxAssociationSeconds, quality)
 dispatch = logs.hostDispatchLog;
 dispatch.surface_name = string(dispatch.surface_name);
 dispatch = sortrows(dispatch, {'sample_index', 'surface_name', 'command_sequence'});
@@ -139,7 +149,7 @@ rxSel = selectCandidateByDispatch( ...
     ["surface_name", "command_sequence"], ...
     "command_dispatch_s", ...
     "rx_time_s", ...
-    frameWindowSeconds + 0.20, ...
+    maxRxAssociationSeconds, ...
     strings(0, 1));
 rxSel.board_rx_s = nan(height(rxSel), 1);
 rxSel.board_rx_s(rxSel.candidate_in_window) = rxSel.rx_time_s(rxSel.candidate_in_window);
@@ -229,23 +239,45 @@ events.scheduled_to_ppm_latency_s = events.ppm_time_s - events.scheduled_time_s;
 events.dispatch_to_receiver_latency_s = events.receiver_time_s - events.command_dispatch_s;
 events.scheduled_to_receiver_latency_s = events.receiver_time_s - events.scheduled_time_s;
 
-strictMask = events.commit_valid_for_anchor & isfinite(events.command_dispatch_s) & ...
+strictMaskRaw = events.commit_valid_for_anchor & isfinite(events.command_dispatch_s) & ...
     isfinite(events.commit_time_s) & isfinite(events.anchor_time_s) & ...
     isfinite(events.ppm_time_s) & isfinite(events.receiver_time_s);
-events.is_true_e2e = strictMask;
+events.is_true_e2e_raw = strictMaskRaw;
+events.is_true_e2e = strictMaskRaw;
 events.true_dispatch_to_ppm_latency_s = nan(height(events), 1);
 events.true_scheduled_to_ppm_latency_s = nan(height(events), 1);
 events.true_ppm_to_receiver_latency_s = nan(height(events), 1);
 events.true_dispatch_to_receiver_latency_s = nan(height(events), 1);
 events.true_scheduled_to_receiver_latency_s = nan(height(events), 1);
 events.true_chain_residual_s = nan(height(events), 1);
-events.true_dispatch_to_ppm_latency_s(strictMask) = events.dispatch_to_ppm_latency_s(strictMask);
-events.true_scheduled_to_ppm_latency_s(strictMask) = events.scheduled_to_ppm_latency_s(strictMask);
-events.true_ppm_to_receiver_latency_s(strictMask) = events.ppm_to_receiver_latency_s(strictMask);
-events.true_dispatch_to_receiver_latency_s(strictMask) = events.dispatch_to_receiver_latency_s(strictMask);
-events.true_scheduled_to_receiver_latency_s(strictMask) = events.scheduled_to_receiver_latency_s(strictMask);
+events.true_dispatch_to_ppm_latency_s(strictMaskRaw) = events.dispatch_to_ppm_latency_s(strictMaskRaw);
+events.true_scheduled_to_ppm_latency_s(strictMaskRaw) = events.scheduled_to_ppm_latency_s(strictMaskRaw);
+events.true_ppm_to_receiver_latency_s(strictMaskRaw) = events.ppm_to_receiver_latency_s(strictMaskRaw);
+events.true_dispatch_to_receiver_latency_s(strictMaskRaw) = events.dispatch_to_receiver_latency_s(strictMaskRaw);
+events.true_scheduled_to_receiver_latency_s(strictMaskRaw) = events.scheduled_to_receiver_latency_s(strictMaskRaw);
 chainSum = events.dispatch_to_commit_latency_s + events.commit_to_anchor_latency_s + events.anchor_to_receiver_latency_s;
-events.true_chain_residual_s(strictMask) = events.dispatch_to_receiver_latency_s(strictMask) - chainSum(strictMask);
+events.true_chain_residual_s(strictMaskRaw) = events.dispatch_to_receiver_latency_s(strictMaskRaw) - chainSum(strictMaskRaw);
+
+[qualityMask, qualityReason] = evaluateEventQuality(events, strictMaskRaw, quality);
+events.is_realistic_event = qualityMask;
+events.non_realistic_reason = qualityReason;
+events.excluded_non_realistic = strictMaskRaw & ~qualityMask;
+if quality.filterEnabled
+    events.is_true_e2e = strictMaskRaw & qualityMask;
+    trueFields = { ...
+        'true_dispatch_to_ppm_latency_s', ...
+        'true_scheduled_to_ppm_latency_s', ...
+        'true_ppm_to_receiver_latency_s', ...
+        'true_dispatch_to_receiver_latency_s', ...
+        'true_scheduled_to_receiver_latency_s', ...
+        'true_chain_residual_s'};
+    for k = 1:numel(trueFields)
+        fieldName = trueFields{k};
+        fieldValues = events.(fieldName);
+        fieldValues(~events.is_true_e2e) = NaN;
+        events.(fieldName) = fieldValues;
+    end
+end
 
 events.ppm_matched = isfinite(events.ppm_time_s);
 events.receiver_matched = isfinite(events.receiver_time_s);
@@ -256,6 +288,7 @@ e2e.eventLatency = events;
 e2e.anchorToPpm = events(isfinite(events.anchor_to_ppm_latency_s), :);
 e2e.anchorToReceiver = events(isfinite(events.anchor_to_receiver_latency_s), :);
 e2e.trueE2EEvents = events(events.is_true_e2e, :);
+e2e.qualitySummary = buildQualitySummary(events);
 e2e.surfaceSummary = buildSurfaceSummary(events);
 e2e.overallSummary = buildOverallSummary(events);
 end
@@ -333,6 +366,7 @@ paths.eventLatencyCsv = fullfile(loggerFolder, prefix + "_event_latency.csv");
 paths.anchorToPpmCsv = fullfile(loggerFolder, prefix + "_anchor_to_ppm.csv");
 paths.anchorToReceiverCsv = fullfile(loggerFolder, prefix + "_anchor_to_receiver.csv");
 paths.trueE2ECsv = fullfile(loggerFolder, prefix + "_true_e2e_events.csv");
+paths.qualitySummaryCsv = fullfile(loggerFolder, prefix + "_quality_summary.csv");
 paths.surfaceSummaryCsv = fullfile(loggerFolder, prefix + "_surface_summary.csv");
 paths.overallSummaryCsv = fullfile(loggerFolder, prefix + "_overall_summary.csv");
 writetable(e2e.anchorTable, paths.anchorTableCsv);
@@ -340,6 +374,7 @@ writetable(e2e.eventLatency, paths.eventLatencyCsv);
 writetable(e2e.anchorToPpm, paths.anchorToPpmCsv);
 writetable(e2e.anchorToReceiver, paths.anchorToReceiverCsv);
 writetable(e2e.trueE2EEvents, paths.trueE2ECsv);
+writetable(e2e.qualitySummary, paths.qualitySummaryCsv);
 writetable(e2e.surfaceSummary, paths.surfaceSummaryCsv);
 writetable(e2e.overallSummary, paths.overallSummaryCsv);
 end
@@ -506,6 +541,133 @@ else
 end
 end
 
+function quality = buildQualityConfig(config, frameWindowSeconds, maxRxAssociationSeconds)
+qualityConfig = getField(config, "quality", struct());
+quality = struct();
+quality.filterEnabled = logical(getField( ...
+    qualityConfig, ...
+    "filterEnabled", ...
+    getField(config, "filterNonRealistic", true)));
+quality.allowSmallNegativeSeconds = max(0, double(getField(qualityConfig, "allowSmallNegativeSeconds", 5e-4)));
+quality.maxDispatchToRxSeconds = max(0, double(getField(qualityConfig, "maxDispatchToRxSeconds", maxRxAssociationSeconds)));
+quality.maxRxToCommitSeconds = max(0, double(getField(qualityConfig, "maxRxToCommitSeconds", 0.03)));
+quality.maxCommitToAnchorSeconds = max(0, double(getField(qualityConfig, "maxCommitToAnchorSeconds", frameWindowSeconds)));
+quality.maxAnchorToPpmSeconds = max(0, double(getField(qualityConfig, "maxAnchorToPpmSeconds", frameWindowSeconds)));
+quality.maxAnchorToReceiverSeconds = max(0, double(getField(qualityConfig, "maxAnchorToReceiverSeconds", frameWindowSeconds)));
+quality.maxPpmToReceiverSeconds = max(0, double(getField(qualityConfig, "maxPpmToReceiverSeconds", frameWindowSeconds)));
+quality.maxDispatchToReceiverSeconds = max(0, double(getField(qualityConfig, "maxDispatchToReceiverSeconds", 0.20)));
+quality.maxChainResidualSeconds = max(0, double(getField(qualityConfig, "maxChainResidualSeconds", 0.002)));
+quality.requirePpmBeforeReceiver = logical(getField(qualityConfig, "requirePpmBeforeReceiver", true));
+quality.requireMonotonicChain = logical(getField(qualityConfig, "requireMonotonicChain", true));
+end
+
+function [qualityMask, reason] = evaluateEventQuality(events, strictMaskRaw, quality)
+rowCount = height(events);
+qualityMask = strictMaskRaw;
+reason = strings(rowCount, 1);
+if rowCount == 0
+    return;
+end
+
+epsNeg = quality.allowSmallNegativeSeconds;
+candidateMask = strictMaskRaw;
+
+dispatchToRxOk = isfinite(events.dispatch_to_rx_latency_s) & ...
+    events.dispatch_to_rx_latency_s >= -epsNeg & ...
+    events.dispatch_to_rx_latency_s <= quality.maxDispatchToRxSeconds;
+[qualityMask, reason] = applyQualityFailure( ...
+    qualityMask, reason, candidateMask & ~dispatchToRxOk, "dispatch_to_rx_out_of_range");
+
+rxToCommitOk = isfinite(events.rx_to_commit_latency_s) & ...
+    events.rx_to_commit_latency_s >= -epsNeg & ...
+    events.rx_to_commit_latency_s <= quality.maxRxToCommitSeconds;
+[qualityMask, reason] = applyQualityFailure( ...
+    qualityMask, reason, candidateMask & ~rxToCommitOk, "rx_to_commit_out_of_range");
+
+commitToAnchorOk = isfinite(events.commit_to_anchor_latency_s) & ...
+    events.commit_to_anchor_latency_s >= -epsNeg & ...
+    events.commit_to_anchor_latency_s <= quality.maxCommitToAnchorSeconds;
+[qualityMask, reason] = applyQualityFailure( ...
+    qualityMask, reason, candidateMask & ~commitToAnchorOk, "commit_to_anchor_out_of_range");
+
+anchorToPpmOk = isfinite(events.anchor_to_ppm_latency_s) & ...
+    events.anchor_to_ppm_latency_s >= -epsNeg & ...
+    events.anchor_to_ppm_latency_s <= quality.maxAnchorToPpmSeconds;
+[qualityMask, reason] = applyQualityFailure( ...
+    qualityMask, reason, candidateMask & ~anchorToPpmOk, "anchor_to_ppm_out_of_range");
+
+anchorToReceiverOk = isfinite(events.anchor_to_receiver_latency_s) & ...
+    events.anchor_to_receiver_latency_s >= -epsNeg & ...
+    events.anchor_to_receiver_latency_s <= quality.maxAnchorToReceiverSeconds;
+[qualityMask, reason] = applyQualityFailure( ...
+    qualityMask, reason, candidateMask & ~anchorToReceiverOk, "anchor_to_receiver_out_of_range");
+
+ppmToReceiverOk = isfinite(events.ppm_to_receiver_latency_s) & ...
+    events.ppm_to_receiver_latency_s >= -epsNeg & ...
+    events.ppm_to_receiver_latency_s <= quality.maxPpmToReceiverSeconds;
+[qualityMask, reason] = applyQualityFailure( ...
+    qualityMask, reason, candidateMask & ~ppmToReceiverOk, "ppm_to_receiver_out_of_range");
+
+dispatchToReceiverOk = isfinite(events.dispatch_to_receiver_latency_s) & ...
+    events.dispatch_to_receiver_latency_s >= -epsNeg & ...
+    events.dispatch_to_receiver_latency_s <= quality.maxDispatchToReceiverSeconds;
+[qualityMask, reason] = applyQualityFailure( ...
+    qualityMask, reason, candidateMask & ~dispatchToReceiverOk, "dispatch_to_receiver_out_of_range");
+
+chainResidualOk = isfinite(events.true_chain_residual_s) & ...
+    abs(events.true_chain_residual_s) <= quality.maxChainResidualSeconds;
+[qualityMask, reason] = applyQualityFailure( ...
+    qualityMask, reason, candidateMask & ~chainResidualOk, "chain_residual_out_of_range");
+
+if quality.requireMonotonicChain
+    monotonicOk = ...
+        events.board_rx_s >= (events.command_dispatch_s - epsNeg) & ...
+        events.commit_time_s >= (events.board_rx_s - epsNeg) & ...
+        events.anchor_time_s >= (events.commit_time_s - epsNeg) & ...
+        events.ppm_time_s >= (events.anchor_time_s - epsNeg) & ...
+        events.receiver_time_s >= (events.anchor_time_s - epsNeg);
+    [qualityMask, reason] = applyQualityFailure( ...
+        qualityMask, reason, candidateMask & ~monotonicOk, "non_monotonic_chain");
+end
+
+if quality.requirePpmBeforeReceiver
+    ppmBeforeReceiverOk = events.receiver_time_s >= (events.ppm_time_s - epsNeg);
+    [qualityMask, reason] = applyQualityFailure( ...
+        qualityMask, reason, candidateMask & ~ppmBeforeReceiverOk, "receiver_before_ppm");
+end
+
+reason(candidateMask & qualityMask & reason == "") = "ok";
+reason(~candidateMask) = "not_strict_e2e";
+end
+
+function [qualityMask, reason] = applyQualityFailure(qualityMask, reason, failMask, reasonLabel)
+qualityMask(failMask) = false;
+newReasonMask = failMask & reason == "";
+reason(newReasonMask) = string(reasonLabel);
+end
+
+function summary = buildQualitySummary(events)
+summary = table( ...
+    ["total_events"; "strict_true_e2e_raw"; "strict_true_e2e_final"; "excluded_non_realistic"], ...
+    [height(events); sum(events.is_true_e2e_raw); sum(events.is_true_e2e); sum(events.excluded_non_realistic)], ...
+    'VariableNames', {'Metric', 'Count'});
+
+excludedReasons = events.non_realistic_reason(events.excluded_non_realistic);
+excludedReasons = excludedReasons(strlength(excludedReasons) > 0);
+if isempty(excludedReasons)
+    return;
+end
+
+reasonLabels = unique(excludedReasons, "stable");
+reasonRows = table();
+reasonRows.Metric = "excluded_reason:" + reasonLabels;
+reasonRows.Count = zeros(numel(reasonLabels), 1);
+for i = 1:numel(reasonLabels)
+    reasonRows.Count(i) = sum(excludedReasons == reasonLabels(i));
+end
+summary = [summary; reasonRows];
+end
+
 function loggerFolder = resolveLatestLoggerFolder(rootFolder)
 folderInfo = dir(fullfile(rootFolder, "*_TransmitterLogger"));
 if isempty(folderInfo)
@@ -515,7 +677,13 @@ end
 loggerFolder = string(fullfile(folderInfo(idx).folder, folderInfo(idx).name));
 end
 
-function transmitterConfig = applyComparableProfileDefaults(transmitterConfig, seed, enforceArduinoStepTrainDefaults)
+function transmitterConfig = applyComparableProfileDefaults( ...
+    transmitterConfig, ...
+    seed, ...
+    enforceArduinoStepTrainDefaults, ...
+    recordLeadSeconds, ...
+    recordLagSeconds, ...
+    commandActiveSeconds)
 if ~isfield(transmitterConfig, "commandProfile") || isempty(transmitterConfig.commandProfile)
     transmitterConfig.commandProfile = struct();
 end
@@ -523,11 +691,15 @@ end
 if enforceArduinoStepTrainDefaults
     % Match Arduino_Test latency_step_train defaults exactly for direct
     % seed-to-seed reference comparison, while preserving 20 ms cadence.
+    % Recording window control:
+    %   preCommandNeutralSeconds  -> lead-in recording time before command.
+    %   durationSeconds           -> active command segment length.
+    %   postCommandNeutralSeconds -> tail recording time after command.
     transmitterConfig.commandProfile.type = "latency_step_train";
     transmitterConfig.commandProfile.sampleTimeSeconds = 0.02;
-    transmitterConfig.commandProfile.preCommandNeutralSeconds = 5.0;
-    transmitterConfig.commandProfile.postCommandNeutralSeconds = 1.0;
-    transmitterConfig.commandProfile.durationSeconds = 59.0;
+    transmitterConfig.commandProfile.preCommandNeutralSeconds = recordLeadSeconds;
+    transmitterConfig.commandProfile.postCommandNeutralSeconds = recordLagSeconds;
+    transmitterConfig.commandProfile.durationSeconds = commandActiveSeconds;
     transmitterConfig.commandProfile.amplitudeDegrees = 45.0;
     transmitterConfig.commandProfile.offsetDegrees = 0.0;
     transmitterConfig.commandProfile.frequencyHz = 0.5;
