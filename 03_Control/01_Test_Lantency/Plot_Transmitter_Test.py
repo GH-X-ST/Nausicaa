@@ -503,7 +503,7 @@ def plot_transmitter_summary_figure(excel_path: Path, out_path: Path, workbook_b
 
 def main():
     workbook_dir = Path("D_Transmitter_Test")
-    excel_path = None
+    excel_path = "Seed_5_Transmitter.xlsx"
     out_dir = workbook_dir / "A_figures"
     out_dir.mkdir(parents=True, exist_ok=True)
 

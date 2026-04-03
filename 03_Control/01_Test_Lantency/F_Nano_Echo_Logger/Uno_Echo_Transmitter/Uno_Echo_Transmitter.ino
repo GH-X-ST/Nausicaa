@@ -20,6 +20,7 @@ constexpr bool kPpmActiveHighPulse = true;
 constexpr uint16_t kMinimumPulseUs = 1000;
 constexpr uint16_t kMaximumPulseUs = 2000;
 constexpr uint16_t kNeutralPulseUs = 1500;
+constexpr int16_t kSurfacePulseTrimUs[kSurfaceCount] = {-2, -2, -12, -2};
 constexpr uint16_t kFrameLengthUs = 22000;
 constexpr uint16_t kMarkWidthUs = 300;
 constexpr uint32_t kCommandTimeoutUs = 250000;
@@ -138,6 +139,7 @@ uint16_t decodeUint16LittleEndian(const uint8_t* data);
 uint32_t decodeUint32LittleEndian(const uint8_t* data);
 uint16_t positionNormToCode(float positionNorm);
 uint16_t positionCodeToPulseUs(uint16_t positionCode);
+uint16_t applySurfacePulseTrimUs(size_t surfaceIndex, uint16_t pulseUs);
 inline void writeTrainerHigh();
 inline void writeTrainerLow();
 inline void setPpmIdleLevel();
@@ -381,7 +383,9 @@ bool tryHandleSetAllCommand(char* commandBuffer, uint32_t boardRxUs) {
 
 void finalizeVectorCandidate(VectorCommand& candidate) {
   for (size_t surfaceIndex = 0; surfaceIndex < Config::kSurfaceCount; ++surfaceIndex) {
-    candidate.ppmUs[surfaceIndex] = positionCodeToPulseUs(candidate.positionCodes[surfaceIndex]);
+    candidate.ppmUs[surfaceIndex] = applySurfacePulseTrimUs(
+      surfaceIndex,
+      positionCodeToPulseUs(candidate.positionCodes[surfaceIndex]));
   }
   for (size_t channelIndex = Config::kSurfaceCount; channelIndex < Config::kPpmChannelCount; ++channelIndex) {
     candidate.ppmUs[channelIndex] = Config::kNeutralPulseUs;
@@ -854,4 +858,19 @@ uint16_t positionCodeToPulseUs(uint16_t positionCode) {
   uint32_t spanUs = static_cast<uint32_t>(Config::kMaximumPulseUs - Config::kMinimumPulseUs);
   return static_cast<uint16_t>(Config::kMinimumPulseUs +
     ((static_cast<uint32_t>(positionCode) * spanUs + 32767U) / 65535U));
+}
+
+uint16_t applySurfacePulseTrimUs(size_t surfaceIndex, uint16_t pulseUs) {
+  int32_t trimmedPulseUs = static_cast<int32_t>(pulseUs);
+  if (surfaceIndex < Config::kSurfaceCount) {
+    trimmedPulseUs += static_cast<int32_t>(Config::kSurfacePulseTrimUs[surfaceIndex]);
+  }
+
+  if (trimmedPulseUs < static_cast<int32_t>(Config::kMinimumPulseUs)) {
+    trimmedPulseUs = static_cast<int32_t>(Config::kMinimumPulseUs);
+  } else if (trimmedPulseUs > static_cast<int32_t>(Config::kMaximumPulseUs)) {
+    trimmedPulseUs = static_cast<int32_t>(Config::kMaximumPulseUs);
+  }
+
+  return static_cast<uint16_t>(trimmedPulseUs);
 }

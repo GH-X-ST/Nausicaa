@@ -208,7 +208,7 @@ commandProfile.eventHoldSeconds = getPositiveScalarField(commandProfileConfig, "
 commandProfile.eventNeutralHoldSeconds = getNonnegativeScalarField(commandProfileConfig, "eventNeutralHoldSeconds", 0.10);
 commandProfile.eventDwellSeconds = getNonnegativeScalarField(commandProfileConfig, "eventDwellSeconds", 0.60);
 commandProfile.eventRandomJitterSeconds = getNonnegativeScalarField(commandProfileConfig, "eventRandomJitterSeconds", 0.05);
-commandProfile.randomSeed = getScalarField(commandProfileConfig, "randomSeed", 1);
+commandProfile.randomSeed = getScalarField(commandProfileConfig, "randomSeed", 5);
 commandProfile.customTimeSeconds = getNumericVectorField(commandProfileConfig, "customTimeSeconds", []);
 commandProfile.customDeflectionDegrees = getNumericVectorField(commandProfileConfig, "customDeflectionDegrees", []);
 commandProfile.customInterpolationMethod = getTextScalarField(commandProfileConfig, "customInterpolationMethod", "linear");
@@ -3650,6 +3650,15 @@ config.trainerPpm = struct( ...
     "neutralPulseUs", getPositiveIntegerField(trainerPpmConfig, "neutralPulseUs", 1500), ...
     "channelSurfaceMap", getStringArrayField(trainerPpmConfig, "channelSurfaceMap", defaultTrainerChannelMap));
 
+% Match the controller-workbook latency-step structure explicitly, while
+% still respecting the slower Uno trainer cadence needed for frame-based
+% PPM commit and downstream observability.
+if ~isfield(commandProfileConfig, "type")
+    config.commandProfile.type = "latency_step_train";
+end
+if ~isfield(commandProfileConfig, "randomSeed")
+    config.commandProfile.randomSeed = 5;
+end
 if ~isfield(commandProfileConfig, "sampleTimeSeconds")
     minimumRecommendedSampleTimeSeconds = ...
         max(0.05, 2.0 .* double(config.trainerPpm.frameLengthUs) ./ 1e6 + 0.006);
@@ -3658,16 +3667,16 @@ end
 
 if config.commandProfile.type == "latency_step_train"
     if ~isfield(commandProfileConfig, "eventHoldSeconds")
-        config.commandProfile.eventHoldSeconds = config.commandProfile.sampleTimeSeconds;
+        config.commandProfile.eventHoldSeconds = 0.20;
     end
     if ~isfield(commandProfileConfig, "eventNeutralHoldSeconds")
-        config.commandProfile.eventNeutralHoldSeconds = config.commandProfile.sampleTimeSeconds;
+        config.commandProfile.eventNeutralHoldSeconds = 0.10;
     end
     if ~isfield(commandProfileConfig, "eventDwellSeconds")
-        config.commandProfile.eventDwellSeconds = 0.0;
+        config.commandProfile.eventDwellSeconds = 0.60;
     end
     if ~isfield(commandProfileConfig, "eventRandomJitterSeconds")
-        config.commandProfile.eventRandomJitterSeconds = 0.0;
+        config.commandProfile.eventRandomJitterSeconds = 0.05;
     end
 end
 
@@ -5920,7 +5929,8 @@ for rowIndex = 1:height(matchedEvents)
             searchStartSeconds, ...
             expectedUs, ...
             config.matching.ppmChangeThresholdUs, ...
-            config.matching.maxResponseWindowSeconds);
+            config.matching.maxResponseWindowSeconds, ...
+            true);
         matchedEvents.trainer_ppm_s(rowIndex) = trainerTime;
         matchedEvents.trainer_ppm_us(rowIndex) = trainerPulse;
         matchedEvents.trainer_sample_index(rowIndex) = trainerSampleIndex;
@@ -5942,7 +5952,8 @@ for rowIndex = 1:height(matchedEvents)
             receiverStartSeconds, ...
             expectedUs, ...
             config.matching.receiverChangeThresholdUs, ...
-            config.matching.maxResponseWindowSeconds);
+            config.matching.maxResponseWindowSeconds, ...
+            true);
         matchedEvents.receiver_response_s(rowIndex) = receiverTime;
         matchedEvents.receiver_pulse_us(rowIndex) = receiverPulse;
         matchedEvents.receiver_sample_index(rowIndex) = receiverSampleIndex;
@@ -5996,7 +6007,8 @@ function [matchedTime, matchedPulse, matchedSampleIndex, matchedSampleRateHz, ne
     startTimeSeconds, ...
     expectedPulseUs, ...
     toleranceUs, ...
-    maxWindowSeconds)
+    maxWindowSeconds, ...
+    requirePulseTransition)
 matchedTime = NaN;
 matchedPulse = NaN;
 matchedSampleIndex = NaN;
@@ -6017,7 +6029,14 @@ while rowIndex <= height(surfaceCapture)
         return;
     end
 
-    if abs(surfaceCapture.pulse_us(rowIndex) - expectedPulseUs) <= toleranceUs
+    pulseMatchesExpected = abs(surfaceCapture.pulse_us(rowIndex) - expectedPulseUs) <= toleranceUs;
+    pulseIsTransition = true;
+    if requirePulseTransition && rowIndex > 1
+        pulseIsTransition = ...
+            abs(surfaceCapture.pulse_us(rowIndex) - surfaceCapture.pulse_us(rowIndex - 1)) >= toleranceUs;
+    end
+
+    if pulseMatchesExpected && pulseIsTransition
         matchedTime = surfaceCapture.time_s(rowIndex);
         matchedPulse = surfaceCapture.pulse_us(rowIndex);
         if ismember("sample_index", string(surfaceCapture.Properties.VariableNames))
