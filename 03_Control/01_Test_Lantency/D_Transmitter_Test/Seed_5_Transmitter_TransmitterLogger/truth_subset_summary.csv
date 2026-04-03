@@ -1,5 +1,5 @@
 SurfaceName,IsActive,TruthEventCount,TruthCommitMatchCount,TruthCommitMissCount,TruthReceiverMatchCount,TruthReceiverMissCount
-Aileron_L,1,248,248,0,0,248
-Aileron_R,1,248,248,0,0,248
-Rudder,1,248,248,0,0,248
-Elevator,1,248,248,0,0,248
+Aileron_L,1,248,125,123,58,190
+Aileron_R,1,248,247,1,85,163
+Rudder,1,248,247,1,88,160
+Elevator,1,248,248,0,114,134

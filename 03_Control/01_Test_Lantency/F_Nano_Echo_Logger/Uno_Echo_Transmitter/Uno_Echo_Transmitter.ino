@@ -60,6 +60,16 @@ struct PendingCommand {
   uint16_t ppmUs[Config::kPpmChannelCount];
 };
 
+struct CommitTelemetry {
+  uint32_t sampleSequence;
+  uint8_t activeMask;
+  uint32_t boardRxUs;
+  uint32_t boardCommitUs;
+  uint32_t strobeUs;
+  uint32_t frameIndex;
+  uint16_t ppmUs[Config::kPpmChannelCount];
+};
+
 char gCommandBuffer[Config::kCommandBufferLength];
 size_t gCommandLength = 0;
 bool gCommandOverflow = false;
@@ -91,6 +101,8 @@ volatile uint32_t gErrorCount = 0;
 volatile uint32_t gLatestSequence = 0;
 volatile uint32_t gLastCommandRxUs = 0;
 volatile bool gTimeoutNeutralQueued = true;
+volatile bool gCommitTelemetryPending = false;
+volatile CommitTelemetry gCommitTelemetry = {};
 
 uint32_t gDiagnosticLastUpdateUs = 0;
 uint8_t gDiagnosticStateIndex = 0;
@@ -114,6 +126,8 @@ void queuePendingVector(const PendingCommand& command);
 void queueNeutralVector(uint32_t sampleSequence, uint32_t boardRxUs);
 void serviceCommandTimeout();
 void handleSyncCommand(char* context, uint32_t boardRxUs);
+void emitRxEvent(const PendingCommand& command);
+void serviceCommitTelemetry();
 void sendHelloEvent();
 void sendStatusEvent();
 void sendOkEvent(const __FlashStringHelper* message);
@@ -160,6 +174,7 @@ void loop() {
 
   serviceSerialInput();
   serviceCommandTimeout();
+  serviceCommitTelemetry();
 }
 
 void configurePins() {
@@ -423,6 +438,8 @@ void queuePendingVector(const PendingCommand& command) {
   gTimeoutNeutralQueued = false;
   ++gRxEventCount;
   interrupts();
+
+  emitRxEvent(command);
 }
 
 void queueNeutralVector(uint32_t sampleSequence, uint32_t boardRxUs) {
@@ -440,6 +457,8 @@ void queueNeutralVector(uint32_t sampleSequence, uint32_t boardRxUs) {
   gLastCommandRxUs = boardRxUs;
   gTimeoutNeutralQueued = true;
   interrupts();
+
+  emitRxEvent(neutralCommand);
 }
 
 void serviceCommandTimeout() {
@@ -478,6 +497,62 @@ void handleSyncCommand(char* context, uint32_t boardRxUs) {
   Serial.println(boardTxUs);
 }
 
+void emitRxEvent(const PendingCommand& command) {
+  Serial.print(F("RX_EVENT,"));
+  Serial.print(command.sampleSequence);
+  Serial.print(',');
+  Serial.print(static_cast<uint32_t>(command.activeMask));
+  Serial.print(',');
+  Serial.print(command.rxUs);
+  for (size_t surfaceIndex = 0; surfaceIndex < Config::kSurfaceCount; ++surfaceIndex) {
+    Serial.print(',');
+    Serial.print(command.positionCodes[surfaceIndex]);
+  }
+  Serial.println();
+}
+
+void serviceCommitTelemetry() {
+  if (!gCommitTelemetryPending) {
+    return;
+  }
+
+  CommitTelemetry telemetry = {};
+  noInterrupts();
+  if (!gCommitTelemetryPending) {
+    interrupts();
+    return;
+  }
+  telemetry.sampleSequence = gCommitTelemetry.sampleSequence;
+  telemetry.activeMask = gCommitTelemetry.activeMask;
+  telemetry.boardRxUs = gCommitTelemetry.boardRxUs;
+  telemetry.boardCommitUs = gCommitTelemetry.boardCommitUs;
+  telemetry.strobeUs = gCommitTelemetry.strobeUs;
+  telemetry.frameIndex = gCommitTelemetry.frameIndex;
+  for (size_t channelIndex = 0; channelIndex < Config::kPpmChannelCount; ++channelIndex) {
+    telemetry.ppmUs[channelIndex] = gCommitTelemetry.ppmUs[channelIndex];
+  }
+  gCommitTelemetryPending = false;
+  interrupts();
+
+  Serial.print(F("COMMIT_EVENT,"));
+  Serial.print(telemetry.sampleSequence);
+  Serial.print(',');
+  Serial.print(static_cast<uint32_t>(telemetry.activeMask));
+  Serial.print(',');
+  Serial.print(telemetry.boardRxUs);
+  Serial.print(',');
+  Serial.print(telemetry.boardCommitUs);
+  Serial.print(',');
+  Serial.print(telemetry.strobeUs);
+  Serial.print(',');
+  Serial.print(telemetry.frameIndex);
+  for (size_t channelIndex = 0; channelIndex < Config::kPpmChannelCount; ++channelIndex) {
+    Serial.print(',');
+    Serial.print(telemetry.ppmUs[channelIndex]);
+  }
+  Serial.println();
+}
+
 void sendHelloEvent() {
   Serial.print(F("HELLO_EVENT,"));
   Serial.print(Config::kFirmwareVersion);
@@ -512,7 +587,7 @@ void sendStatusEvent() {
   Serial.print(latestSequence);
   Serial.print(F(",pending_vector="));
   Serial.print(pendingVectorValid ? 1 : 0);
-  Serial.print(F(",telemetry_mode=quiet"));
+  Serial.print(F(",telemetry_mode=event_stream"));
   Serial.print(F(",frame_length_us="));
   Serial.print(Config::kFrameLengthUs);
   Serial.print(F(",mark_width_us="));
@@ -741,9 +816,18 @@ void serviceInternalDiagnosticPattern() {
 ISR(TIMER1_COMPA_vect) {
   if (!gPpmPulseActive) {
     if (gPpmIntervalIndex == 0U && gPendingVectorValid) {
+      uint32_t boardCommitUs = micros();
       for (size_t channelIndex = 0; channelIndex < Config::kPpmChannelCount; ++channelIndex) {
         gActivePpmUs[channelIndex] = gPendingPpmUs[channelIndex];
+        gCommitTelemetry.ppmUs[channelIndex] = gPendingPpmUs[channelIndex];
       }
+      gCommitTelemetry.sampleSequence = gPendingSampleSequence;
+      gCommitTelemetry.activeMask = gPendingActiveMask;
+      gCommitTelemetry.boardRxUs = gPendingRxUs;
+      gCommitTelemetry.boardCommitUs = boardCommitUs;
+      gCommitTelemetry.strobeUs = boardCommitUs;
+      gCommitTelemetry.frameIndex = gFrameIndex;
+      gCommitTelemetryPending = true;
       gPendingVectorValid = false;
       ++gAppliedUpdateCount;
       writeReferenceHigh();
