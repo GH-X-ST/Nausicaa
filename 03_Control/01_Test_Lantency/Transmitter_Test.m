@@ -5048,6 +5048,7 @@ sampleCount = nan(rowCapacity, 1);
 sampleRate = nan(rowCapacity, 1);
 frameIndex = nan(rowCapacity, 1);
 rowCount = 0;
+markWidthSamples = round(double(config.trainerPpm.markWidthUs) .* logicState.sampleRateHz ./ 1e6);
 
 currentFrameIndex = 1;
 currentChannelIndex = 1;
@@ -5068,7 +5069,10 @@ for slotIndex = 1:numel(slotSampleCounts)
             rowCount = rowCount + 1;
             surfaceNames(rowCount) = mappedSurfaceName;
             sampleIndex(rowCount) = markStartSamples(slotIndex);
-            sampleCount(rowCount) = slotCount;
+            % Raw Uno trainer reconstruction yields the inter-mark interval.
+            % Add the fixed PPM mark width so sample-based normalization
+            % recovers the commanded slot width used by board-side commits.
+            sampleCount(rowCount) = slotCount + markWidthSamples;
             sampleRate(rowCount) = logicState.sampleRateHz;
             timeSeconds(rowCount) = sampleIndexToTimeSeconds(markStartSamples(slotIndex), logicState.sampleRateHz);
             frameIndex(rowCount) = currentFrameIndex;
