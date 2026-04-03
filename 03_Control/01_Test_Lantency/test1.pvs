@@ -61,7 +61,7 @@ views=1
 meta_objs=0
 
 [view0]
-scale=0.004467316267547481
+scale=0.005158051197357556
 v_offset=-63
 splitter_state=@ByteArray(\0\0\0\xff\0\0\0\x1\0\0\0\x2\0\0\0\x46\0\0\x4\xd9\x1\0\0\0\x1\x1\0\0\0\x1\0)
 segment_display_mode=1

@@ -1,9 +1,10 @@
+#include <Arduino.h>
 #include <stdlib.h>
 #include <string.h>
 
 namespace Config {
-constexpr char kFirmwareVersion[] = "Nano33IoT_Echo_Transmitter_V1";
-constexpr uint32_t kSerialBaud = 460800;
+constexpr char kFirmwareVersion[] = "Uno_Echo_Transmitter_V1";
+constexpr uint32_t kSerialBaud = 115200;
 
 constexpr size_t kSurfaceCount = 4;
 constexpr size_t kPpmChannelCount = 8;
@@ -11,8 +12,10 @@ constexpr size_t kBinaryVectorPacketLength = 15;
 constexpr size_t kCommandBufferLength = 192;
 constexpr size_t kCommitQueueLength = 32;
 
-constexpr uint8_t kTrainerPin = 12;
-constexpr uint8_t kReferencePin = 10;
+constexpr uint8_t kTrainerPin = 3;
+constexpr uint8_t kReferencePin = 2;
+
+constexpr bool kPpmActiveHighPulse = true;
 
 constexpr uint16_t kMinimumPulseUs = 1000;
 constexpr uint16_t kMaximumPulseUs = 2000;
@@ -32,6 +35,12 @@ constexpr char kSurfaceNames[kSurfaceCount][16] = {
 enum class ReferencePulseMode : uint8_t {
   CommitOnly,
   EveryFrame
+};
+
+enum class PpmPhase : uint8_t {
+  Mark,
+  Space,
+  SyncGap
 };
 
 namespace Config {
@@ -59,22 +68,9 @@ struct CommitLogEntry {
   uint16_t ppmUs[Config::kPpmChannelCount];
 };
 
-enum class PpmPhase : uint8_t {
-  Mark,
-  Space,
-  SyncGap
-};
-
-const __FlashStringHelper* referencePulseModeLabel();
-
 char gCommandBuffer[Config::kCommandBufferLength];
 size_t gCommandLength = 0;
 bool gCommandOverflow = false;
-
-volatile PortGroup* gTrainerPort = nullptr;
-volatile PortGroup* gReferencePort = nullptr;
-uint32_t gTrainerMask = 0;
-uint32_t gReferenceMask = 0;
 
 VectorCommand gPendingVector = {};
 volatile bool gPendingVectorValid = false;
@@ -103,16 +99,60 @@ volatile uint32_t gLatestSequence = 0;
 volatile uint32_t gLastCommandRxUs = 0;
 volatile bool gTimeoutNeutralQueued = true;
 
+const __FlashStringHelper* referencePulseModeLabel();
+void configurePins();
+void configureTimer();
+void scheduleTimerUs(uint16_t intervalUs);
+uint16_t computeSyncGapUs();
+void serviceSerialInput();
+void finalizeCommandLine();
+void resetCommandBuffer();
+void handleTextCommand(char* commandBuffer, uint32_t boardRxUs);
+void handleBinaryVectorPacket(const uint8_t* packetBytes, uint32_t boardRxUs);
+bool tryParseBinaryVectorCommand(const uint8_t* packetBytes, uint32_t boardRxUs, VectorCommand& candidate);
+bool tryHandleSetAllCommand(char* commandBuffer, uint32_t boardRxUs);
+void finalizeVectorCandidate(VectorCommand& candidate);
+void buildNeutralCommand(VectorCommand& candidate, uint32_t sampleSequence, uint32_t boardRxUs);
+void queuePendingVector(const VectorCommand& command);
+void queueNeutralVector(uint32_t sampleSequence, uint32_t boardRxUs);
+void serviceCommandTimeout();
+void handleSyncCommand(char* context, uint32_t boardRxUs);
+void sendHelloEvent();
+void sendStatusEvent();
+void sendRxEvent(const VectorCommand& command);
+void flushCommitQueue();
+void sendOkEvent(const __FlashStringHelper* message);
+void sendErrorEvent(const __FlashStringHelper* message);
+void clearCounters();
+void loadActiveVector(const VectorCommand& command);
+void emitReferencePulse();
+uint32_t emitReferencePulseIsr();
+void serviceReferencePulse();
+void enqueueCommitEventIsr(const VectorCommand& command, uint32_t boardCommitUs, uint32_t strobeUs);
+void startNextFrameIsr();
+void advancePpmStateIsr();
+int findSurfaceIndex(const char* surfaceName);
+bool parseUnsigned32(const char* token, uint32_t& value);
+bool parseFloat(const char* token, float& value);
+uint16_t decodeUint16LittleEndian(const uint8_t* data);
+uint32_t decodeUint32LittleEndian(const uint8_t* data);
+uint16_t positionNormToCode(float positionNorm);
+uint16_t positionCodeToPulseUs(uint16_t positionCode);
+inline void writeTrainerHigh();
+inline void writeTrainerLow();
+inline void setPpmIdleLevel();
+inline void setPpmMarkLevel();
+inline void writeReferenceHigh();
+inline void writeReferenceLow();
+inline uint16_t usToTimerTicks(uint16_t us);
+
 void setup() {
   Serial.begin(Config::kSerialBaud);
-  while (!Serial && millis() < 3000) {
+  while (!Serial && millis() < 3000UL) {
   }
 
   Serial.setTimeout(1);
-  configureOutputPin(Config::kTrainerPin, gTrainerPort, gTrainerMask);
-  configureOutputPin(Config::kReferencePin, gReferencePort, gReferenceMask);
-  writeTrainerHigh();
-  writeReferenceLow();
+  configurePins();
 
   VectorCommand neutralCommand = {};
   buildNeutralCommand(neutralCommand, 0, micros());
@@ -128,6 +168,13 @@ void loop() {
   serviceReferencePulse();
   serviceCommandTimeout();
   flushCommitQueue();
+}
+
+void configurePins() {
+  pinMode(Config::kTrainerPin, OUTPUT);
+  pinMode(Config::kReferencePin, OUTPUT);
+  setPpmIdleLevel();
+  writeReferenceLow();
 }
 
 void serviceSerialInput() {
@@ -178,7 +225,7 @@ void finalizeCommandLine() {
     return;
   }
 
-  if (gCommandLength == 0) {
+  if (gCommandLength == 0U) {
     return;
   }
 
@@ -292,7 +339,7 @@ bool tryHandleSetAllCommand(char* commandBuffer, uint32_t boardRxUs) {
     return true;
   }
 
-  if (surfaceCount == 0 || surfaceCount > Config::kSurfaceCount) {
+  if (surfaceCount == 0U || surfaceCount > Config::kSurfaceCount) {
     sendErrorEvent(F("SET_ALL_SURFACE_COUNT_ERROR"));
     return true;
   }
@@ -321,6 +368,7 @@ bool tryHandleSetAllCommand(char* commandBuffer, uint32_t boardRxUs) {
       return true;
     }
 
+    (void)commandSequence;
     candidate.activeMask |= static_cast<uint8_t>(1U << static_cast<uint8_t>(surfaceIndex));
     candidate.positionCodes[surfaceIndex] = positionNormToCode(positionNorm);
   }
@@ -384,7 +432,7 @@ void serviceCommandTimeout() {
     return;
   }
 
-  const uint32_t nowUs = micros();
+  uint32_t nowUs = micros();
   if (static_cast<uint32_t>(nowUs - gLastCommandRxUs) < Config::kCommandTimeoutUs) {
     return;
   }
@@ -530,27 +578,36 @@ void loadActiveVector(const VectorCommand& command) {
   }
 }
 
-void configureOutputPin(uint8_t pin, volatile PortGroup*& portGroup, uint32_t& bitMask) {
-  pinMode(pin, OUTPUT);
-  const PinDescription& pinDescription = g_APinDescription[pin];
-  portGroup = &(PORT->Group[pinDescription.ulPort]);
-  bitMask = (1UL << pinDescription.ulPin);
-}
-
 inline void writeTrainerHigh() {
-  gTrainerPort->OUTSET.reg = gTrainerMask;
+  PORTD |= _BV(PD3);
 }
 
 inline void writeTrainerLow() {
-  gTrainerPort->OUTCLR.reg = gTrainerMask;
+  PORTD &= ~_BV(PD3);
+}
+
+inline void setPpmIdleLevel() {
+  if (Config::kPpmActiveHighPulse) {
+    writeTrainerLow();
+  } else {
+    writeTrainerHigh();
+  }
+}
+
+inline void setPpmMarkLevel() {
+  if (Config::kPpmActiveHighPulse) {
+    writeTrainerHigh();
+  } else {
+    writeTrainerLow();
+  }
 }
 
 inline void writeReferenceHigh() {
-  gReferencePort->OUTSET.reg = gReferenceMask;
+  PORTD |= _BV(PD2);
 }
 
 inline void writeReferenceLow() {
-  gReferencePort->OUTCLR.reg = gReferenceMask;
+  PORTD &= ~_BV(PD2);
 }
 
 void emitReferencePulse() {
@@ -567,7 +624,7 @@ void emitReferencePulse() {
 
 uint32_t emitReferencePulseIsr() {
   if (!Config::kReferenceStrobeEnabled) {
-    return 0;
+    return 0U;
   }
 
   writeReferenceHigh();
@@ -594,7 +651,7 @@ void serviceReferencePulse() {
     return;
   }
 
-  const uint32_t nowUs = micros();
+  uint32_t nowUs = micros();
   if (static_cast<uint32_t>(nowUs - gReferencePulseStartUs) < Config::kReferencePulseWidthUs) {
     return;
   }
@@ -608,52 +665,35 @@ void serviceReferencePulse() {
   interrupts();
 }
 
-void configureTimer() {
-  PM->APBCMASK.reg |= PM_APBCMASK_TC5;
-  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_GEN_GCLK0 | GCLK_CLKCTRL_ID_TC4_TC5;
-  while (GCLK->STATUS.bit.SYNCBUSY) {
-  }
-
-  TC5->COUNT16.CTRLA.reg = TC_CTRLA_SWRST;
-  while (TC5->COUNT16.STATUS.bit.SYNCBUSY || TC5->COUNT16.CTRLA.bit.SWRST) {
-  }
-
-  TC5->COUNT16.CTRLA.reg =
-    TC_CTRLA_MODE_COUNT16 |
-    TC_CTRLA_WAVEGEN_MFRQ |
-    TC_CTRLA_PRESCALER_DIV16;
-  while (TC5->COUNT16.STATUS.bit.SYNCBUSY) {
-  }
-
-  TC5->COUNT16.CC[0].reg = 3000;
-  while (TC5->COUNT16.STATUS.bit.SYNCBUSY) {
-  }
-
-  NVIC_SetPriority(TC5_IRQn, 0);
-  NVIC_EnableIRQ(TC5_IRQn);
-  TC5->COUNT16.INTENSET.reg = TC_INTENSET_MC0;
-  TC5->COUNT16.CTRLA.bit.ENABLE = 1;
-  while (TC5->COUNT16.STATUS.bit.SYNCBUSY) {
-  }
-}
-
-void scheduleTimerUs(uint32_t intervalUs) {
-  uint32_t ticks = intervalUs * 3U;
-  if (ticks < 1U) {
+inline uint16_t usToTimerTicks(uint16_t us) {
+  uint32_t ticks = static_cast<uint32_t>(us) * 2U;
+  if (ticks == 0U) {
     ticks = 1U;
-  } else if (ticks > 65535U) {
+  }
+  if (ticks > 65535U) {
     ticks = 65535U;
   }
-  TC5->COUNT16.COUNT.reg = 0;
-  while (TC5->COUNT16.STATUS.bit.SYNCBUSY) {
-  }
-  TC5->COUNT16.CC[0].reg = static_cast<uint16_t>(ticks);
-  while (TC5->COUNT16.STATUS.bit.SYNCBUSY) {
-  }
+  return static_cast<uint16_t>(ticks - 1U);
+}
+
+void configureTimer() {
+  noInterrupts();
+  TCCR1A = 0;
+  TCCR1B = 0;
+  TCNT1 = 0;
+  TCCR1B |= _BV(WGM12);
+  TCCR1B |= _BV(CS11);
+  OCR1A = usToTimerTicks(1000U);
+  TIMSK1 |= _BV(OCIE1A);
+  interrupts();
+}
+
+void scheduleTimerUs(uint16_t intervalUs) {
+  OCR1A = usToTimerTicks(intervalUs);
 }
 
 uint16_t computeSyncGapUs() {
-  uint32_t totalSlotUs = 0;
+  uint32_t totalSlotUs = 0U;
   for (size_t channelIndex = 0; channelIndex < Config::kPpmChannelCount; ++channelIndex) {
     totalSlotUs += gActivePpmUs[channelIndex];
   }
@@ -665,7 +705,7 @@ uint16_t computeSyncGapUs() {
 }
 
 void enqueueCommitEventIsr(const VectorCommand& command, uint32_t boardCommitUs, uint32_t strobeUs) {
-  const uint8_t nextHead = static_cast<uint8_t>((gCommitQueueHead + 1U) % Config::kCommitQueueLength);
+  uint8_t nextHead = static_cast<uint8_t>((gCommitQueueHead + 1U) % Config::kCommitQueueLength);
   if (nextHead == gCommitQueueTail) {
     ++gErrorCount;
     return;
@@ -688,7 +728,7 @@ void enqueueCommitEventIsr(const VectorCommand& command, uint32_t boardCommitUs,
 
 void startNextFrameIsr() {
   ++gFrameIndex;
-  uint32_t frameStrobeUs = 0;
+  uint32_t frameStrobeUs = 0U;
 
   if (Config::kReferencePulseMode == ReferencePulseMode::EveryFrame) {
     frameStrobeUs = emitReferencePulseIsr();
@@ -698,16 +738,18 @@ void startNextFrameIsr() {
     VectorCommand committed = gPendingVector;
     gPendingVectorValid = false;
     loadActiveVector(committed);
+
     uint32_t strobeUs = frameStrobeUs;
     if (Config::kReferencePulseMode == ReferencePulseMode::CommitOnly) {
       strobeUs = emitReferencePulseIsr();
     }
-    const uint32_t boardCommitUs = micros();
+
+    uint32_t boardCommitUs = micros();
     enqueueCommitEventIsr(committed, boardCommitUs, strobeUs);
   }
 
   gPpmChannelIndex = 0;
-  writeTrainerLow();
+  setPpmMarkLevel();
   scheduleTimerUs(Config::kMarkWidthUs);
   gPpmPhase = PpmPhase::Mark;
 }
@@ -715,10 +757,12 @@ void startNextFrameIsr() {
 void advancePpmStateIsr() {
   switch (gPpmPhase) {
     case PpmPhase::Mark: {
-      writeTrainerHigh();
-      const uint16_t slotUs = gActivePpmUs[gPpmChannelIndex];
-      const uint16_t spaceUs = (slotUs > Config::kMarkWidthUs) ? static_cast<uint16_t>(slotUs - Config::kMarkWidthUs) : 1;
-      scheduleTimerUs(spaceUs);
+      setPpmIdleLevel();
+      uint16_t slotUs = gActivePpmUs[gPpmChannelIndex];
+      uint16_t gapUs = (slotUs > Config::kMarkWidthUs)
+        ? static_cast<uint16_t>(slotUs - Config::kMarkWidthUs)
+        : 1U;
+      scheduleTimerUs(gapUs);
       gPpmPhase = PpmPhase::Space;
       break;
     }
@@ -729,7 +773,7 @@ void advancePpmStateIsr() {
         scheduleTimerUs(computeSyncGapUs());
         gPpmPhase = PpmPhase::SyncGap;
       } else {
-        writeTrainerLow();
+        setPpmMarkLevel();
         scheduleTimerUs(Config::kMarkWidthUs);
         gPpmPhase = PpmPhase::Mark;
       }
@@ -741,12 +785,7 @@ void advancePpmStateIsr() {
   }
 }
 
-void TC5_Handler() {
-  if (TC5->COUNT16.INTFLAG.bit.MC0 == 0) {
-    return;
-  }
-
-  TC5->COUNT16.INTFLAG.reg = TC_INTFLAG_MC0;
+ISR(TIMER1_COMPA_vect) {
   advancePpmStateIsr();
 }
 
@@ -785,12 +824,12 @@ bool parseFloat(const char* token, float& value) {
   }
 
   char* parseEnd = nullptr;
-  float parsedValue = strtof(token, &parseEnd);
+  double parsedValue = strtod(token, &parseEnd);
   if (parseEnd == token || *parseEnd != '\0') {
     return false;
   }
 
-  value = parsedValue;
+  value = static_cast<float>(parsedValue);
   return true;
 }
 
@@ -812,8 +851,7 @@ uint16_t positionNormToCode(float positionNorm) {
 }
 
 uint16_t positionCodeToPulseUs(uint16_t positionCode) {
-  const uint32_t spanUs = static_cast<uint32_t>(Config::kMaximumPulseUs - Config::kMinimumPulseUs);
-  return static_cast<uint16_t>(
-    Config::kMinimumPulseUs +
+  uint32_t spanUs = static_cast<uint32_t>(Config::kMaximumPulseUs - Config::kMinimumPulseUs);
+  return static_cast<uint16_t>(Config::kMinimumPulseUs +
     ((static_cast<uint32_t>(positionCode) * spanUs + 32767U) / 65535U));
 }
