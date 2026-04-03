@@ -3963,6 +3963,10 @@ fprintf("\nTransmitter_Test connection summary\n");
 fprintf("  Serial port: %s\n", char(runData.config.arduinoTransport.serialPort));
 fprintf("  Baud rate: %u\n", uint32(runData.config.arduinoTransport.baudRate));
 fprintf("  Arduino: %s\n", char(getStatusText(runData.connectionInfo.arduino)));
+if isfield(runData.connectionInfo.arduino, "loggerFirmwareVersion") && ...
+        strlength(string(runData.connectionInfo.arduino.loggerFirmwareVersion)) > 0
+    fprintf("  Firmware: %s\n", char(runData.connectionInfo.arduino.loggerFirmwareVersion));
+end
 fprintf("  Active surfaces: %s\n\n", char(join(runData.config.activeSurfaceNames, ", ")));
 end
 
@@ -4519,6 +4523,7 @@ config.logicAnalyzer.sigrokCliPath = validateSigrokExecutable(config.logicAnalyz
 validateSigrokDevice(config);
 
 captureDurationSeconds = computeSigrokCaptureDurationSeconds(config, runPlan);
+printSigrokAnalyzerConfiguration(config, captureDurationSeconds);
 rawCaptureCommand = buildSigrokRawCaptureCommand(config, captureDurationSeconds);
 processArguments = buildCmdExeArguments( ...
     rawCaptureCommand + ...
@@ -4576,24 +4581,31 @@ end
 end
 
 function config = finalizeSigrokSession(sigrokSession, config)
-logicStateExportCommand = buildSigrokLogicStateExportCommand(config);
-sigrokSession.logicStateExportCommand = logicStateExportCommand;
-[status, outputText] = runWindowsCommand( ...
-    logicStateExportCommand + ...
-    " 1>>" + quoteWindowsArgument(sigrokSession.stdoutPath) + ...
-    " 2>>" + quoteWindowsArgument(sigrokSession.stderrPath));
-if status ~= 0
-    error( ...
-        "Transmitter_Test:SigrokExportFailed", ...
-        "sigrok-cli logicStateExportPath export failed. %s", ...
-        strtrim(outputText));
+[logicStateTable, decodedSampleRateHz, usedRawCaptureParse] = tryBuildLogicStateTableFromSigrokRawCapture(config);
+if usedRawCaptureParse
+    config.logicAnalyzer.sampleRateHz = decodedSampleRateHz;
+    writetable(logicStateTable, config.logicAnalyzer.logicStateExportPath);
+else
+    logicStateExportCommand = buildSigrokLogicStateExportCommand(config);
+    sigrokSession.logicStateExportCommand = logicStateExportCommand;
+    [status, outputText] = runWindowsCommand( ...
+        logicStateExportCommand + ...
+        " 1>>" + quoteWindowsArgument(sigrokSession.stdoutPath) + ...
+        " 2>>" + quoteWindowsArgument(sigrokSession.stderrPath));
+    if status ~= 0
+        error( ...
+            "Transmitter_Test:SigrokExportFailed", ...
+            "sigrok-cli logicStateExportPath export failed. %s", ...
+            strtrim(outputText));
+    end
+
+    logicStateTable = readLogicStateExportCsv(config.logicAnalyzer.logicStateExportPath, config);
+    if isempty(logicStateTable)
+        error("Transmitter_Test:EmptyLogicStateExport", "logicStateExportPath did not contain any analyser samples.");
+    end
+    logicStateTable = normalizeLogicStateExportColumns(logicStateTable, config);
 end
 
-logicStateTable = readLogicStateExportCsv(config.logicAnalyzer.logicStateExportPath, config);
-if isempty(logicStateTable)
-    error("Transmitter_Test:EmptyLogicStateExport", "logicStateExportPath did not contain any analyser samples.");
-end
-logicStateTable = normalizeLogicStateExportColumns(logicStateTable, config);
 logicState = convertLogicStateTableToSamples(logicStateTable, config.logicAnalyzer.sampleRateHz);
 
 referenceCapture = extractReferenceEdgesFromLogicState(logicState, config);
@@ -4602,6 +4614,182 @@ receiverCapture = extractReceiverCaptureFromLogicState(logicState, config);
 if isempty(referenceCapture) && isempty(trainerPpmCapture) && isempty(receiverCapture)
     error("Transmitter_Test:EmptyLogicStateDecode", "logicStateExportPath did not decode into any analyser events.");
 end
+
+function [logicStateTable, sampleRateHz, usedRawCaptureParse] = tryBuildLogicStateTableFromSigrokRawCapture(config)
+logicStateTable = table();
+sampleRateHz = double(config.logicAnalyzer.sampleRateHz);
+usedRawCaptureParse = false;
+
+try
+    [logicStateTable, sampleRateHz] = readSigrokRawCaptureAsLogicStateTable(config);
+    usedRawCaptureParse = ~isempty(logicStateTable);
+catch rawCaptureError
+    fprintf("Raw .sr parse fallback to sigrok CSV export: %s\n", rawCaptureError.message);
+    logicStateTable = table();
+    sampleRateHz = double(config.logicAnalyzer.sampleRateHz);
+    usedRawCaptureParse = false;
+end
+end
+
+function [logicStateTable, sampleRateHz] = readSigrokRawCaptureAsLogicStateTable(config)
+rawCapturePath = string(config.logicAnalyzer.rawCapturePath);
+if ~isfile(rawCapturePath)
+    error("Transmitter_Test:MissingSigrokCapture", "Raw sigrok capture file does not exist: %s", char(rawCapturePath));
+end
+
+extractDirectory = string(tempname);
+mkdir(extractDirectory);
+cleanupDirectory = onCleanup(@() removeDirectoryIfPresent(extractDirectory));
+unzip(rawCapturePath, extractDirectory);
+
+metadataPath = fullfile(extractDirectory, "metadata");
+if ~isfile(metadataPath)
+    error("Transmitter_Test:MissingSigrokMetadata", "Raw sigrok capture is missing the metadata entry.");
+end
+
+metadataText = fileread(metadataPath);
+[sampleRateHz, probeNames, unitSizeBytes] = parseSigrokRawMetadata(metadataText, config.logicAnalyzer.sampleRateHz);
+if unitSizeBytes ~= 1
+    error("Transmitter_Test:UnsupportedSigrokUnitSize", "Raw sigrok parsing currently supports only unitsize=1 captures.");
+end
+
+logicFiles = dir(fullfile(extractDirectory, "logic-1-*"));
+if isempty(logicFiles)
+    error("Transmitter_Test:MissingSigrokLogicChunks", "Raw sigrok capture does not contain logic sample chunks.");
+end
+logicFiles = sortSigrokLogicChunkFiles(logicFiles);
+[changeSampleIndex, changeBytes] = readSigrokLogicTransitions(logicFiles);
+if isempty(changeSampleIndex)
+    logicStateTable = table();
+    return;
+end
+
+timeSeconds = sampleIndexToTimeSeconds(changeSampleIndex, sampleRateHz);
+logicStateTable = table(timeSeconds, changeSampleIndex, 'VariableNames', {'time_s', 'sample_index'});
+
+for channelIndex = 1:numel(config.logicAnalyzer.channelNames)
+    configuredName = string(config.logicAnalyzer.channelNames(channelIndex));
+    probeIndex = find(probeNames == configuredName, 1, "first");
+    if isempty(probeIndex)
+        error( ...
+            "Transmitter_Test:MissingSigrokProbe", ...
+            "Raw sigrok capture metadata does not contain probe %s.", ...
+            char(configuredName));
+    end
+    logicStateTable.(char(configuredName)) = double(bitget(changeBytes, probeIndex));
+end
+end
+
+function [sampleRateHz, probeNames, unitSizeBytes] = parseSigrokRawMetadata(metadataText, defaultSampleRateHz)
+sampleRateHz = double(defaultSampleRateHz);
+probeNames = strings(0, 1);
+unitSizeBytes = 1;
+
+metadataLines = splitlines(string(metadataText));
+probeNumbers = zeros(0, 1);
+probeValues = strings(0, 1);
+for lineIndex = 1:numel(metadataLines)
+    lineText = strtrim(metadataLines(lineIndex));
+    if startsWith(lineText, "samplerate=", "IgnoreCase", true)
+        sampleRateHz = parseSigrokSampleRateText(extractAfter(lineText, "="), defaultSampleRateHz);
+    elseif startsWith(lineText, "unitsize=", "IgnoreCase", true)
+        unitSizeBytes = round(str2double(extractAfter(lineText, "=")));
+    elseif startsWith(lineText, "probe", "IgnoreCase", true)
+        token = regexp(char(lineText), '^probe(\d+)=(.*)$', 'tokens', 'once');
+        if ~isempty(token)
+            probeNumbers(end + 1, 1) = str2double(token{1}); %#ok<AGROW>
+            probeValues(end + 1, 1) = string(strtrim(token{2})); %#ok<AGROW>
+        end
+    end
+end
+
+if ~isempty(probeNumbers)
+    probeNames = strings(max(probeNumbers), 1);
+    for probeIndex = 1:numel(probeNumbers)
+        probeNames(probeNumbers(probeIndex)) = probeValues(probeIndex);
+    end
+end
+end
+
+function sampleRateHz = parseSigrokSampleRateText(sampleRateText, defaultSampleRateHz)
+sampleRateHz = double(defaultSampleRateHz);
+matchTokens = regexp(strtrim(char(sampleRateText)), '^([0-9]*\.?[0-9]+)\s*([kmg]?)(?:hz)?$', 'tokens', 'once', 'ignorecase');
+if isempty(matchTokens)
+    return;
+end
+
+sampleRateValue = str2double(matchTokens{1});
+scaleToken = lower(string(matchTokens{2}));
+scaleFactor = 1;
+if scaleToken == "k"
+    scaleFactor = 1e3;
+elseif scaleToken == "m"
+    scaleFactor = 1e6;
+elseif scaleToken == "g"
+    scaleFactor = 1e9;
+end
+sampleRateHz = sampleRateValue .* scaleFactor;
+end
+
+function logicFiles = sortSigrokLogicChunkFiles(logicFiles)
+fileNames = string({logicFiles.name}');
+chunkNumbers = nan(numel(fileNames), 1);
+for fileIndex = 1:numel(fileNames)
+    token = regexp(char(fileNames(fileIndex)), '^logic-\d+-(\d+)$', 'tokens', 'once');
+    if ~isempty(token)
+        chunkNumbers(fileIndex) = str2double(token{1});
+    end
+end
+[~, sortOrder] = sort(chunkNumbers);
+logicFiles = logicFiles(sortOrder);
+end
+
+function [changeSampleIndex, changeBytes] = readSigrokLogicTransitions(logicFiles)
+changeSampleIndexCells = cell(numel(logicFiles), 1);
+changeBytesCells = cell(numel(logicFiles), 1);
+sampleOffset = 0;
+lastByte = uint8(0);
+hasPreviousSample = false;
+
+for fileIndex = 1:numel(logicFiles)
+    logicFilePath = fullfile(logicFiles(fileIndex).folder, logicFiles(fileIndex).name);
+    fileIdentifier = fopen(logicFilePath, 'r');
+    if fileIdentifier < 0
+        error("Transmitter_Test:OpenSigrokChunkFailed", "Unable to open raw sigrok logic chunk: %s", logicFilePath);
+    end
+    closeFile = onCleanup(@() fclose(fileIdentifier));
+    chunkBytes = fread(fileIdentifier, inf, '*uint8');
+    clear closeFile
+
+    if isempty(chunkBytes)
+        continue;
+    end
+
+    if hasPreviousSample
+        changeMask = [chunkBytes(1) ~= lastByte; chunkBytes(2:end) ~= chunkBytes(1:end-1)];
+    else
+        changeMask = [true; chunkBytes(2:end) ~= chunkBytes(1:end-1)];
+    end
+
+    changeIndices = sampleOffset + find(changeMask) - 1;
+    changeSampleIndexCells{fileIndex} = reshape(double(changeIndices), [], 1);
+    changeBytesCells{fileIndex} = reshape(chunkBytes(changeMask), [], 1);
+
+    sampleOffset = sampleOffset + numel(chunkBytes);
+    lastByte = chunkBytes(end);
+    hasPreviousSample = true;
+end
+
+changeSampleIndex = vertcat(changeSampleIndexCells{:});
+changeBytes = vertcat(changeBytesCells{:});
+end
+
+function removeDirectoryIfPresent(directoryPath)
+if isfolder(directoryPath)
+    rmdir(directoryPath, 's');
+end
+end
+printTrainerDecodeSummary(trainerPpmCapture, config);
 validateDecodedAnalyzerTables(referenceCapture, trainerPpmCapture, receiverCapture, config);
 
 writetable(referenceCapture, config.logicAnalyzer.decodedReferencePath);
@@ -4950,6 +5138,62 @@ function pulseUs = sampleCountToPulseUs(sampleCount, sampleRateHz)
 pulseUs = 1e6 .* double(sampleCount) ./ double(sampleRateHz);
 end
 
+function printSigrokAnalyzerConfiguration(config, captureDurationSeconds)
+fprintf("Sigrok analyser configuration\n");
+fprintf("  Sample rate: %.0f Hz\n", double(config.logicAnalyzer.sampleRateHz));
+fprintf("  Capture duration: %.3f s\n", double(captureDurationSeconds));
+fprintf("  Uno trainer pin: %s\n", char(config.trainerPpm.outputPin));
+fprintf("  Uno reference pin: %s\n", char(config.trainerPpm.referencePin));
+fprintf("  Trainer idle level: %s\n", char(string(ternaryText(config.trainerPpm.idleHigh, "HIGH", "LOW"))));
+fprintf("  Logic analyser receiver channels: %s\n", char(strjoin("D" + string(config.logicAnalyzer.channelRoleMap.receiver), ", ")));
+fprintf("  Logic analyser reference channel: D%d (%s)\n", ...
+    double(config.logicAnalyzer.channelRoleMap.reference), ...
+    char(resolveConfiguredLogicAnalyzerChannelName(config, config.logicAnalyzer.channelRoleMap.reference)));
+fprintf("  Logic analyser trainer channel: D%d (%s)\n", ...
+    double(config.logicAnalyzer.channelRoleMap.trainerPpm), ...
+    char(resolveConfiguredLogicAnalyzerChannelName(config, config.logicAnalyzer.channelRoleMap.trainerPpm)));
+fprintf("\n");
+end
+
+function printTrainerDecodeSummary(trainerPpmCapture, config)
+fprintf("Trainer decode summary\n");
+fprintf("  Configured trainer analyser channel: D%d (%s)\n", ...
+    double(config.logicAnalyzer.channelRoleMap.trainerPpm), ...
+    char(resolveConfiguredLogicAnalyzerChannelName(config, config.logicAnalyzer.channelRoleMap.trainerPpm)));
+fprintf("  Decoded trainer rows: %d\n", height(trainerPpmCapture));
+if isempty(trainerPpmCapture)
+    fprintf("  Distinct trainer frames: 0\n");
+    fprintf("  Pulse width range: NaN to NaN us\n\n");
+    return;
+end
+
+if ismember("frame_index", string(trainerPpmCapture.Properties.VariableNames))
+    validFrameIndex = trainerPpmCapture.frame_index(isfinite(trainerPpmCapture.frame_index));
+    trainerFrameCount = numel(unique(validFrameIndex));
+else
+    trainerFrameCount = 0;
+end
+minimumPulseUs = min(trainerPpmCapture.pulse_us);
+maximumPulseUs = max(trainerPpmCapture.pulse_us);
+fprintf("  Distinct trainer frames: %d\n", trainerFrameCount);
+fprintf("  Pulse width range: %.1f to %.1f us\n", double(minimumPulseUs), double(maximumPulseUs));
+fprintf("  First decoded rows:\n");
+previewRowCount = min(4, height(trainerPpmCapture));
+for rowIndex = 1:previewRowCount
+    if ismember("frame_index", string(trainerPpmCapture.Properties.VariableNames))
+        frameIndex = trainerPpmCapture.frame_index(rowIndex);
+    else
+        frameIndex = NaN;
+    end
+    fprintf("    %s time=%.6f s pulse=%.1f us frame=%g\n", ...
+        char(trainerPpmCapture.surface_name(rowIndex)), ...
+        double(trainerPpmCapture.time_s(rowIndex)), ...
+        double(trainerPpmCapture.pulse_us(rowIndex)), ...
+        double(frameIndex));
+end
+fprintf("\n");
+end
+
 function validateDecodedAnalyzerTables(referenceCapture, trainerPpmCapture, receiverCapture, config)
 if ~isSigrokAutoMode(config)
     return;
@@ -4962,16 +5206,28 @@ if isempty(trainerPpmCapture)
         "Transmitter_Test:MissingTrainerPpmCapture", ...
         [ ...
         "No valid trainer PPM pulses were decoded from the configured trainer analyser channel. " + ...
-        "This usually means the probe is on the wrong signal, the trainer channel wiring or ground is bad, or the captured waveform is too noisy to match a %d-%d us RC pulse train."], ...
+        "This usually means the probe is on the wrong signal, the Uno D3 trainer channel wiring or ground is bad, or the captured waveform is too noisy to match a %d-%d us RC pulse train."], ...
         config.trainerPpm.minimumPulseUs, ...
         config.trainerPpm.maximumPulseUs);
 end
-if height(trainerPpmCapture) < numel(config.surfaceNames)
+minimumTrainerRows = 3 .* numel(config.surfaceNames);
+if height(trainerPpmCapture) < minimumTrainerRows
     error( ...
         "Transmitter_Test:InsufficientTrainerPpmCapture", ...
-        "Trainer PPM decode produced only %d rows, which is too few for a valid %d-surface trainer capture.", ...
+        [ ...
+        "Trainer PPM decode produced only %d rows, which is too few for a valid %d-surface Uno trainer capture. " + ...
+        "Check the analyser probe mapped to TRAINER_PPM_D3 and verify it is actually connected to Uno D3."], ...
         height(trainerPpmCapture), ...
         numel(config.surfaceNames));
+end
+trainerFrameCount = countTrainerCaptureFrames(trainerPpmCapture);
+if trainerFrameCount < 3
+    error( ...
+        "Transmitter_Test:InsufficientTrainerPpmFrames", ...
+        [ ...
+        "Trainer PPM decode produced only %d distinct frame(s), which is not credible for the automated run. " + ...
+        "This indicates the configured TRAINER_PPM_D3 analyser channel is still not a valid Uno trainer waveform."], ...
+        trainerFrameCount);
 end
 end
 
@@ -4981,6 +5237,38 @@ maximumPulseUs = double(config.trainerPpm.maximumPulseUs) + 150;
 validPulseMask = isfinite(pulseWidthsUs) & ...
     pulseWidthsUs >= minimumPulseUs & ...
     pulseWidthsUs <= maximumPulseUs;
+end
+
+function trainerFrameCount = countTrainerCaptureFrames(trainerPpmCapture)
+trainerFrameCount = 0;
+if ~ismember("frame_index", string(trainerPpmCapture.Properties.VariableNames))
+    return;
+end
+
+frameIndex = double(trainerPpmCapture.frame_index);
+frameIndex = frameIndex(isfinite(frameIndex));
+if isempty(frameIndex)
+    return;
+end
+
+trainerFrameCount = numel(unique(frameIndex));
+end
+
+function configuredName = resolveConfiguredLogicAnalyzerChannelName(config, roleChannel)
+configurationIndex = find(double(config.logicAnalyzer.channels) == double(roleChannel), 1, "first");
+if isempty(configurationIndex)
+    configuredName = "";
+    return;
+end
+configuredName = string(config.logicAnalyzer.channelNames(configurationIndex));
+end
+
+function valueText = ternaryText(conditionValue, trueText, falseText)
+if conditionValue
+    valueText = trueText;
+else
+    valueText = falseText;
+end
 end
 
 function cleanupSigrokSession(sigrokSession)
