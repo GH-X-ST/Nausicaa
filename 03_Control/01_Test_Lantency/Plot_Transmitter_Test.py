@@ -1,4 +1,6 @@
 from pathlib import Path
+import time
+import zipfile
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -77,11 +79,32 @@ LATENCY_METRICS = [
     },
 ]
 
+WORKBOOK_OPEN_RETRY_COUNT = 5
+WORKBOOK_OPEN_RETRY_DELAY_SECONDS = 0.5
+
 
 def numeric_series(frame: pd.DataFrame, column_name: str) -> np.ndarray:
     if column_name not in frame.columns:
         return np.array([], dtype=float)
     return pd.to_numeric(frame[column_name], errors="coerce").to_numpy(dtype=float)
+
+
+def open_excel_file(excel_path: Path) -> pd.ExcelFile:
+    last_error = None
+    for attempt_index in range(WORKBOOK_OPEN_RETRY_COUNT):
+        try:
+            if not zipfile.is_zipfile(excel_path):
+                raise zipfile.BadZipFile(
+                    f"Workbook is not yet a valid ZIP container: {excel_path}"
+                )
+            return pd.ExcelFile(excel_path)
+        except (PermissionError, zipfile.BadZipFile) as error:
+            last_error = error
+            if attempt_index >= WORKBOOK_OPEN_RETRY_COUNT - 1:
+                break
+            time.sleep(WORKBOOK_OPEN_RETRY_DELAY_SECONDS)
+
+    raise last_error
 
 
 def build_transmitter_workbook_metadata(
@@ -233,7 +256,7 @@ def build_integrity_table(integrity_summary_df: pd.DataFrame, active_surfaces: l
 
 
 def build_workbook_bundle(excel_path: Path) -> dict:
-    excel_file = pd.ExcelFile(excel_path)
+    excel_file = open_excel_file(excel_path)
     workbook_sheets = {
         "CriticalSettings": read_sheet(excel_file, "CriticalSettings"),
         "InputSignal": read_sheet(excel_file, "InputSignal", required=True),
