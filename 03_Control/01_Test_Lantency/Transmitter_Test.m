@@ -3705,8 +3705,9 @@ config.arduinoTransport = struct( ...
     "serialResetSeconds", getNonnegativeScalarField(transportConfig, "serialResetSeconds", 4.0), ...
     "probeTimeoutSeconds", getPositiveScalarField(transportConfig, "probeTimeoutSeconds", 6.0), ...
     "helloRetrySeconds", getPositiveScalarField(transportConfig, "helloRetrySeconds", 0.25), ...
-    "linePollPauseSeconds", getPositiveScalarField(transportConfig, "linePollPauseSeconds", 0.01), ...
+    "linePollPauseSeconds", getPositiveScalarField(transportConfig, "linePollPauseSeconds", 0.001), ...
     "lineIdleTimeoutSeconds", getPositiveScalarField(transportConfig, "lineIdleTimeoutSeconds", 0.25), ...
+    "syncReplyTimeoutSeconds", getPositiveScalarField(transportConfig, "syncReplyTimeoutSeconds", 0.15), ...
     "syncCountBeforeRun", getNonnegativeIntegerField(transportConfig, "syncCountBeforeRun", 10), ...
     "syncCountAfterRun", getNonnegativeIntegerField(transportConfig, "syncCountAfterRun", 10), ...
     "syncPauseSeconds", getNonnegativeScalarField(transportConfig, "syncPauseSeconds", 0.05), ...
@@ -3721,7 +3722,7 @@ config.arduinoTransport = struct( ...
     "captureRowCount", 0);
 
 config.trainerPpm = struct( ...
-    "frameLengthUs", getPositiveIntegerField(trainerPpmConfig, "frameLengthUs", 22000), ...
+    "frameLengthUs", getPositiveIntegerField(trainerPpmConfig, "frameLengthUs", 20000), ...
     "markWidthUs", getPositiveIntegerField(trainerPpmConfig, "markWidthUs", 300), ...
     "channelCount", getPositiveIntegerField(trainerPpmConfig, "channelCount", 8), ...
     "idleHigh", getLogicalField(trainerPpmConfig, "idleHigh", false), ...
@@ -3737,16 +3738,14 @@ config.trainerPpm = struct( ...
 if ~isfield(commandProfileConfig, "type")
     config.commandProfile.type = "latency_isolated_step";
 end
-% Match the controller-workbook latency-step structure explicitly, while
-% still respecting the slower Uno trainer cadence needed for frame-based
-% PPM commit and downstream observability.
+% Use the isolated-step profile as the default latency-identification path.
+% The standard operating cadence is one MATLAB command per trainer frame.
 if ~isfield(commandProfileConfig, "randomSeed")
     config.commandProfile.randomSeed = 5;
 end
 if ~isfield(commandProfileConfig, "sampleTimeSeconds")
-    minimumRecommendedSampleTimeSeconds = ...
-        max(0.05, 2.0 .* double(config.trainerPpm.frameLengthUs) ./ 1e6 + 0.006);
-    config.commandProfile.sampleTimeSeconds = minimumRecommendedSampleTimeSeconds;
+    % Standard operating path: issue one MATLAB command per trainer frame.
+    config.commandProfile.sampleTimeSeconds = double(config.trainerPpm.frameLengthUs) ./ 1e6;
 end
 
 if config.commandProfile.type == "latency_step_train"
@@ -3841,6 +3840,8 @@ config.matching = struct( ...
     "ppmChangeThresholdUs", getPositiveIntegerField(matchingConfig, "ppmChangeThresholdUs", 4), ...
     "receiverChangeThresholdUs", getPositiveIntegerField(matchingConfig, "receiverChangeThresholdUs", 8), ...
     "transitionLeadSeconds", getNonnegativeScalarField(matchingConfig, "transitionLeadSeconds", 0.005), ...
+    "stateToleranceUs", getPositiveIntegerField(matchingConfig, "stateToleranceUs", 80), ...
+    "stableStatePulseCount", getPositiveIntegerField(matchingConfig, "stableStatePulseCount", 2), ...
     "transitionTargetToleranceUs", getPositiveIntegerField(matchingConfig, "transitionTargetToleranceUs", 80), ...
     "transitionPreviousToleranceUs", getPositiveIntegerField(matchingConfig, "transitionPreviousToleranceUs", 25), ...
     "referenceAssociationWindowSeconds", getPositiveScalarField( ...
@@ -3848,6 +3849,8 @@ config.matching = struct( ...
         "referenceAssociationWindowSeconds", ...
         max(0.02, 1.25 .* double(config.trainerPpm.frameLengthUs) ./ 1e6)), ...
     "maxResponseWindowSeconds", getPositiveScalarField(matchingConfig, "maxResponseWindowSeconds", 0.12));
+config.matching.truthSubsetMode = canonicalizeTruthSubsetMode( ...
+    getTextScalarField(matchingConfig, "truthSubsetMode", "auto"));
 
 surfaceCount = numel(config.surfaceNames);
 if surfaceCount ~= 4
@@ -4225,8 +4228,6 @@ for sampleIndex = 1:sampleCount
 
     surfaceCommandCounts(config.activeSurfaceMask.') = nextCommandSequenceNumbers(config.activeSurfaceMask.');
     storage.sampleCount = sampleIndex;
-
-    assignin("base", "TransmitterTestLatestState", buildTransmitterLatestState(storage, config, sampleIndex));
 end
 
 [loggerData, config] = finalizeTransmitterLoggerSession(serialObject, loggerSession, config);
@@ -4326,12 +4327,22 @@ if config.arduinoTransport.clearLogsBeforeRun
 end
 
 for syncIndex = 1:config.arduinoTransport.syncCountBeforeRun
-    writeline(serialObject, sprintf("SYNC,%u,%u", uint32(syncIndex), hostNowUs(loggerSession.hostTimer)));
-    loggerSession = pauseAndDrainTransmitterTelemetry( ...
+    hostTxUs = hostNowUs(loggerSession.hostTimer);
+    writeline(serialObject, sprintf("SYNC,%u,%u", uint32(syncIndex), hostTxUs));
+    [loggerSession, isMatched] = waitForMatchingTransmitterSyncEvent( ...
         serialObject, ...
         loggerSession, ...
-        config.arduinoTransport.syncPauseSeconds, ...
+        uint32(syncIndex), ...
+        double(hostTxUs), ...
+        config.arduinoTransport.syncReplyTimeoutSeconds, ...
         config.arduinoTransport.linePollPauseSeconds);
+    if ~isMatched
+        loggerSession = pauseAndDrainTransmitterTelemetry( ...
+            serialObject, ...
+            loggerSession, ...
+            config.arduinoTransport.syncPauseSeconds, ...
+            config.arduinoTransport.linePollPauseSeconds);
+    end
 end
 
 loggerSession.testStartOffsetUs = hostNowUs(loggerSession.hostTimer);
@@ -4344,13 +4355,32 @@ function loggerSession = waitForScheduledTimeAndDrainTransmitter( ...
     serialObject, ...
     loggerSession, ...
     pauseSeconds)
+coarsePauseSeconds = max(0.001, min(pauseSeconds, 0.002));
+finePauseSeconds = min(0.0005, coarsePauseSeconds);
+drainCutoffSeconds = max(0.002, 4.0 .* finePauseSeconds);
 while true
-    loggerSession = drainTransmitterTelemetry(serialObject, loggerSession);
     remainingSeconds = targetTimeSeconds - toc(referenceTimer);
     if remainingSeconds <= 0
         return;
     end
-    pause(min(pauseSeconds, remainingSeconds));
+
+    if remainingSeconds > drainCutoffSeconds
+        loggerSession = drainTransmitterTelemetry(serialObject, loggerSession);
+        remainingSeconds = targetTimeSeconds - toc(referenceTimer);
+        if remainingSeconds <= 0
+            return;
+        end
+
+        pauseSecondsThisIteration = min(coarsePauseSeconds, max(0, remainingSeconds - drainCutoffSeconds));
+        if pauseSecondsThisIteration > 0
+            pause(pauseSecondsThisIteration);
+        end
+        continue;
+    end
+
+    if remainingSeconds > finePauseSeconds
+        pause(min(finePauseSeconds, remainingSeconds));
+    end
 end
 end
 
@@ -4387,10 +4417,6 @@ if commandSequenceNumbers(activeIndices(1)) >= 0
     end
 end
 
-if serialObject.NumBytesAvailable > 0
-    loggerSession = drainTransmitterTelemetry(serialObject, loggerSession);
-end
-
 if commandSequenceNumbers(activeIndices(1)) >= 0
     if configFromLoggerSessionCommandEncoding(loggerSession) == "binary_vector"
         payloadBytes = buildNanoLoggerBinaryVectorCommand( ...
@@ -4422,8 +4448,7 @@ for activeIndex = 1:numel(activeIndices)
         max(0, (double(dispatchAbsoluteUs) - double(loggerSession.testStartOffsetUs)) ./ 1e6);
 end
 
-loggerSession = drainTransmitterTelemetry(serialObject, loggerSession);
-writeStopSeconds = max(0, toc(loggerSession.hostTimer) - loggerSession.testStartOffsetSeconds);
+writeStopSeconds = max(0, (double(dispatchAbsoluteUs) - double(loggerSession.testStartOffsetUs)) ./ 1e6);
 end
 
 function commandEncoding = configFromLoggerSessionCommandEncoding(loggerSession)
@@ -4438,6 +4463,47 @@ pauseTimer = tic;
 while toc(pauseTimer) < durationSeconds
     loggerSession = drainTransmitterTelemetry(serialObject, loggerSession);
     pause(min(pauseSeconds, durationSeconds - toc(pauseTimer)));
+end
+end
+
+function [loggerSession, isMatched] = waitForMatchingTransmitterSyncEvent( ...
+    serialObject, ...
+    loggerSession, ...
+    expectedSyncId, ...
+    expectedHostTxUs, ...
+    timeoutSeconds, ...
+    pauseSeconds)
+isMatched = false;
+waitTimer = tic;
+while toc(waitTimer) < timeoutSeconds
+    [receivedLines, receiveBuffer] = readTransmitterLines(serialObject, loggerSession.receiveBuffer);
+    loggerSession.receiveBuffer = receiveBuffer;
+    if isempty(receivedLines)
+        pause(min(pauseSeconds, timeoutSeconds - toc(waitTimer)));
+        continue;
+    end
+
+    for lineIndex = 1:numel(receivedLines)
+        hostRxUs = double(hostNowUs(loggerSession.hostTimer));
+        receivedLine = receivedLines(lineIndex);
+        loggerSession = appendTransmitterTelemetryLine(loggerSession, receivedLine, hostRxUs);
+
+        telemetryParts = split(receivedLine, ",");
+        if numel(telemetryParts) < 5 || telemetryParts(1) ~= "SYNC_EVENT"
+            continue;
+        end
+
+        syncIdValue = str2double(telemetryParts(2));
+        hostTxValue = str2double(telemetryParts(3));
+        if ~isfinite(syncIdValue) || ~isfinite(hostTxValue)
+            continue;
+        end
+
+        if uint32(syncIdValue) == uint32(expectedSyncId) && double(hostTxValue) == expectedHostTxUs
+            isMatched = true;
+            return;
+        end
+    end
 end
 end
 
@@ -4469,77 +4535,115 @@ end
 
 hostRxUs = double(hostNowUs(loggerSession.hostTimer));
 for lineIndex = 1:numel(receivedLines)
-    if loggerSession.telemetryLineCount + 1 > numel(loggerSession.telemetryLineText)
-        error("Transmitter_Test:TelemetryCapacityExceeded", "Serial telemetry log capacity was exceeded.");
-    end
+    loggerSession = appendTransmitterTelemetryLine(loggerSession, receivedLines(lineIndex), hostRxUs);
+end
+end
 
-    loggerSession.telemetryLineCount = loggerSession.telemetryLineCount + 1;
-    telemetryRow = loggerSession.telemetryLineCount;
-    loggerSession.telemetryLineText(telemetryRow) = receivedLines(lineIndex);
-    loggerSession.telemetryHostRxUs(telemetryRow) = hostRxUs;
+function loggerSession = appendTransmitterTelemetryLine(loggerSession, receivedLine, hostRxUs)
+if loggerSession.telemetryLineCount + 1 > numel(loggerSession.telemetryLineText)
+    error("Transmitter_Test:TelemetryCapacityExceeded", "Serial telemetry log capacity was exceeded.");
+end
 
-    telemetryParts = split(receivedLines(lineIndex), ",");
-    if isempty(telemetryParts)
-        continue;
-    end
+loggerSession.telemetryLineCount = loggerSession.telemetryLineCount + 1;
+telemetryRow = loggerSession.telemetryLineCount;
+loggerSession.telemetryLineText(telemetryRow) = receivedLine;
+loggerSession.telemetryHostRxUs(telemetryRow) = hostRxUs;
+end
 
-    switch telemetryParts(1)
-        case "RX_EVENT"
-            if numel(telemetryParts) < 8
-                continue;
-            end
+function parsedLoggerSession = parseStoredTransmitterTelemetry(loggerSession)
+parsedLoggerSession = loggerSession;
+parsedLoggerSession.rxEventCount = 0;
+parsedLoggerSession.commitEventCount = 0;
+parsedLoggerSession.boardSyncCount = 0;
+parsedLoggerSession.rxHostRxUs(:) = nan;
+parsedLoggerSession.rxSampleSequence(:) = nan;
+parsedLoggerSession.rxActiveMask(:) = nan;
+parsedLoggerSession.rxBoardRxUs(:) = nan;
+parsedLoggerSession.rxPositionCode(:) = nan;
+parsedLoggerSession.commitHostRxUs(:) = nan;
+parsedLoggerSession.commitSampleSequence(:) = nan;
+parsedLoggerSession.commitActiveMask(:) = nan;
+parsedLoggerSession.commitBoardRxUs(:) = nan;
+parsedLoggerSession.commitBoardCommitUs(:) = nan;
+parsedLoggerSession.commitStrobeUs(:) = nan;
+parsedLoggerSession.commitFrameIndex(:) = nan;
+parsedLoggerSession.commitPpmUs(:) = nan;
+parsedLoggerSession.boardSyncId(:) = nan;
+parsedLoggerSession.boardSyncHostTxUs(:) = nan;
+parsedLoggerSession.boardSyncHostRxUs(:) = nan;
+parsedLoggerSession.boardSyncBoardRxUs(:) = nan;
+parsedLoggerSession.boardSyncBoardTxUs(:) = nan;
 
-            if loggerSession.rxEventCount + 1 > numel(loggerSession.rxHostRxUs)
-                error("Transmitter_Test:RxCapacityExceeded", "RX_EVENT capacity was exceeded.");
-            end
+for lineIndex = 1:loggerSession.telemetryLineCount
+    parsedLoggerSession = appendParsedTransmitterTelemetryLine( ...
+        parsedLoggerSession, ...
+        loggerSession.telemetryLineText(lineIndex), ...
+        loggerSession.telemetryHostRxUs(lineIndex));
+end
+end
 
-            loggerSession.rxEventCount = loggerSession.rxEventCount + 1;
-            rowIndex = loggerSession.rxEventCount;
-            loggerSession.rxHostRxUs(rowIndex) = hostRxUs;
-            loggerSession.rxSampleSequence(rowIndex) = str2double(telemetryParts(2));
-            loggerSession.rxActiveMask(rowIndex) = str2double(telemetryParts(3));
-            loggerSession.rxBoardRxUs(rowIndex) = str2double(telemetryParts(4));
-            loggerSession.rxPositionCode(rowIndex, :) = ...
-                double(str2double(telemetryParts(5:8))).';
+function loggerSession = appendParsedTransmitterTelemetryLine(loggerSession, receivedLine, hostRxUs)
+telemetryParts = split(receivedLine, ",");
+if isempty(telemetryParts)
+    return;
+end
 
-        case "COMMIT_EVENT"
-            if numel(telemetryParts) < 15
-                continue;
-            end
+switch telemetryParts(1)
+    case "RX_EVENT"
+        if numel(telemetryParts) < 8
+            return;
+        end
 
-            if loggerSession.commitEventCount + 1 > numel(loggerSession.commitHostRxUs)
-                error("Transmitter_Test:CommitCapacityExceeded", "COMMIT_EVENT capacity was exceeded.");
-            end
+        if loggerSession.rxEventCount + 1 > numel(loggerSession.rxHostRxUs)
+            error("Transmitter_Test:RxCapacityExceeded", "RX_EVENT capacity was exceeded.");
+        end
 
-            loggerSession.commitEventCount = loggerSession.commitEventCount + 1;
-            rowIndex = loggerSession.commitEventCount;
-            loggerSession.commitHostRxUs(rowIndex) = hostRxUs;
-            loggerSession.commitSampleSequence(rowIndex) = str2double(telemetryParts(2));
-            loggerSession.commitActiveMask(rowIndex) = str2double(telemetryParts(3));
-            loggerSession.commitBoardRxUs(rowIndex) = str2double(telemetryParts(4));
-            loggerSession.commitBoardCommitUs(rowIndex) = str2double(telemetryParts(5));
-            loggerSession.commitStrobeUs(rowIndex) = str2double(telemetryParts(6));
-            loggerSession.commitFrameIndex(rowIndex) = str2double(telemetryParts(7));
-            loggerSession.commitPpmUs(rowIndex, :) = ...
-                double(str2double(telemetryParts(8:15))).';
+        loggerSession.rxEventCount = loggerSession.rxEventCount + 1;
+        rowIndex = loggerSession.rxEventCount;
+        loggerSession.rxHostRxUs(rowIndex) = hostRxUs;
+        loggerSession.rxSampleSequence(rowIndex) = str2double(telemetryParts(2));
+        loggerSession.rxActiveMask(rowIndex) = str2double(telemetryParts(3));
+        loggerSession.rxBoardRxUs(rowIndex) = str2double(telemetryParts(4));
+        loggerSession.rxPositionCode(rowIndex, :) = ...
+            double(str2double(telemetryParts(5:8))).';
 
-        case "SYNC_EVENT"
-            if numel(telemetryParts) < 5
-                continue;
-            end
+    case "COMMIT_EVENT"
+        if numel(telemetryParts) < 15
+            return;
+        end
 
-            if loggerSession.boardSyncCount + 1 > numel(loggerSession.boardSyncId)
-                error("Transmitter_Test:SyncCapacityExceeded", "SYNC_EVENT capacity was exceeded.");
-            end
+        if loggerSession.commitEventCount + 1 > numel(loggerSession.commitHostRxUs)
+            error("Transmitter_Test:CommitCapacityExceeded", "COMMIT_EVENT capacity was exceeded.");
+        end
 
-            loggerSession.boardSyncCount = loggerSession.boardSyncCount + 1;
-            rowIndex = loggerSession.boardSyncCount;
-            loggerSession.boardSyncId(rowIndex) = str2double(telemetryParts(2));
-            loggerSession.boardSyncHostTxUs(rowIndex) = str2double(telemetryParts(3));
-            loggerSession.boardSyncHostRxUs(rowIndex) = hostRxUs;
-            loggerSession.boardSyncBoardRxUs(rowIndex) = str2double(telemetryParts(4));
-            loggerSession.boardSyncBoardTxUs(rowIndex) = str2double(telemetryParts(5));
-    end
+        loggerSession.commitEventCount = loggerSession.commitEventCount + 1;
+        rowIndex = loggerSession.commitEventCount;
+        loggerSession.commitHostRxUs(rowIndex) = hostRxUs;
+        loggerSession.commitSampleSequence(rowIndex) = str2double(telemetryParts(2));
+        loggerSession.commitActiveMask(rowIndex) = str2double(telemetryParts(3));
+        loggerSession.commitBoardRxUs(rowIndex) = str2double(telemetryParts(4));
+        loggerSession.commitBoardCommitUs(rowIndex) = str2double(telemetryParts(5));
+        loggerSession.commitStrobeUs(rowIndex) = str2double(telemetryParts(6));
+        loggerSession.commitFrameIndex(rowIndex) = str2double(telemetryParts(7));
+        loggerSession.commitPpmUs(rowIndex, :) = ...
+            double(str2double(telemetryParts(8:15))).';
+
+    case "SYNC_EVENT"
+        if numel(telemetryParts) < 5
+            return;
+        end
+
+        if loggerSession.boardSyncCount + 1 > numel(loggerSession.boardSyncId)
+            error("Transmitter_Test:SyncCapacityExceeded", "SYNC_EVENT capacity was exceeded.");
+        end
+
+        loggerSession.boardSyncCount = loggerSession.boardSyncCount + 1;
+        rowIndex = loggerSession.boardSyncCount;
+        loggerSession.boardSyncId(rowIndex) = str2double(telemetryParts(2));
+        loggerSession.boardSyncHostTxUs(rowIndex) = str2double(telemetryParts(3));
+        loggerSession.boardSyncHostRxUs(rowIndex) = hostRxUs;
+        loggerSession.boardSyncBoardRxUs(rowIndex) = str2double(telemetryParts(4));
+        loggerSession.boardSyncBoardTxUs(rowIndex) = str2double(telemetryParts(5));
 end
 end
 
@@ -4587,12 +4691,22 @@ loggerSession = pauseAndDrainTransmitterTelemetry( ...
 
 for syncIndex = 1:config.arduinoTransport.syncCountAfterRun
     syncId = uint32(config.arduinoTransport.syncCountBeforeRun + syncIndex);
-    writeline(serialObject, sprintf("SYNC,%u,%u", syncId, hostNowUs(loggerSession.hostTimer)));
-    loggerSession = pauseAndDrainTransmitterTelemetry( ...
+    hostTxUs = hostNowUs(loggerSession.hostTimer);
+    writeline(serialObject, sprintf("SYNC,%u,%u", syncId, hostTxUs));
+    [loggerSession, isMatched] = waitForMatchingTransmitterSyncEvent( ...
         serialObject, ...
         loggerSession, ...
-        config.arduinoTransport.syncPauseSeconds, ...
+        syncId, ...
+        double(hostTxUs), ...
+        config.arduinoTransport.syncReplyTimeoutSeconds, ...
         config.arduinoTransport.linePollPauseSeconds);
+    if ~isMatched
+        loggerSession = pauseAndDrainTransmitterTelemetry( ...
+            serialObject, ...
+            loggerSession, ...
+            config.arduinoTransport.syncPauseSeconds, ...
+            config.arduinoTransport.linePollPauseSeconds);
+    end
 end
 
 writeline(serialObject, "STATUS");
@@ -4608,7 +4722,8 @@ loggerSession = collectRemainingTransmitterTelemetry( ...
     2.0, ...
     config.arduinoTransport.lineIdleTimeoutSeconds);
 
-if loggerSession.boardSyncCount == 0
+parsedLoggerSession = parseStoredTransmitterTelemetry(loggerSession);
+if parsedLoggerSession.boardSyncCount == 0
     error("Transmitter_Test:MissingSyncTelemetry", "No SYNC_EVENT lines were received from the transmitter.");
 end
 
@@ -4616,9 +4731,9 @@ loggerData = struct( ...
     "testStartOffsetUs", double(loggerSession.testStartOffsetUs), ...
     "testStartOffsetSeconds", loggerSession.testStartOffsetSeconds, ...
     "hostDispatchLog", buildHostDispatchLogFromSession(loggerSession), ...
-    "boardRxLog", buildBoardRxLogFromSession(loggerSession, config.surfaceNames), ...
-    "boardCommitLog", buildBoardCommitLogFromSession(loggerSession), ...
-    "boardSyncLog", buildBoardSyncLogFromSession(loggerSession), ...
+    "boardRxLog", buildBoardRxLogFromSession(parsedLoggerSession, config.surfaceNames), ...
+    "boardCommitLog", buildBoardCommitLogFromSession(parsedLoggerSession), ...
+    "boardSyncLog", buildBoardSyncLogFromSession(parsedLoggerSession), ...
     "serialTelemetryLog", compose( ...
         "%.0f,%s", ...
         loggerSession.telemetryHostRxUs(1:loggerSession.telemetryLineCount), ...
@@ -5032,35 +5147,35 @@ function validateSigrokDevice(config)
 sigrokCliPath = resolveSigrokCliPath(config.logicAnalyzer.sigrokCliPath);
 driverSpec = buildSigrokDriverSpec(config.logicAnalyzer);
 
-if strlength(config.logicAnalyzer.deviceId) > 0
-    validationCommand = strjoin([ ...
-        quoteWindowsArgument(sigrokCliPath), ...
-        "--driver", quoteWindowsArgument(driverSpec), ...
-        "--show"], " ");
-    [status, outputText] = runWindowsCommand(validationCommand);
-    raiseSigrokUsbAccessErrorIfNeeded(outputText);
-    if status ~= 0
-        error("Transmitter_Test:SigrokDeviceValidationFailed", "sigrok-cli device validation failed. %s", strtrim(outputText));
-    end
-else
-    [status, outputText] = runWindowsCommand(quoteWindowsArgument(sigrokCliPath) + " --scan");
-    raiseSigrokUsbAccessErrorIfNeeded(outputText);
-    if status ~= 0 || ~contains(lower(string(outputText)), lower(config.logicAnalyzer.deviceDriver))
-        error("Transmitter_Test:SigrokDeviceValidationFailed", "sigrok-cli scan did not confirm driver %s.", char(config.logicAnalyzer.deviceDriver));
-    end
+openCommand = strjoin([ ...
+    quoteWindowsArgument(sigrokCliPath), ...
+    "--driver", quoteWindowsArgument(driverSpec), ...
+    "--show"], " ");
+[openStatus, openOutputText] = runWindowsCommand(openCommand);
+raiseSigrokUsbAccessErrorIfNeeded(openOutputText);
+if openStatus == 0
+    return;
 end
+
+[scanStatus, scanOutputText] = runWindowsCommand(quoteWindowsArgument(sigrokCliPath) + " --scan");
+raiseSigrokUsbAccessErrorIfNeeded(scanOutputText);
+if scanStatus ~= 0 || ~contains(lower(string(scanOutputText)), lower(config.logicAnalyzer.deviceDriver))
+    error("Transmitter_Test:SigrokDeviceValidationFailed", "sigrok-cli scan did not confirm driver %s.", char(config.logicAnalyzer.deviceDriver));
+end
+
+error("Transmitter_Test:SigrokDeviceValidationFailed", "sigrok-cli found driver %s but could not open the device. %s", char(config.logicAnalyzer.deviceDriver), strtrim(openOutputText));
 end
 
 function raiseSigrokUsbAccessErrorIfNeeded(outputText)
 outputText = string(outputText);
 outputTextLower = lower(outputText);
 
-if contains(outputTextLower, "libusb_error_access")
+if contains(outputTextLower, "libusb_error_access") || contains(outputTextLower, "libusb_error_not_supported")
     error( ...
         "Transmitter_Test:SigrokUsbAccessDenied", ...
         [ ...
-        "sigrok-cli could not open the logic analyser because Windows denied USB access (%s). " + ...
-        "Close PulseView and any other analyser software, unplug/replug the analyser, and ensure the device uses a libusb-compatible driver such as WinUSB for sigrok."], ...
+        "sigrok-cli could not open the logic analyser because Windows USB access is not configured for libusb (%s). " + ...
+        "Close PulseView and any other analyser software, unplug/replug the analyser, and install a libusb-compatible driver such as WinUSB for this analyser in Zadig before retrying."], ...
         strtrim(outputText));
 end
 end
@@ -5146,14 +5261,7 @@ end
 function trainerPpmCapture = extractTrainerPpmCaptureFromLogicState(logicState, config)
 trainerColumnIndex = resolveLogicStateRoleColumnIndex(logicState, config, "trainerPpm");
 trainerStates = logicState.stateMatrix(:, trainerColumnIndex);
-markStartMask = false(size(trainerStates));
-if config.trainerPpm.idleHigh
-    markStartMask(2:end) = diff(trainerStates) < 0;
-else
-    markStartMask(2:end) = diff(trainerStates) > 0;
-end
-
-markStartSamples = logicState.sampleIndex(markStartMask);
+markStartSamples = extractTrainerMarkStartSamples(trainerStates, logicState.sampleIndex, logicState.sampleRateHz, config);
 if numel(markStartSamples) < 2
     trainerPpmCapture = buildEmptyPulseCaptureTable(true);
     return;
@@ -5177,15 +5285,19 @@ sampleCount = nan(rowCapacity, 1);
 sampleRate = nan(rowCapacity, 1);
 frameIndex = nan(rowCapacity, 1);
 rowCount = 0;
-markWidthSamples = round(double(config.trainerPpm.markWidthUs) .* logicState.sampleRateHz ./ 1e6);
 
-currentFrameIndex = 1;
+currentFrameIndex = 0;
 currentChannelIndex = 1;
+hasSeenFrameBoundary = false;
 for slotIndex = 1:numel(slotSampleCounts)
     slotCount = slotSampleCounts(slotIndex);
     if slotCount > syncGapThresholdSamples
         currentFrameIndex = currentFrameIndex + 1;
         currentChannelIndex = 1;
+        hasSeenFrameBoundary = true;
+        continue;
+    end
+    if ~hasSeenFrameBoundary
         continue;
     end
     if slotCount < minimumValidSlotSamples
@@ -5198,10 +5310,10 @@ for slotIndex = 1:numel(slotSampleCounts)
             rowCount = rowCount + 1;
             surfaceNames(rowCount) = mappedSurfaceName;
             sampleIndex(rowCount) = markStartSamples(slotIndex);
-            % Raw Uno trainer reconstruction yields the inter-mark interval.
-            % Add the fixed PPM mark width so sample-based normalization
-            % recovers the commanded slot width used by board-side commits.
-            sampleCount(rowCount) = slotCount + markWidthSamples;
+            % The Uno schedules each slot as one mark followed by the
+            % remaining gap, so consecutive mark-start timestamps already
+            % span the full commanded slot width.
+            sampleCount(rowCount) = slotCount;
             sampleRate(rowCount) = logicState.sampleRateHz;
             timeSeconds(rowCount) = sampleIndexToTimeSeconds(markStartSamples(slotIndex), logicState.sampleRateHz);
             frameIndex(rowCount) = currentFrameIndex;
@@ -5219,6 +5331,26 @@ trainerPpmCapture = table( ...
     sampleRate(1:rowCount), ...
     frameIndex(1:rowCount), ...
     'VariableNames', {'surface_name', 'time_s', 'pulse_us', 'sample_index', 'sample_count', 'sample_rate_hz', 'frame_index'});
+end
+
+function markStartSamples = extractTrainerMarkStartSamples(trainerStates, sampleIndex, sampleRateHz, config)
+risingSamples = sampleIndex([false; diff(trainerStates) > 0]);
+fallingSamples = sampleIndex([false; diff(trainerStates) < 0]);
+if config.trainerPpm.idleHigh
+    [candidateMarkStarts, candidateMarkCounts] = pairEdgeSamples(fallingSamples, risingSamples);
+else
+    [candidateMarkStarts, candidateMarkCounts] = pairEdgeSamples(risingSamples, fallingSamples);
+end
+
+markWidthSamples = double(config.trainerPpm.markWidthUs) .* double(sampleRateHz) ./ 1e6;
+markToleranceSamples = max(ceil(0.35 .* markWidthSamples), round(60 .* double(sampleRateHz) ./ 1e6));
+minimumMarkSamples = max(1, round(markWidthSamples - markToleranceSamples));
+maximumMarkSamples = round(markWidthSamples + markToleranceSamples);
+validMarkMask = ...
+    isfinite(candidateMarkCounts) & ...
+    candidateMarkCounts >= minimumMarkSamples & ...
+    candidateMarkCounts <= maximumMarkSamples;
+markStartSamples = candidateMarkStarts(validMarkMask);
 end
 
 function receiverCapture = extractReceiverCaptureFromLogicState(logicState, config)
@@ -6030,10 +6162,11 @@ for rowIndex = 1:height(matchedEvents)
         matchedEvents.reference_strobe_s(rowIndex));
 
     if matchedEvents.is_observable_downstream(rowIndex)
-        [trainerTime, trainerPulse, trainerSampleIndex, trainerSampleRateHz, trainerNextIndex(surfaceIdx)] = findFirstTransitionAfterAnchor( ...
+        [trainerTime, trainerPulse, trainerSampleIndex, trainerSampleRateHz, trainerNextIndex(surfaceIdx)] = findFirstDirectionalTransitionAfterAnchor( ...
             trainerTables{surfaceIdx}, ...
             trainerNextIndex(surfaceIdx), ...
             searchStartSeconds, ...
+            expectedDeltaUs, ...
             config.matching.maxResponseWindowSeconds, ...
             config.matching.transitionLeadSeconds);
         matchedEvents.trainer_ppm_s(rowIndex) = trainerTime;
@@ -6047,13 +6180,19 @@ for rowIndex = 1:height(matchedEvents)
         end
 
         receiverStartSeconds = searchStartSeconds;
+        receiverLeadSeconds = config.matching.transitionLeadSeconds;
+        if isfinite(trainerTime)
+            receiverStartSeconds = max(receiverStartSeconds, trainerTime);
+            receiverLeadSeconds = 0.0;
+        end
 
-        [receiverTime, receiverPulse, receiverSampleIndex, receiverSampleRateHz, receiverNextIndex(surfaceIdx)] = findFirstTransitionAfterAnchor( ...
+        [receiverTime, receiverPulse, receiverSampleIndex, receiverSampleRateHz, receiverNextIndex(surfaceIdx)] = findFirstDirectionalTransitionAfterAnchor( ...
             receiverTables{surfaceIdx}, ...
             receiverNextIndex(surfaceIdx), ...
             receiverStartSeconds, ...
+            expectedDeltaUs, ...
             config.matching.maxResponseWindowSeconds, ...
-            config.matching.transitionLeadSeconds);
+            receiverLeadSeconds);
         matchedEvents.receiver_response_s(rowIndex) = receiverTime;
         matchedEvents.receiver_pulse_us(rowIndex) = receiverPulse;
         matchedEvents.receiver_sample_index(rowIndex) = receiverSampleIndex;
@@ -6309,16 +6448,18 @@ end
 
 hostDispatchUnique = deduplicateHostDispatchBySampleSequence(hostDispatchLog);
 rxUnique = deduplicateEchoImportTable(boardRxLog(:, {'surface_name', 'command_sequence', 'received_position_norm', 'rx_time_s'}));
-trainerTables = buildPulseTransitionTablesBySurface( ...
+ppmStateCentersBySurface = deriveSurfaceStateCenters(commitUnique, config.surfaceNames);
+receiverStateCentersBySurface = derivePulseCaptureStateCenters(receiverCapture, config.surfaceNames, ppmStateCentersBySurface);
+trainerTables = buildStableStateTransitionTablesBySurface( ...
     trainerPpmCapture, ...
     config.surfaceNames, ...
-    config.matching.ppmChangeThresholdUs);
-receiverTables = buildPulseTransitionTablesBySurface( ...
+    ppmStateCentersBySurface, ...
+    config.matching.stableStatePulseCount);
+receiverTables = buildStableStateTransitionTablesBySurface( ...
     receiverCapture, ...
     config.surfaceNames, ...
-    config.matching.receiverChangeThresholdUs);
-trainerNextIndex = ones(numel(config.surfaceNames), 1);
-receiverNextIndex = ones(numel(config.surfaceNames), 1);
+    receiverStateCentersBySurface, ...
+    config.matching.stableStatePulseCount);
 
 maxEventCount = max(0, (height(commitUnique) - 1) .* numel(config.surfaceNames));
 directEvents = directEvents(false(maxEventCount, 1), :);
@@ -6341,12 +6482,16 @@ for commitIndex = 2:height(commitUnique)
         previousPulseUs = getCommitPulseForSurface(commitUnique(commitIndex - 1, :), surfaceIndex);
         expectedPulseUs = getCommitPulseForSurface(commitUnique(commitIndex, :), surfaceIndex);
         deltaPulseUs = expectedPulseUs - previousPulseUs;
+        previousState = classifyPulseState(previousPulseUs, ppmStateCentersBySurface{surfaceIndex}, config.matching.stateToleranceUs);
+        expectedState = classifyPulseState(expectedPulseUs, ppmStateCentersBySurface{surfaceIndex}, config.matching.stateToleranceUs);
         thresholdUs = config.matching.receiverChangeThresholdUs;
-        if abs(deltaPulseUs) < thresholdUs
+        if abs(deltaPulseUs) < thresholdUs || previousState == expectedState
             continue;
         end
 
         eventCount = eventCount + 1;
+        directEvents(eventCount, :) = { ...
+            NaN, "", NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, ""};
         directEvents.sample_sequence(eventCount) = commitUnique.sample_sequence(commitIndex);
         directEvents.surface_name(eventCount) = config.surfaceNames(surfaceIndex);
         directEvents.surface_index(eventCount) = surfaceIndex;
@@ -6372,25 +6517,30 @@ for commitIndex = 2:height(commitUnique)
             end
         end
 
-        [trainerTime, trainerPulse, ~, ~, trainerNextIndex(surfaceIndex)] = findFirstDirectionalTransitionAfterAnchor( ...
+        [trainerTime, trainerPulse] = findFirstTransitionToStateAfterAnchor( ...
             trainerTables{surfaceIndex}, ...
-            trainerNextIndex(surfaceIndex), ...
             anchorTime, ...
-            deltaPulseUs, ...
+            previousState, ...
+            expectedState, ...
             config.matching.maxResponseWindowSeconds, ...
-            config.matching.transitionLeadSeconds);
+            0.0);
         if isfinite(trainerTime)
             directEvents.trainer_transition_s(eventCount) = trainerTime;
             directEvents.trainer_transition_us(eventCount) = trainerPulse;
             directEvents.anchor_to_trainer_latency_s(eventCount) = trainerTime - anchorTime;
         end
-        [receiverTime, receiverPulse, ~, ~, receiverNextIndex(surfaceIndex)] = findFirstDirectionalTransitionAfterAnchor( ...
+
+        % The true end-to-end metric is reference/commit to receiver output.
+        % Trainer matching is diagnostic only and must not gate receiver
+        % latency extraction because trainer decode can be noisier than the
+        % receiver waveform.
+        [receiverTime, receiverPulse] = findFirstTransitionToStateAfterAnchor( ...
             receiverTables{surfaceIndex}, ...
-            receiverNextIndex(surfaceIndex), ...
             anchorTime, ...
-            deltaPulseUs, ...
+            NaN, ...
+            expectedState, ...
             config.matching.maxResponseWindowSeconds, ...
-            config.matching.transitionLeadSeconds);
+            0.0);
         if isfinite(receiverTime)
             directEvents.receiver_transition_s(eventCount) = receiverTime;
             directEvents.receiver_transition_us(eventCount) = receiverPulse;
@@ -6414,6 +6564,503 @@ end
 directEvents = directEvents(1:eventCount, :);
 end
 
+function truthSubsetEvents = buildTruthSubsetLatencyEvents( ...
+    hostDispatchLog, ...
+    boardRxLog, ...
+    boardCommitLog, ...
+    referenceCapture, ...
+    receiverCapture, ...
+    profileInfo, ...
+    config)
+truthSubsetEvents = buildEmptyTruthSubsetEventsTable();
+if ~shouldUseTruthSubsetAnalysis(profileInfo, config)
+    return;
+end
+if isempty(boardCommitLog) || isempty(profileInfo) || ~isfield(profileInfo, "profileEvents") || isempty(profileInfo.profileEvents)
+    return;
+end
+
+commitUnique = deduplicateCommitTable(boardCommitLog);
+[commitUnique.reference_strobe_s, commitUnique.reference_sample_index, commitUnique.reference_sample_rate_hz] = matchReferenceCaptureTimes( ...
+    commitUnique, ...
+    referenceCapture, ...
+    config.referenceStrobe.mode, ...
+    config.matching.referenceAssociationWindowSeconds);
+if height(commitUnique) < 2
+    return;
+end
+
+profileEvents = profileInfo.profileEvents;
+if height(profileEvents) < 2
+    return;
+end
+
+hostDispatchUnique = deduplicateHostDispatchBySampleSequence(hostDispatchLog);
+rxUnique = deduplicateEchoImportTable(boardRxLog(:, {'surface_name', 'command_sequence', 'received_position_norm', 'rx_time_s'}));
+ppmStateCentersBySurface = deriveSurfaceStateCenters(commitUnique, config.surfaceNames);
+receiverStateCentersBySurface = derivePulseCaptureStateCenters(receiverCapture, config.surfaceNames, ppmStateCentersBySurface);
+commitTransitionTables = buildCommitTransitionTablesBySurface(commitUnique, config.surfaceNames, ppmStateCentersBySurface);
+receiverTables = buildStableStateTransitionTablesBySurface( ...
+    receiverCapture, ...
+    config.surfaceNames, ...
+    receiverStateCentersBySurface, ...
+    config.matching.stableStatePulseCount);
+
+activeSurfaceCount = sum(config.activeSurfaceMask);
+maxEventCount = max(0, (height(profileEvents) - 1) .* max(1, activeSurfaceCount));
+truthSubsetEvents = buildEmptyTruthSubsetEventsTable(maxEventCount);
+eventCount = 0;
+
+for eventRowIndex = 2:height(profileEvents)
+    previousTargetDeg = double(profileEvents.TargetDeflection_deg(eventRowIndex - 1));
+    currentTargetDeg = double(profileEvents.TargetDeflection_deg(eventRowIndex));
+    if currentTargetDeg == previousTargetDeg
+        continue;
+    end
+
+    boundaryTimeSeconds = double(profileInfo.commandStartSeconds) + double(profileEvents.StartTime_s(eventRowIndex));
+    for surfaceIndex = 1:numel(config.surfaceNames)
+        if ~config.activeSurfaceMask(surfaceIndex)
+            continue;
+        end
+
+        previousState = classifyProfileBoundaryState(previousTargetDeg, surfaceIndex, config);
+        expectedState = classifyProfileBoundaryState(currentTargetDeg, surfaceIndex, config);
+        if ~isfinite(previousState) || ~isfinite(expectedState) || previousState == expectedState
+            continue;
+        end
+
+        eventCount = eventCount + 1;
+        truthSubsetEvents = initializeTruthSubsetEventRow(truthSubsetEvents, eventCount);
+        truthSubsetEvents.profile_event_index(eventCount) = double(profileEvents.EventIndex(eventRowIndex));
+        truthSubsetEvents.profile_event_label(eventCount) = string(profileEvents.EventLabel(eventRowIndex));
+        truthSubsetEvents.boundary_time_s(eventCount) = boundaryTimeSeconds;
+        truthSubsetEvents.previous_target_deg(eventCount) = previousTargetDeg;
+        truthSubsetEvents.target_deflection_deg(eventCount) = currentTargetDeg;
+        truthSubsetEvents.surface_name(eventCount) = config.surfaceNames(surfaceIndex);
+        truthSubsetEvents.surface_index(eventCount) = surfaceIndex;
+        truthSubsetEvents.analysis_mode(eventCount) = "isolated_profile_boundaries";
+
+        [commitTime, referenceTime, anchorTime, sampleSequence, previousPulseUs, expectedPulseUs] = findFirstCommitTransitionAfterBoundary( ...
+            commitTransitionTables{surfaceIndex}, ...
+            boundaryTimeSeconds, ...
+            previousState, ...
+            expectedState, ...
+            config.matching.maxResponseWindowSeconds);
+        if ~isfinite(anchorTime)
+            continue;
+        end
+
+        truthSubsetEvents.commit_transition_found(eventCount) = true;
+        truthSubsetEvents.sample_sequence(eventCount) = sampleSequence;
+        truthSubsetEvents.board_commit_s(eventCount) = commitTime;
+        truthSubsetEvents.reference_strobe_s(eventCount) = referenceTime;
+        truthSubsetEvents.anchor_s(eventCount) = anchorTime;
+        truthSubsetEvents.previous_ppm_us(eventCount) = previousPulseUs;
+        truthSubsetEvents.expected_ppm_us(eventCount) = expectedPulseUs;
+        truthSubsetEvents.delta_ppm_us(eventCount) = expectedPulseUs - previousPulseUs;
+        truthSubsetEvents.anchor_source(eventCount) = ternaryText(isfinite(referenceTime), "reference", "board_commit");
+
+        hostRow = findHostDispatchRow(hostDispatchUnique, config.surfaceNames(surfaceIndex), sampleSequence);
+        if hostRow > 0
+            truthSubsetEvents.command_sequence(eventCount) = hostDispatchUnique.command_sequence(hostRow);
+            truthSubsetEvents.scheduled_time_s(eventCount) = hostDispatchUnique.scheduled_time_s(hostRow);
+            truthSubsetEvents.command_dispatch_s(eventCount) = hostDispatchUnique.command_dispatch_s(hostRow);
+
+            rxKey = buildSurfaceSequenceKeys(config.surfaceNames(surfaceIndex), hostDispatchUnique.command_sequence(hostRow));
+            rxMatch = buildSurfaceSequenceKeys(rxUnique.surface_name, rxUnique.command_sequence);
+            rxRow = find(rxMatch == rxKey, 1, "first");
+            if ~isempty(rxRow)
+                truthSubsetEvents.board_rx_s(eventCount) = rxUnique.rx_time_s(rxRow);
+            end
+        end
+    end
+end
+
+truthSubsetEvents = truthSubsetEvents(1:eventCount, :);
+truthSubsetEvents = pairTruthSubsetReceiverTransitionsByOrder( ...
+    truthSubsetEvents, ...
+    receiverTables, ...
+    receiverStateCentersBySurface, ...
+    config.surfaceNames, ...
+    config.matching.maxResponseWindowSeconds);
+end
+
+function summarySource = determineLatencySummarySource(directLatencyEvents, truthSubsetEvents, profileInfo, config)
+if shouldUseTruthSubsetAnalysis(profileInfo, config)
+    if isempty(truthSubsetEvents)
+        summarySource = "truth_subset_profile_boundaries_empty";
+    else
+        summarySource = "truth_subset_profile_boundaries";
+    end
+    return;
+end
+
+if isempty(directLatencyEvents)
+    summarySource = "reference_anchored_direct_events_empty";
+else
+    summarySource = "reference_anchored_direct_events";
+end
+end
+
+function latencyEventsForSummary = selectLatencyEventsForSummary(directLatencyEvents, truthSubsetEvents)
+if ~isempty(truthSubsetEvents)
+    latencyEventsForSummary = truthSubsetEvents;
+else
+    latencyEventsForSummary = directLatencyEvents;
+end
+end
+
+function truthSubsetSummary = buildTruthSubsetSummary(truthSubsetEvents, config)
+surfaceCount = numel(config.surfaceNames);
+truthEventCount = zeros(surfaceCount, 1);
+commitMatchCount = zeros(surfaceCount, 1);
+receiverMatchCount = zeros(surfaceCount, 1);
+
+for surfaceIndex = 1:surfaceCount
+    surfaceMask = truthSubsetEvents.surface_name == config.surfaceNames(surfaceIndex);
+    truthEventCount(surfaceIndex) = sum(surfaceMask);
+    commitMatchCount(surfaceIndex) = sum(truthSubsetEvents.commit_transition_found(surfaceMask));
+    receiverMatchCount(surfaceIndex) = sum(truthSubsetEvents.receiver_transition_found(surfaceMask));
+end
+
+truthSubsetSummary = table( ...
+    config.surfaceNames, ...
+    config.activeSurfaceMask, ...
+    truthEventCount, ...
+    commitMatchCount, ...
+    max(0, truthEventCount - commitMatchCount), ...
+    receiverMatchCount, ...
+    max(0, truthEventCount - receiverMatchCount), ...
+    'VariableNames', { ...
+        'SurfaceName', ...
+        'IsActive', ...
+        'TruthEventCount', ...
+        'TruthCommitMatchCount', ...
+        'TruthCommitMissCount', ...
+        'TruthReceiverMatchCount', ...
+        'TruthReceiverMissCount'});
+end
+
+function truthSubsetEvents = pairTruthSubsetReceiverTransitionsByOrder( ...
+    truthSubsetEvents, ...
+    receiverTables, ...
+    receiverStateCentersBySurface, ...
+    surfaceNames, ...
+    maxWindowSeconds)
+if isempty(truthSubsetEvents)
+    return;
+end
+
+for surfaceIndex = 1:numel(surfaceNames)
+    surfaceRows = find( ...
+        truthSubsetEvents.surface_name == surfaceNames(surfaceIndex) & ...
+        truthSubsetEvents.commit_transition_found);
+    if isempty(surfaceRows)
+        continue;
+    end
+
+    receiverTable = receiverTables{surfaceIndex};
+    if isempty(receiverTable)
+        continue;
+    end
+
+    receiverSearchIndex = 1;
+    stateCentersUs = receiverStateCentersBySurface{surfaceIndex};
+    for rowCursor = 1:numel(surfaceRows)
+        rowIndex = surfaceRows(rowCursor);
+        previousState = classifyPulseState( ...
+            truthSubsetEvents.previous_ppm_us(rowIndex), ...
+            stateCentersUs, ...
+            inf);
+        expectedState = classifyPulseState( ...
+            truthSubsetEvents.expected_ppm_us(rowIndex), ...
+            stateCentersUs, ...
+            inf);
+        if ~isfinite(previousState) || ~isfinite(expectedState) || previousState == expectedState
+            continue;
+        end
+
+        [matchedReceiverRow, receiverSearchIndex] = findNextOrderedStateTransition( ...
+            receiverTable, ...
+            receiverSearchIndex, ...
+            truthSubsetEvents.anchor_s(rowIndex), ...
+            previousState, ...
+            expectedState, ...
+            maxWindowSeconds);
+        if ~isfinite(matchedReceiverRow)
+            continue;
+        end
+
+        receiverTime = receiverTable.time_s(matchedReceiverRow);
+        receiverPulse = receiverTable.pulse_us(matchedReceiverRow);
+        truthSubsetEvents.receiver_transition_found(rowIndex) = true;
+        truthSubsetEvents.receiver_transition_s(rowIndex) = receiverTime;
+        truthSubsetEvents.receiver_transition_us(rowIndex) = receiverPulse;
+        truthSubsetEvents.anchor_to_receiver_latency_s(rowIndex) = receiverTime - truthSubsetEvents.anchor_s(rowIndex);
+        if isfinite(truthSubsetEvents.command_dispatch_s(rowIndex))
+            truthSubsetEvents.computer_to_receiver_latency_s(rowIndex) = ...
+                receiverTime - truthSubsetEvents.command_dispatch_s(rowIndex);
+        end
+        if isfinite(truthSubsetEvents.scheduled_time_s(rowIndex))
+            truthSubsetEvents.scheduled_to_receiver_latency_s(rowIndex) = ...
+                receiverTime - truthSubsetEvents.scheduled_time_s(rowIndex);
+        end
+    end
+end
+end
+
+function [matchedRowIndex, nextSearchIndex] = findNextOrderedStateTransition( ...
+    transitionTable, ...
+    startIndex, ...
+    minimumTimeSeconds, ...
+    previousState, ...
+    expectedState, ...
+    maxWindowSeconds)
+matchedRowIndex = NaN;
+nextSearchIndex = startIndex;
+if isempty(transitionTable)
+    return;
+end
+
+rowIndex = max(1, startIndex);
+windowEndSeconds = NaN;
+if isfinite(minimumTimeSeconds) && isfinite(maxWindowSeconds)
+    windowEndSeconds = minimumTimeSeconds + maxWindowSeconds;
+end
+while rowIndex <= height(transitionTable)
+    transitionTimeSeconds = transitionTable.time_s(rowIndex);
+    if isfinite(minimumTimeSeconds) && transitionTimeSeconds < minimumTimeSeconds
+        rowIndex = rowIndex + 1;
+        continue;
+    end
+    if isfinite(windowEndSeconds) && transitionTimeSeconds > windowEndSeconds
+        nextSearchIndex = rowIndex;
+        return;
+    end
+    if transitionTable.previous_state(rowIndex) == previousState && ...
+            transitionTable.new_state(rowIndex) == expectedState
+        matchedRowIndex = rowIndex;
+        nextSearchIndex = rowIndex + 1;
+        return;
+    end
+    rowIndex = rowIndex + 1;
+end
+
+nextSearchIndex = rowIndex;
+end
+
+function useTruthSubset = shouldUseTruthSubsetAnalysis(profileInfo, config)
+useTruthSubset = false;
+truthSubsetMode = string(config.matching.truthSubsetMode);
+if truthSubsetMode == "off"
+    return;
+end
+if truthSubsetMode == "isolated_profile_boundaries"
+    useTruthSubset = true;
+    return;
+end
+
+useTruthSubset = ...
+    isstruct(profileInfo) && ...
+    isfield(profileInfo, "type") && ...
+    string(profileInfo.type) == "latency_isolated_step";
+end
+
+function truthSubsetMode = canonicalizeTruthSubsetMode(truthSubsetMode)
+truthSubsetMode = lower(string(truthSubsetMode));
+validModes = ["auto", "isolated_profile_boundaries", "off"];
+if ~any(truthSubsetMode == validModes)
+    error("Transmitter_Test:InvalidTruthSubsetMode", ...
+        "matching.truthSubsetMode must be one of: %s.", ...
+        char(join(validModes, ", ")));
+end
+end
+
+function transitionTables = buildCommitTransitionTablesBySurface(commitTable, surfaceNames, stateCentersBySurface)
+transitionTables = cell(numel(surfaceNames), 1);
+for surfaceIndex = 1:numel(surfaceNames)
+    transitionTables{surfaceIndex} = buildCommitTransitionTable( ...
+        commitTable, ...
+        surfaceIndex, ...
+        stateCentersBySurface{surfaceIndex});
+end
+end
+
+function transitionTable = buildCommitTransitionTable(commitTable, surfaceIndex, stateCentersUs)
+transitionTable = table( ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    'VariableNames', { ...
+        'sample_sequence', ...
+        'commit_time_s', ...
+        'reference_strobe_s', ...
+        'anchor_s', ...
+        'previous_pulse_us', ...
+        'pulse_us', ...
+        'previous_state', ...
+        'new_state'});
+if isempty(commitTable) || height(commitTable) < 2
+    return;
+end
+
+transitionCount = 0;
+transitionTable = transitionTable(false(height(commitTable) - 1, 1), :);
+for commitIndex = 2:height(commitTable)
+    previousPulseUs = getCommitPulseForSurface(commitTable(commitIndex - 1, :), surfaceIndex);
+    currentPulseUs = getCommitPulseForSurface(commitTable(commitIndex, :), surfaceIndex);
+    previousState = classifyPulseState(previousPulseUs, stateCentersUs, inf);
+    currentState = classifyPulseState(currentPulseUs, stateCentersUs, inf);
+    if ~isfinite(previousState) || ~isfinite(currentState) || previousState == currentState
+        continue;
+    end
+
+    transitionCount = transitionCount + 1;
+    transitionTable.sample_sequence(transitionCount) = double(commitTable.sample_sequence(commitIndex));
+    transitionTable.commit_time_s(transitionCount) = double(commitTable.commit_time_s(commitIndex));
+    transitionTable.reference_strobe_s(transitionCount) = double(commitTable.reference_strobe_s(commitIndex));
+    transitionTable.anchor_s(transitionCount) = selectDownstreamSearchAnchorTime( ...
+        transitionTable.commit_time_s(transitionCount), ...
+        transitionTable.reference_strobe_s(transitionCount));
+    transitionTable.previous_pulse_us(transitionCount) = previousPulseUs;
+    transitionTable.pulse_us(transitionCount) = currentPulseUs;
+    transitionTable.previous_state(transitionCount) = previousState;
+    transitionTable.new_state(transitionCount) = currentState;
+end
+
+transitionTable = transitionTable(1:transitionCount, :);
+end
+
+function [commitTime, referenceTime, anchorTime, sampleSequence, previousPulseUs, expectedPulseUs] = findFirstCommitTransitionAfterBoundary( ...
+    transitionTable, ...
+    boundaryTimeSeconds, ...
+    previousState, ...
+    expectedState, ...
+    maxWindowSeconds)
+commitTime = NaN;
+referenceTime = NaN;
+anchorTime = NaN;
+sampleSequence = NaN;
+previousPulseUs = NaN;
+expectedPulseUs = NaN;
+if isempty(transitionTable)
+    return;
+end
+
+windowEndSeconds = boundaryTimeSeconds + maxWindowSeconds;
+for rowIndex = 1:height(transitionTable)
+    if transitionTable.anchor_s(rowIndex) < boundaryTimeSeconds
+        continue;
+    end
+    if transitionTable.anchor_s(rowIndex) > windowEndSeconds
+        return;
+    end
+    if transitionTable.previous_state(rowIndex) ~= previousState || transitionTable.new_state(rowIndex) ~= expectedState
+        continue;
+    end
+
+    commitTime = transitionTable.commit_time_s(rowIndex);
+    referenceTime = transitionTable.reference_strobe_s(rowIndex);
+    anchorTime = transitionTable.anchor_s(rowIndex);
+    sampleSequence = transitionTable.sample_sequence(rowIndex);
+    previousPulseUs = transitionTable.previous_pulse_us(rowIndex);
+    expectedPulseUs = transitionTable.pulse_us(rowIndex);
+    return;
+end
+end
+
+function stateIndex = classifyProfileBoundaryState(baseTargetDeflectionDeg, surfaceIndex, config)
+neutralDeflectionDeg = double(config.commandDeflectionOffsetsDegrees(surfaceIndex));
+surfaceTargetDeflectionDeg = ...
+    double(config.commandDeflectionScales(surfaceIndex)) .* double(baseTargetDeflectionDeg) + ...
+    neutralDeflectionDeg;
+stateIndex = 2;
+if surfaceTargetDeflectionDeg > neutralDeflectionDeg
+    stateIndex = 3;
+elseif surfaceTargetDeflectionDeg < neutralDeflectionDeg
+    stateIndex = 1;
+end
+end
+
+function truthSubsetEvents = buildEmptyTruthSubsetEventsTable(rowCount)
+if nargin < 1
+    rowCount = 0;
+end
+rowCount = max(0, double(rowCount));
+truthSubsetEvents = table( ...
+    nan(rowCount, 1), ...
+    strings(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    strings(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    nan(rowCount, 1), ...
+    strings(rowCount, 1), ...
+    false(rowCount, 1), ...
+    false(rowCount, 1), ...
+    strings(rowCount, 1), ...
+    'VariableNames', { ...
+        'profile_event_index', ...
+        'profile_event_label', ...
+        'boundary_time_s', ...
+        'previous_target_deg', ...
+        'target_deflection_deg', ...
+        'sample_sequence', ...
+        'surface_name', ...
+        'surface_index', ...
+        'command_sequence', ...
+        'scheduled_time_s', ...
+        'command_dispatch_s', ...
+        'board_rx_s', ...
+        'board_commit_s', ...
+        'reference_strobe_s', ...
+        'anchor_s', ...
+        'previous_ppm_us', ...
+        'expected_ppm_us', ...
+        'delta_ppm_us', ...
+        'trainer_transition_s', ...
+        'trainer_transition_us', ...
+        'receiver_transition_s', ...
+        'receiver_transition_us', ...
+        'anchor_source', ...
+        'commit_transition_found', ...
+        'receiver_transition_found', ...
+        'analysis_mode'});
+truthSubsetEvents.anchor_to_trainer_latency_s = nan(rowCount, 1);
+truthSubsetEvents.anchor_to_receiver_latency_s = nan(rowCount, 1);
+truthSubsetEvents.ppm_to_receiver_latency_s = nan(rowCount, 1);
+truthSubsetEvents.computer_to_receiver_latency_s = nan(rowCount, 1);
+truthSubsetEvents.scheduled_to_receiver_latency_s = nan(rowCount, 1);
+end
+
+function truthSubsetEvents = initializeTruthSubsetEventRow(truthSubsetEvents, rowIndex)
+if rowIndex > height(truthSubsetEvents)
+    truthSubsetEvents = [truthSubsetEvents; buildEmptyTruthSubsetEventsTable(rowIndex - height(truthSubsetEvents))];
+end
+truthSubsetEvents(rowIndex, :) = buildEmptyTruthSubsetEventsTable(1);
+end
+
 function hostDispatchUnique = deduplicateHostDispatchBySampleSequence(hostDispatchLog)
 hostDispatchUnique = hostDispatchLog(:, {'surface_name', 'command_sequence', 'sample_sequence', 'scheduled_time_s', 'command_dispatch_s', 'position_norm'});
 if isempty(hostDispatchUnique)
@@ -6433,6 +7080,203 @@ keys = buildSurfaceSequenceKeys(hostDispatchUnique.surface_name, hostDispatchUni
 match = find(keys == key, 1, "first");
 if ~isempty(match)
     rowIndex = match;
+end
+end
+
+function stateCentersBySurface = deriveSurfaceStateCenters(commitTable, surfaceNames)
+stateCentersBySurface = cell(numel(surfaceNames), 1);
+for surfaceIndex = 1:numel(surfaceNames)
+    pulseVariableName = "ppm_ch" + string(surfaceIndex) + "_us";
+    pulseValues = unique(double(commitTable.(char(pulseVariableName))));
+    pulseValues = pulseValues(isfinite(pulseValues));
+    pulseValues = sort(pulseValues(:));
+    if numel(pulseValues) >= 3
+        stateCentersBySurface{surfaceIndex} = [pulseValues(1), pulseValues(round((numel(pulseValues) + 1) / 2)), pulseValues(end)];
+    elseif numel(pulseValues) == 2
+        neutralGuess = mean(pulseValues);
+        stateCentersBySurface{surfaceIndex} = [pulseValues(1), neutralGuess, pulseValues(2)];
+    elseif numel(pulseValues) == 1
+        center = pulseValues(1);
+        stateCentersBySurface{surfaceIndex} = [center - 250, center, center + 250];
+    else
+        stateCentersBySurface{surfaceIndex} = [1250, 1500, 1750];
+    end
+end
+end
+
+function stateCentersBySurface = derivePulseCaptureStateCenters(pulseCapture, surfaceNames, fallbackCentersBySurface)
+if nargin < 3 || isempty(fallbackCentersBySurface)
+    fallbackCentersBySurface = repmat({[1250, 1500, 1750]}, numel(surfaceNames), 1);
+end
+
+stateCentersBySurface = cell(numel(surfaceNames), 1);
+for surfaceIndex = 1:numel(surfaceNames)
+    surfaceCapture = pulseCapture(pulseCapture.surface_name == surfaceNames(surfaceIndex), :);
+    pulseValues = sort(double(surfaceCapture.pulse_us));
+    pulseValues = pulseValues(isfinite(pulseValues));
+
+    if numel(pulseValues) < 9
+        stateCentersBySurface{surfaceIndex} = fallbackCentersBySurface{surfaceIndex};
+        continue;
+    end
+
+    lowerCenter = computeSortedVectorQuantile(pulseValues, 0.02);
+    neutralCenter = computeSortedVectorQuantile(pulseValues, 0.50);
+    upperCenter = computeSortedVectorQuantile(pulseValues, 0.98);
+    derivedCenters = sort([lowerCenter, neutralCenter, upperCenter]);
+
+    if ~all(isfinite(derivedCenters)) || (derivedCenters(3) - derivedCenters(1)) < 150
+        stateCentersBySurface{surfaceIndex} = fallbackCentersBySurface{surfaceIndex};
+        continue;
+    end
+
+    stateCentersBySurface{surfaceIndex} = derivedCenters;
+end
+end
+
+function quantileValue = computeSortedVectorQuantile(sortedValues, quantileLevel)
+quantileValue = NaN;
+if isempty(sortedValues)
+    return;
+end
+
+sortedValues = reshape(double(sortedValues), [], 1);
+quantileLevel = min(1, max(0, double(quantileLevel)));
+fractionalIndex = 1 + (numel(sortedValues) - 1) .* quantileLevel;
+lowerIndex = floor(fractionalIndex);
+upperIndex = ceil(fractionalIndex);
+interpolationFraction = fractionalIndex - lowerIndex;
+
+if lowerIndex == upperIndex
+    quantileValue = sortedValues(lowerIndex);
+    return;
+end
+
+quantileValue = ...
+    (1 - interpolationFraction) .* sortedValues(lowerIndex) + ...
+    interpolationFraction .* sortedValues(upperIndex);
+end
+
+function stateIndex = classifyPulseState(pulseUs, stateCentersUs, toleranceUs)
+stateIndex = NaN;
+if ~isfinite(pulseUs) || isempty(stateCentersUs)
+    return;
+end
+[distanceUs, nearestIndex] = min(abs(double(stateCentersUs(:)) - double(pulseUs)));
+if isfinite(distanceUs) && distanceUs <= toleranceUs
+    stateIndex = nearestIndex;
+end
+end
+
+function transitionTables = buildStableStateTransitionTablesBySurface( ...
+    pulseCapture, ...
+    surfaceNames, ...
+    stateCentersBySurface, ...
+    stablePulseCount)
+transitionTables = cell(numel(surfaceNames), 1);
+for surfaceIndex = 1:numel(surfaceNames)
+    surfaceCapture = pulseCapture(pulseCapture.surface_name == surfaceNames(surfaceIndex), :);
+    transitionTables{surfaceIndex} = buildStableStateTransitionTable( ...
+        surfaceCapture, ...
+        stateCentersBySurface{surfaceIndex}, ...
+        stablePulseCount);
+end
+end
+
+function transitionTable = buildStableStateTransitionTable(surfaceCapture, stateCentersUs, stablePulseCount)
+transitionTable = table( ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    'VariableNames', { ...
+        'time_s', ...
+        'pulse_us', ...
+        'previous_state', ...
+        'new_state', ...
+        'sample_index'});
+if isempty(surfaceCapture)
+    return;
+end
+
+pulseUs = double(surfaceCapture.pulse_us);
+stateSequence = nan(size(pulseUs));
+for pulseIndex = 1:numel(pulseUs)
+    stateSequence(pulseIndex) = classifyPulseState(pulseUs(pulseIndex), stateCentersUs, inf);
+end
+
+stableState = stateSequence(1);
+candidateState = stableState;
+candidateCount = 1;
+candidateStartIndex = 1;
+transitionCount = 0;
+maxTransitionCount = max(0, numel(stateSequence) - 1);
+transitionTable = transitionTable(false(maxTransitionCount, 1), :);
+
+for pulseIndex = 2:numel(stateSequence)
+    currentState = stateSequence(pulseIndex);
+    if ~isfinite(currentState)
+        continue;
+    end
+    if currentState == candidateState
+        candidateCount = candidateCount + 1;
+    else
+        candidateState = currentState;
+        candidateCount = 1;
+        candidateStartIndex = pulseIndex;
+    end
+
+    if candidateState ~= stableState && candidateCount >= stablePulseCount
+        transitionCount = transitionCount + 1;
+        transitionTable.time_s(transitionCount) = surfaceCapture.time_s(candidateStartIndex);
+        transitionTable.pulse_us(transitionCount) = surfaceCapture.pulse_us(candidateStartIndex);
+        transitionTable.previous_state(transitionCount) = stableState;
+        transitionTable.new_state(transitionCount) = candidateState;
+        if ismember("sample_index", string(surfaceCapture.Properties.VariableNames))
+            transitionTable.sample_index(transitionCount) = surfaceCapture.sample_index(candidateStartIndex);
+        else
+            transitionTable.sample_index(transitionCount) = NaN;
+        end
+        stableState = candidateState;
+    end
+end
+
+transitionTable = transitionTable(1:transitionCount, :);
+end
+
+function [matchedTime, matchedPulse] = findFirstTransitionToStateAfterAnchor( ...
+    transitionTable, ...
+    anchorTimeSeconds, ...
+    previousState, ...
+    expectedState, ...
+    maxWindowSeconds, ...
+    leadSeconds)
+matchedTime = NaN;
+matchedPulse = NaN;
+if isempty(transitionTable) || ~isfinite(expectedState)
+    return;
+end
+
+windowStartSeconds = anchorTimeSeconds - leadSeconds;
+windowEndSeconds = anchorTimeSeconds + maxWindowSeconds;
+for rowIndex = 1:height(transitionTable)
+    transitionTime = transitionTable.time_s(rowIndex);
+    if transitionTime < windowStartSeconds
+        continue;
+    end
+    if transitionTime > windowEndSeconds
+        return;
+    end
+    if transitionTable.new_state(rowIndex) ~= expectedState
+        continue;
+    end
+    if isfinite(previousState) && transitionTable.previous_state(rowIndex) ~= previousState
+        continue;
+    end
+    matchedTime = transitionTable.time_s(rowIndex);
+    matchedPulse = transitionTable.pulse_us(rowIndex);
+    return;
 end
 end
 
@@ -6470,6 +7314,15 @@ directLatencyEvents = buildReferenceAnchoredLatencyEvents( ...
     storage.rawLogs.trainerPpmCapture, ...
     storage.rawLogs.receiverCapture, ...
     config);
+truthSubsetEvents = buildTruthSubsetLatencyEvents( ...
+    storage.rawLogs.hostDispatchLog, ...
+    storage.rawLogs.boardRxLog, ...
+    storage.rawLogs.boardCommitLog, ...
+    storage.rawLogs.referenceCapture, ...
+    storage.rawLogs.receiverCapture, ...
+    storage.profileInfo, ...
+    config);
+latencyEventsForSummary = selectLatencyEventsForSummary(directLatencyEvents, truthSubsetEvents);
 
 inputSignal = array2timetable( ...
     [ ...
@@ -6605,8 +7458,11 @@ logs = struct( ...
     "computerToReceiverLatency", computerToReceiverLatency, ...
     "scheduledToReceiverLatency", scheduledToReceiverLatency, ...
     "directLatencyEvents", directLatencyEvents, ...
+    "truthSubsetEvents", truthSubsetEvents, ...
     "matchedEvents", storage.matchedEvents, ...
-    "latencySummary", buildTransmitterLatencySummary(storage, config, directLatencyEvents), ...
+    "latencySummary", buildTransmitterLatencySummary(storage, config, latencyEventsForSummary), ...
+    "truthSubsetSummary", buildTruthSubsetSummary(truthSubsetEvents, config), ...
+    "latencySummarySource", determineLatencySummarySource(directLatencyEvents, truthSubsetEvents, storage.profileInfo, config), ...
     "integritySummary", storage.integritySummary, ...
     "profileEvents", storage.profileInfo.profileEvents, ...
     "sampleSummary", sampleSummary, ...
@@ -6729,6 +7585,12 @@ end
 function surfaceSummary = buildTransmitterSurfaceSummaryFromLogs(logs)
 surfaceSummary = logs.integritySummary;
 surfaceSummary = [surfaceSummary logs.latencySummary(:, 3:end)];
+if isfield(logs, "truthSubsetSummary") && ~isempty(logs.truthSubsetSummary)
+    surfaceSummary = [surfaceSummary logs.truthSubsetSummary(:, 3:end)];
+end
+if isfield(logs, "latencySummarySource")
+    surfaceSummary.LatencySummarySource = repmat(string(logs.latencySummarySource), height(surfaceSummary), 1);
+end
 end
 
 function latestState = buildTransmitterLatestState(storage, config, sampleIndex)
@@ -6815,6 +7677,8 @@ writetable(runData.logs.referenceCapture, fullfile(loggerFolderPath, "reference_
 writetable(runData.logs.trainerPpmCapture, fullfile(loggerFolderPath, "trainer_ppm_capture.csv"));
 writetable(runData.logs.receiverCapture, fullfile(loggerFolderPath, "receiver_capture.csv"));
 writetable(runData.logs.directLatencyEvents, fullfile(loggerFolderPath, "direct_latency_events.csv"));
+writetable(runData.logs.truthSubsetEvents, fullfile(loggerFolderPath, "truth_subset_events.csv"));
+writetable(runData.logs.truthSubsetSummary, fullfile(loggerFolderPath, "truth_subset_summary.csv"));
 writetable(runData.logs.matchedEvents, fullfile(loggerFolderPath, "matched_events.csv"));
 if ~isempty(runData.logs.serialTelemetryLog)
     writelines(runData.logs.serialTelemetryLog, fullfile(loggerFolderPath, "serial_telemetry_log.txt"));
@@ -6841,6 +7705,8 @@ writeWorkbookSheet(runData.logs.ppmToReceiverLatency, workbookPath, "PpmToReceiv
 writeWorkbookSheet(runData.logs.computerToReceiverLatency, workbookPath, "ComputerToReceiverLatency");
 writeWorkbookSheet(runData.logs.scheduledToReceiverLatency, workbookPath, "ScheduledToReceiverLatency");
 writeWorkbookSheet(runData.logs.directLatencyEvents, workbookPath, "DirectLatencyEvents");
+writeWorkbookSheet(runData.logs.truthSubsetEvents, workbookPath, "TruthSubsetEvents");
+writeWorkbookSheet(runData.logs.truthSubsetSummary, workbookPath, "TruthSubsetSummary");
 writeWorkbookSheet(runData.logs.matchedEvents, workbookPath, "MatchedEvents");
 end
 
@@ -6874,9 +7740,13 @@ settings = { ...
     "Matching", "PpmChangeThresholdUs", formatSettingValue(config.matching.ppmChangeThresholdUs); ...
     "Matching", "ReceiverChangeThresholdUs", formatSettingValue(config.matching.receiverChangeThresholdUs); ...
     "Matching", "TransitionLeadSeconds", formatSettingValue(config.matching.transitionLeadSeconds); ...
+    "Matching", "StateToleranceUs", formatSettingValue(config.matching.stateToleranceUs); ...
+    "Matching", "StableStatePulseCount", formatSettingValue(config.matching.stableStatePulseCount); ...
+    "Matching", "TruthSubsetMode", formatSettingValue(config.matching.truthSubsetMode); ...
     "Matching", "TransitionTargetToleranceUs", formatSettingValue(config.matching.transitionTargetToleranceUs); ...
     "Matching", "TransitionPreviousToleranceUs", formatSettingValue(config.matching.transitionPreviousToleranceUs); ...
-    "Matching", "MaxResponseWindowSeconds", formatSettingValue(config.matching.maxResponseWindowSeconds)};
+    "Matching", "MaxResponseWindowSeconds", formatSettingValue(config.matching.maxResponseWindowSeconds); ...
+    "Analysis", "LatencySummarySource", formatSettingValue(runData.logs.latencySummarySource)};
 criticalSettingsTable = cell2table(settings, 'VariableNames', {'Category', 'Setting', 'Value'});
 end
 

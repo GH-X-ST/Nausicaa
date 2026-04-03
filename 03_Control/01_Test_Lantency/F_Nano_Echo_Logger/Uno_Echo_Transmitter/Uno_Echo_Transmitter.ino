@@ -21,7 +21,7 @@ constexpr uint16_t kMinimumPulseUs = 1000;
 constexpr uint16_t kMaximumPulseUs = 2000;
 constexpr uint16_t kNeutralPulseUs = 1500;
 constexpr int16_t kSurfacePulseTrimUs[kSurfaceCount] = {-2, -2, -12, -2};
-constexpr uint16_t kFrameLengthUs = 22000;
+constexpr uint16_t kFrameLengthUs = 20000;
 constexpr uint16_t kMarkWidthUs = 300;
 constexpr uint32_t kCommandTimeoutUs = 250000;
 
