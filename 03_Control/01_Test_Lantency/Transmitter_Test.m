@@ -217,7 +217,7 @@ commandProfile.effectiveRandomSeed = nan;
 commandProfile.profileEvents = table();
 commandProfile.precomputedBaseCommandDegrees = [];
 
-validProfileTypes = ["latency_step_train", "sine", "square", "doublet", "custom", "function"];
+validProfileTypes = ["latency_step_train", "latency_isolated_step", "sine", "square", "doublet", "custom", "function"];
 if ~any(commandProfile.type == validProfileTypes)
     error("Arduino_Test:InvalidProfileType", ...
         "commandProfile.type must be one of: %s.", ...
@@ -792,6 +792,14 @@ switch profileInfo.type
         profileInfo.profileEvents = profileEvents;
         profileInfo.effectiveRandomSeed = effectiveRandomSeed;
 
+    case "latency_isolated_step"
+        [baseCommandDegrees, profileEvents] = buildIsolatedLatencyStepSchedule( ...
+            profileInfo, ...
+            scheduledTimeSeconds);
+        profileInfo.precomputedBaseCommandDegrees = baseCommandDegrees;
+        profileInfo.profileEvents = profileEvents;
+        profileInfo.effectiveRandomSeed = NaN;
+
     otherwise
         for sampleIndex = 1:numel(scheduledTimeSeconds)
             profileInfo.precomputedBaseCommandDegrees(sampleIndex) = ...
@@ -818,6 +826,8 @@ phaseRadians = deg2rad(profileInfo.phaseDegrees);
 
 switch profileInfo.type
     case "latency_step_train"
+        commandDegrees = evaluateLatencyStepTrainAtTime(profileInfo.profileEvents, profileTimeSeconds);
+    case "latency_isolated_step"
         commandDegrees = evaluateLatencyStepTrainAtTime(profileInfo.profileEvents, profileTimeSeconds);
     case "sine"
         commandDegrees = profileInfo.offsetDegrees + ...
@@ -3425,6 +3435,80 @@ validateattributes(value, {"numeric"}, {"real", "finite", "vector"}, char(mfilen
 value = reshape(double(value), [], 1);
 end
 
+function [baseCommandDegrees, profileEvents] = buildIsolatedLatencyStepSchedule(profileInfo, scheduledTimeSeconds)
+baseCommandDegrees = zeros(size(scheduledTimeSeconds));
+profileTimeSeconds = scheduledTimeSeconds - profileInfo.commandStartSeconds;
+profileEventRows = cell(0, 1);
+currentTimeSeconds = 0.0;
+eventIndex = 0;
+
+isolatedNeutralSeconds = max(profileInfo.eventNeutralHoldSeconds, 2.0 .* profileInfo.sampleTimeSeconds);
+isolatedStepSeconds = max(profileInfo.eventHoldSeconds, profileInfo.sampleTimeSeconds);
+postStepNeutralSeconds = isolatedNeutralSeconds + profileInfo.eventDwellSeconds;
+
+while currentTimeSeconds < profileInfo.durationSeconds
+    positiveBlockDurationSeconds = ...
+        isolatedNeutralSeconds + ...
+        isolatedStepSeconds + ...
+        postStepNeutralSeconds;
+    if currentTimeSeconds + positiveBlockDurationSeconds > profileInfo.durationSeconds
+        break;
+    end
+
+    [profileEventRows, eventIndex, currentTimeSeconds] = appendProfileEvent( ...
+        profileEventRows, eventIndex, "neutral_before_positive", profileInfo.offsetDegrees, currentTimeSeconds, ...
+        currentTimeSeconds + isolatedNeutralSeconds, 0.0);
+    [profileEventRows, eventIndex, currentTimeSeconds] = appendProfileEvent( ...
+        profileEventRows, eventIndex, "positive_step", profileInfo.offsetDegrees + profileInfo.amplitudeDegrees, currentTimeSeconds, ...
+        currentTimeSeconds + isolatedStepSeconds, 0.0);
+    [profileEventRows, eventIndex, currentTimeSeconds] = appendProfileEvent( ...
+        profileEventRows, eventIndex, "neutral_after_positive", profileInfo.offsetDegrees, currentTimeSeconds, ...
+        currentTimeSeconds + postStepNeutralSeconds, 0.0);
+
+    negativeBlockDurationSeconds = isolatedStepSeconds + postStepNeutralSeconds;
+    if currentTimeSeconds + negativeBlockDurationSeconds > profileInfo.durationSeconds
+        break;
+    end
+
+    [profileEventRows, eventIndex, currentTimeSeconds] = appendProfileEvent( ...
+        profileEventRows, eventIndex, "negative_step", profileInfo.offsetDegrees - profileInfo.amplitudeDegrees, currentTimeSeconds, ...
+        currentTimeSeconds + isolatedStepSeconds, 0.0);
+    [profileEventRows, eventIndex, currentTimeSeconds] = appendProfileEvent( ...
+        profileEventRows, eventIndex, "neutral_after_negative", profileInfo.offsetDegrees, currentTimeSeconds, ...
+        currentTimeSeconds + postStepNeutralSeconds, 0.0);
+end
+
+if currentTimeSeconds < profileInfo.durationSeconds
+    [profileEventRows, eventIndex] = appendProfileEvent( ...
+        profileEventRows, eventIndex, "neutral_tail", profileInfo.offsetDegrees, currentTimeSeconds, profileInfo.durationSeconds, 0.0);
+end
+
+profileEvents = profileEventRowsToTable(profileEventRows);
+if isempty(profileEvents)
+    return;
+end
+
+for eventRowIndex = 1:height(profileEvents)
+    eventStartSeconds = profileEvents.StartTime_s(eventRowIndex);
+    eventStopSeconds = profileEvents.StopTime_s(eventRowIndex);
+    eventTargetDegrees = profileEvents.TargetDeflection_deg(eventRowIndex);
+    if eventStopSeconds <= eventStartSeconds
+        continue;
+    end
+
+    if eventRowIndex < height(profileEvents)
+        eventMask = ...
+            profileTimeSeconds >= eventStartSeconds & ...
+            profileTimeSeconds < eventStopSeconds;
+    else
+        eventMask = ...
+            profileTimeSeconds >= eventStartSeconds & ...
+            profileTimeSeconds <= eventStopSeconds;
+    end
+    baseCommandDegrees(eventMask) = eventTargetDegrees;
+end
+end
+
 function mustHaveMatchingLength(values, expectedLength, fieldName)
 if numel(values) ~= expectedLength
     error("Arduino_Test:InvalidArrayLength", ...
@@ -3650,12 +3734,12 @@ config.trainerPpm = struct( ...
     "neutralPulseUs", getPositiveIntegerField(trainerPpmConfig, "neutralPulseUs", 1500), ...
     "channelSurfaceMap", getStringArrayField(trainerPpmConfig, "channelSurfaceMap", defaultTrainerChannelMap));
 
+if ~isfield(commandProfileConfig, "type")
+    config.commandProfile.type = "latency_isolated_step";
+end
 % Match the controller-workbook latency-step structure explicitly, while
 % still respecting the slower Uno trainer cadence needed for frame-based
 % PPM commit and downstream observability.
-if ~isfield(commandProfileConfig, "type")
-    config.commandProfile.type = "latency_step_train";
-end
 if ~isfield(commandProfileConfig, "randomSeed")
     config.commandProfile.randomSeed = 5;
 end
@@ -3677,6 +3761,19 @@ if config.commandProfile.type == "latency_step_train"
     end
     if ~isfield(commandProfileConfig, "eventRandomJitterSeconds")
         config.commandProfile.eventRandomJitterSeconds = 0.05;
+    end
+elseif config.commandProfile.type == "latency_isolated_step"
+    if ~isfield(commandProfileConfig, "eventHoldSeconds")
+        config.commandProfile.eventHoldSeconds = max(0.10, 2.0 .* config.commandProfile.sampleTimeSeconds);
+    end
+    if ~isfield(commandProfileConfig, "eventNeutralHoldSeconds")
+        config.commandProfile.eventNeutralHoldSeconds = max(0.25, 4.0 .* config.commandProfile.sampleTimeSeconds);
+    end
+    if ~isfield(commandProfileConfig, "eventDwellSeconds")
+        config.commandProfile.eventDwellSeconds = 0.0;
+    end
+    if ~isfield(commandProfileConfig, "eventRandomJitterSeconds")
+        config.commandProfile.eventRandomJitterSeconds = 0.0;
     end
 end
 
@@ -3743,6 +3840,8 @@ config.matching = struct( ...
     "referenceDebounceUs", getPositiveIntegerField(matchingConfig, "referenceDebounceUs", 100), ...
     "ppmChangeThresholdUs", getPositiveIntegerField(matchingConfig, "ppmChangeThresholdUs", 4), ...
     "receiverChangeThresholdUs", getPositiveIntegerField(matchingConfig, "receiverChangeThresholdUs", 8), ...
+    "transitionLeadSeconds", getNonnegativeScalarField(matchingConfig, "transitionLeadSeconds", 0.005), ...
+    "transitionPreviousToleranceUs", getPositiveIntegerField(matchingConfig, "transitionPreviousToleranceUs", 25), ...
     "referenceAssociationWindowSeconds", getPositiveScalarField( ...
         matchingConfig, ...
         "referenceAssociationWindowSeconds", ...
@@ -5903,8 +6002,14 @@ pulseUs = double(commitRow.(char(pulseVariableName)));
 end
 
 function matchedEvents = matchDownstreamPulseCaptures(matchedEvents, trainerPpmCapture, receiverCapture, config)
-trainerTables = splitPulseCaptureBySurface(trainerPpmCapture, config.surfaceNames);
-receiverTables = splitPulseCaptureBySurface(receiverCapture, config.surfaceNames);
+trainerTables = buildPulseTransitionTablesBySurface( ...
+    trainerPpmCapture, ...
+    config.surfaceNames, ...
+    config.matching.ppmChangeThresholdUs);
+receiverTables = buildPulseTransitionTablesBySurface( ...
+    receiverCapture, ...
+    config.surfaceNames, ...
+    config.matching.receiverChangeThresholdUs);
 trainerNextIndex = ones(numel(config.surfaceNames), 1);
 receiverNextIndex = ones(numel(config.surfaceNames), 1);
 previousExpectedUs = config.trainerPpm.neutralPulseUs .* ones(numel(config.surfaceNames), 1);
@@ -5918,19 +6023,19 @@ for rowIndex = 1:height(matchedEvents)
 
     matchedEvents.is_observable_downstream(rowIndex) = ...
         abs(expectedUs - previousExpectedUs(surfaceIdx)) >= config.matching.ppmChangeThresholdUs;
-    searchStartSeconds = selectDownstreamSearchStartTime( ...
+    expectedDeltaUs = expectedUs - previousExpectedUs(surfaceIdx);
+    searchStartSeconds = selectDownstreamSearchAnchorTime( ...
         matchedEvents.board_commit_s(rowIndex), ...
         matchedEvents.reference_strobe_s(rowIndex));
 
     if matchedEvents.is_observable_downstream(rowIndex)
-        [trainerTime, trainerPulse, trainerSampleIndex, trainerSampleRateHz, trainerNextIndex(surfaceIdx)] = findForwardPulseMatch( ...
+        [trainerTime, trainerPulse, trainerSampleIndex, trainerSampleRateHz, trainerNextIndex(surfaceIdx)] = findForwardTransitionEvent( ...
             trainerTables{surfaceIdx}, ...
             trainerNextIndex(surfaceIdx), ...
             searchStartSeconds, ...
-            expectedUs, ...
-            config.matching.ppmChangeThresholdUs, ...
+            expectedDeltaUs, ...
             config.matching.maxResponseWindowSeconds, ...
-            true);
+            config.matching.transitionLeadSeconds);
         matchedEvents.trainer_ppm_s(rowIndex) = trainerTime;
         matchedEvents.trainer_ppm_us(rowIndex) = trainerPulse;
         matchedEvents.trainer_sample_index(rowIndex) = trainerSampleIndex;
@@ -5946,14 +6051,13 @@ for rowIndex = 1:height(matchedEvents)
             receiverStartSeconds = trainerTime;
         end
 
-        [receiverTime, receiverPulse, receiverSampleIndex, receiverSampleRateHz, receiverNextIndex(surfaceIdx)] = findForwardPulseMatch( ...
+        [receiverTime, receiverPulse, receiverSampleIndex, receiverSampleRateHz, receiverNextIndex(surfaceIdx)] = findForwardTransitionEvent( ...
             receiverTables{surfaceIdx}, ...
             receiverNextIndex(surfaceIdx), ...
             receiverStartSeconds, ...
-            expectedUs, ...
-            config.matching.receiverChangeThresholdUs, ...
+            expectedDeltaUs, ...
             config.matching.maxResponseWindowSeconds, ...
-            true);
+            config.matching.transitionLeadSeconds);
         matchedEvents.receiver_response_s(rowIndex) = receiverTime;
         matchedEvents.receiver_pulse_us(rowIndex) = receiverPulse;
         matchedEvents.receiver_sample_index(rowIndex) = receiverSampleIndex;
@@ -5984,13 +6088,13 @@ for rowIndex = 1:height(matchedEvents)
 end
 end
 
-function searchStartSeconds = selectDownstreamSearchStartTime(boardCommitSeconds, referenceSeconds)
-candidateTimes = [double(boardCommitSeconds), double(referenceSeconds)];
-candidateTimes = candidateTimes(isfinite(candidateTimes));
-if isempty(candidateTimes)
-    searchStartSeconds = NaN;
+function searchStartSeconds = selectDownstreamSearchAnchorTime(boardCommitSeconds, referenceSeconds)
+if isfinite(referenceSeconds)
+    searchStartSeconds = double(referenceSeconds);
+elseif isfinite(boardCommitSeconds)
+    searchStartSeconds = double(boardCommitSeconds);
 else
-    searchStartSeconds = min(candidateTimes);
+    searchStartSeconds = NaN;
 end
 end
 
@@ -6001,14 +6105,69 @@ for surfaceIndex = 1:numel(surfaceNames)
 end
 end
 
-function [matchedTime, matchedPulse, matchedSampleIndex, matchedSampleRateHz, nextIndex] = findForwardPulseMatch( ...
+function transitionTables = buildPulseTransitionTablesBySurface(pulseCapture, surfaceNames, transitionThresholdUs)
+transitionTables = cell(numel(surfaceNames), 1);
+for surfaceIndex = 1:numel(surfaceNames)
+    surfaceCapture = pulseCapture(pulseCapture.surface_name == surfaceNames(surfaceIndex), :);
+    transitionTables{surfaceIndex} = buildPulseTransitionTable(surfaceCapture, transitionThresholdUs);
+end
+end
+
+function transitionTable = buildPulseTransitionTable(surfaceCapture, transitionThresholdUs)
+transitionTable = table( ...
+    strings(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    zeros(0, 1), ...
+    'VariableNames', { ...
+        'surface_name', ...
+        'time_s', ...
+        'pulse_us', ...
+        'previous_pulse_us', ...
+        'sample_index', ...
+        'sample_rate_hz', ...
+        'delta_pulse_us'});
+if isempty(surfaceCapture) || height(surfaceCapture) < 2
+    return;
+end
+
+currentPulseUs = double(surfaceCapture.pulse_us(2:end));
+previousPulseUs = double(surfaceCapture.pulse_us(1:end-1));
+deltaPulseUs = currentPulseUs - previousPulseUs;
+keepMask = isfinite(deltaPulseUs) & abs(deltaPulseUs) >= transitionThresholdUs;
+if ~any(keepMask)
+    return;
+end
+
+transitionTable = table( ...
+    surfaceCapture.surface_name(2:end), ...
+    surfaceCapture.time_s(2:end), ...
+    currentPulseUs, ...
+    previousPulseUs, ...
+    surfaceCapture.sample_index(2:end), ...
+    surfaceCapture.sample_rate_hz(2:end), ...
+    deltaPulseUs, ...
+    'VariableNames', { ...
+        'surface_name', ...
+        'time_s', ...
+        'pulse_us', ...
+        'previous_pulse_us', ...
+        'sample_index', ...
+        'sample_rate_hz', ...
+        'delta_pulse_us'});
+transitionTable = transitionTable(keepMask, :);
+end
+
+function [matchedTime, matchedPulse, matchedSampleIndex, matchedSampleRateHz, nextIndex] = findForwardTransitionEvent( ...
     surfaceCapture, ...
     startIndex, ...
     startTimeSeconds, ...
-    expectedPulseUs, ...
-    toleranceUs, ...
+    expectedDeltaUs, ...
     maxWindowSeconds, ...
-    requirePulseTransition)
+    leadSeconds)
 matchedTime = NaN;
 matchedPulse = NaN;
 matchedSampleIndex = NaN;
@@ -6019,32 +6178,28 @@ if isempty(surfaceCapture)
 end
 
 rowIndex = max(1, startIndex);
-while rowIndex <= height(surfaceCapture) && surfaceCapture.time_s(rowIndex) < startTimeSeconds
+windowStartSeconds = startTimeSeconds - leadSeconds;
+windowEndSeconds = startTimeSeconds + maxWindowSeconds;
+while rowIndex <= height(surfaceCapture) && surfaceCapture.time_s(rowIndex) < windowStartSeconds
     rowIndex = rowIndex + 1;
 end
 
+if ~isfinite(expectedDeltaUs) || expectedDeltaUs == 0
+    nextIndex = rowIndex;
+    return;
+end
+
+expectedDirection = sign(expectedDeltaUs);
 while rowIndex <= height(surfaceCapture)
-    if surfaceCapture.time_s(rowIndex) > startTimeSeconds + maxWindowSeconds
+    if surfaceCapture.time_s(rowIndex) > windowEndSeconds
         nextIndex = rowIndex;
-        return;
+        break;
     end
 
-    pulseMatchesExpected = abs(surfaceCapture.pulse_us(rowIndex) - expectedPulseUs) <= toleranceUs;
-    pulseIsTransition = true;
-    if requirePulseTransition && rowIndex > 1
-        pulseIsTransition = ...
-            abs(surfaceCapture.pulse_us(rowIndex) - surfaceCapture.pulse_us(rowIndex - 1)) >= toleranceUs;
-    end
-
-    if pulseMatchesExpected && pulseIsTransition
-        matchedTime = surfaceCapture.time_s(rowIndex);
-        matchedPulse = surfaceCapture.pulse_us(rowIndex);
-        if ismember("sample_index", string(surfaceCapture.Properties.VariableNames))
-            matchedSampleIndex = surfaceCapture.sample_index(rowIndex);
-        end
-        if ismember("sample_rate_hz", string(surfaceCapture.Properties.VariableNames))
-            matchedSampleRateHz = surfaceCapture.sample_rate_hz(rowIndex);
-        end
+    observedDeltaUs = surfaceCapture.delta_pulse_us(rowIndex);
+    if sign(observedDeltaUs) == expectedDirection
+        [matchedTime, matchedPulse, matchedSampleIndex, matchedSampleRateHz] = ...
+            extractMatchedPulseRow(surfaceCapture, rowIndex);
         nextIndex = rowIndex + 1;
         return;
     end
@@ -6052,6 +6207,19 @@ while rowIndex <= height(surfaceCapture)
 end
 
 nextIndex = rowIndex;
+end
+
+function [matchedTime, matchedPulse, matchedSampleIndex, matchedSampleRateHz] = extractMatchedPulseRow(surfaceCapture, rowIndex)
+matchedTime = surfaceCapture.time_s(rowIndex);
+matchedPulse = surfaceCapture.pulse_us(rowIndex);
+matchedSampleIndex = NaN;
+matchedSampleRateHz = NaN;
+if ismember("sample_index", string(surfaceCapture.Properties.VariableNames))
+    matchedSampleIndex = surfaceCapture.sample_index(rowIndex);
+end
+if ismember("sample_rate_hz", string(surfaceCapture.Properties.VariableNames))
+    matchedSampleRateHz = surfaceCapture.sample_rate_hz(rowIndex);
+end
 end
 
 function expectedPpmUs = buildExpectedPpmWidthsUs(servoPositions, config)
@@ -6445,6 +6613,8 @@ settings = { ...
     "LogicAnalyzer", "LogicStateExportPath", formatSettingValue(config.logicAnalyzer.logicStateExportPath); ...
     "Matching", "PpmChangeThresholdUs", formatSettingValue(config.matching.ppmChangeThresholdUs); ...
     "Matching", "ReceiverChangeThresholdUs", formatSettingValue(config.matching.receiverChangeThresholdUs); ...
+    "Matching", "TransitionLeadSeconds", formatSettingValue(config.matching.transitionLeadSeconds); ...
+    "Matching", "TransitionPreviousToleranceUs", formatSettingValue(config.matching.transitionPreviousToleranceUs); ...
     "Matching", "MaxResponseWindowSeconds", formatSettingValue(config.matching.maxResponseWindowSeconds)};
 criticalSettingsTable = cell2table(settings, 'VariableNames', {'Category', 'Setting', 'Value'});
 end
