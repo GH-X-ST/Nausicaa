@@ -69,28 +69,21 @@ LATENCY_METRICS = [
     {
         "sheet": "ComputerToArduinoRxLatency",
         "suffix": "_computer_to_arduino_rx_latency_s",
-        "label": "Host to Arduino RX",
+        "label": "Dispatch to wireless RX",
         "summary_prefix": "ComputerToArduinoRxLatency",
         "color": "#2a9d8F",
     },
     {
-        "sheet": "ComputerToArduinoApplyLatency",
-        "suffix": "_computer_to_arduino_apply_latency_s",
-        "label": "Host to Arduino APPLY",
-        "summary_prefix": "ComputerToArduinoApplyLatency",
-        "color": "#f4a261",
-    },
-    {
         "sheet": "ArduinoReceiveToApplyLatency",
         "suffix": "_arduino_receive_to_apply_latency_s",
-        "label": "Arduino RX to APPLY",
+        "label": "Wireless RX to local output",
         "summary_prefix": "ArduinoReceiveToApplyLatency",
-        "color": "#7b6d8d",
+        "color": "#f4a261",
     },
     {
         "sheet": "ScheduledToApplyLatency",
         "suffix": "_scheduled_to_apply_latency_s",
-        "label": "Scheduled to APPLY",
+        "label": "Scheduled to local output",
         "summary_prefix": "ScheduledToApplyLatency",
         "color": "#e76f51",
     },
@@ -338,7 +331,11 @@ def summarize_latency_metrics(latency_summary_df: pd.DataFrame, active_surfaces:
 
     rows = []
     for metric in LATENCY_METRICS:
-        row = {"Metric": metric["label"]}
+        row = {"Metric": metric["label"], "SampleCount": 0}
+        sample_count_column = f"{metric['summary_prefix']}SampleCount"
+        if sample_count_column in active_summary.columns:
+            sample_count_values = pd.to_numeric(active_summary[sample_count_column], errors="coerce").fillna(0.0)
+            row["SampleCount"] = int(np.nanmedian(sample_count_values.to_numpy(dtype=float)))
         for stat_suffix, stat_label, _ in SUMMARY_STATS:
             column_name = f"{metric['summary_prefix']}{stat_suffix}"
             if column_name in active_summary.columns:
@@ -514,7 +511,7 @@ def plot_time_series_panel(ax: plt.Axes, host_time: np.ndarray, host_command: np
         all_times = np.concatenate(finite_time_blocks)
         ax.set_xlim(float(np.min(all_times)), float(np.max(all_times)))
 
-    ax.set_title("Command and applied response", fontsize=12)
+    ax.set_title("Command and local wireless output", fontsize=12)
     ax.set_xlabel(r"Time, $t$ (s)", fontsize=11)
     ax.set_ylabel("Angle (deg)", fontsize=11)
     ax.tick_params(axis="both", labelsize=10)
@@ -550,7 +547,7 @@ def plot_latency_panel(
         )
 
     operating_mode = format_operating_mode(normalize_text(metadata.get("operating_mode", "")))
-    ax.set_title(f"Latency decomposition ({operating_mode})", fontsize=12)
+    ax.set_title(f"Latency decomposition ({operating_mode}, controller-origin basis)", fontsize=12)
     ax.set_xlabel(r"Time, $t$ (s)", fontsize=11)
     ax.set_ylabel("Latency (ms)", fontsize=11)
     ax.tick_params(axis="both", labelsize=10)
@@ -582,8 +579,12 @@ def plot_summary_panel(ax: plt.Axes, summary_df: pd.DataFrame):
             alpha=0.90,
         )
 
+    tick_labels = [
+        f"{metric_label}\n(n={int(sample_count)})"
+        for metric_label, sample_count in zip(summary_df["Metric"], summary_df["SampleCount"])
+    ]
     ax.set_xticks(x_positions)
-    ax.set_xticklabels(summary_df["Metric"], rotation=-20, ha="left", fontsize=10)
+    ax.set_xticklabels(tick_labels, rotation=-20, ha="left", fontsize=9)
     ax.set_title("Latency summary statistics", fontsize=12)
     ax.set_ylabel("Latency (ms)", fontsize=11)
     ax.tick_params(axis="y", labelsize=10)
@@ -695,7 +696,7 @@ def plot_arduino_summary_figure(excel_path: Path, out_path: Path, workbook_bundl
 
 def main():
     workbook_dir = Path("C_Arduino_Test")
-    excel_path = "Seed_5_Controller.xlsx"
+    excel_path = "Seed_1_Controller.xlsx"
     out_dir = workbook_dir / "A_figures"
     out_dir.mkdir(parents=True, exist_ok=True)
 

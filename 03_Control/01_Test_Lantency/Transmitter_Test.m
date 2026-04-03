@@ -3559,6 +3559,7 @@ defaultSurfaceNames = ["Aileron_L"; "Aileron_R"; "Rudder"; "Elevator"];
 defaultTrainerChannelMap = [defaultSurfaceNames; ""; ""; ""; ""];
 defaultLogicAnalyzerChannels = [0 1 2 3 4 5];
 defaultLogicAnalyzerNames = ["RX_CH1"; "RX_CH2"; "RX_CH3"; "RX_CH4"; "REF_D2"; "TRAINER_PPM_D3"];
+commandProfileConfig = getFieldOrDefault(config, "commandProfile", struct());
 transportConfig = getFieldOrDefault(config, "arduinoTransport", struct());
 trainerPpmConfig = getFieldOrDefault(config, "trainerPpm", struct());
 referenceStrobeConfig = getFieldOrDefault(config, "referenceStrobe", struct());
@@ -3593,7 +3594,7 @@ config.commandDeflectionOffsetsDegrees = getNumericColumnField( ...
     zeros(numel(config.surfaceNames), 1));
 config.commandMode = getTextScalarField(config, "commandMode", "all");
 config.singleSurfaceName = getTextScalarField(config, "singleSurfaceName", "Aileron_L");
-config.commandProfile = normalizeCommandProfile(getFieldOrDefault(config, "commandProfile", struct()));
+config.commandProfile = normalizeCommandProfile(commandProfileConfig);
 config.neutralSettleSeconds = getNonnegativeScalarField(config, "neutralSettleSeconds", 1.0);
 config.returnToNeutralOnExit = getLogicalField(config, "returnToNeutralOnExit", true);
 config.outputFolder = getTextScalarField(config, "outputFolder", fullfile(rootFolder, "D_Transmitter_Test"));
@@ -3649,10 +3650,25 @@ config.trainerPpm = struct( ...
     "neutralPulseUs", getPositiveIntegerField(trainerPpmConfig, "neutralPulseUs", 1500), ...
     "channelSurfaceMap", getStringArrayField(trainerPpmConfig, "channelSurfaceMap", defaultTrainerChannelMap));
 
-if ~isfield(getFieldOrDefault(config, "commandProfile", struct()), "sampleTimeSeconds")
+if ~isfield(commandProfileConfig, "sampleTimeSeconds")
     minimumRecommendedSampleTimeSeconds = ...
-        max(0.025, double(config.trainerPpm.frameLengthUs) ./ 1e6 + 0.002);
+        max(0.05, 2.0 .* double(config.trainerPpm.frameLengthUs) ./ 1e6 + 0.006);
     config.commandProfile.sampleTimeSeconds = minimumRecommendedSampleTimeSeconds;
+end
+
+if config.commandProfile.type == "latency_step_train"
+    if ~isfield(commandProfileConfig, "eventHoldSeconds")
+        config.commandProfile.eventHoldSeconds = config.commandProfile.sampleTimeSeconds;
+    end
+    if ~isfield(commandProfileConfig, "eventNeutralHoldSeconds")
+        config.commandProfile.eventNeutralHoldSeconds = config.commandProfile.sampleTimeSeconds;
+    end
+    if ~isfield(commandProfileConfig, "eventDwellSeconds")
+        config.commandProfile.eventDwellSeconds = 0.0;
+    end
+    if ~isfield(commandProfileConfig, "eventRandomJitterSeconds")
+        config.commandProfile.eventRandomJitterSeconds = 0.0;
+    end
 end
 
 config.referenceStrobe = struct( ...
@@ -3718,6 +3734,10 @@ config.matching = struct( ...
     "referenceDebounceUs", getPositiveIntegerField(matchingConfig, "referenceDebounceUs", 100), ...
     "ppmChangeThresholdUs", getPositiveIntegerField(matchingConfig, "ppmChangeThresholdUs", 4), ...
     "receiverChangeThresholdUs", getPositiveIntegerField(matchingConfig, "receiverChangeThresholdUs", 8), ...
+    "referenceAssociationWindowSeconds", getPositiveScalarField( ...
+        matchingConfig, ...
+        "referenceAssociationWindowSeconds", ...
+        max(0.02, 1.25 .* double(config.trainerPpm.frameLengthUs) ./ 1e6)), ...
     "maxResponseWindowSeconds", getPositiveScalarField(matchingConfig, "maxResponseWindowSeconds", 0.12));
 
 surfaceCount = numel(config.surfaceNames);
@@ -5777,7 +5797,8 @@ commitUnique = deduplicateCommitTable(boardCommitLog);
 [commitUnique.reference_strobe_s, commitUnique.reference_sample_index, commitUnique.reference_sample_rate_hz] = matchReferenceCaptureTimes( ...
     commitUnique, ...
     referenceCapture, ...
-    config.referenceStrobe.mode);
+    config.referenceStrobe.mode, ...
+    config.matching.referenceAssociationWindowSeconds);
 if ~isempty(commitUnique)
     [isCommitMatched, commitIndex] = ismember(double(matchedEvents.sample_sequence), double(commitUnique.sample_sequence));
     for rowIndex = 1:height(matchedEvents)
@@ -5814,7 +5835,7 @@ end
 commitTable = commitTable(sort(firstIndex), :);
 end
 
-function [referenceTime, referenceSampleIndex, referenceSampleRateHz] = matchReferenceCaptureTimes(commitTable, referenceCapture, referenceStrobeMode)
+function [referenceTime, referenceSampleIndex, referenceSampleRateHz] = matchReferenceCaptureTimes(commitTable, referenceCapture, referenceStrobeMode, referenceAssociationWindowSeconds)
 referenceTime = selectBoardReferenceTimes(commitTable);
 referenceSampleIndex = nan(height(commitTable), 1);
 referenceSampleRateHz = nan(height(commitTable), 1);
@@ -5833,6 +5854,9 @@ for commitIndex = 1:height(commitTable)
     end
     if referenceIndex > height(referenceCapture)
         return;
+    end
+    if referenceCapture.time_s(referenceIndex) > searchTime + referenceAssociationWindowSeconds
+        continue;
     end
     referenceTime(commitIndex) = referenceCapture.time_s(referenceIndex);
     if ismember("sample_index", string(referenceCapture.Properties.VariableNames))
@@ -5885,10 +5909,9 @@ for rowIndex = 1:height(matchedEvents)
 
     matchedEvents.is_observable_downstream(rowIndex) = ...
         abs(expectedUs - previousExpectedUs(surfaceIdx)) >= config.matching.ppmChangeThresholdUs;
-    searchStartSeconds = matchedEvents.reference_strobe_s(rowIndex);
-    if ~isfinite(searchStartSeconds)
-        searchStartSeconds = matchedEvents.board_commit_s(rowIndex);
-    end
+    searchStartSeconds = selectDownstreamSearchStartTime( ...
+        matchedEvents.board_commit_s(rowIndex), ...
+        matchedEvents.reference_strobe_s(rowIndex));
 
     if matchedEvents.is_observable_downstream(rowIndex)
         [trainerTime, trainerPulse, trainerSampleIndex, trainerSampleRateHz, trainerNextIndex(surfaceIdx)] = findForwardPulseMatch( ...
@@ -5947,6 +5970,16 @@ for rowIndex = 1:height(matchedEvents)
         isfinite(matchedEvents.receiver_sample_index(rowIndex));
 
     previousExpectedUs(surfaceIdx) = expectedUs;
+end
+end
+
+function searchStartSeconds = selectDownstreamSearchStartTime(boardCommitSeconds, referenceSeconds)
+candidateTimes = [double(boardCommitSeconds), double(referenceSeconds)];
+candidateTimes = candidateTimes(isfinite(candidateTimes));
+if isempty(candidateTimes)
+    searchStartSeconds = NaN;
+else
+    searchStartSeconds = min(candidateTimes);
 end
 end
 
