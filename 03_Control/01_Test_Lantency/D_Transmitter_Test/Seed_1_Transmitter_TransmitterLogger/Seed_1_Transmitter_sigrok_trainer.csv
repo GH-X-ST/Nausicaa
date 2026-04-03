@@ -1,5 +1,5 @@
 surface_name,time_s,pulse_us,sample_index,sample_count,sample_rate_hz,frame_index
 Aileron_L,0.00025,500,1000,2000,4000000,1
 Aileron_R,0.00075,500,3000,2000,4000000,1
-Elevator,0.00175,500,7000,2000,4000000,1
 Rudder,0.00125,500,5000,2000,4000000,1
+Elevator,0.00175,500,7000,2000,4000000,1

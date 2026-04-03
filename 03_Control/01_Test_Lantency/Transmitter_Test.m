@@ -3700,6 +3700,7 @@ config.logicAnalyzer = struct( ...
     "outputFormat", getTextScalarField(logicAnalyzerConfig, "outputFormat", "logic_state_csv"), ...
     "rawCapturePath", getOptionalTextScalarField(logicAnalyzerConfig, "rawCapturePath", logicAnalyzerArtifactPrefix + "_raw.sr"), ...
     "logicStateExportPath", getOptionalTextScalarField(logicAnalyzerConfig, "logicStateExportPath", logicAnalyzerArtifactPrefix + "_logic_state.csv"), ...
+    "maximumLogicStateExportBytes", getPositiveIntegerField(logicAnalyzerConfig, "maximumLogicStateExportBytes", 250000000), ...
     "decodedReferencePath", getOptionalTextScalarField(logicAnalyzerConfig, "decodedReferencePath", logicAnalyzerArtifactPrefix + "_reference.csv"), ...
     "decodedTrainerPpmPath", getOptionalTextScalarField(logicAnalyzerConfig, "decodedTrainerPpmPath", logicAnalyzerArtifactPrefix + "_trainer.csv"), ...
     "decodedReceiverPath", getOptionalTextScalarField(logicAnalyzerConfig, "decodedReceiverPath", logicAnalyzerArtifactPrefix + "_receiver.csv"), ...
@@ -4588,7 +4589,7 @@ if status ~= 0
         strtrim(outputText));
 end
 
-logicStateTable = readLogicStateExportCsv(config.logicAnalyzer.logicStateExportPath);
+logicStateTable = readLogicStateExportCsv(config.logicAnalyzer.logicStateExportPath, config);
 if isempty(logicStateTable)
     error("Transmitter_Test:EmptyLogicStateExport", "logicStateExportPath did not contain any analyser samples.");
 end
@@ -4601,6 +4602,7 @@ receiverCapture = extractReceiverCaptureFromLogicState(logicState, config);
 if isempty(referenceCapture) && isempty(trainerPpmCapture) && isempty(receiverCapture)
     error("Transmitter_Test:EmptyLogicStateDecode", "logicStateExportPath did not decode into any analyser events.");
 end
+validateDecodedAnalyzerTables(referenceCapture, trainerPpmCapture, receiverCapture, config);
 
 writetable(referenceCapture, config.logicAnalyzer.decodedReferencePath);
 writetable(trainerPpmCapture, config.logicAnalyzer.decodedTrainerPpmPath);
@@ -4746,14 +4748,19 @@ if contains(outputTextLower, "libusb_error_access")
 end
 end
 
-function logicStateTable = readLogicStateExportCsv(filePath)
+function logicStateTable = readLogicStateExportCsv(filePath, config)
 if ~isfile(filePath)
     error("Transmitter_Test:MissingLogicStateExport", "logicStateExportPath file was not created: %s", char(filePath));
 end
 
+validateLogicStateExportFileSize(filePath, config.logicAnalyzer.maximumLogicStateExportBytes);
+
 options = detectImportOptions(filePath, "FileType", "text", "CommentStyle", "#");
 options.CommentStyle = "#";
-logicStateTable = readtable(filePath, options, "VariableNamingRule", "preserve");
+if isprop(options, "VariableNamingRule")
+    options.VariableNamingRule = "preserve";
+end
+logicStateTable = readtable(filePath, options);
 end
 
 function logicStateTable = normalizeLogicStateExportColumns(rawTable, config)
@@ -4764,7 +4771,8 @@ if isempty(timeIndex)
     error("Transmitter_Test:MissingLogicStateTimeColumn", "logicStateExportPath is missing an explicit time column.");
 end
 
-timeSeconds = convertLogicStateColumnToNumeric(rawTable.(char(variableNames(timeIndex))));
+rawTimeData = convertLogicStateColumnToNumeric(rawTable.(char(variableNames(timeIndex))));
+timeSeconds = normalizeSigrokTimeColumnToSeconds(rawTimeData, config.logicAnalyzer.sampleRateHz);
 logicStateTable = table(timeSeconds, 'VariableNames', {'time_s'});
 sampleIndexColumn = find(ismember(canonicalNames, ["sampleindex", "samplenum", "sample"]), 1, "first");
 if ~isempty(sampleIndexColumn)
@@ -4839,6 +4847,10 @@ syncGapThresholdSamples = round( ...
     double(max(config.trainerPpm.maximumPulseUs + config.trainerPpm.markWidthUs, 2 .* config.trainerPpm.maximumPulseUs)) .* ...
     logicState.sampleRateHz ./ ...
     1e6);
+minimumValidSlotSamples = round( ...
+    double(max(0.8 .* config.trainerPpm.minimumPulseUs, config.trainerPpm.minimumPulseUs - config.trainerPpm.markWidthUs)) .* ...
+    logicState.sampleRateHz ./ ...
+    1e6);
 
 rowCapacity = numel(slotSampleCounts);
 surfaceNames = strings(rowCapacity, 1);
@@ -4856,6 +4868,9 @@ for slotIndex = 1:numel(slotSampleCounts)
     if slotCount > syncGapThresholdSamples
         currentFrameIndex = currentFrameIndex + 1;
         currentChannelIndex = 1;
+        continue;
+    end
+    if slotCount < minimumValidSlotSamples
         continue;
     end
 
@@ -4896,6 +4911,10 @@ for surfaceIndex = 1:surfaceCount
     risingSamples = logicState.sampleIndex([false; diff(channelStates) > 0]);
     fallingSamples = logicState.sampleIndex([false; diff(channelStates) < 0]);
     [pulseStartSamples, pulseSampleCounts] = pairEdgeSamples(risingSamples, fallingSamples);
+    pulseWidthsUs = sampleCountToPulseUs(pulseSampleCounts, logicState.sampleRateHz);
+    validPulseMask = isPlausibleRcPulseWidthUs(pulseWidthsUs, config);
+    pulseStartSamples = pulseStartSamples(validPulseMask);
+    pulseSampleCounts = pulseSampleCounts(validPulseMask);
     pulseCount = numel(pulseStartSamples);
     if pulseCount == 0
         continue;
@@ -4929,6 +4948,39 @@ end
 
 function pulseUs = sampleCountToPulseUs(sampleCount, sampleRateHz)
 pulseUs = 1e6 .* double(sampleCount) ./ double(sampleRateHz);
+end
+
+function validateDecodedAnalyzerTables(referenceCapture, trainerPpmCapture, receiverCapture, config)
+if ~isSigrokAutoMode(config)
+    return;
+end
+if isempty(referenceCapture)
+    error("Transmitter_Test:MissingReferenceCapture", "No valid reference edges were decoded from the configured reference analyser channel.");
+end
+if isempty(trainerPpmCapture)
+    error( ...
+        "Transmitter_Test:MissingTrainerPpmCapture", ...
+        [ ...
+        "No valid trainer PPM pulses were decoded from the configured trainer analyser channel. " + ...
+        "This usually means the probe is on the wrong signal, the trainer channel wiring or ground is bad, or the captured waveform is too noisy to match a %d-%d us RC pulse train."], ...
+        config.trainerPpm.minimumPulseUs, ...
+        config.trainerPpm.maximumPulseUs);
+end
+if height(trainerPpmCapture) < numel(config.surfaceNames)
+    error( ...
+        "Transmitter_Test:InsufficientTrainerPpmCapture", ...
+        "Trainer PPM decode produced only %d rows, which is too few for a valid %d-surface trainer capture.", ...
+        height(trainerPpmCapture), ...
+        numel(config.surfaceNames));
+end
+end
+
+function validPulseMask = isPlausibleRcPulseWidthUs(pulseWidthsUs, config)
+minimumPulseUs = double(config.trainerPpm.minimumPulseUs) - 150;
+maximumPulseUs = double(config.trainerPpm.maximumPulseUs) + 150;
+validPulseMask = isfinite(pulseWidthsUs) & ...
+    pulseWidthsUs >= minimumPulseUs & ...
+    pulseWidthsUs <= maximumPulseUs;
 end
 
 function cleanupSigrokSession(sigrokSession)
@@ -6161,9 +6213,25 @@ end
 function outputFormatText = resolveSigrokLogicStateOutputFormat(outputFormatSetting)
 outputFormatSetting = string(outputFormatSetting);
 if outputFormatSetting == "logic_state_csv"
-    outputFormatText = "csv:header=true:label=channel:dedup=true:comment=#";
+    outputFormatText = "csv:header=true:label=channel:time=true:dedup=true:comment=#";
 else
     outputFormatText = outputFormatSetting;
+end
+end
+
+function validateLogicStateExportFileSize(filePath, maximumBytes)
+fileInfo = dir(filePath);
+if isempty(fileInfo)
+    error("Transmitter_Test:MissingLogicStateExport", "logicStateExportPath file was not created: %s", char(filePath));
+end
+
+if fileInfo.bytes > maximumBytes
+    error( ...
+        "Transmitter_Test:LogicStateExportTooLarge", ...
+        [ ...
+        "logicStateExportPath grew to %.3f GB, which indicates sigrok exported dense sample-by-sample CSV instead of a compact deduplicated logic-state table. " + ...
+        "Reduce capture duration or sample rate, or adjust the local sigrok CSV format."], ...
+        double(fileInfo.bytes) ./ 1e9);
 end
 end
 
@@ -6203,6 +6271,56 @@ remainingMask = isnan(numericData) & strlength(columnText) > 0;
 if any(remainingMask)
     numericData(remainingMask) = str2double(columnText(remainingMask));
 end
+end
+
+function timeSeconds = normalizeSigrokTimeColumnToSeconds(rawTimeData, sampleRateHz)
+timeSeconds = reshape(double(rawTimeData), [], 1);
+validMask = isfinite(timeSeconds);
+if ~any(validMask)
+    return;
+end
+
+validTimes = timeSeconds(validMask);
+if max(validTimes) <= 1e3
+    return;
+end
+
+positiveDiffs = diff(validTimes);
+positiveDiffs = positiveDiffs(positiveDiffs > 0);
+if isempty(positiveDiffs)
+    return;
+end
+
+candidateScales = [1, 1e-3, 1e-6, 1e-9];
+bestScale = 1;
+bestScore = inf;
+bestDuration = inf;
+for scaleIndex = 1:numel(candidateScales)
+    scale = candidateScales(scaleIndex);
+    scaledDiffs = positiveDiffs .* scale .* double(sampleRateHz);
+    roundedDiffs = round(scaledDiffs);
+    integerResidual = mean(abs(scaledDiffs - roundedDiffs));
+    medianStepSamples = median(scaledDiffs);
+    totalDurationSeconds = max(validTimes) .* scale;
+    if medianStepSamples < 1
+        continue;
+    end
+    durationPenalty = 0;
+    if totalDurationSeconds < 0.1
+        durationPenalty = durationPenalty + 1e6;
+    end
+    if totalDurationSeconds > 1e3
+        durationPenalty = durationPenalty + 1e6;
+    end
+    score = integerResidual + durationPenalty;
+    if score < bestScore || (abs(score - bestScore) < 1e-9 && totalDurationSeconds < bestDuration)
+        bestScale = scale;
+        bestScore = score;
+        bestDuration = totalDurationSeconds;
+    end
+end
+
+timeSeconds(validMask) = validTimes .* bestScale;
 end
 
 function columnIndex = resolveLogicStateRoleColumnIndex(logicState, config, roleName)
