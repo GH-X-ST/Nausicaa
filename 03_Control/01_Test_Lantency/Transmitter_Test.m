@@ -1093,10 +1093,11 @@ config.trainerPpm = struct( ...
     "channelSurfaceMap", getStringArrayField(trainerPpmConfig, "channelSurfaceMap", defaultTrainerChannelMap));
 
 if ~isfield(commandProfileConfig, "type")
-    config.commandProfile.type = "latency_isolated_step";
+    % Keep parity with Arduino_Test default profile so Seed_N references are
+    % directly comparable between wired and transmitter paths.
+    config.commandProfile.type = "latency_step_train";
 end
-% Use the isolated-step profile as the default latency-identification path.
-% The standard operating cadence is one MATLAB command per trainer frame.
+% Preserve 20 ms command cadence by default to match trainer frame timing.
 if ~isfield(commandProfileConfig, "randomSeed")
     config.commandProfile.randomSeed = 5;
 end
