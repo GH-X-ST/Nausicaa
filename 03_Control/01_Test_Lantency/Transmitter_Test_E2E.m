@@ -14,7 +14,7 @@ frameWindowSeconds = double(getField(config, "frameWindowSeconds", 0.025));
 maxCommitAssociationSeconds = double(getField(config, "maxCommitAssociationSeconds", 0.25));
 maxRxAssociationSeconds = double(getField(config, "maxRxAssociationSeconds", 0.08));
 outputPrefix = string(getField(config, "outputPrefix", "e2e_shared_clock"));
-seed = double(getField(config, "seed", 1));
+seed = double(getField(config, "seed", 5));
 enforceArduinoStepTrainDefaults = logical(getField(config, "enforceArduinoStepTrainDefaults", true));
 recordLeadSeconds = max(0, double(getField(config, "recordLeadSeconds", 10.0)));
 recordLagSeconds = max(0, double(getField(config, "recordLagSeconds", 10.0)));
@@ -380,11 +380,7 @@ writetable(e2e.overallSummary, paths.overallSummaryCsv);
 end
 
 function t = selectCandidateByDispatch(dispatchFrame, candidateFrame, keyNames, dispatchTimeName, candidateTimeName, maxAssocSeconds, extraNames)
-if ischar(keyNames) || isStringScalar(keyNames)
-    keyNames = string(keyNames);
-else
-    keyNames = string(keyNames);
-end
+keyNames = string(keyNames);
 if nargin < 8
     extraNames = strings(0, 1);
 end

@@ -1,0 +1,7 @@
+Metric,Count
+total_events,15804
+strict_true_e2e_raw,15335
+strict_true_e2e_final,13916
+excluded_non_realistic,1419
+excluded_reason:ppm_to_receiver_out_of_range,1415
+excluded_reason:commit_to_anchor_out_of_range,4

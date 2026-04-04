@@ -1,0 +1,6 @@
+Metric,Count
+total_events,15804
+strict_true_e2e_raw,15339
+strict_true_e2e_final,12098
+excluded_non_realistic,3241
+excluded_reason:ppm_to_receiver_out_of_range,3241
