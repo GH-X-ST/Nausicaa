@@ -29,7 +29,7 @@ def _build_critical_settings(run_label: str, logger_folder: Path) -> pd.DataFram
         ("Run", "LoggerFolder", str(logger_folder.resolve())),
         ("Run", "ArduinoBoard", "Nano33IoT"),
         ("Command", "Mode", "all"),
-        ("Profile", "Type", "latency_step_train"),
+        ("Profile", "Type", "latency_vector_step_train"),
         ("LogicAnalyzer", "SampleRateHz", "4000000"),
         ("TrainerPPM", "FrameLengthUs", "20000"),
         ("Matching", "Mode", "shared_clock_e2e"),
@@ -47,7 +47,7 @@ def _build_post_critical_settings(run_label: str, logger_folder: Path) -> pd.Dat
         ("Run", "LoggerFolder", str(logger_folder.resolve())),
         ("Run", "ArduinoBoard", "Nano33IoT"),
         ("Command", "Mode", "all"),
-        ("Profile", "Type", "latency_step_train"),
+        ("Profile", "Type", "latency_vector_step_train"),
         ("LogicAnalyzer", "SampleRateHz", "4000000"),
         ("TrainerPPM", "FrameLengthUs", "20000"),
         ("Matching", "Mode", "stable_transition_post"),
@@ -110,7 +110,7 @@ def _parse_args():
         "--seed",
         type=int,
         default=DEFAULT_SEED,
-        help="Seed number used to resolve D_Transmitter_Test\\Seed_<N>_Nano_Transmitter_TransmitterLogger.",
+        help="Explicit seed number used to resolve D_Transmitter_Test\\Seed_<N>_Nano_Transmitter_TransmitterLogger.",
     )
     parser.add_argument("--root-folder", type=str, default="D_Transmitter_Test", help="Search root when logger folder omitted.")
     parser.add_argument(
@@ -142,10 +142,14 @@ def main():
     root = Path(args.root_folder).resolve()
     if args.logger_folder:
         logger_folder = Path(args.logger_folder).resolve()
+        selection_source = f"logger folder {logger_folder}"
     elif args.seed is not None:
         logger_folder = _logger_folder_from_seed(root, int(args.seed)).resolve()
+        selection_source = f"seed {int(args.seed)}"
     else:
-        logger_folder = base_plot._latest_logger_folder(root)
+        raise ValueError(
+            "Explicitly provide --seed <N> or --logger-folder <PATH> when plotting Nano runs."
+        )
 
     source_mode = str(args.mode)
     event_prefix = args.event_prefix.strip() or DEFAULT_EVENT_PREFIX_BY_MODE[source_mode]
@@ -198,6 +202,8 @@ def main():
     transmitter_plot.plot_transmitter_summary_figure(workbook_path, out_path, workbook_bundle)
 
     print("Nano E2E workbook and plot generated")
+    print(f"  Source:   {selection_source}")
+    print(f"  Logger:   {logger_folder.resolve()}")
     print(f"  Workbook: {workbook_path.resolve()}")
     print(f"  Figure:   {out_path.resolve()}")
 

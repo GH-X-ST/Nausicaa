@@ -199,8 +199,10 @@ commandProfile.customFunction = getFieldOrDefault(commandProfileConfig, "customF
 commandProfile.effectiveRandomSeed = nan;
 commandProfile.profileEvents = table();
 commandProfile.precomputedBaseCommandDegrees = [];
+commandProfile.precomputedCommandVectorDegrees = [];
+commandProfile.vectorSurfaceNames = ["Aileron_L"; "Aileron_R"; "Rudder"; "Elevator"];
 
-validProfileTypes = ["latency_step_train", "sine", "square", "doublet", "custom", "function"];
+validProfileTypes = ["latency_step_train", "latency_vector_step_train", "sine", "square", "doublet", "custom", "function"];
 if ~any(commandProfile.type == validProfileTypes)
     error("Arduino_Test:InvalidProfileType", ...
         "commandProfile.type must be one of: %s.", ...
@@ -678,11 +680,17 @@ for sampleIndex = 1:sampleCount
     waitForScheduledTime(testStart, testStartOffsetSeconds + scheduledSampleTimeSeconds);
 
     baseCommandDegrees = evaluateBaseCommandDegrees(profileInfo, scheduledSampleTimeSeconds, sampleIndex);
+    directCommandVectorDegrees = evaluateCommandVectorDegrees(profileInfo, config.surfaceNames, sampleIndex);
     desiredDeflectionsDegrees = zeros(1, surfaceCount);
-
-    desiredDeflectionsDegrees(config.activeSurfaceMask.') = ...
-        config.commandDeflectionScales(config.activeSurfaceMask).' .* baseCommandDegrees + ...
-        config.commandDeflectionOffsetsDegrees(config.activeSurfaceMask).';
+    if any(isfinite(directCommandVectorDegrees))
+        desiredDeflectionsDegrees(config.activeSurfaceMask.') = ...
+            config.commandDeflectionScales(config.activeSurfaceMask).' .* directCommandVectorDegrees(config.activeSurfaceMask.') + ...
+            config.commandDeflectionOffsetsDegrees(config.activeSurfaceMask).';
+    else
+        desiredDeflectionsDegrees(config.activeSurfaceMask.') = ...
+            config.commandDeflectionScales(config.activeSurfaceMask).' .* baseCommandDegrees + ...
+            config.commandDeflectionOffsetsDegrees(config.activeSurfaceMask).';
+    end
 
     commandedServoPositions = ...
         config.servoNeutralPositions.' + desiredDeflectionsDegrees .* config.servoUnitsPerDegree.';
@@ -703,7 +711,8 @@ for sampleIndex = 1:sampleCount
         config.activeSurfaceMask.', ...
         config.surfaceNames, ...
         nextCommandSequenceNumbers, ...
-        loggerSession);
+        loggerSession, ...
+        scheduledSampleTimeSeconds);
     storage.commandDispatchSeconds(sampleIndex, :) = commandDispatchSeconds;
     storage.commandWriteStopSeconds(sampleIndex) = commandWriteStopSeconds;
     storage.hostSchedulingDelaySeconds(sampleIndex, :) = ...
@@ -775,6 +784,15 @@ switch profileInfo.type
         profileInfo.profileEvents = profileEvents;
         profileInfo.effectiveRandomSeed = effectiveRandomSeed;
 
+    case "latency_vector_step_train"
+        [baseCommandDegrees, commandVectorDegrees, profileEvents, effectiveRandomSeed] = buildLatencyVectorStepTrainSchedule( ...
+            profileInfo, ...
+            scheduledTimeSeconds);
+        profileInfo.precomputedBaseCommandDegrees = baseCommandDegrees;
+        profileInfo.precomputedCommandVectorDegrees = commandVectorDegrees;
+        profileInfo.profileEvents = profileEvents;
+        profileInfo.effectiveRandomSeed = effectiveRandomSeed;
+
     otherwise
         for sampleIndex = 1:numel(scheduledTimeSeconds)
             profileInfo.precomputedBaseCommandDegrees(sampleIndex) = ...
@@ -828,6 +846,35 @@ switch profileInfo.type
 end
 end
 
+function commandVectorDegrees = evaluateCommandVectorDegrees(profileInfo, surfaceNames, sampleIndex)
+commandVectorDegrees = nan(1, numel(surfaceNames));
+if nargin < 3 || ~isfinite(sampleIndex)
+    return;
+end
+if ~isstruct(profileInfo) || ...
+        ~isfield(profileInfo, "precomputedCommandVectorDegrees") || ...
+        isempty(profileInfo.precomputedCommandVectorDegrees) || ...
+        size(profileInfo.precomputedCommandVectorDegrees, 1) < sampleIndex || ...
+        ~isfield(profileInfo, "vectorSurfaceNames")
+    return;
+end
+
+vectorSurfaceNames = reshape(string(profileInfo.vectorSurfaceNames), 1, []);
+vectorRow = double(profileInfo.precomputedCommandVectorDegrees(sampleIndex, :));
+if numel(vectorRow) ~= numel(vectorSurfaceNames)
+    return;
+end
+
+commandVectorDegrees(:) = 0.0;
+for surfaceIndex = 1:numel(surfaceNames)
+    mappedIndex = find(vectorSurfaceNames == string(surfaceNames(surfaceIndex)), 1, "first");
+    if isempty(mappedIndex)
+        continue;
+    end
+    commandVectorDegrees(surfaceIndex) = vectorRow(mappedIndex);
+end
+end
+
 function storage = initializeStorage(sampleCount, surfaceCount)
 storage = struct( ...
     "sampleCount", 0, ...
@@ -876,7 +923,8 @@ function [dispatchTimesSeconds, writeStopSeconds, loggerSession] = writeServoPos
     activeSurfaceMask, ...
     surfaceNames, ...
     commandSequenceNumbers, ...
-    loggerSession)
+    loggerSession, ...
+    scheduledSampleTimeSeconds)
 
 if nargin < 3
     referenceTimer = [];
@@ -896,6 +944,10 @@ end
 
 if nargin < 7 || isempty(loggerSession)
     loggerSession = createEmptyNanoLoggerSession();
+end
+
+if nargin < 8
+    scheduledSampleTimeSeconds = NaN;
 end
 
 dispatchTimesSeconds = nan(1, numel(surfaceNames));
@@ -942,18 +994,22 @@ switch commandInterface.transportMode
         % Keep one dispatch log row per surface so downstream matching logic
         % can remain surface-wise.
         for surfaceIndex = activeIndices(:).'
+            dispatchSeconds = NaN;
+            if ~isempty(referenceTimer)
+                dispatchSeconds = max( ...
+                    0, ...
+                    (double(dispatchAbsoluteUs) - double(loggerSession.testStartOffsetUs)) ./ 1e6);
+                dispatchTimesSeconds(surfaceIndex) = dispatchSeconds;
+            end
+
             loggerSession = appendNanoLoggerDispatchRow( ...
                 loggerSession, ...
                 surfaceNames(surfaceIndex), ...
                 commandSequenceNumbers(surfaceIndex), ...
                 dispatchAbsoluteUs, ...
-                servoPositions(surfaceIndex));
-
-            if ~isempty(referenceTimer)
-                dispatchTimesSeconds(surfaceIndex) = max( ...
-                    0, ...
-                    (double(dispatchAbsoluteUs) - double(loggerSession.testStartOffsetUs)) ./ 1e6);
-            end
+                servoPositions(surfaceIndex), ...
+                dispatchSeconds, ...
+                scheduledSampleTimeSeconds);
         end
 
         if ~isempty(referenceTimer)
@@ -990,6 +1046,9 @@ loggerSession = struct( ...
     "dispatchCommandSequence", zeros(0, 1), ...
     "dispatchCommandUs", zeros(0, 1), ...
     "dispatchPosition", zeros(0, 1), ...
+    "dispatchCommandSeconds", zeros(0, 1), ...
+    "dispatchScheduledTimeSeconds", zeros(0, 1), ...
+    "dispatchHostSchedulingDelaySeconds", zeros(0, 1), ...
     "syncCount", 0, ...
     "syncId", zeros(0, 1), ...
     "syncHostTxUs", zeros(0, 1), ...
@@ -1014,6 +1073,9 @@ loggerSession = struct( ...
     "dispatchCommandSequence", nan(dispatchCapacity, 1), ...
     "dispatchCommandUs", nan(dispatchCapacity, 1), ...
     "dispatchPosition", nan(dispatchCapacity, 1), ...
+    "dispatchCommandSeconds", nan(dispatchCapacity, 1), ...
+    "dispatchScheduledTimeSeconds", nan(dispatchCapacity, 1), ...
+    "dispatchHostSchedulingDelaySeconds", nan(dispatchCapacity, 1), ...
     "syncCount", 0, ...
     "syncId", nan(syncCapacity, 1), ...
     "syncHostTxUs", nan(syncCapacity, 1), ...
@@ -1158,7 +1220,9 @@ function loggerSession = appendNanoLoggerDispatchRow( ...
     surfaceName, ...
     commandSequence, ...
     commandDispatchUs, ...
-    commandPosition)
+    commandPosition, ...
+    commandDispatchSeconds, ...
+    scheduledTimeSeconds)
 loggerSession.dispatchCount = loggerSession.dispatchCount + 1;
 rowIndex = loggerSession.dispatchCount;
 
@@ -1166,6 +1230,10 @@ loggerSession.dispatchSurfaceName(rowIndex) = string(surfaceName);
 loggerSession.dispatchCommandSequence(rowIndex) = double(commandSequence);
 loggerSession.dispatchCommandUs(rowIndex) = double(commandDispatchUs);
 loggerSession.dispatchPosition(rowIndex) = double(commandPosition);
+loggerSession.dispatchCommandSeconds(rowIndex) = double(commandDispatchSeconds);
+loggerSession.dispatchScheduledTimeSeconds(rowIndex) = double(scheduledTimeSeconds);
+loggerSession.dispatchHostSchedulingDelaySeconds(rowIndex) = ...
+    double(commandDispatchSeconds) - double(scheduledTimeSeconds);
 end
 
 function loggerSession = appendNanoLoggerSyncRow(loggerSession, syncRow)
@@ -1186,11 +1254,17 @@ dispatchLog = table( ...
     loggerSession.dispatchCommandSequence(rowIndices), ...
     loggerSession.dispatchCommandUs(rowIndices), ...
     loggerSession.dispatchPosition(rowIndices), ...
+    loggerSession.dispatchCommandSeconds(rowIndices), ...
+    loggerSession.dispatchScheduledTimeSeconds(rowIndices), ...
+    loggerSession.dispatchHostSchedulingDelaySeconds(rowIndices), ...
     'VariableNames', { ...
         'surface_name', ...
         'command_sequence', ...
         'command_dispatch_us', ...
-        'position_norm'});
+        'position_norm', ...
+        'command_dispatch_s', ...
+        'scheduled_time_s', ...
+        'host_scheduling_delay_s'});
 end
 
 function syncRoundTripLog = buildNanoLoggerSyncRoundTripTable(loggerSession)
@@ -3003,6 +3077,69 @@ for eventRowIndex = 1:height(profileEvents)
 end
 end
 
+function [baseCommandDegrees, commandVectorDegrees, profileEvents, effectiveRandomSeed] = buildLatencyVectorStepTrainSchedule(profileInfo, scheduledTimeSeconds)
+surfaceNames = reshape(string(profileInfo.vectorSurfaceNames), 1, []);
+surfaceCount = numel(surfaceNames);
+sampleCount = numel(scheduledTimeSeconds);
+baseCommandDegrees = nan(sampleCount, 1);
+commandVectorDegrees = zeros(sampleCount, surfaceCount);
+profileTimeSeconds = scheduledTimeSeconds - profileInfo.commandStartSeconds;
+
+profileEventRows = cell(0, 1);
+eventVectors = zeros(0, surfaceCount);
+eventAxes = strings(0, 1);
+currentTimeSeconds = 0.0;
+eventIndex = 0;
+currentTargetVectorDegrees = zeros(1, surfaceCount);
+[randomStream, effectiveRandomSeed] = createLocalRandomStream(profileInfo.randomSeed);
+
+while currentTimeSeconds < profileInfo.durationSeconds
+    dwellJitterSeconds = drawEventJitter(randomStream, profileInfo.eventRandomJitterSeconds);
+    segmentDurationSeconds = max( ...
+        profileInfo.sampleTimeSeconds, ...
+        profileInfo.eventHoldSeconds + profileInfo.eventDwellSeconds + dwellJitterSeconds);
+    stopTimeSeconds = min(profileInfo.durationSeconds, currentTimeSeconds + segmentDurationSeconds);
+    [targetVectorDegrees, axisLabel] = proposeLatencyVectorStepTargetLocal(profileInfo, currentTargetVectorDegrees, randomStream);
+
+    [profileEventRows, eventIndex, currentTimeSeconds] = appendProfileEvent( ...
+        profileEventRows, ...
+        eventIndex, ...
+        axisLabel, ...
+        max(abs(targetVectorDegrees)), ...
+        currentTimeSeconds, ...
+        stopTimeSeconds, ...
+        dwellJitterSeconds);
+    eventVectors(end + 1, :) = targetVectorDegrees; %#ok<AGROW>
+    eventAxes(end + 1, 1) = string(axisLabel); %#ok<AGROW>
+    currentTargetVectorDegrees = targetVectorDegrees;
+end
+
+profileEvents = profileEventRowsToTable(profileEventRows);
+profileEvents = addLatencyVectorEventColumnsLocal(profileEvents, eventVectors, eventAxes, surfaceNames);
+if isempty(profileEvents)
+    return;
+end
+
+for eventRowIndex = 1:height(profileEvents)
+    eventStartSeconds = profileEvents.StartTime_s(eventRowIndex);
+    eventStopSeconds = profileEvents.StopTime_s(eventRowIndex);
+    if eventStopSeconds <= eventStartSeconds
+        continue;
+    end
+
+    if eventRowIndex < height(profileEvents)
+        eventMask = ...
+            profileTimeSeconds >= eventStartSeconds & ...
+            profileTimeSeconds < eventStopSeconds;
+    else
+        eventMask = ...
+            profileTimeSeconds >= eventStartSeconds & ...
+            profileTimeSeconds <= eventStopSeconds;
+    end
+    commandVectorDegrees(eventMask, :) = repmat(eventVectors(eventRowIndex, :), sum(eventMask), 1);
+end
+end
+
 function commandDegrees = evaluateLatencyStepTrainAtTime(profileEvents, profileTimeSeconds)
 commandDegrees = 0.0;
 if isempty(profileEvents)
@@ -3106,6 +3243,93 @@ if randomJitterSeconds <= 0
 end
 
 dwellJitterSeconds = (2.0 .* rand(randomStream, 1, 1) - 1.0) .* randomJitterSeconds;
+end
+
+function [targetVectorDegrees, axisLabel] = proposeLatencyVectorStepTargetLocal(profileInfo, currentVectorDegrees, randomStream)
+surfaceNames = reshape(string(profileInfo.vectorSurfaceNames), 1, []);
+surfaceCount = numel(surfaceNames);
+targetVectorDegrees = reshape(double(currentVectorDegrees), 1, []);
+if numel(targetVectorDegrees) ~= surfaceCount
+    targetVectorDegrees = zeros(1, surfaceCount);
+end
+
+maximumStepDegrees = max(2.0, abs(double(profileInfo.amplitudeDegrees)));
+stepMagnitudes = maximumStepDegrees .* [0.25, 0.5, 1.0];
+magnitudeWeights = [0.55, 0.30, 0.15];
+selectedMagnitudeDegrees = stepMagnitudes(drawWeightedIndexLocal(randomStream, magnitudeWeights));
+stepSign = chooseSignedStepLocal(randomStream);
+
+axisModes = ["roll", "pitch", "yaw", "roll_yaw", "pitch_roll", "neutral"];
+axisWeights = [0.40, 0.28, 0.14, 0.10, 0.05, 0.03];
+axisLabel = axisModes(drawWeightedIndexLocal(randomStream, axisWeights));
+
+rollValueDegrees = stepSign .* selectedMagnitudeDegrees;
+pitchValueDegrees = chooseSignedStepLocal(randomStream) .* selectedMagnitudeDegrees;
+yawValueDegrees = chooseSignedStepLocal(randomStream) .* max(1.5, 0.65 .* selectedMagnitudeDegrees);
+
+switch axisLabel
+    case "roll"
+        targetVectorDegrees = assignLatencyVectorSurfaceLocal(targetVectorDegrees, surfaceNames, "Aileron_L", rollValueDegrees);
+        targetVectorDegrees = assignLatencyVectorSurfaceLocal(targetVectorDegrees, surfaceNames, "Aileron_R", -rollValueDegrees);
+    case "pitch"
+        targetVectorDegrees = assignLatencyVectorSurfaceLocal(targetVectorDegrees, surfaceNames, "Elevator", pitchValueDegrees);
+    case "yaw"
+        targetVectorDegrees = assignLatencyVectorSurfaceLocal(targetVectorDegrees, surfaceNames, "Rudder", yawValueDegrees);
+    case "roll_yaw"
+        targetVectorDegrees = assignLatencyVectorSurfaceLocal(targetVectorDegrees, surfaceNames, "Aileron_L", rollValueDegrees);
+        targetVectorDegrees = assignLatencyVectorSurfaceLocal(targetVectorDegrees, surfaceNames, "Aileron_R", -rollValueDegrees);
+        targetVectorDegrees = assignLatencyVectorSurfaceLocal(targetVectorDegrees, surfaceNames, "Rudder", 0.35 .* rollValueDegrees);
+    case "pitch_roll"
+        targetVectorDegrees = assignLatencyVectorSurfaceLocal(targetVectorDegrees, surfaceNames, "Elevator", pitchValueDegrees);
+        targetVectorDegrees = assignLatencyVectorSurfaceLocal(targetVectorDegrees, surfaceNames, "Aileron_L", 0.35 .* rollValueDegrees);
+        targetVectorDegrees = assignLatencyVectorSurfaceLocal(targetVectorDegrees, surfaceNames, "Aileron_R", -0.35 .* rollValueDegrees);
+    otherwise
+        targetVectorDegrees(:) = 0.0;
+        axisLabel = "neutral";
+end
+end
+
+function profileEvents = addLatencyVectorEventColumnsLocal(profileEvents, eventVectors, eventAxes, surfaceNames)
+profileEvents.AxisLabel = reshape(string(eventAxes), [], 1);
+profileEvents.ActiveSurfaceCount = sum(abs(eventVectors) > 10 .* eps, 2);
+profileEvents.VectorNorm_deg = sqrt(sum(eventVectors .^ 2, 2));
+
+for surfaceIndex = 1:numel(surfaceNames)
+    variableName = matlab.lang.makeValidName(surfaceNames(surfaceIndex) + "_Target_deg");
+    profileEvents.(char(variableName)) = eventVectors(:, surfaceIndex);
+end
+end
+
+function selectedIndex = drawWeightedIndexLocal(randomStream, weights)
+weights = reshape(double(weights), 1, []);
+weights(~isfinite(weights) | weights < 0) = 0;
+if ~any(weights > 0)
+    weights = ones(size(weights));
+end
+
+normalizedWeights = weights ./ sum(weights);
+drawValue = rand(randomStream, 1, 1);
+cumulativeWeights = cumsum(normalizedWeights);
+selectedIndex = find(drawValue <= cumulativeWeights, 1, "first");
+if isempty(selectedIndex)
+    selectedIndex = numel(weights);
+end
+end
+
+function signedValue = chooseSignedStepLocal(randomStream)
+if rand(randomStream, 1, 1) < 0.5
+    signedValue = -1.0;
+else
+    signedValue = 1.0;
+end
+end
+
+function targetVectorDegrees = assignLatencyVectorSurfaceLocal(targetVectorDegrees, surfaceNames, surfaceName, surfaceValueDegrees)
+surfaceIndex = find(surfaceNames == string(surfaceName), 1, "first");
+if isempty(surfaceIndex)
+    return;
+end
+targetVectorDegrees(surfaceIndex) = double(surfaceValueDegrees);
 end
 
 function echoImportTable = reshapeEchoImportTable(echoImportTable)

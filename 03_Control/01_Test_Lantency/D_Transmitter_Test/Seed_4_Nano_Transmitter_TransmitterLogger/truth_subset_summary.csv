@@ -1,0 +1,5 @@
+SurfaceName,IsActive,TruthEventCount,TruthCommitMatchCount,TruthCommitMissCount,TruthReceiverMatchCount,TruthReceiverMissCount
+Aileron_L,1,0,0,0,0,0
+Aileron_R,1,0,0,0,0,0
+Rudder,1,0,0,0,0,0
+Elevator,1,0,0,0,0,0

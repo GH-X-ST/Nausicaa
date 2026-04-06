@@ -1,0 +1,2 @@
+is_valid,reason,primary_metric,anchor_source,valid_row_count,candidate_row_count,coverage,max_consistency_error_s,median_s,p95_s,max_s
+1,ok,scheduled_to_receiver_latency_s,D4,196,200,0.98,4.85722573273506e-17,0.0267315,0.04673725,0.04673775

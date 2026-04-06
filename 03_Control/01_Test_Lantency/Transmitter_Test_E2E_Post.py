@@ -888,6 +888,104 @@ def estimate_local_alignment_model(
     return model, diagnostics
 
 
+def apply_receiver_residual_drift_correction(
+    events: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if events.empty:
+        diagnostics = pd.DataFrame([
+            {"metric": "receiver_residual_sample_count", "value": 0},
+            {"metric": "receiver_residual_slope_us_per_frame", "value": 0.0},
+            {"metric": "receiver_residual_pivot_frame", "value": np.nan},
+            {"metric": "receiver_residual_delta_10_90_ms", "value": 0.0},
+            {"metric": "receiver_residual_correction_applied", "value": 0},
+        ])
+        return events, diagnostics
+
+    corrected_events = events.copy()
+    corrected_events["trainer_to_receiver_latency_s"] = (
+        pd.to_numeric(corrected_events["receiver_transition_s"], errors="coerce")
+        - pd.to_numeric(corrected_events["trainer_transition_s"], errors="coerce")
+    )
+
+    fit_mask = (
+        np.isfinite(pd.to_numeric(corrected_events["board_frame_index"], errors="coerce"))
+        & np.isfinite(pd.to_numeric(corrected_events["trainer_transition_s"], errors="coerce"))
+        & np.isfinite(pd.to_numeric(corrected_events["receiver_transition_s"], errors="coerce"))
+    )
+    if np.count_nonzero(fit_mask) < 8:
+        corrected_events["receiver_residual_correction_s"] = 0.0
+        diagnostics = pd.DataFrame([
+            {"metric": "receiver_residual_sample_count", "value": int(np.count_nonzero(fit_mask))},
+            {"metric": "receiver_residual_slope_us_per_frame", "value": 0.0},
+            {"metric": "receiver_residual_pivot_frame", "value": np.nan},
+            {"metric": "receiver_residual_delta_10_90_ms", "value": 0.0},
+            {"metric": "receiver_residual_correction_applied", "value": 0},
+        ])
+        return corrected_events, diagnostics
+
+    frame_index_array = pd.to_numeric(corrected_events.loc[fit_mask, "board_frame_index"], errors="coerce").to_numpy(dtype=float)
+    trainer_to_receiver_array = pd.to_numeric(
+        corrected_events.loc[fit_mask, "trainer_to_receiver_latency_s"],
+        errors="coerce",
+    ).to_numpy(dtype=float)
+
+    initial_slope, initial_intercept = np.polyfit(frame_index_array, trainer_to_receiver_array, deg=1)
+    residual_error = trainer_to_receiver_array - (initial_slope * frame_index_array + initial_intercept)
+    mad = float(np.median(np.abs(residual_error - np.median(residual_error))))
+    if np.isfinite(mad) and mad > 0.0:
+        robust_mask = np.abs(residual_error) <= max(3.5 * mad, 0.0015)
+        if np.count_nonzero(robust_mask) >= 8:
+            frame_index_array = frame_index_array[robust_mask]
+            trainer_to_receiver_array = trainer_to_receiver_array[robust_mask]
+
+    residual_slope_per_frame, residual_intercept_s = np.polyfit(frame_index_array, trainer_to_receiver_array, deg=1)
+    pivot_frame = float(np.median(frame_index_array))
+    q10_frame, q90_frame = np.quantile(frame_index_array, [0.10, 0.90])
+    delta_10_90_s = float(residual_slope_per_frame) * float(q90_frame - q10_frame)
+
+    apply_correction = abs(delta_10_90_s) >= 2.5e-4
+    correction_values = np.zeros(len(corrected_events), dtype=float)
+    if apply_correction:
+        all_frame_index = pd.to_numeric(corrected_events["board_frame_index"], errors="coerce").to_numpy(dtype=float)
+        valid_frame_mask = np.isfinite(all_frame_index) & np.isfinite(pd.to_numeric(corrected_events["receiver_transition_s"], errors="coerce"))
+        correction_values[valid_frame_mask] = float(residual_slope_per_frame) * (all_frame_index[valid_frame_mask] - pivot_frame)
+        corrected_events["receiver_transition_s_raw"] = corrected_events["receiver_transition_s"]
+        corrected_events["receiver_transition_s"] = (
+            pd.to_numeric(corrected_events["receiver_transition_s"], errors="coerce") - correction_values
+        )
+    corrected_events["receiver_residual_correction_s"] = correction_values
+    corrected_events["trainer_to_receiver_latency_s"] = (
+        pd.to_numeric(corrected_events["receiver_transition_s"], errors="coerce")
+        - pd.to_numeric(corrected_events["trainer_transition_s"], errors="coerce")
+    )
+    corrected_events["commit_to_receiver_latency_s"] = (
+        pd.to_numeric(corrected_events["receiver_transition_s"], errors="coerce")
+        - pd.to_numeric(corrected_events["commit_capture_time_s"], errors="coerce")
+    )
+    corrected_events["dispatch_to_receiver_latency_s"] = (
+        pd.to_numeric(corrected_events["receiver_transition_s"], errors="coerce")
+        - pd.to_numeric(corrected_events["dispatch_capture_time_s"], errors="coerce")
+    )
+    corrected_events["scheduled_to_receiver_latency_s"] = (
+        pd.to_numeric(corrected_events["receiver_transition_s"], errors="coerce")
+        - pd.to_numeric(corrected_events["scheduled_capture_time_s"], errors="coerce")
+    )
+
+    fitted_residual = residual_slope_per_frame * frame_index_array + residual_intercept_s
+    fit_error = trainer_to_receiver_array - fitted_residual
+    diagnostics = pd.DataFrame([
+        {"metric": "receiver_residual_sample_count", "value": int(frame_index_array.size)},
+        {"metric": "receiver_residual_slope_us_per_frame", "value": float(residual_slope_per_frame) * 1e6},
+        {"metric": "receiver_residual_intercept_ms", "value": float(residual_intercept_s) * 1e3},
+        {"metric": "receiver_residual_pivot_frame", "value": pivot_frame},
+        {"metric": "receiver_residual_delta_10_90_ms", "value": delta_10_90_s * 1e3},
+        {"metric": "receiver_residual_fit_p95_ms", "value": float(np.quantile(np.abs(fit_error), 0.95)) * 1e3},
+        {"metric": "receiver_residual_fit_max_ms", "value": float(np.max(np.abs(fit_error))) * 1e3},
+        {"metric": "receiver_residual_correction_applied", "value": int(apply_correction)},
+    ])
+    return corrected_events, diagnostics
+
+
 def match_surface_transitions(
     surface_name: str,
     host_transition_table: pd.DataFrame,
@@ -1303,6 +1401,8 @@ def run_post_processing(logger_folder: Path, output_prefix: str, config: Matchin
         raise RuntimeError("No post-processed transition events could be matched.")
 
     events = pd.concat(event_tables, ignore_index=True)
+    events, receiver_residual_diagnostics = apply_receiver_residual_drift_correction(events)
+    alignment_diagnostics = pd.concat([alignment_diagnostics, receiver_residual_diagnostics], ignore_index=True)
     surface_summary = build_surface_summary(events, surface_names)
     overall_summary = build_overall_summary(events)
     centers_table = pd.DataFrame(center_summary_rows)

@@ -136,6 +136,7 @@ def build_transmitter_workbook_metadata(
 
     return {
         "run_label": run_label,
+        "profile_type": profile_type,
         "metadata_line": " | ".join(metadata_lines),
         "note_line": "Controller-origin total is scheduled-to-receiver PWM latency; robust comparison should prioritize median and percentile bands rather than max.",
     }
@@ -149,19 +150,39 @@ def pulse_us_to_equivalent_deg(pulse_us: np.ndarray) -> np.ndarray:
 def load_transmitter_time_series(
     input_df: pd.DataFrame,
     receiver_capture_df: pd.DataFrame,
-) -> tuple[np.ndarray, np.ndarray, list[dict]]:
+    active_surfaces: list[str],
+    profile_type: str,
+) -> tuple[np.ndarray, np.ndarray, list[dict], list[dict]]:
     host_time = numeric_series(input_df, "time_s")
     host_command = numeric_series(input_df, "base_command_deg")
+    command_traces: list[dict] = []
     finite_host_command = host_command[np.isfinite(host_command)]
     if finite_host_command.size > 0:
         host_command_abs_max = float(np.nanmax(np.abs(finite_host_command)))
     else:
         host_command_abs_max = 45.0
+
+    if normalize_text(profile_type).lower() == "latency_vector_step_train":
+        host_command = np.array([], dtype=float)
+        host_command_abs_max = 0.0
+        for style in SURFACE_STYLES:
+            surface_name = style["surface_name"]
+            if active_surfaces and surface_name not in active_surfaces:
+                continue
+            column_name = f"{surface_name}_desired_deg"
+            if column_name not in input_df.columns:
+                continue
+            surface_command = numeric_series(input_df, column_name)
+            if not np.any(np.isfinite(surface_command)):
+                continue
+            host_command_abs_max = max(host_command_abs_max, float(np.nanmax(np.abs(surface_command[np.isfinite(surface_command)]))))
+            command_traces.append({**style, "time": host_time, "value": surface_command})
+
     response_angle_limit_deg = max(60.0, host_command_abs_max + 20.0)
 
     responses: list[dict] = []
     if receiver_capture_df.empty:
-        return host_time, host_command, responses
+        return host_time, host_command, command_traces, responses
 
     receiver_df = receiver_capture_df.copy()
     receiver_df["surface_name"] = receiver_df["surface_name"].astype(str)
@@ -183,7 +204,7 @@ def load_transmitter_time_series(
 
         responses.append({**style, "time": response_time, "value": response_value})
 
-    return host_time, host_command, responses
+    return host_time, host_command, command_traces, responses
 
 
 def summarize_latency_metrics(latency_summary_df: pd.DataFrame, active_surfaces: list[str]) -> pd.DataFrame:
@@ -282,8 +303,11 @@ def build_workbook_bundle(excel_path: Path) -> dict:
 
     active_surfaces = get_active_surfaces(workbook_sheets["LatencySummary"])
     metadata = build_transmitter_workbook_metadata(excel_path, workbook_sheets["CriticalSettings"], active_surfaces)
-    host_time, host_command, responses = load_transmitter_time_series(
-        workbook_sheets["InputSignal"], workbook_sheets["ReceiverCapture"]
+    host_time, host_command, command_traces, responses = load_transmitter_time_series(
+        workbook_sheets["InputSignal"],
+        workbook_sheets["ReceiverCapture"],
+        active_surfaces,
+        str(metadata.get("profile_type", "")),
     )
     latency_summary_df = summarize_latency_metrics(workbook_sheets["LatencySummary"], active_surfaces)
     integrity_table_df = build_integrity_table(workbook_sheets["IntegritySummary"], active_surfaces)
@@ -293,6 +317,7 @@ def build_workbook_bundle(excel_path: Path) -> dict:
         "active_surfaces": active_surfaces,
         "host_time": host_time,
         "host_command": host_command,
+        "command_traces": command_traces,
         "responses": responses,
         "latency_summary_df": latency_summary_df,
         "integrity_table_df": integrity_table_df,
@@ -304,22 +329,42 @@ def plot_time_series_panel(
     ax: plt.Axes,
     host_time: np.ndarray,
     host_command: np.ndarray,
+    command_traces: list[dict],
     responses: list[dict],
     profile_events_df: pd.DataFrame,
 ):
     configure_axes(ax)
     add_profile_event_spans(ax, profile_events_df)
 
-    host_x, host_y = finite_pair(host_time, host_command)
-    ax.plot(
-        host_x,
-        host_y,
-        color=mcolors.to_rgba("#264653", 0.75),
-        linewidth=1.0,
-        label="MATLAB command",
-    )
+    if host_time.size > 0 and host_command.size > 0 and host_time.size == host_command.size:
+        host_x, host_y = finite_pair(host_time, host_command)
+    else:
+        host_x = np.array([], dtype=float)
+        host_y = np.array([], dtype=float)
+    finite_blocks = []
+    if host_x.size > 0:
+        ax.plot(
+            host_x,
+            host_y,
+            color=mcolors.to_rgba("#264653", 0.75),
+            linewidth=1.0,
+            label="MATLAB command",
+        )
+        finite_blocks.append(host_y[np.isfinite(host_y)])
 
-    finite_blocks = [host_y[np.isfinite(host_y)]]
+    for command_trace in command_traces:
+        command_x, command_y = finite_pair(command_trace["time"], command_trace["value"])
+        finite_blocks.append(command_y[np.isfinite(command_y)])
+        ax.plot(
+            command_x,
+            command_y,
+            color=mcolors.to_rgba(command_trace["color"], 0.80),
+            linewidth=1.0,
+            linestyle="--",
+            label=f"{command_trace['label']} cmd",
+            zorder=6,
+        )
+
     for response in responses:
         response_x, response_y = finite_pair(response["time"], response["value"])
         finite_blocks.append(response_y[np.isfinite(response_y)])
@@ -353,6 +398,7 @@ def plot_time_series_panel(
             ax.set_ylim(lower - y_pad, upper + y_pad)
 
     finite_time_blocks = [host_x]
+    finite_time_blocks.extend(finite_pair(command_trace["time"], command_trace["value"])[0] for command_trace in command_traces)
     finite_time_blocks.extend(finite_pair(response["time"], response["value"])[0] for response in responses)
     finite_time_blocks = [block for block in finite_time_blocks if block.size > 0]
     if finite_time_blocks:
@@ -519,6 +565,7 @@ def plot_transmitter_summary_figure(excel_path: Path, out_path: Path, workbook_b
         ax_time,
         workbook_bundle["host_time"],
         workbook_bundle["host_command"],
+        workbook_bundle["command_traces"],
         workbook_bundle["responses"],
         workbook_sheets["ProfileEvents"],
     )

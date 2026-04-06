@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.ticker import FormatStrFormatter
 
-DEFAULT_SEED: int | None = None
+DEFAULT_SEED: int | None = 5
 DEFAULT_EVENT_PREFIX = "e2e_output"
 WORKBOOK_ROOT = Path("C_Arduino_Test")
 MS_PER_SECOND = 1e3
@@ -23,18 +23,17 @@ SURFACE_STYLES = [
 ]
 
 LATENCY_PLOT_METRICS = [
-    ("Host scheduling", "host_scheduling_delay_s", "#264653"),
-    ("Dispatch to apply", "dispatch_to_apply_latency_s", "#2a9d8F"),
-    ("Apply to output", "apply_to_output_latency_s", "#f4a261"),
-    ("Scheduled to output", "scheduled_to_output_latency_s", "#e76f51"),
+    ("Scheduled to dispatch", "host_scheduling_delay_s", "#264653"),
+    ("Dispatch to Arduino RX", "dispatch_to_rx_latency_s", "#2a9d8F"),
+    ("Arduino RX to servo output", "rx_to_output_latency_s", "#f4a261"),
+    ("Scheduled to servo output", "scheduled_to_output_latency_s", "#e76f51"),
 ]
 
 SUMMARY_METRICS = [
-    ("Dispatch to apply", "ComputerToArduinoApplyLatency"),
-    ("RX to apply", "ArduinoReceiveToApplyLatency"),
-    ("Apply to output", "ApplyToOutputLatency"),
-    ("Dispatch to output", "DispatchToOutputLatency"),
-    ("Scheduled to output", "ScheduledToOutputLatency"),
+    ("Scheduled to dispatch", "host_scheduling_delay_s"),
+    ("Dispatch to Arduino RX", "dispatch_to_rx_latency_s"),
+    ("Arduino RX to servo output", "rx_to_output_latency_s"),
+    ("Scheduled to servo output", "scheduled_to_output_latency_s"),
 ]
 
 SUMMARY_STATS = [
@@ -70,7 +69,7 @@ def _resolve_logger_folder(logger_folder: str | None, seed: int | None) -> Path:
     chosen_seed = DEFAULT_SEED if seed is None else seed
     if chosen_seed is not None:
         return _logger_folder_from_seed(WORKBOOK_ROOT, chosen_seed)
-    return _latest_logger_folder(WORKBOOK_ROOT)
+    raise ValueError("Explicitly provide --seed <N> or --logger-folder <PATH> when plotting Arduino E2E runs.")
 
 
 def _read_csv(path: Path, required: bool = True) -> pd.DataFrame:
@@ -195,18 +194,53 @@ def _build_output_response(output_capture: pd.DataFrame) -> List[dict]:
     return responses
 
 
-def _build_summary_from_surface(surface_summary: pd.DataFrame) -> pd.DataFrame:
+def _active_time_window(input_signal: pd.DataFrame, events: pd.DataFrame) -> tuple[float, float] | None:
+    scheduled = pd.to_numeric(events.get("scheduled_time_s"), errors="coerce")
+    scheduled = scheduled[np.isfinite(scheduled)]
+    if scheduled.empty:
+        scheduled = pd.to_numeric(input_signal.get("scheduled_time_s"), errors="coerce")
+        scheduled = scheduled[np.isfinite(scheduled)]
+    if scheduled.empty:
+        return None
+    return float(scheduled.min()), float(scheduled.max())
+
+
+def _clip_time_frame(frame: pd.DataFrame, time_column: str, window: tuple[float, float] | None) -> pd.DataFrame:
+    if frame.empty or window is None or time_column not in frame.columns:
+        return frame
+    time_values = pd.to_numeric(frame[time_column], errors="coerce")
+    mask = np.isfinite(time_values) & (time_values >= window[0]) & (time_values <= window[1])
+    return frame.loc[mask].copy()
+
+
+def _build_command_traces(input_signal: pd.DataFrame, surfaces: List[str], profile_type: str) -> List[dict]:
+    traces: List[dict] = []
+    if profile_type != "latency_vector_step_train":
+        return traces
+
+    time_values = pd.to_numeric(input_signal.get("time_s"), errors="coerce").to_numpy(dtype=float)
+    for style in SURFACE_STYLES:
+        surface_name = style["surface_name"]
+        if surfaces and surface_name not in surfaces:
+            continue
+        column_name = f"{surface_name}_desired_deg"
+        if column_name not in input_signal.columns:
+            continue
+        command_values = pd.to_numeric(input_signal.get(column_name), errors="coerce").to_numpy(dtype=float)
+        if not np.any(np.isfinite(command_values)):
+            continue
+        traces.append({**style, "time": time_values, "value": command_values})
+    return traces
+
+
+def _build_summary_from_events(events: pd.DataFrame, surfaces: List[str]) -> pd.DataFrame:
     rows = []
-    for metric_label, prefix in SUMMARY_METRICS:
-        row = {"Metric": metric_label, "SampleCount": 0}
-        sample_col = f"{prefix}SampleCount"
-        if sample_col in surface_summary.columns:
-            row["SampleCount"] = int(np.nanmedian(pd.to_numeric(surface_summary[sample_col], errors="coerce").to_numpy(dtype=float)))
+    active_events = events[events["surface_name"].astype(str).isin(surfaces)].copy() if surfaces else events.copy()
+    for metric_label, column_name in SUMMARY_METRICS:
+        stats = _latency_stats(active_events.get(column_name, pd.Series(dtype=float)))
+        row = {"Metric": metric_label, "SampleCount": int(stats["SampleCount"])}
         for stat_suffix, stat_label, _ in SUMMARY_STATS:
-            column = f"{prefix}{stat_suffix}"
-            values = pd.to_numeric(surface_summary.get(column), errors="coerce").to_numpy(dtype=float) if column in surface_summary.columns else np.array([], dtype=float)
-            values = values[np.isfinite(values)]
-            row[stat_label] = float(np.nanmedian(values)) if values.size else np.nan
+            row[stat_label] = float(stats[stat_suffix]) if np.isfinite(stats[stat_suffix]) else np.nan
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -225,7 +259,34 @@ def _build_integrity_table(integrity_summary: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _build_critical_settings(run_label: str, logger_folder: Path, event_prefix: str, events: pd.DataFrame) -> pd.DataFrame:
+def _infer_profile_type(input_signal: pd.DataFrame, profile_events: pd.DataFrame) -> str:
+    if "AxisLabel" in profile_events.columns:
+        return "latency_vector_step_train"
+    base_command = pd.to_numeric(input_signal.get("base_command_deg"), errors="coerce")
+    if base_command.isna().all():
+        return "latency_vector_step_train"
+    return "latency_step_train"
+
+
+def _build_chain_text(events: pd.DataFrame) -> str:
+    chain_steps = ["Scheduled", "Dispatch"]
+    if "board_rx_s" in events.columns:
+        chain_steps.append("Arduino RX")
+    if "board_apply_s" in events.columns:
+        chain_steps.append("Arduino apply")
+    if "output_time_s" in events.columns:
+        chain_steps.append("Servo output")
+    return "Chain: " + " -> ".join(chain_steps)
+
+
+def _build_critical_settings(
+    run_label: str,
+    logger_folder: Path,
+    event_prefix: str,
+    events: pd.DataFrame,
+    input_signal: pd.DataFrame,
+    profile_events: pd.DataFrame,
+) -> pd.DataFrame:
     clock_mode = ""
     if "anchor_source" in events.columns and not events.empty:
         anchor_values = events["anchor_source"].astype(str)
@@ -233,6 +294,7 @@ def _build_critical_settings(run_label: str, logger_folder: Path, event_prefix: 
             clock_mode = "shared_clock"
         elif (anchor_values == "apply").any():
             clock_mode = "apply_anchored"
+    profile_type = _infer_profile_type(input_signal, profile_events)
     settings = [
         ("Run", "RunLabel", run_label),
         ("Run", "Status", "completed"),
@@ -243,15 +305,22 @@ def _build_critical_settings(run_label: str, logger_folder: Path, event_prefix: 
         ("ArduinoTransport", "OperatingMode", "controller"),
         ("ArduinoTransport", "CommandEncoding", "binary_vector"),
         ("Command", "Mode", "all"),
-        ("Profile", "Type", "latency_step_train"),
+        ("Profile", "Type", profile_type),
         ("LogicAnalyzer", "AnalysisBasis", "servo_output_pwm_logic_analyzer"),
         ("Matching", "Mode", clock_mode or "apply_anchored"),
+        ("Analysis", "LatencyChain", _build_chain_text(events)),
         ("Analysis", "LatencySummarySource", "arduino_e2e_python"),
     ]
     return pd.DataFrame(settings, columns=["Category", "Setting", "Value"])
 
 
-def _plot_time_series(ax: plt.Axes, input_signal: pd.DataFrame, responses: List[dict], profile_events: pd.DataFrame) -> None:
+def _plot_time_series(
+    ax: plt.Axes,
+    input_signal: pd.DataFrame,
+    command_traces: List[dict],
+    responses: List[dict],
+    profile_events: pd.DataFrame,
+) -> None:
     ax.set_facecolor("white")
     ax.grid(True, color=(0.85, 0.85, 0.85, 1.0), linewidth=0.4)
     ax.spines["top"].set_visible(False)
@@ -270,8 +339,20 @@ def _plot_time_series(ax: plt.Axes, input_signal: pd.DataFrame, responses: List[
 
     host_t = pd.to_numeric(input_signal.get("time_s"), errors="coerce").to_numpy(dtype=float)
     host_y = pd.to_numeric(input_signal.get("base_command_deg"), errors="coerce").to_numpy(dtype=float)
-    mask = np.isfinite(host_t) & np.isfinite(host_y)
-    ax.plot(host_t[mask], host_y[mask], color="#264653", linewidth=1.0, label="Host command")
+    if host_t.size > 0 and host_y.size > 0 and host_t.size == host_y.size:
+        mask = np.isfinite(host_t) & np.isfinite(host_y)
+        ax.plot(host_t[mask], host_y[mask], color="#264653", linewidth=1.0, label="Host command")
+
+    for command_trace in command_traces:
+        mask = np.isfinite(command_trace["time"]) & np.isfinite(command_trace["value"])
+        ax.plot(
+            command_trace["time"][mask],
+            command_trace["value"][mask],
+            color=mcolors.to_rgba(command_trace["color"], 0.80),
+            linewidth=1.0,
+            linestyle="--",
+            label=f"{command_trace['label']} cmd",
+        )
 
     for response in responses:
         mask = np.isfinite(response["time"]) & np.isfinite(response["value"])
@@ -384,14 +465,34 @@ def _build_bundle(logger_folder: Path, event_prefix: str) -> dict:
     _to_numeric(output_capture, ["time_s", "pulse_us", "sample_index", "sample_count", "sample_rate_hz"])
     _to_numeric(reference_capture, ["time_s", "sample_index", "sample_rate_hz"])
 
+    active_window = _active_time_window(input_signal, events)
+    input_signal = _clip_time_frame(input_signal, "scheduled_time_s", active_window)
+    output_capture = _clip_time_frame(output_capture, "time_s", active_window)
+    reference_capture = _clip_time_frame(reference_capture, "time_s", active_window)
+    profile_events = _clip_time_frame(profile_events, "StartTime_s", active_window)
+
     surfaces = [style["surface_name"] for style in SURFACE_STYLES if style["surface_name"] in events["surface_name"].astype(str).unique()]
     if not surfaces:
         surfaces = [style["surface_name"] for style in SURFACE_STYLES]
 
-    latency_summary = _build_summary_from_surface(surface_summary)
+    if {"rx_to_apply_latency_s", "apply_to_output_latency_s"}.issubset(events.columns):
+        events["rx_to_output_latency_s"] = pd.to_numeric(events["rx_to_apply_latency_s"], errors="coerce") + pd.to_numeric(events["apply_to_output_latency_s"], errors="coerce")
+    else:
+        events["rx_to_output_latency_s"] = np.nan
+
+    latency_summary = _build_summary_from_events(events, surfaces)
     integrity_table = _build_integrity_table(integrity_summary)
     run_label = _run_label_from_logger(logger_folder)
-    critical_settings = _build_critical_settings(run_label, logger_folder, event_prefix, events)
+    profile_type = _infer_profile_type(input_signal, profile_events)
+    command_traces = _build_command_traces(input_signal, surfaces, profile_type)
+    critical_settings = _build_critical_settings(
+        run_label,
+        logger_folder,
+        event_prefix,
+        events,
+        input_signal,
+        profile_events,
+    )
 
     sheets = {
         "CriticalSettings": critical_settings,
@@ -418,6 +519,9 @@ def _build_bundle(logger_folder: Path, event_prefix: str) -> dict:
         "surfaces": surfaces,
         "events": events,
         "input_signal": input_signal,
+        "profile_type": profile_type,
+        "chain_text": _build_chain_text(events),
+        "command_traces": command_traces,
         "output_capture": output_capture,
         "profile_events": profile_events,
         "latency_summary": latency_summary,
@@ -437,20 +541,27 @@ def _plot_figure(bundle: dict, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig = plt.figure(figsize=(13.5, 8.4), dpi=300)
     fig.patch.set_facecolor("white")
-    fig.subplots_adjust(left=0.07, right=0.80, top=0.83, bottom=0.08, hspace=0.42, wspace=0.62)
+    fig.subplots_adjust(left=0.07, right=0.80, top=0.80, bottom=0.08, hspace=0.42, wspace=0.62)
     grid = fig.add_gridspec(2, 2)
     ax_time = fig.add_subplot(grid[0, 0])
     ax_latency = fig.add_subplot(grid[0, 1])
     ax_summary = fig.add_subplot(grid[1, 0])
     ax_integrity = fig.add_subplot(grid[1, 1])
 
-    _plot_time_series(ax_time, bundle["input_signal"], _build_output_response(bundle["output_capture"]), bundle["profile_events"])
+    _plot_time_series(
+        ax_time,
+        bundle["input_signal"],
+        bundle["command_traces"],
+        _build_output_response(bundle["output_capture"]),
+        bundle["profile_events"],
+    )
     _plot_latency(ax_latency, bundle["events"], bundle["surfaces"])
     _plot_summary(ax_summary, bundle["latency_summary"])
     _plot_integrity(ax_integrity, bundle["integrity_table"])
 
     fig.suptitle(bundle["run_label"], fontsize=13, y=0.975)
     fig.text(0.5, 0.935, "Controller-origin latency with analyser-observed servo output", ha="center", va="top", fontsize=9.5, color="#4f5d75")
+    fig.text(0.5, 0.910, bundle["chain_text"], ha="center", va="top", fontsize=9.0, color="#6c757d")
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -471,6 +582,9 @@ def main() -> None:
     _write_workbook(bundle, workbook_path)
     _plot_figure(bundle, figure_path)
 
+    selection_source = f"seed {args.seed}" if args.seed is not None else "logger folder"
+    print(f"Source: {selection_source}")
+    print(f"Logger folder: {logger_folder.resolve()}")
     print(f"Workbook: {workbook_path.resolve()}")
     print(f"Figure: {figure_path.resolve()}")
 

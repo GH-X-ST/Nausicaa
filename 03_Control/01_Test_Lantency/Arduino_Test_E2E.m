@@ -20,7 +20,8 @@ referenceAssociationWindowSeconds = double(getFieldLocal(config, "referenceAssoc
 transitionPulseThresholdUs = double(getFieldLocal(config, "transitionPulseThresholdUs", 4.0));
 targetPulseToleranceUs = double(getFieldLocal(config, "targetPulseToleranceUs", 40.0));
 previousPulseToleranceUs = double(getFieldLocal(config, "previousPulseToleranceUs", 25.0));
-maximumApplyToOutputSeconds = double(getFieldLocal(config, "maximumApplyToOutputSeconds", 0.03));
+preAnchorSlackSeconds = double(getFieldLocal(config, "preAnchorSlackSeconds", 0.005));
+maximumApplyToOutputSeconds = double(getFieldLocal(config, "maximumApplyToOutputSeconds", 0.05));
 logicAnalyzerConfig = getFieldLocal(config, "logicAnalyzer", struct());
 
 if runHardware
@@ -31,10 +32,27 @@ if runHardware
     sigrokSession = struct("process", [], "isActive", false);
     cleanupHandle = onCleanup(@() cleanupSigrokSessionLocal(sigrokSession)); %#ok<NASGU>
     if logicAnalyzer.enabled && logicAnalyzer.mode == "sigrok_auto"
+        ensureSigrokDeviceReadyLocal(logicAnalyzer);
         sigrokSession = startSigrokCaptureLocal(logicAnalyzer, captureDurationSeconds);
         pause(logicAnalyzer.captureStartLeadSeconds);
     end
     runData = Arduino_Test(arduinoConfig);
+    if ~isfield(runData, "connectionInfo") || ...
+            ~isfield(runData.connectionInfo, "arduino") || ...
+            ~isfield(runData.connectionInfo.arduino, "isConnected") || ...
+            ~logical(runData.connectionInfo.arduino.isConnected)
+        failureReason = "Arduino connection failed before the E2E run started.";
+        if isfield(runData, "runInfo") && isfield(runData.runInfo, "reason") && strlength(string(runData.runInfo.reason)) > 0
+            failureReason = string(runData.runInfo.reason);
+        elseif isfield(runData, "connectionInfo") && isfield(runData.connectionInfo, "arduino") && ...
+                isfield(runData.connectionInfo.arduino, "connectionMessage") && ...
+                strlength(string(runData.connectionInfo.arduino.connectionMessage)) > 0
+            failureReason = string(runData.connectionInfo.arduino.connectionMessage);
+        end
+        error("Arduino_Test_E2E:ArduinoNotConnected", ...
+            "Arduino was not detected, so Arduino_Test_E2E stopped before log import. %s", ...
+            char(failureReason));
+    end
     loggerFolder = string(runData.config.arduinoTransport.loggerOutputFolder);
     if logicAnalyzer.enabled && logicAnalyzer.mode == "sigrok_auto"
         waitForSigrokCaptureLocal(sigrokSession, logicAnalyzer);
@@ -53,7 +71,7 @@ logs = loadArduinoLogsLocal(loggerFolder, sampleTimeSeconds);
 logs.referenceCapture = referenceCapture;
 logs.outputCapture = outputCapture;
 
-e2eEvents = computeArduinoE2ELocal( ...
+[e2eEvents, outputCapture, referenceCapture, analyzerAlignment] = computeArduinoE2ELocal( ...
     logs, ...
     clockMapMode, ...
     matchingMode, ...
@@ -62,6 +80,7 @@ e2eEvents = computeArduinoE2ELocal( ...
     transitionPulseThresholdUs, ...
     targetPulseToleranceUs, ...
     previousPulseToleranceUs, ...
+    preAnchorSlackSeconds, ...
     maximumApplyToOutputSeconds);
 [surfaceSummary, overallSummary, integritySummary] = buildSummariesLocal(e2eEvents, logs.surfaceNames);
 
@@ -73,6 +92,7 @@ e2e.profileEvents = logs.profileEvents;
 e2e.referenceCapture = referenceCapture;
 e2e.outputCapture = outputCapture;
 e2e.eventLatency = e2eEvents;
+e2e.analyzerAlignment = analyzerAlignment;
 e2e.surfaceSummary = surfaceSummary;
 e2e.overallSummary = overallSummary;
 e2e.integritySummary = integritySummary;
@@ -102,17 +122,17 @@ arduinoConfig.arduinoTransport.mode = "nano_logger_udp";
 arduinoConfig.arduinoTransport.operatingMode = "controller";
 arduinoConfig.arduinoTransport.commandEncoding = "binary_vector";
 arduinoConfig.commandMode = "all";
-arduinoConfig.commandProfile.type = "latency_step_train";
+arduinoConfig.commandProfile.type = "latency_vector_step_train";
 arduinoConfig.commandProfile.sampleTimeSeconds = 0.02;
 arduinoConfig.commandProfile.preCommandNeutralSeconds = recordLeadSeconds;
 arduinoConfig.commandProfile.postCommandNeutralSeconds = recordLagSeconds;
 arduinoConfig.commandProfile.durationSeconds = commandActiveSeconds;
-arduinoConfig.commandProfile.amplitudeDegrees = 45.0;
+arduinoConfig.commandProfile.amplitudeDegrees = 12.0;
 arduinoConfig.commandProfile.offsetDegrees = 0.0;
-arduinoConfig.commandProfile.eventHoldSeconds = 0.20;
-arduinoConfig.commandProfile.eventNeutralHoldSeconds = 0.10;
-arduinoConfig.commandProfile.eventDwellSeconds = 0.60;
-arduinoConfig.commandProfile.eventRandomJitterSeconds = 0.05;
+arduinoConfig.commandProfile.eventHoldSeconds = 0.06;
+arduinoConfig.commandProfile.eventNeutralHoldSeconds = 0.00;
+arduinoConfig.commandProfile.eventDwellSeconds = 0.04;
+arduinoConfig.commandProfile.eventRandomJitterSeconds = 0.02;
 arduinoConfig.commandProfile.randomSeed = seed;
 if ~isfield(arduinoConfig, "runLabel") || strlength(string(arduinoConfig.runLabel)) == 0
     arduinoConfig.runLabel = compose("Seed_%d_Controller", round(seed));
@@ -172,10 +192,7 @@ deleteFileIfPresentLocal(logicAnalyzer.referenceCapturePath);
 deleteFileIfPresentLocal(logicAnalyzer.storeStdoutPath);
 deleteFileIfPresentLocal(logicAnalyzer.storeStderrPath);
 sigrokCliPath = validateSigrokExecutableLocal(logicAnalyzer.sigrokCliPath);
-driverSpec = string(logicAnalyzer.deviceDriver);
-if strlength(logicAnalyzer.deviceId) > 0
-    driverSpec = driverSpec + ":" + logicAnalyzer.deviceId;
-end
+driverSpec = buildSigrokDriverSpecLocal(logicAnalyzer);
 channelAssignments = join(logicAnalyzer.channelNames + "=" + string(round(logicAnalyzer.channels)), ",");
 captureDurationMs = max(1, ceil(1000 .* (captureDurationSeconds + logicAnalyzer.captureStartLeadSeconds + logicAnalyzer.captureStopLagSeconds)));
 commandText = strjoin([ ...
@@ -187,7 +204,10 @@ commandText = strjoin([ ...
     "--output-file", quoteWindowsArgumentLocal(logicAnalyzer.rawCapturePath)], " ");
 processStartInfo = System.Diagnostics.ProcessStartInfo();
 processStartInfo.FileName = 'cmd.exe';
-processStartInfo.Arguments = char("/d /s /c " + quoteWindowsArgumentLocal(commandText + " 1>" + quoteWindowsArgumentLocal(logicAnalyzer.storeStdoutPath) + " 2>" + quoteWindowsArgumentLocal(logicAnalyzer.storeStderrPath)));
+processStartInfo.Arguments = char(buildCmdExeArgumentsLocal( ...
+    commandText + ...
+    " 1>" + quoteWindowsArgumentLocal(logicAnalyzer.storeStdoutPath) + ...
+    " 2>" + quoteWindowsArgumentLocal(logicAnalyzer.storeStderrPath)));
 processStartInfo.UseShellExecute = false;
 processStartInfo.CreateNoWindow = true;
 processStartInfo.WorkingDirectory = char(fileparts(logicAnalyzer.rawCapturePath));
@@ -196,7 +216,46 @@ processHandle.StartInfo = processStartInfo;
 if ~processHandle.Start()
     error("Arduino_Test_E2E:SigrokLaunchFailed", "Failed to launch sigrok-cli raw capture.");
 end
-sigrokSession = struct("process", processHandle, "isActive", true);
+sigrokSession = struct( ...
+    "process", processHandle, ...
+    "isActive", true, ...
+    "rawCaptureCommand", commandText, ...
+    "stdoutPath", string(logicAnalyzer.storeStdoutPath), ...
+    "stderrPath", string(logicAnalyzer.storeStderrPath));
+end
+
+function ensureSigrokDeviceReadyLocal(logicAnalyzer)
+sigrokCliPath = validateSigrokExecutableLocal(logicAnalyzer.sigrokCliPath);
+driverSpec = buildSigrokDriverSpecLocal(logicAnalyzer);
+openCommand = strjoin([ ...
+    quoteWindowsArgumentLocal(sigrokCliPath), ...
+    "--driver", quoteWindowsArgumentLocal(driverSpec), ...
+    "--show"], " ");
+[openStatus, openOutput] = runWindowsCommandLocal(openCommand);
+raiseSigrokUsbAccessErrorIfNeededLocal(openOutput);
+if openStatus == 0
+    return;
+end
+
+scanCommand = quoteWindowsArgumentLocal(sigrokCliPath) + " --scan";
+[scanStatus, scanOutput] = runWindowsCommandLocal(scanCommand);
+raiseSigrokUsbAccessErrorIfNeededLocal(scanOutput);
+if scanStatus ~= 0
+    error("Arduino_Test_E2E:SigrokScanFailed", ...
+        "sigrok-cli scan failed before starting capture. Command: %s\nOutput:\n%s", ...
+        char(scanCommand), ...
+        char(string(scanOutput)));
+end
+if ~contains(lower(string(scanOutput)), lower(string(logicAnalyzer.deviceDriver)))
+    error("Arduino_Test_E2E:SigrokDeviceUnavailable", ...
+        "Logic analyser '%s' was not detected before the run. Check USB connection, close PulseView/other sigrok clients, then retry.\nScan output:\n%s", ...
+        char(logicAnalyzer.deviceDriver), ...
+        char(string(scanOutput)));
+end
+error("Arduino_Test_E2E:SigrokDeviceUnavailable", ...
+    "sigrok-cli found driver '%s' but could not open the device before the run. Close PulseView/other sigrok clients, unplug/replug the analyser, then retry.\nOutput:\n%s", ...
+    char(logicAnalyzer.deviceDriver), ...
+    char(string(openOutput)));
 end
 
 function waitForSigrokCaptureLocal(sigrokSession, logicAnalyzer)
@@ -204,8 +263,17 @@ if ~isfield(sigrokSession, "isActive") || ~sigrokSession.isActive
     return;
 end
 sigrokSession.process.WaitForExit();
-if double(sigrokSession.process.ExitCode) ~= 0
-    error("Arduino_Test_E2E:SigrokCaptureFailed", "sigrok-cli raw capture failed. See %s.", char(logicAnalyzer.storeStderrPath));
+exitCode = double(sigrokSession.process.ExitCode);
+if exitCode ~= 0
+    if isReadableSigrokCaptureLocal(logicAnalyzer.rawCapturePath, logicAnalyzer.sigrokCliPath)
+        fprintf("sigrok-cli returned exit code %d, but the raw capture is readable and will be used.\n", exitCode);
+    else
+        error("Arduino_Test_E2E:SigrokCaptureFailed", ...
+            "sigrok-cli raw capture failed with exit code %d.\nCommand: %s\nStderr path: %s", ...
+            exitCode, ...
+            char(sigrokSession.rawCaptureCommand), ...
+            char(logicAnalyzer.storeStderrPath));
+    end
 end
 if ~isfile(logicAnalyzer.rawCapturePath)
     error("Arduino_Test_E2E:MissingSigrokCapture", "sigrok-cli finished without creating the raw capture file.");
@@ -249,18 +317,37 @@ seq = unique(double(dispatch.command_sequence), 'stable');
 rowCount = numel(seq);
 inputSignal = table();
 inputSignal.command_sequence = seq;
-inputSignal.scheduled_time_s = (seq - min(seq)) .* sampleTimeSeconds;
-dispatchBySeq = groupsummary(dispatch(:, {'command_sequence', 'command_dispatch_us'}), 'command_sequence', 'median', 'command_dispatch_us');
-originUs = min(double(dispatchBySeq.median_command_dispatch_us));
-inputSignal.command_dispatch_s = (double(dispatchBySeq.median_command_dispatch_us) - originUs) ./ 1e6;
+if ismember('scheduled_time_s', string(dispatch.Properties.VariableNames))
+    scheduleBySeq = groupsummary(dispatch(:, {'command_sequence', 'scheduled_time_s'}), 'command_sequence', 'median', 'scheduled_time_s');
+    inputSignal.scheduled_time_s = double(scheduleBySeq.median_scheduled_time_s);
+else
+    inputSignal.scheduled_time_s = (seq - min(seq)) .* sampleTimeSeconds;
+end
+if ismember('command_dispatch_s', string(dispatch.Properties.VariableNames))
+    dispatchBySeq = groupsummary(dispatch(:, {'command_sequence', 'command_dispatch_s'}), 'command_sequence', 'median', 'command_dispatch_s');
+    inputSignal.command_dispatch_s = double(dispatchBySeq.median_command_dispatch_s);
+    if all(~isfinite(inputSignal.command_dispatch_s))
+        dispatchBySeq = groupsummary(dispatch(:, {'command_sequence', 'command_dispatch_us'}), 'command_sequence', 'median', 'command_dispatch_us');
+        originUs = min(double(dispatchBySeq.median_command_dispatch_us));
+        inputSignal.command_dispatch_s = (double(dispatchBySeq.median_command_dispatch_us) - originUs) ./ 1e6;
+    end
+else
+    dispatchBySeq = groupsummary(dispatch(:, {'command_sequence', 'command_dispatch_us'}), 'command_sequence', 'median', 'command_dispatch_us');
+    originUs = min(double(dispatchBySeq.median_command_dispatch_us));
+    inputSignal.command_dispatch_s = (double(dispatchBySeq.median_command_dispatch_us) - originUs) ./ 1e6;
+end
 inputSignal.time_s = inputSignal.command_dispatch_s;
 inputSignal.command_write_start_s = inputSignal.command_dispatch_s;
 inputSignal.command_write_stop_s = inputSignal.command_dispatch_s;
 inputSignal.base_command_deg = nan(rowCount, 1);
 for i = 1:rowCount
     rowSubset = dispatch(double(dispatch.command_sequence) == seq(i), :);
-    basePosition = median(double(rowSubset.position_norm), 'omitnan');
-    inputSignal.base_command_deg(i) = 180.0 .* (basePosition - 0.5);
+    surfacePositions = double(rowSubset.position_norm);
+    finiteSurfacePositions = surfacePositions(isfinite(surfacePositions));
+    if ~isempty(finiteSurfacePositions) && max(finiteSurfacePositions) - min(finiteSurfacePositions) <= 1e-9
+        basePosition = median(finiteSurfacePositions, 'omitnan');
+        inputSignal.base_command_deg(i) = 180.0 .* (basePosition - 0.5);
+    end
     for s = 1:numel(surfaceNames)
         surfaceName = surfaceNames(s);
         v = rowSubset(rowSubset.surface_name == surfaceName, :);
@@ -291,22 +378,33 @@ end
 if ~isempty(outputCapture)
     return;
 end
-if ~isfile(logicAnalyzer.logicStateExportPath)
-    if ~isfile(logicAnalyzer.rawCapturePath)
-        error("Arduino_Test_E2E:MissingAnalyzerCapture", "No analyser capture artifact was found.");
-    end
-    sigrokCliPath = validateSigrokExecutableLocal(logicAnalyzer.sigrokCliPath);
-    commandText = strjoin([ ...
-        quoteWindowsArgumentLocal(sigrokCliPath), ...
-        "--input-file", quoteWindowsArgumentLocal(logicAnalyzer.rawCapturePath), ...
-        "--output-file", quoteWindowsArgumentLocal(logicAnalyzer.logicStateExportPath), ...
-        "--output-format", quoteWindowsArgumentLocal("csv:time=true")], " ");
-    [status, outputText] = runWindowsCommandLocal(commandText + " 1>>" + quoteWindowsArgumentLocal(logicAnalyzer.storeStdoutPath) + " 2>>" + quoteWindowsArgumentLocal(logicAnalyzer.storeStderrPath));
-    if status ~= 0
-        error("Arduino_Test_E2E:SigrokExportFailed", "sigrok-cli export failed. %s", strtrim(outputText));
+logicState = struct();
+if isfile(logicAnalyzer.rawCapturePath)
+    try
+        logicState = readSigrokRawCaptureAsLogicStateLocal(logicAnalyzer);
+    catch rawCaptureError
+        fprintf("Raw .sr parse fallback to sigrok CSV export: %s\n", rawCaptureError.message);
+        logicState = struct();
     end
 end
-logicState = readLogicStateLocal(logicAnalyzer, surfaceNames);
+if isempty(fieldnames(logicState))
+    if ~isfile(logicAnalyzer.logicStateExportPath)
+        if ~isfile(logicAnalyzer.rawCapturePath)
+            error("Arduino_Test_E2E:MissingAnalyzerCapture", "No analyser capture artifact was found.");
+        end
+        sigrokCliPath = validateSigrokExecutableLocal(logicAnalyzer.sigrokCliPath);
+        commandText = strjoin([ ...
+            quoteWindowsArgumentLocal(sigrokCliPath), ...
+            "--input-file", quoteWindowsArgumentLocal(logicAnalyzer.rawCapturePath), ...
+            "--output-file", quoteWindowsArgumentLocal(logicAnalyzer.logicStateExportPath), ...
+            "--output-format", quoteWindowsArgumentLocal("csv:time=true")], " ");
+        [status, outputText] = runWindowsCommandLocal(commandText + " 1>>" + quoteWindowsArgumentLocal(logicAnalyzer.storeStdoutPath) + " 2>>" + quoteWindowsArgumentLocal(logicAnalyzer.storeStderrPath));
+        if status ~= 0
+            error("Arduino_Test_E2E:SigrokExportFailed", "sigrok-cli export failed. %s", strtrim(outputText));
+        end
+    end
+    logicState = readLogicStateLocal(logicAnalyzer, surfaceNames);
+end
 if isfinite(logicAnalyzer.channelRoleMap.reference)
     referenceCapture = extractReferenceCaptureLocal(logicState, logicAnalyzer);
 end
@@ -354,17 +452,210 @@ end
 logicState = struct('sampleIndex', reshape(sampleIndex, [], 1), 'sampleRateHz', double(logicAnalyzer.sampleRateHz), 'channelNames', logicAnalyzer.channelNames, 'stateMatrix', channelData);
 end
 
-function events = computeArduinoE2ELocal(logs, clockMapMode, matchingMode, maxOutputAssociationSeconds, referenceAssociationWindowSeconds, transitionPulseThresholdUs, targetPulseToleranceUs, previousPulseToleranceUs, maximumApplyToOutputSeconds)
+function logicState = readSigrokRawCaptureAsLogicStateLocal(logicAnalyzer)
+rawCapturePath = string(logicAnalyzer.rawCapturePath);
+if ~isfile(rawCapturePath)
+    error("Arduino_Test_E2E:MissingSigrokCapture", "Raw sigrok capture file does not exist: %s", char(rawCapturePath));
+end
+
+extractDirectory = string(tempname);
+mkdir(extractDirectory);
+cleanupDirectory = onCleanup(@() removeDirectoryIfPresentLocal(extractDirectory)); %#ok<NASGU>
+unzip(rawCapturePath, extractDirectory);
+
+metadataPath = fullfile(extractDirectory, "metadata");
+if ~isfile(metadataPath)
+    error("Arduino_Test_E2E:MissingSigrokMetadata", "Raw sigrok capture is missing the metadata entry.");
+end
+
+metadataText = fileread(metadataPath);
+[sampleRateHz, probeNames, unitSizeBytes] = parseSigrokRawMetadataLocal(metadataText, logicAnalyzer.sampleRateHz);
+if unitSizeBytes ~= 1
+    error("Arduino_Test_E2E:UnsupportedSigrokUnitSize", "Raw sigrok parsing currently supports only unitsize=1 captures.");
+end
+
+logicFiles = dir(fullfile(extractDirectory, "logic-1-*"));
+if isempty(logicFiles)
+    error("Arduino_Test_E2E:MissingSigrokLogicChunks", "Raw sigrok capture does not contain logic sample chunks.");
+end
+logicFiles = sortSigrokLogicChunkFilesLocal(logicFiles);
+[changeSampleIndex, changeBytes] = readSigrokLogicTransitionsLocal(logicFiles);
+if isempty(changeSampleIndex)
+    logicState = struct("sampleIndex", zeros(0,1), "sampleRateHz", double(sampleRateHz), "channelNames", reshape(string(logicAnalyzer.channelNames), 1, []), "stateMatrix", zeros(0, numel(logicAnalyzer.channelNames)));
+    return;
+end
+
+channelNames = reshape(string(logicAnalyzer.channelNames), 1, []);
+stateMatrix = zeros(numel(changeSampleIndex), numel(channelNames));
+for channelIndex = 1:numel(channelNames)
+    probeIndex = findMatchingSigrokProbeIndexLocal(probeNames, logicAnalyzer, channelIndex);
+    if isempty(probeIndex)
+        error("Arduino_Test_E2E:MissingSigrokProbe", "Raw sigrok capture metadata does not contain probe %s.", char(channelNames(channelIndex)));
+    end
+    stateMatrix(:, channelIndex) = double(bitget(changeBytes, probeIndex));
+end
+
+logicState = struct( ...
+    "sampleIndex", reshape(double(changeSampleIndex), [], 1), ...
+    "sampleRateHz", double(sampleRateHz), ...
+    "channelNames", channelNames, ...
+    "stateMatrix", stateMatrix);
+end
+
+function [sampleRateHz, probeNames, unitSizeBytes] = parseSigrokRawMetadataLocal(metadataText, defaultSampleRateHz)
+sampleRateHz = double(defaultSampleRateHz);
+probeNames = strings(0, 1);
+unitSizeBytes = 1;
+
+metadataLines = splitlines(string(metadataText));
+probeNumbers = zeros(0, 1);
+probeValues = strings(0, 1);
+for lineIndex = 1:numel(metadataLines)
+    lineText = strtrim(metadataLines(lineIndex));
+    if startsWith(lineText, "samplerate=", "IgnoreCase", true)
+        sampleRateHz = parseSigrokSampleRateTextLocal(extractAfter(lineText, "="), defaultSampleRateHz);
+    elseif startsWith(lineText, "unitsize=", "IgnoreCase", true)
+        unitSizeBytes = round(str2double(extractAfter(lineText, "=")));
+    elseif startsWith(lineText, "probe", "IgnoreCase", true)
+        token = regexp(char(lineText), '^probe(\d+)=(.*)$', 'tokens', 'once');
+        if ~isempty(token)
+            probeNumbers(end + 1, 1) = str2double(token{1}); %#ok<AGROW>
+            probeValues(end + 1, 1) = string(strtrim(token{2})); %#ok<AGROW>
+        end
+    end
+end
+
+if ~isempty(probeNumbers)
+    probeNames = strings(max(probeNumbers), 1);
+    for probeIndex = 1:numel(probeNumbers)
+        probeNames(probeNumbers(probeIndex)) = probeValues(probeIndex);
+    end
+end
+end
+
+function sampleRateHz = parseSigrokSampleRateTextLocal(sampleRateText, defaultSampleRateHz)
+sampleRateHz = double(defaultSampleRateHz);
+matchTokens = regexp(strtrim(char(sampleRateText)), '^([0-9]*\.?[0-9]+)\s*([kmg]?)(?:hz)?$', 'tokens', 'once', 'ignorecase');
+if isempty(matchTokens)
+    return;
+end
+
+sampleRateValue = str2double(matchTokens{1});
+scaleToken = lower(string(matchTokens{2}));
+scaleFactor = 1;
+if scaleToken == "k"
+    scaleFactor = 1e3;
+elseif scaleToken == "m"
+    scaleFactor = 1e6;
+elseif scaleToken == "g"
+    scaleFactor = 1e9;
+end
+sampleRateHz = sampleRateValue .* scaleFactor;
+end
+
+function logicFiles = sortSigrokLogicChunkFilesLocal(logicFiles)
+fileNames = string({logicFiles.name}');
+chunkNumbers = nan(numel(fileNames), 1);
+for fileIndex = 1:numel(fileNames)
+    token = regexp(char(fileNames(fileIndex)), '^logic-\d+-(\d+)$', 'tokens', 'once');
+    if ~isempty(token)
+        chunkNumbers(fileIndex) = str2double(token{1});
+    end
+end
+[~, sortOrder] = sort(chunkNumbers);
+logicFiles = logicFiles(sortOrder);
+end
+
+function [changeSampleIndex, changeBytes] = readSigrokLogicTransitionsLocal(logicFiles)
+changeSampleIndexCells = cell(numel(logicFiles), 1);
+changeBytesCells = cell(numel(logicFiles), 1);
+sampleOffset = 0;
+lastByte = uint8(0);
+hasPreviousSample = false;
+
+for fileIndex = 1:numel(logicFiles)
+    logicFilePath = fullfile(logicFiles(fileIndex).folder, logicFiles(fileIndex).name);
+    fileIdentifier = fopen(logicFilePath, 'r');
+    if fileIdentifier < 0
+        error("Arduino_Test_E2E:OpenSigrokChunkFailed", "Unable to open raw sigrok logic chunk: %s", logicFilePath);
+    end
+    closeFile = onCleanup(@() fclose(fileIdentifier)); %#ok<NASGU>
+    chunkBytes = fread(fileIdentifier, inf, '*uint8');
+
+    if isempty(chunkBytes)
+        continue;
+    end
+
+    if hasPreviousSample
+        changeMask = [chunkBytes(1) ~= lastByte; chunkBytes(2:end) ~= chunkBytes(1:end-1)];
+    else
+        changeMask = [true; chunkBytes(2:end) ~= chunkBytes(1:end-1)];
+    end
+
+    changeIndices = sampleOffset + find(changeMask) - 1;
+    changeSampleIndexCells{fileIndex} = reshape(double(changeIndices), [], 1);
+    changeBytesCells{fileIndex} = reshape(chunkBytes(changeMask), [], 1);
+
+    sampleOffset = sampleOffset + numel(chunkBytes);
+    lastByte = chunkBytes(end);
+    hasPreviousSample = true;
+end
+
+changeSampleIndex = vertcat(changeSampleIndexCells{:});
+changeBytes = vertcat(changeBytesCells{:});
+end
+
+function probeIndex = findMatchingSigrokProbeIndexLocal(probeNames, logicAnalyzer, channelIndex)
+configuredName = string(logicAnalyzer.channelNames(channelIndex));
+configuredNumber = string(round(double(logicAnalyzer.channels(channelIndex))));
+candidateNames = unique([ ...
+    configuredName, ...
+    "D" + configuredNumber, ...
+    configuredNumber], "stable");
+
+probeIndex = [];
+for candidateIndex = 1:numel(candidateNames)
+    probeIndex = find(probeNames == candidateNames(candidateIndex), 1, "first");
+    if ~isempty(probeIndex)
+        return;
+    end
+end
+end
+
+function removeDirectoryIfPresentLocal(directoryPath)
+if isfolder(directoryPath)
+    rmdir(directoryPath, 's');
+end
+end
+
+function [events, outputCapture, referenceCapture, analyzerAlignment] = computeArduinoE2ELocal(logs, clockMapMode, matchingMode, maxOutputAssociationSeconds, referenceAssociationWindowSeconds, transitionPulseThresholdUs, targetPulseToleranceUs, previousPulseToleranceUs, preAnchorSlackSeconds, maximumApplyToOutputSeconds)
 dispatch = sortrows(logs.hostDispatchLog, {'command_sequence', 'surface_name'});
 board = sortrows(logs.boardCommandLog, {'command_sequence', 'surface_name'});
+outputCapture = logs.outputCapture;
+referenceCapture = logs.referenceCapture;
+analyzerAlignment = struct("outputTimeOffsetSeconds", 0.0, "surfaceOffsetsSeconds", table(), "outputTimeDriftSlope", 0.0, "outputTimeDriftBaselineSeconds", 0.0, "outputPulseBiasUs", 0.0, "surfacePulseBiasUs", table(), "isApplied", false);
 if ~ismember('receive_to_apply_us', string(board.Properties.VariableNames))
     board.receive_to_apply_us = double(board.apply_us) - double(board.rx_us);
 end
 joined = outerjoin(dispatch, board, 'Keys', {'surface_name', 'command_sequence'}, 'MergeKeys', true, 'Type', 'left');
 joined.sample_index = joined.command_sequence;
-joined.scheduled_time_s = (double(joined.command_sequence) - min(double(joined.command_sequence))) .* (logs.inputSignal.scheduled_time_s(2) - logs.inputSignal.scheduled_time_s(1));
 originUs = min(double(joined.command_dispatch_us));
 joined.command_dispatch_s = (double(joined.command_dispatch_us) - originUs) ./ 1e6;
+if ~isempty(logs.inputSignal) && ismember('command_sequence', string(logs.inputSignal.Properties.VariableNames)) && ismember('scheduled_time_s', string(logs.inputSignal.Properties.VariableNames))
+    sequenceLookup = double(logs.inputSignal.command_sequence);
+    [isMapped, lookupIndex] = ismember(double(joined.command_sequence), sequenceLookup);
+    joined.scheduled_time_s = nan(height(joined), 1);
+    joined.scheduled_time_s(isMapped) = double(logs.inputSignal.scheduled_time_s(lookupIndex(isMapped)));
+    if ismember('command_dispatch_s', string(logs.inputSignal.Properties.VariableNames))
+        loggedDispatch = nan(height(joined), 1);
+        loggedDispatch(isMapped) = double(logs.inputSignal.command_dispatch_s(lookupIndex(isMapped)));
+        replaceMask = isfinite(loggedDispatch);
+        joined.command_dispatch_s(replaceMask) = loggedDispatch(replaceMask);
+    end
+end
+if ~ismember('scheduled_time_s', string(joined.Properties.VariableNames)) || all(~isfinite(double(joined.scheduled_time_s)))
+    joined.scheduled_time_s = (double(joined.command_sequence) - min(double(joined.command_sequence))) .* (logs.inputSignal.scheduled_time_s(2) - logs.inputSignal.scheduled_time_s(1));
+end
 joined.host_scheduling_delay_s = joined.command_dispatch_s - joined.scheduled_time_s;
 [cSlope, cIntercept] = estimateClockMapLocal(logs.hostSyncRoundTrip, joined, clockMapMode);
 joined.board_rx_s = (cSlope .* double(joined.rx_us) + cIntercept - originUs) ./ 1e6;
@@ -401,6 +692,29 @@ for s = 1:numel(logs.surfaceNames)
     joined.previous_expected_pulse_us(rows(2:end)) = prevPulse;
     joined.is_transition_command(rows(2:end)) = tmask;
 end
+[outputTimeOffsetSeconds, surfaceOffsets] = estimateOutputTimeOffsetLocal(joined, outputCapture, logs.surfaceNames, transitionPulseThresholdUs);
+analyzerAlignment.outputTimeOffsetSeconds = outputTimeOffsetSeconds;
+analyzerAlignment.surfaceOffsetsSeconds = surfaceOffsets;
+if isfinite(outputTimeOffsetSeconds) && abs(outputTimeOffsetSeconds) > 1e-6
+    outputCapture.time_s = double(outputCapture.time_s) - outputTimeOffsetSeconds;
+    if ~isempty(referenceCapture)
+        referenceCapture.time_s = double(referenceCapture.time_s) - outputTimeOffsetSeconds;
+    end
+    analyzerAlignment.isApplied = true;
+end
+[outputTimeDriftSlope, outputTimeDriftBaselineSeconds] = estimateOutputTimeDriftLocal(joined, outputCapture, logs.surfaceNames, transitionPulseThresholdUs);
+analyzerAlignment.outputTimeDriftSlope = outputTimeDriftSlope;
+analyzerAlignment.outputTimeDriftBaselineSeconds = outputTimeDriftBaselineSeconds;
+if isfinite(outputTimeDriftSlope) && isfinite(outputTimeDriftBaselineSeconds)
+    outputCapture.time_s = double(outputCapture.time_s) - (outputTimeDriftSlope .* double(outputCapture.time_s) + outputTimeDriftBaselineSeconds);
+    if ~isempty(referenceCapture)
+        referenceCapture.time_s = double(referenceCapture.time_s) - (outputTimeDriftSlope .* double(referenceCapture.time_s) + outputTimeDriftBaselineSeconds);
+    end
+    analyzerAlignment.isApplied = true;
+end
+[outputPulseBiasUs, surfacePulseBiases] = estimateOutputPulseBiasLocal(joined, outputCapture, logs.surfaceNames, transitionPulseThresholdUs);
+analyzerAlignment.outputPulseBiasUs = outputPulseBiasUs;
+analyzerAlignment.surfacePulseBiasUs = surfacePulseBiases;
 joined.output_time_s = nan(height(joined),1);
 joined.output_pulse_us = nan(height(joined),1);
 joined.matched_output_transition = false(height(joined),1);
@@ -411,12 +725,23 @@ joined.is_valid_e2e = false(height(joined),1);
 joined.non_realistic_reason = repmat("", height(joined), 1);
 for s = 1:numel(logs.surfaceNames)
     surfaceRows = find(joined.surface_name == logs.surfaceNames(s) & joined.is_transition_command);
-    surfaceCapture = logs.outputCapture(logs.outputCapture.surface_name == logs.surfaceNames(s), :);
+    surfaceCapture = outputCapture(outputCapture.surface_name == logs.surfaceNames(s), :);
     transitionTable = buildOutputTransitionTableLocal(surfaceCapture, transitionPulseThresholdUs);
+    surfaceBiasUs = outputPulseBiasUs;
+    if ~isempty(surfacePulseBiases)
+        biasRow = surfacePulseBiases(surfacePulseBiases.SurfaceName == string(logs.surfaceNames(s)), :);
+        if ~isempty(biasRow) && isfinite(double(biasRow.MedianBias_us(1)))
+            surfaceBiasUs = double(biasRow.MedianBias_us(1));
+        end
+    end
+    if isfinite(surfaceBiasUs) && abs(surfaceBiasUs) > 1e-9 && ~isempty(transitionTable)
+        transitionTable.previous_pulse_us = double(transitionTable.previous_pulse_us) - surfaceBiasUs;
+        transitionTable.pulse_us = double(transitionTable.pulse_us) - surfaceBiasUs;
+    end
     searchIndex = 1;
     for i = 1:numel(surfaceRows)
         rowIndex = surfaceRows(i);
-        [matchIndex, searchIndex] = findNextOutputTransitionLocal(transitionTable, searchIndex, double(joined.anchor_time_s(rowIndex)), double(joined.previous_expected_pulse_us(rowIndex)), double(joined.expected_pulse_us(rowIndex)), previousPulseToleranceUs, targetPulseToleranceUs, maxOutputAssociationSeconds);
+        [matchIndex, searchIndex] = findNextOutputTransitionLocal(transitionTable, searchIndex, double(joined.anchor_time_s(rowIndex)), double(joined.previous_expected_pulse_us(rowIndex)), double(joined.expected_pulse_us(rowIndex)), previousPulseToleranceUs, targetPulseToleranceUs, maxOutputAssociationSeconds, preAnchorSlackSeconds);
         if ~isfinite(matchIndex)
             joined.non_realistic_reason(rowIndex) = "unmatched_output_transition";
             continue;
@@ -439,6 +764,196 @@ for s = 1:numel(logs.surfaceNames)
     end
 end
 events = joined(joined.is_transition_command, :);
+events.output_time_offset_s = repmat(outputTimeOffsetSeconds, height(events), 1);
+events.output_time_drift_slope = repmat(outputTimeDriftSlope, height(events), 1);
+events.output_time_drift_baseline_s = repmat(outputTimeDriftBaselineSeconds, height(events), 1);
+events.output_pulse_bias_us = repmat(outputPulseBiasUs, height(events), 1);
+end
+
+function [outputTimeOffsetSeconds, surfaceOffsets] = estimateOutputTimeOffsetLocal(joined, outputCapture, surfaceNames, transitionPulseThresholdUs)
+surfaceOffsets = table(strings(0,1), zeros(0,1), zeros(0,1), 'VariableNames', {'SurfaceName', 'SampleCount', 'MedianOffset_s'});
+offsetSamples = nan(0, 1);
+offsetPercentile = 1.0;
+for surfaceIndex = 1:numel(surfaceNames)
+    surfaceName = surfaceNames(surfaceIndex);
+    surfaceRows = find(joined.surface_name == surfaceName & joined.is_transition_command);
+    if isempty(surfaceRows)
+        continue;
+    end
+    surfaceCapture = outputCapture(outputCapture.surface_name == surfaceName, :);
+    transitionTable = buildOutputTransitionTableLocal(surfaceCapture, transitionPulseThresholdUs);
+    transitionTable = trimTransitionTableForAlignmentLocal(transitionTable);
+    sampleCount = min(numel(surfaceRows), height(transitionTable));
+    if sampleCount < 3
+        continue;
+    end
+
+    surfaceOffsetsLocal = double(transitionTable.time_s(1:sampleCount)) - double(joined.board_apply_s(surfaceRows(1:sampleCount)));
+    surfaceOffsetsLocal = surfaceOffsetsLocal(isfinite(surfaceOffsetsLocal));
+    if isempty(surfaceOffsetsLocal)
+        continue;
+    end
+
+    estimatedOffset = prctile(surfaceOffsetsLocal, offsetPercentile);
+    surfaceOffsets = [surfaceOffsets; table(string(surfaceName), sampleCount, estimatedOffset, 'VariableNames', surfaceOffsets.Properties.VariableNames)]; %#ok<AGROW>
+    offsetSamples = [offsetSamples; surfaceOffsetsLocal(:)]; %#ok<AGROW>
+end
+
+offsetSamples = offsetSamples(isfinite(offsetSamples));
+surfaceMedianOffsets = double(surfaceOffsets.MedianOffset_s);
+surfaceMedianOffsets = surfaceMedianOffsets(isfinite(surfaceMedianOffsets));
+if ~isempty(surfaceMedianOffsets)
+    outputTimeOffsetSeconds = median(surfaceMedianOffsets, 'omitnan');
+elseif isempty(offsetSamples)
+    outputTimeOffsetSeconds = 0.0;
+else
+    outputTimeOffsetSeconds = prctile(offsetSamples, offsetPercentile);
+end
+end
+
+function [outputPulseBiasUs, surfaceBiases] = estimateOutputPulseBiasLocal(joined, outputCapture, surfaceNames, transitionPulseThresholdUs)
+surfaceBiases = table(strings(0,1), zeros(0,1), zeros(0,1), 'VariableNames', {'SurfaceName', 'SampleCount', 'MedianBias_us'});
+biasSamples = nan(0, 1);
+for surfaceIndex = 1:numel(surfaceNames)
+    surfaceName = surfaceNames(surfaceIndex);
+    surfaceRows = find(joined.surface_name == surfaceName & joined.is_transition_command);
+    if isempty(surfaceRows)
+        continue;
+    end
+    surfaceCapture = outputCapture(outputCapture.surface_name == surfaceName, :);
+    transitionTable = buildOutputTransitionTableLocal(surfaceCapture, transitionPulseThresholdUs);
+    transitionTable = trimTransitionTableForAlignmentLocal(transitionTable);
+    sampleCount = min(numel(surfaceRows), height(transitionTable));
+    if sampleCount < 3
+        continue;
+    end
+
+    expectedBias = double(transitionTable.pulse_us(1:sampleCount)) - double(joined.expected_pulse_us(surfaceRows(1:sampleCount)));
+    previousBias = double(transitionTable.previous_pulse_us(1:sampleCount)) - double(joined.previous_expected_pulse_us(surfaceRows(1:sampleCount)));
+    surfaceBiasSamples = [expectedBias(:); previousBias(:)];
+    surfaceBiasSamples = surfaceBiasSamples(isfinite(surfaceBiasSamples));
+    if isempty(surfaceBiasSamples)
+        continue;
+    end
+
+    medianBias = median(surfaceBiasSamples);
+    surfaceBiases = [surfaceBiases; table(string(surfaceName), sampleCount, medianBias, 'VariableNames', surfaceBiases.Properties.VariableNames)]; %#ok<AGROW>
+    biasSamples = [biasSamples; surfaceBiasSamples(:)]; %#ok<AGROW>
+end
+
+biasSamples = biasSamples(isfinite(biasSamples));
+surfaceMedianBiases = double(surfaceBiases.MedianBias_us);
+surfaceMedianBiases = surfaceMedianBiases(isfinite(surfaceMedianBiases));
+if ~isempty(surfaceMedianBiases)
+    outputPulseBiasUs = median(surfaceMedianBiases, 'omitnan');
+elseif isempty(biasSamples)
+    outputPulseBiasUs = 0.0;
+else
+    outputPulseBiasUs = median(biasSamples);
+end
+end
+
+function [driftSlope, driftBaselineSeconds] = estimateOutputTimeDriftLocal(joined, outputCapture, surfaceNames, transitionPulseThresholdUs)
+driftSlope = 0.0;
+driftBaselineSeconds = 0.0;
+xSamples = nan(0, 1);
+dtSamples = nan(0, 1);
+lowerPercentile = 1.0;
+minimumSampleCount = 20;
+maximumReasonableSlope = 0.002;
+maximumReasonableDriftSeconds = 0.10;
+maximumReasonableResidualSeconds = 0.02;
+
+for surfaceIndex = 1:numel(surfaceNames)
+    surfaceName = surfaceNames(surfaceIndex);
+    surfaceRows = find(joined.surface_name == surfaceName & joined.is_transition_command);
+    if isempty(surfaceRows)
+        continue;
+    end
+
+    surfaceCapture = outputCapture(outputCapture.surface_name == surfaceName, :);
+    transitionTable = buildOutputTransitionTableLocal(surfaceCapture, transitionPulseThresholdUs);
+    transitionTable = trimTransitionTableForAlignmentLocal(transitionTable);
+    sampleCount = min(numel(surfaceRows), height(transitionTable));
+    if sampleCount < 3
+        continue;
+    end
+
+    xLocal = double(transitionTable.time_s(1:sampleCount));
+    dtLocal = xLocal - double(joined.board_apply_s(surfaceRows(1:sampleCount)));
+    validMask = isfinite(xLocal) & isfinite(dtLocal);
+    if ~any(validMask)
+        continue;
+    end
+
+    xSamples = [xSamples; xLocal(validMask)]; %#ok<AGROW>
+    dtSamples = [dtSamples; dtLocal(validMask)]; %#ok<AGROW>
+end
+
+if numel(xSamples) < minimumSampleCount
+    return;
+end
+
+fitCoefficients = polyfit(xSamples, dtSamples, 1);
+driftSlope = fitCoefficients(1);
+residualSamples = dtSamples - polyval(fitCoefficients, xSamples);
+residualSamples = residualSamples(isfinite(residualSamples));
+if isempty(residualSamples)
+    driftSlope = 0.0;
+    return;
+end
+
+if numel(residualSamples) >= 8
+    residualMedian = median(residualSamples, 'omitnan');
+    residualMad = median(abs(residualSamples - residualMedian), 'omitnan');
+    if isfinite(residualMad) && residualMad > 0
+        robustMask = abs(residualSamples - residualMedian) <= max(3.5 .* residualMad, 0.005);
+        if nnz(robustMask) >= minimumSampleCount
+            xSamples = xSamples(robustMask);
+            dtSamples = dtSamples(robustMask);
+            fitCoefficients = polyfit(xSamples, dtSamples, 1);
+            driftSlope = fitCoefficients(1);
+            residualSamples = dtSamples - polyval(fitCoefficients, xSamples);
+            residualSamples = residualSamples(isfinite(residualSamples));
+        end
+    end
+end
+
+if isempty(residualSamples)
+    driftSlope = 0.0;
+    driftBaselineSeconds = 0.0;
+    return;
+end
+
+driftSpanSeconds = abs(driftSlope) .* max(0.0, max(xSamples) - min(xSamples));
+residualP95Seconds = prctile(abs(residualSamples), 95);
+if abs(driftSlope) > maximumReasonableSlope || driftSpanSeconds > maximumReasonableDriftSeconds || residualP95Seconds > maximumReasonableResidualSeconds
+    driftSlope = 0.0;
+    driftBaselineSeconds = 0.0;
+    return;
+end
+
+driftBaselineSeconds = prctile(residualSamples, lowerPercentile);
+end
+
+function transitionTable = trimTransitionTableForAlignmentLocal(transitionTable)
+if isempty(transitionTable) || height(transitionTable) < 3
+    return;
+end
+
+timeValues = double(transitionTable.time_s);
+gapThresholdSeconds = 1.0;
+startIndex = 1;
+for i = 1:(numel(timeValues) - 1)
+    if isfinite(timeValues(i)) && isfinite(timeValues(i + 1)) && (timeValues(i + 1) - timeValues(i)) <= gapThresholdSeconds
+        startIndex = i;
+        break;
+    end
+end
+
+if startIndex > 1
+    transitionTable = transitionTable(startIndex:end, :);
+end
 end
 function [surfaceSummary, overallSummary, integritySummary] = buildSummariesLocal(events, surfaceNames)
 metricMap = { ...
@@ -577,15 +1092,27 @@ end
 transitionTable = table(time_s, previous_pulse_us, pulse_us);
 end
 
-function [matchIndex, nextSearchIndex] = findNextOutputTransitionLocal(transitionTable, searchIndex, anchorTime, previousPulseUs, targetPulseUs, previousToleranceUs, targetToleranceUs, maxWindowSeconds)
+function [matchIndex, nextSearchIndex] = findNextOutputTransitionLocal(transitionTable, searchIndex, anchorTime, previousPulseUs, targetPulseUs, previousToleranceUs, targetToleranceUs, maxWindowSeconds, preAnchorSlackSeconds)
 matchIndex = NaN; nextSearchIndex = searchIndex; if isempty(transitionTable) || ~isfinite(anchorTime), return; end
-while nextSearchIndex <= height(transitionTable) && double(transitionTable.time_s(nextSearchIndex)) < anchorTime - 1e-6, nextSearchIndex = nextSearchIndex + 1; end
+if nargin < 9 || ~isfinite(preAnchorSlackSeconds)
+    preAnchorSlackSeconds = 0.0;
+end
+searchWindowStart = anchorTime - max(0.0, preAnchorSlackSeconds);
+while nextSearchIndex <= height(transitionTable) && double(transitionTable.time_s(nextSearchIndex)) < searchWindowStart, nextSearchIndex = nextSearchIndex + 1; end
 windowEnd = anchorTime + maxWindowSeconds;
+fallbackIndex = NaN;
 for i = nextSearchIndex:height(transitionTable)
     t = double(transitionTable.time_s(i)); if t > windowEnd, break; end
     if abs(double(transitionTable.pulse_us(i)) - targetPulseUs) > targetToleranceUs, continue; end
     if isfinite(previousPulseUs) && abs(double(transitionTable.previous_pulse_us(i)) - previousPulseUs) > previousToleranceUs, continue; end
-    matchIndex = i; nextSearchIndex = i + 1; return;
+    if t >= anchorTime
+        matchIndex = i; nextSearchIndex = i + 1; return;
+    end
+    fallbackIndex = i;
+end
+if isfinite(fallbackIndex)
+    matchIndex = fallbackIndex;
+    nextSearchIndex = fallbackIndex + 1;
 end
 end
 
@@ -593,14 +1120,43 @@ function outputCapture = extractOutputCaptureLocal(logicState, logicAnalyzer, su
 outputCapture = buildEmptyPulseCaptureTableLocal(); blocks = cell(numel(surfaceNames), 1);
 for s = 1:min(numel(surfaceNames), numel(logicAnalyzer.channelRoleMap.output))
     col = resolveLogicStateChannelColumnIndexLocal(logicState, logicAnalyzer, logicAnalyzer.channelRoleMap.output(s));
-    channelStates = logicState.stateMatrix(:, col); rising = logicState.sampleIndex([false; diff(channelStates) > 0]); falling = logicState.sampleIndex([false; diff(channelStates) < 0]);
-    [startSamples, sampleCounts] = pairEdgeSamplesLocal(rising, falling); pulseUs = 1e6 .* double(sampleCounts) ./ double(logicState.sampleRateHz); valid = pulseUs >= logicAnalyzer.minimumPulseUs & pulseUs <= logicAnalyzer.maximumPulseUs;
-    startSamples = startSamples(valid); sampleCounts = sampleCounts(valid); pulseUs = pulseUs(valid);
+    [startSamples, sampleCounts, pulseUs] = decodePulseChannelLocal(logicState.sampleIndex, logicState.stateMatrix(:, col), logicState.sampleRateHz, logicAnalyzer.minimumPulseUs, logicAnalyzer.maximumPulseUs);
     if isempty(startSamples), continue; end
     blocks{s} = table(repmat(surfaceNames(s), numel(startSamples), 1), double(startSamples) ./ double(logicState.sampleRateHz), pulseUs, double(startSamples), double(sampleCounts), repmat(double(logicState.sampleRateHz), numel(startSamples), 1), 'VariableNames', {'surface_name', 'time_s', 'pulse_us', 'sample_index', 'sample_count', 'sample_rate_hz'});
 end
 blocks = blocks(~cellfun(@isempty, blocks)); if isempty(blocks), return; end
 outputCapture = vertcat(blocks{:}); outputCapture = sortrows(outputCapture, {'surface_name', 'sample_index'});
+end
+
+function [startSamples, sampleCounts, pulseUs] = decodePulseChannelLocal(sampleIndex, channelStates, sampleRateHz, minimumPulseUs, maximumPulseUs)
+[startHigh, countHigh, pulseHigh] = decodePulsePolarityLocal(sampleIndex, channelStates, sampleRateHz, minimumPulseUs, maximumPulseUs, true);
+[startLow, countLow, pulseLow] = decodePulsePolarityLocal(sampleIndex, channelStates, sampleRateHz, minimumPulseUs, maximumPulseUs, false);
+
+if numel(startLow) > numel(startHigh)
+    startSamples = startLow;
+    sampleCounts = countLow;
+    pulseUs = pulseLow;
+else
+    startSamples = startHigh;
+    sampleCounts = countHigh;
+    pulseUs = pulseHigh;
+end
+end
+
+function [startSamples, sampleCounts, pulseUs] = decodePulsePolarityLocal(sampleIndex, channelStates, sampleRateHz, minimumPulseUs, maximumPulseUs, activeHigh)
+if activeHigh
+    edgeStart = sampleIndex([false; diff(channelStates) > 0]);
+    edgeStop = sampleIndex([false; diff(channelStates) < 0]);
+else
+    edgeStart = sampleIndex([false; diff(channelStates) < 0]);
+    edgeStop = sampleIndex([false; diff(channelStates) > 0]);
+end
+[startSamples, sampleCounts] = pairEdgeSamplesLocal(edgeStart, edgeStop);
+pulseUs = 1e6 .* double(sampleCounts) ./ double(sampleRateHz);
+valid = pulseUs >= minimumPulseUs & pulseUs <= maximumPulseUs;
+startSamples = startSamples(valid);
+sampleCounts = sampleCounts(valid);
+pulseUs = pulseUs(valid);
 end
 
 function referenceCapture = extractReferenceCaptureLocal(logicState, logicAnalyzer)
@@ -695,12 +1251,56 @@ whereLines = splitlines(string(whereOutput)); whereLines = strtrim(whereLines(st
 sigrokCliPath = whereLines(1);
 end
 
+function isReadable = isReadableSigrokCaptureLocal(rawCapturePath, sigrokCliPath)
+isReadable = false;
+rawCapturePath = string(rawCapturePath);
+if ~isfile(rawCapturePath)
+    return;
+end
+sigrokCliPath = validateSigrokExecutableLocal(sigrokCliPath);
+commandText = strjoin([ ...
+    quoteWindowsArgumentLocal(sigrokCliPath), ...
+    "--input-file", quoteWindowsArgumentLocal(rawCapturePath), ...
+    "--show"], " ");
+[status, ~] = runWindowsCommandLocal(commandText);
+isReadable = (status == 0);
+end
+
+function driverSpec = buildSigrokDriverSpecLocal(logicAnalyzer)
+driverSpec = string(logicAnalyzer.deviceDriver);
+deviceId = strtrim(string(logicAnalyzer.deviceId));
+if strlength(deviceId) == 0
+    return;
+end
+if contains(deviceId, "=")
+    driverSpec = driverSpec + ":" + deviceId;
+else
+    driverSpec = driverSpec + ":conn=" + deviceId;
+end
+end
+
+function raiseSigrokUsbAccessErrorIfNeededLocal(outputText)
+outputText = string(outputText);
+outputTextLower = lower(outputText);
+if contains(outputTextLower, "libusb_error_access") || contains(outputTextLower, "libusb_error_not_supported")
+    error("Arduino_Test_E2E:SigrokUsbAccessDenied", ...
+        [ ...
+        "sigrok-cli could not open the logic analyser because Windows USB access is not configured for libusb (%s). " + ...
+        "Close PulseView and any other analyser software, unplug/replug the analyser, and install a libusb-compatible driver such as WinUSB for this analyser in Zadig before retrying."], ...
+        strtrim(outputText));
+end
+end
+
 function quotedText = quoteWindowsArgumentLocal(argumentText)
-argumentText = replace(string(argumentText), '"', '\"'); quotedText = '"' + argumentText + '"';
+argumentText = string(argumentText); quotedText = '"' + replace(argumentText, '"', '""') + '"';
+end
+
+function argumentsText = buildCmdExeArgumentsLocal(commandText)
+argumentsText = '/d /s /c "' + string(commandText) + '"';
 end
 
 function [status, outputText] = runWindowsCommandLocal(commandText)
-[status, outputText] = system(char(commandText)); outputText = string(outputText);
+[status, outputText] = system(char("cmd.exe " + buildCmdExeArgumentsLocal(commandText))); outputText = string(outputText);
 end
 
 function value = getFieldLocal(structValue, fieldName, defaultValue)

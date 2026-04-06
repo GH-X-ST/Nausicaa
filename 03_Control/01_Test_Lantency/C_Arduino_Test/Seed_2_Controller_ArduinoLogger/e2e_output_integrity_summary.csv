@@ -1,0 +1,5 @@
+SurfaceName,IsActive,TransitionCommandCount,MatchedOutputTransitionCount,ValidE2ECount,UnmatchedOutputTransitionCount,UnmatchedOutputTransitionFraction
+Aileron_L,1,316,316,316,0,0
+Aileron_R,1,316,316,316,0,0
+Rudder,1,135,135,135,0,0
+Elevator,1,173,173,173,0,0

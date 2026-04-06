@@ -11,7 +11,7 @@ runPostProcessor = logical(getFieldLocal(config, "runPostProcessor", true));
 forceReprocess = logical(getFieldLocal(config, "forceReprocess", true));
 printSummary = logical(getFieldLocal(config, "printSummary", false));
 outputPrefix = normalizeTextScalarLocal(getFieldLocal(config, "outputPrefix", "post_transition_e2e"));
-seed = double(getFieldLocal(config, "seed", 1));
+seed = double(getFieldLocal(config, "seed", 2));
 enforceArduinoStepTrainDefaults = logical(getFieldLocal(config, "enforceArduinoStepTrainDefaults", true));
 recordLeadSeconds = max(0, double(getFieldLocal(config, "recordLeadSeconds", 10.0)));
 recordLagSeconds = max(0, double(getFieldLocal(config, "recordLagSeconds", 10.0)));
@@ -286,20 +286,20 @@ if ~isfield(transmitterConfig, "commandProfile") || isempty(transmitterConfig.co
 end
 
 if enforceArduinoStepTrainDefaults
-    transmitterConfig.commandProfile.type = "latency_step_train";
+    transmitterConfig.commandProfile.type = "latency_vector_step_train";
     transmitterConfig.commandProfile.sampleTimeSeconds = 0.02;
     transmitterConfig.commandProfile.preCommandNeutralSeconds = recordLeadSeconds;
     transmitterConfig.commandProfile.postCommandNeutralSeconds = recordLagSeconds;
     transmitterConfig.commandProfile.durationSeconds = commandActiveSeconds;
-    transmitterConfig.commandProfile.amplitudeDegrees = 45.0;
+    transmitterConfig.commandProfile.amplitudeDegrees = 12.0;
     transmitterConfig.commandProfile.offsetDegrees = 0.0;
     transmitterConfig.commandProfile.frequencyHz = 0.5;
     transmitterConfig.commandProfile.phaseDegrees = 90.0;
     transmitterConfig.commandProfile.doubletHoldSeconds = 0.5;
-    transmitterConfig.commandProfile.eventHoldSeconds = 0.20;
-    transmitterConfig.commandProfile.eventNeutralHoldSeconds = 0.10;
-    transmitterConfig.commandProfile.eventDwellSeconds = 0.60;
-    transmitterConfig.commandProfile.eventRandomJitterSeconds = 0.05;
+    transmitterConfig.commandProfile.eventHoldSeconds = 0.06;
+    transmitterConfig.commandProfile.eventNeutralHoldSeconds = 0.00;
+    transmitterConfig.commandProfile.eventDwellSeconds = 0.04;
+    transmitterConfig.commandProfile.eventRandomJitterSeconds = 0.02;
     if isfinite(seed)
         transmitterConfig.commandProfile.randomSeed = seed;
     else
@@ -309,7 +309,7 @@ if enforceArduinoStepTrainDefaults
 end
 
 if ~isfield(transmitterConfig.commandProfile, "type")
-    transmitterConfig.commandProfile.type = "latency_step_train";
+    transmitterConfig.commandProfile.type = "latency_vector_step_train";
 end
 if ~isfield(transmitterConfig.commandProfile, "sampleTimeSeconds")
     transmitterConfig.commandProfile.sampleTimeSeconds = 0.02;
