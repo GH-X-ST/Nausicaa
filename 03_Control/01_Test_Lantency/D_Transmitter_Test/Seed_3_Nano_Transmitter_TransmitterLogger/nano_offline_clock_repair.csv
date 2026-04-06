@@ -1,0 +1,2 @@
+method,clock_slope,clock_intercept_us,one_way_baseline_us,test_start_offset_us,min_rx_after_dispatch_us,median_rx_after_dispatch_us,p95_rx_after_dispatch_us
+sync_midpoint_median,1,-118953000.25,8241.75,236502,7151.75,7560.25,8252.75

@@ -1,0 +1,7 @@
+metric,source,description,count,mean_s,median_s,p95_s,p99_s,max_s
+host_scheduling_delay_s,host,Host scheduled to host dispatch,344,0.000151360465116027,0.000112999999999808,0.000343999999998346,0.00106599999999979,0.00106599999999979
+dispatch_to_rx_latency_s,repaired_host_board,Host dispatch to Nano receive,496,0.00767547580645201,0.00764400000000265,0.00805049999999952,0.00824750000000307,0.0082494999999998
+rx_to_commit_latency_s,repaired_host_board,Nano receive to commit,496,0.0134043629032258,0.0134705,0.013616,0.013762,0.013771
+commit_to_reference_latency_s,physical_capture,Nano commit to reference strobe,344,0,0,0,0,0
+reference_to_receiver_latency_s,physical_capture,Reference strobe to receiver transition,344,0.153507531976744,0.149111999999999,0.228896499999998,0.248847500000004,0.248847500000004
+scheduled_to_receiver_latency_s,trusted_full_system,Scheduled command time to receiver transition,344,0.174738031976744,0.170342499999999,0.250127,0.270078000000002,0.270078000000002

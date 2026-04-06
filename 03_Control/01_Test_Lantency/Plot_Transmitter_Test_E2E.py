@@ -9,7 +9,7 @@ import pandas as pd
 
 from Plot_Transmitter_Test import build_workbook_bundle, plot_transmitter_summary_figure
 
-DEFAULT_SEED: int | None = 3
+DEFAULT_SEED: int | None = 1
 DEFAULT_PLOT_MODE = "post"
 DEFAULT_EVENT_PREFIX_BY_MODE = {
     "post": "post_transition_e2e",
@@ -376,14 +376,18 @@ def _prepare_post_events(events: pd.DataFrame) -> pd.DataFrame:
     if "rx_to_commit_latency_s" not in post_events.columns:
         post_events["rx_to_commit_latency_s"] = np.nan
     if "ppm_time_s" not in post_events.columns:
-        post_events["ppm_time_s"] = pd.to_numeric(post_events.get("trainer_transition_s"), errors="coerce")
+        post_events["ppm_time_s"] = pd.to_numeric(post_events.get("commit_capture_time_s"), errors="coerce")
     if "receiver_time_s" not in post_events.columns:
         post_events["receiver_time_s"] = pd.to_numeric(post_events.get("receiver_transition_s"), errors="coerce")
     if "true_ppm_to_receiver_latency_s" not in post_events.columns:
-        post_events["true_ppm_to_receiver_latency_s"] = (
-            pd.to_numeric(post_events["receiver_time_s"], errors="coerce")
-            - pd.to_numeric(post_events["ppm_time_s"], errors="coerce")
-        )
+        commit_to_receiver = pd.to_numeric(post_events.get("commit_to_receiver_latency_s"), errors="coerce")
+        if np.isfinite(commit_to_receiver).any():
+            post_events["true_ppm_to_receiver_latency_s"] = commit_to_receiver
+        else:
+            post_events["true_ppm_to_receiver_latency_s"] = (
+                pd.to_numeric(post_events["receiver_time_s"], errors="coerce")
+                - pd.to_numeric(post_events["ppm_time_s"], errors="coerce")
+            )
     if "true_scheduled_to_receiver_latency_s" not in post_events.columns:
         post_events["true_scheduled_to_receiver_latency_s"] = pd.to_numeric(
             post_events.get("scheduled_to_receiver_latency_s"),
