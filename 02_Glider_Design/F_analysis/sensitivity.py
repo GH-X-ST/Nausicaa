@@ -37,7 +37,6 @@ import matplotlib
 matplotlib.use("Agg")
 
 from matplotlib import pyplot as plt
-from matplotlib.colors import TwoSlopeNorm
 import numpy as np
 import pandas as pd
 
@@ -57,7 +56,9 @@ OUTPUT_XLSX = RESULTS_DIR / "sensitivity_analysis.xlsx"
 OUTPUT_TABLE_CSV = RESULTS_DIR / "sensitivity_table.csv"
 OUTPUT_THESIS_CSV = RESULTS_DIR / "sensitivity_thesis_table.csv"
 OUTPUT_STEP_SIZE_CSV = RESULTS_DIR / "step_size_table.csv"
-OUTPUT_FIGURE = FIGURES_DIR / "sensitivity_matrix.png"
+OUTPUT_STEP_SIZE_XLSX = RESULTS_DIR / "step_size_analysis.xlsx"
+OUTPUT_FIGURE = FIGURES_DIR / "step_size_tradeoff.png"
+LEGACY_HEATMAP_FIGURE = FIGURES_DIR / "sensitivity_matrix.png"
 
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 FIGURES_DIR.mkdir(parents=True, exist_ok=True)
@@ -118,11 +119,21 @@ REQUIREMENT_THESIS_METRICS = [
     "sink_rate_mps",
     "roll_tau_s",
 ]
-GEOMETRY_HEATMAP_METRICS = GEOMETRY_THESIS_METRICS
-REQUIREMENT_HEATMAP_METRICS = [
+GEOMETRY_STEP_PLOT_QUANTITIES = [
+    "objective",
+    "sink_rate_mps",
+    "mass_total_kg",
+    "roll_tau_s",
+    "static_margin",
+    "static_margin_min_margin",
+    "bank_entry_margin_deg",
+    "turn_footprint_margin_m",
+]
+REQUIREMENT_STEP_PLOT_QUANTITIES = [
     "objective",
     "sink_rate_mps",
     "roll_tau_s",
+    "static_margin",
     "static_margin_min_margin",
     "nom_cl_margin_to_cap",
     "roll_tau_limit_margin",
@@ -2168,111 +2179,209 @@ def build_thesis_table(sensitivity_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _pivot_heatmap(
-    sensitivity_df: pd.DataFrame,
-    parameter_order: list[str],
-    metric_order: list[str],
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    subset_df = sensitivity_df.loc[
-        sensitivity_df["parameter_name"].isin(parameter_order)
-        & sensitivity_df["quantity_name"].isin(metric_order)
-    ].copy()
-    heatmap_df = subset_df.pivot(
-        index="parameter_name",
-        columns="quantity_name",
-        values="sensitivity_normalized",
-    ).reindex(index=parameter_order, columns=metric_order)
-    stable_df = subset_df.pivot(
-        index="parameter_name",
-        columns="quantity_name",
-        values="fd_stable",
-    ).reindex(index=parameter_order, columns=metric_order)
-    return heatmap_df, stable_df
+def _step_plot_quantity_order(parameter_name: str) -> list[str]:
+    if parameter_name in GEOMETRY_PARAM_ORDER:
+        return GEOMETRY_STEP_PLOT_QUANTITIES
+    return REQUIREMENT_STEP_PLOT_QUANTITIES
 
 
-def make_sensitivity_figure(sensitivity_df: pd.DataFrame) -> None:
-    geom_heatmap, geom_stable = _pivot_heatmap(
-        sensitivity_df=sensitivity_df,
-        parameter_order=GEOMETRY_PARAM_ORDER,
-        metric_order=GEOMETRY_HEATMAP_METRICS,
-    )
-    req_heatmap, req_stable = _pivot_heatmap(
-        sensitivity_df=sensitivity_df,
-        parameter_order=REQUIREMENT_PARAM_ORDER,
-        metric_order=REQUIREMENT_HEATMAP_METRICS,
-    )
-    all_values = pd.concat([geom_heatmap.stack(), req_heatmap.stack()], axis=0)
-    finite_values = all_values[np.isfinite(all_values.to_numpy())]
-    vmax = float(np.max(np.abs(finite_values))) if not finite_values.empty else 1.0
-    vmax = max(vmax, 1.0)
+def make_step_size_figure(
+    step_size_df: pd.DataFrame,
+    figure_path: Path | None = None,
+) -> None:
+    if step_size_df.empty:
+        raise ValueError("Step-size table is empty; no trade-off figure can be drawn.")
 
-    cmap = plt.get_cmap("RdBu_r").copy()
-    cmap.set_bad("#d9d9d9")
-    norm = TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax)
-    fig, axes = plt.subplots(
-        2,
-        1,
-        figsize=(13.0, 9.0),
-        constrained_layout=True,
-        gridspec_kw={"height_ratios": [1.0, 1.3]},
-    )
-
-    panel_specs = [
-        (
-            axes[0],
-            geom_heatmap,
-            geom_stable,
-            "Geometry sensitivities",
-            GEOMETRY_HEATMAP_METRICS,
-        ),
-        (
-            axes[1],
-            req_heatmap,
-            req_stable,
-            "Requirement sensitivities",
-            REQUIREMENT_HEATMAP_METRICS,
-        ),
+    figure_path = figure_path or OUTPUT_FIGURE
+    parameter_order = [
+        *GEOMETRY_PARAM_ORDER,
+        *REQUIREMENT_PARAM_ORDER,
     ]
-    image = None
-    for axis, heatmap_df, stable_df, title, metric_order in panel_specs:
-        data = heatmap_df.to_numpy(dtype=float)
-        mask = ~np.isfinite(data)
-        image = axis.imshow(np.ma.array(data, mask=mask), aspect="auto", cmap=cmap, norm=norm)
-        axis.set_title(title)
-        axis.set_xticks(range(len(metric_order)))
-        axis.set_xticklabels(
-            [QUANTITY_LABELS[name] for name in metric_order],
-            rotation=30,
-            ha="right",
+    parameter_names = [
+        name for name in parameter_order if name in set(step_size_df["parameter_name"])
+    ]
+    if not parameter_names:
+        parameter_names = sorted(step_size_df["parameter_name"].unique().tolist())
+
+    all_quantities = []
+    for parameter_name in parameter_names:
+        for quantity_name in _step_plot_quantity_order(parameter_name):
+            if quantity_name in set(
+                step_size_df.loc[
+                    step_size_df["parameter_name"] == parameter_name,
+                    "quantity_name",
+                ]
+            ):
+                all_quantities.append(quantity_name)
+    ordered_quantities = list(dict.fromkeys(all_quantities))
+    colors = {
+        quantity_name: plt.get_cmap("tab10")(index % 10)
+        for index, quantity_name in enumerate(ordered_quantities)
+    }
+
+    n_panels = len(parameter_names)
+    ncols = 3 if n_panels > 6 else 2 if n_panels > 1 else 1
+    nrows = int(np.ceil(n_panels / ncols))
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(7.6 * ncols, 4.8 * nrows),
+        constrained_layout=True,
+    )
+    axes_array = np.atleast_1d(axes).reshape(-1)
+
+    for axis, parameter_name in zip(axes_array, parameter_names, strict=False):
+        parameter_df = step_size_df.loc[
+            step_size_df["parameter_name"] == parameter_name
+        ].copy()
+        quantity_order = [
+            quantity_name
+            for quantity_name in _step_plot_quantity_order(parameter_name)
+            if quantity_name in set(parameter_df["quantity_name"])
+        ]
+        selected_steps = []
+        for quantity_name in quantity_order:
+            quantity_df = parameter_df.loc[
+                parameter_df["quantity_name"] == quantity_name
+            ].sort_values("step_size", kind="mergesort")
+            x_values = quantity_df["step_size"].to_numpy(dtype=float)
+            y_values = np.maximum(
+                quantity_df["absolute_error_estimate"].to_numpy(dtype=float),
+                1e-18,
+            )
+            color = colors[quantity_name]
+            axis.plot(
+                x_values,
+                y_values,
+                marker="o",
+                linewidth=1.7,
+                markersize=5.5,
+                color=color,
+                alpha=0.95,
+                label=QUANTITY_LABELS[quantity_name],
+            )
+
+            selected_df = quantity_df.loc[quantity_df["selected_for_final"].astype(bool)]
+            if not selected_df.empty:
+                selected_steps.extend(selected_df["selected_step_size"].tolist())
+                axis.scatter(
+                    selected_df["step_size"],
+                    np.maximum(selected_df["absolute_error_estimate"], 1e-18),
+                    marker="*",
+                    s=110,
+                    zorder=6,
+                    color=color,
+                    edgecolors="black",
+                    linewidths=0.8,
+                )
+
+            roundoff_df = quantity_df.loc[quantity_df["roundoff_limited"].astype(bool)]
+            if not roundoff_df.empty:
+                axis.scatter(
+                    roundoff_df["step_size"],
+                    np.maximum(roundoff_df["absolute_error_estimate"], 1e-18),
+                    marker="s",
+                    s=44,
+                    facecolors="none",
+                    edgecolors=color,
+                    linewidths=1.1,
+                    zorder=5,
+                )
+
+        for selected_step in sorted(set(selected_steps)):
+            axis.axvline(
+                selected_step,
+                color="#555555",
+                linewidth=0.9,
+                linestyle=":",
+                alpha=0.45,
+            )
+
+        axis.set_xscale("log")
+        axis.set_yscale("log")
+        axis.grid(True, which="both", alpha=0.22)
+        axis.set_xlabel("Step size")
+        axis.set_ylabel("Absolute error estimate")
+        axis.set_title(PARAMETER_LABELS.get(parameter_name, parameter_name))
+
+        selection_reason_values = (
+            parameter_df.loc[parameter_df["selected_for_final"].astype(bool), "selection_reason"]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
         )
-        axis.set_yticks(range(len(heatmap_df.index)))
-        axis.set_yticklabels([PARAMETER_LABELS[name] for name in heatmap_df.index])
-        axis.set_xticks(np.arange(-0.5, len(metric_order), 1), minor=True)
-        axis.set_yticks(np.arange(-0.5, len(heatmap_df.index), 1), minor=True)
-        axis.grid(which="minor", color="white", linewidth=1.0)
-        axis.tick_params(which="minor", bottom=False, left=False)
+        if selection_reason_values:
+            axis.text(
+                0.02,
+                0.02,
+                selection_reason_values[0].replace("_", " "),
+                transform=axis.transAxes,
+                fontsize=8,
+                color="#444444",
+                ha="left",
+                va="bottom",
+                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.65},
+            )
 
-        stable_mask = stable_df.to_numpy(dtype=object)
-        for row_idx in range(data.shape[0]):
-            for col_idx in range(data.shape[1]):
-                if mask[row_idx, col_idx]:
-                    continue
-                if not bool(stable_mask[row_idx, col_idx]):
-                    axis.text(
-                        col_idx,
-                        row_idx,
-                        "x",
-                        ha="center",
-                        va="center",
-                        fontsize=11,
-                        color="black",
-                        fontweight="bold",
-                    )
+    for axis in axes_array[n_panels:]:
+        axis.axis("off")
 
-    if image is not None:
-        colorbar = fig.colorbar(image, ax=axes, shrink=0.95)
-        colorbar.set_label("Normalized sensitivity")
-    fig.savefig(OUTPUT_FIGURE, dpi=300, bbox_inches="tight")
+    legend_handles = []
+    legend_labels = []
+    for quantity_name in ordered_quantities:
+        legend_handles.append(
+            plt.Line2D(
+                [0],
+                [0],
+                color=colors[quantity_name],
+                linewidth=1.9,
+                marker="o",
+                markersize=5.5,
+            )
+        )
+        legend_labels.append(QUANTITY_LABELS[quantity_name])
+    legend_handles.extend(
+        [
+            plt.Line2D(
+                [0],
+                [0],
+                color="black",
+                marker="*",
+                linestyle="None",
+                markersize=10,
+            ),
+            plt.Line2D(
+                [0],
+                [0],
+                color="black",
+                marker="s",
+                markerfacecolor="none",
+                linestyle="None",
+                markersize=7,
+            ),
+        ]
+    )
+    legend_labels.extend(
+        [
+            "Selected final step",
+            "Round-off-limited point",
+        ]
+    )
+    fig.legend(
+        legend_handles,
+        legend_labels,
+        loc="upper center",
+        ncol=min(4, max(2, len(legend_labels) // 2)),
+        frameon=False,
+    )
+    fig.suptitle(
+        "Finite-difference absolute error versus step size",
+        fontsize=15,
+        y=1.01,
+    )
+    figure_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(figure_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -2339,8 +2448,22 @@ def write_excel_outputs(
         thesis_df.to_excel(writer, sheet_name="ThesisTable", index=False)
 
 
-def main() -> None:
-    context = load_selected_baseline()
+def write_step_size_excel(
+    metadata_df: pd.DataFrame,
+    baseline_df: pd.DataFrame,
+    step_size_df: pd.DataFrame,
+    output_path: Path | None = None,
+) -> None:
+    workbook_path = output_path or OUTPUT_STEP_SIZE_XLSX
+    with pd.ExcelWriter(workbook_path, engine="openpyxl") as writer:
+        metadata_df.to_excel(writer, sheet_name="Metadata", index=False)
+        baseline_df.to_excel(writer, sheet_name="Baseline", index=False)
+        step_size_df.to_excel(writer, sheet_name="StepSizeTable", index=False)
+
+
+def compute_study_tables(
+    context: BaselineContext,
+) -> tuple[EvaluationResult, pd.DataFrame, pd.DataFrame]:
     quantity_specs = build_quantity_specs()
     parameter_specs = (
         build_geometry_parameter_specs(context)
@@ -2368,6 +2491,12 @@ def main() -> None:
 
     sensitivity_df = pd.DataFrame([asdict(row) for row in sensitivity_rows])
     step_size_df = pd.DataFrame([asdict(row) for row in step_size_rows])
+    return baseline_result, sensitivity_df, step_size_df
+
+
+def main() -> None:
+    context = load_selected_baseline()
+    baseline_result, sensitivity_df, step_size_df = compute_study_tables(context)
     baseline_df = build_baseline_table(context, baseline_result)
     thesis_df = build_thesis_table(sensitivity_df)
     metadata_df = build_metadata_table(context, baseline_result, sensitivity_df)
@@ -2382,13 +2511,15 @@ def main() -> None:
         step_size_df,
         thesis_df,
     )
-    make_sensitivity_figure(sensitivity_df)
+    make_step_size_figure(step_size_df)
+    if LEGACY_HEATMAP_FIGURE.exists():
+        LEGACY_HEATMAP_FIGURE.unlink()
     print_console_summary(sensitivity_df, thesis_df)
     print(f"Saved workbook: {OUTPUT_XLSX}")
     print(f"Saved table: {OUTPUT_TABLE_CSV}")
     print(f"Saved step-size table: {OUTPUT_STEP_SIZE_CSV}")
     print(f"Saved thesis table: {OUTPUT_THESIS_CSV}")
-    print(f"Saved figure: {OUTPUT_FIGURE}")
+    print(f"Saved step-size figure: {OUTPUT_FIGURE}")
 
 
 if __name__ == "__main__":
