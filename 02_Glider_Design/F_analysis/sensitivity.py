@@ -56,6 +56,7 @@ RESULTS_XLSX = RESULTS_DIR / "nausicaa_results.xlsx"
 OUTPUT_XLSX = RESULTS_DIR / "sensitivity_analysis.xlsx"
 OUTPUT_TABLE_CSV = RESULTS_DIR / "sensitivity_table.csv"
 OUTPUT_THESIS_CSV = RESULTS_DIR / "sensitivity_thesis_table.csv"
+OUTPUT_STEP_SIZE_CSV = RESULTS_DIR / "step_size_table.csv"
 OUTPUT_FIGURE = FIGURES_DIR / "sensitivity_matrix.png"
 
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -65,6 +66,8 @@ FD_REL_STEP = 2e-3
 FD_STABLE_REL_TOL = 0.10
 FD_STABLE_ABS_TOL = 1e-9
 TURN_TAU_FLOOR_S = 1e-4
+FD_ROUNDOFF_SAFETY = 50.0
+FD_ROUNDOFF_REL_SCALE = math.sqrt(np.finfo(float).eps)
 
 GEOMETRY_PARAM_ORDER = [
     "wing_span_m",
@@ -195,11 +198,11 @@ QUANTITY_UNITS = {
     "sink_rate_mps": "m/s",
     "mass_total_kg": "kg",
     "roll_tau_s": "s",
-    "static_margin": "-",
+    "static_margin": "%MAC",
     "nom_cl_margin_to_cap": "-",
     "nom_util_e": "-",
     "nom_lateral_residual": "-",
-    "static_margin_min_margin": "-",
+    "static_margin_min_margin": "%MAC",
     "roll_tau_limit_margin": "s",
     "elevator_util_margin": "-",
     "bank_entry_margin_deg": "deg",
@@ -213,11 +216,11 @@ QUANTITY_FLOORS = {
     "sink_rate_mps": 1e-6,
     "mass_total_kg": 1e-6,
     "roll_tau_s": 1e-6,
-    "static_margin": 1e-6,
+    "static_margin": 1e-4,
     "nom_cl_margin_to_cap": 1e-6,
     "nom_util_e": 1e-6,
     "nom_lateral_residual": 1e-6,
-    "static_margin_min_margin": 1e-6,
+    "static_margin_min_margin": 1e-4,
     "roll_tau_limit_margin": 1e-6,
     "elevator_util_margin": 1e-6,
     "bank_entry_margin_deg": 1e-4,
@@ -278,8 +281,31 @@ class SensitivityResult:
     fd_stability_rel: float
     fd_stable: bool
     unit_raw: str
+    step_selection_reason: str
     notes: str
     reeval_path: str
+
+
+@dataclass
+class StepSizeResult:
+    group: str
+    parameter_name: str
+    parameter_symbol: str
+    quantity_name: str
+    quantity_symbol: str
+    difference_scheme: str
+    step_size: float
+    derivative_estimate: float
+    absolute_error_estimate: float
+    relative_error_estimate: float
+    signal_amplitude: float
+    roundoff_floor: float
+    roundoff_limited: bool
+    selected_for_final: bool
+    selected_step_size: float
+    selection_reason: str
+    reeval_path: str
+    notes: str
 
 
 @dataclass(frozen=True)
@@ -572,7 +598,7 @@ def _build_requirement_values(
                 default=float(default_cfg.turn_bank_deg),
             ),
         ),
-        "static_margin_min": float(static_margin_min),
+        "static_margin_min": 100.0 * float(static_margin_min),
         "max_cl_nominal": float(max_cl_nominal),
         "max_roll_tau_s": _lookup_numeric(
             summary_map,
@@ -674,7 +700,8 @@ def _build_workbook_baseline_values(
             "mass_total_kg",
             default=_lookup_numeric(summary_map, "mass_total_kg"),
         ),
-        "static_margin": _lookup_numeric(
+        "static_margin": 100.0
+        * _lookup_numeric(
             selected_row,
             "static_margin",
             default=_lookup_numeric(summary_map, "static_margin"),
@@ -867,7 +894,7 @@ def build_requirement_parameter_specs(context: BaselineContext) -> list[Paramete
         "bank_entry_time_s": "s",
         "wall_clearance_m": "m",
         "turn_bank_deg": "deg",
-        "static_margin_min": "-",
+        "static_margin_min": "%MAC",
         "max_cl_nominal": "-",
         "max_roll_tau_s": "s",
     }
@@ -875,7 +902,7 @@ def build_requirement_parameter_specs(context: BaselineContext) -> list[Paramete
         "bank_entry_time_s": 1e-4,
         "wall_clearance_m": 1e-4,
         "turn_bank_deg": 1e-3,
-        "static_margin_min": 1e-4,
+        "static_margin_min": 1e-2,
         "max_cl_nominal": 1e-4,
         "max_roll_tau_s": 1e-4,
     }
@@ -1126,6 +1153,15 @@ def _empty_evaluation_result(note: str) -> EvaluationResult:
     return EvaluationResult(success=False, metrics=metric_map, state={}, notes=[note])
 
 
+def _roundoff_signal_floor(
+    quantity_floor: float,
+    *values: float,
+) -> float:
+    finite_values = [abs(value) for value in values if math.isfinite(value)]
+    scale = max([quantity_floor, *finite_values], default=quantity_floor)
+    return FD_ROUNDOFF_SAFETY * FD_ROUNDOFF_REL_SCALE * max(scale, quantity_floor)
+
+
 def evaluate_full_trim(
     context: BaselineContext,
     geometry: nausicaa.GeometryVars,
@@ -1325,7 +1361,7 @@ def evaluate_full_trim(
         mass_total_kg * float(cfg.g),
         1e-8,
     )
-    static_margin = (x_np_m - total_cg_x_m) / max(wing_mac_m, 1e-8)
+    static_margin = 100.0 * (x_np_m - total_cg_x_m) / max(wing_mac_m, 1e-8)
     lateral_residual = float(np.hypot(cl_lat_num, cn_lat_num))
 
     cl_delta_a_proxy = float(
@@ -1338,24 +1374,8 @@ def evaluate_full_trim(
             )
         )
     )
-    cl_delta_a_fd = float(
-        nausicaa.cl_delta_a_finite_difference(
-            airplane_base=airplane_base,
-            xyz_ref=[total_cg_x_m, total_cg_y_m, total_cg_z_m],
-            velocity_mps=float(cfg.v_nom_mps),
-            alpha_deg=alpha_num,
-            delta_a_center_deg=delta_a_num,
-            delta_e_deg=delta_e_num,
-            delta_r_deg=delta_r_num,
-            yaw_rate_rad_s=float(nausicaa.to_scalar(trim_metrics["yaw_rate_rad_s"])),
-            step_deg=float(nausicaa.CL_DELTA_A_FD_STEP_DEG),
-            atmosphere=asb.Atmosphere(altitude=0.0),
-            cfg=cfg,
-        )
-    )
-    cl_delta_a_mag = (
-        abs(cl_delta_a_fd) if math.isfinite(cl_delta_a_fd) else abs(cl_delta_a_proxy)
-    )
+    cl_delta_a_fd = float("nan")
+    cl_delta_a_mag = abs(cl_delta_a_proxy)
     delta_a_max_rad = float(np.radians(float(cfg.delta_a_max_deg)))
     q_dyn = 0.5 * float(cfg.rho) * float(cfg.v_nom_mps) ** 2
     roll_rate_ss_radps = (
@@ -1617,7 +1637,7 @@ def compute_sensitivity_for_parameter(
     baseline_result: EvaluationResult,
     parameter_spec: ParameterSpec,
     quantity_specs: list[QuantitySpec],
-) -> list[SensitivityResult]:
+) -> tuple[list[SensitivityResult], list[StepSizeResult]]:
     scheme, step, scheme_notes = _adjust_fd_scheme(parameter_spec)
     baseline_parameter = float(parameter_spec.baseline_value)
     baseline_values = baseline_result.metrics
@@ -1650,14 +1670,19 @@ def compute_sensitivity_for_parameter(
             notes.extend(evaluation.notes)
 
     results: list[SensitivityResult] = []
+    step_size_rows: list[StepSizeResult] = []
     for quantity_spec in quantity_specs:
         quantity_name = quantity_spec.name
         baseline_quantity = float(baseline_values[quantity_name])
         sensitivity_raw = float("nan")
+        selected_step = float("nan")
+        step_selection_reason = ""
         fd_stability_abs = float("nan")
         fd_stability_rel = float("nan")
         fd_stable = False
         row_notes = list(notes)
+        reference_derivative = float("nan")
+        candidate_data: list[dict[str, Any]] = []
 
         if scheme == "central":
             minus_h = evaluation_points["minus_h"]
@@ -1675,13 +1700,83 @@ def compute_sensitivity_for_parameter(
                 d_h2 = (
                     plus_h2.metrics[quantity_name] - minus_h2.metrics[quantity_name]
                 ) / step
-                sensitivity_raw = float(d_h2)
                 fd_stability_abs = abs(d_h - d_h2)
                 fd_stability_rel = fd_stability_abs / max(abs(d_h2), 1e-9)
-                fd_stable = math.isfinite(sensitivity_raw) and (
+                signal_h = abs(
+                    plus_h.metrics[quantity_name] - minus_h.metrics[quantity_name]
+                )
+                signal_h2 = abs(
+                    plus_h2.metrics[quantity_name] - minus_h2.metrics[quantity_name]
+                )
+                floor_h = _roundoff_signal_floor(
+                    quantity_spec.q_floor,
+                    baseline_quantity,
+                    plus_h.metrics[quantity_name],
+                    minus_h.metrics[quantity_name],
+                )
+                floor_h2 = _roundoff_signal_floor(
+                    quantity_spec.q_floor,
+                    baseline_quantity,
+                    plus_h2.metrics[quantity_name],
+                    minus_h2.metrics[quantity_name],
+                )
+                roundoff_h = signal_h <= floor_h
+                roundoff_h2 = signal_h2 <= floor_h2
+                truncation_ok = (
                     fd_stability_rel <= FD_STABLE_REL_TOL
                     or fd_stability_abs <= FD_STABLE_ABS_TOL
                 )
+                if roundoff_h2 and not roundoff_h:
+                    sensitivity_raw = float(d_h)
+                    selected_step = step
+                    step_selection_reason = "larger_step_selected_roundoff_limited_half_step"
+                    fd_stable = math.isfinite(sensitivity_raw) and (
+                        not roundoff_h
+                    ) and (truncation_ok or roundoff_h2)
+                    row_notes.append(
+                        "Automatic step-size check rejected the smaller centered step as round-off limited; used the larger step."
+                    )
+                elif roundoff_h and roundoff_h2:
+                    sensitivity_raw = float(d_h)
+                    selected_step = step
+                    step_selection_reason = "larger_step_selected_both_steps_roundoff_fragile"
+                    fd_stable = False
+                    row_notes.append(
+                        "Automatic step-size check found both centered steps near the round-off floor; the derivative remains numerically fragile."
+                    )
+                else:
+                    sensitivity_raw = float(d_h2)
+                    selected_step = 0.5 * step
+                    step_selection_reason = (
+                        "smaller_step_selected"
+                        if truncation_ok
+                        else "smaller_step_selected_truncation_control"
+                    )
+                    fd_stable = math.isfinite(sensitivity_raw) and (
+                        not roundoff_h2
+                    ) and truncation_ok
+                    if not truncation_ok:
+                        row_notes.append(
+                            "Automatic step-size check retained the smaller centered step because the larger step shows visible truncation error."
+                        )
+
+                reference_derivative = sensitivity_raw
+                candidate_data = [
+                    {
+                        "step_size": step,
+                        "derivative_estimate": float(d_h),
+                        "signal_amplitude": float(signal_h),
+                        "roundoff_floor": float(floor_h),
+                        "roundoff_limited": bool(roundoff_h),
+                    },
+                    {
+                        "step_size": 0.5 * step,
+                        "derivative_estimate": float(d_h2),
+                        "signal_amplitude": float(signal_h2),
+                        "roundoff_floor": float(floor_h2),
+                        "roundoff_limited": bool(roundoff_h2),
+                    },
+                ]
             else:
                 row_notes.append(
                     "At least one perturbed full evaluation failed; sensitivity reported as NaN."
@@ -1698,13 +1793,77 @@ def compute_sensitivity_for_parameter(
                 d_h2 = (plus_h2.metrics[quantity_name] - baseline_quantity) / (
                     0.5 * step
                 )
-                sensitivity_raw = float(d_h2)
                 fd_stability_abs = abs(d_h - d_h2)
                 fd_stability_rel = fd_stability_abs / max(abs(d_h2), 1e-9)
-                fd_stable = math.isfinite(sensitivity_raw) and (
+                signal_h = abs(plus_h.metrics[quantity_name] - baseline_quantity)
+                signal_h2 = abs(plus_h2.metrics[quantity_name] - baseline_quantity)
+                floor_h = _roundoff_signal_floor(
+                    quantity_spec.q_floor,
+                    baseline_quantity,
+                    plus_h.metrics[quantity_name],
+                )
+                floor_h2 = _roundoff_signal_floor(
+                    quantity_spec.q_floor,
+                    baseline_quantity,
+                    plus_h2.metrics[quantity_name],
+                )
+                roundoff_h = signal_h <= floor_h
+                roundoff_h2 = signal_h2 <= floor_h2
+                truncation_ok = (
                     fd_stability_rel <= FD_STABLE_REL_TOL
                     or fd_stability_abs <= FD_STABLE_ABS_TOL
                 )
+                if roundoff_h2 and not roundoff_h:
+                    sensitivity_raw = float(d_h)
+                    selected_step = step
+                    step_selection_reason = "larger_step_selected_roundoff_limited_half_step"
+                    fd_stable = math.isfinite(sensitivity_raw) and (
+                        not roundoff_h
+                    ) and (truncation_ok or roundoff_h2)
+                    row_notes.append(
+                        "Automatic step-size check rejected the smaller forward step as round-off limited; used the larger forward step."
+                    )
+                elif roundoff_h and roundoff_h2:
+                    sensitivity_raw = float(d_h)
+                    selected_step = step
+                    step_selection_reason = "larger_step_selected_both_steps_roundoff_fragile"
+                    fd_stable = False
+                    row_notes.append(
+                        "Automatic step-size check found both forward steps near the round-off floor; the derivative remains numerically fragile."
+                    )
+                else:
+                    sensitivity_raw = float(d_h2)
+                    selected_step = 0.5 * step
+                    step_selection_reason = (
+                        "smaller_step_selected"
+                        if truncation_ok
+                        else "smaller_step_selected_truncation_control"
+                    )
+                    fd_stable = math.isfinite(sensitivity_raw) and (
+                        not roundoff_h2
+                    ) and truncation_ok
+                    if not truncation_ok:
+                        row_notes.append(
+                            "Automatic step-size check retained the smaller forward step because the larger step shows visible truncation error."
+                        )
+
+                reference_derivative = sensitivity_raw
+                candidate_data = [
+                    {
+                        "step_size": step,
+                        "derivative_estimate": float(d_h),
+                        "signal_amplitude": float(signal_h),
+                        "roundoff_floor": float(floor_h),
+                        "roundoff_limited": bool(roundoff_h),
+                    },
+                    {
+                        "step_size": 0.5 * step,
+                        "derivative_estimate": float(d_h2),
+                        "signal_amplitude": float(signal_h2),
+                        "roundoff_floor": float(floor_h2),
+                        "roundoff_limited": bool(roundoff_h2),
+                    },
+                ]
             else:
                 row_notes.append(
                     "Forward perturbation failed or produced a non-finite quantity; sensitivity reported as NaN."
@@ -1722,7 +1881,7 @@ def compute_sensitivity_for_parameter(
                 parameter_name=parameter_spec.name,
                 parameter_symbol=parameter_spec.symbol,
                 baseline_parameter_value=baseline_parameter,
-                step_used=step,
+                step_used=selected_step if math.isfinite(selected_step) else step,
                 quantity_name=quantity_name,
                 quantity_symbol=quantity_spec.symbol,
                 baseline_quantity_value=baseline_quantity,
@@ -1736,11 +1895,45 @@ def compute_sensitivity_for_parameter(
                     quantity_unit=quantity_spec.unit,
                     parameter_unit=parameter_spec.unit,
                 ),
+                step_selection_reason=step_selection_reason,
                 notes="; ".join(dict.fromkeys(note for note in row_notes if note)),
                 reeval_path=parameter_spec.evaluation_path,
             )
         )
-    return results
+        for candidate in candidate_data:
+            abs_error_estimate = abs(
+                candidate["derivative_estimate"] - reference_derivative
+            )
+            rel_error_estimate = abs_error_estimate / max(abs(reference_derivative), 1e-9)
+            step_size_rows.append(
+                StepSizeResult(
+                    group=parameter_spec.group,
+                    parameter_name=parameter_spec.name,
+                    parameter_symbol=parameter_spec.symbol,
+                    quantity_name=quantity_name,
+                    quantity_symbol=quantity_spec.symbol,
+                    difference_scheme=scheme,
+                    step_size=float(candidate["step_size"]),
+                    derivative_estimate=float(candidate["derivative_estimate"]),
+                    absolute_error_estimate=float(abs_error_estimate),
+                    relative_error_estimate=float(rel_error_estimate),
+                    signal_amplitude=float(candidate["signal_amplitude"]),
+                    roundoff_floor=float(candidate["roundoff_floor"]),
+                    roundoff_limited=bool(candidate["roundoff_limited"]),
+                    selected_for_final=math.isfinite(selected_step)
+                    and math.isclose(
+                        float(candidate["step_size"]),
+                        float(selected_step),
+                        rel_tol=0.0,
+                        abs_tol=1e-15,
+                    ),
+                    selected_step_size=selected_step,
+                    selection_reason=step_selection_reason,
+                    reeval_path=parameter_spec.evaluation_path,
+                    notes="; ".join(dict.fromkeys(note for note in row_notes if note)),
+                )
+            )
+    return results, step_size_rows
 
 
 def _mismatch_rows(
@@ -1799,7 +1992,7 @@ def build_baseline_table(
         "bank_entry_time_s": "s",
         "wall_clearance_m": "m",
         "turn_bank_deg": "deg",
-        "static_margin_min": "-",
+        "static_margin_min": "%MAC",
         "max_cl_nominal": "-",
         "max_roll_tau_s": "s",
     }
@@ -1865,6 +2058,15 @@ def build_metadata_table(
         {"Key": "fd_rel_step", "Value": FD_REL_STEP},
         {"Key": "fd_stable_rel_tol", "Value": FD_STABLE_REL_TOL},
         {"Key": "fd_stable_abs_tol", "Value": FD_STABLE_ABS_TOL},
+        {"Key": "fd_roundoff_safety", "Value": FD_ROUNDOFF_SAFETY},
+        {"Key": "fd_roundoff_rel_scale", "Value": FD_ROUNDOFF_REL_SCALE},
+        {
+            "Key": "static_margin_reporting",
+            "Value": (
+                "Static-margin quantities are reported in %MAC and use the "
+                "workbook-consistent neutral-point definition normalized by wing MAC."
+            ),
+        },
         {"Key": "objective_weights", "Value": str(asdict(context.objective_weights))},
         {"Key": "objective_scales", "Value": str(asdict(context.objective_scales))},
         {"Key": "baseline_success", "Value": baseline_result.success},
@@ -2126,12 +2328,14 @@ def write_excel_outputs(
     metadata_df: pd.DataFrame,
     baseline_df: pd.DataFrame,
     sensitivity_df: pd.DataFrame,
+    step_size_df: pd.DataFrame,
     thesis_df: pd.DataFrame,
 ) -> None:
     with pd.ExcelWriter(OUTPUT_XLSX, engine="openpyxl") as writer:
         metadata_df.to_excel(writer, sheet_name="Metadata", index=False)
         baseline_df.to_excel(writer, sheet_name="Baseline", index=False)
         sensitivity_df.to_excel(writer, sheet_name="SensitivityTable", index=False)
+        step_size_df.to_excel(writer, sheet_name="StepSizeTable", index=False)
         thesis_df.to_excel(writer, sheet_name="ThesisTable", index=False)
 
 
@@ -2151,28 +2355,38 @@ def main() -> None:
         raise RuntimeError("Baseline deterministic trim evaluation failed.")
 
     sensitivity_rows: list[SensitivityResult] = []
+    step_size_rows: list[StepSizeResult] = []
     for parameter_spec in parameter_specs:
-        sensitivity_rows.extend(
-            compute_sensitivity_for_parameter(
-                context=context,
-                baseline_result=baseline_result,
-                parameter_spec=parameter_spec,
-                quantity_specs=quantity_specs,
-            )
+        parameter_results, parameter_step_rows = compute_sensitivity_for_parameter(
+            context=context,
+            baseline_result=baseline_result,
+            parameter_spec=parameter_spec,
+            quantity_specs=quantity_specs,
         )
+        sensitivity_rows.extend(parameter_results)
+        step_size_rows.extend(parameter_step_rows)
 
     sensitivity_df = pd.DataFrame([asdict(row) for row in sensitivity_rows])
+    step_size_df = pd.DataFrame([asdict(row) for row in step_size_rows])
     baseline_df = build_baseline_table(context, baseline_result)
     thesis_df = build_thesis_table(sensitivity_df)
     metadata_df = build_metadata_table(context, baseline_result, sensitivity_df)
 
     sensitivity_df.to_csv(OUTPUT_TABLE_CSV, index=False)
+    step_size_df.to_csv(OUTPUT_STEP_SIZE_CSV, index=False)
     thesis_df.to_csv(OUTPUT_THESIS_CSV, index=False)
-    write_excel_outputs(metadata_df, baseline_df, sensitivity_df, thesis_df)
+    write_excel_outputs(
+        metadata_df,
+        baseline_df,
+        sensitivity_df,
+        step_size_df,
+        thesis_df,
+    )
     make_sensitivity_figure(sensitivity_df)
     print_console_summary(sensitivity_df, thesis_df)
     print(f"Saved workbook: {OUTPUT_XLSX}")
     print(f"Saved table: {OUTPUT_TABLE_CSV}")
+    print(f"Saved step-size table: {OUTPUT_STEP_SIZE_CSV}")
     print(f"Saved thesis table: {OUTPUT_THESIS_CSV}")
     print(f"Saved figure: {OUTPUT_FIGURE}")
 

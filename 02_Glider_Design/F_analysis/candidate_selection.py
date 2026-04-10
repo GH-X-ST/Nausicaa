@@ -2341,7 +2341,6 @@ def _centers_to_edges(values: np.ndarray) -> np.ndarray:
     )
     return edges
 
-
 def _build_value_heat_surface(
     x_values: pd.Series,
     y_values: pd.Series,
@@ -2383,10 +2382,26 @@ def _build_value_heat_surface(
         weights,
         axis=2,
     )
+
+    if len(point_df) <= 1:
+        support_radius = 0.12
+    else:
+        normalized_point_distance_sq = (
+            ((point_x[:, None] - point_x[None, :]) / x_span) ** 2
+            + ((point_y[:, None] - point_y[None, :]) / y_span) ** 2
+        )
+        np.fill_diagonal(normalized_point_distance_sq, np.inf)
+        nearest_point_distance = np.sqrt(np.min(normalized_point_distance_sq, axis=1))
+        support_radius = float(
+            np.clip(np.quantile(nearest_point_distance, 0.85) * 2.0, 0.06, 0.24)
+        )
+
+    nearest_grid_distance = np.sqrt(np.min(normalized_distance_sq, axis=2))
+    heat_mask = (~np.isfinite(heat_values)) | (nearest_grid_distance > support_radius)
     return (
         _centers_to_edges(x_centers),
         _centers_to_edges(y_centers),
-        np.ma.masked_invalid(heat_values),
+        np.ma.masked_where(heat_mask, heat_values),
     )
 
 
