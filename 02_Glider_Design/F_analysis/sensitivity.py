@@ -1,20 +1,24 @@
 """Local first-order sensitivity analysis for the selected Nausicaa design.
 
 Usage:
+    python F_analysis/solve_step_size.py
     python F_analysis/sensitivity.py
 
 Inputs:
     - C_results/nausicaa_workflow.xlsx
     - C_results/nausicaa_results.xlsx
+    - C_results/step_size_table.csv
 
 Outputs:
     - C_results/sensitivity_analysis.xlsx
     - C_results/sensitivity_table.csv
     - C_results/sensitivity_thesis_table.csv
-    - B_figures/sensitivity_matrix.png
 
-Limitations:
-    - The study is local and first-order only.
+Notes:
+    - Run `solve_step_size.py` first. It performs the expensive finite-
+      difference step-size sweep and stores the candidate derivative table.
+    - This script reads the saved step-size table and extracts the selected
+      derivative for each parameter/quantity pair.
     - Requirement perturbations do not re-optimise geometry.
     - Requirement terms wired through module-level constants in nausicaa.py are
       handled by local wrappers in this script so the analysis remains additive.
@@ -302,18 +306,25 @@ class StepSizeResult:
     group: str
     parameter_name: str
     parameter_symbol: str
+    baseline_parameter_value: float
     quantity_name: str
     quantity_symbol: str
+    baseline_quantity_value: float
     difference_scheme: str
     step_size: float
     derivative_estimate: float
+    normalized_sensitivity: float
     absolute_error_estimate: float
     relative_error_estimate: float
+    fd_stability_abs: float
+    fd_stability_rel: float
+    fd_stable: bool
     signal_amplitude: float
     roundoff_floor: float
     roundoff_limited: bool
     selected_for_final: bool
     selected_step_size: float
+    unit_raw: str
     selection_reason: str
     reeval_path: str
     notes: str
@@ -1921,13 +1932,24 @@ def compute_sensitivity_for_parameter(
                     group=parameter_spec.group,
                     parameter_name=parameter_spec.name,
                     parameter_symbol=parameter_spec.symbol,
+                    baseline_parameter_value=baseline_parameter,
                     quantity_name=quantity_name,
                     quantity_symbol=quantity_spec.symbol,
+                    baseline_quantity_value=baseline_quantity,
                     difference_scheme=scheme,
                     step_size=float(candidate["step_size"]),
                     derivative_estimate=float(candidate["derivative_estimate"]),
+                    normalized_sensitivity=normalize_sensitivity(
+                        parameter_value=baseline_parameter,
+                        quantity_value=baseline_quantity,
+                        dq_dp=float(candidate["derivative_estimate"]),
+                        q_floor=quantity_spec.q_floor,
+                    ),
                     absolute_error_estimate=float(abs_error_estimate),
                     relative_error_estimate=float(rel_error_estimate),
+                    fd_stability_abs=fd_stability_abs,
+                    fd_stability_rel=fd_stability_rel,
+                    fd_stable=bool(fd_stable),
                     signal_amplitude=float(candidate["signal_amplitude"]),
                     roundoff_floor=float(candidate["roundoff_floor"]),
                     roundoff_limited=bool(candidate["roundoff_limited"]),
@@ -1939,6 +1961,10 @@ def compute_sensitivity_for_parameter(
                         abs_tol=1e-15,
                     ),
                     selected_step_size=selected_step,
+                    unit_raw=_compose_derivative_unit(
+                        quantity_unit=quantity_spec.unit,
+                        parameter_unit=parameter_spec.unit,
+                    ),
                     selection_reason=step_selection_reason,
                     reeval_path=parameter_spec.evaluation_path,
                     notes="; ".join(dict.fromkeys(note for note in row_notes if note)),
@@ -2071,6 +2097,7 @@ def build_metadata_table(
         {"Key": "fd_stable_abs_tol", "Value": FD_STABLE_ABS_TOL},
         {"Key": "fd_roundoff_safety", "Value": FD_ROUNDOFF_SAFETY},
         {"Key": "fd_roundoff_rel_scale", "Value": FD_ROUNDOFF_REL_SCALE},
+        {"Key": "step_size_table_path", "Value": str(OUTPUT_STEP_SIZE_CSV.resolve())},
         {
             "Key": "static_margin_reporting",
             "Value": (
@@ -2106,6 +2133,119 @@ def build_metadata_table(
             }
         )
     return pd.DataFrame(rows)
+
+
+def load_saved_step_size_table(
+    path: Path | None = None,
+) -> pd.DataFrame:
+    csv_path = path or OUTPUT_STEP_SIZE_CSV
+    if not csv_path.exists():
+        raise FileNotFoundError(
+            f"Saved step-size table not found at {csv_path}. "
+            "Run `python F_analysis/solve_step_size.py` first."
+        )
+    table_df = pd.read_csv(csv_path)
+    required_columns = {
+        "group",
+        "parameter_name",
+        "parameter_symbol",
+        "baseline_parameter_value",
+        "quantity_name",
+        "quantity_symbol",
+        "baseline_quantity_value",
+        "difference_scheme",
+        "step_size",
+        "derivative_estimate",
+        "normalized_sensitivity",
+        "absolute_error_estimate",
+        "relative_error_estimate",
+        "fd_stability_abs",
+        "fd_stability_rel",
+        "fd_stable",
+        "roundoff_limited",
+        "selected_for_final",
+        "selected_step_size",
+        "unit_raw",
+        "selection_reason",
+        "reeval_path",
+        "notes",
+    }
+    missing_columns = required_columns.difference(table_df.columns)
+    if missing_columns:
+        missing_list = ", ".join(sorted(missing_columns))
+        raise ValueError(
+            "Saved step-size table uses an older schema and is missing required "
+            f"columns: {missing_list}. Run `python F_analysis/solve_step_size.py` "
+            "to regenerate it."
+        )
+    for column_name in ("selected_for_final", "fd_stable", "roundoff_limited"):
+        table_df[column_name] = _coerce_bool_series(table_df[column_name])
+    return table_df
+
+
+def build_sensitivity_table_from_step_size_table(
+    step_size_df: pd.DataFrame,
+) -> pd.DataFrame:
+    selected_df = step_size_df.loc[
+        step_size_df["selected_for_final"].astype(bool)
+    ].copy()
+    if selected_df.empty:
+        raise ValueError(
+            "Saved step-size table contains no selected rows. "
+            "Run `python F_analysis/solve_step_size.py` again."
+        )
+
+    selected_df.sort_values(
+        by=["parameter_name", "quantity_name", "step_size"],
+        ascending=[True, True, True],
+        kind="mergesort",
+        inplace=True,
+    )
+    selected_df = selected_df.drop_duplicates(
+        subset=["parameter_name", "quantity_name"],
+        keep="first",
+    ).copy()
+
+    sensitivity_df = pd.DataFrame(
+        {
+            "group": selected_df["group"],
+            "parameter_name": selected_df["parameter_name"],
+            "parameter_symbol": selected_df["parameter_symbol"],
+            "baseline_parameter_value": selected_df["baseline_parameter_value"],
+            "step_used": selected_df["step_size"],
+            "quantity_name": selected_df["quantity_name"],
+            "quantity_symbol": selected_df["quantity_symbol"],
+            "baseline_quantity_value": selected_df["baseline_quantity_value"],
+            "sensitivity_raw": selected_df["derivative_estimate"],
+            "sensitivity_normalized": selected_df["normalized_sensitivity"],
+            "difference_scheme": selected_df["difference_scheme"],
+            "fd_stability_abs": selected_df["fd_stability_abs"],
+            "fd_stability_rel": selected_df["fd_stability_rel"],
+            "fd_stable": selected_df["fd_stable"],
+            "unit_raw": selected_df["unit_raw"],
+            "step_selection_reason": selected_df["selection_reason"],
+            "notes": selected_df["notes"],
+            "reeval_path": selected_df["reeval_path"],
+        }
+    )
+    sensitivity_df["parameter_name"] = pd.Categorical(
+        sensitivity_df["parameter_name"],
+        categories=[*GEOMETRY_PARAM_ORDER, *REQUIREMENT_PARAM_ORDER],
+        ordered=True,
+    )
+    sensitivity_df["quantity_name"] = pd.Categorical(
+        sensitivity_df["quantity_name"],
+        categories=ALL_QUANTITY_ORDER,
+        ordered=True,
+    )
+    sensitivity_df.sort_values(
+        by=["parameter_name", "quantity_name"],
+        kind="mergesort",
+        inplace=True,
+    )
+    sensitivity_df["parameter_name"] = sensitivity_df["parameter_name"].astype(str)
+    sensitivity_df["quantity_name"] = sensitivity_df["quantity_name"].astype(str)
+    return sensitivity_df.reset_index(drop=True)
 
 
 def _primary_margin_lookup(parameter_df: pd.DataFrame) -> str:
@@ -2496,13 +2636,21 @@ def compute_study_tables(
 
 def main() -> None:
     context = load_selected_baseline()
-    baseline_result, sensitivity_df, step_size_df = compute_study_tables(context)
+    baseline_result = evaluate_full_trim(
+        context=context,
+        geometry=context.geometry,
+        requirement_values=context.requirement_values,
+    )
+    if not baseline_result.success:
+        raise RuntimeError("Baseline deterministic trim evaluation failed.")
+
+    step_size_df = load_saved_step_size_table()
+    sensitivity_df = build_sensitivity_table_from_step_size_table(step_size_df)
     baseline_df = build_baseline_table(context, baseline_result)
     thesis_df = build_thesis_table(sensitivity_df)
     metadata_df = build_metadata_table(context, baseline_result, sensitivity_df)
 
     sensitivity_df.to_csv(OUTPUT_TABLE_CSV, index=False)
-    step_size_df.to_csv(OUTPUT_STEP_SIZE_CSV, index=False)
     thesis_df.to_csv(OUTPUT_THESIS_CSV, index=False)
     write_excel_outputs(
         metadata_df,
@@ -2511,15 +2659,13 @@ def main() -> None:
         step_size_df,
         thesis_df,
     )
-    make_step_size_figure(step_size_df)
     if LEGACY_HEATMAP_FIGURE.exists():
         LEGACY_HEATMAP_FIGURE.unlink()
     print_console_summary(sensitivity_df, thesis_df)
     print(f"Saved workbook: {OUTPUT_XLSX}")
     print(f"Saved table: {OUTPUT_TABLE_CSV}")
-    print(f"Saved step-size table: {OUTPUT_STEP_SIZE_CSV}")
+    print(f"Read step-size table: {OUTPUT_STEP_SIZE_CSV}")
     print(f"Saved thesis table: {OUTPUT_THESIS_CSV}")
-    print(f"Saved step-size figure: {OUTPUT_FIGURE}")
 
 
 if __name__ == "__main__":

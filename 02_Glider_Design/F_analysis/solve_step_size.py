@@ -49,8 +49,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     context = sensitivity.load_selected_baseline()
-    baseline_result, sensitivity_df, step_size_df = sensitivity.compute_study_tables(
+    baseline_result, _sensitivity_df, step_size_df = sensitivity.compute_study_tables(
         context
+    )
+    sensitivity_df = sensitivity.build_sensitivity_table_from_step_size_table(
+        step_size_df
     )
     baseline_df = sensitivity.build_baseline_table(context, baseline_result)
     metadata_df = sensitivity.build_metadata_table(
