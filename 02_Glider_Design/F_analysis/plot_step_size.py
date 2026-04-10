@@ -1,9 +1,9 @@
 """Plot finite-difference step-size trade-offs from a saved step-size table.
 
 Usage:
-    python F_analysis/step_size.py
-    python F_analysis/step_size.py --group geometry
-    python F_analysis/step_size.py --parameter wing_span_m
+    python F_analysis/plot_step_size.py
+    python F_analysis/plot_step_size.py --group geometry
+    python F_analysis/plot_step_size.py --parameter wing_span_m
 
 Prerequisite:
     Run `python F_analysis/solve_step_size.py` once to create the saved table.
@@ -55,6 +55,12 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Optional exact parameter_name filter.",
     )
+    parser.add_argument(
+        "--max-quantities",
+        type=int,
+        default=3,
+        help="Maximum number of quantities shown per parameter panel.",
+    )
     return parser.parse_args()
 
 
@@ -96,7 +102,11 @@ def main() -> None:
             "Run `python F_analysis/solve_step_size.py` first."
         )
     table_df = build_filtered_table(args)
-    sensitivity.make_step_size_figure(table_df, figure_path=args.figure)
+    sensitivity.make_step_size_figure(
+        table_df,
+        figure_path=args.figure,
+        max_quantities=args.max_quantities,
+    )
     print(f"Saved step-size trade-off figure: {args.figure}")
 
 

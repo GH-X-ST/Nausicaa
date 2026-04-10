@@ -73,7 +73,17 @@ FD_STABLE_ABS_TOL = 1e-9
 TURN_TAU_FLOOR_S = 1e-4
 FD_ROUNDOFF_SAFETY = 50.0
 FD_ROUNDOFF_REL_SCALE = math.sqrt(np.finfo(float).eps)
-FD_STEP_LADDER_LEVELS = 6
+FD_STEP_LADDER_MULTIPLIERS = (
+    8.0,
+    4.0,
+    2.0,
+    1.0,
+    0.5,
+    0.25,
+    0.125,
+    0.0625,
+)
+FD_STEP_LADDER_LEVELS = len(FD_STEP_LADDER_MULTIPLIERS)
 
 GEOMETRY_PARAM_ORDER = [
     "wing_span_m",
@@ -323,6 +333,8 @@ class StepSizeResult:
     fd_stable: bool
     signal_amplitude: float
     roundoff_floor: float
+    roundoff_error_proxy: float
+    total_error_proxy: float
     roundoff_limited: bool
     selected_for_final: bool
     selected_step_size: float
@@ -982,11 +994,25 @@ def compute_fd_step(parameter_spec: ParameterSpec) -> float:
     )
 
 
-def build_step_ladder(base_step: float) -> list[float]:
-    return [
-        float(base_step) / (2.0**level)
-        for level in range(FD_STEP_LADDER_LEVELS)
-    ]
+def build_step_ladder(
+    parameter_spec: ParameterSpec,
+    base_step: float,
+    scheme: str,
+) -> list[float]:
+    lower_bound = parameter_spec.lower_bound
+    step_sizes: list[float] = []
+    for multiplier in FD_STEP_LADDER_MULTIPLIERS:
+        step_size = float(base_step) * float(multiplier)
+        if (
+            scheme == "central"
+            and lower_bound is not None
+            and parameter_spec.baseline_value - step_size <= lower_bound
+        ):
+            continue
+        step_sizes.append(step_size)
+    if not step_sizes:
+        step_sizes.append(float(base_step))
+    return step_sizes
 
 
 def _difference_order(scheme: str) -> int:
@@ -1211,6 +1237,15 @@ def _roundoff_signal_floor(
     finite_values = [abs(value) for value in values if math.isfinite(value)]
     scale = max([quantity_floor, *finite_values], default=quantity_floor)
     return FD_ROUNDOFF_SAFETY * FD_ROUNDOFF_REL_SCALE * max(scale, quantity_floor)
+
+
+def _roundoff_derivative_proxy(
+    roundoff_floor: float,
+    step_size: float,
+    scheme: str,
+) -> float:
+    denominator = step_size if scheme == "forward" else 2.0 * step_size
+    return float(roundoff_floor) / max(float(denominator), 1e-30)
 
 
 def evaluate_full_trim(
@@ -1797,6 +1832,7 @@ def _estimate_reference_derivative(
 def _annotate_candidate_errors(
     candidates: list[dict[str, Any]],
     reference_derivative: float,
+    scheme: str,
 ) -> None:
     for candidate in candidates:
         derivative_estimate = float(candidate["derivative_estimate"])
@@ -1806,8 +1842,19 @@ def _annotate_candidate_errors(
         else:
             absolute_error = float("nan")
             relative_error = float("nan")
+        roundoff_error_proxy = _roundoff_derivative_proxy(
+            roundoff_floor=float(candidate["roundoff_floor"]),
+            step_size=float(candidate["step_size"]),
+            scheme=scheme,
+        )
+        if math.isfinite(absolute_error):
+            total_error_proxy = absolute_error + roundoff_error_proxy
+        else:
+            total_error_proxy = float("nan")
         candidate["absolute_error_estimate"] = float(absolute_error)
         candidate["relative_error_estimate"] = float(relative_error)
+        candidate["roundoff_error_proxy"] = float(roundoff_error_proxy)
+        candidate["total_error_proxy"] = float(total_error_proxy)
 
 
 def _select_step_candidate(
@@ -1861,7 +1908,11 @@ def compute_sensitivity_for_parameter(
     quantity_specs: list[QuantitySpec],
 ) -> tuple[list[SensitivityResult], list[StepSizeResult]]:
     scheme, step, scheme_notes = _adjust_fd_scheme(parameter_spec)
-    step_sizes = build_step_ladder(step)
+    step_sizes = build_step_ladder(
+        parameter_spec=parameter_spec,
+        base_step=step,
+        scheme=scheme,
+    )
     baseline_parameter = float(parameter_spec.baseline_value)
     baseline_values = baseline_result.metrics
     evaluation_points: dict[str, EvaluationResult] = {}
@@ -1922,6 +1973,7 @@ def compute_sensitivity_for_parameter(
             _annotate_candidate_errors(
                 candidates=candidate_data,
                 reference_derivative=reference_derivative,
+                scheme=scheme,
             )
             selected_candidate, step_selection_reason = _select_step_candidate(
                 candidate_data
@@ -1968,13 +2020,19 @@ def compute_sensitivity_for_parameter(
                     row_notes.append(
                         "The selected step remains numerically fragile under the current absolute/relative finite-difference stability tolerances."
                     )
-                if step_selection_reason == "minimum_absolute_error_before_roundoff_onset":
+                if (
+                    step_selection_reason
+                    == "minimum_absolute_error_before_roundoff_onset"
+                ):
                     row_notes.append(
-                        "The selected step is the minimum-error non-roundoff point before the smaller steps enter the round-off-limited regime."
+                        "The selected step is the minimum derivative-error point before the smaller steps enter the round-off-limited regime."
                     )
-                elif step_selection_reason == "minimum_absolute_error_nonroundoff":
+                elif (
+                    step_selection_reason
+                    == "minimum_absolute_error_nonroundoff"
+                ):
                     row_notes.append(
-                        "The selected step is the minimum absolute-error non-roundoff point within the evaluated ladder."
+                        "The selected step is the minimum derivative-error non-roundoff point within the evaluated ladder."
                     )
                 elif (
                     step_selection_reason
@@ -2076,6 +2134,12 @@ def compute_sensitivity_for_parameter(
                     ),
                     signal_amplitude=float(candidate["signal_amplitude"]),
                     roundoff_floor=float(candidate["roundoff_floor"]),
+                    roundoff_error_proxy=float(
+                        candidate.get("roundoff_error_proxy", float("nan"))
+                    ),
+                    total_error_proxy=float(
+                        candidate.get("total_error_proxy", float("nan"))
+                    ),
                     roundoff_limited=bool(candidate["roundoff_limited"]),
                     selected_for_final=math.isfinite(selected_step)
                     and math.isclose(
@@ -2219,10 +2283,22 @@ def build_metadata_table(
         {"Key": "selected_candidate_id", "Value": context.selected_candidate_id},
         {"Key": "fd_rel_step", "Value": FD_REL_STEP},
         {"Key": "fd_step_ladder_levels", "Value": FD_STEP_LADDER_LEVELS},
+        {
+            "Key": "fd_step_ladder_multipliers",
+            "Value": ",".join(str(value) for value in FD_STEP_LADDER_MULTIPLIERS),
+        },
         {"Key": "fd_stable_rel_tol", "Value": FD_STABLE_REL_TOL},
         {"Key": "fd_stable_abs_tol", "Value": FD_STABLE_ABS_TOL},
         {"Key": "fd_roundoff_safety", "Value": FD_ROUNDOFF_SAFETY},
         {"Key": "fd_roundoff_rel_scale", "Value": FD_ROUNDOFF_REL_SCALE},
+        {
+            "Key": "step_selection_basis",
+            "Value": (
+                "Selected step minimizes absolute_error_estimate = "
+                "|D(h) - D_ref| over non-roundoff ladder points, where D_ref "
+                "is the Richardson-based reference derivative."
+            ),
+        },
         {"Key": "step_size_table_path", "Value": str(OUTPUT_STEP_SIZE_CSV.resolve())},
         {
             "Key": "static_margin_reporting",
@@ -2291,6 +2367,8 @@ def load_saved_step_size_table(
         "roundoff_limited",
         "selected_for_final",
         "selected_step_size",
+        "roundoff_error_proxy",
+        "total_error_proxy",
         "unit_raw",
         "selection_reason",
         "reeval_path",
@@ -2451,9 +2529,56 @@ def _step_plot_quantity_order(parameter_name: str) -> list[str]:
     return REQUIREMENT_STEP_PLOT_QUANTITIES
 
 
+def _rank_step_plot_quantities(
+    parameter_df: pd.DataFrame,
+    parameter_name: str,
+    max_quantities: int,
+) -> list[str]:
+    base_order = [
+        quantity_name
+        for quantity_name in _step_plot_quantity_order(parameter_name)
+        if quantity_name in set(parameter_df["quantity_name"])
+    ]
+    if max_quantities <= 0 or len(base_order) <= max_quantities:
+        return base_order
+
+    selected_df = parameter_df.loc[
+        parameter_df["selected_for_final"].astype(bool)
+    ].copy()
+    if selected_df.empty:
+        return base_order[:max_quantities]
+
+    selected_df["rel_error"] = pd.to_numeric(
+        selected_df["fd_stability_rel"],
+        errors="coerce",
+    )
+    selected_df["abs_error"] = pd.to_numeric(
+        selected_df["absolute_error_estimate"],
+        errors="coerce",
+    ).abs()
+    selected_df["order_rank"] = selected_df["quantity_name"].map(
+        {name: index for index, name in enumerate(base_order)}
+    )
+    selected_df.sort_values(
+        by=["rel_error", "abs_error", "order_rank"],
+        ascending=[False, False, True],
+        kind="mergesort",
+        inplace=True,
+    )
+    ranked = selected_df["quantity_name"].drop_duplicates().tolist()
+    if len(ranked) < max_quantities:
+        for quantity_name in base_order:
+            if quantity_name not in ranked:
+                ranked.append(quantity_name)
+            if len(ranked) >= max_quantities:
+                break
+    return ranked[:max_quantities]
+
+
 def make_step_size_figure(
     step_size_df: pd.DataFrame,
     figure_path: Path | None = None,
+    max_quantities: int = 3,
 ) -> None:
     if step_size_df.empty:
         raise ValueError("Step-size table is empty; no trade-off figure can be drawn.")
@@ -2495,44 +2620,103 @@ def make_step_size_figure(
         constrained_layout=True,
     )
     axes_array = np.atleast_1d(axes).reshape(-1)
+    style_handles = [
+        plt.Line2D(
+            [0],
+            [0],
+            color="black",
+            linewidth=2.0,
+            linestyle="-",
+        ),
+        plt.Line2D(
+            [0],
+            [0],
+            color="black",
+            linestyle="None",
+            marker="o",
+            markersize=4.8,
+            alpha=0.45,
+        ),
+        plt.Line2D(
+            [0],
+            [0],
+            color="black",
+            marker="*",
+            linestyle="None",
+            markersize=10,
+        ),
+        plt.Line2D(
+            [0],
+            [0],
+            color="black",
+            marker="s",
+            markerfacecolor="none",
+            linestyle="None",
+            markersize=7,
+        ),
+    ]
+    style_labels = [
+        "Total-error proxy",
+        "Observed absolute error",
+        "Selected final step (min derivative error)",
+        "Round-off-limited point",
+    ]
 
     for axis, parameter_name in zip(axes_array, parameter_names, strict=False):
         parameter_df = step_size_df.loc[
             step_size_df["parameter_name"] == parameter_name
         ].copy()
-        quantity_order = [
-            quantity_name
-            for quantity_name in _step_plot_quantity_order(parameter_name)
-            if quantity_name in set(parameter_df["quantity_name"])
-        ]
-        selected_steps = []
+        quantity_order = _rank_step_plot_quantities(
+            parameter_df=parameter_df,
+            parameter_name=parameter_name,
+            max_quantities=max_quantities,
+        )
+        quantity_handles = []
+        quantity_labels = []
         for quantity_name in quantity_order:
             quantity_df = parameter_df.loc[
                 parameter_df["quantity_name"] == quantity_name
             ].sort_values("step_size", kind="mergesort")
             x_values = quantity_df["step_size"].to_numpy(dtype=float)
-            y_values = np.maximum(
+            y_observed = np.maximum(
                 quantity_df["absolute_error_estimate"].to_numpy(dtype=float),
                 1e-18,
             )
+            if "total_error_proxy" in quantity_df.columns:
+                y_proxy = np.maximum(
+                    quantity_df["total_error_proxy"].to_numpy(dtype=float),
+                    1e-18,
+                )
+            else:
+                y_proxy = y_observed
+            selected_y_column = "absolute_error_estimate"
             color = colors[quantity_name]
+            axis.scatter(
+                x_values,
+                y_observed,
+                s=20,
+                color=color,
+                alpha=0.35,
+                zorder=3,
+            )
             axis.plot(
                 x_values,
-                y_values,
-                marker="o",
-                linewidth=1.7,
-                markersize=5.5,
+                y_proxy,
+                linestyle="-",
+                linewidth=2.1,
                 color=color,
-                alpha=0.95,
-                label=QUANTITY_LABELS[quantity_name],
+                alpha=0.92,
             )
+            quantity_handles.append(
+                plt.Line2D([0], [0], color=color, linewidth=2.1)
+            )
+            quantity_labels.append(QUANTITY_LABELS[quantity_name])
 
             selected_df = quantity_df.loc[quantity_df["selected_for_final"].astype(bool)]
             if not selected_df.empty:
-                selected_steps.extend(selected_df["selected_step_size"].tolist())
                 axis.scatter(
                     selected_df["step_size"],
-                    np.maximum(selected_df["absolute_error_estimate"], 1e-18),
+                    np.maximum(selected_df[selected_y_column], 1e-18),
                     marker="*",
                     s=110,
                     zorder=6,
@@ -2545,7 +2729,7 @@ def make_step_size_figure(
             if not roundoff_df.empty:
                 axis.scatter(
                     roundoff_df["step_size"],
-                    np.maximum(roundoff_df["absolute_error_estimate"], 1e-18),
+                    np.maximum(roundoff_df[selected_y_column], 1e-18),
                     marker="s",
                     s=44,
                     facecolors="none",
@@ -2554,95 +2738,44 @@ def make_step_size_figure(
                     zorder=5,
                 )
 
-        for selected_step in sorted(set(selected_steps)):
-            axis.axvline(
-                selected_step,
-                color="#555555",
-                linewidth=0.9,
-                linestyle=":",
-                alpha=0.45,
-            )
-
         axis.set_xscale("log")
         axis.set_yscale("log")
         axis.grid(True, which="both", alpha=0.22)
         axis.set_xlabel("Step size")
-        axis.set_ylabel(r"Absolute error estimate $|D(h)-D_{\mathrm{ref}}|$")
+        axis.set_ylabel("Error")
         axis.set_title(PARAMETER_LABELS.get(parameter_name, parameter_name))
-
-        selection_reason_values = (
-            parameter_df.loc[parameter_df["selected_for_final"].astype(bool), "selection_reason"]
-            .dropna()
-            .astype(str)
-            .unique()
-            .tolist()
+        axis.text(
+            0.02,
+            0.02,
+            f"Top {len(quantity_order)} quantities by derivative-error difficulty",
+            transform=axis.transAxes,
+            fontsize=8,
+            color="#444444",
+            ha="left",
+            va="bottom",
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.65},
         )
-        if selection_reason_values:
-            axis.text(
-                0.02,
-                0.02,
-                selection_reason_values[0].replace("_", " "),
-                transform=axis.transAxes,
-                fontsize=8,
-                color="#444444",
-                ha="left",
-                va="bottom",
-                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.65},
+        if quantity_handles:
+            axis.legend(
+                quantity_handles,
+                quantity_labels,
+                loc="upper right",
+                fontsize=7.5,
+                frameon=False,
             )
 
     for axis in axes_array[n_panels:]:
         axis.axis("off")
 
-    legend_handles = []
-    legend_labels = []
-    for quantity_name in ordered_quantities:
-        legend_handles.append(
-            plt.Line2D(
-                [0],
-                [0],
-                color=colors[quantity_name],
-                linewidth=1.9,
-                marker="o",
-                markersize=5.5,
-            )
-        )
-        legend_labels.append(QUANTITY_LABELS[quantity_name])
-    legend_handles.extend(
-        [
-            plt.Line2D(
-                [0],
-                [0],
-                color="black",
-                marker="*",
-                linestyle="None",
-                markersize=10,
-            ),
-            plt.Line2D(
-                [0],
-                [0],
-                color="black",
-                marker="s",
-                markerfacecolor="none",
-                linestyle="None",
-                markersize=7,
-            ),
-        ]
-    )
-    legend_labels.extend(
-        [
-            "Selected final step",
-            "Round-off-limited point",
-        ]
-    )
     fig.legend(
-        legend_handles,
-        legend_labels,
+        style_handles,
+        style_labels,
         loc="upper center",
-        ncol=min(4, max(2, len(legend_labels) // 2)),
+        ncol=4,
         frameon=False,
     )
     fig.suptitle(
-        "Finite-difference step-size ladder: absolute error versus step size",
+        "Finite-difference step-size ladder",
         fontsize=15,
         y=1.01,
     )
