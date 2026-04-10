@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import Normalize, to_rgb
 from matplotlib.lines import Line2D
+from matplotlib.ticker import FormatStrFormatter
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from mpl_toolkits.mplot3d import proj3d
 
@@ -137,6 +139,10 @@ TRADEOFF_TO_TRACE_STAGE_MAP = {
     "Candidates": "Retained robust rank",
     "Robust summary": "Retained robust rank",
 }
+AXIS_EDGE_LW = 0.80
+CBAR_EDGE_LW = AXIS_EDGE_LW
+HEAT_MARKER_EDGE_LW = 0.65
+LEGEND_FONTSIZE = 8.5
 
 
 @dataclass(frozen=True)
@@ -394,6 +400,7 @@ def _build_tradeoff_stage_points(
                 "objective_plot",
                 "tail_metric_plot",
                 "nom_success_rate",
+                "selection_success_metric",
                 "candidate_id",
                 "is_selected",
             ]
@@ -412,6 +419,7 @@ def _build_tradeoff_stage_points(
                 "objective_plot",
                 "tail_metric_plot",
                 "nom_success_rate",
+                "selection_success_metric",
                 "candidate_id",
                 "is_selected",
             ]
@@ -433,6 +441,21 @@ def _build_tradeoff_stage_points(
         )
     else:
         stage_df["nom_success_rate"] = np.nan
+
+    if "nom_success_rate" in stage_df.columns and stage_df["nom_success_rate"].notna().any():
+        stage_df["selection_success_metric"] = stage_df["nom_success_rate"]
+    elif "feasible_rate" in stage_df.columns:
+        stage_df["selection_success_metric"] = pd.to_numeric(
+            stage_df["feasible_rate"],
+            errors="coerce",
+        )
+    elif "success" in stage_df.columns:
+        success_series = stage_df["success"]
+        if success_series.dtype != bool:
+            success_series = _coerce_bool_series(success_series)
+        stage_df["selection_success_metric"] = success_series.astype(float)
+    else:
+        stage_df["selection_success_metric"] = np.nan
 
     if "candidate_id" in stage_df.columns:
         stage_df["candidate_id"] = pd.to_numeric(
@@ -461,6 +484,7 @@ def _build_tradeoff_stage_points(
             "objective_plot",
             "tail_metric_plot",
             "nom_success_rate",
+            "selection_success_metric",
             "candidate_id",
             "is_selected",
         ]
@@ -858,6 +882,7 @@ def build_tradeoff_points(
                 "objective_plot",
                 "tail_metric_plot",
                 "nom_success_rate",
+                "selection_success_metric",
                 "candidate_id",
                 "is_selected",
             ]
@@ -884,9 +909,15 @@ def build_tradeoff_trace_nodes(
     trace_nodes_df = nodes_df.copy()
     trace_nodes_df["objective_plot"] = np.nan
     trace_nodes_df["tail_metric_plot"] = np.nan
+    trace_nodes_df["candidate_id"] = np.nan
+    trace_nodes_df["robust_rank"] = np.nan
 
     ranked_lookup = {
         str(int(row["candidate_id"])): _extract_tradeoff_pair(row, tail_metric_col)
+        for _, row in ranked_df.iterrows()
+    }
+    robust_rank_lookup = {
+        int(row["candidate_id"]): float(row["robust_rank"])
         for _, row in ranked_df.iterrows()
     }
 
@@ -910,6 +941,12 @@ def build_tradeoff_trace_nodes(
         final_all_starts_df.loc[final_all_starts_df["kept_after_dedup"]].copy()
     )
     kept_to_candidate_map = _resolve_final_kept_candidate_map(final_kept_df, ranked_df)
+    dropped_start_to_candidate_map = _map_dropped_final_starts_to_retained_candidates(
+        final_all_starts_df=final_all_starts_df,
+        final_kept_df=final_kept_df,
+        kept_to_candidate_map=kept_to_candidate_map,
+        tail_metric_col=tail_metric_col,
+    )
     final_rerun_rank = infer_final_rerun_rank(
         final_all_starts_df,
         top_rerun_all_starts_df,
@@ -969,6 +1006,45 @@ def build_tradeoff_trace_nodes(
             tail_metric_value,
         )
 
+    weight_sweep_candidate_lookup = {
+        str(int(row["run_index"])): int(row["candidate_id"])
+        for _, row in data.weight_sweep_df.iterrows()
+        if pd.notna(row.get("run_index")) and pd.notna(row.get("candidate_id"))
+    }
+    selected_sweep_candidate_lookup = {
+        str(int(row["run_index"])): int(row["candidate_id"])
+        for _, row in data.selected_sweep_rows_df.iterrows()
+        if pd.notna(row.get("run_index")) and pd.notna(row.get("candidate_id"))
+    }
+    top_rerun_candidate_lookup: dict[str, int] = {}
+    for _, row in top_rerun_all_starts_df.iterrows():
+        rerun_rank = int(row["rerun_rank"])
+        start_index = int(row["start_index"])
+        candidate_id: int | None = None
+        if rerun_rank == final_rerun_rank and pd.notna(row.get("kept_rank")):
+            candidate_id = kept_to_candidate_map.get(int(row["kept_rank"]))
+        if candidate_id is None:
+            candidate_id = dropped_start_to_candidate_map.get(start_index)
+        if candidate_id is not None:
+            top_rerun_candidate_lookup[f"{rerun_rank}:{start_index}"] = int(candidate_id)
+
+    final_start_candidate_lookup: dict[str, int] = {}
+    for _, row in final_all_starts_df.iterrows():
+        start_index = int(row["start_index"])
+        candidate_id = dropped_start_to_candidate_map.get(start_index)
+        if pd.notna(row.get("kept_rank")):
+            kept_candidate_id = kept_to_candidate_map.get(int(row["kept_rank"]))
+            if kept_candidate_id is not None:
+                candidate_id = int(kept_candidate_id)
+        if candidate_id is not None:
+            final_start_candidate_lookup[str(start_index)] = int(candidate_id)
+
+    retained_candidate_lookup = {
+        str(int(row["candidate_id"])): int(row["candidate_id"])
+        for _, row in ranked_df.iterrows()
+        if pd.notna(row.get("candidate_id"))
+    }
+
     lookup_by_stage = {
         "Weight sweep": weight_sweep_lookup,
         "Selected sweep rows": selected_sweep_lookup,
@@ -976,17 +1052,34 @@ def build_tradeoff_trace_nodes(
         "Final rerun starts": final_start_lookup,
         "Retained robust rank": ranked_lookup,
     }
+    candidate_lookup_by_stage = {
+        "Weight sweep": weight_sweep_candidate_lookup,
+        "Selected sweep rows": selected_sweep_candidate_lookup,
+        "Top rerun starts": top_rerun_candidate_lookup,
+        "Final rerun starts": final_start_candidate_lookup,
+        "Retained robust rank": retained_candidate_lookup,
+    }
 
     for index, row in trace_nodes_df.iterrows():
-        stage_lookup = lookup_by_stage.get(str(row["stage"]))
+        stage_name = str(row["stage"])
+        node_key = str(row["node_key"])
+        stage_lookup = lookup_by_stage.get(stage_name)
         if stage_lookup is None:
             continue
         objective_value, tail_metric_value = stage_lookup.get(
-            str(row["node_key"]),
+            node_key,
             (float("nan"), float("nan")),
         )
         trace_nodes_df.at[index, "objective_plot"] = objective_value
         trace_nodes_df.at[index, "tail_metric_plot"] = tail_metric_value
+        candidate_lookup = candidate_lookup_by_stage.get(stage_name, {})
+        candidate_id = candidate_lookup.get(node_key)
+        if candidate_id is None:
+            continue
+        trace_nodes_df.at[index, "candidate_id"] = float(candidate_id)
+        robust_rank = robust_rank_lookup.get(int(candidate_id))
+        if robust_rank is not None:
+            trace_nodes_df.at[index, "robust_rank"] = float(robust_rank)
 
     return trace_nodes_df
 
@@ -1007,12 +1100,14 @@ def _draw_curve(
     linewidth: float,
     alpha: float,
     zorder: int,
+    bend_x: float = 0.0,
+    bend_y: float = 0.0,
 ) -> None:
     t = np.linspace(0.0, 1.0, 40)
-    c1x = x0 + 0.35 * (x1 - x0)
-    c2x = x0 + 0.65 * (x1 - x0)
-    c1y = y0
-    c2y = y1
+    c1x = x0 + 0.24 * (x1 - x0) + bend_x
+    c1y = y0 + 0.24 * (y1 - y0) + bend_y
+    c2x = x0 + 0.78 * (x1 - x0) + 0.34 * bend_x
+    c2y = y0 + 0.78 * (y1 - y0) + 0.34 * bend_y
     x = (
         (1.0 - t) ** 3 * x0
         + 3.0 * (1.0 - t) ** 2 * t * c1x
@@ -1424,6 +1519,79 @@ def _build_refinement_edge_bend_lookup(
             )
 
     for _, edge in refinement_edges_df.iterrows():
+        key = _edge_key(edge)
+        jitter = _stable_pair_offset("|".join(key))
+        bend_lookup[key] += np.asarray(
+            [
+                jitter_scale_x * jitter,
+                jitter_scale_y * jitter,
+            ],
+            dtype=float,
+        )
+
+    return {
+        key: (float(value[0]), float(value[1]))
+        for key, value in bend_lookup.items()
+    }
+
+
+def _build_tradeoff_edge_bend_lookup(
+    edges_df: pd.DataFrame,
+    position_map: dict[tuple[str, str], tuple[float, float]],
+    x_span: float,
+    y_span: float,
+) -> dict[tuple[str, str, str, str], tuple[float, float]]:
+    bend_lookup: dict[tuple[str, str, str, str], np.ndarray] = {}
+    if edges_df.empty:
+        return {}
+
+    for _, edge in edges_df.iterrows():
+        bend_lookup[_edge_key(edge)] = np.zeros(2, dtype=float)
+
+    source_scale_x = 0.020 * x_span
+    source_scale_y = 0.028 * y_span
+    target_scale_x = 0.026 * x_span
+    target_scale_y = 0.034 * y_span
+    jitter_scale_x = 0.018 * x_span
+    jitter_scale_y = 0.026 * y_span
+
+    for _, group_df in edges_df.groupby(
+        by=["source_stage", "source_key"],
+        sort=False,
+    ):
+        ordered_df = group_df.sort_values(
+            by=["target_stage", "target_key"],
+            kind="mergesort",
+        ).reset_index(drop=True)
+        offsets = _centered_unit_offsets(len(ordered_df))
+        for offset_value, (_, edge) in zip(offsets, ordered_df.iterrows()):
+            bend_lookup[_edge_key(edge)] += np.asarray(
+                [
+                    source_scale_x * offset_value,
+                    -source_scale_y * offset_value,
+                ],
+                dtype=float,
+            )
+
+    for _, group_df in edges_df.groupby(
+        by=["target_stage", "target_key"],
+        sort=False,
+    ):
+        ordered_df = group_df.sort_values(
+            by=["source_stage", "source_key"],
+            kind="mergesort",
+        ).reset_index(drop=True)
+        offsets = _centered_unit_offsets(len(ordered_df))
+        for offset_value, (_, edge) in zip(offsets, ordered_df.iterrows()):
+            bend_lookup[_edge_key(edge)] += np.asarray(
+                [
+                    -target_scale_x * offset_value,
+                    target_scale_y * offset_value,
+                ],
+                dtype=float,
+            )
+
+    for _, edge in edges_df.iterrows():
         key = _edge_key(edge)
         jitter = _stable_pair_offset("|".join(key))
         bend_lookup[key] += np.asarray(
@@ -2156,6 +2324,113 @@ def draw_provenance_panel(
     ax.grid(False)
 
 
+def _style_axes(ax: plt.Axes) -> None:
+    for spine in ax.spines.values():
+        spine.set_linewidth(AXIS_EDGE_LW)
+        spine.set_edgecolor("black")
+    ax.tick_params(axis="both", which="major", length=2.0, width=0.6)
+
+
+def _centers_to_edges(values: np.ndarray) -> np.ndarray:
+    values = np.asarray(values, dtype=float)
+    edges = np.empty(values.size + 1, dtype=float)
+    edges[1:-1] = 0.5 * (values[:-1] + values[1:])
+    edges[0] = values[0] - 0.5 * (values[1] - values[0]) if values.size > 1 else values[0] - 0.5
+    edges[-1] = (
+        values[-1] + 0.5 * (values[-1] - values[-2]) if values.size > 1 else values[-1] + 0.5
+    )
+    return edges
+
+
+def _build_value_heat_surface(
+    x_values: pd.Series,
+    y_values: pd.Series,
+    value_values: pd.Series,
+    x_limits: tuple[float, float],
+    y_limits: tuple[float, float],
+    grid_width: int = 220,
+    grid_height: int = 170,
+) -> tuple[np.ndarray, np.ndarray, np.ma.MaskedArray] | None:
+    point_df = pd.DataFrame(
+        {
+            "x": pd.to_numeric(x_values, errors="coerce"),
+            "y": pd.to_numeric(y_values, errors="coerce"),
+            "value": pd.to_numeric(value_values, errors="coerce"),
+        }
+    ).dropna()
+    if point_df.empty:
+        return None
+
+    # Repeated points with the same value should not overweight the interpolation.
+    point_df = point_df.groupby(["x", "y"], as_index=False)["value"].mean()
+
+    x_centers = np.linspace(x_limits[0], x_limits[1], grid_width, dtype=float)
+    y_centers = np.linspace(y_limits[0], y_limits[1], grid_height, dtype=float)
+    grid_x, grid_y = np.meshgrid(x_centers, y_centers)
+    x_span = max(x_limits[1] - x_limits[0], 1e-9)
+    y_span = max(y_limits[1] - y_limits[0], 1e-9)
+
+    point_x = point_df["x"].to_numpy(dtype=float)
+    point_y = point_df["y"].to_numpy(dtype=float)
+    point_values = point_df["value"].to_numpy(dtype=float)
+
+    normalized_distance_sq = (
+        ((grid_x[..., None] - point_x[None, None, :]) / x_span) ** 2
+        + ((grid_y[..., None] - point_y[None, None, :]) / y_span) ** 2
+    )
+    weights = 1.0 / np.maximum(normalized_distance_sq, 1e-12)
+    heat_values = np.sum(weights * point_values[None, None, :], axis=2) / np.sum(
+        weights,
+        axis=2,
+    )
+    return (
+        _centers_to_edges(x_centers),
+        _centers_to_edges(y_centers),
+        np.ma.masked_invalid(heat_values),
+    )
+
+
+def _build_selection_proxy_points(tradeoff_df: pd.DataFrame) -> pd.DataFrame:
+    point_df = tradeoff_df.copy()
+    point_df["objective_plot"] = pd.to_numeric(point_df["objective_plot"], errors="coerce")
+    point_df["tail_metric_plot"] = pd.to_numeric(point_df["tail_metric_plot"], errors="coerce")
+    point_df["selection_success_metric"] = pd.to_numeric(
+        point_df["selection_success_metric"],
+        errors="coerce",
+    )
+    point_df = point_df.loc[
+        point_df["objective_plot"].notna() & point_df["tail_metric_plot"].notna()
+    ].copy()
+    if point_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "objective_plot",
+                "tail_metric_plot",
+                "selection_success_metric",
+                "selection_proxy_rank",
+            ]
+        )
+
+    point_df = point_df.groupby(
+        ["objective_plot", "tail_metric_plot"],
+        as_index=False,
+    ).agg(selection_success_metric=("selection_success_metric", "max"))
+
+    finite_success = point_df["selection_success_metric"].dropna()
+    fallback_success = float(finite_success.median()) if not finite_success.empty else 1.0
+    point_df["selection_success_metric"] = point_df["selection_success_metric"].fillna(
+        fallback_success
+    )
+
+    point_df = point_df.sort_values(
+        by=["selection_success_metric", "tail_metric_plot", "objective_plot"],
+        ascending=[False, True, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    point_df["selection_proxy_rank"] = np.arange(1, len(point_df) + 1, dtype=float)
+    return point_df
+
+
 def draw_tradeoff_panel(
     ax: plt.Axes,
     tradeoff_df: pd.DataFrame,
@@ -2164,136 +2439,190 @@ def draw_tradeoff_panel(
     ranked_df: pd.DataFrame,
     tail_metric_col: str,
 ) -> None:
+    heat_cmap = cmocean.cm.matter.copy()
+    heat_cmap.set_bad((1.0, 1.0, 1.0, 0.0))
+    x_break = 17.0
+    y_break = 1.0
+    x_low_limits = (-1.0, x_break)
+    x_high_limits = (x_break, 120.0)
+    y_low_limits = (0.7, y_break)
+    y_high_limits = (y_break, 2.0)
+    stage_style_map = {
+        "Weight sweep": {
+            "marker": "o",
+            "size": 34.0,
+            "facecolor": "#bdbdbd",
+            "edgecolor": "#8c8c8c",
+        },
+        "Selected sweep rows": {
+            "marker": "s",
+            "size": 54.0,
+            "facecolor": "#4e79a7",
+            "edgecolor": "#3f6387",
+        },
+        "Top rerun starts": {
+            "marker": "X",
+            "size": 46.0,
+            "facecolor": "#59a14f",
+            "edgecolor": "#3f7c37",
+        },
+        "Final rerun starts": {
+            "marker": "D",
+            "size": 40.0,
+            "facecolor": "#edc948",
+            "edgecolor": "#c4a434",
+        },
+        "Retained robust rank": {
+            "marker": "h",
+            "size": 88.0,
+            "facecolor": "#af7aa1",
+            "edgecolor": "#8b5f7f",
+        },
+    }
     legend_handles: list[Line2D] = []
-    for stage in TRADEOFF_STAGE_ORDER:
-        stage_df = tradeoff_df.loc[tradeoff_df["stage"] == stage].copy()
-        if stage_df.empty:
-            continue
-        style = TRADEOFF_STAGE_STYLES[stage]
-        ax.scatter(
-            stage_df["objective_plot"],
-            stage_df["tail_metric_plot"],
-            s=float(style["size"]),
-            c=str(style["color"]),
-            marker=str(style["marker"]),
-            edgecolors="white",
-            linewidths=0.6,
-            alpha=float(style["alpha"]),
-            zorder=2,
-        )
-        legend_handles.append(
-            Line2D(
-                [0],
-                [0],
-                marker=str(style["marker"]),
-                color="w",
-                label=f"{stage} (n={len(stage_df)})",
-                markerfacecolor=str(style["color"]),
-                markeredgecolor="white",
-                markeredgewidth=0.6,
-                markersize=max(5.5, np.sqrt(float(style["size"]))),
-                alpha=float(style["alpha"]),
-                linewidth=0,
-            )
-        )
 
-    trace_position_map: dict[tuple[str, str], tuple[float, float]] = {}
+    fig = ax.figure
+    container_bbox = ax.get_position()
+    ax.remove()
+
     trace_plot_df = trace_nodes_df.loc[
         trace_nodes_df["objective_plot"].notna() & trace_nodes_df["tail_metric_plot"].notna()
     ].copy()
-    for _, row in trace_plot_df.iterrows():
-        trace_position_map[(str(row["stage"]), str(row["node_key"]))] = (
-            float(row["objective_plot"]),
-            float(row["tail_metric_plot"]),
+    if trace_plot_df.empty:
+        return
+
+    x_limits = _compute_padded_limits(trace_plot_df["objective_plot"], pad_fraction=0.10)
+    y_limits = _compute_padded_limits(trace_plot_df["tail_metric_plot"], pad_fraction=0.16)
+    x_span = max(x_limits[1] - x_limits[0], 1e-9)
+    y_span = max(y_limits[1] - y_limits[0], 1e-9)
+
+    trace_plot_df["objective_display"] = trace_plot_df["objective_plot"]
+    trace_plot_df["tail_metric_display"] = trace_plot_df["tail_metric_plot"]
+    stage_display_offsets = {
+        "Weight sweep": (-0.008 * x_span, 0.010 * y_span),
+        "Selected sweep rows": (-0.004 * x_span, 0.005 * y_span),
+        "Top rerun starts": (0.001 * x_span, 0.007 * y_span),
+        "Final rerun starts": (0.004 * x_span, -0.001 * y_span),
+        "Retained robust rank": (0.0, 0.0),
+    }
+    jitter_scale_x = 0.0018 * x_span
+    jitter_scale_y = 0.0028 * y_span
+    for index, row in trace_plot_df.iterrows():
+        stage_name = str(row["stage"])
+        node_key = str(row["node_key"])
+        base_offset_x, base_offset_y = stage_display_offsets.get(stage_name, (0.0, 0.0))
+        jitter = 0.0
+        if stage_name != "Retained robust rank":
+            jitter = _stable_pair_offset(f"{stage_name}|{node_key}")
+        trace_plot_df.at[index, "objective_display"] = (
+            float(row["objective_plot"]) + base_offset_x + jitter_scale_x * jitter
+        )
+        trace_plot_df.at[index, "tail_metric_display"] = (
+            float(row["tail_metric_plot"]) + base_offset_y + jitter_scale_y * jitter
         )
 
+    trace_position_map: dict[tuple[str, str], tuple[float, float]] = {}
+    for _, row in trace_plot_df.iterrows():
+        trace_position_map[(str(row["stage"]), str(row["node_key"]))] = (
+            float(row["objective_display"]),
+            float(row["tail_metric_display"]),
+        )
+
+    edge_class_order = {
+        "background_terminated": 0,
+        "promoted": 1,
+        "final_rerun": 2,
+        "kept": 3,
+        "selected": 4,
+    }
+    edges_to_draw = edges_df.copy()
+    edges_to_draw["draw_class"] = np.where(
+        edges_to_draw["is_selected_path"],
+        "selected",
+        edges_to_draw["edge_class"],
+    )
+    edges_to_draw["draw_order"] = edges_to_draw["draw_class"].map(edge_class_order)
+    edges_to_draw = edges_to_draw.loc[
+        edges_to_draw.apply(
+            lambda row: (
+                (str(row["source_stage"]), str(row["source_key"])) in trace_position_map
+                and (str(row["target_stage"]), str(row["target_key"])) in trace_position_map
+            ),
+            axis=1,
+        )
+    ].sort_values(
+        by=["draw_order", "source_stage", "target_stage", "trace_group"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    edge_bend_lookup = _build_tradeoff_edge_bend_lookup(
+        edges_df=edges_to_draw,
+        position_map=trace_position_map,
+        x_span=x_span,
+        y_span=y_span,
+    )
+
     plotted_trace_edges = 0
-    for _, edge in edges_df.iterrows():
+    for _, edge in edges_to_draw.iterrows():
         source_key = (str(edge["source_stage"]), str(edge["source_key"]))
         target_key = (str(edge["target_stage"]), str(edge["target_key"]))
-        if source_key not in trace_position_map or target_key not in trace_position_map:
-            continue
         source_x, source_y = trace_position_map[source_key]
         target_x, target_y = trace_position_map[target_key]
-        edge_style = EDGE_STYLE_MAP[str(edge["edge_class"])]
+        edge_style = EDGE_STYLE_MAP[str(edge["draw_class"])]
+        bend_x, bend_y = edge_bend_lookup.get(_edge_key(edge), (0.0, 0.0))
         _draw_curve(
             ax=ax,
             x0=source_x,
             y0=source_y,
             x1=target_x,
             y1=target_y,
-            color=str(edge_style["color"]),
+            color="black",
             linewidth=float(edge_style["linewidth"]),
             alpha=float(edge_style["alpha"]),
-            zorder=int(edge_style["zorder"]) + 1,
+            zorder=int(edge_style["zorder"]),
+            bend_x=bend_x,
+            bend_y=bend_y,
         )
         plotted_trace_edges += 1
 
-    for stage in STAGE_ORDER:
-        stage_trace_df = trace_plot_df.loc[trace_plot_df["stage"] == stage].copy()
-        if stage_trace_df.empty:
-            continue
-        marker = TRACE_STAGE_MARKERS.get(stage, "o")
-        colors = [
-            EDGE_STYLE_MAP.get(str(status), EDGE_STYLE_MAP["background_terminated"])["color"]
-            for status in stage_trace_df["status_class"]
-        ]
-        sizes = [
-            92.0 if str(status) == "selected" else 54.0
-            for status in stage_trace_df["status_class"]
-        ]
-        ax.scatter(
-            stage_trace_df["objective_plot"],
-            stage_trace_df["tail_metric_plot"],
-            s=sizes,
-            c=colors,
-            marker=marker,
-            edgecolors="black",
-            linewidths=0.55,
-            alpha=0.9,
-            zorder=5,
-        )
+    heat_point_df = _build_selection_proxy_points(tradeoff_df)
+    finite_heat_values = heat_point_df["selection_proxy_rank"].dropna().astype(float)
+    if finite_heat_values.empty:
+        heat_min = 0.0
+        heat_max = 1.0
+        colorbar_ticks = [0.0, 1.0]
+    else:
+        heat_min = float(finite_heat_values.min())
+        heat_max = float(finite_heat_values.max())
+        if np.isclose(heat_min, heat_max):
+            heat_min -= 0.5
+            heat_max += 0.5
+        colorbar_ticks = np.linspace(heat_min, heat_max, 6, dtype=float).tolist()
+    heat_normalize = Normalize(vmin=heat_min, vmax=heat_max)
 
     selected_row = ranked_df.loc[ranked_df["is_selected"]].iloc[0]
     selected_x = float(selected_row[_resolve_objective_column(ranked_df)])
     selected_y = float(selected_row[tail_metric_col])
-    ax.scatter(
-        [selected_x],
-        [selected_y],
-        marker="*",
-        s=260,
-        c="#ffcc00",
-        edgecolors="black",
-        linewidths=1.1,
-        zorder=4,
-    )
-    ax.annotate(
-        "selected",
-        xy=(selected_x, selected_y),
-        xytext=(8, 8),
-        textcoords="offset points",
-        fontsize=10,
-        fontweight="bold",
-    )
-
-    top_rank_df = ranked_df.nsmallest(min(3, len(ranked_df)), "robust_rank")
-    for _, row in top_rank_df.iterrows():
-        if bool(row["is_selected"]):
+    stage_counts = {
+        stage: int((trace_plot_df["stage"] == stage).sum())
+        for stage in STAGE_ORDER
+    }
+    for stage in STAGE_ORDER:
+        if stage_counts[stage] == 0:
             continue
-        ax.annotate(
-            f"#{int(row['robust_rank'])}",
-            xy=(row["objective"], row[tail_metric_col]),
-            xytext=(6, -12),
-            textcoords="offset points",
-            fontsize=9,
-        )
-
-    if legend_handles:
-        ax.legend(
-            handles=legend_handles,
-            loc="upper right",
-            fontsize=8,
-            framealpha=0.9,
+        style = stage_style_map[stage]
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                marker=str(style["marker"]),
+                color="w",
+                label=f"{stage} (n={stage_counts[stage]})",
+                markerfacecolor=str(style["facecolor"]),
+                markeredgecolor=str(style["edgecolor"]),
+                markeredgewidth=HEAT_MARKER_EDGE_LW,
+                markersize=max(5.8, np.sqrt(float(style["size"]))),
+                linewidth=0,
+            )
         )
 
     metric_label = (
@@ -2301,54 +2630,359 @@ def draw_tradeoff_panel(
         if tail_metric_col == "nom_sink_tail_mean_k"
         else "Sink CVaR20 [m/s]"
     )
-    ax.set_title("Workflow trade-off space")
-    ax.set_xlabel("Nominal objective")
-    ax.set_ylabel(metric_label)
-    ax.grid(True, alpha=0.2)
 
-    x_limits = ax.get_xlim()
-    y_limits = ax.get_ylim()
-    ax.plot(
-        [x_limits[0], selected_x],
-        [selected_y, selected_y],
-        color="#777777",
-        linewidth=0.8,
-        linestyle="--",
-        alpha=0.35,
-        zorder=1,
-    )
-    ax.plot(
-        [selected_x, selected_x],
-        [y_limits[0], selected_y],
-        color="#777777",
-        linewidth=0.8,
-        linestyle="--",
-        alpha=0.35,
-        zorder=1,
-    )
-    ax.set_xlim(x_limits)
-    ax.set_ylim(y_limits)
+    cbar_width = 0.026 * container_bbox.width
+    cbar_pad = 0.022 * container_bbox.width
+    data_width = container_bbox.width - cbar_width - cbar_pad
+    data_height = container_bbox.height
+    left_width = data_width * 0.70
+    right_width = data_width * 0.30
+    bottom_height = data_height * 0.70
+    top_height = data_height * 0.30
 
-    ax.text(
-        0.03,
-        0.97,
-        "\n".join(
-            [
-                "ranking: success desc",
-                "tail risk asc",
-                "objective asc",
-                f"retained candidates: {len(ranked_df)}",
-                f"plotted points: {len(tradeoff_df)}",
-                f"trace nodes: {len(trace_plot_df)}",
-                f"trace edges: {plotted_trace_edges}",
-            ]
-        ),
-        transform=ax.transAxes,
-        ha="left",
+    ax_bl = fig.add_axes(
+        [container_bbox.x0, container_bbox.y0, left_width, bottom_height]
+    )
+    ax_br = fig.add_axes(
+        [container_bbox.x0 + left_width, container_bbox.y0, right_width, bottom_height]
+    )
+    ax_tl = fig.add_axes(
+        [container_bbox.x0, container_bbox.y0 + bottom_height, left_width, top_height]
+    )
+    ax_tr = fig.add_axes(
+        [
+            container_bbox.x0 + left_width,
+            container_bbox.y0 + bottom_height,
+            right_width,
+            top_height,
+        ]
+    )
+    cax = fig.add_axes(
+        [
+            container_bbox.x0 + data_width + cbar_pad,
+            container_bbox.y0,
+            cbar_width,
+            data_height,
+        ]
+    )
+
+    def _render_tradeoff_axis(
+        target_ax: plt.Axes,
+        axis_x_limits: tuple[float, float],
+        axis_y_limits: tuple[float, float],
+        *,
+        show_selected_label: bool,
+        show_selected_guides: bool,
+        visible_stages: set[str] | None = None,
+        draw_trace_edges: bool = True,
+        draw_selected_marker: bool = True,
+    ) -> plt.Artist | None:
+        tol = 1e-9
+
+        def _point_in_panel(x_value: float, y_value: float) -> bool:
+            if np.isclose(axis_x_limits[1], x_break):
+                x_ok = axis_x_limits[0] - tol <= x_value <= axis_x_limits[1] + tol
+            else:
+                x_ok = axis_x_limits[0] + tol < x_value <= axis_x_limits[1] + tol
+
+            if np.isclose(axis_y_limits[1], y_break):
+                y_ok = axis_y_limits[0] - tol <= y_value <= axis_y_limits[1] + tol
+            else:
+                y_ok = axis_y_limits[0] + tol < y_value <= axis_y_limits[1] + tol
+
+            return bool(x_ok and y_ok)
+
+        heat_surface_local = _build_value_heat_surface(
+            x_values=heat_point_df["objective_plot"],
+            y_values=heat_point_df["tail_metric_plot"],
+            value_values=heat_point_df["selection_proxy_rank"],
+            x_limits=axis_x_limits,
+            y_limits=axis_y_limits,
+        )
+        heat_artist_local = None
+        if heat_surface_local is not None:
+            _, _, heat_values_local = heat_surface_local
+            heat_artist_local = target_ax.imshow(
+                heat_values_local,
+                cmap=heat_cmap,
+                norm=heat_normalize,
+                interpolation="bicubic",
+                origin="lower",
+                extent=(
+                    axis_x_limits[0],
+                    axis_x_limits[1],
+                    axis_y_limits[0],
+                    axis_y_limits[1],
+                ),
+                aspect="auto",
+                alpha=0.34,
+                zorder=0,
+            )
+
+        if draw_trace_edges:
+            for _, edge in edges_to_draw.iterrows():
+                source_key = (str(edge["source_stage"]), str(edge["source_key"]))
+                target_key = (str(edge["target_stage"]), str(edge["target_key"]))
+                source_x, source_y = trace_position_map[source_key]
+                target_x, target_y = trace_position_map[target_key]
+                edge_style = EDGE_STYLE_MAP[str(edge["draw_class"])]
+                bend_x, bend_y = edge_bend_lookup.get(_edge_key(edge), (0.0, 0.0))
+                _draw_curve(
+                    ax=target_ax,
+                    x0=source_x,
+                    y0=source_y,
+                    x1=target_x,
+                    y1=target_y,
+                    color="black",
+                    linewidth=float(edge_style["linewidth"]),
+                    alpha=float(edge_style["alpha"]),
+                    zorder=int(edge_style["zorder"]),
+                    bend_x=bend_x,
+                    bend_y=bend_y,
+                )
+
+        panel_stage_set = set(STAGE_ORDER) if visible_stages is None else set(visible_stages)
+        for stage in STAGE_ORDER:
+            if stage not in panel_stage_set:
+                continue
+            stage_df = trace_plot_df.loc[trace_plot_df["stage"] == stage].copy()
+            if stage_df.empty:
+                continue
+            stage_df = stage_df.loc[
+                stage_df.apply(
+                    lambda row: _point_in_panel(
+                        float(row["objective_display"]),
+                        float(row["tail_metric_display"]),
+                    ),
+                    axis=1,
+                )
+            ].copy()
+            if stage_df.empty:
+                continue
+            style = stage_style_map[stage]
+            facecolors: list[tuple[float, float, float, float]] = []
+            edgecolors: list[tuple[float, float, float, float]] = []
+            sizes: list[float] = []
+
+            for _, row in stage_df.iterrows():
+                status_class = str(row["status_class"])
+                face_red, face_green, face_blue = to_rgb(str(style["facecolor"]))
+                face_alpha = (
+                    0.96 if status_class in {"selected", "kept", "final_rerun"} else 0.88
+                )
+                facecolors.append((face_red, face_green, face_blue, face_alpha))
+                edge_red, edge_green, edge_blue = to_rgb(str(style["edgecolor"]))
+                edge_alpha = (
+                    0.95 if status_class in {"selected", "kept", "final_rerun"} else 0.72
+                )
+                edgecolors.append((edge_red, edge_green, edge_blue, edge_alpha))
+                size_value = float(style["size"])
+                if status_class == "selected":
+                    size_value *= 1.30
+                elif status_class in {"kept", "final_rerun"}:
+                    size_value *= 1.12
+                sizes.append(size_value)
+
+            target_ax.scatter(
+                stage_df["objective_display"],
+                stage_df["tail_metric_display"],
+                s=sizes,
+                marker=str(style["marker"]),
+                facecolors=np.asarray(facecolors, dtype=float),
+                edgecolors=np.asarray(edgecolors, dtype=float),
+                linewidths=HEAT_MARKER_EDGE_LW,
+                zorder=5,
+            )
+
+        selected_in_panel = _point_in_panel(selected_x, selected_y)
+        if draw_selected_marker and selected_in_panel:
+            target_ax.scatter(
+                [selected_x],
+                [selected_y],
+                marker="*",
+                s=260,
+                c=["#e15759"],
+                edgecolors="black",
+                linewidths=1.1,
+                zorder=7,
+            )
+        if show_selected_label and draw_selected_marker and selected_in_panel:
+            target_ax.annotate(
+                "selected",
+                xy=(selected_x, selected_y),
+                xytext=(8, 8),
+                textcoords="offset points",
+                fontsize=10,
+                fontweight="bold",
+            )
+
+        if show_selected_guides and draw_selected_marker and selected_in_panel:
+            target_ax.plot(
+                [axis_x_limits[0], selected_x],
+                [selected_y, selected_y],
+                color=(0.0, 0.0, 0.0, 0.28),
+                linewidth=0.8,
+                linestyle="--",
+                zorder=1,
+            )
+            target_ax.plot(
+                [selected_x, selected_x],
+                [axis_y_limits[0], selected_y],
+                color=(0.0, 0.0, 0.0, 0.28),
+                linewidth=0.8,
+                linestyle="--",
+                zorder=1,
+            )
+
+        target_ax.set_xlim(axis_x_limits)
+        target_ax.set_ylim(axis_y_limits)
+        target_ax.set_facecolor("white")
+        target_ax.grid(False)
+        _style_axes(target_ax)
+        return heat_artist_local
+
+    heat_artist = _render_tradeoff_axis(
+        target_ax=ax_bl,
+        axis_x_limits=x_low_limits,
+        axis_y_limits=y_low_limits,
+        show_selected_label=True,
+        show_selected_guides=True,
+        visible_stages=set(STAGE_ORDER),
+        draw_trace_edges=True,
+        draw_selected_marker=True,
+    )
+    _render_tradeoff_axis(
+        target_ax=ax_br,
+        axis_x_limits=x_high_limits,
+        axis_y_limits=y_low_limits,
+        show_selected_label=False,
+        show_selected_guides=False,
+        visible_stages={"Weight sweep"},
+        draw_trace_edges=False,
+        draw_selected_marker=False,
+    )
+    _render_tradeoff_axis(
+        target_ax=ax_tl,
+        axis_x_limits=x_low_limits,
+        axis_y_limits=y_high_limits,
+        show_selected_label=False,
+        show_selected_guides=False,
+        visible_stages={"Weight sweep"},
+        draw_trace_edges=False,
+        draw_selected_marker=False,
+    )
+    _render_tradeoff_axis(
+        target_ax=ax_tr,
+        axis_x_limits=x_high_limits,
+        axis_y_limits=y_high_limits,
+        show_selected_label=False,
+        show_selected_guides=False,
+        visible_stages={"Weight sweep"},
+        draw_trace_edges=False,
+        draw_selected_marker=False,
+    )
+
+    ax_bl.set_xticks([0.0, 4.0, 8.0, 12.0, 17.0])
+    ax_bl.set_xticks([2.0, 6.0, 10.0, 14.0], minor=True)
+    ax_bl.set_yticks([0.7, 0.8, 0.9, 1.0])
+    ax_bl.set_yticks([0.75, 0.85, 0.95], minor=True)
+
+    ax_tl.set_xticks([0.0, 5.0, 10.0, 15.0])
+    for target_ax in (ax_br, ax_tr):
+        target_ax.set_xticks([17.0, 60.0, 120.0])
+    for target_ax in (ax_bl, ax_br):
+        target_ax.set_yticks([0.7, 0.8, 0.9, 1.0])
+    for target_ax in (ax_tl, ax_tr):
+        target_ax.set_yticks([1.0, 1.5, 2.0])
+
+    ax_bl.tick_params(axis="both", which="minor", length=1.2, width=0.45)
+    ax_tl.tick_params(axis="x", bottom=False, labelbottom=False)
+    ax_tr.tick_params(axis="x", bottom=False, labelbottom=False)
+    ax_br.tick_params(axis="y", left=False, labelleft=False)
+    ax_tr.tick_params(axis="y", left=False, labelleft=False)
+
+    seam_style = {
+        "color": (0.0, 0.0, 0.0, 0.65),
+        "linewidth": 0.75,
+        "linestyle": "--",
+    }
+
+    ax_tl.spines["bottom"].set_visible(False)
+    ax_tr.spines["bottom"].set_visible(False)
+    ax_br.spines["left"].set_visible(False)
+    ax_tr.spines["left"].set_visible(False)
+
+    for seam_spine in (
+        ax_bl.spines["top"],
+        ax_br.spines["top"],
+        ax_bl.spines["right"],
+        ax_tl.spines["right"],
+    ):
+        seam_spine.set_visible(True)
+        seam_spine.set_color(seam_style["color"])
+        seam_spine.set_linewidth(seam_style["linewidth"])
+        seam_spine.set_linestyle(seam_style["linestyle"])
+        seam_spine.set_zorder(2)
+    for target_ax in (ax_bl, ax_br, ax_tl, ax_tr):
+        target_ax.set_title("")
+
+    fig.text(
+        container_bbox.x0 + 0.5 * data_width,
+        container_bbox.y0 - 0.07,
+        "Nominal objective",
+        ha="center",
         va="top",
         fontsize=9,
-        bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.88},
     )
+    fig.text(
+        container_bbox.x0 - 0.09,
+        container_bbox.y0 + 0.5 * data_height,
+        metric_label,
+        ha="center",
+        va="center",
+        rotation=90,
+        fontsize=9,
+    )
+
+    if legend_handles:
+        legend = fig.legend(
+            handles=legend_handles,
+            loc="upper right",
+            bbox_to_anchor=(container_bbox.x0 + data_width, container_bbox.y0 + data_height),
+            bbox_transform=fig.transFigure,
+            frameon=True,
+            framealpha=1.0,
+            edgecolor="black",
+            fontsize=(LEGEND_FONTSIZE - 0.2),
+            handlelength=1.5,
+            borderpad=0.5,
+            labelspacing=0.2,
+            ncol=1,
+        )
+        legend.get_frame().set_linewidth(AXIS_EDGE_LW)
+
+    if heat_artist is not None:
+        cbar = fig.colorbar(heat_artist, cax=cax)
+    else:
+        mappable = plt.cm.ScalarMappable(norm=heat_normalize, cmap=heat_cmap)
+        mappable.set_array([])
+        cbar = fig.colorbar(mappable, cax=cax)
+    cbar.set_label("Selection proxy rank (lower is better)", fontsize=9)
+    if colorbar_ticks:
+        cbar.set_ticks(colorbar_ticks)
+    cbar.formatter = FormatStrFormatter("%.0f")
+    cbar.update_ticks()
+    cbar.ax.tick_params(width=0.6, length=2.0, labelsize=9)
+    cbar.outline.set_linewidth(CBAR_EDGE_LW)
+    cbar.outline.set_edgecolor("black")
+    cbar.outline.set_visible(True)
+    cbar.ax.patch.set_edgecolor("black")
+    cbar.ax.patch.set_linewidth(CBAR_EDGE_LW)
+    cbar.ax.set_frame_on(True)
+    for spine in cbar.ax.spines.values():
+        spine.set_edgecolor("black")
+        spine.set_linewidth(CBAR_EDGE_LW)
+
 
 
 def draw_tradeoff_trace_3d_panel(
@@ -3286,42 +3920,34 @@ def make_candidate_selection_plot(data: CandidateSelectionData) -> Path:
         tail_metric_col=tail_metric_col,
     )
 
-    fig = plt.figure(figsize=(12.8, 7.4))
-    fig.patch.set_facecolor("white")
-    # horizontal start position, vertical start position, width, height
-    left_ax = fig.add_axes([0.20, -0.40, 0.50, 0.70], projection="3d")
-    right_ax = fig.add_axes([0.30, 0.10, 0.50, 0.70], projection="3d")
+    plt.rcParams.update(
+        {
+            "font.size": 10,
+            "axes.labelsize": 9,
+            "axes.titlesize": 10,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+            "legend.fontsize": LEGEND_FONTSIZE,
+            "axes.edgecolor": "black",
+            "axes.linewidth": AXIS_EDGE_LW,
+            "patch.edgecolor": "black",
+        }
+    )
 
-    left_position_map, left_legend_handles = draw_weight_sweep_subplot(
-        ax=left_ax,
+    fig, ax = plt.subplots(figsize=(5.2, 3.0), dpi=600)
+    fig.patch.set_facecolor("white")
+    fig.suptitle("")
+
+    draw_tradeoff_panel(
+        ax=ax,
         tradeoff_df=tradeoff_df,
         trace_nodes_df=trace_nodes_df,
-    )
-    right_position_map, right_legend_handles = draw_refinement_subplot(
-        ax=right_ax,
-        trace_nodes_df=trace_nodes_df,
         edges_df=edges_df,
-    )
-    draw_cross_panel_handoff_connectors(
-        fig=fig,
-        left_ax=left_ax,
-        right_ax=right_ax,
-        edges_df=edges_df,
-        left_position_map=left_position_map,
-        right_position_map=right_position_map,
+        ranked_df=ranked_df,
+        tail_metric_col=tail_metric_col,
     )
 
-    legend = fig.legend(
-        handles=left_legend_handles + right_legend_handles,
-        loc="upper center",
-        ncol=4,
-        bbox_to_anchor=(0.50, 0.95),
-        fontsize=8,
-        framealpha=0.95,
-    )
-    legend.get_frame().set_edgecolor("black")
-
-    fig.savefig(FIGURE_PATH, dpi=400, bbox_inches="tight")
+    fig.savefig(FIGURE_PATH, dpi=600, bbox_inches="tight")
     plt.close(fig)
     return FIGURE_PATH
 
