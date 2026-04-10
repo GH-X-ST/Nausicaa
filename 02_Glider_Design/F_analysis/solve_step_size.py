@@ -8,8 +8,8 @@ Outputs:
     - C_results/step_size_analysis.xlsx
 
 Notes:
-    - This runs the expensive model evaluations once and stores the step-size
-      trade-off table for later plotting.
+    - This runs the expensive model evaluations once and stores the finite-
+      difference step-size ladder for later plotting and sensitivity selection.
     - Use `python F_analysis/step_size.py` to change the figure without
       recomputing the study.
 """

@@ -73,6 +73,7 @@ FD_STABLE_ABS_TOL = 1e-9
 TURN_TAU_FLOOR_S = 1e-4
 FD_ROUNDOFF_SAFETY = 50.0
 FD_ROUNDOFF_REL_SCALE = math.sqrt(np.finfo(float).eps)
+FD_STEP_LADDER_LEVELS = 6
 
 GEOMETRY_PARAM_ORDER = [
     "wing_span_m",
@@ -307,6 +308,7 @@ class StepSizeResult:
     parameter_name: str
     parameter_symbol: str
     baseline_parameter_value: float
+    step_level: int
     quantity_name: str
     quantity_symbol: str
     baseline_quantity_value: float
@@ -325,6 +327,7 @@ class StepSizeResult:
     selected_for_final: bool
     selected_step_size: float
     unit_raw: str
+    error_reference_method: str
     selection_reason: str
     reeval_path: str
     notes: str
@@ -977,6 +980,32 @@ def compute_fd_step(parameter_spec: ParameterSpec) -> float:
         abs(parameter_spec.baseline_value) * parameter_spec.rel_step,
         parameter_spec.abs_floor,
     )
+
+
+def build_step_ladder(base_step: float) -> list[float]:
+    return [
+        float(base_step) / (2.0**level)
+        for level in range(FD_STEP_LADDER_LEVELS)
+    ]
+
+
+def _difference_order(scheme: str) -> int:
+    if scheme == "central":
+        return 2
+    return 1
+
+
+def _richardson_reference(
+    coarse_step: float,
+    coarse_derivative: float,
+    fine_step: float,
+    fine_derivative: float,
+    scheme: str,
+) -> float:
+    order = _difference_order(scheme)
+    step_ratio = coarse_step / max(fine_step, 1e-30)
+    denominator = max(step_ratio**order - 1.0, 1e-12)
+    return fine_derivative + (fine_derivative - coarse_derivative) / denominator
 
 
 def _compose_derivative_unit(quantity_unit: str, parameter_unit: str) -> str:
@@ -1654,6 +1683,177 @@ def _evaluate_parameter_value(
     )
 
 
+def _build_step_candidates(
+    step_sizes: list[float],
+    evaluation_points: dict[str, EvaluationResult],
+    quantity_name: str,
+    baseline_quantity: float,
+    quantity_floor: float,
+    scheme: str,
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for level, step_size in enumerate(step_sizes):
+        derivative_estimate = float("nan")
+        signal_amplitude = float("nan")
+        roundoff_floor = float("nan")
+        roundoff_limited = False
+
+        if scheme == "central":
+            minus_eval = evaluation_points[f"minus_{level}"]
+            plus_eval = evaluation_points[f"plus_{level}"]
+            if (
+                minus_eval.success
+                and plus_eval.success
+                and math.isfinite(minus_eval.metrics[quantity_name])
+                and math.isfinite(plus_eval.metrics[quantity_name])
+            ):
+                derivative_estimate = (
+                    plus_eval.metrics[quantity_name] - minus_eval.metrics[quantity_name]
+                ) / (2.0 * step_size)
+                signal_amplitude = abs(
+                    plus_eval.metrics[quantity_name] - minus_eval.metrics[quantity_name]
+                )
+                roundoff_floor = _roundoff_signal_floor(
+                    quantity_floor,
+                    baseline_quantity,
+                    plus_eval.metrics[quantity_name],
+                    minus_eval.metrics[quantity_name],
+                )
+                roundoff_limited = signal_amplitude <= roundoff_floor
+        else:
+            plus_eval = evaluation_points[f"plus_{level}"]
+            if (
+                plus_eval.success
+                and math.isfinite(plus_eval.metrics[quantity_name])
+                and math.isfinite(baseline_quantity)
+            ):
+                derivative_estimate = (
+                    plus_eval.metrics[quantity_name] - baseline_quantity
+                ) / step_size
+                signal_amplitude = abs(
+                    plus_eval.metrics[quantity_name] - baseline_quantity
+                )
+                roundoff_floor = _roundoff_signal_floor(
+                    quantity_floor,
+                    baseline_quantity,
+                    plus_eval.metrics[quantity_name],
+                )
+                roundoff_limited = signal_amplitude <= roundoff_floor
+
+        candidates.append(
+            {
+                "step_level": level,
+                "step_size": float(step_size),
+                "derivative_estimate": float(derivative_estimate),
+                "signal_amplitude": float(signal_amplitude),
+                "roundoff_floor": float(roundoff_floor),
+                "roundoff_limited": bool(roundoff_limited),
+            }
+        )
+    return candidates
+
+
+def _estimate_reference_derivative(
+    candidates: list[dict[str, Any]],
+    scheme: str,
+) -> tuple[float, str]:
+    finite_candidates = [
+        candidate
+        for candidate in candidates
+        if math.isfinite(candidate["derivative_estimate"])
+    ]
+    nonroundoff_candidates = [
+        candidate
+        for candidate in finite_candidates
+        if not candidate["roundoff_limited"]
+    ]
+    reference_pool = nonroundoff_candidates
+    method = "richardson_smallest_nonroundoff_pair"
+    if len(reference_pool) < 2:
+        reference_pool = finite_candidates
+        method = "richardson_smallest_finite_pair_fallback"
+    if len(reference_pool) >= 2:
+        reference_pool = sorted(reference_pool, key=lambda row: row["step_size"])
+        fine_candidate = reference_pool[0]
+        coarse_candidate = reference_pool[1]
+        reference = _richardson_reference(
+            coarse_step=float(coarse_candidate["step_size"]),
+            coarse_derivative=float(coarse_candidate["derivative_estimate"]),
+            fine_step=float(fine_candidate["step_size"]),
+            fine_derivative=float(fine_candidate["derivative_estimate"]),
+            scheme=scheme,
+        )
+        return float(reference), method
+    if finite_candidates:
+        return (
+            float(min(finite_candidates, key=lambda row: row["step_size"])[
+                "derivative_estimate"
+            ]),
+            "single_finite_candidate_fallback",
+        )
+    return float("nan"), "no_finite_reference"
+
+
+def _annotate_candidate_errors(
+    candidates: list[dict[str, Any]],
+    reference_derivative: float,
+) -> None:
+    for candidate in candidates:
+        derivative_estimate = float(candidate["derivative_estimate"])
+        if math.isfinite(derivative_estimate) and math.isfinite(reference_derivative):
+            absolute_error = abs(derivative_estimate - reference_derivative)
+            relative_error = absolute_error / max(abs(reference_derivative), 1e-9)
+        else:
+            absolute_error = float("nan")
+            relative_error = float("nan")
+        candidate["absolute_error_estimate"] = float(absolute_error)
+        candidate["relative_error_estimate"] = float(relative_error)
+
+
+def _select_step_candidate(
+    candidates: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, str]:
+    viable_candidates = [
+        candidate
+        for candidate in candidates
+        if math.isfinite(candidate["derivative_estimate"])
+        and math.isfinite(candidate["absolute_error_estimate"])
+        and not candidate["roundoff_limited"]
+    ]
+    if viable_candidates:
+        selected_candidate = min(
+            viable_candidates,
+            key=lambda row: (
+                float(row["absolute_error_estimate"]),
+                float(row["step_size"]),
+            ),
+        )
+        smaller_roundoff_exists = any(
+            candidate["roundoff_limited"]
+            and float(candidate["step_size"]) < float(selected_candidate["step_size"])
+            for candidate in candidates
+            if math.isfinite(candidate["derivative_estimate"])
+        )
+        if smaller_roundoff_exists:
+            return (
+                selected_candidate,
+                "minimum_absolute_error_before_roundoff_onset",
+            )
+        return selected_candidate, "minimum_absolute_error_nonroundoff"
+
+    finite_candidates = [
+        candidate
+        for candidate in candidates
+        if math.isfinite(candidate["derivative_estimate"])
+    ]
+    if finite_candidates:
+        return (
+            max(finite_candidates, key=lambda row: float(row["step_size"])),
+            "largest_step_selected_all_candidates_roundoff_fragile",
+        )
+    return None, "no_finite_derivative_available"
+
+
 def compute_sensitivity_for_parameter(
     context: BaselineContext,
     baseline_result: EvaluationResult,
@@ -1661,35 +1861,31 @@ def compute_sensitivity_for_parameter(
     quantity_specs: list[QuantitySpec],
 ) -> tuple[list[SensitivityResult], list[StepSizeResult]]:
     scheme, step, scheme_notes = _adjust_fd_scheme(parameter_spec)
+    step_sizes = build_step_ladder(step)
     baseline_parameter = float(parameter_spec.baseline_value)
     baseline_values = baseline_result.metrics
     evaluation_points: dict[str, EvaluationResult] = {}
     notes = [note for note in (parameter_spec.notes, *scheme_notes) if note]
 
-    if scheme == "central":
-        offsets = {
-            "minus_h": -step,
-            "plus_h": step,
-            "minus_h2": -0.5 * step,
-            "plus_h2": 0.5 * step,
-        }
-    else:
-        offsets = {
-            "plus_h": step,
-            "plus_h2": 0.5 * step,
-        }
-
-    for label, offset in offsets.items():
-        value = baseline_parameter + offset
-        evaluation = _evaluate_parameter_value(
-            context=context,
-            baseline_result=baseline_result,
-            parameter_spec=parameter_spec,
-            value=value,
-        )
-        evaluation_points[label] = evaluation
-        if not evaluation.success:
-            notes.extend(evaluation.notes)
+    for level, step_size in enumerate(step_sizes):
+        if scheme == "central":
+            offset_map = {
+                f"minus_{level}": -step_size,
+                f"plus_{level}": step_size,
+            }
+        else:
+            offset_map = {f"plus_{level}": step_size}
+        for label, offset in offset_map.items():
+            value = baseline_parameter + offset
+            evaluation = _evaluate_parameter_value(
+                context=context,
+                baseline_result=baseline_result,
+                parameter_spec=parameter_spec,
+                value=value,
+            )
+            evaluation_points[label] = evaluation
+            if not evaluation.success:
+                notes.extend(evaluation.notes)
 
     results: list[SensitivityResult] = []
     step_size_rows: list[StepSizeResult] = []
@@ -1703,193 +1899,100 @@ def compute_sensitivity_for_parameter(
         fd_stability_rel = float("nan")
         fd_stable = False
         row_notes = list(notes)
-        reference_derivative = float("nan")
-        candidate_data: list[dict[str, Any]] = []
-
-        if scheme == "central":
-            minus_h = evaluation_points["minus_h"]
-            plus_h = evaluation_points["plus_h"]
-            minus_h2 = evaluation_points["minus_h2"]
-            plus_h2 = evaluation_points["plus_h2"]
-            if all(
-                evaluation.success
-                and math.isfinite(evaluation.metrics[quantity_name])
-                for evaluation in (minus_h, plus_h, minus_h2, plus_h2)
-            ):
-                d_h = (
-                    plus_h.metrics[quantity_name] - minus_h.metrics[quantity_name]
-                ) / (2.0 * step)
-                d_h2 = (
-                    plus_h2.metrics[quantity_name] - minus_h2.metrics[quantity_name]
-                ) / step
-                fd_stability_abs = abs(d_h - d_h2)
-                fd_stability_rel = fd_stability_abs / max(abs(d_h2), 1e-9)
-                signal_h = abs(
-                    plus_h.metrics[quantity_name] - minus_h.metrics[quantity_name]
+        candidate_data = _build_step_candidates(
+            step_sizes=step_sizes,
+            evaluation_points=evaluation_points,
+            quantity_name=quantity_name,
+            baseline_quantity=baseline_quantity,
+            quantity_floor=quantity_spec.q_floor,
+            scheme=scheme,
+        )
+        finite_candidates = [
+            candidate
+            for candidate in candidate_data
+            if math.isfinite(candidate["derivative_estimate"])
+        ]
+        if finite_candidates:
+            reference_derivative, error_reference_method = (
+                _estimate_reference_derivative(
+                    candidates=candidate_data,
+                    scheme=scheme,
                 )
-                signal_h2 = abs(
-                    plus_h2.metrics[quantity_name] - minus_h2.metrics[quantity_name]
-                )
-                floor_h = _roundoff_signal_floor(
-                    quantity_spec.q_floor,
-                    baseline_quantity,
-                    plus_h.metrics[quantity_name],
-                    minus_h.metrics[quantity_name],
-                )
-                floor_h2 = _roundoff_signal_floor(
-                    quantity_spec.q_floor,
-                    baseline_quantity,
-                    plus_h2.metrics[quantity_name],
-                    minus_h2.metrics[quantity_name],
-                )
-                roundoff_h = signal_h <= floor_h
-                roundoff_h2 = signal_h2 <= floor_h2
-                truncation_ok = (
-                    fd_stability_rel <= FD_STABLE_REL_TOL
-                    or fd_stability_abs <= FD_STABLE_ABS_TOL
-                )
-                if roundoff_h2 and not roundoff_h:
-                    sensitivity_raw = float(d_h)
-                    selected_step = step
-                    step_selection_reason = "larger_step_selected_roundoff_limited_half_step"
-                    fd_stable = math.isfinite(sensitivity_raw) and (
-                        not roundoff_h
-                    ) and (truncation_ok or roundoff_h2)
-                    row_notes.append(
-                        "Automatic step-size check rejected the smaller centered step as round-off limited; used the larger step."
+            )
+            _annotate_candidate_errors(
+                candidates=candidate_data,
+                reference_derivative=reference_derivative,
+            )
+            selected_candidate, step_selection_reason = _select_step_candidate(
+                candidate_data
+            )
+            if selected_candidate is not None:
+                sensitivity_raw = float(selected_candidate["derivative_estimate"])
+                selected_step = float(selected_candidate["step_size"])
+                fd_stability_abs = float(selected_candidate["absolute_error_estimate"])
+                fd_stability_rel = float(selected_candidate["relative_error_estimate"])
+                fd_stable = (
+                    math.isfinite(fd_stability_abs)
+                    and math.isfinite(fd_stability_rel)
+                    and not bool(selected_candidate["roundoff_limited"])
+                    and (
+                        fd_stability_rel <= FD_STABLE_REL_TOL
+                        or fd_stability_abs <= FD_STABLE_ABS_TOL
                     )
-                elif roundoff_h and roundoff_h2:
-                    sensitivity_raw = float(d_h)
-                    selected_step = step
-                    step_selection_reason = "larger_step_selected_both_steps_roundoff_fragile"
-                    fd_stable = False
+                )
+                if error_reference_method == "richardson_smallest_nonroundoff_pair":
                     row_notes.append(
-                        "Automatic step-size check found both centered steps near the round-off floor; the derivative remains numerically fragile."
+                        "Absolute error was estimated against a Richardson-extrapolated derivative from the two smallest non-roundoff steps."
+                    )
+                elif error_reference_method == "richardson_smallest_finite_pair_fallback":
+                    row_notes.append(
+                        "Absolute error was estimated against a Richardson-extrapolated derivative from the two smallest finite steps because no non-roundoff pair was available."
+                    )
+                elif error_reference_method == "single_finite_candidate_fallback":
+                    row_notes.append(
+                        "Only one finite derivative estimate was available; the step-size trade-off is weakly resolved."
+                    )
+                if any(
+                    candidate["roundoff_limited"]
+                    for candidate in candidate_data
+                    if math.isfinite(candidate["derivative_estimate"])
+                ):
+                    row_notes.append(
+                        "Round-off onset was detected on at least one smaller step in the evaluated ladder."
                     )
                 else:
-                    sensitivity_raw = float(d_h2)
-                    selected_step = 0.5 * step
-                    step_selection_reason = (
-                        "smaller_step_selected"
-                        if truncation_ok
-                        else "smaller_step_selected_truncation_control"
+                    row_notes.append(
+                        "No round-off onset was detected across the evaluated step ladder."
                     )
-                    fd_stable = math.isfinite(sensitivity_raw) and (
-                        not roundoff_h2
-                    ) and truncation_ok
-                    if not truncation_ok:
-                        row_notes.append(
-                            "Automatic step-size check retained the smaller centered step because the larger step shows visible truncation error."
-                        )
-
-                reference_derivative = sensitivity_raw
-                candidate_data = [
-                    {
-                        "step_size": step,
-                        "derivative_estimate": float(d_h),
-                        "signal_amplitude": float(signal_h),
-                        "roundoff_floor": float(floor_h),
-                        "roundoff_limited": bool(roundoff_h),
-                    },
-                    {
-                        "step_size": 0.5 * step,
-                        "derivative_estimate": float(d_h2),
-                        "signal_amplitude": float(signal_h2),
-                        "roundoff_floor": float(floor_h2),
-                        "roundoff_limited": bool(roundoff_h2),
-                    },
-                ]
+                if not fd_stable:
+                    row_notes.append(
+                        "The selected step remains numerically fragile under the current absolute/relative finite-difference stability tolerances."
+                    )
+                if step_selection_reason == "minimum_absolute_error_before_roundoff_onset":
+                    row_notes.append(
+                        "The selected step is the minimum-error non-roundoff point before the smaller steps enter the round-off-limited regime."
+                    )
+                elif step_selection_reason == "minimum_absolute_error_nonroundoff":
+                    row_notes.append(
+                        "The selected step is the minimum absolute-error non-roundoff point within the evaluated ladder."
+                    )
+                elif (
+                    step_selection_reason
+                    == "largest_step_selected_all_candidates_roundoff_fragile"
+                ):
+                    row_notes.append(
+                        "All finite ladder points were flagged as round-off fragile; the largest step was retained for robustness."
+                    )
             else:
                 row_notes.append(
-                    "At least one perturbed full evaluation failed; sensitivity reported as NaN."
+                    "No finite derivative estimate was available across the evaluated step ladder."
                 )
+                error_reference_method = "no_finite_reference"
         else:
-            plus_h = evaluation_points["plus_h"]
-            plus_h2 = evaluation_points["plus_h2"]
-            if all(
-                evaluation.success
-                and math.isfinite(evaluation.metrics[quantity_name])
-                for evaluation in (plus_h, plus_h2)
-            ) and math.isfinite(baseline_quantity):
-                d_h = (plus_h.metrics[quantity_name] - baseline_quantity) / step
-                d_h2 = (plus_h2.metrics[quantity_name] - baseline_quantity) / (
-                    0.5 * step
-                )
-                fd_stability_abs = abs(d_h - d_h2)
-                fd_stability_rel = fd_stability_abs / max(abs(d_h2), 1e-9)
-                signal_h = abs(plus_h.metrics[quantity_name] - baseline_quantity)
-                signal_h2 = abs(plus_h2.metrics[quantity_name] - baseline_quantity)
-                floor_h = _roundoff_signal_floor(
-                    quantity_spec.q_floor,
-                    baseline_quantity,
-                    plus_h.metrics[quantity_name],
-                )
-                floor_h2 = _roundoff_signal_floor(
-                    quantity_spec.q_floor,
-                    baseline_quantity,
-                    plus_h2.metrics[quantity_name],
-                )
-                roundoff_h = signal_h <= floor_h
-                roundoff_h2 = signal_h2 <= floor_h2
-                truncation_ok = (
-                    fd_stability_rel <= FD_STABLE_REL_TOL
-                    or fd_stability_abs <= FD_STABLE_ABS_TOL
-                )
-                if roundoff_h2 and not roundoff_h:
-                    sensitivity_raw = float(d_h)
-                    selected_step = step
-                    step_selection_reason = "larger_step_selected_roundoff_limited_half_step"
-                    fd_stable = math.isfinite(sensitivity_raw) and (
-                        not roundoff_h
-                    ) and (truncation_ok or roundoff_h2)
-                    row_notes.append(
-                        "Automatic step-size check rejected the smaller forward step as round-off limited; used the larger forward step."
-                    )
-                elif roundoff_h and roundoff_h2:
-                    sensitivity_raw = float(d_h)
-                    selected_step = step
-                    step_selection_reason = "larger_step_selected_both_steps_roundoff_fragile"
-                    fd_stable = False
-                    row_notes.append(
-                        "Automatic step-size check found both forward steps near the round-off floor; the derivative remains numerically fragile."
-                    )
-                else:
-                    sensitivity_raw = float(d_h2)
-                    selected_step = 0.5 * step
-                    step_selection_reason = (
-                        "smaller_step_selected"
-                        if truncation_ok
-                        else "smaller_step_selected_truncation_control"
-                    )
-                    fd_stable = math.isfinite(sensitivity_raw) and (
-                        not roundoff_h2
-                    ) and truncation_ok
-                    if not truncation_ok:
-                        row_notes.append(
-                            "Automatic step-size check retained the smaller forward step because the larger step shows visible truncation error."
-                        )
-
-                reference_derivative = sensitivity_raw
-                candidate_data = [
-                    {
-                        "step_size": step,
-                        "derivative_estimate": float(d_h),
-                        "signal_amplitude": float(signal_h),
-                        "roundoff_floor": float(floor_h),
-                        "roundoff_limited": bool(roundoff_h),
-                    },
-                    {
-                        "step_size": 0.5 * step,
-                        "derivative_estimate": float(d_h2),
-                        "signal_amplitude": float(signal_h2),
-                        "roundoff_floor": float(floor_h2),
-                        "roundoff_limited": bool(roundoff_h2),
-                    },
-                ]
-            else:
-                row_notes.append(
-                    "Forward perturbation failed or produced a non-finite quantity; sensitivity reported as NaN."
-                )
+            error_reference_method = "no_finite_reference"
+            row_notes.append(
+                "Perturbed evaluations failed or produced non-finite quantities across the full evaluated step ladder."
+            )
 
         normalized = normalize_sensitivity(
             parameter_value=baseline_parameter,
@@ -1923,16 +2026,13 @@ def compute_sensitivity_for_parameter(
             )
         )
         for candidate in candidate_data:
-            abs_error_estimate = abs(
-                candidate["derivative_estimate"] - reference_derivative
-            )
-            rel_error_estimate = abs_error_estimate / max(abs(reference_derivative), 1e-9)
             step_size_rows.append(
                 StepSizeResult(
                     group=parameter_spec.group,
                     parameter_name=parameter_spec.name,
                     parameter_symbol=parameter_spec.symbol,
                     baseline_parameter_value=baseline_parameter,
+                    step_level=int(candidate["step_level"]),
                     quantity_name=quantity_name,
                     quantity_symbol=quantity_spec.symbol,
                     baseline_quantity_value=baseline_quantity,
@@ -1945,11 +2045,35 @@ def compute_sensitivity_for_parameter(
                         dq_dp=float(candidate["derivative_estimate"]),
                         q_floor=quantity_spec.q_floor,
                     ),
-                    absolute_error_estimate=float(abs_error_estimate),
-                    relative_error_estimate=float(rel_error_estimate),
-                    fd_stability_abs=fd_stability_abs,
-                    fd_stability_rel=fd_stability_rel,
-                    fd_stable=bool(fd_stable),
+                    absolute_error_estimate=float(
+                        candidate.get("absolute_error_estimate", float("nan"))
+                    ),
+                    relative_error_estimate=float(
+                        candidate.get("relative_error_estimate", float("nan"))
+                    ),
+                    fd_stability_abs=float(
+                        candidate.get("absolute_error_estimate", float("nan"))
+                    ),
+                    fd_stability_rel=float(
+                        candidate.get("relative_error_estimate", float("nan"))
+                    ),
+                    fd_stable=(
+                        math.isfinite(
+                            float(candidate.get("absolute_error_estimate", float("nan")))
+                        )
+                        and math.isfinite(
+                            float(candidate.get("relative_error_estimate", float("nan")))
+                        )
+                        and not bool(candidate["roundoff_limited"])
+                        and (
+                            float(candidate.get("relative_error_estimate", float("nan")))
+                            <= FD_STABLE_REL_TOL
+                            or float(
+                                candidate.get("absolute_error_estimate", float("nan"))
+                            )
+                            <= FD_STABLE_ABS_TOL
+                        )
+                    ),
                     signal_amplitude=float(candidate["signal_amplitude"]),
                     roundoff_floor=float(candidate["roundoff_floor"]),
                     roundoff_limited=bool(candidate["roundoff_limited"]),
@@ -1965,6 +2089,7 @@ def compute_sensitivity_for_parameter(
                         quantity_unit=quantity_spec.unit,
                         parameter_unit=parameter_spec.unit,
                     ),
+                    error_reference_method=error_reference_method,
                     selection_reason=step_selection_reason,
                     reeval_path=parameter_spec.evaluation_path,
                     notes="; ".join(dict.fromkeys(note for note in row_notes if note)),
@@ -2093,6 +2218,7 @@ def build_metadata_table(
         {"Key": "workbook_path", "Value": str(context.workbook_path.resolve())},
         {"Key": "selected_candidate_id", "Value": context.selected_candidate_id},
         {"Key": "fd_rel_step", "Value": FD_REL_STEP},
+        {"Key": "fd_step_ladder_levels", "Value": FD_STEP_LADDER_LEVELS},
         {"Key": "fd_stable_rel_tol", "Value": FD_STABLE_REL_TOL},
         {"Key": "fd_stable_abs_tol", "Value": FD_STABLE_ABS_TOL},
         {"Key": "fd_roundoff_safety", "Value": FD_ROUNDOFF_SAFETY},
@@ -2441,7 +2567,7 @@ def make_step_size_figure(
         axis.set_yscale("log")
         axis.grid(True, which="both", alpha=0.22)
         axis.set_xlabel("Step size")
-        axis.set_ylabel("Absolute error estimate")
+        axis.set_ylabel(r"Absolute error estimate $|D(h)-D_{\mathrm{ref}}|$")
         axis.set_title(PARAMETER_LABELS.get(parameter_name, parameter_name))
 
         selection_reason_values = (
@@ -2516,7 +2642,7 @@ def make_step_size_figure(
         frameon=False,
     )
     fig.suptitle(
-        "Finite-difference absolute error versus step size",
+        "Finite-difference step-size ladder: absolute error versus step size",
         fontsize=15,
         y=1.01,
     )

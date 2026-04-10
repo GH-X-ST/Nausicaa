@@ -1,9 +1,9 @@
 variant,parameter_name,parameter_label,parameter_symbol,baseline_parameter_value,objective,sink_rate_mps,mass_total_kg,roll_tau_s,static_margin,primary_affected_margin,interpretation
-GeometryToPerformance,wing_span_m,Wing span,b,0.761569966525819,,-0.5350452244975501,0.3049069248589777,-1.3337961851474458,-8.37718493571122,,strong local driver
-GeometryToPerformance,wing_chord_m,Wing chord,c,0.1646396706065065,,0.0007761989326302394,0.23058686239179196,-0.4174142231019231,-6.723145961889828,,strong local driver
-GeometryToPerformance,tail_arm_m,Tail arm,l_t,0.3999999944802849,,0.017397781913981347,0.048276489227860826,0.11278989997008544,3.1769815093094627,,strong local driver
-GeometryToPerformance,htail_span_m,H-tail span,b_h,0.3655521648059379,,0.046374242280428586,0.09276129381039676,-0.18891065196249443,8.607558908033186,,strong local driver
-GeometryToPerformance,vtail_height_m,V-tail height,h_v,0.1187676990756998,,0.03785807758324287,0.019285246496888217,0.0014242009736527448,-0.6209666505461197,,moderate local driver
+GeometryToPerformance,wing_span_m,Wing span,b,0.761569966525819,,-0.5350436089442945,0.3049069248600355,-1.3337938568384928,-8.377156463842338,,strong local driver
+GeometryToPerformance,wing_chord_m,Wing chord,c,0.1646396706065065,,0.0007764099158753,0.2305868623917332,-0.4174141075062667,-6.723129533875513,,strong local driver
+GeometryToPerformance,tail_arm_m,Tail arm,l_t,0.3999999944802849,,0.0173929380434696,0.0482764892272731,0.1128448874856752,3.17756928703636,,strong local driver
+GeometryToPerformance,htail_span_m,H-tail span,b_h,0.3655521648059379,,0.0463745105333399,0.092761293812101,-0.1889109165515537,8.607558908033186,,strong local driver
+GeometryToPerformance,vtail_height_m,V-tail height,h_v,0.1187676990756998,,0.0378580790193727,0.0192852464976522,0.0014242021836739,-0.6209696047955315,,moderate local driver
 RequirementToPerformance,bank_entry_time_s,Bank-entry time,t_be,0.2,0.0,0.0,,0.0,,Bank-entry margin,numerically unstable estimate
 RequirementToPerformance,wall_clearance_m,Wall clearance,c_w,0.2,0.0,0.0,,0.0,,Lateral-agility margin,numerically unstable estimate
 RequirementToPerformance,turn_bank_deg,Turn bank angle,phi_turn,50.0,0.0,0.0,,0.0,,Turn-footprint margin,numerically unstable estimate
