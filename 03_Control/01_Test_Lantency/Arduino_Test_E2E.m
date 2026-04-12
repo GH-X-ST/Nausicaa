@@ -1100,20 +1100,61 @@ end
 searchWindowStart = anchorTime - max(0.0, preAnchorSlackSeconds);
 while nextSearchIndex <= height(transitionTable) && double(transitionTable.time_s(nextSearchIndex)) < searchWindowStart, nextSearchIndex = nextSearchIndex + 1; end
 windowEnd = anchorTime + maxWindowSeconds;
-fallbackIndex = NaN;
+bestIndex = NaN;
+bestScore = [];
 for i = nextSearchIndex:height(transitionTable)
     t = double(transitionTable.time_s(i)); if t > windowEnd, break; end
-    if abs(double(transitionTable.pulse_us(i)) - targetPulseUs) > targetToleranceUs, continue; end
-    if isfinite(previousPulseUs) && abs(double(transitionTable.previous_pulse_us(i)) - previousPulseUs) > previousToleranceUs, continue; end
-    if t >= anchorTime
-        matchIndex = i; nextSearchIndex = i + 1; return;
+    targetErrorUs = abs(double(transitionTable.pulse_us(i)) - targetPulseUs);
+    if targetErrorUs > targetToleranceUs, continue; end
+    previousErrorUs = 0.0;
+    previousMatchesOld = true;
+    if isfinite(previousPulseUs)
+        previousErrorUs = abs(double(transitionTable.previous_pulse_us(i)) - previousPulseUs);
+        if isfinite(previousToleranceUs)
+            previousMatchesOld = previousErrorUs <= previousToleranceUs;
+        end
     end
-    fallbackIndex = i;
+    latencySeconds = t - anchorTime;
+    candidateScore = [ ...
+        double(latencySeconds < 0), ...
+        double(~previousMatchesOld), ...
+        targetErrorUs, ...
+        previousErrorUs, ...
+        max(0.0, latencySeconds), ...
+        abs(latencySeconds), ...
+        t];
+    if ~isfinite(bestIndex) || isCandidateScoreBetterLocal(candidateScore, bestScore)
+        bestIndex = i;
+        bestScore = candidateScore;
+    end
 end
-if isfinite(fallbackIndex)
-    matchIndex = fallbackIndex;
-    nextSearchIndex = fallbackIndex + 1;
+if isfinite(bestIndex)
+    matchIndex = bestIndex;
+    nextSearchIndex = bestIndex + 1;
 end
+end
+
+function tf = isCandidateScoreBetterLocal(candidateScore, bestScore)
+if isempty(bestScore)
+    tf = true;
+    return;
+end
+candidateScore = reshape(double(candidateScore), 1, []);
+bestScore = reshape(double(bestScore), 1, []);
+scoreCount = min(numel(candidateScore), numel(bestScore));
+for scoreIndex = 1:scoreCount
+    candidateValue = candidateScore(scoreIndex);
+    bestValue = bestScore(scoreIndex);
+    if candidateValue < bestValue
+        tf = true;
+        return;
+    end
+    if candidateValue > bestValue
+        tf = false;
+        return;
+    end
+end
+tf = numel(candidateScore) < numel(bestScore);
 end
 
 function outputCapture = extractOutputCaptureLocal(logicState, logicAnalyzer, surfaceNames)
