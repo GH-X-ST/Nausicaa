@@ -1,58 +1,30 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 import numpy as np
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from F_analysis.analysis_common import (
+    open_canonical_workbook,
+    read_sheet_optional,
+    read_sheet_required,
+    resolve_selected_candidate_id,
+    resolve_tail_metric_name,
+    sort_scenario_tags,
+)
+
 RESULTS_DIR = PROJECT_ROOT / "C_results"
 FIGURES_DIR = PROJECT_ROOT / "B_figures"
-WORKFLOW_XLSX = RESULTS_DIR / "nausicaa_workflow.xlsx"
-RESULTS_XLSX = RESULTS_DIR / "nausicaa_results.xlsx"
 OUTPUT_XLSX = RESULTS_DIR / "main_text_tables.xlsx"
 
 FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-
-TAG_ORDER = [
-    "harsh_compound",
-    "harsh_build",
-    "gusty_only",
-    "mild_compound",
-    "mild_build",
-]
-
-
-def _open_workbook(path: Path) -> pd.ExcelFile | None:
-    if path.exists():
-        return pd.ExcelFile(path)
-    return None
-
-
-def _read_sheet(
-    sheet_name: str,
-    workflow_book: pd.ExcelFile | None,
-    results_book: pd.ExcelFile | None,
-) -> pd.DataFrame:
-    if workflow_book is not None and sheet_name in workflow_book.sheet_names:
-        return pd.read_excel(workflow_book, sheet_name=sheet_name)
-    if results_book is not None and sheet_name in results_book.sheet_names:
-        return pd.read_excel(results_book, sheet_name=sheet_name)
-    return pd.DataFrame()
-
-
-def _coerce_bool_series(series: pd.Series) -> pd.Series:
-    lowered = series.astype(str).str.strip().str.lower()
-    return lowered.isin({"1", "true", "yes"})
-
-
-def _tail_metric_name(df: pd.DataFrame) -> str:
-    if "nom_sink_tail_mean_k" in df.columns:
-        return "nom_sink_tail_mean_k"
-    if "nom_sink_cvar_20" in df.columns:
-        return "nom_sink_cvar_20"
-    raise KeyError("Neither robust tail metric is available.")
 
 
 def _series_lookup(df: pd.DataFrame, key_col: str, value_col: str) -> dict[str, object]:
@@ -182,15 +154,16 @@ def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
                 else np.nan,
                 "sink_mean": float(sink.mean()) if not sink.empty else np.nan,
                 "sink_worst": float(sink.max()) if not sink.empty else np.nan,
-                "sink_tail_mean_k": tail_mean,
+                "nom_sink_tail_mean_k": tail_mean,
                 "nom_resid_rmse_success_only": resid_value,
             }
         )
 
     summary_df = pd.DataFrame(rows)
+    tag_order = sort_scenario_tags(summary_df["scenario_tag"])
     summary_df["tag_sort"] = summary_df["scenario_tag"].map(
-        {tag: idx for idx, tag in enumerate(TAG_ORDER)}
-    ).fillna(len(TAG_ORDER))
+        {tag: idx for idx, tag in enumerate(tag_order)}
+    ).fillna(len(tag_order))
     summary_df = summary_df.sort_values(
         by=["tag_sort", "scenario_tag"],
         kind="mergesort",
@@ -199,61 +172,24 @@ def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_table_sources() -> dict[str, pd.DataFrame]:
-    workflow_book = _open_workbook(WORKFLOW_XLSX)
-    results_book = _open_workbook(RESULTS_XLSX)
-    if workflow_book is None and results_book is None:
-        raise FileNotFoundError(
-            "No canonical workbook found. Expected "
-            f"{WORKFLOW_XLSX} or {RESULTS_XLSX}."
-        )
-
-    sheet_names = [
-        "RunInfo",
-        "Candidates",
-        "RobustSummary",
-        "Definitions",
-        "Summary",
-        "ObjectiveTerms",
-        "Geometry",
-        "Constraints",
-        "RobustSummaryByTag",
-        "RobustScenarios",
-        "DesignVarBounds",
-        "DesignPoints",
-    ]
-    return {
-        sheet_name: _read_sheet(sheet_name, workflow_book, results_book)
-        for sheet_name in sheet_names
-    }
-
-
-def extract_selected_candidate_id(
-    candidates_df: pd.DataFrame,
-    robust_summary_df: pd.DataFrame,
-) -> int:
-    if not robust_summary_df.empty and "is_selected" in robust_summary_df.columns:
-        selected_mask = _coerce_bool_series(robust_summary_df["is_selected"])
-        if selected_mask.any():
-            return int(robust_summary_df.loc[selected_mask, "candidate_id"].iloc[0])
-
-    if not candidates_df.empty and not robust_summary_df.empty:
-        tail_metric = _tail_metric_name(robust_summary_df)
-        merged_df = robust_summary_df.merge(
-            candidates_df[["candidate_id", "objective"]],
-            on="candidate_id",
-            how="left",
-        )
-        ranked_df = merged_df.sort_values(
-            by=["nom_success_rate", tail_metric, "objective"],
-            ascending=[False, True, True],
-            kind="mergesort",
-        )
-        if not ranked_df.empty:
-            return int(ranked_df.iloc[0]["candidate_id"])
-
-    if candidates_df.empty:
-        raise ValueError("Candidates sheet is required to resolve the selected candidate.")
-    return int(candidates_df.sort_values("objective", kind="mergesort").iloc[0]["candidate_id"])
+    _, workbook = open_canonical_workbook()
+    try:
+        return {
+            "RunInfo": read_sheet_optional(workbook, "RunInfo"),
+            "Candidates": read_sheet_required(workbook, "Candidates"),
+            "RobustSummary": read_sheet_required(workbook, "RobustSummary"),
+            "Definitions": read_sheet_optional(workbook, "Definitions"),
+            "Summary": read_sheet_required(workbook, "Summary"),
+            "ObjectiveTerms": read_sheet_optional(workbook, "ObjectiveTerms"),
+            "Geometry": read_sheet_required(workbook, "Geometry"),
+            "Constraints": read_sheet_optional(workbook, "Constraints"),
+            "RobustSummaryByTag": read_sheet_optional(workbook, "RobustSummaryByTag"),
+            "RobustScenarios": read_sheet_required(workbook, "RobustScenarios"),
+            "DesignVarBounds": read_sheet_optional(workbook, "DesignVarBounds"),
+            "DesignPoints": read_sheet_optional(workbook, "DesignPoints"),
+        }
+    finally:
+        workbook.close()
 
 
 def build_variables_sheet(
@@ -439,12 +375,10 @@ def build_uncertainty_model_sheet(sources: dict[str, pd.DataFrame]) -> pd.DataFr
     definitions_map = (
         definitions_df.set_index("name").to_dict("index") if not definitions_df.empty else {}
     )
-    tag_lookup = {name: idx for idx, name in enumerate(TAG_ORDER)}
 
     ordered_tags: list[str] = []
     if "scenario_tag" in unique_scenarios_df.columns:
-        unique_tags = list(dict.fromkeys(unique_scenarios_df["scenario_tag"].dropna().astype(str)))
-        ordered_tags = sorted(unique_tags, key=lambda tag: (tag_lookup.get(tag, len(TAG_ORDER)), tag))
+        ordered_tags = sort_scenario_tags(unique_scenarios_df["scenario_tag"])
 
     variable_names = [
         "mass_scale",
@@ -514,12 +448,15 @@ def build_final_selection_summary_sheet(
         how="left",
         suffixes=("", "_robust"),
     )
-    tail_metric = _tail_metric_name(robust_summary_df)
+    tail_metric = resolve_tail_metric_name(robust_summary_df)
 
     best_nominal_candidate_id = int(
         candidates_df.sort_values("objective", kind="mergesort").iloc[0]["candidate_id"]
     )
-    best_robust_candidate_id = extract_selected_candidate_id(candidates_df, robust_summary_df)
+    best_robust_candidate_id = resolve_selected_candidate_id(
+        candidates_df,
+        robust_summary_df,
+    )
 
     comparison_rows = [
         ("selected_candidate", selected_candidate_id),
@@ -578,34 +515,31 @@ def build_final_selection_summary_sheet(
         summary_by_tag_df = _aggregate_tag_summary(selected_scenarios_df)
 
     if not summary_by_tag_df.empty:
-        if "sink_tail_mean_k" not in summary_by_tag_df.columns:
-            if "nom_sink_tail_mean_k" in summary_by_tag_df.columns:
-                summary_by_tag_df = summary_by_tag_df.rename(
-                    columns={"nom_sink_tail_mean_k": "sink_tail_mean_k"}
-                )
-            elif "nom_sink_cvar_20" in summary_by_tag_df.columns:
-                summary_by_tag_df = summary_by_tag_df.rename(
-                    columns={"nom_sink_cvar_20": "sink_tail_mean_k"}
-                )
-
         if "sink_mean" not in summary_by_tag_df.columns and "nom_sink_mean" in summary_by_tag_df.columns:
             summary_by_tag_df = summary_by_tag_df.rename(columns={"nom_sink_mean": "sink_mean"})
         if "sink_worst" not in summary_by_tag_df.columns and "nom_sink_worst" in summary_by_tag_df.columns:
             summary_by_tag_df = summary_by_tag_df.rename(columns={"nom_sink_worst": "sink_worst"})
+        if "sink_tail_mean_k" in summary_by_tag_df.columns:
+            summary_by_tag_df = summary_by_tag_df.rename(
+                columns={"sink_tail_mean_k": "nom_sink_tail_mean_k"}
+            )
 
-        tag_sort = {tag: idx for idx, tag in enumerate(TAG_ORDER)}
-        summary_by_tag_df["tag_sort"] = summary_by_tag_df["scenario_tag"].map(tag_sort).fillna(len(TAG_ORDER))
+        tag_order = sort_scenario_tags(summary_by_tag_df["scenario_tag"])
+        summary_by_tag_df["tag_sort"] = summary_by_tag_df["scenario_tag"].map(
+            {tag: idx for idx, tag in enumerate(tag_order)}
+        ).fillna(len(tag_order))
         summary_by_tag_df = summary_by_tag_df.sort_values(
             by=["tag_sort", "scenario_tag"],
             kind="mergesort",
         ).drop(columns="tag_sort")
+        summary_tail_metric = resolve_tail_metric_name(summary_by_tag_df)
         summary_by_tag_df = summary_by_tag_df.reindex(
             columns=[
                 "scenario_tag",
                 "success_rate",
                 "sink_mean",
                 "sink_worst",
-                "sink_tail_mean_k",
+                summary_tail_metric,
                 "nom_resid_rmse_success_only",
             ]
         )
@@ -645,7 +579,7 @@ def write_tables_workbook(
 
 def main() -> None:
     sources = load_table_sources()
-    selected_candidate_id = extract_selected_candidate_id(
+    selected_candidate_id = resolve_selected_candidate_id(
         sources["Candidates"],
         sources["RobustSummary"],
     )

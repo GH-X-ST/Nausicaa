@@ -25,9 +25,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import F_analysis.sensitivity as sensitivity
+import F_analysis.sensitivity_core as sensitivity_core
 
-DEFAULT_FIGURE = sensitivity.OUTPUT_FIGURE
+DEFAULT_FIGURE = sensitivity_core.OUTPUT_FIGURE
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--csv",
         type=Path,
-        default=sensitivity.OUTPUT_STEP_SIZE_CSV,
+        default=sensitivity_core.OUTPUT_STEP_SIZE_CSV,
         help="Path to the step-size table CSV.",
     )
     parser.add_argument(
@@ -66,13 +66,13 @@ def parse_args() -> argparse.Namespace:
 
 def quantity_subset_for_group(group: str) -> list[str]:
     if group == "geometry":
-        return sensitivity.GEOMETRY_STEP_PLOT_QUANTITIES
+        return sensitivity_core.GEOMETRY_STEP_PLOT_QUANTITIES
     if group == "requirement":
-        return sensitivity.REQUIREMENT_STEP_PLOT_QUANTITIES
+        return sensitivity_core.REQUIREMENT_STEP_PLOT_QUANTITIES
     return sorted(
         set(
-            sensitivity.GEOMETRY_STEP_PLOT_QUANTITIES
-            + sensitivity.REQUIREMENT_STEP_PLOT_QUANTITIES
+            sensitivity_core.GEOMETRY_STEP_PLOT_QUANTITIES
+            + sensitivity_core.REQUIREMENT_STEP_PLOT_QUANTITIES
         )
     )
 
@@ -85,11 +85,11 @@ def build_filtered_table(args: argparse.Namespace) -> pd.DataFrame:
         df = df.loc[df["parameter_name"] == args.parameter].copy()
     allowed_quantities = quantity_subset_for_group(args.group)
     if args.parameter:
-        geometry_set = set(sensitivity.GEOMETRY_PARAM_ORDER)
+        geometry_set = set(sensitivity_core.GEOMETRY_PARAM_ORDER)
         if args.parameter in geometry_set:
-            allowed_quantities = sensitivity.GEOMETRY_STEP_PLOT_QUANTITIES
+            allowed_quantities = sensitivity_core.GEOMETRY_STEP_PLOT_QUANTITIES
         else:
-            allowed_quantities = sensitivity.REQUIREMENT_STEP_PLOT_QUANTITIES
+            allowed_quantities = sensitivity_core.REQUIREMENT_STEP_PLOT_QUANTITIES
     df = df.loc[df["quantity_name"].isin(allowed_quantities)].copy()
     return df
 
@@ -102,7 +102,7 @@ def main() -> None:
             "Run `python F_analysis/solve_step_size.py` first."
         )
     table_df = build_filtered_table(args)
-    sensitivity.make_step_size_figure(
+    sensitivity_core.make_step_size_figure(
         table_df,
         figure_path=args.figure,
         max_quantities=args.max_quantities,

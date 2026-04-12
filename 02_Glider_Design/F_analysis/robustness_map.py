@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 import matplotlib
 
@@ -16,22 +17,25 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import cmocean
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from F_analysis.analysis_common import (
+    open_canonical_workbook,
+    read_sheet_optional,
+    read_sheet_required,
+    resolve_selected_candidate_id,
+    resolve_tail_metric_name,
+    sort_scenario_tags,
+)
+
 RESULTS_DIR = PROJECT_ROOT / "C_results"
 FIGURES_DIR = PROJECT_ROOT / "B_figures"
-WORKFLOW_XLSX = RESULTS_DIR / "nausicaa_workflow.xlsx"
-RESULTS_XLSX = RESULTS_DIR / "nausicaa_results.xlsx"
 FIGURE_PATH = FIGURES_DIR / "robustness_map.png"
 
 FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-TAG_ORDER = [
-    "mild_build",
-    "harsh_build",
-    "gusty_only",
-    "mild_compound",
-    "harsh_compound",
-]
 METRIC_ORDER = [
     "nom_sink_rate_mps",
     "nom_alpha_margin_deg",
@@ -68,37 +72,6 @@ CELL_EDGE_LW = 0.30
 LEGEND_FONT_SIZE = 8.4
 
 
-def _open_workbook(path: Path) -> pd.ExcelFile | None:
-    if path.exists():
-        return pd.ExcelFile(path)
-    return None
-
-
-def _read_sheet(
-    sheet_name: str,
-    workflow_book: pd.ExcelFile | None,
-    results_book: pd.ExcelFile | None,
-) -> pd.DataFrame | None:
-    if workflow_book is not None and sheet_name in workflow_book.sheet_names:
-        return pd.read_excel(workflow_book, sheet_name=sheet_name)
-    if results_book is not None and sheet_name in results_book.sheet_names:
-        return pd.read_excel(results_book, sheet_name=sheet_name)
-    return None
-
-
-def _coerce_bool_series(series: pd.Series) -> pd.Series:
-    lowered = series.astype(str).str.strip().str.lower()
-    return lowered.isin({"1", "true", "yes"})
-
-
-def _resolve_tail_metric_name(df: pd.DataFrame) -> str:
-    if "nom_sink_tail_mean_k" in df.columns:
-        return "nom_sink_tail_mean_k"
-    if "nom_sink_cvar_20" in df.columns:
-        return "nom_sink_cvar_20"
-    raise KeyError("Neither robust tail-risk metric is available.")
-
-
 def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict[str, float | str]] = []
     for scenario_tag, group_df in selected_scenarios_df.groupby("scenario_tag", sort=False):
@@ -121,7 +94,7 @@ def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
             {
                 "scenario_tag": str(scenario_tag),
                 "success_rate": float(success.mean()) if not success.empty else np.nan,
-                "sink_tail_mean_k": tail_value,
+                "nom_sink_tail_mean_k": tail_value,
             }
         )
 
@@ -129,9 +102,10 @@ def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
     if summary_df.empty:
         return summary_df
 
+    tag_order = sort_scenario_tags(summary_df["scenario_tag"])
     summary_df["tag_sort"] = summary_df["scenario_tag"].map(
-        {tag: idx for idx, tag in enumerate(TAG_ORDER)}
-    ).fillna(len(TAG_ORDER))
+        {tag: idx for idx, tag in enumerate(tag_order)}
+    ).fillna(len(tag_order))
     summary_df = summary_df.sort_values(
         by=["tag_sort", "scenario_tag"],
         kind="mergesort",
@@ -140,24 +114,16 @@ def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_robustness_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    workflow_book = _open_workbook(WORKFLOW_XLSX)
-    results_book = _open_workbook(RESULTS_XLSX)
-    candidates_df = _read_sheet("Candidates", workflow_book, results_book)
-    robust_summary_df = _read_sheet("RobustSummary", workflow_book, results_book)
-    scenarios_df = _read_sheet("RobustScenarios", workflow_book, results_book)
-    if scenarios_df is None:
-        scenarios_df = _read_sheet("PlotDataRobust", workflow_book, results_book)
-    summary_by_tag_df = _read_sheet("RobustSummaryByTag", workflow_book, results_book)
-
-    if candidates_df is None or robust_summary_df is None or scenarios_df is None:
-        raise FileNotFoundError(
-            "Required workbook sheets were not found. Expected canonical "
-            "workflow outputs with 'Candidates', 'RobustSummary', and "
-            "'RobustScenarios' or 'PlotDataRobust'."
-        )
-
-    if summary_by_tag_df is None:
-        summary_by_tag_df = pd.DataFrame()
+    _, book = open_canonical_workbook()
+    try:
+        candidates_df = read_sheet_required(book, "Candidates")
+        robust_summary_df = read_sheet_required(book, "RobustSummary")
+        scenarios_df = read_sheet_optional(book, "RobustScenarios")
+        if scenarios_df.empty:
+            scenarios_df = read_sheet_required(book, "PlotDataRobust")
+        summary_by_tag_df = read_sheet_optional(book, "RobustSummaryByTag")
+    finally:
+        book.close()
 
     return candidates_df, robust_summary_df, scenarios_df, summary_by_tag_df
 
@@ -166,33 +132,15 @@ def get_selected_candidate_id(
     candidates_df: pd.DataFrame,
     robust_summary_df: pd.DataFrame,
 ) -> int:
-    if "is_selected" in robust_summary_df.columns:
-        selected_mask = _coerce_bool_series(robust_summary_df["is_selected"])
-        if selected_mask.any():
-            return int(robust_summary_df.loc[selected_mask, "candidate_id"].iloc[0])
-
-    tail_metric_col = _resolve_tail_metric_name(robust_summary_df)
-    merged_df = robust_summary_df.merge(
-        candidates_df[["candidate_id", "objective"]],
-        on="candidate_id",
-        how="left",
-    )
-    ranked_df = merged_df.sort_values(
-        by=["nom_success_rate", tail_metric_col, "objective"],
-        ascending=[False, True, True],
-        kind="mergesort",
-    )
-    if not ranked_df.empty:
-        return int(ranked_df.iloc[0]["candidate_id"])
-
-    return int(candidates_df.sort_values("objective", kind="mergesort").iloc[0]["candidate_id"])
+    return resolve_selected_candidate_id(candidates_df, robust_summary_df)
 
 
 def sort_selected_scenarios(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
     sorted_df = selected_scenarios_df.copy()
+    tag_order = sort_scenario_tags(sorted_df["scenario_tag"])
     sorted_df["tag_sort"] = sorted_df["scenario_tag"].map(
-        {tag: idx for idx, tag in enumerate(TAG_ORDER)}
-    ).fillna(len(TAG_ORDER))
+        {tag: idx for idx, tag in enumerate(tag_order)}
+    ).fillna(len(tag_order))
     sort_columns = ["tag_sort"]
     ascending = [True]
     if "scenario_id" in sorted_df.columns:
@@ -274,9 +222,15 @@ def _prepare_summary_by_tag(
     if summary_df.empty or "scenario_tag" not in summary_df.columns:
         return _aggregate_tag_summary(selected_scenarios_df)
 
+    if "sink_tail_mean_k" in summary_df.columns:
+        summary_df = summary_df.rename(
+            columns={"sink_tail_mean_k": "nom_sink_tail_mean_k"}
+        )
+
+    tag_order = sort_scenario_tags(summary_df["scenario_tag"])
     summary_df["tag_sort"] = summary_df["scenario_tag"].map(
-        {tag: idx for idx, tag in enumerate(TAG_ORDER)}
-    ).fillna(len(TAG_ORDER))
+        {tag: idx for idx, tag in enumerate(tag_order)}
+    ).fillna(len(tag_order))
     summary_df = summary_df.sort_values(
         by=["tag_sort", "scenario_tag"],
         kind="mergesort",
@@ -438,12 +392,11 @@ def make_robustness_map(
         )
         summary_ax.set_axis_off()
     else:
-        tag_metric_col = (
-            "sink_tail_mean_k"
-            if "sink_tail_mean_k" in summary_df.columns
-            else "nom_sink_tail_mean_k"
-            if "nom_sink_tail_mean_k" in summary_df.columns
-            else "nom_sink_cvar_20"
+        tag_metric_col = resolve_tail_metric_name(summary_df)
+        tail_label = (
+            "Tail-risk sink"
+            if tag_metric_col == "nom_sink_tail_mean_k"
+            else "Tail-risk sink (CVaR 20%)"
         )
         tag_labels = summary_df["scenario_tag"].astype(str).tolist()
         x = np.arange(len(tag_labels), dtype=float)
@@ -459,7 +412,7 @@ def make_robustness_map(
             width=0.72,
         )
         summary_ax.set_title("Scenario-family summary")
-        summary_ax.set_ylabel("Tail-risk sink [m/s]")
+        summary_ax.set_ylabel(f"{tail_label} [m/s]")
         summary_ax.set_xticks(x, labels=[_format_tag_label(tag) for tag in tag_labels])
         summary_ax.tick_params(axis="x", rotation=25)
         summary_ax.grid(True, axis="y", alpha=0.20, linewidth=0.45)

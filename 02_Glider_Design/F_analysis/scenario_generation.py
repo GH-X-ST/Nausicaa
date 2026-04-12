@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 import matplotlib
 
@@ -11,65 +12,54 @@ import numpy as np
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from F_analysis.analysis_common import (
+    open_canonical_workbook,
+    read_sheet_optional,
+    read_sheet_required,
+    sort_scenario_tags,
+)
+
 RESULTS_DIR = PROJECT_ROOT / "C_results"
 FIGURES_DIR = PROJECT_ROOT / "B_figures"
-WORKFLOW_XLSX = RESULTS_DIR / "nausicaa_workflow.xlsx"
-RESULTS_XLSX = RESULTS_DIR / "nausicaa_results.xlsx"
 FIGURE_PATH = FIGURES_DIR / "scenario_generation.png"
 
 FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-TAG_ORDER = [
-    "harsh_compound",
-    "harsh_build",
-    "gusty_only",
-    "mild_compound",
-    "mild_build",
-]
-KEY_INPUTS = [
+SCALAR_INPUTS = [
     "mass_scale",
     "cg_x_shift_mac",
     "incidence_bias_deg",
-    "control_eff",
     "drag_factor",
     "w_gust_nom",
     "q",
 ]
-
-
-def _open_workbook(path: Path) -> pd.ExcelFile | None:
-    if path.exists():
-        return pd.ExcelFile(path)
-    return None
-
-
-def _read_sheet(
-    sheet_name: str,
-    workflow_book: pd.ExcelFile | None,
-    results_book: pd.ExcelFile | None,
-) -> pd.DataFrame | None:
-    if workflow_book is not None and sheet_name in workflow_book.sheet_names:
-        return pd.read_excel(workflow_book, sheet_name=sheet_name)
-    if results_book is not None and sheet_name in results_book.sheet_names:
-        return pd.read_excel(results_book, sheet_name=sheet_name)
-    return None
+EFFECTIVENESS_INPUTS = ["eff_a", "eff_e", "eff_r"]
+BIAS_INPUTS = ["bias_a_deg", "bias_e_deg", "bias_r_deg"]
+FALLBACK_INPUTS = ["control_eff"]
+SCENARIO_INPUT_PRIORITY = (
+    SCALAR_INPUTS + EFFECTIVENESS_INPUTS + BIAS_INPUTS + FALLBACK_INPUTS
+)
 
 
 def load_scenario_generation_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    workflow_book = _open_workbook(WORKFLOW_XLSX)
-    results_book = _open_workbook(RESULTS_XLSX)
-    scenario_inputs_long_df = _read_sheet("ScenarioInputsLong", workflow_book, results_book)
-    robust_scenarios_df = _read_sheet("RobustScenarios", workflow_book, results_book)
-    definitions_df = _read_sheet("Definitions", workflow_book, results_book)
+    _, book = open_canonical_workbook()
+    try:
+        scenario_inputs_long_df = read_sheet_optional(book, "ScenarioInputsLong")
+        robust_scenarios_df = read_sheet_required(book, "RobustScenarios")
+        definitions_df = read_sheet_optional(book, "Definitions")
+    finally:
+        book.close()
 
-    if robust_scenarios_df is None:
-        raise FileNotFoundError(
-            "Expected canonical workflow workbook with a 'RobustScenarios' sheet."
-        )
-
-    if scenario_inputs_long_df is None:
-        input_columns = [column for column in KEY_INPUTS if column in robust_scenarios_df.columns]
+    if scenario_inputs_long_df.empty:
+        input_columns = [
+            column
+            for column in SCENARIO_INPUT_PRIORITY
+            if column in robust_scenarios_df.columns
+        ]
         scenario_inputs_long_df = robust_scenarios_df[
             ["scenario_id", "scenario_tag", *input_columns]
         ].drop_duplicates("scenario_id").melt(
@@ -78,7 +68,7 @@ def load_scenario_generation_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
             value_name="input_value",
         )
 
-    if definitions_df is None:
+    if definitions_df.empty:
         definitions_df = pd.DataFrame(
             columns=["name", "unit", "definition", "computed_in", "notes"]
         )
@@ -89,16 +79,51 @@ def load_scenario_generation_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
 def get_unique_scenarios(robust_scenarios_df: pd.DataFrame) -> pd.DataFrame:
     unique_df = robust_scenarios_df.drop_duplicates(subset=["scenario_id"]).copy()
     if "control_eff" not in unique_df.columns:
-        eff_columns = [column for column in ["eff_a", "eff_e", "eff_r"] if column in unique_df.columns]
+        eff_columns = [
+            column for column in EFFECTIVENESS_INPUTS if column in unique_df.columns
+        ]
         if eff_columns:
             unique_df["control_eff"] = unique_df[eff_columns].mean(axis=1)
     return unique_df
 
 
 def sort_tags(tags: list[str] | pd.Index | pd.Series) -> list[str]:
-    unique_tags = list(dict.fromkeys(pd.Series(tags).dropna().astype(str)))
-    tag_lookup = {tag: idx for idx, tag in enumerate(TAG_ORDER)}
-    return sorted(unique_tags, key=lambda tag: (tag_lookup.get(tag, len(TAG_ORDER)), tag))
+    return sort_scenario_tags(tags)
+
+
+def _definition_map(definitions_df: pd.DataFrame) -> dict[str, dict[str, str]]:
+    if definitions_df.empty or "name" not in definitions_df.columns:
+        return {}
+    return definitions_df.set_index("name").to_dict("index")
+
+
+def _label_for_input(
+    name: str,
+    definitions_map: dict[str, dict[str, str]],
+) -> str:
+    entry = definitions_map.get(name, {})
+    unit = str(entry.get("unit", "")).strip()
+    display_name = name.replace("_", " ")
+    if unit and unit not in {"-", "label"}:
+        return f"{display_name} [{unit}]"
+    return display_name
+
+
+def _sampled_inputs_summary(
+    scenario_inputs_long_df: pd.DataFrame,
+    definitions_df: pd.DataFrame,
+) -> str:
+    if scenario_inputs_long_df.empty:
+        return "Sampled inputs unavailable."
+
+    definitions_map = _definition_map(definitions_df)
+    ordered_names = [
+        name
+        for name in SCENARIO_INPUT_PRIORITY
+        if name in set(scenario_inputs_long_df["input_name"].astype(str))
+    ]
+    labels = [_label_for_input(name, definitions_map) for name in ordered_names]
+    return "Sampled uncertainty variables: " + ", ".join(labels)
 
 
 def _point_positions(center: float, count: int, span: float = 0.18) -> np.ndarray:
@@ -112,7 +137,9 @@ def _boxplot_by_tag(
     unique_scenarios_df: pd.DataFrame,
     tags: list[str],
     column: str,
+    definitions_df: pd.DataFrame,
 ) -> None:
+    definitions_map = _definition_map(definitions_df)
     data = [
         unique_scenarios_df.loc[unique_scenarios_df["scenario_tag"] == tag, column]
         .dropna()
@@ -159,7 +186,7 @@ def _boxplot_by_tag(
             color="#4a4a4a",
         )
 
-    ax.set_title(column)
+    ax.set_title(_label_for_input(column, definitions_map))
     ax.tick_params(axis="x", rotation=25)
     ax.grid(True, axis="y", alpha=0.2)
 
@@ -169,11 +196,14 @@ def _boxplot_columns(
     data_df: pd.DataFrame,
     columns: list[str],
     colors: list[str],
+    definitions_df: pd.DataFrame,
+    title: str,
 ) -> None:
+    definitions_map = _definition_map(definitions_df)
     data = [data_df[column].dropna().to_numpy(dtype=float) for column in columns]
     boxplot = ax.boxplot(
         data,
-        tick_labels=columns,
+        tick_labels=[_label_for_input(column, definitions_map) for column in columns],
         patch_artist=True,
         showfliers=False,
     )
@@ -231,6 +261,8 @@ def _boxplot_columns(
             color="#4a4a4a",
         )
 
+    ax.set_title(title)
+    ax.tick_params(axis="x", rotation=15)
     ax.grid(True, axis="y", alpha=0.2)
 
 
@@ -239,11 +271,12 @@ def make_scenario_generation_figure(
     robust_scenarios_df: pd.DataFrame,
     definitions_df: pd.DataFrame,
 ) -> Path:
-    del scenario_inputs_long_df
-    del definitions_df
-
     unique_scenarios_df = get_unique_scenarios(robust_scenarios_df)
     tags = sort_tags(unique_scenarios_df["scenario_tag"])
+    sampled_summary = _sampled_inputs_summary(
+        scenario_inputs_long_df,
+        definitions_df,
+    )
 
     fig = plt.figure(figsize=(12, 24), constrained_layout=True)
     outer = fig.add_gridspec(2, 2, height_ratios=[1.0, 1.6], width_ratios=[1.0, 1.0])
@@ -252,7 +285,11 @@ def make_scenario_generation_figure(
     eff_ax = fig.add_subplot(control_grid[0, 0])
     bias_ax = fig.add_subplot(control_grid[1, 0])
 
-    available_inputs = [column for column in KEY_INPUTS if column in unique_scenarios_df.columns]
+    available_inputs = [
+        column for column in SCALAR_INPUTS if column in unique_scenarios_df.columns
+    ]
+    if not available_inputs and "control_eff" in unique_scenarios_df.columns:
+        available_inputs = ["control_eff"]
     n_cols = 4
     n_rows = int(np.ceil(max(len(available_inputs), 1) / n_cols))
     input_grid = outer[1, :].subgridspec(n_rows, n_cols, hspace=0.45, wspace=0.25)
@@ -279,43 +316,69 @@ def make_scenario_generation_figure(
             va="bottom",
             fontsize=9,
         )
+    counts_ax.text(
+        0.02,
+        0.98,
+        sampled_summary,
+        transform=counts_ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=8,
+        bbox={
+            "boxstyle": "round,pad=0.3",
+            "facecolor": "white",
+            "edgecolor": "#666666",
+            "alpha": 0.9,
+        },
+    )
 
     for ax, column in zip(input_axes, available_inputs, strict=False):
-        _boxplot_by_tag(ax, unique_scenarios_df, tags, column)
+        _boxplot_by_tag(
+            ax,
+            unique_scenarios_df,
+            tags,
+            column,
+            definitions_df,
+        )
     for ax in input_axes[len(available_inputs):]:
         ax.axis("off")
 
-    eff_columns = [column for column in ["eff_a", "eff_e", "eff_r"] if column in unique_scenarios_df.columns]
+    eff_columns = [
+        column for column in EFFECTIVENESS_INPUTS if column in unique_scenarios_df.columns
+    ]
     if eff_columns:
         _boxplot_columns(
             eff_ax,
             unique_scenarios_df,
             eff_columns,
             ["#59a14f", "#76b7b2", "#edc948"],
+            definitions_df,
+            "Per-axis control effectiveness",
         )
         eff_ax.axhline(1.0, color="black", linewidth=0.8, linestyle="--")
-        eff_ax.set_title("Per-axis control effectiveness")
     else:
         eff_ax.text(0.5, 0.5, "No per-axis effectiveness data", ha="center", va="center")
         eff_ax.axis("off")
 
-    bias_columns = [
-        column for column in ["bias_a_deg", "bias_e_deg", "bias_r_deg"] if column in unique_scenarios_df.columns
-    ]
+    bias_columns = [column for column in BIAS_INPUTS if column in unique_scenarios_df.columns]
     if bias_columns:
         _boxplot_columns(
             bias_ax,
             unique_scenarios_df,
             bias_columns,
             ["#e15759", "#f28e2b", "#b07aa1"],
+            definitions_df,
+            "Per-axis control bias",
         )
         bias_ax.axhline(0.0, color="black", linewidth=0.8, linestyle="--")
-        bias_ax.set_title("Per-axis control bias [deg]")
     else:
         bias_ax.text(0.5, 0.5, "No per-axis bias data", ha="center", va="center")
         bias_ax.axis("off")
 
-    fig.suptitle("Scenario Generation and Uncertainty Families", fontsize=13)
+    fig.suptitle(
+        "Canonical robust scenario set: uncertainty variables and family grouping",
+        fontsize=13,
+    )
     fig.savefig(FIGURE_PATH, dpi=400, bbox_inches="tight")
     plt.close(fig)
     return FIGURE_PATH
