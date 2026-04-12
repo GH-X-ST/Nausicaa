@@ -40,7 +40,7 @@ GENERATE_POLARS = False
 N_ALPHA = 25
 MAKE_PLOTS = True
 PLOT_DPI = 1000
-RUN_WORKFLOW = True
+RUN_WORKFLOW = False
 ENABLE_INITIAL_DESIGN_CHECK = False
 ENABLE_OPTIMIZATION_AFTER_INITIAL_CHECK = True
 INITIAL_CHECK_EXPECTED_NLP_BOUNDS = 72
@@ -49,7 +49,7 @@ IPOPT_VERBOSE_PRINT_LEVEL = 5
 
 
 # Manual note for this run (edit before executing)
-MANUAL_RUN_NOTE = "v5.3.3"
+MANUAL_RUN_NOTE = "v5.3.5"
 MANUAL_RUN_NOTE_PRINT = True
 PRIMARY_AIRFOIL_NAME = "naca0002"
 
@@ -488,11 +488,11 @@ def get_constraint_policy(cfg: Config) -> ConstraintPolicy:
 class Weights:
     # Dimensionless objective weights
     w_sink: float = 1.0
-    w_mass: float = MASS_WEIGHT_IN_OBJECTIVE
-    w_trim_effort: float = CONTROL_TRIM_WEIGHT * (TRIM_OBJECTIVE_SCALE_DEG**2)
-    w_wing_deflection: float = STRUCT_DEFLECTION_WEIGHT
-    w_htail_deflection: float = HT_STRUCT_DEFLECTION_WEIGHT
-    w_roll_tau: float = ROLL_TAU_WEIGHT_IN_OBJECTIVE
+    w_mass: float = 0.04698862362078716
+    w_trim_effort: float = 0.01325917124942102
+    w_wing_deflection: float = 2.151606933843013
+    w_htail_deflection: float = 0.0783091834800308
+    w_roll_tau: float = 0.2470733791131532
 
     # Dimensionless normalization scales
     sink_scale_mps: float = SINK_OBJECTIVE_SCALE_MPS
@@ -793,11 +793,11 @@ class ObjectiveScales:
 @dataclass(frozen=True)
 class ObjectiveWeights:
     w_sink: float = 1.0
-    w_mass: float = MASS_WEIGHT_IN_OBJECTIVE
-    w_trim_effort: float = CONTROL_TRIM_WEIGHT * (TRIM_OBJECTIVE_SCALE_DEG ** 2)
-    w_wing_deflection: float = STRUCT_DEFLECTION_WEIGHT
-    w_htail_deflection: float = HT_STRUCT_DEFLECTION_WEIGHT
-    w_roll_tau: float = ROLL_TAU_WEIGHT_IN_OBJECTIVE
+    w_mass: float = 0.04698862362078716
+    w_trim_effort: float = 0.01325917124942102
+    w_wing_deflection: float = 2.151606933843013
+    w_htail_deflection: float = 0.0783091834800308
+    w_roll_tau: float = 0.2470733791131532
 
 @dataclass
 class Candidate:

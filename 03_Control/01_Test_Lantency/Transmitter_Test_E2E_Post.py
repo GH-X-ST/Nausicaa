@@ -469,12 +469,14 @@ def match_output_transition_from_capture(
         & (time_values <= commit_capture_time_s + match_window_s)
     ].copy()
 
+    scored_candidates: list[tuple[tuple[float, ...], int]] = []
     for row_index, capture_row in candidate_rows.iterrows():
         observed_pulse_us = float(capture_row["pulse_us"])
         if not np.isfinite(observed_pulse_us):
             continue
         corrected_pulse_us = observed_pulse_us - pulse_calibration.pulse_bias_us
-        if abs(corrected_pulse_us - float(expected_pulse_us)) > pulse_calibration.pulse_tolerance_us:
+        pulse_error_us = abs(corrected_pulse_us - float(expected_pulse_us))
+        if pulse_error_us > pulse_calibration.pulse_tolerance_us:
             continue
 
         prev_matches_old = True
@@ -483,8 +485,22 @@ def match_output_transition_from_capture(
             if np.isfinite(previous_observed_pulse_us):
                 corrected_previous_pulse_us = previous_observed_pulse_us - pulse_calibration.pulse_bias_us
                 prev_matches_old = abs(corrected_previous_pulse_us - float(previous_pulse_us)) <= pulse_calibration.pulse_tolerance_us
-        if prev_matches_old:
-            return capture_row
+
+        capture_time_s = float(capture_row["time_s"])
+        latency_s = capture_time_s - commit_capture_time_s
+        score = (
+            0.0 if latency_s >= 0.0 else 1.0,
+            0.0 if prev_matches_old else 1.0,
+            pulse_error_us,
+            max(0.0, latency_s),
+            abs(latency_s),
+            capture_time_s,
+        )
+        scored_candidates.append((score, int(row_index)))
+
+    if scored_candidates:
+        _, best_index = min(scored_candidates, key=lambda item: item[0])
+        return capture_rows.iloc[best_index]
 
     return None
 
@@ -507,6 +523,44 @@ def match_trainer_transition_from_state_table(
     for _, trainer_row in candidate_rows.iterrows():
         if int(trainer_row["prev_state"]) == prev_state and int(trainer_row["new_state"]) == new_state:
             return trainer_row
+    return None
+
+
+def match_output_transition_from_state_table(
+    receiver_transition_table: pd.DataFrame,
+    commit_capture_time_s: float,
+    prev_state: int,
+    new_state: int,
+    config: MatchingConfig,
+) -> pd.Series | None:
+    if receiver_transition_table.empty:
+        return None
+
+    receiver_rows = receiver_transition_table.reset_index(drop=True)
+    candidate_rows = receiver_rows.loc[
+        (pd.to_numeric(receiver_rows["time_s"], errors="coerce") >= commit_capture_time_s - config.pre_match_tolerance_s)
+        & (pd.to_numeric(receiver_rows["time_s"], errors="coerce") <= commit_capture_time_s + config.receiver_match_window_s)
+    ].copy()
+
+    scored_candidates: list[tuple[tuple[float, ...], int]] = []
+    for row_index, receiver_row in candidate_rows.iterrows():
+        if int(receiver_row["prev_state"]) != prev_state or int(receiver_row["new_state"]) != new_state:
+            continue
+        receiver_time_s = float(receiver_row["time_s"])
+        latency_s = receiver_time_s - commit_capture_time_s
+        score = (
+            0.0 if latency_s >= 0.0 else 1.0,
+            max(0.0, latency_s),
+            abs(latency_s),
+            -float(receiver_row.get("new_state_run_length", 0.0)),
+            receiver_time_s,
+        )
+        scored_candidates.append((score, int(row_index)))
+
+    if scored_candidates:
+        _, best_index = min(scored_candidates, key=lambda item: item[0])
+        return receiver_rows.iloc[best_index]
+
     return None
 
 
@@ -1007,8 +1061,6 @@ def match_surface_transitions(
     commit_transition_table = commit_transition_table.copy()
 
     rows: list[dict] = []
-    receiver_cursor = 0
-    receiver_rows = receiver_transition_table.reset_index(drop=True)
 
     for _, host_row in host_transition_table.iterrows():
         sample_sequence = int(host_row["sample_sequence"])
@@ -1065,19 +1117,13 @@ def match_surface_transitions(
             config.pre_match_tolerance_s,
         )
         if matched_receiver is None:
-            while receiver_cursor < len(receiver_rows) and float(receiver_rows.iloc[receiver_cursor]["time_s"]) < commit_capture_time_s - 1e-6:
-                receiver_cursor += 1
-            receiver_search_index = receiver_cursor
-            while receiver_search_index < len(receiver_rows):
-                receiver_row = receiver_rows.iloc[receiver_search_index]
-                receiver_time_s = float(receiver_row["time_s"])
-                if receiver_time_s > commit_capture_time_s + config.receiver_match_window_s:
-                    break
-                if int(receiver_row["prev_state"]) == prev_state and int(receiver_row["new_state"]) == new_state:
-                    matched_receiver = receiver_row
-                    receiver_cursor = receiver_search_index + 1
-                    break
-                receiver_search_index += 1
+            matched_receiver = match_output_transition_from_state_table(
+                receiver_transition_table,
+                commit_capture_time_s,
+                prev_state,
+                new_state,
+                config,
+            )
 
         trainer_time_s = float(matched_trainer["time_s"]) if matched_trainer is not None else np.nan
         receiver_time_s = float(matched_receiver["time_s"]) if matched_receiver is not None else np.nan
