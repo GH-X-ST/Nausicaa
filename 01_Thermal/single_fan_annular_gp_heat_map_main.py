@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from single_fan_gp_heat_map_main import (
-    build_continuous_grid,
-    interpolate_to_continuous_grid,
     load_gp_mean_sheet,
     plot_continuous_heatmap,
 )
@@ -29,13 +27,11 @@ def main() -> None:
             GP_GRID_XLSX,
             f"{sheet_name}_annular_gp_mean",
         )
-        x_grid, y_grid = build_continuous_grid(x, y)
-        w_dense = interpolate_to_continuous_grid(x, y, w_mean, x_grid, y_grid)
         out_png = OUT_DIR / f"{sheet_name}_single_annular_gp_heatmap_main.png"
         plot_continuous_heatmap(
-            x=x_grid[0, :],
-            y=y_grid[:, 0],
-            w=w_dense,
+            x=x,
+            y=y,
+            w=w_mean,
             outpath=out_png,
         )
 

@@ -4,12 +4,32 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 from typing import Dict, List, Protocol, Sequence, Tuple
+import warnings
 
 import numpy as np
 import pandas as pd
+from sklearn.exceptions import ConvergenceWarning
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import (
+    ConstantKernel,
+    Matern,
+    RBF,
+    RationalQuadratic,
+    WhiteKernel,
+)
+from sklearn.model_selection import GroupKFold
+from sklearn.preprocessing import StandardScaler
 
 
 FOUR_FAN_ID_PATTERN = re.compile(r"^a0_(F\d{2})$")
+DEFAULT_LENGTH_SCALE_UPPER = 1e2
+DEFAULT_NOISE_LEVEL_BOUNDS = (1e-6, 1e0)
+DEFAULT_SIGNAL_BOUNDS = (1e-3, 1e3)
+DEFAULT_LENGTH_SCALE_FLOORS = {
+    "cartesian": np.asarray([0.55, 0.55, 0.25], dtype=float),
+    "polar": np.asarray([0.55, 0.45, 0.45, 0.25], dtype=float),
+    "radial": np.asarray([0.55, 0.25], dtype=float),
+}
 
 
 class MeanModelProtocol(Protocol):
@@ -23,6 +43,182 @@ class MeanModelProtocol(Protocol):
         z_m: np.ndarray,
     ) -> np.ndarray:
         ...
+
+
+@dataclass
+class ResidualGPModelBundle:
+    gp: GaussianProcessRegressor
+    scaler: StandardScaler
+    feature_mode: str
+    fan_center_xy: Tuple[float, float]
+
+    def predict(
+        self,
+        x_m: np.ndarray,
+        y_m: np.ndarray,
+        z_m: np.ndarray,
+        return_std: bool = True,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        features = build_feature_matrix(
+            x_m=x_m,
+            y_m=y_m,
+            z_m=z_m,
+            feature_mode=self.feature_mode,
+            fan_center_xy=self.fan_center_xy,
+        )
+        features_scaled = self.scaler.transform(features)
+
+        if return_std:
+            w_mean, w_std = self.gp.predict(features_scaled, return_std=True)
+            return w_mean.astype(float), w_std.astype(float)
+
+        w_mean = self.gp.predict(features_scaled, return_std=False)
+        return w_mean.astype(float), np.zeros_like(w_mean, dtype=float)
+
+
+def normalize_feature_mode_name(feature_mode: str) -> str:
+    mode = str(feature_mode).strip().lower()
+    if mode not in {"polar", "radial", "cartesian"}:
+        raise ValueError(
+            f"Invalid FEATURE_MODE '{feature_mode}'. "
+            "Use: polar, radial, cartesian."
+        )
+    return mode
+
+
+def build_feature_matrix(
+    x_m: np.ndarray,
+    y_m: np.ndarray,
+    z_m: np.ndarray,
+    feature_mode: str,
+    fan_center_xy: Tuple[float, float],
+) -> np.ndarray:
+    x_arr = np.asarray(x_m, dtype=float).ravel()
+    y_arr = np.asarray(y_m, dtype=float).ravel()
+    z_arr = np.asarray(z_m, dtype=float).ravel()
+
+    if not (x_arr.size == y_arr.size == z_arr.size):
+        raise ValueError("x_m, y_m, z_m must have the same number of samples.")
+
+    mode = normalize_feature_mode_name(feature_mode)
+    if mode in {"polar", "radial"}:
+        xc, yc = fan_center_xy
+        r_arr = np.hypot(x_arr - float(xc), y_arr - float(yc))
+        if mode == "radial":
+            return np.column_stack([r_arr, z_arr])
+
+        theta_arr = np.arctan2(y_arr - float(yc), x_arr - float(xc))
+        return np.column_stack(
+            [r_arr, np.cos(theta_arr), np.sin(theta_arr), z_arr]
+        )
+
+    return np.column_stack([x_arr, y_arr, z_arr])
+
+
+def _build_length_scale_bounds(
+    feature_mode: str,
+    scaler: StandardScaler,
+    length_scale_floors: Dict[str, np.ndarray] | None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    mode = normalize_feature_mode_name(feature_mode)
+    floor_map = (
+        DEFAULT_LENGTH_SCALE_FLOORS
+        if length_scale_floors is None
+        else length_scale_floors
+    )
+    if mode not in floor_map:
+        raise ValueError(f"Missing residual length-scale floors for '{mode}'.")
+
+    floors_raw = np.asarray(floor_map[mode], dtype=float).reshape(-1)
+    scale = np.asarray(scaler.scale_, dtype=float).reshape(-1)
+    if floors_raw.size != scale.size:
+        raise ValueError(
+            "Residual length-scale floor count must match feature count."
+        )
+
+    scale_safe = np.maximum(scale, 1e-9)
+    lower = floors_raw / scale_safe
+    upper = np.full_like(lower, float(DEFAULT_LENGTH_SCALE_UPPER))
+    lower = np.clip(lower, 0.25, DEFAULT_LENGTH_SCALE_UPPER / 10.0)
+    return lower, upper
+
+
+def build_residual_gp_kernel(
+    feature_mode: str,
+    kernel_family: str,
+    scaler: StandardScaler,
+    length_scale_floors: Dict[str, np.ndarray] | None = None,
+):
+    family = str(kernel_family).strip().lower()
+    lower, upper = _build_length_scale_bounds(
+        feature_mode=feature_mode,
+        scaler=scaler,
+        length_scale_floors=length_scale_floors,
+    )
+    bounds = np.column_stack([lower, upper])
+    init = np.maximum(1.0, 1.8 * lower)
+
+    if family == "rbf_ard":
+        return (
+            ConstantKernel(1.0, DEFAULT_SIGNAL_BOUNDS)
+            * RBF(length_scale=init, length_scale_bounds=bounds)
+            + WhiteKernel(
+                noise_level=1e-3,
+                noise_level_bounds=DEFAULT_NOISE_LEVEL_BOUNDS,
+            )
+        )
+
+    if family == "matern32_ard":
+        return (
+            ConstantKernel(1.0, DEFAULT_SIGNAL_BOUNDS)
+            * Matern(
+                length_scale=init,
+                length_scale_bounds=bounds,
+                nu=1.5,
+            )
+            + WhiteKernel(
+                noise_level=1e-3,
+                noise_level_bounds=DEFAULT_NOISE_LEVEL_BOUNDS,
+            )
+        )
+
+    if family == "matern52_ard":
+        return (
+            ConstantKernel(1.0, DEFAULT_SIGNAL_BOUNDS)
+            * Matern(
+                length_scale=init,
+                length_scale_bounds=bounds,
+                nu=2.5,
+            )
+            + WhiteKernel(
+                noise_level=1e-3,
+                noise_level_bounds=DEFAULT_NOISE_LEVEL_BOUNDS,
+            )
+        )
+
+    if family == "rq":
+        length_scale_floor = float(np.min(lower))
+        return (
+            ConstantKernel(1.0, DEFAULT_SIGNAL_BOUNDS)
+            * RationalQuadratic(
+                length_scale=max(1.0, 1.8 * length_scale_floor),
+                alpha=1.0,
+                length_scale_bounds=(
+                    length_scale_floor,
+                    float(DEFAULT_LENGTH_SCALE_UPPER),
+                ),
+                alpha_bounds=(1e-2, 1e3),
+            )
+            + WhiteKernel(
+                noise_level=1e-3,
+                noise_level_bounds=DEFAULT_NOISE_LEVEL_BOUNDS,
+            )
+        )
+
+    raise ValueError(
+        f"Invalid KERNEL_FAMILY '{kernel_family}'. "
+        "Use: rbf_ard, matern32_ard, matern52_ard, rq."
+    )
 
 
 @dataclass(frozen=True)
@@ -411,6 +607,125 @@ class AnnularGPModelBundle:
         )
 
 
+def fit_residual_gp_model(
+    train_df: pd.DataFrame,
+    feature_mode: str,
+    kernel_family: str,
+    alpha_scale: float,
+    fan_center_xy: Tuple[float, float],
+    sigma_min: float,
+    alpha_jitter: float,
+    n_restarts_optimizer: int,
+    random_state: int,
+    length_scale_floors: Dict[str, np.ndarray] | None = None,
+) -> ResidualGPModelBundle:
+    x_m = train_df["x_m"].to_numpy(dtype=float)
+    y_m = train_df["y_m"].to_numpy(dtype=float)
+    z_m = train_df["z_m"].to_numpy(dtype=float)
+    w_obs = train_df["w_obs_mps"].to_numpy(dtype=float)
+    sigma = np.maximum(
+        train_df["sigma_mps"].to_numpy(dtype=float),
+        float(sigma_min),
+    )
+
+    features = build_feature_matrix(
+        x_m=x_m,
+        y_m=y_m,
+        z_m=z_m,
+        feature_mode=feature_mode,
+        fan_center_xy=fan_center_xy,
+    )
+    alpha = np.maximum(float(alpha_scale) * (sigma**2), float(alpha_jitter))
+
+    scaler = StandardScaler()
+    features_scaled = scaler.fit_transform(features)
+    kernel = build_residual_gp_kernel(
+        feature_mode=feature_mode,
+        kernel_family=kernel_family,
+        scaler=scaler,
+        length_scale_floors=length_scale_floors,
+    )
+
+    gp = GaussianProcessRegressor(
+        kernel=kernel,
+        alpha=alpha,
+        normalize_y=True,
+        n_restarts_optimizer=int(n_restarts_optimizer),
+        random_state=int(random_state),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=ConvergenceWarning)
+        gp.fit(features_scaled, w_obs)
+
+    return ResidualGPModelBundle(
+        gp=gp,
+        scaler=scaler,
+        feature_mode=normalize_feature_mode_name(feature_mode),
+        fan_center_xy=fan_center_xy,
+    )
+
+
+def evaluate_candidate_group_cv(
+    train_df: pd.DataFrame,
+    candidate,
+    fan_center_xy: Tuple[float, float],
+    n_splits: int,
+    n_restarts_optimizer: int,
+    random_state: int,
+    sigma_min: float,
+    alpha_jitter: float,
+    compute_regression_metrics,
+    length_scale_floors: Dict[str, np.ndarray] | None = None,
+) -> Tuple[Dict[str, float], int]:
+    groups = train_df["sheet"].astype(str).to_numpy()
+    unique_groups = np.unique(groups)
+    if unique_groups.size < 2:
+        raise ValueError("Need at least two unique sheets for grouped CV.")
+
+    n_splits_eff = int(np.clip(int(n_splits), 2, int(unique_groups.size)))
+    splitter = GroupKFold(n_splits=n_splits_eff)
+
+    y_true_all: List[np.ndarray] = []
+    y_pred_all: List[np.ndarray] = []
+    sigma_all: List[np.ndarray] = []
+
+    for fold_idx, (tr_idx, va_idx) in enumerate(
+        splitter.split(train_df, groups=groups)
+    ):
+        train_fold = train_df.iloc[tr_idx].reset_index(drop=True)
+        val_fold = train_df.iloc[va_idx].reset_index(drop=True)
+
+        model_fold = fit_residual_gp_model(
+            train_df=train_fold,
+            feature_mode=candidate.feature_mode,
+            kernel_family=candidate.kernel_family,
+            alpha_scale=float(candidate.alpha_scale),
+            fan_center_xy=fan_center_xy,
+            sigma_min=sigma_min,
+            alpha_jitter=alpha_jitter,
+            n_restarts_optimizer=n_restarts_optimizer,
+            random_state=int(random_state) + int(fold_idx),
+            length_scale_floors=length_scale_floors,
+        )
+
+        y_pred_fold, _ = model_fold.predict(
+            x_m=val_fold["x_m"].to_numpy(dtype=float),
+            y_m=val_fold["y_m"].to_numpy(dtype=float),
+            z_m=val_fold["z_m"].to_numpy(dtype=float),
+            return_std=False,
+        )
+        y_true_all.append(val_fold["w_obs_mps"].to_numpy(dtype=float))
+        sigma_all.append(val_fold["sigma_mps"].to_numpy(dtype=float))
+        y_pred_all.append(y_pred_fold)
+
+    metrics = compute_regression_metrics(
+        y_true=np.concatenate(y_true_all),
+        y_pred=np.concatenate(y_pred_all),
+        sigma_mps=np.concatenate(sigma_all),
+    )
+    return metrics, n_splits_eff
+
+
 def make_training_prediction_table(
     model: AnnularGPModelBundle,
     train_df: pd.DataFrame,
@@ -439,12 +754,31 @@ def make_grid_prediction_tables(
     parse_sheet_height_m,
     read_slice_from_sheet,
     sheet_tag: str,
+    grid_nx: int | None = None,
+    grid_ny: int | None = None,
 ) -> Dict[str, pd.DataFrame]:
     tables: Dict[str, pd.DataFrame] = {}
     for sheet_name in sheet_names:
         z_m = parse_sheet_height_m(sheet_name)
         x_centers, y_centers, _ = read_slice_from_sheet(xlsx_path, sheet_name)
-        x_grid, y_grid = np.meshgrid(x_centers, y_centers)
+        if grid_nx is None or grid_ny is None:
+            x_axis = np.asarray(x_centers, dtype=float)
+            y_axis = np.asarray(y_centers, dtype=float)
+        else:
+            x_axis = np.linspace(
+                float(np.min(x_centers)),
+                float(np.max(x_centers)),
+                int(grid_nx),
+                dtype=float,
+            )
+            y_axis = np.linspace(
+                float(np.min(y_centers)),
+                float(np.max(y_centers)),
+                int(grid_ny),
+                dtype=float,
+            )
+
+        x_grid, y_grid = np.meshgrid(x_axis, y_axis)
         z_grid = np.full_like(x_grid, z_m, dtype=float)
 
         w_mean, w_std = model.predict(
@@ -456,8 +790,8 @@ def make_grid_prediction_tables(
         mean_map = w_mean.reshape(x_grid.shape)
         std_map = w_std.reshape(x_grid.shape)
 
-        mean_df = pd.DataFrame(mean_map, index=y_centers, columns=x_centers)
-        std_df = pd.DataFrame(std_map, index=y_centers, columns=x_centers)
+        mean_df = pd.DataFrame(mean_map, index=y_axis, columns=x_axis)
+        std_df = pd.DataFrame(std_map, index=y_axis, columns=x_axis)
         mean_df.index.name = "y/x"
         std_df.index.name = "y/x"
 

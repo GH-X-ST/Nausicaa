@@ -10,6 +10,8 @@ from annular_gp_models import (
     AnnularGPModelBundle,
     SingleFanBEMTMeanModel,
     build_autotune_cv_table,
+    evaluate_candidate_group_cv,
+    fit_residual_gp_model,
     make_grid_prediction_tables,
     make_training_prediction_table,
 )
@@ -19,25 +21,32 @@ XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 FAN_CENTER_XY = (4.2, 2.4)
 
-FEATURE_MODE = "cartesian"
-KERNEL_FAMILY = "rbf_ard"
+FEATURE_MODE = "polar"
+KERNEL_FAMILY = "matern32_ard"
 ALPHA_SCALE = 1.0
 SIGMA_FALLBACK = 0.14
 SIGMA_MIN = 0.03
+ALPHA_JITTER = float(base_gp.ALPHA_JITTER)
+RESIDUAL_LENGTH_SCALE_FLOORS = {
+    "cartesian": [0.55, 0.55, 0.25],
+    "polar": [0.55, 0.45, 0.45, 0.25],
+    "radial": [0.55, 0.25],
+}
 
 ENABLE_AUTO_TUNE = True
 AUTO_TUNE_CV_N_SPLITS = 3
-AUTO_TUNE_CV_RESTARTS_OPTIMIZER = 0
+AUTO_TUNE_CV_RESTARTS_OPTIMIZER = 1
 AUTO_TUNE_RMSE_TIE_TOL = 1e-4
 AUTO_TUNE_CANDIDATES = (
-    ("baseline", "cartesian", "rbf_ard", 1.0),
-    ("cartesian_rbf_ard_a0p8", "cartesian", "rbf_ard", 0.8),
-    ("cartesian_rbf_ard_a1p2", "cartesian", "rbf_ard", 1.2),
-    ("cartesian_matern32_ard_a1", "cartesian", "matern32_ard", 1.0),
-    ("cartesian_matern52_ard_a1", "cartesian", "matern52_ard", 1.0),
+    ("polar_matern32_ard_a1", "polar", "matern32_ard", 1.0),
+    ("polar_matern32_ard_a1p2", "polar", "matern32_ard", 1.2),
+    ("polar_matern52_ard_a1", "polar", "matern52_ard", 1.0),
+    ("polar_rbf_ard_a1", "polar", "rbf_ard", 1.0),
 )
-N_RESTARTS_OPTIMIZER = 0
+N_RESTARTS_OPTIMIZER = 6
 RANDOM_STATE = 42
+GRID_NX = 240
+GRID_NY = 180
 
 MEAN_PARAMS_XLSX = Path("B_results/single_annular_bemt_params_pchip.xlsx")
 MEAN_PARAMS_SHEET = "single_bemt_az_pchip"
@@ -76,13 +85,17 @@ def select_gp_candidate(
 
     for idx, candidate in enumerate(candidates):
         try:
-            cv_metrics, n_folds = base_gp.evaluate_candidate_group_cv(
+            cv_metrics, n_folds = evaluate_candidate_group_cv(
                 train_df=train_df,
                 candidate=candidate,
                 fan_center_xy=fan_center_xy,
                 n_splits=AUTO_TUNE_CV_N_SPLITS,
                 n_restarts_optimizer=AUTO_TUNE_CV_RESTARTS_OPTIMIZER,
                 random_state=RANDOM_STATE + 17 * idx,
+                sigma_min=SIGMA_MIN,
+                alpha_jitter=ALPHA_JITTER,
+                compute_regression_metrics=base_gp.compute_regression_metrics,
+                length_scale_floors=RESIDUAL_LENGTH_SCALE_FLOORS,
             )
             trials.append(
                 base_gp.GPTuneTrial(
@@ -227,6 +240,11 @@ def build_hyperparameter_table(
                 "value": float(SIGMA_FALLBACK),
             },
             {"parameter": "sigma_min_mps", "value": float(SIGMA_MIN)},
+            {"parameter": "alpha_jitter", "value": float(ALPHA_JITTER)},
+            {
+                "parameter": "residual_length_scale_floors",
+                "value": str(RESIDUAL_LENGTH_SCALE_FLOORS),
+            },
             {
                 "parameter": "n_restarts_optimizer",
                 "value": int(N_RESTARTS_OPTIMIZER),
@@ -240,6 +258,8 @@ def build_hyperparameter_table(
                 "parameter": "autotune_cv_restarts_optimizer",
                 "value": int(AUTO_TUNE_CV_RESTARTS_OPTIMIZER),
             },
+            {"parameter": "grid_nx", "value": int(GRID_NX)},
+            {"parameter": "grid_ny", "value": int(GRID_NY)},
             {
                 "parameter": "kernel_fitted",
                 "value": str(model.residual_gp_model.gp.kernel_),
@@ -282,14 +302,17 @@ def main() -> None:
         )
         tune_trials = []
 
-    residual_gp_model = base_gp.fit_gp_model(
+    residual_gp_model = fit_residual_gp_model(
         train_df=residual_train_df,
         feature_mode=selected_candidate.feature_mode,
         kernel_family=selected_candidate.kernel_family,
         alpha_scale=selected_candidate.alpha_scale,
         fan_center_xy=FAN_CENTER_XY,
+        sigma_min=SIGMA_MIN,
+        alpha_jitter=ALPHA_JITTER,
         n_restarts_optimizer=N_RESTARTS_OPTIMIZER,
         random_state=RANDOM_STATE,
+        length_scale_floors=RESIDUAL_LENGTH_SCALE_FLOORS,
     )
     model = AnnularGPModelBundle(
         residual_gp_model=residual_gp_model,
@@ -347,6 +370,8 @@ def main() -> None:
         parse_sheet_height_m=base_gp.parse_sheet_height_m,
         read_slice_from_sheet=base_gp.read_slice_from_sheet,
         sheet_tag="annular_gp",
+        grid_nx=GRID_NX,
+        grid_ny=GRID_NY,
     )
     base_gp.write_tables_to_excel(GRID_PRED_XLSX_PATH, grid_tables)
 
