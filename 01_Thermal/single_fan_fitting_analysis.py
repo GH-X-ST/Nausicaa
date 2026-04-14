@@ -29,9 +29,10 @@ MODEL_SPECS = [
         "legend_label": "Axisymmetric Gaussian plume",
         "excel": Path("B_results") / "single_var_analysis.xlsx",
         "color": "#EE3B2A",
-        "linestyle": "-",
+        "linestyle": "--",
         "marker": "^",
         "line_alpha": 0.80,
+        "line_width": 1.3,
     },
     {
         "key": "single_annular_var",
@@ -40,25 +41,28 @@ MODEL_SPECS = [
         "color": "#6BADD7",
         "linestyle": "-",
         "marker": "s",
-        "line_alpha": 0.80,
+        "line_alpha": 0.60,
+        "line_width": 1.3,
     },
     {
         "key": "single_annular_bemt",
         "legend_label": "Harmonic annular-Gaussian",
         "excel": Path("B_results") / "single_annular_bemt_analysis.xlsx",
         "color": "#206FB6",
-        "linestyle": "-",
+        "linestyle": "-.",
         "marker": "o",
-        "line_alpha": 0.80,
+        "line_alpha": 1.00,
+        "line_width": 1.3,
     },
     {
         "key": "single_annular_gp",
         "legend_label": "Residual annular Gaussian process",
         "excel": Path("B_results") / "single_annular_gp_analysis.xlsx",
         "color": "#073068",
-        "linestyle": "-",
+        "linestyle": ":",
         "marker": "D",
         "line_alpha": 0.80,
+        "line_width": 1.7,
     },
 ]
 
@@ -136,7 +140,6 @@ def plot_metric_2d(
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
-    line_width = 1.3
     marker_size = 15
     axis_label_size = 12
     tick_label_size = 11
@@ -163,7 +166,7 @@ def plot_metric_2d(
             x,
             y,
             color=spec["color"],
-            linewidth=line_width,
+            linewidth=float(spec.get("line_width", 1.3)),
             alpha=spec["line_alpha"],
             linestyle=spec["linestyle"],
             zorder=float(draw_idx),
