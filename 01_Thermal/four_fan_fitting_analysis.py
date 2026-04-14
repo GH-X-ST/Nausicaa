@@ -19,8 +19,8 @@ LEGEND_HANDLE_LENGTH = 1.5
 LEGEND_BORDERPAD = 0.5
 LEGEND_LABEL_SPACING = 0.4
 # Manual y-axis limits per plot
-WRMSE_Y_LIMITS = (0.0, 1.20)
-SAE_Y_LIMITS = (0.0, 140.0)
+WRMSE_Y_LIMITS = (0.0, 1.25)
+SAE_Y_LIMITS = (0.0, 150.0)
 
 
 MODEL_SPECS = [
@@ -28,7 +28,7 @@ MODEL_SPECS = [
         "key": "four_var",
         "legend_label": "Axisymmetric Gaussian plume",
         "excel": Path("B_results") / "four_var_analysis.xlsx",
-        "color": "#6badd7",
+        "color": "#000000",
         "linestyle": "-",
         "marker": "^",
         "line_alpha": 0.50,
@@ -37,7 +37,7 @@ MODEL_SPECS = [
         "key": "four_annular_var",
         "legend_label": "Axisymmetric annular-Gaussian",
         "excel": Path("B_results") / "four_annular_var_analysis.xlsx",
-        "color": "#206fb6",
+        "color": "#6200aa",
         "linestyle": "-",
         "marker": "s",
         "line_alpha": 0.60,
@@ -46,16 +46,16 @@ MODEL_SPECS = [
         "key": "four_annular_bemt",
         "legend_label": "Harmonic annular-Gaussian",
         "excel": Path("B_results") / "four_annular_bemt_analysis.xlsx",
-        "color": "#073068",
+        "color": "#cc4a74",
         "linestyle": "-",
         "marker": "o",
         "line_alpha": 0.80,
     },
     {
-        "key": "four_gp",
-        "legend_label": "Gaussian process regression",
-        "excel": Path("B_results") / "four_gp_analysis.xlsx",
-        "color": "#ee3b2a",
+        "key": "four_annular_gp",
+        "legend_label": "Residual annular Gaussian process",
+        "excel": Path("B_results") / "four_annular_gp_analysis.xlsx",
+        "color": "#eb7852",
         "linestyle": "-",
         "marker": "D",
         "line_alpha": 0.90,
@@ -65,7 +65,7 @@ MODEL_SPECS = [
 # Visual stacking requested by user.
 # Top -> bottom: GP, HAG, AG, G
 STACK_ORDER_TOP_TO_BOTTOM = [
-    "four_gp",
+    "four_annular_gp",
     "four_annular_bemt",
     "four_annular_var",
     "four_var",
