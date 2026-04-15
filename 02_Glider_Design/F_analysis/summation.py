@@ -129,10 +129,11 @@ def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
 
     for scenario_tag, group_df in selected_scenarios_df.groupby("scenario_tag", sort=False):
         sink = (
-            group_df["nom_sink_rate_mps"].astype(float)
+            pd.to_numeric(group_df["nom_sink_rate_mps"], errors="coerce")
             if "nom_sink_rate_mps" in group_df.columns
             else pd.Series(dtype=float)
         )
+        sink = sink.dropna()
         sink_sorted = np.sort(sink.to_numpy()) if not sink.empty else np.array([])
         tail_count = max(1, int(np.ceil(0.2 * len(sink_sorted)))) if sink_sorted.size else 0
         tail_mean = (
@@ -146,13 +147,25 @@ def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
             if not resid.empty:
                 resid_value = float(np.sqrt(np.mean(np.square(resid.to_numpy()))))
 
+        success_rate = (
+            float(group_df["nom_success"].astype(float).mean())
+            if "nom_success" in group_df.columns
+            else np.nan
+        )
         rows.append(
             {
                 "scenario_tag": scenario_tag,
-                "success_rate": float(group_df["nom_success"].astype(float).mean())
+                "n_total": int(len(group_df)),
+                "n_success": int(group_df["nom_success"].astype(float).sum())
                 if "nom_success" in group_df.columns
                 else np.nan,
+                "n_fail": int(len(group_df) - group_df["nom_success"].astype(float).sum())
+                if "nom_success" in group_df.columns
+                else np.nan,
+                "success_rate": success_rate,
+                "failure_rate": 1.0 - success_rate if np.isfinite(success_rate) else np.nan,
                 "sink_mean": float(sink.mean()) if not sink.empty else np.nan,
+                "sink_p95": float(np.quantile(sink.to_numpy(), 0.95)) if sink.size else np.nan,
                 "sink_worst": float(sink.max()) if not sink.empty else np.nan,
                 "nom_sink_tail_mean_k": tail_mean,
                 "nom_resid_rmse_success_only": resid_value,
@@ -466,18 +479,29 @@ def build_final_selection_summary_sheet(
     summary_columns = [
         "comparison_row",
         "candidate_id",
+        "robust_rank",
         "selected_flag",
         "objective",
+        "n_success",
+        "n_total",
         "nom_success_rate",
+        "nom_failure_rate",
         "nom_sink_mean",
         tail_metric,
+        "nom_sink_p95",
         "nom_sink_worst",
         "nom_resid_rmse_success_only",
+        "nom_roll_tau_p95",
         "nom_roll_tau_worst",
+        "nom_delta_e_util_p95",
         "nom_delta_e_util_worst",
-        "nom_alpha_worst",
+        "nom_alpha_p95",
+        "nom_alpha_margin_p05",
         "nom_alpha_margin_worst",
+        "nom_cl_margin_p05",
         "nom_cl_margin_worst",
+        "nom_wing_deflection_over_allow_worst",
+        "nom_htail_deflection_over_allow_worst",
         "wing_span_m",
         "wing_chord_m",
         "boom_length_m",
@@ -536,11 +560,17 @@ def build_final_selection_summary_sheet(
         summary_by_tag_df = summary_by_tag_df.reindex(
             columns=[
                 "scenario_tag",
+                "n_fail",
+                "failure_rate",
                 "success_rate",
                 "sink_mean",
+                "sink_p95",
                 "sink_worst",
                 summary_tail_metric,
                 "nom_resid_rmse_success_only",
+                "nom_alpha_margin_worst",
+                "nom_cl_margin_worst",
+                "nom_delta_e_util_worst",
             ]
         )
 

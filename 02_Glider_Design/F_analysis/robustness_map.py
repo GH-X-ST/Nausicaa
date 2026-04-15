@@ -81,19 +81,27 @@ def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
             else pd.Series(dtype=float)
         )
         sink = (
-            group_df["nom_sink_rate_mps"].astype(float)
+            pd.to_numeric(group_df["nom_sink_rate_mps"], errors="coerce")
             if "nom_sink_rate_mps" in group_df.columns
             else pd.Series(dtype=float)
         )
+        sink = sink.dropna()
         sink_sorted = np.sort(sink.to_numpy()) if not sink.empty else np.array([])
         tail_count = max(1, int(np.ceil(0.2 * len(sink_sorted)))) if sink_sorted.size else 0
         tail_value = (
             float(np.mean(sink_sorted[-tail_count:])) if tail_count > 0 else np.nan
         )
+        success_rate = float(success.mean()) if not success.empty else np.nan
+        failure_rate = 1.0 - success_rate if np.isfinite(success_rate) else np.nan
         rows.append(
             {
                 "scenario_tag": str(scenario_tag),
-                "success_rate": float(success.mean()) if not success.empty else np.nan,
+                "n_total": int(len(group_df)),
+                "n_success": int(success.sum()) if not success.empty else 0,
+                "n_fail": int(len(group_df) - success.sum()) if not success.empty else int(len(group_df)),
+                "success_rate": success_rate,
+                "failure_rate": failure_rate,
+                "sink_p95": float(np.quantile(sink.to_numpy(), 0.95)) if sink.size else np.nan,
                 "nom_sink_tail_mean_k": tail_value,
             }
         )
@@ -225,6 +233,15 @@ def _prepare_summary_by_tag(
     if "sink_tail_mean_k" in summary_df.columns:
         summary_df = summary_df.rename(
             columns={"sink_tail_mean_k": "nom_sink_tail_mean_k"}
+        )
+    if "n_fail" not in summary_df.columns and "n_total" in summary_df.columns and "n_success" in summary_df.columns:
+        n_total = pd.to_numeric(summary_df["n_total"], errors="coerce")
+        n_success = pd.to_numeric(summary_df["n_success"], errors="coerce")
+        summary_df["n_fail"] = n_total - n_success
+    if "failure_rate" not in summary_df.columns and "success_rate" in summary_df.columns:
+        summary_df["failure_rate"] = 1.0 - pd.to_numeric(
+            summary_df["success_rate"],
+            errors="coerce",
         )
 
     tag_order = sort_scenario_tags(summary_df["scenario_tag"])
@@ -421,14 +438,19 @@ def make_robustness_map(
         success_ax = summary_ax.twinx()
         success_ax.plot(
             x,
-            pd.to_numeric(summary_df["success_rate"], errors="coerce"),
+            pd.to_numeric(
+                summary_df["failure_rate"]
+                if "failure_rate" in summary_df.columns
+                else 1.0 - pd.to_numeric(summary_df["success_rate"], errors="coerce"),
+                errors="coerce",
+            ),
             color="#1f1f1f",
             linewidth=1.2,
             marker="o",
             markersize=3.8,
             zorder=4,
         )
-        success_ax.set_ylabel("Success rate")
+        success_ax.set_ylabel("Failure rate")
         success_ax.set_ylim(0.0, 1.05)
         success_ax.tick_params(axis="y", which="major", length=2.0, width=0.6, labelsize=9)
         for spine in success_ax.spines.values():
@@ -454,7 +476,7 @@ def make_robustness_map(
                 linewidth=1.2,
                 marker="o",
                 markersize=4,
-                label="Success rate",
+                label="Failure rate",
             ),
         ]
         summary_ax.legend(

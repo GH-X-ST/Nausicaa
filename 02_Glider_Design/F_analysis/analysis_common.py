@@ -67,6 +67,21 @@ def resolve_selected_candidate_id(
                 robust_summary_df.loc[selected_mask, "candidate_id"].iloc[0]
             )
 
+    if not robust_summary_df.empty and "robust_rank" in robust_summary_df.columns:
+        rank_series = pd.to_numeric(robust_summary_df["robust_rank"], errors="coerce")
+        ranked_df = robust_summary_df.loc[rank_series.notna()].copy()
+        if not ranked_df.empty:
+            ranked_df["_robust_rank_sort"] = pd.to_numeric(
+                ranked_df["robust_rank"],
+                errors="coerce",
+            )
+            ranked_df = ranked_df.sort_values(
+                by="_robust_rank_sort",
+                ascending=True,
+                kind="mergesort",
+            )
+            return int(ranked_df.iloc[0]["candidate_id"])
+
     if not candidates_df.empty and not robust_summary_df.empty:
         tail_metric = resolve_tail_metric_name(robust_summary_df)
         merged_df = robust_summary_df.merge(

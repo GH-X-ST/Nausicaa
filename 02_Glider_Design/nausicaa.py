@@ -646,18 +646,40 @@ class CandidateResult:
 @dataclass(frozen=True)
 class RobustSummary:
     candidate_id: int
+    n_total: float
+    n_success: float
+    n_fail: float
     nom_success_rate: float
+    nom_failure_rate: float
     nom_sink_mean: float
     nom_sink_std: float
+    nom_sink_median: float
+    nom_sink_p90: float
+    nom_sink_p95: float
     nom_sink_worst: float
     nom_sink_tail_mean_k: float
     nom_sink_cvar_20: float
     nom_resid_rmse_success_only: float
+    nom_roll_tau_p95: float
     nom_roll_tau_worst: float
+    nom_delta_e_util_p95: float
     nom_delta_e_util_worst: float
+    nom_alpha_p95: float
     nom_alpha_worst: float
+    nom_alpha_margin_p05: float
     nom_alpha_margin_worst: float
+    nom_cl_margin_p05: float
     nom_cl_margin_worst: float
+    nom_wing_deflection_over_allow_p95: float
+    nom_wing_deflection_over_allow_worst: float
+    nom_htail_deflection_over_allow_p95: float
+    nom_htail_deflection_over_allow_worst: float
+    worst_sink_scenario_id: float
+    worst_sink_scenario_tag: str
+    worst_alpha_margin_scenario_id: float
+    worst_alpha_margin_scenario_tag: str
+    worst_wing_deflection_scenario_id: float
+    worst_wing_deflection_scenario_tag: str
 
 
 _DEFAULT_CFG = Config()
@@ -6101,7 +6123,7 @@ def run_workflow_with_postcheck(
     weights = objective_weights or ObjectiveWeights()
     scales = objective_scales or ObjectiveScales()
 
-    candidates, all_starts_df, exact_start_candidates = run_multistart(
+    candidates, all_starts_df, _exact_start_candidates = run_multistart(
         config,
         objective_weights=weights,
         objective_scales=scales,
@@ -6124,16 +6146,11 @@ def run_workflow_with_postcheck(
         uncertainty=uncertainty,
         rng=rng,
     )
-    exact_robust_scenarios_df, exact_robust_summary_df = run_robust_postcheck(
-        candidates=exact_start_candidates,
+    robust_scenarios_df, robust_summary_df = run_robust_postcheck(
+        candidates=candidates,
         scenarios_df=scenarios_df,
         config=config,
         cfg=_DEFAULT_CFG,
-    )
-    robust_scenarios_df, robust_summary_df = relabel_robust_results_to_kept_candidates(
-        all_starts_df=all_starts_df,
-        robust_scenarios_df=exact_robust_scenarios_df,
-        robust_summary_df=exact_robust_summary_df,
     )
     selected_candidate = select_workflow_candidate(candidates, robust_summary_df)
     selected_tail_metric = float("nan")
@@ -6154,7 +6171,6 @@ def run_workflow_with_postcheck(
     all_starts_df = attach_tail_metric_to_all_starts(
         all_starts_df=all_starts_df,
         robust_summary_df=robust_summary_df,
-        exact_summary_df=exact_robust_summary_df,
         fallback_tail_metric=selected_tail_metric,
     )
     return (
@@ -7448,6 +7464,66 @@ def compute_rmse(values: onp.ndarray) -> float:
     return float(onp.sqrt(onp.mean(values**2)))
 
 
+def compute_quantile(values: onp.ndarray, q: float) -> float:
+    if values.size == 0:
+        return float("nan")
+    return float(onp.quantile(values, float(q)))
+
+
+def get_successful_numeric_values(
+    scenarios_df: pd.DataFrame,
+    column: str,
+) -> onp.ndarray:
+    if column not in scenarios_df.columns or "nom_success" not in scenarios_df.columns:
+        return onp.asarray([], dtype=float)
+    feasible_df = scenarios_df[scenarios_df["nom_success"] == True]
+    if feasible_df.empty:
+        return onp.asarray([], dtype=float)
+    return feasible_df[column].dropna().to_numpy(dtype=float)
+
+
+def find_extreme_scenario(
+    scenarios_df: pd.DataFrame,
+    column: str,
+    mode: Literal["min", "max"],
+    success_only: bool = True,
+) -> dict[str, Any]:
+    if column not in scenarios_df.columns:
+        return {
+            "scenario_id": float("nan"),
+            "scenario_tag": "",
+            "value": float("nan"),
+        }
+
+    working_df = scenarios_df
+    if success_only and "nom_success" in working_df.columns:
+        working_df = working_df[working_df["nom_success"] == True]
+    if working_df.empty:
+        return {
+            "scenario_id": float("nan"),
+            "scenario_tag": "",
+            "value": float("nan"),
+        }
+
+    values = pd.to_numeric(working_df[column], errors="coerce")
+    valid_df = working_df.loc[values.notna()].copy()
+    if valid_df.empty:
+        return {
+            "scenario_id": float("nan"),
+            "scenario_tag": "",
+            "value": float("nan"),
+        }
+
+    valid_values = pd.to_numeric(valid_df[column], errors="coerce")
+    idx = valid_values.idxmax() if mode == "max" else valid_values.idxmin()
+    row = valid_df.loc[idx]
+    return {
+        "scenario_id": float(row.get("scenario_id", float("nan"))),
+        "scenario_tag": str(row.get("scenario_tag", "")),
+        "value": float(row.get(column, float("nan"))),
+    }
+
+
 def summarize_robust_slice(
     scenarios_df: pd.DataFrame,
     tail_fraction: float,
@@ -7455,10 +7531,30 @@ def summarize_robust_slice(
     n_total = int(len(scenarios_df))
     feasible_df = scenarios_df[scenarios_df["nom_success"] == True]
     n_success = int(len(feasible_df))
+    n_fail = max(0, n_total - n_success)
     success_rate = float(n_success / n_total) if n_total > 0 else float("nan")
 
     sink_values = feasible_df["nom_sink_rate_mps"].dropna().to_numpy(dtype=float)
     lateral_values = feasible_df["nom_lateral_residual"].dropna().to_numpy(dtype=float)
+    roll_tau_values = get_successful_numeric_values(scenarios_df, "nom_roll_tau_s")
+    delta_e_util_values = get_successful_numeric_values(scenarios_df, "nom_util_e")
+    alpha_values = get_successful_numeric_values(scenarios_df, "nom_alpha_deg")
+    alpha_margin_values = get_successful_numeric_values(
+        scenarios_df,
+        "nom_alpha_margin_deg",
+    )
+    cl_margin_values = get_successful_numeric_values(
+        scenarios_df,
+        "nom_cl_margin_to_cap",
+    )
+    wing_deflection_values = get_successful_numeric_values(
+        scenarios_df,
+        "nom_wing_deflection_proxy_over_allow",
+    )
+    htail_deflection_values = get_successful_numeric_values(
+        scenarios_df,
+        "nom_htail_deflection_proxy_over_allow",
+    )
     sink_tail_mean = sink_tail_mean_k(
         sink_values,
         tail_fraction=tail_fraction,
@@ -7468,19 +7564,66 @@ def summarize_robust_slice(
     return {
         "n_total": float(n_total),
         "n_success": float(n_success),
+        "n_fail": float(n_fail),
         "success_rate": success_rate,
+        "failure_rate": (float(n_fail) / float(n_total)) if n_total > 0 else float("nan"),
         "nom_sink_mean": (
             float(onp.mean(sink_values)) if sink_values.size else float("nan")
         ),
         "nom_sink_std": (
             float(onp.std(sink_values)) if sink_values.size else float("nan")
         ),
+        "nom_sink_median": compute_quantile(sink_values, 0.50),
+        "nom_sink_p90": compute_quantile(sink_values, 0.90),
+        "nom_sink_p95": compute_quantile(sink_values, 0.95),
         "nom_sink_worst": (
             float(onp.max(sink_values)) if sink_values.size else float("nan")
         ),
         "nom_sink_tail_mean_k": sink_tail_mean,
         "nom_sink_cvar_20": sink_tail_mean,
         "nom_resid_rmse_success_only": compute_rmse(lateral_values),
+        "nom_roll_tau_p95": compute_quantile(roll_tau_values, 0.95),
+        "nom_roll_tau_worst": (
+            float(onp.max(roll_tau_values)) if roll_tau_values.size else float("nan")
+        ),
+        "nom_delta_e_util_p95": compute_quantile(delta_e_util_values, 0.95),
+        "nom_delta_e_util_worst": (
+            float(onp.max(delta_e_util_values))
+            if delta_e_util_values.size
+            else float("nan")
+        ),
+        "nom_alpha_p95": compute_quantile(alpha_values, 0.95),
+        "nom_alpha_worst": (
+            float(onp.max(alpha_values)) if alpha_values.size else float("nan")
+        ),
+        "nom_alpha_margin_p05": compute_quantile(alpha_margin_values, 0.05),
+        "nom_alpha_margin_worst": (
+            float(onp.min(alpha_margin_values))
+            if alpha_margin_values.size
+            else float("nan")
+        ),
+        "nom_cl_margin_p05": compute_quantile(cl_margin_values, 0.05),
+        "nom_cl_margin_worst": (
+            float(onp.min(cl_margin_values)) if cl_margin_values.size else float("nan")
+        ),
+        "nom_wing_deflection_over_allow_p95": compute_quantile(
+            wing_deflection_values,
+            0.95,
+        ),
+        "nom_wing_deflection_over_allow_worst": (
+            float(onp.max(wing_deflection_values))
+            if wing_deflection_values.size
+            else float("nan")
+        ),
+        "nom_htail_deflection_over_allow_p95": compute_quantile(
+            htail_deflection_values,
+            0.95,
+        ),
+        "nom_htail_deflection_over_allow_worst": (
+            float(onp.max(htail_deflection_values))
+            if htail_deflection_values.size
+            else float("nan")
+        ),
     }
 
 
@@ -7580,12 +7723,20 @@ def build_robust_summary_by_tag(
                 "scenario_tag",
                 "n_total",
                 "n_success",
+                "n_fail",
                 "success_rate",
+                "failure_rate",
                 "sink_mean",
+                "sink_p95",
                 "sink_worst",
                 "sink_tail_mean_k",
                 "nom_sink_cvar_20",
                 "nom_resid_rmse_success_only",
+                "nom_alpha_margin_worst",
+                "nom_cl_margin_worst",
+                "nom_delta_e_util_worst",
+                "nom_wing_deflection_over_allow_worst",
+                "nom_htail_deflection_over_allow_worst",
             ]
         )
 
@@ -7599,13 +7750,25 @@ def build_robust_summary_by_tag(
                 "scenario_tag": str(scenario_tag),
                 "n_total": int(metrics["n_total"]),
                 "n_success": int(metrics["n_success"]),
+                "n_fail": int(metrics["n_fail"]),
                 "success_rate": float(metrics["success_rate"]),
+                "failure_rate": float(metrics["failure_rate"]),
                 "sink_mean": float(metrics["nom_sink_mean"]),
+                "sink_p95": float(metrics["nom_sink_p95"]),
                 "sink_worst": float(metrics["nom_sink_worst"]),
                 "sink_tail_mean_k": float(metrics["nom_sink_tail_mean_k"]),
                 "nom_sink_cvar_20": float(metrics["nom_sink_cvar_20"]),
                 "nom_resid_rmse_success_only": float(
                     metrics["nom_resid_rmse_success_only"]
+                ),
+                "nom_alpha_margin_worst": float(metrics["nom_alpha_margin_worst"]),
+                "nom_cl_margin_worst": float(metrics["nom_cl_margin_worst"]),
+                "nom_delta_e_util_worst": float(metrics["nom_delta_e_util_worst"]),
+                "nom_wing_deflection_over_allow_worst": float(
+                    metrics["nom_wing_deflection_over_allow_worst"]
+                ),
+                "nom_htail_deflection_over_allow_worst": float(
+                    metrics["nom_htail_deflection_over_allow_worst"]
                 ),
             }
         )
@@ -7664,51 +7827,87 @@ def run_robust_postcheck(
     objective_by_candidate = {candidate.candidate_id: candidate.objective for candidate in candidates}
     tail_fraction = float(config.robust_opt_tail_fraction)
 
-    def col_max(df: pd.DataFrame, column: str) -> float:
-        if df.empty or column not in df.columns:
-            return float("nan")
-        values = df[column].dropna().to_numpy(dtype=float)
-        return float(onp.max(values)) if values.size else float("nan")
-
-    def col_min(df: pd.DataFrame, column: str) -> float:
-        if df.empty or column not in df.columns:
-            return float("nan")
-        values = df[column].dropna().to_numpy(dtype=float)
-        return float(onp.min(values)) if values.size else float("nan")
-
     for candidate in candidates:
         candidate_df = robust_scenarios_df[
             robust_scenarios_df["candidate_id"] == candidate.candidate_id
         ]
-        feasible_df = candidate_df[candidate_df["nom_success"] == True]
         summary_metrics = summarize_robust_slice(
             candidate_df,
             tail_fraction=tail_fraction,
         )
-
-        roll_tau_values = onp.array(
-            [col_max(feasible_df, "nom_roll_tau_s")],
-            dtype=float,
+        worst_sink_meta = find_extreme_scenario(
+            candidate_df,
+            column="nom_sink_rate_mps",
+            mode="max",
+            success_only=True,
         )
-        roll_tau_values = roll_tau_values[onp.isfinite(roll_tau_values)]
-        nom_roll_tau_worst = float(onp.max(roll_tau_values)) if roll_tau_values.size else float("nan")
+        worst_alpha_margin_meta = find_extreme_scenario(
+            candidate_df,
+            column="nom_alpha_margin_deg",
+            mode="min",
+            success_only=True,
+        )
+        worst_wing_deflection_meta = find_extreme_scenario(
+            candidate_df,
+            column="nom_wing_deflection_proxy_over_allow",
+            mode="max",
+            success_only=True,
+        )
 
         summary_obj = RobustSummary(
             candidate_id=int(candidate.candidate_id),
+            n_total=float(summary_metrics["n_total"]),
+            n_success=float(summary_metrics["n_success"]),
+            n_fail=float(summary_metrics["n_fail"]),
             nom_success_rate=float(summary_metrics["success_rate"]),
+            nom_failure_rate=float(summary_metrics["failure_rate"]),
             nom_sink_mean=float(summary_metrics["nom_sink_mean"]),
             nom_sink_std=float(summary_metrics["nom_sink_std"]),
+            nom_sink_median=float(summary_metrics["nom_sink_median"]),
+            nom_sink_p90=float(summary_metrics["nom_sink_p90"]),
+            nom_sink_p95=float(summary_metrics["nom_sink_p95"]),
             nom_sink_worst=float(summary_metrics["nom_sink_worst"]),
             nom_sink_tail_mean_k=float(summary_metrics["nom_sink_tail_mean_k"]),
             nom_sink_cvar_20=float(summary_metrics["nom_sink_cvar_20"]),
             nom_resid_rmse_success_only=float(
                 summary_metrics["nom_resid_rmse_success_only"]
             ),
-            nom_roll_tau_worst=float(nom_roll_tau_worst),
-            nom_delta_e_util_worst=float(col_max(feasible_df, "nom_util_e")),
-            nom_alpha_worst=float(col_max(feasible_df, "nom_alpha_deg")),
-            nom_alpha_margin_worst=float(col_min(feasible_df, "nom_alpha_margin_deg")),
-            nom_cl_margin_worst=float(col_min(feasible_df, "nom_cl_margin_to_cap")),
+            nom_roll_tau_p95=float(summary_metrics["nom_roll_tau_p95"]),
+            nom_roll_tau_worst=float(summary_metrics["nom_roll_tau_worst"]),
+            nom_delta_e_util_p95=float(summary_metrics["nom_delta_e_util_p95"]),
+            nom_delta_e_util_worst=float(summary_metrics["nom_delta_e_util_worst"]),
+            nom_alpha_p95=float(summary_metrics["nom_alpha_p95"]),
+            nom_alpha_worst=float(summary_metrics["nom_alpha_worst"]),
+            nom_alpha_margin_p05=float(summary_metrics["nom_alpha_margin_p05"]),
+            nom_alpha_margin_worst=float(summary_metrics["nom_alpha_margin_worst"]),
+            nom_cl_margin_p05=float(summary_metrics["nom_cl_margin_p05"]),
+            nom_cl_margin_worst=float(summary_metrics["nom_cl_margin_worst"]),
+            nom_wing_deflection_over_allow_p95=float(
+                summary_metrics["nom_wing_deflection_over_allow_p95"]
+            ),
+            nom_wing_deflection_over_allow_worst=float(
+                summary_metrics["nom_wing_deflection_over_allow_worst"]
+            ),
+            nom_htail_deflection_over_allow_p95=float(
+                summary_metrics["nom_htail_deflection_over_allow_p95"]
+            ),
+            nom_htail_deflection_over_allow_worst=float(
+                summary_metrics["nom_htail_deflection_over_allow_worst"]
+            ),
+            worst_sink_scenario_id=float(worst_sink_meta["scenario_id"]),
+            worst_sink_scenario_tag=str(worst_sink_meta["scenario_tag"]),
+            worst_alpha_margin_scenario_id=float(
+                worst_alpha_margin_meta["scenario_id"]
+            ),
+            worst_alpha_margin_scenario_tag=str(
+                worst_alpha_margin_meta["scenario_tag"]
+            ),
+            worst_wing_deflection_scenario_id=float(
+                worst_wing_deflection_meta["scenario_id"]
+            ),
+            worst_wing_deflection_scenario_tag=str(
+                worst_wing_deflection_meta["scenario_tag"]
+            ),
         )
         summary_row = asdict(summary_obj)
         summary_rows.append(summary_row)
@@ -7722,9 +7921,25 @@ def run_robust_postcheck(
         robust_summary_df=robust_summary_df,
         objective_by_candidate=objective_by_candidate,
     )
+    ranked_df = rank_robust_summary(
+        robust_summary_df=robust_summary_df,
+        objective_by_candidate=objective_by_candidate,
+    )
+    robust_rank_map = {
+        int(candidate_id): rank
+        for rank, candidate_id in enumerate(ranked_df["candidate_id"].tolist(), start=1)
+    }
+    robust_summary_df["robust_rank"] = pd.to_numeric(
+        robust_summary_df["candidate_id"],
+        errors="coerce",
+    ).map(robust_rank_map)
     robust_summary_df["is_selected"] = (
         robust_summary_df["candidate_id"] == selected_candidate_id
     )
+    robust_summary_df = robust_summary_df.sort_values(
+        by=["robust_rank", "candidate_id"],
+        kind="mergesort",
+    ).reset_index(drop=True)
     return robust_scenarios_df, robust_summary_df
 
 
@@ -7808,6 +8023,123 @@ def relabel_robust_results_to_kept_candidates(
         kind="mergesort",
     ).reset_index(drop=True)
     return relabeled_scenarios_df.reset_index(drop=True), relabeled_summary_df
+
+
+def build_robust_driver_report(
+    robust_scenarios_df: pd.DataFrame,
+    top_k: int = 5,
+) -> pd.DataFrame:
+    report_columns = [
+        "candidate_id",
+        "output_metric",
+        "input_name",
+        "n_pairs",
+        "spearman_rho",
+        "abs_spearman_rho",
+        "rank_within_output",
+    ]
+    if robust_scenarios_df.empty or "candidate_id" not in robust_scenarios_df.columns:
+        return pd.DataFrame(columns=report_columns)
+
+    input_candidates = [
+        "mass_scale",
+        "cg_x_shift_mac",
+        "incidence_bias_deg",
+        "drag_factor",
+        "eff_a",
+        "eff_e",
+        "eff_r",
+        "bias_a_deg",
+        "bias_e_deg",
+        "bias_r_deg",
+        "w_gust_nom",
+        "ixx_scale",
+        "iyy_scale",
+        "izz_scale",
+        "wing_E_scale",
+        "htail_E_scale",
+        "control_eff",
+        "q",
+    ]
+    output_candidates = [
+        "nom_success_numeric",
+        "nom_sink_rate_mps",
+        "nom_alpha_margin_deg",
+        "nom_cl_margin_to_cap",
+        "nom_util_e",
+        "nom_roll_tau_s",
+        "nom_wing_deflection_proxy_over_allow",
+        "nom_htail_deflection_proxy_over_allow",
+    ]
+
+    rows: list[dict[str, Any]] = []
+    for candidate_id, candidate_df in robust_scenarios_df.groupby("candidate_id", sort=False):
+        base_df = candidate_df.copy()
+        if "nom_success" in base_df.columns:
+            base_df["nom_success_numeric"] = (
+                pd.to_numeric(base_df["nom_success"], errors="coerce")
+                .fillna(0.0)
+                .astype(float)
+            )
+        else:
+            base_df["nom_success_numeric"] = float("nan")
+
+        input_columns = [col for col in input_candidates if col in base_df.columns]
+        if not input_columns:
+            continue
+
+        success_df = (
+            base_df.loc[base_df["nom_success"] == True].copy()
+            if "nom_success" in base_df.columns
+            else base_df.copy()
+        )
+
+        for output_name in output_candidates:
+            working_df = base_df if output_name == "nom_success_numeric" else success_df
+            if output_name not in working_df.columns:
+                continue
+            output_series = pd.to_numeric(working_df[output_name], errors="coerce")
+            for input_name in input_columns:
+                input_series = pd.to_numeric(working_df[input_name], errors="coerce")
+                valid_mask = input_series.notna() & output_series.notna()
+                n_pairs = int(valid_mask.sum())
+                if n_pairs < 3:
+                    continue
+                input_valid = input_series.loc[valid_mask]
+                output_valid = output_series.loc[valid_mask]
+                if input_valid.nunique(dropna=True) < 2 or output_valid.nunique(dropna=True) < 2:
+                    continue
+                rho = input_valid.corr(output_valid, method="spearman")
+                if pd.isna(rho):
+                    continue
+                rows.append(
+                    {
+                        "candidate_id": int(candidate_id),
+                        "output_metric": str(output_name),
+                        "input_name": str(input_name),
+                        "n_pairs": n_pairs,
+                        "spearman_rho": float(rho),
+                        "abs_spearman_rho": float(abs(rho)),
+                    }
+                )
+
+    drivers_df = pd.DataFrame(rows)
+    if drivers_df.empty:
+        return pd.DataFrame(columns=report_columns)
+
+    drivers_df["rank_within_output"] = (
+        drivers_df.groupby(["candidate_id", "output_metric"])["abs_spearman_rho"]
+        .rank(method="first", ascending=False)
+        .astype(int)
+    )
+    drivers_df = drivers_df.loc[
+        drivers_df["rank_within_output"] <= max(1, int(top_k))
+    ].copy()
+    drivers_df = drivers_df.sort_values(
+        by=["candidate_id", "output_metric", "rank_within_output", "input_name"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    return drivers_df.reindex(columns=report_columns)
 
 
 
@@ -8144,6 +8476,8 @@ def save_workflow_workbook(
         "nom_u_rate_util_a",
         "nom_u_rate_util_e",
         "nom_u_rate_util_r",
+        "nom_wing_deflection_proxy_over_allow",
+        "nom_htail_deflection_proxy_over_allow",
         "nom_roll_tau_s",
         "nom_roll_accel0",
         "nom_roll_rate_ss",
@@ -8157,18 +8491,41 @@ def save_workflow_workbook(
 
     preferred_summary_columns = [
         "candidate_id",
+        "robust_rank",
+        "n_total",
+        "n_success",
+        "n_fail",
         "nom_success_rate",
+        "nom_failure_rate",
         "nom_sink_mean",
         "nom_sink_std",
+        "nom_sink_median",
+        "nom_sink_p90",
+        "nom_sink_p95",
         "nom_sink_worst",
         "nom_sink_tail_mean_k",
         "nom_sink_cvar_20",
         "nom_resid_rmse_success_only",
+        "nom_roll_tau_p95",
         "nom_roll_tau_worst",
+        "nom_delta_e_util_p95",
         "nom_delta_e_util_worst",
+        "nom_alpha_p95",
         "nom_alpha_worst",
+        "nom_alpha_margin_p05",
         "nom_alpha_margin_worst",
+        "nom_cl_margin_p05",
         "nom_cl_margin_worst",
+        "nom_wing_deflection_over_allow_p95",
+        "nom_wing_deflection_over_allow_worst",
+        "nom_htail_deflection_over_allow_p95",
+        "nom_htail_deflection_over_allow_worst",
+        "worst_sink_scenario_id",
+        "worst_sink_scenario_tag",
+        "worst_alpha_margin_scenario_id",
+        "worst_alpha_margin_scenario_tag",
+        "worst_wing_deflection_scenario_id",
+        "worst_wing_deflection_scenario_tag",
         "is_selected",
     ]
     extra_summary_columns = sorted(
@@ -8181,6 +8538,7 @@ def save_workflow_workbook(
         robust_scenarios_df=robust_scenarios_df,
         tail_fraction=float(config.robust_opt_tail_fraction),
     )
+    robust_driver_report_df = build_robust_driver_report(robust_scenarios_df)
     worst_case_report_df = build_worst_case_report(
         candidates=candidates,
         robust_scenarios_df=robust_scenarios_df,
@@ -8614,6 +8972,7 @@ def save_workflow_workbook(
         plot_data_df.to_excel(writer, sheet_name="PlotDataRobust", index=False)
         definitions_df.to_excel(writer, sheet_name="Definitions", index=False)
         worst_case_report_df.to_excel(writer, sheet_name="WorstCaseReport", index=False)
+        robust_driver_report_df.to_excel(writer, sheet_name="RobustDrivers", index=False)
         correlation_data_df.to_excel(writer, sheet_name="CorrelationData", index=False)
         correlation_matrix_df.to_excel(writer, sheet_name="CorrelationMatrix", index=True)
 
@@ -8937,6 +9296,8 @@ def print_selected_candidate_summary(
     print(
         (
             "  "
+            f"n_success={fmt_metric(summary_row.get('n_success', onp.nan), 0)}/"
+            f"{fmt_metric(summary_row.get('n_total', onp.nan), 0)} | "
             f"nom_success_rate={fmt_metric(summary_row.get('nom_success_rate', onp.nan), 3)} | "
             f"nom_sink_mean={fmt_metric(summary_row.get('nom_sink_mean', onp.nan), 4)} m/s | "
             f"{tail_metric_column}={fmt_metric(summary_row.get(tail_metric_column, onp.nan), 4)} m/s"
@@ -8946,11 +9307,11 @@ def print_selected_candidate_summary(
     print(
         (
             "  "
-            "worst_nominal: "
-            f"nom_roll_tau_worst={fmt_metric(summary_row.get('nom_roll_tau_worst', onp.nan), 4)} s, "
-            f"nom_alpha_worst={fmt_metric(summary_row.get('nom_alpha_worst', onp.nan), 4)} deg, "
-            f"nom_alpha_margin_worst={fmt_metric(summary_row.get('nom_alpha_margin_worst', onp.nan), 4)} deg, "
-            f"nom_cl_margin_worst={fmt_metric(summary_row.get('nom_cl_margin_worst', onp.nan), 4)}"
+            "robust_shape: "
+            f"nom_sink_p95={fmt_metric(summary_row.get('nom_sink_p95', onp.nan), 4)} m/s, "
+            f"nom_roll_tau_p95={fmt_metric(summary_row.get('nom_roll_tau_p95', onp.nan), 4)} s, "
+            f"nom_alpha_margin_p05={fmt_metric(summary_row.get('nom_alpha_margin_p05', onp.nan), 4)} deg, "
+            f"nom_cl_margin_p05={fmt_metric(summary_row.get('nom_cl_margin_p05', onp.nan), 4)}"
         ),
         flush=True,
     )
