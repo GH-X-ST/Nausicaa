@@ -55,7 +55,6 @@ class LiftingSurface:
     cd0: float
     alpha0: float
     induced_drag_efficiency: float
-    flap_effectiveness: float
     control_surface: ControlSurface | None = None
 
 
@@ -87,6 +86,11 @@ class Glider:
 # =============================================================================
 def _unit(vector: np.ndarray) -> np.ndarray:
     return vector / np.linalg.norm(vector)
+
+
+def _flap_scale(chord_fraction: float) -> float:
+    theta_f = np.arccos(2.0 * chord_fraction - 1.0)
+    return 1.0 - (theta_f - np.sin(theta_f)) / np.pi
 
 
 def _horizontal_strip_rows(
@@ -122,17 +126,19 @@ def _horizontal_strip_rows(
             z_b = surface.root_le_b[2] - s_m * np.sin(dihedral_rad)
             eta = abs(y_b) / max(projected_semispan_m, 1e-12)
             control_mix = np.zeros(3)
+            flap_scale_strip = 0.0
             if control is not None and control.eta_start <= eta <= control.eta_end:
                 # Positive local deflection increases section incidence
                 control_sign = control.input_sign
                 if control.input_axis == AILERON:
                     control_sign *= -1.0 if side_sign > 0.0 else 1.0
                 control_mix[control.input_axis] = control_sign
+                flap_scale_strip = _flap_scale(control.chord_fraction)
             rows.append(
                 {
                     "r_strip_b": np.array(
                         [
-                            surface.root_le_b[0],
+                            surface.root_le_b[0] + 0.25 * surface.chord_m,
                             y_b,
                             z_b,
                         ]
@@ -146,7 +152,7 @@ def _horizontal_strip_rows(
                     "cd0_strip": surface.cd0,
                     "alpha0_strip": surface.alpha0,
                     "efficiency_strip": surface.induced_drag_efficiency,
-                    "flap_scale_strip": surface.flap_effectiveness,
+                    "flap_scale_strip": flap_scale_strip,
                     "surface_code": surface.code,
                 }
             )
@@ -166,8 +172,10 @@ def _vertical_strip_rows(
     control = surface.control_surface
     for s_m in strip_centers_m:
         control_mix = np.zeros(3)
+        flap_scale_strip = 0.0
         if control is not None:
             control_mix[control.input_axis] = 1.0
+            flap_scale_strip = _flap_scale(control.chord_fraction)
         rows.append(
             {
                 "r_strip_b": np.array(
@@ -186,7 +194,7 @@ def _vertical_strip_rows(
                 "cd0_strip": surface.cd0,
                 "alpha0_strip": surface.alpha0,
                 "efficiency_strip": surface.induced_drag_efficiency,
-                "flap_scale_strip": surface.flap_effectiveness,
+                "flap_scale_strip": flap_scale_strip,
                 "surface_code": surface.code,
             }
         )
@@ -255,7 +263,6 @@ def build_nausicaa_glider() -> Glider:
         cd0=0.018,
         alpha0=0.001,
         induced_drag_efficiency=0.82,
-        flap_effectiveness=0.95,
         control_surface=ControlSurface(
             name="aileron",
             chord_fraction=0.30,
@@ -278,7 +285,6 @@ def build_nausicaa_glider() -> Glider:
         cd0=0.020,
         alpha0=0.0,
         induced_drag_efficiency=0.78,
-        flap_effectiveness=0.90,
         control_surface=ControlSurface(
             name="elevator",
             chord_fraction=0.30,
@@ -301,7 +307,6 @@ def build_nausicaa_glider() -> Glider:
         cd0=0.020,
         alpha0=0.0,
         induced_drag_efficiency=0.75,
-        flap_effectiveness=0.90,
         control_surface=ControlSurface(
             name="rudder",
             chord_fraction=0.35,
