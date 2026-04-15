@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import cmocean
-import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -30,7 +28,6 @@ AXIS_EDGE_LW = 0.80
 CBAR_EDGE_LW = AXIS_EDGE_LW
 GRID_COLOR = (0.85, 0.85, 0.85, 1.0)
 GRID_LINEWIDTH = 0.4
-ALPHA_EXP_RATE = 0.005
 
 FAN_OUTLET_X = 4.2
 FAN_OUTLET_Y = 2.4
@@ -40,20 +37,9 @@ FAN_OUTLET_ALPHA = 0.6
 FAN_OUTLET_DASH = (0, (2, 2))
 
 
-def build_alpha_cmap() -> mcolors.ListedColormap:
-    """Build a deep colormap with exponential alpha scaling."""
-    base_cmap = cmocean.cm.deep
-    colors = base_cmap(np.linspace(0.0, 1.0, 256))
-
-    t_norm = np.linspace(0.0, 1.0, colors.shape[0])
-    exp_scale = np.exp(ALPHA_EXP_RATE * t_norm)
-    exp_full = np.exp(ALPHA_EXP_RATE)
-    alpha = (exp_scale - 1.0) / (exp_full - 1.0)
-    alpha[0] = 0.0
-    alpha[-1] = 1.0
-    colors[:, 3] = alpha
-
-    return mcolors.ListedColormap(colors)
+def build_alpha_cmap():
+    """Return an opaque summer colormap for std maps."""
+    return plt.get_cmap("summer")
 
 
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
