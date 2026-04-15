@@ -2,5 +2,6 @@ python nausicaa.py --workflow
 python F_analysis\summation.py
 python F_analysis\robustness_map.py
 python F_analysis\scenario_generation.py
+python F_analysis\solve_step_size.py
 python F_analysis\sensitivity.py
 python F_analysis\plot_step_size.py

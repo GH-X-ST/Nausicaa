@@ -1,0 +1,12 @@
+variant,parameter_name,parameter_label,parameter_symbol,baseline_parameter_value,objective,sink_rate_mps,mass_total_kg,roll_tau_s,static_margin,primary_affected_margin,interpretation
+GeometryToPerformance,wing_span_m,Wing span,b,0.7615699665201038,,-0.5350436276211561,0.3049069247918377,-1.3337938817409165,-8.37715673607866,,strong local driver
+GeometryToPerformance,wing_chord_m,Wing chord,c,0.1646396705205474,,0.0007764098588667,0.2305868623109487,-0.4174146395615321,-6.723131116986065,,strong local driver
+GeometryToPerformance,tail_arm_m,Tail arm,l_t,0.3999999927087081,,0.0173932617607827,0.0482764890235443,0.1128412186755832,3.177532030788275,,strong local driver
+GeometryToPerformance,htail_span_m,H-tail span,b_h,0.3655521652258584,,0.0463745074181401,0.0927612940184351,-0.1889109141986678,8.60755899051137,,strong local driver
+GeometryToPerformance,vtail_height_m,V-tail height,h_v,0.1187676993720568,,0.0378580791548449,0.0192852465876654,0.0014242022573491,-0.6209677246948696,,moderate local driver
+RequirementToPerformance,bank_entry_time_s,Bank-entry time,t_be,0.2,0.0,0.0,,0.0,,Bank-entry margin,numerically unstable estimate
+RequirementToPerformance,wall_clearance_m,Wall clearance,c_w,0.2,0.0,0.0,,0.0,,Lateral-agility margin,numerically unstable estimate
+RequirementToPerformance,turn_bank_deg,Turn bank angle,phi_turn,50.0,0.0,0.0,,0.0,,Turn-footprint margin,numerically unstable estimate
+RequirementToPerformance,static_margin_min,Static-margin minimum,SM_min,5.0,0.0,0.0,,0.0,,Static-margin min margin,numerically unstable estimate
+RequirementToPerformance,max_cl_nominal,Nominal CL cap,CL_cap,1.2,-1.4527727592769294e-12,-3.246281488666557e-12,,-5.81059849100184e-11,,Nominal CL margin,numerically unstable estimate
+RequirementToPerformance,max_roll_tau_s,Roll-tau limit,"tau_roll,max",0.45,0.0,0.0,,0.0,,Roll-tau limit margin,numerically unstable estimate

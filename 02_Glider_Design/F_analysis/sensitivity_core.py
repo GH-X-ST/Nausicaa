@@ -1785,6 +1785,42 @@ def _annotate_candidate_errors(
         candidate["total_error_proxy"] = float(total_error_proxy)
 
 
+def _annotate_candidate_u_shape(
+    candidates: list[dict[str, Any]],
+) -> None:
+    ordered_candidates = sorted(
+        (
+            candidate
+            for candidate in candidates
+            if math.isfinite(float(candidate.get("step_size", float("nan"))))
+        ),
+        key=lambda row: float(row["step_size"]),
+    )
+    for candidate in candidates:
+        candidate["u_shape_detected"] = False
+        candidate["u_shape_depth"] = float("nan")
+
+    for index in range(1, len(ordered_candidates) - 1):
+        left_candidate = ordered_candidates[index - 1]
+        center_candidate = ordered_candidates[index]
+        right_candidate = ordered_candidates[index + 1]
+        left_proxy = float(left_candidate.get("total_error_proxy", float("nan")))
+        center_proxy = float(center_candidate.get("total_error_proxy", float("nan")))
+        right_proxy = float(right_candidate.get("total_error_proxy", float("nan")))
+        if not all(
+            math.isfinite(value)
+            for value in (left_proxy, center_proxy, right_proxy)
+        ):
+            continue
+        left_depth = left_proxy - center_proxy
+        right_depth = right_proxy - center_proxy
+        u_shape_depth = min(left_depth, right_depth)
+        center_candidate["u_shape_depth"] = float(u_shape_depth)
+        center_candidate["u_shape_detected"] = bool(
+            left_depth > 0.0 and right_depth > 0.0
+        )
+
+
 def _select_step_candidate(
     candidates: list[dict[str, Any]],
 ) -> tuple[dict[str, Any] | None, str]:
@@ -1796,10 +1832,18 @@ def _select_step_candidate(
         and not candidate["roundoff_limited"]
     ]
     if viable_candidates:
+        u_shape_candidates = [
+            candidate
+            for candidate in viable_candidates
+            if bool(candidate.get("u_shape_detected", False))
+        ]
+        candidate_pool = u_shape_candidates if u_shape_candidates else viable_candidates
         selected_candidate = min(
-            viable_candidates,
+            candidate_pool,
             key=lambda row: (
+                float(row.get("total_error_proxy", float("inf"))),
                 float(row["absolute_error_estimate"]),
+                -float(row.get("u_shape_depth", 0.0)),
                 float(row["step_size"]),
             ),
         )
@@ -1809,12 +1853,19 @@ def _select_step_candidate(
             for candidate in candidates
             if math.isfinite(candidate["derivative_estimate"])
         )
+        if u_shape_candidates and smaller_roundoff_exists:
+            return (
+                selected_candidate,
+                "u_shape_total_error_proxy_before_roundoff_onset",
+            )
+        if u_shape_candidates:
+            return selected_candidate, "u_shape_total_error_proxy_local_minimum"
         if smaller_roundoff_exists:
             return (
                 selected_candidate,
-                "minimum_absolute_error_before_roundoff_onset",
+                "minimum_total_error_proxy_before_roundoff_onset",
             )
-        return selected_candidate, "minimum_absolute_error_nonroundoff"
+        return selected_candidate, "minimum_total_error_proxy_nonroundoff"
 
     finite_candidates = [
         candidate
@@ -1903,6 +1954,7 @@ def compute_sensitivity_for_parameter(
                 reference_derivative=reference_derivative,
                 scheme=scheme,
             )
+            _annotate_candidate_u_shape(candidate_data)
             selected_candidate, step_selection_reason = _select_step_candidate(
                 candidate_data
             )
@@ -1950,17 +2002,31 @@ def compute_sensitivity_for_parameter(
                     )
                 if (
                     step_selection_reason
-                    == "minimum_absolute_error_before_roundoff_onset"
+                    == "u_shape_total_error_proxy_before_roundoff_onset"
                 ):
                     row_notes.append(
-                        "The selected step is the minimum derivative-error point before the smaller steps enter the round-off-limited regime."
+                        "The selected step is a local U-shaped minimum of the total-error proxy before the smaller steps enter the round-off-limited regime."
                     )
                 elif (
                     step_selection_reason
-                    == "minimum_absolute_error_nonroundoff"
+                    == "u_shape_total_error_proxy_local_minimum"
                 ):
                     row_notes.append(
-                        "The selected step is the minimum derivative-error non-roundoff point within the evaluated ladder."
+                        "The selected step is a non-roundoff local U-shaped minimum of the total-error proxy within the evaluated ladder."
+                    )
+                elif (
+                    step_selection_reason
+                    == "minimum_total_error_proxy_before_roundoff_onset"
+                ):
+                    row_notes.append(
+                        "No clean local U-shape was found; the selected step is the minimum total-error proxy point before round-off onset."
+                    )
+                elif (
+                    step_selection_reason
+                    == "minimum_total_error_proxy_nonroundoff"
+                ):
+                    row_notes.append(
+                        "No clean local U-shape was found; the selected step is the minimum total-error proxy non-roundoff point within the evaluated ladder."
                     )
                 elif (
                     step_selection_reason
@@ -2222,9 +2288,11 @@ def build_metadata_table(
         {
             "Key": "step_selection_basis",
             "Value": (
-                "Selected step minimizes absolute_error_estimate = "
-                "|D(h) - D_ref| over non-roundoff ladder points, where D_ref "
-                "is the Richardson-based reference derivative."
+                "Selected step prefers a non-roundoff local U-shaped minimum of "
+                "total_error_proxy = absolute_error_estimate + roundoff_error_proxy. "
+                "If no clean local trough exists, it falls back to the minimum "
+                "total_error_proxy non-roundoff point. Absolute error uses the "
+                "Richardson-based reference derivative."
             ),
         },
         {"Key": "step_size_table_path", "Value": str(OUTPUT_STEP_SIZE_CSV.resolve())},
