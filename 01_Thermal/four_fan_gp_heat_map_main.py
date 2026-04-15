@@ -69,6 +69,20 @@ GRID_NX = 240
 GRID_NY = 180
 
 
+def build_cbar_ticks(vmin: float, vmax: float) -> np.ndarray:
+    """
+    Build sensible colorbar ticks for both velocity and uncertainty plots.
+    """
+    span = float(vmax) - float(vmin)
+    if span <= 0.0:
+        return np.asarray([float(vmin)], dtype=float)
+    if span <= 0.5 + 1e-12:
+        step = 0.1
+    else:
+        step = 1.0
+    return np.arange(float(vmin), float(vmax) + 1e-9, step, dtype=float)
+
+
 ### Helpers
 def build_alpha_cmap() -> mcolors.ListedColormap:
     """
@@ -119,10 +133,13 @@ def load_gp_mean_sheet(
 
     if w.shape != (y.size, x.size):
         raise ValueError(
-            f"Shape mismatch in {sheet_name}: W{w.shape}, y({y.size}), x({x.size})."
+            "Shape mismatch in "
+            f"{sheet_name}: W{w.shape}, y({y.size}), x({x.size})."
         )
     if not np.all(np.isfinite(x)) or not np.all(np.isfinite(y)):
-        raise ValueError(f"Non-numeric x/y axis values found in sheet '{sheet_name}'.")
+        raise ValueError(
+            f"Non-numeric x/y axis values found in sheet '{sheet_name}'."
+        )
 
     x_order = np.argsort(x)
     y_order = np.argsort(y)
@@ -131,17 +148,32 @@ def load_gp_mean_sheet(
     w = w[np.ix_(y_order, x_order)]
 
     if np.any(np.diff(x) <= 0.0) or np.any(np.diff(y) <= 0.0):
-        raise ValueError(f"x/y coordinates must be strictly increasing in '{sheet_name}'.")
+        raise ValueError(
+            f"x/y coordinates must be strictly increasing in '{sheet_name}'."
+        )
 
     return x, y, w
 
 
-def build_continuous_grid(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def build_continuous_grid(
+    x: np.ndarray,
+    y: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Build a dense uniform grid covering the measured extents.
     """
-    x_lin = np.linspace(float(np.min(x)), float(np.max(x)), GRID_NX, dtype=float)
-    y_lin = np.linspace(float(np.min(y)), float(np.max(y)), GRID_NY, dtype=float)
+    x_lin = np.linspace(
+        float(np.min(x)),
+        float(np.max(x)),
+        GRID_NX,
+        dtype=float,
+    )
+    y_lin = np.linspace(
+        float(np.min(y)),
+        float(np.max(y)),
+        GRID_NY,
+        dtype=float,
+    )
     xg, yg = np.meshgrid(x_lin, y_lin)
     return xg, yg
 
@@ -180,7 +212,12 @@ def interpolate_to_continuous_grid(
     return w_dense
 
 
-def plot_continuous_heatmap(x: np.ndarray, y: np.ndarray, w: np.ndarray, outpath: Path) -> None:
+def plot_continuous_heatmap(
+    x: np.ndarray,
+    y: np.ndarray,
+    w: np.ndarray,
+    outpath: Path,
+) -> None:
     """
     Plot continuous GP heat map using the annular-Gaussian avg main style.
     """
@@ -237,7 +274,7 @@ def plot_continuous_heatmap(x: np.ndarray, y: np.ndarray, w: np.ndarray, outpath
     cax = divider.append_axes("right", size="2.990%", pad=0.22)
     cbar = fig.colorbar(im, cax=cax)
     cbar.set_label(CBAR_LABEL, fontsize=9)
-    cbar.set_ticks(np.arange(0.0, 8.0 + 1e-9, 1.0))
+    cbar.set_ticks(build_cbar_ticks(PLOT_VMIN, PLOT_VMAX))
     cbar.formatter = FormatStrFormatter("%.2f")
     cbar.update_ticks()
     cbar.ax.tick_params(width=0.6, length=2, labelsize=9)
