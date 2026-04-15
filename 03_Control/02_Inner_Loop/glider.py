@@ -238,8 +238,6 @@ def build_nausicaa_glider() -> Glider:
     wing_span_m = 0.7615699589143088
     wing_chord_m = 0.1646396706065065
     dihedral_deg = 10.0
-    # Projected semispan is derived from actual span and dihedral
-    projected_semispan_m = 0.5 * wing_span_m * np.cos(np.deg2rad(dihedral_deg))
     # Root leading-edge locations are CG-centered in body axes
     wing_root_le_b = np.array([0.11373615007007601, 0.0, 0.015843560703573026 - 0.007])
     htail_root_le_b = np.array([-0.286263849929924, 0.0, 0.015843560703573026 + 0.0025])
