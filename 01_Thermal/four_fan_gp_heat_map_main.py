@@ -63,6 +63,7 @@ FAN_OUTLET_DASH = (0, (2, 2))
 # Color scale
 PLOT_VMIN = 0.0
 PLOT_VMAX = 8.0
+CBAR_TICK_STEP = None
 
 # Continuous grid resolution
 GRID_NX = 240
@@ -73,6 +74,13 @@ def build_cbar_ticks(vmin: float, vmax: float) -> np.ndarray:
     """
     Build sensible colorbar ticks for both velocity and uncertainty plots.
     """
+    if CBAR_TICK_STEP is not None:
+        return np.arange(
+            float(vmin),
+            float(vmax) + 0.5 * float(CBAR_TICK_STEP),
+            float(CBAR_TICK_STEP),
+            dtype=float,
+        )
     span = float(vmax) - float(vmin)
     if span <= 0.0:
         return np.asarray([float(vmin)], dtype=float)

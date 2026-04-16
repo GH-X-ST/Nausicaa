@@ -14,11 +14,12 @@ GP_GRID_XLSX = Path(
 OUT_DIR = Path("A_figures/Four_Fan_Annular_GP")
 PLOT_VMIN = 0.0
 PLOT_VMAX = 0.4
+CBAR_TICK_STEP = 0.05
 
 
 def build_alpha_cmap():
-    """Return an opaque summer colormap for std maps."""
-    return plt.get_cmap("summer")
+    """Return an opaque coolwarm colormap for std maps."""
+    return plt.get_cmap("coolwarm")
 
 
 def main() -> None:
@@ -31,6 +32,7 @@ def main() -> None:
     base_plot.CBAR_LABEL = r"$\sigma_{\mathrm{res}}$ (m$\cdot$s$^{-1}$)"
     base_plot.PLOT_VMIN = float(PLOT_VMIN)
     base_plot.PLOT_VMAX = float(PLOT_VMAX)
+    base_plot.CBAR_TICK_STEP = float(CBAR_TICK_STEP)
     base_plot.build_alpha_cmap = build_alpha_cmap
 
     for sheet_name in SHEETS:

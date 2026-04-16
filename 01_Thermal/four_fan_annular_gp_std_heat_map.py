@@ -18,6 +18,7 @@ GP_GRID_XLSX = Path(
 OUT_DIR = Path("A_figures/Four_Fan_Annular_GP")
 PLOT_VMIN = 0.0
 PLOT_VMAX = 0.4
+CBAR_TICK_STEP = 0.05
 
 CBAR_LABEL = r"$\sigma_{\mathrm{res}}$ (m $\!$s$^{-1}$)"
 XLABEL = r"$x$ (m)"
@@ -41,8 +42,8 @@ FAN_OUTLET_DASH = (0, (2, 2))
 
 
 def build_alpha_cmap():
-    """Return an opaque summer colormap for std maps."""
-    return plt.get_cmap("summer")
+    """Return an opaque coolwarm colormap for std maps."""
+    return plt.get_cmap("coolwarm")
 
 
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
@@ -120,6 +121,13 @@ def plot_continuous_heatmap(
     cax = divider.append_axes("right", size="2.6%", pad=0.15)
     cbar = fig.colorbar(im, cax=cax)
     cbar.set_label(CBAR_LABEL)
+    cbar.set_ticks(
+        np.arange(
+            PLOT_VMIN,
+            PLOT_VMAX + 0.5 * CBAR_TICK_STEP,
+            CBAR_TICK_STEP,
+        )
+    )
     cbar.formatter = FormatStrFormatter("%.2f")
     cbar.update_ticks()
     cbar.ax.tick_params(width=0.6, length=2)

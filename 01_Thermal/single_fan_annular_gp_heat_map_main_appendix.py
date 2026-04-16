@@ -57,6 +57,7 @@ FAN_OUTLET_DASH = (0, (2, 2))
 # Color scale
 PLOT_VMIN = 0.0
 PLOT_VMAX = 8.0
+CBAR_TICK_STEP = None
 
 # Continuous grid resolution
 GRID_NX = 240
@@ -483,6 +484,15 @@ def plot_continuous_heatmap(
     cax = divider.append_axes("right", size="2.6%", pad=0.15)
     cbar = fig.colorbar(im, cax=cax)
     cbar.set_label(CBAR_LABEL)
+    if CBAR_TICK_STEP is not None:
+        cbar.set_ticks(
+            np.arange(
+                float(PLOT_VMIN),
+                float(PLOT_VMAX) + 0.5 * float(CBAR_TICK_STEP),
+                float(CBAR_TICK_STEP),
+                dtype=float,
+            )
+        )
     cbar.formatter = FormatStrFormatter("%.2f")
     cbar.update_ticks()
     cbar.ax.tick_params(width=0.6, length=2)
