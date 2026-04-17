@@ -9,9 +9,7 @@ Outputs:
 
 Notes:
     - This runs the expensive model evaluations once and stores the finite-
-      difference step-size ladder for later plotting and sensitivity selection.
-    - Use `python F_analysis/plot_step_size.py` to change the figure without
-      recomputing the study.
+      difference step-size ladder for later sensitivity selection and audit.
 """
 
 from __future__ import annotations
