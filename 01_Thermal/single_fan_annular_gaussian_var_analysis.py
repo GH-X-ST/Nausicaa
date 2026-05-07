@@ -26,10 +26,11 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
+import single_fan_gp as sigma_gp
 
 from single_fan_annuli_cut import (
-    assign_sigma_bins_nearest,
-    parse_ts_points_and_sigmas,
+    assign_sigma_points_linear_nearest,
+    parse_ts_xy_points_and_sigmas,
     read_slice_from_sheet,
 )
 
@@ -202,10 +203,19 @@ def main() -> None:
         x_centers, y_centers, W = read_slice_from_sheet(XLSX_PATH, sheet)
         x_grid, y_grid = np.meshgrid(x_centers, y_centers)
         xc, yc = FAN_CENTER_XY
-        r_pts = np.sqrt((x_grid - xc) ** 2 + (y_grid - yc) ** 2).ravel()
+        x_pts = x_grid.ravel()
+        y_pts = y_grid.ravel()
+        r_pts = np.sqrt((x_pts - xc) ** 2 + (y_pts - yc) ** 2)
         w_obs = W.ravel()
 
-        mask = np.isfinite(r_pts) & np.isfinite(w_obs)
+        mask = (
+            np.isfinite(x_pts)
+            & np.isfinite(y_pts)
+            & np.isfinite(r_pts)
+            & np.isfinite(w_obs)
+        )
+        x_pts = x_pts[mask]
+        y_pts = y_pts[mask]
         r_pts = r_pts[mask]
         w_obs = w_obs[mask]
         if r_pts.size == 0:
@@ -214,23 +224,16 @@ def main() -> None:
         # Assign sigma per point using nearest-radius mapping from *_TS,
         # falling back to SIGMA_FALLBACK if needed.
         ts_sheet = f"{sheet}_TS"
-        ts_parsed = parse_ts_points_and_sigmas(
+        sigma_pts = sigma_gp.evaluate_sigma_points_annular_pchip_z(
             xlsx_path=XLSX_PATH,
-            ts_sheet_name=ts_sheet,
+            sheet_names=tuple(SHEETS),
             fan_center_xy=FAN_CENTER_XY,
+            x_pts=x_pts,
+            y_pts=y_pts,
+            z_pts=np.full_like(x_pts, parse_sheet_height_m(sheet), dtype=float),
+            sigma_fallback=SIGMA_FALLBACK,
+            sigma_min=SIGMA_MIN,
         )
-        if ts_parsed is None:
-            sigma_pts = np.full_like(r_pts, float(SIGMA_FALLBACK), dtype=float)
-            sigma_pts = np.maximum(sigma_pts, float(SIGMA_MIN))
-        else:
-            r_points, sigma_points = ts_parsed
-            sigma_pts = assign_sigma_bins_nearest(
-                r_bins=r_pts,
-                r_points=r_points,
-                sigma_points=sigma_points,
-                sigma_fallback=SIGMA_FALLBACK,
-                sigma_min=SIGMA_MIN,
-            )
 
         # Raw-point comparison: use unit weights per sample.
         alpha_pts = np.ones_like(r_pts, dtype=float)

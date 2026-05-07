@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 import warnings
 
 import numpy as np
 import pandas as pd
+from scipy.interpolate import PchipInterpolator
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import (
@@ -24,7 +26,9 @@ from sklearn.preprocessing import StandardScaler
 
 from single_fan_annuli_cut import (
     assign_sigma_bins_nearest,
+    assign_sigma_points_linear_nearest,
     parse_ts_points_and_sigmas,
+    parse_ts_xy_points_and_sigmas,
     read_slice_from_sheet,
 )
 
@@ -154,6 +158,194 @@ def parse_sheet_height_m(sheet_name: str) -> float:
     return int(suffix) / SHEET_HEIGHT_DIVISOR
 
 
+@lru_cache(maxsize=None)
+def load_ts_sigma_planes(
+    xlsx_path: str,
+    sheet_names: Tuple[str, ...],
+) -> Tuple[np.ndarray, Tuple[Tuple[np.ndarray, np.ndarray, np.ndarray] | None, ...]]:
+    """
+    Cache representative fluctuation points for all measured z planes.
+    """
+    z_list: List[float] = []
+    parsed_list: List[Tuple[np.ndarray, np.ndarray, np.ndarray] | None] = []
+
+    for sheet_name in sheet_names:
+        z_list.append(parse_sheet_height_m(sheet_name))
+        parsed_list.append(
+            parse_ts_xy_points_and_sigmas(
+                xlsx_path=xlsx_path,
+                ts_sheet_name=f"{sheet_name}_TS",
+            )
+        )
+
+    order = np.argsort(np.asarray(z_list, dtype=float))
+    z_axis = np.asarray([z_list[idx] for idx in order], dtype=float)
+    parsed_sorted = tuple(parsed_list[idx] for idx in order)
+    return z_axis, parsed_sorted
+
+
+def evaluate_sigma_points_pchip_z(
+    xlsx_path: str,
+    sheet_names: Sequence[str],
+    x_pts: np.ndarray,
+    y_pts: np.ndarray,
+    z_pts: np.ndarray,
+    sigma_fallback: float,
+    sigma_min: float,
+) -> np.ndarray:
+    """
+    Evaluate fluctuation sigma continuously in z.
+
+    For each measured plane, sigma is assigned in x-y using the local
+    representative TS points. The per-point values across z are then blended
+    with PCHIP, while heights outside the measured range hold the nearest
+    measured plane.
+    """
+    x_arr = np.asarray(x_pts, dtype=float).ravel()
+    y_arr = np.asarray(y_pts, dtype=float).ravel()
+    z_arr = np.asarray(z_pts, dtype=float).ravel()
+    if not (x_arr.size == y_arr.size == z_arr.size):
+        raise ValueError("x_pts, y_pts, z_pts must have the same number of samples.")
+
+    z_axis, parsed_planes = load_ts_sigma_planes(
+        str(xlsx_path),
+        tuple(str(sheet) for sheet in sheet_names),
+    )
+    sigma_planes = np.empty((z_axis.size, x_arr.size), dtype=float)
+
+    for idx, parsed in enumerate(parsed_planes):
+        if parsed is None:
+            sigma_planes[idx] = np.full(
+                x_arr.size,
+                float(sigma_fallback),
+                dtype=float,
+            )
+            continue
+
+        rep_x, rep_y, rep_sigma = parsed
+        sigma_planes[idx] = assign_sigma_points_linear_nearest(
+            x_pts=x_arr,
+            y_pts=y_arr,
+            rep_x=rep_x,
+            rep_y=rep_y,
+            rep_sigma=rep_sigma,
+            sigma_fallback=sigma_fallback,
+            sigma_min=sigma_min,
+        )
+
+    if z_axis.size == 1:
+        return np.maximum(sigma_planes[0], float(sigma_min))
+
+    z_eval = np.clip(z_arr, float(z_axis[0]), float(z_axis[-1]))
+    interp = PchipInterpolator(z_axis, sigma_planes, axis=0, extrapolate=False)
+    sigma_out = np.empty_like(z_eval, dtype=float)
+    for z_val in np.unique(z_eval):
+        sigma_at_z = np.asarray(interp(float(z_val)), dtype=float).reshape(-1)
+        mask = np.isclose(z_eval, float(z_val), rtol=0.0, atol=1e-12)
+        sigma_out[mask] = sigma_at_z[mask]
+
+    sigma_low = np.maximum(float(sigma_min), np.min(sigma_planes, axis=0))
+    sigma_high = np.max(sigma_planes, axis=0)
+    sigma_out = np.clip(sigma_out, sigma_low, sigma_high)
+    return np.maximum(sigma_out, float(sigma_min))
+
+
+@lru_cache(maxsize=None)
+def load_ts_radial_sigma_planes(
+    xlsx_path: str,
+    sheet_names: Tuple[str, ...],
+    fan_center_xy: Tuple[float, float],
+) -> Tuple[np.ndarray, Tuple[Tuple[np.ndarray, np.ndarray] | None, ...]]:
+    """
+    Cache radial representative fluctuation data for all measured z planes.
+    """
+    z_list: List[float] = []
+    parsed_list: List[Tuple[np.ndarray, np.ndarray] | None] = []
+
+    for sheet_name in sheet_names:
+        z_list.append(parse_sheet_height_m(sheet_name))
+        parsed_list.append(
+            parse_ts_points_and_sigmas(
+                xlsx_path=xlsx_path,
+                ts_sheet_name=f"{sheet_name}_TS",
+                fan_center_xy=fan_center_xy,
+            )
+        )
+
+    order = np.argsort(np.asarray(z_list, dtype=float))
+    z_axis = np.asarray([z_list[idx] for idx in order], dtype=float)
+    parsed_sorted = tuple(parsed_list[idx] for idx in order)
+    return z_axis, parsed_sorted
+
+
+def evaluate_sigma_points_annular_pchip_z(
+    xlsx_path: str,
+    sheet_names: Sequence[str],
+    fan_center_xy: Tuple[float, float],
+    x_pts: np.ndarray,
+    y_pts: np.ndarray,
+    z_pts: np.ndarray,
+    sigma_fallback: float,
+    sigma_min: float,
+) -> np.ndarray:
+    """
+    Evaluate annular empirical fluctuation sigma continuously in z.
+
+    Each measured plane uses nearest-radius mapping from representative TS
+    points relative to the fan centre. The per-point values are then blended
+    across z with PCHIP while holding the nearest measured plane outside the
+    measured range.
+    """
+    x_arr = np.asarray(x_pts, dtype=float).ravel()
+    y_arr = np.asarray(y_pts, dtype=float).ravel()
+    z_arr = np.asarray(z_pts, dtype=float).ravel()
+    if not (x_arr.size == y_arr.size == z_arr.size):
+        raise ValueError("x_pts, y_pts, z_pts must have the same number of samples.")
+
+    xc, yc = fan_center_xy
+    r_query = np.sqrt((x_arr - float(xc)) ** 2 + (y_arr - float(yc)) ** 2)
+    z_axis, parsed_planes = load_ts_radial_sigma_planes(
+        str(xlsx_path),
+        tuple(str(sheet) for sheet in sheet_names),
+        (float(xc), float(yc)),
+    )
+    sigma_planes = np.empty((z_axis.size, x_arr.size), dtype=float)
+
+    for idx, parsed in enumerate(parsed_planes):
+        if parsed is None:
+            sigma_planes[idx] = np.full(
+                x_arr.size,
+                float(sigma_fallback),
+                dtype=float,
+            )
+            continue
+
+        r_points, sigma_points = parsed
+        sigma_planes[idx] = assign_sigma_bins_nearest(
+            r_bins=r_query,
+            r_points=r_points,
+            sigma_points=sigma_points,
+            sigma_fallback=sigma_fallback,
+            sigma_min=sigma_min,
+        )
+
+    if z_axis.size == 1:
+        return np.maximum(sigma_planes[0], float(sigma_min))
+
+    z_eval = np.clip(z_arr, float(z_axis[0]), float(z_axis[-1]))
+    interp = PchipInterpolator(z_axis, sigma_planes, axis=0, extrapolate=False)
+    sigma_out = np.empty_like(z_eval, dtype=float)
+    for z_val in np.unique(z_eval):
+        sigma_at_z = np.asarray(interp(float(z_val)), dtype=float).reshape(-1)
+        mask = np.isclose(z_eval, float(z_val), rtol=0.0, atol=1e-12)
+        sigma_out[mask] = sigma_at_z[mask]
+
+    sigma_low = np.maximum(float(sigma_min), np.min(sigma_planes, axis=0))
+    sigma_high = np.max(sigma_planes, axis=0)
+    sigma_out = np.clip(sigma_out, sigma_low, sigma_high)
+    return np.maximum(sigma_out, float(sigma_min))
+
+
 def build_feature_matrix(
     x_m: np.ndarray,
     y_m: np.ndarray,
@@ -280,21 +472,22 @@ def load_sheet_samples(
         raise ValueError(f"No valid samples found in sheet '{sheet_name}'.")
 
     ts_sheet = f"{sheet_name}_TS"
-    ts_parsed = parse_ts_points_and_sigmas(
+    ts_parsed = parse_ts_xy_points_and_sigmas(
         xlsx_path=xlsx_path,
         ts_sheet_name=ts_sheet,
-        fan_center_xy=fan_center_xy,
     )
 
     if ts_parsed is None:
         sigma_pts = np.full_like(r_pts, float(sigma_fallback), dtype=float)
         sigma_pts = np.maximum(sigma_pts, float(sigma_min))
     else:
-        r_points, sigma_points = ts_parsed
-        sigma_pts = assign_sigma_bins_nearest(
-            r_bins=r_pts,
-            r_points=r_points,
-            sigma_points=sigma_points,
+        rep_x, rep_y, rep_sigma = ts_parsed
+        sigma_pts = assign_sigma_points_linear_nearest(
+            x_pts=x_pts,
+            y_pts=y_pts,
+            rep_x=rep_x,
+            rep_y=rep_y,
+            rep_sigma=rep_sigma,
             sigma_fallback=sigma_fallback,
             sigma_min=sigma_min,
         )

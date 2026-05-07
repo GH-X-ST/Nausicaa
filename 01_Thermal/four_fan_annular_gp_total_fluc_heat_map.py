@@ -1,0 +1,329 @@
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+
+import cmocean.cm as cmocean
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.patches import Circle
+from matplotlib.ticker import FormatStrFormatter
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from scipy.interpolate import RegularGridInterpolator
+
+from four_fan_gp_heat_map import load_gp_mean_sheet
+from four_fan_annuli_cut import parse_ts_points_and_sigmas
+
+
+SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
+XLSX_PATH = "S02.xlsx"
+GP_GRID_XLSX = Path(
+    "B_results/Four_Fan_Annular_GP/four_annular_gp_grid_predictions.xlsx"
+)
+OUT_DIR = Path("A_figures/Four_Fan_Annular_GP")
+PLOT_VMIN = 0.0
+PLOT_VMAX = 1.0
+CBAR_TICK_STEP = 0.2
+
+CBAR_LABEL = r"$\sigma_{\mathrm{HAG\text{-}GP}}$ (m $\!$s$^{-1}$)"
+XLABEL = r"$x$ (m)"
+YLABEL = r"$y$ (m)"
+
+AXIS_EDGE_LW = 0.80
+CBAR_EDGE_LW = AXIS_EDGE_LW
+GRID_COLOR = (0.85, 0.85, 0.85, 1.0)
+GRID_LINEWIDTH = 0.4
+DISPLAY_GRID_NX = 480
+DISPLAY_GRID_NY = 360
+
+FAN_OUTLET_POINTS = [
+    (3.0, 3.6),
+    (5.4, 3.6),
+    (5.4, 1.2),
+    (3.0, 1.2),
+]
+FAN_OUTLET_DIAMETER = 0.8
+FAN_OUTLET_EDGE_LW = 1.1
+FAN_OUTLET_ALPHA = 0.6
+FAN_OUTLET_DASH = (0, (2, 2))
+ANNULUS_EDGE_COLOR = (0.0, 0.0, 0.0, 0.24)
+ANNULUS_EDGE_LW = 0.75
+ANNULUS_EDGE_DASH = (0, (1.2, 2.0))
+
+
+def build_alpha_cmap():
+    """Return an opaque cmocean curl colormap for total-fluctuation maps."""
+    return cmocean.curl
+
+
+def resolve_grid_xlsx() -> Path:
+    """Return the canonical annular-GP workbook path."""
+    return GP_GRID_XLSX
+
+
+def resolve_out_dir() -> Path:
+    """Return the canonical figure output directory."""
+    return OUT_DIR
+
+
+def compute_plot_vmax() -> float:
+    """Use a fixed shared color range across all total-fluctuation figures."""
+    return float(PLOT_VMAX)
+
+
+def centers_to_edges(c: np.ndarray) -> np.ndarray:
+    """Convert cell centers to cell edges for pcolormesh."""
+    c = np.asarray(c, dtype=float)
+    if c.size < 2:
+        raise ValueError("Need at least 2 center points to compute edges.")
+    edges = np.empty(c.size + 1, dtype=float)
+    edges[1:-1] = 0.5 * (c[:-1] + c[1:])
+    edges[0] = c[0] - 0.5 * (c[1] - c[0])
+    edges[-1] = c[-1] + 0.5 * (c[-1] - c[-2])
+    return edges
+
+
+def build_display_grid(
+    x: np.ndarray,
+    y: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build a denser grid for display-only interpolation."""
+    x_dense = np.linspace(float(np.min(x)), float(np.max(x)), DISPLAY_GRID_NX)
+    y_dense = np.linspace(float(np.min(y)), float(np.max(y)), DISPLAY_GRID_NY)
+    return np.meshgrid(x_dense, y_dense)
+
+
+def interpolate_to_display_grid(
+    x: np.ndarray,
+    y: np.ndarray,
+    w: np.ndarray,
+    x_grid: np.ndarray,
+    y_grid: np.ndarray,
+) -> np.ndarray:
+    """Interpolate the stored field to a denser display grid only."""
+    interp = RegularGridInterpolator(
+        (y, x),
+        w,
+        method="linear",
+        bounds_error=False,
+        fill_value=np.nan,
+    )
+    query = np.column_stack([y_grid.ravel(), x_grid.ravel()])
+    w_dense = interp(query).reshape(x_grid.shape)
+
+    if np.any(~np.isfinite(w_dense)):
+        interp_nn = RegularGridInterpolator(
+            (y, x),
+            w,
+            method="nearest",
+            bounds_error=False,
+            fill_value=0.0,
+        )
+        mask = ~np.isfinite(w_dense)
+        w_dense[mask] = interp_nn(query[mask.ravel()])
+
+    return np.asarray(w_dense, dtype=float)
+
+
+@lru_cache(maxsize=None)
+def load_annulus_boundary_levels(sheet_name: str) -> tuple[np.ndarray, ...]:
+    """Return per-fan radial bin boundaries implied by the TS samples."""
+    boundaries = []
+    for fan_center_xy in FAN_OUTLET_POINTS:
+        parsed = parse_ts_points_and_sigmas(
+            xlsx_path=XLSX_PATH,
+            ts_sheet_name=f"{sheet_name}_TS",
+            fan_center_xy=fan_center_xy,
+        )
+        if parsed is None:
+            boundaries.append(np.asarray([], dtype=float))
+            continue
+
+        r_points, _sigma_points = parsed
+        r_unique = np.unique(np.asarray(r_points, dtype=float))
+        if r_unique.size < 2:
+            boundaries.append(np.asarray([], dtype=float))
+            continue
+        boundaries.append(0.5 * (r_unique[:-1] + r_unique[1:]))
+    return tuple(boundaries)
+
+
+def plot_continuous_heatmap(
+    x: np.ndarray,
+    y: np.ndarray,
+    w: np.ndarray,
+    outpath: Path,
+    plot_vmin: float,
+    plot_vmax: float,
+    sheet_name: str | None = None,
+) -> None:
+    """Plot total-fluctuation heat map in the annular-GP heat-map style."""
+    x_grid, y_grid = build_display_grid(x, y)
+    w_dense = interpolate_to_display_grid(x, y, w, x_grid, y_grid)
+    x_edges = centers_to_edges(x_grid[0, :])
+    y_edges = centers_to_edges(y_grid[:, 0])
+
+    plt.rcParams.update(
+        {
+            "font.size": 8,
+            "axes.labelsize": 8,
+            "axes.titlesize": 8,
+            "xtick.labelsize": 7,
+            "ytick.labelsize": 7,
+            "axes.edgecolor": "k",
+            "axes.linewidth": AXIS_EDGE_LW,
+            "patch.edgecolor": "k",
+        }
+    )
+
+    fig, ax = plt.subplots(figsize=(6.8, 5.6), dpi=600)
+    im = ax.pcolormesh(
+        x_edges,
+        y_edges,
+        w_dense,
+        shading="auto",
+        cmap=build_alpha_cmap(),
+        vmin=plot_vmin,
+        vmax=plot_vmax,
+    )
+    ax.hlines(
+        y=float(y_edges[0]),
+        xmin=float(x_edges[0]),
+        xmax=float(x_edges[-1]),
+        colors=(0.0, 0.0, 0.0, 0.70),
+        linewidth=0.30,
+        zorder=4,
+    )
+
+    for idx, (fx, fy) in enumerate(FAN_OUTLET_POINTS):
+        outlet = Circle(
+            (fx, fy),
+            radius=FAN_OUTLET_DIAMETER / 2.0,
+            fill=False,
+            edgecolor=(0, 0, 0, FAN_OUTLET_ALPHA),
+            linewidth=FAN_OUTLET_EDGE_LW,
+            linestyle=FAN_OUTLET_DASH,
+            label="Fan outlet" if idx == 0 else None,
+            zorder=5,
+            clip_on=True,
+        )
+        ax.add_patch(outlet)
+
+    if sheet_name is not None:
+        boundary_sets = load_annulus_boundary_levels(sheet_name)
+        for (fx, fy), radii in zip(FAN_OUTLET_POINTS, boundary_sets):
+            for radius in radii:
+                if not np.isfinite(radius) or radius <= 0.0:
+                    continue
+                ring = Circle(
+                    (fx, fy),
+                    radius=float(radius),
+                    fill=False,
+                    edgecolor=ANNULUS_EDGE_COLOR,
+                    linewidth=ANNULUS_EDGE_LW,
+                    linestyle=ANNULUS_EDGE_DASH,
+                    zorder=4,
+                    clip_on=True,
+                )
+                ax.add_patch(ring)
+
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="2.6%", pad=0.15)
+    cbar = fig.colorbar(im, cax=cax)
+    cbar.set_label(CBAR_LABEL)
+    cbar.set_ticks(
+        np.arange(
+            plot_vmin,
+            plot_vmax + 0.5 * CBAR_TICK_STEP,
+            CBAR_TICK_STEP,
+        )
+    )
+    cbar.formatter = FormatStrFormatter("%.2f")
+    cbar.update_ticks()
+    cbar.ax.tick_params(width=0.6, length=2)
+    cbar.outline.set_linewidth(CBAR_EDGE_LW)
+    cbar.outline.set_edgecolor("k")
+    cbar.outline.set_visible(True)
+    cbar.ax.patch.set_edgecolor("k")
+    cbar.ax.patch.set_linewidth(CBAR_EDGE_LW)
+    cbar.ax.set_frame_on(True)
+    for spine in cbar.ax.spines.values():
+        spine.set_edgecolor("k")
+        spine.set_linewidth(CBAR_EDGE_LW)
+
+    ax.set_xlabel(XLABEL)
+    ax.set_ylabel(YLABEL)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_axisbelow(True)
+    ax.grid(True, color=GRID_COLOR, linewidth=GRID_LINEWIDTH)
+    for spine in ax.spines.values():
+        spine.set_linewidth(AXIS_EDGE_LW)
+    xticks = np.arange(0.0, 8.4 + 1e-9, 0.6)
+    yticks = np.arange(0.0, 4.8 + 1e-9, 0.4)
+    ax.set_xticks(xticks)
+    ax.set_yticks(yticks)
+    ax.set_xticklabels([f"{v:.2f}" for v in xticks])
+    ax.set_yticklabels([f"{v:.2f}" for v in yticks])
+    ax.tick_params(axis="x", labelrotation=30)
+    ax.tick_params(axis="both", which="major", length=2, width=0.6)
+    ax.legend(
+        loc="lower left",
+        bbox_to_anchor=(0.97, -0.18),
+        frameon=True,
+        framealpha=1.0,
+        edgecolor="black",
+        fontsize=7,
+        handlelength=1.5,
+        borderpad=0.7,
+        labelspacing=0.2,
+    )
+    leg = ax.get_legend()
+    if leg is not None:
+        leg.get_frame().set_linewidth(AXIS_EDGE_LW)
+
+    ax.set_xlim(0.0, 8.4)
+    ax.set_ylim(0.0, 4.8)
+
+    fig.tight_layout()
+    ax_pos = ax.get_position()
+    cax_pos = cax.get_position()
+    new_h = ax_pos.height * 0.82
+    cax.set_position([cax_pos.x0, ax_pos.y0, cax_pos.width, new_h])
+    fig.savefig(outpath, bbox_inches="tight", facecolor="white", dpi=600)
+    plt.close(fig)
+
+
+def main() -> None:
+    grid_xlsx = resolve_grid_xlsx()
+    if not grid_xlsx.exists():
+        raise FileNotFoundError(
+            f"Missing annular-GP total-fluctuation workbook: {GP_GRID_XLSX}"
+        )
+
+    plot_vmax = compute_plot_vmax()
+    out_dir = resolve_out_dir()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for sheet_name in SHEETS:
+        x, y, sigma_total = load_gp_mean_sheet(
+            grid_xlsx,
+            f"{sheet_name}_annular_gp_total_fluc",
+        )
+        out_png = (
+            out_dir
+            / f"{sheet_name}_four_annular_gp_total_fluc_heatmap.png"
+        )
+        plot_continuous_heatmap(
+            x=x,
+            y=y,
+            w=sigma_total,
+            outpath=out_png,
+            plot_vmin=PLOT_VMIN,
+            plot_vmax=plot_vmax,
+            sheet_name=sheet_name,
+        )
+
+    print(f"Saved figures to: {out_dir.resolve()}")
+
+
+if __name__ == "__main__":
+    main()

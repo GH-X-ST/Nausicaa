@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+import numpy as np
 import pandas as pd
 
 import single_fan_gp as base_gp
@@ -58,6 +59,43 @@ SUMMARY_XLSX_PATH = OUT_DIR / "single_annular_gp_summary.xlsx"
 GRID_PRED_XLSX_PATH = OUT_DIR / "single_annular_gp_grid_predictions.xlsx"
 ANALYSIS_XLSX_PATH = Path("B_results/single_annular_gp_analysis.xlsx")
 ANALYSIS_SHEET_NAME = "single_annular_gp_analysis"
+
+
+def ensure_output_target_writable(path: Path) -> None:
+    """Fail fast if an output file cannot be written in-place."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        try:
+            with open(path, "ab"):
+                pass
+            return
+        except PermissionError as exc:
+            raise PermissionError(
+                "Output file is locked or not writable: "
+                f"{path}"
+            ) from exc
+
+    probe = path.parent / ".write_probe"
+    try:
+        with open(probe, "wb") as handle:
+            handle.write(b"")
+        probe.unlink()
+    except PermissionError as exc:
+        raise PermissionError(
+            "Output directory is locked or not writable: "
+            f"{path.parent}"
+        ) from exc
+
+
+def ensure_annular_gp_outputs_writable() -> None:
+    """Check all canonical annular-GP outputs before expensive fitting."""
+    for output_path in (
+        TRAIN_PRED_CSV_PATH,
+        SUMMARY_XLSX_PATH,
+        GRID_PRED_XLSX_PATH,
+        ANALYSIS_XLSX_PATH,
+    ):
+        ensure_output_target_writable(output_path)
 
 
 def build_tune_candidates() -> List[base_gp.GPTuneCandidate]:
@@ -240,6 +278,10 @@ def build_hyperparameter_table(
                 "value": float(SIGMA_FALLBACK),
             },
             {"parameter": "sigma_min_mps", "value": float(SIGMA_MIN)},
+            {
+                "parameter": "sigma_mapping_method",
+                "value": "annular_nearest_radius + z_pchip_hold_bounds",
+            },
             {"parameter": "alpha_jitter", "value": float(ALPHA_JITTER)},
             {
                 "parameter": "residual_length_scale_floors",
@@ -261,6 +303,10 @@ def build_hyperparameter_table(
             {"parameter": "grid_nx", "value": int(GRID_NX)},
             {"parameter": "grid_ny", "value": int(GRID_NY)},
             {
+                "parameter": "overall_fluctuation_rule",
+                "value": "sqrt(sigma_fluc_mps^2 + w_pred_std_mps^2)",
+            },
+            {
                 "parameter": "kernel_fitted",
                 "value": str(model.residual_gp_model.gp.kernel_),
             },
@@ -268,8 +314,33 @@ def build_hyperparameter_table(
     )
 
 
+def evaluate_grid_fluctuation_sigma(
+    sheet_name: str,
+    x_m: np.ndarray,
+    y_m: np.ndarray,
+    z_m: np.ndarray,
+) -> np.ndarray:
+    x_arr = np.asarray(x_m, dtype=float).ravel()
+    y_arr = np.asarray(y_m, dtype=float).ravel()
+    z_arr = np.asarray(z_m, dtype=float).ravel()
+    if z_arr.size == 0:
+        z_arr = np.full(x_arr.size, base_gp.parse_sheet_height_m(sheet_name))
+
+    return base_gp.evaluate_sigma_points_annular_pchip_z(
+        xlsx_path=XLSX_PATH,
+        sheet_names=SHEETS,
+        fan_center_xy=FAN_CENTER_XY,
+        x_pts=x_arr,
+        y_pts=y_arr,
+        z_pts=z_arr,
+        sigma_fallback=SIGMA_FALLBACK,
+        sigma_min=SIGMA_MIN,
+    )
+
+
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_annular_gp_outputs_writable()
 
     mean_model = SingleFanBEMTMeanModel.from_workbook(
         xlsx_path=MEAN_PARAMS_XLSX,
@@ -320,6 +391,11 @@ def main() -> None:
     )
 
     pred_df = make_training_prediction_table(model=model, train_df=train_df)
+    pred_df["sigma_fluc_mps"] = pred_df["sigma_mps"].to_numpy(dtype=float)
+    pred_df["sigma_total_mps"] = (
+        pred_df["sigma_fluc_mps"].to_numpy(dtype=float) ** 2
+        + pred_df["w_pred_std_mps"].to_numpy(dtype=float) ** 2
+    ) ** 0.5
     pred_df.to_csv(TRAIN_PRED_CSV_PATH, index=False)
 
     overall_metrics = base_gp.compute_regression_metrics(
@@ -372,6 +448,7 @@ def main() -> None:
         sheet_tag="annular_gp",
         grid_nx=GRID_NX,
         grid_ny=GRID_NY,
+        evaluate_fluctuation_sigma=evaluate_grid_fluctuation_sigma,
     )
     base_gp.write_tables_to_excel(GRID_PRED_XLSX_PATH, grid_tables)
 

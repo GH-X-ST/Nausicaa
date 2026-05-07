@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import matplotlib.pyplot as plt
+import cmocean.cm as cmocean
 
 import single_fan_gp_heat_map_main as base_plot
 
@@ -18,8 +18,8 @@ CBAR_TICK_STEP = 0.05
 
 
 def build_alpha_cmap():
-    """Return an opaque coolwarm colormap for std maps."""
-    return plt.get_cmap("coolwarm")
+    """Return an opaque cmocean curl colormap for std maps."""
+    return cmocean.curl
 
 
 def main() -> None:
@@ -40,14 +40,22 @@ def main() -> None:
             GP_GRID_XLSX,
             f"{sheet_name}_annular_gp_std",
         )
+        x_grid, y_grid = base_plot.build_continuous_grid(x, y)
+        w_dense = base_plot.interpolate_to_continuous_grid(
+            x,
+            y,
+            w_std,
+            x_grid,
+            y_grid,
+        )
         out_png = (
             OUT_DIR
             / f"{sheet_name}_single_annular_gp_std_heatmap_main.png"
         )
         base_plot.plot_continuous_heatmap(
-            x=x,
-            y=y,
-            w=w_std,
+            x=x_grid[0, :],
+            y=y_grid[:, 0],
+            w=w_dense,
             outpath=out_png,
         )
 

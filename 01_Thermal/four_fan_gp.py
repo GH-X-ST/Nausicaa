@@ -4,12 +4,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 import warnings
 
 import numpy as np
 import pandas as pd
+from scipy.interpolate import (
+    LinearNDInterpolator,
+    NearestNDInterpolator,
+    PchipInterpolator,
+)
+from scipy.spatial import QhullError
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import (
@@ -22,11 +29,7 @@ from sklearn.gaussian_process.kernels import (
 from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
 
-from single_fan_annuli_cut import (
-    assign_sigma_bins_nearest,
-    parse_ts_points_and_sigmas,
-    read_slice_from_sheet,
-)
+from single_fan_annuli_cut import read_slice_from_sheet
 
 
 ### User settings
@@ -56,10 +59,6 @@ ALPHA_SCALE = 1.0
 SIGMA_FALLBACK = 0.14
 SIGMA_MIN = 0.03
 ALPHA_JITTER = 1e-8
-OVERLAP_RATIO_THRESHOLD = 1.25
-OVERLAP_WEIGHT_POWER = 2.0
-OVERLAP_SIGMA_BOOST = 1.12
-
 # GP optimizer settings.
 N_RESTARTS_OPTIMIZER = 4
 RANDOM_STATE = 42
@@ -171,6 +170,212 @@ def parse_sheet_height_m(sheet_name: str) -> float:
     return int(suffix) / SHEET_HEIGHT_DIVISOR
 
 
+@lru_cache(maxsize=None)
+def load_ts_sigma_planes(
+    xlsx_path: str,
+    sheet_names: Tuple[str, ...],
+) -> Tuple[np.ndarray, Tuple[Tuple[np.ndarray, np.ndarray, np.ndarray] | None, ...]]:
+    """
+    Cache representative fluctuation points for all measured z planes.
+    """
+    z_list: List[float] = []
+    parsed_list: List[Tuple[np.ndarray, np.ndarray, np.ndarray] | None] = []
+
+    for sheet_name in sheet_names:
+        z_list.append(parse_sheet_height_m(sheet_name))
+        parsed_list.append(
+            parse_ts_xy_points_and_sigmas(
+                xlsx_path=xlsx_path,
+                ts_sheet_name=f"{sheet_name}_TS",
+            )
+        )
+
+    order = np.argsort(np.asarray(z_list, dtype=float))
+    z_axis = np.asarray([z_list[idx] for idx in order], dtype=float)
+    parsed_sorted = tuple(parsed_list[idx] for idx in order)
+    return z_axis, parsed_sorted
+
+
+def _cell_is_str(df: pd.DataFrame, r_idx: int, c_idx: int, text: str) -> bool:
+    """Case-insensitive equality test for a sheet cell against a string."""
+    val = df.iat[r_idx, c_idx]
+    return isinstance(val, str) and val.strip().lower() == text.strip().lower()
+
+
+def _first_numeric_below(
+    df: pd.DataFrame,
+    r_idx: int,
+    c_idx: int,
+) -> Optional[float]:
+    """Return the first finite numeric value below a sheet cell."""
+    col = pd.to_numeric(
+        df.iloc[r_idx + 1 :, c_idx],
+        errors="coerce",
+    ).to_numpy(dtype=float)
+    col = col[np.isfinite(col)]
+    if col.size == 0:
+        return None
+    return float(col[0])
+
+
+def parse_ts_points_and_sigmas(
+    xlsx_path: str,
+    ts_sheet_name: str,
+    fan_center_xy: Tuple[float, float],
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """
+    Parse representative-point radii and sigmas from a *_TS sheet.
+    """
+    try:
+        df = pd.read_excel(xlsx_path, sheet_name=ts_sheet_name, header=None)
+    except Exception:
+        return None
+
+    xc, yc = fan_center_xy
+    r_points: List[float] = []
+    sigma_points: List[float] = []
+
+    for r_idx in range(df.shape[0]):
+        for c_idx in range(df.shape[1]):
+            if not _cell_is_str(df, r_idx, c_idx, "variance"):
+                continue
+
+            x_col = None
+            if (
+                c_idx >= 5
+                and _cell_is_str(df, r_idx, c_idx - 5, "x")
+                and _cell_is_str(df, r_idx, c_idx - 4, "y")
+            ):
+                x_col = c_idx - 5
+            else:
+                left_start = max(0, c_idx - 12)
+                for cc in range(c_idx - 1, left_start - 1, -1):
+                    if (
+                        _cell_is_str(df, r_idx, cc, "x")
+                        and cc + 1 < df.shape[1]
+                        and _cell_is_str(df, r_idx, cc + 1, "y")
+                    ):
+                        x_col = cc
+                        break
+
+            if x_col is None or r_idx + 1 >= df.shape[0]:
+                continue
+
+            x_val = pd.to_numeric(df.iat[r_idx + 1, x_col], errors="coerce")
+            y_val = pd.to_numeric(df.iat[r_idx + 1, x_col + 1], errors="coerce")
+            if not np.isfinite(x_val) or not np.isfinite(y_val):
+                continue
+
+            var_val = _first_numeric_below(df, r_idx, c_idx)
+            if var_val is None or not np.isfinite(var_val) or var_val <= 0.0:
+                continue
+
+            sigma_points.append(float(np.sqrt(var_val)))
+            r_points.append(
+                float(np.sqrt((float(x_val) - float(xc)) ** 2 + (float(y_val) - float(yc)) ** 2))
+            )
+
+    if not r_points:
+        return None
+
+    r_arr = np.asarray(r_points, dtype=float)
+    sigma_arr = np.asarray(sigma_points, dtype=float)
+    order = np.argsort(r_arr)
+    return r_arr[order], sigma_arr[order]
+
+
+def parse_ts_xy_points_and_sigmas(
+    xlsx_path: str,
+    ts_sheet_name: str,
+) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """
+    Parse representative-point coordinates and sigmas from one *_TS sheet.
+
+    Each recognised block contributes one representative point:
+      - x_p, y_p from the first data row below the header row
+      - sigma_p = sqrt(variance_p)
+    """
+    try:
+        df = pd.read_excel(xlsx_path, sheet_name=ts_sheet_name, header=None)
+    except Exception:
+        return None
+
+    x_points: List[float] = []
+    y_points: List[float] = []
+    sigma_points: List[float] = []
+
+    for r_idx in range(df.shape[0]):
+        for c_idx in range(df.shape[1]):
+            if not _cell_is_str(df, r_idx, c_idx, "variance"):
+                continue
+
+            x_col = None
+            if (
+                c_idx >= 5
+                and _cell_is_str(df, r_idx, c_idx - 5, "x")
+                and _cell_is_str(df, r_idx, c_idx - 4, "y")
+            ):
+                x_col = c_idx - 5
+            else:
+                left_start = max(0, c_idx - 12)
+                for cc in range(c_idx - 1, left_start - 1, -1):
+                    if (
+                        _cell_is_str(df, r_idx, cc, "x")
+                        and cc + 1 < df.shape[1]
+                        and _cell_is_str(df, r_idx, cc + 1, "y")
+                    ):
+                        x_col = cc
+                        break
+
+            if x_col is None or r_idx + 1 >= df.shape[0]:
+                continue
+
+            x_val = pd.to_numeric(df.iat[r_idx + 1, x_col], errors="coerce")
+            y_val = pd.to_numeric(
+                df.iat[r_idx + 1, x_col + 1],
+                errors="coerce",
+            )
+            if not np.isfinite(x_val) or not np.isfinite(y_val):
+                continue
+
+            var_val = _first_numeric_below(df, r_idx, c_idx)
+            if var_val is None or not np.isfinite(var_val) or var_val <= 0.0:
+                continue
+
+            x_points.append(float(x_val))
+            y_points.append(float(y_val))
+            sigma_points.append(float(np.sqrt(var_val)))
+
+    if not x_points:
+        return None
+
+    x_arr = np.asarray(x_points, dtype=float)
+    y_arr = np.asarray(y_points, dtype=float)
+    sigma_arr = np.asarray(sigma_points, dtype=float)
+    order = np.lexsort((y_arr, x_arr))
+    return x_arr[order], y_arr[order], sigma_arr[order]
+
+
+def assign_sigma_bins_nearest(
+    r_bins: np.ndarray,
+    r_points: np.ndarray,
+    sigma_points: np.ndarray,
+    sigma_fallback: float,
+    sigma_min: float,
+) -> np.ndarray:
+    """
+    Assign sigma to each radius value by nearest-radius mapping.
+    """
+    if r_points.size == 0 or sigma_points.size == 0:
+        sigma_bins = np.full_like(r_bins, float(sigma_fallback), dtype=float)
+        return np.maximum(sigma_bins, float(sigma_min))
+
+    diffs = np.abs(r_bins[:, None] - r_points[None, :])
+    idx = np.argmin(diffs, axis=1)
+    sigma_bins = sigma_points[idx].astype(float)
+    return np.maximum(sigma_bins, float(sigma_min))
+
+
 def build_feature_matrix(
     x_m: np.ndarray,
     y_m: np.ndarray,
@@ -262,6 +467,51 @@ def build_gp_kernel(n_features: int, kernel_family: str):
     )
 
 
+def assign_sigma_points_linear_nearest(
+    x_pts: np.ndarray,
+    y_pts: np.ndarray,
+    rep_x: np.ndarray,
+    rep_y: np.ndarray,
+    rep_sigma: np.ndarray,
+    sigma_fallback: float,
+    sigma_min: float,
+) -> np.ndarray:
+    """
+    Interpolate sigma in x-y with linear interpolation inside the TS-point
+    convex hull and nearest-neighbour extrapolation outside it.
+    """
+    query_x = np.asarray(x_pts, dtype=float).ravel()
+    query_y = np.asarray(y_pts, dtype=float).ravel()
+
+    if rep_sigma.size == 0:
+        sigma_out = np.full(query_x.size, float(sigma_fallback), dtype=float)
+        return np.maximum(sigma_out, float(sigma_min))
+
+    if rep_sigma.size == 1:
+        sigma_out = np.full(query_x.size, float(rep_sigma[0]), dtype=float)
+        return np.maximum(sigma_out, float(sigma_min))
+
+    points = np.column_stack([rep_x, rep_y])
+    queries = np.column_stack([query_x, query_y])
+
+    nearest_interp = NearestNDInterpolator(points, rep_sigma)
+    sigma_out = np.asarray(nearest_interp(queries), dtype=float)
+
+    if rep_sigma.size >= 3:
+        try:
+            linear_interp = LinearNDInterpolator(points, rep_sigma, fill_value=np.nan)
+            sigma_linear = np.asarray(linear_interp(queries), dtype=float)
+            linear_mask = np.isfinite(sigma_linear)
+            sigma_out[linear_mask] = sigma_linear[linear_mask]
+        except (QhullError, ValueError):
+            pass
+
+    sigma_low = max(float(sigma_min), float(np.nanmin(rep_sigma)))
+    sigma_high = float(np.nanmax(rep_sigma))
+    sigma_out = np.clip(sigma_out, sigma_low, sigma_high)
+    return np.maximum(sigma_out, float(sigma_min))
+
+
 def assign_sigma_with_overlap_logic(
     xlsx_path: str,
     ts_sheet_name: str,
@@ -271,86 +521,233 @@ def assign_sigma_with_overlap_logic(
     sigma_min: float,
 ) -> np.ndarray:
     """
-    Four-fan uncertainty mapping:
-      1) nearest-fan radial sigma profile
-      2) overlap blend with second-nearest fan profile when fans are comparably close
+    Four-fan uncertainty mapping from local *_TS representative points.
+
+    Use linear interpolation inside the TS-point convex hull and nearest
+    extrapolation outside it, so the fluctuation field stays local without
+    inventing long-range radial smearing.
     """
-    fan_xy = np.asarray(FOUR_FAN_CENTERS_XY, dtype=float)
-    n_fans = fan_xy.shape[0]
-    n_samples = x_pts.size
-
-    fan_profiles: List[Tuple[np.ndarray, np.ndarray]] = []
-    for fan_idx in range(n_fans):
-        parsed = parse_ts_points_and_sigmas(
-            xlsx_path=xlsx_path,
-            ts_sheet_name=ts_sheet_name,
-            fan_center_xy=(float(fan_xy[fan_idx, 0]), float(fan_xy[fan_idx, 1])),
-        )
-        if parsed is None:
-            fan_profiles.append(
-                (np.asarray([], dtype=float), np.asarray([], dtype=float))
-            )
-        else:
-            fan_profiles.append(parsed)
-
-    d_sample_fan = np.sqrt(
-        (x_pts[:, None] - fan_xy[None, :, 0]) ** 2
-        + (y_pts[:, None] - fan_xy[None, :, 1]) ** 2
+    parsed = parse_ts_xy_points_and_sigmas(
+        xlsx_path=xlsx_path,
+        ts_sheet_name=ts_sheet_name,
     )
-    nearest_idx = np.argmin(d_sample_fan, axis=1)
-    nearest_r = d_sample_fan[np.arange(n_samples), nearest_idx]
+    if parsed is None:
+        sigma_arr = np.full(x_pts.size, float(sigma_fallback), dtype=float)
+        return np.maximum(sigma_arr, float(sigma_min))
 
-    sigma_primary = np.full(n_samples, float(sigma_fallback), dtype=float)
-    for fan_idx in range(n_fans):
-        mask = nearest_idx == fan_idx
-        if not np.any(mask):
+    rep_x, rep_y, rep_sigma = parsed
+    return assign_sigma_points_linear_nearest(
+        x_pts=x_pts,
+        y_pts=y_pts,
+        rep_x=rep_x,
+        rep_y=rep_y,
+        rep_sigma=rep_sigma,
+        sigma_fallback=sigma_fallback,
+        sigma_min=sigma_min,
+    )
+
+
+def evaluate_sigma_points_pchip_z(
+    xlsx_path: str,
+    sheet_names: Sequence[str],
+    x_pts: np.ndarray,
+    y_pts: np.ndarray,
+    z_pts: np.ndarray,
+    sigma_fallback: float,
+    sigma_min: float,
+) -> np.ndarray:
+    """
+    Evaluate fluctuation sigma continuously in z.
+
+    For each measured plane, sigma is assigned in x-y using the local
+    representative TS points. The per-point values across z are then blended
+    with PCHIP, while heights outside the measured range hold the nearest
+    measured plane.
+    """
+    x_arr = np.asarray(x_pts, dtype=float).ravel()
+    y_arr = np.asarray(y_pts, dtype=float).ravel()
+    z_arr = np.asarray(z_pts, dtype=float).ravel()
+    if not (x_arr.size == y_arr.size == z_arr.size):
+        raise ValueError("x_pts, y_pts, z_pts must have the same number of samples.")
+
+    z_axis, parsed_planes = load_ts_sigma_planes(
+        str(xlsx_path),
+        tuple(str(sheet) for sheet in sheet_names),
+    )
+    sigma_planes = np.empty((z_axis.size, x_arr.size), dtype=float)
+
+    for idx, parsed in enumerate(parsed_planes):
+        if parsed is None:
+            sigma_planes[idx] = np.full(
+                x_arr.size,
+                float(sigma_fallback),
+                dtype=float,
+            )
             continue
-        r_points, sigma_points = fan_profiles[fan_idx]
-        sigma_primary[mask] = assign_sigma_bins_nearest(
-            r_bins=nearest_r[mask],
-            r_points=r_points,
-            sigma_points=sigma_points,
+
+        rep_x, rep_y, rep_sigma = parsed
+        sigma_planes[idx] = assign_sigma_points_linear_nearest(
+            x_pts=x_arr,
+            y_pts=y_arr,
+            rep_x=rep_x,
+            rep_y=rep_y,
+            rep_sigma=rep_sigma,
             sigma_fallback=sigma_fallback,
             sigma_min=sigma_min,
         )
 
-    if n_fans < 2:
-        return np.maximum(sigma_primary, float(sigma_min))
+    if z_axis.size == 1:
+        return np.maximum(sigma_planes[0], float(sigma_min))
 
-    order = np.argsort(d_sample_fan, axis=1)
-    second_idx = order[:, 1]
-    second_r = d_sample_fan[np.arange(n_samples), second_idx]
+    z_eval = np.clip(z_arr, float(z_axis[0]), float(z_axis[-1]))
+    interp = PchipInterpolator(z_axis, sigma_planes, axis=0, extrapolate=False)
+    sigma_out = np.empty_like(z_eval, dtype=float)
+    for z_val in np.unique(z_eval):
+        sigma_at_z = np.asarray(interp(float(z_val)), dtype=float).reshape(-1)
+        mask = np.isclose(z_eval, float(z_val), rtol=0.0, atol=1e-12)
+        sigma_out[mask] = sigma_at_z[mask]
 
-    overlap_ratio = second_r / np.maximum(nearest_r, 1e-9)
-    overlap_mask = overlap_ratio <= float(OVERLAP_RATIO_THRESHOLD)
-    if not np.any(overlap_mask):
-        return np.maximum(sigma_primary, float(sigma_min))
+    sigma_low = np.maximum(float(sigma_min), np.min(sigma_planes, axis=0))
+    sigma_high = np.max(sigma_planes, axis=0)
+    sigma_out = np.clip(sigma_out, sigma_low, sigma_high)
+    return np.maximum(sigma_out, float(sigma_min))
 
-    overlap_rows = np.where(overlap_mask)[0]
-    sigma_second = np.full(overlap_rows.size, float(sigma_fallback), dtype=float)
-    for fan_idx in range(n_fans):
-        mask_local = second_idx[overlap_rows] == fan_idx
-        if not np.any(mask_local):
-            continue
-        r_points, sigma_points = fan_profiles[fan_idx]
-        sigma_second[mask_local] = assign_sigma_bins_nearest(
-            r_bins=second_r[overlap_rows][mask_local],
-            r_points=r_points,
-            sigma_points=sigma_points,
-            sigma_fallback=sigma_fallback,
-            sigma_min=sigma_min,
-        )
 
-    r1 = np.maximum(nearest_r[overlap_rows], 1e-9)
-    r2 = np.maximum(second_r[overlap_rows], 1e-9)
-    w1 = 1.0 / (r1 ** float(OVERLAP_WEIGHT_POWER))
-    w2 = 1.0 / (r2 ** float(OVERLAP_WEIGHT_POWER))
-    sigma_blend = (w1 * sigma_primary[overlap_rows] + w2 * sigma_second) / (w1 + w2)
-    sigma_blend = np.maximum(sigma_blend, sigma_primary[overlap_rows])
-    sigma_blend *= float(OVERLAP_SIGMA_BOOST)
+@lru_cache(maxsize=None)
+def load_ts_radial_sigma_planes(
+    xlsx_path: str,
+    sheet_names: Tuple[str, ...],
+    fan_centers_xy: Tuple[Tuple[float, float], ...],
+) -> Tuple[np.ndarray, Tuple[Tuple[Tuple[np.ndarray, np.ndarray] | None, ...], ...]]:
+    """
+    Cache per-fan radial representative fluctuation data for all z planes.
+    """
+    z_list: List[float] = []
+    plane_profiles: List[Tuple[Tuple[np.ndarray, np.ndarray] | None, ...]] = []
 
-    sigma_out = sigma_primary.copy()
-    sigma_out[overlap_rows] = sigma_blend
+    for sheet_name in sheet_names:
+        z_list.append(parse_sheet_height_m(sheet_name))
+        per_fan_profiles: List[Tuple[np.ndarray, np.ndarray] | None] = []
+        for fan_center_xy in fan_centers_xy:
+            per_fan_profiles.append(
+                parse_ts_points_and_sigmas(
+                    xlsx_path=xlsx_path,
+                    ts_sheet_name=f"{sheet_name}_TS",
+                    fan_center_xy=fan_center_xy,
+                )
+            )
+        plane_profiles.append(tuple(per_fan_profiles))
+
+    order = np.argsort(np.asarray(z_list, dtype=float))
+    z_axis = np.asarray([z_list[idx] for idx in order], dtype=float)
+    profiles_sorted = tuple(plane_profiles[idx] for idx in order)
+    return z_axis, profiles_sorted
+
+
+def evaluate_sigma_points_annular_blend_pchip_z(
+    xlsx_path: str,
+    sheet_names: Sequence[str],
+    fan_centers_xy: Sequence[Tuple[float, float]],
+    x_pts: np.ndarray,
+    y_pts: np.ndarray,
+    z_pts: np.ndarray,
+    sigma_fallback: float,
+    sigma_min: float,
+    blend_power: float = 2.0,
+    blend_epsilon_m: float = 0.05,
+    near_core_radius_m: float = FOUR_FAN_CORE_RADIUS_M + 0.05,
+) -> np.ndarray:
+    """
+    Evaluate four-fan annular empirical fluctuation sigma continuously in z.
+
+    Fans with near-core TS support retain their own radial fluctuation
+    profiles. Fans without near-core support inherit the average sampled-fan
+    profile. The four fan-centred profiles are then blended with smooth
+    inverse-distance weights in x-y and combined across z using PCHIP.
+    """
+    x_arr = np.asarray(x_pts, dtype=float).ravel()
+    y_arr = np.asarray(y_pts, dtype=float).ravel()
+    z_arr = np.asarray(z_pts, dtype=float).ravel()
+    if not (x_arr.size == y_arr.size == z_arr.size):
+        raise ValueError("x_pts, y_pts, z_pts must have the same number of samples.")
+
+    fan_xy = np.asarray(fan_centers_xy, dtype=float)
+    d_fan = np.sqrt(
+        (x_arr[:, None] - fan_xy[None, :, 0]) ** 2
+        + (y_arr[:, None] - fan_xy[None, :, 1]) ** 2
+    )
+    weights = (d_fan + float(blend_epsilon_m)) ** (-float(blend_power))
+    weights /= np.sum(weights, axis=1, keepdims=True)
+
+    z_axis, plane_profiles = load_ts_radial_sigma_planes(
+        str(xlsx_path),
+        tuple(str(sheet) for sheet in sheet_names),
+        tuple((float(xc), float(yc)) for xc, yc in fan_centers_xy),
+    )
+    sigma_planes = np.empty((z_axis.size, x_arr.size), dtype=float)
+
+    for z_idx, per_fan_profiles in enumerate(plane_profiles):
+        sigma_per_fan = np.empty((x_arr.size, fan_xy.shape[0]), dtype=float)
+        sampled_profiles: List[Tuple[np.ndarray, np.ndarray]] = []
+        for fan_idx, parsed in enumerate(per_fan_profiles):
+            if parsed is None:
+                continue
+
+            r_points, sigma_points = parsed
+            if np.min(r_points) <= float(near_core_radius_m):
+                sampled_profiles.append((r_points, sigma_points))
+
+        for fan_idx, parsed in enumerate(per_fan_profiles):
+            if parsed is None:
+                sigma_per_fan[:, fan_idx] = float(sigma_fallback)
+                continue
+
+            r_points, sigma_points = parsed
+            has_near_core = np.min(r_points) <= float(near_core_radius_m)
+            if has_near_core or not sampled_profiles:
+                sigma_per_fan[:, fan_idx] = assign_sigma_bins_nearest(
+                    r_bins=d_fan[:, fan_idx],
+                    r_points=r_points,
+                    sigma_points=sigma_points,
+                    sigma_fallback=sigma_fallback,
+                    sigma_min=sigma_min,
+                )
+                continue
+
+            inherited_sigma = np.empty(
+                (x_arr.size, len(sampled_profiles)),
+                dtype=float,
+            )
+            for profile_idx, sampled_profile in enumerate(sampled_profiles):
+                sampled_r, sampled_sigma = sampled_profile
+                inherited_sigma[:, profile_idx] = assign_sigma_bins_nearest(
+                    r_bins=d_fan[:, fan_idx],
+                    r_points=sampled_r,
+                    sigma_points=sampled_sigma,
+                    sigma_fallback=sigma_fallback,
+                    sigma_min=sigma_min,
+                )
+            sigma_per_fan[:, fan_idx] = np.maximum(
+                np.mean(inherited_sigma, axis=1),
+                float(sigma_min),
+            )
+
+        sigma_planes[z_idx] = np.sum(weights * sigma_per_fan, axis=1)
+
+    if z_axis.size == 1:
+        return np.maximum(sigma_planes[0], float(sigma_min))
+
+    z_eval = np.clip(z_arr, float(z_axis[0]), float(z_axis[-1]))
+    interp = PchipInterpolator(z_axis, sigma_planes, axis=0, extrapolate=False)
+    sigma_out = np.empty_like(z_eval, dtype=float)
+    for z_val in np.unique(z_eval):
+        sigma_at_z = np.asarray(interp(float(z_val)), dtype=float).reshape(-1)
+        mask = np.isclose(z_eval, float(z_val), rtol=0.0, atol=1e-12)
+        sigma_out[mask] = sigma_at_z[mask]
+
+    sigma_low = np.maximum(float(sigma_min), np.min(sigma_planes, axis=0))
+    sigma_high = np.max(sigma_planes, axis=0)
+    sigma_out = np.clip(sigma_out, sigma_low, sigma_high)
     return np.maximum(sigma_out, float(sigma_min))
 
 
@@ -1149,9 +1546,10 @@ def main() -> None:
             {"parameter": "fan_center_y_m", "value": float(FAN_CENTER_XY[1])},
             {"parameter": "four_fan_centers_xy", "value": str(FOUR_FAN_CENTERS_XY)},
             {"parameter": "four_fan_core_radius_m", "value": float(FOUR_FAN_CORE_RADIUS_M)},
-            {"parameter": "overlap_ratio_threshold", "value": float(OVERLAP_RATIO_THRESHOLD)},
-            {"parameter": "overlap_weight_power", "value": float(OVERLAP_WEIGHT_POWER)},
-            {"parameter": "overlap_sigma_boost", "value": float(OVERLAP_SIGMA_BOOST)},
+            {
+                "parameter": "sigma_mapping_method",
+                "value": "xy_linear_inside_hull_nearest_outside",
+            },
             {"parameter": "feature_mode", "value": selected_candidate.feature_mode},
             {"parameter": "kernel_family", "value": selected_candidate.kernel_family},
             {"parameter": "alpha_scale", "value": float(selected_candidate.alpha_scale)},

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
-from typing import Dict, List, Protocol, Sequence, Tuple
+from typing import Callable, Dict, List, Protocol, Sequence, Tuple
 import warnings
 
 import numpy as np
@@ -756,6 +756,11 @@ def make_grid_prediction_tables(
     sheet_tag: str,
     grid_nx: int | None = None,
     grid_ny: int | None = None,
+    evaluate_fluctuation_sigma: Callable[
+        [str, np.ndarray, np.ndarray, np.ndarray],
+        np.ndarray,
+    ]
+    | None = None,
 ) -> Dict[str, pd.DataFrame]:
     tables: Dict[str, pd.DataFrame] = {}
     for sheet_name in sheet_names:
@@ -797,6 +802,28 @@ def make_grid_prediction_tables(
 
         tables[f"{sheet_name}_{sheet_tag}_mean"] = mean_df
         tables[f"{sheet_name}_{sheet_tag}_std"] = std_df
+
+        if evaluate_fluctuation_sigma is not None:
+            sigma_fluc = np.asarray(
+                evaluate_fluctuation_sigma(
+                    sheet_name,
+                    x_grid.ravel(),
+                    y_grid.ravel(),
+                    z_grid.ravel(),
+                ),
+                dtype=float,
+            ).reshape(x_grid.shape)
+            sigma_total = np.sqrt(
+                np.maximum(std_map, 0.0) ** 2 + sigma_fluc**2
+            )
+
+            fluc_df = pd.DataFrame(sigma_fluc, index=y_axis, columns=x_axis)
+            total_df = pd.DataFrame(sigma_total, index=y_axis, columns=x_axis)
+            fluc_df.index.name = "y/x"
+            total_df.index.name = "y/x"
+
+            tables[f"{sheet_name}_{sheet_tag}_fluc"] = fluc_df
+            tables[f"{sheet_name}_{sheet_tag}_total_fluc"] = total_df
 
     return tables
 

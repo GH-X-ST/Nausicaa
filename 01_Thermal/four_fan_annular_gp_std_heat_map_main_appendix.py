@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import cmocean.cm as cmocean
 import matplotlib.pyplot as plt
 
 import four_fan_annular_gp_heat_map_main_appendix as base_plot
@@ -18,8 +19,8 @@ CBAR_TICK_STEP = 0.05
 
 
 def build_alpha_cmap():
-    """Return an opaque coolwarm colormap for std maps."""
-    return plt.get_cmap("coolwarm")
+    """Return an opaque cmocean curl colormap for std maps."""
+    return cmocean.curl
 
 
 def main() -> None:

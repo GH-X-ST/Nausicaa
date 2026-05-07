@@ -20,7 +20,7 @@ LEGEND_BORDERPAD = 0.5
 LEGEND_LABEL_SPACING = 0.4
 # Manual y-axis limits per plot
 WRMSE_Y_LIMITS = (0.0, 0.60)
-SAE_Y_LIMITS = (0.0, 50.0)
+SAE_Y_LIMITS = (0.0, 40.0)
 
 
 MODEL_SPECS = [

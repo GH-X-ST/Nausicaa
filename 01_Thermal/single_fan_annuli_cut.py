@@ -17,6 +17,8 @@ from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
+from scipy.spatial import QhullError
 
 
 ### User settings
@@ -177,6 +179,71 @@ def parse_ts_points_and_sigmas(
     return r_arr[order], sigma_arr[order]
 
 
+def parse_ts_xy_points_and_sigmas(
+    xlsx_path: str,
+    ts_sheet_name: str,
+) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """
+    Parse representative-point coordinates and sigmas from a *_TS sheet.
+    """
+    try:
+        df = pd.read_excel(xlsx_path, sheet_name=ts_sheet_name, header=None)
+    except Exception:
+        return None
+
+    x_points = []
+    y_points = []
+    sigma_points = []
+
+    for r_idx in range(df.shape[0]):
+        for c_idx in range(df.shape[1]):
+            if not _cell_is_str(df, r_idx, c_idx, "variance"):
+                continue
+
+            x_col = None
+            if (
+                c_idx >= 5
+                and _cell_is_str(df, r_idx, c_idx - 5, "x")
+                and _cell_is_str(df, r_idx, c_idx - 4, "y")
+            ):
+                x_col = c_idx - 5
+            else:
+                left_start = max(0, c_idx - 12)
+                for cc in range(c_idx - 1, left_start - 1, -1):
+                    if (
+                        _cell_is_str(df, r_idx, cc, "x")
+                        and cc + 1 < df.shape[1]
+                        and _cell_is_str(df, r_idx, cc + 1, "y")
+                    ):
+                        x_col = cc
+                        break
+
+            if x_col is None or r_idx + 1 >= df.shape[0]:
+                continue
+
+            x_val = pd.to_numeric(df.iat[r_idx + 1, x_col], errors="coerce")
+            y_val = pd.to_numeric(df.iat[r_idx + 1, x_col + 1], errors="coerce")
+            if not np.isfinite(x_val) or not np.isfinite(y_val):
+                continue
+
+            var_val = _first_numeric_below(df, r_idx, c_idx)
+            if var_val is None or not np.isfinite(var_val) or var_val <= 0.0:
+                continue
+
+            x_points.append(float(x_val))
+            y_points.append(float(y_val))
+            sigma_points.append(float(np.sqrt(var_val)))
+
+    if not x_points:
+        return None
+
+    x_arr = np.asarray(x_points, dtype=float)
+    y_arr = np.asarray(y_points, dtype=float)
+    sigma_arr = np.asarray(sigma_points, dtype=float)
+    order = np.lexsort((y_arr, x_arr))
+    return x_arr[order], y_arr[order], sigma_arr[order]
+
+
 def assign_sigma_bins_nearest(
     r_bins: np.ndarray,
     r_points: np.ndarray,
@@ -198,6 +265,93 @@ def assign_sigma_bins_nearest(
     sigma_bins = sigma_points[idx].astype(float)
 
     return np.maximum(sigma_bins, float(sigma_min))
+
+
+def assign_sigma_points_linear_nearest(
+    x_pts: np.ndarray,
+    y_pts: np.ndarray,
+    rep_x: np.ndarray,
+    rep_y: np.ndarray,
+    rep_sigma: np.ndarray,
+    sigma_fallback: float,
+    sigma_min: float,
+) -> np.ndarray:
+    """
+    Interpolate sigma in x-y with linear interpolation inside the TS-point
+    convex hull and nearest-neighbour extrapolation outside it.
+    """
+    query_x = np.asarray(x_pts, dtype=float).ravel()
+    query_y = np.asarray(y_pts, dtype=float).ravel()
+
+    if rep_sigma.size == 0:
+        sigma = np.full(query_x.size, float(sigma_fallback), dtype=float)
+        return np.maximum(sigma, float(sigma_min))
+
+    if rep_sigma.size == 1:
+        sigma = np.full(query_x.size, float(rep_sigma[0]), dtype=float)
+        return np.maximum(sigma, float(sigma_min))
+
+    points = np.column_stack([rep_x, rep_y])
+    queries = np.column_stack([query_x, query_y])
+
+    nearest_interp = NearestNDInterpolator(points, rep_sigma)
+    sigma = np.asarray(nearest_interp(queries), dtype=float)
+
+    if rep_sigma.size >= 3:
+        try:
+            linear_interp = LinearNDInterpolator(points, rep_sigma, fill_value=np.nan)
+            sigma_linear = np.asarray(linear_interp(queries), dtype=float)
+            linear_mask = np.isfinite(sigma_linear)
+            sigma[linear_mask] = sigma_linear[linear_mask]
+        except (QhullError, ValueError):
+            pass
+
+    sigma_low = max(float(sigma_min), float(np.nanmin(rep_sigma)))
+    sigma_high = float(np.nanmax(rep_sigma))
+    sigma = np.clip(sigma, sigma_low, sigma_high)
+    return np.maximum(sigma, float(sigma_min))
+
+
+def aggregate_sigma_to_annuli(
+    r_samples: np.ndarray,
+    sigma_samples: np.ndarray,
+    delta_r: float,
+    r_bins: np.ndarray,
+    sigma_fallback: float,
+    sigma_min: float,
+) -> np.ndarray:
+    """Aggregate sample-level sigma to annulus centers by annulus mean."""
+    mask = np.isfinite(r_samples) & np.isfinite(sigma_samples)
+    if not np.any(mask):
+        sigma_bins = np.full_like(r_bins, float(sigma_fallback), dtype=float)
+        return np.maximum(sigma_bins, float(sigma_min))
+
+    r_valid = r_samples[mask]
+    sigma_valid = sigma_samples[mask]
+    k = np.floor(r_valid / delta_r + 0.5).astype(int)
+    uniq_k = np.unique(k)
+
+    r_points = []
+    sigma_points = []
+    for kk in uniq_k:
+        in_bin = k == kk
+        sigma_b = sigma_valid[in_bin]
+        if sigma_b.size == 0:
+            continue
+        r_points.append(float(kk) * float(delta_r))
+        sigma_points.append(float(np.mean(sigma_b)))
+
+    if not r_points:
+        sigma_bins = np.full_like(r_bins, float(sigma_fallback), dtype=float)
+        return np.maximum(sigma_bins, float(sigma_min))
+
+    return assign_sigma_bins_nearest(
+        r_bins=r_bins,
+        r_points=np.asarray(r_points, dtype=float),
+        sigma_points=np.asarray(sigma_points, dtype=float),
+        sigma_fallback=sigma_fallback,
+        sigma_min=sigma_min,
+    )
 
 
 def make_radial_profile(
@@ -287,8 +441,16 @@ def build_annuli_profile(
 
     x_grid, y_grid = np.meshgrid(x, y)
     xc, yc = fan_center_xy
-    r = np.sqrt((x_grid - xc) ** 2 + (y_grid - yc) ** 2).ravel()
+    x_pts = x_grid.ravel()
+    y_pts = y_grid.ravel()
+    r = np.sqrt((x_pts - xc) ** 2 + (y_pts - yc) ** 2)
     w = W.ravel()
+
+    valid = np.isfinite(x_pts) & np.isfinite(y_pts) & np.isfinite(r) & np.isfinite(w)
+    x_pts = x_pts[valid]
+    y_pts = y_pts[valid]
+    r = r[valid]
+    w = w[valid]
 
     r_bins, w_bins, n_bins, alpha_bins = make_radial_profile(
         r=r,
@@ -298,21 +460,30 @@ def build_annuli_profile(
     )
 
     ts_sheet = f"{mean_sheet}_TS"
-    ts_parsed = parse_ts_points_and_sigmas(
+    ts_parsed = parse_ts_xy_points_and_sigmas(
         xlsx_path=xlsx_path,
         ts_sheet_name=ts_sheet,
-        fan_center_xy=fan_center_xy,
     )
 
     if ts_parsed is None:
         sigma_bins = np.full_like(r_bins, float(sigma_fallback), dtype=float)
         sigma_bins = np.maximum(sigma_bins, float(sigma_min))
     else:
-        r_points, sigma_points = ts_parsed
-        sigma_bins = assign_sigma_bins_nearest(
+        rep_x, rep_y, rep_sigma = ts_parsed
+        sigma_samples = assign_sigma_points_linear_nearest(
+            x_pts=x_pts,
+            y_pts=y_pts,
+            rep_x=rep_x,
+            rep_y=rep_y,
+            rep_sigma=rep_sigma,
+            sigma_fallback=sigma_fallback,
+            sigma_min=sigma_min,
+        )
+        sigma_bins = aggregate_sigma_to_annuli(
+            r_samples=r,
+            sigma_samples=sigma_samples,
+            delta_r=delta_r,
             r_bins=r_bins,
-            r_points=r_points,
-            sigma_points=sigma_points,
             sigma_fallback=sigma_fallback,
             sigma_min=sigma_min,
         )

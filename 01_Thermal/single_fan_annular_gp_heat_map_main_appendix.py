@@ -20,6 +20,7 @@ import matplotlib.colors as mcolors
 from matplotlib.ticker import FormatStrFormatter
 from matplotlib.patches import Circle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from scipy.interpolate import RegularGridInterpolator
 
 import cmocean  # https://matplotlib.org/cmocean
 
@@ -162,6 +163,38 @@ def build_continuous_grid(
     y_lin = np.linspace(y_min, y_max, GRID_NY, dtype=float)
     x_grid, y_grid = np.meshgrid(x_lin, y_lin)
     return x_grid, y_grid
+
+
+def interpolate_to_continuous_grid(
+    x: np.ndarray,
+    y: np.ndarray,
+    w: np.ndarray,
+    x_grid: np.ndarray,
+    y_grid: np.ndarray,
+) -> np.ndarray:
+    """Bilinearly interpolate a stored field onto the display grid."""
+    interp = RegularGridInterpolator(
+        (y, x),
+        w,
+        method="linear",
+        bounds_error=False,
+        fill_value=np.nan,
+    )
+    query = np.column_stack([y_grid.ravel(), x_grid.ravel()])
+    w_dense = interp(query).reshape(x_grid.shape)
+
+    if np.any(~np.isfinite(w_dense)):
+        interp_nn = RegularGridInterpolator(
+            (y, x),
+            w,
+            method="nearest",
+            bounds_error=False,
+            fill_value=0.0,
+        )
+        mask = ~np.isfinite(w_dense)
+        w_dense[mask] = interp_nn(query[mask.ravel()])
+
+    return np.asarray(w_dense, dtype=float)
 
 
 def load_gp_mean_sheet(
@@ -428,8 +461,12 @@ def plot_continuous_heatmap(
     Plot continuous model heat map using the same axis settings as
     annuli heat maps.
     """
-    x_edges = centers_to_edges(x)
-    y_edges = centers_to_edges(y)
+    x_grid, y_grid = build_continuous_grid(x, y)
+    w_dense = interpolate_to_continuous_grid(x, y, w_field, x_grid, y_grid)
+    x_plot = x_grid[0, :]
+    y_plot = y_grid[:, 0]
+    x_edges = centers_to_edges(x_plot)
+    y_edges = centers_to_edges(y_plot)
 
     plt.rcParams.update(
         {
@@ -451,7 +488,7 @@ def plot_continuous_heatmap(
     im = ax.pcolormesh(
         x_edges,
         y_edges,
-        w_field,
+        w_dense,
         shading="auto",
         cmap=cmap_alpha,
         vmin=PLOT_VMIN,

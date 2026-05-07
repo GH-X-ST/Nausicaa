@@ -32,6 +32,11 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 from scipy.optimize import least_squares
+import single_fan_gp as sigma_gp
+from single_fan_annuli_cut import (
+    assign_sigma_points_linear_nearest,
+    parse_ts_xy_points_and_sigmas,
+)
 
 
 ### User settings
@@ -776,23 +781,16 @@ def fit_azimuthal_for_sheet(
         else:
             sigma_samples = np.full_like(w_samples, float(sigma_fallback), dtype=float)
     else:
-        ts_sheet = f"{mean_sheet}_TS"
-        ts_parsed = parse_ts_points_and_sigmas(
+        sigma_samples = sigma_gp.evaluate_sigma_points_annular_pchip_z(
             xlsx_path=xlsx_path,
-            ts_sheet_name=ts_sheet,
+            sheet_names=tuple(SHEETS),
             fan_center_xy=fan_center_xy,
+            x_pts=x_samples,
+            y_pts=y_samples,
+            z_pts=np.full_like(x_samples, parse_sheet_height_m(mean_sheet), dtype=float),
+            sigma_fallback=sigma_fallback,
+            sigma_min=sigma_min,
         )
-        if ts_parsed is None:
-            sigma_samples = np.full_like(w_samples, float(sigma_fallback), dtype=float)
-        else:
-            r_points, sigma_points = ts_parsed
-            sigma_samples = assign_sigma_samples_nearest(
-                r_samples=r_samples,
-                r_points=r_points,
-                sigma_points=sigma_points,
-                sigma_fallback=sigma_fallback,
-                sigma_min=sigma_min,
-            )
 
     sigma_samples = np.maximum(sigma_samples, float(sigma_min))
     z_m = parse_sheet_height_m(mean_sheet)

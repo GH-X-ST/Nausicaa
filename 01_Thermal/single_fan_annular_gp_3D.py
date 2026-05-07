@@ -4,8 +4,7 @@ from pathlib import Path
 from typing import Sequence, Tuple
 
 import numpy as np
-
-import single_fan_gp_3D as base_3d
+from scipy.interpolate import PchipInterpolator
 
 
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -16,10 +15,63 @@ OUT_DIR = Path("A_figures/Single_Fan_Annular_GP")
 OUT_3D_NAME = "single_annular_gp_3d.png"
 
 
+def get_base_3d_module():
+    """
+    Lazy import of the shared GP-3D helpers.
+
+    The annular-GP 3D wrapper only needs the shared plotting utilities, and
+    this keeps the entry point focused on producing one standalone 3D figure.
+    """
+    import single_fan_gp_3D as base_3d
+
+    return base_3d
+
+
+def interpolate_stack_in_z_for_plot(
+    z_axis: np.ndarray,
+    w_stack: np.ndarray,
+    z_query: np.ndarray,
+) -> np.ndarray:
+    """
+    Fast, conservative plot-only interpolation in z.
+
+    Annular-GP grid sheets already contain dense x-y fields, so a vectorized
+    PCHIP interpolation in z is sufficient for visualization and avoids the
+    very expensive per-node 1D GP refits used by the generic GP 3D script.
+    Outside the measured z range, hold the nearest measured plane instead of
+    extrapolating the final field stack, which can create non-physical
+    high-altitude concentration artifacts.
+    """
+    z_axis = np.asarray(z_axis, dtype=float).reshape(-1)
+    z_query = np.asarray(z_query, dtype=float).reshape(-1)
+    if w_stack.shape[0] != z_axis.size:
+        raise ValueError(
+            f"w_stack first axis ({w_stack.shape[0]}) must equal len(z_axis) ({z_axis.size})."
+        )
+
+    z_min = float(np.min(z_axis))
+    z_max = float(np.max(z_axis))
+    z_eval = np.clip(z_query, z_min, z_max)
+
+    interp = PchipInterpolator(z_axis, w_stack, axis=0, extrapolate=False)
+    out = np.asarray(interp(z_eval), dtype=float)
+
+    low_mask = z_query < z_min
+    if np.any(low_mask):
+        out[low_mask, :, :] = w_stack[0]
+
+    high_mask = z_query > z_max
+    if np.any(high_mask):
+        out[high_mask, :, :] = w_stack[-1]
+
+    return np.maximum(out, 0.0)
+
+
 def load_annular_gp_stack(
     xlsx_path: Path,
     sheet_names: Sequence[str],
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    base_3d = get_base_3d_module()
     x_ref = None
     y_ref = None
     z_list = []
@@ -60,6 +112,7 @@ def load_annular_gp_stack(
 
 
 def main() -> None:
+    base_3d = get_base_3d_module()
     if not base_3d.MAKE_PLOTS:
         print("MAKE_PLOTS is False; nothing to do.")
         return
@@ -79,7 +132,7 @@ def main() -> None:
         z_grid.shape[2],
         dtype=float,
     )
-    w_stack_extrap = base_3d.extrapolate_stack_in_z_with_gp(
+    w_stack_extrap = interpolate_stack_in_z_for_plot(
         z_axis=z_axis,
         w_stack=w_stack,
         z_query=z_query,

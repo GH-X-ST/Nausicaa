@@ -27,6 +27,7 @@ import re
 
 import numpy as np
 import pandas as pd
+import four_fan_gp as sigma_gp
 
 from four_fan_annuli_cut import (
     assign_sigma_samples_with_overlap,
@@ -269,20 +270,15 @@ def main() -> None:
         if x_pts.size == 0:
             raise ValueError(f"No valid raw samples found in sheet '{sheet}'.")
 
-        # Assign sigma per point using nearest-fan mapping from *_TS
-        # with overlap-aware blending.
-        ts_sheet = f"{sheet}_TS"
-        sigma_pts = assign_sigma_samples_with_overlap(
+        sigma_pts = sigma_gp.evaluate_sigma_points_annular_blend_pchip_z(
             xlsx_path=XLSX_PATH,
-            ts_sheet_name=ts_sheet,
+            sheet_names=tuple(SHEETS),
+            fan_centers_xy=FOUR_FAN_CENTERS_XY,
             x_pts=x_pts,
             y_pts=y_pts,
-            fan_centers_xy=FOUR_FAN_CENTERS_XY,
+            z_pts=np.full_like(x_pts, parse_sheet_height_m(sheet), dtype=float),
             sigma_fallback=SIGMA_FALLBACK,
             sigma_min=SIGMA_MIN,
-            overlap_ratio_threshold=OVERLAP_RATIO_THRESHOLD,
-            overlap_weight_power=OVERLAP_WEIGHT_POWER,
-            overlap_sigma_boost=OVERLAP_SIGMA_BOOST,
         )
 
         w_pred = np.zeros_like(w_obs, dtype=float)

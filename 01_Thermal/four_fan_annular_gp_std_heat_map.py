@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import cmocean.cm as cmocean
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Circle
 from matplotlib.ticker import FormatStrFormatter
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from scipy.interpolate import RegularGridInterpolator
 
 from four_fan_gp_heat_map import load_gp_mean_sheet
 
@@ -28,6 +30,8 @@ AXIS_EDGE_LW = 0.80
 CBAR_EDGE_LW = AXIS_EDGE_LW
 GRID_COLOR = (0.85, 0.85, 0.85, 1.0)
 GRID_LINEWIDTH = 0.4
+DISPLAY_GRID_NX = 480
+DISPLAY_GRID_NY = 360
 
 FAN_OUTLET_POINTS = [
     (3.0, 3.6),
@@ -42,8 +46,8 @@ FAN_OUTLET_DASH = (0, (2, 2))
 
 
 def build_alpha_cmap():
-    """Return an opaque coolwarm colormap for std maps."""
-    return plt.get_cmap("coolwarm")
+    """Return an opaque cmocean curl colormap for std maps."""
+    return cmocean.curl
 
 
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
@@ -56,6 +60,48 @@ def centers_to_edges(c: np.ndarray) -> np.ndarray:
     edges[0] = c[0] - 0.5 * (c[1] - c[0])
     edges[-1] = c[-1] + 0.5 * (c[-1] - c[-2])
     return edges
+
+
+def build_display_grid(
+    x: np.ndarray,
+    y: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build a denser grid for display-only interpolation."""
+    x_dense = np.linspace(float(np.min(x)), float(np.max(x)), DISPLAY_GRID_NX)
+    y_dense = np.linspace(float(np.min(y)), float(np.max(y)), DISPLAY_GRID_NY)
+    return np.meshgrid(x_dense, y_dense)
+
+
+def interpolate_to_display_grid(
+    x: np.ndarray,
+    y: np.ndarray,
+    w: np.ndarray,
+    x_grid: np.ndarray,
+    y_grid: np.ndarray,
+) -> np.ndarray:
+    """Interpolate the stored field to a denser display grid only."""
+    interp = RegularGridInterpolator(
+        (y, x),
+        w,
+        method="linear",
+        bounds_error=False,
+        fill_value=np.nan,
+    )
+    query = np.column_stack([y_grid.ravel(), x_grid.ravel()])
+    w_dense = interp(query).reshape(x_grid.shape)
+
+    if np.any(~np.isfinite(w_dense)):
+        interp_nn = RegularGridInterpolator(
+            (y, x),
+            w,
+            method="nearest",
+            bounds_error=False,
+            fill_value=0.0,
+        )
+        mask = ~np.isfinite(w_dense)
+        w_dense[mask] = interp_nn(query[mask.ravel()])
+
+    return np.asarray(w_dense, dtype=float)
 
 
 def plot_continuous_heatmap(
@@ -201,11 +247,13 @@ def main() -> None:
             GP_GRID_XLSX,
             f"{sheet_name}_annular_gp_std",
         )
+        x_grid, y_grid = build_display_grid(x, y)
+        w_dense = interpolate_to_display_grid(x, y, w_std, x_grid, y_grid)
         out_png = OUT_DIR / f"{sheet_name}_four_annular_gp_std_heatmap.png"
         plot_continuous_heatmap(
-            x=x,
-            y=y,
-            w=w_std,
+            x=x_grid[0, :],
+            y=y_grid[:, 0],
+            w=w_dense,
             outpath=out_png,
             plot_vmin=PLOT_VMIN,
             plot_vmax=PLOT_VMAX,

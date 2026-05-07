@@ -21,7 +21,10 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 from scipy.interpolate import PchipInterpolator
+from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
 from scipy.optimize import least_squares
+from scipy.spatial import QhullError
+import four_fan_gp as sigma_gp
 
 
 ### User settings
@@ -66,7 +69,6 @@ PROFILE_USE_MEDIAN = False
 OVERLAP_RATIO_THRESHOLD = 1.10
 OVERLAP_WEIGHT_POWER = 3.0
 OVERLAP_SIGMA_BOOST = 1.00
-
 # Per-fan robust settings for one-shot joint optimization (12 parameters).
 # Tuned by exhaustive candidate search with SAE guardrail on 2026-02-18.
 FAN_ROBUST_LOSS = ("soft_l1", "soft_l1", "soft_l1", "soft_l1")
@@ -372,6 +374,69 @@ def parse_ts_points_and_sigmas(
     return r_arr[order], sigma_arr[order]
 
 
+def parse_ts_xy_points_and_sigmas(
+    xlsx_path: str,
+    ts_sheet_name: str,
+) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Parse representative-point coordinates and sigmas from a *_TS sheet."""
+    try:
+        df = pd.read_excel(xlsx_path, sheet_name=ts_sheet_name, header=None)
+    except Exception:
+        return None
+
+    x_points: List[float] = []
+    y_points: List[float] = []
+    sigma_points: List[float] = []
+
+    for r_idx in range(df.shape[0]):
+        for c_idx in range(df.shape[1]):
+            if not _cell_is_str(df, r_idx, c_idx, "variance"):
+                continue
+
+            x_col = None
+            if (
+                c_idx >= 5
+                and _cell_is_str(df, r_idx, c_idx - 5, "x")
+                and _cell_is_str(df, r_idx, c_idx - 4, "y")
+            ):
+                x_col = c_idx - 5
+            else:
+                left_start = max(0, c_idx - 12)
+                for cc in range(c_idx - 1, left_start - 1, -1):
+                    if (
+                        _cell_is_str(df, r_idx, cc, "x")
+                        and cc + 1 < df.shape[1]
+                        and _cell_is_str(df, r_idx, cc + 1, "y")
+                    ):
+                        x_col = cc
+                        break
+
+            if x_col is None or r_idx + 1 >= df.shape[0]:
+                continue
+
+            x_val = pd.to_numeric(df.iat[r_idx + 1, x_col], errors="coerce")
+            y_val = pd.to_numeric(df.iat[r_idx + 1, x_col + 1], errors="coerce")
+            if not np.isfinite(x_val) or not np.isfinite(y_val):
+                continue
+
+            var_val = _first_numeric_below(df, r_idx, c_idx)
+            if var_val is None or not np.isfinite(var_val) or var_val <= 0.0:
+                continue
+
+            x_points.append(float(x_val))
+            y_points.append(float(y_val))
+            sigma_points.append(float(np.sqrt(var_val)))
+
+    if not x_points:
+        return None
+
+    x_arr = np.asarray(x_points, dtype=float)
+    y_arr = np.asarray(y_points, dtype=float)
+    sigma_arr = np.asarray(sigma_points, dtype=float)
+    order = np.lexsort((y_arr, x_arr))
+    return x_arr[order], y_arr[order], sigma_arr[order]
+
+
 def assign_sigma_bins_nearest(
     r_bins: np.ndarray,
     r_points: np.ndarray,
@@ -526,77 +591,46 @@ def assign_sigma_points_with_overlap(
     overlap_weight_power: float,
     overlap_sigma_boost: float,
 ) -> np.ndarray:
-    """Assign per-point sigma via nearest-fan mapping and overlap blending."""
-    n_samples = x_pts.size
-    n_fans = len(fan_centers_xy)
+    """Assign per-point sigma from local *_TS representative points in x-y."""
+    del fan_centers_xy
+    del overlap_ratio_threshold
+    del overlap_weight_power
+    del overlap_sigma_boost
 
-    fan_profiles: List[Tuple[np.ndarray, np.ndarray]] = []
-    for fan_center_xy in fan_centers_xy:
-        parsed = parse_ts_points_and_sigmas(
-            xlsx_path=xlsx_path,
-            ts_sheet_name=ts_sheet_name,
-            fan_center_xy=fan_center_xy,
-        )
-        if parsed is None:
-            fan_profiles.append((np.asarray([], dtype=float), np.asarray([], dtype=float)))
-        else:
-            fan_profiles.append(parsed)
-
-    nearest_idx, nearest_r, second_idx, second_r = nearest_and_second_fan_distances(
-        x_pts=x_pts,
-        y_pts=y_pts,
-        fan_centers_xy=fan_centers_xy,
+    parsed = parse_ts_xy_points_and_sigmas(
+        xlsx_path=xlsx_path,
+        ts_sheet_name=ts_sheet_name,
     )
+    if parsed is None:
+        sigma_arr = np.full(x_pts.size, float(sigma_fallback), dtype=float)
+        return np.maximum(sigma_arr, float(sigma_min))
 
-    sigma_primary = np.full(n_samples, float(sigma_fallback), dtype=float)
-    for fan_idx in range(n_fans):
-        mask = nearest_idx == fan_idx
-        if not np.any(mask):
-            continue
-        r_points, sigma_points = fan_profiles[fan_idx]
-        sigma_primary[mask] = assign_sigma_bins_nearest(
-            r_bins=nearest_r[mask],
-            r_points=r_points,
-            sigma_points=sigma_points,
-            sigma_fallback=sigma_fallback,
-            sigma_min=sigma_min,
-        )
+    rep_x, rep_y, rep_sigma = parsed
+    query_x = np.asarray(x_pts, dtype=float).ravel()
+    query_y = np.asarray(y_pts, dtype=float).ravel()
 
-    if n_fans < 2:
-        return np.maximum(sigma_primary, float(sigma_min))
+    if rep_sigma.size == 1:
+        sigma_out = np.full(query_x.size, float(rep_sigma[0]), dtype=float)
+        return np.maximum(sigma_out, float(sigma_min))
 
-    overlap_ratio = second_r / np.maximum(nearest_r, 1e-9)
-    overlap_mask = overlap_ratio <= float(overlap_ratio_threshold)
-    if not np.any(overlap_mask):
-        return np.maximum(sigma_primary, float(sigma_min))
+    points = np.column_stack([rep_x, rep_y])
+    queries = np.column_stack([query_x, query_y])
 
-    overlap_rows = np.where(overlap_mask)[0]
-    sigma_second = np.full(overlap_rows.size, float(sigma_fallback), dtype=float)
+    nearest_interp = NearestNDInterpolator(points, rep_sigma)
+    sigma_out = np.asarray(nearest_interp(queries), dtype=float)
 
-    for fan_idx in range(n_fans):
-        mask_local = second_idx[overlap_rows] == fan_idx
-        if not np.any(mask_local):
-            continue
-        r_points, sigma_points = fan_profiles[fan_idx]
-        sigma_second[mask_local] = assign_sigma_bins_nearest(
-            r_bins=second_r[overlap_rows][mask_local],
-            r_points=r_points,
-            sigma_points=sigma_points,
-            sigma_fallback=sigma_fallback,
-            sigma_min=sigma_min,
-        )
+    if rep_sigma.size >= 3:
+        try:
+            linear_interp = LinearNDInterpolator(points, rep_sigma, fill_value=np.nan)
+            sigma_linear = np.asarray(linear_interp(queries), dtype=float)
+            linear_mask = np.isfinite(sigma_linear)
+            sigma_out[linear_mask] = sigma_linear[linear_mask]
+        except (QhullError, ValueError):
+            pass
 
-    r1 = np.maximum(nearest_r[overlap_rows], 1e-9)
-    r2 = np.maximum(second_r[overlap_rows], 1e-9)
-    w1 = 1.0 / (r1 ** float(overlap_weight_power))
-    w2 = 1.0 / (r2 ** float(overlap_weight_power))
-
-    sigma_blend = (w1 * sigma_primary[overlap_rows] + w2 * sigma_second) / (w1 + w2)
-    sigma_blend = np.maximum(sigma_blend, sigma_primary[overlap_rows])
-    sigma_blend *= float(overlap_sigma_boost)
-
-    sigma_out = sigma_primary.copy()
-    sigma_out[overlap_rows] = sigma_blend
+    sigma_low = max(float(sigma_min), float(np.nanmin(rep_sigma)))
+    sigma_high = float(np.nanmax(rep_sigma))
+    sigma_out = np.clip(sigma_out, sigma_low, sigma_high)
     return np.maximum(sigma_out, float(sigma_min))
 
 
@@ -946,22 +980,15 @@ def prepare_fan_fit_data_for_height(
         fan_centers_xy=config.fan_centers_xy,
     )
 
-    ts_sheet = f"{sheet_name}_TS"
-    sigma_z = parse_ts_noise_scale(config.xlsx_path, ts_sheet)
-    if sigma_z is None:
-        sigma_z = config.sigma_z_fallback
-
-    sigma_pts = assign_sigma_points_with_overlap(
+    sigma_pts = sigma_gp.evaluate_sigma_points_annular_blend_pchip_z(
         xlsx_path=config.xlsx_path,
-        ts_sheet_name=ts_sheet,
+        sheet_names=MEAN_SHEETS,
+        fan_centers_xy=config.fan_centers_xy,
         x_pts=x_pts,
         y_pts=y_pts,
-        fan_centers_xy=config.fan_centers_xy,
-        sigma_fallback=float(sigma_z),
+        z_pts=np.full_like(x_pts, parse_sheet_height_m(sheet_name), dtype=float),
+        sigma_fallback=float(config.sigma_z_fallback),
         sigma_min=float(config.sigma_min),
-        overlap_ratio_threshold=config.overlap_ratio_threshold,
-        overlap_weight_power=config.overlap_weight_power,
-        overlap_sigma_boost=config.overlap_sigma_boost,
     )
 
     fan_data: List[dict] = []
@@ -987,7 +1014,7 @@ def prepare_fan_fit_data_for_height(
             sigma_samples=sigma_local,
             delta_r=config.profile_delta_r_m,
             r_bins=r_bins,
-            sigma_fallback=float(sigma_z),
+            sigma_fallback=float(config.sigma_z_fallback),
             sigma_min=float(config.sigma_min),
         )
 
@@ -1228,21 +1255,15 @@ def evaluate_joint_fit_on_raw_maps(
             + (y_pts[:, None] - fan_xy[None, :, 1]) ** 2
         )
 
-        ts_sheet = f"{sheet}_TS"
-        sigma_z = parse_ts_noise_scale(config.xlsx_path, ts_sheet)
-        if sigma_z is None:
-            sigma_z = config.sigma_z_fallback
-        sigma_pts = assign_sigma_points_with_overlap(
+        sigma_pts = sigma_gp.evaluate_sigma_points_annular_blend_pchip_z(
             xlsx_path=config.xlsx_path,
-            ts_sheet_name=ts_sheet,
+            sheet_names=MEAN_SHEETS,
+            fan_centers_xy=config.fan_centers_xy,
             x_pts=x_pts,
             y_pts=y_pts,
-            fan_centers_xy=config.fan_centers_xy,
-            sigma_fallback=float(sigma_z),
+            z_pts=np.full_like(x_pts, parse_sheet_height_m(sheet), dtype=float),
+            sigma_fallback=float(config.sigma_z_fallback),
             sigma_min=float(config.sigma_min),
-            overlap_ratio_threshold=config.overlap_ratio_threshold,
-            overlap_weight_power=config.overlap_weight_power,
-            overlap_sigma_boost=config.overlap_sigma_boost,
         )
         sigma_safe = np.maximum(sigma_pts, float(config.sigma_min))
 
@@ -1346,21 +1367,15 @@ def fit_all_heights_for_fan(
                 f"No samples are assigned to fan F{fan_idx + 1:02d} in sheet '{sheet}'."
             )
 
-        sigma_z = parse_ts_noise_scale(config.xlsx_path, ts_sheet)
-        if sigma_z is None:
-            sigma_z = config.sigma_z_fallback
-
-        sigma_pts = assign_sigma_points_with_overlap(
+        sigma_pts = sigma_gp.evaluate_sigma_points_annular_blend_pchip_z(
             xlsx_path=config.xlsx_path,
-            ts_sheet_name=ts_sheet,
+            sheet_names=MEAN_SHEETS,
+            fan_centers_xy=config.fan_centers_xy,
             x_pts=x_pts,
             y_pts=y_pts,
-            fan_centers_xy=config.fan_centers_xy,
-            sigma_fallback=float(sigma_z),
+            z_pts=np.full_like(x_pts, parse_sheet_height_m(sheet), dtype=float),
+            sigma_fallback=float(config.sigma_z_fallback),
             sigma_min=float(config.sigma_min),
-            overlap_ratio_threshold=config.overlap_ratio_threshold,
-            overlap_weight_power=config.overlap_weight_power,
-            overlap_sigma_boost=config.overlap_sigma_boost,
         )
 
         r_local = nearest_r[fan_mask]
@@ -1378,7 +1393,7 @@ def fit_all_heights_for_fan(
             sigma_samples=sigma_local,
             delta_r=config.profile_delta_r_m,
             r_bins=r_bins,
-            sigma_fallback=float(sigma_z),
+            sigma_fallback=float(config.sigma_z_fallback),
             sigma_min=float(config.sigma_min),
         )
 
@@ -1460,22 +1475,15 @@ def evaluate_fit_on_raw_maps_for_fan(
         r_local = nearest_r[fan_mask]
         w_local = w_obs[fan_mask]
 
-        ts_sheet = f"{sheet}_TS"
-        sigma_z = parse_ts_noise_scale(config.xlsx_path, ts_sheet)
-        if sigma_z is None:
-            sigma_z = config.sigma_z_fallback
-
-        sigma_all = assign_sigma_points_with_overlap(
+        sigma_all = sigma_gp.evaluate_sigma_points_annular_blend_pchip_z(
             xlsx_path=config.xlsx_path,
-            ts_sheet_name=ts_sheet,
+            sheet_names=MEAN_SHEETS,
+            fan_centers_xy=config.fan_centers_xy,
             x_pts=x_pts,
             y_pts=y_pts,
-            fan_centers_xy=config.fan_centers_xy,
-            sigma_fallback=float(sigma_z),
+            z_pts=np.full_like(x_pts, parse_sheet_height_m(sheet), dtype=float),
+            sigma_fallback=float(config.sigma_z_fallback),
             sigma_min=float(config.sigma_min),
-            overlap_ratio_threshold=config.overlap_ratio_threshold,
-            overlap_weight_power=config.overlap_weight_power,
-            overlap_sigma_boost=config.overlap_sigma_boost,
         )
         sigma_local = sigma_all[fan_mask]
 
@@ -1717,24 +1725,15 @@ def evaluate_fit_on_raw_maps(
         if x_pts.size == 0:
             raise ValueError(f"No valid raw samples found in sheet '{sheet}'.")
 
-        ts_sheet = f"{sheet}_TS"
-        sigma_z = parse_ts_noise_scale(
+        sigma_pts = sigma_gp.evaluate_sigma_points_annular_blend_pchip_z(
             xlsx_path=config.xlsx_path,
-            ts_sheet_name=ts_sheet,
-        )
-        if sigma_z is None:
-            sigma_z = config.sigma_z_fallback
-        sigma_pts = assign_sigma_points_with_overlap(
-            xlsx_path=config.xlsx_path,
-            ts_sheet_name=ts_sheet,
+            sheet_names=MEAN_SHEETS,
+            fan_centers_xy=config.fan_centers_xy,
             x_pts=x_pts,
             y_pts=y_pts,
-            fan_centers_xy=config.fan_centers_xy,
-            sigma_fallback=float(sigma_z),
+            z_pts=np.full_like(x_pts, parse_sheet_height_m(sheet), dtype=float),
+            sigma_fallback=float(config.sigma_z_fallback),
             sigma_min=1e-3,
-            overlap_ratio_threshold=config.overlap_ratio_threshold,
-            overlap_weight_power=config.overlap_weight_power,
-            overlap_sigma_boost=config.overlap_sigma_boost,
         )
 
         sigma_safe = np.maximum(sigma_pts, 1e-3)

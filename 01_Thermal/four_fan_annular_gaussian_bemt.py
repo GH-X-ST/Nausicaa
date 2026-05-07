@@ -27,6 +27,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 from scipy.optimize import least_squares
+import four_fan_gp as sigma_gp
 from four_fan_annuli_cut import (
     assign_sigma_samples_with_overlap as assign_sigma_samples_with_overlap_four,
     compute_nearest_fan_distances as compute_nearest_fan_distances_four,
@@ -778,7 +779,7 @@ def fit_azimuthal_for_sheet(
     Fit non-axisymmetric annular-Gaussian model for one mean sheet.
     """
     x, y, w_map = read_slice_from_sheet(xlsx_path, mean_sheet)
-    r_profile, w_profile, sigma_profile = load_annuli_profile_csv(
+    r_profile, w_profile, _sigma_profile = load_annuli_profile_csv(
         profile_dir=ANNULI_PROFILE_DIR,
         sheet_name=mean_sheet,
     )
@@ -800,45 +801,20 @@ def fit_azimuthal_for_sheet(
     if w_samples.size == 0:
         raise ValueError(f"No finite Cartesian samples in sheet '{mean_sheet}'.")
 
-    xc, yc = fan_center_xy
-    r_samples = np.sqrt((x_samples - xc) ** 2 + (y_samples - yc) ** 2)
-
-    # Prefer sigma from annuli profile output (single_fan_annuli_cut.py),
-    # then fall back to TS-derived nearest-radius mapping.
-    if sigma_profile is not None:
-        valid_sigma = (
-            np.isfinite(r_profile)
-            & np.isfinite(sigma_profile)
-            & (sigma_profile > 0.0)
-        )
-        if np.any(valid_sigma):
-            sigma_samples = assign_sigma_samples_nearest(
-                r_samples=r_samples,
-                r_points=r_profile[valid_sigma],
-                sigma_points=sigma_profile[valid_sigma],
-                sigma_fallback=sigma_fallback,
-                sigma_min=sigma_min,
-            )
-        else:
-            sigma_samples = np.full_like(w_samples, float(sigma_fallback), dtype=float)
-    else:
-        ts_sheet = f"{mean_sheet}_TS"
-        ts_parsed = parse_ts_points_and_sigmas(
-            xlsx_path=xlsx_path,
-            ts_sheet_name=ts_sheet,
-            fan_center_xy=fan_center_xy,
-        )
-        if ts_parsed is None:
-            sigma_samples = np.full_like(w_samples, float(sigma_fallback), dtype=float)
-        else:
-            r_points, sigma_points = ts_parsed
-            sigma_samples = assign_sigma_samples_nearest(
-                r_samples=r_samples,
-                r_points=r_points,
-                sigma_points=sigma_points,
-                sigma_fallback=sigma_fallback,
-                sigma_min=sigma_min,
-            )
+    sigma_samples = sigma_gp.evaluate_sigma_points_annular_blend_pchip_z(
+        xlsx_path=xlsx_path,
+        sheet_names=tuple(SHEETS),
+        fan_centers_xy=fan_centers_xy,
+        x_pts=x_samples,
+        y_pts=y_samples,
+        z_pts=np.full_like(
+            x_samples,
+            parse_sheet_height_m(mean_sheet),
+            dtype=float,
+        ),
+        sigma_fallback=sigma_fallback,
+        sigma_min=sigma_min,
+    )
 
     sigma_samples = np.maximum(sigma_samples, float(sigma_min))
     z_m = parse_sheet_height_m(mean_sheet)
@@ -1145,18 +1121,15 @@ def prepare_joint_fit_data_for_height(sheet_name: str, z_m: float) -> dict:
         fan_centers_xy=FOUR_FAN_CENTERS_XY,
     )
 
-    ts_sheet = f"{sheet_name}_TS"
-    sigma_pts = assign_sigma_samples_with_overlap_four(
+    sigma_pts = sigma_gp.evaluate_sigma_points_annular_blend_pchip_z(
         xlsx_path=XLSX_PATH,
-        ts_sheet_name=ts_sheet,
+        sheet_names=tuple(SHEETS),
+        fan_centers_xy=FOUR_FAN_CENTERS_XY,
         x_pts=x_pts,
         y_pts=y_pts,
-        fan_centers_xy=FOUR_FAN_CENTERS_XY,
+        z_pts=np.full_like(x_pts, parse_sheet_height_m(sheet_name), dtype=float),
         sigma_fallback=float(SIGMA_FALLBACK),
         sigma_min=float(SIGMA_MIN),
-        overlap_ratio_threshold=float(OVERLAP_RATIO_THRESHOLD),
-        overlap_weight_power=float(OVERLAP_WEIGHT_POWER),
-        overlap_sigma_boost=float(OVERLAP_SIGMA_BOOST),
     )
     sigma_safe = np.maximum(sigma_pts.astype(float), float(SIGMA_MIN))
 
@@ -1457,18 +1430,15 @@ def evaluate_joint_fit_on_raw_maps(
         r_all = np.sqrt(dx_all**2 + dy_all**2)
         theta_all = np.arctan2(dy_all, dx_all)
 
-        ts_sheet = f"{sheet_name}_TS"
-        sigma_pts = assign_sigma_samples_with_overlap_four(
+        sigma_pts = sigma_gp.evaluate_sigma_points_annular_blend_pchip_z(
             xlsx_path=XLSX_PATH,
-            ts_sheet_name=ts_sheet,
+            sheet_names=tuple(SHEETS),
+            fan_centers_xy=FOUR_FAN_CENTERS_XY,
             x_pts=x_pts,
             y_pts=y_pts,
-            fan_centers_xy=FOUR_FAN_CENTERS_XY,
+            z_pts=np.full_like(x_pts, parse_sheet_height_m(sheet_name), dtype=float),
             sigma_fallback=float(SIGMA_FALLBACK),
             sigma_min=float(SIGMA_MIN),
-            overlap_ratio_threshold=float(OVERLAP_RATIO_THRESHOLD),
-            overlap_weight_power=float(OVERLAP_WEIGHT_POWER),
-            overlap_sigma_boost=float(OVERLAP_SIGMA_BOOST),
         )
         sigma_safe = np.maximum(sigma_pts.astype(float), float(SIGMA_MIN))
 

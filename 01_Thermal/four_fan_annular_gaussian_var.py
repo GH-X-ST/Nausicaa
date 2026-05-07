@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import PchipInterpolator
 from scipy.optimize import least_squares
+import four_fan_gp as sigma_gp
 
 from four_fan_annuli_cut import (
     aggregate_sigma_to_annuli as aggregate_sigma_to_annuli_four,
@@ -731,10 +732,19 @@ def evaluate_fit_on_raw_maps(
         p = params_at_z(z_vals=z_vals, params=params, z_query=z_m)
 
         x_grid, y_grid, w_grid = load_mean_map(config.xlsx_path, sheet)
-        r_pts = np.sqrt((x_grid - xc) ** 2 + (y_grid - yc) ** 2).ravel()
+        x_pts = x_grid.ravel()
+        y_pts = y_grid.ravel()
+        r_pts = np.sqrt((x_pts - xc) ** 2 + (y_pts - yc) ** 2)
         w_obs = w_grid.ravel()
 
-        mask = np.isfinite(r_pts) & np.isfinite(w_obs)
+        mask = (
+            np.isfinite(x_pts)
+            & np.isfinite(y_pts)
+            & np.isfinite(r_pts)
+            & np.isfinite(w_obs)
+        )
+        x_pts = x_pts[mask]
+        y_pts = y_pts[mask]
         r_pts = r_pts[mask]
         w_obs = w_obs[mask]
 
@@ -742,25 +752,21 @@ def evaluate_fit_on_raw_maps(
             raise ValueError(f"No valid raw samples found in sheet '{sheet}'.")
 
         ts_sheet = f"{sheet}_TS"
-        ts_parsed = parse_ts_points_and_sigmas(
+        sigma_pts = sigma_gp.evaluate_sigma_points_annular_blend_pchip_z(
             xlsx_path=config.xlsx_path,
-            ts_sheet_name=ts_sheet,
-            fan_center_xy=config.fan_center_xy,
+            sheet_names=MEAN_SHEETS,
+            fan_centers_xy=config.fan_centers_xy,
+            x_pts=x_pts,
+            y_pts=y_pts,
+            z_pts=np.full_like(x_pts, parse_sheet_height_m(sheet), dtype=float),
+            sigma_fallback=config.sigma_z_fallback,
+            sigma_min=1e-3,
         )
-        if ts_parsed is None:
+        if sigma_pts.size == 0:
             sigma_z = parse_ts_noise_scale(config.xlsx_path, ts_sheet)
             if sigma_z is None:
                 sigma_z = config.sigma_z_fallback
             sigma_pts = np.full_like(r_pts, float(sigma_z), dtype=float)
-        else:
-            r_points, sigma_points = ts_parsed
-            sigma_pts = assign_sigma_bins_nearest(
-                r_bins=r_pts,
-                r_points=r_points,
-                sigma_points=sigma_points,
-                sigma_fallback=config.sigma_z_fallback,
-                sigma_min=1e-3,
-            )
 
         sigma_safe = np.maximum(sigma_pts, 1e-3)
         w_pred = ring_gaussian(
@@ -991,17 +997,15 @@ def prepare_fan_fit_data_for_height(
     if sigma_z is None:
         sigma_z = config.sigma_z_fallback
 
-    sigma_pts = assign_sigma_samples_with_overlap_four(
+    sigma_pts = sigma_gp.evaluate_sigma_points_annular_blend_pchip_z(
         xlsx_path=config.xlsx_path,
-        ts_sheet_name=ts_sheet,
+        sheet_names=MEAN_SHEETS,
+        fan_centers_xy=config.fan_centers_xy,
         x_pts=x_pts,
         y_pts=y_pts,
-        fan_centers_xy=config.fan_centers_xy,
-        sigma_fallback=float(sigma_z),
+        z_pts=np.full_like(x_pts, parse_sheet_height_m(sheet_name), dtype=float),
+        sigma_fallback=float(config.sigma_z_fallback),
         sigma_min=float(config.sigma_min),
-        overlap_ratio_threshold=config.overlap_ratio_threshold,
-        overlap_weight_power=config.overlap_weight_power,
-        overlap_sigma_boost=config.overlap_sigma_boost,
     )
 
     fan_data: List[dict] = []
@@ -1285,21 +1289,15 @@ def evaluate_joint_fit_on_raw_maps(
             + (y_pts[:, None] - fan_xy[None, :, 1]) ** 2
         )
 
-        ts_sheet = f"{sheet}_TS"
-        sigma_z = parse_ts_noise_scale(config.xlsx_path, ts_sheet)
-        if sigma_z is None:
-            sigma_z = config.sigma_z_fallback
-        sigma_pts = assign_sigma_samples_with_overlap_four(
+        sigma_pts = sigma_gp.evaluate_sigma_points_annular_blend_pchip_z(
             xlsx_path=config.xlsx_path,
-            ts_sheet_name=ts_sheet,
+            sheet_names=MEAN_SHEETS,
+            fan_centers_xy=config.fan_centers_xy,
             x_pts=x_pts,
             y_pts=y_pts,
-            fan_centers_xy=config.fan_centers_xy,
-            sigma_fallback=float(sigma_z),
+            z_pts=np.full_like(x_pts, parse_sheet_height_m(sheet), dtype=float),
+            sigma_fallback=float(config.sigma_z_fallback),
             sigma_min=float(config.sigma_min),
-            overlap_ratio_threshold=config.overlap_ratio_threshold,
-            overlap_weight_power=config.overlap_weight_power,
-            overlap_sigma_boost=config.overlap_sigma_boost,
         )
         sigma_safe = np.maximum(sigma_pts, float(config.sigma_min))
 
