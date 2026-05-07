@@ -1,0 +1,109 @@
+function [cmd, profileState] = Test_Deflection_Profile(tNowS, viconSample, config, profileState)
+%TEST_DEFLECTION_PROFILE Static one-surface sweep command provider.
+if nargin < 4 || isempty(profileState) || ~isfield(profileState, "isInitialized")
+    profileState = initializeProfile(config);
+end
+
+eventIndex = find(tNowS >= profileState.eventTable.scheduled_start_s & ...
+    tNowS < profileState.eventTable.scheduled_end_s, 1, "first");
+
+surfaceNorm = zeros(1, numel(config.surfaceOrder));
+eventId = NaN;
+activeSurfaceIndex = NaN;
+activeSurfaceName = "";
+commandLevelNorm = 0.0;
+description = "neutral";
+
+if ~isempty(eventIndex)
+    eventRow = profileState.eventTable(eventIndex, :);
+    eventId = eventRow.event_id;
+    activeSurfaceIndex = eventRow.surface_index;
+    activeSurfaceName = string(eventRow.surface_name);
+    commandLevelNorm = eventRow.command_level_norm;
+    surfaceNorm(activeSurfaceIndex) = commandLevelNorm;
+    description = "deflection_" + activeSurfaceName + "_" + string(commandLevelNorm);
+end
+
+cmd = struct( ...
+    "eventId", eventId, ...
+    "sequence", profileState.sequence, ...
+    "surfaceNorm", surfaceNorm, ...
+    "aeroCmdRad", NaN(1, 3), ...
+    "activeSurfaceIndex", activeSurfaceIndex, ...
+    "activeSurfaceName", activeSurfaceName, ...
+    "commandLevelNorm", commandLevelNorm, ...
+    "description", description);
+
+profileState.sequence = profileState.sequence + 1;
+profileState.lastViconSample = viconSample;
+end
+
+function profileState = initializeProfile(config)
+surfaceOrder = reshape(string(config.surfaceOrder), 1, []);
+surfaceIndices = getFieldOrDefault(config, "enabledSurfaceIndices", 1:numel(surfaceOrder));
+surfaceIndices = reshape(double(surfaceIndices), 1, []);
+surfaceIndices = surfaceIndices(surfaceIndices >= 1 & surfaceIndices <= numel(surfaceOrder));
+if isempty(surfaceIndices)
+    surfaceIndices = 1:numel(surfaceOrder);
+end
+
+holdSeconds = getFieldOrDefault(config, "deflectionHoldSeconds", 0.75);
+forwardLevels = [0, 0.05, 0.10, 0.20, 0.40, 0.60, 0.80, 1.00, ...
+    0, -0.05, -0.10, -0.20, -0.40, -0.60, -0.80, -1.00, 0];
+reverseLevels = [0, -0.05, -0.10, -0.20, -0.40, -0.60, -0.80, -1.00, ...
+    0, 0.05, 0.10, 0.20, 0.40, 0.60, 0.80, 1.00, 0];
+
+eventRows = struct( ...
+    "event_id", {}, ...
+    "surface_index", {}, ...
+    "surface_name", {}, ...
+    "command_level_norm", {}, ...
+    "scheduled_start_s", {}, ...
+    "scheduled_end_s", {}, ...
+    "direction_group", {});
+
+nextStartS = double(config.neutralLeadSeconds);
+eventId = 1;
+for surfaceIndex = surfaceIndices
+    [eventRows, nextStartS, eventId] = appendSweepRows( ...
+        eventRows, eventId, surfaceIndex, surfaceOrder(surfaceIndex), ...
+        forwardLevels, holdSeconds, nextStartS, "positive_first");
+    [eventRows, nextStartS, eventId] = appendSweepRows( ...
+        eventRows, eventId, surfaceIndex, surfaceOrder(surfaceIndex), ...
+        reverseLevels, holdSeconds, nextStartS, "negative_first");
+end
+
+profileState = struct();
+profileState.isInitialized = true;
+profileState.sequence = 0;
+profileState.eventTable = struct2table(eventRows);
+profileState.profileInfo = struct( ...
+    "profileMode", "deflection", ...
+    "deflectionHoldSeconds", holdSeconds, ...
+    "enabledSurfaceIndices", surfaceIndices, ...
+    "requiredActiveSeconds", max(0, nextStartS - double(config.neutralLeadSeconds)));
+end
+
+function [eventRows, nextStartS, eventId] = appendSweepRows( ...
+    eventRows, eventId, surfaceIndex, surfaceName, levels, holdSeconds, nextStartS, directionGroup)
+for levelIndex = 1:numel(levels)
+    eventRows(end + 1) = struct( ... %#ok<AGROW>
+        "event_id", eventId, ...
+        "surface_index", surfaceIndex, ...
+        "surface_name", surfaceName, ...
+        "command_level_norm", levels(levelIndex), ...
+        "scheduled_start_s", nextStartS, ...
+        "scheduled_end_s", nextStartS + holdSeconds, ...
+        "direction_group", directionGroup);
+    nextStartS = nextStartS + holdSeconds;
+    eventId = eventId + 1;
+end
+end
+
+function value = getFieldOrDefault(config, fieldName, defaultValue)
+if isfield(config, fieldName)
+    value = config.(fieldName);
+else
+    value = defaultValue;
+end
+end
