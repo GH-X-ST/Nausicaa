@@ -141,7 +141,7 @@ config.servoSigns = getNumericRow(config, "servoSigns", [1, 1, 1, 1]);
 config.surfaceRangeDeg = getNumericRow(config, "surfaceRangeDeg", [30, 30, 30, 30]);
 config.viconHostName = getText(config, "viconHostName", "localhost");
 config.viconPort = getPositiveScalar(config, "viconPort", 801);
-if contains(config.viconHostName, ":")
+if any(char(config.viconHostName) == ':')
     hostParts = split(config.viconHostName, ":");
     config.viconHostName = hostParts(1);
     parsedPort = str2double(hostParts(end));

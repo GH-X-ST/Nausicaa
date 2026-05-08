@@ -154,6 +154,7 @@ classdef Vicon < handle
             obj.client.SetStreamMode(obj.resolveStreamMode(obj.config.streamMode));
             obj.applyAxisMapping(obj.config.axisMapping);
             obj.subjectInfo = obj.discoverSubjects();
+            obj.requireConfiguredSurfaceSubjects();
 
             try
                 obj.connectionInfo.frameRateHz = double(obj.client.GetFrameRate().FrameRateHz);
@@ -384,6 +385,8 @@ classdef Vicon < handle
             catch
             end
 
+            obj.connectionInfo.availableSubjectNames = reshape(availableNames, 1, []);
+
             rawNames = unique([reshape(obj.config.rawSubjectNames, [], 1); reshape(obj.config.surfaceSubjectNames, [], 1); obj.config.bodySubjectName], "stable");
             rawNames = rawNames(strlength(rawNames) > 0);
             rowCount = numel(rawNames);
@@ -401,6 +404,20 @@ classdef Vicon < handle
                     subjectInfo.is_available(rowIndex) = true;
                 end
             end
+        end
+
+        function requireConfiguredSurfaceSubjects(obj)
+            requiredNames = reshape(obj.config.surfaceSubjectNames, [], 1);
+            availableNames = reshape(obj.connectionInfo.availableSubjectNames, [], 1);
+            missingNames = requiredNames(~ismember(requiredNames, availableNames));
+            if isempty(missingNames)
+                return;
+            end
+
+            error("Vicon:MissingRequiredSurfaceSubjects", ...
+                "Missing required Vicon surface subject(s): %s. Available Vicon subject(s): %s.", ...
+                char(join(missingNames, ", ")), ...
+                char(join(availableNames, ", ")));
         end
 
         function pose = findPose(~, poses, subjectName)
