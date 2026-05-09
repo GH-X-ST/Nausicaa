@@ -173,24 +173,64 @@ end
 
 function deadband = extractSurfaceDeadband(calibration, surfaceIndex)
 deadband = NaN;
-if istable(calibration)
+if isstruct(calibration) && isfield(calibration, "lookupTable")
+    deadband = extractLookupDeadband(calibration.lookupTable, surfaceIndex);
+end
+if ~isfinite(deadband) && istable(calibration)
     rowMask = true(height(calibration), 1);
     if ismember("surface_index", string(calibration.Properties.VariableNames))
         rowMask = double(calibration.surface_index) == surfaceIndex;
     end
     rowIndex = find(rowMask, 1, "first");
     if ~isempty(rowIndex)
-        deadband = max(abs(readTableValue(calibration, rowIndex, "deadband_positive_norm")), ...
-            abs(readTableValue(calibration, rowIndex, "deadband_negative_norm")));
+        deadband = finiteMax([ ...
+            abs(readTableValue(calibration, rowIndex, "deadband_positive_norm")), ...
+            abs(readTableValue(calibration, rowIndex, "deadband_negative_norm"))]);
     end
-elseif isstruct(calibration) && isfield(calibration, "surfaceTable")
+end
+if ~isfinite(deadband) && isstruct(calibration) && isfield(calibration, "surfaceTable")
     deadband = extractSurfaceDeadband(calibration.surfaceTable, surfaceIndex);
-elseif isstruct(calibration) && isfield(calibration, "summaryTable")
+end
+if ~isfinite(deadband) && isstruct(calibration) && isfield(calibration, "summaryTable")
     deadband = extractSurfaceDeadband(calibration.summaryTable, surfaceIndex);
 end
 
 if ~isfinite(deadband)
     deadband = 0.20;
+end
+end
+
+function deadband = extractLookupDeadband(lookupTable, surfaceIndex)
+deadband = NaN;
+if ~istable(lookupTable) || isempty(lookupTable)
+    return;
+end
+surfaceRows = lookupTable(double(lookupTable.surface_index) == surfaceIndex, :);
+if isempty(surfaceRows)
+    return;
+end
+
+commandLevels = abs(double(surfaceRows.command_level_norm));
+deflectionsDeg = abs(double(surfaceRows.lookup_deflection_deg));
+valid = isfinite(commandLevels) & isfinite(deflectionsDeg) & commandLevels > 10 * eps;
+commandLevels = commandLevels(valid);
+deflectionsDeg = deflectionsDeg(valid);
+if isempty(commandLevels)
+    return;
+end
+
+detected = commandLevels(deflectionsDeg >= 1.0);
+if ~isempty(detected)
+    deadband = min(detected);
+end
+end
+
+function value = finiteMax(values)
+values = values(isfinite(values));
+if isempty(values)
+    value = NaN;
+else
+    value = max(values);
 end
 end
 

@@ -89,9 +89,10 @@ for eventIndex = 1:height(events)
         'valid', 'rejection_reason'})];
 end
 
-[surfaceTable, implementationError] = summarizeDeflection(holdRows, states, runData.config);
+[surfaceTable, implementationError, lookupTable] = summarizeDeflection(holdRows, states, runData.config);
 calibration = struct( ...
     "surfaceTable", surfaceTable, ...
+    "lookupTable", lookupTable, ...
     "holdTable", holdRows, ...
     "implementationError", implementationError, ...
     "commandLog", commandLog, ...
@@ -104,10 +105,12 @@ result.summaryTable = surfaceTable;
 result.outputFiles = struct( ...
     "calibrationMat", string(fullfile(outputFolder, "surface_calibration.mat")), ...
     "calibrationCsv", string(fullfile(outputFolder, "surface_calibration.csv")), ...
+    "lookupCsv", string(fullfile(outputFolder, "surface_calibration_lookup.csv")), ...
     "implementationErrorCsv", string(fullfile(outputFolder, "implementation_error.csv")));
 
 save(result.outputFiles.calibrationMat, "calibration", "result");
 writetable(surfaceTable, result.outputFiles.calibrationCsv);
+writetable(lookupTable, result.outputFiles.lookupCsv);
 writetable(implementationError, result.outputFiles.implementationErrorCsv);
 
 if analysisConfig.makePlots
@@ -115,10 +118,11 @@ if analysisConfig.makePlots
 end
 end
 
-function [surfaceTable, implementationError] = summarizeDeflection(holdRows, states, config)
+function [surfaceTable, implementationError, lookupTable] = summarizeDeflection(holdRows, states, config)
 surfaceNames = reshape(string(config.surfaceOrder), 1, []);
 surfaceTable = table();
 implementationError = table();
+lookupTable = table();
 
 for surfaceIndex = 1:numel(surfaceNames)
     surfaceRows = holdRows(double(holdRows.surface_index) == surfaceIndex, :);
@@ -151,23 +155,27 @@ for surfaceIndex = 1:numel(surfaceNames)
     deadbandNegative = firstDetectedDeadband(negativeRows, detectionThresholdDeg, -1);
     gainPositive = fitGain(positiveRows, deadbandPositive, 1);
     gainNegative = fitGain(negativeRows, deadbandNegative, -1);
+    surfaceLookup = buildLookupTable(surfaceRows, surfaceIndex, surfaceNames(surfaceIndex));
+    lookupTable = [lookupTable; surfaceLookup]; %#ok<AGROW>
 
     fittedDeg = fittedDeflection(surfaceRows.command_level_norm, deadbandPositive, deadbandNegative, gainPositive, gainNegative);
     if any(isfinite(surfaceRows.delta_rel_deg))
         fittedDeg = min(max(fittedDeg, min(surfaceRows.delta_rel_deg, [], "omitnan")), max(surfaceRows.delta_rel_deg, [], "omitnan"));
     end
     errorDeg = surfaceRows.delta_rel_deg - fittedDeg;
+    lookupDeg = lookupDeflection(surfaceLookup, surfaceRows.command_level_norm);
+    lookupErrorDeg = surfaceRows.delta_rel_deg - lookupDeg;
 
     implementationError = [implementationError; table( ... %#ok<AGROW>
         surfaceRows.event_id, surfaceRows.surface_index, surfaceRows.surface_name, ...
         surfaceRows.command_level_norm, surfaceRows.direction_group, surfaceRows.sweep_polarity, ...
         surfaceRows.sweep_phase, surfaceRows.sweep_step_index, surfaceRows.sweep_step_count, ...
-        surfaceRows.delta_rel_deg, fittedDeg, errorDeg, ...
+        surfaceRows.delta_rel_deg, lookupDeg, lookupErrorDeg, fittedDeg, errorDeg, ...
         surfaceRows.valid, surfaceRows.rejection_reason, ...
         'VariableNames', {'event_id', 'surface_index', 'surface_name', 'command_level_norm', ...
         'direction_group', 'sweep_polarity', 'sweep_phase', 'sweep_step_index', 'sweep_step_count', ...
-        'settled_deflection_deg', 'fitted_deflection_deg', 'implementation_error_deg', ...
-        'valid', 'rejection_reason'})];
+        'settled_deflection_deg', 'lookup_deflection_deg', 'lookup_error_deg', ...
+        'linear_fitted_deflection_deg', 'linear_fit_error_deg', 'valid', 'rejection_reason'})];
 
     minDeflectionDeg = minFinite(validRows.delta_rel_deg);
     maxDeflectionDeg = maxFinite(validRows.delta_rel_deg);
@@ -186,7 +194,9 @@ for surfaceIndex = 1:numel(surfaceNames)
         median(double(negativeFullRows.delta_rel_deg), "omitnan"), ...
         deadbandPositive, deadbandNegative, gainPositive, gainNegative, ...
         estimateHysteresis(validRows), estimateReturnHysteresis(validRows), estimateRepeatability(validRows), ...
+        sqrt(mean(lookupErrorDeg(surfaceRows.valid).^2, "omitnan")), ...
         sqrt(mean(errorDeg(surfaceRows.valid).^2, "omitnan")), ...
+        sqrt(mean(lookupErrorDeg(surfaceRows.valid).^2, "omitnan")), ...
         string(mat2str(double(surfaceRows.command_level_norm).')), ...
         string(mat2str(double(surfaceRows.delta_rel_deg).')), ...
         'VariableNames', {'surface_index', 'surface_name', 'neutral_deg', 'min_deflection_deg', ...
@@ -196,9 +206,65 @@ for surfaceIndex = 1:numel(surfaceNames)
         'positive_full_deflection_deg', 'negative_full_deflection_deg', ...
         'deadband_positive_norm', 'deadband_negative_norm', ...
         'gain_positive_deg_per_norm', 'gain_negative_deg_per_norm', ...
-        'hysteresis_deg', 'return_hysteresis_deg', 'repeatability_std_deg', 'fit_rmse_deg', ...
+        'hysteresis_deg', 'return_hysteresis_deg', 'repeatability_std_deg', ...
+        'lookup_rmse_deg', 'linear_fit_rmse_deg', 'fit_rmse_deg', ...
         'command_levels_norm', 'settled_deflection_deg'})];
 end
+end
+
+function lookupTable = buildLookupTable(surfaceRows, surfaceIndex, surfaceName)
+lookupTable = table();
+validRows = surfaceRows(surfaceRows.valid & isfinite(surfaceRows.delta_rel_deg), :);
+if isempty(validRows)
+    return;
+end
+
+levels = unique(double(validRows.command_level_norm));
+levels = sort(levels);
+for levelIndex = 1:numel(levels)
+    levelRows = validRows(abs(double(validRows.command_level_norm) - levels(levelIndex)) < 10 * eps, :);
+    deflectionsDeg = double(levelRows.delta_rel_deg);
+    lookupTable = [lookupTable; table( ... %#ok<AGROW>
+        surfaceIndex, surfaceName, levels(levelIndex), ...
+        median(deflectionsDeg, "omitnan"), ...
+        std(deflectionsDeg, 0, "omitnan"), ...
+        minFinite(deflectionsDeg), maxFinite(deflectionsDeg), ...
+        height(levelRows), ...
+        join(unique(string(levelRows.direction_group)), "|"), ...
+        join(unique(string(levelRows.sweep_phase)), "|"), ...
+        'VariableNames', {'surface_index', 'surface_name', 'command_level_norm', ...
+        'lookup_deflection_deg', 'lookup_std_deg', 'lookup_min_deg', 'lookup_max_deg', ...
+        'valid_hold_count', 'direction_groups', 'sweep_phases'})];
+end
+end
+
+function deflectionDeg = lookupDeflection(lookupTable, commandLevelNorm)
+commandLevelNorm = double(commandLevelNorm);
+deflectionDeg = nan(size(commandLevelNorm));
+if isempty(lookupTable)
+    return;
+end
+
+levels = double(lookupTable.command_level_norm);
+deflections = double(lookupTable.lookup_deflection_deg);
+valid = isfinite(levels) & isfinite(deflections);
+levels = levels(valid);
+deflections = deflections(valid);
+if isempty(levels)
+    return;
+end
+
+[levels, order] = sort(levels);
+deflections = deflections(order);
+[levels, uniqueIndex] = unique(levels, "stable");
+deflections = deflections(uniqueIndex);
+if numel(levels) == 1
+    deflectionDeg(:) = deflections(1);
+    return;
+end
+
+clampedCommand = min(max(commandLevelNorm, min(levels)), max(levels));
+deflectionDeg = interp1(levels, deflections, clampedCommand, "linear");
 end
 
 function result = analyzeLatency(rawRunFile, calibrationFile, analysisConfig)
@@ -265,6 +331,10 @@ surfaceName = string(eventRow.surface_name);
 beforeCommand = tableVectorValue(eventRow.command_before_norm);
 afterCommand = tableVectorValue(eventRow.command_after_norm);
 commandStepNorm = afterCommand(surfaceIndex) - beforeCommand(surfaceIndex);
+[expectedBeforeDeg, expectedBeforeOk] = lookupCalibrationDeflection(calibration, surfaceIndex, beforeCommand(surfaceIndex));
+[expectedAfterDeg, expectedAfterOk] = lookupCalibrationDeflection(calibration, surfaceIndex, afterCommand(surfaceIndex));
+expectedLookupAvailable = expectedBeforeOk && expectedAfterOk;
+expectedResponseAmplitudeDeg = expectedAfterDeg - expectedBeforeDeg;
 rejectionReason = "";
 
 baseMask = surfaceRows.t_capture_host_s >= t0 - 0.15 & surfaceRows.t_capture_host_s <= t0 - 0.02;
@@ -293,7 +363,16 @@ if ~isfinite(responseAmplitudeDeg) || abs(responseAmplitudeDeg) < analysisConfig
     valid = false;
     rejectionReason = appendReason(rejectionReason, "response_amplitude_too_small");
 end
-if signNonzero(commandStepNorm) ~= 0 && signNonzero(responseAmplitudeDeg) ~= 0 && ...
+if expectedLookupAvailable && abs(expectedResponseAmplitudeDeg) < analysisConfig.minLatencyResponseDeg
+    valid = false;
+    rejectionReason = appendReason(rejectionReason, "expected_lookup_amplitude_too_small");
+end
+expectedDirection = signNonzero(expectedResponseAmplitudeDeg);
+if expectedLookupAvailable && expectedDirection ~= 0 && signNonzero(responseAmplitudeDeg) ~= 0 && ...
+        expectedDirection ~= signNonzero(responseAmplitudeDeg)
+    valid = false;
+    rejectionReason = appendReason(rejectionReason, "response_direction_wrong_vs_lookup");
+elseif ~expectedLookupAvailable && signNonzero(commandStepNorm) ~= 0 && signNonzero(responseAmplitudeDeg) ~= 0 && ...
         signNonzero(commandStepNorm) ~= signNonzero(responseAmplitudeDeg)
     valid = false;
     rejectionReason = appendReason(rejectionReason, "response_direction_wrong");
@@ -326,13 +405,18 @@ end
 
 eventResult = table( ...
     double(eventRow.event_id), surfaceIndex, surfaceName, t0, analysisEndS, ...
-    commandStepNorm, deltaBaseDeg, sigmaBaseDeg, deltaFinalDeg, responseAmplitudeDeg, ...
+    commandStepNorm, beforeCommand(surfaceIndex), afterCommand(surfaceIndex), ...
+    expectedBeforeDeg, expectedAfterDeg, expectedResponseAmplitudeDeg, expectedLookupAvailable, ...
+    deltaBaseDeg, sigmaBaseDeg, deltaFinalDeg, responseAmplitudeDeg, ...
     level10, level50, level90, ...
     t10, t50, t90, ...
     t10 - t0, t50 - t0, t90 - t0, ...
     valid, t90Valid, string(rejectionReason), ...
     'VariableNames', {'event_id', 'surface_index', 'surface_name', 't0_write_start_host_s', ...
-    'response_window_end_s', 'command_step_norm', 'delta_base_deg', 'sigma_base_deg', ...
+    'response_window_end_s', 'command_step_norm', 'command_before_norm', 'command_after_norm', ...
+    'expected_before_deflection_deg', 'expected_after_deflection_deg', ...
+    'expected_response_amplitude_deg', 'expected_lookup_available', ...
+    'delta_base_deg', 'sigma_base_deg', ...
     'delta_final_deg', 'response_amplitude_deg', 'level_10_deg', 'level_50_deg', 'level_90_deg', ...
     't10_capture_s', 't50_capture_s', 't90_capture_s', ...
     't10_latency_s', 't50_latency_s', 't90_latency_s', 'valid', 't90_valid', 'rejection_reason'});
@@ -571,10 +655,36 @@ elseif isfield(loadedData, "result") && isfield(loadedData.result, "calibration"
 end
 end
 
+function [deflectionDeg, isAvailable] = lookupCalibrationDeflection(calibration, surfaceIndex, commandLevelNorm)
+deflectionDeg = NaN;
+isAvailable = false;
+if isempty(calibration) || ~isstruct(calibration) || ~isfield(calibration, "lookupTable")
+    return;
+end
+
+lookupTable = calibration.lookupTable;
+if isempty(lookupTable) || ~istable(lookupTable)
+    return;
+end
+surfaceLookup = lookupTable(double(lookupTable.surface_index) == surfaceIndex, :);
+if isempty(surfaceLookup)
+    return;
+end
+
+deflectionDeg = lookupDeflection(surfaceLookup, commandLevelNorm);
+isAvailable = isfinite(deflectionDeg);
+end
+
 function threshold = extractDeadbandThreshold(calibration, surfaceIndex)
 threshold = NaN;
 if isempty(calibration)
     return;
+end
+if isstruct(calibration) && isfield(calibration, "lookupTable") && istable(calibration.lookupTable)
+    threshold = extractLookupDeadbandThreshold(calibration.lookupTable, surfaceIndex);
+    if isfinite(threshold)
+        return;
+    end
 end
 surfaceTable = [];
 if isstruct(calibration) && isfield(calibration, "surfaceTable")
@@ -589,16 +699,42 @@ row = surfaceTable(double(surfaceTable.surface_index) == surfaceIndex, :);
 if isempty(row)
     return;
 end
-threshold = max(abs(double(row.deadband_positive_norm)), abs(double(row.deadband_negative_norm)));
+threshold = finiteMax([abs(double(row.deadband_positive_norm)), abs(double(row.deadband_negative_norm))]);
+end
+
+function threshold = extractLookupDeadbandThreshold(lookupTable, surfaceIndex)
+threshold = NaN;
+surfaceRows = lookupTable(double(lookupTable.surface_index) == surfaceIndex, :);
+if isempty(surfaceRows)
+    return;
+end
+
+commandLevels = abs(double(surfaceRows.command_level_norm));
+deflectionsDeg = abs(double(surfaceRows.lookup_deflection_deg));
+valid = isfinite(commandLevels) & isfinite(deflectionsDeg) & commandLevels > 10 * eps;
+commandLevels = commandLevels(valid);
+deflectionsDeg = deflectionsDeg(valid);
+if isempty(commandLevels)
+    return;
+end
+
+detected = commandLevels(deflectionsDeg >= 1.0);
+if ~isempty(detected)
+    threshold = min(detected);
+end
 end
 
 function row = rejectedLatencyRow(eventRow, reason)
 row = table( ...
     double(eventRow.event_id), double(eventRow.surface_index), string(eventRow.surface_name), ...
-    NaN, double(eventRow.scheduled_end_s), NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, ...
+    NaN, double(eventRow.scheduled_end_s), NaN, NaN, NaN, NaN, NaN, NaN, false, ...
+    NaN, NaN, NaN, NaN, NaN, NaN, NaN, ...
     NaN, NaN, NaN, NaN, NaN, NaN, false, false, string(reason), ...
     'VariableNames', {'event_id', 'surface_index', 'surface_name', 't0_write_start_host_s', ...
-    'response_window_end_s', 'command_step_norm', 'delta_base_deg', 'sigma_base_deg', ...
+    'response_window_end_s', 'command_step_norm', 'command_before_norm', 'command_after_norm', ...
+    'expected_before_deflection_deg', 'expected_after_deflection_deg', ...
+    'expected_response_amplitude_deg', 'expected_lookup_available', ...
+    'delta_base_deg', 'sigma_base_deg', ...
     'delta_final_deg', 'response_amplitude_deg', 'level_10_deg', 'level_50_deg', 'level_90_deg', ...
     't10_capture_s', 't50_capture_s', 't90_capture_s', ...
     't10_latency_s', 't50_latency_s', 't90_latency_s', 'valid', 't90_valid', 'rejection_reason'});
@@ -674,6 +810,10 @@ if isempty(values)
 else
     value = max(values);
 end
+end
+
+function value = finiteMax(values)
+value = maxFinite(values);
 end
 
 function value = prcSeconds(values, percentile)
