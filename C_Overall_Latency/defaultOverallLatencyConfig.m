@@ -10,7 +10,7 @@ cfg.mode = mode;
 cfg.serialPort = "COM11";
 cfg.baudRate = 1000000;
 
-cfg.viconHostName = "localhost";
+cfg.viconHostName = "192.168.0.100:801";
 cfg.viconPort = 801;
 
 cfg.surfaceNames = ["Aileron_L", "Aileron_R", "Rudder", "Elevator"];

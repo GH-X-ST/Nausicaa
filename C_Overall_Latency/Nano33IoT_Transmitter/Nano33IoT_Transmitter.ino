@@ -193,7 +193,14 @@ void serviceSerialInput() {
         return;
       }
       uint8_t packetBytes[Config::kBinaryPacketLength];
-      Serial.readBytes(reinterpret_cast<char*>(packetBytes), Config::kBinaryPacketLength);
+      for (size_t byteIndex = 0; byteIndex < Config::kBinaryPacketLength; ++byteIndex) {
+        int packetByte = Serial.read();
+        if (packetByte < 0) {
+          emitErrorEvent(F("SHORT_BINARY_PACKET"));
+          return;
+        }
+        packetBytes[byteIndex] = static_cast<uint8_t>(packetByte);
+      }
       handleBinaryPacket(packetBytes, micros());
       continue;
     }

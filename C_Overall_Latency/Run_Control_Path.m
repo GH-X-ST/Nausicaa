@@ -27,6 +27,9 @@ try
 
     tracker = Vicon(config.vicon);
     tracker.calibrateNeutral(runClock, config.neutralDurationSeconds);
+    config.profileStartHostS = toc(runClock);
+    config.totalRunSeconds = config.profileStartHostS + ...
+        config.neutralLeadSeconds + config.activeCommandSeconds + config.neutralTailSeconds;
 
     nextCommandTimeS = toc(runClock);
 
@@ -103,6 +106,7 @@ runData.viconRawLog = vertcatOrEmpty(rawLogParts, emptyViconRawTable());
 runData.viconStateLog = vertcatOrEmpty(stateLogParts, emptyViconStateTable());
 runData.serialTelemetryRaw = serialRowsToTable(serialRows);
 runData.eventTable = extractEventTable(profileState);
+runData.config = config;
 runData.runInfo.stopTime = datetime("now", "TimeZone", "local");
 runData.runInfo.elapsedHostSeconds = toc(runClock);
 if isfield(profileState, "profileInfo")
@@ -140,7 +144,7 @@ config.receiverChannelSurfaceOrder = getStringRow(config, "receiverChannelSurfac
 config.surfaceEulerAxes = getStringRow(config, "surfaceEulerAxes", ["X", "X", "X", "X"]);
 config.servoSigns = getNumericRow(config, "servoSigns", [1, 1, 1, 1]);
 config.surfaceRangeDeg = getNumericRow(config, "surfaceRangeDeg", [30, 30, 30, 30]);
-config.viconHostName = getText(config, "viconHostName", "localhost");
+config.viconHostName = getText(config, "viconHostName", "192.168.0.100:801");
 config.viconPort = getPositiveScalar(config, "viconPort", 801);
 if any(char(config.viconHostName) == ':')
     hostParts = split(config.viconHostName, ":");
@@ -171,7 +175,8 @@ config.receiverChannelSurfaceIndex = mapSurfaceNamesToIndices(config.receiverCha
 if config.mode == "deflection" && ~activeWasSet
     holdSeconds = getPositiveScalar(config, "deflectionHoldSeconds", 0.75);
     enabledCount = numel(getFieldOrDefault(config, "enabledSurfaceIndices", 1:surfaceCount));
-    config.activeCommandSeconds = max(config.activeCommandSeconds, enabledCount * 34 * holdSeconds);
+    config.activeCommandSeconds = max(config.activeCommandSeconds, ...
+        enabledCount * estimateDeflectionEventCountPerSurface(config) * holdSeconds);
 end
 if config.mode == "latency"
     config.eventHoldSeconds = getPositiveScalar(config, "eventHoldSeconds", 0.50);
@@ -199,7 +204,13 @@ function viconConfig = buildViconConfig(config)
 viconConfig = getFieldOrDefault(config, "vicon", struct());
 viconConfig.hostName = getFieldOrDefault(viconConfig, "hostName", config.viconHostName);
 viconConfig.port = getFieldOrDefault(viconConfig, "port", config.viconPort);
-viconConfig.hostAndPort = getFieldOrDefault(viconConfig, "hostAndPort", config.viconHostAndPort);
+if isfield(viconConfig, "hostAndPort")
+    viconConfig.hostAndPort = viconConfig.hostAndPort;
+elseif any(char(string(viconConfig.hostName)) == ':')
+    viconConfig.hostAndPort = string(viconConfig.hostName);
+else
+    viconConfig.hostAndPort = config.viconHostAndPort;
+end
 viconConfig.rawSubjectNames = getFieldOrDefault(viconConfig, "rawSubjectNames", config.viconRawSubjectNames);
 viconConfig.surfaceSubjectNames = getFieldOrDefault(viconConfig, "surfaceSubjectNames", config.viconSurfaceSubjectNames);
 viconConfig.surfaceOrder = config.surfaceOrder;
@@ -210,6 +221,7 @@ viconConfig.streamMode = getFieldOrDefault(viconConfig, "streamMode", "ServerPus
 viconConfig.connectTimeoutSeconds = getFieldOrDefault(viconConfig, "connectTimeoutSeconds", 5.0);
 viconConfig.connectRetryPauseSeconds = getFieldOrDefault(viconConfig, "connectRetryPauseSeconds", 0.25);
 viconConfig.maxConnectionAttempts = getFieldOrDefault(viconConfig, "maxConnectionAttempts", 3);
+viconConfig.frameWaitTimeoutSeconds = getFieldOrDefault(viconConfig, "frameWaitTimeoutSeconds", 2.0);
 end
 
 function mapping = buildSurfaceMapping(config)
@@ -682,4 +694,25 @@ if numel(row) < targetCount
 elseif numel(row) > targetCount
     row = row(1:targetCount);
 end
+end
+
+function eventCount = estimateDeflectionEventCountPerSurface(config)
+rampLevels = getFieldOrDefault(config, "deflectionRampLevels", ...
+    [0, 0.05, 0.10, 0.20, 0.40, 0.60, 0.80, 1.00]);
+rampLevels = reshape(abs(double(rampLevels)), 1, []);
+rampLevels = rampLevels(isfinite(rampLevels));
+rampLevels = min(max(rampLevels, 0), 1);
+rampLevels = unique(rampLevels, "stable");
+rampLevels = sort(rampLevels);
+if isempty(rampLevels) || rampLevels(1) ~= 0
+    rampLevels = [0, rampLevels];
+end
+if rampLevels(end) ~= 1
+    rampLevels = [rampLevels, 1];
+end
+
+eventsPerPolarity = 2 * numel(rampLevels) - 1;
+polarityCount = 2;
+directionGroupCount = 2;
+eventCount = eventsPerPolarity * polarityCount * directionGroupCount;
 end

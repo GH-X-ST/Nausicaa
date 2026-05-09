@@ -153,6 +153,7 @@ classdef Vicon < handle
             obj.client.SetBufferSize(uint32(1));
             obj.client.SetStreamMode(obj.resolveStreamMode(obj.config.streamMode));
             obj.applyAxisMapping(obj.config.axisMapping);
+            obj.connectionInfo.initialFrameReady = obj.waitForFrame(obj.config.frameWaitTimeoutSeconds);
             obj.subjectInfo = obj.discoverSubjects();
             obj.requireConfiguredSurfaceSubjects();
 
@@ -385,6 +386,9 @@ classdef Vicon < handle
             catch
             end
 
+            validSubjectRows = ~ismissing(availableNames) & strlength(availableNames) > 0;
+            availableNames = availableNames(validSubjectRows);
+            rootSegments = rootSegments(validSubjectRows);
             obj.connectionInfo.availableSubjectNames = reshape(availableNames, 1, []);
 
             rawNames = unique([reshape(obj.config.rawSubjectNames, [], 1); reshape(obj.config.surfaceSubjectNames, [], 1); obj.config.bodySubjectName], "stable");
@@ -416,8 +420,8 @@ classdef Vicon < handle
 
             error("Vicon:MissingRequiredSurfaceSubjects", ...
                 "Missing required Vicon surface subject(s): %s. Available Vicon subject(s): %s.", ...
-                char(join(missingNames, ", ")), ...
-                char(join(availableNames, ", ")));
+                char(Vicon.formatNameList(missingNames)), ...
+                char(Vicon.formatNameList(availableNames)));
         end
 
         function pose = findPose(~, poses, subjectName)
@@ -463,13 +467,38 @@ classdef Vicon < handle
                         ViconDataStreamSDK.DotNET.Direction.Up);
             end
         end
+
+        function frameReady = waitForFrame(obj, timeoutSeconds)
+            frameReady = false;
+            waitStart = tic;
+            while toc(waitStart) < timeoutSeconds
+                getFrameOutput = obj.client.GetFrame();
+                if obj.isSuccessResult(getFrameOutput.Result)
+                    frameReady = true;
+                    return;
+                end
+                pause(0.01);
+            end
+        end
     end
 
     methods (Static, Access = private)
         function config = normalizeConfig(config)
-            config.hostName = Vicon.getFieldOrDefault(config, "hostName", "localhost");
+            config.hostName = Vicon.getFieldOrDefault(config, "hostName", "192.168.0.100:801");
             config.port = Vicon.getFieldOrDefault(config, "port", 801);
-            config.hostAndPort = Vicon.getFieldOrDefault(config, "hostAndPort", string(config.hostName) + ":" + string(config.port));
+            if isfield(config, "hostAndPort")
+                config.hostAndPort = string(config.hostAndPort);
+            elseif any(char(string(config.hostName)) == ':')
+                config.hostAndPort = string(config.hostName);
+                hostParts = split(string(config.hostName), ":");
+                config.hostName = hostParts(1);
+                parsedPort = str2double(hostParts(end));
+                if isfinite(parsedPort) && parsedPort > 0
+                    config.port = parsedPort;
+                end
+            else
+                config.hostAndPort = string(config.hostName) + ":" + string(config.port);
+            end
             config.rawSubjectNames = reshape(string(Vicon.getFieldOrDefault( ...
                 config, "rawSubjectNames", ["Aileron_L", "Aileron_R", "Rudder", "Elevator"])), 1, []);
             config.surfaceSubjectNames = reshape(string(Vicon.getFieldOrDefault( ...
@@ -482,6 +511,7 @@ classdef Vicon < handle
             config.connectTimeoutSeconds = double(Vicon.getFieldOrDefault(config, "connectTimeoutSeconds", 5.0));
             config.connectRetryPauseSeconds = double(Vicon.getFieldOrDefault(config, "connectRetryPauseSeconds", 0.25));
             config.maxConnectionAttempts = double(Vicon.getFieldOrDefault(config, "maxConnectionAttempts", 3));
+            config.frameWaitTimeoutSeconds = double(Vicon.getFieldOrDefault(config, "frameWaitTimeoutSeconds", 2.0));
             config.sdkDllPath = string(Vicon.getFieldOrDefault(config, "sdkDllPath", ""));
         end
 
@@ -568,6 +598,17 @@ classdef Vicon < handle
                 value = netLogical;
             else
                 value = strcmpi(Vicon.netValueToString(netLogical), "True");
+            end
+        end
+
+        function listText = formatNameList(names)
+            names = reshape(string(names), [], 1);
+            names(ismissing(names)) = "<missing>";
+            names = names(strlength(names) > 0);
+            if isempty(names)
+                listText = "<none>";
+            else
+                listText = join(names, ", ");
             end
         end
 
