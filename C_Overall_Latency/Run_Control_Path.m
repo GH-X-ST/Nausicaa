@@ -136,6 +136,7 @@ config.neutralDurationSeconds = getPositiveScalar(config, "neutralDurationSecond
 config.randomSeed = getScalar(config, "randomSeed", 2);
 config.surfaceNames = getStringRow(config, "surfaceNames", ["Aileron_L", "Aileron_R", "Rudder", "Elevator"]);
 config.surfaceOrder = getStringRow(config, "surfaceOrder", config.surfaceNames);
+config.receiverChannelSurfaceOrder = getStringRow(config, "receiverChannelSurfaceOrder", ["Aileron_R", "Aileron_L", "Elevator", "Rudder"]);
 config.surfaceEulerAxes = getStringRow(config, "surfaceEulerAxes", ["X", "X", "X", "X"]);
 config.servoSigns = getNumericRow(config, "servoSigns", [1, 1, 1, 1]);
 config.surfaceRangeDeg = getNumericRow(config, "surfaceRangeDeg", [30, 30, 30, 30]);
@@ -164,6 +165,8 @@ end
 config.surfaceEulerAxes = resizeRow(config.surfaceEulerAxes, surfaceCount, "X");
 config.servoSigns = resizeRow(config.servoSigns, surfaceCount, 1);
 config.surfaceRangeDeg = resizeRow(config.surfaceRangeDeg, surfaceCount, 30);
+config.receiverChannelSurfaceOrder = validateReceiverChannelSurfaceOrder(config.receiverChannelSurfaceOrder, config.surfaceOrder);
+config.receiverChannelSurfaceIndex = mapSurfaceNamesToIndices(config.receiverChannelSurfaceOrder, config.surfaceOrder);
 
 if config.mode == "deflection" && ~activeWasSet
     holdSeconds = getPositiveScalar(config, "deflectionHoldSeconds", 0.75);
@@ -212,8 +215,12 @@ end
 function mapping = buildSurfaceMapping(config)
 mapping = struct();
 mapping.physicalSurfaceOrder = config.surfaceOrder;
+mapping.receiverChannelSurfaceOrder = config.receiverChannelSurfaceOrder;
+mapping.receiverChannelSurfaceIndex = config.receiverChannelSurfaceIndex;
+mapping.receiverChannels = 1:numel(config.receiverChannelSurfaceOrder);
 mapping.aeroCommandOrder = config.aeroCommandOrder;
 mapping.surfaceSignConvention = "servoSigns are applied in MATLAB before packet encoding; values are hardware sign-check assumptions.";
+mapping.packetConvention = "Binary packet codes are written in receiverChannelSurfaceOrder; command vectors remain in physicalSurfaceOrder.";
 mapping.physicalFromAeroMatrix = [ ...
     1, 0, 0; ...
    -1, 0, 0; ...
@@ -221,6 +228,35 @@ mapping.physicalFromAeroMatrix = [ ...
     0, 1, 0];
 mapping.physicalFromAeroRows = config.surfaceOrder;
 mapping.physicalFromAeroColumns = config.aeroCommandOrder;
+end
+
+function channelSurfaceOrder = validateReceiverChannelSurfaceOrder(channelSurfaceOrder, surfaceOrder)
+channelSurfaceOrder = reshape(string(channelSurfaceOrder), 1, []);
+surfaceOrder = reshape(string(surfaceOrder), 1, []);
+if numel(channelSurfaceOrder) ~= numel(surfaceOrder)
+    error("Run_Control_Path:InvalidReceiverChannelSurfaceOrder", ...
+        "receiverChannelSurfaceOrder must contain exactly the same number of entries as surfaceOrder.");
+end
+
+missingSurfaces = setdiff(surfaceOrder, channelSurfaceOrder, "stable");
+extraSurfaces = setdiff(channelSurfaceOrder, surfaceOrder, "stable");
+if ~isempty(missingSurfaces) || ~isempty(extraSurfaces) || numel(unique(channelSurfaceOrder, "stable")) ~= numel(channelSurfaceOrder)
+    error("Run_Control_Path:InvalidReceiverChannelSurfaceOrder", ...
+        "receiverChannelSurfaceOrder must be an exact permutation of surfaceOrder.");
+end
+end
+
+function surfaceIndices = mapSurfaceNamesToIndices(channelSurfaceOrder, surfaceOrder)
+surfaceIndices = zeros(1, numel(channelSurfaceOrder));
+for channelIndex = 1:numel(channelSurfaceOrder)
+    matchIndex = find(surfaceOrder == channelSurfaceOrder(channelIndex), 1, "first");
+    if isempty(matchIndex)
+        error("Run_Control_Path:InvalidReceiverChannelSurfaceOrder", ...
+            "Receiver channel surface '%s' is not present in surfaceOrder.", ...
+            char(channelSurfaceOrder(channelIndex)));
+    end
+    surfaceIndices(channelIndex) = matchIndex;
+end
 end
 
 function runData = initializeRunData(config)
@@ -339,14 +375,16 @@ function [packetBytes, packetSurfaceNorm, packetCodes, activeMask] = encodeSurfa
 surfaceNorm = resizeRow(double(cmd.surfaceNorm), numel(config.surfaceOrder), 0);
 packetSurfaceNorm = min(max(config.servoSigns .* surfaceNorm, -1), 1);
 packetCodes = uint16(round((packetSurfaceNorm + 1) .* 0.5 .* 65535));
+channelPacketCodes = packetCodes(config.receiverChannelSurfaceIndex);
 
 activeMask = uint8(0);
 if isfield(cmd, "activeSurfaceMask") && isfinite(double(cmd.activeSurfaceMask))
-    activeMask = uint8(cmd.activeSurfaceMask);
+    activeMask = physicalMaskToReceiverChannelMask(uint8(cmd.activeSurfaceMask), config.receiverChannelSurfaceIndex);
 elseif isfield(cmd, "activeSurfaceIndex") && isfinite(double(cmd.activeSurfaceIndex))
     activeIndex = round(double(cmd.activeSurfaceIndex));
     if activeIndex >= 1 && activeIndex <= numel(config.surfaceOrder)
-        activeMask = bitshift(uint8(1), activeIndex - 1);
+        channelIndex = find(config.receiverChannelSurfaceIndex == activeIndex, 1, "first");
+        activeMask = bitshift(uint8(1), channelIndex - 1);
     end
 end
 
@@ -356,9 +394,19 @@ packetBytes(2) = uint8(4);
 packetBytes(3) = activeMask;
 packetBytes(4:7) = encodeUint32LittleEndian(uint32(max(0, round(double(cmd.sequence)))));
 writeIndex = 8;
-for surfaceIndex = 1:4
-    packetBytes(writeIndex:writeIndex + 1) = encodeUint16LittleEndian(packetCodes(surfaceIndex));
+for channelIndex = 1:4
+    packetBytes(writeIndex:writeIndex + 1) = encodeUint16LittleEndian(channelPacketCodes(channelIndex));
     writeIndex = writeIndex + 2;
+end
+end
+
+function channelMask = physicalMaskToReceiverChannelMask(physicalMask, receiverChannelSurfaceIndex)
+channelMask = uint8(0);
+for channelIndex = 1:numel(receiverChannelSurfaceIndex)
+    physicalIndex = receiverChannelSurfaceIndex(channelIndex);
+    if bitand(physicalMask, bitshift(uint8(1), physicalIndex - 1)) ~= 0
+        channelMask = bitor(channelMask, bitshift(uint8(1), channelIndex - 1));
+    end
 end
 end
 
