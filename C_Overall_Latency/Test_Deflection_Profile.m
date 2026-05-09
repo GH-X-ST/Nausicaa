@@ -49,7 +49,7 @@ end
 
 holdSeconds = getFieldOrDefault(config, "deflectionHoldSeconds", 0.75);
 rampLevels = normalizeRampLevels(getFieldOrDefault( ...
-    config, "deflectionRampLevels", [0, 0.05, 0.10, 0.20, 0.40, 0.60, 0.80, 1.00]));
+    config, "deflectionRampLevels", [0, 0.10, 0.20, 0.30, 0.45, 0.60, 0.80, 1.00]));
 [positiveLevels, positivePhases] = makeSignedRamp(rampLevels, 1);
 [negativeLevels, negativePhases] = makeSignedRamp(rampLevels, -1);
 

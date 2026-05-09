@@ -140,8 +140,8 @@ config.neutralDurationSeconds = getPositiveScalar(config, "neutralDurationSecond
 config.randomSeed = getScalar(config, "randomSeed", 2);
 config.surfaceNames = getStringRow(config, "surfaceNames", ["Aileron_L", "Aileron_R", "Rudder", "Elevator"]);
 config.surfaceOrder = getStringRow(config, "surfaceOrder", config.surfaceNames);
-config.receiverChannelSurfaceOrder = getStringRow(config, "receiverChannelSurfaceOrder", ["Aileron_R", "Aileron_L", "Elevator", "Rudder"]);
-config.surfaceEulerAxes = getStringRow(config, "surfaceEulerAxes", ["X", "X", "X", "X"]);
+config.receiverChannelSurfaceOrder = getStringRow(config, "receiverChannelSurfaceOrder", ["Aileron_R", "Aileron_L", "Rudder", "Elevator"]);
+config.surfaceEulerAxes = getStringRow(config, "surfaceEulerAxes", ["X", "X", "Z", "X"]);
 config.servoSigns = getNumericRow(config, "servoSigns", [1, 1, 1, 1]);
 config.surfaceRangeDeg = getNumericRow(config, "surfaceRangeDeg", [30, 30, 30, 30]);
 config.viconHostName = getText(config, "viconHostName", "192.168.0.100:801");
@@ -698,7 +698,7 @@ end
 
 function eventCount = estimateDeflectionEventCountPerSurface(config)
 rampLevels = getFieldOrDefault(config, "deflectionRampLevels", ...
-    [0, 0.05, 0.10, 0.20, 0.40, 0.60, 0.80, 1.00]);
+    [0, 0.10, 0.20, 0.30, 0.45, 0.60, 0.80, 1.00]);
 rampLevels = reshape(abs(double(rampLevels)), 1, []);
 rampLevels = rampLevels(isfinite(rampLevels));
 rampLevels = min(max(rampLevels, 0), 1);

@@ -503,7 +503,7 @@ classdef Vicon < handle
                 config, "rawSubjectNames", ["Aileron_L", "Aileron_R", "Rudder", "Elevator"])), 1, []);
             config.surfaceSubjectNames = reshape(string(Vicon.getFieldOrDefault( ...
                 config, "surfaceSubjectNames", ["Aileron_L", "Aileron_R", "Rudder", "Elevator"])), 1, []);
-            config.surfaceEulerAxes = reshape(string(Vicon.getFieldOrDefault(config, "surfaceEulerAxes", ["X", "X", "X", "X"])), 1, []);
+            config.surfaceEulerAxes = reshape(string(Vicon.getFieldOrDefault(config, "surfaceEulerAxes", ["X", "X", "Z", "X"])), 1, []);
             config.surfaceEulerAxes = Vicon.resizeRow(config.surfaceEulerAxes, numel(config.surfaceSubjectNames), "X");
             config.bodySubjectName = string(Vicon.getFieldOrDefault(config, "bodySubjectName", ""));
             config.axisMapping = string(Vicon.getFieldOrDefault(config, "axisMapping", "ZUp"));
