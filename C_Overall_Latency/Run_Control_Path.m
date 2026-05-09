@@ -142,7 +142,7 @@ config.surfaceNames = getStringRow(config, "surfaceNames", ["Aileron_L", "Ailero
 config.surfaceOrder = getStringRow(config, "surfaceOrder", config.surfaceNames);
 config.receiverChannelSurfaceOrder = getStringRow(config, "receiverChannelSurfaceOrder", ["Aileron_R", "Aileron_L", "Rudder", "Elevator"]);
 config.surfaceEulerAxes = getStringRow(config, "surfaceEulerAxes", ["X", "X", "Z", "X"]);
-config.servoSigns = getNumericRow(config, "servoSigns", [1, 1, 1, 1]);
+config.servoSigns = getNumericRow(config, "servoSigns", [1, -1, 1, -1]);
 config.surfaceRangeDeg = getNumericRow(config, "surfaceRangeDeg", [30, 30, 30, 30]);
 config.viconHostName = getText(config, "viconHostName", "192.168.0.100:801");
 config.viconPort = getPositiveScalar(config, "viconPort", 801);
@@ -517,14 +517,17 @@ end
 function runData = saveRunData(runData)
 ensureFolder(runData.config.outputFolder);
 runData.outputFiles.runDataMat = string(fullfile(runData.config.outputFolder, "run_data.mat"));
-save(runData.outputFiles.runDataMat, "runData");
-
 if runData.config.saveCsv
     runData.outputFiles.commandLogCsv = string(fullfile(runData.config.outputFolder, "command_log.csv"));
     runData.outputFiles.viconRawLogCsv = string(fullfile(runData.config.outputFolder, "vicon_raw_log.csv"));
     runData.outputFiles.viconStateLogCsv = string(fullfile(runData.config.outputFolder, "vicon_state_log.csv"));
     runData.outputFiles.serialTelemetryCsv = string(fullfile(runData.config.outputFolder, "serial_telemetry_raw.csv"));
     runData.outputFiles.eventTableCsv = string(fullfile(runData.config.outputFolder, "event_table.csv"));
+end
+
+save(runData.outputFiles.runDataMat, "runData");
+
+if runData.config.saveCsv
     writetable(runData.commandLog, runData.outputFiles.commandLogCsv);
     writetable(runData.viconRawLog, runData.outputFiles.viconRawLogCsv);
     writetable(runData.viconStateLog, runData.outputFiles.viconStateLogCsv);
@@ -532,7 +535,6 @@ if runData.config.saveCsv
     if ~isempty(runData.eventTable)
         writetable(runData.eventTable, runData.outputFiles.eventTableCsv);
     end
-    save(runData.outputFiles.runDataMat, "runData");
 end
 end
 

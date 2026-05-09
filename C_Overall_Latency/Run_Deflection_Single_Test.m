@@ -21,6 +21,7 @@ cfg.neutralTailSeconds = scenario.neutralTailSeconds;
 fprintf("\nSingle deflection scenario: %s\n", scenario.name);
 fprintf("  receiverChannelSurfaceOrder = %s\n", strjoin(string(cfg.receiverChannelSurfaceOrder), ", "));
 fprintf("  surfaceEulerAxes = %s\n", strjoin(string(cfg.surfaceEulerAxes), ", "));
+fprintf("  servoSigns = %s\n", mat2str(cfg.servoSigns));
 fprintf("  holdSeconds = %.2f, commandDtSeconds = %.3f\n", cfg.deflectionHoldSeconds, cfg.commandDtSeconds);
 fprintf("  rampLevels = %s\n", mat2str(cfg.deflectionRampLevels));
 

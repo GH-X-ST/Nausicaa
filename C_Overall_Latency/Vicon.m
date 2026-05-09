@@ -64,12 +64,12 @@ classdef Vicon < handle
 
             for surfaceIndex = 1:surfaceCount
                 if ~isempty(surfaceSamples{surfaceIndex})
-                    obj.neutralSurfaceEulerRad(surfaceIndex, :) = median(surfaceSamples{surfaceIndex}, 1, "omitnan");
+                    obj.neutralSurfaceEulerRad(surfaceIndex, :) = Vicon.angularMeanRad(surfaceSamples{surfaceIndex});
                 end
             end
 
             if ~isempty(bodySamples)
-                obj.neutralBodyEulerRad = median(bodySamples, 1, "omitnan");
+                obj.neutralBodyEulerRad = Vicon.angularMeanRad(bodySamples);
             end
         end
 
@@ -642,6 +642,10 @@ classdef Vicon < handle
 
         function angleRad = wrapToPiLocal(angleRad)
             angleRad = mod(angleRad + pi, 2 * pi) - pi;
+        end
+
+        function meanRad = angularMeanRad(angleRowsRad)
+            meanRad = atan2(mean(sin(angleRowsRad), 1, "omitnan"), mean(cos(angleRowsRad), 1, "omitnan"));
         end
     end
 end

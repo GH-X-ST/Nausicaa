@@ -51,13 +51,13 @@ for eventIndex = 1:height(events)
     sweepPhase = tableStringScalar(eventRow, "sweep_phase", "");
     sweepStepIndex = tableDoubleScalar(eventRow, "sweep_step_index", NaN);
     sweepStepCount = tableDoubleScalar(eventRow, "sweep_step_count", NaN);
-    holdWindowS = chooseSettledWindow(eventRow);
+    holdWindowS = chooseSettledWindow(eventRow, analysisConfig);
     stateMask = double(states.surface_index) == surfaceIndex & ...
         states.t_capture_host_s >= holdWindowS(1) & ...
         states.t_capture_host_s <= holdWindowS(2);
     windowRows = states(stateMask, :);
 
-    settledDeg = median(double(windowRows.surface_angle_deg), "omitnan");
+    settledDeg = summarizeSettledAngle(double(windowRows.surface_angle_deg), analysisConfig.deflectionSettledAverageMethod);
     instabilityDeg = std(double(windowRows.surface_angle_deg), 0, "omitnan");
     qualityText = join(unique(string(windowRows.quality_flag)), "|");
     if isempty(qualityText)
@@ -131,7 +131,7 @@ for surfaceIndex = 1:numel(surfaceNames)
     end
 
     neutralRows = surfaceRows(abs(double(surfaceRows.command_level_norm)) < 10 * eps & surfaceRows.valid, :);
-    neutralDeg = median(double(neutralRows.settled_deflection_deg), "omitnan");
+    neutralDeg = mean(double(neutralRows.settled_deflection_deg), "omitnan");
     if ~isfinite(neutralDeg)
         neutralDeg = 0;
     end
@@ -457,6 +457,8 @@ function [args, analysisConfig] = parseAnalysisConfig(args)
 analysisConfig = struct( ...
     "makePlots", false, ...
     "deflectionUnstableStdDeg", 2.0, ...
+    "deflectionSettledWindowSeconds", 0.35, ...
+    "deflectionSettledAverageMethod", "mean", ...
     "minLatencyResponseDeg", 1.0);
 if ~isempty(args) && isstruct(args{end})
     userConfig = args{end};
@@ -467,6 +469,7 @@ if ~isempty(args) && isstruct(args{end})
     end
 end
 analysisConfig.makePlots = logical(analysisConfig.makePlots);
+analysisConfig.deflectionSettledAverageMethod = lower(string(analysisConfig.deflectionSettledAverageMethod));
 end
 
 function runData = loadRunData(rawRunFile)
@@ -496,14 +499,27 @@ if ~isfolder(folderPath)
 end
 end
 
-function windowS = chooseSettledWindow(eventRow)
+function windowS = chooseSettledWindow(eventRow, analysisConfig)
 holdSeconds = double(eventRow.scheduled_end_s) - double(eventRow.scheduled_start_s);
 if holdSeconds < 0.30
     windowLength = max(0.05, 0.5 * holdSeconds);
 else
-    windowLength = 0.20;
+    requestedWindowLength = double(analysisConfig.deflectionSettledWindowSeconds);
+    if ~isfinite(requestedWindowLength) || requestedWindowLength <= 0
+        requestedWindowLength = 0.20;
+    end
+    windowLength = min(requestedWindowLength, max(0.05, 0.5 * holdSeconds));
 end
 windowS = [double(eventRow.scheduled_end_s) - windowLength, double(eventRow.scheduled_end_s)];
+end
+
+function settledDeg = summarizeSettledAngle(angleDeg, averageMethod)
+switch lower(string(averageMethod))
+    case "median"
+        settledDeg = median(angleDeg, "omitnan");
+    otherwise
+        settledDeg = mean(angleDeg, "omitnan");
+end
 end
 
 function value = tableStringScalar(row, variableName, defaultValue)

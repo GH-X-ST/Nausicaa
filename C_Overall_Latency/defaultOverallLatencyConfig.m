@@ -21,7 +21,7 @@ cfg.viconSurfaceSubjectNames = cfg.surfaceNames;
 cfg.receiverChannelSurfaceOrder = ["Aileron_R", "Aileron_L", "Rudder", "Elevator"];
 
 cfg.surfaceEulerAxes = ["X", "X", "Z", "X"];
-cfg.servoSigns = [1, 1, 1, 1];
+cfg.servoSigns = [1, -1, 1, -1];
 
 cfg.commandDtSeconds = 0.02;
 cfg.neutralDurationSeconds = 5.0;
