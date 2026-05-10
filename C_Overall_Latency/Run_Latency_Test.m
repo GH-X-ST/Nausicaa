@@ -7,7 +7,7 @@ cfg.runLabel = string(datetime("now", "Format", "yyyyMMdd_HHmmss")) + "_latency_
 
 % First hardware check: 30 s gives roughly three full all-surface passes.
 % For the full run, set activeCommandSeconds = 90.0.
-cfg.activeCommandSeconds = 30.0;
+cfg.activeCommandSeconds = 90.0;
 cfg.neutralLeadSeconds = 2.0;
 cfg.neutralTailSeconds = 2.0;
 cfg.eventHoldSeconds = 0.60;
