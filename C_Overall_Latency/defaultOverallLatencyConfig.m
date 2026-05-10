@@ -25,6 +25,8 @@ cfg.servoSigns = [1, -1, 1, -1];
 
 cfg.commandDtSeconds = 0.02;
 cfg.neutralDurationSeconds = 5.0;
+cfg.viconStateFilterEnabled = false;
+cfg.viconStateFilterCutoffHz = 20.0;
 cfg.randomSeed = 2;
 cfg.saveCsv = true;
 cfg.makePlots = false;

@@ -13,6 +13,8 @@ classdef Vicon < handle
         neutralBodyEulerRad
         lastSurfaceAngleRad
         lastSurfaceCaptureS
+        filteredSurfaceAngleRad
+        filteredSurfaceCaptureS
         isClosed = false
     end
 
@@ -28,6 +30,8 @@ classdef Vicon < handle
             obj.neutralBodyEulerRad = nan(1, 3);
             obj.lastSurfaceAngleRad = nan(1, numel(obj.config.surfaceSubjectNames));
             obj.lastSurfaceCaptureS = nan(1, numel(obj.config.surfaceSubjectNames));
+            obj.filteredSurfaceAngleRad = nan(1, numel(obj.config.surfaceSubjectNames));
+            obj.filteredSurfaceCaptureS = nan(1, numel(obj.config.surfaceSubjectNames));
             obj.connect();
         end
 
@@ -119,7 +123,9 @@ classdef Vicon < handle
                 "frameRateHz", NaN, ...
                 "latencySeconds", NaN, ...
                 "rawSubjectNames", obj.config.rawSubjectNames, ...
-                "surfaceSubjectNames", obj.config.surfaceSubjectNames);
+                "surfaceSubjectNames", obj.config.surfaceSubjectNames, ...
+                "stateFilterEnabled", obj.config.stateFilterEnabled, ...
+                "stateFilterCutoffHz", obj.config.stateFilterCutoffHz);
 
             try
                 obj.client.SetConnectionTimeout(uint32(round(obj.config.connectTimeoutSeconds * 1000)));
@@ -283,7 +289,12 @@ classdef Vicon < handle
                 repmat(frameData.tCaptureHostS, surfaceCount, 1), ...
                 zeros(surfaceCount, 1), ...
                 strings(surfaceCount, 1), zeros(surfaceCount, 1), strings(surfaceCount, 1), ...
-                nan(surfaceCount, 1), nan(surfaceCount, 1), nan(surfaceCount, 1), nan(surfaceCount, 1), strings(surfaceCount, 1), ...
+                nan(surfaceCount, 1), nan(surfaceCount, 1), ...
+                nan(surfaceCount, 1), nan(surfaceCount, 1), ...
+                nan(surfaceCount, 1), nan(surfaceCount, 1), ...
+                repmat(obj.config.stateFilterEnabled, surfaceCount, 1), ...
+                repmat(obj.config.stateFilterCutoffHz, surfaceCount, 1), ...
+                strings(surfaceCount, 1), ...
                 'VariableNames', stateRows.Properties.VariableNames);
 
             bodyPose = [];
@@ -302,15 +313,49 @@ classdef Vicon < handle
                 stateRows.surface_index(surfaceIndex) = surfaceIndex;
                 stateRows.surface_name(surfaceIndex) = surfaceName;
 
-                [angleRad, qualityFlag] = obj.estimateSurfaceAngle(surfaceIndex, pose, bodyPose, bodyNeutral);
+                [rawAngleRad, qualityFlag] = obj.estimateSurfaceAngle(surfaceIndex, pose, bodyPose, bodyNeutral);
+                angleRad = obj.applyStateFilter(surfaceIndex, rawAngleRad, frameData.tCaptureHostS, qualityFlag);
                 rateRadps = obj.estimateSurfaceRate(surfaceIndex, angleRad, frameData.tCaptureHostS);
 
+                stateRows.raw_surface_angle_rad(surfaceIndex) = rawAngleRad;
+                stateRows.raw_surface_angle_deg(surfaceIndex) = rad2deg(rawAngleRad);
                 stateRows.surface_angle_rad(surfaceIndex) = angleRad;
                 stateRows.surface_angle_deg(surfaceIndex) = rad2deg(angleRad);
                 stateRows.surface_rate_radps(surfaceIndex) = rateRadps;
                 stateRows.surface_rate_degps(surfaceIndex) = rad2deg(rateRadps);
+                stateRows.state_filter_enabled(surfaceIndex) = obj.config.stateFilterEnabled;
+                stateRows.state_filter_cutoff_hz(surfaceIndex) = obj.config.stateFilterCutoffHz;
                 stateRows.quality_flag(surfaceIndex) = qualityFlag;
             end
+        end
+
+        function angleRad = applyStateFilter(obj, surfaceIndex, rawAngleRad, tCaptureHostS, qualityFlag)
+            angleRad = rawAngleRad;
+            if ~obj.config.stateFilterEnabled
+                return;
+            end
+            if string(qualityFlag) ~= "ok" || ~isfinite(rawAngleRad) || ~isfinite(tCaptureHostS)
+                angleRad = NaN;
+                return;
+            end
+
+            previousAngle = obj.filteredSurfaceAngleRad(surfaceIndex);
+            previousTime = obj.filteredSurfaceCaptureS(surfaceIndex);
+            if ~isfinite(previousAngle) || ~isfinite(previousTime) || tCaptureHostS <= previousTime
+                obj.filteredSurfaceAngleRad(surfaceIndex) = rawAngleRad;
+                obj.filteredSurfaceCaptureS(surfaceIndex) = tCaptureHostS;
+                angleRad = rawAngleRad;
+                return;
+            end
+
+            dtS = tCaptureHostS - previousTime;
+            tauS = 1 ./ (2 .* pi .* obj.config.stateFilterCutoffHz);
+            alpha = 1 - exp(-dtS ./ tauS);
+            alpha = min(max(alpha, 0), 1);
+            deltaRad = obj.wrapToPiLocal(rawAngleRad - previousAngle);
+            angleRad = obj.wrapToPiLocal(previousAngle + alpha .* deltaRad);
+            obj.filteredSurfaceAngleRad(surfaceIndex) = angleRad;
+            obj.filteredSurfaceCaptureS(surfaceIndex) = tCaptureHostS;
         end
 
         function [angleRad, qualityFlag] = estimateSurfaceAngle(obj, surfaceIndex, pose, bodyPose, bodyNeutral)
@@ -364,8 +409,12 @@ classdef Vicon < handle
             sample.t_read_host_s = frameData.tReadHostS;
             sample.t_capture_host_s = frameData.tCaptureHostS;
             sample.surfaceNames = reshape(string(stateRows.surface_name), 1, []);
+            sample.raw_surface_angle_rad = reshape(double(stateRows.raw_surface_angle_rad), 1, []);
+            sample.raw_surface_angle_deg = reshape(double(stateRows.raw_surface_angle_deg), 1, []);
             sample.surface_angle_rad = reshape(double(stateRows.surface_angle_rad), 1, []);
             sample.surface_angle_deg = reshape(double(stateRows.surface_angle_deg), 1, []);
+            sample.state_filter_enabled = obj.config.stateFilterEnabled;
+            sample.state_filter_cutoff_hz = obj.config.stateFilterCutoffHz;
             sample.qualityFlags = reshape(string(stateRows.quality_flag), 1, []);
             sample.rawTable = rawRows;
             sample.stateTable = stateRows;
@@ -513,6 +562,11 @@ classdef Vicon < handle
             config.maxConnectionAttempts = double(Vicon.getFieldOrDefault(config, "maxConnectionAttempts", 3));
             config.frameWaitTimeoutSeconds = double(Vicon.getFieldOrDefault(config, "frameWaitTimeoutSeconds", 2.0));
             config.sdkDllPath = string(Vicon.getFieldOrDefault(config, "sdkDllPath", ""));
+            config.stateFilterEnabled = logical(Vicon.getFieldOrDefault(config, "stateFilterEnabled", false));
+            config.stateFilterCutoffHz = double(Vicon.getFieldOrDefault(config, "stateFilterCutoffHz", 20.0));
+            if ~isfinite(config.stateFilterCutoffHz) || config.stateFilterCutoffHz <= 0
+                error("Vicon:InvalidFilterConfig", "stateFilterCutoffHz must be positive and finite.");
+            end
         end
 
         function dllPath = resolveSdkAssembly(configuredPath)
@@ -546,8 +600,12 @@ classdef Vicon < handle
                 "t_read_host_s", NaN, ...
                 "t_capture_host_s", NaN, ...
                 "surfaceNames", strings(1, 0), ...
+                "raw_surface_angle_rad", nan(1, 0), ...
+                "raw_surface_angle_deg", nan(1, 0), ...
                 "surface_angle_rad", nan(1, 0), ...
                 "surface_angle_deg", nan(1, 0), ...
+                "state_filter_enabled", false, ...
+                "state_filter_cutoff_hz", NaN, ...
                 "qualityFlags", strings(1, 0), ...
                 "rawTable", Vicon.emptyRawTable(), ...
                 "stateTable", Vicon.emptyStateTable());
@@ -566,10 +624,12 @@ classdef Vicon < handle
         function tableOut = emptyStateTable()
             tableOut = table( ...
                 zeros(0, 1), zeros(0, 1), zeros(0, 1), strings(0, 1), zeros(0, 1), strings(0, 1), ...
-                zeros(0, 1), zeros(0, 1), zeros(0, 1), zeros(0, 1), strings(0, 1), ...
+                zeros(0, 1), zeros(0, 1), zeros(0, 1), zeros(0, 1), ...
+                zeros(0, 1), zeros(0, 1), false(0, 1), zeros(0, 1), strings(0, 1), ...
                 'VariableNames', {'frame_number', 't_capture_host_s', 'state_ready_host_s', 'subject_name', ...
-                'surface_index', 'surface_name', 'surface_angle_rad', 'surface_angle_deg', ...
-                'surface_rate_radps', 'surface_rate_degps', 'quality_flag'});
+                'surface_index', 'surface_name', 'raw_surface_angle_rad', 'raw_surface_angle_deg', ...
+                'surface_angle_rad', 'surface_angle_deg', 'surface_rate_radps', 'surface_rate_degps', ...
+                'state_filter_enabled', 'state_filter_cutoff_hz', 'quality_flag'});
         end
 
         function success = isSuccessOutput(output)

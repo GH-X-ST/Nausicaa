@@ -12,4 +12,8 @@ analysisConfig = struct( ...
 result = Post_Analysis("latency", rawRunFile, analysisConfig);
 
 fprintf("Latency analysis complete.\n");
+if isfield(result.analysisInfo, "viconStateFilterEnabled") && result.analysisInfo.viconStateFilterEnabled
+    fprintf("Vicon state filter used: one-pole low-pass %.1f Hz.\n", ...
+        result.analysisInfo.viconStateFilterCutoffHz);
+end
 fprintf("Latency result file:\n%s\n", result.outputFiles.latencyMat);

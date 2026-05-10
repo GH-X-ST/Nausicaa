@@ -1,8 +1,0 @@
-event_id,surface_index,surface_name,t0_write_start_host_s,response_window_end_s,command_step_norm,command_before_norm,command_after_norm,delta_base_deg,sigma_base_deg,delta_final_deg,response_amplitude_deg,level_10_deg,level_50_deg,level_90_deg,t10_capture_s,t50_capture_s,t90_capture_s,t10_latency_s,t50_latency_s,t90_latency_s,valid,t90_valid,rejection_reason
-1,2,Aileron_R,NaN,2.6,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,0,0,missing_command_sample
-2,2,Aileron_R,NaN,3.2,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,0,0,missing_command_sample
-3,2,Aileron_R,NaN,3.8,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,0,0,missing_command_sample
-4,2,Aileron_R,NaN,4.4,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,0,0,missing_command_sample
-5,4,Elevator,NaN,5,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,0,0,missing_command_sample
-6,4,Elevator,NaN,5.6,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,0,0,missing_command_sample
-7,4,Elevator,NaN,6.2,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,0,0,missing_command_sample

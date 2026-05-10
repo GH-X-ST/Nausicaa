@@ -159,6 +159,8 @@ config.processedRoot = getText(config, "processedRoot", fullfile("C_Overall_Late
 config.saveCsv = getLogical(config, "saveCsv", true);
 config.makePlots = getLogical(config, "makePlots", false);
 config.serialTimeoutSeconds = getPositiveScalar(config, "serialTimeoutSeconds", 0.05);
+config.viconStateFilterEnabled = getLogical(config, "viconStateFilterEnabled", false);
+config.viconStateFilterCutoffHz = getPositiveScalar(config, "viconStateFilterCutoffHz", 20.0);
 config.aeroCommandOrder = ["delta_a_cmd", "delta_e_cmd", "delta_r_cmd"];
 
 surfaceCount = numel(config.surfaceOrder);
@@ -219,6 +221,8 @@ viconConfig.surfaceSubjectNames = getFieldOrDefault(viconConfig, "surfaceSubject
 viconConfig.surfaceOrder = config.surfaceOrder;
 viconConfig.surfaceEulerAxes = config.surfaceEulerAxes;
 viconConfig.bodySubjectName = getFieldOrDefault(viconConfig, "bodySubjectName", config.bodySubjectName);
+viconConfig.stateFilterEnabled = getFieldOrDefault(viconConfig, "stateFilterEnabled", config.viconStateFilterEnabled);
+viconConfig.stateFilterCutoffHz = getFieldOrDefault(viconConfig, "stateFilterCutoffHz", config.viconStateFilterCutoffHz);
 viconConfig.axisMapping = getFieldOrDefault(viconConfig, "axisMapping", "ZUp");
 viconConfig.streamMode = getFieldOrDefault(viconConfig, "streamMode", "ServerPush");
 viconConfig.connectTimeoutSeconds = getFieldOrDefault(viconConfig, "connectTimeoutSeconds", 5.0);
@@ -601,10 +605,12 @@ end
 function tableOut = emptyViconStateTable()
 tableOut = table( ...
     zeros(0, 1), zeros(0, 1), zeros(0, 1), strings(0, 1), zeros(0, 1), strings(0, 1), ...
-    zeros(0, 1), zeros(0, 1), zeros(0, 1), zeros(0, 1), strings(0, 1), ...
+    zeros(0, 1), zeros(0, 1), zeros(0, 1), zeros(0, 1), ...
+    zeros(0, 1), zeros(0, 1), false(0, 1), zeros(0, 1), strings(0, 1), ...
     'VariableNames', {'frame_number', 't_capture_host_s', 'state_ready_host_s', 'subject_name', ...
-    'surface_index', 'surface_name', 'surface_angle_rad', 'surface_angle_deg', ...
-    'surface_rate_radps', 'surface_rate_degps', 'quality_flag'});
+    'surface_index', 'surface_name', 'raw_surface_angle_rad', 'raw_surface_angle_deg', ...
+    'surface_angle_rad', 'surface_angle_deg', 'surface_rate_radps', 'surface_rate_degps', ...
+    'state_filter_enabled', 'state_filter_cutoff_hz', 'quality_flag'});
 end
 
 function tableOut = emptySerialTable()
