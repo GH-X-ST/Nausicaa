@@ -1,0 +1,231 @@
+from __future__ import annotations
+
+import csv
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+
+from arena import ArenaConfig, safety_margins
+from flight_dynamics import AircraftModel, evaluate_state, state_derivative
+from latency import CommandToSurfaceLayer
+from linearisation import INPUT_NAMES, STATE_INDEX, STATE_NAMES
+from metrics import rollout_metrics
+from primitive import FlightPrimitive, PrimitiveContext
+
+
+@dataclass(frozen=True)
+class RolloutConfig:
+    dt_s: float = 0.02
+    rho_kg_m3: float = 1.225
+    min_altitude_m: float = 0.25
+    speed_bounds_m_s: tuple[float, float] = (2.0, 10.5)
+    max_abs_phi_rad: float = np.deg2rad(85.0)
+    max_abs_theta_rad: float = np.deg2rad(65.0)
+    max_abs_alpha_rad: float = np.deg2rad(28.0)
+
+
+@dataclass(frozen=True)
+class RolloutResult:
+    success: bool
+    termination_reason: str
+    times_s: np.ndarray
+    states: np.ndarray
+    desired_commands: np.ndarray
+    target_commands: np.ndarray
+    metrics: dict[str, float | str | bool | int]
+    log_rows: tuple[dict[str, float | str | bool], ...]
+
+
+def rk4_step(
+    x: np.ndarray,
+    u_cmd: np.ndarray,
+    dt_s: float,
+    aircraft: AircraftModel,
+    wind_model: object,
+    rho_kg_m3: float,
+    actuator_tau_s: tuple[float, float, float],
+    wind_mode: str,
+) -> np.ndarray:
+    kwargs = {
+        "u_cmd": u_cmd,
+        "aircraft": aircraft,
+        "wind_model": wind_model,
+        "rho": rho_kg_m3,
+        "actuator_tau_s": actuator_tau_s,
+        "wind_mode": wind_mode,
+    }
+    k1 = state_derivative(x, **kwargs)
+    k2 = state_derivative(x + 0.5 * dt_s * k1, **kwargs)
+    k3 = state_derivative(x + 0.5 * dt_s * k2, **kwargs)
+    k4 = state_derivative(x + dt_s * k3, **kwargs)
+    return x + (dt_s / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+
+
+def violation_reason(
+    x: np.ndarray,
+    loads: dict[str, object],
+    rollout_config: RolloutConfig,
+    arena_config: ArenaConfig,
+) -> str | None:
+    if not np.all(np.isfinite(x)):
+        return "non-finite state"
+    margins = safety_margins(x, arena_config)
+    if not bool(margins["inside_safe_volume"]):
+        return "state outside safe volume"
+    altitude = float(x[STATE_INDEX["z_w"]])
+    if altitude < rollout_config.min_altitude_m:
+        return f"altitude below floor: {altitude:.3f} m"
+    speed = float(loads["speed_m_s"])
+    low, high = rollout_config.speed_bounds_m_s
+    if speed < low or speed > high:
+        return f"speed out of bounds: {speed:.3f} m/s"
+    if abs(float(x[STATE_INDEX["phi"]])) > rollout_config.max_abs_phi_rad:
+        return "bank angle exceeded bound"
+    if abs(float(x[STATE_INDEX["theta"]])) > rollout_config.max_abs_theta_rad:
+        return "pitch angle exceeded bound"
+    if abs(float(loads["alpha_rad"])) > rollout_config.max_abs_alpha_rad:
+        return "angle of attack exceeded bound"
+    return None
+
+
+def simulate_primitive(
+    scenario_id: str,
+    seed: int,
+    primitive: FlightPrimitive,
+    x0: np.ndarray,
+    context: PrimitiveContext,
+    aircraft: AircraftModel,
+    wind_model: object,
+    wind_model_name: str,
+    wind_mode: str,
+    command_layer: CommandToSurfaceLayer,
+    log_path: Path,
+    repo_root: Path,
+    rollout_config: RolloutConfig | None = None,
+    arena_config: ArenaConfig | None = None,
+) -> RolloutResult:
+    rollout_config = rollout_config or RolloutConfig()
+    arena_config = arena_config or ArenaConfig()
+    x = np.asarray(x0, dtype=float).reshape(15).copy()
+    command_layer.reset(context.u_trim)
+    steps = int(np.ceil(float(primitive.duration_s) / rollout_config.dt_s))
+
+    times = np.empty(steps + 1, dtype=float)
+    states = np.empty((steps + 1, 15), dtype=float)
+    desired_commands = np.empty((steps + 1, 3), dtype=float)
+    target_commands = np.empty((steps + 1, 3), dtype=float)
+    rows: list[dict[str, float | str | bool]] = []
+    success = True
+    termination_reason = ""
+    last_idx = 0
+
+    for step in range(steps + 1):
+        t_s = min(step * rollout_config.dt_s, float(primitive.duration_s))
+        desired = np.asarray(primitive.command(t_s, x, context), dtype=float).reshape(3)
+        target = command_layer.apply(desired)
+        loads = evaluate_state(
+            x=x,
+            u_cmd=target,
+            aircraft=aircraft,
+            wind_model=wind_model,
+            rho=rollout_config.rho_kg_m3,
+            actuator_tau_s=command_layer.actuator_tau_vector_s,
+            wind_mode=wind_mode,
+        )
+        times[step] = t_s
+        states[step] = x
+        desired_commands[step] = desired
+        target_commands[step] = target
+        row = {
+            "scenario_id": scenario_id,
+            "primitive": primitive.name,
+            "phase": primitive.target_label(t_s),
+            "t_s": float(t_s),
+        }
+        row.update({name: float(x[idx]) for idx, name in enumerate(STATE_NAMES)})
+        for idx, name in enumerate(INPUT_NAMES):
+            row[f"desired_{name}_rad"] = float(desired[idx])
+            row[f"target_{name}_rad"] = float(target[idx])
+        row.update(command_layer.log_fields())
+        row.update(
+            {
+                "speed_m_s": float(loads["speed_m_s"]),
+                "alpha_rad": float(loads["alpha_rad"]),
+                "beta_rad": float(loads["beta_rad"]),
+                "gamma_rad": float(loads["gamma_rad"]),
+                "sink_rate_m_s": float(loads["sink_rate_m_s"]),
+                "wind_model": wind_model_name,
+                "wind_mode": wind_mode,
+            }
+        )
+        row.update(safety_margins(x, arena_config))
+        rows.append(row)
+        last_idx = step
+
+        reason = violation_reason(x, loads, rollout_config, arena_config)
+        if reason is not None:
+            success = False
+            termination_reason = reason
+            break
+        if step == steps:
+            break
+        x = rk4_step(
+            x=x,
+            u_cmd=target,
+            dt_s=rollout_config.dt_s,
+            aircraft=aircraft,
+            wind_model=wind_model,
+            rho_kg_m3=rollout_config.rho_kg_m3,
+            actuator_tau_s=command_layer.actuator_tau_vector_s,
+            wind_mode=wind_mode,
+        )
+
+    times = times[: last_idx + 1]
+    states = states[: last_idx + 1]
+    desired_commands = desired_commands[: last_idx + 1]
+    target_commands = target_commands[: last_idx + 1]
+    lower = np.deg2rad([-26.0, -30.0, -35.0])
+    upper = np.deg2rad([22.0, 22.0, 28.0])
+    saturated = np.isclose(target_commands, lower, atol=1e-12) | np.isclose(
+        target_commands,
+        upper,
+        atol=1e-12,
+    )
+    sat_fraction = float(np.mean(saturated))
+    metrics = rollout_metrics(
+        scenario_id=scenario_id,
+        seed=seed,
+        wind_model=wind_model_name,
+        wind_mode=wind_mode,
+        latency_mode=command_layer.config.mode,
+        primitive_selected=primitive.name,
+        success=success,
+        termination_reason=termination_reason,
+        states=states,
+        log_path=log_path,
+        repo_root=repo_root,
+        arena_config=arena_config,
+        saturation_fraction=sat_fraction,
+    )
+    return RolloutResult(
+        success=success,
+        termination_reason=termination_reason,
+        times_s=times,
+        states=states,
+        desired_commands=desired_commands,
+        target_commands=target_commands,
+        metrics=metrics,
+        log_rows=tuple(rows),
+    )
+
+
+def write_log(result: RolloutResult, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not result.log_rows:
+        return
+    fieldnames = list(result.log_rows[0].keys())
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(result.log_rows)

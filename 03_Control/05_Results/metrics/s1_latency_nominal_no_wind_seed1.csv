@@ -1,0 +1,2 @@
+scenario_id,seed,wind_model,wind_mode,latency_mode,primitive_selected,success,termination_reason,height_change_m,terminal_speed_m_s,max_alpha_deg,max_abs_phi_deg,min_wall_distance_m,inside_safe_volume,saturation_fraction,tracking_error_rms,governor_rejection_reason,log_path_relative
+s1_latency_nominal_no_wind,1,none,panel,nominal,bank_reversal,True,,-0.24057040518733075,6.505592309691435,3.053834490775539,4.139726110264059,0.6222187628412108,True,0.0,,,03_Control/05_Results/logs/s1_latency_nominal_no_wind_seed1.csv

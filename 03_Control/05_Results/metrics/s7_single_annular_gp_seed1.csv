@@ -1,0 +1,2 @@
+scenario_id,seed,wind_model,wind_mode,latency_mode,primitive_selected,success,termination_reason,height_change_m,terminal_speed_m_s,max_alpha_deg,max_abs_phi_deg,min_wall_distance_m,inside_safe_volume,saturation_fraction,tracking_error_rms,governor_rejection_reason,log_path_relative
+s7_single_annular_gp,1,single_annular_gp_grid,panel,nominal,nominal_glide,True,,0.1511610754413093,5.870923497846895,11.220125545799162,0.5699190018956295,1.1477214560141409,True,0.09090909090909091,,,03_Control/05_Results/logs/s7_single_annular_gp_seed1.csv

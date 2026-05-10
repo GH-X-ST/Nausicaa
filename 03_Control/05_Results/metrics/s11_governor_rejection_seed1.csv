@@ -1,0 +1,2 @@
+scenario_id,seed,wind_model,wind_mode,latency_mode,primitive_selected,success,termination_reason,height_change_m,terminal_speed_m_s,max_alpha_deg,max_abs_phi_deg,min_wall_distance_m,inside_safe_volume,saturation_fraction,tracking_error_rms,governor_rejection_reason,log_path_relative
+s11_governor_rejection,1,none,panel,nominal,recovery,False,governor_rejected,0.0,0.0,0.0,0.0,0.0,False,0.0,,altitude below entry floor: 0.100 m; governor: altitude below floor 0.100 m; governor: outside configured safe volume,
