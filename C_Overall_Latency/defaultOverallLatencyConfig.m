@@ -28,5 +28,10 @@ cfg.neutralDurationSeconds = 5.0;
 cfg.randomSeed = 2;
 cfg.saveCsv = true;
 cfg.makePlots = false;
+
+cfg.eventHoldSeconds = 0.60;
+cfg.latencyProfileMode = "bang_bang_measured_response_fraction";
+cfg.latencyBangBangAmplitudeNorm = 0.70;
+cfg.latencyRepetitionsPerSurface = 4;
 end
 

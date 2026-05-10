@@ -1,10 +1,15 @@
-%RUN_LATENCY_POST_ANALYSIS Analyze the latest latency run using latest calibration.
+%RUN_LATENCY_POST_ANALYSIS Analyze the latest latency run using measured response fractions.
 addpath(fileparts(mfilename("fullpath")));
 
 rawRunFile = latestRunDataFile("latency");
-calibrationFile = latestCalibrationFile();
-result = Post_Analysis("latency", rawRunFile, calibrationFile);
+analysisConfig = struct( ...
+    "minLatencyResponseDeg", 2.0, ...
+    "minLatencyCommandStepNorm", 0.20, ...
+    "latencyBaselineWindowSeconds", 0.15, ...
+    "latencyBaselineGapSeconds", 0.02, ...
+    "latencyFinalWindowSeconds", 0.15, ...
+    "latencyEndpointAverageMethod", "median");
+result = Post_Analysis("latency", rawRunFile, analysisConfig);
 
 fprintf("Latency analysis complete.\n");
 fprintf("Latency result file:\n%s\n", result.outputFiles.latencyMat);
-

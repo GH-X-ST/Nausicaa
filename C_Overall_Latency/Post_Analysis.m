@@ -272,7 +272,6 @@ runData = loadRunData(rawRunFile);
 events = runData.eventTable;
 states = runData.viconStateLog;
 commands = runData.commandLog;
-calibration = loadCalibrationOptional(calibrationFile);
 
 if isempty(events) || isempty(states) || isempty(commands)
     error("Post_Analysis:MissingLatencyLogs", "Latency analysis requires eventTable, commandLog, and viconStateLog.");
@@ -299,7 +298,7 @@ for eventIndex = 1:height(events)
     surfaceRows = states(double(states.surface_index) == surfaceIndex, :);
     analysisEndS = double(eventRow.scheduled_end_s);
 
-    [eventResult, rejectionReason] = analyzeOneLatencyEvent(eventRow, surfaceRows, t0, analysisEndS, calibration, analysisConfig);
+    [eventResult, rejectionReason] = analyzeOneLatencyEvent(eventRow, surfaceRows, t0, analysisEndS, analysisConfig);
     latencyEvents = [latencyEvents; eventResult]; %#ok<AGROW>
     if strlength(rejectionReason) > 0
         rejectedEvents = [rejectedEvents; eventResult]; %#ok<AGROW>
@@ -313,6 +312,12 @@ result.mode = "latency";
 result.latencyEvents = latencyEvents;
 result.summaryTable = summaryTable;
 result.rejectedEvents = rejectedEvents;
+result.analysisInfo = struct( ...
+    "method", "bang_bang_measured_response_fraction", ...
+    "calibrationFileProvided", strlength(calibrationFile) > 0, ...
+    "calibrationUsed", false, ...
+    "timingReference", "write_start_host_s", ...
+    "responseTimebase", "Vicon t_capture_host_s");
 result.outputFiles = struct( ...
     "latencyMat", string(fullfile(outputFolder, "latency_result.mat")), ...
     "latencyEventsCsv", string(fullfile(outputFolder, "latency_events.csv")), ...
@@ -325,29 +330,29 @@ writetable(summaryTable, result.outputFiles.latencySummaryCsv);
 writetable(rejectedEvents, result.outputFiles.rejectedEventsCsv);
 end
 
-function [eventResult, rejectionReason] = analyzeOneLatencyEvent(eventRow, surfaceRows, t0, analysisEndS, calibration, analysisConfig)
+function [eventResult, rejectionReason] = analyzeOneLatencyEvent(eventRow, surfaceRows, t0, analysisEndS, analysisConfig)
 surfaceIndex = double(eventRow.surface_index);
 surfaceName = string(eventRow.surface_name);
 beforeCommand = tableVectorValue(eventRow.command_before_norm);
 afterCommand = tableVectorValue(eventRow.command_after_norm);
 commandStepNorm = afterCommand(surfaceIndex) - beforeCommand(surfaceIndex);
-[expectedBeforeDeg, expectedBeforeOk] = lookupCalibrationDeflection(calibration, surfaceIndex, beforeCommand(surfaceIndex));
-[expectedAfterDeg, expectedAfterOk] = lookupCalibrationDeflection(calibration, surfaceIndex, afterCommand(surfaceIndex));
-expectedLookupAvailable = expectedBeforeOk && expectedAfterOk;
-expectedResponseAmplitudeDeg = expectedAfterDeg - expectedBeforeDeg;
 rejectionReason = "";
 
-baseMask = surfaceRows.t_capture_host_s >= t0 - 0.15 & surfaceRows.t_capture_host_s <= t0 - 0.02;
+baseMask = surfaceRows.t_capture_host_s >= t0 - analysisConfig.latencyBaselineWindowSeconds & ...
+    surfaceRows.t_capture_host_s <= t0 - analysisConfig.latencyBaselineGapSeconds;
 responseMask = surfaceRows.t_capture_host_s >= t0 & surfaceRows.t_capture_host_s <= analysisEndS;
-finalMask = surfaceRows.t_capture_host_s >= max(t0, analysisEndS - 0.10) & surfaceRows.t_capture_host_s <= analysisEndS;
+eventDurationS = max(analysisEndS - t0, 0);
+finalWindowSeconds = min(analysisConfig.latencyFinalWindowSeconds, max(0.05, 0.40 * eventDurationS));
+finalMask = surfaceRows.t_capture_host_s >= max(t0, analysisEndS - finalWindowSeconds) & ...
+    surfaceRows.t_capture_host_s <= analysisEndS;
 
 baseRows = surfaceRows(baseMask, :);
 responseRows = surfaceRows(responseMask, :);
 finalRows = surfaceRows(finalMask, :);
 
-deltaBaseDeg = median(double(baseRows.surface_angle_deg), "omitnan");
+deltaBaseDeg = summarizeLatencyEndpoint(double(baseRows.surface_angle_deg), analysisConfig.latencyEndpointAverageMethod);
 sigmaBaseDeg = std(double(baseRows.surface_angle_deg), 0, "omitnan");
-deltaFinalDeg = median(double(finalRows.surface_angle_deg), "omitnan");
+deltaFinalDeg = summarizeLatencyEndpoint(double(finalRows.surface_angle_deg), analysisConfig.latencyEndpointAverageMethod);
 responseAmplitudeDeg = deltaFinalDeg - deltaBaseDeg;
 
 valid = true;
@@ -363,25 +368,9 @@ if ~isfinite(responseAmplitudeDeg) || abs(responseAmplitudeDeg) < analysisConfig
     valid = false;
     rejectionReason = appendReason(rejectionReason, "response_amplitude_too_small");
 end
-if expectedLookupAvailable && abs(expectedResponseAmplitudeDeg) < analysisConfig.minLatencyResponseDeg
+if abs(commandStepNorm) < analysisConfig.minLatencyCommandStepNorm
     valid = false;
-    rejectionReason = appendReason(rejectionReason, "expected_lookup_amplitude_too_small");
-end
-expectedDirection = signNonzero(expectedResponseAmplitudeDeg);
-if expectedLookupAvailable && expectedDirection ~= 0 && signNonzero(responseAmplitudeDeg) ~= 0 && ...
-        expectedDirection ~= signNonzero(responseAmplitudeDeg)
-    valid = false;
-    rejectionReason = appendReason(rejectionReason, "response_direction_wrong_vs_lookup");
-elseif ~expectedLookupAvailable && signNonzero(commandStepNorm) ~= 0 && signNonzero(responseAmplitudeDeg) ~= 0 && ...
-        signNonzero(commandStepNorm) ~= signNonzero(responseAmplitudeDeg)
-    valid = false;
-    rejectionReason = appendReason(rejectionReason, "response_direction_wrong");
-end
-
-deadbandThreshold = extractDeadbandThreshold(calibration, surfaceIndex);
-if isfinite(deadbandThreshold) && abs(commandStepNorm) < deadbandThreshold
-    valid = false;
-    rejectionReason = appendReason(rejectionReason, "command_step_below_calibrated_deadband");
+    rejectionReason = appendReason(rejectionReason, "command_step_too_small");
 end
 
 level10 = deltaBaseDeg + 0.10 * responseAmplitudeDeg;
@@ -406,7 +395,6 @@ end
 eventResult = table( ...
     double(eventRow.event_id), surfaceIndex, surfaceName, t0, analysisEndS, ...
     commandStepNorm, beforeCommand(surfaceIndex), afterCommand(surfaceIndex), ...
-    expectedBeforeDeg, expectedAfterDeg, expectedResponseAmplitudeDeg, expectedLookupAvailable, ...
     deltaBaseDeg, sigmaBaseDeg, deltaFinalDeg, responseAmplitudeDeg, ...
     level10, level50, level90, ...
     t10, t50, t90, ...
@@ -414,8 +402,6 @@ eventResult = table( ...
     valid, t90Valid, string(rejectionReason), ...
     'VariableNames', {'event_id', 'surface_index', 'surface_name', 't0_write_start_host_s', ...
     'response_window_end_s', 'command_step_norm', 'command_before_norm', 'command_after_norm', ...
-    'expected_before_deflection_deg', 'expected_after_deflection_deg', ...
-    'expected_response_amplitude_deg', 'expected_lookup_available', ...
     'delta_base_deg', 'sigma_base_deg', ...
     'delta_final_deg', 'response_amplitude_deg', 'level_10_deg', 'level_50_deg', 'level_90_deg', ...
     't10_capture_s', 't50_capture_s', 't90_capture_s', ...
@@ -459,7 +445,12 @@ analysisConfig = struct( ...
     "deflectionUnstableStdDeg", 2.0, ...
     "deflectionSettledWindowSeconds", 0.35, ...
     "deflectionSettledAverageMethod", "mean", ...
-    "minLatencyResponseDeg", 1.0);
+    "minLatencyResponseDeg", 2.0, ...
+    "minLatencyCommandStepNorm", 0.20, ...
+    "latencyBaselineWindowSeconds", 0.15, ...
+    "latencyBaselineGapSeconds", 0.02, ...
+    "latencyFinalWindowSeconds", 0.15, ...
+    "latencyEndpointAverageMethod", "median");
 if ~isempty(args) && isstruct(args{end})
     userConfig = args{end};
     args = args(1:end - 1);
@@ -470,6 +461,7 @@ if ~isempty(args) && isstruct(args{end})
 end
 analysisConfig.makePlots = logical(analysisConfig.makePlots);
 analysisConfig.deflectionSettledAverageMethod = lower(string(analysisConfig.deflectionSettledAverageMethod));
+analysisConfig.latencyEndpointAverageMethod = lower(string(analysisConfig.latencyEndpointAverageMethod));
 end
 
 function runData = loadRunData(rawRunFile)
@@ -519,6 +511,15 @@ switch lower(string(averageMethod))
         settledDeg = median(angleDeg, "omitnan");
     otherwise
         settledDeg = mean(angleDeg, "omitnan");
+end
+end
+
+function endpointDeg = summarizeLatencyEndpoint(angleDeg, averageMethod)
+switch lower(string(averageMethod))
+    case "mean"
+        endpointDeg = mean(angleDeg, "omitnan");
+    otherwise
+        endpointDeg = median(angleDeg, "omitnan");
 end
 end
 
@@ -658,98 +659,14 @@ end
 value = median(stdValues, "omitnan");
 end
 
-function calibration = loadCalibrationOptional(calibrationFile)
-calibration = [];
-if strlength(calibrationFile) == 0 || ~isfile(calibrationFile)
-    return;
-end
-loadedData = load(calibrationFile);
-if isfield(loadedData, "calibration")
-    calibration = loadedData.calibration;
-elseif isfield(loadedData, "result") && isfield(loadedData.result, "calibration")
-    calibration = loadedData.result.calibration;
-end
-end
-
-function [deflectionDeg, isAvailable] = lookupCalibrationDeflection(calibration, surfaceIndex, commandLevelNorm)
-deflectionDeg = NaN;
-isAvailable = false;
-if isempty(calibration) || ~isstruct(calibration) || ~isfield(calibration, "lookupTable")
-    return;
-end
-
-lookupTable = calibration.lookupTable;
-if isempty(lookupTable) || ~istable(lookupTable)
-    return;
-end
-surfaceLookup = lookupTable(double(lookupTable.surface_index) == surfaceIndex, :);
-if isempty(surfaceLookup)
-    return;
-end
-
-deflectionDeg = lookupDeflection(surfaceLookup, commandLevelNorm);
-isAvailable = isfinite(deflectionDeg);
-end
-
-function threshold = extractDeadbandThreshold(calibration, surfaceIndex)
-threshold = NaN;
-if isempty(calibration)
-    return;
-end
-if isstruct(calibration) && isfield(calibration, "lookupTable") && istable(calibration.lookupTable)
-    threshold = extractLookupDeadbandThreshold(calibration.lookupTable, surfaceIndex);
-    if isfinite(threshold)
-        return;
-    end
-end
-surfaceTable = [];
-if isstruct(calibration) && isfield(calibration, "surfaceTable")
-    surfaceTable = calibration.surfaceTable;
-elseif istable(calibration)
-    surfaceTable = calibration;
-end
-if isempty(surfaceTable)
-    return;
-end
-row = surfaceTable(double(surfaceTable.surface_index) == surfaceIndex, :);
-if isempty(row)
-    return;
-end
-threshold = finiteMax([abs(double(row.deadband_positive_norm)), abs(double(row.deadband_negative_norm))]);
-end
-
-function threshold = extractLookupDeadbandThreshold(lookupTable, surfaceIndex)
-threshold = NaN;
-surfaceRows = lookupTable(double(lookupTable.surface_index) == surfaceIndex, :);
-if isempty(surfaceRows)
-    return;
-end
-
-commandLevels = abs(double(surfaceRows.command_level_norm));
-deflectionsDeg = abs(double(surfaceRows.lookup_deflection_deg));
-valid = isfinite(commandLevels) & isfinite(deflectionsDeg) & commandLevels > 10 * eps;
-commandLevels = commandLevels(valid);
-deflectionsDeg = deflectionsDeg(valid);
-if isempty(commandLevels)
-    return;
-end
-
-detected = commandLevels(deflectionsDeg >= 1.0);
-if ~isempty(detected)
-    threshold = min(detected);
-end
-end
-
 function row = rejectedLatencyRow(eventRow, reason)
 row = table( ...
     double(eventRow.event_id), double(eventRow.surface_index), string(eventRow.surface_name), ...
-    NaN, double(eventRow.scheduled_end_s), NaN, NaN, NaN, NaN, NaN, NaN, false, ...
+    NaN, double(eventRow.scheduled_end_s), NaN, NaN, NaN, ...
     NaN, NaN, NaN, NaN, NaN, NaN, NaN, ...
     NaN, NaN, NaN, NaN, NaN, NaN, false, false, string(reason), ...
     'VariableNames', {'event_id', 'surface_index', 'surface_name', 't0_write_start_host_s', ...
     'response_window_end_s', 'command_step_norm', 'command_before_norm', 'command_after_norm', ...
-    'expected_before_deflection_deg', 'expected_after_deflection_deg', ...
-    'expected_response_amplitude_deg', 'expected_lookup_available', ...
     'delta_base_deg', 'sigma_base_deg', ...
     'delta_final_deg', 'response_amplitude_deg', 'level_10_deg', 'level_50_deg', 'level_90_deg', ...
     't10_capture_s', 't50_capture_s', 't90_capture_s', ...
@@ -781,6 +698,12 @@ values = values(valid);
 crossTime = NaN;
 found = false;
 if numel(times) < 2 || direction == 0 || ~isfinite(level)
+    return;
+end
+
+if (direction > 0 && values(1) >= level) || (direction < 0 && values(1) <= level)
+    crossTime = times(1);
+    found = true;
     return;
 end
 

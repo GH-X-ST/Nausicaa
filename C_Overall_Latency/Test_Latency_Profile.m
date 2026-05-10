@@ -1,5 +1,5 @@
 function [cmd, profileState] = Test_Latency_Profile(tNowS, viconSample, config, profileState)
-%TEST_LATENCY_PROFILE Seeded sparse one-surface step command provider.
+%TEST_LATENCY_PROFILE Bang-bang one-surface latency command provider.
 if nargin < 4 || isempty(profileState) || ~isfield(profileState, "isInitialized")
     profileState = initializeProfile(config);
 end
@@ -21,7 +21,7 @@ if ~isempty(eventIndex)
     activeSurfaceIndex = eventRow.surface_index;
     activeSurfaceName = string(eventRow.surface_name);
     commandLevelNorm = surfaceNorm(activeSurfaceIndex);
-    description = "latency_step_" + activeSurfaceName + "_" + string(commandLevelNorm);
+    description = string(eventRow.step_label);
 end
 
 cmd = struct( ...
@@ -48,16 +48,111 @@ if isempty(surfaceIndices)
     surfaceIndices = 1:surfaceCount;
 end
 
-eventHoldSeconds = getFieldOrDefault(config, "eventHoldSeconds", 0.50);
+eventHoldSeconds = double(getFieldOrDefault(config, "eventHoldSeconds", 0.60));
 activeStartS = double(config.neutralLeadSeconds);
 activeStopS = activeStartS + double(config.activeCommandSeconds);
 randomSeed = double(config.randomSeed);
-amplitudeSet = reshape(double(getFieldOrDefault( ...
-    config, "latencyAmplitudeSetNorm", [-1.0, -0.7, -0.5, 0.5, 0.7, 1.0])), 1, []);
+amplitudeBySurface = resolveAmplitudeBySurface(config, surfaceCount);
+repetitionsPerSurface = max(1, round(double(getFieldOrDefault(config, "latencyRepetitionsPerSurface", 4))));
 
-[amplitudesBySurface, profileInfo] = resolveAmplitudeSet(config, surfaceCount, amplitudeSet);
 rng(randomSeed, "twister");
 
+eventRows = emptyEventRows();
+currentCommand = zeros(1, surfaceCount);
+nextStartS = activeStartS;
+eventId = 1;
+stopBuilding = false;
+
+for repetitionIndex = 1:repetitionsPerSurface
+    if stopBuilding
+        break;
+    end
+
+    shuffledSurfaceIndices = surfaceIndices(randperm(numel(surfaceIndices)));
+    if mod(repetitionIndex, 2) == 0
+        signedDirections = [-1, 1];
+    else
+        signedDirections = [1, -1];
+    end
+
+    for surfaceIndex = shuffledSurfaceIndices
+        for signedDirection = signedDirections
+            targetCommand = signedDirection * amplitudeBySurface(surfaceIndex);
+            [eventRows, currentCommand, nextStartS, eventId, stopBuilding] = appendLatencyEvent( ...
+                eventRows, currentCommand, nextStartS, eventHoldSeconds, activeStopS, ...
+                eventId, surfaceIndex, surfaceOrder(surfaceIndex), targetCommand, ...
+                randomSeed, repetitionIndex, "step_to_command");
+            if stopBuilding
+                break;
+            end
+
+            [eventRows, currentCommand, nextStartS, eventId, stopBuilding] = appendLatencyEvent( ...
+                eventRows, currentCommand, nextStartS, eventHoldSeconds, activeStopS, ...
+                eventId, surfaceIndex, surfaceOrder(surfaceIndex), 0.0, ...
+                randomSeed, repetitionIndex, "return_to_neutral");
+            if stopBuilding
+                break;
+            end
+        end
+        if stopBuilding
+            break;
+        end
+    end
+end
+
+profileState = struct();
+profileState.isInitialized = true;
+profileState.sequence = 0;
+profileState.eventTable = struct2table(eventRows);
+profileState.profileInfo = struct( ...
+    "profileMode", "latency_bang_bang_measured_fraction", ...
+    "eventHoldSeconds", eventHoldSeconds, ...
+    "randomSeed", randomSeed, ...
+    "enabledSurfaceIndices", surfaceIndices, ...
+    "latencyAmplitudeNorm", amplitudeBySurface, ...
+    "latencyRepetitionsPerSurface", repetitionsPerSurface, ...
+    "calibrationUsed", false, ...
+    "deadbandAssumption", "not used for bang-bang latency", ...
+    "latencyTimingObservable", "Vicon measured response fraction");
+end
+
+function [eventRows, currentCommand, nextStartS, eventId, stopBuilding] = appendLatencyEvent( ...
+    eventRows, currentCommand, nextStartS, eventHoldSeconds, activeStopS, ...
+    eventId, surfaceIndex, surfaceName, targetCommand, randomSeed, repetitionIndex, stepKind)
+
+stopBuilding = false;
+scheduledEndS = nextStartS + eventHoldSeconds;
+if scheduledEndS > activeStopS + 10 * eps
+    stopBuilding = true;
+    return;
+end
+
+commandBefore = currentCommand;
+currentCommand(surfaceIndex) = targetCommand;
+commandAfter = currentCommand;
+commandStepNorm = commandAfter(surfaceIndex) - commandBefore(surfaceIndex);
+stepLabel = sprintf("latency_bang_bang_%s_%s_%+.3f", ...
+    char(surfaceName), char(stepKind), commandStepNorm);
+
+eventRows(end + 1) = struct( ... %#ok<AGROW>
+    "event_id", eventId, ...
+    "surface_index", surfaceIndex, ...
+    "surface_name", surfaceName, ...
+    "command_before_norm", {commandBefore}, ...
+    "command_after_norm", {commandAfter}, ...
+    "scheduled_start_s", nextStartS, ...
+    "scheduled_end_s", scheduledEndS, ...
+    "random_seed", randomSeed, ...
+    "repetition_index", repetitionIndex, ...
+    "step_kind", string(stepKind), ...
+    "step_label", string(stepLabel), ...
+    "latency_method", "bang_bang_measured_response_fraction");
+
+nextStartS = scheduledEndS;
+eventId = eventId + 1;
+end
+
+function eventRows = emptyEventRows()
 eventRows = struct( ...
     "event_id", {}, ...
     "surface_index", {}, ...
@@ -66,179 +161,24 @@ eventRows = struct( ...
     "command_after_norm", {}, ...
     "scheduled_start_s", {}, ...
     "scheduled_end_s", {}, ...
-    "random_seed", {});
-
-currentCommand = zeros(1, surfaceCount);
-nextStartS = activeStartS;
-eventId = 1;
-while nextStartS < activeStopS
-    surfaceIndex = surfaceIndices(randi(numel(surfaceIndices)));
-    usableAmplitudes = amplitudesBySurface{surfaceIndex};
-    if isempty(usableAmplitudes)
-        usableAmplitudes = [-1, 1];
-    end
-
-    previousValue = currentCommand(surfaceIndex);
-    candidateAmplitudes = usableAmplitudes(abs(usableAmplitudes - previousValue) > 10 * eps);
-    if isempty(candidateAmplitudes)
-        candidateAmplitudes = usableAmplitudes;
-    end
-
-    nextValue = candidateAmplitudes(randi(numel(candidateAmplitudes)));
-    commandBefore = currentCommand;
-    currentCommand(surfaceIndex) = nextValue;
-    commandAfter = currentCommand;
-
-    eventRows(end + 1) = struct( ... %#ok<AGROW>
-        "event_id", eventId, ...
-        "surface_index", surfaceIndex, ...
-        "surface_name", surfaceOrder(surfaceIndex), ...
-        "command_before_norm", {commandBefore}, ...
-        "command_after_norm", {commandAfter}, ...
-        "scheduled_start_s", nextStartS, ...
-        "scheduled_end_s", min(nextStartS + eventHoldSeconds, activeStopS), ...
-        "random_seed", randomSeed);
-
-    nextStartS = nextStartS + eventHoldSeconds;
-    eventId = eventId + 1;
+    "random_seed", {}, ...
+    "repetition_index", {}, ...
+    "step_kind", {}, ...
+    "step_label", {}, ...
+    "latency_method", {});
 end
 
-profileState = struct();
-profileState.isInitialized = true;
-profileState.sequence = 0;
-profileState.eventTable = struct2table(eventRows);
-profileState.profileInfo = profileInfo;
-profileState.profileInfo.profileMode = "latency";
-profileState.profileInfo.eventHoldSeconds = eventHoldSeconds;
-profileState.profileInfo.randomSeed = randomSeed;
-profileState.profileInfo.enabledSurfaceIndices = surfaceIndices;
+function amplitudeBySurface = resolveAmplitudeBySurface(config, surfaceCount)
+amplitude = getFieldOrDefault(config, "latencyBangBangAmplitudeNorm", 0.70);
+amplitude = reshape(double(amplitude), 1, []);
+if isempty(amplitude)
+    amplitude = 0.70;
 end
-
-function [amplitudesBySurface, profileInfo] = resolveAmplitudeSet(config, surfaceCount, amplitudeSet)
-amplitudesBySurface = repmat({amplitudeSet(abs(amplitudeSet) >= 0.20)}, surfaceCount, 1);
-profileInfo = struct( ...
-    "calibrationUsed", false, ...
-    "deadbandAssumption", "not supplied", ...
-    "deadbandThresholdNorm", nan(1, surfaceCount), ...
-    "fallbackAmplitudeUsed", false);
-
-if ~isfield(config, "calibrationFile") || strlength(string(config.calibrationFile)) == 0
-    return;
-end
-
-calibrationFile = string(config.calibrationFile);
-if ~isfile(calibrationFile)
-    profileInfo.deadbandAssumption = "calibration file not found";
-    return;
-end
-
-calibration = loadCalibration(calibrationFile);
-if isempty(calibration)
-    profileInfo.deadbandAssumption = "calibration file unreadable";
-    return;
-end
-
-profileInfo.calibrationUsed = true;
-profileInfo.deadbandAssumption = "from calibration";
-
-for surfaceIndex = 1:surfaceCount
-    deadband = extractSurfaceDeadband(calibration, surfaceIndex);
-    threshold = max(3 * deadband, 0.20);
-    profileInfo.deadbandThresholdNorm(surfaceIndex) = threshold;
-    usable = amplitudeSet(abs(amplitudeSet) >= threshold);
-    if isempty(usable)
-        usable = [-1, 1];
-        profileInfo.fallbackAmplitudeUsed = true;
-    end
-    amplitudesBySurface{surfaceIndex} = usable;
-end
-end
-
-function calibration = loadCalibration(calibrationFile)
-calibration = [];
-try
-    loadedData = load(calibrationFile);
-catch
-    return;
-end
-
-if isfield(loadedData, "calibration")
-    calibration = loadedData.calibration;
-elseif isfield(loadedData, "result") && isfield(loadedData.result, "calibration")
-    calibration = loadedData.result.calibration;
-elseif isfield(loadedData, "surfaceCalibration")
-    calibration = loadedData.surfaceCalibration;
-end
-end
-
-function deadband = extractSurfaceDeadband(calibration, surfaceIndex)
-deadband = NaN;
-if isstruct(calibration) && isfield(calibration, "lookupTable")
-    deadband = extractLookupDeadband(calibration.lookupTable, surfaceIndex);
-end
-if ~isfinite(deadband) && istable(calibration)
-    rowMask = true(height(calibration), 1);
-    if ismember("surface_index", string(calibration.Properties.VariableNames))
-        rowMask = double(calibration.surface_index) == surfaceIndex;
-    end
-    rowIndex = find(rowMask, 1, "first");
-    if ~isempty(rowIndex)
-        deadband = finiteMax([ ...
-            abs(readTableValue(calibration, rowIndex, "deadband_positive_norm")), ...
-            abs(readTableValue(calibration, rowIndex, "deadband_negative_norm"))]);
-    end
-end
-if ~isfinite(deadband) && isstruct(calibration) && isfield(calibration, "surfaceTable")
-    deadband = extractSurfaceDeadband(calibration.surfaceTable, surfaceIndex);
-end
-if ~isfinite(deadband) && isstruct(calibration) && isfield(calibration, "summaryTable")
-    deadband = extractSurfaceDeadband(calibration.summaryTable, surfaceIndex);
-end
-
-if ~isfinite(deadband)
-    deadband = 0.20;
-end
-end
-
-function deadband = extractLookupDeadband(lookupTable, surfaceIndex)
-deadband = NaN;
-if ~istable(lookupTable) || isempty(lookupTable)
-    return;
-end
-surfaceRows = lookupTable(double(lookupTable.surface_index) == surfaceIndex, :);
-if isempty(surfaceRows)
-    return;
-end
-
-commandLevels = abs(double(surfaceRows.command_level_norm));
-deflectionsDeg = abs(double(surfaceRows.lookup_deflection_deg));
-valid = isfinite(commandLevels) & isfinite(deflectionsDeg) & commandLevels > 10 * eps;
-commandLevels = commandLevels(valid);
-deflectionsDeg = deflectionsDeg(valid);
-if isempty(commandLevels)
-    return;
-end
-
-detected = commandLevels(deflectionsDeg >= 1.0);
-if ~isempty(detected)
-    deadband = min(detected);
-end
-end
-
-function value = finiteMax(values)
-values = values(isfinite(values));
-if isempty(values)
-    value = NaN;
+amplitude = min(max(abs(amplitude), 0.20), 1.0);
+if numel(amplitude) == 1
+    amplitudeBySurface = repmat(amplitude, 1, surfaceCount);
 else
-    value = max(values);
-end
-end
-
-function value = readTableValue(tableData, rowIndex, variableName)
-if ismember(variableName, string(tableData.Properties.VariableNames))
-    value = double(tableData.(char(variableName))(rowIndex));
-else
-    value = NaN;
+    amplitudeBySurface = resizeRow(amplitude, surfaceCount, amplitude(end));
 end
 end
 
@@ -247,6 +187,15 @@ if isfield(config, fieldName)
     value = config.(fieldName);
 else
     value = defaultValue;
+end
+end
+
+function row = resizeRow(row, targetCount, fillValue)
+row = reshape(row, 1, []);
+if numel(row) < targetCount
+    row = [row, repmat(fillValue, 1, targetCount - numel(row))];
+elseif numel(row) > targetCount
+    row = row(1:targetCount);
 end
 end
 

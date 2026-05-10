@@ -180,6 +180,9 @@ if config.mode == "deflection" && ~activeWasSet
 end
 if config.mode == "latency"
     config.eventHoldSeconds = getPositiveScalar(config, "eventHoldSeconds", 0.50);
+    config.latencyProfileMode = getText(config, "latencyProfileMode", "bang_bang_measured_response_fraction");
+    config.latencyBangBangAmplitudeNorm = getNumericRow(config, "latencyBangBangAmplitudeNorm", 0.70);
+    config.latencyRepetitionsPerSurface = getPositiveScalar(config, "latencyRepetitionsPerSurface", 4);
 end
 
 config.totalRunSeconds = config.neutralLeadSeconds + config.activeCommandSeconds + config.neutralTailSeconds;
