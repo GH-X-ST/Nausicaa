@@ -1,5 +1,16 @@
 function result = Post_Analysis(mode, varargin)
 %POST_ANALYSIS Offline surface calibration and latency analysis.
+%% =========================================================================
+% SECTION MAP
+% ==========================================================================
+% 1) Public analysis dispatcher
+% 2) Deflection calibration and implementation-error analysis
+% 3) Bang-bang latency crossing analysis
+% 4) Shared table, window, and finite-statistic helpers
+% ==========================================================================
+%% =========================================================================
+% 1) Public analysis dispatcher
+% ==========================================================================
 mode = lower(string(mode));
 [args, analysisConfig] = parseAnalysisConfig(varargin);
 
@@ -30,6 +41,9 @@ switch mode
 end
 end
 
+%% =========================================================================
+% 2) Deflection calibration and implementation-error analysis
+% ==========================================================================
 function result = analyzeDeflection(rawRunFile, analysisConfig)
 runData = loadRunData(rawRunFile);
 events = runData.eventTable;
@@ -51,6 +65,7 @@ for eventIndex = 1:height(events)
     sweepPhase = tableStringScalar(eventRow, "sweep_phase", "");
     sweepStepIndex = tableDoubleScalar(eventRow, "sweep_step_index", NaN);
     sweepStepCount = tableDoubleScalar(eventRow, "sweep_step_count", NaN);
+    % Settled windows use the end of each hold to reduce transient and servo-rate effects in calibration.
     holdWindowS = chooseSettledWindow(eventRow, analysisConfig);
     stateMask = double(states.surface_index) == surfaceIndex & ...
         states.t_capture_host_s >= holdWindowS(1) & ...
@@ -73,6 +88,7 @@ for eventIndex = 1:height(events)
         valid = false;
         rejectionReason = "vicon_quality_" + qualityText;
     elseif isfinite(instabilityDeg) && instabilityDeg > analysisConfig.deflectionUnstableStdDeg
+        % Large final-window variation indicates Vicon/structure motion, not a reliable static deflection point.
         valid = false;
         rejectionReason = "unstable_final_window";
     end
@@ -267,6 +283,9 @@ clampedCommand = min(max(commandLevelNorm, min(levels)), max(levels));
 deflectionDeg = interp1(levels, deflections, clampedCommand, "linear");
 end
 
+%% =========================================================================
+% 3) Bang-bang latency crossing analysis
+% ==========================================================================
 function result = analyzeLatency(rawRunFile, calibrationFile, analysisConfig)
 runData = loadRunData(rawRunFile);
 events = runData.eventTable;
@@ -293,6 +312,7 @@ for eventIndex = 1:height(events)
         continue;
     end
 
+    % Latency origin is the host timestamp immediately before the binary serial write.
     t0 = double(commandRows.write_start_host_s(1));
     surfaceIndex = double(eventRow.surface_index);
     surfaceRows = states(double(states.surface_index) == surfaceIndex, :);
@@ -353,6 +373,7 @@ baseMask = surfaceRows.t_capture_host_s >= t0 - analysisConfig.latencyBaselineWi
     surfaceRows.t_capture_host_s <= t0 - analysisConfig.latencyBaselineGapSeconds;
 responseMask = surfaceRows.t_capture_host_s >= t0 & surfaceRows.t_capture_host_s <= analysisEndS;
 eventDurationS = max(analysisEndS - t0, 0);
+% Final endpoint uses the last part of the command hold so t50/t90 are response fractions, not calibration angles.
 finalWindowSeconds = min(analysisConfig.latencyFinalWindowSeconds, max(0.05, 0.40 * eventDurationS));
 finalMask = surfaceRows.t_capture_host_s >= max(t0, analysisEndS - finalWindowSeconds) & ...
     surfaceRows.t_capture_host_s <= analysisEndS;
@@ -450,6 +471,9 @@ for rowIndex = 1:numel(surfaceNames)
 end
 end
 
+%% =========================================================================
+% 4) Shared table, window, and finite-statistic helpers
+% ==========================================================================
 function [args, analysisConfig] = parseAnalysisConfig(args)
 analysisConfig = struct( ...
     "makePlots", false, ...
@@ -727,6 +751,7 @@ for index = 2:numel(times)
         crossed = prevValue > level && currValue <= level;
     end
     if crossed
+        % Linear interpolation between adjacent Vicon samples gives sub-frame crossing timing without online matching.
         fraction = (level - prevValue) ./ (currValue - prevValue);
         crossTime = times(index - 1) + fraction .* (times(index) - times(index - 1));
         found = true;

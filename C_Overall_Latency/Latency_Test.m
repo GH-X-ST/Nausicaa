@@ -1,11 +1,21 @@
 function runData = Latency_Test(config)
-%LATENCY_TEST Select a command profile and run the reusable command path.
+%LATENCY_TEST Select the experiment command profile and run the shared path.
+%% =========================================================================
+% SECTION MAP
+% ==========================================================================
+% 1) Public entry point
+% 2) Entry configuration defaults
+% ==========================================================================
+%% =========================================================================
+% 1) Public entry point
+% ==========================================================================
 arguments
     config (1,1) struct = struct()
 end
 
 config = normalizeEntryConfig(config);
 
+% The selected profile only supplies desired surface commands; Run_Control_Path owns all timing and hardware I/O.
 switch config.mode
     case "deflection"
         commandFcn = @Test_Deflection_Profile;
@@ -25,6 +35,9 @@ end
 runData = Run_Control_Path(config, commandFcn);
 end
 
+%% =========================================================================
+% 2) Entry configuration defaults
+% ==========================================================================
 function config = normalizeEntryConfig(config)
 if ~isfield(config, "mode") || strlength(string(config.mode)) == 0
     config.mode = "latency";

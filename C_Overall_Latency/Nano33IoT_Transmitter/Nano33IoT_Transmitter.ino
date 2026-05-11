@@ -1,6 +1,16 @@
 // Nano33IoT_Command_Path_V1
 // Serial vector command to trainer PPM output.
 //
+// =============================================================================
+// SECTION MAP
+// =============================================================================
+// 1) Packet format and timing constants
+// 2) Command, telemetry, and interrupt state
+// 3) Setup and non-blocking loop services
+// 4) Serial text/binary packet parsing and command queueing
+// 5) Timeout, telemetry output, and PPM timing interrupt
+// =============================================================================
+//
 // Binary packet, 15 bytes:
 //   byte 0      : 'V'
 //   byte 1      : surface_count = 4
@@ -19,6 +29,9 @@
 #include <Arduino.h>
 #include <string.h>
 
+// =============================================================================
+// 1) Packet format and timing constants
+// =============================================================================
 namespace Config {
 constexpr char kFirmwareVersion[] = "Nano33IoT_Command_Path_V1";
 constexpr uint32_t kSerialBaud = 1000000;
@@ -34,10 +47,14 @@ constexpr uint16_t kMinimumPulseUs = 1000;
 constexpr uint16_t kNeutralPulseUs = 1500;
 constexpr uint16_t kMaximumPulseUs = 2000;
 constexpr uint16_t kPulseRangeUs = 500;
+// Timeout is in micros(); stale host commands fail back to neutral PPM.
 constexpr uint32_t kCommandTimeoutUs = 250000;
 constexpr uint16_t kTimerTicksPerUs = 3;
 }
 
+// =============================================================================
+// 2) Command, telemetry, and interrupt state
+// =============================================================================
 struct PendingCommand {
   bool valid;
   uint32_t sampleSequence;
@@ -119,6 +136,9 @@ inline uint16_t usToTimerTicks(uint16_t durationUs);
 inline PortGroup& portGroupForPin(uint8_t pin);
 inline uint32_t portMaskForPin(uint8_t pin);
 
+// =============================================================================
+// 3) Setup and non-blocking loop services
+// =============================================================================
 void setup() {
   Serial.begin(Config::kSerialBaud);
   while (!Serial && millis() < 3000UL) {
@@ -148,6 +168,7 @@ void configurePins() {
 }
 
 void configureTimer3() {
+  // TC3 runs the PPM waveform in microsecond units, independent of loop() serial parsing latency.
   PM->APBCMASK.reg |= PM_APBCMASK_TC3;
   GCLK->CLKCTRL.reg = static_cast<uint16_t>(
     GCLK_CLKCTRL_CLKEN |
@@ -181,6 +202,9 @@ void waitForTimer3Sync() {
   }
 }
 
+// =============================================================================
+// 4) Serial text/binary packet parsing and command queueing
+// =============================================================================
 void serviceSerialInput() {
   while (Serial.available() > 0) {
     int nextByte = Serial.peek();
@@ -189,6 +213,7 @@ void serviceSerialInput() {
     }
 
     if (static_cast<uint8_t>(nextByte) == static_cast<uint8_t>('V')) {
+      // Binary packet parsing waits for the full 15-byte command to avoid partial surface updates.
       if (Serial.available() < static_cast<int>(Config::kBinaryPacketLength)) {
         return;
       }
@@ -280,6 +305,7 @@ bool parseBinaryPacket(const uint8_t* packetBytes, uint32_t rxUs, PendingCommand
 
   command.valid = true;
   command.sampleSequence = decodeUint32LE(packetBytes + 3);
+  // Active mask is telemetry metadata; every valid packet updates all four surface channels.
   command.activeMask = packetBytes[2];
   command.rxUs = rxUs;
 
@@ -339,6 +365,9 @@ void queueNeutralCommand(uint32_t sequence, uint32_t rxUs) {
   interrupts();
 }
 
+// =============================================================================
+// 5) Timeout, telemetry output, and PPM timing interrupt
+// =============================================================================
 void serviceCommandTimeout() {
   if (gTimeoutNeutralQueued) {
     return;
@@ -449,6 +478,7 @@ uint16_t codeToPulseUs(uint16_t code) {
     surfaceNorm * static_cast<double>(Config::kPulseRangeUs) +
     0.5);
   if (pulseUs < static_cast<int32_t>(Config::kMinimumPulseUs)) {
+    // Saturation keeps receiver-facing pulses within standard RC servo bounds.
     pulseUs = Config::kMinimumPulseUs;
   } else if (pulseUs > static_cast<int32_t>(Config::kMaximumPulseUs)) {
     pulseUs = Config::kMaximumPulseUs;
@@ -533,6 +563,7 @@ void TC3_Handler() {
 
   if (!gPulseActive) {
     if (gIntervalIndex == 0U && gPendingValid) {
+      // New commands commit only at the start of a PPM frame, giving a measurable frame-bound delay.
       uint32_t commitUs = micros();
       for (size_t channelIndex = 0; channelIndex < Config::kPpmChannelCount; ++channelIndex) {
         gActivePpmUs[channelIndex] = gPendingPpmUs[channelIndex];

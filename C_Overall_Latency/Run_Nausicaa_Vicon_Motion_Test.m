@@ -1,11 +1,23 @@
 %RUN_NAUSICAA_VICON_MOTION_TEST Characterize single-body Vicon pose fluctuation.
-% Use this when Vicon Tracker has one rigid body named "Nausicaa".
+% Requires one Vicon Tracker rigid body named "Nausicaa".
+%% =========================================================================
+% SECTION MAP
+% ==========================================================================
+% 1) Capture configuration and phase schedule
+% 2) Vicon raw-pose capture
+% 3) Offline pose-noise and filter analysis
+% 4) Phase, derivative, and filter helper functions
+% ==========================================================================
 addpath(fileparts(mfilename("fullpath")));
 
+%% =========================================================================
+% 1) Capture configuration and phase schedule
+% ==========================================================================
 baseCfg = defaultOverallLatencyConfig("latency");
 
 testCfg = struct();
 testCfg.subjectName = "Nausicaa";
+% Static and dynamic phases separate fixed Vicon noise from hand-held motion and derivative spikes.
 testCfg.testMode = "static_then_dynamic";
 testCfg.samplePauseSeconds = 0.002;
 testCfg.trendWindowSeconds = 0.50;
@@ -18,6 +30,7 @@ viconCfg = struct();
 viconCfg.hostName = baseCfg.viconHostName;
 viconCfg.port = baseCfg.viconPort;
 viconCfg.rawSubjectNames = testCfg.subjectName;
+% Empty surface list logs raw body pose only; no surface-deflection inference is performed here.
 viconCfg.surfaceSubjectNames = strings(1, 0);
 viconCfg.surfaceEulerAxes = strings(1, 0);
 viconCfg.bodySubjectName = testCfg.subjectName;
@@ -37,6 +50,9 @@ fprintf("Output folder:\n%s\n", outputFolder);
 fprintf("\nPhase schedule:\n");
 disp(testCfg.phaseSchedule);
 
+%% =========================================================================
+% 2) Vicon raw-pose capture
+% ==========================================================================
 runClock = tic;
 tracker = [];
 rawChunks = {};
@@ -73,6 +89,9 @@ if isempty(rawChunks)
         "No Vicon rows were captured for subject '%s'.", testCfg.subjectName);
 end
 
+%% =========================================================================
+% 3) Offline pose-noise and filter analysis
+% ==========================================================================
 rawLog = vertcat(rawChunks{:});
 result = analyzeNausicaaMotion(rawLog, testCfg, captureStartS);
 
@@ -97,6 +116,9 @@ if isfield(result, "recommendedFilter")
         result.recommendedFilter.cutoff_hz, result.recommendedFilter.estimated_delay_ms);
 end
 
+%% =========================================================================
+% 4) Phase, derivative, and filter helper functions
+% ==========================================================================
 function phaseSchedule = buildPhaseSchedule(testMode)
 testMode = lower(string(testMode));
 switch testMode
@@ -283,6 +305,7 @@ end
 end
 
 function filterCandidates = evaluateFilterCandidates(processedLog, testCfg)
+% Candidate cutoffs trade measurement smoothing against delay added to the feedback signal.
 cutoffHz = [5; 8; 10; 12; 15; 20];
 staticRows = processedLog(string(processedLog.phase_type) == "static_reference", :);
 staticSource = "static_reference";
@@ -482,6 +505,7 @@ function y = onePoleLowpass(x, dtS, cutoffHz)
 x = reshape(double(x), [], 1);
 y = nan(size(x));
 tauS = 1 ./ (2 .* pi .* cutoffHz);
+% This offline candidate filter uses nominal dt because the comparison table ranks cutoff choices, not timestamps.
 alpha = dtS ./ (tauS + dtS);
 lastY = NaN;
 for index = 1:numel(x)

@@ -1,7 +1,19 @@
 %RUN_DEFLECTION_TEST Run a five-case deflection calibration batch.
+%% =========================================================================
+% SECTION MAP
+% ==========================================================================
+% 1) Batch configuration and output folder
+% 2) Sequential hardware runs with battery-swap pause
+% 3) Batch summary exports
+% 4) Scenario and summary helpers
+% ==========================================================================
 addpath(fileparts(mfilename("fullpath")));
 
+%% =========================================================================
+% 1) Batch configuration and output folder
+% ==========================================================================
 batchTimestamp = string(datetime("now", "Format", "yyyyMMdd_HHmmss"));
+% Batch products are processed outputs; individual raw runs keep their own unmodified run_data.mat logs.
 batchFolder = fullfile("C_Overall_Latency", "data", "processed", batchTimestamp + "_deflection_batch");
 if ~isfolder(batchFolder)
     mkdir(batchFolder);
@@ -12,8 +24,12 @@ surfaceSummary = table();
 lookupSamples = table();
 interRunPauseSeconds = 8.0;
 batterySwapAfterScenario = 3;
+% The battery pause prevents late-batch voltage sag from being mistaken for surface nonlinearity.
 batterySwapPauseSeconds = 150.0;
 
+%% =========================================================================
+% 2) Sequential hardware runs with battery-swap pause
+% ==========================================================================
 for scenarioIndex = 1:numel(scenarios)
     scenario = scenarios(scenarioIndex);
     cfg = defaultOverallLatencyConfig("deflection");
@@ -50,6 +66,9 @@ for scenarioIndex = 1:numel(scenarios)
     end
 end
 
+%% =========================================================================
+% 3) Batch summary exports
+% ==========================================================================
 lookupSummary = summarizeLookupSamples(lookupSamples);
 
 surfaceSummaryFile = string(fullfile(batchFolder, "batch_surface_summary.csv"));
@@ -67,6 +86,9 @@ fprintf("Batch folder:\n%s\n", batchFolder);
 fprintf("Surface summary:\n%s\n", surfaceSummaryFile);
 fprintf("Lookup summary:\n%s\n", lookupSummaryFile);
 
+%% =========================================================================
+% 4) Scenario and summary helpers
+% ==========================================================================
 function scenarios = deflectionBatchScenarios()
 scenarios = struct( ...
     "name", {}, ...
@@ -192,6 +214,7 @@ summary = addDiscreteStepColumns(summary);
 end
 
 function summary = addDiscreteStepColumns(summary)
+% Adjacent lookup spacing estimates the effective discrete surface-motion gap after deadband/backlash.
 summary.step_from_previous_norm = nan(height(summary), 1);
 summary.step_from_previous_deg = nan(height(summary), 1);
 summary.abs_step_from_previous_deg = nan(height(summary), 1);

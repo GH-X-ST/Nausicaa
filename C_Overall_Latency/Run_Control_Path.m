@@ -1,5 +1,17 @@
 function runData = Run_Control_Path(config, commandFcn)
 %RUN_CONTROL_PATH Fixed MATLAB runtime command path for surface experiments.
+%% =========================================================================
+% SECTION MAP
+% ==========================================================================
+% 1) Timed hardware loop and cleanup
+% 2) Runtime configuration and Vicon sub-configuration
+% 3) Serial command, telemetry, and packet encoding helpers
+% 4) Run-data table schemas and save step
+% 5) Scalar, string, and mapping utilities
+% ==========================================================================
+%% =========================================================================
+% 1) Timed hardware loop and cleanup
+% ==========================================================================
 arguments
     config (1,1) struct
     commandFcn (1,1) function_handle
@@ -18,6 +30,7 @@ serialRows = emptySerialRowsStruct();
 rawLogParts = {};
 stateLogParts = {};
 sampleIndex = 0;
+% All command and Vicon timestamps are host seconds from this experiment clock.
 runClock = tic;
 
 try
@@ -27,6 +40,7 @@ try
 
     tracker = Vicon(config.vicon);
     tracker.calibrateNeutral(runClock, config.neutralDurationSeconds);
+    % Command profiles are initialized after setup so scheduled events align with actual packet writes.
     config.profileStartHostS = toc(runClock);
     config.totalRunSeconds = config.profileStartHostS + ...
         config.neutralLeadSeconds + config.activeCommandSeconds + config.neutralTailSeconds;
@@ -79,6 +93,7 @@ end
 
 try
     if ~isempty(serialObj)
+        % Cleanup sends neutral even after failure to avoid leaving the trainer output at a test command.
         [commandRows, ~] = writeNeutralVector(serialObj, runClock, commandRows, sampleIndex, config);
         [serialRows, serialRxBuffer] = sendAsciiCommand(serialObj, "SET_NEUTRAL", runClock, serialRows, serialRxBuffer, 0.10);
     end
@@ -120,6 +135,9 @@ if ~isempty(caughtException)
 end
 end
 
+%% =========================================================================
+% 2) Runtime configuration and Vicon sub-configuration
+% ==========================================================================
 function config = normalizeRuntimeConfig(config)
 modeWasMissing = ~isfield(config, "mode") || strlength(string(config.mode)) == 0;
 if modeWasMissing
@@ -175,6 +193,7 @@ config.receiverChannelSurfaceOrder = validateReceiverChannelSurfaceOrder(config.
 config.receiverChannelSurfaceIndex = mapSurfaceNamesToIndices(config.receiverChannelSurfaceOrder, config.surfaceOrder);
 
 if config.mode == "deflection" && ~activeWasSet
+    % Deflection runs infer required duration from configured levels so every hold appears in the event table.
     holdSeconds = getPositiveScalar(config, "deflectionHoldSeconds", 0.75);
     enabledCount = numel(getFieldOrDefault(config, "enabledSurfaceIndices", 1:surfaceCount));
     config.activeCommandSeconds = max(config.activeCommandSeconds, ...
@@ -296,6 +315,9 @@ runData.runInfo = struct( ...
     "cleanupWarning", "");
 end
 
+%% =========================================================================
+% 3) Serial command, telemetry, and packet encoding helpers
+% ==========================================================================
 function serialObj = openNanoSerial(config)
 serialObj = serialport(char(config.serialPort), config.baudRate, "Timeout", config.serialTimeoutSeconds);
 configureTerminator(serialObj, "LF");
@@ -318,6 +340,7 @@ end
 
 rawBytes = read(serialObj, serialObj.NumBytesAvailable, "uint8");
 readTimeS = toc(runClock);
+% Serial telemetry uses host read time; firmware timestamps remain in micros() inside the line payload.
 serialRxBuffer = serialRxBuffer + string(char(rawBytes(:).'));
 serialRxBuffer = replace(serialRxBuffer, sprintf("\r"), "");
 parts = split(serialRxBuffer, sprintf("\n"));
@@ -392,12 +415,15 @@ end
 
 function [packetBytes, packetSurfaceNorm, packetCodes, activeMask] = encodeSurfaceCommand(cmd, config)
 surfaceNorm = resizeRow(double(cmd.surfaceNorm), numel(config.surfaceOrder), 0);
+% MATLAB applies hardware signs before packet encoding; firmware maps codes directly to pulse width.
 packetSurfaceNorm = min(max(config.servoSigns .* surfaceNorm, -1), 1);
 packetCodes = uint16(round((packetSurfaceNorm + 1) .* 0.5 .* 65535));
+% Binary packet carries receiver-channel order, not the internal physical-surface order.
 channelPacketCodes = packetCodes(config.receiverChannelSurfaceIndex);
 
 activeMask = uint8(0);
 if isfield(cmd, "activeSurfaceMask") && isfinite(double(cmd.activeSurfaceMask))
+    % Active mask is metadata for analysis; packet codes still update all four physical surfaces.
     activeMask = physicalMaskToReceiverChannelMask(uint8(cmd.activeSurfaceMask), config.receiverChannelSurfaceIndex);
 elseif isfield(cmd, "activeSurfaceIndex") && isfinite(double(cmd.activeSurfaceIndex))
     activeIndex = round(double(cmd.activeSurfaceIndex));
@@ -513,6 +539,9 @@ encodedBytes = uint8([ ...
     bitshift(value, -24)]);
 end
 
+%% =========================================================================
+% 4) Run-data table schemas and save step
+% ==========================================================================
 function eventTable = extractEventTable(profileState)
 if isstruct(profileState) && isfield(profileState, "eventTable")
     eventTable = profileState.eventTable;
@@ -617,6 +646,9 @@ function tableOut = emptySerialTable()
 tableOut = table(zeros(0, 1), strings(0, 1), 'VariableNames', {'t_read_host_s', 'line_text'});
 end
 
+%% =========================================================================
+% 5) Scalar, string, and mapping utilities
+% ==========================================================================
 function value = getFieldOrDefault(config, fieldName, defaultValue)
 if isstruct(config) && isfield(config, fieldName)
     value = config.(fieldName);

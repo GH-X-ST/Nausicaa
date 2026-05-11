@@ -1,5 +1,15 @@
 function [cmd, profileState] = Test_Latency_Profile(tNowS, viconSample, config, profileState)
 %TEST_LATENCY_PROFILE Bang-bang one-surface latency command provider.
+%% =========================================================================
+% SECTION MAP
+% ==========================================================================
+% 1) Public command-provider entry point
+% 2) Bang-bang event-table construction
+% 3) Amplitude and table-value helpers
+% ==========================================================================
+%% =========================================================================
+% 1) Public command-provider entry point
+% ==========================================================================
 if nargin < 4 || isempty(profileState) || ~isfield(profileState, "isInitialized")
     profileState = initializeProfile(config);
 end
@@ -38,6 +48,9 @@ profileState.sequence = profileState.sequence + 1;
 profileState.lastViconSample = viconSample;
 end
 
+%% =========================================================================
+% 2) Bang-bang event-table construction
+% ==========================================================================
 function profileState = initializeProfile(config)
 surfaceOrder = reshape(string(config.surfaceOrder), 1, []);
 surfaceCount = numel(surfaceOrder);
@@ -50,6 +63,7 @@ end
 
 eventHoldSeconds = double(getFieldOrDefault(config, "eventHoldSeconds", 0.60));
 profileStartHostS = double(getFieldOrDefault(config, "profileStartHostS", 0));
+% Events are scheduled after Vicon neutral calibration to avoid missing early commands.
 activeStartS = profileStartHostS + double(config.neutralLeadSeconds);
 activeStopS = activeStartS + double(config.activeCommandSeconds);
 randomSeed = double(config.randomSeed);
@@ -69,6 +83,7 @@ for repetitionIndex = 1:repetitionsPerSurface
         break;
     end
 
+    % Surface order is randomized reproducibly so slow thermal or battery drift is not tied to one surface.
     shuffledSurfaceIndices = surfaceIndices(randperm(numel(surfaceIndices)));
     if mod(repetitionIndex, 2) == 0
         signedDirections = [-1, 1];
@@ -172,6 +187,9 @@ eventRows = struct( ...
     "latency_method", {});
 end
 
+%% =========================================================================
+% 3) Amplitude and table-value helpers
+% ==========================================================================
 function amplitudeBySurface = resolveAmplitudeBySurface(config, surfaceCount)
 amplitude = getFieldOrDefault(config, "latencyBangBangAmplitudeNorm", 0.70);
 amplitude = reshape(double(amplitude), 1, []);

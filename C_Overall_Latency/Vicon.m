@@ -1,6 +1,18 @@
 classdef Vicon < handle
-    %VICON Lightweight Vicon DataStream tracker for raw pose and surface state.
+    %VICON Vicon DataStream tracker for raw pose and surface state.
+    %% ========================================================================
+    % SECTION MAP
+    % =========================================================================
+    % 1) Public tracker API
+    % 2) Vicon SDK connection and frame reads
+    % 3) Raw-pose and surface-state table builders
+    % 4) Surface angle, rate, and one-pole filter logic
+    % 5) Subject discovery, SDK adapters, and math utilities
+    % =========================================================================
 
+    %% ========================================================================
+    % 1) Public tracker API
+    % =========================================================================
     properties
         config
         connectionInfo
@@ -68,6 +80,7 @@ classdef Vicon < handle
 
             for surfaceIndex = 1:surfaceCount
                 if ~isempty(surfaceSamples{surfaceIndex})
+                    % Neutral orientation is an angular mean in radians, avoiding wrap-around bias.
                     obj.neutralSurfaceEulerRad(surfaceIndex, :) = Vicon.angularMeanRad(surfaceSamples{surfaceIndex});
                 end
             end
@@ -108,6 +121,9 @@ classdef Vicon < handle
     end
 
     methods (Access = private)
+        %% ====================================================================
+        % 2) Vicon SDK connection and frame reads
+        % =====================================================================
         function connect(obj)
             dllPath = Vicon.resolveSdkAssembly(obj.config.sdkDllPath);
             NET.addAssembly(char(dllPath));
@@ -161,6 +177,7 @@ classdef Vicon < handle
             obj.applyAxisMapping(obj.config.axisMapping);
             obj.connectionInfo.initialFrameReady = obj.waitForFrame(obj.config.frameWaitTimeoutSeconds);
             obj.subjectInfo = obj.discoverSubjects();
+            % Surface subjects must match configured Vicon object names exactly; no marker-geometry inference is used.
             obj.requireConfiguredSurfaceSubjects();
 
             try
@@ -190,6 +207,7 @@ classdef Vicon < handle
                 end
                 frameData.tReadHostS = toc(runClock);
                 frameData.viconLatencyS = double(obj.client.GetLatencyTotal().Total);
+                % Vicon-corrected capture time is on the same host clock as command writes.
                 frameData.tCaptureHostS = frameData.tReadHostS - frameData.viconLatencyS;
                 frameData.frameNumber = double(obj.client.GetFrameNumber().FrameNumber);
                 frameData.frameOk = true;
@@ -241,6 +259,9 @@ classdef Vicon < handle
             end
         end
 
+        %% ====================================================================
+        % 3) Raw-pose and surface-state table builders
+        % =====================================================================
         function rawRows = buildRawRows(obj, frameData)
             rowCount = numel(frameData.poses);
             rawRows = obj.emptyRawTable();
@@ -313,6 +334,7 @@ classdef Vicon < handle
                 stateRows.surface_index(surfaceIndex) = surfaceIndex;
                 stateRows.surface_name(surfaceIndex) = surfaceName;
 
+                % Raw angle is an Euler-axis difference in radians from the neutral calibration frame.
                 [rawAngleRad, qualityFlag] = obj.estimateSurfaceAngle(surfaceIndex, pose, bodyPose, bodyNeutral);
                 angleRad = obj.applyStateFilter(surfaceIndex, rawAngleRad, frameData.tCaptureHostS, qualityFlag);
                 rateRadps = obj.estimateSurfaceRate(surfaceIndex, angleRad, frameData.tCaptureHostS);
@@ -329,6 +351,9 @@ classdef Vicon < handle
             end
         end
 
+        %% ====================================================================
+        % 4) Surface angle, rate, and one-pole filter logic
+        % =====================================================================
         function angleRad = applyStateFilter(obj, surfaceIndex, rawAngleRad, tCaptureHostS, qualityFlag)
             angleRad = rawAngleRad;
             if ~obj.config.stateFilterEnabled
@@ -350,6 +375,7 @@ classdef Vicon < handle
 
             dtS = tCaptureHostS - previousTime;
             tauS = 1 ./ (2 .* pi .* obj.config.stateFilterCutoffHz);
+            % One-pole alpha uses measured frame spacing because Vicon frame intervals are not exact.
             alpha = 1 - exp(-dtS ./ tauS);
             alpha = min(max(alpha, 0), 1);
             deltaRad = obj.wrapToPiLocal(rawAngleRad - previousAngle);
@@ -380,6 +406,7 @@ classdef Vicon < handle
             neutralEuler = obj.neutralSurfaceEulerRad(surfaceIndex, :);
 
             if ~isempty(bodyPose) && ~bodyPose.is_occluded && all(isfinite(bodyPose.eulerRad)) && all(isfinite(bodyNeutral))
+                % Body-relative subtraction removes whole-glider attitude when a body subject is supplied.
                 currentEuler = currentEuler - bodyPose.eulerRad;
                 neutralEuler = neutralEuler - bodyNeutral;
             end
@@ -420,6 +447,9 @@ classdef Vicon < handle
             sample.stateTable = stateRows;
         end
 
+        %% ====================================================================
+        % 5) Subject discovery, SDK adapters, and math utilities
+        % =====================================================================
         function subjectInfo = discoverSubjects(obj)
             availableNames = strings(0, 1);
             rootSegments = strings(0, 1);
@@ -448,6 +478,7 @@ classdef Vicon < handle
                 'VariableNames', {'subject_name', 'segment_name', 'is_available'});
 
             for rowIndex = 1:rowCount
+                % Exact case-sensitive matching avoids silently swapping surfaces after Vicon object renaming.
                 matchIndex = find(availableNames == rawNames(rowIndex), 1, "first");
                 if isempty(matchIndex)
                     subjectInfo.segment_name(rowIndex) = "";

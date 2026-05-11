@@ -1,5 +1,15 @@
 function [cmd, profileState] = Test_Deflection_Profile(tNowS, viconSample, config, profileState)
 %TEST_DEFLECTION_PROFILE Static one-surface sweep command provider.
+%% =========================================================================
+% SECTION MAP
+% ==========================================================================
+% 1) Public command-provider entry point
+% 2) Event-table construction
+% 3) Ramp-level and configuration helpers
+% ==========================================================================
+%% =========================================================================
+% 1) Public command-provider entry point
+% ==========================================================================
 if nargin < 4 || isempty(profileState) || ~isfield(profileState, "isInitialized")
     profileState = initializeProfile(config);
 end
@@ -38,6 +48,9 @@ profileState.sequence = profileState.sequence + 1;
 profileState.lastViconSample = viconSample;
 end
 
+%% =========================================================================
+% 2) Event-table construction
+% ==========================================================================
 function profileState = initializeProfile(config)
 surfaceOrder = reshape(string(config.surfaceOrder), 1, []);
 surfaceIndices = getFieldOrDefault(config, "enabledSurfaceIndices", 1:numel(surfaceOrder));
@@ -48,6 +61,7 @@ if isempty(surfaceIndices)
 end
 
 holdSeconds = getFieldOrDefault(config, "deflectionHoldSeconds", 0.75);
+% Ramp levels are normalized surface commands, not degrees; Vicon measures the achieved deflection.
 rampLevels = normalizeRampLevels(getFieldOrDefault( ...
     config, "deflectionRampLevels", [0, 0.10, 0.20, 0.30, 0.45, 0.60, 0.80, 1.00]));
 [positiveLevels, positivePhases] = makeSignedRamp(rampLevels, 1);
@@ -67,6 +81,7 @@ eventRows = struct( ...
     "sweep_step_count", {});
 
 profileStartHostS = double(getFieldOrDefault(config, "profileStartHostS", 0));
+% Profile time is offset by Run_Control_Path after serial setup and Vicon neutral calibration.
 nextStartS = profileStartHostS + double(config.neutralLeadSeconds);
 eventId = 1;
 for surfaceIndex = surfaceIndices
@@ -119,6 +134,9 @@ for levelIndex = 1:numel(levels)
 end
 end
 
+%% =========================================================================
+% 3) Ramp-level and configuration helpers
+% ==========================================================================
 function levels = normalizeRampLevels(levels)
 levels = reshape(abs(double(levels)), 1, []);
 levels = levels(isfinite(levels));
@@ -134,6 +152,7 @@ end
 end
 
 function [levels, phaseLabels] = makeSignedRamp(baseLevels, polaritySign)
+% Outbound and return phases keep hysteresis separate from one-way gain estimates.
 outboundLevels = baseLevels;
 returnLevels = fliplr(baseLevels(1:end - 1));
 levels = polaritySign .* [outboundLevels, returnLevels];
