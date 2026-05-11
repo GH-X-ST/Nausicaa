@@ -5,10 +5,24 @@
 #include <stdlib.h>
 #include <string.h>
 
+// =============================================================================
+// SECTION MAP
+// =============================================================================
+// 1) Constants, Network Config, and Packet Layout
+// 2) Setup and WiFi Service
+// 3) UDP Command Parsing and Servo Application
+// 4) Telemetry Replies and Counters
+// 5) Servo Neutral Helpers and Text Formatting
+// =============================================================================
+
+// =============================================================================
+// 1) Constants, Network Config, and Packet Layout
+// =============================================================================
 namespace Config {
 constexpr char kFirmwareVersion[] = "Nano33IoT_Echo_Logger_V4_UDP";
 constexpr char kWifiSsid[] = "FlightArena_2.4G";
 constexpr char kWifiPassword[] = "R0b0t1c$";
+// Static IP keeps MATLAB's UDP target stable during latency runs.
 constexpr bool kUseStaticIp = true;
 constexpr uint8_t kStaticIp[4] = {192, 168, 0, 33};
 constexpr uint8_t kStaticGateway[4] = {192, 168, 0, 1};
@@ -19,6 +33,8 @@ constexpr uint32_t kSerialBaud = 115200;
 constexpr uint32_t kWifiRetryIntervalMs = 2000;
 
 constexpr size_t kSurfaceCount = 4;
+// Surface order is the packet/workbook contract: D9-D12 are logged in this
+// exact sequence by MATLAB and the plotting scripts.
 constexpr char kSurfaceNames[kSurfaceCount][16] = {
   "Aileron_L",
   "Aileron_R",
@@ -31,6 +47,8 @@ constexpr uint16_t kMaxPulseUs[kSurfaceCount] = {2000, 2000, 2000, 2000};
 constexpr float kNeutralPositions[kSurfaceCount] = {0.5f, 0.5f, 0.5f, 0.5f};
 
 constexpr size_t kPacketBufferLength = 192;
+// Binary vector packet: 'V', surface count, active mask, uint32 sequence,
+// then one little-endian uint16 normalized position per surface.
 constexpr size_t kBinaryVectorPacketLength = 7 + 2 * kSurfaceCount;
 }
 
@@ -61,6 +79,9 @@ uint32_t gCommandEventCount = 0;
 uint32_t gSyncEventCount = 0;
 uint32_t gErrorCount = 0;
 
+// =============================================================================
+// 2) Setup and WiFi Service
+// =============================================================================
 void setup() {
   Serial.begin(Config::kSerialBaud);
   while (!Serial && millis() < 3000) {
@@ -154,6 +175,9 @@ void connectToWifi(bool blockUntilConnected) {
   }
 }
 
+// =============================================================================
+// 3) UDP Command Parsing and Servo Application
+// =============================================================================
 void serviceUdpDatagrams() {
   PendingVectorCommand latestVectorCommand = {};
   latestVectorCommand.isValid = false;
@@ -165,6 +189,8 @@ void serviceUdpDatagrams() {
 
     int bytesRead = gUdp.read(reinterpret_cast<uint8_t*>(gPacketBuffer), Config::kPacketBufferLength - 1);
     if (bytesRead > 0) {
+      // boardRxUs is the board micros() timestamp paired with the host
+      // dispatch timestamp during clock-domain conversion.
       uint32_t boardRxUs = micros();
       bool handled = tryParseBinaryVectorCommand(
         reinterpret_cast<const uint8_t*>(gPacketBuffer),
@@ -193,6 +219,8 @@ void serviceUdpDatagrams() {
   }
 
   if (latestVectorCommand.isValid) {
+    // Apply only the newest vector drained from the UDP socket so a backlog
+    // cannot command stale actuator positions.
     applyLatestVectorCommand(latestVectorCommand);
   }
 }
@@ -214,6 +242,8 @@ bool tryParseBinaryVectorCommand(
   }
 
   const uint8_t surfaceCount = packetBytes[1];
+  // Reject mismatched surface counts; otherwise MATLAB and firmware would
+  // disagree about which uint16 belongs to which servo output.
   if (surfaceCount != Config::kSurfaceCount) {
     sendErrorEvent(remoteIp, remotePort, F("BINARY_VECTOR_SURFACE_COUNT_ERROR"));
     return true;
@@ -261,6 +291,8 @@ bool tryParseTextVectorCommand(
   char* sampleSequenceToken = strtok_r(nullptr, ",", &context);
   char* surfaceCountToken = strtok_r(nullptr, ",", &context);
 
+  // Text SET_ALL is retained as an audit/debug fallback for captures made
+  // before the binary vector path was used.
   uint32_t sampleSequence = 0;
   uint32_t surfaceCount = 0;
   if (!parseUnsigned32(sampleSequenceToken, sampleSequence) ||
@@ -465,6 +497,9 @@ void applyLatestVectorCommand(const PendingVectorCommand& command) {
   }
 }
 
+// =============================================================================
+// 4) Telemetry Replies and Counters
+// =============================================================================
 void sendCommandEvents(
   const PendingVectorCommand& command,
   const uint32_t* applyUs,
@@ -599,6 +634,9 @@ void clearCounters() {
   gErrorCount = 0;
 }
 
+// =============================================================================
+// 5) Servo Neutral Helpers and Text Formatting
+// =============================================================================
 void applyNeutralToAllSurfaces() {
   for (size_t surfaceIndex = 0; surfaceIndex < Config::kSurfaceCount; ++surfaceIndex) {
     applySurfacePosition(surfaceIndex, positionNormToCode(Config::kNeutralPositions[surfaceIndex]));

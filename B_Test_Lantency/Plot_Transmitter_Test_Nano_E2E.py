@@ -9,11 +9,28 @@ import Plot_Transmitter_Test as transmitter_plot
 import Plot_Transmitter_Test_E2E as base_plot
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Nano Transmitter Plot Constants
+# 2) Logger and Settings Builders
+# 3) Plot-Module Patching
+# 4) CLI Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Nano Transmitter Plot Constants
+# =============================================================================
 DEFAULT_SEED: int | None = 2
 DEFAULT_PLOT_MODE = "post"
+# Reuse the base E2E modes so Nano figures compare the same latency definitions
+# as the Uno transmitter plots.
 DEFAULT_EVENT_PREFIX_BY_MODE = base_plot.DEFAULT_EVENT_PREFIX_BY_MODE
 
 
+# =============================================================================
+# 2) Logger and Settings Builders
+# =============================================================================
 def _logger_folder_from_seed(root: Path, seed: int) -> Path:
     logger_folder = root / f"Seed_{int(seed)}_Nano_Transmitter_TransmitterLogger"
     if not logger_folder.is_dir():
@@ -22,6 +39,8 @@ def _logger_folder_from_seed(root: Path, seed: int) -> Path:
 
 
 def _build_critical_settings(run_label: str, logger_folder: Path) -> pd.DataFrame:
+    # The Nano plotter synthesizes CriticalSettings for CSV-only post runs so
+    # the shared plotting code still records board, frame, and matching context.
     settings = [
         ("Run", "RunLabel", run_label),
         ("Run", "Status", "completed"),
@@ -57,7 +76,12 @@ def _build_post_critical_settings(run_label: str, logger_folder: Path) -> pd.Dat
     return pd.DataFrame(settings, columns=["Category", "Setting", "Value"])
 
 
+# =============================================================================
+# 3) Plot-Module Patching
+# =============================================================================
 def _patch_plot_modules() -> None:
+    # The base transmitter plotter is parameterized by module-level hooks; patch
+    # only those hooks so the Nano path keeps the same workbook/figure layout.
     base_plot._logger_folder_from_seed = _logger_folder_from_seed
     base_plot._build_critical_settings = _build_critical_settings
     base_plot._build_post_critical_settings = _build_post_critical_settings
@@ -101,6 +125,9 @@ def _patch_plot_modules() -> None:
     ]
 
 
+# =============================================================================
+# 4) CLI Entry Point
+# =============================================================================
 def _parse_args():
     parser = argparse.ArgumentParser(
         description="Build Nano 33 IoT transmitter E2E workbook + plot."

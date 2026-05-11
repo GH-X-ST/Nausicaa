@@ -7,9 +7,6 @@ For each workbook:
     3. Build a second 3D trajectory plot with auto-tight bounds.
 """
 
-###### Initialization
-
-### Imports
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 import re
@@ -25,12 +22,27 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection
 try:
     import cmocean
 except ImportError:
+    # The cmocean dependency is optional so archived Vicon workbooks remain
+    # plottable on a clean MATLAB/Python analysis machine.
     cmocean = None
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Plot Configuration and Derived Colour Tables
+# 2) Workbook, Bounds, and Rendering Helpers
+# 3) Workbook-Level Plotting Workflow
+# 4) CLI Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Plot Configuration and Derived Colour Tables
+# =============================================================================
 MAKE_PLOTS = True
 
+# Default workbook is a measured See_Vicon export; all plotted positions are
+# metres in the lab/Vicon frame configured by the recorder.
 WORKBOOK_XLSX = Path("B_See_Vicon/20260509_095616_Test.xlsx")
 OUT_DIR = Path("B_See_Vicon")
 
@@ -74,6 +86,8 @@ VIEW_AZIMUTH_DEG = -120.0
 EXPORT_DPI = 600
 
 # Auto-bound padding
+# Auto bounds preserve small tracking excursions without visually clipping
+# a nearly stationary marker cloud.
 AUTO_PADDING_FRAC = 0.05
 AUTO_PADDING_MIN_M = 0.05
 
@@ -95,7 +109,6 @@ MULTI_LINE_HEX_COLORS = (
 )
 
 
-### Helpers
 FLOAT_PATTERN = re.compile(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?")
 THERMAL_ANCHOR_COLORS = np.array(
     [
@@ -116,6 +129,9 @@ MULTI_LINE_RGB_COLORS = np.array(
 )
 
 
+# =============================================================================
+# 2) Workbook, Bounds, and Rendering Helpers
+# =============================================================================
 def configure_matplotlib_style() -> None:
     """
     Apply figure-wide typography settings.
@@ -204,6 +220,8 @@ def parse_room_bounds_from_metadata(metadata_df: Optional[pd.DataFrame]) -> Opti
     if pd.isna(value):
         return None
 
+    # The recorder stores room bounds as human-readable metadata, so parsing is
+    # deliberately tolerant of brackets, delimiters, and whitespace.
     numeric_values = [float(match) for match in FLOAT_PATTERN.findall(str(value))]
     if len(numeric_values) != 6:
         return None
@@ -230,6 +248,8 @@ def parse_occluded_value(value: object) -> bool:
     if text in {"false", "0", "0.0", "no", "n", ""}:
         return False
 
+    # Unknown occlusion tokens are treated as invalid samples to avoid drawing
+    # interpolated-looking trajectories through Vicon dropouts.
     return True
 
 
@@ -548,6 +568,9 @@ def create_trajectory_plot(
     return fig
 
 
+# =============================================================================
+# 3) Workbook-Level Plotting Workflow
+# =============================================================================
 def plot_vicon_workbook(
     xlsx_path: Path,
     output_dir: Optional[Path] = None,
@@ -610,7 +633,9 @@ def plot_vicon_workbook(
     return plot_info
 
 
-### Main
+# =============================================================================
+# 4) CLI Entry Point
+# =============================================================================
 def main() -> None:
     if not MAKE_PLOTS:
         print("MAKE_PLOTS is False; nothing to do.")

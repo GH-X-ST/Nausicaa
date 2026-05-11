@@ -7,6 +7,19 @@ import pandas as pd
 from matplotlib.ticker import FormatStrFormatter
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Plot Constants and Surface Styles
+# 2) Workbook Loading and Metadata Helpers
+# 3) Latency and Integrity Summary Builders
+# 4) Figure Panel Builders
+# 5) CLI Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Plot Constants and Surface Styles
+# =============================================================================
 LEGEND_FONT_SIZE = 9
 AXIS_EDGE_LW = 0.80
 LEGEND_FRAME_LW = AXIS_EDGE_LW
@@ -23,6 +36,8 @@ FIGURE_HSPACE = 0.42
 FIGURE_WSPACE = 0.62
 MS_PER_SECOND = 1e3
 
+# Surface order matches the Nano logger command vector and workbook columns;
+# changing it changes how wide sheets are read and plotted.
 SURFACE_STYLES = [
     {
         "surface_name": "Aileron_L",
@@ -58,6 +73,8 @@ SURFACE_STYLES = [
     },
 ]
 
+# Suffixes mirror workbook sheet names so the plot preserves the measured
+# latency chain instead of recomputing stages from raw telemetry.
 LATENCY_METRICS = [
     {
         "sheet": "HostSchedulingDelay",
@@ -97,6 +114,9 @@ SUMMARY_STATS = [
 ]
 
 
+# =============================================================================
+# 2) Workbook Loading and Metadata Helpers
+# =============================================================================
 def normalize_text(value) -> str:
     if pd.isna(value):
         return ""
@@ -289,6 +309,9 @@ def load_time_series(input_df: pd.DataFrame, echo_df: pd.DataFrame) -> tuple[np.
     return host_time, host_command, responses
 
 
+# =============================================================================
+# 3) Latency and Integrity Summary Builders
+# =============================================================================
 def collect_finite_values(host_command: np.ndarray, responses: list[dict]) -> np.ndarray:
     finite_blocks = [host_command[np.isfinite(host_command)]]
     for response in responses:
@@ -309,6 +332,8 @@ def aggregate_latency_series(frame: pd.DataFrame, suffix: str, active_surfaces: 
         f"{surface_name}{suffix}" for surface_name in active_surfaces if f"{surface_name}{suffix}" in frame.columns
     ]
     if not candidate_columns:
+        # Older workbooks may contain only global metric columns; keep the
+        # plotting path backward-compatible with those archived runs.
         candidate_columns = [column for column in frame.columns if column.endswith(suffix)]
     if not candidate_columns:
         return np.array([], dtype=float), np.array([], dtype=float)
@@ -362,6 +387,8 @@ def build_integrity_table(integrity_summary_df: pd.DataFrame, active_surfaces: l
             columns=["Surface", "Dispatch", "Rx miss %", "Apply miss %", "Dup %", "Unexpected %", "Non-mono"]
         )
 
+    # Integrity fractions are stored as unit fractions in the workbook and are
+    # shown as percentages because these panels are used as run-quality checks.
     table_df = pd.DataFrame(
         {
             "Surface": integrity_df["SurfaceName"],
@@ -416,6 +443,9 @@ def build_workbook_bundle(excel_path: Path) -> dict:
     }
 
 
+# =============================================================================
+# 4) Figure Panel Builders
+# =============================================================================
 def add_profile_event_spans(ax: plt.Axes, profile_events_df: pd.DataFrame):
     if profile_events_df.empty:
         return
@@ -694,6 +724,9 @@ def plot_arduino_summary_figure(excel_path: Path, out_path: Path, workbook_bundl
     plt.close(fig)
 
 
+# =============================================================================
+# 5) CLI Entry Point
+# =============================================================================
 def main():
     workbook_dir = Path("C_Arduino_Test")
     excel_path = "Seed_1_Controller.xlsx"

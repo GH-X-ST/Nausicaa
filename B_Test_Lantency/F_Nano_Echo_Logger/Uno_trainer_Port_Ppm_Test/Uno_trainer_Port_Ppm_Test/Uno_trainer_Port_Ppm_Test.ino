@@ -1,13 +1,27 @@
 // Arduino Uno trainer-port PPM test
 // pin 3  -> trainer tip
 // GND    -> trainer sleeve
-// pin 2  -> optional debug toggle for analyser
+// pin 2  -> optional marker toggle for analyser alignment
 
 #include <Arduino.h>
 
+// =============================================================================
+// SECTION MAP
+// =============================================================================
+// 1) Constants, Pin Map, and PPM Timing
+// 2) Fast Pin Helpers and Channel State
+// 3) Timer Setup and PPM ISR
+// 4) Setup and Bench-Test Loop
+// =============================================================================
+
+// =============================================================================
+// 1) Constants, Pin Map, and PPM Timing
+// =============================================================================
 static const uint8_t PPM_PIN = 3;
 static const uint8_t DBG_PIN = 2;
 
+// Trainer-port bench signal uses eight RC channels; only TEST_CHANNEL_INDEX
+// moves while the other channels stay neutral for receiver compatibility.
 static const uint8_t CHANNEL_COUNT = 8;
 static const uint16_t FRAME_US = 22000;
 static const uint16_t PULSE_US = 300;
@@ -31,11 +45,10 @@ void setChannelsAtomic(const uint16_t new_channels[CHANNEL_COUNT]);
 void loadAllNeutralAtomic();
 void loadTestStep(uint8_t step_index);
 
-// -----------------------------------------------------------------------------
-// Fast pin helpers for Uno
-// pin 3 = PD3
-// pin 2 = PD2
-// -----------------------------------------------------------------------------
+// =============================================================================
+// 2) Fast Pin Helpers and Channel State
+// =============================================================================
+// Uno direct-port mapping: pin 3 = PD3, pin 2 = PD2.
 inline void ppmPulseOn() {
   if (ACTIVE_HIGH_PULSE) {
     PORTD |= _BV(PD3);
@@ -53,9 +66,8 @@ inline void ppmPulseOff() {
 }
 
 inline uint16_t usToTimerTicks(uint16_t us) {
-  // Timer1 prescaler = 8 on 16 MHz Uno
-  // timer tick = 0.5 us
-  // OCR1A is zero-based in CTC mode
+  // Timer1 runs at 0.5 us/tick with prescaler 8 on the 16 MHz Uno.
+  // OCR1A is zero-based, so subtract one after clamping the tick count.
   uint32_t ticks = (uint32_t)us * 2U;
   if (ticks == 0U) {
     ticks = 1U;
@@ -74,6 +86,8 @@ void loadAllNeutralAtomic() {
 }
 
 void setChannelsAtomic(const uint16_t new_channels[CHANNEL_COUNT]) {
+  // Channel values are clamped before the ISR reads them so no measured
+  // frame can contain invalid PPM pulse widths.
   noInterrupts();
 
   uint32_t sum_us = 0U;
@@ -104,6 +118,8 @@ void loadTestStep(uint8_t step_index) {
     1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500
   };
 
+  // The four-state pattern isolates one channel transition at a time for
+  // logic-analyser bring-up.
   switch (step_index & 0x03U) {
     case 0:
       ch[TEST_CHANNEL_INDEX] = 1000;
@@ -124,6 +140,9 @@ void loadTestStep(uint8_t step_index) {
   setChannelsAtomic(ch);
 }
 
+// =============================================================================
+// 3) Timer Setup and PPM ISR
+// =============================================================================
 void setupTimer1() {
   noInterrupts();
 
@@ -131,16 +150,15 @@ void setupTimer1() {
   TCCR1B = 0;
   TCNT1 = 0;
 
-  // CTC mode
+  // CTC mode keeps each PPM mark/gap duration scheduled by OCR1A.
   TCCR1B |= _BV(WGM12);
 
-  // prescaler = 8
+  // Prescaler 8 preserves sub-microsecond resolution without overflow here.
   TCCR1B |= _BV(CS11);
 
-  // Start after 1000 us so the first pulse is not immediate at boot
+  // Delayed first compare avoids a boot-edge transient in analyser captures.
   OCR1A = usToTimerTicks(1000);
 
-  // Enable compare match interrupt
   TIMSK1 |= _BV(OCIE1A);
 
   interrupts();
@@ -148,14 +166,12 @@ void setupTimer1() {
 
 ISR(TIMER1_COMPA_vect) {
   if (!g_pulse_active) {
-    // Start pulse
     ppmPulseOn();
     OCR1A = usToTimerTicks(PULSE_US);
     g_pulse_active = true;
     return;
   }
 
-  // End pulse and schedule the next low/high gap
   ppmPulseOff();
 
   uint16_t next_gap_us = 0;
@@ -183,11 +199,14 @@ ISR(TIMER1_COMPA_vect) {
   g_pulse_active = false;
 }
 
+// =============================================================================
+// 4) Setup and Bench-Test Loop
+// =============================================================================
 void setup() {
   pinMode(PPM_PIN, OUTPUT);
   pinMode(DBG_PIN, OUTPUT);
 
-  // Idle baseline before timer starts
+  // Baseline matches the inactive trainer level before Timer1 owns D3.
   ppmPulseOff();
   digitalWrite(DBG_PIN, LOW);
 

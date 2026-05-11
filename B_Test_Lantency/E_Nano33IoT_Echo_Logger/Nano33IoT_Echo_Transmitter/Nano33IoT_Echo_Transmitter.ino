@@ -7,18 +7,38 @@
 #include <stdlib.h>
 #include <string.h>
 
+// =============================================================================
+// SECTION MAP
+// =============================================================================
+// 1) Constants, Pin Map, and Packet Layout
+// 2) Setup and Service Loop
+// 3) Serial Command Parsing and Queueing
+// 4) Telemetry and Counters
+// 5) Pin/Timer Helpers and ISR
+// =============================================================================
+
+// =============================================================================
+// 1) Constants, Pin Map, and Packet Layout
+// =============================================================================
 namespace Config {
 constexpr char kFirmwareVersion[] = "Nano33IoT_Echo_Transmitter_V1_RT";
+// 1 Mbaud keeps serial transfer below the 20 ms PPM frame budget.
 constexpr uint32_t kSerialBaud = 1000000;
 
 constexpr size_t kSurfaceCount = 4;
+// Trainer output uses eight RC channels; channels 1-4 are the active
+// surfaces and channels 5-8 remain neutral to preserve receiver framing.
 constexpr size_t kPpmChannelCount = 8;
+// Binary vector packet: 'V', surface count, active mask, uint32 sequence,
+// then four little-endian uint16 normalized positions.
 constexpr size_t kBinaryVectorPacketLength = 15;
 constexpr size_t kCommandBufferLength = 192;
 
 constexpr uint8_t kTrainerPin = 3;
 constexpr uint8_t kReferencePin = 2;
 
+// Polarity and output mode must match the trainer-port wiring and analyser
+// probe assumptions used by Transmitter_Test.m.
 constexpr bool kUseOpenDrainTrainerOutput = false;
 constexpr bool kUseTrainerInputPullupWhenReleased = false;
 constexpr bool kPpmActiveHighPulse = true;
@@ -28,6 +48,8 @@ constexpr uint16_t kMaximumPulseUs = 2000;
 constexpr uint16_t kNeutralPulseUs = 1500;
 constexpr int16_t kSurfacePulseTrimUs[kSurfaceCount] = {-2, -2, -12, -2};
 
+// PPM timing follows the receiver trainer-port convention: 300 us mark
+// pulses in a 20 ms frame, with failsafe neutral after command timeout.
 constexpr uint16_t kFrameLengthUs = 20000;
 constexpr uint16_t kMarkWidthUs = 300;
 constexpr uint32_t kCommandTimeoutUs = 250000;
@@ -45,6 +67,8 @@ constexpr uint16_t kDiagnosticMarkerPulseUs = 50;
 
 constexpr uint16_t kTimerTicksPerUs = 3;
 
+// Surface order is shared with MATLAB dispatch rows and logic-analyser
+// matching; trims are applied before channel values enter the ISR.
 constexpr char kSurfaceNames[kSurfaceCount][16] = {
   "Aileron_L",
   "Aileron_R",
@@ -155,6 +179,9 @@ inline uint16_t usToTimerTicks(uint16_t durationUs);
 inline PortGroup& portGroupForPin(uint8_t pin);
 inline uint32_t portMaskForPin(uint8_t pin);
 
+// =============================================================================
+// 2) Setup and Service Loop
+// =============================================================================
 void setup() {
   Serial.begin(Config::kSerialBaud);
   while (!Serial && millis() < 3000UL) {
@@ -164,6 +191,8 @@ void setup() {
   configurePins();
 
   PendingCommand neutralCommand = {};
+  // Start with a queued neutral vector so the first committed PPM frame is
+  // safe even if MATLAB connects after the timer is running.
   buildNeutralCommand(neutralCommand, 0U, micros());
   queuePendingVector(neutralCommand);
 
@@ -236,6 +265,9 @@ void waitForTimer3Sync() {
   }
 }
 
+// =============================================================================
+// 3) Serial Command Parsing and Queueing
+// =============================================================================
 void serviceSerialInput() {
   while (Serial.available() > 0) {
     int nextByte = Serial.peek();
@@ -289,6 +321,8 @@ void finalizeCommandLine() {
   }
 
   gCommandBuffer[gCommandLength] = '\0';
+  // boardRxUs is captured at packet completion and becomes RX_EVENT
+  // telemetry for MATLAB's board-micros to host-time conversion.
   handleTextCommand(gCommandBuffer, micros());
   resetCommandBuffer();
 }
@@ -353,6 +387,8 @@ bool tryParseBinaryVectorCommand(const uint8_t* packetBytes, uint32_t boardRxUs,
     return false;
   }
 
+  // Surface-count validation protects the channel order contract between
+  // MATLAB, firmware, and the receiver PPM decoder.
   if (packetBytes[1] != Config::kSurfaceCount) {
     sendErrorEvent(F("BINARY_VECTOR_SURFACE_COUNT_ERROR"));
     return false;
@@ -513,6 +549,8 @@ void serviceCommandTimeout() {
   }
 
   ++gTimeoutNeutralCount;
+  // Timeout drives all channels to neutral to prevent a stale command from
+  // persisting when MATLAB or the serial link stops.
   queueNeutralVector(0U, nowUs);
 }
 
@@ -528,6 +566,8 @@ void handleSyncCommand(char* context, uint32_t boardRxUs) {
   }
 
   uint32_t boardTxUs = micros();
+  // SYNC_EVENT is the clock-map probe: host TX micros from MATLAB plus
+  // board RX/TX micros from this firmware.
   Serial.print(F("SYNC_EVENT,"));
   Serial.print(syncId);
   Serial.print(',');
@@ -538,7 +578,11 @@ void handleSyncCommand(char* context, uint32_t boardRxUs) {
   Serial.println(boardTxUs);
 }
 
+// =============================================================================
+// 4) Telemetry and Counters
+// =============================================================================
 void emitRxEvent(const PendingCommand& command) {
+  // RX_EVENT records accepted commands before the ISR commits them to PPM.
   Serial.print(F("RX_EVENT,"));
   Serial.print(command.sampleSequence);
   Serial.print(',');
@@ -576,6 +620,8 @@ void serviceCommitTelemetry() {
   gCommitTelemetryPending = false;
   interrupts();
 
+  // COMMIT_EVENT is emitted outside the ISR but carries ISR-captured commit
+  // micros, frame index, reference strobe time, and all eight PPM channels.
   Serial.print(F("COMMIT_EVENT,"));
   Serial.print(telemetry.sampleSequence);
   Serial.print(',');
@@ -742,6 +788,9 @@ uint16_t applySurfacePulseTrimUs(size_t surfaceIndex, uint16_t pulseUs) {
   return static_cast<uint16_t>(trimmedPulseUs);
 }
 
+// =============================================================================
+// 5) Pin/Timer Helpers and ISR
+// =============================================================================
 inline void driveTrainerLow() {
   PortGroup& group = portGroupForPin(Config::kTrainerPin);
   const uint32_t mask = portMaskForPin(Config::kTrainerPin);

@@ -2,6 +2,20 @@ function [runData, e2e] = Transmitter_Test_Nano_E2E(config)
 % TRANSMITTER_TEST_NANO_E2E Run/load Nano 33 IoT transmitter data and use the Python post processor.
 %   This wrapper mirrors Transmitter_Test_E2E, but keeps all Nano-specific
 %   defaults and logger-folder resolution local to this file.
+%
+%% =============================================================================
+% SECTION MAP
+% =============================================================================
+% 1) Public Entry Point
+% 2) Nano Defaults and Logger Resolution
+% 3) Post-Processor Execution and Output Loading
+% 4) Physical Latency Repair and Trusted Summaries
+% 5) Offline Nano Clock Repair and Utilities
+% =============================================================================
+%
+%% =============================================================================
+% 1) Public Entry Point
+% =============================================================================
 arguments
     config (1,1) struct = struct()
 end
@@ -13,6 +27,8 @@ printSummary = logical(getFieldLocal(config, "printSummary", false));
 outputPrefix = normalizeTextScalarLocal(getFieldLocal(config, "outputPrefix", "post_transition_e2e"));
 seed = double(getFieldLocal(config, "seed", 2));
 enforceArduinoStepTrainDefaults = logical(getFieldLocal(config, "enforceArduinoStepTrainDefaults", true));
+% Lead/lag windows keep neutral PPM before and after the active random step
+% train so capture alignment can reject startup and shutdown transients.
 recordLeadSeconds = max(0, double(getFieldLocal(config, "recordLeadSeconds", 10.0)));
 recordLagSeconds = max(0, double(getFieldLocal(config, "recordLagSeconds", 10.0)));
 commandActiveSeconds = max(0, double(getFieldLocal(config, "commandActiveSeconds", 59.0)));
@@ -54,6 +70,9 @@ end
 
 ensureFolderExistsLocal(loggerFolder);
 
+% Nano 33 IoT logs can contain board microsecond timestamps without a direct
+% host-origin mapping; repair before Python matching so all downstream files
+% use the same host-second convention.
 clockRepair = repairNanoLoggerClockOfflineLocal(loggerFolder);
 
 outputPaths = buildOutputPathsLocal(loggerFolder, outputPrefix);
@@ -106,10 +125,15 @@ if printSummary
 end
 end
 
+%% =============================================================================
+% 2) Nano Defaults and Logger Resolution
+% =============================================================================
 function transmitterConfig = applyNanoTransmitterDefaultsLocal(transmitterConfig, seed)
 transmitterConfig.arduinoBoard = normalizeTextScalarLocal(getFieldLocal(transmitterConfig, "arduinoBoard", "Nano33IoT"));
 
 trainerPpm = getFieldLocal(transmitterConfig, "trainerPpm", struct());
+% D3/D2 match the Nano transmitter sketch and the logic-analyser wiring used
+% for trainer PPM and reference-marker capture.
 trainerPpm.outputPin = normalizeTextScalarLocal(getFieldLocal(trainerPpm, "outputPin", "D3"));
 trainerPpm.referencePin = normalizeTextScalarLocal(getFieldLocal(trainerPpm, "referencePin", "D2"));
 transmitterConfig.trainerPpm = trainerPpm;
@@ -156,6 +180,9 @@ if strlength(outputFolder) > 0 && strlength(runLabel) > 0
 end
 end
 
+%% =============================================================================
+% 3) Post-Processor Execution and Output Loading
+% =============================================================================
 function e2e = loadPostOutputsLocal(loggerFolder, outputPrefix)
 paths = buildOutputPathsLocal(loggerFolder, outputPrefix);
 
@@ -365,7 +392,12 @@ writetable(buildNanoPhysicalSurfaceSummaryLocal(physicalEvents), char(outputPath
 writetable(buildNanoPhysicalOverallSummaryLocal(physicalEvents), char(outputPaths.overallSummaryPath));
 end
 
+%% =============================================================================
+% 4) Physical Latency Repair and Trusted Summaries
+% =============================================================================
 function physicalEvents = convertDirectLatencyToPhysicalEventsLocal(loggerFolder, directEvents)
+% Physical events recompose the latency chain from raw host/RX/commit logs so
+% Nano clock repair affects every segment, not only the final receiver match.
 requiredColumns = [ ...
     "surface_name", ...
     "sample_sequence", ...
@@ -735,6 +767,8 @@ end
 
 function values = sanitizeLatencySegmentLocal(values, toleranceSeconds)
 values = reshape(double(values), [], 1);
+% Small negative segments are numerical/clock-fit residue; larger negative
+% values indicate invalid event ordering and are excluded from summaries.
 smallNegativeMask = isfinite(values) & values < 0 & values >= -abs(double(toleranceSeconds));
 values(smallNegativeMask) = 0.0;
 invalidNegativeMask = isfinite(values) & values < -abs(double(toleranceSeconds));
@@ -960,6 +994,9 @@ for metricIndex = 1:numel(orderedMetrics)
 end
 end
 
+%% =============================================================================
+% 5) Offline Nano Clock Repair and Utilities
+% =============================================================================
 function repairResult = repairNanoLoggerClockOfflineLocal(loggerFolder)
 repairResult = struct( ...
     "applied", false, ...
@@ -980,6 +1017,8 @@ boardRxLog = readOptionalTableLocal(fullfile(loggerFolder, "board_rx_log.csv"));
 boardCommitLog = readOptionalTableLocal(fullfile(loggerFolder, "board_commit_log.csv"));
 boardSyncLog = readOptionalTableLocal(fullfile(loggerFolder, "board_sync_log.csv"));
 
+% Repair is skipped when provenance logs are incomplete; inferred clock maps
+% without dispatch/RX/commit agreement would make latency signs unsafe.
 if isempty(hostDispatchLog) || isempty(boardRxLog) || isempty(boardCommitLog)
     return;
 end
@@ -1055,6 +1094,8 @@ function [clockSlope, clockInterceptUs, clockMethod, oneWayBaselineUs] = estimat
     hostDispatchLog, ...
     boardRxLog, ...
     boardSyncLog)
+% The Nano and host clocks are assumed to have negligible drift over one run;
+% only the offset is repaired unless dispatch/RX evidence says otherwise.
 clockSlope = 1.0;
 clockMethod = "sync_midpoint_median";
 oneWayBaselineUs = estimateNanoOneWayBaselineUsLocal(boardSyncLog);
@@ -1066,6 +1107,8 @@ validSyncMask = ...
     isfinite(boardReferenceUs);
 
 if any(validSyncMask)
+    % SYNC_EVENT midpoints reduce host scheduling asymmetry better than using
+    % host transmit or receive timestamps alone.
     clockInterceptUs = median(hostReferenceUs(validSyncMask) - boardReferenceUs(validSyncMask), "omitnan");
 else
     joinedTable = buildRxDispatchJoinLocal(hostDispatchLog, boardRxLog);
@@ -1104,6 +1147,8 @@ end
 end
 
 function joinedTable = buildRxDispatchJoinLocal(hostDispatchLog, boardRxLog)
+% Surface and command sequence form the stable cross-clock key; sample index can
+% differ across per-surface telemetry rows in vector commands.
 dispatchColumns = hostDispatchLog(:, {'surface_name', 'command_sequence', 'command_dispatch_us'});
 dispatchColumns = unique(dispatchColumns, 'rows', 'stable');
 rxColumns = boardRxLog(:, {'surface_name', 'command_sequence', 'rx_us'});

@@ -1,10 +1,25 @@
 function runData = Arduino_Test(config)
-%ARDUINO_TEST Execute an Arduino-only servo command test over WiFi.
+% ARDUINO_TEST Execute an Arduino-only servo command test over WiFi.
 %   runData = Arduino_Test(config) connects to the Arduino Nano 33 IoT,
 %   commands one or all four servos with a configurable profile, logs the
 %   desired commands, and optionally imports an Arduino-side echo log
 %   during post-processing to evaluate command latency without disturbing
 %   the inner loop.
+%
+%% =============================================================================
+% SECTION MAP
+% =============================================================================
+% 1) Public Entry Point
+% 2) Configuration and Connection Helpers
+% 3) Command Schedule and Run Execution
+% 4) Nano Logger Telemetry Handling
+% 5) Echo Import and Latency Summaries
+% 6) Export, Profile Builders, and Utility Helpers
+% =============================================================================
+%
+%% =============================================================================
+% 1) Public Entry Point
+% =============================================================================
 arguments
     config (1,1) struct = struct()
 end
@@ -65,6 +80,9 @@ catch executionException
 end
 end
 
+%% =============================================================================
+% 2) Configuration and Connection Helpers
+% =============================================================================
 function config = normalizeConfig(config)
 rootFolder = fileparts(mfilename("fullpath"));
 defaultSurfaceNames = ["Aileron_L"; "Aileron_R"; "Rudder"; "Elevator"];
@@ -77,8 +95,12 @@ config.arduinoIPAddress = getTextScalarField(config, "arduinoIPAddress", "192.16
 config.arduinoBoard = getTextScalarField(config, "arduinoBoard", "Nano33IoT");
 config.arduinoPort = getOptionalScalarField(config, "arduinoPort", NaN);
 
+% Surface order is the contract with the Nano logger packet layout and the
+% plotting scripts: D9-D12 correspond to Aileron_L, Aileron_R, Rudder, Elevator.
 config.surfaceNames = getStringArrayField(config, "surfaceNames", defaultSurfaceNames);
 config.surfacePins = getStringArrayField(config, "surfacePins", defaultSurfacePins);
+% Positions are normalized 0..1 on the wire; degrees enter only through
+% servoUnitsPerDegree and the per-surface neutral offsets.
 config.servoNeutralPositions = getNumericColumnField(config, "servoNeutralPositions", 0.5 .* ones(numel(config.surfaceNames), 1));
 config.servoUnitsPerDegree = getNumericColumnField(config, "servoUnitsPerDegree", (1 / 180) .* ones(numel(config.surfaceNames), 1));
 config.servoMinimumPositions = getNumericColumnField(config, "servoMinimumPositions", zeros(numel(config.surfaceNames), 1));
@@ -645,6 +667,9 @@ else
 end
 end
 
+%% =============================================================================
+% 3) Command Schedule and Run Execution
+% =============================================================================
 function [storage, runInfo, config] = executeArduinoTest(commandInterface, config)
 [scheduledTimeSeconds, profileInfo] = buildCommandSchedule(config.commandProfile);
 surfaceCount = numel(config.surfaceNames);
@@ -974,7 +999,8 @@ switch commandInterface.transportMode
             end
         end
 
-        % Build and send one datagram for the whole active actuator vector.
+        % hostNowUs is the dispatch timestamp paired with board micros in
+        % COMMAND_EVENT telemetry for clock-domain conversion.
         dispatchAbsoluteUs = hostNowUs(loggerSession.hostTimer);
         if commandInterface.commandEncoding == "binary_vector"
             commandPayload = buildNanoLoggerBinaryVectorCommand( ...
@@ -1035,6 +1061,9 @@ switch commandInterface.transportMode
 end
 end
 
+%% =============================================================================
+% 4) Nano Logger Telemetry Handling
+% =============================================================================
 function loggerSession = createEmptyNanoLoggerSession()
 loggerSession = struct( ...
     "isEnabled", false, ...
@@ -1167,6 +1196,8 @@ try
             "No Nano logger SYNC_EVENT datagrams were received.");
     end
 
+    % Missing command telemetry invalidates latency analysis because the
+    % board micros-to-host clock map cannot identify individual commands.
     if loggerSession.dispatchCount > 0 && isempty(boardCommandLog)
         error("Arduino_Test:MissingNanoLoggerCommandTelemetry", ...
             "No Nano logger COMMAND_EVENT datagrams were received.");
@@ -1179,6 +1210,8 @@ try
     echoImportCsvPath = fullfile(loggerOutputFolder, "arduino_echo_import.csv");
     rawTelemetryLogPath = fullfile(loggerOutputFolder, "udp_telemetry_log.txt");
 
+    % Export raw host, board, and telemetry logs before canonical echo import
+    % so failed or partial runs still retain audit evidence.
     writetable(hostDispatchLog, hostDispatchCsvPath);
     writetable(syncRoundTripLog, syncRoundTripCsvPath);
     writetable(boardCommandLog, boardCommandLogCsvPath);
@@ -1609,6 +1642,9 @@ isLogger = ...
     commandInterface.transportMode == "nano_logger_udp";
 end
 
+%% =============================================================================
+% 5) Echo Import and Latency Summaries
+% =============================================================================
 function storage = finalizeArduinoEcho(storage, config)
 sampleIndices = 1:storage.sampleCount;
 
@@ -1874,11 +1910,11 @@ midpointMask = ...
     isfinite(boardRxUs) & ...
     isfinite(boardTxUs);
 if any(midpointMask)
-    % Use host and board midpoints when direct round-trip timestamps exist.
+    % Midpoints reduce asymmetric USB/WiFi scheduling error in the clock map.
     hostReferenceUs = 0.5 .* (hostTxUs(midpointMask) + hostRxUs(midpointMask));
     boardReferenceUs = 0.5 .* (boardRxUs(midpointMask) + boardTxUs(midpointMask));
 else
-    % Fallback for legacy captures without immediate SYNC_EVENT round trips.
+    % Legacy captures only include host TX and board RX timestamps.
     hostReferenceUs = hostTxUs(isfinite(hostTxUs) & isfinite(boardRxUs));
     boardReferenceUs = boardRxUs(isfinite(hostTxUs) & isfinite(boardRxUs));
 end
@@ -2123,6 +2159,8 @@ function commandLookup = buildArduinoCommandLookupTable(storage, config, sampleI
 surfaceCount = numel(config.surfaceNames);
 rowCount = nnz(isfinite(storage.commandSequenceNumbers(sampleIndices, :)));
 
+% Keep one lookup row per surface/sequence so vector UDP commands can be
+% audited for per-servo drops even though they share one dispatch packet.
 commandLookup = table( ...
     nan(rowCount, 1), ...
     nan(rowCount, 1), ...
@@ -2162,6 +2200,8 @@ function [echoAssignments, integritySummary] = assignArduinoEchoToCommands(comma
 echoImportTable = reshapeEchoImportTable(echoImportTable);
 uniqueEchoImportTable = deduplicateEchoImportTable(echoImportTable);
 
+% Surface+sequence is the stable cross-clock key between MATLAB dispatch and
+% Nano telemetry; timing values are used after the row identity is known.
 echoAssignments = commandLookup(:, {'sample_index', 'surface_index', 'surface_name', 'command_sequence', 'command_dispatch_s'});
 rowCount = height(echoAssignments);
 
@@ -2754,6 +2794,9 @@ surfaceSetup = table( ...
         'CommandOffsetDeg'});
 end
 
+%% =============================================================================
+% 6) Export, Profile Builders, and Utility Helpers
+% =============================================================================
 function artifacts = exportRunData(runData)
 matFilePath = fullfile(runData.config.outputFolder, runData.config.runLabel + ".mat");
 workbookPath = fullfile(runData.config.outputFolder, runData.config.runLabel + ".xlsx");
@@ -3095,6 +3138,8 @@ currentTargetVectorDegrees = zeros(1, surfaceCount);
 
 while currentTimeSeconds < profileInfo.durationSeconds
     dwellJitterSeconds = drawEventJitter(randomStream, profileInfo.eventRandomJitterSeconds);
+    % Each segment changes one commanded vector, making analyser transitions
+    % attributable while still exercising coupled roll/pitch/yaw commands.
     segmentDurationSeconds = max( ...
         profileInfo.sampleTimeSeconds, ...
         profileInfo.eventHoldSeconds + profileInfo.eventDwellSeconds + dwellJitterSeconds);
@@ -3686,8 +3731,7 @@ end
 
 sampleSequence = commandSequenceNumbers(activeIndices(1));
 if ~all(commandSequenceNumbers(activeIndices) == sampleSequence)
-    % This should never happen with the current sample-wise counter update,
-    % but guard it explicitly.
+    % Guard against sequence gaps from future sample-counter changes.
     error("Arduino_Test:InconsistentSetAllSequence", ...
         "All active surfaces must share the same sample sequence for SET_ALL.");
 end
@@ -3728,6 +3772,8 @@ for surfaceIndex = activeIndices(:).'
     surfaceMask = bitor(surfaceMask, bitshift(uint8(1), surfaceIndex - 1));
 end
 
+% The firmware expects normalized positions as little-endian uint16 values
+% following a surface bitmask; clipping occurs before encoding.
 positionCodes = uint16(round(min(max(reshape(servoPositions, 1, []), 0.0), 1.0) .* 65535.0));
 
 payloadBytes = zeros(1, 7 + 2 * surfaceCount, "uint8");

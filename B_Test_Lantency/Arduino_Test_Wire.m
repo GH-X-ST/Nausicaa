@@ -1,5 +1,19 @@
 function runData = Arduino_Test_Wire(config)
-%ARDUINO_TEST_WIRE Execute an Arduino-only latency test over wired serial.
+% ARDUINO_TEST_WIRE Execute an Arduino-only latency test over wired serial.
+%
+%% =============================================================================
+% SECTION MAP
+% =============================================================================
+% 1) Public Entry Point
+% 2) Wire Logger Session and Telemetry Import
+% 3) Clock Mapping, Logs, and Export
+% 4) Configuration and Connection Helpers
+% 5) Command Profile and Run Execution
+% =============================================================================
+%
+%% =============================================================================
+% 1) Public Entry Point
+% =============================================================================
 
 arguments
     config (1,1) struct = struct()
@@ -55,8 +69,13 @@ catch executionException
 end
 end
 
+%% =============================================================================
+% 2) Wire Logger Session and Telemetry Import
+% =============================================================================
 function loggerSession = startWireLoggerSession(serialObject, config, sampleCount, activeSurfaceCount)
 dispatchCapacity = max(1, sampleCount .* activeSurfaceCount);
+% Sync capacity includes before/after clock probes plus slack for repeated
+% serial lines, preserving telemetry if the board echoes duplicates.
 syncCapacity = max(1, config.arduinoTransport.syncCountBeforeRun + config.arduinoTransport.syncCountAfterRun + 8);
 telemetryCapacity = dispatchCapacity + syncCapacity + 32;
 
@@ -172,6 +191,8 @@ if isempty(boardSyncLog)
     error("Arduino_Test_Wire:MissingWireSyncTelemetry", "No wire SYNC_EVENT lines were received.");
 end
 
+% Serial SYNC_EVENT rows are the only board-to-host clock evidence in wired
+% mode, so the echo import is built only after this map is available.
 syncRoundTripLog = boardSyncLog(:, {'sync_id', 'host_tx_us', 'host_rx_us', 'board_rx_us', 'board_tx_us'});
 [clockSlope, clockIntercept] = estimateBoardToHostClockMap(syncRoundTripLog);
 
@@ -185,6 +206,8 @@ latencyUs = applyHostUs - double(joinedTable.command_dispatch_us);
 if ~isempty(latencyUs)
     minimumLatencyUs = min(latencyUs);
     if minimumLatencyUs < 0
+        % Small negative latencies are clock-fit residue; re-anchor to keep
+        % matched board apply times causal relative to host dispatch.
         applyHostUs = applyHostUs - minimumLatencyUs;
         latencyUs = latencyUs - minimumLatencyUs;
     end
@@ -314,6 +337,8 @@ for lineIndex = 1:numel(receivedLines)
         continue;
     end
 
+    % Firmware line protocol uses COMMAND_EVENT for surface apply telemetry
+    % and SYNC_EVENT for clock-map probes, both timestamped with board micros.
     switch telemetryParts(1)
         case "COMMAND_EVENT"
             if numel(telemetryParts) >= 7
@@ -389,10 +414,15 @@ receivedLines = receivedLines(1:lineCount);
 receiveBuffer = string(bufferText(startIndex:end));
 end
 
+%% =============================================================================
+% 3) Clock Mapping, Logs, and Export
+% =============================================================================
 function [clockSlope, clockIntercept] = estimateBoardToHostClockMap(syncRoundTripLog)
 hostTxUs = double(syncRoundTripLog.host_tx_us);
 boardRxUs = double(syncRoundTripLog.board_rx_us);
 if numel(hostTxUs) >= 2
+    % Wired serial runs are short enough that a first-order board-micros to
+    % host-micros fit captures offset and small oscillator drift.
     fitCoefficients = polyfit(boardRxUs, hostTxUs, 1);
     clockSlope = fitCoefficients(1);
     clockIntercept = fitCoefficients(2);
@@ -699,12 +729,16 @@ for elementIndex = 1:numel(normalizedList)
 end
 end
 
+%% =============================================================================
+% 4) Configuration and Connection Helpers
+% =============================================================================
 function config = normalizeConfig(config)
 rootFolder = fileparts(mfilename("fullpath"));
 defaultSurfaceNames = ["Aileron_L"; "Aileron_R"; "Rudder"; "Elevator"];
 defaultSurfacePins = ["D9"; "D10"; "D11"; "D12"];
 
 config.serialPort = getText(config, "serialPort", "COM5");
+% Surface order matches the Nano serial firmware arrays and workbook sheets.
 config.surfaceNames = getStringArray(config, "surfaceNames", defaultSurfaceNames);
 config.surfacePins = getStringArray(config, "surfacePins", defaultSurfacePins);
 config.servoNeutralPositions = getNumericColumn(config, "servoNeutralPositions", 0.5 .* ones(numel(config.surfaceNames), 1));
@@ -730,6 +764,8 @@ if strlength(config.runLabel) == 0
 end
 
 transport = getField(config, "arduinoTransport", struct());
+% Wired mode uses the SET/SYNC line protocol over USB serial; timestamps
+% from the board remain micros() values until the sync fit is applied.
 config.arduinoTransport = struct( ...
     "mode", "nano_logger_serial", ...
     "serialPort", getText(transport, "serialPort", config.serialPort), ...
@@ -790,6 +826,9 @@ config.surfaceSetup = table( ...
         'ServoMinimumPosition', 'ServoMaximumPosition', 'CommandScale', 'CommandOffsetDeg'});
 end
 
+%% =============================================================================
+% 5) Command Profile and Run Execution
+% =============================================================================
 function commandProfile = normalizeCommandProfile(commandProfileConfig)
 commandProfile.type = getText(commandProfileConfig, "type", "sine");
 commandProfile.sampleTimeSeconds = getPositiveScalar(commandProfileConfig, "sampleTimeSeconds", 0.05);
@@ -944,6 +983,8 @@ for sampleIndex = 1:sampleCount
     nextCommandSequenceNumbers = nan(1, surfaceCount);
     nextCommandSequenceNumbers(config.activeSurfaceMask.') = surfaceCommandCounts(config.activeSurfaceMask.') + 1;
 
+    % The host dispatch timestamp is paired with board RX/APPLY micros from
+    % serial telemetry after the run; no blocking read is added here.
     storage.commandWriteStartSeconds(sampleIndex) = max(0, toc(loggerSession.hostTimer) - loggerSession.testStartOffsetSeconds);
     [commandDispatchSeconds, commandWriteStopSeconds, loggerSession] = writeServoPositions( ...
         commandInterface.connection, commandedServoPositions, config.surfaceNames, config.activeSurfaceMask.', nextCommandSequenceNumbers, loggerSession);

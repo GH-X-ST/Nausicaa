@@ -3,6 +3,23 @@ function runData = Transmitter_Test(config)
 %   runData = Transmitter_Test(config) commands the Uno transmitter
 %   firmware, captures reference, trainer, and receiver waveforms, and
 %   exports matched latency results and diagnostic summaries.
+%
+%% =============================================================================
+% SECTION MAP
+% =============================================================================
+% 1) Public Entry Point
+% 2) Command Profile and Timing Helpers
+% 3) Configuration Validation
+% 4) Hardware Connection and Run Execution
+% 5) Transmitter Telemetry Handling
+% 6) Sigrok Capture and Logic Decoding
+% 7) Event Matching and Latency Metrics
+% 8) Export, Workbook, and Utility Helpers
+% =============================================================================
+%
+%% =============================================================================
+% 1) Public Entry Point
+% =============================================================================
 arguments
     config (1,1) struct = struct()
 end
@@ -70,6 +87,9 @@ catch executionException
 end
 end
 
+%% =============================================================================
+% 2) Command Profile and Timing Helpers
+% =============================================================================
 function commandProfile = normalizeCommandProfile(commandProfileConfig)
 if isempty(commandProfileConfig)
     commandProfileConfig = struct();
@@ -1106,8 +1126,7 @@ end
 
 sampleSequence = commandSequenceNumbers(activeIndices(1));
 if ~all(commandSequenceNumbers(activeIndices) == sampleSequence)
-    % This should never happen with the current sample-wise counter update,
-    % but guard it explicitly.
+    % Guard against sequence gaps from future sample-counter changes.
     error("Transmitter_Test:InconsistentSetAllSequence", ...
         "All active surfaces must share the same sample sequence for SET_ALL.");
 end
@@ -1180,10 +1199,17 @@ encodedBytes = uint8([ ...
     bitshift(value, -24)]);
 end
 
+%% =============================================================================
+% 3) Configuration Validation
+% =============================================================================
 function config = normalizeTransmitterConfig(config)
 rootFolder = fileparts(mfilename("fullpath"));
 defaultSurfaceNames = ["Aileron_L"; "Aileron_R"; "Rudder"; "Elevator"];
+% Trainer PPM carries eight RC channels; only the first four are actuated
+% here, and the empty channels preserve receiver frame timing.
 defaultTrainerChannelMap = [defaultSurfaceNames; ""; ""; ""; ""];
+% Logic-analyser channels follow the physical wiring: D0-D3 receiver PWM,
+% D4 reference strobe from D2, and D5 trainer PPM from D3.
 defaultLogicAnalyzerChannels = [0 1 2 3 4 5];
 defaultLogicAnalyzerNames = ["RX_CH1"; "RX_CH2"; "RX_CH3"; "RX_CH4"; "REF_D2"; "TRAINER_PPM_D3"];
 commandProfileConfig = getFieldOrDefault(config, "commandProfile", struct());
@@ -1401,6 +1427,8 @@ config.logicAnalyzer = struct( ...
     "trainerPpmCapturePath", getOptionalTextScalarField(logicAnalyzerConfig, "trainerPpmCapturePath", logicAnalyzerArtifactPrefix + "_trainer.csv"), ...
     "receiverCapturePath", getOptionalTextScalarField(logicAnalyzerConfig, "receiverCapturePath", logicAnalyzerArtifactPrefix + "_receiver.csv"));
 
+% Matching thresholds are expressed in microseconds because the downstream
+% PPM/receiver captures measure pulse-width transitions, not servo degrees.
 config.matching = struct( ...
     "mode", getTextScalarField(matchingConfig, "mode", "shared_clock_minimal"), ...
     "anchorPriority", getTextScalarField(matchingConfig, "anchorPriority", "D4_then_D5"), ...
@@ -1562,6 +1590,9 @@ if ~any(referenceStrobeMode == validModes)
 end
 end
 
+%% =============================================================================
+% 4) Hardware Connection and Run Execution
+% =============================================================================
 function runData = initializeTransmitterRunData(config)
 runData = struct( ...
     "config", config, ...
@@ -1763,6 +1794,8 @@ loggerSession = startTransmitterLoggerSession(serialObject, config, sampleCount,
 testStart = loggerSession.hostTimer;
 surfaceCommandCounts = zeros(1, surfaceCount);
 
+% Store raw scheduled commands before summaries so dropped packets and
+% unmatched telemetry remain visible in exported diagnostics.
 for sampleIndex = 1:sampleCount
     scheduledSampleTimeSeconds = scheduledTimeSeconds(sampleIndex);
     loggerSession = waitForScheduledTimeAndDrainTransmitter( ...
@@ -1875,6 +1908,9 @@ storage = struct( ...
     "integritySummary", table());
 end
 
+%% =============================================================================
+% 5) Transmitter Telemetry Handling
+% =============================================================================
 function loggerSession = startTransmitterLoggerSession(serialObject, config, sampleCount, activeSurfaceCount)
 dispatchCapacity = max(32, sampleCount .* max(1, activeSurfaceCount));
 rxCapacity = max(64, sampleCount + 32);
@@ -2001,6 +2037,8 @@ if isempty(activeIndices)
     return;
 end
 
+% Host microseconds are the common dispatch anchor used to map board micros
+% and logic-analyser events back onto the MATLAB run timeline.
 dispatchAbsoluteUs = hostNowUs(loggerSession.hostTimer);
 if numel(unique(commandSequenceNumbers(activeIndices))) ~= 1
     error("Transmitter_Test:InconsistentSampleSequence", ...
@@ -2331,6 +2369,8 @@ if parsedLoggerSession.boardSyncCount == 0
     error("Transmitter_Test:MissingSyncTelemetry", "No SYNC_EVENT lines were received from the transmitter.");
 end
 
+% These raw CSVs are the provenance layer for post-processing: host
+% dispatch, board RX, board commit, and the untouched serial telemetry.
 loggerData = struct( ...
     "testStartOffsetUs", double(loggerSession.testStartOffsetUs), ...
     "testStartOffsetSeconds", loggerSession.testStartOffsetSeconds, ...
@@ -2352,6 +2392,9 @@ config.arduinoTransport.captureMessage = ...
     height(loggerData.boardSyncLog) + " SYNC rows.";
 end
 
+%% =============================================================================
+% 6) Sigrok Capture and Logic Decoding
+% =============================================================================
 function [sigrokSession, config] = startSigrokSession(config, runPlan)
 if ~isSigrokAutoMode(config)
     sigrokSession = createEmptySigrokSession();
@@ -3787,6 +3830,9 @@ if numel(surfaceNames) ~= expectedRowCount
 end
 end
 
+%% =============================================================================
+% 7) Event Matching and Latency Metrics
+% =============================================================================
 function matchedEvents = buildTransmitterMatchedEvents( ...
     hostDispatchLog, ...
     boardRxLog, ...
@@ -3795,6 +3841,8 @@ function matchedEvents = buildTransmitterMatchedEvents( ...
     trainerPpmCapture, ...
     receiverCapture, ...
     config)
+% Host dispatch rows are the root event list; downstream matches attach to
+% these rows so missing RX/commit/analyser evidence remains explicit as NaN.
 hostDispatchLog = sortrows(hostDispatchLog, {'sample_index', 'surface_name'});
 matchedEvents = hostDispatchLog(:, {'sample_index', 'surface_name', 'command_sequence', 'sample_sequence', 'scheduled_time_s', 'command_dispatch_s', 'position_norm'});
 matchedEvents.surface_index = zeros(height(matchedEvents), 1);
@@ -3848,6 +3896,8 @@ commitUnique = deduplicateCommitTable(boardCommitLog);
     config.referenceStrobe.mode, ...
     config.matching.referenceAssociationWindowSeconds);
 if ~isempty(commitUnique)
+    % Commit telemetry is keyed by sample_sequence because all active PPM
+    % channels are committed in one frame update on the transmitter board.
     [isCommitMatched, commitIndex] = ismember(double(matchedEvents.sample_sequence), double(commitUnique.sample_sequence));
     for rowIndex = 1:height(matchedEvents)
         if ~isCommitMatched(rowIndex)
@@ -4088,6 +4138,8 @@ referenceSampleIndex = reshape(double(referenceCapture.sample_index), [], 1);
 referenceSampleRateHz = reshape(double(referenceCapture.sample_rate_hz), [], 1);
 referenceCursor = 1;
 
+% Prefer the explicit D4 strobe, but allow the D5 trainer edge as an anchor
+% when the strobe was not captured for that commit.
 trainerGlobal = trainerPpmCapture(:, {'time_s', 'sample_index', 'sample_rate_hz'});
 trainerGlobal = trainerGlobal(isfinite(trainerGlobal.time_s), :);
 trainerGlobal = sortrows(trainerGlobal, "time_s");
@@ -5897,6 +5949,9 @@ directEvents = table( ...
         'anchor_source'});
 end
 
+%% =============================================================================
+% 8) Export, Workbook, and Utility Helpers
+% =============================================================================
 function logs = buildTransmitterLogs(storage, config)
 sampleIndices = 1:storage.sampleCount;
 surfaceNames = config.surfaceNames;

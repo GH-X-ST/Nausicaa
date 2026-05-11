@@ -2,11 +2,25 @@
 #include <stdlib.h>
 #include <string.h>
 
+// =============================================================================
+// SECTION MAP
+// =============================================================================
+// 1) Constants, Pin Map, and Serial Packet Layout
+// 2) Setup and Serial Service Loop
+// 3) Command Parsing and Servo Application
+// 4) Telemetry Replies and Counters
+// 5) Servo Neutral Helper
+// =============================================================================
+
+// =============================================================================
+// 1) Constants, Pin Map, and Serial Packet Layout
+// =============================================================================
 namespace Config {
 constexpr char kFirmwareVersion[] = "Nano33IoT_Echo_Logger_Wire_V1";
 constexpr uint32_t kSerialBaud = 115200;
 
 constexpr size_t kSurfaceCount = 4;
+// Surface order is shared with MATLAB dispatch logs and workbook sheets.
 constexpr char kSurfaceNames[kSurfaceCount][16] = {
   "Aileron_L",
   "Aileron_R",
@@ -17,6 +31,8 @@ constexpr uint8_t kServoPins[kSurfaceCount] = {9, 10, 11, 12};
 constexpr uint16_t kMinPulseUs[kSurfaceCount] = {1000, 1000, 1000, 1000};
 constexpr uint16_t kMaxPulseUs[kSurfaceCount] = {2000, 2000, 2000, 2000};
 constexpr float kNeutralPositions[kSurfaceCount] = {0.5f, 0.5f, 0.5f, 0.5f};
+// Command lines are intentionally bounded so malformed serial input cannot
+// delay the timing loop with unbounded buffering.
 constexpr size_t kCommandBufferLength = 96;
 }
 
@@ -30,6 +46,9 @@ uint32_t gCommandEventCount = 0;
 uint32_t gSyncEventCount = 0;
 uint32_t gErrorCount = 0;
 
+// =============================================================================
+// 2) Setup and Serial Service Loop
+// =============================================================================
 void setup() {
   Serial.begin(Config::kSerialBaud);
   while (!Serial && millis() < 3000) {
@@ -74,9 +93,14 @@ void loop() {
   }
 }
 
+// =============================================================================
+// 3) Command Parsing and Servo Application
+// =============================================================================
 void finalizeCommandLine() {
   if (gCommandOverflow) {
     resetCommandBuffer();
+    // Overflowed lines are rejected wholesale because partial SET commands
+    // would corrupt the surface/sequence telemetry key.
     sendErrorEvent(F("COMMAND_TOO_LONG"));
     return;
   }
@@ -86,6 +110,8 @@ void finalizeCommandLine() {
   }
 
   gCommandBuffer[gCommandLength] = '\0';
+  // micros() at line completion is the board RX timestamp used for the
+  // serial clock-map and command latency audit.
   handleCommand(gCommandBuffer, micros());
   resetCommandBuffer();
 }
@@ -149,6 +175,8 @@ void handleSyncCommand(char* context, uint32_t boardRxUs) {
   }
 
   uint32_t boardTxUs = micros();
+  // SYNC_EVENT carries host TX, board RX, and board TX timestamps so MATLAB
+  // can fit board micros() into the host clock domain.
   Serial.print(F("SYNC_EVENT,"));
   Serial.print(syncId);
   Serial.print(',');
@@ -177,6 +205,8 @@ void handleSetCommand(char* context, uint32_t boardRxUs) {
   uint16_t pulseUs = applySurfacePosition(static_cast<size_t>(surfaceIndex), positionNorm);
   uint32_t applyUs = micros();
 
+  // COMMAND_EVENT is the provenance row for one servo update: surface,
+  // command sequence, board RX/apply micros, normalized position, and pulse.
   Serial.print(F("COMMAND_EVENT,"));
   Serial.print(Config::kSurfaceNames[surfaceIndex]);
   Serial.print(',');
@@ -192,6 +222,9 @@ void handleSetCommand(char* context, uint32_t boardRxUs) {
   ++gCommandEventCount;
 }
 
+// =============================================================================
+// 4) Telemetry Replies and Counters
+// =============================================================================
 void sendHelloEvent() {
   Serial.print(F("HELLO_EVENT,"));
   Serial.print(Config::kFirmwareVersion);
@@ -227,6 +260,9 @@ void clearCounters() {
   gErrorCount = 0;
 }
 
+// =============================================================================
+// 5) Servo Neutral Helper
+// =============================================================================
 void applyNeutralToAllSurfaces() {
   for (size_t surfaceIndex = 0; surfaceIndex < Config::kSurfaceCount; ++surfaceIndex) {
     applySurfacePosition(surfaceIndex, Config::kNeutralPositions[surfaceIndex]);

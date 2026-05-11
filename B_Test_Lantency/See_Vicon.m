@@ -1,5 +1,19 @@
 function runData = See_Vicon(config)
-%SEE_VICON Record a baseline Vicon run and export the captured states.
+% SEE_VICON Record a baseline Vicon run and export the captured states.
+%
+%% =============================================================================
+% SECTION MAP
+% =============================================================================
+% 1) Public Entry Point
+% 2) Configuration and Vicon Connection
+% 3) Recording Loop and Sample Storage
+% 4) Kinematics Reconstruction and Export
+% 5) Utility Helpers
+% =============================================================================
+%
+%% =============================================================================
+% 1) Public Entry Point
+% =============================================================================
 arguments
     config (1,1) struct = struct()
 end
@@ -62,6 +76,9 @@ clear cleanupHandle
 cleanupResources(client, control);
 end
 
+%% =============================================================================
+% 2) Configuration and Vicon Connection
+% =============================================================================
 function config = normalizeConfig(config)
 rootFolder = fileparts(mfilename("fullpath"));
 
@@ -69,6 +86,8 @@ config.hostName = getTextScalarField(config, "hostName", "localhost:801");
 config.subjectNames = getStringArrayField(config, "subjectNames", strings(0, 1));
 config.segmentNames = getFieldOrDefault(config, "segmentNames", struct());
 config.streamMode = getFieldOrDefault(config, "streamMode", "ServerPush");
+% Exported positions stay in the configured Vicon lab frame; ZUp is the
+% project convention for room bounds and downstream plotting.
 config.axisMapping = getTextScalarField(config, "axisMapping", "ZUp");
 config.roomBoundsMeters = getRequiredNumericMatrixField(config, "roomBoundsMeters", [3, 2]);
 config.outputFolder = getTextScalarField(config, "outputFolder", fullfile(rootFolder, "B_See_Vicon"));
@@ -186,6 +205,8 @@ if ~isConnected
 end
 
 client.EnableSegmentData();
+% Buffer size 1 prefers the latest frame over backlog, which is safer for a
+% live baseline recorder where stale frames would distort timing.
 client.SetBufferSize(uint32(1));
 streamMode = resolveStreamMode(config.streamMode);
 client.SetStreamMode(streamMode);
@@ -407,6 +428,9 @@ if isgraphics(controlFigure)
 end
 end
 
+%% =============================================================================
+% 3) Recording Loop and Sample Storage
+% =============================================================================
 function [storage, runInfo] = executeRecordingLoop(client, config, subjectInfo, control)
 storage = initializeStorage(numel(subjectInfo), config.maxFrames);
 runInfo = struct( ...
@@ -467,6 +491,8 @@ while isgraphics(control.figure)
     end
 
     if storage.sampleCount >= config.maxFrames
+        % Preallocation is finite to avoid uncontrolled memory growth during
+        % unattended recordings; reaching it marks the run validity limit.
         runInfo.status = "max_frames_reached";
         runInfo.reason = "The preallocated sample budget was exhausted before Stop was pressed.";
         break;
@@ -476,6 +502,8 @@ while isgraphics(control.figure)
     sampleIndex = storage.sampleCount;
     storage.timeSeconds(sampleIndex) = toc(startTic);
     storage.frameNumbers(sampleIndex) = double(client.GetFrameNumber().FrameNumber);
+    % Vicon reports its own pipeline latency; keeping it with the sample
+    % lets plots distinguish lab-frame motion from delayed delivery.
     storage.latencySeconds(sampleIndex) = double(client.GetLatencyTotal().Total);
     storage = storeSubjectSamples(storage, client, subjectInfo, sampleIndex);
 
@@ -531,6 +559,8 @@ for subjectIndex = 1:numel(subjectInfo)
         continue;
     end
 
+    % Vicon translations are millimetres; exports use metres in the chosen
+    % lab frame so workbook plots and room bounds share units.
     positionMeters = reshape(double(translationOutput.Translation), 1, 3) ./ 1000;
     quaternionXYZW = reshape(double(quaternionOutput.Rotation), 1, 4);
     eulerRadians = reshape(double(eulerOutput.Rotation), 1, 3);
@@ -657,6 +687,9 @@ for subjectIndex = 1:numel(subjectInfo)
 end
 end
 
+%% =============================================================================
+% 4) Kinematics Reconstruction and Export
+% =============================================================================
 function [bodyVelocityMps, bodyRatesRadps] = reconstructRates(timeSeconds, positionMeters, quaternionXYZW, isOccluded)
 sampleCount = numel(timeSeconds);
 bodyVelocityMps = nan(sampleCount, 3);
@@ -667,6 +700,8 @@ if ~any(validMask)
     return;
 end
 
+% Reconstruct rates only within contiguous unoccluded blocks; gaps are left
+% NaN so occlusions are not bridged by artificial derivatives.
 blockStarts = find(diff([false; validMask]) == 1);
 blockStops = find(diff([validMask; false]) == -1);
 
@@ -676,6 +711,8 @@ for blockIndex = 1:numel(blockStarts)
     blockPositions = positionMeters(sampleIndices, :);
     blockQuaternions = quaternionXYZW(sampleIndices, :);
 
+    % Centered derivatives reduce frame-to-frame jitter while preserving the
+    % original Vicon sample times for nonuniform frame spacing.
     blockGlobalVelocity = centeredDerivative(blockTimes, blockPositions);
     blockRotationMatrices = cell(numel(sampleIndices), 1);
     for sampleOffset = 1:numel(sampleIndices)
@@ -835,6 +872,9 @@ end
 sheetName = candidate;
 end
 
+%% =============================================================================
+% 5) Utility Helpers
+% =============================================================================
 function cleanupResources(client, control)
 if ~isempty(client)
     try

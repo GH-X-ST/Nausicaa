@@ -9,15 +9,30 @@ import numpy as np
 import pandas as pd
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Constants and Dataclasses
+# 2) Capture Loading and State Tables
+# 3) Surface Calibration and Transition Matching
+# 4) Alignment and Residual Correction
+# 5) Summary, Export, and CLI
+# =============================================================================
+
+# =============================================================================
+# 1) Constants and Dataclasses
+# =============================================================================
 DEFAULT_ROOT = Path("D_Transmitter_Test")
 DEFAULT_OUTPUT_PREFIX = "post_transition_e2e"
 DEFAULT_SURFACE_ORDER = ["Aileron_L", "Aileron_R", "Rudder", "Elevator"]
 DEFAULT_STATE_LEVELS = 3
-DEFAULT_SEED: int | None = 3 # DEFAULT_SEED: int | None = None
+DEFAULT_SEED: int | None = 3
 
 
 @dataclass(frozen=True)
 class MatchingConfig:
+    # Alignment search bounds cover the measured host/board/capture offset while
+    # keeping the histogram scoring away from unrelated repeated PPM frames.
     offset_search_min_s: float = 0.15
     offset_search_max_s: float = 0.35
     offset_bin_width_s: float = 5e-4
@@ -61,6 +76,9 @@ def predict_alignment_offset_s(
     )
 
 
+# =============================================================================
+# 2) Capture Loading and State Tables
+# =============================================================================
 def latest_logger_folder(root: Path) -> Path:
     candidates = [path for path in root.rglob("*") if path.is_dir() and path.name.endswith("TransmitterLogger")]
     if not candidates:
@@ -91,6 +109,8 @@ def kmeans_1d(values: np.ndarray, k: int) -> np.ndarray:
     finite_values = np.asarray(values, dtype=float)
     finite_values = finite_values[np.isfinite(finite_values)]
     if finite_values.size == 0:
+        # Empty captures still need deterministic placeholder centres so later
+        # diagnostics can report missing matches instead of failing silently.
         return np.linspace(0.0, 1.0, max(1, k))
 
     unique_values = np.unique(finite_values)
@@ -128,6 +148,8 @@ def compute_state_level_count(host_surface: pd.DataFrame) -> int:
 
 
 def build_host_state_table(host_dispatch: pd.DataFrame, surface_name: str) -> tuple[pd.DataFrame, Dict[float, int]]:
+    # Host dispatch rows define the commanded state sequence; capture matching
+    # is anchored to these sample_sequence values rather than wall-clock order.
     surface_rows = host_dispatch.loc[host_dispatch["surface_name"] == surface_name, [
         "sample_sequence",
         "command_sequence",
@@ -175,6 +197,8 @@ def build_commit_transition_table(
     if board_commit_log.empty or host_surface_states.empty:
         return pd.DataFrame()
 
+    # Board commit times are already mapped into host seconds by MATLAB; this
+    # table only detects state boundaries and keeps frame index for drift checks.
     commit_rows = board_commit_log.loc[:, ["sample_sequence", "commit_time_s", "receive_to_commit_us", "frame_index", ppm_column_name]].copy()
     commit_rows = commit_rows.rename(columns={ppm_column_name: "expected_pulse_us"})
     commit_rows = commit_rows.merge(
@@ -289,6 +313,9 @@ def build_stable_transition_table(
     return pd.DataFrame(rows)
 
 
+# =============================================================================
+# 3) Surface Calibration and Transition Matching
+# =============================================================================
 def estimate_trainer_surface_calibration(
     board_commit_log: pd.DataFrame,
     trainer_surface_rows: pd.DataFrame,
@@ -564,6 +591,9 @@ def match_output_transition_from_state_table(
     return None
 
 
+# =============================================================================
+# 4) Alignment and Residual Correction
+# =============================================================================
 def compute_candidate_alignment_differences(
     commit_transition_table: pd.DataFrame,
     trainer_transition_table: pd.DataFrame,
@@ -1040,6 +1070,9 @@ def apply_receiver_residual_drift_correction(
     return corrected_events, diagnostics
 
 
+# =============================================================================
+# 5) Summary, Export, and CLI
+# =============================================================================
 def match_surface_transitions(
     surface_name: str,
     host_transition_table: pd.DataFrame,

@@ -1,5 +1,19 @@
 ﻿function [runData, e2e] = Arduino_Test_E2E(config)
 % ARDUINO_TEST_E2E Direct-servo E2E latency with logic-analyser output capture.
+%
+%% =============================================================================
+% SECTION MAP
+% =============================================================================
+% 1) Public Entry Point
+% 2) Profile Defaults and Sigrok Capture Setup
+% 3) Log Import, Analyser Decode, and E2E Matching
+% 4) Summaries and Export
+% 5) Local Utilities
+% =============================================================================
+%
+%% =============================================================================
+% 1) Public Entry Point
+% =============================================================================
 arguments
     config (1,1) struct = struct()
 end
@@ -15,6 +29,8 @@ recordLagSeconds = max(0, double(getFieldLocal(config, "recordLagSeconds", 10.0)
 commandActiveSeconds = max(0, double(getFieldLocal(config, "commandActiveSeconds", 59.0)));
 clockMapMode = lower(string(getFieldLocal(config, "clockMapMode", "command")));
 matchingMode = lower(string(getFieldLocal(config, "matchingMode", "apply_anchored")));
+% Windows are deliberately wider than analyser sample quantisation because
+% PWM frame phase and host scheduling jitter dominate the event association.
 maxOutputAssociationSeconds = double(getFieldLocal(config, "maxOutputAssociationSeconds", 0.05));
 referenceAssociationWindowSeconds = double(getFieldLocal(config, "referenceAssociationWindowSeconds", 0.02));
 transitionPulseThresholdUs = double(getFieldLocal(config, "transitionPulseThresholdUs", 4.0));
@@ -28,6 +44,8 @@ if runHardware
     arduinoConfig = applyComparableProfileDefaultsLocal(arduinoConfig, seed, recordLeadSeconds, recordLagSeconds, commandActiveSeconds);
     loggerFolder = resolveLoggerFolderFromArduinoConfigLocal(arduinoConfig);
     logicAnalyzer = buildLogicAnalyzerConfigLocal(logicAnalyzerConfig, loggerFolder, string(arduinoConfig.runLabel));
+    % One extra second keeps sigrok running across MATLAB start/stop latency
+    % and avoids clipping the final neutral return.
     captureDurationSeconds = recordLeadSeconds + commandActiveSeconds + recordLagSeconds + 1.0;
     sigrokSession = struct("process", [], "isActive", false);
     cleanupHandle = onCleanup(@() cleanupSigrokSessionLocal(sigrokSession)); %#ok<NASGU>
@@ -110,6 +128,9 @@ fprintf("  Matched output transitions: %d\n", sum(e2e.eventLatency.matched_outpu
 fprintf("  Valid output events: %d\n", sum(e2e.eventLatency.is_valid_e2e));
 end
 
+%% =============================================================================
+% 2) Profile Defaults and Sigrok Capture Setup
+% =============================================================================
 function arduinoConfig = applyComparableProfileDefaultsLocal(arduinoConfig, seed, recordLeadSeconds, recordLagSeconds, commandActiveSeconds)
 rootFolder = fileparts(mfilename("fullpath"));
 if ~isfield(arduinoConfig, "outputFolder")
@@ -121,6 +142,8 @@ end
 arduinoConfig.arduinoTransport.mode = "nano_logger_udp";
 arduinoConfig.arduinoTransport.operatingMode = "controller";
 arduinoConfig.arduinoTransport.commandEncoding = "binary_vector";
+% Binary vector commands update all four surfaces in one UDP datagram, so
+% each output transition shares a single host dispatch timestamp.
 arduinoConfig.commandMode = "all";
 arduinoConfig.commandProfile.type = "latency_vector_step_train";
 arduinoConfig.commandProfile.sampleTimeSeconds = 0.02;
@@ -170,6 +193,8 @@ logicAnalyzer.deviceId = string(getFieldLocal(config, "deviceId", ""));
 logicAnalyzer.sampleRateHz = double(getFieldLocal(config, "sampleRateHz", 4000000));
 logicAnalyzer.captureStartLeadSeconds = double(getFieldLocal(config, "captureStartLeadSeconds", 0.25));
 logicAnalyzer.captureStopLagSeconds = double(getFieldLocal(config, "captureStopLagSeconds", 0.50));
+% Default channel order is D0-D3 servo outputs plus optional D4 reference,
+% matching the post-processor's per-surface output ordering.
 logicAnalyzer.channels = reshape(double(getFieldLocal(config, "channels", [0 1 2 3 4])), 1, []);
 logicAnalyzer.channelNames = reshape(string(getFieldLocal(config, "channelNames", ["D0" "D1" "D2" "D3" "D4"])), 1, []);
 logicAnalyzer.channelRoleMap = struct("output", reshape(double(getFieldLocal(getFieldLocal(config, "channelRoleMap", struct()), "output", [0 1 2 3])), 1, []), "reference", referenceChannel);
@@ -194,6 +219,8 @@ deleteFileIfPresentLocal(logicAnalyzer.storeStderrPath);
 sigrokCliPath = validateSigrokExecutableLocal(logicAnalyzer.sigrokCliPath);
 driverSpec = buildSigrokDriverSpecLocal(logicAnalyzer);
 channelAssignments = join(logicAnalyzer.channelNames + "=" + string(round(logicAnalyzer.channels)), ",");
+% Capture time is specified in milliseconds because sigrok-cli accepts a
+% single wall-clock duration, not separate lead/active/lag windows.
 captureDurationMs = max(1, ceil(1000 .* (captureDurationSeconds + logicAnalyzer.captureStartLeadSeconds + logicAnalyzer.captureStopLagSeconds)));
 commandText = strjoin([ ...
     quoteWindowsArgumentLocal(sigrokCliPath), ...
@@ -291,6 +318,9 @@ try
 catch
 end
 end
+%% =============================================================================
+% 3) Log Import, Analyser Decode, and E2E Matching
+% =============================================================================
 function logs = loadArduinoLogsLocal(loggerFolder, sampleTimeSeconds)
 logs = struct();
 logs.hostDispatchLog = readtable(fullfile(loggerFolder, "host_dispatch_log.csv"));
@@ -312,6 +342,8 @@ end
 end
 
 function inputSignal = buildInputSignalLocal(hostDispatchLog, surfaceNames, sampleTimeSeconds)
+% Host dispatch is the clock-domain anchor; per-surface rows from one vector
+% command are collapsed by command_sequence before matching analyser edges.
 dispatch = sortrows(hostDispatchLog, {'command_sequence', 'surface_name'});
 seq = unique(double(dispatch.command_sequence), 'stable');
 rowCount = numel(seq);
@@ -383,6 +415,8 @@ if isfile(logicAnalyzer.rawCapturePath)
     try
         logicState = readSigrokRawCaptureAsLogicStateLocal(logicAnalyzer);
     catch rawCaptureError
+        % Some .sr archives are only readable through sigrok-cli on the
+        % capture machine, so CSV export remains the audit fallback.
         fprintf("Raw .sr parse fallback to sigrok CSV export: %s\n", rawCaptureError.message);
         logicState = struct();
     end
@@ -955,6 +989,9 @@ if startIndex > 1
     transitionTable = transitionTable(startIndex:end, :);
 end
 end
+%% =============================================================================
+% 4) Summaries and Export
+% =============================================================================
 function [surfaceSummary, overallSummary, integritySummary] = buildSummariesLocal(events, surfaceNames)
 metricMap = { ...
     'HostSchedulingDelay', 'host_scheduling_delay_s'; ...
@@ -1272,6 +1309,9 @@ function referenceCapture = buildEmptyReferenceCaptureTableLocal()
 referenceCapture = table(zeros(0,1), zeros(0,1), zeros(0,1), 'VariableNames', {'time_s', 'sample_index', 'sample_rate_hz'});
 end
 
+%% =============================================================================
+% 5) Local Utilities
+% =============================================================================
 function loggerFolder = resolveLatestArduinoLoggerFolderLocal(rootFolder)
 folderInfo = dir(fullfile(rootFolder, '*_ArduinoLogger')); if isempty(folderInfo), error('Arduino_Test_E2E:MissingLoggerFolder', 'No *_ArduinoLogger folder found in %s.', char(rootFolder)); end
 [~, idx] = max([folderInfo.datenum]); loggerFolder = string(fullfile(folderInfo(idx).folder, folderInfo(idx).name));

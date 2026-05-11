@@ -11,10 +11,25 @@ import numpy as np
 import pandas as pd
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Constants and Dataclasses
+# 2) Logger and Profile Loading
+# 3) Logic-Analyser Capture Decoding
+# 4) Alignment and E2E Matching
+# 5) Summary, Export, and CLI
+# =============================================================================
+
+# =============================================================================
+# 1) Constants and Dataclasses
+# =============================================================================
 DEFAULT_ROOT = Path("C_Arduino_Test")
 DEFAULT_OUTPUT_PREFIX = "e2e_output"
 DEFAULT_SEED: int | None = 5
 DEFAULT_SAMPLE_TIME_SECONDS = 0.02
+# Matching defaults are seconds/us values tied to the 20 ms command cadence and
+# 4 MHz analyser captures used in the direct-servo E2E runs.
 DEFAULT_CLOCK_MAP_MODE = "command"
 DEFAULT_MATCHING_MODE = "apply_anchored"
 DEFAULT_MAX_OUTPUT_ASSOCIATION_SECONDS = 0.05
@@ -27,6 +42,8 @@ DEFAULT_MAXIMUM_APPLY_TO_OUTPUT_SECONDS = 0.05
 DEFAULT_SIGROK_SAMPLE_RATE_HZ = 4_000_000.0
 DEFAULT_SIGROK_CHANNELS = [0, 1, 2, 3, 4]
 DEFAULT_SIGROK_CHANNEL_NAMES = ["D0", "D1", "D2", "D3", "D4"]
+# D0-D3 are servo outputs; the optional reference channel is selected per run
+# because not every capture included a separate marker probe.
 DEFAULT_OUTPUT_CHANNELS = [0, 1, 2, 3]
 DEFAULT_REFERENCE_CHANNEL: int | None = None
 DEFAULT_MINIMUM_PULSE_US = 800.0
@@ -59,6 +76,9 @@ class AlignmentMetadata:
     output_time_drift_baseline_s: float = 0.0
 
 
+# =============================================================================
+# 2) Logger and Profile Loading
+# =============================================================================
 def latest_logger_folder(root: Path) -> Path:
     candidates = [path for path in root.glob("*_ArduinoLogger") if path.is_dir()]
     if not candidates:
@@ -70,6 +90,8 @@ def logger_folder_from_seed(root: Path, seed: int) -> Path:
     controller = root / f"Seed_{int(seed)}_Controller_ArduinoLogger"
     if controller.is_dir():
         return controller
+    # Generic seed folders are retained for older captures before the controller
+    # suffix was introduced.
     generic = root / f"Seed_{int(seed)}_ArduinoLogger"
     if generic.is_dir():
         return generic
@@ -183,6 +205,9 @@ def load_profile_events(logger_folder: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+# =============================================================================
+# 3) Logic-Analyser Capture Decoding
+# =============================================================================
 def parse_sigrok_sample_rate(sample_rate_text: str, default_sample_rate_hz: float) -> float:
     token = re.match(r"^\s*([0-9]*\.?[0-9]+)\s*([kmg]?)\s*(?:hz)?\s*$", sample_rate_text, re.IGNORECASE)
     if not token:
@@ -194,6 +219,8 @@ def parse_sigrok_sample_rate(sample_rate_text: str, default_sample_rate_hz: floa
 
 
 def parse_sigrok_raw_metadata(metadata_text: str, default_sample_rate_hz: float) -> tuple[float, list[str], int]:
+    # Sigrok .sr metadata is the capture-time source of truth for sample rate;
+    # the configured value is only a fallback for older archives.
     sample_rate_hz = float(default_sample_rate_hz)
     unit_size_bytes = 1
     probe_map: dict[int, str] = {}
@@ -229,6 +256,7 @@ def read_sigrok_logic_transitions(raw_capture_path: Path, logic_config: LogicAna
         metadata_text = archive.read("metadata").decode("utf-8", errors="replace")
         sample_rate_hz, probe_names, unit_size_bytes = parse_sigrok_raw_metadata(metadata_text, logic_config.sample_rate_hz)
         if unit_size_bytes != 1:
+            # The bit unpacking below assumes one byte per sample for D0-D7.
             raise ValueError(f"Unsupported sigrok unitsize={unit_size_bytes} in {raw_capture_path}")
 
         logic_entries = []
@@ -440,6 +468,9 @@ def extract_reference_capture(logic_state: dict[str, object], logic_config: Logi
     })
 
 
+# =============================================================================
+# 4) Alignment and E2E Matching
+# =============================================================================
 def load_existing_alignment_metadata(event_path: Path) -> AlignmentMetadata:
     if not event_path.is_file():
         return AlignmentMetadata()
@@ -1076,6 +1107,9 @@ def compute_arduino_e2e(
     return events, output_capture.reset_index(drop=True), reference_capture.reset_index(drop=True), analyzer_alignment
 
 
+# =============================================================================
+# 5) Summary, Export, and CLI
+# =============================================================================
 def build_summaries(events: pd.DataFrame, surface_names: list[str]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     metric_map = [
         ("HostSchedulingDelay", "host_scheduling_delay_s"),

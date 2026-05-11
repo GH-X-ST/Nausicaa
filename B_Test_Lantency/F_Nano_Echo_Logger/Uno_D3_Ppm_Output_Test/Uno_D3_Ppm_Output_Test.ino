@@ -5,13 +5,29 @@
 
 #include <Arduino.h>
 
+// =============================================================================
+// SECTION MAP
+// =============================================================================
+// 1) Constants, Pin Map, and PPM Timing
+// 2) Pin Helpers and Timer Scheduling
+// 3) Timer ISR and State Loading
+// 4) Setup and Bench-Test Loop
+// =============================================================================
+
+// =============================================================================
+// 1) Constants, Pin Map, and PPM Timing
+// =============================================================================
 namespace {
 
 constexpr uint8_t kPpmPin = 3;
 constexpr uint8_t kMarkerPin = 2;
 
+// D3 carries the trainer PPM signal and D2 is a short analyser marker used
+// to verify command-state timing independently of the PPM decoder.
 constexpr bool kActiveHighPulse = true;
 constexpr uint8_t kChannelCount = 8;
+// Bench test uses a 20 ms PPM frame with 300 us marks to match the
+// transmitter latency scripts.
 constexpr uint16_t kFrameLengthUs = 20000;
 constexpr uint16_t kMarkWidthUs = 300;
 constexpr uint16_t kMinimumPulseUs = 1000;
@@ -38,6 +54,9 @@ uint16_t gStateSequenceUs[] = {
   kNeutralPulseUs
 };
 
+// =============================================================================
+// 2) Pin Helpers and Timer Scheduling
+// =============================================================================
 inline void writePpmHigh() {
   PORTD |= _BV(PD3);
 }
@@ -96,6 +115,7 @@ void scheduleTimerUs(uint16_t durationUs) {
 }
 
 uint16_t computeSyncGapUs() {
+  // The sync gap fills the remainder of the frame after all channel slots.
   uint32_t slotSumUs = 0U;
   for (uint8_t channelIndex = 0; channelIndex < kChannelCount; ++channelIndex) {
     slotSumUs += gActivePpmUs[channelIndex];
@@ -119,9 +139,14 @@ void configureTimer1() {
   interrupts();
 }
 
+// =============================================================================
+// 3) Timer ISR and State Loading
+// =============================================================================
 void loadTestState(uint16_t commandedPulseUs) {
   uint16_t pulseUs = clampPulseUs(commandedPulseUs);
 
+  // Only one channel changes during this bench test, making analyser edges
+  // attributable to the selected trainer channel.
   noInterrupts();
   for (uint8_t channelIndex = 0; channelIndex < kChannelCount; ++channelIndex) {
     gActivePpmUs[channelIndex] = kNeutralPulseUs;
@@ -166,10 +191,15 @@ ISR(TIMER1_COMPA_vect) {
   gPulseActive = false;
 }
 
+// =============================================================================
+// 4) Setup and Bench-Test Loop
+// =============================================================================
 void setup() {
   pinMode(kPpmPin, OUTPUT);
   pinMode(kMarkerPin, OUTPUT);
 
+  // Establish inactive levels before Timer1 starts so boot edges are not
+  // mistaken for the first measured PPM transition.
   setPpmIdleLevel();
   writeMarkerLow();
 

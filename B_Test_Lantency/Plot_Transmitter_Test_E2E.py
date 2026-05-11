@@ -9,13 +9,31 @@ import pandas as pd
 
 from Plot_Transmitter_Test import build_workbook_bundle, plot_transmitter_summary_figure
 
+
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Constants and Latency Column Maps
+# 2) Logger and CSV Loading Helpers
+# 3) Signal, Summary, and Workbook Builders
+# 4) Post-Processor Event Preparation
+# 5) CLI Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Constants and Latency Column Maps
+# =============================================================================
 DEFAULT_SEED: int | None = 1
 DEFAULT_PLOT_MODE = "post"
+# Mode selects the provenance of event latencies: Python transition matching or
+# the older MATLAB shared-clock path.
 DEFAULT_EVENT_PREFIX_BY_MODE = {
     "post": "post_transition_e2e",
     "matlab": "e2e_shared_clock",
 }
 
+# These columns are seconds-valued post-processed latency stages; names differ
+# between workbook summary prefixes and event-level CSV columns.
 SUMMARY_PREFIX_TO_COLUMN = {
     "HostSchedulingDelay": "host_scheduling_delay_s",
     "ComputerToArduinoRxLatency": "dispatch_to_rx_latency_s",
@@ -28,6 +46,9 @@ SUMMARY_PREFIX_TO_COLUMN = {
 }
 
 
+# =============================================================================
+# 2) Logger and CSV Loading Helpers
+# =============================================================================
 def _latest_logger_folder(root: Path) -> Path:
     candidates = [path for path in root.rglob("*") if path.is_dir() and path.name.endswith("TransmitterLogger")]
     if not candidates:
@@ -78,10 +99,15 @@ def _latency_stats(series: pd.Series) -> Dict[str, float]:
     }
 
 
+# =============================================================================
+# 3) Signal, Summary, and Workbook Builders
+# =============================================================================
 def _build_input_signal(events: pd.DataFrame, surfaces: List[str]) -> pd.DataFrame:
     rows = []
     grouped = events.groupby("sample_index", sort=True)
     for sample_index, group in grouped:
+        # A single host command can expand to one row per surface; medians keep
+        # the reconstructed input signal robust to duplicate telemetry rows.
         row = {
             "sample_index": sample_index,
             "time_s": float(np.nanmedian(group["command_dispatch_s"])),
@@ -342,6 +368,9 @@ def _trim_frame_by_time(
     return frame.loc[mask].copy()
 
 
+# =============================================================================
+# 4) Post-Processor Event Preparation
+# =============================================================================
 def _shift_time_columns(
     frame: pd.DataFrame,
     origin_s: float | None,
@@ -622,6 +651,9 @@ def _write_e2e_workbook(
     return workbook_path
 
 
+# =============================================================================
+# 5) CLI Entry Point
+# =============================================================================
 def _parse_args():
     parser = argparse.ArgumentParser(
         description=(

@@ -41,6 +41,21 @@ from Plot_Arduino_Test import (
 )
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Transmitter Plot Constants
+# 2) Workbook Loading and Metadata Helpers
+# 3) Latency and Integrity Summary Builders
+# 4) Figure Panel Builders
+# 5) CLI Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Transmitter Plot Constants
+# =============================================================================
+# The metric order is the physical transmitter chain from host scheduling to
+# receiver PWM; keeping this order makes plot panels audit the latency budget.
 LATENCY_METRICS = [
     {
         "sheet": "HostSchedulingDelay",
@@ -83,6 +98,9 @@ WORKBOOK_OPEN_RETRY_COUNT = 5
 WORKBOOK_OPEN_RETRY_DELAY_SECONDS = 0.5
 
 
+# =============================================================================
+# 2) Workbook Loading and Metadata Helpers
+# =============================================================================
 def numeric_series(frame: pd.DataFrame, column_name: str) -> np.ndarray:
     if column_name not in frame.columns:
         return np.array([], dtype=float)
@@ -93,6 +111,8 @@ def open_excel_file(excel_path: Path) -> pd.ExcelFile:
     last_error = None
     for attempt_index in range(WORKBOOK_OPEN_RETRY_COUNT):
         try:
+            # Excel may leave the workbook briefly locked or partially flushed;
+            # retrying avoids plotting a truncated ZIP container.
             if not zipfile.is_zipfile(excel_path):
                 raise zipfile.BadZipFile(
                     f"Workbook is not yet a valid ZIP container: {excel_path}"
@@ -112,6 +132,8 @@ def build_transmitter_workbook_metadata(
     critical_settings_df: pd.DataFrame,
     active_surfaces: list[str],
 ) -> dict:
+    # CriticalSettings carries run provenance from MATLAB/post-processing, so
+    # figure titles do not need to infer board type or capture source from names.
     settings_lookup = build_settings_lookup(critical_settings_df)
     run_label = get_setting(settings_lookup, "Run", "RunLabel", excel_path.stem) or excel_path.stem
     command_mode = get_setting(settings_lookup, "Command", "Mode")
@@ -142,6 +164,9 @@ def build_transmitter_workbook_metadata(
     }
 
 
+# =============================================================================
+# 3) Latency and Integrity Summary Builders
+# =============================================================================
 def pulse_us_to_equivalent_deg(pulse_us: np.ndarray) -> np.ndarray:
     pulse_us = np.asarray(pulse_us, dtype=float)
     return 180.0 * (pulse_us - 1000.0) / 1000.0 - 90.0
@@ -325,6 +350,9 @@ def build_workbook_bundle(excel_path: Path) -> dict:
     }
 
 
+# =============================================================================
+# 4) Figure Panel Builders
+# =============================================================================
 def plot_time_series_panel(
     ax: plt.Axes,
     host_time: np.ndarray,
@@ -585,6 +613,9 @@ def plot_transmitter_summary_figure(excel_path: Path, out_path: Path, workbook_b
     plt.close(fig)
 
 
+# =============================================================================
+# 5) CLI Entry Point
+# =============================================================================
 def main():
     workbook_dir = Path("D_Transmitter_Test")
     excel_path = "Seed_5_Transmitter.xlsx"

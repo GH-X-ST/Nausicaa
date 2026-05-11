@@ -3,6 +3,19 @@ function [runData, e2e] = Transmitter_Test_E2E(config)
 %   This wrapper keeps the MATLAB entry point, but the E2E method is now the
 %   validated transition-based post-processing implemented in
 %   Transmitter_Test_E2E_Post.py.
+%
+%% =============================================================================
+% SECTION MAP
+% =============================================================================
+% 1) Public Entry Point
+% 2) Post-Output Loading and Python Post-Processing
+% 3) Comparable Transmitter Profile Defaults
+% 4) Path, Python, and Config Utilities
+% =============================================================================
+%
+%% =============================================================================
+% 1) Public Entry Point
+% =============================================================================
 arguments
     config (1,1) struct = struct()
 end
@@ -15,6 +28,8 @@ loggerFolder = string(getFieldLocal(config, "loggerFolder", ""));
 outputPrefix = string(getFieldLocal(config, "outputPrefix", "post_transition_e2e"));
 seed = double(getFieldLocal(config, "seed", 5));
 enforceArduinoStepTrainDefaults = logical(getFieldLocal(config, "enforceArduinoStepTrainDefaults", true));
+% Neutral lead/lag intervals give the post-processor stable pre/post PPM
+% states, so startup and shutdown transients are not treated as events.
 recordLeadSeconds = max(0, double(getFieldLocal(config, "recordLeadSeconds", 10.0)));
 recordLagSeconds = max(0, double(getFieldLocal(config, "recordLagSeconds", 10.0)));
 commandActiveSeconds = max(0, double(getFieldLocal(config, "commandActiveSeconds", 59.0)));
@@ -45,6 +60,8 @@ ensureFolderExistsLocal(loggerFolder);
 
 outputPaths = buildOutputPathsLocal(loggerFolder, outputPrefix);
 if runPostProcessor && (forceReprocess || ~isfile(outputPaths.eventPath))
+    % Transition matching lives in Python because the trainer/receiver
+    % capture parsing and offset search are shared with offline re-runs.
     runPythonPostProcessorLocal(loggerFolder, outputPrefix, pythonExecutable, pythonScriptPath, rootFolder, postConfig);
 end
 
@@ -77,6 +94,9 @@ if ismember("scheduled_to_receiver_latency_s", string(e2e.eventLatency.Propertie
 end
 end
 
+%% =============================================================================
+% 2) Post-Output Loading and Python Post-Processing
+% =============================================================================
 function e2e = loadPostOutputsLocal(loggerFolder, outputPrefix)
 paths = buildOutputPathsLocal(loggerFolder, outputPrefix);
 
@@ -93,6 +113,8 @@ e2e.stateCenters = readtable(paths.stateCentersPath);
 e2e.anchorTable = table();
 e2e.qualitySummary = table();
 e2e.profileEvents = readProfileEventsLocal(loggerFolder);
+% Raw logs are optional provenance: older hardware-only folders may not have
+% every capture, but retaining what exists makes later audit/replot possible.
 e2e.hostDispatchLog = readOptionalTableLocal(fullfile(loggerFolder, "host_dispatch_log.csv"));
 e2e.boardRxLog = readOptionalTableLocal(fullfile(loggerFolder, "board_rx_log.csv"));
 e2e.boardCommitLog = readOptionalTableLocal(fullfile(loggerFolder, "board_commit_log.csv"));
@@ -124,6 +146,8 @@ commandParts = [ ...
     "--output-prefix", quoteWindowsArgumentLocal(outputPrefix), ...
     "--root", quoteWindowsArgumentLocal(rootFolder)];
 
+% Matching windows are passed in milliseconds to match the Python CLI and
+% make sensitivity sweeps possible without changing the post-processor.
 commandParts = appendOptionalNumericArgLocal(commandParts, postConfig, "offsetSearchMinMs", "--offset-search-min-ms");
 commandParts = appendOptionalNumericArgLocal(commandParts, postConfig, "offsetSearchMaxMs", "--offset-search-max-ms");
 commandParts = appendOptionalNumericArgLocal(commandParts, postConfig, "offsetBinMs", "--offset-bin-ms");
@@ -184,6 +208,9 @@ else
 end
 end
 
+%% =============================================================================
+% 3) Comparable Transmitter Profile Defaults
+% =============================================================================
 function transmitterConfig = applyComparableProfileDefaultsLocal( ...
     transmitterConfig, ...
     seed, ...
@@ -196,6 +223,8 @@ if ~isfield(transmitterConfig, "commandProfile") || isempty(transmitterConfig.co
 end
 
 if enforceArduinoStepTrainDefaults
+    % This profile mirrors the Arduino E2E seed runs: 20 ms command cadence
+    % and neutral padding around a transition-rich active window.
     transmitterConfig.commandProfile.type = "latency_step_train";
     transmitterConfig.commandProfile.sampleTimeSeconds = 0.02;
     transmitterConfig.commandProfile.preCommandNeutralSeconds = recordLeadSeconds;
@@ -233,6 +262,9 @@ if ~isfield(transmitterConfig.commandProfile, "randomSeed")
 end
 end
 
+%% =============================================================================
+% 4) Path, Python, and Config Utilities
+% =============================================================================
 function loggerFolder = resolveLatestLoggerFolderLocal(rootFolder)
 folderInfo = dir(fullfile(rootFolder, "*_TransmitterLogger"));
 if isempty(folderInfo)

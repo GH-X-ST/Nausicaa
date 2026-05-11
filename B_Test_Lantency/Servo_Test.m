@@ -1,7 +1,22 @@
 function runData = Servo_Test(config)
-%SERVO_TEST Execute a servo-command latency test with Arduino and Vicon.
+% SERVO_TEST Execute a servo-command latency test with Arduino and Vicon.
 %   Optionally imports an Arduino-side echo log during post-processing so
 %   latency can be analysed without extra work in the inner loop.
+%
+%% =============================================================================
+% SECTION MAP
+% =============================================================================
+% 1) Public Entry Point
+% 2) Configuration and Hardware Connections
+% 3) Neutral Reference and Latency Run
+% 4) Nano Logger and Echo Import
+% 5) Vicon Sampling, Logs, and Summaries
+% 6) Export, Math, and Utility Helpers
+% =============================================================================
+%
+%% =============================================================================
+% 1) Public Entry Point
+% =============================================================================
 arguments
     config (1,1) struct = struct()
 end
@@ -109,10 +124,15 @@ catch executionException
 end
 end
 
+%% =============================================================================
+% 2) Configuration and Hardware Connections
+% =============================================================================
 function config = normalizeConfig(config)
 rootFolder = fileparts(mfilename("fullpath"));
 defaultSurfaceNames = ["Aileron_L"; "Aileron_R"; "Rudder"; "Elevator"];
 defaultSurfacePins = ["D9"; "D10"; "D11"; "D12"];
+% Hinge axes are expressed in the neutral Vicon segment frame; signs are
+% applied separately so mechanical handedness can be audited per surface.
 defaultHingeAxes = [0, 1, 0; 0, 1, 0; 0, 0, 1; 0, 1, 0];
 
 config.arduinoIPAddress = getTextScalarField(config, "arduinoIPAddress", "192.168.0.33");
@@ -801,6 +821,9 @@ else
 end
 end
 
+%% =============================================================================
+% 3) Neutral Reference and Latency Run
+% =============================================================================
 function [neutralReference, neutralInfo] = captureNeutralReference(client, trackedSubjects, config)
 surfaceCount = numel(config.surfaceNames);
 neutralReference = repmat(struct( ...
@@ -825,6 +848,8 @@ neutralInfo = struct( ...
 quaternionSamples = cell(surfaceCount, 1);
 calibrationStart = tic;
 
+% Neutral reference is captured with servos at 0.5 normalized position; only
+% unoccluded quaternion samples are averaged to define zero deflection.
 while toc(calibrationStart) < config.neutralCalibrationSeconds
     frameReady = waitForFrame(client, config.frameWaitTimeoutSeconds);
     if ~frameReady
@@ -857,6 +882,8 @@ for surfaceIndex = 1:surfaceCount
     end
 
     if neutralReference(surfaceIndex).sampleCount == 0
+        % A missing neutral quaternion makes every later twist angle
+        % undefined, so the run is rejected instead of using a placeholder.
         neutralInfo.message = "Neutral reference failed because no valid Vicon samples were captured for " + config.surfaceNames(surfaceIndex) + ".";
         return;
     end
@@ -1032,6 +1059,7 @@ end
 end
 
 function storage = initializeStorage(sampleCount, surfaceCount)
+% Vicon latency is stored with each sample to expose delayed frames.
 storage = struct( ...
     "sampleCount", 0, ...
     "scheduledTimeSeconds", nan(sampleCount, 1), ...
@@ -1041,10 +1069,10 @@ storage = struct( ...
     "commandDispatchSeconds", nan(sampleCount, surfaceCount), ...
     "commandSequenceNumbers", nan(sampleCount, surfaceCount), ...
     "arduinoReadStartSeconds", nan(sampleCount, 1), ...
-    "arduinoReadStopSeconds", nan(sampleCount, 1), ...
-    "arduinoEchoSeconds", nan(sampleCount, surfaceCount), ...
-    "viconSampleTimeSeconds", nan(sampleCount, 1), ...
-    "viconFrameNumbers", nan(sampleCount, 1), ...
+        "arduinoReadStopSeconds", nan(sampleCount, 1), ...
+        "arduinoEchoSeconds", nan(sampleCount, surfaceCount), ...
+        "viconSampleTimeSeconds", nan(sampleCount, 1), ...
+        "viconFrameNumbers", nan(sampleCount, 1), ...
     "viconLatencySeconds", nan(sampleCount, 1), ...
     "desiredDeflectionsDegrees", nan(sampleCount, surfaceCount), ...
     "commandedServoPositions", nan(sampleCount, surfaceCount), ...
@@ -1162,6 +1190,9 @@ switch commandInterface.transportMode
 end
 end
 
+%% =============================================================================
+% 4) Nano Logger and Echo Import
+% =============================================================================
 function loggerSession = createEmptyNanoLoggerSession()
 loggerSession = struct( ...
     "isEnabled", false, ...
@@ -1951,11 +1982,16 @@ end
 variableName = "";
 end
 
+%% =============================================================================
+% 5) Vicon Sampling, Logs, and Summaries
+% =============================================================================
 function snapshot = readTrackedSurfaceSample(client, trackedSubjects, neutralReference, hingeAxesNeutralFrame, measurementSigns)
 surfaceCount = numel(trackedSubjects);
 snapshot = createEmptyViconSnapshot(surfaceCount);
 
 snapshot.frameNumber = double(client.GetFrameNumber().FrameNumber);
+% Vicon latency is recorded with each frame so delayed samples can be
+% separated from actuator latency in the exported workbook.
 snapshot.latencySeconds = double(client.GetLatencyTotal().Total);
 
 for surfaceIndex = 1:surfaceCount
@@ -1985,6 +2021,8 @@ for surfaceIndex = 1:surfaceCount
     snapshot.quaternionXYZW(surfaceIndex, :) = normalizeQuaternion(quaternionXYZW);
 
     if ~isempty(neutralReference)
+        % Deflection is measured as the relative rotation from neutral, then
+        % projected onto the configured hinge axis and sign convention.
         relativeQuaternion = multiplyQuaternions( ...
             conjugateQuaternion(neutralReference(surfaceIndex).quaternionXYZW), ...
             snapshot.quaternionXYZW(surfaceIndex, :));
@@ -2389,6 +2427,9 @@ surfaceSetup = table( ...
         'CommandOffsetDeg'});
 end
 
+%% =============================================================================
+% 6) Export, Math, and Utility Helpers
+% =============================================================================
 function artifacts = exportRunData(runData)
 matFilePath = fullfile(runData.config.outputFolder, runData.config.runLabel + ".mat");
 workbookPath = fullfile(runData.config.outputFolder, runData.config.runLabel + ".xlsx");
@@ -2815,6 +2856,8 @@ function twistAngleRadians = extractTwistAngle(relativeQuaternion, hingeAxis)
 hingeAxis = hingeAxis ./ norm(hingeAxis);
 relativeQuaternion = normalizeQuaternion(relativeQuaternion);
 
+% Projecting the quaternion vector onto the hinge axis discards swing, so
+% the reported angle is only the surface twist about the mechanical hinge.
 projectedVector = dot(relativeQuaternion(1:3), hingeAxis) .* hingeAxis;
 twistQuaternion = normalizeQuaternion([projectedVector, relativeQuaternion(4)]);
 
