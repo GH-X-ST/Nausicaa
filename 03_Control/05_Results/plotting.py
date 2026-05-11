@@ -405,12 +405,24 @@ def _normalise_actual_outputs(
     _remove_empty_dir(runner_root / "metrics")
     _remove_empty_dir(runner_root)
 
+    candidate_path = paths.digital_dir / "governor_candidates.csv"
+    rejection_path = paths.digital_dir / "governor_rejections.csv"
     friendly_row = dict(row)
     friendly_row["case_name"] = friendly_scenario_name(scenario_id)
     friendly_row["case_folder"] = paths.root_dir.name
     friendly_row["scenario_name"] = friendly_scenario_name(scenario_id)
-    friendly_row["actual_rollout_file"] = paths.actual_log.name
-    friendly_row["actual_metrics_file"] = paths.actual_metrics.name
+    # Stored metrics reference files within analysis_data, not temporary runner paths.
+    friendly_row["actual_rollout_file"] = "actual_rollout.csv"
+    friendly_row["actual_metrics_file"] = "actual_metrics.csv"
+    friendly_row["log_path"] = "actual_rollout.csv" if paths.actual_log.exists() else ""
+    friendly_row["log_path_relative"] = friendly_row["log_path"]
+    friendly_row["candidate_table_path"] = (
+        "governor_candidates.csv" if candidate_path.exists() else ""
+    )
+    if "governor_rejection_log_path" in friendly_row:
+        friendly_row["governor_rejection_log_path"] = (
+            "governor_rejections.csv" if rejection_path.exists() else ""
+        )
     _write_single_row(paths.actual_metrics, friendly_row)
     return friendly_row
 

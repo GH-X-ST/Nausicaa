@@ -259,9 +259,11 @@ def _selected_primitive(
 
 
 def _relative_output_path(path: Path, output_root: str | Path | None) -> str:
-    if output_root is None:
-        return str(path.resolve().relative_to(REPO_ROOT.resolve())).replace("\\", "/")
-    return str(path)
+    base = REPO_ROOT if output_root is None else Path(output_root)
+    try:
+        return str(path.resolve().relative_to(base.resolve())).replace("\\", "/")
+    except ValueError:
+        return path.name
 
 
 # =============================================================================

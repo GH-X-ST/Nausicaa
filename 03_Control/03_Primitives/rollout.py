@@ -79,6 +79,35 @@ def rk4_step(
     return x + (dt_s / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
 
 
+def _wrap_angle_rad(angle_rad: np.ndarray) -> np.ndarray:
+    return (angle_rad + np.pi) % (2.0 * np.pi) - np.pi
+
+
+def primitive_tracking_error_rms(
+    primitive: FlightPrimitive,
+    context: PrimitiveContext,
+    times_s: np.ndarray,
+    states: np.ndarray,
+) -> float:
+    time_arr = np.asarray(times_s, dtype=float)
+    state_arr = np.asarray(states, dtype=float)
+    if time_arr.size == 0 or state_arr.size == 0:
+        return float("nan")
+
+    phi_ref_fn = getattr(primitive, "phi_ref", None)
+    if callable(phi_ref_fn):
+        phi_ref = np.asarray([float(phi_ref_fn(float(t_s))) for t_s in time_arr], dtype=float)
+    else:
+        phi_ref = np.zeros_like(time_arr, dtype=float)
+
+    # Tracking is reduced to the attitude references used by the primitive layer.
+    phi_error = _wrap_angle_rad(state_arr[:, STATE_INDEX["phi"]] - phi_ref)
+    theta_error = _wrap_angle_rad(
+        state_arr[:, STATE_INDEX["theta"]] - float(context.theta_trim_rad)
+    )
+    return float(np.sqrt(np.mean(0.5 * (phi_error**2 + theta_error**2))))
+
+
 def violation_reason(
     x: np.ndarray,
     loads: dict[str, object],
@@ -224,6 +253,12 @@ def simulate_primitive(
     )
     sat_fraction = float(np.mean(saturated))
     sat_time_s = float(np.mean(np.any(saturated, axis=1)) * times[-1]) if times.size else 0.0
+    tracking_error_rms = primitive_tracking_error_rms(
+        primitive=primitive,
+        context=context,
+        times_s=times,
+        states=states,
+    )
     metrics = rollout_metrics(
         scenario_id=scenario_id,
         seed=seed,
@@ -243,6 +278,7 @@ def simulate_primitive(
         arena_config=arena_config,
         saturation_fraction=sat_fraction,
         saturation_time_s=sat_time_s,
+        tracking_error_rms=tracking_error_rms,
         duration_s=float(times[-1]) if times.size else 0.0,
         governor_rejection_reason=governor_rejection_reason,
         candidate_count=candidate_count,
