@@ -8,7 +8,7 @@ import numpy as np
 
 from arena import ArenaConfig, safety_margins
 from flight_dynamics import AircraftModel, evaluate_state, state_derivative
-from latency import CommandToSurfaceLayer
+from latency import CommandToSurfaceLayer, half_response_s, latency_range_label
 from linearisation import INPUT_NAMES, STATE_INDEX, STATE_NAMES
 from metrics import rollout_metrics
 from primitive import FlightPrimitive, PrimitiveContext
@@ -104,6 +104,11 @@ def simulate_primitive(
     repo_root: Path,
     rollout_config: RolloutConfig | None = None,
     arena_config: ArenaConfig | None = None,
+    wind_param_label: str = "",
+    selected_primitive_name: str | None = None,
+    governor_rejection_reason: str = "",
+    candidate_count: int = 0,
+    rejected_count: int = 0,
 ) -> RolloutResult:
     rollout_config = rollout_config or RolloutConfig()
     arena_config = arena_config or ArenaConfig()
@@ -157,6 +162,7 @@ def simulate_primitive(
                 "sink_rate_m_s": float(loads["sink_rate_m_s"]),
                 "wind_model": wind_model_name,
                 "wind_mode": wind_mode,
+                "wind_param_label": wind_param_label,
             }
         )
         row.update(safety_margins(x, arena_config))
@@ -193,13 +199,18 @@ def simulate_primitive(
         atol=1e-12,
     )
     sat_fraction = float(np.mean(saturated))
+    sat_time_s = float(np.mean(np.any(saturated, axis=1)) * times[-1]) if times.size else 0.0
     metrics = rollout_metrics(
         scenario_id=scenario_id,
         seed=seed,
         wind_model=wind_model_name,
         wind_mode=wind_mode,
+        wind_param_label=wind_param_label,
         latency_mode=command_layer.config.mode,
+        latency_s=half_response_s(command_layer.config, command_layer.envelope),
+        latency_range_s=latency_range_label(command_layer.config, command_layer.envelope),
         primitive_selected=primitive.name,
+        selected_primitive=selected_primitive_name or primitive.name,
         success=success,
         termination_reason=termination_reason,
         states=states,
@@ -207,6 +218,11 @@ def simulate_primitive(
         repo_root=repo_root,
         arena_config=arena_config,
         saturation_fraction=sat_fraction,
+        saturation_time_s=sat_time_s,
+        duration_s=float(times[-1]) if times.size else 0.0,
+        governor_rejection_reason=governor_rejection_reason,
+        candidate_count=candidate_count,
+        rejected_count=rejected_count,
     )
     return RolloutResult(
         success=success,

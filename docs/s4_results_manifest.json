@@ -1,0 +1,736 @@
+{
+  "generated_utc": "2026-05-10T19:59:54.270383+00:00",
+  "repo_root": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa",
+  "commit": "046f739",
+  "output_root": "03_Control/05_Results/s4_execution",
+  "files": [
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_annular_four_panel_seed1.csv",
+      "size_bytes": 11915,
+      "modified_utc": "2026-05-10T19:53:01.781487+00:00",
+      "scenario_or_script": "s4_annular_four_panel_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_annular_single_cg_seed1.csv",
+      "size_bytes": 15443,
+      "modified_utc": "2026-05-10T19:52:57.259460+00:00",
+      "scenario_or_script": "s4_annular_single_cg_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_annular_single_panel_seed1.csv",
+      "size_bytes": 15488,
+      "modified_utc": "2026-05-10T19:52:52.535626+00:00",
+      "scenario_or_script": "s4_annular_single_panel_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_full_bank_reversal_left_no_wind_seed1.csv",
+      "size_bytes": 33961,
+      "modified_utc": "2026-05-10T19:52:45.071359+00:00",
+      "scenario_or_script": "s4_full_bank_reversal_left_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_full_bank_reversal_right_no_wind_seed1.csv",
+      "size_bytes": 34376,
+      "modified_utc": "2026-05-10T19:52:45.281832+00:00",
+      "scenario_or_script": "s4_full_bank_reversal_right_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_full_nominal_glide_no_wind_seed1.csv",
+      "size_bytes": 33059,
+      "modified_utc": "2026-05-10T19:52:44.867301+00:00",
+      "scenario_or_script": "s4_full_nominal_glide_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_full_recovery_no_wind_seed1.csv",
+      "size_bytes": 33703,
+      "modified_utc": "2026-05-10T19:52:45.472691+00:00",
+      "scenario_or_script": "s4_full_recovery_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_gaussian_four_panel_seed1.csv",
+      "size_bytes": 11366,
+      "modified_utc": "2026-05-10T19:52:47.911208+00:00",
+      "scenario_or_script": "s4_gaussian_four_panel_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_gaussian_single_cg_seed1.csv",
+      "size_bytes": 14691,
+      "modified_utc": "2026-05-10T19:52:47.655360+00:00",
+      "scenario_or_script": "s4_gaussian_single_cg_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_gaussian_single_panel_randomised_seed1.csv",
+      "size_bytes": 18884,
+      "modified_utc": "2026-05-10T19:53:02.078580+00:00",
+      "scenario_or_script": "s4_gaussian_single_panel_randomised_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_gaussian_single_panel_seed1.csv",
+      "size_bytes": 14723,
+      "modified_utc": "2026-05-10T19:52:47.381657+00:00",
+      "scenario_or_script": "s4_gaussian_single_panel_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_governor_selection_seed1.csv",
+      "size_bytes": 19912,
+      "modified_utc": "2026-05-10T19:53:02.475640+00:00",
+      "scenario_or_script": "s4_governor_selection_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_latency_high_bank_reversal_left_seed1.csv",
+      "size_bytes": 33783,
+      "modified_utc": "2026-05-10T19:52:46.315667+00:00",
+      "scenario_or_script": "s4_latency_high_bank_reversal_left_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_latency_low_bank_reversal_left_seed1.csv",
+      "size_bytes": 33843,
+      "modified_utc": "2026-05-10T19:52:45.667346+00:00",
+      "scenario_or_script": "s4_latency_low_bank_reversal_left_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/logs/s4_latency_nominal_bank_reversal_left_seed1.csv",
+      "size_bytes": 34093,
+      "modified_utc": "2026-05-10T19:52:45.962060+00:00",
+      "scenario_or_script": "s4_latency_nominal_bank_reversal_left_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_annular_four_panel_seed1.csv",
+      "size_bytes": 1150,
+      "modified_utc": "2026-05-10T19:53:01.784489+00:00",
+      "scenario_or_script": "s4_annular_four_panel_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_annular_single_cg_seed1.csv",
+      "size_bytes": 1132,
+      "modified_utc": "2026-05-10T19:52:57.262011+00:00",
+      "scenario_or_script": "s4_annular_single_cg_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_annular_single_panel_seed1.csv",
+      "size_bytes": 1133,
+      "modified_utc": "2026-05-10T19:52:52.537616+00:00",
+      "scenario_or_script": "s4_annular_single_panel_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_full_bank_reversal_left_no_wind_seed1.csv",
+      "size_bytes": 1078,
+      "modified_utc": "2026-05-10T19:52:45.072362+00:00",
+      "scenario_or_script": "s4_full_bank_reversal_left_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_full_bank_reversal_right_no_wind_seed1.csv",
+      "size_bytes": 1081,
+      "modified_utc": "2026-05-10T19:52:45.284826+00:00",
+      "scenario_or_script": "s4_full_bank_reversal_right_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_full_nominal_glide_no_wind_seed1.csv",
+      "size_bytes": 1075,
+      "modified_utc": "2026-05-10T19:52:44.868303+00:00",
+      "scenario_or_script": "s4_full_nominal_glide_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_full_recovery_no_wind_seed1.csv",
+      "size_bytes": 1023,
+      "modified_utc": "2026-05-10T19:52:45.474686+00:00",
+      "scenario_or_script": "s4_full_recovery_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_gaussian_four_panel_seed1.csv",
+      "size_bytes": 1117,
+      "modified_utc": "2026-05-10T19:52:47.913208+00:00",
+      "scenario_or_script": "s4_gaussian_four_panel_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_gaussian_single_cg_seed1.csv",
+      "size_bytes": 1093,
+      "modified_utc": "2026-05-10T19:52:47.658362+00:00",
+      "scenario_or_script": "s4_gaussian_single_cg_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_gaussian_single_panel_randomised_seed1.csv",
+      "size_bytes": 1366,
+      "modified_utc": "2026-05-10T19:53:02.080580+00:00",
+      "scenario_or_script": "s4_gaussian_single_panel_randomised_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_gaussian_single_panel_seed1.csv",
+      "size_bytes": 1108,
+      "modified_utc": "2026-05-10T19:52:47.384679+00:00",
+      "scenario_or_script": "s4_gaussian_single_panel_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_governor_selection_seed1.csv",
+      "size_bytes": 1197,
+      "modified_utc": "2026-05-10T19:53:02.478638+00:00",
+      "scenario_or_script": "s4_governor_selection_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_governor_selection_seed1_governor_candidates.csv",
+      "size_bytes": 420,
+      "modified_utc": "2026-05-10T19:53:02.372979+00:00",
+      "scenario_or_script": "s4_governor_selection_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_governor_selection_seed1_governor_rejections.csv",
+      "size_bytes": 333,
+      "modified_utc": "2026-05-10T19:53:02.375978+00:00",
+      "scenario_or_script": "s4_governor_selection_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_latency_high_bank_reversal_left_seed1.csv",
+      "size_bytes": 1075,
+      "modified_utc": "2026-05-10T19:52:46.317665+00:00",
+      "scenario_or_script": "s4_latency_high_bank_reversal_left_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_latency_low_bank_reversal_left_seed1.csv",
+      "size_bytes": 1103,
+      "modified_utc": "2026-05-10T19:52:45.669350+00:00",
+      "scenario_or_script": "s4_latency_low_bank_reversal_left_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/audit/metrics/s4_latency_nominal_bank_reversal_left_seed1.csv",
+      "size_bytes": 1090,
+      "modified_utc": "2026-05-10T19:52:45.965060+00:00",
+      "scenario_or_script": "s4_latency_nominal_bank_reversal_left_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/logs/s4_annular_single_panel_seed1.csv",
+      "size_bytes": 15488,
+      "modified_utc": "2026-05-10T19:50:48.989398+00:00",
+      "scenario_or_script": "s4_annular_single_panel_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/logs/s4_full_bank_reversal_left_no_wind_seed1.csv",
+      "size_bytes": 33961,
+      "modified_utc": "2026-05-10T19:47:38.876084+00:00",
+      "scenario_or_script": "s4_full_bank_reversal_left_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/logs/s4_full_nominal_glide_no_wind_seed1.csv",
+      "size_bytes": 33059,
+      "modified_utc": "2026-05-10T19:47:28.994008+00:00",
+      "scenario_or_script": "s4_full_nominal_glide_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/logs/s4_full_recovery_no_wind_seed1.csv",
+      "size_bytes": 33703,
+      "modified_utc": "2026-05-10T19:47:48.686344+00:00",
+      "scenario_or_script": "s4_full_recovery_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/logs/s4_gaussian_single_panel_seed1.csv",
+      "size_bytes": 14723,
+      "modified_utc": "2026-05-10T19:50:44.577331+00:00",
+      "scenario_or_script": "s4_gaussian_single_panel_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/logs/s4_governor_selection_seed1.csv",
+      "size_bytes": 19912,
+      "modified_utc": "2026-05-10T19:49:49.787154+00:00",
+      "scenario_or_script": "s4_governor_selection_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/logs/s4_latency_high_bank_reversal_left_seed1.csv",
+      "size_bytes": 33783,
+      "modified_utc": "2026-05-10T19:48:18.242999+00:00",
+      "scenario_or_script": "s4_latency_high_bank_reversal_left_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/logs/s4_latency_low_bank_reversal_left_seed1.csv",
+      "size_bytes": 33843,
+      "modified_utc": "2026-05-10T19:47:58.308470+00:00",
+      "scenario_or_script": "s4_latency_low_bank_reversal_left_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/logs/s4_latency_nominal_bank_reversal_left_seed1.csv",
+      "size_bytes": 34093,
+      "modified_utc": "2026-05-10T19:48:08.702360+00:00",
+      "scenario_or_script": "s4_latency_nominal_bank_reversal_left_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/metrics/s4_annular_single_panel_seed1.csv",
+      "size_bytes": 1121,
+      "modified_utc": "2026-05-10T19:50:48.991396+00:00",
+      "scenario_or_script": "s4_annular_single_panel_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/metrics/s4_full_bank_reversal_left_no_wind_seed1.csv",
+      "size_bytes": 1066,
+      "modified_utc": "2026-05-10T19:47:38.877085+00:00",
+      "scenario_or_script": "s4_full_bank_reversal_left_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/metrics/s4_full_nominal_glide_no_wind_seed1.csv",
+      "size_bytes": 1063,
+      "modified_utc": "2026-05-10T19:47:28.994974+00:00",
+      "scenario_or_script": "s4_full_nominal_glide_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/metrics/s4_full_recovery_no_wind_seed1.csv",
+      "size_bytes": 1011,
+      "modified_utc": "2026-05-10T19:47:48.688341+00:00",
+      "scenario_or_script": "s4_full_recovery_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/metrics/s4_gaussian_single_panel_seed1.csv",
+      "size_bytes": 1096,
+      "modified_utc": "2026-05-10T19:50:44.580301+00:00",
+      "scenario_or_script": "s4_gaussian_single_panel_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/metrics/s4_governor_selection_seed1.csv",
+      "size_bytes": 1179,
+      "modified_utc": "2026-05-10T19:49:49.788136+00:00",
+      "scenario_or_script": "s4_governor_selection_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/metrics/s4_governor_selection_seed1_governor_candidates.csv",
+      "size_bytes": 420,
+      "modified_utc": "2026-05-10T19:49:49.734957+00:00",
+      "scenario_or_script": "s4_governor_selection_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/metrics/s4_governor_selection_seed1_governor_rejections.csv",
+      "size_bytes": 333,
+      "modified_utc": "2026-05-10T19:49:49.737645+00:00",
+      "scenario_or_script": "s4_governor_selection_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/metrics/s4_latency_high_bank_reversal_left_seed1.csv",
+      "size_bytes": 1063,
+      "modified_utc": "2026-05-10T19:48:18.244996+00:00",
+      "scenario_or_script": "s4_latency_high_bank_reversal_left_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/metrics/s4_latency_low_bank_reversal_left_seed1.csv",
+      "size_bytes": 1091,
+      "modified_utc": "2026-05-10T19:47:58.310471+00:00",
+      "scenario_or_script": "s4_latency_low_bank_reversal_left_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/metrics/s4_latency_nominal_bank_reversal_left_seed1.csv",
+      "size_bytes": 1078,
+      "modified_utc": "2026-05-10T19:48:08.703903+00:00",
+      "scenario_or_script": "s4_latency_nominal_bank_reversal_left_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/replay_a/logs/s4_gaussian_single_panel_randomised_seed8.csv",
+      "size_bytes": 18978,
+      "modified_utc": "2026-05-10T19:54:29.973783+00:00",
+      "scenario_or_script": "s4_gaussian_single_panel_randomised_seed8",
+      "seed": 8,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/replay_a/metrics/s4_gaussian_single_panel_randomised_seed8.csv",
+      "size_bytes": 1373,
+      "modified_utc": "2026-05-10T19:54:29.975823+00:00",
+      "scenario_or_script": "s4_gaussian_single_panel_randomised_seed8",
+      "seed": 8,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/replay_b/logs/s4_gaussian_single_panel_randomised_seed8.csv",
+      "size_bytes": 18978,
+      "modified_utc": "2026-05-10T19:54:30.147079+00:00",
+      "scenario_or_script": "s4_gaussian_single_panel_randomised_seed8",
+      "seed": 8,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/s4_execution/replay_b/metrics/s4_gaussian_single_panel_randomised_seed8.csv",
+      "size_bytes": 1373,
+      "modified_utc": "2026-05-10T19:54:30.149082+00:00",
+      "scenario_or_script": "s4_gaussian_single_panel_randomised_seed8",
+      "seed": 8,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/batch_seed1.csv",
+      "size_bytes": 2250,
+      "modified_utc": "2026-05-10T18:14:21.455042+00:00",
+      "scenario_or_script": "batch_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/batch_seed42.csv",
+      "size_bytes": 9981,
+      "modified_utc": "2026-05-10T19:54:11.567159+00:00",
+      "scenario_or_script": "batch_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s0_no_wind_seed1.csv",
+      "size_bytes": 495,
+      "modified_utc": "2026-05-10T18:14:21.457042+00:00",
+      "scenario_or_script": "s0_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s0_no_wind_seed42.csv",
+      "size_bytes": 958,
+      "modified_utc": "2026-05-10T19:53:51.871782+00:00",
+      "scenario_or_script": "s0_no_wind_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s0_no_wind_seed7.csv",
+      "size_bytes": 493,
+      "modified_utc": "2026-05-10T18:14:21+00:00",
+      "scenario_or_script": "s0_no_wind_seed7",
+      "seed": null,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s11_governor_rejection_seed1.csv",
+      "size_bytes": 513,
+      "modified_utc": "2026-05-10T18:14:21.459045+00:00",
+      "scenario_or_script": "s11_governor_rejection_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s11_governor_rejection_seed1_governor_rejections.csv",
+      "size_bytes": 279,
+      "modified_utc": "2026-05-10T18:14:21.460515+00:00",
+      "scenario_or_script": "s11_governor_rejection_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s11_governor_rejection_seed3.csv",
+      "size_bytes": 511,
+      "modified_utc": "2026-05-10T18:14:21+00:00",
+      "scenario_or_script": "s11_governor_rejection_seed3",
+      "seed": null,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s11_governor_rejection_seed3_governor_rejections.csv",
+      "size_bytes": 279,
+      "modified_utc": "2026-05-10T19:53:17.239642+00:00",
+      "scenario_or_script": "s11_governor_rejection_seed3",
+      "seed": null,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s11_governor_rejection_seed42.csv",
+      "size_bytes": 1013,
+      "modified_utc": "2026-05-10T19:54:02.915433+00:00",
+      "scenario_or_script": "s11_governor_rejection_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s11_governor_rejection_seed42_governor_rejections.csv",
+      "size_bytes": 279,
+      "modified_utc": "2026-05-10T19:54:02.908433+00:00",
+      "scenario_or_script": "s11_governor_rejection_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s1_latency_nominal_no_wind_seed1.csv",
+      "size_bytes": 523,
+      "modified_utc": "2026-05-10T18:14:21.463526+00:00",
+      "scenario_or_script": "s1_latency_nominal_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s1_latency_nominal_no_wind_seed42.csv",
+      "size_bytes": 1008,
+      "modified_utc": "2026-05-10T19:53:52.024551+00:00",
+      "scenario_or_script": "s1_latency_nominal_no_wind_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s1_latency_robust_upper_no_wind_seed1.csv",
+      "size_bytes": 537,
+      "modified_utc": "2026-05-10T18:14:21.464525+00:00",
+      "scenario_or_script": "s1_latency_robust_upper_no_wind_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s1_latency_robust_upper_no_wind_seed42.csv",
+      "size_bytes": 1032,
+      "modified_utc": "2026-05-10T19:53:52.189150+00:00",
+      "scenario_or_script": "s1_latency_robust_upper_no_wind_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s4_annular_single_panel_seed42.csv",
+      "size_bytes": 1099,
+      "modified_utc": "2026-05-10T19:54:10.791376+00:00",
+      "scenario_or_script": "s4_annular_single_panel_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s4_full_bank_reversal_left_no_wind_seed42.csv",
+      "size_bytes": 1044,
+      "modified_utc": "2026-05-10T19:54:04.064311+00:00",
+      "scenario_or_script": "s4_full_bank_reversal_left_no_wind_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s4_full_nominal_glide_no_wind_seed42.csv",
+      "size_bytes": 1041,
+      "modified_utc": "2026-05-10T19:54:03.551704+00:00",
+      "scenario_or_script": "s4_full_nominal_glide_no_wind_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s4_full_recovery_no_wind_seed42.csv",
+      "size_bytes": 989,
+      "modified_utc": "2026-05-10T19:54:04.491106+00:00",
+      "scenario_or_script": "s4_full_recovery_no_wind_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s4_gaussian_single_panel_randomised_seed42.csv",
+      "size_bytes": 1365,
+      "modified_utc": "2026-05-10T19:54:11.092836+00:00",
+      "scenario_or_script": "s4_gaussian_single_panel_randomised_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s4_gaussian_single_panel_seed42.csv",
+      "size_bytes": 1074,
+      "modified_utc": "2026-05-10T19:54:05.927669+00:00",
+      "scenario_or_script": "s4_gaussian_single_panel_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s4_governor_selection_seed42.csv",
+      "size_bytes": 1145,
+      "modified_utc": "2026-05-10T19:54:11.563161+00:00",
+      "scenario_or_script": "s4_governor_selection_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s4_governor_selection_seed42_governor_candidates.csv",
+      "size_bytes": 420,
+      "modified_utc": "2026-05-10T19:54:11.417653+00:00",
+      "scenario_or_script": "s4_governor_selection_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s4_governor_selection_seed42_governor_rejections.csv",
+      "size_bytes": 333,
+      "modified_utc": "2026-05-10T19:54:11.420702+00:00",
+      "scenario_or_script": "s4_governor_selection_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s4_latency_high_bank_reversal_left_seed42.csv",
+      "size_bytes": 1041,
+      "modified_utc": "2026-05-10T19:54:05.646905+00:00",
+      "scenario_or_script": "s4_latency_high_bank_reversal_left_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s4_latency_low_bank_reversal_left_seed42.csv",
+      "size_bytes": 1069,
+      "modified_utc": "2026-05-10T19:54:04.861459+00:00",
+      "scenario_or_script": "s4_latency_low_bank_reversal_left_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s4_latency_nominal_bank_reversal_left_seed42.csv",
+      "size_bytes": 1056,
+      "modified_utc": "2026-05-10T19:54:05.231441+00:00",
+      "scenario_or_script": "s4_latency_nominal_bank_reversal_left_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s6_four_gaussian_var_seed1.csv",
+      "size_bytes": 542,
+      "modified_utc": "2026-05-10T18:14:21.465526+00:00",
+      "scenario_or_script": "s6_four_gaussian_var_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s6_four_gaussian_var_seed42.csv",
+      "size_bytes": 1032,
+      "modified_utc": "2026-05-10T19:53:53.052735+00:00",
+      "scenario_or_script": "s6_four_gaussian_var_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s6_single_gaussian_var_seed1.csv",
+      "size_bytes": 549,
+      "modified_utc": "2026-05-10T18:14:21.467528+00:00",
+      "scenario_or_script": "s6_single_gaussian_var_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s6_single_gaussian_var_seed42.csv",
+      "size_bytes": 1052,
+      "modified_utc": "2026-05-10T19:53:52.845708+00:00",
+      "scenario_or_script": "s6_single_gaussian_var_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s7_four_annular_gp_seed1.csv",
+      "size_bytes": 541,
+      "modified_utc": "2026-05-10T18:14:21.468529+00:00",
+      "scenario_or_script": "s7_four_annular_gp_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s7_four_annular_gp_seed42.csv",
+      "size_bytes": 1022,
+      "modified_utc": "2026-05-10T19:54:02.696266+00:00",
+      "scenario_or_script": "s7_four_annular_gp_seed42",
+      "seed": 42,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s7_single_annular_gp_seed1.csv",
+      "size_bytes": 545,
+      "modified_utc": "2026-05-10T18:14:21.469526+00:00",
+      "scenario_or_script": "s7_single_annular_gp_seed1",
+      "seed": 1,
+      "status": "generated"
+    },
+    {
+      "path": "03_Control/05_Results/metrics/s7_single_annular_gp_seed42.csv",
+      "size_bytes": 1036,
+      "modified_utc": "2026-05-10T19:53:58.000308+00:00",
+      "scenario_or_script": "s7_single_annular_gp_seed42",
+      "seed": 42,
+      "status": "generated"
+    }
+  ]
+}

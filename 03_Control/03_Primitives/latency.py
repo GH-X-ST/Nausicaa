@@ -22,7 +22,9 @@ class SurfaceLimit:
 @dataclass(frozen=True)
 class LatencyEnvelope:
     onset_latency_s: float = 0.075
+    half_response_low_s: float = 0.101
     half_response_nominal_s: float = 0.111
+    half_response_high_s: float = 0.121
     half_response_upper_s: float = 0.133
     vicon_filter_cutoff_hz: float = 20.0
     command_dt_s: float = 0.02
@@ -54,12 +56,7 @@ def actuator_tau_s(
 ) -> float:
     config = config or CommandToSurfaceConfig()
     envelope = envelope or LatencyEnvelope()
-    if config.mode == "nominal":
-        half = envelope.half_response_nominal_s
-    elif config.mode == "robust_upper":
-        half = envelope.half_response_upper_s
-    else:
-        raise ValueError("latency mode must be 'nominal' or 'robust_upper'.")
+    half = half_response_s(config, envelope)
     return float((half - envelope.onset_latency_s) / np.log(2.0))
 
 
@@ -69,11 +66,40 @@ def half_response_s(
 ) -> float:
     config = config or CommandToSurfaceConfig()
     envelope = envelope or LatencyEnvelope()
+    if config.mode == "low":
+        return float(envelope.half_response_low_s)
     if config.mode == "nominal":
         return float(envelope.half_response_nominal_s)
+    if config.mode == "high":
+        return float(envelope.half_response_high_s)
     if config.mode == "robust_upper":
         return float(envelope.half_response_upper_s)
-    raise ValueError("latency mode must be 'nominal' or 'robust_upper'.")
+    raise ValueError("latency mode must be 'low', 'nominal', 'high', or 'robust_upper'.")
+
+
+def latency_range_s(
+    config: CommandToSurfaceConfig | None = None,
+    envelope: LatencyEnvelope | None = None,
+) -> tuple[float, float]:
+    config = config or CommandToSurfaceConfig()
+    envelope = envelope or LatencyEnvelope()
+    if config.mode == "robust_upper":
+        return (
+            float(envelope.half_response_nominal_s),
+            float(envelope.half_response_upper_s),
+        )
+    return (
+        float(envelope.half_response_low_s),
+        float(envelope.half_response_high_s),
+    )
+
+
+def latency_range_label(
+    config: CommandToSurfaceConfig | None = None,
+    envelope: LatencyEnvelope | None = None,
+) -> str:
+    low, high = latency_range_s(config, envelope)
+    return f"{low:.6f}:{high:.6f}"
 
 
 def angle_to_command_norm(angle_rad: float, limit: SurfaceLimit) -> float:
@@ -170,6 +196,8 @@ class CommandToSurfaceLayer:
             "delta_r_target_deg": float(np.rad2deg(self._last_target[2])),
             **surface,
             "latency_mode": self.config.mode,
+            "latency_s": half_response_s(self.config, self.envelope),
+            "latency_range_s": latency_range_label(self.config, self.envelope),
             "onset_latency_s": float(self.envelope.onset_latency_s),
             "half_response_s": half_response_s(self.config, self.envelope),
             "actuator_tau_s": float(tau),

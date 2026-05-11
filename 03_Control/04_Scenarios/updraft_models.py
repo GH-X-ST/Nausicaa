@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
 
@@ -24,6 +25,81 @@ class WindField(Protocol):
 
     def __call__(self, points_w_up_m: np.ndarray) -> np.ndarray:
         """Return wind in public world z-up frame, shape (N, 3), m/s."""
+
+
+@dataclass(frozen=True)
+class UpdraftRandomisation:
+    strength_scale: float
+    centre_shift_m: tuple[float, float]
+    width_scale: float
+    vertical_decay_scale: float | str
+    residual_scale: float | str
+    temporal_variation_scale: float | str
+
+
+@dataclass(frozen=True)
+class RandomisedWindField:
+    base: WindField
+    params: UpdraftRandomisation
+    reference_center_xy: tuple[float, float] = SINGLE_FAN_CENTER_XY
+
+    @property
+    def name(self) -> str:
+        return f"{self.base.name}_randomised"
+
+    @property
+    def source(self) -> str:
+        return f"{self.base.source}; randomisation={updraft_randomisation_label(self.params)}"
+
+    def __call__(self, points_w_up_m: np.ndarray) -> np.ndarray:
+        pts = np.asarray(points_w_up_m, dtype=float).reshape(-1, 3).copy()
+        center = np.asarray(self.reference_center_xy, dtype=float)
+        shift = np.asarray(self.params.centre_shift_m, dtype=float)
+        width = max(float(self.params.width_scale), 1e-12)
+        pts[:, :2] = center + (pts[:, :2] - center - shift) / width
+        return float(self.params.strength_scale) * np.asarray(self.base(pts), dtype=float)
+
+
+def sample_updraft_randomisation(
+    seed: int,
+    enabled: bool = True,
+) -> UpdraftRandomisation:
+    if not enabled:
+        return UpdraftRandomisation(
+            strength_scale=1.0,
+            centre_shift_m=(0.0, 0.0),
+            width_scale=1.0,
+            vertical_decay_scale="not_applied",
+            residual_scale="not_applied",
+            temporal_variation_scale="not_applied",
+        )
+    rng = np.random.default_rng(int(seed))
+    return UpdraftRandomisation(
+        strength_scale=float(rng.uniform(0.85, 1.15)),
+        centre_shift_m=(
+            float(rng.uniform(-0.20, 0.20)),
+            float(rng.uniform(-0.20, 0.20)),
+        ),
+        width_scale=float(rng.uniform(0.85, 1.15)),
+        vertical_decay_scale="not_applied",
+        residual_scale="not_applied",
+        temporal_variation_scale="not_applied",
+    )
+
+
+def updraft_randomisation_label(params: UpdraftRandomisation) -> str:
+    return json.dumps(asdict(params), sort_keys=True, separators=(",", ":"))
+
+
+def build_randomised_wind_field(
+    wind: WindField,
+    seed: int,
+    enabled: bool = True,
+) -> tuple[WindField, str]:
+    params = sample_updraft_randomisation(seed=seed, enabled=enabled)
+    if not enabled:
+        return wind, updraft_randomisation_label(params)
+    return RandomisedWindField(base=wind, params=params), updraft_randomisation_label(params)
 
 
 def _repo_root_from_here() -> Path:

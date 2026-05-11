@@ -1,0 +1,8 @@
+
+Glider_Control_Project_Plan.md
+
+__pycache__/
+*.py[cod]
+03_Control/05_Results/s4_execution/
+03_Control/05_Results/logs/*_seed42.csv
+03_Control/05_Results/metrics/*_seed42*.csv
