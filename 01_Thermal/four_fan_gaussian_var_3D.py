@@ -7,9 +7,7 @@ where [A, delta, w0] are read directly from the precomputed PCHIP table
 written by four_fan_gaussian_var_fit.py.
 """
 
-###### Initialization
 
-### Imports
 from pathlib import Path
 from typing import Tuple
 import re
@@ -25,7 +23,18 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from skimage.measure import marching_cubes
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) 3D Plot Configuration and Data Sources
+# 2) Model Loading and 3D Field Evaluation
+# 3) 3D Figure Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) 3D Plot Configuration and Data Sources
+# =============================================================================
+
 MAKE_PLOTS = True
 
 PARAMS_XLSX = Path("B_results/four_var_params_pchip.xlsx")
@@ -103,7 +112,7 @@ N_ISO_LEVELS = 10
 INCLUDE_W0 = True
 
 # Exponential opacity mapping versus normalized w (= 0..1).
-# alpha(0) = 0 (fully transparent), alpha(1) = 1 (fully opaque).
+# Alpha maps normalized velocity monotonically so weak updraft remains visually subordinate.
 ALPHA_EXP_RATE = 3.0
 
 # Interior visibility aids.
@@ -112,7 +121,10 @@ SLICE_EDGE_COLOR = (0.0, 0.0, 0.0, 0.20)
 SLICE_EDGE_LW = 0.2
 
 
-### Helpers
+# =============================================================================
+# 2) Model Loading and 3D Field Evaluation
+# =============================================================================
+
 REQUIRED_SHARED_COLUMNS = ("z_m", "A", "delta")
 FAN_COL_PATTERN = re.compile(r"^A_(F\d{2})$")
 
@@ -308,7 +320,7 @@ def evaluate_field(
         + (y_grid[..., None] - fan_xy[:, 1]) ** 2
     )
 
-    # Convert absolute z to model-relative z referenced at fan height.
+    # Model z is referenced to fan outlet height while plot z remains absolute arena height.
     z_rel = z_grid - FAN_VERTICAL_OFFSET_M
 
     # Only evaluate inside the tabulated z range; keep zero outside.
@@ -545,7 +557,10 @@ def plot_isosurfaces(
     plt.close(fig_3d)
 
 
-### Main
+# =============================================================================
+# 3) 3D Figure Export Entry Point
+# =============================================================================
+
 def main() -> None:
     if not MAKE_PLOTS:
         print("MAKE_PLOTS is False; nothing to do.")
@@ -582,6 +597,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
 
 

@@ -16,9 +16,7 @@ Metrics reported:
 where e_{j,k} = w_model(r_{j,k}, z_k) - w_obs_{j,k}.
 """
 
-###### Initialization
 
-### Imports
 from __future__ import annotations
 
 from pathlib import Path
@@ -35,7 +33,18 @@ from single_fan_annuli_cut import (
 )
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Metric Configuration and Data Sources
+# 2) Metric Loading and Diagnostics
+# 3) Analysis Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Metric Configuration and Data Sources
+# =============================================================================
+
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
@@ -54,7 +63,10 @@ SIGMA_MIN = 1e-3
 SHEET_HEIGHT_DIVISOR = 100.0
 
 
-### Helpers
+# =============================================================================
+# 2) Metric Loading and Diagnostics
+# =============================================================================
+
 REQUIRED_FIT_COLUMNS = ("z_m", "A", "delta", "w0")
 
 
@@ -183,7 +195,10 @@ def write_results(df: pd.DataFrame, out_xlsx: Path, sheet_name: str) -> None:
             df.to_excel(writer, index=False, sheet_name=sheet_name)
 
 
-### Main
+# =============================================================================
+# 3) Analysis Export Entry Point
+# =============================================================================
+
 def main() -> None:
     fit_df = load_fit_table(FIT_XLSX_PATH, FIT_SHEET_NAME)
 
@@ -196,7 +211,7 @@ def main() -> None:
         z_m = parse_sheet_height_m(sheet)
         params = params_at_z(fit_df, z_m)
 
-        # Load raw grid samples directly from the mean sheet.
+        # Mean-sheet samples are the measured reference for model residual diagnostics.
         x_centers, y_centers, W = read_slice_from_sheet(XLSX_PATH, sheet)
         x_grid, y_grid = np.meshgrid(x_centers, y_centers)
         xc, yc = FAN_CENTER_XY

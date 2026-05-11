@@ -9,9 +9,7 @@ single_fan_annular_gaussian_bemt_fit.py output and reports:
 4) Total weighted RMSE across all heights
 """
 
-###### Initialization
 
-### Imports
 from __future__ import annotations
 
 from pathlib import Path
@@ -28,7 +26,18 @@ from single_fan_annuli_cut import (
 )
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Metric Configuration and Data Sources
+# 2) Metric Loading and Diagnostics
+# 3) Analysis Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Metric Configuration and Data Sources
+# =============================================================================
+
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
@@ -45,7 +54,10 @@ SIGMA_MIN = 1e-3
 SHEET_HEIGHT_DIVISOR = 100.0
 
 
-### Helpers
+# =============================================================================
+# 2) Metric Loading and Diagnostics
+# =============================================================================
+
 REQUIRED_BASE_COLUMNS = ("z_m", "w0", "r_ring", "delta_ring", "a0")
 
 
@@ -229,7 +241,10 @@ def write_results(df: pd.DataFrame, out_xlsx: Path, sheet_name: str) -> None:
             df.to_excel(writer, index=False, sheet_name=sheet_name)
 
 
-### Main
+# =============================================================================
+# 3) Analysis Export Entry Point
+# =============================================================================
+
 def main() -> None:
     fit_raw = load_fit_table(FIT_XLSX_PATH, FIT_SHEET_NAME)
     param_cols, harmonic_orders = discover_param_columns(fit_raw)

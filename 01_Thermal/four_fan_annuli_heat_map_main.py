@@ -5,9 +5,7 @@ Field reconstruction uses nearest-fan distance r(x, y) and annuli profile
 values w(r) from B_results/Four_Fan_Annuli_Profile/*_four_annuli_profile.csv.
 """
 
-###### Initialization
 
-### Imports
 from pathlib import Path
 from typing import Sequence, Tuple
 
@@ -20,7 +18,19 @@ from matplotlib.patches import Circle, Rectangle, Wedge
 from matplotlib.ticker import FormatStrFormatter
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-### User settings
+
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# 2) Workbook Loading and Plot Construction
+# 3) Batch Figure Export
+# =============================================================================
+
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# =============================================================================
+
 XLSX_PATH = "S02.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
@@ -42,22 +52,22 @@ FOUR_FAN_CENTERS_XY = (
     (5.4, 1.2),
 )
 
-# Units / labels
+# Axis and colorbar units used in exported figures.
 CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
-# Line widths
+# Line widths are fixed for figure-to-figure comparability.
 CELL_EDGE_LW = 0.30
 AXIS_EDGE_LW = 0.80
 CBAR_EDGE_LW = AXIS_EDGE_LW
 LEGEND_FONTSIZE = 8.5
 
 # Exponential opacity mapping versus normalized w (= 0..1).
-# alpha(0) = 0 (fully transparent), alpha(1) = 1 (fully opaque).
+# Alpha maps normalized velocity monotonically so weak updraft remains visually subordinate.
 ALPHA_EXP_RATE = 0.005
 
-# Fan outlet markers (four fan)
+# Fan outlet markers in arena coordinates (m).
 FAN_OUTLET_POINTS = [
     (3.0, 3.6),
     (5.4, 3.6),
@@ -68,6 +78,10 @@ FAN_OUTLET_DIAMETER = 0.8
 FAN_OUTLET_EDGE_LW = 0.7
 FAN_OUTLET_ALPHA = 0.6
 FAN_OUTLET_DASH = (0, (2, 2))
+
+# =============================================================================
+# 2) Workbook Loading and Plot Construction
+# =============================================================================
 
 
 def build_alpha_cmap() -> mcolors.ListedColormap:
@@ -346,7 +360,10 @@ def plot_annuli(
     plt.close(fig)
 
 
-### Export each sheet as PNG
+# =============================================================================
+# 3) Batch Figure Export
+# =============================================================================
+
 def main() -> None:
     for sh in SHEETS:
         x, y, _w_raw = read_slice_from_sheet(XLSX_PATH, sh)
@@ -364,8 +381,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
 
 

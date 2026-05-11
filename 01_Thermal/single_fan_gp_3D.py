@@ -6,9 +6,7 @@ Input is read from:
 using the z###_gp_mean sheets written by single_fan_gp.py.
 """
 
-###### Initialization
 
-### Imports
 from pathlib import Path
 from typing import Sequence, Tuple
 import warnings
@@ -29,7 +27,18 @@ from sklearn.gaussian_process.kernels import ConstantKernel, RBF, WhiteKernel
 from sklearn.preprocessing import StandardScaler
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) 3D Plot Configuration and Data Sources
+# 2) Model Loading and 3D Field Evaluation
+# 3) 3D Figure Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) 3D Plot Configuration and Data Sources
+# =============================================================================
+
 MAKE_PLOTS = True
 
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -102,7 +111,7 @@ GP_Z_ALPHA_JITTER = 1e-8
 CONST_SERIES_TOL = 1e-10
 
 # Exponential opacity mapping versus normalized w (= 0..1).
-# alpha(0) = 0 (fully transparent), alpha(1) = 1 (fully opaque).
+# Alpha maps normalized velocity monotonically so weak updraft remains visually subordinate.
 ALPHA_EXP_RATE = 3.0
 
 # Interior visibility aids.
@@ -111,7 +120,10 @@ SLICE_EDGE_COLOR = (0.0, 0.0, 0.0, 0.20)
 SLICE_EDGE_LW = 0.2
 
 
-### Helpers
+# =============================================================================
+# 2) Model Loading and 3D Field Evaluation
+# =============================================================================
+
 def build_alpha_cmap() -> mcolors.ListedColormap:
     """
     Build a thermal colormap with exponential alpha versus normalized w.
@@ -315,7 +327,7 @@ def evaluate_field(
     """
     Evaluate interpolated GP mean field on the requested 3D grid.
     """
-    # Convert (Nz, Ny, Nx) -> (Nx, Ny, Nz) to match axes order (x, y, z).
+    # Marching-cubes volume order is transposed to match the plotted (x, y, z) axes.
     w_xyz = np.transpose(w_stack, (2, 1, 0))
 
     interp = RegularGridInterpolator(
@@ -536,7 +548,10 @@ def plot_isosurfaces(
     plt.close(fig_3d)
 
 
-### Main
+# =============================================================================
+# 3) 3D Figure Export Entry Point
+# =============================================================================
+
 def main() -> None:
     if not MAKE_PLOTS:
         print("MAKE_PLOTS is False; nothing to do.")
@@ -587,8 +602,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
 
 

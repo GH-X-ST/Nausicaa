@@ -9,9 +9,7 @@ to an annulus, and for each annulus j:
   - sigma_j: uncertainty assigned from *_TS sheets by nearest-radius mapping
 """
 
-###### Initialization
 
-### Imports
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -21,28 +19,43 @@ from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
 from scipy.spatial import QhullError
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Annulus Profile Configuration and Data Sources
+# 2) Annulus Binning and Uncertainty Assignment
+# 3) Batch CSV Export
+# =============================================================================
+
+# =============================================================================
+# 1) Annulus Profile Configuration and Data Sources
+# =============================================================================
+
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
 OUT_DIR = Path("B_results/Single_Fan_Annuli_Profile")
 OUT_DIR.mkdir(exist_ok=True)
 
-# Fan centre (x_c, y_c)
+# Fan centre (x_c, y_c) in arena metres.
 FAN_CENTER_XY = (4.2, 2.4)
 
 # Annulus thickness Δr (m)
 DELTA_R_M = 0.30
 
-# Use median rather than mean within each annulus
+# Median aggregation is an optional robustness choice for outlier-prone annuli.
 USE_MEDIAN_PROFILE = False
 
 # Uncertainty assignment
 SIGMA_FALLBACK = 0.2
 SIGMA_MIN = 1e-3
 
-# Optional masking
+# Zero masking is disabled unless zero-valued cells represent missing data.
 MASK_ZEROS_AS_NODATA = False
+
+# =============================================================================
+# 2) Annulus Binning and Uncertainty Assignment
+# =============================================================================
 
 
 def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
@@ -56,16 +69,16 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """
     raw = pd.read_excel(xlsx_path, sheet_name=sheet_name, header=None)
 
-    # x along first row (skip [0,0])
+    # Workbook grid stores x coordinates in the first row after the corner cell.
     x = pd.to_numeric(raw.iloc[0, 1:], errors="coerce").to_numpy(dtype=float)
 
-    # y along first column (skip [0,0])
+    # Workbook grid stores y coordinates in the first column after the corner cell.
     y = pd.to_numeric(raw.iloc[1:, 0], errors="coerce").to_numpy(dtype=float)
 
-    # field values
+    # Measured vertical-velocity block (m/s).
     W = raw.iloc[1:, 1:].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
 
-    # sanity checks
+    # Workbook grid shape must match y-by-x coordinates.
     if W.shape != (y.size, x.size):
         raise ValueError(
             f"Shape mismatch in {sheet_name}: W{W.shape}, y({y.size}), x({x.size})."
@@ -514,7 +527,10 @@ def save_profile_csv(
     df.to_csv(out_path, index=False)
 
 
-### Export each sheet as CSV
+# =============================================================================
+# 3) Batch CSV Export
+# =============================================================================
+
 def main():
     for sh in SHEETS:
         r_bins, w_bins, n_bins, alpha_bins, sigma_bins = build_annuli_profile(

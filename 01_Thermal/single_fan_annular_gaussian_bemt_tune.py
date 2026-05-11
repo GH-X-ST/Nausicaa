@@ -8,8 +8,25 @@ import pandas as pd
 import single_fan_annular_gaussian_bemt as base
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Tuning Configuration and Data Sources
+# 2) Tuning Table Builders
+# 3) Tuning Report Export
+# =============================================================================
+
+# =============================================================================
+# 1) Tuning Configuration and Data Sources
+# =============================================================================
+
+
 TUNING_REPORT_XLSX = Path("B_results/single_annular_bemt_tuning_report.xlsx")
 TUNING_SHEET_NAME = "tuning"
+
+# =============================================================================
+# 2) Tuning Table Builders
+# =============================================================================
 
 
 def build_tuning_table(
@@ -45,6 +62,10 @@ def build_tuning_table(
         by=["mean_rmse", "mean_mae"],
         ascending=[True, True],
     )
+
+# =============================================================================
+# 3) Tuning Report Export
+# =============================================================================
 
 
 def main() -> None:

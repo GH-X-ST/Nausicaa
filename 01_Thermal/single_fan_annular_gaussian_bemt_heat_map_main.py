@@ -14,9 +14,7 @@ Model:
     w_model(x, y) = w0 + g(r) * A(theta)
 """
 
-###### Initialization
 
-### Imports
 from pathlib import Path
 from typing import List, Tuple
 
@@ -30,7 +28,19 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import cmocean  # https://matplotlib.org/cmocean
 
-### User settings
+
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# 2) Workbook Loading and Plot Construction
+# 3) Batch Figure Export
+# =============================================================================
+
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# =============================================================================
+
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
@@ -40,16 +50,16 @@ OUT_DIR.mkdir(exist_ok=True)
 PARAMS_XLSX = Path("B_results/single_annular_bemt_params.xlsx")
 PARAMS_SHEET = "single_bemt_az_fit"
 
-# Fan centre (x_c, y_c)
+# Fan centre (x_c, y_c) in arena metres.
 FAN_CENTER_XY = (4.2, 2.4)
 
-# Units / labels
-CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"  # vertical velocity
+# Axis and colorbar units used in exported figures.
+CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"  # vertical velocity in m/s
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
 # Tick positions for compact A4 layout
-# Line widths
+# Line widths are fixed for figure-to-figure comparability.
 
 AXIS_EDGE_LW = 0.80
 CBAR_EDGE_LW = AXIS_EDGE_LW
@@ -58,11 +68,11 @@ GRID_LINEWIDTH = 0.4
 
 
 # Exponential opacity mapping versus normalized w (= 0..1).
-# alpha(0) = 0 (fully transparent), alpha(1) = 1 (fully opaque).
+# Alpha maps normalized velocity monotonically so weak updraft remains visually subordinate.
 ALPHA_EXP_RATE = 0.005
 LEGEND_FONTSIZE = 8.5
 
-# Fan outlet marker (single fan)
+# Fan outlet marker in arena coordinates (m).
 FAN_OUTLET_X = 4.2
 FAN_OUTLET_Y = 2.4
 FAN_OUTLET_DIAMETER = 0.8
@@ -70,11 +80,11 @@ FAN_OUTLET_EDGE_LW = 0.7
 FAN_OUTLET_ALPHA = 0.6
 FAN_OUTLET_DASH = (0, (2, 2))
 
-# Color scale
+# Fixed color scale keeps heights and model families visually comparable.
 PLOT_VMIN = 0.0
 PLOT_VMAX = 8.0
 
-# Continuous grid resolution
+# Dense display grid only affects plot interpolation, not fitted data.
 GRID_NX = 240
 GRID_NY = 180
 
@@ -82,7 +92,10 @@ GRID_NY = 180
 SHEET_HEIGHT_DIVISOR = 100.0
 
 
-# Helpers
+# =============================================================================
+# 2) Workbook Loading and Plot Construction
+# =============================================================================
+
 def build_alpha_cmap() -> mcolors.ListedColormap:
     """
     Build a thermal colormap with exponential alpha versus normalized w.
@@ -128,7 +141,7 @@ def parse_sheet_height_m(sheet_name: str) -> float:
 
 def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """
-    Reads your grid sheet:
+    Read the workbook grid layout:
       - row 0, col 1.. = x coordinates
       - col 0, row 1.. = y coordinates
       - interior = scalar field values
@@ -136,16 +149,16 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """
     raw = pd.read_excel(xlsx_path, sheet_name=sheet_name, header=None)
 
-    # x along first row (skip [0,0])
+    # Workbook grid stores x coordinates in the first row after the corner cell.
     x = pd.to_numeric(raw.iloc[0, 1:], errors="coerce").to_numpy(dtype=float)
 
-    # y along first column (skip [0,0])
+    # Workbook grid stores y coordinates in the first column after the corner cell.
     y = pd.to_numeric(raw.iloc[1:, 0], errors="coerce").to_numpy(dtype=float)
 
-    # field values
+    # Measured vertical-velocity block (m/s).
     w_map = raw.iloc[1:, 1:].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
 
-    # sanity checks
+    # Workbook grid shape must match y-by-x coordinates.
     if w_map.shape != (y.size, x.size):
         raise ValueError(
             f"Shape mismatch in {sheet_name}: W{w_map.shape}, y({y.size}), x({x.size})."
@@ -298,11 +311,11 @@ def plot_continuous_heatmap(x, y, w_field, outpath: Path):
     """
     Plot continuous model heat map using the same axis settings as annuli heat maps.
     """
-    # Convert center grids -> edges for pcolormesh
+    # Pcolormesh requires cell edges; this preserves the measured cell-centre layout.
     x_edges = centers_to_edges(x)
     y_edges = centers_to_edges(y)
 
-    # Figure styling
+    # White background and hidden top/right spines match the thesis figure style.
     plt.rcParams.update({
         "font.size": 10,
         "axes.labelsize": 9,
@@ -317,7 +330,7 @@ def plot_continuous_heatmap(x, y, w_field, outpath: Path):
 
     fig, ax = plt.subplots(figsize=(5.2, 3.0), dpi=600)  # 2-per-row on A4 landscape
 
-    # Continuous heatmap
+    # Interpolated grid is for display only; fitted or measured values remain unchanged.
     cmap_alpha = build_alpha_cmap()
     im = ax.pcolormesh(
         x_edges,
@@ -337,7 +350,7 @@ def plot_continuous_heatmap(x, y, w_field, outpath: Path):
         zorder=4,
     )
 
-    # Fan outlet marker (thin dashed ring)
+    # Dashed fan outline anchors the arena-frame fan geometry.
     outlet = Circle(
         (FAN_OUTLET_X, FAN_OUTLET_Y),
         radius=FAN_OUTLET_DIAMETER / 2.0,
@@ -351,7 +364,7 @@ def plot_continuous_heatmap(x, y, w_field, outpath: Path):
     )
     ax.add_patch(outlet)
 
-    # Colorbar
+    # Colorbar ticks use the fixed velocity scale for cross-figure comparison.
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="2.990%", pad=0.22)
     cbar = fig.colorbar(im, cax=cax)
@@ -370,7 +383,7 @@ def plot_continuous_heatmap(x, y, w_field, outpath: Path):
         spine.set_edgecolor("k")
         spine.set_linewidth(CBAR_EDGE_LW)
 
-    # Axes
+    # Equal aspect preserves arena geometry in plan view.
     ax.set_xlabel(XLABEL)
     ax.set_ylabel(YLABEL)
     ax.set_aspect("equal", adjustable="box")  # 1:1 grid without stretching
@@ -378,7 +391,7 @@ def plot_continuous_heatmap(x, y, w_field, outpath: Path):
     ax.grid(True, color=GRID_COLOR, linewidth=GRID_LINEWIDTH)
     for spine in ax.spines.values():
         spine.set_linewidth(AXIS_EDGE_LW)
-    # Fixed axis ticks (no centering) with 2-decimal labels
+    # Fixed two-decimal ticks avoid implicit re-centering between figures.
     xticks = np.arange(0.0, 8.4 + 1e-9, 1.4)
     yticks = np.arange(0.0, 4.8 + 1e-9, 0.8)
     ax.set_xticks(xticks)
@@ -401,12 +414,12 @@ def plot_continuous_heatmap(x, y, w_field, outpath: Path):
     if leg is not None:
         leg.get_frame().set_linewidth(AXIS_EDGE_LW)
 
-    # Tighten limits to match annuli heat map extents
+    # Axis limits match the annuli heat-map domain instead of padded defaults.
     ax.set_xlim(0.0, 8.4)
     ax.set_ylim(0.0, 4.8)
 
     fig.tight_layout()
-    # Shorten colorbar and align its bottom with the x-axis baseline
+    # Colorbar is manually aligned to the x-axis baseline for thesis layout.
     ax_pos = ax.get_position()
     cax_pos = cax.get_position()
     new_h = ax_pos.height * 0.82
@@ -421,7 +434,10 @@ def plot_continuous_heatmap(x, y, w_field, outpath: Path):
     plt.close(fig)
 
 
-### Export each sheet as PNG
+# =============================================================================
+# 3) Batch Figure Export
+# =============================================================================
+
 def main() -> None:
     params_df, param_cols = load_bemt_params(PARAMS_XLSX, PARAMS_SHEET)
 
@@ -446,15 +462,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
 
 

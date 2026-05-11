@@ -20,9 +20,7 @@ Input annuli profiles are taken from single_fan_annuli_cut.py:
     <sheet>_single_annuli_profile.csv
 """
 
-###### Initialization
 
-### Imports
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -39,7 +37,19 @@ from single_fan_annuli_cut import (
 )
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Fitting Configuration and Data Sources
+# 2) Data Containers
+# 3) Data Loading and Fit Utilities
+# 4) Fitting Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Fitting Configuration and Data Sources
+# =============================================================================
+
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 ANNULI_PROFILE_DIR = Path("B_results/Single_Fan_Annuli_Profile")
@@ -47,14 +57,14 @@ ANNULI_PROFILE_DIR = Path("B_results/Single_Fan_Annuli_Profile")
 OUT_AZ_PARAMS_XLSX = Path("B_results/single_annular_bemt_params.xlsx")
 OUT_AZ_PARAMS_SHEET = "single_bemt_az_fit"
 
-# Fan centre (x_c, y_c)
+# Fan centre (x_c, y_c) in arena metres.
 FAN_CENTER_XY = (4.2, 2.4)
 
 # Uncertainty assignment
 SIGMA_FALLBACK = 0.2
 SIGMA_MIN = 1e-3
 
-# Optional masking
+# Zero masking is disabled unless zero-valued cells represent missing data.
 MASK_ZEROS_AS_NODATA = False
 
 # Non-axisymmetric model settings
@@ -112,7 +122,10 @@ AUTO_TUNE_CANDIDATES = (
 SHEET_HEIGHT_DIVISOR = 100.0
 
 
-### Data classes
+# =============================================================================
+# 2) Data Containers
+# =============================================================================
+
 @dataclass(frozen=True)
 class AzimuthalBounds:
     """Bounds for non-axisymmetric annular-Gaussian fitting."""
@@ -171,7 +184,10 @@ class HyperTuneTrial:
     summary: FitSummary
 
 
-### Helpers
+# =============================================================================
+# 3) Data Loading and Fit Utilities
+# =============================================================================
+
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
     Parse sheet names like z020, z110, z220 into meters.
@@ -197,16 +213,16 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """
     raw = pd.read_excel(xlsx_path, sheet_name=sheet_name, header=None)
 
-    # x along first row (skip [0,0])
+    # Workbook grid stores x coordinates in the first row after the corner cell.
     x = pd.to_numeric(raw.iloc[0, 1:], errors="coerce").to_numpy(dtype=float)
 
-    # y along first column (skip [0,0])
+    # Workbook grid stores y coordinates in the first column after the corner cell.
     y = pd.to_numeric(raw.iloc[1:, 0], errors="coerce").to_numpy(dtype=float)
 
-    # field values
+    # Measured vertical-velocity block (m/s).
     w_map = raw.iloc[1:, 1:].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
 
-    # sanity checks
+    # Workbook grid shape must match y-by-x coordinates.
     if w_map.shape != (y.size, x.size):
         raise ValueError(
             f"Shape mismatch in {sheet_name}: W{w_map.shape}, y({y.size}), x({x.size})."
@@ -1005,7 +1021,10 @@ def autotune_fit_hyper(
     return selected.hyper, selected.fit_results, trials
 
 
-### Main
+# =============================================================================
+# 4) Fitting Export Entry Point
+# =============================================================================
+
 def main() -> None:
     if ENABLE_HYPERPARAM_AUTOTUNE:
         selected_hyper, fit_results, _trials = autotune_fit_hyper(SHEETS)

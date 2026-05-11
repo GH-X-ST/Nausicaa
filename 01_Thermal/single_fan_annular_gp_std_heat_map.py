@@ -14,6 +14,19 @@ from scipy.interpolate import RegularGridInterpolator
 from single_fan_gp_heat_map import load_gp_mean_sheet
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# 2) Workbook Loading and Plot Construction
+# 3) Figure Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# =============================================================================
+
+
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 GP_GRID_XLSX = Path(
     "B_results/Single_Fan_Annular_GP/single_annular_gp_grid_predictions.xlsx"
@@ -40,6 +53,10 @@ FAN_OUTLET_DIAMETER = 0.8
 FAN_OUTLET_EDGE_LW = 1.1
 FAN_OUTLET_ALPHA = 0.6
 FAN_OUTLET_DASH = (0, (2, 2))
+
+# =============================================================================
+# 2) Workbook Loading and Plot Construction
+# =============================================================================
 
 
 def build_alpha_cmap():
@@ -221,6 +238,10 @@ def plot_continuous_heatmap(
         dpi=600,
     )
     plt.close(fig)
+
+# =============================================================================
+# 3) Figure Export Entry Point
+# =============================================================================
 
 
 def main() -> None:

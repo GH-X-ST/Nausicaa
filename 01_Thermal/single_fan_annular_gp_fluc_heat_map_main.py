@@ -4,6 +4,17 @@ import single_fan_annular_gp_fluc_heat_map as fluc_plot
 import single_fan_annular_gp_total_fluc_heat_map_main as total_main
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Figure Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Figure Export Entry Point
+# =============================================================================
+
+
 def main() -> None:
     grid_xlsx = fluc_plot.resolve_grid_xlsx()
     if not grid_xlsx.exists():

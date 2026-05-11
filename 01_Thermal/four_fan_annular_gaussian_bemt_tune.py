@@ -9,12 +9,31 @@ import pandas as pd
 import four_fan_annular_gaussian_bemt as base
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Tuning Configuration and Data Sources
+# 2) Data Containers
+# 3) Tuning Table Builders
+# 4) Tuning Report Export
+# =============================================================================
+
+# =============================================================================
+# 1) Tuning Configuration and Data Sources
+# =============================================================================
+
+
 TUNING_REPORT_XLSX = Path("B_results/four_annular_bemt_tuning_report.xlsx")
 TUNING_SHEET_NAME = "tuning"
 WRMSE_TIE_TOL = 1.0e-4
 
 
 @dataclass(frozen=True)
+
+# =============================================================================
+# 2) Data Containers
+# =============================================================================
+
 class JointTuneCandidate:
     name: str
     fan_fourier_order: Tuple[int, ...]
@@ -116,6 +135,10 @@ JOINT_AUTO_TUNE_CANDIDATES = (
         fan_harmonic_order_weight_exp=(1.5, 1.5, 1.5, 1.5),
     ),
 )
+
+# =============================================================================
+# 3) Tuning Table Builders
+# =============================================================================
 
 
 def apply_candidate(candidate: JointTuneCandidate) -> None:
@@ -224,6 +247,10 @@ def autotune_joint_candidate() -> Tuple[
         )
     print(f"Selected four-fan candidate: {selected_trial.candidate.name}")
     return selected_trial.candidate, selected_trial, trials
+
+# =============================================================================
+# 4) Tuning Report Export
+# =============================================================================
 
 
 def main() -> None:

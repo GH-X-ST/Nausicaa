@@ -1,6 +1,3 @@
-###### Initialization
-
-### Imports
 import re
 from pathlib import Path
 
@@ -11,10 +8,25 @@ import matplotlib.patheffects as pe
 from matplotlib.ticker import FormatStrFormatter
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
+
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Sampling Plot Configuration
+# 2) Workbook Parsing
+# 3) Sampling Plot Construction
+# 4) Sampling Figure Export
+# =============================================================================
+
 try:
     import cmocean
 except ImportError:  # Fallback if cmocean isn't installed
     cmocean = None
+
+# =============================================================================
+# 1) Sampling Plot Configuration
+# =============================================================================
+
 
 FONT_SIZE_DELTA = 2
 plt.rcParams.update({"font.size": plt.rcParams.get("font.size", 10) + FONT_SIZE_DELTA})
@@ -30,7 +42,10 @@ LEGEND_BORDERPAD = 0.5
 LEGEND_LABEL_SPACING = 0.2
 
 
-### Parsing utilities
+# =============================================================================
+# 2) Workbook Parsing
+# =============================================================================
+
 def parse_points_multiheader(excel_path: str, sheet_name: str):
     """
     Parse TS-like sheets where 3 points are laid out across columns,
@@ -150,7 +165,10 @@ def build_summary(excel_path: str):
     return pd.DataFrame.from_records(records)
 
 
-### Plotting
+# =============================================================================
+# 3) Sampling Plot Construction
+# =============================================================================
+
 def add_mean_std_band(
     ax,
     x,
@@ -172,10 +190,10 @@ def add_mean_std_band(
     lower = mean - std
 
     verts_band = []
-    # upper curve forward
+    # Forward upper boundary segment starts the filled uncertainty ribbon.
     for xi, zi in zip(x, upper):
         verts_band.append((xi, y_const, zi))
-    # lower curve backward to close
+    # Reversed lower boundary closes the filled uncertainty ribbon.
     for xi, zi in zip(x[::-1], lower[::-1]):
         verts_band.append((xi, y_const, zi))
 
@@ -196,7 +214,7 @@ def add_mean_std_band(
     )
     ax.add_collection3d(poly_mean)
 
-    # mean line
+    # Mean line connects repeated-point summaries for scan comparison.
     ax.plot(
         x,
         np.full_like(x, y_const),
@@ -243,7 +261,7 @@ def plot_point_3d(
     x_pos = float(pos.iloc[0]["x_m"]) if not pos.empty else None
     y_pos = float(pos.iloc[0]["y_m"]) if not pos.empty else None
 
-    # Sort outlet heights so the stacked "slices" are ordered (draw lowermost first)
+    # Drawing lowermost slices first keeps stacked sampling profiles visible.
     outlet_levels = sorted(d["z_outlet_m"].unique(), reverse=True)
 
     fig = plt.figure(figsize=(10, 5))
@@ -282,7 +300,7 @@ def plot_point_3d(
             mean_label=mean_label,
         )
 
-        # all raw points
+        # Raw samples remain visible behind summary markers for measurement audit.
         for row in dd.itertuples(index=False):
             w_vals = np.asarray(row.w_vals, dtype=float)
             ax.scatter(
@@ -295,7 +313,7 @@ def plot_point_3d(
                 label="_nolegend_",
             )
 
-        # mean markers
+        # Mean markers summarize repeated samples at each measurement point.
         ax.scatter(
             x,
             np.full_like(x, y0),
@@ -421,6 +439,10 @@ def plot_point_3d(
     )
     plt.close(fig)
 
+# =============================================================================
+# 4) Sampling Figure Export
+# =============================================================================
+
 
 def main():
     excel_path = "S01.xlsx"  # <-- change if needed
@@ -463,6 +485,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 

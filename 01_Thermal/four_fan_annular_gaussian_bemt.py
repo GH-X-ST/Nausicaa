@@ -15,9 +15,7 @@ Each fan can use independent N_f, robust loss, robust f_scale, and
 harmonic regularization hyper-parameters.
 """
 
-###### Initialization
 
-### Imports
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -35,7 +33,19 @@ from four_fan_annuli_cut import (
 )
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Fitting Configuration and Data Sources
+# 2) Data Containers
+# 3) Data Loading and Fit Utilities
+# 4) Fitting Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Fitting Configuration and Data Sources
+# =============================================================================
+
 XLSX_PATH = "S02.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 ANNULI_PROFILE_DIR = Path("B_results/Four_Fan_Annuli_Profile")
@@ -56,7 +66,7 @@ FOUR_FAN_CENTERS_XY = (
 SIGMA_FALLBACK = 0.2
 SIGMA_MIN = 1e-3
 
-# Optional masking
+# Zero masking is disabled unless zero-valued cells represent missing data.
 MASK_ZEROS_AS_NODATA = False
 
 # Non-axisymmetric model settings
@@ -131,7 +141,10 @@ AUTO_TUNE_CANDIDATES = (
 SHEET_HEIGHT_DIVISOR = 100.0
 
 
-### Data classes
+# =============================================================================
+# 2) Data Containers
+# =============================================================================
+
 @dataclass(frozen=True)
 class AzimuthalBounds:
     """Bounds for non-axisymmetric annular-Gaussian fitting."""
@@ -213,7 +226,10 @@ class JointFitResult:
     cost: float
 
 
-### Helpers
+# =============================================================================
+# 3) Data Loading and Fit Utilities
+# =============================================================================
+
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
     Parse sheet names like z020, z110, z220 into meters.
@@ -239,16 +255,16 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """
     raw = pd.read_excel(xlsx_path, sheet_name=sheet_name, header=None)
 
-    # x along first row (skip [0,0])
+    # Workbook grid stores x coordinates in the first row after the corner cell.
     x = pd.to_numeric(raw.iloc[0, 1:], errors="coerce").to_numpy(dtype=float)
 
-    # y along first column (skip [0,0])
+    # Workbook grid stores y coordinates in the first column after the corner cell.
     y = pd.to_numeric(raw.iloc[1:, 0], errors="coerce").to_numpy(dtype=float)
 
-    # field values
+    # Measured vertical-velocity block (m/s).
     w_map = raw.iloc[1:, 1:].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
 
-    # sanity checks
+    # Workbook grid shape must match y-by-x coordinates.
     if w_map.shape != (y.size, x.size):
         raise ValueError(
             f"Shape mismatch in {sheet_name}: W{w_map.shape}, y({y.size}), x({x.size})."
@@ -1588,7 +1604,10 @@ def write_joint_fit_tables(
         df_hyper.to_excel(writer, index=False, sheet_name=OUT_AZ_HYPER_SHEET)
 
 
-### Main
+# =============================================================================
+# 4) Fitting Export Entry Point
+# =============================================================================
+
 def main() -> None:
     validate_joint_fan_settings()
 

@@ -8,9 +8,6 @@ Model (per height z_k):
     w(r; z_k) = w0(z_k) + A(z_k) * exp(-(r / delta(z_k))**2)
 """
 
-###### Initialization
-
-### Imports
 
 from __future__ import annotations
 
@@ -29,13 +26,26 @@ from single_fan_annuli_cut import (
 )
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Fitting Configuration and Data Sources
+# 2) Data Containers
+# 3) Data Loading and Fit Utilities
+# 4) Core Model Evaluation
+# 5) Fitting and Diagnostics
+# 6) Fitting Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Fitting Configuration and Data Sources
+# =============================================================================
 
 XLSX_PATH = "S01.xlsx"
 ANNULI_PROFILE_DIR = Path("B_results/Single_Fan_Annuli_Profile")
 OUT_XLSX_PATH = Path("B_results/single_var_params.xlsx")
 
-# Update if your fan center is different.
+# Fan centre (x_c, y_c) in arena metres.
 FAN_CENTER_XY = (4.2, 2.4)
 
 # z020 -> 0.20 m, z110 -> 1.10 m, etc.
@@ -60,7 +70,9 @@ WRMSE_TIE_TOLERANCE = 1.0e-4
 W0_MARGIN_MPS = 1.0
 
 
-### Data classes
+# =============================================================================
+# 2) Data Containers
+# =============================================================================
 
 @dataclass(frozen=True)
 class FitConfig:
@@ -158,7 +170,9 @@ class SmoothGaussianModel:
         return plain_gaussian(r, a=a, delta=delta, w0=w0)
 
 
-# Helpers
+# =============================================================================
+# 3) Data Loading and Fit Utilities
+# =============================================================================
 
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
@@ -410,7 +424,9 @@ def load_annuli_profile_csv(
     return r_bins, w_bins, n_bins, sigma_bins
 
 
-# Model
+# =============================================================================
+# 4) Core Model Evaluation
+# =============================================================================
 
 def plain_gaussian(r: np.ndarray, a: float, delta: float, w0: float) -> np.ndarray:
     """Evaluate w(r) = w0 + A * exp(-(r / delta)^2)."""
@@ -436,7 +452,9 @@ def build_smooth_gaussian_model(
     )
 
 
-# Fitting
+# =============================================================================
+# 5) Fitting and Diagnostics
+# =============================================================================
 
 
 def w0_bounds_from_plane(
@@ -889,7 +907,9 @@ def run_solver_autotune(
     return selected_config, selected.z_vals, selected.params, trials
 
 
-### Main
+# =============================================================================
+# 6) Fitting Export Entry Point
+# =============================================================================
 
 def main() -> None:
     config = FitConfig(

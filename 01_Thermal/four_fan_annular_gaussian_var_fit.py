@@ -14,9 +14,7 @@ Fine-tuning additions in this version:
 - anchor fallback if configured anchor heights are missing.
 """
 
-###### Initialization
 
-### Imports
 from pathlib import Path
 from typing import Optional, Tuple
 import re
@@ -26,7 +24,19 @@ import pandas as pd
 from scipy.interpolate import PchipInterpolator
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Interpolation Configuration and Data Sources
+# 2) Interpolation and Evaluation Helpers
+# 3) Data Containers
+# 4) Parameter Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Interpolation Configuration and Data Sources
+# =============================================================================
+
 PARAMS_XLSX = Path("B_results/four_annular_var_params.xlsx")
 PARAMS_SHEET = "four_annular_var"
 
@@ -34,7 +44,7 @@ OUT_XLSX_PATH = Path("B_results/four_annular_var_params_pchip.xlsx")
 OUT_SHEET_NAME = "four_annular_var_pchip"
 
 # Output z grid (meters). Use None to infer from fitted data.
-# NOTE: Setting Z_MIN_M below the fitted min or Z_MAX_M above the fitted max
+# PCHIP extrapolates when Z_MIN_M or Z_MAX_M lies outside the fitted height range.
 # extrapolates. Low-z extrapolation can be held with ENABLE_LOW_Z_EDGE_HOLD.
 Z_MIN_M = 0.0
 Z_MAX_M = 3.5
@@ -55,7 +65,10 @@ ENABLE_LOW_Z_EDGE_HOLD = True
 ALLOW_ANCHOR_FALLBACK = True
 
 
-### Helpers
+# =============================================================================
+# 2) Interpolation and Evaluation Helpers
+# =============================================================================
+
 REQUIRED_COLUMNS = ("z_m", "A_ring", "r_ring", "delta_r", "w0")
 FAN_COL_PATTERN = re.compile(r"^A_ring_(F\d{2})$")
 
@@ -248,6 +261,10 @@ def ring_gaussian(
     """
     return w0 + a_ring * np.exp(-((r - r_ring) / delta_r) ** 2)
 
+# =============================================================================
+# 3) Data Containers
+# =============================================================================
+
 
 class RingModel:
     """
@@ -430,7 +447,10 @@ def write_interpolated_table_multi(
     df_out.to_excel(out_path, index=False, sheet_name=sheet_name)
 
 
-### Main
+# =============================================================================
+# 4) Parameter Export Entry Point
+# =============================================================================
+
 def main() -> None:
     params_df = load_params_table(PARAMS_XLSX, PARAMS_SHEET)
     fan_ids = discover_fan_ids(params_df)

@@ -1,6 +1,3 @@
-###### Initialization
-
-### Imports
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -33,11 +30,23 @@ from single_fan_annuli_cut import (
 )
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) GP Training Configuration and Data Sources
+# 2) Data Containers
+# 3) GP Feature Engineering and Diagnostics
+# 4) Training and Diagnostic Export
+# =============================================================================
+
+# =============================================================================
+# 1) GP Training Configuration and Data Sources
+# =============================================================================
+
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
-# Fan centre (x_c, y_c) in meters.
+# Fan centre (x_c, y_c) in arena metres.
 FAN_CENTER_XY = (4.2, 2.4)
 SHEET_HEIGHT_DIVISOR = 100.0
 
@@ -79,7 +88,10 @@ GRID_PRED_XLSX_PATH = OUT_DIR / "single_gp_grid_predictions.xlsx"
 ANALYSIS_XLSX_PATH = "B_results/single_gp_analysis.xlsx"
 ANALYSIS_SHEET_NAME = "single_gp_analysis"
 
-### Data model
+# =============================================================================
+# 2) Data Containers
+# =============================================================================
+
 @dataclass
 class GPModelBundle:
     """
@@ -141,7 +153,10 @@ class GPTuneTrial:
     n_folds: int
 
 
-### Helpers
+# =============================================================================
+# 3) GP Feature Engineering and Diagnostics
+# =============================================================================
+
 def ensure_path(path_like: str | Path) -> Path:
     """
     Convert a string/Path into a Path object.
@@ -1067,7 +1082,10 @@ def write_table_to_excel_no_index(
             table.to_excel(writer, index=False, sheet_name=sheet_name)
 
 
-### Main
+# =============================================================================
+# 4) Training and Diagnostic Export
+# =============================================================================
+
 def main() -> None:
     out_dir = ensure_path(OUT_DIR)
     train_pred_csv_path = ensure_path(TRAIN_PRED_CSV_PATH)
@@ -1210,7 +1228,7 @@ def main() -> None:
             "autotune_cv": autotune_cv_df,
         },
     )
-    # Add analysis-style SAE/SSE/WRMSE table into summary workbook.
+    # Summary workbook includes SAE/SSE/WRMSE for cross-model diagnostics.
     write_table_to_excel_no_index(
         summary_xlsx_path,
         analysis_df,

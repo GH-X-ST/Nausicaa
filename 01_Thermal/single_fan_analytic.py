@@ -1,6 +1,3 @@
-###### Initialization
-
-### Imports
 import os
 import subprocess
 
@@ -13,7 +10,19 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from skimage.measure import marching_cubes
 
 
-### Code version
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Version Provenance
+# 2) Plot Constants and Colormap
+# 3) Core Thermal Model Evaluation
+# 4) Figure Generation Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Version Provenance
+# =============================================================================
+
 def get_git_version() -> str:
     """
     Return a short git description string (tag/commit), or 'unknown' if not in a repo.
@@ -30,10 +39,13 @@ def get_git_version() -> str:
 
 CODE_VERSION = get_git_version()
 
-### Plot settings
+# =============================================================================
+# 2) Plot Constants and Colormap
+# =============================================================================
+
 make_plots = True
 
-# Base colormap, modified to fade to white at low w
+# Low-speed fade prevents near-zero updraft from dominating the figure background.
 base_cmap = plt.cm.YlOrRd
 colors = base_cmap(np.linspace(0.0, 1.0, 256))
 
@@ -47,7 +59,9 @@ for i in range(N_fade):
 cmap_white0 = mcolors.ListedColormap(colors)
 
 
-##### Thermal Vertical Velocity Field Model
+# =============================================================================
+# 3) Core Thermal Model Evaluation
+# =============================================================================
 
 def vertical_velocity_field(
     Q_v: float,
@@ -106,7 +120,9 @@ def vertical_velocity_field(
     return w
 
 
-### Setup
+# =============================================================================
+# 4) Figure Generation Entry Point
+# =============================================================================
 
 if __name__ == "__main__" and make_plots:
 
@@ -139,7 +155,7 @@ if __name__ == "__main__" and make_plots:
     z_th_slice = 1.5  # m
     Z_slice = np.full_like(X_2d, z_th_slice)
 
-    # compute w at that height
+    # Single-height plume velocity slice in m/s.
     W_slice = vertical_velocity_field(
         Q_v=Q_v,
         R_th0=R_th0,

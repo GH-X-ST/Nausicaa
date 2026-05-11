@@ -15,9 +15,7 @@ Reference upstream annuli profile naming from single_fan_annuli_cut.py:
     <sheet>_single_annuli_profile.csv
 """
 
-###### Initialization
 
-### Imports
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -26,7 +24,18 @@ import pandas as pd
 from scipy.interpolate import PchipInterpolator
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Interpolation Configuration and Data Sources
+# 2) Interpolation and Evaluation Helpers
+# 3) Parameter Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Interpolation Configuration and Data Sources
+# =============================================================================
+
 PARAMS_XLSX = Path("B_results/single_annular_bemt_params.xlsx")
 PARAMS_SHEET = "single_bemt_az_fit"
 
@@ -34,7 +43,7 @@ OUT_XLSX_PATH = Path("B_results/single_annular_bemt_params_pchip.xlsx")
 OUT_SHEET_NAME = "single_bemt_az_pchip"
 
 # Output z grid (meters). Use None to infer from fitted data.
-# NOTE: Setting Z_MIN_M below fitted min or Z_MAX_M above fitted max extrapolates.
+# PCHIP extrapolates when Z_MIN_M or Z_MAX_M lies outside the fitted height range.
 # Keep this aligned with single_fan_annular_gaussian_var_fit.py.
 Z_MIN_M = 0.0
 Z_MAX_M = 3.5
@@ -74,7 +83,10 @@ ALLOW_ANCHOR_FALLBACK = True
 R_RING_MIN_CLIP_M = 0.0
 
 
-### Helpers
+# =============================================================================
+# 2) Interpolation and Evaluation Helpers
+# =============================================================================
+
 def select_anchor_indices(z_vals: np.ndarray) -> Optional[np.ndarray]:
     """
     Locate indices for HIGH_Z_ANCHOR_POINTS_M in z_vals.
@@ -411,7 +423,10 @@ def write_interpolated_table(
     df_out.to_excel(out_path, index=False, sheet_name=sheet_name)
 
 
-### Main
+# =============================================================================
+# 3) Parameter Export Entry Point
+# =============================================================================
+
 def main() -> None:
     params_df = load_params_table(PARAMS_XLSX, PARAMS_SHEET)
     param_cols = discover_param_columns(params_df)

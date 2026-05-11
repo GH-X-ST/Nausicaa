@@ -18,6 +18,19 @@ from annular_gp_models import (
 )
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) GP Training Configuration and Data Sources
+# 2) GP Feature Engineering and Diagnostics
+# 3) Training and Diagnostic Export
+# =============================================================================
+
+# =============================================================================
+# 1) GP Training Configuration and Data Sources
+# =============================================================================
+
+
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 FAN_CENTER_XY = (4.2, 2.4)
@@ -59,6 +72,10 @@ SUMMARY_XLSX_PATH = OUT_DIR / "single_annular_gp_summary.xlsx"
 GRID_PRED_XLSX_PATH = OUT_DIR / "single_annular_gp_grid_predictions.xlsx"
 ANALYSIS_XLSX_PATH = Path("B_results/single_annular_gp_analysis.xlsx")
 ANALYSIS_SHEET_NAME = "single_annular_gp_analysis"
+
+# =============================================================================
+# 2) GP Feature Engineering and Diagnostics
+# =============================================================================
 
 
 def ensure_output_target_writable(path: Path) -> None:
@@ -336,6 +353,10 @@ def evaluate_grid_fluctuation_sigma(
         sigma_fallback=SIGMA_FALLBACK,
         sigma_min=SIGMA_MIN,
     )
+
+# =============================================================================
+# 3) Training and Diagnostic Export
+# =============================================================================
 
 
 def main() -> None:

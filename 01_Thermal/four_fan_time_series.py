@@ -1,6 +1,3 @@
-###### Initialization
-
-### Imports
 import re
 from pathlib import Path
 
@@ -10,11 +7,29 @@ import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
 from matplotlib.ticker import FormatStrFormatter
 
+
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Sampling Plot Configuration
+# 2) Workbook Parsing
+# 3) Sampling Plot Construction
+# 4) Sampling Figure Export
+# =============================================================================
+
+# =============================================================================
+# 1) Sampling Plot Configuration
+# =============================================================================
+
+
 FONT_SIZE_DELTA = 2
 plt.rcParams.update({"font.size": plt.rcParams.get("font.size", 10) + FONT_SIZE_DELTA})
 
 
-### Parsing utilities
+# =============================================================================
+# 2) Workbook Parsing
+# =============================================================================
+
 def parse_points_multiheader(excel_path: str, sheet_name: str):
     """
     Parse TS-like sheets where 3 points are laid out across columns,
@@ -133,7 +148,10 @@ def build_summary(excel_path: str):
     return pd.DataFrame.from_records(records)
 
 
-### Plotting
+# =============================================================================
+# 3) Sampling Plot Construction
+# =============================================================================
+
 def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
     d = summary_df[summary_df["point"] == point_id].copy()
     if d.empty:
@@ -231,7 +249,7 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
             ],
         )
 
-    # all raw points
+    # Raw samples remain visible behind summary markers for measurement audit.
     for row in dd.itertuples(index=False):
         w_vals = np.asarray(row.w_vals, dtype=float)
         ax.scatter(
@@ -253,6 +271,10 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
     fig.tight_layout()
     fig.savefig(out_path, dpi=600)
     plt.close(fig)
+
+# =============================================================================
+# 4) Sampling Figure Export
+# =============================================================================
 
 
 def main():

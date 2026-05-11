@@ -10,9 +10,7 @@ Uncertainty is assigned at sample level using sampled-fan inheritance and
 distance blending between all fan-centred fluctuation profiles.
 """
 
-###### Initialization
 
-### Imports
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
 
@@ -24,14 +22,25 @@ from scipy.spatial import QhullError
 import four_fan_gp as sigma_gp
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Annulus Profile Configuration and Data Sources
+# 2) Annulus Binning and Uncertainty Assignment
+# 3) Batch CSV Export
+# =============================================================================
+
+# =============================================================================
+# 1) Annulus Profile Configuration and Data Sources
+# =============================================================================
+
 XLSX_PATH = "S02.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
 OUT_DIR = Path("B_results/Four_Fan_Annuli_Profile")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Four-fan centers (x_f, y_f)
+# Four-fan centres (x_f, y_f) in arena metres.
 FOUR_FAN_CENTERS_XY = (
     (3.0, 3.6),
     (5.4, 3.6),
@@ -42,7 +51,7 @@ FOUR_FAN_CENTERS_XY = (
 # Annulus thickness (m)
 DELTA_R_M = 0.30
 
-# Use median rather than mean within each annulus
+# Median aggregation is an optional robustness choice for outlier-prone annuli.
 USE_MEDIAN_PROFILE = False
 
 # Uncertainty assignment. The overlap constants are retained for compatibility
@@ -53,8 +62,12 @@ OVERLAP_RATIO_THRESHOLD = 1.25
 OVERLAP_WEIGHT_POWER = 2.0
 OVERLAP_SIGMA_BOOST = 1.12
 
-# Optional masking
+# Zero masking is disabled unless zero-valued cells represent missing data.
 MASK_ZEROS_AS_NODATA = False
+
+# =============================================================================
+# 2) Annulus Binning and Uncertainty Assignment
+# =============================================================================
 
 
 def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
@@ -590,7 +603,10 @@ def save_profile_csv(
     df.to_csv(out_path, index=False)
 
 
-### Export each sheet as CSV
+# =============================================================================
+# 3) Batch CSV Export
+# =============================================================================
+
 def main() -> None:
     for sh in SHEETS:
         r_bins, w_bins, n_bins, alpha_bins, sigma_bins = build_annuli_profile(

@@ -26,7 +26,25 @@ from four_fan_annular_gp_total_fluc_heat_map import (
     resolve_out_dir,
 )
 
+
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# 2) Workbook Loading and Plot Construction
+# 3) Figure Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# =============================================================================
+
+
 ANNULUS_EDGE_LW_MAIN = 0.60
+
+# =============================================================================
+# 2) Workbook Loading and Plot Construction
+# =============================================================================
 
 
 def plot_continuous_heatmap_with_annuli(
@@ -159,6 +177,10 @@ def plot_continuous_heatmap_with_annuli(
     cax.set_position([cax_pos.x0, ax_pos.y0, cax_pos.width, ax_pos.height * 0.82])
     fig.savefig(outpath, bbox_inches="tight", facecolor="white", dpi=600)
     plt.close(fig)
+
+# =============================================================================
+# 3) Figure Export Entry Point
+# =============================================================================
 
 
 def main() -> None:

@@ -15,6 +15,19 @@ from single_fan_gp_heat_map import load_gp_mean_sheet
 from single_fan_annuli_cut import parse_ts_points_and_sigmas
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# 2) Workbook Loading and Plot Construction
+# 3) Figure Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# =============================================================================
+
+
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 XLSX_PATH = "S01.xlsx"
 GP_GRID_XLSX = Path(
@@ -46,6 +59,10 @@ FAN_OUTLET_DASH = (0, (2, 2))
 ANNULUS_EDGE_COLOR = (0.0, 0.0, 0.0, 0.32)
 ANNULUS_EDGE_LW = 0.80
 ANNULUS_EDGE_DASH = (0, (1.2, 2.0))
+
+# =============================================================================
+# 2) Workbook Loading and Plot Construction
+# =============================================================================
 
 
 def build_alpha_cmap():
@@ -272,6 +289,10 @@ def plot_continuous_heatmap(
     cax.set_position([cax_pos.x0, ax_pos.y0, cax_pos.width, new_h])
     fig.savefig(outpath, bbox_inches="tight", facecolor="white", dpi=600)
     plt.close(fig)
+
+# =============================================================================
+# 3) Figure Export Entry Point
+# =============================================================================
 
 
 def main() -> None:

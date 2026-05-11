@@ -8,9 +8,6 @@ Model (per height z_k):
     w(r; z_k) = w0(z_k) + A(z_k) * exp(-(r / delta(z_k))**2)
 """
 
-###### Initialization
-
-### Imports
 
 from __future__ import annotations
 
@@ -27,7 +24,20 @@ from scipy.spatial import QhullError
 import four_fan_gp as sigma_gp
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Fitting Configuration and Data Sources
+# 2) Data Containers
+# 3) Data Loading and Fit Utilities
+# 4) Core Model Evaluation
+# 5) Fitting and Diagnostics
+# 6) Fitting Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Fitting Configuration and Data Sources
+# =============================================================================
 
 XLSX_PATH = "S02.xlsx"
 ANNULI_PROFILE_DIR = Path("B_results/Four_Fan_Annuli_Profile")
@@ -75,7 +85,9 @@ FAN_ROBUST_LOSS = ("soft_l1", "soft_l1", "soft_l1", "soft_l1")
 FAN_ROBUST_F_SCALE = (1.0, 1.0, 1.0, 1.0)
 
 
-### Data classes
+# =============================================================================
+# 2) Data Containers
+# =============================================================================
 
 @dataclass(frozen=True)
 class FitConfig:
@@ -190,7 +202,9 @@ class SmoothGaussianModel:
         return w
 
 
-# Helpers
+# =============================================================================
+# 3) Data Loading and Fit Utilities
+# =============================================================================
 
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
@@ -684,7 +698,9 @@ def load_annuli_profile_csv(
     return r_bins, w_bins, n_bins, sigma_bins
 
 
-# Model
+# =============================================================================
+# 4) Core Model Evaluation
+# =============================================================================
 
 def plain_gaussian(r: np.ndarray, a: float, delta: float, w0: float) -> np.ndarray:
     """Evaluate w(r) = w0 + A * exp(-(r / delta)^2)."""
@@ -710,7 +726,9 @@ def build_smooth_gaussian_model(
     )
 
 
-# Fitting
+# =============================================================================
+# 5) Fitting and Diagnostics
+# =============================================================================
 
 
 def w0_bounds_from_plane(
@@ -1856,7 +1874,9 @@ def run_solver_autotune(
     return selected_config, selected.z_vals, selected.params, trials
 
 
-### Main
+# =============================================================================
+# 6) Fitting Export Entry Point
+# =============================================================================
 
 def main() -> None:
     config = FitConfig(

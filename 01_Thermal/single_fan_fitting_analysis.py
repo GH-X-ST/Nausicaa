@@ -1,6 +1,3 @@
-###### Initialization
-
-### Imports
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +6,20 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 
 
-# Legend styling
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Metric Configuration and Data Sources
+# 2) Metric Loading and Diagnostics
+# 3) Analysis Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Metric Configuration and Data Sources
+# =============================================================================
+
+# Legend styling is shared across RMSE and SAE comparison figures.
+
 LEGEND_FONT_SIZE = 10.5
 AXIS_EDGE_LW = 0.80
 LEGEND_FRAME_LW = AXIS_EDGE_LW
@@ -18,7 +28,7 @@ LEGEND_BBOX_TO_ANCHOR = (1.15, 1.05)
 LEGEND_HANDLE_LENGTH = 1.5
 LEGEND_BORDERPAD = 0.5
 LEGEND_LABEL_SPACING = 0.4
-# Manual y-axis limits per plot
+# Fixed y-limits keep model-comparison figures visually stable.
 WRMSE_Y_LIMITS = (0.0, 0.60)
 SAE_Y_LIMITS = (0.0, 40.0)
 
@@ -75,6 +85,10 @@ STACK_ORDER_TOP_TO_BOTTOM = [
     "single_var",
 ]
 STACK_ORDER_BOTTOM_TO_TOP = list(reversed(STACK_ORDER_TOP_TO_BOTTOM))
+
+# =============================================================================
+# 2) Metric Loading and Diagnostics
+# =============================================================================
 
 
 def load_per_height_metrics(excel_path: Path):
@@ -231,6 +245,10 @@ def plot_metric_2d(
     fig.tight_layout()
     fig.savefig(out_path, dpi=600)
     plt.close(fig)
+
+# =============================================================================
+# 3) Analysis Export Entry Point
+# =============================================================================
 
 
 def main():

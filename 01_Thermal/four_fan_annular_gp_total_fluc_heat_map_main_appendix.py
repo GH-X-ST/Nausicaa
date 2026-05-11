@@ -27,6 +27,18 @@ from four_fan_annular_gp_total_fluc_heat_map import (
 )
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Workbook Loading and Plot Construction
+# 2) Figure Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Workbook Loading and Plot Construction
+# =============================================================================
+
+
 def plot_continuous_heatmap_with_annuli(
     x: np.ndarray,
     y: np.ndarray,
@@ -168,6 +180,10 @@ def plot_continuous_heatmap_with_annuli(
     cax.set_position([cax_pos.x0, ax_pos.y0, cax_pos.width, ax_pos.height * 0.82])
     fig.savefig(outpath, bbox_inches="tight", facecolor="white", dpi=600)
     plt.close(fig)
+
+# =============================================================================
+# 2) Figure Export Entry Point
+# =============================================================================
 
 
 def main() -> None:

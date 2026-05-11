@@ -9,9 +9,6 @@ Model (per height z_k, per fan f):
                   * exp(-((r - r_ring_f(z_k)) / delta_r_f(z_k))**2)
 """
 
-###### Initialization
-
-### Imports
 
 from __future__ import annotations
 
@@ -33,7 +30,20 @@ from four_fan_annuli_cut import (
 )
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Fitting Configuration and Data Sources
+# 2) Data Containers
+# 3) Data Loading and Fit Utilities
+# 4) Core Model Evaluation
+# 5) Fitting and Diagnostics
+# 6) Fitting Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Fitting Configuration and Data Sources
+# =============================================================================
 
 XLSX_PATH = "S02.xlsx"
 ANNULI_PROFILE_DIR = Path("B_results/Four_Fan_Annuli_Profile")
@@ -82,7 +92,9 @@ FAN_ROBUST_LOSS = ("soft_l1", "soft_l1", "soft_l1", "soft_l1")
 FAN_ROBUST_F_SCALE = (1.0, 1.0, 1.0, 1.0)
 
 
-### Data classes
+# =============================================================================
+# 2) Data Containers
+# =============================================================================
 
 @dataclass(frozen=True)
 class FitConfig:
@@ -196,7 +208,9 @@ class SmoothRingModel:
         return ring_gaussian(r, a_ring=a_ring, r_ring=r_ring, delta_r=delta_r, w0=w0)
 
 
-# Helpers
+# =============================================================================
+# 3) Data Loading and Fit Utilities
+# =============================================================================
 
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
@@ -448,7 +462,9 @@ def load_annuli_profile_csv(
     return r_bins, w_bins, n_bins, sigma_bins
 
 
-# Model
+# =============================================================================
+# 4) Core Model Evaluation
+# =============================================================================
 
 def ring_gaussian(r: np.ndarray, a_ring: float, r_ring: float, delta_r: float, w0: float) -> np.ndarray:
     """Evaluate w(r) = w0 + A_ring * exp(-((r - r_ring) / delta_r)^2)."""
@@ -476,7 +492,9 @@ def build_smooth_ring_model(
     )
 
 
-# Fitting
+# =============================================================================
+# 5) Fitting and Diagnostics
+# =============================================================================
 
 def default_r_ring_bounds_by_z(z_m: float) -> Tuple[float, float]:
     """
@@ -1360,7 +1378,9 @@ def evaluate_joint_fit_on_raw_maps(
     return overall, per_fan
 
 
-### Main
+# =============================================================================
+# 6) Fitting Export Entry Point
+# =============================================================================
 
 def main() -> None:
     config = FitConfig(

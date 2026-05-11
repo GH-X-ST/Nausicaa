@@ -7,9 +7,7 @@ from annuli_cut.py, while keeping the same x/y axis settings as the original
 heat map.
 """
 
-###### Initialization
 
-### Imports
 from pathlib import Path
 from typing import Tuple
 
@@ -23,7 +21,19 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import cmocean  # https://matplotlib.org/cmocean
 
-### User settings
+
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# 2) Workbook Loading and Plot Construction
+# 3) Batch Figure Export
+# =============================================================================
+
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# =============================================================================
+
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
@@ -38,29 +48,29 @@ MASK_ZEROS_AS_NODATA = False
 # Used only as a fallback if spacing cannot be inferred from r_m.
 DELTA_R_M = 0.30
 
-# Use median rather than mean within each annulus
+# Median aggregation is an optional robustness choice for outlier-prone annuli.
 USE_MEDIAN_PROFILE = False
 
-# Fan centre (x_c, y_c)
+# Fan centre (x_c, y_c) in arena metres.
 FAN_CENTER_XY = (4.2, 2.4)
 
-# Units / labels
-CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"  # vertical velocity
+# Axis and colorbar units used in exported figures.
+CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"  # vertical velocity in m/s
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
 # Tick positions for compact A4 layout
-# Line widths
+# Line widths are fixed for figure-to-figure comparability.
 CELL_EDGE_LW = 0.30
 AXIS_EDGE_LW = 0.80
 CBAR_EDGE_LW = AXIS_EDGE_LW
 LEGEND_FONTSIZE = 8.5
 
 # Exponential opacity mapping versus normalized w (= 0..1).
-# alpha(0) = 0 (fully transparent), alpha(1) = 1 (fully opaque).
+# Alpha maps normalized velocity monotonically so weak updraft remains visually subordinate.
 ALPHA_EXP_RATE = 0.005
 
-# Fan outlet marker (single fan)
+# Fan outlet marker in arena coordinates (m).
 FAN_OUTLET_X = 4.2
 FAN_OUTLET_Y = 2.4
 FAN_OUTLET_DIAMETER = 0.8
@@ -69,7 +79,10 @@ FAN_OUTLET_ALPHA = 0.6
 FAN_OUTLET_DASH = (0, (2, 2))
 
 
-# Helpers
+# =============================================================================
+# 2) Workbook Loading and Plot Construction
+# =============================================================================
+
 def build_alpha_cmap() -> mcolors.ListedColormap:
     """
     Build a thermal colormap with exponential alpha versus normalized w.
@@ -104,7 +117,7 @@ def centers_to_edges(c: np.ndarray) -> np.ndarray:
 
 def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """
-    Reads your grid sheet:
+    Read the workbook grid layout:
       - row 0, col 1.. = x coordinates
       - col 0, row 1.. = y coordinates
       - interior = scalar field values
@@ -112,16 +125,16 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """
     raw = pd.read_excel(xlsx_path, sheet_name=sheet_name, header=None)
 
-    # x along first row (skip [0,0])
+    # Workbook grid stores x coordinates in the first row after the corner cell.
     x = pd.to_numeric(raw.iloc[0, 1:], errors="coerce").to_numpy(dtype=float)
 
-    # y along first column (skip [0,0])
+    # Workbook grid stores y coordinates in the first column after the corner cell.
     y = pd.to_numeric(raw.iloc[1:, 0], errors="coerce").to_numpy(dtype=float)
 
-    # field values
+    # Measured vertical-velocity block (m/s).
     W = raw.iloc[1:, 1:].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
 
-    # sanity checks
+    # Workbook grid shape must match y-by-x coordinates.
     if W.shape != (y.size, x.size):
         raise ValueError(
             f"Shape mismatch in {sheet_name}: W{W.shape}, y({y.size}), x({x.size})."
@@ -227,13 +240,13 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
     if delta_r <= 0.0:
         raise ValueError("delta_r must be positive.")
 
-    # Convert center grids -> edges for axis settings
+    # Cell edges keep axis limits tied to measured sample centres.
     x_edges = centers_to_edges(x)
     y_edges = centers_to_edges(y)
     x_centers = 0.5 * (x_edges[:-1] + x_edges[1:])
     y_centers = 0.5 * (y_edges[:-1] + y_edges[1:])
 
-    # Figure styling
+    # White background and hidden top/right spines match the thesis figure style.
     plt.rcParams.update({
         "font.size": 10,
         "axes.labelsize": 9,
@@ -287,7 +300,7 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
         )
         ax.add_patch(ring)
 
-    # Fan outlet marker (thin dashed ring)
+    # Dashed fan outline anchors the arena-frame fan geometry.
     outlet = Circle(
         (FAN_OUTLET_X, FAN_OUTLET_Y),
         radius=FAN_OUTLET_DIAMETER / 2.0,
@@ -301,7 +314,7 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
     )
     ax.add_patch(outlet)
 
-    # Colorbar
+    # Colorbar ticks use the fixed velocity scale for cross-figure comparison.
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="2.990%", pad=0.22)
     mappable = plt.cm.ScalarMappable(norm=norm, cmap=cmap_alpha)
@@ -322,13 +335,13 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
         spine.set_edgecolor("k")
         spine.set_linewidth(CBAR_EDGE_LW)
 
-    # Axes
+    # Equal aspect preserves arena geometry in plan view.
     ax.set_xlabel(XLABEL)
     ax.set_ylabel(YLABEL)
     ax.set_aspect("equal", adjustable="box")  # 1:1 grid without stretching
     for spine in ax.spines.values():
         spine.set_linewidth(AXIS_EDGE_LW)
-    # Fixed axis ticks (no centering) with 2-decimal labels
+    # Fixed two-decimal ticks avoid implicit re-centering between figures.
     xticks = np.arange(0.0, 8.4 + 1e-9, 1.4)
     yticks = np.arange(0.0, 4.8 + 1e-9, 0.8)
     ax.set_xticks(xticks)
@@ -356,7 +369,7 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
     ax.set_ylim(0.0, 4.8)
 
     fig.tight_layout()
-    # Shorten colorbar and align its bottom with the x-axis baseline
+    # Colorbar is manually aligned to the x-axis baseline for thesis layout.
     ax_pos = ax.get_position()
     cax_pos = cax.get_position()
     new_h = ax_pos.height * 0.82
@@ -371,7 +384,10 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
     plt.close(fig)
 
 
-### Export each sheet as PNG
+# =============================================================================
+# 3) Batch Figure Export
+# =============================================================================
+
 def main():
     for sh in SHEETS:
         x, y, W = read_slice_from_sheet(XLSX_PATH, sh)
@@ -397,8 +413,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
 
 

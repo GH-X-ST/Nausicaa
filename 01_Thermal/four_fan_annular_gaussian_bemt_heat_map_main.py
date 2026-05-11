@@ -17,9 +17,7 @@ Total model:
     w_model(x, y) = sum_f w_f(x, y)
 """
 
-###### Initialization
 
-### Imports
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 import re
@@ -34,7 +32,19 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import cmocean  # https://matplotlib.org/cmocean
 
-### User settings
+
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# 2) Workbook Loading and Plot Construction
+# 3) Batch Figure Export
+# =============================================================================
+
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# =============================================================================
+
 XLSX_PATH = "S02.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
@@ -51,34 +61,34 @@ FOUR_FAN_CENTERS_XY = (
     (5.4, 1.2),
 )
 
-# Units / labels
+# Axis and colorbar units used in exported figures.
 CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
-# Line widths
+# Line widths are fixed for figure-to-figure comparability.
 AXIS_EDGE_LW = 0.80
 CBAR_EDGE_LW = AXIS_EDGE_LW
 GRID_COLOR = (0.85, 0.85, 0.85, 1.0)
 GRID_LINEWIDTH = 0.4
 
 # Exponential opacity mapping versus normalized w (= 0..1).
-# alpha(0) = 0 (fully transparent), alpha(1) = 1 (fully opaque).
+# Alpha maps normalized velocity monotonically so weak updraft remains visually subordinate.
 ALPHA_EXP_RATE = 0.005
 LEGEND_FONTSIZE = 8.5
 
-# Fan outlet markers (four fans)
+# Fan outlet markers in arena coordinates (m).
 FAN_OUTLET_POINTS = list(FOUR_FAN_CENTERS_XY)
 FAN_OUTLET_DIAMETER = 0.8
 FAN_OUTLET_EDGE_LW = 0.7
 FAN_OUTLET_ALPHA = 0.6
 FAN_OUTLET_DASH = (0, (2, 2))
 
-# Color scale
+# Fixed color scale keeps heights and model families visually comparable.
 PLOT_VMIN = 0.0
 PLOT_VMAX = 8.0
 
-# Continuous grid resolution
+# Dense display grid only affects plot interpolation, not fitted data.
 GRID_NX = 240
 GRID_NY = 180
 
@@ -87,7 +97,10 @@ SHEET_HEIGHT_DIVISOR = 100.0
 FAN_COL_PATTERN = re.compile(r"^a0_(F\d{2})$")
 
 
-# Helpers
+# =============================================================================
+# 2) Workbook Loading and Plot Construction
+# =============================================================================
+
 def build_alpha_cmap() -> mcolors.ListedColormap:
     """
     Build a thermal colormap with exponential alpha versus normalized w.
@@ -497,7 +510,10 @@ def plot_continuous_heatmap(
     plt.close(fig)
 
 
-### Export each sheet as PNG
+# =============================================================================
+# 3) Batch Figure Export
+# =============================================================================
+
 def main() -> None:
     params_df = load_bemt_params(PARAMS_XLSX, PARAMS_SHEET)
     fan_ids = discover_fan_ids(params_df)
@@ -543,6 +559,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
 
 

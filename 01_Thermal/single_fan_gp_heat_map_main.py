@@ -6,9 +6,7 @@ For each height sheet, GP mean predictions are loaded from:
 Then the field is interpolated onto a dense uniform grid and plotted.
 """
 
-###### Initialization
 
-### Imports
 from pathlib import Path
 from typing import Tuple
 
@@ -23,19 +21,31 @@ from scipy.interpolate import RegularGridInterpolator
 
 import cmocean  # https://matplotlib.org/cmocean
 
-### User settings
+
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# 2) Workbook Loading and Plot Construction
+# 3) Batch Figure Export
+# =============================================================================
+
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# =============================================================================
+
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
 GP_GRID_XLSX = Path("B_results/Single_Fan_GP/single_gp_grid_predictions.xlsx")
 OUT_DIR = Path("A_figures/Single_Fan_GP")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Units / labels
+# Axis and colorbar units used in exported figures.
 CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
-# Line widths
+# Line widths are fixed for figure-to-figure comparability.
 
 AXIS_EDGE_LW = 0.80
 CBAR_EDGE_LW = AXIS_EDGE_LW
@@ -44,11 +54,11 @@ GRID_LINEWIDTH = 0.4
 
 
 # Exponential opacity mapping versus normalized w (= 0..1).
-# alpha(0) = 0 (fully transparent), alpha(1) = 1 (fully opaque).
+# Alpha maps normalized velocity monotonically so weak updraft remains visually subordinate.
 ALPHA_EXP_RATE = 0.005
 LEGEND_FONTSIZE = 8.5
 
-# Fan outlet marker (single fan)
+# Fan outlet marker in arena coordinates (m).
 FAN_OUTLET_X = 4.2
 FAN_OUTLET_Y = 2.4
 FAN_OUTLET_DIAMETER = 0.8
@@ -56,12 +66,12 @@ FAN_OUTLET_EDGE_LW = 0.7
 FAN_OUTLET_ALPHA = 0.6
 FAN_OUTLET_DASH = (0, (2, 2))
 
-# Color scale
+# Fixed color scale keeps heights and model families visually comparable.
 PLOT_VMIN = 0.0
 PLOT_VMAX = 8.0
 CBAR_TICK_STEP = None
 
-# Continuous grid resolution
+# Dense display grid only affects plot interpolation, not fitted data.
 GRID_NX = 240
 GRID_NY = 180
 
@@ -87,7 +97,10 @@ def build_cbar_ticks(vmin: float, vmax: float) -> np.ndarray:
     return np.arange(float(vmin), float(vmax) + 1e-9, step, dtype=float)
 
 
-### Helpers
+# =============================================================================
+# 2) Workbook Loading and Plot Construction
+# =============================================================================
+
 def build_alpha_cmap() -> mcolors.ListedColormap:
     """
     Build a thermal colormap with exponential alpha versus normalized w.
@@ -330,7 +343,10 @@ def plot_continuous_heatmap(
     plt.close(fig)
 
 
-### Export each sheet as PNG
+# =============================================================================
+# 3) Batch Figure Export
+# =============================================================================
+
 def main() -> None:
     if not GP_GRID_XLSX.exists():
         raise FileNotFoundError(f"Missing GP grid workbook: {GP_GRID_XLSX}")
@@ -353,13 +369,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
 
 

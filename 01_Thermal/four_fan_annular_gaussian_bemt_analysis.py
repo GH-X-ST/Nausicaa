@@ -8,9 +8,7 @@ Metrics reported:
 4) Total weighted RMSE across all heights
 """
 
-###### Initialization
 
-### Imports
 from __future__ import annotations
 
 from pathlib import Path
@@ -28,7 +26,18 @@ from four_fan_annuli_cut import (
 )
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Metric Configuration and Data Sources
+# 2) Metric Loading and Diagnostics
+# 3) Analysis Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Metric Configuration and Data Sources
+# =============================================================================
+
 XLSX_PATH = "S02.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
@@ -55,7 +64,10 @@ REQUIRED_BASE_COLUMNS = ("z_m", "w0", "r_ring", "delta_ring", "a0")
 FAN_COL_PATTERN = re.compile(r"^a0_(F\d{2})$")
 
 
-### Helpers
+# =============================================================================
+# 2) Metric Loading and Diagnostics
+# =============================================================================
+
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
     Parse heights from names like z020, z110, z220.
@@ -253,7 +265,10 @@ def write_results(df: pd.DataFrame, out_xlsx: Path, sheet_name: str) -> None:
             df.to_excel(writer, index=False, sheet_name=sheet_name)
 
 
-### Main
+# =============================================================================
+# 3) Analysis Export Entry Point
+# =============================================================================
+
 def main() -> None:
     fit_df = load_fit_table(FIT_XLSX_PATH, FIT_SHEET_NAME)
     fan_ids = discover_fan_ids(fit_df)

@@ -7,12 +7,29 @@ import numpy as np
 from scipy.interpolate import PchipInterpolator
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) 3D Plot Configuration and Data Sources
+# 2) Model Loading and 3D Field Evaluation
+# 3) 3D Figure Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) 3D Plot Configuration and Data Sources
+# =============================================================================
+
+
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 GRID_PRED_XLSX = Path(
     "B_results/Four_Fan_Annular_GP/four_annular_gp_grid_predictions.xlsx"
 )
 OUT_DIR = Path("A_figures/Four_Fan_Annular_GP")
 OUT_3D_NAME = "four_annular_gp_3d.png"
+
+# =============================================================================
+# 2) Model Loading and 3D Field Evaluation
+# =============================================================================
 
 
 def get_base_3d_module():
@@ -109,6 +126,10 @@ def load_annular_gp_stack(
     z_axis = z_axis[order]
     w_stack = np.stack([w_layers[idx] for idx in order], axis=0)
     return x_ref, y_ref, z_axis, w_stack
+
+# =============================================================================
+# 3) 3D Figure Export Entry Point
+# =============================================================================
 
 
 def main() -> None:

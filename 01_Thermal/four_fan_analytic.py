@@ -1,6 +1,3 @@
-###### Initialization
-
-### Imports
 import os
 import subprocess
 
@@ -13,7 +10,19 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from skimage.measure import marching_cubes
 
 
-### Code version
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Version Provenance
+# 2) Single-Plume Model Evaluation
+# 3) Multi-Plume Model Evaluation
+# 4) Figure Generation Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Version Provenance
+# =============================================================================
+
 def get_git_version() -> str:
     """
     Return a short git description string (tag/commit), or 'unknown' if not in a repo.
@@ -32,7 +41,7 @@ CODE_VERSION = get_git_version()
 
 make_plots = True
 
-# Base colormap, modified to fade to white at low w
+# Low-speed fade prevents near-zero updraft from dominating the figure background.
 base_cmap = plt.cm.YlOrRd
 colors = base_cmap(np.linspace(0.0, 1.0, 256))
 
@@ -46,9 +55,9 @@ for i in range(N_fade):
 cmap_white0 = mcolors.ListedColormap(colors)
 
 
-##### Thermal Vertical Velocity Field Model
-
-### Gaussian plume model to compute w(R, z) for a single thermal
+# =============================================================================
+# 2) Single-Plume Model Evaluation
+# =============================================================================
 
 def vertical_velocity_field(
     Q_v: float,
@@ -110,7 +119,9 @@ def vertical_velocity_field(
     return w
 
 
-### Gaussian plume model to compute w(x, y, z) for multiple thermals
+# =============================================================================
+# 3) Multi-Plume Model Evaluation
+# =============================================================================
 
 def vertical_velocity_field_multi(
     Q_v: float,
@@ -143,7 +154,9 @@ def vertical_velocity_field_multi(
     return w_total
 
 
-### Setup
+# =============================================================================
+# 4) Figure Generation Entry Point
+# =============================================================================
 
 if __name__ == "__main__" and make_plots:
 
@@ -185,7 +198,7 @@ if __name__ == "__main__" and make_plots:
     z_slice = 1.0  # m
     Z_slice = z_slice * np.ones_like(X_2d)
 
-    # compute vertical velocity field at that height
+    # Single-height multi-plume velocity slice in m/s.
     W_slice = vertical_velocity_field_multi(
         Q_v=Q_v,
         R_th0=R_th0,
@@ -298,20 +311,20 @@ if __name__ == "__main__" and make_plots:
             zorder=0,
         )
 
-    # Axis limits
+    # Axis limits preserve the physical arena bounds.
     ax3d.set_xlim(x_min, x_max)
     ax3d.set_ylim(y_min, y_max)
     ax3d.set_zlim(z_min, z_max)
 
-    # Labels
+    # Axis labels use arena coordinates in metres.
     ax3d.set_xlabel("x (m)")
     ax3d.set_ylabel("y (m)")
     ax3d.set_zlabel("z (m)")
 
-    # Realistic aspect ratio
+    # Aspect ratio follows arena dimensions so plume shape is not distorted.
     ax3d.set_box_aspect((x_max - x_min, y_max - y_min, z_max - z_min))
 
-    # Colourbar for w
+    # Colorbar reports vertical velocity in m/s.
     mappable = mpl.cm.ScalarMappable(norm=norm, cmap=cmap_white0)
     mappable.set_array([])
     fig_3d.colorbar(
@@ -329,7 +342,7 @@ if __name__ == "__main__" and make_plots:
         axis._axinfo["grid"]["linewidth"] = 0.5
         axis.set_pane_color((1.0, 1.0, 1.0, 0.0))
 
-    # Camera view
+    # Camera angle exposes plume height and plan-view spread.
     ax3d.view_init(elev=7.0, azim=-111.0)
 
     fig_3d.tight_layout()

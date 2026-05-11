@@ -38,12 +38,9 @@ Outputs:
 
 Notes:
 - Sheet naming convention: z110 is interpreted as 1.10 m (110/100), not 0.110 m.
-- Update FAN_CENTER_XY to match your coordinate system.
+- FAN_CENTER_XY records the arena-frame fan centre used for radial geometry.
 """
 
-###### Initialization
-
-### Imports
 
 from __future__ import annotations
 
@@ -57,13 +54,26 @@ from scipy.interpolate import PchipInterpolator
 from scipy.optimize import least_squares
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Fitting Configuration and Data Sources
+# 2) Data Containers
+# 3) Data Loading and Fit Utilities
+# 4) Core Model Evaluation
+# 5) Fitting and Diagnostics
+# 6) Fitting Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Fitting Configuration and Data Sources
+# =============================================================================
 
 XLSX_PATH = "/mnt/data/S01.xlsx"
 ANNULI_PROFILE_DIR = Path("B_results/Single_Fan_Annuli_Profile")
 OUT_XLSX_PATH = Path("B_results/single_annular_avg_params.xlsx")
 
-# Update if your fan center is different.
+# Fan centre (x_c, y_c) in arena metres.
 FAN_CENTER_XY = (4.2, 2.4)
 
 # Fan geometry (used only for commentary / reasonable bounds guidance).
@@ -74,7 +84,9 @@ FAN_RADIUS_M = FAN_DIAMETER_M / 2.0
 SHEET_HEIGHT_DIVISOR = 100.0
 
 
-### Data classes
+# =============================================================================
+# 2) Data Containers
+# =============================================================================
 
 @dataclass(frozen=True)
 class FitConfig:
@@ -134,7 +146,9 @@ class SmoothRingModel:
         return ring_gaussian(r, a_ring=a_ring, r_ring=r_ring, delta_r=delta_r, w0=w0)
 
 
-# Helpers
+# =============================================================================
+# 3) Data Loading and Fit Utilities
+# =============================================================================
 
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
@@ -268,7 +282,9 @@ def load_annuli_profile_csv(
     return r_bins[order], w_bins[order], n_bins[order]
 
 
-# Model
+# =============================================================================
+# 4) Core Model Evaluation
+# =============================================================================
 
 def ring_gaussian(r: np.ndarray, a_ring: float, r_ring: float, delta_r: float, w0: float) -> np.ndarray:
     """Evaluate the ring Gaussian model w(r) = w0 + A_ring * exp(-((r - r_ring) / delta_r)^2)."""
@@ -341,14 +357,16 @@ def make_radial_profile(
     return r_bins[order], w_bins[order], n_bins[order]
 
 
-# Fitting
+# =============================================================================
+# 5) Fitting and Diagnostics
+# =============================================================================
 
 def default_r_ring_bounds_by_z(z_m: float) -> Tuple[float, float]:
     """
     Height-dependent bounds for ring peak radius r_ring(z).
 
     Near the outlet, constrain around the fan radius band; higher up allow expansion.
-    Adjust to taste based on your observed maps.
+    Tune these bounds only when measured maps justify a wider annular radius range.
     """
     if z_m <= 0.35:
         return 0.20, 0.65
@@ -469,7 +487,7 @@ def fit_all_heights(
     z_vals = np.array(z_list, dtype=float)
     params = np.vstack(params_list)
 
-    # Sort by height for interpolation.
+    # PCHIP requires monotonically increasing height samples.
     order = np.argsort(z_vals)
     z_vals = z_vals[order]
     params = params[order]
@@ -492,7 +510,9 @@ def fit_all_heights(
     return z_vals, params, model
 
 
-### Main
+# =============================================================================
+# 6) Fitting Export Entry Point
+# =============================================================================
 
 def main() -> None:
     mean_sheets = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -513,7 +533,7 @@ def main() -> None:
     for z_m, (a_ring, r_ring, delta_r, w0) in zip(z_vals, params):
         print(f"{z_m:5.2f}  {a_ring:9.4f}  {r_ring:8.4f}  {delta_r:10.4f}  {w0:9.4f}")
 
-    # Save results to Excel
+    # Results workbook is the reproducible parameter handoff to later scripts.
     out_dir = OUT_XLSX_PATH.parent
     out_dir.mkdir(parents=True, exist_ok=True)
     df_out = pd.DataFrame(

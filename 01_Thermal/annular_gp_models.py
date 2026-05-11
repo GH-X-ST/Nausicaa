@@ -21,6 +21,19 @@ from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Shared GP Constants
+# 2) Data Containers
+# 3) Feature Engineering and GP Training
+# =============================================================================
+
+# =============================================================================
+# 1) Shared GP Constants
+# =============================================================================
+
+
 FOUR_FAN_ID_PATTERN = re.compile(r"^a0_(F\d{2})$")
 DEFAULT_LENGTH_SCALE_UPPER = 1e2
 DEFAULT_NOISE_LEVEL_BOUNDS = (1e-6, 1e0)
@@ -30,6 +43,10 @@ DEFAULT_LENGTH_SCALE_FLOORS = {
     "polar": np.asarray([0.55, 0.45, 0.45, 0.25], dtype=float),
     "radial": np.asarray([0.55, 0.25], dtype=float),
 }
+
+# =============================================================================
+# 2) Data Containers
+# =============================================================================
 
 
 class MeanModelProtocol(Protocol):
@@ -74,6 +91,10 @@ class ResidualGPModelBundle:
 
         w_mean = self.gp.predict(features_scaled, return_std=False)
         return w_mean.astype(float), np.zeros_like(w_mean, dtype=float)
+
+# =============================================================================
+# 3) Feature Engineering and GP Training
+# =============================================================================
 
 
 def normalize_feature_mode_name(feature_mode: str) -> str:

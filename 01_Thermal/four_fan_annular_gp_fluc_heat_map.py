@@ -3,6 +3,18 @@ from __future__ import annotations
 import four_fan_annular_gp_total_fluc_heat_map as base_plot
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# 2) Figure Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# =============================================================================
+
+
 SHEETS = base_plot.SHEETS
 PLOT_VMIN = base_plot.PLOT_VMIN
 PLOT_VMAX = base_plot.PLOT_VMAX
@@ -14,6 +26,10 @@ build_alpha_cmap = base_plot.build_alpha_cmap
 resolve_grid_xlsx = base_plot.resolve_grid_xlsx
 resolve_out_dir = base_plot.resolve_out_dir
 load_annulus_boundary_levels = base_plot.load_annulus_boundary_levels
+
+# =============================================================================
+# 2) Figure Export Entry Point
+# =============================================================================
 
 
 def main() -> None:

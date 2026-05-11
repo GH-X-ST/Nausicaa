@@ -13,9 +13,7 @@ When per-fan columns exist, each fan is interpolated independently and legacy
 averaged columns are also written for compatibility.
 """
 
-###### Initialization
 
-### Imports
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import re
@@ -25,7 +23,18 @@ import pandas as pd
 from scipy.interpolate import PchipInterpolator
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Interpolation Configuration and Data Sources
+# 2) Interpolation and Evaluation Helpers
+# 3) Parameter Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Interpolation Configuration and Data Sources
+# =============================================================================
+
 PARAMS_XLSX = Path("B_results/four_annular_bemt_params.xlsx")
 PARAMS_SHEET = "four_bemt_az_fit"
 
@@ -65,7 +74,10 @@ R_RING_MIN_CLIP_M = 0.0
 FAN_COL_PATTERN = re.compile(r"^a0_(F\d{2})$")
 
 
-### Helpers
+# =============================================================================
+# 2) Interpolation and Evaluation Helpers
+# =============================================================================
+
 def select_anchor_indices(z_vals: np.ndarray) -> Optional[np.ndarray]:
     """
     Locate indices for HIGH_Z_ANCHOR_POINTS_M in z_vals.
@@ -472,7 +484,10 @@ def write_interpolated_table_multi(
     df_out.to_excel(out_path, index=False, sheet_name=sheet_name)
 
 
-### Main
+# =============================================================================
+# 3) Parameter Export Entry Point
+# =============================================================================
+
 def main() -> None:
     params_df = load_params_table(PARAMS_XLSX, PARAMS_SHEET)
     fan_ids = discover_fan_ids(params_df)

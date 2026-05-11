@@ -16,9 +16,7 @@ Metrics reported:
 where e_{j,k} = w_model(r_{j,k}, z_k) - w_obs_{j,k}.
 """
 
-###### Initialization
 
-### Imports
 from __future__ import annotations
 
 from pathlib import Path
@@ -35,7 +33,18 @@ from four_fan_annuli_cut import (
 )
 
 
-### User settings
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Metric Configuration and Data Sources
+# 2) Metric Loading and Diagnostics
+# 3) Analysis Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Metric Configuration and Data Sources
+# =============================================================================
+
 XLSX_PATH = "S02.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 
@@ -62,7 +71,10 @@ OVERLAP_SIGMA_BOOST = 1.12
 SHEET_HEIGHT_DIVISOR = 100.0
 
 
-### Helpers
+# =============================================================================
+# 2) Metric Loading and Diagnostics
+# =============================================================================
+
 REQUIRED_FIT_COLUMNS = ("z_m", "A_ring", "r_ring", "delta_r", "w0")
 
 
@@ -232,7 +244,10 @@ def write_results(df: pd.DataFrame, out_xlsx: Path, sheet_name: str) -> None:
             df.to_excel(writer, index=False, sheet_name=sheet_name)
 
 
-### Main
+# =============================================================================
+# 3) Analysis Export Entry Point
+# =============================================================================
+
 def main() -> None:
     fit_df = load_fit_table(FIT_XLSX_PATH, FIT_SHEET_NAME)
     fan_ids = discover_fan_ids(fit_df)
@@ -251,7 +266,7 @@ def main() -> None:
         params_fan = params_by_fan_at_z(fit_df, fan_ids=fan_ids, z_m=z_m)
         params_mean = np.mean(params_fan, axis=0)
 
-        # Load raw grid samples directly from the mean sheet.
+        # Mean-sheet samples are the measured reference for model residual diagnostics.
         x_centers, y_centers, W = read_slice_from_sheet(XLSX_PATH, sheet)
         x_grid, y_grid = np.meshgrid(x_centers, y_centers)
         x_pts = x_grid.ravel()

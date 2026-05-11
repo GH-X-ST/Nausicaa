@@ -7,6 +7,19 @@ import cmocean.cm as cmocean
 import single_fan_gp_heat_map_main as base_plot
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# 2) Workbook Loading and Plot Construction
+# 3) Figure Export Entry Point
+# =============================================================================
+
+# =============================================================================
+# 1) Plot Configuration and Data Sources
+# =============================================================================
+
+
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 GP_GRID_XLSX = Path(
     "B_results/Single_Fan_Annular_GP/single_annular_gp_grid_predictions.xlsx"
@@ -16,10 +29,18 @@ PLOT_VMIN = 0.0
 PLOT_VMAX = 0.4
 CBAR_TICK_STEP = 0.05
 
+# =============================================================================
+# 2) Workbook Loading and Plot Construction
+# =============================================================================
+
 
 def build_alpha_cmap():
     """Return an opaque cmocean curl colormap for std maps."""
     return cmocean.curl
+
+# =============================================================================
+# 3) Figure Export Entry Point
+# =============================================================================
 
 
 def main() -> None:
