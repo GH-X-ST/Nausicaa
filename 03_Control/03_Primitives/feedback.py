@@ -19,6 +19,7 @@ from primitive import PrimitiveContext
 # 1) State-Derived Feedback Quantities
 # =============================================================================
 def speed_alpha_beta(x: np.ndarray) -> tuple[float, float, float]:
+    # Body-axis velocity uses the canonical u, v, w state slice
     u, v, w = np.asarray(x[6:9], dtype=float)
     speed = float(np.linalg.norm([u, v, w]))
     alpha = float(np.arctan2(w, max(u, 1e-12)))
@@ -31,6 +32,7 @@ def speed_alpha_beta(x: np.ndarray) -> tuple[float, float, float]:
 # =============================================================================
 def limit_aggregate_command(command_rad: np.ndarray) -> np.ndarray:
     command = np.asarray(command_rad, dtype=float).reshape(3)
+    # Aggregate control limits inherit measured asymmetric surface travel
     lower = np.deg2rad(
         [
             AGGREGATE_LIMITS["delta_a"].negative_deg,
@@ -73,6 +75,7 @@ def attitude_hold_command(
     speed, _alpha, beta = speed_alpha_beta(x)
     kp_phi, kd_p, kp_theta, kd_q, k_beta, kd_r = gains
 
+    # Command signs follow positive roll, pitch-up, and nose-right yaw conventions
     delta_a = kp_phi * (phi_ref_rad - phi) - kd_p * p
     delta_e = (
         context.u_trim[1]

@@ -67,6 +67,7 @@ def build_primitive_context(
 ) -> PrimitiveContext:
     x_trim = np.asarray(x_trim, dtype=float).reshape(15)
     u_trim = np.asarray(u_trim, dtype=float).reshape(3)
+    # Context stores trim quantities once for primitive entry and feedback checks
     return PrimitiveContext(
         x_trim=x_trim,
         u_trim=u_trim,
@@ -89,6 +90,7 @@ def base_entry_conditions(
     reasons: list[str] = []
     if not np.all(np.isfinite(x)):
         reasons.append("state contains non-finite values")
+    # Entry checks use speed, altitude, and attitude only
     speed = float(np.linalg.norm(x[6:9]))
     if speed < 2.5 or speed > 9.5:
         reasons.append(f"speed out of range: {speed:.3f} m/s")

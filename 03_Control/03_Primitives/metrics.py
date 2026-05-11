@@ -70,6 +70,7 @@ def failure_class(
     governor_rejection_reason: str = "",
     wind_model: str = "",
 ) -> str:
+    # Failure classes stay conservative when logs cannot isolate the source
     reason = f"{termination_reason} {governor_rejection_reason}".lower()
     wind = wind_model.lower()
     if not reason.strip():
@@ -139,6 +140,7 @@ def rollout_metrics(
     min_wall = min(float(row["min_wall_distance_m"]) for row in margins)
     inside = all(bool(row["inside_safe_volume"]) for row in margins)
     speed = _speed(state_arr)
+    # Alpha and beta are reported in degrees for human-facing metrics
     alpha = np.arctan2(
         state_arr[:, STATE_INDEX["w"]],
         np.maximum(state_arr[:, STATE_INDEX["u"]], 1e-12),
@@ -188,7 +190,7 @@ def rollout_metrics(
         "candidate_count": int(candidate_count),
         "rejected_count": int(rejected_count),
         "log_path": rel_log_path,
-        # Backwards-compatible fields used by the existing tests and CSV readers.
+        # Legacy CSV readers still consume the original field names
         "primitive_selected": primitive_selected,
         "max_abs_phi_deg": float(
             np.rad2deg(np.max(np.abs(state_arr[:, STATE_INDEX["phi"]])))

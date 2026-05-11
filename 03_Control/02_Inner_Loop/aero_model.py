@@ -16,6 +16,7 @@ from glider import Glider
 # 3) Public aerodynamic helpers
 # 4) Numeric evaluation path
 # 5) Symbolic evaluation path
+# 6) Public evaluation entry point
 # =============================================================================
 
 # =============================================================================
@@ -208,7 +209,7 @@ def section_aero_coefficients(
     )
     cl = sigma * cl_attached + (1.0 - sigma) * cl_post_stall
     cd = sigma * cd_attached + (1.0 - sigma) * cd_post_stall
-    # Diagnostic output only in v1
+    # Pitching moment is a placeholder coefficient in the current strip model
     cm = 0.0 * cl
     return cl, cd, cm
 
@@ -322,7 +323,7 @@ def _evaluate_numeric(
         "m_aero_b": m_aero_b,
     }
     if return_strips:
-        # Diagnostic arrays keep fixed shapes in v1
+        # Diagnostic arrays keep fixed strip-wise shapes
         result["strips"] = {
             "r_strip_b": glider.r_strip_b.copy(),
             "v_rel_b": v_rel_b,
@@ -456,7 +457,7 @@ def _evaluate_symbolic(
 
 
 # =============================================================================
-# Public Evaluation Entry Point
+# 6) Public Evaluation Entry Point
 # =============================================================================
 def evaluate_glider_aero(
     glider: Glider,

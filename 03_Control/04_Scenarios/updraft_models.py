@@ -70,6 +70,7 @@ class RandomisedWindField:
         return f"{self.base.source}; randomisation={updraft_randomisation_label(self.params)}"
 
     def __call__(self, points_w_up_m: np.ndarray) -> np.ndarray:
+        # Randomised fields still accept public z-up world coordinates
         pts = np.asarray(points_w_up_m, dtype=float).reshape(-1, 3).copy()
         center = np.asarray(self.reference_center_xy, dtype=float)
         shift = np.asarray(self.params.centre_shift_m, dtype=float)
@@ -83,6 +84,7 @@ def sample_updraft_randomisation(
     enabled: bool = True,
 ) -> UpdraftRandomisation:
     if not enabled:
+        # Unsupported perturbations remain explicit in the logged label
         return UpdraftRandomisation(
             strength_scale=1.0,
             centre_shift_m=(0.0, 0.0),
@@ -91,6 +93,7 @@ def sample_updraft_randomisation(
             residual_scale="not_applied",
             temporal_variation_scale="not_applied",
         )
+    # Sampling happens once at scenario construction, not inside wind evaluation
     rng = np.random.default_rng(int(seed))
     return UpdraftRandomisation(
         strength_scale=float(rng.uniform(0.85, 1.15)),
@@ -157,6 +160,7 @@ class GaussianVarWindField:
 
     def __call__(self, points_w_up_m: np.ndarray) -> np.ndarray:
         pts = np.asarray(points_w_up_m, dtype=float).reshape(-1, 3)
+        # Gaussian-var parameters are height-dependent fitted profiles
         z = np.clip(pts[:, 2], self.z_axis_m[0], self.z_axis_m[-1])
         w_up = np.zeros(pts.shape[0], dtype=float)
         for fan_id, (cx, cy) in zip(self.fan_ids, self.fan_centers_xy):
@@ -183,6 +187,7 @@ class AnnularGPGridWindField:
 
     def __call__(self, points_w_up_m: np.ndarray) -> np.ndarray:
         pts = np.asarray(points_w_up_m, dtype=float).reshape(-1, 3)
+        # Annular-GP workbooks store horizontal grids at discrete heights
         zq = np.clip(pts[:, 2], self.z_axis_m[0], self.z_axis_m[-1])
         plane_values = np.vstack(
             [
@@ -209,6 +214,7 @@ class AnalyticDebugProxy:
 
     def __call__(self, points_w_up_m: np.ndarray) -> np.ndarray:
         pts = np.asarray(points_w_up_m, dtype=float).reshape(-1, 3)
+        # Analytic proxy is deterministic and labelled as not measured
         dx = pts[:, 0] - SINGLE_FAN_CENTER_XY[0]
         dy = pts[:, 1] - SINGLE_FAN_CENTER_XY[1]
         radial = np.exp(-(dx * dx + dy * dy) / (2.0 * 1.0**2))
@@ -283,6 +289,7 @@ def _load_gaussian(
     fan_ids: tuple[str, ...],
 ) -> GaussianVarWindField:
     df = pd.read_excel(path, sheet_name=sheet_name)
+    # PCHIP preserves smooth fitted height profiles without overshoot-prone polynomials
     z_axis = df["z_m"].to_numpy(dtype=float)
     interpolators = {}
     for col in df.columns:
@@ -322,6 +329,7 @@ def _load_four_gaussian(path: Path, repo_root: Path) -> GaussianVarWindField:
 
 def _load_annular_grid(path: Path, repo_root: Path, name: str) -> AnnularGPGridWindField:
     xls = pd.ExcelFile(path)
+    # Mean sheets are ordered by encoded measurement height
     mean_sheets = sorted(
         sheet for sheet in xls.sheet_names if sheet.endswith("_annular_gp_mean")
     )
@@ -369,6 +377,7 @@ def _bilinear_grid(
     xq: np.ndarray,
     yq: np.ndarray,
 ) -> np.ndarray:
+    # Query points are clipped to the measured grid footprint
     x = np.clip(np.asarray(xq, dtype=float), x_axis[0], x_axis[-1])
     y = np.clip(np.asarray(yq, dtype=float), y_axis[0], y_axis[-1])
     ix = np.clip(np.searchsorted(x_axis, x, side="right") - 1, 0, x_axis.size - 2)

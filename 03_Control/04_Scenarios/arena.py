@@ -34,6 +34,7 @@ class ArenaConfig:
 # 2) Safe-Volume Bounds
 # =============================================================================
 def _total_wall_margin(config: ArenaConfig) -> float:
+    # Wall clearance includes vehicle span, Vicon uncertainty, and launch dispersion
     return (
         float(config.wall_margin_m)
         + float(config.wing_span_margin_m)
@@ -45,6 +46,7 @@ def _total_wall_margin(config: ArenaConfig) -> float:
 def safe_bounds(config: ArenaConfig) -> dict[str, tuple[float, float]]:
     width_x, width_y, height_z = config.physical_volume_m
     if not config.use_safe_volume:
+        # Public world frame uses z up from floor to ceiling
         return {
             "x_w": (0.0, float(width_x)),
             "y_w": (0.0, float(width_y)),
@@ -67,6 +69,7 @@ def safety_margins(
 ) -> dict[str, float | bool]:
     state = np.asarray(x, dtype=float).reshape(15)
     bounds = safe_bounds(config)
+    # Wall distance excludes floor and ceiling margins
     x_w = float(state[STATE_INDEX["x_w"]])
     y_w = float(state[STATE_INDEX["y_w"]])
     z_w = float(state[STATE_INDEX["z_w"]])

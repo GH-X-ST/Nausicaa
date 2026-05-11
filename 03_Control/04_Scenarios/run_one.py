@@ -64,6 +64,7 @@ LOG_DIR = REPO_ROOT / "03_Control" / "05_Results" / "logs"
 def _output_dirs(output_root: str | Path | None) -> tuple[Path, Path]:
     if output_root is None:
         return METRICS_DIR, LOG_DIR
+    # Test runs redirect logs and metrics without changing scenario semantics
     root = Path(output_root)
     return root / "metrics", root / "logs"
 
@@ -84,6 +85,7 @@ def run_scenario(
     scenario = build_scenario(scenario_id, linear_model.x_trim, REPO_ROOT, seed=seed)
     governor = ViabilityGovernor(arena_config=arena)
 
+    # Each scenario run writes one metrics row and an optional rollout log
     metrics_dir, log_dir = _output_dirs(output_root)
     log_path = log_dir / f"{scenario_id}_seed{seed}.csv"
     metrics_path = metrics_dir / f"{scenario_id}_seed{seed}.csv"
@@ -91,6 +93,7 @@ def run_scenario(
     candidate_path = metrics_dir / f"{scenario_id}_seed{seed}_governor_candidates.csv"
 
     if scenario.candidate_primitives:
+        # Candidate-primitives scenarios exercise rollout-based governor selection
         decision = governor.select_primitive(
             scenario_id=scenario.scenario_id,
             primitives=scenario.candidate_primitives,

@@ -42,6 +42,7 @@ class NominalGlidePrimitive:
         context: PrimitiveContext,
     ) -> np.ndarray:
         del t_s
+        # Nominal glide holds the trimmed pitch and zero bank reference
         return attitude_hold_command(
             x=x,
             context=context,
@@ -73,6 +74,7 @@ class BankReversalPrimitive:
 
     def phi_ref(self, t_s: float) -> float:
         b = float(self.bank_angle_rad)
+        # Schedule covers roll-in, hold, reversal, hold, and exit phases
         schedule = (
             (0.0, 0.55, 0.0, b),
             (0.55, 1.10, b, b),
@@ -117,6 +119,7 @@ class RecoveryPrimitive:
         x0: np.ndarray,
         context: PrimitiveContext,
     ) -> EntryConditionResult:
+        # Recovery allows wider attitude errors than nominal manoeuvre entries
         return base_entry_conditions(
             x0=x0,
             context=context,

@@ -22,6 +22,7 @@ from trim_solver import TrimResult, TrimTarget, solve_straight_trim
 # =============================================================================
 # 1) State and Command Indexing
 # =============================================================================
+# Canonical state and command order is shared by dynamics, trim, and tests
 STATE_NAMES = (
     "x_w",
     "y_w",
@@ -85,6 +86,7 @@ def linearise_trim(
         trim_result = solve_straight_trim(aircraft=aircraft, target=target)
 
     x_trim = np.asarray(trim_result.x_trim, dtype=float).reshape(15)
+    # Trimmed surface states define the steady command vector
     u_trim = np.array(
         [
             x_trim[STATE_INDEX["delta_a"]],
@@ -100,6 +102,7 @@ def linearise_trim(
         actuator_tau_s=target.actuator_tau_s,
         wind_mode="none",
     )
+    # CasADi differentiates the full nonlinear plant at the trim point
     a_sym = ca.jacobian(dynamics.x_dot, dynamics.x)
     b_sym = ca.jacobian(dynamics.x_dot, dynamics.u_cmd)
     lin_fun = ca.Function(
@@ -127,12 +130,14 @@ def reduced_model(
     state_names: tuple[str, ...],
     input_names: tuple[str, ...],
 ) -> tuple[np.ndarray, np.ndarray]:
+    # Reduced views preserve the canonical full-state indexing
     state_idx = [STATE_INDEX[name] for name in state_names]
     input_idx = [INPUT_INDEX[name] for name in input_names]
     return model.a[np.ix_(state_idx, state_idx)], model.b[np.ix_(state_idx, input_idx)]
 
 
 def key_derivatives(model: LinearModel) -> dict[str, float]:
+    # Named derivatives support sign and implementation-lag audits
     a = model.a
     b = model.b
     s = STATE_INDEX

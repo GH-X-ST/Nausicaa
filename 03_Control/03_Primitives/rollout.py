@@ -62,6 +62,7 @@ def rk4_step(
     actuator_tau_s: tuple[float, float, float],
     wind_mode: str,
 ) -> np.ndarray:
+    # RK4 samples the plant with fixed command and wind over one integration step
     kwargs = {
         "u_cmd": u_cmd,
         "aircraft": aircraft,
@@ -85,6 +86,7 @@ def violation_reason(
 ) -> str | None:
     if not np.all(np.isfinite(x)):
         return "non-finite state"
+    # Safe-volume checks use the configured indoor arena margins
     margins = safety_margins(x, arena_config)
     if not bool(margins["inside_safe_volume"]):
         return "state outside safe volume"
@@ -132,6 +134,7 @@ def simulate_primitive(
     arena_config = arena_config or ArenaConfig()
     x = np.asarray(x0, dtype=float).reshape(15).copy()
     command_layer.reset(context.u_trim)
+    # Rollout length follows the primitive duration at fixed simulation dt
     steps = int(np.ceil(float(primitive.duration_s) / rollout_config.dt_s))
 
     times = np.empty(steps + 1, dtype=float)
@@ -146,6 +149,7 @@ def simulate_primitive(
     for step in range(steps + 1):
         t_s = min(step * rollout_config.dt_s, float(primitive.duration_s))
         desired = np.asarray(primitive.command(t_s, x, context), dtype=float).reshape(3)
+        # Desired commands pass through quantisation, latency, and surface limits
         target = command_layer.apply(desired)
         loads = evaluate_state(
             x=x,
@@ -211,6 +215,7 @@ def simulate_primitive(
     target_commands = target_commands[: last_idx + 1]
     lower = np.deg2rad([-26.0, -30.0, -35.0])
     upper = np.deg2rad([22.0, 22.0, 28.0])
+    # Saturation is evaluated on aggregate surface targets in radians
     saturated = np.isclose(target_commands, lower, atol=1e-12) | np.isclose(
         target_commands,
         upper,

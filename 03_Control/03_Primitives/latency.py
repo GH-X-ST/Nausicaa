@@ -19,6 +19,7 @@ import numpy as np
 # =============================================================================
 # 1) Command Lattice and Latency Dataclasses
 # =============================================================================
+# Normalised transmitter levels from the measured command interface
 COMMAND_LEVELS = np.array(
     [-1.0, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
     dtype=float,
@@ -34,6 +35,7 @@ class SurfaceLimit:
 
 @dataclass(frozen=True)
 class LatencyEnvelope:
+    # Half-response values are seconds after command issue
     onset_latency_s: float = 0.075
     half_response_low_s: float = 0.101
     half_response_nominal_s: float = 0.111
@@ -53,6 +55,7 @@ class CommandToSurfaceConfig:
 # =============================================================================
 # 2) Surface Limits
 # =============================================================================
+# Direction-specific surface limits are stored in degrees for audit tables
 SURFACE_LIMITS = {
     "Aileron_L": SurfaceLimit("Aileron_L", 22.0, -26.0),
     "Aileron_R": SurfaceLimit("Aileron_R", -22.0, 26.0),
@@ -76,6 +79,7 @@ def actuator_tau_s(
     config = config or CommandToSurfaceConfig()
     envelope = envelope or LatencyEnvelope()
     half = half_response_s(config, envelope)
+    # First-order lag reaches half response after tau * log(2)
     return float((half - envelope.onset_latency_s) / np.log(2.0))
 
 
@@ -103,6 +107,7 @@ def latency_range_s(
     config = config or CommandToSurfaceConfig()
     envelope = envelope or LatencyEnvelope()
     if config.mode == "robust_upper":
+        # Robust-upper mode spans nominal to measured upper timing
         return (
             float(envelope.half_response_nominal_s),
             float(envelope.half_response_upper_s),
@@ -125,6 +130,7 @@ def latency_range_label(
 # 4) Command Conversion Helpers
 # =============================================================================
 def angle_to_command_norm(angle_rad: float, limit: SurfaceLimit) -> float:
+    # Positive and negative surface travel can be asymmetric
     angle_deg = float(np.rad2deg(angle_rad))
     if angle_deg >= 0.0:
         norm = angle_deg / max(abs(limit.positive_deg), 1e-12)
@@ -146,6 +152,7 @@ def quantise_command_norm(norm: float) -> float:
 
 
 def aggregate_targets_to_surface_degrees(target_rad: np.ndarray) -> dict[str, float]:
+    # Aggregate commands are expanded to physical surface directions
     delta_a, delta_e, delta_r = np.asarray(target_rad, dtype=float).reshape(3)
     a_norm = angle_to_command_norm(delta_a, AGGREGATE_LIMITS["delta_a"])
     e_norm = angle_to_command_norm(delta_e, AGGREGATE_LIMITS["delta_e"])
@@ -182,6 +189,7 @@ class CommandToSurfaceLayer:
         initial = np.asarray(initial_target_rad, dtype=float).reshape(3)
         self._buffers = []
         delay_steps = self._delay_steps()
+        # Onset delay is represented as a per-axis FIFO in command samples
         for value in initial:
             self._buffers.append(deque([float(value)] * delay_steps))
         self._last_target = initial.copy()
@@ -191,6 +199,7 @@ class CommandToSurfaceLayer:
         desired = np.asarray(desired_rad, dtype=float).reshape(3)
         norm = self._angle_vector_to_norm(desired)
         if self.config.quantise:
+            # Quantisation is applied before onset-delay buffering
             norm = np.asarray([quantise_command_norm(value) for value in norm], dtype=float)
         target = np.asarray(
             [

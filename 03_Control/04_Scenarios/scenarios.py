@@ -53,12 +53,14 @@ def trimmed_state_for_arena(x_trim: np.ndarray, altitude_m: float = 2.7) -> np.n
 
 def arena_feasible_entry_state(x_trim: np.ndarray, altitude_m: float = 2.7) -> np.ndarray:
     x0 = trimmed_state_for_arena(x_trim, altitude_m=altitude_m)
+    # Indoor full-duration cases start near the upstream safe-volume edge
     x0[STATE_INDEX["x_w"]] = 1.45
     return x0
 
 
 def recovery_entry_state(x_trim: np.ndarray) -> np.ndarray:
     x0 = trimmed_state_for_arena(x_trim, altitude_m=2.7)
+    # Recovery scenarios start from a small attitude and rate disturbance
     x0[STATE_INDEX["phi"]] = np.deg2rad(12.0)
     x0[STATE_INDEX["theta"]] += np.deg2rad(3.0)
     x0[STATE_INDEX["p"]] = np.deg2rad(-2.0)
@@ -85,6 +87,7 @@ def build_scenario(
     full_bank_left = BankReversalPrimitive(duration_s=0.85, bank_angle_rad=np.deg2rad(10.0))
     full_bank_right = BankReversalPrimitive(duration_s=0.85, bank_angle_rad=np.deg2rad(-10.0))
     full_recovery = RecoveryPrimitive(duration_s=0.85)
+    # Measured updraft stress horizons stay inside the indoor safety envelope
     updraft_glide = NominalGlidePrimitive(duration_s=0.34)
     four_fan_updraft_glide = NominalGlidePrimitive(duration_s=0.26)
     governor_recovery = RecoveryPrimitive(duration_s=0.50)
@@ -202,6 +205,7 @@ def build_scenario(
 
     if scenario_id == "s4_governor_selection":
         x0 = full_base.copy()
+        # High bank rejects nominal entries while leaving recovery admissible
         x0[STATE_INDEX["phi"]] = np.deg2rad(70.0)
         candidates = (full_glide, full_bank_left, governor_recovery)
         return ScenarioDefinition(

@@ -76,6 +76,7 @@ class ViabilityGovernor:
         context: PrimitiveContext,
     ) -> GovernorDecision:
         x = np.asarray(x0, dtype=float).reshape(15)
+        # Static checks are retained for the original single-primitive API
         unique_reasons, telemetry = self._static_reasons(primitive, x, context)
         accepted = not unique_reasons
         if not accepted:
@@ -94,6 +95,7 @@ class ViabilityGovernor:
         x = np.asarray(x0, dtype=float).reshape(15)
         evaluations: list[CandidateEvaluation] = []
         for primitive in primitives:
+            # Entry and static viability checks run before rollout prediction
             reasons, telemetry = self._static_reasons(primitive, x, context)
             if reasons:
                 self._append_rejection(scenario_id, primitive.name, x, telemetry, reasons)
@@ -112,6 +114,7 @@ class ViabilityGovernor:
                 continue
 
             try:
+                # Rollout is injected to keep the governor independent of scenario runners
                 rollout = rollout_callable(primitive)
                 metrics = dict(getattr(rollout, "metrics", rollout))
                 states = getattr(rollout, "states", None)
@@ -161,9 +164,11 @@ class ViabilityGovernor:
             if candidate.predicted_safe and candidate.score is not None
         ]
         if safe_candidates:
+            # Higher score favours wall margin and lower alpha/speed deviation
             selected_idx = max(safe_candidates, key=lambda item: (item[1].score, -item[0]))[0]
             fallback_reason = None
         else:
+            # Recovery fallback is logged explicitly when no candidate is predicted safe
             selected_idx = next(
                 (
                     idx

@@ -58,6 +58,7 @@ class TrimResult:
 # 2) Baseline Trim Seed
 # =============================================================================
 def _baseline_results_path() -> Path:
+    # Baseline seed values come from the current design-result CSV
     return (
         Path(__file__).resolve().parents[2]
         / "02_Glider_Design"
@@ -78,6 +79,7 @@ def _load_baseline_seed() -> tuple[float, float, float]:
     delta_e0 = np.deg2rad(metric_map["delta_e_trim_deg"])
     speed0 = metric_map["v_nom_mps"]
     sink0 = metric_map["sink_rate_mps"]
+    # Flight-path angle is positive upward in the public z-up frame
     gamma0 = -np.arcsin(np.clip(sink0 / speed0, -1.0, 1.0))
     theta0 = alpha0 + gamma0
     return alpha0, theta0, delta_e0
@@ -99,6 +101,7 @@ def _pack_trim_wind(
         return "cg", wind_w
     if target.wind_mode != "panel":
         raise ValueError("wind_mode must be 'panel' or 'cg'.")
+    # Panel trim packs one CG vector plus one vector per aerodynamic strip
     return "panel", np.tile(wind_w, aircraft.strip_count + 1)
 
 
@@ -121,6 +124,7 @@ def solve_straight_trim(
     delta_e = ca.SX.sym("delta_e")
     z = ca.vertcat(alpha, theta, delta_e)
     speed = float(target.speed_m_s)
+    # Straight trim fixes lateral states and solves longitudinal force/moment balance
     x_trim = ca.vertcat(
         0.0,
         0.0,
@@ -143,6 +147,7 @@ def solve_straight_trim(
         x_dot = dynamics.function(x_trim, u_cmd_trim)
     else:
         x_dot = dynamics.function(x_trim, u_cmd_trim, ca.DM(wind_param))
+    # Residual enforces body x/z acceleration and pitch moment equilibrium
     residual = ca.vertcat(x_dot[6], x_dot[8], x_dot[10])
     objective = delta_e**2 + 0.1 * alpha**2
     solver = ca.nlpsol(
