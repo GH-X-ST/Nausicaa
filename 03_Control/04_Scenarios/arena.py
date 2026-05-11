@@ -7,6 +7,17 @@ import numpy as np
 from linearisation import STATE_INDEX
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Arena configuration
+# 2) Safe-volume bounds
+# 3) Safety margin evaluation
+# =============================================================================
+
+# =============================================================================
+# 1) Arena Configuration
+# =============================================================================
 @dataclass(frozen=True)
 class ArenaConfig:
     physical_volume_m: tuple[float, float, float] = (8.4, 4.8, 3.5)
@@ -19,6 +30,9 @@ class ArenaConfig:
     launch_dispersion_margin_m: float = 0.30
 
 
+# =============================================================================
+# 2) Safe-Volume Bounds
+# =============================================================================
 def _total_wall_margin(config: ArenaConfig) -> float:
     return (
         float(config.wall_margin_m)
@@ -44,6 +58,9 @@ def safe_bounds(config: ArenaConfig) -> dict[str, tuple[float, float]]:
     }
 
 
+# =============================================================================
+# 3) Safety Margin Evaluation
+# =============================================================================
 def safety_margins(
     x: np.ndarray,
     config: ArenaConfig,

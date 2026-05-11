@@ -17,9 +17,24 @@ from linearisation import (
 from trim_solver import TrimTarget
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Output path
+# 2) Markdown helpers
+# 3) Linearisation report builder
+# 4) CLI entry point
+# =============================================================================
+
+# =============================================================================
+# 1) Output Path
+# =============================================================================
 OUT_PATH = Path(__file__).resolve().parent / "C_results" / "linearisation_audit.md"
 
 
+# =============================================================================
+# 2) Markdown Helpers
+# =============================================================================
 def _row(name: str, value: object) -> str:
     return f"| {name} | {value} |"
 
@@ -28,6 +43,9 @@ def _shape_text(value: np.ndarray) -> str:
     return str(tuple(int(v) for v in value.shape))
 
 
+# =============================================================================
+# 3) Linearisation Report Builder
+# =============================================================================
 def _markdown_report() -> tuple[str, float, bool]:
     target = TrimTarget(speed_m_s=6.5)
     model = linearise_trim(target=target)
@@ -136,6 +154,9 @@ def _markdown_report() -> tuple[str, float, bool]:
     return "\n".join(lines) + "\n", residual, all_signs_pass
 
 
+# =============================================================================
+# 4) CLI Entry Point
+# =============================================================================
 def main() -> None:
     report, residual, all_signs_pass = _markdown_report()
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)

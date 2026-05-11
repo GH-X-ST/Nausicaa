@@ -14,6 +14,19 @@ from templates import (
 from updraft_models import WindField, build_randomised_wind_field, load_updraft_model
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Scenario dataclass
+# 2) Entry-state builders
+# 3) Scenario factory
+# 4) Scenario lists
+# 5) Updraft loader fallback
+# =============================================================================
+
+# =============================================================================
+# 1) Scenario Dataclass
+# =============================================================================
 @dataclass(frozen=True)
 class ScenarioDefinition:
     scenario_id: str
@@ -27,6 +40,9 @@ class ScenarioDefinition:
     candidate_primitives: tuple[object, ...] = ()
 
 
+# =============================================================================
+# 2) Entry-State Builders
+# =============================================================================
 def trimmed_state_for_arena(x_trim: np.ndarray, altitude_m: float = 2.7) -> np.ndarray:
     x0 = np.asarray(x_trim, dtype=float).reshape(15).copy()
     x0[STATE_INDEX["x_w"]] = 4.2
@@ -51,6 +67,9 @@ def recovery_entry_state(x_trim: np.ndarray) -> np.ndarray:
     return x0
 
 
+# =============================================================================
+# 3) Scenario Factory
+# =============================================================================
 def build_scenario(
     scenario_id: str,
     x_trim: np.ndarray,
@@ -199,6 +218,9 @@ def build_scenario(
     raise ValueError(f"Unknown scenario_id '{scenario_id}'.")
 
 
+# =============================================================================
+# 4) Scenario Lists
+# =============================================================================
 def batch_scenarios() -> tuple[str, ...]:
     return (
         "s0_no_wind",
@@ -242,6 +264,9 @@ def s4_audit_scenarios() -> tuple[str, ...]:
     )
 
 
+# =============================================================================
+# 5) Updraft Loader Fallback
+# =============================================================================
 def _load_or_proxy(model_name: str, repo_root) -> WindField:
     try:
         return load_updraft_model(model_name, repo_root=repo_root)

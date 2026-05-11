@@ -6,6 +6,19 @@ import sys
 from pathlib import Path
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Import path setup
+# 2) Runner constants
+# 3) Scenario execution
+# 4) CSV and selection helpers
+# 5) CLI entry point
+# =============================================================================
+
+# =============================================================================
+# 1) Import Path Setup
+# =============================================================================
 def _add_paths() -> Path:
     repo_root = Path(__file__).resolve().parents[2]
     for rel in (
@@ -38,10 +51,16 @@ from rollout import RolloutConfig, simulate_primitive, write_log  # noqa: E402
 from scenarios import build_scenario  # noqa: E402
 
 
+# =============================================================================
+# 2) Runner Constants
+# =============================================================================
 METRICS_DIR = REPO_ROOT / "03_Control" / "05_Results" / "metrics"
 LOG_DIR = REPO_ROOT / "03_Control" / "05_Results" / "logs"
 
 
+# =============================================================================
+# 3) Scenario Execution
+# =============================================================================
 def _output_dirs(output_root: str | Path | None) -> tuple[Path, Path]:
     if output_root is None:
         return METRICS_DIR, LOG_DIR
@@ -212,6 +231,9 @@ def run_scenario(
     return row
 
 
+# =============================================================================
+# 4) CSV and Selection Helpers
+# =============================================================================
 def _write_single_row(path: Path, row: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
@@ -236,6 +258,9 @@ def _relative_output_path(path: Path, output_root: str | Path | None) -> str:
     return str(path)
 
 
+# =============================================================================
+# 5) CLI Entry Point
+# =============================================================================
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", required=True)

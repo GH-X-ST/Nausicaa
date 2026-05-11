@@ -8,6 +8,17 @@ import numpy as np
 from linearisation import STATE_INDEX
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Primitive dataclasses and protocol
+# 2) Primitive context builder
+# 3) Shared entry-condition checks
+# =============================================================================
+
+# =============================================================================
+# 1) Primitive Dataclasses and Protocol
+# =============================================================================
 @dataclass(frozen=True)
 class PrimitiveContext:
     x_trim: np.ndarray
@@ -46,6 +57,9 @@ class FlightPrimitive(Protocol):
         ...
 
 
+# =============================================================================
+# 2) Primitive Context Builder
+# =============================================================================
 def build_primitive_context(
     x_trim: np.ndarray,
     u_trim: np.ndarray,
@@ -62,6 +76,9 @@ def build_primitive_context(
     )
 
 
+# =============================================================================
+# 3) Shared Entry-Condition Checks
+# =============================================================================
 def base_entry_conditions(
     x0: np.ndarray,
     context: PrimitiveContext,

@@ -8,6 +8,18 @@ from arena import ArenaConfig, safety_margins
 from linearisation import STATE_INDEX
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Stable metrics schema
+# 2) Path and failure-class helpers
+# 3) Rollout metric extraction
+# 4) Governor-rejected metric rows
+# =============================================================================
+
+# =============================================================================
+# 1) Stable Metrics Schema
+# =============================================================================
 METRIC_SCHEMA_KEYS = (
     "run_id",
     "scenario_id",
@@ -42,6 +54,9 @@ METRIC_SCHEMA_KEYS = (
 )
 
 
+# =============================================================================
+# 2) Path and Failure-Class Helpers
+# =============================================================================
 def relative_path(path: Path, repo_root: Path) -> str:
     resolved = path.resolve()
     try:
@@ -90,6 +105,9 @@ def _metric_with_required_schema(row: dict[str, object]) -> dict[str, object]:
     return stable
 
 
+# =============================================================================
+# 3) Rollout Metric Extraction
+# =============================================================================
 def rollout_metrics(
     scenario_id: str,
     seed: int,
@@ -181,6 +199,9 @@ def rollout_metrics(
     return _metric_with_required_schema(row)
 
 
+# =============================================================================
+# 4) Governor-Rejected Metric Rows
+# =============================================================================
 def rejected_metrics(
     scenario_id: str,
     seed: int,

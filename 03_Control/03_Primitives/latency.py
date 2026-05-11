@@ -6,6 +6,19 @@ from dataclasses import dataclass
 import numpy as np
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Command lattice and latency dataclasses
+# 2) Surface limits
+# 3) Latency timing helpers
+# 4) Command conversion helpers
+# 5) Command-to-surface layer
+# =============================================================================
+
+# =============================================================================
+# 1) Command Lattice and Latency Dataclasses
+# =============================================================================
 COMMAND_LEVELS = np.array(
     [-1.0, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
     dtype=float,
@@ -37,6 +50,9 @@ class CommandToSurfaceConfig:
     use_onset_delay: bool = True
 
 
+# =============================================================================
+# 2) Surface Limits
+# =============================================================================
 SURFACE_LIMITS = {
     "Aileron_L": SurfaceLimit("Aileron_L", 22.0, -26.0),
     "Aileron_R": SurfaceLimit("Aileron_R", -22.0, 26.0),
@@ -50,6 +66,9 @@ AGGREGATE_LIMITS = {
 }
 
 
+# =============================================================================
+# 3) Latency Timing Helpers
+# =============================================================================
 def actuator_tau_s(
     config: CommandToSurfaceConfig | None = None,
     envelope: LatencyEnvelope | None = None,
@@ -102,6 +121,9 @@ def latency_range_label(
     return f"{low:.6f}:{high:.6f}"
 
 
+# =============================================================================
+# 4) Command Conversion Helpers
+# =============================================================================
 def angle_to_command_norm(angle_rad: float, limit: SurfaceLimit) -> float:
     angle_deg = float(np.rad2deg(angle_rad))
     if angle_deg >= 0.0:
@@ -136,6 +158,9 @@ def aggregate_targets_to_surface_degrees(target_rad: np.ndarray) -> dict[str, fl
     }
 
 
+# =============================================================================
+# 5) Command-to-Surface Layer
+# =============================================================================
 class CommandToSurfaceLayer:
     def __init__(
         self,

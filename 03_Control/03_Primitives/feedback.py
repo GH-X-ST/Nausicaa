@@ -7,6 +7,17 @@ from linearisation import STATE_INDEX
 from primitive import PrimitiveContext
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) State-derived feedback quantities
+# 2) Command limiting
+# 3) Attitude-hold feedback law
+# =============================================================================
+
+# =============================================================================
+# 1) State-Derived Feedback Quantities
+# =============================================================================
 def speed_alpha_beta(x: np.ndarray) -> tuple[float, float, float]:
     u, v, w = np.asarray(x[6:9], dtype=float)
     speed = float(np.linalg.norm([u, v, w]))
@@ -15,6 +26,9 @@ def speed_alpha_beta(x: np.ndarray) -> tuple[float, float, float]:
     return speed, alpha, beta
 
 
+# =============================================================================
+# 2) Command Limiting
+# =============================================================================
 def limit_aggregate_command(command_rad: np.ndarray) -> np.ndarray:
     command = np.asarray(command_rad, dtype=float).reshape(3)
     lower = np.deg2rad(
@@ -34,6 +48,9 @@ def limit_aggregate_command(command_rad: np.ndarray) -> np.ndarray:
     return np.clip(command, lower, upper)
 
 
+# =============================================================================
+# 3) Attitude-Hold Feedback Law
+# =============================================================================
 def attitude_hold_command(
     x: np.ndarray,
     context: PrimitiveContext,

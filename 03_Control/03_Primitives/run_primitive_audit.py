@@ -5,6 +5,16 @@ import sys
 from pathlib import Path
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Import path setup
+# 2) Scenario audit CLI
+# =============================================================================
+
+# =============================================================================
+# 1) Import Path Setup
+# =============================================================================
 def _add_paths() -> Path:
     repo_root = Path(__file__).resolve().parents[2]
     for rel in (
@@ -24,6 +34,9 @@ from run_one import run_scenario  # noqa: E402
 from scenarios import s4_audit_scenarios  # noqa: E402
 
 
+# =============================================================================
+# 2) Scenario Audit CLI
+# =============================================================================
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=1)

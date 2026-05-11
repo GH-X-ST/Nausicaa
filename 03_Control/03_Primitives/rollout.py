@@ -14,6 +14,18 @@ from metrics import rollout_metrics
 from primitive import FlightPrimitive, PrimitiveContext
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Rollout dataclasses
+# 2) Integration and safety helpers
+# 3) Primitive rollout loop
+# 4) Log writer
+# =============================================================================
+
+# =============================================================================
+# 1) Rollout Dataclasses
+# =============================================================================
 @dataclass(frozen=True)
 class RolloutConfig:
     dt_s: float = 0.02
@@ -37,6 +49,9 @@ class RolloutResult:
     log_rows: tuple[dict[str, float | str | bool], ...]
 
 
+# =============================================================================
+# 2) Integration and Safety Helpers
+# =============================================================================
 def rk4_step(
     x: np.ndarray,
     u_cmd: np.ndarray,
@@ -89,6 +104,9 @@ def violation_reason(
     return None
 
 
+# =============================================================================
+# 3) Primitive Rollout Loop
+# =============================================================================
 def simulate_primitive(
     scenario_id: str,
     seed: int,
@@ -236,6 +254,9 @@ def simulate_primitive(
     )
 
 
+# =============================================================================
+# 4) Log Writer
+# =============================================================================
 def write_log(result: RolloutResult, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not result.log_rows:

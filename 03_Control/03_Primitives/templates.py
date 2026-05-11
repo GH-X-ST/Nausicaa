@@ -12,6 +12,17 @@ from primitive import (
 )
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Nominal glide primitive
+# 2) Bank-reversal primitive
+# 3) Recovery primitive
+# =============================================================================
+
+# =============================================================================
+# 1) Nominal Glide Primitive
+# =============================================================================
 @dataclass(frozen=True)
 class NominalGlidePrimitive:
     name: str = "nominal_glide"
@@ -44,6 +55,9 @@ class NominalGlidePrimitive:
         return "trim"
 
 
+# =============================================================================
+# 2) Bank-Reversal Primitive
+# =============================================================================
 @dataclass(frozen=True)
 class BankReversalPrimitive:
     name: str = "bank_reversal"
@@ -90,6 +104,9 @@ class BankReversalPrimitive:
         return f"phi_ref_deg={np.rad2deg(self.phi_ref(t_s)):.1f}"
 
 
+# =============================================================================
+# 3) Recovery Primitive
+# =============================================================================
 @dataclass(frozen=True)
 class RecoveryPrimitive:
     name: str = "recovery"

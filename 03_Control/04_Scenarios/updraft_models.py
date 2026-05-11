@@ -10,6 +10,21 @@ import pandas as pd
 from scipy.interpolate import PchipInterpolator
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Fan geometry constants
+# 2) Wind-field protocols and randomisation wrappers
+# 3) File and label helpers
+# 4) Updraft model classes
+# 5) Public updraft loader
+# 6) Workbook parsers
+# 7) Interpolation helpers
+# =============================================================================
+
+# =============================================================================
+# 1) Fan Geometry Constants
+# =============================================================================
 SINGLE_FAN_CENTER_XY = (4.2, 2.4)
 FOUR_FAN_CENTERS_XY = (
     (3.0, 3.6),
@@ -19,6 +34,9 @@ FOUR_FAN_CENTERS_XY = (
 )
 
 
+# =============================================================================
+# 2) Wind-Field Protocols and Randomisation Wrappers
+# =============================================================================
 class WindField(Protocol):
     name: str
     source: str
@@ -102,6 +120,9 @@ def build_randomised_wind_field(
     return RandomisedWindField(base=wind, params=params), updraft_randomisation_label(params)
 
 
+# =============================================================================
+# 3) File and Label Helpers
+# =============================================================================
 def _repo_root_from_here() -> Path:
     return Path(__file__).resolve().parents[2]
 
@@ -122,6 +143,9 @@ def _source_text(path: Path, repo_root: Path) -> str:
     return str(path.resolve().relative_to(repo_root.resolve())).replace("\\", "/")
 
 
+# =============================================================================
+# 4) Updraft Model Classes
+# =============================================================================
 @dataclass(frozen=True)
 class GaussianVarWindField:
     name: str
@@ -193,6 +217,9 @@ class AnalyticDebugProxy:
         return np.column_stack([np.zeros_like(w_up), np.zeros_like(w_up), w_up])
 
 
+# =============================================================================
+# 5) Public Updraft Loader
+# =============================================================================
 def load_updraft_model(name: str, repo_root: Path | None = None) -> WindField:
     root = repo_root or _repo_root_from_here()
     if name == "single_gaussian_var":
@@ -244,6 +271,9 @@ def load_updraft_model(name: str, repo_root: Path | None = None) -> WindField:
     raise ValueError(f"Unknown updraft model '{name}'.")
 
 
+# =============================================================================
+# 6) Workbook Parsers
+# =============================================================================
 def _load_gaussian(
     path: Path,
     repo_root: Path,
@@ -322,6 +352,9 @@ def _load_annular_grid(path: Path, repo_root: Path, name: str) -> AnnularGPGridW
     )
 
 
+# =============================================================================
+# 7) Interpolation Helpers
+# =============================================================================
 def _sheet_height_m(sheet_name: str) -> float:
     code = sheet_name.split("_", 1)[0]
     if not (code.startswith("z") and code[1:].isdigit()):

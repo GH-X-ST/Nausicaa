@@ -10,6 +10,18 @@ from glider import build_nausicaa_glider
 from trim_solver import TrimResult, TrimTarget, solve_straight_trim
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) State and command indexing
+# 2) Linear model dataclass
+# 3) Linearisation helpers
+# 4) Reduced model views
+# =============================================================================
+
+# =============================================================================
+# 1) State and Command Indexing
+# =============================================================================
 STATE_NAMES = (
     "x_w",
     "y_w",
@@ -37,6 +49,9 @@ LATERAL_STATES = ("v", "p", "r", "phi", "delta_a", "delta_r")
 LATERAL_INPUTS = ("delta_a_cmd", "delta_r_cmd")
 
 
+# =============================================================================
+# 2) Linear Model Dataclass
+# =============================================================================
 @dataclass(frozen=True)
 class LinearModel:
     a: np.ndarray
@@ -48,6 +63,9 @@ class LinearModel:
     input_names: tuple[str, ...]
 
 
+# =============================================================================
+# 3) Linearisation Helpers
+# =============================================================================
 def _dense(value: object) -> np.ndarray:
     return np.asarray(value, dtype=float)
 
@@ -101,6 +119,9 @@ def linearise_trim(
     )
 
 
+# =============================================================================
+# 4) Reduced Model Views
+# =============================================================================
 def reduced_model(
     model: LinearModel,
     state_names: tuple[str, ...],

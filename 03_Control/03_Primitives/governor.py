@@ -13,6 +13,17 @@ from linearisation import STATE_INDEX
 from primitive import FlightPrimitive, PrimitiveContext
 
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Governor dataclasses
+# 2) Viability governor
+# 3) Candidate metric helper
+# =============================================================================
+
+# =============================================================================
+# 1) Governor Dataclasses
+# =============================================================================
 @dataclass(frozen=True)
 class GovernorLimits:
     min_altitude_m: float = 0.75
@@ -44,6 +55,9 @@ class CandidateEvaluation:
     selected: bool = False
 
 
+# =============================================================================
+# 2) Viability Governor
+# =============================================================================
 class ViabilityGovernor:
     def __init__(
         self,
@@ -292,6 +306,9 @@ class ViabilityGovernor:
         return float(min_wall - 0.01 * max_alpha - 0.02 * speed_penalty)
 
 
+# =============================================================================
+# 3) Candidate Metric Helper
+# =============================================================================
 def _optional_float(value: object) -> float | None:
     if value is None or value == "":
         return None
