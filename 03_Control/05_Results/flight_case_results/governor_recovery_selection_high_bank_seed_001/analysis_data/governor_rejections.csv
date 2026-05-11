@@ -1,0 +1,3 @@
+scenario_id,primitive,speed_m_s,altitude_m,phi_deg,theta_deg,alpha_deg,reason
+s4_governor_selection,nominal_glide,6.5,2.7,70.0,-2.754941244379888,3.053834490775539,absolute bank angle exceeds entry limit
+s4_governor_selection,bank_reversal,6.5,2.7,70.0,-2.754941244379888,3.053834490775539,absolute bank angle exceeds entry limit

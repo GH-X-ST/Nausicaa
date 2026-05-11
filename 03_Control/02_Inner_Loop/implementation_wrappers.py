@@ -16,7 +16,7 @@ from pathlib import Path
 # =============================================================================
 _PRIMITIVES = Path(__file__).resolve().parents[1] / "03_Primitives"
 if str(_PRIMITIVES) not in sys.path:
-    # Compatibility bridge preserves older inner-loop imports after the S4 layout split.
+    # Compatibility bridge preserves older inner-loop imports after the controller layout split.
     sys.path.insert(0, str(_PRIMITIVES))
 
 

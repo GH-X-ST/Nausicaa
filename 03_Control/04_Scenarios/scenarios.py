@@ -226,7 +226,7 @@ def build_scenario(
 # =============================================================================
 # 4) Scenario Lists
 # =============================================================================
-# Scenario ordering is part of the fixed audit matrix reported in S4 validation.
+# Scenario ordering is part of the fixed controller audit matrix.
 def batch_scenarios() -> tuple[str, ...]:
     return (
         "s0_no_wind",
@@ -268,6 +268,10 @@ def s4_audit_scenarios() -> tuple[str, ...]:
         "s4_gaussian_single_panel_randomised",
         "s4_governor_selection",
     )
+
+
+def controller_audit_scenarios() -> tuple[str, ...]:
+    return s4_audit_scenarios()
 
 
 # =============================================================================

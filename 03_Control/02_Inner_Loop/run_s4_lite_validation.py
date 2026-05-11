@@ -16,14 +16,14 @@ from pathlib import Path
 # =============================================================================
 _SCENARIOS = Path(__file__).resolve().parents[1] / "04_Scenarios"
 if str(_SCENARIOS) not in sys.path:
-    # Legacy S4-lite entry point delegates to the scenario batch runner.
+    # Legacy validation entry point delegates to the scenario batch runner.
     sys.path.insert(0, str(_SCENARIOS))
 
 
 # =============================================================================
 # 2) Batch-Runner Entry Point
 # =============================================================================
-# The legacy S4-lite command intentionally shares the batch runner implementation.
+# The legacy validation command intentionally shares the batch runner implementation.
 from run_batch import main  # noqa: E402
 
 

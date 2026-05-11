@@ -207,7 +207,7 @@ def _section_aero_numpy(
     a_3d = 2.0 * pi * aspect_ratio / (aspect_ratio + 2.0)
     cl_attached = a_3d * alpha_eff
     cd_attached = cd0 + cl_attached**2 / (pi * efficiency * aspect_ratio)
-    # Post-stall proxy is deterministic and intentionally simple for S4 simulation.
+    # Post-stall proxy is deterministic and intentionally simple for fast simulation.
     cl_post_stall = 2.0 * np.sin(alpha_eff) * np.cos(alpha_eff)
     cd_post_stall = cd0 + POST_STALL_DRAG_GAIN * np.sin(alpha_eff) ** 2
     sigma = 0.5 * (

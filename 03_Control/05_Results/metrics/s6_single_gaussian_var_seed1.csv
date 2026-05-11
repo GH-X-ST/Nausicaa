@@ -1,2 +1,0 @@
-scenario_id,seed,wind_model,wind_mode,latency_mode,primitive_selected,success,termination_reason,height_change_m,terminal_speed_m_s,max_alpha_deg,max_abs_phi_deg,min_wall_distance_m,inside_safe_volume,saturation_fraction,tracking_error_rms,governor_rejection_reason,log_path_relative
-s6_single_gaussian_var,1,single_gaussian_var,panel,nominal,nominal_glide,True,,0.13425091031189762,6.099560048839524,6.827839316711304,0.0025668463851577575,1.149992568263119,True,0.030303030303030304,,,03_Control/05_Results/logs/s6_single_gaussian_var_seed1.csv
