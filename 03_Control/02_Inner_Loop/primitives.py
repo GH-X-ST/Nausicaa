@@ -16,6 +16,7 @@ from pathlib import Path
 # =============================================================================
 _PRIMITIVES = Path(__file__).resolve().parents[1] / "03_Primitives"
 if str(_PRIMITIVES) not in sys.path:
+    # Compatibility bridge preserves older inner-loop primitive imports.
     sys.path.insert(0, str(_PRIMITIVES))
 
 

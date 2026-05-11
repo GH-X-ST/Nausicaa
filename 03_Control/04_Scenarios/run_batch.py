@@ -25,6 +25,7 @@ def _add_paths() -> Path:
     ):
         path = repo_root / rel
         if str(path) not in sys.path:
+            # Batch runs are launched as scripts, so paths are resolved from repo root.
             sys.path.insert(0, str(path))
     return repo_root
 
@@ -42,6 +43,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=1)
     args = parser.parse_args()
+    # Scenario ordering is centralised in scenarios.py for reproducible comparisons.
     rows = [run_scenario(scenario_id, args.seed) for scenario_id in batch_scenarios()]
     out_path = (
         REPO_ROOT
@@ -52,6 +54,7 @@ def main() -> None:
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", newline="", encoding="utf-8") as handle:
+        # One CSV row per scenario keeps batch metrics comparable across seeds.
         writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
         writer.writeheader()
         writer.writerows(rows)

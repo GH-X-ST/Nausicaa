@@ -49,6 +49,7 @@ def _shape_text(value: np.ndarray) -> str:
 def _markdown_report() -> tuple[str, float, bool]:
     target = TrimTarget(speed_m_s=6.5)
     model = linearise_trim(target=target)
+    # Reduced views preserve the canonical state/input ordering defined in linearisation.py.
     a_lon, b_lon = reduced_model(
         model,
         LONGITUDINAL_STATES,
@@ -60,6 +61,7 @@ def _markdown_report() -> tuple[str, float, bool]:
         LATERAL_INPUTS,
     )
     derivatives = key_derivatives(model)
+    # Position rates are excluded because trim enforces dynamic equilibrium, not zero motion.
     residual = float(np.max(np.abs(model.f_trim[3:])))
 
     trim_rows = [
@@ -87,6 +89,7 @@ def _markdown_report() -> tuple[str, float, bool]:
         ("B_lateral shape", _shape_text(b_lat)),
     ]
     sign_tests = [
+        # Positive command-effectiveness signs are the compact regression audit for conventions.
         ("l_delta_a > 0", derivatives["l_delta_a"] > 0.0, derivatives["l_delta_a"]),
         ("m_delta_e > 0", derivatives["m_delta_e"] > 0.0, derivatives["m_delta_e"]),
         ("n_delta_r > 0", derivatives["n_delta_r"] > 0.0, derivatives["n_delta_r"]),
@@ -160,6 +163,7 @@ def _markdown_report() -> tuple[str, float, bool]:
 def main() -> None:
     report, residual, all_signs_pass = _markdown_report()
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # The report is a reproducible artifact used by project-plan validation commands.
     OUT_PATH.write_text(report, encoding="utf-8")
     print("linearisation audit complete")
     print(f"report: {OUT_PATH}")

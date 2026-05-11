@@ -16,6 +16,7 @@ from pathlib import Path
 # =============================================================================
 _SCENARIOS = Path(__file__).resolve().parents[1] / "04_Scenarios"
 if str(_SCENARIOS) not in sys.path:
+    # Legacy S4-lite entry point delegates to the scenario batch runner.
     sys.path.insert(0, str(_SCENARIOS))
 
 

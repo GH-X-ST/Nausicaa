@@ -28,6 +28,7 @@ from glider import Glider
 # =============================================================================
 G_M_S2 = 9.81
 EPS = 1e-9
+# Stall blending is smooth so CasADi linearisation stays well-conditioned.
 STALL_BLEND_ALPHA_RAD = np.deg2rad(12.0)
 STALL_BLEND_WIDTH_RAD = np.deg2rad(3.0)
 POST_STALL_DRAG_GAIN = 1.8
@@ -69,6 +70,7 @@ class SymbolicDynamicsModel:
 # 3) Numeric Frame Helpers
 # =============================================================================
 def _world_up_to_internal_vector(vector_w_up: np.ndarray) -> np.ndarray:
+    # Public scenario and log interfaces use z-up world coordinates.
     return np.array([vector_w_up[0], vector_w_up[1], -vector_w_up[2]], dtype=float)
 
 
@@ -83,6 +85,7 @@ def _internal_to_world_up_rows(rows_w: np.ndarray) -> np.ndarray:
 
 
 def _c_wb_numpy(phi: float, theta: float, psi: float) -> np.ndarray:
+    # 3-2-1 Euler convention maps body vectors into the internal world frame.
     c_phi = np.cos(phi)
     s_phi = np.sin(phi)
     c_theta = np.cos(theta)
@@ -122,6 +125,7 @@ def _t_euler_numpy(phi: float, theta: float) -> np.ndarray:
 
 def _normalize_rows(vectors: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    # EPS protects zero-speed strip states without changing normal flight values.
     return vectors / np.maximum(norms, EPS)
 
 
@@ -129,6 +133,7 @@ def _normalize_rows(vectors: np.ndarray) -> np.ndarray:
 # 4) Symbolic Frame Helpers
 # =============================================================================
 def _c_wb_ca(phi: ca.SX, theta: ca.SX, psi: ca.SX) -> ca.SX:
+    # Symbolic rotation mirrors the numeric helper to keep finite-difference audits comparable.
     c_phi = ca.cos(phi)
     s_phi = ca.sin(phi)
     c_theta = ca.cos(theta)
@@ -181,6 +186,7 @@ def _ca_world_up_from_internal(vector_w: ca.SX) -> ca.SX:
 
 
 def _ca_norm(vector: ca.SX) -> ca.SX:
+    # Smooth norm avoids singular Jacobians at exactly zero local airspeed.
     return ca.sqrt(ca.dot(vector, vector) + EPS)
 
 
@@ -200,6 +206,7 @@ def _section_aero_numpy(
     a_3d = 2.0 * pi * aspect_ratio / (aspect_ratio + 2.0)
     cl_attached = a_3d * alpha_eff
     cd_attached = cd0 + cl_attached**2 / (pi * efficiency * aspect_ratio)
+    # Post-stall proxy is deterministic and intentionally simple for S4 simulation.
     cl_post_stall = 2.0 * np.sin(alpha_eff) * np.cos(alpha_eff)
     cd_post_stall = cd0 + POST_STALL_DRAG_GAIN * np.sin(alpha_eff) ** 2
     sigma = 0.5 * (
@@ -227,6 +234,7 @@ def _section_aero_ca(
     a_3d = 2.0 * pi * aspect_ratio / (aspect_ratio + 2.0)
     cl_attached = a_3d * alpha_eff
     cd_attached = cd0 + cl_attached**2 / (pi * efficiency * aspect_ratio)
+    # Symbolic branch keeps the same attached/post-stall blend as the runtime model.
     cl_post_stall = 2.0 * ca.sin(alpha_eff) * ca.cos(alpha_eff)
     cd_post_stall = cd0 + POST_STALL_DRAG_GAIN * ca.sin(alpha_eff) ** 2
     sigma = 0.5 * (
@@ -246,6 +254,7 @@ def _section_aero_ca(
 # =============================================================================
 def adapt_glider(glider: Glider) -> AircraftModel:
     inertia_b = np.asarray(glider.inertia_b, dtype=float)
+    # The adapter freezes geometry arrays once so rollout loops do not query Glider objects.
     return AircraftModel(
         mass_kg=float(glider.mass_kg),
         inertia_b=inertia_b,
@@ -279,11 +288,13 @@ def _sample_numeric_wind(
         wind_cg_w_up = np.zeros(3)
         wind_strip_w_up = np.zeros_like(r_strip_w)
     elif callable(wind_model):
+        # Wind callbacks are sampled in public z-up coordinates.
         wind_cg_w_up = np.asarray(
             wind_model(_internal_to_world_up_rows(r_cg_w.reshape(1, 3))),
             dtype=float,
         ).reshape(-1, 3)[0]
         if wind_mode == "cg":
+            # CG mode intentionally applies one uniform wind vector to every strip.
             wind_strip_w_up = np.broadcast_to(wind_cg_w_up, r_strip_w.shape)
         else:
             wind_strip_w_up = np.asarray(
@@ -306,6 +317,7 @@ def _evaluate_aero_numeric(
     rho: float,
     wind_mode: str,
 ) -> dict[str, object]:
+    # Canonical state order: position, Euler attitude, body velocity/rates, surfaces.
     x_w, y_w, z_w, phi, theta, psi, u, v, w, p, q, r, delta_a, delta_e, delta_r = x
     r_cg_w_up = np.array([x_w, y_w, z_w], dtype=float)
     v_b = np.array([u, v, w], dtype=float)
@@ -314,6 +326,7 @@ def _evaluate_aero_numeric(
     c_wb = _c_wb_numpy(phi, theta, psi)
     c_bw = c_wb.T
     r_cg_w = _world_up_to_internal_vector(r_cg_w_up)
+    # Strip locations are body-fixed offsets rotated into the internal world frame.
     r_strip_w = r_cg_w + aircraft.r_strip_b @ c_wb.T
     wind_cg_w, wind_strip_w = _sample_numeric_wind(
         wind_model=wind_model,
@@ -327,9 +340,11 @@ def _evaluate_aero_numeric(
         np.broadcast_to(omega_b, aircraft.r_strip_b.shape),
         aircraft.r_strip_b,
     )
+    # Panel apparent velocity includes rigid-body rotation before subtracting wind.
     v_strip_b = v_b + v_rot_b
     v_air_strip_b = v_strip_b - wind_strip_b
     span_speed = np.sum(v_air_strip_b * aircraft.span_axis_b, axis=1)
+    # Lift and drag are evaluated in the local chord-normal plane of each strip.
     v_plane_b = v_air_strip_b - aircraft.span_axis_b * span_speed[:, None]
     speed_plane = np.linalg.norm(v_plane_b, axis=1)
     speed_plane_safe = np.maximum(speed_plane, EPS)
@@ -348,6 +363,7 @@ def _evaluate_aero_numeric(
     )
     beta_strip = np.arcsin(np.clip(span_speed / speed_total_safe, -1.0, 1.0))
     q_bar_strip = 0.5 * rho * speed_plane**2
+    # Control mix maps aggregate aileron/elevator/rudder commands to local strip deflections.
     delta_local = aircraft.control_mix @ delta
     cl_strip, cd_strip = _section_aero_numpy(
         alpha=alpha_strip,
@@ -368,6 +384,7 @@ def _evaluate_aero_numeric(
     v_air_cg_b = v_b - wind_cg_b
     speed_cg = np.linalg.norm(v_air_cg_b)
     if speed_cg > EPS:
+        # Fuselage drag is lumped at the CG, so it contributes force but no moment.
         f_fuse_b = (
             -0.5 * rho * aircraft.drag_area_fuse_m2 * speed_cg * v_air_cg_b
         )
@@ -429,6 +446,7 @@ def evaluate_state(
 ) -> dict[str, object]:
     del u_cmd
     del actuator_tau_s
+    # Actual surface states are part of x; command and actuator tau are ignored for load evaluation.
     x = np.asarray(x, dtype=float).reshape(15)
     aero = _evaluate_aero_numeric(
         x=x,
@@ -441,6 +459,7 @@ def evaluate_state(
     v_b = x[6:9]
     omega_b = x[9:12]
     c_bw = aero["c_wb"].T
+    # Gravity is rotated into body axes before summing with aerodynamic loads.
     gravity_b = c_bw @ np.array([0.0, 0.0, G_M_S2])
     f_total_b = aero["f_aero_b"] + aircraft.mass_kg * gravity_b
     m_total_b = aero["m_aero_b"]
@@ -509,11 +528,13 @@ def state_derivative(
     v_b = x[6:9]
     omega_b = x[9:12]
     delta = x[12:15]
+    # Rigid-body equations preserve body-axis signs used by trim and linearisation.
     v_dot_b = loads["f_total_b"] / aircraft.mass_kg - np.cross(omega_b, v_b)
     omega_dot_b = aircraft.inertia_inv_b @ (
         loads["m_total_b"] - np.cross(omega_b, aircraft.inertia_b @ omega_b)
     )
     euler_dot = _t_euler_numpy(phi, theta) @ omega_b
+    # Command order is [aileron, elevator, rudder] and drives first-order surface states.
     delta_dot = (u_cmd - delta) / np.asarray(actuator_tau_s, dtype=float)
     return np.concatenate(
         [loads["r_dot_w"], euler_dot, v_dot_b, omega_dot_b, delta_dot]
@@ -532,6 +553,7 @@ def _symbolic_wind_vectors(
         zero = ca.DM.zeros(3, 1)
         return zero, zero
     if wind_mode == "cg":
+        # Symbolic CG wind mode mirrors the numeric uniform-wind convention.
         wind_cg_w = _ca_internal_from_world_up(_ca_vector3(wind_param))
         return wind_cg_w, wind_cg_w
     wind_cg_w = _ca_internal_from_world_up(_ca_vector3(wind_param[:3]))
@@ -550,6 +572,7 @@ def _state_derivative_symbolic(
     wind_mode: str,
     wind_param: ca.SX | None,
 ) -> ca.SX:
+    # Symbolic state order matches the numeric 15-state derivative exactly.
     phi = x[3]
     theta = x[4]
     psi = x[5]
@@ -569,6 +592,7 @@ def _state_derivative_symbolic(
     wind_cg_w, _ = _symbolic_wind_vectors(wind_mode, wind_param, 0)
     wind_cg_b = c_bw @ wind_cg_w
     for idx in range(aircraft.strip_count):
+        # Explicit strip iteration retains each strip's measured geometry and mix row.
         r_strip_b = ca.DM(aircraft.r_strip_b[idx]).reshape((3, 1))
         _, wind_strip_w = _symbolic_wind_vectors(wind_mode, wind_param, idx)
         wind_strip_b = c_bw @ wind_strip_w
@@ -636,6 +660,7 @@ def build_symbolic_dynamics(
 ) -> SymbolicDynamicsModel:
     if wind_mode not in {"none", "cg", "panel"}:
         raise ValueError("wind_mode must be 'none', 'cg', or 'panel'.")
+    # Wind parameter size is part of the public linearisation contract.
     x = ca.SX.sym("x", 15)
     u_cmd = ca.SX.sym("u_cmd", 3)
     if wind_mode == "none":

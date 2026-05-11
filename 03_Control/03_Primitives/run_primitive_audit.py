@@ -24,6 +24,7 @@ def _add_paths() -> Path:
     ):
         path = repo_root / rel
         if str(path) not in sys.path:
+            # CLI execution keeps the repository layout importable without package installation.
             sys.path.insert(0, str(path))
     return repo_root
 
@@ -43,6 +44,7 @@ def main() -> None:
     parser.add_argument("--output-root", default=None)
     args = parser.parse_args()
 
+    # Audit scenarios cover nominal, manoeuvre, recovery, measured-wind, and rejection paths.
     rows = [
         run_scenario(scenario_id, seed=args.seed, output_root=args.output_root)
         for scenario_id in s4_audit_scenarios()

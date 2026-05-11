@@ -18,6 +18,7 @@ _CONTROL = Path(__file__).resolve().parents[1]
 for rel in ("03_Primitives", "04_Scenarios"):
     path = _CONTROL / rel
     if str(path) not in sys.path:
+        # Compatibility bridge exposes the S4 governor through the old inner-loop module.
         sys.path.insert(0, str(path))
 
 
