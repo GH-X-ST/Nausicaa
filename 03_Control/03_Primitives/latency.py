@@ -35,13 +35,20 @@ class SurfaceLimit:
 
 @dataclass(frozen=True)
 class LatencyEnvelope:
-    # Half-response values are seconds after command issue
-    onset_latency_s: float = 0.075
-    half_response_low_s: float = 0.101
-    half_response_nominal_s: float = 0.111
-    half_response_high_s: float = 0.121
-    half_response_upper_s: float = 0.133
+    # Command-response values use the latest accepted 20 Hz one-pole filtered runs.
+    onset_latency_s: float = 0.073
+    half_response_low_s: float = 0.098
+    half_response_nominal_s: float = 0.108
+    half_response_high_s: float = 0.118
+    half_response_upper_s: float = 0.151
+    actuator_t90_s: float = 0.130
+    conservative_actuator_bound_s: float = 0.151
+    # Vicon latency and filter delay are state-feedback terms, not actuator lag.
+    vicon_latency_nominal_s: float = 0.0149
+    vicon_latency_p95_s: float = 0.0169
+    vicon_filter_delay_s: float = 0.0080
     vicon_filter_cutoff_hz: float = 20.0
+    vicon_filter_model: str = "one_pole"
     command_dt_s: float = 0.02
 
 
@@ -50,6 +57,7 @@ class CommandToSurfaceConfig:
     mode: str = "nominal"
     quantise: bool = True
     use_onset_delay: bool = True
+    use_state_feedback_delay: bool = True
 
 
 # =============================================================================
@@ -81,6 +89,18 @@ def actuator_tau_s(
     half = half_response_s(config, envelope)
     # First-order lag reaches half response after tau * log(2)
     return float((half - envelope.onset_latency_s) / np.log(2.0))
+
+
+def feedback_delay_s(
+    config: CommandToSurfaceConfig | None = None,
+    envelope: LatencyEnvelope | None = None,
+) -> float:
+    config = config or CommandToSurfaceConfig()
+    envelope = envelope or LatencyEnvelope()
+    if not config.use_state_feedback_delay:
+        return 0.0
+    # The simulated controller receives Vicon-filtered state, separate from actuator response.
+    return float(envelope.vicon_latency_nominal_s + envelope.vicon_filter_delay_s)
 
 
 def half_response_s(
@@ -124,6 +144,24 @@ def latency_range_label(
 ) -> str:
     low, high = latency_range_s(config, envelope)
     return f"{low:.6f}:{high:.6f}"
+
+
+def latency_audit_fields(
+    config: CommandToSurfaceConfig | None = None,
+    envelope: LatencyEnvelope | None = None,
+) -> dict[str, float | str]:
+    config = config or CommandToSurfaceConfig()
+    envelope = envelope or LatencyEnvelope()
+    # These fields make the measured command path explicit in every scenario log.
+    return {
+        "state_feedback_delay_s": feedback_delay_s(config, envelope),
+        "actuator_t10_s": float(envelope.onset_latency_s),
+        "actuator_t50_nominal_s": float(envelope.half_response_nominal_s),
+        "actuator_t90_s": float(envelope.actuator_t90_s),
+        "conservative_actuator_bound_s": float(envelope.conservative_actuator_bound_s),
+        "vicon_filter_cutoff_hz": float(envelope.vicon_filter_cutoff_hz),
+        "vicon_filter_model": str(envelope.vicon_filter_model),
+    }
 
 
 # =============================================================================
@@ -233,9 +271,11 @@ class CommandToSurfaceLayer:
             "latency_s": half_response_s(self.config, self.envelope),
             "latency_range_s": latency_range_label(self.config, self.envelope),
             "onset_latency_s": float(self.envelope.onset_latency_s),
+            "vicon_latency_nominal_s": float(self.envelope.vicon_latency_nominal_s),
+            "vicon_latency_p95_s": float(self.envelope.vicon_latency_p95_s),
             "half_response_s": half_response_s(self.config, self.envelope),
             "actuator_tau_s": float(tau),
-            "vicon_filter_cutoff_hz": float(self.envelope.vicon_filter_cutoff_hz),
+            **latency_audit_fields(self.config, self.envelope),
         }
 
     def _delay_steps(self) -> int:

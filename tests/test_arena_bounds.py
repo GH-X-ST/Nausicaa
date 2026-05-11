@@ -16,7 +16,12 @@ for rel in (
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from arena import ArenaConfig, safe_bounds, safety_margins, tracker_bounds  # noqa: E402
+from arena import (  # noqa: E402
+    ArenaConfig,
+    safe_bounds,
+    safety_margins,
+    tracker_bounds,
+)
 from linearisation import STATE_INDEX  # noqa: E402
 
 
@@ -42,6 +47,10 @@ def test_tracker_limit_bounds_share_true_safety_centre() -> None:
         "y_w": (-0.2, 4.6),
         "z_w": (-0.25, 3.25),
     }
+
+
+def test_non_safety_axes_use_tracker_limit_box() -> None:
+    assert safe_bounds(ArenaConfig(use_safe_volume=False)) == tracker_bounds(ArenaConfig())
 
 
 def test_inside_tracker_but_outside_true_safety_is_not_safe() -> None:

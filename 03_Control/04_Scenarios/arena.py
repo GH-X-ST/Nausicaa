@@ -11,7 +11,7 @@ from linearisation import STATE_INDEX
 # SECTION MAP
 # =============================================================================
 # 1) Arena configuration
-# 2) Safety and tracker bounds
+# 2) Shared-axis volume bounds
 # 3) Safety margin evaluation
 # =============================================================================
 
@@ -36,7 +36,7 @@ class ArenaConfig:
 
 
 # =============================================================================
-# 2) Safety and Tracker Bounds
+# 2) Shared-Axis Volume Bounds
 # =============================================================================
 def _as_bound_dict(
     bounds_m: tuple[tuple[float, float], tuple[float, float], tuple[float, float]],
@@ -57,36 +57,42 @@ def _true_safe_centre(config: ArenaConfig) -> tuple[float, float, float]:
     )
 
 
+def _bounds_from_centre(
+    centre_m: tuple[float, float, float],
+    size_m: tuple[float, float, float],
+) -> dict[str, tuple[float, float]]:
+    half_size = tuple(0.5 * float(value) for value in size_m)
+    return {
+        "x_w": (
+            round(float(centre_m[0]) - half_size[0], 10),
+            round(float(centre_m[0]) + half_size[0], 10),
+        ),
+        "y_w": (
+            round(float(centre_m[1]) - half_size[1], 10),
+            round(float(centre_m[1]) + half_size[1], 10),
+        ),
+        "z_w": (
+            round(float(centre_m[2]) - half_size[2], 10),
+            round(float(centre_m[2]) + half_size[2], 10),
+        ),
+    }
+
+
+def physical_bounds(config: ArenaConfig) -> dict[str, tuple[float, float]]:
+    # The nominal room and tracker boxes share the true-safety centre for plotting alignment.
+    return _bounds_from_centre(_true_safe_centre(config), config.physical_volume_m)
+
+
 def safe_bounds(config: ArenaConfig) -> dict[str, tuple[float, float]]:
     if not config.use_safe_volume:
-        width_x, width_y, height_z = config.physical_volume_m
-        # The nominal room is retained only as facility context, not as the controller gate.
-        return {
-            "x_w": (0.0, float(width_x)),
-            "y_w": (0.0, float(width_y)),
-            "z_w": (0.0, float(height_z)),
-        }
+        # Non-safety visual axes use the tracker box, not the larger facility context.
+        return tracker_bounds(config)
     # The active safety volume is explicit and must not be recomputed from legacy margins.
     return _as_bound_dict(config.true_safe_bounds_m)
 
 
 def tracker_bounds(config: ArenaConfig) -> dict[str, tuple[float, float]]:
-    centre = _true_safe_centre(config)
-    half_size = tuple(0.5 * float(value) for value in config.tracker_limit_size_m)
-    return {
-        "x_w": (
-            round(centre[0] - half_size[0], 10),
-            round(centre[0] + half_size[0], 10),
-        ),
-        "y_w": (
-            round(centre[1] - half_size[1], 10),
-            round(centre[1] + half_size[1], 10),
-        ),
-        "z_w": (
-            round(centre[2] - half_size[2], 10),
-            round(centre[2] + half_size[2], 10),
-        ),
-    }
+    return _bounds_from_centre(_true_safe_centre(config), config.tracker_limit_size_m)
 
 
 # =============================================================================

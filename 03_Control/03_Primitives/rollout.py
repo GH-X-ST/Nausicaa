@@ -8,7 +8,13 @@ import numpy as np
 
 from arena import ArenaConfig, safety_margins
 from flight_dynamics import AircraftModel, evaluate_state, state_derivative
-from latency import CommandToSurfaceLayer, half_response_s, latency_range_label
+from latency import (
+    CommandToSurfaceLayer,
+    feedback_delay_s,
+    half_response_s,
+    latency_audit_fields,
+    latency_range_label,
+)
 from linearisation import INPUT_NAMES, STATE_INDEX, STATE_NAMES
 from metrics import rollout_metrics
 from primitive import FlightPrimitive, PrimitiveContext
@@ -136,6 +142,37 @@ def violation_reason(
     return None
 
 
+def feedback_state(
+    t_s: float,
+    current_x: np.ndarray,
+    initial_x: np.ndarray,
+    times_s: np.ndarray,
+    states: np.ndarray,
+    step: int,
+    delay_s: float,
+) -> np.ndarray:
+    if delay_s <= 0.0:
+        return np.asarray(current_x, dtype=float)
+    target_t_s = float(t_s) - float(delay_s)
+    if target_t_s <= 0.0 or step == 0:
+        return np.asarray(initial_x, dtype=float)
+
+    history_t = times_s[:step]
+    history_x = states[:step]
+    if target_t_s >= float(history_t[-1]):
+        return history_x[-1].copy()
+
+    right = int(np.searchsorted(history_t, target_t_s, side="right"))
+    left = max(right - 1, 0)
+    right = min(right, history_t.size - 1)
+    t0 = float(history_t[left])
+    t1 = float(history_t[right])
+    if t1 <= t0:
+        return history_x[left].copy()
+    frac = (target_t_s - t0) / (t1 - t0)
+    return history_x[left] + frac * (history_x[right] - history_x[left])
+
+
 # =============================================================================
 # 3) Primitive Rollout Loop
 # =============================================================================
@@ -163,7 +200,9 @@ def simulate_primitive(
     rollout_config = rollout_config or RolloutConfig()
     arena_config = arena_config or ArenaConfig()
     x = np.asarray(x0, dtype=float).reshape(15).copy()
+    x_initial = x.copy()
     command_layer.reset(context.u_trim)
+    state_delay_s = feedback_delay_s(command_layer.config, command_layer.envelope)
     # Rollout length follows the primitive duration at fixed simulation dt
     steps = int(np.ceil(float(primitive.duration_s) / rollout_config.dt_s))
 
@@ -178,7 +217,21 @@ def simulate_primitive(
 
     for step in range(steps + 1):
         t_s = min(step * rollout_config.dt_s, float(primitive.duration_s))
-        desired = np.asarray(primitive.command(t_s, x, context), dtype=float).reshape(3)
+        # Controller feedback uses the measured Vicon/filter delay, while safety and plant
+        # propagation still use the true simulated state.
+        x_feedback = feedback_state(
+            t_s=t_s,
+            current_x=x,
+            initial_x=x_initial,
+            times_s=times,
+            states=states,
+            step=step,
+            delay_s=state_delay_s,
+        )
+        desired = np.asarray(
+            primitive.command(t_s, x_feedback, context),
+            dtype=float,
+        ).reshape(3)
         # Desired commands pass through quantisation, latency, and surface limits
         target = command_layer.apply(desired)
         loads = evaluate_state(
@@ -268,6 +321,7 @@ def simulate_primitive(
         latency_mode=command_layer.config.mode,
         latency_s=half_response_s(command_layer.config, command_layer.envelope),
         latency_range_s=latency_range_label(command_layer.config, command_layer.envelope),
+        **latency_audit_fields(command_layer.config, command_layer.envelope),
         primitive_selected=primitive.name,
         selected_primitive=selected_primitive_name or primitive.name,
         success=success,

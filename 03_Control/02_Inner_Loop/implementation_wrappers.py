@@ -34,6 +34,7 @@ from latency import (  # noqa: E402,F401
     aggregate_targets_to_surface_degrees,
     angle_to_command_norm,
     command_norm_to_angle,
+    feedback_delay_s,
     half_response_s,
     quantise_command_norm,
 )

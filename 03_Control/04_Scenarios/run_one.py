@@ -43,6 +43,7 @@ from latency import (  # noqa: E402
     CommandToSurfaceLayer,
     LatencyEnvelope,
     half_response_s,
+    latency_audit_fields,
     latency_range_label,
 )
 from linearisation import linearise_trim  # noqa: E402
@@ -126,6 +127,7 @@ def run_scenario(
         governor.write_rejection_log(rejection_path)
         selected = _selected_primitive(scenario.candidate_primitives, decision.selected_primitive_name)
         if selected is None:
+            envelope = LatencyEnvelope()
             row = rejected_metrics(
                 scenario_id=scenario_id,
                 seed=seed,
@@ -133,8 +135,9 @@ def run_scenario(
                 wind_mode=scenario.wind_mode,
                 wind_param_label=scenario.wind_param_label,
                 latency_mode=scenario.latency_config.mode,
-                latency_s=half_response_s(scenario.latency_config, LatencyEnvelope()),
-                latency_range_s=latency_range_label(scenario.latency_config, LatencyEnvelope()),
+                latency_s=half_response_s(scenario.latency_config, envelope),
+                latency_range_s=latency_range_label(scenario.latency_config, envelope),
+                **latency_audit_fields(scenario.latency_config, envelope),
                 primitive_name=scenario.primitive.name,
                 x0=scenario.x0,
                 log_path=log_path,
@@ -197,6 +200,7 @@ def run_scenario(
             latency_mode=scenario.latency_config.mode,
             latency_s=half_response_s(scenario.latency_config, envelope),
             latency_range_s=latency_range_label(scenario.latency_config, envelope),
+            **latency_audit_fields(scenario.latency_config, envelope),
             primitive_name=scenario.primitive.name,
             x0=scenario.x0,
             log_path=log_path,

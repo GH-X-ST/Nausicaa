@@ -92,7 +92,7 @@ def build_scenario(
     full_recovery = RecoveryPrimitive(duration_s=0.76)
     # Measured updraft stress horizons stay inside the indoor safety envelope
     updraft_glide = NominalGlidePrimitive(duration_s=0.34)
-    four_fan_updraft_glide = NominalGlidePrimitive(duration_s=0.26)
+    four_fan_updraft_glide = NominalGlidePrimitive(duration_s=0.24)
     governor_recovery = RecoveryPrimitive(duration_s=0.50)
     nominal = CommandToSurfaceConfig(mode="nominal")
     low = CommandToSurfaceConfig(mode="low")

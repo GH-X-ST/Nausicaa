@@ -266,6 +266,7 @@ def _ideal_command_layer() -> CommandToSurfaceLayer:
         mode="nominal",
         quantise=False,
         use_onset_delay=False,
+        use_state_feedback_delay=False,
     )
     # Ideal references remove command-path distortion but keep a stable actuator time constant.
     return CommandToSurfaceLayer(config=config, envelope=LatencyEnvelope())
@@ -478,20 +479,6 @@ def _draw_box(
 
 
 def _plot_arena(ax: mpl.axes.Axes, arena: ArenaConfig) -> None:
-    width_x, width_y, height_z = arena.physical_volume_m
-    room_bounds = {
-        "x_w": (0.0, float(width_x)),
-        "y_w": (0.0, float(width_y)),
-        "z_w": (0.0, float(height_z)),
-    }
-    _draw_box(
-        ax,
-        room_bounds,
-        color=(0.0, 0.0, 0.0, 0.16),
-        linewidth=0.45,
-        linestyle="-",
-        label="Room context",
-    )
     _draw_box(
         ax,
         tracker_bounds(arena),
@@ -848,12 +835,12 @@ def build_composite_figure(
         _plot_trajectory(ax3d, reference)
     _plot_start_end(ax3d, data.actual)
 
-    width_x, width_y, height_z = ArenaConfig().physical_volume_m
+    room = tracker_bounds(ArenaConfig())
     style_3d_axis(
         ax3d,
-        xlim=(0.0, float(width_x)),
-        ylim=(0.0, float(width_y)),
-        zlim=(0.0, float(height_z)),
+        xlim=room["x_w"],
+        ylim=room["y_w"],
+        zlim=room["z_w"],
         style=style,
     )
     framed_legend(
