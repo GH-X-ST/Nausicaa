@@ -15,6 +15,8 @@ def test_governor_writes_rollout_candidate_table(tmp_path: Path) -> None:
     assert "recovery" in str(row["selected_primitive"])
 
     candidate_path = Path(str(row["candidate_table_path"]))
+    if not candidate_path.is_absolute():
+        candidate_path = tmp_path / candidate_path
     assert candidate_path.exists()
     with candidate_path.open(newline="", encoding="utf-8") as handle:
         candidates = list(csv.DictReader(handle))

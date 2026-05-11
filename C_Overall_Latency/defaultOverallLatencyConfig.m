@@ -37,6 +37,9 @@ cfg.receiverChannelSurfaceOrder = ["Aileron_R", "Aileron_L", "Rudder", "Elevator
 % Euler axes and servo signs are hardware sign-check assumptions saved with runData.
 cfg.surfaceEulerAxes = ["X", "X", "Z", "X"];
 cfg.servoSigns = [1, -1, 1, -1];
+cfg.surfaceRangeDeg = [30.0, 30.0, 30.0, 30.0];
+cfg.servoCommandLimitNorm = [0.70, 0.70, 0.70, 0.70];
+cfg.benchDeflectionCalibrationLimitNorm = [1.00, 1.00, 1.00, 1.00];
 
 %% =========================================================================
 % 3) Command timing and analysis defaults

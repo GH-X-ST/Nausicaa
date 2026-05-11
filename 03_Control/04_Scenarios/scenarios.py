@@ -84,10 +84,12 @@ def build_scenario(
     short_glide = NominalGlidePrimitive(duration_s=0.20)
     short_bank = BankReversalPrimitive(duration_s=0.35, bank_angle_rad=np.deg2rad(8.0))
     short_recovery = RecoveryPrimitive(duration_s=0.30)
-    full_glide = NominalGlidePrimitive(duration_s=0.85)
-    full_bank_left = BankReversalPrimitive(duration_s=0.85, bank_angle_rad=np.deg2rad(10.0))
-    full_bank_right = BankReversalPrimitive(duration_s=0.85, bank_angle_rad=np.deg2rad(-10.0))
-    full_recovery = RecoveryPrimitive(duration_s=0.85)
+    # The new true safety volume is narrower than the tracker envelope, so long
+    # audit primitives use a horizon that stays inside x_w in [1.2, 6.6] m.
+    full_glide = NominalGlidePrimitive(duration_s=0.76)
+    full_bank_left = BankReversalPrimitive(duration_s=0.76, bank_angle_rad=np.deg2rad(10.0))
+    full_bank_right = BankReversalPrimitive(duration_s=0.76, bank_angle_rad=np.deg2rad(-10.0))
+    full_recovery = RecoveryPrimitive(duration_s=0.76)
     # Measured updraft stress horizons stay inside the indoor safety envelope
     updraft_glide = NominalGlidePrimitive(duration_s=0.34)
     four_fan_updraft_glide = NominalGlidePrimitive(duration_s=0.26)

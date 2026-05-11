@@ -64,7 +64,7 @@ for rel in (
         # Plot scripts run from the results folder without requiring package installation.
         sys.path.insert(0, str(path))
 
-from arena import ArenaConfig, safe_bounds  # noqa: E402
+from arena import ArenaConfig, safe_bounds, tracker_bounds  # noqa: E402
 from flight_dynamics import adapt_glider  # noqa: E402
 from glider import build_nausicaa_glider  # noqa: E402
 from latency import CommandToSurfaceConfig, CommandToSurfaceLayer, LatencyEnvelope  # noqa: E402
@@ -479,26 +479,35 @@ def _draw_box(
 
 def _plot_arena(ax: mpl.axes.Axes, arena: ArenaConfig) -> None:
     width_x, width_y, height_z = arena.physical_volume_m
-    physical = {
+    room_bounds = {
         "x_w": (0.0, float(width_x)),
         "y_w": (0.0, float(width_y)),
         "z_w": (0.0, float(height_z)),
     }
     _draw_box(
         ax,
-        physical,
-        color=(0.0, 0.0, 0.0, 0.28),
-        linewidth=0.6,
+        room_bounds,
+        color=(0.0, 0.0, 0.0, 0.16),
+        linewidth=0.45,
         linestyle="-",
-        label="Arena",
+        label="Room context",
     )
+    _draw_box(
+        ax,
+        tracker_bounds(arena),
+        color=(0.0, 0.0, 0.0, 0.28),
+        linewidth=0.65,
+        linestyle=":",
+        label="Tracker limit",
+    )
+    # The true safety volume, not the tracker limit, is the primitive acceptance gate.
     _draw_box(
         ax,
         safe_bounds(arena),
         color=(0.0, 0.0, 0.0, 0.45),
         linewidth=0.9,
         linestyle="--",
-        label="Safe volume",
+        label="True safety volume",
     )
 
 

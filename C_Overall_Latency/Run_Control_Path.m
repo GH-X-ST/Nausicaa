@@ -162,6 +162,8 @@ config.receiverChannelSurfaceOrder = getStringRow(config, "receiverChannelSurfac
 config.surfaceEulerAxes = getStringRow(config, "surfaceEulerAxes", ["X", "X", "Z", "X"]);
 config.servoSigns = getNumericRow(config, "servoSigns", [1, -1, 1, -1]);
 config.surfaceRangeDeg = getNumericRow(config, "surfaceRangeDeg", [30, 30, 30, 30]);
+config.servoCommandLimitNorm = getNumericRow(config, "servoCommandLimitNorm", [0.70, 0.70, 0.70, 0.70]);
+config.benchDeflectionCalibrationLimitNorm = getNumericRow(config, "benchDeflectionCalibrationLimitNorm", [1.00, 1.00, 1.00, 1.00]);
 config.viconHostName = getText(config, "viconHostName", "192.168.0.100:801");
 config.viconPort = getPositiveScalar(config, "viconPort", 801);
 if any(char(config.viconHostName) == ':')
@@ -189,6 +191,16 @@ end
 config.surfaceEulerAxes = resizeRow(config.surfaceEulerAxes, surfaceCount, "X");
 config.servoSigns = resizeRow(config.servoSigns, surfaceCount, 1);
 config.surfaceRangeDeg = resizeRow(config.surfaceRangeDeg, surfaceCount, 30);
+config.servoCommandLimitNorm = resizeRow(config.servoCommandLimitNorm, surfaceCount, 0.70);
+config.benchDeflectionCalibrationLimitNorm = resizeRow(config.benchDeflectionCalibrationLimitNorm, surfaceCount, 1.00);
+if any(config.servoCommandLimitNorm <= 0 | config.servoCommandLimitNorm > 1)
+    error("Run_Control_Path:InvalidServoCommandLimit", ...
+        "servoCommandLimitNorm must contain values in the interval (0, 1].");
+end
+if any(config.benchDeflectionCalibrationLimitNorm <= 0 | config.benchDeflectionCalibrationLimitNorm > 1)
+    error("Run_Control_Path:InvalidBenchDeflectionCalibrationLimit", ...
+        "benchDeflectionCalibrationLimitNorm must contain values in the interval (0, 1].");
+end
 config.receiverChannelSurfaceOrder = validateReceiverChannelSurfaceOrder(config.receiverChannelSurfaceOrder, config.surfaceOrder);
 config.receiverChannelSurfaceIndex = mapSurfaceNamesToIndices(config.receiverChannelSurfaceOrder, config.surfaceOrder);
 
@@ -394,7 +406,9 @@ if ~isfield(cmd, "surfaceNorm")
     cmd.surfaceNorm = zeros(1, numel(config.surfaceOrder));
 end
 cmd.surfaceNorm = resizeRow(double(cmd.surfaceNorm), numel(config.surfaceOrder), 0);
-cmd.surfaceNorm = min(max(cmd.surfaceNorm, -1), 1);
+servoLimit = resizeRow(double(config.servoCommandLimitNorm), numel(config.surfaceOrder), 1);
+% Real-flight commands are capped before logging; bench full-throw tests must opt in explicitly.
+cmd.surfaceNorm = min(max(cmd.surfaceNorm, -servoLimit), servoLimit);
 if ~isfield(cmd, "aeroCmdRad")
     cmd.aeroCmdRad = NaN(1, 3);
 end
@@ -415,6 +429,8 @@ end
 
 function [packetBytes, packetSurfaceNorm, packetCodes, activeMask] = encodeSurfaceCommand(cmd, config)
 surfaceNorm = resizeRow(double(cmd.surfaceNorm), numel(config.surfaceOrder), 0);
+servoLimit = resizeRow(double(config.servoCommandLimitNorm), numel(config.surfaceOrder), 1);
+surfaceNorm = min(max(surfaceNorm, -servoLimit), servoLimit);
 % MATLAB applies hardware signs before packet encoding; firmware maps codes directly to pulse width.
 packetSurfaceNorm = min(max(config.servoSigns .* surfaceNorm, -1), 1);
 packetCodes = uint16(round((packetSurfaceNorm + 1) .* 0.5 .* 65535));
