@@ -1,3 +1,5 @@
+"""Render the candidate robustness heat map from canonical workbook outputs."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -5,6 +7,7 @@ import sys
 
 import matplotlib
 
+# Use a non-interactive backend for reproducible batch figure generation.
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
@@ -18,6 +21,7 @@ import cmocean
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
+    # Allows direct execution as `python F_analysis/robustness_map.py`.
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from F_analysis.analysis_common import (
@@ -28,6 +32,20 @@ from F_analysis.analysis_common import (
     resolve_tail_metric_name,
     sort_scenario_tags,
 )
+
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Workbook paths and plotting constants
+# 2) Scenario summary and workbook loading
+# 3) Matrix and plotting helpers
+# 4) Robustness-map figure builder
+# 5) CLI
+# =============================================================================
+
+# =============================================================================
+# 1) Workbook Paths and Plotting Constants
+# =============================================================================
 
 RESULTS_DIR = PROJECT_ROOT / "C_results"
 FIGURES_DIR = PROJECT_ROOT / "B_figures"
@@ -44,6 +62,7 @@ METRIC_ORDER = [
     "nom_roll_tau_s",
     "nom_lateral_residual",
 ]
+# Metrics outside this set are margins, so larger values are safer.
 LOWER_IS_BETTER = {
     "nom_sink_rate_mps",
     "nom_util_e",
@@ -72,6 +91,10 @@ CELL_EDGE_LW = 0.30
 LEGEND_FONT_SIZE = 8.4
 
 
+# =============================================================================
+# 2) Scenario Summary and Workbook Loading
+# =============================================================================
+
 def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict[str, float | str]] = []
     for scenario_tag, group_df in selected_scenarios_df.groupby("scenario_tag", sort=False):
@@ -87,6 +110,7 @@ def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
         )
         sink = sink.dropna()
         sink_sorted = np.sort(sink.to_numpy()) if not sink.empty else np.array([])
+        # Tail-risk sink is the mean of the worst 20% of available sink values.
         tail_count = max(1, int(np.ceil(0.2 * len(sink_sorted)))) if sink_sorted.size else 0
         tail_value = (
             float(np.mean(sink_sorted[-tail_count:])) if tail_count > 0 else np.nan
@@ -128,6 +152,7 @@ def load_robustness_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd
         robust_summary_df = read_sheet_required(book, "RobustSummary")
         scenarios_df = read_sheet_optional(book, "RobustScenarios")
         if scenarios_df.empty:
+            # `PlotDataRobust` is retained for pre-RobustScenarios workbook exports.
             scenarios_df = read_sheet_required(book, "PlotDataRobust")
         summary_by_tag_df = read_sheet_optional(book, "RobustSummaryByTag")
     finally:
@@ -143,8 +168,13 @@ def get_selected_candidate_id(
     return resolve_selected_candidate_id(candidates_df, robust_summary_df)
 
 
+# =============================================================================
+# 3) Matrix and Plotting Helpers
+# =============================================================================
+
 def sort_selected_scenarios(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
     sorted_df = selected_scenarios_df.copy()
+    # Stable tag ordering keeps scenario-family comparisons reproducible.
     tag_order = sort_scenario_tags(sorted_df["scenario_tag"])
     sorted_df["tag_sort"] = sorted_df["scenario_tag"].map(
         {tag: idx for idx, tag in enumerate(tag_order)}
@@ -186,6 +216,7 @@ def compute_rowwise_risk_map(metric_matrix: pd.DataFrame) -> np.ndarray:
 
         transformed = values.copy()
         if metric_name not in LOWER_IS_BETTER:
+            # Convert safety margins to risk: a smaller margin should plot hotter.
             finite_values = transformed[finite_mask]
             transformed[finite_mask] = np.nanmax(finite_values) - finite_values
 
@@ -193,6 +224,7 @@ def compute_rowwise_risk_map(metric_matrix: pd.DataFrame) -> np.ndarray:
         min_value = np.nanmin(finite_values)
         max_value = np.nanmax(finite_values)
         if np.isclose(max_value, min_value):
+            # A constant metric carries no within-row relative-risk information.
             scaled = np.zeros_like(values)
         else:
             scaled = (transformed - min_value) / (max_value - min_value)
@@ -204,6 +236,7 @@ def compute_rowwise_risk_map(metric_matrix: pd.DataFrame) -> np.ndarray:
 
 def _centers_to_edges(values: np.ndarray) -> np.ndarray:
     values = np.asarray(values, dtype=float)
+    # Matplotlib pcolormesh expects cell edges, while scenario IDs are centres.
     edges = np.empty(values.size + 1, dtype=float)
     edges[1:-1] = 0.5 * (values[:-1] + values[1:])
     edges[0] = values[0] - 0.5 * (values[1] - values[0]) if values.size > 1 else values[0] - 0.5
@@ -219,6 +252,7 @@ def _prepare_summary_by_tag(
     selected_scenarios_df: pd.DataFrame,
 ) -> pd.DataFrame:
     if summary_by_tag_df.empty:
+        # Rebuild the summary from per-scenario rows when the workbook lacks it.
         return _aggregate_tag_summary(selected_scenarios_df)
 
     summary_df = summary_by_tag_df.copy()
@@ -231,6 +265,7 @@ def _prepare_summary_by_tag(
         return _aggregate_tag_summary(selected_scenarios_df)
 
     if "sink_tail_mean_k" in summary_df.columns:
+        # Legacy column name maps to the current robust-ranking metric.
         summary_df = summary_df.rename(
             columns={"sink_tail_mean_k": "nom_sink_tail_mean_k"}
         )
@@ -296,6 +331,10 @@ def _scenario_family_positions(
     return np.asarray(centers, dtype=float), labels, boundaries
 
 
+# =============================================================================
+# 4) Robustness-Map Figure Builder
+# =============================================================================
+
 def make_robustness_map(
     selected_candidate_id: int,
     selected_scenarios_df: pd.DataFrame,
@@ -335,6 +374,7 @@ def make_robustness_map(
         selected_scenarios_df
     )
 
+    # Fixed normalization makes colors comparable across regenerated figures.
     image = heatmap_ax.pcolormesh(
         x_edges,
         y_edges,
@@ -501,6 +541,10 @@ def make_robustness_map(
     plt.close(fig)
     return FIGURE_PATH
 
+
+# =============================================================================
+# 5) CLI
+# =============================================================================
 
 def main() -> None:
     candidates_df, robust_summary_df, scenarios_df, summary_by_tag_df = load_robustness_data()

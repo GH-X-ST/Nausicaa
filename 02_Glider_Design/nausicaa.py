@@ -1,3 +1,5 @@
+"""Design, trim, optimize, and audit the Nausicaa indoor glider geometry."""
+
 from __future__ import annotations
 
 import argparse
@@ -17,18 +19,20 @@ import pandas as pd
 # =============================================================================
 # SECTION MAP
 # =============================================================================
-# 1) Imports
-# 2) Dataclasses + configuration
-# 3) Utilities
+# 1) Constants and configuration
+# 2) Utility helpers
+# 3) Airfoil setup
 # 4) Geometry builders
-# 5) Mass / CG / inertia model
-# 6) Aerodynamics + trim evaluation (nominal/turn)
-# 7) Optimization build + solver wrappers (single run / multistart)
-# 8) Robustness tools (scenario sampling + per-scenario re-trim + scoring)
-# 9) Reporting (XLSX / tables / plots / console summary)
+# 5) Mass, CG, and inertia model
+# 6) Aerodynamics and trim evaluation
+# 7) Reporting and export
+# 8) Optimization build and solver wrappers
+# 9) Robustness tools
 # 10) CLI (argparse + main + entrypoint)
 # =============================================================================
-# User settings
+
+# =============================================================================
+# 1) Constants and Configuration
 # =============================================================================
 
 PROJECT_ROOT = Path(".")
@@ -48,7 +52,7 @@ IPOPT_VERBOSE = False
 IPOPT_VERBOSE_PRINT_LEVEL = 5
 
 
-# Manual note for this run (edit before executing)
+# Manual run label persisted in RunInfo and console output.
 MANUAL_RUN_NOTE = "v5.3.5"
 MANUAL_RUN_NOTE_PRINT = True
 PRIMARY_AIRFOIL_NAME = "naca0002"
@@ -79,7 +83,7 @@ CM_TRIM_TOL = 1e-6
 # Stall / margin settings for manoeuvre case
 TURN_ALPHA_MARGIN_DEG = 4.0
 TURN_CL_CAP = 1.30
-# NOTE: Turn feasibility is enforced via curvature (lateral acceleration) constraint.
+# Turn feasibility is enforced via curvature (lateral acceleration) constraint.
 # Legacy level-turn scaling is intentionally removed to avoid inconsistent pseudo-level-turn tuning.
 
 # Trim operating-point envelope
@@ -297,7 +301,7 @@ CL_DELTA_A_FD_STEP_DEG = 2.0
 SERVO_TORQUE_LIMIT_NM = 0.009
 # Derate for shocks, backlash, and installation losses
 SERVO_SAFETY_FACTOR = 2.0
-# Rough hinge-moment proxy that should be calibrated
+# Calibration target: replace this hinge-moment proxy with bench or flight data.
 HINGE_MOMENT_COEFF = 0.02
 LINKAGE_EFFICIENCY = 0.80
 SERVO_ARM_M = 0.004
@@ -322,10 +326,13 @@ STRUCT_DEFLECTION_WEIGHT = 0.5
 ROLL_TAU_WEIGHT_IN_OBJECTIVE = 0.2
 WING_DEFLECTION_ALLOW_FRAC = 0.08
 # Horizontal-tail stiffness proxy (soft regularizer)
-HT_LOAD_FRACTION = 0.25            # k_H in F = k_H * L_turn (start 0.20-0.35)
-HT_DEFLECTION_ALLOW_FRAC = 0.08    # allowed tip deflection fraction of semispan
+# Tail load proxy uses F_tail = k_H * L_turn; 0.25 sits inside the 0.20-0.35 audit range.
+HT_LOAD_FRACTION = 0.25
+# Allowable tip deflection is a fraction of semispan for scale-invariant stiffness ranking.
+HT_DEFLECTION_ALLOW_FRAC = 0.08
 HT_STRUCT_DEFLECTION_WEIGHT = 0.1
-HTAIL_E_SECANT_PA = FOAM_ESEC10_G3_PA  # tail foam secant modulus (3 mm Depron proxy)
+# Tail stiffness uses the 3 mm Depron secant-modulus proxy from the foam data block.
+HTAIL_E_SECANT_PA = FOAM_ESEC10_G3_PA
 SOFTPLUS_K = 25.0
 BOUNDARY_HIT_REL_TOL = 1e-3
 BOUNDARY_HIT_ABS_TOL = 1e-6
@@ -926,7 +933,7 @@ _LAST_SOLVE_FAILURE_REASON: str | None = None
 
 
 # =============================================================================
-# Utility helpers
+# 2) Utility Helpers
 # =============================================================================
 
 def get_git_version() -> str:
@@ -989,7 +996,7 @@ def to_float_if_possible(value: Scalar) -> float | None:
 
 
 # =============================================================================
-# Airfoil setup
+# 3) Airfoil Setup
 # =============================================================================
 
 def build_reference_airfoil() -> tuple[asb.Airfoil, str]:
@@ -1021,7 +1028,7 @@ def get_reference_airfoil_cached() -> tuple[asb.Airfoil, str]:
 
 
 # =============================================================================
-# Geometry builders
+# 4) Geometry Builders
 # =============================================================================
 
 def build_main_wing(
@@ -1220,7 +1227,7 @@ def get_airframe_bundle_cached(
         _GEOMETRY_AIRFRAME_CACHE[key] = bundle
     return bundle
 # =============================================================================
-# Mass model and dynamics helpers
+# 5) Mass, CG, and Inertia Model
 # =============================================================================
 
 def surface_span(surface: asb.Wing, span_axis: SpanAxis) -> Scalar:
@@ -2518,7 +2525,7 @@ def objective_dominance_warning(
     return None
 
 # =============================================================================
-# Aerodynamics + trim evaluation (nominal/turn)
+# 6) Aerodynamics and Trim Evaluation
 # =============================================================================
 def build_trim_constraints_and_metrics(
     *,
@@ -2661,7 +2668,7 @@ def cl_delta_a_finite_difference(
     return (cl_plus - cl_minus) / (2.0 * step_rad)
 
 # =============================================================================
-# Reporting and export
+# 7) Reporting and Export
 # =============================================================================
 
 def constraint_record(
@@ -2671,7 +2678,7 @@ def constraint_record(
     upper: float | None = None,
     tol: float = 1e-6,
 ) -> ReportRow:
-    # Store each constraint with pass/fail status for CSV/XLSX reporting
+    # Constraint rows preserve value, bound, and margin for CSV/XLSX audit.
     value_f = to_scalar(value)
     passed = True
 
@@ -3025,7 +3032,7 @@ def build_mass_rows(
 ) -> ReportRows:
     rows: ReportRows = []
 
-    # Component-by-component mass and principal inertia table
+    # Component rows expose kg and kg*m^2 contributions for independent mass audit.
     for name, mp in mass_props.items():
         component_name = name
         if name == "centre_module_core":
@@ -3059,7 +3066,7 @@ def build_mass_rows(
 
 
 def build_aero_rows(aero: AeroMap) -> ReportRows:
-    # Flat coefficient table for easier post-processing
+    # Flat coefficient table keeps aero outputs traceable outside AeroSandbox objects.
     rows: ReportRows = []
     for key in sorted(aero.keys()):
         rows.append({"Coefficient": key, "Value": to_scalar(aero[key])})
@@ -3443,7 +3450,7 @@ def print_console_report(
         print(f"  figure_{key}: {path}", flush=True)
 
 # =============================================================================
-# Optimization problem build + solver wrappers (single run / multistart)
+# 8) Optimization Build and Solver Wrappers
 # =============================================================================
 
 def legacy_single_run_main(
@@ -3469,13 +3476,13 @@ def legacy_single_run_main(
     def init_value(name: str, default: float) -> float:
         return float(init_override.get(name, default))
 
-    # Initialization
+    # Cached airfoil polar data keeps repeated multistart solves reproducible and fast.
     ensure_output_dirs()
     airfoil, airfoil_label = get_reference_airfoil_cached()
 
     opti = asb.Opti()
 
-    # Nominal trim variables (used by objective)
+    # Trim variables use degrees because AeroSandbox control-surface APIs are degree-based here.
     alpha_nom_deg = opti.variable(
         init_guess=init_value("alpha_nom_deg", init_value("alpha_deg", 4.0)),
         lower_bound=ALPHA_MIN_DEG,
@@ -3496,7 +3503,7 @@ def legacy_single_run_main(
         lower_bound=DELTA_R_MIN_DEG,
         upper_bound=DELTA_R_MAX_DEG,
     )
-    # Primary geometry design variables
+    # Geometry variables are metres and bounded by indoor arena/build constraints.
     wing_span_m = opti.variable(
         init_guess=init_value("wing_span_m", 0.80),
         lower_bound=WING_SPAN_MIN_M,
@@ -3541,7 +3548,7 @@ def legacy_single_run_main(
         if name in init_override:
             opti.set_initial(variable, float(init_override[name]))
 
-    # Airframe assembly
+    # Airframe assembly fixes the modelling boundary before mass and aero constraints.
     wing = build_main_wing(airfoil=airfoil, span_m=wing_span_m, chord_m=wing_chord_m, cfg=cfg)
     htail, htail_chord_m = build_horizontal_tail(
         airfoil=airfoil,
@@ -3850,7 +3857,7 @@ def legacy_single_run_main(
     htail_deflection_penalty = objective_terms_expr["J_htail_deflection"]
     roll_tau_penalty = objective_terms_expr["J_roll_tau"]
     opti.minimize(objective)
-    # Feasibility constraints (nominal mission hard constraints only)
+    # Hard constraints are limited to nominal mission feasibility; turn terms remain diagnostic.
     trim_nom_constraints = list(trim_nom["constraints"])
 
     feasibility_constraints: list[tuple[str, Scalar]] = []
@@ -3888,7 +3895,7 @@ def legacy_single_run_main(
     )
 
     opti.subject_to([expr for _, expr in feasibility_constraints])
-    # IPOPT setup
+    # IPOPT print settings are kept quiet unless verbose debugging is requested.
     plugin_options = {"print_time": False, "verbose": False}
     solver_options = {
         "max_iter": 1000,
@@ -4660,7 +4667,7 @@ def legacy_single_run_main(
     except Exception:
         solve_stats = {}
 
-    # Numeric post-processing for reports and exports
+    # Numeric post-processing converts symbolic solves to report units and margins.
     airplane_base_num = solution(airplane_base)
     airplane_num = solution(airplane_nom)
     wing_num = copy.deepcopy(airplane_num.wings[0])
@@ -4911,7 +4918,7 @@ def legacy_single_run_main(
         ),
     ]
 
-    # Report tables
+    # Report rows preserve provenance for thesis tables and downstream analysis scripts.
     summary_rows = [
         {"Metric": "code_version", "Value": version, "Unit": "-"},
         {"Metric": "airfoil_model", "Value": airfoil_label, "Unit": "-"},
@@ -5217,7 +5224,7 @@ def legacy_single_run_main(
         },
     ]
 
-    # Expanded per-component outputs
+    # Expanded component rows expose hidden mass-model terms for audit.
     mass_rows = build_mass_rows(mass_props_num)
     aero_rows = []
     aero_rows.extend(
@@ -5229,7 +5236,7 @@ def legacy_single_run_main(
         for row in build_aero_rows(aero_turn_num)
     )
 
-    # Constraint audit table (mirrors optimization constraints)
+    # Constraint audit table mirrors optimization constraints with explicit margins.
     constraint_rows = build_constraint_audit_rows(
         aero_nom_num=aero_nom_num,
         aero_turn_num=aero_turn_num,
@@ -5504,7 +5511,7 @@ def legacy_single_run_main(
     if not export_outputs:
         return candidate
 
-    # Persist outputs and figures
+    # Persist outputs and figures only after the selected candidate is fully audited.
     output_paths = save_results(
         summary_rows=summary_rows,
         geometry_rows=geometry_rows,
@@ -5772,7 +5779,7 @@ def run_multistart(
 
 
 # =============================================================================
-# Robustness tools (scenario sampling + per-scenario re-trim + scoring)
+# 9) Robustness Tools
 # =============================================================================
 def latin_hypercube(
     n_samples: int,
@@ -5789,11 +5796,13 @@ def latin_hypercube(
 def build_scenario_tags(n_scenarios: int) -> onp.ndarray:
     n_scen = max(0, int(n_scenarios))
     if n_scen < len(ROBUST_SCENARIO_TAGS):
+        # Too few samples cannot represent each scenario family once.
         return onp.full(n_scen, "mixed", dtype=object)
 
     base_count = n_scen // len(ROBUST_SCENARIO_TAGS)
     remainder = n_scen % len(ROBUST_SCENARIO_TAGS)
     counts = {tag: base_count for tag in ROBUST_SCENARIO_TAGS}
+    # Allocate remainder to the harsh compound family to bias small sets conservative.
     counts["harsh_compound"] += remainder
 
     tags: list[str] = []
@@ -5844,6 +5853,7 @@ def sample_scenario_objects(
     scenario_count: int | None = None,
 ) -> list[Scenario]:
     uncertainty = uncertainty or UncertaintyModel.from_workflow_config(config)
+    # Scenario generation is seed-driven for reproducible robustness tables.
     _ = rng
     n_scen_total = int(max(0, config.n_scenarios if scenario_count is None else scenario_count))
 
@@ -5852,6 +5862,7 @@ def sample_scenario_objects(
 
     rng_local = onp.random.default_rng(int(config.scenario_seed))
     scenario_tags = build_scenario_tags(n_scen_total)
+    # Thirteen LHS columns cover severity, control biases, inertia, stiffness, and gusts.
     lhs = latin_hypercube(n_scen_total, 13, rng_local)
 
     severities = onp.empty(n_scen_total, dtype=float)
@@ -5877,6 +5888,7 @@ def sample_scenario_objects(
 
     mass_scale = 1.0 + q_col * severities * (float(uncertainty.mass_scale_max) - 1.0)
     drag_factor = 1.0 + q_col * severities * (float(uncertainty.drag_factor_max) - 1.0)
+    # Severity variable q couples mass, drag, and actuator-effectiveness degradation.
     eff_a = 1.0 - q_col * severities * (1.0 - float(uncertainty.eff_a_min))
     eff_e = 1.0 - q_col * severities * (1.0 - float(uncertainty.eff_e_min))
     eff_r = 1.0 - q_col * severities * (1.0 - float(uncertainty.eff_r_min))
@@ -5962,6 +5974,7 @@ def sample_scenario_objects(
         gust_decay * gust_nom_base
         + onp.sqrt(max(0.0, 1.0 - gust_decay**2)) * g_innov_scaled
     )
+    # Gust samples use a correlated first-order model between nominal and turn points.
     gust_mask = gust_enabled.astype(float)
     w_gust_nom = gust_nom_base * gust_mask
     w_gust_turn = onp.clip(
@@ -9115,7 +9128,7 @@ def export_selected_candidate(candidate: Candidate) -> tuple[PathMap, PathMap]:
 
 
 # =============================================================================
-# CLI (argparse + main + entrypoint)
+# 10) CLI
 # =============================================================================
 def spawn_child_rng(parent_rng: onp.random.Generator) -> onp.random.Generator:
     child_seed = int(parent_rng.integers(0, onp.iinfo(onp.uint32).max))

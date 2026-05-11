@@ -34,6 +34,22 @@ from F_analysis.analysis_common import (
 )
 import nausicaa
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Constants and finite-difference policy
+# 2) Dataclasses
+# 3) Workbook and baseline reconstruction
+# 4) Parameter and quantity specifications
+# 5) Evaluation and finite-difference mechanics
+# 6) Tables, saved-step selection, and export
+# 7) CLI
+# =============================================================================
+
+# =============================================================================
+# 1) Constants and Finite-Difference Policy
+# =============================================================================
+
 nausicaa.IPOPT_VERBOSE = False
 
 RESULTS_DIR = PROJECT_ROOT / "C_results"
@@ -45,10 +61,13 @@ OUTPUT_STEP_SIZE_XLSX = RESULTS_DIR / "step_size_analysis.xlsx"
 
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
+# Base step is small because each perturbation re-solves a constrained trim problem;
+# the ladder expands around it before choosing a defensible derivative.
 FD_REL_STEP = 2e-3
 FD_STABLE_REL_TOL = 0.10
 FD_STABLE_ABS_TOL = 1e-9
 TURN_TAU_FLOOR_S = 1e-4
+# Conservative roundoff proxy accounts for solver residual noise in tiny signals.
 FD_ROUNDOFF_SAFETY = 50.0
 FD_ROUNDOFF_REL_SCALE = math.sqrt(np.finfo(float).eps)
 FD_STEP_LADDER_MULTIPLIERS = (
@@ -225,8 +244,14 @@ OVERLAP_METRIC_KEYS = [
 ]
 
 
+# =============================================================================
+# 2) Dataclasses
+# =============================================================================
+
 @dataclass(frozen=True)
 class ParameterSpec:
+    """Finite-difference parameter definition with unit and bound metadata."""
+
     name: str
     group: str
     unit: str
@@ -241,6 +266,8 @@ class ParameterSpec:
 
 @dataclass(frozen=True)
 class QuantitySpec:
+    """Output metric definition for raw and normalized sensitivity rows."""
+
     name: str
     unit: str
     symbol: str
@@ -305,6 +332,8 @@ class StepSizeResult:
 
 @dataclass(frozen=True)
 class BaselineContext:
+    """Canonical workbook state needed to reproduce the selected trim design."""
+
     workbook_path: Path
     selected_candidate_id: int
     selected_row: dict[str, float]
@@ -331,6 +360,10 @@ class EvaluationResult:
     notes: list[str]
 
 
+# =============================================================================
+# 3) Workbook and Baseline Reconstruction
+# =============================================================================
+
 def _to_float(value: Any) -> float:
     numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
     if pd.isna(numeric):
@@ -343,6 +376,7 @@ def _series_lookup(df: pd.DataFrame, key_col: str, value_col: str) -> dict[str, 
         return {}
     return pd.Series(df[value_col].to_numpy(), index=df[key_col].astype(str)).to_dict()
 
+
 def _constraint_row(df: pd.DataFrame, name: str) -> pd.Series | None:
     if df.empty or "Constraint" not in df.columns:
         return None
@@ -353,6 +387,7 @@ def _constraint_row(df: pd.DataFrame, name: str) -> pd.Series | None:
 
 
 def _tail_arm_from_boom_length(boom_length_m: float, htail_span_m: float) -> float:
+    # Boom length is exported from the nose station; sensitivity uses tail arm.
     htail_chord_m = htail_span_m / max(float(nausicaa.HT_AR), 1e-9)
     return (
         boom_length_m
@@ -373,6 +408,7 @@ def _build_workflow_config(run_info_map: dict[str, Any]) -> nausicaa.WorkflowCon
     override_values: dict[str, Any] = {}
     for key in override_keys:
         if key in run_info_map:
+            # Preserve run-specific actuator and trim settings from RunInfo.
             value = _to_float(run_info_map[key])
             if math.isfinite(value):
                 override_values[key] = value
@@ -386,6 +422,8 @@ def _build_fallback_selected_row(
     geometry_df: pd.DataFrame,
 ) -> dict[str, float]:
     geometry_map = _series_lookup(geometry_df, "Parameter", "Value")
+    # Legacy workbooks may lack a Candidates sheet; Summary/Geometry still
+    # reconstruct one selected row for sensitivity diagnostics.
     row = {
         "candidate_id": 1.0,
         "objective": _to_float(summary_map.get("objective", float("nan"))),
@@ -494,12 +532,14 @@ def _build_requirement_values(
 
     max_cl_nominal = float(default_cfg.max_cl_nominal)
     if cl_constraint_row is not None:
+        # Constraint-sheet bounds are the audit source for requirement sweeps.
         constraint_upper = _to_float(cl_constraint_row.get("Upper"))
         if math.isfinite(constraint_upper):
             max_cl_nominal = constraint_upper
 
     static_margin_min = float(nausicaa.STATIC_MARGIN_MIN)
     if static_margin_row is not None:
+        # Workbook stores static margin as MAC fraction; table rows use %MAC.
         constraint_lower = _to_float(static_margin_row.get("Lower"))
         if math.isfinite(constraint_lower):
             static_margin_min = constraint_lower
@@ -548,6 +588,7 @@ def _build_cfg(
     requirement_values: dict[str, float],
 ) -> nausicaa.Config:
     base_cfg = nausicaa.Config()
+    # Rebuild only study requirements here; geometry stays in GeometryVars.
     overrides = {
         "v_nom_mps": _lookup_numeric(
             summary_map,
@@ -611,6 +652,7 @@ def _build_workbook_baseline_values(
     cl_constraint_row = _constraint_row(constraints_df, "CL <= CLmax")
     cl_margin = float("nan")
     if cl_constraint_row is not None:
+        # Prefer exported constraint margin; reconstruct only for older sheets.
         cl_margin = _to_float(cl_constraint_row.get("Margin"))
         if not math.isfinite(cl_margin):
             upper = _to_float(cl_constraint_row.get("Upper"))
@@ -653,6 +695,7 @@ def _build_workbook_baseline_values(
 def load_selected_baseline() -> BaselineContext:
     workbook_path, book = open_canonical_workbook()
     try:
+        # Optional sheets keep historical workbook exports usable.
         candidates_df = read_sheet_optional(book, "Candidates")
         robust_summary_df = read_sheet_optional(book, "RobustSummary")
         summary_df = read_sheet_required(book, "Summary")
@@ -670,6 +713,7 @@ def load_selected_baseline() -> BaselineContext:
 
     selected_candidate_id = 1
     if not candidates_df.empty:
+        # Selection policy is shared with plotting/table scripts for consistency.
         selected_candidate_id = resolve_selected_candidate_id(
             candidates_df=candidates_df,
             robust_summary_df=robust_summary_df,
@@ -679,6 +723,7 @@ def load_selected_baseline() -> BaselineContext:
         candidate_ids = pd.to_numeric(candidates_df["candidate_id"], errors="coerce")
         match_df = candidates_df.loc[candidate_ids == selected_candidate_id]
         if match_df.empty:
+            # RobustSummary can reference a filtered candidate; objective rank is fallback.
             match_df = candidates_df.sort_values("objective", kind="mergesort").head(1)
         selected_row_raw = match_df.iloc[0].to_dict()
     else:
@@ -697,6 +742,7 @@ def load_selected_baseline() -> BaselineContext:
     vtail_height_m = _lookup_numeric(selected_row, "vtail_height_m")
     tail_arm_m = _lookup_numeric(selected_row, "tail_arm_m")
     if not math.isfinite(tail_arm_m):
+        # Older candidate tables export boom length but not the derived tail arm.
         boom_length_m = _lookup_numeric(
             selected_row,
             "boom_length_m",
@@ -788,8 +834,13 @@ def load_selected_baseline() -> BaselineContext:
     )
 
 
+# =============================================================================
+# 4) Parameter and Quantity Specifications
+# =============================================================================
+
 def build_geometry_parameter_specs(context: BaselineContext) -> list[ParameterSpec]:
     cfg = context.cfg
+    # Geometry perturbations re-run full trim because mass, inertia, and aero change.
     baseline_map = {
         "wing_span_m": float(context.geometry.wing_span_m),
         "wing_chord_m": float(context.geometry.wing_chord_m),
@@ -835,6 +886,7 @@ def build_requirement_parameter_specs(context: BaselineContext) -> list[Paramete
         "max_roll_tau_s": "s",
     }
     abs_floors = {
+        # Floors keep dimensional perturbations finite near zero-valued settings.
         "bank_entry_time_s": 1e-4,
         "wall_clearance_m": 1e-4,
         "turn_bank_deg": 1e-3,
@@ -851,6 +903,7 @@ def build_requirement_parameter_specs(context: BaselineContext) -> list[Paramete
         "max_roll_tau_s": 0.0,
     }
     evaluation_path = {
+        # Derived-only requirements affect metrics but do not require a new trim solve.
         "bank_entry_time_s": "derived_only",
         "wall_clearance_m": "derived_only",
         "turn_bank_deg": "derived_only",
@@ -886,6 +939,10 @@ def build_quantity_specs() -> list[QuantitySpec]:
     ]
 
 
+# =============================================================================
+# 5) Evaluation and Finite-Difference Mechanics
+# =============================================================================
+
 def compute_fd_step(parameter_spec: ParameterSpec) -> float:
     return max(
         abs(parameter_spec.baseline_value) * parameter_spec.rel_step,
@@ -907,6 +964,7 @@ def build_step_ladder(
             and lower_bound is not None
             and parameter_spec.baseline_value - step_size <= lower_bound
         ):
+            # Central differences must not sample infeasible boundary values.
             continue
         step_sizes.append(step_size)
     if not step_sizes:
@@ -929,6 +987,7 @@ def _richardson_reference(
 ) -> float:
     order = _difference_order(scheme)
     step_ratio = coarse_step / max(fine_step, 1e-30)
+    # Denominator clamp avoids a zero divide if duplicate steps reach this path.
     denominator = max(step_ratio**order - 1.0, 1e-12)
     return fine_derivative + (fine_derivative - coarse_derivative) / denominator
 
@@ -951,6 +1010,7 @@ def normalize_sensitivity(
 ) -> float:
     if not math.isfinite(dq_dp):
         return float("nan")
+    # Quantity floor prevents normalized sensitivities from exploding near zero.
     denominator = max(abs(quantity_value), q_floor)
     return (parameter_value / denominator) * dq_dp
 
@@ -959,6 +1019,7 @@ def classify_interpretation(
     normalized_values: list[float],
     stable_flags: list[bool],
 ) -> str:
+    # Qualitative labels ignore unstable rows so they reflect defensible estimates.
     stable_values = [
         abs(value)
         for value, is_stable in zip(normalized_values, stable_flags, strict=False)
@@ -1152,6 +1213,8 @@ def evaluate_full_trim(
     geometry: nausicaa.GeometryVars,
     requirement_values: dict[str, float],
 ) -> EvaluationResult:
+    # Full trim mirrors the optimizer so geometry sensitivities include coupled
+    # aero, mass, inertia, and constraint effects.
     cfg = _build_cfg(
         summary_map=context.summary_map,
         design_points_map=context.design_points_map,
@@ -1585,6 +1648,7 @@ def _adjust_fd_scheme(parameter_spec: ParameterSpec) -> tuple[str, float, list[s
     scheme = "central"
     lower_bound = parameter_spec.lower_bound
     if lower_bound is not None and parameter_spec.baseline_value - step <= lower_bound:
+        # Prefer central differences; switch only when the lower bound blocks both sides.
         shrunk_step = 0.5 * step
         if parameter_spec.baseline_value - shrunk_step > lower_bound:
             step = shrunk_step
@@ -1633,6 +1697,7 @@ def _build_step_candidates(
         roundoff_limited = False
 
         if scheme == "central":
+            # Central difference cancels first-order truncation error when both solves succeed.
             minus_eval = evaluation_points[f"minus_{level}"]
             plus_eval = evaluation_points[f"plus_{level}"]
             if (
@@ -1655,6 +1720,7 @@ def _build_step_candidates(
                 )
                 roundoff_limited = signal_amplitude <= roundoff_floor
         else:
+            # Forward difference is reserved for near-boundary parameters.
             plus_eval = evaluation_points[f"plus_{level}"]
             if (
                 plus_eval.success
@@ -1704,6 +1770,7 @@ def _estimate_reference_derivative(
     reference_pool = nonroundoff_candidates
     method = "richardson_smallest_nonroundoff_pair"
     if len(reference_pool) < 2:
+        # Fallback is labelled so downstream notes expose the weaker reference.
         reference_pool = finite_candidates
         method = "richardson_smallest_finite_pair_fallback"
     if len(reference_pool) >= 2:
@@ -1771,6 +1838,7 @@ def _select_step_candidate(
         if not bool(candidate.get("roundoff_limited", False))
     ]
     if nonroundoff_candidates:
+        # Pick the minimum combined truncation/roundoff proxy among defensible steps.
         selected_candidate = min(
             nonroundoff_candidates,
             key=lambda row: (
@@ -1806,6 +1874,7 @@ def _select_step_candidate(
         if math.isfinite(candidate["derivative_estimate"])
     ]
     if finite_candidates:
+        # Last-resort state is explicit in notes and never hidden as stable.
         return None, "all_finite_candidates_roundoff_limited"
     return None, "no_finite_derivative_available"
 
@@ -1828,6 +1897,7 @@ def compute_sensitivity_for_parameter(
     notes = [note for note in (parameter_spec.notes, *scheme_notes) if note]
 
     for level, step_size in enumerate(step_sizes):
+        # Cache perturbation solves once per ladder level, then reuse across metrics.
         if scheme == "central":
             offset_map = {
                 f"minus_{level}": -step_size,
@@ -2090,6 +2160,10 @@ def compute_sensitivity_for_parameter(
             )
     return results, step_size_rows
 
+
+# =============================================================================
+# 6) Tables, Saved-Step Selection, and Export
+# =============================================================================
 
 def _mismatch_rows(
     context: BaselineContext,
@@ -2432,6 +2506,7 @@ def load_saved_step_size_table(
     }
     missing_columns = required_columns.difference(table_df.columns)
     if missing_columns:
+        # Selection logic depends on roundoff/error-proxy columns in the new schema.
         missing_list = ", ".join(sorted(missing_columns))
         raise ValueError(
             "Saved step-size table uses an older schema and is missing required "
@@ -2449,6 +2524,7 @@ def build_sensitivity_table_from_step_size_table(
     rows: list[dict[str, Any]] = []
     group_columns = ["group", "parameter_name", "quantity_name"]
     for _, group_df in step_size_df.groupby(group_columns, sort=False):
+        # Re-select from the ladder at load time so CSVs use current selection notes.
         ordered_group_df = group_df.sort_values(
             by=["step_size"],
             ascending=[True],
@@ -2678,6 +2754,7 @@ def write_step_size_excel(
 def compute_study_tables(
     context: BaselineContext,
 ) -> tuple[EvaluationResult, pd.DataFrame, pd.DataFrame]:
+    # Geometry and requirement sweeps share one baseline to avoid report drift.
     quantity_specs = build_quantity_specs()
     parameter_specs = (
         build_geometry_parameter_specs(context)
@@ -2710,6 +2787,7 @@ def compute_study_tables(
 
 def export_saved_step_size_analysis() -> None:
     context = load_selected_baseline()
+    # Reevaluate the baseline so metadata reflects the current code path.
     baseline_result = evaluate_full_trim(
         context=context,
         geometry=context.geometry,
@@ -2739,6 +2817,10 @@ def export_saved_step_size_analysis() -> None:
     print(f"Read step-size table: {OUTPUT_STEP_SIZE_CSV}")
     print(f"Saved thesis table: {OUTPUT_THESIS_CSV}")
 
+
+# =============================================================================
+# 7) CLI
+# =============================================================================
 
 def main() -> None:
     export_saved_step_size_analysis()

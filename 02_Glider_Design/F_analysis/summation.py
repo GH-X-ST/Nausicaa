@@ -1,3 +1,5 @@
+"""Build thesis-ready summary tables from the canonical design workbook."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,6 +10,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
+    # Allows direct execution as `python F_analysis/summation.py`.
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from F_analysis.analysis_common import (
@@ -19,6 +22,20 @@ from F_analysis.analysis_common import (
     sort_scenario_tags,
 )
 
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Workbook paths
+# 2) Formatting and aggregation helpers
+# 3) Workbook source loading
+# 4) Main-text table builders
+# 5) Workbook export and CLI
+# =============================================================================
+
+# =============================================================================
+# 1) Workbook Paths
+# =============================================================================
+
 RESULTS_DIR = PROJECT_ROOT / "C_results"
 FIGURES_DIR = PROJECT_ROOT / "B_figures"
 OUTPUT_XLSX = RESULTS_DIR / "main_text_tables.xlsx"
@@ -26,6 +43,10 @@ OUTPUT_XLSX = RESULTS_DIR / "main_text_tables.xlsx"
 FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
+
+# =============================================================================
+# 2) Formatting and Aggregation Helpers
+# =============================================================================
 
 def _series_lookup(df: pd.DataFrame, key_col: str, value_col: str) -> dict[str, object]:
     if df.empty or key_col not in df.columns or value_col not in df.columns:
@@ -64,6 +85,7 @@ def _constraint_row(
     implemented_as = "hard constraint"
     source = source_name
     if not match_df.empty:
+        # Preserve the optimizer-exported type and margin when the sheet has it.
         row = match_df.iloc[0]
         implemented_as = (
             f"{row.get('Type', 'hard')} constraint; margin={_format_value(row.get('Margin'))}"
@@ -107,6 +129,7 @@ def _penalty_row(
         }
 
     row = match_df.iloc[0]
+    # Objective weights and values are provenance for the soft-penalty table.
     implemented_as = (
         "objective term; "
         f"weight={_format_value(row.get('Weight'))}, "
@@ -135,6 +158,7 @@ def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
         )
         sink = sink.dropna()
         sink_sorted = np.sort(sink.to_numpy()) if not sink.empty else np.array([])
+        # Tail-risk sink is the mean of the worst 20% of selected-scenario sinks.
         tail_count = max(1, int(np.ceil(0.2 * len(sink_sorted)))) if sink_sorted.size else 0
         tail_mean = (
             float(np.mean(sink_sorted[-tail_count:])) if tail_count > 0 else np.nan
@@ -142,6 +166,7 @@ def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
 
         resid_value = np.nan
         if "nom_lateral_residual" in group_df.columns and "nom_success" in group_df.columns:
+            # Residual RMSE excludes failed trims so it reflects successful-case fit.
             success_mask = group_df["nom_success"].astype(bool)
             resid = group_df.loc[success_mask, "nom_lateral_residual"].astype(float)
             if not resid.empty:
@@ -184,6 +209,10 @@ def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
     return summary_df.reset_index(drop=True)
 
 
+# =============================================================================
+# 3) Workbook Source Loading
+# =============================================================================
+
 def load_table_sources() -> dict[str, pd.DataFrame]:
     _, workbook = open_canonical_workbook()
     try:
@@ -204,6 +233,10 @@ def load_table_sources() -> dict[str, pd.DataFrame]:
     finally:
         workbook.close()
 
+
+# =============================================================================
+# 4) Main-Text Table Builders
+# =============================================================================
 
 def build_variables_sheet(
     sources: dict[str, pd.DataFrame],
@@ -250,6 +283,7 @@ def build_variables_sheet(
     ]
     for name, key in geometry_rows:
         if not bounds_map.empty and key in bounds_map.index:
+            # DesignVarBounds documents the optimisation search domain.
             bounds_row = bounds_map.loc[key]
             value_or_range = _format_range(bounds_row["Lower"], bounds_row["Upper"])
             source = "DesignVarBounds"
@@ -262,6 +296,7 @@ def build_variables_sheet(
             source = "RunInfo"
             unit = "m"
         else:
+            # Legacy workbooks may only expose the selected candidate value.
             selected_key = "boom_length_m" if key == "tail_arm_m" else key
             value_or_range = _format_value(selected_candidate.get(selected_key))
             source = "Candidates(selected)"
@@ -276,6 +311,7 @@ def build_variables_sheet(
     ]
     for name, key in trim_rows:
         if not bounds_map.empty and key in bounds_map.index:
+            # Trim angles are exported in degrees for human-facing thesis tables.
             bounds_row = bounds_map.loc[key]
             value_or_range = _format_range(bounds_row["Lower"], bounds_row["Upper"])
             source = "DesignVarBounds"
@@ -421,6 +457,7 @@ def build_uncertainty_model_sheet(sources: dict[str, pd.DataFrame]) -> pd.DataFr
         if name == "scenario_tag":
             range_or_values = ", ".join(ordered_tags) if ordered_tags else "not available"
         elif name in unique_scenarios_df.columns:
+            # Ranges report sampled scenario inputs, not imposed uncertainty bounds.
             values = pd.to_numeric(unique_scenarios_df[name], errors="coerce")
             finite_values = values[np.isfinite(values)]
             range_or_values = (
@@ -472,6 +509,7 @@ def build_final_selection_summary_sheet(
     )
 
     comparison_rows = [
+        # Compare the exported selection with nominal-objective and robust choices.
         ("selected_candidate", selected_candidate_id),
         ("best_nominal_objective_candidate", best_nominal_candidate_id),
         ("best_robust_success_candidate", best_robust_candidate_id),
@@ -532,6 +570,7 @@ def build_final_selection_summary_sheet(
             summary_by_tag_df["candidate_id"] == selected_candidate_id
         ].copy()
     elif summary_by_tag_df.empty:
+        # Reconstruct by-tag summaries for older workbooks that only store rows.
         robust_scenarios_df = sources["RobustScenarios"]
         selected_scenarios_df = robust_scenarios_df.loc[
             robust_scenarios_df["candidate_id"] == selected_candidate_id
@@ -544,6 +583,7 @@ def build_final_selection_summary_sheet(
         if "sink_worst" not in summary_by_tag_df.columns and "nom_sink_worst" in summary_by_tag_df.columns:
             summary_by_tag_df = summary_by_tag_df.rename(columns={"nom_sink_worst": "sink_worst"})
         if "sink_tail_mean_k" in summary_by_tag_df.columns:
+            # Legacy column name maps to the current robust-ranking metric.
             summary_by_tag_df = summary_by_tag_df.rename(
                 columns={"sink_tail_mean_k": "nom_sink_tail_mean_k"}
             )
@@ -577,6 +617,10 @@ def build_final_selection_summary_sheet(
     return comparison_df, summary_by_tag_df
 
 
+# =============================================================================
+# 5) Workbook Export and CLI
+# =============================================================================
+
 def write_tables_workbook(
     variables_df: pd.DataFrame,
     constraints_df: pd.DataFrame,
@@ -590,6 +634,7 @@ def write_tables_workbook(
         uncertainty_df.to_excel(writer, sheet_name="uncertainty model", index=False)
         final_summary_df.to_excel(writer, sheet_name="final selection summary", index=False)
         if not summary_by_tag_df.empty:
+            # Place by-tag detail below the candidate-comparison block in one sheet.
             start_row = len(final_summary_df) + 3
             title_df = pd.DataFrame([{"scenario_tag": "selected candidate by tag"}])
             title_df.to_excel(

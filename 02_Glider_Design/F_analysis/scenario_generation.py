@@ -1,3 +1,5 @@
+"""Plot the sampled uncertainty variables used by the robust scenario set."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -5,6 +7,7 @@ import sys
 
 import matplotlib
 
+# Use a non-interactive backend so batch exports work on headless machines.
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
@@ -13,6 +16,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
+    # Allows direct execution as `python F_analysis/scenario_generation.py`.
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from F_analysis.analysis_common import (
@@ -21,6 +25,20 @@ from F_analysis.analysis_common import (
     read_sheet_required,
     sort_scenario_tags,
 )
+
+# =============================================================================
+# SECTION MAP
+# =============================================================================
+# 1) Workbook paths and scenario input groups
+# 2) Workbook source loading
+# 3) Scenario data helpers
+# 4) Figure builders
+# 5) CLI
+# =============================================================================
+
+# =============================================================================
+# 1) Workbook Paths and Scenario Input Groups
+# =============================================================================
 
 RESULTS_DIR = PROJECT_ROOT / "C_results"
 FIGURES_DIR = PROJECT_ROOT / "B_figures"
@@ -45,6 +63,10 @@ SCENARIO_INPUT_PRIORITY = (
 )
 
 
+# =============================================================================
+# 2) Workbook Source Loading
+# =============================================================================
+
 def load_scenario_generation_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     _, book = open_canonical_workbook()
     try:
@@ -55,6 +77,8 @@ def load_scenario_generation_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
         book.close()
 
     if scenario_inputs_long_df.empty:
+        # Older workbooks lack the long-form sheet; reconstruct it from robust
+        # scenario rows so the figure remains auditable across historical runs.
         input_columns = [
             column
             for column in SCENARIO_INPUT_PRIORITY
@@ -76,9 +100,14 @@ def load_scenario_generation_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
     return scenario_inputs_long_df, robust_scenarios_df, definitions_df
 
 
+# =============================================================================
+# 3) Scenario Data Helpers
+# =============================================================================
+
 def get_unique_scenarios(robust_scenarios_df: pd.DataFrame) -> pd.DataFrame:
     unique_df = robust_scenarios_df.drop_duplicates(subset=["scenario_id"]).copy()
     if "control_eff" not in unique_df.columns:
+        # Legacy plots used a scalar effectiveness; current runs store per-axis values.
         eff_columns = [
             column for column in EFFECTIVENESS_INPUTS if column in unique_df.columns
         ]
@@ -104,6 +133,7 @@ def _label_for_input(
     entry = definitions_map.get(name, {})
     unit = str(entry.get("unit", "")).strip()
     display_name = name.replace("_", " ")
+    # Units come from the Definitions sheet exported with each workflow run.
     if unit and unit not in {"-", "label"}:
         return f"{display_name} [{unit}]"
     return display_name
@@ -127,10 +157,15 @@ def _sampled_inputs_summary(
 
 
 def _point_positions(center: float, count: int, span: float = 0.18) -> np.ndarray:
+    # Deterministic horizontal jitter keeps repeated exports visually comparable.
     if count <= 1:
         return np.array([center], dtype=float)
     return np.linspace(center - span / 2.0, center + span / 2.0, count)
 
+
+# =============================================================================
+# 4) Figure Builders
+# =============================================================================
 
 def _boxplot_by_tag(
     ax: plt.Axes,
@@ -214,6 +249,7 @@ def _boxplot_columns(
 
     column_positions = np.arange(1, len(columns) + 1, dtype=float)
     for _, row in data_df[columns].iterrows():
+        # Thin traces preserve per-scenario linkage between actuator axes.
         values = row.to_numpy(dtype=float)
         finite_mask = np.isfinite(values)
         if finite_mask.sum() < 2:
@@ -278,6 +314,7 @@ def make_scenario_generation_figure(
         definitions_df,
     )
 
+    # Tall layout keeps each uncertainty family readable in thesis-width exports.
     fig = plt.figure(figsize=(12, 24), constrained_layout=True)
     outer = fig.add_gridspec(2, 2, height_ratios=[1.0, 1.6], width_ratios=[1.0, 1.0])
     counts_ax = fig.add_subplot(outer[0, 0])
@@ -355,6 +392,7 @@ def make_scenario_generation_figure(
             definitions_df,
             "Per-axis control effectiveness",
         )
+        # Unity is the nominal actuator-effectiveness reference.
         eff_ax.axhline(1.0, color="black", linewidth=0.8, linestyle="--")
     else:
         eff_ax.text(0.5, 0.5, "No per-axis effectiveness data", ha="center", va="center")
@@ -370,6 +408,7 @@ def make_scenario_generation_figure(
             definitions_df,
             "Per-axis control bias",
         )
+        # Bias variables are exported in degrees around a zero-neutral baseline.
         bias_ax.axhline(0.0, color="black", linewidth=0.8, linestyle="--")
     else:
         bias_ax.text(0.5, 0.5, "No per-axis bias data", ha="center", va="center")
@@ -383,6 +422,10 @@ def make_scenario_generation_figure(
     plt.close(fig)
     return FIGURE_PATH
 
+
+# =============================================================================
+# 5) CLI
+# =============================================================================
 
 def main() -> None:
     scenario_inputs_long_df, robust_scenarios_df, definitions_df = load_scenario_generation_data()
