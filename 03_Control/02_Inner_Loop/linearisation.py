@@ -53,6 +53,7 @@ LATERAL_INPUTS = ("delta_a_cmd", "delta_r_cmd")
 # =============================================================================
 # 2) Linear Model Dataclass
 # =============================================================================
+# Linear-model fields keep trim, Jacobians, and wind parameterisation in one audit object.
 @dataclass(frozen=True)
 class LinearModel:
     a: np.ndarray

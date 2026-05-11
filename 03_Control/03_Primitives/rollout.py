@@ -26,6 +26,7 @@ from primitive import FlightPrimitive, PrimitiveContext
 # =============================================================================
 # 1) Rollout Dataclasses
 # =============================================================================
+# Rollout containers keep simulation settings, logs, and safety flags reproducible.
 @dataclass(frozen=True)
 class RolloutConfig:
     dt_s: float = 0.02
@@ -262,6 +263,7 @@ def simulate_primitive(
 # =============================================================================
 # 4) Log Writer
 # =============================================================================
+# Logs store state and command channels in canonical order for post-run audit scripts.
 def write_log(result: RolloutResult, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not result.log_rows:

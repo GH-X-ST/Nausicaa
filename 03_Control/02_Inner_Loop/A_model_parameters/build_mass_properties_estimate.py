@@ -27,6 +27,7 @@ from glider import build_nausicaa_glider
 # =============================================================================
 # 1) Mass-Property Dataclasses
 # =============================================================================
+# Mass containers use SI units and body axes so generated constants are auditable.
 @dataclass(frozen=True)
 class MassElement:
     mass_kg: float
@@ -262,6 +263,7 @@ def build_baseline_estimate() -> MassEstimate:
 # =============================================================================
 # 5) Output Writer
 # =============================================================================
+# The generated module is plain constants so runtime imports do not rerun estimation logic.
 def write_mass_properties_module(
     output_path: Path,
     estimate: MassEstimate,

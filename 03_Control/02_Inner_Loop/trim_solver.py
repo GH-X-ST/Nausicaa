@@ -26,6 +26,7 @@ from flight_dynamics import (
 # =============================================================================
 # 1) Trim Dataclasses
 # =============================================================================
+# Trim targets and results use the same state/command conventions as the nonlinear plant.
 @dataclass(frozen=True)
 class TrimTarget:
     speed_m_s: float

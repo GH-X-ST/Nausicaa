@@ -31,6 +31,7 @@ VERTICAL_TAIL = 2
 # =============================================================================
 # 2) Geometry Dataclasses
 # =============================================================================
+# Geometry containers keep body-axis locations and strip assumptions explicit.
 @dataclass(frozen=True)
 class ControlSurface:
     name: str

@@ -23,6 +23,7 @@ if str(_PRIMITIVES) not in sys.path:
 # =============================================================================
 # 2) Public Primitive Re-Exports
 # =============================================================================
+# Re-export aliases preserve the pre-refactor primitive import path used by older scripts.
 from primitive import (  # noqa: E402,F401
     EntryConditionResult,
     FlightPrimitive,

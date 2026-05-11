@@ -27,6 +27,7 @@ from updraft_models import WindField, build_randomised_wind_field, load_updraft_
 # =============================================================================
 # 1) Scenario Dataclass
 # =============================================================================
+# Scenario definitions bind entry state, wind model, candidates, and rejection expectations.
 @dataclass(frozen=True)
 class ScenarioDefinition:
     scenario_id: str
@@ -225,6 +226,7 @@ def build_scenario(
 # =============================================================================
 # 4) Scenario Lists
 # =============================================================================
+# Scenario ordering is part of the fixed audit matrix reported in S4 validation.
 def batch_scenarios() -> tuple[str, ...]:
     return (
         "s0_no_wind",
@@ -271,6 +273,7 @@ def s4_audit_scenarios() -> tuple[str, ...]:
 # =============================================================================
 # 5) Updraft Loader Fallback
 # =============================================================================
+# Missing measured workbooks fall back to a labelled analytic proxy, not silent zero wind.
 def _load_or_proxy(model_name: str, repo_root) -> WindField:
     try:
         return load_updraft_model(model_name, repo_root=repo_root)

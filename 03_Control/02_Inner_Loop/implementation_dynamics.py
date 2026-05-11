@@ -16,6 +16,7 @@ import numpy as np
 # =============================================================================
 # 1) Actuator Dataclasses
 # =============================================================================
+# Actuator parameters are SI/radian values shared by mismatch wrappers and rollout tests.
 @dataclass(frozen=True)
 class ActuatorParams:
     tau_s: np.ndarray

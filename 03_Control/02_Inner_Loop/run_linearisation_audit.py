@@ -29,12 +29,14 @@ from trim_solver import TrimTarget
 # =============================================================================
 # 1) Output Path
 # =============================================================================
+# Audit reports live with inner-loop results so trim/sign evidence tracks model version.
 OUT_PATH = Path(__file__).resolve().parent / "C_results" / "linearisation_audit.md"
 
 
 # =============================================================================
 # 2) Markdown Helpers
 # =============================================================================
+# Markdown helpers keep report formatting deterministic for diff-based review.
 def _row(name: str, value: object) -> str:
     return f"| {name} | {value} |"
 

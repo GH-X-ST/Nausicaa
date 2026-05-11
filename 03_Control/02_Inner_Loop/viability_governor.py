@@ -25,6 +25,7 @@ for rel in ("03_Primitives", "04_Scenarios"):
 # =============================================================================
 # 2) Public Governor Re-Exports
 # =============================================================================
+# Re-export aliases keep governor imports stable across the inner-loop to primitives split.
 from governor import (  # noqa: E402,F401
     GovernorDecision,
     GovernorLimits,

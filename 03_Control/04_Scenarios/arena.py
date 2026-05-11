@@ -18,6 +18,7 @@ from linearisation import STATE_INDEX
 # =============================================================================
 # 1) Arena Configuration
 # =============================================================================
+# Arena dimensions use the lab z-up frame and include explicit vehicle/sensing margins.
 @dataclass(frozen=True)
 class ArenaConfig:
     physical_volume_m: tuple[float, float, float] = (8.4, 4.8, 3.5)

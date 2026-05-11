@@ -28,6 +28,7 @@ def _add_paths() -> Path:
     ):
         path = repo_root / rel
         if str(path) not in sys.path:
+            # Script execution resolves modules from the repository layout, not installed packages.
             sys.path.insert(0, str(path))
     return repo_root
 
@@ -54,6 +55,7 @@ from scenarios import build_scenario  # noqa: E402
 # =============================================================================
 # 2) Runner Constants
 # =============================================================================
+# Default result locations are relative to the repository for reproducible log paths.
 METRICS_DIR = REPO_ROOT / "03_Control" / "05_Results" / "metrics"
 LOG_DIR = REPO_ROOT / "03_Control" / "05_Results" / "logs"
 
@@ -237,6 +239,7 @@ def run_scenario(
 # =============================================================================
 # 4) CSV and Selection Helpers
 # =============================================================================
+# CSV writer uses the row's stable metrics schema for single-scenario result files.
 def _write_single_row(path: Path, row: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
@@ -264,6 +267,7 @@ def _relative_output_path(path: Path, output_root: str | Path | None) -> str:
 # =============================================================================
 # 5) CLI Entry Point
 # =============================================================================
+# CLI and tests delegate to run_scenario to avoid divergent scenario semantics.
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", required=True)

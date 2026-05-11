@@ -20,6 +20,7 @@ from linearisation import STATE_INDEX
 # =============================================================================
 # 1) Stable Metrics Schema
 # =============================================================================
+# CSV field order is part of the reproducibility contract for scenario comparisons.
 METRIC_SCHEMA_KEYS = (
     "run_id",
     "scenario_id",
@@ -204,6 +205,7 @@ def rollout_metrics(
 # =============================================================================
 # 4) Governor-Rejected Metric Rows
 # =============================================================================
+# Rejected rows preserve failure provenance when no rollout log exists.
 def rejected_metrics(
     scenario_id: str,
     seed: int,

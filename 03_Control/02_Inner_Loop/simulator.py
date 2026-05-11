@@ -25,6 +25,7 @@ for rel in ("03_Primitives", "04_Scenarios"):
 # =============================================================================
 # 2) Public Rollout Re-Exports
 # =============================================================================
+# Re-export aliases keep simulator imports stable while rollout code lives with primitives.
 from rollout import (  # noqa: E402,F401
     RolloutConfig as SimulationConfig,
     RolloutResult as SimulationResult,

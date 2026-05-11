@@ -459,6 +459,7 @@ def _evaluate_symbolic(
 # =============================================================================
 # 6) Public Evaluation Entry Point
 # =============================================================================
+# Public entry point preserves the project wind-mode convention at the API boundary.
 def evaluate_glider_aero(
     glider: Glider,
     r_cg_w: np.ndarray | ca.SX | ca.MX | ca.DM,

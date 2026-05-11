@@ -23,6 +23,7 @@ if str(_SCENARIOS) not in sys.path:
 # =============================================================================
 # 2) Batch-Runner Entry Point
 # =============================================================================
+# The legacy S4-lite command intentionally shares the batch runner implementation.
 from run_batch import main  # noqa: E402
 
 

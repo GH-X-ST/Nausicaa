@@ -25,6 +25,7 @@ from scipy.interpolate import PchipInterpolator
 # =============================================================================
 # 1) Fan Geometry Constants
 # =============================================================================
+# Fan centers use the lab footprint for measured-sheet interpolation and clipping.
 SINGLE_FAN_CENTER_XY = (4.2, 2.4)
 FOUR_FAN_CENTERS_XY = (
     (3.0, 3.6),
@@ -126,6 +127,7 @@ def build_randomised_wind_field(
 # =============================================================================
 # 3) File and Label Helpers
 # =============================================================================
+# Labels encode measured/fitted/proxy provenance for logs and metrics.
 def _repo_root_from_here() -> Path:
     return Path(__file__).resolve().parents[2]
 
@@ -226,6 +228,7 @@ class AnalyticDebugProxy:
 # =============================================================================
 # 5) Public Updraft Loader
 # =============================================================================
+# Loader prefers measured/fitted workbooks and only falls back when files are absent.
 def load_updraft_model(name: str, repo_root: Path | None = None) -> WindField:
     root = repo_root or _repo_root_from_here()
     if name == "single_gaussian_var":

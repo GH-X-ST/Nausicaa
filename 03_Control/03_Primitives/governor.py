@@ -24,6 +24,7 @@ from primitive import FlightPrimitive, PrimitiveContext
 # =============================================================================
 # 1) Governor Dataclasses
 # =============================================================================
+# Governor records separate static, rollout, and fallback decisions for rejection-log audits.
 @dataclass(frozen=True)
 class GovernorLimits:
     min_altitude_m: float = 0.75
@@ -314,6 +315,7 @@ class ViabilityGovernor:
 # =============================================================================
 # 3) Candidate Metric Helper
 # =============================================================================
+# Candidate metrics treat missing or non-finite values as unavailable, not safe defaults.
 def _optional_float(value: object) -> float | None:
     if value is None or value == "":
         return None

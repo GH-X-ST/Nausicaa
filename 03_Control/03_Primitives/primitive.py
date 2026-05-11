@@ -19,6 +19,7 @@ from linearisation import STATE_INDEX
 # =============================================================================
 # 1) Primitive Dataclasses and Protocol
 # =============================================================================
+# Primitive contracts keep entry checks, duration, and command generation separable.
 @dataclass(frozen=True)
 class PrimitiveContext:
     x_trim: np.ndarray

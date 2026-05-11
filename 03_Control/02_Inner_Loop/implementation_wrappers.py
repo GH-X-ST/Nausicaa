@@ -23,6 +23,7 @@ if str(_PRIMITIVES) not in sys.path:
 # =============================================================================
 # 2) Public Implementation-Wrapper Re-Exports
 # =============================================================================
+# Re-export aliases keep older inner-loop imports stable after latency moved to primitives.
 from latency import (  # noqa: E402,F401
     COMMAND_LEVELS,
     CommandToSurfaceConfig as ImplementationWrapperConfig,

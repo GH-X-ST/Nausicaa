@@ -23,6 +23,7 @@ if str(_SCENARIOS) not in sys.path:
 # =============================================================================
 # 2) Public Updraft-Model Re-Exports
 # =============================================================================
+# Re-export aliases preserve the old wind-scenario path for measured updraft models.
 from updraft_models import (  # noqa: E402,F401
     AnalyticDebugProxy,
     AnnularGPGridWindField,

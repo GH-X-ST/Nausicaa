@@ -37,6 +37,7 @@ POST_STALL_DRAG_GAIN = 1.8
 # =============================================================================
 # 2) Runtime Dataclasses
 # =============================================================================
+# Runtime containers freeze SI geometry and inertia arrays for repeated rollout calls.
 @dataclass(frozen=True)
 class AircraftModel:
     mass_kg: float
