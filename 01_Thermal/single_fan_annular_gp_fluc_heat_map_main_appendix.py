@@ -14,6 +14,7 @@ import single_fan_annular_gp_total_fluc_heat_map_main_appendix as total_appendix
 # =============================================================================
 # 1) Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 
 APPENDIX_CBAR_LABEL = r"$\sigma_i$ (m$\cdot$s$^{-1}$)"
@@ -21,8 +22,10 @@ APPENDIX_CBAR_LABEL = r"$\sigma_i$ (m$\cdot$s$^{-1}$)"
 # =============================================================================
 # 2) Figure Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     grid_xlsx = fluc_plot.resolve_grid_xlsx()
     if not grid_xlsx.exists():

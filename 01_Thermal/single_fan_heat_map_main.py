@@ -10,7 +10,8 @@ from matplotlib.ticker import FormatStrFormatter
 from matplotlib.patches import Circle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-import cmocean  # Scientific colormap package for perceptual thermal maps.
+# cmocean provides perceptual thermal colormaps used consistently across figures.
+import cmocean
 
 
 # =============================================================================
@@ -24,6 +25,7 @@ import cmocean  # Scientific colormap package for perceptual thermal maps.
 # =============================================================================
 # 1) Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -33,12 +35,13 @@ OUT_DIR.mkdir(exist_ok=True)
 
 MASK_ZEROS_AS_NODATA = False
 
-# Axis and colorbar units used in exported figures.
-CBAR_LABEL = r"$\overline{w}$ (m $\!$s$^{-1}$)"   # vertical velocity in m/s
+# Axis and colorbar labels use metres and metres per second in exported figures.
+# Colourbar reports vertical velocity in metres per second.
+CBAR_LABEL = r"$\overline{w}$ (m $\!$s$^{-1}$)"
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
-# Tick positions for compact A4 layout
+# Ticks follow measured arena grid labels while keeping compact A4 panels readable.
 XTICKS = [0, 1.2, 2.2, 3, 3.8, 4.6, 5.4, 6.2, 7.2, 8.4]
 YTICKS = [0, 0.8, 1.6, 2.4, 3.2, 4, 4.8]
 
@@ -64,7 +67,9 @@ FAN_OUTLET_DASH = (0, (2, 2))
 # =============================================================================
 # 2) Workbook Loading and Plot Construction
 # =============================================================================
+# Parsing and plotting helpers keep measured workbook coordinates in arena metres.
 
+# Alpha mapping keeps low-speed regions visible while preserving a common thermal colour scale.
 def build_alpha_cmap() -> mcolors.ListedColormap:
     """
     Build a thermal colormap with exponential alpha versus normalized w.
@@ -82,6 +87,7 @@ def build_alpha_cmap() -> mcolors.ListedColormap:
 
     return mcolors.ListedColormap(colors)
 
+# Pcolormesh uses cell edges, so measured centre coordinates are expanded without changing sample values.
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
     """
     Convert 1D array of cell centers -> cell edges for pcolormesh.
@@ -96,6 +102,7 @@ def centers_to_edges(c: np.ndarray) -> np.ndarray:
     return edges
 
 
+# Workbook sheets store x in the first row, y in the first column, and vertical velocity in m/s inside the grid.
 def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """
     Read the workbook grid layout:
@@ -121,7 +128,7 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
             f"Shape mismatch in {sheet_name}: W{W.shape}, y({y.size}), x({x.size})."
         )
 
-    # Ensure y increases bottom-to-top on the plot (0 -> max)
+    # Plot convention uses increasing arena y from bottom to top.
     if y.size >= 2 and y[0] > y[-1]:
         y = y[::-1]
         W = W[::-1, :]
@@ -129,14 +136,16 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     return x, y, W
 
 
+# Raw heat maps display the measured grid directly so workbook values remain auditable.
 def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     """
     Uses pcolormesh with edges for nonuniform grids.
     """
-    # Masking policy
+    # Zero masking is valid only when zeros encode missing or outside-domain samples.
     W_plot = W.copy()
     if mask_zeros:
-        W_plot[W_plot == 0.0] = np.nan  # treat zeros as missing/outside
+        # Zero-valued cells are treated as no-data only when the workbook uses that sentinel.
+        W_plot[W_plot == 0.0] = np.nan
 
     # Pcolormesh requires cell edges; this preserves the measured cell-centre layout.
     x_edges = centers_to_edges(x)
@@ -157,7 +166,8 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
         "patch.edgecolor": "k",
     })
 
-    fig, ax = plt.subplots(figsize=(5.2, 3.0), dpi=600)  # 2-per-row on A4 landscape
+    # A4 thesis sizing supports two panels per landscape row at fixed data scale.
+    fig, ax = plt.subplots(figsize=(5.2, 3.0), dpi=600)
 
     # Cell edges preserve the measured sampling grid in raw-data plots.
     cmap_alpha = build_alpha_cmap()
@@ -218,7 +228,8 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
     # Equal aspect preserves arena geometry in plan view.
     ax.set_xlabel(XLABEL, labelpad=1)
     ax.set_ylabel(YLABEL)
-    ax.set_aspect("equal", adjustable="box")  # 1:1 grid without stretching
+    # Equal aspect keeps arena distances physically meaningful in the rendered plot.
+    ax.set_aspect("equal", adjustable="box")
     for spine in ax.spines.values():
         spine.set_linewidth(AXIS_EDGE_LW)
     xtick_pos = [x_centers[np.argmin(np.abs(x_centers - v))] for v in XTICKS]
@@ -271,7 +282,9 @@ def plot_heatmap(x, y, W, outpath: Path, mask_zeros: bool = True):
 # =============================================================================
 # 3) Batch Figure Export
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main():
     for sh in SHEETS:
         x, y, W = read_slice_from_sheet(XLSX_PATH, sh)

@@ -20,7 +20,8 @@ from matplotlib.ticker import FormatStrFormatter
 from matplotlib.patches import Circle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-import cmocean  # https://matplotlib.org/cmocean
+# cmocean provides perceptual thermal colormaps used consistently across figures.
+import cmocean
 
 
 # =============================================================================
@@ -34,6 +35,7 @@ import cmocean  # https://matplotlib.org/cmocean
 # =============================================================================
 # 1) Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 XLSX_PATH = "S02.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -50,8 +52,9 @@ FOUR_FAN_CENTERS_XY = (
     (5.4, 1.2),
 )
 
-# Axis and colorbar units used in exported figures.
-CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"  # vertical velocity in m/s
+# Axis and colorbar labels use metres and metres per second in exported figures.
+# Colourbar reports vertical velocity in metres per second.
+CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
@@ -89,7 +92,9 @@ SHEET_HEIGHT_DIVISOR = 100.0
 # =============================================================================
 # 2) Workbook Loading and Plot Construction
 # =============================================================================
+# Parsing and plotting helpers keep measured workbook coordinates in arena metres.
 
+# Alpha mapping keeps low-speed regions visible while preserving a common thermal colour scale.
 def build_alpha_cmap() -> mcolors.ListedColormap:
     """
     Build a thermal colormap with exponential alpha versus normalized w.
@@ -107,6 +112,7 @@ def build_alpha_cmap() -> mcolors.ListedColormap:
 
     return mcolors.ListedColormap(colors)
 
+# Pcolormesh uses cell edges, so measured centre coordinates are expanded without changing sample values.
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
     """
     Convert 1D array of cell centers -> cell edges for pcolormesh.
@@ -121,6 +127,7 @@ def centers_to_edges(c: np.ndarray) -> np.ndarray:
     return edges
 
 
+# Sheet names encode height in centimetres; parsing converts that label to metres.
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
     Parse height in meters from sheet names like 'z020', 'z110', 'z220'.
@@ -133,6 +140,7 @@ def parse_sheet_height_m(sheet_name: str) -> float:
     return int(suffix) / SHEET_HEIGHT_DIVISOR
 
 
+# Workbook sheets store x in the first row, y in the first column, and vertical velocity in m/s inside the grid.
 def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """
     Read the workbook grid layout:
@@ -158,7 +166,7 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
             f"Shape mismatch in {sheet_name}: W{W.shape}, y({y.size}), x({x.size})."
         )
 
-    # Ensure y increases bottom-to-top on the plot (0 -> max)
+    # Plot convention uses increasing arena y from bottom to top.
     if y.size >= 2 and y[0] > y[-1]:
         y = y[::-1]
         W = W[::-1, :]
@@ -166,6 +174,7 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     return x, y, W
 
 
+# Display-grid resolution is a plotting choice and must not be interpreted as measurement density.
 def build_continuous_grid(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """
     Build a dense uniform grid covering the measurement extents.
@@ -181,6 +190,7 @@ def build_continuous_grid(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.
     return xg, yg
 
 
+# Ring-parameter tables are fitted-model inputs and remain separate from measured workbook grids.
 def load_ring_params(xlsx_path: Path) -> pd.DataFrame:
     """
     Load fitted ring parameters from Excel.
@@ -191,6 +201,7 @@ def load_ring_params(xlsx_path: Path) -> pd.DataFrame:
     return df.copy()
 
 
+# Fan-ID discovery treats suffixed columns as the interface for per-fan fitted parameters.
 def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     """
     Discover fan IDs from columns like A_ring_F01.
@@ -216,6 +227,7 @@ def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     return tuple(valid)
 
 
+# Height selection keeps plotted fields tied to the nearest fitted or interpolated z sample.
 def params_for_height(df: pd.DataFrame, z_m: float, fan_ids: Tuple[str, ...]) -> np.ndarray:
     """
     Extract per-fan [A_ring, r_ring, delta_r, w0] for a given height.
@@ -251,6 +263,7 @@ def params_for_height(df: pd.DataFrame, z_m: float, fan_ids: Tuple[str, ...]) ->
     return params
 
 
+# Nearest-fan radius maps each display point to the controlling plume centre.
 def nearest_fan_radius_map(
     x_grid: np.ndarray,
     y_grid: np.ndarray,
@@ -269,6 +282,7 @@ def nearest_fan_radius_map(
     return nearest_idx, nearest_r
 
 
+# Continuous plots show model or interpolated fields on a display grid, not new measurements.
 def plot_continuous_heatmap(x, y, W, outpath: Path):
     """
     Plot continuous model heat map using the same axis settings as single_fan_heat_map.py.
@@ -289,7 +303,8 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
         "patch.edgecolor": "k",
     })
 
-    fig, ax = plt.subplots(figsize=(6.8, 5.6), dpi=600)  # larger for readability
+    # Figure size leaves room for raw-cell annotations without changing data scale.
+    fig, ax = plt.subplots(figsize=(6.8, 5.6), dpi=600)
 
     # Interpolated grid is for display only; fitted or measured values remain unchanged.
     cmap_alpha = build_alpha_cmap()
@@ -346,7 +361,8 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
     # Equal aspect preserves arena geometry in plan view.
     ax.set_xlabel(XLABEL)
     ax.set_ylabel(YLABEL)
-    ax.set_aspect("equal", adjustable="box")  # 1:1 grid without stretching
+    # Equal aspect keeps arena distances physically meaningful in the rendered plot.
+    ax.set_aspect("equal", adjustable="box")
     ax.set_axisbelow(True)
     ax.grid(True, color=GRID_COLOR, linewidth=GRID_LINEWIDTH)
     for spine in ax.spines.values():
@@ -398,7 +414,9 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
 # =============================================================================
 # 3) Batch Figure Export
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main():
     params_df = load_ring_params(PARAMS_XLSX)
     fan_ids = discover_fan_ids(params_df)

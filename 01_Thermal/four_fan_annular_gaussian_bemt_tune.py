@@ -21,6 +21,7 @@ import four_fan_annular_gaussian_bemt as base
 # =============================================================================
 # 1) Tuning Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 
 TUNING_REPORT_XLSX = Path("B_results/four_annular_bemt_tuning_report.xlsx")
@@ -33,6 +34,7 @@ WRMSE_TIE_TOL = 1.0e-4
 # =============================================================================
 # 2) Data Containers
 # =============================================================================
+# Small containers keep fitted parameters, diagnostics, and uncertainty assumptions explicit at module boundaries.
 
 class JointTuneCandidate:
     name: str
@@ -139,8 +141,10 @@ JOINT_AUTO_TUNE_CANDIDATES = (
 # =============================================================================
 # 3) Tuning Table Builders
 # =============================================================================
+# Table builders record each candidate assumption before selecting a preferred fit.
 
 
+# Candidate application changes only the declared tuning parameters for comparison.
 def apply_candidate(candidate: JointTuneCandidate) -> None:
     base.FAN_FOURIER_ORDER = tuple(int(v) for v in candidate.fan_fourier_order)
     base.FAN_ROBUST_LOSS = tuple(str(v) for v in candidate.fan_robust_loss)
@@ -161,6 +165,7 @@ def apply_candidate(candidate: JointTuneCandidate) -> None:
     )
 
 
+# Tuning tables record candidate settings beside the resulting diagnostics.
 def build_tuning_table(
     selected: JointTuneCandidate,
     trials: Sequence[JointTuneTrial],
@@ -197,6 +202,7 @@ def build_tuning_table(
     )
 
 
+# Joint autotuning evaluates one candidate set across all fitted height planes.
 def autotune_joint_candidate() -> Tuple[
     JointTuneCandidate,
     JointTuneTrial,
@@ -251,8 +257,10 @@ def autotune_joint_candidate() -> Tuple[
 # =============================================================================
 # 4) Tuning Report Export
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     selected_candidate, selected_trial, trials = autotune_joint_candidate()
     apply_candidate(selected_candidate)

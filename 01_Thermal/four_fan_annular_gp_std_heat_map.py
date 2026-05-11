@@ -24,6 +24,7 @@ from four_fan_gp_heat_map import load_gp_mean_sheet
 # =============================================================================
 # 1) Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -60,13 +61,16 @@ FAN_OUTLET_DASH = (0, (2, 2))
 # =============================================================================
 # 2) Workbook Loading and Plot Construction
 # =============================================================================
+# Parsing and plotting helpers keep measured workbook coordinates in arena metres.
 
 
+# Alpha mapping keeps low-speed regions visible while preserving a common thermal colour scale.
 def build_alpha_cmap():
     """Return an opaque cmocean curl colormap for std maps."""
     return cmocean.curl
 
 
+# Pcolormesh uses cell edges, so measured centre coordinates are expanded without changing sample values.
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
     """Convert cell centers to cell edges for pcolormesh."""
     c = np.asarray(c, dtype=float)
@@ -79,6 +83,7 @@ def centers_to_edges(c: np.ndarray) -> np.ndarray:
     return edges
 
 
+# Display grids standardise figure resolution without changing the exported GP values.
 def build_display_grid(
     x: np.ndarray,
     y: np.ndarray,
@@ -89,6 +94,7 @@ def build_display_grid(
     return np.meshgrid(x_dense, y_dense)
 
 
+# Display interpolation is only for figure smoothness; model fitting remains on source samples.
 def interpolate_to_display_grid(
     x: np.ndarray,
     y: np.ndarray,
@@ -121,6 +127,7 @@ def interpolate_to_display_grid(
     return np.asarray(w_dense, dtype=float)
 
 
+# Continuous plots show model or interpolated fields on a display grid, not new measurements.
 def plot_continuous_heatmap(
     x: np.ndarray,
     y: np.ndarray,
@@ -254,8 +261,10 @@ def plot_continuous_heatmap(
 # =============================================================================
 # 3) Figure Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     if not GP_GRID_XLSX.exists():
         raise FileNotFoundError(

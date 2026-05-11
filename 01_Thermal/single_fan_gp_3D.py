@@ -38,6 +38,7 @@ from sklearn.preprocessing import StandardScaler
 # =============================================================================
 # 1) 3D Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 MAKE_PLOTS = True
 
@@ -89,7 +90,7 @@ FAN_VERTICAL_OFFSET_M = 0.330
 # Arena limits (absolute height z measured from floor)
 X_MIN, X_MAX = 0.0, 8.4
 Y_MIN, Y_MAX = 0.0, 4.8
-# Plotting range after adding fan vertical offset (+0.33 m).
+# 3D plotting range includes the fan vertical offset used by exported plume surfaces.
 Z_MIN, Z_MAX = 0.00, 3.5
 
 # 3D sampling resolution
@@ -123,7 +124,9 @@ SLICE_EDGE_LW = 0.2
 # =============================================================================
 # 2) Model Loading and 3D Field Evaluation
 # =============================================================================
+# 3D evaluation uses parameter tables as read-only model inputs before rendering.
 
+# Alpha mapping keeps low-speed regions visible while preserving a common thermal colour scale.
 def build_alpha_cmap() -> mcolors.ListedColormap:
     """
     Build a thermal colormap with exponential alpha versus normalized w.
@@ -142,6 +145,7 @@ def build_alpha_cmap() -> mcolors.ListedColormap:
     return mcolors.ListedColormap(colors)
 
 
+# Sheet names encode height in centimetres; parsing converts that label to metres.
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
     Parse height in meters from names like 'z020', 'z110', 'z220'.
@@ -154,6 +158,7 @@ def parse_sheet_height_m(sheet_name: str) -> float:
     return int(suffix) / SHEET_HEIGHT_DIVISOR
 
 
+# GP workbooks are generated model outputs; loading keeps coordinates and velocity predictions paired by sheet.
 def load_gp_mean_sheet(
     xlsx_path: Path,
     sheet_name: str,
@@ -189,6 +194,7 @@ def load_gp_mean_sheet(
     return x, y, w
 
 
+# GP stack loading preserves height labels before any extrapolation for 3D plotting.
 def load_gp_stack(
     xlsx_path: Path,
     sheet_names: Sequence[str],
@@ -227,6 +233,7 @@ def load_gp_stack(
     return x_ref, y_ref, z_axis, w_stack
 
 
+# Height extrapolation uses a one-dimensional GP per grid point, preserving measured x-y support.
 def gp_predict_series_vs_z(
     z_train: np.ndarray,
     y_train: np.ndarray,
@@ -266,6 +273,7 @@ def gp_predict_series_vs_z(
     return np.maximum(y_pred, 0.0)
 
 
+# Z-extrapolated stacks are plotting aids beyond measured planes, not additional measurements.
 def extrapolate_stack_in_z_with_gp(
     z_axis: np.ndarray,
     w_stack: np.ndarray,
@@ -299,6 +307,7 @@ def extrapolate_stack_in_z_with_gp(
     return out
 
 
+# 3D grids are evaluation lattices in arena metres, separate from measurement sheet spacing.
 def make_3d_grid() -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, float, float]:
     """
     Build 3D sampling grid and voxel spacing.
@@ -315,6 +324,7 @@ def make_3d_grid() -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, float, fl
     return x_grid, y_grid, z_grid, dx, dy, dz
 
 
+# Field evaluation returns vertical velocity in m/s for each arena-frame grid point.
 def evaluate_field(
     x_grid: np.ndarray,
     y_grid: np.ndarray,
@@ -345,6 +355,7 @@ def evaluate_field(
     return w_grid
 
 
+# 3D isosurfaces use common level and alpha settings so plume volumes are visually comparable.
 def plot_isosurfaces(
     w_grid: np.ndarray,
     dx: float,
@@ -551,7 +562,9 @@ def plot_isosurfaces(
 # =============================================================================
 # 3) 3D Figure Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     if not MAKE_PLOTS:
         print("MAKE_PLOTS is False; nothing to do.")

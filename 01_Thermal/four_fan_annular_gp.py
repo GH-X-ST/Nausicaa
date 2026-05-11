@@ -29,6 +29,7 @@ from annular_gp_models import (
 # =============================================================================
 # 1) GP Training Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 
 XLSX_PATH = "S02.xlsx"
@@ -88,8 +89,10 @@ CORE_STRENGTH_SHEET_NAME = "four_annular_gp_core_strength"
 # =============================================================================
 # 2) GP Feature Engineering and Diagnostics
 # =============================================================================
+# Feature and diagnostic helpers keep GP training assumptions explicit before export.
 
 
+# Writable-target checks avoid appending new sheets to locked result workbooks.
 def ensure_output_target_writable(path: Path) -> None:
     """Fail fast if an output file cannot be written in-place."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -116,6 +119,7 @@ def ensure_output_target_writable(path: Path) -> None:
         ) from exc
 
 
+# Output checks protect existing GP artifacts before a full training run.
 def ensure_annular_gp_outputs_writable() -> None:
     """Check all canonical annular-GP outputs before expensive fitting."""
     for output_path in (
@@ -127,6 +131,7 @@ def ensure_annular_gp_outputs_writable() -> None:
         ensure_output_target_writable(output_path)
 
 
+# Tune candidates define the finite GP search space used for auditability.
 def build_tune_candidates() -> List[base_gp.GPTuneCandidate]:
     candidates: List[base_gp.GPTuneCandidate] = []
     for name, feature_mode, kernel_family, alpha_scale in AUTO_TUNE_CANDIDATES:
@@ -143,6 +148,7 @@ def build_tune_candidates() -> List[base_gp.GPTuneCandidate]:
     return candidates
 
 
+# Candidate selection uses held-out sheets to avoid tuning only to sampled cells.
 def select_gp_candidate(
     train_df: pd.DataFrame,
     fan_center_xy: Tuple[float, float],
@@ -224,6 +230,7 @@ def select_gp_candidate(
     return best_trial.candidate, trials
 
 
+# Residual training tables keep mean-model error and uncertainty at each sample point.
 def build_residual_training_table(
     train_df: pd.DataFrame,
     mean_model: FourFanBEMTMeanModel,
@@ -242,6 +249,7 @@ def build_residual_training_table(
     return residual_df
 
 
+# Summary metrics compress CV and residual performance without losing candidate identity.
 def build_summary_metrics_table(
     overall_metrics: Dict[str, float],
     selected_candidate: base_gp.GPTuneCandidate,
@@ -263,6 +271,7 @@ def build_summary_metrics_table(
     return summary_df
 
 
+# Hyperparameter tables expose optimised GP scales for reproducibility.
 def build_hyperparameter_table(
     selected_candidate: base_gp.GPTuneCandidate,
     model: AnnularGPModelBundle,
@@ -354,6 +363,7 @@ def build_hyperparameter_table(
     )
 
 
+# Fluctuation sigma is evaluated on the display grid for uncertainty figures only.
 def evaluate_grid_fluctuation_sigma(
     sheet_name: str,
     x_m: np.ndarray,
@@ -380,8 +390,10 @@ def evaluate_grid_fluctuation_sigma(
 # =============================================================================
 # 3) Training and Diagnostic Export
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     ensure_annular_gp_outputs_writable()

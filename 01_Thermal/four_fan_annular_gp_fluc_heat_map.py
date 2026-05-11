@@ -13,6 +13,7 @@ import four_fan_annular_gp_total_fluc_heat_map as base_plot
 # =============================================================================
 # 1) Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 
 SHEETS = base_plot.SHEETS
@@ -30,8 +31,10 @@ load_annulus_boundary_levels = base_plot.load_annulus_boundary_levels
 # =============================================================================
 # 2) Figure Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     grid_xlsx = resolve_grid_xlsx()
     if not grid_xlsx.exists():

@@ -42,6 +42,7 @@ from single_fan_annuli_cut import (
 # =============================================================================
 # 1) GP Training Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -91,6 +92,7 @@ ANALYSIS_SHEET_NAME = "single_gp_analysis"
 # =============================================================================
 # 2) Data Containers
 # =============================================================================
+# Small containers keep fitted parameters, diagnostics, and uncertainty assumptions explicit at module boundaries.
 
 @dataclass
 class GPModelBundle:
@@ -156,7 +158,9 @@ class GPTuneTrial:
 # =============================================================================
 # 3) GP Feature Engineering and Diagnostics
 # =============================================================================
+# Feature and diagnostic helpers keep GP training assumptions explicit before export.
 
+# Output-path creation is explicit so training artifacts are reproducible by directory.
 def ensure_path(path_like: str | Path) -> Path:
     """
     Convert a string/Path into a Path object.
@@ -164,6 +168,7 @@ def ensure_path(path_like: str | Path) -> Path:
     return path_like if isinstance(path_like, Path) else Path(path_like)
 
 
+# Sheet names encode height in centimetres; parsing converts that label to metres.
 def parse_sheet_height_m(sheet_name: str) -> float:
     if not sheet_name.startswith("z"):
         raise ValueError(f"Invalid sheet name (expected 'z###'): {sheet_name}")
@@ -361,6 +366,7 @@ def evaluate_sigma_points_annular_pchip_z(
     return np.maximum(sigma_out, float(sigma_min))
 
 
+# Feature modes encode geometry assumptions: Cartesian is unconstrained, polar/radial preserve fan-centred structure.
 def build_feature_matrix(
     x_m: np.ndarray,
     y_m: np.ndarray,
@@ -396,6 +402,7 @@ def build_feature_matrix(
     return np.column_stack([x_arr, y_arr, z_arr])
 
 
+# GP kernel choices define the smoothness and noise prior before optimisation.
 def build_gp_kernel(n_features: int, kernel_family: str):
     """
     Build a GP kernel by family name.
@@ -452,6 +459,7 @@ def build_gp_kernel(n_features: int, kernel_family: str):
     )
 
 
+# Sheet samples keep workbook coordinates, height labels, and measured velocity together.
 def load_sheet_samples(
     xlsx_path: str,
     sheet_name: str,
@@ -520,6 +528,7 @@ def load_sheet_samples(
     )
 
 
+# Training tables collect all measured planes while preserving sheet labels for grouped validation.
 def build_training_table(
     xlsx_path: str,
     sheet_names: Sequence[str],
@@ -548,6 +557,7 @@ def build_training_table(
     return table
 
 
+# GP fitting uses sigma-derived alpha so measurement uncertainty enters the likelihood.
 def fit_gp_model(
     train_df: pd.DataFrame,
     feature_mode: str,
@@ -600,6 +610,7 @@ def fit_gp_model(
     )
 
 
+# Feature-mode validation prevents silent changes to the GP geometry assumption.
 def normalize_feature_mode_name(feature_mode: str) -> str:
     """
     Normalize and validate feature mode token.
@@ -612,6 +623,7 @@ def normalize_feature_mode_name(feature_mode: str) -> str:
     return mode
 
 
+# Kernel-family validation prevents silent changes to the GP smoothness prior.
 def normalize_kernel_family_name(kernel_family: str) -> str:
     """
     Normalize and validate kernel-family token.
@@ -625,6 +637,7 @@ def normalize_kernel_family_name(kernel_family: str) -> str:
     return family
 
 
+# Default candidates define a bounded GP search space before user overrides are applied.
 def build_default_tune_candidates() -> List[GPTuneCandidate]:
     """
     Build a default auto-tune grid anchored to FEATURE_MODE.
@@ -672,6 +685,7 @@ def build_default_tune_candidates() -> List[GPTuneCandidate]:
     return candidates
 
 
+# Tune candidates define the finite GP search space used for auditability.
 def build_tune_candidates() -> List[GPTuneCandidate]:
     """
     Build GP tuning candidates.
@@ -701,6 +715,7 @@ def build_tune_candidates() -> List[GPTuneCandidate]:
     return build_default_tune_candidates()
 
 
+# Grouped CV holds out whole height sheets to test transfer across measured z planes.
 def evaluate_candidate_group_cv(
     train_df: pd.DataFrame,
     candidate: GPTuneCandidate,
@@ -759,6 +774,7 @@ def evaluate_candidate_group_cv(
     return metrics, n_splits_eff
 
 
+# Candidate selection uses held-out sheets to avoid tuning only to sampled cells.
 def select_gp_candidate(
     train_df: pd.DataFrame,
     fan_center_xy: Tuple[float, float],
@@ -825,6 +841,7 @@ def select_gp_candidate(
     return best_trial.candidate, trials
 
 
+# Regression metrics report both scale-normalised and physical-error views.
 def compute_regression_metrics(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -874,6 +891,7 @@ def compute_regression_metrics(
     }
 
 
+# Training-prediction tables keep residual diagnostics tied to original sample locations.
 def make_training_prediction_table(
     model: GPModelBundle,
     train_df: pd.DataFrame,
@@ -895,6 +913,7 @@ def make_training_prediction_table(
     return out
 
 
+# Per-sheet summaries expose height-dependent failures that global metrics can hide.
 def summarize_by_sheet(pred_df: pd.DataFrame) -> pd.DataFrame:
     """
     Compute metrics separately for each height sheet.
@@ -1000,6 +1019,7 @@ def build_analysis_style_metrics_table(pred_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# Grid prediction tables are downstream plotting inputs, not retraining data.
 def make_grid_prediction_tables(
     model: GPModelBundle,
     xlsx_path: str,
@@ -1085,7 +1105,9 @@ def write_table_to_excel_no_index(
 # =============================================================================
 # 4) Training and Diagnostic Export
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     out_dir = ensure_path(OUT_DIR)
     train_pred_csv_path = ensure_path(TRAIN_PRED_CSV_PATH)

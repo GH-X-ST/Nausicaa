@@ -18,7 +18,8 @@ from matplotlib.ticker import FormatStrFormatter
 from matplotlib.patches import Circle, Rectangle, Wedge
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-import cmocean  # https://matplotlib.org/cmocean
+# cmocean provides perceptual thermal colormaps used consistently across figures.
+import cmocean
 
 
 # =============================================================================
@@ -32,6 +33,7 @@ import cmocean  # https://matplotlib.org/cmocean
 # =============================================================================
 # 1) Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 XLSX_PATH = "S02.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -57,7 +59,7 @@ FOUR_FAN_CENTERS_XY = (
     (5.4, 1.2),
 )
 
-# Axis and colorbar units used in exported figures.
+# Axis and colorbar labels use metres and metres per second in exported figures.
 CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
@@ -86,8 +88,10 @@ FAN_OUTLET_DASH = (0, (2, 2))
 # =============================================================================
 # 2) Workbook Loading and Plot Construction
 # =============================================================================
+# Parsing and plotting helpers keep measured workbook coordinates in arena metres.
 
 
+# Alpha mapping keeps low-speed regions visible while preserving a common thermal colour scale.
 def build_alpha_cmap() -> mcolors.ListedColormap:
     """
     Build a thermal colormap with exponential alpha versus normalized w.
@@ -106,6 +110,7 @@ def build_alpha_cmap() -> mcolors.ListedColormap:
     return mcolors.ListedColormap(colors)
 
 
+# Pcolormesh uses cell edges, so measured centre coordinates are expanded without changing sample values.
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
     """
     Convert 1D array of cell centers -> cell edges for pcolormesh.
@@ -120,6 +125,7 @@ def centers_to_edges(c: np.ndarray) -> np.ndarray:
     return edges
 
 
+# Workbook sheets store x in the first row, y in the first column, and vertical velocity in m/s inside the grid.
 def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """
     Read the workbook grid layout:
@@ -145,7 +151,7 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
             f"Shape mismatch in {sheet_name}: W{w.shape}, y({y.size}), x({x.size})."
         )
 
-    # Ensure y increases bottom-to-top on the plot (0 -> max)
+    # Plot convention uses increasing arena y from bottom to top.
     if y.size >= 2 and y[0] > y[-1]:
         y = y[::-1]
         w = w[::-1, :]
@@ -153,6 +159,7 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     return x, y, w
 
 
+# Annuli CSV files are derived measured profiles and must stay traceable to source sheets.
 def load_annuli_profile_csv(profile_path: Path) -> Tuple[np.ndarray, np.ndarray]:
     """
     Load annuli profile CSV (r_m, w_mps).
@@ -169,6 +176,7 @@ def load_annuli_profile_csv(profile_path: Path) -> Tuple[np.ndarray, np.ndarray]
     return r_bins[order], w_bins[order]
 
 
+# Nearest-fan radius maps each display point to the controlling plume centre.
 def _nearest_fan_radius_map(
     x: np.ndarray,
     y: np.ndarray,
@@ -187,6 +195,7 @@ def _nearest_fan_radius_map(
     return np.min(d_sample_fan, axis=2)
 
 
+# Radius and fan-index maps preserve which plume owns each annular bin.
 def _nearest_fan_radius_and_index(
     x: np.ndarray,
     y: np.ndarray,
@@ -207,6 +216,7 @@ def _nearest_fan_radius_and_index(
     return nearest_r, nearest_idx
 
 
+# Boundary levels expose annular bin edges for plotting the fitted support.
 def _annulus_boundary_levels(r_bins: np.ndarray) -> np.ndarray:
     """
     Return mid-point radii between consecutive annulus centers.
@@ -217,6 +227,7 @@ def _annulus_boundary_levels(r_bins: np.ndarray) -> np.ndarray:
     return 0.5 * (r_unique[:-1] + r_unique[1:])
 
 
+# Annulus bins define the radial support used when reconstructing profile-based fields.
 def build_annuli_bins(
     x: np.ndarray,
     y: np.ndarray,
@@ -264,6 +275,7 @@ def build_annuli_bins(
     return r_bins[order], w_bins[order]
 
 
+# Annulus width is inferred from stored bin centres to preserve the profile convention.
 def infer_delta_r(r_bins: np.ndarray, fallback: float) -> float:
     """
     Infer annulus spacing from r_bins. Uses the smallest positive gap as base delta_r.
@@ -283,6 +295,7 @@ def infer_delta_r(r_bins: np.ndarray, fallback: float) -> float:
     return float(np.min(diffs))
 
 
+# Four-fan reconstruction assigns each point to the nearest fan annulus before summing fields.
 def reconstruct_four_fan_annuli_field(
     x: np.ndarray,
     y: np.ndarray,
@@ -297,6 +310,7 @@ def reconstruct_four_fan_annuli_field(
     return w_bins[idx].astype(float)
 
 
+# Annulus plots reconstruct radial summaries using the same fan-centred distance convention as fitting.
 def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
     """
     Plot annuli map in the same axis/tick style as single_fan_annuli_heat_map.py.
@@ -322,7 +336,8 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
         }
     )
 
-    fig, ax = plt.subplots(figsize=(6.8, 5.6), dpi=600)  # larger for readability
+    # Figure size leaves room for raw-cell annotations without changing data scale.
+    fig, ax = plt.subplots(figsize=(6.8, 5.6), dpi=600)
 
     # Annular rings show the radial binning used for profile construction.
     vmin = 0.0
@@ -402,7 +417,8 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
     # Equal aspect preserves arena geometry in plan view.
     ax.set_xlabel(XLABEL)
     ax.set_ylabel(YLABEL)
-    ax.set_aspect("equal", adjustable="box")  # 1:1 grid without stretching
+    # Equal aspect keeps arena distances physically meaningful in the rendered plot.
+    ax.set_aspect("equal", adjustable="box")
     for spine in ax.spines.values():
         spine.set_linewidth(AXIS_EDGE_LW)
 
@@ -453,7 +469,9 @@ def plot_annuli(x, y, r_bins, w_bins, delta_r: float, outpath: Path):
 # =============================================================================
 # 3) Batch Figure Export
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     for sh in SHEETS:
         x, y, w = read_slice_from_sheet(XLSX_PATH, sh)

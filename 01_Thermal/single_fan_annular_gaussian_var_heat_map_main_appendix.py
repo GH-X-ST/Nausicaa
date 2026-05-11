@@ -18,6 +18,7 @@ import single_fan_annular_gaussian_var_heat_map_main as model_plot
 # =============================================================================
 # 1) Figure Routing Constants
 # =============================================================================
+# Routing constants keep thesis and appendix figures traceable to the same metric source tables.
 
 
 OUT_DIR = Path("A_figures/Single_Fan_Annular_Gaussian_Var")
@@ -25,8 +26,10 @@ OUT_DIR = Path("A_figures/Single_Fan_Annular_Gaussian_Var")
 # =============================================================================
 # 2) Figure Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     params_df = model_plot.load_ring_params(model_plot.PARAMS_XLSX)
     OUT_DIR.mkdir(parents=True, exist_ok=True)

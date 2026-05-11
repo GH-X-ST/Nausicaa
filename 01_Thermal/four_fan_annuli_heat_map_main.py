@@ -30,6 +30,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 # =============================================================================
 # 1) Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 XLSX_PATH = "S02.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -52,7 +53,7 @@ FOUR_FAN_CENTERS_XY = (
     (5.4, 1.2),
 )
 
-# Axis and colorbar units used in exported figures.
+# Axis and colorbar labels use metres and metres per second in exported figures.
 CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
@@ -82,8 +83,10 @@ FAN_OUTLET_DASH = (0, (2, 2))
 # =============================================================================
 # 2) Workbook Loading and Plot Construction
 # =============================================================================
+# Parsing and plotting helpers keep measured workbook coordinates in arena metres.
 
 
+# Alpha mapping keeps low-speed regions visible while preserving a common thermal colour scale.
 def build_alpha_cmap() -> mcolors.ListedColormap:
     """Build a thermal colormap with exponential alpha versus normalized w."""
     base_cmap = cmocean.cm.thermal
@@ -100,6 +103,7 @@ def build_alpha_cmap() -> mcolors.ListedColormap:
     return mcolors.ListedColormap(colors)
 
 
+# Pcolormesh uses cell edges, so measured centre coordinates are expanded without changing sample values.
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
     """Convert 1D array of cell centers to cell edges."""
     c = np.asarray(c, dtype=float)
@@ -112,6 +116,7 @@ def centers_to_edges(c: np.ndarray) -> np.ndarray:
     return edges
 
 
+# Workbook sheets store x in the first row, y in the first column, and vertical velocity in m/s inside the grid.
 def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """Read one grid sheet and return x_centers, y_centers, W (Ny x Nx)."""
     raw = pd.read_excel(xlsx_path, sheet_name=sheet_name, header=None)
@@ -132,6 +137,7 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     return x, y, w
 
 
+# Annuli CSV files are derived measured profiles and must stay traceable to source sheets.
 def load_annuli_profile_csv(profile_path: Path) -> Tuple[np.ndarray, np.ndarray]:
     """Load annuli profile CSV (r_m, w_mps)."""
     df = pd.read_csv(profile_path)
@@ -149,6 +155,7 @@ def load_annuli_profile_csv(profile_path: Path) -> Tuple[np.ndarray, np.ndarray]
     return r_bins[order], w_bins[order]
 
 
+# Annulus width is inferred from stored bin centres to preserve the profile convention.
 def infer_delta_r(r_bins: np.ndarray, fallback: float) -> float:
     """Infer annulus spacing from r_bins."""
     if r_bins.size < 2:
@@ -166,6 +173,7 @@ def infer_delta_r(r_bins: np.ndarray, fallback: float) -> float:
     return float(np.min(diffs))
 
 
+# Four-fan reconstruction assigns each point to the nearest fan annulus before summing fields.
 def reconstruct_four_fan_annuli_field(
     x: np.ndarray,
     y: np.ndarray,
@@ -188,6 +196,7 @@ def reconstruct_four_fan_annuli_field(
     return w_annuli.astype(float)
 
 
+# Radius and fan-index maps preserve which plume owns each annular bin.
 def nearest_fan_radius_and_index(
     x: np.ndarray,
     y: np.ndarray,
@@ -206,6 +215,7 @@ def nearest_fan_radius_and_index(
     return nearest_r, nearest_idx
 
 
+# Boundary levels expose annular bin edges for plotting the fitted support.
 def annulus_boundary_levels(r_bins: np.ndarray) -> np.ndarray:
     """Return mid-point radii between consecutive annulus centers."""
     r_unique = np.unique(np.asarray(r_bins, dtype=float))
@@ -214,6 +224,7 @@ def annulus_boundary_levels(r_bins: np.ndarray) -> np.ndarray:
     return 0.5 * (r_unique[:-1] + r_unique[1:])
 
 
+# Annulus plots reconstruct radial summaries using the same fan-centred distance convention as fitting.
 def plot_annuli(
     x: np.ndarray,
     y: np.ndarray,
@@ -363,7 +374,9 @@ def plot_annuli(
 # =============================================================================
 # 3) Batch Figure Export
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     for sh in SHEETS:
         x, y, _w_raw = read_slice_from_sheet(XLSX_PATH, sh)

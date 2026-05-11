@@ -5,7 +5,8 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  # required for 3D projection
+# Axes3D import registers Matplotlib's 3D projection used by these figures.
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from skimage.measure import marching_cubes
 
@@ -22,7 +23,9 @@ from skimage.measure import marching_cubes
 # =============================================================================
 # 1) Version Provenance
 # =============================================================================
+# The version stamp records the code state used to generate exported analytic grids.
 
+# Git provenance tags generated analytic grids with the source revision when available.
 def get_git_version() -> str:
     """
     Return a short git description string (tag/commit), or 'unknown' if not in a repo.
@@ -58,7 +61,9 @@ cmap_white0 = mcolors.ListedColormap(colors)
 # =============================================================================
 # 2) Single-Plume Model Evaluation
 # =============================================================================
+# Plume formulas use arena-frame metres and return vertical velocity in m/s.
 
+# Analytic field returns vertical velocity in m/s in the arena frame.
 def vertical_velocity_field(
     Q_v: float,
     R_th0: float,
@@ -100,20 +105,21 @@ def vertical_velocity_field(
     y = np.asarray(y)
     z = np.asarray(z)
 
-    # radial distance from thermal centre
+    # Radius uses horizontal arena distance; height affects plume width separately.
     R = np.sqrt((x - x_th) ** 2 + (y - y_th) ** 2)
 
-    # core radius as function of height
+    # Core radius increases linearly with z according to the analytic plume assumption.
     R_th = R_th0 + k_th * (z - z0)
-    R_th = np.maximum(R_th, 1e-6)  # avoid non-physical radii
+    # Radius is floored to keep the volume-flux equation physically valid.
+    R_th = np.maximum(R_th, 1e-6)
 
     # peak vertical velocity w_th(z) from Q_v = π R_th^2 w_th
     w_th = Q_v / (np.pi * R_th**2)
 
-    # Gaussian vertical velocity profile
+    # Gaussian radial decay converts peak vertical velocity into the spatial field.
     w = w_th * np.exp(-(R / R_th) ** 2)
 
-    # zero velocity below reference height
+    # Below z0 the analytic baseline intentionally reports no updraft.
     w = np.where(z < z0, 0.0, w)
 
     return w
@@ -122,7 +128,9 @@ def vertical_velocity_field(
 # =============================================================================
 # 3) Multi-Plume Model Evaluation
 # =============================================================================
+# Plume formulas use arena-frame metres and return vertical velocity in m/s.
 
+# Multi-fan analytic fields superpose fan-centred plumes in arena coordinates.
 def vertical_velocity_field_multi(
     Q_v: float,
     R_th0: float,
@@ -157,25 +165,30 @@ def vertical_velocity_field_multi(
 # =============================================================================
 # 4) Figure Generation Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 if __name__ == "__main__" and make_plots:
 
-    # Output directory
+    # Output path separates analytic baseline figures from measured-map products.
     output_dir = "A_figures/Four_Fan_Analytic"
     os.makedirs(output_dir, exist_ok=True)
 
-    # CAMAX30 fan / thermal parameters
-    Q_v = 1.69   # m^3 s^-1 per jet
-    x_th_centre = 4.2  # m, arena centre (thermal array centre)
-    y_th_centre = 2.4  # m
+    # CAMAX30 parameters define the analytic baseline rather than measured workbook data.
+    # Vertical volume flux uses SI units for the CAMAX30 analytic baseline.
+    Q_v = 1.69
+    # Thermal-array centre coordinates are arena-frame metres.
+    x_th_centre = 4.2
+    y_th_centre = 2.4
 
-    # Plume parameters (R_th(z) = R_th0 + k_th (z - z0))
-    R_th0 = 0.381  # m, core radius at reference height
-    k_th = 0.10    # spreading rate
-    z0 = 0.50      # m, reference height at fan centre
+    # Plume parameters define the linear core-radius law used by the analytic baseline.
+    # Core radius, spreading rate, and reference height define R_th(z) in metres.
+    R_th0 = 0.381
+    k_th = 0.10
+    z0 = 0.50
 
-    # Fan / thermal layout
-    fan_spacing = 2.0 * R_th0 + 1.7  # m
+    # Thermal centres encode the four-fan layout in arena coordinates.
+    # Fan spacing uses the analytic thermal-array layout in arena metres.
+    fan_spacing = 2.0 * R_th0 + 1.7
     thermal_centres = [
         (x_th_centre - fan_spacing / 2.0, y_th_centre - fan_spacing / 2.0),
         (x_th_centre + fan_spacing / 2.0, y_th_centre - fan_spacing / 2.0),
@@ -183,19 +196,20 @@ if __name__ == "__main__" and make_plots:
         (x_th_centre + fan_spacing / 2.0, y_th_centre + fan_spacing / 2.0),
     ]
 
-    # Flight arena bounds
+    # Arena bounds define the volume over which analytic figures are sampled.
     x_min, x_max = 0.0, 8.4
     y_min, y_max = 0.0, 4.8
     z_min, z_max = 0.0, 3.5
 
-    ### 2D slice: contour of w(x, y, z_slice)
+    # 2D diagnostic slice is sampled at the fixed height below.
     n_x_2d, n_y_2d = 120, 80
     x_2d = np.linspace(x_min, x_max, n_x_2d)
     y_2d = np.linspace(y_min, y_max, n_y_2d)
     X_2d, Y_2d = np.meshgrid(x_2d, y_2d, indexing="xy")
 
-    # height for slice
-    z_slice = 1.0  # m
+    # Slice height is fixed for comparable 2D analytic diagnostics.
+    # Slice height is specified in arena metres for the 2D diagnostic plot.
+    z_slice = 1.0
     Z_slice = z_slice * np.ones_like(X_2d)
 
     # Single-height multi-plume velocity slice in m/s.
@@ -236,7 +250,7 @@ if __name__ == "__main__" and make_plots:
         bbox_inches="tight",
     )
 
-    ### 3D plume: iso-surfaces of w(x, y, z)
+    # 3D plume volume is sampled on a regular arena grid for isosurface rendering.
     n_x_3d, n_y_3d, n_z_3d = 150, 100, 50
     x_3d = np.linspace(x_min, x_max, n_x_3d)
     y_3d = np.linspace(y_min, y_max, n_y_3d)
@@ -261,8 +275,9 @@ if __name__ == "__main__" and make_plots:
 
     w_max = float(W_3d.max())
 
-    # isosurface levels as fractions of max(w)
-    iso_fracs = np.linspace(0.15, 0.95, 10)  # 10 isosurfaces
+    # Isosurface levels are fractions of the local maximum for figure comparability.
+    # Ten fractional levels give comparable plume-volume slices across analytic figures.
+    iso_fracs = np.linspace(0.15, 0.95, 10)
     iso_levels = [frac * w_max for frac in iso_fracs]
 
     fig_3d = plt.figure(figsize=(8, 6))
@@ -277,7 +292,7 @@ if __name__ == "__main__" and make_plots:
             spacing=(dx, dy, dz),
         )
 
-        # shift from grid coordinates to physical coordinates
+        # Marching-cubes vertices are shifted from array indices into arena coordinates.
         verts[:, 0] += x_min
         verts[:, 1] += y_min
         verts[:, 2] += z_min
@@ -294,7 +309,7 @@ if __name__ == "__main__" and make_plots:
 
         ax3d.add_collection3d(mesh)
 
-    # 3D circles representing initial thermal core radius R_th0 at z0
+    # Core-radius rings mark the analytic reference radius at z0.
     theta = np.linspace(0.0, 2.0 * np.pi, 200)
 
     for x_th, y_th in thermal_centres:

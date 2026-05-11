@@ -18,6 +18,7 @@ from scipy.interpolate import PchipInterpolator
 # =============================================================================
 # 1) 3D Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -30,6 +31,7 @@ OUT_3D_NAME = "four_annular_gp_3d.png"
 # =============================================================================
 # 2) Model Loading and 3D Field Evaluation
 # =============================================================================
+# 3D evaluation uses parameter tables as read-only model inputs before rendering.
 
 
 def get_base_3d_module():
@@ -44,6 +46,7 @@ def get_base_3d_module():
     return base_3d
 
 
+# Z interpolation densifies rendered surfaces while retaining the measured-sheet ordering.
 def interpolate_stack_in_z_for_plot(
     z_axis: np.ndarray,
     w_stack: np.ndarray,
@@ -84,6 +87,7 @@ def interpolate_stack_in_z_for_plot(
     return np.maximum(out, 0.0)
 
 
+# GP stack loading preserves mean, fluctuation, and uncertainty sheets as separate audit products.
 def load_annular_gp_stack(
     xlsx_path: Path,
     sheet_names: Sequence[str],
@@ -130,8 +134,10 @@ def load_annular_gp_stack(
 # =============================================================================
 # 3) 3D Figure Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     base_3d = get_base_3d_module()
     if not base_3d.MAKE_PLOTS:

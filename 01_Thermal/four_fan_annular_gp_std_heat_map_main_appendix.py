@@ -19,6 +19,7 @@ import four_fan_annular_gp_heat_map_main_appendix as base_plot
 # =============================================================================
 # 1) Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -33,8 +34,10 @@ CBAR_TICK_STEP = 0.05
 # =============================================================================
 # 2) Workbook Loading and Plot Construction
 # =============================================================================
+# Parsing and plotting helpers keep measured workbook coordinates in arena metres.
 
 
+# Alpha mapping keeps low-speed regions visible while preserving a common thermal colour scale.
 def build_alpha_cmap():
     """Return an opaque cmocean curl colormap for std maps."""
     return cmocean.curl
@@ -42,8 +45,10 @@ def build_alpha_cmap():
 # =============================================================================
 # 3) Figure Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     if not GP_GRID_XLSX.exists():
         raise FileNotFoundError(

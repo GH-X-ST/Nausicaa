@@ -17,6 +17,7 @@ from matplotlib.ticker import FormatStrFormatter
 # =============================================================================
 # 1) Metric Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 # Legend styling is shared across RMSE and SAE comparison figures.
 
@@ -89,8 +90,10 @@ STACK_ORDER_BOTTOM_TO_TOP = list(reversed(STACK_ORDER_TOP_TO_BOTTOM))
 # =============================================================================
 # 2) Metric Loading and Diagnostics
 # =============================================================================
+# Metric loaders keep per-height residual tables traceable to their source workbooks.
 
 
+# Metric workbooks are generated diagnostics; loading preserves model names and height labels.
 def load_per_height_metrics(excel_path: Path):
     if not excel_path.exists():
         raise FileNotFoundError(f"Missing analysis file: {excel_path}")
@@ -139,6 +142,7 @@ def load_per_height_metrics(excel_path: Path):
     return per_height[cols], total_metrics
 
 
+# Metric plots compare models at shared measured heights using the same axes.
 def plot_metric_2d(
     model_frames,
     metric_key: str,
@@ -249,8 +253,10 @@ def plot_metric_2d(
 # =============================================================================
 # 3) Analysis Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main():
     out_dir = Path("A_figures") / "Fitting_Analysis"
     out_dir.mkdir(parents=True, exist_ok=True)

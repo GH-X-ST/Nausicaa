@@ -20,6 +20,7 @@ from matplotlib.ticker import FormatStrFormatter
 # =============================================================================
 # 1) Sampling Plot Configuration
 # =============================================================================
+# Figure constants below fix units, geometry, and visual scale for reproducible comparisons.
 
 
 FONT_SIZE_DELTA = 2
@@ -29,7 +30,9 @@ plt.rcParams.update({"font.size": plt.rcParams.get("font.size", 10) + FONT_SIZE_
 # =============================================================================
 # 2) Workbook Parsing
 # =============================================================================
+# Workbook parsing is the boundary between raw measured sheets and derived profile tables.
 
+# Multi-header TS sheets encode measurement point coordinates in header cells.
 def parse_points_multiheader(excel_path: str, sheet_name: str):
     """
     Parse TS-like sheets where 3 points are laid out across columns,
@@ -91,6 +94,7 @@ def parse_points_multiheader(excel_path: str, sheet_name: str):
     return points
 
 
+# Measurement heights are discovered from available sheets to avoid hard-coded omissions.
 def discover_measurement_heights(sheet_names):
     """
     Finds all measurement heights h from sheets named like z020_TS, z035_TS, ...
@@ -104,6 +108,7 @@ def discover_measurement_heights(sheet_names):
     return sorted(set(heights))
 
 
+# Summary statistics retain mean and variance needed for plotting measurement repeatability.
 def build_summary(excel_path: str):
     """
     Build a tidy summary table with mean/std for each point, measurement height,
@@ -152,6 +157,7 @@ def build_summary(excel_path: str):
 # 3) Sampling Plot Construction
 # =============================================================================
 
+# 2D time-series plots expose measured updraft variability at each probe location.
 def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
     d = summary_df[summary_df["point"] == point_id].copy()
     if d.empty:
@@ -275,10 +281,13 @@ def plot_point_2d(summary_df: pd.DataFrame, point_id: str, out_path: Path):
 # =============================================================================
 # 4) Sampling Figure Export
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main():
-    excel_path = "S02.xlsx"  # <-- change if needed
+    # Workbook path is the measurement source for this script; update only when switching datasets.
+    excel_path = "S02.xlsx"
     out_dir = Path("A_figures") / "Sampling_Points"
     out_dir.mkdir(parents=True, exist_ok=True)
 

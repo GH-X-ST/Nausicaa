@@ -37,8 +37,10 @@ from four_fan_annular_gp_total_fluc_heat_map import (
 # =============================================================================
 # 1) Workbook Loading and Plot Construction
 # =============================================================================
+# Parsing and plotting helpers keep measured workbook coordinates in arena metres.
 
 
+# Annulus overlays show the binning interface between measured profiles and GP outputs.
 def plot_continuous_heatmap_with_annuli(
     x: np.ndarray,
     y: np.ndarray,
@@ -184,8 +186,10 @@ def plot_continuous_heatmap_with_annuli(
 # =============================================================================
 # 2) Figure Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     grid_xlsx = resolve_grid_xlsx()
     if not grid_xlsx.exists():

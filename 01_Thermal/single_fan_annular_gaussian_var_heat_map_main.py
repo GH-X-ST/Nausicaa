@@ -19,7 +19,8 @@ from matplotlib.ticker import FormatStrFormatter
 from matplotlib.patches import Circle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-import cmocean  # https://matplotlib.org/cmocean
+# cmocean provides perceptual thermal colormaps used consistently across figures.
+import cmocean
 
 
 # =============================================================================
@@ -33,6 +34,7 @@ import cmocean  # https://matplotlib.org/cmocean
 # =============================================================================
 # 1) Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -45,12 +47,13 @@ PARAMS_XLSX = Path("B_results/single_annular_var_params.xlsx")
 # Fan centre (x_c, y_c) in arena metres.
 FAN_CENTER_XY = (4.2, 2.4)
 
-# Axis and colorbar units used in exported figures.
-CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"  # vertical velocity in m/s
+# Axis and colorbar labels use metres and metres per second in exported figures.
+# Colourbar reports vertical velocity in metres per second.
+CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
 
-# Tick positions for compact A4 layout
+# Ticks follow measured arena grid labels while keeping compact A4 panels readable.
 # Line widths are fixed for figure-to-figure comparability.
 CELL_EDGE_LW = 0.30
 AXIS_EDGE_LW = 0.80
@@ -88,7 +91,9 @@ SHEET_HEIGHT_DIVISOR = 100.0
 # =============================================================================
 # 2) Workbook Loading and Plot Construction
 # =============================================================================
+# Parsing and plotting helpers keep measured workbook coordinates in arena metres.
 
+# Alpha mapping keeps low-speed regions visible while preserving a common thermal colour scale.
 def build_alpha_cmap() -> mcolors.ListedColormap:
     """
     Build a thermal colormap with exponential alpha versus normalized w.
@@ -106,6 +111,7 @@ def build_alpha_cmap() -> mcolors.ListedColormap:
 
     return mcolors.ListedColormap(colors)
 
+# Pcolormesh uses cell edges, so measured centre coordinates are expanded without changing sample values.
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
     """
     Convert 1D array of cell centers -> cell edges for pcolormesh.
@@ -120,6 +126,7 @@ def centers_to_edges(c: np.ndarray) -> np.ndarray:
     return edges
 
 
+# Sheet names encode height in centimetres; parsing converts that label to metres.
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
     Parse height in meters from sheet names like 'z020', 'z110', 'z220'.
@@ -132,6 +139,7 @@ def parse_sheet_height_m(sheet_name: str) -> float:
     return int(suffix) / SHEET_HEIGHT_DIVISOR
 
 
+# Workbook sheets store x in the first row, y in the first column, and vertical velocity in m/s inside the grid.
 def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """
     Read the workbook grid layout:
@@ -157,7 +165,7 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
             f"Shape mismatch in {sheet_name}: W{W.shape}, y({y.size}), x({x.size})."
         )
 
-    # Ensure y increases bottom-to-top on the plot (0 -> max)
+    # Plot convention uses increasing arena y from bottom to top.
     if y.size >= 2 and y[0] > y[-1]:
         y = y[::-1]
         W = W[::-1, :]
@@ -165,6 +173,7 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     return x, y, W
 
 
+# Display-grid resolution is a plotting choice and must not be interpreted as measurement density.
 def build_continuous_grid(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """
     Build a dense uniform grid covering the measurement extents.
@@ -180,6 +189,7 @@ def build_continuous_grid(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.
     return xg, yg
 
 
+# Ring-parameter tables are fitted-model inputs and remain separate from measured workbook grids.
 def load_ring_params(xlsx_path: Path) -> pd.DataFrame:
     """
     Load fitted ring parameters from Excel.
@@ -192,6 +202,7 @@ def load_ring_params(xlsx_path: Path) -> pd.DataFrame:
     return df.copy()
 
 
+# Height selection keeps plotted fields tied to the nearest fitted or interpolated z sample.
 def params_for_height(df: pd.DataFrame, z_m: float) -> Tuple[float, float, float, float]:
     """
     Extract [A_ring, r_ring, delta_r, w0] for a given height.
@@ -204,6 +215,7 @@ def params_for_height(df: pd.DataFrame, z_m: float) -> Tuple[float, float, float
     return float(row["A_ring"]), float(row["r_ring"]), float(row["delta_r"]), float(row["w0"])
 
 
+# Continuous plots show model or interpolated fields on a display grid, not new measurements.
 def plot_continuous_heatmap(x, y, W, outpath: Path):
     """
     Plot continuous model heat map using the same axis settings as single_fan_heat_map.py.
@@ -225,7 +237,8 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
         "patch.edgecolor": "k",
     })
 
-    fig, ax = plt.subplots(figsize=(5.2, 3.0), dpi=600)  # 2-per-row on A4 landscape
+    # A4 thesis sizing supports two panels per landscape row at fixed data scale.
+    fig, ax = plt.subplots(figsize=(5.2, 3.0), dpi=600)
 
     # Interpolated grid is for display only; fitted or measured values remain unchanged.
     cmap_alpha = build_alpha_cmap()
@@ -283,7 +296,8 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
     # Equal aspect preserves arena geometry in plan view.
     ax.set_xlabel(XLABEL)
     ax.set_ylabel(YLABEL)
-    ax.set_aspect("equal", adjustable="box")  # 1:1 grid without stretching
+    # Equal aspect keeps arena distances physically meaningful in the rendered plot.
+    ax.set_aspect("equal", adjustable="box")
     ax.set_axisbelow(True)
     ax.grid(True, color=GRID_COLOR, linewidth=GRID_LINEWIDTH)
     for spine in ax.spines.values():
@@ -334,7 +348,9 @@ def plot_continuous_heatmap(x, y, W, outpath: Path):
 # =============================================================================
 # 3) Batch Figure Export
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main():
     params_df = load_ring_params(PARAMS_XLSX)
 

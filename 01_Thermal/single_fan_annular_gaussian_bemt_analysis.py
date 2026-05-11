@@ -37,6 +37,7 @@ from single_fan_annuli_cut import (
 # =============================================================================
 # 1) Metric Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 XLSX_PATH = "S01.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -57,10 +58,12 @@ SHEET_HEIGHT_DIVISOR = 100.0
 # =============================================================================
 # 2) Metric Loading and Diagnostics
 # =============================================================================
+# Metric loaders keep per-height residual tables traceable to their source workbooks.
 
 REQUIRED_BASE_COLUMNS = ("z_m", "w0", "r_ring", "delta_ring", "a0")
 
 
+# Sheet names encode height in centimetres; parsing converts that label to metres.
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
     Parse heights from names like z020, z110, z220.
@@ -85,6 +88,7 @@ def load_fit_table(xlsx_path: Path, sheet_name: str) -> pd.DataFrame:
     return pd.read_excel(xlsx_path, sheet_name=sheet_to_use)
 
 
+# Parameter-column discovery keeps harmonic order explicit before array conversion.
 def discover_param_columns(df: pd.DataFrame) -> Tuple[List[str], List[int]]:
     """
     Discover parameter columns and harmonic orders from fit table.
@@ -168,6 +172,7 @@ def params_at_z(
     return params
 
 
+# Azimuthal ring evaluation adds Fourier variation around the fan-centred plume.
 def azimuthal_ring_model(
     r: np.ndarray,
     theta: np.ndarray,
@@ -188,6 +193,7 @@ def azimuthal_ring_model(
     return float(params["w0"]) + g_r * amp
 
 
+# Height metrics compare fitted and measured fields plane by plane.
 def compute_height_metrics(
     r_pts: np.ndarray,
     theta_pts: np.ndarray,
@@ -222,6 +228,7 @@ def compute_height_metrics(
     return sae_k, weighted_sse_k, weight_sum_k, wrmse_k, int(r_pts.size)
 
 
+# Excel outputs are the audit boundary for downstream thesis tables and plots.
 def write_results(df: pd.DataFrame, out_xlsx: Path, sheet_name: str) -> None:
     """
     Write metrics table to an Excel sheet (replace sheet if it exists).
@@ -244,7 +251,9 @@ def write_results(df: pd.DataFrame, out_xlsx: Path, sheet_name: str) -> None:
 # =============================================================================
 # 3) Analysis Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     fit_raw = load_fit_table(FIT_XLSX_PATH, FIT_SHEET_NAME)
     param_cols, harmonic_orders = discover_param_columns(fit_raw)

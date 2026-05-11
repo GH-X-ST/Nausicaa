@@ -32,6 +32,7 @@ from sklearn.preprocessing import StandardScaler
 # =============================================================================
 # 1) Shared GP Constants
 # =============================================================================
+# Length-scale and noise bounds below encode the smoothness prior used by residual GP models.
 
 
 FOUR_FAN_ID_PATTERN = re.compile(r"^a0_(F\d{2})$")
@@ -47,6 +48,7 @@ DEFAULT_LENGTH_SCALE_FLOORS = {
 # =============================================================================
 # 2) Data Containers
 # =============================================================================
+# Small containers keep fitted parameters, diagnostics, and uncertainty assumptions explicit at module boundaries.
 
 
 class MeanModelProtocol(Protocol):
@@ -97,6 +99,7 @@ class ResidualGPModelBundle:
 # =============================================================================
 
 
+# Feature-mode validation prevents silent changes to the GP geometry assumption.
 def normalize_feature_mode_name(feature_mode: str) -> str:
     mode = str(feature_mode).strip().lower()
     if mode not in {"polar", "radial", "cartesian"}:
@@ -107,6 +110,7 @@ def normalize_feature_mode_name(feature_mode: str) -> str:
     return mode
 
 
+# Feature modes encode geometry assumptions: Cartesian is unconstrained, polar/radial preserve fan-centred structure.
 def build_feature_matrix(
     x_m: np.ndarray,
     y_m: np.ndarray,
@@ -136,6 +140,7 @@ def build_feature_matrix(
     return np.column_stack([x_arr, y_arr, z_arr])
 
 
+# Length-scale floors prevent GP kernels from fitting sub-grid fluctuations as physical structure.
 def _build_length_scale_bounds(
     feature_mode: str,
     scaler: StandardScaler,
@@ -164,6 +169,7 @@ def _build_length_scale_bounds(
     return lower, upper
 
 
+# Kernel bounds combine measurement-noise scale with conservative spatial smoothness priors.
 def build_residual_gp_kernel(
     feature_mode: str,
     kernel_family: str,
@@ -628,6 +634,7 @@ class AnnularGPModelBundle:
         )
 
 
+# Residual GP models measured-minus-mean structure while retaining sigma-based observation noise.
 def fit_residual_gp_model(
     train_df: pd.DataFrame,
     feature_mode: str,
@@ -686,6 +693,7 @@ def fit_residual_gp_model(
     )
 
 
+# Grouped CV holds out whole height sheets to test transfer across measured z planes.
 def evaluate_candidate_group_cv(
     train_df: pd.DataFrame,
     candidate,
@@ -747,6 +755,7 @@ def evaluate_candidate_group_cv(
     return metrics, n_splits_eff
 
 
+# Training-prediction tables keep residual diagnostics tied to original sample locations.
 def make_training_prediction_table(
     model: AnnularGPModelBundle,
     train_df: pd.DataFrame,
@@ -768,6 +777,7 @@ def make_training_prediction_table(
     return out
 
 
+# Grid prediction tables are downstream plotting inputs, not retraining data.
 def make_grid_prediction_tables(
     model: AnnularGPModelBundle,
     xlsx_path: str,
@@ -849,6 +859,7 @@ def make_grid_prediction_tables(
     return tables
 
 
+# Autotune CV tables record candidate assumptions alongside validation errors.
 def build_autotune_cv_table(
     tune_trials: Sequence[object],
     selected_candidate: object,

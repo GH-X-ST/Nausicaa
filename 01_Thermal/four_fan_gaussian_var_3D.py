@@ -34,6 +34,7 @@ from skimage.measure import marching_cubes
 # =============================================================================
 # 1) 3D Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 MAKE_PLOTS = True
 
@@ -124,11 +125,13 @@ SLICE_EDGE_LW = 0.2
 # =============================================================================
 # 2) Model Loading and 3D Field Evaluation
 # =============================================================================
+# 3D evaluation uses parameter tables as read-only model inputs before rendering.
 
 REQUIRED_SHARED_COLUMNS = ("z_m", "A", "delta")
 FAN_COL_PATTERN = re.compile(r"^A_(F\d{2})$")
 
 
+# Alpha mapping keeps low-speed regions visible while preserving a common thermal colour scale.
 def build_alpha_cmap() -> mcolors.ListedColormap:
     """
     Build a thermal colormap with exponential alpha versus normalized w.
@@ -147,6 +150,7 @@ def build_alpha_cmap() -> mcolors.ListedColormap:
     return mcolors.ListedColormap(colors)
 
 
+# Parameter workbooks are the fitted-model interface consumed by plotting and simulation scripts.
 def load_params_table(
     xlsx_path: Path,
     sheet_name: str,
@@ -173,6 +177,7 @@ def load_params_table(
     return pd.read_excel(table_path, sheet_name=chosen_sheet)
 
 
+# Fan-ID discovery treats suffixed columns as the interface for per-fan fitted parameters.
 def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     """
     Discover fan IDs from columns like A_F01.
@@ -196,6 +201,7 @@ def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     return tuple(valid)
 
 
+# Parameter extraction keeps z ordering explicit before interpolation over height.
 def extract_param_arrays(
     df: pd.DataFrame,
     fan_ids: Tuple[str, ...],
@@ -285,6 +291,7 @@ def extract_param_arrays(
     return z_vals, params_stack
 
 
+# 3D grids are evaluation lattices in arena metres, separate from measurement sheet spacing.
 def make_3d_grid() -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, float, float]:
     """
     Build 3D sampling grid and voxel spacing.
@@ -301,6 +308,7 @@ def make_3d_grid() -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, float, fl
     return x_grid, y_grid, z_grid, dx, dy, dz
 
 
+# Field evaluation returns vertical velocity in m/s for each arena-frame grid point.
 def evaluate_field(
     x_grid: np.ndarray,
     y_grid: np.ndarray,
@@ -347,6 +355,7 @@ def evaluate_field(
     return w_grid
 
 
+# 3D isosurfaces use common level and alpha settings so plume volumes are visually comparable.
 def plot_isosurfaces(
     w_grid: np.ndarray,
     dx: float,
@@ -560,7 +569,9 @@ def plot_isosurfaces(
 # =============================================================================
 # 3) 3D Figure Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     if not MAKE_PLOTS:
         print("MAKE_PLOTS is False; nothing to do.")

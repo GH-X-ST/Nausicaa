@@ -30,7 +30,8 @@ from matplotlib.ticker import FormatStrFormatter
 from matplotlib.patches import Circle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-import cmocean  # https://matplotlib.org/cmocean
+# cmocean provides perceptual thermal colormaps used consistently across figures.
+import cmocean
 
 
 # =============================================================================
@@ -44,6 +45,7 @@ import cmocean  # https://matplotlib.org/cmocean
 # =============================================================================
 # 1) Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 XLSX_PATH = "S02.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -61,7 +63,7 @@ FOUR_FAN_CENTERS_XY = (
     (5.4, 1.2),
 )
 
-# Axis and colorbar units used in exported figures.
+# Axis and colorbar labels use metres and metres per second in exported figures.
 CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"
 XLABEL = r"$x$ (m)"
 YLABEL = r"$y$ (m)"
@@ -99,7 +101,9 @@ FAN_COL_PATTERN = re.compile(r"^a0_(F\d{2})$")
 # =============================================================================
 # 2) Workbook Loading and Plot Construction
 # =============================================================================
+# Parsing and plotting helpers keep measured workbook coordinates in arena metres.
 
+# Alpha mapping keeps low-speed regions visible while preserving a common thermal colour scale.
 def build_alpha_cmap() -> mcolors.ListedColormap:
     """
     Build a thermal colormap with exponential alpha versus normalized w.
@@ -118,6 +122,7 @@ def build_alpha_cmap() -> mcolors.ListedColormap:
     return mcolors.ListedColormap(colors)
 
 
+# Pcolormesh uses cell edges, so measured centre coordinates are expanded without changing sample values.
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
     """
     Convert 1D array of cell centers -> cell edges for pcolormesh.
@@ -132,6 +137,7 @@ def centers_to_edges(c: np.ndarray) -> np.ndarray:
     return edges
 
 
+# Sheet names encode height in centimetres; parsing converts that label to metres.
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
     Parse height in meters from sheet names like 'z020', 'z110', 'z220'.
@@ -144,6 +150,7 @@ def parse_sheet_height_m(sheet_name: str) -> float:
     return int(suffix) / SHEET_HEIGHT_DIVISOR
 
 
+# Workbook sheets store x in the first row, y in the first column, and vertical velocity in m/s inside the grid.
 def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """
     Reads the grid sheet:
@@ -170,6 +177,7 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     return x, y, w_map
 
 
+# Display-grid resolution is a plotting choice and must not be interpreted as measurement density.
 def build_continuous_grid(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """
     Build a dense uniform grid covering the measurement extents.
@@ -185,6 +193,7 @@ def build_continuous_grid(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.
     return x_grid, y_grid
 
 
+# BEMT parameter tables are read as fitted-model inputs before grid evaluation.
 def load_bemt_params(xlsx_path: Path, sheet_name: str) -> pd.DataFrame:
     """
     Load fitted non-axisymmetric BEMT parameters from Excel.
@@ -210,6 +219,7 @@ def load_bemt_params(xlsx_path: Path, sheet_name: str) -> pd.DataFrame:
     return df
 
 
+# Fan-ID discovery treats suffixed columns as the interface for per-fan fitted parameters.
 def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     """
     Discover fan IDs from columns like a0_F01.
@@ -235,6 +245,7 @@ def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     return tuple(valid)
 
 
+# Shared-column discovery supports legacy averaged parameter tables without hiding per-fan data.
 def discover_shared_param_columns(df: pd.DataFrame) -> Tuple[List[str], List[int]]:
     """
     Discover shared parameter columns and harmonic orders.
@@ -265,6 +276,7 @@ def discover_shared_param_columns(df: pd.DataFrame) -> Tuple[List[str], List[int
     return param_cols, harmonic_orders
 
 
+# Per-fan column discovery preserves fan identity through model evaluation.
 def discover_fan_param_columns(df: pd.DataFrame, fan_id: str) -> Tuple[List[str], List[int]]:
     """
     Discover per-fan parameter columns and harmonic orders.
@@ -296,6 +308,7 @@ def discover_fan_param_columns(df: pd.DataFrame, fan_id: str) -> Tuple[List[str]
     return param_cols, harmonic_orders
 
 
+# Sheet-to-parameter matching keeps measured z planes aligned with fitted model rows.
 def select_row_for_sheet(df: pd.DataFrame, sheet_name: str) -> pd.Series:
     """
     Select parameter row for a requested sheet.
@@ -319,6 +332,7 @@ def select_row_for_sheet(df: pd.DataFrame, sheet_name: str) -> pd.Series:
     return df.iloc[idx]
 
 
+# Height selection keeps plotted fields tied to the nearest fitted or interpolated z sample.
 def params_for_height(
     df: pd.DataFrame,
     sheet_name: str,
@@ -361,6 +375,7 @@ def params_for_height(
     return params_list, orders_list
 
 
+# Azimuthal ring evaluation adds Fourier variation around the fan-centred plume.
 def azimuthal_ring_model(
     r: np.ndarray,
     theta: np.ndarray,
@@ -382,6 +397,7 @@ def azimuthal_ring_model(
     return float(params["w0"]) + g_r * amp
 
 
+# Continuous plots show model or interpolated fields on a display grid, not new measurements.
 def plot_continuous_heatmap(
     x: np.ndarray,
     y: np.ndarray,
@@ -511,7 +527,9 @@ def plot_continuous_heatmap(
 # =============================================================================
 # 3) Batch Figure Export
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     params_df = load_bemt_params(PARAMS_XLSX, PARAMS_SHEET)
     fan_ids = discover_fan_ids(params_df)

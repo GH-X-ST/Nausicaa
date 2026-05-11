@@ -9,12 +9,15 @@ import four_fan_annular_gp_total_fluc_heat_map_main as total_main
 # =============================================================================
 # 1) Figure Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 # =============================================================================
 # 1) Figure Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     grid_xlsx = fluc_plot.resolve_grid_xlsx()
     if not grid_xlsx.exists():

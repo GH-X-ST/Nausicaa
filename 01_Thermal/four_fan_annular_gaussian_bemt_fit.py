@@ -34,6 +34,7 @@ from scipy.interpolate import PchipInterpolator
 # =============================================================================
 # 1) Interpolation Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 PARAMS_XLSX = Path("B_results/four_annular_bemt_params.xlsx")
 PARAMS_SHEET = "four_bemt_az_fit"
@@ -77,7 +78,9 @@ FAN_COL_PATTERN = re.compile(r"^a0_(F\d{2})$")
 # =============================================================================
 # 2) Interpolation and Evaluation Helpers
 # =============================================================================
+# Interpolation helpers define extrapolation and positivity guardrails before export.
 
+# High-z anchors restrict extrapolation to measured heights that define the upper plume trend.
 def select_anchor_indices(z_vals: np.ndarray) -> Optional[np.ndarray]:
     """
     Locate indices for HIGH_Z_ANCHOR_POINTS_M in z_vals.
@@ -105,6 +108,7 @@ def select_anchor_indices(z_vals: np.ndarray) -> Optional[np.ndarray]:
     return np.array(anchor_indices, dtype=int)
 
 
+# Smoothstep blending avoids a discontinuity at the high-z extrapolation threshold.
 def high_branch_weight(z_query: np.ndarray) -> np.ndarray:
     """
     Compute smooth high-branch blending weights in [0, 1].
@@ -123,6 +127,7 @@ def high_branch_weight(z_query: np.ndarray) -> np.ndarray:
     return t * t * (3.0 - 2.0 * t)
 
 
+# Fourier terms are paired by harmonic order so amplitude caps preserve phase orientation.
 def harmonic_pairs(param_cols: List[str]) -> List[Tuple[int, int]]:
     """
     Return aligned (a_n_idx, b_n_idx) index pairs found in param_cols.
@@ -140,6 +145,7 @@ def harmonic_pairs(param_cols: List[str]) -> List[Tuple[int, int]]:
     return pairs
 
 
+# Harmonic damping limits high-z Fourier growth outside the measured support.
 def stabilize_extrapolated_harmonics(
     z_query: np.ndarray,
     params_interp: np.ndarray,
@@ -189,6 +195,7 @@ def stabilize_extrapolated_harmonics(
     return out
 
 
+# Parameter workbooks are the fitted-model interface consumed by plotting and simulation scripts.
 def load_params_table(xlsx_path: Path, sheet_name: str) -> pd.DataFrame:
     """
     Load fitted parameters from Excel.
@@ -201,6 +208,7 @@ def load_params_table(xlsx_path: Path, sheet_name: str) -> pd.DataFrame:
     return pd.read_excel(xlsx_path, sheet_name=sheet_to_use)
 
 
+# Fan-ID discovery treats suffixed columns as the interface for per-fan fitted parameters.
 def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     """
     Discover fan IDs from columns like a0_F01.
@@ -225,6 +233,7 @@ def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     return tuple(valid)
 
 
+# Parameter-column discovery keeps harmonic order explicit before array conversion.
 def discover_param_columns(df: pd.DataFrame) -> List[str]:
     """
     Discover shared parameter columns from the fitted table.
@@ -254,6 +263,7 @@ def discover_param_columns(df: pd.DataFrame) -> List[str]:
     return param_cols
 
 
+# Per-fan column discovery maps suffixed workbook names back to canonical parameter names.
 def discover_param_columns_for_fan(df: pd.DataFrame, fan_id: str) -> Tuple[List[str], List[str]]:
     """
     Discover per-fan columns and matching unsuffixed names.
@@ -283,6 +293,7 @@ def discover_param_columns_for_fan(df: pd.DataFrame, fan_id: str) -> Tuple[List[
     return cols_fan, names_unsuffixed
 
 
+# Parameter extraction keeps fitted z samples paired with their model coefficients.
 def extract_params(
     df: pd.DataFrame,
     param_cols: List[str],
@@ -317,6 +328,7 @@ def extract_params(
     return z_vals, params
 
 
+# The exported z grid is a simulation interface and may be denser than measured heights.
 def make_z_grid(z_vals: np.ndarray) -> np.ndarray:
     """
     Build a regular z grid for interpolation outputs.
@@ -334,6 +346,7 @@ def make_z_grid(z_vals: np.ndarray) -> np.ndarray:
     return np.linspace(z_min, z_max, steps + 1)
 
 
+# PCHIP preserves monotone height trends without spline overshoot in fitted parameters.
 def interpolate_params_pchip(
     z_vals: np.ndarray,
     params: np.ndarray,
@@ -414,6 +427,7 @@ def interpolate_params_pchip(
     return params_interp
 
 
+# The interpolated table is a simulation handoff, not a replacement for raw fit diagnostics.
 def write_interpolated_table(
     z_grid: np.ndarray,
     params_interp: np.ndarray,
@@ -433,6 +447,7 @@ def write_interpolated_table(
     df_out.to_excel(out_path, index=False, sheet_name=sheet_name)
 
 
+# Per-fan exports retain individual plume parameters and add shared columns only for compatibility.
 def write_interpolated_table_multi(
     z_grid: np.ndarray,
     per_fan_interp: Dict[str, Tuple[List[str], np.ndarray]],
@@ -487,7 +502,9 @@ def write_interpolated_table_multi(
 # =============================================================================
 # 3) Parameter Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     params_df = load_params_table(PARAMS_XLSX, PARAMS_SHEET)
     fan_ids = discover_fan_ids(params_df)

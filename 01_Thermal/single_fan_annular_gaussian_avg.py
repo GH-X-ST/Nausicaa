@@ -68,6 +68,7 @@ from scipy.optimize import least_squares
 # =============================================================================
 # 1) Fitting Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 XLSX_PATH = "/mnt/data/S01.xlsx"
 ANNULI_PROFILE_DIR = Path("B_results/Single_Fan_Annuli_Profile")
@@ -87,6 +88,7 @@ SHEET_HEIGHT_DIVISOR = 100.0
 # =============================================================================
 # 2) Data Containers
 # =============================================================================
+# Small containers keep fitted parameters, diagnostics, and uncertainty assumptions explicit at module boundaries.
 
 @dataclass(frozen=True)
 class FitConfig:
@@ -149,7 +151,9 @@ class SmoothRingModel:
 # =============================================================================
 # 3) Data Loading and Fit Utilities
 # =============================================================================
+# Loaders preserve measured sheet geometry and timestamp-derived uncertainty provenance.
 
+# Sheet names encode height in centimetres; parsing converts that label to metres.
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
     Parse height in meters from sheet names like 'z020', 'z110', 'z220'.
@@ -169,6 +173,7 @@ def parse_sheet_height_m(sheet_name: str) -> float:
     return int(suffix) / SHEET_HEIGHT_DIVISOR
 
 
+# Mean-map sheets are measured velocity fields with arena coordinates in metres.
 def load_mean_map(
     xlsx_path: str,
     sheet_name: str,
@@ -206,6 +211,7 @@ def load_mean_map(
     return x_grid, y_grid, w_vals
 
 
+# *_TS sheets provide measurement scatter used as per-sample uncertainty.
 def parse_ts_noise_scale(xlsx_path: str, ts_sheet_name: str) -> Optional[float]:
     """
     Estimate sigma_z (m/s) from a *_TS sheet.
@@ -249,6 +255,7 @@ def parse_ts_noise_scale(xlsx_path: str, ts_sheet_name: str) -> Optional[float]:
     return float(np.sqrt(mean_var))
 
 
+# Annuli CSV files are derived measured profiles and must stay traceable to source sheets.
 def load_annuli_profile_csv(
     profile_dir: Path,
     sheet_name: str,
@@ -285,12 +292,15 @@ def load_annuli_profile_csv(
 # =============================================================================
 # 4) Core Model Evaluation
 # =============================================================================
+# Model equations use metre and m/s inputs; sign and frame assumptions stay local to each formula.
 
+# Ring Gaussian models velocity as a radial plume envelope in arena metres.
 def ring_gaussian(r: np.ndarray, a_ring: float, r_ring: float, delta_r: float, w0: float) -> np.ndarray:
     """Evaluate the ring Gaussian model w(r) = w0 + A_ring * exp(-((r - r_ring) / delta_r)^2)."""
     return w0 + a_ring * np.exp(-((r - r_ring) / delta_r) ** 2)
 
 
+# Radial profiles aggregate measured cells by distance from the fan centre in metres.
 def make_radial_profile(
     r: np.ndarray,
     w: np.ndarray,
@@ -360,7 +370,9 @@ def make_radial_profile(
 # =============================================================================
 # 5) Fitting and Diagnostics
 # =============================================================================
+# Fit diagnostics compare weighted and raw residuals so solver selection remains auditable.
 
+# Height-dependent ring-radius bounds keep fits inside the measured plume support.
 def default_r_ring_bounds_by_z(z_m: float) -> Tuple[float, float]:
     """
     Height-dependent bounds for ring peak radius r_ring(z).
@@ -373,6 +385,7 @@ def default_r_ring_bounds_by_z(z_m: float) -> Tuple[float, float]:
     return 0.15, 0.95
 
 
+# Initial guesses encode expected ring scale to help robust least-squares avoid poor local minima.
 def initial_guess_ring(
     r_bins: np.ndarray,
     w_bins: np.ndarray,
@@ -398,6 +411,7 @@ def initial_guess_ring(
     return np.array([a_ring0, r_ring0, delta_r0, w0], dtype=float)
 
 
+# Per-height ring fitting uses the measured plane directly before any z-smoothing is applied.
 def fit_ring_at_height(
     r_bins: np.ndarray,
     w_bins: np.ndarray,
@@ -440,6 +454,7 @@ def fit_ring_at_height(
     return result.x
 
 
+# Height-wise fits remain independent so diagnostics can expose bad measurement planes.
 def fit_all_heights(
     mean_sheet_names: Iterable[str],
     config: FitConfig,
@@ -513,7 +528,9 @@ def fit_all_heights(
 # =============================================================================
 # 6) Fitting Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     mean_sheets = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
 

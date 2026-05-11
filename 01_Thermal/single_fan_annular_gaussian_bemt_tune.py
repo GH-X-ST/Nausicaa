@@ -19,6 +19,7 @@ import single_fan_annular_gaussian_bemt as base
 # =============================================================================
 # 1) Tuning Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 
 TUNING_REPORT_XLSX = Path("B_results/single_annular_bemt_tuning_report.xlsx")
@@ -27,8 +28,10 @@ TUNING_SHEET_NAME = "tuning"
 # =============================================================================
 # 2) Tuning Table Builders
 # =============================================================================
+# Table builders record each candidate assumption before selecting a preferred fit.
 
 
+# Tuning tables record candidate settings beside the resulting diagnostics.
 def build_tuning_table(
     selected_hyper: base.FitHyperParams,
     trials: List[base.HyperTuneTrial],
@@ -66,8 +69,10 @@ def build_tuning_table(
 # =============================================================================
 # 3) Tuning Report Export
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     selected_hyper, fit_results, trials = base.autotune_fit_hyper(base.SHEETS)
 

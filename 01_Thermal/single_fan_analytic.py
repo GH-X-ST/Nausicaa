@@ -5,7 +5,8 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  # needed for 3D projection
+# Axes3D import registers Matplotlib's 3D projection used by these figures.
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from skimage.measure import marching_cubes
 
@@ -22,7 +23,9 @@ from skimage.measure import marching_cubes
 # =============================================================================
 # 1) Version Provenance
 # =============================================================================
+# The version stamp records the code state used to generate exported analytic grids.
 
+# Git provenance tags generated analytic grids with the source revision when available.
 def get_git_version() -> str:
     """
     Return a short git description string (tag/commit), or 'unknown' if not in a repo.
@@ -42,6 +45,7 @@ CODE_VERSION = get_git_version()
 # =============================================================================
 # 2) Plot Constants and Colormap
 # =============================================================================
+# Figure constants below fix units, geometry, and visual scale for reproducible comparisons.
 
 make_plots = True
 
@@ -62,7 +66,9 @@ cmap_white0 = mcolors.ListedColormap(colors)
 # =============================================================================
 # 3) Core Thermal Model Evaluation
 # =============================================================================
+# Model equations use metre and m/s inputs; sign and frame assumptions stay local to each formula.
 
+# Analytic field returns vertical velocity in m/s in the arena frame.
 def vertical_velocity_field(
     Q_v: float,
     R_th0: float,
@@ -101,20 +107,21 @@ def vertical_velocity_field(
     y = np.asarray(y)
     z = np.asarray(z)
 
-    # radial distance from thermal centre
+    # Radius uses horizontal arena distance; height affects plume width separately.
     R = np.sqrt((x - x_th) ** 2 + (y - y_th) ** 2)
 
-    # core radius as function of height
+    # Core radius increases linearly with z according to the analytic plume assumption.
     R_th = R_th0 + k_th * (z - z0)
-    R_th = np.maximum(R_th, 1e-6)  # avoid non-physical radii
+    # Radius is floored to keep the volume-flux equation physically valid.
+    R_th = np.maximum(R_th, 1e-6)
 
     # peak vertical velocity w_th(z) from Q_v = π R_th^2 w_th
     w_th = Q_v / (np.pi * R_th ** 2)
 
-    # Gaussian vertical velocity profile
+    # Gaussian radial decay converts peak vertical velocity into the spatial field.
     w = w_th * np.exp(-(R / R_th) ** 2)
 
-    # zero velocity below reference height
+    # Below z0 the analytic baseline intentionally reports no updraft.
     w = np.where(z < z0, 0.0, w)
 
     return w
@@ -123,36 +130,41 @@ def vertical_velocity_field(
 # =============================================================================
 # 4) Figure Generation Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 if __name__ == "__main__" and make_plots:
 
-    # Output directory for figures
+    # Output path separates analytic baseline figures from measured-map products. for figures
     output_dir = "A_figures/Single_Fan_Analytic"
     os.makedirs(output_dir, exist_ok=True)
 
-    # CAMAX30 thermal parameters (single equivalent plume)
-    Q_v = 1.69  # m^3 s^-1
-    x_th = 4.0  # m, thermal centre (arena centre)
-    y_th = 2.5  # m
+    # CAMAX30 parameters define the analytic baseline rather than measured workbook data.
+    # Vertical volume flux uses SI units for the CAMAX30 analytic baseline.
+    Q_v = 1.69
+    # Thermal centre coordinates are arena-frame metres.
+    x_th = 4.0
+    y_th = 2.5
 
-    # Plume parameters (R_th(z) = R_th0 + k_th (z - z0))
-    R_th0 = 0.381  # m, core radius at reference height
-    k_th = 0.10    # spreading rate
-    z0 = 0.50      # m, reference height at fan centre
+    # Plume parameters define the linear core-radius law used by the analytic baseline.
+    # Core radius, spreading rate, and reference height define R_th(z) in metres.
+    R_th0 = 0.381
+    k_th = 0.10
+    z0 = 0.50
 
-    # Flight arena volume
+    # Arena bounds define the volume over which analytic figures are sampled.
     x_min, x_max = 0.0, 8.0
     y_min, y_max = 0.0, 5.0
     z_min, z_max = 0.0, 3.5
 
-    ### 2D slice: contour of w(x, y, z_th_slice)
+    # 2D diagnostic slice is sampled at the fixed height below.
     nx_2d, ny_2d = 120, 80
     x_2d = np.linspace(x_min, x_max, nx_2d)
     y_2d = np.linspace(y_min, y_max, ny_2d)
     X_2d, Y_2d = np.meshgrid(x_2d, y_2d, indexing="xy")
 
-    # choose a single height to visualise
-    z_th_slice = 1.5  # m
+    # Slice height is fixed for comparable 2D analytic diagnostics.
+    # Slice height is specified in arena metres for the 2D diagnostic plot.
+    z_th_slice = 1.5
     Z_slice = np.full_like(X_2d, z_th_slice)
 
     # Single-height plume velocity slice in m/s.
@@ -196,7 +208,7 @@ if __name__ == "__main__" and make_plots:
         bbox_inches="tight",
     )
 
-    ### 3D plume: iso-surfaces of w(x, y, z)
+    # 3D plume volume is sampled on a regular arena grid for isosurface rendering.
     nx_3d, ny_3d, nz_3d = 150, 100, 50
     x_3d = np.linspace(x_min, x_max, nx_3d)
     y_3d = np.linspace(y_min, y_max, ny_3d)
@@ -222,7 +234,7 @@ if __name__ == "__main__" and make_plots:
 
     w_max = W_3d.max()
 
-    # isosurface levels as fractions of max(w)
+    # Isosurface levels are fractions of the local maximum for figure comparability.
     iso_fracs = np.linspace(0.15, 0.95, 10)
     iso_levels = [frac * w_max for frac in iso_fracs]
 
@@ -238,7 +250,7 @@ if __name__ == "__main__" and make_plots:
             spacing=(dx, dy, dz),
         )
 
-        # shift from grid coordinates to physical coordinates
+        # Marching-cubes vertices are shifted from array indices into arena coordinates.
         verts[:, 0] += x_min
         verts[:, 1] += y_min
         verts[:, 2] += z_min

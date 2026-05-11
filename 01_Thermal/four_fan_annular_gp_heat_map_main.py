@@ -18,6 +18,7 @@ from four_fan_gp_heat_map_main import (
 # =============================================================================
 # 1) Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -29,8 +30,10 @@ OUT_DIR = Path("A_figures/Four_Fan_Annular_GP")
 # =============================================================================
 # 2) Figure Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     if not GP_GRID_XLSX.exists():
         raise FileNotFoundError(

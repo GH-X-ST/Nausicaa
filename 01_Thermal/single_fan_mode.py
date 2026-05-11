@@ -20,18 +20,20 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 try:
     import cmocean
-except ImportError:  # Fallback if cmocean isn't installed
+# Fallback keeps plotting usable when cmocean is unavailable.
+except ImportError:
     cmocean = None
 
 # =============================================================================
 # 1) Sampling Plot Configuration
 # =============================================================================
+# Figure constants below fix units, geometry, and visual scale for reproducible comparisons.
 
 
 FONT_SIZE_DELTA = 2
 plt.rcParams.update({"font.size": plt.rcParams.get("font.size", 10) + FONT_SIZE_DELTA})
 
-# Legend styling (match single_fan_heat_map.py)
+# Legend styling matches heat-map figures so sampling plots share thesis conventions.
 LEGEND_FONT_SIZE = 9 + FONT_SIZE_DELTA
 AXIS_EDGE_LW = 0.80
 LEGEND_FRAME_LW = AXIS_EDGE_LW
@@ -45,7 +47,9 @@ LEGEND_LABEL_SPACING = 0.2
 # =============================================================================
 # 2) Workbook Parsing
 # =============================================================================
+# Workbook parsing is the boundary between raw measured sheets and derived profile tables.
 
+# Multi-header TS sheets encode measurement point coordinates in header cells.
 def parse_points_multiheader(excel_path: str, sheet_name: str):
     """
     Parse TS-like sheets where 3 points are laid out across columns,
@@ -107,6 +111,7 @@ def parse_points_multiheader(excel_path: str, sheet_name: str):
     return points
 
 
+# Measurement heights are discovered from available sheets to avoid hard-coded omissions.
 def discover_measurement_heights(sheet_names):
     """
     Finds all measurement heights h from sheets named like z020_TS, z035_TS, ...
@@ -120,6 +125,7 @@ def discover_measurement_heights(sheet_names):
     return sorted(set(heights))
 
 
+# Summary statistics retain mean and variance needed for plotting measurement repeatability.
 def build_summary(excel_path: str):
     """
     Build a tidy summary table with mean/std for each point, measurement height,
@@ -169,6 +175,7 @@ def build_summary(excel_path: str):
 # 3) Sampling Plot Construction
 # =============================================================================
 
+# Mean/std bands show temporal scatter without changing the point estimates.
 def add_mean_std_band(
     ax,
     x,
@@ -238,6 +245,7 @@ def add_mean_std_band(
     )
 
 
+# 3D point plots preserve measurement height as the physical vertical coordinate.
 def plot_point_3d(
     summary_df: pd.DataFrame,
     point_id: str,
@@ -325,7 +333,7 @@ def plot_point_3d(
             zorder=9,
         )
 
-    # Connect points at the same measurement height
+    # Lines connect repeated probe locations at a shared height to show temporal consistency.
     z_meas_vals = sorted(d["z_meas_m"].unique())
     if cmocean is not None:
         z_cmap = cmocean.cm.phase
@@ -442,10 +450,13 @@ def plot_point_3d(
 # =============================================================================
 # 4) Sampling Figure Export
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main():
-    excel_path = "S01.xlsx"  # <-- change if needed
+    # Workbook path is the measurement source for this script; update only when switching datasets.
+    excel_path = "S01.xlsx"
     out_dir = Path("A_figures") / "Sampling_Points"
     out_dir.mkdir(parents=True, exist_ok=True)
     mean_linewidth = 1.0

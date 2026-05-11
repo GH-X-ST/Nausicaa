@@ -45,6 +45,7 @@ from four_fan_annuli_cut import (
 # =============================================================================
 # 1) Fitting Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 XLSX_PATH = "S02.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -144,6 +145,7 @@ SHEET_HEIGHT_DIVISOR = 100.0
 # =============================================================================
 # 2) Data Containers
 # =============================================================================
+# Small containers keep fitted parameters, diagnostics, and uncertainty assumptions explicit at module boundaries.
 
 @dataclass(frozen=True)
 class AzimuthalBounds:
@@ -229,7 +231,9 @@ class JointFitResult:
 # =============================================================================
 # 3) Data Loading and Fit Utilities
 # =============================================================================
+# Loaders preserve measured sheet geometry and timestamp-derived uncertainty provenance.
 
+# Sheet names encode height in centimetres; parsing converts that label to metres.
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
     Parse sheet names like z020, z110, z220 into meters.
@@ -244,6 +248,7 @@ def parse_sheet_height_m(sheet_name: str) -> float:
     return int(suffix) / SHEET_HEIGHT_DIVISOR
 
 
+# Workbook sheets store x in the first row, y in the first column, and vertical velocity in m/s inside the grid.
 def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """
     Reads the grid sheet:
@@ -278,6 +283,7 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     return x, y, w_map
 
 
+# Annuli CSV files are derived measured profiles and must stay traceable to source sheets.
 def load_annuli_profile_csv(
     profile_dir: Path,
     sheet_name: str,
@@ -322,12 +328,14 @@ def load_annuli_profile_csv(
     return r_bins, w_bins, sigma_bins
 
 
+# Workbook helpers treat only string cells as labels so numeric samples are not misclassified.
 def _cell_is_str(df: pd.DataFrame, r_idx: int, c_idx: int, text: str) -> bool:
     """Case-insensitive equality test for a sheet cell against a string."""
     val = df.iat[r_idx, c_idx]
     return isinstance(val, str) and val.strip().lower() == text.strip().lower()
 
 
+# Variance parsing reads the first numeric value below each header to match the TS sheet layout.
 def _first_numeric_below(df: pd.DataFrame, r_idx: int, c_idx: int) -> Optional[float]:
     """Return the first finite numeric value below (r_idx, c_idx) in the same column."""
     col = pd.to_numeric(df.iloc[r_idx + 1 :, c_idx], errors="coerce").to_numpy(dtype=float)
@@ -337,6 +345,7 @@ def _first_numeric_below(df: pd.DataFrame, r_idx: int, c_idx: int) -> Optional[f
     return float(col[0])
 
 
+# *_TS parsing keeps variance-derived sigma tied to its measurement location.
 def parse_ts_points_and_sigmas(
     xlsx_path: str,
     ts_sheet_name: str,
@@ -422,6 +431,7 @@ def parse_ts_points_and_sigmas(
     return r_arr[order], sigma_arr[order]
 
 
+# Nearest-sample sigma assignment weights raw residuals by local measurement scatter.
 def assign_sigma_samples_nearest(
     r_samples: np.ndarray,
     r_points: np.ndarray,
@@ -442,6 +452,7 @@ def assign_sigma_samples_nearest(
     return np.maximum(sigma, float(sigma_min))
 
 
+# Height-dependent ring-radius bounds keep fits inside the measured plume support.
 def default_r_ring_bounds_by_z(z_m: float) -> Tuple[float, float]:
     """
     Height-dependent bounds for ring radius r_ring(z).
@@ -453,6 +464,7 @@ def default_r_ring_bounds_by_z(z_m: float) -> Tuple[float, float]:
     return 0.10, 1.35
 
 
+# Parameter-column names define the workbook interface for harmonic coefficients.
 def build_param_column_names(fourier_order: int) -> List[str]:
     """
     Build parameter column names:
@@ -465,6 +477,7 @@ def build_param_column_names(fourier_order: int) -> List[str]:
     return names
 
 
+# The radial envelope controls plume strength before azimuthal modulation is applied.
 def radial_ring_envelope(
     r: np.ndarray,
     r_ring: float,
@@ -476,6 +489,7 @@ def radial_ring_envelope(
     return np.exp(-((r - r_ring) / delta_ring) ** 2)
 
 
+# Fourier amplitudes encode non-axisymmetric fan interaction in angle space.
 def azimuthal_amplitude(
     theta: np.ndarray,
     coeffs: np.ndarray,
@@ -490,7 +504,9 @@ def azimuthal_amplitude(
             f"Expected {expected_size} Fourier coefficients, got {coeffs.size}."
         )
 
-    amp = np.full_like(theta, float(coeffs[0]), dtype=float)  # a0
+    # a0 is the axisymmetric Fourier component before adding angular harmonics.
+
+    amp = np.full_like(theta, float(coeffs[0]), dtype=float)
     for n_idx in range(1, fourier_order + 1):
         a_n = float(coeffs[2 * n_idx - 1])
         b_n = float(coeffs[2 * n_idx])
@@ -498,6 +514,7 @@ def azimuthal_amplitude(
     return amp
 
 
+# Azimuthal ring evaluation adds Fourier variation around the fan-centred plume.
 def azimuthal_ring_model(
     r: np.ndarray,
     theta: np.ndarray,
@@ -521,6 +538,7 @@ def azimuthal_ring_model(
     return w0 + g_r * a_theta
 
 
+# Parameter bounds prevent non-physical widths, offsets, and Fourier amplitudes during fitting.
 def build_param_bounds(
     w_samples: np.ndarray,
     bounds: AzimuthalBounds,
@@ -570,6 +588,7 @@ def build_param_bounds(
     return np.array(lower, dtype=float), np.array(upper, dtype=float)
 
 
+# Azimuthal seeds start from the annular profile before fitting angular structure.
 def initial_guess_azimuthal(
     r_samples: np.ndarray,
     w_samples: np.ndarray,
@@ -617,6 +636,7 @@ def initial_guess_azimuthal(
     return p0
 
 
+# Multi-start candidates explore plausible ring geometry and harmonic amplitudes.
 def build_multi_start_candidates(
     p0: np.ndarray,
     lower: np.ndarray,
@@ -669,6 +689,7 @@ def build_multi_start_candidates(
     return list(unique.values())
 
 
+# Weighted residuals use sigma estimates so noisy cells do not dominate the fit.
 def fit_azimuthal_model(
     x_samples: np.ndarray,
     y_samples: np.ndarray,
@@ -783,6 +804,7 @@ def fit_azimuthal_model(
     return best_result.x.astype(float), bool(best_result.success), float(best_result.cost)
 
 
+# Each height sheet is fitted separately to preserve per-plane diagnostics.
 def fit_azimuthal_for_sheet(
     xlsx_path: str,
     mean_sheet: str,
@@ -870,6 +892,7 @@ def fit_azimuthal_for_sheet(
     )
 
 
+# Fit tables preserve both parameters and diagnostics for downstream audit.
 def save_azimuthal_fit_table(
     fit_results: List[AzimuthalFitResult],
     out_path: Path,
@@ -904,6 +927,7 @@ def save_azimuthal_fit_table(
     df_out.to_excel(out_path, index=False, sheet_name=sheet_name)
 
 
+# Summary tables expose solver quality before interpolated models are used.
 def summarize_fit_results(fit_results: Sequence[AzimuthalFitResult]) -> FitSummary:
     """Compute global summary metrics across all fitted heights."""
     if len(fit_results) == 0:
@@ -929,6 +953,7 @@ def summarize_fit_results(fit_results: Sequence[AzimuthalFitResult]) -> FitSumma
     )
 
 
+# Global hyperparameters are converted once so fit calls receive an explicit configuration object.
 def build_fit_hyper_from_globals() -> FitHyperParams:
     """Capture baseline globals into a FitHyperParams object."""
     return FitHyperParams(
@@ -1607,7 +1632,9 @@ def write_joint_fit_tables(
 # =============================================================================
 # 4) Fitting Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     validate_joint_fan_settings()
 

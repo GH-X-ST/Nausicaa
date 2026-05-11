@@ -33,6 +33,7 @@ import four_fan_gp as sigma_gp
 # =============================================================================
 # 1) Annulus Profile Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 XLSX_PATH = "S02.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -68,8 +69,10 @@ MASK_ZEROS_AS_NODATA = False
 # =============================================================================
 # 2) Annulus Binning and Uncertainty Assignment
 # =============================================================================
+# Annulus binning transfers point-wise measurement scatter onto radial summaries.
 
 
+# Workbook sheets store x in the first row, y in the first column, and vertical velocity in m/s inside the grid.
 def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     """
     Read one grid sheet:
@@ -97,12 +100,14 @@ def read_slice_from_sheet(xlsx_path: str, sheet_name: str):
     return x, y, w
 
 
+# Workbook helpers treat only string cells as labels so numeric samples are not misclassified.
 def _cell_is_str(df: pd.DataFrame, r_idx: int, c_idx: int, text: str) -> bool:
     """Case-insensitive equality test for a sheet cell against a string."""
     val = df.iat[r_idx, c_idx]
     return isinstance(val, str) and val.strip().lower() == text.strip().lower()
 
 
+# Variance parsing reads the first numeric value below each header to match the TS sheet layout.
 def _first_numeric_below(df: pd.DataFrame, r_idx: int, c_idx: int) -> Optional[float]:
     """Return first finite numeric value below (r_idx, c_idx) in same column."""
     col = pd.to_numeric(df.iloc[r_idx + 1 :, c_idx], errors="coerce").to_numpy(
@@ -114,6 +119,7 @@ def _first_numeric_below(df: pd.DataFrame, r_idx: int, c_idx: int) -> Optional[f
     return float(col[0])
 
 
+# *_TS parsing keeps variance-derived sigma tied to its measurement location.
 def parse_ts_points_and_sigmas(
     xlsx_path: str,
     ts_sheet_name: str,
@@ -186,6 +192,7 @@ def parse_ts_points_and_sigmas(
     return r_arr[order], sigma_arr[order]
 
 
+# XY-specific TS parsing preserves point coordinates before uncertainty is assigned to bins.
 def parse_ts_xy_points_and_sigmas(
     xlsx_path: str,
     ts_sheet_name: str,
@@ -249,6 +256,7 @@ def parse_ts_xy_points_and_sigmas(
     return x_arr[order], y_arr[order], sigma_arr[order]
 
 
+# Nearest-bin sigma assignment transfers sparse time-series uncertainty onto annular summaries.
 def assign_sigma_bins_nearest(
     r_bins: np.ndarray,
     r_points: np.ndarray,
@@ -269,6 +277,7 @@ def assign_sigma_bins_nearest(
     return np.maximum(sigma_bins, float(sigma_min))
 
 
+# Fan-distance calculations use arena-frame metres for multi-plume overlap logic.
 def compute_nearest_fan_distances(
     x_pts: np.ndarray,
     y_pts: np.ndarray,
@@ -297,6 +306,7 @@ def compute_nearest_fan_distances(
     return nearest_idx, nearest_r, second_idx, second_r
 
 
+# Overlap-aware sigma assignment handles fan-interaction regions without hiding high-uncertainty samples.
 def assign_sigma_samples_with_overlap(
     xlsx_path: str,
     ts_sheet_name: str,
@@ -358,6 +368,7 @@ def assign_sigma_samples_with_overlap(
     return np.maximum(sigma_out, float(sigma_min))
 
 
+# Radial profiles aggregate measured cells by distance from the fan centre in metres.
 def make_radial_profile(
     r: np.ndarray,
     w: np.ndarray,
@@ -413,6 +424,7 @@ def make_radial_profile(
     return r_bins, w_bins, n_bins, alpha_bins
 
 
+# Annulus sigma aggregation preserves measurement scatter when collapsing cells into radial bins.
 def aggregate_sigma_to_annuli(
     r_samples: np.ndarray,
     sigma_samples: np.ndarray,
@@ -457,6 +469,7 @@ def aggregate_sigma_to_annuli(
     )
 
 
+# Missing annular bins are interpolated only after measured-bin provenance is retained.
 def fill_missing_radial_bins(
     r_bins: np.ndarray,
     w_bins: np.ndarray,
@@ -502,6 +515,7 @@ def fill_missing_radial_bins(
     return r_full, w_full, n_full, alpha_full, sigma_full
 
 
+# Annuli profiles are derived measured summaries used as the fitting interface.
 def build_annuli_profile(
     xlsx_path: str,
     mean_sheet: str,
@@ -580,6 +594,7 @@ def build_annuli_profile(
     return r_bins, w_bins, n_bins, alpha_bins, sigma_bins
 
 
+# Profile CSVs preserve annular means, counts, and sigma estimates for downstream fitting.
 def save_profile_csv(
     out_path: Path,
     r_bins: np.ndarray,
@@ -606,7 +621,9 @@ def save_profile_csv(
 # =============================================================================
 # 3) Batch CSV Export
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     for sh in SHEETS:
         r_bins, w_bins, n_bins, alpha_bins, sigma_bins = build_annuli_profile(

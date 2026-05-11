@@ -26,6 +26,7 @@ from single_fan_annuli_cut import parse_ts_points_and_sigmas
 # =============================================================================
 # 1) Plot Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -63,28 +64,34 @@ ANNULUS_EDGE_DASH = (0, (1.2, 2.0))
 # =============================================================================
 # 2) Workbook Loading and Plot Construction
 # =============================================================================
+# Parsing and plotting helpers keep measured workbook coordinates in arena metres.
 
 
+# Alpha mapping keeps low-speed regions visible while preserving a common thermal colour scale.
 def build_alpha_cmap():
     """Return an opaque cmocean curl colormap for total-fluctuation maps."""
     return cmocean.curl
 
 
+# Grid resolution selects the intended GP output workbook before plotting.
 def resolve_grid_xlsx() -> Path:
     """Return the canonical annular-GP workbook path."""
     return GP_GRID_XLSX
 
 
+# Output routing separates thesis and appendix artifacts by destination path.
 def resolve_out_dir() -> Path:
     """Return the canonical figure output directory."""
     return OUT_DIR
 
 
+# Colour limits use the configured or observed maximum to keep uncertainty maps comparable.
 def compute_plot_vmax() -> float:
     """Use a fixed shared color range across all total-fluctuation figures."""
     return float(PLOT_VMAX)
 
 
+# Pcolormesh uses cell edges, so measured centre coordinates are expanded without changing sample values.
 def centers_to_edges(c: np.ndarray) -> np.ndarray:
     """Convert cell centers to cell edges for pcolormesh."""
     c = np.asarray(c, dtype=float)
@@ -97,6 +104,7 @@ def centers_to_edges(c: np.ndarray) -> np.ndarray:
     return edges
 
 
+# Display grids standardise figure resolution without changing the exported GP values.
 def build_display_grid(
     x: np.ndarray,
     y: np.ndarray,
@@ -107,6 +115,7 @@ def build_display_grid(
     return np.meshgrid(x_dense, y_dense)
 
 
+# Display interpolation is only for figure smoothness; model fitting remains on source samples.
 def interpolate_to_display_grid(
     x: np.ndarray,
     y: np.ndarray,
@@ -140,6 +149,8 @@ def interpolate_to_display_grid(
 
 
 @lru_cache(maxsize=None)
+
+# Annulus boundary levels overlay the radial-bin convention used during fitting.
 def load_annulus_boundary_levels(sheet_name: str) -> np.ndarray:
     """Return radial bin boundaries implied by the representative TS samples."""
     parsed = parse_ts_points_and_sigmas(
@@ -157,6 +168,7 @@ def load_annulus_boundary_levels(sheet_name: str) -> np.ndarray:
     return 0.5 * (r_unique[:-1] + r_unique[1:])
 
 
+# Continuous plots show model or interpolated fields on a display grid, not new measurements.
 def plot_continuous_heatmap(
     x: np.ndarray,
     y: np.ndarray,
@@ -293,8 +305,10 @@ def plot_continuous_heatmap(
 # =============================================================================
 # 3) Figure Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     grid_xlsx = resolve_grid_xlsx()
     if not grid_xlsx.exists():

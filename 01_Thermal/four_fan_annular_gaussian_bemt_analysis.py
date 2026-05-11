@@ -37,6 +37,7 @@ from four_fan_annuli_cut import (
 # =============================================================================
 # 1) Metric Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 XLSX_PATH = "S02.xlsx"
 SHEETS = ["z020", "z035", "z050", "z075", "z110", "z160", "z220"]
@@ -67,7 +68,9 @@ FAN_COL_PATTERN = re.compile(r"^a0_(F\d{2})$")
 # =============================================================================
 # 2) Metric Loading and Diagnostics
 # =============================================================================
+# Metric loaders keep per-height residual tables traceable to their source workbooks.
 
+# Sheet names encode height in centimetres; parsing converts that label to metres.
 def parse_sheet_height_m(sheet_name: str) -> float:
     """
     Parse heights from names like z020, z110, z220.
@@ -92,6 +95,7 @@ def load_fit_table(xlsx_path: Path, sheet_name: str) -> pd.DataFrame:
     return pd.read_excel(xlsx_path, sheet_name=sheet_to_use)
 
 
+# Fan-ID discovery treats suffixed columns as the interface for per-fan fitted parameters.
 def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     """
     Discover fan IDs from columns like a0_F01.
@@ -116,6 +120,7 @@ def discover_fan_ids(df: pd.DataFrame) -> Tuple[str, ...]:
     return tuple(valid)
 
 
+# Parameter-column discovery keeps harmonic order explicit before array conversion.
 def discover_param_columns(df: pd.DataFrame) -> Tuple[List[str], List[int]]:
     """
     Discover parameter columns and harmonic orders from shared fit table.
@@ -144,6 +149,7 @@ def discover_param_columns(df: pd.DataFrame) -> Tuple[List[str], List[int]]:
     return param_cols, harmonic_orders
 
 
+# Per-fan column discovery maps suffixed workbook names back to canonical parameter names.
 def discover_param_columns_for_fan(df: pd.DataFrame, fan_id: str) -> Tuple[List[str], List[int]]:
     """
     Discover per-fan parameter columns and harmonic orders.
@@ -174,6 +180,7 @@ def discover_param_columns_for_fan(df: pd.DataFrame, fan_id: str) -> Tuple[List[
     return cols, harmonic_orders
 
 
+# Row interpolation evaluates the fitted parameter table at one physical height in metres.
 def interpolate_row_at_z(df: pd.DataFrame, z_m: float, cols: Sequence[str]) -> Dict[str, float]:
     """
     Interpolate selected columns to one height.
@@ -189,6 +196,7 @@ def interpolate_row_at_z(df: pd.DataFrame, z_m: float, cols: Sequence[str]) -> D
     return out
 
 
+# Per-fan parameter lookup keeps multi-plume geometry explicit at the requested height.
 def params_by_fan_at_z(
     fit_df: pd.DataFrame,
     fan_ids: Tuple[str, ...],
@@ -226,6 +234,7 @@ def params_by_fan_at_z(
     return params_list, orders_list
 
 
+# Azimuthal ring evaluation adds Fourier variation around the fan-centred plume.
 def azimuthal_ring_model(
     r: np.ndarray,
     theta: np.ndarray,
@@ -246,6 +255,7 @@ def azimuthal_ring_model(
     return float(params["w0"]) + g_r * amp
 
 
+# Excel outputs are the audit boundary for downstream thesis tables and plots.
 def write_results(df: pd.DataFrame, out_xlsx: Path, sheet_name: str) -> None:
     """
     Write metrics table to an Excel sheet (replace sheet if it exists).
@@ -268,7 +278,9 @@ def write_results(df: pd.DataFrame, out_xlsx: Path, sheet_name: str) -> None:
 # =============================================================================
 # 3) Analysis Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     fit_df = load_fit_table(FIT_XLSX_PATH, FIT_SHEET_NAME)
     fan_ids = discover_fan_ids(fit_df)

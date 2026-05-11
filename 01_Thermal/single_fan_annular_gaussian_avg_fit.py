@@ -34,6 +34,7 @@ from scipy.interpolate import PchipInterpolator
 # =============================================================================
 # 1) Interpolation Configuration and Data Sources
 # =============================================================================
+# Workbook, parameter, and output paths below define the data-provenance boundary for this run.
 
 PARAMS_XLSX = Path("B_results/single_annular_avg_params.xlsx")
 PARAMS_SHEET = "single_annular_avg"
@@ -58,10 +59,12 @@ HIGH_Z_ANCHOR_TOL_M = 1e-6
 # =============================================================================
 # 2) Interpolation and Evaluation Helpers
 # =============================================================================
+# Interpolation helpers define extrapolation and positivity guardrails before export.
 
 REQUIRED_COLUMNS = ("z_m", "A_ring", "r_ring", "delta_r", "w0")
 
 
+# High-z anchors restrict extrapolation to measured heights that define the upper plume trend.
 def select_anchor_indices(z_vals: np.ndarray) -> np.ndarray:
     """
     Locate indices for HIGH_Z_ANCHOR_POINTS_M in z_vals.
@@ -87,6 +90,7 @@ def select_anchor_indices(z_vals: np.ndarray) -> np.ndarray:
     return np.array(anchor_indices, dtype=int)
 
 
+# Parameter workbooks are the fitted-model interface consumed by plotting and simulation scripts.
 def load_params_table(xlsx_path: Path, sheet_name: str) -> pd.DataFrame:
     """
     Load fitted parameters from Excel.
@@ -99,6 +103,7 @@ def load_params_table(xlsx_path: Path, sheet_name: str) -> pd.DataFrame:
     return pd.read_excel(xlsx_path, sheet_name=sheet_to_use)
 
 
+# Parameter extraction keeps fitted z samples paired with their model coefficients.
 def extract_params(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Extract and validate fitted parameters from a DataFrame.
@@ -140,6 +145,7 @@ def extract_params(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray
     return z_vals, a_ring, r_ring, delta_r, w0
 
 
+# Ring Gaussian models velocity as a radial plume envelope in arena metres.
 def ring_gaussian(
     r: np.ndarray,
     a_ring: np.ndarray,
@@ -155,6 +161,7 @@ def ring_gaussian(
 # =============================================================================
 # 3) Data Containers
 # =============================================================================
+# Small containers keep fitted parameters, diagnostics, and uncertainty assumptions explicit at module boundaries.
 
 
 class RingModel:
@@ -226,6 +233,7 @@ class RingModel:
         return ring_gaussian(r, a_ring=a_ring, r_ring=r_ring, delta_r=delta_r, w0=w0)
 
 
+# The exported z grid is a simulation interface and may be denser than measured heights.
 def make_z_grid(z_vals: np.ndarray) -> np.ndarray:
     """
     Build a regular z grid for output.
@@ -241,6 +249,7 @@ def make_z_grid(z_vals: np.ndarray) -> np.ndarray:
     return np.linspace(z_min, z_max, steps + 1)
 
 
+# The interpolated table is a simulation handoff, not a replacement for raw fit diagnostics.
 def write_interpolated_table(
     z_grid: np.ndarray,
     model: RingModel,
@@ -269,7 +278,9 @@ def write_interpolated_table(
 # =============================================================================
 # 4) Parameter Export Entry Point
 # =============================================================================
+# Entry points write deterministic artifacts so regenerated figures and tables can be compared by path and sheet name.
 
+# Main execution keeps data loading, evaluation, and export order deterministic.
 def main() -> None:
     params_df = load_params_table(PARAMS_XLSX, PARAMS_SHEET)
     z_vals, a_ring, r_ring, delta_r, w0 = extract_params(params_df)
