@@ -21,8 +21,15 @@ from linearisation import STATE_INDEX
 # Volumes use the public lab frame: x/y horizontal and z upward from the floor.
 @dataclass(frozen=True)
 class ArenaConfig:
-    physical_volume_m: tuple[float, float, float] = (10.0, 6.2, 5.5)
-    tracker_limit_size_m: tuple[float, float, float] = (8.0, 4.8, 3.5)
+    tracker_limit_bounds_m: tuple[
+        tuple[float, float],
+        tuple[float, float],
+        tuple[float, float],
+    ] = (
+        (0.0, 8.0),
+        (0.0, 4.8),
+        (0.0, 3.5),
+    )
     true_safe_bounds_m: tuple[
         tuple[float, float],
         tuple[float, float],
@@ -48,42 +55,8 @@ def _as_bound_dict(
     }
 
 
-def _true_safe_centre(config: ArenaConfig) -> tuple[float, float, float]:
-    bounds = _as_bound_dict(config.true_safe_bounds_m)
-    return (
-        0.5 * (bounds["x_w"][0] + bounds["x_w"][1]),
-        0.5 * (bounds["y_w"][0] + bounds["y_w"][1]),
-        0.5 * (bounds["z_w"][0] + bounds["z_w"][1]),
-    )
-
-
-def _bounds_from_centre(
-    centre_m: tuple[float, float, float],
-    size_m: tuple[float, float, float],
-) -> dict[str, tuple[float, float]]:
-    half_size = tuple(0.5 * float(value) for value in size_m)
-    return {
-        "x_w": (
-            round(float(centre_m[0]) - half_size[0], 10),
-            round(float(centre_m[0]) + half_size[0], 10),
-        ),
-        "y_w": (
-            round(float(centre_m[1]) - half_size[1], 10),
-            round(float(centre_m[1]) + half_size[1], 10),
-        ),
-        "z_w": (
-            round(float(centre_m[2]) - half_size[2], 10),
-            round(float(centre_m[2]) + half_size[2], 10),
-        ),
-    }
-
-
-def physical_bounds(config: ArenaConfig) -> dict[str, tuple[float, float]]:
-    # The nominal room and tracker boxes share the true-safety centre for plotting alignment.
-    return _bounds_from_centre(_true_safe_centre(config), config.physical_volume_m)
-
-
 def safe_bounds(config: ArenaConfig) -> dict[str, tuple[float, float]]:
+    """Return the true operational safety volume when use_safe_volume is True."""
     if not config.use_safe_volume:
         # Non-safety visual axes use the tracker box, not the larger facility context.
         return tracker_bounds(config)
@@ -92,7 +65,8 @@ def safe_bounds(config: ArenaConfig) -> dict[str, tuple[float, float]]:
 
 
 def tracker_bounds(config: ArenaConfig) -> dict[str, tuple[float, float]]:
-    return _bounds_from_centre(_true_safe_centre(config), config.tracker_limit_size_m)
+    """Return the direct tracker-limit axes."""
+    return _as_bound_dict(config.tracker_limit_bounds_m)
 
 
 # =============================================================================

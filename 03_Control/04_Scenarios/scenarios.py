@@ -44,6 +44,16 @@ class ScenarioDefinition:
 # =============================================================================
 # 2) Entry-State Builders
 # =============================================================================
+def nominal_hand_launch_state(x_trim: np.ndarray) -> np.ndarray:
+    """Return nominal hand-launch state centred at [1.2, 0.4, 1.5] m."""
+    x0 = np.asarray(x_trim, dtype=float).reshape(15).copy()
+    # This is the launch-capture centre, not the primitive-entry probe centre.
+    x0[STATE_INDEX["x_w"]] = 1.2
+    x0[STATE_INDEX["y_w"]] = 0.4
+    x0[STATE_INDEX["z_w"]] = 1.5
+    return x0
+
+
 def trimmed_state_for_arena(x_trim: np.ndarray, altitude_m: float = 2.7) -> np.ndarray:
     x0 = np.asarray(x_trim, dtype=float).reshape(15).copy()
     x0[STATE_INDEX["x_w"]] = 4.2
@@ -81,6 +91,7 @@ def build_scenario(
 ) -> ScenarioDefinition:
     base = trimmed_state_for_arena(x_trim)
     full_base = arena_feasible_entry_state(x_trim)
+    launch_base = nominal_hand_launch_state(x_trim)
     short_glide = NominalGlidePrimitive(duration_s=0.20)
     short_bank = BankReversalPrimitive(duration_s=0.35, bank_angle_rad=np.deg2rad(8.0))
     short_recovery = RecoveryPrimitive(duration_s=0.30)
@@ -93,6 +104,7 @@ def build_scenario(
     # Measured updraft stress horizons stay inside the indoor safety envelope
     updraft_glide = NominalGlidePrimitive(duration_s=0.34)
     four_fan_updraft_glide = NominalGlidePrimitive(duration_s=0.24)
+    launch_glide = NominalGlidePrimitive(duration_s=0.55)
     governor_recovery = RecoveryPrimitive(duration_s=0.50)
     nominal = CommandToSurfaceConfig(mode="nominal")
     low = CommandToSurfaceConfig(mode="low")
@@ -120,6 +132,17 @@ def build_scenario(
     if scenario_id == "s11_governor_rejection":
         low = trimmed_state_for_arena(x_trim, altitude_m=0.10)
         return ScenarioDefinition(scenario_id, short_recovery, "none", None, "panel", nominal, low)
+    if scenario_id == "s4_launch_nominal_glide_no_wind":
+        return ScenarioDefinition(
+            scenario_id,
+            launch_glide,
+            "none",
+            None,
+            "panel",
+            nominal,
+            launch_base,
+            "nominal_hand_launch",
+        )
 
     full_no_wind = {
         "s4_full_nominal_glide_no_wind": full_glide,
@@ -242,6 +265,7 @@ def batch_scenarios() -> tuple[str, ...]:
         "s4_full_nominal_glide_no_wind",
         "s4_full_bank_reversal_left_no_wind",
         "s4_full_recovery_no_wind",
+        "s4_launch_nominal_glide_no_wind",
         "s4_latency_low_bank_reversal_left",
         "s4_latency_nominal_bank_reversal_left",
         "s4_latency_high_bank_reversal_left",
@@ -258,6 +282,7 @@ def s4_audit_scenarios() -> tuple[str, ...]:
         "s4_full_bank_reversal_left_no_wind",
         "s4_full_bank_reversal_right_no_wind",
         "s4_full_recovery_no_wind",
+        "s4_launch_nominal_glide_no_wind",
         "s4_latency_low_bank_reversal_left",
         "s4_latency_nominal_bank_reversal_left",
         "s4_latency_high_bank_reversal_left",

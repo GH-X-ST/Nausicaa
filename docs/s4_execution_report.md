@@ -1,105 +1,73 @@
-# S4 Verification Report
+# S4 Arena-Axis Verification Report
 
-Generated UTC: 2026-05-10T19:59:54.270383+00:00
-Repository root: `C:\Users\GH-X-ST\OneDrive - Imperial College London\Year 4\Final Year Project\01 - Github\Nausicaa`
-Commit before task: `046f739`
-Dirty status before implementation: `A  .gitignore`
-Dirty status after validation: Source/test/report files modified. Generated output under s4_execution and seed42 batch outputs are ignored. Three tracked legacy result files show status-only modifications because git index refresh is blocked by .git/index ACL, but git diff shows no content changes for them.
+Generated UTC: 2026-05-11T23:44:20+00:00
+Repository head at task start: `3e522ef`.
 
-## Environment
+## Arena Contract
 
-- Python: `C:/ProgramData/miniforge3/python.exe`, 3.12.11 packaged by conda-forge.
-- Platform: Windows-11-10.0.26200-SP0.
-- pip: 26.1.1.
-- Setup attempts failed because this repository has no `setup.py`/`pyproject.toml`; `requirements.txt` is pyproject-style TOML, not pip requirements.
-- Hardware/Vicon/MATLAB/Arduino paths were not run; this S4 task is simulation-only Python validation.
+- Tracker-limit axes: `x_w=[0.0, 8.0] m`, `y_w=[0.0, 4.8] m`, `z_w=[0.0, 3.5] m`.
+- True safety volume: `x_w=[1.2, 6.6] m`, `y_w=[0.0, 4.4] m`, `z_w=[0.0, 3.0] m`.
+- Nominal hand-launch centre: `[1.2, 0.4, 1.5] m`.
+- The larger `10.0 x 6.2 x 5.5 m` room box is not used for control, metrics, or plotting axes.
 
 ## Commands Run
 
-| Stage | Command | Exit | Summary |
-|---|---|---:|---|
-| discovery | `Get-Location` | 0 | repository root confirmed |
-| discovery | `git status --short` | 0 | initial status showed A .gitignore |
-| discovery | `git rev-parse --short HEAD` | 0 | 046f739 |
-| discovery | `python -c "import sys, platform; print(sys.executable); print(sys.version); print(platform.platform())"` | 0 | Python 3.12.11 on Windows 11 |
-| discovery | `python -m pip --version` | 0 | pip 26.1.1 |
-| setup | `python -m pip install -e ".[test]"` | 1 | no setup.py or pyproject.toml present |
-| setup | `python -m pip install -e .` | 1 | no setup.py or pyproject.toml present |
-| setup | `python -m pip install -r requirements-dev.txt` | 1 | requirements-dev.txt missing |
-| setup | `python -m pip install -r requirements.txt` | 1 | requirements.txt contains pyproject-style TOML, not pip requirements |
-| validation | `python -m compileall 03_Control tests` | 0 | compiled control modules and tests |
-| validation | `python -m pytest -q tests/test_latency_envelope.py tests/test_primitive_no_nan.py tests/test_primitive_full_duration.py tests/test_governor_rollout_selection.py tests/test_metrics_schema.py tests/test_updraft_randomisation.py` | 0 | 7 passed |
-| validation | `python -m pytest -q` | 0 | 21 passed |
-| scenario | `python 03_Control/04_Scenarios/run_one.py --scenario s4_full_nominal_glide_no_wind --seed 1 --output-root 03_Control/05_Results/s4_execution` | 0 | scenario command exited 0 and produced metrics |
-| scenario | `python 03_Control/04_Scenarios/run_one.py --scenario s4_full_bank_reversal_left_no_wind --seed 1 --output-root 03_Control/05_Results/s4_execution` | 0 | scenario command exited 0 and produced metrics |
-| scenario | `python 03_Control/04_Scenarios/run_one.py --scenario s4_full_recovery_no_wind --seed 1 --output-root 03_Control/05_Results/s4_execution` | 0 | scenario command exited 0 and produced metrics |
-| scenario | `python 03_Control/04_Scenarios/run_one.py --scenario s4_latency_low_bank_reversal_left --seed 1 --output-root 03_Control/05_Results/s4_execution` | 0 | scenario command exited 0 and produced metrics |
-| scenario | `python 03_Control/04_Scenarios/run_one.py --scenario s4_latency_nominal_bank_reversal_left --seed 1 --output-root 03_Control/05_Results/s4_execution` | 0 | scenario command exited 0 and produced metrics |
-| scenario | `python 03_Control/04_Scenarios/run_one.py --scenario s4_latency_high_bank_reversal_left --seed 1 --output-root 03_Control/05_Results/s4_execution` | 0 | scenario command exited 0 and produced metrics |
-| scenario | `python 03_Control/04_Scenarios/run_one.py --scenario s4_gaussian_single_panel --seed 1 --output-root 03_Control/05_Results/s4_execution` | 0 | scenario command exited 0 and produced metrics |
-| scenario | `python 03_Control/04_Scenarios/run_one.py --scenario s4_annular_single_panel --seed 1 --output-root 03_Control/05_Results/s4_execution` | 0 | scenario command exited 0 and produced metrics |
-| scenario | `python 03_Control/04_Scenarios/run_one.py --scenario s4_governor_selection --seed 1 --output-root 03_Control/05_Results/s4_execution` | 0 | scenario command exited 0 and produced metrics |
-| audit | `python 03_Control/03_Primitives/run_primitive_audit.py --seed 1 --output-root 03_Control/05_Results/s4_execution/audit` | 0 | 15 S4 audit scenarios reported success True after rerun |
-| batch | `python 03_Control/04_Scenarios/run_batch.py --seed 42` | 0 | batch_seed42.csv produced |
-| replay | `run_scenario("s4_gaussian_single_panel_randomised", seed=8) twice and compare metrics` | 0 | deterministic replay passed |
-| cleanup | `git restore -- <generated files>` | 1 | .git/index.lock could not be created due sandbox/Git ACL; restored file contents via git show instead |
+| Stage | Command | Exit |
+|---|---|---:|
+| housekeeping | cleanup generated `flight_case_results`, `s4_execution`, `manifests`, logs/metrics CSVs, `_run`, `__pycache__`, `.pytest_cache` | 0 |
+| validation | `python -m compileall 03_Control tests` | 0 |
+| validation | `python -m pytest -q tests/test_arena_bounds.py tests/test_launch_state_contract.py tests/test_plotting_smoke.py tests/test_plotting_output_paths.py` | 0 |
+| validation | `python -m pytest -q` | 0 |
+| scenario | `python 03_Control/04_Scenarios/run_one.py --scenario s4_full_nominal_glide_no_wind --seed 1 --output-root 03_Control/05_Results/s4_execution` | 0 |
+| plot | `python 03_Control/05_Results/plot_one.py --scenario s4_full_nominal_glide_no_wind --seed 1` | 0 |
+| plot batch | `python 03_Control/05_Results/plot_batch.py --scenario-set audit --seed 1` | 0 |
+| batch | `python 03_Control/04_Scenarios/run_batch.py --seed 42` | 0 |
+| post-cleanup | remove `_run`, `__pycache__`, `.pytest_cache`, and non-policy test CSVs | 0 |
 
-## Required Scenario Metrics
+## Regenerated Flight-Case Results
 
-| Scenario | Success | Termination | Duration s | Height m | Speed m/s | Min wall m | Max alpha deg | Saturation | Metrics |
-|---|---:|---|---:|---:|---:|---:|---:|---:|---|
-| s4_full_nominal_glide_no_wind | True |  | 0.850 | -0.691 | 6.689 | 0.113 | 5.771 | 0.000 | `03_Control/05_Results/s4_execution/metrics/s4_full_nominal_glide_no_wind_seed1.csv` |
-| s4_full_bank_reversal_left_no_wind | True |  | 0.850 | -0.626 | 6.381 | 0.126 | 12.781 | 0.000 | `03_Control/05_Results/s4_execution/metrics/s4_full_bank_reversal_left_no_wind_seed1.csv` |
-| s4_full_recovery_no_wind | True |  | 0.850 | -0.417 | 6.305 | 0.200 | 5.854 | 0.000 | `03_Control/05_Results/s4_execution/metrics/s4_full_recovery_no_wind_seed1.csv` |
-| s4_latency_low_bank_reversal_left | True |  | 0.850 | -0.620 | 6.254 | 0.135 | 14.918 | 0.008 | `03_Control/05_Results/s4_execution/metrics/s4_latency_low_bank_reversal_left_seed1.csv` |
-| s4_latency_nominal_bank_reversal_left | True |  | 0.850 | -0.626 | 6.381 | 0.126 | 12.781 | 0.000 | `03_Control/05_Results/s4_execution/metrics/s4_latency_nominal_bank_reversal_left_seed1.csv` |
-| s4_latency_high_bank_reversal_left | True |  | 0.850 | -0.630 | 6.420 | 0.126 | 12.458 | 0.000 | `03_Control/05_Results/s4_execution/metrics/s4_latency_high_bank_reversal_left_seed1.csv` |
-| s4_gaussian_single_panel | True |  | 0.340 | -0.140 | 6.269 | 0.200 | 12.339 | 0.000 | `03_Control/05_Results/s4_execution/metrics/s4_gaussian_single_panel_seed1.csv` |
-| s4_annular_single_panel | True |  | 0.340 | -0.175 | 6.407 | 0.200 | 9.382 | 0.000 | `03_Control/05_Results/s4_execution/metrics/s4_annular_single_panel_seed1.csv` |
-| s4_governor_selection | True |  | 0.500 | -0.788 | 6.261 | 0.200 | 24.430 | 0.179 | `03_Control/05_Results/s4_execution/metrics/s4_governor_selection_seed1.csv` |
+| Folder | Scenario | Success | Duration s | Min wall m | Height change m | Max alpha deg | Metrics |
+|---|---|---:|---:|---:|---:|---:|---|
+| `governor_recovery_selection_high_bank_seed_001` | s4_governor_selection | True | 0.500 | 0.250 | -0.820 | 25.387 | `03_Control/05_Results/flight_case_results/governor_recovery_selection_high_bank_seed_001/analysis_data/actual_metrics.csv` |
+| `latency_high_bank_reversal_left_seed_001` | s4_latency_high_bank_reversal_left | True | 0.760 | 0.225 | -0.586 | 5.843 | `03_Control/05_Results/flight_case_results/latency_high_bank_reversal_left_seed_001/analysis_data/actual_metrics.csv` |
+| `latency_low_bank_reversal_left_seed_001` | s4_latency_low_bank_reversal_left | True | 0.760 | 0.228 | -0.591 | 6.578 | `03_Control/05_Results/flight_case_results/latency_low_bank_reversal_left_seed_001/analysis_data/actual_metrics.csv` |
+| `latency_nominal_bank_reversal_left_seed_001` | s4_latency_nominal_bank_reversal_left | True | 0.760 | 0.226 | -0.589 | 6.227 | `03_Control/05_Results/flight_case_results/latency_nominal_bank_reversal_left_seed_001/analysis_data/actual_metrics.csv` |
+| `launch_nominal_glide_no_wind_seed_001` | s4_launch_nominal_glide_no_wind | True | 0.550 | 0.000 | -0.395 | 3.054 | `03_Control/05_Results/flight_case_results/launch_nominal_glide_no_wind_seed_001/analysis_data/actual_metrics.csv` |
+| `primitive_bank_reversal_left_no_wind_seed_001` | s4_full_bank_reversal_left_no_wind | True | 0.760 | 0.226 | -0.589 | 6.227 | `03_Control/05_Results/flight_case_results/primitive_bank_reversal_left_no_wind_seed_001/analysis_data/actual_metrics.csv` |
+| `primitive_bank_reversal_right_no_wind_seed_001` | s4_full_bank_reversal_right_no_wind | True | 0.760 | 0.227 | -0.588 | 6.259 | `03_Control/05_Results/flight_case_results/primitive_bank_reversal_right_no_wind_seed_001/analysis_data/actual_metrics.csv` |
+| `primitive_nominal_glide_no_wind_seed_001` | s4_full_nominal_glide_no_wind | True | 0.760 | 0.221 | -0.585 | 3.054 | `03_Control/05_Results/flight_case_results/primitive_nominal_glide_no_wind_seed_001/analysis_data/actual_metrics.csv` |
+| `primitive_recovery_no_wind_seed_001` | s4_full_recovery_no_wind | True | 0.760 | 0.250 | -0.275 | 3.935 | `03_Control/05_Results/flight_case_results/primitive_recovery_no_wind_seed_001/analysis_data/actual_metrics.csv` |
+| `updraft_four_fan_annular_gp_panel_wind_seed_001` | s4_annular_four_panel | True | 0.240 | 0.250 | -0.041 | 15.271 | `03_Control/05_Results/flight_case_results/updraft_four_fan_annular_gp_panel_wind_seed_001/analysis_data/actual_metrics.csv` |
+| `updraft_four_fan_gaussian_panel_wind_seed_001` | s4_gaussian_four_panel | True | 0.240 | 0.250 | 0.034 | 18.866 | `03_Control/05_Results/flight_case_results/updraft_four_fan_gaussian_panel_wind_seed_001/analysis_data/actual_metrics.csv` |
+| `updraft_single_fan_annular_gp_centre_wind_seed_001` | s4_annular_single_cg | True | 0.340 | 0.250 | -0.194 | 3.060 | `03_Control/05_Results/flight_case_results/updraft_single_fan_annular_gp_centre_wind_seed_001/analysis_data/actual_metrics.csv` |
+| `updraft_single_fan_annular_gp_panel_wind_seed_001` | s4_annular_single_panel | True | 0.340 | 0.250 | -0.175 | 9.378 | `03_Control/05_Results/flight_case_results/updraft_single_fan_annular_gp_panel_wind_seed_001/analysis_data/actual_metrics.csv` |
+| `updraft_single_fan_gaussian_centre_wind_seed_001` | s4_gaussian_single_cg | True | 0.340 | 0.250 | -0.171 | 3.950 | `03_Control/05_Results/flight_case_results/updraft_single_fan_gaussian_centre_wind_seed_001/analysis_data/actual_metrics.csv` |
+| `updraft_single_fan_gaussian_panel_wind_seed_001` | s4_gaussian_single_panel | True | 0.340 | 0.250 | -0.140 | 12.482 | `03_Control/05_Results/flight_case_results/updraft_single_fan_gaussian_panel_wind_seed_001/analysis_data/actual_metrics.csv` |
+| `updraft_single_fan_gaussian_randomised_seed_001` | s4_gaussian_single_panel_randomised | True | 0.340 | 0.250 | -0.143 | 11.728 | `03_Control/05_Results/flight_case_results/updraft_single_fan_gaussian_randomised_seed_001/analysis_data/actual_metrics.csv` |
 
-## Audit Metrics
+## Required Scenario Output
 
-| Scenario | Success | Duration s | Selected primitive | Metrics |
-|---|---:|---:|---|---|
-| s4_annular_four_panel | True | 0.260 | nominal_glide | `03_Control/05_Results/s4_execution/audit/metrics/s4_annular_four_panel_seed1.csv` |
-| s4_annular_single_cg | True | 0.340 | nominal_glide | `03_Control/05_Results/s4_execution/audit/metrics/s4_annular_single_cg_seed1.csv` |
-| s4_annular_single_panel | True | 0.340 | nominal_glide | `03_Control/05_Results/s4_execution/audit/metrics/s4_annular_single_panel_seed1.csv` |
-| s4_full_bank_reversal_left_no_wind | True | 0.850 | bank_reversal | `03_Control/05_Results/s4_execution/audit/metrics/s4_full_bank_reversal_left_no_wind_seed1.csv` |
-| s4_full_bank_reversal_right_no_wind | True | 0.850 | bank_reversal | `03_Control/05_Results/s4_execution/audit/metrics/s4_full_bank_reversal_right_no_wind_seed1.csv` |
-| s4_full_nominal_glide_no_wind | True | 0.850 | nominal_glide | `03_Control/05_Results/s4_execution/audit/metrics/s4_full_nominal_glide_no_wind_seed1.csv` |
-| s4_full_recovery_no_wind | True | 0.850 | recovery | `03_Control/05_Results/s4_execution/audit/metrics/s4_full_recovery_no_wind_seed1.csv` |
-| s4_gaussian_four_panel | True | 0.260 | nominal_glide | `03_Control/05_Results/s4_execution/audit/metrics/s4_gaussian_four_panel_seed1.csv` |
-| s4_gaussian_single_cg | True | 0.340 | nominal_glide | `03_Control/05_Results/s4_execution/audit/metrics/s4_gaussian_single_cg_seed1.csv` |
-| s4_gaussian_single_panel_randomised | True | 0.340 | nominal_glide | `03_Control/05_Results/s4_execution/audit/metrics/s4_gaussian_single_panel_randomised_seed1.csv` |
-| s4_gaussian_single_panel | True | 0.340 | nominal_glide | `03_Control/05_Results/s4_execution/audit/metrics/s4_gaussian_single_panel_seed1.csv` |
-| s4_governor_selection | True | 0.500 | recovery | `03_Control/05_Results/s4_execution/audit/metrics/s4_governor_selection_seed1.csv` |
-| s4_latency_high_bank_reversal_left | True | 0.850 | bank_reversal | `03_Control/05_Results/s4_execution/audit/metrics/s4_latency_high_bank_reversal_left_seed1.csv` |
-| s4_latency_low_bank_reversal_left | True | 0.850 | bank_reversal | `03_Control/05_Results/s4_execution/audit/metrics/s4_latency_low_bank_reversal_left_seed1.csv` |
-| s4_latency_nominal_bank_reversal_left | True | 0.850 | bank_reversal | `03_Control/05_Results/s4_execution/audit/metrics/s4_latency_nominal_bank_reversal_left_seed1.csv` |
+| Metrics | Scenario | Success | Duration s | Min wall m |
+|---|---|---:|---:|---:|
+| `03_Control/05_Results/s4_execution/metrics/s4_full_nominal_glide_no_wind_seed1.csv` | s4_full_nominal_glide_no_wind | True | 0.760 | 0.221 |
 
-## Result Generation
+## Batch Seed 42
 
-- Primary S4 result root: `03_Control/05_Results/s4_execution/`.
-- Audit result root: `03_Control/05_Results/s4_execution/audit/`.
 - Batch metrics: `03_Control/05_Results/metrics/batch_seed42.csv`.
-- Governor candidate tables were written for `s4_governor_selection` in primary, audit, and batch outputs.
-- Manifest: `03_Control/05_Results/manifests/results_manifest.json` and `docs/s4_results_manifest.json`.
+- Batch scenario rows: 19.
+- Scenario failures after the boundary update:
+  - `s11_governor_rejection`: success=False, termination=`governor_rejected`, failure_class=`governor`.
+  - `s4_gaussian_single_panel_randomised`: success=False, termination=`angle of attack exceeded bound`, failure_class=`model`.
 
-## Reproducibility
+## Housekeeping
 
-- Deterministic replay command executed `s4_gaussian_single_panel_randomised` twice with seed 8.
-- Compared `success`, `termination_reason`, `height_change_m`, `terminal_speed_m_s`, `max_alpha_deg`, `min_wall_distance_m`, and `wind_param_label`.
-- Result: exact match / floating-point match within 1e-12.
+- Old `flight_case_results/`, `s4_execution/`, `manifests/`, logs CSVs, metrics CSVs, `_run`, `__pycache__`, and `.pytest_cache` were deleted before validation/regeneration.
+- Historical generated `controller_execution_audit/` and `latency_validation/` folders were also deleted after inspection showed stale tracker-margin columns from the obsolete centred tracker bounds.
+- Direct `git rm` was attempted first but could not create `.git/index.lock` in this sandbox, so the same explicit generated paths were removed through a workspace-contained cleanup script.
+- Post-run checks found no `_run`, `__pycache__`, or `.pytest_cache` directories.
+- Stale centred tracker-bound tuple checks over active scenario/plotting code and regenerated outputs returned no matches.
+- `_run` and machine-local absolute-path checks over regenerated outputs returned no matches.
 
-## Missing or Failed Items
+## Result Policy
 
-- Editable install failed: no Python project metadata file is present.
-- `requirements-dev.txt` is absent.
-- `requirements.txt` is not a pip requirements file.
-- Git index refresh/restore through Git failed because `.git/index.lock` cannot be created in this sandbox ACL; generated tracked CSV contents were restored from HEAD via `git show`, but status may still show them until Git can refresh the index.
-- No hardware, Vicon, MATLAB, Arduino, real-flight, thesis figure, RL, MPC, or outer-loop belief planning paths were executed.
-
-## Thesis Implication
-
-The repository now supports S4 simulation-only primitive analysis: full-duration indoor-feasible primitive cases, latency envelope sweeps, measured Gaussian/annular updraft stress cases, deterministic randomised updraft labels, rollout-based governor candidate selection, stable metrics, and regression tests. It is not evidence for S5/RV1 real validation because no hardware/Vicon/flight execution was run.
+Preferred policy used: old generated result folders were deleted, then a fresh audit `flight_case_results` set, required `s4_execution` scenario output, and seed-42 batch metrics/logs were regenerated. No old `flight_case_results` folder was carried over.

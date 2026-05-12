@@ -56,12 +56,17 @@ def test_composite_figure_uses_tracker_limit_axes(tmp_path: Path) -> None:
     fig = build_composite_figure(data)
     try:
         ax3d = fig.axes[0]
-        bounds = tracker_bounds(ArenaConfig())
+        bounds = {
+            "x_w": (0.0, 8.0),
+            "y_w": (0.0, 4.8),
+            "z_w": (0.0, 3.5),
+        }
 
         # The plotted axes follow the measured tracker box; the larger room is not drawn.
         assert ax3d.get_xlim() == pytest.approx(bounds["x_w"])
         assert ax3d.get_ylim() == pytest.approx(bounds["y_w"])
         assert ax3d.get_zlim() == pytest.approx(bounds["z_w"])
+        assert tracker_bounds(ArenaConfig()) == bounds
         labels = {line.get_label() for line in ax3d.lines}
         assert "Tracker limit" in labels
         assert "True safety volume" in labels
