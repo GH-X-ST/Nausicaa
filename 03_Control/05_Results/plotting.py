@@ -210,6 +210,11 @@ FIGURE_STEMS = {
     "E": "E_2d_trajectory_geometry",
 }
 FIGURE_ORDER = ("A", "B", "C", "D", "E")
+ATTITUDE_PLOT_SPECS = (
+    ("phi", r"$\phi$ (deg)", False),
+    ("theta", r"$\theta$ (deg)", False),
+    ("psi", r"$\psi$ (deg)", True),
+)
 
 
 @dataclass(frozen=True)
@@ -1369,12 +1374,7 @@ def build_figure_c_flight_state_alpha_beta(
         fig.add_subplot(grid[3:6, 1]),
     )
 
-    attitude_specs = (
-        ("psi", r"$\psi$ (deg)", True),
-        ("phi", r"$\phi$ (deg)", False),
-        ("theta", r"$\theta$ (deg)", False),
-    )
-    for idx, (name, label, unwrap) in enumerate(attitude_specs):
+    for idx, (name, label, unwrap) in enumerate(ATTITUDE_PLOT_SPECS):
         ax = axes_left[idx]
         for series in _all_series(data):
             values = _state_column(series, name)

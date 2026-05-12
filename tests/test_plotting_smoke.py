@@ -24,6 +24,7 @@ if str(SCENARIO_DIR) not in sys.path:
 from arena import ArenaConfig, tracker_bounds  # noqa: E402
 from plotting import (  # noqa: E402
     build_composite_figure,
+    build_figure_c_flight_state_alpha_beta,
     build_figure_e_2d_trajectory_geometry,
     FIGURE_STEMS,
     generate_scenario_figure,
@@ -88,6 +89,19 @@ def test_generate_agile_scenario_figure_uses_standard_result_layout(tmp_path: Pa
     assert (result_root / "manifest.json").exists()
     assert not (result_root / "analysis_data").exists()
     assert not (result_root / "figures").exists()
+
+
+def test_figure_c_attitude_panels_use_flight_state_order(tmp_path: Path) -> None:
+    data = load_scenario_plot_data("s0_no_wind", seed=2, output_root=tmp_path)
+    fig = build_figure_c_flight_state_alpha_beta(data)
+    try:
+        assert [ax.get_ylabel() for ax in fig.axes[:3]] == [
+            r"$\phi$ (deg)",
+            r"$\theta$ (deg)",
+            r"$\psi$ (deg)",
+        ]
+    finally:
+        plt.close(fig)
 
 
 def test_composite_figure_uses_tracker_limit_axes(tmp_path: Path) -> None:
