@@ -71,14 +71,10 @@ from latency import CommandToSurfaceConfig, CommandToSurfaceLayer, LatencyEnvelo
 from linearisation import INPUT_NAMES, STATE_NAMES, linearise_trim  # noqa: E402
 from primitive import build_primitive_context  # noqa: E402
 from rollout import RolloutConfig, RolloutResult, simulate_primitive, write_log  # noqa: E402
-from run_one import run_scenario  # noqa: E402
+from run_one import _materialise_scenario_primitives, run_scenario  # noqa: E402
 from scenarios import ScenarioDefinition, build_scenario  # noqa: E402
 from updraft_models import FOUR_FAN_CENTERS_XY, SINGLE_FAN_CENTER_XY  # noqa: E402
 
-
-RESULTS_ROOT_DIR = "flight_case_results"
-DIGITAL_DIR = "analysis_data"
-PLOTS_DIR = "figures"
 
 SCENARIO_LABELS = {
     "s0_no_wind": "basic no-wind glide",
@@ -112,40 +108,77 @@ SCENARIO_LABELS = {
     "s4_annular_four_panel": "four-fan annular-GP updraft, panel wind",
     "s4_gaussian_single_panel_randomised": "randomised single-fan Gaussian updraft",
     "s4_governor_selection": "governor selects recovery from high bank",
+    "s9_agile_reversal_left_no_wind": "agile TVLQR reversal, no wind",
 }
 
 SCENARIO_SLUGS = {
-    "s0_no_wind": "baseline_no_wind_glide",
-    "s1_latency_nominal_no_wind": "latency_nominal_bank_reversal_no_wind",
-    "s1_latency_robust_upper_no_wind": "latency_upper_bank_reversal_no_wind",
-    "s6_single_gaussian_var": "updraft_single_fan_gaussian_glide",
-    "s6_four_gaussian_var": "updraft_four_fan_gaussian_glide",
-    "s7_single_annular_gp": "updraft_single_fan_annular_gp_glide",
-    "s7_four_annular_gp": "updraft_four_fan_annular_gp_glide",
-    "s11_governor_rejection": "governor_low_altitude_rejection",
-    "s4_full_nominal_glide_no_wind": "primitive_nominal_glide_no_wind",
-    "s4_full_bank_reversal_left_no_wind": "primitive_bank_reversal_left_no_wind",
-    "s4_full_bank_reversal_right_no_wind": "primitive_bank_reversal_right_no_wind",
-    "s4_full_recovery_no_wind": "primitive_recovery_no_wind",
-    "s4_launch_nominal_glide_no_wind": "launch_nominal_glide_no_wind",
-    "s4_latency_low_nominal_glide": "latency_low_nominal_glide_no_wind",
-    "s4_latency_nominal_nominal_glide": "latency_nominal_glide_no_wind",
-    "s4_latency_high_nominal_glide": "latency_high_nominal_glide_no_wind",
-    "s4_latency_low_bank_reversal_left": "latency_low_bank_reversal_left",
-    "s4_latency_nominal_bank_reversal_left": "latency_nominal_bank_reversal_left",
-    "s4_latency_high_bank_reversal_left": "latency_high_bank_reversal_left",
-    "s4_latency_low_recovery": "latency_low_recovery",
-    "s4_latency_nominal_recovery": "latency_nominal_recovery",
-    "s4_latency_high_recovery": "latency_high_recovery",
-    "s4_latency_robust_upper_bank_reversal_left": "latency_upper_bank_reversal_left",
-    "s4_gaussian_single_panel": "updraft_single_fan_gaussian_panel_wind",
-    "s4_gaussian_single_cg": "updraft_single_fan_gaussian_centre_wind",
-    "s4_gaussian_four_panel": "updraft_four_fan_gaussian_panel_wind",
-    "s4_annular_single_panel": "updraft_single_fan_annular_gp_panel_wind",
-    "s4_annular_single_cg": "updraft_single_fan_annular_gp_centre_wind",
-    "s4_annular_four_panel": "updraft_four_fan_annular_gp_panel_wind",
-    "s4_gaussian_single_panel_randomised": "updraft_single_fan_gaussian_randomised",
-    "s4_governor_selection": "governor_recovery_selection_high_bank",
+    "s0_no_wind": "01_basic_no_wind_glide",
+    "s1_latency_nominal_no_wind": "01_nominal_latency_bank_reversal",
+    "s1_latency_robust_upper_no_wind": "02_upper_latency_bank_reversal",
+    "s6_single_gaussian_var": "01_single_fan_gaussian_glide",
+    "s6_four_gaussian_var": "02_four_fan_gaussian_glide",
+    "s7_single_annular_gp": "01_single_fan_annular_gp_glide",
+    "s7_four_annular_gp": "02_four_fan_annular_gp_glide",
+    "s11_governor_rejection": "01_low_altitude_rejection",
+    "s4_full_nominal_glide_no_wind": "01_baseline_glide_no_wind",
+    "s4_full_bank_reversal_left_no_wind": "02_mild_bank_reversal_left_probe",
+    "s4_full_bank_reversal_right_no_wind": "03_mild_bank_reversal_right_probe",
+    "s4_full_recovery_no_wind": "04_recovery_no_wind",
+    "s9_agile_reversal_left_no_wind": "05_agile_tvlqr_reversal_left",
+    "s4_launch_nominal_glide_no_wind": "01_launch_nominal_glide",
+    "s4_latency_low_nominal_glide": "10_low_latency_nominal_glide",
+    "s4_latency_nominal_nominal_glide": "11_nominal_latency_nominal_glide",
+    "s4_latency_high_nominal_glide": "12_high_latency_nominal_glide",
+    "s4_latency_low_bank_reversal_left": "20_low_latency_bank_reversal_left",
+    "s4_latency_nominal_bank_reversal_left": "21_nominal_latency_bank_reversal_left",
+    "s4_latency_high_bank_reversal_left": "22_high_latency_bank_reversal_left",
+    "s4_latency_robust_upper_bank_reversal_left": "23_upper_latency_bank_reversal_left",
+    "s4_latency_low_recovery": "30_low_latency_recovery",
+    "s4_latency_nominal_recovery": "31_nominal_latency_recovery",
+    "s4_latency_high_recovery": "32_high_latency_recovery",
+    "s4_gaussian_single_panel": "40_single_gaussian_panel_wind",
+    "s4_gaussian_single_cg": "41_single_gaussian_cg_wind",
+    "s4_gaussian_four_panel": "42_four_gaussian_panel_wind",
+    "s4_annular_single_panel": "50_single_annular_panel_wind",
+    "s4_annular_single_cg": "51_single_annular_cg_wind",
+    "s4_annular_four_panel": "52_four_annular_panel_wind",
+    "s4_gaussian_single_panel_randomised": "60_single_gaussian_randomised",
+    "s4_governor_selection": "02_recovery_selection_high_bank",
+}
+
+SCENARIO_GROUPS = {
+    "s0_no_wind": "00_smoke",
+    "s1_latency_nominal_no_wind": "01_latency_interface",
+    "s1_latency_robust_upper_no_wind": "01_latency_interface",
+    "s4_full_nominal_glide_no_wind": "03_primitives",
+    "s4_full_bank_reversal_left_no_wind": "03_primitives",
+    "s4_full_bank_reversal_right_no_wind": "03_primitives",
+    "s4_full_recovery_no_wind": "03_primitives",
+    "s9_agile_reversal_left_no_wind": "03_primitives",
+    "s4_launch_nominal_glide_no_wind": "04_scenario_matrix",
+    "s4_latency_low_nominal_glide": "04_scenario_matrix",
+    "s4_latency_nominal_nominal_glide": "04_scenario_matrix",
+    "s4_latency_high_nominal_glide": "04_scenario_matrix",
+    "s4_latency_low_bank_reversal_left": "04_scenario_matrix",
+    "s4_latency_nominal_bank_reversal_left": "04_scenario_matrix",
+    "s4_latency_high_bank_reversal_left": "04_scenario_matrix",
+    "s4_latency_low_recovery": "04_scenario_matrix",
+    "s4_latency_nominal_recovery": "04_scenario_matrix",
+    "s4_latency_high_recovery": "04_scenario_matrix",
+    "s4_latency_robust_upper_bank_reversal_left": "04_scenario_matrix",
+    "s4_gaussian_single_panel": "04_scenario_matrix",
+    "s4_gaussian_single_cg": "04_scenario_matrix",
+    "s4_gaussian_four_panel": "04_scenario_matrix",
+    "s4_annular_single_panel": "04_scenario_matrix",
+    "s4_annular_single_cg": "04_scenario_matrix",
+    "s4_annular_four_panel": "04_scenario_matrix",
+    "s4_gaussian_single_panel_randomised": "04_scenario_matrix",
+    "s6_single_gaussian_var": "06_updraft_models",
+    "s6_four_gaussian_var": "06_updraft_models",
+    "s7_single_annular_gp": "07_annular_gp_models",
+    "s7_four_annular_gp": "07_annular_gp_models",
+    "s11_governor_rejection": "11_governor",
+    "s4_governor_selection": "11_governor",
 }
 
 
@@ -180,8 +213,6 @@ class RuntimeObjects:
 @dataclass(frozen=True)
 class ScenarioOutputPaths:
     root_dir: Path
-    digital_dir: Path
-    plots_dir: Path
     actual_log: Path
     actual_metrics: Path
     manifest: Path
@@ -203,6 +234,10 @@ def friendly_scenario_slug(scenario_id: str) -> str:
     return slug or "scenario"
 
 
+def scenario_result_group(scenario_id: str) -> str:
+    return SCENARIO_GROUPS.get(scenario_id, "99_misc")
+
+
 def scenario_output_paths(
     scenario_id: str,
     seed: int,
@@ -212,16 +247,17 @@ def scenario_output_paths(
         base = REPO_ROOT / "03_Control" / "05_Results"
     else:
         base = Path(output_root)
-    root = base / RESULTS_ROOT_DIR / f"{friendly_scenario_slug(scenario_id)}_seed_{int(seed):03d}"
-    digital_dir = root / DIGITAL_DIR
-    plots_dir = root / PLOTS_DIR
+    root = (
+        base
+        / scenario_result_group(scenario_id)
+        / friendly_scenario_slug(scenario_id)
+        / f"{int(seed):03d}"
+    )
     return ScenarioOutputPaths(
         root_dir=root,
-        digital_dir=digital_dir,
-        plots_dir=plots_dir,
-        actual_log=digital_dir / "actual_rollout.csv",
-        actual_metrics=digital_dir / "actual_metrics.csv",
-        manifest=digital_dir / "manifest.json",
+        actual_log=root / "actual_rollout.csv",
+        actual_metrics=root / "actual_metrics.csv",
+        manifest=root / "manifest.json",
     )
 
 
@@ -234,6 +270,11 @@ def _runtime_objects(scenario_id: str, seed: int) -> RuntimeObjects:
         min_entry_altitude_m=0.75,
     )
     scenario = build_scenario(scenario_id, linear_model.x_trim, REPO_ROOT, seed=seed)
+    scenario = _materialise_scenario_primitives(
+        scenario=scenario,
+        context=context,
+        aircraft=aircraft,
+    )
     return RuntimeObjects(
         aircraft=aircraft,
         context=context,
@@ -287,7 +328,7 @@ def _reference_series(
     wind_model = None if use_environment else runtime.scenario.wind_model
     wind_name = "none" if use_environment else runtime.scenario.wind_model_name
     wind_label = "none" if use_environment else runtime.scenario.wind_param_label
-    log_path = paths.digital_dir / f"{key}_rollout.csv"
+    log_path = paths.root_dir / f"{key}_rollout.csv"
     result = simulate_primitive(
         scenario_id=f"{scenario_id}_{key}",
         seed=seed,
@@ -307,7 +348,11 @@ def _reference_series(
         selected_primitive_name=primitive.name,
     )
     write_log(result, log_path)
-    _write_single_row(paths.digital_dir / f"{key}_metrics.csv", result.metrics)
+    metrics = dict(result.metrics)
+    metrics["log_path"] = f"{key}_rollout.csv"
+    if "log_path_relative" in metrics:
+        metrics["log_path_relative"] = metrics["log_path"]
+    _write_single_row(paths.root_dir / f"{key}_metrics.csv", metrics)
     return _series_from_result(result, key=key, label=label)
 
 
@@ -373,7 +418,11 @@ def _move_if_present(source: Path, destination: Path) -> None:
     if not source.exists():
         return
     destination.parent.mkdir(parents=True, exist_ok=True)
-    source.replace(destination)
+    try:
+        source.replace(destination)
+    except FileNotFoundError:
+        # OneDrive can briefly report files that have already been moved by a prior cleanup.
+        return
 
 
 def _remove_empty_dir(path: Path) -> None:
@@ -401,20 +450,27 @@ def _normalise_actual_outputs(
 
     # Generated simulator outputs are renamed into user-facing files for post analysis.
     _move_if_present(raw_log, paths.actual_log)
-    _move_if_present(raw_candidates, paths.digital_dir / "governor_candidates.csv")
-    _move_if_present(raw_rejections, paths.digital_dir / "governor_rejections.csv")
+    _move_if_present(raw_candidates, paths.root_dir / "governor_candidates.csv")
+    _move_if_present(raw_rejections, paths.root_dir / "governor_rejections.csv")
     _move_if_present(raw_metrics, paths.actual_metrics)
     _remove_empty_dir(runner_root / "logs")
     _remove_empty_dir(runner_root / "metrics")
     _remove_empty_dir(runner_root)
 
-    candidate_path = paths.digital_dir / "governor_candidates.csv"
-    rejection_path = paths.digital_dir / "governor_rejections.csv"
+    candidate_path = paths.root_dir / "governor_candidates.csv"
+    rejection_path = paths.root_dir / "governor_rejections.csv"
     friendly_row = dict(row)
     friendly_row["case_name"] = friendly_scenario_name(scenario_id)
+    friendly_row["case_group"] = scenario_result_group(scenario_id)
+    friendly_row["case_id"] = friendly_scenario_slug(scenario_id)
     friendly_row["case_folder"] = paths.root_dir.name
+    friendly_row["case_path"] = (
+        f"{scenario_result_group(scenario_id)}/"
+        f"{friendly_scenario_slug(scenario_id)}/"
+        f"{int(seed):03d}"
+    )
     friendly_row["scenario_name"] = friendly_scenario_name(scenario_id)
-    # Stored metrics reference files within analysis_data, not temporary runner paths.
+    # Stored metrics reference files within the seed folder, not temporary runner paths.
     friendly_row["actual_rollout_file"] = "actual_rollout.csv"
     friendly_row["actual_metrics_file"] = "actual_metrics.csv"
     friendly_row["log_path"] = "actual_rollout.csv" if paths.actual_log.exists() else ""
@@ -957,11 +1013,11 @@ def generate_scenario_figure(
     stem = "flight_trajectory_and_control_commands"
     plot_paths: dict[str, Path] = {}
     if save_png:
-        png_path = output_paths.plots_dir / f"{stem}.png"
+        png_path = output_paths.root_dir / f"{stem}.png"
         save_figure(fig, png_path, style)
         plot_paths["png"] = png_path
     if save_pdf:
-        pdf_path = output_paths.plots_dir / f"{stem}.pdf"
+        pdf_path = output_paths.root_dir / f"{stem}.pdf"
         save_figure(fig, pdf_path, style)
         plot_paths["pdf"] = pdf_path
     plt.close(fig)
@@ -996,6 +1052,13 @@ def _write_manifest(
         "status": "plot generated",
         "selected_primitive": data.actual_row.get("selected_primitive"),
         "folder": output_paths.root_dir.name,
+        "result_group": scenario_result_group(scenario_id),
+        "case_id": friendly_scenario_slug(scenario_id),
+        "case_path": (
+            f"{scenario_result_group(scenario_id)}/"
+            f"{friendly_scenario_slug(scenario_id)}/"
+            f"{int(seed):03d}"
+        ),
         "analysis_data": _digital_file_list(output_paths),
         "figures": {
             key: _relative_to_result(path, output_paths.root_dir)
@@ -1010,12 +1073,8 @@ def _write_manifest(
 
 
 def _digital_file_list(output_paths: ScenarioOutputPaths) -> list[str]:
-    digital_files = sorted(
-        path
-        for path in output_paths.digital_dir.glob("*.csv")
-        if path.is_file()
-    )
-    return [_relative_to_result(path, output_paths.root_dir) for path in digital_files]
+    csv_files = sorted(path for path in output_paths.root_dir.glob("*.csv") if path.is_file())
+    return [_relative_to_result(path, output_paths.root_dir) for path in csv_files]
 
 
 def _write_status_manifest(
@@ -1032,6 +1091,13 @@ def _write_status_manifest(
         "status": status,
         "selected_primitive": row.get("selected_primitive"),
         "folder": output_paths.root_dir.name,
+        "result_group": scenario_result_group(scenario_id),
+        "case_id": friendly_scenario_slug(scenario_id),
+        "case_path": (
+            f"{scenario_result_group(scenario_id)}/"
+            f"{friendly_scenario_slug(scenario_id)}/"
+            f"{int(seed):03d}"
+        ),
         "analysis_data": _digital_file_list(output_paths),
         "figures": {},
     }

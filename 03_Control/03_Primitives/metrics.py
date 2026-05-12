@@ -45,6 +45,8 @@ METRIC_SCHEMA_KEYS = (
     "success",
     "failure_class",
     "heading_change_deg",
+    "forward_travel_m",
+    "turn_volume_proxy_m2",
     "height_change_m",
     "terminal_speed_m_s",
     "max_alpha_deg",
@@ -52,6 +54,7 @@ METRIC_SCHEMA_KEYS = (
     "max_bank_deg",
     "min_wall_distance_m",
     "saturation_time_s",
+    "time_at_full_travel_s",
     "saturation_fraction",
     "tracking_error_rms",
     "exit_recoverable",
@@ -155,6 +158,12 @@ def rollout_metrics(
     min_wall = min(float(row["min_wall_distance_m"]) for row in margins)
     inside = all(bool(row["inside_safe_volume"]) for row in margins)
     speed = _speed(state_arr)
+    x_span = float(
+        np.max(state_arr[:, STATE_INDEX["x_w"]]) - np.min(state_arr[:, STATE_INDEX["x_w"]])
+    )
+    y_span = float(
+        np.max(state_arr[:, STATE_INDEX["y_w"]]) - np.min(state_arr[:, STATE_INDEX["y_w"]])
+    )
     # Alpha and beta are reported in degrees for human-facing metrics
     alpha = np.arctan2(
         state_arr[:, STATE_INDEX["w"]],
@@ -196,6 +205,10 @@ def rollout_metrics(
         "heading_change_deg": float(
             np.rad2deg(final[STATE_INDEX["psi"]] - state_arr[0, STATE_INDEX["psi"]])
         ),
+        "forward_travel_m": float(
+            final[STATE_INDEX["x_w"]] - state_arr[0, STATE_INDEX["x_w"]]
+        ),
+        "turn_volume_proxy_m2": float(x_span * y_span),
         "height_change_m": float(final[STATE_INDEX["z_w"]] - state_arr[0, STATE_INDEX["z_w"]]),
         "terminal_speed_m_s": float(speed[-1]),
         "max_alpha_deg": float(np.rad2deg(np.max(np.abs(alpha)))),
@@ -205,6 +218,7 @@ def rollout_metrics(
         ),
         "min_wall_distance_m": float(min_wall),
         "saturation_time_s": None if saturation_time_s is None else float(saturation_time_s),
+        "time_at_full_travel_s": None if saturation_time_s is None else float(saturation_time_s),
         "saturation_fraction": float(saturation_fraction),
         "tracking_error_rms": None if tracking_error_rms is None else float(tracking_error_rms),
         "exit_recoverable": bool(success and inside),

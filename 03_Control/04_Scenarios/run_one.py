@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 
@@ -48,6 +49,7 @@ from latency import (  # noqa: E402
 )
 from linearisation import linearise_trim  # noqa: E402
 from metrics import rejected_metrics  # noqa: E402
+from optimise_template import AgileTurnTemplate, build_agile_reversal_candidate  # noqa: E402
 from primitive import build_primitive_context  # noqa: E402
 from rollout import RolloutConfig, simulate_primitive, write_log  # noqa: E402
 from scenarios import build_scenario  # noqa: E402
@@ -87,6 +89,11 @@ def run_scenario(
     arena = ArenaConfig()
     scenario = build_scenario(scenario_id, linear_model.x_trim, REPO_ROOT, seed=seed)
     governor = ViabilityGovernor(arena_config=arena)
+    scenario = _materialise_scenario_primitives(
+        scenario=scenario,
+        context=context,
+        aircraft=aircraft,
+    )
 
     # Each scenario run writes one metrics row and an optional rollout log
     metrics_dir, log_dir = _output_dirs(output_root)
@@ -260,6 +267,39 @@ def _selected_primitive(
         if primitive.name == selected_name:
             return primitive
     return None
+
+
+def _materialise_scenario_primitives(
+    scenario,
+    context,
+    aircraft,
+):
+    cache: dict[int, object] = {}
+
+    def materialise(primitive: object) -> object:
+        if not isinstance(primitive, AgileTurnTemplate):
+            return primitive
+        key = id(primitive)
+        if key not in cache:
+            cache[key] = build_agile_reversal_candidate(
+                template=primitive,
+                x0=scenario.x0,
+                context=context,
+                aircraft=aircraft,
+                wind_model=scenario.wind_model,
+                wind_mode=scenario.wind_mode,
+                command_layer=CommandToSurfaceLayer(
+                    config=scenario.latency_config,
+                    envelope=LatencyEnvelope(),
+                ),
+            )
+        return cache[key]
+
+    primitive = materialise(scenario.primitive)
+    candidates = tuple(materialise(candidate) for candidate in scenario.candidate_primitives)
+    if primitive is scenario.primitive and candidates == scenario.candidate_primitives:
+        return scenario
+    return replace(scenario, primitive=primitive, candidate_primitives=candidates)
 
 
 def _relative_output_path(path: Path, output_root: str | Path | None) -> str:

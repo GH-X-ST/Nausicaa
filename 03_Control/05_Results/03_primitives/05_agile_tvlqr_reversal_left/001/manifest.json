@@ -1,0 +1,24 @@
+{
+  "analysis_data": [
+    "actual_metrics.csv",
+    "actual_rollout.csv",
+    "control_reference_metrics.csv",
+    "control_reference_rollout.csv",
+    "environment_reference_metrics.csv",
+    "environment_reference_rollout.csv",
+    "governor_candidates.csv",
+    "governor_rejections.csv"
+  ],
+  "case_id": "05_agile_tvlqr_reversal_left",
+  "case_path": "03_primitives/05_agile_tvlqr_reversal_left/001",
+  "figures": {
+    "png": "flight_trajectory_and_control_commands.png"
+  },
+  "folder": "001",
+  "result_group": "03_primitives",
+  "scenario_id": "s9_agile_reversal_left_no_wind",
+  "scenario_name": "agile TVLQR reversal, no wind",
+  "seed": 1,
+  "selected_primitive": "agile_reversal_left_tvlqr",
+  "status": "plot generated"
+}

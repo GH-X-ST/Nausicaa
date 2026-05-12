@@ -36,19 +36,42 @@ def test_generate_scenario_figure_writes_png(tmp_path: Path) -> None:
     assert paths["png"].exists()
     assert paths["png"].stat().st_size > 0
     assert paths["png"].name == "flight_trajectory_and_control_commands.png"
-    result_root = paths["png"].parents[1]
-    assert result_root.parent.name == "flight_case_results"
-    assert paths["png"].parent.name == "figures"
-    analysis_dir = result_root / "analysis_data"
-    assert (analysis_dir / "actual_rollout.csv").exists()
-    assert (analysis_dir / "actual_metrics.csv").exists()
-    assert (analysis_dir / "control_reference_rollout.csv").exists()
-    assert (analysis_dir / "environment_reference_rollout.csv").exists()
-    assert (analysis_dir / "manifest.json").exists()
-    assert not list(result_root.rglob("*.pdf"))
+    result_root = paths["png"].parent
+    assert result_root.name == "002"
+    assert result_root.parent.name == "01_basic_no_wind_glide"
+    assert result_root.parents[1].name == "00_smoke"
+    assert (result_root / "actual_rollout.csv").exists()
+    assert (result_root / "actual_metrics.csv").exists()
+    assert (result_root / "control_reference_rollout.csv").exists()
+    assert (result_root / "environment_reference_rollout.csv").exists()
+    assert (result_root / "manifest.json").exists()
+    assert not list(result_root.glob("*.pdf"))
     assert not (result_root / "digital_results").exists()
-    assert "s0" not in result_root.name.lower()
-    assert result_root.name.startswith("baseline_no_wind_glide")
+    assert not (result_root / "analysis_data").exists()
+    assert not (result_root / "figures").exists()
+    assert "s0" not in result_root.parent.name.lower()
+
+
+def test_generate_agile_scenario_figure_uses_standard_result_layout(tmp_path: Path) -> None:
+    paths = generate_scenario_figure(
+        "s9_agile_reversal_left_no_wind",
+        seed=1,
+        output_root=tmp_path,
+        save_png=True,
+        save_pdf=False,
+    )
+    result_root = paths["png"].parent
+
+    assert result_root.name == "001"
+    assert result_root.parent.name == "05_agile_tvlqr_reversal_left"
+    assert result_root.parents[1].name == "03_primitives"
+    assert (result_root / "actual_rollout.csv").exists()
+    assert (result_root / "actual_metrics.csv").exists()
+    assert (result_root / "control_reference_rollout.csv").exists()
+    assert (result_root / "environment_reference_rollout.csv").exists()
+    assert (result_root / "manifest.json").exists()
+    assert not (result_root / "analysis_data").exists()
+    assert not (result_root / "figures").exists()
 
 
 def test_composite_figure_uses_tracker_limit_axes(tmp_path: Path) -> None:

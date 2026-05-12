@@ -1,0 +1,22 @@
+{
+  "analysis_data": [
+    "actual_metrics.csv",
+    "actual_rollout.csv",
+    "control_reference_metrics.csv",
+    "control_reference_rollout.csv",
+    "environment_reference_metrics.csv",
+    "environment_reference_rollout.csv"
+  ],
+  "case_id": "40_single_gaussian_panel_wind",
+  "case_path": "04_scenario_matrix/40_single_gaussian_panel_wind/001",
+  "figures": {
+    "png": "flight_trajectory_and_control_commands.png"
+  },
+  "folder": "001",
+  "result_group": "04_scenario_matrix",
+  "scenario_id": "s4_gaussian_single_panel",
+  "scenario_name": "single-fan Gaussian updraft, panel wind",
+  "seed": 1,
+  "selected_primitive": "nominal_glide",
+  "status": "plot generated"
+}

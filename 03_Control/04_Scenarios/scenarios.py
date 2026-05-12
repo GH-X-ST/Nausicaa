@@ -6,6 +6,7 @@ import numpy as np
 
 from latency import CommandToSurfaceConfig
 from linearisation import STATE_INDEX
+from optimise_template import default_left_agile_reversal_template
 from templates import (
     BankReversalPrimitive,
     NominalGlidePrimitive,
@@ -106,6 +107,7 @@ def build_scenario(
     four_fan_updraft_glide = NominalGlidePrimitive(duration_s=0.24)
     launch_glide = NominalGlidePrimitive(duration_s=0.55)
     governor_recovery = RecoveryPrimitive(duration_s=0.50)
+    agile_left = default_left_agile_reversal_template()
     nominal = CommandToSurfaceConfig(mode="nominal")
     low = CommandToSurfaceConfig(mode="low")
     high = CommandToSurfaceConfig(mode="high")
@@ -245,6 +247,20 @@ def build_scenario(
             "none",
             candidates,
         )
+    if scenario_id == "s9_agile_reversal_left_no_wind":
+        x0 = full_base.copy()
+        x0[STATE_INDEX["x_w"]] = 1.45
+        return ScenarioDefinition(
+            scenario_id,
+            agile_left,
+            "none",
+            None,
+            "panel",
+            nominal,
+            x0,
+            "none",
+            (agile_left,),
+        )
     raise ValueError(f"Unknown scenario_id '{scenario_id}'.")
 
 
@@ -273,6 +289,7 @@ def batch_scenarios() -> tuple[str, ...]:
         "s4_annular_single_panel",
         "s4_gaussian_single_panel_randomised",
         "s4_governor_selection",
+        "s9_agile_reversal_left_no_wind",
     )
 
 
@@ -297,8 +314,12 @@ def s4_audit_scenarios() -> tuple[str, ...]:
     )
 
 
+def agile_audit_scenarios() -> tuple[str, ...]:
+    return ("s9_agile_reversal_left_no_wind",)
+
+
 def controller_audit_scenarios() -> tuple[str, ...]:
-    return s4_audit_scenarios()
+    return s4_audit_scenarios() + agile_audit_scenarios()
 
 
 # =============================================================================

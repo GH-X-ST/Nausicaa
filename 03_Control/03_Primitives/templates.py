@@ -61,7 +61,7 @@ class NominalGlidePrimitive:
 # =============================================================================
 @dataclass(frozen=True)
 class BankReversalPrimitive:
-    name: str = "bank_reversal"
+    name: str = "mild_bank_reversal_probe"
     duration_s: float = 2.5
     bank_angle_rad: float = np.deg2rad(12.0)
 

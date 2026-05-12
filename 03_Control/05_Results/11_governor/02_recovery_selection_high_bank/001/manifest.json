@@ -1,0 +1,24 @@
+{
+  "analysis_data": [
+    "actual_metrics.csv",
+    "actual_rollout.csv",
+    "control_reference_metrics.csv",
+    "control_reference_rollout.csv",
+    "environment_reference_metrics.csv",
+    "environment_reference_rollout.csv",
+    "governor_candidates.csv",
+    "governor_rejections.csv"
+  ],
+  "case_id": "02_recovery_selection_high_bank",
+  "case_path": "11_governor/02_recovery_selection_high_bank/001",
+  "figures": {
+    "png": "flight_trajectory_and_control_commands.png"
+  },
+  "folder": "001",
+  "result_group": "11_governor",
+  "scenario_id": "s4_governor_selection",
+  "scenario_name": "governor selects recovery from high bank",
+  "seed": 1,
+  "selected_primitive": "recovery",
+  "status": "plot generated"
+}

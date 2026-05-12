@@ -32,7 +32,7 @@ def test_normalised_metrics_use_analysis_data_file_names(tmp_path: Path) -> None
     scenario_id = "s0_no_wind"
     seed = 7
     output_root = tmp_path / "results"
-    runner_root = output_root / "flight_case_results" / "case_seed_007" / "_run"
+    runner_root = output_root / "00_smoke" / "01_basic_no_wind_glide" / "007" / "_run"
     paths = scenario_output_paths(scenario_id, seed, output_root)
     metrics_dir = runner_root / "metrics"
     logs_dir = runner_root / "logs"
@@ -59,10 +59,13 @@ def test_normalised_metrics_use_analysis_data_file_names(tmp_path: Path) -> None
 
     assert friendly_row["actual_rollout_file"] == "actual_rollout.csv"
     assert friendly_row["actual_metrics_file"] == "actual_metrics.csv"
+    assert friendly_row["case_group"] == "00_smoke"
+    assert friendly_row["case_id"] == "01_basic_no_wind_glide"
+    assert friendly_row["case_path"] == "00_smoke/01_basic_no_wind_glide/007"
     assert friendly_row["log_path"] == "actual_rollout.csv"
     assert friendly_row["log_path_relative"] == "actual_rollout.csv"
     assert friendly_row["candidate_table_path"] == "governor_candidates.csv"
-    assert (paths.digital_dir / "governor_candidates.csv").exists()
+    assert (paths.root_dir / "governor_candidates.csv").exists()
 
     with paths.actual_metrics.open(newline="", encoding="utf-8") as handle:
         metrics_row = next(csv.DictReader(handle))
@@ -75,4 +78,3 @@ def test_normalised_metrics_use_analysis_data_file_names(tmp_path: Path) -> None
     assert str(tmp_path).replace("\\", "/") not in metrics_text
     assert not re.search(r"[A-Za-z]:\\", metrics_text)
     assert "/tmp/" not in metrics_text
-

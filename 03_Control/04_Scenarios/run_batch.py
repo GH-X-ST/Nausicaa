@@ -45,6 +45,11 @@ def main() -> None:
     args = parser.parse_args()
     # Scenario ordering is centralised in scenarios.py for reproducible comparisons.
     rows = [run_scenario(scenario_id, args.seed) for scenario_id in batch_scenarios()]
+    fieldnames = list(rows[0].keys())
+    for row in rows[1:]:
+        for key in row.keys():
+            if key not in fieldnames:
+                fieldnames.append(key)
     out_path = (
         REPO_ROOT
         / "03_Control"
@@ -55,7 +60,7 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", newline="", encoding="utf-8") as handle:
         # One CSV row per scenario keeps batch metrics comparable across seeds.
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
     print("batch complete")
