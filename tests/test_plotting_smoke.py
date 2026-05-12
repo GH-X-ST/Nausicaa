@@ -113,7 +113,9 @@ def test_composite_figure_uses_tracker_limit_axes(tmp_path: Path) -> None:
         safety_line = next(
             line for line in ax3d.lines if line.get_label() == "True safety volume"
         )
-        assert mcolors.to_hex(safety_line.get_color()) == "#a0a2ff"
+        assert mcolors.to_hex(safety_line.get_color()) == "#595959"
+        assert safety_line.get_linestyle() == ":"
+        assert safety_line.get_linewidth() == 0.75
 
         command_axes = fig.axes[2:5]
         expected_limits = ((-26.0, 22.0), (-30.0, 22.0), (-35.0, 28.0))
@@ -170,8 +172,10 @@ def test_figure_e_keeps_wind_case_to_fan_outlet_geometry(tmp_path: Path) -> None
         ]
         assert safety_patches
         assert all(
-            mcolors.to_hex(patch.get_edgecolor()) == "#a0a2ff"
+            mcolors.to_hex(patch.get_edgecolor()) == "#595959"
             for patch in safety_patches
         )
+        assert all(patch.get_linestyle() == ":" for patch in safety_patches)
+        assert all(patch.get_linewidth() == 0.75 for patch in safety_patches)
     finally:
         plt.close(fig)

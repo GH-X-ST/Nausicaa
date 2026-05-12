@@ -40,11 +40,18 @@ def test_control_and_environment_references_have_distinct_styles(tmp_path: Path)
         ]
         assert actual_collections
         assert set(by_label) == {"Control reference", "Environment reference"}
-        assert mcolors.to_hex(by_label["Control reference"].get_color()) == "#ff7c7e"
-        assert mcolors.to_hex(by_label["Environment reference"].get_color()) == "#a0a2ff"
-        assert by_label["Control reference"].get_alpha() == 0.5
+        assert mcolors.to_hex(by_label["Control reference"].get_color()) == "#e66a2c"
+        assert mcolors.to_hex(by_label["Environment reference"].get_color()) == "#7b2cbf"
+        assert by_label["Control reference"].get_alpha() == 0.55
+        assert by_label["Environment reference"].get_alpha() == 0.55
+        assert by_label["Control reference"].get_linewidth() == 1.25
+        assert by_label["Environment reference"].get_linewidth() == 1.25
         assert by_label["Control reference"].get_linestyle() != "-"
         assert by_label["Environment reference"].get_linestyle() != "-"
         assert by_label["Control reference"].get_linestyle() != by_label["Environment reference"].get_linestyle()
+
+        actual_colors = actual_collections[0].get_colors()
+        assert mcolors.to_hex(actual_colors[0]) == "#20b6c7"
+        assert mcolors.to_hex(actual_colors[-1]) == "#00244c"
     finally:
         plt.close(fig)

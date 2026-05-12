@@ -29,7 +29,7 @@ from plot_style import (
     CBAR_LABEL,
     CONTROL_REFERENCE_COLOR,
     DESIRED_COMMAND_ALPHA,
-    ENVIRONMENT_REFERENCE_COLOR,
+    DESIRED_COMMAND_LINEWIDTH,
     FAN_OUTLET_ALPHA,
     FAN_OUTLET_DASH,
     FAN_OUTLET_DIAMETER_M,
@@ -37,7 +37,13 @@ from plot_style import (
     FAN_OUTLET_Z_M,
     PLOT_VMAX,
     PLOT_VMIN,
+    SIMULATION_FLOOR_COLOR,
+    SIMULATION_FLOOR_LINESTYLE,
+    SIMULATION_FLOOR_LINEWIDTH,
     TRAJECTORY_SPECS,
+    TRUE_SAFETY_VOLUME_COLOR,
+    TRUE_SAFETY_VOLUME_LINESTYLE,
+    TRUE_SAFETY_VOLUME_LINEWIDTH,
     PlotStyle,
     build_alpha_cmap,
     framed_legend,
@@ -595,9 +601,9 @@ def _plot_arena(ax: mpl.axes.Axes, arena: ArenaConfig) -> None:
     _draw_box(
         ax,
         safe_bounds(arena),
-        color=ENVIRONMENT_REFERENCE_COLOR,
-        linewidth=0.9,
-        linestyle="--",
+        color=TRUE_SAFETY_VOLUME_COLOR,
+        linewidth=TRUE_SAFETY_VOLUME_LINEWIDTH,
+        linestyle=TRUE_SAFETY_VOLUME_LINESTYLE,
         label="True safety volume",
     )
 
@@ -837,7 +843,13 @@ def _progress_values(times_s: np.ndarray, count: int) -> np.ndarray:
     if upper <= lower:
         return np.linspace(0.0, 1.0, count)
     segment_times = 0.5 * (times[:-1] + times[1:])
-    return np.clip((segment_times - lower) / (upper - lower), 0.0, 1.0)
+    progress = np.clip((segment_times - lower) / (upper - lower), 0.0, 1.0)
+    if count == 1:
+        return np.array([0.0], dtype=float)
+    span = float(progress[-1] - progress[0])
+    if span <= 0.0:
+        return np.linspace(0.0, 1.0, count)
+    return (progress - progress[0]) / span
 
 
 def _actual_gradient_colors(times_s: np.ndarray, count: int) -> np.ndarray:
@@ -1177,7 +1189,7 @@ def _plot_command_axes(
             actual.times_s,
             desired_deg[:, idx],
             color=CONTROL_REFERENCE_COLOR,
-            linewidth=1.2,
+            linewidth=DESIRED_COMMAND_LINEWIDTH,
             linestyle="--",
             alpha=DESIRED_COMMAND_ALPHA,
             label="Desired",
@@ -1441,9 +1453,9 @@ def build_figure_d_envelope_variables(
     height_ax.axhline(bounds["z_w"][1], color="black", linestyle=":", linewidth=0.8)
     height_ax.axhline(
         RolloutConfig().min_altitude_m,
-        color=(0.35, 0.35, 0.35, 1.0),
-        linestyle=":",
-        linewidth=0.75,
+        color=SIMULATION_FLOOR_COLOR,
+        linestyle=SIMULATION_FLOOR_LINESTYLE,
+        linewidth=SIMULATION_FLOOR_LINEWIDTH,
         label="simulation floor",
     )
     style_time_axis(height_ax, r"$z_w$ (m)", style, show_xlabel=True)
@@ -1525,9 +1537,9 @@ def build_figure_e_2d_trajectory_geometry(
         safe,
         "x_w",
         "y_w",
-        edgecolor=ENVIRONMENT_REFERENCE_COLOR,
-        linewidth=0.9,
-        linestyle="--",
+        edgecolor=TRUE_SAFETY_VOLUME_COLOR,
+        linewidth=TRUE_SAFETY_VOLUME_LINEWIDTH,
+        linestyle=TRUE_SAFETY_VOLUME_LINESTYLE,
         label="True safety volume",
         zorder=5,
     )
@@ -1547,9 +1559,9 @@ def build_figure_e_2d_trajectory_geometry(
         safe,
         "x_w",
         "z_w",
-        edgecolor=ENVIRONMENT_REFERENCE_COLOR,
-        linewidth=0.9,
-        linestyle="--",
+        edgecolor=TRUE_SAFETY_VOLUME_COLOR,
+        linewidth=TRUE_SAFETY_VOLUME_LINEWIDTH,
+        linestyle=TRUE_SAFETY_VOLUME_LINESTYLE,
         label="True safety volume",
         zorder=5,
     )
