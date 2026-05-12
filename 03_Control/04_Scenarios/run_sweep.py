@@ -112,6 +112,16 @@ def sample_entry_states(
 # =============================================================================
 # 3) Sweep Execution
 # =============================================================================
+SWEEP_SUMMARY_STAT_KEYS = (
+    "heading_change_deg",
+    "min_wall_distance_m",
+    "height_change_m",
+    "terminal_speed_m_s",
+    "max_alpha_deg",
+    "saturation_fraction",
+)
+
+
 def run_entry_sweep(
     scenario_id: str,
     primitive: object,
@@ -215,6 +225,50 @@ def run_entry_sweep(
     return rows
 
 
+def summarise_sweep_rows(rows: list[dict[str, object]]) -> dict[str, object]:
+    sample_count = len(rows)
+    success_count = sum(1 for row in rows if bool(row.get("success", False)))
+    rejection_count = sum(
+        1 for row in rows if str(row.get("termination_reason", "")) == "governor_rejected"
+    )
+    summary: dict[str, object] = {
+        "sample_count": sample_count,
+        "success_count": success_count,
+        "success_rate": 0.0 if sample_count == 0 else success_count / sample_count,
+        "rejection_count": rejection_count,
+    }
+    for key in SWEEP_SUMMARY_STAT_KEYS:
+        values = np.asarray(
+            [
+                float(row[key])
+                for row in rows
+                if row.get(key) not in {None, ""} and np.isfinite(float(row[key]))
+            ],
+            dtype=float,
+        )
+        if values.size == 0:
+            summary[f"{key}_mean"] = None
+            summary[f"{key}_min"] = None
+            summary[f"{key}_max"] = None
+            continue
+        summary[f"{key}_mean"] = float(np.mean(values))
+        summary[f"{key}_min"] = float(np.min(values))
+        summary[f"{key}_max"] = float(np.max(values))
+    return summary
+
+
+def agile_random_entry_gate(row: dict[str, object]) -> bool:
+    target = row.get("target_heading_deg")
+    if target in {None, ""}:
+        return False
+    return (
+        bool(row.get("success", False))
+        and bool(row.get("exit_recoverable", False))
+        and abs(float(row.get("actual_heading_change_deg", row.get("heading_change_deg", 0.0))))
+        >= min(0.8 * float(target), 30.0)
+    )
+
+
 def _entry_sweep_bounds(value: object | None) -> EntrySweepBounds:
     if value is None:
         return EntrySweepBounds()
@@ -254,7 +308,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", required=True)
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--samples", type=int, default=10)
+    parser.add_argument("--samples", type=int, default=50)
     parser.add_argument("--output-root", default=None)
     args = parser.parse_args()
     rows = run_entry_sweep(
@@ -264,11 +318,12 @@ def main() -> None:
         sample_count=args.samples,
         output_root=args.output_root,
     )
-    successes = sum(1 for row in rows if bool(row.get("success", False)))
+    summary = summarise_sweep_rows(rows)
     print("sweep complete")
     print(f"scenario_id: {args.scenario}")
-    print(f"samples: {len(rows)}")
-    print(f"successes: {successes}")
+    print(f"samples: {summary['sample_count']}")
+    print(f"success_rate: {summary['success_rate']:.3f}")
+    print(f"rejections: {summary['rejection_count']}")
     metrics_dir, _log_dir = _output_dirs(args.output_root)
     print(f"metrics: {metrics_dir / f'{args.scenario}_seed{args.seed}_sweep.csv'}")
 

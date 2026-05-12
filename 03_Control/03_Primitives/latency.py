@@ -168,12 +168,30 @@ def latency_audit_fields(
 # 4) Command Conversion Helpers
 # =============================================================================
 def angle_to_command_norm(angle_rad: float, limit: SurfaceLimit) -> float:
-    # Positive and negative surface travel can be asymmetric
+    # Endpoint signs are physical surface signs; the right aileron intentionally
+    # maps negative command to positive physical deflection.
     angle_deg = float(np.rad2deg(angle_rad))
-    if angle_deg >= 0.0:
-        norm = angle_deg / max(abs(limit.positive_deg), 1e-12)
-    else:
-        norm = angle_deg / max(abs(limit.negative_deg), 1e-12)
+    if abs(angle_deg) <= 1e-12:
+        return 0.0
+
+    candidates: list[float] = []
+    if abs(limit.positive_deg) > 1e-12:
+        positive_ratio = angle_deg / float(limit.positive_deg)
+        if positive_ratio >= 0.0:
+            candidates.append(float(positive_ratio))
+    if abs(limit.negative_deg) > 1e-12:
+        negative_ratio = angle_deg / float(limit.negative_deg)
+        if negative_ratio >= 0.0:
+            candidates.append(float(-negative_ratio))
+    if not candidates:
+        endpoint = (
+            limit.positive_deg
+            if abs(angle_deg - limit.positive_deg) <= abs(angle_deg - limit.negative_deg)
+            else limit.negative_deg
+        )
+        norm = 1.0 if endpoint == limit.positive_deg else -1.0
+        return float(norm)
+    norm = min(candidates, key=lambda value: abs(abs(value) - 1.0) if abs(value) > 1.0 else abs(value))
     return float(np.clip(norm, -1.0, 1.0))
 
 
@@ -181,7 +199,7 @@ def command_norm_to_angle(norm: float, limit: SurfaceLimit) -> float:
     value = float(np.clip(norm, -1.0, 1.0))
     if value >= 0.0:
         return float(np.deg2rad(value * limit.positive_deg))
-    return float(np.deg2rad(value * abs(limit.negative_deg)))
+    return float(np.deg2rad((-value) * limit.negative_deg))
 
 
 def quantise_command_norm(norm: float) -> float:

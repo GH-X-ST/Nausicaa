@@ -37,6 +37,7 @@ class AgileTurnTemplate:
     t_r_duration_s: float
     hold_duration_s: float
     recover_duration_s: float
+    target_heading_deg: float | None = None
 
     @property
     def duration_s(self) -> float:
@@ -106,8 +107,10 @@ def build_agile_reversal_candidate(
         dt_s=dt_s,
         config=_default_tvlqr_config(),
     )
+    target_heading_deg = _template_target_heading_deg(template)
+    target_tag = f"{int(round(target_heading_deg)):03d}"
     return TrajectoryPrimitive(
-        name="agile_reversal_left_tvlqr",
+        name=f"agile_reversal_left_tvlqr_target_{target_tag}",
         times_s=times,
         x_ref=x_ref,
         u_ff=u_ff,
@@ -121,7 +124,10 @@ def build_agile_reversal_candidate(
             max_surface_error_rad=np.deg2rad(10.0),
         ),
         metadata={
-            "target_label": "agile_reversal_ref",
+            "target_label": f"agile_reversal_ref_target_{target_tag}",
+            "primitive_family": "agile_tvlqr_scaffold",
+            "is_full_turn_claim": False,
+            "target_heading_deg": target_heading_deg,
             "command_domain": "aggregate surface radians from full [-1,+1] normalised template",
             "template": template,
             "entry_nominal_x": x_start.copy(),
@@ -133,20 +139,111 @@ def build_agile_reversal_candidate(
 # =============================================================================
 # 3) Template Helpers
 # =============================================================================
-def default_left_agile_reversal_template() -> AgileTurnTemplate:
+def default_left_agile_reversal_template(
+    target_heading_deg: float = 30.0,
+) -> AgileTurnTemplate:
+    target = _nearest_supported_target(target_heading_deg)
+    fields = _target_template_fields(target)
     return AgileTurnTemplate(
-        elevator_brake_norm=-1.0,
-        aileron_roll_norm=1.0,
-        rudder_yaw_norm=1.0,
-        t_e_start_s=0.08,
-        t_a_start_s=0.08,
-        t_r_start_s=0.08,
-        t_e_duration_s=0.02,
-        t_a_duration_s=0.16,
-        t_r_duration_s=0.20,
-        hold_duration_s=0.00,
-        recover_duration_s=0.06,
+        target_heading_deg=target,
+        **fields,
     )
+
+
+def supported_agile_heading_targets_deg() -> tuple[float, ...]:
+    return tuple(float(target) for target in sorted(_TARGET_TEMPLATE_TABLE))
+
+
+def _template_target_heading_deg(template: AgileTurnTemplate) -> float:
+    if template.target_heading_deg is None:
+        return 30.0
+    return float(template.target_heading_deg)
+
+
+def _nearest_supported_target(target_heading_deg: float) -> float:
+    target = float(target_heading_deg)
+    supported = supported_agile_heading_targets_deg()
+    if target in supported:
+        return target
+    return min(supported, key=lambda value: abs(value - target))
+
+
+def _target_template_fields(target_heading_deg: float) -> dict[str, float]:
+    try:
+        return dict(_TARGET_TEMPLATE_TABLE[float(target_heading_deg)])
+    except KeyError as exc:
+        raise ValueError(f"unsupported agile heading target {target_heading_deg}") from exc
+
+
+# The table is deliberately small: each row is a deterministic scaffold target,
+# not a broad optimiser or a claim that the target is feasible in the safety box.
+_TARGET_TEMPLATE_TABLE = {
+    30.0: {
+        "elevator_brake_norm": -0.90,
+        "aileron_roll_norm": 1.00,
+        "rudder_yaw_norm": 0.85,
+        "t_e_start_s": 0.08,
+        "t_a_start_s": 0.08,
+        "t_r_start_s": 0.08,
+        "t_e_duration_s": 0.06,
+        "t_a_duration_s": 0.34,
+        "t_r_duration_s": 0.36,
+        "hold_duration_s": 0.06,
+        "recover_duration_s": 0.12,
+    },
+    60.0: {
+        "elevator_brake_norm": -1.00,
+        "aileron_roll_norm": 1.00,
+        "rudder_yaw_norm": 1.00,
+        "t_e_start_s": 0.08,
+        "t_a_start_s": 0.08,
+        "t_r_start_s": 0.08,
+        "t_e_duration_s": 0.08,
+        "t_a_duration_s": 0.48,
+        "t_r_duration_s": 0.52,
+        "hold_duration_s": 0.08,
+        "recover_duration_s": 0.16,
+    },
+    90.0: {
+        "elevator_brake_norm": -1.00,
+        "aileron_roll_norm": 1.00,
+        "rudder_yaw_norm": 1.00,
+        "t_e_start_s": 0.08,
+        "t_a_start_s": 0.08,
+        "t_r_start_s": 0.08,
+        "t_e_duration_s": 0.10,
+        "t_a_duration_s": 0.64,
+        "t_r_duration_s": 0.68,
+        "hold_duration_s": 0.10,
+        "recover_duration_s": 0.18,
+    },
+    120.0: {
+        "elevator_brake_norm": -1.00,
+        "aileron_roll_norm": 1.00,
+        "rudder_yaw_norm": 1.00,
+        "t_e_start_s": 0.08,
+        "t_a_start_s": 0.08,
+        "t_r_start_s": 0.08,
+        "t_e_duration_s": 0.12,
+        "t_a_duration_s": 0.76,
+        "t_r_duration_s": 0.82,
+        "hold_duration_s": 0.12,
+        "recover_duration_s": 0.22,
+    },
+    180.0: {
+        "elevator_brake_norm": -1.00,
+        "aileron_roll_norm": 1.00,
+        "rudder_yaw_norm": 1.00,
+        "t_e_start_s": 0.08,
+        "t_a_start_s": 0.08,
+        "t_r_start_s": 0.08,
+        "t_e_duration_s": 0.14,
+        "t_a_duration_s": 0.96,
+        "t_r_duration_s": 1.02,
+        "hold_duration_s": 0.16,
+        "recover_duration_s": 0.28,
+    },
+}
 
 
 def _template_command(

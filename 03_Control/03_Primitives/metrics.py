@@ -44,7 +44,13 @@ METRIC_SCHEMA_KEYS = (
     "termination_reason",
     "success",
     "failure_class",
+    "primitive_family",
+    "is_full_turn_claim",
+    "target_heading_deg",
+    "heading_target_deg",
     "heading_change_deg",
+    "actual_heading_change_deg",
+    "heading_error_deg",
     "forward_travel_m",
     "turn_volume_proxy_m2",
     "height_change_m",
@@ -58,6 +64,8 @@ METRIC_SCHEMA_KEYS = (
     "saturation_fraction",
     "tracking_error_rms",
     "exit_recoverable",
+    "fixed_start_success",
+    "feasibility_label",
     "governor_rejection_reason",
     "candidate_count",
     "rejected_count",
@@ -109,6 +117,11 @@ def _speed(states: np.ndarray) -> np.ndarray:
     return np.linalg.norm(states[:, 6:9], axis=1)
 
 
+def _heading_delta_deg(states: np.ndarray) -> float:
+    delta = float(states[-1, STATE_INDEX["psi"]] - states[0, STATE_INDEX["psi"]])
+    return float(np.rad2deg((delta + np.pi) % (2.0 * np.pi) - np.pi))
+
+
 def _metric_with_required_schema(row: dict[str, object]) -> dict[str, object]:
     stable = {key: row.get(key, None) for key in METRIC_SCHEMA_KEYS}
     for key, value in row.items():
@@ -151,6 +164,7 @@ def rollout_metrics(
     governor_rejection_reason: str = "",
     candidate_count: int = 0,
     rejected_count: int = 0,
+    primitive_metadata: dict[str, object] | None = None,
 ) -> dict[str, float | str | bool | int]:
     state_arr = np.asarray(states, dtype=float)
     final = state_arr[-1]
@@ -179,6 +193,17 @@ def rollout_metrics(
     rel_log_path = relative_path(log_path, repo_root) if str(log_path) else ""
     selected_name = selected_primitive or primitive_selected
     reason = str(termination_reason)
+    heading_change_deg = _heading_delta_deg(state_arr)
+    metadata = _scenario_target_metadata(scenario_id, primitive_selected)
+    if primitive_metadata is not None:
+        metadata.update(dict(primitive_metadata))
+    feasibility = _agile_feasibility_fields(
+        metadata=metadata,
+        success=bool(success),
+        heading_change_deg=heading_change_deg,
+        min_wall_distance_m=float(min_wall),
+        exit_recoverable=bool(success and inside),
+    )
     row = {
         "run_id": f"{scenario_id}_seed{int(seed)}",
         "scenario_id": scenario_id,
@@ -202,9 +227,9 @@ def rollout_metrics(
         "termination_reason": reason,
         "success": bool(success),
         "failure_class": failure_class(reason, governor_rejection_reason, wind_model),
-        "heading_change_deg": float(
-            np.rad2deg(final[STATE_INDEX["psi"]] - state_arr[0, STATE_INDEX["psi"]])
-        ),
+        **feasibility,
+        "heading_change_deg": heading_change_deg,
+        "actual_heading_change_deg": heading_change_deg,
         "forward_travel_m": float(
             final[STATE_INDEX["x_w"]] - state_arr[0, STATE_INDEX["x_w"]]
         ),
@@ -265,6 +290,7 @@ def rejected_metrics(
     vicon_filter_model: str = "",
     candidate_count: int = 1,
     rejected_count: int = 1,
+    primitive_metadata: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return rollout_metrics(
         scenario_id=scenario_id,
@@ -295,4 +321,77 @@ def rejected_metrics(
         governor_rejection_reason=governor_rejection_reason,
         candidate_count=candidate_count,
         rejected_count=rejected_count,
+        primitive_metadata=primitive_metadata,
     )
+
+
+def _agile_feasibility_fields(
+    metadata: dict[str, object],
+    success: bool,
+    heading_change_deg: float,
+    min_wall_distance_m: float,
+    exit_recoverable: bool,
+) -> dict[str, object]:
+    target = _optional_metadata_float(metadata.get("target_heading_deg"))
+    primitive_family = str(metadata.get("primitive_family", ""))
+    is_full_turn_claim = bool(metadata.get("is_full_turn_claim", False))
+    if target is None:
+        return {
+            "primitive_family": primitive_family,
+            "is_full_turn_claim": is_full_turn_claim,
+            "target_heading_deg": None,
+            "heading_target_deg": None,
+            "heading_error_deg": None,
+            "fixed_start_success": False,
+            "feasibility_label": "not_tested",
+        }
+
+    actual_abs = abs(float(heading_change_deg))
+    heading_error = abs(float(target) - actual_abs)
+    target_reached = actual_abs >= 0.8 * float(target)
+    safe_exit = bool(success and exit_recoverable and min_wall_distance_m > 0.0)
+    if not success or min_wall_distance_m <= 0.0:
+        label = "fixed_start_unsafe"
+    elif not exit_recoverable:
+        label = "fixed_start_unrecoverable"
+    elif not target_reached:
+        label = "fixed_start_safe_but_under_turning"
+    else:
+        label = "fixed_start_feasible"
+    return {
+        "primitive_family": primitive_family,
+        "is_full_turn_claim": is_full_turn_claim,
+        "target_heading_deg": float(target),
+        "heading_target_deg": float(target),
+        "heading_error_deg": float(heading_error),
+        "fixed_start_success": safe_exit,
+        "feasibility_label": label,
+    }
+
+
+def _optional_metadata_float(value: object) -> float | None:
+    if value is None or value == "":
+        return None
+    value_float = float(value)
+    if not np.isfinite(value_float):
+        return None
+    return value_float
+
+
+def _scenario_target_metadata(
+    scenario_id: str,
+    primitive_name: str,
+) -> dict[str, object]:
+    if not scenario_id.startswith("s9_agile_reversal_left"):
+        return {}
+    target = 30.0
+    marker = "_target_"
+    if marker in scenario_id:
+        token = scenario_id.split(marker, maxsplit=1)[1].split("_", maxsplit=1)[0]
+        target = float(int(token))
+    return {
+        "primitive_family": "agile_tvlqr_scaffold",
+        "is_full_turn_claim": False,
+        "target_heading_deg": target,
+        "primitive_name": primitive_name,
+    }
