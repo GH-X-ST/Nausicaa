@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import sys
@@ -13,7 +14,9 @@ matplotlib.use("Agg")
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from matplotlib.collections import LineCollection
+from matplotlib.patches import Circle, Rectangle
+from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 
 try:
     from skimage.measure import marching_cubes
@@ -21,7 +24,12 @@ except ImportError:  # pragma: no cover - optional thermal-style plume surfaces
     marching_cubes = None
 
 from plot_style import (
+    ACTUAL_END_COLOR,
+    ACTUAL_START_COLOR,
     CBAR_LABEL,
+    CONTROL_REFERENCE_COLOR,
+    DESIRED_COMMAND_ALPHA,
+    ENVIRONMENT_REFERENCE_COLOR,
     FAN_OUTLET_ALPHA,
     FAN_OUTLET_DASH,
     FAN_OUTLET_DIAMETER_M,
@@ -36,6 +44,8 @@ from plot_style import (
     save_figure,
     style_3d_axis,
     style_command_axis,
+    style_geometry_axis,
+    style_time_axis,
     thermal_cmap,
 )
 
@@ -67,7 +77,12 @@ for rel in (
 from arena import ArenaConfig, safe_bounds, tracker_bounds  # noqa: E402
 from flight_dynamics import adapt_glider  # noqa: E402
 from glider import build_nausicaa_glider  # noqa: E402
-from latency import CommandToSurfaceConfig, CommandToSurfaceLayer, LatencyEnvelope  # noqa: E402
+from latency import (  # noqa: E402
+    AGGREGATE_LIMITS,
+    CommandToSurfaceConfig,
+    CommandToSurfaceLayer,
+    LatencyEnvelope,
+)
 from linearisation import INPUT_NAMES, STATE_NAMES, linearise_trim  # noqa: E402
 from primitive import build_primitive_context  # noqa: E402
 from rollout import RolloutConfig, RolloutResult, simulate_primitive, write_log  # noqa: E402
@@ -181,6 +196,15 @@ SCENARIO_GROUPS = {
     "s4_governor_selection": "11_governor",
 }
 
+FIGURE_STEMS = {
+    "A": "A_trajectory_command_actuator",
+    "B": "B_flight_rates",
+    "C": "C_flight_state_alpha_beta",
+    "D": "D_envelope_variables",
+    "E": "E_2d_trajectory_geometry",
+}
+FIGURE_ORDER = ("A", "B", "C", "D", "E")
+
 
 @dataclass(frozen=True)
 class TrajectorySeries:
@@ -190,6 +214,7 @@ class TrajectorySeries:
     states: np.ndarray
     desired_commands_rad: np.ndarray
     target_commands_rad: np.ndarray
+    log_columns: dict[str, np.ndarray]
 
 
 @dataclass(frozen=True)
@@ -371,6 +396,7 @@ def _series_from_result(
         states=np.asarray(result.states, dtype=float),
         desired_commands_rad=np.asarray(result.desired_commands, dtype=float),
         target_commands_rad=np.asarray(result.target_commands, dtype=float),
+        log_columns=_numeric_log_columns(result.log_rows),
     )
 
 
@@ -403,7 +429,27 @@ def _load_actual_log(path: Path) -> TrajectorySeries:
         states=states,
         desired_commands_rad=desired,
         target_commands_rad=target,
+        log_columns=_numeric_log_columns(rows),
     )
+
+
+def _numeric_log_columns(
+    rows: tuple[dict[str, object], ...] | list[dict[str, object]],
+) -> dict[str, np.ndarray]:
+    if not rows:
+        return {}
+    columns: dict[str, np.ndarray] = {}
+    for key in rows[0]:
+        values: list[float] = []
+        for row in rows:
+            try:
+                values.append(float(row[key]))
+            except (TypeError, ValueError):
+                values = []
+                break
+        if values:
+            columns[key] = np.asarray(values, dtype=float)
+    return columns
 
 
 def _write_single_row(path: Path, row: dict[str, object]) -> None:
@@ -549,7 +595,7 @@ def _plot_arena(ax: mpl.axes.Axes, arena: ArenaConfig) -> None:
     _draw_box(
         ax,
         safe_bounds(arena),
-        color=(0.0, 0.0, 0.0, 0.45),
+        color=ENVIRONMENT_REFERENCE_COLOR,
         linewidth=0.9,
         linestyle="--",
         label="True safety volume",
@@ -773,11 +819,308 @@ def _plot_updraft_field(
     cbar.outline.set_edgecolor("black")
 
 
+def _actual_progress_cmap() -> mpl.colors.LinearSegmentedColormap:
+    return mpl.colors.LinearSegmentedColormap.from_list(
+        "actual_time_progress",
+        [ACTUAL_START_COLOR, ACTUAL_END_COLOR],
+    )
+
+
+def _progress_values(times_s: np.ndarray, count: int) -> np.ndarray:
+    if count <= 0:
+        return np.empty(0, dtype=float)
+    times = np.asarray(times_s, dtype=float)
+    if times.size < 2 or not np.isfinite(times).all():
+        return np.linspace(0.0, 1.0, count)
+    lower = float(times[0])
+    upper = float(times[-1])
+    if upper <= lower:
+        return np.linspace(0.0, 1.0, count)
+    segment_times = 0.5 * (times[:-1] + times[1:])
+    return np.clip((segment_times - lower) / (upper - lower), 0.0, 1.0)
+
+
+def _actual_gradient_colors(times_s: np.ndarray, count: int) -> np.ndarray:
+    return _actual_progress_cmap()(_progress_values(times_s, count))
+
+
+def _plot_actual_gradient_line_2d(
+    ax: mpl.axes.Axes,
+    times_s: np.ndarray,
+    x: np.ndarray,
+    y: np.ndarray,
+    linewidth: float,
+    label: str | None,
+    zorder: int,
+) -> LineCollection | None:
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    if x_arr.size < 2 or y_arr.size < 2:
+        return None
+    points = np.column_stack([x_arr, y_arr])
+    segments = np.stack([points[:-1], points[1:]], axis=1)
+    collection = LineCollection(
+        segments,
+        colors=_actual_gradient_colors(times_s, segments.shape[0]),
+        linewidths=linewidth,
+        linestyles="-",
+        label=label,
+        zorder=zorder,
+    )
+    ax.add_collection(collection)
+    ax.update_datalim(points)
+    ax.autoscale_view()
+    return collection
+
+
+def _plot_actual_gradient_line_3d(
+    ax: mpl.axes.Axes,
+    times_s: np.ndarray,
+    x: np.ndarray,
+    y: np.ndarray,
+    z: np.ndarray,
+    linewidth: float,
+    label: str | None,
+    zorder: int,
+) -> Line3DCollection | None:
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    z_arr = np.asarray(z, dtype=float)
+    if x_arr.size < 2 or y_arr.size < 2 or z_arr.size < 2:
+        return None
+    points = np.column_stack([x_arr, y_arr, z_arr])
+    segments = np.stack([points[:-1], points[1:]], axis=1)
+    collection = Line3DCollection(
+        segments,
+        colors=_actual_gradient_colors(times_s, segments.shape[0]),
+        linewidths=linewidth,
+        linestyles="-",
+        label=label,
+        zorder=zorder,
+    )
+    ax.add_collection3d(collection)
+    return collection
+
+
+def _legend_handles_labels(
+    axes: tuple[mpl.axes.Axes, ...] | list[mpl.axes.Axes],
+) -> tuple[list[object], list[str]]:
+    unique_handles: list[object] = []
+    unique_labels: list[str] = []
+    seen: set[str] = set()
+    for ax in axes:
+        handles, labels = ax.get_legend_handles_labels()
+        for handle, label in zip(handles, labels):
+            if not label or label.startswith("_") or label in seen:
+                continue
+            unique_handles.append(handle)
+            unique_labels.append(label)
+            seen.add(label)
+    return unique_handles, unique_labels
+
+
+def _framed_figure_legend(
+    fig: mpl.figure.Figure,
+    axes: tuple[mpl.axes.Axes, ...] | list[mpl.axes.Axes],
+    style: PlotStyle,
+    loc: str,
+    bbox_to_anchor: tuple[float, float],
+    ncol: int,
+) -> mpl.legend.Legend | None:
+    handles, labels = _legend_handles_labels(axes)
+    if not handles:
+        return None
+    legend = fig.legend(
+        handles,
+        labels,
+        loc=loc,
+        bbox_to_anchor=bbox_to_anchor,
+        ncol=ncol,
+        frameon=True,
+        framealpha=1.0,
+        edgecolor="black",
+        fontsize=style.legend_size,
+        handlelength=1.7,
+        handletextpad=0.45,
+        columnspacing=0.9,
+        borderpad=0.45,
+        labelspacing=0.25,
+    )
+    legend.get_frame().set_linewidth(0.8)
+    return legend
+
+
+def _plot_series_line(
+    ax: mpl.axes.Axes,
+    series: TrajectorySeries,
+    x: np.ndarray,
+    y: np.ndarray,
+    label: str | None = None,
+    zorder: int = 10,
+) -> None:
+    spec = TRAJECTORY_SPECS[series.key]
+    if series.key == "actual":
+        _plot_actual_gradient_line_2d(
+            ax,
+            series.times_s,
+            x,
+            y,
+            linewidth=float(spec["linewidth"]),
+            label=label,
+            zorder=zorder,
+        )
+        return
+    ax.plot(
+        x,
+        y,
+        color=spec["color"],
+        linestyle=spec["linestyle"],
+        linewidth=spec["linewidth"],
+        alpha=float(spec.get("alpha", 1.0)),
+        label=label,
+        zorder=zorder,
+    )
+
+
+def _all_series(data: PlotScenarioData) -> tuple[TrajectorySeries, ...]:
+    return (data.actual, *data.references)
+
+
+def _state_column(series: TrajectorySeries, name: str) -> np.ndarray:
+    return series.states[:, STATE_NAMES.index(name)]
+
+
+def _log_column(series: TrajectorySeries, name: str) -> np.ndarray | None:
+    values = series.log_columns.get(name)
+    if values is None or values.shape[0] != series.times_s.shape[0]:
+        return None
+    return values
+
+
+def _alpha_beta_rad(series: TrajectorySeries) -> tuple[np.ndarray, np.ndarray]:
+    alpha = _log_column(series, "alpha_rad")
+    beta = _log_column(series, "beta_rad")
+    if alpha is not None and beta is not None:
+        return alpha, beta
+    velocities = series.states[:, 6:9]
+    speed = np.linalg.norm(velocities, axis=1)
+    alpha_calc = np.arctan2(velocities[:, 2], np.maximum(velocities[:, 0], 1e-12))
+    beta_calc = np.arcsin(
+        np.clip(velocities[:, 1] / np.maximum(speed, 1e-12), -1.0, 1.0)
+    )
+    return alpha_calc, beta_calc
+
+
+def _safety_margin_series(series: TrajectorySeries) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    wall = _log_column(series, "min_wall_distance_m")
+    floor = _log_column(series, "floor_margin_m")
+    ceiling = _log_column(series, "ceiling_margin_m")
+    if wall is not None and floor is not None and ceiling is not None:
+        return wall, floor, ceiling
+    bounds = safe_bounds(ArenaConfig())
+    x_w = _state_column(series, "x_w")
+    y_w = _state_column(series, "y_w")
+    z_w = _state_column(series, "z_w")
+    x_margin = np.minimum(x_w - bounds["x_w"][0], bounds["x_w"][1] - x_w)
+    y_margin = np.minimum(y_w - bounds["y_w"][0], bounds["y_w"][1] - y_w)
+    return (
+        np.minimum(x_margin, y_margin),
+        z_w - bounds["z_w"][0],
+        bounds["z_w"][1] - z_w,
+    )
+
+
+def _add_rectangle_projection(
+    ax: mpl.axes.Axes,
+    bounds: dict[str, tuple[float, float]],
+    x_key: str,
+    y_key: str,
+    edgecolor: str | tuple[float, float, float, float],
+    linewidth: float,
+    linestyle: str,
+    label: str,
+    zorder: int,
+) -> None:
+    x0, x1 = bounds[x_key]
+    y0, y1 = bounds[y_key]
+    rect = Rectangle(
+        (x0, y0),
+        x1 - x0,
+        y1 - y0,
+        fill=False,
+        edgecolor=edgecolor,
+        linewidth=linewidth,
+        linestyle=linestyle,
+        label=label,
+        zorder=zorder,
+    )
+    ax.add_patch(rect)
+
+
+def _plot_start_end_projection(
+    ax: mpl.axes.Axes,
+    actual: TrajectorySeries,
+    x_index: int,
+    y_index: int,
+) -> None:
+    start = actual.states[0]
+    end = actual.states[-1]
+    ax.scatter(
+        [start[x_index]],
+        [start[y_index]],
+        color=ACTUAL_START_COLOR,
+        s=18,
+        marker="o",
+        label="Start",
+        zorder=20,
+    )
+    ax.scatter(
+        [end[x_index]],
+        [end[y_index]],
+        color=ACTUAL_END_COLOR,
+        s=24,
+        marker="x",
+        label="End",
+        zorder=20,
+    )
+
+
+def _plot_fan_outlets_2d(
+    ax: mpl.axes.Axes,
+    centres: tuple[tuple[float, float], ...],
+) -> None:
+    radius = 0.5 * FAN_OUTLET_DIAMETER_M
+    for idx, (cx, cy) in enumerate(centres):
+        outlet = Circle(
+            (float(cx), float(cy)),
+            radius=radius,
+            fill=False,
+            edgecolor=(0.0, 0.0, 0.0, FAN_OUTLET_ALPHA),
+            linewidth=FAN_OUTLET_EDGE_LW,
+            linestyle=FAN_OUTLET_DASH,
+            label="Fan outlet" if idx == 0 else None,
+            zorder=8,
+        )
+        ax.add_patch(outlet)
+
+
 # =============================================================================
-# 4) Composite Figure Builder
+# 4) Figure Builders
 # =============================================================================
 def _plot_trajectory(ax: mpl.axes.Axes, series: TrajectorySeries) -> None:
     spec = TRAJECTORY_SPECS[series.key]
+    if series.key == "actual":
+        _plot_actual_gradient_line_3d(
+            ax,
+            series.times_s,
+            series.states[:, 0],
+            series.states[:, 1],
+            series.states[:, 2],
+            linewidth=float(spec["linewidth"]),
+            label=series.label,
+            zorder=10,
+        )
+        return
     ax.plot(
         series.states[:, 0],
         series.states[:, 1],
@@ -785,6 +1128,7 @@ def _plot_trajectory(ax: mpl.axes.Axes, series: TrajectorySeries) -> None:
         color=spec["color"],
         linestyle=spec["linestyle"],
         linewidth=spec["linewidth"],
+        alpha=float(spec.get("alpha", 1.0)),
         label=series.label,
         zorder=10,
     )
@@ -797,7 +1141,7 @@ def _plot_start_end(ax: mpl.axes.Axes, actual: TrajectorySeries) -> None:
         [start[0]],
         [start[1]],
         [start[2]],
-        color="#2CA02C",
+        color=ACTUAL_START_COLOR,
         s=26,
         marker="o",
         label="Start",
@@ -807,7 +1151,7 @@ def _plot_start_end(ax: mpl.axes.Axes, actual: TrajectorySeries) -> None:
         [end[0]],
         [end[1]],
         [end[2]],
-        color="#111111",
+        color=ACTUAL_END_COLOR,
         s=32,
         marker="x",
         label="End",
@@ -825,24 +1169,41 @@ def _plot_command_axes(
         r"$\delta_e$ (deg)",
         r"$\delta_r$ (deg)",
     )
+    limit_keys = ("delta_a", "delta_e", "delta_r")
     desired_deg = np.rad2deg(actual.desired_commands_rad)
     target_deg = np.rad2deg(actual.target_commands_rad)
     for idx, ax in enumerate(axes):
         ax.plot(
             actual.times_s,
             desired_deg[:, idx],
-            color="#1F77B4",
+            color=CONTROL_REFERENCE_COLOR,
             linewidth=1.2,
             linestyle="--",
+            alpha=DESIRED_COMMAND_ALPHA,
             label="Desired",
         )
-        ax.plot(
+        _plot_actual_gradient_line_2d(
+            ax,
+            actual.times_s,
             actual.times_s,
             target_deg[:, idx],
-            color="#111111",
             linewidth=1.2,
-            linestyle="-",
             label="Command path",
+            zorder=10,
+        )
+        limit = AGGREGATE_LIMITS[limit_keys[idx]]
+        ax.axhline(
+            limit.positive_deg,
+            color="black",
+            linestyle=":",
+            linewidth=0.8,
+            label="surface limit",
+        )
+        ax.axhline(
+            limit.negative_deg,
+            color="black",
+            linestyle=":",
+            linewidth=0.8,
         )
         style_command_axis(ax, labels[idx], style)
         if idx < len(axes) - 1:
@@ -853,13 +1214,13 @@ def _plot_command_axes(
             framed_legend(
                 ax,
                 style,
-                loc="lower left",
-                bbox_to_anchor=(0.0, 1.03),
-                ncol=2,
+                loc="lower center",
+                bbox_to_anchor=(0.5, 1.03),
+                ncol=3,
             )
 
 
-def build_composite_figure(
+def build_figure_a_trajectory_command_actuator(
     data: PlotScenarioData,
     style: PlotStyle | None = None,
 ) -> mpl.figure.Figure:
@@ -909,6 +1270,319 @@ def build_composite_figure(
         ncol=3,
     )
     _plot_command_axes(command_axes, data.actual, style)
+    return fig
+
+
+def build_composite_figure(
+    data: PlotScenarioData,
+    style: PlotStyle | None = None,
+) -> mpl.figure.Figure:
+    return build_figure_a_trajectory_command_actuator(data, style=style)
+
+
+def build_figure_b_flight_rates(
+    data: PlotScenarioData,
+    style: PlotStyle | None = None,
+) -> mpl.figure.Figure:
+    style = style or PlotStyle()
+    fig, axes = plt.subplots(
+        3,
+        2,
+        figsize=(7.2, 4.6),
+        dpi=style.dpi,
+        sharex="col",
+    )
+    fig.patch.set_facecolor("white")
+    velocity_names = ("u", "v", "w")
+    velocity_labels = (
+        r"$u_b$ (m $\!$s$^{-1}$)",
+        r"$v_b$ (m $\!$s$^{-1}$)",
+        r"$w_b$ (m $\!$s$^{-1}$)",
+    )
+    rate_names = ("p", "q", "r")
+    rate_labels = (
+        r"$p$ (deg $\!$s$^{-1}$)",
+        r"$q$ (deg $\!$s$^{-1}$)",
+        r"$r$ (deg $\!$s$^{-1}$)",
+    )
+    for row_idx, (name, label) in enumerate(zip(velocity_names, velocity_labels)):
+        ax = axes[row_idx, 0]
+        for series in _all_series(data):
+            _plot_series_line(
+                ax,
+                series,
+                series.times_s,
+                _state_column(series, name),
+                label=series.label if row_idx == 0 else None,
+            )
+        style_time_axis(ax, label, style, show_xlabel=row_idx == 2)
+    for row_idx, (name, label) in enumerate(zip(rate_names, rate_labels)):
+        ax = axes[row_idx, 1]
+        for series in _all_series(data):
+            _plot_series_line(
+                ax,
+                series,
+                series.times_s,
+                np.rad2deg(_state_column(series, name)),
+                label=series.label if row_idx == 0 else None,
+            )
+        style_time_axis(ax, label, style, show_xlabel=row_idx == 2)
+    _framed_figure_legend(
+        fig,
+        [axes[0, 0], axes[0, 1]],
+        style,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.995),
+        ncol=3,
+    )
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.92))
+    return fig
+
+
+def build_figure_c_flight_state_alpha_beta(
+    data: PlotScenarioData,
+    style: PlotStyle | None = None,
+) -> mpl.figure.Figure:
+    style = style or PlotStyle()
+    fig = plt.figure(figsize=(7.2, 4.2), dpi=style.dpi)
+    fig.patch.set_facecolor("white")
+    grid = fig.add_gridspec(6, 2, wspace=0.28, hspace=0.26)
+    axes_left = (
+        fig.add_subplot(grid[0:2, 0]),
+        fig.add_subplot(grid[2:4, 0]),
+        fig.add_subplot(grid[4:6, 0]),
+    )
+    axes_right = (
+        fig.add_subplot(grid[0:3, 1]),
+        fig.add_subplot(grid[3:6, 1]),
+    )
+
+    attitude_specs = (
+        ("psi", r"$\psi$ (deg)", True),
+        ("phi", r"$\phi$ (deg)", False),
+        ("theta", r"$\theta$ (deg)", False),
+    )
+    for idx, (name, label, unwrap) in enumerate(attitude_specs):
+        ax = axes_left[idx]
+        for series in _all_series(data):
+            values = _state_column(series, name)
+            if unwrap:
+                values = np.unwrap(values)
+            _plot_series_line(
+                ax,
+                series,
+                series.times_s,
+                np.rad2deg(values),
+                label=series.label if idx == 0 else None,
+            )
+        style_time_axis(ax, label, style, show_xlabel=idx == 2)
+
+    for idx, (angle_idx, label) in enumerate(
+        ((0, r"$\alpha$ (deg)"), (1, r"$\beta$ (deg)"))
+    ):
+        ax = axes_right[idx]
+        for series in _all_series(data):
+            alpha, beta = _alpha_beta_rad(series)
+            values = alpha if angle_idx == 0 else beta
+            _plot_series_line(
+                ax,
+                series,
+                series.times_s,
+                np.rad2deg(values),
+                label=series.label if idx == 0 else None,
+            )
+        if angle_idx == 0:
+            limit_deg = float(np.rad2deg(RolloutConfig().max_abs_alpha_rad))
+            ax.axhline(
+                limit_deg,
+                color="black",
+                linestyle=":",
+                linewidth=0.8,
+                label=r"$\alpha$ limit",
+            )
+            ax.axhline(-limit_deg, color="black", linestyle=":", linewidth=0.8)
+        style_time_axis(ax, label, style, show_xlabel=idx == 1)
+    _framed_figure_legend(
+        fig,
+        [axes_left[0], axes_right[0]],
+        style,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.995),
+        ncol=3,
+    )
+    fig.subplots_adjust(left=0.09, right=0.98, bottom=0.12, top=0.88)
+    return fig
+
+
+def build_figure_d_envelope_variables(
+    data: PlotScenarioData,
+    style: PlotStyle | None = None,
+) -> mpl.figure.Figure:
+    style = style or PlotStyle()
+    fig = plt.figure(figsize=(7.2, 3.6), dpi=style.dpi)
+    fig.patch.set_facecolor("white")
+    grid = fig.add_gridspec(3, 2, width_ratios=(1.18, 1.0), wspace=0.28, hspace=0.18)
+    height_ax = fig.add_subplot(grid[:, 0])
+    margin_axes = (
+        fig.add_subplot(grid[0, 1]),
+        fig.add_subplot(grid[1, 1]),
+        fig.add_subplot(grid[2, 1]),
+    )
+    bounds = safe_bounds(ArenaConfig())
+    for series in _all_series(data):
+        _plot_series_line(
+            height_ax,
+            series,
+            series.times_s,
+            _state_column(series, "z_w"),
+            label=series.label,
+        )
+    height_ax.axhline(bounds["z_w"][0], color="black", linestyle=":", linewidth=0.8)
+    height_ax.axhline(bounds["z_w"][1], color="black", linestyle=":", linewidth=0.8)
+    height_ax.axhline(
+        RolloutConfig().min_altitude_m,
+        color=(0.35, 0.35, 0.35, 1.0),
+        linestyle=":",
+        linewidth=0.75,
+        label="simulation floor",
+    )
+    style_time_axis(height_ax, r"$z_w$ (m)", style, show_xlabel=True)
+
+    margin_labels = (
+        r"$d_{\mathrm{wall,min}}$ (m)",
+        r"$d_{\mathrm{floor}}$ (m)",
+        r"$d_{\mathrm{ceiling}}$ (m)",
+    )
+    for axis_idx, ax in enumerate(margin_axes):
+        for series in _all_series(data):
+            margins = _safety_margin_series(series)
+            _plot_series_line(
+                ax,
+                series,
+                series.times_s,
+                margins[axis_idx],
+                label=series.label if axis_idx == 0 else None,
+            )
+        ax.axhline(0.0, color="black", linestyle=":", linewidth=0.8)
+        style_time_axis(ax, margin_labels[axis_idx], style, show_xlabel=axis_idx == 2)
+    _framed_figure_legend(
+        fig,
+        [height_ax, *margin_axes],
+        style,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.995),
+        ncol=4,
+    )
+    fig.subplots_adjust(left=0.09, right=0.98, bottom=0.14, top=0.86)
+    return fig
+
+
+def build_figure_e_2d_trajectory_geometry(
+    data: PlotScenarioData,
+    style: PlotStyle | None = None,
+) -> mpl.figure.Figure:
+    style = style or PlotStyle()
+    fig, (xy_ax, zx_ax) = plt.subplots(
+        1,
+        2,
+        figsize=(7.2, 3.2),
+        dpi=style.dpi,
+    )
+    fig.patch.set_facecolor("white")
+    tracker = tracker_bounds(ArenaConfig())
+    safe = safe_bounds(ArenaConfig())
+
+    for series in _all_series(data):
+        _plot_series_line(
+            xy_ax,
+            series,
+            _state_column(series, "x_w"),
+            _state_column(series, "y_w"),
+            label=series.label,
+            zorder=10,
+        )
+        _plot_series_line(
+            zx_ax,
+            series,
+            _state_column(series, "x_w"),
+            _state_column(series, "z_w"),
+            label=series.label,
+            zorder=10,
+        )
+    _add_rectangle_projection(
+        xy_ax,
+        tracker,
+        "x_w",
+        "y_w",
+        edgecolor=(0.0, 0.0, 0.0, 0.28),
+        linewidth=0.65,
+        linestyle=":",
+        label="Tracker limit",
+        zorder=4,
+    )
+    _add_rectangle_projection(
+        xy_ax,
+        safe,
+        "x_w",
+        "y_w",
+        edgecolor=ENVIRONMENT_REFERENCE_COLOR,
+        linewidth=0.9,
+        linestyle="--",
+        label="True safety volume",
+        zorder=5,
+    )
+    _add_rectangle_projection(
+        zx_ax,
+        tracker,
+        "x_w",
+        "z_w",
+        edgecolor=(0.0, 0.0, 0.0, 0.28),
+        linewidth=0.65,
+        linestyle=":",
+        label="Tracker limit",
+        zorder=4,
+    )
+    _add_rectangle_projection(
+        zx_ax,
+        safe,
+        "x_w",
+        "z_w",
+        edgecolor=ENVIRONMENT_REFERENCE_COLOR,
+        linewidth=0.9,
+        linestyle="--",
+        label="True safety volume",
+        zorder=5,
+    )
+    if data.scenario.wind_model is not None:
+        _plot_fan_outlets_2d(xy_ax, _fan_outlet_centres(data.scenario.wind_model))
+    _plot_start_end_projection(
+        xy_ax,
+        data.actual,
+        STATE_NAMES.index("x_w"),
+        STATE_NAMES.index("y_w"),
+    )
+    _plot_start_end_projection(
+        zx_ax,
+        data.actual,
+        STATE_NAMES.index("x_w"),
+        STATE_NAMES.index("z_w"),
+    )
+
+    xy_ax.set_xlim(*tracker["x_w"])
+    xy_ax.set_ylim(*tracker["y_w"])
+    zx_ax.set_xlim(*tracker["x_w"])
+    zx_ax.set_ylim(*tracker["z_w"])
+    style_geometry_axis(xy_ax, r"$x_w$ (m)", r"$y_w$ (m)", style, equal_aspect=True)
+    style_geometry_axis(zx_ax, r"$x_w$ (m)", r"$z_w$ (m)", style, equal_aspect=False)
+    _framed_figure_legend(
+        fig,
+        [xy_ax, zx_ax],
+        style,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.015),
+        ncol=4,
+    )
+    fig.tight_layout(rect=(0.0, 0.16, 1.0, 1.0))
     return fig
 
 
@@ -999,7 +1673,7 @@ def generate_scenario_figure(
     save_png: bool = True,
     save_pdf: bool = False,
 ) -> dict[str, Path]:
-    """Run or load a scenario result and save the composite figure."""
+    """Run or load a scenario result and save the five canonical figures."""
     data = load_scenario_plot_data(
         scenario_id=scenario_id,
         seed=seed,
@@ -1008,19 +1682,30 @@ def generate_scenario_figure(
         include_environment_reference=include_environment_reference,
     )
     style = PlotStyle()
-    fig = build_composite_figure(data, style=style)
     output_paths = scenario_output_paths(scenario_id, seed, output_root)
-    stem = "flight_trajectory_and_control_commands"
+    builders = {
+        "A": build_figure_a_trajectory_command_actuator,
+        "B": build_figure_b_flight_rates,
+        "C": build_figure_c_flight_state_alpha_beta,
+        "D": build_figure_d_envelope_variables,
+        "E": build_figure_e_2d_trajectory_geometry,
+    }
     plot_paths: dict[str, Path] = {}
-    if save_png:
-        png_path = output_paths.root_dir / f"{stem}.png"
-        save_figure(fig, png_path, style)
-        plot_paths["png"] = png_path
-    if save_pdf:
-        pdf_path = output_paths.root_dir / f"{stem}.pdf"
-        save_figure(fig, pdf_path, style)
-        plot_paths["pdf"] = pdf_path
-    plt.close(fig)
+    if save_png or save_pdf:
+        for label in FIGURE_ORDER:
+            fig = builders[label](data, style=style)
+            try:
+                stem = FIGURE_STEMS[label]
+                if save_png:
+                    png_path = output_paths.root_dir / f"{stem}.png"
+                    save_figure(fig, png_path, style)
+                    plot_paths[f"{label}_png"] = png_path
+                if save_pdf:
+                    pdf_path = output_paths.root_dir / f"{stem}.pdf"
+                    save_figure(fig, pdf_path, style)
+                    plot_paths[f"{label}_pdf"] = pdf_path
+            finally:
+                plt.close(fig)
     _write_manifest(
         scenario_id=scenario_id,
         seed=seed,
@@ -1036,6 +1721,26 @@ def _relative_to_result(path: Path, root: Path) -> str:
         return str(path.resolve().relative_to(root.resolve())).replace("\\", "/")
     except ValueError:
         return str(path).replace("\\", "/")
+
+
+def _manifest_figure_paths(
+    plot_paths: dict[str, Path],
+    root: Path,
+) -> dict[str, dict[str, str]]:
+    figures: dict[str, dict[str, str]] = {}
+    for key, path in plot_paths.items():
+        if "_" not in key:
+            continue
+        label, extension = key.split("_", 1)
+        figures.setdefault(extension, {})[label] = _relative_to_result(path, root)
+    return {
+        extension: {
+            label: values[label]
+            for label in FIGURE_ORDER
+            if label in values
+        }
+        for extension, values in sorted(figures.items())
+    }
 
 
 def _write_manifest(
@@ -1060,10 +1765,7 @@ def _write_manifest(
             f"{int(seed):03d}"
         ),
         "analysis_data": _digital_file_list(output_paths),
-        "figures": {
-            key: _relative_to_result(path, output_paths.root_dir)
-            for key, path in plot_paths.items()
-        },
+        "figures": _manifest_figure_paths(plot_paths, output_paths.root_dir),
     }
     output_paths.manifest.parent.mkdir(parents=True, exist_ok=True)
     output_paths.manifest.write_text(
@@ -1106,3 +1808,38 @@ def _write_status_manifest(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--scenario", required=True)
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--output-root", default=None)
+    parser.add_argument("--no-control-reference", action="store_true")
+    parser.add_argument("--no-environment-reference", action="store_true")
+    parser.add_argument("--no-png", action="store_true")
+    parser.add_argument("--save-pdf", action="store_true")
+    return parser
+
+
+def main() -> None:
+    args = _parser().parse_args()
+    try:
+        paths = generate_scenario_figure(
+            scenario_id=args.scenario,
+            seed=args.seed,
+            output_root=None if args.output_root is None else Path(args.output_root),
+            include_control_reference=not args.no_control_reference,
+            include_environment_reference=not args.no_environment_reference,
+            save_png=not args.no_png,
+            save_pdf=args.save_pdf,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"plot skipped: {exc}")
+        raise SystemExit(1) from exc
+    for kind, path in paths.items():
+        print(f"{kind}: {path}")
+
+
+if __name__ == "__main__":
+    main()

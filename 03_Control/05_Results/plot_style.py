@@ -28,25 +28,38 @@ GRID_LW = 0.40
 PLOT_VMIN = 0.0
 PLOT_VMAX = 8.0
 CBAR_LABEL = r"$w$ (m $\!$s$^{-1}$)"
+ACTUAL_START_COLOR = "#20b6c7"
+ACTUAL_END_COLOR = "#00142e"
+CONTROL_REFERENCE_COLOR = "#ff7c7e"
+ENVIRONMENT_REFERENCE_COLOR = "#a0a2ff"
+TRUE_SAFETY_VOLUME_COLOR = "#232333"
+TRUE_SAFETY_VOLUME_ALPHA = 0.50
+CONTROL_REFERENCE_ALPHA = 0.35
+ENVIRONMENT_REFERENCE_ALPHA = 0.35
+DESIRED_COMMAND_ALPHA = CONTROL_REFERENCE_ALPHA
+DESIRED_COMMAND_LINEWIDTH = 1.0
 
 TRAJECTORY_SPECS = {
     "actual": {
         "label": "Actual",
-        "color": "#111111",
+        "color": ACTUAL_END_COLOR,
         "linestyle": "-",
         "linewidth": 1.8,
+        "alpha": 1.0,
     },
     "control_reference": {
         "label": "Control reference",
-        "color": "#1F77B4",
+        "color": CONTROL_REFERENCE_COLOR,
         "linestyle": "--",
-        "linewidth": 1.5,
+        "linewidth": 1.05,
+        "alpha": CONTROL_REFERENCE_ALPHA,
     },
     "environment_reference": {
         "label": "Environment reference",
-        "color": "#D62728",
+        "color": ENVIRONMENT_REFERENCE_COLOR,
         "linestyle": ":",
-        "linewidth": 1.7,
+        "linewidth": 1.05,
+        "alpha": ENVIRONMENT_REFERENCE_ALPHA,
     },
 }
 
@@ -161,6 +174,42 @@ def style_command_axis(ax: mpl.axes.Axes, ylabel: str, style: PlotStyle) -> None
         ax.spines[side].set_visible(False)
     for spine in ax.spines.values():
         spine.set_linewidth(AXIS_EDGE_LW)
+
+
+def style_time_axis(
+    ax: mpl.axes.Axes,
+    ylabel: str,
+    style: PlotStyle,
+    show_xlabel: bool = False,
+) -> None:
+    ax.set_facecolor("white")
+    ax.set_ylabel(ylabel, fontsize=style.command_label_size)
+    if show_xlabel:
+        ax.set_xlabel(r"$t$ (s)", fontsize=style.command_label_size)
+    ax.tick_params(labelsize=style.command_tick_size, width=0.6, length=2)
+    ax.grid(True, color=GRID_COLOR, linewidth=GRID_LW)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for spine in ax.spines.values():
+        spine.set_linewidth(AXIS_EDGE_LW)
+
+
+def style_geometry_axis(
+    ax: mpl.axes.Axes,
+    xlabel: str,
+    ylabel: str,
+    style: PlotStyle,
+    equal_aspect: bool = False,
+) -> None:
+    ax.set_facecolor("white")
+    ax.set_xlabel(xlabel, fontsize=style.command_label_size)
+    ax.set_ylabel(ylabel, fontsize=style.command_label_size)
+    ax.tick_params(labelsize=style.command_tick_size, width=0.6, length=2)
+    ax.grid(True, color=GRID_COLOR, linewidth=GRID_LW)
+    for spine in ax.spines.values():
+        spine.set_linewidth(AXIS_EDGE_LW)
+    if equal_aspect:
+        ax.set_aspect("equal", adjustable="box")
 
 
 def framed_legend(

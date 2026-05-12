@@ -1,0 +1,2 @@
+scenario_id,primitive,speed_m_s,altitude_m,phi_deg,theta_deg,alpha_deg,reason
+s11_governor_rejection,recovery,6.5,0.1,0.0,-2.754941244379888,3.053834490775539,altitude below entry floor: 0.100 m; governor: altitude below floor 0.100 m

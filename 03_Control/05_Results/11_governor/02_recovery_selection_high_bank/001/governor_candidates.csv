@@ -1,4 +1,4 @@
 primitive_name,entry_set_pass,predicted_safe,rejection_reason,score,predicted_min_wall_distance_m,predicted_max_alpha_deg,predicted_terminal_speed_m_s,selected
 nominal_glide,False,False,absolute bank angle exceeds entry limit,,,,,False
-bank_reversal,False,False,absolute bank angle exceeds entry limit,,,,,False
+mild_bank_reversal_probe,False,False,absolute bank angle exceeds entry limit,,,,,False
 recovery,True,True,,-0.0065539500579056,0.25,25.38736886069205,6.365986927450745,True

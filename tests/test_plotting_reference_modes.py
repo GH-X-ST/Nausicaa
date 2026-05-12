@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -28,10 +30,19 @@ def test_control_and_environment_references_have_distinct_styles(tmp_path: Path)
             line.get_label(): line
             for line in ax3d.lines
             if line.get_label()
-            in {"Actual", "Control reference", "Environment reference"}
+            in {"Control reference", "Environment reference"}
         }
-        assert set(by_label) == {"Actual", "Control reference", "Environment reference"}
-        assert by_label["Actual"].get_linestyle() == "-"
+        actual_collections = [
+            collection
+            for collection in ax3d.collections
+            if isinstance(collection, Line3DCollection)
+            and collection.get_label() == "Actual"
+        ]
+        assert actual_collections
+        assert set(by_label) == {"Control reference", "Environment reference"}
+        assert mcolors.to_hex(by_label["Control reference"].get_color()) == "#ff7c7e"
+        assert mcolors.to_hex(by_label["Environment reference"].get_color()) == "#a0a2ff"
+        assert by_label["Control reference"].get_alpha() == 0.5
         assert by_label["Control reference"].get_linestyle() != "-"
         assert by_label["Environment reference"].get_linestyle() != "-"
         assert by_label["Control reference"].get_linestyle() != by_label["Environment reference"].get_linestyle()

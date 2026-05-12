@@ -1,0 +1,28 @@
+{
+  "analysis_data": [
+    "actual_metrics.csv",
+    "actual_rollout.csv",
+    "control_reference_metrics.csv",
+    "control_reference_rollout.csv",
+    "environment_reference_metrics.csv",
+    "environment_reference_rollout.csv"
+  ],
+  "case_id": "01_nominal_latency_bank_reversal",
+  "case_path": "01_latency_interface/01_nominal_latency_bank_reversal/001",
+  "figures": {
+    "png": {
+      "A": "A_trajectory_command_actuator.png",
+      "B": "B_flight_rates.png",
+      "C": "C_flight_state_alpha_beta.png",
+      "D": "D_envelope_variables.png",
+      "E": "E_2d_trajectory_geometry.png"
+    }
+  },
+  "folder": "001",
+  "result_group": "01_latency_interface",
+  "scenario_id": "s1_latency_nominal_no_wind",
+  "scenario_name": "nominal-latency bank reversal",
+  "seed": 1,
+  "selected_primitive": "mild_bank_reversal_probe",
+  "status": "plot generated"
+}

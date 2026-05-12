@@ -10,13 +10,19 @@
   "case_id": "21_nominal_latency_bank_reversal_left",
   "case_path": "04_scenario_matrix/21_nominal_latency_bank_reversal_left/001",
   "figures": {
-    "png": "flight_trajectory_and_control_commands.png"
+    "png": {
+      "A": "A_trajectory_command_actuator.png",
+      "B": "B_flight_rates.png",
+      "C": "C_flight_state_alpha_beta.png",
+      "D": "D_envelope_variables.png",
+      "E": "E_2d_trajectory_geometry.png"
+    }
   },
   "folder": "001",
   "result_group": "04_scenario_matrix",
   "scenario_id": "s4_latency_nominal_bank_reversal_left",
   "scenario_name": "nominal-latency left bank reversal",
   "seed": 1,
-  "selected_primitive": "bank_reversal",
+  "selected_primitive": "mild_bank_reversal_probe",
   "status": "plot generated"
 }

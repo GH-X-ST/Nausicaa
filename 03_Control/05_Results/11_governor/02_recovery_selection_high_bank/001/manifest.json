@@ -12,7 +12,13 @@
   "case_id": "02_recovery_selection_high_bank",
   "case_path": "11_governor/02_recovery_selection_high_bank/001",
   "figures": {
-    "png": "flight_trajectory_and_control_commands.png"
+    "png": {
+      "A": "A_trajectory_command_actuator.png",
+      "B": "B_flight_rates.png",
+      "C": "C_flight_state_alpha_beta.png",
+      "D": "D_envelope_variables.png",
+      "E": "E_2d_trajectory_geometry.png"
+    }
   },
   "folder": "001",
   "result_group": "11_governor",
