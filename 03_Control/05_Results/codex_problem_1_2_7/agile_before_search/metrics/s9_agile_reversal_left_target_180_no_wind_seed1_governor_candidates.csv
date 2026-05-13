@@ -1,0 +1,2 @@
+primitive_name,entry_set_pass,predicted_safe,rejection_reason,score,predicted_min_wall_distance_m,predicted_max_alpha_deg,predicted_terminal_speed_m_s,selected
+agile_reversal_left_tvlqr_target_180,True,False,pitch angle exceeded bound,,0.25,29.579011590648808,6.343490800087549,False

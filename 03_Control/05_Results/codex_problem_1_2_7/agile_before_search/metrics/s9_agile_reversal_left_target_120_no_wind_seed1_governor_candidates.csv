@@ -1,0 +1,2 @@
+primitive_name,entry_set_pass,predicted_safe,rejection_reason,score,predicted_min_wall_distance_m,predicted_max_alpha_deg,predicted_terminal_speed_m_s,selected
+agile_reversal_left_tvlqr_target_120,True,False,angle of attack exceeded bound,,0.25,28.88852627290139,5.8980738569931646,False

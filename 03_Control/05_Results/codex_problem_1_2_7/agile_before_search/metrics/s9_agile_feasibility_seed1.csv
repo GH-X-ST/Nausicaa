@@ -1,0 +1,6 @@
+target_heading_deg,scenario_id,fixed_start_success,actual_heading_change_deg,heading_error_deg,min_wall_distance_m,height_change_m,terminal_speed_m_s,max_alpha_deg,saturation_fraction,exit_recoverable,failure_class,feasibility_label,random_entry_gate_passed,updraft_stress_gate_passed,sweep_sample_count,sweep_success_rate,sweep_rejection_count,largest_fixed_start_feasible_target_deg
+30.0,s9_agile_reversal_left_target_030_no_wind,True,1.1017554778718535,28.898244522128145,0.25,-1.0142904500978602,7.125716609440713,3.581637133176387,0.20833333333333334,True,none,fixed_start_safe_but_under_turning,False,False,0,,,
+60.0,s9_agile_reversal_left_target_060_no_wind,True,-34.85978236833278,25.14021763166722,0.1917141255500745,-2.3210765084173435,8.274842839967398,6.438351449173888,0.4108527131782946,True,none,fixed_start_safe_but_under_turning,True,True,0,,,
+90.0,s9_agile_reversal_left_target_090_no_wind,False,0.0,90.0,0.25,0.0,6.5,3.053834490775539,0.0,False,governor,fixed_start_unsafe,False,False,0,,,
+120.0,s9_agile_reversal_left_target_120_no_wind,False,0.0,120.0,0.25,0.0,6.5,3.053834490775539,0.0,False,governor,fixed_start_unsafe,False,False,0,,,
+180.0,s9_agile_reversal_left_target_180_no_wind,False,0.0,180.0,0.25,0.0,6.5,3.053834490775539,0.0,False,governor,fixed_start_unsafe,False,False,0,,,

@@ -211,9 +211,9 @@ FIGURE_STEMS = {
 }
 FIGURE_ORDER = ("A", "B", "C", "D", "E")
 ATTITUDE_PLOT_SPECS = (
-    ("phi", r"$\phi$ (deg)", False),
-    ("theta", r"$\theta$ (deg)", False),
-    ("psi", r"$\psi$ (deg)", True),
+    ("theta", r"Pitch $\theta$ (deg)", False),
+    ("phi", r"Roll $\phi$ (deg)", False),
+    ("psi", r"Yaw $\psi$ (deg)", True),
 )
 
 

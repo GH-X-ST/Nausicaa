@@ -8,6 +8,7 @@ from latency import CommandToSurfaceConfig
 from linearisation import STATE_INDEX
 from optimise_template import (
     default_left_agile_reversal_template,
+    load_selected_agile_template,
     supported_agile_heading_targets_deg,
 )
 from templates import (
@@ -251,7 +252,14 @@ def build_scenario(
         )
     if scenario_id == "s9_agile_reversal_left_no_wind" or scenario_id in agile_heading_target_scenarios():
         target_heading_deg = _agile_target_from_scenario_id(scenario_id)
-        agile_template = default_left_agile_reversal_template(target_heading_deg=target_heading_deg)
+        searched_template = _load_selected_or_canonical_agile_template(
+            repo_root=repo_root,
+            seed=seed,
+            target_heading_deg=target_heading_deg,
+        )
+        agile_template = searched_template or default_left_agile_reversal_template(
+            target_heading_deg=target_heading_deg
+        )
         x0 = full_base.copy()
         x0[STATE_INDEX["x_w"]] = 1.45
         return ScenarioDefinition(
@@ -266,6 +274,29 @@ def build_scenario(
             (agile_template,),
         )
     raise ValueError(f"Unknown scenario_id '{scenario_id}'.")
+
+
+def _load_selected_or_canonical_agile_template(
+    repo_root,
+    seed: int,
+    target_heading_deg: float,
+):
+    searched_template = load_selected_agile_template(
+        repo_root=repo_root,
+        seed=seed,
+        target_heading_deg=target_heading_deg,
+    )
+    if searched_template is not None:
+        return searched_template
+    if int(seed) == 1:
+        return None
+    # Search is deterministic for the fixed-start template grid; seed 1 is the
+    # canonical manifest used by replay runs when no seed-specific search exists.
+    return load_selected_agile_template(
+        repo_root=repo_root,
+        seed=1,
+        target_heading_deg=target_heading_deg,
+    )
 
 
 # =============================================================================

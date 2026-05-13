@@ -1,0 +1,2 @@
+primitive_name,entry_set_pass,predicted_safe,rejection_reason,score,predicted_min_wall_distance_m,predicted_max_alpha_deg,predicted_terminal_speed_m_s,selected
+agile_brake_roll_yaw_recovery_target_120_120_a,True,False,pitch angle exceeded bound,,0.25,11.980402896498616,7.2083867586821935,False

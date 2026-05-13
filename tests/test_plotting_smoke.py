@@ -23,6 +23,7 @@ if str(SCENARIO_DIR) not in sys.path:
 
 from arena import ArenaConfig, tracker_bounds  # noqa: E402
 from plotting import (  # noqa: E402
+    ATTITUDE_PLOT_SPECS,
     build_composite_figure,
     build_figure_c_flight_state_alpha_beta,
     build_figure_e_2d_trajectory_geometry,
@@ -91,14 +92,15 @@ def test_generate_agile_scenario_figure_uses_standard_result_layout(tmp_path: Pa
     assert not (result_root / "figures").exists()
 
 
-def test_figure_c_attitude_panels_use_flight_state_order(tmp_path: Path) -> None:
+def test_figure_c_attitude_panels_use_pitch_roll_yaw_order(tmp_path: Path) -> None:
     data = load_scenario_plot_data("s0_no_wind", seed=2, output_root=tmp_path)
     fig = build_figure_c_flight_state_alpha_beta(data)
     try:
+        assert [spec[0] for spec in ATTITUDE_PLOT_SPECS] == ["theta", "phi", "psi"]
         assert [ax.get_ylabel() for ax in fig.axes[:3]] == [
-            r"$\phi$ (deg)",
-            r"$\theta$ (deg)",
-            r"$\psi$ (deg)",
+            r"Pitch $\theta$ (deg)",
+            r"Roll $\phi$ (deg)",
+            r"Yaw $\psi$ (deg)",
         ]
     finally:
         plt.close(fig)

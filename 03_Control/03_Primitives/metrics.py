@@ -45,6 +45,7 @@ METRIC_SCHEMA_KEYS = (
     "success",
     "failure_class",
     "primitive_family",
+    "candidate_id",
     "is_full_turn_claim",
     "target_heading_deg",
     "heading_target_deg",
@@ -170,6 +171,8 @@ def rollout_metrics(
     final = state_arr[-1]
     margins = [safety_margins(row, arena_config) for row in state_arr]
     min_wall = min(float(row["min_wall_distance_m"]) for row in margins)
+    min_floor = min(float(row["floor_margin_m"]) for row in margins)
+    min_ceiling = min(float(row["ceiling_margin_m"]) for row in margins)
     inside = all(bool(row["inside_safe_volume"]) for row in margins)
     speed = _speed(state_arr)
     x_span = float(
@@ -197,12 +200,25 @@ def rollout_metrics(
     metadata = _scenario_target_metadata(scenario_id, primitive_selected)
     if primitive_metadata is not None:
         metadata.update(dict(primitive_metadata))
+    terminal_speed = float(speed[-1])
+    terminal_recoverable = bool(
+        success
+        and inside
+        and 2.5 <= terminal_speed <= 9.5
+        and abs(float(final[STATE_INDEX["phi"]])) <= np.deg2rad(65.0)
+        and abs(float(final[STATE_INDEX["theta"]])) <= np.deg2rad(40.0)
+    )
     feasibility = _agile_feasibility_fields(
         metadata=metadata,
         success=bool(success),
+        termination_reason=reason,
         heading_change_deg=heading_change_deg,
         min_wall_distance_m=float(min_wall),
-        exit_recoverable=bool(success and inside),
+        min_floor_margin_m=float(min_floor),
+        min_ceiling_margin_m=float(min_ceiling),
+        exit_recoverable=terminal_recoverable,
+        max_alpha_deg=float(np.rad2deg(np.max(np.abs(alpha)))),
+        saturation_fraction=float(saturation_fraction),
     )
     row = {
         "run_id": f"{scenario_id}_seed{int(seed)}",
@@ -235,7 +251,7 @@ def rollout_metrics(
         ),
         "turn_volume_proxy_m2": float(x_span * y_span),
         "height_change_m": float(final[STATE_INDEX["z_w"]] - state_arr[0, STATE_INDEX["z_w"]]),
-        "terminal_speed_m_s": float(speed[-1]),
+        "terminal_speed_m_s": terminal_speed,
         "max_alpha_deg": float(np.rad2deg(np.max(np.abs(alpha)))),
         "max_beta_deg": float(np.rad2deg(np.max(np.abs(beta)))),
         "max_bank_deg": float(
@@ -246,7 +262,7 @@ def rollout_metrics(
         "time_at_full_travel_s": None if saturation_time_s is None else float(saturation_time_s),
         "saturation_fraction": float(saturation_fraction),
         "tracking_error_rms": None if tracking_error_rms is None else float(tracking_error_rms),
-        "exit_recoverable": bool(success and inside),
+        "exit_recoverable": terminal_recoverable,
         "governor_rejection_reason": governor_rejection_reason,
         "candidate_count": int(candidate_count),
         "rejected_count": int(rejected_count),
@@ -328,16 +344,23 @@ def rejected_metrics(
 def _agile_feasibility_fields(
     metadata: dict[str, object],
     success: bool,
+    termination_reason: str,
     heading_change_deg: float,
     min_wall_distance_m: float,
+    min_floor_margin_m: float,
+    min_ceiling_margin_m: float,
     exit_recoverable: bool,
+    max_alpha_deg: float,
+    saturation_fraction: float,
 ) -> dict[str, object]:
     target = _optional_metadata_float(metadata.get("target_heading_deg"))
     primitive_family = str(metadata.get("primitive_family", ""))
+    candidate_id = str(metadata.get("candidate_id", ""))
     is_full_turn_claim = bool(metadata.get("is_full_turn_claim", False))
     if target is None:
         return {
             "primitive_family": primitive_family,
+            "candidate_id": candidate_id,
             "is_full_turn_claim": is_full_turn_claim,
             "target_heading_deg": None,
             "heading_target_deg": None,
@@ -350,8 +373,24 @@ def _agile_feasibility_fields(
     heading_error = abs(float(target) - actual_abs)
     target_reached = actual_abs >= 0.8 * float(target)
     safe_exit = bool(success and exit_recoverable and min_wall_distance_m > 0.0)
-    if not success or min_wall_distance_m <= 0.0:
-        label = "fixed_start_unsafe"
+    reason = str(termination_reason).lower()
+    if "latency" in reason or "timing" in reason:
+        label = "latency_limited"
+    elif float(saturation_fraction) >= 0.95 and not target_reached:
+        label = "actuator_limited"
+    elif abs(float(max_alpha_deg)) > 25.0 or "angle of attack" in reason:
+        label = "model_limited_high_alpha"
+    elif min_wall_distance_m <= 0.0 or "wall" in reason:
+        label = "fixed_start_unsafe_wall"
+    elif (
+        min_floor_margin_m <= 0.0
+        or min_ceiling_margin_m <= 0.0
+        or "floor" in reason
+        or "ceiling" in reason
+    ):
+        label = "fixed_start_unsafe_floor_or_ceiling"
+    elif not success:
+        label = "physically_infeasible_candidate"
     elif not exit_recoverable:
         label = "fixed_start_unrecoverable"
     elif not target_reached:
@@ -360,6 +399,7 @@ def _agile_feasibility_fields(
         label = "fixed_start_feasible"
     return {
         "primitive_family": primitive_family,
+        "candidate_id": candidate_id,
         "is_full_turn_claim": is_full_turn_claim,
         "target_heading_deg": float(target),
         "heading_target_deg": float(target),
@@ -391,6 +431,7 @@ def _scenario_target_metadata(
         target = float(int(token))
     return {
         "primitive_family": "agile_tvlqr_scaffold",
+        "candidate_id": "",
         "is_full_turn_claim": False,
         "target_heading_deg": target,
         "primitive_name": primitive_name,

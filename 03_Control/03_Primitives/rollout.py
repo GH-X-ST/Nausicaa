@@ -337,6 +337,7 @@ def simulate_primitive(
         governor_rejection_reason=governor_rejection_reason,
         candidate_count=candidate_count,
         rejected_count=rejected_count,
+        primitive_metadata=getattr(primitive, "metadata", None),
     )
     return RolloutResult(
         success=success,

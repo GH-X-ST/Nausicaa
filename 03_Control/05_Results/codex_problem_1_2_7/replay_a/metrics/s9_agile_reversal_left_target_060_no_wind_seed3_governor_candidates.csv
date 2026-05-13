@@ -1,0 +1,2 @@
+primitive_name,entry_set_pass,predicted_safe,rejection_reason,score,predicted_min_wall_distance_m,predicted_max_alpha_deg,predicted_terminal_speed_m_s,selected
+agile_brake_roll_yaw_recovery_target_060_060_a,True,False,altitude below floor: 0.153 m,,0.25,9.681841507039122,8.297521635700793,False

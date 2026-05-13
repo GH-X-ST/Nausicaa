@@ -57,6 +57,9 @@ def run_agile_feasibility(
         row = {
             "target_heading_deg": float(target),
             "scenario_id": scenario_id,
+            "primitive_family": fixed_row.get("primitive_family"),
+            "candidate_id": fixed_row.get("candidate_id"),
+            "selected_primitive": fixed_row.get("selected_primitive"),
             "fixed_start_success": bool(fixed_row.get("fixed_start_success", False)),
             "actual_heading_change_deg": fixed_row.get("actual_heading_change_deg"),
             "heading_error_deg": fixed_row.get("heading_error_deg"),

@@ -1,0 +1,2 @@
+primitive_name,entry_set_pass,predicted_safe,rejection_reason,score,predicted_min_wall_distance_m,predicted_max_alpha_deg,predicted_terminal_speed_m_s,selected
+agile_reversal_left_tvlqr_target_030,True,True,,0.20166929647942186,0.25,3.581637133176387,7.125716609440713,True

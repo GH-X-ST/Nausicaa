@@ -1,0 +1,2 @@
+scenario_id,primitive,speed_m_s,altitude_m,phi_deg,theta_deg,alpha_deg,reason
+s9_agile_reversal_left_target_180_no_wind,agile_reversal_left_tvlqr_target_180,6.5,2.7,0.0,-2.754941244379888,3.053834490775539,governor rollout: pitch angle exceeded bound

@@ -153,6 +153,7 @@ def run_scenario(
                 governor_rejection_reason=decision.fallback_reason or "; ".join(decision.reasons),
                 candidate_count=len(decision.candidate_table),
                 rejected_count=len(decision.candidate_table),
+                primitive_metadata=_first_candidate_metadata(scenario.candidate_primitives),
             )
             row["candidate_table_path"] = _relative_output_path(candidate_path, output_root)
             _write_single_row(metrics_path, row)
@@ -214,6 +215,7 @@ def run_scenario(
             repo_root=REPO_ROOT,
             arena_config=arena,
             governor_rejection_reason="; ".join(decision.reasons),
+            primitive_metadata=getattr(scenario.primitive, "metadata", None),
         )
         row["candidate_table_path"] = ""
         _write_single_row(metrics_path, row)
@@ -266,6 +268,14 @@ def _selected_primitive(
     for primitive in primitives:
         if primitive.name == selected_name:
             return primitive
+    return None
+
+
+def _first_candidate_metadata(primitives: tuple[object, ...]) -> dict[str, object] | None:
+    for primitive in primitives:
+        metadata = getattr(primitive, "metadata", None)
+        if metadata is not None:
+            return dict(metadata)
     return None
 
 

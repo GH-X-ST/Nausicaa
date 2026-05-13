@@ -51,14 +51,23 @@ def test_agile_heading_target_metrics_are_reported(tmp_path: Path) -> None:
     allowed_labels = {
         "fixed_start_feasible",
         "fixed_start_safe_but_under_turning",
-        "fixed_start_unsafe",
+        "fixed_start_unsafe_wall",
+        "fixed_start_unsafe_floor_or_ceiling",
         "fixed_start_unrecoverable",
+        "actuator_limited",
+        "model_limited_high_alpha",
+        "latency_limited",
+        "physically_infeasible_candidate",
+        "not_tested",
     }
 
     for scenario_id in agile_heading_target_scenarios():
         row = run_scenario(scenario_id, seed=2, output_root=tmp_path)
         assert required.issubset(row)
-        assert row["primitive_family"] == "agile_tvlqr_scaffold"
+        assert row["primitive_family"] in {
+            "agile_tvlqr_scaffold",
+            "brake_roll_yaw_recovery",
+        }
         assert row["is_full_turn_claim"] is False
         assert row["feasibility_label"] in allowed_labels
 
