@@ -1,8 +1,30 @@
 
-Glider_Control_Project_Plan.md
-docs
+# Python/cache artifacts
 __pycache__/
 *.py[cod]
+.pytest_cache/
+
+# Local validation scratch folders
+_tmp_*/
+
+# Private local instruction/context files shared with the assistant, not publication artifacts.
+CODEX_*.md
+docs/CODEX_*.md
+Nausicaa_Five_Figure_Plotting_Guidance.md
+docs/Nausicaa_Five_Figure_Plotting_Guidance.md
+Glider_Control_Project_Plan.md
+docs/control/glider_control_project_plan.md
+docs/MATLAB Coding.txt
+docs/Python Coding Instruction.txt
+docs/Python Plotting Guidance.txt
+docs/Skills.md
+
+# Legacy loose result folders are not valid housekeeping targets.
+03_Control/05_Results/logs/
+03_Control/05_Results/metrics/
+03_Control/05_Results/__pycache__/
 03_Control/05_Results/s4_execution/
+
+# Historical local seed-42 scratch outputs.
 03_Control/05_Results/logs/*_seed42.csv
 03_Control/05_Results/metrics/*_seed42*.csv

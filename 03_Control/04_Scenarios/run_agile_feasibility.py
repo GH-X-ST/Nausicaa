@@ -49,10 +49,26 @@ def run_agile_feasibility(
     """Return fixed-start agile feasibility rows and gated sweep summaries."""
     if sweep_samples < 50 and run_sweeps:
         raise ValueError("agile feasibility sweeps require at least 50 samples by default.")
+    if output_root is None:
+        output_root = (
+            REPO_ROOT
+            / "03_Control"
+            / "05_Results"
+            / "03_primitives"
+            / "07_agile_feasibility_boundary"
+            / f"{int(seed):03d}"
+        )
     rows: list[dict[str, object]] = []
     for target in targets_deg:
         scenario_id = _target_scenario_id(float(target))
-        fixed_row = dict(run_scenario(scenario_id, seed=seed, output_root=output_root))
+        fixed_row = dict(
+            run_scenario(
+                scenario_id,
+                seed=seed,
+                output_root=output_root,
+                file_stem=_target_file_stem(float(target), seed),
+            )
+        )
         gate_passed = agile_random_entry_gate(fixed_row)
         row = {
             "target_heading_deg": float(target),
@@ -111,6 +127,10 @@ def _target_scenario_id(target_heading_deg: float) -> str:
     return f"s9_agile_reversal_left_target_{int(round(target_heading_deg)):03d}_no_wind"
 
 
+def _target_file_stem(target_heading_deg: float, seed: int) -> str:
+    return f"{int(round(target_heading_deg)):03d}_s{int(seed):03d}"
+
+
 def _agile_updraft_gate(row: dict[str, object]) -> bool:
     return (
         abs(float(row.get("actual_heading_change_deg", row.get("heading_change_deg", 0.0))))
@@ -139,7 +159,7 @@ def _write_summary(
     output_root: str | Path | None,
 ) -> None:
     metrics_dir, _log_dir = _output_dirs(output_root)
-    path = metrics_dir / f"s9_agile_feasibility_seed{int(seed)}.csv"
+    path = metrics_dir / f"summary_s{int(seed):03d}.csv"
     path.parent.mkdir(parents=True, exist_ok=True)
     if not rows:
         path.write_text("", encoding="utf-8")

@@ -42,21 +42,30 @@ from scenarios import batch_scenarios  # noqa: E402
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--output-root", default=None)
     args = parser.parse_args()
+    output_root = (
+        Path(args.output_root)
+        if args.output_root is not None
+        else REPO_ROOT
+        / "03_Control"
+        / "05_Results"
+        / "99_misc"
+        / "02_batch_scenario_run"
+        / f"{int(args.seed):03d}"
+    )
+    scenario_runs_root = output_root / "scenario_runs"
     # Scenario ordering is centralised in scenarios.py for reproducible comparisons.
-    rows = [run_scenario(scenario_id, args.seed) for scenario_id in batch_scenarios()]
+    rows = [
+        run_scenario(scenario_id, args.seed, output_root=scenario_runs_root / scenario_id)
+        for scenario_id in batch_scenarios()
+    ]
     fieldnames = list(rows[0].keys())
     for row in rows[1:]:
         for key in row.keys():
             if key not in fieldnames:
                 fieldnames.append(key)
-    out_path = (
-        REPO_ROOT
-        / "03_Control"
-        / "05_Results"
-        / "metrics"
-        / f"batch_seed{args.seed}.csv"
-    )
+    out_path = output_root / f"batch_seed{args.seed}.csv"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", newline="", encoding="utf-8") as handle:
         # One CSV row per scenario keeps batch metrics comparable across seeds.
@@ -64,7 +73,7 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(rows)
     print("batch complete")
-    print(f"metrics: 03_Control/05_Results/metrics/batch_seed{args.seed}.csv")
+    print(f"metrics: {out_path}")
 
 
 if __name__ == "__main__":

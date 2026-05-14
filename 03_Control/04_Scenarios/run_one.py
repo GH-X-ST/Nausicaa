@@ -58,9 +58,10 @@ from scenarios import build_scenario  # noqa: E402
 # =============================================================================
 # 2) Runner Constants
 # =============================================================================
-# Default result locations are relative to the repository for reproducible log paths.
-METRICS_DIR = REPO_ROOT / "03_Control" / "05_Results" / "metrics"
-LOG_DIR = REPO_ROOT / "03_Control" / "05_Results" / "logs"
+# Default direct-run locations are nested under a numbered housekeeping folder.
+DEFAULT_RUNNER_ROOT = (
+    REPO_ROOT / "03_Control" / "05_Results" / "99_misc" / "01_direct_runner" / "000"
+)
 
 
 # =============================================================================
@@ -68,7 +69,7 @@ LOG_DIR = REPO_ROOT / "03_Control" / "05_Results" / "logs"
 # =============================================================================
 def _output_dirs(output_root: str | Path | None) -> tuple[Path, Path]:
     if output_root is None:
-        return METRICS_DIR, LOG_DIR
+        return DEFAULT_RUNNER_ROOT / "metrics", DEFAULT_RUNNER_ROOT / "logs"
     # Test runs redirect logs and metrics without changing scenario semantics
     root = Path(output_root)
     return root / "metrics", root / "logs"
@@ -78,6 +79,7 @@ def run_scenario(
     scenario_id: str,
     seed: int,
     output_root: str | Path | None = None,
+    file_stem: str | None = None,
 ) -> dict[str, object]:
     aircraft = adapt_glider(build_nausicaa_glider())
     linear_model = linearise_trim(aircraft=aircraft)
@@ -97,10 +99,11 @@ def run_scenario(
 
     # Each scenario run writes one metrics row and an optional rollout log
     metrics_dir, log_dir = _output_dirs(output_root)
-    log_path = log_dir / f"{scenario_id}_seed{seed}.csv"
-    metrics_path = metrics_dir / f"{scenario_id}_seed{seed}.csv"
-    rejection_path = metrics_dir / f"{scenario_id}_seed{seed}_governor_rejections.csv"
-    candidate_path = metrics_dir / f"{scenario_id}_seed{seed}_governor_candidates.csv"
+    stem = file_stem or f"{scenario_id}_seed{seed}"
+    log_path = log_dir / f"{stem}.csv"
+    metrics_path = metrics_dir / f"{stem}.csv"
+    rejection_path = metrics_dir / f"{stem}_governor_rejections.csv"
+    candidate_path = metrics_dir / f"{stem}_governor_candidates.csv"
 
     if scenario.candidate_primitives:
         # Candidate-primitives scenarios exercise rollout-based governor selection

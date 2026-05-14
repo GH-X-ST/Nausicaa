@@ -168,7 +168,12 @@ def load_selected_agile_template(
     root = (
         Path(search_root)
         if search_root is not None
-        else Path(repo_root) / "03_Control" / "05_Results" / "codex_agile_search"
+        else Path(repo_root)
+        / "03_Control"
+        / "05_Results"
+        / "03_primitives"
+        / "06_agile_template_search"
+        / "001"
     )
     manifest_path = (
         root / "manifests" / f"agile_template_search_seed{int(seed)}.json"

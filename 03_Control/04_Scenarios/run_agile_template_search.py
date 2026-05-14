@@ -170,8 +170,9 @@ def _evaluate_template(
         command_layer=command_layer,
     )
     target_tag = f"{int(round(float(template.target_heading_deg or 0.0))):03d}"
-    log_name = f"{primitive.name}_seed{int(seed)}.csv"
+    log_name = f"{template.candidate_id}_seed{int(seed)}.csv"
     log_path = paths.logs_dir / f"target_{target_tag}" / template.family / log_name
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     result = simulate_primitive(
         scenario_id=f"s9_search_target_{target_tag}_{template.family}",
         seed=seed,
@@ -379,7 +380,12 @@ def _output_paths(output_root: str | Path | None) -> SearchOutputPaths:
     root = (
         Path(output_root)
         if output_root is not None
-        else REPO_ROOT / "03_Control" / "05_Results" / "codex_agile_search"
+        else REPO_ROOT
+        / "03_Control"
+        / "05_Results"
+        / "03_primitives"
+        / "06_agile_template_search"
+        / "001"
     )
     return SearchOutputPaths(
         root=root,

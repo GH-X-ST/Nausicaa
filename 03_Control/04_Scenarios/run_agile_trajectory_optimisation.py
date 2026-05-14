@@ -72,11 +72,17 @@ class TurnOutputPaths:
     trajectories_dir: Path
 
 
-def _output_paths(output_root: str | Path | None) -> TurnOutputPaths:
+def _output_paths(output_root: str | Path | None, run_tvlqr_replay: bool = False) -> TurnOutputPaths:
+    default_case = "09_tight_turn_ocp_phase2" if run_tvlqr_replay else "08_tight_turn_ocp_phase1"
     root = (
         Path(output_root)
         if output_root is not None
-        else REPO_ROOT / "03_Control" / "05_Results" / "turn_optimisation" / "phase1"
+        else REPO_ROOT
+        / "03_Control"
+        / "05_Results"
+        / "03_primitives"
+        / default_case
+        / "001"
     )
     paths = TurnOutputPaths(
         root=root,
@@ -170,7 +176,7 @@ def run_phase_1_2(
         )
 
     np.random.seed(int(seed))
-    paths = _output_paths(output_root)
+    paths = _output_paths(output_root, run_tvlqr_replay=run_tvlqr_replay)
     aircraft = adapt_glider(build_nausicaa_glider())
     linear_model = linearise_trim(aircraft=aircraft)
     x0 = arena_feasible_entry_state(linear_model.x_trim, altitude_m=2.7)
@@ -501,8 +507,8 @@ def _write_reports(
     docs_dir = REPO_ROOT / "docs"
     docs_dir.mkdir(parents=True, exist_ok=True)
     prior_paths = (
-        docs_dir / "codex_problem_1_2_7_report.md",
-        docs_dir / "codex_agile_feasibility_boundary.md",
+        docs_dir / "control" / "agile_problem_1_2_7_report.md",
+        docs_dir / "control" / "agile_feasibility_boundary.md",
     )
     prior_notes = [
         f"- `{path.as_posix()}`: {'found' if path.exists() else 'not found in this checkout'}"
@@ -568,7 +574,9 @@ def _write_reports(
             "",
         ]
     )
-    (docs_dir / "codex_turn_trajectory_optimisation_report.md").write_text(
+    report_dir = docs_dir / "control"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / "turn_trajectory_optimisation_report.md").write_text(
         "\n".join(report),
         encoding="utf-8",
     )
@@ -592,7 +600,7 @@ def _write_reports(
             "Solver failure is not treated as physical infeasibility. A physical infeasibility label requires the smoke case, at least two deterministic hard guesses, soft-boundary diagnostic, and active constraints to be recorded.",
             "",
         ]
-        (docs_dir / "codex_turn_feasibility_boundary.md").write_text(
+        (report_dir / "turn_feasibility_boundary.md").write_text(
             "\n".join(boundary),
             encoding="utf-8",
         )

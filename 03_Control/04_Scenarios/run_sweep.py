@@ -156,12 +156,13 @@ def run_entry_sweep(
         x_nominal = scenario.x0
     samples = sample_entry_states(x_nominal, seed=seed, sample_count=sample_count)
     metrics_dir, log_dir = _output_dirs(output_root)
-    metrics_path = metrics_dir / f"{scenario_id}_seed{seed}_sweep.csv"
-    rejection_path = metrics_dir / f"{scenario_id}_seed{seed}_sweep_governor_rejections.csv"
+    stem = _sweep_file_stem(scenario_id, seed)
+    metrics_path = metrics_dir / f"{stem}.csv"
+    rejection_path = metrics_dir / f"{stem}_rejections.csv"
     governor = ViabilityGovernor(arena_config=arena)
     rows: list[dict[str, object]] = []
     for sample_idx, x0 in enumerate(samples):
-        log_path = log_dir / f"{scenario_id}_seed{seed}_sample{sample_idx:03d}.csv"
+        log_path = log_dir / f"{stem}_sample{sample_idx:03d}.csv"
         decision = governor.evaluate(
             scenario_id=scenario_id,
             primitive=selected_primitive,
@@ -285,6 +286,20 @@ def _entry_sweep_bounds(value: object | None) -> EntrySweepBounds:
     )
 
 
+def _sweep_file_stem(scenario_id: str, seed: int) -> str:
+    parts = scenario_id.split("_")
+    target = next(
+        (
+            parts[index + 1]
+            for index, part in enumerate(parts[:-1])
+            if part == "target" and parts[index + 1].isdigit()
+        ),
+        None,
+    )
+    scenario_tag = target if target is not None else "_".join(parts[:4])
+    return f"{scenario_tag}_sweep_s{int(seed):03d}"
+
+
 def _write_rows(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not rows:
@@ -325,7 +340,7 @@ def main() -> None:
     print(f"success_rate: {summary['success_rate']:.3f}")
     print(f"rejections: {summary['rejection_count']}")
     metrics_dir, _log_dir = _output_dirs(args.output_root)
-    print(f"metrics: {metrics_dir / f'{args.scenario}_seed{args.seed}_sweep.csv'}")
+    print(f"metrics: {metrics_dir / f'{_sweep_file_stem(args.scenario, args.seed)}.csv'}")
 
 
 if __name__ == "__main__":
