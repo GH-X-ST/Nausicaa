@@ -73,7 +73,11 @@ class TurnOutputPaths:
 
 
 def _output_paths(output_root: str | Path | None, run_tvlqr_replay: bool = False) -> TurnOutputPaths:
-    default_case = "09_tight_turn_ocp_phase2" if run_tvlqr_replay else "08_tight_turn_ocp_phase1"
+    default_case = (
+        "10_tight_turn_phase2_tvlqr_debug"
+        if run_tvlqr_replay
+        else "08_tight_turn_ocp_phase1"
+    )
     root = (
         Path(output_root)
         if output_root is not None
@@ -107,6 +111,14 @@ def _write_rows(path: Path, rows: list[dict[str, object]]) -> None:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _seed_tag(seed: int) -> str:
+    return f"s{int(seed):03d}"
+
+
+def _metrics_name(kind: str, seed: int) -> str:
+    return f"{kind}_{_seed_tag(seed)}.csv"
 
 
 def _result_row(
@@ -276,19 +288,29 @@ def run_phase_1_2(
             )
         )
 
-    _write_rows(paths.metrics_dir / f"turn_ocp_candidates_seed{int(seed)}.csv", candidate_rows)
-    _write_rows(paths.metrics_dir / f"turn_ocp_best_by_target_seed{int(seed)}.csv", best_rows)
+    _write_rows(paths.metrics_dir / _metrics_name("turn_ocp_candidates", seed), candidate_rows)
+    _write_rows(paths.metrics_dir / _metrics_name("turn_ocp_best_by_target", seed), best_rows)
 
     replay_rows: list[dict[str, object]] = []
-    if run_tvlqr_replay and 30.0 in best_by_target and best_by_target[30.0].success:
-        replay_rows = _run_phase_2_replay(
-            result=best_by_target[30.0],
-            seed=seed,
-            paths=paths,
-            context=context,
-            aircraft=aircraft,
-        )
-        _write_rows(paths.metrics_dir / f"turn_tvlqr_replay_seed{int(seed)}.csv", replay_rows)
+    if run_tvlqr_replay:
+        if 30.0 in best_by_target and best_by_target[30.0].success:
+            replay_rows = _run_phase_2_replay(
+                result=best_by_target[30.0],
+                seed=seed,
+                paths=paths,
+                context=context,
+                aircraft=aircraft,
+            )
+        else:
+            replay_rows = [
+                {
+                    "replay_kind": "phase2_not_run",
+                    "success": False,
+                    "termination_reason": "hard 30 deg OCP was not accepted",
+                    "failure_class": "ocp_regression",
+                }
+            ]
+        _write_rows(paths.metrics_dir / _metrics_name("turn_tvlqr_replay", seed), replay_rows)
 
     _write_manifest(
         paths=paths,
@@ -315,9 +337,9 @@ def run_phase_1_2(
 
 def _result_stem(result: OptimisedTurnResult, *, seed: int, solve_kind: str) -> str:
     target_tag = f"{int(round(abs(float(result.target.target_heading_deg)))):03d}"
-    guess = str(result.solver_stats.get("initial_guess_name", "guess"))
+    guess = str(result.solver_stats.get("initial_guess_name", "guess")).replace("_seed", "")
     slack = "soft" if result.target.allow_safety_slack else "hard"
-    return f"turn_ocp_target_{target_tag}_{solve_kind}_{slack}_{guess}_seed{int(seed)}"
+    return f"ocp{target_tag}_{solve_kind}_{slack}_{guess}_{_seed_tag(seed)}"
 
 
 # =============================================================================
@@ -342,7 +364,7 @@ def _run_phase_2_replay(
     save_turn_result(
         result,
         paths.root,
-        stem=f"turn_ocp_target_030_selected_tvlqr_seed{int(seed)}",
+        stem=f"ocp030_selected_tvlqr_{_seed_tag(seed)}",
         primitive=primitive,
     )
     replay_rows: list[dict[str, object]] = []
@@ -369,7 +391,7 @@ def _run_phase_2_replay(
                 }
             )
             continue
-        log_path = paths.logs_dir / f"turn_tvlqr_{label}_seed{int(seed)}.csv"
+        log_path = paths.logs_dir / _replay_log_name(label, seed)
         rollout = simulate_primitive(
             scenario_id=f"turn_ocp_{label}",
             seed=seed,
@@ -410,6 +432,15 @@ def _run_phase_2_replay(
     return replay_rows
 
 
+def _replay_log_name(label: str, seed: int) -> str:
+    names = {
+        "open_loop_no_latency": "tvlqr_open",
+        "closed_loop_no_latency": "tvlqr_closed",
+        "closed_loop_nominal_latency": "tvlqr_latency",
+    }
+    return f"{names.get(label, label)}_{_seed_tag(seed)}.csv"
+
+
 def _terminal_altitude_sensitivity_rows(
     *,
     result: OptimisedTurnResult,
@@ -422,9 +453,7 @@ def _terminal_altitude_sensitivity_rows(
     terminal_state = np.asarray(result.x_ref[-1], dtype=float)
     for altitude_m in (0.75, 1.0, 1.2):
         sensitivity_context = replace(context, min_entry_altitude_m=float(altitude_m))
-        log_path = paths.logs_dir / (
-            f"turn_recovery_terminal_altitude_{int(100 * altitude_m):03d}_seed{int(seed)}.csv"
-        )
+        log_path = paths.logs_dir / f"recovery{int(100 * altitude_m):03d}_{_seed_tag(seed)}.csv"
         recovery = RecoveryPrimitive(duration_s=0.76)
         entry = recovery.entry_conditions(terminal_state, sensitivity_context)
         if not entry.passed:
@@ -484,6 +513,7 @@ def _write_manifest(
         "candidate_count": len(candidate_rows),
         "best_by_target_count": len(best_rows),
         "replay_count": len(replay_rows),
+        "phase2_summary": _phase2_gate_summary(_best_30_row(best_rows), replay_rows),
         "scope": "Phase 1/2 only; no entry sweep, W0-W3 stress, outer-loop, or hardware code",
         "frozen_invariants": {
             "state_order": "[x_w,y_w,z_w,phi,theta,psi,u,v,w,p,q,r,delta_a,delta_e,delta_r]",
@@ -492,7 +522,7 @@ def _write_manifest(
             "safety_volume": "true safety volume",
         },
     }
-    path = paths.manifests_dir / f"turn_ocp_manifest_seed{int(seed)}.json"
+    path = paths.manifests_dir / f"manifest_{_seed_tag(seed)}.json"
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -509,24 +539,23 @@ def _write_reports(
     prior_paths = (
         docs_dir / "control" / "agile_problem_1_2_7_report.md",
         docs_dir / "control" / "agile_feasibility_boundary.md",
+        docs_dir / "control" / "turn_trajectory_optimisation_report.md",
     )
     prior_notes = [
         f"- `{path.as_posix()}`: {'found' if path.exists() else 'not found in this checkout'}"
         for path in prior_paths
     ]
-    best_30 = next(
-        (row for row in best_rows if float(row.get("target_requested_deg", -1.0)) == 30.0),
-        None,
-    )
+    best_30 = _best_30_row(best_rows)
+    phase2_summary = _phase2_gate_summary(best_30, replay_rows)
     report = [
-        "# Tight-Turn Trajectory Optimisation Phase 1/2 Report",
+        "# Phase 2 TVLQR OCP30 Replay Debug Report",
         "",
         f"Seed: `{int(seed)}`",
         f"Output root: `{paths.root.as_posix()}`",
         "",
         "## Scope",
         "",
-        "Implemented Phase 1/2 only: OCP smoke, W0 30 deg hard solve, W0 30 deg soft-boundary diagnostic when required, and TVLQR replay only for an accepted hard 30 deg candidate.",
+        "Phase 2 debug only: W0 30 deg OCP reproduction, TrajectoryPrimitive conversion, open-loop replay, closed-loop TVLQR replay, nominal-latency replay, and terminal recovery sensitivity.",
         "",
         "## Prior Agile Boundary Evidence",
         "",
@@ -549,24 +578,27 @@ def _write_reports(
                 f"- failure reason: `{best_30.get('failure_reason')}`",
             ]
         )
-    phase2_summary = _phase2_gate_summary(replay_rows)
     report.extend(
         [
             "",
-            "## Replay",
+            "## Phase 2 Gate Summary",
             "",
             f"Replay rows produced: `{len(replay_rows)}`",
+            f"- hard 30 deg OCP reproduced: `{phase2_summary['ocp_hard_30']}`",
+            f"- open-loop no-latency gate: `{phase2_summary['open_loop_no_latency']}`",
             f"- closed-loop no-latency gate: `{phase2_summary['closed_loop_no_latency']}`",
             f"- nominal-latency gate: `{phase2_summary['closed_loop_nominal_latency']}`",
             f"- terminal-altitude recovery sensitivity gate: `{phase2_summary['terminal_altitude_sensitivity']}`",
-            f"- promoted beyond Phase 2: `{phase2_summary['promoted_beyond_phase2']}`",
-            f"- replay limitation: `{phase2_summary['limitation']}`",
+            f"- phase 2 status: `{phase2_summary['phase2_status']}`",
+            f"- active failure class: `{phase2_summary['active_failure_class']}`",
+            f"- all failure classes: `{phase2_summary['all_failure_classes']}`",
+            f"- limitation: `{phase2_summary['limitation']}`",
             "",
             "## Metrics Paths",
             "",
-            f"- `{(paths.metrics_dir / f'turn_ocp_candidates_seed{int(seed)}.csv').as_posix()}`",
-            f"- `{(paths.metrics_dir / f'turn_ocp_best_by_target_seed{int(seed)}.csv').as_posix()}`",
-            f"- `{(paths.metrics_dir / f'turn_tvlqr_replay_seed{int(seed)}.csv').as_posix()}` if replay ran",
+            f"- `{(paths.metrics_dir / _metrics_name('turn_ocp_candidates', seed)).as_posix()}`",
+            f"- `{(paths.metrics_dir / _metrics_name('turn_ocp_best_by_target', seed)).as_posix()}`",
+            f"- `{(paths.metrics_dir / _metrics_name('turn_tvlqr_replay', seed)).as_posix()}`",
             "",
             "## Limitation",
             "",
@@ -576,61 +608,175 @@ def _write_reports(
     )
     report_dir = docs_dir / "control"
     report_dir.mkdir(parents=True, exist_ok=True)
-    (report_dir / "turn_trajectory_optimisation_report.md").write_text(
+    (report_dir / "phase2_tvlqr_ocp30_report.md").write_text(
         "\n".join(report),
         encoding="utf-8",
     )
-    if best_30 is not None and str(best_30.get("feasibility_label")) not in ACCEPTED_LABELS:
+    if phase2_summary["phase2_status"] != "promoted_phase2":
         boundary = [
-            "# Tight-Turn 30 Deg Feasibility Boundary",
+            "# Phase 2 TVLQR OCP30 Boundary Report",
             "",
-            "The hard 30 deg Phase 1/2 gate did not produce an accepted primitive.",
+            "The W0 30 deg OCP candidate was not promoted beyond Phase 2.",
             "",
-            f"- best label: `{best_30.get('feasibility_label')}`",
-            f"- failure reason: `{best_30.get('failure_reason')}`",
-            f"- directed heading change deg: `{best_30.get('directed_heading_change_deg')}`",
-            f"- heading threshold deg: `{best_30.get('heading_threshold_deg')}`",
-            f"- min wall distance m: `{best_30.get('min_wall_distance_m')}`",
-            f"- min floor margin m: `{best_30.get('min_floor_margin_m')}`",
-            f"- terminal altitude m: `{best_30.get('terminal_z_w_m')}`",
-            f"- max alpha deg: `{best_30.get('max_alpha_deg')}`",
-            f"- saturation fraction: `{best_30.get('saturation_fraction')}`",
-            f"- slack max: `{best_30.get('slack_max')}`",
+            f"- phase 2 status: `{phase2_summary['phase2_status']}`",
+            f"- active failure class: `{phase2_summary['active_failure_class']}`",
+            f"- all failure classes: `{phase2_summary['all_failure_classes']}`",
+            f"- limitation: `{phase2_summary['limitation']}`",
+            f"- hard 30 deg OCP reproduced: `{phase2_summary['ocp_hard_30']}`",
+            f"- open-loop no-latency gate: `{phase2_summary['open_loop_no_latency']}`",
+            f"- closed-loop no-latency gate: `{phase2_summary['closed_loop_no_latency']}`",
+            f"- nominal-latency gate: `{phase2_summary['closed_loop_nominal_latency']}`",
+            f"- terminal recovery sensitivity gate: `{phase2_summary['terminal_altitude_sensitivity']}`",
             "",
-            "Solver failure is not treated as physical infeasibility. A physical infeasibility label requires the smoke case, at least two deterministic hard guesses, soft-boundary diagnostic, and active constraints to be recorded.",
+            "No physical sign, command-order, state-order, arena-bound, or command-authority changes were made to force promotion.",
             "",
         ]
-        (report_dir / "turn_feasibility_boundary.md").write_text(
+        if best_30 is not None:
+            boundary.extend(
+                [
+                    "## Best 30 Deg OCP Row",
+                    "",
+                    f"- label: `{best_30.get('feasibility_label')}`",
+                    f"- failure reason: `{best_30.get('failure_reason')}`",
+                    f"- directed heading change deg: `{best_30.get('directed_heading_change_deg')}`",
+                    f"- heading threshold deg: `{best_30.get('heading_threshold_deg')}`",
+                    f"- min wall distance m: `{best_30.get('min_wall_distance_m')}`",
+                    f"- terminal altitude m: `{best_30.get('terminal_z_w_m')}`",
+                    f"- max alpha deg: `{best_30.get('max_alpha_deg')}`",
+                    f"- saturation fraction: `{best_30.get('saturation_fraction')}`",
+                    f"- slack max: `{best_30.get('slack_max')}`",
+                    "",
+                ]
+            )
+        (report_dir / "phase2_tvlqr_ocp30_boundary.md").write_text(
             "\n".join(boundary),
             encoding="utf-8",
         )
 
 
-def _phase2_gate_summary(replay_rows: list[dict[str, object]]) -> dict[str, object]:
-    def passed(kind: str) -> bool | str:
-        rows = [row for row in replay_rows if str(row.get("replay_kind")) == kind]
-        if not rows:
-            return "not_run"
-        return all(str(row.get("success")) == "True" or row.get("success") is True for row in rows)
+def _best_30_row(best_rows: list[dict[str, object]]) -> dict[str, object] | None:
+    return next(
+        (row for row in best_rows if float(row.get("target_requested_deg", -1.0)) == 30.0),
+        None,
+    )
 
-    closed = passed("closed_loop_no_latency")
-    nominal = passed("closed_loop_nominal_latency")
-    sensitivity = passed("terminal_altitude_sensitivity")
-    promoted = closed is True and nominal is True and sensitivity is True
+
+def _phase2_gate_summary(
+    best_30: dict[str, object] | None,
+    replay_rows: list[dict[str, object]],
+) -> dict[str, object]:
+    ocp_ok = _ocp_30_gate(best_30)
+    open_loop = _single_replay_gate(replay_rows, "open_loop_no_latency")
+    closed = _single_replay_gate(replay_rows, "closed_loop_no_latency")
+    nominal = _single_replay_gate(replay_rows, "closed_loop_nominal_latency")
+    sensitivity = _terminal_sensitivity_gate(replay_rows)
+    failure_classes = _phase2_failure_classes(
+        ocp_ok=ocp_ok,
+        open_loop=open_loop,
+        closed=closed,
+        nominal=nominal,
+        sensitivity=sensitivity,
+        replay_rows=replay_rows,
+    )
+    promoted = (
+        ocp_ok is True
+        and open_loop is True
+        and closed is True
+        and nominal is True
+        and sensitivity is True
+    )
     failed = [
         str(row.get("termination_reason"))
         for row in replay_rows
-        if not (str(row.get("success")) == "True" or row.get("success") is True)
-        and str(row.get("termination_reason"))
+        if not _row_success(row) and str(row.get("termination_reason"))
     ]
-    limitation = "; ".join(dict.fromkeys(failed)) if failed else ""
     return {
+        "ocp_hard_30": ocp_ok,
+        "open_loop_no_latency": open_loop,
         "closed_loop_no_latency": closed,
         "closed_loop_nominal_latency": nominal,
         "terminal_altitude_sensitivity": sensitivity,
-        "promoted_beyond_phase2": promoted,
-        "limitation": limitation,
+        "phase2_status": "promoted_phase2" if promoted else "boundary_only",
+        "active_failure_class": "" if promoted else failure_classes[0],
+        "all_failure_classes": ";".join(failure_classes),
+        "limitation": "; ".join(dict.fromkeys(failed)) if failed else "",
     }
+
+
+def _ocp_30_gate(best_30: dict[str, object] | None) -> bool:
+    if best_30 is None:
+        return False
+    label = str(best_30.get("feasibility_label", ""))
+    return (
+        label in ACCEPTED_LABELS
+        and bool(best_30.get("success", False))
+        and float(best_30.get("slack_max", 1.0)) <= 1e-8
+        and bool(best_30.get("heading_gate_passed", False))
+        and bool(best_30.get("inside_true_safety_volume", False))
+        and bool(best_30.get("exit_recoverable_gate", False))
+    )
+
+
+def _single_replay_gate(rows: list[dict[str, object]], kind: str) -> bool | str:
+    matches = [row for row in rows if str(row.get("replay_kind")) == kind]
+    if not matches:
+        return "not_run"
+    return all(_row_success(row) for row in matches)
+
+
+def _terminal_sensitivity_gate(rows: list[dict[str, object]]) -> bool | str:
+    matches = [row for row in rows if str(row.get("replay_kind")) == "terminal_altitude_sensitivity"]
+    if not matches:
+        return "not_run"
+    altitudes = {
+        round(float(row.get("terminal_altitude_min_m", -1.0)), 2)
+        for row in matches
+    }
+    required = {0.75, 1.0, 1.2}
+    return required.issubset(altitudes) and all(_row_success(row) for row in matches)
+
+
+def _row_success(row: dict[str, object]) -> bool:
+    return str(row.get("success")) == "True" or row.get("success") is True
+
+
+def _phase2_failure_classes(
+    *,
+    ocp_ok: bool,
+    open_loop: bool | str,
+    closed: bool | str,
+    nominal: bool | str,
+    sensitivity: bool | str,
+    replay_rows: list[dict[str, object]],
+) -> list[str]:
+    failures: list[str] = []
+    if not ocp_ok:
+        failures.append("ocp_regression")
+    if open_loop is not True:
+        failures.append("open_loop_replay_mismatch")
+    if open_loop is True and closed is not True:
+        failures.append("tvlqr_feedback_limited")
+    if open_loop is True and closed is True and nominal is not True:
+        failures.append(_latency_failure_class(replay_rows))
+    if sensitivity is not True:
+        failures.append("terminal_recovery_limited")
+    return list(dict.fromkeys(failures or ["unknown_phase2_failure"]))
+
+
+def _latency_failure_class(replay_rows: list[dict[str, object]]) -> str:
+    rows = [
+        row
+        for row in replay_rows
+        if str(row.get("replay_kind")) == "closed_loop_nominal_latency"
+    ]
+    text = " ".join(
+        f"{row.get('termination_reason', '')} {row.get('failure_class', '')} "
+        f"{row.get('feasibility_label', '')}"
+        for row in rows
+    ).lower()
+    if "alpha" in text or "model_limited_high_alpha" in text:
+        return "latency_limited_high_alpha"
+    return "latency_limited_timing"
 
 
 def _parse_targets(values: list[str]) -> tuple[float, ...]:
