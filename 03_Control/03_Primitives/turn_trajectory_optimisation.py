@@ -894,6 +894,8 @@ def build_turn_trajectory_primitive(
     wind_model: object | None = None,
     wind_mode: str = "none",
     command_layer: CommandToSurfaceLayer | None = None,
+    tvlqr_config: TVLQRConfig | None = None,
+    feedback_variant: str = "baseline",
 ) -> TrajectoryPrimitive:
     if wind_mode != "none":
         raise ValueError("Phase 2 TVLQR conversion supports W0/no-wind only.")
@@ -913,13 +915,15 @@ def build_turn_trajectory_primitive(
         a_mats=a_mats,
         b_mats=b_mats,
         dt_s=dt_s,
-        config=_turn_tvlqr_config(),
+        config=_turn_tvlqr_config() if tvlqr_config is None else tvlqr_config,
     )
     target_tag = f"{int(round(abs(float(result.target.target_heading_deg)))):03d}"
     metadata = {
         "target_label": f"turn_ocp_ref_target_{target_tag}",
         "primitive_family": "turn_ocp",
         "candidate_id": str(result.solver_stats.get("initial_guess_name", "ocp")),
+        "candidate_variant": str(result.solver_stats.get("candidate_variant", "baseline")),
+        "feedback_variant": str(feedback_variant),
         "is_full_turn_claim": False,
         "target_heading_deg": float(result.target.target_heading_deg),
         "direction": result.target.direction,

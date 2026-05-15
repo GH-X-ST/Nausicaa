@@ -16,6 +16,9 @@ from primitive import build_primitive_context
 from run_agile_trajectory_optimisation import _phase2_gate_summary
 from run_agile_trajectory_optimisation import _phase2_candidate_config_variants
 from run_agile_trajectory_optimisation import _phase2_selection_score
+from run_agile_trajectory_optimisation import _phase2_tvlqr_variant_configs
+from run_agile_trajectory_optimisation import _latency_ablation_specs
+from run_agile_trajectory_optimisation import _strict_replay_forbidden_reason
 from scenarios import arena_feasible_entry_state
 from trajectory_primitive import trajectory_error
 from turn_trajectory_optimisation import (
@@ -159,6 +162,90 @@ def test_phase2_summary_does_not_promote_latency_or_recovery_failure() -> None:
 
     assert summary["phase2_status"] == "boundary_only"
     assert summary["active_failure_class"] == "latency_limited_high_alpha"
+    assert "terminal_recovery_limited" in summary["all_failure_classes"]
+
+
+def test_strict_phase2_gate_refuses_successful_high_alpha_label() -> None:
+    best_30 = {
+        "success": True,
+        "feasibility_label": "accepted_low_alpha",
+        "slack_max": 0.0,
+        "heading_gate_passed": True,
+        "inside_true_safety_volume": True,
+        "exit_recoverable_gate": True,
+    }
+    replay_rows = [
+        {"replay_kind": "open_loop_no_latency", "success": True},
+        {"replay_kind": "closed_loop_no_latency", "success": True},
+        {"replay_kind": "open_loop_nominal_latency", "success": True},
+        {
+            "replay_kind": "closed_loop_nominal_latency",
+            "success": True,
+            "actual_heading_change_deg": -25.0,
+            "exit_recoverable": True,
+            "feasibility_label": "model_limited_high_alpha",
+            "termination_reason": "",
+        },
+        {
+            "replay_kind": "terminal_altitude_sensitivity",
+            "terminal_altitude_min_m": 0.75,
+            "success": True,
+        },
+        {
+            "replay_kind": "terminal_altitude_sensitivity",
+            "terminal_altitude_min_m": 1.0,
+            "success": True,
+        },
+        {
+            "replay_kind": "terminal_altitude_sensitivity",
+            "terminal_altitude_min_m": 1.2,
+            "success": True,
+        },
+    ]
+
+    summary = _phase2_gate_summary(best_30, replay_rows)
+
+    assert summary["phase2_status"] == "boundary_only"
+    assert summary["closed_loop_nominal_latency"] is False
+    assert _strict_replay_forbidden_reason(replay_rows[3]) == "high_alpha_exposure"
+
+
+def test_terminal_sensitivity_refuses_unrecoverable_success_row() -> None:
+    best_30 = {
+        "success": True,
+        "feasibility_label": "accepted_low_alpha",
+        "slack_max": 0.0,
+        "heading_gate_passed": True,
+        "inside_true_safety_volume": True,
+        "exit_recoverable_gate": True,
+    }
+    replay_rows = [
+        {"replay_kind": "open_loop_no_latency", "success": True},
+        {"replay_kind": "closed_loop_no_latency", "success": True},
+        {"replay_kind": "open_loop_nominal_latency", "success": True},
+        {"replay_kind": "closed_loop_nominal_latency", "success": True},
+        {
+            "replay_kind": "terminal_altitude_sensitivity",
+            "terminal_altitude_min_m": 0.75,
+            "success": True,
+            "exit_recoverable": False,
+        },
+        {
+            "replay_kind": "terminal_altitude_sensitivity",
+            "terminal_altitude_min_m": 1.0,
+            "success": True,
+        },
+        {
+            "replay_kind": "terminal_altitude_sensitivity",
+            "terminal_altitude_min_m": 1.2,
+            "success": True,
+        },
+    ]
+
+    summary = _phase2_gate_summary(best_30, replay_rows)
+
+    assert summary["phase2_status"] == "boundary_only"
+    assert summary["terminal_altitude_sensitivity"] is False
     assert "terminal_recovery_limited" in summary["all_failure_classes"]
 
 
@@ -367,9 +454,23 @@ def test_phase2_robust_configs_tighten_terminal_recovery_without_command_cap() -
         "latency075",
         "latency090",
         "latency105",
+        "h070_terminal_buffer",
+        "h080_terminal_buffer",
+        "h095_recovery_buffer",
+        "h110_conservative",
     }
     assert variants["baseline"] == base
-    for name in ("recovery065", "recovery080", "latency075", "latency090", "latency105"):
+    for name in (
+        "recovery065",
+        "recovery080",
+        "latency075",
+        "latency090",
+        "latency105",
+        "h070_terminal_buffer",
+        "h080_terminal_buffer",
+        "h095_recovery_buffer",
+        "h110_conservative",
+    ):
         variant = variants[name]
         assert variant.t_min_s >= base.t_min_s
         assert variant.t_max_s <= base.t_max_s
@@ -381,6 +482,46 @@ def test_phase2_robust_configs_tighten_terminal_recovery_without_command_cap() -
         assert variant.final_third_smoothness_weight > 0.0
         assert variant.late_command_reversal_weight > 0.0
         assert variant.delayed_alpha_weight > 0.0
+
+
+def test_latency_ablation_schema_and_toggles_are_explicit() -> None:
+    specs = {name: (open_loop, config) for name, open_loop, config in _latency_ablation_specs()}
+
+    assert set(specs) == {
+        "no_latency_no_feedback_delay",
+        "actuator_onset_only",
+        "state_feedback_delay_only",
+        "actuator_state_delay_no_quantisation",
+        "actuator_state_delay_quantisation_on",
+        "open_loop_feedforward_nominal_latency",
+        "closed_loop_tvlqr_nominal_latency",
+        "final_recovery_feedback_disabled",
+    }
+    assert specs["open_loop_feedforward_nominal_latency"][0] is True
+    assert specs["closed_loop_tvlqr_nominal_latency"][0] is False
+    assert specs["actuator_onset_only"][1].use_onset_delay is True
+    assert specs["actuator_onset_only"][1].use_state_feedback_delay is False
+    assert specs["state_feedback_delay_only"][1].use_onset_delay is False
+    assert specs["state_feedback_delay_only"][1].use_state_feedback_delay is True
+    assert specs["actuator_state_delay_quantisation_on"][1].quantise is True
+
+
+def test_tvlqr_variant_configs_are_finite_and_named() -> None:
+    variants = dict(_phase2_tvlqr_variant_configs())
+
+    assert set(variants) == {
+        "baseline",
+        "r110",
+        "yaw_light_r110",
+        "recovery_heavy_r90",
+        "late_feedback_half_r110",
+        "k_smooth3_r110",
+    }
+    for config in variants.values():
+        assert np.all(np.isfinite(config.q_diag))
+        assert np.all(np.isfinite(config.r_diag))
+        assert config.qf_diag is not None
+        assert np.all(np.isfinite(config.qf_diag))
 
 
 def test_phase2_default_config_disables_v2_objective_terms() -> None:
@@ -433,6 +574,8 @@ def test_phase2_report_paths_are_not_ignored() -> None:
             "check-ignore",
             "docs/control/phase2_latency_recovery_ocp30_report.md",
             "docs/control/phase2_latency_recovery_ocp30_boundary.md",
+            "docs/control/phase2_overnight_latency_recovery_report.md",
+            "docs/control/phase2_overnight_latency_recovery_boundary.md",
         ],
         cwd=repo_root,
         text=True,

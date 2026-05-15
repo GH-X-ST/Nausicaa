@@ -60,6 +60,8 @@ METRIC_SCHEMA_KEYS = (
     "max_beta_deg",
     "max_bank_deg",
     "min_wall_distance_m",
+    "min_floor_margin_m",
+    "min_ceiling_margin_m",
     "saturation_time_s",
     "time_at_full_travel_s",
     "saturation_fraction",
@@ -258,6 +260,8 @@ def rollout_metrics(
             np.rad2deg(np.max(np.abs(state_arr[:, STATE_INDEX["phi"]])))
         ),
         "min_wall_distance_m": float(min_wall),
+        "min_floor_margin_m": float(min_floor),
+        "min_ceiling_margin_m": float(min_ceiling),
         "saturation_time_s": None if saturation_time_s is None else float(saturation_time_s),
         "time_at_full_travel_s": None if saturation_time_s is None else float(saturation_time_s),
         "saturation_fraction": float(saturation_fraction),

@@ -47,6 +47,7 @@ from primitive import build_primitive_context  # noqa: E402
 from rollout import RolloutConfig, simulate_primitive, write_log  # noqa: E402
 from scenarios import arena_feasible_entry_state  # noqa: E402
 from templates import RecoveryPrimitive  # noqa: E402
+from trajectory_primitive import TrajectoryPrimitive  # noqa: E402
 from turn_trajectory_optimisation import (  # noqa: E402
     ACCEPTED_LABELS,
     OptimisedTurnResult,
@@ -58,6 +59,7 @@ from turn_trajectory_optimisation import (  # noqa: E402
     save_turn_result,
     solve_turn_ocp,
 )  # noqa: E402
+from tvlqr import TVLQRConfig  # noqa: E402
 
 
 # =============================================================================
@@ -133,6 +135,7 @@ def _result_row(
         "seed": int(seed),
         "solve_kind": solve_kind,
         "candidate_variant": variant,
+        "candidate_tag": _candidate_tag(result),
         "target_requested_deg": float(target_requested_deg),
         "success": bool(result.success),
         "feasibility_label": result.feasibility_label,
@@ -320,6 +323,190 @@ def _phase2_candidate_config_variants(
                 delayed_alpha_margin_deg=14.0,
             ),
         ),
+        (
+            "h070_terminal_buffer",
+            replace(
+                base_config,
+                t_min_s=0.68,
+                t_max_s=0.78,
+                terminal_speed_bounds_m_s=(5.7, 7.2),
+                terminal_bank_deg=30.0,
+                terminal_pitch_deg=22.0,
+                terminal_alpha_deg=9.0,
+                terminal_beta_deg=18.0,
+                terminal_rate_max_rad_s=0.95,
+                terminal_speed_target_m_s=6.35,
+                recovery_weight=30.0,
+                smoothness_weight=0.26,
+                saturation_weight=0.11,
+                terminal_speed_weight=6.0,
+                terminal_alpha_weight=24.0,
+                terminal_beta_weight=12.0,
+                terminal_rate_weight=4.8,
+                terminal_surface_weight=9.0,
+                final_third_smoothness_weight=0.55,
+                late_command_reversal_weight=0.36,
+                delayed_alpha_weight=18.0,
+                delayed_alpha_margin_deg=14.0,
+            ),
+        ),
+        (
+            "h080_terminal_buffer",
+            replace(
+                base_config,
+                t_min_s=0.78,
+                t_max_s=0.90,
+                terminal_speed_bounds_m_s=(5.8, 7.1),
+                terminal_bank_deg=26.0,
+                terminal_pitch_deg=19.0,
+                terminal_alpha_deg=8.0,
+                terminal_beta_deg=16.0,
+                terminal_rate_max_rad_s=0.80,
+                terminal_speed_target_m_s=6.35,
+                recovery_weight=34.0,
+                smoothness_weight=0.30,
+                saturation_weight=0.12,
+                terminal_speed_weight=7.0,
+                terminal_alpha_weight=28.0,
+                terminal_beta_weight=14.0,
+                terminal_rate_weight=6.0,
+                terminal_surface_weight=10.0,
+                final_third_smoothness_weight=0.65,
+                late_command_reversal_weight=0.44,
+                delayed_alpha_weight=22.0,
+                delayed_alpha_margin_deg=13.0,
+            ),
+        ),
+        (
+            "h095_recovery_buffer",
+            replace(
+                base_config,
+                t_min_s=0.92,
+                t_max_s=1.05,
+                terminal_speed_bounds_m_s=(5.9, 7.0),
+                terminal_bank_deg=22.0,
+                terminal_pitch_deg=16.0,
+                terminal_alpha_deg=7.5,
+                terminal_beta_deg=14.0,
+                terminal_rate_max_rad_s=0.68,
+                terminal_speed_target_m_s=6.4,
+                recovery_weight=40.0,
+                smoothness_weight=0.36,
+                saturation_weight=0.14,
+                terminal_speed_weight=9.0,
+                terminal_alpha_weight=34.0,
+                terminal_beta_weight=17.0,
+                terminal_rate_weight=7.5,
+                terminal_surface_weight=12.0,
+                final_third_smoothness_weight=0.80,
+                late_command_reversal_weight=0.55,
+                delayed_alpha_weight=26.0,
+                delayed_alpha_margin_deg=12.0,
+            ),
+        ),
+        (
+            "h110_conservative",
+            replace(
+                base_config,
+                t_min_s=1.06,
+                t_max_s=1.20,
+                terminal_speed_bounds_m_s=(6.0, 6.9),
+                terminal_bank_deg=20.0,
+                terminal_pitch_deg=14.0,
+                terminal_alpha_deg=7.0,
+                terminal_beta_deg=12.0,
+                terminal_rate_max_rad_s=0.58,
+                terminal_speed_target_m_s=6.45,
+                recovery_weight=46.0,
+                smoothness_weight=0.44,
+                saturation_weight=0.16,
+                terminal_speed_weight=11.0,
+                terminal_alpha_weight=40.0,
+                terminal_beta_weight=20.0,
+                terminal_rate_weight=9.0,
+                terminal_surface_weight=14.0,
+                final_third_smoothness_weight=0.95,
+                late_command_reversal_weight=0.70,
+                delayed_alpha_weight=32.0,
+                delayed_alpha_margin_deg=11.0,
+            ),
+        ),
+    )
+
+
+def _phase2_config_variants_for_mode(
+    base_config: TurnOptimisationConfig,
+    mode: str,
+) -> tuple[tuple[str, TurnOptimisationConfig], ...]:
+    if mode == "baseline":
+        return (("baseline", base_config),)
+    if mode in {"default", "overnight"}:
+        return _phase2_candidate_config_variants(base_config)
+    raise ValueError(f"unknown phase2 candidate variant mode: {mode}")
+
+
+def _phase2_tvlqr_variant_configs() -> tuple[tuple[str, TVLQRConfig], ...]:
+    q = (
+        0.08,
+        0.25,
+        0.10,
+        2.20,
+        1.60,
+        1.30,
+        0.25,
+        0.35,
+        0.35,
+        0.70,
+        0.70,
+        0.70,
+        0.08,
+        0.08,
+        0.08,
+    )
+    qf = (
+        0.20,
+        0.50,
+        0.20,
+        3.20,
+        2.60,
+        2.20,
+        0.40,
+        0.45,
+        0.45,
+        0.90,
+        0.90,
+        0.90,
+        0.10,
+        0.10,
+        0.10,
+    )
+    yaw_light = list(q)
+    yaw_light[5] = 0.65
+    yaw_light_qf = list(qf)
+    yaw_light_qf[5] = 1.10
+    recovery_heavy = list(q)
+    recovery_heavy_qf = list(qf)
+    for idx, value in ((6, 0.70), (7, 0.80), (8, 0.80), (9, 1.50), (10, 1.50), (11, 1.50)):
+        recovery_heavy[idx] = value
+    for idx, value in ((6, 1.10), (7, 1.20), (8, 1.20), (9, 2.40), (10, 2.40), (11, 2.40)):
+        recovery_heavy_qf[idx] = value
+    return (
+        ("baseline", TVLQRConfig(q_diag=q, r_diag=(55.0, 55.0, 55.0), qf_diag=qf)),
+        ("r110", TVLQRConfig(q_diag=q, r_diag=(110.0, 110.0, 110.0), qf_diag=qf)),
+        (
+            "yaw_light_r110",
+            TVLQRConfig(q_diag=tuple(yaw_light), r_diag=(110.0, 110.0, 110.0), qf_diag=tuple(yaw_light_qf)),
+        ),
+        (
+            "recovery_heavy_r90",
+            TVLQRConfig(
+                q_diag=tuple(recovery_heavy),
+                r_diag=(90.0, 90.0, 90.0),
+                qf_diag=tuple(recovery_heavy_qf),
+            ),
+        ),
+        ("late_feedback_half_r110", TVLQRConfig(q_diag=q, r_diag=(110.0, 110.0, 110.0), qf_diag=qf)),
+        ("k_smooth3_r110", TVLQRConfig(q_diag=q, r_diag=(110.0, 110.0, 110.0), qf_diag=qf)),
     )
 
 
@@ -337,6 +524,8 @@ def run_phase_1_2(
     n_intervals: int = 18,
     max_solver_time_s: float = 30.0,
     ipopt_max_iter: int = 220,
+    candidate_variant_mode: str = "default",
+    write_reports: bool = True,
 ) -> dict[str, object]:
     unsupported = sorted(set(float(target) for target in targets_deg) - {0.0, 30.0})
     if unsupported:
@@ -378,7 +567,7 @@ def run_phase_1_2(
             allow_safety_slack=False,
         )
         config_variants = (
-            _phase2_candidate_config_variants(base_config)
+            _phase2_config_variants_for_mode(base_config, candidate_variant_mode)
             if run_tvlqr_replay and float(target_deg) == 30.0
             else (("baseline", base_config),)
         )
@@ -460,6 +649,7 @@ def run_phase_1_2(
             )
 
     replay_rows: list[dict[str, object]] = []
+    phase2_results: list[OptimisedTurnResult] = []
     if run_tvlqr_replay:
         phase2_results = [
             result
@@ -518,17 +708,20 @@ def run_phase_1_2(
         best_rows=best_rows,
         replay_rows=replay_rows,
     )
-    _write_reports(
-        paths=paths,
-        seed=seed,
-        candidate_rows=candidate_rows,
-        best_rows=best_rows,
-        replay_rows=replay_rows,
-    )
+    if write_reports:
+        _write_reports(
+            paths=paths,
+            seed=seed,
+            candidate_rows=candidate_rows,
+            best_rows=best_rows,
+            replay_rows=replay_rows,
+        )
     return {
         "candidate_rows": candidate_rows,
         "best_rows": best_rows,
         "replay_rows": replay_rows,
+        "phase2_results": phase2_results,
+        "best_by_target": best_by_target,
         "output_root": str(paths.root),
     }
 
@@ -680,6 +873,8 @@ def _run_phase_2_replay(
     aircraft,
     artifact_tag: str | None = None,
     save_selected_alias: bool = True,
+    feedback_variant: str = "baseline",
+    tvlqr_config: TVLQRConfig | None = None,
 ) -> list[dict[str, object]]:
     tag = artifact_tag or _candidate_tag(result)
     variant = str(result.solver_stats.get("candidate_variant", "baseline"))
@@ -690,8 +885,14 @@ def _run_phase_2_replay(
         wind_model=None,
         wind_mode="none",
         command_layer=CommandToSurfaceLayer(),
+        tvlqr_config=tvlqr_config,
+        feedback_variant=feedback_variant,
     )
+    primitive = _apply_feedback_variant(primitive, feedback_variant)
+    arrays_finite = _primitive_arrays_finite(primitive)
     stem = f"ocp030_tvlqr_{tag}_{_seed_tag(seed)}"
+    if feedback_variant != "baseline":
+        stem = f"{stem}_{feedback_variant}"
     save_turn_result(result, paths.root, stem=stem, primitive=primitive)
     if save_selected_alias:
         save_turn_result(
@@ -726,12 +927,15 @@ def _run_phase_2_replay(
                     "replay_kind": label,
                     "candidate_variant": variant,
                     "candidate_tag": tag,
+                    "feedback_variant": feedback_variant,
+                    "primitive_arrays_finite": arrays_finite,
                     "success": False,
                     "termination_reason": "skipped because closed_loop_no_latency failed",
                 }
             )
             continue
-        log_path = paths.logs_dir / _replay_log_name(label, seed, candidate_tag=tag)
+        log_tag = tag if feedback_variant == "baseline" else f"{tag}_{feedback_variant}"
+        log_path = paths.logs_dir / _replay_log_name(label, seed, candidate_tag=log_tag)
         rollout = simulate_primitive(
             scenario_id=f"turn_ocp_{label}",
             seed=seed,
@@ -757,6 +961,8 @@ def _run_phase_2_replay(
             "replay_kind": label,
             "candidate_variant": variant,
             "candidate_tag": tag,
+            "feedback_variant": feedback_variant,
+            "primitive_arrays_finite": arrays_finite,
             **rollout.metrics,
         }
         replay_rows.append(row)
@@ -774,6 +980,7 @@ def _run_phase_2_replay(
             aircraft=aircraft,
             candidate_variant=variant,
             candidate_tag=tag,
+            feedback_variant=feedback_variant,
         )
     )
     return replay_rows
@@ -790,6 +997,41 @@ def _replay_log_name(label: str, seed: int, *, candidate_tag: str | None = None)
     return f"{names.get(label, label)}{suffix}_{_seed_tag(seed)}.csv"
 
 
+def _primitive_arrays_finite(primitive: TrajectoryPrimitive) -> bool:
+    arrays = [
+        primitive.times_s,
+        primitive.x_ref,
+        primitive.u_ff,
+        primitive.k_lqr,
+        primitive.a_mats,
+        primitive.b_mats,
+        primitive.s_mats,
+    ]
+    return all(arr is not None and np.all(np.isfinite(arr)) for arr in arrays)
+
+
+def _apply_feedback_variant(
+    primitive: TrajectoryPrimitive,
+    feedback_variant: str,
+) -> TrajectoryPrimitive:
+    if feedback_variant not in {"late_feedback_half_r110", "k_smooth3_r110"}:
+        return primitive
+    k_lqr = np.asarray(primitive.k_lqr, dtype=float).copy()
+    if feedback_variant == "late_feedback_half_r110":
+        phase = dict(primitive.metadata.get("phase_metadata", {}))
+        recover = phase.get("recover", {}) if isinstance(phase.get("recover", {}), dict) else {}
+        start_s = float(recover.get("start_s", 0.75 * primitive.duration_s))
+        k_lqr[np.asarray(primitive.times_s) >= start_s] *= 0.5
+    elif feedback_variant == "k_smooth3_r110" and k_lqr.shape[0] >= 3:
+        smoothed = k_lqr.copy()
+        for idx in range(1, k_lqr.shape[0] - 1):
+            smoothed[idx] = np.mean(k_lqr[idx - 1 : idx + 2], axis=0)
+        k_lqr = smoothed
+    metadata = dict(primitive.metadata)
+    metadata["feedback_variant"] = feedback_variant
+    return replace(primitive, k_lqr=k_lqr, metadata=metadata)
+
+
 def _terminal_altitude_sensitivity_rows(
     *,
     result: OptimisedTurnResult,
@@ -799,14 +1041,16 @@ def _terminal_altitude_sensitivity_rows(
     aircraft,
     candidate_variant: str = "baseline",
     candidate_tag: str = "baseline",
+    feedback_variant: str = "baseline",
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     terminal_state = np.asarray(result.x_ref[-1], dtype=float)
+    log_tag = candidate_tag if feedback_variant == "baseline" else f"{candidate_tag}_{feedback_variant}"
     for altitude_m in (0.75, 1.0, 1.2):
         sensitivity_context = replace(context, min_entry_altitude_m=float(altitude_m))
         log_path = (
             paths.logs_dir
-            / f"recovery{int(100 * altitude_m):03d}_{candidate_tag}_{_seed_tag(seed)}.csv"
+            / f"recovery{int(100 * altitude_m):03d}_{log_tag}_{_seed_tag(seed)}.csv"
         )
         recovery = RecoveryPrimitive(duration_s=0.76)
         entry = recovery.entry_conditions(terminal_state, sensitivity_context)
@@ -816,6 +1060,7 @@ def _terminal_altitude_sensitivity_rows(
                     "replay_kind": "terminal_altitude_sensitivity",
                     "candidate_variant": candidate_variant,
                     "candidate_tag": candidate_tag,
+                    "feedback_variant": feedback_variant,
                     "terminal_altitude_min_m": float(altitude_m),
                     "success": False,
                     "termination_reason": "; ".join(entry.reasons),
@@ -845,6 +1090,7 @@ def _terminal_altitude_sensitivity_rows(
                 "replay_kind": "terminal_altitude_sensitivity",
                 "candidate_variant": candidate_variant,
                 "candidate_tag": candidate_tag,
+                "feedback_variant": feedback_variant,
                 "terminal_altitude_min_m": float(altitude_m),
                 **rollout.metrics,
             }
@@ -853,7 +1099,724 @@ def _terminal_altitude_sensitivity_rows(
 
 
 # =============================================================================
-# 5) Reports and CLI
+# 5) Overnight Stage Runner
+# =============================================================================
+def _overnight_default_root() -> Path:
+    return (
+        REPO_ROOT
+        / "03_Control"
+        / "05_Results"
+        / "03_primitives"
+        / "12_tight_turn_phase2_overnight"
+        / "001"
+    )
+
+
+def _latency_ablation_specs() -> tuple[tuple[str, bool, CommandToSurfaceConfig], ...]:
+    no_latency = CommandToSurfaceConfig(
+        mode="nominal",
+        quantise=False,
+        use_onset_delay=False,
+        use_state_feedback_delay=False,
+    )
+    return (
+        ("no_latency_no_feedback_delay", False, no_latency),
+        (
+            "actuator_onset_only",
+            False,
+            CommandToSurfaceConfig(
+                mode="nominal",
+                quantise=False,
+                use_onset_delay=True,
+                use_state_feedback_delay=False,
+            ),
+        ),
+        (
+            "state_feedback_delay_only",
+            False,
+            CommandToSurfaceConfig(
+                mode="nominal",
+                quantise=False,
+                use_onset_delay=False,
+                use_state_feedback_delay=True,
+            ),
+        ),
+        (
+            "actuator_state_delay_no_quantisation",
+            False,
+            CommandToSurfaceConfig(
+                mode="nominal",
+                quantise=False,
+                use_onset_delay=True,
+                use_state_feedback_delay=True,
+            ),
+        ),
+        (
+            "actuator_state_delay_quantisation_on",
+            False,
+            CommandToSurfaceConfig(mode="nominal"),
+        ),
+        ("open_loop_feedforward_nominal_latency", True, CommandToSurfaceConfig(mode="nominal")),
+        ("closed_loop_tvlqr_nominal_latency", False, CommandToSurfaceConfig(mode="nominal")),
+        ("final_recovery_feedback_disabled", False, CommandToSurfaceConfig(mode="nominal")),
+    )
+
+
+def _phase2_environment(seed: int) -> tuple[object, object, object]:
+    np.random.seed(int(seed))
+    aircraft = adapt_glider(build_nausicaa_glider())
+    linear_model = linearise_trim(aircraft=aircraft)
+    context = build_primitive_context(
+        linear_model.x_trim,
+        linear_model.u_trim,
+        min_entry_altitude_m=0.75,
+    )
+    return aircraft, linear_model, context
+
+
+def _run_latency_ablation(
+    *,
+    result: OptimisedTurnResult,
+    seed: int,
+    paths: TurnOutputPaths,
+    context,
+    aircraft,
+    command_run: str,
+) -> list[dict[str, object]]:
+    tag = _candidate_tag(result)
+    variant = str(result.solver_stats.get("candidate_variant", "baseline"))
+    primitive = build_turn_trajectory_primitive(
+        result=result,
+        context=context,
+        aircraft=aircraft,
+        wind_model=None,
+        wind_mode="none",
+        command_layer=CommandToSurfaceLayer(),
+    )
+    arrays_finite = _primitive_arrays_finite(primitive)
+    x0 = np.asarray(result.x_ref[0], dtype=float)
+    rows: list[dict[str, object]] = []
+    for ablation_mode, open_loop, latency_config in _latency_ablation_specs():
+        run_primitive = primitive_open_loop_copy(primitive) if open_loop else primitive
+        if ablation_mode == "final_recovery_feedback_disabled":
+            run_primitive = _primitive_with_final_recovery_feedback_disabled(primitive)
+        log_path = (
+            paths.logs_dir
+            / f"stage1_{ablation_mode}_{tag}_{_seed_tag(seed)}.csv"
+        )
+        rollout = simulate_primitive(
+            scenario_id=f"turn_ocp_stage1_{ablation_mode}",
+            seed=seed,
+            primitive=run_primitive,
+            x0=x0,
+            context=context,
+            aircraft=aircraft,
+            wind_model=None,
+            wind_model_name="none",
+            wind_mode="none",
+            command_layer=CommandToSurfaceLayer(
+                config=latency_config,
+                envelope=LatencyEnvelope(),
+            ),
+            log_path=log_path,
+            repo_root=REPO_ROOT,
+            rollout_config=RolloutConfig(),
+            arena_config=ArenaConfig(),
+            wind_param_label="none",
+        )
+        write_log(rollout, log_path)
+        row = {
+            "stage_name": "stage1_latency_ablation",
+            "command_run": command_run,
+            "candidate_variant": variant,
+            "candidate_tag": tag,
+            "feedback_variant": "baseline",
+            "latency_ablation_mode": ablation_mode,
+            "primitive_arrays_finite": arrays_finite,
+            **rollout.metrics,
+        }
+        row["strict_replay_forbidden_reason"] = _strict_replay_forbidden_reason(row)
+        rows.append(row)
+    failure_class = _classify_latency_ablation(rows)
+    for row in rows:
+        row["stage_failure_class"] = failure_class
+        row["reason_for_proceeding_or_stopping"] = (
+            "proceed to candidate variants and TVLQR diagnostics"
+            if failure_class
+            else "latency ablation did not identify a failure"
+        )
+    return rows
+
+
+def _primitive_with_final_recovery_feedback_disabled(
+    primitive: TrajectoryPrimitive,
+) -> TrajectoryPrimitive:
+    phase = dict(primitive.metadata.get("phase_metadata", {}))
+    recover = phase.get("recover", {}) if isinstance(phase.get("recover", {}), dict) else {}
+    start_s = float(recover.get("start_s", 0.75 * primitive.duration_s))
+    k_lqr = np.asarray(primitive.k_lqr, dtype=float).copy()
+    k_lqr[np.asarray(primitive.times_s) >= start_s] = 0.0
+    metadata = dict(primitive.metadata)
+    metadata["feedback_variant"] = "final_recovery_feedback_disabled_diagnostic"
+    return replace(
+        primitive,
+        name=f"{primitive.name}_final_recovery_open_loop",
+        k_lqr=k_lqr,
+        metadata=metadata,
+    )
+
+
+def _classify_latency_ablation(rows: list[dict[str, object]]) -> str:
+    by_mode = {str(row.get("latency_ablation_mode")): row for row in rows}
+
+    def passed(mode: str) -> bool:
+        row = by_mode.get(mode, {})
+        return _row_success(row) and not _strict_replay_forbidden_reason(row)
+
+    def high_alpha(mode: str) -> bool:
+        row = by_mode.get(mode, {})
+        text = " ".join(
+            str(row.get(key, ""))
+            for key in ("termination_reason", "feasibility_label", "failure_class")
+        ).lower()
+        return "alpha" in text
+
+    if not passed("open_loop_feedforward_nominal_latency"):
+        return (
+            "latency_limited_high_alpha"
+            if high_alpha("open_loop_feedforward_nominal_latency")
+            else "feedforward_latency_limited"
+        )
+    if passed("actuator_state_delay_no_quantisation") and not passed(
+        "actuator_state_delay_quantisation_on"
+    ):
+        return "quantisation_limited"
+    if not passed("actuator_onset_only") and passed("state_feedback_delay_only"):
+        return "feedforward_latency_limited"
+    if not passed("state_feedback_delay_only") and passed("actuator_onset_only"):
+        return "state_feedback_delay_limited"
+    if not passed("closed_loop_tvlqr_nominal_latency"):
+        if passed("final_recovery_feedback_disabled"):
+            return "feedback_correction_limited"
+        return (
+            "latency_limited_high_alpha"
+            if high_alpha("closed_loop_tvlqr_nominal_latency")
+            else "mixed_latency_recovery_limited"
+        )
+    return "terminal_recovery_limited"
+
+
+def _stage0_summary_rows(
+    *,
+    seed: int,
+    command_run: str,
+    baseline_result: dict[str, object],
+) -> list[dict[str, object]]:
+    best_30 = _best_30_row(baseline_result["best_rows"])
+    replay_rows = list(baseline_result["replay_rows"])
+    summary = _phase2_gate_summary(best_30, replay_rows)
+    row = {
+        "stage_name": "stage0_baseline_reproduction",
+        "command_run": command_run,
+        "candidate_variant": "" if best_30 is None else best_30.get("candidate_variant", ""),
+        "candidate_tag": "" if best_30 is None else best_30.get("candidate_tag", ""),
+        "success": _baseline_pattern_matches(summary),
+        "failure_class": "" if _baseline_pattern_matches(summary) else "baseline_mismatch",
+        "reason_for_proceeding_or_stopping": (
+            "baseline matches v3.3 boundary pattern"
+            if _baseline_pattern_matches(summary)
+            else "stop before tuning because baseline pattern changed"
+        ),
+        **summary,
+    }
+    if best_30 is not None:
+        row.update(_stage_metric_projection(best_30))
+    row["seed"] = int(seed)
+    return [row]
+
+
+def _baseline_pattern_matches(summary: dict[str, object]) -> bool:
+    return (
+        summary.get("ocp_hard_30") is True
+        and summary.get("open_loop_no_latency") is True
+        and summary.get("closed_loop_no_latency") is True
+        and summary.get("open_loop_nominal_latency") is True
+        and summary.get("closed_loop_nominal_latency") is False
+        and summary.get("terminal_altitude_sensitivity") is False
+        and summary.get("phase2_status") == "boundary_only"
+    )
+
+
+def _stage_metric_projection(row: dict[str, object]) -> dict[str, object]:
+    keys = (
+        "directed_heading_change_deg",
+        "actual_heading_change_deg",
+        "max_alpha_deg",
+        "max_beta_deg",
+        "terminal_speed_m_s",
+        "terminal_z_w_m",
+        "terminal_rate_norm_rad_s",
+        "min_wall_distance_m",
+        "min_floor_margin_m",
+        "min_ceiling_margin_m",
+        "saturation_fraction",
+        "exit_recoverable_gate",
+        "exit_recoverable",
+        "termination_reason",
+        "feasibility_label",
+        "failure_reason",
+        "log_path",
+    )
+    return {key: row.get(key, "") for key in keys}
+
+
+def _stage2_summary_rows(
+    *,
+    command_run: str,
+    candidate_rows: list[dict[str, object]],
+    replay_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for candidate in candidate_rows:
+        if float(candidate.get("target_requested_deg", -1.0)) != 30.0:
+            continue
+        tag = str(candidate.get("candidate_tag", ""))
+        related = [row for row in replay_rows if str(row.get("candidate_tag", "")) == tag]
+        summary = _phase2_gate_summary(candidate, related)
+        row = {
+            "stage_name": "stage2_candidate_variants",
+            "command_run": command_run,
+            "candidate_variant": candidate.get("candidate_variant", ""),
+            "candidate_tag": tag,
+            "ocp_success": candidate.get("success", False),
+            "phase2_status": summary["phase2_status"],
+            "active_failure_class": summary["active_failure_class"],
+            "all_failure_classes": summary["all_failure_classes"],
+            "reason_for_proceeding_or_stopping": "evaluate strict gate after deterministic variants",
+        }
+        row.update(_stage_metric_projection(candidate))
+        rows.append(row)
+    return rows
+
+
+def _run_stage3_tvlqr_variants(
+    *,
+    seed: int,
+    paths: TurnOutputPaths,
+    context,
+    aircraft,
+    result: OptimisedTurnResult,
+    active_failure_class: str,
+    command_run: str,
+) -> tuple[
+    list[dict[str, object]],
+    list[tuple[OptimisedTurnResult, list[dict[str, object]], str]],
+    list[dict[str, object]],
+]:
+    if active_failure_class not in {
+        "state_feedback_delay_limited",
+        "feedback_correction_limited",
+        "latency_limited_high_alpha",
+        "mixed_latency_recovery_limited",
+    }:
+        return (
+            [
+                {
+                    "stage_name": "stage3_tvlqr_variants",
+                    "command_run": command_run,
+                    "candidate_variant": result.solver_stats.get("candidate_variant", "baseline"),
+                    "candidate_tag": _candidate_tag(result),
+                    "feedback_variant": "not_applicable",
+                    "success": False,
+                    "failure_class": active_failure_class,
+                    "reason_for_proceeding_or_stopping": "feedback was not the active bottleneck",
+                }
+            ],
+            [],
+            [],
+        )
+    rows: list[dict[str, object]] = []
+    evaluations: list[tuple[OptimisedTurnResult, list[dict[str, object]], str]] = []
+    replay_table: list[dict[str, object]] = []
+    for feedback_variant, config in _phase2_tvlqr_variant_configs():
+        replay_rows = _run_phase_2_replay(
+            result=result,
+            seed=seed,
+            paths=paths,
+            context=context,
+            aircraft=aircraft,
+            artifact_tag=_candidate_tag(result),
+            save_selected_alias=False,
+            feedback_variant=feedback_variant,
+            tvlqr_config=config,
+        )
+        evaluations.append((result, replay_rows, feedback_variant))
+        for replay_row in replay_rows:
+            replay_table.append(
+                {
+                    "stage_name": "stage3_tvlqr_variant_replay",
+                    "command_run": command_run,
+                    **replay_row,
+                }
+            )
+        best_row = _result_row(
+            result,
+            seed=seed,
+            solve_kind="stage3_tvlqr_variant",
+            target_requested_deg=30.0,
+        )
+        summary = _phase2_gate_summary(best_row, replay_rows)
+        rows.append(
+            {
+                "stage_name": "stage3_tvlqr_variants",
+                "command_run": command_run,
+                "candidate_variant": best_row.get("candidate_variant", ""),
+                "candidate_tag": best_row.get("candidate_tag", ""),
+                "feedback_variant": feedback_variant,
+                "success": summary["phase2_status"] == "promoted_phase2",
+                "phase2_status": summary["phase2_status"],
+                "active_failure_class": summary["active_failure_class"],
+                "all_failure_classes": summary["all_failure_classes"],
+                "primitive_arrays_finite": all(
+                    _as_bool(row.get("primitive_arrays_finite", True))
+                    for row in replay_rows
+                ),
+                "reason_for_proceeding_or_stopping": "strict gate evaluation follows",
+            }
+        )
+    return rows, evaluations, replay_table
+
+
+def _stage4_gate_rows(
+    *,
+    seed: int,
+    evaluations: list[tuple[OptimisedTurnResult, list[dict[str, object]], str]],
+) -> tuple[list[dict[str, object]], OptimisedTurnResult, list[dict[str, object]], str]:
+    ranked: list[tuple[tuple[float, ...], OptimisedTurnResult, list[dict[str, object]], str]] = []
+    for result, rows, feedback_variant in evaluations:
+        ranked.append((_phase2_selection_score(result, rows), result, rows, feedback_variant))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    selected = ranked[0]
+    stage_rows: list[dict[str, object]] = []
+    for score, result, rows, feedback_variant in ranked:
+        best_row = _result_row(
+            result,
+            seed=seed,
+            solve_kind="stage4_phase2_gate",
+            target_requested_deg=30.0,
+        )
+        summary = _phase2_gate_summary(best_row, rows)
+        stage_row = {
+            "stage_name": "stage4_phase2_gate",
+            "candidate_variant": best_row.get("candidate_variant", ""),
+            "candidate_tag": best_row.get("candidate_tag", ""),
+            "feedback_variant": feedback_variant,
+            "selected_candidate": result is selected[1] and feedback_variant == selected[3],
+            "selection_score": "|".join(f"{value:.6g}" for value in score),
+            "reason_for_proceeding_or_stopping": (
+                "strict Phase 2 promoted"
+                if summary["phase2_status"] == "promoted_phase2"
+                else "boundary result retained"
+            ),
+            **summary,
+        }
+        stage_row.update(_stage_metric_projection(best_row))
+        stage_rows.append(stage_row)
+    return stage_rows, selected[1], selected[2], selected[3]
+
+
+def _write_overnight_manifest(
+    *,
+    paths: TurnOutputPaths,
+    seed: int,
+    stage0_rows: list[dict[str, object]],
+    stage1_rows: list[dict[str, object]],
+    stage2_rows: list[dict[str, object]],
+    stage3_rows: list[dict[str, object]],
+    stage4_rows: list[dict[str, object]],
+) -> None:
+    selected = next((row for row in stage4_rows if _as_bool(row.get("selected_candidate"))), {})
+    manifest = {
+        "status": selected.get("phase2_status", "baseline_mismatch"),
+        "seed": int(seed),
+        "output_root": paths.root.as_posix(),
+        "stage_rows": {
+            "stage0": len(stage0_rows),
+            "stage1": len(stage1_rows),
+            "stage2": len(stage2_rows),
+            "stage3": len(stage3_rows),
+            "stage4": len(stage4_rows),
+        },
+        "selected_candidate": selected,
+        "frozen_invariants": {
+            "world_frame": "z up",
+            "body_frame": "x forward, y starboard, z down",
+            "state_order": "[x_w,y_w,z_w,phi,theta,psi,u,v,w,p,q,r,delta_a,delta_e,delta_r]",
+            "command_order": "[delta_a_cmd,delta_e_cmd,delta_r_cmd]",
+            "command_range": "full calibrated normalised [-1,+1]",
+            "safety_volume": "true safety volume",
+        },
+    }
+    path = paths.manifests_dir / f"overnight_manifest_{_seed_tag(seed)}.json"
+    path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _write_overnight_reports(
+    *,
+    paths: TurnOutputPaths,
+    seed: int,
+    selected_result: OptimisedTurnResult,
+    selected_rows: list[dict[str, object]],
+    selected_feedback_variant: str,
+    stage1_rows: list[dict[str, object]],
+    stage4_rows: list[dict[str, object]],
+) -> None:
+    docs_dir = REPO_ROOT / "docs" / "control"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    selected_best = _result_row(
+        selected_result,
+        seed=seed,
+        solve_kind="overnight_selected",
+        target_requested_deg=30.0,
+    )
+    summary = _phase2_gate_summary(selected_best, selected_rows)
+    selected_stage = next((row for row in stage4_rows if _as_bool(row.get("selected_candidate"))), {})
+    latency_class = (
+        str(stage1_rows[0].get("stage_failure_class", ""))
+        if stage1_rows
+        else "not_run"
+    )
+    metrics_paths = [
+        paths.metrics_dir / _metrics_name("stage0_baseline_reproduction", seed),
+        paths.metrics_dir / _metrics_name("stage1_latency_ablation", seed),
+        paths.metrics_dir / _metrics_name("stage2_candidate_variants", seed),
+        paths.metrics_dir / _metrics_name("stage3_tvlqr_variants", seed),
+        paths.metrics_dir / _metrics_name("stage3_tvlqr_replay", seed),
+        paths.metrics_dir / _metrics_name("stage4_phase2_gate", seed),
+    ]
+    report = [
+        "# Phase 2 Overnight Latency/Recovery Report",
+        "",
+        f"Seed: `{int(seed)}`",
+        f"Output root: `{paths.root.as_posix()}`",
+        f"Selected candidate variant: `{selected_best.get('candidate_variant')}`",
+        f"Selected candidate tag: `{selected_best.get('candidate_tag')}`",
+        f"Selected feedback variant: `{selected_feedback_variant}`",
+        f"phase2_status: `{summary['phase2_status']}`",
+        "",
+        "## Gate Summary",
+        "",
+        f"- hard OCP 30 reproduced: `{summary['ocp_hard_30']}`",
+        f"- open-loop no latency: `{summary['open_loop_no_latency']}`",
+        f"- closed-loop no latency: `{summary['closed_loop_no_latency']}`",
+        f"- open-loop nominal latency: `{summary['open_loop_nominal_latency']}`",
+        f"- closed-loop nominal latency: `{summary['closed_loop_nominal_latency']}`",
+        f"- terminal recovery sensitivity: `{summary['terminal_altitude_sensitivity']}`",
+        f"- active failure class: `{summary['active_failure_class']}`",
+        f"- all failure classes: `{summary['all_failure_classes']}`",
+        f"- latency mechanism diagnosis: `{latency_class}`",
+        f"- limitation: `{summary['limitation']}`",
+        "",
+        "## Selected Metrics",
+        "",
+        f"- directed heading change deg: `{selected_best.get('directed_heading_change_deg')}`",
+        f"- max alpha deg: `{selected_best.get('max_alpha_deg')}`",
+        f"- max beta deg: `{selected_best.get('max_beta_deg')}`",
+        f"- terminal speed m/s: `{selected_best.get('terminal_speed_m_s')}`",
+        f"- wall margin m: `{selected_best.get('min_wall_distance_m')}`",
+        f"- floor margin m: `{selected_best.get('min_floor_margin_m')}`",
+        f"- ceiling margin m: `{selected_best.get('min_ceiling_margin_m')}`",
+        f"- saturation fraction: `{selected_best.get('saturation_fraction')}`",
+        "",
+        "## Metrics Paths",
+        "",
+        *[f"- `{path.as_posix()}`" for path in metrics_paths],
+        "",
+        "## Phase 3 Permission",
+        "",
+        (
+            "Phase 3 continuation is allowed only as the limited Stage 5 diagnostic in this task."
+            if summary["phase2_status"] == "promoted_phase2"
+            else "Phase 3 continuation is not allowed because strict Phase 2 was not promoted."
+        ),
+        "",
+    ]
+    report_path = docs_dir / "phase2_overnight_latency_recovery_report.md"
+    report_path.write_text("\n".join(report), encoding="utf-8")
+    if summary["phase2_status"] != "promoted_phase2":
+        boundary = [
+            "# Phase 2 Overnight Latency/Recovery Boundary",
+            "",
+            "The W0 30 deg OCP candidate remains boundary-only under the strict overnight gate.",
+            "",
+            f"- selected candidate variant: `{selected_best.get('candidate_variant')}`",
+            f"- selected candidate tag: `{selected_best.get('candidate_tag')}`",
+            f"- selected feedback variant: `{selected_feedback_variant}`",
+            f"- active failure class: `{summary['active_failure_class']}`",
+            f"- latency mechanism diagnosis: `{latency_class}`",
+            f"- selected stage reason: `{selected_stage.get('reason_for_proceeding_or_stopping', '')}`",
+            f"- limitation: `{summary['limitation']}`",
+            "",
+            "No safety, heading, alpha, recovery, state-order, command-order, sign, "
+            "arena-bound, or command-authority gate was weakened.",
+            "",
+        ]
+        boundary_path = docs_dir / "phase2_overnight_latency_recovery_boundary.md"
+        boundary_path.write_text("\n".join(boundary), encoding="utf-8")
+
+
+def run_phase2_overnight(
+    *,
+    targets_deg: tuple[float, ...],
+    direction: str,
+    seed: int,
+    output_root: str | Path | None,
+    allow_high_alpha: bool = False,
+    n_intervals: int = 18,
+    max_solver_time_s: float = 30.0,
+    ipopt_max_iter: int = 220,
+) -> dict[str, object]:
+    root = Path(output_root) if output_root is not None else _overnight_default_root()
+    paths = _output_paths(root, run_tvlqr_replay=True)
+    targets_text = " ".join(str(int(target)) if float(target).is_integer() else str(target) for target in targets_deg)
+    command_base = (
+        "python 03_Control/04_Scenarios/run_agile_trajectory_optimisation.py "
+        f"--targets {targets_text} --direction {direction} --wind-case w0 --seed {int(seed)} "
+        "--run-tvlqr-replay "
+        f"--output-root {root.as_posix()} --phase2-overnight"
+    )
+    stage0_result = run_phase_1_2(
+        targets_deg=targets_deg,
+        direction=direction,
+        seed=seed,
+        output_root=root / "stage0_baseline",
+        run_tvlqr_replay=True,
+        allow_high_alpha=allow_high_alpha,
+        n_intervals=n_intervals,
+        max_solver_time_s=max_solver_time_s,
+        ipopt_max_iter=ipopt_max_iter,
+        candidate_variant_mode="baseline",
+        write_reports=False,
+    )
+    stage0_rows = _stage0_summary_rows(
+        seed=seed,
+        command_run=command_base + " [stage0_baseline]",
+        baseline_result=stage0_result,
+    )
+    _write_rows(paths.metrics_dir / _metrics_name("stage0_baseline_reproduction", seed), stage0_rows)
+    if not _as_bool(stage0_rows[0].get("success", False)):
+        _write_overnight_manifest(
+            paths=paths,
+            seed=seed,
+            stage0_rows=stage0_rows,
+            stage1_rows=[],
+            stage2_rows=[],
+            stage3_rows=[],
+            stage4_rows=[],
+        )
+        return {
+            "output_root": str(paths.root),
+            "stage0_rows": stage0_rows,
+            "stage1_rows": [],
+            "stage2_rows": [],
+            "stage3_rows": [],
+            "stage4_rows": [],
+            "replay_rows": [],
+        }
+
+    aircraft, _linear_model, context = _phase2_environment(seed)
+    baseline_30 = stage0_result["best_by_target"][30.0]
+    stage1_rows = _run_latency_ablation(
+        result=baseline_30,
+        seed=seed,
+        paths=paths,
+        context=context,
+        aircraft=aircraft,
+        command_run=command_base + " [stage1_latency_ablation]",
+    )
+    _write_rows(paths.metrics_dir / _metrics_name("stage1_latency_ablation", seed), stage1_rows)
+
+    stage2_result = run_phase_1_2(
+        targets_deg=targets_deg,
+        direction=direction,
+        seed=seed,
+        output_root=root,
+        run_tvlqr_replay=True,
+        allow_high_alpha=allow_high_alpha,
+        n_intervals=n_intervals,
+        max_solver_time_s=max_solver_time_s,
+        ipopt_max_iter=ipopt_max_iter,
+        candidate_variant_mode="overnight",
+        write_reports=False,
+    )
+    stage2_rows = _stage2_summary_rows(
+        command_run=command_base + " [stage2_candidate_variants]",
+        candidate_rows=stage2_result["candidate_rows"],
+        replay_rows=stage2_result["replay_rows"],
+    )
+    _write_rows(paths.metrics_dir / _metrics_name("stage2_candidate_variants", seed), stage2_rows)
+
+    evaluations: list[tuple[OptimisedTurnResult, list[dict[str, object]], str]] = []
+    for result in stage2_result["phase2_results"]:
+        tag = _candidate_tag(result)
+        rows = [
+            row
+            for row in stage2_result["replay_rows"]
+            if str(row.get("candidate_tag", "")) == tag
+            and str(row.get("feedback_variant", "baseline")) == "baseline"
+        ]
+        evaluations.append((result, rows, "baseline"))
+    selected_stage2 = max(evaluations, key=lambda item: _phase2_selection_score(item[0], item[1]))
+    active_failure_class = str(stage1_rows[0].get("stage_failure_class", "unknown"))
+    stage3_rows, stage3_evaluations, stage3_replay_rows = _run_stage3_tvlqr_variants(
+        seed=seed,
+        paths=paths,
+        context=context,
+        aircraft=aircraft,
+        result=selected_stage2[0],
+        active_failure_class=active_failure_class,
+        command_run=command_base + " [stage3_tvlqr_variants]",
+    )
+    _write_rows(paths.metrics_dir / _metrics_name("stage3_tvlqr_variants", seed), stage3_rows)
+    _write_rows(paths.metrics_dir / _metrics_name("stage3_tvlqr_replay", seed), stage3_replay_rows)
+    evaluations.extend(stage3_evaluations)
+
+    stage4_rows, selected_result, selected_rows, selected_feedback_variant = _stage4_gate_rows(
+        seed=seed,
+        evaluations=evaluations,
+    )
+    _write_rows(paths.metrics_dir / _metrics_name("stage4_phase2_gate", seed), stage4_rows)
+    _write_overnight_manifest(
+        paths=paths,
+        seed=seed,
+        stage0_rows=stage0_rows,
+        stage1_rows=stage1_rows,
+        stage2_rows=stage2_rows,
+        stage3_rows=stage3_rows,
+        stage4_rows=stage4_rows,
+    )
+    _write_overnight_reports(
+        paths=paths,
+        seed=seed,
+        selected_result=selected_result,
+        selected_rows=selected_rows,
+        selected_feedback_variant=selected_feedback_variant,
+        stage1_rows=stage1_rows,
+        stage4_rows=stage4_rows,
+    )
+    return {
+        "output_root": str(paths.root),
+        "stage0_rows": stage0_rows,
+        "stage1_rows": stage1_rows,
+        "stage2_rows": stage2_rows,
+        "stage3_rows": stage3_rows,
+        "stage4_rows": stage4_rows,
+        "replay_rows": selected_rows,
+    }
+
+
+# =============================================================================
+# 6) Reports and CLI
 # =============================================================================
 def _write_manifest(
     *,
@@ -1164,7 +2127,10 @@ def _terminal_sensitivity_gate(rows: list[dict[str, object]]) -> bool | str:
         for row in matches
     }
     required = {0.75, 1.0, 1.2}
-    return required.issubset(altitudes) and all(_row_success(row) for row in matches)
+    return required.issubset(altitudes) and all(
+        _row_success(row) and not _strict_replay_forbidden_reason(row)
+        for row in matches
+    )
 
 
 def _row_success(row: dict[str, object]) -> bool:
@@ -1173,6 +2139,8 @@ def _row_success(row: dict[str, object]) -> bool:
 
 def _turn_replay_gate(row: dict[str, object]) -> bool:
     if not _row_success(row):
+        return False
+    if _strict_replay_forbidden_reason(row):
         return False
     if "actual_heading_change_deg" in row:
         try:
@@ -1183,6 +2151,52 @@ def _turn_replay_gate(row: dict[str, object]) -> bool:
     if "exit_recoverable" in row and not _as_bool(row["exit_recoverable"]):
         return False
     return True
+
+
+def _strict_replay_forbidden_reason(row: dict[str, object]) -> str:
+    text = " ".join(
+        str(row.get(key, ""))
+        for key in (
+            "termination_reason",
+            "failure_class",
+            "feasibility_label",
+            "governor_rejection_reason",
+        )
+    ).lower()
+    if "model_limited_high_alpha" in text or "angle of attack" in text:
+        return "high_alpha_exposure"
+    if "governor" in text or "rejected" in text:
+        return "governor_rejection"
+    if "safe volume" in text or "wall" in text or "floor" in text or "ceiling" in text:
+        return "safety_volume_violation"
+    if "primitive_arrays_finite" in row and not _as_bool(row["primitive_arrays_finite"]):
+        return "nonfinite_primitive_arrays"
+    if "inside_safe_volume" in row and not _as_bool(row["inside_safe_volume"]):
+        return "safety_volume_violation"
+    if "exit_recoverable" in row and not _as_bool(row["exit_recoverable"]):
+        return "unrecoverable_exit"
+    for key in (
+        "actual_heading_change_deg",
+        "max_alpha_deg",
+        "max_beta_deg",
+        "terminal_speed_m_s",
+        "min_wall_distance_m",
+        "min_floor_margin_m",
+        "min_ceiling_margin_m",
+        "saturation_fraction",
+    ):
+        if key in row and not _finite_metric(row.get(key)):
+            return "nonfinite_metric"
+    return ""
+
+
+def _finite_metric(value: object) -> bool:
+    if value is None or value == "":
+        return True
+    try:
+        return bool(np.isfinite(float(value)))
+    except (TypeError, ValueError):
+        return False
 
 
 def _as_bool(value: object) -> bool:
@@ -1272,6 +2286,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--output-root", default=None)
     parser.add_argument("--run-tvlqr-replay", action="store_true")
+    parser.add_argument("--phase2-overnight", action="store_true")
     parser.add_argument("--allow-high-alpha", action="store_true")
     parser.add_argument("--n-intervals", type=int, default=18)
     parser.add_argument("--max-solver-time-s", type=float, default=30.0)
@@ -1279,21 +2294,34 @@ def main() -> None:
     args = parser.parse_args()
     if args.wind_case != "w0":
         raise SystemExit("Phase 1/2 runner supports W0 only.")
-    result = run_phase_1_2(
-        targets_deg=_parse_targets(args.targets),
-        direction=args.direction,
-        seed=args.seed,
-        output_root=args.output_root,
-        run_tvlqr_replay=args.run_tvlqr_replay,
-        allow_high_alpha=args.allow_high_alpha,
-        n_intervals=args.n_intervals,
-        max_solver_time_s=args.max_solver_time_s,
-        ipopt_max_iter=args.ipopt_max_iter,
-    )
-    print("turn trajectory optimisation phase 1/2 complete")
+    if args.phase2_overnight:
+        result = run_phase2_overnight(
+            targets_deg=_parse_targets(args.targets),
+            direction=args.direction,
+            seed=args.seed,
+            output_root=args.output_root,
+            allow_high_alpha=args.allow_high_alpha,
+            n_intervals=args.n_intervals,
+            max_solver_time_s=args.max_solver_time_s,
+            ipopt_max_iter=args.ipopt_max_iter,
+        )
+        print("turn trajectory optimisation phase 2 overnight complete")
+    else:
+        result = run_phase_1_2(
+            targets_deg=_parse_targets(args.targets),
+            direction=args.direction,
+            seed=args.seed,
+            output_root=args.output_root,
+            run_tvlqr_replay=args.run_tvlqr_replay,
+            allow_high_alpha=args.allow_high_alpha,
+            n_intervals=args.n_intervals,
+            max_solver_time_s=args.max_solver_time_s,
+            ipopt_max_iter=args.ipopt_max_iter,
+        )
+        print("turn trajectory optimisation phase 1/2 complete")
     print(f"output_root: {result['output_root']}")
-    print(f"candidate_rows: {len(result['candidate_rows'])}")
-    print(f"best_rows: {len(result['best_rows'])}")
+    print(f"candidate_rows: {len(result.get('candidate_rows', []))}")
+    print(f"best_rows: {len(result.get('best_rows', []))}")
     print(f"replay_rows: {len(result['replay_rows'])}")
 
 
