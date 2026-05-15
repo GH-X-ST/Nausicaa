@@ -5,10 +5,14 @@
       0.05049432643111373,
       0.05049432643111373
     ],
+    "delayed_alpha_margin_deg": 18.0,
+    "delayed_alpha_weight": 8.0,
     "dynamics_defect_tolerance": 0.0005,
     "energy_loss_weight": 0.02,
+    "final_third_smoothness_weight": 0.3,
     "heading_weight": 20.0,
     "ipopt_max_iter": 220,
+    "late_command_reversal_weight": 0.18,
     "max_alpha_deg": 28.0,
     "max_bank_deg": 85.0,
     "max_beta_deg": 35.0,
@@ -43,6 +47,12 @@
     ],
     "terminal_speed_target_m_s": 6.2,
     "terminal_speed_weight": 3.0,
+    "terminal_surface_target_rad": [
+      0.0,
+      -0.10060848524273196,
+      0.0
+    ],
+    "terminal_surface_weight": 5.0,
     "terminal_wall_margin_m": 0.1
   },
   "failure_reason": "solver_failure: Error in Opti::solve [OptiNode] at .../casadi/core/optistack.cpp:217:\n.../casadi/core/optistack_internal.cpp:1338: Assertion \"return_success(accept_limit)\" failed:\nSolver failed. You may use opti.debug.value to investigate the latest values of variables. return_status is 'Maximum_Iterations_Exceeded'",
@@ -81,6 +91,7 @@
     "terminal_abs_theta_deg": 140.89752276779524,
     "terminal_rate_norm_rad_s": 5.4330479469262505,
     "terminal_speed_m_s": 7.125196776241082,
+    "terminal_surface_error_norm_rad": 0.25091791916013384,
     "terminal_z_w_m": -0.9986451040027701,
     "unwrapped_heading_change_deg": 310.5970553215474,
     "wind_case": "w0"

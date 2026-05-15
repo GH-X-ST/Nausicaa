@@ -186,6 +186,60 @@ def _phase2_candidate_config_variants(
     return (
         ("baseline", base_config),
         (
+            "recovery065",
+            replace(
+                base_config,
+                t_min_s=0.62,
+                t_max_s=0.78,
+                terminal_speed_bounds_m_s=(5.4, 7.5),
+                terminal_bank_deg=38.0,
+                terminal_pitch_deg=26.0,
+                terminal_alpha_deg=10.0,
+                terminal_beta_deg=24.0,
+                terminal_rate_max_rad_s=1.25,
+                terminal_speed_target_m_s=6.25,
+                recovery_weight=18.0,
+                smoothness_weight=0.16,
+                saturation_weight=0.07,
+                terminal_speed_weight=3.0,
+                terminal_alpha_weight=12.0,
+                terminal_beta_weight=6.0,
+                terminal_rate_weight=2.5,
+                terminal_surface_weight=5.0,
+                final_third_smoothness_weight=0.32,
+                late_command_reversal_weight=0.18,
+                delayed_alpha_weight=8.0,
+                delayed_alpha_margin_deg=18.0,
+            ),
+        ),
+        (
+            "recovery080",
+            replace(
+                base_config,
+                t_min_s=0.76,
+                t_max_s=0.92,
+                terminal_speed_bounds_m_s=(5.5, 7.3),
+                terminal_bank_deg=32.0,
+                terminal_pitch_deg=22.0,
+                terminal_alpha_deg=9.0,
+                terminal_beta_deg=21.0,
+                terminal_rate_max_rad_s=1.05,
+                terminal_speed_target_m_s=6.3,
+                recovery_weight=24.0,
+                smoothness_weight=0.20,
+                saturation_weight=0.09,
+                terminal_speed_weight=4.0,
+                terminal_alpha_weight=16.0,
+                terminal_beta_weight=8.0,
+                terminal_rate_weight=3.2,
+                terminal_surface_weight=7.0,
+                final_third_smoothness_weight=0.42,
+                late_command_reversal_weight=0.25,
+                delayed_alpha_weight=12.0,
+                delayed_alpha_margin_deg=16.0,
+            ),
+        ),
+        (
             "latency075",
             replace(
                 base_config,
@@ -205,6 +259,11 @@ def _phase2_candidate_config_variants(
                 terminal_alpha_weight=14.0,
                 terminal_beta_weight=7.0,
                 terminal_rate_weight=2.5,
+                terminal_surface_weight=5.0,
+                final_third_smoothness_weight=0.30,
+                late_command_reversal_weight=0.18,
+                delayed_alpha_weight=8.0,
+                delayed_alpha_margin_deg=18.0,
             ),
         ),
         (
@@ -227,6 +286,11 @@ def _phase2_candidate_config_variants(
                 terminal_alpha_weight=20.0,
                 terminal_beta_weight=10.0,
                 terminal_rate_weight=4.0,
+                terminal_surface_weight=8.0,
+                final_third_smoothness_weight=0.48,
+                late_command_reversal_weight=0.30,
+                delayed_alpha_weight=14.0,
+                delayed_alpha_margin_deg=16.0,
             ),
         ),
         (
@@ -249,6 +313,11 @@ def _phase2_candidate_config_variants(
                 terminal_alpha_weight=28.0,
                 terminal_beta_weight=14.0,
                 terminal_rate_weight=6.0,
+                terminal_surface_weight=10.0,
+                final_third_smoothness_weight=0.62,
+                late_command_reversal_weight=0.40,
+                delayed_alpha_weight=18.0,
+                delayed_alpha_margin_deg=14.0,
             ),
         ),
     )
@@ -290,6 +359,7 @@ def run_phase_1_2(
         n_intervals=int(n_intervals),
         max_solver_time_s=float(max_solver_time_s),
         ipopt_max_iter=int(ipopt_max_iter),
+        terminal_surface_target_rad=tuple(float(value) for value in linear_model.u_trim),
     )
 
     all_results: list[OptimisedTurnResult] = []
@@ -534,6 +604,7 @@ def _phase2_selection_score(
             "ocp_hard_30",
             "open_loop_no_latency",
             "closed_loop_no_latency",
+            "open_loop_nominal_latency",
             "closed_loop_nominal_latency",
             "terminal_altitude_sensitivity",
         )
@@ -640,6 +711,11 @@ def _run_phase_2_replay(
     runs = (
         ("open_loop_no_latency", primitive_open_loop_copy(primitive), no_latency),
         ("closed_loop_no_latency", primitive, no_latency),
+        (
+            "open_loop_nominal_latency",
+            primitive_open_loop_copy(primitive),
+            CommandToSurfaceConfig(mode="nominal"),
+        ),
         ("closed_loop_nominal_latency", primitive, CommandToSurfaceConfig(mode="nominal")),
     )
     closed_loop_safe = False
@@ -707,6 +783,7 @@ def _replay_log_name(label: str, seed: int, *, candidate_tag: str | None = None)
     names = {
         "open_loop_no_latency": "tvlqr_open",
         "closed_loop_no_latency": "tvlqr_closed",
+        "open_loop_nominal_latency": "tvlqr_open_latency",
         "closed_loop_nominal_latency": "tvlqr_latency",
     }
     suffix = "" if candidate_tag is None else f"_{candidate_tag}"
@@ -795,6 +872,8 @@ def _write_manifest(
         "best_by_target_count": len(best_rows),
         "replay_count": len(replay_rows),
         "phase2_summary": _phase2_gate_summary(_best_30_row(best_rows), replay_rows),
+        "phase2_report": "docs/control/phase2_latency_recovery_ocp30_report.md",
+        "phase2_boundary_report": "docs/control/phase2_latency_recovery_ocp30_boundary.md",
         "scope": "Phase 1/2 only; no entry sweep, W0-W3 stress, outer-loop, or hardware code",
         "frozen_invariants": {
             "state_order": "[x_w,y_w,z_w,phi,theta,psi,u,v,w,p,q,r,delta_a,delta_e,delta_r]",
@@ -850,6 +929,7 @@ def _write_reports(
         docs_dir / "control" / "agile_feasibility_boundary.md",
         docs_dir / "control" / "turn_trajectory_optimisation_report.md",
         docs_dir / "control" / "phase2_tvlqr_ocp30_boundary.md",
+        docs_dir / "control" / "phase2_latency_recovery_ocp30_boundary.md",
     )
     prior_notes = [
         f"- `{path.as_posix()}`: {'found' if path.exists() else 'not found in this checkout'}"
@@ -860,7 +940,7 @@ def _write_reports(
     previous_summary = previous.get("summary", {})
     previous_best = previous.get("best_30")
     report = [
-        "# Phase 2 TVLQR OCP30 Latency And Recovery Robustness Report",
+        "# Phase 2 Latency/Recovery OCP30 v2 Report",
         "",
         f"Seed: `{int(seed)}`",
         f"Output root: `{paths.root.as_posix()}`",
@@ -922,6 +1002,7 @@ def _write_reports(
             f"- hard 30 deg OCP reproduced: `{phase2_summary['ocp_hard_30']}`",
             f"- open-loop no-latency gate: `{phase2_summary['open_loop_no_latency']}`",
             f"- closed-loop no-latency gate: `{phase2_summary['closed_loop_no_latency']}`",
+            f"- open-loop nominal-latency gate: `{phase2_summary['open_loop_nominal_latency']}`",
             f"- nominal-latency gate: `{phase2_summary['closed_loop_nominal_latency']}`",
             f"- terminal-altitude recovery sensitivity gate: `{phase2_summary['terminal_altitude_sensitivity']}`",
             f"- phase 2 status: `{phase2_summary['phase2_status']}`",
@@ -943,7 +1024,7 @@ def _write_reports(
     )
     report_dir = docs_dir / "control"
     report_dir.mkdir(parents=True, exist_ok=True)
-    (report_dir / "phase2_tvlqr_ocp30_report.md").write_text(
+    (report_dir / "phase2_latency_recovery_ocp30_report.md").write_text(
         "\n".join(report),
         encoding="utf-8",
     )
@@ -954,7 +1035,7 @@ def _write_reports(
         else "The W0 30 deg OCP candidate was not promoted beyond Phase 2."
     )
     boundary = [
-        "# Phase 2 TVLQR OCP30 Boundary Report",
+        "# Phase 2 Latency/Recovery OCP30 Boundary Report",
         "",
         boundary_intro,
         "",
@@ -965,6 +1046,7 @@ def _write_reports(
         f"- hard 30 deg OCP reproduced: `{phase2_summary['ocp_hard_30']}`",
         f"- open-loop no-latency gate: `{phase2_summary['open_loop_no_latency']}`",
         f"- closed-loop no-latency gate: `{phase2_summary['closed_loop_no_latency']}`",
+        f"- open-loop nominal-latency gate: `{phase2_summary['open_loop_nominal_latency']}`",
         f"- nominal-latency gate: `{phase2_summary['closed_loop_nominal_latency']}`",
         f"- terminal recovery sensitivity gate: `{phase2_summary['terminal_altitude_sensitivity']}`",
         "",
@@ -992,7 +1074,7 @@ def _write_reports(
                 "",
             ]
         )
-    (report_dir / "phase2_tvlqr_ocp30_boundary.md").write_text(
+    (report_dir / "phase2_latency_recovery_ocp30_boundary.md").write_text(
         "\n".join(boundary),
         encoding="utf-8",
     )
@@ -1013,12 +1095,14 @@ def _phase2_gate_summary(
     ocp_ok = _ocp_30_gate(best_30)
     open_loop = _single_replay_gate(replay_rows, "open_loop_no_latency")
     closed = _single_replay_gate(replay_rows, "closed_loop_no_latency")
+    open_nominal = _single_replay_gate(replay_rows, "open_loop_nominal_latency")
     nominal = _single_replay_gate(replay_rows, "closed_loop_nominal_latency")
     sensitivity = _terminal_sensitivity_gate(replay_rows)
     failure_classes = _phase2_failure_classes(
         ocp_ok=ocp_ok,
         open_loop=open_loop,
         closed=closed,
+        open_nominal=open_nominal,
         nominal=nominal,
         sensitivity=sensitivity,
         replay_rows=replay_rows,
@@ -1027,6 +1111,7 @@ def _phase2_gate_summary(
         ocp_ok is True
         and open_loop is True
         and closed is True
+        and open_nominal is True
         and nominal is True
         and sensitivity is True
     )
@@ -1039,6 +1124,7 @@ def _phase2_gate_summary(
         "ocp_hard_30": ocp_ok,
         "open_loop_no_latency": open_loop,
         "closed_loop_no_latency": closed,
+        "open_loop_nominal_latency": open_nominal,
         "closed_loop_nominal_latency": nominal,
         "terminal_altitude_sensitivity": sensitivity,
         "phase2_status": "promoted_phase2" if promoted else "boundary_only",
@@ -1066,7 +1152,7 @@ def _single_replay_gate(rows: list[dict[str, object]], kind: str) -> bool | str:
     matches = [row for row in rows if str(row.get("replay_kind")) == kind]
     if not matches:
         return "not_run"
-    return all(_row_success(row) for row in matches)
+    return all(_turn_replay_gate(row) for row in matches)
 
 
 def _terminal_sensitivity_gate(rows: list[dict[str, object]]) -> bool | str:
@@ -1083,6 +1169,20 @@ def _terminal_sensitivity_gate(rows: list[dict[str, object]]) -> bool | str:
 
 def _row_success(row: dict[str, object]) -> bool:
     return _as_bool(row.get("success", False))
+
+
+def _turn_replay_gate(row: dict[str, object]) -> bool:
+    if not _row_success(row):
+        return False
+    if "actual_heading_change_deg" in row:
+        try:
+            if abs(float(row["actual_heading_change_deg"])) < 24.0:
+                return False
+        except (TypeError, ValueError):
+            return False
+    if "exit_recoverable" in row and not _as_bool(row["exit_recoverable"]):
+        return False
+    return True
 
 
 def _as_bool(value: object) -> bool:
@@ -1119,6 +1219,7 @@ def _phase2_failure_classes(
     ocp_ok: bool,
     open_loop: bool | str,
     closed: bool | str,
+    open_nominal: bool | str,
     nominal: bool | str,
     sensitivity: bool | str,
     replay_rows: list[dict[str, object]],
@@ -1130,6 +1231,8 @@ def _phase2_failure_classes(
         failures.append("open_loop_replay_mismatch")
     if open_loop is True and closed is not True:
         failures.append("tvlqr_feedback_limited")
+    if open_loop is True and open_nominal is not True:
+        failures.append(_latency_failure_class(replay_rows))
     if open_loop is True and closed is True and nominal is not True:
         failures.append(_latency_failure_class(replay_rows))
     if sensitivity is not True:
@@ -1141,7 +1244,8 @@ def _latency_failure_class(replay_rows: list[dict[str, object]]) -> str:
     rows = [
         row
         for row in replay_rows
-        if str(row.get("replay_kind")) == "closed_loop_nominal_latency"
+        if str(row.get("replay_kind"))
+        in {"open_loop_nominal_latency", "closed_loop_nominal_latency"}
     ]
     text = " ".join(
         f"{row.get('termination_reason', '')} {row.get('failure_class', '')} "

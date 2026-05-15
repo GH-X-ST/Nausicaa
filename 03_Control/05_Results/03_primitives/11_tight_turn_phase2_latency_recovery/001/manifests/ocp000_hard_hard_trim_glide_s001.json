@@ -5,10 +5,14 @@
       0.05049432643111373,
       0.05049432643111373
     ],
+    "delayed_alpha_margin_deg": null,
+    "delayed_alpha_weight": 0.0,
     "dynamics_defect_tolerance": 0.0005,
     "energy_loss_weight": 0.02,
+    "final_third_smoothness_weight": 0.0,
     "heading_weight": 20.0,
     "ipopt_max_iter": 220,
+    "late_command_reversal_weight": 0.0,
     "max_alpha_deg": 28.0,
     "max_bank_deg": 85.0,
     "max_beta_deg": 35.0,
@@ -43,6 +47,12 @@
     ],
     "terminal_speed_target_m_s": null,
     "terminal_speed_weight": 0.0,
+    "terminal_surface_target_rad": [
+      0.0,
+      -0.10060848524273196,
+      0.0
+    ],
+    "terminal_surface_weight": 0.0,
     "terminal_wall_margin_m": 0.1
   },
   "failure_reason": "",
@@ -81,6 +91,7 @@
     "terminal_abs_theta_deg": 2.7549412678959215,
     "terminal_rate_norm_rad_s": 1.7176172819678341e-09,
     "terminal_speed_m_s": 6.500000000530032,
+    "terminal_surface_error_norm_rad": 0.0,
     "terminal_z_w_m": 2.4039646184881844,
     "unwrapped_heading_change_deg": 1.8354846139751254e-13,
     "wind_case": "w0"

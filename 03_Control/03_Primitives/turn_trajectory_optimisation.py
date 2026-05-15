@@ -61,10 +61,16 @@ class TurnOptimisationConfig:
     terminal_beta_deg: float | None = None
     terminal_rate_max_rad_s: float | None = None
     terminal_speed_target_m_s: float | None = None
+    terminal_surface_target_rad: tuple[float, float, float] | None = None
     terminal_alpha_weight: float = 0.0
     terminal_beta_weight: float = 0.0
     terminal_rate_weight: float = 0.0
     terminal_speed_weight: float = 0.0
+    terminal_surface_weight: float = 0.0
+    final_third_smoothness_weight: float = 0.0
+    late_command_reversal_weight: float = 0.0
+    delayed_alpha_weight: float = 0.0
+    delayed_alpha_margin_deg: float | None = None
     max_alpha_deg: float = 28.0
     max_beta_deg: float = 35.0
     min_wall_margin_m: float = 0.0
@@ -303,6 +309,12 @@ def turn_result_metrics(
     terminal = x_arr[-1]
     terminal_speed = float(speed[-1])
     terminal_rate_norm = float(np.linalg.norm(terminal[9:12], ord=2))
+    surface_target = (
+        np.zeros(3, dtype=float)
+        if config.terminal_surface_target_rad is None
+        else np.asarray(config.terminal_surface_target_rad, dtype=float).reshape(3)
+    )
+    terminal_surface_error = terminal[12:15] - surface_target
     optional_terminal_gate = True
     if config.terminal_alpha_deg is not None:
         optional_terminal_gate = optional_terminal_gate and abs(terminal_alpha) <= np.deg2rad(
@@ -346,6 +358,7 @@ def turn_result_metrics(
         "terminal_abs_alpha_deg": float(abs(np.rad2deg(terminal_alpha))),
         "terminal_abs_beta_deg": float(abs(np.rad2deg(terminal_beta))),
         "terminal_rate_norm_rad_s": terminal_rate_norm,
+        "terminal_surface_error_norm_rad": float(np.linalg.norm(terminal_surface_error, ord=2)),
         "max_abs_phi_deg": float(np.max(np.abs(np.rad2deg(x_arr[:, STATE_INDEX["phi"]])))),
         "max_abs_theta_deg": float(np.max(np.abs(np.rad2deg(x_arr[:, STATE_INDEX["theta"]])))),
         "max_abs_rate_rad_s": float(np.max(np.linalg.norm(x_arr[:, 9:12], axis=1))),
@@ -433,6 +446,9 @@ def solve_turn_ocp(
     dt_s = t_var / float(interval_count)
     objective = 0.0
     smoothness = 0.0
+    late_smoothness = 0.0
+    late_reversal = 0.0
+    delayed_alpha_exposure = 0.0
     slack_cost = 0.0
 
     for idx in range(interval_count):
@@ -445,7 +461,22 @@ def solve_turn_ocp(
         )
         _add_path_constraints(opti, x_var[:, idx], config, slack_var, idx)
         if idx > 0:
-            smoothness += ca.sumsqr(nu_var[:, idx] - nu_var[:, idx - 1])
+            command_step = nu_var[:, idx] - nu_var[:, idx - 1]
+            smoothness += ca.sumsqr(command_step)
+            if idx >= int(np.floor((2.0 / 3.0) * interval_count)):
+                late_smoothness += ca.sumsqr(command_step)
+                for channel_idx in range(3):
+                    late_reversal += ca.fmax(
+                        0.0,
+                        -nu_var[channel_idx, idx] * nu_var[channel_idx, idx - 1],
+                    ) ** 2
+            delayed_alpha_exposure += _delayed_alpha_margin_cost(
+                dynamics.function,
+                x_var[:, idx],
+                nu_var[:, idx - 1],
+                dt_s,
+                config,
+            )
     _add_path_constraints(opti, x_var[:, interval_count], config, slack_var, interval_count)
     _add_terminal_constraints(opti, x_var[:, interval_count], config, slack_var, interval_count)
 
@@ -458,6 +489,9 @@ def solve_turn_ocp(
     heading_error = heading_change_rad - target_rad
     objective += float(config.heading_weight) * heading_error**2
     objective += float(config.smoothness_weight) * smoothness
+    objective += float(config.final_third_smoothness_weight) * late_smoothness
+    objective += float(config.late_command_reversal_weight) * late_reversal
+    objective += float(config.delayed_alpha_weight) * delayed_alpha_exposure
     objective += float(config.saturation_weight) * ca.sumsqr(nu_var)
     objective += _recovery_objective(x_var[:, interval_count], config)
     objective += _energy_objective(x_var[:, 0], x_var[:, interval_count], config)
@@ -560,6 +594,22 @@ def _rk4_symbolic(dyn_fun: ca.Function, x: ca.MX, u_cmd: ca.MX, dt_s: ca.MX) -> 
     k3 = dyn_fun(x + 0.5 * dt_s * k2, u_cmd)
     k4 = dyn_fun(x + dt_s * k3, u_cmd)
     return x + (dt_s / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+
+
+def _delayed_alpha_margin_cost(
+    dyn_fun: ca.Function,
+    x_node: ca.MX,
+    previous_nu: ca.MX,
+    dt_s: ca.MX,
+    config: TurnOptimisationConfig,
+) -> ca.MX:
+    if config.delayed_alpha_weight <= 0.0 or config.delayed_alpha_margin_deg is None:
+        return ca.MX(0.0)
+    delayed_command = normalised_command_to_radians_ca(previous_nu)
+    delayed_next = _rk4_symbolic(dyn_fun, x_node, delayed_command, dt_s)
+    delayed_alpha = ca.atan2(delayed_next[STATE_INDEX["w"]], delayed_next[STATE_INDEX["u"]])
+    excess = ca.fmax(0.0, ca.fabs(delayed_alpha) - np.deg2rad(config.delayed_alpha_margin_deg))
+    return excess**2
 
 
 def _smoke_result_from_initial_guess(
@@ -729,6 +779,15 @@ def _recovery_objective(x_terminal: ca.MX, config: TurnOptimisationConfig) -> ca
         + x_terminal[STATE_INDEX["q"]] ** 2
         + x_terminal[STATE_INDEX["r"]] ** 2
     )
+    surface_cost = 0.0
+    if config.terminal_surface_target_rad is not None:
+        surface_target = np.asarray(config.terminal_surface_target_rad, dtype=float).reshape(3)
+        surface_error = ca.vertcat(
+            x_terminal[STATE_INDEX["delta_a"]] - float(surface_target[0]),
+            x_terminal[STATE_INDEX["delta_e"]] - float(surface_target[1]),
+            x_terminal[STATE_INDEX["delta_r"]] - float(surface_target[2]),
+        )
+        surface_cost = ca.sumsqr(surface_error)
     base = float(config.recovery_weight) * (
         0.2 * (speed - speed_mid) ** 2
         + x_terminal[STATE_INDEX["phi"]] ** 2
@@ -740,6 +799,7 @@ def _recovery_objective(x_terminal: ca.MX, config: TurnOptimisationConfig) -> ca
         + float(config.terminal_alpha_weight) * alpha**2
         + float(config.terminal_beta_weight) * beta**2
         + float(config.terminal_rate_weight) * rate_sq
+        + float(config.terminal_surface_weight) * surface_cost
     )
 
 

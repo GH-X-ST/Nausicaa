@@ -4,6 +4,7 @@ import subprocess
 from dataclasses import replace
 from pathlib import Path
 
+import casadi as ca
 import numpy as np
 
 from flight_dynamics import adapt_glider
@@ -21,6 +22,7 @@ from turn_trajectory_optimisation import (
     OptimisedTurnResult,
     TurnOptimisationConfig,
     TurnTarget,
+    _delayed_alpha_margin_cost,
     build_turn_trajectory_primitive,
     load_selected_turn_primitive,
     primitive_open_loop_copy,
@@ -125,6 +127,7 @@ def test_phase2_summary_does_not_promote_latency_or_recovery_failure() -> None:
     replay_rows = [
         {"replay_kind": "open_loop_no_latency", "success": True},
         {"replay_kind": "closed_loop_no_latency", "success": True},
+        {"replay_kind": "open_loop_nominal_latency", "success": True},
         {
             "replay_kind": "closed_loop_nominal_latency",
             "success": False,
@@ -195,6 +198,11 @@ def test_phase2_summary_filters_to_selected_candidate_variant() -> None:
         },
         {
             "candidate_variant": "latency090",
+            "replay_kind": "open_loop_nominal_latency",
+            "success": True,
+        },
+        {
+            "candidate_variant": "latency090",
             "replay_kind": "terminal_altitude_sensitivity",
             "terminal_altitude_min_m": 0.75,
             "success": True,
@@ -217,6 +225,54 @@ def test_phase2_summary_filters_to_selected_candidate_variant() -> None:
 
     assert summary["phase2_status"] == "promoted_phase2"
     assert summary["active_failure_class"] == ""
+
+
+def test_phase2_summary_does_not_promote_under_turning_replay() -> None:
+    best_30 = {
+        "success": True,
+        "candidate_variant": "recovery065",
+        "feasibility_label": "accepted_low_alpha",
+        "slack_max": 0.0,
+        "heading_gate_passed": True,
+        "inside_true_safety_volume": True,
+        "exit_recoverable_gate": True,
+    }
+    replay_rows = [
+        {
+            "candidate_variant": "recovery065",
+            "replay_kind": "open_loop_no_latency",
+            "success": True,
+            "actual_heading_change_deg": -26.0,
+            "exit_recoverable": True,
+        },
+        {
+            "candidate_variant": "recovery065",
+            "replay_kind": "closed_loop_no_latency",
+            "success": True,
+            "actual_heading_change_deg": -21.0,
+            "exit_recoverable": True,
+        },
+        {
+            "candidate_variant": "recovery065",
+            "replay_kind": "open_loop_nominal_latency",
+            "success": True,
+            "actual_heading_change_deg": -20.0,
+            "exit_recoverable": True,
+        },
+        {
+            "candidate_variant": "recovery065",
+            "replay_kind": "closed_loop_nominal_latency",
+            "success": True,
+            "actual_heading_change_deg": -21.0,
+            "exit_recoverable": True,
+        },
+    ]
+
+    summary = _phase2_gate_summary(best_30, replay_rows)
+
+    assert summary["phase2_status"] == "boundary_only"
+    assert summary["closed_loop_no_latency"] is False
+    assert summary["open_loop_nominal_latency"] is False
 
 
 def test_phase2_selection_score_prefers_replay_gates_over_ocp_score() -> None:
@@ -251,9 +307,32 @@ def test_phase2_selection_score_prefers_replay_gates_over_ocp_score() -> None:
         },
     ]
     passing_rows = [
-        {"replay_kind": "open_loop_no_latency", "success": True},
-        {"replay_kind": "closed_loop_no_latency", "success": True},
-        {"replay_kind": "closed_loop_nominal_latency", "success": True, "max_alpha_deg": 6.0},
+        {
+            "replay_kind": "open_loop_no_latency",
+            "success": True,
+            "actual_heading_change_deg": -25.0,
+            "exit_recoverable": True,
+        },
+        {
+            "replay_kind": "closed_loop_no_latency",
+            "success": True,
+            "actual_heading_change_deg": -25.0,
+            "exit_recoverable": True,
+        },
+        {
+            "replay_kind": "open_loop_nominal_latency",
+            "success": True,
+            "actual_heading_change_deg": -25.0,
+            "exit_recoverable": True,
+            "max_alpha_deg": 5.5,
+        },
+        {
+            "replay_kind": "closed_loop_nominal_latency",
+            "success": True,
+            "actual_heading_change_deg": -25.0,
+            "exit_recoverable": True,
+            "max_alpha_deg": 6.0,
+        },
         {
             "replay_kind": "terminal_altitude_sensitivity",
             "terminal_altitude_min_m": 0.75,
@@ -281,9 +360,16 @@ def test_phase2_robust_configs_tighten_terminal_recovery_without_command_cap() -
     base = TurnOptimisationConfig()
     variants = dict(_phase2_candidate_config_variants(base))
 
-    assert set(variants) == {"baseline", "latency075", "latency090", "latency105"}
+    assert set(variants) == {
+        "baseline",
+        "recovery065",
+        "recovery080",
+        "latency075",
+        "latency090",
+        "latency105",
+    }
     assert variants["baseline"] == base
-    for name in ("latency075", "latency090", "latency105"):
+    for name in ("recovery065", "recovery080", "latency075", "latency090", "latency105"):
         variant = variants[name]
         assert variant.t_min_s >= base.t_min_s
         assert variant.t_max_s <= base.t_max_s
@@ -292,6 +378,51 @@ def test_phase2_robust_configs_tighten_terminal_recovery_without_command_cap() -
         assert variant.terminal_beta_deg is not None
         assert variant.terminal_beta_deg < base.max_beta_deg
         assert variant.terminal_rate_max_rad_s is not None
+        assert variant.final_third_smoothness_weight > 0.0
+        assert variant.late_command_reversal_weight > 0.0
+        assert variant.delayed_alpha_weight > 0.0
+
+
+def test_phase2_default_config_disables_v2_objective_terms() -> None:
+    config = TurnOptimisationConfig()
+
+    assert config.terminal_surface_weight == 0.0
+    assert config.final_third_smoothness_weight == 0.0
+    assert config.late_command_reversal_weight == 0.0
+    assert config.delayed_alpha_weight == 0.0
+    assert config.delayed_alpha_margin_deg is None
+
+
+def test_delayed_alpha_margin_cost_is_finite() -> None:
+    x = ca.MX.sym("x", 15)
+    u_cmd = ca.MX.sym("u_cmd", 3)
+    x_dot = ca.MX.zeros(15, 1)
+    x_dot[STATE_INDEX["u"]] = -0.1 * u_cmd[1]
+    x_dot[STATE_INDEX["w"]] = 0.2 * u_cmd[1]
+    dyn_fun = ca.Function("unit_dyn", [x, u_cmd], [x_dot])
+    cost_fun = ca.Function(
+        "delayed_alpha_cost",
+        [x, u_cmd],
+        [
+            _delayed_alpha_margin_cost(
+                dyn_fun,
+                x,
+                u_cmd,
+                0.05,
+                TurnOptimisationConfig(
+                    delayed_alpha_weight=1.0,
+                    delayed_alpha_margin_deg=5.0,
+                ),
+            )
+        ],
+    )
+    x_value = np.zeros(15, dtype=float)
+    x_value[STATE_INDEX["u"]] = 6.0
+
+    value = float(cost_fun(x_value, np.array([0.0, -0.5, 0.0])).full().item())
+
+    assert np.isfinite(value)
+    assert value >= 0.0
 
 
 def test_phase2_report_paths_are_not_ignored() -> None:
@@ -300,8 +431,8 @@ def test_phase2_report_paths_are_not_ignored() -> None:
         [
             "git",
             "check-ignore",
-            "docs/control/phase2_tvlqr_ocp30_report.md",
-            "docs/control/phase2_tvlqr_ocp30_boundary.md",
+            "docs/control/phase2_latency_recovery_ocp30_report.md",
+            "docs/control/phase2_latency_recovery_ocp30_boundary.md",
         ],
         cwd=repo_root,
         text=True,
