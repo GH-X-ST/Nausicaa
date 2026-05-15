@@ -1,2 +1,0 @@
-seed,candidate_count,target_count,families,target_headings_deg,gate_30_deg_passed
-1,15,5,high_bank_roll_recovery;brake_roll_yaw_recovery;pitch_up_redirect_recovery,30;60;90;120;180,False

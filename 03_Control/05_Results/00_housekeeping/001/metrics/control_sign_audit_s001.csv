@@ -1,0 +1,2 @@
+seed,check_name,success,failure_reason,state_order_ok,input_order_ok,sign_check_ok,trim_residual_norm,linearisation_finite_difference_error,inside_true_safety_volume,terminal_speed_m_s,max_alpha_deg,max_beta_deg,max_bank_deg,min_wall_distance_m,min_floor_margin_m,min_ceiling_margin_m,saturation_fraction,log_path
+1,control_sign_audit,True,,,,True,,,,,,,,,,,,

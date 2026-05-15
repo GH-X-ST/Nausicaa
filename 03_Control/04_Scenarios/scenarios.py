@@ -6,11 +6,6 @@ import numpy as np
 
 from latency import CommandToSurfaceConfig
 from linearisation import STATE_INDEX
-from optimise_template import (
-    default_left_agile_reversal_template,
-    load_selected_agile_template,
-    supported_agile_heading_targets_deg,
-)
 from templates import (
     BankReversalPrimitive,
     NominalGlidePrimitive,
@@ -82,6 +77,15 @@ def recovery_entry_state(x_trim: np.ndarray) -> np.ndarray:
     x0[STATE_INDEX["p"]] = np.deg2rad(-2.0)
     x0[STATE_INDEX["q"]] = np.deg2rad(1.0)
     x0[STATE_INDEX["r"]] = np.deg2rad(1.0)
+    return x0
+
+
+def aggressive_reversal_entry_state(x_trim: np.ndarray, altitude_m: float = 2.7) -> np.ndarray:
+    """Return the deterministic fixed-start state for aggressive reversal exploration."""
+    x0 = arena_feasible_entry_state(x_trim, altitude_m=altitude_m)
+    x0[STATE_INDEX["x_w"]] = 1.45
+    x0[STATE_INDEX["y_w"]] = 2.4
+    x0[STATE_INDEX["z_w"]] = float(altitude_m)
     return x0
 
 
@@ -250,53 +254,7 @@ def build_scenario(
             "none",
             candidates,
         )
-    if scenario_id == "s9_agile_reversal_left_no_wind" or scenario_id in agile_heading_target_scenarios():
-        target_heading_deg = _agile_target_from_scenario_id(scenario_id)
-        searched_template = _load_selected_or_canonical_agile_template(
-            repo_root=repo_root,
-            seed=seed,
-            target_heading_deg=target_heading_deg,
-        )
-        agile_template = searched_template or default_left_agile_reversal_template(
-            target_heading_deg=target_heading_deg
-        )
-        x0 = full_base.copy()
-        x0[STATE_INDEX["x_w"]] = 1.45
-        return ScenarioDefinition(
-            scenario_id,
-            agile_template,
-            "none",
-            None,
-            "panel",
-            nominal,
-            x0,
-            "none",
-            (agile_template,),
-        )
     raise ValueError(f"Unknown scenario_id '{scenario_id}'.")
-
-
-def _load_selected_or_canonical_agile_template(
-    repo_root,
-    seed: int,
-    target_heading_deg: float,
-):
-    searched_template = load_selected_agile_template(
-        repo_root=repo_root,
-        seed=seed,
-        target_heading_deg=target_heading_deg,
-    )
-    if searched_template is not None:
-        return searched_template
-    if int(seed) == 1:
-        return None
-    # Search is deterministic for the fixed-start template grid; seed 1 is the
-    # canonical manifest used by replay runs when no seed-specific search exists.
-    return load_selected_agile_template(
-        repo_root=repo_root,
-        seed=1,
-        target_heading_deg=target_heading_deg,
-    )
 
 
 # =============================================================================
@@ -324,8 +282,6 @@ def batch_scenarios() -> tuple[str, ...]:
         "s4_annular_single_panel",
         "s4_gaussian_single_panel_randomised",
         "s4_governor_selection",
-        "s9_agile_reversal_left_no_wind",
-        *agile_heading_target_scenarios(),
     )
 
 
@@ -350,29 +306,8 @@ def s4_audit_scenarios() -> tuple[str, ...]:
     )
 
 
-def agile_audit_scenarios() -> tuple[str, ...]:
-    return ("s9_agile_reversal_left_no_wind", *agile_heading_target_scenarios())
-
-
 def controller_audit_scenarios() -> tuple[str, ...]:
-    return s4_audit_scenarios() + agile_audit_scenarios()
-
-
-def agile_heading_target_scenarios() -> tuple[str, ...]:
-    return tuple(
-        f"s9_agile_reversal_left_target_{int(target):03d}_no_wind"
-        for target in supported_agile_heading_targets_deg()
-    )
-
-
-def _agile_target_from_scenario_id(scenario_id: str) -> float:
-    if scenario_id == "s9_agile_reversal_left_no_wind":
-        return 30.0
-    marker = "_target_"
-    if marker not in scenario_id:
-        raise ValueError(f"Agile scenario missing target marker: {scenario_id}")
-    token = scenario_id.split(marker, maxsplit=1)[1].split("_", maxsplit=1)[0]
-    return float(int(token))
+    return s4_audit_scenarios()
 
 
 # =============================================================================

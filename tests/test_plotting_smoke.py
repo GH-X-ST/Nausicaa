@@ -70,9 +70,9 @@ def test_generate_scenario_figure_writes_five_canonical_pngs(tmp_path: Path) -> 
     assert plt.get_fignums() == []
 
 
-def test_generate_agile_scenario_figure_uses_standard_result_layout(tmp_path: Path) -> None:
+def test_generate_recovery_scenario_figure_uses_standard_result_layout(tmp_path: Path) -> None:
     paths = generate_scenario_figure(
-        "s9_agile_reversal_left_no_wind",
+        "s4_full_recovery_no_wind",
         seed=1,
         output_root=tmp_path,
         save_png=True,
@@ -81,7 +81,7 @@ def test_generate_agile_scenario_figure_uses_standard_result_layout(tmp_path: Pa
     result_root = paths["A_png"].parent
 
     assert result_root.name == "001"
-    assert result_root.parent.name == "05_agile_tvlqr_reversal_left"
+    assert result_root.parent.name == "04_recovery_no_wind"
     assert result_root.parents[1].name == "03_primitives"
     assert (result_root / "actual_rollout.csv").exists()
     assert (result_root / "actual_metrics.csv").exists()

@@ -426,17 +426,5 @@ def _scenario_target_metadata(
     scenario_id: str,
     primitive_name: str,
 ) -> dict[str, object]:
-    if not scenario_id.startswith("s9_agile_reversal_left"):
-        return {}
-    target = 30.0
-    marker = "_target_"
-    if marker in scenario_id:
-        token = scenario_id.split(marker, maxsplit=1)[1].split("_", maxsplit=1)[0]
-        target = float(int(token))
-    return {
-        "primitive_family": "agile_tvlqr_scaffold",
-        "candidate_id": "",
-        "is_full_turn_claim": False,
-        "target_heading_deg": target,
-        "primitive_name": primitive_name,
-    }
+    del scenario_id, primitive_name
+    return {}

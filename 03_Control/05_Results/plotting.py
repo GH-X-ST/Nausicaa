@@ -92,7 +92,7 @@ from latency import (  # noqa: E402
 from linearisation import INPUT_NAMES, STATE_NAMES, linearise_trim  # noqa: E402
 from primitive import build_primitive_context  # noqa: E402
 from rollout import RolloutConfig, RolloutResult, simulate_primitive, write_log  # noqa: E402
-from run_one import _materialise_scenario_primitives, run_scenario  # noqa: E402
+from run_one import run_scenario  # noqa: E402
 from scenarios import ScenarioDefinition, build_scenario  # noqa: E402
 from updraft_models import FOUR_FAN_CENTERS_XY, SINGLE_FAN_CENTER_XY  # noqa: E402
 
@@ -129,7 +129,6 @@ SCENARIO_LABELS = {
     "s4_annular_four_panel": "four-fan annular-GP updraft, panel wind",
     "s4_gaussian_single_panel_randomised": "randomised single-fan Gaussian updraft",
     "s4_governor_selection": "governor selects recovery from high bank",
-    "s9_agile_reversal_left_no_wind": "agile TVLQR reversal, no wind",
 }
 
 SCENARIO_SLUGS = {
@@ -145,7 +144,6 @@ SCENARIO_SLUGS = {
     "s4_full_bank_reversal_left_no_wind": "02_mild_bank_reversal_left_probe",
     "s4_full_bank_reversal_right_no_wind": "03_mild_bank_reversal_right_probe",
     "s4_full_recovery_no_wind": "04_recovery_no_wind",
-    "s9_agile_reversal_left_no_wind": "05_agile_tvlqr_reversal_left",
     "s4_launch_nominal_glide_no_wind": "01_launch_nominal_glide",
     "s4_latency_low_nominal_glide": "10_low_latency_nominal_glide",
     "s4_latency_nominal_nominal_glide": "11_nominal_latency_nominal_glide",
@@ -175,7 +173,6 @@ SCENARIO_GROUPS = {
     "s4_full_bank_reversal_left_no_wind": "03_primitives",
     "s4_full_bank_reversal_right_no_wind": "03_primitives",
     "s4_full_recovery_no_wind": "03_primitives",
-    "s9_agile_reversal_left_no_wind": "03_primitives",
     "s4_launch_nominal_glide_no_wind": "04_scenario_matrix",
     "s4_latency_low_nominal_glide": "04_scenario_matrix",
     "s4_latency_nominal_nominal_glide": "04_scenario_matrix",
@@ -306,11 +303,6 @@ def _runtime_objects(scenario_id: str, seed: int) -> RuntimeObjects:
         min_entry_altitude_m=0.75,
     )
     scenario = build_scenario(scenario_id, linear_model.x_trim, REPO_ROOT, seed=seed)
-    scenario = _materialise_scenario_primitives(
-        scenario=scenario,
-        context=context,
-        aircraft=aircraft,
-    )
     return RuntimeObjects(
         aircraft=aircraft,
         context=context,

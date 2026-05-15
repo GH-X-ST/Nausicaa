@@ -17,14 +17,14 @@ def test_entry_samples_repeat_for_same_seed() -> None:
 
 def test_entry_sweep_metric_order_repeats_for_same_seed(tmp_path: Path) -> None:
     first = run_entry_sweep(
-        "s9_agile_reversal_left_no_wind",
+        "s4_full_bank_reversal_left_no_wind",
         primitive=None,
         seed=5,
         sample_count=2,
         output_root=tmp_path / "first",
     )
     second = run_entry_sweep(
-        "s9_agile_reversal_left_no_wind",
+        "s4_full_bank_reversal_left_no_wind",
         primitive=None,
         seed=5,
         sample_count=2,

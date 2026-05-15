@@ -1,0 +1,78 @@
+{
+  "target": {
+    "target_heading_deg": 30.0,
+    "direction": "left",
+    "wind_case": "w0"
+  },
+  "config": {
+    "n_intervals": 12,
+    "t_min_s": 0.35,
+    "t_max_s": 2.8,
+    "speed_bounds_m_s": [
+      1.0,
+      11.0
+    ],
+    "terminal_speed_bounds_m_s": [
+      2.0,
+      10.0
+    ],
+    "max_bank_deg": 125.0,
+    "max_pitch_deg": 125.0,
+    "alpha_soft_deg": 35.0,
+    "alpha_hard_deg": 125.0,
+    "beta_soft_deg": 45.0,
+    "beta_hard_deg": 90.0,
+    "terminal_bank_deg": 85.0,
+    "terminal_pitch_deg": 65.0,
+    "terminal_alpha_deg": 45.0,
+    "terminal_altitude_min_m": 0.55,
+    "rho_kg_m3": 1.225,
+    "ipopt_max_iter": 500,
+    "max_solver_time_s": 90.0,
+    "heading_weight": 80.0,
+    "forward_weight": 3.0,
+    "volume_weight": 1.0,
+    "recovery_weight": 25.0,
+    "alpha_soft_weight": 0.8,
+    "beta_soft_weight": 0.5,
+    "rate_weight": 0.15,
+    "saturation_weight": 0.02,
+    "smoothness_weight": 0.01
+  },
+  "success": false,
+  "failure_reason": "solver_failure: unusable dynamics integration",
+  "feasibility_label": "solver_failure",
+  "objective_value": 30419.999999999978,
+  "metrics": {
+    "target_heading_deg": 30.0,
+    "actual_heading_change_deg": -10.500000000000009,
+    "directed_heading_change_deg": 10.500000000000009,
+    "heading_error_deg": 19.499999999999993,
+    "forward_travel_m": 0.0,
+    "turn_volume_proxy_m2": 0.0,
+    "height_change_m": 0.0,
+    "duration_s": 0.925,
+    "terminal_speed_m_s": 6.5,
+    "terminal_z_w_m": 2.7,
+    "max_alpha_deg": 3.053834490775539,
+    "max_beta_deg": 0.0,
+    "max_bank_deg": 0.0,
+    "max_pitch_deg": 2.754941244379888,
+    "max_rate_rad_s": 0.0,
+    "min_wall_distance_m": 0.25,
+    "min_floor_margin_m": 2.7,
+    "min_ceiling_margin_m": 0.2999999999999998,
+    "inside_true_safety_volume": true,
+    "saturation_fraction": 0.0,
+    "saturation_time_s": 0.0,
+    "exit_recoverable": true,
+    "model_status": "high_incidence_simulation_surrogate",
+    "is_real_flight_claim": false
+  },
+  "solver_stats": {
+    "method": "deterministic_finite_fallback",
+    "initial_guess_name": "pitch_brake_yaw_seed",
+    "solver_success": false
+  },
+  "trajectory_npz": "030_pitch_brake_yaw_seed_s001.npz"
+}

@@ -45,7 +45,7 @@ from linearisation import STATE_INDEX, linearise_trim  # noqa: E402
 from metrics import rejected_metrics  # noqa: E402
 from primitive import build_primitive_context  # noqa: E402
 from rollout import RolloutConfig, simulate_primitive, write_log  # noqa: E402
-from run_one import _materialise_scenario_primitives, _output_dirs  # noqa: E402
+from run_one import _output_dirs  # noqa: E402
 from scenarios import build_scenario  # noqa: E402
 
 
@@ -139,11 +139,6 @@ def run_entry_sweep(
     )
     arena = ArenaConfig()
     scenario = build_scenario(scenario_id, linear_model.x_trim, REPO_ROOT, seed=seed)
-    scenario = _materialise_scenario_primitives(
-        scenario=scenario,
-        context=context,
-        aircraft=aircraft,
-    )
     if primitive is None:
         selected_primitive = scenario.primitive
     elif primitive is scenario.primitive:
@@ -256,18 +251,6 @@ def summarise_sweep_rows(rows: list[dict[str, object]]) -> dict[str, object]:
         summary[f"{key}_min"] = float(np.min(values))
         summary[f"{key}_max"] = float(np.max(values))
     return summary
-
-
-def agile_random_entry_gate(row: dict[str, object]) -> bool:
-    target = row.get("target_heading_deg")
-    if target in {None, ""}:
-        return False
-    return (
-        bool(row.get("success", False))
-        and bool(row.get("exit_recoverable", False))
-        and abs(float(row.get("actual_heading_change_deg", row.get("heading_change_deg", 0.0))))
-        >= min(0.8 * float(target), 30.0)
-    )
 
 
 def _entry_sweep_bounds(value: object | None) -> EntrySweepBounds:
