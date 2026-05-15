@@ -44,6 +44,8 @@ HOUSEKEEPING_FIELDS = (
     "input_order_ok",
     "sign_check_ok",
     "trim_residual_norm",
+    "full_state_derivative_norm",
+    "position_derivative_norm",
     "linearisation_finite_difference_error",
     "inside_true_safety_volume",
     "terminal_speed_m_s",
@@ -191,12 +193,21 @@ def _control_sign_row(seed: int, linear_model: object) -> dict[str, object]:
 
 def _trim_linearisation_row(seed: int, aircraft: object, linear_model: object) -> dict[str, object]:
     row = _blank_row(seed, "trim_linearisation_audit")
-    trim_residual = float(np.linalg.norm(linear_model.f_trim))
+    full_derivative_norm = float(np.linalg.norm(linear_model.f_trim))
+    position_derivative_norm = float(np.linalg.norm(linear_model.f_trim[:3]))
+    trim_residual = float(np.linalg.norm(linear_model.f_trim[3:]))
     fd_error = _finite_difference_error(aircraft, linear_model)
-    success = bool(np.isfinite(trim_residual) and np.isfinite(fd_error) and fd_error < 1e-3)
+    success = bool(
+        np.isfinite(trim_residual)
+        and trim_residual < 1e-6
+        and np.isfinite(fd_error)
+        and fd_error < 1e-3
+    )
     row.update(
         {
             "trim_residual_norm": trim_residual,
+            "full_state_derivative_norm": full_derivative_norm,
+            "position_derivative_norm": position_derivative_norm,
             "linearisation_finite_difference_error": fd_error,
             "success": success,
             "failure_reason": "" if success else "trim_linearisation_audit_failed",
@@ -326,4 +337,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

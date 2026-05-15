@@ -9,7 +9,7 @@ import numpy as np
 from arena import ArenaConfig, safety_margins
 from feedback import limit_aggregate_command
 from flight_dynamics import evaluate_state
-from latency import AGGREGATE_LIMITS, command_norm_to_angle
+from latency import AGGREGATE_LIMITS, angle_to_command_norm, command_norm_to_angle
 from linearisation import STATE_INDEX
 from rollout import rk4_step
 
@@ -44,6 +44,38 @@ ALLOWED_FAILURE_LABELS = {
     "old_tvlqr_reference_found",
     "old_agile_reference_found",
 }
+
+STATUS_FIELDS = (
+    "finite_arrays",
+    "source_trajectory_success",
+    "source_feasibility_label",
+    "source_failure_reason",
+    "propagation_success",
+    "fallback_used",
+    "gain_arrays_finite",
+    "primitive_constructed",
+    "closed_loop_replay_success",
+    "manoeuvre_success",
+)
+
+FIRST_BAD_FIELDS = (
+    "first_bad_step",
+    "first_bad_time_s",
+    "first_bad_reason",
+    "first_bad_state_norm",
+    "first_bad_speed_m_s",
+    "first_bad_alpha_deg",
+    "first_bad_beta_deg",
+    "first_bad_bank_deg",
+    "first_bad_pitch_deg",
+    "first_bad_rate_norm_rad_s",
+    "first_bad_nu_a",
+    "first_bad_nu_e",
+    "first_bad_nu_r",
+    "first_bad_command_a_rad",
+    "first_bad_command_e_rad",
+    "first_bad_command_r_rad",
+)
 
 
 @dataclass(frozen=True)
@@ -82,6 +114,11 @@ class AggressiveReversalConfig:
     rate_weight: float = 0.15
     saturation_weight: float = 0.02
     smoothness_weight: float = 0.01
+    max_internal_dt_s: float = 0.005
+    integration_speed_abort_m_s: float = 80.0
+    integration_rate_abort_rad_s: float = 80.0
+    integration_alpha_abort_deg: float = 150.0
+    integration_beta_abort_deg: float = 110.0
 
 
 @dataclass(frozen=True)
@@ -131,7 +168,7 @@ def solve_aggressive_reversal_ocp(
             x0=x0,
             u_trim=u_trim,
             initial_guess_name=initial_guess_name,
-            failure_reason=f"solver_failure: {exc}",
+            failure_reason=f"integration_abort_unclassified: {exc}",
         )
     if not _finite_result_arrays(result):
         return _fallback_result(
@@ -239,12 +276,15 @@ def aggressive_reversal_metric_row(
     feedback_mode: str = "open_loop",
 ) -> dict[str, object]:
     metrics = dict(result.metrics)
-    return {
+    row = {
         "seed": int(seed),
         "target_heading_deg": float(result.target.target_heading_deg),
         "direction": result.target.direction,
         "initial_guess_name": initial_guess_name,
-        "success": bool(result.success),
+        "success": bool(
+            metrics.get("source_trajectory_success", result.success)
+            and metrics.get("manoeuvre_success", result.success)
+        ),
         "feasibility_label": result.feasibility_label,
         "failure_reason": result.failure_reason,
         "actual_heading_change_deg": metrics.get("actual_heading_change_deg", ""),
@@ -275,6 +315,11 @@ def aggressive_reversal_metric_row(
         "trajectory_npz": trajectory_npz,
         "log_path": log_path,
     }
+    for key in STATUS_FIELDS:
+        row[key] = metrics.get(key, "")
+    for key in FIRST_BAD_FIELDS:
+        row[key] = metrics.get(key, "")
+    return row
 
 
 def _direct_shooting_seed(
@@ -300,19 +345,28 @@ def _direct_shooting_seed(
         if idx == times.size - 1:
             break
         dt_s = float(times[idx + 1] - times[idx])
-        with np.errstate(over="ignore", invalid="ignore"):
-            x = rk4_step(
-                x=x,
-                u_cmd=u_ff[idx],
-                dt_s=dt_s,
-                aircraft=aircraft,
-                wind_model=wind_model,
-                rho_kg_m3=config.rho_kg_m3,
-                actuator_tau_s=(0.06, 0.06, 0.06),
-                wind_mode=wind_mode,
+        x_next, diagnostics = _propagate_interval(
+            x=x,
+            u_cmd=u_ff[idx],
+            dt_s=dt_s,
+            aircraft=aircraft,
+            wind_model=wind_model,
+            wind_mode=wind_mode,
+            config=config,
+            t0_s=float(times[idx]),
+            interval_index=idx,
+        )
+        if not bool(diagnostics["propagation_success"]):
+            return _fallback_result(
+                target=target,
+                config=config,
+                x0=x0,
+                u_trim=u_trim,
+                initial_guess_name=initial_guess_name,
+                failure_reason=str(diagnostics["first_bad_reason"]),
+                diagnostics=diagnostics,
             )
-        if not np.all(np.isfinite(x)) or np.linalg.norm(x[6:9]) > 80.0:
-            raise FloatingPointError("unusable dynamics integration")
+        x = x_next
     metrics = compute_aggressive_metrics(
         target=target,
         config=config,
@@ -325,7 +379,22 @@ def _direct_shooting_seed(
         wind_mode=wind_mode,
     )
     feasibility_label = _classify_metrics(metrics, config)
-    success = feasibility_label.startswith("accepted_")
+    metrics.update(
+        _source_status_metrics(
+            finite_arrays=bool(
+                np.all(np.isfinite(times))
+                and np.all(np.isfinite(x_ref))
+                and np.all(np.isfinite(u_ff))
+                and np.all(np.isfinite(nu_ff))
+            ),
+            propagation_success=True,
+            fallback_used=False,
+            feasibility_label=feasibility_label,
+            failure_reason="" if feasibility_label.startswith("accepted_") else feasibility_label,
+            diagnostics=None,
+        )
+    )
+    success = bool(metrics["source_trajectory_success"] and metrics["manoeuvre_success"])
     failure_reason = "" if success else feasibility_label
     objective = _objective(metrics, target, config)
     return AggressiveReversalResult(
@@ -342,10 +411,11 @@ def _direct_shooting_seed(
         objective_value=objective,
         metrics=metrics,
         solver_stats={
-            "method": "deterministic_direct_shooting_surrogate",
+            "method": "deterministic_seed_rollout_exploration",
             "initial_guess_name": initial_guess_name,
             "iteration_count": 0,
-            "solver_success": success,
+            "solver_success": False,
+            "propagation_success": True,
         },
     )
 
@@ -446,6 +516,248 @@ def compute_aggressive_metrics(
     }
 
 
+def _propagate_interval(
+    *,
+    x: np.ndarray,
+    u_cmd: np.ndarray,
+    dt_s: float,
+    aircraft: object,
+    wind_model: object | None,
+    wind_mode: str,
+    config: AggressiveReversalConfig,
+    t0_s: float,
+    interval_index: int,
+) -> tuple[np.ndarray, dict[str, object]]:
+    """Propagate one output interval using bounded internal RK4 substeps."""
+    max_dt = max(float(config.max_internal_dt_s), 1e-6)
+    n_substeps = max(1, int(np.ceil(float(dt_s) / max_dt)))
+    sub_dt_s = float(dt_s) / float(n_substeps)
+    current = np.asarray(x, dtype=float).reshape(15).copy()
+    command = limit_aggregate_command(np.asarray(u_cmd, dtype=float).reshape(3))
+    for sub_idx in range(n_substeps):
+        first_bad_time = float(t0_s + (sub_idx + 1) * sub_dt_s)
+        first_bad_step = int(interval_index * n_substeps + sub_idx + 1)
+        try:
+            with np.errstate(over="ignore", invalid="ignore"):
+                candidate = rk4_step(
+                    x=current,
+                    u_cmd=command,
+                    dt_s=sub_dt_s,
+                    aircraft=aircraft,
+                    wind_model=wind_model,
+                    rho_kg_m3=config.rho_kg_m3,
+                    actuator_tau_s=(0.06, 0.06, 0.06),
+                    wind_mode=wind_mode,
+                )
+        except Exception:
+            return current, _first_bad_diagnostics(
+                first_bad_step=first_bad_step,
+                first_bad_time_s=first_bad_time,
+                reason="rk4_exception",
+                state=current,
+                command=command,
+                aircraft=aircraft,
+                wind_model=wind_model,
+                wind_mode=wind_mode,
+                config=config,
+            )
+        reason = _integration_abort_reason(
+            candidate,
+            command,
+            aircraft,
+            wind_model,
+            wind_mode,
+            config,
+        )
+        if reason:
+            return candidate, _first_bad_diagnostics(
+                first_bad_step=first_bad_step,
+                first_bad_time_s=first_bad_time,
+                reason=reason,
+                state=candidate,
+                command=command,
+                aircraft=aircraft,
+                wind_model=wind_model,
+                wind_mode=wind_mode,
+                config=config,
+            )
+        current = np.asarray(candidate, dtype=float).reshape(15)
+    return current, {"propagation_success": True, **_empty_first_bad_metrics()}
+
+
+def _integration_abort_reason(
+    state: np.ndarray,
+    command: np.ndarray,
+    aircraft: object,
+    wind_model: object | None,
+    wind_mode: str,
+    config: AggressiveReversalConfig,
+) -> str:
+    if not np.all(np.isfinite(state)):
+        return "nonfinite_state"
+    summary = _state_command_summary(
+        state=state,
+        command=command,
+        aircraft=aircraft,
+        wind_model=wind_model,
+        wind_mode=wind_mode,
+        config=config,
+    )
+    if float(summary["first_bad_speed_m_s"]) > config.integration_speed_abort_m_s:
+        return "speed_abort"
+    if float(summary["first_bad_rate_norm_rad_s"]) > config.integration_rate_abort_rad_s:
+        return "rate_abort"
+    if abs(float(summary["first_bad_alpha_deg"])) > config.integration_alpha_abort_deg:
+        return "alpha_abort"
+    if abs(float(summary["first_bad_beta_deg"])) > config.integration_beta_abort_deg:
+        return "beta_abort"
+    try:
+        margins = safety_margins(np.asarray(state, dtype=float).reshape(15), ArenaConfig())
+        if not bool(margins["inside_safe_volume"]):
+            return "arena_abort"
+    except Exception:
+        return "integration_abort_unclassified"
+    return ""
+
+
+def _source_status_metrics(
+    *,
+    finite_arrays: bool,
+    propagation_success: bool,
+    fallback_used: bool,
+    feasibility_label: str,
+    failure_reason: str,
+    diagnostics: dict[str, object] | None,
+) -> dict[str, object]:
+    label = str(feasibility_label)
+    source_label_ok = label.startswith("accepted_") or label in {
+        "under_turning",
+        "terminal_recovery_limited",
+    }
+    source_success = bool(
+        finite_arrays
+        and propagation_success
+        and not fallback_used
+        and source_label_ok
+    )
+    manoeuvre_success = bool(source_success and label.startswith("accepted_"))
+    metrics: dict[str, object] = {
+        "finite_arrays": bool(finite_arrays),
+        "source_trajectory_success": source_success,
+        "source_feasibility_label": label,
+        "source_failure_reason": str(failure_reason),
+        "propagation_success": bool(propagation_success),
+        "fallback_used": bool(fallback_used),
+        "gain_arrays_finite": False,
+        "primitive_constructed": False,
+        "closed_loop_replay_success": False,
+        "manoeuvre_success": manoeuvre_success,
+    }
+    metrics.update(_empty_first_bad_metrics())
+    if diagnostics is not None:
+        for key in FIRST_BAD_FIELDS:
+            if key in diagnostics:
+                metrics[key] = diagnostics[key]
+    return metrics
+
+
+def _first_bad_diagnostics(
+    *,
+    first_bad_step: int,
+    first_bad_time_s: float,
+    reason: str,
+    state: np.ndarray,
+    command: np.ndarray,
+    aircraft: object,
+    wind_model: object | None,
+    wind_mode: str,
+    config: AggressiveReversalConfig,
+) -> dict[str, object]:
+    summary = _state_command_summary(
+        state=state,
+        command=command,
+        aircraft=aircraft,
+        wind_model=wind_model,
+        wind_mode=wind_mode,
+        config=config,
+    )
+    return {
+        "propagation_success": False,
+        "first_bad_step": int(first_bad_step),
+        "first_bad_time_s": float(first_bad_time_s),
+        "first_bad_reason": str(reason),
+        **summary,
+    }
+
+
+def _empty_first_bad_metrics() -> dict[str, object]:
+    return {key: "" for key in FIRST_BAD_FIELDS}
+
+
+def _state_command_summary(
+    *,
+    state: np.ndarray,
+    command: np.ndarray,
+    aircraft: object,
+    wind_model: object | None,
+    wind_mode: str,
+    config: AggressiveReversalConfig,
+) -> dict[str, object]:
+    x = np.asarray(state, dtype=float).reshape(15)
+    u_cmd = np.asarray(command, dtype=float).reshape(3)
+    speed = float(np.linalg.norm(x[6:9])) if np.all(np.isfinite(x[6:9])) else float("nan")
+    alpha_rad = np.arctan2(x[STATE_INDEX["w"]], max(float(x[STATE_INDEX["u"]]), 1e-12))
+    beta_arg = float(x[STATE_INDEX["v"]]) / max(speed, 1e-12) if np.isfinite(speed) else float("nan")
+    beta_rad = np.arcsin(np.clip(beta_arg, -1.0, 1.0)) if np.isfinite(beta_arg) else float("nan")
+    if np.all(np.isfinite(x)) and aircraft is not None:
+        try:
+            loads = evaluate_state(
+                x=x,
+                u_cmd=u_cmd,
+                aircraft=aircraft,
+                wind_model=wind_model,
+                rho=config.rho_kg_m3,
+                actuator_tau_s=(0.06, 0.06, 0.06),
+                wind_mode=wind_mode,
+            )
+            alpha_rad = float(loads["alpha_rad"])
+            beta_rad = float(loads["beta_rad"])
+        except Exception:
+            pass
+    nu = _command_to_normalised(u_cmd)
+    return {
+        "first_bad_state_norm": _finite_float(np.linalg.norm(x)),
+        "first_bad_speed_m_s": _finite_float(speed),
+        "first_bad_alpha_deg": _finite_float(np.rad2deg(alpha_rad)),
+        "first_bad_beta_deg": _finite_float(np.rad2deg(beta_rad)),
+        "first_bad_bank_deg": _finite_float(np.rad2deg(x[STATE_INDEX["phi"]])),
+        "first_bad_pitch_deg": _finite_float(np.rad2deg(x[STATE_INDEX["theta"]])),
+        "first_bad_rate_norm_rad_s": _finite_float(np.linalg.norm(x[9:12])),
+        "first_bad_nu_a": _finite_float(nu[0]),
+        "first_bad_nu_e": _finite_float(nu[1]),
+        "first_bad_nu_r": _finite_float(nu[2]),
+        "first_bad_command_a_rad": _finite_float(u_cmd[0]),
+        "first_bad_command_e_rad": _finite_float(u_cmd[1]),
+        "first_bad_command_r_rad": _finite_float(u_cmd[2]),
+    }
+
+
+def _command_to_normalised(command: np.ndarray) -> np.ndarray:
+    values = []
+    for idx, name in enumerate(("delta_a", "delta_e", "delta_r")):
+        value = float(command[idx])
+        if np.isfinite(value):
+            values.append(angle_to_command_norm(value, AGGREGATE_LIMITS[name]))
+        else:
+            values.append(float("nan"))
+    return np.asarray(values, dtype=float)
+
+
+def _finite_float(value: object) -> float:
+    scalar = float(value)
+    return scalar if np.isfinite(scalar) else float("nan")
+
+
 def _fallback_result(
     *,
     target: AggressiveReversalTarget,
@@ -454,13 +766,10 @@ def _fallback_result(
     u_trim: np.ndarray,
     initial_guess_name: str,
     failure_reason: str,
+    diagnostics: dict[str, object] | None = None,
 ) -> AggressiveReversalResult:
     times = _time_grid(target, config)
     x_ref = np.repeat(np.asarray(x0, dtype=float).reshape(1, 15), times.size, axis=0)
-    direction_sign = -1.0 if target.direction == "left" else 1.0
-    x_ref[:, STATE_INDEX["psi"]] += direction_sign * np.deg2rad(target.target_heading_deg) * (
-        times / max(float(times[-1]), 1e-12)
-    ) * 0.35
     phase_labels = tuple(_phase_label(float(t), float(times[-1])) for t in times)
     u_ff = np.repeat(np.asarray(u_trim, dtype=float).reshape(1, 3), times.size, axis=0)
     nu_ff = np.zeros((times.size, 3), dtype=float)
@@ -472,10 +781,25 @@ def _fallback_result(
         u_ff=u_ff,
         phase_labels=phase_labels,
     )
+    metrics.update(
+        _source_status_metrics(
+            finite_arrays=bool(
+                np.all(np.isfinite(times))
+                and np.all(np.isfinite(x_ref))
+                and np.all(np.isfinite(u_ff))
+                and np.all(np.isfinite(nu_ff))
+            ),
+            propagation_success=False,
+            fallback_used=True,
+            feasibility_label="solver_failure",
+            failure_reason=failure_reason,
+            diagnostics=diagnostics,
+        )
+    )
     return AggressiveReversalResult(
         success=False,
         failure_reason=failure_reason,
-        feasibility_label="solver_failure" if "solver" in failure_reason else "nonfinite_trajectory",
+        feasibility_label="solver_failure",
         target=target,
         config=config,
         times_s=times,
@@ -486,9 +810,11 @@ def _fallback_result(
         objective_value=_objective(metrics, target, config),
         metrics=metrics,
         solver_stats={
-            "method": "deterministic_finite_fallback",
+            "method": "deterministic_seed_rollout_exploration",
             "initial_guess_name": initial_guess_name,
             "solver_success": False,
+            "propagation_success": False,
+            "fallback_used": True,
         },
     )
 

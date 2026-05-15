@@ -53,6 +53,32 @@ AGGRESSIVE_METRIC_FIELDS = (
     "success",
     "feasibility_label",
     "failure_reason",
+    "finite_arrays",
+    "source_trajectory_success",
+    "source_feasibility_label",
+    "source_failure_reason",
+    "propagation_success",
+    "fallback_used",
+    "gain_arrays_finite",
+    "primitive_constructed",
+    "closed_loop_replay_success",
+    "manoeuvre_success",
+    "first_bad_step",
+    "first_bad_time_s",
+    "first_bad_reason",
+    "first_bad_state_norm",
+    "first_bad_speed_m_s",
+    "first_bad_alpha_deg",
+    "first_bad_beta_deg",
+    "first_bad_bank_deg",
+    "first_bad_pitch_deg",
+    "first_bad_rate_norm_rad_s",
+    "first_bad_nu_a",
+    "first_bad_nu_e",
+    "first_bad_nu_r",
+    "first_bad_command_a_rad",
+    "first_bad_command_e_rad",
+    "first_bad_command_r_rad",
     "actual_heading_change_deg",
     "directed_heading_change_deg",
     "heading_error_deg",
@@ -167,6 +193,25 @@ def run_aggressive_reversal_search(
             if float(target_deg) not in best_by_target:
                 continue
             result = best_by_target[float(target_deg)]
+            if not _valid_source_for_tvlqr(result):
+                row = aggressive_reversal_metric_row(
+                    result,
+                    seed=seed,
+                    initial_guess_name=str(result.solver_stats.get("initial_guess_name", "")),
+                    latency_case="none",
+                    feedback_mode="single_aggressive_tvlqr",
+                )
+                row.update(
+                    {
+                        "success": False,
+                        "failure_reason": "source_trajectory_not_promoted",
+                        "gain_arrays_finite": False,
+                        "primitive_constructed": False,
+                        "closed_loop_replay_success": False,
+                    }
+                )
+                tvlqr_rows.append(row)
+                continue
             try:
                 a_d, b_d = discrete_linearise_rollout_map(
                     x_ref=result.x_ref,
@@ -213,8 +258,17 @@ def run_aggressive_reversal_search(
                     latency_case="none",
                     feedback_mode="single_aggressive_tvlqr",
                 )
-                row["success"] = bool(np.all(np.isfinite(k_feedback)) and primitive.duration_s > 0.0)
-                row["failure_reason"] = "" if row["success"] else "nonfinite_trajectory"
+                gain_arrays_finite = bool(np.all(np.isfinite(k_feedback)) and np.all(np.isfinite(s_mats)))
+                primitive_constructed = bool(primitive.duration_s > 0.0)
+                row.update(
+                    {
+                        "success": False,
+                        "gain_arrays_finite": gain_arrays_finite,
+                        "primitive_constructed": primitive_constructed,
+                        "closed_loop_replay_success": False,
+                        "failure_reason": "closed_loop_replay_not_run",
+                    }
+                )
             except Exception as exc:
                 row = aggressive_reversal_metric_row(
                     result,
@@ -224,8 +278,10 @@ def run_aggressive_reversal_search(
                     feedback_mode="single_aggressive_tvlqr",
                 )
                 row["success"] = False
+                row["gain_arrays_finite"] = False
+                row["primitive_constructed"] = False
+                row["closed_loop_replay_success"] = False
                 row["failure_reason"] = f"solver_failure: {exc}"
-                row["feasibility_label"] = "solver_failure"
             tvlqr_rows.append(row)
 
     candidate_path = metrics_dir / f"aggressive_reversal_candidates_s{seed:03d}.csv"
@@ -235,9 +291,14 @@ def run_aggressive_reversal_search(
     _write_rows(replay_path, replay_rows)
     if use_tvlqr:
         _write_rows(tvlqr_path, tvlqr_rows)
+    valid_source_count = sum(1 for row in replay_rows if _truthy(row.get("source_trajectory_success")))
+    propagated_nonfallback_count = sum(1 for row in replay_rows if _physically_propagated(row))
+    manoeuvre_success_count = sum(1 for row in replay_rows if _truthy(row.get("manoeuvre_success")))
+    active_blocker = _active_blocker(replay_rows)
     manifest_path = manifests_dir / f"aggressive_reversal_manifest_s{seed:03d}.json"
     manifest = {
-        "ect_layer_sequence": "Cleanup -> Exploration -> Candidate",
+        "ect_layer": "Exploration fix pass",
+        "ect_layer_sequence": "Exploration",
         "seed": int(seed),
         "targets_deg": [float(value) for value in targets_deg],
         "direction": direction,
@@ -250,6 +311,23 @@ def run_aggressive_reversal_search(
             "tvlqr": _rel(tvlqr_path) if use_tvlqr else "",
         },
         "trajectory_count": len(list(trajectories_dir.glob("*.npz"))),
+        "valid_nonfallback_source_count": int(valid_source_count),
+        "physically_propagated_nonfallback_count": int(propagated_nonfallback_count),
+        "manoeuvre_success_count": int(manoeuvre_success_count),
+        "active_blocker": active_blocker,
+        "source_rows": [
+            {
+                "target_heading_deg": row.get("target_heading_deg", ""),
+                "source_trajectory_success": row.get("source_trajectory_success", ""),
+                "source_feasibility_label": row.get("source_feasibility_label", ""),
+                "source_failure_reason": row.get("source_failure_reason", ""),
+                "propagation_success": row.get("propagation_success", ""),
+                "fallback_used": row.get("fallback_used", ""),
+                "manoeuvre_success": row.get("manoeuvre_success", ""),
+                "first_bad_reason": row.get("first_bad_reason", ""),
+            }
+            for row in replay_rows
+        ],
         "model_status": "high_incidence_simulation_surrogate",
         "is_real_flight_claim": False,
     }
@@ -292,6 +370,55 @@ def replace_with_feedback(result: object, k_feedback: np.ndarray) -> object:
     return wrapped
 
 
+def _valid_source_for_tvlqr(result: object) -> bool:
+    metrics = getattr(result, "metrics", {})
+    if not isinstance(metrics, dict):
+        return False
+    return bool(
+        metrics.get("finite_arrays") is True
+        and metrics.get("fallback_used") is False
+        and metrics.get("propagation_success") is True
+        and metrics.get("source_trajectory_success") is True
+    )
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() == "true"
+
+
+def _physically_propagated(row: dict[str, object]) -> bool:
+    return bool(
+        _truthy(row.get("propagation_success"))
+        and not _truthy(row.get("fallback_used"))
+        and _truthy(row.get("finite_arrays"))
+    )
+
+
+def _active_blocker(rows: list[dict[str, object]]) -> str:
+    critical = [
+        row
+        for row in rows
+        if float(row.get("target_heading_deg", 0.0) or 0.0) in {30.0, 90.0}
+    ]
+    if critical and not any(_physically_propagated(row) for row in critical):
+        return "exploration_integration_failure"
+    if not any(_physically_propagated(row) for row in rows):
+        return "exploration_integration_failure"
+    if any(str(row.get("feasibility_label", "")) == "high_alpha_boundary" for row in rows):
+        return "high_alpha_boundary"
+    if any(str(row.get("feasibility_label", "")) == "high_beta_boundary" for row in rows):
+        return "high_beta_boundary"
+    if any(str(row.get("feasibility_label", "")) == "under_turning" for row in rows):
+        return "finite_but_under_turning_exploration_result"
+    if any(str(row.get("feasibility_label", "")) == "terminal_recovery_limited" for row in rows):
+        return "terminal_recovery_failure"
+    if all(_truthy(row.get("manoeuvre_success")) for row in rows):
+        return "none"
+    return "simulation_boundary_evidence"
+
+
 def _default_output_root(seed: int) -> Path:
     del seed
     return (
@@ -330,28 +457,34 @@ def _write_rows(path: Path, rows: list[dict[str, object]]) -> None:
 
 def _write_boundary_report(rows: list[dict[str, object]], output_root: Path) -> None:
     docs_path = REPO_ROOT / "docs" / "control" / "aggressive_reversal_boundary_report.md"
+    active_blocker = _active_blocker(rows)
     lines = [
         "# Aggressive Reversal Boundary Report",
         "",
-        "ECT layer sequence: Cleanup -> Exploration -> Candidate",
+        "ECT layer: Exploration fix pass",
         "",
         f"Output root: `{_rel(output_root)}`",
         "",
-        "| Target deg | Heading change deg | Max alpha deg | Max beta deg | Failure label |",
-        "|---:|---:|---:|---:|---|",
+        f"Active blocker: `{active_blocker}`",
+        "",
+        "| Target deg | Heading change deg | Source success | Fallback | Label | Failure reason | First bad reason |",
+        "|---:|---:|---|---|---|---|---|",
     ]
     for row in rows:
         lines.append(
             "| "
             f"{float(row.get('target_heading_deg', 0.0)):.0f} | "
             f"{float(row.get('actual_heading_change_deg', 0.0)):.3f} | "
-            f"{float(row.get('max_alpha_deg', 0.0)):.3f} | "
-            f"{float(row.get('max_beta_deg', 0.0)):.3f} | "
-            f"{row.get('feasibility_label', '')} |"
+            f"{row.get('source_trajectory_success', '')} | "
+            f"{row.get('fallback_used', '')} | "
+            f"{row.get('feasibility_label', '')} | "
+            f"{row.get('failure_reason', '')} | "
+            f"{row.get('first_bad_reason', '')} |"
         )
     lines.extend(
         [
             "",
+            "Rows distinguish source trajectory failure, fallback evidence, finite under-turning evidence, terminal recovery limits, and TVLQR gating status when present.",
             "The aggressive high-incidence reversal results are simulation-surrogate/boundary evidence only.",
             "They are not real-flight claims until separate Transfer-layer gates pass.",
         ]
@@ -397,4 +530,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

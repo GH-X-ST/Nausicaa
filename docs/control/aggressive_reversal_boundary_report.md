@@ -1,14 +1,17 @@
 # Aggressive Reversal Boundary Report
 
-ECT layer sequence: Cleanup -> Exploration -> Candidate
+ECT layer: Exploration fix pass
 
-Output root: `03_Control/05_Results/03_primitives/20_aggressive_reversal_rewrite/001`
+Output root: `C:/Users/GH-X-ST/AppData/Local/Temp/nausicaa_aggressive_fix`
 
-| Target deg | Heading change deg | Max alpha deg | Max beta deg | Failure label |
-|---:|---:|---:|---:|---|
-| 30 | -10.500 | 3.054 | 0.000 | solver_failure |
-| 90 | -31.500 | 3.054 | 0.000 | solver_failure |
-| 180 | -63.000 | 3.054 | 0.000 | solver_failure |
+Active blocker: `high_alpha_boundary`
 
+| Target deg | Heading change deg | Source success | Fallback | Label | Failure reason | First bad reason |
+|---:|---:|---|---|---|---|---|
+| 30 | 0.000 | False | True | solver_failure | alpha_abort | alpha_abort |
+| 90 | -19.209 | False | False | high_alpha_boundary | high_alpha_boundary |  |
+| 180 | 0.000 | False | True | solver_failure | alpha_abort | alpha_abort |
+
+Rows distinguish source trajectory failure, fallback evidence, finite under-turning evidence, terminal recovery limits, and TVLQR gating status when present.
 The aggressive high-incidence reversal results are simulation-surrogate/boundary evidence only.
 They are not real-flight claims until separate Transfer-layer gates pass.
