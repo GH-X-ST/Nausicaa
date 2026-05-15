@@ -5,9 +5,6 @@ import numpy as np
 from latency import (
     COMMAND_LEVELS,
     AGGREGATE_LIMITS,
-    CommandToSurfaceConfig,
-    CommandToSurfaceLayer,
-    LatencyEnvelope,
     angle_to_command_norm,
     command_norm_to_angle,
     quantise_command_norm,
@@ -33,18 +30,4 @@ def test_asymmetric_aileron_quantisation() -> None:
     assert np.isclose(
         np.rad2deg(command_norm_to_angle(-0.4, AGGREGATE_LIMITS["delta_a"])),
         -10.4,
-    )
-
-
-def test_onset_delay_holds_initial_target() -> None:
-    layer = CommandToSurfaceLayer(
-        CommandToSurfaceConfig(mode="nominal", quantise=True, use_onset_delay=True),
-        LatencyEnvelope(onset_latency_s=0.075, command_dt_s=0.02),
-    )
-    layer.reset(np.zeros(3))
-    outputs = [layer.apply(np.deg2rad([10.0, 0.0, 0.0]))[0] for _ in range(4)]
-    assert np.allclose(outputs, 0.0)
-    assert np.isclose(
-        np.rad2deg(layer.apply(np.deg2rad([10.0, 0.0, 0.0]))[0]),
-        8.8,
     )

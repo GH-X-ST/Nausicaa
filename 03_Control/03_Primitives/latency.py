@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
@@ -13,7 +12,6 @@ import numpy as np
 # 2) Surface limits
 # 3) Latency timing helpers
 # 4) Command conversion helpers
-# 5) Command-to-surface layer
 # =============================================================================
 
 # =============================================================================
@@ -55,8 +53,6 @@ class LatencyEnvelope:
 @dataclass(frozen=True)
 class CommandToSurfaceConfig:
     mode: str = "nominal"
-    quantise: bool = True
-    use_onset_delay: bool = True
     use_state_feedback_delay: bool = True
 
 
@@ -219,96 +215,3 @@ def aggregate_targets_to_surface_degrees(target_rad: np.ndarray) -> dict[str, fl
         "elevator_deg": float(np.rad2deg(command_norm_to_angle(e_norm, SURFACE_LIMITS["Elevator"]))),
         "rudder_deg": float(np.rad2deg(command_norm_to_angle(r_norm, SURFACE_LIMITS["Rudder"]))),
     }
-
-
-# =============================================================================
-# 5) Command-to-Surface Layer
-# =============================================================================
-class CommandToSurfaceLayer:
-    def __init__(
-        self,
-        config: CommandToSurfaceConfig | None = None,
-        envelope: LatencyEnvelope | None = None,
-    ):
-        self.config = config or CommandToSurfaceConfig()
-        self.envelope = envelope or LatencyEnvelope()
-        self._buffers = [deque(), deque(), deque()]
-        self._last_target = np.zeros(3)
-        self._last_norm = np.zeros(3)
-
-    @property
-    def actuator_tau_vector_s(self) -> tuple[float, float, float]:
-        tau = actuator_tau_s(self.config, self.envelope)
-        return (tau, tau, tau)
-
-    def reset(self, initial_target_rad: np.ndarray | list[float] | tuple[float, ...]) -> None:
-        initial = np.asarray(initial_target_rad, dtype=float).reshape(3)
-        self._buffers = []
-        delay_steps = self._delay_steps()
-        # Onset delay is represented as a per-axis FIFO in command samples
-        for value in initial:
-            self._buffers.append(deque([float(value)] * delay_steps))
-        self._last_target = initial.copy()
-        self._last_norm = self._angle_vector_to_norm(initial)
-
-    def apply(self, desired_rad: np.ndarray | list[float] | tuple[float, ...]) -> np.ndarray:
-        desired = np.asarray(desired_rad, dtype=float).reshape(3)
-        norm = self._angle_vector_to_norm(desired)
-        if self.config.quantise:
-            # Quantisation is applied before onset-delay buffering
-            norm = np.asarray([quantise_command_norm(value) for value in norm], dtype=float)
-        target = np.asarray(
-            [
-                command_norm_to_angle(norm[0], AGGREGATE_LIMITS["delta_a"]),
-                command_norm_to_angle(norm[1], AGGREGATE_LIMITS["delta_e"]),
-                command_norm_to_angle(norm[2], AGGREGATE_LIMITS["delta_r"]),
-            ],
-            dtype=float,
-        )
-        delayed = target.copy()
-        if self.config.use_onset_delay:
-            for idx, buffer in enumerate(self._buffers):
-                buffer.append(float(target[idx]))
-                delayed[idx] = buffer.popleft()
-        self._last_norm = norm.copy()
-        self._last_target = delayed.copy()
-        return delayed
-
-    def log_fields(self) -> dict[str, float | str]:
-        surface = aggregate_targets_to_surface_degrees(self._last_target)
-        tau = actuator_tau_s(self.config, self.envelope)
-        return {
-            "command_norm_a": float(self._last_norm[0]),
-            "command_norm_e": float(self._last_norm[1]),
-            "command_norm_r": float(self._last_norm[2]),
-            "delta_a_target_deg": float(np.rad2deg(self._last_target[0])),
-            "delta_e_target_deg": float(np.rad2deg(self._last_target[1])),
-            "delta_r_target_deg": float(np.rad2deg(self._last_target[2])),
-            **surface,
-            "latency_mode": self.config.mode,
-            "latency_s": half_response_s(self.config, self.envelope),
-            "latency_range_s": latency_range_label(self.config, self.envelope),
-            "onset_latency_s": float(self.envelope.onset_latency_s),
-            "vicon_latency_nominal_s": float(self.envelope.vicon_latency_nominal_s),
-            "vicon_latency_p95_s": float(self.envelope.vicon_latency_p95_s),
-            "half_response_s": half_response_s(self.config, self.envelope),
-            "actuator_tau_s": float(tau),
-            **latency_audit_fields(self.config, self.envelope),
-        }
-
-    def _delay_steps(self) -> int:
-        if not self.config.use_onset_delay:
-            return 0
-        dt = max(float(self.envelope.command_dt_s), 1e-12)
-        return int(np.ceil(float(self.envelope.onset_latency_s) / dt))
-
-    @staticmethod
-    def _angle_vector_to_norm(angle_rad: np.ndarray) -> np.ndarray:
-        return np.asarray(
-            [
-                angle_to_command_norm(angle_rad[0], AGGREGATE_LIMITS["delta_a"]),
-                angle_to_command_norm(angle_rad[1], AGGREGATE_LIMITS["delta_e"]),
-                angle_to_command_norm(angle_rad[2], AGGREGATE_LIMITS["delta_r"]),
-            ],
-            dtype=float,
-        )

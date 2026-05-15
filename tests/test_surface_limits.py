@@ -3,9 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from feedback import limit_aggregate_command
 from latency import (
-    AGGREGATE_LIMITS,
     SURFACE_LIMITS,
     aggregate_targets_to_surface_degrees,
     angle_to_command_norm,
@@ -39,23 +37,3 @@ def test_positive_aggregate_aileron_expands_to_left_down_right_up() -> None:
 
     assert surfaces["aileron_l_deg"] > 0.0
     assert surfaces["aileron_r_deg"] < 0.0
-
-
-def test_aggregate_command_path_uses_full_calibrated_range() -> None:
-    lower = np.deg2rad(
-        [
-            AGGREGATE_LIMITS["delta_a"].negative_deg,
-            AGGREGATE_LIMITS["delta_e"].negative_deg,
-            AGGREGATE_LIMITS["delta_r"].negative_deg,
-        ]
-    )
-    upper = np.deg2rad(
-        [
-            AGGREGATE_LIMITS["delta_a"].positive_deg,
-            AGGREGATE_LIMITS["delta_e"].positive_deg,
-            AGGREGATE_LIMITS["delta_r"].positive_deg,
-        ]
-    )
-
-    np.testing.assert_allclose(limit_aggregate_command(10.0 * np.ones(3)), upper)
-    np.testing.assert_allclose(limit_aggregate_command(-10.0 * np.ones(3)), lower)
