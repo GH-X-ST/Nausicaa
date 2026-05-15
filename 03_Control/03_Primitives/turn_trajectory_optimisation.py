@@ -57,6 +57,14 @@ class TurnOptimisationConfig:
     max_pitch_deg: float = 65.0
     terminal_bank_deg: float = 65.0
     terminal_pitch_deg: float = 40.0
+    terminal_alpha_deg: float | None = None
+    terminal_beta_deg: float | None = None
+    terminal_rate_max_rad_s: float | None = None
+    terminal_speed_target_m_s: float | None = None
+    terminal_alpha_weight: float = 0.0
+    terminal_beta_weight: float = 0.0
+    terminal_rate_weight: float = 0.0
+    terminal_speed_weight: float = 0.0
     max_alpha_deg: float = 28.0
     max_beta_deg: float = 35.0
     min_wall_margin_m: float = 0.0
@@ -286,12 +294,28 @@ def turn_result_metrics(
     speed = np.linalg.norm(x_arr[:, 6:9], axis=1)
     alpha = np.arctan2(x_arr[:, STATE_INDEX["w"]], np.maximum(x_arr[:, STATE_INDEX["u"]], 1e-12))
     beta = np.arcsin(np.clip(x_arr[:, STATE_INDEX["v"]] / np.maximum(speed, 1e-12), -1.0, 1.0))
+    terminal_alpha = float(alpha[-1])
+    terminal_beta = float(beta[-1])
     margins = [safety_margins(row, ArenaConfig()) for row in x_arr]
     raw_heading = float(np.rad2deg(x_arr[-1, STATE_INDEX["psi"]] - x_arr[0, STATE_INDEX["psi"]]))
     wrapped = float((raw_heading + 180.0) % 360.0 - 180.0)
     directed = float(heading_direction_sign(target.direction) * raw_heading)
     terminal = x_arr[-1]
     terminal_speed = float(speed[-1])
+    terminal_rate_norm = float(np.linalg.norm(terminal[9:12], ord=2))
+    optional_terminal_gate = True
+    if config.terminal_alpha_deg is not None:
+        optional_terminal_gate = optional_terminal_gate and abs(terminal_alpha) <= np.deg2rad(
+            float(config.terminal_alpha_deg)
+        )
+    if config.terminal_beta_deg is not None:
+        optional_terminal_gate = optional_terminal_gate and abs(terminal_beta) <= np.deg2rad(
+            float(config.terminal_beta_deg)
+        )
+    if config.terminal_rate_max_rad_s is not None:
+        optional_terminal_gate = optional_terminal_gate and terminal_rate_norm <= float(
+            config.terminal_rate_max_rad_s
+        )
     target_abs = abs(float(target.target_heading_deg))
     threshold = accepted_heading_threshold_deg(target_abs)
     return {
@@ -319,8 +343,12 @@ def turn_result_metrics(
         "terminal_speed_m_s": terminal_speed,
         "terminal_abs_phi_deg": float(abs(np.rad2deg(terminal[STATE_INDEX["phi"]]))),
         "terminal_abs_theta_deg": float(abs(np.rad2deg(terminal[STATE_INDEX["theta"]]))),
+        "terminal_abs_alpha_deg": float(abs(np.rad2deg(terminal_alpha))),
+        "terminal_abs_beta_deg": float(abs(np.rad2deg(terminal_beta))),
+        "terminal_rate_norm_rad_s": terminal_rate_norm,
         "max_abs_phi_deg": float(np.max(np.abs(np.rad2deg(x_arr[:, STATE_INDEX["phi"]])))),
         "max_abs_theta_deg": float(np.max(np.abs(np.rad2deg(x_arr[:, STATE_INDEX["theta"]])))),
+        "max_abs_rate_rad_s": float(np.max(np.linalg.norm(x_arr[:, 9:12], axis=1))),
         "max_alpha_deg": float(np.max(np.abs(np.rad2deg(alpha)))),
         "max_beta_deg": float(np.max(np.abs(np.rad2deg(beta)))),
         "saturation_fraction": float(np.mean(np.isclose(np.abs(nu_ff), 1.0, atol=1e-9))),
@@ -331,6 +359,7 @@ def turn_result_metrics(
             and abs(float(terminal[STATE_INDEX["phi"]])) <= np.deg2rad(config.terminal_bank_deg)
             and abs(float(terminal[STATE_INDEX["theta"]])) <= np.deg2rad(config.terminal_pitch_deg)
             and float(terminal[STATE_INDEX["z_w"]]) >= float(config.terminal_altitude_min_m)
+            and optional_terminal_gate
         ),
     }
 
@@ -638,6 +667,20 @@ def _add_terminal_constraints(
         ca.fabs(x_terminal[STATE_INDEX["theta"]])
         <= (theta_limit if slack is None else theta_limit + slack[14])
     )
+    alpha = ca.atan2(x_terminal[STATE_INDEX["w"]], x_terminal[STATE_INDEX["u"]])
+    speed = _speed_ca(x_terminal)
+    if config.terminal_alpha_deg is not None:
+        opti.subject_to(ca.fabs(alpha) <= np.deg2rad(float(config.terminal_alpha_deg)))
+    if config.terminal_beta_deg is not None:
+        beta_limit = np.sin(np.deg2rad(float(config.terminal_beta_deg)))
+        opti.subject_to(ca.fabs(x_terminal[STATE_INDEX["v"]]) <= beta_limit * speed)
+    if config.terminal_rate_max_rad_s is not None:
+        rate_sq = (
+            x_terminal[STATE_INDEX["p"]] ** 2
+            + x_terminal[STATE_INDEX["q"]] ** 2
+            + x_terminal[STATE_INDEX["r"]] ** 2
+        )
+        opti.subject_to(rate_sq <= float(config.terminal_rate_max_rad_s) ** 2)
 
 
 def _bounded(
@@ -674,10 +717,29 @@ def _recovery_objective(x_terminal: ca.MX, config: TurnOptimisationConfig) -> ca
     speed_mid = 0.5 * (
         float(config.terminal_speed_bounds_m_s[0]) + float(config.terminal_speed_bounds_m_s[1])
     )
-    return float(config.recovery_weight) * (
+    speed_target = (
+        speed_mid
+        if config.terminal_speed_target_m_s is None
+        else float(config.terminal_speed_target_m_s)
+    )
+    alpha = ca.atan2(x_terminal[STATE_INDEX["w"]], x_terminal[STATE_INDEX["u"]])
+    beta = ca.asin(ca.fmin(1.0, ca.fmax(-1.0, x_terminal[STATE_INDEX["v"]] / speed)))
+    rate_sq = (
+        x_terminal[STATE_INDEX["p"]] ** 2
+        + x_terminal[STATE_INDEX["q"]] ** 2
+        + x_terminal[STATE_INDEX["r"]] ** 2
+    )
+    base = float(config.recovery_weight) * (
         0.2 * (speed - speed_mid) ** 2
         + x_terminal[STATE_INDEX["phi"]] ** 2
         + x_terminal[STATE_INDEX["theta"]] ** 2
+    )
+    return (
+        base
+        + float(config.terminal_speed_weight) * (speed - speed_target) ** 2
+        + float(config.terminal_alpha_weight) * alpha**2
+        + float(config.terminal_beta_weight) * beta**2
+        + float(config.terminal_rate_weight) * rate_sq
     )
 
 

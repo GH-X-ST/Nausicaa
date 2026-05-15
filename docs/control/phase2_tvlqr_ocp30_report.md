@@ -1,17 +1,27 @@
-# Phase 2 TVLQR OCP30 Replay Debug Report
+# Phase 2 TVLQR OCP30 Latency And Recovery Robustness Report
 
 Seed: `1`
-Output root: `03_Control/05_Results/03_primitives/10_tight_turn_phase2_tvlqr_debug/001`
+Output root: `03_Control/05_Results/03_primitives/11_tight_turn_phase2_latency_recovery/001`
 
 ## Scope
 
-Phase 2 debug only: W0 30 deg OCP reproduction, TrajectoryPrimitive conversion, open-loop replay, closed-loop TVLQR replay, nominal-latency replay, and terminal recovery sensitivity.
+Phase 2 robustness only: W0 30 deg OCP reproduction, deterministic latency/recovery candidate variants, TrajectoryPrimitive conversion, open-loop replay, closed-loop TVLQR replay, nominal-latency replay, and terminal recovery sensitivity.
 
-## Prior Agile Boundary Evidence
+## Prior Boundary Evidence
 
 - `C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/docs/control/agile_problem_1_2_7_report.md`: not found in this checkout
 - `C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/docs/control/agile_feasibility_boundary.md`: not found in this checkout
 - `C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/docs/control/turn_trajectory_optimisation_report.md`: found
+- `C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/docs/control/phase2_tvlqr_ocp30_boundary.md`: found
+
+## Previous Phase 2 Debug Evidence
+
+- previous output root: `C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/03_primitives/10_tight_turn_phase2_tvlqr_debug/001`
+- previous metrics found: `True`
+- previous phase 2 status: `boundary_only`
+- previous active failure class: `latency_limited_high_alpha`
+- previous nominal-latency gate: `False`
+- previous terminal recovery gate: `False`
 
 ## Best 30 Deg Result
 
@@ -22,10 +32,19 @@ Phase 2 debug only: W0 30 deg OCP reproduction, TrajectoryPrimitive conversion, 
 - dynamics defect max: `1.5777329664956596e-08`
 - slack max: `0.0`
 - failure reason: ``
+- candidate variant: `baseline`
+
+## Before/After Phase 2 Status
+
+- previous selected variant: `baseline`
+- previous limitation: `angle of attack exceeded bound`
+- current selected variant: `baseline`
+- current active failure class: `latency_limited_high_alpha`
+- current phase 2 status: `boundary_only`
 
 ## Phase 2 Gate Summary
 
-Replay rows produced: `6`
+Replay rows produced: `18`
 - hard 30 deg OCP reproduced: `True`
 - open-loop no-latency gate: `True`
 - closed-loop no-latency gate: `True`
@@ -38,10 +57,10 @@ Replay rows produced: `6`
 
 ## Metrics Paths
 
-- `03_Control/05_Results/03_primitives/10_tight_turn_phase2_tvlqr_debug/001/metrics/turn_ocp_candidates_s001.csv`
-- `03_Control/05_Results/03_primitives/10_tight_turn_phase2_tvlqr_debug/001/metrics/turn_ocp_best_by_target_s001.csv`
-- `03_Control/05_Results/03_primitives/10_tight_turn_phase2_tvlqr_debug/001/metrics/turn_tvlqr_replay_s001.csv`
+- `03_Control/05_Results/03_primitives/11_tight_turn_phase2_latency_recovery/001/metrics/turn_ocp_candidates_s001.csv`
+- `03_Control/05_Results/03_primitives/11_tight_turn_phase2_latency_recovery/001/metrics/turn_ocp_best_by_target_s001.csv`
+- `03_Control/05_Results/03_primitives/11_tight_turn_phase2_latency_recovery/001/metrics/turn_tvlqr_replay_s001.csv`
 
 ## Limitation
 
-This report is simulation-only and does not include Phase 3/4 continuation, entry sweeps, W0-W3 stress, outer-loop simulation, or hardware/Vicon execution.
+This report is simulation-only and does not include Phase 3/4 continuation, entry sweeps, W0-W3 stress, outer-loop simulation, or hardware/Vicon execution. A promoted Phase 2 result is still a simulation primitive candidate, not a hardware or Vicon claim.

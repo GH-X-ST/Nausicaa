@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +13,8 @@ from linearisation import STATE_INDEX
 from linearisation import linearise_trim
 from primitive import build_primitive_context
 from run_agile_trajectory_optimisation import _phase2_gate_summary
+from run_agile_trajectory_optimisation import _phase2_candidate_config_variants
+from run_agile_trajectory_optimisation import _phase2_selection_score
 from scenarios import arena_feasible_entry_state
 from trajectory_primitive import trajectory_error
 from turn_trajectory_optimisation import (
@@ -154,6 +157,141 @@ def test_phase2_summary_does_not_promote_latency_or_recovery_failure() -> None:
     assert summary["phase2_status"] == "boundary_only"
     assert summary["active_failure_class"] == "latency_limited_high_alpha"
     assert "terminal_recovery_limited" in summary["all_failure_classes"]
+
+
+def test_phase2_summary_filters_to_selected_candidate_variant() -> None:
+    best_30 = {
+        "success": True,
+        "candidate_variant": "latency090",
+        "feasibility_label": "accepted_low_alpha",
+        "slack_max": 0.0,
+        "heading_gate_passed": True,
+        "inside_true_safety_volume": True,
+        "exit_recoverable_gate": True,
+    }
+    replay_rows = [
+        {"candidate_variant": "baseline", "replay_kind": "open_loop_no_latency", "success": True},
+        {"candidate_variant": "baseline", "replay_kind": "closed_loop_no_latency", "success": True},
+        {
+            "candidate_variant": "baseline",
+            "replay_kind": "closed_loop_nominal_latency",
+            "success": False,
+            "termination_reason": "angle of attack exceeded bound",
+        },
+        {
+            "candidate_variant": "latency090",
+            "replay_kind": "open_loop_no_latency",
+            "success": True,
+        },
+        {
+            "candidate_variant": "latency090",
+            "replay_kind": "closed_loop_no_latency",
+            "success": True,
+        },
+        {
+            "candidate_variant": "latency090",
+            "replay_kind": "closed_loop_nominal_latency",
+            "success": True,
+        },
+        {
+            "candidate_variant": "latency090",
+            "replay_kind": "terminal_altitude_sensitivity",
+            "terminal_altitude_min_m": 0.75,
+            "success": True,
+        },
+        {
+            "candidate_variant": "latency090",
+            "replay_kind": "terminal_altitude_sensitivity",
+            "terminal_altitude_min_m": 1.0,
+            "success": True,
+        },
+        {
+            "candidate_variant": "latency090",
+            "replay_kind": "terminal_altitude_sensitivity",
+            "terminal_altitude_min_m": 1.2,
+            "success": True,
+        },
+    ]
+
+    summary = _phase2_gate_summary(best_30, replay_rows)
+
+    assert summary["phase2_status"] == "promoted_phase2"
+    assert summary["active_failure_class"] == ""
+
+
+def test_phase2_selection_score_prefers_replay_gates_over_ocp_score() -> None:
+    result, _, _ = _synthetic_result()
+    baseline = replace(
+        result,
+        solver_stats={**result.solver_stats, "candidate_variant": "baseline"},
+        metrics={
+            **result.metrics,
+            "directed_heading_change_deg": 30.0,
+            "terminal_speed_m_s": 6.3,
+            "saturation_fraction": 0.0,
+            "slack_max": 0.0,
+            "heading_gate_passed": True,
+            "inside_true_safety_volume": True,
+            "exit_recoverable_gate": True,
+        },
+    )
+    robust = replace(
+        baseline,
+        solver_stats={**baseline.solver_stats, "candidate_variant": "latency090"},
+        metrics={**baseline.metrics, "directed_heading_change_deg": 25.0},
+    )
+    failing_rows = [
+        {"replay_kind": "open_loop_no_latency", "success": True},
+        {"replay_kind": "closed_loop_no_latency", "success": True},
+        {
+            "replay_kind": "closed_loop_nominal_latency",
+            "success": False,
+            "max_alpha_deg": 29.0,
+            "termination_reason": "angle of attack exceeded bound",
+        },
+    ]
+    passing_rows = [
+        {"replay_kind": "open_loop_no_latency", "success": True},
+        {"replay_kind": "closed_loop_no_latency", "success": True},
+        {"replay_kind": "closed_loop_nominal_latency", "success": True, "max_alpha_deg": 6.0},
+        {
+            "replay_kind": "terminal_altitude_sensitivity",
+            "terminal_altitude_min_m": 0.75,
+            "success": True,
+        },
+        {
+            "replay_kind": "terminal_altitude_sensitivity",
+            "terminal_altitude_min_m": 1.0,
+            "success": True,
+        },
+        {
+            "replay_kind": "terminal_altitude_sensitivity",
+            "terminal_altitude_min_m": 1.2,
+            "success": True,
+        },
+    ]
+
+    assert _phase2_selection_score(robust, passing_rows) > _phase2_selection_score(
+        baseline,
+        failing_rows,
+    )
+
+
+def test_phase2_robust_configs_tighten_terminal_recovery_without_command_cap() -> None:
+    base = TurnOptimisationConfig()
+    variants = dict(_phase2_candidate_config_variants(base))
+
+    assert set(variants) == {"baseline", "latency075", "latency090", "latency105"}
+    assert variants["baseline"] == base
+    for name in ("latency075", "latency090", "latency105"):
+        variant = variants[name]
+        assert variant.t_min_s >= base.t_min_s
+        assert variant.t_max_s <= base.t_max_s
+        assert variant.terminal_alpha_deg is not None
+        assert variant.terminal_alpha_deg < base.max_alpha_deg
+        assert variant.terminal_beta_deg is not None
+        assert variant.terminal_beta_deg < base.max_beta_deg
+        assert variant.terminal_rate_max_rad_s is not None
 
 
 def test_phase2_report_paths_are_not_ignored() -> None:
