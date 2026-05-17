@@ -1,0 +1,112 @@
+{
+  "created_at": "2026-05-17T21:23:02",
+  "run_id": 1,
+  "output_root": "03_Control/05_Results/02_trim_linearisation/001",
+  "overall_status": "pass",
+  "needs_review": [],
+  "optional_failures": [],
+  "speed_case_outcomes": [
+    {
+      "case_name": "natural_glide_6p5_none",
+      "role": "required",
+      "speed_m_s": 6.5,
+      "wind_mode": "none",
+      "status": "converged"
+    },
+    {
+      "case_name": "natural_glide_5p5_none",
+      "role": "optional",
+      "speed_m_s": 5.5,
+      "wind_mode": "none",
+      "status": "converged"
+    },
+    {
+      "case_name": "natural_glide_7p5_none",
+      "role": "optional",
+      "speed_m_s": 7.5,
+      "wind_mode": "none",
+      "status": "converged"
+    },
+    {
+      "case_name": "natural_glide_4p5_none",
+      "role": "diagnostic",
+      "speed_m_s": 4.5,
+      "wind_mode": "none",
+      "status": "converged"
+    },
+    {
+      "case_name": "uniform_cg_updraft_6p5",
+      "role": "optional_wind",
+      "speed_m_s": 6.5,
+      "wind_mode": "cg",
+      "status": "converged"
+    }
+  ],
+  "future_cases": [
+    {
+      "case_name": "mild_bank_segment",
+      "status": "not_available_yet"
+    },
+    {
+      "case_name": "recovery_segment",
+      "status": "not_available_yet"
+    },
+    {
+      "case_name": "agile_reversal_knots",
+      "status": "not_available_yet"
+    },
+    {
+      "case_name": "high_alpha_braking_segment",
+      "status": "not_available_yet"
+    }
+  ],
+  "required_trim_case": "natural_glide_6p5_none",
+  "trim_audit_implemented": true,
+  "linearisation_audit_implemented": true,
+  "controller_implemented": false,
+  "primitive_implemented": false,
+  "ocp_implemented": false,
+  "tvlqr_implemented": false,
+  "governor_implemented": false,
+  "outer_loop_implemented": false,
+  "vicon_implemented": false,
+  "hardware_implemented": false,
+  "high_incidence_validation_claim": false,
+  "dynamic_residual_excludes_position_rates": true,
+  "dynamic_residual_norm_tol": 1e-06,
+  "finite_difference_eps": 1e-06,
+  "jacobian_max_abs_tol": 0.0001,
+  "actuator_jacobian_abs_tol": 1e-09,
+  "uniform_wind_max_abs_diff_tol": 1e-09,
+  "uniform_wind_consistency_pass": true,
+  "command_interface_to_state_derivative": "delta_cmd_rad",
+  "raw_normalised_commands_enter_state_derivative": false,
+  "angle_units_internal": "rad",
+  "speed_units": "m/s",
+  "preflight": {
+    "state_order_pass": true,
+    "command_order_pass": true,
+    "trim_solver_importable": true,
+    "linearise_trim_importable": true,
+    "state_derivative_importable": true
+  },
+  "validation_commands": [
+    "python -m py_compile 03_Control/04_Scenarios/trim_linearisation_audit.py 03_Control/04_Scenarios/run_trim_linearisation_audit.py",
+    "python 03_Control/04_Scenarios/run_trim_linearisation_audit.py --run-id 1 --overwrite",
+    "python -m pytest -q 03_Control/tests/test_trim_linearisation_audit.py",
+    "python -m pytest -q 03_Control/tests"
+  ],
+  "output_files": {
+    "trim_cases_csv": "03_Control/05_Results/02_trim_linearisation/001/metrics/trim_cases_s001.csv",
+    "dynamic_residuals_csv": "03_Control/05_Results/02_trim_linearisation/001/metrics/dynamic_residuals_s001.csv",
+    "linearisation_summary_csv": "03_Control/05_Results/02_trim_linearisation/001/metrics/linearisation_summary_s001.csv",
+    "finite_difference_check_csv": "03_Control/05_Results/02_trim_linearisation/001/metrics/finite_difference_check_s001.csv",
+    "key_derivatives_csv": "03_Control/05_Results/02_trim_linearisation/001/metrics/key_derivatives_s001.csv",
+    "reduced_model_audit_csv": "03_Control/05_Results/02_trim_linearisation/001/metrics/reduced_model_audit_s001.csv",
+    "actuator_dynamics_csv": "03_Control/05_Results/02_trim_linearisation/001/metrics/actuator_dynamics_s001.csv",
+    "uniform_wind_consistency_csv": "03_Control/05_Results/02_trim_linearisation/001/metrics/uniform_wind_consistency_s001.csv",
+    "linear_model_npz": "03_Control/05_Results/02_trim_linearisation/001/logs/linear_model_s001.npz",
+    "manifest_json": "03_Control/05_Results/02_trim_linearisation/001/manifests/trim_linearisation_manifest_s001.json",
+    "report_md": "03_Control/05_Results/02_trim_linearisation/001/reports/trim_linearisation_report_s001.md"
+  }
+}

@@ -1,0 +1,9 @@
+case_name,role,speed_m_s,model_name,state_names,input_names,a_rows,a_cols,b_rows,b_cols,expected_a_shape,expected_b_shape,shape_pass,finite_entries,controllability_rank,max_real_eigenvalue,rank_is_diagnostic_only,eigenvalues_are_diagnostic_only,hard_gate_pass
+natural_glide_6p5_none,required,6.5,longitudinal,"u,w,q,theta,delta_e",delta_e_cmd,5,5,5,1,"(5, 5)","(5, 1)",True,True,5,0.4921696805875512,True,True,True
+natural_glide_6p5_none,required,6.5,lateral,"v,p,r,phi,delta_a,delta_r","delta_a_cmd,delta_r_cmd",6,6,6,2,"(6, 6)","(6, 2)",True,True,6,-0.11596706909388446,True,True,True
+natural_glide_5p5_none,optional,5.5,longitudinal,"u,w,q,theta,delta_e",delta_e_cmd,5,5,5,1,"(5, 5)","(5, 1)",True,True,5,0.6389326024336167,True,True,True
+natural_glide_5p5_none,optional,5.5,lateral,"v,p,r,phi,delta_a,delta_r","delta_a_cmd,delta_r_cmd",6,6,6,2,"(6, 6)","(6, 2)",True,True,6,-0.032858006415320794,True,True,True
+natural_glide_7p5_none,optional,7.5,longitudinal,"u,w,q,theta,delta_e",delta_e_cmd,5,5,5,1,"(5, 5)","(5, 1)",True,True,5,0.4248698192049648,True,True,True
+natural_glide_7p5_none,optional,7.5,lateral,"v,p,r,phi,delta_a,delta_r","delta_a_cmd,delta_r_cmd",6,6,6,2,"(6, 6)","(6, 2)",True,True,6,-0.16071202701116716,True,True,True
+natural_glide_4p5_none,diagnostic,4.5,longitudinal,"u,w,q,theta,delta_e",delta_e_cmd,5,5,5,1,"(5, 5)","(5, 1)",True,True,5,1.6806910635711576,True,True,True
+natural_glide_4p5_none,diagnostic,4.5,lateral,"v,p,r,phi,delta_a,delta_r","delta_a_cmd,delta_r_cmd",6,6,6,2,"(6, 6)","(6, 2)",True,True,6,0.44036813997726654,True,True,True

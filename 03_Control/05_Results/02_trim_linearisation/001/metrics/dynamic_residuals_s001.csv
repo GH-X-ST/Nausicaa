@@ -1,0 +1,6 @@
+case_name,role,speed_m_s,wind_mode,dynamic_residual_norm_tol,dynamic_residual_excludes_position_rates,hard_gate_case,pass,full_xdot_norm,position_rate_norm,attitude_rate_norm,body_accel_norm,angular_accel_norm,actuator_residual_norm,dynamic_residual_norm
+natural_glide_6p5_none,required,6.5,none,1e-06,True,True,True,6.499999999999999,6.499999999999999,0.0,4.6809456832309685e-09,2.636690163880059e-10,0.0,4.688365796262238e-09
+natural_glide_5p5_none,optional,5.5,none,1e-06,True,True,True,5.5,5.5,0.0,4.020678934970278e-09,1.1199420289998732e-10,0.0,4.022238406608556e-09
+natural_glide_7p5_none,optional,7.5,none,1e-06,True,True,True,7.500000000000001,7.500000000000001,0.0,4.721063598321283e-09,3.139704122604614e-10,0.0,4.731492250777686e-09
+natural_glide_4p5_none,diagnostic,4.5,none,1e-06,True,False,True,4.5,4.5,0.0,4.5056834090295465e-09,5.80750522452507e-10,0.0,4.54295654301612e-09
+uniform_cg_updraft_6p5,optional_wind,6.5,cg,1e-06,True,False,True,6.5,6.5,0.0,4.68225524828657e-09,2.6462909512428275e-10,0.0,4.68972736607294e-09
