@@ -1,0 +1,2 @@
+tracker_limit_name,tracker_limit_x_w_m,tracker_limit_y_w_m,tracker_limit_z_w_m,true_safe_name,true_safe_x_w_m,true_safe_y_w_m,true_safe_z_w_m
+tracker_limit,"(0.0, 8.0)","(0.0, 4.8)","(0.0, 3.5)",true_safe,"(1.2, 6.6)","(0.0, 4.4)","(0.0, 3.0)"

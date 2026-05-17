@@ -1,0 +1,3 @@
+scenario_name,wind_mode,latency_case,dt_s,t_final_s,seed,use_true_safe_bounds,description
+contract_no_wind_nominal_latency,none,nominal,0.02,1.0,1,True,contract-only no-wind metadata row
+contract_panel_wind_robust_latency,panel,robust_upper,0.02,1.0,2,True,contract-only panel-wind metadata row

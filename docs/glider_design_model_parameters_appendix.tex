@@ -1,0 +1,351 @@
+\subsection{Glider Optimisation Model and Selected Design}\label{sec:E.3}
+
+\subsubsection{Model Assumptions}\label{sec:E.3.1}
+
+\vspace{1.20cm}
+
+\noindent
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Mission, arena, and aerodynamic settings used by the optimiser.}
+\label{tab:E.3.mission_geometry}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=4.076cm]
+    Q[c,m,wd=2.2cm]
+    Q[c,m,wd=1.5cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Quantity}
+& \SetCell{m} \small\textbf{Value}
+& \SetCell{m} \textcolor{ICLGrey}{\small\textbf{Unit}}
+\\
+\midrule
+\small{Nominal design speed} & 6.50 & \textcolor{ICLGrey}{m\,s$^{-1}$} \\
+\small{Turn diagnostic speed} & 4.00 & \textcolor{ICLGrey}{m\,s$^{-1}$} \\
+\small{Commanded bank angle} & 50.0 & \textcolor{ICLGrey}{deg} \\
+\small{Bank entry time} & 0.20 & \textcolor{ICLGrey}{s} \\
+\small{Arena length} & 8.40 & \textcolor{ICLGrey}{m} \\
+\small{Arena width} & 4.80 & \textcolor{ICLGrey}{m} \\
+\small{Arena height} & 3.50 & \textcolor{ICLGrey}{m} \\
+\small{Wall clearance allowance} & 0.20 & \textcolor{ICLGrey}{m} \\
+\small{Airfoil section} & NACA0002 & \textcolor{ICLGrey}{--} \\
+\small{Wing dihedral} & 10.0 & \textcolor{ICLGrey}{deg} \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Planform and control surface assumptions not varied by the solve.}
+\label{tab:E.3.fixed_planform_controls}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=4.076cm]
+    Q[c,m,wd=2.2cm]
+    Q[c,m,wd=1.5cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Quantity}
+& \SetCell{m} \small\textbf{Value}
+& \SetCell{m} \textcolor{ICLGrey}{\small\textbf{Unit}}
+\\
+\midrule
+\small{Horizontal tail aspect ratio} & 4.0 & \textcolor{ICLGrey}{-} \\
+\small{Vertical tail aspect ratio} & 2.0 & \textcolor{ICLGrey}{-} \\
+\small{Wing section count} & 7 & \textcolor{ICLGrey}{count} \\
+\small{Tail section count} & 5 & \textcolor{ICLGrey}{count} \\
+\small{Aileron span stations} & $[0.30,\,0.85]$ & \textcolor{ICLGrey}{semispan} \\
+\small{Aileron chord ratio} & 0.30 & \textcolor{ICLGrey}{-} \\
+\small{Elevator chord ratio} & 0.30 & \textcolor{ICLGrey}{-} \\
+\small{Rudder chord ratio} & 0.35 & \textcolor{ICLGrey}{-} \\
+\small{Nose station} & -0.10 & \textcolor{ICLGrey}{m} \\
+\small{Fuselage radius} & 0.002 & \textcolor{ICLGrey}{m} \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+
+\vspace{2.50cm}
+
+\noindent
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Material and reinforcement assumptions used in the mass and stiffness model.}
+\label{tab:E.3.material_structure}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=4.076cm]
+    Q[c,m,wd=2.2cm]
+    Q[c,m,wd=1.5cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Quantity}
+& \SetCell{m} \small\textbf{Value}
+& \SetCell{m} \textcolor{ICLGrey}{\small\textbf{Unit}}
+\\
+\midrule
+\small{Wing foam density} & 33.0 & \textcolor{ICLGrey}{kg\,m$^{-3}$} \\
+\small{Tail foam density} & 40.0 & \textcolor{ICLGrey}{kg\,m$^{-3}$} \\
+\small{Wing foam thickness} & 6.00 & \textcolor{ICLGrey}{mm} \\
+\small{Tail foam thickness} & 3.00 & \textcolor{ICLGrey}{mm} \\
+\small{Wing secant modulus} & $1.5\times10^6$ & \textcolor{ICLGrey}{Pa} \\
+\small{Tail secant modulus} & $1.0\times10^6$ & \textcolor{ICLGrey}{Pa} \\
+\small{Wing spar outer/inner diameter} & $4.00/3.00$ & \textcolor{ICLGrey}{mm} \\
+\small{Spar modulus} & $25\times10^9$ & \textcolor{ICLGrey}{Pa} \\
+\small{Tape width/thickness} & $10.0/0.13$ & \textcolor{ICLGrey}{mm} \\
+\small{Tape areal density} & 0.175 & \textcolor{ICLGrey}{kg\,m$^{-2}$} \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Onboard mass and actuation assumptions used in the design model.}
+\label{tab:E.3.onboard_actuation}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=4.076cm]
+    Q[c,m,wd=2.2cm]
+    Q[c,m,wd=1.5cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Quantity}
+& \SetCell{m} \small\textbf{Value}
+& \SetCell{m} \textcolor{ICLGrey}{\small\textbf{Unit}}
+\\
+\midrule
+\small{Centre module mass} & 28.0 & \textcolor{ICLGrey}{g} \\
+\small{Tail module mass} & 4.0 & \textcolor{ICLGrey}{g} \\
+\small{Battery mass} & 5.0 & \textcolor{ICLGrey}{g} \\
+\small{Receiver mass} & 6.0 & \textcolor{ICLGrey}{g} \\
+\small{Regulator mass} & 1.0 & \textcolor{ICLGrey}{g} \\
+\small{Servo mass, each} & 4.0 & \textcolor{ICLGrey}{g} \\
+\small{Servo count} & 4 & \textcolor{ICLGrey}{count} \\
+\small{Control deflection limits} & $\pm30$ & \textcolor{ICLGrey}{deg} \\
+\small{Servo rate limit} & 400 & \textcolor{ICLGrey}{deg\,s$^{-1}$} \\
+\small{Servo torque rating} & 0.009 & \textcolor{ICLGrey}{N\,m} \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+
+\subsubsection{Selected Design Verification}\label{sec:E.3.2}
+
+\noindent
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Selected planform, tail geometry, and mass properties.}
+\label{tab:E.3.selected_geometry_mass}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=3.326cm]
+    Q[c,m,wd=1.25cm]
+    Q[c,m,wd=2.10cm]
+    Q[c,m,wd=1.1cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Quantity}
+& \SetCell{m} \small\textbf{Symbol}
+& \SetCell{m} \small\textbf{Value}
+& \SetCell{m} \textcolor{ICLGrey}{\small\textbf{Unit}}
+\\
+\midrule
+\small{Wing span} & $b$ & 0.7616 & \textcolor{ICLGrey}{m} \\
+\small{Wing chord} & $c$ & 0.1646 & \textcolor{ICLGrey}{m} \\
+\small{Wing area} & $S$ & 0.1254 & \textcolor{ICLGrey}{m$^2$} \\
+\small{Wing aspect ratio} & $AR$ & 4.626 & \textcolor{ICLGrey}{-} \\
+\small{Tail moment arm} & $l_t$ & 0.4000 & \textcolor{ICLGrey}{m} \\
+\small{Horizontal tail span} & $b_H$ & 0.3656 & \textcolor{ICLGrey}{m} \\
+\small{Vertical tail height} & $b_V$ & 0.1188 & \textcolor{ICLGrey}{m} \\
+\small{Aircraft mass} & $m$ & 117.5 & \textcolor{ICLGrey}{g} \\
+\small{Centre of gravity} & $x_{\mathrm{CG}}$ & $0.1137$ & \textcolor{ICLGrey}{m} \\
+ & $z_{\mathrm{CG}}$ & $0.0158$ & \textcolor{ICLGrey}{m} \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Nominal trim, performance, and static stability.}
+\label{tab:E.3.selected_nominal_audit}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=3.726cm]
+    Q[c,m,wd=1.25cm]
+    Q[c,m,wd=1.90cm]
+    Q[c,m,wd=0.9cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Quantity}
+& \SetCell{m} \small\textbf{Symbol}
+& \SetCell{m} \small\textbf{Value}
+& \SetCell{m} \textcolor{ICLGrey}{\small\textbf{Unit}}
+\\
+\midrule
+\small{Trim angle of attack} & $\alpha_{\mathrm{trim}}$ & 3.808 & \textcolor{ICLGrey}{deg} \\
+\small{Trim elevator deflection} & $\delta_e$ & -0.114 & \textcolor{ICLGrey}{deg} \\
+\small{Sink speed} & $V_z$ & 0.6703 & \textcolor{ICLGrey}{m\,s$^{-1}$} \\
+\small{Glide ratio} & $L/D$ & 9.697 & \textcolor{ICLGrey}{-} \\
+\small{Wing loading} & $W/S$ & 9.195 & \textcolor{ICLGrey}{N\,m$^{-2}$} \\
+\small{Wing chord Reynolds number} & $Re_c$ & $7.33\times10^4$ & \textcolor{ICLGrey}{-} \\
+\small{Static margin} & $SM$ & 0.100 & \textcolor{ICLGrey}{MAC} \\
+\small{Horizontal tail volume} & $V_H$ & 0.647 & \textcolor{ICLGrey}{-} \\
+\small{Vertical tail volume} & $V_V$ & 0.030 & \textcolor{ICLGrey}{-} \\
+\small{Lift coefficients} & $C_L$ & $0.355$ & \textcolor{ICLGrey}{-} \\
+\small{Drag coefficients} & $C_D$ & $0.0366$ & \textcolor{ICLGrey}{-} \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+
+\vspace{0.85cm}
+
+\noindent
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Grouped mass budget.}
+\label{tab:E.3.selected_mass_budget}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=4.076cm]
+    Q[c,m,wd=2.2cm]
+    Q[c,m,wd=1.5cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Group}
+& \SetCell{m} \small\textbf{Mass}
+& \SetCell{m} \textcolor{ICLGrey}{\small\textbf{Share}}
+\\
+\midrule
+\small{Wing and tail surfaces} & 29.68\,g & \textcolor{ICLGrey}{25.3\%} \\
+\small{Spar, tape, and slot} & 9.70\,g & \textcolor{ICLGrey}{8.3\%} \\
+\small{Mounts and joiners} & 18.22\,g & \textcolor{ICLGrey}{15.5\%} \\
+\small{Boom and tail hardware} & 10.24\,g & \textcolor{ICLGrey}{8.7\%} \\
+\small{Avionics and servos} & 40.99\,g & \textcolor{ICLGrey}{34.9\%} \\
+\small{Glue allowance} & 8.71\,g & \textcolor{ICLGrey}{7.4\%} \\
+\small{Total} & 117.5\,g & \textcolor{ICLGrey}{100\%} \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Objective decomposition.}
+\label{tab:E.3.selected_objective}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=4.776cm]
+    Q[c,m,wd=3.0cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Objective term}
+& \SetCell{m} \small\textbf{Value}
+\\
+\midrule
+\small{Total objective, $J$} & 2.166 \\
+\small{Sink speed term} & 0.670 \\
+\small{Mass term} & 0.0552 \\
+\small{Trim effort term} & $1.72\times10^{-6}$ \\
+\small{Wing deflection term} & 1.311 \\
+\small{Horizontal tail deflection term} & 0.117 \\
+\small{Roll time constant term} & 0.0126 \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+
+\vspace{0.85cm}
+
+\noindent
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Turn footprint and roll response.}
+\label{tab:E.3.selected_turn_roll}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=4.126cm]
+    Q[c,m,wd=1.15cm]
+    Q[c,m,wd=1.60cm]
+    Q[c,m,wd=0.9cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Quantity}
+& \SetCell{m} \small\textbf{Symbol}
+& \SetCell{m} \small\textbf{Value}
+& \SetCell{m} \textcolor{ICLGrey}{\small\textbf{Unit}}
+\\
+\midrule
+\small{Turn lift coefficient} & $C_{L,\mathrm{turn}}$ & 0.355 & \textcolor{ICLGrey}{-} \\
+\small{Allowable turn radius} & $R_{\mathrm{allow}}$ & 1.825 & \textcolor{ICLGrey}{m} \\
+\small{Predicted turn radius} & $R_{\mathrm{ach}}$ & 2.129 & \textcolor{ICLGrey}{m} \\
+\small{Predicted turn footprint} & $d_{\mathrm{turn}}$ & 2.704 & \textcolor{ICLGrey}{m} \\
+\small{Required lateral acceleration} & $a_{y,\mathrm{req}}$ & 8.767 & \textcolor{ICLGrey}{m\,s$^{-2}$} \\
+\small{Predicted lateral acceleration} & $a_{y,\mathrm{ach}}$ & 7.515 & \textcolor{ICLGrey}{m\,s$^{-2}$} \\
+\small{Lateral acceleration margin} & $\Delta a_y$ & -1.252 & \textcolor{ICLGrey}{m\,s$^{-2}$} \\
+\small{Steady roll rate} & $p_{\mathrm{ss}}$ & 5.240 & \textcolor{ICLGrey}{rad\,s$^{-1}$} \\
+\small{Roll time constant} & $\tau_p$ & 0.0229 & \textcolor{ICLGrey}{s} \\
+\small{Bank angle reached in 0.2 s} & $\phi(t_{\mathrm{be}})$ & 25.60 & \textcolor{ICLGrey}{deg} \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Structural and stability derivatives.}
+\label{tab:E.3.selected_structure_derivatives}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=3.926cm]
+    Q[c,m,wd=1.25cm]
+    Q[c,m,wd=1.70cm]
+    Q[c,m,wd=0.9cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Quantity}
+& \SetCell{m} \small\textbf{Symbol}
+& \SetCell{m} \small\textbf{Value}
+& \SetCell{m} \textcolor{ICLGrey}{\small\textbf{Unit}}
+\\
+\midrule
+\small{Wing deflection ratio} & $\delta_w/\delta_{w,\max}$ & 0.272 & \textcolor{ICLGrey}{-} \\
+\small{Horizontal tail deflection ratio} & $\delta_h/\delta_{h,\max}$ & 0.140 & \textcolor{ICLGrey}{-} \\
+\small{Maximum servo torque utilisation} & $u_s$ & 0.00481 & \textcolor{ICLGrey}{-} \\
+\small{Lift curve slope} & $C_{L_\alpha}$ & 5.648 & \textcolor{ICLGrey}{rad$^{-1}$} \\
+\small{Pitch stability derivative} & $C_{m_\alpha}$ & -0.565 & \textcolor{ICLGrey}{rad$^{-1}$} \\
+\small{Dihedral effect derivative} & $C_{\ell_\beta}$ & -0.199 & \textcolor{ICLGrey}{rad$^{-1}$} \\
+\small{Directional stability derivative} & $C_{n_\beta}$ & 0.0257 & \textcolor{ICLGrey}{rad$^{-1}$} \\
+\small{Roll damping derivative} & $C_{\ell_p}$ & -0.779 & \textcolor{ICLGrey}{-} \\
+\small{Pitch damping derivative} & $C_{m_q}$ & -11.47 & \textcolor{ICLGrey}{-} \\
+\small{Aileron control power} & $C_{\ell_{\delta_a}}$ & -0.827 & \textcolor{ICLGrey}{rad$^{-1}$} \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+
+\cleardoublepage

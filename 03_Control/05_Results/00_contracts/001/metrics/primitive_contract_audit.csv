@@ -1,0 +1,5 @@
+primitive_name,primitive_family,duration_s,entry_set_name,entry_variables,required_exit_checks,optional_exit_checks,metadata
+glide_contract_placeholder,glide,1.0,glide_entry_contract,speed_m_s,"finite_state,true_safe_margin",,{'contract_only': 'true'}
+bank_contract_placeholder,bank,1.0,bank_entry_contract,speed_m_s,"finite_state,true_safe_margin",,{'contract_only': 'true'}
+recovery_contract_placeholder,recovery,1.0,recovery_entry_contract,speed_m_s,"finite_state,true_safe_margin",,{'contract_only': 'true'}
+agile_reversal_contract_placeholder,agile_reversal,1.0,agile_reversal_entry_contract,speed_m_s,"finite_state,true_safe_margin",,{'contract_only': 'true'}

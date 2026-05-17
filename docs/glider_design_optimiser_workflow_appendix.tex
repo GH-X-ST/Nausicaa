@@ -1,0 +1,315 @@
+\subsection{AeroSandbox Glider Optimisation Workflow}\label{sec:E.1}
+
+\vspace{0.20cm}
+
+\RestyleAlgo{ruled}
+\LinesNumbered
+\SetAlgoLined
+\DontPrintSemicolon
+\SetAlgoSkip{medskip}
+\SetAlCapSkip{0.50em}
+\SetAlgoInsideSkip{smallskip}
+\SetAlgoCaptionSeparator{\quad}
+
+\subsubsection{Pseudocode for Optimisation Workflow}\label{sec:E.1.1}
+
+\vspace{0.30cm}
+
+\begin{algorithm}[H]
+\small
+\setlength{\baselineskip}{1.15\baselineskip}
+\caption{Nominal AeroSandbox~\cite{AeroSandbox} glider design optimisation}
+\label{alg:E.1.1}
+\KwIn{Design bounds \(\mathcal{B}\), fixed parameters \(\theta\), mission condition \(\xi_0\), objective \(J\), and requirements \(\mathcal{C}\).}
+\KwOut{Feasible design \(d^\star\) and feasibility audit.}
+Define the decision vector \(z=\{\alpha,\delta_a,\delta_e,\delta_r,b,c,l_t,b_H,b_V\}\) with \(z\in\mathcal{B}\)\;
+Construct geometry \(G(z;\theta)\) and mass properties \(M(z;\theta)\)\;
+Evaluate the nominal aerodynamic trim model at \(\xi_0\)\;
+Compute feasibility margins and objectives listed in \textcolor{ICLBlue}{Tables~\ref{tab:E.1.2}} and \ref{tab:E.1.3}\;
+Solve \(\min_z J(z)\) subject to \(z\in\mathcal{B}\) and \(\mathcal{C}(z)\leq0\)\;
+\eIf{the solver converges and the post-solve audit passes}{
+    Accept the solution as \(d^\star\)\;
+}{
+    Reject the candidate as infeasible\;
+}
+\textbf{return} \(d^\star\) or an infeasibility flag\;
+\end{algorithm}
+
+\vspace{0.70cm}
+
+\begin{algorithm}[H]
+\small
+\setlength{\baselineskip}{1.15\baselineskip}
+\caption{Multistart candidate selection and robust postcheck}
+\label{alg:E.1.2}
+\KwIn{Initial guesses \(\{z_0^{(i)}\}_{i=1}^{N_s}\), retained count \(K\), uncertainty scenarios \(\Omega\), and \textcolor{ICLBlue}{Algorithm~\ref{alg:E.1.1}}.}
+\KwOut{Robust selected candidate \(d^\star\) and robust audit.}
+\(\mathcal{F}\gets\emptyset\)\;
+\For{each initial guess \(z_0^{(i)}\)}{
+    Solve the nominal design problem from \(z_0^{(i)}\)\;
+    \If{the solution is feasible}{
+        Add the candidate and its nominal objective to \(\mathcal{F}\)\;
+    }
+}
+\If{\(\mathcal{F}\) is empty}{
+    \textbf{return} a failure flag\;
+}
+Sort \(\mathcal{F}\) by nominal objective, remove duplicate geometries, and retain the best \(K\) candidates\;
+Sample uncertainty scenarios \(\{\omega_j\}_{j=1}^{N_\omega}\) from the intervals in \textcolor{ICLBlue}{Table~\ref{tab:E.1.5}}\;
+\For{each retained candidate \(d_i\)}{
+    \For{each scenario \(\omega_j\)}{
+        Apply \(\omega_j\), re-solve the constrained trim problem, and evaluate the robust audit metrics\;
+    }
+    Summarise the success rate, tail sink metric, and worst-margin statistics for \(d_i\)\;
+}
+Rank candidates by success rate descending, tail mean sink rate and nominal objective ascending\;
+\textbf{return} the highest ranked candidate \(d^\star\) and its robust audit\;
+\end{algorithm}
+
+\cleardoublepage
+
+\phantom{.}
+
+\vspace{0.50cm}
+
+\begin{algorithm}[H]
+\small
+\setlength{\baselineskip}{1.15\baselineskip}
+\caption{Finite difference sensitivity analysis}
+\label{alg:E.1.3}
+\KwIn{Selected design \(d^\star\), parameter set \(\mathcal{P}\), output metrics \(\mathcal{Q}\), step ladder \(\mathcal{H}\), and stability tolerances.}
+\KwOut{Sensitivity table \(\mathcal{S}\), selected step sizes, and stability flags.}
+Reconstruct and re-evaluate the feasible baseline design to obtain \(q_j^0\) for all \(q_j\in\mathcal{Q}\)\;
+\For{each parameter \(p_i\in\mathcal{P}\)}{
+    Choose a central-difference scheme, or a forward scheme if at the lower bound\;
+    Build the admissible step ladder \(h_{i,\ell}\in\mathcal{H}\)\;
+    \For{each step \(h_{i,\ell}\)}{
+        Evaluate the admissible perturbed designs and store their metrics and feasibility flags\;
+    }
+    \For{each output metric \(q_j\in\mathcal{Q}\)}{
+        Form finite-difference derivative candidates from the feasible perturbations\;
+        Use Richardson extrapolation and round-off estimates to select the nonround-off step\;
+        \eIf{a defensible step is found}{
+            Compute \(S_{ij}=(p_i/\max(|q_j^0|,q_{j,\min}))\,\partial q_j/\partial p_i\) and its stability flag\;
+        }{
+            Mark the sensitivity as unresolved\;
+        }
+    }
+}
+\end{algorithm}
+
+\vspace{1.10cm}
+
+\subsubsection{Optimisation Inputs and Robustness Settings}\label{sec:E.1.2}
+
+\vspace{0.30cm}
+
+\noindent
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Design variables and bounds used in the nominal optimisation.}
+\label{tab:E.1.1}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=3.726cm]
+    Q[c,m,wd=1.25cm]
+    Q[c,m,wd=1.90cm]
+    Q[c,m,wd=0.9cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Quantity}
+& \SetCell{m} \small\textbf{Symbol}
+& \SetCell{m} \small\textbf{Bounds}
+& \SetCell{m} \textcolor{ICLGrey}{\small\textbf{Unit}}
+\\
+\midrule
+\small{Trim angle of attack} & $\alpha_{\mathrm{trim}}$ & $[-4.0,\,8.0]$ & \textcolor{ICLGrey}{deg} \\
+\small{Aileron deflection} & $\delta_a$ & $[-30,\,30]$ & \textcolor{ICLGrey}{deg} \\
+\small{Elevator deflection} & $\delta_e$ & $[-30,\,30]$ & \textcolor{ICLGrey}{deg} \\
+\small{Rudder deflection} & $\delta_r$ & $[-30,\,30]$ & \textcolor{ICLGrey}{deg} \\
+\small{Wing span} & $b$ & $[0.30,\,0.75]$ & \textcolor{ICLGrey}{m} \\
+\small{Wing chord} & $c$ & $[0.10,\,0.30]$ & \textcolor{ICLGrey}{m} \\
+\small{Tail arm} & $l_t$ & $[0.40,\,0.80]$ & \textcolor{ICLGrey}{m} \\
+\small{Horizontal tail span} & $b_H$ & $[0.20,\,0.50]$ & \textcolor{ICLGrey}{m} \\
+\small{Vertical tail height} & $b_V$ & $[0.10,\,0.30]$ & \textcolor{ICLGrey}{m} \\
+\small{Tail boom length} & $l_b$ & $[0.35,\,0.70]$ & \textcolor{ICLGrey}{m} \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Principal feasibility limits enforced in the optimiser.}
+\label{tab:E.1.2}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=3.726cm]
+    Q[c,m,wd=1.25cm]
+    Q[c,m,wd=1.90cm]
+    Q[c,m,wd=0.9cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Quantity}
+& \SetCell{m} \small\textbf{Symbol}
+& \SetCell{m} \small\textbf{Limit}
+& \SetCell{m} \textcolor{ICLGrey}{\small\textbf{Unit}}
+\\
+\midrule
+\small{Pitching moment tolerance} & $|C_m|$ & $1\times10^{-6}$ & \textcolor{ICLGrey}{-} \\
+\small{Maximum nominal lift coefficient} & $C_{L,\max}$ & 1.2 & \textcolor{ICLGrey}{-} \\
+\small{Minimum glide ratio} & $L/D$ & 6.0 & \textcolor{ICLGrey}{-} \\
+\small{Minimum wing Reynolds number} & $Re_c$ & $2\times10^{4}$ & \textcolor{ICLGrey}{-} \\
+\small{Wing loading interval} & $W/S$ & $[2.0,\,20.0]$ & \textcolor{ICLGrey}{N\,m$^{-2}$} \\
+\small{Static margin interval} & $SM$ & $[0.05,\,0.10]$ & \textcolor{ICLGrey}{MAC} \\
+\small{Horizontal tail volume} & $V_H$ & $[0.50,\,1.00]$ & \textcolor{ICLGrey}{-} \\
+\small{Vertical tail volume} & $V_V$ & $[0.03,\,0.08]$ & \textcolor{ICLGrey}{-} \\
+\small{Roll damping magnitude} & $|C_{\ell_p}|$ & $\geq1\times10^{-4}$ & \textcolor{ICLGrey}{-} \\
+\small{Servo torque rating} & $T_s$ & 0.009 & \textcolor{ICLGrey}{N\,m} \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+
+\cleardoublepage
+
+\phantom{.}
+
+\vspace{1.00cm}
+
+\noindent
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Objective terms and weights used in the nominal optimisation.}
+\label{tab:E.1.3}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=3.726cm]
+    Q[c,m,wd=1.25cm]
+    Q[c,m,wd=1.90cm]
+    Q[c,m,wd=0.9cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Objective term}
+& \SetCell{m} \small\textbf{Symbol}
+& \SetCell{m} \small\textbf{Weight}
+& \SetCell{m} \small\textbf{Scale}
+\\
+\midrule
+\small{Sink speed} & $J_{\mathrm{sink}}$ & 1.000 & 1.0\,m\,s$^{-1}$ \\
+\small{Mass} & $J_m$ & 0.04699 & 0.10\,kg \\
+\small{Trim effort} & $J_{\mathrm{trim}}$ & 0.01326 & $10^{\circ}$ \\
+\small{Wing deflection} & $J_{\delta_w}$ & 2.152 & -- \\
+\small{Horizontal tail deflection} & $J_{\delta_h}$ & 0.07831 & -- \\
+\small{Roll time constant} & $J_{\tau_p}$ & 0.2471 & 0.45\,s \\
+\small{Mass included in penalty} & \SetCell[c=3]{c} all aircraft mass \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Solver and candidate-selection settings used by the workflow.}
+\label{tab:E.1.4}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=4.476cm]
+    Q[c,m,wd=3.3cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Setting}
+& \SetCell{m} \small\textbf{Value}
+\\
+\midrule
+\small{Solver} & IPOPT \\
+\small{Maximum iterations} & 1000 \\
+\small{Hessian treatment} & limited memory \\
+\small{Multistart solves} & 30 \\
+\small{Retained candidates} & 10 \\
+\small{Multistart seed} & 20 \\
+\small{Robust postcheck scenarios} & 100 \\
+\small{Scenario seed} & 30 \\
+\small{Geometry deduplication} & $[0.010,\,0.005,\,0.010]$\,m \\
+\small{Active set tolerance} & $1.0\times10^{-3}$ \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+
+\vspace{2.80cm}
+
+\noindent
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Uncertainty intervals used in the robust postcheck.}
+\label{tab:E.1.5}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=4.476cm]
+    Q[c,m,wd=2.2cm]
+    Q[c,m,wd=1.1cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Perturbation}
+& \SetCell{m} \small\textbf{Interval}
+& \SetCell{m} \textcolor{ICLGrey}{\small\textbf{Unit}}
+\\
+\midrule
+\small{Mass scale} & $[1.00,\,1.10]$ & \textcolor{ICLGrey}{-} \\
+\small{Longitudinal CG shift} & $[-0.06,\,0.06]$ & \textcolor{ICLGrey}{MAC} \\
+\small{Incidence bias} & $[-2.0,\,2.0]$ & \textcolor{ICLGrey}{deg} \\
+\small{Control effectiveness} & $[0.85,\,1.00]$ & \textcolor{ICLGrey}{-} \\
+\small{Control neutral bias} & $[-3.0,\,3.0]$ & \textcolor{ICLGrey}{deg} \\
+\small{Principal inertia scale} & $[0.90,\,1.10]$ & \textcolor{ICLGrey}{-} \\
+\small{Surface stiffness scale} & $[0.80,\,1.30]$ & \textcolor{ICLGrey}{-} \\
+\small{Nominal vertical gust} & $[-0.30,\,0.30]$ & \textcolor{ICLGrey}{m\,s$^{-1}$} \\
+\small{Turn vertical gust} & $[-0.20,\,0.20]$ & \textcolor{ICLGrey}{m\,s$^{-1}$} \\
+\small{Drag scale} & $[1.00,\,1.25]$ & \textcolor{ICLGrey}{-} \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\captionof{table}{Robust ranking and rate-check policy used after the nominal solve.}
+\label{tab:E.1.6}
+\resizebox{\linewidth}{!}{
+\begin{tblr}{
+  colspec = {
+    Q[l,m,wd=4.476cm]
+    Q[c,m,wd=3.3cm]
+  },
+}
+\toprule
+\SetCell{m} \small\textbf{Setting}
+& \SetCell{m} \small\textbf{Value}
+\\
+\midrule
+\small{Selection order} & success rate, tail risk, objective \\
+\small{Tail-risk fraction} & 20\% \\
+\small{Default robust-in-loop cases} & 8 \\
+\small{Robust-in-loop case interval} & 4--8 \\
+\small{Scenario families} & mild, harsh, gust, compound \\
+\small{Nominal trim time} & 1.5\,s \\
+\small{Bank entry time} & 0.20\,s \\
+\small{Rate utilisation allowance} & 0.80 \\
+\small{Gust time constant} & 0.50\,s \\
+\small{Robust gust flag} & on \\
+\bottomrule
+\end{tblr}
+}
+\end{minipage}
+
+\cleardoublepage
