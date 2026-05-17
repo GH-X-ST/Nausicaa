@@ -4,6 +4,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from A_model_parameters.mass_properties_estimate import (
+    INERTIA_B as ESTIMATED_INERTIA_B,
+    MASS_KG as ESTIMATED_MASS_KG,
+    R_CG_BUILD_M as ESTIMATED_R_CG_BUILD_M,
+)
+
 
 # =============================================================================
 # SECTION MAP
@@ -49,6 +55,7 @@ class LiftingSurface:
     root_le_b: np.ndarray
     chord_m: float
     span_m: float
+    # Per-panel upward angle from the centreline, not total left-to-right dihedral.
     dihedral_deg: float
     strip_count: int
     symmetric: bool
@@ -235,22 +242,66 @@ def _flatten_strip_table(
 # 4) Baseline Glider Factory
 # =============================================================================
 def build_nausicaa_glider() -> Glider:
-    # Selected baseline from current Nausicaa results
-    mass_kg = 0.1175251463575176
-    inertia_b = np.array(
+    # Manufactured measurements use the wing leading edge as the x=0 datum.
+    mass_kg = float(ESTIMATED_MASS_KG)
+    x_cg_from_wing_le_m = float(ESTIMATED_R_CG_BUILD_M[0])
+    z_cg_from_fuselage_rod_m = float(ESTIMATED_R_CG_BUILD_M[2])
+    wing_ac_from_wing_le_m = 0.0413
+    htail_ac_from_wing_le_m = 0.426
+    vtail_ac_from_wing_le_m = 0.433
+    inertia_b = ESTIMATED_INERTIA_B.copy()
+    wing_span_m = 0.764
+    wing_chord_m = 0.165
+    htail_span_m = 0.364
+    htail_chord_m = 0.091
+    vtail_span_m = 0.119
+    vtail_chord_m = 0.059
+    # Measured dihedral is the full left-to-right included angle. Strip
+    # geometry below uses the per-panel upward angle from the centreline.
+    total_dihedral_deg = 9.28
+    dihedral_deg = 0.5 * total_dihedral_deg
+    wing_thickness_m = 0.0060
+    htail_thickness_m = 0.0030
+    wing_bottom_z_from_fuselage_rod_m = -0.0085
+    htail_top_z_from_fuselage_rod_m = 0.0045
+    vtail_bottom_z_from_fuselage_rod_m = -0.0050
+    # Root leading-edge locations are CG-centered in body axes
+    wing_ac_rounding_error_m = wing_ac_from_wing_le_m - 0.25 * wing_chord_m
+    if abs(wing_ac_rounding_error_m) > 1e-4:
+        raise ValueError("measured wing AC is inconsistent with the wing-LE x datum")
+    wing_root_le_from_datum_m = 0.0
+    htail_root_le_from_datum_m = htail_ac_from_wing_le_m - 0.25 * htail_chord_m
+    vtail_root_le_from_datum_m = vtail_ac_from_wing_le_m - 0.25 * vtail_chord_m
+    wing_root_le_z_from_fuselage_rod_m = (
+        wing_bottom_z_from_fuselage_rod_m - 0.5 * wing_thickness_m
+    )
+    htail_root_le_z_from_fuselage_rod_m = (
+        htail_top_z_from_fuselage_rod_m + 0.5 * htail_thickness_m
+    )
+    vtail_root_le_z_from_fuselage_rod_m = vtail_bottom_z_from_fuselage_rod_m
+    # The measured wing AC is kept explicit for audit; its rounded value implies
+    # an LE offset of 0.00005 m from the declared datum.
+    wing_root_le_b = np.array(
         [
-            [0.0025031478768953587, -8.273524899171198e-07, 5.811050261067761e-05],
-            [-8.273524899171198e-07, 0.00198787749517589, 0.0],
-            [5.811050261067761e-05, 0.0, 0.004359156665747115],
+            x_cg_from_wing_le_m - wing_root_le_from_datum_m,
+            0.0,
+            wing_root_le_z_from_fuselage_rod_m - z_cg_from_fuselage_rod_m,
         ]
     )
-    wing_span_m = 0.7615699589143088
-    wing_chord_m = 0.1646396706065065
-    dihedral_deg = 10.0
-    # Root leading-edge locations are CG-centered in body axes
-    wing_root_le_b = np.array([0.11373615007007601, 0.0, 0.015843560703573026 - 0.007])
-    htail_root_le_b = np.array([-0.286263849929924, 0.0, 0.015843560703573026 + 0.0025])
-    vtail_root_le_b = np.array([-0.2958651111612613, 0.0, 0.015843560703573026 - 0.004])
+    htail_root_le_b = np.array(
+        [
+            x_cg_from_wing_le_m - htail_root_le_from_datum_m,
+            0.0,
+            htail_root_le_z_from_fuselage_rod_m - z_cg_from_fuselage_rod_m,
+        ]
+    )
+    vtail_root_le_b = np.array(
+        [
+            x_cg_from_wing_le_m - vtail_root_le_from_datum_m,
+            0.0,
+            vtail_root_le_z_from_fuselage_rod_m - z_cg_from_fuselage_rod_m,
+        ]
+    )
     wing = LiftingSurface(
         name="wing",
         code=WING,
@@ -277,8 +328,8 @@ def build_nausicaa_glider() -> Glider:
         name="horizontal_tail",
         code=HORIZONTAL_TAIL,
         root_le_b=htail_root_le_b,
-        chord_m=0.09138804119819814,
-        span_m=0.36555216479279257,
+        chord_m=htail_chord_m,
+        span_m=htail_span_m,
         dihedral_deg=0.0,
         strip_count=4,
         symmetric=True,
@@ -299,8 +350,8 @@ def build_nausicaa_glider() -> Glider:
         name="vertical_tail",
         code=VERTICAL_TAIL,
         root_le_b=vtail_root_le_b,
-        chord_m=0.05938384641948583,
-        span_m=0.11876769283897166,
+        chord_m=vtail_chord_m,
+        span_m=vtail_span_m,
         dihedral_deg=0.0,
         strip_count=4,
         symmetric=False,
