@@ -19,13 +19,13 @@ High-incidence validation must later use OCP replay and real Vicon flight logs.
 - AeroSandbox samples: `1155`
 - CL-alpha status: `pass`
 - Control-sign status: `pass`
-- Cm-alpha status: `needs_review`
-- Overall low-alpha status: `pass_with_pitch_moment_review`
+- Cm-alpha status: `pass`
+- Overall low-alpha status: `pass`
 
 ## Main Local Trends
 
 - Local CL-alpha per rad: `4.88369`
-- Local Cm-alpha per rad: `2.42905`
+- Local Cm-alpha per rad: `0.199509`
 - Local CD min: `0.0247593`
 - Local alpha at CD min: `0` deg
 - Elevator sign OK: `True`
@@ -37,4 +37,4 @@ High-incidence validation must later use OCP replay and real Vicon flight logs.
 - AeroSandbox CL-alpha per rad: `4.77588`
 - AeroSandbox Cm-alpha per rad: `0.16907`
 - CL-alpha percent difference: `-2.20759`
-- Cm-alpha percent difference: `-93.0397`
+- Cm-alpha percent difference: `-15.2571`

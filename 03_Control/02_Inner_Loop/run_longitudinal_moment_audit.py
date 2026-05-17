@@ -598,6 +598,29 @@ def _write_report(
         static_margin["quantity"] == "x_cg_over_mac",
         "value",
     ].iloc[0]
+    interpretation = _interpretation_label(summary)
+    if interpretation == "pass":
+        finding_lines = [
+            "The corrected strip force point leaves a small positive total Cm-alpha.",
+            "The wing positive contribution and horizontal-tail negative contribution",
+            "mostly offset each other, so the audit no longer shows the earlier",
+            "erroneous wing-dominated pitching moment.",
+        ]
+        next_action_lines = [
+            "Keep this result as low-alpha attached-flow sanity evidence only.",
+            "High-incidence controller claims still need the separate validation path.",
+        ]
+    else:
+        finding_lines = [
+            "The current low-alpha Cm-alpha still needs pitch-moment review.",
+            "Use the surface breakdown to isolate whether wing, tail, or frame",
+            "convention terms are driving the residual before controller claims resume.",
+        ]
+        next_action_lines = [
+            "Review the wing pitching-moment reference, strip force application point,",
+            "and body-axis sign convention before using this model for longitudinal",
+            "controller claims.",
+        ]
     lines = [
         "# Longitudinal Moment Audit Report",
         "",
@@ -613,7 +636,7 @@ def _write_report(
         "",
         "## Status",
         "",
-        f"- Interpretation status: `{_interpretation_label(summary)}`",
+        f"- Interpretation status: `{interpretation}`",
         f"- Total CL-alpha per rad: `{total_cl_alpha:.6g}`",
         f"- Total Cm-alpha per rad: `{total_cm_alpha:.6g}`",
         f"- Wing Cm-alpha per rad: `{wing_cm_alpha:.6g}`",
@@ -622,14 +645,11 @@ def _write_report(
         "",
         "## Finding",
         "",
-        "The current positive low-alpha Cm-alpha is dominated by the wing strip contribution.",
-        "The horizontal tail contributes negative Cm-alpha, so the mismatch is not hidden",
-        "inside the tail model. This should be reviewed before OCP or TVLQR claims resume.",
+        *finding_lines,
         "",
         "## Next Action",
         "",
-        "Review the wing pitching-moment reference, strip force application point, and",
-        "body-axis sign convention before using this model for longitudinal controller claims.",
+        *next_action_lines,
     ]
     path = output_root / "report.md"
     path.write_text("\n".join(lines) + "\n", encoding="ascii")

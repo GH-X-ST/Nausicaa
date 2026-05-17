@@ -12,20 +12,21 @@ It does not tune the model and it does not validate high-incidence agile reversa
 
 ## Status
 
-- Interpretation status: `pass_with_pitch_moment_review`
+- Interpretation status: `pass`
 - Total CL-alpha per rad: `4.88369`
-- Total Cm-alpha per rad: `2.42905`
-- Wing Cm-alpha per rad: `3.95447`
-- Horizontal-tail Cm-alpha per rad: `-1.5254`
+- Total Cm-alpha per rad: `0.199509`
+- Wing Cm-alpha per rad: `1.99804`
+- Horizontal-tail Cm-alpha per rad: `-1.7985`
 - x_CG/MAC from current mass properties: `0.763636`
 
 ## Finding
 
-The current positive low-alpha Cm-alpha is dominated by the wing strip contribution.
-The horizontal tail contributes negative Cm-alpha, so the mismatch is not hidden
-inside the tail model. This should be reviewed before OCP or TVLQR claims resume.
+The corrected strip force point leaves a small positive total Cm-alpha.
+The wing positive contribution and horizontal-tail negative contribution
+mostly offset each other, so the audit no longer shows the earlier
+erroneous wing-dominated pitching moment.
 
 ## Next Action
 
-Review the wing pitching-moment reference, strip force application point, and
-body-axis sign convention before using this model for longitudinal controller claims.
+Keep this result as low-alpha attached-flow sanity evidence only.
+High-incidence controller claims still need the separate validation path.

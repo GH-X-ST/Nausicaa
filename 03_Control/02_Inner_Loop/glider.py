@@ -146,7 +146,7 @@ def _horizontal_strip_rows(
                 {
                     "r_strip_b": np.array(
                         [
-                            surface.root_le_b[0] + 0.25 * surface.chord_m,
+                            surface.root_le_b[0] - 0.25 * surface.chord_m,
                             y_b,
                             z_b,
                         ]
@@ -188,7 +188,7 @@ def _vertical_strip_rows(
             {
                 "r_strip_b": np.array(
                     [
-                        surface.root_le_b[0] + 0.25 * surface.chord_m,
+                        surface.root_le_b[0] - 0.25 * surface.chord_m,
                         0.0,
                         surface.root_le_b[2] - s_m,
                     ]
