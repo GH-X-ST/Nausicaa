@@ -18,6 +18,7 @@ docs/MATLAB Coding.txt
 docs/Python Coding Instruction.txt
 docs/Python Plotting Guidance.txt
 docs/Skills.md
+docs/latency_test_workflow_pseudocode_appendix.tex
 
 # Legacy loose result folders are not valid housekeeping targets.
 03_Control/05_Results/logs/

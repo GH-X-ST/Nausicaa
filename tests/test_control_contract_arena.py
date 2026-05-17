@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from arena import ArenaConfig, safe_bounds, tracker_bounds
 from arena_contract import (
     TRACKER_LIMIT_BOUNDS,
     TRUE_SAFE_BOUNDS,
@@ -22,6 +23,19 @@ def test_true_safe_and_tracker_boxes_are_separate() -> None:
     assert TRUE_SAFE_BOUNDS.y_w_m[1] <= TRACKER_LIMIT_BOUNDS.y_w_m[1]
     assert TRUE_SAFE_BOUNDS.z_w_m[0] >= TRACKER_LIMIT_BOUNDS.z_w_m[0]
     assert TRUE_SAFE_BOUNDS.z_w_m[1] <= TRACKER_LIMIT_BOUNDS.z_w_m[1]
+
+
+def test_contract_bounds_match_arena_module() -> None:
+    config = ArenaConfig()
+    tracker = tracker_bounds(config)
+    true_safe = safe_bounds(config)
+
+    assert TRACKER_LIMIT_BOUNDS.x_w_m == tracker["x_w"]
+    assert TRACKER_LIMIT_BOUNDS.y_w_m == tracker["y_w"]
+    assert TRACKER_LIMIT_BOUNDS.z_w_m == tracker["z_w"]
+    assert TRUE_SAFE_BOUNDS.x_w_m == true_safe["x_w"]
+    assert TRUE_SAFE_BOUNDS.y_w_m == true_safe["y_w"]
+    assert TRUE_SAFE_BOUNDS.z_w_m == true_safe["z_w"]
 
 
 def test_position_validation_rejects_bad_inputs() -> None:

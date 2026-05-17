@@ -47,6 +47,14 @@ from state_contract import STATE_NAMES
 # =============================================================================
 DEFAULT_RESULTS_ROOT = Path(__file__).resolve().parents[1] / "05_Results"
 CONTRACT_CAMPAIGN = "00_contracts"
+VALIDATION_COMMANDS = (
+    "python 03_Control/04_Scenarios/run_control_contract_audit.py --overwrite",
+    "python -m pytest -q tests/test_control_contract_state_command.py "
+    "tests/test_control_contract_arena.py "
+    "tests/test_control_contract_primitive_metric.py "
+    "tests/test_control_contract_scenario_paths.py "
+    "tests/test_control_contract_audit_runner.py",
+)
 
 
 # =============================================================================
@@ -143,12 +151,16 @@ def _manifest() -> dict[str, Any]:
         "metric_schema_pass": True,
         "scenario_contract_pass": True,
         "result_path_contract_pass": True,
+        "normalised_to_radian_command_bridge_recorded": True,
+        "state_derivative_command_input": "delta_cmd_rad",
+        "raw_normalised_commands_enter_state_derivative": False,
         "high_incidence_validation_claim": False,
         "controller_implemented": False,
         "ocp_implemented": False,
         "tvlqr_implemented": False,
         "governor_implemented": False,
         "outer_loop_implemented": False,
+        "validation_commands": list(VALIDATION_COMMANDS),
     }
 
 
@@ -168,9 +180,20 @@ def _write_report(path: Path, manifest: dict[str, Any]) -> None:
         "",
         f"- State order: `{', '.join(STATE_NAMES)}`",
         f"- Command order: `{', '.join(COMMAND_NAMES)}`",
+        "- Model-facing command input to `state_derivative`: `delta_cmd_rad`",
         "- Positive aileron: positive roll moment, right wing down",
         "- Positive elevator: positive pitch moment, nose up",
         "- Positive rudder: positive yaw moment, nose right",
+        "",
+        "## Command Bridge",
+        "",
+        "- `u_norm` is the normalised aggregate command in `[-1, +1]`.",
+        "- `normalised_command_to_surface_rad` converts `u_norm` into calibrated",
+        "  physical aggregate surface targets `delta_cmd_rad` using `latency.py`.",
+        "- Future rollout and OCP code must pass `delta_cmd_rad` into",
+        "  `flight_dynamics.state_derivative`, never raw normalised commands.",
+        "- Surface states remain `delta_a`, `delta_e`, and `delta_r` in the",
+        "  canonical state vector.",
         "",
         "## Arena Bounds",
         "",
@@ -184,6 +207,9 @@ def _write_report(path: Path, manifest: dict[str, Any]) -> None:
         "## Metric And Scenario Contracts",
         "",
         "- Metric schema is fixed for later primitive, OCP, TVLQR, governor, and outer-loop evidence.",
+        "- `success` is final primitive-level success; finite-state, rollout,",
+        "  primitive, closed-loop replay, source-trajectory, and gain-construction",
+        "  success are recorded as separate Boolean evidence fields.",
         "- Scenario metadata records wind mode, latency case, timing, seed, and true-safety use.",
         "",
         "## Status Flags",
@@ -194,6 +220,10 @@ def _write_report(path: Path, manifest: dict[str, Any]) -> None:
         f"- TVLQR implemented: `{manifest['tvlqr_implemented']}`",
         f"- Governor implemented: `{manifest['governor_implemented']}`",
         f"- Outer loop implemented: `{manifest['outer_loop_implemented']}`",
+        "",
+        "## Validation Commands",
+        "",
+        *[f"- `{command}`" for command in VALIDATION_COMMANDS],
         "",
         "## Next Step",
         "",

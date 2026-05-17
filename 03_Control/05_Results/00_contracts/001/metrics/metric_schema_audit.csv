@@ -7,6 +7,10 @@ scenario_name,True,False
 wind_mode,True,False
 latency_case,True,False
 success,True,False
+finite_state_success,True,False
+rollout_success,True,False
+primitive_success,True,False
+closed_loop_replay_success,True,False
 failure_label,True,False
 duration_s,True,False
 initial_speed_m_s,True,False
@@ -27,3 +31,6 @@ actual_heading_change_deg,False,True
 forward_travel_m,False,True
 turn_volume_proxy_m2,False,True
 exit_recoverable,False,True
+source_trajectory_success,False,True
+gain_construction_success,False,True
+saturation_time_s,False,True

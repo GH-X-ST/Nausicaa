@@ -94,6 +94,13 @@ def test_metric_row_contains_required_keys_and_accepts_agile_fields() -> None:
 
     assert set(REQUIRED_METRIC_COLUMNS) <= set(row)
     assert set(AGILE_METRIC_COLUMNS) <= set(row)
+    assert row["success"] is False
+    assert row["finite_state_success"] is False
+    assert row["rollout_success"] is False
+    assert row["primitive_success"] is False
+    assert row["closed_loop_replay_success"] is False
+    assert row["source_trajectory_success"] is False
+    assert row["gain_construction_success"] is False
     validate_metric_row(row)
 
 
@@ -111,6 +118,23 @@ def test_metric_validation_rejects_bad_failure_label_and_unknown_keys() -> None:
     row = empty_metric_row(include_agile=True)
     with pytest.raises(ValueError, match="unknown"):
         validate_metric_row(row, allow_agile=False)
+
+
+def test_metric_validation_rejects_non_boolean_success_flags() -> None:
+    row = empty_metric_row()
+    row["success"] = 1
+    with pytest.raises(ValueError, match="success"):
+        validate_metric_row(row)
+
+    row = empty_metric_row()
+    row["finite_state_success"] = 1
+    with pytest.raises(ValueError, match="finite_state_success"):
+        validate_metric_row(row)
+
+    row = empty_metric_row(include_agile=True)
+    row["source_trajectory_success"] = 1
+    with pytest.raises(ValueError, match="source_trajectory_success"):
+        validate_metric_row(row)
 
 
 def test_metric_schema_dataframe_contains_all_columns() -> None:

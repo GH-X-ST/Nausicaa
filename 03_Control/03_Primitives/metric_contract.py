@@ -50,7 +50,13 @@ REQUIRED_METRIC_COLUMNS = (
     "scenario_name",
     "wind_mode",
     "latency_case",
+    # success remains the final primitive-level success flag. The separate
+    # flags below preserve intermediate evidence without overloading it.
     "success",
+    "finite_state_success",
+    "rollout_success",
+    "primitive_success",
+    "closed_loop_replay_success",
     "failure_label",
     "duration_s",
     "initial_speed_m_s",
@@ -73,6 +79,21 @@ AGILE_METRIC_COLUMNS = (
     "forward_travel_m",
     "turn_volume_proxy_m2",
     "exit_recoverable",
+    "source_trajectory_success",
+    "gain_construction_success",
+    "saturation_time_s",
+)
+REQUIRED_BOOLEAN_METRIC_COLUMNS = (
+    "success",
+    "finite_state_success",
+    "rollout_success",
+    "primitive_success",
+    "closed_loop_replay_success",
+)
+AGILE_BOOLEAN_METRIC_COLUMNS = (
+    "exit_recoverable",
+    "source_trajectory_success",
+    "gain_construction_success",
 )
 
 
@@ -91,6 +112,10 @@ def empty_metric_row(include_agile: bool = False) -> dict[str, object]:
         "wind_mode": "",
         "latency_case": "",
         "success": False,
+        "finite_state_success": False,
+        "rollout_success": False,
+        "primitive_success": False,
+        "closed_loop_replay_success": False,
         "failure_label": "not_run",
         "duration_s": np.nan,
         "initial_speed_m_s": np.nan,
@@ -115,6 +140,9 @@ def empty_metric_row(include_agile: bool = False) -> dict[str, object]:
                 "forward_travel_m": np.nan,
                 "turn_volume_proxy_m2": np.nan,
                 "exit_recoverable": False,
+                "source_trajectory_success": False,
+                "gain_construction_success": False,
+                "saturation_time_s": np.nan,
             }
         )
     return row
@@ -136,8 +164,12 @@ def validate_metric_row(row: Mapping[str, object], allow_agile: bool = True) -> 
         raise ValueError(f"metric row contains unknown keys: {sorted(extra)}.")
     if row["failure_label"] not in FAILURE_LABELS:
         raise ValueError(f"unknown failure_label: {row['failure_label']}.")
-    if not isinstance(row["success"], bool):
-        raise ValueError("metric row success must be a bool.")
+    for name in REQUIRED_BOOLEAN_METRIC_COLUMNS:
+        if not isinstance(row[name], bool):
+            raise ValueError(f"metric row {name} must be a bool.")
+    for name in AGILE_BOOLEAN_METRIC_COLUMNS:
+        if name in row and not isinstance(row[name], bool):
+            raise ValueError(f"metric row {name} must be a bool.")
 
 
 # =============================================================================
