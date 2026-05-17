@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import pandas as pd
 
 from logging_contract import write_rollout_outputs
 from rollout import (
@@ -82,9 +83,11 @@ def test_smoke_outputs_manifest_remains_audit_only(tmp_path) -> None:
     )
 
     manifest = json.loads(outputs["manifest_json"].read_text(encoding="ascii"))
+    metrics = pd.read_csv(outputs["metrics_csv"])
     assert outputs["trajectory_csv"].exists()
     assert outputs["commands_csv"].exists()
     assert outputs["metrics_csv"].exists()
+    assert metrics.loc[0, "run_id"] == "s001"
     assert manifest["rollout_implemented"] is True
     assert manifest["controller_implemented"] is False
     assert manifest["primitive_implemented"] is False

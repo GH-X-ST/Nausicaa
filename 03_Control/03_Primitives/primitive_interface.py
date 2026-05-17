@@ -688,7 +688,9 @@ def write_primitive_interface_outputs(
             output_paths,
             ("trajectory_csv", "commands_csv"),
         )
-    metric_dataframe(result.metrics).to_csv(output_paths["metrics_csv"], index=False)
+    metric_row = dict(result.metrics)
+    metric_row["run_id"] = suffix
+    metric_dataframe(metric_row).to_csv(output_paths["metrics_csv"], index=False)
     written_paths = {
         key: path for key, path in output_paths.items() if path.exists()
     }

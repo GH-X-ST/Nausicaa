@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from logging_contract import (
@@ -95,6 +97,9 @@ def test_write_rollout_outputs_creates_expected_files(tmp_path) -> None:
     for key in ("trajectory_csv", "commands_csv", "metrics_csv", "manifest_json", "report_md"):
         assert outputs[key].exists()
     manifest = json.loads(outputs["manifest_json"].read_text(encoding="ascii"))
+    metrics = pd.read_csv(outputs["metrics_csv"])
     assert manifest["rollout_implemented"] is True
     assert manifest["primitive_implemented"] is False
     assert manifest["command_bridge"] == "normalised_command_to_surface_rad"
+    assert not any(Path(value).is_absolute() for value in manifest["output_files"].values())
+    assert metrics.loc[0, "run_id"] == "s001"

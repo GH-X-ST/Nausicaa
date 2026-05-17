@@ -140,6 +140,7 @@ def test_smoke_csvs_are_nonempty_and_metric_row_has_contract_fields(tmp_path) ->
     assert str(row["success"]) == "False"
     assert row["failure_label"] == "not_run"
     assert row["notes"] == "primitive_interface_smoke_no_controller"
+    assert row["run_id"] == "s001"
 
 
 def test_entry_failure_skips_rollout_and_does_not_write_fake_logs(tmp_path) -> None:

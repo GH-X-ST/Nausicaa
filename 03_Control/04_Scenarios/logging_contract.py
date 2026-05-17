@@ -14,6 +14,8 @@ from result_paths import make_result_tree
 from rollout import RolloutResult
 from state_contract import STATE_NAMES, STATE_SIZE
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 # =============================================================================
 # SECTION MAP
@@ -88,6 +90,13 @@ def metric_dataframe(metrics: Mapping[str, object]) -> pd.DataFrame:
 # =============================================================================
 # 2) Manifest and Report Writers
 # =============================================================================
+def _repo_relative(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return path.name
+
+
 def _manifest(result: RolloutResult, run_id: int, output_files: Mapping[str, Path]) -> dict[str, object]:
     return {
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -106,7 +115,7 @@ def _manifest(result: RolloutResult, run_id: int, output_files: Mapping[str, Pat
         "command_bridge": "normalised_command_to_surface_rad",
         "state_derivative_command_input": "delta_cmd_rad",
         "raw_normalised_commands_enter_state_derivative": False,
-        "output_files": {name: str(path) for name, path in output_files.items()},
+        "output_files": {name: _repo_relative(path) for name, path in output_files.items()},
     }
 
 
@@ -173,7 +182,9 @@ def write_rollout_outputs(
         result.u_norm_applied,
         result.delta_cmd_rad,
     ).to_csv(output_paths["commands_csv"], index=False)
-    metric_dataframe(result.metrics).to_csv(output_paths["metrics_csv"], index=False)
+    metric_row = dict(result.metrics)
+    metric_row["run_id"] = suffix
+    metric_dataframe(metric_row).to_csv(output_paths["metrics_csv"], index=False)
     manifest = _manifest(result, run_id, output_paths)
     output_paths["manifest_json"].write_text(
         json.dumps(manifest, indent=2),

@@ -1,0 +1,11 @@
+name,value,limit,pass_check,required,units,reason
+terminal_speed_min,6.500000000026716,5.0,True,True,m/s,terminal_speed_above_minimum
+terminal_speed_max,6.500000000026716,8.0,True,True,m/s,terminal_speed_below_maximum
+height_loss,0.29174554345663384,0.4,True,True,m,height_loss_within_w0_glide_bound
+alpha_boundary,4.166892635583639,15.0,True,True,deg,alpha_within_low_incidence_glide_bound
+beta_boundary,9.965660702112121e-17,10.0,True,True,deg,beta_within_low_sideslip_glide_bound
+bank_boundary,2.6537960250885773e-16,15.0,True,True,deg,bank_within_w0_glide_bound
+pitch_boundary,0.9833597317434185,20.0,True,True,deg,pitch_within_w0_glide_bound
+rate_boundary,5.601079859443244e-11,1.5,True,True,rad/s,body_rate_norm_within_w0_glide_bound
+saturation_fraction,0.0,0.1,True,True,-,requested_commands_do_not_excessively_clip
+terminal_recoverable_proxy,True,true,True,True,-,terminal_state_plausible_for_later_recovery_or_glide_entry

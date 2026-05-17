@@ -1,0 +1,12 @@
+variable,value,lower,upper,pass_check,units,reason
+alpha_rad,0.07272599606803873,-0.15,0.25,True,rad,inside_bounds
+beta_rad,0.0,-0.15,0.15,True,rad,inside_bounds
+p,0.0,-0.8,0.8,True,rad/s,inside_bounds
+phi,0.0,-0.25,0.25,True,rad,inside_bounds
+q,0.0,-0.8,0.8,True,rad/s,inside_bounds
+r,0.0,-0.8,0.8,True,rad/s,inside_bounds
+speed_m_s,6.500000000000001,5.5,7.5,True,m/s,inside_bounds
+theta,-0.01716286502821539,-0.25,0.25,True,rad,inside_bounds
+x_w,2.0,1.4,5.5,True,m,inside_bounds
+y_w,2.2,0.3,4.1,True,m,inside_bounds
+z_w,1.6,0.8,2.6,True,m,inside_bounds
