@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_default_latency_config_records_real_flight_servo_cap() -> None:
@@ -37,4 +37,3 @@ def test_servo_limit_clip_contract() -> None:
     clipped = np.minimum(np.maximum(surface_norm, -servo_limit), servo_limit)
 
     np.testing.assert_allclose(clipped, [0.70, -0.70, 0.70, -0.70])
-

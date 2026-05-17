@@ -1,0 +1,25 @@
+{
+  "created_at": "2026-05-17T17:42:42",
+  "run_id": 1,
+  "success": false,
+  "failure_label": "not_run",
+  "notes": "rollout_smoke_no_primitive",
+  "rollout_implemented": true,
+  "controller_implemented": false,
+  "primitive_implemented": false,
+  "ocp_implemented": false,
+  "tvlqr_implemented": false,
+  "governor_implemented": false,
+  "outer_loop_implemented": false,
+  "high_incidence_validation_claim": false,
+  "command_bridge": "normalised_command_to_surface_rad",
+  "state_derivative_command_input": "delta_cmd_rad",
+  "raw_normalised_commands_enter_state_derivative": false,
+  "output_files": {
+    "trajectory_csv": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\01_rollout_smoke\\001\\metrics\\trajectory_s001.csv",
+    "commands_csv": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\01_rollout_smoke\\001\\metrics\\commands_s001.csv",
+    "metrics_csv": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\01_rollout_smoke\\001\\metrics\\metrics_s001.csv",
+    "manifest_json": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\01_rollout_smoke\\001\\manifests\\rollout_smoke_manifest_s001.json",
+    "report_md": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\01_rollout_smoke\\001\\reports\\rollout_smoke_report_s001.md"
+  }
+}

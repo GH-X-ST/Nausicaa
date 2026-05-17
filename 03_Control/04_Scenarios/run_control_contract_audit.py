@@ -49,11 +49,11 @@ DEFAULT_RESULTS_ROOT = Path(__file__).resolve().parents[1] / "05_Results"
 CONTRACT_CAMPAIGN = "00_contracts"
 VALIDATION_COMMANDS = (
     "python 03_Control/04_Scenarios/run_control_contract_audit.py --overwrite",
-    "python -m pytest -q tests/test_control_contract_state_command.py "
-    "tests/test_control_contract_arena.py "
-    "tests/test_control_contract_primitive_metric.py "
-    "tests/test_control_contract_scenario_paths.py "
-    "tests/test_control_contract_audit_runner.py",
+    "python -m pytest -q 03_Control/tests/test_control_contract_state_command.py "
+    "03_Control/tests/test_control_contract_arena.py "
+    "03_Control/tests/test_control_contract_primitive_metric.py "
+    "03_Control/tests/test_control_contract_scenario_paths.py "
+    "03_Control/tests/test_control_contract_audit_runner.py",
 )
 
 

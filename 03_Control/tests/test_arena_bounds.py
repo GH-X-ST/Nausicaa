@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 for rel in (
     "03_Control/02_Inner_Loop",
     "03_Control/04_Scenarios",

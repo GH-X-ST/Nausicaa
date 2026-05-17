@@ -57,11 +57,11 @@ def test_audit_manifest_contains_required_flags(tmp_path) -> None:
     assert manifest["state_derivative_command_input"] == "delta_cmd_rad"
     assert manifest["validation_commands"] == [
         "python 03_Control/04_Scenarios/run_control_contract_audit.py --overwrite",
-        "python -m pytest -q tests/test_control_contract_state_command.py "
-        "tests/test_control_contract_arena.py "
-        "tests/test_control_contract_primitive_metric.py "
-        "tests/test_control_contract_scenario_paths.py "
-        "tests/test_control_contract_audit_runner.py",
+        "python -m pytest -q 03_Control/tests/test_control_contract_state_command.py "
+        "03_Control/tests/test_control_contract_arena.py "
+        "03_Control/tests/test_control_contract_primitive_metric.py "
+        "03_Control/tests/test_control_contract_scenario_paths.py "
+        "03_Control/tests/test_control_contract_audit_runner.py",
     ]
 
 
@@ -75,9 +75,7 @@ def test_audit_report_states_contract_only(tmp_path) -> None:
     assert "delta_cmd_rad" in report
     assert "never raw normalised commands" in report
     assert "High-incidence validation claim: `False`" in report
-    assert "python 03_Control/04_Scenarios/run_control_contract_audit.py --overwrite" in (
-        report
-    )
+    assert "python 03_Control/04_Scenarios/run_control_contract_audit.py --overwrite" in report
 
 
 def test_audit_csv_records_command_bridge(tmp_path) -> None:

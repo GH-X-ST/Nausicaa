@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-05-17T16:23:46",
+  "created_at": "2026-05-17T18:07:42",
   "state_order_pass": true,
   "command_order_pass": true,
   "control_sign_convention_recorded": true,
@@ -20,6 +20,6 @@
   "outer_loop_implemented": false,
   "validation_commands": [
     "python 03_Control/04_Scenarios/run_control_contract_audit.py --overwrite",
-    "python -m pytest -q tests/test_control_contract_state_command.py tests/test_control_contract_arena.py tests/test_control_contract_primitive_metric.py tests/test_control_contract_scenario_paths.py tests/test_control_contract_audit_runner.py"
+    "python -m pytest -q 03_Control/tests/test_control_contract_state_command.py 03_Control/tests/test_control_contract_arena.py 03_Control/tests/test_control_contract_primitive_metric.py 03_Control/tests/test_control_contract_scenario_paths.py 03_Control/tests/test_control_contract_audit_runner.py"
   ]
 }
