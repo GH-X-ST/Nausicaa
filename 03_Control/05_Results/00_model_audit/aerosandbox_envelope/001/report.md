@@ -17,6 +17,10 @@ High-incidence validation must later use OCP replay and real Vicon flight logs.
 - AeroSandbox status: `available`
 - Local samples: `1155`
 - AeroSandbox samples: `1155`
+- CL-alpha status: `pass`
+- Control-sign status: `pass`
+- Cm-alpha status: `needs_review`
+- Overall low-alpha status: `pass_with_pitch_moment_review`
 
 ## Main Local Trends
 

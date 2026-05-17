@@ -1,0 +1,47 @@
+{
+  "created_at": "2026-05-17T06:26:24",
+  "comparison_scope": "low_alpha_attached_flow_sanity_only",
+  "high_incidence_validation_claim": "false",
+  "audit_scope": "low_alpha_longitudinal_moment_strip_breakdown_only",
+  "aerosandbox_imported": false,
+  "grid_rows": 165,
+  "alpha_deg": [
+    -8.0,
+    -6.0,
+    -4.0,
+    -2.0,
+    0.0,
+    2.0,
+    4.0,
+    6.0,
+    8.0,
+    10.0,
+    12.0
+  ],
+  "speed_m_s": [
+    4.5,
+    5.5,
+    6.5,
+    7.5,
+    8.5
+  ],
+  "elevator_deg": [
+    -10.0,
+    0.0,
+    10.0
+  ],
+  "interpretation_status": "pass_with_pitch_moment_review",
+  "total_cm_alpha_per_rad": 2.429046774569716,
+  "wing_cm_alpha_per_rad": 3.9544685422279935,
+  "horizontal_tail_cm_alpha_per_rad": -1.5253959794848058,
+  "output_files": {
+    "surface_force_moment_breakdown": "03_Control\\05_Results\\00_model_audit\\longitudinal_moment\\001\\surface_force_moment_breakdown.csv",
+    "surface_slope_summary": "03_Control\\05_Results\\00_model_audit\\longitudinal_moment\\001\\surface_slope_summary.csv",
+    "geometry_reference": "03_Control\\05_Results\\00_model_audit\\longitudinal_moment\\001\\geometry_reference.csv",
+    "aerosandbox_geometry_reference": "03_Control\\05_Results\\00_model_audit\\longitudinal_moment\\001\\aerosandbox_geometry_reference.csv",
+    "static_margin_proxy": "03_Control\\05_Results\\00_model_audit\\longitudinal_moment\\001\\static_margin_proxy.csv",
+    "cm_alpha_surface_breakdown": "03_Control\\05_Results\\00_model_audit\\longitudinal_moment\\001\\figures\\cm_alpha_surface_breakdown.png",
+    "cl_alpha_surface_breakdown": "03_Control\\05_Results\\00_model_audit\\longitudinal_moment\\001\\figures\\cl_alpha_surface_breakdown.png",
+    "geometry_side_view": "03_Control\\05_Results\\00_model_audit\\longitudinal_moment\\001\\figures\\geometry_side_view.png"
+  }
+}

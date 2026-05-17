@@ -1,0 +1,10 @@
+quantity,value,unit,status
+mass,0.13356,kg,current_mass_property_input
+x_cg_from_wing_le,0.126,m,current_mass_property_input
+x_cg_over_mac,0.7636363636363636,-,current_mass_property_input
+wing_quarter_chord_from_wing_le,0.04125000000000001,m,current_geometry_input
+cg_minus_wing_quarter_chord,0.08474999999999999,m,positive_aft_of_wing_quarter_chord
+cg_minus_wing_quarter_chord_over_mac,0.5136363636363636,-,positive_aft_of_wing_quarter_chord
+horizontal_tail_quarter_chord_from_wing_le,0.426,m,current_geometry_input
+horizontal_tail_arm_from_cg,0.3,m,positive_aft_of_cg
+horizontal_tail_volume_proxy,0.47775229688604265,-,geometry_proxy_only

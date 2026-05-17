@@ -62,6 +62,27 @@ def test_estimate_slope_returns_linear_dataset_slope() -> None:
     assert math.isclose(checker.estimate_slope(data, "x", "y"), 2.0)
 
 
+def test_status_labels_mark_pitch_moment_review_separately() -> None:
+    labels = checker._status_labels(
+        {
+            "local_cl_alpha_per_rad": 4.9,
+            "aerosandbox_cl_alpha_per_rad": 4.8,
+            "cl_alpha_percent_difference": -2.0,
+            "local_cm_alpha_per_rad": 2.4,
+            "aerosandbox_cm_alpha_per_rad": 0.17,
+            "cm_alpha_percent_difference": -93.0,
+            "local_elevator_sign_ok": True,
+            "local_aileron_sign_ok": True,
+            "local_rudder_sign_ok": True,
+        }
+    )
+
+    assert labels["cl_alpha_status"] == "pass"
+    assert labels["control_sign_status"] == "pass"
+    assert labels["cm_alpha_status"] == "needs_review"
+    assert labels["overall_low_alpha_status"] == "pass_with_pitch_moment_review"
+
+
 def test_workflow_writes_required_outputs_without_aerosandbox(
     tmp_path,
     monkeypatch,
@@ -97,6 +118,14 @@ def test_workflow_writes_required_outputs_without_aerosandbox(
     for rel_path in required:
         assert (tmp_path / rel_path).exists()
     assert result["aerosandbox_available"] is False
+    summary = pd.read_csv(tmp_path / "comparison_summary.csv")
+    for column in (
+        "cl_alpha_status",
+        "control_sign_status",
+        "cm_alpha_status",
+        "overall_low_alpha_status",
+    ):
+        assert column in summary.columns
     assert "not proof of high-incidence" in (tmp_path / "report.md").read_text(
         encoding="ascii"
     )

@@ -1,0 +1,4 @@
+surface_name,surface_code,root_le_x_asb_m,root_le_y_asb_m,root_le_z_asb_m,quarter_chord_x_asb_m,quarter_chord_y_asb_m,quarter_chord_z_asb_m,conversion
+wing,0,-0.126,0.0,0.0025598764813677365,-0.08474999999999999,0.0,0.0025598764813677365,"x_asb=-x_b, y_asb=y_b, z_asb=-z_b"
+horizontal_tail,1,0.27725,0.0,-0.014940123518632263,0.3,0.0,-0.014940123518632263,"x_asb=-x_b, y_asb=y_b, z_asb=-z_b"
+vertical_tail,2,0.29225,0.0,-0.003940123518632263,0.307,0.0,-0.003940123518632263,"x_asb=-x_b, y_asb=y_b, z_asb=-z_b"

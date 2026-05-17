@@ -594,6 +594,76 @@ def _percent_difference(local_value: float | None, asb_value: float | None) -> f
     return float(100.0 * (asb_value - local_value) / abs(local_value))
 
 
+def _finite_number(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _status_labels(summary: dict[str, object]) -> dict[str, str]:
+    local_cl_alpha = _finite_number(summary.get("local_cl_alpha_per_rad"))
+    aerosandbox_cl_alpha = _finite_number(summary.get("aerosandbox_cl_alpha_per_rad"))
+    cl_alpha_difference = _finite_number(summary.get("cl_alpha_percent_difference"))
+    cl_alpha_status = (
+        "pass"
+        if (
+            local_cl_alpha is not None
+            and aerosandbox_cl_alpha is not None
+            and local_cl_alpha > 0.0
+            and aerosandbox_cl_alpha > 0.0
+            and cl_alpha_difference is not None
+            and abs(cl_alpha_difference) <= 20.0
+        )
+        else "needs_review"
+    )
+
+    control_sign_ok = all(
+        bool(summary.get(key))
+        for key in (
+            "local_elevator_sign_ok",
+            "local_aileron_sign_ok",
+            "local_rudder_sign_ok",
+        )
+    )
+    control_sign_status = "pass" if control_sign_ok else "needs_review"
+
+    local_cm_alpha = _finite_number(summary.get("local_cm_alpha_per_rad"))
+    aerosandbox_cm_alpha = _finite_number(summary.get("aerosandbox_cm_alpha_per_rad"))
+    cm_alpha_difference = _finite_number(summary.get("cm_alpha_percent_difference"))
+    cm_alpha_status = (
+        "pass"
+        if (
+            local_cm_alpha is not None
+            and aerosandbox_cm_alpha is not None
+            and cm_alpha_difference is not None
+            and abs(cm_alpha_difference) <= 50.0
+        )
+        else "needs_review"
+    )
+
+    if (
+        cl_alpha_status == "pass"
+        and control_sign_status == "pass"
+        and cm_alpha_status == "pass"
+    ):
+        overall_status = "pass"
+    elif cl_alpha_status == "pass" and control_sign_status == "pass":
+        overall_status = "pass_with_pitch_moment_review"
+    else:
+        overall_status = "needs_review"
+
+    return {
+        "cl_alpha_status": cl_alpha_status,
+        "control_sign_status": control_sign_status,
+        "cm_alpha_status": cm_alpha_status,
+        "overall_low_alpha_status": overall_status,
+    }
+
+
 def _summary_for_dataframe(
     df: pd.DataFrame,
     prefix: str,
@@ -745,6 +815,7 @@ def compare_envelope(
         "comparison_scope": COMPARISON_SCOPE,
         "high_incidence_validation_claim": HIGH_INCIDENCE_VALIDATION_CLAIM,
     }
+    summary.update(_status_labels(summary))
     return comparison, summary
 
 
@@ -944,6 +1015,10 @@ def _write_report(
         f"- AeroSandbox status: `{aerosandbox_status}`",
         f"- Local samples: `{summary['sample_count_local']}`",
         f"- AeroSandbox samples: `{summary['sample_count_aerosandbox']}`",
+        f"- CL-alpha status: `{summary['cl_alpha_status']}`",
+        f"- Control-sign status: `{summary['control_sign_status']}`",
+        f"- Cm-alpha status: `{summary['cm_alpha_status']}`",
+        f"- Overall low-alpha status: `{summary['overall_low_alpha_status']}`",
         "",
         "## Main Local Trends",
         "",

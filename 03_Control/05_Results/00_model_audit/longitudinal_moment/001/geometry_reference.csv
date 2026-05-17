@@ -1,0 +1,4 @@
+surface_name,surface_code,span_m,chord_m,area_m2,dihedral_deg,vertical_surface,root_le_x_b_m,root_le_y_b_m,root_le_z_b_m,quarter_chord_x_b_m,quarter_chord_y_b_m,quarter_chord_z_b_m,trailing_edge_x_b_m,trailing_edge_z_b_m,root_le_x_build_m,root_le_z_build_m,quarter_chord_x_build_m,quarter_chord_z_build_m,trailing_edge_x_build_m,trailing_edge_z_build_m
+wing,0,0.764,0.165,0.12606,4.64,False,0.126,0.0,-0.0025598764813677365,0.08474999999999999,0.0,-0.0025598764813677365,-0.03900000000000001,-0.0025598764813677365,0.0,-0.0115,0.04125000000000001,-0.0115,0.165,-0.0115
+horizontal_tail,1,0.364,0.091,0.033124,0.0,False,-0.27725,0.0,0.014940123518632263,-0.3,0.0,0.014940123518632263,-0.36824999999999997,0.014940123518632263,0.40325,0.006,0.426,0.006,0.49424999999999997,0.006
+vertical_tail,2,0.119,0.059,0.0070209999999999995,0.0,True,-0.29225,0.0,0.003940123518632263,-0.307,0.0,0.003940123518632263,-0.35125,0.003940123518632263,0.41825,-0.005,0.433,-0.005,0.47725,-0.005

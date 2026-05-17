@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-05-17T05:28:07",
+  "created_at": "2026-05-17T06:26:44",
   "comparison_scope": "low_alpha_attached_flow_sanity_only",
   "high_incidence_validation_claim": "false",
   "aerosandbox_status": "available",
@@ -70,7 +70,11 @@
     "local_aileron_sign_ok": true,
     "local_rudder_sign_ok": true,
     "comparison_scope": "low_alpha_attached_flow_sanity_only",
-    "high_incidence_validation_claim": "false"
+    "high_incidence_validation_claim": "false",
+    "cl_alpha_status": "pass",
+    "control_sign_status": "pass",
+    "cm_alpha_status": "needs_review",
+    "overall_low_alpha_status": "pass_with_pitch_moment_review"
   },
   "output_files": {
     "local_envelope_coefficients": "03_Control\\05_Results\\00_model_audit\\aerosandbox_envelope\\001\\local_envelope_coefficients.csv",
