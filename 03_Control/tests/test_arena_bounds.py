@@ -37,7 +37,7 @@ def test_true_safety_bounds_are_authoritative() -> None:
     assert safe_bounds(ArenaConfig()) == {
         "x_w": (1.2, 6.6),
         "y_w": (0.0, 4.4),
-        "z_w": (0.0, 3.0),
+        "z_w": (0.4, 3.5),
     }
 
 
@@ -83,8 +83,8 @@ def test_true_safety_margin_signs() -> None:
 
     assert margins["inside_safe_volume"] is True
     assert margins["min_wall_distance_m"] == pytest.approx(0.0)
-    assert margins["floor_margin_m"] == pytest.approx(1.5)
-    assert margins["ceiling_margin_m"] == pytest.approx(1.5)
+    assert margins["floor_margin_m"] == pytest.approx(1.1)
+    assert margins["ceiling_margin_m"] == pytest.approx(2.0)
 
 
 def test_obsolete_centred_tracker_bounds_are_not_returned() -> None:

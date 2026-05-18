@@ -36,7 +36,7 @@ TRUE_SAFE_BOUNDS = BoxBounds(
     name="true_safe",
     x_w_m=(1.2, 6.6),
     y_w_m=(0.0, 4.4),
-    z_w_m=(0.0, 3.0),
+    z_w_m=(0.4, 3.5),
 )
 
 

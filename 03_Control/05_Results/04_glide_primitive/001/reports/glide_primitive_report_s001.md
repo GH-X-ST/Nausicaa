@@ -32,7 +32,7 @@ Vicon, hardware, real-flight, or high-incidence validation evidence.
 - Terminal speed: `6.500000000026716` m/s
 - Height change: `-0.29174554345663384` m
 - Minimum wall margin: `0.8` m
-- Minimum floor margin: `1.3082544565433663` m
+- Minimum floor margin: `0.9082544565433662` m
 - Maximum alpha: `4.166892635583639` deg
 - Maximum beta: `9.965660702112121e-17` deg
 - Maximum rate norm: `5.601079859443244e-11` rad/s

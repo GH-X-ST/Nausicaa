@@ -37,7 +37,7 @@ class ArenaConfig:
     ] = (
         (1.2, 6.6),
         (0.0, 4.4),
-        (0.0, 3.0),
+        (0.4, 3.5),
     )
     use_safe_volume: bool = True
 
