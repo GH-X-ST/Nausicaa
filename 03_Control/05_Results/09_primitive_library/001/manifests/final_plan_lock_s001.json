@@ -1,0 +1,90 @@
+{
+  "plan_name": "Final Plan Lock and Primitive Evidence Library Rebuild",
+  "plan_version_label": "s001",
+  "central_research_question": "widen primitive envelopes before library growth",
+  "core_research_question": "How far can each primitive's verified operating envelope be widened under measured updraft uncertainty before the accepted primitive library itself must grow?",
+  "target_standard": "top robotics journal evidence discipline",
+  "deadline": "2026-06-15",
+  "writing_lock": "protected final writing period retained",
+  "state_order": "x_w,y_w,z_w,phi,theta,psi,u,v,w,p,q,r,delta_a,delta_e,delta_r",
+  "command_order": "delta_a_cmd,delta_e_cmd,delta_r_cmd",
+  "command_bridge": "u_norm_requested -> u_norm_applied -> delta_cmd_rad -> rk4_step/state_derivative",
+  "world_frame": "public z-up world frame",
+  "body_frame": "x forward, y starboard, z down",
+  "true_safe_bounds_m": {
+    "x_w": [
+      1.2,
+      6.6
+    ],
+    "y_w": [
+      0.0,
+      4.4
+    ],
+    "z_w": [
+      0.4,
+      3.5
+    ]
+  },
+  "z_outlet_m": 0.33,
+  "z_fan_convention": "z_fan = z_w - 0.330",
+  "wind_fidelity_ladder": [
+    "W0",
+    "W1",
+    "W2",
+    "W3"
+  ],
+  "updraft_configurations": [
+    "none",
+    "U1_single_fan",
+    "U4_four_fan"
+  ],
+  "primitive_seed_set": [
+    "glide",
+    "recovery",
+    "mild_bank",
+    "canyon_steep_bank",
+    "wingover_lite",
+    "bank_yaw_energy_retaining"
+  ],
+  "candidate_classes": [
+    "w0_standalone_commandable",
+    "w0_updraft_pending_target_candidate",
+    "updraft_assisted_commandable",
+    "boundary_evidence"
+  ],
+  "target_ladder_deg": [
+    15.0,
+    30.0,
+    45.0,
+    60.0,
+    90.0,
+    120.0,
+    150.0,
+    180.0
+  ],
+  "evidence_library_first": true,
+  "cluster_after_evidence": true,
+  "library_growth_only_after_envelope_failure": true,
+  "dry_air_agile_turn_recovery_loop_closed": true,
+  "dry_air_agile_turn_recovery_loops_closed": true,
+  "forbidden_method_pivots": [
+    "broad_NMPC",
+    "direct_surface_RL",
+    "generic_waypoint_following"
+  ],
+  "no_overclaiming_flags": {
+    "primitive_library_schema_implemented": true,
+    "primitive_library_runner_implemented": true,
+    "w0_w1_w2_screen_implemented": true,
+    "w3_stress_implemented": false,
+    "clustering_implemented": false,
+    "governor_implemented": false,
+    "outer_loop_implemented": false,
+    "real_flight_validation_claim": false,
+    "tvlqr_implemented": false,
+    "ocp_implemented": false,
+    "high_incidence_validation_claim": false,
+    "old_perch_like_branch_active": false,
+    "archived_boundary_reference_preserved": true
+  }
+}
