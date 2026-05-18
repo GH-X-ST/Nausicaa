@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,10 +15,7 @@ for path in (INNER_LOOP_DIR, SCENARIOS_DIR):
         sys.path.insert(0, str(path))
 
 from arena_contract import TRUE_SAFE_BOUNDS, inside_bounds, position_margin_m
-from command_contract import (
-    clip_normalised_command,
-    normalised_command_to_surface_rad,
-)
+from command_contract import clip_normalised_command, normalised_command_to_surface_rad
 from flight_dynamics import adapt_glider
 from glide_primitive import build_glide_primitive_spec
 from glider import build_nausicaa_glider
@@ -31,37 +29,38 @@ from trim_solver import TrimTarget, solve_straight_trim
 # =============================================================================
 # SECTION MAP
 # =============================================================================
-# 1) Data contracts and thresholds
-# 2) Family profiles
-# 3) Replay and metrics
+# 1) Data contracts and target gates
+# 2) Family profiles and replay
+# 3) Candidate metrics and classification
 # 4) Ranking and comparison
 # =============================================================================
 
 
 # =============================================================================
-# 1) Data Contracts and Thresholds
+# 1) Data Contracts and Target Gates
 # =============================================================================
 AGILE_TURN_CAMPAIGN = "08_agile_turn_family_comparison"
+TARGET_LADDER_DEG = (15.0, 30.0, 45.0, 60.0, 90.0, 120.0, 150.0, 180.0)
+DEFAULT_TARGETS_DEG = (15.0, 30.0)
 FAMILY_NAMES = (
     "canyon_steep_bank",
     "wingover_lite",
     "bank_yaw_energy_retaining",
 )
-RETIRED_FAMILY_LABELS = (
-    "dive_perch_redirect_30",
-    "reduced_perch_redirect_30",
-    "early_unload_recovery_30",
-    "speed_collapse_pitch_redirect",
+ARCHIVED_BOUNDARY_REFERENCE = (
+    "03_Control/05_Results/07_"
+    + "aggressive"
+    + "_reversal"
+    + "_ocp/002"
 )
-G_M_S2 = 9.81
 
+G_M_S2 = 9.81
 STRICT_ALPHA_MAX_DEG = 45.0
 STRICT_BETA_MAX_DEG = 25.0
 STRICT_RATE_MAX_RAD_S = 4.5
 STRICT_SATURATION_MAX = 0.25
 STRICT_TERMINAL_SPEED_M_S = 5.0
 STRICT_MIN_SPEED_M_S = 4.0
-
 USEFUL_ALPHA_MAX_DEG = 60.0
 USEFUL_BETA_MAX_DEG = 30.0
 USEFUL_RATE_MAX_RAD_S = 5.0
@@ -69,16 +68,23 @@ USEFUL_SATURATION_MAX = 0.40
 USEFUL_TERMINAL_SPEED_M_S = 4.5
 USEFUL_MIN_SPEED_M_S = 3.8
 
-# Values are nearest fixed-step-compatible horizons to the requested
-# 0.50/0.65/0.80, 0.75/0.95/1.15, and 1.15/1.65 grids.
-DEFAULT_HORIZON_GRID_S = {
-    15.0: (0.50, 0.66, 0.80),
-    30.0: (0.76, 0.96, 1.16),
+TARGET_HORIZON_GRID_S = {
+    15.0: (0.36, 0.46, 0.60, 0.76, 0.90),
+    30.0: (0.46, 0.60, 0.80, 1.00, 1.20),
+    45.0: (0.60, 0.80, 1.06, 1.30, 1.56),
+    60.0: (0.76, 1.00, 1.26, 1.56, 1.86),
+    90.0: (1.00, 1.30, 1.70, 2.10, 2.50),
+    120.0: (1.20, 1.60, 2.00, 2.50, 3.00),
+    150.0: (1.40, 1.90, 2.40, 3.00, 3.60),
+    180.0: (1.60, 2.20, 2.80, 3.40, 4.00),
 }
-PLANNED_ESCALATION_HORIZON_GRID_S = {
-    45.0: (1.00, 1.20, 1.40),
-    60.0: (1.16, 1.40, 1.66),
-}
+
+CANDIDATE_CLASSES = (
+    "commandable_target_candidate",
+    "accurate_boundary_evidence",
+    "safe_partial_turn_evidence",
+    "unsafe_or_nonrecoverable_boundary",
+)
 
 
 @dataclass(frozen=True)
@@ -93,7 +99,8 @@ class AgileTurnFamilyConfig:
     latency_case: str = "none"
     actuator_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06)
     seed: int = 1
-    phase_search_scales: tuple[float, ...] = (0.70, 0.85, 1.00, 1.15)
+    amplitude_scales: tuple[float, ...] = (0.70, 0.85, 1.00, 1.15)
+    timing_scales: tuple[float, ...] = (0.90, 1.00, 1.10)
 
 
 @dataclass(frozen=True)
@@ -118,47 +125,71 @@ class AgileTurnFamilyComparisonResult:
     target_heading_deg: float
     family_results: tuple[AgileTurnCandidateResult, ...]
     selected_family: str
-    selected_candidate: AgileTurnCandidateResult
+    selected_candidate: AgileTurnCandidateResult | None
     ranking_rows: tuple[dict[str, object], ...]
     notes: str
 
 
 def family_inventory() -> tuple[str, ...]:
-    """Return the active reusable agile-turn families."""
+    """Return active speed-retaining agile-turn family labels."""
 
     return FAMILY_NAMES
 
 
-def target_horizon_s(target_heading_deg: float) -> float:
-    """Return the nominal target-specific horizon for family comparison."""
+def target_ladder_deg() -> tuple[float, ...]:
+    """Return the fixed precision target ladder in degrees."""
 
-    target = float(target_heading_deg)
-    if np.isclose(target, 15.0):
-        return 0.66
-    if np.isclose(target, 30.0):
-        return 0.96
-    if np.isclose(target, 45.0):
-        return 1.20
-    if np.isclose(target, 60.0):
-        return 1.40
-    raise ValueError("agile turn family comparison supports 15/30 deg by default and planned 45/60 deg escalation only.")
+    return TARGET_LADDER_DEG
 
 
 def horizon_grid_s(target_heading_deg: float) -> tuple[float, ...]:
-    """Return the horizon grid for a target without changing acceptance gates."""
+    """Return fixed-step-compatible horizons for a target."""
 
     target = float(target_heading_deg)
-    for key, values in DEFAULT_HORIZON_GRID_S.items():
+    for key, values in TARGET_HORIZON_GRID_S.items():
         if np.isclose(target, key):
             return values
-    for key, values in PLANNED_ESCALATION_HORIZON_GRID_S.items():
-        if np.isclose(target, key):
-            return values
-    raise ValueError("unsupported agile turn target horizon grid.")
+    raise ValueError("target must be one of the fixed precision ladder values.")
+
+
+def heading_band_deg(target_heading_deg: float) -> tuple[float, float]:
+    """Return terminal heading acceptance band in degrees."""
+
+    target = float(target_heading_deg)
+    tolerance = max(2.0, 0.10 * target)
+    return target - tolerance, target + tolerance
+
+
+def heading_accuracy_metrics(
+    x_ref: np.ndarray,
+    direction_sign: int,
+    target_heading_deg: float,
+) -> dict[str, float | bool]:
+    """Return terminal-band metrics using unwrapped signed yaw."""
+
+    state = np.asarray(x_ref, dtype=float)
+    yaw = np.unwrap(state[:, STATE_INDEX["psi"]])
+    heading_series = np.rad2deg(int(direction_sign) * (yaw - yaw[0]))
+    terminal_heading = float(heading_series[-1])
+    peak_heading = float(np.nanmax(heading_series))
+    target = float(target_heading_deg)
+    lower, upper = heading_band_deg(target)
+    error = terminal_heading - target
+    return {
+        "terminal_heading_change_deg": terminal_heading,
+        "peak_heading_change_deg": peak_heading,
+        "heading_error_deg": float(error),
+        "absolute_heading_error_deg": float(abs(error)),
+        "heading_band_lower_deg": float(lower),
+        "heading_band_upper_deg": float(upper),
+        "heading_band_pass": bool(lower <= terminal_heading <= upper),
+        "overshoot_deg": float(max(0.0, terminal_heading - upper)),
+        "undershoot_deg": float(max(0.0, lower - terminal_heading)),
+    }
 
 
 def acceptance_thresholds() -> dict[str, float]:
-    """Return scalar acceptance thresholds for manifest and report evidence."""
+    """Return scalar gates used in candidate classification."""
 
     return {
         "strict_terminal_speed_m_s": STRICT_TERMINAL_SPEED_M_S,
@@ -176,9 +207,6 @@ def acceptance_thresholds() -> dict[str, float]:
     }
 
 
-# =============================================================================
-# 2) Family Profiles
-# =============================================================================
 def _validate_config(config: AgileTurnFamilyConfig) -> None:
     if not np.isfinite(float(config.dt_s)) or float(config.dt_s) <= 0.0:
         raise ValueError("dt_s must be finite and positive.")
@@ -189,12 +217,14 @@ def _validate_config(config: AgileTurnFamilyConfig) -> None:
         raise ValueError("t_final_s must be an integer multiple of dt_s.")
     if int(config.direction_sign) not in (-1, 1):
         raise ValueError("direction_sign must be -1 or +1.")
+    if not any(np.isclose(float(config.target_heading_deg), value) for value in TARGET_LADDER_DEG):
+        raise ValueError("target_heading_deg must be in the fixed precision ladder.")
     if config.wind_mode != "none":
-        raise ValueError("this comparison pass is W0/no-wind only.")
+        raise ValueError("this evidence pass is W0/no-wind only.")
     if config.latency_case != "none":
-        raise ValueError("this comparison pass uses the nominal no-latency case only.")
-    if tuple(config.phase_search_scales) == ():
-        raise ValueError("phase_search_scales must not be empty.")
+        raise ValueError("this evidence pass uses the nominal no-latency case only.")
+    if tuple(config.amplitude_scales) == () or tuple(config.timing_scales) == ():
+        raise ValueError("amplitude_scales and timing_scales must not be empty.")
 
 
 def _time_grid(config: AgileTurnFamilyConfig) -> np.ndarray:
@@ -202,11 +232,14 @@ def _time_grid(config: AgileTurnFamilyConfig) -> np.ndarray:
     return np.arange(step_count + 1, dtype=float) * float(config.dt_s)
 
 
+# =============================================================================
+# 2) Family Profiles and Replay
+# =============================================================================
 def build_family_initial_state(
     config: AgileTurnFamilyConfig,
     aircraft: object | None = None,
 ) -> np.ndarray:
-    """Return safe trim-like W0 initial state in the canonical 15-state order."""
+    """Return a trim-based W0 initial state in canonical 15-state order."""
 
     _validate_config(config)
     aircraft_model = adapt_glider(build_nausicaa_glider()) if aircraft is None else aircraft
@@ -227,23 +260,6 @@ def build_family_initial_state(
     state[STATE_INDEX["y_w"]] = 2.20
     state[STATE_INDEX["z_w"]] = float(config.altitude_m)
     return state
-
-
-def _phase_edges(family_name: str, t_final_s: float, timing_scale: float = 1.0) -> tuple[float, ...]:
-    scale = float(np.clip(timing_scale, 0.85, 1.15))
-    base: dict[str, tuple[float, ...]] = {
-        "canyon_steep_bank": (0.14, 0.58, 0.76, 0.90),
-        "wingover_lite": (0.12, 0.28, 0.52, 0.74, 0.88),
-        "bank_yaw_energy_retaining": (0.12, 0.54, 0.70, 0.86),
-    }
-    if family_name not in base:
-        raise ValueError(f"unknown agile turn family: {family_name}.")
-    fractions = np.clip(np.asarray(base[family_name], dtype=float) * scale, 0.05, 0.95)
-    fractions = np.maximum.accumulate(fractions)
-    for index in range(1, fractions.size):
-        if fractions[index] <= fractions[index - 1]:
-            fractions[index] = min(0.97, fractions[index - 1] + 0.03)
-    return tuple(float(value * t_final_s) for value in fractions)
 
 
 def _phase_names(family_name: str) -> tuple[str, ...]:
@@ -276,22 +292,35 @@ def _phase_names(family_name: str) -> tuple[str, ...]:
     return names[family_name]
 
 
+def _phase_edges(
+    family_name: str,
+    t_final_s: float,
+    timing_scale: float = 1.0,
+) -> tuple[float, ...]:
+    scale = float(np.clip(timing_scale, 0.85, 1.15))
+    base = {
+        "canyon_steep_bank": (0.14, 0.58, 0.76, 0.90),
+        "wingover_lite": (0.12, 0.28, 0.52, 0.74, 0.88),
+        "bank_yaw_energy_retaining": (0.12, 0.54, 0.70, 0.86),
+    }
+    if family_name not in base:
+        raise ValueError(f"unknown agile turn family: {family_name}.")
+    fractions = np.clip(np.asarray(base[family_name], dtype=float) * scale, 0.05, 0.95)
+    fractions = np.maximum.accumulate(fractions)
+    for index in range(1, fractions.size):
+        if fractions[index] <= fractions[index - 1]:
+            fractions[index] = min(0.97, fractions[index - 1] + 0.03)
+    return tuple(float(value * t_final_s) for value in fractions)
+
+
 def phase_labels_for_family(
     family_name: str,
     time_s: np.ndarray,
     t_final_s: float,
 ) -> tuple[str, ...]:
-    """Return phase labels for the selected family."""
+    """Return nominal phase labels for human-facing logs."""
 
-    time = np.asarray(time_s, dtype=float).reshape(-1)
-    names = _phase_names(family_name)
-    edges = _phase_edges(family_name, float(t_final_s))
-    labels: list[str] = []
-    for value in time:
-        index = int(np.searchsorted(edges, float(value), side="right"))
-        index = min(index, len(names) - 1)
-        labels.append(names[index])
-    return tuple(labels)
+    return _phase_labels_for_family_scaled(family_name, time_s, t_final_s, 1.0)
 
 
 def _phase_labels_for_family_scaled(
@@ -306,8 +335,7 @@ def _phase_labels_for_family_scaled(
     labels: list[str] = []
     for value in time:
         index = int(np.searchsorted(edges, float(value), side="right"))
-        index = min(index, len(names) - 1)
-        labels.append(names[index])
+        labels.append(names[min(index, len(names) - 1)])
     return tuple(labels)
 
 
@@ -348,7 +376,7 @@ def family_command_profile(
     amplitude_scale: float = 1.0,
     timing_scale: float = 1.0,
 ) -> np.ndarray:
-    """Return bounded normalised command profile with shape (N, 3)."""
+    """Return requested normalised command profile with shape ``(N, 3)``."""
 
     _validate_config(config)
     time = np.asarray(time_s, dtype=float).reshape(-1)
@@ -358,17 +386,13 @@ def family_command_profile(
     command = np.zeros((time.size, 3), dtype=float)
     for index, value in enumerate(time):
         phase_index = int(np.searchsorted(edges, float(value), side="right"))
-        phase_index = min(phase_index, len(names) - 1)
-        aileron, elevator, rudder = amplitudes[names[phase_index]]
+        aileron, elevator, rudder = amplitudes[names[min(phase_index, len(names) - 1)]]
         command[index, 0] = int(config.direction_sign) * float(amplitude_scale) * aileron
         command[index, 1] = float(amplitude_scale) * elevator
         command[index, 2] = int(config.direction_sign) * float(amplitude_scale) * rudder
     return np.clip(command, -1.0, 1.0)
 
 
-# =============================================================================
-# 3) Replay and Metrics
-# =============================================================================
 def replay_family_candidate(
     x0: np.ndarray,
     u_norm_requested: np.ndarray,
@@ -376,7 +400,7 @@ def replay_family_candidate(
     config: AgileTurnFamilyConfig,
     aircraft: object,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Replay through rk4_step using delta_cmd_rad only."""
+    """Replay through ``rk4_step`` with physical radian commands only."""
 
     _validate_config(config)
     time = np.asarray(time_s, dtype=float).reshape(-1)
@@ -404,6 +428,9 @@ def replay_family_candidate(
     return x_log, u_applied, command_rad
 
 
+# =============================================================================
+# 3) Candidate Metrics and Classification
+# =============================================================================
 def _speed_alpha_beta(x_ref: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     velocity = np.asarray(x_ref, dtype=float)[:, 6:9]
     speed = np.linalg.norm(velocity, axis=1)
@@ -419,16 +446,9 @@ def _specific_energy_height_m(x_ref: np.ndarray) -> np.ndarray:
     return np.asarray(x_ref, dtype=float)[:, STATE_INDEX["z_w"]] + speed**2 / (2.0 * G_M_S2)
 
 
-def _heading_change_deg(x_ref: np.ndarray, direction_sign: int) -> np.ndarray:
-    yaw = np.unwrap(np.asarray(x_ref, dtype=float)[:, STATE_INDEX["psi"]])
-    return np.rad2deg(int(direction_sign) * (yaw - yaw[0]))
-
-
 def _margin_metrics(x_ref: np.ndarray) -> dict[str, float]:
-    finite_positions = [
-        position for position in np.asarray(x_ref, dtype=float)[:, 0:3]
-        if np.all(np.isfinite(position))
-    ]
+    positions = np.asarray(x_ref, dtype=float)[:, 0:3]
+    finite_positions = [position for position in positions if np.all(np.isfinite(position))]
     if not finite_positions:
         return {
             "min_true_wall_margin_m": float("nan"),
@@ -479,20 +499,41 @@ def _recovery_extension_compatible(
     return bool(
         inside_bounds(state[0:3], TRUE_SAFE_BOUNDS)
         and terminal_speed >= USEFUL_TERMINAL_SPEED_M_S
-        and abs(float(max_alpha_deg)) <= USEFUL_ALPHA_MAX_DEG
-        and abs(float(max_beta_deg)) <= USEFUL_BETA_MAX_DEG
+        and max_alpha_deg <= USEFUL_ALPHA_MAX_DEG
+        and max_beta_deg <= USEFUL_BETA_MAX_DEG
         and np.linalg.norm(state[9:12]) <= USEFUL_RATE_MAX_RAD_S
     )
 
 
-def _phase_window(
-    phase: tuple[str, ...],
-    names: tuple[str, ...],
-) -> tuple[int, int] | None:
-    indices = np.where(np.isin(np.asarray(phase), list(names)))[0]
-    if indices.size == 0:
-        return None
-    return int(indices[0]), int(indices[-1])
+def _classification(
+    finite: bool,
+    true_safe: bool,
+    heading_band_pass: bool,
+    useful_speed: bool,
+    useful_exposure: bool,
+    recoverable: bool,
+    heading_error_deg: float,
+) -> tuple[str, str, str, str]:
+    if heading_band_pass and true_safe and finite and useful_speed and useful_exposure and recoverable:
+        return "commandable_target_candidate", "success", "target_band_commandable", "success"
+    if heading_band_pass:
+        if not finite:
+            return "accurate_boundary_evidence", "nonfinite_state", "solver_or_horizon_limited", "nonfinite_replay"
+        if not true_safe:
+            return "accurate_boundary_evidence", "true_safety_violation", "safety_boundary_target_miss", "safety_limited"
+        if not useful_exposure:
+            return "accurate_boundary_evidence", "alpha_boundary", "exposure_target_miss", "exposure_limited"
+        return "accurate_boundary_evidence", "terminal_recovery_limited", "energy_or_recovery_target_miss", "boundary"
+    if finite and true_safe and useful_speed and useful_exposure and recoverable:
+        mechanism = "under_turning_target_miss" if heading_error_deg < 0.0 else "over_turning_target_miss"
+        return "safe_partial_turn_evidence", "under_turning", mechanism, "safe_target_miss"
+    if not finite:
+        return "unsafe_or_nonrecoverable_boundary", "nonfinite_state", "solver_or_horizon_limited", "nonfinite_replay"
+    if not true_safe:
+        return "unsafe_or_nonrecoverable_boundary", "true_safety_violation", "safety_boundary_target_miss", "safety_limited"
+    if not useful_exposure:
+        return "unsafe_or_nonrecoverable_boundary", "alpha_boundary", "exposure_target_miss", "exposure_limited"
+    return "unsafe_or_nonrecoverable_boundary", "terminal_recovery_limited", "energy_or_recovery_target_miss", "boundary"
 
 
 def metrics_for_family_candidate(
@@ -504,7 +545,7 @@ def metrics_for_family_candidate(
     u_norm_applied: np.ndarray,
     phase: tuple[str, ...],
 ) -> dict[str, object]:
-    """Return heading, energy, speed, exposure, safety, and recoverability metrics."""
+    """Return target-accuracy, safety, exposure, and recoverability metrics."""
 
     _validate_config(config)
     time = np.asarray(time_s, dtype=float).reshape(-1)
@@ -513,23 +554,20 @@ def metrics_for_family_candidate(
     applied = np.asarray(u_norm_applied, dtype=float)
     finite = bool(np.all(np.isfinite(state)))
     speed, alpha, beta = _speed_alpha_beta(state)
-    heading = _heading_change_deg(state, config.direction_sign)
     energy = _specific_energy_height_m(state)
+    heading = heading_accuracy_metrics(state, config.direction_sign, config.target_heading_deg)
     margins = _margin_metrics(state)
     true_safe = bool(
         finite
         and all(inside_bounds(position, TRUE_SAFE_BOUNDS) for position in state[:, 0:3])
     )
-    saturation_fraction, saturation_time_s = _saturation_metrics(
-        requested,
-        applied,
-        config.dt_s,
-    )
+    saturation_fraction, saturation_time_s = _saturation_metrics(requested, applied, config.dt_s)
     rate_norm = np.linalg.norm(state[:, 9:12], axis=1)
     terminal_state = state[-1]
     terminal_glide_proxy = _entry_proxy(terminal_state, build_glide_primitive_spec())
     terminal_recovery_proxy = _entry_proxy(terminal_state, build_recovery_primitive_spec())
     terminal_speed = float(speed[-1])
+    min_speed = float(np.nanmin(speed))
     max_alpha_deg = float(np.nanmax(np.abs(np.rad2deg(alpha))))
     max_beta_deg = float(np.nanmax(np.abs(np.rad2deg(beta))))
     max_rate_rad_s = float(np.nanmax(rate_norm))
@@ -540,27 +578,8 @@ def metrics_for_family_candidate(
         max_beta_deg,
     )
     recoverable = bool(terminal_glide_proxy or terminal_recovery_proxy or recovery_extension)
-    actual_heading = float(np.nanmax(heading))
-    min_speed = float(np.nanmin(speed))
-    energy_lost = float(energy[0] - energy[-1])
-    energy_lost_per_deg = float(energy_lost / max(actual_heading, 1e-6))
-    unload_window = _phase_window(
-        phase,
-        ("unload_exit", "unload_descend", "early_unload", "exit_glide"),
-    )
-    if unload_window is None:
-        unload_speed_gain = 0.0
-        unload_duration = 0.0
-    else:
-        start, stop = unload_window
-        unload_speed_gain = float(speed[stop] - speed[start])
-        unload_duration = float(time[stop] - time[start])
-
-    strict_heading_gate = actual_heading >= 0.8 * float(config.target_heading_deg)
-    useful_heading_gate = actual_heading >= max(
-        0.6 * float(config.target_heading_deg),
-        15.0 if np.isclose(config.target_heading_deg, 30.0) else 0.0,
-    )
+    strict_speed = terminal_speed >= STRICT_TERMINAL_SPEED_M_S and min_speed >= STRICT_MIN_SPEED_M_S
+    useful_speed = terminal_speed >= USEFUL_TERMINAL_SPEED_M_S and min_speed >= USEFUL_MIN_SPEED_M_S
     strict_exposure = bool(
         max_alpha_deg <= STRICT_ALPHA_MAX_DEG
         and max_beta_deg <= STRICT_BETA_MAX_DEG
@@ -573,131 +592,49 @@ def metrics_for_family_candidate(
         and max_rate_rad_s <= USEFUL_RATE_MAX_RAD_S
         and saturation_fraction < USEFUL_SATURATION_MAX
     )
-    strict_family_success = bool(
-        finite
-        and true_safe
-        and strict_heading_gate
-        and terminal_speed >= STRICT_TERMINAL_SPEED_M_S
-        and min_speed >= STRICT_MIN_SPEED_M_S
-        and strict_exposure
-        and (terminal_glide_proxy or terminal_recovery_proxy)
+    candidate_class, failure_label, mechanism, notes = _classification(
+        finite,
+        true_safe,
+        bool(heading["heading_band_pass"]),
+        bool(useful_speed),
+        useful_exposure,
+        recoverable,
+        float(heading["heading_error_deg"]),
     )
-    useful_recoverable_candidate = bool(
-        finite
-        and true_safe
-        and useful_heading_gate
-        and terminal_speed >= USEFUL_TERMINAL_SPEED_M_S
-        and min_speed >= USEFUL_MIN_SPEED_M_S
-        and useful_exposure
-        and recoverable
-    )
-    speed_preserving = bool(
-        terminal_speed >= USEFUL_TERMINAL_SPEED_M_S and min_speed >= USEFUL_MIN_SPEED_M_S
-    )
-    horizon_limited = bool(
-        (finite and true_safe and speed_preserving and recoverable and not useful_heading_gate)
-        or (strict_heading_gate and unload_duration < 0.20 and unload_speed_gain < 0.25)
-    )
-    safety_limited = bool(finite and not true_safe)
-    exposure_limited = bool(
-        finite
-        and true_safe
-        and (
-            max_alpha_deg > USEFUL_ALPHA_MAX_DEG
-            or max_beta_deg > USEFUL_BETA_MAX_DEG
-            or max_rate_rad_s > USEFUL_RATE_MAX_RAD_S
-            or saturation_fraction >= USEFUL_SATURATION_MAX
-        )
-    )
-    energy_limited = bool(
-        finite
-        and true_safe
-        and not exposure_limited
-        and (terminal_speed < USEFUL_TERMINAL_SPEED_M_S or min_speed < USEFUL_MIN_SPEED_M_S)
-    )
-    turn_authority_limited = bool(
-        finite
-        and true_safe
-        and not horizon_limited
-        and not energy_limited
-        and not exposure_limited
-        and not useful_heading_gate
-    )
-    if strict_family_success:
-        candidate_class = "strict_family_success"
-        failure_label = "success"
-        notes = "strict_family_success"
-    elif useful_recoverable_candidate:
-        candidate_class = "useful_recoverable_candidate"
-        failure_label = "under_turning" if not strict_heading_gate else "success"
-        notes = "useful_recoverable_candidate"
-    else:
-        candidate_class = "boundary_evidence"
-        if not finite:
-            failure_label = "nonfinite_state"
-            notes = "nonfinite_replay"
-        elif not true_safe:
-            failure_label = "true_safety_violation"
-            notes = "safety_limited"
-        elif exposure_limited:
-            if max_alpha_deg > USEFUL_ALPHA_MAX_DEG:
-                failure_label = "alpha_boundary"
-                notes = "exposure_limited"
-            elif max_beta_deg > USEFUL_BETA_MAX_DEG:
-                failure_label = "beta_boundary"
-                notes = "exposure_limited"
-            elif max_rate_rad_s > USEFUL_RATE_MAX_RAD_S:
-                failure_label = "rate_boundary"
-                notes = "exposure_limited"
-            else:
-                failure_label = "actuator_saturation_limited"
-                notes = "exposure_limited"
-        elif energy_limited:
-            failure_label = "speed_low"
-            notes = "energy_limited"
-        elif not recoverable:
-            failure_label = "terminal_recovery_limited"
-            notes = "terminal_recovery_limited"
-        elif horizon_limited:
-            failure_label = "under_turning"
-            notes = "horizon_limited"
-        elif not useful_heading_gate:
-            failure_label = "under_turning"
-            notes = "turn_authority_limited"
-        else:
-            failure_label = "model_boundary_only"
-            notes = "boundary_evidence"
-
-    if safety_limited:
-        family_status = "retained_as_thesis_discussion_evidence"
-    elif strict_family_success or useful_recoverable_candidate:
-        family_status = "selected_for_next_stage"
-    elif finite:
-        family_status = "retained_as_thesis_discussion_evidence"
-    else:
-        family_status = "rejected_for_active_primitive"
-
+    commandable = candidate_class == "commandable_target_candidate"
+    strict_target_success = bool(commandable and strict_speed and strict_exposure)
+    useful_target_success = bool(commandable and useful_speed and useful_exposure)
+    forward_travel = float(state[-1, STATE_INDEX["x_w"]] - state[0, STATE_INDEX["x_w"]])
+    lateral_span = float(np.nanmax(state[:, STATE_INDEX["y_w"]]) - np.nanmin(state[:, STATE_INDEX["y_w"]]))
+    longitudinal_span = float(np.nanmax(state[:, STATE_INDEX["x_w"]]) - np.nanmin(state[:, STATE_INDEX["x_w"]]))
+    energy_lost = float(energy[0] - energy[-1])
+    terminal_heading = float(heading["terminal_heading_change_deg"])
     return {
         "family_name": family_name,
         "target_heading_deg": float(config.target_heading_deg),
         "horizon_s": float(config.t_final_s),
-        "success": strict_family_success,
+        "candidate_class": candidate_class,
+        "success": commandable,
         "failure_label": failure_label,
         "notes": notes,
-        "candidate_class": candidate_class,
-        "strict_family_success": strict_family_success,
-        "useful_recoverable_candidate": useful_recoverable_candidate,
-        "boundary_evidence": bool(not strict_family_success and not useful_recoverable_candidate),
-        "actual_heading_change_deg": actual_heading,
-        "heading_ratio": float(actual_heading / max(float(config.target_heading_deg), 1e-6)),
+        "active_limiting_mechanism": mechanism,
+        "strict_target_success": strict_target_success,
+        "useful_target_success": useful_target_success,
+        "commandable_target_candidate": commandable,
+        "accurate_boundary_evidence": candidate_class == "accurate_boundary_evidence",
+        "safe_partial_turn_evidence": candidate_class == "safe_partial_turn_evidence",
+        "unsafe_or_nonrecoverable_boundary": candidate_class == "unsafe_or_nonrecoverable_boundary",
+        **heading,
         "terminal_speed_m_s": terminal_speed,
         "min_speed_m_s": min_speed,
         "initial_speed_m_s": float(speed[0]),
         "height_change_m": float(state[-1, STATE_INDEX["z_w"]] - state[0, STATE_INDEX["z_w"]]),
+        "forward_travel_m": forward_travel,
+        "turn_footprint_proxy_m2": abs(longitudinal_span * max(lateral_span, 1e-9)),
         "specific_energy_initial_m": float(energy[0]),
         "specific_energy_terminal_m": float(energy[-1]),
         "specific_energy_lost_m": energy_lost,
-        "energy_lost_per_deg_m_per_deg": energy_lost_per_deg,
+        "energy_lost_per_deg_m_per_deg": float(energy_lost / max(abs(terminal_heading), 1e-6)),
         "max_alpha_deg": max_alpha_deg,
         "max_beta_deg": max_beta_deg,
         "max_bank_deg": float(np.nanmax(np.abs(np.rad2deg(state[:, STATE_INDEX["phi"]])))),
@@ -710,17 +647,9 @@ def metrics_for_family_candidate(
         "terminal_glide_entry_proxy": terminal_glide_proxy,
         "terminal_recovery_entry_proxy": terminal_recovery_proxy,
         "recovery_extension_compatible": recovery_extension,
-        "unload_speed_gain_m_s": unload_speed_gain,
-        "unload_exit_duration_s": unload_duration,
-        "horizon_limited": horizon_limited,
-        "turn_authority_limited": turn_authority_limited,
-        "energy_limited": energy_limited,
-        "safety_limited": safety_limited,
-        "exposure_limited": exposure_limited,
-        "selected_method": "family_replay_grid",
-        "family_status": family_status,
-        "finite_state_success": finite,
         "true_safe_trajectory": true_safe,
+        "finite_state_success": finite,
+        "selected_method": "family_replay_grid",
     }
 
 
@@ -728,21 +657,31 @@ def metrics_for_family_candidate(
 # 4) Ranking and Comparison
 # =============================================================================
 def candidate_ranking_key(metrics: dict[str, object]) -> tuple[object, ...]:
-    """Return ranking key that prefers recoverability over raw heading."""
+    """Rank commandable candidates before duration and footprint objectives."""
 
-    recoverable_heading = float(metrics["actual_heading_change_deg"]) if bool(metrics["recoverable"]) else 0.0
+    commandable = int(bool(metrics["commandable_target_candidate"]))
+    heading_pass = int(bool(metrics["heading_band_pass"]))
+    true_safe = int(bool(metrics["true_safe_trajectory"]))
+    speed_gate = int(
+        float(metrics["terminal_speed_m_s"]) >= USEFUL_TERMINAL_SPEED_M_S
+        and float(metrics["min_speed_m_s"]) >= USEFUL_MIN_SPEED_M_S
+    )
+    recoverable = int(bool(metrics["recoverable"]))
     return (
-        int(bool(metrics["strict_family_success"])),
-        int(bool(metrics["useful_recoverable_candidate"])),
-        recoverable_heading,
-        float(metrics["terminal_speed_m_s"]),
-        float(metrics["min_speed_m_s"]),
+        commandable,
+        heading_pass,
+        true_safe,
+        speed_gate,
+        recoverable,
+        -float(metrics["horizon_s"]),
+        -abs(float(metrics["forward_travel_m"])),
+        -float(metrics["turn_footprint_proxy_m2"]),
         -float(metrics["energy_lost_per_deg_m_per_deg"]),
         -float(metrics["max_alpha_deg"]),
         -float(metrics["max_beta_deg"]),
         -float(metrics["max_rate_rad_s"]),
-        float(metrics["min_true_margin_m"]),
         -float(metrics["saturation_fraction"]),
+        float(metrics["min_true_margin_m"]),
     )
 
 
@@ -784,12 +723,7 @@ def _result_from_replay(
         config,
         aircraft,
     )
-    phase = _phase_labels_for_family_scaled(
-        family_name,
-        time_s,
-        config.t_final_s,
-        timing_scale,
-    )
+    phase = _phase_labels_for_family_scaled(family_name, time_s, config.t_final_s, timing_scale)
     metrics = metrics_for_family_candidate(
         config,
         family_name,
@@ -802,7 +736,7 @@ def _result_from_replay(
     metrics.update(
         {
             "candidate_id": candidate_id,
-            "phase_search_scale": float(amplitude_scale),
+            "amplitude_scale": float(amplitude_scale),
             "timing_scale": float(timing_scale),
         }
     )
@@ -823,44 +757,49 @@ def _result_from_replay(
     )
 
 
-def _best_by_metric(
+def _best_candidate(
     candidates: tuple[AgileTurnCandidateResult, ...],
-    metric_name: str,
-    require_recoverable: bool = False,
-) -> AgileTurnCandidateResult:
-    filtered = [
-        candidate for candidate in candidates
-        if not require_recoverable or bool(candidate.metrics["recoverable"])
-    ]
+    predicate: str,
+) -> AgileTurnCandidateResult | None:
+    filtered = [candidate for candidate in candidates if bool(candidate.metrics[predicate])]
     if not filtered:
-        filtered = list(candidates)
-    return max(filtered, key=lambda candidate: float(candidate.metrics[metric_name]))
+        return None
+    return max(filtered, key=lambda candidate: candidate_ranking_key(candidate.metrics))
+
+
+def _best_any_heading(candidates: tuple[AgileTurnCandidateResult, ...]) -> AgileTurnCandidateResult:
+    return max(
+        candidates,
+        key=lambda candidate: float(candidate.metrics["peak_heading_change_deg"]),
+    )
 
 
 def _ranking_rows(candidates: tuple[AgileTurnCandidateResult, ...]) -> tuple[dict[str, object], ...]:
-    best_by_heading = _best_by_metric(candidates, "actual_heading_change_deg")
-    best_by_terminal_speed = _best_by_metric(candidates, "terminal_speed_m_s")
-    best_by_recoverable_heading = _best_by_metric(
-        candidates,
-        "actual_heading_change_deg",
-        require_recoverable=True,
-    )
-    best_by_energy = min(
-        candidates,
-        key=lambda candidate: float(candidate.metrics["energy_lost_per_deg_m_per_deg"]),
-    )
-    selected = max(candidates, key=lambda candidate: candidate_ranking_key(candidate.metrics))
+    commandable = _best_candidate(candidates, "commandable_target_candidate")
+    safe_partial = _best_candidate(candidates, "safe_partial_turn_evidence")
+    accurate_boundary = _best_candidate(candidates, "accurate_boundary_evidence")
+    best_any = _best_any_heading(candidates)
+    selected_id = commandable.metrics["candidate_id"] if commandable is not None else ""
     rows = []
     for candidate in candidates:
         metrics = candidate.metrics
         rows.append(
             {
                 **metrics,
-                "best_by_heading": metrics["candidate_id"] == best_by_heading.metrics["candidate_id"],
-                "best_by_terminal_speed": metrics["candidate_id"] == best_by_terminal_speed.metrics["candidate_id"],
-                "best_by_recoverable_heading": metrics["candidate_id"] == best_by_recoverable_heading.metrics["candidate_id"],
-                "best_by_energy_lost_per_deg": metrics["candidate_id"] == best_by_energy.metrics["candidate_id"],
-                "selected_candidate": metrics["candidate_id"] == selected.metrics["candidate_id"],
+                "selected_candidate": metrics["candidate_id"] == selected_id,
+                "best_commandable_candidate": (
+                    commandable is not None
+                    and metrics["candidate_id"] == commandable.metrics["candidate_id"]
+                ),
+                "best_safe_partial_candidate": (
+                    safe_partial is not None
+                    and metrics["candidate_id"] == safe_partial.metrics["candidate_id"]
+                ),
+                "best_accurate_boundary_candidate": (
+                    accurate_boundary is not None
+                    and metrics["candidate_id"] == accurate_boundary.metrics["candidate_id"]
+                ),
+                "best_any_heading_candidate": metrics["candidate_id"] == best_any.metrics["candidate_id"],
             }
         )
     return tuple(rows)
@@ -872,7 +811,7 @@ def compare_agile_turn_families(
     x0: np.ndarray | None = None,
     aircraft: object | None = None,
 ) -> AgileTurnFamilyComparisonResult:
-    """Run bounded family search and select the most promising recoverable family."""
+    """Run bounded family search and select only target-accurate commandable candidates."""
 
     _validate_config(config)
     selected_families = family_inventory() if families is None else tuple(families)
@@ -894,11 +833,12 @@ def compare_agile_turn_families(
             latency_case=config.latency_case,
             actuator_tau_s=config.actuator_tau_s,
             seed=config.seed,
-            phase_search_scales=config.phase_search_scales,
+            amplitude_scales=config.amplitude_scales,
+            timing_scales=config.timing_scales,
         )
         for family_name in selected_families:
-            for amplitude_scale in config.phase_search_scales:
-                for timing_scale in (0.95, 1.00, 1.05):
+            for amplitude_scale in config.amplitude_scales:
+                for timing_scale in config.timing_scales:
                     candidate_id = _candidate_id(
                         family_name,
                         config.target_heading_deg,
@@ -918,26 +858,21 @@ def compare_agile_turn_families(
                         )
                     )
     candidate_tuple = tuple(candidates)
-    selected = max(candidate_tuple, key=lambda candidate: candidate_ranking_key(candidate.metrics))
+    commandable = _best_candidate(candidate_tuple, "commandable_target_candidate")
     rows = _ranking_rows(candidate_tuple)
-    if bool(selected.metrics["strict_family_success"]):
-        reason = "strict_family_success"
-    elif bool(selected.metrics["useful_recoverable_candidate"]):
-        reason = "useful_recoverable_candidate"
-    elif bool(selected.metrics["recoverable"]):
-        reason = "largest_recoverable_heading_under_current_gates"
+    if commandable is None:
+        reason = "no_commandable_target_candidate"
+        selected_family = ""
     else:
-        reason = "boundary_evidence_best_available"
+        reason = "shortest_commandable_target_candidate"
+        selected_family = commandable.family_name
     for row in rows:
-        if row["candidate_id"] == selected.metrics["candidate_id"]:
-            row["selection_reason"] = reason
-        else:
-            row["selection_reason"] = ""
+        row["selection_reason"] = reason if bool(row["selected_candidate"]) else ""
     return AgileTurnFamilyComparisonResult(
         target_heading_deg=float(config.target_heading_deg),
         family_results=candidate_tuple,
-        selected_family=selected.family_name,
-        selected_candidate=selected,
+        selected_family=selected_family,
+        selected_candidate=commandable,
         ranking_rows=rows,
         notes=reason,
     )

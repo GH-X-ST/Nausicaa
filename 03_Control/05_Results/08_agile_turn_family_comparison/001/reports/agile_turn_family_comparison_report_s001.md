@@ -1,42 +1,30 @@
-# Agile Turn Family Comparison Report
+# Agile Turn Precision Ladder Cleanup Report
 
-This W0/no-wind evidence pass compares reusable speed-retaining turn families.
-Existing run-002 high-alpha pitch-brake/perch-like evidence is preserved as archived boundary evidence only; retired speed-collapse branches are not active reusable candidates in this comparison.
+This W0/no-wind pass enforces terminal-heading target bands for commandable agile-turn labels.
+Archived high-alpha/perch-like boundary reference is preserved exactly as negative evidence; it is not an active reusable agile-turn family.
 
 No OCP, TVLQR, governor, outer loop, updraft validation, real-flight, hardware,
 or high-incidence validation claim is made from this pass.
 
-## Command Path
-
-- Requested command: `u_norm_requested`.
-- Applied command: `u_norm_applied`, clipped to the normalised contract.
-- Plant command: `delta_cmd_rad`.
-- `rk4_step` and `state_derivative` receive physical radian commands only.
-
-## Acceptance Gates
-
-- Strict success heading gate: `0.8 * target_heading_deg`.
-- Useful recoverable heading gate: `0.6 * target_heading_deg`, or `15 deg` for the `30 deg` target.
-- Strict terminal/min speed: `5.0` / `4.0` m/s.
-- Useful terminal/min speed: `4.5` / `3.8` m/s.
-
 ## Target Summary
 
-| target_deg | selected_family | horizon_s | class | heading_deg | terminal_speed_m_s | reason |
-| --- | --- | ---: | --- | ---: | ---: | --- |
-| 15 | canyon_steep_bank | 0.80 | useful_recoverable_candidate | 21.165 | 6.553 | useful_recoverable_candidate |
-| 30 | canyon_steep_bank | 0.76 | useful_recoverable_candidate | 18.732 | 6.480 | useful_recoverable_candidate |
+| target_deg | commandable | selected_family | selected_horizon_s | best_safe_partial | best_boundary | escalation_reason |
+| --- | --- | --- | ---: | --- | --- | --- |
+| 15 | True | canyon_steep_bank | 0.76 | canyon_steep_bank_t015_h036_a115_q110 | bank_yaw_energy_retaining_t015_h090_a115_q110 | 30deg_not_commandable_safe_partial_or_boundary_only |
+| 30 | False |  |  | canyon_steep_bank_t030_h046_a115_q090 | canyon_steep_bank_t030_h100_a115_q100 | 30deg_not_commandable_safe_partial_or_boundary_only |
 
 ## Family Status
 
-| family | status | failure or retention cause | best_heading_deg | best_terminal_speed_m_s |
-| --- | --- | --- | ---: | ---: |
-| canyon_steep_bank | selected_for_next_stage | recoverable_at_30_under_current_gates | 21.165 | 6.553 |
-| wingover_lite | retained_as_thesis_discussion_evidence | useful_at_15_only_not_ready_for_45_60_escalation | 15.350 | 5.752 |
-| bank_yaw_energy_retaining | retained_as_thesis_discussion_evidence | useful_at_15_only_not_ready_for_45_60_escalation | 11.868 | 6.417 |
+| family | status | best_class | best_terminal_heading_deg | limiter |
+| --- | --- | --- | ---: | --- |
+| canyon_steep_bank | selected_for_next_stage | commandable_target_candidate | 16.978 | target_band_commandable |
+| wingover_lite | selected_for_next_stage | commandable_target_candidate | 13.806 | target_band_commandable |
+| bank_yaw_energy_retaining | retained_as_thesis_discussion_evidence | accurate_boundary_evidence | 16.701 | safety_boundary_target_miss |
 
-## Escalation
+## Cleanup
 
-- Escalation allowed from 30 deg evidence: `True`.
-- Escalation targets run: `[]`.
-- Escalation reason: `not_requested_default_15_30_only`.
+- Archived boundary reference preserved: `True`.
+- Old branch active: `False`.
+- Fixed target ladder: `[15.0, 30.0, 45.0, 60.0, 90.0, 120.0, 150.0, 180.0]`.
+- No 20-degree bin: `True`.
+- Command bridge: `u_norm_requested -> u_norm_applied -> delta_cmd_rad`.
