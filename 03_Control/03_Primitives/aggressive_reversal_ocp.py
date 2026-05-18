@@ -49,19 +49,27 @@ from trim_solver import TrimTarget, solve_straight_trim
 AGGRESSIVE_CAMPAIGN = "07_aggressive_reversal_ocp"
 PHASES = (
     "entry",
+    "pre_dive_accelerate",
     "pitch_brake",
     "slow_redirect",
     "heading_capture",
     "unload_descend",
     "exit_glide",
 )
-SEED_FAMILIES = (
+BASE_SEED_FAMILIES = (
     "short_perch_yaw_redirect",
     "long_perch_slow_redirect",
     "roll_dominant_banked_redirect",
     "split_pulse_redirect",
     "early_unload_descend_capture",
 )
+THIRTY_DEG_SEED_FAMILIES = (
+    "dive_perch_redirect_30",
+    "reduced_perch_redirect_30",
+    "bank_yaw_redirect_30",
+    "early_unload_recovery_30",
+)
+SEED_FAMILIES = BASE_SEED_FAMILIES + THIRTY_DEG_SEED_FAMILIES
 TARGET_HORIZONS_S = {
     15.0: 0.70,
     30.0: 0.86,
@@ -72,6 +80,12 @@ TARGET_HORIZONS_S = {
 }
 REPLAY_DEFECT_TOL = 1e-5
 TARGET_TOKEN_WIDTH = 3
+G_M_S2 = 9.81
+STRICT_30_HEADING_DEG = 24.0
+STRICT_TERMINAL_SPEED_M_S = 5.0
+RELAXED_TERMINAL_SPEED_M_S = 4.0
+UNLOAD_EXIT_DESCENT_REQUIRED_M = 0.15
+UNLOAD_EXIT_SPEED_GAIN_REQUIRED_M_S = 0.50
 
 
 @dataclass(frozen=True)
@@ -197,6 +211,27 @@ def target_config(
     )
 
 
+def _family_phase_labels(family_name: str) -> tuple[str, ...]:
+    if family_name == "dive_perch_redirect_30":
+        return (
+            "entry",
+            "pre_dive_accelerate",
+            "pitch_brake",
+            "slow_redirect",
+            "heading_capture",
+            "unload_descend",
+            "exit_glide",
+        )
+    return (
+        "entry",
+        "pitch_brake",
+        "slow_redirect",
+        "heading_capture",
+        "unload_descend",
+        "exit_glide",
+    )
+
+
 def _family_phase_edges(family_name: str, t_final_s: float) -> np.ndarray:
     fractions = {
         "short_perch_yaw_redirect": (0.08, 0.26, 0.56, 0.70, 0.86),
@@ -204,6 +239,10 @@ def _family_phase_edges(family_name: str, t_final_s: float) -> np.ndarray:
         "roll_dominant_banked_redirect": (0.08, 0.28, 0.58, 0.72, 0.88),
         "split_pulse_redirect": (0.08, 0.26, 0.50, 0.68, 0.86),
         "early_unload_descend_capture": (0.08, 0.24, 0.46, 0.62, 0.82),
+        "dive_perch_redirect_30": (0.08, 0.22, 0.38, 0.60, 0.72, 0.88),
+        "reduced_perch_redirect_30": (0.10, 0.28, 0.50, 0.66, 0.84),
+        "bank_yaw_redirect_30": (0.10, 0.24, 0.52, 0.68, 0.86),
+        "early_unload_recovery_30": (0.08, 0.24, 0.42, 0.56, 0.78),
     }
     if family_name not in fractions:
         raise ValueError(f"unknown seed family: {family_name}.")
@@ -218,11 +257,12 @@ def phase_labels_for_family(
     """Return a phase label for each time sample."""
 
     edges = _family_phase_edges(family_name, t_final_s)
+    phase_names = _family_phase_labels(family_name)
     labels: list[str] = []
     for time_value in np.asarray(time_s, dtype=float):
         index = int(np.searchsorted(edges, time_value, side="right") - 1)
-        index = int(np.clip(index, 0, len(PHASES) - 1))
-        labels.append(PHASES[index])
+        index = int(np.clip(index, 0, len(phase_names) - 1))
+        labels.append(phase_names[index])
     return tuple(labels)
 
 
@@ -268,6 +308,39 @@ def _family_amplitudes(family_name: str) -> dict[str, tuple[float, float, float]
             "unload_descend": (0.0, -0.72, 0.0),
             "exit_glide": (0.0, -0.05, 0.0),
         },
+        "dive_perch_redirect_30": {
+            "entry": (0.0, 0.0, 0.0),
+            "pre_dive_accelerate": (0.0, -0.34, 0.0),
+            "pitch_brake": (0.08, 0.58, 0.08),
+            "slow_redirect": (0.30, 0.24, 0.55),
+            "heading_capture": (-0.18, -0.22, -0.24),
+            "unload_descend": (0.0, -0.62, 0.0),
+            "exit_glide": (0.0, -0.08, 0.0),
+        },
+        "reduced_perch_redirect_30": {
+            "entry": (0.0, 0.0, 0.0),
+            "pitch_brake": (0.05, 0.46, 0.06),
+            "slow_redirect": (0.26, 0.22, 0.48),
+            "heading_capture": (-0.16, -0.18, -0.24),
+            "unload_descend": (0.0, -0.54, 0.0),
+            "exit_glide": (0.0, -0.05, 0.0),
+        },
+        "bank_yaw_redirect_30": {
+            "entry": (0.0, 0.0, 0.0),
+            "pitch_brake": (0.18, 0.32, 0.06),
+            "slow_redirect": (0.58, 0.12, 0.38),
+            "heading_capture": (-0.34, -0.10, -0.22),
+            "unload_descend": (-0.08, -0.32, 0.0),
+            "exit_glide": (0.0, -0.03, 0.0),
+        },
+        "early_unload_recovery_30": {
+            "entry": (0.0, 0.0, 0.0),
+            "pitch_brake": (0.08, 0.62, 0.08),
+            "slow_redirect": (0.28, 0.24, 0.56),
+            "heading_capture": (-0.22, -0.28, -0.32),
+            "unload_descend": (0.0, -0.76, 0.0),
+            "exit_glide": (0.0, -0.12, 0.0),
+        },
     }[family_name]
 
 
@@ -275,6 +348,14 @@ def seed_family_inventory() -> tuple[str, ...]:
     """Return the fixed guided manoeuvre-family inventory."""
 
     return SEED_FAMILIES
+
+
+def seed_family_inventory_for_target(target_heading_deg: float) -> tuple[str, ...]:
+    """Return the seed families used for a target-specific search."""
+
+    if np.isclose(float(target_heading_deg), 30.0, atol=1e-9):
+        return SEED_FAMILIES
+    return BASE_SEED_FAMILIES
 
 
 def phase_seed_command_profile(
@@ -301,11 +382,18 @@ def phase_seed_command_profile(
 def next_family_for_failure(failure_label: str, current_family: str) -> tuple[str, str]:
     """Return deterministic next family and reason for a failure label."""
 
+    is_thirty_family = current_family in THIRTY_DEG_SEED_FAMILIES
     if failure_label == "under_turning":
+        if is_thirty_family and current_family != "bank_yaw_redirect_30":
+            return "bank_yaw_redirect_30", "under_turning_bank_yaw_redirect"
+        if is_thirty_family:
+            return "dive_perch_redirect_30", "under_turning_dive_perch_redirect"
         if current_family != "long_perch_slow_redirect":
             return "long_perch_slow_redirect", "under_turning_longer_perch"
         return "split_pulse_redirect", "under_turning_split_redirect"
     if failure_label == "speed_low":
+        if is_thirty_family:
+            return "early_unload_recovery_30", "speed_low_earlier_unload"
         return "early_unload_descend_capture", "speed_low_earlier_unload"
     if failure_label in {"true_safety_violation", "wall_violation", "floor_violation", "ceiling_violation"}:
         return current_family, "safety_boundary_shorten_redirect_or_raise_penalty"
@@ -314,6 +402,8 @@ def next_family_for_failure(failure_label: str, current_family: str) -> tuple[st
     if failure_label == "actuator_saturation_limited":
         return current_family, "saturation_smooth_and_lengthen_phase"
     if failure_label == "terminal_recovery_limited":
+        if is_thirty_family:
+            return "early_unload_recovery_30", "terminal_recovery_extend_exit_glide"
         return "early_unload_descend_capture", "terminal_recovery_extend_exit_glide"
     if failure_label == "solver_failure":
         return current_family, "solver_failure_retry_best_finite_phase_search"
@@ -363,6 +453,221 @@ def _speed_alpha_beta(x_log: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
     valid = speed > 1e-9
     beta[valid] = np.arcsin(np.clip(velocity_b[valid, 1] / speed[valid], -1.0, 1.0))
     return speed, alpha, beta
+
+
+def speed_m_s(x_log: np.ndarray) -> np.ndarray:
+    """Return body-speed magnitude for each state sample."""
+
+    return np.linalg.norm(np.asarray(x_log, dtype=float)[:, 6:9], axis=1)
+
+
+def specific_energy_height_m(x_log: np.ndarray, g_m_s2: float = G_M_S2) -> np.ndarray:
+    """Return specific energy height in public z-up world coordinates."""
+
+    state = np.asarray(x_log, dtype=float)
+    speed = speed_m_s(state)
+    return state[:, STATE_INDEX["z_w"]] + speed**2 / (2.0 * float(g_m_s2))
+
+
+def descent_required_to_speed_m(
+    current_speed_m_s: float,
+    target_speed_m_s: float,
+    g_m_s2: float = G_M_S2,
+) -> float:
+    """Return ideal z-up descent required to accelerate to target speed."""
+
+    required = (float(target_speed_m_s) ** 2 - float(current_speed_m_s) ** 2) / (
+        2.0 * float(g_m_s2)
+    )
+    return float(max(0.0, required))
+
+
+def recoverable_speed_from_energy_m_s(
+    energy_height_m: float,
+    floor_z_m: float,
+    g_m_s2: float = G_M_S2,
+) -> float:
+    """Return ideal speed reachable by descending to a floor height."""
+
+    usable_height_m = max(0.0, float(energy_height_m) - float(floor_z_m))
+    return float(np.sqrt(2.0 * float(g_m_s2) * usable_height_m))
+
+
+def _phase_indices(phase: tuple[str, ...], names: tuple[str, ...]) -> np.ndarray:
+    labels = np.asarray(phase)
+    return np.where(np.isin(labels, list(names)))[0]
+
+
+def _phase_start_stop(phase: tuple[str, ...], names: tuple[str, ...]) -> tuple[int, int] | None:
+    indices = _phase_indices(phase, names)
+    if indices.size == 0:
+        return None
+    return int(indices[0]), int(indices[-1])
+
+
+def phase_audit_timeseries(
+    config: AggressiveReversalOcpConfig,
+    time_s: np.ndarray,
+    x_log: np.ndarray,
+    phase: tuple[str, ...],
+) -> list[dict[str, object]]:
+    """Return per-sample energy and shape evidence for CSV audit output."""
+
+    speed = speed_m_s(x_log)
+    alpha = np.arctan2(x_log[:, STATE_INDEX["w"]], x_log[:, STATE_INDEX["u"]])
+    energy = specific_energy_height_m(x_log)
+    psi = np.unwrap(x_log[:, STATE_INDEX["psi"]])
+    heading = np.rad2deg(int(config.direction_sign) * (psi - psi[0]))
+    return [
+        {
+            "time_s": float(time_s[index]),
+            "speed_m_s": float(speed[index]),
+            "z_w": float(x_log[index, STATE_INDEX["z_w"]]),
+            "specific_energy_height_m": float(energy[index]),
+            "alpha_deg": float(np.rad2deg(alpha[index])),
+            "theta_deg": float(np.rad2deg(x_log[index, STATE_INDEX["theta"]])),
+            "heading_change_deg": float(heading[index]),
+            "phase": phase[index],
+        }
+        for index in range(len(time_s))
+    ]
+
+
+def energy_audit_for_trajectory(
+    x_log: np.ndarray,
+    phase: tuple[str, ...] | None = None,
+) -> dict[str, float]:
+    """Return compact energy-budget metrics for one replay."""
+
+    state = np.asarray(x_log, dtype=float)
+    speed = speed_m_s(state)
+    energy = specific_energy_height_m(state)
+    terminal_speed = float(speed[-1])
+    terminal_energy = float(energy[-1])
+    true_floor = float(TRUE_SAFE_BOUNDS.z_w_m[0])
+    audit = {
+        "specific_energy_initial_m": float(energy[0]),
+        "specific_energy_terminal_m": terminal_energy,
+        "specific_energy_min_m": float(np.nanmin(energy)),
+        "specific_energy_max_m": float(np.nanmax(energy)),
+        "specific_energy_lost_m": float(energy[0] - terminal_energy),
+        "speed_loss_m_s": float(speed[0] - terminal_speed),
+        "max_altitude_gain_m": float(np.nanmax(state[:, STATE_INDEX["z_w"]]) - state[0, STATE_INDEX["z_w"]]),
+        "max_altitude_loss_m": float(state[0, STATE_INDEX["z_w"]] - np.nanmin(state[:, STATE_INDEX["z_w"]])),
+        "ideal_descent_to_4ms_m": descent_required_to_speed_m(terminal_speed, 4.0),
+        "ideal_descent_to_5ms_m": descent_required_to_speed_m(terminal_speed, 5.0),
+        "available_descent_to_true_floor_m": float(max(0.0, state[-1, STATE_INDEX["z_w"]] - true_floor)),
+        "available_descent_to_z08_m": float(max(0.0, state[-1, STATE_INDEX["z_w"]] - 0.8)),
+        "available_descent_to_z12_m": float(max(0.0, state[-1, STATE_INDEX["z_w"]] - 1.2)),
+        "available_descent_to_z15_m": float(max(0.0, state[-1, STATE_INDEX["z_w"]] - 1.5)),
+        "recoverable_speed_by_floor_m_s": recoverable_speed_from_energy_m_s(terminal_energy, true_floor),
+        "recoverable_speed_by_z08_m_s": recoverable_speed_from_energy_m_s(terminal_energy, 0.8),
+        "recoverable_speed_by_z12_m_s": recoverable_speed_from_energy_m_s(terminal_energy, 1.2),
+        "recoverable_speed_by_z15_m_s": recoverable_speed_from_energy_m_s(terminal_energy, 1.5),
+    }
+    if phase is not None:
+        pitch = _phase_start_stop(phase, ("pitch_brake",))
+        unload = _phase_start_stop(phase, ("unload_descend", "exit_glide"))
+        if pitch is not None:
+            start, stop = pitch
+            audit["pitch_brake_energy_drop_m"] = float(energy[start] - energy[stop])
+            audit["pitch_brake_altitude_gain_m"] = float(
+                state[stop, STATE_INDEX["z_w"]] - state[start, STATE_INDEX["z_w"]]
+            )
+        else:
+            audit["pitch_brake_energy_drop_m"] = float("nan")
+            audit["pitch_brake_altitude_gain_m"] = float("nan")
+        if unload is not None:
+            start, stop = unload
+            audit["unload_descent_m"] = float(
+                state[start, STATE_INDEX["z_w"]] - state[stop, STATE_INDEX["z_w"]]
+            )
+            audit["unload_speed_gain_m_s"] = float(speed[stop] - speed[start])
+        else:
+            audit["unload_descent_m"] = float("nan")
+            audit["unload_speed_gain_m_s"] = float("nan")
+    return audit
+
+
+def phase_shape_audit(
+    config: AggressiveReversalOcpConfig,
+    x_log: np.ndarray,
+    phase: tuple[str, ...],
+    terminal_recoverable: bool,
+) -> dict[str, object]:
+    """Classify whether a replay is a true dive/perch/turn/recover shape."""
+
+    state = np.asarray(x_log, dtype=float)
+    speed = speed_m_s(state)
+    energy = energy_audit_for_trajectory(state, phase)
+    actual_heading = unwrapped_signed_heading_change_deg(
+        state[:, STATE_INDEX["psi"]],
+        config.direction_sign,
+    )
+    pitch = _phase_start_stop(phase, ("pitch_brake",))
+    redirect = _phase_start_stop(phase, ("slow_redirect",))
+    pre_pitch_stop = pitch[0] if pitch is not None else max(1, state.shape[0] // 5)
+    pre_speed_gain = float(speed[pre_pitch_stop] - speed[0])
+    pre_descent = float(state[0, STATE_INDEX["z_w"]] - np.nanmin(state[: pre_pitch_stop + 1, STATE_INDEX["z_w"]]))
+    initial_dive_or_speed_build = bool(
+        pre_speed_gain >= 0.10 or (pre_descent >= 0.05 and pre_speed_gain >= -0.05)
+    )
+    pitch_energy_drop = float(energy["pitch_brake_energy_drop_m"])
+    pitch_altitude_gain = float(energy["pitch_brake_altitude_gain_m"])
+    perch_up_energy_trade = bool(
+        pitch_altitude_gain >= 0.05 and 0.30 <= pitch_energy_drop <= 2.50
+    )
+    if redirect is None:
+        redirect_heading = 0.0
+        redirect_min_speed = float("nan")
+    else:
+        start, stop = redirect
+        psi = np.unwrap(state[:, STATE_INDEX["psi"]])
+        redirect_heading = float(
+            np.rad2deg(config.direction_sign * (psi[stop] - psi[start]))
+        )
+        redirect_min_speed = float(np.nanmin(speed[start : stop + 1]))
+    slow_redirect_heading_gain = bool(
+        redirect_heading >= 0.40 * float(config.target_heading_deg)
+        and redirect_min_speed >= 3.0
+    )
+    unload_descent = bool(
+        float(energy["unload_descent_m"]) >= UNLOAD_EXIT_DESCENT_REQUIRED_M
+    )
+    unload_speed_gain = bool(
+        float(energy["unload_speed_gain_m_s"]) >= UNLOAD_EXIT_SPEED_GAIN_REQUIRED_M_S
+    )
+    exit_glide_or_recovery_compatible = bool(terminal_recoverable)
+    heading_success = bool(actual_heading >= STRICT_30_HEADING_DEG)
+    if (
+        heading_success
+        and initial_dive_or_speed_build
+        and perch_up_energy_trade
+        and slow_redirect_heading_gain
+        and unload_descent
+        and unload_speed_gain
+        and exit_glide_or_recovery_compatible
+    ):
+        shape_class = "dive_perch_turn_recover"
+    elif heading_success and (not unload_descent or not unload_speed_gain):
+        shape_class = "speed_collapse_pitch_redirect"
+    else:
+        shape_class = "incomplete_aggressive_reversal"
+    return {
+        "initial_dive_or_speed_build": initial_dive_or_speed_build,
+        "pre_pitch_speed_gain_m_s": pre_speed_gain,
+        "pre_pitch_descent_m": pre_descent,
+        "perch_up_energy_trade": perch_up_energy_trade,
+        "slow_redirect_heading_gain": slow_redirect_heading_gain,
+        "redirect_heading_gain_deg": redirect_heading,
+        "redirect_min_speed_m_s": redirect_min_speed,
+        "unload_descent": unload_descent,
+        "unload_speed_gain": unload_speed_gain,
+        "unload_exit_descent_m": float(energy["unload_descent_m"]),
+        "unload_exit_speed_gain_m_s": float(energy["unload_speed_gain_m_s"]),
+        "exit_glide_or_recovery_compatible": exit_glide_or_recovery_compatible,
+        "manoeuvre_shape_class": shape_class,
+    }
 
 
 def unwrapped_signed_heading_change_deg(psi_rad: np.ndarray, direction_sign: int) -> float:
@@ -449,6 +754,58 @@ def _energy_exploitation(x_log: np.ndarray, phase: tuple[str, ...]) -> bool:
     return bool(altitude_gain > 0.02 and speed_gain > 0.05)
 
 
+def _diagnostic_recovery_extension_success(
+    x_terminal: np.ndarray,
+    config: AggressiveReversalOcpConfig,
+    aircraft: object | None,
+) -> bool:
+    """Try a documented unload command after a 30 deg segment."""
+
+    if aircraft is None:
+        return False
+    try:
+        state0 = as_state_vector(x_terminal)
+    except ValueError:
+        return False
+    extension_config = AggressiveReversalOcpConfig(
+        dt_s=config.dt_s,
+        t_final_s=0.60,
+        target_heading_deg=config.target_heading_deg,
+        direction_sign=config.direction_sign,
+        speed_m_s=config.speed_m_s,
+        altitude_m=config.altitude_m,
+        wind_mode=config.wind_mode,
+        latency_case=config.latency_case,
+        actuator_tau_s=config.actuator_tau_s,
+        seed=config.seed,
+        max_ipopt_iter=config.max_ipopt_iter,
+        use_nonlinear_ocp=False,
+        use_phase_seed_fallback=True,
+        phase_search_scales=config.phase_search_scales,
+        ocp_node_count=config.ocp_node_count,
+        ocp_max_cpu_time_s=config.ocp_max_cpu_time_s,
+        checkpoint_dir=None,
+        candidate_log_dir=None,
+        run_id=config.run_id,
+        previous_solution_path=None,
+    )
+    time_s = _time_grid(extension_config)
+    requested = np.zeros((time_s.size, 3), dtype=float)
+    requested[:, 1] = -0.55
+    x_log, _, _ = replay_aggressive_candidate(
+        state0,
+        requested,
+        time_s,
+        extension_config,
+        aircraft,
+    )
+    finite = bool(np.all(np.isfinite(x_log)))
+    if not finite:
+        return False
+    true_safe = all(inside_bounds(position, TRUE_SAFE_BOUNDS) for position in x_log[:, 0:3])
+    return bool(true_safe and speed_m_s(x_log)[-1] >= STRICT_TERMINAL_SPEED_M_S)
+
+
 def metrics_for_candidate(
     config: AggressiveReversalOcpConfig,
     time_s: np.ndarray,
@@ -456,6 +813,7 @@ def metrics_for_candidate(
     u_requested: np.ndarray,
     u_applied: np.ndarray,
     phase: tuple[str, ...],
+    aircraft: object | None = None,
 ) -> dict[str, object]:
     """Return scalar metrics and classification for one candidate."""
 
@@ -477,12 +835,57 @@ def metrics_for_candidate(
         and all(inside_bounds(position, TRUE_SAFE_BOUNDS) for position in x_log[:, 0:3])
     )
     replay_finite = bool(finite)
+    energy_audit = energy_audit_for_trajectory(x_log, phase)
+    shape_audit = phase_shape_audit(config, x_log, phase, terminal_recoverable) if finite else {
+        "initial_dive_or_speed_build": False,
+        "pre_pitch_speed_gain_m_s": np.nan,
+        "pre_pitch_descent_m": np.nan,
+        "perch_up_energy_trade": False,
+        "slow_redirect_heading_gain": False,
+        "redirect_heading_gain_deg": np.nan,
+        "redirect_min_speed_m_s": np.nan,
+        "unload_descent": False,
+        "unload_speed_gain": False,
+        "unload_exit_descent_m": np.nan,
+        "unload_exit_speed_gain_m_s": np.nan,
+        "exit_glide_or_recovery_compatible": False,
+        "manoeuvre_shape_class": "nonfinite",
+    }
+    is_30deg = bool(np.isclose(float(config.target_heading_deg), 30.0, atol=1e-9))
+    heading_threshold = STRICT_30_HEADING_DEG if is_30deg else 0.80 * float(config.target_heading_deg)
+    heading_success = bool(actual_heading >= heading_threshold)
+    energy_success_strict = bool(float(speed[-1]) >= STRICT_TERMINAL_SPEED_M_S)
+    energy_success_relaxed = bool(
+        float(speed[-1]) >= RELAXED_TERMINAL_SPEED_M_S
+        and float(energy_audit["recoverable_speed_by_z08_m_s"]) >= STRICT_TERMINAL_SPEED_M_S
+    )
+    recovery_extension_success = bool(
+        is_30deg
+        and heading_success
+        and true_safe
+        and _diagnostic_recovery_extension_success(x_log[-1], config, aircraft)
+    )
+    combined_30deg_recoverable = bool(
+        terminal_recoverable or (energy_success_relaxed and recovery_extension_success)
+    )
+    true_shape = bool(shape_audit["manoeuvre_shape_class"] == "dive_perch_turn_recover")
     primitive_success = bool(
         replay_finite
         and true_safe
-        and actual_heading >= 0.80 * float(config.target_heading_deg)
-        and float(speed[-1]) >= 5.0
+        and heading_success
+        and energy_success_strict
         and terminal_recoverable
+        and (true_shape if is_30deg else True)
+    )
+    relaxed_recovery_required = bool(
+        is_30deg
+        and heading_success
+        and replay_finite
+        and true_safe
+        and not primitive_success
+        and float(speed[-1]) < STRICT_TERMINAL_SPEED_M_S
+        and energy_success_relaxed
+        and recovery_extension_success
     )
     energy_exploitation = bool(finite and _energy_exploitation(x_log, phase))
     if primitive_success:
@@ -497,10 +900,13 @@ def metrics_for_candidate(
     elif energy_exploitation:
         failure_label = "model_boundary_only"
         notes = "w0_energy_exploitation"
-    elif actual_heading < 0.80 * float(config.target_heading_deg):
+    elif actual_heading < heading_threshold:
         failure_label = "under_turning"
-        notes = "heading_change_below_80_percent_target"
-    elif float(speed[-1]) < 5.0:
+        notes = "heading_change_below_threshold"
+    elif is_30deg and shape_audit["manoeuvre_shape_class"] == "speed_collapse_pitch_redirect":
+        failure_label = "speed_low"
+        notes = "speed_collapse_pitch_redirect"
+    elif float(speed[-1]) < STRICT_TERMINAL_SPEED_M_S:
         failure_label = "speed_low"
         notes = "terminal_speed_below_recoverability_threshold"
     elif np.nanmax(np.abs(np.rad2deg(beta))) > 35.0:
@@ -523,6 +929,24 @@ def metrics_for_candidate(
         notes = "simulation_boundary_candidate"
     if failure_label not in FAILURE_LABELS:
         raise ValueError(f"unknown failure label: {failure_label}")
+    if not true_safe:
+        active_tradeoff = "safety_volume_limited"
+    elif is_30deg and heading_success and float(speed[-1]) < RELAXED_TERMINAL_SPEED_M_S:
+        active_tradeoff = (
+            "high_alpha_drag_limited"
+            if np.nanmax(np.abs(np.rad2deg(alpha))) > 70.0
+            else "energy_budget_limited"
+        )
+    elif is_30deg and heading_success and not combined_30deg_recoverable:
+        active_tradeoff = "recovery_handoff_limited"
+    elif heading_success and not energy_success_strict:
+        active_tradeoff = "energy_budget_limited"
+    elif not heading_success and energy_success_strict:
+        active_tradeoff = "turn_authority_limited"
+    elif failure_label == "solver_failure":
+        active_tradeoff = "solver_formulation_limited"
+    else:
+        active_tradeoff = limiting_mechanism(failure_label)
     return {
         "target_heading_deg": float(config.target_heading_deg),
         "actual_heading_change_deg": float(actual_heading),
@@ -553,6 +977,17 @@ def metrics_for_candidate(
         "failure_label": failure_label,
         "notes": notes,
         "energy_exploitation": energy_exploitation,
+        "heading_success": heading_success,
+        "energy_success_strict": energy_success_strict,
+        "energy_success_relaxed": energy_success_relaxed,
+        "strict_30deg_primitive_success": primitive_success if is_30deg else False,
+        "relaxed_recovery_required": relaxed_recovery_required,
+        "recovery_extension_success": recovery_extension_success,
+        "combined_30deg_recoverable": combined_30deg_recoverable,
+        "updraft_assisted_boundary_evidence": False,
+        "active_tradeoff": active_tradeoff,
+        **energy_audit,
+        **shape_audit,
     }
 
 
@@ -574,7 +1009,15 @@ def _result_from_replay(
         aircraft,
     )
     phase = phase_labels_for_family(family_name, time_s, config.t_final_s)
-    metrics = metrics_for_candidate(config, time_s, x_log, u_requested, u_applied, phase)
+    metrics = metrics_for_candidate(
+        config,
+        time_s,
+        x_log,
+        u_requested,
+        u_applied,
+        phase,
+        aircraft,
+    )
     result = AggressiveReversalOcpResult(
         target_heading_deg=float(config.target_heading_deg),
         direction_sign=int(config.direction_sign),
@@ -602,12 +1045,17 @@ def _result_from_replay(
 # =============================================================================
 # 4) Guided Search and Direct OCP Attempts
 # =============================================================================
-def _score_candidate(candidate: CandidateResult) -> tuple[int, int, float, float, float]:
+def _score_candidate(candidate: CandidateResult) -> tuple[int, int, int, int, int, float, float, float, float]:
     metrics = candidate.result.metrics
+    shape_class = str(metrics.get("manoeuvre_shape_class", ""))
     return (
         int(bool(metrics["success"])),
+        int(bool(metrics.get("relaxed_recovery_required", False))),
+        int(bool(metrics.get("combined_30deg_recoverable", False))),
         int(bool(metrics["recoverable"])),
+        int(shape_class == "dive_perch_turn_recover"),
         float(metrics["actual_heading_change_deg"]),
+        float(metrics.get("specific_energy_terminal_m", -np.inf)),
         float(metrics["terminal_speed_m_s"]),
         -float(metrics["saturation_fraction"]),
     )
@@ -719,6 +1167,64 @@ def direct_multiple_shooting_attempt(
         objective += 25.0 * (heading_progress - target_rad) ** 2
         objective += 5.0 * ca.fmax(5.0 - terminal_speed, 0.0) ** 2
         objective += 0.1 * ca.sumsqr(x_var[9:12, -1])
+        if np.isclose(float(config.target_heading_deg), 30.0, atol=1e-9):
+            labels = phase_labels_for_family(
+                seed.family_name,
+                seed_time,
+                float(seed_time[-1]),
+            )
+            speed_nodes = [
+                ca.sqrt(ca.sumsqr(x_var[6:9, node]) + 1e-12)
+                for node in range(node_count + 1)
+            ]
+            energy_nodes = [
+                x_var[STATE_INDEX["z_w"], node] + ca.sumsqr(x_var[6:9, node]) / (2.0 * G_M_S2)
+                for node in range(node_count + 1)
+            ]
+            pitch_indices = [
+                index for index, label in enumerate(labels) if label == "pitch_brake"
+            ]
+            redirect_indices = [
+                index for index, label in enumerate(labels) if label == "slow_redirect"
+            ]
+            unload_indices = [
+                index
+                for index, label in enumerate(labels)
+                if label in {"unload_descend", "exit_glide"}
+            ]
+            if pitch_indices:
+                pre_index = max(0, pitch_indices[0] - 1)
+                pitch_stop = pitch_indices[-1]
+                pitch_energy_drop = energy_nodes[pre_index] - energy_nodes[pitch_stop]
+                objective += 2.0 * ca.fmax(float(config.speed_m_s) - speed_nodes[pre_index], 0.0) ** 2
+                objective += 4.0 * ca.fmax(pitch_energy_drop - 1.0, 0.0) ** 2
+                objective += 2.0 * ca.fmax(4.0 - speed_nodes[pitch_stop], 0.0) ** 2
+            for index in redirect_indices:
+                objective += 1.5 * ca.fmax(4.0 - speed_nodes[index], 0.0) ** 2
+            if redirect_indices:
+                redirect_stop = redirect_indices[-1]
+                redirect_heading = int(config.direction_sign) * (
+                    x_var[STATE_INDEX["psi"], redirect_stop] - x_var[STATE_INDEX["psi"], 0]
+                )
+                objective += 8.0 * ca.fmax(0.7 * target_rad - redirect_heading, 0.0) ** 2
+                objective += 4.0 * ca.fmax(redirect_heading - 1.15 * target_rad, 0.0) ** 2
+            if unload_indices:
+                unload_start = unload_indices[0]
+                unload_stop = unload_indices[-1]
+                unload_descent = (
+                    x_var[STATE_INDEX["z_w"], unload_start]
+                    - x_var[STATE_INDEX["z_w"], unload_stop]
+                )
+                unload_speed_gain = speed_nodes[unload_stop] - speed_nodes[unload_start]
+                objective += 14.0 * ca.fmax(
+                    UNLOAD_EXIT_DESCENT_REQUIRED_M - unload_descent,
+                    0.0,
+                ) ** 2
+                objective += 14.0 * ca.fmax(
+                    UNLOAD_EXIT_SPEED_GAIN_REQUIRED_M_S - unload_speed_gain,
+                    0.0,
+                ) ** 2
+                objective += 3.0 * ca.fmax(5.0 - speed_nodes[unload_stop], 0.0) ** 2
         opti.minimize(objective)
         opti.set_initial(x_var, seed_state.T)
         opti.set_initial(u_var, seed_command.T)
@@ -749,7 +1255,15 @@ def direct_multiple_shooting_attempt(
         command_rad = np.vstack([normalised_command_to_surface_rad(row) for row in u_nodes])
         replay_defect_max = _replay_defect(x_nodes, command_rad, seed_time, config, aircraft)
         phase = phase_labels_for_family(seed.family_name, seed_time, float(seed_time[-1]))
-        metrics = metrics_for_candidate(config, seed_time, x_nodes, u_nodes, np.clip(u_nodes, -1.0, 1.0), phase)
+        metrics = metrics_for_candidate(
+            config,
+            seed_time,
+            x_nodes,
+            u_nodes,
+            np.clip(u_nodes, -1.0, 1.0),
+            phase,
+            aircraft,
+        )
         if replay_defect_max > REPLAY_DEFECT_TOL:
             metrics["success"] = False
             metrics["primitive_success"] = False
@@ -791,6 +1305,7 @@ def direct_multiple_shooting_attempt(
             limiting_mechanism=limiting_mechanism(str(metrics["failure_label"])),
         )
     except Exception as exc:
+        solver_status = f"solver_exception:{type(exc).__name__}"
         metrics = dict(seed.result.metrics)
         metrics["success"] = False
         metrics["primitive_success"] = False
@@ -858,6 +1373,13 @@ def checkpoint_candidate(
     candidate_dir = Path(config.candidate_log_dir or checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     candidate_dir.mkdir(parents=True, exist_ok=True)
+    run_root = checkpoint_dir.parent.parent if checkpoint_dir.parent.name == "logs" else checkpoint_dir.parent
+    def _checkpoint_relative(path: Path) -> str:
+        try:
+            return path.resolve().relative_to(run_root.resolve()).as_posix()
+        except ValueError:
+            return path.name
+
     target_token = f"{int(round(config.target_heading_deg)):0{TARGET_TOKEN_WIDTH}d}"
     stem = f"target_{target_token}_{label}_{candidate.attempt_index:03d}_{config.run_id}"
     trajectory_path = candidate_dir / f"{stem}_trajectory.csv"
@@ -908,6 +1430,39 @@ def checkpoint_candidate(
         "primitive_success": bool(candidate.result.metrics["primitive_success"]),
         "actual_heading_change_deg": float(candidate.result.metrics["actual_heading_change_deg"]),
         "terminal_speed_m_s": float(candidate.result.metrics["terminal_speed_m_s"]),
+        "specific_energy_initial_m": _json_float(
+            candidate.result.metrics.get("specific_energy_initial_m", np.nan)
+        ),
+        "specific_energy_terminal_m": _json_float(
+            candidate.result.metrics.get("specific_energy_terminal_m", np.nan)
+        ),
+        "specific_energy_lost_m": _json_float(
+            candidate.result.metrics.get("specific_energy_lost_m", np.nan)
+        ),
+        "ideal_descent_to_5ms_m": _json_float(
+            candidate.result.metrics.get("ideal_descent_to_5ms_m", np.nan)
+        ),
+        "initial_dive_or_speed_build": bool(
+            candidate.result.metrics.get("initial_dive_or_speed_build", False)
+        ),
+        "perch_up_energy_trade": bool(
+            candidate.result.metrics.get("perch_up_energy_trade", False)
+        ),
+        "slow_redirect_heading_gain": bool(
+            candidate.result.metrics.get("slow_redirect_heading_gain", False)
+        ),
+        "unload_descent": bool(candidate.result.metrics.get("unload_descent", False)),
+        "unload_speed_gain": bool(candidate.result.metrics.get("unload_speed_gain", False)),
+        "unload_exit_descent_m": _json_float(
+            candidate.result.metrics.get("unload_exit_descent_m", np.nan)
+        ),
+        "unload_exit_speed_gain_m_s": _json_float(
+            candidate.result.metrics.get("unload_exit_speed_gain_m_s", np.nan)
+        ),
+        "manoeuvre_shape_class": str(
+            candidate.result.metrics.get("manoeuvre_shape_class", "")
+        ),
+        "active_tradeoff": str(candidate.result.metrics.get("active_tradeoff", "")),
         "nlp_constructed": bool(candidate.nlp_constructed),
         "ipopt_called": bool(candidate.ipopt_called),
         "solver_status": candidate.solver_status,
@@ -918,8 +1473,8 @@ def checkpoint_candidate(
         "direct_ocp_attempted": bool(candidate.direct_ocp_attempted),
         "direct_ocp_converged": bool(candidate.direct_ocp_converged),
         "limiting_mechanism": candidate.limiting_mechanism,
-        "trajectory_csv": trajectory_path.as_posix(),
-        "commands_csv": command_path.as_posix(),
+        "trajectory_csv": _checkpoint_relative(trajectory_path),
+        "commands_csv": _checkpoint_relative(command_path),
     }
     checkpoint_path = checkpoint_dir / f"{stem}.json"
     checkpoint_path.write_text(
@@ -927,9 +1482,9 @@ def checkpoint_candidate(
         encoding="ascii",
     )
     return {
-        "checkpoint_json": checkpoint_path.as_posix(),
-        "trajectory_csv": trajectory_path.as_posix(),
-        "commands_csv": command_path.as_posix(),
+        "checkpoint_json": _checkpoint_relative(checkpoint_path),
+        "trajectory_csv": _checkpoint_relative(trajectory_path),
+        "commands_csv": _checkpoint_relative(command_path),
     }
 
 
@@ -943,7 +1498,7 @@ def guided_phase_search(
     time_s = _time_grid(config)
     candidates: list[CandidateResult] = []
     attempt_index = 0
-    for family_name in seed_family_inventory():
+    for family_name in seed_family_inventory_for_target(config.target_heading_deg):
         for scale in config.phase_search_scales:
             command = phase_seed_command_profile(config, time_s, family_name, scale)
             candidate = _result_from_replay(
@@ -973,6 +1528,55 @@ def _best_by(candidates: list[CandidateResult], key: str) -> CandidateResult | N
     if not filtered:
         return None
     return max(filtered, key=_score_candidate)
+
+
+def _unique_candidates(candidates: list[CandidateResult]) -> list[CandidateResult]:
+    unique: list[CandidateResult] = []
+    seen: set[tuple[str, str, int]] = set()
+    for candidate in candidates:
+        marker = (candidate.method, candidate.family_name, candidate.attempt_index)
+        if marker in seen:
+            continue
+        unique.append(candidate)
+        seen.add(marker)
+    return unique
+
+
+def _ocp_seed_candidates(
+    candidates: list[CandidateResult],
+    config: AggressiveReversalOcpConfig,
+) -> list[CandidateResult]:
+    if not candidates:
+        return []
+    if not np.isclose(float(config.target_heading_deg), 30.0, atol=1e-9):
+        return [_select_candidate(candidates)]
+    best_heading = max(
+        candidates,
+        key=lambda candidate: float(
+            candidate.result.metrics.get("actual_heading_change_deg", -np.inf)
+        ),
+    )
+    best_energy = max(
+        candidates,
+        key=lambda candidate: float(
+            candidate.result.metrics.get("specific_energy_terminal_m", -np.inf)
+        ),
+    )
+    best_recoverability = max(
+        candidates,
+        key=lambda candidate: (
+            int(bool(candidate.result.metrics.get("combined_30deg_recoverable", False))),
+            int(bool(candidate.result.metrics.get("recoverable", False))),
+            float(candidate.result.metrics.get("recoverable_speed_by_z08_m_s", -np.inf)),
+            float(candidate.result.metrics.get("terminal_speed_m_s", -np.inf)),
+        ),
+    )
+    selected = _unique_candidates([best_heading, best_energy, best_recoverability])
+    for candidate in sorted(candidates, key=_score_candidate, reverse=True):
+        if len(selected) >= min(3, len(candidates)):
+            break
+        selected = _unique_candidates([*selected, candidate])
+    return selected
 
 
 # =============================================================================
@@ -1011,15 +1615,15 @@ def solve_aggressive_reversal_ocp(
         checkpoint_candidate(followup, config, "phase_followup")
         candidates.append(followup)
     if config.use_nonlinear_ocp:
-        best_for_ocp = _select_candidate(candidates)
-        ocp_candidate = direct_multiple_shooting_attempt(
-            best_for_ocp,
-            config,
-            aircraft_model,
-            len(candidates),
-        )
-        checkpoint_candidate(ocp_candidate, config, "direct_ocp")
-        candidates.append(ocp_candidate)
+        for ocp_seed in _ocp_seed_candidates(candidates, config):
+            ocp_candidate = direct_multiple_shooting_attempt(
+                ocp_seed,
+                config,
+                aircraft_model,
+                len(candidates),
+            )
+            checkpoint_candidate(ocp_candidate, config, "direct_ocp")
+            candidates.append(ocp_candidate)
     selected = _select_candidate(candidates)
     ocp_candidates = [
         candidate for candidate in candidates if candidate.method == "direct_ocp"
@@ -1030,11 +1634,15 @@ def solve_aggressive_reversal_ocp(
     successful_best = _best_by(candidates, "success")
     selected.result.metrics.update(
         {
-            "families_attempted": ";".join(seed_family_inventory()),
+            "families_attempted": ";".join(
+                seed_family_inventory_for_target(config.target_heading_deg)
+            ),
             "selected_family": selected.family_name,
             "selected_method": selected.method,
             "next_family_reason": reason,
-            "limiting_mechanism": selected.limiting_mechanism,
+            "limiting_mechanism": str(
+                selected.result.metrics.get("active_tradeoff", selected.limiting_mechanism)
+            ),
             "best_finite_candidate": finite_best.family_name if finite_best else "",
             "best_recoverable_candidate": recoverable_best.family_name if recoverable_best else "",
             "best_successful_candidate": successful_best.family_name if successful_best else "",

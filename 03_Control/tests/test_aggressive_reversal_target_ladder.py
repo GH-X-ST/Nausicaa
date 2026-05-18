@@ -10,6 +10,7 @@ import pytest
 from aggressive_reversal_ocp import (
     SEED_FAMILIES,
     AggressiveReversalOcpResult,
+    seed_family_inventory_for_target,
 )
 from run_aggressive_reversal_search import DEFAULT_TARGETS_DEG, run_search
 
@@ -114,7 +115,8 @@ def test_full_ladder_records_all_targets_and_seed_families(
 
     assert list(summary["target_heading_deg"]) == list(DEFAULT_TARGETS_DEG)
     for _, row in summary.iterrows():
-        assert set(row["families_attempted"].split(";")) == set(SEED_FAMILIES)
+        expected_families = seed_family_inventory_for_target(float(row["target_heading_deg"]))
+        assert set(row["families_attempted"].split(";")) == set(expected_families)
         assert row["selected_family"] in SEED_FAMILIES
         assert bool(row["phase_search_attempted"]) is True
         assert bool(row["direct_ocp_attempted"]) is True
@@ -127,6 +129,12 @@ def test_full_ladder_records_all_targets_and_seed_families(
             "model_boundary_behaviour",
             "insufficient_manoeuvre_seed",
             "physical_boundary",
+            "energy_budget_limited",
+            "high_alpha_drag_limited",
+            "recovery_handoff_limited",
+            "turn_authority_limited",
+            "safety_volume_limited",
+            "solver_formulation_limited",
         }
 
 

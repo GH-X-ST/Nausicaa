@@ -7,11 +7,14 @@ import numpy as np
 import pytest
 
 from aggressive_reversal_ocp import (
+    BASE_SEED_FAMILIES,
     SEED_FAMILIES,
+    THIRTY_DEG_SEED_FAMILIES,
     AggressiveReversalOcpConfig,
     next_family_for_failure,
     phase_labels_for_family,
     phase_seed_command_profile,
+    seed_family_inventory_for_target,
     target_config,
     unwrapped_signed_heading_change_deg,
 )
@@ -25,13 +28,21 @@ def test_seed_families_exist_and_profiles_are_bounded() -> None:
     config = target_config(60.0)
     time_s = _time_grid(config)
 
-    assert set(SEED_FAMILIES) == {
+    assert set(BASE_SEED_FAMILIES) == {
         "short_perch_yaw_redirect",
         "long_perch_slow_redirect",
         "roll_dominant_banked_redirect",
         "split_pulse_redirect",
         "early_unload_descend_capture",
     }
+    assert set(THIRTY_DEG_SEED_FAMILIES) == {
+        "dive_perch_redirect_30",
+        "reduced_perch_redirect_30",
+        "bank_yaw_redirect_30",
+        "early_unload_recovery_30",
+    }
+    assert seed_family_inventory_for_target(30.0) == SEED_FAMILIES
+    assert seed_family_inventory_for_target(60.0) == BASE_SEED_FAMILIES
     for family_name in SEED_FAMILIES:
         command = phase_seed_command_profile(config, time_s, family_name)
         phase = phase_labels_for_family(family_name, time_s, config.t_final_s)
@@ -47,6 +58,7 @@ def test_seed_families_exist_and_profiles_are_bounded() -> None:
                 "heading_capture",
                 "unload_descend",
                 "exit_glide",
+                "pre_dive_accelerate",
             }
         )
         assert "pitch_brake" in phase
@@ -87,6 +99,12 @@ def test_turn_direction_flips_aileron_and_rudder_not_elevator() -> None:
             "speed_low",
             "long_perch_slow_redirect",
             "early_unload_descend_capture",
+            "speed_low_earlier_unload",
+        ),
+        (
+            "speed_low",
+            "dive_perch_redirect_30",
+            "early_unload_recovery_30",
             "speed_low_earlier_unload",
         ),
         (

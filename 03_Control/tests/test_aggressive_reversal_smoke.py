@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from aggressive_reversal_ocp import AGGRESSIVE_CAMPAIGN, SEED_FAMILIES
+from aggressive_reversal_ocp import AGGRESSIVE_CAMPAIGN, BASE_SEED_FAMILIES, SEED_FAMILIES
 from run_aggressive_reversal_search import run_search
 
 
@@ -38,6 +38,7 @@ def test_aggressive_runner_writes_core_outputs(aggressive_one_target_outputs) ->
         root / "metrics" / "aggressive_reversal_target_015_trajectory_s001.csv",
         root / "metrics" / "aggressive_reversal_target_015_commands_s001.csv",
         root / "metrics" / "aggressive_reversal_target_015_metrics_s001.csv",
+        root / "metrics" / "aggressive_reversal_target_015_phase_audit_s001.csv",
         root / "manifests" / "aggressive_reversal_manifest_s001.json",
         root / "reports" / "aggressive_reversal_report_s001.md",
     )
@@ -76,7 +77,7 @@ def test_aggressive_summary_records_family_and_direct_ocp_attempt(
 
     assert row["run_id"] == "s001"
     assert row["target_heading_deg"] == 15.0
-    assert set(row["families_attempted"].split(";")) == set(SEED_FAMILIES)
+    assert set(row["families_attempted"].split(";")) == set(BASE_SEED_FAMILIES)
     assert row["selected_family"] in SEED_FAMILIES
     assert row["selected_method"] in {
         "phase_search",

@@ -23,11 +23,17 @@ for path in (INNER_LOOP_DIR, PRIMITIVES_DIR, SCENARIOS_DIR):
 
 from aggressive_reversal_ocp import (
     AGGRESSIVE_CAMPAIGN,
+    RELAXED_TERMINAL_SPEED_M_S,
     REPLAY_DEFECT_TOL,
     SEED_FAMILIES,
+    STRICT_30_HEADING_DEG,
+    STRICT_TERMINAL_SPEED_M_S,
     AggressiveReversalOcpConfig,
     AggressiveReversalOcpResult,
+    energy_audit_for_trajectory,
     limiting_mechanism,
+    phase_audit_timeseries,
+    phase_labels_for_family,
     solve_aggressive_reversal_ocp,
     target_config,
 )
@@ -36,6 +42,7 @@ from glider import build_nausicaa_glider
 from logging_contract import command_dataframe, trajectory_dataframe
 from metric_contract import empty_metric_row
 from result_paths import make_result_tree
+from state_contract import STATE_NAMES
 
 
 # =============================================================================
@@ -59,11 +66,12 @@ VALIDATION_COMMANDS = (
     "03_Control/03_Primitives/aggressive_reversal_primitive.py "
     "03_Control/04_Scenarios/run_aggressive_reversal_search.py",
     "python 03_Control/04_Scenarios/run_aggressive_reversal_search.py "
-    "--run-id 1 --overwrite",
+    "--targets 30 --run-id 2 --overwrite --ocp-node-count 8 "
+    "--max-ipopt-iter 300 --ocp-max-cpu-time-s 30",
     "python -m pytest -q "
     "03_Control/tests/test_aggressive_reversal_shapes.py "
     "03_Control/tests/test_aggressive_reversal_smoke.py "
-    "03_Control/tests/test_aggressive_reversal_target_ladder.py",
+    "03_Control/tests/test_aggressive_reversal_30deg_energy.py",
     "python -m pytest -q 03_Control/tests",
 )
 
@@ -141,6 +149,60 @@ def _target_metric_row(
             "source_trajectory_success": bool(metrics.get("source_trajectory_success", False)),
             "gain_construction_success": bool(metrics.get("phase_search_attempted", False)),
             "saturation_time_s": float(metrics.get("saturation_time_s", np.nan)),
+            "heading_success": bool(metrics.get("heading_success", False)),
+            "energy_success_strict": bool(metrics.get("energy_success_strict", False)),
+            "energy_success_relaxed": bool(metrics.get("energy_success_relaxed", False)),
+            "strict_30deg_primitive_success": bool(
+                metrics.get("strict_30deg_primitive_success", False)
+            ),
+            "relaxed_recovery_required": bool(
+                metrics.get("relaxed_recovery_required", False)
+            ),
+            "recovery_extension_success": bool(
+                metrics.get("recovery_extension_success", False)
+            ),
+            "combined_30deg_recoverable": bool(
+                metrics.get("combined_30deg_recoverable", False)
+            ),
+            "updraft_assisted_boundary_evidence": bool(
+                metrics.get("updraft_assisted_boundary_evidence", False)
+            ),
+            "active_tradeoff": str(metrics.get("active_tradeoff", "")),
+            "manoeuvre_shape_class": str(metrics.get("manoeuvre_shape_class", "")),
+            "initial_dive_or_speed_build": bool(
+                metrics.get("initial_dive_or_speed_build", False)
+            ),
+            "perch_up_energy_trade": bool(metrics.get("perch_up_energy_trade", False)),
+            "slow_redirect_heading_gain": bool(
+                metrics.get("slow_redirect_heading_gain", False)
+            ),
+            "unload_descent": bool(metrics.get("unload_descent", False)),
+            "unload_speed_gain": bool(metrics.get("unload_speed_gain", False)),
+            "exit_glide_or_recovery_compatible": bool(
+                metrics.get("exit_glide_or_recovery_compatible", False)
+            ),
+            "unload_exit_descent_m": float(metrics.get("unload_exit_descent_m", np.nan)),
+            "unload_exit_speed_gain_m_s": float(
+                metrics.get("unload_exit_speed_gain_m_s", np.nan)
+            ),
+            "specific_energy_initial_m": float(
+                metrics.get("specific_energy_initial_m", np.nan)
+            ),
+            "specific_energy_terminal_m": float(
+                metrics.get("specific_energy_terminal_m", np.nan)
+            ),
+            "specific_energy_lost_m": float(metrics.get("specific_energy_lost_m", np.nan)),
+            "ideal_descent_to_4ms_m": float(metrics.get("ideal_descent_to_4ms_m", np.nan)),
+            "ideal_descent_to_5ms_m": float(metrics.get("ideal_descent_to_5ms_m", np.nan)),
+            "available_descent_to_true_floor_m": float(
+                metrics.get("available_descent_to_true_floor_m", np.nan)
+            ),
+            "recoverable_speed_by_floor_m_s": float(
+                metrics.get("recoverable_speed_by_floor_m_s", np.nan)
+            ),
+            "recoverable_speed_by_z08_m_s": float(
+                metrics.get("recoverable_speed_by_z08_m_s", np.nan)
+            ),
         }
     )
     return row
@@ -152,6 +214,7 @@ def _summary_row(
     trajectory_path: Path,
     command_path: Path,
     metric_path: Path,
+    phase_audit_path: Path,
 ) -> dict[str, object]:
     metrics = result.metrics
     return {
@@ -190,9 +253,64 @@ def _summary_row(
         "replay_finite": bool(metrics.get("replay_finite", False)),
         "recoverable": bool(metrics.get("recoverable", False)),
         "energy_exploitation": bool(metrics.get("energy_exploitation", False)),
+        "heading_success": bool(metrics.get("heading_success", False)),
+        "energy_success_strict": bool(metrics.get("energy_success_strict", False)),
+        "energy_success_relaxed": bool(metrics.get("energy_success_relaxed", False)),
+        "strict_30deg_primitive_success": bool(
+            metrics.get("strict_30deg_primitive_success", False)
+        ),
+        "relaxed_recovery_required": bool(
+            metrics.get("relaxed_recovery_required", False)
+        ),
+        "recovery_extension_success": bool(
+            metrics.get("recovery_extension_success", False)
+        ),
+        "combined_30deg_recoverable": bool(
+            metrics.get("combined_30deg_recoverable", False)
+        ),
+        "updraft_assisted_boundary_evidence": bool(
+            metrics.get("updraft_assisted_boundary_evidence", False)
+        ),
+        "active_tradeoff": str(metrics.get("active_tradeoff", "")),
+        "manoeuvre_shape_class": str(metrics.get("manoeuvre_shape_class", "")),
+        "initial_dive_or_speed_build": bool(
+            metrics.get("initial_dive_or_speed_build", False)
+        ),
+        "perch_up_energy_trade": bool(metrics.get("perch_up_energy_trade", False)),
+        "slow_redirect_heading_gain": bool(
+            metrics.get("slow_redirect_heading_gain", False)
+        ),
+        "unload_descent": bool(metrics.get("unload_descent", False)),
+        "unload_speed_gain": bool(metrics.get("unload_speed_gain", False)),
+        "exit_glide_or_recovery_compatible": bool(
+            metrics.get("exit_glide_or_recovery_compatible", False)
+        ),
+        "unload_exit_descent_m": float(metrics.get("unload_exit_descent_m", np.nan)),
+        "unload_exit_speed_gain_m_s": float(
+            metrics.get("unload_exit_speed_gain_m_s", np.nan)
+        ),
+        "specific_energy_initial_m": float(
+            metrics.get("specific_energy_initial_m", np.nan)
+        ),
+        "specific_energy_terminal_m": float(
+            metrics.get("specific_energy_terminal_m", np.nan)
+        ),
+        "specific_energy_lost_m": float(metrics.get("specific_energy_lost_m", np.nan)),
+        "ideal_descent_to_4ms_m": float(metrics.get("ideal_descent_to_4ms_m", np.nan)),
+        "ideal_descent_to_5ms_m": float(metrics.get("ideal_descent_to_5ms_m", np.nan)),
+        "available_descent_to_true_floor_m": float(
+            metrics.get("available_descent_to_true_floor_m", np.nan)
+        ),
+        "recoverable_speed_by_floor_m_s": float(
+            metrics.get("recoverable_speed_by_floor_m_s", np.nan)
+        ),
+        "recoverable_speed_by_z08_m_s": float(
+            metrics.get("recoverable_speed_by_z08_m_s", np.nan)
+        ),
         "trajectory_csv": _repo_relative(trajectory_path),
         "commands_csv": _repo_relative(command_path),
         "metrics_csv": _repo_relative(metric_path),
+        "phase_audit_csv": _repo_relative(phase_audit_path),
     }
 
 
@@ -294,6 +412,9 @@ def _write_target_outputs(
     metric_path = (
         paths["metrics"] / f"aggressive_reversal_target_{token}_metrics_{suffix}.csv"
     )
+    phase_audit_path = (
+        paths["metrics"] / f"aggressive_reversal_target_{token}_phase_audit_{suffix}.csv"
+    )
     trajectory_dataframe(result.time_s, result.x_ref).to_csv(trajectory_path, index=False)
     command_dataframe(
         result.time_s,
@@ -302,10 +423,25 @@ def _write_target_outputs(
         result.delta_cmd_rad,
     ).to_csv(command_path, index=False)
     pd.DataFrame([_target_metric_row(result, run_id)]).to_csv(metric_path, index=False)
+    audit_config = AggressiveReversalOcpConfig(
+        target_heading_deg=float(result.target_heading_deg),
+        direction_sign=int(result.direction_sign),
+        dt_s=float(result.time_s[1] - result.time_s[0]) if result.time_s.size > 1 else 0.02,
+        t_final_s=float(result.time_s[-1] - result.time_s[0]),
+    )
+    pd.DataFrame(
+        phase_audit_timeseries(
+            audit_config,
+            result.time_s,
+            result.x_ref,
+            result.phase,
+        )
+    ).to_csv(phase_audit_path, index=False)
     return {
         "trajectory_csv": trajectory_path,
         "commands_csv": command_path,
         "metrics_csv": metric_path,
+        "phase_audit_csv": phase_audit_path,
     }
 
 
@@ -345,6 +481,35 @@ def _manifest(
             "direct_ocp_converged": bool(row["direct_ocp_converged"]),
             "replay_finite": bool(row["replay_finite"]),
             "recoverable": bool(row["recoverable"]),
+            "heading_success": bool(row.get("heading_success", False)),
+            "energy_success_strict": bool(row.get("energy_success_strict", False)),
+            "energy_success_relaxed": bool(row.get("energy_success_relaxed", False)),
+            "strict_30deg_primitive_success": bool(
+                row.get("strict_30deg_primitive_success", False)
+            ),
+            "relaxed_recovery_required": bool(
+                row.get("relaxed_recovery_required", False)
+            ),
+            "combined_30deg_recoverable": bool(
+                row.get("combined_30deg_recoverable", False)
+            ),
+            "updraft_assisted_boundary_evidence": bool(
+                row.get("updraft_assisted_boundary_evidence", False)
+            ),
+            "active_tradeoff": str(row.get("active_tradeoff", "")),
+            "manoeuvre_shape_class": str(row.get("manoeuvre_shape_class", "")),
+            "unload_exit_descent_m": _json_float(
+                row.get("unload_exit_descent_m", np.nan)
+            ),
+            "unload_exit_speed_gain_m_s": _json_float(
+                row.get("unload_exit_speed_gain_m_s", np.nan)
+            ),
+            "specific_energy_lost_m": _json_float(
+                row.get("specific_energy_lost_m", np.nan)
+            ),
+            "ideal_descent_to_5ms_m": _json_float(
+                row.get("ideal_descent_to_5ms_m", np.nan)
+            ),
         }
         for row in rows
     }
@@ -368,6 +533,15 @@ def _manifest(
         "largest_recoverable_target_deg": _largest_true(rows, "recoverable"),
         "largest_successful_target_deg": _largest_true(rows, "success"),
         "seed_families": list(SEED_FAMILIES),
+        "thirty_degree_physics_first_refinement_only": bool(
+            tuple(float(value) for value in requested_targets) == (30.0,)
+        ),
+        "strict_w0_primitive_success_kept_separate": True,
+        "relaxed_recovery_required_kept_separate": True,
+        "updraft_assisted_boundary_evidence_kept_separate": True,
+        "strict_30deg_heading_threshold_deg": STRICT_30_HEADING_DEG,
+        "strict_terminal_speed_m_s": STRICT_TERMINAL_SPEED_M_S,
+        "relaxed_terminal_speed_m_s": RELAXED_TERMINAL_SPEED_M_S,
         "replay_defect_tolerance": REPLAY_DEFECT_TOL,
         "actual_agile_reversal_primitive_implemented": any_finite,
         "primitive_implemented": any_finite,
@@ -435,6 +609,42 @@ def _write_report(
             f"{row['success']} | "
             f"{row['failure_label']} | "
             f"{row['limiting_mechanism']} |"
+        )
+    thirty_rows = [
+        row
+        for row in rows
+        if np.isclose(float(row["target_heading_deg"]), 30.0, atol=1e-9)
+    ]
+    if thirty_rows:
+        row = thirty_rows[0]
+        if bool(row.get("strict_30deg_primitive_success", False)):
+            classification = "true dive/perch/turn/recover primitive evidence"
+        elif bool(row.get("relaxed_recovery_required", False)):
+            classification = "relaxed recovery-required evidence"
+        elif str(row.get("manoeuvre_shape_class", "")) == "speed_collapse_pitch_redirect":
+            classification = "speed-collapse pitch-up redirect"
+        else:
+            classification = str(row.get("active_tradeoff", "physically limited W0 boundary"))
+        lines.extend(
+            [
+                "",
+                "## 30 Deg Physics-First Audit",
+                "",
+                f"- Manoeuvre classification: `{classification}`",
+                f"- Shape class: `{row.get('manoeuvre_shape_class', '')}`",
+                f"- Active tradeoff: `{row.get('active_tradeoff', '')}`",
+                f"- Strict W0 primitive success: `{row.get('strict_30deg_primitive_success', False)}`",
+                f"- Relaxed recovery-required evidence: `{row.get('relaxed_recovery_required', False)}`",
+                f"- Updraft-assisted boundary evidence: `{row.get('updraft_assisted_boundary_evidence', False)}`",
+                f"- Unload/exit descent: `{row.get('unload_exit_descent_m', '')}` m",
+                f"- Unload/exit speed gain: `{row.get('unload_exit_speed_gain_m_s', '')}` m/s",
+                f"- Specific energy lost: `{row.get('specific_energy_lost_m', '')}` m",
+                f"- Ideal descent to regain 5 m/s: `{row.get('ideal_descent_to_5ms_m', '')}` m",
+                "",
+                "Run 002 does not attempt targets larger than 30 deg when invoked with",
+                "`--targets 30`; larger targets require a later pass after this",
+                "physics-first classification is reviewed.",
+            ]
         )
     lines.extend(
         [
@@ -507,6 +717,71 @@ def _load_existing_summary(summary_path: Path) -> list[dict[str, object]]:
     return pd.read_csv(summary_path).to_dict(orient="records")
 
 
+def _write_baseline_30deg_audit(
+    paths: dict[str, Path],
+    run_id: int,
+) -> dict[str, Path]:
+    baseline_root = DEFAULT_RESULTS_ROOT / AGGRESSIVE_CAMPAIGN / "001"
+    trajectory_path = (
+        baseline_root / "metrics" / "aggressive_reversal_target_030_trajectory_s001.csv"
+    )
+    summary_path = baseline_root / "metrics" / "aggressive_reversal_target_summary_s001.csv"
+    if not trajectory_path.exists():
+        return {}
+    suffix = _suffix(run_id)
+    trajectory = pd.read_csv(trajectory_path)
+    state_columns = [name for name in STATE_NAMES if name in trajectory.columns]
+    if len(state_columns) != len(STATE_NAMES):
+        return {}
+    time_s = trajectory["time_s"].to_numpy(dtype=float)
+    x_log = trajectory[state_columns].to_numpy(dtype=float)
+    family_name = "long_perch_slow_redirect"
+    if summary_path.exists():
+        summary = pd.read_csv(summary_path)
+        row = summary[summary["target_heading_deg"].astype(float) == 30.0]
+        if not row.empty and "selected_family" in row.columns:
+            family_name = str(row.iloc[0]["selected_family"])
+    phase = phase_labels_for_family(family_name, time_s, float(time_s[-1]))
+    audit_config = AggressiveReversalOcpConfig(
+        target_heading_deg=30.0,
+        dt_s=float(time_s[1] - time_s[0]) if time_s.size > 1 else 0.02,
+        t_final_s=float(time_s[-1] - time_s[0]),
+    )
+    energy_row = energy_audit_for_trajectory(x_log, phase)
+    energy_row.update(
+        {
+            "run_id": suffix,
+            "source_run_id": "s001",
+            "source_target_heading_deg": 30.0,
+            "source_selected_family": family_name,
+            "source_trajectory_csv": _repo_relative(trajectory_path),
+            "physical_recovery_plausible_w0": bool(
+                energy_row["recoverable_speed_by_z08_m_s"] >= STRICT_TERMINAL_SPEED_M_S
+            ),
+            "note": (
+                "Baseline 001 energy-feasibility note for 30 deg before "
+                "run 002 physics-first refinement."
+            ),
+        }
+    )
+    energy_path = (
+        paths["metrics"]
+        / f"aggressive_reversal_030_baseline_001_energy_feasibility_{suffix}.csv"
+    )
+    phase_path = (
+        paths["metrics"]
+        / f"aggressive_reversal_030_baseline_001_phase_audit_{suffix}.csv"
+    )
+    pd.DataFrame([energy_row]).to_csv(energy_path, index=False)
+    pd.DataFrame(
+        phase_audit_timeseries(audit_config, time_s, x_log, phase)
+    ).to_csv(phase_path, index=False)
+    return {
+        "baseline_001_30deg_energy_csv": energy_path,
+        "baseline_001_30deg_phase_audit_csv": phase_path,
+    }
+
+
 def run_search(
     run_id: int = 1,
     overwrite: bool = False,
@@ -545,6 +820,8 @@ def run_search(
         "manifest_json": manifest_path,
         "report_md": report_path,
     }
+    if any(np.isclose(float(target), 30.0, atol=1e-9) for target in targets_deg):
+        output_files.update(_write_baseline_30deg_audit(paths, run_id))
     for target in targets_deg:
         target_value = float(target)
         if target_value in completed and not overwrite:
@@ -562,6 +839,7 @@ def run_search(
             target_outputs["trajectory_csv"],
             target_outputs["commands_csv"],
             target_outputs["metrics_csv"],
+            target_outputs["phase_audit_csv"],
         )
         summary_rows = [
             existing
@@ -577,6 +855,9 @@ def run_search(
         )
         output_files[f"target_{_target_token(target_value)}_metrics_csv"] = (
             target_outputs["metrics_csv"]
+        )
+        output_files[f"target_{_target_token(target_value)}_phase_audit_csv"] = (
+            target_outputs["phase_audit_csv"]
         )
         _write_summary(summary_rows, paths, run_id)
         manifest = _manifest(
