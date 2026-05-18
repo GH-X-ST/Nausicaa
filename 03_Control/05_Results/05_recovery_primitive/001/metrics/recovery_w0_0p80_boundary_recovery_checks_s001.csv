@@ -1,0 +1,18 @@
+name,value,limit,pass_check,required,units,reason
+terminal_speed_min,6.157376995924838,5.0,True,True,m/s,terminal_speed_above_handoff_minimum
+terminal_speed_max,6.157376995924838,8.0,True,True,m/s,terminal_speed_below_handoff_maximum
+terminal_alpha_boundary,4.339551910078335,15.0,True,True,deg,terminal_alpha_within_recovery_handoff_bound
+terminal_beta_boundary,0.6492680667384784,10.0,True,True,deg,terminal_beta_within_recovery_handoff_bound
+terminal_bank_boundary,2.5634241107279894,12.0,True,True,deg,terminal_bank_within_recovery_handoff_bound
+terminal_pitch_boundary,1.3552240938520992,20.0,True,True,deg,terminal_pitch_within_recovery_handoff_bound
+terminal_rate_boundary,0.15734436983847544,0.6,True,True,rad/s,terminal_body_rate_norm_within_recovery_handoff_bound
+max_alpha_boundary,4.339551910078335,20.0,True,True,deg,trajectory_alpha_within_w0_recovery_bound
+max_beta_boundary,1.5216978144504048,15.0,True,True,deg,trajectory_beta_within_w0_recovery_bound
+max_rate_boundary,0.49081564767232105,2.0,True,True,rad/s,trajectory_rate_within_w0_recovery_bound
+saturation_fraction,0.0,0.2,True,True,-,requested_commands_do_not_excessively_clip
+true_safe_trajectory,True,true,True,True,-,full_trajectory_inside_true_safe_bounds
+terminal_x_w_m,6.259237101402806,5.5,False,True,m,terminal_x_against_existing_glide_entry_upper_bound
+terminal_glide_entry_x_margin_m,-0.7592371014028059,0.0,False,True,m,positive_margin_means_terminal_x_inside_existing_glide_entry
+terminal_glide_entry_proxy,False,true,False,True,-,terminal_state_matches_existing_glide_w0_nominal_entry_set
+terminal_glide_entry_proxy_source,build_glide_primitive_spec + evaluate_entry_set,build_glide_primitive_spec + evaluate_entry_set,True,True,-,handoff_proxy_uses_existing_glide_spec_and_entry_evaluator
+diagnostic_case,True,diagnostic,True,False,-,case_role_recorded_for_acceptance_gate
