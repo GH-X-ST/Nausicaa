@@ -42,6 +42,42 @@ EVALUATION_STATUSES = (
     "not_evaluated_model_missing",
     "model_unavailable",
 )
+NON_PHYSICAL_CANDIDATE_CLASS = "not_evaluated"
+EVIDENCE_SOURCES = (
+    "accepted_baseline_primitive",
+    "deterministic_seed_replay",
+    "archived_boundary_reference",
+    "model_unavailable",
+)
+RECOVERY_BASIS_VALUES = (
+    "dry_recoverable",
+    "updraft_recoverable",
+    "updraft_pending",
+    "not_recoverable",
+    "not_evaluated",
+)
+ENTRY_ENVELOPE_STATUSES = (
+    "inside_entry_envelope",
+    "outside_entry_envelope_governor_reject",
+    "not_evaluated",
+)
+ENVELOPE_STATUSES = (
+    "widening_existing_envelope",
+    "outside_entry_envelope_governor_reject",
+    "candidate_family_needs_refinement",
+    "candidate_family_boundary",
+    "requires_library_growth",
+    "not_evaluated_model_unavailable",
+)
+COVERAGE_STATUSES = (
+    "covered_by_existing_envelope",
+    "updraft_pending_coverage",
+    "uncovered_needs_refinement",
+    "uncovered_governor_reject",
+    "uncovered_boundary",
+    "requires_library_growth",
+    "not_evaluated_model_unavailable",
+)
 Z_OUTLET_M = 0.330
 TRUE_SAFE_BOUNDS_M = {
     "x_w": (1.2, 6.6),
@@ -93,10 +129,12 @@ class PrimitiveEvidenceRow:
     start_condition: str
     environment_label: str
     direction_sign: int
+    evidence_source: str
     evaluation_status: str
     wind_model_available: bool
     wind_model_name: str
     wind_model_source: str
+    evaluated_under_updraft_environment: bool
     z_outlet_m: float
     z_fan_min_m: float
     z_fan_max_m: float
@@ -132,12 +170,16 @@ class PrimitiveEvidenceRow:
     floor_margin_min_m: float
     ceiling_margin_min_m: float
     recovery_class: str
+    recovery_basis: str
     candidate_class: str
     failure_label: str
     active_limiting_mechanism: str
     wind_query_region: str
     lift_belief_condition: str
     governor_condition: str
+    entry_envelope_status: str
+    envelope_status: str
+    coverage_status: str
     within_existing_envelope: bool
     nearest_existing_primitive_id: str
     normalised_distance_to_nearest_envelope: float
@@ -274,9 +316,32 @@ def _bounds_tuple(bounds: object) -> tuple[tuple[float, float], tuple[float, flo
 def classify_candidate(row_inputs: dict[str, object]) -> tuple[str, str, str]:
     """Return candidate_class, failure_label, and active limiting mechanism."""
 
+    semantics = classify_candidate_semantics(row_inputs)
+    return (
+        str(semantics["candidate_class"]),
+        str(semantics["failure_label"]),
+        str(semantics["active_limiting_mechanism"]),
+    )
+
+
+def classify_candidate_semantics(row_inputs: dict[str, object]) -> dict[str, object]:
+    """Return row-level evidence semantics for primitive-library classification."""
+
     status = str(row_inputs.get("evaluation_status", "evaluated"))
     if status != "evaluated":
-        return "not_evaluated", status, "model_unavailable"
+        return _semantic_result(
+            candidate_class=NON_PHYSICAL_CANDIDATE_CLASS,
+            failure_label=status,
+            active_limiting_mechanism="model_unavailable",
+            recovery_basis="not_evaluated",
+            evidence_source="model_unavailable",
+            entry_envelope_status="not_evaluated",
+            envelope_status="not_evaluated_model_unavailable",
+            coverage_status="not_evaluated_model_unavailable",
+            library_growth_trigger=False,
+            growth_reason="model_unavailable",
+            evaluated_under_updraft_environment=False,
+        )
 
     target = row_inputs.get("target_heading_deg")
     heading_required = target is not None and np.isfinite(float(target))
@@ -291,8 +356,14 @@ def classify_candidate(row_inputs: dict[str, object]) -> tuple[str, str, str]:
     saturation = float(row_inputs.get("saturation_fraction", np.inf))
     wind_fidelity = str(row_inputs.get("wind_fidelity", "W0"))
     lift_belief = str(row_inputs.get("lift_belief_condition", "none"))
-    dry_recovery = str(row_inputs.get("recovery_class", "")) == "dry_recoverable"
-    updraft_recovery = str(row_inputs.get("recovery_class", "")) == "updraft_recoverable"
+    recovery_basis = _normalise_recovery_basis(str(row_inputs.get("recovery_class", "")))
+    dry_recovery = recovery_basis == "dry_recoverable"
+    updraft_recovery = recovery_basis == "updraft_recoverable"
+    updraft_pending = recovery_basis == "updraft_pending"
+    not_recoverable = recovery_basis == "not_recoverable"
+    lift_available = lift_belief not in ("none", "missing", "model_unavailable")
+    updraft_environment = wind_fidelity in ("W1", "W2") and lift_available
+    entry_status = _entry_envelope_status(row_inputs, true_safe)
 
     non_catastrophic = (
         np.isfinite(terminal_speed)
@@ -305,19 +376,225 @@ def classify_candidate(row_inputs: dict[str, object]) -> tuple[str, str, str]:
         and saturation < 0.60
     )
     dry_speed = terminal_speed >= 5.0 and speed_min >= 4.0
+    common_gates_pass = (
+        finite
+        and true_safe
+        and (not heading_required or heading_pass)
+        and non_catastrophic
+    )
 
     if not finite:
-        return "boundary_evidence", "nonfinite_replay", "numerical_failure"
+        return _boundary_result(
+            "nonfinite_replay",
+            "numerical_failure",
+            recovery_basis,
+            updraft_environment,
+            "candidate_family_boundary",
+            "uncovered_boundary",
+            "nonfinite_replay",
+            entry_status,
+        )
     if not true_safe:
-        return "boundary_evidence", "true_safety_violation", "safety_limited"
+        if entry_status == "outside_entry_envelope_governor_reject":
+            return _boundary_result(
+                "true_safety_violation",
+                "safety_limited",
+                recovery_basis,
+                updraft_environment,
+                "outside_entry_envelope_governor_reject",
+                "uncovered_governor_reject",
+                "entry_clearance_insufficient",
+                entry_status,
+            )
+        return _boundary_result(
+            "true_safety_violation",
+            "safety_limited",
+            recovery_basis,
+            updraft_environment,
+            "candidate_family_boundary",
+            "uncovered_boundary",
+            "hard_safety_boundary",
+            entry_status,
+        )
     if heading_required and not heading_pass:
-        return "boundary_evidence", "target_miss", "turn_authority_limited"
+        if non_catastrophic:
+            return _boundary_result(
+                "target_miss",
+                "turn_authority_limited",
+                recovery_basis,
+                updraft_environment,
+                "candidate_family_needs_refinement",
+                "uncovered_needs_refinement",
+                "target_not_covered_by_current_seed",
+                entry_status,
+            )
+        return _boundary_result(
+            "target_miss",
+            "turn_authority_limited",
+            recovery_basis,
+            updraft_environment,
+            "candidate_family_boundary",
+            "uncovered_boundary",
+            "target_miss_with_exposure_or_speed_limit",
+            entry_status,
+        )
     if not non_catastrophic:
-        return "boundary_evidence", "exposure_or_speed_limit", "exposure_limited"
+        return _boundary_result(
+            "exposure_or_speed_limit",
+            "exposure_limited",
+            recovery_basis,
+            updraft_environment,
+            "candidate_family_boundary",
+            "uncovered_boundary",
+            "severe_exposure_or_speed_collapse",
+            entry_status,
+        )
     if wind_fidelity == "W0" and dry_speed and dry_recovery:
-        return "w0_standalone_commandable", "success", "none"
-    if wind_fidelity == "W0":
-        return "w0_updraft_pending_target_candidate", "dry_recovery_pending", "updraft_condition_required"
-    if updraft_recovery and lift_belief not in ("none", "missing", "model_unavailable"):
-        return "updraft_assisted_commandable", "success", "none"
-    return "boundary_evidence", "updraft_recovery_not_proven", "recovery_limited"
+        return _commandable_result(
+            "w0_standalone_commandable",
+            "success",
+            "none",
+            recovery_basis,
+            updraft_environment,
+            "covered_by_existing_envelope",
+            "none",
+        )
+    if wind_fidelity == "W0" and common_gates_pass and (updraft_pending or not_recoverable):
+        return _commandable_result(
+            "w0_updraft_pending_target_candidate",
+            "dry_recovery_pending",
+            "updraft_condition_required",
+            recovery_basis,
+            updraft_environment,
+            "updraft_pending_coverage",
+            "updraft_pending_coverage",
+        )
+    if wind_fidelity in ("W1", "W2") and lift_available:
+        if common_gates_pass and (dry_recovery or updraft_recovery):
+            return _commandable_result(
+                "updraft_assisted_commandable",
+                "success",
+                "none",
+                recovery_basis,
+                updraft_environment,
+                "covered_by_existing_envelope",
+                "none",
+            )
+        if common_gates_pass and updraft_pending:
+            return _commandable_result(
+                "w0_updraft_pending_target_candidate",
+                "dry_recovery_pending",
+                "updraft_condition_required",
+                recovery_basis,
+                updraft_environment,
+                "updraft_pending_coverage",
+                "updraft_pending_coverage",
+            )
+    return _boundary_result(
+        "updraft_recovery_not_proven",
+        "recovery_limited",
+        recovery_basis,
+        updraft_environment,
+        "candidate_family_needs_refinement",
+        "uncovered_needs_refinement",
+        "candidate_family_needs_refinement",
+        entry_status,
+    )
+
+
+def _normalise_recovery_basis(recovery_class: str) -> str:
+    if recovery_class in RECOVERY_BASIS_VALUES:
+        return recovery_class
+    return "not_recoverable"
+
+
+def _entry_envelope_status(row_inputs: dict[str, object], true_safe: bool) -> str:
+    if true_safe:
+        return "inside_entry_envelope"
+    start = str(row_inputs.get("start_condition", ""))
+    x_consumption = float(row_inputs.get("margin_consumption_x_m", np.nan))
+    x_clearance = float(row_inputs.get("entry_clearance_required_x_plus_m", np.nan))
+    if start == "mid_arena" and (
+        (np.isfinite(x_consumption) and x_consumption > 1.0)
+        or (np.isfinite(x_clearance) and x_clearance > 2.70)
+    ):
+        return "outside_entry_envelope_governor_reject"
+    return "inside_entry_envelope"
+
+
+def _commandable_result(
+    candidate_class: str,
+    failure_label: str,
+    active_limiting_mechanism: str,
+    recovery_basis: str,
+    updraft_environment: bool,
+    coverage_status: str,
+    growth_reason: str,
+) -> dict[str, object]:
+    return _semantic_result(
+        candidate_class=candidate_class,
+        failure_label=failure_label,
+        active_limiting_mechanism=active_limiting_mechanism,
+        recovery_basis=recovery_basis,
+        evidence_source="deterministic_seed_replay",
+        entry_envelope_status="inside_entry_envelope",
+        envelope_status="widening_existing_envelope",
+        coverage_status=coverage_status,
+        library_growth_trigger=False,
+        growth_reason=growth_reason,
+        evaluated_under_updraft_environment=updraft_environment,
+    )
+
+
+def _boundary_result(
+    failure_label: str,
+    active_limiting_mechanism: str,
+    recovery_basis: str,
+    updraft_environment: bool,
+    envelope_status: str,
+    coverage_status: str,
+    growth_reason: str,
+    entry_envelope_status: str,
+) -> dict[str, object]:
+    return _semantic_result(
+        candidate_class="boundary_evidence",
+        failure_label=failure_label,
+        active_limiting_mechanism=active_limiting_mechanism,
+        recovery_basis=recovery_basis,
+        evidence_source="deterministic_seed_replay",
+        entry_envelope_status=entry_envelope_status,
+        envelope_status=envelope_status,
+        coverage_status=coverage_status,
+        library_growth_trigger=coverage_status == "requires_library_growth",
+        growth_reason=growth_reason,
+        evaluated_under_updraft_environment=updraft_environment,
+    )
+
+
+def _semantic_result(
+    *,
+    candidate_class: str,
+    failure_label: str,
+    active_limiting_mechanism: str,
+    recovery_basis: str,
+    evidence_source: str,
+    entry_envelope_status: str,
+    envelope_status: str,
+    coverage_status: str,
+    library_growth_trigger: bool,
+    growth_reason: str,
+    evaluated_under_updraft_environment: bool,
+) -> dict[str, object]:
+    return {
+        "candidate_class": candidate_class,
+        "failure_label": failure_label,
+        "active_limiting_mechanism": active_limiting_mechanism,
+        "recovery_basis": recovery_basis,
+        "evidence_source": evidence_source,
+        "entry_envelope_status": entry_envelope_status,
+        "envelope_status": envelope_status,
+        "coverage_status": coverage_status,
+        "library_growth_trigger": bool(library_growth_trigger),
+        "growth_reason": growth_reason,
+        "evaluated_under_updraft_environment": bool(evaluated_under_updraft_environment),
+    }

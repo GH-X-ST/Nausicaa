@@ -66,12 +66,13 @@ def test_archived_boundary_evidence_is_preserved_and_manifested() -> None:
     manifest_path = (
         RESULT_ROOT
         / "09_primitive_library"
-        / "001"
+        / "002"
         / "manifests"
-        / "repo_housekeeping_manifest_s001.json"
+        / "repo_housekeeping_manifest_s002.json"
     )
 
     assert archive_root.exists()
+    assert (RESULT_ROOT / "09_primitive_library" / "001").exists()
     assert manifest_path.exists()
 
     manifest = json.loads(manifest_path.read_text(encoding="ascii"))

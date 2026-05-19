@@ -27,7 +27,13 @@ from arena_contract import TRUE_SAFE_BOUNDS
 from flight_dynamics import adapt_glider
 from glider import build_nausicaa_glider
 from logging_contract import command_dataframe, trajectory_dataframe
-from primitive_library import CandidateEvaluation, WindModelInfo, evaluate_candidate, group_summary
+from primitive_library import (
+    CandidateEvaluation,
+    WindModelInfo,
+    coverage_region_summary,
+    evaluate_candidate,
+    group_summary,
+)
 from primitive_library_generators import primitive_candidate_inventory
 from primitive_library_schema import (
     CANDIDATE_CLASSES,
@@ -297,15 +303,18 @@ def run_primitive_library_pass(
     evidence_rows = [evaluation.row.as_dict() for evaluation in evaluations]
     library_df = pd.DataFrame(evidence_rows)
     group_df = pd.DataFrame(group_summary(evidence_rows))
+    coverage_df = pd.DataFrame(coverage_region_summary(evidence_rows))
     summary_df = _library_summary(library_df)
     log_files = _write_representative_logs(paths["logs"], suffix, evaluations)
 
     library_csv = paths["metrics"] / f"primitive_evidence_library_{suffix}.csv"
     summary_csv = paths["metrics"] / f"primitive_library_summary_{suffix}.csv"
     group_csv = paths["metrics"] / f"primitive_envelope_group_summary_{suffix}.csv"
+    coverage_csv = paths["metrics"] / f"primitive_coverage_region_summary_{suffix}.csv"
     library_df.to_csv(library_csv, index=False)
     summary_df.to_csv(summary_csv, index=False)
     group_df.to_csv(group_csv, index=False)
+    coverage_df.to_csv(coverage_csv, index=False)
 
     negative_code, negative_text = _negative_grep()
     archive_hashes_after = _hash_tree(archive)
@@ -314,6 +323,7 @@ def run_primitive_library_pass(
         raise RuntimeError("archived 07/002 boundary evidence hash changed or is missing.")
 
     final_plan_lock = _final_plan_lock(run_id)
+    baseline_diagnosis = _baseline_run_diagnosis()
     plan_lock_json = paths["manifests"] / f"final_plan_lock_{suffix}.json"
     plan_lock_json.write_text(json.dumps(final_plan_lock, indent=2), encoding="ascii")
 
@@ -355,14 +365,20 @@ def run_primitive_library_pass(
             _repo_relative(library_csv),
             _repo_relative(summary_csv),
             _repo_relative(group_csv),
+            _repo_relative(coverage_csv),
         ],
         "final_plan_lock": final_plan_lock,
         **_no_overclaiming_flags(),
     }
     housekeeping_json.write_text(json.dumps(housekeeping, indent=2), encoding="ascii")
 
-    report_md = paths["reports"] / f"primitive_library_report_{suffix}.md"
-    _write_report(report_md, library_df, group_df)
+    report_name = (
+        f"primitive_library_semantics_fix_report_{suffix}.md"
+        if run_id == 2
+        else f"primitive_library_report_{suffix}.md"
+    )
+    report_md = paths["reports"] / report_name
+    _write_report(report_md, library_df, group_df, coverage_df, baseline_diagnosis)
     manifest_json = paths["manifests"] / f"primitive_library_manifest_{suffix}.json"
     output_files = {
         "plan_lock_json": plan_lock_json,
@@ -370,6 +386,7 @@ def run_primitive_library_pass(
         "library_csv": library_csv,
         "summary_csv": summary_csv,
         "envelope_group_summary_csv": group_csv,
+        "coverage_region_summary_csv": coverage_csv,
         "report_md": report_md,
         **log_files,
     }
@@ -388,6 +405,12 @@ def run_primitive_library_pass(
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "campaign": CAMPAIGN,
         "central_research_question": final_plan_lock["central_research_question"],
+        "previous_run_for_semantics_baseline": "03_Control/05_Results/09_primitive_library/001",
+        "classification_semantics_fixed": True,
+        "w1_w2_dry_recoverable_not_boundary_by_default": True,
+        "library_growth_trigger_is_group_level": True,
+        "entry_envelope_failures_are_governor_rejections": True,
+        "evidence_source_field_present": "evidence_source" in library_df.columns,
         "dry_air_agile_turn_recovery_loop_closed": final_plan_lock[
             "dry_air_agile_turn_recovery_loop_closed"
         ],
@@ -396,6 +419,7 @@ def run_primitive_library_pass(
         "library_csv": _repo_relative(library_csv),
         "summary_csv": _repo_relative(summary_csv),
         "envelope_group_summary_csv": _repo_relative(group_csv),
+        "coverage_region_summary_csv": _repo_relative(coverage_csv),
         "report_md": _repo_relative(report_md),
         "candidate_classes": CANDIDATE_CLASSES,
         "target_ladder_deg": TARGET_LADDER_DEG,
@@ -425,6 +449,7 @@ def run_primitive_library_pass(
             name: _repo_relative(path)
             for name, path in output_files.items()
         },
+        "baseline_run_001_diagnosis": baseline_diagnosis,
         **_no_overclaiming_flags(),
     }
     manifest_json.write_text(json.dumps(manifest, indent=2), encoding="ascii")
@@ -436,6 +461,7 @@ def run_primitive_library_pass(
         "library_csv": library_csv,
         "summary_csv": summary_csv,
         "group_summary_csv": group_csv,
+        "coverage_summary_csv": coverage_csv,
         "report": report_md,
     }
 
@@ -548,7 +574,15 @@ def _write_representative_logs(
 
 def _library_summary(library_df: pd.DataFrame) -> pd.DataFrame:
     rows = []
-    for column in ("wind_fidelity", "updraft_config", "start_condition", "candidate_class"):
+    for column in (
+        "wind_fidelity",
+        "updraft_config",
+        "start_condition",
+        "candidate_class",
+        "envelope_status",
+        "coverage_status",
+        "evidence_source",
+    ):
         for value, count in library_df[column].value_counts(dropna=False).sort_index().items():
             rows.append({"summary_type": column, "value": value, "row_count": int(count)})
     rows.append(
@@ -561,19 +595,104 @@ def _library_summary(library_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _write_report(path: Path, library_df: pd.DataFrame, group_df: pd.DataFrame) -> None:
+def _baseline_run_diagnosis() -> dict[str, object]:
+    baseline_root = RESULT_ROOT / CAMPAIGN / "001"
+    evidence_path = baseline_root / "metrics" / "primitive_evidence_library_s001.csv"
+    summary_path = baseline_root / "metrics" / "primitive_library_summary_s001.csv"
+    group_path = baseline_root / "metrics" / "primitive_envelope_group_summary_s001.csv"
+    manifest_path = baseline_root / "manifests" / "primitive_library_manifest_s001.json"
+    report_path = baseline_root / "reports" / "primitive_library_report_s001.md"
+    if not evidence_path.exists():
+        return {
+            "baseline_available": False,
+            "baseline_root": _repo_relative(baseline_root),
+        }
+
+    evidence = pd.read_csv(evidence_path)
+    w1_w2_dry = evidence[
+        evidence["wind_fidelity"].isin(["W1", "W2"])
+        & (evidence["recovery_class"] == "dry_recoverable")
+    ]
+    w1_w2_dry_boundary = w1_w2_dry[w1_w2_dry["candidate_class"] == "boundary_evidence"]
+    envelope_counts = (
+        evidence["envelope_status"].value_counts(dropna=False).to_dict()
+        if "envelope_status" in evidence.columns
+        else {"not_present_in_001": int(len(evidence))}
+    )
+    coverage_counts = (
+        evidence["coverage_status"].value_counts(dropna=False).to_dict()
+        if "coverage_status" in evidence.columns
+        else {"not_present_in_001": int(len(evidence))}
+    )
+    return {
+        "baseline_available": True,
+        "baseline_root": _repo_relative(baseline_root),
+        "baseline_files_checked": [
+            _repo_relative(evidence_path),
+            _repo_relative(summary_path),
+            _repo_relative(group_path),
+            _repo_relative(manifest_path),
+            _repo_relative(report_path),
+        ],
+        "candidate_class_counts": evidence["candidate_class"].value_counts(dropna=False).to_dict(),
+        "envelope_status_counts": envelope_counts,
+        "coverage_status_counts": coverage_counts,
+        "library_growth_trigger_count": int(evidence["library_growth_trigger"].astype(bool).sum()),
+        "w1_w2_dry_recoverable_rows": int(len(w1_w2_dry)),
+        "w1_w2_dry_recoverable_boundary_rows": int(len(w1_w2_dry_boundary)),
+        "diagnosis": (
+            "001 created the scaffold but over-classified W1/W2 dry-recoverable rows "
+            "as boundary evidence and over-triggered library_growth_trigger."
+        ),
+    }
+
+
+def _write_report(
+    path: Path,
+    library_df: pd.DataFrame,
+    group_df: pd.DataFrame,
+    coverage_df: pd.DataFrame,
+    baseline_diagnosis: dict[str, object],
+) -> None:
     class_counts = library_df["candidate_class"].value_counts(dropna=False).to_dict()
+    envelope_counts = library_df["envelope_status"].value_counts(dropna=False).to_dict()
+    coverage_counts = library_df["coverage_status"].value_counts(dropna=False).to_dict()
     lines = [
-        "# Primitive Evidence Library Report",
+        "# Primitive Library Semantics Fix Report",
         "",
-        "This pass locks the final primitive-library plan and restarts active",
-        "development from a unified evidence table. It does not implement W3,",
-        "clustering, governor, outer loop, OCP, TVLQR, or real-flight validation.",
+        "Run 002 fixes primitive-library evidence semantics without changing the",
+        "plant, command bridge, safety volume, or updraft models. The run-002",
+        "primitive-library rows are first-pass deterministic seed-library evidence",
+        "unless `evidence_source` explicitly says otherwise.",
         "",
-        "## Evidence Counts",
+        "Run 001 created the scaffold but over-classified W1/W2 dry-recoverable",
+        "rows as boundary evidence. Run 001 also over-triggered",
+        "`library_growth_trigger` for rows that should remain entry-envelope or",
+        "candidate-refinement evidence.",
+        "",
+        "This pass does not implement W3, clustering, governor, outer loop, OCP,",
+        "TVLQR, or real-flight validation.",
+        "",
+        "## Run 001 Baseline Diagnosis",
+        "",
+        f"- Baseline available: `{baseline_diagnosis.get('baseline_available')}`",
+        f"- Candidate-class counts: `{baseline_diagnosis.get('candidate_class_counts')}`",
+        f"- Envelope-status counts: `{baseline_diagnosis.get('envelope_status_counts')}`",
+        f"- Coverage-status counts: `{baseline_diagnosis.get('coverage_status_counts')}`",
+        f"- Library-growth trigger count: `{baseline_diagnosis.get('library_growth_trigger_count')}`",
+        "- W1/W2 dry-recoverable boundary rows: "
+        f"`{baseline_diagnosis.get('w1_w2_dry_recoverable_boundary_rows')}`",
+        "",
+        "## Run 002 Candidate-Class Counts",
         "",
     ]
     for name, count in sorted(class_counts.items()):
+        lines.append(f"- `{name}`: `{count}`")
+    lines.extend(["", "## Run 002 Envelope-Status Counts", ""])
+    for name, count in sorted(envelope_counts.items()):
+        lines.append(f"- `{name}`: `{count}`")
+    lines.extend(["", "## Run 002 Coverage-Status Counts", ""])
+    for name, count in sorted(coverage_counts.items()):
         lines.append(f"- `{name}`: `{count}`")
     lines.extend(
         [
@@ -584,8 +703,15 @@ def _write_report(path: Path, library_df: pd.DataFrame, group_df: pd.DataFrame) 
     )
     for name, count in group_df["group_status"].value_counts(dropna=False).sort_index().items():
         lines.append(f"- `{name}`: `{count}`")
+    lines.extend(["", "## Coverage Region Status", ""])
+    for name, count in coverage_df["coverage_status"].value_counts(dropna=False).sort_index().items():
+        lines.append(f"- `{name}`: `{count}`")
     lines.extend(
         [
+            "",
+            f"- Run-002 library-growth trigger count: `{int(library_df['library_growth_trigger'].sum())}`",
+            "- W1/W2 dry-recoverable rows are no longer boundary evidence by default.",
+            "- Mid-arena entry-envelope failures are governor rejections, not immediate library growth.",
             "",
             "The archived high-alpha/perch-like branch remains boundary evidence only.",
         ]

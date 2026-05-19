@@ -9,13 +9,14 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTROL_ROOT = REPO_ROOT / "03_Control"
 RESULT_ROOT = CONTROL_ROOT / "05_Results" / "09_primitive_library" / "001"
+RESULT_ROOT_002 = CONTROL_ROOT / "05_Results" / "09_primitive_library" / "002"
 
 
 def _load_outputs() -> tuple[dict[str, object], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    manifest_path = RESULT_ROOT / "manifests" / "primitive_library_manifest_s001.json"
-    evidence_path = RESULT_ROOT / "metrics" / "primitive_evidence_library_s001.csv"
-    library_summary_path = RESULT_ROOT / "metrics" / "primitive_library_summary_s001.csv"
-    group_summary_path = RESULT_ROOT / "metrics" / "primitive_envelope_group_summary_s001.csv"
+    manifest_path = RESULT_ROOT_002 / "manifests" / "primitive_library_manifest_s002.json"
+    evidence_path = RESULT_ROOT_002 / "metrics" / "primitive_evidence_library_s002.csv"
+    library_summary_path = RESULT_ROOT_002 / "metrics" / "primitive_library_summary_s002.csv"
+    group_summary_path = RESULT_ROOT_002 / "metrics" / "primitive_envelope_group_summary_s002.csv"
 
     assert manifest_path.exists()
     assert evidence_path.exists()
@@ -32,10 +33,19 @@ def _load_outputs() -> tuple[dict[str, object], pd.DataFrame, pd.DataFrame, pd.D
 
 def test_primitive_library_outputs_and_manifest_flags() -> None:
     manifest, evidence, library_summary, group_summary = _load_outputs()
-    report_path = RESULT_ROOT / "reports" / "primitive_library_report_s001.md"
+    report_path = RESULT_ROOT_002 / "reports" / "primitive_library_semantics_fix_report_s002.md"
+    coverage_path = RESULT_ROOT_002 / "metrics" / "primitive_coverage_region_summary_s002.csv"
 
     assert report_path.exists()
+    assert coverage_path.exists()
+    assert RESULT_ROOT.exists()
     assert manifest["central_research_question"] == "widen primitive envelopes before library growth"
+    assert manifest["previous_run_for_semantics_baseline"] == "03_Control/05_Results/09_primitive_library/001"
+    assert manifest["classification_semantics_fixed"] is True
+    assert manifest["w1_w2_dry_recoverable_not_boundary_by_default"] is True
+    assert manifest["library_growth_trigger_is_group_level"] is True
+    assert manifest["entry_envelope_failures_are_governor_rejections"] is True
+    assert manifest["evidence_source_field_present"] is True
     assert manifest["dry_air_agile_turn_recovery_loop_closed"] is True
     assert manifest["preserved_boundary_reference"] is True
     assert manifest["ocp_implemented"] is False
@@ -63,6 +73,11 @@ def test_evidence_schema_start_conditions_and_growth_fields() -> None:
         "bank_yaw_energy_retaining",
     }
     growth_fields = {
+        "evidence_source",
+        "recovery_basis",
+        "entry_envelope_status",
+        "envelope_status",
+        "coverage_status",
         "parent_primitive_id",
         "variant_id",
         "envelope_group_id",
@@ -97,10 +112,14 @@ def test_evidence_schema_start_conditions_and_growth_fields() -> None:
         {
             "widening_existing_envelope",
             "requires_library_growth",
-            "remaining_boundary_evidence",
+            "outside_entry_envelope_governor_reject",
+            "candidate_family_needs_refinement",
+            "candidate_family_boundary",
             "not_evaluated_model_unavailable",
         }
     )
+    assert set(evidence["evidence_source"].unique()) == {"deterministic_seed_replay"}
+    assert evidence["library_growth_trigger"].astype(bool).sum() == 0
 
 
 def test_wind_fidelity_rows_and_missing_model_semantics() -> None:
@@ -119,6 +138,36 @@ def test_wind_fidelity_rows_and_missing_model_semantics() -> None:
         assert (missing["candidate_class"] != "boundary_evidence").all()
         assert set(missing["candidate_class"].unique()) == {"not_evaluated"}
         assert manifest["w1_complete"] is False or manifest["w2_complete"] is False
+
+    dry_updraft = evidence[
+        evidence["wind_fidelity"].isin(["W1", "W2"])
+        & (evidence["recovery_class"] == "dry_recoverable")
+        & (evidence["heading_band_pass"].astype(bool))
+        & (evidence["true_safe_trajectory"].astype(bool))
+    ]
+    if not dry_updraft.empty:
+        assert "updraft_assisted_commandable" in set(dry_updraft["candidate_class"])
+        assert not (
+            (dry_updraft["candidate_class"] == "boundary_evidence")
+            & (dry_updraft["failure_label"] == "updraft_recovery_not_proven")
+        ).any()
+
+
+def test_coverage_summary_and_report_compare_run_001() -> None:
+    manifest, evidence, _, _ = _load_outputs()
+    coverage = pd.read_csv(RESULT_ROOT_002 / "metrics" / "primitive_coverage_region_summary_s002.csv")
+    report = (RESULT_ROOT_002 / "reports" / "primitive_library_semantics_fix_report_s002.md").read_text(
+        encoding="ascii"
+    )
+
+    assert not coverage.empty
+    assert "coverage_status" in coverage.columns
+    assert "library_growth_trigger" in coverage.columns
+    assert coverage["library_growth_trigger"].astype(bool).sum() == 0
+    assert manifest["baseline_run_001_diagnosis"]["baseline_available"] is True
+    assert "Run 001 created the scaffold" in report
+    assert "Run-002 library-growth trigger count" in report
+    assert "coverage_status" in evidence.columns
 
 
 def test_representative_logs_preserve_command_bridge_columns() -> None:

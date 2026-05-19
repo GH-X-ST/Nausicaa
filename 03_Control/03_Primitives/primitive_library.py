@@ -13,7 +13,7 @@ from primitive_library_schema import (
     PrimitiveCandidateSpec,
     PrimitiveEvidenceRow,
     PrimitiveLibraryConfig,
-    classify_candidate,
+    classify_candidate_semantics,
     classify_wind_query_region,
     entry_clearance_metrics,
     path_metrics,
@@ -218,9 +218,12 @@ def build_evidence_row(
         "wind_fidelity": spec.wind_fidelity,
         "recovery_class": recovery_class,
         "lift_belief_condition": _lift_belief(spec, wind_info),
+        "start_condition": spec.start_condition,
+        "entry_clearance_required_x_plus_m": clearance["entry_clearance_required_x_plus_m"],
+        "margin_consumption_x_m": clearance["margin_consumption_x_m"],
     }
-    candidate_class, failure_label, limiting = classify_candidate(row_inputs)
-    growth = _growth_fields(spec, candidate_class, failure_label, heading_error)
+    semantics = classify_candidate_semantics(row_inputs)
+    growth = _growth_fields(spec, semantics, heading_error)
     return PrimitiveEvidenceRow(
         primitive_id=spec.primitive_id,
         parent_primitive_id=spec.parent_primitive_id,
@@ -233,10 +236,12 @@ def build_evidence_row(
         start_condition=spec.start_condition,
         environment_label=f"{spec.updraft_config}_{spec.wind_fidelity}",
         direction_sign=int(spec.direction_sign),
+        evidence_source=str(semantics["evidence_source"]),
         evaluation_status=wind_info.evaluation_status,
         wind_model_available=bool(wind_info.available),
         wind_model_name=wind_info.name,
         wind_model_source=wind_info.source,
+        evaluated_under_updraft_environment=bool(semantics["evaluated_under_updraft_environment"]),
         z_outlet_m=float(config.z_outlet_m),
         z_fan_min_m=float(np.nanmin(z_fan)),
         z_fan_max_m=float(np.nanmax(z_fan)),
@@ -259,18 +264,22 @@ def build_evidence_row(
         floor_margin_min_m=margins["floor_margin_min_m"],
         ceiling_margin_min_m=margins["ceiling_margin_min_m"],
         recovery_class=recovery_class,
-        candidate_class=candidate_class,
-        failure_label=failure_label,
-        active_limiting_mechanism=limiting,
+        recovery_basis=str(semantics["recovery_basis"]),
+        candidate_class=str(semantics["candidate_class"]),
+        failure_label=str(semantics["failure_label"]),
+        active_limiting_mechanism=str(semantics["active_limiting_mechanism"]),
         wind_query_region=classify_wind_query_region(positions[:, 2], wind_info.z_axis_m, config.z_outlet_m),
         lift_belief_condition=_lift_belief(spec, wind_info),
-        governor_condition=_governor_condition(candidate_class, spec.wind_fidelity),
+        governor_condition=_governor_condition(str(semantics["candidate_class"]), spec.wind_fidelity),
+        entry_envelope_status=str(semantics["entry_envelope_status"]),
+        envelope_status=str(semantics["envelope_status"]),
+        coverage_status=str(semantics["coverage_status"]),
         within_existing_envelope=bool(growth["within_existing_envelope"]),
         nearest_existing_primitive_id=str(growth["nearest_existing_primitive_id"]),
         normalised_distance_to_nearest_envelope=float(growth["normalised_distance_to_nearest_envelope"]),
         coverage_region_id=str(growth["coverage_region_id"]),
         marginal_coverage_gain=float(growth["marginal_coverage_gain"]),
-        library_growth_trigger=bool(growth["library_growth_trigger"]),
+        library_growth_trigger=bool(semantics["library_growth_trigger"]),
         growth_reason=str(growth["growth_reason"]),
     )
 
@@ -325,37 +334,28 @@ def _governor_condition(candidate_class: str, wind_fidelity: str) -> str:
 
 def _growth_fields(
     spec: PrimitiveCandidateSpec,
-    candidate_class: str,
-    failure_label: str,
+    semantics: dict[str, object],
     heading_error_deg: float,
 ) -> dict[str, object]:
     target = "none" if spec.target_heading_deg is None else f"{int(spec.target_heading_deg):03d}"
-    coverage = f"{spec.family}|{target}|{spec.start_condition}|{spec.updraft_config}|{spec.wind_fidelity}"
+    coverage = (
+        f"target_{target}|{spec.start_condition}|{spec.updraft_config}|"
+        f"{spec.wind_fidelity}|d{int(spec.direction_sign):+d}"
+    ).replace("+", "p").replace("-", "m")
+    candidate_class = str(semantics["candidate_class"])
     commandable = candidate_class in (
         "w0_standalone_commandable",
         "w0_updraft_pending_target_candidate",
         "updraft_assisted_commandable",
     )
-    growth_trigger = not commandable and candidate_class != "not_evaluated"
-    if commandable:
-        growth_reason = "none"
-    elif candidate_class == "not_evaluated":
-        growth_reason = "model_unavailable"
-    elif failure_label == "target_miss":
-        growth_reason = "target_not_covered"
-    elif failure_label == "true_safety_violation":
-        growth_reason = "safety_limited"
-    else:
-        growth_reason = "recovery_limited"
     return {
         "envelope_group_id": f"{spec.parent_primitive_id}|{spec.start_condition}|{spec.wind_fidelity}",
-        "within_existing_envelope": commandable and spec.family in ("glide", "recovery", "mild_bank"),
+        "within_existing_envelope": commandable,
         "nearest_existing_primitive_id": spec.parent_primitive_id if commandable else "none",
         "normalised_distance_to_nearest_envelope": float(min(10.0, heading_error_deg / 30.0)),
         "coverage_region_id": coverage,
         "marginal_coverage_gain": 1.0 if commandable else 0.0,
-        "library_growth_trigger": growth_trigger,
-        "growth_reason": growth_reason,
+        "growth_reason": str(semantics["growth_reason"]),
     }
 
 
@@ -384,6 +384,8 @@ def group_summary(rows: list[dict[str, object]]) -> list[dict[str, object]]:
         energies = [float(row["energy_residual_m"]) for row in group_rows if np.isfinite(float(row["energy_residual_m"]))]
         speeds = [float(row["terminal_speed_m_s"]) for row in group_rows if np.isfinite(float(row["terminal_speed_m_s"]))]
         failures = [str(row["failure_label"]) for row in group_rows]
+        envelope_statuses = [str(row["envelope_status"]) for row in group_rows]
+        coverage_statuses = [str(row["coverage_status"]) for row in group_rows]
         group_status = _group_status(group_rows)
         summary.append(
             {
@@ -402,6 +404,8 @@ def group_summary(rows: list[dict[str, object]]) -> list[dict[str, object]]:
                 "pass_fraction_true_safe": float(np.mean([bool(row["true_safe_trajectory"]) for row in group_rows])),
                 "pass_fraction_heading_band": float(np.mean([bool(row["heading_band_pass"]) for row in group_rows])),
                 "dominant_failure_label": max(set(failures), key=failures.count),
+                "dominant_envelope_status": max(set(envelope_statuses), key=envelope_statuses.count),
+                "dominant_coverage_status": max(set(coverage_statuses), key=coverage_statuses.count),
                 "library_growth_trigger_count": int(sum(bool(row["library_growth_trigger"]) for row in group_rows)),
                 "group_status": group_status,
             }
@@ -409,12 +413,112 @@ def group_summary(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     return summary
 
 
+def coverage_region_summary(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Return task-region coverage summaries independent of candidate family."""
+
+    groups: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        groups.setdefault(str(row["coverage_region_id"]), []).append(row)
+
+    summary: list[dict[str, object]] = []
+    for region_id, group_rows in sorted(groups.items()):
+        best = _best_coverage_row(group_rows)
+        coverage_status = _coverage_region_status(group_rows)
+        summary.append(
+            {
+                "coverage_region_id": region_id,
+                "row_count": len(group_rows),
+                "candidate_classes_present": ",".join(sorted({str(row["candidate_class"]) for row in group_rows})),
+                "best_candidate_class": best["candidate_class"],
+                "best_family": best["family"],
+                "best_primitive_id": best["primitive_id"],
+                "best_heading_error_deg": float(best["terminal_heading_error_deg"]),
+                "best_path_length_xy_m": float(best["path_length_xy_m"]),
+                "best_footprint_m2": float(best["turn_footprint_proxy_m2"]),
+                "best_energy_residual_m": float(best["energy_residual_m"]),
+                "best_terminal_speed_m_s": float(best["terminal_speed_m_s"]),
+                "best_min_true_margin_m": float(best["min_true_margin_m"]),
+                "any_w0_standalone_commandable": _any_class(group_rows, "w0_standalone_commandable"),
+                "any_w0_updraft_pending_target_candidate": _any_class(
+                    group_rows,
+                    "w0_updraft_pending_target_candidate",
+                ),
+                "any_updraft_assisted_commandable": _any_class(group_rows, "updraft_assisted_commandable"),
+                "any_boundary_evidence": _any_class(group_rows, "boundary_evidence"),
+                "any_not_evaluated": _any_class(group_rows, "not_evaluated"),
+                "coverage_status": coverage_status,
+                "library_growth_trigger": coverage_status == "requires_library_growth",
+                "library_growth_reason": _coverage_growth_reason(coverage_status),
+            }
+        )
+    return summary
+
+
 def _group_status(group_rows: list[dict[str, object]]) -> str:
-    classes = {str(row["candidate_class"]) for row in group_rows}
-    if classes == {"not_evaluated"}:
+    statuses = {str(row["envelope_status"]) for row in group_rows}
+    if statuses == {"not_evaluated_model_unavailable"}:
         return "not_evaluated_model_unavailable"
-    if any(bool(row["within_existing_envelope"]) for row in group_rows):
+    if "widening_existing_envelope" in statuses:
         return "widening_existing_envelope"
-    if any(bool(row["library_growth_trigger"]) for row in group_rows):
+    if "requires_library_growth" in statuses:
         return "requires_library_growth"
-    return "remaining_boundary_evidence"
+    if "outside_entry_envelope_governor_reject" in statuses:
+        return "outside_entry_envelope_governor_reject"
+    if "candidate_family_needs_refinement" in statuses:
+        return "candidate_family_needs_refinement"
+    return "candidate_family_boundary"
+
+
+def _best_coverage_row(group_rows: list[dict[str, object]]) -> dict[str, object]:
+    return sorted(group_rows, key=_coverage_rank_key)[0]
+
+
+def _coverage_rank_key(row: dict[str, object]) -> tuple[float, ...]:
+    priority = {
+        "updraft_assisted_commandable": 0.0,
+        "w0_standalone_commandable": 1.0,
+        "w0_updraft_pending_target_candidate": 2.0,
+        "boundary_evidence": 3.0,
+        "not_evaluated": 4.0,
+    }
+    return (
+        priority.get(str(row["candidate_class"]), 5.0),
+        float(row["terminal_heading_error_deg"]),
+        -float(row["terminal_speed_m_s"]),
+        -float(row["min_true_margin_m"]),
+        float(row["turn_footprint_proxy_m2"]),
+    )
+
+
+def _coverage_region_status(group_rows: list[dict[str, object]]) -> str:
+    statuses = {str(row["coverage_status"]) for row in group_rows}
+    if "covered_by_existing_envelope" in statuses:
+        return "covered_by_existing_envelope"
+    if "updraft_pending_coverage" in statuses:
+        return "updraft_pending_coverage"
+    if statuses == {"not_evaluated_model_unavailable"}:
+        return "not_evaluated_model_unavailable"
+    if "uncovered_needs_refinement" in statuses:
+        return "uncovered_needs_refinement"
+    if "uncovered_governor_reject" in statuses:
+        return "uncovered_governor_reject"
+    if "requires_library_growth" in statuses:
+        return "requires_library_growth"
+    return "uncovered_boundary"
+
+
+def _coverage_growth_reason(coverage_status: str) -> str:
+    reasons = {
+        "covered_by_existing_envelope": "none",
+        "updraft_pending_coverage": "updraft_pending_coverage",
+        "uncovered_needs_refinement": "candidate_family_needs_refinement",
+        "uncovered_governor_reject": "entry_clearance_insufficient",
+        "uncovered_boundary": "boundary_evidence",
+        "requires_library_growth": "region_not_covered_after_envelope_widening",
+        "not_evaluated_model_unavailable": "model_unavailable",
+    }
+    return reasons.get(coverage_status, "unknown")
+
+
+def _any_class(group_rows: list[dict[str, object]], candidate_class: str) -> bool:
+    return any(str(row["candidate_class"]) == candidate_class for row in group_rows)
