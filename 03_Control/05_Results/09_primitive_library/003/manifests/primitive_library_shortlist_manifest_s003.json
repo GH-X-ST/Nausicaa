@@ -1,6 +1,6 @@
 {
   "run_id": "s003",
-  "created_at": "2026-05-19T02:37:42",
+  "created_at": "2026-05-19T03:06:26",
   "campaign": "09_primitive_library",
   "pass_name": "primitive_library_shortlist_and_w3_planning",
   "source_run_id": "s002",
@@ -48,6 +48,29 @@
   "candidate_shortlist_rows": 90,
   "coverage_decision_rows": 30,
   "w3_planned_candidate_count": 5,
+  "w3_diversity_selection_fixed": true,
+  "w3_required_roles": [
+    "target_steering",
+    "glide_transit",
+    "recovery_fallback",
+    "mild_bank_updraft_encounter",
+    "environment_comparison"
+  ],
+  "w3_roles_selected": [
+    "target_steering",
+    "glide_transit",
+    "recovery_fallback",
+    "mild_bank_updraft_encounter",
+    "environment_comparison"
+  ],
+  "w3_missing_roles": [],
+  "w3_distinct_family_count": 4,
+  "w3_target_candidate_present": true,
+  "w3_baseline_candidate_present": true,
+  "w3_glide_count": 2,
+  "w3_recovery_count": 1,
+  "w3_mild_bank_count": 1,
+  "w3_target_steering_count": 1,
   "higher_target_recommended_next_count": 0,
   "request_status_counts": {
     "not_requested_boundary_only": 4,

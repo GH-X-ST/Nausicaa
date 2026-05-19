@@ -8,9 +8,12 @@ import pandas as pd
 from primitive_library_selection import (
     HIGHER_TARGET_REQUEST_STATUSES,
     SELECTION_STATUSES,
+    W3_REQUIRED_ROLES,
     build_coverage_decision_summary,
     build_higher_target_growth_request,
+    build_w3_stress_plan,
     classify_selection_status,
+    select_diverse_w3_candidates,
 )
 from run_primitive_library_shortlist import run_primitive_library_shortlist
 
@@ -46,6 +49,13 @@ def test_shortlist_runner_writes_required_run_003_outputs() -> None:
     assert len(w3_plan) <= manifest["max_w3_candidates"]
     if not w3_plan.empty:
         assert w3_plan["not_implemented_in_this_pass"].astype(bool).all()
+    assert {
+        "w3_role",
+        "role_priority",
+        "role_required_if_available",
+        "diversity_selection_reason",
+        "environment_balance_reason",
+    }.issubset(w3_plan.columns)
     assert set(higher["requested_target_deg"].astype(float)) == {45.0, 60.0, 90.0, 120.0, 150.0, 180.0}
     assert set(higher["request_status"]).issubset(HIGHER_TARGET_REQUEST_STATUSES)
 
@@ -57,6 +67,13 @@ def test_manifest_is_run_002_only_and_no_overclaiming() -> None:
     assert manifest["run_002_only_source"] is True
     assert manifest["planning_only"] is True
     assert manifest["no_replay_performed"] is True
+    assert manifest["w3_diversity_selection_fixed"] is True
+    assert manifest["w3_required_roles"] == list(W3_REQUIRED_ROLES)
+    assert isinstance(manifest["w3_roles_selected"], list)
+    assert isinstance(manifest["w3_missing_roles"], list)
+    assert manifest["w3_distinct_family_count"] >= 1
+    assert manifest["w3_target_candidate_present"] is True
+    assert manifest["w3_baseline_candidate_present"] is True
     assert manifest["coverage_driven_higher_target_logic"] is True
     assert manifest["thirty_deg_uncovered_does_not_auto_recommend_45_60"] is True
     assert manifest["w3_stress_implemented"] is False
@@ -100,6 +117,56 @@ def test_30_deg_boundary_or_entry_failure_does_not_recommend_45_60() -> None:
     assert not future_45_60.empty
     assert "recommended_next" not in set(future_45_60["request_status"])
     assert set(future_45_60["request_status"]) == {"defer_boundary_only"}
+
+
+def test_w3_plan_is_role_diverse_when_alternatives_exist() -> None:
+    manifest, shortlist, _, w3_plan, _ = _load_run_003()
+    available = shortlist[shortlist["selection_status"] == "selected_for_w3_stress"]
+    available_families = set(available["family"])
+    selected_families = set(w3_plan["family"])
+
+    if len(available_families) >= 3:
+        assert len(selected_families) >= 3
+    if any(family != "glide" for family in available_families):
+        assert int((w3_plan["family"] == "glide").sum()) <= 2
+    if "recovery" in available_families:
+        assert "recovery" in selected_families
+    if "mild_bank" in available_families:
+        assert "mild_bank" in selected_families
+    if available["target_heading_deg"].notna().any():
+        assert w3_plan["target_heading_deg"].notna().any()
+        assert "target_steering" in set(w3_plan["w3_role"])
+    assert manifest["w3_glide_count"] <= 2
+    assert manifest["w3_recovery_count"] >= int("recovery" in available_families)
+    assert manifest["w3_mild_bank_count"] >= int("mild_bank" in available_families)
+
+
+def test_w3_role_priority_is_deterministic_for_synthetic_shortlist() -> None:
+    shortlist = pd.DataFrame(
+        [
+            _synthetic_w3_row("target_a", "bank_yaw_energy_retaining", 15.0, "U1_single_fan", "W1"),
+            _synthetic_w3_row("glide_a", "glide", None, "U1_single_fan", "W1"),
+            _synthetic_w3_row("recovery_a", "recovery", None, "U4_four_fan", "W1"),
+            _synthetic_w3_row("mild_a", "mild_bank", None, "U1_single_fan", "W2"),
+            _synthetic_w3_row("env_a", "wingover_lite", None, "U4_four_fan", "W2"),
+            _synthetic_w3_row("extra_a", "glide", None, "U1_single_fan", "W2"),
+        ]
+    )
+
+    selected = select_diverse_w3_candidates(shortlist, max_w3_candidates=5)
+    plan = build_w3_stress_plan(shortlist, max_w3_candidates=5)
+
+    assert list(selected["w3_role"]) == list(W3_REQUIRED_ROLES)
+    assert list(plan["w3_role"]) == list(W3_REQUIRED_ROLES)
+    assert list(plan["role_priority"]) == [1, 2, 3, 4, 5]
+    assert plan["role_required_if_available"].astype(bool).all()
+    assert set(plan["diversity_selection_reason"]) == {
+        "best_available_target_steering_candidate",
+        "best_available_glide_transit_candidate",
+        "best_available_recovery_fallback_candidate",
+        "best_available_mild_bank_updraft_encounter_candidate",
+        "balances_updraft_configuration_or_wind_fidelity",
+    }
 
 
 def test_refinement_failure_prefers_refine_30_seed() -> None:
@@ -212,3 +279,31 @@ def test_coverage_decision_can_be_built_from_synthetic_rows() -> None:
 
     assert decision["coverage_decision_s003"] == "covered_send_to_w3"
     assert bool(decision["needs_w3"]) is True
+
+
+def _synthetic_w3_row(
+    primitive_id: str,
+    family: str,
+    target_heading_deg: float | None,
+    updraft_config: str,
+    wind_fidelity: str,
+) -> dict[str, object]:
+    heading_error = 0.0 if target_heading_deg is None else 1.0
+    return {
+        "primitive_id": primitive_id,
+        "selection_status": "selected_for_w3_stress",
+        "selection_reason": "synthetic",
+        "candidate_class": "updraft_assisted_commandable",
+        "coverage_status": "covered_by_existing_envelope",
+        "family": family,
+        "target_heading_deg": target_heading_deg,
+        "terminal_heading_error_deg": heading_error,
+        "turn_footprint_proxy_m2": 1.0,
+        "path_length_xy_m": 3.0,
+        "terminal_speed_m_s": 6.0,
+        "min_true_margin_m": 0.2,
+        "energy_residual_m": 0.1,
+        "updraft_config": updraft_config,
+        "wind_fidelity": wind_fidelity,
+        "start_condition": "favourable",
+    }

@@ -22,6 +22,7 @@ from primitive_library_selection import (
     FUTURE_TARGETS_DEG,
     HIGHER_TARGET_REQUEST_STATUSES,
     SELECTION_STATUSES,
+    W3_REQUIRED_ROLES,
     build_candidate_shortlist,
     build_coverage_decision_summary,
     build_higher_target_growth_request,
@@ -109,6 +110,7 @@ def _write_manifest(
         "candidate_shortlist_rows": int(len(shortlist)),
         "coverage_decision_rows": int(len(coverage)),
         "w3_planned_candidate_count": int(len(w3_plan)),
+        **_w3_diversity_manifest_fields(w3_plan),
         "higher_target_recommended_next_count": int((higher_targets["request_status"] == "recommended_next").sum()),
         "request_status_counts": higher_targets["request_status"].value_counts(dropna=False).to_dict(),
         "selection_status_counts": shortlist["selection_status"].value_counts(dropna=False).to_dict(),
@@ -142,6 +144,7 @@ def _write_report(
     w3_plan: pd.DataFrame,
     higher_targets: pd.DataFrame,
 ) -> None:
+    diversity = _w3_diversity_manifest_fields(w3_plan)
     lines = [
         "# Primitive Library Shortlist and W3 Planning Report",
         "",
@@ -161,6 +164,19 @@ def _write_report(
             "",
             f"- W3 stress candidates planned: `{len(w3_plan)}`",
             "- W3 rows are planning rows only; `not_implemented_in_this_pass=True`.",
+            "",
+            "## W3 Diversity Check",
+            "",
+            f"- Selected W3 roles: `{diversity['w3_roles_selected']}`",
+            f"- Missing W3 roles: `{diversity['w3_missing_roles']}`",
+            f"- Distinct families selected: `{diversity['w3_distinct_family_count']}`",
+            f"- Target-labelled steering candidate included: `{diversity['w3_target_candidate_present']}`",
+            f"- Baseline glide/recovery/mild-bank represented: `{diversity['w3_baseline_candidate_present']}`",
+            f"- Glide count: `{diversity['w3_glide_count']}`",
+            f"- Recovery count: `{diversity['w3_recovery_count']}`",
+            f"- Mild-bank count: `{diversity['w3_mild_bank_count']}`",
+            f"- Target-steering count: `{diversity['w3_target_steering_count']}`",
+            "- W3 is still not executed in this pass.",
             "",
             "## Higher-Target Requests",
             "",
@@ -189,6 +205,30 @@ def _write_report(
         ]
     )
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
+
+
+def _w3_diversity_manifest_fields(w3_plan: pd.DataFrame) -> dict[str, object]:
+    if w3_plan.empty:
+        roles_selected: list[str] = []
+        families = pd.Series(dtype=object)
+    else:
+        roles_selected = [str(value) for value in w3_plan["w3_role"].dropna().tolist()]
+        families = w3_plan["family"].dropna()
+    missing_roles = [role for role in W3_REQUIRED_ROLES if role not in roles_selected]
+    family_counts = families.value_counts(dropna=False).to_dict()
+    return {
+        "w3_diversity_selection_fixed": True,
+        "w3_required_roles": list(W3_REQUIRED_ROLES),
+        "w3_roles_selected": roles_selected,
+        "w3_missing_roles": missing_roles,
+        "w3_distinct_family_count": int(families.nunique()),
+        "w3_target_candidate_present": bool((w3_plan["target_heading_deg"].notna()).any()) if not w3_plan.empty else False,
+        "w3_baseline_candidate_present": bool(families.isin(["glide", "recovery", "mild_bank"]).any()) if not w3_plan.empty else False,
+        "w3_glide_count": int(family_counts.get("glide", 0)),
+        "w3_recovery_count": int(family_counts.get("recovery", 0)),
+        "w3_mild_bank_count": int(family_counts.get("mild_bank", 0)),
+        "w3_target_steering_count": int(roles_selected.count("target_steering")),
+    }
 
 
 # =============================================================================

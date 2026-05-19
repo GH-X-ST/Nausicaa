@@ -52,6 +52,25 @@ HIGHER_TARGET_REQUEST_STATUSES = (
 
 FUTURE_TARGETS_DEG = (45.0, 60.0, 90.0, 120.0, 150.0, 180.0)
 ACTIVE_EVIDENCE_TARGETS_DEG = (15.0, 30.0)
+W3_REQUIRED_ROLES = (
+    "target_steering",
+    "glide_transit",
+    "recovery_fallback",
+    "mild_bank_updraft_encounter",
+    "environment_comparison",
+)
+_W3_ROLE_PRIORITY = {
+    role: index + 1
+    for index, role in enumerate(W3_REQUIRED_ROLES)
+}
+_W3_ROLE_REASON = {
+    "target_steering": "best_available_target_steering_candidate",
+    "glide_transit": "best_available_glide_transit_candidate",
+    "recovery_fallback": "best_available_recovery_fallback_candidate",
+    "mild_bank_updraft_encounter": "best_available_mild_bank_updraft_encounter_candidate",
+    "environment_comparison": "balances_updraft_configuration_or_wind_fidelity",
+    "additional_ranked_candidate": "fallback_next_best_available_candidate",
+}
 
 
 @dataclass(frozen=True)
@@ -201,31 +220,21 @@ def build_coverage_decision_summary(
 def build_w3_stress_plan(shortlist: pd.DataFrame, max_w3_candidates: int = 5) -> pd.DataFrame:
     """Return a planning-only W3 stress table with no execution side effects."""
 
-    candidates = shortlist[shortlist["selection_status"] == "selected_for_w3_stress"].copy()
-    if candidates.empty:
+    selected = select_diverse_w3_candidates(shortlist, max_w3_candidates=max_w3_candidates)
+    if selected.empty:
         return pd.DataFrame(columns=_w3_columns())
 
-    candidates["_target_priority"] = candidates["target_heading_deg"].isna().astype(int)
-    candidates = candidates.sort_values(
-        by=[
-            "_target_priority",
-            "target_heading_deg",
-            "terminal_heading_error_deg",
-            "turn_footprint_proxy_m2",
-            "path_length_xy_m",
-            "terminal_speed_m_s",
-            "min_true_margin_m",
-        ],
-        ascending=[True, True, True, True, True, False, False],
-        na_position="first",
-    ).head(max_w3_candidates)
-
     rows = []
-    for index, (_, row) in enumerate(candidates.iterrows(), start=1):
+    for index, (_, row) in enumerate(selected.iterrows(), start=1):
         rows.append(
             {
                 "w3_plan_id": f"w3_s003_{index:02d}",
                 "source_primitive_id": row["primitive_id"],
+                "w3_role": row["w3_role"],
+                "role_priority": int(row["role_priority"]),
+                "role_required_if_available": bool(row["role_required_if_available"]),
+                "diversity_selection_reason": row["diversity_selection_reason"],
+                "environment_balance_reason": row["environment_balance_reason"],
                 "family": row["family"],
                 "target_heading_deg": row["target_heading_deg"],
                 "updraft_config": row["updraft_config"],
@@ -247,6 +256,158 @@ def build_w3_stress_plan(shortlist: pd.DataFrame, max_w3_candidates: int = 5) ->
             }
         )
     return pd.DataFrame(rows, columns=_w3_columns())
+
+
+def select_diverse_w3_candidates(shortlist: pd.DataFrame, max_w3_candidates: int = 5) -> pd.DataFrame:
+    """Select W3 planning rows with primitive-role diversity before global ranking."""
+
+    candidates = shortlist[shortlist["selection_status"] == "selected_for_w3_stress"].copy()
+    if candidates.empty or max_w3_candidates <= 0:
+        return pd.DataFrame()
+
+    selected_parts: list[pd.DataFrame] = []
+    selected_ids: set[str] = set()
+    for role in W3_REQUIRED_ROLES:
+        if len(selected_parts) >= max_w3_candidates:
+            break
+        selected = _select_w3_role_candidate(candidates, role, selected_ids)
+        if selected is None:
+            continue
+        selected_parts.append(selected)
+        selected_ids.add(str(selected.iloc[0]["primitive_id"]))
+
+    if len(selected_parts) < max_w3_candidates:
+        remaining = candidates[~candidates["primitive_id"].astype(str).isin(selected_ids)].copy()
+        remaining = _sort_w3_candidates(remaining)
+        for _, row in remaining.head(max_w3_candidates - len(selected_parts)).iterrows():
+            selected_parts.append(
+                _with_w3_role_metadata(
+                    row.to_frame().T,
+                    "additional_ranked_candidate",
+                    "fallback_next_best_available_candidate",
+                    "fills_remaining_w3_capacity_after_required_roles",
+                    required=False,
+                )
+            )
+
+    if not selected_parts:
+        return pd.DataFrame()
+    return pd.concat(selected_parts, ignore_index=True)
+
+
+def _select_w3_role_candidate(
+    candidates: pd.DataFrame,
+    role: str,
+    selected_ids: set[str],
+) -> pd.DataFrame | None:
+    remaining = candidates[~candidates["primitive_id"].astype(str).isin(selected_ids)].copy()
+    if role == "target_steering":
+        pool = remaining[remaining["target_heading_deg"].notna()].copy()
+        reason = "best_available_target_steering_candidate"
+        environment_reason = "target_labelled_candidate_included_for_steering_role"
+    elif role == "glide_transit":
+        pool = remaining[remaining["family"] == "glide"].copy()
+        reason = "best_available_glide_transit_candidate"
+        environment_reason = "baseline_glide_transit_role_represented"
+    elif role == "recovery_fallback":
+        pool = remaining[remaining["family"] == "recovery"].copy()
+        reason = "best_available_recovery_fallback_candidate"
+        environment_reason = "baseline_recovery_fallback_role_represented"
+    elif role == "mild_bank_updraft_encounter":
+        pool = remaining[remaining["family"] == "mild_bank"].copy()
+        reason = "best_available_mild_bank_updraft_encounter_candidate"
+        environment_reason = "baseline_mild_bank_updraft_encounter_role_represented"
+    else:
+        pool, environment_reason = _environment_comparison_pool(remaining, candidates, selected_ids)
+        reason = "balances_updraft_configuration_or_wind_fidelity"
+
+    if pool.empty:
+        return None
+    ranked = _sort_w3_candidates(pool, role=role)
+    return _with_w3_role_metadata(ranked.head(1), role, reason, environment_reason, required=True)
+
+
+def _environment_comparison_pool(
+    remaining: pd.DataFrame,
+    candidates: pd.DataFrame,
+    selected_ids: set[str],
+) -> tuple[pd.DataFrame, str]:
+    if remaining.empty:
+        return remaining, "no_remaining_candidate_for_environment_comparison"
+
+    selected = candidates[candidates["primitive_id"].astype(str).isin(selected_ids)]
+    selected_updrafts = {str(value) for value in selected["updraft_config"].dropna()}
+    selected_winds = {str(value) for value in selected["wind_fidelity"].dropna()}
+    scored = remaining.copy()
+    scored["_environment_balance_score"] = [
+        int(str(row["updraft_config"]) not in selected_updrafts)
+        + int(str(row["wind_fidelity"]) not in selected_winds)
+        for _, row in scored.iterrows()
+    ]
+    balanced = scored[scored["_environment_balance_score"] > 0].copy()
+    if not balanced.empty:
+        return balanced, "adds_missing_updraft_configuration_or_wind_fidelity"
+    return remaining, "fallback_next_best_available_candidate"
+
+
+def _with_w3_role_metadata(
+    rows: pd.DataFrame,
+    role: str,
+    diversity_reason: str,
+    environment_reason: str,
+    *,
+    required: bool,
+) -> pd.DataFrame:
+    annotated = rows.copy()
+    annotated["w3_role"] = role
+    annotated["role_priority"] = int(_W3_ROLE_PRIORITY.get(role, len(W3_REQUIRED_ROLES) + 1))
+    annotated["role_required_if_available"] = bool(required)
+    annotated["diversity_selection_reason"] = diversity_reason
+    annotated["environment_balance_reason"] = environment_reason
+    return annotated
+
+
+def _sort_w3_candidates(candidates: pd.DataFrame, role: str = "") -> pd.DataFrame:
+    if candidates.empty:
+        return candidates
+    ranked = candidates.copy()
+    ranked["_class_priority"] = ranked["candidate_class"].map(
+        {
+            "updraft_assisted_commandable": 0,
+            "w0_standalone_commandable": 1,
+            "w0_updraft_pending_target_candidate": 2,
+        }
+    ).fillna(3)
+    ranked["_target_preference"] = _target_preference_values(ranked, role)
+    ranked["_heading_error_rank"] = ranked["terminal_heading_error_deg"].fillna(0.0)
+    if role not in ("target_steering", "additional_ranked_candidate"):
+        ranked["_heading_error_rank"] = 0.0
+    return ranked.sort_values(
+        by=[
+            "_class_priority",
+            "_target_preference",
+            "_heading_error_rank",
+            "turn_footprint_proxy_m2",
+            "path_length_xy_m",
+            "terminal_speed_m_s",
+            "min_true_margin_m",
+            "energy_residual_m",
+            "primitive_id",
+        ],
+        ascending=[True, True, True, True, True, False, False, False, True],
+        na_position="last",
+    )
+
+
+def _target_preference_values(candidates: pd.DataFrame, role: str) -> pd.Series:
+    if "target_heading_deg" not in candidates:
+        return pd.Series(0.0, index=candidates.index)
+    target = candidates["target_heading_deg"].astype(float)
+    if role != "target_steering":
+        return target.notna().astype(int)
+    target_available = target.dropna()
+    preferred_target = 30.0 if np.isclose(target_available, 30.0).any() else 15.0
+    return (target - preferred_target).abs().fillna(999.0)
 
 
 def _coverage_decision(row: dict[str, object], best_selection_status: str) -> tuple[str, str]:
@@ -272,6 +433,11 @@ def _w3_columns() -> list[str]:
     return [
         "w3_plan_id",
         "source_primitive_id",
+        "w3_role",
+        "role_priority",
+        "role_required_if_available",
+        "diversity_selection_reason",
+        "environment_balance_reason",
         "family",
         "target_heading_deg",
         "updraft_config",

@@ -22,6 +22,19 @@ It does not replay candidates, execute W3, implement a governor, implement OCP/T
 - W3 stress candidates planned: `5`
 - W3 rows are planning rows only; `not_implemented_in_this_pass=True`.
 
+## W3 Diversity Check
+
+- Selected W3 roles: `['target_steering', 'glide_transit', 'recovery_fallback', 'mild_bank_updraft_encounter', 'environment_comparison']`
+- Missing W3 roles: `[]`
+- Distinct families selected: `4`
+- Target-labelled steering candidate included: `True`
+- Baseline glide/recovery/mild-bank represented: `True`
+- Glide count: `2`
+- Recovery count: `1`
+- Mild-bank count: `1`
+- Target-steering count: `1`
+- W3 is still not executed in this pass.
+
 ## Higher-Target Requests
 
 - `45 deg`: `defer_boundary_only` - 30_deg_uncovered_region_is_boundary_or_entry_envelope_limited_not_library_growth
