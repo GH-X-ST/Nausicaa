@@ -277,17 +277,37 @@ def latency_case_config(
     )
 
 
-def latency_audit_fields_from_case(config: LatencyCaseConfig) -> dict[str, object]:
+def latency_audit_fields_from_case(
+    config: LatencyCaseConfig,
+    active_actuator_tau_s: tuple[float, float, float] | None = None,
+) -> dict[str, object]:
     """Return CSV/JSON-ready latency fields for scenario and primitive logs."""
+
+    if active_actuator_tau_s is None or config.latency_case == "none":
+        tau = tuple(float(value) for value in config.actuator_tau_s)
+        actuator_t50_s = float(config.actuator_t50_s)
+        actuator_t90_s = float(config.actuator_t90_s)
+    else:
+        tau = tuple(
+            float(value)
+            for value in np.asarray(active_actuator_tau_s, dtype=float).reshape(3)
+        )
+        if config.latency_case == "actuator_lag_only":
+            max_tau = max(tau)
+            actuator_t50_s = float(max_tau * np.log(2.0))
+            actuator_t90_s = float(max_tau * np.log(10.0))
+        else:
+            actuator_t50_s = float(config.actuator_t50_s)
+            actuator_t90_s = float(config.actuator_t90_s)
 
     return {
         "latency_case": str(config.latency_case),
         "state_feedback_delay_s": float(config.state_feedback_delay_s),
         "command_onset_delay_s": float(config.command_onset_delay_s),
         "command_transport_delay_s": float(config.command_transport_delay_s),
-        "actuator_tau_s": format_actuator_tau_s(config.actuator_tau_s),
-        "actuator_t50_s": float(config.actuator_t50_s),
-        "actuator_t90_s": float(config.actuator_t90_s),
+        "actuator_tau_s": format_actuator_tau_s(tau),
+        "actuator_t50_s": actuator_t50_s,
+        "actuator_t90_s": actuator_t90_s,
         "latency_jitter_s": float(config.latency_jitter_s),
         "timing_model_version": str(config.timing_model_version),
         "latency_pass_label": str(config.latency_pass_label),

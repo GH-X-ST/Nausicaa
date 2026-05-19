@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
 import run_primitive_library_pass as runner
+from latency import actuator_tau_for_case, format_actuator_tau_s, latency_case_config
+from primitive_library_schema import PrimitiveLibraryConfig
 
 
 @pytest.fixture()
@@ -63,7 +66,12 @@ def test_primitive_library_outputs_and_manifest_flags(runner_outputs) -> None:
     )
     assert manifest["state_feedback_delay_applied"] is False
     assert manifest["closed_loop_delayed_state_feedback_applied"] is False
-    assert ";" in manifest["actuator_tau_s"]
+    nominal_config = latency_case_config("nominal")
+    assert manifest["actuator_tau_s"] == format_actuator_tau_s(
+        actuator_tau_for_case(nominal_config)
+    )
+    assert manifest["actuator_t50_s"] == pytest.approx(nominal_config.actuator_t50_s)
+    assert manifest["actuator_t90_s"] == pytest.approx(nominal_config.actuator_t90_s)
 
     assert not evidence.empty
     assert not library_summary.empty
@@ -167,7 +175,42 @@ def test_coverage_summary_and_report_record_latency_scope(runner_outputs) -> Non
     assert "Latency Replay Scope" in report
     assert "command_path_nominal_no_feedback_controller" in report
     assert "computed_per_evidence_row_after_final_primitive_acceptance" in report
+    assert f"Actuator tau s: `{manifest['actuator_tau_s']}`" in report
+    assert f"Actuator t50 s: `{manifest['actuator_t50_s']}`" in report
+    assert f"Actuator t90 s: `{manifest['actuator_t90_s']}`" in report
     assert "coverage_status" in evidence.columns
+
+
+def test_latency_manifest_fields_use_active_tau_semantics() -> None:
+    default_fields = runner._latency_manifest_fields(PrimitiveLibraryConfig())
+    active_tau = actuator_tau_for_case(latency_case_config("actuator_lag_only"))
+
+    assert default_fields["latency_case"] == "actuator_lag_only"
+    assert default_fields["actuator_tau_s"] == "0.060000000;0.060000000;0.060000000"
+    assert default_fields["actuator_tau_s"] == format_actuator_tau_s(active_tau)
+    assert default_fields["actuator_t50_s"] == pytest.approx(max(active_tau) * np.log(2.0))
+    assert default_fields["actuator_t90_s"] == pytest.approx(max(active_tau) * np.log(10.0))
+    assert default_fields["command_delay_applied"] is False
+    assert default_fields["actuator_lag_applied"] is True
+
+    for latency_case in ("nominal", "conservative"):
+        config = latency_case_config(latency_case)
+        fields = runner._latency_manifest_fields(
+            PrimitiveLibraryConfig(latency_case=latency_case)
+        )
+        assert fields["actuator_tau_s"] == format_actuator_tau_s(
+            actuator_tau_for_case(config)
+        )
+        assert fields["actuator_t50_s"] == pytest.approx(config.actuator_t50_s)
+        assert fields["actuator_t90_s"] == pytest.approx(config.actuator_t90_s)
+
+    none_fields = runner._latency_manifest_fields(
+        PrimitiveLibraryConfig(latency_case="none")
+    )
+    assert none_fields["actuator_tau_s"] == "0.000000000;0.000000000;0.000000000"
+    assert none_fields["actuator_t50_s"] == 0.0
+    assert none_fields["actuator_t90_s"] == 0.0
+    assert none_fields["actuator_lag_applied"] is False
 
 
 def test_representative_logs_preserve_raw_command_bridge_columns(runner_outputs) -> None:
@@ -180,6 +223,9 @@ def test_representative_logs_preserve_raw_command_bridge_columns(runner_outputs)
     commands = pd.read_csv(command_path)
 
     assert "u_norm_requested_delta_a_norm" in commands.columns
+    assert "u_norm_effective_target_delta_a_norm" in commands.columns
+    assert "u_norm_effective_target_delta_e_norm" in commands.columns
+    assert "u_norm_effective_target_delta_r_norm" in commands.columns
     assert "u_norm_applied_delta_a_norm" in commands.columns
     assert "delta_cmd_rad_delta_a_cmd" in commands.columns
     assert "delta_cmd_rad_delta_e_cmd" in commands.columns

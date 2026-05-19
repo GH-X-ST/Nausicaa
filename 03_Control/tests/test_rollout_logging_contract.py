@@ -76,6 +76,28 @@ def test_command_dataframe_records_requested_applied_and_radian_commands() -> No
     assert "delta_cmd_rad_delta_a_cmd" in table.columns
     assert table.loc[1, "u_norm_requested_delta_a_norm"] == 2.0
     assert table.loc[1, "u_norm_applied_delta_a_norm"] == 1.0
+    assert not any(
+        column.startswith("u_norm_effective_target_") for column in table.columns
+    )
+
+
+def test_command_dataframe_optionally_records_effective_targets() -> None:
+    result = _result()
+    effective = np.array([[0.0, 0.0, 0.0], [0.5, -0.25, 0.75]])
+    table = command_dataframe(
+        result.time_s,
+        result.u_norm_requested,
+        result.u_norm_applied,
+        result.delta_cmd_rad,
+        u_norm_effective_target=effective,
+    )
+
+    assert "u_norm_effective_target_delta_a_norm" in table.columns
+    assert "u_norm_effective_target_delta_e_norm" in table.columns
+    assert "u_norm_effective_target_delta_r_norm" in table.columns
+    assert table.loc[1, "u_norm_effective_target_delta_a_norm"] == 0.5
+    assert table.loc[1, "u_norm_effective_target_delta_e_norm"] == -0.25
+    assert table.loc[1, "u_norm_effective_target_delta_r_norm"] == 0.75
 
 
 def test_metric_dataframe_validates_metric_schema() -> None:

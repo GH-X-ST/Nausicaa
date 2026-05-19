@@ -135,6 +135,7 @@ def evaluate_candidate(
         u_norm_requested=u_req,
         u_norm_effective_target=u_effective,
         u_norm_applied=u_applied,
+        active_actuator_tau_s=actuator_tau,
     )
     return CandidateEvaluation(
         spec=spec,
@@ -159,6 +160,7 @@ def _not_evaluated_result(
     phase: tuple[str, ...],
 ) -> CandidateEvaluation:
     latency_config = latency_case_config(config.latency_case)
+    actuator_tau = actuator_tau_for_case(latency_config)
     effective = np.array(
         [
             latency_adjusted_command_sample(time_s, u_req, sample_time, latency_config)
@@ -178,6 +180,7 @@ def _not_evaluated_result(
         u_norm_requested=u_req,
         u_norm_effective_target=effective,
         u_norm_applied=applied,
+        active_actuator_tau_s=actuator_tau,
     )
     return CandidateEvaluation(
         spec=spec,
@@ -204,11 +207,15 @@ def build_evidence_row(
     u_norm_requested: np.ndarray,
     u_norm_effective_target: np.ndarray,
     u_norm_applied: np.ndarray,
+    active_actuator_tau_s: tuple[float, float, float],
 ) -> PrimitiveEvidenceRow:
     """Return one primitive evidence row with scalar metrics."""
 
     latency_config = latency_case_config(config.latency_case)
-    latency_fields = latency_audit_fields_from_case(latency_config)
+    latency_fields = latency_audit_fields_from_case(
+        latency_config,
+        active_actuator_tau_s=active_actuator_tau_s,
+    )
     state = np.asarray(x_ref, dtype=float)
     positions = state[:, 0:3]
     speed = np.linalg.norm(state[:, 6:9], axis=1)

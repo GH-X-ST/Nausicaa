@@ -5,7 +5,7 @@ import pytest
 
 import primitive_library
 from command_contract import normalised_command_to_surface_rad
-from latency import format_actuator_tau_s, latency_case_config
+from latency import actuator_tau_for_case, format_actuator_tau_s, latency_case_config
 from primitive_library import WindModelInfo, evaluate_candidate
 from primitive_library_schema import PrimitiveCandidateSpec, PrimitiveLibraryConfig
 
@@ -153,6 +153,64 @@ def test_primitive_evidence_latency_metadata_and_single_run_label(
     assert row.actuator_lag_applied is True
 
 
+def test_primitive_evidence_active_audit_fields_match_replay_tau(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(primitive_library, "generate_command_profile", _step_profile)
+    monkeypatch.setattr(primitive_library, "rk4_step", _surface_only_step)
+
+    none = evaluate_candidate(
+        _spec(),
+        PrimitiveLibraryConfig(
+            latency_case="none",
+            wind_fidelities=("W0",),
+            updraft_configs=("none",),
+        ),
+        _wind_info(),
+        aircraft=object(),
+    ).row
+    assert none.actuator_tau_s == "0.000000000;0.000000000;0.000000000"
+    assert none.actuator_t50_s == 0.0
+    assert none.actuator_t90_s == 0.0
+    assert none.actuator_lag_applied is False
+
+    lag_config = latency_case_config("actuator_lag_only")
+    active_tau = actuator_tau_for_case(lag_config)
+    lag = evaluate_candidate(
+        _spec(),
+        PrimitiveLibraryConfig(
+            latency_case="actuator_lag_only",
+            wind_fidelities=("W0",),
+            updraft_configs=("none",),
+        ),
+        _wind_info(),
+        aircraft=object(),
+    ).row
+    assert lag.actuator_tau_s == format_actuator_tau_s(active_tau)
+    assert lag.actuator_t50_s == pytest.approx(max(active_tau) * np.log(2.0))
+    assert lag.actuator_t90_s == pytest.approx(max(active_tau) * np.log(10.0))
+    assert lag.actuator_lag_applied is True
+
+    for latency_case in ("nominal", "conservative"):
+        case_config = latency_case_config(latency_case)
+        row = evaluate_candidate(
+            _spec(),
+            PrimitiveLibraryConfig(
+                latency_case=latency_case,
+                wind_fidelities=("W0",),
+                updraft_configs=("none",),
+            ),
+            _wind_info(),
+            aircraft=object(),
+        ).row
+        assert row.actuator_tau_s == format_actuator_tau_s(
+            actuator_tau_for_case(case_config)
+        )
+        assert row.actuator_t50_s == pytest.approx(case_config.actuator_t50_s)
+        assert row.actuator_t90_s == pytest.approx(case_config.actuator_t90_s)
+        assert row.actuator_lag_applied is True
+
+
 def test_not_evaluated_result_has_latency_metadata_and_tau_format() -> None:
     result = evaluate_candidate(
         _spec(wind_fidelity="W1"),
@@ -174,4 +232,25 @@ def test_not_evaluated_result_has_latency_metadata_and_tau_format() -> None:
     )
     assert row.state_feedback_delay_applied is False
     assert row.command_delay_applied is True
+    assert row.actuator_lag_applied is False
+
+
+def test_not_evaluated_actuator_lag_only_uses_active_audit_tau() -> None:
+    result = evaluate_candidate(
+        _spec(wind_fidelity="W1"),
+        PrimitiveLibraryConfig(
+            latency_case="actuator_lag_only",
+            wind_fidelities=("W1",),
+            updraft_configs=("none",),
+        ),
+        _wind_info(available=False, evaluation_status="not_evaluated_model_missing"),
+        aircraft=object(),
+    )
+    row = result.row
+    active_tau = actuator_tau_for_case(latency_case_config("actuator_lag_only"))
+
+    assert row.evaluation_status == "not_evaluated_model_missing"
+    assert row.actuator_tau_s == format_actuator_tau_s(active_tau)
+    assert row.actuator_t50_s == pytest.approx(max(active_tau) * np.log(2.0))
+    assert row.actuator_t90_s == pytest.approx(max(active_tau) * np.log(10.0))
     assert row.actuator_lag_applied is False

@@ -28,6 +28,7 @@ from flight_dynamics import adapt_glider
 from glider import build_nausicaa_glider
 from latency import (
     LATENCY_CASES,
+    actuator_tau_for_case,
     latency_acceptance_scope,
     latency_audit_fields_from_case,
     latency_case_config,
@@ -288,7 +289,11 @@ def _no_overclaiming_flags() -> dict[str, bool]:
 
 def _latency_manifest_fields(config: PrimitiveLibraryConfig) -> dict[str, object]:
     latency_config = latency_case_config(config.latency_case)
-    audit = latency_audit_fields_from_case(latency_config)
+    active_tau = actuator_tau_for_case(latency_config)
+    audit = latency_audit_fields_from_case(
+        latency_config,
+        active_actuator_tau_s=active_tau,
+    )
     command_delay_s = float(
         audit["command_onset_delay_s"]
         + audit["command_transport_delay_s"]
@@ -619,6 +624,7 @@ def _write_representative_logs(
             evaluation.u_norm_requested,
             evaluation.u_norm_applied,
             evaluation.delta_cmd_rad,
+            u_norm_effective_target=evaluation.u_norm_effective_target,
         ).to_csv(commands_csv, index=False)
         output_files[f"{stem}_trajectory_csv"] = trajectory_csv
         output_files[f"{stem}_commands_csv"] = commands_csv
@@ -733,6 +739,8 @@ def _write_report(
         f"- Acceptance scope: `{latency_manifest['latency_acceptance_scope']}`",
         f"- Timing model version: `{latency_manifest['timing_model_version']}`",
         f"- Actuator tau s: `{latency_manifest['actuator_tau_s']}`",
+        f"- Actuator t50 s: `{latency_manifest['actuator_t50_s']}`",
+        f"- Actuator t90 s: `{latency_manifest['actuator_t90_s']}`",
         f"- Pass-label policy: `{latency_manifest['latency_pass_label_policy']}`",
         "- State-feedback delay applied: `False`",
         "- Closed-loop delayed-state feedback: `False`",

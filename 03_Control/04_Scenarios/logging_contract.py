@@ -63,16 +63,30 @@ def command_dataframe(
     u_norm_requested: np.ndarray,
     u_norm_applied: np.ndarray,
     delta_cmd_rad: np.ndarray,
+    *,
+    u_norm_effective_target: np.ndarray | None = None,
 ) -> pd.DataFrame:
     """Return requested/applied normalised commands and physical radian targets."""
 
     time = _time_vector(time_s)
     requested = _command_matrix(u_norm_requested, "u_norm_requested", time.size)
+    effective = (
+        None
+        if u_norm_effective_target is None
+        else _command_matrix(
+            u_norm_effective_target,
+            "u_norm_effective_target",
+            time.size,
+        )
+    )
     applied = _command_matrix(u_norm_applied, "u_norm_applied", time.size)
     command_rad = _command_matrix(delta_cmd_rad, "delta_cmd_rad", time.size)
     data: dict[str, np.ndarray] = {"time_s": time}
     for index, name in enumerate(NORMALISED_COMMAND_NAMES):
         data[f"u_norm_requested_{name}"] = requested[:, index]
+    if effective is not None:
+        for index, name in enumerate(NORMALISED_COMMAND_NAMES):
+            data[f"u_norm_effective_target_{name}"] = effective[:, index]
     for index, name in enumerate(NORMALISED_COMMAND_NAMES):
         data[f"u_norm_applied_{name}"] = applied[:, index]
     for index, name in enumerate(COMMAND_NAMES):

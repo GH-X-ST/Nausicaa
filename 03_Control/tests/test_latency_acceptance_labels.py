@@ -76,6 +76,50 @@ def test_latency_case_configs_and_audit_fields() -> None:
     assert conservative.actuator_tau_s[0] == pytest.approx((0.151 - 0.073) / np.log(2.0))
 
 
+def test_latency_audit_override_matches_active_tau_semantics() -> None:
+    active_tau = (0.06, 0.06, 0.06)
+
+    none_fields = latency_audit_fields_from_case(
+        latency_case_config("none"),
+        active_actuator_tau_s=active_tau,
+    )
+    assert none_fields["actuator_tau_s"] == "0.000000000;0.000000000;0.000000000"
+    assert none_fields["actuator_t50_s"] == 0.0
+    assert none_fields["actuator_t90_s"] == 0.0
+
+    lag_fields = latency_audit_fields_from_case(
+        latency_case_config("actuator_lag_only"),
+        active_actuator_tau_s=active_tau,
+    )
+    assert lag_fields["actuator_tau_s"] == format_actuator_tau_s(active_tau)
+    assert lag_fields["actuator_t50_s"] == pytest.approx(0.06 * np.log(2.0))
+    assert lag_fields["actuator_t90_s"] == pytest.approx(0.06 * np.log(10.0))
+
+    nominal = latency_case_config("nominal")
+    nominal_fields = latency_audit_fields_from_case(
+        nominal,
+        active_actuator_tau_s=active_tau,
+    )
+    assert nominal_fields["actuator_tau_s"] == format_actuator_tau_s(active_tau)
+    assert nominal_fields["actuator_t50_s"] == pytest.approx(nominal.actuator_t50_s)
+    assert nominal_fields["actuator_t90_s"] == pytest.approx(nominal.actuator_t90_s)
+
+    conservative = latency_case_config("conservative")
+    conservative_fields = latency_audit_fields_from_case(
+        conservative,
+        active_actuator_tau_s=conservative.actuator_tau_s,
+    )
+    assert conservative_fields["actuator_tau_s"] == format_actuator_tau_s(
+        conservative.actuator_tau_s
+    )
+    assert conservative_fields["actuator_t50_s"] == pytest.approx(
+        conservative.actuator_t50_s
+    )
+    assert conservative_fields["actuator_t90_s"] == pytest.approx(
+        conservative.actuator_t90_s
+    )
+
+
 def test_single_run_latency_labels_and_acceptance_scopes_are_separate() -> None:
     assert latency_acceptance_scope("none") == "ideal_ablation_only"
     assert latency_acceptance_scope("actuator_lag_only") == "actuator_lag_only_ablation"
