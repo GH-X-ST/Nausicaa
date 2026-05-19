@@ -21,10 +21,10 @@ import numpy as np
 # Scenario metadata records wind and latency choices only; wind fields and
 # rollout logic are intentionally outside this contract layer.
 WindMode = Literal["none", "cg", "panel"]
-LatencyCase = Literal["none", "low", "nominal", "high", "robust_upper"]
+LatencyCase = Literal["none", "actuator_lag_only", "nominal", "conservative"]
 
 WIND_MODES = ("none", "cg", "panel")
-LATENCY_CASES = ("none", "low", "nominal", "high", "robust_upper")
+LATENCY_CASES = ("none", "actuator_lag_only", "nominal", "conservative")
 
 
 @dataclass(frozen=True)

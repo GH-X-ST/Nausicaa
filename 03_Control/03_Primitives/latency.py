@@ -8,20 +8,30 @@ import numpy as np
 # =============================================================================
 # SECTION MAP
 # =============================================================================
-# 1) Command lattice and latency dataclasses
+# 1) Command lattice, labels, and latency dataclasses
 # 2) Surface limits
 # 3) Latency timing helpers
 # 4) Command conversion helpers
 # =============================================================================
 
 # =============================================================================
-# 1) Command Lattice and Latency Dataclasses
+# 1) Command lattice, labels, and latency dataclasses
 # =============================================================================
 # Normalised transmitter levels from the measured command interface
 COMMAND_LEVELS = np.array(
     [-1.0, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
     dtype=float,
 )
+LATENCY_CASES = ("none", "actuator_lag_only", "nominal", "conservative")
+LATENCY_PASS_LABELS = (
+    "ideal_only",
+    "nominal_pass",
+    "nominal_fail",
+    "conservative_pass",
+    "conservative_fail",
+    "ideal_only_latency_failed",
+)
+TIMING_MODEL_VERSION = "measured_vicon_one_pole_command_response_v1"
 
 
 @dataclass(frozen=True)
@@ -50,10 +60,27 @@ class LatencyEnvelope:
     command_dt_s: float = 0.02
 
 
+DEFAULT_LATENCY_ENVELOPE = LatencyEnvelope()
+
+
 @dataclass(frozen=True)
 class CommandToSurfaceConfig:
     mode: str = "nominal"
     use_state_feedback_delay: bool = True
+
+
+@dataclass(frozen=True)
+class LatencyCaseConfig:
+    latency_case: str
+    state_feedback_delay_s: float
+    command_onset_delay_s: float
+    command_transport_delay_s: float
+    actuator_tau_s: tuple[float, float, float]
+    actuator_t50_s: float
+    actuator_t90_s: float
+    latency_jitter_s: float
+    timing_model_version: str
+    latency_pass_label: str
 
 
 # =============================================================================
@@ -76,6 +103,11 @@ AGGREGATE_LIMITS = {
 # =============================================================================
 # 3) Latency Timing Helpers
 # =============================================================================
+def _first_order_tau_from_t50(t50_s: float, onset_s: float) -> float:
+    response_s = max(float(t50_s) - float(onset_s), 0.0)
+    return float(response_s / np.log(2.0))
+
+
 def actuator_tau_s(
     config: CommandToSurfaceConfig | None = None,
     envelope: LatencyEnvelope | None = None,
@@ -158,6 +190,187 @@ def latency_audit_fields(
         "vicon_filter_cutoff_hz": float(envelope.vicon_filter_cutoff_hz),
         "vicon_filter_model": str(envelope.vicon_filter_model),
     }
+
+
+def latency_case_config(
+    latency_case: str,
+    envelope: LatencyEnvelope = DEFAULT_LATENCY_ENVELOPE,
+) -> LatencyCaseConfig:
+    """Return the active timing contract for one canonical latency case."""
+
+    case = str(latency_case)
+    if case not in LATENCY_CASES:
+        raise ValueError(
+            "latency_case must be one of "
+            + ", ".join(f"'{label}'" for label in LATENCY_CASES)
+            + "."
+        )
+
+    zero_tau = (0.0, 0.0, 0.0)
+    nominal_tau = _first_order_tau_from_t50(
+        envelope.half_response_nominal_s,
+        envelope.onset_latency_s,
+    )
+    conservative_tau = _first_order_tau_from_t50(
+        envelope.conservative_actuator_bound_s,
+        envelope.onset_latency_s,
+    )
+    state_feedback_nominal = float(
+        envelope.vicon_latency_nominal_s + envelope.vicon_filter_delay_s
+    )
+
+    if case == "none":
+        return LatencyCaseConfig(
+            latency_case=case,
+            state_feedback_delay_s=0.0,
+            command_onset_delay_s=0.0,
+            command_transport_delay_s=0.0,
+            actuator_tau_s=zero_tau,
+            actuator_t50_s=0.0,
+            actuator_t90_s=0.0,
+            latency_jitter_s=0.0,
+            timing_model_version=TIMING_MODEL_VERSION,
+            latency_pass_label="ideal_only",
+        )
+    if case == "actuator_lag_only":
+        return LatencyCaseConfig(
+            latency_case=case,
+            state_feedback_delay_s=0.0,
+            command_onset_delay_s=0.0,
+            command_transport_delay_s=0.0,
+            actuator_tau_s=(nominal_tau, nominal_tau, nominal_tau),
+            actuator_t50_s=float(envelope.half_response_nominal_s),
+            actuator_t90_s=float(envelope.actuator_t90_s),
+            latency_jitter_s=0.0,
+            timing_model_version=TIMING_MODEL_VERSION,
+            latency_pass_label="ideal_only",
+        )
+    if case == "nominal":
+        return LatencyCaseConfig(
+            latency_case=case,
+            state_feedback_delay_s=state_feedback_nominal,
+            command_onset_delay_s=float(envelope.onset_latency_s),
+            command_transport_delay_s=0.0,
+            actuator_tau_s=(nominal_tau, nominal_tau, nominal_tau),
+            actuator_t50_s=float(envelope.half_response_nominal_s),
+            actuator_t90_s=float(envelope.actuator_t90_s),
+            latency_jitter_s=0.0,
+            timing_model_version=TIMING_MODEL_VERSION,
+            latency_pass_label="nominal_pass",
+        )
+
+    return LatencyCaseConfig(
+        latency_case=case,
+        state_feedback_delay_s=float(
+            envelope.vicon_latency_p95_s + envelope.vicon_filter_delay_s
+        ),
+        command_onset_delay_s=float(envelope.onset_latency_s),
+        command_transport_delay_s=float(
+            max(0.0, envelope.conservative_actuator_bound_s - envelope.onset_latency_s)
+        ),
+        actuator_tau_s=(conservative_tau, conservative_tau, conservative_tau),
+        actuator_t50_s=float(envelope.conservative_actuator_bound_s),
+        actuator_t90_s=float(
+            max(envelope.actuator_t90_s, envelope.conservative_actuator_bound_s)
+        ),
+        latency_jitter_s=0.0,
+        timing_model_version=TIMING_MODEL_VERSION,
+        latency_pass_label="conservative_pass",
+    )
+
+
+def latency_audit_fields_from_case(config: LatencyCaseConfig) -> dict[str, object]:
+    """Return CSV/JSON-ready latency fields for scenario and primitive logs."""
+
+    return {
+        "latency_case": str(config.latency_case),
+        "state_feedback_delay_s": float(config.state_feedback_delay_s),
+        "command_onset_delay_s": float(config.command_onset_delay_s),
+        "command_transport_delay_s": float(config.command_transport_delay_s),
+        "actuator_tau_s": tuple(float(value) for value in config.actuator_tau_s),
+        "actuator_t50_s": float(config.actuator_t50_s),
+        "actuator_t90_s": float(config.actuator_t90_s),
+        "latency_jitter_s": float(config.latency_jitter_s),
+        "timing_model_version": str(config.timing_model_version),
+        "latency_pass_label": str(config.latency_pass_label),
+    }
+
+
+def delayed_state_sample(
+    times_s: np.ndarray,
+    states: np.ndarray,
+    query_time_s: float,
+) -> np.ndarray:
+    """Return a state-history sample at query_time_s using column interpolation."""
+
+    times, values = _validate_history(times_s, states, "states")
+    query = _finite_query_time(query_time_s)
+    if query <= times[0]:
+        return values[0].copy()
+    if query >= times[-1]:
+        return values[-1].copy()
+    return np.array(
+        [
+            np.interp(query, times, values[:, column])
+            for column in range(values.shape[1])
+        ],
+        dtype=float,
+    )
+
+
+def delayed_command_sample(
+    times_s: np.ndarray,
+    commands: np.ndarray,
+    query_time_s: float,
+) -> np.ndarray:
+    """Return a zero-order-hold command sample at query_time_s."""
+
+    times, values = _validate_history(times_s, commands, "commands")
+    if values.shape[1] != 3:
+        raise ValueError("commands must have shape (N, 3).")
+    query = _finite_query_time(query_time_s)
+    index = int(np.searchsorted(times, query, side="right") - 1)
+    index = int(np.clip(index, 0, times.size - 1))
+    return values[index].copy()
+
+
+def latency_adjusted_command_sample(
+    times_s: np.ndarray,
+    commands_norm: np.ndarray,
+    query_time_s: float,
+    config: LatencyCaseConfig,
+) -> np.ndarray:
+    """Return delayed normalised commands before clipping or surface conversion."""
+
+    delay_s = float(config.command_onset_delay_s + config.command_transport_delay_s)
+    return delayed_command_sample(times_s, commands_norm, float(query_time_s) - delay_s)
+
+
+def _validate_history(
+    times_s: np.ndarray,
+    values: np.ndarray,
+    value_label: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    times = np.asarray(times_s, dtype=float).reshape(-1)
+    rows = np.asarray(values, dtype=float)
+    if rows.ndim == 1:
+        rows = rows.reshape(-1, 1)
+    if times.size == 0:
+        raise ValueError("history times_s must contain at least one sample.")
+    if rows.shape[0] != times.size:
+        raise ValueError(f"{value_label} row count must match times_s length.")
+    if not np.all(np.isfinite(times)) or not np.all(np.isfinite(rows)):
+        raise ValueError("history times and values must be finite.")
+    if np.any(np.diff(times) <= 0.0):
+        raise ValueError("history times_s must be strictly increasing.")
+    return times, rows
+
+
+def _finite_query_time(query_time_s: float) -> float:
+    query = float(query_time_s)
+    if not np.isfinite(query):
+        raise ValueError("query_time_s must be finite.")
+    return query
 
 
 # =============================================================================

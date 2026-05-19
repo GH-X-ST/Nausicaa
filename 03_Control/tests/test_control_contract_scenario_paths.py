@@ -48,10 +48,10 @@ def test_scenario_validation_rejects_invalid_values() -> None:
 
 
 def test_scenario_spec_row_is_csv_ready() -> None:
-    row = scenario_spec_row(_scenario(wind_mode="panel", latency_case="high"))
+    row = scenario_spec_row(_scenario(wind_mode="panel", latency_case="conservative"))
 
     assert row["wind_mode"] == "panel"
-    assert row["latency_case"] == "high"
+    assert row["latency_case"] == "conservative"
     assert row["use_true_safe_bounds"] is True
 
 

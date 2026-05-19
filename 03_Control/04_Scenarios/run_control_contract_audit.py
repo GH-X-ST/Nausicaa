@@ -121,9 +121,9 @@ def _scenario_rows() -> pd.DataFrame:
             description="contract-only no-wind metadata row",
         ),
         ScenarioSpec(
-            name="contract_panel_wind_robust_latency",
+            name="contract_panel_wind_conservative_latency",
             wind_mode="panel",
-            latency_case="robust_upper",
+            latency_case="conservative",
             dt_s=0.02,
             t_final_s=1.0,
             seed=2,

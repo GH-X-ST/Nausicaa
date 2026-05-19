@@ -11,6 +11,11 @@ from command_contract import (
 )
 from flight_dynamics import adapt_glider, state_derivative
 from glider import build_nausicaa_glider
+from latency import (
+    LatencyCaseConfig,
+    latency_adjusted_command_sample,
+    latency_case_config,
+)
 from metric_contract import empty_metric_row, validate_metric_row
 from scenario_contract import LATENCY_CASES, WIND_MODES
 from state_contract import STATE_INDEX, STATE_SIZE
@@ -91,6 +96,39 @@ def validate_rollout_config(config: RolloutConfig) -> None:
         raise ValueError("actuator_tau_s must contain three finite positive values.")
     if config.integrator != "rk4":
         raise ValueError("rollout integrator must be 'rk4'.")
+
+
+def _rollout_latency_case_config(config: RolloutConfig) -> LatencyCaseConfig:
+    latency_config = latency_case_config(config.latency_case)
+    if config.latency_case != "actuator_lag_only":
+        return latency_config
+
+    tau = tuple(
+        float(value)
+        for value in np.asarray(config.actuator_tau_s, dtype=float).reshape(3)
+    )
+    max_tau = max(tau)
+    return LatencyCaseConfig(
+        latency_case=latency_config.latency_case,
+        state_feedback_delay_s=0.0,
+        command_onset_delay_s=0.0,
+        command_transport_delay_s=0.0,
+        actuator_tau_s=tau,
+        actuator_t50_s=float(max_tau * np.log(2.0)),
+        actuator_t90_s=float(max_tau * np.log(10.0)),
+        latency_jitter_s=0.0,
+        timing_model_version=latency_config.timing_model_version,
+        latency_pass_label=latency_config.latency_pass_label,
+    )
+
+
+def _actuator_tau_for_rollout(
+    config: RolloutConfig,
+    latency_config: LatencyCaseConfig,
+) -> tuple[float, float, float]:
+    if config.latency_case in ("none", "actuator_lag_only"):
+        return tuple(float(value) for value in config.actuator_tau_s)
+    return tuple(float(value) for value in latency_config.actuator_tau_s)
 
 
 def _validate_schedule(schedule: CommandSchedule) -> tuple[np.ndarray, np.ndarray]:
@@ -396,6 +434,9 @@ def rollout_open_loop_normalised(
         )
 
     aircraft_model = adapt_glider(build_nausicaa_glider()) if aircraft is None else aircraft
+    latency_config = _rollout_latency_case_config(config)
+    actuator_tau = _actuator_tau_for_rollout(config, latency_config)
+    schedule_times_s, schedule_commands = _validate_schedule(command_schedule)
     time_s = _time_grid(config)
     sample_count = time_s.size
     x_log = np.empty((sample_count, STATE_SIZE), dtype=float)
@@ -409,8 +450,18 @@ def rollout_open_loop_normalised(
 
     for index in range(sample_count):
         requested = sample_command_schedule(command_schedule, time_s[index])
-        applied = clip_normalised_command(requested)
+        delayed_requested = latency_adjusted_command_sample(
+            schedule_times_s,
+            schedule_commands,
+            time_s[index],
+            latency_config,
+        )
+        applied = clip_normalised_command(delayed_requested)
         command_rad = normalised_command_to_surface_rad(applied)
+        if config.latency_case == "none":
+            # Ideal timing is a rollout-level ablation: surfaces track the
+            # current command target instantly before the pure plant step.
+            x_log[index, 12:15] = command_rad
         requested_log[index] = requested
         applied_log[index] = applied
         command_rad_log[index] = command_rad
@@ -424,7 +475,7 @@ def rollout_open_loop_normalised(
             aircraft_model,
             wind_model,
             config.wind_mode,
-            config.actuator_tau_s,
+            actuator_tau,
         )
         x_log[index + 1] = next_state
         if not np.all(np.isfinite(next_state)):
