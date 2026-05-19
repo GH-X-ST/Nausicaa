@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -35,6 +36,33 @@ REQUIRED_EXTERNAL_TESTS = (
     "03_Control/tests/test_primitive_library_w3_stress.py",
     "03_Control/tests/test_primitive_library_governor.py",
     "03_Control/tests/test_primitive_library_outer_loop.py",
+    "03_Control/tests/test_primitive_baseline_freeze.py",
+)
+NON_BLOCKING_SHORTLIST_STATUSES = (
+    "selected_for_w3_stress",
+    "selected_for_governor_seed",
+)
+BLOCKING_SHORTLIST_STATUSES = (
+    "needs_seed_refinement",
+    "governor_reject_entry_envelope",
+    "boundary_only",
+    "deferred_not_relevant",
+)
+PHASE_B_BLOCKED_REASON = (
+    "Stage 0.1 closes validation and blocker-table correctness only; "
+    "dense archive work must start in a separate task."
+)
+FORBIDDEN_SCOPE_THIS_PASS = (
+    "target expansion",
+    "both directions",
+    "new start-state strata",
+    "dense archive-count manifest",
+    "W0 dense sweep",
+    "W1/W2 replay",
+    "envelope maps",
+    "clustering",
+    "mission objectives",
+    "real-flight transfer",
 )
 BLOCKER_COLUMNS = (
     "blocker_id",
@@ -62,9 +90,10 @@ BLOCKER_COLUMNS = (
 # 1) Data Containers and Path Helpers
 # 2) Source Hashing
 # 3) Blocker and Plot-Ready Table Builders
-# 4) Report and Manifest Writers
-# 5) Freeze Workflow
-# 6) CLI Entry Point
+# 4) External Validation
+# 5) Report and Manifest Writers
+# 6) Freeze Workflow
+# 7) CLI Entry Point
 # =============================================================================
 
 
@@ -294,7 +323,10 @@ def _shortlist_blockers_from_run_003(result_root: Path) -> list[dict[str, object
     source = result_root / "003" / "metrics" / "candidate_shortlist_s003.csv"
     shortlist = _read_csv_if_present(source)
     if not shortlist.empty:
-        mask = shortlist.get("selection_status", "") != "send_to_w3"
+        # Run-003 selected rows are baseline evidence, not blockers. Only rows
+        # held back from W3/governor progression are emitted here.
+        status = shortlist.get("selection_status", "")
+        mask = status.isin(BLOCKING_SHORTLIST_STATUSES)
         for index, row in shortlist[mask].iterrows():
             rows.append(
                 {
@@ -664,6 +696,10 @@ def build_plot_ready_summary(
         "outer_loop_mission_label_count",
         "Outer-loop mission label count",
     )
+    _append_shortlist_blocking_counts(
+        rows,
+        result_root / "003" / "metrics" / "candidate_shortlist_s003.csv",
+    )
     return pd.DataFrame(
         rows,
         columns=(
@@ -740,8 +776,161 @@ def build_plot_ready_blocker_counts(blockers: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def _append_shortlist_blocking_counts(rows: list[dict[str, object]], source: Path) -> None:
+    shortlist = _read_csv_if_present(source)
+    if shortlist.empty or "selection_status" not in shortlist.columns:
+        return
+    status = shortlist["selection_status"]
+    blocking_count = int(status.isin(BLOCKING_SHORTLIST_STATUSES).sum())
+    non_blocking_count = int(status.isin(NON_BLOCKING_SHORTLIST_STATUSES).sum())
+    for metric_name, value in (
+        ("blocking_shortlist_rows", blocking_count),
+        ("non_blocking_shortlist_rows", non_blocking_count),
+    ):
+        rows.append(
+            {
+                "plot_group": "run003_shortlist_blocking_status",
+                "source_run_id": "003",
+                "metric_name": metric_name,
+                "metric_label": "Run-003 shortlist blocking classification count",
+                "metric_value": value,
+                "source_file": _repo_relative(source),
+            }
+        )
+
+
 # =============================================================================
-# 4) Report and Manifest Writers
+# 4) External Validation
+# =============================================================================
+def run_stage0_external_validation(
+    *,
+    repo_root: Path = REPO_ROOT,
+    test_paths: tuple[str, ...] = REQUIRED_EXTERNAL_TESTS,
+) -> dict[str, object]:
+    """Run the Stage 0 external regression suite and return auditable status fields."""
+
+    repo_root = Path(repo_root)
+    test_paths = tuple(str(path) for path in test_paths)
+    missing = [path for path in test_paths if not (repo_root / path).exists()]
+    command = [sys.executable, "-m", "pytest", "-q", *test_paths]
+    if missing:
+        return {
+            "external_validation_status": "failed_missing_test_files",
+            "external_validation_exit_code": None,
+            "external_validation_command": command,
+            "external_validation_test_paths": list(test_paths),
+            "external_validation_missing_tests": missing,
+            "external_validation_stdout_tail": "",
+            "external_validation_stderr_tail": "",
+        }
+
+    snapshot = _snapshot_baseline_tree(repo_root)
+    try:
+        result = subprocess.run(
+            command,
+            cwd=repo_root,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    finally:
+        _restore_baseline_tree(repo_root, snapshot)
+
+    status = "passed" if result.returncode == 0 else "failed"
+    return {
+        "external_validation_status": status,
+        "external_validation_exit_code": int(result.returncode),
+        "external_validation_command": command,
+        "external_validation_test_paths": list(test_paths),
+        "external_validation_missing_tests": [],
+        "external_validation_stdout_tail": _tail_text(result.stdout),
+        "external_validation_stderr_tail": _tail_text(result.stderr),
+    }
+
+
+def update_stage0_validation_status(
+    *,
+    outputs: FreezeOutputs,
+    validation: dict[str, object],
+) -> None:
+    """Update the Stage 0 manifest and summary after external validation."""
+
+    manifest = json.loads(outputs.manifest_json.read_text(encoding="ascii"))
+    manifest.update(validation)
+    manifest["external_validation_failures"] = _external_validation_failures(validation)
+    manifest["overall_stage0_gate_status"] = _overall_stage0_status(
+        str(manifest.get("freeze_gate_status", "failed")),
+        str(manifest.get("external_validation_status", "pending")),
+    )
+    manifest["phase_a_stage0_complete"] = manifest["overall_stage0_gate_status"] == "passed"
+    manifest["phase_b_implementation_allowed"] = False
+    manifest["phase_b_blocked_reason"] = PHASE_B_BLOCKED_REASON
+    outputs.manifest_json.write_text(json.dumps(manifest, indent=2), encoding="ascii")
+    _write_baseline_summary_from_manifest(outputs.baseline_summary_md, manifest)
+
+
+def _snapshot_baseline_tree(repo_root: Path) -> dict[str, bytes]:
+    result_root = repo_root / "03_Control" / "05_Results" / CAMPAIGN
+    snapshot: dict[str, bytes] = {}
+    for run_id in REQUIRED_BASELINE_RUNS:
+        run_dir = result_root / f"{run_id:03d}"
+        if not run_dir.exists():
+            continue
+        for path in sorted(run_dir.rglob("*")):
+            if path.is_file():
+                snapshot[_repo_relative(path)] = path.read_bytes()
+    return snapshot
+
+
+def _restore_baseline_tree(repo_root: Path, snapshot: dict[str, bytes]) -> None:
+    result_root = repo_root / "03_Control" / "05_Results" / CAMPAIGN
+    baseline_roots = [result_root / f"{run_id:03d}" for run_id in REQUIRED_BASELINE_RUNS]
+    expected = {repo_root / relative for relative in snapshot}
+
+    for run_dir in baseline_roots:
+        if not run_dir.exists():
+            continue
+        for path in sorted(run_dir.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+            if path.is_file() and path not in expected:
+                path.unlink()
+    for relative, content in snapshot.items():
+        path = repo_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists() or path.read_bytes() != content:
+            path.write_bytes(content)
+
+
+def _tail_text(text: str, max_lines: int = 30, max_chars: int = 4000) -> str:
+    lines = text.splitlines()
+    tail = "\n".join(lines[-max_lines:])
+    if len(tail) > max_chars:
+        return tail[-max_chars:]
+    return tail
+
+
+def _external_validation_failures(validation: dict[str, object]) -> list[str]:
+    status = str(validation.get("external_validation_status", "pending"))
+    if status == "passed" or status == "pending":
+        return []
+    if status == "failed_missing_test_files":
+        missing = validation.get("external_validation_missing_tests", [])
+        return [f"missing required external validation test: {path}" for path in missing]
+    exit_code = validation.get("external_validation_exit_code")
+    return [f"external validation command failed with exit code {exit_code}"]
+
+
+def _overall_stage0_status(freeze_gate_status: str, external_validation_status: str) -> str:
+    if freeze_gate_status != "passed":
+        return "failed"
+    if external_validation_status == "passed":
+        return "passed"
+    if external_validation_status == "pending":
+        return "pending_external_validation"
+    return "failed"
+
+
+# =============================================================================
+# 5) Report and Manifest Writers
 # =============================================================================
 def _write_claim_boundary(
     path: Path,
@@ -821,6 +1010,7 @@ def _write_baseline_summary(
         f"- Blocker rows written: `{len(blockers)}`",
         "- Rendered plots: `deferred`",
         "- Plot-ready CSVs: `written_for_freeze_audit_only`",
+        "- Phase B implementation allowed: `false`",
         "",
         "## Baseline Runs",
         "",
@@ -838,9 +1028,60 @@ def _write_baseline_summary(
             "",
             "The repository contains a frozen narrow primitive-library baseline with deterministic evidence, selected W3 stress, offline governor seed evidence, and short outer-loop transit/rejection evidence.",
             "",
-            "## Remaining Boundary",
+            "## Forbidden Claims",
             "",
-            "No sustained updraft exploitation, prolonged operation, volume coverage, real-flight transfer, full target ladder, or final widening-versus-growth claim is allowed from this baseline.",
+            "No sustained updraft exploitation, prolonged operation, objective-one success, objective-two volume coverage, real-flight transfer, full target ladder, high-angle reversal transfer, paired sim-real validation, or final widening-versus-growth claim is allowed from this baseline.",
+            "",
+            "## Phase B Boundary",
+            "",
+            PHASE_B_BLOCKED_REASON,
+        ]
+    )
+    path.write_text("\n".join(lines) + "\n", encoding="ascii")
+
+
+def _write_baseline_summary_from_manifest(path: Path, manifest: dict[str, object]) -> None:
+    lines = [
+        "# Frozen Baseline Summary",
+        "",
+        f"- Freeze gate status: `{manifest.get('freeze_gate_status')}`",
+        f"- External validation required: `{str(manifest.get('external_validation_required')).lower()}`",
+        f"- External validation status: `{manifest.get('external_validation_status')}`",
+        f"- Overall Stage 0 gate status: `{manifest.get('overall_stage0_gate_status')}`",
+        f"- Source files hashed: `{manifest.get('source_hash_count')}`",
+        f"- Blocker rows written: `{manifest.get('blocker_row_count')}`",
+        f"- Rendered plots: `{manifest.get('rendered_plots_status')}`",
+        "- Plot-ready CSVs: `written_for_freeze_audit_only`",
+        f"- Phase B implementation allowed: `{str(manifest.get('phase_b_implementation_allowed')).lower()}`",
+        "",
+        "## Baseline Runs",
+        "",
+    ]
+    for row in manifest.get("baseline_run_inventory", []):
+        lines.append(
+            "- "
+            f"`{row['run_id']}`: exists `{str(row['exists']).lower()}`, "
+            f"hashable files `{row['hashable_file_count']}`"
+        )
+    lines.extend(
+        [
+            "",
+            "## Allowed Claim",
+            "",
+            str(manifest.get("allowed_stage0_claim")),
+            "",
+            "## Forbidden Claims",
+            "",
+        ]
+    )
+    for claim in manifest.get("forbidden_claims", []):
+        lines.append(f"- {claim}")
+    lines.extend(
+        [
+            "",
+            "## Phase B Boundary",
+            "",
+            str(manifest.get("phase_b_blocked_reason", PHASE_B_BLOCKED_REASON)),
         ]
     )
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
@@ -863,12 +1104,17 @@ def _build_manifest(
     external_validation_failures: list[str],
     overall_stage0_gate_status: str,
 ) -> dict[str, object]:
+    result_root = outputs.root.parent
+    shortlist_counts = _shortlist_status_counts(result_root)
     external_tests = [
         {
             "path": path,
             "exists": bool((REPO_ROOT / path).exists()),
         }
         for path in REQUIRED_EXTERNAL_TESTS
+    ]
+    external_missing_tests = [
+        item["path"] for item in external_tests if not bool(item["exists"])
     ]
     return {
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -880,6 +1126,12 @@ def _build_manifest(
         "freeze_gate_failures": freeze_gate_failures,
         "external_validation_required": True,
         "external_validation_status": external_validation_status,
+        "external_validation_exit_code": None,
+        "external_validation_command": [sys.executable, "-m", "pytest", "-q", *REQUIRED_EXTERNAL_TESTS],
+        "external_validation_test_paths": list(REQUIRED_EXTERNAL_TESTS),
+        "external_validation_missing_tests": external_missing_tests,
+        "external_validation_stdout_tail": "",
+        "external_validation_stderr_tail": "",
         "external_validation_failures": external_validation_failures,
         "required_external_validation_tests": external_tests,
         "overall_stage0_gate_status": overall_stage0_gate_status,
@@ -896,9 +1148,17 @@ def _build_manifest(
         else 0,
         "plot_ready_summary_row_count": int(len(plot_ready_summary)),
         "plot_ready_blocker_count_rows": int(len(plot_ready_blocker_counts)),
+        "run003_shortlist_blocking_row_count": shortlist_counts["blocking_shortlist_rows"],
+        "run003_shortlist_non_blocking_row_count": shortlist_counts["non_blocking_shortlist_rows"],
+        "run003_shortlist_selection_status_counts": shortlist_counts["selection_status_counts"],
         "rendered_plots_status": "deferred",
         "plot_ready_csvs_sufficient_for_freeze_audit_only": True,
         "plot_ready_csvs_sufficient_for_final_phase_a_writing_package": False,
+        "phase_a_stage0_complete": overall_stage0_gate_status == "passed",
+        "phase_b_implementation_allowed": False,
+        "phase_b_blocked_reason": PHASE_B_BLOCKED_REASON,
+        "recommended_next_branch_after_stage0": "rewrite/phase-b-dense-archive-planning",
+        "forbidden_scope_this_pass": list(FORBIDDEN_SCOPE_THIS_PASS),
         "allowed_stage0_claim": (
             "narrow frozen baseline: deterministic primitive evidence, shortlist/W3 planning, "
             "selected W3 stress, offline governor seed evidence, and short governed-transit/rejection evidence"
@@ -916,6 +1176,25 @@ def _build_manifest(
             "final widening-versus-growth conclusion",
         ],
         "output_files": {key: _repo_relative(path) for key, path in outputs.as_dict().items()},
+    }
+
+
+def _shortlist_status_counts(result_root: Path) -> dict[str, object]:
+    shortlist = _read_csv_if_present(result_root / "003" / "metrics" / "candidate_shortlist_s003.csv")
+    if shortlist.empty or "selection_status" not in shortlist.columns:
+        return {
+            "blocking_shortlist_rows": 0,
+            "non_blocking_shortlist_rows": 0,
+            "selection_status_counts": {},
+        }
+    status = shortlist["selection_status"]
+    return {
+        "blocking_shortlist_rows": int(status.isin(BLOCKING_SHORTLIST_STATUSES).sum()),
+        "non_blocking_shortlist_rows": int(status.isin(NON_BLOCKING_SHORTLIST_STATUSES).sum()),
+        "selection_status_counts": {
+            str(key): int(value)
+            for key, value in status.value_counts(dropna=False).sort_index().items()
+        },
     }
 
 
@@ -1034,6 +1313,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", type=int, default=0)
     parser.add_argument("--baseline-runs", nargs="+", type=int, default=list(REQUIRED_BASELINE_RUNS))
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--run-validation", action="store_true")
     return parser.parse_args()
 
 
@@ -1045,11 +1325,28 @@ def main() -> int:
         run_id=int(args.run_id),
         overwrite=bool(args.overwrite),
     )
+    if bool(args.run_validation):
+        validation = run_stage0_external_validation(repo_root=REPO_ROOT)
+        update_stage0_validation_status(
+            outputs=FreezeOutputs(
+                root=paths["root"],
+                manifest_json=paths["manifest_json"],
+                blocker_csv=paths["blocker_csv"],
+                plot_ready_summary_csv=paths["plot_ready_summary_csv"],
+                plot_ready_blocker_counts_csv=paths["plot_ready_blocker_counts_csv"],
+                claim_boundary_md=paths["claim_boundary_md"],
+                baseline_summary_md=paths["baseline_summary_md"],
+            ),
+            validation=validation,
+        )
     manifest = json.loads(paths["manifest_json"].read_text(encoding="ascii"))
     for key, path in paths.items():
         print(f"{key}={path}")
-    if manifest["freeze_gate_status"] != "passed":
-        print("freeze_gate_status=failed", file=sys.stderr)
+    if manifest["overall_stage0_gate_status"] == "failed":
+        print("overall_stage0_gate_status=failed", file=sys.stderr)
+        return 1
+    if bool(args.run_validation) and manifest["overall_stage0_gate_status"] != "passed":
+        print("overall_stage0_gate_status=pending_or_failed", file=sys.stderr)
         return 1
     return 0
 

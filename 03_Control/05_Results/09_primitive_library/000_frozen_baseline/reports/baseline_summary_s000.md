@@ -2,12 +2,13 @@
 
 - Freeze gate status: `passed`
 - External validation required: `true`
-- External validation status: `pending`
-- Overall Stage 0 gate status: `pending_external_validation`
+- External validation status: `passed`
+- Overall Stage 0 gate status: `passed`
 - Source files hashed: `238`
-- Blocker rows written: `506`
+- Blocker rows written: `490`
 - Rendered plots: `deferred`
 - Plot-ready CSVs: `written_for_freeze_audit_only`
+- Phase B implementation allowed: `false`
 
 ## Baseline Runs
 
@@ -19,8 +20,21 @@
 
 ## Allowed Claim
 
-The repository contains a frozen narrow primitive-library baseline with deterministic evidence, selected W3 stress, offline governor seed evidence, and short outer-loop transit/rejection evidence.
+narrow frozen baseline: deterministic primitive evidence, shortlist/W3 planning, selected W3 stress, offline governor seed evidence, and short governed-transit/rejection evidence
 
-## Remaining Boundary
+## Forbidden Claims
 
-No sustained updraft exploitation, prolonged operation, volume coverage, real-flight transfer, full target ladder, or final widening-versus-growth claim is allowed from this baseline.
+- sustained updraft exploitation
+- prolonged confined arena operation
+- objective-one sustained operation
+- objective-two volume coverage
+- volume coverage mission completion
+- successful real flight transfer
+- full target ladder evidence
+- high angle reversal transfer evidence
+- paired sim-to-real validation
+- final widening-versus-growth conclusion
+
+## Phase B Boundary
+
+Stage 0.1 closes validation and blocker-table correctness only; dense archive work must start in a separate task.

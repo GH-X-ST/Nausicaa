@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-05-19T18:43:35",
+  "created_at": "2026-05-19T19:36:51",
   "run_id": "s000",
   "campaign": "09_primitive_library",
   "pass_name": "stage0_strict_baseline_freeze_gate",
@@ -13,7 +13,31 @@
   "freeze_gate_status": "passed",
   "freeze_gate_failures": [],
   "external_validation_required": true,
-  "external_validation_status": "pending",
+  "external_validation_status": "passed",
+  "external_validation_exit_code": 0,
+  "external_validation_command": [
+    "C:\\ProgramData\\miniforge3\\python.exe",
+    "-m",
+    "pytest",
+    "-q",
+    "03_Control/tests/test_primitive_library_runner.py",
+    "03_Control/tests/test_primitive_library_selection.py",
+    "03_Control/tests/test_primitive_library_w3_stress.py",
+    "03_Control/tests/test_primitive_library_governor.py",
+    "03_Control/tests/test_primitive_library_outer_loop.py",
+    "03_Control/tests/test_primitive_baseline_freeze.py"
+  ],
+  "external_validation_test_paths": [
+    "03_Control/tests/test_primitive_library_runner.py",
+    "03_Control/tests/test_primitive_library_selection.py",
+    "03_Control/tests/test_primitive_library_w3_stress.py",
+    "03_Control/tests/test_primitive_library_governor.py",
+    "03_Control/tests/test_primitive_library_outer_loop.py",
+    "03_Control/tests/test_primitive_baseline_freeze.py"
+  ],
+  "external_validation_missing_tests": [],
+  "external_validation_stdout_tail": ".............................................                            [100%]\n45 passed in 4.47s",
+  "external_validation_stderr_tail": "",
   "external_validation_failures": [],
   "required_external_validation_tests": [
     {
@@ -35,9 +59,13 @@
     {
       "path": "03_Control/tests/test_primitive_library_outer_loop.py",
       "exists": true
+    },
+    {
+      "path": "03_Control/tests/test_primitive_baseline_freeze.py",
+      "exists": true
     }
   ],
-  "overall_stage0_gate_status": "pending_external_validation",
+  "overall_stage0_gate_status": "passed",
   "source_hash_scope": "only required baseline runs 002 to 006; generated 000_frozen_baseline outputs excluded",
   "hashed_suffixes": [
     ".csv",
@@ -3414,13 +3442,38 @@
   ],
   "source_hashes_unchanged_after_writing": true,
   "source_hash_count": 238,
-  "blocker_row_count": 506,
+  "blocker_row_count": 490,
   "not_evaluated_blocker_row_count": 291,
-  "plot_ready_summary_row_count": 28,
-  "plot_ready_blocker_count_rows": 34,
+  "plot_ready_summary_row_count": 30,
+  "plot_ready_blocker_count_rows": 32,
+  "run003_shortlist_blocking_row_count": 74,
+  "run003_shortlist_non_blocking_row_count": 16,
+  "run003_shortlist_selection_status_counts": {
+    "boundary_only": 15,
+    "governor_reject_entry_envelope": 45,
+    "needs_seed_refinement": 14,
+    "selected_for_governor_seed": 3,
+    "selected_for_w3_stress": 13
+  },
   "rendered_plots_status": "deferred",
   "plot_ready_csvs_sufficient_for_freeze_audit_only": true,
   "plot_ready_csvs_sufficient_for_final_phase_a_writing_package": false,
+  "phase_a_stage0_complete": true,
+  "phase_b_implementation_allowed": false,
+  "phase_b_blocked_reason": "Stage 0.1 closes validation and blocker-table correctness only; dense archive work must start in a separate task.",
+  "recommended_next_branch_after_stage0": "rewrite/phase-b-dense-archive-planning",
+  "forbidden_scope_this_pass": [
+    "target expansion",
+    "both directions",
+    "new start-state strata",
+    "dense archive-count manifest",
+    "W0 dense sweep",
+    "W1/W2 replay",
+    "envelope maps",
+    "clustering",
+    "mission objectives",
+    "real-flight transfer"
+  ],
   "allowed_stage0_claim": "narrow frozen baseline: deterministic primitive evidence, shortlist/W3 planning, selected W3 stress, offline governor seed evidence, and short governed-transit/rejection evidence",
   "forbidden_claims": [
     "sustained updraft exploitation",
