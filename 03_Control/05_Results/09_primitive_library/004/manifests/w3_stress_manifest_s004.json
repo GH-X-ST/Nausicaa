@@ -1,0 +1,83 @@
+{
+  "created_at": "2026-05-19T03:46:59",
+  "run_id": "s004",
+  "campaign": "09_primitive_library",
+  "pass_name": "selected_w3_stress",
+  "source_w3_plan_run": "s003",
+  "evidence_source_run": "s002",
+  "run_003_w3_plan_only_shortlist_source": true,
+  "run_002_only_physical_evidence_source": true,
+  "exact_selected_candidate_count": 5,
+  "random_seed": 20260526,
+  "candidate_count": 5,
+  "trial_count": 125,
+  "trial_success_count": 112,
+  "candidate_status_counts": {
+    "w3_supported": 4,
+    "w3_marginal": 1
+  },
+  "coverage_status_counts": {
+    "w3_supported_pending_governor": 4,
+    "w3_marginal_needs_refinement": 1
+  },
+  "selected_w3_roles": [
+    "target_steering",
+    "glide_transit",
+    "recovery_fallback",
+    "mild_bank_updraft_encounter",
+    "environment_comparison"
+  ],
+  "selected_source_primitive_ids": [
+    "bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1",
+    "glide_none_favourable_U4_four_fan_W2_dp1",
+    "recovery_none_favourable_U4_four_fan_W1_dp1",
+    "mild_bank_none_favourable_U1_single_fan_W2_dp1",
+    "glide_none_favourable_U1_single_fan_W2_dp1"
+  ],
+  "allowed_candidate_w3_statuses": [
+    "w3_supported",
+    "w3_marginal",
+    "w3_rejected_entry_envelope",
+    "w3_rejected_safety_or_recovery",
+    "w3_boundary_evidence"
+  ],
+  "command_bridge": "u_norm_requested -> u_norm_applied -> delta_cmd_rad -> rk4_step/state_derivative",
+  "w3_stress_implemented": true,
+  "governor_implemented": false,
+  "outer_loop_implemented": false,
+  "real_flight_validation_claim": false,
+  "tvlqr_implemented": false,
+  "ocp_implemented": false,
+  "high_incidence_validation_claim": false,
+  "hardware_implemented": false,
+  "old_perch_like_branch_active": false,
+  "output_files": {
+    "trial_summary_csv": "03_Control/05_Results/09_primitive_library/004/metrics/w3_stress_trial_summary_s004.csv",
+    "candidate_summary_csv": "03_Control/05_Results/09_primitive_library/004/metrics/w3_stress_candidate_summary_s004.csv",
+    "coverage_update_csv": "03_Control/05_Results/09_primitive_library/004/metrics/w3_stress_coverage_update_s004.csv",
+    "report_md": "03_Control/05_Results/09_primitive_library/004/reports/w3_stress_report_s004.md",
+    "manifest_json": "03_Control/05_Results/09_primitive_library/004/manifests/w3_stress_manifest_s004.json",
+    "bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed000_s004_trajectory_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed000_s004_trajectory.csv",
+    "bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed000_s004_commands_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed000_s004_commands.csv",
+    "bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed010_s004_trajectory_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed010_s004_trajectory.csv",
+    "bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed010_s004_commands_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed010_s004_commands.csv",
+    "bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed024_s004_trajectory_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed024_s004_trajectory.csv",
+    "bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed024_s004_commands_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed024_s004_commands.csv",
+    "glide_none_favourable_U1_single_fan_W2_dp1_seed000_s004_trajectory_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_seed000_s004_trajectory.csv",
+    "glide_none_favourable_U1_single_fan_W2_dp1_seed000_s004_commands_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_seed000_s004_commands.csv",
+    "glide_none_favourable_U1_single_fan_W2_dp1_seed023_s004_trajectory_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_seed023_s004_trajectory.csv",
+    "glide_none_favourable_U1_single_fan_W2_dp1_seed023_s004_commands_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_seed023_s004_commands.csv",
+    "glide_none_favourable_U4_four_fan_W2_dp1_seed000_s004_trajectory_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_seed000_s004_trajectory.csv",
+    "glide_none_favourable_U4_four_fan_W2_dp1_seed000_s004_commands_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_seed000_s004_commands.csv",
+    "glide_none_favourable_U4_four_fan_W2_dp1_seed002_s004_trajectory_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_seed002_s004_trajectory.csv",
+    "glide_none_favourable_U4_four_fan_W2_dp1_seed002_s004_commands_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_seed002_s004_commands.csv",
+    "mild_bank_none_favourable_U1_single_fan_W2_dp1_seed000_s004_trajectory_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_seed000_s004_trajectory.csv",
+    "mild_bank_none_favourable_U1_single_fan_W2_dp1_seed000_s004_commands_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_seed000_s004_commands.csv",
+    "mild_bank_none_favourable_U1_single_fan_W2_dp1_seed019_s004_trajectory_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_seed019_s004_trajectory.csv",
+    "mild_bank_none_favourable_U1_single_fan_W2_dp1_seed019_s004_commands_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_seed019_s004_commands.csv",
+    "recovery_none_favourable_U4_four_fan_W1_dp1_seed000_s004_trajectory_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_seed000_s004_trajectory.csv",
+    "recovery_none_favourable_U4_four_fan_W1_dp1_seed000_s004_commands_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_seed000_s004_commands.csv",
+    "recovery_none_favourable_U4_four_fan_W1_dp1_seed009_s004_trajectory_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_seed009_s004_trajectory.csv",
+    "recovery_none_favourable_U4_four_fan_W1_dp1_seed009_s004_commands_csv": "03_Control/05_Results/09_primitive_library/004/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_seed009_s004_commands.csv"
+  }
+}
