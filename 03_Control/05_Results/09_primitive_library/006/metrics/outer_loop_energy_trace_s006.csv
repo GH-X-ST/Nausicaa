@@ -1,0 +1,7 @@
+scenario_id,step_index,time_s,event_label,x_w,y_w,z_w,speed_m_s,specific_energy_height_m,energy_residual_from_start_m,true_margin_m,updraft_config,wind_fidelity,lift_confidence,lift_region
+U1_lift_sector_governed_transit,0,0.0,initial,1.3,2.2,1.8,6.5,3.953414882772681,0.0,0.10000000000000009,U1_single_fan,W2,0.9,True
+U1_lift_sector_governed_transit,1,0.6,post_primitive,5.067506184815219,2.2725636096832327,2.0753011236153593,5.995272693154133,3.9072733287774195,-0.04614155399526165,1.4246988763846407,U1_single_fan,W2,0.9,True
+U4_lift_sector_governed_transit,0,0.0,initial,1.3,2.2,1.8,6.5,3.953414882772681,0.0,0.10000000000000009,U4_four_fan,candidate,0.9,True
+U4_lift_sector_governed_transit,1,0.5,post_primitive,4.495333717833639,2.2292340929746204,1.9194965518206568,6.21711873787266,3.8895559504346906,-0.06385893233799056,1.519496551820657,U4_four_fan,candidate,0.9,True
+low_lift_confidence_rejection,0,0.0,initial,1.3,2.2,1.8,6.5,3.953414882772681,0.0,0.10000000000000009,U1_single_fan,W2,0.2,False
+clearance_limited_no_go,0,0.0,initial,6.45,2.2,1.8,6.5,3.953414882772681,0.0,0.14999999999999947,U1_single_fan,W2,0.9,True

@@ -1,0 +1,59 @@
+{
+  "created_at": "2026-05-19T05:49:55",
+  "run_id": "s006",
+  "campaign": "09_primitive_library",
+  "pass_name": "outer_loop_mission_simulation",
+  "source_governor_run": "s005",
+  "source_w3_run": "s004",
+  "source_plan_run": "s003",
+  "source_evidence_run": "s002",
+  "scenario_ids": [
+    "U1_lift_sector_governed_transit",
+    "U4_lift_sector_governed_transit",
+    "low_lift_confidence_rejection",
+    "clearance_limited_no_go"
+  ],
+  "outer_loop_scenarios": [
+    "U1_lift_sector_governed_transit",
+    "U4_lift_sector_governed_transit",
+    "low_lift_confidence_rejection",
+    "clearance_limited_no_go"
+  ],
+  "outer_loop_implemented": true,
+  "outer_loop_mission_simulation_implemented": true,
+  "governor_implemented": true,
+  "governor_online_flight_ready": false,
+  "real_flight_validation_claim": false,
+  "hardware_implemented": false,
+  "ocp_implemented": false,
+  "tvlqr_implemented": false,
+  "high_incidence_validation_claim": false,
+  "target_steering_used": false,
+  "target_steering_governor_allowed": false,
+  "higher_target_primitives_added": false,
+  "new_primitive_generated": false,
+  "accepted_seed_candidate_count": 4,
+  "active_seed_candidate_count": 4,
+  "excluded_target_steering_count": 1,
+  "mission_summary_rows": 4,
+  "candidate_query_count": 24,
+  "candidate_accept_count": 4,
+  "candidate_reject_count": 20,
+  "mission_success_counts": {
+    "completed_with_governor_evidence": 2,
+    "no_go_coverage_gap": 2
+  },
+  "command_bridge": "u_norm_requested -> u_norm_applied -> delta_cmd_rad -> rk4_step/state_derivative",
+  "output_files": {
+    "mission_summary_csv": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_mission_summary_s006.csv",
+    "step_log_csv": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_step_log_s006.csv",
+    "candidate_decision_log_csv": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_candidate_decision_log_s006.csv",
+    "governor_rejection_log_csv": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_governor_rejection_log_s006.csv",
+    "energy_trace_csv": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_energy_trace_s006.csv",
+    "lift_dwell_summary_csv": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_lift_dwell_summary_s006.csv",
+    "coverage_gap_summary_csv": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_coverage_gap_summary_s006.csv",
+    "manifest_json": "03_Control/05_Results/09_primitive_library/006/manifests/outer_loop_mission_manifest_s006.json",
+    "report_md": "03_Control/05_Results/09_primitive_library/006/reports/outer_loop_mission_report_s006.md",
+    "selected_step_log_csv": "03_Control/05_Results/09_primitive_library/006/logs/outer_loop_selected_step_logs_s006.csv"
+  }
+}

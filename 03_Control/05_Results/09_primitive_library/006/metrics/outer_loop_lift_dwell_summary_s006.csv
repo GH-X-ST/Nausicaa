@@ -1,0 +1,5 @@
+scenario_id,updraft_config,wind_fidelity,lift_region_time_s,lift_region_fraction,mean_lift_confidence,mean_energy_residual_m,energy_gain_event_count,accepted_step_count
+U1_lift_sector_governed_transit,U1_single_fan,W2,1.2,1.0,0.9,-0.023070776997630826,0,1
+U4_lift_sector_governed_transit,U4_four_fan,candidate,1.0,1.0,0.9,-0.03192946616899528,0,1
+low_lift_confidence_rejection,U1_single_fan,W2,0.0,0.0,0.2,0.0,0,0
+clearance_limited_no_go,U1_single_fan,W2,0.0,1.0,0.9,0.0,0,0
