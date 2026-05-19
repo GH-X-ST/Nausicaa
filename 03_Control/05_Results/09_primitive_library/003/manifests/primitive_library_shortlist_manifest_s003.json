@@ -1,0 +1,92 @@
+{
+  "run_id": "s003",
+  "created_at": "2026-05-19T02:37:42",
+  "campaign": "09_primitive_library",
+  "pass_name": "primitive_library_shortlist_and_w3_planning",
+  "source_run_id": "s002",
+  "source_evidence_root": "03_Control/05_Results/09_primitive_library/002",
+  "run_002_only_source": true,
+  "planning_only": true,
+  "no_replay_performed": true,
+  "no_w3_execution_performed": true,
+  "coverage_driven_higher_target_logic": true,
+  "thirty_deg_uncovered_does_not_auto_recommend_45_60": true,
+  "max_w3_candidates": 5,
+  "selection_statuses": [
+    "selected_for_w3_stress",
+    "selected_for_governor_seed",
+    "needs_seed_refinement",
+    "governor_reject_entry_envelope",
+    "boundary_only",
+    "deferred_not_relevant"
+  ],
+  "coverage_decisions": [
+    "covered_keep",
+    "covered_send_to_w3",
+    "entry_envelope_reject",
+    "generator_refinement_needed",
+    "boundary_keep_for_discussion",
+    "higher_target_screen_recommended",
+    "not_evaluated"
+  ],
+  "higher_target_request_statuses": [
+    "recommended_next",
+    "possible_later",
+    "defer_boundary_only",
+    "refine_30_seed",
+    "not_requested_boundary_only",
+    "not_requested_insufficient_evidence"
+  ],
+  "future_target_ladder_deg": [
+    45.0,
+    60.0,
+    90.0,
+    120.0,
+    150.0,
+    180.0
+  ],
+  "candidate_shortlist_rows": 90,
+  "coverage_decision_rows": 30,
+  "w3_planned_candidate_count": 5,
+  "higher_target_recommended_next_count": 0,
+  "request_status_counts": {
+    "not_requested_boundary_only": 4,
+    "defer_boundary_only": 2
+  },
+  "selection_status_counts": {
+    "governor_reject_entry_envelope": 45,
+    "boundary_only": 15,
+    "needs_seed_refinement": 14,
+    "selected_for_w3_stress": 13,
+    "selected_for_governor_seed": 3
+  },
+  "coverage_decision_counts": {
+    "entry_envelope_reject": 15,
+    "covered_send_to_w3": 5,
+    "boundary_keep_for_discussion": 5,
+    "generator_refinement_needed": 4,
+    "covered_keep": 1
+  },
+  "source_manifest_summary": {
+    "central_research_question": "widen primitive envelopes before library growth",
+    "w1_complete": true,
+    "w2_complete": true,
+    "archived_boundary_reference_preserved": true
+  },
+  "output_files": {
+    "candidate_shortlist_csv": "03_Control/05_Results/09_primitive_library/003/metrics/candidate_shortlist_s003.csv",
+    "coverage_decision_summary_csv": "03_Control/05_Results/09_primitive_library/003/metrics/coverage_decision_summary_s003.csv",
+    "w3_stress_plan_csv": "03_Control/05_Results/09_primitive_library/003/metrics/w3_stress_plan_s003.csv",
+    "higher_target_growth_request_csv": "03_Control/05_Results/09_primitive_library/003/metrics/higher_target_growth_request_s003.csv",
+    "report_md": "03_Control/05_Results/09_primitive_library/003/reports/primitive_library_shortlist_report_s003.md",
+    "manifest_json": "03_Control/05_Results/09_primitive_library/003/manifests/primitive_library_shortlist_manifest_s003.json"
+  },
+  "w3_stress_implemented": false,
+  "governor_implemented": false,
+  "outer_loop_implemented": false,
+  "real_flight_validation_claim": false,
+  "tvlqr_implemented": false,
+  "ocp_implemented": false,
+  "high_incidence_validation_claim": false,
+  "old_perch_like_branch_active": false
+}
