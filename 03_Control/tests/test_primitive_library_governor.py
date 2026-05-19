@@ -4,6 +4,7 @@ import json
 from hashlib import sha256
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -13,6 +14,7 @@ from primitive_library_governor import (
     build_governor_decision_cases,
     build_governor_rejection_summary,
     build_governor_seed_table,
+    evaluate_governor_case,
     evaluate_governor_cases,
     load_governor_sources,
     load_w3_supported_candidates,
@@ -49,6 +51,7 @@ def test_seed_table_includes_exact_supported_candidates_and_excludes_target() ->
         sources["candidate_summary"],
         sources["coverage_update"],
         sources["manifest"],
+        sources["source_evidence"],
     )
 
     accepted = seed_table[seed_table["governor_seed_candidate"].astype(bool)]
@@ -58,6 +61,30 @@ def test_seed_table_includes_exact_supported_candidates_and_excludes_target() ->
     assert len(excluded) == 1
     assert excluded.iloc[0]["source_primitive_id"] == TARGET_STEERING
     assert bool(excluded.iloc[0]["governor_seed_candidate"]) is False
+
+
+def test_seed_table_contains_finite_run002_clearance_requirements() -> None:
+    sources = load_governor_sources(RESULT_ROOT)
+    seed_table = build_governor_seed_table(
+        sources["candidate_summary"],
+        sources["coverage_update"],
+        sources["manifest"],
+        sources["source_evidence"],
+    )
+
+    clearance_columns = [
+        "required_clearance_x_plus_m",
+        "required_clearance_x_minus_m",
+        "required_clearance_y_plus_m",
+        "required_clearance_y_minus_m",
+        "required_floor_margin_m",
+        "required_ceiling_margin_m",
+    ]
+    for column in clearance_columns:
+        values = pd.to_numeric(seed_table[column], errors="coerce")
+        assert np.isfinite(values).all()
+    assert (seed_table["source_wind_query_region"].astype(str) != "").all()
+    assert (seed_table["source_recovery_class"].astype(str) != "").all()
 
 
 def test_decision_cases_have_expected_inventory_and_nominal_cases_accept() -> None:
@@ -79,6 +106,8 @@ def test_decision_cases_have_expected_inventory_and_nominal_cases_accept() -> No
     assert set(nominal["source_primitive_id"]) == EXPECTED_SEEDS
     assert nominal["accepted"].astype(bool).all()
     assert set(nominal["governor_decision_status"]) == {"accepted_governor_seed"}
+    assert nominal["clearance_check_pass"].astype(bool).all()
+    assert (nominal["clearance_min_margin_m"] > 0.0).all()
     assert TARGET_STEERING not in set(nominal["source_primitive_id"])
 
 
@@ -99,6 +128,29 @@ def test_planned_rejection_cases_fail_with_specific_statuses() -> None:
         assert not rows.empty
         assert set(rows["governor_decision_status"]) == {status}
         assert not rows["accepted"].astype(bool).any()
+    insufficient = decisions[decisions["case_kind"] == "insufficient_clearance_case"]
+    assert (insufficient["clearance_min_margin_m"] < 0.0).all()
+    assert not insufficient["clearance_check_pass"].astype(bool).any()
+
+
+def test_clearance_decisions_are_numeric_not_case_label_dependent() -> None:
+    seed_table, cases, _ = _build_decision_tables()
+
+    nominal = cases[cases["case_kind"] == "nominal_valid_case"].iloc[0].to_dict()
+    nominal["available_clearance_x_plus_m"] = nominal["required_clearance_x_plus_m"] - 0.01
+    nominal_decision = evaluate_governor_case(nominal, seed_table)
+    assert nominal_decision.governor_decision_status == "rejected_clearance"
+    assert nominal_decision.clearance_check_pass is False
+    assert nominal_decision.clearance_min_margin_m < 0.0
+
+    insufficient = cases[cases["case_kind"] == "insufficient_clearance_case"].iloc[0].to_dict()
+    for axis in ("x_plus", "x_minus", "y_plus", "y_minus"):
+        insufficient[f"available_clearance_{axis}_m"] = insufficient[f"required_clearance_{axis}_m"] + 0.10
+    insufficient["available_floor_margin_m"] = insufficient["required_floor_margin_m"] + 0.10
+    insufficient["available_ceiling_margin_m"] = insufficient["required_ceiling_margin_m"] + 0.10
+    label_only_decision = evaluate_governor_case(insufficient, seed_table)
+    assert label_only_decision.clearance_check_pass is True
+    assert label_only_decision.governor_decision_status == "accepted_governor_seed"
 
 
 def test_rejection_summary_and_coverage_update_match_decisions() -> None:
@@ -139,6 +191,9 @@ def test_runner_writes_outputs_manifest_flags_and_preserves_sources() -> None:
     assert manifest["governor_seed_implemented"] is True
     assert manifest["governor_query_implemented"] is True
     assert manifest["governor_implemented"] is True
+    assert manifest["numerical_clearance_contract_implemented"] is True
+    assert manifest["clearance_fields_from_run_002"] is True
+    assert manifest["clearance_check_case_label_independent"] is True
     assert manifest["governor_online_flight_ready"] is False
     assert manifest["outer_loop_implemented"] is False
     assert manifest["real_flight_validation_claim"] is False
@@ -167,6 +222,7 @@ def _build_decision_tables() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         sources["candidate_summary"],
         sources["coverage_update"],
         sources["manifest"],
+        sources["source_evidence"],
     )
     cases = build_governor_decision_cases(seed_table, sources["source_evidence"])
     decisions = evaluate_governor_cases(cases, seed_table)

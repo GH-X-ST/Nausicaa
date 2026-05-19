@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-05-19T04:46:47",
+  "created_at": "2026-05-19T05:12:45",
   "run_id": "s005",
   "campaign": "09_primitive_library",
   "pass_name": "primitive_library_governor_seed",
@@ -13,6 +13,9 @@
   "governor_seed_implemented": true,
   "governor_query_implemented": true,
   "governor_implemented": true,
+  "numerical_clearance_contract_implemented": true,
+  "clearance_fields_from_run_002": true,
+  "clearance_check_case_label_independent": true,
   "governor_online_flight_ready": false,
   "outer_loop_implemented": false,
   "real_flight_validation_claim": false,

@@ -104,6 +104,9 @@ def _write_manifest(
         "governor_seed_implemented": True,
         "governor_query_implemented": True,
         "governor_implemented": True,
+        "numerical_clearance_contract_implemented": True,
+        "clearance_fields_from_run_002": True,
+        "clearance_check_case_label_independent": True,
         "governor_online_flight_ready": False,
         "outer_loop_implemented": False,
         "real_flight_validation_claim": False,
@@ -149,6 +152,7 @@ def _write_report(
         "",
         "This run converts selected W3 stress evidence into an offline governor accept/reject seed layer.",
         "It does not replay dynamics, implement an outer loop, implement OCP/TVLQR, touch hardware, or claim real-flight readiness.",
+        "Clearance is checked numerically as available margin minus the primitive-specific requirement copied from run-002 evidence; case labels do not force clearance rejection.",
         "",
         "## Accepted Governor Seeds",
         "",
@@ -251,6 +255,7 @@ def run_primitive_library_governor_seed(
         sources["candidate_summary"],
         sources["coverage_update"],
         sources["manifest"],
+        sources["source_evidence"],
     )
     cases = build_governor_decision_cases(seed_table, source_evidence=sources["source_evidence"])
     decisions = evaluate_governor_cases(cases, seed_table)

@@ -55,6 +55,24 @@ DEFAULT_POLICY = {
     "allowed_wind_query_regions": ("measured", "interpolated", "unknown"),
 }
 
+CLEARANCE_REQUIREMENT_COLUMNS = (
+    ("required_clearance_x_plus_m", "entry_clearance_required_x_plus_m"),
+    ("required_clearance_x_minus_m", "entry_clearance_required_x_minus_m"),
+    ("required_clearance_y_plus_m", "entry_clearance_required_y_plus_m"),
+    ("required_clearance_y_minus_m", "entry_clearance_required_y_minus_m"),
+    ("required_floor_margin_m", "floor_margin_required_m"),
+    ("required_ceiling_margin_m", "ceiling_margin_required_m"),
+)
+
+CLEARANCE_CHECK_FIELDS = (
+    ("available_clearance_x_plus_m", "required_clearance_x_plus_m", "clearance_margin_x_plus_m"),
+    ("available_clearance_x_minus_m", "required_clearance_x_minus_m", "clearance_margin_x_minus_m"),
+    ("available_clearance_y_plus_m", "required_clearance_y_plus_m", "clearance_margin_y_plus_m"),
+    ("available_clearance_y_minus_m", "required_clearance_y_minus_m", "clearance_margin_y_minus_m"),
+    ("available_floor_margin_m", "required_floor_margin_m", "clearance_margin_floor_m"),
+    ("available_ceiling_margin_m", "required_ceiling_margin_m", "clearance_margin_ceiling_m"),
+)
+
 
 @dataclass(frozen=True)
 class GovernorSeedCandidate:
@@ -73,6 +91,14 @@ class GovernorSeedCandidate:
     seed_table_status: str
     requires_lift_belief: bool
     requires_wind_fidelity: str
+    required_clearance_x_plus_m: float
+    required_clearance_x_minus_m: float
+    required_clearance_y_plus_m: float
+    required_clearance_y_minus_m: float
+    required_floor_margin_m: float
+    required_ceiling_margin_m: float
+    source_wind_query_region: str
+    source_recovery_class: str
     coverage_region_id: str
     coverage_status_s004: str
     exclusion_reason: str
@@ -101,6 +127,12 @@ class GovernorDecisionCase:
     available_clearance_y_minus_m: float
     available_floor_margin_m: float
     available_ceiling_margin_m: float
+    required_clearance_x_plus_m: float
+    required_clearance_x_minus_m: float
+    required_clearance_y_plus_m: float
+    required_clearance_y_minus_m: float
+    required_floor_margin_m: float
+    required_ceiling_margin_m: float
     lift_belief_available: bool
     lift_confidence: float
     wind_query_region: str
@@ -132,6 +164,13 @@ class GovernorDecision:
     model_region_check_pass: bool
     recovery_check_pass: bool
     no_go_check_pass: bool
+    clearance_margin_x_plus_m: float
+    clearance_margin_x_minus_m: float
+    clearance_margin_y_plus_m: float
+    clearance_margin_y_minus_m: float
+    clearance_margin_floor_m: float
+    clearance_margin_ceiling_m: float
+    clearance_min_margin_m: float
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -246,8 +285,12 @@ def build_governor_seed_table(
     candidate_summary: pd.DataFrame,
     coverage_update: pd.DataFrame,
     w3_manifest: dict[str, object],
+    source_evidence: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Build a run-005 seed table with accepted and explicitly excluded candidates."""
+
+    if source_evidence is None:
+        raise ValueError("source_evidence is required to populate numerical clearance requirements.")
 
     coverage_by_id = {
         str(row["source_primitive_id"]): row
@@ -256,6 +299,7 @@ def build_governor_seed_table(
     rows = []
     for _, row in candidate_summary.iterrows():
         source_id = str(row["source_primitive_id"])
+        source_requirements = _source_requirements(source_id, source_evidence)
         coverage = coverage_by_id.get(source_id, {})
         status = str(row["candidate_w3_status"])
         role = str(row["w3_role"])
@@ -285,6 +329,7 @@ def build_governor_seed_table(
             seed_table_status=table_status,
             requires_lift_belief=_requires_lift_belief(row),
             requires_wind_fidelity=str(row["wind_fidelity"]),
+            **source_requirements,
             coverage_region_id=str(row["coverage_region_id"]),
             coverage_status_s004=str(coverage.get("coverage_status_s004", "")),
             exclusion_reason=exclusion,
@@ -314,13 +359,13 @@ def build_governor_decision_cases(
     rows: list[dict[str, object]] = []
     accepted = seed_table[seed_table["governor_seed_candidate"].astype(bool)]
     for _, seed in accepted.iterrows():
-        metrics = _source_metrics(seed, source_evidence)
+        metrics = _seed_clearance_metrics(seed)
         rows.extend(_cases_for_seed(seed, metrics))
 
     target_rows = seed_table[seed_table["seed_table_status"] == "excluded_marginal_target_steering"]
     if not target_rows.empty:
         target = target_rows.iloc[0]
-        metrics = _source_metrics(target, source_evidence)
+        metrics = _seed_clearance_metrics(target)
         rows.append(
             _case(
                 target,
@@ -385,6 +430,12 @@ def _case(
         "available_clearance_y_minus_m": float(metrics["y_minus"]) + 0.20,
         "available_floor_margin_m": max(0.10, float(metrics["floor"]) + 0.10),
         "available_ceiling_margin_m": max(0.10, float(metrics["ceiling"]) + 0.10),
+        "required_clearance_x_plus_m": float(metrics["x_plus"]),
+        "required_clearance_x_minus_m": float(metrics["x_minus"]),
+        "required_clearance_y_plus_m": float(metrics["y_plus"]),
+        "required_clearance_y_minus_m": float(metrics["y_minus"]),
+        "required_floor_margin_m": float(metrics["floor"]),
+        "required_ceiling_margin_m": float(metrics["ceiling"]),
         "lift_belief_available": bool(seed["requires_lift_belief"]),
         "lift_confidence": 0.90,
         "wind_query_region": str(metrics["wind_query_region"]),
@@ -425,6 +476,7 @@ def evaluate_governor_case(
     if not entry_pass:
         reasons.append("rejected_entry_envelope")
 
+    clearance_margins = _clearance_margins(case_dict, seed)
     clearance_pass = _clearance_check_pass(case_dict, seed)
     if not clearance_pass:
         reasons.append("rejected_clearance")
@@ -461,6 +513,7 @@ def evaluate_governor_case(
         model_pass=model_pass,
         recovery_pass=recovery_pass,
         no_go_pass=no_go_pass,
+        clearance_margins=clearance_margins,
     )
 
 
@@ -491,7 +544,9 @@ def _decision_from_checks(
     model_pass: bool = False,
     recovery_pass: bool = False,
     no_go_pass: bool = False,
+    clearance_margins: dict[str, float] | None = None,
 ) -> GovernorDecision:
+    clearance_margins = _empty_clearance_margins() if clearance_margins is None else clearance_margins
     unique_reasons = _unique_reasons(reasons)
     status = "accepted_governor_seed" if not unique_reasons else unique_reasons[0]
     accepted = status == "accepted_governor_seed"
@@ -514,6 +569,13 @@ def _decision_from_checks(
         model_region_check_pass=bool(model_pass),
         recovery_check_pass=bool(recovery_pass),
         no_go_check_pass=bool(no_go_pass),
+        clearance_margin_x_plus_m=float(clearance_margins["clearance_margin_x_plus_m"]),
+        clearance_margin_x_minus_m=float(clearance_margins["clearance_margin_x_minus_m"]),
+        clearance_margin_y_plus_m=float(clearance_margins["clearance_margin_y_plus_m"]),
+        clearance_margin_y_minus_m=float(clearance_margins["clearance_margin_y_minus_m"]),
+        clearance_margin_floor_m=float(clearance_margins["clearance_margin_floor_m"]),
+        clearance_margin_ceiling_m=float(clearance_margins["clearance_margin_ceiling_m"]),
+        clearance_min_margin_m=float(clearance_margins["clearance_min_margin_m"]),
     )
 
 
@@ -583,47 +645,57 @@ def _requires_lift_belief(row: pd.Series | dict[str, object]) -> bool:
     return str(row["updraft_config"]) != "none" or str(row["wind_fidelity"]) in {"W1", "W2", "W3"}
 
 
-def _source_metrics(seed: pd.Series, source_evidence: pd.DataFrame | None) -> dict[str, float | str]:
-    defaults: dict[str, float | str] = {
-        "x_plus": 1.0,
-        "x_minus": 0.1,
-        "y_plus": 0.1,
-        "y_minus": 0.1,
-        "floor": 0.5,
-        "ceiling": 0.5,
-        "wind_query_region": "measured",
-    }
-    if source_evidence is None:
-        return defaults
-    rows = source_evidence[source_evidence["primitive_id"].astype(str) == str(seed["source_primitive_id"])]
+def _source_requirements(source_id: str, source_evidence: pd.DataFrame) -> dict[str, object]:
+    rows = source_evidence[source_evidence["primitive_id"].astype(str) == str(source_id)]
     if rows.empty:
-        return defaults
+        raise ValueError(f"run-002 primitive evidence is missing source primitive {source_id!r}.")
+    if len(rows) > 1:
+        raise ValueError(f"run-002 primitive evidence has duplicate primitive_id rows for {source_id!r}.")
+
     row = rows.iloc[0]
+    requirements: dict[str, object] = {}
+    for output_name, source_column in CLEARANCE_REQUIREMENT_COLUMNS:
+        requirements[output_name] = _finite_required(row[source_column], source_column, source_id)
+    requirements["source_wind_query_region"] = str(row["wind_query_region"])
+    requirements["source_recovery_class"] = str(row["recovery_class"])
+    return requirements
+
+
+def _seed_clearance_metrics(seed: pd.Series | dict[str, object]) -> dict[str, float | str]:
     return {
-        "x_plus": _finite_or_default(row["entry_clearance_required_x_plus_m"], 1.0),
-        "x_minus": _finite_or_default(row["entry_clearance_required_x_minus_m"], 0.1),
-        "y_plus": _finite_or_default(row["entry_clearance_required_y_plus_m"], 0.1),
-        "y_minus": _finite_or_default(row["entry_clearance_required_y_minus_m"], 0.1),
-        "floor": _finite_or_default(row["floor_margin_required_m"], 0.5),
-        "ceiling": _finite_or_default(row["ceiling_margin_required_m"], 0.5),
-        "wind_query_region": str(row.get("wind_query_region", "measured")),
+        "x_plus": _finite_required(seed["required_clearance_x_plus_m"], "required_clearance_x_plus_m", seed["source_primitive_id"]),
+        "x_minus": _finite_required(seed["required_clearance_x_minus_m"], "required_clearance_x_minus_m", seed["source_primitive_id"]),
+        "y_plus": _finite_required(seed["required_clearance_y_plus_m"], "required_clearance_y_plus_m", seed["source_primitive_id"]),
+        "y_minus": _finite_required(seed["required_clearance_y_minus_m"], "required_clearance_y_minus_m", seed["source_primitive_id"]),
+        "floor": _finite_required(seed["required_floor_margin_m"], "required_floor_margin_m", seed["source_primitive_id"]),
+        "ceiling": _finite_required(seed["required_ceiling_margin_m"], "required_ceiling_margin_m", seed["source_primitive_id"]),
+        "wind_query_region": str(seed["source_wind_query_region"]),
+        "recovery_class": str(seed["source_recovery_class"]),
     }
 
 
 def _clearance_check_pass(case: dict[str, object], seed: dict[str, object]) -> bool:
-    # The case builder sets available margins against the source evidence values.
-    # Store thresholds directly in the case as "required" via conservative minima.
-    return all(
-        float(case[key]) >= 0.0
-        for key in (
-            "available_clearance_x_plus_m",
-            "available_clearance_x_minus_m",
-            "available_clearance_y_plus_m",
-            "available_clearance_y_minus_m",
-            "available_floor_margin_m",
-            "available_ceiling_margin_m",
-        )
-    ) and str(case["case_kind"]) != "insufficient_clearance_case"
+    margins = _clearance_margins(case, seed)
+    return all(float(margins[name]) >= 0.0 for _, _, name in CLEARANCE_CHECK_FIELDS)
+
+
+def _clearance_margins(case: dict[str, object], seed: dict[str, object]) -> dict[str, float]:
+    margins = {}
+    for available_name, required_name, margin_name in CLEARANCE_CHECK_FIELDS:
+        required_value = case.get(required_name, seed.get(required_name))
+        margins[margin_name] = _finite_required(
+            case[available_name],
+            available_name,
+            case["source_primitive_id"],
+        ) - _finite_required(required_value, required_name, case["source_primitive_id"])
+    margins["clearance_min_margin_m"] = float(min(margins.values()))
+    return margins
+
+
+def _empty_clearance_margins() -> dict[str, float]:
+    margins = {margin_name: float("nan") for _, _, margin_name in CLEARANCE_CHECK_FIELDS}
+    margins["clearance_min_margin_m"] = float("nan")
+    return margins
 
 
 def _lift_belief_check_pass(case: dict[str, object], seed: dict[str, object], policy: dict[str, object]) -> bool:
@@ -673,6 +745,15 @@ def _float_or_nan(value: object) -> float:
     except (TypeError, ValueError):
         return float("nan")
     return result if np.isfinite(result) else float("nan")
+
+
+def _finite_required(value: object, column_name: str, source_id: object) -> float:
+    result = _float_or_nan(value)
+    if not np.isfinite(result):
+        raise ValueError(
+            f"non-finite numerical clearance field {column_name!r} for source primitive {source_id!r}."
+        )
+    return result
 
 
 def _finite_or_default(value: object, default: float) -> float:

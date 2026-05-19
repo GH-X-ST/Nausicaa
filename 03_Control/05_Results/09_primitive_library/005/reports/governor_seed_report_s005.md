@@ -2,6 +2,7 @@
 
 This run converts selected W3 stress evidence into an offline governor accept/reject seed layer.
 It does not replay dynamics, implement an outer loop, implement OCP/TVLQR, touch hardware, or claim real-flight readiness.
+Clearance is checked numerically as available margin minus the primitive-specific requirement copied from run-002 evidence; case labels do not force clearance rejection.
 
 ## Accepted Governor Seeds
 
