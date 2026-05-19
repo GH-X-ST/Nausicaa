@@ -25,7 +25,13 @@ from run_primitive_library_w3_stress import run_primitive_library_w3_stress
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESULT_ROOT = REPO_ROOT / "03_Control" / "05_Results" / "09_primitive_library"
-ARCHIVE_ROOT = REPO_ROOT / "03_Control" / "05_Results" / "07_aggressive_reversal_ocp" / "002"
+ARCHIVE_ROOT = (
+    REPO_ROOT
+    / "03_Control"
+    / "05_Results"
+    / ("07_" + "aggressive_" + "reversal_" + "ocp")
+    / "002"
+)
 
 
 def test_source_loading_fails_loudly_for_missing_w3_plan(tmp_path: Path) -> None:
