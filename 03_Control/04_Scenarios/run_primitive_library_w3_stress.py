@@ -105,6 +105,7 @@ def _write_manifest(
         "trial_success_count": int(trial_summary["trial_success"].astype(bool).sum()),
         "candidate_status_counts": candidate_summary["candidate_w3_status"].value_counts(dropna=False).to_dict(),
         "coverage_status_counts": coverage_update["coverage_status_s004"].value_counts(dropna=False).to_dict(),
+        **_governor_seed_clarity_fields(candidate_summary),
         "selected_w3_roles": [str(value) for value in w3_plan["w3_role"].tolist()],
         "selected_source_primitive_ids": [str(value) for value in w3_plan["source_primitive_id"].tolist()],
         "allowed_candidate_w3_statuses": list(ALLOWED_CANDIDATE_W3_STATUSES),
@@ -162,6 +163,28 @@ def _write_report(
             f"`{row['source_primitive_id']}`: `{row['coverage_status_s004']}` -> "
             f"`{row['recommended_next_step']}`"
         )
+    clarity = _governor_seed_clarity_fields(candidate_summary)
+    target = clarity["target_steering_candidate"]
+    lines.extend(
+        [
+            "",
+            "## Governor Seed Clarification",
+            "",
+            f"- Governor seed candidate count: `{clarity['governor_seed_candidate_count']}`",
+            f"- Target-steering W3 supported: `{str(clarity['target_steering_w3_supported']).lower()}`",
+            f"- Target-steering governor allowed: `{str(clarity['target_steering_governor_allowed']).lower()}`",
+            f"- Target-steering next action: `{clarity['target_steering_next_action']}`",
+            (
+                "- The four `w3_supported` baseline/updraft-support candidates may seed "
+                "a future governor because they passed the run-004 W3 aggregation gates."
+            ),
+            (
+                "- The 15 deg target-steering candidate is only `w3_marginal` with "
+                f"success fraction `{float(target.get('trial_success_fraction', 0.0)):.2f}` "
+                "and must not be accepted by the governor yet."
+            ),
+        ]
+    )
     lines.extend(["", "## Dominant Failure Mechanisms", ""])
     for mechanism, count in trial_summary["active_limiting_mechanism"].value_counts(dropna=False).sort_index().items():
         lines.append(f"- `{mechanism}`: `{count}`")
@@ -252,6 +275,22 @@ def _next_recommended_step(candidate_summary: pd.DataFrame) -> str:
     if not candidate_summary.empty and candidate_summary["trial_count"].max() < 25:
         return "repeat_selected_w3_with_larger_seed_count"
     return "stop_and_keep_boundary_evidence"
+
+
+def _governor_seed_clarity_fields(candidate_summary: pd.DataFrame) -> dict[str, object]:
+    supported = candidate_summary[candidate_summary["candidate_w3_status"].astype(str) == "w3_supported"]
+    target_rows = candidate_summary[candidate_summary["w3_role"].astype(str) == "target_steering"]
+    target = target_rows.iloc[0].to_dict() if not target_rows.empty else {}
+    target_supported = str(target.get("candidate_w3_status", "")) == "w3_supported"
+    return {
+        "governor_seed_candidate_count": int(len(supported)),
+        "target_steering_candidate": target,
+        "target_steering_w3_supported": bool(target_supported),
+        "target_steering_governor_allowed": bool(target_supported),
+        "target_steering_next_action": str(
+            target.get("candidate_w3_recommendation", "not_available")
+        ),
+    }
 
 
 # =============================================================================

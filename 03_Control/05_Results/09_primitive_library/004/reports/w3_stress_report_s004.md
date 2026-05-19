@@ -27,6 +27,15 @@ It is not a governor, outer-loop, OCP, TVLQR, hardware, real-flight, or high-inc
 - `mild_bank_none_favourable_U1_single_fan_W2_dp1`: `w3_supported_pending_governor` -> `send_to_governor_seed`
 - `glide_none_favourable_U1_single_fan_W2_dp1`: `w3_supported_pending_governor` -> `send_to_governor_seed`
 
+## Governor Seed Clarification
+
+- Governor seed candidate count: `4`
+- Target-steering W3 supported: `false`
+- Target-steering governor allowed: `false`
+- Target-steering next action: `refine_seed_before_governor`
+- The four `w3_supported` baseline/updraft-support candidates may seed a future governor because they passed the run-004 W3 aggregation gates.
+- The 15 deg target-steering candidate is only `w3_marginal` with success fraction `0.48` and must not be accepted by the governor yet.
+
 ## Dominant Failure Mechanisms
 
 - `none`: `112`
