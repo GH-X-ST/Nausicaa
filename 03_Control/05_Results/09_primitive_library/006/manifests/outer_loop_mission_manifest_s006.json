@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-05-19T05:49:55",
+  "created_at": "2026-05-19T15:04:48",
   "run_id": "s006",
   "campaign": "09_primitive_library",
   "pass_name": "outer_loop_mission_simulation",
@@ -40,9 +40,18 @@
   "candidate_accept_count": 4,
   "candidate_reject_count": 20,
   "mission_success_counts": {
-    "completed_with_governor_evidence": 2,
-    "no_go_coverage_gap": 2
+    "partial_governed_transit_then_clearance_limited": 2,
+    "no_go_lift_belief_rejection": 1,
+    "no_go_clearance_limited": 1
   },
+  "outer_loop_governor_query_demonstrated": true,
+  "short_governed_transit_demonstrated_count": 2,
+  "partial_transit_clearance_limited_count": 2,
+  "sustained_outer_loop_mission_success_count": 0,
+  "energy_gain_scenario_count": 0,
+  "autonomous_thermal_exploitation_claim": false,
+  "continuous_flight_claim": false,
+  "mission_claim_boundary": "short governor-mediated transit/rejection evidence only; no sustained thermal exploitation claim",
   "command_bridge": "u_norm_requested -> u_norm_applied -> delta_cmd_rad -> rk4_step/state_derivative",
   "output_files": {
     "mission_summary_csv": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_mission_summary_s006.csv",

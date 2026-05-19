@@ -120,6 +120,29 @@ def _write_manifest(
         "mission_success_counts": summary["mission_success_label"].value_counts(dropna=False).to_dict()
         if not summary.empty
         else {},
+        "outer_loop_governor_query_demonstrated": True,
+        "short_governed_transit_demonstrated_count": int(summary["short_transit_supported"].astype(bool).sum())
+        if not summary.empty
+        else 0,
+        "partial_transit_clearance_limited_count": int(
+            summary["clearance_limited_after_first_step"].astype(bool).sum()
+        )
+        if not summary.empty
+        else 0,
+        "sustained_outer_loop_mission_success_count": int(
+            summary["sustained_outer_loop_mission_success"].astype(bool).sum()
+        )
+        if not summary.empty
+        else 0,
+        "energy_gain_scenario_count": int(summary["energy_gain_demonstrated"].astype(bool).sum())
+        if not summary.empty
+        else 0,
+        "autonomous_thermal_exploitation_claim": False,
+        "continuous_flight_claim": False,
+        "mission_claim_boundary": (
+            "short governor-mediated transit/rejection evidence only; "
+            "no sustained thermal exploitation claim"
+        ),
         "command_bridge": "u_norm_requested -> u_norm_applied -> delta_cmd_rad -> rk4_step/state_derivative",
         "output_files": {key: _repo_relative(value) for key, value in outputs.items()},
     }
@@ -138,6 +161,13 @@ def _write_report(path: Path, results: dict[str, pd.DataFrame], sources: dict[st
         "",
         "Run-006 uses the run-005 offline governor seed layer to select or reject existing primitive seeds.",
         "It does not add primitives, implement OCP/TVLQR, touch hardware, or claim real-flight readiness.",
+        "",
+        "## Claim Boundary",
+        "",
+        "Run-006 demonstrates that the offline governor can select one valid baseline/updraft-support primitive in U1/U4 and reject invalid low-lift/clearance cases.",
+        "It does not demonstrate sustained autonomous thermal exploitation, continuous flight, or robust target steering.",
+        "Both U1/U4 lift-sector scenarios become clearance-limited after the first accepted primitive.",
+        "Energy residual remains negative in the current U1/U4 short transit evidence.",
         "",
         "## Governor Seeds",
         "",

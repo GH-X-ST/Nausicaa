@@ -130,6 +130,16 @@ def test_runner_writes_outputs_flags_and_preserves_sources() -> None:
     assert manifest["ocp_implemented"] is False
     assert manifest["tvlqr_implemented"] is False
     assert manifest["high_incidence_validation_claim"] is False
+    assert manifest["outer_loop_governor_query_demonstrated"] is True
+    assert manifest["partial_transit_clearance_limited_count"] == 2
+    assert manifest["sustained_outer_loop_mission_success_count"] == 0
+    assert manifest["energy_gain_scenario_count"] == 0
+    assert manifest["autonomous_thermal_exploitation_claim"] is False
+    assert manifest["continuous_flight_claim"] is False
+    assert manifest["mission_claim_boundary"] == (
+        "short governor-mediated transit/rejection evidence only; "
+        "no sustained thermal exploitation claim"
+    )
 
     assert set(summary["scenario_id"]) == {
         "U1_lift_sector_governed_transit",
@@ -137,6 +147,24 @@ def test_runner_writes_outputs_flags_and_preserves_sources() -> None:
         "low_lift_confidence_rejection",
         "clearance_limited_no_go",
     }
+    assert "completed_with_governor_evidence" not in set(summary["mission_success_label"])
+    transit = summary[summary["scenario_id"].isin({
+        "U1_lift_sector_governed_transit",
+        "U4_lift_sector_governed_transit",
+    })]
+    assert set(transit["mission_success_label"]) == {"partial_governed_transit_then_clearance_limited"}
+    assert transit["governor_evidence_obtained"].astype(bool).all()
+    assert transit["short_transit_supported"].astype(bool).all()
+    assert transit["clearance_limited_after_first_step"].astype(bool).all()
+    assert not transit["energy_gain_demonstrated"].astype(bool).any()
+    assert set(transit["energy_delta_sign"]) == {"negative"}
+    assert not summary["sustained_outer_loop_mission_success"].astype(bool).any()
+    assert not summary["sustained_lift_exploitation_claim"].astype(bool).any()
+    assert not summary["continuous_flight_claim"].astype(bool).any()
+
+    no_go = dict(zip(summary["scenario_id"], summary["mission_success_label"]))
+    assert no_go["low_lift_confidence_rejection"] == "no_go_lift_belief_rejection"
+    assert no_go["clearance_limited_no_go"] == "no_go_clearance_limited"
     assert int(summary["steps_accepted"].sum()) >= 1
     assert not step_log.empty
     assert not candidate_log.empty
@@ -147,6 +175,17 @@ def test_runner_writes_outputs_flags_and_preserves_sources() -> None:
     assert "clearance_min_margin_m" in candidate_log.columns
     assert "specific_energy_height_m" in energy.columns
     assert "higher_target_request_status" in gaps.columns
+    transit_gaps = gaps[gaps["scenario_id"].isin({
+        "U1_lift_sector_governed_transit",
+        "U4_lift_sector_governed_transit",
+    })]
+    assert set(transit_gaps["coverage_gap_type"]) == {"partial_short_mission_clearance_limited"}
+    assert set(transit_gaps["recommended_next_action"]) == {"proceed_to_ablation_with_clearance_limitation"}
+    assert set(transit_gaps["higher_target_request_status"]) == {
+        "not_requested_current_library_sufficient_for_short_governor_test_only"
+    }
+    assert "not_requested_current_library_sufficient_for_test" not in set(gaps["higher_target_request_status"])
+    assert "short_mission_supported_without_target_steering" not in set(gaps["coverage_gap_type"])
     for relative_path in manifest["output_files"].values():
         assert not Path(relative_path).is_absolute()
     assert _protected_hashes() == protected

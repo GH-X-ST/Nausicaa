@@ -156,6 +156,14 @@ class OuterLoopMissionSummary:
     no_go_count: int
     target_steering_used: bool
     higher_target_requested: bool
+    governor_evidence_obtained: bool
+    short_transit_supported: bool
+    clearance_limited_after_first_step: bool
+    energy_gain_demonstrated: bool
+    energy_delta_sign: str
+    sustained_outer_loop_mission_success: bool
+    sustained_lift_exploitation_claim: bool
+    continuous_flight_claim: bool
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -586,19 +594,22 @@ def build_outer_loop_summary(
         accept_count = int(candidates["accepted"].astype(bool).sum()) if not candidates.empty else 0
         reject_count = int((~candidates["accepted"].astype(bool)).sum()) if not candidates.empty else 0
         stop_reason = stop_by_scenario.get(str(scenario_id), "max_steps_reached")
+        steps_accepted = int(len(accepted_steps))
+        energy_delta = energy_final - energy_initial
+        clearance_limited_after_first_step = bool(steps_accepted > 0 and "clearance" in stop_reason)
         rows.append(
             OuterLoopMissionSummary(
                 scenario_id=str(scenario_id),
                 steps_attempted=int(len(steps)),
-                steps_accepted=int(len(accepted_steps)),
+                steps_accepted=steps_accepted,
                 mission_duration_s=duration,
-                mission_success_label="completed_with_governor_evidence" if len(accepted_steps) > 0 else "no_go_coverage_gap",
+                mission_success_label=_mission_success_label(steps_accepted, stop_reason),
                 mission_stop_reason=stop_reason,
                 accepted_primitive_sequence=";".join(accepted_sequence) if accepted_sequence else "none",
                 unique_primitives_used=len(set(accepted_sequence)),
                 energy_initial_m=energy_initial,
                 energy_final_m=energy_final,
-                energy_delta_m=energy_final - energy_initial,
+                energy_delta_m=energy_delta,
                 min_true_margin_m=min_margin,
                 min_speed_m_s=min_speed,
                 lift_dwell_time_s=float(lift_count * sample_dt),
@@ -608,6 +619,14 @@ def build_outer_loop_summary(
                 no_go_count=int((steps["mission_event_label"] == "governor_no_go").sum()) if not steps.empty else 0,
                 target_steering_used=False,
                 higher_target_requested=False,
+                governor_evidence_obtained=True,
+                short_transit_supported=bool(steps_accepted > 0),
+                clearance_limited_after_first_step=clearance_limited_after_first_step,
+                energy_gain_demonstrated=bool(energy_delta > 0.0),
+                energy_delta_sign=_energy_delta_sign(energy_delta),
+                sustained_outer_loop_mission_success=False,
+                sustained_lift_exploitation_claim=False,
+                continuous_flight_claim=False,
             ).as_dict()
         )
     return pd.DataFrame(rows)
@@ -650,7 +669,12 @@ def build_outer_loop_coverage_gap_summary(
         candidates = candidate_log[candidate_log["scenario_id"].astype(str) == scenario_id]
         statuses = set(candidates["governor_decision_status"].astype(str)) if not candidates.empty else set()
         accepted = bool(not candidates.empty and candidates["accepted"].astype(bool).any())
-        if not accepted and "rejected_lift_belief" in statuses:
+        accepted_then_clearance = bool(accepted and "rejected_clearance" in statuses)
+        if accepted_then_clearance:
+            action = "proceed_to_ablation_with_clearance_limitation"
+            request = "not_requested_current_library_sufficient_for_short_governor_test_only"
+            gap_type = "partial_short_mission_clearance_limited"
+        elif not accepted and "rejected_lift_belief" in statuses:
             action = "improve_lift_belief_or_recovery_policy"
             request = "not_requested_lift_belief_limited"
             gap_type = "lift_belief_limited"
@@ -663,9 +687,9 @@ def build_outer_loop_coverage_gap_summary(
             request = "not_requested_refine_15_first"
             gap_type = "target_steering_unavailable"
         else:
-            action = "proceed_to_ablation"
-            request = "not_requested_current_library_sufficient_for_test"
-            gap_type = "short_mission_supported_without_target_steering"
+            action = "proceed_to_ablation_with_claim_boundary"
+            request = "not_requested_current_library_sufficient_for_short_test_only"
+            gap_type = "short_governor_evidence_only"
         rows.append(
             {
                 "scenario_id": scenario_id,
@@ -695,6 +719,26 @@ def _validate_source_manifest(manifest: dict[str, object]) -> None:
             raise ValueError(f"run-005 manifest field {key!r} is not {expected!r}.")
     if int(manifest.get("accepted_seed_candidate_count", -1)) != 4:
         raise ValueError("run-005 manifest does not report exactly four accepted governor seeds.")
+
+
+def _mission_success_label(steps_accepted: int, stop_reason: str) -> str:
+    if steps_accepted > 0 and "clearance" in stop_reason:
+        return "partial_governed_transit_then_clearance_limited"
+    if steps_accepted > 0:
+        return "short_governor_evidence_only"
+    if "lift_belief" in stop_reason:
+        return "no_go_lift_belief_rejection"
+    if "clearance" in stop_reason:
+        return "no_go_clearance_limited"
+    return "no_go_coverage_gap"
+
+
+def _energy_delta_sign(energy_delta_m: float) -> str:
+    if energy_delta_m > 0.0:
+        return "positive"
+    if energy_delta_m < 0.0:
+        return "negative"
+    return "zero"
 
 
 def _require_columns(df: pd.DataFrame, columns: set[str], label: str) -> None:
