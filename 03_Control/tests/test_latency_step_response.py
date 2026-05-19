@@ -7,6 +7,7 @@ from latency import (
     LatencyEnvelope,
     actuator_tau_s,
     half_response_s,
+    latency_case_config,
 )
 
 
@@ -24,3 +25,12 @@ def test_nominal_latency_half_response() -> None:
 def test_robust_upper_latency_half_response() -> None:
     config = CommandToSurfaceConfig(mode="robust_upper")
     assert np.isclose(_continuous_half_time(config), half_response_s(config), atol=1e-12)
+
+
+def test_conservative_latency_case_does_not_double_count_command_delay() -> None:
+    config = latency_case_config("conservative")
+    tau = config.actuator_tau_s[0]
+
+    assert config.command_onset_delay_s == 0.073
+    assert config.command_transport_delay_s == 0.0
+    assert np.isclose(config.command_onset_delay_s + tau * np.log(2.0), 0.151)

@@ -26,6 +26,12 @@ for path in (INNER_LOOP_DIR, PRIMITIVES_DIR, SCENARIOS_DIR):
 from arena_contract import TRUE_SAFE_BOUNDS
 from flight_dynamics import adapt_glider
 from glider import build_nausicaa_glider
+from latency import (
+    LATENCY_CASES,
+    latency_acceptance_scope,
+    latency_audit_fields_from_case,
+    latency_case_config,
+)
 from logging_contract import command_dataframe, trajectory_dataframe
 from primitive_library import (
     CandidateEvaluation,
@@ -82,7 +88,11 @@ def _join(parts: tuple[str, ...]) -> str:
 
 
 def _repo_relative(path: Path) -> str:
-    return path.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return resolved.as_posix()
 
 
 def _obsolete_files() -> tuple[Path, ...]:
@@ -230,7 +240,10 @@ def _final_plan_lock(run_id: int) -> dict[str, object]:
         "writing_lock": "protected final writing period retained",
         "state_order": "x_w,y_w,z_w,phi,theta,psi,u,v,w,p,q,r,delta_a,delta_e,delta_r",
         "command_order": "delta_a_cmd,delta_e_cmd,delta_r_cmd",
-        "command_bridge": "u_norm_requested -> u_norm_applied -> delta_cmd_rad -> rk4_step/state_derivative",
+        "command_bridge": (
+            "u_norm_requested -> u_norm_effective_target -> "
+            "u_norm_applied -> delta_cmd_rad -> rk4_step/state_derivative"
+        ),
         "world_frame": "public z-up world frame",
         "body_frame": "x forward, y starboard, z down",
         "true_safe_bounds_m": {
@@ -273,6 +286,35 @@ def _no_overclaiming_flags() -> dict[str, bool]:
     }
 
 
+def _latency_manifest_fields(config: PrimitiveLibraryConfig) -> dict[str, object]:
+    latency_config = latency_case_config(config.latency_case)
+    audit = latency_audit_fields_from_case(latency_config)
+    command_delay_s = float(
+        audit["command_onset_delay_s"]
+        + audit["command_transport_delay_s"]
+    )
+    return {
+        "latency_case": str(audit["latency_case"]),
+        "state_feedback_delay_s": float(audit["state_feedback_delay_s"]),
+        "command_onset_delay_s": float(audit["command_onset_delay_s"]),
+        "command_transport_delay_s": float(audit["command_transport_delay_s"]),
+        "actuator_tau_s": str(audit["actuator_tau_s"]),
+        "actuator_t50_s": float(audit["actuator_t50_s"]),
+        "actuator_t90_s": float(audit["actuator_t90_s"]),
+        "latency_jitter_s": float(audit["latency_jitter_s"]),
+        "timing_model_version": str(audit["timing_model_version"]),
+        "latency_pass_label_policy": (
+            "computed_per_evidence_row_after_final_primitive_acceptance"
+        ),
+        "latency_acceptance_scope": latency_acceptance_scope(config.latency_case),
+        "state_feedback_delay_applied": False,
+        "command_delay_applied": command_delay_s > 0.0,
+        "actuator_lag_applied": config.latency_case
+        in ("actuator_lag_only", "nominal", "conservative"),
+        "closed_loop_delayed_state_feedback_applied": False,
+    }
+
+
 # =============================================================================
 # 3) Evidence Generation and Writing
 # =============================================================================
@@ -282,6 +324,7 @@ def run_primitive_library_pass(
     targets_deg: tuple[float, ...] = (15.0, 30.0),
     wind_fidelities: tuple[str, ...] = ("W0", "W1", "W2"),
     updraft_configs: tuple[str, ...] = ("none", "U1_single_fan", "U4_four_fan"),
+    latency_case: str = "actuator_lag_only",
 ) -> dict[str, Path]:
     """Run housekeeping and write the primitive evidence-library pass."""
 
@@ -294,10 +337,12 @@ def run_primitive_library_pass(
 
     config = PrimitiveLibraryConfig(
         run_id=run_id,
+        latency_case=latency_case,
         targets_deg=targets_deg,
         wind_fidelities=wind_fidelities,
         updraft_configs=updraft_configs,
     )
+    latency_manifest = _latency_manifest_fields(config)
     wind_infos = _load_wind_infos(config)
     evaluations = _run_evaluations(config, wind_infos)
     evidence_rows = [evaluation.row.as_dict() for evaluation in evaluations]
@@ -378,7 +423,14 @@ def run_primitive_library_pass(
         else f"primitive_library_report_{suffix}.md"
     )
     report_md = paths["reports"] / report_name
-    _write_report(report_md, library_df, group_df, coverage_df, baseline_diagnosis)
+    _write_report(
+        report_md,
+        library_df,
+        group_df,
+        coverage_df,
+        baseline_diagnosis,
+        latency_manifest,
+    )
     manifest_json = paths["manifests"] / f"primitive_library_manifest_{suffix}.json"
     output_files = {
         "plan_lock_json": plan_lock_json,
@@ -427,6 +479,7 @@ def run_primitive_library_pass(
         "starts_run": config.start_conditions,
         "updraft_configs_run": updraft_configs,
         "wind_fidelities_run": wind_fidelities,
+        **latency_manifest,
         "z_outlet_m": Z_OUTLET_M,
         "true_safe_bounds_m": {
             "x_w": TRUE_SAFE_BOUNDS.x_w_m,
@@ -653,6 +706,7 @@ def _write_report(
     group_df: pd.DataFrame,
     coverage_df: pd.DataFrame,
     baseline_diagnosis: dict[str, object],
+    latency_manifest: dict[str, object],
 ) -> None:
     class_counts = library_df["candidate_class"].value_counts(dropna=False).to_dict()
     envelope_counts = library_df["envelope_status"].value_counts(dropna=False).to_dict()
@@ -672,6 +726,16 @@ def _write_report(
         "",
         "This pass does not implement W3, clustering, governor, outer loop, OCP,",
         "TVLQR, or real-flight validation.",
+        "",
+        "## Latency Replay Scope",
+        "",
+        f"- Latency case: `{latency_manifest['latency_case']}`",
+        f"- Acceptance scope: `{latency_manifest['latency_acceptance_scope']}`",
+        f"- Timing model version: `{latency_manifest['timing_model_version']}`",
+        f"- Actuator tau s: `{latency_manifest['actuator_tau_s']}`",
+        f"- Pass-label policy: `{latency_manifest['latency_pass_label_policy']}`",
+        "- State-feedback delay applied: `False`",
+        "- Closed-loop delayed-state feedback: `False`",
         "",
         "## Run 001 Baseline Diagnosis",
         "",
@@ -729,6 +793,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--targets", nargs="*", type=float, default=[15.0, 30.0])
     parser.add_argument("--wind-fidelities", nargs="*", default=["W0", "W1", "W2"])
     parser.add_argument("--updraft-configs", nargs="*", default=["none", "U1_single_fan", "U4_four_fan"])
+    parser.add_argument(
+        "--latency-case",
+        choices=LATENCY_CASES,
+        default="actuator_lag_only",
+    )
     return parser.parse_args()
 
 
@@ -740,6 +809,7 @@ def main() -> None:
         targets_deg=tuple(float(value) for value in args.targets),
         wind_fidelities=tuple(args.wind_fidelities),
         updraft_configs=tuple(args.updraft_configs),
+        latency_case=str(args.latency_case),
     )
     for key in ("root", "manifest", "library_csv", "report"):
         print(f"{key}={paths[key]}")

@@ -13,6 +13,7 @@ from flight_dynamics import adapt_glider, state_derivative
 from glider import build_nausicaa_glider
 from latency import (
     LatencyCaseConfig,
+    actuator_tau_for_case,
     latency_adjusted_command_sample,
     latency_case_config,
 )
@@ -126,9 +127,7 @@ def _actuator_tau_for_rollout(
     config: RolloutConfig,
     latency_config: LatencyCaseConfig,
 ) -> tuple[float, float, float]:
-    if config.latency_case in ("none", "actuator_lag_only"):
-        return tuple(float(value) for value in config.actuator_tau_s)
-    return tuple(float(value) for value in latency_config.actuator_tau_s)
+    return actuator_tau_for_case(latency_config, fallback_tau_s=config.actuator_tau_s)
 
 
 def _validate_schedule(schedule: CommandSchedule) -> tuple[np.ndarray, np.ndarray]:
@@ -305,13 +304,17 @@ def _metric_row(
     scenario_name: str,
     failure_label: str,
     notes: str,
+    saturation_reference: np.ndarray | None = None,
 ) -> dict[str, object]:
     metrics = empty_metric_row(include_agile=True)
     speed, alpha_deg, beta_deg = _speed_alpha_beta(x_log)
     margins = _margin_series(x_log)
     rate_norm = np.linalg.norm(x_log[:, 9:12], axis=1)
+    saturation_requested = (
+        u_norm_requested if saturation_reference is None else saturation_reference
+    )
     saturation_fraction, saturation_time_s = _saturation_metrics(
-        u_norm_requested,
+        saturation_requested,
         u_norm_applied,
         float(config.dt_s),
     )
@@ -381,6 +384,7 @@ def _single_row_result(
         scenario_name,
         failure_label,
         notes,
+        saturation_reference=applied,
     )
     return RolloutResult(
         time_s=time_s,
@@ -442,6 +446,7 @@ def rollout_open_loop_normalised(
     x_log = np.empty((sample_count, STATE_SIZE), dtype=float)
     requested_log = np.empty((sample_count, 3), dtype=float)
     applied_log = np.empty((sample_count, 3), dtype=float)
+    effective_log = np.empty((sample_count, 3), dtype=float)
     command_rad_log = np.empty((sample_count, 3), dtype=float)
     x_log[0] = state0
     failure_label = "not_run"
@@ -463,6 +468,7 @@ def rollout_open_loop_normalised(
             # current command target instantly before the pure plant step.
             x_log[index, 12:15] = command_rad
         requested_log[index] = requested
+        effective_log[index] = delayed_requested
         applied_log[index] = applied
         command_rad_log[index] = command_rad
         if index == sample_count - 1:
@@ -493,6 +499,7 @@ def rollout_open_loop_normalised(
     x_log = x_log[: final_index + 1]
     requested_log = requested_log[: final_index + 1]
     applied_log = applied_log[: final_index + 1]
+    effective_log = effective_log[: final_index + 1]
     command_rad_log = command_rad_log[: final_index + 1]
     metrics = _metric_row(
         time_s,
@@ -504,6 +511,7 @@ def rollout_open_loop_normalised(
         scenario_name,
         failure_label,
         notes,
+        saturation_reference=effective_log,
     )
     return RolloutResult(
         time_s=time_s,

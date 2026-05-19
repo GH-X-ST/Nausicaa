@@ -93,6 +93,7 @@ TRUE_SAFE_BOUNDS_M = {
 class PrimitiveLibraryConfig:
     dt_s: float = 0.02
     run_id: int = 1
+    latency_case: str = "actuator_lag_only"
     targets_deg: tuple[float, ...] = (15.0, 30.0)
     families: tuple[str, ...] = PRIMITIVE_FAMILIES
     updraft_configs: tuple[str, ...] = UPDRAFT_CONFIGS
@@ -187,6 +188,20 @@ class PrimitiveEvidenceRow:
     marginal_coverage_gain: float
     library_growth_trigger: bool
     growth_reason: str
+    latency_case: str
+    state_feedback_delay_s: float
+    command_onset_delay_s: float
+    command_transport_delay_s: float
+    actuator_tau_s: str
+    actuator_t50_s: float
+    actuator_t90_s: float
+    latency_jitter_s: float
+    timing_model_version: str
+    latency_pass_label: str
+    state_feedback_delay_applied: bool
+    command_delay_applied: bool
+    actuator_lag_applied: bool
+    latency_acceptance_scope: str
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)

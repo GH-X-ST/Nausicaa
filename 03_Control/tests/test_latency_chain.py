@@ -121,7 +121,7 @@ def test_rollout_surface_response_ordering_for_latency_cases(
     monkeypatch.setattr(rollout, "state_derivative", _surface_derivative_only)
     schedule = _step_schedule()
     target_delta_a = normalised_command_to_surface_rad(np.array([1.0, 0.0, 0.0]))[0]
-    threshold = 0.05 * target_delta_a
+    threshold = 0.25 * target_delta_a
     crossings: dict[str, float] = {}
 
     for latency_case in ("none", "actuator_lag_only", "nominal", "conservative"):

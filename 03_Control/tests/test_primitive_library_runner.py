@@ -4,43 +4,43 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
+
+import run_primitive_library_pass as runner
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-CONTROL_ROOT = REPO_ROOT / "03_Control"
-RESULT_ROOT = CONTROL_ROOT / "05_Results" / "09_primitive_library" / "001"
-RESULT_ROOT_002 = CONTROL_ROOT / "05_Results" / "09_primitive_library" / "002"
+@pytest.fixture()
+def runner_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    result_root = tmp_path / "results"
+    archive = result_root / "07_aggressive_reversal_ocp" / "002"
+    archive.mkdir(parents=True)
+    (archive / "boundary_reference.txt").write_text("preserved\n", encoding="ascii")
+    monkeypatch.setattr(runner, "RESULT_ROOT", result_root)
+    monkeypatch.setattr(runner, "_obsolete_files", lambda: tuple())
+    monkeypatch.setattr(runner, "_obsolete_result_dirs", lambda: tuple())
+    monkeypatch.setattr(runner, "_negative_grep", lambda: (1, ""))
 
-
-def _load_outputs() -> tuple[dict[str, object], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    manifest_path = RESULT_ROOT_002 / "manifests" / "primitive_library_manifest_s002.json"
-    evidence_path = RESULT_ROOT_002 / "metrics" / "primitive_evidence_library_s002.csv"
-    library_summary_path = RESULT_ROOT_002 / "metrics" / "primitive_library_summary_s002.csv"
-    group_summary_path = RESULT_ROOT_002 / "metrics" / "primitive_envelope_group_summary_s002.csv"
-
-    assert manifest_path.exists()
-    assert evidence_path.exists()
-    assert library_summary_path.exists()
-    assert group_summary_path.exists()
-
-    return (
-        json.loads(manifest_path.read_text(encoding="ascii")),
-        pd.read_csv(evidence_path),
-        pd.read_csv(library_summary_path),
-        pd.read_csv(group_summary_path),
+    paths = runner.run_primitive_library_pass(
+        run_id=12,
+        targets_deg=(15.0,),
+        wind_fidelities=("W0",),
+        updraft_configs=("none",),
+        latency_case="nominal",
     )
+    manifest = json.loads(paths["manifest"].read_text(encoding="ascii"))
+    evidence = pd.read_csv(paths["library_csv"])
+    library_summary = pd.read_csv(paths["summary_csv"])
+    group_summary = pd.read_csv(paths["group_summary_csv"])
+    coverage = pd.read_csv(paths["coverage_summary_csv"])
+    return paths, manifest, evidence, library_summary, group_summary, coverage
 
 
-def test_primitive_library_outputs_and_manifest_flags() -> None:
-    manifest, evidence, library_summary, group_summary = _load_outputs()
-    report_path = RESULT_ROOT_002 / "reports" / "primitive_library_semantics_fix_report_s002.md"
-    coverage_path = RESULT_ROOT_002 / "metrics" / "primitive_coverage_region_summary_s002.csv"
+def test_primitive_library_outputs_and_manifest_flags(runner_outputs) -> None:
+    paths, manifest, evidence, library_summary, group_summary, coverage = runner_outputs
 
-    assert report_path.exists()
-    assert coverage_path.exists()
-    assert RESULT_ROOT.exists()
+    assert paths["report"].exists()
+    assert paths["coverage_summary_csv"].exists()
     assert manifest["central_research_question"] == "widen primitive envelopes before library growth"
-    assert manifest["previous_run_for_semantics_baseline"] == "03_Control/05_Results/09_primitive_library/001"
     assert manifest["classification_semantics_fixed"] is True
     assert manifest["w1_w2_dry_recoverable_not_boundary_by_default"] is True
     assert manifest["library_growth_trigger_is_group_level"] is True
@@ -54,16 +54,25 @@ def test_primitive_library_outputs_and_manifest_flags() -> None:
     assert manifest["outer_loop_implemented"] is False
     assert manifest["real_flight_validation_claim"] is False
     assert manifest["high_incidence_validation_claim"] is False
-    assert manifest["w1_complete"] in (True, False)
-    assert manifest["w2_complete"] in (True, False)
+    assert manifest["latency_case"] == "nominal"
+    assert manifest["latency_acceptance_scope"] == (
+        "command_path_nominal_no_feedback_controller"
+    )
+    assert manifest["latency_pass_label_policy"] == (
+        "computed_per_evidence_row_after_final_primitive_acceptance"
+    )
+    assert manifest["state_feedback_delay_applied"] is False
+    assert manifest["closed_loop_delayed_state_feedback_applied"] is False
+    assert ";" in manifest["actuator_tau_s"]
 
     assert not evidence.empty
     assert not library_summary.empty
     assert not group_summary.empty
+    assert not coverage.empty
 
 
-def test_evidence_schema_start_conditions_and_growth_fields() -> None:
-    _, evidence, _, group_summary = _load_outputs()
+def test_evidence_schema_start_conditions_growth_and_latency_fields(runner_outputs) -> None:
+    _, _, evidence, _, group_summary, _ = runner_outputs
     expected_families = {
         "glide",
         "recovery",
@@ -99,10 +108,24 @@ def test_evidence_schema_start_conditions_and_growth_fields() -> None:
         "margin_consumption_y_m",
         "margin_consumption_z_m",
     }
+    latency_fields = {
+        "latency_case",
+        "actuator_tau_s",
+        "latency_pass_label",
+        "latency_acceptance_scope",
+        "state_feedback_delay_applied",
+        "command_delay_applied",
+        "actuator_lag_applied",
+    }
 
     assert set(evidence["family"].unique()) == expected_families
     assert growth_fields.issubset(evidence.columns)
     assert metric_fields.issubset(evidence.columns)
+    assert latency_fields.issubset(evidence.columns)
+    assert set(evidence["latency_case"].unique()) == {"nominal"}
+    assert evidence["actuator_tau_s"].str.match(
+        r"^\d+\.\d{9};\d+\.\d{9};\d+\.\d{9}$"
+    ).all()
 
     starts_by_family = evidence.groupby("family")["start_condition"].unique().to_dict()
     for family in expected_families:
@@ -122,61 +145,38 @@ def test_evidence_schema_start_conditions_and_growth_fields() -> None:
     assert evidence["library_growth_trigger"].astype(bool).sum() == 0
 
 
-def test_wind_fidelity_rows_and_missing_model_semantics() -> None:
-    manifest, evidence, _, _ = _load_outputs()
+def test_wind_fidelity_rows_and_missing_model_semantics(runner_outputs) -> None:
+    manifest, evidence = runner_outputs[1], runner_outputs[2]
     w0 = evidence[evidence["wind_fidelity"] == "W0"]
-    w1_w2 = evidence[evidence["wind_fidelity"].isin(["W1", "W2"])]
 
     assert not w0.empty
     assert (w0["evaluation_status"] == "evaluated").all()
-    assert set(w1_w2["evaluation_status"].unique()).issubset(
-        {"evaluated", "not_evaluated_model_missing", "model_unavailable"}
-    )
-
-    missing = evidence[evidence["evaluation_status"] != "evaluated"]
-    if not missing.empty:
-        assert (missing["candidate_class"] != "boundary_evidence").all()
-        assert set(missing["candidate_class"].unique()) == {"not_evaluated"}
-        assert manifest["w1_complete"] is False or manifest["w2_complete"] is False
-
-    dry_updraft = evidence[
-        evidence["wind_fidelity"].isin(["W1", "W2"])
-        & (evidence["recovery_class"] == "dry_recoverable")
-        & (evidence["heading_band_pass"].astype(bool))
-        & (evidence["true_safe_trajectory"].astype(bool))
-    ]
-    if not dry_updraft.empty:
-        assert "updraft_assisted_commandable" in set(dry_updraft["candidate_class"])
-        assert not (
-            (dry_updraft["candidate_class"] == "boundary_evidence")
-            & (dry_updraft["failure_label"] == "updraft_recovery_not_proven")
-        ).any()
+    assert manifest["w1_complete"] is True
+    assert manifest["w2_complete"] is True
 
 
-def test_coverage_summary_and_report_compare_run_001() -> None:
-    manifest, evidence, _, _ = _load_outputs()
-    coverage = pd.read_csv(RESULT_ROOT_002 / "metrics" / "primitive_coverage_region_summary_s002.csv")
-    report = (RESULT_ROOT_002 / "reports" / "primitive_library_semantics_fix_report_s002.md").read_text(
-        encoding="ascii"
-    )
+def test_coverage_summary_and_report_record_latency_scope(runner_outputs) -> None:
+    paths, manifest, evidence, _, _, coverage = runner_outputs
+    report = paths["report"].read_text(encoding="ascii")
 
     assert not coverage.empty
     assert "coverage_status" in coverage.columns
     assert "library_growth_trigger" in coverage.columns
     assert coverage["library_growth_trigger"].astype(bool).sum() == 0
-    assert manifest["baseline_run_001_diagnosis"]["baseline_available"] is True
-    assert "Run 001 created the scaffold" in report
-    assert "Run-002 library-growth trigger count" in report
+    assert manifest["baseline_run_001_diagnosis"]["baseline_available"] is False
+    assert "Latency Replay Scope" in report
+    assert "command_path_nominal_no_feedback_controller" in report
+    assert "computed_per_evidence_row_after_final_primitive_acceptance" in report
     assert "coverage_status" in evidence.columns
 
 
-def test_representative_logs_preserve_command_bridge_columns() -> None:
-    manifest, _, _, _ = _load_outputs()
+def test_representative_logs_preserve_raw_command_bridge_columns(runner_outputs) -> None:
+    _, manifest, _, _, _, _ = runner_outputs
     output_files = manifest["output_files"]
     command_keys = [key for key in output_files if key.endswith("_commands_csv")]
 
     assert command_keys
-    command_path = REPO_ROOT / output_files[command_keys[0]]
+    command_path = Path(output_files[command_keys[0]])
     commands = pd.read_csv(command_path)
 
     assert "u_norm_requested_delta_a_norm" in commands.columns
@@ -184,6 +184,3 @@ def test_representative_logs_preserve_command_bridge_columns() -> None:
     assert "delta_cmd_rad_delta_a_cmd" in commands.columns
     assert "delta_cmd_rad_delta_e_cmd" in commands.columns
     assert "delta_cmd_rad_delta_r_cmd" in commands.columns
-
-    for relative_path in output_files.values():
-        assert not Path(relative_path).is_absolute()

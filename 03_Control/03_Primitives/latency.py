@@ -265,9 +265,7 @@ def latency_case_config(
             envelope.vicon_latency_p95_s + envelope.vicon_filter_delay_s
         ),
         command_onset_delay_s=float(envelope.onset_latency_s),
-        command_transport_delay_s=float(
-            max(0.0, envelope.conservative_actuator_bound_s - envelope.onset_latency_s)
-        ),
+        command_transport_delay_s=0.0,
         actuator_tau_s=(conservative_tau, conservative_tau, conservative_tau),
         actuator_t50_s=float(envelope.conservative_actuator_bound_s),
         actuator_t90_s=float(
@@ -287,13 +285,84 @@ def latency_audit_fields_from_case(config: LatencyCaseConfig) -> dict[str, objec
         "state_feedback_delay_s": float(config.state_feedback_delay_s),
         "command_onset_delay_s": float(config.command_onset_delay_s),
         "command_transport_delay_s": float(config.command_transport_delay_s),
-        "actuator_tau_s": tuple(float(value) for value in config.actuator_tau_s),
+        "actuator_tau_s": format_actuator_tau_s(config.actuator_tau_s),
         "actuator_t50_s": float(config.actuator_t50_s),
         "actuator_t90_s": float(config.actuator_t90_s),
         "latency_jitter_s": float(config.latency_jitter_s),
         "timing_model_version": str(config.timing_model_version),
         "latency_pass_label": str(config.latency_pass_label),
     }
+
+
+def actuator_tau_for_case(
+    config: LatencyCaseConfig,
+    fallback_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06),
+) -> tuple[float, float, float]:
+    """Return the actuator lag constants active for a latency case."""
+
+    if config.latency_case in ("none", "actuator_lag_only"):
+        tau = np.asarray(fallback_tau_s, dtype=float).reshape(3)
+    else:
+        tau = np.asarray(config.actuator_tau_s, dtype=float).reshape(3)
+    if not np.all(np.isfinite(tau)) or np.any(tau <= 0.0):
+        raise ValueError("actuator tau must contain three finite positive values.")
+    return tuple(float(value) for value in tau)
+
+
+def format_actuator_tau_s(actuator_tau_s: tuple[float, float, float]) -> str:
+    """Return the CSV-ready actuator tau triplet with fixed precision."""
+
+    tau = np.asarray(actuator_tau_s, dtype=float).reshape(3)
+    if not np.all(np.isfinite(tau)):
+        raise ValueError("actuator_tau_s must contain finite values.")
+    return ";".join(f"{float(value):.9f}" for value in tau)
+
+
+def latency_acceptance_scope(latency_case: str) -> str:
+    """Return the evidence scope implied by a single latency replay case."""
+
+    case = str(latency_case)
+    if case == "none":
+        return "ideal_ablation_only"
+    if case == "actuator_lag_only":
+        return "actuator_lag_only_ablation"
+    if case == "nominal":
+        return "command_path_nominal_no_feedback_controller"
+    if case == "conservative":
+        return "command_path_conservative_no_feedback_controller"
+    raise ValueError(
+        "latency_case must be one of "
+        + ", ".join(f"'{label}'" for label in LATENCY_CASES)
+        + "."
+    )
+
+
+def latency_pass_label_for_single_run(latency_case: str, accepted: bool) -> str:
+    """Return the outcome label for one replay without paired-case inference."""
+
+    case = str(latency_case)
+    if case not in LATENCY_CASES:
+        raise ValueError(
+            "latency_case must be one of "
+            + ", ".join(f"'{label}'" for label in LATENCY_CASES)
+            + "."
+        )
+    if case in ("none", "actuator_lag_only"):
+        return "ideal_only"
+    if case == "nominal":
+        return "nominal_pass" if bool(accepted) else "nominal_fail"
+    return "conservative_pass" if bool(accepted) else "conservative_fail"
+
+
+def latency_pass_label_for_paired_comparison(
+    ideal_or_ablation_accepted: bool,
+    nominal_accepted: bool,
+) -> str:
+    """Return a paired ideal/nominal comparison label when both outcomes exist."""
+
+    if bool(ideal_or_ablation_accepted) and not bool(nominal_accepted):
+        return "ideal_only_latency_failed"
+    return "nominal_pass" if bool(nominal_accepted) else "nominal_fail"
 
 
 def delayed_state_sample(

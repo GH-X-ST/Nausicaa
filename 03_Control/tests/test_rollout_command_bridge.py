@@ -91,6 +91,40 @@ def test_sampled_schedule_accepts_time_varying_requested_commands() -> None:
     assert np.allclose(sample_command_schedule(schedule, 0.15), [0.5, 0.0, 0.0])
 
 
+def test_command_delay_does_not_count_as_saturation(monkeypatch) -> None:
+    def fake_state_derivative(
+        x: np.ndarray,
+        u_cmd: np.ndarray,
+        aircraft: object,
+        wind_model: object = None,
+        rho: float = 1.225,
+        actuator_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06),
+        wind_mode: str = "panel",
+    ) -> np.ndarray:
+        del x, u_cmd, aircraft, wind_model, rho, actuator_tau_s, wind_mode
+        return np.zeros(15)
+
+    monkeypatch.setattr(rollout, "state_derivative", fake_state_derivative)
+    times_s = np.arange(0.0, 0.22, 0.02)
+    commands = np.zeros((times_s.size, 3))
+    commands[times_s >= 0.10, 0] = 1.0
+    result = rollout_open_loop_normalised(
+        _state(),
+        CommandSchedule(times_s=times_s, u_norm_requested=commands),
+        RolloutConfig(
+            dt_s=0.02,
+            t_final_s=0.20,
+            wind_mode="none",
+            latency_case="nominal",
+        ),
+        aircraft=object(),
+        wind_model=None,
+    )
+
+    assert result.metrics["saturation_fraction"] == 0.0
+    assert result.metrics["saturation_time_s"] == 0.0
+
+
 def test_rk4_step_uses_physical_command_for_actuator_state(monkeypatch) -> None:
     def fake_state_derivative(
         x: np.ndarray,

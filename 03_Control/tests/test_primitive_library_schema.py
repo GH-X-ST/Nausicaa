@@ -18,6 +18,8 @@ from primitive_library_schema import (
     UPDRAFT_CONFIGS,
     WIND_FIDELITIES,
     Z_OUTLET_M,
+    PrimitiveEvidenceRow,
+    PrimitiveLibraryConfig,
     classify_candidate,
     classify_candidate_semantics,
     classify_wind_query_region,
@@ -213,3 +215,26 @@ def test_wind_query_region_uses_outlet_relative_height() -> None:
     assert classify_wind_query_region(np.array([3.0]), z_axis) == "extrapolated"
     assert classify_wind_query_region(np.array([0.2, 2.0]), z_axis) == "clipped"
     assert classify_wind_query_region(z_w, None) == "unknown"
+
+
+def test_primitive_library_config_and_evidence_latency_fields_are_present() -> None:
+    config = PrimitiveLibraryConfig()
+    latency_fields = {
+        "latency_case",
+        "state_feedback_delay_s",
+        "command_onset_delay_s",
+        "command_transport_delay_s",
+        "actuator_tau_s",
+        "actuator_t50_s",
+        "actuator_t90_s",
+        "latency_jitter_s",
+        "timing_model_version",
+        "latency_pass_label",
+        "state_feedback_delay_applied",
+        "command_delay_applied",
+        "actuator_lag_applied",
+        "latency_acceptance_scope",
+    }
+
+    assert config.latency_case == "actuator_lag_only"
+    assert latency_fields.issubset(PrimitiveEvidenceRow.__dataclass_fields__)

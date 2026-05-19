@@ -8,6 +8,14 @@ from arena_contract import TRUE_SAFE_BOUNDS, inside_bounds, position_margin_m
 from command_contract import clip_normalised_command, normalised_command_to_surface_rad
 from flight_dynamics import adapt_glider
 from glider import build_nausicaa_glider
+from latency import (
+    actuator_tau_for_case,
+    latency_acceptance_scope,
+    latency_adjusted_command_sample,
+    latency_audit_fields_from_case,
+    latency_case_config,
+    latency_pass_label_for_single_run,
+)
 from primitive_library_generators import build_start_state, generate_command_profile
 from primitive_library_schema import (
     PrimitiveCandidateSpec,
@@ -52,6 +60,7 @@ class CandidateEvaluation:
     time_s: np.ndarray
     x_ref: np.ndarray
     u_norm_requested: np.ndarray
+    u_norm_effective_target: np.ndarray
     u_norm_applied: np.ndarray
     delta_cmd_rad: np.ndarray
     phase: tuple[str, ...]
@@ -75,16 +84,27 @@ def evaluate_candidate(
         return _not_evaluated_result(spec, config, wind_info, time_s, state0, u_req, phase)
 
     aircraft_model = adapt_glider(build_nausicaa_glider()) if aircraft is None else aircraft
+    latency_config = latency_case_config(config.latency_case)
+    actuator_tau = actuator_tau_for_case(latency_config)
     sample_count = time_s.size
     x_log = np.empty((sample_count, 15), dtype=float)
+    u_effective = np.empty((sample_count, 3), dtype=float)
     u_applied = np.empty((sample_count, 3), dtype=float)
     delta_cmd = np.empty((sample_count, 3), dtype=float)
     x_log[0] = state0
     wind_mode = {"W0": "none", "W1": "cg", "W2": "panel"}.get(spec.wind_fidelity, "none")
 
     for index in range(sample_count):
-        u_applied[index] = clip_normalised_command(u_req[index])
+        u_effective[index] = latency_adjusted_command_sample(
+            time_s,
+            u_req,
+            time_s[index],
+            latency_config,
+        )
+        u_applied[index] = clip_normalised_command(u_effective[index])
         delta_cmd[index] = normalised_command_to_surface_rad(u_applied[index])
+        if config.latency_case == "none":
+            x_log[index, 12:15] = delta_cmd[index]
         if index == sample_count - 1:
             break
         x_log[index + 1] = rk4_step(
@@ -94,11 +114,12 @@ def evaluate_candidate(
             aircraft_model,
             wind_info.model,
             wind_mode,
-            (0.06, 0.06, 0.06),
+            actuator_tau,
         )
         if not np.all(np.isfinite(x_log[index + 1])):
             x_log = x_log[: index + 2]
             u_req = u_req[: index + 2]
+            u_effective = u_effective[: index + 2]
             u_applied = u_applied[: index + 2]
             delta_cmd = delta_cmd[: index + 2]
             time_s = time_s[: index + 2]
@@ -112,6 +133,7 @@ def evaluate_candidate(
         time_s=time_s,
         x_ref=x_log,
         u_norm_requested=u_req,
+        u_norm_effective_target=u_effective,
         u_norm_applied=u_applied,
     )
     return CandidateEvaluation(
@@ -120,6 +142,7 @@ def evaluate_candidate(
         time_s=time_s,
         x_ref=x_log,
         u_norm_requested=u_req,
+        u_norm_effective_target=u_effective,
         u_norm_applied=u_applied,
         delta_cmd_rad=delta_cmd,
         phase=phase,
@@ -135,7 +158,15 @@ def _not_evaluated_result(
     u_req: np.ndarray,
     phase: tuple[str, ...],
 ) -> CandidateEvaluation:
-    applied = np.array([clip_normalised_command(row) for row in u_req], dtype=float)
+    latency_config = latency_case_config(config.latency_case)
+    effective = np.array(
+        [
+            latency_adjusted_command_sample(time_s, u_req, sample_time, latency_config)
+            for sample_time in time_s
+        ],
+        dtype=float,
+    )
+    applied = np.array([clip_normalised_command(row) for row in effective], dtype=float)
     delta = np.array([normalised_command_to_surface_rad(row) for row in applied], dtype=float)
     x_ref = np.repeat(state0.reshape(1, 15), time_s.size, axis=0)
     row = build_evidence_row(
@@ -145,6 +176,7 @@ def _not_evaluated_result(
         time_s=time_s,
         x_ref=x_ref,
         u_norm_requested=u_req,
+        u_norm_effective_target=effective,
         u_norm_applied=applied,
     )
     return CandidateEvaluation(
@@ -153,6 +185,7 @@ def _not_evaluated_result(
         time_s=time_s,
         x_ref=x_ref,
         u_norm_requested=u_req,
+        u_norm_effective_target=effective,
         u_norm_applied=applied,
         delta_cmd_rad=delta,
         phase=phase,
@@ -169,10 +202,13 @@ def build_evidence_row(
     time_s: np.ndarray,
     x_ref: np.ndarray,
     u_norm_requested: np.ndarray,
+    u_norm_effective_target: np.ndarray,
     u_norm_applied: np.ndarray,
 ) -> PrimitiveEvidenceRow:
     """Return one primitive evidence row with scalar metrics."""
 
+    latency_config = latency_case_config(config.latency_case)
+    latency_fields = latency_audit_fields_from_case(latency_config)
     state = np.asarray(x_ref, dtype=float)
     positions = state[:, 0:3]
     speed = np.linalg.norm(state[:, 6:9], axis=1)
@@ -198,7 +234,7 @@ def build_evidence_row(
     margins = _margin_metrics(positions)
     finite = bool(np.all(np.isfinite(state)))
     true_safe = bool(finite and all(inside_bounds(position, TRUE_SAFE_BOUNDS) for position in positions))
-    saturation_fraction = _saturation_fraction(u_norm_requested, u_norm_applied)
+    saturation_fraction = _saturation_fraction(u_norm_effective_target, u_norm_applied)
     z_fan = positions[:, 2] - float(config.z_outlet_m)
     energy_initial = float(positions[0, 2] + speed[0] ** 2 / (2.0 * 9.81))
     energy_terminal = float(positions[-1, 2] + speed[-1] ** 2 / (2.0 * 9.81))
@@ -223,6 +259,14 @@ def build_evidence_row(
         "margin_consumption_x_m": clearance["margin_consumption_x_m"],
     }
     semantics = classify_candidate_semantics(row_inputs)
+    accepted = _primitive_evidence_accepted(
+        wind_info.evaluation_status,
+        finite,
+        true_safe,
+        heading_pass,
+        recovery_class,
+        semantics,
+    )
     growth = _growth_fields(spec, semantics, heading_error)
     return PrimitiveEvidenceRow(
         primitive_id=spec.primitive_id,
@@ -281,6 +325,26 @@ def build_evidence_row(
         marginal_coverage_gain=float(growth["marginal_coverage_gain"]),
         library_growth_trigger=bool(semantics["library_growth_trigger"]),
         growth_reason=str(growth["growth_reason"]),
+        latency_case=str(latency_fields["latency_case"]),
+        state_feedback_delay_s=float(latency_fields["state_feedback_delay_s"]),
+        command_onset_delay_s=float(latency_fields["command_onset_delay_s"]),
+        command_transport_delay_s=float(latency_fields["command_transport_delay_s"]),
+        actuator_tau_s=str(latency_fields["actuator_tau_s"]),
+        actuator_t50_s=float(latency_fields["actuator_t50_s"]),
+        actuator_t90_s=float(latency_fields["actuator_t90_s"]),
+        latency_jitter_s=float(latency_fields["latency_jitter_s"]),
+        timing_model_version=str(latency_fields["timing_model_version"]),
+        latency_pass_label=latency_pass_label_for_single_run(
+            config.latency_case,
+            accepted,
+        ),
+        state_feedback_delay_applied=False,
+        command_delay_applied=_command_delay_applied(latency_config),
+        actuator_lag_applied=_actuator_lag_applied(
+            config.latency_case,
+            wind_info.evaluation_status,
+        ),
+        latency_acceptance_scope=latency_acceptance_scope(config.latency_case),
     )
 
 
@@ -298,6 +362,44 @@ def _margin_metrics(positions: np.ndarray) -> dict[str, float]:
 def _saturation_fraction(requested: np.ndarray, applied: np.ndarray) -> float:
     clipped = np.any(np.abs(np.asarray(requested) - np.asarray(applied)) > 1e-12, axis=1)
     return float(np.count_nonzero(clipped) / max(1, clipped.size))
+
+
+def _primitive_evidence_accepted(
+    evaluation_status: str,
+    finite: bool,
+    true_safe: bool,
+    heading_pass: bool,
+    recovery_class: str,
+    semantics: dict[str, object],
+) -> bool:
+    commandable_classes = {
+        "w0_standalone_commandable",
+        "w0_updraft_pending_target_candidate",
+        "updraft_assisted_commandable",
+    }
+    return bool(
+        str(evaluation_status) == "evaluated"
+        and finite
+        and true_safe
+        and heading_pass
+        and str(recovery_class) != "not_recoverable"
+        and str(semantics["candidate_class"]) in commandable_classes
+    )
+
+
+def _command_delay_applied(latency_config: object) -> bool:
+    delay_s = float(
+        getattr(latency_config, "command_onset_delay_s")
+        + getattr(latency_config, "command_transport_delay_s")
+    )
+    return bool(delay_s > 0.0)
+
+
+def _actuator_lag_applied(latency_case: str, evaluation_status: str) -> bool:
+    return bool(
+        str(evaluation_status) == "evaluated"
+        and str(latency_case) in ("actuator_lag_only", "nominal", "conservative")
+    )
 
 
 def _recovery_class(spec: PrimitiveCandidateSpec, speed: np.ndarray, true_safe: bool, wind_info: WindModelInfo) -> str:
