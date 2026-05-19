@@ -20,12 +20,13 @@ from dense_archive_schema import (  # noqa: E402
     CAMPAIGN,
     FORBIDDEN_CLAIMS,
     PASS_NAME,
-    PROTECTED_STAGE0_PATHS,
+    PROTECTED_PATHS,
     RECOMMENDED_NEXT_STEP,
+    SOURCE_RUN007_MANIFEST,
     SOURCE_STAGE0_MANIFEST,
     DenseArchivePlanConfig,
     build_archive_count_manifest,
-    build_target_direction_plan,
+    build_target_environment_plan,
 )
 from dense_start_state_sampling import (  # noqa: E402
     build_dry_run_candidate_inventory,
@@ -38,7 +39,7 @@ from dense_start_state_sampling import (  # noqa: E402
 # SECTION MAP
 # =============================================================================
 # 1) Paths and Data Containers
-# 2) Stage 0 and Protected-Hash Checks
+# 2) Stage 0, Run 007, and Protected-Hash Checks
 # 3) Output Writers and Report
 # 4) Public Runner and CLI
 # =============================================================================
@@ -55,7 +56,7 @@ REQUIRED_STAGE0_STATUS = "passed"
 class DenseArchivePlanningOutputs:
     root: Path
     manifest_json: Path
-    target_direction_plan_csv: Path
+    target_environment_plan_csv: Path
     sampling_strata_summary_csv: Path
     start_state_manifest_csv: Path
     dry_run_candidate_inventory_csv: Path
@@ -65,7 +66,7 @@ class DenseArchivePlanningOutputs:
         return {
             "root": self.root,
             "manifest_json": self.manifest_json,
-            "target_direction_plan_csv": self.target_direction_plan_csv,
+            "target_environment_plan_csv": self.target_environment_plan_csv,
             "sampling_strata_summary_csv": self.sampling_strata_summary_csv,
             "start_state_manifest_csv": self.start_state_manifest_csv,
             "dry_run_candidate_inventory_csv": self.dry_run_candidate_inventory_csv,
@@ -82,12 +83,22 @@ def _output_paths(run_id: int) -> DenseArchivePlanningOutputs:
     suffix = f"s{int(run_id):03d}"
     return DenseArchivePlanningOutputs(
         root=root,
-        manifest_json=root / "manifests" / f"archive_count_manifest_{suffix}.json",
-        target_direction_plan_csv=root / "metrics" / f"target_direction_plan_{suffix}.csv",
-        sampling_strata_summary_csv=root / "metrics" / f"sampling_strata_summary_{suffix}.csv",
-        start_state_manifest_csv=root / "metrics" / f"start_state_manifest_pilot_{suffix}.csv",
-        dry_run_candidate_inventory_csv=root / "metrics" / f"dry_run_candidate_inventory_pilot_{suffix}.csv",
-        planning_report_md=root / "reports" / f"dense_archive_planning_report_{suffix}.md",
+        manifest_json=root / "manifests" / f"equal_branch_paired_archive_count_manifest_{suffix}.json",
+        target_environment_plan_csv=root
+        / "metrics"
+        / f"equal_branch_target_environment_plan_{suffix}.csv",
+        sampling_strata_summary_csv=root
+        / "metrics"
+        / f"equal_branch_sampling_strata_summary_{suffix}.csv",
+        start_state_manifest_csv=root
+        / "metrics"
+        / f"equal_branch_start_state_manifest_pilot_{suffix}.csv",
+        dry_run_candidate_inventory_csv=root
+        / "metrics"
+        / f"equal_branch_dry_run_candidate_inventory_pilot_{suffix}.csv",
+        planning_report_md=root
+        / "reports"
+        / f"equal_branch_paired_dense_archive_planning_report_{suffix}.md",
     )
 
 
@@ -98,23 +109,22 @@ def _prepare_output_tree(outputs: DenseArchivePlanningOutputs, overwrite: bool) 
         _clear_output_tree(outputs.root)
     for path in (
         outputs.manifest_json.parent,
-        outputs.target_direction_plan_csv.parent,
+        outputs.target_environment_plan_csv.parent,
         outputs.planning_report_md.parent,
     ):
         path.mkdir(parents=True, exist_ok=True)
 
 
 def _clear_output_tree(root: Path) -> None:
-    # The runner is only allowed to clear files in its own Phase B output tree.
-    # Keeping directories avoids Windows/OneDrive locks while still replacing
-    # every generated artifact deterministically on --overwrite.
+    # Only run-008 generated files are cleared. Directories are retained to
+    # avoid Windows/OneDrive directory locks during repeated audit runs.
     for path in sorted(root.rglob("*"), key=lambda item: len(item.parts), reverse=True):
         if path.is_file() or path.is_symlink():
             path.unlink()
 
 
 # =============================================================================
-# 2) Stage 0 and Protected-Hash Checks
+# 2) Stage 0, Run 007, and Protected-Hash Checks
 # =============================================================================
 def _read_stage0_gate_status() -> str:
     path = REPO_ROOT / SOURCE_STAGE0_MANIFEST
@@ -124,15 +134,23 @@ def _read_stage0_gate_status() -> str:
     status = str(manifest.get("overall_stage0_gate_status", "missing"))
     if status != REQUIRED_STAGE0_STATUS:
         raise RuntimeError(
-            "Phase B dense archive planning requires Stage 0 overall gate to be passed; "
+            "Phase B equal-branch planning requires Stage 0 overall gate to be passed; "
             f"saw {status!r}."
         )
     return status
 
 
+def _run007_preserved() -> bool:
+    path = REPO_ROOT / SOURCE_RUN007_MANIFEST
+    if not path.exists():
+        raise FileNotFoundError(f"missing run 007 planning manifest: {path}")
+    manifest = json.loads(path.read_text(encoding="ascii"))
+    return int(manifest.get("run_id", -1)) == 7
+
+
 def _protected_hashes() -> dict[str, str]:
     hashes: dict[str, str] = {}
-    for relative in PROTECTED_STAGE0_PATHS:
+    for relative in PROTECTED_PATHS:
         root = REPO_ROOT / relative
         if not root.exists():
             hashes[relative] = "missing"
@@ -148,12 +166,14 @@ def _protected_hashes() -> dict[str, str]:
 # =============================================================================
 def _output_file_manifest(outputs: DenseArchivePlanningOutputs) -> dict[str, str]:
     return {
-        "archive_count_manifest": _repo_relative(outputs.manifest_json),
-        "target_direction_plan": _repo_relative(outputs.target_direction_plan_csv),
-        "sampling_strata_summary": _repo_relative(outputs.sampling_strata_summary_csv),
-        "start_state_manifest_pilot": _repo_relative(outputs.start_state_manifest_csv),
-        "dry_run_candidate_inventory_pilot": _repo_relative(outputs.dry_run_candidate_inventory_csv),
-        "dense_archive_planning_report": _repo_relative(outputs.planning_report_md),
+        "equal_branch_paired_archive_count_manifest": _repo_relative(outputs.manifest_json),
+        "equal_branch_target_environment_plan": _repo_relative(outputs.target_environment_plan_csv),
+        "equal_branch_sampling_strata_summary": _repo_relative(outputs.sampling_strata_summary_csv),
+        "equal_branch_start_state_manifest_pilot": _repo_relative(outputs.start_state_manifest_csv),
+        "equal_branch_dry_run_candidate_inventory_pilot": _repo_relative(
+            outputs.dry_run_candidate_inventory_csv
+        ),
+        "equal_branch_paired_dense_archive_planning_report": _repo_relative(outputs.planning_report_md),
     }
 
 
@@ -163,46 +183,37 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
 
 def _write_report(path: Path, manifest: dict[str, object]) -> None:
     lines = [
-        "# Phase B Task 1 Dense Archive Planning Report",
+        "# Phase B Task 1.1 Equal Fan Branch Planning Report",
         "",
         f"- Campaign: `{manifest['campaign']}`",
         f"- Pass name: `{manifest['pass_name']}`",
         f"- Stage 0 gate status seen: `{manifest['stage0_gate_status_seen']}`",
-        "- Stage 0 source evidence remains protected and was not edited by this pass.",
-        "- This pass created a Phase B planning scaffold only.",
-        "- Full W0 dense execution was not performed.",
-        "- W1/W2/W3 robustness was not performed.",
-        "- Objective one and objective two were not attempted.",
-        "- Real flight transfer was not attempted.",
+        f"- Run 007 preserved: `{str(manifest['run007_preserved']).lower()}`",
+        f"- Protected hash status: `{manifest['protected_hash_check_status']}`",
+        "- This pass created a branch-separated paired W0/W1 planning scaffold only.",
+        "- No rollout, primitive replay, dense archive execution, active latency implementation,",
+        "  envelope mapping, clustering, mission evaluation, or sim-to-real transfer was performed.",
         "",
-        "## Corrected Count Contract",
+        "## Branch Count Contract",
         "",
-        f"- Minimum W0 turning trials: `{manifest['minimum_w0_turning_trials']}`",
-        f"- Target W0 turning trials: `{manifest['target_w0_turning_trials']}`",
-        f"- Minimum glide/recovery W0 trials: `{manifest['minimum_w0_baseline_trials']}`",
-        f"- Target glide/recovery W0 trials: `{manifest['target_w0_baseline_trials']}`",
-        f"- Minimum W0 total trials: `{manifest['minimum_w0_total_trials']}`",
-        f"- Target W0 total trials: `{manifest['target_w0_total_trials']}`",
-        f"- Target W0 total trial range: `{manifest['target_w0_total_trial_range']}`",
-        f"- Pilot candidate count: `{manifest['pilot_total_candidate_count']}`",
-        "",
-        "The pilot count controls only the small deterministic pilot manifests. It does not",
-        "replace the 2000 minimum or 5000 target starts per turning family-target-direction",
-        "recorded in the archive count manifest.",
+        f"- W1 floor total per branch: `{manifest['w1_floor_total_trials_per_branch']}`",
+        f"- W1 target total per branch: `{manifest['w1_target_total_trials_per_branch']}`",
+        f"- W1 floor total all branches: `{manifest['w1_floor_total_trials_all_branches']}`",
+        f"- W1 target total all branches: `{manifest['w1_target_total_trials_all_branches']}`",
+        f"- W0 floor total per branch: `{manifest['w0_floor_total_trials_per_branch']}`",
+        f"- W0 target total per branch: `{manifest['w0_target_total_trials_per_branch']}`",
+        f"- W0 floor total all branches: `{manifest['w0_floor_total_trials_all_branches']}`",
+        f"- W0 target total all branches: `{manifest['w0_target_total_trials_all_branches']}`",
+        f"- Combined floor total all branches: `{manifest['combined_floor_total_trials_all_branches']}`",
+        f"- Combined target total all branches: `{manifest['combined_target_total_trials_all_branches']}`",
+        f"- Pilot start rows all branches: `{manifest['pilot_start_state_rows_all_branches']}`",
+        f"- Pilot candidate rows all branches: `{manifest['pilot_candidate_rows_all_branches']}`",
         "",
         "## Forbidden Claims",
         "",
     ]
     lines.extend(f"- {claim}" for claim in FORBIDDEN_CLAIMS)
-    lines.extend(
-        [
-            "",
-            "## Next Step",
-            "",
-            RECOMMENDED_NEXT_STEP,
-            "",
-        ]
-    )
+    lines.extend(["", "## Next Step", "", RECOMMENDED_NEXT_STEP, ""])
     path.write_text("\n".join(lines), encoding="ascii")
 
 
@@ -211,15 +222,15 @@ def _write_report(path: Path, manifest: dict[str, object]) -> None:
 # =============================================================================
 def run_dense_archive_planning(
     *,
-    run_id: int = 7,
+    run_id: int = 8,
     overwrite: bool = False,
     random_seed: int = 20260520,
     pilot_start_states_per_family_target_direction: int = 10,
 ) -> dict[str, Path]:
-    """Write Phase B dense archive planning outputs without running rollouts."""
+    """Write equal fan-branch dense archive planning outputs without rollouts."""
 
-    if int(run_id) != 7:
-        raise ValueError("Phase B Task 1 dense archive planning outputs must use run_id=7.")
+    if int(run_id) != 8:
+        raise ValueError("Phase B Task 1.1 equal-branch planning outputs must use run_id=8.")
     if int(pilot_start_states_per_family_target_direction) <= 0:
         raise ValueError("pilot_start_states_per_family_target_direction must be positive.")
 
@@ -231,16 +242,17 @@ def run_dense_archive_planning(
         ),
     )
     stage0_status = _read_stage0_gate_status()
+    run007_preserved = _run007_preserved()
     protected_before = _protected_hashes()
     outputs = _output_paths(config.run_id)
     _prepare_output_tree(outputs, overwrite=bool(overwrite))
 
-    target_plan = build_target_direction_plan(config)
+    target_plan = build_target_environment_plan(config)
     sampling_summary = build_sampling_strata_summary(config)
     start_states = build_start_state_manifest(config)
     candidate_inventory = build_dry_run_candidate_inventory(config, start_states)
 
-    target_plan.to_csv(outputs.target_direction_plan_csv, index=False)
+    target_plan.to_csv(outputs.target_environment_plan_csv, index=False)
     sampling_summary.to_csv(outputs.sampling_strata_summary_csv, index=False)
     start_states.to_csv(outputs.start_state_manifest_csv, index=False)
     candidate_inventory.to_csv(outputs.dry_run_candidate_inventory_csv, index=False)
@@ -251,6 +263,7 @@ def run_dense_archive_planning(
     manifest.update(
         {
             "stage0_gate_status_seen": stage0_status,
+            "run007_preserved": bool(run007_preserved),
             "output_files": _output_file_manifest(outputs),
             "protected_hash_check_status": protected_status,
             "protected_hash_count_before": len(protected_before),
@@ -263,13 +276,13 @@ def run_dense_archive_planning(
     _write_json(outputs.manifest_json, manifest)
 
     if protected_status != "unchanged":
-        raise RuntimeError("protected Stage 0 hashes changed while writing Phase B planning outputs.")
+        raise RuntimeError("protected hashes changed while writing run 008 planning outputs.")
     return outputs.as_dict()
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-id", type=int, default=7)
+    parser.add_argument("--run-id", type=int, default=8)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--random-seed", type=int, default=20260520)
     parser.add_argument("--pilot-starts-per-family-target-direction", type=int, default=10)

@@ -9,8 +9,9 @@ import pandas as pd
 # SECTION MAP
 # =============================================================================
 # 1) Dense Archive Constants
-# 2) Data Containers and Count Helpers
-# 3) Manifest and Planning Tables
+# 2) Output Schemas
+# 3) Data Containers and Count Helpers
+# 4) Manifest and Planning Tables
 # =============================================================================
 
 
@@ -33,7 +34,33 @@ START_CLASS_FRACTIONS = {
     "lift_sector": 0.35,
     "random_stress": 0.20,
 }
-TEST_ENVIRONMENT_MODE = "W0_dry_air"
+FAN_LAYOUTS = ("single_fan", "four_fan")
+LAYOUT_BRANCH_IDS = ("single_fan_branch", "four_fan_branch")
+W0_SINGLE = "W0_single_fan_branch"
+W1_SINGLE = "W1_single_fan"
+W0_FOUR = "W0_four_fan_branch"
+W1_FOUR = "W1_four_fan"
+TEST_ENVIRONMENT_MODES = (W0_SINGLE, W1_SINGLE, W0_FOUR, W1_FOUR)
+FAN_BRANCH_METADATA = {
+    "single_fan": {
+        "layout_branch_id": "single_fan_branch",
+        "w0_environment_mode": W0_SINGLE,
+        "w1_environment_mode": W1_SINGLE,
+        "w0_fan_config_id": "single_fan_branch_dry_air",
+        "w1_fan_config_id": "single_fan_nominal_updraft",
+        "w0_updraft_model_id": "no_updraft_dry_air",
+        "w1_updraft_model_id": "single_gaussian_var",
+    },
+    "four_fan": {
+        "layout_branch_id": "four_fan_branch",
+        "w0_environment_mode": W0_FOUR,
+        "w1_environment_mode": W1_FOUR,
+        "w0_fan_config_id": "four_fan_branch_dry_air",
+        "w1_fan_config_id": "four_fan_nominal_updraft",
+        "w0_updraft_model_id": "no_updraft_dry_air",
+        "w1_updraft_model_id": "four_gaussian_var",
+    },
+}
 ENVIRONMENT_ROLE_BY_FAMILY = {
     "glide": "dry_air_capable",
     "recovery": "dry_air_capable",
@@ -43,130 +70,52 @@ ENVIRONMENT_ROLE_BY_FAMILY = {
     "bank_yaw_energy_retaining": "updraft_assisted",
 }
 CAMPAIGN = "10_dense_archive_planning"
-PASS_NAME = "phase_b_task1_dense_archive_planning_scaffold"
-PHASE_B_TASK = "task1_dense_archive_planning_scaffold"
+PASS_NAME = "phase_b_task1_1_equal_fan_branch_paired_w0_w1_planning_scaffold"
+PHASE_B_TASK = "task1_1_equal_fan_branch_paired_w0_w1_planning_scaffold"
 SOURCE_STAGE0_MANIFEST = (
     "03_Control/05_Results/09_primitive_library/000_frozen_baseline/"
     "manifests/frozen_baseline_manifest_s000.json"
 )
-PROTECTED_STAGE0_PATHS = (
+SOURCE_RUN007_MANIFEST = (
+    "03_Control/05_Results/10_dense_archive_planning/007/"
+    "manifests/archive_count_manifest_s007.json"
+)
+PROTECTED_PATHS = (
     "03_Control/05_Results/09_primitive_library/002",
     "03_Control/05_Results/09_primitive_library/003",
     "03_Control/05_Results/09_primitive_library/004",
     "03_Control/05_Results/09_primitive_library/005",
     "03_Control/05_Results/09_primitive_library/006",
     "03_Control/05_Results/09_primitive_library/000_frozen_baseline",
+    "03_Control/05_Results/10_dense_archive_planning/007",
 )
 FORBIDDEN_CLAIMS = (
-    "W0 dense archive executed",
-    "W1/W2/W3 robustness completed",
+    "W0 archive executed",
+    "W1 archive executed",
+    "W2/W3/W4/W5 robustness or mission evidence completed",
+    "active latency implemented",
     "envelope maps completed",
     "clustering completed",
+    "governor generated from dense archive",
     "objective one completed",
     "objective two completed",
     "sim-to-real transfer demonstrated",
 )
-RECOMMENDED_NEXT_STEP = "Run a 5k to 20k pilot sweep for descriptor logging and storage validation."
+RECOMMENDED_NEXT_STEP = (
+    "Add descriptor logging and active latency plumbing, then run a small paired W0/W1 "
+    "pilot sweep before any full archive."
+)
 LIFT_SECTOR_EDGE_FRACTION_REQUIREMENT = 0.50
-
-TARGET_DIRECTION_PLAN_COLUMNS = (
-    "family",
-    "family_role",
-    "environment_role",
-    "test_environment_mode",
-    "target_heading_deg",
-    "direction_sign",
-    "start_class",
-    "count_basis",
-    "planned_min_start_count",
-    "planned_target_start_count",
-    "planned_min_trial_count",
-    "planned_target_trial_count",
-    "pilot_trial_count",
-    "included_in_dense_w0",
-    "no_rollout_performed",
-)
-
-SAMPLING_STRATA_COLUMNS = (
-    "start_class",
-    "fraction_requested",
-    "pilot_sample_count",
-    "minimum_archive_count_reference",
-    "x_range_m",
-    "y_range_m",
-    "z_range_m",
-    "speed_range_m_s",
-    "phi_range_deg",
-    "theta_range_deg",
-    "psi_range_deg",
-    "p_range_rad_s",
-    "q_range_rad_s",
-    "r_range_rad_s",
-    "updraft_radius_range_m",
-    "special_rule",
-    "test_environment_mode",
-    "no_rollout_performed",
-)
-
-START_STATE_MANIFEST_COLUMNS = (
-    "sample_id",
-    "seed",
-    "sampling_round",
-    "start_class",
-    "family",
-    "target_heading_deg",
-    "direction_sign",
-    "environment_role",
-    "test_environment_mode",
-    "count_basis",
-    "x_w_m",
-    "y_w_m",
-    "z_w_m",
-    "speed_m_s",
-    "phi_rad",
-    "theta_rad",
-    "psi_rad",
-    "u_m_s",
-    "v_m_s",
-    "w_m_s",
-    "p_rad_s",
-    "q_rad_s",
-    "r_rad_s",
-    "updraft_config",
-    "updraft_center_x_m",
-    "updraft_center_y_m",
-    "updraft_relative_radius_m",
-    "updraft_relative_azimuth_rad",
-    "updraft_relative_height_m",
-    "updraft_sector_label",
-    "left_wing_lift_exposure_preference",
-    "right_wing_lift_exposure_preference",
-    "wing_exposure_bookkeeping_status",
-    "true_safe_start",
-    "start_generation_status",
-    "no_rollout_performed",
-)
-
-DRY_RUN_CANDIDATE_COLUMNS = (
-    "candidate_id",
-    "sample_id",
-    "seed",
-    "sampling_round",
-    "family",
-    "target_heading_deg",
-    "direction_sign",
-    "start_class",
-    "environment_role",
-    "test_environment_mode",
-    "count_basis",
-    "planned_min_trial_count",
-    "planned_target_trial_count",
-    "pilot_trial_count",
-    "planned_replay_status",
-    "planned_result_path",
-    "no_rollout_performed",
-    "notes",
-)
+LATENCY_CASE_PLANNED = "none"
+LATENCY_ACCEPTANCE_ROLE = "nominal_latency_required_later_for_accepted_w1_envelopes"
+LATENCY_MODEL_STATUS = "metadata_only_active_latency_deferred"
+BRANCH_DECISION_SCOPE = "branch_local_only_no_cross_layout_decision_transfer"
+NO_CROSS_BRANCH_FLAGS = {
+    "no_cross_branch_promotion": True,
+    "no_cross_branch_rejection": True,
+    "no_cross_branch_cluster_merge": True,
+    "no_cross_branch_safety_justification": True,
+}
 
 SAMPLING_RANGES = {
     "favourable": {
@@ -209,7 +158,7 @@ SAMPLING_RANGES = {
         "q_range_rad_s": (-0.35, 0.35),
         "r_range_rad_s": (-0.35, 0.35),
         "updraft_radius_range_m": (0.0, 1.4),
-        "special_rule": "use measured/fitted fan centres; at least half labelled edge or ring",
+        "special_rule": "branch-local fan centres; at least half labelled edge or ring",
     },
     "random_stress": {
         "x_range_m": (1.30, 6.50),
@@ -229,93 +178,346 @@ SAMPLING_RANGES = {
 
 
 # =============================================================================
-# 2) Data Containers and Count Helpers
+# 2) Output Schemas
+# =============================================================================
+TARGET_ENVIRONMENT_PLAN_COLUMNS = (
+    "fan_layout",
+    "layout_branch_id",
+    "fan_config_id",
+    "updraft_model_id",
+    "test_environment_mode",
+    "paired_environment_mode",
+    "family",
+    "family_role",
+    "environment_role",
+    "validity_gate_role",
+    "first_validity_gate_environment",
+    "w0_failure_policy",
+    "target_heading_deg",
+    "direction_sign",
+    "start_class",
+    "count_basis",
+    "planned_floor_start_count",
+    "planned_target_start_count",
+    "planned_floor_trial_count",
+    "planned_target_trial_count",
+    "pilot_start_count",
+    "included_in_paired_archive",
+    "branch_decision_scope",
+    "no_cross_branch_promotion",
+    "no_cross_branch_rejection",
+    "no_cross_branch_cluster_merge",
+    "no_cross_branch_safety_justification",
+    "latency_case_planned",
+    "latency_acceptance_role",
+    "latency_model_status",
+    "no_rollout_performed",
+)
+
+SAMPLING_STRATA_COLUMNS = (
+    "fan_layout",
+    "layout_branch_id",
+    "fan_config_id",
+    "updraft_model_id",
+    "start_class",
+    "fraction_requested",
+    "pilot_sample_count",
+    "floor_archive_count_reference",
+    "target_archive_count_reference",
+    "x_range_m",
+    "y_range_m",
+    "z_range_m",
+    "speed_range_m_s",
+    "phi_range_deg",
+    "theta_range_deg",
+    "psi_range_deg",
+    "p_range_rad_s",
+    "q_range_rad_s",
+    "r_range_rad_s",
+    "updraft_radius_range_m",
+    "special_rule",
+    "branch_layout_note",
+    "layout_specific_sampling_required",
+    "no_cross_branch_merge",
+    "no_rollout_performed",
+)
+
+START_STATE_MANIFEST_COLUMNS = (
+    "sample_id",
+    "paired_sample_key",
+    "seed",
+    "sampling_round",
+    "fan_layout",
+    "layout_branch_id",
+    "fan_config_id",
+    "updraft_model_id",
+    "branch_seed_family",
+    "start_class",
+    "family",
+    "target_heading_deg",
+    "direction_sign",
+    "environment_role",
+    "paired_environment_modes",
+    "first_validity_gate_environment",
+    "count_basis",
+    "x_w_m",
+    "y_w_m",
+    "z_w_m",
+    "speed_m_s",
+    "phi_rad",
+    "theta_rad",
+    "psi_rad",
+    "u_m_s",
+    "v_m_s",
+    "w_m_s",
+    "p_rad_s",
+    "q_rad_s",
+    "r_rad_s",
+    "updraft_center_x_m",
+    "updraft_center_y_m",
+    "updraft_relative_radius_m",
+    "updraft_relative_azimuth_rad",
+    "updraft_relative_height_m",
+    "updraft_sector_label",
+    "left_wing_lift_exposure_preference",
+    "right_wing_lift_exposure_preference",
+    "wing_exposure_bookkeeping_status",
+    "true_safe_start",
+    "start_generation_status",
+    "layout_specific_sample_generated",
+    "no_rollout_performed",
+)
+
+DRY_RUN_CANDIDATE_COLUMNS = (
+    "candidate_id",
+    "sample_id",
+    "paired_sample_key",
+    "seed",
+    "sampling_round",
+    "fan_layout",
+    "layout_branch_id",
+    "fan_config_id",
+    "updraft_model_id",
+    "test_environment_mode",
+    "paired_environment_mode",
+    "family",
+    "target_heading_deg",
+    "direction_sign",
+    "start_class",
+    "environment_role",
+    "validity_gate_role",
+    "first_validity_gate_environment",
+    "w0_failure_policy",
+    "acceptance_interpretation",
+    "count_basis",
+    "planned_floor_trial_count",
+    "planned_target_trial_count",
+    "pilot_trial_count",
+    "latency_case_planned",
+    "latency_acceptance_role",
+    "latency_model_status",
+    "planned_replay_status",
+    "planned_result_path",
+    "branch_decision_scope",
+    "no_cross_branch_promotion",
+    "no_cross_branch_rejection",
+    "no_cross_branch_cluster_merge",
+    "no_cross_branch_safety_justification",
+    "no_rollout_performed",
+    "notes",
+)
+
+
+# =============================================================================
+# 3) Data Containers and Count Helpers
 # =============================================================================
 @dataclass(frozen=True)
 class DenseArchivePlanConfig:
-    run_id: int = 7
+    run_id: int = 8
     random_seed: int = 20260520
     pilot_start_states_per_family_target_direction: int = 10
-    minimum_start_states_per_family_target_direction: int = 2000
-    target_start_states_per_family_target_direction: int = 5000
-    minimum_baseline_w0_trials: int = 20000
-    target_baseline_w0_trials: int = 30000
-    target_w0_total_trial_range: tuple[int, int] = (350000, 500000)
-    test_environment_mode: str = TEST_ENVIRONMENT_MODE
+    w1_floor_start_states_per_family_target_direction: int = 5000
+    w1_target_start_states_per_family_target_direction: int = 7500
+    w1_floor_total_trials_per_branch: int = 350000
+    w1_target_total_trials_per_branch: int = 500000
+    w0_floor_total_trials_per_branch: int = 150000
+    w0_target_total_trials_per_branch: int = 300000
+    test_environment_modes: tuple[str, ...] = TEST_ENVIRONMENT_MODES
 
 
-def minimum_w0_turning_trials(config: DenseArchivePlanConfig) -> int:
+def branch_group_count() -> int:
+    return len(DENSE_TURNING_FAMILIES) * len(TARGET_LADDER_DEG) * len(DIRECTION_SIGNS)
+
+
+def branch_baseline_group_count() -> int:
+    return len(BASELINE_FAMILIES) * len(DIRECTION_SIGNS)
+
+
+def branch_start_group_count() -> int:
+    return branch_group_count() + branch_baseline_group_count()
+
+
+def w1_floor_turning_trials_per_branch(config: DenseArchivePlanConfig) -> int:
+    return branch_group_count() * int(config.w1_floor_start_states_per_family_target_direction)
+
+
+def w1_target_turning_trials_per_branch(config: DenseArchivePlanConfig) -> int:
+    return branch_group_count() * int(config.w1_target_start_states_per_family_target_direction)
+
+
+def w1_floor_baseline_or_filler_trials_per_branch(config: DenseArchivePlanConfig) -> int:
+    return int(config.w1_floor_total_trials_per_branch) - w1_floor_turning_trials_per_branch(config)
+
+
+def w1_target_baseline_or_filler_trials_per_branch(config: DenseArchivePlanConfig) -> int:
+    return int(config.w1_target_total_trials_per_branch) - w1_target_turning_trials_per_branch(config)
+
+
+def pilot_start_state_rows_per_branch(config: DenseArchivePlanConfig) -> int:
+    return branch_start_group_count() * int(config.pilot_start_states_per_family_target_direction)
+
+
+def pilot_start_state_rows_all_branches(config: DenseArchivePlanConfig) -> int:
+    return len(FAN_LAYOUTS) * pilot_start_state_rows_per_branch(config)
+
+
+def pilot_candidate_rows_all_branches(config: DenseArchivePlanConfig) -> int:
+    return 2 * pilot_start_state_rows_all_branches(config)
+
+
+def _distribute_total(total: int, count: int) -> tuple[int, ...]:
+    base = int(total) // int(count)
+    remainder = int(total) % int(count)
+    return tuple(base + (1 if index < remainder else 0) for index in range(count))
+
+
+def _baseline_count_basis() -> str:
     return (
-        len(DENSE_TURNING_FAMILIES)
-        * len(TARGET_LADDER_DEG)
-        * len(DIRECTION_SIGNS)
-        * int(config.minimum_start_states_per_family_target_direction)
+        "blank target because glide/recovery baseline rows are not heading-change targets; "
+        "both direction signs are branch-local bookkeeping rows"
     )
 
 
-def target_w0_turning_trials(config: DenseArchivePlanConfig) -> int:
+def _paired_modes(fan_layout: str) -> tuple[str, str]:
+    meta = FAN_BRANCH_METADATA[fan_layout]
+    return str(meta["w0_environment_mode"]), str(meta["w1_environment_mode"])
+
+
+def _environment_values(fan_layout: str, environment_mode: str) -> dict[str, str]:
+    meta = FAN_BRANCH_METADATA[fan_layout]
+    if environment_mode == meta["w0_environment_mode"]:
+        return {
+            "fan_config_id": str(meta["w0_fan_config_id"]),
+            "updraft_model_id": str(meta["w0_updraft_model_id"]),
+            "paired_environment_mode": str(meta["w1_environment_mode"]),
+        }
+    return {
+        "fan_config_id": str(meta["w1_fan_config_id"]),
+        "updraft_model_id": str(meta["w1_updraft_model_id"]),
+        "paired_environment_mode": str(meta["w0_environment_mode"]),
+    }
+
+
+def _validity_fields(
+    fan_layout: str,
+    environment_mode: str,
+    environment_role: str,
+) -> tuple[str, str, str, str]:
+    w0_mode, w1_mode = _paired_modes(fan_layout)
+    if environment_role == "updraft_assisted":
+        if environment_mode == w0_mode:
+            return (
+                "ablation_only",
+                w1_mode,
+                "log_ablation_do_not_reject_if_w1_valid",
+                "ablation_only_not_rejection",
+            )
+        return (
+            "first_validity_gate",
+            w1_mode,
+            "not_applicable_w1_validity_gate",
+            "first_validity_gate",
+        )
+    if environment_mode == w0_mode:
+        return (
+            "baseline_gate",
+            w0_mode,
+            "w0_failure_can_reject_branch_local_dry_air_capable_baseline",
+            "baseline_gate",
+        )
     return (
-        len(DENSE_TURNING_FAMILIES)
-        * len(TARGET_LADDER_DEG)
-        * len(DIRECTION_SIGNS)
-        * int(config.target_start_states_per_family_target_direction)
+        "updraft_interaction_check",
+        w0_mode,
+        "w1_interaction_check_not_primary_rejection_gate",
+        "interaction_check",
     )
 
 
-def pilot_turning_trial_count(config: DenseArchivePlanConfig) -> int:
-    return (
-        len(DENSE_TURNING_FAMILIES)
-        * len(TARGET_LADDER_DEG)
-        * len(DIRECTION_SIGNS)
-        * int(config.pilot_start_states_per_family_target_direction)
+def _row_counts_for_environment(
+    config: DenseArchivePlanConfig,
+    environment_mode: str,
+) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
+    group_count = branch_start_group_count()
+    if environment_mode.startswith("W0_"):
+        floor = _distribute_total(config.w0_floor_total_trials_per_branch, group_count)
+        target = _distribute_total(config.w0_target_total_trials_per_branch, group_count)
+        return floor, target, floor, target
+
+    turning_floor = (int(config.w1_floor_start_states_per_family_target_direction),) * branch_group_count()
+    turning_target = (int(config.w1_target_start_states_per_family_target_direction),) * branch_group_count()
+    filler_floor = _distribute_total(
+        w1_floor_baseline_or_filler_trials_per_branch(config),
+        branch_baseline_group_count(),
     )
-
-
-def pilot_baseline_trial_count(config: DenseArchivePlanConfig) -> int:
-    return (
-        len(BASELINE_FAMILIES)
-        * len(DIRECTION_SIGNS)
-        * int(config.pilot_start_states_per_family_target_direction)
+    filler_target = _distribute_total(
+        w1_target_baseline_or_filler_trials_per_branch(config),
+        branch_baseline_group_count(),
     )
-
-
-def minimum_w0_total_trials(config: DenseArchivePlanConfig) -> int:
-    return minimum_w0_turning_trials(config) + int(config.minimum_baseline_w0_trials)
-
-
-def target_w0_total_trials(config: DenseArchivePlanConfig) -> int:
-    return target_w0_turning_trials(config) + int(config.target_baseline_w0_trials)
-
-
-def baseline_minimum_trials_per_direction(config: DenseArchivePlanConfig) -> int:
-    return int(config.minimum_baseline_w0_trials) // (len(BASELINE_FAMILIES) * len(DIRECTION_SIGNS))
-
-
-def baseline_target_trials_per_direction(config: DenseArchivePlanConfig) -> int:
-    return int(config.target_baseline_w0_trials) // (len(BASELINE_FAMILIES) * len(DIRECTION_SIGNS))
+    floor = turning_floor + filler_floor
+    target = turning_target + filler_target
+    return floor, target, floor, target
 
 
 # =============================================================================
-# 3) Manifest and Planning Tables
+# 4) Manifest and Planning Tables
 # =============================================================================
 def build_archive_count_manifest(config: DenseArchivePlanConfig) -> dict[str, object]:
-    """Return the Phase B W0 archive count contract without running trials."""
+    """Return the equal-branch W0/W1 archive count contract without trials."""
 
-    target_total = target_w0_total_trials(config)
-    target_low, target_high = config.target_w0_total_trial_range
-    if not int(target_low) <= target_total <= int(target_high):
-        raise ValueError("target W0 total trials must lie inside the project-plan target range.")
+    floor_filler = w1_floor_baseline_or_filler_trials_per_branch(config)
+    target_filler = w1_target_baseline_or_filler_trials_per_branch(config)
+    if floor_filler < 0 or target_filler < 0:
+        raise ValueError("W1 baseline/filler allocation cannot be negative.")
+
+    branch_contract = {
+        fan_layout: {
+            "layout_branch_id": FAN_BRANCH_METADATA[fan_layout]["layout_branch_id"],
+            "w0_floor_total_trials": int(config.w0_floor_total_trials_per_branch),
+            "w0_target_total_trials": int(config.w0_target_total_trials_per_branch),
+            "w1_floor_total_trials": int(config.w1_floor_total_trials_per_branch),
+            "w1_target_total_trials": int(config.w1_target_total_trials_per_branch),
+            "branch_decision_scope": BRANCH_DECISION_SCOPE,
+        }
+        for fan_layout in FAN_LAYOUTS
+    }
 
     return {
         "run_id": int(config.run_id),
         "campaign": CAMPAIGN,
         "pass_name": PASS_NAME,
         "source_stage0_manifest": SOURCE_STAGE0_MANIFEST,
+        "source_run007_manifest": SOURCE_RUN007_MANIFEST,
         "stage0_gate_status_seen": "pending_runner_check",
+        "run007_preserved": "pending_runner_check",
         "phase_b_task": PHASE_B_TASK,
         "dense_archive_execution_performed": False,
+        "paired_w0_w1_execution_performed": False,
         "full_w0_archive_performed": False,
-        "test_environment_mode": config.test_environment_mode,
+        "full_w1_archive_performed": False,
+        "fan_layouts": list(FAN_LAYOUTS),
+        "layout_branch_ids": list(LAYOUT_BRANCH_IDS),
+        "test_environment_modes": list(config.test_environment_modes),
+        "fan_branch_metadata": FAN_BRANCH_METADATA,
         "target_ladder_deg": list(TARGET_LADDER_DEG),
         "direction_signs": list(DIRECTION_SIGNS),
         "start_classes": list(START_CLASSES),
@@ -323,94 +525,135 @@ def build_archive_count_manifest(config: DenseArchivePlanConfig) -> dict[str, ob
         "dense_turning_families": list(DENSE_TURNING_FAMILIES),
         "baseline_families": list(BASELINE_FAMILIES),
         "environment_role_by_family": dict(ENVIRONMENT_ROLE_BY_FAMILY),
-        "minimum_start_states_per_family_target_direction": int(
-            config.minimum_start_states_per_family_target_direction
+        "branch_count_contract": branch_contract,
+        "w1_floor_start_states_per_family_target_direction": int(
+            config.w1_floor_start_states_per_family_target_direction
         ),
-        "target_start_states_per_family_target_direction": int(
-            config.target_start_states_per_family_target_direction
+        "w1_target_start_states_per_family_target_direction": int(
+            config.w1_target_start_states_per_family_target_direction
         ),
-        "minimum_w0_turning_trials": minimum_w0_turning_trials(config),
-        "target_w0_turning_trials": target_w0_turning_trials(config),
-        "minimum_w0_baseline_trials": int(config.minimum_baseline_w0_trials),
-        "target_w0_baseline_trials": int(config.target_baseline_w0_trials),
-        "minimum_w0_total_trials": minimum_w0_total_trials(config),
-        "target_w0_total_trials": target_total,
-        "target_w0_total_trial_range": list(config.target_w0_total_trial_range),
+        "w1_floor_turning_trials_per_branch": w1_floor_turning_trials_per_branch(config),
+        "w1_target_turning_trials_per_branch": w1_target_turning_trials_per_branch(config),
+        "w1_floor_baseline_or_filler_trials_per_branch": floor_filler,
+        "w1_target_baseline_or_filler_trials_per_branch": target_filler,
+        "w1_floor_total_trials_per_branch": int(config.w1_floor_total_trials_per_branch),
+        "w1_target_total_trials_per_branch": int(config.w1_target_total_trials_per_branch),
+        "w1_floor_total_trials_all_branches": len(FAN_LAYOUTS)
+        * int(config.w1_floor_total_trials_per_branch),
+        "w1_target_total_trials_all_branches": len(FAN_LAYOUTS)
+        * int(config.w1_target_total_trials_per_branch),
+        "w0_floor_total_trials_per_branch": int(config.w0_floor_total_trials_per_branch),
+        "w0_target_total_trials_per_branch": int(config.w0_target_total_trials_per_branch),
+        "w0_floor_total_trials_all_branches": len(FAN_LAYOUTS)
+        * int(config.w0_floor_total_trials_per_branch),
+        "w0_target_total_trials_all_branches": len(FAN_LAYOUTS)
+        * int(config.w0_target_total_trials_per_branch),
+        "combined_floor_total_trials_all_branches": len(FAN_LAYOUTS)
+        * (int(config.w0_floor_total_trials_per_branch) + int(config.w1_floor_total_trials_per_branch)),
+        "combined_target_total_trials_all_branches": len(FAN_LAYOUTS)
+        * (int(config.w0_target_total_trials_per_branch) + int(config.w1_target_total_trials_per_branch)),
         "pilot_start_states_per_family_target_direction": int(
             config.pilot_start_states_per_family_target_direction
         ),
-        "pilot_turning_trial_count": pilot_turning_trial_count(config),
-        "pilot_baseline_trial_count": pilot_baseline_trial_count(config),
-        "pilot_total_candidate_count": pilot_turning_trial_count(config) + pilot_baseline_trial_count(config),
-        "sampling_ranges": SAMPLING_RANGES,
-        "lift_sector_edge_fraction_requirement": LIFT_SECTOR_EDGE_FRACTION_REQUIREMENT,
-        "random_seed": int(config.random_seed),
-        "output_files": {},
-        "protected_stage0_paths_checked": list(PROTECTED_STAGE0_PATHS),
-        "protected_hash_check_status": "pending_runner_check",
+        "pilot_start_state_rows_per_branch": pilot_start_state_rows_per_branch(config),
+        "pilot_start_state_rows_all_branches": pilot_start_state_rows_all_branches(config),
+        "pilot_candidate_rows_all_branches": pilot_candidate_rows_all_branches(config),
+        "paired_sample_key_scope": "branch_local_pairs_only",
+        "no_cross_branch_decision_rule": BRANCH_DECISION_SCOPE,
+        "latency_metadata_only": True,
+        "active_latency_implementation_deferred": True,
         "forbidden_claims": list(FORBIDDEN_CLAIMS),
         "recommended_next_step": RECOMMENDED_NEXT_STEP,
+        "protected_paths_checked": list(PROTECTED_PATHS),
+        "protected_hash_check_status": "pending_runner_check",
+        "output_files": {},
     }
 
 
-def build_target_direction_plan(config: DenseArchivePlanConfig) -> pd.DataFrame:
-    """Return the planned dense W0 family, target, direction, and count table."""
+def build_target_environment_plan(config: DenseArchivePlanConfig) -> pd.DataFrame:
+    """Return branch-separated paired W0/W1 planning rows."""
 
     rows: list[dict[str, object]] = []
-    for family in DENSE_TURNING_FAMILIES:
-        for target in TARGET_LADDER_DEG:
-            for direction in DIRECTION_SIGNS:
+    for fan_layout in FAN_LAYOUTS:
+        meta = FAN_BRANCH_METADATA[fan_layout]
+        for environment_mode in (meta["w0_environment_mode"], meta["w1_environment_mode"]):
+            floor_starts, target_starts, floor_trials, target_trials = _row_counts_for_environment(
+                config,
+                str(environment_mode),
+            )
+            groups = _branch_environment_groups()
+            for index, group in enumerate(groups):
+                environment_role = ENVIRONMENT_ROLE_BY_FAMILY[str(group["family"])]
+                validity, first_gate, w0_policy, _ = _validity_fields(
+                    fan_layout,
+                    str(environment_mode),
+                    environment_role,
+                )
+                env_values = _environment_values(fan_layout, str(environment_mode))
                 rows.append(
                     {
-                        "family": family,
-                        "family_role": "turning",
-                        "environment_role": ENVIRONMENT_ROLE_BY_FAMILY[family],
-                        "test_environment_mode": config.test_environment_mode,
-                        "target_heading_deg": float(target),
-                        "direction_sign": int(direction),
+                        "fan_layout": fan_layout,
+                        "layout_branch_id": meta["layout_branch_id"],
+                        "fan_config_id": env_values["fan_config_id"],
+                        "updraft_model_id": env_values["updraft_model_id"],
+                        "test_environment_mode": environment_mode,
+                        "paired_environment_mode": env_values["paired_environment_mode"],
+                        "family": group["family"],
+                        "family_role": group["family_role"],
+                        "environment_role": environment_role,
+                        "validity_gate_role": validity,
+                        "first_validity_gate_environment": first_gate,
+                        "w0_failure_policy": w0_policy,
+                        "target_heading_deg": group["target_heading_deg"],
+                        "direction_sign": group["direction_sign"],
                         "start_class": "all_start_classes_planned",
-                        "count_basis": "per_turning_family_target_direction_all_start_classes",
-                        "planned_min_start_count": int(
-                            config.minimum_start_states_per_family_target_direction
-                        ),
-                        "planned_target_start_count": int(
-                            config.target_start_states_per_family_target_direction
-                        ),
-                        "planned_min_trial_count": int(
-                            config.minimum_start_states_per_family_target_direction
-                        ),
-                        "planned_target_trial_count": int(
-                            config.target_start_states_per_family_target_direction
-                        ),
-                        "pilot_trial_count": int(config.pilot_start_states_per_family_target_direction),
-                        "included_in_dense_w0": True,
+                        "count_basis": group["count_basis"],
+                        "planned_floor_start_count": floor_starts[index],
+                        "planned_target_start_count": target_starts[index],
+                        "planned_floor_trial_count": floor_trials[index],
+                        "planned_target_trial_count": target_trials[index],
+                        "pilot_start_count": int(config.pilot_start_states_per_family_target_direction),
+                        "included_in_paired_archive": True,
+                        "branch_decision_scope": BRANCH_DECISION_SCOPE,
+                        **NO_CROSS_BRANCH_FLAGS,
+                        "latency_case_planned": LATENCY_CASE_PLANNED,
+                        "latency_acceptance_role": LATENCY_ACCEPTANCE_ROLE,
+                        "latency_model_status": LATENCY_MODEL_STATUS,
                         "no_rollout_performed": True,
                     }
                 )
+    return pd.DataFrame(rows, columns=TARGET_ENVIRONMENT_PLAN_COLUMNS)
 
-    count_basis = (
-        "blank target because glide/recovery baseline rows are not heading-change targets; "
-        "both direction signs are bookkeeping rows that split each baseline family allocation"
-    )
+
+def build_target_direction_plan(config: DenseArchivePlanConfig) -> pd.DataFrame:
+    """Compatibility wrapper for the run-008 target-environment table."""
+
+    return build_target_environment_plan(config)
+
+
+def _branch_environment_groups() -> tuple[dict[str, object], ...]:
+    groups: list[dict[str, object]] = []
+    for family in DENSE_TURNING_FAMILIES:
+        for target in TARGET_LADDER_DEG:
+            for direction in DIRECTION_SIGNS:
+                groups.append(
+                    {
+                        "family": family,
+                        "family_role": "turning",
+                        "target_heading_deg": float(target),
+                        "direction_sign": int(direction),
+                        "count_basis": "per_branch_turning_family_target_direction_all_start_classes",
+                    }
+                )
     for family in BASELINE_FAMILIES:
         for direction in DIRECTION_SIGNS:
-            rows.append(
+            groups.append(
                 {
                     "family": family,
                     "family_role": "baseline",
-                    "environment_role": ENVIRONMENT_ROLE_BY_FAMILY[family],
-                    "test_environment_mode": config.test_environment_mode,
                     "target_heading_deg": "",
                     "direction_sign": int(direction),
-                    "start_class": "all_start_classes_planned",
-                    "count_basis": count_basis,
-                    "planned_min_start_count": baseline_minimum_trials_per_direction(config),
-                    "planned_target_start_count": baseline_target_trials_per_direction(config),
-                    "planned_min_trial_count": baseline_minimum_trials_per_direction(config),
-                    "planned_target_trial_count": baseline_target_trials_per_direction(config),
-                    "pilot_trial_count": int(config.pilot_start_states_per_family_target_direction),
-                    "included_in_dense_w0": True,
-                    "no_rollout_performed": True,
+                    "count_basis": _baseline_count_basis(),
                 }
             )
-    return pd.DataFrame(rows, columns=TARGET_DIRECTION_PLAN_COLUMNS)
+    return tuple(groups)
