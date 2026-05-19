@@ -1,0 +1,3446 @@
+{
+  "created_at": "2026-05-19T18:43:35",
+  "run_id": "s000",
+  "campaign": "09_primitive_library",
+  "pass_name": "stage0_strict_baseline_freeze_gate",
+  "baseline_runs_required": [
+    "002",
+    "003",
+    "004",
+    "005",
+    "006"
+  ],
+  "freeze_gate_status": "passed",
+  "freeze_gate_failures": [],
+  "external_validation_required": true,
+  "external_validation_status": "pending",
+  "external_validation_failures": [],
+  "required_external_validation_tests": [
+    {
+      "path": "03_Control/tests/test_primitive_library_runner.py",
+      "exists": true
+    },
+    {
+      "path": "03_Control/tests/test_primitive_library_selection.py",
+      "exists": true
+    },
+    {
+      "path": "03_Control/tests/test_primitive_library_w3_stress.py",
+      "exists": true
+    },
+    {
+      "path": "03_Control/tests/test_primitive_library_governor.py",
+      "exists": true
+    },
+    {
+      "path": "03_Control/tests/test_primitive_library_outer_loop.py",
+      "exists": true
+    }
+  ],
+  "overall_stage0_gate_status": "pending_external_validation",
+  "source_hash_scope": "only required baseline runs 002 to 006; generated 000_frozen_baseline outputs excluded",
+  "hashed_suffixes": [
+    ".csv",
+    ".json",
+    ".md"
+  ],
+  "baseline_run_inventory": [
+    {
+      "run_id": "002",
+      "exists": true,
+      "hashable_file_count": 188,
+      "path": "03_Control/05_Results/09_primitive_library/002"
+    },
+    {
+      "run_id": "003",
+      "exists": true,
+      "hashable_file_count": 6,
+      "path": "03_Control/05_Results/09_primitive_library/003"
+    },
+    {
+      "run_id": "004",
+      "exists": true,
+      "hashable_file_count": 27,
+      "path": "03_Control/05_Results/09_primitive_library/004"
+    },
+    {
+      "run_id": "005",
+      "exists": true,
+      "hashable_file_count": 7,
+      "path": "03_Control/05_Results/09_primitive_library/005"
+    },
+    {
+      "run_id": "006",
+      "exists": true,
+      "hashable_file_count": 10,
+      "path": "03_Control/05_Results/09_primitive_library/006"
+    }
+  ],
+  "source_hashes_before": [
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9756,
+      "sha256": "2d52ff39c837c92280ca83690bb828dbf78ca3961c8857c276a06ea93927c3a7"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9751,
+      "sha256": "54f2e05da7188078dd23501afa807ff8150c2f845c67bb60f9351abf483699ca"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9766,
+      "sha256": "19349f07d336725eb1e3b543e289495072ff16de2b5ca9ee72d64f92919416ae"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9790,
+      "sha256": "07f699f9525fca85e59e4782bfe2df186786e300a88409c1128a77d928002d6d"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9767,
+      "sha256": "565ded5233f1e1f5fc858f34d470845a2f4770ca3489e7ea506256674cf8ba59"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9750,
+      "sha256": "479167136d028526ef6727636f86c710adc8787e0a7a6a9073034b766ed5b99c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9769,
+      "sha256": "a6ceb0a382b4fc3b88e9807380eff33d933004d22de50264994b37a5635b310e"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9742,
+      "sha256": "05de3f34b454937d35ac214aa0848b19ff1ad3684b12ee0b52104ba8a12df975"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9786,
+      "sha256": "41376999131f430519c06dd1306f07e6cb6fe93c2ebc19904e7a2c11ab39dc77"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9814,
+      "sha256": "d59cf16e5394819d007e81a24cae15b15e4e0ee1cddc6c492eee8069409168e3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14599,
+      "sha256": "2ba666418df97eb0449acc6806155a70a1b14fc9ee95e84639b23f2375b01876"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14624,
+      "sha256": "8e4e743f852aec567a9dd8380bf8432c10b59506d8c33ff4a4d39198e19906e8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14643,
+      "sha256": "dcb70e0ceca9159c21c43fa9cb29a66ad316ae71e3ff86620a5e17d284bf3de3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14622,
+      "sha256": "38248c540ea3478b3c0b4ff20cdbadbf8cec2a1f87503176a267ae35a3979449"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14624,
+      "sha256": "2d3bab509deed8476f25feed003515d9a27c29f2ca6c0c59c12c17e959257979"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14586,
+      "sha256": "238f2843b92c699d21a27f2047d83ba11b79075579a8a26d26ba0b816dd846df"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14603,
+      "sha256": "a8a99cddb0763ef686870912debc9d6022d3c4918d9c7ea01c37a3388b52ccae"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14588,
+      "sha256": "c8a074c7a3f01eddf97b63d11a3d6882545bb9171e9a74d113d7c2003b0d22ff"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14611,
+      "sha256": "51bfc2bf62f378932c8e4b69c8a7518e38606bb0448193ad6aa51326c39f2b2e"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14622,
+      "sha256": "7413809bda36a2eb65c1631062012cd8a964c92b5a2ae4b4fffe1308e75d7319"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9776,
+      "sha256": "ddb4b624319e784a459836fe6072d1012321f0531f9a6cb48899af4b9432427b"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9765,
+      "sha256": "fe0757c23d1036b8152871151cf9ab8ea551fb96532847d88ba0926e05373fbb"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9767,
+      "sha256": "82d64ba56246b67dc4e58619fd28b2b1bec3d627a718c5d340388bf63a2792a6"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9788,
+      "sha256": "0cfc4754682a158909eee73687279b59f571e6caf16cff89b90ef7da10cd45c1"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9765,
+      "sha256": "33be0e91d4141f6bbffbd94a352dfd62b2bd07d4e0419cc573d4a6a62fbb9297"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9762,
+      "sha256": "5d1ed95cdf65273c7eab383ffbea8db072e3368a7d1cad9af5682a5788b11f5a"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9783,
+      "sha256": "466e0a74e83069098716a26f648f3a0d59f82f7d2552671f6d8ae8617d8c52bc"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9776,
+      "sha256": "0c4da4b9380e9b832c701a2da3f4787cffae6b15312c9dcf98dc7a51cafb39cf"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9790,
+      "sha256": "4ab2b217da5f11c0e5a7ec6bc24678e2373fe7c958b760647168e8ced4a64d45"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9793,
+      "sha256": "df28531769b2c9a7f523d76942dc59f57fc4aca9a226e081438a4f57b6850a72"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14561,
+      "sha256": "010f1f3a7db43fe346a53488fb06afb4ee780dcf4f354802ccbb00918c3d1f73"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14585,
+      "sha256": "8dacf3eef97ec6a534b1a882006cdc57806130aa520b13d4c016f1df98d6f04c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14621,
+      "sha256": "c3cbac567ec9cabf2687de29e19b158ffe56dfa46d727c5ab685ddd7c973f533"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14653,
+      "sha256": "5e7a6487018ae2da8bca6aa0214920bce0dcdc31213faf4f4f2006ce5a7ef10e"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14602,
+      "sha256": "267c2cd18eec088471889527a0ffd0037db185839343c7c1f8b065f8eb844cb6"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14541,
+      "sha256": "eb0aef31ae5d2e89dd408722249ee1c2dfb43c075f669fac16ab954989aef5a1"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14539,
+      "sha256": "3dee07c9cac6769bb2c2705fc982608b9a3e35cccdf677768246aa9cd61fed8a"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14584,
+      "sha256": "cf9a0493702cdd937d9736913325e02b6d62f769419ec8759d079d4bd7be1563"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14629,
+      "sha256": "3cf94e05a2e6bcf9e47df9d0d8573470f005195e5d9c9e062b8d0a04520b31a3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14623,
+      "sha256": "5ba221da2568d9d955cfb4289d9ee1fcd99fda3048a7e58a2d80c37dbf546586"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6892,
+      "sha256": "be1effe3dff57e8ed0f097c54b3202f93a41cad2a2ec7cd92bf872a6abfd136d"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6890,
+      "sha256": "e4b81b16b3a16b6ea443e3368e785a114f3f882b02bf62298e95713ba90203d1"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 7174,
+      "sha256": "f788b5a2dcf502026572655ef537755b26523cb7fa8bac2ff5864259e966f612"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6978,
+      "sha256": "a01acfa6a6ad5364f48647c1f4f15a904c45cf445e64e542bc105558bd4a9c5b"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6973,
+      "sha256": "0479a49cb8fe83e3be0c67d443734ae65dfbcb5eacc159e9485dd22be42335b0"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6886,
+      "sha256": "95a7fc314053822f5647e0ad972c732a765813f5f3b7c60da3ba505c50dad4cd"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6897,
+      "sha256": "0fb793972642b2eccfb1ac01c87e9a433851ad975ee2f2819272202d35e48454"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 7002,
+      "sha256": "b94598b9874cb4bcffc8fce9e5d885672160ef1359f2d5b6481e1d7db963d5af"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6913,
+      "sha256": "13d81e379d81d692654cd470b0b0717aea5ebce08cc7044d2cd6632ef84e6635"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 7049,
+      "sha256": "cb4edc8ddd512f4e535b3d936baa020d7b71e4f1a27540cc50ba412b715ede91"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9296,
+      "sha256": "bb87094451fb8db23d46c0a03fe32c16acf9f40b84d9c244a6d6b422310ca427"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9291,
+      "sha256": "e7d55e4f0f828498422e64e5ed3d44e594b2f23ae300bbbea2829533479a3dee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9316,
+      "sha256": "63fa99abae8019c90ddf82459e4cbbc44804c1df4ab744b189bcb62455ae9488"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9338,
+      "sha256": "e06ac16a6772f2b954d35bef11163798cca654dd300a779e3675f3673a985c31"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9178,
+      "sha256": "e28ef7e4b8b524a4bbf7d087d750f755dcc4303c6b82668b5567615539bb4fe4"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9277,
+      "sha256": "9e76add4a7366c825bc0e9168fcc04f1bf92311f768b4f798762819b2b3b25f3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9282,
+      "sha256": "fb8fddce2ee9cfb1e1d67ff61246a23b09fa74a8ac1774a5d3b22d5f0ec3c84b"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9262,
+      "sha256": "145e2b40810ce2b4670db7227a5bbf8cddab6a725a5bed51e2255bc414a1bb17"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9333,
+      "sha256": "ede89017737da968cb80db2a0b25f2bc0141e5653452baf1729943a66d4aafc9"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9282,
+      "sha256": "9856a1c2735c5a0104685cfa8b59e71ea4c5c4def31c9807f0a915570e8128ea"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8762,
+      "sha256": "888f36e0a4af517d4d876fea0028fb03ce5b3f1890616821be8fc74f7d41ed34"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8765,
+      "sha256": "2e3c3d3d30658dc17be7720d403d80ca56bac1a876bbff88275ae24641e8fe56"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9062,
+      "sha256": "a1558dc092db3ee8bc041b1f8056bc18a43a40a014f4b9dbaa31d1cee272aa35"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8865,
+      "sha256": "e2c87cb48acac74cc577122c4d30e8953e1c31a3e15961adb52d5b4df301917a"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8876,
+      "sha256": "b84339040984e36675a67ae801ad2a5d68c31cdd4740ab9fa890ca34dd041a77"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8753,
+      "sha256": "bf46ca550614b308bbf9e9ee8010d822b86606171139ac2e655d48e4c2225ab7"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8802,
+      "sha256": "d106d86e33389704d0b632d2fabb5c1cb6e56703f3b767b77533a7f07da097fd"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8908,
+      "sha256": "45e0a7b071d338ff4f7ba860652af3ecd28eb4e7632205e85b8acf0334085843"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8827,
+      "sha256": "e00f10921ce0bdc6c21bd762190f7e6750a7b929ec9d3441bdbb7a3640900130"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8989,
+      "sha256": "97d83c4d2efb6a8861a982efd9ccd9aaa453e4caaf19151e70db47c3cf388655"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9752,
+      "sha256": "4df40fa44779bd1f8d590c4c46bf9f797e50ca4fdd58c1f890b19bcd734313b1"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9762,
+      "sha256": "a1acb0f62c67f997aeffa7ccd0a5e1d2ff6072ff5afbee1fe9b5ee49eba11971"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9804,
+      "sha256": "39439ea330040ff65f619760f6607960ee831990c9c7dba6f82de1b3eb523927"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9778,
+      "sha256": "51c7e2033ffe1c4f32bde28d971ed135377f55db5a454f2acd0ea10fb04b5082"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9824,
+      "sha256": "7cead08e4777f66a6af0462f0e6199f83bc43c467e06f090b2e32f1bc30ca1fa"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9743,
+      "sha256": "897c7e5f516acbbde0df1b6c0bc69d8a328de2de5a46731f8b3900a37e448a1b"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9786,
+      "sha256": "4dadbf777417e083dd620ac618fd6b7ae1b80ee88c6b6d17732566452b9c818f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9765,
+      "sha256": "f9f308ee2bd57aac29aaab822606fdbe544d2a71072921b73907262196132d81"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9773,
+      "sha256": "5d5d682bc603f01f43ab85b265f74b3b4747516bc813e8ad7edb65725eab3484"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9804,
+      "sha256": "a9882dbf912e3cb01c02b8c38ec4fa93e3edd5a25886b343db138d3f98e7680e"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14606,
+      "sha256": "c741c616d730e3aefc4ddd419a3940f1ba44b4fd78f9f2f093ba366fb63084ec"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14609,
+      "sha256": "e4840d0ed52f8d10a073191c74bbb7aca9ed855c3aaa7f07ecbb972f381ba199"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14672,
+      "sha256": "50c3865cc9502a0a54015efa98005a61df29961e7c145629aef901e900fb7c07"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14635,
+      "sha256": "8e59d27276663c4d4174015d1123c91d080e9b5e0cfc8f5fe69b276e1ca1d11e"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14633,
+      "sha256": "139fa63abdc2f99f4256c29b42e3592cec910dd5276a05a6cef04462ac619c67"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14592,
+      "sha256": "08421b18f87010bc470ce165ab00fb56972ffc939394c4c80b1ffb8b3304313f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14617,
+      "sha256": "7626b1921b1d54068e276283d10b2ad4b8a31faad30471cfa060c8cd99e16deb"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14617,
+      "sha256": "cd7b11ceb56d0d06a6f3688c42e01a778d2e422e6b5ac4483c12f8a1ac82451f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14622,
+      "sha256": "e6e09a21f4392995572f0fd32b92ebaf40033affa55685424fcee62669038b12"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14624,
+      "sha256": "9b8bb1bd5cf42f0ba0a1e53bce8c4b73b6e9df0158a844fa7a0414e169eed5ce"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/manifests/final_plan_lock_s002.json",
+      "suffix": ".json",
+      "size_bytes": 2672,
+      "sha256": "05b6befb975e7f0c476f9b19b1c0bc41c0a4331a14099ed13f1981a83442da96"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/manifests/primitive_library_manifest_s002.json",
+      "suffix": ".json",
+      "size_bytes": 43170,
+      "sha256": "f8a948c32360acf64bdd19f803d42d393747f76f1c41eec3d8396b0dc51be9ea"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/manifests/repo_housekeeping_manifest_s002.json",
+      "suffix": ".json",
+      "size_bytes": 89493,
+      "sha256": "5a9f0ebe6195e179c474e6cec902dc970eb4a08bcb94e984ed3b25f76a49d9f2"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/metrics/primitive_coverage_region_summary_s002.csv",
+      "suffix": ".csv",
+      "size_bytes": 10950,
+      "sha256": "0cd22948bee7f85255578e4476cfc1add9eeb80af68079fa99aec496458c3d3e"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/metrics/primitive_envelope_group_summary_s002.csv",
+      "suffix": ".csv",
+      "size_bytes": 25366,
+      "sha256": "def272c223b63b39b4e9d81cfdc550a81a2ddd864a764cca03b01ea3fd192e58"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/metrics/primitive_evidence_library_s002.csv",
+      "suffix": ".csv",
+      "size_bytes": 105538,
+      "sha256": "6c11315cbe2af3334080061ab50dcf9691319f0bee461af49ae94219405a8aab"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/metrics/primitive_library_summary_s002.csv",
+      "suffix": ".csv",
+      "size_bytes": 838,
+      "sha256": "f6b011e7ae59fbebe8a6f1f4db11b1b6177325ad4e3b16defbe8bb746bf9771e"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/reports/primitive_library_semantics_fix_report_s002.md",
+      "suffix": ".md",
+      "size_bytes": 2206,
+      "sha256": "e81c9bc59663188f648c4a2ad9cf424fbb1ae6a8f6d18c803f3803ce81bccf38"
+    },
+    {
+      "source_run_id": "003",
+      "path": "03_Control/05_Results/09_primitive_library/003/manifests/primitive_library_shortlist_manifest_s003.json",
+      "suffix": ".json",
+      "size_bytes": 3818,
+      "sha256": "3f6cef81d4572b9b1f906deed9e1e077b7a4e9683f8661ce7f2fda9afb74a1fa"
+    },
+    {
+      "source_run_id": "003",
+      "path": "03_Control/05_Results/09_primitive_library/003/metrics/candidate_shortlist_s003.csv",
+      "suffix": ".csv",
+      "size_bytes": 113415,
+      "sha256": "d21376dfd31b481fb70d24acdd1ab65a269d1ce5ac78fc791e1b2a199eeaa3f5"
+    },
+    {
+      "source_run_id": "003",
+      "path": "03_Control/05_Results/09_primitive_library/003/metrics/coverage_decision_summary_s003.csv",
+      "suffix": ".csv",
+      "size_bytes": 12583,
+      "sha256": "f07611ff8d42e82a82a70580d53cbeabd3dd3093fb79146b716e6f4c68ca4b87"
+    },
+    {
+      "source_run_id": "003",
+      "path": "03_Control/05_Results/09_primitive_library/003/metrics/higher_target_growth_request_s003.csv",
+      "suffix": ".csv",
+      "size_bytes": 3523,
+      "sha256": "9785079c39204a1b74ab318b7dae513a88baa2e0bb4147784a1fe7ddfa92f297"
+    },
+    {
+      "source_run_id": "003",
+      "path": "03_Control/05_Results/09_primitive_library/003/metrics/w3_stress_plan_s003.csv",
+      "suffix": ".csv",
+      "size_bytes": 2798,
+      "sha256": "368b18d84f2df7b1f93208ff6ca029fe65432e2827e3e930dc90ce45023ad37b"
+    },
+    {
+      "source_run_id": "003",
+      "path": "03_Control/05_Results/09_primitive_library/003/reports/primitive_library_shortlist_report_s003.md",
+      "suffix": ".md",
+      "size_bytes": 2485,
+      "sha256": "55d48b61508bb3e0b3e9a247acfb8900023df88afb92e955311d31cbcfe205e5"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed000_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5519,
+      "sha256": "b5cc41560613972a04850f0bf23920fe1de84d570e7ce9d3726c72690a17b4a9"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed000_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9717,
+      "sha256": "2435cfb229cb9e2b6cf070e626921e8567c7aa95641a2a449726aa14447472c6"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed010_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5519,
+      "sha256": "b5cc41560613972a04850f0bf23920fe1de84d570e7ce9d3726c72690a17b4a9"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed010_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9835,
+      "sha256": "e425e96c1b357a91cc801ff7ee465b61324fd35af5ed35f4603751b2448b390d"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed024_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5409,
+      "sha256": "5271fa10f88887d94cd5d8c9d38ffa56f5976c9b093a3cd9d3726993d6977773"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed024_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9857,
+      "sha256": "173f50694f9224feaa04b5fbebf93c9128e5d6fe547b92a1fa30d83f01119372"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_seed000_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1891,
+      "sha256": "cf8ba3867eeb2ba39aca43cc337b11bfa665e3df0cb7b3d1a92189a31c0a74ba"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_seed000_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 7147,
+      "sha256": "49eb5805f4bf718a6274a20e19039aac739342f61a19b3bc00f395302f91b20e"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_seed023_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1891,
+      "sha256": "cf8ba3867eeb2ba39aca43cc337b11bfa665e3df0cb7b3d1a92189a31c0a74ba"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_seed023_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 7096,
+      "sha256": "ac31de51b02d398f601984285e246b0e0f9ee358d2b34a02b77219e6ac5b74d2"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_seed000_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1891,
+      "sha256": "cf8ba3867eeb2ba39aca43cc337b11bfa665e3df0cb7b3d1a92189a31c0a74ba"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_seed000_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6953,
+      "sha256": "6bb7565344517d360198f1be13f46d2afd8b300c1a466e4c6bc3c4a81cd6557d"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_seed002_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1891,
+      "sha256": "cf8ba3867eeb2ba39aca43cc337b11bfa665e3df0cb7b3d1a92189a31c0a74ba"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_seed002_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 7025,
+      "sha256": "392daa8ee3068f62560cf6b3a399c3b36323550597017f79ef8b5efd96dffa88"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_seed000_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 4989,
+      "sha256": "0bd37720f607713b3db9d40242c21f1f3992cc4b3bfa0f6f77a07f457e8cca05"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_seed000_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9284,
+      "sha256": "e02c9a1d3f731d90211c7911baab278de85fe0e765654e55dd9a89c57675c1d3"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_seed019_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 4879,
+      "sha256": "b2694da39dd55d152bc770d45a82a6f639ddfb1109fda2e083abeccca353977c"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_seed019_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9293,
+      "sha256": "6ef9147a4e9a01732f6552c9635e9ab4603f0939a4598f2532032c1d37e66c3e"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_seed000_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3312,
+      "sha256": "67c63ee7f2134fa0764c4a45e2f69434d7c52c6b8fd92e6181d8f82b1c2c8c21"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_seed000_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8830,
+      "sha256": "9043d10fc31339857fbee45bbe3660a95012b728ea0cc689f7cf0ad66d6c5113"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_seed009_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3312,
+      "sha256": "67c63ee7f2134fa0764c4a45e2f69434d7c52c6b8fd92e6181d8f82b1c2c8c21"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_seed009_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9042,
+      "sha256": "fe20ae910f972d36a6c8ad810442baade76765e74b7c84ea3053f42e8f9d4447"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/manifests/w3_stress_manifest_s004.json",
+      "suffix": ".json",
+      "size_bytes": 8942,
+      "sha256": "c3f93dd75170f970859c059a18453c58bfe7902d00209576188044e0a50ba679"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/metrics/w3_stress_candidate_summary_s004.csv",
+      "suffix": ".csv",
+      "size_bytes": 2836,
+      "sha256": "bc082114a4429b3d0140cf8786d36adb2b178d3ae4e1e7ff5b1f8c0fffc0d838"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/metrics/w3_stress_coverage_update_s004.csv",
+      "suffix": ".csv",
+      "size_bytes": 1152,
+      "sha256": "a85842c2c72e9b05be39925814b536d32b44e537cf0e436074063c99d01214c8"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/metrics/w3_stress_trial_summary_s004.csv",
+      "suffix": ".csv",
+      "size_bytes": 122516,
+      "sha256": "2ffa45835242419348be22144e0165e1d2e4bf62ca4cd16b06d6b70db561dd12"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/reports/w3_stress_report_s004.md",
+      "suffix": ".md",
+      "size_bytes": 2558,
+      "sha256": "718d635967bfce9874f2da4c8daca0a5415b7dea23651811182816215fe363c3"
+    },
+    {
+      "source_run_id": "005",
+      "path": "03_Control/05_Results/09_primitive_library/005/manifests/governor_seed_manifest_s005.json",
+      "suffix": ".json",
+      "size_bytes": 3103,
+      "sha256": "b17e32df69d6cea3811000c1a5b5d78246d5d33896d6a46e15ae61f7e0f631c6"
+    },
+    {
+      "source_run_id": "005",
+      "path": "03_Control/05_Results/09_primitive_library/005/metrics/governor_accept_reject_decisions_s005.csv",
+      "suffix": ".csv",
+      "size_bytes": 13215,
+      "sha256": "d7997d8ad35cdf67f05a00d4ea01c6743a1c84c17293cc9ebcf986c8d8ba28e0"
+    },
+    {
+      "source_run_id": "005",
+      "path": "03_Control/05_Results/09_primitive_library/005/metrics/governor_coverage_update_s005.csv",
+      "suffix": ".csv",
+      "size_bytes": 1355,
+      "sha256": "596930c80413c52c25b104a371172119277cc14213756a633b64e0aac73467cc"
+    },
+    {
+      "source_run_id": "005",
+      "path": "03_Control/05_Results/09_primitive_library/005/metrics/governor_decision_cases_s005.csv",
+      "suffix": ".csv",
+      "size_bytes": 14851,
+      "sha256": "bc37cb153ef94f55a5d22f51db86f0c0301d183de8fd123677e3a056361d5dd6"
+    },
+    {
+      "source_run_id": "005",
+      "path": "03_Control/05_Results/09_primitive_library/005/metrics/governor_rejection_summary_s005.csv",
+      "suffix": ".csv",
+      "size_bytes": 380,
+      "sha256": "79362ad249c9caf4249e6e6596b38988dc5f261e1cfa4b3cfec8784e43857f73"
+    },
+    {
+      "source_run_id": "005",
+      "path": "03_Control/05_Results/09_primitive_library/005/metrics/governor_seed_candidate_table_s005.csv",
+      "suffix": ".csv",
+      "size_bytes": 2500,
+      "sha256": "6c95b0e065b03904a3498e61b2e97b69624676305eb6eb2b95cba202b0279018"
+    },
+    {
+      "source_run_id": "005",
+      "path": "03_Control/05_Results/09_primitive_library/005/reports/governor_seed_report_s005.md",
+      "suffix": ".md",
+      "size_bytes": 3032,
+      "sha256": "f59b246ba49008f5066984845988bc557cf65d16ca89f48ea12ed83df7fae574"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/logs/outer_loop_selected_step_logs_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 454,
+      "sha256": "4631ef8e80e7650332949f8a14f8013117a70a471641697a6ebe65739b647df8"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/manifests/outer_loop_mission_manifest_s006.json",
+      "suffix": ".json",
+      "size_bytes": 3375,
+      "sha256": "75fb8dcd328d8da13cedaede5c2b9851458e2f8f5d40c6c06f20a53b6946fefc"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_candidate_decision_log_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 19387,
+      "sha256": "d1dae9332dc1bf1ef8a1d6ca04873b8c94a929f1249b059a4f64bf3d08e68d16"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_coverage_gap_summary_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 1150,
+      "sha256": "49609bfb5312009d9f5d20e82ef63789428e4f7b00b7db0da40d93bfe8d641f6"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_energy_trace_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 1140,
+      "sha256": "3ba5cca69457f78b42173b0beaea20d2a45abee95c0dd58512f07ee14e0c2039"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_governor_rejection_log_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 16680,
+      "sha256": "49beb97ba5afbd781e73a39375e2e92e23a295561ecda322cf10d5f813b0a175"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_lift_dwell_summary_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 480,
+      "sha256": "0c2a6354cbf9f144caaf63efa0e2bdb81627d9104c29a05a99b94237ae51fa3d"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_mission_summary_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 1795,
+      "sha256": "cf89532775d2255e475cf152e73a956dbfeb1a217f80834af44efe7770a152f3"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_step_log_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 1718,
+      "sha256": "e9256a896f10c1040ee5db94ad37d9973d58325745496a518ae6b86bee67d322"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/reports/outer_loop_mission_report_s006.md",
+      "suffix": ".md",
+      "size_bytes": 3480,
+      "sha256": "b8b6a1cae37a300faae6f3ec700cbc261aaca19d502702556cf0ad741af5cf58"
+    }
+  ],
+  "source_hashes_after": [
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9756,
+      "sha256": "2d52ff39c837c92280ca83690bb828dbf78ca3961c8857c276a06ea93927c3a7"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9751,
+      "sha256": "54f2e05da7188078dd23501afa807ff8150c2f845c67bb60f9351abf483699ca"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9766,
+      "sha256": "19349f07d336725eb1e3b543e289495072ff16de2b5ca9ee72d64f92919416ae"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9790,
+      "sha256": "07f699f9525fca85e59e4782bfe2df186786e300a88409c1128a77d928002d6d"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9767,
+      "sha256": "565ded5233f1e1f5fc858f34d470845a2f4770ca3489e7ea506256674cf8ba59"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9750,
+      "sha256": "479167136d028526ef6727636f86c710adc8787e0a7a6a9073034b766ed5b99c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9769,
+      "sha256": "a6ceb0a382b4fc3b88e9807380eff33d933004d22de50264994b37a5635b310e"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9742,
+      "sha256": "05de3f34b454937d35ac214aa0848b19ff1ad3684b12ee0b52104ba8a12df975"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9786,
+      "sha256": "41376999131f430519c06dd1306f07e6cb6fe93c2ebc19904e7a2c11ab39dc77"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "9ac5d04771fcbd6241a92c0be1b05e6b8b2671fd3c540831d8bfd2c091170dbe"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_015_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9814,
+      "sha256": "d59cf16e5394819d007e81a24cae15b15e4e0ee1cddc6c492eee8069409168e3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14599,
+      "sha256": "2ba666418df97eb0449acc6806155a70a1b14fc9ee95e84639b23f2375b01876"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14624,
+      "sha256": "8e4e743f852aec567a9dd8380bf8432c10b59506d8c33ff4a4d39198e19906e8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14643,
+      "sha256": "dcb70e0ceca9159c21c43fa9cb29a66ad316ae71e3ff86620a5e17d284bf3de3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14622,
+      "sha256": "38248c540ea3478b3c0b4ff20cdbadbf8cec2a1f87503176a267ae35a3979449"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14624,
+      "sha256": "2d3bab509deed8476f25feed003515d9a27c29f2ca6c0c59c12c17e959257979"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14586,
+      "sha256": "238f2843b92c699d21a27f2047d83ba11b79075579a8a26d26ba0b816dd846df"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14603,
+      "sha256": "a8a99cddb0763ef686870912debc9d6022d3c4918d9c7ea01c37a3388b52ccae"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14588,
+      "sha256": "c8a074c7a3f01eddf97b63d11a3d6882545bb9171e9a74d113d7c2003b0d22ff"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14611,
+      "sha256": "51bfc2bf62f378932c8e4b69c8a7518e38606bb0448193ad6aa51326c39f2b2e"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8853,
+      "sha256": "74dd701d85d492715bd2b18779827b1ab8ddc548aa4995f66c08dfbba50cabad"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/bank_yaw_energy_retaining_030_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14622,
+      "sha256": "7413809bda36a2eb65c1631062012cd8a964c92b5a2ae4b4fffe1308e75d7319"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9776,
+      "sha256": "ddb4b624319e784a459836fe6072d1012321f0531f9a6cb48899af4b9432427b"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9765,
+      "sha256": "fe0757c23d1036b8152871151cf9ab8ea551fb96532847d88ba0926e05373fbb"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9767,
+      "sha256": "82d64ba56246b67dc4e58619fd28b2b1bec3d627a718c5d340388bf63a2792a6"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9788,
+      "sha256": "0cfc4754682a158909eee73687279b59f571e6caf16cff89b90ef7da10cd45c1"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9765,
+      "sha256": "33be0e91d4141f6bbffbd94a352dfd62b2bd07d4e0419cc573d4a6a62fbb9297"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9762,
+      "sha256": "5d1ed95cdf65273c7eab383ffbea8db072e3368a7d1cad9af5682a5788b11f5a"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9783,
+      "sha256": "466e0a74e83069098716a26f648f3a0d59f82f7d2552671f6d8ae8617d8c52bc"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9776,
+      "sha256": "0c4da4b9380e9b832c701a2da3f4787cffae6b15312c9dcf98dc7a51cafb39cf"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9790,
+      "sha256": "4ab2b217da5f11c0e5a7ec6bc24678e2373fe7c958b760647168e8ced4a64d45"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5306,
+      "sha256": "499180f772bbdef15c453a6c88277123e2bf3f30d2c9b86e9881b45bc7d3f64c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_015_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9793,
+      "sha256": "df28531769b2c9a7f523d76942dc59f57fc4aca9a226e081438a4f57b6850a72"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14561,
+      "sha256": "010f1f3a7db43fe346a53488fb06afb4ee780dcf4f354802ccbb00918c3d1f73"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14585,
+      "sha256": "8dacf3eef97ec6a534b1a882006cdc57806130aa520b13d4c016f1df98d6f04c"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14621,
+      "sha256": "c3cbac567ec9cabf2687de29e19b158ffe56dfa46d727c5ab685ddd7c973f533"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14653,
+      "sha256": "5e7a6487018ae2da8bca6aa0214920bce0dcdc31213faf4f4f2006ce5a7ef10e"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14602,
+      "sha256": "267c2cd18eec088471889527a0ffd0037db185839343c7c1f8b065f8eb844cb6"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14541,
+      "sha256": "eb0aef31ae5d2e89dd408722249ee1c2dfb43c075f669fac16ab954989aef5a1"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14539,
+      "sha256": "3dee07c9cac6769bb2c2705fc982608b9a3e35cccdf677768246aa9cd61fed8a"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14584,
+      "sha256": "cf9a0493702cdd937d9736913325e02b6d62f769419ec8759d079d4bd7be1563"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14629,
+      "sha256": "3cf94e05a2e6bcf9e47df9d0d8573470f005195e5d9c9e062b8d0a04520b31a3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 7830,
+      "sha256": "a7817b6a4d1734e863c722536a32a9f2394b657cfe15470e8a9ee5ce91fd9a10"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/canyon_steep_bank_030_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14623,
+      "sha256": "5ba221da2568d9d955cfb4289d9ee1fcd99fda3048a7e58a2d80c37dbf546586"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6892,
+      "sha256": "be1effe3dff57e8ed0f097c54b3202f93a41cad2a2ec7cd92bf872a6abfd136d"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6890,
+      "sha256": "e4b81b16b3a16b6ea443e3368e785a114f3f882b02bf62298e95713ba90203d1"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 7174,
+      "sha256": "f788b5a2dcf502026572655ef537755b26523cb7fa8bac2ff5864259e966f612"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6978,
+      "sha256": "a01acfa6a6ad5364f48647c1f4f15a904c45cf445e64e542bc105558bd4a9c5b"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6973,
+      "sha256": "0479a49cb8fe83e3be0c67d443734ae65dfbcb5eacc159e9485dd22be42335b0"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6886,
+      "sha256": "95a7fc314053822f5647e0ad972c732a765813f5f3b7c60da3ba505c50dad4cd"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6897,
+      "sha256": "0fb793972642b2eccfb1ac01c87e9a433851ad975ee2f2819272202d35e48454"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 7002,
+      "sha256": "b94598b9874cb4bcffc8fce9e5d885672160ef1359f2d5b6481e1d7db963d5af"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6913,
+      "sha256": "13d81e379d81d692654cd470b0b0717aea5ebce08cc7044d2cd6632ef84e6635"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1918,
+      "sha256": "b948e40acefc707bd79658f170fc668cbba13586461dc117bc9fcf51bf6928ee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/glide_none_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 7049,
+      "sha256": "cb4edc8ddd512f4e535b3d936baa020d7b71e4f1a27540cc50ba412b715ede91"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9296,
+      "sha256": "bb87094451fb8db23d46c0a03fe32c16acf9f40b84d9c244a6d6b422310ca427"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9291,
+      "sha256": "e7d55e4f0f828498422e64e5ed3d44e594b2f23ae300bbbea2829533479a3dee"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9316,
+      "sha256": "63fa99abae8019c90ddf82459e4cbbc44804c1df4ab744b189bcb62455ae9488"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9338,
+      "sha256": "e06ac16a6772f2b954d35bef11163798cca654dd300a779e3675f3673a985c31"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9178,
+      "sha256": "e28ef7e4b8b524a4bbf7d087d750f755dcc4303c6b82668b5567615539bb4fe4"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9277,
+      "sha256": "9e76add4a7366c825bc0e9168fcc04f1bf92311f768b4f798762819b2b3b25f3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9282,
+      "sha256": "fb8fddce2ee9cfb1e1d67ff61246a23b09fa74a8ac1774a5d3b22d5f0ec3c84b"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9262,
+      "sha256": "145e2b40810ce2b4670db7227a5bbf8cddab6a725a5bed51e2255bc414a1bb17"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9333,
+      "sha256": "ede89017737da968cb80db2a0b25f2bc0141e5653452baf1729943a66d4aafc9"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5021,
+      "sha256": "43f7f7a6c3037f6e9b8aa53d543e60e88e05a893dc5d04bb13b62e4386e27aa3"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/mild_bank_none_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9282,
+      "sha256": "9856a1c2735c5a0104685cfa8b59e71ea4c5c4def31c9807f0a915570e8128ea"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8762,
+      "sha256": "888f36e0a4af517d4d876fea0028fb03ce5b3f1890616821be8fc74f7d41ed34"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8765,
+      "sha256": "2e3c3d3d30658dc17be7720d403d80ca56bac1a876bbff88275ae24641e8fe56"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9062,
+      "sha256": "a1558dc092db3ee8bc041b1f8056bc18a43a40a014f4b9dbaa31d1cee272aa35"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8865,
+      "sha256": "e2c87cb48acac74cc577122c4d30e8953e1c31a3e15961adb52d5b4df301917a"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8876,
+      "sha256": "b84339040984e36675a67ae801ad2a5d68c31cdd4740ab9fa890ca34dd041a77"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8753,
+      "sha256": "bf46ca550614b308bbf9e9ee8010d822b86606171139ac2e655d48e4c2225ab7"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8802,
+      "sha256": "d106d86e33389704d0b632d2fabb5c1cb6e56703f3b767b77533a7f07da097fd"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8908,
+      "sha256": "45e0a7b071d338ff4f7ba860652af3ecd28eb4e7632205e85b8acf0334085843"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8827,
+      "sha256": "e00f10921ce0bdc6c21bd762190f7e6750a7b929ec9d3441bdbb7a3640900130"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3346,
+      "sha256": "ee62c0ee4b80a5214b62c78322c321220b1b294bd24d7403e1f93dcb304e3d69"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/recovery_none_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8989,
+      "sha256": "97d83c4d2efb6a8861a982efd9ccd9aaa453e4caaf19151e70db47c3cf388655"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9752,
+      "sha256": "4df40fa44779bd1f8d590c4c46bf9f797e50ca4fdd58c1f890b19bcd734313b1"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9762,
+      "sha256": "a1acb0f62c67f997aeffa7ccd0a5e1d2ff6072ff5afbee1fe9b5ee49eba11971"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9804,
+      "sha256": "39439ea330040ff65f619760f6607960ee831990c9c7dba6f82de1b3eb523927"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9778,
+      "sha256": "51c7e2033ffe1c4f32bde28d971ed135377f55db5a454f2acd0ea10fb04b5082"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9824,
+      "sha256": "7cead08e4777f66a6af0462f0e6199f83bc43c467e06f090b2e32f1bc30ca1fa"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9743,
+      "sha256": "897c7e5f516acbbde0df1b6c0bc69d8a328de2de5a46731f8b3900a37e448a1b"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9786,
+      "sha256": "4dadbf777417e083dd620ac618fd6b7ae1b80ee88c6b6d17732566452b9c818f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9765,
+      "sha256": "f9f308ee2bd57aac29aaab822606fdbe544d2a71072921b73907262196132d81"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9773,
+      "sha256": "5d5d682bc603f01f43ab85b265f74b3b4747516bc813e8ad7edb65725eab3484"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5553,
+      "sha256": "8144ca3b7f3df008396143d80c3114851e4105d727bc802a84b4b70667bed21f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_015_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9804,
+      "sha256": "a9882dbf912e3cb01c02b8c38ec4fa93e3edd5a25886b343db138d3f98e7680e"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14606,
+      "sha256": "c741c616d730e3aefc4ddd419a3940f1ba44b4fd78f9f2f093ba366fb63084ec"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14609,
+      "sha256": "e4840d0ed52f8d10a073191c74bbb7aca9ed855c3aaa7f07ecbb972f381ba199"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14672,
+      "sha256": "50c3865cc9502a0a54015efa98005a61df29961e7c145629aef901e900fb7c07"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14635,
+      "sha256": "8e59d27276663c4d4174015d1123c91d080e9b5e0cfc8f5fe69b276e1ca1d11e"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_favourable_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14633,
+      "sha256": "139fa63abdc2f99f4256c29b42e3592cec910dd5276a05a6cef04462ac619c67"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_none_W0_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_none_W0_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14592,
+      "sha256": "08421b18f87010bc470ce165ab00fb56972ffc939394c4c80b1ffb8b3304313f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U1_single_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U1_single_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14617,
+      "sha256": "7626b1921b1d54068e276283d10b2ad4b8a31faad30471cfa060c8cd99e16deb"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U1_single_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U1_single_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14617,
+      "sha256": "cd7b11ceb56d0d06a6f3688c42e01a778d2e422e6b5ac4483c12f8a1ac82451f"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U4_four_fan_W1_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U4_four_fan_W1_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14622,
+      "sha256": "e6e09a21f4392995572f0fd32b92ebaf40033affa55685424fcee62669038b12"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U4_four_fan_W2_dp1_s002_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 8267,
+      "sha256": "269a05c00db250062f935be0c4f1b1cb9f4ad33dd90d24786b52641847625ac8"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/logs/candidates/wingover_lite_030_mid_arena_U4_four_fan_W2_dp1_s002_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 14624,
+      "sha256": "9b8bb1bd5cf42f0ba0a1e53bce8c4b73b6e9df0158a844fa7a0414e169eed5ce"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/manifests/final_plan_lock_s002.json",
+      "suffix": ".json",
+      "size_bytes": 2672,
+      "sha256": "05b6befb975e7f0c476f9b19b1c0bc41c0a4331a14099ed13f1981a83442da96"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/manifests/primitive_library_manifest_s002.json",
+      "suffix": ".json",
+      "size_bytes": 43170,
+      "sha256": "f8a948c32360acf64bdd19f803d42d393747f76f1c41eec3d8396b0dc51be9ea"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/manifests/repo_housekeeping_manifest_s002.json",
+      "suffix": ".json",
+      "size_bytes": 89493,
+      "sha256": "5a9f0ebe6195e179c474e6cec902dc970eb4a08bcb94e984ed3b25f76a49d9f2"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/metrics/primitive_coverage_region_summary_s002.csv",
+      "suffix": ".csv",
+      "size_bytes": 10950,
+      "sha256": "0cd22948bee7f85255578e4476cfc1add9eeb80af68079fa99aec496458c3d3e"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/metrics/primitive_envelope_group_summary_s002.csv",
+      "suffix": ".csv",
+      "size_bytes": 25366,
+      "sha256": "def272c223b63b39b4e9d81cfdc550a81a2ddd864a764cca03b01ea3fd192e58"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/metrics/primitive_evidence_library_s002.csv",
+      "suffix": ".csv",
+      "size_bytes": 105538,
+      "sha256": "6c11315cbe2af3334080061ab50dcf9691319f0bee461af49ae94219405a8aab"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/metrics/primitive_library_summary_s002.csv",
+      "suffix": ".csv",
+      "size_bytes": 838,
+      "sha256": "f6b011e7ae59fbebe8a6f1f4db11b1b6177325ad4e3b16defbe8bb746bf9771e"
+    },
+    {
+      "source_run_id": "002",
+      "path": "03_Control/05_Results/09_primitive_library/002/reports/primitive_library_semantics_fix_report_s002.md",
+      "suffix": ".md",
+      "size_bytes": 2206,
+      "sha256": "e81c9bc59663188f648c4a2ad9cf424fbb1ae6a8f6d18c803f3803ce81bccf38"
+    },
+    {
+      "source_run_id": "003",
+      "path": "03_Control/05_Results/09_primitive_library/003/manifests/primitive_library_shortlist_manifest_s003.json",
+      "suffix": ".json",
+      "size_bytes": 3818,
+      "sha256": "3f6cef81d4572b9b1f906deed9e1e077b7a4e9683f8661ce7f2fda9afb74a1fa"
+    },
+    {
+      "source_run_id": "003",
+      "path": "03_Control/05_Results/09_primitive_library/003/metrics/candidate_shortlist_s003.csv",
+      "suffix": ".csv",
+      "size_bytes": 113415,
+      "sha256": "d21376dfd31b481fb70d24acdd1ab65a269d1ce5ac78fc791e1b2a199eeaa3f5"
+    },
+    {
+      "source_run_id": "003",
+      "path": "03_Control/05_Results/09_primitive_library/003/metrics/coverage_decision_summary_s003.csv",
+      "suffix": ".csv",
+      "size_bytes": 12583,
+      "sha256": "f07611ff8d42e82a82a70580d53cbeabd3dd3093fb79146b716e6f4c68ca4b87"
+    },
+    {
+      "source_run_id": "003",
+      "path": "03_Control/05_Results/09_primitive_library/003/metrics/higher_target_growth_request_s003.csv",
+      "suffix": ".csv",
+      "size_bytes": 3523,
+      "sha256": "9785079c39204a1b74ab318b7dae513a88baa2e0bb4147784a1fe7ddfa92f297"
+    },
+    {
+      "source_run_id": "003",
+      "path": "03_Control/05_Results/09_primitive_library/003/metrics/w3_stress_plan_s003.csv",
+      "suffix": ".csv",
+      "size_bytes": 2798,
+      "sha256": "368b18d84f2df7b1f93208ff6ca029fe65432e2827e3e930dc90ce45023ad37b"
+    },
+    {
+      "source_run_id": "003",
+      "path": "03_Control/05_Results/09_primitive_library/003/reports/primitive_library_shortlist_report_s003.md",
+      "suffix": ".md",
+      "size_bytes": 2485,
+      "sha256": "55d48b61508bb3e0b3e9a247acfb8900023df88afb92e955311d31cbcfe205e5"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed000_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5519,
+      "sha256": "b5cc41560613972a04850f0bf23920fe1de84d570e7ce9d3726c72690a17b4a9"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed000_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9717,
+      "sha256": "2435cfb229cb9e2b6cf070e626921e8567c7aa95641a2a449726aa14447472c6"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed010_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5519,
+      "sha256": "b5cc41560613972a04850f0bf23920fe1de84d570e7ce9d3726c72690a17b4a9"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed010_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9835,
+      "sha256": "e425e96c1b357a91cc801ff7ee465b61324fd35af5ed35f4603751b2448b390d"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed024_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 5409,
+      "sha256": "5271fa10f88887d94cd5d8c9d38ffa56f5976c9b093a3cd9d3726993d6977773"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/bank_yaw_energy_retaining_015_favourable_U1_single_fan_W1_dp1_seed024_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9857,
+      "sha256": "173f50694f9224feaa04b5fbebf93c9128e5d6fe547b92a1fa30d83f01119372"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_seed000_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1891,
+      "sha256": "cf8ba3867eeb2ba39aca43cc337b11bfa665e3df0cb7b3d1a92189a31c0a74ba"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_seed000_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 7147,
+      "sha256": "49eb5805f4bf718a6274a20e19039aac739342f61a19b3bc00f395302f91b20e"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_seed023_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1891,
+      "sha256": "cf8ba3867eeb2ba39aca43cc337b11bfa665e3df0cb7b3d1a92189a31c0a74ba"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U1_single_fan_W2_dp1_seed023_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 7096,
+      "sha256": "ac31de51b02d398f601984285e246b0e0f9ee358d2b34a02b77219e6ac5b74d2"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_seed000_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1891,
+      "sha256": "cf8ba3867eeb2ba39aca43cc337b11bfa665e3df0cb7b3d1a92189a31c0a74ba"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_seed000_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 6953,
+      "sha256": "6bb7565344517d360198f1be13f46d2afd8b300c1a466e4c6bc3c4a81cd6557d"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_seed002_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 1891,
+      "sha256": "cf8ba3867eeb2ba39aca43cc337b11bfa665e3df0cb7b3d1a92189a31c0a74ba"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/glide_none_favourable_U4_four_fan_W2_dp1_seed002_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 7025,
+      "sha256": "392daa8ee3068f62560cf6b3a399c3b36323550597017f79ef8b5efd96dffa88"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_seed000_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 4989,
+      "sha256": "0bd37720f607713b3db9d40242c21f1f3992cc4b3bfa0f6f77a07f457e8cca05"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_seed000_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9284,
+      "sha256": "e02c9a1d3f731d90211c7911baab278de85fe0e765654e55dd9a89c57675c1d3"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_seed019_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 4879,
+      "sha256": "b2694da39dd55d152bc770d45a82a6f639ddfb1109fda2e083abeccca353977c"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/mild_bank_none_favourable_U1_single_fan_W2_dp1_seed019_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9293,
+      "sha256": "6ef9147a4e9a01732f6552c9635e9ab4603f0939a4598f2532032c1d37e66c3e"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_seed000_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3312,
+      "sha256": "67c63ee7f2134fa0764c4a45e2f69434d7c52c6b8fd92e6181d8f82b1c2c8c21"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_seed000_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 8830,
+      "sha256": "9043d10fc31339857fbee45bbe3660a95012b728ea0cc689f7cf0ad66d6c5113"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_seed009_s004_commands.csv",
+      "suffix": ".csv",
+      "size_bytes": 3312,
+      "sha256": "67c63ee7f2134fa0764c4a45e2f69434d7c52c6b8fd92e6181d8f82b1c2c8c21"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/logs/candidates/recovery_none_favourable_U4_four_fan_W1_dp1_seed009_s004_trajectory.csv",
+      "suffix": ".csv",
+      "size_bytes": 9042,
+      "sha256": "fe20ae910f972d36a6c8ad810442baade76765e74b7c84ea3053f42e8f9d4447"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/manifests/w3_stress_manifest_s004.json",
+      "suffix": ".json",
+      "size_bytes": 8942,
+      "sha256": "c3f93dd75170f970859c059a18453c58bfe7902d00209576188044e0a50ba679"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/metrics/w3_stress_candidate_summary_s004.csv",
+      "suffix": ".csv",
+      "size_bytes": 2836,
+      "sha256": "bc082114a4429b3d0140cf8786d36adb2b178d3ae4e1e7ff5b1f8c0fffc0d838"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/metrics/w3_stress_coverage_update_s004.csv",
+      "suffix": ".csv",
+      "size_bytes": 1152,
+      "sha256": "a85842c2c72e9b05be39925814b536d32b44e537cf0e436074063c99d01214c8"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/metrics/w3_stress_trial_summary_s004.csv",
+      "suffix": ".csv",
+      "size_bytes": 122516,
+      "sha256": "2ffa45835242419348be22144e0165e1d2e4bf62ca4cd16b06d6b70db561dd12"
+    },
+    {
+      "source_run_id": "004",
+      "path": "03_Control/05_Results/09_primitive_library/004/reports/w3_stress_report_s004.md",
+      "suffix": ".md",
+      "size_bytes": 2558,
+      "sha256": "718d635967bfce9874f2da4c8daca0a5415b7dea23651811182816215fe363c3"
+    },
+    {
+      "source_run_id": "005",
+      "path": "03_Control/05_Results/09_primitive_library/005/manifests/governor_seed_manifest_s005.json",
+      "suffix": ".json",
+      "size_bytes": 3103,
+      "sha256": "b17e32df69d6cea3811000c1a5b5d78246d5d33896d6a46e15ae61f7e0f631c6"
+    },
+    {
+      "source_run_id": "005",
+      "path": "03_Control/05_Results/09_primitive_library/005/metrics/governor_accept_reject_decisions_s005.csv",
+      "suffix": ".csv",
+      "size_bytes": 13215,
+      "sha256": "d7997d8ad35cdf67f05a00d4ea01c6743a1c84c17293cc9ebcf986c8d8ba28e0"
+    },
+    {
+      "source_run_id": "005",
+      "path": "03_Control/05_Results/09_primitive_library/005/metrics/governor_coverage_update_s005.csv",
+      "suffix": ".csv",
+      "size_bytes": 1355,
+      "sha256": "596930c80413c52c25b104a371172119277cc14213756a633b64e0aac73467cc"
+    },
+    {
+      "source_run_id": "005",
+      "path": "03_Control/05_Results/09_primitive_library/005/metrics/governor_decision_cases_s005.csv",
+      "suffix": ".csv",
+      "size_bytes": 14851,
+      "sha256": "bc37cb153ef94f55a5d22f51db86f0c0301d183de8fd123677e3a056361d5dd6"
+    },
+    {
+      "source_run_id": "005",
+      "path": "03_Control/05_Results/09_primitive_library/005/metrics/governor_rejection_summary_s005.csv",
+      "suffix": ".csv",
+      "size_bytes": 380,
+      "sha256": "79362ad249c9caf4249e6e6596b38988dc5f261e1cfa4b3cfec8784e43857f73"
+    },
+    {
+      "source_run_id": "005",
+      "path": "03_Control/05_Results/09_primitive_library/005/metrics/governor_seed_candidate_table_s005.csv",
+      "suffix": ".csv",
+      "size_bytes": 2500,
+      "sha256": "6c95b0e065b03904a3498e61b2e97b69624676305eb6eb2b95cba202b0279018"
+    },
+    {
+      "source_run_id": "005",
+      "path": "03_Control/05_Results/09_primitive_library/005/reports/governor_seed_report_s005.md",
+      "suffix": ".md",
+      "size_bytes": 3032,
+      "sha256": "f59b246ba49008f5066984845988bc557cf65d16ca89f48ea12ed83df7fae574"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/logs/outer_loop_selected_step_logs_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 454,
+      "sha256": "4631ef8e80e7650332949f8a14f8013117a70a471641697a6ebe65739b647df8"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/manifests/outer_loop_mission_manifest_s006.json",
+      "suffix": ".json",
+      "size_bytes": 3375,
+      "sha256": "75fb8dcd328d8da13cedaede5c2b9851458e2f8f5d40c6c06f20a53b6946fefc"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_candidate_decision_log_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 19387,
+      "sha256": "d1dae9332dc1bf1ef8a1d6ca04873b8c94a929f1249b059a4f64bf3d08e68d16"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_coverage_gap_summary_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 1150,
+      "sha256": "49609bfb5312009d9f5d20e82ef63789428e4f7b00b7db0da40d93bfe8d641f6"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_energy_trace_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 1140,
+      "sha256": "3ba5cca69457f78b42173b0beaea20d2a45abee95c0dd58512f07ee14e0c2039"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_governor_rejection_log_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 16680,
+      "sha256": "49beb97ba5afbd781e73a39375e2e92e23a295561ecda322cf10d5f813b0a175"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_lift_dwell_summary_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 480,
+      "sha256": "0c2a6354cbf9f144caaf63efa0e2bdb81627d9104c29a05a99b94237ae51fa3d"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_mission_summary_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 1795,
+      "sha256": "cf89532775d2255e475cf152e73a956dbfeb1a217f80834af44efe7770a152f3"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/metrics/outer_loop_step_log_s006.csv",
+      "suffix": ".csv",
+      "size_bytes": 1718,
+      "sha256": "e9256a896f10c1040ee5db94ad37d9973d58325745496a518ae6b86bee67d322"
+    },
+    {
+      "source_run_id": "006",
+      "path": "03_Control/05_Results/09_primitive_library/006/reports/outer_loop_mission_report_s006.md",
+      "suffix": ".md",
+      "size_bytes": 3480,
+      "sha256": "b8b6a1cae37a300faae6f3ec700cbc261aaca19d502702556cf0ad741af5cf58"
+    }
+  ],
+  "source_hashes_unchanged_after_writing": true,
+  "source_hash_count": 238,
+  "blocker_row_count": 506,
+  "not_evaluated_blocker_row_count": 291,
+  "plot_ready_summary_row_count": 28,
+  "plot_ready_blocker_count_rows": 34,
+  "rendered_plots_status": "deferred",
+  "plot_ready_csvs_sufficient_for_freeze_audit_only": true,
+  "plot_ready_csvs_sufficient_for_final_phase_a_writing_package": false,
+  "allowed_stage0_claim": "narrow frozen baseline: deterministic primitive evidence, shortlist/W3 planning, selected W3 stress, offline governor seed evidence, and short governed-transit/rejection evidence",
+  "forbidden_claims": [
+    "sustained updraft exploitation",
+    "prolonged confined arena operation",
+    "objective-one sustained operation",
+    "objective-two volume coverage",
+    "volume coverage mission completion",
+    "successful real flight transfer",
+    "full target ladder evidence",
+    "high angle reversal transfer evidence",
+    "paired sim-to-real validation",
+    "final widening-versus-growth conclusion"
+  ],
+  "output_files": {
+    "root": "03_Control/05_Results/09_primitive_library/000_frozen_baseline",
+    "manifest_json": "03_Control/05_Results/09_primitive_library/000_frozen_baseline/manifests/frozen_baseline_manifest_s000.json",
+    "blocker_csv": "03_Control/05_Results/09_primitive_library/000_frozen_baseline/metrics/baseline_blockers_s000.csv",
+    "plot_ready_summary_csv": "03_Control/05_Results/09_primitive_library/000_frozen_baseline/metrics/baseline_plot_ready_summary_s000.csv",
+    "plot_ready_blocker_counts_csv": "03_Control/05_Results/09_primitive_library/000_frozen_baseline/metrics/baseline_plot_ready_blocker_counts_s000.csv",
+    "claim_boundary_md": "03_Control/05_Results/09_primitive_library/000_frozen_baseline/reports/claim_boundary_s000.md",
+    "baseline_summary_md": "03_Control/05_Results/09_primitive_library/000_frozen_baseline/reports/baseline_summary_s000.md"
+  }
+}
