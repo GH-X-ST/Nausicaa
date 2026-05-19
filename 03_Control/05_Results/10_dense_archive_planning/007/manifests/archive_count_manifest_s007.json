@@ -1,0 +1,294 @@
+{
+  "run_id": 7,
+  "campaign": "10_dense_archive_planning",
+  "pass_name": "phase_b_task1_dense_archive_planning_scaffold",
+  "source_stage0_manifest": "03_Control/05_Results/09_primitive_library/000_frozen_baseline/manifests/frozen_baseline_manifest_s000.json",
+  "stage0_gate_status_seen": "passed",
+  "phase_b_task": "task1_dense_archive_planning_scaffold",
+  "dense_archive_execution_performed": false,
+  "full_w0_archive_performed": false,
+  "test_environment_mode": "W0_dry_air",
+  "target_ladder_deg": [
+    15.0,
+    30.0,
+    45.0,
+    60.0,
+    90.0,
+    120.0,
+    150.0,
+    180.0
+  ],
+  "direction_signs": [
+    -1,
+    1
+  ],
+  "start_classes": [
+    "favourable",
+    "mid_arena",
+    "lift_sector",
+    "random_stress"
+  ],
+  "start_class_fractions": {
+    "favourable": 0.25,
+    "mid_arena": 0.2,
+    "lift_sector": 0.35,
+    "random_stress": 0.2
+  },
+  "dense_turning_families": [
+    "mild_bank",
+    "canyon_steep_bank",
+    "wingover_lite",
+    "bank_yaw_energy_retaining"
+  ],
+  "baseline_families": [
+    "glide",
+    "recovery"
+  ],
+  "environment_role_by_family": {
+    "glide": "dry_air_capable",
+    "recovery": "dry_air_capable",
+    "mild_bank": "dry_air_capable",
+    "canyon_steep_bank": "updraft_assisted",
+    "wingover_lite": "updraft_assisted",
+    "bank_yaw_energy_retaining": "updraft_assisted"
+  },
+  "minimum_start_states_per_family_target_direction": 2000,
+  "target_start_states_per_family_target_direction": 5000,
+  "minimum_w0_turning_trials": 128000,
+  "target_w0_turning_trials": 320000,
+  "minimum_w0_baseline_trials": 20000,
+  "target_w0_baseline_trials": 30000,
+  "minimum_w0_total_trials": 148000,
+  "target_w0_total_trials": 350000,
+  "target_w0_total_trial_range": [
+    350000,
+    500000
+  ],
+  "pilot_start_states_per_family_target_direction": 10,
+  "pilot_turning_trial_count": 640,
+  "pilot_baseline_trial_count": 40,
+  "pilot_total_candidate_count": 680,
+  "sampling_ranges": {
+    "favourable": {
+      "x_range_m": [
+        2.0,
+        4.4
+      ],
+      "y_range_m": [
+        1.4,
+        3.0
+      ],
+      "z_range_m": [
+        1.2,
+        2.2
+      ],
+      "speed_range_m_s": [
+        6.0,
+        7.0
+      ],
+      "phi_range_deg": [
+        -5.0,
+        5.0
+      ],
+      "theta_range_deg": [
+        -4.0,
+        4.0
+      ],
+      "psi_range_deg": [
+        -25.0,
+        25.0
+      ],
+      "p_range_rad_s": [
+        -0.15,
+        0.15
+      ],
+      "q_range_rad_s": [
+        -0.15,
+        0.15
+      ],
+      "r_range_rad_s": [
+        -0.15,
+        0.15
+      ],
+      "updraft_radius_range_m": [
+        0.8,
+        1.8
+      ],
+      "special_rule": "clean mission-corridor starts safely away from walls"
+    },
+    "mid_arena": {
+      "x_range_m": [
+        2.4,
+        5.4
+      ],
+      "y_range_m": [
+        1.0,
+        3.4
+      ],
+      "z_range_m": [
+        1.1,
+        2.6
+      ],
+      "speed_range_m_s": [
+        5.6,
+        7.2
+      ],
+      "phi_range_deg": [
+        -8.0,
+        8.0
+      ],
+      "theta_range_deg": [
+        -6.0,
+        6.0
+      ],
+      "psi_range_deg": [
+        -60.0,
+        60.0
+      ],
+      "p_range_rad_s": [
+        -0.25,
+        0.25
+      ],
+      "q_range_rad_s": [
+        -0.25,
+        0.25
+      ],
+      "r_range_rad_s": [
+        -0.25,
+        0.25
+      ],
+      "updraft_radius_range_m": [
+        0.5,
+        1.8
+      ],
+      "special_rule": "neutral centre-arena starts without immediate boundary pressure"
+    },
+    "lift_sector": {
+      "x_range_m": [
+        1.35,
+        6.45
+      ],
+      "y_range_m": [
+        0.1,
+        4.3
+      ],
+      "z_range_m": [
+        1.0,
+        2.7
+      ],
+      "speed_range_m_s": [
+        5.2,
+        7.1
+      ],
+      "phi_range_deg": [
+        -10.0,
+        10.0
+      ],
+      "theta_range_deg": [
+        -8.0,
+        8.0
+      ],
+      "psi_range_deg": [
+        -180.0,
+        180.0
+      ],
+      "p_range_rad_s": [
+        -0.35,
+        0.35
+      ],
+      "q_range_rad_s": [
+        -0.35,
+        0.35
+      ],
+      "r_range_rad_s": [
+        -0.35,
+        0.35
+      ],
+      "updraft_radius_range_m": [
+        0.0,
+        1.4
+      ],
+      "special_rule": "use measured/fitted fan centres; at least half labelled edge or ring"
+    },
+    "random_stress": {
+      "x_range_m": [
+        1.3,
+        6.5
+      ],
+      "y_range_m": [
+        0.1,
+        4.3
+      ],
+      "z_range_m": [
+        0.7,
+        3.1
+      ],
+      "speed_range_m_s": [
+        4.8,
+        7.4
+      ],
+      "phi_range_deg": [
+        -18.0,
+        18.0
+      ],
+      "theta_range_deg": [
+        -12.0,
+        12.0
+      ],
+      "psi_range_deg": [
+        -180.0,
+        180.0
+      ],
+      "p_range_rad_s": [
+        -0.6,
+        0.6
+      ],
+      "q_range_rad_s": [
+        -0.6,
+        0.6
+      ],
+      "r_range_rad_s": [
+        -0.6,
+        0.6
+      ],
+      "updraft_radius_range_m": [
+        0.0,
+        2.1
+      ],
+      "special_rule": "safe boundary-near starts with poor heading, low speed, and rates"
+    }
+  },
+  "lift_sector_edge_fraction_requirement": 0.5,
+  "random_seed": 20260520,
+  "output_files": {
+    "archive_count_manifest": "03_Control/05_Results/10_dense_archive_planning/007/manifests/archive_count_manifest_s007.json",
+    "target_direction_plan": "03_Control/05_Results/10_dense_archive_planning/007/metrics/target_direction_plan_s007.csv",
+    "sampling_strata_summary": "03_Control/05_Results/10_dense_archive_planning/007/metrics/sampling_strata_summary_s007.csv",
+    "start_state_manifest_pilot": "03_Control/05_Results/10_dense_archive_planning/007/metrics/start_state_manifest_pilot_s007.csv",
+    "dry_run_candidate_inventory_pilot": "03_Control/05_Results/10_dense_archive_planning/007/metrics/dry_run_candidate_inventory_pilot_s007.csv",
+    "dense_archive_planning_report": "03_Control/05_Results/10_dense_archive_planning/007/reports/dense_archive_planning_report_s007.md"
+  },
+  "protected_stage0_paths_checked": [
+    "03_Control/05_Results/09_primitive_library/002",
+    "03_Control/05_Results/09_primitive_library/003",
+    "03_Control/05_Results/09_primitive_library/004",
+    "03_Control/05_Results/09_primitive_library/005",
+    "03_Control/05_Results/09_primitive_library/006",
+    "03_Control/05_Results/09_primitive_library/000_frozen_baseline"
+  ],
+  "protected_hash_check_status": "unchanged",
+  "forbidden_claims": [
+    "W0 dense archive executed",
+    "W1/W2/W3 robustness completed",
+    "envelope maps completed",
+    "clustering completed",
+    "objective one completed",
+    "objective two completed",
+    "sim-to-real transfer demonstrated"
+  ],
+  "recommended_next_step": "Run a 5k to 20k pilot sweep for descriptor logging and storage validation.",
+  "protected_hash_count_before": 244,
+  "protected_hash_count_after": 244,
+  "no_rollout_performed": true,
+  "planning_only_scope": true
+}
