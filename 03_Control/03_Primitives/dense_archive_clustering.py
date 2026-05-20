@@ -8,6 +8,7 @@ import pandas as pd
 
 from dense_archive_envelope_maps import (
     EnvelopeMapConfig,
+    NON_EVALUATED_DESCRIPTOR_STATUSES,
     build_envelope_map,
     dense_cell_key,
     envelope_cell_id,
@@ -70,16 +71,20 @@ class DenseClusterConfig:
 # =============================================================================
 # 2) Public Cluster Builders
 # =============================================================================
-def cluster_key(row: Mapping[str, object]) -> str:
+def cluster_key(
+    row: Mapping[str, object],
+    envelope_config: EnvelopeMapConfig | None = None,
+) -> str:
     """Return the branch-local cluster key using envelope-map bin semantics."""
 
-    return dense_cell_key(row, prefix="cluster", config=EnvelopeMapConfig())
+    return dense_cell_key(row, prefix="cluster", config=envelope_config)
 
 
 def select_cluster_representatives(
     trial_rows: pd.DataFrame,
     envelope_map: pd.DataFrame | None = None,
     config: DenseClusterConfig | None = None,
+    envelope_config: EnvelopeMapConfig | None = None,
 ) -> pd.DataFrame:
     """Select deterministic branch-local representatives from descriptor rows."""
 
@@ -87,16 +92,22 @@ def select_cluster_representatives(
     if trial_rows.empty:
         return pd.DataFrame(columns=CLUSTER_REPRESENTATIVE_COLUMNS)
 
-    env = build_envelope_map(trial_rows) if envelope_map is None else envelope_map.copy()
-    frame = _attach_envelope_status(trial_rows.copy(), env)
-    frame["_cluster_key"] = [cluster_key(row) for row in frame.to_dict(orient="records")]
+    env_cfg = EnvelopeMapConfig() if envelope_config is None else envelope_config
+    env = build_envelope_map(trial_rows, env_cfg) if envelope_map is None else envelope_map.copy()
+    frame = _attach_envelope_status(trial_rows.copy(), env, env_cfg)
+    frame["_cluster_key"] = [
+        cluster_key(row, env_cfg) for row in frame.to_dict(orient="records")
+    ]
 
     rows: list[dict[str, object]] = []
     for key, group in frame.groupby("_cluster_key", sort=True):
-        sorted_group = sorted(group.to_dict(orient="records"), key=_representative_sort_key)
+        group_rows = group.to_dict(orient="records")
+        for row in group_rows:
+            row["_candidate_role"] = _candidate_role(row, cfg)
+        sorted_group = sorted(group_rows, key=_representative_sort_key)
         accepted = [
             row for row in sorted_group
-            if _include_role(_candidate_role(row, cfg), cfg)
+            if _include_role(_text(_value(row, "_candidate_role")), cfg)
         ][: int(cfg.max_representatives_per_group)]
         for rank, row in enumerate(accepted, start=1):
             rows.append(_representative_row(key, rank, row, cfg))
@@ -109,10 +120,11 @@ def select_cluster_representatives(
 def _attach_envelope_status(
     trial_rows: pd.DataFrame,
     envelope_map: pd.DataFrame,
+    envelope_config: EnvelopeMapConfig,
 ) -> pd.DataFrame:
     frame = trial_rows.copy()
     frame["_envelope_cell_id"] = [
-        envelope_cell_id(row) for row in frame.to_dict(orient="records")
+        envelope_cell_id(row, envelope_config) for row in frame.to_dict(orient="records")
     ]
     if envelope_map.empty:
         frame["_cell_status"] = "no_trials"
@@ -139,6 +151,8 @@ def _candidate_role(
     row: Mapping[str, object],
     config: DenseClusterConfig,
 ) -> str:
+    if _text(_value(row, "descriptor_status")) in NON_EVALUATED_DESCRIPTOR_STATUSES:
+        return "not_replayed_representative"
     success = _bool_value(_value(row, "success_flag"))
     status = _text(_value(row, "_cell_status", "no_trials"))
     success_fraction = _float_or_nan(_value(row, "_cell_success_fraction", 0.0))
@@ -150,7 +164,7 @@ def _candidate_role(
 
 
 def _include_role(role: str, config: DenseClusterConfig) -> bool:
-    if role == "failure_representative":
+    if role in {"failure_representative", "not_replayed_representative"}:
         return bool(config.include_failure_representatives)
     return True
 
@@ -166,6 +180,7 @@ def _representative_sort_key(row: Mapping[str, object]) -> tuple[object, ...]:
     return (
         -int(_bool_value(_value(row, "success_flag"))),
         status_rank.get(_text(_value(row, "_cell_status", "no_trials")), 5),
+        _role_sort_rank(_text(_value(row, "_candidate_role"))),
         _ascending_nan_last(_value(row, "heading_error_deg")),
         _descending_nan_last(_value(row, "energy_residual_m")),
         _descending_nan_last(_value(row, "min_true_margin_m")),
@@ -173,6 +188,16 @@ def _representative_sort_key(row: Mapping[str, object]) -> tuple[object, ...]:
         _descending_nan_last(_value(row, "lift_dwell_fraction")),
         _text(_value(row, "trial_descriptor_id")),
     )
+
+
+def _role_sort_rank(role: str) -> int:
+    ranks = {
+        "success_representative": 0,
+        "boundary_representative": 1,
+        "failure_representative": 2,
+        "not_replayed_representative": 3,
+    }
+    return ranks.get(str(role), 4)
 
 
 def _representative_row(
@@ -206,7 +231,7 @@ def _representative_row(
         "w_wing_mean_m_s": _float_or_nan(_value(row, "w_wing_mean_m_s")),
         "delta_w_lr_m_s": _float_or_nan(_value(row, "delta_w_lr_m_s")),
         "physics_priority_level": _text(_value(row, "physics_priority_level")),
-        "candidate_role": _candidate_role(row, config),
+        "candidate_role": _text(_value(row, "_candidate_role", _candidate_role(row, config))),
         "branch_decision_scope": _text(
             _value(row, "branch_decision_scope", BRANCH_DECISION_SCOPE)
         ),

@@ -81,6 +81,14 @@ def test_pilot_runner_outputs_are_isolated_and_named(
     manifest = json.loads(paths["manifest_json"].read_text(encoding="ascii"))
     assert manifest["run_id"] == 109
     assert manifest["planning_run_id"] == 8
+    assert manifest["available_planning_candidate_count"] == 4
+    assert manifest["selected_trial_count"] == 4
+    assert manifest["max_trials_requested"] == 4
+    assert manifest["sun24_min_pilot_trials"] == 5000
+    assert (
+        manifest["pilot_scale_status"]
+        == "reduced_below_sun24_minimum_due_to_max_trials"
+    )
     assert manifest["trial_count_executed"] == 4
     assert manifest["latency_case"] == "nominal"
     assert manifest["dt_s"] == 0.02
@@ -93,7 +101,9 @@ def test_pilot_runner_outputs_are_isolated_and_named(
     assert manifest["clustering_scaffold_implemented"] is True
     assert manifest["hardware_or_mission_claim"] is False
     assert manifest["branch_local_decisions_only"] is True
-    assert "not a production W0/W1 archive" in paths["report_md"].read_text(encoding="ascii")
+    report = paths["report_md"].read_text(encoding="ascii")
+    assert "not a production W0/W1 archive" in report
+    assert "Pilot scale status" in report
 
     descriptors = pd.read_csv(paths["trial_descriptors_csv"])
     labels = dict(zip(descriptors["sample_id"], descriptors["failure_label"]))
@@ -116,6 +126,40 @@ def test_pilot_runner_outputs_are_isolated_and_named(
     assert "cluster_key" in clusters.columns
 
 
+def test_pilot_runner_reports_available_row_scale_reduction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result_root = tmp_path / "10_dense_archive_planning"
+    _write_planning_tables(result_root, _start_rows(), _candidate_rows())
+    _patch_lightweight_replay(monkeypatch)
+
+    paths = pilot_runner.run_dense_archive_pilot_sweep(
+        run_id=114,
+        planning_run_id=8,
+        max_trials=5000,
+        result_root=result_root,
+        overwrite=True,
+        horizon_s=0.04,
+    )
+
+    manifest = json.loads(paths["manifest_json"].read_text(encoding="ascii"))
+    report = paths["report_md"].read_text(encoding="ascii")
+    assert manifest["available_planning_candidate_count"] == 4
+    assert manifest["selected_trial_count"] == 4
+    assert manifest["max_trials_requested"] == 5000
+    assert manifest["sun24_min_pilot_trials"] == 5000
+    assert (
+        manifest["pilot_scale_status"]
+        == "reduced_below_sun24_minimum_due_to_available_planning_rows"
+    )
+    assert "Available planning candidates: `4`" in report
+    assert (
+        "Pilot scale status: "
+        "`reduced_below_sun24_minimum_due_to_available_planning_rows`"
+    ) in report
+
+
 def test_branch_environment_round_robin_selection_is_deterministic() -> None:
     candidates = pd.DataFrame(
         [
@@ -136,6 +180,137 @@ def test_branch_environment_round_robin_selection_is_deterministic() -> None:
 
     assert [row["candidate_id"] for row in selected_a] == ["c1", "d1", "a1", "b1"]
     assert [row["candidate_id"] for row in selected_b] == ["c1", "d1", "a1", "b1"]
+
+
+def test_resolved_output_planning_overlap_rejected_and_siblings_allowed(
+    tmp_path: Path,
+) -> None:
+    config = pilot_runner.DensePilotSweepConfig(
+        run_id=9,
+        planning_run_id=8,
+        result_root=tmp_path,
+    )
+
+    pilot_runner._validate_output_guardrails(
+        config,
+        _outputs_at(tmp_path / "009"),
+    )
+    with pytest.raises(ValueError, match="output/planning overlap"):
+        pilot_runner._validate_output_guardrails(config, _outputs_at(tmp_path / "008"))
+    with pytest.raises(ValueError, match="output/planning overlap"):
+        pilot_runner._validate_output_guardrails(
+            config,
+            _outputs_at(tmp_path / "008" / "nested"),
+        )
+    with pytest.raises(ValueError, match="output/planning overlap"):
+        pilot_runner._validate_output_guardrails(config, _outputs_at(tmp_path))
+
+
+def test_default_sibling_planning_and_output_runs_are_allowed() -> None:
+    config = pilot_runner.DensePilotSweepConfig(run_id=9, planning_run_id=8)
+
+    pilot_runner._validate_output_guardrails(
+        config,
+        pilot_runner._output_paths(config),
+    )
+
+
+def test_output_exists_without_overwrite_raises_before_replay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result_root = tmp_path / "10_dense_archive_planning"
+    _write_planning_tables(result_root, _start_rows(), _candidate_rows())
+    output_root = result_root / "112"
+    output_root.mkdir(parents=True)
+    replay_called = False
+
+    def fail_if_replayed(*args: object, **kwargs: object) -> pd.DataFrame:
+        del args, kwargs
+        nonlocal replay_called
+        replay_called = True
+        raise AssertionError("replay should not run when output exists")
+
+    monkeypatch.setattr(pilot_runner, "_run_pilot_replays", fail_if_replayed)
+    with pytest.raises(ValueError, match="overwrite=False"):
+        pilot_runner.run_dense_archive_pilot_sweep(
+            run_id=112,
+            planning_run_id=8,
+            max_trials=1,
+            result_root=result_root,
+            overwrite=False,
+        )
+
+    assert replay_called is False
+
+
+def test_missing_planning_csvs_create_no_output_directory(tmp_path: Path) -> None:
+    result_root = tmp_path / "10_dense_archive_planning"
+
+    with pytest.raises(FileNotFoundError, match="missing planning"):
+        pilot_runner.run_dense_archive_pilot_sweep(
+            run_id=113,
+            planning_run_id=8,
+            max_trials=1,
+            result_root=result_root,
+            overwrite=True,
+        )
+
+    assert not (result_root / "113").exists()
+
+
+def test_run_id_and_default_root_guardrails() -> None:
+    with pytest.raises(ValueError, match="must differ"):
+        pilot_runner.run_dense_archive_pilot_sweep(run_id=8, planning_run_id=8)
+    with pytest.raises(ValueError, match="greater than planning_run_id"):
+        pilot_runner.run_dense_archive_pilot_sweep(run_id=7, planning_run_id=8)
+    with pytest.raises(ValueError, match="protected planning run"):
+        pilot_runner.run_dense_archive_pilot_sweep(
+            run_id=8,
+            planning_run_id=7,
+            overwrite=True,
+        )
+
+
+def test_pilot_scale_status_priority() -> None:
+    assert (
+        pilot_runner._pilot_scale_status(
+            available_count=10,
+            selected_count=0,
+            max_trials=5000,
+        )
+        == "no_trials_selected"
+    )
+    assert (
+        pilot_runner._pilot_scale_status(
+            available_count=6000,
+            selected_count=5000,
+            max_trials=5000,
+        )
+        == "meets_sun24_minimum"
+    )
+    assert (
+        pilot_runner._pilot_scale_status(
+            available_count=100,
+            selected_count=4,
+            max_trials=4,
+        )
+        == "reduced_below_sun24_minimum_due_to_max_trials"
+    )
+    assert (
+        pilot_runner._pilot_scale_status(
+            available_count=100,
+            selected_count=4,
+            max_trials=5000,
+        )
+        == "reduced_below_sun24_minimum_due_to_available_planning_rows"
+    )
+    with pytest.raises(RuntimeError, match="internal consistency"):
+        pilot_runner._pilot_scale_status(
+            available_count=6000,
+            selected_count=4999,
+            max_trials=6000,
+        )
 
 
 def test_analytic_debug_proxy_is_rejected(
@@ -166,6 +341,17 @@ def test_analytic_debug_proxy_is_rejected(
             result_root=result_root,
             overwrite=True,
         )
+
+
+def _outputs_at(root: Path) -> pilot_runner.DensePilotSweepOutputs:
+    return pilot_runner.DensePilotSweepOutputs(
+        root=root,
+        trial_descriptors_csv=root / "metrics" / "trial.csv",
+        envelope_map_csv=root / "metrics" / "envelope.csv",
+        cluster_representatives_csv=root / "metrics" / "clusters.csv",
+        manifest_json=root / "manifests" / "manifest.json",
+        report_md=root / "reports" / "report.md",
+    )
 
 
 def _patch_lightweight_replay(

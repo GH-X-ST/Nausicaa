@@ -66,6 +66,8 @@ from updraft_models import load_updraft_model  # noqa: E402
 # 1) Paths and Configuration
 # =============================================================================
 DEFAULT_RESULT_ROOT = CONTROL_DIR / "05_Results" / CAMPAIGN
+SUN24_MIN_PILOT_TRIALS = 5000
+PROTECTED_DEFAULT_RUN_IDS = frozenset({7, 8})
 NO_CLAIM_TEXT = (
     "This is a Sun 24 5k-20k pilot sweep for descriptor/logging/storage "
     "validation only; it is not a production W0/W1 archive, not a final "
@@ -138,16 +140,24 @@ def _planning_paths(config: DensePilotSweepConfig) -> tuple[Path, Path]:
     )
 
 
+def _planning_run_root(config: DensePilotSweepConfig) -> Path:
+    return _active_result_root(config) / f"{int(config.planning_run_id):03d}"
+
+
 # =============================================================================
 # 2) Planning-Table Loading and Trial Selection
 # =============================================================================
 def _load_planning_tables(config: DensePilotSweepConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     start_path, candidate_path = _planning_paths(config)
+    _check_planning_inputs_exist(start_path, candidate_path)
+    return pd.read_csv(start_path), pd.read_csv(candidate_path)
+
+
+def _check_planning_inputs_exist(start_path: Path, candidate_path: Path) -> None:
     if not start_path.exists():
         raise FileNotFoundError(f"missing planning start-state table: {start_path}")
     if not candidate_path.exists():
         raise FileNotFoundError(f"missing planning candidate table: {candidate_path}")
-    return pd.read_csv(start_path), pd.read_csv(candidate_path)
 
 
 def _select_pilot_candidates(
@@ -197,6 +207,8 @@ def _run_pilot_replays(
     candidates: list[dict[str, object]],
     config: DensePilotSweepConfig,
 ) -> pd.DataFrame:
+    if not candidates:
+        return pd.DataFrame(columns=DENSE_TRIAL_DESCRIPTOR_COLUMNS)
     start_rows = {
         _text(row["sample_id"]): row
         for row in start_states.to_dict(orient="records")
@@ -503,17 +515,33 @@ def run_dense_archive_pilot_sweep(
     )
     _validate_config(config)
     outputs = _output_paths(config)
-    _prepare_output_tree(outputs, config.overwrite)
+    start_path, candidate_path = _planning_paths(config)
+    _validate_output_guardrails(config, outputs)
+    _check_output_available(outputs, config.overwrite)
+    _check_planning_inputs_exist(start_path, candidate_path)
     start_states, candidate_inventory = _load_planning_tables(config)
     selected = _select_pilot_candidates(candidate_inventory, config)
+    pilot_scale_status = _pilot_scale_status(
+        available_count=int(len(candidate_inventory)),
+        selected_count=int(len(selected)),
+        max_trials=int(config.max_trials),
+    )
     descriptors = _run_pilot_replays(start_states, selected, config)
     envelope = build_envelope_map(descriptors)
     clusters = select_cluster_representatives(descriptors, envelope)
 
+    _prepare_output_tree(outputs, config.overwrite)
     descriptors.to_csv(outputs.trial_descriptors_csv, index=False)
     envelope.to_csv(outputs.envelope_map_csv, index=False)
     clusters.to_csv(outputs.cluster_representatives_csv, index=False)
-    manifest = _manifest(config, outputs, int(len(descriptors)))
+    manifest = _manifest(
+        config,
+        outputs,
+        trial_count=int(len(descriptors)),
+        available_count=int(len(candidate_inventory)),
+        selected_count=int(len(selected)),
+        pilot_scale_status=pilot_scale_status,
+    )
     _write_json(outputs.manifest_json, manifest)
     _write_report(outputs.report_md, manifest)
     return outputs.as_dict()
@@ -529,9 +557,52 @@ def _validate_config(config: DensePilotSweepConfig) -> None:
     latency_case_config(config.latency_case)
 
 
+def _validate_output_guardrails(
+    config: DensePilotSweepConfig,
+    outputs: DensePilotSweepOutputs,
+) -> None:
+    if int(config.run_id) == int(config.planning_run_id):
+        raise ValueError("run_id must differ from planning_run_id to avoid clearing planning inputs.")
+    if config.result_root is None and int(config.run_id) <= int(config.planning_run_id):
+        raise ValueError("default result-root pilot run_id must be greater than planning_run_id.")
+    if (
+        config.result_root is None
+        and bool(config.overwrite)
+        and int(config.run_id) in PROTECTED_DEFAULT_RUN_IDS
+    ):
+        raise ValueError(
+            "refusing to write a pilot sweep into a protected planning run "
+            "under the default result root."
+        )
+
+    output_root = outputs.root.resolve()
+    planning_root = _planning_run_root(config).resolve()
+    if _same_or_contained(output_root, planning_root) or _same_or_contained(
+        planning_root,
+        output_root,
+    ):
+        raise ValueError(
+            "refusing output/planning overlap after path resolution: "
+            f"output_root={output_root}, planning_root={planning_root}"
+        )
+
+
+def _same_or_contained(path: Path, container: Path) -> bool:
+    return path == container or container in path.parents
+
+
+def _check_output_available(
+    outputs: DensePilotSweepOutputs,
+    overwrite: bool,
+) -> None:
+    if outputs.root.exists() and not bool(overwrite):
+        raise ValueError(
+            f"output directory already exists and overwrite=False: {outputs.root}"
+        )
+
+
 def _prepare_output_tree(outputs: DensePilotSweepOutputs, overwrite: bool) -> None:
-    if outputs.root.exists() and not overwrite:
-        raise ValueError(f"output directory already exists: {outputs.root}")
+    _check_output_available(outputs, overwrite)
     if outputs.root.exists() and overwrite:
         _clear_output_tree(outputs.root)
     for path in (
@@ -555,12 +626,19 @@ def _manifest(
     config: DensePilotSweepConfig,
     outputs: DensePilotSweepOutputs,
     trial_count: int,
+    available_count: int,
+    selected_count: int,
+    pilot_scale_status: str,
 ) -> dict[str, object]:
     return {
         "run_id": int(config.run_id),
         "planning_run_id": int(config.planning_run_id),
         "max_trials_requested": int(config.max_trials),
         "trial_count_executed": int(trial_count),
+        "available_planning_candidate_count": int(available_count),
+        "selected_trial_count": int(selected_count),
+        "sun24_min_pilot_trials": SUN24_MIN_PILOT_TRIALS,
+        "pilot_scale_status": str(pilot_scale_status),
         "latency_case": str(config.latency_case),
         "dt_s": float(config.dt_s),
         "horizon_s": float(config.horizon_s),
@@ -602,6 +680,11 @@ def _write_report(path: Path, manifest: dict[str, object]) -> None:
         "",
         f"- Run id: `{manifest['run_id']}`",
         f"- Planning run id: `{manifest['planning_run_id']}`",
+        f"- Available planning candidates: `{manifest['available_planning_candidate_count']}`",
+        f"- Selected trial count: `{manifest['selected_trial_count']}`",
+        f"- Max trials requested: `{manifest['max_trials_requested']}`",
+        f"- Sun 24 minimum pilot trials: `{manifest['sun24_min_pilot_trials']}`",
+        f"- Pilot scale status: `{manifest['pilot_scale_status']}`",
         f"- Trial count executed: `{manifest['trial_count_executed']}`",
         f"- Latency case: `{manifest['latency_case']}`",
         f"- Branch-local decisions only: `{str(manifest['branch_local_decisions_only']).lower()}`",
@@ -653,6 +736,26 @@ MappingLike = dict[str, object] | pd.Series
 def _time_grid(dt_s: float, horizon_s: float) -> np.ndarray:
     step_count = int(round(float(horizon_s) / float(dt_s)))
     return np.arange(step_count + 1, dtype=float) * float(dt_s)
+
+
+def _pilot_scale_status(
+    *,
+    available_count: int,
+    selected_count: int,
+    max_trials: int,
+) -> str:
+    if int(selected_count) == 0:
+        return "no_trials_selected"
+    if int(selected_count) >= SUN24_MIN_PILOT_TRIALS:
+        return "meets_sun24_minimum"
+    if int(max_trials) < SUN24_MIN_PILOT_TRIALS:
+        return "reduced_below_sun24_minimum_due_to_max_trials"
+    if int(available_count) < SUN24_MIN_PILOT_TRIALS:
+        return "reduced_below_sun24_minimum_due_to_available_planning_rows"
+    raise RuntimeError(
+        "pilot scale internal consistency error: available planning candidates "
+        "and max_trials should have permitted the Sun 24 minimum."
+    )
 
 
 def _is_w0(row: MappingLike) -> bool:

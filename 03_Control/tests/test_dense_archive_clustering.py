@@ -8,7 +8,12 @@ from dense_archive_clustering import (
     cluster_key,
     select_cluster_representatives,
 )
-from dense_archive_envelope_maps import build_envelope_map, envelope_cell_id
+from dense_archive_envelope_maps import (
+    ENVELOPE_MAP_COLUMNS,
+    EnvelopeMapConfig,
+    build_envelope_map,
+    envelope_cell_id,
+)
 
 
 EXPECTED_COLUMNS = (
@@ -53,6 +58,18 @@ def test_cluster_key_reuses_envelope_cell_bins() -> None:
     row = _row()
 
     assert cluster_key(row) == envelope_cell_id(row).replace("cell|", "cluster|", 1)
+
+
+def test_cluster_key_reuses_custom_envelope_cell_bins() -> None:
+    row = _row()
+    config = EnvelopeMapConfig(radius_bin_width_m=1.0)
+
+    assert cluster_key(row, config) == envelope_cell_id(row, config).replace(
+        "cell|",
+        "cluster|",
+        1,
+    )
+    assert cluster_key(row, config) != cluster_key(row)
 
 
 def test_representative_roles_and_sort_order_are_deterministic() -> None:
@@ -122,6 +139,129 @@ def test_failure_representatives_can_be_excluded() -> None:
 
     assert result.empty
     assert tuple(result.columns) == EXPECTED_COLUMNS
+
+
+def test_not_replayed_representatives_are_explicit_diagnostic_role() -> None:
+    frame = pd.DataFrame(
+        [
+            _row(
+                trial_descriptor_id="diagnostic",
+                descriptor_status="not_replayed",
+                success_flag=False,
+                failure_label="not_replayed",
+            )
+        ]
+    )
+    result = select_cluster_representatives(frame, build_envelope_map(frame))
+
+    assert list(result["candidate_role"]) == ["not_replayed_representative"]
+
+
+def test_not_replayed_representatives_can_be_excluded() -> None:
+    frame = pd.DataFrame(
+        [
+            _row(
+                trial_descriptor_id="diagnostic",
+                descriptor_status="synthetic_descriptor_only",
+                success_flag=False,
+                failure_label="not_replayed",
+            )
+        ]
+    )
+    result = select_cluster_representatives(
+        frame,
+        build_envelope_map(frame),
+        DenseClusterConfig(include_failure_representatives=False),
+    )
+
+    assert result.empty
+    assert tuple(result.columns) == EXPECTED_COLUMNS
+
+
+def test_not_replayed_representatives_sort_after_evaluated_failures() -> None:
+    rows = [
+        _row(
+            trial_descriptor_id="failure",
+            descriptor_status="replay_evaluated",
+            success_flag=False,
+            failure_label="target_miss",
+        ),
+        _row(
+            trial_descriptor_id="diagnostic",
+            descriptor_status="not_replayed",
+            success_flag=False,
+            failure_label="not_replayed",
+        ),
+    ]
+    frame = pd.DataFrame(rows)
+    envelope = _manual_envelope_for_cell(
+        envelope_cell_id(rows[0]),
+        cell_status="all_failure",
+        success_fraction=0.0,
+    )
+    result = select_cluster_representatives(frame, envelope)
+
+    assert list(result["trial_descriptor_id"]) == ["failure", "diagnostic"]
+    assert list(result["candidate_role"]) == [
+        "failure_representative",
+        "not_replayed_representative",
+    ]
+    assert list(result["representative_rank"]) == [1, 2]
+
+
+def test_custom_envelope_config_controls_internal_maps_and_joins() -> None:
+    rows = [
+        _row(
+            trial_descriptor_id="near",
+            updraft_relative_radius_m=0.2,
+            success_flag=True,
+            failure_label="success",
+        ),
+        _row(
+            trial_descriptor_id="far",
+            updraft_relative_radius_m=0.8,
+            success_flag=False,
+            failure_label="target_miss",
+        ),
+    ]
+    frame = pd.DataFrame(rows)
+    config = EnvelopeMapConfig(radius_bin_width_m=1.0)
+
+    default_keys = {cluster_key(row) for row in rows}
+    custom_keys = {cluster_key(row, config) for row in rows}
+    internal = select_cluster_representatives(frame, envelope_config=config)
+    supplied = select_cluster_representatives(
+        frame,
+        build_envelope_map(frame, config),
+        envelope_config=config,
+    )
+
+    assert len(default_keys) == 2
+    assert len(custom_keys) == 1
+    assert list(internal["cluster_key"].unique()) == list(custom_keys)
+    assert list(supplied["cluster_key"].unique()) == list(custom_keys)
+    assert set(internal["candidate_role"]) == {"boundary_representative"}
+    assert set(supplied["candidate_role"]) == {"boundary_representative"}
+
+
+def _manual_envelope_for_cell(
+    cell_id: str,
+    *,
+    cell_status: str,
+    success_fraction: float,
+) -> pd.DataFrame:
+    row = {column: "" for column in ENVELOPE_MAP_COLUMNS}
+    row.update(
+        {
+            "envelope_cell_id": cell_id,
+            "trial_count": 2,
+            "evaluated_trial_count": 2,
+            "success_count": 0,
+            "success_fraction": success_fraction,
+            "cell_status": cell_status,
+        }
+    )
+    return pd.DataFrame([row], columns=ENVELOPE_MAP_COLUMNS)
 
 
 def _row(**overrides: object) -> dict[str, object]:
