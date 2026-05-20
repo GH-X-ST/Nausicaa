@@ -226,6 +226,16 @@ MANIFEST_FIELDS = {
     "wing_wind_descriptor_no_rollout",
     "dense_trial_descriptor_schema_implemented",
     "dense_trial_descriptor_execution_performed",
+    "sun24_daily_schedule_step",
+    "sun24_controlling_sources",
+    "sun24_envelope_map_scaffold_implemented",
+    "sun24_clustering_scaffold_implemented",
+    "sun24_pilot_sweep_runner_implemented",
+    "sun24_pilot_sweep_performed",
+    "sun24_production_dense_archive_performed",
+    "sun24_hardware_or_mission_claim",
+    "sun24_branch_local_decisions_only",
+    "sun24_no_overclaiming_boundary",
     "forbidden_claims",
     "recommended_next_step",
     "protected_paths_checked",
@@ -322,6 +332,16 @@ def test_manifest_counts_stage0_and_run007_preservation(
     assert manifest["wing_wind_descriptor_no_rollout"] is True
     assert manifest["dense_trial_descriptor_schema_implemented"] is True
     assert manifest["dense_trial_descriptor_execution_performed"] is False
+    assert manifest["sun24_daily_schedule_step"] == (
+        "sun24_dense_archive_pilot_envelope_clustering_scaffold"
+    )
+    assert manifest["sun24_envelope_map_scaffold_implemented"] is True
+    assert manifest["sun24_clustering_scaffold_implemented"] is True
+    assert manifest["sun24_pilot_sweep_runner_implemented"] is True
+    assert manifest["sun24_pilot_sweep_performed"] is False
+    assert manifest["sun24_production_dense_archive_performed"] is False
+    assert manifest["sun24_hardware_or_mission_claim"] is False
+    assert manifest["sun24_branch_local_decisions_only"] is True
     report = paths["planning_report_md"].read_text(encoding="ascii")
     assert "Dense-trial descriptor schema is implemented for future descriptor rows only" in report
     assert "No rollout, primitive replay, dense archive execution" in report

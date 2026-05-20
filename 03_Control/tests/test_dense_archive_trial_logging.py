@@ -150,6 +150,29 @@ def test_shape_validation_and_nonfinite_status_contract() -> None:
     )
     assert row["descriptor_status"] == "nonfinite_state"
 
+    with pytest.raises(ValueError, match="requires nonfinite x_ref"):
+        _descriptor_row(descriptor_status="nonfinite_state")
+
+
+def test_command_arrays_must_be_finite() -> None:
+    _, _, requested, effective, applied, delta = _straight_arrays()
+
+    requested[0, 0] = np.nan
+    with pytest.raises(ValueError, match="u_norm_requested"):
+        _descriptor_row(u_norm_requested=requested)
+
+    effective[0, 0] = np.inf
+    with pytest.raises(ValueError, match="u_norm_effective_target"):
+        _descriptor_row(u_norm_effective_target=effective)
+
+    applied[0, 0] = np.nan
+    with pytest.raises(ValueError, match="u_norm_applied"):
+        _descriptor_row(u_norm_applied=applied)
+
+    delta[0, 0] = np.inf
+    with pytest.raises(ValueError, match="delta_cmd_rad"):
+        _descriptor_row(delta_cmd_rad=delta)
+
 
 def test_match_key_replay_seed_and_trial_descriptor_id_are_deterministic() -> None:
     key = _match_key(replay_seed=99)
@@ -250,6 +273,14 @@ def test_straight_toy_trajectory_metrics_and_blank_target_heading() -> None:
     assert row["wind_query_region"] == "unknown"
 
 
+def test_wind_query_region_uses_supplied_model_z_axis() -> None:
+    measured = _descriptor_row(wind_model_z_axis_m=np.array([0.0, 1.0]))
+    extrapolated = _descriptor_row(wind_model_z_axis_m=np.array([1.5, 2.0]))
+
+    assert measured["wind_query_region"] == "measured"
+    assert extrapolated["wind_query_region"] == "extrapolated"
+
+
 def test_turning_toy_trajectory_metrics() -> None:
     points = np.array(
         [
@@ -329,6 +360,7 @@ def _descriptor_row(**overrides: object) -> dict[str, object]:
         replay_seed=replay_seed,
         lift_exposure_m_s=overrides.pop("lift_exposure_m_s", None),
         sim_real_transfer_result=str(overrides.pop("sim_real_transfer_result", "not_evaluated")),
+        wind_model_z_axis_m=overrides.pop("wind_model_z_axis_m", None),
         config=overrides.pop("config", DenseTrialDescriptorConfig()),
     )
 

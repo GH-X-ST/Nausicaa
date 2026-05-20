@@ -114,6 +114,20 @@ LATENCY_MODEL_STATUS = "metadata_only_active_latency_deferred"
 BRANCH_DECISION_SCOPE = "branch_local_only_no_cross_layout_decision_transfer"
 DENSE_TRIAL_DESCRIPTOR_SCHEMA_IMPLEMENTED = True
 DENSE_TRIAL_DESCRIPTOR_EXECUTION_PERFORMED = False
+SUN24_DAILY_SCHEDULE_STEP = "sun24_dense_archive_pilot_envelope_clustering_scaffold"
+SUN24_CONTROLLING_SOURCES = (
+    "latest_user_instruction",
+    "nausicaa_codex_sun24_envelope_pilot_guidance.md",
+    "docs/Glider_Control_Project_Plan.md",
+    "docs/Skills.md",
+)
+SUN24_ENVELOPE_MAP_SCAFFOLD_IMPLEMENTED = True
+SUN24_CLUSTERING_SCAFFOLD_IMPLEMENTED = True
+SUN24_PILOT_SWEEP_RUNNER_IMPLEMENTED = True
+SUN24_PILOT_SWEEP_PERFORMED = False
+SUN24_PRODUCTION_DENSE_ARCHIVE_PERFORMED = False
+SUN24_HARDWARE_OR_MISSION_CLAIM = False
+SUN24_BRANCH_LOCAL_DECISIONS_ONLY = True
 NO_CROSS_BRANCH_FLAGS = {
     "no_cross_branch_promotion": True,
     "no_cross_branch_rejection": True,
@@ -573,6 +587,18 @@ def build_archive_count_manifest(config: DenseArchivePlanConfig) -> dict[str, ob
         "wing_wind_descriptor_no_rollout": True,
         "dense_trial_descriptor_schema_implemented": DENSE_TRIAL_DESCRIPTOR_SCHEMA_IMPLEMENTED,
         "dense_trial_descriptor_execution_performed": DENSE_TRIAL_DESCRIPTOR_EXECUTION_PERFORMED,
+        "sun24_daily_schedule_step": SUN24_DAILY_SCHEDULE_STEP,
+        "sun24_controlling_sources": list(SUN24_CONTROLLING_SOURCES),
+        "sun24_envelope_map_scaffold_implemented": SUN24_ENVELOPE_MAP_SCAFFOLD_IMPLEMENTED,
+        "sun24_clustering_scaffold_implemented": SUN24_CLUSTERING_SCAFFOLD_IMPLEMENTED,
+        "sun24_pilot_sweep_runner_implemented": SUN24_PILOT_SWEEP_RUNNER_IMPLEMENTED,
+        "sun24_pilot_sweep_performed": SUN24_PILOT_SWEEP_PERFORMED,
+        "sun24_production_dense_archive_performed": SUN24_PRODUCTION_DENSE_ARCHIVE_PERFORMED,
+        "sun24_hardware_or_mission_claim": SUN24_HARDWARE_OR_MISSION_CLAIM,
+        "sun24_branch_local_decisions_only": SUN24_BRANCH_LOCAL_DECISIONS_ONLY,
+        "sun24_no_overclaiming_boundary": (
+            "scaffold_only_not_production_archive_not_mission_not_hardware_not_sim_real"
+        ),
         "forbidden_claims": list(FORBIDDEN_CLAIMS),
         "recommended_next_step": RECOMMENDED_NEXT_STEP,
         "protected_paths_checked": list(PROTECTED_PATHS),

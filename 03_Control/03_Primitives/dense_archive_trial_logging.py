@@ -195,6 +195,7 @@ def dense_trial_descriptor_row(
     replay_seed: int | str,
     lift_exposure_m_s: np.ndarray | None = None,
     sim_real_transfer_result: str = "not_evaluated",
+    wind_model_z_axis_m: np.ndarray | None = None,
     config: DenseTrialDescriptorConfig | None = None,
 ) -> dict[str, object]:
     """Build one dense-trial descriptor row from supplied replay-like arrays."""
@@ -322,7 +323,7 @@ def dense_trial_descriptor_row(
         "lift_dwell_fraction_status": lift_status,
         "wind_query_region": classify_wind_query_region(
             positions[:, 2],
-            None,
+            wind_model_z_axis_m,
             active_config.z_outlet_m,
         ),
         "saturation_fraction": _saturation_fraction(
@@ -567,8 +568,18 @@ def _validated_arrays(
     arrays = (state, requested, effective, applied, delta)
     if any(array.shape[0] != sample_count for array in arrays):
         raise ValueError("time_s, x_ref, and command arrays must share the same N.")
+    for name, command in (
+        ("u_norm_requested", requested),
+        ("u_norm_effective_target", effective),
+        ("u_norm_applied", applied),
+        ("delta_cmd_rad", delta),
+    ):
+        if not np.all(np.isfinite(command)):
+            raise ValueError(f"{name} must contain only finite values.")
     if not np.all(np.isfinite(state)) and descriptor_status != "nonfinite_state":
         raise ValueError("nonfinite x_ref requires descriptor_status='nonfinite_state'.")
+    if np.all(np.isfinite(state)) and descriptor_status == "nonfinite_state":
+        raise ValueError("descriptor_status='nonfinite_state' requires nonfinite x_ref.")
     return time, state, requested, effective, applied, delta
 
 
