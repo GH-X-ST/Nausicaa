@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from wing_wind_descriptors import WING_WIND_DESCRIPTOR_COLUMNS
+
 
 # =============================================================================
 # SECTION MAP
@@ -102,8 +104,8 @@ FORBIDDEN_CLAIMS = (
     "sim-to-real transfer demonstrated",
 )
 RECOMMENDED_NEXT_STEP = (
-    "Add descriptor logging and active latency plumbing, then run a small paired W0/W1 "
-    "pilot sweep before any full archive."
+    "Run a small paired W0/W1 pilot sweep for descriptor storage and planning-row "
+    "validation before any full archive."
 )
 LIFT_SECTOR_EDGE_FRACTION_REQUIREMENT = 0.50
 LATENCY_CASE_PLANNED = "none"
@@ -282,6 +284,7 @@ START_STATE_MANIFEST_COLUMNS = (
     "left_wing_lift_exposure_preference",
     "right_wing_lift_exposure_preference",
     "wing_exposure_bookkeeping_status",
+    *WING_WIND_DESCRIPTOR_COLUMNS,
     "true_safe_start",
     "start_generation_status",
     "layout_specific_sample_generated",
@@ -309,6 +312,7 @@ DRY_RUN_CANDIDATE_COLUMNS = (
     "first_validity_gate_environment",
     "w0_failure_policy",
     "acceptance_interpretation",
+    *WING_WIND_DESCRIPTOR_COLUMNS,
     "count_basis",
     "planned_floor_trial_count",
     "planned_target_trial_count",
@@ -562,6 +566,9 @@ def build_archive_count_manifest(config: DenseArchivePlanConfig) -> dict[str, ob
         "no_cross_branch_decision_rule": BRANCH_DECISION_SCOPE,
         "latency_metadata_only": True,
         "active_latency_implementation_deferred": True,
+        "wing_wind_descriptor_logging_implemented": True,
+        "wing_wind_descriptor_scope": "planning_start_and_candidate_rows_only",
+        "wing_wind_descriptor_no_rollout": True,
         "forbidden_claims": list(FORBIDDEN_CLAIMS),
         "recommended_next_step": RECOMMENDED_NEXT_STEP,
         "protected_paths_checked": list(PROTECTED_PATHS),

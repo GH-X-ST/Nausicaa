@@ -11,8 +11,9 @@ from pathlib import Path
 SCENARIOS_DIR = Path(__file__).resolve().parent
 CONTROL_DIR = SCENARIOS_DIR.parents[0]
 REPO_ROOT = CONTROL_DIR.parents[0]
+INNER_LOOP_DIR = CONTROL_DIR / "02_Inner_Loop"
 PRIMITIVES_DIR = CONTROL_DIR / "03_Primitives"
-for path in (PRIMITIVES_DIR, SCENARIOS_DIR):
+for path in (INNER_LOOP_DIR, PRIMITIVES_DIR, SCENARIOS_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
@@ -191,6 +192,7 @@ def _write_report(path: Path, manifest: dict[str, object]) -> None:
         f"- Run 007 preserved: `{str(manifest['run007_preserved']).lower()}`",
         f"- Protected hash status: `{manifest['protected_hash_check_status']}`",
         "- This pass created a branch-separated paired W0/W1 planning scaffold only.",
+        "- Wing-scale wind descriptor logging is implemented for planning rows only.",
         "- No rollout, primitive replay, dense archive execution, active latency implementation,",
         "  envelope mapping, clustering, mission evaluation, or sim-to-real transfer was performed.",
         "",

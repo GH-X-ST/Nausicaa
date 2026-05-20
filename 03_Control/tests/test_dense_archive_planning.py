@@ -5,6 +5,7 @@ import sys
 from hashlib import sha256
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -23,6 +24,7 @@ from dense_start_state_sampling import (  # noqa: E402
     build_start_state_manifest,
 )
 from run_dense_archive_planning import run_dense_archive_planning  # noqa: E402
+from wing_wind_descriptors import WING_WIND_DESCRIPTOR_COLUMNS  # noqa: E402
 
 
 TARGET_ENVIRONMENT_COLUMNS = [
@@ -125,6 +127,7 @@ START_STATE_COLUMNS = [
     "left_wing_lift_exposure_preference",
     "right_wing_lift_exposure_preference",
     "wing_exposure_bookkeeping_status",
+    *WING_WIND_DESCRIPTOR_COLUMNS,
     "true_safe_start",
     "start_generation_status",
     "layout_specific_sample_generated",
@@ -151,6 +154,7 @@ DRY_RUN_COLUMNS = [
     "first_validity_gate_environment",
     "w0_failure_policy",
     "acceptance_interpretation",
+    *WING_WIND_DESCRIPTOR_COLUMNS,
     "count_basis",
     "planned_floor_trial_count",
     "planned_target_trial_count",
@@ -217,6 +221,9 @@ MANIFEST_FIELDS = {
     "no_cross_branch_decision_rule",
     "latency_metadata_only",
     "active_latency_implementation_deferred",
+    "wing_wind_descriptor_logging_implemented",
+    "wing_wind_descriptor_scope",
+    "wing_wind_descriptor_no_rollout",
     "forbidden_claims",
     "recommended_next_step",
     "protected_paths_checked",
@@ -290,6 +297,9 @@ def test_manifest_counts_stage0_and_run007_preservation(
     assert manifest["pilot_candidate_rows_all_branches"] == 2720
     assert manifest["latency_metadata_only"] is True
     assert manifest["active_latency_implementation_deferred"] is True
+    assert manifest["wing_wind_descriptor_logging_implemented"] is True
+    assert manifest["wing_wind_descriptor_scope"] == "planning_start_and_candidate_rows_only"
+    assert manifest["wing_wind_descriptor_no_rollout"] is True
 
 
 def test_target_environment_plan_schema_counts_and_branch_rules(
@@ -372,7 +382,22 @@ def test_sampling_summary_and_start_states_are_branch_local_and_true_safe(
     assert starts["x_w_m"].between(1.2, 6.6).all()
     assert starts["y_w_m"].between(0.0, 4.4).all()
     assert starts["z_w_m"].between(0.4, 3.5).all()
-    assert set(starts["wing_exposure_bookkeeping_status"]) == {"branch_layout_geometry_only_no_wind_query"}
+    assert set(starts["wing_exposure_bookkeeping_status"]) == {
+        "branch_layout_wing_wind_descriptor_logged"
+    }
+    assert set(starts["wind_descriptor_status"]) == {"wind_model_evaluated"}
+    assert set(starts["wind_descriptor_environment_mode"]) == {
+        "W1_single_fan",
+        "W1_four_fan",
+    }
+    assert set(starts["wind_descriptor_model_id"]) == {
+        "single_gaussian_var",
+        "four_gaussian_var",
+    }
+    assert starts["wind_descriptor_model_source"].notna().all()
+    assert not starts["wind_descriptor_model_source"].str.contains("analytic_debug_proxy").any()
+    assert np.isfinite(starts["wing_panel_sample_count"].to_numpy(dtype=float)).all()
+    assert (starts["wing_panel_sample_count"].astype(int) > 0).all()
 
     for fan_layout in ("single_fan", "four_fan"):
         branch = starts[starts["fan_layout"] == fan_layout]
@@ -401,6 +426,35 @@ def test_dry_run_inventory_pairing_and_latency_metadata(
     assert set(inventory["no_rollout_performed"]) == {True}
     assert set(inventory["test_environment_mode"]) == EXPECTED_MODES
     assert set(inventory["paired_sample_key"]) == set(starts["paired_sample_key"])
+
+    w0_rows = inventory[inventory["test_environment_mode"].str.startswith("W0_")]
+    w1_rows = inventory[inventory["test_environment_mode"].str.startswith("W1_")]
+    zero_wind_columns = [
+        "w_cg_m_s",
+        "w_wing_mean_m_s",
+        "w_left_m_s",
+        "w_right_m_s",
+        "delta_w_lr_m_s",
+        "w_panel_max_m_s",
+        "w_panel_min_m_s",
+        "spanwise_w_gradient_m_s_per_m",
+    ]
+    assert set(w0_rows["wind_descriptor_status"]) == {"dry_air_zero_wind"}
+    assert set(w0_rows["local_updraft_uncertainty_status"]) == {
+        "not_available_dry_air"
+    }
+    assert w0_rows[zero_wind_columns].eq(0.0).all().all()
+    assert set(w1_rows["wind_descriptor_status"]) == {"wind_model_evaluated"}
+    assert set(w1_rows["wind_descriptor_model_id"]) == {
+        "single_gaussian_var",
+        "four_gaussian_var",
+    }
+    assert w1_rows["wind_descriptor_model_source"].notna().all()
+    assert not w1_rows["wind_descriptor_model_source"].str.contains(
+        "analytic_debug_proxy"
+    ).any()
+    assert np.isfinite(w1_rows["wing_panel_sample_count"].to_numpy(dtype=float)).all()
+    assert (w1_rows["wing_panel_sample_count"].astype(int) > 0).all()
 
     grouped = inventory.groupby("paired_sample_key")
     assert grouped.size().eq(2).all()

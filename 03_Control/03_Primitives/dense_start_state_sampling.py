@@ -29,16 +29,18 @@ from dense_archive_schema import (
     build_target_environment_plan,
     branch_start_group_count,
 )
-from updraft_models import FOUR_FAN_CENTERS_XY, SINGLE_FAN_CENTER_XY
+from updraft_models import FOUR_FAN_CENTERS_XY, SINGLE_FAN_CENTER_XY, load_updraft_model
+from wing_wind_descriptors import wing_wind_descriptor_row
 
 
 # =============================================================================
 # SECTION MAP
 # =============================================================================
 # 1) Sampling Count Helpers
-# 2) Sampling Strata Summary
-# 3) Pilot Start-State Generation
-# 4) Dry-Run Candidate Inventory
+# 2) Wind Descriptor Helpers
+# 3) Sampling Strata Summary
+# 4) Pilot Start-State Generation
+# 5) Dry-Run Candidate Inventory
 # =============================================================================
 
 
@@ -79,7 +81,64 @@ def _branch_w1_values(fan_layout: str) -> dict[str, str]:
 
 
 # =============================================================================
-# 2) Sampling Strata Summary
+# 2) Wind Descriptor Helpers
+# =============================================================================
+def _load_w1_wind_models() -> dict[str, object]:
+    model_ids = sorted(
+        {
+            str(metadata["w1_updraft_model_id"])
+            for metadata in FAN_BRANCH_METADATA.values()
+        }
+    )
+    models: dict[str, object] = {}
+    for model_id in model_ids:
+        if model_id == "analytic_debug_proxy":
+            raise ValueError(
+                "analytic_debug_proxy is forbidden for dense planning descriptors."
+            )
+        model = load_updraft_model(model_id)
+        if getattr(model, "name", "") == "analytic_debug_proxy":
+            raise ValueError(
+                "analytic_debug_proxy is forbidden for dense planning descriptors."
+            )
+        models[model_id] = model
+    return models
+
+
+def _model_source(wind_model: object) -> str:
+    return str(getattr(wind_model, "source", "unknown_model_source"))
+
+
+def _descriptor_from_state(
+    *,
+    row: dict[str, object],
+    fan_layout: str,
+    fan_config_id: str,
+    environment_mode: str,
+    model_id: str,
+    wind_model: object | None,
+    dry_air: bool,
+) -> dict[str, object]:
+    source = "dry_air_zero_wind" if dry_air else _model_source(wind_model)
+    return wing_wind_descriptor_row(
+        wind_field=None if dry_air else wind_model,
+        x_w_m=float(row["x_w_m"]),
+        y_w_m=float(row["y_w_m"]),
+        z_w_m=float(row["z_w_m"]),
+        phi_rad=float(row["phi_rad"]),
+        theta_rad=float(row["theta_rad"]),
+        psi_rad=float(row["psi_rad"]),
+        fan_layout=fan_layout,
+        fan_config_id=fan_config_id,
+        environment_mode=environment_mode,
+        model_id=model_id,
+        model_source=source,
+        dry_air=dry_air,
+    )
+
+
+# =============================================================================
+# 3) Sampling Strata Summary
 # =============================================================================
 def build_sampling_strata_summary(config: DenseArchivePlanConfig) -> pd.DataFrame:
     """Return branch-local sampling ranges and requested fractions."""
@@ -139,13 +198,14 @@ def _special_rule(start_class: str, base_rule: str) -> str:
 
 
 # =============================================================================
-# 3) Pilot Start-State Generation
+# 4) Pilot Start-State Generation
 # =============================================================================
 def build_start_state_manifest(config: DenseArchivePlanConfig) -> pd.DataFrame:
     """Return branch-local exact starts for the paired W0/W1 scaffold."""
 
     master_rng = np.random.default_rng(int(config.random_seed))
     plan = _start_state_group_plan(config)
+    wind_models = _load_w1_wind_models()
     rows: list[dict[str, object]] = []
     sample_index = 0
     for plan_row in plan.to_dict(orient="records"):
@@ -163,6 +223,7 @@ def build_start_state_manifest(config: DenseArchivePlanConfig) -> pd.DataFrame:
                         class_count=counts[start_class],
                         plan_row=plan_row,
                         config=config,
+                        wind_models=wind_models,
                     )
                 )
     frame = pd.DataFrame(rows, columns=START_STATE_MANIFEST_COLUMNS)
@@ -186,6 +247,7 @@ def _build_start_state_row(
     class_count: int,
     plan_row: dict[str, object],
     config: DenseArchivePlanConfig,
+    wind_models: dict[str, object],
 ) -> dict[str, object]:
     rng = np.random.default_rng(int(seed))
     fan_layout = str(plan_row["fan_layout"])
@@ -215,7 +277,7 @@ def _build_start_state_row(
 
     # Start rows are exact branch-local states. They are not replay outcomes and
     # deliberately store body-axis speed with yaw logged separately.
-    return {
+    row = {
         "sample_id": f"s{int(config.run_id):03d}_{fan_layout}_pilot_{sample_index:06d}",
         "paired_sample_key": paired_key,
         "seed": int(seed),
@@ -254,12 +316,25 @@ def _build_start_state_row(
         "updraft_sector_label": sector,
         "left_wing_lift_exposure_preference": _wing_preference(azimuth, left=True),
         "right_wing_lift_exposure_preference": _wing_preference(azimuth, left=False),
-        "wing_exposure_bookkeeping_status": "branch_layout_geometry_only_no_wind_query",
+        "wing_exposure_bookkeeping_status": "branch_layout_wing_wind_descriptor_logged",
         "true_safe_start": bool(inside_bounds(position, TRUE_SAFE_BOUNDS)),
         "start_generation_status": "generated_inside_true_safe_bounds",
         "layout_specific_sample_generated": True,
         "no_rollout_performed": True,
     }
+    model_id = str(branch["updraft_model_id"])
+    row.update(
+        _descriptor_from_state(
+            row=row,
+            fan_layout=fan_layout,
+            fan_config_id=str(branch["fan_config_id"]),
+            environment_mode=str(branch["w1_environment_mode"]),
+            model_id=model_id,
+            wind_model=wind_models[model_id],
+            dry_air=False,
+        )
+    )
+    return row
 
 
 def _paired_sample_key(
@@ -372,7 +447,7 @@ def _wing_preference(azimuth_rad: float, *, left: bool) -> str:
 
 
 # =============================================================================
-# 4) Dry-Run Candidate Inventory
+# 5) Dry-Run Candidate Inventory
 # =============================================================================
 def build_dry_run_candidate_inventory(
     config: DenseArchivePlanConfig,
@@ -381,6 +456,7 @@ def build_dry_run_candidate_inventory(
     """Return branch-local paired W0/W1 candidate rows without replaying dynamics."""
 
     plan = build_target_environment_plan(config)
+    wind_models = _load_w1_wind_models()
     plan_rows = {
         (
             row["fan_layout"],
@@ -403,7 +479,7 @@ def build_dry_run_candidate_inventory(
                 int(row["direction_sign"]),
             )
             plan_row = plan_rows[key]
-            rows.append(_candidate_row(config, row, plan_row))
+            rows.append(_candidate_row(config, row, plan_row, wind_models))
     return pd.DataFrame(rows, columns=DRY_RUN_CANDIDATE_COLUMNS)
 
 
@@ -411,9 +487,21 @@ def _candidate_row(
     config: DenseArchivePlanConfig,
     start_row: dict[str, object],
     plan_row: dict[str, object],
+    wind_models: dict[str, object],
 ) -> dict[str, object]:
     acceptance = _acceptance_interpretation(plan_row)
     candidate_id = _candidate_id(config, start_row, plan_row)
+    model_id = str(plan_row["updraft_model_id"])
+    dry_air = str(plan_row["test_environment_mode"]).startswith("W0_")
+    descriptor = _descriptor_from_state(
+        row=start_row,
+        fan_layout=str(start_row["fan_layout"]),
+        fan_config_id=str(plan_row["fan_config_id"]),
+        environment_mode=str(plan_row["test_environment_mode"]),
+        model_id=model_id,
+        wind_model=None if dry_air else wind_models[model_id],
+        dry_air=dry_air,
+    )
     return {
         "candidate_id": candidate_id,
         "sample_id": start_row["sample_id"],
@@ -435,6 +523,7 @@ def _candidate_row(
         "first_validity_gate_environment": plan_row["first_validity_gate_environment"],
         "w0_failure_policy": plan_row["w0_failure_policy"],
         "acceptance_interpretation": acceptance,
+        **descriptor,
         "count_basis": plan_row["count_basis"],
         "planned_floor_trial_count": int(plan_row["planned_floor_trial_count"]),
         "planned_target_trial_count": int(plan_row["planned_target_trial_count"]),
