@@ -112,6 +112,8 @@ LATENCY_CASE_PLANNED = "none"
 LATENCY_ACCEPTANCE_ROLE = "nominal_latency_required_later_for_accepted_w1_envelopes"
 LATENCY_MODEL_STATUS = "metadata_only_active_latency_deferred"
 BRANCH_DECISION_SCOPE = "branch_local_only_no_cross_layout_decision_transfer"
+DENSE_TRIAL_DESCRIPTOR_SCHEMA_IMPLEMENTED = True
+DENSE_TRIAL_DESCRIPTOR_EXECUTION_PERFORMED = False
 NO_CROSS_BRANCH_FLAGS = {
     "no_cross_branch_promotion": True,
     "no_cross_branch_rejection": True,
@@ -569,6 +571,8 @@ def build_archive_count_manifest(config: DenseArchivePlanConfig) -> dict[str, ob
         "wing_wind_descriptor_logging_implemented": True,
         "wing_wind_descriptor_scope": "planning_start_and_candidate_rows_only",
         "wing_wind_descriptor_no_rollout": True,
+        "dense_trial_descriptor_schema_implemented": DENSE_TRIAL_DESCRIPTOR_SCHEMA_IMPLEMENTED,
+        "dense_trial_descriptor_execution_performed": DENSE_TRIAL_DESCRIPTOR_EXECUTION_PERFORMED,
         "forbidden_claims": list(FORBIDDEN_CLAIMS),
         "recommended_next_step": RECOMMENDED_NEXT_STEP,
         "protected_paths_checked": list(PROTECTED_PATHS),

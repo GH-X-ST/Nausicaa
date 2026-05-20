@@ -23,7 +23,7 @@ from dense_start_state_sampling import (  # noqa: E402
     build_dry_run_candidate_inventory,
     build_start_state_manifest,
 )
-from run_dense_archive_planning import run_dense_archive_planning  # noqa: E402
+import run_dense_archive_planning as dense_planning_runner  # noqa: E402
 from wing_wind_descriptors import WING_WIND_DESCRIPTOR_COLUMNS  # noqa: E402
 
 
@@ -224,6 +224,8 @@ MANIFEST_FIELDS = {
     "wing_wind_descriptor_logging_implemented",
     "wing_wind_descriptor_scope",
     "wing_wind_descriptor_no_rollout",
+    "dense_trial_descriptor_schema_implemented",
+    "dense_trial_descriptor_execution_performed",
     "forbidden_claims",
     "recommended_next_step",
     "protected_paths_checked",
@@ -248,15 +250,33 @@ PROTECTED_PATHS = [
 
 
 @pytest.fixture(scope="module")
-def generated_outputs() -> tuple[dict[str, Path], dict[str, str], dict[str, str]]:
-    before = _protected_hashes()
-    paths = run_dense_archive_planning(
-        run_id=8,
-        overwrite=True,
-        pilot_start_states_per_family_target_direction=10,
+def generated_outputs(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[dict[str, Path], dict[str, str], dict[str, str]]:
+    temp_root = (
+        tmp_path_factory.mktemp("dense_archive_planning")
+        / "03_Control"
+        / "05_Results"
+        / "10_dense_archive_planning"
     )
-    after = _protected_hashes()
-    return paths, before, after
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(dense_planning_runner, "RESULT_ROOT", temp_root)
+    monkeypatch.setattr(
+        dense_planning_runner,
+        "_repo_relative",
+        lambda path: Path(path).as_posix(),
+    )
+    try:
+        before = _protected_hashes()
+        paths = dense_planning_runner.run_dense_archive_planning(
+            run_id=8,
+            overwrite=True,
+            pilot_start_states_per_family_target_direction=10,
+        )
+        after = _protected_hashes()
+        return paths, before, after
+    finally:
+        monkeypatch.undo()
 
 
 def test_manifest_counts_stage0_and_run007_preservation(
@@ -300,6 +320,11 @@ def test_manifest_counts_stage0_and_run007_preservation(
     assert manifest["wing_wind_descriptor_logging_implemented"] is True
     assert manifest["wing_wind_descriptor_scope"] == "planning_start_and_candidate_rows_only"
     assert manifest["wing_wind_descriptor_no_rollout"] is True
+    assert manifest["dense_trial_descriptor_schema_implemented"] is True
+    assert manifest["dense_trial_descriptor_execution_performed"] is False
+    report = paths["planning_report_md"].read_text(encoding="ascii")
+    assert "Dense-trial descriptor schema is implemented for future descriptor rows only" in report
+    assert "No rollout, primitive replay, dense archive execution" in report
 
 
 def test_target_environment_plan_schema_counts_and_branch_rules(

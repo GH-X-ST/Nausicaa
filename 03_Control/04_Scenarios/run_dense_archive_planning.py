@@ -193,6 +193,8 @@ def _write_report(path: Path, manifest: dict[str, object]) -> None:
         f"- Protected hash status: `{manifest['protected_hash_check_status']}`",
         "- This pass created a branch-separated paired W0/W1 planning scaffold only.",
         "- Wing-scale wind descriptor logging is implemented for planning rows only.",
+        "- Dense-trial descriptor schema is implemented for future descriptor rows only;",
+        "  dense-trial descriptor execution was not performed.",
         "- No rollout, primitive replay, dense archive execution, active latency implementation,",
         "  envelope mapping, clustering, mission evaluation, or sim-to-real transfer was performed.",
         "",
