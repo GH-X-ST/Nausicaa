@@ -59,6 +59,13 @@ NO_CLAIM_TEXT = (
     "W2/W3/W4/W5 evidence, mission evaluation, hardware validation, or "
     "sim-to-real transfer is claimed."
 )
+RECOMMENDED_CHUNKED_W0_COMMAND = (
+    "python 03_Control/04_Scenarios/run_w0_dense_archive_chunked.py "
+    "--run-id 13 --planning-run-id 12 --target-trials-total 500000 "
+    "--target-trials-per-branch 250000 --chunk-size 2500 --workers 8 "
+    "--max-workers 8 --latency-case nominal --storage-format auto "
+    "--compression-level 1 --resume"
+)
 
 
 @dataclass(frozen=True)
@@ -378,6 +385,12 @@ def _manifest(
         "branch_decision_scope": BRANCH_DECISION_SCOPE,
         "clustering_strategy_status": str(clustering_strategy_status),
         "no_overclaiming_statement": NO_CLAIM_TEXT,
+        "compatibility_warning": (
+            "Legacy serial W0 runner retained for compatibility; the recommended "
+            "500k local path is run_w0_dense_archive_chunked.py with --workers 8 "
+            "--max-workers 8 --resume."
+        ),
+        "recommended_chunked_w0_command": RECOMMENDED_CHUNKED_W0_COMMAND,
         "output_files": {
             "w0_dense_trial_descriptors": _path_text(outputs.trial_descriptors_csv),
             "w0_dense_envelope_map": _path_text(outputs.envelope_map_csv),
@@ -419,6 +432,8 @@ def _write_report(path: Path, manifest: dict[str, object]) -> None:
         f"- Hardware or mission claim: `{str(manifest['hardware_or_mission_claim']).lower()}`",
         f"- Sim-to-real transfer claim: `{str(manifest['sim_to_real_transfer_claim']).lower()}`",
         f"- Clustering strategy status: `{manifest['clustering_strategy_status']}`",
+        "- Recommended production path: `run_w0_dense_archive_chunked.py`",
+        f"- Recommended command: `{manifest['recommended_chunked_w0_command']}`",
         "",
     ]
     path.write_text("\n".join(lines), encoding="ascii")
