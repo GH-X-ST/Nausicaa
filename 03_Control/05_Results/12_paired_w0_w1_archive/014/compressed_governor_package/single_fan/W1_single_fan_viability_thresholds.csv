@@ -1,0 +1,2 @@
+layout_branch_id,fan_layout,test_environment_mode,minimum_success_fraction,required_latency_case,required_latency_pass_label,branch_decision_scope
+single_fan_branch,single_fan,W1_single_fan,1.0,nominal,nominal_pass,branch_local_only_no_cross_layout_decision_transfer

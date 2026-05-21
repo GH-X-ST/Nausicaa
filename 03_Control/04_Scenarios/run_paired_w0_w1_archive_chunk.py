@@ -32,6 +32,8 @@ from dense_archive_runtime import runtime_manifest_fields  # noqa: E402
 from dense_archive_schema import BRANCH_DECISION_SCOPE  # noqa: E402
 from dense_archive_table_io import (  # noqa: E402
     TablePartition,
+    ensure_directory,
+    filesystem_path,
     read_table_partition,
     resolve_storage_format,
     write_table_partition,
@@ -180,9 +182,9 @@ def _load_planning_chunk(
         chunk_index=int(config.chunk_index),
         storage_format=str(config.storage_format),
     )
-    if not candidate_path.exists():
+    if not filesystem_path(candidate_path).exists():
         raise FileNotFoundError(f"missing paired candidate chunk: {candidate_path}")
-    if not start_path.exists():
+    if not filesystem_path(start_path).exists():
         raise FileNotFoundError(f"missing paired start-state chunk: {start_path}")
     candidates = read_table_partition(candidate_path, storage_format=config.storage_format)
     starts = read_table_partition(start_path, storage_format=config.storage_format)
@@ -268,8 +270,8 @@ def _write_manifest(
     paired_environment_mode: str,
 ) -> None:
     outputs = output_paths(config)
-    outputs.manifest_json.parent.mkdir(parents=True, exist_ok=True)
-    outputs.log_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_directory(outputs.manifest_json.parent)
+    ensure_directory(outputs.log_path.parent)
     manifest = {
         "status": "complete",
         "run_id": int(config.run_id),
@@ -305,9 +307,12 @@ def _write_manifest(
         **{field: float(timing[field]) for field in TIMING_FIELDS},
     }
     tmp_path = outputs.manifest_json.with_name(f"{outputs.manifest_json.name}.tmp")
-    tmp_path.write_text(json.dumps(manifest, indent=2, sort_keys=False) + "\n", encoding="ascii")
-    tmp_path.replace(outputs.manifest_json)
-    outputs.log_path.write_text(
+    filesystem_path(tmp_path).write_text(
+        json.dumps(manifest, indent=2, sort_keys=False) + "\n",
+        encoding="ascii",
+    )
+    filesystem_path(tmp_path).replace(filesystem_path(outputs.manifest_json))
+    filesystem_path(outputs.log_path).write_text(
         f"status=complete row_count={int(partition.row_count)} total_s={float(timing['total_s']):.6f}\n",
         encoding="ascii",
     )

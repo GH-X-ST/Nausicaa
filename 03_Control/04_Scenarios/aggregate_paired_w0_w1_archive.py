@@ -37,7 +37,9 @@ from dense_archive_schema import BRANCH_DECISION_SCOPE  # noqa: E402
 from dense_archive_table_io import (  # noqa: E402
     TableManifest,
     TablePartition,
+    ensure_directory,
     file_sha256,
+    filesystem_path,
     read_table_partition,
     resolve_storage_format,
     write_table_manifest,
@@ -230,7 +232,7 @@ def _validate_aggregation_outputs(
         planned.append(outputs.upload_package_dir)
     if build_governor_package:
         planned.append(outputs.governor_package_dir)
-    existing = [path for path in planned if path.exists()]
+    existing = [path for path in planned if filesystem_path(path).exists()]
     if existing and not overwrite:
         names = ", ".join(_path_text(path) for path in existing[:5])
         raise RuntimeError(f"paired aggregation outputs already exist: {names}")
@@ -244,7 +246,7 @@ def _load_chunk_manifests(root: Path) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for path in paths:
         try:
-            payload = json.loads(path.read_text(encoding="ascii"))
+            payload = json.loads(filesystem_path(path).read_text(encoding="ascii"))
         except json.JSONDecodeError as exc:
             raise RuntimeError(f"malformed paired chunk manifest: {path}") from exc
         payload["_manifest_path"] = _path_text(path)
@@ -265,7 +267,8 @@ def _verify_and_load_chunks(
     for row in manifests.sort_values(sort_columns).to_dict(orient="records"):
         _verify_manifest_row(row, config)
         partition_path = _resolve_repo_path(str(row["partition_path"]))
-        if not partition_path.exists():
+        partition_fs_path = filesystem_path(partition_path)
+        if not partition_fs_path.exists():
             raise FileNotFoundError(
                 f"missing paired chunk partition before aggregation: {partition_path}"
             )
@@ -285,7 +288,7 @@ def _verify_and_load_chunks(
             )
         verified = dict(row)
         verified["_resolved_partition_path"] = str(partition_path)
-        verified["_actual_byte_count"] = int(partition_path.stat().st_size)
+        verified["_actual_byte_count"] = int(partition_fs_path.stat().st_size)
         verified["_actual_checksum_sha256"] = checksum
         verified["_partition_columns"] = tuple(str(column) for column in frame.columns)
         verified_rows.append(verified)
@@ -632,22 +635,22 @@ def _load_progress_manifest(config: PairedAggregationConfig) -> dict[str, object
         / "manifests"
         / f"paired_w0_w1_progress_s{int(config.run_id):03d}.json"
     )
-    if not path.exists():
+    if not filesystem_path(path).exists():
         return {}
-    return json.loads(path.read_text(encoding="ascii"))
+    return json.loads(filesystem_path(path).read_text(encoding="ascii"))
 
 
 def _load_profile_payload(config: PairedAggregationConfig) -> dict[str, object]:
-    if config.profile_source is not None and Path(config.profile_source).exists():
-        return json.loads(Path(config.profile_source).read_text(encoding="ascii"))
+    if config.profile_source is not None and filesystem_path(Path(config.profile_source)).exists():
+        return json.loads(filesystem_path(Path(config.profile_source)).read_text(encoding="ascii"))
     default = (
         _active_result_root(config)
         / "profiles"
         / f"paired_planning_s{int(config.planning_run_id):03d}"
         / f"paired_w0_w1_profile_s{int(config.planning_run_id):03d}.json"
     )
-    if default.exists():
-        return json.loads(default.read_text(encoding="ascii"))
+    if filesystem_path(default).exists():
+        return json.loads(filesystem_path(default).read_text(encoding="ascii"))
     return {}
 
 
@@ -799,8 +802,8 @@ def _write_report(path: Path, manifest: dict[str, object]) -> None:
         f"- GPU assessment: {manifest['gpu_acceleration_assessment']}",
         "",
     ]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines), encoding="ascii")
+    ensure_directory(path.parent)
+    filesystem_path(path).write_text("\n".join(lines), encoding="ascii")
 
 
 def _write_upload_package(
@@ -1039,7 +1042,7 @@ def aggregate_paired_w0_w1_archive(
         outputs.branch_environment_counts_csv.parent,
         outputs.schema_summary_csv.parent,
     ):
-        path.mkdir(parents=True, exist_ok=True)
+        ensure_directory(path)
 
     raw_chunk_summary = _load_chunk_manifests(outputs.root)
     chunk_summary, descriptors = _verify_and_load_chunks(raw_chunk_summary, config)
@@ -1068,13 +1071,13 @@ def aggregate_paired_w0_w1_archive(
     )
 
     write_table_manifest(outputs.table_manifest_json, table_manifest)
-    branch_counts.to_csv(outputs.branch_environment_counts_csv, index=False)
-    failure_summary.to_csv(outputs.failure_summary_csv, index=False)
-    paired_summary.to_csv(outputs.paired_comparison_summary_csv, index=False)
-    w0_failed_w1_valid.to_csv(outputs.w0_failed_w1_valid_summary_csv, index=False)
-    w1_envelope.to_csv(outputs.w1_nominal_latency_envelope_summary_csv, index=False)
-    chunk_summary.to_csv(outputs.chunk_manifest_summary_csv, index=False)
-    schema_summary.to_csv(outputs.schema_summary_csv, index=False)
+    branch_counts.to_csv(filesystem_path(outputs.branch_environment_counts_csv), index=False)
+    failure_summary.to_csv(filesystem_path(outputs.failure_summary_csv), index=False)
+    paired_summary.to_csv(filesystem_path(outputs.paired_comparison_summary_csv), index=False)
+    w0_failed_w1_valid.to_csv(filesystem_path(outputs.w0_failed_w1_valid_summary_csv), index=False)
+    w1_envelope.to_csv(filesystem_path(outputs.w1_nominal_latency_envelope_summary_csv), index=False)
+    chunk_summary.to_csv(filesystem_path(outputs.chunk_manifest_summary_csv), index=False)
+    schema_summary.to_csv(filesystem_path(outputs.schema_summary_csv), index=False)
     write_json(outputs.manifest_json, manifest)
     _write_report(outputs.report_md, manifest)
     if config.build_upload_package:

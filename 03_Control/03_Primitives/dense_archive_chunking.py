@@ -13,7 +13,9 @@ from dense_archive_runtime import (
     WorkerCountDecision,
 )
 from dense_archive_table_io import (
+    ensure_directory,
     file_sha256,
+    filesystem_path,
     partition_row_count,
     resolve_storage_format,
     table_extension,
@@ -157,9 +159,11 @@ def chunk_status(
     run_root: Path,
 ) -> str:
     paths = trial_outcome_paths(spec, run_root=run_root)
-    if not paths.manifest_json.exists() and not paths.partition_path.exists():
+    manifest_exists = filesystem_path(paths.manifest_json).exists()
+    partition_exists = filesystem_path(paths.partition_path).exists()
+    if not manifest_exists and not partition_exists:
         return "missing"
-    if paths.manifest_json.exists() != paths.partition_path.exists():
+    if manifest_exists != partition_exists:
         return "corrupt"
     try:
         validate_chunk_manifest(spec, run_root=run_root)
@@ -178,8 +182,9 @@ def remove_chunk_outputs(spec: GenericChunkSpec, *, run_root: Path) -> None:
         paths.log_path,
         paths.log_path.with_name(f"{paths.log_path.name}.tmp"),
     ):
-        if path.exists():
-            path.unlink()
+        fs_path = filesystem_path(path)
+        if fs_path.exists():
+            fs_path.unlink()
 
 
 # =============================================================================
@@ -256,15 +261,15 @@ def write_progress_manifest(
     report_path: Path,
     payload: dict[str, object],
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_directory(path.parent)
+    ensure_directory(report_path.parent)
     tmp_path = path.with_name(f"{path.name}.tmp")
-    tmp_path.write_text(
+    filesystem_path(tmp_path).write_text(
         json.dumps(payload, indent=2, sort_keys=False) + "\n",
         encoding="ascii",
     )
-    tmp_path.replace(path)
-    report_path.write_text(_progress_report(payload), encoding="ascii")
+    filesystem_path(tmp_path).replace(filesystem_path(path))
+    filesystem_path(report_path).write_text(_progress_report(payload), encoding="ascii")
 
 
 def progress_manifest_payload(
@@ -332,9 +337,9 @@ def _chunk_record(
     paths = trial_outcome_paths(spec, run_root=run_root)
     row_count: int | None = None
     checksum = ""
-    if status == "complete" and paths.manifest_json.exists():
+    if status == "complete" and filesystem_path(paths.manifest_json).exists():
         try:
-            payload = json.loads(paths.manifest_json.read_text(encoding="ascii"))
+            payload = json.loads(filesystem_path(paths.manifest_json).read_text(encoding="ascii"))
             row_count = int(payload.get("row_count", 0))
             checksum = str(payload.get("checksum_sha256", ""))
         except (OSError, ValueError, json.JSONDecodeError):
@@ -380,9 +385,12 @@ def _progress_report(payload: dict[str, object]) -> str:
 # =============================================================================
 def validate_chunk_manifest(spec: GenericChunkSpec, *, run_root: Path) -> dict[str, object]:
     paths = trial_outcome_paths(spec, run_root=run_root)
-    if not paths.manifest_json.exists() or not paths.partition_path.exists():
+    if (
+        not filesystem_path(paths.manifest_json).exists()
+        or not filesystem_path(paths.partition_path).exists()
+    ):
         raise FileNotFoundError("missing chunk manifest or partition")
-    manifest = json.loads(paths.manifest_json.read_text(encoding="ascii"))
+    manifest = json.loads(filesystem_path(paths.manifest_json).read_text(encoding="ascii"))
     expected = {
         "run_id": int(spec.run_id),
         "planning_run_id": int(spec.planning_run_id),
