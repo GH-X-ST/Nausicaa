@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import time
 import tracemalloc
@@ -25,6 +26,7 @@ from dense_archive_table_io import (  # noqa: E402
     list_table_partitions,
     read_table_partition,
     resolve_storage_format,
+    table_extension,
     write_table_partition,
 )
 from run_dense_archive_pilot_sweep import _run_pilot_replays  # noqa: E402
@@ -193,6 +195,29 @@ def _write_outputs(outputs: W0ProfileOutputs, payload: dict[str, object]) -> Non
     pd.DataFrame(flat_rows).to_csv(outputs.profile_csv, index=False)
 
 
+def _measure_write_speed(
+    descriptors: pd.DataFrame,
+    outputs: W0ProfileOutputs,
+    *,
+    storage_format: str,
+) -> tuple[float, int, int]:
+    write_root = outputs.root / "_profile_write_tmp"
+    write_path = write_root / f"write_speed_sample.{table_extension(storage_format)}"
+    start = time.perf_counter()
+    partition = write_table_partition(
+        descriptors,
+        write_path,
+        storage_format=storage_format,
+        compression_level=1,
+    )
+    write_s = time.perf_counter() - start
+    byte_count = int(partition.byte_count)
+    row_count = int(partition.row_count)
+    if write_root.exists():
+        shutil.rmtree(write_root)
+    return write_s, byte_count, row_count
+
+
 # =============================================================================
 # 4) Public Runner and CLI
 # =============================================================================
@@ -235,13 +260,11 @@ def profile_w0_dense_archive(
     descriptors = _run_pilot_replays(starts, selected, replay_config)
     simulation_s = time.perf_counter() - simulation_start
     descriptor_build_s = 0.0
-    write_start = time.perf_counter()
-    partition = write_table_partition(
+    write_s, write_byte_count, write_row_count = _measure_write_speed(
         descriptors,
-        outputs.root / "tables" / "profile_trial_outcomes" / "profile-sample.csv.gz",
+        outputs,
         storage_format=effective_format,
     )
-    write_s = time.perf_counter() - write_start
     aggregate_start = time.perf_counter()
     envelope = build_envelope_map(descriptors)
     aggregate_s = time.perf_counter() - aggregate_start
@@ -280,8 +303,8 @@ def profile_w0_dense_archive(
         "estimated_worker_memory_gb": estimated_worker_memory_gb,
         "peak_memory_mb": float(peak_bytes) / float(1024**2),
         "storage_format": effective_format,
-        "partition_byte_count": int(partition.byte_count),
-        "partition_row_count": int(partition.row_count),
+        "write_test_byte_count": int(write_byte_count),
+        "write_test_row_count": int(write_row_count),
         "envelope_cell_count": int(len(envelope)),
         "gpu_acceleration_assessment": GPU_ACCELERATION_ASSESSMENT,
         "recommended_production_command": PRODUCTION_COMMAND,

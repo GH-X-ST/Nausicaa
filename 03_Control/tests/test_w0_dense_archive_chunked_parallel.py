@@ -90,3 +90,17 @@ def test_dry_run_manifest_records_worker_memory_and_gpu_fields(
     assert manifest["estimated_worker_memory_gb"] == 2.0
     assert "GPU acceleration is deferred" in manifest["gpu_acceleration_assessment"]
     assert "--workers 8 --max-workers 8" in manifest["recommended_production_command"]
+    assert len(manifest["chunks"]) == manifest["scheduled_chunk_count"]
+    assert {
+        "layout_branch_id",
+        "chunk_index",
+        "chunk_count",
+        "chunk_size",
+        "status",
+        "partition_path",
+        "manifest_path",
+        "row_count",
+        "checksum_sha256",
+        "error_type",
+        "error",
+    }.issubset(manifest["chunks"][0])

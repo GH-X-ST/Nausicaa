@@ -35,8 +35,16 @@ def test_profile_records_worker_runtime_memory_and_gpu_fields(
     assert "8" in payload["rows_per_second_by_worker_count"]
     assert payload["memory_safety_margin_gb"] == 8.0
     assert "GPU acceleration is deferred" in payload["gpu_acceleration_assessment"]
+    assert payload["storage_format"] == "csv_gz"
+    assert payload["write_test_row_count"] == 4
     assert paths["profile_csv"].exists()
     assert not (tmp_path / "11_w0_dense_archive" / "013").exists()
+    assert not (paths["root"] / "tables").exists()
+    assert not (paths["root"] / "_profile_write_tmp").exists()
+    assert sorted(path.name for path in paths["root"].iterdir()) == [
+        "w0_profile_s012.csv",
+        "w0_profile_s012.json",
+    ]
 
 
 def _fake_inputs(config) -> tuple[pd.DataFrame, list[dict[str, object]], float]:

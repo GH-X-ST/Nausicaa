@@ -35,7 +35,18 @@ def test_partitioned_planning_writes_w0_only_partitions(
     }
     candidate_paths = list_table_partitions(paths["root"], "candidate_index")
     assert len(candidate_paths) == 4
+    assert all("archive_chunk_index=" in path.as_posix() for path in candidate_paths)
     candidates = pd.concat([read_table_partition(path) for path in candidate_paths])
+    required = {
+        "archive_chunk_index",
+        "archive_chunk_count",
+        "chunk_local_index",
+        "archive_chunk_size",
+        "archive_branch_trial_index",
+    }
+    assert required.issubset(candidates.columns)
+    assert set(candidates["archive_chunk_count"]) == {2}
+    assert set(candidates["archive_chunk_size"]) == {2}
     assert set(candidates["test_environment_mode"]) == {
         "W0_single_fan_branch",
         "W0_four_fan_branch",
@@ -45,8 +56,30 @@ def test_partitioned_planning_writes_w0_only_partitions(
     assert paths["four_preview_csv"].exists()
 
 
+def test_partitioned_planning_rejects_non_chunk_aligned_target(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(planning, "_build_w0_tables", _fake_w0_tables)
+
+    try:
+        planning.run_w0_partitioned_planning(
+            run_id=12,
+            source_planning_run_id=10,
+            result_root=tmp_path / "10_dense_archive_planning",
+            target_trials_total=10,
+            target_trials_per_branch=5,
+            floor_trials_per_branch=2,
+            partition_rows=2,
+            storage_format="csv_gz",
+        )
+    except ValueError as exc:
+        assert "divisible by partition_rows" in str(exc)
+    else:  # pragma: no cover - assertion branch.
+        raise AssertionError("non chunk-aligned W0 planning target was accepted")
+
+
 def _fake_w0_tables(config: planning.W0PartitionedPlanningConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
-    del config
     starts: list[dict[str, object]] = []
     candidates: list[dict[str, object]] = []
     for branch, fan, mode in (
@@ -57,7 +90,12 @@ def _fake_w0_tables(config: planning.W0PartitionedPlanningConfig) -> tuple[pd.Da
             sample_id = f"{branch}_{index}"
             starts.append(_start(sample_id, branch, fan))
             candidates.append(_candidate(sample_id, branch, fan, mode))
-    return pd.DataFrame(starts), pd.DataFrame(candidates)
+    return planning._add_archive_chunk_columns(
+        pd.DataFrame(starts),
+        pd.DataFrame(candidates),
+        chunk_size=int(config.partition_rows),
+        target_trials_per_branch=int(config.target_trials_per_branch),
+    )
 
 
 def _start(sample_id: str, branch: str, fan: str) -> dict[str, object]:

@@ -182,6 +182,30 @@ def test_branch_environment_round_robin_selection_is_deterministic() -> None:
     assert [row["candidate_id"] for row in selected_b] == ["c1", "d1", "a1", "b1"]
 
 
+def test_cached_and_uncached_replay_outputs_are_identical(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_lightweight_replay(monkeypatch)
+    config = pilot_runner.DensePilotSweepConfig(horizon_s=0.04)
+    starts = pd.DataFrame(_start_rows())
+    candidates = _candidate_rows()
+
+    cached = pilot_runner._run_pilot_replays(
+        starts,
+        candidates,
+        config,
+        use_command_cache=True,
+    )
+    uncached = pilot_runner._run_pilot_replays(
+        starts,
+        candidates,
+        config,
+        use_command_cache=False,
+    )
+
+    pd.testing.assert_frame_equal(cached, uncached)
+
+
 def test_resolved_output_planning_overlap_rejected_and_siblings_allowed(
     tmp_path: Path,
 ) -> None:

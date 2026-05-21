@@ -105,6 +105,84 @@ def test_corrupt_chunk_is_rejected_by_default(tmp_path: Path) -> None:
         )
 
 
+def test_repair_incomplete_removes_chunk_local_files_and_reruns(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    result_root = tmp_path / "11_w0_dense_archive"
+    _write_planning(result_root)
+    cfg = chunk.W0ChunkConfig(
+        run_id=13,
+        planning_run_id=12,
+        result_root=result_root,
+        layout_branch_id="single_fan_branch",
+        chunk_index=0,
+        chunk_count=2,
+        chunk_size=2,
+        storage_format="csv_gz",
+    )
+    paths = chunk.output_paths(cfg)
+    paths.manifest_json.parent.mkdir(parents=True)
+    paths.manifest_json.write_text("{\"status\":\"incomplete\"}\n", encoding="ascii")
+
+    monkeypatch.setattr(
+        chunk,
+        "_run_pilot_replays",
+        lambda starts, selected, config: pd.DataFrame(
+            [_descriptor(row["candidate_id"], row["layout_branch_id"]) for row in selected],
+            columns=DENSE_TRIAL_DESCRIPTOR_COLUMNS,
+        ),
+    )
+
+    chunk.run_w0_dense_archive_chunk(
+        run_id=13,
+        planning_run_id=12,
+        result_root=result_root,
+        layout_branch_id="single_fan_branch",
+        chunk_index=0,
+        chunk_count=2,
+        chunk_size=2,
+        storage_format="csv_gz",
+        resume=True,
+        repair_incomplete=True,
+    )
+
+    assert json.loads(paths.manifest_json.read_text(encoding="ascii"))["status"] == "complete"
+
+
+def test_chunk_runner_refuses_mismatched_start_candidate_sample_order(
+    tmp_path: Path,
+) -> None:
+    result_root = tmp_path / "11_w0_dense_archive"
+    _write_planning(result_root)
+    bad_start = (
+        result_root.parent
+        / "10_dense_archive_planning"
+        / "012"
+        / "tables"
+        / "start_states"
+        / "layout_branch_id=single_fan_branch"
+        / "archive_chunk_index=00000"
+        / "part-00000.csv.gz"
+    )
+    frame = read_table_partition(bad_start)
+    frame.loc[0, "sample_id"] = "wrong_sample"
+    write_table_partition(frame, bad_start, storage_format="csv_gz")
+
+    with pytest.raises(ValueError, match="sample_id order mismatch"):
+        chunk.run_w0_dense_archive_chunk(
+            run_id=13,
+            planning_run_id=12,
+            result_root=result_root,
+            layout_branch_id="single_fan_branch",
+            chunk_index=0,
+            chunk_count=2,
+            chunk_size=2,
+            storage_format="csv_gz",
+            resume=True,
+        )
+
+
 def _write_planning(result_root: Path) -> None:
     planning = result_root.parent / "10_dense_archive_planning" / "012"
     for branch, fan, mode in (
@@ -117,16 +195,40 @@ def _write_planning(result_root: Path) -> None:
             sample_id = f"{branch}_{index}"
             starts.append(_start(sample_id, branch, fan))
             candidates.append(_candidate(sample_id, branch, fan, mode))
-        write_table_partition(
-            pd.DataFrame(starts),
-            planning / "tables" / "start_states" / f"layout_branch_id={branch}" / "part-00000.csv.gz",
-            storage_format="csv_gz",
-        )
-        write_table_partition(
-            pd.DataFrame(candidates),
-            planning / "tables" / "candidate_index" / f"layout_branch_id={branch}" / "part-00000.csv.gz",
-            storage_format="csv_gz",
-        )
+        starts_frame = _with_chunk_columns(pd.DataFrame(starts), chunk_size=2)
+        candidates_frame = _with_chunk_columns(pd.DataFrame(candidates), chunk_size=2)
+        for chunk_index in range(2):
+            chunk_filter = candidates_frame["archive_chunk_index"].astype(int).eq(chunk_index)
+            write_table_partition(
+                starts_frame[chunk_filter].reset_index(drop=True),
+                planning
+                / "tables"
+                / "start_states"
+                / f"layout_branch_id={branch}"
+                / f"archive_chunk_index={chunk_index:05d}"
+                / "part-00000.csv.gz",
+                storage_format="csv_gz",
+            )
+            write_table_partition(
+                candidates_frame[chunk_filter].reset_index(drop=True),
+                planning
+                / "tables"
+                / "candidate_index"
+                / f"layout_branch_id={branch}"
+                / f"archive_chunk_index={chunk_index:05d}"
+                / "part-00000.csv.gz",
+                storage_format="csv_gz",
+            )
+
+
+def _with_chunk_columns(frame: pd.DataFrame, *, chunk_size: int) -> pd.DataFrame:
+    result = frame.copy().reset_index(drop=True)
+    result["archive_chunk_index"] = result.index // int(chunk_size)
+    result["archive_chunk_count"] = len(result) // int(chunk_size)
+    result["chunk_local_index"] = result.index % int(chunk_size)
+    result["archive_chunk_size"] = int(chunk_size)
+    result["archive_branch_trial_index"] = result.index
+    return result
 
 
 def _start(sample_id: str, branch: str, fan: str) -> dict[str, object]:

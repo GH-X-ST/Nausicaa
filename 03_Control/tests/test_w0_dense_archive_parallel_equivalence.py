@@ -88,16 +88,40 @@ def _write_planning(result_root: Path) -> None:
             sample_id = f"{branch}_{index}"
             starts.append(_start(sample_id, branch, fan))
             candidates.append(_candidate(sample_id, branch, fan, mode))
-        write_table_partition(
-            pd.DataFrame(starts),
-            planning / "tables" / "start_states" / f"layout_branch_id={branch}" / "part-00000.csv.gz",
-            storage_format="csv_gz",
-        )
-        write_table_partition(
-            pd.DataFrame(candidates),
-            planning / "tables" / "candidate_index" / f"layout_branch_id={branch}" / "part-00000.csv.gz",
-            storage_format="csv_gz",
-        )
+        starts_frame = _with_chunk_columns(pd.DataFrame(starts), chunk_size=1)
+        candidates_frame = _with_chunk_columns(pd.DataFrame(candidates), chunk_size=1)
+        for chunk_index in range(2):
+            mask = candidates_frame["archive_chunk_index"].astype(int).eq(chunk_index)
+            write_table_partition(
+                starts_frame[mask].reset_index(drop=True),
+                planning
+                / "tables"
+                / "start_states"
+                / f"layout_branch_id={branch}"
+                / f"archive_chunk_index={chunk_index:05d}"
+                / "part-00000.csv.gz",
+                storage_format="csv_gz",
+            )
+            write_table_partition(
+                candidates_frame[mask].reset_index(drop=True),
+                planning
+                / "tables"
+                / "candidate_index"
+                / f"layout_branch_id={branch}"
+                / f"archive_chunk_index={chunk_index:05d}"
+                / "part-00000.csv.gz",
+                storage_format="csv_gz",
+            )
+
+
+def _with_chunk_columns(frame: pd.DataFrame, *, chunk_size: int) -> pd.DataFrame:
+    result = frame.copy().reset_index(drop=True)
+    result["archive_chunk_index"] = result.index // int(chunk_size)
+    result["archive_chunk_count"] = len(result) // int(chunk_size)
+    result["chunk_local_index"] = result.index % int(chunk_size)
+    result["archive_chunk_size"] = int(chunk_size)
+    result["archive_branch_trial_index"] = result.index
+    return result
 
 
 def _load_run(root: Path) -> pd.DataFrame:

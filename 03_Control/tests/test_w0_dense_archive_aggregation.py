@@ -47,6 +47,8 @@ def test_strict_aggregation_writes_compact_upload_package(tmp_path: Path) -> Non
         "profiling_summary.csv",
         "schema_summary.csv",
         "command_history.md",
+        "single_fan_branch_preview.csv",
+        "four_fan_branch_preview.csv",
     ):
         assert (package / name).exists()
     assert not any("tables" in path.parts for path in package.rglob("*") if path.is_file())
@@ -57,7 +59,7 @@ def test_strict_aggregation_rejects_missing_count(tmp_path: Path) -> None:
     result_root = tmp_path / "11_w0_dense_archive"
     _write_fake_chunks(result_root, run_id=13)
 
-    with pytest.raises(RuntimeError, match="total count"):
+    with pytest.raises(RuntimeError, match="branch chunk schedule"):
         aggregate.aggregate_w0_dense_archive(
             run_id=13,
             planning_run_id=12,
@@ -67,6 +69,83 @@ def test_strict_aggregation_rejects_missing_count(tmp_path: Path) -> None:
             storage_format="csv_gz",
             archive_scale_mode="strict",
         )
+
+
+def test_aggregation_rejects_corrupt_chunk_checksum(tmp_path: Path) -> None:
+    result_root = tmp_path / "11_w0_dense_archive"
+    _write_fake_chunks(result_root, run_id=13)
+    manifest_path = (
+        result_root
+        / "013"
+        / "chunk_manifests"
+        / "layout_branch_id=single_fan_branch"
+        / "chunk-00000.json"
+    )
+    payload = json.loads(manifest_path.read_text(encoding="ascii"))
+    payload["checksum_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="ascii")
+
+    with pytest.raises(RuntimeError, match="checksum mismatch"):
+        aggregate.aggregate_w0_dense_archive(
+            run_id=13,
+            planning_run_id=12,
+            result_root=result_root,
+            expected_trials_total=8,
+            expected_trials_per_branch=4,
+            storage_format="csv_gz",
+            archive_scale_mode="strict",
+        )
+
+
+def test_aggregation_rejects_wrong_latency_case(tmp_path: Path) -> None:
+    result_root = tmp_path / "11_w0_dense_archive"
+    _write_fake_chunks(result_root, run_id=13)
+    manifest_path = (
+        result_root
+        / "013"
+        / "chunk_manifests"
+        / "layout_branch_id=single_fan_branch"
+        / "chunk-00000.json"
+    )
+    payload = json.loads(manifest_path.read_text(encoding="ascii"))
+    payload["latency_case"] = "none"
+    manifest_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="ascii")
+
+    with pytest.raises(RuntimeError, match="latency_case mismatch"):
+        aggregate.aggregate_w0_dense_archive(
+            run_id=13,
+            planning_run_id=12,
+            result_root=result_root,
+            expected_trials_total=8,
+            expected_trials_per_branch=4,
+            storage_format="csv_gz",
+            latency_case="nominal",
+            archive_scale_mode="strict",
+        )
+
+
+def test_aggregation_reads_profile_from_custom_result_root(tmp_path: Path) -> None:
+    result_root = tmp_path / "11_w0_dense_archive"
+    _write_fake_chunks(result_root, run_id=13)
+    profile_root = result_root / "profiles" / "planning_s012"
+    profile_root.mkdir(parents=True)
+    (profile_root / "w0_profile_s012.json").write_text(
+        json.dumps({"rows_per_second_by_worker_count": {"8": 80.0}}) + "\n",
+        encoding="ascii",
+    )
+
+    paths = aggregate.aggregate_w0_dense_archive(
+        run_id=13,
+        planning_run_id=12,
+        result_root=result_root,
+        expected_trials_total=8,
+        expected_trials_per_branch=4,
+        storage_format="csv_gz",
+        archive_scale_mode="strict",
+    )
+
+    manifest = json.loads(paths["manifest_json"].read_text(encoding="ascii"))
+    assert manifest["profile_rows_per_second_by_worker_count"] == {"8": 80.0}
 
 
 def test_targeted_diagnostic_slice_filters_without_full_upload(tmp_path: Path) -> None:

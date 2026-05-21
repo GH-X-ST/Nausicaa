@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import importlib.util
+import io
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -93,24 +94,31 @@ def write_table_partition(
     path: Path,
     *,
     storage_format: str,
+    compression_level: int = 1,
 ) -> TablePartition:
     """Write one deterministic table partition and return its manifest row."""
 
     resolved_format = resolve_storage_format(storage_format)
+    _validate_compression_level(compression_level)
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = output_path.with_name(f"{output_path.name}.tmp")
     if tmp_path.exists():
         tmp_path.unlink()
 
-    if resolved_format == "parquet":
-        frame.to_parquet(tmp_path, index=False)
-    elif resolved_format == "csv_gz":
-        frame.to_csv(tmp_path, index=False, compression="gzip")
-    elif resolved_format == "csv":
-        frame.to_csv(tmp_path, index=False)
-    else:
-        raise ValueError(f"unsupported storage format: {resolved_format!r}")
+    try:
+        if resolved_format == "parquet":
+            frame.to_parquet(tmp_path, index=False)
+        elif resolved_format == "csv_gz":
+            _write_csv_gz(frame, tmp_path, compression_level=int(compression_level))
+        elif resolved_format == "csv":
+            frame.to_csv(tmp_path, index=False)
+        else:
+            raise ValueError(f"unsupported storage format: {resolved_format!r}")
+    except Exception:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise
 
     tmp_path.replace(output_path)
     stat = output_path.stat()
@@ -181,6 +189,33 @@ def partition_row_count(path: Path, *, storage_format: str | None = None) -> int
     """Return a partition row count using the normal table reader."""
 
     return int(len(read_table_partition(path, storage_format=storage_format)))
+
+
+def _validate_compression_level(compression_level: int) -> None:
+    level = int(compression_level)
+    if level < 0 or level > 9:
+        raise ValueError("compression_level must be in [0, 9].")
+
+
+def _write_csv_gz(
+    frame: pd.DataFrame,
+    tmp_path: Path,
+    *,
+    compression_level: int,
+) -> None:
+    # Writing the pandas gzip stream to an in-memory handle avoids embedding
+    # the filesystem path in the gzip header while preserving mtime=0.
+    deterministic = {
+        "method": "gzip",
+        "compresslevel": int(compression_level),
+        "mtime": 0,
+    }
+    try:
+        buffer = io.BytesIO()
+        frame.to_csv(buffer, index=False, compression=deterministic)
+        Path(tmp_path).write_bytes(buffer.getvalue())
+    except (TypeError, ValueError):
+        frame.to_csv(tmp_path, index=False, compression="gzip")
 
 
 # =============================================================================

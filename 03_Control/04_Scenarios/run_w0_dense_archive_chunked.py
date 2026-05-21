@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
-import math
 import os
 import sys
 import time
@@ -58,6 +57,14 @@ PRODUCTION_COMMAND = (
     "--max-workers 8 --latency-case nominal --storage-format auto "
     "--compression-level 1 --resume"
 )
+
+
+def _path_text(path: Path) -> str:
+    resolved = Path(path).resolve()
+    try:
+        return resolved.relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return resolved.as_posix()
 
 
 @dataclass(frozen=True)
@@ -150,11 +157,6 @@ def worker_count_decision(
     if max_workers is not None and candidate > int(max_workers):
         fallback_reasons.append(f"capped_by_max_workers_{int(max_workers)}")
         candidate = int(max_workers)
-    if cpu_count is not None:
-        cpu_cap = max(1, int(cpu_count) - 2)
-        if candidate > cpu_cap:
-            fallback_reasons.append(f"capped_by_cpu_count_minus_2_{cpu_cap}")
-            candidate = cpu_cap
     if (
         estimated_worker_memory_gb is not None
         and memory_gb is not None
@@ -220,15 +222,20 @@ def _validate_config(config: W0ChunkedRunConfig) -> None:
         raise ValueError("target_trials_per_branch must be positive.")
     if int(config.chunk_size) <= 0:
         raise ValueError("chunk_size must be positive.")
-    if int(config.compression_level) < 0:
-        raise ValueError("compression_level must be nonnegative.")
+    if int(config.target_trials_per_branch) % int(config.chunk_size) != 0:
+        raise ValueError(
+            "target_trials_per_branch must be divisible by chunk_size; "
+            "partial final chunks are not enabled for W0 production hardening."
+        )
+    if int(config.compression_level) < 0 or int(config.compression_level) > 9:
+        raise ValueError("compression_level must be in [0, 9].")
     if config.stop_after_chunks is not None and int(config.stop_after_chunks) < 0:
         raise ValueError("stop_after_chunks must be nonnegative when supplied.")
     resolve_storage_format(config.storage_format)
 
 
 def _chunk_count_per_branch(config: W0ChunkedRunConfig) -> int:
-    return int(math.ceil(float(config.target_trials_per_branch) / float(config.chunk_size)))
+    return int(config.target_trials_per_branch) // int(config.chunk_size)
 
 
 def build_chunk_schedule(config: W0ChunkedRunConfig) -> list[W0ChunkConfig]:
@@ -251,8 +258,10 @@ def build_chunk_schedule(config: W0ChunkedRunConfig) -> list[W0ChunkConfig]:
                     dt_s=float(config.dt_s),
                     horizon_s=float(config.horizon_s),
                     storage_format=str(config.storage_format),
+                    compression_level=int(config.compression_level),
                     resume=bool(config.resume),
                     overwrite_chunk=False,
+                    repair_incomplete=bool(config.repair_incomplete),
                     random_seed=int(config.random_seed),
                 )
             )
@@ -292,22 +301,35 @@ def _write_progress(
     manifest_path, report_path = _progress_paths(config)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.parent.mkdir(parents=True, exist_ok=True)
+    chunk_records = _progress_chunk_records(
+        schedule=schedule,
+        pending=pending,
+        completed=completed,
+        skipped=skipped,
+        failed=failed,
+        corrupt=corrupt,
+    )
+    status_counts = _chunk_status_counts(chunk_records)
     payload = {
         "status": "dry_run"
         if dry_run
-        else ("failed" if failed else ("complete" if not pending else "in_progress")),
+        else (
+            "failed"
+            if status_counts.get("failed", 0)
+            else ("complete" if status_counts.get("pending", 0) == 0 else "in_progress")
+        ),
         "run_id": int(config.run_id),
         "planning_run_id": int(config.planning_run_id),
         "target_trials_total": int(config.target_trials_total),
         "target_trials_per_branch": int(config.target_trials_per_branch),
         "chunk_size": int(config.chunk_size),
         "chunk_count_per_branch": _chunk_count_per_branch(config),
-        "scheduled_chunk_count": int(len(schedule)),
-        "pending_chunk_count": int(len(pending)),
-        "completed_chunk_count": int(len(completed)),
+        "scheduled_chunk_count": int(len(chunk_records)),
+        "pending_chunk_count": int(status_counts.get("pending", 0)),
+        "completed_chunk_count": int(status_counts.get("complete", 0)),
         "skipped_complete_chunk_count": int(len(skipped)),
-        "failed_chunk_count": int(len(failed)),
-        "corrupt_chunk_count": int(len(corrupt)),
+        "failed_chunk_count": int(status_counts.get("failed", 0)),
+        "corrupt_chunk_count": int(status_counts.get("corrupt", 0)),
         "workers_requested": str(config.workers),
         "selected_worker_count": int(worker_decision.selected_worker_count),
         "max_workers": worker_decision.max_workers,
@@ -325,11 +347,91 @@ def _write_progress(
         "recommended_production_command": PRODUCTION_COMMAND,
         "branch_decision_scope": "branch_local_only_no_cross_layout_decision_transfer",
         "failures": failed,
+        "chunks": chunk_records,
     }
     tmp_path = manifest_path.with_name(f"{manifest_path.name}.tmp")
     tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="ascii")
     tmp_path.replace(manifest_path)
     report_path.write_text(_progress_report(payload), encoding="ascii")
+
+
+def _progress_chunk_records(
+    *,
+    schedule: list[W0ChunkConfig],
+    pending: list[W0ChunkConfig],
+    completed: list[dict[str, object]],
+    skipped: list[W0ChunkConfig],
+    failed: list[dict[str, object]],
+    corrupt: list[W0ChunkConfig],
+) -> list[dict[str, object]]:
+    completed_keys = {
+        _chunk_key(row["layout_branch_id"], row["chunk_index"]): row
+        for row in completed
+    }
+    skipped_keys = {_chunk_key(chunk.layout_branch_id, chunk.chunk_index) for chunk in skipped}
+    pending_keys = {_chunk_key(chunk.layout_branch_id, chunk.chunk_index) for chunk in pending}
+    corrupt_keys = {_chunk_key(chunk.layout_branch_id, chunk.chunk_index) for chunk in corrupt}
+    failed_by_key = {
+        _chunk_key(row["layout_branch_id"], row["chunk_index"]): row
+        for row in failed
+    }
+    records: list[dict[str, object]] = []
+    for chunk in schedule:
+        key = _chunk_key(chunk.layout_branch_id, chunk.chunk_index)
+        if key in failed_by_key:
+            records.append(_chunk_record(chunk, status="failed", failure=failed_by_key[key]))
+        elif key in completed_keys or key in skipped_keys:
+            records.append(_chunk_record(chunk, status="complete"))
+        elif key in pending_keys:
+            records.append(_chunk_record(chunk, status="pending"))
+        elif key in corrupt_keys:
+            records.append(_chunk_record(chunk, status="corrupt"))
+        else:
+            records.append(_chunk_record(chunk, status="pending"))
+    return records
+
+
+def _chunk_key(branch_id: object, chunk_index: object) -> tuple[str, int]:
+    return str(branch_id), int(chunk_index)
+
+
+def _chunk_record(
+    chunk: W0ChunkConfig,
+    *,
+    status: str,
+    failure: dict[str, object] | None = None,
+) -> dict[str, object]:
+    paths = output_paths(chunk)
+    row_count: int | None = None
+    checksum = ""
+    if status == "complete" and paths.manifest_json.exists():
+        try:
+            payload = json.loads(paths.manifest_json.read_text(encoding="ascii"))
+            row_count = int(payload.get("row_count", 0))
+            checksum = str(payload.get("checksum_sha256", ""))
+        except (OSError, ValueError, json.JSONDecodeError):
+            status = "corrupt"
+    return {
+        "layout_branch_id": str(chunk.layout_branch_id),
+        "chunk_index": int(chunk.chunk_index),
+        "chunk_count": int(chunk.chunk_count),
+        "chunk_size": int(chunk.chunk_size),
+        "status": str(status),
+        "partition_path": _path_text(paths.partition_path),
+        "manifest_path": _path_text(paths.manifest_json),
+        "row_count": row_count,
+        "checksum_sha256": checksum,
+        "error_type": "" if failure is None else str(failure.get("error_type", "")),
+        "error": "" if failure is None else str(failure.get("error", "")),
+    }
+
+
+def _chunk_status_counts(records: list[dict[str, object]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for record in records:
+        status = str(record["status"])
+        counts[status] = counts.get(status, 0) + 1
+    return counts
 
 
 def _progress_report(payload: dict[str, object]) -> str:
@@ -370,8 +472,10 @@ def _worker_run_chunk(payload: dict[str, object]) -> dict[str, object]:
         dt_s=float(payload["dt_s"]),
         horizon_s=float(payload["horizon_s"]),
         storage_format=str(payload["storage_format"]),
+        compression_level=int(payload.get("compression_level", 1)),
         resume=bool(payload["resume"]),
         overwrite_chunk=bool(payload["overwrite_chunk"]),
+        repair_incomplete=bool(payload.get("repair_incomplete", False)),
         random_seed=int(payload["random_seed"]),
     )
     return {

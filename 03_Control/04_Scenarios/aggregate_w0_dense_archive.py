@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 import sys
 from dataclasses import dataclass
@@ -71,6 +72,7 @@ class W0AggregationConfig:
     expected_trials_total: int = 500000
     expected_trials_per_branch: int = 250000
     storage_format: str = "auto"
+    latency_case: str = "nominal"
     archive_scale_mode: str = "strict"
     build_upload_package: bool = False
     profile_source: Path | None = None
@@ -156,18 +158,81 @@ def _load_chunk_manifests(root: Path) -> pd.DataFrame:
     paths = sorted((root / "chunk_manifests").rglob("chunk-*.json"))
     rows: list[dict[str, object]] = []
     for path in paths:
-        payload = json.loads(path.read_text(encoding="ascii"))
+        try:
+            payload = json.loads(path.read_text(encoding="ascii"))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"malformed chunk manifest: {path}") from exc
         payload["_manifest_path"] = _path_text(path)
         rows.append(payload)
     return pd.DataFrame(rows)
 
 
-def _verify_chunk_manifests(
+def _verify_and_load_chunks(
+    manifests: pd.DataFrame,
+    config: W0AggregationConfig,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if manifests.empty:
+        raise FileNotFoundError("missing W0 chunk manifests.")
+    _verify_manifest_schedule(manifests, config)
+    verified_rows: list[dict[str, object]] = []
+    frames: list[pd.DataFrame] = []
+    for row in manifests.sort_values(["layout_branch_id", "chunk_index"]).to_dict(orient="records"):
+        _verify_manifest_row(row, config)
+        path = _resolve_repo_path(str(row["partition_path"]))
+        if not path.exists():
+            raise FileNotFoundError(f"missing chunk partition before aggregation: {path}")
+        checksum = file_sha256(path)
+        if checksum != str(row["checksum_sha256"]):
+            raise RuntimeError(
+                "chunk checksum mismatch before aggregation: "
+                f"{row['layout_branch_id']}:{row['chunk_index']}"
+            )
+        frame = read_table_partition(path, storage_format=str(row["storage_format"]))
+        if int(len(frame)) != int(row["row_count"]):
+            raise RuntimeError(
+                "chunk row count mismatch before aggregation: "
+                f"{row['layout_branch_id']}:{row['chunk_index']}"
+            )
+        verified = dict(row)
+        verified["_resolved_partition_path"] = str(path)
+        verified["_actual_byte_count"] = int(path.stat().st_size)
+        verified["_actual_checksum_sha256"] = checksum
+        verified["_partition_columns"] = tuple(str(column) for column in frame.columns)
+        verified_rows.append(verified)
+        frames.append(frame)
+    descriptors = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    return pd.DataFrame(verified_rows), descriptors
+
+
+def _verify_manifest_schedule(
     manifests: pd.DataFrame,
     config: W0AggregationConfig,
 ) -> None:
-    if manifests.empty:
-        raise FileNotFoundError("missing W0 chunk manifests.")
+    required = {
+        "status",
+        "run_id",
+        "planning_run_id",
+        "layout_branch_id",
+        "chunk_index",
+        "chunk_count",
+        "chunk_size",
+        "storage_format",
+        "latency_case",
+        "dt_s",
+        "horizon_s",
+        "row_count",
+        "partition_path",
+        "checksum_sha256",
+        "planning_read_s",
+        "selection_s",
+        "simulation_s",
+        "descriptor_build_s",
+        "write_s",
+        "total_s",
+    }
+    missing = sorted(required.difference(manifests.columns))
+    if missing:
+        raise RuntimeError(f"chunk manifests missing required fields: {missing}")
     incomplete = manifests[~manifests["status"].astype(str).eq("complete")]
     if not incomplete.empty:
         raise RuntimeError("not all chunk manifests are complete.")
@@ -176,17 +241,56 @@ def _verify_chunk_manifests(
         if branch.empty:
             raise RuntimeError(f"missing chunk manifests for branch: {branch_id}")
         expected_count = int(branch["chunk_count"].iloc[0])
+        if set(branch["chunk_count"].astype(int)) != {expected_count}:
+            raise RuntimeError(f"inconsistent chunk_count for branch: {branch_id}")
+        if set(branch["chunk_size"].astype(int)) != {int(branch["chunk_size"].iloc[0])}:
+            raise RuntimeError(f"inconsistent chunk_size for branch: {branch_id}")
         actual_indices = sorted(int(value) for value in branch["chunk_index"].to_list())
         if actual_indices != list(range(expected_count)):
             raise RuntimeError(f"missing chunk indices for branch: {branch_id}")
+        expected_rows = expected_count * int(branch["chunk_size"].iloc[0])
+        if (
+            str(config.archive_scale_mode) == "strict"
+            and expected_rows != int(config.expected_trials_per_branch)
+        ):
+            raise RuntimeError(
+                "strict W0 aggregation rejected branch chunk schedule: "
+                f"{branch_id} rows={expected_rows}, "
+                f"expected={int(config.expected_trials_per_branch)}"
+            )
 
 
-def _load_trial_outcomes(manifests: pd.DataFrame) -> pd.DataFrame:
-    frames: list[pd.DataFrame] = []
-    for row in manifests.to_dict(orient="records"):
-        path = _resolve_repo_path(str(row["partition_path"]))
-        frames.append(read_table_partition(path, storage_format=str(row["storage_format"])))
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+def _verify_manifest_row(
+    row: dict[str, object],
+    config: W0AggregationConfig,
+) -> None:
+    if int(row["run_id"]) != int(config.run_id):
+        raise RuntimeError("chunk manifest run_id mismatch.")
+    if int(row["planning_run_id"]) != int(config.planning_run_id):
+        raise RuntimeError("chunk manifest planning_run_id mismatch.")
+    if str(row["layout_branch_id"]) not in W0_BRANCH_IDS:
+        raise RuntimeError("chunk manifest layout_branch_id mismatch.")
+    if str(row["storage_format"]) != resolve_storage_format(config.storage_format):
+        raise RuntimeError("chunk manifest storage_format mismatch.")
+    if str(row["latency_case"]) != str(config.latency_case):
+        raise RuntimeError("chunk manifest latency_case mismatch.")
+    for key in ("dt_s", "horizon_s"):
+        value = float(row[key])
+        if not math.isfinite(value) or value <= 0.0:
+            raise RuntimeError(f"chunk manifest invalid {key}.")
+    for key in (
+        "planning_read_s",
+        "selection_s",
+        "simulation_s",
+        "descriptor_build_s",
+        "write_s",
+        "total_s",
+    ):
+        value = float(row[key])
+        if not math.isfinite(value) or value < 0.0:
+            raise RuntimeError(f"chunk manifest invalid timing field: {key}")
+    if int(row["row_count"]) <= 0:
+        raise RuntimeError("chunk manifest row_count must be positive.")
 
 
 def _resolve_repo_path(path_text: str) -> Path:
@@ -194,6 +298,16 @@ def _resolve_repo_path(path_text: str) -> Path:
     if path.exists():
         return path
     return REPO_ROOT / path_text
+
+
+def _load_trial_outcomes_for_slice(manifests: pd.DataFrame) -> pd.DataFrame:
+    frames: list[pd.DataFrame] = []
+    for row in manifests.to_dict(orient="records"):
+        if str(row.get("status", "")) != "complete":
+            continue
+        path = _resolve_repo_path(str(row["partition_path"]))
+        frames.append(read_table_partition(path, storage_format=str(row["storage_format"])))
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
 def _verify_counts(descriptors: pd.DataFrame, config: W0AggregationConfig) -> None:
@@ -220,17 +334,16 @@ def _table_manifest_from_chunks(
 ) -> TableManifest:
     partitions: list[TablePartition] = []
     for row in manifests.to_dict(orient="records"):
-        path = _resolve_repo_path(str(row["partition_path"]))
-        frame_columns = tuple(read_table_partition(path).columns)
+        path = Path(str(row["_resolved_partition_path"]))
         partitions.append(
             TablePartition(
                 table_name="trial_outcomes",
                 relative_path=_path_text(path),
                 storage_format=str(row["storage_format"]),
                 row_count=int(row["row_count"]),
-                byte_count=int(path.stat().st_size),
-                columns=frame_columns,
-                checksum_sha256=file_sha256(path),
+                byte_count=int(row["_actual_byte_count"]),
+                columns=tuple(row["_partition_columns"]),
+                checksum_sha256=str(row["_actual_checksum_sha256"]),
             )
         )
     return TableManifest(
@@ -316,7 +429,7 @@ def _load_profile_payload(config: W0AggregationConfig) -> dict[str, object]:
     if config.profile_source is not None and Path(config.profile_source).exists():
         return json.loads(Path(config.profile_source).read_text(encoding="ascii"))
     default = (
-        DEFAULT_RESULT_ROOT
+        _active_result_root(config)
         / "profiles"
         / f"planning_s{int(config.planning_run_id):03d}"
         / f"w0_profile_s{int(config.planning_run_id):03d}.json"
@@ -348,6 +461,7 @@ def _manifest(
         "expected_trials_per_branch": int(config.expected_trials_per_branch),
         "archive_scale_mode": str(config.archive_scale_mode),
         "storage_format": resolve_storage_format(config.storage_format),
+        "latency_case": str(config.latency_case),
         "chunk_manifest_count": int(len(chunk_summary)),
         "envelope_cell_count": int(len(envelope)),
         "cluster_representative_count": int(len(clusters)),
@@ -520,6 +634,7 @@ def aggregate_w0_dense_archive(
     expected_trials_total: int = 500000,
     expected_trials_per_branch: int = 250000,
     storage_format: str = "auto",
+    latency_case: str = "nominal",
     archive_scale_mode: str = "strict",
     build_upload_package: bool = False,
     profile_source: Path | None = None,
@@ -533,6 +648,7 @@ def aggregate_w0_dense_archive(
         expected_trials_total=int(expected_trials_total),
         expected_trials_per_branch=int(expected_trials_per_branch),
         storage_format=str(storage_format),
+        latency_case=str(latency_case),
         archive_scale_mode=str(archive_scale_mode),
         build_upload_package=bool(build_upload_package),
         profile_source=profile_source,
@@ -547,9 +663,8 @@ def aggregate_w0_dense_archive(
     ):
         path.mkdir(parents=True, exist_ok=True)
 
-    chunk_summary = _load_chunk_manifests(outputs.root)
-    _verify_chunk_manifests(chunk_summary, config)
-    descriptors = _load_trial_outcomes(chunk_summary)
+    raw_chunk_summary = _load_chunk_manifests(outputs.root)
+    chunk_summary, descriptors = _verify_and_load_chunks(raw_chunk_summary, config)
     _verify_counts(descriptors, config)
 
     envelope = build_envelope_map(descriptors)
@@ -621,7 +736,7 @@ def export_diagnostic_slice(
     config = W0AggregationConfig(run_id=int(run_id), result_root=result_root)
     root = _run_root(config)
     manifests = _load_chunk_manifests(root)
-    descriptors = _load_trial_outcomes(manifests)
+    descriptors = _load_trial_outcomes_for_slice(manifests)
     frame = descriptors.copy()
     if layout_branch_id:
         frame = frame[frame["layout_branch_id"].astype(str).eq(str(layout_branch_id))]
@@ -649,6 +764,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-trials-total", type=int, default=500000)
     parser.add_argument("--expected-trials-per-branch", type=int, default=250000)
     parser.add_argument("--storage-format", default="auto")
+    parser.add_argument("--latency-case", default="nominal")
     parser.add_argument("--archive-scale-mode", default="strict")
     parser.add_argument("--build-upload-package", action="store_true")
     parser.add_argument("--profile-source", type=Path, default=None)
@@ -682,6 +798,7 @@ def main() -> int:
         expected_trials_total=args.expected_trials_total,
         expected_trials_per_branch=args.expected_trials_per_branch,
         storage_format=args.storage_format,
+        latency_case=args.latency_case,
         archive_scale_mode=args.archive_scale_mode,
         build_upload_package=args.build_upload_package,
         profile_source=args.profile_source,

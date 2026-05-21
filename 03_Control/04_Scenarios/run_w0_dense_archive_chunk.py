@@ -25,7 +25,6 @@ from dense_archive_schema import BRANCH_DECISION_SCOPE  # noqa: E402
 from dense_archive_table_io import (  # noqa: E402
     TablePartition,
     file_sha256,
-    list_table_partitions,
     partition_row_count,
     read_table_partition,
     resolve_storage_format,
@@ -80,8 +79,10 @@ class W0ChunkConfig:
     dt_s: float = 0.02
     horizon_s: float = 0.60
     storage_format: str = "auto"
+    compression_level: int = 1
     resume: bool = True
     overwrite_chunk: bool = False
+    repair_incomplete: bool = False
     random_seed: int = 20260525
 
 
@@ -171,6 +172,8 @@ def validate_config(config: W0ChunkConfig) -> None:
         raise ValueError("dt_s must be finite and positive.")
     if not np.isfinite(float(config.horizon_s)) or float(config.horizon_s) <= 0.0:
         raise ValueError("horizon_s must be finite and positive.")
+    if int(config.compression_level) < 0 or int(config.compression_level) > 9:
+        raise ValueError("compression_level must be in [0, 9].")
     resolve_storage_format(config.storage_format)
 
 
@@ -230,7 +233,9 @@ def remove_chunk_outputs(config: W0ChunkConfig) -> None:
         outputs.partition_path,
         outputs.partition_path.with_name(f"{outputs.partition_path.name}.tmp"),
         outputs.manifest_json,
+        outputs.manifest_json.with_name(f"{outputs.manifest_json.name}.tmp"),
         outputs.log_path,
+        outputs.log_path.with_name(f"{outputs.log_path.name}.tmp"),
     ):
         if path.exists():
             path.unlink()
@@ -241,32 +246,94 @@ def _load_branch_planning(
 ) -> tuple[pd.DataFrame, pd.DataFrame, float]:
     start = time.perf_counter()
     root = planning_run_root(config)
-    candidate_paths = _branch_paths(
-        list_table_partitions(root, "candidate_index"),
-        config.layout_branch_id,
+    candidate_path = _planning_chunk_path(root, "candidate_index", config)
+    start_path = _planning_chunk_path(root, "start_states", config)
+    if not candidate_path.exists():
+        raise FileNotFoundError(
+            "missing candidate_index branch/chunk partition before replay: "
+            f"{candidate_path}"
+        )
+    if not start_path.exists():
+        raise FileNotFoundError(
+            "missing start_states branch/chunk partition before replay: "
+            f"{start_path}"
+        )
+    candidates = read_table_partition(
+        candidate_path,
+        storage_format=resolve_storage_format(config.storage_format),
     )
-    start_paths = _branch_paths(
-        list_table_partitions(root, "start_states"),
-        config.layout_branch_id,
+    starts = read_table_partition(
+        start_path,
+        storage_format=resolve_storage_format(config.storage_format),
     )
-    if not candidate_paths:
-        raise FileNotFoundError(f"missing candidate_index partitions for {config.layout_branch_id}")
-    if not start_paths:
-        raise FileNotFoundError(f"missing start_states partitions for {config.layout_branch_id}")
-    candidates = pd.concat(
-        [read_table_partition(path) for path in candidate_paths],
-        ignore_index=True,
-    )
-    starts = pd.concat(
-        [read_table_partition(path) for path in start_paths],
-        ignore_index=True,
-    )
+    _validate_planning_chunk(starts, candidates, config)
     return starts, candidates, time.perf_counter() - start
 
 
-def _branch_paths(paths: list[Path], branch_id: str) -> list[Path]:
-    marker = f"layout_branch_id={branch_id}"
-    return [path for path in paths if marker in path.as_posix()]
+def _planning_chunk_path(
+    root: Path,
+    table_name: str,
+    config: W0ChunkConfig,
+) -> Path:
+    return (
+        root
+        / "tables"
+        / table_name
+        / f"layout_branch_id={config.layout_branch_id}"
+        / f"archive_chunk_index={int(config.chunk_index):05d}"
+        / f"part-00000.{table_extension(config.storage_format)}"
+    )
+
+
+def _validate_planning_chunk(
+    starts: pd.DataFrame,
+    candidates: pd.DataFrame,
+    config: W0ChunkConfig,
+) -> None:
+    if int(len(candidates)) != int(config.chunk_size):
+        raise ValueError(
+            "candidate_index chunk row count mismatch: "
+            f"actual={len(candidates)}, expected={int(config.chunk_size)}"
+        )
+    if int(len(starts)) != int(len(candidates)):
+        raise ValueError(
+            "start_states chunk row count must match candidate_index row count."
+        )
+    candidate_ids = candidates["sample_id"].astype(str).to_list()
+    start_ids = starts["sample_id"].astype(str).to_list()
+    if candidate_ids != start_ids:
+        raise ValueError("candidate_index and start_states sample_id order mismatch.")
+    for name, frame in (("candidate_index", candidates), ("start_states", starts)):
+        _validate_chunk_columns(name, frame, config)
+
+
+def _validate_chunk_columns(
+    table_name: str,
+    frame: pd.DataFrame,
+    config: W0ChunkConfig,
+) -> None:
+    required = {
+        "archive_chunk_index",
+        "archive_chunk_count",
+        "chunk_local_index",
+        "archive_chunk_size",
+        "archive_branch_trial_index",
+    }
+    missing = sorted(required.difference(frame.columns))
+    if missing:
+        raise ValueError(f"{table_name} missing archive chunk columns: {missing}")
+    if set(frame["layout_branch_id"].astype(str)) != {str(config.layout_branch_id)}:
+        raise ValueError(f"{table_name} layout_branch_id mismatch.")
+    if set(frame["archive_chunk_index"].astype(int)) != {int(config.chunk_index)}:
+        raise ValueError(f"{table_name} archive_chunk_index mismatch.")
+    if set(frame["archive_chunk_count"].astype(int)) != {int(config.chunk_count)}:
+        raise ValueError(f"{table_name} archive_chunk_count mismatch.")
+    if set(frame["archive_chunk_size"].astype(int)) != {int(config.chunk_size)}:
+        raise ValueError(f"{table_name} archive_chunk_size mismatch.")
+    expected_local = list(range(int(config.chunk_size)))
+    actual_local = frame["chunk_local_index"].astype(int).to_list()
+    if actual_local != expected_local:
+        raise ValueError(f"{table_name} chunk_local_index sequence mismatch.")
 
 
 def _select_chunk_candidates(
@@ -274,24 +341,19 @@ def _select_chunk_candidates(
     config: W0ChunkConfig,
 ) -> tuple[list[dict[str, object]], float]:
     start = time.perf_counter()
-    branch = candidates[
-        candidates["layout_branch_id"].astype(str).eq(str(config.layout_branch_id))
-    ].copy()
-    branch["_selection_key"] = [
-        _candidate_sort_key(row) for row in branch.to_dict(orient="records")
-    ]
-    branch = branch.sort_values("_selection_key", kind="mergesort").drop(columns=["_selection_key"])
-    offset = int(config.chunk_index) * int(config.chunk_size)
-    selected = branch.iloc[offset : offset + int(config.chunk_size)].copy()
-    return selected.to_dict(orient="records"), time.perf_counter() - start
+    del config
+    return candidates.to_dict(orient="records"), time.perf_counter() - start
 
 
 def _select_start_rows(
     starts: pd.DataFrame,
     selected: list[dict[str, object]],
 ) -> pd.DataFrame:
-    sample_ids = {str(row["sample_id"]) for row in selected}
-    return starts[starts["sample_id"].astype(str).isin(sample_ids)].copy()
+    selected_ids = [str(row["sample_id"]) for row in selected]
+    start_ids = starts["sample_id"].astype(str).to_list()
+    if selected_ids != start_ids:
+        raise ValueError("selected candidates and start rows have mismatched sample_id order.")
+    return starts.copy()
 
 
 # =============================================================================
@@ -322,6 +384,7 @@ def _write_chunk(
         descriptors,
         outputs.partition_path,
         storage_format=config.storage_format,
+        compression_level=int(config.compression_level),
     )
     return partition, time.perf_counter() - start
 
@@ -344,6 +407,7 @@ def _write_manifest(
         "chunk_count": int(config.chunk_count),
         "chunk_size": int(config.chunk_size),
         "storage_format": resolve_storage_format(config.storage_format),
+        "compression_level": int(config.compression_level),
         "latency_case": str(config.latency_case),
         "dt_s": float(config.dt_s),
         "horizon_s": float(config.horizon_s),
@@ -387,8 +451,10 @@ def run_w0_dense_archive_chunk(
     dt_s: float = 0.02,
     horizon_s: float = 0.60,
     storage_format: str = "auto",
+    compression_level: int = 1,
     resume: bool = True,
     overwrite_chunk: bool = False,
+    repair_incomplete: bool = False,
     random_seed: int = 20260525,
 ) -> dict[str, Path]:
     """Replay one deterministic W0 branch/chunk and write one partition."""
@@ -405,21 +471,33 @@ def run_w0_dense_archive_chunk(
         dt_s=float(dt_s),
         horizon_s=float(horizon_s),
         storage_format=str(storage_format),
+        compression_level=int(compression_level),
         resume=bool(resume),
         overwrite_chunk=bool(overwrite_chunk),
+        repair_incomplete=bool(repair_incomplete),
         random_seed=int(random_seed),
     )
     validate_config(config)
     outputs = output_paths(config)
     if bool(config.overwrite_chunk):
         remove_chunk_outputs(config)
-    elif bool(config.resume) and chunk_status(config) == "complete":
-        return outputs.as_dict()
-    elif outputs.partition_path.exists() or outputs.manifest_json.exists():
-        raise RuntimeError(
-            "chunk output exists but is incomplete/corrupt; use --overwrite-chunk "
-            "or let the master runner use --repair-incomplete."
-        )
+    else:
+        status = chunk_status(config)
+        if bool(config.resume) and status == "complete":
+            return outputs.as_dict()
+        if status == "corrupt" and bool(config.repair_incomplete):
+            remove_chunk_outputs(config)
+        elif status == "corrupt":
+            raise RuntimeError(
+                "chunk output exists but is incomplete/corrupt; use "
+                "--repair-incomplete to remove only this chunk's files, or "
+                "--overwrite-chunk to rerun a complete chunk."
+            )
+        elif status == "complete":
+            raise RuntimeError(
+                "chunk output already complete; use --resume to skip it or "
+                "--overwrite-chunk to rerun it."
+            )
 
     total_start = time.perf_counter()
     starts, candidates, planning_read_s = _load_branch_planning(config)
@@ -458,8 +536,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--dt-s", type=float, default=0.02)
     parser.add_argument("--horizon-s", type=float, default=0.60)
     parser.add_argument("--storage-format", default="auto")
+    parser.add_argument("--compression-level", type=int, default=1)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--overwrite-chunk", action="store_true")
+    parser.add_argument("--repair-incomplete", action="store_true")
     parser.add_argument("--random-seed", type=int, default=20260525)
     return parser.parse_args()
 
@@ -478,8 +558,10 @@ def main() -> int:
         dt_s=args.dt_s,
         horizon_s=args.horizon_s,
         storage_format=args.storage_format,
+        compression_level=args.compression_level,
         resume=args.resume,
         overwrite_chunk=args.overwrite_chunk,
+        repair_incomplete=args.repair_incomplete,
         random_seed=args.random_seed,
     )
     print(f"w0_dense_archive_chunk_outputs={_path_text(paths['root'])}")

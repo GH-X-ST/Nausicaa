@@ -23,5 +23,8 @@ def test_chunked_dry_run_stop_after_chunks_records_pending_subset(tmp_path: Path
 
     manifest = json.loads(paths["progress_manifest_json"].read_text(encoding="ascii"))
     assert manifest["scheduled_chunk_count"] == 8
-    assert manifest["pending_chunk_count"] == 3
+    assert manifest["pending_chunk_count"] == 8
     assert manifest["selected_worker_count"] == 1
+    assert len(manifest["chunks"]) == 8
+    assert manifest["chunks"][0]["status"] == "pending"
+    assert manifest["chunks"][0]["manifest_path"].endswith("chunk-00000.json")

@@ -69,7 +69,7 @@ class W0PartitionedPlanningConfig:
     pilot_start_states_per_family_target_direction: int = 3677
     random_seed: int = 20260525
     storage_format: str = "auto"
-    partition_rows: int = 25000
+    partition_rows: int = 2500
     overwrite: bool = False
 
 
@@ -153,6 +153,11 @@ def _validate_config(config: W0PartitionedPlanningConfig) -> None:
         raise ValueError("floor_trials_per_branch must be positive.")
     if int(config.partition_rows) <= 0:
         raise ValueError("partition_rows must be positive.")
+    if int(config.target_trials_per_branch) % int(config.partition_rows) != 0:
+        raise ValueError(
+            "target_trials_per_branch must be divisible by partition_rows so "
+            "W0 planning partitions align exactly with execution chunks."
+        )
     resolve_storage_format(config.storage_format)
 
 
@@ -189,11 +194,80 @@ def _build_w0_tables(
         w0_candidates,
         per_branch=int(config.target_trials_per_branch),
     )
-    sample_ids = set(selected_candidates["sample_id"].astype(str))
-    selected_starts = start_states[
-        start_states["sample_id"].astype(str).isin(sample_ids)
-    ].copy()
+    selected_starts, selected_candidates = _add_archive_chunk_columns(
+        start_states,
+        selected_candidates,
+        chunk_size=int(config.partition_rows),
+        target_trials_per_branch=int(config.target_trials_per_branch),
+    )
     return selected_starts, selected_candidates
+
+
+def _add_archive_chunk_columns(
+    start_states: pd.DataFrame,
+    candidates: pd.DataFrame,
+    *,
+    chunk_size: int,
+    target_trials_per_branch: int,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    chunk_count = int(target_trials_per_branch) // int(chunk_size)
+    candidate_rows: list[pd.DataFrame] = []
+    start_rows: list[pd.DataFrame] = []
+    start_by_sample = {
+        str(row["sample_id"]): row
+        for row in start_states.to_dict(orient="records")
+    }
+    for branch_id in W0_BRANCH_IDS:
+        branch_candidates = candidates[
+            candidates["layout_branch_id"].astype(str).eq(branch_id)
+        ].copy()
+        branch_candidates = branch_candidates.reset_index(drop=True)
+        if len(branch_candidates) != int(target_trials_per_branch):
+            raise RuntimeError(
+                "selected W0 candidates do not match the target branch count "
+                f"for {branch_id}: {len(branch_candidates)}"
+            )
+        metadata = _chunk_metadata(
+            row_count=len(branch_candidates),
+            chunk_size=int(chunk_size),
+            chunk_count=chunk_count,
+        )
+        branch_candidates = pd.concat([branch_candidates, metadata], axis=1)
+        candidate_rows.append(branch_candidates)
+
+        branch_start_records: list[dict[str, object]] = []
+        for sample_id in branch_candidates["sample_id"].astype(str).to_list():
+            if sample_id not in start_by_sample:
+                raise KeyError(f"candidate sample_id missing from start states: {sample_id}")
+            branch_start_records.append(dict(start_by_sample[sample_id]))
+        branch_starts = pd.DataFrame(branch_start_records)
+        branch_starts = pd.concat(
+            [branch_starts.reset_index(drop=True), metadata.copy()],
+            axis=1,
+        )
+        start_rows.append(branch_starts)
+    return (
+        pd.concat(start_rows, ignore_index=True),
+        pd.concat(candidate_rows, ignore_index=True),
+    )
+
+
+def _chunk_metadata(
+    *,
+    row_count: int,
+    chunk_size: int,
+    chunk_count: int,
+) -> pd.DataFrame:
+    indices = pd.Series(range(int(row_count)), dtype="int64")
+    return pd.DataFrame(
+        {
+            "archive_chunk_index": indices // int(chunk_size),
+            "archive_chunk_count": int(chunk_count),
+            "chunk_local_index": indices % int(chunk_size),
+            "archive_chunk_size": int(chunk_size),
+            "archive_branch_trial_index": indices,
+        }
+    )
 
 
 def _select_branch_quota(candidates: pd.DataFrame, *, per_branch: int) -> pd.DataFrame:
@@ -283,10 +357,19 @@ def _write_partitioned_table(
         branch = frame[frame["layout_branch_id"].astype(str).eq(branch_id)].copy()
         branch = branch.reset_index(drop=True)
         branch_root = root / "tables" / table_name / f"layout_branch_id={branch_id}"
-        for start in range(0, len(branch), int(partition_rows)):
-            index = start // int(partition_rows)
-            part = branch.iloc[start : start + int(partition_rows)].copy()
-            path = branch_root / f"part-{index:05d}.{extension}"
+        for chunk_index, part in branch.groupby("archive_chunk_index", sort=True):
+            chunk_value = int(chunk_index)
+            part = part.sort_values("chunk_local_index", kind="mergesort").copy()
+            if len(part) != int(partition_rows):
+                raise RuntimeError(
+                    f"{table_name} chunk {branch_id}:{chunk_value} has "
+                    f"{len(part)} rows; expected {int(partition_rows)}."
+                )
+            path = (
+                branch_root
+                / f"archive_chunk_index={chunk_value:05d}"
+                / f"part-00000.{extension}"
+            )
             partitions.append(
                 write_table_partition(part, path, storage_format=storage_format)
             )
@@ -369,6 +452,10 @@ def _manifest(
         },
         "storage_format": str(table_manifest.storage_format),
         "partition_rows": int(config.partition_rows),
+        "archive_chunk_size": int(config.partition_rows),
+        "archive_chunk_count_per_branch": (
+            int(config.target_trials_per_branch) // int(config.partition_rows)
+        ),
         "w0_partitioned_planning_performed": True,
         "w0_replay_performed": False,
         "w1_w2_w3_w4_w5_performed": False,
@@ -404,7 +491,7 @@ def run_w0_partitioned_planning(
     pilot_start_states_per_family_target_direction: int = 3677,
     random_seed: int = 20260525,
     storage_format: str = "auto",
-    partition_rows: int = 25000,
+    partition_rows: int = 2500,
     overwrite: bool = False,
 ) -> dict[str, Path]:
     """Write partitioned W0 branch-local planning inputs without replay."""
@@ -500,7 +587,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--random-seed", type=int, default=20260525)
     parser.add_argument("--storage-format", default="auto")
-    parser.add_argument("--partition-rows", type=int, default=25000)
+    parser.add_argument("--partition-rows", type=int, default=2500)
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 

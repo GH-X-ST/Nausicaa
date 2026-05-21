@@ -206,6 +206,8 @@ def _run_pilot_replays(
     start_states: pd.DataFrame,
     candidates: list[dict[str, object]],
     config: DensePilotSweepConfig,
+    *,
+    use_command_cache: bool = True,
 ) -> pd.DataFrame:
     if not candidates:
         return pd.DataFrame(columns=DENSE_TRIAL_DESCRIPTOR_COLUMNS)
@@ -217,6 +219,10 @@ def _run_pilot_replays(
     latency_config = latency_case_config(config.latency_case)
     actuator_tau = actuator_tau_for_case(latency_config)
     wind_cache: dict[str, object] = {}
+    time_s = _time_grid(float(config.dt_s), float(config.horizon_s))
+    command_cache: dict[tuple[object, ...], np.ndarray] | None = (
+        {} if bool(use_command_cache) else None
+    )
     rows: list[dict[str, object]] = []
     for index, candidate_row in enumerate(candidates):
         sample_id = _text(candidate_row["sample_id"])
@@ -233,6 +239,8 @@ def _run_pilot_replays(
                 latency_config=latency_config,
                 actuator_tau=actuator_tau,
                 wind_cache=wind_cache,
+                time_s=time_s,
+                command_cache=command_cache,
             )
         )
     return pd.DataFrame(rows, columns=DENSE_TRIAL_DESCRIPTOR_COLUMNS)
@@ -248,10 +256,17 @@ def _replay_one_candidate(
     latency_config: object,
     actuator_tau: tuple[float, float, float],
     wind_cache: dict[str, object],
+    time_s: np.ndarray | None = None,
+    command_cache: dict[tuple[object, ...], np.ndarray] | None = None,
 ) -> dict[str, object]:
-    time_s = _time_grid(float(config.dt_s), float(config.horizon_s))
-    spec = _candidate_spec(candidate_row, config.horizon_s)
-    u_requested, _ = generate_command_profile(spec, time_s)
+    if time_s is None:
+        time_s = _time_grid(float(config.dt_s), float(config.horizon_s))
+    u_requested = _command_profile_for_candidate(
+        candidate_row,
+        horizon_s=float(config.horizon_s),
+        time_s=time_s,
+        command_cache=command_cache,
+    )
     x0 = _initial_state_from_start(start_row)
     wind_model = _wind_model_for_candidate(candidate_row, wind_cache)
     wind_mode = "none" if _is_w0(candidate_row) else "panel"
@@ -318,6 +333,45 @@ def _replay_one_candidate(
         lift_exposure_m_s=_lift_exposure(replay["x_ref"], wind_model, _is_w0(candidate_row)),
         sim_real_transfer_result="not_evaluated",
         wind_model_z_axis_m=getattr(wind_model, "z_axis_m", None),
+    )
+
+
+def _command_profile_for_candidate(
+    candidate_row: MappingLike,
+    *,
+    horizon_s: float,
+    time_s: np.ndarray,
+    command_cache: dict[tuple[object, ...], np.ndarray] | None,
+) -> np.ndarray:
+    key = _command_cache_key(candidate_row, horizon_s=horizon_s, time_s=time_s)
+    if command_cache is not None and key in command_cache:
+        return command_cache[key]
+    spec = _candidate_spec(candidate_row, horizon_s)
+    u_requested, _ = generate_command_profile(spec, time_s)
+    if command_cache is not None:
+        command_cache[key] = u_requested
+    return u_requested
+
+
+def _command_cache_key(
+    candidate_row: MappingLike,
+    *,
+    horizon_s: float,
+    time_s: np.ndarray,
+) -> tuple[object, ...]:
+    # The command depends on primitive specification and sampling grid only;
+    # start state, wind model, and latency are applied later in the replay.
+    return (
+        _text(candidate_row.get("candidate_id", "")),
+        _text(candidate_row.get("family", "")),
+        _target_sort_value(candidate_row.get("target_heading_deg", "")),
+        _direction_int(candidate_row.get("direction_sign", 1)),
+        _text(candidate_row.get("test_environment_mode", "")),
+        _text(candidate_row.get("start_class", "")),
+        float(horizon_s),
+        int(np.asarray(time_s).size),
+        float(time_s[1] - time_s[0]) if np.asarray(time_s).size > 1 else 0.0,
+        float(time_s[-1]) if np.asarray(time_s).size else 0.0,
     )
 
 
