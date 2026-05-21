@@ -1,0 +1,67 @@
+{
+  "status": "complete",
+  "reference_run_id": 17,
+  "d1a_archive_run_id": 16,
+  "d1a_planning_run_id": 15,
+  "runtime_budget_hours": 5.0,
+  "runtime_buffer_fraction": 0.2,
+  "no_overclaiming_statement": "D2 trajectory-optimised simulation boundary refinement only; success is judged from nominal-latency closed-loop TVLQR/local-feedback rollout, not open-loop optimiser rollout or command-template pulses. No production-floor completion, W2/W3/W4/W5 completion, mission success, hardware readiness, or sim-to-real completion claim is made.",
+  "d1a_d1b_outputs_immutable": true,
+  "wall_floor_ceiling_safety_hard": true,
+  "speed_height_loss_recoverable_only_when_logged": true,
+  "success_judgement": "nominal_latency_closed_loop_tvlqr_or_labelled_local_feedback_only",
+  "command_template_role": "initial_guess_or_ablation_only",
+  "output_files": {
+    "manifest_json": "03_Control/05_Results/13_agile_trajectory_optimisation/017/manifests/agile_reference_manifest_s017.json",
+    "profile_csv": "03_Control/05_Results/13_agile_trajectory_optimisation/017/metrics/agile_reference_profile_s017.csv",
+    "reference_index_csv": "03_Control/05_Results/13_agile_trajectory_optimisation/017/metrics/agile_reference_index_s017.csv",
+    "reference_samples_path": "03_Control/05_Results/13_agile_trajectory_optimisation/017/tables/agile_reference_samples/part-00000.csv.gz",
+    "table_manifest_json": "03_Control/05_Results/13_agile_trajectory_optimisation/017/manifests/table_manifest_s017.json",
+    "report_md": "03_Control/05_Results/13_agile_trajectory_optimisation/017/reports/agile_reference_report_s017.md"
+  },
+  "selected_reference_library_size": 512,
+  "selected_d2_scale_class": "primary",
+  "selected_projected_total_runtime_s": 7408.095494100617,
+  "runtime_budget_status": "pass",
+  "allowed_runtime_with_buffer_s": 14400.0,
+  "seconds_per_reference_mean": 7.296734356248635,
+  "optimizer_success_rate": 0.0,
+  "tvlqr_success_rate": 1.0,
+  "local_feedback_fallback_rate": 0.0,
+  "closed_loop_nominal_pass_rate": 0.0625,
+  "projections": [
+    {
+      "reference_library_size": 512,
+      "d2_scale_class": "primary",
+      "projected_total_runtime_s": 7408.095494100617,
+      "feasible_under_buffered_budget": true
+    },
+    {
+      "reference_library_size": 256,
+      "d2_scale_class": "primary",
+      "projected_total_runtime_s": 5540.131498900966,
+      "feasible_under_buffered_budget": true
+    },
+    {
+      "reference_library_size": 128,
+      "d2_scale_class": "primary",
+      "projected_total_runtime_s": 4606.149501301141,
+      "feasible_under_buffered_budget": true
+    },
+    {
+      "reference_library_size": 128,
+      "d2_scale_class": "fast",
+      "projected_total_runtime_s": 2939.482834634475,
+      "feasible_under_buffered_budget": true
+    }
+  ],
+  "reference_count": 512,
+  "sample_row_count": 15494,
+  "optimizer_success_count": 72,
+  "closed_loop_success_count": 8,
+  "reference_generation_method": "slsqp_direct_shooting_reference",
+  "d2_success_judged_from": "nominal_latency_closed_loop_tvlqr_or_labelled_local_feedback",
+  "command_templates_role": "initial_guess_or_ablation_only",
+  "reference_index_sha256": "b55f48738e414aa1ed1dbb15ab7384cb78fd64afdea2fdeb1526e9bbfd1c9d49",
+  "reference_samples_sha256": "7fea491fbc5cdc20a9656946d0549707b89555e63b3dd2a3b0cf7d9fe7ae1c20"
+}

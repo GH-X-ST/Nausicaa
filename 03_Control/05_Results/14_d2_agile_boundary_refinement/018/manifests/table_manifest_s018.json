@@ -1,0 +1,49 @@
+{
+  "run_id": 18,
+  "root": "03_Control/05_Results/14_d2_agile_boundary_refinement/018",
+  "storage_format": "csv_gz",
+  "tables": [
+    {
+      "table_name": "d2_trial_descriptors",
+      "relative_path": "d2_trial_descriptors/part-00000.csv.gz",
+      "storage_format": "csv_gz",
+      "row_count": 50000,
+      "byte_count": 5234390,
+      "columns": [
+        "d2_trial_id",
+        "trajectory_id",
+        "trajectory_generation_method",
+        "optimizer_status",
+        "tvlqr_status",
+        "controller_config_id",
+        "agile_evidence_class",
+        "layout_branch_id",
+        "fan_layout",
+        "test_environment_mode",
+        "family",
+        "target_heading_deg",
+        "direction_sign",
+        "source_sample_id",
+        "reference_horizon_s",
+        "terminal_heading_target_deg",
+        "achieved_heading_deg",
+        "terminal_heading_error_deg",
+        "terminal_speed_m_s",
+        "height_loss_m",
+        "minimum_safety_margin_m",
+        "actuator_saturation_fraction",
+        "closed_loop_tracking_error_rms",
+        "latency_case",
+        "latency_pass_label",
+        "success_flag",
+        "failure_label",
+        "closed_loop_replay_performed",
+        "open_loop_optimizer_success_used_for_acceptance",
+        "command_template_success_used_for_acceptance",
+        "wall_floor_ceiling_safety_hard",
+        "speed_height_loss_recoverable_only_when_logged"
+      ],
+      "checksum_sha256": "1b556dd2be2e7cb820c9851362aac51a4eb2c34fbea95c017a75d36cb28c7880"
+    }
+  ]
+}
