@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 import aggregate_paired_w0_w1_archive as aggregate
+import run_paired_w0_w1_partitioned_planning as planning
 from dense_archive_chunking import partition_path
 from dense_archive_table_io import write_table_partition
 from dense_archive_trial_logging import DENSE_TRIAL_DESCRIPTOR_COLUMNS
@@ -148,8 +149,10 @@ def test_w1_only_active_aggregation_does_not_require_w0_chunks(tmp_path: Path) -
 
 def test_production_aggregation_accepts_separate_w0_w1_expected_counts(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     result_root = _short_result_root(tmp_path)
+    _set_d1a_contract(monkeypatch, "thesis_primary", w0=1, w1=3)
     row_counts = {
         "W0_single_fan_branch": 1,
         "W0_four_fan_branch": 1,
@@ -172,6 +175,7 @@ def test_production_aggregation_accepts_separate_w0_w1_expected_counts(
         paired_scale_mode="production",
         expected_w0_trials_per_environment=1,
         expected_w1_trials_per_environment=3,
+        d1a_evidence_class="thesis_primary",
     )
 
     manifest = json.loads(paths["manifest_json"].read_text(encoding="ascii"))
@@ -179,9 +183,15 @@ def test_production_aggregation_accepts_separate_w0_w1_expected_counts(
     assert manifest["expected_w0_trials_per_environment"] == 1
     assert manifest["expected_w1_trials_per_environment"] == 3
     assert manifest["expected_trials_by_environment"] == row_counts
+    assert manifest["d1a_evidence_class"] == "thesis_primary"
+    assert manifest["d1a_target_contract"] == "updated_thesis_scale_v1"
+    assert manifest["d1a_w0_trials_per_environment"] == 1
+    assert manifest["d1a_w1_trials_per_environment"] == 3
     assert manifest["trial_count_by_environment"] == row_counts
-    assert "D1a production-floor" in manifest["no_overclaiming_statement"]
+    assert "D1a thesis-scale" in manifest["no_overclaiming_statement"]
+    assert "hardware readiness" in manifest["no_overclaiming_statement"]
     assert "proof only" not in manifest["no_overclaiming_statement"]
+    assert "production-floor paired" not in manifest["no_overclaiming_statement"]
 
 
 def test_aggregation_rejects_uniform_and_role_expected_count_conflict(
@@ -195,6 +205,25 @@ def test_aggregation_rejects_uniform_and_role_expected_count_conflict(
             storage_format="csv_gz",
             expected_trials_per_environment=2,
             expected_w0_trials_per_environment=1,
+        )
+
+
+def test_aggregation_rejects_d1a_count_mismatch(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_d1a_contract(monkeypatch, "thesis_primary", w0=1, w1=3)
+
+    with pytest.raises(ValueError, match="does not match"):
+        aggregate.aggregate_paired_w0_w1_archive(
+            run_id=16,
+            planning_run_id=15,
+            result_root=_short_result_root(tmp_path),
+            storage_format="csv_gz",
+            paired_scale_mode="production",
+            expected_w0_trials_per_environment=1,
+            expected_w1_trials_per_environment=2,
+            d1a_evidence_class="thesis_primary",
         )
 
 
@@ -383,6 +412,15 @@ def _paired_mode(mode: str) -> str:
         "W1_four_fan": "W0_four_fan_branch",
     }
     return mapping[mode]
+
+
+def _set_d1a_contract(monkeypatch, evidence_class: str, *, w0: int, w1: int) -> None:
+    updated = dict(planning.D1A_EVIDENCE_CONTRACTS)
+    updated[evidence_class] = {
+        "w0_trials_per_environment": int(w0),
+        "w1_trials_per_environment": int(w1),
+    }
+    monkeypatch.setattr(planning, "D1A_EVIDENCE_CONTRACTS", updated)
 
 
 def _descriptor(

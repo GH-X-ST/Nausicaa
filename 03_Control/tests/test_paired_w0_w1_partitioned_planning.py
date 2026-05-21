@@ -138,10 +138,12 @@ def test_production_mode_enforces_w1_floor_and_active_w1_branches() -> None:
         planning._validate_config(missing_w1_branch)
 
 
-def test_production_floor_planning_manifest_uses_separate_w0_w1_counts(
+def test_thesis_primary_planning_manifest_uses_d1a_contract(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     result_root = _short_root(tmp_path) / "10_dense_archive_planning"
+    _set_d1a_contract(monkeypatch, "thesis_primary", w0=2, w1=4)
 
     paths = planning.run_paired_w0_w1_partitioned_planning(
         run_id=15,
@@ -162,14 +164,64 @@ def test_production_floor_planning_manifest_uses_separate_w0_w1_counts(
     assert manifest["w1_floor_trials_per_branch"] == 4
     assert manifest["w1_target_trials_per_branch"] == 4
     assert manifest["candidate_rows_total"] == 12
+    assert manifest["d1a_evidence_class"] == "thesis_primary"
+    assert manifest["d1a_target_contract"] == "updated_thesis_scale_v1"
+    assert manifest["d1a_w0_trials_per_environment"] == 2
+    assert manifest["d1a_w1_trials_per_environment"] == 4
     assert count_by_mode == {
         "W0_four_fan_branch": 2,
         "W0_single_fan_branch": 2,
         "W1_four_fan": 4,
         "W1_single_fan": 4,
     }
-    assert "D1a production-floor" in manifest["no_overclaiming_statement"]
+    assert "D1a thesis-scale" in manifest["no_overclaiming_statement"]
+    assert "hardware readiness" in manifest["no_overclaiming_statement"]
     assert "proof only" not in manifest["no_overclaiming_statement"]
+    assert "production-floor paired" not in manifest["no_overclaiming_statement"]
+
+
+def test_fast_fallback_planning_manifest_uses_d1a_contract(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    result_root = _short_root(tmp_path) / "10_dense_archive_planning"
+    _set_d1a_contract(monkeypatch, "thesis_fast_fallback", w0=1, w1=2)
+
+    paths = planning.run_paired_w0_w1_partitioned_planning(
+        run_id=15,
+        result_root=result_root,
+        paired_scale_mode="production",
+        w0_target_trials_per_branch=1,
+        w1_floor_trials_per_branch=2,
+        w1_target_trials_per_branch=2,
+        partition_rows=1,
+        storage_format="csv_gz",
+        d1a_evidence_class="thesis_fast_fallback",
+    )
+
+    manifest = json.loads(paths["manifest_json"].read_text(encoding="ascii"))
+    assert manifest["d1a_evidence_class"] == "thesis_fast_fallback"
+    assert manifest["d1a_target_contract"] == "updated_thesis_scale_v1"
+    assert manifest["d1a_w0_trials_per_environment"] == 1
+    assert manifest["d1a_w1_trials_per_environment"] == 2
+    assert manifest["candidate_rows_total"] == 6
+
+
+def test_d1a_evidence_class_rejects_count_mismatch(monkeypatch) -> None:
+    _set_d1a_contract(monkeypatch, "thesis_primary", w0=2, w1=4)
+
+    config = planning.PairedW0W1PartitionedPlanningConfig(
+        run_id=20,
+        paired_scale_mode="production",
+        w0_target_trials_per_branch=2,
+        w1_floor_trials_per_branch=2,
+        w1_target_trials_per_branch=2,
+        partition_rows=1,
+        d1a_evidence_class="thesis_primary",
+    )
+
+    with pytest.raises(ValueError, match="does not match"):
+        planning._validate_config(config)
 
 
 def test_default_run_id_guard_checks_013_and_014_before_planning(
@@ -202,3 +254,12 @@ def _long_root(tmp_path: Path) -> Path:
     for index in range(10):
         root = root / f"long_planning_path_segment_{index:02d}"
     return root
+
+
+def _set_d1a_contract(monkeypatch, evidence_class: str, *, w0: int, w1: int) -> None:
+    updated = dict(planning.D1A_EVIDENCE_CONTRACTS)
+    updated[evidence_class] = {
+        "w0_trials_per_environment": int(w0),
+        "w1_trials_per_environment": int(w1),
+    }
+    monkeypatch.setattr(planning, "D1A_EVIDENCE_CONTRACTS", updated)

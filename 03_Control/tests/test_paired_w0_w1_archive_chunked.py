@@ -78,5 +78,54 @@ def test_existing_unrelated_archive_root_is_not_resumable(tmp_path: Path) -> Non
         raise AssertionError("unrelated archive root was accepted as resumable")
 
 
+def test_dry_run_progress_carries_d1a_metadata_from_planning(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _short_root(tmp_path)
+    planning_root = root / "10_dense_archive_planning"
+    archive_root = root / "12_paired_w0_w1_archive"
+    _set_d1a_contract(monkeypatch, "thesis_primary", w0=1, w1=2)
+    planning.run_paired_w0_w1_partitioned_planning(
+        run_id=15,
+        result_root=planning_root,
+        paired_scale_mode="production",
+        w0_target_trials_per_branch=1,
+        w1_floor_trials_per_branch=2,
+        w1_target_trials_per_branch=2,
+        partition_rows=1,
+        storage_format="csv_gz",
+        d1a_evidence_class="thesis_primary",
+    )
+
+    paths = chunked.run_paired_w0_w1_archive_chunked(
+        run_id=16,
+        planning_run_id=15,
+        result_root=archive_root,
+        paired_scale_mode="production",
+        workers=1,
+        max_workers=1,
+        chunk_size=1,
+        storage_format="csv_gz",
+        dry_run_schedule=True,
+        resume=True,
+    )
+
+    manifest = json.loads(paths["progress_manifest_json"].read_text(encoding="ascii"))
+    assert manifest["d1a_evidence_class"] == "thesis_primary"
+    assert manifest["d1a_target_contract"] == "updated_thesis_scale_v1"
+    assert manifest["d1a_w0_trials_per_environment"] == 1
+    assert manifest["d1a_w1_trials_per_environment"] == 2
+
+
 def _short_root(tmp_path: Path) -> Path:
     return tmp_path.parent / f"p{abs(hash(tmp_path.name)) % 100000}"
+
+
+def _set_d1a_contract(monkeypatch, evidence_class: str, *, w0: int, w1: int) -> None:
+    updated = dict(planning.D1A_EVIDENCE_CONTRACTS)
+    updated[evidence_class] = {
+        "w0_trials_per_environment": int(w0),
+        "w1_trials_per_environment": int(w1),
+    }
+    monkeypatch.setattr(planning, "D1A_EVIDENCE_CONTRACTS", updated)

@@ -1,0 +1,5 @@
+layout_branch_id,fan_layout,test_environment_mode,trial_count
+four_fan_branch,four_fan,W0_four_fan_branch,25000
+four_fan_branch,four_fan,W1_four_fan,100000
+single_fan_branch,single_fan,W0_single_fan_branch,25000
+single_fan_branch,single_fan,W1_single_fan,100000

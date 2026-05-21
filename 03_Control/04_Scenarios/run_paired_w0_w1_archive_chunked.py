@@ -37,6 +37,7 @@ from run_paired_w0_w1_archive_chunk import (  # noqa: E402
     archive_run_root,
     chunk_status,
     generic_spec,
+    planning_d1a_manifest_fields,
     remove_chunk_outputs,
     run_paired_w0_w1_archive_chunk,
 )
@@ -311,6 +312,8 @@ def _write_progress(
     payload["gpu_acceleration_assessment"] = GPU_ACCELERATION_ASSESSMENT
     payload["paired_scale_mode"] = str(config.paired_scale_mode)
     payload["active_environment_modes"] = list(config.active_environment_modes)
+    if schedule:
+        payload.update(planning_d1a_manifest_fields(schedule[0]))
     manifest_path, report_path = _progress_paths(config)
     write_progress_manifest(path=manifest_path, report_path=report_path, payload=payload)
 
@@ -632,6 +635,7 @@ def _validate_run_root_resume_contract(
         "storage_format": resolve_storage_format(config.storage_format),
         "latency_case": str(config.latency_case),
     }
+    expected.update(planning_d1a_manifest_fields(schedule[0]))
     for key, value in expected.items():
         if payload.get(key) != value:
             raise RuntimeError(f"paired archive resume manifest mismatch for {key}.")

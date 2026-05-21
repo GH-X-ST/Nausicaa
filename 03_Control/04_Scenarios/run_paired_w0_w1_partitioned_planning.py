@@ -73,13 +73,39 @@ BRANCH_IDS = ("single_fan_branch", "four_fan_branch")
 PAIRED_SCALE_MODES = ("proof", "production")
 DEFAULT_PROOF_TARGET_TRIALS_PER_ENVIRONMENT = 2500
 SIMULATION_STAGE = "paired_w0_w1_proof"
+D1A_TARGET_CONTRACT = "updated_thesis_scale_v1"
+D1A_EVIDENCE_CLASSES = (
+    "thesis_primary",
+    "thesis_fast_fallback",
+    "production_floor_optional",
+)
+D1A_EVIDENCE_CONTRACTS = {
+    "thesis_primary": {
+        "w0_trials_per_environment": 25000,
+        "w1_trials_per_environment": 100000,
+    },
+    "thesis_fast_fallback": {
+        "w0_trials_per_environment": 10000,
+        "w1_trials_per_environment": 50000,
+    },
+    "production_floor_optional": {
+        "w0_trials_per_environment": 150000,
+        "w1_trials_per_environment": 350000,
+    },
+}
 PROOF_NO_CLAIM_TEXT = (
     "Paired W0/W1 partitioned planning proof only; no full W1 production, "
     "W2/W3/W4/W5, mission, hardware, or sim-to-real claim is made."
 )
-PRODUCTION_NO_CLAIM_TEXT = (
-    "D1a production-floor paired W0/W1 partitioned planning only; no "
-    "W2/W3/W4/W5, mission, hardware, or sim-to-real claim is made."
+D1A_THESIS_NO_CLAIM_TEXT = (
+    "D1a thesis-scale paired W0/W1 simulation evidence only; no production-floor "
+    "completion, W2/W3/W4/W5 completion, mission success, hardware readiness, "
+    "or sim-to-real completion claim is made."
+)
+PRODUCTION_FLOOR_NO_CLAIM_TEXT = (
+    "D1a optional production-floor paired W0/W1 simulation evidence only; no "
+    "W2/W3/W4/W5 completion, mission success, hardware readiness, or "
+    "sim-to-real completion claim is made."
 )
 NO_CLAIM_TEXT = PROOF_NO_CLAIM_TEXT
 
@@ -101,6 +127,7 @@ class PairedW0W1PartitionedPlanningConfig:
     partition_rows: int = 2500
     include_w0: bool = True
     include_w1: bool = True
+    d1a_evidence_class: str | None = None
     overwrite: bool = False
 
 
@@ -157,10 +184,102 @@ def _path_text(path: Path) -> str:
         return resolved.as_posix()
 
 
-def _no_claim_text(paired_scale_mode: str) -> str:
+def _no_claim_text(paired_scale_mode: str, d1a_evidence_class: str | None = None) -> str:
     if str(paired_scale_mode) == "production":
-        return PRODUCTION_NO_CLAIM_TEXT
+        if str(d1a_evidence_class) == "production_floor_optional":
+            return PRODUCTION_FLOOR_NO_CLAIM_TEXT
+        return D1A_THESIS_NO_CLAIM_TEXT
     return PROOF_NO_CLAIM_TEXT
+
+
+def d1a_contract_for_class(d1a_evidence_class: str | None) -> dict[str, int] | None:
+    if d1a_evidence_class is None:
+        return None
+    if str(d1a_evidence_class) not in D1A_EVIDENCE_CONTRACTS:
+        raise ValueError(
+            "d1a_evidence_class must be one of "
+            f"{list(D1A_EVIDENCE_CLASSES)}."
+        )
+    return D1A_EVIDENCE_CONTRACTS[str(d1a_evidence_class)]
+
+
+def infer_d1a_evidence_class(
+    *,
+    paired_scale_mode: str,
+    w0_trials_per_environment: int | None,
+    w1_trials_per_environment: int | None,
+) -> str | None:
+    if str(paired_scale_mode) != "production":
+        return None
+    for name, contract in D1A_EVIDENCE_CONTRACTS.items():
+        if (
+            int(w0_trials_per_environment or -1)
+            == int(contract["w0_trials_per_environment"])
+            and int(w1_trials_per_environment or -1)
+            == int(contract["w1_trials_per_environment"])
+        ):
+            return name
+    return None
+
+
+def resolve_d1a_evidence_class(
+    *,
+    paired_scale_mode: str,
+    d1a_evidence_class: str | None,
+    w0_trials_per_environment: int | None,
+    w1_trials_per_environment: int | None,
+) -> str | None:
+    inferred = infer_d1a_evidence_class(
+        paired_scale_mode=paired_scale_mode,
+        w0_trials_per_environment=w0_trials_per_environment,
+        w1_trials_per_environment=w1_trials_per_environment,
+    )
+    if d1a_evidence_class is None:
+        return inferred
+    contract = d1a_contract_for_class(d1a_evidence_class)
+    if str(paired_scale_mode) != "production":
+        raise ValueError("d1a_evidence_class is only valid in production mode.")
+    if (
+        int(w0_trials_per_environment or -1)
+        != int(contract["w0_trials_per_environment"])
+        or int(w1_trials_per_environment or -1)
+        != int(contract["w1_trials_per_environment"])
+    ):
+        raise ValueError("d1a_evidence_class does not match W0/W1 trial counts.")
+    return str(d1a_evidence_class)
+
+
+def d1a_manifest_fields(
+    *,
+    paired_scale_mode: str,
+    d1a_evidence_class: str | None,
+    w0_trials_per_environment: int | None,
+    w1_trials_per_environment: int | None,
+) -> dict[str, object]:
+    resolved_class = resolve_d1a_evidence_class(
+        paired_scale_mode=paired_scale_mode,
+        d1a_evidence_class=d1a_evidence_class,
+        w0_trials_per_environment=w0_trials_per_environment,
+        w1_trials_per_environment=w1_trials_per_environment,
+    )
+    if resolved_class is None:
+        return {
+            "d1a_evidence_class": None,
+            "d1a_target_contract": None,
+            "d1a_w0_trials_per_environment": None,
+            "d1a_w1_trials_per_environment": None,
+        }
+    contract = d1a_contract_for_class(resolved_class)
+    return {
+        "d1a_evidence_class": resolved_class,
+        "d1a_target_contract": D1A_TARGET_CONTRACT,
+        "d1a_w0_trials_per_environment": int(
+            contract["w0_trials_per_environment"]
+        ),
+        "d1a_w1_trials_per_environment": int(
+            contract["w1_trials_per_environment"]
+        ),
+    }
 
 
 # =============================================================================
@@ -191,6 +310,20 @@ def _validate_config(config: PairedW0W1PartitionedPlanningConfig) -> None:
             raise ValueError("production mode requires both W1 branches active.")
         if int(config.w1_target_trials_per_branch) < int(config.w1_floor_trials_per_branch):
             raise ValueError("production W1 target must meet the W1 floor.")
+    resolve_d1a_evidence_class(
+        paired_scale_mode=str(config.paired_scale_mode),
+        d1a_evidence_class=config.d1a_evidence_class,
+        w0_trials_per_environment=(
+            int(config.w0_target_trials_per_branch)
+            if any(str(mode).startswith("W0_") for mode in active_modes)
+            else None
+        ),
+        w1_trials_per_environment=(
+            int(config.w1_target_trials_per_branch)
+            if any(str(mode).startswith("W1_") for mode in active_modes)
+            else None
+        ),
+    )
     resolve_storage_format(config.storage_format)
 
 
@@ -514,6 +647,20 @@ def _manifest(
     start_states: pd.DataFrame,
     candidates: pd.DataFrame,
 ) -> dict[str, object]:
+    d1a_fields = d1a_manifest_fields(
+        paired_scale_mode=str(config.paired_scale_mode),
+        d1a_evidence_class=config.d1a_evidence_class,
+        w0_trials_per_environment=(
+            int(config.w0_target_trials_per_branch)
+            if any(str(mode).startswith("W0_") for mode in _active_environment_modes(config))
+            else None
+        ),
+        w1_trials_per_environment=(
+            int(config.w1_target_trials_per_branch)
+            if any(str(mode).startswith("W1_") for mode in _active_environment_modes(config))
+            else None
+        ),
+    )
     payload = {
         "run_id": int(config.run_id),
         "source_planning_run_id": int(config.source_planning_run_id),
@@ -536,7 +683,10 @@ def _manifest(
         "w1_selected_independently_of_w0_success": True,
         "branch_local_decisions_only": True,
         "branch_decision_scope": BRANCH_DECISION_SCOPE,
-        "no_overclaiming_statement": _no_claim_text(config.paired_scale_mode),
+        "no_overclaiming_statement": _no_claim_text(
+            config.paired_scale_mode,
+            d1a_fields["d1a_evidence_class"],
+        ),
         "output_files": {
             "manifest": _path_text(outputs.manifest_json),
             "table_manifest": _path_text(outputs.table_manifest_json),
@@ -547,6 +697,7 @@ def _manifest(
             "preview": _path_text(outputs.preview_csv),
         },
     }
+    payload.update(d1a_fields)
     payload.update(_seed_stability_summary(candidates))
     payload.update(
         runtime_manifest_fields(
@@ -578,6 +729,7 @@ def run_paired_w0_w1_partitioned_planning(
     partition_rows: int = 2500,
     include_w0: bool = True,
     include_w1: bool = True,
+    d1a_evidence_class: str | None = None,
     overwrite: bool = False,
 ) -> dict[str, Path]:
     active_modes = (
@@ -605,6 +757,7 @@ def run_paired_w0_w1_partitioned_planning(
         partition_rows=int(partition_rows),
         include_w0=bool(include_w0),
         include_w1=bool(include_w1),
+        d1a_evidence_class=d1a_evidence_class,
         overwrite=bool(overwrite),
     )
     _validate_config(config)
@@ -698,6 +851,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--partition-rows", type=int, default=2500)
     parser.add_argument("--exclude-w0", action="store_true")
     parser.add_argument("--exclude-w1", action="store_true")
+    parser.add_argument("--d1a-evidence-class", choices=D1A_EVIDENCE_CLASSES, default=None)
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
@@ -730,6 +884,7 @@ def main() -> int:
         partition_rows=args.partition_rows,
         include_w0=not args.exclude_w0,
         include_w1=not args.exclude_w1,
+        d1a_evidence_class=args.d1a_evidence_class,
         overwrite=args.overwrite,
     )
     print(f"paired_w0_w1_partitioned_planning_outputs={_path_text(paths['root'])}")

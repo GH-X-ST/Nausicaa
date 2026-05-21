@@ -46,9 +46,11 @@ from dense_archive_table_io import (  # noqa: E402
 )
 from run_paired_w0_w1_archive_chunked import RECOMMENDED_PAIRED_PROOF_COMMAND  # noqa: E402
 from run_paired_w0_w1_partitioned_planning import (  # noqa: E402
+    D1A_EVIDENCE_CLASSES,
     PAIRED_ENVIRONMENT_MODES,
     PAIRED_SCALE_MODES,
     SIMULATION_STAGE,
+    d1a_manifest_fields,
 )
 
 
@@ -93,11 +95,19 @@ PROOF_NO_CLAIM_TEXT = (
     "success, single_fan_branch and four_fan_branch remain branch-local, and no "
     "W2/W3/W4/W5, mission, hardware, or sim-to-real claim is made."
 )
-PRODUCTION_NO_CLAIM_TEXT = (
-    "D1a production-floor paired W0/W1 aggregation only; W1 is evaluated "
+D1A_THESIS_NO_CLAIM_TEXT = (
+    "D1a thesis-scale paired W0/W1 aggregation simulation evidence only; W1 is "
+    "evaluated independently of W0 success, single_fan_branch and four_fan_branch "
+    "remain branch-local, and no production-floor completion, W2/W3/W4/W5 "
+    "completion, mission success, hardware readiness, or sim-to-real completion "
+    "claim is made."
+)
+PRODUCTION_FLOOR_NO_CLAIM_TEXT = (
+    "D1a optional production-floor paired W0/W1 aggregation simulation evidence "
+    "only; W1 is evaluated "
     "independently of W0 success, single_fan_branch and four_fan_branch remain "
-    "branch-local, and no W2/W3/W4/W5, mission, hardware, or sim-to-real claim "
-    "is made."
+    "branch-local, and no W2/W3/W4/W5 completion, mission success, hardware "
+    "readiness, or sim-to-real completion claim is made."
 )
 NO_CLAIM_TEXT = PROOF_NO_CLAIM_TEXT
 
@@ -114,6 +124,7 @@ class PairedAggregationConfig:
     expected_trials_per_environment: int | None = None
     expected_w0_trials_per_environment: int | None = None
     expected_w1_trials_per_environment: int | None = None
+    d1a_evidence_class: str | None = None
     build_upload_package: bool = False
     build_governor_package: bool = False
     profile_source: Path | None = None
@@ -204,9 +215,11 @@ def _path_text(path: Path) -> str:
         return resolved.as_posix()
 
 
-def _no_claim_text(paired_scale_mode: str) -> str:
+def _no_claim_text(paired_scale_mode: str, d1a_evidence_class: str | None = None) -> str:
     if str(paired_scale_mode) == "production":
-        return PRODUCTION_NO_CLAIM_TEXT
+        if str(d1a_evidence_class) == "production_floor_optional":
+            return PRODUCTION_FLOOR_NO_CLAIM_TEXT
+        return D1A_THESIS_NO_CLAIM_TEXT
     return PROOF_NO_CLAIM_TEXT
 
 
@@ -246,6 +259,25 @@ def _validate_config(config: PairedAggregationConfig) -> None:
     for name, value in expected_values.items():
         if value is not None and int(value) <= 0:
             raise ValueError(f"{name} must be positive when provided.")
+    if config.d1a_evidence_class is not None:
+        if str(config.d1a_evidence_class) not in D1A_EVIDENCE_CLASSES:
+            raise ValueError(
+                "d1a_evidence_class must be one of "
+                f"{list(D1A_EVIDENCE_CLASSES)}."
+            )
+        if (
+            config.expected_w0_trials_per_environment is None
+            or config.expected_w1_trials_per_environment is None
+        ):
+            raise ValueError(
+                "d1a_evidence_class requires expected W0 and W1 trial counts."
+            )
+    d1a_manifest_fields(
+        paired_scale_mode=str(config.paired_scale_mode),
+        d1a_evidence_class=config.d1a_evidence_class,
+        w0_trials_per_environment=config.expected_w0_trials_per_environment,
+        w1_trials_per_environment=config.expected_w1_trials_per_environment,
+    )
 
 
 def _expected_trials_by_environment(
@@ -766,6 +798,12 @@ def _manifest(
         descriptors["layout_branch_id"].astype(str).value_counts().sort_index().to_dict()
     )
     metadata = _worker_profile_metadata(progress, profile)
+    d1a_fields = d1a_manifest_fields(
+        paired_scale_mode=str(config.paired_scale_mode),
+        d1a_evidence_class=config.d1a_evidence_class,
+        w0_trials_per_environment=config.expected_w0_trials_per_environment,
+        w1_trials_per_environment=config.expected_w1_trials_per_environment,
+    )
     return {
         **runtime_manifest_fields(
             simulation_stage=SIMULATION_STAGE,
@@ -789,6 +827,7 @@ def _manifest(
             config.expected_w1_trials_per_environment
         ),
         "expected_trials_by_environment": _expected_trials_by_environment(config),
+        **d1a_fields,
         "storage_format": resolve_storage_format(config.storage_format),
         "latency_case": str(config.latency_case),
         "chunk_manifest_count": int(len(chunk_summary)),
@@ -818,7 +857,10 @@ def _manifest(
         ],
         "gpu_acceleration_assessment": GPU_ACCELERATION_ASSESSMENT,
         "recommended_paired_proof_command": RECOMMENDED_PAIRED_PROOF_COMMAND,
-        "no_overclaiming_statement": _no_claim_text(config.paired_scale_mode),
+        "no_overclaiming_statement": _no_claim_text(
+            config.paired_scale_mode,
+            d1a_fields["d1a_evidence_class"],
+        ),
         "selected_worker_count": metadata["selected_worker_count"],
         "os_cpu_count": metadata["os_cpu_count"],
         "memory_total_gb": metadata["memory_total_gb"],
@@ -1079,6 +1121,7 @@ def aggregate_paired_w0_w1_archive(
     expected_trials_per_environment: int | None = None,
     expected_w0_trials_per_environment: int | None = None,
     expected_w1_trials_per_environment: int | None = None,
+    d1a_evidence_class: str | None = None,
     build_upload_package: bool = False,
     build_governor_package: bool = False,
     profile_source: Path | None = None,
@@ -1095,6 +1138,7 @@ def aggregate_paired_w0_w1_archive(
         expected_trials_per_environment=expected_trials_per_environment,
         expected_w0_trials_per_environment=expected_w0_trials_per_environment,
         expected_w1_trials_per_environment=expected_w1_trials_per_environment,
+        d1a_evidence_class=d1a_evidence_class,
         build_upload_package=bool(build_upload_package),
         build_governor_package=bool(build_governor_package),
         profile_source=profile_source,
@@ -1223,6 +1267,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-trials-per-environment", type=int, default=None)
     parser.add_argument("--expected-w0-trials-per-environment", type=int, default=None)
     parser.add_argument("--expected-w1-trials-per-environment", type=int, default=None)
+    parser.add_argument("--d1a-evidence-class", choices=D1A_EVIDENCE_CLASSES, default=None)
     parser.add_argument("--build-upload-package", action="store_true")
     parser.add_argument("--build-governor-package", action="store_true")
     parser.add_argument("--profile-source", type=Path, default=None)
@@ -1261,6 +1306,7 @@ def main() -> int:
         expected_trials_per_environment=args.expected_trials_per_environment,
         expected_w0_trials_per_environment=args.expected_w0_trials_per_environment,
         expected_w1_trials_per_environment=args.expected_w1_trials_per_environment,
+        d1a_evidence_class=args.d1a_evidence_class,
         build_upload_package=args.build_upload_package,
         build_governor_package=args.build_governor_package,
         profile_source=args.profile_source,

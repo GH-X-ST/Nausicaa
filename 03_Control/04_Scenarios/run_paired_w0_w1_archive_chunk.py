@@ -62,6 +62,12 @@ from run_paired_w0_w1_partitioned_planning import (  # noqa: E402
 # =============================================================================
 DEFAULT_RESULT_ROOT = CONTROL_DIR / "05_Results" / "12_paired_w0_w1_archive"
 PLANNING_CAMPAIGN = "10_dense_archive_planning"
+D1A_MANIFEST_FIELD_NAMES = (
+    "d1a_evidence_class",
+    "d1a_target_contract",
+    "d1a_w0_trials_per_environment",
+    "d1a_w1_trials_per_environment",
+)
 NO_CLAIM_TEXT = (
     "One paired W0/W1 archive chunk only; no full W1 production, W2/W3/W4/W5, "
     "mission, hardware, or sim-to-real claim is made."
@@ -101,6 +107,29 @@ def archive_run_root(config: PairedChunkConfig) -> Path:
 
 def planning_run_root(config: PairedChunkConfig) -> Path:
     return active_result_root(config).parent / PLANNING_CAMPAIGN / f"{int(config.planning_run_id):03d}"
+
+
+def planning_manifest_payload(config: PairedChunkConfig) -> dict[str, object]:
+    root = planning_run_root(config)
+    suffix = f"s{int(config.planning_run_id):03d}"
+    path = root / "manifests" / f"paired_w0_w1_planning_manifest_{suffix}.json"
+    if not filesystem_path(path).exists():
+        return {}
+    return json.loads(filesystem_path(path).read_text(encoding="ascii"))
+
+
+def planning_d1a_manifest_fields(config: PairedChunkConfig) -> dict[str, object]:
+    payload = planning_manifest_payload(config)
+    return {
+        field: payload.get(field)
+        for field in D1A_MANIFEST_FIELD_NAMES
+        if field in payload
+    }
+
+
+def planning_no_overclaiming_statement(config: PairedChunkConfig) -> str:
+    payload = planning_manifest_payload(config)
+    return str(payload.get("no_overclaiming_statement", NO_CLAIM_TEXT))
 
 
 def generic_spec(config: PairedChunkConfig) -> GenericChunkSpec:
@@ -272,6 +301,7 @@ def _write_manifest(
     outputs = output_paths(config)
     ensure_directory(outputs.manifest_json.parent)
     ensure_directory(outputs.log_path.parent)
+    d1a_fields = planning_d1a_manifest_fields(config)
     manifest = {
         "status": "complete",
         "run_id": int(config.run_id),
@@ -298,7 +328,8 @@ def _write_manifest(
         "w2_w3_w4_w5_performed": False,
         "hardware_or_mission_claim": False,
         "sim_to_real_transfer_claim": False,
-        "no_overclaiming_statement": NO_CLAIM_TEXT,
+        "no_overclaiming_statement": planning_no_overclaiming_statement(config),
+        **d1a_fields,
         **runtime_manifest_fields(
             simulation_stage=str(config.simulation_stage),
             environment_mode=str(config.test_environment_mode),

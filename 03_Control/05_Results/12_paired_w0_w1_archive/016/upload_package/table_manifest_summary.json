@@ -1,0 +1,8 @@
+{
+  "run_id": 16,
+  "root": "03_Control/05_Results/12_paired_w0_w1_archive/016",
+  "storage_format": "csv_gz",
+  "partition_count": 100,
+  "row_count": 250000,
+  "byte_count": 123782449
+}

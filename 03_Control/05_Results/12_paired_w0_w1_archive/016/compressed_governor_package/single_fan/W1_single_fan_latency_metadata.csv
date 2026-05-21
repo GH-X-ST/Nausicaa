@@ -1,0 +1,2 @@
+layout_branch_id,fan_layout,test_environment_mode,latency_case,accepted_latency_pass_label
+single_fan_branch,single_fan,W1_single_fan,nominal,nominal_pass
