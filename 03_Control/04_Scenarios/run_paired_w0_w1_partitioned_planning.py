@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from math import ceil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,7 @@ from dense_archive_runtime import (  # noqa: E402
 from dense_archive_schema import (  # noqa: E402
     BRANCH_DECISION_SCOPE,
     DenseArchivePlanConfig,
+    branch_start_group_count,
 )
 from dense_archive_table_io import (  # noqa: E402
     TableManifest,
@@ -55,6 +57,7 @@ from dense_start_state_sampling import (  # noqa: E402
 # =============================================================================
 DEFAULT_RESULT_ROOT = CONTROL_DIR / "05_Results" / "10_dense_archive_planning"
 PROTECTED_DEFAULT_RUN_IDS = frozenset({7, 8, 9, 10, 11})
+DEFAULT_PAIRED_ARCHIVE_RESULT_ROOT = CONTROL_DIR / "05_Results" / "12_paired_w0_w1_archive"
 PAIRED_ENVIRONMENT_MODES = (
     "W0_single_fan_branch",
     "W1_single_fan",
@@ -64,6 +67,8 @@ PAIRED_ENVIRONMENT_MODES = (
 W0_ENVIRONMENT_MODES = ("W0_single_fan_branch", "W0_four_fan_branch")
 W1_ENVIRONMENT_MODES = ("W1_single_fan", "W1_four_fan")
 BRANCH_IDS = ("single_fan_branch", "four_fan_branch")
+PAIRED_SCALE_MODES = ("proof", "production")
+DEFAULT_PROOF_TARGET_TRIALS_PER_ENVIRONMENT = 2500
 SIMULATION_STAGE = "paired_w0_w1_proof"
 NO_CLAIM_TEXT = (
     "Paired W0/W1 partitioned planning proof only; no full W1 production, "
@@ -76,10 +81,13 @@ class PairedW0W1PartitionedPlanningConfig:
     run_id: int
     source_planning_run_id: int = 10
     result_root: Path | None = None
+    paired_scale_mode: str = "proof"
+    proof_target_trials_per_environment: int = DEFAULT_PROOF_TARGET_TRIALS_PER_ENVIRONMENT
+    active_environment_modes: tuple[str, ...] = PAIRED_ENVIRONMENT_MODES
     w0_target_trials_per_branch: int = 250000
     w1_floor_trials_per_branch: int = 350000
     w1_target_trials_per_branch: int = 500000
-    pilot_start_states_per_family_target_direction: int = 5000
+    pilot_start_states_per_family_target_direction: int | None = None
     random_seed: int = 20260526
     storage_format: str = "auto"
     partition_rows: int = 2500
@@ -149,16 +157,26 @@ def _validate_config(config: PairedW0W1PartitionedPlanningConfig) -> None:
         raise ValueError("run_id must be positive.")
     if int(config.partition_rows) <= 0:
         raise ValueError("partition_rows must be positive.")
-    for name, count in (
-        ("w0_target_trials_per_branch", config.w0_target_trials_per_branch),
-        ("w1_target_trials_per_branch", config.w1_target_trials_per_branch),
-    ):
+    if str(config.paired_scale_mode) not in PAIRED_SCALE_MODES:
+        raise ValueError("paired_scale_mode must be 'proof' or 'production'.")
+    active_modes = _active_environment_modes(config)
+    if not active_modes:
+        raise ValueError("active_environment_modes must not be empty.")
+    unknown = set(active_modes).difference(PAIRED_ENVIRONMENT_MODES)
+    if unknown:
+        raise ValueError(f"unknown active environment modes: {sorted(unknown)}")
+    for name, count in _target_counts_for_validation(config).items():
         if int(count) <= 0:
             raise ValueError(f"{name} must be positive.")
         if int(count) % int(config.partition_rows) != 0:
             raise ValueError(f"{name} must be divisible by partition_rows.")
-    if int(config.w1_floor_trials_per_branch) > int(config.w1_target_trials_per_branch):
-        raise ValueError("w1_floor_trials_per_branch must not exceed target.")
+    if str(config.paired_scale_mode) == "production":
+        if int(config.w1_floor_trials_per_branch) > int(config.w1_target_trials_per_branch):
+            raise ValueError("w1_floor_trials_per_branch must not exceed target.")
+        if not set(W1_ENVIRONMENT_MODES).issubset(set(active_modes)):
+            raise ValueError("production mode requires both W1 branches active.")
+        if int(config.w1_target_trials_per_branch) < int(config.w1_floor_trials_per_branch):
+            raise ValueError("production W1 target must meet the W1 floor.")
     resolve_storage_format(config.storage_format)
 
 
@@ -168,6 +186,15 @@ def _validate_output_guardrails(
 ) -> None:
     if config.result_root is None and int(config.run_id) in PROTECTED_DEFAULT_RUN_IDS:
         raise ValueError("refusing to write protected default dense-planning run.")
+    if config.result_root is None and int(config.run_id) == 13 and not bool(config.overwrite):
+        archive_run = DEFAULT_PAIRED_ARCHIVE_RESULT_ROOT / "014"
+        existing = [path for path in (outputs.root, archive_run) if path.exists()]
+        if existing:
+            names = ", ".join(_path_text(path) for path in existing)
+            raise ValueError(
+                "refusing default paired proof run because run id 013/014 output "
+                f"already exists: {names}"
+            )
     if outputs.root.exists() and not bool(config.overwrite):
         raise ValueError(
             f"output directory already exists and overwrite=False: {outputs.root}"
@@ -180,9 +207,7 @@ def _build_paired_tables(
     plan_config = DenseArchivePlanConfig(
         run_id=int(config.run_id),
         random_seed=int(config.random_seed),
-        pilot_start_states_per_family_target_direction=int(
-            config.pilot_start_states_per_family_target_direction
-        ),
+        pilot_start_states_per_family_target_direction=_effective_pilot_start_count(config),
     )
     start_states = build_start_state_manifest(plan_config)
     candidates = build_dry_run_candidate_inventory(plan_config, start_states)
@@ -250,21 +275,78 @@ def _select_and_chunk_paired_tables(
 
 
 def _active_environment_modes(config: PairedW0W1PartitionedPlanningConfig) -> tuple[str, ...]:
-    modes: list[str] = []
-    if config.include_w0:
-        modes.extend(W0_ENVIRONMENT_MODES)
-    if config.include_w1:
-        modes.extend(W1_ENVIRONMENT_MODES)
-    return tuple(mode for mode in PAIRED_ENVIRONMENT_MODES if mode in modes)
+    active = tuple(str(mode) for mode in config.active_environment_modes)
+    return tuple(mode for mode in PAIRED_ENVIRONMENT_MODES if mode in active)
 
 
 def _target_count_for_environment(
     config: PairedW0W1PartitionedPlanningConfig,
     environment_mode: str,
 ) -> int:
+    if str(config.paired_scale_mode) == "proof":
+        return int(config.proof_target_trials_per_environment)
     if str(environment_mode).startswith("W0_"):
         return int(config.w0_target_trials_per_branch)
     return int(config.w1_target_trials_per_branch)
+
+
+def _target_counts_for_validation(
+    config: PairedW0W1PartitionedPlanningConfig,
+) -> dict[str, int]:
+    if str(config.paired_scale_mode) == "proof":
+        return {
+            "proof_target_trials_per_environment": int(
+                config.proof_target_trials_per_environment
+            )
+        }
+    counts = {"w1_target_trials_per_branch": int(config.w1_target_trials_per_branch)}
+    if any(str(mode).startswith("W0_") for mode in _active_environment_modes(config)):
+        counts["w0_target_trials_per_branch"] = int(config.w0_target_trials_per_branch)
+    return counts
+
+
+def _effective_pilot_start_count(config: PairedW0W1PartitionedPlanningConfig) -> int:
+    if config.pilot_start_states_per_family_target_direction is not None:
+        return int(config.pilot_start_states_per_family_target_direction)
+    max_target = max(
+        _target_count_for_environment(config, mode)
+        for mode in _active_environment_modes(config)
+    )
+    return max(1, int(ceil(float(max_target) / float(branch_start_group_count()))))
+
+
+def _seed_stability_summary(candidates: pd.DataFrame) -> dict[str, object]:
+    key_columns = [
+        "paired_sample_key",
+        "layout_branch_id",
+        "fan_layout",
+        "family",
+        "target_heading_deg",
+        "direction_sign",
+        "start_class",
+    ]
+    grouped = candidates.groupby(key_columns, dropna=False)
+    unstable = 0
+    paired_groups = 0
+    for _key, group in grouped:
+        modes = set(group["test_environment_mode"].astype(str))
+        if len(modes) >= 2:
+            paired_groups += 1
+            if group["seed"].astype(str).nunique() != 1:
+                unstable += 1
+    return {
+        "paired_seed_stability_checked": True,
+        "paired_identity_seed_field": "seed",
+        "paired_seed_stable_across_w0_w1": unstable == 0,
+        "paired_seed_stability_group_count": int(paired_groups),
+        "paired_seed_instability_count": int(unstable),
+    }
+
+
+def _validate_seed_stability(candidates: pd.DataFrame) -> None:
+    summary = _seed_stability_summary(candidates)
+    if not bool(summary["paired_seed_stable_across_w0_w1"]):
+        raise RuntimeError("paired identity seed is not stable across W0/W1 rows.")
 
 
 def _chunk_metadata(*, row_count: int, chunk_size: int) -> pd.DataFrame:
@@ -351,6 +433,7 @@ def _write_partitioned_table(
             chunk_index=int(chunk_index),
             storage_format=storage_format,
         )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         partitions.append(
             write_table_partition(
                 part,
@@ -400,8 +483,9 @@ def _write_report(path: Path, manifest: dict[str, object]) -> None:
         NO_CLAIM_TEXT,
         "",
         f"- Run id: `{manifest['run_id']}`",
+        f"- Paired scale mode: `{manifest['paired_scale_mode']}`",
         f"- Storage format: `{manifest['storage_format']}`",
-        f"- Active environment modes: `{manifest['environment_modes']}`",
+        f"- Active environment modes: `{manifest['active_environment_modes']}`",
         f"- Branch decision scope: `{manifest['branch_decision_scope']}`",
         "",
     ]
@@ -419,10 +503,18 @@ def _manifest(
     payload = {
         "run_id": int(config.run_id),
         "source_planning_run_id": int(config.source_planning_run_id),
+        "paired_scale_mode": str(config.paired_scale_mode),
         "environment_modes": list(_active_environment_modes(config)),
+        "active_environment_modes": list(_active_environment_modes(config)),
+        "proof_target_trials_per_environment": int(
+            config.proof_target_trials_per_environment
+        ),
         "w0_target_trials_per_branch": int(config.w0_target_trials_per_branch),
         "w1_floor_trials_per_branch": int(config.w1_floor_trials_per_branch),
         "w1_target_trials_per_branch": int(config.w1_target_trials_per_branch),
+        "effective_pilot_start_states_per_family_target_direction": (
+            _effective_pilot_start_count(config)
+        ),
         "storage_format": str(table_manifest.storage_format),
         "partition_rows": int(config.partition_rows),
         "candidate_rows_total": int(len(candidates)),
@@ -441,6 +533,7 @@ def _manifest(
             "preview": _path_text(outputs.preview_csv),
         },
     }
+    payload.update(_seed_stability_summary(candidates))
     payload.update(
         runtime_manifest_fields(
             simulation_stage=SIMULATION_STAGE,
@@ -459,10 +552,13 @@ def run_paired_w0_w1_partitioned_planning(
     run_id: int,
     source_planning_run_id: int = 10,
     result_root: Path | None = None,
+    paired_scale_mode: str = "proof",
+    proof_target_trials_per_environment: int = DEFAULT_PROOF_TARGET_TRIALS_PER_ENVIRONMENT,
+    active_environment_modes: tuple[str, ...] | None = None,
     w0_target_trials_per_branch: int = 250000,
     w1_floor_trials_per_branch: int = 350000,
     w1_target_trials_per_branch: int = 500000,
-    pilot_start_states_per_family_target_direction: int = 5000,
+    pilot_start_states_per_family_target_direction: int | None = None,
     random_seed: int = 20260526,
     storage_format: str = "auto",
     partition_rows: int = 2500,
@@ -470,15 +566,25 @@ def run_paired_w0_w1_partitioned_planning(
     include_w1: bool = True,
     overwrite: bool = False,
 ) -> dict[str, Path]:
+    active_modes = (
+        _legacy_active_environment_modes(include_w0=include_w0, include_w1=include_w1)
+        if active_environment_modes is None
+        else tuple(str(mode) for mode in active_environment_modes)
+    )
     config = PairedW0W1PartitionedPlanningConfig(
         run_id=int(run_id),
         source_planning_run_id=int(source_planning_run_id),
         result_root=result_root,
+        paired_scale_mode=str(paired_scale_mode),
+        proof_target_trials_per_environment=int(proof_target_trials_per_environment),
+        active_environment_modes=active_modes,
         w0_target_trials_per_branch=int(w0_target_trials_per_branch),
         w1_floor_trials_per_branch=int(w1_floor_trials_per_branch),
         w1_target_trials_per_branch=int(w1_target_trials_per_branch),
-        pilot_start_states_per_family_target_direction=int(
-            pilot_start_states_per_family_target_direction
+        pilot_start_states_per_family_target_direction=(
+            None
+            if pilot_start_states_per_family_target_direction is None
+            else int(pilot_start_states_per_family_target_direction)
         ),
         random_seed=int(random_seed),
         storage_format=str(storage_format),
@@ -492,6 +598,7 @@ def run_paired_w0_w1_partitioned_planning(
     _prepare_output_tree(config, outputs)
     effective_format = resolve_storage_format(config.storage_format)
     start_states, candidates = _build_paired_tables(config)
+    _validate_seed_stability(candidates)
 
     partitions: list[TablePartition] = []
     partitions.extend(
@@ -547,15 +654,31 @@ def run_paired_w0_w1_partitioned_planning(
     return outputs.as_dict()
 
 
+def _legacy_active_environment_modes(*, include_w0: bool, include_w1: bool) -> tuple[str, ...]:
+    modes: list[str] = []
+    if include_w0:
+        modes.extend(W0_ENVIRONMENT_MODES)
+    if include_w1:
+        modes.extend(W1_ENVIRONMENT_MODES)
+    return tuple(mode for mode in PAIRED_ENVIRONMENT_MODES if mode in modes)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", type=int, required=True)
     parser.add_argument("--source-planning-run-id", type=int, default=10)
     parser.add_argument("--result-root", type=Path, default=None)
+    parser.add_argument("--paired-scale-mode", choices=PAIRED_SCALE_MODES, default="proof")
+    parser.add_argument(
+        "--proof-target-trials-per-environment",
+        type=int,
+        default=DEFAULT_PROOF_TARGET_TRIALS_PER_ENVIRONMENT,
+    )
+    parser.add_argument("--active-environment-modes", nargs="*", default=None)
     parser.add_argument("--w0-target-trials-per-branch", type=int, default=250000)
     parser.add_argument("--w1-floor-trials-per-branch", type=int, default=350000)
     parser.add_argument("--w1-target-trials-per-branch", type=int, default=500000)
-    parser.add_argument("--pilot-start-states-per-family-target-direction", type=int, default=5000)
+    parser.add_argument("--pilot-start-states-per-family-target-direction", type=int, default=None)
     parser.add_argument("--random-seed", type=int, default=20260526)
     parser.add_argument("--storage-format", default="auto")
     parser.add_argument("--partition-rows", type=int, default=2500)
@@ -567,10 +690,21 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = _parse_args()
+    if args.active_environment_modes is not None and (args.exclude_w0 or args.exclude_w1):
+        raise ValueError(
+            "--active-environment-modes cannot be combined with --exclude-w0/--exclude-w1."
+        )
     paths = run_paired_w0_w1_partitioned_planning(
         run_id=args.run_id,
         source_planning_run_id=args.source_planning_run_id,
         result_root=args.result_root,
+        paired_scale_mode=args.paired_scale_mode,
+        proof_target_trials_per_environment=args.proof_target_trials_per_environment,
+        active_environment_modes=(
+            None
+            if args.active_environment_modes is None
+            else tuple(args.active_environment_modes)
+        ),
         w0_target_trials_per_branch=args.w0_target_trials_per_branch,
         w1_floor_trials_per_branch=args.w1_floor_trials_per_branch,
         w1_target_trials_per_branch=args.w1_target_trials_per_branch,

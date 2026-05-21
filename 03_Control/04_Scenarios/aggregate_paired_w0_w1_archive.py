@@ -45,6 +45,7 @@ from dense_archive_table_io import (  # noqa: E402
 from run_paired_w0_w1_archive_chunked import RECOMMENDED_PAIRED_PROOF_COMMAND  # noqa: E402
 from run_paired_w0_w1_partitioned_planning import (  # noqa: E402
     PAIRED_ENVIRONMENT_MODES,
+    PAIRED_SCALE_MODES,
     SIMULATION_STAGE,
 )
 
@@ -68,23 +69,22 @@ W0_W1_ENVIRONMENT_PAIRS = {
     "single_fan_branch": ("W0_single_fan_branch", "W1_single_fan", "single_fan"),
     "four_fan_branch": ("W0_four_fan_branch", "W1_four_fan", "four_fan"),
 }
-PAIRED_COMPARISON_KEYS = (
+PAIRED_IDENTITY_KEYS = (
     "paired_sample_key",
     "layout_branch_id",
     "fan_layout",
-    "candidate_id",
-    "sample_id",
-    "test_environment_mode",
     "family",
     "target_heading_deg",
     "direction_sign",
     "start_class",
     "seed",
-    "replay_seed",
     "latency_case",
 )
-PAIRED_JOIN_KEYS = tuple(
-    column for column in PAIRED_COMPARISON_KEYS if column != "test_environment_mode"
+PAIRED_AUDIT_ONLY_FIELDS = (
+    "candidate_id",
+    "sample_id",
+    "test_environment_mode",
+    "replay_seed",
 )
 NO_CLAIM_TEXT = (
     "Paired W0/W1 proof aggregation only; W1 is evaluated independently of W0 "
@@ -99,11 +99,14 @@ class PairedAggregationConfig:
     planning_run_id: int = 13
     result_root: Path | None = None
     storage_format: str = "auto"
+    paired_scale_mode: str = "proof"
+    active_environment_modes: tuple[str, ...] = PAIRED_ENVIRONMENT_MODES
     latency_case: str = "nominal"
     expected_trials_per_environment: int | None = None
     build_upload_package: bool = False
     build_governor_package: bool = False
     profile_source: Path | None = None
+    overwrite: bool = False
 
 
 @dataclass(frozen=True)
@@ -188,6 +191,49 @@ def _path_text(path: Path) -> str:
         return resolved.relative_to(REPO_ROOT.resolve()).as_posix()
     except ValueError:
         return resolved.as_posix()
+
+
+def _validate_config(config: PairedAggregationConfig) -> None:
+    if str(config.paired_scale_mode) not in PAIRED_SCALE_MODES:
+        raise ValueError("paired_scale_mode must be 'proof' or 'production'.")
+    if not config.active_environment_modes:
+        raise ValueError("active_environment_modes must not be empty.")
+    unknown = set(config.active_environment_modes).difference(PAIRED_ENVIRONMENT_MODES)
+    if unknown:
+        raise ValueError(f"unknown active environment modes: {sorted(unknown)}")
+    if str(config.paired_scale_mode) == "production":
+        required = {"W1_single_fan", "W1_four_fan"}
+        if not required.issubset(set(config.active_environment_modes)):
+            raise ValueError("production aggregation requires both W1 branches active.")
+
+
+def _validate_aggregation_outputs(
+    outputs: PairedAggregationOutputs,
+    *,
+    overwrite: bool,
+    build_upload_package: bool,
+    build_governor_package: bool,
+) -> None:
+    planned = [
+        outputs.manifest_json,
+        outputs.table_manifest_json,
+        outputs.report_md,
+        outputs.branch_environment_counts_csv,
+        outputs.failure_summary_csv,
+        outputs.paired_comparison_summary_csv,
+        outputs.w0_failed_w1_valid_summary_csv,
+        outputs.w1_nominal_latency_envelope_summary_csv,
+        outputs.chunk_manifest_summary_csv,
+        outputs.schema_summary_csv,
+    ]
+    if build_upload_package:
+        planned.append(outputs.upload_package_dir)
+    if build_governor_package:
+        planned.append(outputs.governor_package_dir)
+    existing = [path for path in planned if path.exists()]
+    if existing and not overwrite:
+        names = ", ".join(_path_text(path) for path in existing[:5])
+        raise RuntimeError(f"paired aggregation outputs already exist: {names}")
 
 
 # =============================================================================
@@ -276,7 +322,7 @@ def _verify_manifest_schedule(
     incomplete = manifests[~manifests["status"].astype(str).eq("complete")]
     if not incomplete.empty:
         raise RuntimeError("not all paired chunk manifests are complete.")
-    for environment_mode in PAIRED_ENVIRONMENT_MODES:
+    for environment_mode in config.active_environment_modes:
         env = manifests[manifests["test_environment_mode"].astype(str).eq(environment_mode)]
         if env.empty:
             raise RuntimeError(f"missing chunk manifests for environment: {environment_mode}")
@@ -296,6 +342,8 @@ def _verify_manifest_row(row: dict[str, object], config: PairedAggregationConfig
         raise RuntimeError("paired chunk manifest planning_run_id mismatch.")
     if str(row["test_environment_mode"]) not in PAIRED_ENVIRONMENT_MODES:
         raise RuntimeError("paired chunk manifest environment mode mismatch.")
+    if str(row["test_environment_mode"]) not in config.active_environment_modes:
+        raise RuntimeError("paired chunk manifest is outside active environment modes.")
     if str(row["storage_format"]) != resolve_storage_format(config.storage_format):
         raise RuntimeError("paired chunk manifest storage_format mismatch.")
     if str(row["latency_case"]) != str(config.latency_case):
@@ -321,13 +369,13 @@ def _verify_counts(descriptors: pd.DataFrame, config: PairedAggregationConfig) -
     if descriptors.empty:
         raise RuntimeError("paired aggregation has no descriptor rows.")
     env_counts = descriptors["test_environment_mode"].astype(str).value_counts().to_dict()
-    for environment_mode in PAIRED_ENVIRONMENT_MODES:
+    for environment_mode in config.active_environment_modes:
         if int(env_counts.get(environment_mode, 0)) == 0:
             raise RuntimeError(f"missing descriptor rows for environment: {environment_mode}")
     if config.expected_trials_per_environment is None:
         return
     expected = int(config.expected_trials_per_environment)
-    for environment_mode in PAIRED_ENVIRONMENT_MODES:
+    for environment_mode in config.active_environment_modes:
         actual = int(env_counts.get(environment_mode, 0))
         if actual != expected:
             raise RuntimeError(
@@ -423,8 +471,8 @@ def _paired_comparison_summary(descriptors: pd.DataFrame) -> tuple[pd.DataFrame,
                 "w0_failed_w1_valid_count": int(w0_failed_w1_valid),
                 "w1_nominal_valid_count": int(w1_valid.sum()),
                 "paired_summary_label": label,
-                "paired_key_contract": "|".join(PAIRED_COMPARISON_KEYS),
-                "paired_join_key_contract": "|".join(PAIRED_JOIN_KEYS),
+                "paired_key_contract": "|".join(PAIRED_IDENTITY_KEYS),
+                "paired_join_key_contract": "|".join(PAIRED_IDENTITY_KEYS),
             }
         )
         cross_rows.append(
@@ -441,12 +489,16 @@ def _paired_comparison_summary(descriptors: pd.DataFrame) -> tuple[pd.DataFrame,
 def _paired_merge(w0: pd.DataFrame, w1: pd.DataFrame) -> pd.DataFrame:
     if w0.empty or w1.empty:
         return pd.DataFrame()
-    keys = [column for column in PAIRED_JOIN_KEYS if column in w0.columns and column in w1.columns]
-    if not keys:
-        return pd.DataFrame()
+    missing = [
+        column
+        for column in PAIRED_IDENTITY_KEYS
+        if column not in w0.columns or column not in w1.columns
+    ]
+    if missing:
+        raise RuntimeError(f"paired identity columns missing: {missing}")
     left = w0.copy()
     right = w1.copy()
-    return left.merge(right, on=keys, suffixes=("_w0", "_w1"), how="inner")
+    return left.merge(right, on=list(PAIRED_IDENTITY_KEYS), suffixes=("_w0", "_w1"), how="inner")
 
 
 def _w0_success_w1_valid_count(merged: pd.DataFrame) -> int:
@@ -521,6 +573,48 @@ def _schema_summary(descriptors: pd.DataFrame) -> pd.DataFrame:
             for column in descriptors.columns
         ]
     )
+
+
+def _seed_stability_summary(descriptors: pd.DataFrame) -> dict[str, object]:
+    key_columns = [
+        "paired_sample_key",
+        "layout_branch_id",
+        "fan_layout",
+        "family",
+        "target_heading_deg",
+        "direction_sign",
+        "start_class",
+    ]
+    missing = [
+        column
+        for column in key_columns + ["seed", "test_environment_mode"]
+        if column not in descriptors.columns
+    ]
+    if missing:
+        raise RuntimeError(f"paired seed-stability columns missing: {missing}")
+    unstable = 0
+    paired_groups = 0
+    for _key, group in descriptors.groupby(key_columns, dropna=False):
+        modes = set(group["test_environment_mode"].astype(str))
+        if any(mode.startswith("W0_") for mode in modes) and any(
+            mode.startswith("W1_") for mode in modes
+        ):
+            paired_groups += 1
+            if group["seed"].astype(str).nunique() != 1:
+                unstable += 1
+    return {
+        "paired_seed_stability_checked": True,
+        "paired_identity_seed_field": "seed",
+        "paired_seed_stable_across_w0_w1": unstable == 0,
+        "paired_seed_stability_group_count": int(paired_groups),
+        "paired_seed_instability_count": int(unstable),
+    }
+
+
+def _validate_seed_stability(descriptors: pd.DataFrame) -> None:
+    summary = _seed_stability_summary(descriptors)
+    if not bool(summary["paired_seed_stable_across_w0_w1"]):
+        raise RuntimeError("paired identity seed is not stable across W0/W1 rows.")
 
 
 def _bool_series(series: pd.Series) -> pd.Series:
@@ -615,6 +709,8 @@ def _manifest(
         ),
         "run_id": int(config.run_id),
         "planning_run_id": int(config.planning_run_id),
+        "paired_scale_mode": str(config.paired_scale_mode),
+        "active_environment_modes": list(config.active_environment_modes),
         "trial_count_total": int(len(descriptors)),
         "trial_count_by_environment": {
             key: int(value) for key, value in env_counts.items()
@@ -637,9 +733,13 @@ def _manifest(
         "hardware_or_mission_claim": False,
         "sim_to_real_transfer_claim": False,
         "governor_artifacts_scan_raw_tables": False,
+        "governor_package_contains_w0_candidates": False,
+        "governor_package_branch_local_only": True,
         "w1_acceptance_latency_rule": "latency_case=nominal and latency_pass_label=nominal_pass",
-        "paired_comparison_keys": list(PAIRED_COMPARISON_KEYS),
-        "paired_join_keys": list(PAIRED_JOIN_KEYS),
+        "paired_comparison_keys": list(PAIRED_IDENTITY_KEYS),
+        "paired_identity_keys": list(PAIRED_IDENTITY_KEYS),
+        "paired_join_keys": list(PAIRED_IDENTITY_KEYS),
+        "paired_audit_only_fields": list(PAIRED_AUDIT_ONLY_FIELDS),
         "paired_summary_labels": [
             "W0_failed_W1_valid_single_fan",
             "W0_failed_W1_valid_four_fan",
@@ -679,6 +779,7 @@ def _manifest(
             "upload_package": _path_text(outputs.upload_package_dir),
             "compressed_governor_package": _path_text(outputs.governor_package_dir),
         },
+        **_seed_stability_summary(descriptors),
     }
 
 
@@ -763,7 +864,7 @@ def _write_upload_package(
         ),
         encoding="ascii",
     )
-    for environment_mode in PAIRED_ENVIRONMENT_MODES:
+    for environment_mode in manifest.get("active_environment_modes", PAIRED_ENVIRONMENT_MODES):
         preview = (
             descriptors[
                 descriptors["test_environment_mode"].astype(str).eq(environment_mode)
@@ -879,6 +980,9 @@ def _write_governor_package(
             "governor_package_schema_version": GOVERNOR_PACKAGE_SCHEMA_VERSION,
             "simulation_stage": SIMULATION_STAGE,
             "raw_tables_included": False,
+            "governor_artifacts_scan_raw_tables": False,
+            "governor_package_contains_w0_candidates": False,
+            "governor_package_branch_local_only": True,
             "branch_local_decisions_only": True,
             "metadata_by_fan_layout": metadata_by_fan,
             "worker_profile_metadata": worker_profile_metadata,
@@ -897,25 +1001,38 @@ def aggregate_paired_w0_w1_archive(
     planning_run_id: int = 13,
     result_root: Path | None = None,
     storage_format: str = "auto",
+    paired_scale_mode: str = "proof",
+    active_environment_modes: tuple[str, ...] = PAIRED_ENVIRONMENT_MODES,
     latency_case: str = "nominal",
     expected_trials_per_environment: int | None = None,
     build_upload_package: bool = False,
     build_governor_package: bool = False,
     profile_source: Path | None = None,
+    overwrite: bool = False,
 ) -> dict[str, Path]:
     config = PairedAggregationConfig(
         run_id=int(run_id),
         planning_run_id=int(planning_run_id),
         result_root=result_root,
         storage_format=str(storage_format),
+        paired_scale_mode=str(paired_scale_mode),
+        active_environment_modes=tuple(active_environment_modes),
         latency_case=str(latency_case),
         expected_trials_per_environment=expected_trials_per_environment,
         build_upload_package=bool(build_upload_package),
         build_governor_package=bool(build_governor_package),
         profile_source=profile_source,
+        overwrite=bool(overwrite),
     )
     resolve_storage_format(config.storage_format)
+    _validate_config(config)
     outputs = _outputs(config)
+    _validate_aggregation_outputs(
+        outputs,
+        overwrite=bool(config.overwrite),
+        build_upload_package=bool(config.build_upload_package),
+        build_governor_package=bool(config.build_governor_package),
+    )
     for path in (
         outputs.manifest_json.parent,
         outputs.report_md.parent,
@@ -927,6 +1044,7 @@ def aggregate_paired_w0_w1_archive(
     raw_chunk_summary = _load_chunk_manifests(outputs.root)
     chunk_summary, descriptors = _verify_and_load_chunks(raw_chunk_summary, config)
     _verify_counts(descriptors, config)
+    _validate_seed_stability(descriptors)
 
     branch_counts = _branch_environment_counts(descriptors)
     failure_summary = _failure_summary(descriptors)
@@ -1023,11 +1141,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--planning-run-id", type=int, default=13)
     parser.add_argument("--result-root", type=Path, default=None)
     parser.add_argument("--storage-format", default="auto")
+    parser.add_argument("--paired-scale-mode", choices=PAIRED_SCALE_MODES, default="proof")
+    parser.add_argument("--active-environment-modes", nargs="*", default=list(PAIRED_ENVIRONMENT_MODES))
     parser.add_argument("--latency-case", default="nominal")
     parser.add_argument("--expected-trials-per-environment", type=int, default=None)
     parser.add_argument("--build-upload-package", action="store_true")
     parser.add_argument("--build-governor-package", action="store_true")
     parser.add_argument("--profile-source", type=Path, default=None)
+    parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--export-slice", action="store_true")
     parser.add_argument("--slice-layout-branch-id", default=None)
     parser.add_argument("--slice-test-environment-mode", default=None)
@@ -1056,11 +1177,14 @@ def main() -> int:
         planning_run_id=args.planning_run_id,
         result_root=args.result_root,
         storage_format=args.storage_format,
+        paired_scale_mode=args.paired_scale_mode,
+        active_environment_modes=tuple(args.active_environment_modes),
         latency_case=args.latency_case,
         expected_trials_per_environment=args.expected_trials_per_environment,
         build_upload_package=args.build_upload_package,
         build_governor_package=args.build_governor_package,
         profile_source=args.profile_source,
+        overwrite=args.overwrite,
     )
     print(f"paired_w0_w1_aggregation_outputs={_path_text(paths['root'])}")
     return 0

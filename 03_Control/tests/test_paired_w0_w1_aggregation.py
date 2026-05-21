@@ -40,6 +40,18 @@ def test_paired_aggregation_writes_upload_and_governor_packages(
     assert manifest["storage_contract_version"] == "dense_archive_storage_contract_v1"
     assert manifest["w1_scheduled_independent_of_w0_success"] is True
     assert manifest["governor_artifacts_scan_raw_tables"] is False
+    assert manifest["governor_package_contains_w0_candidates"] is False
+    assert manifest["governor_package_branch_local_only"] is True
+    assert manifest["paired_identity_seed_field"] == "seed"
+    assert manifest["paired_seed_stable_across_w0_w1"] is True
+    assert "candidate_id" not in manifest["paired_join_keys"]
+    assert "replay_seed" not in manifest["paired_join_keys"]
+    assert set(manifest["paired_audit_only_fields"]) == {
+        "candidate_id",
+        "sample_id",
+        "test_environment_mode",
+        "replay_seed",
+    }
     assert "W0_failed_W1_valid_single_fan" in manifest["paired_summary_labels"]
     assert "W0_failed_W1_valid_four_fan" in manifest["paired_summary_labels"]
     assert {
@@ -54,6 +66,11 @@ def test_paired_aggregation_writes_upload_and_governor_packages(
     assert (governor / "governor_package_manifest.json").exists()
     assert not any("tables" in path.parts for path in package.rglob("*") if path.is_file())
     assert not any("tables" in path.parts for path in governor.rglob("*") if path.is_file())
+    candidates = pd.concat(
+        pd.read_csv(path)
+        for path in governor.rglob("*_candidates.csv.gz")
+    )
+    assert set(candidates["test_environment_mode"]) == {"W1_single_fan", "W1_four_fan"}
 
 
 def test_paired_aggregation_rejects_corrupt_chunk_checksum(tmp_path: Path) -> None:
@@ -72,6 +89,62 @@ def test_paired_aggregation_rejects_corrupt_chunk_checksum(tmp_path: Path) -> No
     manifest_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="ascii")
 
     with pytest.raises(RuntimeError, match="checksum mismatch"):
+        aggregate.aggregate_paired_w0_w1_archive(
+            run_id=14,
+            planning_run_id=13,
+            result_root=result_root,
+            storage_format="csv_gz",
+        )
+
+
+def test_default_paired_aggregation_requires_all_four_environments(tmp_path: Path) -> None:
+    result_root = _short_result_root(tmp_path)
+    _write_fake_paired_chunks(result_root, run_id=14, environments=(
+        ("single_fan_branch", "single_fan", "W1_single_fan"),
+        ("four_fan_branch", "four_fan", "W1_four_fan"),
+    ))
+    _write_progress_and_profile(result_root, run_id=14, planning_run_id=13)
+
+    with pytest.raises(RuntimeError, match="missing chunk manifests for environment"):
+        aggregate.aggregate_paired_w0_w1_archive(
+            run_id=14,
+            planning_run_id=13,
+            result_root=result_root,
+            storage_format="csv_gz",
+        )
+
+
+def test_w1_only_active_aggregation_does_not_require_w0_chunks(tmp_path: Path) -> None:
+    result_root = _short_result_root(tmp_path)
+    _write_fake_paired_chunks(result_root, run_id=14, environments=(
+        ("single_fan_branch", "single_fan", "W1_single_fan"),
+        ("four_fan_branch", "four_fan", "W1_four_fan"),
+    ))
+    _write_progress_and_profile(result_root, run_id=14, planning_run_id=13)
+
+    paths = aggregate.aggregate_paired_w0_w1_archive(
+        run_id=14,
+        planning_run_id=13,
+        result_root=result_root,
+        storage_format="csv_gz",
+        active_environment_modes=("W1_single_fan", "W1_four_fan"),
+        expected_trials_per_environment=2,
+    )
+
+    manifest = json.loads(paths["manifest_json"].read_text(encoding="ascii"))
+    assert manifest["active_environment_modes"] == ["W1_single_fan", "W1_four_fan"]
+    assert manifest["trial_count_by_environment"] == {
+        "W1_four_fan": 2,
+        "W1_single_fan": 2,
+    }
+
+
+def test_seed_instability_is_rejected_before_pairing(tmp_path: Path) -> None:
+    result_root = _short_result_root(tmp_path)
+    _write_fake_paired_chunks(result_root, run_id=14, unstable_seed=True)
+    _write_progress_and_profile(result_root, run_id=14, planning_run_id=13)
+
+    with pytest.raises(RuntimeError, match="paired identity seed is not stable"):
         aggregate.aggregate_paired_w0_w1_archive(
             run_id=14,
             planning_run_id=13,
@@ -99,15 +172,21 @@ def test_paired_diagnostic_slice_filters_environment(tmp_path: Path) -> None:
     assert set(frame["failure_label"]) == {"target_miss"}
 
 
-def _write_fake_paired_chunks(result_root: Path, *, run_id: int) -> None:
+def _write_fake_paired_chunks(
+    result_root: Path,
+    *,
+    run_id: int,
+    environments: tuple[tuple[str, str, str], ...] | None = None,
+    unstable_seed: bool = False,
+) -> None:
     root = result_root / f"{run_id:03d}"
-    environments = (
+    active_environments = environments or (
         ("single_fan_branch", "single_fan", "W0_single_fan_branch"),
         ("single_fan_branch", "single_fan", "W1_single_fan"),
         ("four_fan_branch", "four_fan", "W0_four_fan_branch"),
         ("four_fan_branch", "four_fan", "W1_four_fan"),
     )
-    for branch, fan, mode in environments:
+    for branch, fan, mode in active_environments:
         rows = [
             _descriptor(
                 branch=branch,
@@ -117,6 +196,7 @@ def _write_fake_paired_chunks(result_root: Path, *, run_id: int) -> None:
                 success=mode.startswith("W1_"),
                 latency_case="nominal",
                 latency_pass_label="nominal_pass",
+                unstable_seed=unstable_seed,
             ),
             _descriptor(
                 branch=branch,
@@ -128,6 +208,7 @@ def _write_fake_paired_chunks(result_root: Path, *, run_id: int) -> None:
                 latency_pass_label="ideal_only_pass"
                 if mode.startswith("W1_")
                 else "nominal_pass",
+                unstable_seed=unstable_seed,
             ),
         ]
         frame = pd.DataFrame(rows, columns=DENSE_TRIAL_DESCRIPTOR_COLUMNS)
@@ -248,7 +329,9 @@ def _descriptor(
     success: bool,
     latency_case: str,
     latency_pass_label: str,
+    unstable_seed: bool = False,
 ) -> dict[str, object]:
+    audit_prefix = "w1" if mode.startswith("W1_") else "w0"
     row = {column: "" for column in DENSE_TRIAL_DESCRIPTOR_COLUMNS}
     row.update(
         {
@@ -261,11 +344,11 @@ def _descriptor(
             "environment_role": "updraft_capable" if mode.startswith("W1_") else "dry_air_gate",
             "validity_gate_role": "w1_independent" if mode.startswith("W1_") else "w0_gate",
             "acceptance_interpretation": "nominal_w1" if mode.startswith("W1_") else "w0_gate",
-            "candidate_id": f"candidate_{branch}_{pair_index}",
-            "sample_id": f"sample_{branch}_{pair_index}",
+            "candidate_id": f"candidate_{audit_prefix}_{branch}_{pair_index}",
+            "sample_id": f"sample_{audit_prefix}_{branch}_{pair_index}",
             "paired_sample_key": f"pair_{branch}_{pair_index}",
-            "seed": 11,
-            "replay_seed": 17,
+            "seed": 12 if unstable_seed and mode.startswith("W1_") else 11,
+            "replay_seed": 17 if mode.startswith("W0_") else 99,
             "sampling_round": "test",
             "updraft_model_id": "fixture_updraft",
             "family": "mild_bank",
@@ -294,7 +377,7 @@ def _descriptor(
             "governor_rejection_cause": "none" if success else "target_miss",
             "robustness_label": "not_evaluated",
             "physics_priority_level": "test",
-            "sim_real_match_key": f"candidate_{branch}_{pair_index}",
+            "sim_real_match_key": f"candidate_{audit_prefix}_{branch}_{pair_index}",
             "sim_real_match_key_version": "test",
             "sim_real_transfer_result": "not_evaluated",
             "descriptor_status": "replay_evaluated",

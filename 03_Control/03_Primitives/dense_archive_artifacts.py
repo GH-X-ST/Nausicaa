@@ -128,6 +128,9 @@ def write_governor_branch_package(
         "fan_layout": str(fan_layout),
         "environment_mode": str(environment_mode),
         "raw_tables_included": False,
+        "governor_artifacts_scan_raw_tables": False,
+        "governor_package_contains_w0_candidates": False,
+        "governor_package_branch_local_only": True,
         "worker_profile_metadata": worker_profile_metadata,
         "files": {
             "envelope_cells": partitions[0].relative_path,

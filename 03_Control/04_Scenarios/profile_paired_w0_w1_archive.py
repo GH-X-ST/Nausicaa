@@ -41,6 +41,7 @@ from run_dense_archive_pilot_sweep import _run_pilot_replays  # noqa: E402
 from run_paired_w0_w1_archive_chunked import RECOMMENDED_PAIRED_PROOF_COMMAND  # noqa: E402
 from run_paired_w0_w1_partitioned_planning import (  # noqa: E402
     PAIRED_ENVIRONMENT_MODES,
+    PAIRED_SCALE_MODES,
     SIMULATION_STAGE,
 )
 
@@ -69,6 +70,8 @@ class PairedProfileConfig:
     profile_root: Path | None = None
     sample_trials: int = 2000
     storage_format: str = "auto"
+    paired_scale_mode: str = "proof"
+    active_environment_modes: tuple[str, ...] = PAIRED_ENVIRONMENT_MODES
     latency_case: str = "nominal"
     dt_s: float = 0.02
     horizon_s: float = 0.60
@@ -118,6 +121,16 @@ def _outputs(config: PairedProfileConfig) -> PairedProfileOutputs:
     )
 
 
+def _validate_config(config: PairedProfileConfig) -> None:
+    if str(config.paired_scale_mode) not in PAIRED_SCALE_MODES:
+        raise ValueError("paired_scale_mode must be 'proof' or 'production'.")
+    if not config.active_environment_modes:
+        raise ValueError("active_environment_modes must not be empty.")
+    unknown = set(config.active_environment_modes).difference(PAIRED_ENVIRONMENT_MODES)
+    if unknown:
+        raise ValueError(f"unknown active environment modes: {sorted(unknown)}")
+
+
 # =============================================================================
 # 2) Profile Sampling Helpers
 # =============================================================================
@@ -126,10 +139,10 @@ def _load_profile_inputs(config: PairedProfileConfig) -> tuple[pd.DataFrame, lis
     root = _planning_root(config)
     selected: list[pd.DataFrame] = []
     starts: list[pd.DataFrame] = []
-    per_environment = max(1, int(config.sample_trials) // len(PAIRED_ENVIRONMENT_MODES))
+    per_environment = max(1, int(config.sample_trials) // len(config.active_environment_modes))
     candidate_paths = list_table_partitions(root, "candidate_index")
     start_paths = list_table_partitions(root, "start_states")
-    for environment_mode in PAIRED_ENVIRONMENT_MODES:
+    for environment_mode in config.active_environment_modes:
         branch_candidates = pd.concat(
             [
                 read_table_partition(path)
@@ -214,6 +227,8 @@ def profile_paired_w0_w1_archive(
     profile_root: Path | None = None,
     sample_trials: int = 2000,
     storage_format: str = "auto",
+    paired_scale_mode: str = "proof",
+    active_environment_modes: tuple[str, ...] = PAIRED_ENVIRONMENT_MODES,
     latency_case: str = "nominal",
     dt_s: float = 0.02,
     horizon_s: float = 0.60,
@@ -226,6 +241,8 @@ def profile_paired_w0_w1_archive(
         profile_root=profile_root,
         sample_trials=int(sample_trials),
         storage_format=str(storage_format),
+        paired_scale_mode=str(paired_scale_mode),
+        active_environment_modes=tuple(active_environment_modes),
         latency_case=str(latency_case),
         dt_s=float(dt_s),
         horizon_s=float(horizon_s),
@@ -233,6 +250,7 @@ def profile_paired_w0_w1_archive(
         memory_safety_margin_gb=float(memory_safety_margin_gb),
     )
     effective_format = resolve_storage_format(config.storage_format)
+    _validate_config(config)
     outputs = _outputs(config)
     tracemalloc.start()
     starts, selected, planning_read_s = _load_profile_inputs(config)
@@ -276,6 +294,8 @@ def profile_paired_w0_w1_archive(
             profiling_rows_per_second=rps_by_worker,
         ),
         "simulation_stage": SIMULATION_STAGE,
+        "paired_scale_mode": str(config.paired_scale_mode),
+        "active_environment_modes": list(config.active_environment_modes),
         "planning_run_id": int(config.planning_run_id),
         "sample_trials_requested": int(config.sample_trials),
         "sample_trials_profiled": int(len(descriptors)),
@@ -335,6 +355,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--profile-root", type=Path, default=None)
     parser.add_argument("--sample-trials", type=int, default=2000)
     parser.add_argument("--storage-format", default="auto")
+    parser.add_argument("--paired-scale-mode", choices=PAIRED_SCALE_MODES, default="proof")
+    parser.add_argument("--active-environment-modes", nargs="*", default=list(PAIRED_ENVIRONMENT_MODES))
     parser.add_argument("--latency-case", default="nominal")
     parser.add_argument("--dt-s", type=float, default=0.02)
     parser.add_argument("--horizon-s", type=float, default=0.60)
@@ -352,6 +374,8 @@ def main() -> int:
         profile_root=args.profile_root,
         sample_trials=args.sample_trials,
         storage_format=args.storage_format,
+        paired_scale_mode=args.paired_scale_mode,
+        active_environment_modes=tuple(args.active_environment_modes),
         latency_case=args.latency_case,
         dt_s=args.dt_s,
         horizon_s=args.horizon_s,

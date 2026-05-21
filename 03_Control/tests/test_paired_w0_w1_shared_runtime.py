@@ -29,7 +29,9 @@ from run_paired_w0_w1_partitioned_planning import PAIRED_ENVIRONMENT_MODES
 def test_paired_planning_requires_chunk_divisibility() -> None:
     config = paired_planning.PairedW0W1PartitionedPlanningConfig(
         run_id=20,
+        paired_scale_mode="production",
         w0_target_trials_per_branch=3,
+        w1_floor_trials_per_branch=4,
         w1_target_trials_per_branch=4,
         partition_rows=2,
     )

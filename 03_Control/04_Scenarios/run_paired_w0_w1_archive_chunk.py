@@ -40,6 +40,7 @@ from dense_archive_trial_logging import DENSE_TRIAL_DESCRIPTOR_COLUMNS  # noqa: 
 from run_dense_archive_pilot_sweep import _run_pilot_replays  # noqa: E402
 from run_paired_w0_w1_partitioned_planning import (  # noqa: E402
     PAIRED_ENVIRONMENT_MODES,
+    PAIRED_SCALE_MODES,
     SIMULATION_STAGE,
 )
 
@@ -75,6 +76,7 @@ class PairedChunkConfig:
     chunk_index: int = 0
     chunk_count: int = 1
     chunk_size: int = 2500
+    paired_scale_mode: str = "proof"
     latency_case: str = "nominal"
     dt_s: float = 0.02
     horizon_s: float = 0.60
@@ -142,6 +144,8 @@ def validate_config(config: PairedChunkConfig) -> None:
         raise ValueError("chunk_index must be in [0, chunk_count).")
     if int(config.chunk_size) <= 0:
         raise ValueError("chunk_size must be positive.")
+    if str(config.paired_scale_mode) not in PAIRED_SCALE_MODES:
+        raise ValueError("paired_scale_mode must be 'proof' or 'production'.")
     if int(config.compression_level) < 0 or int(config.compression_level) > 9:
         raise ValueError("compression_level must be in [0, 9].")
     resolve_storage_format(config.storage_format)
@@ -277,6 +281,7 @@ def _write_manifest(
         "chunk_index": int(config.chunk_index),
         "chunk_count": int(config.chunk_count),
         "chunk_size": int(config.chunk_size),
+        "paired_scale_mode": str(config.paired_scale_mode),
         "storage_format": resolve_storage_format(config.storage_format),
         "compression_level": int(config.compression_level),
         "latency_case": str(config.latency_case),
@@ -321,6 +326,7 @@ def run_paired_w0_w1_archive_chunk(
     chunk_index: int,
     chunk_count: int,
     chunk_size: int = 2500,
+    paired_scale_mode: str = "proof",
     latency_case: str = "nominal",
     dt_s: float = 0.02,
     horizon_s: float = 0.60,
@@ -340,6 +346,7 @@ def run_paired_w0_w1_archive_chunk(
         chunk_index=int(chunk_index),
         chunk_count=int(chunk_count),
         chunk_size=int(chunk_size),
+        paired_scale_mode=str(paired_scale_mode),
         latency_case=str(latency_case),
         dt_s=float(dt_s),
         horizon_s=float(horizon_s),
@@ -400,6 +407,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-index", type=int, required=True)
     parser.add_argument("--chunk-count", type=int, required=True)
     parser.add_argument("--chunk-size", type=int, default=2500)
+    parser.add_argument("--paired-scale-mode", choices=PAIRED_SCALE_MODES, default="proof")
     parser.add_argument("--latency-case", default="nominal")
     parser.add_argument("--dt-s", type=float, default=0.02)
     parser.add_argument("--horizon-s", type=float, default=0.60)
@@ -423,6 +431,7 @@ def main() -> int:
         chunk_index=args.chunk_index,
         chunk_count=args.chunk_count,
         chunk_size=args.chunk_size,
+        paired_scale_mode=args.paired_scale_mode,
         latency_case=args.latency_case,
         dt_s=args.dt_s,
         horizon_s=args.horizon_s,

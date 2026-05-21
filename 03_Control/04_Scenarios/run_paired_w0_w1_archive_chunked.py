@@ -42,6 +42,7 @@ from run_paired_w0_w1_archive_chunk import (  # noqa: E402
 )
 from run_paired_w0_w1_partitioned_planning import (  # noqa: E402
     PAIRED_ENVIRONMENT_MODES,
+    PAIRED_SCALE_MODES,
     SIMULATION_STAGE,
 )
 
@@ -60,8 +61,14 @@ from run_paired_w0_w1_partitioned_planning import (  # noqa: E402
 # 1) Configuration and Paths
 # =============================================================================
 RECOMMENDED_PAIRED_PROOF_COMMAND = (
+    "python 03_Control/04_Scenarios/run_paired_w0_w1_partitioned_planning.py "
+    "--run-id 13 --paired-scale-mode proof --proof-target-trials-per-environment 2500 "
+    "--partition-rows 2500\n"
     "python 03_Control/04_Scenarios/run_paired_w0_w1_archive_chunked.py "
-    "--run-id 14 --planning-run-id 13 --workers 8 --max-workers 8 --resume"
+    "--run-id 14 --planning-run-id 13 --workers 8 --max-workers 8 --resume\n"
+    "python 03_Control/04_Scenarios/aggregate_paired_w0_w1_archive.py "
+    "--run-id 14 --planning-run-id 13 --expected-trials-per-environment 2500 "
+    "--build-upload-package --build-governor-package"
 )
 
 
@@ -70,7 +77,8 @@ class PairedChunkedRunConfig:
     run_id: int = 14
     planning_run_id: int = 13
     result_root: Path | None = None
-    environment_modes: tuple[str, ...] = PAIRED_ENVIRONMENT_MODES
+    active_environment_modes: tuple[str, ...] = PAIRED_ENVIRONMENT_MODES
+    paired_scale_mode: str = "proof"
     workers: str | int = "auto"
     max_workers: int | None = 8
     memory_safety_margin_gb: float = 8.0
@@ -151,7 +159,11 @@ def _validate_config(config: PairedChunkedRunConfig) -> None:
         raise ValueError("compression_level must be in [0, 9].")
     if config.stop_after_chunks is not None and int(config.stop_after_chunks) < 0:
         raise ValueError("stop_after_chunks must be nonnegative.")
-    unknown = set(config.environment_modes).difference(PAIRED_ENVIRONMENT_MODES)
+    if str(config.paired_scale_mode) not in PAIRED_SCALE_MODES:
+        raise ValueError("paired_scale_mode must be 'proof' or 'production'.")
+    if not config.active_environment_modes:
+        raise ValueError("active_environment_modes must not be empty.")
+    unknown = set(config.active_environment_modes).difference(PAIRED_ENVIRONMENT_MODES)
     if unknown:
         raise ValueError(f"unknown paired environment modes: {sorted(unknown)}")
     resolve_storage_format(config.storage_format)
@@ -166,7 +178,7 @@ def build_paired_chunk_schedule(config: PairedChunkedRunConfig) -> list[PairedCh
         if parsed is None:
             continue
         branch_id, environment_mode, chunk_index = parsed
-        if environment_mode not in config.environment_modes:
+        if environment_mode not in config.active_environment_modes:
             continue
         rows.append((branch_id, environment_mode, chunk_index))
     if not rows:
@@ -188,6 +200,7 @@ def build_paired_chunk_schedule(config: PairedChunkedRunConfig) -> list[PairedCh
                 chunk_index=int(chunk_index),
                 chunk_count=int(counts[(branch_id, environment_mode)]),
                 chunk_size=int(config.chunk_size),
+                paired_scale_mode=str(config.paired_scale_mode),
                 latency_case=str(config.latency_case),
                 dt_s=float(config.dt_s),
                 horizon_s=float(config.horizon_s),
@@ -296,6 +309,8 @@ def _write_progress(
         profiling_rows_per_second=profiling_rows_per_second,
     )
     payload["gpu_acceleration_assessment"] = GPU_ACCELERATION_ASSESSMENT
+    payload["paired_scale_mode"] = str(config.paired_scale_mode)
+    payload["active_environment_modes"] = list(config.active_environment_modes)
     manifest_path, report_path = _progress_paths(config)
     write_progress_manifest(path=manifest_path, report_path=report_path, payload=payload)
 
@@ -314,6 +329,7 @@ def _worker_run_chunk(payload: dict[str, object]) -> dict[str, object]:
         chunk_index=int(payload["chunk_index"]),
         chunk_count=int(payload["chunk_count"]),
         chunk_size=int(payload["chunk_size"]),
+        paired_scale_mode=str(payload.get("paired_scale_mode", "proof")),
         latency_case=str(payload["latency_case"]),
         dt_s=float(payload["dt_s"]),
         horizon_s=float(payload["horizon_s"]),
@@ -452,7 +468,9 @@ def run_paired_w0_w1_archive_chunked(
     run_id: int = 14,
     planning_run_id: int = 13,
     result_root: Path | None = None,
-    environment_modes: tuple[str, ...] = PAIRED_ENVIRONMENT_MODES,
+    environment_modes: tuple[str, ...] | None = None,
+    active_environment_modes: tuple[str, ...] | None = None,
+    paired_scale_mode: str = "proof",
     workers: str | int = "auto",
     max_workers: int | None = 8,
     memory_safety_margin_gb: float = 8.0,
@@ -470,11 +488,16 @@ def run_paired_w0_w1_archive_chunked(
     continue_on_chunk_failure: bool = False,
     random_seed: int = 20260526,
 ) -> dict[str, Path]:
+    selected_environment_modes = _resolve_active_environment_modes(
+        environment_modes=environment_modes,
+        active_environment_modes=active_environment_modes,
+    )
     config = PairedChunkedRunConfig(
         run_id=int(run_id),
         planning_run_id=int(planning_run_id),
         result_root=result_root,
-        environment_modes=tuple(environment_modes),
+        active_environment_modes=selected_environment_modes,
+        paired_scale_mode=str(paired_scale_mode),
         workers=workers,
         max_workers=None if max_workers is None else int(max_workers),
         memory_safety_margin_gb=float(memory_safety_margin_gb),
@@ -511,6 +534,8 @@ def run_paired_w0_w1_archive_chunked(
             ),
             sample_trials=min(2000, int(config.chunk_size) * 4),
             storage_format=str(config.storage_format),
+            paired_scale_mode=str(config.paired_scale_mode),
+            active_environment_modes=tuple(config.active_environment_modes),
             latency_case=str(config.latency_case),
             workers=config.workers,
             memory_safety_margin_gb=float(config.memory_safety_margin_gb),
@@ -527,6 +552,7 @@ def run_paired_w0_w1_archive_chunked(
         max_workers=config.max_workers,
     )
     schedule = build_paired_chunk_schedule(config)
+    _validate_run_root_resume_contract(config, schedule)
     pending, skipped, corrupt = _prepare_pending_chunks(config, schedule)
     if config.dry_run_schedule:
         _write_progress(
@@ -565,12 +591,60 @@ def run_paired_w0_w1_archive_chunked(
     return _run_paths(config)
 
 
+def _resolve_active_environment_modes(
+    *,
+    environment_modes: tuple[str, ...] | None,
+    active_environment_modes: tuple[str, ...] | None,
+) -> tuple[str, ...]:
+    if environment_modes is not None and active_environment_modes is not None:
+        if tuple(environment_modes) != tuple(active_environment_modes):
+            raise ValueError("environment_modes and active_environment_modes disagree.")
+    chosen = active_environment_modes if active_environment_modes is not None else environment_modes
+    if chosen is None:
+        return PAIRED_ENVIRONMENT_MODES
+    return tuple(str(mode) for mode in chosen)
+
+
+def _validate_run_root_resume_contract(
+    config: PairedChunkedRunConfig,
+    schedule: list[PairedChunkConfig],
+) -> None:
+    run_root = archive_run_root(schedule[0]) if schedule else _run_paths(config)["root"]
+    if not run_root.exists():
+        return
+    manifest_path, _report_path = _progress_paths(config)
+    if not config.resume:
+        raise RuntimeError(f"paired archive output root already exists: {run_root}")
+    if not manifest_path.exists():
+        allowed_roots = {"chunk_manifests", "chunk_logs", "tables"}
+        existing = {path.name for path in run_root.iterdir()}
+        if existing.difference(allowed_roots):
+            raise RuntimeError(
+                "existing paired archive root is not a compatible chunked resume root."
+            )
+        return
+    payload = json.loads(manifest_path.read_text(encoding="ascii"))
+    expected = {
+        "run_id": int(config.run_id),
+        "planning_run_id": int(config.planning_run_id),
+        "paired_scale_mode": str(config.paired_scale_mode),
+        "active_environment_modes": list(config.active_environment_modes),
+        "storage_format": resolve_storage_format(config.storage_format),
+        "latency_case": str(config.latency_case),
+    }
+    for key, value in expected.items():
+        if payload.get(key) != value:
+            raise RuntimeError(f"paired archive resume manifest mismatch for {key}.")
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", type=int, default=14)
     parser.add_argument("--planning-run-id", type=int, default=13)
     parser.add_argument("--result-root", type=Path, default=None)
-    parser.add_argument("--environment-modes", nargs="*", default=list(PAIRED_ENVIRONMENT_MODES))
+    parser.add_argument("--environment-modes", nargs="*", default=None)
+    parser.add_argument("--active-environment-modes", nargs="*", default=None)
+    parser.add_argument("--paired-scale-mode", choices=PAIRED_SCALE_MODES, default="proof")
     parser.add_argument("--workers", default="auto")
     parser.add_argument("--max-workers", type=int, default=8)
     parser.add_argument("--memory-safety-margin-gb", type=float, default=8.0)
@@ -597,7 +671,13 @@ def main() -> int:
         run_id=args.run_id,
         planning_run_id=args.planning_run_id,
         result_root=args.result_root,
-        environment_modes=tuple(args.environment_modes),
+        environment_modes=None if args.environment_modes is None else tuple(args.environment_modes),
+        active_environment_modes=(
+            None
+            if args.active_environment_modes is None
+            else tuple(args.active_environment_modes)
+        ),
+        paired_scale_mode=args.paired_scale_mode,
         workers=workers,
         max_workers=args.max_workers,
         memory_safety_margin_gb=args.memory_safety_margin_gb,
