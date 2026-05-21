@@ -1,0 +1,307 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+import aggregate_paired_w0_w1_archive as aggregate
+from dense_archive_chunking import partition_path
+from dense_archive_table_io import write_table_partition
+from dense_archive_trial_logging import DENSE_TRIAL_DESCRIPTOR_COLUMNS
+
+
+def test_paired_aggregation_writes_upload_and_governor_packages(
+    tmp_path: Path,
+) -> None:
+    result_root = _short_result_root(tmp_path)
+    _write_fake_paired_chunks(result_root, run_id=14)
+    _write_progress_and_profile(result_root, run_id=14, planning_run_id=13)
+
+    paths = aggregate.aggregate_paired_w0_w1_archive(
+        run_id=14,
+        planning_run_id=13,
+        result_root=result_root,
+        storage_format="csv_gz",
+        expected_trials_per_environment=2,
+        build_upload_package=True,
+        build_governor_package=True,
+    )
+
+    manifest = json.loads(paths["manifest_json"].read_text(encoding="ascii"))
+    failed_valid = pd.read_csv(paths["w0_failed_w1_valid_summary_csv"])
+    envelope = pd.read_csv(paths["w1_nominal_latency_envelope_summary_csv"])
+    package = paths["upload_package_dir"]
+    governor = paths["governor_package_dir"]
+
+    assert manifest["selected_worker_count"] == 8
+    assert manifest["runtime_core_version"] == "dense_archive_runtime_v1"
+    assert manifest["storage_contract_version"] == "dense_archive_storage_contract_v1"
+    assert manifest["w1_scheduled_independent_of_w0_success"] is True
+    assert manifest["governor_artifacts_scan_raw_tables"] is False
+    assert "W0_failed_W1_valid_single_fan" in manifest["paired_summary_labels"]
+    assert "W0_failed_W1_valid_four_fan" in manifest["paired_summary_labels"]
+    assert {
+        "W0_failed_W1_valid_single_fan": 1,
+        "W0_failed_W1_valid_four_fan": 1,
+    } == dict(zip(failed_valid["paired_summary_label"], failed_valid["trial_count"]))
+    assert set(envelope["test_environment_mode"]) == {"W1_single_fan", "W1_four_fan"}
+    assert set(envelope["latency_case"]) == {"nominal"}
+    assert (package / "final_manifest.json").exists()
+    assert (package / "paired_comparison_summary.csv").exists()
+    assert (package / "w1_nominal_latency_envelope_summary.csv").exists()
+    assert (governor / "governor_package_manifest.json").exists()
+    assert not any("tables" in path.parts for path in package.rglob("*") if path.is_file())
+    assert not any("tables" in path.parts for path in governor.rglob("*") if path.is_file())
+
+
+def test_paired_aggregation_rejects_corrupt_chunk_checksum(tmp_path: Path) -> None:
+    result_root = _short_result_root(tmp_path)
+    _write_fake_paired_chunks(result_root, run_id=14)
+    manifest_path = (
+        result_root
+        / "014"
+        / "chunk_manifests"
+        / "layout_branch_id=single_fan_branch"
+        / "test_environment_mode=W1_single_fan"
+        / "chunk-00000.json"
+    )
+    payload = json.loads(manifest_path.read_text(encoding="ascii"))
+    payload["checksum_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="ascii")
+
+    with pytest.raises(RuntimeError, match="checksum mismatch"):
+        aggregate.aggregate_paired_w0_w1_archive(
+            run_id=14,
+            planning_run_id=13,
+            result_root=result_root,
+            storage_format="csv_gz",
+        )
+
+
+def test_paired_diagnostic_slice_filters_environment(tmp_path: Path) -> None:
+    result_root = _short_result_root(tmp_path)
+    _write_fake_paired_chunks(result_root, run_id=14)
+
+    path = aggregate.export_diagnostic_slice(
+        run_id=14,
+        result_root=result_root,
+        layout_branch_id="single_fan_branch",
+        test_environment_mode="W0_single_fan_branch",
+        failure_label="target_miss",
+        max_rows=10,
+    )
+
+    frame = pd.read_csv(path)
+    assert set(frame["layout_branch_id"]) == {"single_fan_branch"}
+    assert set(frame["test_environment_mode"]) == {"W0_single_fan_branch"}
+    assert set(frame["failure_label"]) == {"target_miss"}
+
+
+def _write_fake_paired_chunks(result_root: Path, *, run_id: int) -> None:
+    root = result_root / f"{run_id:03d}"
+    environments = (
+        ("single_fan_branch", "single_fan", "W0_single_fan_branch"),
+        ("single_fan_branch", "single_fan", "W1_single_fan"),
+        ("four_fan_branch", "four_fan", "W0_four_fan_branch"),
+        ("four_fan_branch", "four_fan", "W1_four_fan"),
+    )
+    for branch, fan, mode in environments:
+        rows = [
+            _descriptor(
+                branch=branch,
+                fan=fan,
+                mode=mode,
+                pair_index=0,
+                success=mode.startswith("W1_"),
+                latency_case="nominal",
+                latency_pass_label="nominal_pass",
+            ),
+            _descriptor(
+                branch=branch,
+                fan=fan,
+                mode=mode,
+                pair_index=1,
+                success=True,
+                latency_case="ideal" if mode.startswith("W1_") else "nominal",
+                latency_pass_label="ideal_only_pass"
+                if mode.startswith("W1_")
+                else "nominal_pass",
+            ),
+        ]
+        frame = pd.DataFrame(rows, columns=DENSE_TRIAL_DESCRIPTOR_COLUMNS)
+        path = partition_path(
+            root,
+            table_name="trial_outcomes",
+            layout_branch_id=branch,
+            test_environment_mode=mode,
+            chunk_index=0,
+            storage_format="csv_gz",
+        )
+        partition = write_table_partition(frame, path, storage_format="csv_gz")
+        manifest_path = (
+            root
+            / "chunk_manifests"
+            / f"layout_branch_id={branch}"
+            / f"test_environment_mode={mode}"
+            / "chunk-00000.json"
+        )
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "status": "complete",
+                    "run_id": run_id,
+                    "planning_run_id": 13,
+                    "layout_branch_id": branch,
+                    "test_environment_mode": mode,
+                    "paired_environment_mode": _paired_mode(mode),
+                    "chunk_index": 0,
+                    "chunk_count": 1,
+                    "chunk_size": 2,
+                    "storage_format": "csv_gz",
+                    "compression_level": 1,
+                    "latency_case": "nominal",
+                    "dt_s": 0.02,
+                    "horizon_s": 0.60,
+                    "row_count": 2,
+                    "partition_path": path.resolve().as_posix(),
+                    "checksum_sha256": partition.checksum_sha256,
+                    "planning_read_s": 0.1,
+                    "selection_s": 0.0,
+                    "simulation_s": 0.1,
+                    "descriptor_build_s": 0.0,
+                    "write_s": 0.1,
+                    "total_s": 0.3,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="ascii",
+        )
+
+
+def _short_result_root(tmp_path: Path) -> Path:
+    return tmp_path.parent / f"p{abs(hash(tmp_path.name)) % 100000}" / "r"
+
+
+def _write_progress_and_profile(
+    result_root: Path,
+    *,
+    run_id: int,
+    planning_run_id: int,
+) -> None:
+    progress = {
+        "selected_worker_count": 8,
+        "os_cpu_count": 20,
+        "memory_total_gb": 32.0,
+        "memory_safety_margin_gb": 8.0,
+        "estimated_worker_memory_gb": 2.0,
+        "worker_fallback_reason": "none",
+        "rows_per_second_by_worker_count": {"1": 10.0, "4": 40.0, "6": 60.0, "8": 80.0},
+    }
+    progress_path = (
+        result_root
+        / f"{run_id:03d}"
+        / "manifests"
+        / f"paired_w0_w1_progress_s{run_id:03d}.json"
+    )
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+    progress_path.write_text(json.dumps(progress, indent=2) + "\n", encoding="ascii")
+    profile_path = (
+        result_root
+        / "profiles"
+        / f"paired_planning_s{planning_run_id:03d}"
+        / f"paired_w0_w1_profile_s{planning_run_id:03d}.json"
+    )
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_text(
+        json.dumps(
+            {
+                **progress,
+                "estimated_runtime_s_by_workers": {"8": 0.1},
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="ascii",
+    )
+
+
+def _paired_mode(mode: str) -> str:
+    mapping = {
+        "W0_single_fan_branch": "W1_single_fan",
+        "W1_single_fan": "W0_single_fan_branch",
+        "W0_four_fan_branch": "W1_four_fan",
+        "W1_four_fan": "W0_four_fan_branch",
+    }
+    return mapping[mode]
+
+
+def _descriptor(
+    *,
+    branch: str,
+    fan: str,
+    mode: str,
+    pair_index: int,
+    success: bool,
+    latency_case: str,
+    latency_pass_label: str,
+) -> dict[str, object]:
+    row = {column: "" for column in DENSE_TRIAL_DESCRIPTOR_COLUMNS}
+    row.update(
+        {
+            "trial_descriptor_id": f"trial_{branch}_{mode}_{pair_index}",
+            "layout_branch_id": branch,
+            "fan_layout": fan,
+            "fan_config_id": f"{fan}_dry_air",
+            "test_environment_mode": mode,
+            "paired_environment_mode": _paired_mode(mode),
+            "environment_role": "updraft_capable" if mode.startswith("W1_") else "dry_air_gate",
+            "validity_gate_role": "w1_independent" if mode.startswith("W1_") else "w0_gate",
+            "acceptance_interpretation": "nominal_w1" if mode.startswith("W1_") else "w0_gate",
+            "candidate_id": f"candidate_{branch}_{pair_index}",
+            "sample_id": f"sample_{branch}_{pair_index}",
+            "paired_sample_key": f"pair_{branch}_{pair_index}",
+            "seed": 11,
+            "replay_seed": 17,
+            "sampling_round": "test",
+            "updraft_model_id": "fixture_updraft",
+            "family": "mild_bank",
+            "target_heading_deg": 30.0,
+            "direction_sign": 1,
+            "start_class": "favourable",
+            "updraft_relative_radius_m": 0.5,
+            "speed0_m_s": 6.0,
+            "w_wing_mean_m_s": 0.0,
+            "delta_w_lr_m_s": 0.0,
+            "min_true_margin_m": 0.5,
+            "latency_case": latency_case,
+            "latency_acceptance_scope": "nominal",
+            "latency_pass_label": latency_pass_label,
+            "state_feedback_delay_s": 0.0,
+            "command_onset_delay_s": 0.0,
+            "command_transport_delay_s": 0.0,
+            "actuator_tau_s": "0.0;0.0;0.0",
+            "actuator_t50_s": 0.0,
+            "actuator_t90_s": 0.0,
+            "latency_jitter_s": 0.0,
+            "timing_model_version": "test",
+            "state_feedback_delay_applied": False,
+            "success_flag": bool(success),
+            "failure_label": "success" if success else "target_miss",
+            "governor_rejection_cause": "none" if success else "target_miss",
+            "robustness_label": "not_evaluated",
+            "physics_priority_level": "test",
+            "sim_real_match_key": f"candidate_{branch}_{pair_index}",
+            "sim_real_match_key_version": "test",
+            "sim_real_transfer_result": "not_evaluated",
+            "descriptor_status": "replay_evaluated",
+            "heading_error_deg": 0.0 if success else 20.0,
+            "energy_residual_m": 0.0,
+            "lift_dwell_fraction": 0.0,
+            "saturation_fraction": 0.0,
+        }
+    )
+    return row
