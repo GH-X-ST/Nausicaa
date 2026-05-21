@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -31,6 +34,59 @@ def test_proof_scale_defaults_write_exact_counts_and_seed_contract(tmp_path: Pat
     assert manifest["paired_seed_stable_across_w0_w1"] is True
     assert set(counts["candidate_rows"]) == {4}
     assert set(counts["test_environment_mode"]) == set(planning.PAIRED_ENVIRONMENT_MODES)
+
+
+def test_direct_cli_runs_from_repo_root_without_pytest_path(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    script = Path("03_Control") / "04_Scenarios" / (
+        "run_paired_w0_w1_partitioned_planning.py"
+    )
+    result_root = _short_root(tmp_path) / "direct_cli_planning"
+    run_id = 913
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--run-id",
+            str(run_id),
+            "--result-root",
+            str(result_root),
+            "--storage-format",
+            "csv_gz",
+            "--proof-target-trials-per-environment",
+            "4",
+            "--partition-rows",
+            "2",
+        ],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=120,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    output_root = result_root / f"{run_id:03d}"
+    assert output_root.exists()
+    assert (
+        output_root
+        / "manifests"
+        / f"paired_w0_w1_planning_manifest_s{run_id:03d}.json"
+    ).exists()
+    assert (output_root / "manifests" / f"table_manifest_s{run_id:03d}.json").exists()
+    assert (
+        output_root
+        / "metrics_summary"
+        / f"paired_w0_w1_branch_environment_counts_s{run_id:03d}.csv"
+    ).exists()
+    assert (
+        output_root / "sample_preview" / f"paired_w0_w1_preview_s{run_id:03d}.csv"
+    ).exists()
 
 
 def test_proof_mode_does_not_enforce_production_w1_floor() -> None:

@@ -13,8 +13,9 @@ import pandas as pd
 SCENARIOS_DIR = Path(__file__).resolve().parent
 CONTROL_DIR = SCENARIOS_DIR.parents[0]
 REPO_ROOT = CONTROL_DIR.parents[0]
+INNER_LOOP_DIR = CONTROL_DIR / "02_Inner_Loop"
 PRIMITIVES_DIR = CONTROL_DIR / "03_Primitives"
-for path in (PRIMITIVES_DIR, SCENARIOS_DIR):
+for path in (INNER_LOOP_DIR, PRIMITIVES_DIR, SCENARIOS_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
