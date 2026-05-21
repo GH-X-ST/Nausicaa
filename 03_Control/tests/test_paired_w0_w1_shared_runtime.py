@@ -483,6 +483,7 @@ def _descriptor(
             "latency_case": "nominal",
             "latency_acceptance_scope": "nominal",
             "latency_pass_label": "nominal_pass",
+            "latency_execution_status": "command_delay_plus_actuator_lag",
             "state_feedback_delay_s": 0.0,
             "command_onset_delay_s": 0.0,
             "command_transport_delay_s": 0.0,

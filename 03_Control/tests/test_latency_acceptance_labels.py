@@ -6,11 +6,14 @@ import pytest
 import scenario_contract
 from latency import (
     LATENCY_CASES,
+    LATENCY_EXECUTION_STATUSES,
     LATENCY_PASS_LABELS,
     format_actuator_tau_s,
     latency_acceptance_scope,
     latency_audit_fields_from_case,
     latency_case_config,
+    latency_execution_status,
+    latency_mechanism_flags_from_case,
     latency_pass_label_for_paired_comparison,
     latency_pass_label_for_single_run,
 )
@@ -44,6 +47,107 @@ def test_canonical_latency_labels_are_exact() -> None:
         "conservative_fail",
         "ideal_only_latency_failed",
     )
+    assert LATENCY_EXECUTION_STATUSES == (
+        "ideal_timing",
+        "actuator_lag_only",
+        "command_delay_plus_actuator_lag",
+        "full_state_command_actuator_latency",
+    )
+
+
+def test_latency_case_mechanism_flags_and_execution_statuses_are_exact() -> None:
+    expected = {
+        "none": (
+            {
+                "state_feedback_delay_applied": False,
+                "command_delay_applied": False,
+                "actuator_lag_applied": False,
+            },
+            "ideal_timing",
+        ),
+        "actuator_lag_only": (
+            {
+                "state_feedback_delay_applied": False,
+                "command_delay_applied": False,
+                "actuator_lag_applied": True,
+            },
+            "actuator_lag_only",
+        ),
+        "nominal": (
+            {
+                "state_feedback_delay_applied": False,
+                "command_delay_applied": True,
+                "actuator_lag_applied": True,
+            },
+            "command_delay_plus_actuator_lag",
+        ),
+        "conservative": (
+            {
+                "state_feedback_delay_applied": False,
+                "command_delay_applied": True,
+                "actuator_lag_applied": True,
+            },
+            "command_delay_plus_actuator_lag",
+        ),
+    }
+
+    for latency_case, (flags, status) in expected.items():
+        assert latency_mechanism_flags_from_case(latency_case) == flags
+        assert latency_execution_status(latency_case=latency_case, **flags) == status
+
+
+def test_full_latency_status_requires_real_state_feedback_path() -> None:
+    flags = latency_mechanism_flags_from_case(
+        "nominal",
+        state_feedback_delay_applied=True,
+    )
+
+    assert flags == {
+        "state_feedback_delay_applied": True,
+        "command_delay_applied": True,
+        "actuator_lag_applied": True,
+    }
+    assert (
+        latency_execution_status(latency_case="nominal", **flags)
+        == "full_state_command_actuator_latency"
+    )
+
+
+def test_latency_execution_status_rejects_inconsistent_mechanisms() -> None:
+    with pytest.raises(ValueError, match="state-feedback"):
+        latency_execution_status(
+            latency_case="nominal",
+            state_feedback_delay_applied=True,
+            command_delay_applied=False,
+            actuator_lag_applied=True,
+        )
+    with pytest.raises(ValueError, match="command delay"):
+        latency_execution_status(
+            latency_case="nominal",
+            state_feedback_delay_applied=False,
+            command_delay_applied=True,
+            actuator_lag_applied=False,
+        )
+    with pytest.raises(ValueError, match="ideal timing"):
+        latency_execution_status(
+            latency_case="none",
+            state_feedback_delay_applied=False,
+            command_delay_applied=False,
+            actuator_lag_applied=True,
+        )
+    with pytest.raises(ValueError, match="actuator lag only"):
+        latency_mechanism_flags_from_case(
+            "actuator_lag_only",
+            state_feedback_delay_applied=True,
+        )
+
+
+def test_ideal_only_pass_label_is_not_an_execution_status() -> None:
+    flags = latency_mechanism_flags_from_case("none")
+
+    assert latency_pass_label_for_single_run("none", True) == "ideal_only"
+    assert latency_execution_status(latency_case="none", **flags) == "ideal_timing"
+    assert "ideal_only" not in LATENCY_EXECUTION_STATUSES
 
 
 def test_latency_case_configs_and_audit_fields() -> None:

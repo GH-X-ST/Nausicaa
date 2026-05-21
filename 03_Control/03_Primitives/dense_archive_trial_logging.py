@@ -6,6 +6,7 @@ from typing import Mapping
 import numpy as np
 
 from arena_contract import TRUE_SAFE_BOUNDS, position_margin_m
+from latency import latency_execution_status, latency_mechanism_flags_from_case
 from primitive_library_schema import (
     classify_wind_query_region,
     entry_clearance_metrics,
@@ -108,6 +109,7 @@ DENSE_TRIAL_DESCRIPTOR_COLUMNS = (
     "latency_case",
     "latency_acceptance_scope",
     "latency_pass_label",
+    "latency_execution_status",
     "state_feedback_delay_s",
     "command_onset_delay_s",
     "command_transport_delay_s",
@@ -326,14 +328,18 @@ def dense_trial_descriptor_row(
             wind_model_z_axis_m,
             active_config.z_outlet_m,
         ),
-        "saturation_fraction": _saturation_fraction(
-            effective_target,
-            applied,
-            active_config.saturation_tolerance,
-        ),
+    "saturation_fraction": _saturation_fraction(
+        effective_target,
+        applied,
+        active_config.saturation_tolerance,
+    ),
         "latency_case": latency_case,
         "latency_acceptance_scope": _text(latency_fields["latency_acceptance_scope"]),
         "latency_pass_label": _text(latency_fields["latency_pass_label"]),
+        "latency_execution_status": _latency_execution_status_from_fields(
+            latency_case,
+            latency_fields,
+        ),
         "state_feedback_delay_s": float(latency_fields["state_feedback_delay_s"]),
         "command_onset_delay_s": float(latency_fields["command_onset_delay_s"]),
         "command_transport_delay_s": float(latency_fields["command_transport_delay_s"]),
@@ -483,7 +489,47 @@ def _physics_priority_level(family: str, target_heading_deg: float) -> str:
         return "target_steering_30deg_priority"
     if np.isclose(target_heading_deg, 15.0, atol=1e-9):
         return "target_steering_15deg_priority"
-    return "target_steering_future_target_priority"
+    if str(family) == "canyon_steep_bank":
+        if np.isclose(target_heading_deg, (45.0, 60.0), atol=1e-9).any():
+            return "canyon_45_60_high_diagnostic_priority"
+        if np.isclose(target_heading_deg, 90.0, atol=1e-9):
+            return "canyon_90_wall_lift_recapture_priority"
+        if np.isclose(target_heading_deg, (120.0, 150.0, 180.0), atol=1e-9).any():
+            return "canyon_high_angle_escalation_priority"
+    if str(family) == "wingover_lite":
+        if np.isclose(target_heading_deg, (45.0, 60.0), atol=1e-9).any():
+            return "wingover_45_60_diagnostic_priority"
+        if np.isclose(target_heading_deg, (90.0, 120.0), atol=1e-9).any():
+            return "wingover_90_120_strong_lift_priority"
+        if np.isclose(target_heading_deg, (150.0, 180.0), atol=1e-9).any():
+            return "wingover_150_180_high_angle_escalation_priority"
+    if str(family) == "bank_yaw_energy_retaining":
+        if np.isclose(target_heading_deg, (45.0, 60.0), atol=1e-9).any():
+            return "bank_yaw_45_60_high_diagnostic_priority"
+        if np.isclose(target_heading_deg, (90.0, 120.0, 150.0, 180.0), atol=1e-9).any():
+            return "bank_yaw_yaw_retaining_escalation_priority"
+    return "target_steering_unmapped_priority"
+
+
+def _latency_execution_status_from_fields(
+    latency_case: str,
+    latency_fields: Mapping[str, object],
+) -> str:
+    state_delay_applied = bool(latency_fields["state_feedback_delay_applied"])
+    mechanism_flags = latency_mechanism_flags_from_case(
+        latency_case,
+        state_feedback_delay_applied=state_delay_applied,
+    )
+    computed = latency_execution_status(
+        latency_case=latency_case,
+        **mechanism_flags,
+    )
+    supplied = _text(latency_fields.get("latency_execution_status", ""))
+    if supplied and supplied != computed:
+        raise ValueError(
+            "latency_execution_status does not match canonical latency mechanisms."
+        )
+    return computed
 
 
 # =============================================================================

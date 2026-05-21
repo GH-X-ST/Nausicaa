@@ -31,6 +31,12 @@ LATENCY_PASS_LABELS = (
     "conservative_fail",
     "ideal_only_latency_failed",
 )
+LATENCY_EXECUTION_STATUSES = (
+    "ideal_timing",
+    "actuator_lag_only",
+    "command_delay_plus_actuator_lag",
+    "full_state_command_actuator_latency",
+)
 TIMING_MODEL_VERSION = "measured_vicon_one_pole_command_response_v1"
 
 
@@ -355,6 +361,86 @@ def latency_acceptance_scope(latency_case: str) -> str:
         + ", ".join(f"'{label}'" for label in LATENCY_CASES)
         + "."
     )
+
+
+def latency_mechanism_flags_from_case(
+    latency_case: str,
+    *,
+    state_feedback_delay_applied: bool = False,
+) -> dict[str, bool]:
+    """Return the timing mechanisms active for the current replay architecture."""
+
+    case = str(latency_case)
+    if case not in LATENCY_CASES:
+        raise ValueError(
+            "latency_case must be one of "
+            + ", ".join(f"'{label}'" for label in LATENCY_CASES)
+            + "."
+        )
+    state_delay = bool(state_feedback_delay_applied)
+    if case == "none":
+        if state_delay:
+            raise ValueError("ideal timing cannot apply state-feedback delay.")
+        return {
+            "state_feedback_delay_applied": False,
+            "command_delay_applied": False,
+            "actuator_lag_applied": False,
+        }
+    if case == "actuator_lag_only":
+        if state_delay:
+            raise ValueError("actuator lag only cannot apply state-feedback delay.")
+        return {
+            "state_feedback_delay_applied": False,
+            "command_delay_applied": False,
+            "actuator_lag_applied": True,
+        }
+    return {
+        "state_feedback_delay_applied": state_delay,
+        "command_delay_applied": True,
+        "actuator_lag_applied": True,
+    }
+
+
+def latency_execution_status(
+    *,
+    latency_case: str,
+    state_feedback_delay_applied: bool,
+    command_delay_applied: bool,
+    actuator_lag_applied: bool,
+) -> str:
+    """Return an audit label for which latency mechanisms were active."""
+
+    case = str(latency_case)
+    if case not in LATENCY_CASES:
+        raise ValueError(
+            "latency_case must be one of "
+            + ", ".join(f"'{label}'" for label in LATENCY_CASES)
+            + "."
+        )
+    state_delay = bool(state_feedback_delay_applied)
+    command_delay = bool(command_delay_applied)
+    actuator_lag = bool(actuator_lag_applied)
+    if state_delay and not (command_delay and actuator_lag):
+        raise ValueError("state-feedback latency requires command delay and actuator lag.")
+    if command_delay and not actuator_lag:
+        raise ValueError("command delay cannot be claimed without actuator lag.")
+    if case == "none":
+        if state_delay or command_delay or actuator_lag:
+            raise ValueError("latency_case='none' must use ideal timing mechanisms.")
+        return "ideal_timing"
+    if case == "actuator_lag_only":
+        if state_delay or command_delay or not actuator_lag:
+            raise ValueError(
+                "latency_case='actuator_lag_only' must apply actuator lag only."
+            )
+        return "actuator_lag_only"
+    if not command_delay or not actuator_lag:
+        raise ValueError(
+            "nominal/conservative latency requires command delay plus actuator lag."
+        )
+    if state_delay:
+        return "full_state_command_actuator_latency"
+    return "command_delay_plus_actuator_lag"
 
 
 def latency_pass_label_for_single_run(latency_case: str, accepted: bool) -> str:

@@ -30,6 +30,7 @@ def test_paired_aggregation_writes_upload_and_governor_packages(
     )
 
     manifest = json.loads(paths["manifest_json"].read_text(encoding="ascii"))
+    table_manifest = json.loads(paths["table_manifest_json"].read_text(encoding="ascii"))
     failed_valid = pd.read_csv(paths["w0_failed_w1_valid_summary_csv"])
     envelope = pd.read_csv(paths["w1_nominal_latency_envelope_summary_csv"])
     package = paths["upload_package_dir"]
@@ -52,6 +53,10 @@ def test_paired_aggregation_writes_upload_and_governor_packages(
         "test_environment_mode",
         "replay_seed",
     }
+    assert all(
+        "latency_execution_status" in partition["columns"]
+        for partition in table_manifest["tables"]
+    )
     assert "W0_failed_W1_valid_single_fan" in manifest["paired_summary_labels"]
     assert "W0_failed_W1_valid_four_fan" in manifest["paired_summary_labels"]
     assert {
@@ -63,6 +68,8 @@ def test_paired_aggregation_writes_upload_and_governor_packages(
     assert (package / "final_manifest.json").exists()
     assert (package / "paired_comparison_summary.csv").exists()
     assert (package / "w1_nominal_latency_envelope_summary.csv").exists()
+    package_preview = pd.read_csv(package / "W1_single_fan_preview.csv")
+    assert "latency_execution_status" in package_preview.columns
     assert (governor / "governor_package_manifest.json").exists()
     assert not any("tables" in path.parts for path in package.rglob("*") if path.is_file())
     assert not any("tables" in path.parts for path in governor.rglob("*") if path.is_file())
@@ -363,6 +370,9 @@ def _descriptor(
             "latency_case": latency_case,
             "latency_acceptance_scope": "nominal",
             "latency_pass_label": latency_pass_label,
+            "latency_execution_status": "command_delay_plus_actuator_lag"
+            if latency_case == "nominal"
+            else "ideal_timing",
             "state_feedback_delay_s": 0.0,
             "command_onset_delay_s": 0.0,
             "command_transport_delay_s": 0.0,

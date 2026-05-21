@@ -131,6 +131,7 @@ def generate_command_profile(
     command = np.zeros((time.size, 3), dtype=float)
     direction = float(np.sign(spec.direction_sign) or 1.0)
     tau = time / max(float(time[-1]), 1e-12)
+    intensity = _target_intensity(spec.target_heading_deg, family=spec.family)
 
     if spec.family == "glide":
         command[:, 1] = -0.04
@@ -143,22 +144,39 @@ def generate_command_profile(
         command[:, 1] = -0.03
     elif spec.family == "canyon_steep_bank":
         pulse = np.sin(np.pi * np.clip(tau, 0.0, 1.0))
-        command[:, 0] = 0.55 * direction * pulse
-        command[:, 2] = 0.18 * direction * pulse
-        command[:, 1] = -0.06
+        command[:, 0] = 0.55 * intensity * direction * pulse
+        command[:, 2] = 0.18 * intensity * direction * pulse
+        command[:, 1] = -0.06 * intensity
     elif spec.family == "wingover_lite":
         climb = np.sin(np.pi * np.clip(tau, 0.0, 1.0))
-        command[:, 0] = 0.38 * direction * climb
-        command[:, 2] = 0.22 * direction * climb
-        command[:, 1] = -0.18 * np.where(tau < 0.45, 1.0 - tau, 0.25)
+        command[:, 0] = 0.38 * intensity * direction * climb
+        command[:, 2] = 0.22 * intensity * direction * climb
+        command[:, 1] = -0.18 * intensity * np.where(tau < 0.45, 1.0 - tau, 0.25)
     elif spec.family == "bank_yaw_energy_retaining":
         pulse = np.sin(np.pi * np.clip(tau, 0.0, 1.0))
-        command[:, 0] = 0.36 * direction * pulse
-        command[:, 2] = 0.34 * direction * pulse
-        command[:, 1] = -0.08 * (1.0 - 0.5 * tau)
+        command[:, 0] = 0.36 * intensity * direction * pulse
+        command[:, 2] = 0.34 * intensity * direction * pulse
+        command[:, 1] = -0.08 * intensity * (1.0 - 0.5 * tau)
     else:
         raise ValueError(f"unknown primitive family: {spec.family}")
     return np.clip(command, -1.0, 1.0), phase
+
+
+def _target_intensity(target_heading_deg: float | None, *, family: str) -> float:
+    """Return a bounded command scale for target-heading variants."""
+
+    if str(family) not in {
+        "canyon_steep_bank",
+        "wingover_lite",
+        "bank_yaw_energy_retaining",
+    }:
+        return 1.0
+    if target_heading_deg is None:
+        return 1.0
+    target = float(np.clip(float(target_heading_deg), 15.0, 180.0))
+    if target <= 30.0:
+        return float(0.75 + (target - 15.0) * (0.25 / 15.0))
+    return float(1.0 + (target - 30.0) * (0.60 / 150.0))
 
 
 def _phase_label(t_s: float, t_final_s: float, family: str) -> str:

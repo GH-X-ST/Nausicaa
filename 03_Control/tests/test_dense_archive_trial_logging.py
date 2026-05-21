@@ -97,6 +97,7 @@ EXPECTED_COLUMNS = (
     "latency_case",
     "latency_acceptance_scope",
     "latency_pass_label",
+    "latency_execution_status",
     "state_feedback_delay_s",
     "command_onset_delay_s",
     "command_transport_delay_s",
@@ -199,6 +200,7 @@ def test_success_flag_physics_priority_and_sim_real_defaults() -> None:
     assert success["success_flag"] is True
     assert success["sim_real_transfer_result"] == "not_evaluated"
     assert success["physics_priority_level"] == "target_steering_30deg_priority"
+    assert success["latency_execution_status"] == "command_delay_plus_actuator_lag"
 
     assert _descriptor_row(robustness_label="stress_failed")["success_flag"] is False
     assert _descriptor_row(failure_label="target_miss")["success_flag"] is False
@@ -206,13 +208,79 @@ def test_success_flag_physics_priority_and_sim_real_defaults() -> None:
     assert _descriptor_row(target_heading_deg=15.0)["physics_priority_level"] == (
         "target_steering_15deg_priority"
     )
-    assert _descriptor_row(target_heading_deg=45.0)["physics_priority_level"] == (
-        "target_steering_future_target_priority"
+    assert _descriptor_row(
+        family="canyon_steep_bank",
+        target_heading_deg=45.0,
+    )["physics_priority_level"] == (
+        "canyon_45_60_high_diagnostic_priority"
     )
     assert _descriptor_row(family="glide", target_heading_deg="")["physics_priority_level"] == (
         "not_priority_ranked"
     )
     assert _descriptor_row(sim_real_transfer_result="matched")["sim_real_transfer_result"] == "matched"
+
+
+@pytest.mark.parametrize(
+    ("family", "target_heading_deg", "expected_label"),
+    [
+        ("glide", "", "not_priority_ranked"),
+        ("recovery", "", "not_priority_ranked"),
+        ("baseline", 90.0, "not_priority_ranked"),
+        ("canyon_steep_bank", 15.0, "target_steering_15deg_priority"),
+        ("canyon_steep_bank", 30.0, "target_steering_30deg_priority"),
+        ("canyon_steep_bank", 45.0, "canyon_45_60_high_diagnostic_priority"),
+        ("canyon_steep_bank", 60.0, "canyon_45_60_high_diagnostic_priority"),
+        ("canyon_steep_bank", 90.0, "canyon_90_wall_lift_recapture_priority"),
+        ("canyon_steep_bank", 120.0, "canyon_high_angle_escalation_priority"),
+        ("canyon_steep_bank", 150.0, "canyon_high_angle_escalation_priority"),
+        ("canyon_steep_bank", 180.0, "canyon_high_angle_escalation_priority"),
+        ("wingover_lite", 45.0, "wingover_45_60_diagnostic_priority"),
+        ("wingover_lite", 60.0, "wingover_45_60_diagnostic_priority"),
+        ("wingover_lite", 90.0, "wingover_90_120_strong_lift_priority"),
+        ("wingover_lite", 120.0, "wingover_90_120_strong_lift_priority"),
+        ("wingover_lite", 150.0, "wingover_150_180_high_angle_escalation_priority"),
+        ("wingover_lite", 180.0, "wingover_150_180_high_angle_escalation_priority"),
+        (
+            "bank_yaw_energy_retaining",
+            45.0,
+            "bank_yaw_45_60_high_diagnostic_priority",
+        ),
+        (
+            "bank_yaw_energy_retaining",
+            60.0,
+            "bank_yaw_45_60_high_diagnostic_priority",
+        ),
+        (
+            "bank_yaw_energy_retaining",
+            90.0,
+            "bank_yaw_yaw_retaining_escalation_priority",
+        ),
+        (
+            "bank_yaw_energy_retaining",
+            120.0,
+            "bank_yaw_yaw_retaining_escalation_priority",
+        ),
+        (
+            "bank_yaw_energy_retaining",
+            150.0,
+            "bank_yaw_yaw_retaining_escalation_priority",
+        ),
+        (
+            "bank_yaw_energy_retaining",
+            180.0,
+            "bank_yaw_yaw_retaining_escalation_priority",
+        ),
+    ],
+)
+def test_physics_priority_labels_match_project_plan(
+    family: str,
+    target_heading_deg: object,
+    expected_label: str,
+) -> None:
+    assert _descriptor_row(
+        family=family,
+        target_heading_deg=target_heading_deg,
+    )["physics_priority_level"] == expected_label
 
 
 def test_lift_dwell_interval_and_proxy_semantics() -> None:
@@ -328,6 +396,7 @@ def test_saturation_uses_effective_target_and_latency_fields_are_copied() -> Non
     assert row["latency_case"] == "nominal"
     assert row["latency_acceptance_scope"] == "command_path_nominal_no_feedback_controller"
     assert row["latency_pass_label"] == "nominal_pass"
+    assert row["latency_execution_status"] == "command_delay_plus_actuator_lag"
     assert row["state_feedback_delay_applied"] is False
 
 
@@ -490,6 +559,7 @@ def _latency_fields() -> dict[str, object]:
         "latency_case": "nominal",
         "latency_acceptance_scope": "command_path_nominal_no_feedback_controller",
         "latency_pass_label": "nominal_pass",
+        "latency_execution_status": "command_delay_plus_actuator_lag",
         "state_feedback_delay_s": 0.0,
         "command_onset_delay_s": 0.02,
         "command_transport_delay_s": 0.01,
