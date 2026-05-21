@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
@@ -86,6 +87,18 @@ def table_extension(storage_format: str) -> str:
     raise ValueError(f"unknown resolved storage format: {value!r}")
 
 
+def filesystem_path(path: Path) -> Path:
+    """Return a path suitable for direct filesystem calls."""
+
+    return _filesystem_path(Path(path))
+
+
+def ensure_directory(path: Path) -> None:
+    """Create a directory, including long Windows paths when needed."""
+
+    _mkdir(Path(path))
+
+
 # =============================================================================
 # 2) Partition Read/Write Helpers
 # =============================================================================
@@ -101,27 +114,29 @@ def write_table_partition(
     resolved_format = resolve_storage_format(storage_format)
     _validate_compression_level(compression_level)
     output_path = Path(path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    _mkdir(output_path.parent)
     tmp_path = output_path.with_name(f"{output_path.name}.tmp")
-    if tmp_path.exists():
-        tmp_path.unlink()
+    tmp_fs_path = _filesystem_path(tmp_path)
+    output_fs_path = _filesystem_path(output_path)
+    if tmp_fs_path.exists():
+        tmp_fs_path.unlink()
 
     try:
         if resolved_format == "parquet":
-            frame.to_parquet(tmp_path, index=False)
+            frame.to_parquet(tmp_fs_path, index=False)
         elif resolved_format == "csv_gz":
             _write_csv_gz(frame, tmp_path, compression_level=int(compression_level))
         elif resolved_format == "csv":
-            frame.to_csv(tmp_path, index=False)
+            frame.to_csv(tmp_fs_path, index=False)
         else:
             raise ValueError(f"unsupported storage format: {resolved_format!r}")
     except Exception:
-        if tmp_path.exists():
-            tmp_path.unlink()
+        if tmp_fs_path.exists():
+            tmp_fs_path.unlink()
         raise
 
-    tmp_path.replace(output_path)
-    stat = output_path.stat()
+    tmp_fs_path.replace(output_fs_path)
+    stat = output_fs_path.stat()
     return TablePartition(
         table_name=_table_name_from_path(output_path),
         relative_path=_relative_path_from_tables(output_path),
@@ -147,11 +162,11 @@ def read_table_partition(
         else resolve_storage_format(storage_format)
     )
     if resolved_format == "parquet":
-        return pd.read_parquet(input_path)
+        return pd.read_parquet(_filesystem_path(input_path))
     if resolved_format == "csv_gz":
-        return pd.read_csv(input_path, compression="gzip")
+        return pd.read_csv(_filesystem_path(input_path), compression="gzip")
     if resolved_format == "csv":
-        return pd.read_csv(input_path)
+        return pd.read_csv(_filesystem_path(input_path))
     raise ValueError(f"unsupported storage format: {resolved_format!r}")
 
 
@@ -163,15 +178,20 @@ def list_table_partitions(root: Path, table_name: str) -> list[Path]:
         root_path / str(table_name),
         root_path / "tables" / str(table_name),
     )
-    table_root = next((path for path in candidates if path.exists()), candidates[0])
-    if not table_root.exists():
+    table_root = next(
+        (path for path in candidates if filesystem_path(path).exists()),
+        candidates[0],
+    )
+    if not filesystem_path(table_root).exists():
         return []
     paths: list[Path] = []
-    for path in table_root.rglob("*"):
-        if not path.is_file() or path.name.endswith(".tmp"):
-            continue
-        if _is_table_partition_path(path):
-            paths.append(path)
+    for dirpath, _, filenames in os.walk(filesystem_path(table_root)):
+        for filename in filenames:
+            path = _normal_path_from_filesystem(Path(dirpath) / filename)
+            if path.name.endswith(".tmp"):
+                continue
+            if _is_table_partition_path(path):
+                paths.append(path)
     return sorted(paths, key=lambda item: item.as_posix())
 
 
@@ -179,7 +199,7 @@ def file_sha256(path: Path) -> str:
     """Return a SHA256 checksum for a written partition."""
 
     digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
+    with _filesystem_path(Path(path)).open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
@@ -213,9 +233,13 @@ def _write_csv_gz(
     try:
         buffer = io.BytesIO()
         frame.to_csv(buffer, index=False, compression=deterministic)
-        Path(tmp_path).write_bytes(buffer.getvalue())
+        _filesystem_path(Path(tmp_path)).write_bytes(buffer.getvalue())
     except (TypeError, ValueError):
-        frame.to_csv(tmp_path, index=False, compression="gzip")
+        frame.to_csv(
+            _filesystem_path(Path(tmp_path)),
+            index=False,
+            compression="gzip",
+        )
 
 
 # =============================================================================
@@ -227,8 +251,8 @@ def write_table_manifest(path: Path, manifest: TableManifest) -> None:
     payload = asdict(manifest)
     payload["tables"] = [asdict(partition) for partition in manifest.tables]
     output_path = Path(path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
+    _mkdir(output_path.parent)
+    _filesystem_path(output_path).write_text(
         json.dumps(payload, indent=2, sort_keys=False) + "\n",
         encoding="ascii",
     )
@@ -237,7 +261,7 @@ def write_table_manifest(path: Path, manifest: TableManifest) -> None:
 def load_table_manifest(path: Path) -> TableManifest:
     """Load a table manifest written by `write_table_manifest`."""
 
-    payload = json.loads(Path(path).read_text(encoding="ascii"))
+    payload = json.loads(_filesystem_path(Path(path)).read_text(encoding="ascii"))
     return TableManifest(
         run_id=int(payload["run_id"]),
         root=str(payload["root"]),
@@ -300,5 +324,36 @@ def _relative_path_from_tables(path: Path) -> str:
 def csv_gz_text(path: Path) -> str:
     """Return gzipped CSV text for small test/debug partitions."""
 
-    with gzip.open(path, "rt", encoding="utf-8") as handle:
+    with gzip.open(_filesystem_path(Path(path)), "rt", encoding="utf-8") as handle:
         return handle.read()
+
+
+def _mkdir(path: Path) -> None:
+    _filesystem_path(Path(path)).mkdir(parents=True, exist_ok=True)
+
+
+def _filesystem_path(path: Path) -> Path:
+    """Return a path suitable for filesystem calls on long Windows paths."""
+
+    raw = Path(path)
+    if os.name != "nt":
+        return raw
+    text = str(raw)
+    if text.startswith("\\\\?\\"):
+        return raw
+    resolved = raw.resolve()
+    resolved_text = str(resolved)
+    if resolved_text.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + resolved_text.lstrip("\\"))
+    return Path("\\\\?\\" + resolved_text)
+
+
+def _normal_path_from_filesystem(path: Path) -> Path:
+    text = str(path)
+    if os.name != "nt":
+        return Path(text)
+    if text.startswith("\\\\?\\UNC\\"):
+        return Path("\\\\" + text[len("\\\\?\\UNC\\") :])
+    if text.startswith("\\\\?\\"):
+        return Path(text[len("\\\\?\\") :])
+    return Path(text)

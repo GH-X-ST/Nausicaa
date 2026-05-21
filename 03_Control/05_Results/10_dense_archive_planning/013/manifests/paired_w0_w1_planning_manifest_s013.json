@@ -1,0 +1,49 @@
+{
+  "run_id": 13,
+  "source_planning_run_id": 10,
+  "paired_scale_mode": "proof",
+  "environment_modes": [
+    "W0_single_fan_branch",
+    "W1_single_fan",
+    "W0_four_fan_branch",
+    "W1_four_fan"
+  ],
+  "active_environment_modes": [
+    "W0_single_fan_branch",
+    "W1_single_fan",
+    "W0_four_fan_branch",
+    "W1_four_fan"
+  ],
+  "proof_target_trials_per_environment": 2500,
+  "w0_target_trials_per_branch": 250000,
+  "w1_floor_trials_per_branch": 350000,
+  "w1_target_trials_per_branch": 500000,
+  "effective_pilot_start_states_per_family_target_direction": 37,
+  "storage_format": "csv_gz",
+  "partition_rows": 2500,
+  "candidate_rows_total": 10000,
+  "start_state_rows_total": 10000,
+  "w1_selected_independently_of_w0_success": true,
+  "branch_local_decisions_only": true,
+  "branch_decision_scope": "branch_local_only_no_cross_layout_decision_transfer",
+  "no_overclaiming_statement": "Paired W0/W1 partitioned planning proof only; no full W1 production, W2/W3/W4/W5, mission, hardware, or sim-to-real claim is made.",
+  "output_files": {
+    "manifest": "03_Control/05_Results/10_dense_archive_planning/013/manifests/paired_w0_w1_planning_manifest_s013.json",
+    "table_manifest": "03_Control/05_Results/10_dense_archive_planning/013/manifests/table_manifest_s013.json",
+    "report": "03_Control/05_Results/10_dense_archive_planning/013/reports/paired_w0_w1_planning_report_s013.md",
+    "branch_environment_counts": "03_Control/05_Results/10_dense_archive_planning/013/metrics_summary/paired_w0_w1_branch_environment_counts_s013.csv",
+    "schema_summary": "03_Control/05_Results/10_dense_archive_planning/013/schema/paired_w0_w1_schema_summary_s013.csv",
+    "schema_json": "03_Control/05_Results/10_dense_archive_planning/013/schema/paired_w0_w1_schema_s013.json",
+    "preview": "03_Control/05_Results/10_dense_archive_planning/013/sample_preview/paired_w0_w1_preview_s013.csv"
+  },
+  "paired_seed_stability_checked": true,
+  "paired_identity_seed_field": "seed",
+  "paired_seed_stable_across_w0_w1": true,
+  "paired_seed_stability_group_count": 5000,
+  "paired_seed_instability_count": 0,
+  "runtime_core_version": "dense_archive_runtime_v1",
+  "storage_contract_version": "dense_archive_storage_contract_v1",
+  "simulation_stage": "paired_w0_w1_proof",
+  "environment_mode": "multiple",
+  "governor_package_schema_version": "dense_archive_governor_package_v1"
+}

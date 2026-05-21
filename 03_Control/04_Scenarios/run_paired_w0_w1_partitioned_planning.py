@@ -33,6 +33,8 @@ from dense_archive_schema import (  # noqa: E402
 from dense_archive_table_io import (  # noqa: E402
     TableManifest,
     TablePartition,
+    ensure_directory,
+    filesystem_path,
     resolve_storage_format,
     write_table_manifest,
     write_table_partition,
@@ -395,7 +397,7 @@ def _prepare_output_tree(
         outputs.preview_csv.parent,
         outputs.root / "tables",
     ):
-        path.mkdir(parents=True, exist_ok=True)
+        ensure_directory(path)
 
 
 def _clear_output_tree(root: Path) -> None:
@@ -434,7 +436,6 @@ def _write_partitioned_table(
             chunk_index=int(chunk_index),
             storage_format=storage_format,
         )
-        output_path.parent.mkdir(parents=True, exist_ok=True)
         partitions.append(
             write_table_partition(
                 part,
@@ -470,8 +471,8 @@ def _schema_summary(tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    ensure_directory(path.parent)
+    filesystem_path(path).write_text(
         json.dumps(payload, indent=2, sort_keys=False) + "\n",
         encoding="ascii",
     )
@@ -490,7 +491,8 @@ def _write_report(path: Path, manifest: dict[str, object]) -> None:
         f"- Branch decision scope: `{manifest['branch_decision_scope']}`",
         "",
     ]
-    path.write_text("\n".join(lines), encoding="ascii")
+    ensure_directory(path.parent)
+    filesystem_path(path).write_text("\n".join(lines), encoding="ascii")
 
 
 def _manifest(
@@ -629,8 +631,8 @@ def run_paired_w0_w1_partitioned_planning(
     write_table_manifest(outputs.table_manifest_json, table_manifest)
     counts = _branch_environment_counts(candidates)
     schema = _schema_summary({"start_states": start_states, "candidate_index": candidates})
-    counts.to_csv(outputs.branch_environment_counts_csv, index=False)
-    schema.to_csv(outputs.schema_summary_csv, index=False)
+    counts.to_csv(filesystem_path(outputs.branch_environment_counts_csv), index=False)
+    schema.to_csv(filesystem_path(outputs.schema_summary_csv), index=False)
     _write_json(
         outputs.schema_json,
         {
@@ -642,7 +644,7 @@ def run_paired_w0_w1_partitioned_planning(
             },
         },
     )
-    candidates.head(1000).to_csv(outputs.preview_csv, index=False)
+    candidates.head(1000).to_csv(filesystem_path(outputs.preview_csv), index=False)
     manifest = _manifest(
         config=config,
         outputs=outputs,

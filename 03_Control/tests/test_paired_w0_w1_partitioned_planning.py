@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from dense_archive_table_io import filesystem_path, list_table_partitions
 import run_paired_w0_w1_partitioned_planning as planning
 
 
@@ -43,7 +44,7 @@ def test_direct_cli_runs_from_repo_root_without_pytest_path(
     script = Path("03_Control") / "04_Scenarios" / (
         "run_paired_w0_w1_partitioned_planning.py"
     )
-    result_root = _short_root(tmp_path) / "direct_cli_planning"
+    result_root = _long_root(tmp_path) / "direct_cli_planning"
     run_id = 913
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
@@ -61,7 +62,7 @@ def test_direct_cli_runs_from_repo_root_without_pytest_path(
             "--proof-target-trials-per-environment",
             "4",
             "--partition-rows",
-            "2",
+            "4",
         ],
         cwd=repo_root,
         env=env,
@@ -72,21 +73,33 @@ def test_direct_cli_runs_from_repo_root_without_pytest_path(
 
     assert completed.returncode == 0, completed.stderr
     output_root = result_root / f"{run_id:03d}"
-    assert output_root.exists()
+    assert filesystem_path(output_root).exists()
     assert (
-        output_root
-        / "manifests"
-        / f"paired_w0_w1_planning_manifest_s{run_id:03d}.json"
-    ).exists()
-    assert (output_root / "manifests" / f"table_manifest_s{run_id:03d}.json").exists()
+        filesystem_path(
+            output_root
+            / "manifests"
+            / f"paired_w0_w1_planning_manifest_s{run_id:03d}.json"
+        ).exists()
+    )
     assert (
-        output_root
-        / "metrics_summary"
-        / f"paired_w0_w1_branch_environment_counts_s{run_id:03d}.csv"
-    ).exists()
+        filesystem_path(
+            output_root / "manifests" / f"table_manifest_s{run_id:03d}.json"
+        ).exists()
+    )
     assert (
-        output_root / "sample_preview" / f"paired_w0_w1_preview_s{run_id:03d}.csv"
-    ).exists()
+        filesystem_path(
+            output_root
+            / "metrics_summary"
+            / f"paired_w0_w1_branch_environment_counts_s{run_id:03d}.csv"
+        ).exists()
+    )
+    assert (
+        filesystem_path(
+            output_root / "sample_preview" / f"paired_w0_w1_preview_s{run_id:03d}.csv"
+        ).exists()
+    )
+    assert len(list_table_partitions(output_root, "start_states")) == 4
+    assert len(list_table_partitions(output_root, "candidate_index")) == 4
 
 
 def test_proof_mode_does_not_enforce_production_w1_floor() -> None:
@@ -148,3 +161,10 @@ def test_default_run_id_guard_checks_013_and_014_before_planning(
 
 def _short_root(tmp_path: Path) -> Path:
     return tmp_path.parent / f"p{abs(hash(tmp_path.name)) % 100000}"
+
+
+def _long_root(tmp_path: Path) -> Path:
+    root = _short_root(tmp_path)
+    for index in range(10):
+        root = root / f"long_planning_path_segment_{index:02d}"
+    return root
