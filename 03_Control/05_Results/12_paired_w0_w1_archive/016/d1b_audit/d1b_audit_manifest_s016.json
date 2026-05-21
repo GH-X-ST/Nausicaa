@@ -1,0 +1,75 @@
+{
+  "archive_run_id": 16,
+  "planning_run_id": 15,
+  "code_commit": "d296242eebfac7179461e708b495b0bc3168ff18",
+  "d1a_evidence_class": "thesis_primary",
+  "d1a_target_contract": "updated_thesis_scale_v1",
+  "row_counts_by_environment": {
+    "W0_four_fan_branch": 25000,
+    "W0_single_fan_branch": 25000,
+    "W1_four_fan": 100000,
+    "W1_single_fan": 100000
+  },
+  "row_counts_by_branch": {
+    "four_fan_branch": 125000,
+    "single_fan_branch": 125000
+  },
+  "chunk_count": 100,
+  "completion_status": "complete",
+  "checksum_table_manifest_validation_status": "pass",
+  "storage_format": "csv_gz",
+  "storage_size": {
+    "trial_partition_size_mib": 118.0481424331665,
+    "visible_archive_size_mib": 146.41995239257812,
+    "upload_package_size_mib": 11.904805183410645,
+    "governor_package_size_mib": 0.20306777954101562,
+    "d1b_audit_size_mib": 13.806422233581543
+  },
+  "execution_time": {
+    "observed_wall_time_min": 70.6,
+    "observed_rows_per_second": 59.01794145420208,
+    "worker_count": 8,
+    "fallback_reason": "none"
+  },
+  "package_integrity": {
+    "upload_package_raw_tables_included": false,
+    "governor_package_raw_tables_included": false,
+    "governor_package_contains_w0_candidates": false,
+    "upload_package_file_count": 17,
+    "governor_package_file_count": 13
+  },
+  "no_overclaiming_statement": "D1b audit of D1a thesis-scale paired W0/W1 simulation evidence only; no production-floor completion, W2/W3/W4/W5 completion, mission success, hardware readiness, or sim-to-real completion claim is made.",
+  "reproducibility_check": {
+    "status": "executed",
+    "selection_row_count": 2500,
+    "selection_by_branch": {
+      "four_fan_branch": 1250,
+      "single_fan_branch": 1250
+    },
+    "selection_by_environment": {
+      "W0_four_fan_branch": 250,
+      "W0_single_fan_branch": 250,
+      "W1_four_fan": 1000,
+      "W1_single_fan": 1000
+    },
+    "selection_rule": "1 percent per branch, preserving approximately 250 W0 and 1000 W1 rows per branch for thesis-primary D1a",
+    "numeric_tolerance": 1e-09,
+    "mismatch_count": 0,
+    "comparison_row_count": 2500
+  },
+  "branch_environment_summary_rows": 4,
+  "output_files": {
+    "manifest_json": "03_Control/05_Results/12_paired_w0_w1_archive/016/d1b_audit/d1b_audit_manifest_s016.json",
+    "branch_environment_summary_csv": "03_Control/05_Results/12_paired_w0_w1_archive/016/d1b_audit/d1b_branch_environment_summary_s016.csv",
+    "w1_target_ladder_summary_csv": "03_Control/05_Results/12_paired_w0_w1_archive/016/d1b_audit/d1b_w1_target_ladder_summary_s016.csv",
+    "agile_family_ladder_summary_csv": "03_Control/05_Results/12_paired_w0_w1_archive/016/d1b_audit/d1b_agile_family_ladder_summary_s016.csv",
+    "w0_failed_w1_valid_summary_csv": "03_Control/05_Results/12_paired_w0_w1_archive/016/d1b_audit/d1b_w0_failed_w1_valid_summary_s016.csv",
+    "latency_acceptance_summary_csv": "03_Control/05_Results/12_paired_w0_w1_archive/016/d1b_audit/d1b_latency_acceptance_summary_s016.csv",
+    "runtime_storage_summary_csv": "03_Control/05_Results/12_paired_w0_w1_archive/016/d1b_audit/d1b_runtime_storage_summary_s016.csv",
+    "spatial_envelope_grid_csv": "03_Control/05_Results/12_paired_w0_w1_archive/016/d1b_audit/d1b_w1_spatial_envelope_grid_s016.csv",
+    "updraft_relative_envelope_grid_csv": "03_Control/05_Results/12_paired_w0_w1_archive/016/d1b_audit/d1b_w1_updraft_relative_envelope_grid_s016.csv",
+    "wing_exposure_envelope_grid_csv": "03_Control/05_Results/12_paired_w0_w1_archive/016/d1b_audit/d1b_w1_wing_exposure_envelope_grid_s016.csv",
+    "recommendation_md": "03_Control/05_Results/12_paired_w0_w1_archive/016/d1b_audit/d2_w2_readiness_recommendation_s016.md"
+  },
+  "final_d1b_classification": "ready_for_D2_boundary_refinement"
+}

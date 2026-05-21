@@ -1,0 +1,18 @@
+{
+  "status": "executed",
+  "selection_row_count": 2500,
+  "selection_by_branch": {
+    "four_fan_branch": 1250,
+    "single_fan_branch": 1250
+  },
+  "selection_by_environment": {
+    "W0_four_fan_branch": 250,
+    "W0_single_fan_branch": 250,
+    "W1_four_fan": 1000,
+    "W1_single_fan": 1000
+  },
+  "selection_rule": "1 percent per branch, preserving approximately 250 W0 and 1000 W1 rows per branch for thesis-primary D1a",
+  "numeric_tolerance": 1e-09,
+  "mismatch_count": 0,
+  "comparison_row_count": 2500
+}
