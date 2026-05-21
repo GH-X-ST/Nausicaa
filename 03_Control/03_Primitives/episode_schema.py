@@ -112,6 +112,31 @@ CLAIM_STATUS_VALUES = (
     "not_tested",
 )
 
+EVIDENCE_ROLE_VALUES = (
+    "mission_candidate",
+    "ablation_diagnostic",
+    "boundary_diagnostic",
+    "schema_only",
+    "matched_replay_evidence",
+    "blocked_partial",
+)
+
+CONTROLLER_MODE_VALUES = (
+    "feedback_stabilised_primitive",
+    "open_loop_rollout",
+    "command_template_replay",
+    "matched_replay",
+    "schema_ingest",
+)
+
+FEEDBACK_MODE_VALUES = (
+    "delayed_state_feedback",
+    "instant_state_feedback",
+    "open_loop",
+    "not_applicable",
+    "unavailable",
+)
+
 ENTRY_SOURCE_VALUES = (
     "launch_gate_main",
     "launch_gate_tolerance_shell",
@@ -122,6 +147,24 @@ ENTRY_SOURCE_VALUES = (
 
 W_LAYER_VALUES = ("W0", "W1", "W2", "W3", "real")
 FAN_BRANCH_VALUES = ("single_fan_branch", "four_fan_branch")
+
+PRIMITIVE_ROLLOUT_EVIDENCE_COLUMNS = (
+    "sample_id",
+    "paired_sample_key",
+    "fan_branch",
+    "W_layer",
+    "entry_source",
+    "primitive_id",
+    "primitive_family",
+    "controller_mode",
+    "feedback_mode",
+    "latency_case",
+    "claim_status",
+    "evidence_role",
+    "outcome_class",
+    "accepted",
+    "failure_label",
+)
 
 FORBIDDEN_UNSUPPORTED_CLAIMS = (
     "real-flight transfer",
@@ -199,6 +242,27 @@ def validate_episode_tables(
     )
 
 
+def validate_primitive_rollout_evidence_frame(frame: pd.DataFrame) -> EpisodeSchemaValidation:
+    """Validate fixed-gate primitive rollout evidence-role metadata.
+
+    This schema deliberately separates mission candidates from diagnostic
+    open-loop rows. A command-template or open-loop row may be useful for
+    debugging the dynamics and table plumbing, but it must not satisfy the
+    mission-facing archive gate.
+    """
+
+    _require_columns(frame, PRIMITIVE_ROLLOUT_EVIDENCE_COLUMNS, "primitive_rollout_evidence")
+    _require_values(frame, "entry_source", ENTRY_SOURCE_VALUES, "primitive_rollout_evidence")
+    _require_values(frame, "W_layer", W_LAYER_VALUES, "primitive_rollout_evidence")
+    _require_values(frame, "fan_branch", FAN_BRANCH_VALUES, "primitive_rollout_evidence")
+    _require_values(frame, "controller_mode", CONTROLLER_MODE_VALUES, "primitive_rollout_evidence")
+    _require_values(frame, "feedback_mode", FEEDBACK_MODE_VALUES, "primitive_rollout_evidence")
+    _require_values(frame, "claim_status", CLAIM_STATUS_VALUES, "primitive_rollout_evidence")
+    _require_values(frame, "evidence_role", EVIDENCE_ROLE_VALUES, "primitive_rollout_evidence")
+    _assert_diagnostic_rollouts_not_promoted(frame)
+    return EpisodeSchemaValidation("primitive_rollout_evidence", int(len(frame)), PRIMITIVE_ROLLOUT_EVIDENCE_COLUMNS)
+
+
 def unsupported_claim_errors(text: str) -> list[str]:
     """Return unqualified claim phrases found in `text`.
 
@@ -249,6 +313,19 @@ def assert_claim_safe_text(text: str) -> None:
     errors = unsupported_claim_errors(text)
     if errors:
         raise ValueError(f"unsupported claim phrases require explicit denial: {sorted(set(errors))}")
+
+
+def _assert_diagnostic_rollouts_not_promoted(frame: pd.DataFrame) -> None:
+    if frame.empty:
+        return
+    controller = frame["controller_mode"].astype(str)
+    diagnostic_controller = controller.isin({"open_loop_rollout", "command_template_replay"})
+    promoted = frame[diagnostic_controller & frame["evidence_role"].astype(str).eq("mission_candidate")]
+    if not promoted.empty:
+        raise ValueError("open-loop or command-template rows cannot use evidence_role='mission_candidate'.")
+    non_sim = frame[diagnostic_controller & ~frame["claim_status"].astype(str).eq("simulation_only")]
+    if not non_sim.empty:
+        raise ValueError("open-loop or command-template rows must use claim_status='simulation_only'.")
 
 
 def _sentence_window(text: str, index: int) -> str:

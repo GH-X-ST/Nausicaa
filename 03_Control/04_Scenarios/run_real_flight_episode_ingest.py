@@ -55,6 +55,25 @@ def find_episode_start_row(real_log: pd.DataFrame, *, consecutive_frames: int = 
     return None
 
 
+def real_flight_start_rejection_label(real_log: pd.DataFrame, *, min_speed_m_s: float = 2.5) -> str:
+    """Return the dominant schema/readiness reason when no start is accepted."""
+
+    _require_columns(real_log, set(REQUIRED_REAL_LOG_COLUMNS), "real flight log")
+    if real_log.empty or not bool(real_log["vicon_valid"].astype(bool).any()):
+        return "vicon_lost"
+    vicon = real_log[real_log["vicon_valid"].astype(bool)].copy()
+    if not bool(vicon["controller_ready"].astype(bool).any()):
+        return "controller_no_go"
+    ready = vicon[vicon["controller_ready"].astype(bool)].copy()
+    speeds = ready.apply(lambda row: float(np.linalg.norm(_state_from_row(row)[6:9])), axis=1)
+    if bool((speeds < float(min_speed_m_s)).all()):
+        return "low_speed_stop"
+    gate_ok = ready.apply(lambda row: launch_gate_admission_status(_state_from_row(row)) in {"admitted_main_gate", "admitted_tolerance_shell"}, axis=1)
+    if not bool(gate_ok.any()):
+        return "controller_no_go"
+    return "vicon_lost"
+
+
 def ingest_real_flight_episode_log(
     *,
     real_log_csv: Path,
@@ -62,12 +81,15 @@ def ingest_real_flight_episode_log(
     episode_id: str,
     policy_id: str = "real_flight_logged_policy",
     fan_branch: str = "single_fan_branch",
+    primitive_log_csv: Path | None = None,
+    governor_log_csv: Path | None = None,
     overwrite: bool = False,
 ) -> dict[str, Path]:
     real_log = pd.read_csv(real_log_csv)
     start_index = find_episode_start_row(real_log)
     if start_index is None:
-        summary = pd.DataFrame([_rejected_summary(episode_id, policy_id, fan_branch, "vicon_lost")], columns=EPISODE_SUMMARY_COLUMNS)
+        termination = real_flight_start_rejection_label(real_log)
+        summary = pd.DataFrame([_rejected_summary(episode_id, policy_id, fan_branch, termination)], columns=EPISODE_SUMMARY_COLUMNS)
     else:
         state = _state_from_row(real_log.iloc[int(start_index)])
         energy_initial = _specific_energy_height_m(state)
@@ -97,7 +119,11 @@ def ingest_real_flight_episode_log(
             "campaign": "11_fixed_gate_repeated_launch",
             "pass_name": "real_flight_episode_ingest",
             "real_log_csv": str(real_log_csv),
+            "primitive_log_csv": "" if primitive_log_csv is None else str(primitive_log_csv),
+            "governor_log_csv": "" if governor_log_csv is None else str(governor_log_csv),
             "real_flight_transfer_claim": False,
+            "transfer_claim_status": "not_tested_pending_matched_replay",
+            "matched_replay_required_before_transfer_label": True,
         },
         overwrite=overwrite,
     )
@@ -167,6 +193,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--episode-id", required=True)
     parser.add_argument("--policy-id", default="real_flight_logged_policy")
     parser.add_argument("--fan-branch", default="single_fan_branch")
+    parser.add_argument("--primitive-log-csv", type=Path, default=None)
+    parser.add_argument("--governor-log-csv", type=Path, default=None)
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
@@ -179,6 +207,8 @@ def main() -> int:
         episode_id=args.episode_id,
         policy_id=args.policy_id,
         fan_branch=args.fan_branch,
+        primitive_log_csv=args.primitive_log_csv,
+        governor_log_csv=args.governor_log_csv,
         overwrite=args.overwrite,
     )
     return 0

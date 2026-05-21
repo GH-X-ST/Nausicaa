@@ -53,6 +53,7 @@ def run_fixed_gate_cluster_selection(
         "cluster_feature_scaling_json": paths["metrics"] / "cluster_feature_scaling.json",
         "cluster_assignments_csv": paths["metrics"] / "cluster_assignments.csv",
         "cluster_medoids_csv": paths["metrics"] / "cluster_medoids.csv",
+        "medoid_source_rows_csv": paths["metrics"] / "medoid_source_rows.csv",
         "cluster_summary_csv": paths["metrics"] / "cluster_summary.csv",
         "governor_candidate_package_csv": paths["metrics"] / "governor_candidate_package.csv",
         "code_path_map_csv": paths["metrics"] / "active_deprecated_code_path_map.csv",
@@ -63,6 +64,7 @@ def run_fixed_gate_cluster_selection(
     write_cluster_feature_scaling(output_paths["cluster_feature_scaling_json"], scaling)
     assignments.to_csv(output_paths["cluster_assignments_csv"], index=False)
     medoids.to_csv(output_paths["cluster_medoids_csv"], index=False)
+    _medoid_source_rows(assignments, medoids).to_csv(output_paths["medoid_source_rows_csv"], index=False)
     summary.to_csv(output_paths["cluster_summary_csv"], index=False)
     package.to_csv(output_paths["governor_candidate_package_csv"], index=False)
     code_path_map_frame().to_csv(output_paths["code_path_map_csv"], index=False)
@@ -106,6 +108,8 @@ def _manifest(
         "cluster_assignment_row_count": int(len(outputs["cluster_assignments"])),
         "cluster_medoid_count": int(len(outputs["cluster_medoids"])),
         "governor_candidate_package_row_count": int(len(outputs["governor_candidate_package"])),
+        "governor_candidate_package_source_policy": "mission_candidate_medoids_only",
+        "diagnostic_rows_can_enter_candidate_package": False,
         "claim_status": "simulation_only",
         "claim_boundary": (
             "Primitive-envelope medoid selection only; clustering does not replace "
@@ -129,11 +133,21 @@ def _report(manifest: dict[str, object]) -> str:
             f"- Input rows: `{manifest['cluster_input_row_count']}`",
             f"- Medoids: `{manifest['cluster_medoid_count']}`",
             f"- Governor candidate rows: `{manifest['governor_candidate_package_row_count']}`",
+            "- Open-loop and command-template medoids are retained as diagnostics only and cannot enter the governor candidate package.",
             "",
             "No real-flight transfer, mission success, same-flight recapture, perching, all-arena validity, or hardware-ready agile claim is made.",
             "",
         ]
     )
+
+
+def _medoid_source_rows(assignments: pd.DataFrame, medoids: pd.DataFrame) -> pd.DataFrame:
+    if assignments.empty or medoids.empty or "sample_id" not in assignments.columns:
+        return pd.DataFrame(columns=assignments.columns)
+    medoid_ids = set(medoids["medoid_sample_id"].astype(str))
+    source = assignments[assignments["sample_id"].astype(str).isin(medoid_ids)].copy()
+    source["is_medoid"] = True
+    return source.reset_index(drop=True)
 
 
 def _parse_args() -> argparse.Namespace:

@@ -110,7 +110,7 @@ def run_repeated_launch_episode(
 
     trajectory = pd.DataFrame([{"x_w_m": current[0], "y_w_m": current[1], "z_w_m": current[2], "w_lift_m_s": current[2] - state[2]}])
     observation = observe_lift_from_episode(trajectory, energy_residual=_specific_energy_height_m(current) - energy_initial, reference_belief=belief_before)
-    belief_after = update_belief(belief_before, observation, float(config.memory_lambda) if policy["memory_lambda"] is None else float(policy["memory_lambda"]))
+    belief_after = update_belief(belief_before, observation, _policy_memory_lambda(policy, config))
     summary = _summary_frame(
         config,
         state,
@@ -263,6 +263,10 @@ def _primitive_step_row(
 def _governor_accepts_candidate(row: pd.Series) -> bool:
     if "accepted" in row and not bool(row["accepted"]):
         return False
+    if "evidence_role" in row and str(row["evidence_role"]) not in {"mission_candidate", "matched_replay_evidence"}:
+        return False
+    if "controller_mode" in row and str(row["controller_mode"]) in {"open_loop_rollout", "command_template_replay"}:
+        return False
     if str(row.get("recommended_use", "thesis")) == "reject":
         return False
     if _float(row.get("minimum_margin_m", row.get("min_true_margin_m", 0.1))) < 0.0:
@@ -270,6 +274,15 @@ def _governor_accepts_candidate(row: pd.Series) -> bool:
     if _float(row.get("lift_confidence", 1.0)) < _float(row.get("minimum_lift_confidence", 0.0)):
         return False
     return True
+
+
+def _policy_memory_lambda(policy: dict[str, object], config: RepeatedLaunchEpisodeConfig) -> float:
+    value = policy.get("memory_lambda")
+    try:
+        candidate = float(value)
+    except (TypeError, ValueError):
+        candidate = float("nan")
+    return float(config.memory_lambda) if not np.isfinite(candidate) else candidate
 
 
 def _specific_energy_height_m(state: np.ndarray) -> float:

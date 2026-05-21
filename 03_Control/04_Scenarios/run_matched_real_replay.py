@@ -70,11 +70,16 @@ def _not_tested_row(real: pd.Series) -> dict[str, object]:
 
 
 def _comparison_row(real: pd.Series, sim: pd.Series) -> dict[str, object]:
+    if str(real.get("claim_status", "")) == "instrumentation_limited":
+        label = "instrumentation_limited"
+    else:
+        label = ""
     capture_match = bool(real.get("lift_capture_success", False)) == bool(sim.get("lift_capture_success", False))
     termination_match = str(real.get("termination_cause", "")) == str(sim.get("termination_cause", ""))
     energy_error = float(sim.get("energy_residual_m", 0.0)) - float(real.get("energy_residual_m", 0.0))
     dwell_error = float(sim.get("lift_dwell_time_s", 0.0)) - float(real.get("lift_dwell_time_s", 0.0))
-    label = "supported" if capture_match and termination_match else ("partial" if capture_match else "negative")
+    if not label:
+        label = "supported" if capture_match and termination_match else ("partial" if capture_match else "negative")
     return {
         "real_episode_id": str(real["episode_id"]),
         "matched_replay_id": str(sim.get("episode_id", "")),

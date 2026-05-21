@@ -7,7 +7,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from episode_schema import ENTRY_SOURCE_VALUES
+from episode_schema import (
+    ENTRY_SOURCE_VALUES,
+    validate_primitive_rollout_evidence_frame,
+)
 
 
 # =============================================================================
@@ -64,6 +67,10 @@ MEDOID_COLUMNS = (
     "failure_label",
     "recommended_use",
     "is_medoid",
+    "controller_mode",
+    "feedback_mode",
+    "claim_status",
+    "evidence_role",
 )
 
 
@@ -80,6 +87,9 @@ def validate_primitive_rollout_rows(frame: pd.DataFrame) -> None:
     invalid_entry = sorted(set(frame["entry_source"].astype(str)).difference(ENTRY_SOURCE_VALUES))
     if invalid_entry:
         raise ValueError(f"unsupported entry_source values: {invalid_entry}")
+    evidence_columns = {"controller_mode", "feedback_mode", "claim_status", "evidence_role"}
+    if evidence_columns.issubset(frame.columns):
+        validate_primitive_rollout_evidence_frame(frame)
 
 
 def build_primitive_envelope_clusters(
@@ -166,6 +176,8 @@ def build_governor_candidate_package(medoids: pd.DataFrame) -> pd.DataFrame:
     if medoids.empty:
         return medoids.copy()
     package = medoids.copy()
+    if "evidence_role" in package.columns:
+        package = package[package["evidence_role"].astype(str).eq("mission_candidate")].copy()
     package = package[package["recommended_use"].astype(str).isin({"thesis", "hardware", "diagnostic"})].copy()
     package["governor_package_status"] = "candidate_summary_only_governor_still_required"
     return package.reset_index(drop=True)
@@ -231,10 +243,18 @@ def _medoid_row(cluster_id: str, cluster_group: pd.DataFrame, feature_group: pd.
         "failure_label": _text(row.get("failure_label", "none")),
         "recommended_use": _recommended_use(row, outcome_class),
         "is_medoid": True,
+        "controller_mode": _text(row.get("controller_mode")),
+        "feedback_mode": _text(row.get("feedback_mode")),
+        "claim_status": _text(row.get("claim_status")),
+        "evidence_role": _text(row.get("evidence_role")),
     }
 
 
 def _recommended_use(row: dict[str, object], outcome_class: str) -> str:
+    if _text(row.get("evidence_role")) in {"ablation_diagnostic", "boundary_diagnostic"}:
+        return "diagnostic"
+    if _text(row.get("evidence_role")) in {"blocked_partial", "schema_only"}:
+        return "reject"
     if _text(row.get("entry_source")) == "diagnostic_broad_only":
         return "diagnostic"
     if outcome_class in {"accepted", "success", "weak"}:
