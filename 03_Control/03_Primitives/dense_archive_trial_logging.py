@@ -328,11 +328,11 @@ def dense_trial_descriptor_row(
             wind_model_z_axis_m,
             active_config.z_outlet_m,
         ),
-    "saturation_fraction": _saturation_fraction(
-        effective_target,
-        applied,
-        active_config.saturation_tolerance,
-    ),
+        "saturation_fraction": _saturation_fraction(
+            effective_target,
+            applied,
+            active_config.saturation_tolerance,
+        ),
         "latency_case": latency_case,
         "latency_acceptance_scope": _text(latency_fields["latency_acceptance_scope"]),
         "latency_pass_label": _text(latency_fields["latency_pass_label"]),
