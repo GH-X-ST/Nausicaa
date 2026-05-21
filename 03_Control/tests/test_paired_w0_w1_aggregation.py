@@ -146,6 +146,58 @@ def test_w1_only_active_aggregation_does_not_require_w0_chunks(tmp_path: Path) -
     }
 
 
+def test_production_aggregation_accepts_separate_w0_w1_expected_counts(
+    tmp_path: Path,
+) -> None:
+    result_root = _short_result_root(tmp_path)
+    row_counts = {
+        "W0_single_fan_branch": 1,
+        "W0_four_fan_branch": 1,
+        "W1_single_fan": 3,
+        "W1_four_fan": 3,
+    }
+    _write_fake_paired_chunks(
+        result_root,
+        run_id=16,
+        planning_run_id=15,
+        row_counts_by_environment=row_counts,
+    )
+    _write_progress_and_profile(result_root, run_id=16, planning_run_id=15)
+
+    paths = aggregate.aggregate_paired_w0_w1_archive(
+        run_id=16,
+        planning_run_id=15,
+        result_root=result_root,
+        storage_format="csv_gz",
+        paired_scale_mode="production",
+        expected_w0_trials_per_environment=1,
+        expected_w1_trials_per_environment=3,
+    )
+
+    manifest = json.loads(paths["manifest_json"].read_text(encoding="ascii"))
+    assert manifest["expected_trials_per_environment"] is None
+    assert manifest["expected_w0_trials_per_environment"] == 1
+    assert manifest["expected_w1_trials_per_environment"] == 3
+    assert manifest["expected_trials_by_environment"] == row_counts
+    assert manifest["trial_count_by_environment"] == row_counts
+    assert "D1a production-floor" in manifest["no_overclaiming_statement"]
+    assert "proof only" not in manifest["no_overclaiming_statement"]
+
+
+def test_aggregation_rejects_uniform_and_role_expected_count_conflict(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="cannot be combined"):
+        aggregate.aggregate_paired_w0_w1_archive(
+            run_id=14,
+            planning_run_id=13,
+            result_root=_short_result_root(tmp_path),
+            storage_format="csv_gz",
+            expected_trials_per_environment=2,
+            expected_w0_trials_per_environment=1,
+        )
+
+
 def test_seed_instability_is_rejected_before_pairing(tmp_path: Path) -> None:
     result_root = _short_result_root(tmp_path)
     _write_fake_paired_chunks(result_root, run_id=14, unstable_seed=True)
@@ -183,7 +235,9 @@ def _write_fake_paired_chunks(
     result_root: Path,
     *,
     run_id: int,
+    planning_run_id: int = 13,
     environments: tuple[tuple[str, str, str], ...] | None = None,
+    row_counts_by_environment: dict[str, int] | None = None,
     unstable_seed: bool = False,
 ) -> None:
     root = result_root / f"{run_id:03d}"
@@ -194,30 +248,34 @@ def _write_fake_paired_chunks(
         ("four_fan_branch", "four_fan", "W1_four_fan"),
     )
     for branch, fan, mode in active_environments:
-        rows = [
-            _descriptor(
-                branch=branch,
-                fan=fan,
-                mode=mode,
-                pair_index=0,
-                success=mode.startswith("W1_"),
-                latency_case="nominal",
-                latency_pass_label="nominal_pass",
-                unstable_seed=unstable_seed,
-            ),
-            _descriptor(
-                branch=branch,
-                fan=fan,
-                mode=mode,
-                pair_index=1,
-                success=True,
-                latency_case="ideal" if mode.startswith("W1_") else "nominal",
-                latency_pass_label="ideal_only_pass"
-                if mode.startswith("W1_")
-                else "nominal_pass",
-                unstable_seed=unstable_seed,
-            ),
-        ]
+        row_count = (
+            int(row_counts_by_environment[mode])
+            if row_counts_by_environment is not None
+            else 2
+        )
+        rows = []
+        for pair_index in range(row_count):
+            latency_case = "nominal"
+            latency_pass_label = "nominal_pass"
+            if pair_index == 0:
+                success = mode.startswith("W1_")
+            else:
+                success = True
+            if pair_index == 1 and mode.startswith("W1_"):
+                latency_case = "ideal"
+                latency_pass_label = "ideal_only_pass"
+            rows.append(
+                _descriptor(
+                    branch=branch,
+                    fan=fan,
+                    mode=mode,
+                    pair_index=pair_index,
+                    success=success,
+                    latency_case=latency_case,
+                    latency_pass_label=latency_pass_label,
+                    unstable_seed=unstable_seed,
+                )
+            )
         frame = pd.DataFrame(rows, columns=DENSE_TRIAL_DESCRIPTOR_COLUMNS)
         path = partition_path(
             root,
@@ -241,19 +299,19 @@ def _write_fake_paired_chunks(
                 {
                     "status": "complete",
                     "run_id": run_id,
-                    "planning_run_id": 13,
+                    "planning_run_id": planning_run_id,
                     "layout_branch_id": branch,
                     "test_environment_mode": mode,
                     "paired_environment_mode": _paired_mode(mode),
                     "chunk_index": 0,
                     "chunk_count": 1,
-                    "chunk_size": 2,
+                    "chunk_size": row_count,
                     "storage_format": "csv_gz",
                     "compression_level": 1,
                     "latency_case": "nominal",
                     "dt_s": 0.02,
                     "horizon_s": 0.60,
-                    "row_count": 2,
+                    "row_count": row_count,
                     "partition_path": path.resolve().as_posix(),
                     "checksum_sha256": partition.checksum_sha256,
                     "planning_read_s": 0.1,

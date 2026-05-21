@@ -73,10 +73,15 @@ BRANCH_IDS = ("single_fan_branch", "four_fan_branch")
 PAIRED_SCALE_MODES = ("proof", "production")
 DEFAULT_PROOF_TARGET_TRIALS_PER_ENVIRONMENT = 2500
 SIMULATION_STAGE = "paired_w0_w1_proof"
-NO_CLAIM_TEXT = (
+PROOF_NO_CLAIM_TEXT = (
     "Paired W0/W1 partitioned planning proof only; no full W1 production, "
     "W2/W3/W4/W5, mission, hardware, or sim-to-real claim is made."
 )
+PRODUCTION_NO_CLAIM_TEXT = (
+    "D1a production-floor paired W0/W1 partitioned planning only; no "
+    "W2/W3/W4/W5, mission, hardware, or sim-to-real claim is made."
+)
+NO_CLAIM_TEXT = PROOF_NO_CLAIM_TEXT
 
 
 @dataclass(frozen=True)
@@ -150,6 +155,12 @@ def _path_text(path: Path) -> str:
         return resolved.relative_to(REPO_ROOT.resolve()).as_posix()
     except ValueError:
         return resolved.as_posix()
+
+
+def _no_claim_text(paired_scale_mode: str) -> str:
+    if str(paired_scale_mode) == "production":
+        return PRODUCTION_NO_CLAIM_TEXT
+    return PROOF_NO_CLAIM_TEXT
 
 
 # =============================================================================
@@ -482,7 +493,7 @@ def _write_report(path: Path, manifest: dict[str, object]) -> None:
     lines = [
         "# Paired W0/W1 Partitioned Planning Report",
         "",
-        NO_CLAIM_TEXT,
+        str(manifest["no_overclaiming_statement"]),
         "",
         f"- Run id: `{manifest['run_id']}`",
         f"- Paired scale mode: `{manifest['paired_scale_mode']}`",
@@ -525,7 +536,7 @@ def _manifest(
         "w1_selected_independently_of_w0_success": True,
         "branch_local_decisions_only": True,
         "branch_decision_scope": BRANCH_DECISION_SCOPE,
-        "no_overclaiming_statement": NO_CLAIM_TEXT,
+        "no_overclaiming_statement": _no_claim_text(config.paired_scale_mode),
         "output_files": {
             "manifest": _path_text(outputs.manifest_json),
             "table_manifest": _path_text(outputs.table_manifest_json),

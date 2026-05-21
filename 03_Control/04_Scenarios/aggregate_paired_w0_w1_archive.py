@@ -88,11 +88,18 @@ PAIRED_AUDIT_ONLY_FIELDS = (
     "test_environment_mode",
     "replay_seed",
 )
-NO_CLAIM_TEXT = (
+PROOF_NO_CLAIM_TEXT = (
     "Paired W0/W1 proof aggregation only; W1 is evaluated independently of W0 "
     "success, single_fan_branch and four_fan_branch remain branch-local, and no "
     "W2/W3/W4/W5, mission, hardware, or sim-to-real claim is made."
 )
+PRODUCTION_NO_CLAIM_TEXT = (
+    "D1a production-floor paired W0/W1 aggregation only; W1 is evaluated "
+    "independently of W0 success, single_fan_branch and four_fan_branch remain "
+    "branch-local, and no W2/W3/W4/W5, mission, hardware, or sim-to-real claim "
+    "is made."
+)
+NO_CLAIM_TEXT = PROOF_NO_CLAIM_TEXT
 
 
 @dataclass(frozen=True)
@@ -105,6 +112,8 @@ class PairedAggregationConfig:
     active_environment_modes: tuple[str, ...] = PAIRED_ENVIRONMENT_MODES
     latency_case: str = "nominal"
     expected_trials_per_environment: int | None = None
+    expected_w0_trials_per_environment: int | None = None
+    expected_w1_trials_per_environment: int | None = None
     build_upload_package: bool = False
     build_governor_package: bool = False
     profile_source: Path | None = None
@@ -195,6 +204,12 @@ def _path_text(path: Path) -> str:
         return resolved.as_posix()
 
 
+def _no_claim_text(paired_scale_mode: str) -> str:
+    if str(paired_scale_mode) == "production":
+        return PRODUCTION_NO_CLAIM_TEXT
+    return PROOF_NO_CLAIM_TEXT
+
+
 def _validate_config(config: PairedAggregationConfig) -> None:
     if str(config.paired_scale_mode) not in PAIRED_SCALE_MODES:
         raise ValueError("paired_scale_mode must be 'proof' or 'production'.")
@@ -207,6 +222,55 @@ def _validate_config(config: PairedAggregationConfig) -> None:
         required = {"W1_single_fan", "W1_four_fan"}
         if not required.issubset(set(config.active_environment_modes)):
             raise ValueError("production aggregation requires both W1 branches active.")
+    role_expected = (
+        config.expected_w0_trials_per_environment,
+        config.expected_w1_trials_per_environment,
+    )
+    if config.expected_trials_per_environment is not None and any(
+        value is not None for value in role_expected
+    ):
+        raise ValueError(
+            "expected_trials_per_environment cannot be combined with "
+            "expected_w0_trials_per_environment or "
+            "expected_w1_trials_per_environment."
+        )
+    expected_values = {
+        "expected_trials_per_environment": config.expected_trials_per_environment,
+        "expected_w0_trials_per_environment": (
+            config.expected_w0_trials_per_environment
+        ),
+        "expected_w1_trials_per_environment": (
+            config.expected_w1_trials_per_environment
+        ),
+    }
+    for name, value in expected_values.items():
+        if value is not None and int(value) <= 0:
+            raise ValueError(f"{name} must be positive when provided.")
+
+
+def _expected_trials_by_environment(
+    config: PairedAggregationConfig,
+) -> dict[str, int]:
+    if config.expected_trials_per_environment is not None:
+        expected = int(config.expected_trials_per_environment)
+        return {
+            str(environment_mode): expected
+            for environment_mode in config.active_environment_modes
+        }
+    expected_by_environment: dict[str, int] = {}
+    for environment_mode in config.active_environment_modes:
+        mode = str(environment_mode)
+        if (
+            mode.startswith("W0_")
+            and config.expected_w0_trials_per_environment is not None
+        ):
+            expected_by_environment[mode] = int(config.expected_w0_trials_per_environment)
+        if (
+            mode.startswith("W1_")
+            and config.expected_w1_trials_per_environment is not None
+        ):
+            expected_by_environment[mode] = int(config.expected_w1_trials_per_environment)
+    return expected_by_environment
 
 
 def _validate_aggregation_outputs(
@@ -375,12 +439,10 @@ def _verify_counts(descriptors: pd.DataFrame, config: PairedAggregationConfig) -
     for environment_mode in config.active_environment_modes:
         if int(env_counts.get(environment_mode, 0)) == 0:
             raise RuntimeError(f"missing descriptor rows for environment: {environment_mode}")
-    if config.expected_trials_per_environment is None:
-        return
-    expected = int(config.expected_trials_per_environment)
-    for environment_mode in config.active_environment_modes:
+    expected_by_environment = _expected_trials_by_environment(config)
+    for environment_mode, expected in expected_by_environment.items():
         actual = int(env_counts.get(environment_mode, 0))
-        if actual != expected:
+        if actual != int(expected):
             raise RuntimeError(
                 "paired aggregation rejected environment count: "
                 f"{environment_mode} actual={actual}, expected={expected}"
@@ -720,6 +782,13 @@ def _manifest(
         },
         "trial_count_by_branch": {key: int(value) for key, value in branch_counts.items()},
         "expected_trials_per_environment": config.expected_trials_per_environment,
+        "expected_w0_trials_per_environment": (
+            config.expected_w0_trials_per_environment
+        ),
+        "expected_w1_trials_per_environment": (
+            config.expected_w1_trials_per_environment
+        ),
+        "expected_trials_by_environment": _expected_trials_by_environment(config),
         "storage_format": resolve_storage_format(config.storage_format),
         "latency_case": str(config.latency_case),
         "chunk_manifest_count": int(len(chunk_summary)),
@@ -749,7 +818,7 @@ def _manifest(
         ],
         "gpu_acceleration_assessment": GPU_ACCELERATION_ASSESSMENT,
         "recommended_paired_proof_command": RECOMMENDED_PAIRED_PROOF_COMMAND,
-        "no_overclaiming_statement": NO_CLAIM_TEXT,
+        "no_overclaiming_statement": _no_claim_text(config.paired_scale_mode),
         "selected_worker_count": metadata["selected_worker_count"],
         "os_cpu_count": metadata["os_cpu_count"],
         "memory_total_gb": metadata["memory_total_gb"],
@@ -790,7 +859,7 @@ def _write_report(path: Path, manifest: dict[str, object]) -> None:
     lines = [
         "# Paired W0/W1 Archive Aggregation Report",
         "",
-        NO_CLAIM_TEXT,
+        str(manifest["no_overclaiming_statement"]),
         "",
         f"- Run id: `{manifest['run_id']}`",
         f"- Planning run id: `{manifest['planning_run_id']}`",
@@ -1008,6 +1077,8 @@ def aggregate_paired_w0_w1_archive(
     active_environment_modes: tuple[str, ...] = PAIRED_ENVIRONMENT_MODES,
     latency_case: str = "nominal",
     expected_trials_per_environment: int | None = None,
+    expected_w0_trials_per_environment: int | None = None,
+    expected_w1_trials_per_environment: int | None = None,
     build_upload_package: bool = False,
     build_governor_package: bool = False,
     profile_source: Path | None = None,
@@ -1022,6 +1093,8 @@ def aggregate_paired_w0_w1_archive(
         active_environment_modes=tuple(active_environment_modes),
         latency_case=str(latency_case),
         expected_trials_per_environment=expected_trials_per_environment,
+        expected_w0_trials_per_environment=expected_w0_trials_per_environment,
+        expected_w1_trials_per_environment=expected_w1_trials_per_environment,
         build_upload_package=bool(build_upload_package),
         build_governor_package=bool(build_governor_package),
         profile_source=profile_source,
@@ -1148,6 +1221,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--active-environment-modes", nargs="*", default=list(PAIRED_ENVIRONMENT_MODES))
     parser.add_argument("--latency-case", default="nominal")
     parser.add_argument("--expected-trials-per-environment", type=int, default=None)
+    parser.add_argument("--expected-w0-trials-per-environment", type=int, default=None)
+    parser.add_argument("--expected-w1-trials-per-environment", type=int, default=None)
     parser.add_argument("--build-upload-package", action="store_true")
     parser.add_argument("--build-governor-package", action="store_true")
     parser.add_argument("--profile-source", type=Path, default=None)
@@ -1184,6 +1259,8 @@ def main() -> int:
         active_environment_modes=tuple(args.active_environment_modes),
         latency_case=args.latency_case,
         expected_trials_per_environment=args.expected_trials_per_environment,
+        expected_w0_trials_per_environment=args.expected_w0_trials_per_environment,
+        expected_w1_trials_per_environment=args.expected_w1_trials_per_environment,
         build_upload_package=args.build_upload_package,
         build_governor_package=args.build_governor_package,
         profile_source=args.profile_source,

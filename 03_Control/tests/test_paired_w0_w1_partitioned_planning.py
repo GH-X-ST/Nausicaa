@@ -138,6 +138,40 @@ def test_production_mode_enforces_w1_floor_and_active_w1_branches() -> None:
         planning._validate_config(missing_w1_branch)
 
 
+def test_production_floor_planning_manifest_uses_separate_w0_w1_counts(
+    tmp_path: Path,
+) -> None:
+    result_root = _short_root(tmp_path) / "10_dense_archive_planning"
+
+    paths = planning.run_paired_w0_w1_partitioned_planning(
+        run_id=15,
+        result_root=result_root,
+        paired_scale_mode="production",
+        w0_target_trials_per_branch=2,
+        w1_floor_trials_per_branch=4,
+        w1_target_trials_per_branch=4,
+        partition_rows=2,
+        storage_format="csv_gz",
+    )
+
+    manifest = json.loads(paths["manifest_json"].read_text(encoding="ascii"))
+    counts = pd.read_csv(paths["branch_environment_counts_csv"])
+    count_by_mode = dict(zip(counts["test_environment_mode"], counts["candidate_rows"]))
+    assert manifest["paired_scale_mode"] == "production"
+    assert manifest["w0_target_trials_per_branch"] == 2
+    assert manifest["w1_floor_trials_per_branch"] == 4
+    assert manifest["w1_target_trials_per_branch"] == 4
+    assert manifest["candidate_rows_total"] == 12
+    assert count_by_mode == {
+        "W0_four_fan_branch": 2,
+        "W0_single_fan_branch": 2,
+        "W1_four_fan": 4,
+        "W1_single_fan": 4,
+    }
+    assert "D1a production-floor" in manifest["no_overclaiming_statement"]
+    assert "proof only" not in manifest["no_overclaiming_statement"]
+
+
 def test_default_run_id_guard_checks_013_and_014_before_planning(
     tmp_path: Path,
     monkeypatch,
