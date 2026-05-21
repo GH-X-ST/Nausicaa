@@ -33,6 +33,8 @@ def run_reachable_state_extraction(
     run_id: int,
     max_rows: int = 200,
     seed: int = 20260521,
+    allow_partial_feedback_source: bool = True,
+    allow_diagnostic_source: bool = False,
     result_root: Path | None = None,
     overwrite: bool = False,
 ) -> dict[str, Path]:
@@ -43,7 +45,11 @@ def run_reachable_state_extraction(
         (root / name).mkdir(parents=True, exist_ok=True)
 
     rollouts = pd.read_csv(rollout_csv)
-    eligible = _eligible_source_rows(rollouts)
+    eligible = _eligible_source_rows(
+        rollouts,
+        allow_partial_feedback_source=allow_partial_feedback_source,
+        allow_diagnostic_source=allow_diagnostic_source,
+    )
     frames = []
     for branch, branch_rows in eligible.groupby("fan_branch", sort=True):
         frames.append(
@@ -76,8 +82,13 @@ def run_reachable_state_extraction(
         "source_row_count": int(len(rollouts)),
         "eligible_source_row_count": int(len(eligible)),
         "reachable_downstream_row_count": int(len(reachable)),
-        "readiness_status": "ready" if len(reachable) > 0 else "blocked_no_accepted_launch_gate_mission_rows",
-        "source_policy": "accepted_mission_candidate_launch_gate_rows_only",
+        "readiness_status": "ready" if len(reachable) > 0 else "blocked_no_accepted_launch_gate_mission_or_partial_feedback_rows",
+        "source_policy": _source_policy(
+            allow_partial_feedback_source=allow_partial_feedback_source,
+            allow_diagnostic_source=allow_diagnostic_source,
+        ),
+        "diagnostic_sources_allowed": bool(allow_diagnostic_source),
+        "partial_feedback_sources_allowed": bool(allow_partial_feedback_source),
         "claim_status": "simulation_only",
         "claim_boundary": (
             "Reachable states are simulation-derived starts only; no real-flight transfer, mission success, "
@@ -90,19 +101,37 @@ def run_reachable_state_extraction(
     return paths
 
 
-def _eligible_source_rows(rollouts: pd.DataFrame) -> pd.DataFrame:
+def _eligible_source_rows(
+    rollouts: pd.DataFrame,
+    *,
+    allow_partial_feedback_source: bool,
+    allow_diagnostic_source: bool,
+) -> pd.DataFrame:
     required = {"accepted", "entry_source", "evidence_role", "fan_branch"}
     missing = sorted(required.difference(rollouts.columns))
     if missing:
         raise ValueError(f"rollout_csv missing required reachable-source columns: {missing}")
+    roles = {"mission_candidate"}
+    if bool(allow_partial_feedback_source):
+        roles.add("partial_feedback")
+    if bool(allow_diagnostic_source):
+        roles.update({"ablation_diagnostic", "boundary_diagnostic"})
     eligible = rollouts[
         rollouts["accepted"].astype(bool)
-        & rollouts["evidence_role"].astype(str).eq("mission_candidate")
+        & rollouts["evidence_role"].astype(str).isin(roles)
         & rollouts["entry_source"].astype(str).isin({"launch_gate_main", "launch_gate_tolerance_shell"})
     ].copy()
     if "trial_descriptor_id" not in eligible.columns:
         eligible["trial_descriptor_id"] = eligible.get("primitive_id", eligible.index.astype(str))
     return eligible
+
+
+def _source_policy(*, allow_partial_feedback_source: bool, allow_diagnostic_source: bool) -> str:
+    if allow_diagnostic_source:
+        return "accepted_launch_gate_rows_including_explicit_diagnostic_sources"
+    if allow_partial_feedback_source:
+        return "accepted_mission_or_partial_feedback_launch_gate_rows_only"
+    return "accepted_mission_candidate_launch_gate_rows_only"
 
 
 def _provenance_audit(eligible: pd.DataFrame, reachable: pd.DataFrame) -> pd.DataFrame:
@@ -113,6 +142,7 @@ def _provenance_audit(eligible: pd.DataFrame, reachable: pd.DataFrame) -> pd.Dat
                 "reachable_downstream_row_count": int(len(reachable)),
                 "all_sources_accepted": bool(eligible["accepted"].astype(bool).all()) if not eligible.empty else False,
                 "all_sources_mission_candidate": bool(eligible["evidence_role"].astype(str).eq("mission_candidate").all()) if not eligible.empty else False,
+                "all_sources_mission_or_partial_feedback": bool(eligible["evidence_role"].astype(str).isin({"mission_candidate", "partial_feedback"}).all()) if not eligible.empty else False,
                 "arbitrary_arena_sources_used": False,
             }
         ]
@@ -143,6 +173,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", type=int, required=True)
     parser.add_argument("--max-rows", type=int, default=200)
     parser.add_argument("--seed", type=int, default=20260521)
+    parser.add_argument("--mission-only", action="store_true")
+    parser.add_argument("--allow-diagnostic-source", action="store_true")
     parser.add_argument("--result-root", type=Path, default=None)
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
@@ -155,6 +187,8 @@ def main() -> int:
         run_id=args.run_id,
         max_rows=args.max_rows,
         seed=args.seed,
+        allow_partial_feedback_source=not args.mission_only,
+        allow_diagnostic_source=args.allow_diagnostic_source,
         result_root=args.result_root,
         overwrite=args.overwrite,
     )

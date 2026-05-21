@@ -34,6 +34,7 @@ def run_fixed_gate_repeated_launch_policy_eval(
     run_id: int,
     episodes_per_policy: int = 1,
     seed: int = 20260521,
+    allow_diagnostic_source: bool = False,
     result_root: Path | None = None,
     overwrite: bool = False,
 ) -> dict[str, Path]:
@@ -42,6 +43,7 @@ def run_fixed_gate_repeated_launch_policy_eval(
         raise RuntimeError(f"result tree already exists: {root}")
     (root / "metrics").mkdir(parents=True, exist_ok=True)
     candidates = pd.read_csv(governor_candidate_package_csv)
+    eligible_candidates = _eligible_package_candidates(candidates, allow_diagnostic_source=allow_diagnostic_source)
     policies = policy_table()
     episode_frames: list[pd.DataFrame] = []
     step_frames: list[pd.DataFrame] = []
@@ -49,7 +51,7 @@ def run_fixed_gate_repeated_launch_policy_eval(
     belief_frames: list[pd.DataFrame] = []
     for _, policy in policies.iterrows():
         for fan_branch in ("single_fan_branch", "four_fan_branch"):
-            branch_candidates = _branch_candidates(candidates, fan_branch)
+            branch_candidates = _branch_candidates(eligible_candidates, fan_branch)
             for episode_index in range(int(episodes_per_policy)):
                 episode_id = f"fg_policy_s{int(run_id):03d}_{policy['policy_id']}_{fan_branch}_{episode_index:03d}"
                 result = run_repeated_launch_episode(
@@ -84,7 +86,7 @@ def run_fixed_gate_repeated_launch_policy_eval(
             "governor_candidate_package_csv": str(governor_candidate_package_csv),
             "candidate_package_source": "fixed_gate_cluster_selection",
             "default_toy_candidates_used": False,
-            "policy_readiness_status": "ready" if not candidates.empty else "blocked_no_clustering_candidate_package",
+            "policy_readiness_status": _policy_readiness_status(candidates, eligible_candidates, allow_diagnostic_source),
         },
         overwrite=overwrite,
     )
@@ -109,8 +111,10 @@ def run_fixed_gate_repeated_launch_policy_eval(
         "candidate_package_source": "fixed_gate_cluster_selection",
         "default_toy_candidates_used": False,
         "candidate_row_count": int(len(candidates)),
+        "eligible_candidate_row_count": int(len(eligible_candidates)),
+        "diagnostic_sources_allowed": bool(allow_diagnostic_source),
         "episode_count": int(len(episode_summary)),
-        "policy_readiness_status": "ready" if not candidates.empty else "blocked_no_clustering_candidate_package",
+        "policy_readiness_status": _policy_readiness_status(candidates, eligible_candidates, allow_diagnostic_source),
         "claim_status": "simulation_only",
         "claim_boundary": (
             "Repeated-launch policy evaluation consumes the clustering-derived governor candidate package; "
@@ -128,6 +132,37 @@ def _branch_candidates(candidates: pd.DataFrame, fan_branch: str) -> pd.DataFram
     if candidates.empty or "fan_branch" not in candidates.columns:
         return candidates.copy()
     return candidates[candidates["fan_branch"].astype(str).eq(str(fan_branch))].copy()
+
+
+def _eligible_package_candidates(candidates: pd.DataFrame, *, allow_diagnostic_source: bool) -> pd.DataFrame:
+    if candidates.empty:
+        return candidates.copy()
+    frame = candidates.copy()
+    if "evidence_role" in frame.columns:
+        roles = {"mission_candidate", "partial_feedback"}
+        if bool(allow_diagnostic_source):
+            roles.update({"ablation_diagnostic", "boundary_diagnostic"})
+        frame = frame[frame["evidence_role"].astype(str).isin(roles)]
+    if "recommended_use" in frame.columns:
+        uses = {"simulation_candidate", "hardware_candidate", "thesis", "hardware"}
+        if bool(allow_diagnostic_source):
+            uses.update({"diagnostic", "diagnostic_only"})
+        frame = frame[frame["recommended_use"].astype(str).isin(uses)]
+    return frame.reset_index(drop=True)
+
+
+def _policy_readiness_status(
+    candidates: pd.DataFrame,
+    eligible_candidates: pd.DataFrame,
+    allow_diagnostic_source: bool,
+) -> str:
+    if candidates.empty:
+        return "blocked_no_clustering_candidate_package"
+    if eligible_candidates.empty:
+        return "diagnostic_only_package_blocked" if not allow_diagnostic_source else "blocked_no_eligible_package_rows"
+    if allow_diagnostic_source:
+        return "diagnostic_only_policy_eval_not_mission_evidence"
+    return "ready"
 
 
 def _gate_centre_state(episode_index: int, seed: int) -> np.ndarray:
@@ -172,6 +207,7 @@ def _report(manifest: dict[str, object]) -> str:
             f"Active mission path: `{manifest['active_mission_path']}`",
             "",
             f"- Candidate rows from clustering package: `{manifest['candidate_row_count']}`",
+            f"- Eligible mission/partial candidate rows: `{manifest['eligible_candidate_row_count']}`",
             f"- Episode rows: `{manifest['episode_count']}`",
             f"- Policy readiness status: `{manifest['policy_readiness_status']}`",
             "- Default toy candidates used: `False`",
@@ -188,6 +224,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", type=int, required=True)
     parser.add_argument("--episodes-per-policy", type=int, default=1)
     parser.add_argument("--seed", type=int, default=20260521)
+    parser.add_argument("--allow-diagnostic-source", action="store_true")
     parser.add_argument("--result-root", type=Path, default=None)
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
@@ -200,6 +237,7 @@ def main() -> int:
         run_id=args.run_id,
         episodes_per_policy=args.episodes_per_policy,
         seed=args.seed,
+        allow_diagnostic_source=args.allow_diagnostic_source,
         result_root=args.result_root,
         overwrite=args.overwrite,
     )

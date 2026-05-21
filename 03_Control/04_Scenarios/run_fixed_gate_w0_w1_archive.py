@@ -69,6 +69,7 @@ def run_fixed_gate_w0_w1_archive(
     fan_branch: str = "all",
     w_layers: str | tuple[str, ...] = "W0,W1",
     latency_case: str = "nominal",
+    controller_mode: str = "both",
     reachable_source_csv: Path | None = None,
     result_root: Path | None = None,
     storage_format: str = "auto",
@@ -98,8 +99,8 @@ def run_fixed_gate_w0_w1_archive(
         FixedGatePrimitiveRolloutConfig(
             latency_case=str(latency_case),
             random_seed=int(seed),
-            controller_mode="open_loop_rollout",
-            feedback_mode="open_loop",
+            controller_mode=str(controller_mode),
+            feedback_mode="instant_state_feedback" if str(controller_mode) in {"both", "feedback_stabilised_primitive"} else "open_loop",
             allow_open_loop_diagnostic=True,
         ),
     )
@@ -126,6 +127,7 @@ def run_fixed_gate_w0_w1_archive(
         fan_branch=fan_branch,
         selected_layers=selected_layers,
         latency_case=latency_case,
+        controller_mode=controller_mode,
         samples=samples,
         candidates=candidates,
         rollout_rows=rollout_rows,
@@ -285,6 +287,9 @@ def _write_outputs(
         "samples_csv": paths["metrics"] / "fixed_gate_samples.csv",
         "candidate_index_csv": paths["metrics"] / "fixed_gate_w0_w1_candidate_index.csv",
         "rollout_rows_csv": paths["metrics"] / "fixed_gate_w0_w1_primitive_rollout_rows.csv",
+        "diagnostic_rows_csv": paths["metrics"] / "fixed_gate_w0_w1_diagnostic_rows.csv",
+        "partial_feedback_rows_csv": paths["metrics"] / "fixed_gate_w0_w1_partial_feedback_rows.csv",
+        "mission_candidate_rows_csv": paths["metrics"] / "fixed_gate_w0_w1_mission_candidate_rows.csv",
         "pairing_audit_csv": paths["metrics"] / "fixed_gate_w0_w1_pairing_audit.csv",
         "outcome_summary_csv": paths["metrics"] / "fixed_gate_w0_w1_outcome_summary.csv",
         "code_path_map_csv": paths["metrics"] / "active_deprecated_code_path_map.csv",
@@ -294,10 +299,28 @@ def _write_outputs(
     samples.to_csv(filesystem_path(output_paths["samples_csv"]), index=False)
     candidates.to_csv(filesystem_path(output_paths["candidate_index_csv"]), index=False)
     rollout_rows.to_csv(filesystem_path(output_paths["rollout_rows_csv"]), index=False)
+    _role_rows(rollout_rows, {"ablation_diagnostic", "boundary_diagnostic"}).to_csv(
+        filesystem_path(output_paths["diagnostic_rows_csv"]),
+        index=False,
+    )
+    _role_rows(rollout_rows, {"partial_feedback", "blocked_partial"}).to_csv(
+        filesystem_path(output_paths["partial_feedback_rows_csv"]),
+        index=False,
+    )
+    _role_rows(rollout_rows, {"mission_candidate"}).to_csv(
+        filesystem_path(output_paths["mission_candidate_rows_csv"]),
+        index=False,
+    )
     pairing_audit.to_csv(filesystem_path(output_paths["pairing_audit_csv"]), index=False)
     outcome_summary.to_csv(filesystem_path(output_paths["outcome_summary_csv"]), index=False)
     code_path_map.to_csv(filesystem_path(output_paths["code_path_map_csv"]), index=False)
     return output_paths
+
+
+def _role_rows(frame: pd.DataFrame, roles: set[str]) -> pd.DataFrame:
+    if frame.empty or "evidence_role" not in frame.columns:
+        return pd.DataFrame(columns=frame.columns)
+    return frame[frame["evidence_role"].astype(str).isin(roles)].copy()
 
 
 def _manifest(
@@ -308,6 +331,7 @@ def _manifest(
     fan_branch: str,
     selected_layers: tuple[str, ...],
     latency_case: str,
+    controller_mode: str,
     samples: pd.DataFrame,
     candidates: pd.DataFrame,
     rollout_rows: pd.DataFrame,
@@ -329,6 +353,7 @@ def _manifest(
         "fan_branch": str(fan_branch),
         "w_layers": list(selected_layers),
         "latency_case": str(latency_case),
+        "controller_mode": str(controller_mode),
         "reachable_source_csv": "" if reachable_source_csv is None else str(reachable_source_csv),
         "sample_row_count": int(len(samples)),
         "candidate_row_count": int(len(candidates)),
@@ -338,10 +363,14 @@ def _manifest(
         "branch_local_separation": True,
         "rollout_execution_performed": True,
         "mission_feedback_path_status": move_on_gates["feedback_path_status"],
-        "feedback_stabilised_primitive_available": False,
+        "feedback_stabilised_primitive_available": bool(move_on_gates["partial_feedback_row_count"] > 0),
         "open_loop_rows_promoted_to_mission_candidate": False,
+        "open_loop_rows_promoted_to_partial_feedback": False,
         "move_on_gates": move_on_gates,
-        "archive_readiness_status": move_on_gates["archive_readiness"],
+        "code_ready_status": move_on_gates["code_ready"],
+        "archive_prepared_status": move_on_gates["archive_prepared"],
+        "mission_evidence_ready_status": move_on_gates["mission_evidence_ready"],
+        "archive_readiness_status": move_on_gates["archive_prepared"],
         "claim_status": "simulation_only",
         "claim_boundary": (
             "Fixed-gate W0/W1 evidence execution with explicit diagnostic/blocked hierarchy; "
@@ -364,8 +393,12 @@ def _report(manifest: dict[str, object]) -> str:
             f"- Candidate rows: `{manifest['candidate_row_count']}`",
             f"- Rollout rows: `{manifest['rollout_row_count']}`",
             f"- Mission-candidate rows: `{gates['mission_candidate_row_count']}`",
+            f"- Partial-feedback rows: `{gates['partial_feedback_row_count']}`",
+            f"- Blocked-partial rows: `{gates['blocked_partial_row_count']}`",
             f"- Diagnostic open-loop rows: `{gates['ablation_diagnostic_row_count']}`",
-            f"- Archive readiness: `{manifest['archive_readiness_status']}`",
+            f"- Code-ready status: `{manifest['code_ready_status']}`",
+            f"- Archive-prepared status: `{manifest['archive_prepared_status']}`",
+            f"- Mission-evidence-ready status: `{manifest['mission_evidence_ready_status']}`",
             f"- Feedback path status: `{manifest['mission_feedback_path_status']}`",
             "- W1 remains scheduled independently of W0 success.",
             "",
@@ -389,6 +422,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--fan-branch", choices=("single_fan_branch", "four_fan_branch", "all"), default="all")
     parser.add_argument("--w-layers", default="W0,W1")
     parser.add_argument("--latency-case", choices=("none", "actuator_lag_only", "nominal", "conservative"), default="nominal")
+    parser.add_argument("--controller-mode", choices=("open_loop_rollout", "feedback_stabilised_primitive", "both"), default="both")
     parser.add_argument("--reachable-source-csv", type=Path, default=None)
     parser.add_argument("--result-root", type=Path, default=None)
     parser.add_argument("--storage-format", default="auto")
@@ -406,6 +440,7 @@ def main() -> int:
         fan_branch=args.fan_branch,
         w_layers=args.w_layers,
         latency_case=args.latency_case,
+        controller_mode=args.controller_mode,
         reachable_source_csv=args.reachable_source_csv,
         result_root=args.result_root,
         storage_format=args.storage_format,

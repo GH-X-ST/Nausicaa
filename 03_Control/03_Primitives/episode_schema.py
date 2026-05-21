@@ -114,6 +114,7 @@ CLAIM_STATUS_VALUES = (
 
 EVIDENCE_ROLE_VALUES = (
     "mission_candidate",
+    "partial_feedback",
     "ablation_diagnostic",
     "boundary_diagnostic",
     "schema_only",
@@ -320,9 +321,12 @@ def _assert_diagnostic_rollouts_not_promoted(frame: pd.DataFrame) -> None:
         return
     controller = frame["controller_mode"].astype(str)
     diagnostic_controller = controller.isin({"open_loop_rollout", "command_template_replay"})
-    promoted = frame[diagnostic_controller & frame["evidence_role"].astype(str).eq("mission_candidate")]
+    promoted = frame[
+        diagnostic_controller
+        & frame["evidence_role"].astype(str).isin({"mission_candidate", "partial_feedback"})
+    ]
     if not promoted.empty:
-        raise ValueError("open-loop or command-template rows cannot use evidence_role='mission_candidate'.")
+        raise ValueError("open-loop or command-template rows cannot use mission or partial-feedback evidence roles.")
     non_sim = frame[diagnostic_controller & ~frame["claim_status"].astype(str).eq("simulation_only")]
     if not non_sim.empty:
         raise ValueError("open-loop or command-template rows must use claim_status='simulation_only'.")

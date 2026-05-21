@@ -6,8 +6,10 @@ import numpy as np
 import pandas as pd
 
 from arena_contract import TRUE_SAFE_BOUNDS, position_margin_m
+from bank_primitive import BankCaseSpec, BankPrimitiveConfig, rollout_bank_case
 from episode_schema import validate_primitive_rollout_evidence_frame
 from fixed_gate_contract import FIXED_LAUNCH_GATE, launch_gate_admission_status
+from glide_primitive import GlidePrimitiveConfig, rollout_glide_primitive
 from latency import (
     actuator_tau_for_case,
     latency_audit_fields_from_case,
@@ -17,6 +19,7 @@ from latency import (
 )
 from primitive_library_generators import generate_command_profile
 from primitive_library_schema import PrimitiveCandidateSpec
+from recovery_primitive import RecoveryCaseSpec, RecoveryPrimitiveConfig, rollout_recovery_case
 from rollout import CommandSchedule, RolloutConfig, rollout_open_loop_normalised
 from state_contract import STATE_SIZE, as_state_vector
 from wing_wind_descriptors import wing_wind_descriptor_row
@@ -115,9 +118,12 @@ ROW_COLUMNS = (
 
 MISSION_CONTROLLER_MODE = "feedback_stabilised_primitive"
 MISSION_FEEDBACK_MODE = "delayed_state_feedback"
+PARTIAL_FEEDBACK_MODE = "instant_state_feedback"
 DIAGNOSTIC_CONTROLLER_MODE = "open_loop_rollout"
 DIAGNOSTIC_FEEDBACK_MODE = "open_loop"
 BLOCKED_FEEDBACK_STATUS = "blocked_true_delayed_state_feedback_unavailable"
+PARTIAL_FEEDBACK_STATUS = "partial_feedback_instant_state_no_delayed_state_feedback"
+NON_W0_FEEDBACK_BLOCKED_STATUS = "blocked_feedback_replay_unavailable_for_non_W0_layer"
 
 
 @dataclass(frozen=True)
@@ -140,11 +146,12 @@ def run_fixed_gate_primitive_rollouts(
 ) -> pd.DataFrame:
     """Execute fixed-gate primitive row evidence with explicit hierarchy labels.
 
-    The current reusable primitive execution backend is command-template/open
-    loop. These rows are retained because they validate sampling, dynamics,
-    latency labels, descriptors, and storage, but they are intentionally marked
-    as diagnostic. Mission-candidate rows are emitted only by a delayed-state
-    feedback primitive path, which is not yet available in this adapter.
+    Command-template/open-loop rows validate sampling, dynamics, descriptors,
+    latency labels, and storage, but they remain diagnostic. Feedback rows are
+    emitted only when an actual local-feedback primitive path is used. Because
+    this adapter does not implement delayed-state feedback, those rows are
+    partial-feedback simulation evidence rather than hardware-ready mission
+    candidates.
     """
 
     cfg = FixedGatePrimitiveRolloutConfig() if config is None else config
@@ -153,16 +160,25 @@ def run_fixed_gate_primitive_rollouts(
     latency_cfg = latency_case_config(cfg.latency_case)
     rows: list[dict[str, object]] = []
     for local_index, candidate in enumerate(candidate_rows.to_dict(orient="records")):
-        requested_controller = str(candidate.get("controller_mode", cfg.controller_mode))
-        requested_feedback = str(candidate.get("feedback_mode", cfg.feedback_mode))
         seed = int(cfg.random_seed) + int(local_index)
-        if _requests_mission_feedback(requested_controller, requested_feedback):
-            rows.append(_blocked_feedback_row(candidate, cfg, seed))
-            continue
-        if not bool(cfg.allow_open_loop_diagnostic):
-            rows.append(_blocked_feedback_row(candidate, cfg, seed))
-            continue
-        rows.append(_open_loop_diagnostic_row(candidate, cfg, seed, latency_cfg))
+        for requested_controller, requested_feedback in _requested_execution_modes(candidate, cfg):
+            if requested_controller == DIAGNOSTIC_CONTROLLER_MODE:
+                if bool(cfg.allow_open_loop_diagnostic):
+                    rows.append(_open_loop_diagnostic_row(candidate, cfg, seed, latency_cfg))
+                else:
+                    rows.append(
+                        _blocked_feedback_row(
+                            candidate,
+                            cfg,
+                            seed,
+                            reason="blocked_open_loop_diagnostic_disabled",
+                        )
+                    )
+                continue
+            if _is_delayed_feedback_request(requested_feedback):
+                rows.append(_blocked_feedback_row(candidate, cfg, seed, reason=BLOCKED_FEEDBACK_STATUS))
+                continue
+            rows.append(_partial_feedback_row(candidate, cfg, seed, latency_cfg))
     frame = pd.DataFrame(rows, columns=ROW_COLUMNS)
     validate_primitive_rollout_evidence_frame(frame)
     return frame
@@ -204,27 +220,48 @@ def build_rollout_outcome_summary(rollout_rows: pd.DataFrame) -> pd.DataFrame:
 
 def build_archive_move_on_gates(rollout_rows: pd.DataFrame, reachable_rows: pd.DataFrame | None = None) -> dict[str, object]:
     reachable_count = 0 if reachable_rows is None else int(len(reachable_rows))
-    mission = _mission_rows(rollout_rows)
+    evidence = _mission_or_partial_rows(rollout_rows)
     branch_layer_counts = (
-        mission.groupby(["fan_branch", "W_layer"]).size().to_dict()
-        if not mission.empty
+        evidence.groupby(["fan_branch", "W_layer"]).size().to_dict()
+        if not evidence.empty
+        else {}
+    )
+    all_branch_layer_counts = (
+        rollout_rows.groupby(["fan_branch", "W_layer"]).size().to_dict()
+        if not rollout_rows.empty and {"fan_branch", "W_layer"}.issubset(rollout_rows.columns)
         else {}
     )
     branches = {"single_fan_branch", "four_fan_branch"}
-    archive_ready = all(
+    archive_prepared = all(
+        int(all_branch_layer_counts.get((branch, layer), 0)) > 0
+        for branch in branches
+        for layer in ("W0", "W1")
+    )
+    mission_ready = all(
         int(branch_layer_counts.get((branch, layer), 0)) > 0
         for branch in branches
         for layer in ("W0", "W1")
     )
+    code_ready = _has_required_evidence_columns(rollout_rows) and not _has_promoted_diagnostic_rows(rollout_rows)
+    partial_count = _role_count(rollout_rows, "partial_feedback")
+    mission_count = _role_count(rollout_rows, "mission_candidate")
+    blocked_count = _role_count(rollout_rows, "blocked_partial")
     return {
-        "code_readiness": "ready" if _has_required_evidence_columns(rollout_rows) else "blocked_schema",
-        "archive_readiness": "ready" if archive_ready else "blocked_no_mission_candidate_rows_for_both_branches",
+        "code_ready": "ready" if code_ready else "blocked_schema_or_promoted_diagnostic_rows",
+        "archive_prepared": "ready" if archive_prepared else "blocked_missing_branch_layer_rows",
+        "mission_evidence_ready": "ready" if mission_ready else "blocked_no_mission_or_partial_feedback_rows_for_both_branches",
+        "code_readiness": "ready" if code_ready else "blocked_schema_or_promoted_diagnostic_rows",
+        "archive_readiness": "ready" if archive_prepared else "blocked_missing_branch_layer_rows",
         "w_ladder_readiness": "ready" if _w1_independent(rollout_rows) else "blocked_w1_pairing_missing",
         "reachable_state_readiness": "ready" if reachable_count > 0 else "blocked_no_reachable_downstream_extraction",
-        "mission_candidate_row_count": int(len(mission)),
-        "ablation_diagnostic_row_count": int(rollout_rows["evidence_role"].astype(str).eq("ablation_diagnostic").sum()) if not rollout_rows.empty else 0,
+        "mission_candidate_row_count": int(mission_count),
+        "partial_feedback_row_count": int(partial_count),
+        "accepted_partial_feedback_row_count": int(len(_accepted_role_rows(rollout_rows, "partial_feedback"))),
+        "blocked_partial_row_count": int(blocked_count),
+        "mission_or_partial_evidence_row_count": int(len(evidence)),
+        "ablation_diagnostic_row_count": _role_count(rollout_rows, "ablation_diagnostic"),
         "reachable_downstream_row_count": reachable_count,
-        "feedback_path_status": BLOCKED_FEEDBACK_STATUS,
+        "feedback_path_status": PARTIAL_FEEDBACK_STATUS if partial_count > 0 else BLOCKED_FEEDBACK_STATUS,
     }
 
 
@@ -296,10 +333,84 @@ def _open_loop_diagnostic_row(
     }
 
 
+def _partial_feedback_row(
+    candidate: dict[str, object],
+    config: FixedGatePrimitiveRolloutConfig,
+    seed: int,
+    latency_cfg: object,
+) -> dict[str, object]:
+    state0 = _initial_state_from_candidate(candidate)
+    layer = str(candidate.get("W_layer", "W1"))
+    if layer != "W0":
+        return _blocked_feedback_row(candidate, config, seed, reason=NON_W0_FEEDBACK_BLOCKED_STATUS)
+    try:
+        result = _run_local_feedback_primitive(candidate, state0, config, seed, latency_cfg)
+    except (RuntimeError, ValueError) as exc:
+        return _blocked_feedback_row(candidate, config, seed, reason=f"blocked_feedback_adapter_error:{exc}")
+
+    terminal = result.x[-1]
+    metrics = dict(result.metrics)
+    entry_pass = _checks_pass(getattr(result, "entry_checks", ()))
+    exit_checks = getattr(result, "exit_checks", ())
+    exit_pass = _checks_pass(exit_checks)
+    rollout_success = bool(metrics.get("rollout_success", bool(result.success)))
+    primitive_success = bool(result.success)
+    failure_label = str(result.failure_label if result.failure_label else "success")
+    if primitive_success:
+        outcome_class = "accepted"
+        governor_status = "accepted_partial_feedback_governor_compatible"
+        rejection = "none"
+        mission_feedback_status = PARTIAL_FEEDBACK_STATUS
+    elif not entry_pass:
+        outcome_class = "rejected"
+        governor_status = "rejected_entry_check_failed"
+        rejection = "primitive_entry_check_failed"
+        mission_feedback_status = "partial_feedback_entry_check_failed"
+    else:
+        outcome_class = "failed"
+        governor_status = "rejected_exit_or_rollout_check_failed"
+        rejection = failure_label
+        mission_feedback_status = "partial_feedback_exit_or_rollout_failed"
+    latency_fields = _latency_fields(config.latency_case, accepted=primitive_success, state_feedback_delay_applied=False)
+    descriptor = _dry_wind_descriptor(candidate, state0)
+    return {
+        **_common_row(candidate, state0),
+        "controller_mode": MISSION_CONTROLLER_MODE,
+        "feedback_mode": PARTIAL_FEEDBACK_MODE,
+        "latency_case": str(config.latency_case),
+        "claim_status": "simulation_only",
+        "evidence_role": "partial_feedback",
+        "governor_decision_status": governor_status,
+        "primary_rejection_reason": rejection,
+        "all_rejection_reasons": rejection,
+        "outcome_class": outcome_class,
+        "accepted": primitive_success,
+        "failure_label": failure_label,
+        "duration_s": float(result.time_s[-1] - result.time_s[0]) if result.time_s.size else 0.0,
+        "dwell_time_s": _partial_feedback_dwell_time(candidate, result, primitive_success),
+        "energy_initial_m": _specific_energy_height_m(state0),
+        "energy_final_m": _specific_energy_height_m(terminal),
+        "energy_residual_m": _specific_energy_height_m(terminal) - _specific_energy_height_m(state0),
+        "minimum_margin_m": _minimum_true_margin(result.x),
+        "minimum_speed_m_s": _minimum_speed_m_s(result.x),
+        "exit_speed_m_s": _speed_m_s(terminal),
+        "control_saturation": float(metrics.get("saturation_fraction", 0.0)),
+        "rollout_integrity_success": rollout_success,
+        "entry_check_status": _entry_check_status(candidate, state0, entry_pass),
+        "exit_check_status": "primitive_exit_pass" if exit_pass else _exit_check_failure_status(exit_checks, failure_label),
+        "mission_feedback_path_status": mission_feedback_status,
+        **_terminal_state_fields(terminal),
+        **descriptor,
+        **latency_fields,
+    }
+
+
 def _blocked_feedback_row(
     candidate: dict[str, object],
     config: FixedGatePrimitiveRolloutConfig,
     seed: int,
+    *,
+    reason: str = BLOCKED_FEEDBACK_STATUS,
 ) -> dict[str, object]:
     del seed
     state0 = _initial_state_from_candidate(candidate)
@@ -314,11 +425,11 @@ def _blocked_feedback_row(
         "claim_status": "simulation_only",
         "evidence_role": "blocked_partial",
         "governor_decision_status": "blocked_before_governor",
-        "primary_rejection_reason": BLOCKED_FEEDBACK_STATUS,
-        "all_rejection_reasons": BLOCKED_FEEDBACK_STATUS,
+        "primary_rejection_reason": str(reason),
+        "all_rejection_reasons": str(reason),
         "outcome_class": "blocked_partial",
         "accepted": False,
-        "failure_label": BLOCKED_FEEDBACK_STATUS,
+        "failure_label": str(reason),
         "duration_s": 0.0,
         "dwell_time_s": 0.0,
         "energy_initial_m": _specific_energy_height_m(state0),
@@ -330,8 +441,8 @@ def _blocked_feedback_row(
         "control_saturation": 0.0,
         "rollout_integrity_success": False,
         "entry_check_status": admission,
-        "exit_check_status": "blocked_no_delayed_state_feedback_rollout",
-        "mission_feedback_path_status": BLOCKED_FEEDBACK_STATUS,
+        "exit_check_status": "blocked_no_feedback_rollout",
+        "mission_feedback_path_status": str(reason),
         **_terminal_state_fields(state0),
         **descriptor,
         **latency_fields,
@@ -423,6 +534,88 @@ def _candidate_spec(candidate: dict[str, object], *, horizon_s: float) -> Primit
     )
 
 
+def _run_local_feedback_primitive(
+    candidate: dict[str, object],
+    state0: np.ndarray,
+    config: FixedGatePrimitiveRolloutConfig,
+    seed: int,
+    latency_cfg: object,
+) -> object:
+    family = str(candidate.get("primitive_family", candidate.get("family", "glide")))
+    speed = max(_speed_m_s(state0), 1e-6)
+    altitude = float(state0[2])
+    tau = actuator_tau_for_case(latency_cfg)
+    if family in {"glide", "lift_entry"}:
+        return rollout_glide_primitive(
+            state0,
+            config=GlidePrimitiveConfig(
+                dt_s=float(config.dt_s),
+                t_final_s=float(config.horizon_s),
+                speed_m_s=float(speed),
+                altitude_m=altitude,
+                latency_case="none",
+                actuator_tau_s=tau,
+                seed=int(seed),
+                scenario_name=f"fixed_gate_{family}_partial_feedback",
+            ),
+        )
+    if family == "recovery":
+        return rollout_recovery_case(
+            RecoveryCaseSpec(
+                name=f"fixed_gate_recovery_{candidate.get('sample_id', seed)}",
+                role="fixed_gate_candidate",
+                description="fixed-gate recovery partial-feedback candidate",
+                x0=state0,
+                t_final_s=float(config.horizon_s),
+            ),
+            config=RecoveryPrimitiveConfig(
+                dt_s=float(config.dt_s),
+                t_final_s=float(config.horizon_s),
+                speed_m_s=float(speed),
+                altitude_m=altitude,
+                latency_case="none",
+                actuator_tau_s=tau,
+                seed=int(seed),
+                scenario_name="fixed_gate_recovery_partial_feedback",
+            ),
+        )
+    if family in {
+        "mild_coordinated_turn_left",
+        "mild_coordinated_turn_right",
+        "energy_retaining_bank",
+        "lift_dwell_arc",
+    }:
+        direction_sign = _bank_direction_sign(family)
+        return rollout_bank_case(
+            BankCaseSpec(
+                name=f"fixed_gate_bank_{candidate.get('sample_id', seed)}",
+                role="fixed_gate_candidate",
+                description=f"fixed-gate {family} partial-feedback candidate",
+                direction_sign=int(direction_sign),
+                x0=state0,
+                t_final_s=float(config.horizon_s),
+            ),
+            config=BankPrimitiveConfig(
+                dt_s=float(config.dt_s),
+                t_final_s=float(config.horizon_s),
+                speed_m_s=float(speed),
+                altitude_m=altitude,
+                latency_case="none",
+                actuator_tau_s=tau,
+                seed=int(seed),
+                scenario_name=f"fixed_gate_{family}_partial_feedback",
+                target_bank_deg=10.0,
+            ),
+        )
+    raise ValueError(f"unsupported feedback primitive family: {family}")
+
+
+def _bank_direction_sign(family: str) -> int:
+    if str(family) == "mild_coordinated_turn_left":
+        return -1
+    return 1
+
+
 def _library_family_mapping(family: str) -> tuple[str, int, float | None]:
     if family == "glide":
         return "glide", 1, None
@@ -488,6 +681,36 @@ def _latency_fields(
     return fields
 
 
+def _partial_feedback_dwell_time(candidate: dict[str, object], result: object, primitive_success: bool) -> float:
+    family = str(candidate.get("primitive_family", ""))
+    if not primitive_success or family not in {"lift_entry", "lift_dwell_arc"}:
+        return 0.0
+    return float(result.time_s[-1] - result.time_s[0]) if getattr(result, "time_s", np.array([])).size else 0.0
+
+
+def _entry_check_status(candidate: dict[str, object], state0: np.ndarray, primitive_entry_pass: bool) -> str:
+    admission = str(candidate.get("initial_state_admission_status", launch_gate_admission_status(state0)))
+    suffix = "primitive_entry_pass" if primitive_entry_pass else "primitive_entry_failed"
+    return f"{admission}|{suffix}"
+
+
+def _exit_check_failure_status(exit_checks: object, failure_label: str) -> str:
+    checks = tuple(exit_checks) if exit_checks else ()
+    failed = [
+        str(getattr(check, "name", "unknown_exit_check"))
+        for check in checks
+        if bool(getattr(check, "required", True)) and not bool(getattr(check, "pass_check", False))
+    ]
+    if failed:
+        return "primitive_exit_failed:" + ";".join(failed)
+    return f"primitive_exit_not_passed:{failure_label}"
+
+
+def _checks_pass(checks: object) -> bool:
+    check_tuple = tuple(checks) if checks else ()
+    return bool(check_tuple and all(bool(getattr(check, "pass_check", False)) for check in check_tuple if bool(getattr(check, "required", True))))
+
+
 def _terminal_state_fields(state: np.ndarray) -> dict[str, object]:
     terminal = as_state_vector(state)
     return {
@@ -538,17 +761,40 @@ def _state_text(state: np.ndarray) -> str:
 # =============================================================================
 # 5) Readiness Summaries
 # =============================================================================
-def _mission_rows(frame: pd.DataFrame) -> pd.DataFrame:
+def _mission_or_partial_rows(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty or "evidence_role" not in frame.columns:
         return pd.DataFrame(columns=frame.columns)
     return frame[
-        frame["evidence_role"].astype(str).eq("mission_candidate")
+        frame["evidence_role"].astype(str).isin({"mission_candidate", "partial_feedback"})
         & frame["accepted"].astype(bool)
     ].copy()
 
 
+def _accepted_role_rows(frame: pd.DataFrame, role: str) -> pd.DataFrame:
+    if frame.empty or "evidence_role" not in frame.columns:
+        return pd.DataFrame(columns=frame.columns)
+    return frame[
+        frame["evidence_role"].astype(str).eq(str(role))
+        & frame["accepted"].astype(bool)
+    ].copy()
+
+
+def _role_count(frame: pd.DataFrame, role: str) -> int:
+    if frame.empty or "evidence_role" not in frame.columns:
+        return 0
+    return int(frame["evidence_role"].astype(str).eq(str(role)).sum())
+
+
 def _has_required_evidence_columns(frame: pd.DataFrame) -> bool:
     return bool(set(ROW_COLUMNS).issubset(frame.columns))
+
+
+def _has_promoted_diagnostic_rows(frame: pd.DataFrame) -> bool:
+    if frame.empty or not {"controller_mode", "evidence_role"}.issubset(frame.columns):
+        return False
+    diagnostic_controller = frame["controller_mode"].astype(str).isin({"open_loop_rollout", "command_template_replay"})
+    promoted = diagnostic_controller & frame["evidence_role"].astype(str).isin({"mission_candidate", "partial_feedback"})
+    return bool(promoted.any())
 
 
 def _w1_independent(frame: pd.DataFrame) -> bool:
@@ -560,8 +806,35 @@ def _w1_independent(frame: pd.DataFrame) -> bool:
     return bool(w0 and w0 == w1)
 
 
-def _requests_mission_feedback(controller_mode: str, feedback_mode: str) -> bool:
-    return str(controller_mode) == MISSION_CONTROLLER_MODE or str(feedback_mode) == MISSION_FEEDBACK_MODE
+def _requested_execution_modes(
+    candidate: dict[str, object],
+    config: FixedGatePrimitiveRolloutConfig,
+) -> tuple[tuple[str, str], ...]:
+    candidate_controller = str(candidate.get("controller_mode", "")).strip()
+    candidate_feedback = str(candidate.get("feedback_mode", "")).strip()
+    if candidate_controller:
+        feedback = _normalised_feedback_request(candidate_controller, candidate_feedback or config.feedback_mode)
+        return ((candidate_controller, feedback),)
+    controller = str(config.controller_mode)
+    if controller == "both":
+        return (
+            (DIAGNOSTIC_CONTROLLER_MODE, DIAGNOSTIC_FEEDBACK_MODE),
+            (MISSION_CONTROLLER_MODE, PARTIAL_FEEDBACK_MODE),
+        )
+    feedback = _normalised_feedback_request(controller, str(config.feedback_mode))
+    return ((controller, feedback),)
+
+
+def _normalised_feedback_request(controller_mode: str, feedback_mode: str) -> str:
+    if str(controller_mode) != MISSION_CONTROLLER_MODE:
+        return DIAGNOSTIC_FEEDBACK_MODE
+    if str(feedback_mode) in {"", DIAGNOSTIC_FEEDBACK_MODE, "not_applicable"}:
+        return PARTIAL_FEEDBACK_MODE
+    return str(feedback_mode)
+
+
+def _is_delayed_feedback_request(feedback_mode: str) -> bool:
+    return str(feedback_mode) == MISSION_FEEDBACK_MODE
 
 
 def _environment_mode(candidate: dict[str, object]) -> str:

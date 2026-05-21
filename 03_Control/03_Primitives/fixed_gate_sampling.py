@@ -188,6 +188,14 @@ def build_reachable_downstream_states(
             entry_source="reachable_downstream",
         )
         record["reachable_provenance_id"] = str(rollout.get("trial_descriptor_id", rollout.get("primitive_rollout_id", f"source_{local_index:06d}")))
+        record["source_sample_id"] = str(rollout.get("sample_id", ""))
+        record["source_primitive_id"] = str(rollout.get("primitive_id", ""))
+        record["source_W_layer"] = str(rollout.get("W_layer", ""))
+        record["source_controller_mode"] = str(rollout.get("controller_mode", ""))
+        record["source_feedback_mode"] = str(rollout.get("feedback_mode", ""))
+        record["source_latency_case"] = str(rollout.get("latency_case", ""))
+        record["source_evidence_role"] = str(rollout.get("evidence_role", ""))
+        record["source_outcome_class"] = str(rollout.get("outcome_class", ""))
         record["source_entry_source"] = str(rollout.get("entry_source"))
         record["source_rollout_accepted"] = True
         rows.append(record)
@@ -271,6 +279,7 @@ def select_focused_replay_cases(
     *,
     target_W_layer: str,
     max_cases: int,
+    allow_diagnostic_source: bool = False,
 ) -> pd.DataFrame:
     """Select W2/W3 replay cases from W1/medoid evidence only."""
 
@@ -282,8 +291,16 @@ def select_focused_replay_cases(
         eligible = frame[frame["W_layer"].astype(str).eq("W1")].copy()
     else:
         eligible = frame[frame["W_layer"].astype(str).isin({"W1", "W2"})].copy()
+    if "evidence_role" in eligible.columns:
+        allowed_roles = {"mission_candidate", "partial_feedback"}
+        if bool(allow_diagnostic_source):
+            allowed_roles.update({"ablation_diagnostic", "boundary_diagnostic"})
+        eligible = eligible[eligible["evidence_role"].astype(str).isin(allowed_roles)]
     if "recommended_use" in eligible.columns:
-        eligible = eligible[eligible["recommended_use"].astype(str).isin({"thesis", "hardware", "diagnostic"})]
+        allowed_use = {"simulation_candidate", "hardware_candidate", "thesis", "hardware"}
+        if bool(allow_diagnostic_source):
+            allowed_use.update({"diagnostic", "diagnostic_only"})
+        eligible = eligible[eligible["recommended_use"].astype(str).isin(allowed_use)]
     if "is_medoid" in eligible.columns:
         eligible = eligible[eligible["is_medoid"].astype(bool) | eligible["W_layer"].astype(str).eq("W1")]
     eligible = eligible[~eligible["entry_source"].astype(str).eq("diagnostic_broad_only")].copy()
@@ -364,6 +381,14 @@ def _base_record(
         "sampling_round": str(config.sampling_round),
         "initial_state_vector": ";".join(f"{value:.12g}" for value in x),
         "reachable_provenance_id": "",
+        "source_sample_id": "",
+        "source_primitive_id": "",
+        "source_W_layer": "",
+        "source_controller_mode": "",
+        "source_feedback_mode": "",
+        "source_latency_case": "",
+        "source_evidence_role": "",
+        "source_outcome_class": "",
         "source_entry_source": "",
         "source_rollout_accepted": False,
     }
@@ -395,6 +420,17 @@ def _sample_columns() -> list[str]:
         "random_seed",
         "sampling_round",
         "initial_state_vector",
+        "reachable_provenance_id",
+        "source_sample_id",
+        "source_primitive_id",
+        "source_W_layer",
+        "source_controller_mode",
+        "source_feedback_mode",
+        "source_latency_case",
+        "source_evidence_role",
+        "source_outcome_class",
+        "source_entry_source",
+        "source_rollout_accepted",
         *SAMPLE_STATE_COLUMNS,
     ]
 

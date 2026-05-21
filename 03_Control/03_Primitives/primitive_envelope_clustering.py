@@ -30,6 +30,8 @@ STRATIFY_COLUMNS = (
     "latency_case",
     "entry_source",
     "outcome_class",
+    "evidence_role",
+    "feedback_mode",
 )
 
 FEATURE_COLUMNS = (
@@ -107,6 +109,10 @@ def build_primitive_envelope_clusters(
             "cluster_medoids": pd.DataFrame(columns=MEDOID_COLUMNS),
             "cluster_summary": pd.DataFrame(columns=[*STRATIFY_COLUMNS, "row_count", "cluster_count"]),
             "governor_candidate_package": pd.DataFrame(columns=MEDOID_COLUMNS),
+            "mission_medoids": pd.DataFrame(columns=MEDOID_COLUMNS),
+            "partial_feedback_medoids": pd.DataFrame(columns=MEDOID_COLUMNS),
+            "diagnostic_medoids": pd.DataFrame(columns=MEDOID_COLUMNS),
+            "rejected_or_blocked_medoids": pd.DataFrame(columns=MEDOID_COLUMNS),
         }
     validate_primitive_rollout_rows(primitive_rows)
     frame = primitive_rows.copy()
@@ -139,6 +145,10 @@ def build_primitive_envelope_clusters(
         "cluster_medoids": medoid_frame,
         "cluster_summary": pd.DataFrame(summaries),
         "governor_candidate_package": package,
+        "mission_medoids": _role_medoids(medoid_frame, {"mission_candidate"}),
+        "partial_feedback_medoids": _role_medoids(medoid_frame, {"partial_feedback"}),
+        "diagnostic_medoids": _role_medoids(medoid_frame, {"ablation_diagnostic", "boundary_diagnostic"}),
+        "rejected_or_blocked_medoids": _role_medoids(medoid_frame, {"blocked_partial", "schema_only"}),
     }
 
 
@@ -177,8 +187,12 @@ def build_governor_candidate_package(medoids: pd.DataFrame) -> pd.DataFrame:
         return medoids.copy()
     package = medoids.copy()
     if "evidence_role" in package.columns:
-        package = package[package["evidence_role"].astype(str).eq("mission_candidate")].copy()
-    package = package[package["recommended_use"].astype(str).isin({"thesis", "hardware", "diagnostic"})].copy()
+        package = package[package["evidence_role"].astype(str).isin({"mission_candidate", "partial_feedback"})].copy()
+    package = package[
+        package["recommended_use"].astype(str).isin(
+            {"simulation_candidate", "hardware_candidate", "thesis", "hardware"}
+        )
+    ].copy()
     package["governor_package_status"] = "candidate_summary_only_governor_still_required"
     return package.reset_index(drop=True)
 
@@ -252,17 +266,25 @@ def _medoid_row(cluster_id: str, cluster_group: pd.DataFrame, feature_group: pd.
 
 def _recommended_use(row: dict[str, object], outcome_class: str) -> str:
     if _text(row.get("evidence_role")) in {"ablation_diagnostic", "boundary_diagnostic"}:
-        return "diagnostic"
+        return "diagnostic_only"
     if _text(row.get("evidence_role")) in {"blocked_partial", "schema_only"}:
-        return "reject"
+        return "blocked"
     if _text(row.get("entry_source")) == "diagnostic_broad_only":
-        return "diagnostic"
+        return "diagnostic_only"
     if outcome_class in {"accepted", "success", "weak"}:
         margin = _float(row.get("minimum_margin_m", row.get("min_true_margin_m", 0.0)))
-        return "hardware" if margin > 0.25 else "thesis"
+        if _text(row.get("evidence_role")) == "mission_candidate" and _text(row.get("feedback_mode")) == "delayed_state_feedback":
+            return "hardware_candidate" if margin > 0.25 else "simulation_candidate"
+        return "simulation_candidate"
     if outcome_class in {"failed", "rejected"}:
         return "reject"
-    return "diagnostic"
+    return "diagnostic_only"
+
+
+def _role_medoids(medoids: pd.DataFrame, roles: set[str]) -> pd.DataFrame:
+    if medoids.empty or "evidence_role" not in medoids.columns:
+        return pd.DataFrame(columns=medoids.columns)
+    return medoids[medoids["evidence_role"].astype(str).isin(roles)].copy().reset_index(drop=True)
 
 
 def _cluster_prefix(key: tuple[object, ...]) -> str:

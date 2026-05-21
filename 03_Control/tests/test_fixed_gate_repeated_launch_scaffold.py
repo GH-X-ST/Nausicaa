@@ -293,6 +293,7 @@ def _rollout_row(
 ) -> dict[str, object]:
     return {
         "sample_id": sample_id,
+        "paired_sample_key": f"pair_{sample_id}",
         "primitive_id": f"primitive_{sample_id}",
         "fan_branch": fan_branch,
         "W_layer": W_layer,
@@ -300,6 +301,11 @@ def _rollout_row(
         "latency_case": "nominal_latency",
         "entry_source": "launch_gate_main",
         "outcome_class": outcome_class,
+        "controller_mode": "feedback_stabilised_primitive",
+        "feedback_mode": "instant_state_feedback",
+        "claim_status": "simulation_only",
+        "evidence_role": "partial_feedback",
+        "accepted": outcome_class == "accepted",
         "x0_w_m": 1.3,
         "y0_w_m": 2.0,
         "z0_w_m": 1.7,

@@ -36,6 +36,7 @@ def run_w2_focused_replay(
     max_cases: int = 200,
     latency_case: str = "nominal",
     seed: int = 20260521,
+    allow_diagnostic_source: bool = False,
     result_root: Path | None = None,
     overwrite: bool = False,
 ) -> dict[str, Path]:
@@ -46,6 +47,7 @@ def run_w2_focused_replay(
         max_cases=max_cases,
         latency_case=latency_case,
         seed=seed,
+        allow_diagnostic_source=allow_diagnostic_source,
         result_root=result_root,
         overwrite=overwrite,
         pass_name="w2_focused_replay",
@@ -61,6 +63,7 @@ def _run_focused_replay(
     max_cases: int,
     latency_case: str,
     seed: int,
+    allow_diagnostic_source: bool,
     result_root: Path | None,
     overwrite: bool,
     pass_name: str,
@@ -72,15 +75,20 @@ def _run_focused_replay(
     for name in ("metrics", "manifests", "reports"):
         (root / name).mkdir(parents=True, exist_ok=True)
     source_rows = pd.read_csv(source_csv)
-    selected = select_focused_replay_cases(source_rows, target_W_layer=target_W_layer, max_cases=max_cases)
+    selected = select_focused_replay_cases(
+        source_rows,
+        target_W_layer=target_W_layer,
+        max_cases=max_cases,
+        allow_diagnostic_source=allow_diagnostic_source,
+    )
     replay_rows = run_fixed_gate_primitive_rollouts(
         selected,
         FixedGatePrimitiveRolloutConfig(
             latency_case=latency_case,
             random_seed=int(seed),
-            controller_mode="open_loop_rollout",
-            feedback_mode="open_loop",
-            allow_open_loop_diagnostic=True,
+            controller_mode="open_loop_rollout" if allow_diagnostic_source else "feedback_stabilised_primitive",
+            feedback_mode="open_loop" if allow_diagnostic_source else "instant_state_feedback",
+            allow_open_loop_diagnostic=bool(allow_diagnostic_source),
         ),
     )
     summary = build_rollout_outcome_summary(replay_rows)
@@ -104,6 +112,7 @@ def _run_focused_replay(
         replay_rows=replay_rows,
         latency_case=latency_case,
         pass_name=pass_name,
+        allow_diagnostic_source=allow_diagnostic_source,
         paths=paths,
     )
     paths["manifest_json"].write_text(json.dumps(manifest, indent=2) + "\n", encoding="ascii")
@@ -121,8 +130,10 @@ def _manifest(
     replay_rows: pd.DataFrame,
     latency_case: str,
     pass_name: str,
+    allow_diagnostic_source: bool,
     paths: dict[str, Path],
 ) -> dict[str, object]:
+    mission_or_partial = _mission_or_partial_count(replay_rows)
     return {
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "run_id": int(run_id),
@@ -137,8 +148,11 @@ def _manifest(
         "latency_case": str(latency_case),
         "dense_all_state_sweep": False,
         "source_policy": "selected_W1_or_medoid_cases_only",
+        "diagnostic_sources_allowed": bool(allow_diagnostic_source),
         "mission_candidate_row_count": int(replay_rows["evidence_role"].astype(str).eq("mission_candidate").sum()) if not replay_rows.empty else 0,
-        "readiness_status": "ready" if not replay_rows.empty else "blocked_no_selected_W1_or_medoid_rows",
+        "partial_feedback_row_count": int(replay_rows["evidence_role"].astype(str).eq("partial_feedback").sum()) if not replay_rows.empty else 0,
+        "blocked_partial_row_count": int(replay_rows["evidence_role"].astype(str).eq("blocked_partial").sum()) if not replay_rows.empty else 0,
+        "readiness_status": "ready" if mission_or_partial > 0 else _blocked_status(selected, replay_rows, allow_diagnostic_source),
         "claim_status": "simulation_only",
         "claim_boundary": (
             f"{target_W_layer} focused replay consumes selected W1/medoid rows only; no real-flight transfer, "
@@ -160,7 +174,7 @@ def _report(manifest: dict[str, object]) -> str:
             f"- Replay rows: `{manifest['replay_row_count']}`",
             f"- Dense all-state sweep: `{manifest['dense_all_state_sweep']}`",
             "",
-            "Open-loop replay rows remain diagnostic unless delayed-state feedback evidence is present.",
+            "Open-loop replay rows remain diagnostic unless mission or approved partial-feedback evidence is present.",
             "No real-flight transfer, mission success, same-flight recapture, perching, all-arena validity, or hardware-ready agile claim is made.",
             "",
         ]
@@ -174,6 +188,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max-cases", type=int, default=200)
     parser.add_argument("--latency-case", choices=("none", "actuator_lag_only", "nominal", "conservative"), default="nominal")
     parser.add_argument("--seed", type=int, default=20260521)
+    parser.add_argument("--allow-diagnostic-source", action="store_true")
     parser.add_argument("--result-root", type=Path, default=None)
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
@@ -187,10 +202,29 @@ def main() -> int:
         max_cases=args.max_cases,
         latency_case=args.latency_case,
         seed=args.seed,
+        allow_diagnostic_source=args.allow_diagnostic_source,
         result_root=args.result_root,
         overwrite=args.overwrite,
     )
     return 0
+
+
+def _mission_or_partial_count(frame: pd.DataFrame) -> int:
+    if frame.empty or "evidence_role" not in frame.columns:
+        return 0
+    roles = frame["evidence_role"].astype(str).isin({"mission_candidate", "partial_feedback"})
+    accepted = frame["accepted"].astype(bool) if "accepted" in frame.columns else True
+    return int((roles & accepted).sum())
+
+
+def _blocked_status(selected: pd.DataFrame, replay_rows: pd.DataFrame, allow_diagnostic_source: bool) -> str:
+    if selected.empty:
+        return "blocked_no_selected_W1_or_medoid_rows"
+    if allow_diagnostic_source:
+        return "diagnostic_only_replay_not_mission_evidence"
+    if not replay_rows.empty and replay_rows["evidence_role"].astype(str).eq("blocked_partial").any():
+        return "blocked_feedback_replay_unavailable_for_selected_rows"
+    return "blocked_no_mission_or_partial_feedback_replay_rows"
 
 
 if __name__ == "__main__":

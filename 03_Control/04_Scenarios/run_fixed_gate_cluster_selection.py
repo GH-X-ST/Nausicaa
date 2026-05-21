@@ -47,12 +47,20 @@ def run_fixed_gate_cluster_selection(
     summary = outputs["cluster_summary"]
     package = outputs["governor_candidate_package"]
     scaling = outputs["cluster_feature_scaling"]
+    mission_medoids = outputs["mission_medoids"]
+    partial_feedback_medoids = outputs["partial_feedback_medoids"]
+    diagnostic_medoids = outputs["diagnostic_medoids"]
+    rejected_or_blocked_medoids = outputs["rejected_or_blocked_medoids"]
 
     output_paths = {
         "cluster_input_table_csv": paths["metrics"] / "cluster_input_table.csv",
         "cluster_feature_scaling_json": paths["metrics"] / "cluster_feature_scaling.json",
         "cluster_assignments_csv": paths["metrics"] / "cluster_assignments.csv",
         "cluster_medoids_csv": paths["metrics"] / "cluster_medoids.csv",
+        "mission_medoids_csv": paths["metrics"] / "mission_medoids.csv",
+        "partial_feedback_medoids_csv": paths["metrics"] / "partial_feedback_medoids.csv",
+        "diagnostic_medoids_csv": paths["metrics"] / "diagnostic_medoids.csv",
+        "rejected_or_blocked_medoids_csv": paths["metrics"] / "rejected_or_blocked_medoids.csv",
         "medoid_source_rows_csv": paths["metrics"] / "medoid_source_rows.csv",
         "cluster_summary_csv": paths["metrics"] / "cluster_summary.csv",
         "governor_candidate_package_csv": paths["metrics"] / "governor_candidate_package.csv",
@@ -64,6 +72,10 @@ def run_fixed_gate_cluster_selection(
     write_cluster_feature_scaling(output_paths["cluster_feature_scaling_json"], scaling)
     assignments.to_csv(output_paths["cluster_assignments_csv"], index=False)
     medoids.to_csv(output_paths["cluster_medoids_csv"], index=False)
+    mission_medoids.to_csv(output_paths["mission_medoids_csv"], index=False)
+    partial_feedback_medoids.to_csv(output_paths["partial_feedback_medoids_csv"], index=False)
+    diagnostic_medoids.to_csv(output_paths["diagnostic_medoids_csv"], index=False)
+    rejected_or_blocked_medoids.to_csv(output_paths["rejected_or_blocked_medoids_csv"], index=False)
     _medoid_source_rows(assignments, medoids).to_csv(output_paths["medoid_source_rows_csv"], index=False)
     summary.to_csv(output_paths["cluster_summary_csv"], index=False)
     package.to_csv(output_paths["governor_candidate_package_csv"], index=False)
@@ -108,7 +120,11 @@ def _manifest(
         "cluster_assignment_row_count": int(len(outputs["cluster_assignments"])),
         "cluster_medoid_count": int(len(outputs["cluster_medoids"])),
         "governor_candidate_package_row_count": int(len(outputs["governor_candidate_package"])),
-        "governor_candidate_package_source_policy": "mission_candidate_medoids_only",
+        "mission_medoid_count": int(len(outputs["mission_medoids"])),
+        "partial_feedback_medoid_count": int(len(outputs["partial_feedback_medoids"])),
+        "diagnostic_medoid_count": int(len(outputs["diagnostic_medoids"])),
+        "rejected_or_blocked_medoid_count": int(len(outputs["rejected_or_blocked_medoids"])),
+        "governor_candidate_package_source_policy": "mission_or_approved_partial_feedback_medoids_only",
         "diagnostic_rows_can_enter_candidate_package": False,
         "claim_status": "simulation_only",
         "claim_boundary": (
@@ -132,6 +148,9 @@ def _report(manifest: dict[str, object]) -> str:
             "",
             f"- Input rows: `{manifest['cluster_input_row_count']}`",
             f"- Medoids: `{manifest['cluster_medoid_count']}`",
+            f"- Mission medoids: `{manifest['mission_medoid_count']}`",
+            f"- Partial-feedback medoids: `{manifest['partial_feedback_medoid_count']}`",
+            f"- Diagnostic medoids: `{manifest['diagnostic_medoid_count']}`",
             f"- Governor candidate rows: `{manifest['governor_candidate_package_row_count']}`",
             "- Open-loop and command-template medoids are retained as diagnostics only and cannot enter the governor candidate package.",
             "",

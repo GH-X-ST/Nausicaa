@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from episode_schema import validate_primitive_rollout_evidence_frame
 from fixed_gate_primitive_rollout import (
@@ -51,7 +52,43 @@ def test_feedback_requested_without_delayed_path_writes_blocked_partial() -> Non
     assert "blocked_true_delayed_state_feedback_unavailable" in rows.loc[0, "failure_label"]
 
 
-def test_w0_w1_archive_writes_diagnostic_rows_and_blocked_gate(tmp_path: Path) -> None:
+def test_instant_feedback_uses_partial_feedback_not_mission_candidate() -> None:
+    candidate = _candidate_row("sample_feedback", "single_fan_branch", "W0")
+    candidate["primitive_family"] = "recovery"
+
+    rows = run_fixed_gate_primitive_rollouts(
+        pd.DataFrame([candidate]),
+        FixedGatePrimitiveRolloutConfig(
+            dt_s=0.02,
+            horizon_s=0.04,
+            latency_case="none",
+            controller_mode="feedback_stabilised_primitive",
+            feedback_mode="instant_state_feedback",
+        ),
+    )
+
+    validate_primitive_rollout_evidence_frame(rows)
+    assert rows.loc[0, "controller_mode"] == "feedback_stabilised_primitive"
+    assert rows.loc[0, "feedback_mode"] == "instant_state_feedback"
+    assert rows.loc[0, "evidence_role"] == "partial_feedback"
+    assert rows.loc[0, "claim_status"] == "simulation_only"
+    assert "primitive_entry" in rows.loc[0, "entry_check_status"]
+    assert rows.loc[0, "state_feedback_delay_applied"] is False or not bool(rows.loc[0, "state_feedback_delay_applied"])
+
+
+def test_schema_rejects_open_loop_partial_feedback_relabel() -> None:
+    rows = run_fixed_gate_primitive_rollouts(
+        pd.DataFrame([_candidate_row("sample_bad", "single_fan_branch", "W1")]),
+        FixedGatePrimitiveRolloutConfig(dt_s=0.02, horizon_s=0.04, latency_case="none"),
+    )
+    bad = rows.copy()
+    bad.loc[0, "evidence_role"] = "partial_feedback"
+
+    with pytest.raises(ValueError, match="open-loop"):
+        validate_primitive_rollout_evidence_frame(bad)
+
+
+def test_w0_w1_archive_writes_split_evidence_tables_and_move_on_statuses(tmp_path: Path) -> None:
     paths = run_fixed_gate_w0_w1_archive(
         run_id=301,
         rows_per_branch=2,
@@ -66,10 +103,16 @@ def test_w0_w1_archive_writes_diagnostic_rows_and_blocked_gate(tmp_path: Path) -
 
     assert {"single_fan_branch", "four_fan_branch"} == set(rows["fan_branch"])
     assert {"W0", "W1"} == set(rows["W_layer"])
-    assert set(rows["evidence_role"]) == {"ablation_diagnostic"}
+    assert {"ablation_diagnostic", "partial_feedback", "blocked_partial"}.issubset(set(rows["evidence_role"]))
     assert manifest["open_loop_rows_promoted_to_mission_candidate"] is False
-    assert manifest["archive_readiness_status"] == "blocked_no_mission_candidate_rows_for_both_branches"
+    assert manifest["open_loop_rows_promoted_to_partial_feedback"] is False
+    assert manifest["code_ready_status"] == "ready"
+    assert manifest["archive_prepared_status"] == "ready"
+    assert manifest["mission_evidence_ready_status"] == "blocked_no_mission_or_partial_feedback_rows_for_both_branches"
     assert manifest["W1_independent_of_W0_success"] is True
+    assert paths["diagnostic_rows_csv"].exists()
+    assert paths["partial_feedback_rows_csv"].exists()
+    assert paths["mission_candidate_rows_csv"].exists()
 
 
 def test_clustering_keeps_diagnostic_medoids_out_of_governor_package() -> None:
