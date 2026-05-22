@@ -243,21 +243,22 @@ def build_fixed_gate_w0_w1_candidate_rows(
     """Build a paired W0/W1 candidate index without filtering W1 by W0 success."""
 
     validate_entry_sources(samples)
-    rows: list[dict[str, object]] = []
-    for _, sample in samples.iterrows():
-        for W_layer in ("W0", "W1"):
-            for primitive_family in primitive_families:
-                rows.append(
-                    {
-                        **sample.to_dict(),
-                        "W_layer": W_layer,
-                        "test_environment_mode": _environment_mode(str(sample["fan_branch"]), W_layer),
-                        "primitive_family": str(primitive_family),
-                        "candidate_id": f"{sample['sample_id']}__{W_layer}__{primitive_family}",
-                        "w1_scheduled_independent_of_w0_success": True,
-                    }
-                )
-    frame = pd.DataFrame(rows)
+    base = samples.reset_index(drop=True).drop(columns=["W_layer"], errors="ignore")
+    layer_frame = pd.DataFrame({"W_layer": ["W0", "W1"]})
+    primitive_frame = pd.DataFrame({"primitive_family": [str(item) for item in primitive_families]})
+    frame = base.merge(layer_frame, how="cross").merge(primitive_frame, how="cross")
+    frame["test_environment_mode"] = [
+        _environment_mode(str(branch), str(layer))
+        for branch, layer in zip(frame["fan_branch"].to_numpy(), frame["W_layer"].to_numpy())
+    ]
+    frame["candidate_id"] = (
+        frame["sample_id"].astype(str)
+        + "__"
+        + frame["W_layer"].astype(str)
+        + "__"
+        + frame["primitive_family"].astype(str)
+    )
+    frame["w1_scheduled_independent_of_w0_success"] = True
     validate_w1_independent_of_w0(frame)
     return frame
 

@@ -19,6 +19,7 @@ for path in (PRIMITIVES_DIR, SCENARIOS_DIR):
 
 from fixed_gate_code_path_map import active_code_path_text, code_path_map_frame
 from fixed_gate_table_sources import read_fixed_gate_table_source
+from dense_archive_table_io import filesystem_path
 from primitive_envelope_clustering import (
     build_primitive_envelope_clusters,
     write_cluster_feature_scaling,
@@ -37,7 +38,7 @@ def run_fixed_gate_cluster_selection(
     result_root: Path | None = None,
     overwrite: bool = False,
 ) -> dict[str, Path]:
-    root = (RESULT_ROOT if result_root is None else Path(result_root)) / f"{int(run_id):03d}"
+    root = (RESULT_ROOT if result_root is None else Path(result_root)) / f"{int(run_id):03d}" / PASS_NAME
     paths = _prepare_tree(root, overwrite=overwrite)
     primitive_rows = read_fixed_gate_table_source(input_csv, table_name="primitive_rollout_rows")
     outputs = build_primitive_envelope_clusters(primitive_rows)
@@ -54,6 +55,7 @@ def run_fixed_gate_cluster_selection(
     rejected_or_blocked_medoids = outputs["rejected_or_blocked_medoids"]
 
     output_paths = {
+        "root": paths["root"],
         "cluster_input_table_csv": paths["metrics"] / "cluster_input_table.csv",
         "cluster_feature_scaling_json": paths["metrics"] / "cluster_feature_scaling.json",
         "cluster_assignments_csv": paths["metrics"] / "cluster_assignments.csv",
@@ -88,7 +90,8 @@ def run_fixed_gate_cluster_selection(
 
 
 def _prepare_tree(root: Path, *, overwrite: bool) -> dict[str, Path]:
-    if root.exists() and any(root.iterdir()) and not overwrite:
+    root_fs = filesystem_path(root)
+    if root_fs.exists() and any(root_fs.iterdir()) and not overwrite:
         raise RuntimeError(f"result tree already exists: {root}")
     paths = {
         "root": root,
@@ -97,7 +100,7 @@ def _prepare_tree(root: Path, *, overwrite: bool) -> dict[str, Path]:
         "reports": root / "reports",
     }
     for path in paths.values():
-        path.mkdir(parents=True, exist_ok=True)
+        filesystem_path(path).mkdir(parents=True, exist_ok=True)
     return paths
 
 

@@ -290,9 +290,11 @@ def _limit_candidate_rows(candidates: pd.DataFrame, *, rows_per_branch: int, bra
         group_keys = ["paired_sample_key", "primitive_family"]
         ordered_groups = list(branch_rows.groupby(group_keys, sort=True, dropna=False))
         rows: list[pd.DataFrame] = []
+        selected_count = 0
         for _, group in ordered_groups:
             rows.append(group)
-            if sum(len(item) for item in rows) >= int(rows_per_branch):
+            selected_count += int(len(group))
+            if selected_count >= int(rows_per_branch):
                 break
         selected.append(pd.concat(rows, ignore_index=True))
     return pd.concat(selected, ignore_index=True) if selected else pd.DataFrame(columns=candidates.columns)

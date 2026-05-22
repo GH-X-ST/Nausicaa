@@ -1,0 +1,125 @@
+{
+  "created_at": "2026-05-22T16:04:40",
+  "purpose": "fixed_gate_chunked_runtime_build_note",
+  "execution_guidance": "Nausicaa_CODEX_v11_4_execute_official_chunked_W0_W1_archive_guidance.md",
+  "execution_context": {
+    "run_scope": "official_archive_run",
+    "execution_command": "python 03_Control/04_Scenarios/run_fixed_gate_w0_w1_archive_chunked.py --run-id 006 --rows-per-branch 120000 --seed 20260522 --fan-branch all --w-layers W0,W1 --latency-case nominal --controller-mode both --candidate-chunk-size 2500 --workers 8 --max-workers 8 --memory-safety-margin-gb 8 --storage-format csv_gz --compression-level 1 --resume",
+    "head_before_run": "f9e5ae2",
+    "git_status_short_before_run": [
+      " M 03_Control/03_Primitives/fixed_gate_sampling.py",
+      " M 03_Control/04_Scenarios/run_fixed_gate_cluster_selection.py",
+      " M 03_Control/04_Scenarios/run_fixed_gate_w0_w1_archive.py",
+      " M 03_Control/04_Scenarios/run_fixed_gate_w0_w1_archive_chunked.py",
+      " M 03_Control/tests/test_fixed_gate_chunked_archive.py",
+      "?? 03_Control/05_Results/11_fixed_gate_repeated_launch/006/"
+    ],
+    "official_run_root_existed_before_run": true,
+    "official_manifest_status_before_run": {
+      "exists": true,
+      "status": "official_archive_run",
+      "archive_prepared": "ready",
+      "mission_evidence_ready": "ready",
+      "chunk_count": 96,
+      "completed_chunk_count": 96,
+      "path": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\11_fixed_gate_repeated_launch\\006\\003_fixed_gate_w0_w1_proof_archive\\manifests\\fixed_gate_w0_w1_chunked_archive_manifest.json"
+    },
+    "preflight_manifest_status": {
+      "exists": true,
+      "status": "present",
+      "archive_prepared": "ready",
+      "mission_evidence_ready": "ready",
+      "chunk_count": 4,
+      "completed_chunk_count": 4,
+      "path": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\11_fixed_gate_repeated_launch_chunked_preflight\\999\\003_fixed_gate_w0_w1_proof_archive\\manifests\\fixed_gate_w0_w1_chunked_archive_manifest.json"
+    },
+    "git_fetch_all": {
+      "attempted": true,
+      "succeeded": false,
+      "return_code": 255,
+      "summary": "error: cannot open '.git/FETCH_HEAD': Permission denied"
+    },
+    "preflight_root_ignore_status": {
+      "ignored": true,
+      "rule": ".gitignore:34:03_Control/05_Results/11_fixed_gate_repeated_launch_chunked_preflight/\t\"C:\\\\Users\\\\GH-X-ST\\\\OneDrive - Imperial College London\\\\Year 4\\\\Final Year Project\\\\01 - Github\\\\Nausicaa\\\\03_Control\\\\05_Results\\\\11_fixed_gate_repeated_launch_chunked_preflight\\\\999\\\\003_fixed_gate_w0_w1_proof_archive\\\\manifests\\\\fixed_gate_w0_w1_chunked_archive_manifest.json\"",
+      "error": ""
+    },
+    "official_compact_manifest_ignore_status": {
+      "ignored": false,
+      "rule": "",
+      "error": ""
+    },
+    "official_tables_ignore_status": {
+      "ignored": true,
+      "rule": ".gitignore:35:03_Control/05_Results/**/tables/\t\"C:\\\\Users\\\\GH-X-ST\\\\OneDrive - Imperial College London\\\\Year 4\\\\Final Year Project\\\\01 - Github\\\\Nausicaa\\\\03_Control\\\\05_Results\\\\11_fixed_gate_repeated_launch\\\\006\\\\003_fixed_gate_w0_w1_proof_archive\\\\tables\\\\primitive_rollout_rows\"",
+      "error": ""
+    },
+    "result_root": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\11_fixed_gate_repeated_launch\\006\\003_fixed_gate_w0_w1_proof_archive"
+  },
+  "head_before_run": "f9e5ae2",
+  "git_status_short_before_run": [
+    " M 03_Control/03_Primitives/fixed_gate_sampling.py",
+    " M 03_Control/04_Scenarios/run_fixed_gate_cluster_selection.py",
+    " M 03_Control/04_Scenarios/run_fixed_gate_w0_w1_archive.py",
+    " M 03_Control/04_Scenarios/run_fixed_gate_w0_w1_archive_chunked.py",
+    " M 03_Control/tests/test_fixed_gate_chunked_archive.py",
+    "?? 03_Control/05_Results/11_fixed_gate_repeated_launch/006/"
+  ],
+  "official_run_root_existed_before_run": true,
+  "preflight_manifest_status": {
+    "exists": true,
+    "status": "present",
+    "archive_prepared": "ready",
+    "mission_evidence_ready": "ready",
+    "chunk_count": 4,
+    "completed_chunk_count": 4,
+    "path": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\11_fixed_gate_repeated_launch_chunked_preflight\\999\\003_fixed_gate_w0_w1_proof_archive\\manifests\\fixed_gate_w0_w1_chunked_archive_manifest.json"
+  },
+  "git_fetch_all": {
+    "attempted": true,
+    "succeeded": false,
+    "return_code": 255,
+    "summary": "error: cannot open '.git/FETCH_HEAD': Permission denied"
+  },
+  "config": {
+    "run_id": 6,
+    "rows_per_branch": 120000,
+    "seed": 20260522,
+    "fan_branch": "all",
+    "w_layers": "W0,W1",
+    "latency_case": "nominal",
+    "controller_mode": "both",
+    "candidate_chunk_size": 2500,
+    "workers": "8",
+    "max_workers": 8,
+    "memory_safety_margin_gb": 8.0,
+    "storage_format": "csv_gz",
+    "compression_level": 1,
+    "reachable_source_csv": "",
+    "result_root": "",
+    "resume": true,
+    "repair_incomplete": false,
+    "dry_run_schedule": false,
+    "stop_after_chunks": null,
+    "continue_on_chunk_failure": false,
+    "overwrite": false
+  },
+  "worker_count_decision": {
+    "requested": "8",
+    "selected_worker_count": 8,
+    "max_workers": 8,
+    "os_cpu_count": 20,
+    "memory_total_gb": 31.668304443359375,
+    "memory_safety_margin_gb": 8.0,
+    "estimated_worker_memory_gb": 2.0,
+    "fallback_reason": "none"
+  },
+  "dense_runner_preflight_checklist": {
+    "chunked_runtime_reused": "dense_archive_runtime.worker_count_decision plus fixed-gate chunk scheduler",
+    "compressed_table_writer_reused": "dense_archive_table_io.write_table_partition/write_table_manifest",
+    "worker_count_decision_recorded": "manifests/fixed_gate_w0_w1_chunked_progress.json and final manifest",
+    "resume_repair_implemented": "chunk_manifests/chunk_*.json with --resume and --repair-incomplete",
+    "partition_checksums_written": "manifests/table_manifest.json and per-chunk manifests",
+    "why_new_runner_not_old_wrapper": "the legacy fixed-gate runner is smoke-scale only and writes full in-memory tables"
+  }
+}

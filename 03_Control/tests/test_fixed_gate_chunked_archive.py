@@ -8,6 +8,7 @@ import pytest
 
 from dense_archive_table_io import load_table_manifest
 from fixed_gate_table_sources import read_fixed_gate_table_source
+from run_fixed_gate_cluster_selection import run_fixed_gate_cluster_selection
 from run_fixed_gate_w0_w1_archive import run_fixed_gate_w0_w1_archive
 from run_fixed_gate_w0_w1_archive_chunked import run_fixed_gate_w0_w1_archive_chunked
 
@@ -47,6 +48,10 @@ def test_chunked_archive_writes_compressed_partitions_and_no_full_rollout_csv(tm
     rollout_rows = read_fixed_gate_table_source(root, table_name="primitive_rollout_rows")
 
     assert manifest["worker_count_decision"]["selected_worker_count"] == 1
+    assert manifest["run_scope"] == "archive_run"
+    assert manifest["official_run_006_launched_by_this_pass"] is False
+    assert manifest["execution_context"]["git_fetch_all"]["attempted"] is False
+    assert paths["execution_note_json"].exists()
     assert manifest["full_rollout_metrics_csv_written"] is False
     assert not (root / "metrics" / "fixed_gate_w0_w1_primitive_rollout_rows.csv").exists()
     assert {"candidate_index", "primitive_rollout_rows", "partial_feedback_rows", "chunk_branch_coverage"}.issubset(table_names)
@@ -54,6 +59,10 @@ def test_chunked_archive_writes_compressed_partitions_and_no_full_rollout_csv(tm
     assert {"single_fan_branch", "four_fan_branch"} == set(rollout_rows["fan_branch"])
     assert {"W0", "W1"} == set(rollout_rows["W_layer"])
     assert "archive_chunk_index" in rollout_rows.columns
+    note = json.loads(paths["execution_note_json"].read_text(encoding="ascii"))
+    assert note["candidate_row_count"] == manifest["candidate_row_count"]
+    assert note["rollout_row_count"] == manifest["rollout_row_count"]
+    assert "accepted_partial_feedback_counts_by_branch_layer_primitive" in note
 
 
 def test_chunked_archive_resume_skips_and_repair_reruns_corrupt_chunk(tmp_path: Path) -> None:
@@ -134,3 +143,27 @@ def test_chunked_archive_overwrite_is_preflight_only(tmp_path: Path) -> None:
             storage_format="csv_gz",
             overwrite=True,
         )
+
+
+def test_cluster_selection_uses_named_subfolder_for_run_root(tmp_path: Path) -> None:
+    archive_paths = run_fixed_gate_w0_w1_archive_chunked(
+        run_id=424,
+        rows_per_branch=2,
+        latency_case="none",
+        candidate_chunk_size=4,
+        workers=1,
+        max_workers=1,
+        result_root=tmp_path,
+        storage_format="csv_gz",
+        overwrite=True,
+    )
+
+    cluster_paths = run_fixed_gate_cluster_selection(
+        input_csv=archive_paths["root"],
+        run_id=424,
+        result_root=tmp_path,
+        overwrite=True,
+    )
+
+    assert cluster_paths["root"] == tmp_path / "424" / "fixed_gate_primitive_envelope_cluster_selection"
+    assert cluster_paths["manifest_json"].exists()

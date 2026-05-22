@@ -38,3 +38,7 @@ docs/latency_test_workflow_pseudocode_appendix.tex
 03_Control/05_Results/**/*.tmp
 03_Control/05_Results/**/chunk_manifests/
 03_Control/05_Results/**/chunk_logs/
+
+# Large fixed-gate clustering expansion tables are regenerated from archive partitions.
+03_Control/05_Results/**/fixed_gate_primitive_envelope_cluster_selection/metrics/cluster_input_table.csv
+03_Control/05_Results/**/fixed_gate_primitive_envelope_cluster_selection/metrics/cluster_assignments.csv

@@ -73,13 +73,9 @@ from run_fixed_gate_w0_w1_archive import (  # noqa: E402
 
 ARCHIVE_PASS_DIR = "003_fixed_gate_w0_w1_proof_archive"
 CHUNKED_PASS_NAME = "fixed_gate_w0_w1_chunked_primitive_rollout_archive"
-PRE_EDIT_STATUS_FROM_REQUEST = (
-    " M docs/housekeeping_and_naming_rules.md",
-    "?? docs/Glider_Control_Project_Plan_Run_Time_Requirement.md",
-)
-PRE_EDIT_STATUS_OBSERVED_BEFORE_CODE_EDITS = (
-    " M docs/housekeeping_and_naming_rules.md",
-)
+V11_4_EXECUTION_GUIDANCE = "Nausicaa_CODEX_v11_4_execute_official_chunked_W0_W1_archive_guidance.md"
+OFFICIAL_PRIMARY_RUN_ID = 6
+PREFLIGHT_RUN_ID = 999
 
 
 @dataclass(frozen=True)
@@ -165,15 +161,28 @@ def run_fixed_gate_w0_w1_archive_chunked(
     )
     _validate_config(config)
     root = _archive_root(config.run_id, config.result_root)
+    execution_context = _execution_context(config, root)
     paths = _prepare_tree(root, config)
-    samples, candidates, schedule = build_fixed_gate_chunk_schedule(config)
     worker_decision = worker_count_decision(
         config.workers,
         memory_safety_margin_gb=float(config.memory_safety_margin_gb),
         estimated_worker_memory_gb=DEFAULT_ESTIMATED_WORKER_MEMORY_GB,
         max_workers=config.max_workers,
     )
-    _write_build_note(paths, config, worker_decision)
+    _write_build_note(paths, config, worker_decision, execution_context)
+    _write_progress(
+        paths=paths,
+        config=config,
+        worker_decision=worker_decision,
+        schedule=[],
+        pending=[],
+        skipped=[],
+        failed=[],
+        corrupt=[],
+        status="building_schedule",
+    )
+
+    samples, candidates, schedule = build_fixed_gate_chunk_schedule(config)
 
     pending, skipped, corrupt = _prepare_pending_chunks(root, schedule, config)
     if config.stop_after_chunks is not None:
@@ -224,6 +233,7 @@ def run_fixed_gate_w0_w1_archive_chunked(
         skipped=skipped,
         failed=failed,
         corrupt=corrupt,
+        execution_context=execution_context,
     )
     return _output_paths(paths)
 
@@ -575,6 +585,7 @@ def _write_final_outputs(
     paths: dict[str, Path],
     config: FixedGateChunkedRunConfig,
     worker_decision: WorkerCountDecision,
+    execution_context: dict[str, object],
     samples: pd.DataFrame,
     candidates: pd.DataFrame,
     schedule: list[FixedGateChunkSpec],
@@ -602,6 +613,8 @@ def _write_final_outputs(
     branch_coverage = _read_partition_table(root, "chunk_branch_coverage")
     outcome_summary = _aggregate_outcome_summary(_read_partition_table(root, "rollout_outcome_summary"))
     pairing_summary = _pairing_summary(_read_partition_table(root, "pairing_audit"))
+    move_on_gates.update(_pairing_move_on_fields(pairing_summary))
+    accepted_partial_counts = _aggregate_accepted_partial_counts(branch_coverage)
     code_path_map = code_path_map_frame()
 
     branch_coverage.to_csv(filesystem_path(paths["metrics"] / "fixed_gate_w0_w1_branch_coverage_summary.csv"), index=False)
@@ -617,6 +630,7 @@ def _write_final_outputs(
     manifest = _final_manifest(
         config=config,
         worker_decision=worker_decision,
+        execution_context=execution_context,
         samples=samples,
         candidates=candidates,
         schedule=schedule,
@@ -625,6 +639,7 @@ def _write_final_outputs(
         failed=failed,
         corrupt=corrupt,
         move_on_gates=move_on_gates,
+        accepted_partial_counts=accepted_partial_counts,
         paths=paths,
     )
     _write_text(
@@ -635,6 +650,7 @@ def _write_final_outputs(
         paths["reports"] / "fixed_gate_w0_w1_chunked_archive_report.md",
         _final_report(manifest),
     )
+    _write_execution_note(paths, manifest)
 
 
 def _complete_partitions(root: Path) -> list[TablePartition]:
@@ -689,6 +705,8 @@ def _chunk_count_summary(rollout_rows: pd.DataFrame, move_on_gates: dict[str, ob
         else {}
     )
     return {
+        "candidate_row_count": int(len(rollout_rows.drop_duplicates(subset=["sample_id", "W_layer", "primitive_family"], keep="first"))) if not rollout_rows.empty else 0,
+        "rollout_row_count": int(len(rollout_rows)),
         "w0_row_count_by_branch": move_on_gates["w0_row_count_by_branch"],
         "w1_row_count_by_branch": move_on_gates["w1_row_count_by_branch"],
         "w1_measured_updraft_row_count_by_branch": move_on_gates["w1_measured_updraft_row_count_by_branch"],
@@ -733,6 +751,19 @@ def _aggregate_move_on_gates(chunk_summaries: list[dict[str, object]]) -> dict[s
     }
 
 
+def _pairing_move_on_fields(pairing_summary: pd.DataFrame) -> dict[str, object]:
+    if pairing_summary.empty:
+        return {
+            "w1_scheduled_independently_of_w0_success": False,
+            "pairing_group_count": 0,
+        }
+    row = pairing_summary.iloc[0]
+    return {
+        "w1_scheduled_independently_of_w0_success": bool(row.get("w1_independent", False)),
+        "pairing_group_count": int(row.get("pairing_group_count", 0)),
+    }
+
+
 def _sum_branch_dict(chunk_summaries: list[dict[str, object]], field: str) -> dict[str, int]:
     totals: dict[str, int] = {}
     for summary in chunk_summaries:
@@ -757,6 +788,41 @@ def _aggregate_outcome_summary(frame: pd.DataFrame) -> pd.DataFrame:
         .sum()
         .reset_index()
     )
+
+
+def _aggregate_accepted_partial_counts(branch_coverage: pd.DataFrame) -> list[dict[str, object]]:
+    if branch_coverage.empty:
+        return []
+    required = {"summary_section", "fan_branch", "W_layer", "primitive_family", "row_count"}
+    if not required.issubset(branch_coverage.columns):
+        return []
+    rows = branch_coverage[
+        branch_coverage["summary_section"].astype(str).eq("accepted_partial_feedback_by_branch_layer_primitive")
+    ].copy()
+    if rows.empty:
+        return []
+    grouped = (
+        rows.groupby(["fan_branch", "W_layer", "primitive_family"], dropna=False)["row_count"]
+        .sum()
+        .reset_index()
+    )
+    return [
+        {
+            "fan_branch": str(record["fan_branch"]),
+            "W_layer": str(record["W_layer"]),
+            "primitive_family": str(record["primitive_family"]),
+            "accepted_partial_feedback_row_count": int(record["row_count"]),
+        }
+        for record in grouped.to_dict(orient="records")
+    ]
+
+
+def _branch_coverage_conclusion(move_on_gates: dict[str, object]) -> str:
+    if str(move_on_gates.get("archive_prepared")) != "ready":
+        return "blocked_archive_not_prepared"
+    if str(move_on_gates.get("mission_evidence_ready")) != "ready":
+        return "archive_prepared_but_mission_evidence_blocked"
+    return "ready_for_downstream_non_diagnostic_evidence"
 
 
 def _pairing_summary(pairing_audit: pd.DataFrame) -> pd.DataFrame:
@@ -875,21 +941,160 @@ def _write_progress(
     )
 
 
+def _execution_context(config: FixedGateChunkedRunConfig, root: Path) -> dict[str, object]:
+    run_scope = _run_scope(config, root)
+    official_manifest = (
+        RESULT_ROOT
+        / f"{OFFICIAL_PRIMARY_RUN_ID:03d}"
+        / ARCHIVE_PASS_DIR
+        / "manifests"
+        / "fixed_gate_w0_w1_chunked_archive_manifest.json"
+    )
+    preflight_manifest = (
+        CONTROL_DIR
+        / "05_Results"
+        / "11_fixed_gate_repeated_launch_chunked_preflight"
+        / f"{PREFLIGHT_RUN_ID:03d}"
+        / ARCHIVE_PASS_DIR
+        / "manifests"
+        / "fixed_gate_w0_w1_chunked_archive_manifest.json"
+    )
+    official_root = RESULT_ROOT / f"{OFFICIAL_PRIMARY_RUN_ID:03d}"
+    return {
+        "run_scope": run_scope,
+        "execution_command": _current_command(),
+        "head_before_run": _git_output(["git", "rev-parse", "--short", "HEAD"]),
+        "git_status_short_before_run": _git_status_short(),
+        "official_run_root_existed_before_run": filesystem_path(official_root).exists(),
+        "official_manifest_status_before_run": _manifest_status(official_manifest),
+        "preflight_manifest_status": _manifest_status(preflight_manifest),
+        "git_fetch_all": _git_fetch_all_status(run_scope),
+        "preflight_root_ignore_status": _git_ignore_status(preflight_manifest),
+        "official_compact_manifest_ignore_status": _git_ignore_status(official_manifest),
+        "official_tables_ignore_status": _git_ignore_status(
+            RESULT_ROOT / f"{OFFICIAL_PRIMARY_RUN_ID:03d}" / ARCHIVE_PASS_DIR / "tables" / "primitive_rollout_rows"
+        ),
+        "result_root": str(root),
+    }
+
+
+def _run_scope(config: FixedGateChunkedRunConfig, root: Path) -> str:
+    if _is_scratch_root(root) or int(config.run_id) == PREFLIGHT_RUN_ID:
+        return "preflight_run"
+    if config.result_root is None and int(config.run_id) == OFFICIAL_PRIMARY_RUN_ID:
+        return "official_archive_run"
+    if config.result_root is None and int(config.rows_per_branch) >= 60_000:
+        return "fallback_archive_run"
+    return "archive_run"
+
+
+def _current_command() -> str:
+    if Path(sys.argv[0]).name:
+        return " ".join(str(item) for item in ["python", *sys.argv])
+    return "python_api_invocation"
+
+
+def _git_output(args: list[str]) -> str:
+    try:
+        completed = subprocess.run(
+            args,
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"unavailable:{type(exc).__name__}:{exc}"
+    return completed.stdout.strip() if completed.returncode == 0 else completed.stderr.strip()
+
+
+def _git_fetch_all_status(run_scope: str) -> dict[str, object]:
+    if run_scope != "official_archive_run":
+        return {
+            "attempted": False,
+            "succeeded": False,
+            "return_code": None,
+            "summary": "not_attempted_for_non_official_run",
+        }
+    try:
+        completed = subprocess.run(
+            ["git", "fetch", "--all"],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "attempted": True,
+            "succeeded": False,
+            "return_code": None,
+            "summary": f"{type(exc).__name__}:{exc}",
+        }
+    text = (completed.stdout + "\n" + completed.stderr).strip()
+    return {
+        "attempted": True,
+        "succeeded": completed.returncode == 0,
+        "return_code": int(completed.returncode),
+        "summary": text[-1000:] if text else "",
+    }
+
+
+def _git_ignore_status(path: Path) -> dict[str, object]:
+    try:
+        completed = subprocess.run(
+            ["git", "check-ignore", "-v", str(path)],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"ignored": False, "rule": "", "error": f"{type(exc).__name__}:{exc}"}
+    return {
+        "ignored": completed.returncode == 0,
+        "rule": completed.stdout.strip(),
+        "error": "" if completed.returncode in {0, 1} else completed.stderr.strip(),
+    }
+
+
+def _manifest_status(path: Path) -> dict[str, object]:
+    if not filesystem_path(path).exists():
+        return {"exists": False, "status": "absent", "path": str(path)}
+    try:
+        payload = json.loads(filesystem_path(path).read_text(encoding="ascii"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"exists": True, "status": f"unreadable:{type(exc).__name__}", "path": str(path)}
+    return {
+        "exists": True,
+        "status": str(payload.get("status", payload.get("run_scope", "present"))),
+        "archive_prepared": str(payload.get("move_on_gates", {}).get("archive_prepared", "")),
+        "mission_evidence_ready": str(payload.get("move_on_gates", {}).get("mission_evidence_ready", "")),
+        "chunk_count": payload.get("chunk_count"),
+        "completed_chunk_count": payload.get("completed_chunk_count"),
+        "path": str(path),
+    }
+
+
 def _write_build_note(
     paths: dict[str, Path],
     config: FixedGateChunkedRunConfig,
     worker_decision: WorkerCountDecision,
+    execution_context: dict[str, object],
 ) -> None:
     payload = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "purpose": "fixed_gate_chunked_runtime_build_note",
-        "implementation_pre_edit_status_from_request": list(PRE_EDIT_STATUS_FROM_REQUEST),
-        "implementation_pre_edit_status_observed_before_code_edits": list(PRE_EDIT_STATUS_OBSERVED_BEFORE_CODE_EDITS),
-        "runtime_requirement_doc_note": (
-            "The refinement request named docs/Glider_Control_Project_Plan_Run_Time_Requirement.md as untracked; "
-            "at implementation start git status --short did not report it in this checkout."
-        ),
-        "git_status_short_before_run": _git_status_short(),
+        "execution_guidance": V11_4_EXECUTION_GUIDANCE,
+        "execution_context": execution_context,
+        "head_before_run": execution_context["head_before_run"],
+        "git_status_short_before_run": execution_context["git_status_short_before_run"],
+        "official_run_root_existed_before_run": execution_context["official_run_root_existed_before_run"],
+        "preflight_manifest_status": execution_context["preflight_manifest_status"],
+        "git_fetch_all": execution_context["git_fetch_all"],
         "config": _config_payload(config),
         "worker_count_decision": worker_decision.as_manifest_fields(),
         "dense_runner_preflight_checklist": {
@@ -909,6 +1114,7 @@ def _final_manifest(
     *,
     config: FixedGateChunkedRunConfig,
     worker_decision: WorkerCountDecision,
+    execution_context: dict[str, object],
     samples: pd.DataFrame,
     candidates: pd.DataFrame,
     schedule: list[FixedGateChunkSpec],
@@ -917,18 +1123,27 @@ def _final_manifest(
     failed: list[dict[str, object]],
     corrupt: list[FixedGateChunkSpec],
     move_on_gates: dict[str, object],
+    accepted_partial_counts: list[dict[str, object]],
     paths: dict[str, Path],
 ) -> dict[str, object]:
+    run_scope = str(execution_context["run_scope"])
     payload = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "run_id": int(config.run_id),
         "campaign": CAMPAIGN,
         "pass_name": CHUNKED_PASS_NAME,
+        "execution_guidance": V11_4_EXECUTION_GUIDANCE,
+        "run_scope": run_scope,
+        "official_archive_run": run_scope == "official_archive_run",
+        "preflight_run": run_scope == "preflight_run",
+        "fallback_archive_run": run_scope == "fallback_archive_run",
         "active_mission_path": active_code_path_text(),
         "simple_runner_dense_guard_active": True,
-        "official_run_006_launched_by_this_pass": False,
+        "official_run_006_launched_by_this_pass": run_scope == "official_archive_run" and int(config.run_id) == OFFICIAL_PRIMARY_RUN_ID,
+        "execution_context": execution_context,
         "sample_row_count": int(len(samples)),
         "candidate_row_count": int(len(candidates)),
+        "rollout_row_count": _sum_scalar(_complete_chunk_summaries(paths["root"]), "rollout_row_count"),
         "chunk_count": int(len(schedule)),
         "completed_chunk_count": int(len(completed)),
         "skipped_chunk_count": int(len(skipped)),
@@ -943,6 +1158,9 @@ def _final_manifest(
         "worker_count_decision": worker_decision.as_manifest_fields(),
         "gpu_acceleration_assessment": GPU_ACCELERATION_ASSESSMENT,
         "move_on_gates": move_on_gates,
+        "accepted_partial_feedback_counts_by_branch_layer_primitive": accepted_partial_counts,
+        "branch_coverage_conclusion": _branch_coverage_conclusion(move_on_gates),
+        "downstream_execution_status": "not_run_by_archive_runner",
         "full_rollout_metrics_csv_written": False,
         "claim_status": "simulation_only",
         "claim_boundary": (
@@ -970,18 +1188,95 @@ def _final_report(manifest: dict[str, object]) -> str:
         [
             "# Fixed-Gate W0/W1 Chunked Archive",
             "",
+            f"- Run scope: `{manifest['run_scope']}`",
             f"- Official run 006 launched by this pass: `{manifest['official_run_006_launched_by_this_pass']}`",
             f"- Candidate rows: `{manifest['candidate_row_count']}`",
+            f"- Rollout rows: `{manifest['rollout_row_count']}`",
             f"- Chunk count: `{manifest['chunk_count']}`",
             f"- Completed chunks: `{manifest['completed_chunk_count']}`",
+            f"- Failed chunks: `{manifest['failed_chunk_count']}`",
             f"- Selected workers: `{manifest['worker_count_decision']['selected_worker_count']}`",
             f"- Storage format: `{manifest['storage_format']}`",
             f"- Full rollout metrics CSV written: `{manifest['full_rollout_metrics_csv_written']}`",
             f"- Archive-prepared status: `{gates['archive_prepared']}`",
             f"- Mission-evidence-ready status: `{gates['mission_evidence_ready']}`",
+            f"- Branch coverage conclusion: `{manifest['branch_coverage_conclusion']}`",
             "",
             "Use the reported commands in the manifest for the official 120k run, repair retry, or 60k fallback.",
             "No real-flight transfer, mission success, same-flight recapture, perching, all-arena validity, hardware-ready agile-turn, or full delayed-state-feedback claim is made.",
+            "",
+        ]
+    )
+
+
+def _write_execution_note(paths: dict[str, Path], manifest: dict[str, object]) -> None:
+    note = _execution_note_payload(manifest)
+    _write_text(
+        paths["manifests"] / "fixed_gate_w0_w1_v11_4_execution_note.json",
+        json.dumps(note, indent=2) + "\n",
+    )
+    _write_text(
+        paths["reports"] / "fixed_gate_w0_w1_v11_4_execution_note.md",
+        _execution_note_report(note),
+    )
+
+
+def _execution_note_payload(manifest: dict[str, object]) -> dict[str, object]:
+    gates = manifest["move_on_gates"]
+    return {
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "execution_guidance": V11_4_EXECUTION_GUIDANCE,
+        "command_executed": manifest["execution_context"]["execution_command"],
+        "run_id": manifest["run_id"],
+        "run_scope": manifest["run_scope"],
+        "worker_count_selected": manifest["worker_count_decision"]["selected_worker_count"],
+        "candidate_chunk_size": manifest["candidate_chunk_size"],
+        "storage_format": manifest["storage_format"],
+        "compression_level": manifest["compression_level"],
+        "completed_chunk_count": manifest["completed_chunk_count"],
+        "skipped_chunk_count": manifest["skipped_chunk_count"],
+        "failed_chunk_count": manifest["failed_chunk_count"],
+        "corrupt_chunk_count": manifest["corrupt_chunk_count"],
+        "candidate_row_count": manifest["candidate_row_count"],
+        "rollout_row_count": manifest["rollout_row_count"],
+        "w0_row_count_by_branch": gates["w0_row_count_by_branch"],
+        "w1_row_count_by_branch": gates["w1_row_count_by_branch"],
+        "w1_measured_updraft_row_count_by_branch": gates["w1_measured_updraft_row_count_by_branch"],
+        "w1_scheduled_independently_of_w0_success": gates.get("w1_scheduled_independently_of_w0_success", False),
+        "pairing_group_count": gates.get("pairing_group_count", 0),
+        "accepted_partial_feedback_counts_by_branch_layer_primitive": manifest[
+            "accepted_partial_feedback_counts_by_branch_layer_primitive"
+        ],
+        "branch_coverage_conclusion": manifest["branch_coverage_conclusion"],
+        "downstream_execution_status": manifest["downstream_execution_status"],
+        "git_fetch_all": manifest["execution_context"]["git_fetch_all"],
+        "next_commands": manifest["reported_commands"],
+        "claim_status": manifest["claim_status"],
+        "claim_boundary": manifest["claim_boundary"],
+    }
+
+
+def _execution_note_report(note: dict[str, object]) -> str:
+    return "\n".join(
+        [
+            "# v11.4 Fixed-Gate W0/W1 Execution Note",
+            "",
+            f"- Run ID: `{note['run_id']}`",
+            f"- Run scope: `{note['run_scope']}`",
+            f"- Worker count selected: `{note['worker_count_selected']}`",
+            f"- Chunk size: `{note['candidate_chunk_size']}`",
+            f"- Storage/compression: `{note['storage_format']}`, level `{note['compression_level']}`",
+            f"- Chunks completed/skipped/failed/corrupt: `{note['completed_chunk_count']}` / `{note['skipped_chunk_count']}` / `{note['failed_chunk_count']}` / `{note['corrupt_chunk_count']}`",
+            f"- Candidate rows: `{note['candidate_row_count']}`",
+            f"- Rollout rows: `{note['rollout_row_count']}`",
+            f"- W0 rows by branch: `{note['w0_row_count_by_branch']}`",
+            f"- W1 rows by branch: `{note['w1_row_count_by_branch']}`",
+            f"- W1 measured rows by branch: `{note['w1_measured_updraft_row_count_by_branch']}`",
+            f"- W1 scheduled independently of W0 success: `{note['w1_scheduled_independently_of_w0_success']}`",
+            f"- Branch coverage conclusion: `{note['branch_coverage_conclusion']}`",
+            f"- Downstream status: `{note['downstream_execution_status']}`",
+            "",
+            "No real-flight transfer, mission success, same-flight recapture, perching, all-arena validity, hardware-ready agile-turn, true delayed-state-feedback, full W2/W3 robustness, or real repeated-launch validation claim is made.",
             "",
         ]
     )
@@ -994,6 +1289,8 @@ def _output_paths(paths: dict[str, Path]) -> dict[str, Path]:
         "build_note_json": paths["manifests"] / "fixed_gate_chunked_build_note.json",
         "progress_manifest_json": paths["manifests"] / "fixed_gate_w0_w1_chunked_progress.json",
         "manifest_json": paths["manifests"] / "fixed_gate_w0_w1_chunked_archive_manifest.json",
+        "execution_note_json": paths["manifests"] / "fixed_gate_w0_w1_v11_4_execution_note.json",
+        "execution_note_md": paths["reports"] / "fixed_gate_w0_w1_v11_4_execution_note.md",
         "report_md": paths["reports"] / "fixed_gate_w0_w1_chunked_archive_report.md",
         "branch_coverage_summary_csv": paths["metrics"] / "fixed_gate_w0_w1_branch_coverage_summary.csv",
         "runtime_summary_csv": paths["metrics"] / "runtime_summary.csv",
@@ -1040,20 +1337,20 @@ def _write_text(path: Path, text: str) -> None:
 
 def _reported_commands() -> dict[str, str]:
     return {
-        "official_120k_not_run": (
+        "official_120k_command": (
             "python 03_Control/04_Scenarios/run_fixed_gate_w0_w1_archive_chunked.py --run-id 006 "
             "--rows-per-branch 120000 --seed 20260522 --fan-branch all --w-layers W0,W1 "
             "--latency-case nominal --controller-mode both --candidate-chunk-size 2500 --workers 8 "
             "--max-workers 8 --memory-safety-margin-gb 8 --storage-format csv_gz --compression-level 1 --resume"
         ),
-        "repair_retry_not_run": (
+        "repair_retry_command": (
             "python 03_Control/04_Scenarios/run_fixed_gate_w0_w1_archive_chunked.py --run-id 006 "
             "--rows-per-branch 120000 --seed 20260522 --fan-branch all --w-layers W0,W1 "
             "--latency-case nominal --controller-mode both --candidate-chunk-size 1000 --workers 6 "
             "--max-workers 8 --memory-safety-margin-gb 8 --storage-format csv_gz --compression-level 1 "
             "--resume --repair-incomplete"
         ),
-        "fallback_60k_not_run": (
+        "fallback_60k_command": (
             "python 03_Control/04_Scenarios/run_fixed_gate_w0_w1_archive_chunked.py --run-id 007 "
             "--rows-per-branch 60000 --seed 20260522 --fan-branch all --w-layers W0,W1 "
             "--latency-case nominal --controller-mode both --candidate-chunk-size 2500 --workers 8 "

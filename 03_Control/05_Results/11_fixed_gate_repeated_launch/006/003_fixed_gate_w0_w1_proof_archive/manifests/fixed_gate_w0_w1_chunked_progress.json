@@ -1,0 +1,601 @@
+{
+  "created_at": "2026-05-22T16:05:21",
+  "status": "complete",
+  "run_id": 6,
+  "campaign": "11_fixed_gate_repeated_launch",
+  "pass_name": "fixed_gate_w0_w1_chunked_primitive_rollout_archive",
+  "chunk_count": 96,
+  "pending_chunk_count": 0,
+  "skipped_chunk_count": 96,
+  "failed_chunk_count": 0,
+  "corrupt_chunk_count": 0,
+  "worker_count_decision": {
+    "requested": "8",
+    "selected_worker_count": 8,
+    "max_workers": 8,
+    "os_cpu_count": 20,
+    "memory_total_gb": 31.668304443359375,
+    "memory_safety_margin_gb": 8.0,
+    "estimated_worker_memory_gb": 2.0,
+    "fallback_reason": "none"
+  },
+  "chunks": [
+    {
+      "chunk_index": 0,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 1,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 2,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 3,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 4,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 5,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 6,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 7,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 8,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 9,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 10,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 11,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 12,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 13,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 14,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 15,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 16,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 17,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 18,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 19,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 20,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 21,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 22,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 23,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 24,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 25,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 26,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 27,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 28,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 29,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 30,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 31,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 32,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 33,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 34,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 35,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 36,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 37,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 38,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 39,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 40,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 41,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 42,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 43,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 44,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 45,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 46,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 47,
+      "fan_branch": "single_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 48,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 49,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 50,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 51,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 52,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 53,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 54,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 55,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 56,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 57,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 58,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 59,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 60,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 61,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 62,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 63,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 64,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 65,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 66,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 67,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 68,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 69,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 70,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 71,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 72,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 73,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 74,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 75,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 76,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 77,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 78,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 79,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 80,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 81,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 82,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 83,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 84,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 85,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 86,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 87,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 88,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 89,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 90,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 91,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 92,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 93,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 94,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    },
+    {
+      "chunk_index": 95,
+      "fan_branch": "four_fan_branch",
+      "candidate_row_count": 2500,
+      "status": "complete"
+    }
+  ],
+  "failures": []
+}

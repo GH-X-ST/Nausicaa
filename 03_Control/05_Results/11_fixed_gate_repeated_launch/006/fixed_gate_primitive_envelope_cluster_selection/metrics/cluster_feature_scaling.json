@@ -1,0 +1,77 @@
+{
+  "x0_w_m": {
+    "median": 1.31818782076,
+    "iqr": 0.12846615053,
+    "epsilon": 1e-09
+  },
+  "y0_w_m": {
+    "median": 2.00031825438,
+    "iqr": 0.25718451761999983,
+    "epsilon": 1e-09
+  },
+  "z0_w_m": {
+    "median": 1.702428039585,
+    "iqr": 0.25123767173,
+    "epsilon": 1e-09
+  },
+  "phi0_rad": {
+    "median": -0.002769841999965,
+    "iqr": 0.795536656721,
+    "epsilon": 1e-09
+  },
+  "theta0_rad": {
+    "median": 0.00248737939809,
+    "iqr": 0.781200820949,
+    "epsilon": 1e-09
+  },
+  "psi0_rad": {
+    "median": 0.00539945797936,
+    "iqr": 0.604543003881,
+    "epsilon": 1e-09
+  },
+  "speed0_m_s": {
+    "median": 5.51507967673,
+    "iqr": 2.49951136567,
+    "epsilon": 1e-09
+  },
+  "minimum_margin_m": {
+    "median": 0.08009943067,
+    "iqr": 0.1529594696499998,
+    "epsilon": 1e-09
+  },
+  "w_wing_mean_m_s": {
+    "median": 0.0,
+    "iqr": 0.09557852357613139,
+    "epsilon": 1e-09
+  },
+  "delta_w_lr_m_s": {
+    "median": 0.0,
+    "iqr": 0.0002473714134686,
+    "epsilon": 1e-09
+  },
+  "spanwise_gradient_m_s_m": {
+    "median": 0.0,
+    "iqr": 0.000545100007649525,
+    "epsilon": 1e-09
+  },
+  "dwell_time_s": {
+    "median": 0.0,
+    "iqr": 0.0,
+    "epsilon": 1e-09
+  },
+  "energy_residual_m": {
+    "median": 0.0,
+    "iqr": 0.2072525103859899,
+    "epsilon": 1e-09
+  },
+  "exit_speed_m_s": {
+    "median": 5.60131713346,
+    "iqr": 2.7878822145688478,
+    "epsilon": 1e-09
+  },
+  "control_saturation": {
+    "median": 0.0,
+    "iqr": 0.0,
+    "epsilon": 1e-09
+  }
+}

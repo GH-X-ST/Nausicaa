@@ -1,0 +1,12 @@
+code_path,implementation_status,fixed_gate_role,action,default_claim_use,note
+"state_contract.py, command_contract.py",existing,canonical contracts,reuse_directly,all fixed-gate evidence,Preserve state order and command order.
+dense_archive_table_io.py and chunked archive runners,existing,storage/runtime backend,reuse_directly,simulation-only until matched with real data,"Keep compressed partitions, checksums, and branch-local manifests."
+wing_wind_descriptors.py,existing,wing-scale wind evidence,reuse_directly,W1/W2/W3 simulation evidence,"Keep centre, wing mean, left/right, and spanwise descriptors."
+latency.py,existing,timing semantics,reuse_directly,latency-labelled simulation evidence,"State delay, command delay, and actuator lag remain distinct."
+primitive_interface.py and rollout.py,existing,primitive execution backend,wrap_for_fixed_gate_rows,simulation-only primitive rollout evidence,Use fixed-gate/reachable entry states instead of broad all-arena starts.
+paired W0/W1 planning and archive runners,existing,W0/W1 fixed-gate archive backend,adapt_with_fixed_gate_inputs,simulation-only W0/W1 evidence,W1 remains independent of W0 success and branches stay separate.
+primitive_library_governor.py,existing,online accept/reject authority,reuse_and_extend_rejection_labels,candidate safety evidence only,Clustering proposes packages; the governor still filters execution.
+dense_start_state_sampling.py broad start classes,existing,old dense-sweep source,demote_to_diagnostic,diagnostic only,Do not feed final fixed-gate transfer claims by default.
+all-yaw and all-arena sweeps,existing/implicit,old exploration source,demote_to_diagnostic,diagnostic only,Allowed only as labelled appendix/boundary evidence.
+same-flight recapture logic,old objective,not active mission path,demote_to_deprecated,not claim-supporting,Repeated launch replaces same-flight recapture as the active mission.
+agile high-angle expansion paths,existing,boundary evidence,demote_to_boundary_only,diagnostic boundary evidence,Not required for final mission unless explicitly requested later.
