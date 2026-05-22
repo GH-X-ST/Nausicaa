@@ -21,6 +21,7 @@ from fixed_gate_sampling import (  # noqa: E402
     FixedGateSamplingConfig,
     build_reachable_downstream_states,
 )
+from fixed_gate_table_sources import read_fixed_gate_table_source  # noqa: E402
 
 
 CAMPAIGN = "11_fixed_gate_repeated_launch"
@@ -44,7 +45,7 @@ def run_reachable_state_extraction(
     for name in ("metrics", "manifests", "reports"):
         (root / name).mkdir(parents=True, exist_ok=True)
 
-    rollouts = pd.read_csv(rollout_csv)
+    rollouts = read_fixed_gate_table_source(rollout_csv, table_name="primitive_rollout_rows")
     eligible = _eligible_source_rows(
         rollouts,
         allow_partial_feedback_source=allow_partial_feedback_source,

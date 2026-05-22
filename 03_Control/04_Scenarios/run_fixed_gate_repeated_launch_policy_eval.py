@@ -21,6 +21,7 @@ from episode_logging import write_episode_log  # noqa: E402
 from fixed_gate_code_path_map import active_code_path_text  # noqa: E402
 from fixed_gate_contract import FIXED_LAUNCH_GATE  # noqa: E402
 from fixed_gate_policies import policy_table  # noqa: E402
+from fixed_gate_table_sources import read_fixed_gate_table_source  # noqa: E402
 from repeated_launch_episode import RepeatedLaunchEpisodeConfig, run_repeated_launch_episode  # noqa: E402
 
 
@@ -42,7 +43,7 @@ def run_fixed_gate_repeated_launch_policy_eval(
     if root.exists() and any(root.iterdir()) and not overwrite:
         raise RuntimeError(f"result tree already exists: {root}")
     (root / "metrics").mkdir(parents=True, exist_ok=True)
-    candidates = pd.read_csv(governor_candidate_package_csv)
+    candidates = read_fixed_gate_table_source(governor_candidate_package_csv, table_name="governor_candidate_package")
     eligible_candidates = _eligible_package_candidates(candidates, allow_diagnostic_source=allow_diagnostic_source)
     policies = policy_table()
     episode_frames: list[pd.DataFrame] = []

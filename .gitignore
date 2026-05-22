@@ -31,6 +31,7 @@ docs/latency_test_workflow_pseudocode_appendix.tex
 03_Control/05_Results/metrics/*_seed42*.csv
 
 # Large dense-archive generated tables stay local.
+03_Control/05_Results/11_fixed_gate_repeated_launch_chunked_preflight/
 03_Control/05_Results/**/tables/
 03_Control/05_Results/**/*.parquet
 03_Control/05_Results/**/*.csv.gz

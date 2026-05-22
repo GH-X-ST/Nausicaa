@@ -56,6 +56,13 @@ CAMPAIGN = "11_fixed_gate_repeated_launch"
 PASS_NAME = "fixed_gate_w0_w1_primitive_rollout_archive"
 RESULT_ROOT = CONTROL_DIR / "05_Results" / CAMPAIGN
 BRANCHES = ("single_fan_branch", "four_fan_branch")
+SMOKE_SCALE_ROWS_PER_BRANCH_LIMIT = 200
+DENSE_ROLLOUT_ROW_THRESHOLD = 10_000
+DENSE_CANDIDATE_ROW_THRESHOLD = 5_000
+DENSE_RUNTIME_MIN_THRESHOLD = 30.0
+DENSE_TABLE_SIZE_MB_THRESHOLD = 250.0
+SMOKE_PURPOSES = {"smoke", "readiness", "smoke_readiness"}
+CHUNKED_RUNNER_NAME = "run_fixed_gate_w0_w1_archive_chunked.py"
 
 
 # =============================================================================
@@ -73,12 +80,25 @@ def run_fixed_gate_w0_w1_archive(
     reachable_source_csv: Path | None = None,
     result_root: Path | None = None,
     storage_format: str = "auto",
+    run_purpose: str = "smoke",
+    expected_runtime_min: float | None = None,
+    expected_uncompressed_table_mb: float | None = None,
     overwrite: bool = False,
 ) -> dict[str, Path]:
-    root = _archive_root(run_id, result_root)
-    paths = _prepare_tree(root, overwrite=overwrite)
     selected_branches = _branches(fan_branch)
     selected_layers = _layers(w_layers)
+    scale_classification = classify_fixed_gate_w0_w1_run_scale(
+        rows_per_branch=int(rows_per_branch),
+        branch_count=len(selected_branches),
+        controller_mode=str(controller_mode),
+        run_purpose=str(run_purpose),
+        expected_runtime_min=expected_runtime_min,
+        expected_uncompressed_table_mb=expected_uncompressed_table_mb,
+    )
+    _assert_simple_runner_smoke_scale(scale_classification)
+
+    root = _archive_root(run_id, result_root)
+    paths = _prepare_tree(root, overwrite=overwrite)
     reachable_sources = _read_optional_reachable_sources(reachable_source_csv)
     samples = _sample_archive_states(
         rows_per_branch=int(rows_per_branch),
@@ -129,6 +149,8 @@ def run_fixed_gate_w0_w1_archive(
         selected_layers=selected_layers,
         latency_case=latency_case,
         controller_mode=controller_mode,
+        run_purpose=run_purpose,
+        scale_classification=scale_classification,
         samples=samples,
         candidates=candidates,
         rollout_rows=rollout_rows,
@@ -158,7 +180,70 @@ def run_fixed_gate_w0_w1_archive_scaffold(
         rows_per_branch=sample_count_per_branch,
         result_root=result_root,
         storage_format=storage_format,
+        run_purpose="smoke",
         overwrite=overwrite,
+    )
+
+
+def classify_fixed_gate_w0_w1_run_scale(
+    *,
+    rows_per_branch: int,
+    branch_count: int,
+    controller_mode: str,
+    run_purpose: str = "smoke",
+    expected_runtime_min: float | None = None,
+    expected_uncompressed_table_mb: float | None = None,
+) -> dict[str, object]:
+    """Classify whether the simple fixed-gate runner may execute.
+
+    The legacy runner is retained for smoke/readiness checks only. Dense,
+    archive, or thesis-scale work must use the chunked runner so it cannot
+    silently accumulate full rollout tables in memory.
+    """
+
+    branch_count = max(1, int(branch_count))
+    planned_candidate_rows = int(rows_per_branch) * branch_count
+    rollout_multiplier = 2 if str(controller_mode) == "both" else 1
+    planned_rollout_rows = planned_candidate_rows * rollout_multiplier
+    reasons: list[str] = []
+    if int(rows_per_branch) > SMOKE_SCALE_ROWS_PER_BRANCH_LIMIT:
+        reasons.append(f"rows_per_branch>{SMOKE_SCALE_ROWS_PER_BRANCH_LIMIT}")
+    if planned_rollout_rows >= DENSE_ROLLOUT_ROW_THRESHOLD:
+        reasons.append(f"planned_rollout_rows>={DENSE_ROLLOUT_ROW_THRESHOLD}")
+    if planned_candidate_rows >= DENSE_CANDIDATE_ROW_THRESHOLD:
+        reasons.append(f"planned_candidate_rows>={DENSE_CANDIDATE_ROW_THRESHOLD}")
+    if expected_runtime_min is not None and float(expected_runtime_min) > DENSE_RUNTIME_MIN_THRESHOLD:
+        reasons.append(f"expected_runtime_min>{DENSE_RUNTIME_MIN_THRESHOLD:g}")
+    if expected_uncompressed_table_mb is not None and float(expected_uncompressed_table_mb) > DENSE_TABLE_SIZE_MB_THRESHOLD:
+        reasons.append(f"expected_uncompressed_table_mb>{DENSE_TABLE_SIZE_MB_THRESHOLD:g}")
+    if str(run_purpose).strip().lower() not in SMOKE_PURPOSES:
+        reasons.append(f"run_purpose={run_purpose}")
+    return {
+        "runner": "simple_smoke_runner",
+        "run_purpose": str(run_purpose),
+        "rows_per_branch": int(rows_per_branch),
+        "branch_count": int(branch_count),
+        "controller_mode": str(controller_mode),
+        "planned_candidate_rows": int(planned_candidate_rows),
+        "planned_rollout_rows": int(planned_rollout_rows),
+        "expected_runtime_min": None if expected_runtime_min is None else float(expected_runtime_min),
+        "expected_uncompressed_table_mb": (
+            None if expected_uncompressed_table_mb is None else float(expected_uncompressed_table_mb)
+        ),
+        "dense_threshold_reasons": reasons,
+        "scale_class": "smoke_scale" if not reasons else "dense_archive_or_thesis_scale",
+        "allowed_in_simple_runner": not reasons,
+        "handoff_runner": CHUNKED_RUNNER_NAME,
+    }
+
+
+def _assert_simple_runner_smoke_scale(scale_classification: dict[str, object]) -> None:
+    if bool(scale_classification["allowed_in_simple_runner"]):
+        return
+    reasons = ", ".join(str(reason) for reason in scale_classification["dense_threshold_reasons"])
+    raise RuntimeError(
+        "run_fixed_gate_w0_w1_archive.py is smoke-scale only and refused this dense/archive/thesis-scale request "
+        f"({reasons}). Use {CHUNKED_RUNNER_NAME} for chunked, resumable, compressed, branch-local execution."
     )
 
 
@@ -575,6 +660,8 @@ def _manifest(
     selected_layers: tuple[str, ...],
     latency_case: str,
     controller_mode: str,
+    run_purpose: str,
+    scale_classification: dict[str, object],
     samples: pd.DataFrame,
     candidates: pd.DataFrame,
     rollout_rows: pd.DataFrame,
@@ -597,6 +684,8 @@ def _manifest(
         "w_layers": list(selected_layers),
         "latency_case": str(latency_case),
         "controller_mode": str(controller_mode),
+        "run_purpose": str(run_purpose),
+        "scale_classification": scale_classification,
         "reachable_source_csv": "" if reachable_source_csv is None else str(reachable_source_csv),
         "sample_row_count": int(len(samples)),
         "candidate_row_count": int(len(candidates)),
@@ -681,6 +770,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--reachable-source-csv", type=Path, default=None)
     parser.add_argument("--result-root", type=Path, default=None)
     parser.add_argument("--storage-format", default="auto")
+    parser.add_argument("--run-purpose", default="smoke")
+    parser.add_argument("--expected-runtime-min", type=float, default=None)
+    parser.add_argument("--expected-uncompressed-table-mb", type=float, default=None)
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
@@ -699,6 +791,9 @@ def main() -> int:
         reachable_source_csv=args.reachable_source_csv,
         result_root=args.result_root,
         storage_format=args.storage_format,
+        run_purpose=args.run_purpose,
+        expected_runtime_min=args.expected_runtime_min,
+        expected_uncompressed_table_mb=args.expected_uncompressed_table_mb,
         overwrite=args.overwrite,
     )
     return 0

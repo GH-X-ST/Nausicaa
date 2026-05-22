@@ -18,6 +18,7 @@ for path in (PRIMITIVES_DIR, SCENARIOS_DIR):
         sys.path.insert(0, str(path))
 
 from fixed_gate_code_path_map import active_code_path_text, code_path_map_frame
+from fixed_gate_table_sources import read_fixed_gate_table_source
 from primitive_envelope_clustering import (
     build_primitive_envelope_clusters,
     write_cluster_feature_scaling,
@@ -38,7 +39,7 @@ def run_fixed_gate_cluster_selection(
 ) -> dict[str, Path]:
     root = (RESULT_ROOT if result_root is None else Path(result_root)) / f"{int(run_id):03d}"
     paths = _prepare_tree(root, overwrite=overwrite)
-    primitive_rows = pd.read_csv(input_csv)
+    primitive_rows = read_fixed_gate_table_source(input_csv, table_name="primitive_rollout_rows")
     outputs = build_primitive_envelope_clusters(primitive_rows)
 
     cluster_input = outputs["cluster_input_table"]

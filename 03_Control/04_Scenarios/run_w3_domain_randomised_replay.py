@@ -23,6 +23,7 @@ from fixed_gate_primitive_rollout import (  # noqa: E402
     run_fixed_gate_primitive_rollouts,
 )
 from fixed_gate_sampling import select_focused_replay_cases  # noqa: E402
+from fixed_gate_table_sources import read_fixed_gate_table_source  # noqa: E402
 
 
 CAMPAIGN = "11_fixed_gate_repeated_launch"
@@ -45,7 +46,7 @@ def run_w3_domain_randomised_replay(
         raise RuntimeError(f"result tree already exists: {root}")
     for name in ("metrics", "manifests", "reports"):
         (root / name).mkdir(parents=True, exist_ok=True)
-    source_rows = pd.read_csv(source_csv)
+    source_rows = read_fixed_gate_table_source(source_csv, table_name="primitive_rollout_rows")
     selected = select_focused_replay_cases(
         source_rows,
         target_W_layer="W3",
