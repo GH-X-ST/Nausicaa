@@ -1,0 +1,30 @@
+{
+  "created_at": "2026-05-22T01:08:33",
+  "run_id": 3,
+  "campaign": "11_fixed_gate_repeated_launch",
+  "pass_name": "w2_focused_replay",
+  "active_mission_path": "fixed launch gate -> primitive rollout archive over launch-gate and reachable downstream states -> W0/W1 fixed-gate archive -> W2/W3 focused replay -> primitive-envelope clustering -> governor candidate package -> repeated-launch episode simulation -> real-flight ingest and matched replay",
+  "source_csv": "03_Control\\05_Results\\11_fixed_gate_repeated_launch\\002\\metrics\\medoid_source_rows.csv",
+  "target_W_layer": "W2",
+  "source_row_count": 520,
+  "selected_row_count": 10,
+  "replay_row_count": 10,
+  "latency_case": "nominal",
+  "dense_all_state_sweep": false,
+  "source_policy": "selected_W1_or_medoid_cases_only",
+  "diagnostic_sources_allowed": false,
+  "mission_candidate_row_count": 0,
+  "partial_feedback_row_count": 10,
+  "blocked_partial_row_count": 0,
+  "readiness_status": "blocked_no_mission_or_partial_feedback_replay_rows",
+  "claim_status": "simulation_only",
+  "claim_boundary": "W2 focused replay consumes selected W1/medoid rows only; no real-flight transfer, mission success, same-flight recapture, perching, all-arena validity, or hardware-ready agile claim is made.",
+  "output_files": {
+    "root": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\11_fixed_gate_repeated_launch\\003\\w2_focused_replay",
+    "selected_cases_csv": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\11_fixed_gate_repeated_launch\\003\\w2_focused_replay\\metrics\\w2_selected_source_cases.csv",
+    "replay_rows_csv": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\11_fixed_gate_repeated_launch\\003\\w2_focused_replay\\metrics\\w2_focused_replay_rows.csv",
+    "summary_csv": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\11_fixed_gate_repeated_launch\\003\\w2_focused_replay\\metrics\\w2_pass_fail_summary.csv",
+    "manifest_json": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\11_fixed_gate_repeated_launch\\003\\w2_focused_replay\\manifests\\w2_focused_replay_manifest.json",
+    "report_md": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\11_fixed_gate_repeated_launch\\003\\w2_focused_replay\\reports\\w2_focused_replay_report.md"
+  }
+}

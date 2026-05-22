@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import fixed_gate_primitive_rollout as rollout_backend
 from episode_schema import validate_primitive_rollout_evidence_frame
 from fixed_gate_primitive_rollout import (
     FixedGatePrimitiveRolloutConfig,
@@ -33,6 +34,10 @@ def test_open_loop_rollout_rows_are_diagnostic_and_not_accepted() -> None:
     assert set(rows["feedback_mode"]) == {"open_loop"}
     assert set(rows["evidence_role"]) == {"ablation_diagnostic"}
     assert set(rows["claim_status"]) == {"simulation_only"}
+    assert set(rows["wind_mode"]) == {"panel"}
+    assert set(rows["updraft_model_id"]) == {"single_gaussian_var"}
+    assert set(rows["wind_binding_status"]) == {"measured_updraft_bound"}
+    assert not rows["wind_descriptor_model_source"].astype(str).str.contains("dry_air").any()
     assert not rows["accepted"].astype(bool).any()
 
 
@@ -76,6 +81,59 @@ def test_instant_feedback_uses_partial_feedback_not_mission_candidate() -> None:
     assert rows.loc[0, "state_feedback_delay_applied"] is False or not bool(rows.loc[0, "state_feedback_delay_applied"])
 
 
+def test_w1_instant_feedback_uses_measured_wind_and_partial_feedback() -> None:
+    candidate = _candidate_row("sample_w1_feedback", "four_fan_branch", "W1")
+    candidate["primitive_family"] = "recovery"
+
+    rows = run_fixed_gate_primitive_rollouts(
+        pd.DataFrame([candidate]),
+        FixedGatePrimitiveRolloutConfig(
+            dt_s=0.02,
+            horizon_s=0.04,
+            latency_case="none",
+            controller_mode="feedback_stabilised_primitive",
+            feedback_mode="instant_state_feedback",
+        ),
+    )
+
+    validate_primitive_rollout_evidence_frame(rows)
+    assert rows.loc[0, "controller_mode"] == "feedback_stabilised_primitive"
+    assert rows.loc[0, "feedback_mode"] == "instant_state_feedback"
+    assert rows.loc[0, "evidence_role"] == "partial_feedback"
+    assert rows.loc[0, "wind_mode"] == "panel"
+    assert rows.loc[0, "updraft_model_id"] == "four_gaussian_var"
+    assert rows.loc[0, "wind_binding_status"] == "measured_updraft_bound"
+    assert rows.loc[0, "wind_descriptor_status"] == "wind_model_evaluated"
+    assert "dry_air" not in str(rows.loc[0, "wind_descriptor_model_source"])
+    assert rows.loc[0, "state_feedback_delay_applied"] is False or not bool(rows.loc[0, "state_feedback_delay_applied"])
+
+
+def test_missing_w1_updraft_model_blocks_without_dry_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail_load(_: str) -> object:
+        raise FileNotFoundError("missing measured workbook")
+
+    monkeypatch.setattr(rollout_backend, "load_updraft_model", fail_load)
+    candidate = _candidate_row("sample_missing_wind", "single_fan_branch", "W1")
+    candidate["primitive_family"] = "recovery"
+
+    rows = run_fixed_gate_primitive_rollouts(
+        pd.DataFrame([candidate]),
+        FixedGatePrimitiveRolloutConfig(
+            dt_s=0.02,
+            horizon_s=0.04,
+            latency_case="none",
+            controller_mode="feedback_stabilised_primitive",
+            feedback_mode="instant_state_feedback",
+        ),
+    )
+
+    assert rows.loc[0, "evidence_role"] == "blocked_partial"
+    assert rows.loc[0, "wind_mode"] == "none"
+    assert str(rows.loc[0, "wind_binding_status"]).startswith("blocked_updraft_model_unavailable")
+    assert str(rows.loc[0, "wind_descriptor_status"]).startswith("blocked_updraft_model_unavailable")
+    assert "dry_air" not in str(rows.loc[0, "wind_descriptor_model_source"])
+
+
 def test_schema_rejects_open_loop_partial_feedback_relabel() -> None:
     rows = run_fixed_gate_primitive_rollouts(
         pd.DataFrame([_candidate_row("sample_bad", "single_fan_branch", "W1")]),
@@ -108,6 +166,10 @@ def test_w0_w1_archive_writes_split_evidence_tables_and_move_on_statuses(tmp_pat
     assert manifest["open_loop_rows_promoted_to_partial_feedback"] is False
     assert manifest["code_ready_status"] == "ready"
     assert manifest["archive_prepared_status"] == "ready"
+    assert manifest["w1_measured_updraft_row_count"] > 0
+    assert set(manifest["w1_measured_updraft_row_count_by_branch"]) == {"single_fan_branch", "four_fan_branch"}
+    assert "accepted_w0_partial_feedback_row_count" in manifest
+    assert "accepted_w1_partial_feedback_row_count" in manifest
     assert manifest["mission_evidence_ready_status"] == "blocked_no_mission_or_partial_feedback_rows_for_both_branches"
     assert manifest["W1_independent_of_W0_success"] is True
     assert paths["diagnostic_rows_csv"].exists()

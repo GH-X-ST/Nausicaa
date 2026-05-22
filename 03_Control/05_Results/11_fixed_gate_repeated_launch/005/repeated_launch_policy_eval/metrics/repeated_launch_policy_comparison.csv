@@ -1,0 +1,5 @@
+policy_id,episode_count,mean_energy_residual_m,mean_lift_dwell_time_s,governor_accept_count,governor_reject_count
+episodic_memory_policy,2,0.0,0.0,0,2
+no_memory_baseline,2,0.0,0.0,0,2
+oracle_simulation_upper_bound_optional,2,0.0,0.0,0,2
+static_measured_map_baseline,2,0.0,0.0,0,2
