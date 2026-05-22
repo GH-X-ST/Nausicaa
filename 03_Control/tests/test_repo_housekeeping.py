@@ -45,6 +45,8 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "03_Control/03_Primitives/wing_wind_descriptors.py",
     "03_Control/03_Primitives/prim_cat.py",
     "03_Control/03_Primitives/prim_roll.py",
+    "03_Control/03_Primitives/prim_model.py",
+    "03_Control/03_Primitives/prim_select.py",
     "03_Control/03_Primitives/dense_archive_runtime.py",
     "03_Control/03_Primitives/dense_archive_table_io.py",
     "03_Control/03_Primitives/dense_archive_chunking.py",
@@ -53,6 +55,7 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "03_Control/04_Scenarios/scenario_contract.py",
     "03_Control/04_Scenarios/updraft_models.py",
     "03_Control/04_Scenarios/env_ctx.py",
+    "03_Control/04_Scenarios/env_surrogate.py",
     "03_Control/04_Scenarios/run_ctx_archive.py",
 }
 ALLOWLISTED_TESTS = {
@@ -83,8 +86,12 @@ ALLOWLISTED_TESTS = {
     "03_Control/tests/test_updraft_randomisation.py",
     "03_Control/tests/test_wing_wind_descriptors.py",
     "03_Control/tests/test_env_ctx.py",
+    "03_Control/tests/test_surrogate_ladder.py",
     "03_Control/tests/test_prim_cat.py",
     "03_Control/tests/test_prim_roll.py",
+    "03_Control/tests/test_prim_roll_model_backed.py",
+    "03_Control/tests/test_prim_model.py",
+    "03_Control/tests/test_prim_select.py",
     "03_Control/tests/test_ctx_archive_smoke.py",
 }
 ALLOWLISTED_DATA = {

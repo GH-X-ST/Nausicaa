@@ -12,6 +12,7 @@ from env_ctx import (
     context_feature_vector,
     environment_context_row,
 )
+from env_surrogate import resolve_surrogate_binding
 from state_contract import STATE_INDEX, STATE_SIZE
 from updraft_models import (
     SINGLE_FAN_CENTER_XY,
@@ -60,12 +61,15 @@ def _state() -> np.ndarray:
 
 
 def test_w0_dry_air_context_has_zero_wind_and_safety_margins() -> None:
+    metadata = EnvironmentMetadata(environment_id="W0_dry", fan_count=0)
+    binding = resolve_surrogate_binding("W0", metadata)
     context = build_environment_context(
         _state(),
         wind_field=None,
-        metadata=EnvironmentMetadata(environment_id="W0_dry", fan_count=0),
+        metadata=metadata,
         latency_case="none",
         actuator_case="nominal",
+        surrogate_binding=binding,
     )
     row = environment_context_row(context)
 
@@ -73,6 +77,9 @@ def test_w0_dry_air_context_has_zero_wind_and_safety_margins() -> None:
     assert context.w_cg_m_s == 0.0
     assert context.w_wing_mean_m_s == 0.0
     assert context.fan_count == 0
+    assert context.W_layer == "W0"
+    assert context.wind_mode == "none"
+    assert context.surrogate_binding_status == "ready"
     assert context.wall_margin_m > 0.0
     assert context.floor_margin_m > 0.0
     assert context.ceiling_margin_m > 0.0
@@ -80,27 +87,57 @@ def test_w0_dry_air_context_has_zero_wind_and_safety_margins() -> None:
 
 
 def test_w1_measured_updraft_context_uses_same_interface() -> None:
-    wind = load_updraft_model("single_gaussian_var")
+    metadata = EnvironmentMetadata(
+        environment_id="W1_measured",
+        fan_count=1,
+        fan_positions_m=(SINGLE_FAN_CENTER_XY,),
+        fan_power_scales=(1.0,),
+        updraft_model_id="single_gaussian_var",
+    )
+    binding = resolve_surrogate_binding("W1", metadata)
+    wind = load_updraft_model(binding.updraft_model_id)
     context = build_environment_context(
         _state(),
         wind_field=wind,
-        metadata=EnvironmentMetadata(
-            environment_id="W1_measured",
-            fan_count=1,
-            fan_positions_m=(SINGLE_FAN_CENTER_XY,),
-            fan_power_scales=(1.0,),
-            updraft_model_id=wind.name,
-            model_source=wind.source,
-        ),
+        metadata=metadata,
         latency_case="nominal",
         actuator_case="nominal",
+        surrogate_binding=binding,
     )
 
     assert context.environment_id == "W1_measured"
     assert context.fan_positions_m
     assert context.updraft_model_id == "single_gaussian_var"
+    assert context.updraft_model_source.endswith("single_var_params.xlsx")
+    assert context.surrogate_family == "gaussian_plume"
     assert len(context_feature_vector(context)) == 13
     assert np.all(np.isfinite(context_feature_vector(context)))
+
+
+def test_w2_context_keeps_annular_gp_as_metadata_not_online_branch() -> None:
+    metadata = EnvironmentMetadata(
+        environment_id="W2_single",
+        fan_count=1,
+        fan_positions_m=(SINGLE_FAN_CENTER_XY,),
+        fan_power_scales=(1.0,),
+        updraft_model_id="single_annular_gp_grid",
+    )
+    binding = resolve_surrogate_binding("W2", metadata)
+    wind = load_updraft_model(binding.updraft_model_id)
+
+    context = build_environment_context(
+        _state(),
+        wind_field=wind,
+        metadata=metadata,
+        latency_case="nominal",
+        actuator_case="nominal",
+        surrogate_binding=binding,
+    )
+
+    assert context.W_layer == "W2"
+    assert context.wind_mode == "panel"
+    assert context.surrogate_family == "gp_corrected_annular_gaussian"
+    assert len(context_feature_vector(context)) == 13
 
 
 def test_shifted_and_power_scaled_environment_metadata_is_audit_only() -> None:

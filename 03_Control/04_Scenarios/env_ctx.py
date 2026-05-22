@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 import numpy as np
 
 from arena_contract import TRUE_SAFE_BOUNDS, BoxBounds, position_margin_m
+from env_surrogate import READY_STATUS, SurrogateBinding
 from latency import LATENCY_CASES
 from state_contract import STATE_INDEX, as_state_vector
 from wing_wind_descriptors import (
@@ -43,15 +44,23 @@ ENV_CONTEXT_COLUMNS = (
     "attitude_margin_rad",
     "latency_case",
     "actuator_case",
+    "W_layer",
+    "wind_mode",
     "environment_id",
     "fan_count",
     "fan_positions_m",
     "fan_power_scales",
     "updraft_model_id",
+    "updraft_model_source",
+    "surrogate_family",
+    "surrogate_role",
+    "surrogate_binding_status",
+    "surrogate_blocked_reason",
     "updraft_amplitude_scale",
     "updraft_width_scale",
     "updraft_centre_shift_m",
     "residual_field_id",
+    "randomisation_label",
     "randomisation_seed",
 )
 
@@ -85,6 +94,8 @@ class EnvironmentMetadata:
     residual_field_id: str = "none"
     randomisation_seed: int | None = None
     model_source: str = "not_applicable"
+    W_layer: str = "W0"
+    wind_mode: str = "none"
 
 
 @dataclass(frozen=True)
@@ -104,15 +115,23 @@ class EnvironmentContext:
     attitude_margin_rad: float
     latency_case: str
     actuator_case: str
+    W_layer: str
+    wind_mode: str
     environment_id: str
     fan_count: int
     fan_positions_m: str
     fan_power_scales: str
     updraft_model_id: str
+    updraft_model_source: str
+    surrogate_family: str
+    surrogate_role: str
+    surrogate_binding_status: str
+    surrogate_blocked_reason: str
     updraft_amplitude_scale: float
     updraft_width_scale: float
     updraft_centre_shift_m: str
     residual_field_id: str
+    randomisation_label: str
     randomisation_seed: int | str
 
 
@@ -126,6 +145,7 @@ def build_environment_context(
     metadata: EnvironmentMetadata,
     latency_case: str,
     actuator_case: str = "nominal",
+    surrogate_binding: SurrogateBinding | None = None,
     bounds: BoxBounds = TRUE_SAFE_BOUNDS,
     minimum_speed_m_s: float = 3.0,
     attitude_limit_rad: float = np.deg2rad(45.0),
@@ -144,8 +164,14 @@ def build_environment_context(
         raise ValueError("fan_count must be nonnegative.")
     if metadata.fan_power_scales and len(metadata.fan_power_scales) != int(metadata.fan_count):
         raise ValueError("fan_power_scales must match fan_count when supplied.")
+    if surrogate_binding is not None and surrogate_binding.surrogate_binding_status not in {
+        READY_STATUS,
+        "blocked",
+    }:
+        raise ValueError("surrogate binding status must be ready or blocked.")
 
     dry_air = wind_field is None
+    binding_values = _binding_values(surrogate_binding, metadata, dry_air=dry_air)
     descriptor = wing_wind_descriptor_row(
         wind_field=wind_field,
         x_w_m=float(x[STATE_INDEX["x_w"]]),
@@ -154,11 +180,11 @@ def build_environment_context(
         phi_rad=float(x[STATE_INDEX["phi"]]),
         theta_rad=float(x[STATE_INDEX["theta"]]),
         psi_rad=float(x[STATE_INDEX["psi"]]),
-        fan_layout=str(metadata.fan_count),
+        fan_layout=str(binding_values["fan_count"]),
         fan_config_id=metadata.environment_id,
         environment_mode=metadata.environment_id,
-        model_id=metadata.updraft_model_id,
-        model_source=metadata.model_source,
+        model_id=str(binding_values["updraft_model_id"]),
+        model_source=str(binding_values["updraft_model_source"]),
         dry_air=dry_air,
         config=wing_config,
     )
@@ -192,17 +218,27 @@ def build_environment_context(
         attitude_margin_rad=float(float(attitude_limit_rad) - max_attitude_rad),
         latency_case=str(latency_case),
         actuator_case=str(actuator_case),
+        W_layer=str(binding_values["W_layer"]),
+        wind_mode=str(binding_values["wind_mode"]),
         environment_id=str(metadata.environment_id),
-        fan_count=int(metadata.fan_count),
-        fan_positions_m=_xy_pairs_text(metadata.fan_positions_m),
-        fan_power_scales=_float_tuple_text(metadata.fan_power_scales),
-        updraft_model_id=str(metadata.updraft_model_id),
+        fan_count=int(binding_values["fan_count"]),
+        fan_positions_m=_xy_pairs_text(binding_values["fan_positions_m"]),
+        fan_power_scales=_float_tuple_text(binding_values["fan_power_scales"]),
+        updraft_model_id=str(binding_values["updraft_model_id"]),
+        updraft_model_source=str(binding_values["updraft_model_source"]),
+        surrogate_family=str(binding_values["surrogate_family"]),
+        surrogate_role=str(binding_values["surrogate_role"]),
+        surrogate_binding_status=str(binding_values["surrogate_binding_status"]),
+        surrogate_blocked_reason=str(binding_values["surrogate_blocked_reason"]),
         updraft_amplitude_scale=float(metadata.updraft_amplitude_scale),
         updraft_width_scale=float(metadata.updraft_width_scale),
         updraft_centre_shift_m=_float_tuple_text(metadata.updraft_centre_shift_m),
         residual_field_id=str(metadata.residual_field_id),
+        randomisation_label=str(binding_values["randomisation_label"]),
         randomisation_seed=(
-            "" if metadata.randomisation_seed is None else int(metadata.randomisation_seed)
+            ""
+            if binding_values["randomisation_seed"] is None
+            else int(binding_values["randomisation_seed"])
         ),
     )
 
@@ -252,6 +288,45 @@ def context_feature_vector_json(context: EnvironmentContext) -> str:
 def _finite_or_zero(value: object) -> float:
     result = float(value)
     return result if np.isfinite(result) else 0.0
+
+
+def _binding_values(
+    binding: SurrogateBinding | None,
+    metadata: EnvironmentMetadata,
+    *,
+    dry_air: bool,
+) -> dict[str, object]:
+    if binding is None:
+        return {
+            "W_layer": str(metadata.W_layer),
+            "wind_mode": "none" if dry_air else str(metadata.wind_mode or "panel"),
+            "fan_count": int(metadata.fan_count),
+            "fan_positions_m": tuple(metadata.fan_positions_m),
+            "fan_power_scales": tuple(metadata.fan_power_scales),
+            "updraft_model_id": str(metadata.updraft_model_id),
+            "updraft_model_source": str(metadata.model_source),
+            "surrogate_family": "unbound_context",
+            "surrogate_role": "context_only",
+            "surrogate_binding_status": "not_bound",
+            "surrogate_blocked_reason": "",
+            "randomisation_label": "none",
+            "randomisation_seed": metadata.randomisation_seed,
+        }
+    return {
+        "W_layer": str(binding.W_layer),
+        "wind_mode": str(binding.wind_mode),
+        "fan_count": int(binding.fan_count),
+        "fan_positions_m": tuple(binding.fan_positions_m),
+        "fan_power_scales": tuple(binding.fan_power_scales),
+        "updraft_model_id": str(binding.updraft_model_id),
+        "updraft_model_source": str(binding.updraft_model_source),
+        "surrogate_family": str(binding.surrogate_family),
+        "surrogate_role": str(binding.surrogate_role),
+        "surrogate_binding_status": str(binding.surrogate_binding_status),
+        "surrogate_blocked_reason": str(binding.blocked_reason),
+        "randomisation_label": str(binding.randomisation_label),
+        "randomisation_seed": binding.randomisation_seed,
+    }
 
 
 def _xy_pairs_text(values: tuple[tuple[float, float], ...]) -> str:

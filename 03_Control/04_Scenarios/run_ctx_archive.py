@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,9 +39,20 @@ from dense_archive_table_io import (  # noqa: E402
     write_table_partition,
 )
 from env_ctx import EnvironmentMetadata, build_environment_context  # noqa: E402
+from env_surrogate import (  # noqa: E402
+    READY_STATUS,
+    resolve_surrogate_binding,
+    surrogate_binding_row,
+    wind_field_for_binding,
+)
 from prim_cat import active_primitive_catalogue  # noqa: E402
-from prim_roll import RolloutConfig, rollout_with_context_row, simulate_primitive_rollout  # noqa: E402
-from updraft_models import SINGLE_FAN_CENTER_XY, load_updraft_model  # noqa: E402
+from prim_roll import (  # noqa: E402
+    RolloutConfig,
+    blocked_rollout_evidence,
+    rollout_with_context_row,
+    simulate_primitive_rollout,
+)
+from updraft_models import FOUR_FAN_CENTERS_XY, SINGLE_FAN_CENTER_XY  # noqa: E402
 
 
 # =============================================================================
@@ -48,7 +60,8 @@ from updraft_models import SINGLE_FAN_CENTER_XY, load_updraft_model  # noqa: E40
 # =============================================================================
 # 1) Archive config and CLI
 # 2) Schedule and row generation
-# 3) Chunk execution and output manifests
+# 3) Worker execution
+# 4) Output manifests
 # =============================================================================
 
 
@@ -73,6 +86,7 @@ class ContextArchiveConfig:
     stop_after_chunks: int | None
     continue_on_chunk_failure: bool
     output_root: Path
+    rollout_backend: str = "model_backed"
 
 
 def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
@@ -96,6 +110,11 @@ def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
     parser.add_argument("--stop-after-chunks", type=int, default=None)
     parser.add_argument("--continue-on-chunk-failure", action="store_true")
     parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument(
+        "--smoke-only",
+        action="store_true",
+        help="Use the deterministic smoke backend instead of model-backed rollout.",
+    )
     args = parser.parse_args(argv)
     return ContextArchiveConfig(
         run_id=int(args.run_id),
@@ -114,6 +133,7 @@ def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
         stop_after_chunks=args.stop_after_chunks,
         continue_on_chunk_failure=bool(args.continue_on_chunk_failure),
         output_root=Path(args.output_root),
+        rollout_backend="smoke_only" if bool(args.smoke_only) else "model_backed",
     )
 
 
@@ -154,83 +174,28 @@ def run_contextual_archive_preflight(config: ContextArchiveConfig) -> dict[str, 
             dry_run=True,
         )
 
-    partitions: list[TablePartition] = []
-    outcome_rows: list[dict[str, object]] = []
-    failures: list[dict[str, object]] = []
     chunks_to_run = schedule
     if config.stop_after_chunks is not None:
         chunks_to_run = chunks_to_run[: int(config.stop_after_chunks)]
-    for spec in chunks_to_run:
-        started = time.perf_counter()
-        try:
-            status = chunk_status(spec, run_root=run_root)
-            if status == "complete" and config.resume:
-                paths = contextual_table_paths(spec, run_root=run_root)
-                manifest = validate_chunk_manifest(spec, run_root=run_root)
-                partitions.append(
-                    TablePartition(
-                        table_name="contextual_rows",
-                        relative_path=paths.partition_path.relative_to(
-                            run_root / "tables"
-                        ).as_posix(),
-                        storage_format=storage_format,
-                        row_count=int(manifest["row_count"]),
-                        byte_count=int(filesystem_path(paths.partition_path).stat().st_size),
-                        columns=tuple(str(value) for value in manifest["columns"]),
-                        checksum_sha256=str(manifest["checksum_sha256"]),
-                    )
-                )
-                continue
-            if status == "corrupt" and config.repair_incomplete:
-                remove_chunk_outputs(spec, run_root=run_root)
-            rows = _chunk_rows(config=config, spec=spec)
-            frame = pd.DataFrame(rows)
-            paths = contextual_table_paths(spec, run_root=run_root)
-            partition = write_table_partition(
-                frame,
-                paths.partition_path,
-                storage_format=storage_format,
-                compression_level=config.compression_level,
-            )
-            elapsed = time.perf_counter() - started
-            _write_chunk_manifest(
-                spec=spec,
-                paths=paths,
-                partition=partition,
-                columns=tuple(str(column) for column in frame.columns),
-                elapsed_s=elapsed,
-            )
-            partitions.append(partition)
-            outcome_rows.extend(
-                {
-                    "W_layer": row["W_layer"],
-                    "environment_id": row["environment_id"],
-                    "outcome_class": row["outcome_class"],
-                    "accepted": bool(row["accepted"]),
-                }
-                for row in rows
-            )
-        except Exception as exc:
-            failures.append(
-                {
-                    "chunk_index": int(spec.chunk_index),
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                }
-            )
-            if not config.continue_on_chunk_failure:
-                raise
+    execution = _execute_chunks(
+        config=config,
+        run_root=run_root,
+        schedule=chunks_to_run,
+        storage_format=storage_format,
+        selected_worker_count=worker_decision.selected_worker_count,
+    )
     return _write_run_outputs(
         config=config,
         run_root=run_root,
         worker_fields=dense_run_manifest_fields(
             run_stage="contextual_archive_preflight",
-            environment_context="W0_W1_context_smoke",
+            environment_context="strict_surrogate_context_model_backed",
             worker_decision=worker_decision,
         ),
-        partitions=partitions,
-        outcome_rows=outcome_rows,
-        failures=failures,
+        partitions=execution["partitions"],
+        outcome_rows=execution["outcome_rows"],
+        failures=execution["failures"],
+        worker_execution=execution["worker_execution"],
         dry_run=False,
     )
 
@@ -238,8 +203,8 @@ def run_contextual_archive_preflight(config: ContextArchiveConfig) -> dict[str, 
 def _validate_config(config: ContextArchiveConfig) -> None:
     if config.rows <= 0:
         raise ValueError("rows must be positive.")
-    if config.rows > 10_000:
-        raise ValueError("R2-R5 preflight is capped at 10k rows.")
+    if config.rollout_backend == "smoke_only" and config.rows > 10_000:
+        raise ValueError("smoke-only preflight is capped at 10k rows.")
     if config.candidate_chunk_size <= 0:
         raise ValueError("candidate_chunk_size must be positive.")
     if not {"W0", "W1"}.issubset(set(config.w_layers)):
@@ -247,6 +212,8 @@ def _validate_config(config: ContextArchiveConfig) -> None:
     unknown = set(config.w_layers) - {"W0", "W1", "W2", "W3"}
     if unknown:
         raise ValueError(f"unknown W layer labels: {sorted(unknown)}")
+    if config.rollout_backend not in {"model_backed", "smoke_only"}:
+        raise ValueError("rollout_backend must be 'model_backed' or 'smoke_only'.")
 
 
 def _build_schedule(
@@ -290,7 +257,6 @@ def _chunk_rows(
     spec: ContextChunkSpec,
 ) -> list[dict[str, object]]:
     primitives = active_primitive_catalogue()
-    wind = None if spec.context_id == "W0" else load_updraft_model("single_gaussian_var")
     rows: list[dict[str, object]] = []
     for offset in range(spec.chunk_size):
         row_index = int(spec.chunk_index * config.candidate_chunk_size + offset)
@@ -299,25 +265,52 @@ def _chunk_rows(
             w_layer=spec.context_id,
             environment_mode=spec.environment_id,
             seed=config.seed + row_index,
-            wind_name="dry_air_zero_wind" if wind is None else wind.name,
-            wind_source="not_applicable" if wind is None else wind.source,
         )
+        binding = resolve_surrogate_binding(
+            spec.context_id,
+            metadata,
+            randomisation_seed=config.seed + row_index,
+        )
+        wind = wind_field_for_binding(binding)
         context = build_environment_context(
             state,
             wind_field=wind,
             metadata=metadata,
             latency_case="none" if spec.context_id == "W0" else "nominal",
             actuator_case="nominal",
+            surrogate_binding=binding,
         )
         primitive = primitives[row_index % len(primitives)]
-        evidence = simulate_primitive_rollout(
-            rollout_id=f"r{config.run_id:03d}_c{spec.chunk_index:05d}_{offset:05d}",
-            initial_state=state,
-            context=context,
-            primitive=primitive,
-            config=RolloutConfig(W_layer=spec.context_id),
+        rollout_id = f"r{config.run_id:03d}_c{spec.chunk_index:05d}_{offset:05d}"
+        rollout_config = RolloutConfig(
+            W_layer=spec.context_id,
+            dt_s=float(spec.dt_s),
+            rollout_backend=config.rollout_backend,
+            wind_mode=binding.wind_mode,
         )
-        rows.append(rollout_with_context_row(evidence, context))
+        if binding.surrogate_binding_status != READY_STATUS:
+            evidence = blocked_rollout_evidence(
+                rollout_id=rollout_id,
+                episode_id=f"episode_{row_index:07d}",
+                initial_state=state,
+                context=context,
+                primitive=primitive,
+                config=rollout_config,
+                failure_label="surrogate_binding_blocked",
+            )
+        else:
+            evidence = simulate_primitive_rollout(
+                rollout_id=rollout_id,
+                episode_id=f"episode_{row_index:07d}",
+                initial_state=state,
+                context=context,
+                primitive=primitive,
+                config=rollout_config,
+                wind_field=wind,
+            )
+        row = rollout_with_context_row(evidence, context)
+        row.update({f"surrogate_{key}": value for key, value in surrogate_binding_row(binding).items()})
+        rows.append(row)
     return rows
 
 
@@ -338,27 +331,212 @@ def _metadata_for_row(
     w_layer: str,
     environment_mode: str,
     seed: int,
-    wind_name: str,
-    wind_source: str,
 ) -> EnvironmentMetadata:
-    fan_count = 0 if w_layer == "W0" else 1
+    fan_count = _fan_count_for_mode(w_layer=w_layer, environment_mode=environment_mode)
+    model_id = _surrogate_model_id_for_mode(
+        w_layer=w_layer,
+        environment_mode=environment_mode,
+        fan_count=fan_count,
+    )
     return EnvironmentMetadata(
         environment_id=f"{w_layer}_{environment_mode}",
         fan_count=fan_count,
-        fan_positions_m=() if fan_count == 0 else (SINGLE_FAN_CENTER_XY,),
-        fan_power_scales=() if fan_count == 0 else (1.0,),
-        updraft_model_id=wind_name,
+        fan_positions_m=_fan_positions_for_mode(fan_count),
+        fan_power_scales=() if fan_count == 0 else tuple(1.0 for _ in range(fan_count)),
+        updraft_model_id=model_id,
         updraft_amplitude_scale=1.0,
         updraft_width_scale=1.0,
         updraft_centre_shift_m=(0.0, 0.0),
         residual_field_id="none",
         randomisation_seed=seed,
-        model_source=wind_source,
+        model_source="resolved_by_env_surrogate",
+        W_layer=w_layer,
+        wind_mode="none" if w_layer == "W0" else "panel",
     )
 
 
+def _fan_count_for_mode(*, w_layer: str, environment_mode: str) -> int:
+    if w_layer == "W0":
+        return 0
+    return 4 if "four" in str(environment_mode).lower() else 1
+
+
+def _fan_positions_for_mode(fan_count: int) -> tuple[tuple[float, float], ...]:
+    if fan_count == 0:
+        return ()
+    if fan_count == 4:
+        return FOUR_FAN_CENTERS_XY
+    return (SINGLE_FAN_CENTER_XY,)
+
+
+def _surrogate_model_id_for_mode(
+    *,
+    w_layer: str,
+    environment_mode: str,
+    fan_count: int,
+) -> str:
+    del environment_mode
+    if w_layer == "W0":
+        return "dry_air_zero_wind"
+    if w_layer == "W1":
+        return "four_gaussian_var" if fan_count == 4 else "single_gaussian_var"
+    return "four_annular_gp_grid" if fan_count == 4 else "single_annular_gp_grid"
+
+
 # =============================================================================
-# 3) Chunk Execution and Output Manifests
+# 3) Worker Execution
+# =============================================================================
+def _execute_chunks(
+    *,
+    config: ContextArchiveConfig,
+    run_root: Path,
+    schedule: list[ContextChunkSpec],
+    storage_format: str,
+    selected_worker_count: int,
+) -> dict[str, object]:
+    partitions: list[TablePartition] = []
+    outcome_rows: list[dict[str, object]] = []
+    failures: list[dict[str, object]] = []
+    pending: list[ContextChunkSpec] = []
+
+    for spec in schedule:
+        try:
+            status = chunk_status(spec, run_root=run_root)
+            if status == "complete" and config.resume:
+                partitions.append(_partition_from_existing_manifest(spec, run_root=run_root, storage_format=storage_format))
+                continue
+            if status == "corrupt" and config.repair_incomplete:
+                remove_chunk_outputs(spec, run_root=run_root)
+            pending.append(spec)
+        except Exception as exc:
+            failures.append(_failure_row(spec, exc))
+            if not config.continue_on_chunk_failure:
+                raise
+
+    worker_count = min(max(1, int(selected_worker_count)), max(1, len(pending) or 1))
+    if worker_count > 1 and pending:
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(
+                    _run_single_chunk,
+                    config=config,
+                    spec=spec,
+                    run_root=run_root,
+                    storage_format=storage_format,
+                ): spec
+                for spec in pending
+            }
+            for future in as_completed(futures):
+                spec = futures[future]
+                try:
+                    result = future.result()
+                    partitions.append(result["partition"])
+                    outcome_rows.extend(result["outcome_rows"])
+                except Exception as exc:
+                    failures.append(_failure_row(spec, exc))
+                    if not config.continue_on_chunk_failure:
+                        raise
+    else:
+        for spec in pending:
+            try:
+                result = _run_single_chunk(
+                    config=config,
+                    spec=spec,
+                    run_root=run_root,
+                    storage_format=storage_format,
+                )
+                partitions.append(result["partition"])
+                outcome_rows.extend(result["outcome_rows"])
+            except Exception as exc:
+                failures.append(_failure_row(spec, exc))
+                if not config.continue_on_chunk_failure:
+                    raise
+
+    return {
+        "partitions": sorted(partitions, key=lambda item: item.relative_path),
+        "outcome_rows": outcome_rows,
+        "failures": failures,
+        "worker_execution": {
+            "chunk_execution_backend": "thread_pool" if worker_count > 1 and pending else "single_worker",
+            "actual_worker_count": int(worker_count),
+            "parallel_chunk_count": int(len(pending)),
+            "worker_enabled": bool(worker_count > 1 and pending),
+        },
+    }
+
+
+def _run_single_chunk(
+    *,
+    config: ContextArchiveConfig,
+    spec: ContextChunkSpec,
+    run_root: Path,
+    storage_format: str,
+) -> dict[str, object]:
+    started = time.perf_counter()
+    rows = _chunk_rows(config=config, spec=spec)
+    frame = pd.DataFrame(rows)
+    paths = contextual_table_paths(spec, run_root=run_root)
+    partition = write_table_partition(
+        frame,
+        paths.partition_path,
+        storage_format=storage_format,
+        compression_level=config.compression_level,
+    )
+    elapsed = time.perf_counter() - started
+    _write_chunk_manifest(
+        spec=spec,
+        paths=paths,
+        partition=partition,
+        columns=tuple(str(column) for column in frame.columns),
+        elapsed_s=elapsed,
+    )
+    return {
+        "partition": partition,
+        "outcome_rows": [
+            {
+                "W_layer": row["W_layer"],
+                "environment_id": row["environment_id"],
+                "outcome_class": row["outcome_class"],
+                "accepted": bool(row["accepted"]),
+                "rollout_backend": row["rollout_backend"],
+                "surrogate_binding_status": row["surrogate_binding_status"],
+            }
+            for row in rows
+        ],
+    }
+
+
+def _partition_from_existing_manifest(
+    spec: ContextChunkSpec,
+    *,
+    run_root: Path,
+    storage_format: str,
+) -> TablePartition:
+    paths = contextual_table_paths(spec, run_root=run_root)
+    manifest = validate_chunk_manifest(spec, run_root=run_root)
+    return TablePartition(
+        table_name="contextual_rows",
+        relative_path=paths.partition_path.relative_to(run_root / "tables").as_posix(),
+        storage_format=storage_format,
+        row_count=int(manifest["row_count"]),
+        byte_count=int(filesystem_path(paths.partition_path).stat().st_size),
+        columns=tuple(str(value) for value in manifest["columns"]),
+        checksum_sha256=str(manifest["checksum_sha256"]),
+    )
+
+
+def _failure_row(spec: ContextChunkSpec, exc: Exception) -> dict[str, object]:
+    return {
+        "chunk_index": int(spec.chunk_index),
+        "context_id": str(spec.context_id),
+        "environment_id": str(spec.environment_id),
+        "error_type": type(exc).__name__,
+        "error": str(exc),
+    }
+
+
+# =============================================================================
+# 4) Output Manifests
 # =============================================================================
 def _write_chunk_manifest(
     *,
@@ -407,6 +585,7 @@ def _write_run_outputs(
     outcome_rows: list[dict[str, object]],
     failures: list[dict[str, object]],
     dry_run: bool,
+    worker_execution: dict[str, object] | None = None,
 ) -> dict[str, object]:
     manifest_dir = run_root / "manifests"
     metrics_dir = run_root / "metrics"
@@ -416,25 +595,29 @@ def _write_run_outputs(
 
     run_manifest = {
         **worker_fields,
+        **(worker_execution or {"chunk_execution_backend": "not_started", "worker_enabled": False}),
         "run_id": int(config.run_id),
         "rows_requested": int(config.rows),
         "seed": int(config.seed),
         "w_layers": list(config.w_layers),
         "env_modes": list(config.env_modes),
+        "rollout_backend": str(config.rollout_backend),
         "candidate_chunk_size": int(config.candidate_chunk_size),
         "storage_format": resolve_storage_format(config.storage_format),
         "compression_level": int(config.compression_level),
         "resume": bool(config.resume),
         "repair_incomplete": bool(config.repair_incomplete),
         "dry_run_schedule": bool(dry_run),
-        "claim_status": "simulation_only_preflight",
+        "claim_status": "simulation_only_model_backed_preflight",
         "blocked_claims": [
             "real_flight_transfer",
             "hardware_readiness",
             "mission_success",
             "W2_W3_robustness",
+            "controller_performance",
         ],
         "failures": failures,
+        "official_deferred_commands": _official_deferred_commands(),
     }
     (manifest_dir / "run_manifest.json").write_text(
         json.dumps(run_manifest, indent=2) + "\n",
@@ -481,6 +664,8 @@ def _write_runtime_summary(
                 "partition_count": len(partitions),
                 "row_count": sum(partition.row_count for partition in partitions),
                 "claim_status": run_manifest["claim_status"],
+                "rollout_backend": run_manifest["rollout_backend"],
+                "worker_enabled": bool(run_manifest.get("worker_enabled", False)),
             }
         ]
     )
@@ -490,12 +675,29 @@ def _write_runtime_summary(
 def _write_outcome_summary(path: Path, outcome_rows: list[dict[str, object]]) -> None:
     if not outcome_rows:
         frame = pd.DataFrame(
-            columns=["W_layer", "environment_id", "outcome_class", "row_count", "accepted_count"]
+            columns=[
+                "W_layer",
+                "environment_id",
+                "rollout_backend",
+                "surrogate_binding_status",
+                "outcome_class",
+                "row_count",
+                "accepted_count",
+            ]
         )
     else:
         frame = (
             pd.DataFrame(outcome_rows)
-            .groupby(["W_layer", "environment_id", "outcome_class"], dropna=False)
+            .groupby(
+                [
+                    "W_layer",
+                    "environment_id",
+                    "rollout_backend",
+                    "surrogate_binding_status",
+                    "outcome_class",
+                ],
+                dropna=False,
+            )
             .agg(row_count=("outcome_class", "size"), accepted_count=("accepted", "sum"))
             .reset_index()
         )
@@ -534,6 +736,8 @@ def _write_report(
             f"- Rows requested: `{run_manifest['rows_requested']}`",
             f"- Partitions written: `{partition_count}`",
             f"- Storage format: `{run_manifest['storage_format']}`",
+            f"- Rollout backend: `{run_manifest['rollout_backend']}`",
+            f"- Worker enabled: `{run_manifest.get('worker_enabled', False)}`",
             f"- File-size failures: `{len(oversized)}`",
             f"- Claim status: `{run_manifest['claim_status']}`",
             "",
@@ -542,6 +746,25 @@ def _write_report(
         ]
     )
     filesystem_path(path).write_text(text, encoding="ascii")
+
+
+def _official_deferred_commands() -> dict[str, str]:
+    return {
+        "r6_20k_fallback": (
+            "python 03_Control/04_Scenarios/run_ctx_archive.py --run-id 60 "
+            "--rows 20000 --seed 60 --w-layers W0,W1 --env-modes dry_air,measured_updraft "
+            "--candidate-chunk-size 1000 --workers 8 --max-workers 8 "
+            "--storage-format auto --compression-level 1 --resume --repair-incomplete "
+            "--output-root 03_Control/05_Results/context_archive/r6_model_backed_20k"
+        ),
+        "r6_40k_preferred": (
+            "python 03_Control/04_Scenarios/run_ctx_archive.py --run-id 61 "
+            "--rows 40000 --seed 61 --w-layers W0,W1 --env-modes dry_air,measured_updraft "
+            "--candidate-chunk-size 1000 --workers 8 --max-workers 8 "
+            "--storage-format auto --compression-level 1 --resume --repair-incomplete "
+            "--output-root 03_Control/05_Results/context_archive/r6_model_backed_40k"
+        ),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

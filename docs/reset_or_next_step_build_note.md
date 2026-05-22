@@ -1,51 +1,43 @@
-# R2-R5 Contextual Primitive Restart Build Note
+# R6-R7 Strict Surrogate Model-Backed Build Note
 
 ## Status
 
-This pass adds the first environment-conditioned primitive interfaces after the model-only reset:
+This pass moves the R2-R5 contextual primitive scaffold into the first model-backed path:
 
-- environment context rows;
-- active primitive catalogue;
-- smoke rollout evidence rows;
-- chunked contextual archive preflight scaffold.
+- strict W0-W3 surrogate binding;
+- environment-context rows carrying surrogate provenance;
+- model-backed primitive rollout evidence;
+- first auditable primitive outcome model;
+- viability-filtered primitive selection scaffold;
+- worker-enabled contextual archive preflight.
 
-The selected evidence policy is temp-only. Tests write smoke/preflight outputs under pytest temporary directories. The active result root remains `03_Control/05_Results/.gitkeep` only.
+The selected evidence policy remains temp-only. Tests may write archive outputs under pytest temporary directories, while the active result root remains `03_Control/05_Results/.gitkeep` only.
 
-## Git State At Start Of This Pass
+## Git State Caveat
 
-`git status --short` showed:
+At the start of this pass, `git status --short` showed a modified active project plan and two stale untracked non-contract docs. The stale docs were removed because they were outside the active allowlist. The modified project plan was not reverted.
 
-```text
- M 03_Control/tests/test_repo_housekeeping.py
- D "docs/MATLAB Coding.txt"
- D "docs/Python Plotting Guidance.txt"
-?? 03_Control/03_Primitives/prim_cat.py
-?? 03_Control/03_Primitives/prim_roll.py
-?? 03_Control/04_Scenarios/env_ctx.py
-?? 03_Control/04_Scenarios/run_ctx_archive.py
-?? 03_Control/tests/test_ctx_archive_smoke.py
-?? 03_Control/tests/test_env_ctx.py
-?? 03_Control/tests/test_prim_cat.py
-?? 03_Control/tests/test_prim_roll.py
-```
+The user noted that unrelated restored files outside `03_Control` are intentional. This implementation leaves them untouched unless a future active import or housekeeping gate requires a focused change.
 
-Previous reset notes recorded local Git metadata ACL issues that blocked branch creation and staging. This note does not imply that a clean committed branch exists.
+## Interfaces Added
+
+- `env_surrogate.py`: `SurrogateBinding`, `resolve_surrogate_binding(...)`, `validate_surrogate_ladder(...)`, and `wind_field_for_binding(...)`.
+- `prim_model.py`: table/kNN-style primitive outcome prediction with uncertainty and neighbour distance.
+- `prim_select.py`: viability-filtered primitive selection with accepted and rejected candidate logging.
+
+`env_ctx.py`, `prim_roll.py`, and `run_ctx_archive.py` now propagate surrogate status, rollout backend, trajectory-integrity status, floor/ceiling margins, compressed chunk partitions, worker execution, checksums, runtime summaries, outcome summaries, and file-size audits.
 
 ## Evidence Boundary
 
-The generated rows are schema, runtime, and smoke evidence only. They are not controller performance evidence and do not support real-flight transfer, hardware readiness, mission success, full robustness, or environment-generalisation claims.
+This pass may support only the claim that a strict surrogate model-backed contextual primitive interface and preflight scaffold exist. It does not claim controller performance, W2/W3 robustness, real-flight transfer, hardware readiness, mission success, or repeated-launch improvement.
 
-## Contamination Status
+## Temp-Only Output Policy
 
-The new implementation uses state, local flow context, primitive definitions, smoke rollout rows, and chunked table storage. Retired archive, chain, package, and hardware-result workflows are not imported.
+Official local archive runs are deferred. The later local commands are:
 
-## Validation
+```powershell
+python 03_Control/04_Scenarios/run_ctx_archive.py --run-id 60 --rows 20000 --seed 60 --w-layers W0,W1 --env-modes dry_air,measured_updraft --candidate-chunk-size 1000 --workers 8 --max-workers 8 --storage-format auto --compression-level 1 --resume --repair-incomplete --output-root 03_Control/05_Results/context_archive/r6_model_backed_20k
+python 03_Control/04_Scenarios/run_ctx_archive.py --run-id 61 --rows 40000 --seed 61 --w-layers W0,W1 --env-modes dry_air,measured_updraft --candidate-chunk-size 1000 --workers 8 --max-workers 8 --storage-format auto --compression-level 1 --resume --repair-incomplete --output-root 03_Control/05_Results/context_archive/r6_model_backed_40k
+```
 
-- Focused R2-R5 tests: `14 passed`.
-- Full retained test suite: `101 passed`.
-- Python compile check over retained and new modules: passed.
-- `git diff --check`: passed with line-ending warning only.
-- Result-root audit: `03_Control/05_Results` contains only `.gitkeep`.
-- File-size audit: no non-Git file above 100 MB.
-
-Smoke/preflight files were generated only under pytest temporary directories during validation and are not retained as project evidence.
+Those runs must preserve chunked execution, resumable chunk manifests, compressed table partitions, worker execution, checksums, table manifests, runtime summaries, outcome summaries, and the 100 MB generated-file limit.

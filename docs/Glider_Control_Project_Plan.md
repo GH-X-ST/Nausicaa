@@ -28,7 +28,7 @@ runtime and storage utilities
 model tests and project documentation
 ```
 
-Old fixed-gate branch-specific archive code, old primitive-chain generation, old W0/W1 result archives, old clustering packages, old reachable-chain logic, old policy-evaluation artefacts, and old Codex-generated plans are no longer part of the active method.
+Retired fan-layout-specific archive code, chain-formation logic, stale clustering packages, stale policy-evaluation artefacts, and stale Codex-generated plans are no longer part of the active method.
 
 This reset is an implementation and project-management cleanup. It does not change the thesis title, the physical platform, or the high-level theme of viability-guided sim-to-real transfer.
 
@@ -41,7 +41,7 @@ current coding and housekeeping rules
 new environment-conditioned primitive modules as they are built
 ```
 
-Do not reuse old branch-specific fixed-gate archive outputs or old primitive-chain outputs as method evidence. They may be mentioned only as historical work or discarded implementation attempts if useful for logbook context.
+Do not reuse historical archive outputs or chain-formation outputs as method evidence. They may be mentioned only as discarded implementation attempts if useful for logbook context.
 
 ---
 
@@ -88,7 +88,7 @@ same-flight recapture
 perching
 indefinite soaring
 all-arena exploration
-fan-branch-specific controller logic
+fan-layout-specific controller logic
 fixed W0/W1 chain construction
 reachable-state extraction as a required success gate
 high-angle agile turning as a required final behaviour
@@ -217,12 +217,23 @@ Audit:
 
 ```text
 world-frame convention for vertical wind
-single-fan and four-fan measured surrogates
+measured surrogate environment instances
 support for fan-position and fan-power variation
 wing-mean, left-right, and spanwise-gradient descriptors
 model-source labels
 fallback handling when a measured model is unavailable
 ```
+
+Surrogate roles for implementation:
+
+```text
+Gaussian plume surrogate                         W1 nominal measured-updraft replay only
+GP-corrected annular-Gaussian surrogate          W2 hardware-aware measured-updraft replay only
+randomised GP-corrected annular-Gaussian         W3 environment-randomised robustness replay only
+GP residual / empirical uncertainty              local uncertainty descriptor for W2/W3 and conservative scoring
+```
+
+Do not introduce any additional updraft-surrogate family into the active validation ladder. Earlier fitted surrogates may remain background model-development history, but they are not active W-layer surrogates and must not become implementation branches. These are environment-model choices, not online controller branches. The controller should see only local flow-context features, model-source labels, and uncertainty descriptors.
 
 ### 4.4 Runtime and storage utilities
 
@@ -388,6 +399,8 @@ controlled finish
 
 Termination is an outcome label, not automatic mission failure.
 
+For archive generation before clustering, x-y wall or lateral safety-volume exit should be retained as a terminal outcome rather than used as a row-deletion rule. These terminal rows may be weak, failed, or boundary-terminal evidence, but they are still useful for learning where primitives stop being viable in a repeated-launch task. Floor and ceiling violations remain safety-critical z-boundary failures and must be labelled separately.
+
 Recommended physical start trigger:
 
 ```text
@@ -436,6 +449,8 @@ claim_status
 
 Accepted rows, weak rows, failed rows, and rejected rows are all evidence. Do not erase failures through clustering or averaging.
 
+Do not discard rollout rows before clustering only because the simulated primitive reaches an x-y wall limit or lateral safety-volume edge. In the archive, this is a terminal outcome and a source of boundary evidence. Penalising or rejecting such a primitive for real execution belongs to the viability governor or later selector, not to the archive row-generation filter. A z-boundary violation, nonfinite state, or physically invalid rollout must remain a hard failure label.
+
 Archive evidence should be organised as:
 
 ```text
@@ -454,7 +469,7 @@ state features
     -> failure label
 ```
 
-Do not organise the method primarily as a fan-branch-specific or W-layer-specific chain of actions.
+Do not organise the method as a fan-layout-specific or validation-layer-specific chain of actions.
 
 ---
 
@@ -513,6 +528,8 @@ supported latency / feedback mode
 ```
 
 Primitive scoring is allowed only after viability filtering.
+
+The governor is where x-y wall risk is converted into a selection penalty or rejection for real execution. Archive generation should preserve boundary-terminal evidence first, then the governor learns or applies the conservative decision boundary from those labelled outcomes.
 
 Suggested utility:
 
@@ -579,6 +596,17 @@ W3  environment-randomised robustness replay
 real flight  repeated-launch validation
 ```
 
+Updraft surrogate use across the validation ladder:
+
+```text
+W0  no updraft; use dry air only
+W1  nominal measured-updraft replay; use the Gaussian plume surrogate only
+W2  hardware-aware replay; use panelwise wind and the GP-corrected annular-Gaussian surrogate only, carrying its residual or empirical uncertainty into the context features
+W3  environment-randomised replay; use the randomised GP-corrected annular-Gaussian surrogate only, randomising fan position, fan power, amplitude, centre, width, residual field, and GP/residual uncertainty
+```
+
+The implementation must record `updraft_model_id`, model source, residual / uncertainty descriptor, and environment metadata for every row. The online primitive selector should not branch on Gaussian versus GP-corrected model family; it should use the resulting local context features and uncertainty labels. If the requested W-layer surrogate is unavailable, the run must write a blocked manifest rather than silently falling back to another surrogate.
+
 ### 12.1 W0 — dry-air baseline
 
 Dry-air baseline. Quantifies what each primitive does without updraft assistance.
@@ -594,7 +622,7 @@ paired comparison with measured-updraft runs
 
 ### 12.2 W1 — nominal measured-updraft replay
 
-Nominal measured-updraft replay. Tests primitive outcomes in the measured surrogate field.
+Nominal measured-updraft replay using the Gaussian plume surrogate only. Tests primitive outcomes in a low-order measured-updraft baseline field.
 
 Rules:
 
@@ -619,7 +647,7 @@ real safety-volume termination
 measured launch-state distribution when available
 ```
 
-W2 reduces the gap between cheap nominal simulation and hardware.
+W2 uses the GP-corrected annular-Gaussian surrogate and reduces the gap between cheap nominal simulation and hardware. W2 should replay a representative selection of W1 accepted, weak, boundary-terminal, and informative failed cases; it must not be limited to W1 winners only.
 
 ### 12.4 W3 — environment-randomised robustness replay
 
@@ -640,7 +668,7 @@ mass / CG / inertia
 surface calibration scale
 ```
 
-W3 is the main simulation test that the method is not tied to one fan layout. W3 output should be a pass/fail/weak label under uncertainty, not just a trajectory plot.
+W3 uses the randomised GP-corrected annular-Gaussian surrogate and is the main simulation test that the method is not tied to one fan layout. W3 output should be a pass/fail/weak label under uncertainty, not just a trajectory plot. W3 should stress W2-supported and W2-informative cases; it must not reintroduce extra updraft-surrogate-family branching.
 
 ### 12.5 Real flight
 
@@ -791,6 +819,8 @@ figure-source manifest
 
 Do not hide failures through clustering. Failed and rejected cases are part of the result because they define the boundary of transfer.
 
+Boundary-terminal rows, including x-y wall-limit or lateral safety-volume exits, should form explicit clusters or failure summaries rather than being removed before clustering. They are not automatically hardware candidates, but they are essential for learning the context boundary where the governor should become conservative. Clustering must not select only clean accepted rows for W2/W3; representative weak, boundary-terminal, and informative failed rows are needed so the outcome model and governor learn the operating boundary rather than only the easy region.
+
 ---
 
 ## 17. Runtime, storage, and file-size contract
@@ -813,7 +843,7 @@ Dense runs must be:
 chunked
 resumable
 compressed
-environment-local where scientifically needed
+environment-partitioned where applicable
 worker-enabled
 checksum-manifested
 file-size-audited
@@ -843,6 +873,8 @@ storage_format = auto, resolving to parquet if available, otherwise csv_gz
 compression_level = 1 for csv_gz
 resume = true
 ```
+
+This 8-worker and compressed-partition policy is a hard project requirement for dense/archive/thesis-scale runs. New evidence runners must reuse the retained runtime and table-I/O utilities instead of introducing a full-memory single-process path.
 
 Do not use a single-process full-memory runner for dense runs.
 
@@ -989,7 +1021,7 @@ run_environment_generalisation_eval.py
 run_repeated_launch_contextual_policy_eval.py
 ```
 
-The old W0/W1 archive should not be reused as the main method path. It may be reinterpreted only as historical evidence or as a source of initial modelling lessons if it is explicitly converted into the new context-feature schema.
+Historical archives should not be reused as the main method path. They may be used only as modelling lessons after explicit conversion into the current context-feature schema.
 
 The first new implementation should prove:
 
@@ -1016,7 +1048,7 @@ W0--W3 validation layers
 sim-real replay pairing
 ```
 
-Avoid framing Chapter 6 around fixed fan branches, reachable chain construction, or high-angle agile primitives as required final behaviour.
+Avoid framing Chapter 6 around fan-layout cases, chain construction, or high-angle agile primitives as required final behaviour.
 
 The results chapter should be structured around:
 
@@ -1046,4 +1078,4 @@ safety and claim discipline
 runtime/storage reliability
 ```
 
-Reject changes that mainly add project-specific complexity, branch-specific logic, or hidden dependencies on a particular fan layout.
+Reject changes that mainly add project-specific complexity, fan-layout-specific logic, or hidden dependencies on a particular environment layout.

@@ -43,4 +43,10 @@ no generated file above 100 MB
 
 The housekeeping tests enforce that active docs are present and not ignored, active imports do not include result folders, retained files do not contain forbidden active traces, and `03_Control/05_Results` contains only `.gitkeep`.
 
+## R6-R7 Addendum
+
+The active allowlist now includes the strict surrogate resolver, model-backed rollout path, first auditable primitive outcome model, viability selector, worker-enabled contextual archive scaffold, and their focused tests. These additions keep W-layer and fan-layout information as environment/surrogate metadata rather than separate online controller logic.
+
+R6 validation remains temp-only. Official local archive generation is deferred and must preserve chunked execution, compressed partition tables, worker execution, checksums, resumable manifests, and the 100 MB file limit.
+
 The Git metadata directory is write-denied in this workspace, so branch creation, staging, and final tracked-state verification are recorded in the reset report rather than asserted by the retained test suite.

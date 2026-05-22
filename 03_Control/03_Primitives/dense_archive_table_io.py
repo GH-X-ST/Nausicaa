@@ -339,10 +339,16 @@ def _filesystem_path(path: Path) -> Path:
     if os.name != "nt":
         return raw
     text = str(raw)
-    if text.startswith("\\\\?\\"):
-        return raw
+    normalised_text = text.replace("/", "\\")
+    if normalised_text.startswith("\\\\?\\"):
+        return Path(normalised_text)
+    if normalised_text.startswith("\\?\\"):
+        return Path("\\" + normalised_text)
     resolved = raw.resolve()
     resolved_text = str(resolved)
+    resolved_normalised = resolved_text.replace("/", "\\")
+    if resolved_normalised.startswith("\\\\?\\"):
+        return Path(resolved_normalised)
     if resolved_text.startswith("\\\\"):
         return Path("\\\\?\\UNC\\" + resolved_text.lstrip("\\"))
     return Path("\\\\?\\" + resolved_text)
