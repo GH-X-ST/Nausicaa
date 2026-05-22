@@ -4,7 +4,7 @@ from dense_archive_chunking import progress_manifest_payload
 from dense_archive_runtime import RUNTIME_CORE_VERSION, STORAGE_CONTRACT_VERSION, WorkerCountDecision
 
 
-def test_progress_manifest_payload_preserves_runtime_and_worker_metadata() -> None:
+def test_progress_manifest_payload_preserves_contextual_runtime_metadata() -> None:
     decision = WorkerCountDecision(
         requested=8,
         selected_worker_count=8,
@@ -18,9 +18,9 @@ def test_progress_manifest_payload_preserves_runtime_and_worker_metadata() -> No
 
     payload = progress_manifest_payload(
         status="dry_run",
-        run_id=14,
-        planning_run_id=13,
-        simulation_stage="paired_w0_w1_proof",
+        run_id=1,
+        source_run_id=0,
+        run_stage="contextual_foundation",
         worker_decision=decision,
         storage_format="csv_gz",
         latency_case="nominal",
@@ -28,8 +28,8 @@ def test_progress_manifest_payload_preserves_runtime_and_worker_metadata() -> No
         repair_incomplete=False,
         continue_on_chunk_failure=False,
         chunks=[],
-        recommended_command="python proof command",
-        branch_decision_scope="branch_local_only_no_cross_layout_decision_transfer",
+        recommended_command="python run_ctx_archive.py --dry-run-schedule",
+        context_decision_scope="context_features_only",
         failures=[],
     )
 
@@ -37,3 +37,4 @@ def test_progress_manifest_payload_preserves_runtime_and_worker_metadata() -> No
     assert payload["storage_contract_version"] == STORAGE_CONTRACT_VERSION
     assert payload["selected_worker_count"] == 8
     assert payload["storage_format"] == "csv_gz"
+    assert payload["context_decision_scope"] == "context_features_only"

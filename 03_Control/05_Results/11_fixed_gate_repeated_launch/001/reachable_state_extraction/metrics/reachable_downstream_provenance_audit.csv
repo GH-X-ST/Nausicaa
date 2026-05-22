@@ -1,2 +1,0 @@
-eligible_source_row_count,reachable_downstream_row_count,all_sources_accepted,all_sources_mission_candidate,all_sources_mission_or_partial_feedback,arbitrary_arena_sources_used
-2,2,True,False,True,False

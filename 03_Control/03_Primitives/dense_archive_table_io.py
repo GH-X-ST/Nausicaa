@@ -59,7 +59,7 @@ def parquet_supported() -> bool:
 
 
 def resolve_storage_format(requested: str = "auto") -> str:
-    """Resolve the requested dense-archive storage format."""
+    """Resolve the requested contextual dense-run storage format."""
 
     value = str(requested).strip().lower()
     if value not in _STORAGE_FORMATS:
@@ -171,7 +171,7 @@ def read_table_partition(
 
 
 def list_table_partitions(root: Path, table_name: str) -> list[Path]:
-    """List partition files for one dense-archive table under a run or tables root."""
+    """List partition files for one contextual table under a run or tables root."""
 
     root_path = Path(root)
     candidates = (

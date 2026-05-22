@@ -1,39 +1,31 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
+import pytest
+
+from command_contract import (
+    as_surface_command_rad,
+    clip_normalised_command,
+    normalised_command_to_surface_rad,
+    surface_rad_to_normalised_command,
+)
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+def test_normalised_command_clip_contract() -> None:
+    command = np.asarray([1.2, -1.4, 0.5], dtype=float)
+
+    np.testing.assert_allclose(clip_normalised_command(command), [1.0, -1.0, 0.5])
 
 
-def test_default_latency_config_records_real_flight_servo_cap() -> None:
-    text = (REPO_ROOT / "C_Overall_Latency" / "defaultOverallLatencyConfig.m").read_text(
-        encoding="utf-8"
-    )
+def test_normalised_surface_conversion_round_trip_stays_inside_limits() -> None:
+    command = np.asarray([1.0, -0.5, 0.25], dtype=float)
 
-    assert "cfg.surfaceRangeDeg = [30.0, 30.0, 30.0, 30.0];" in text
-    assert "cfg.servoCommandLimitNorm = [0.70, 0.70, 0.70, 0.70];" in text
-    assert "cfg.benchDeflectionCalibrationLimitNorm = [1.00, 1.00, 1.00, 1.00];" in text
+    surface_rad = normalised_command_to_surface_rad(command)
+    recovered = surface_rad_to_normalised_command(surface_rad)
 
-
-def test_run_control_path_contains_servo_limit_validation_and_packet_clamp() -> None:
-    text = (REPO_ROOT / "C_Overall_Latency" / "Run_Control_Path.m").read_text(
-        encoding="utf-8"
-    )
-
-    assert "Run_Control_Path:InvalidServoCommandLimit" in text
-    assert "servoCommandLimitNorm must contain values in the interval (0, 1]." in text
-    assert "cmd.surfaceNorm = min(max(cmd.surfaceNorm, -servoLimit), servoLimit);" in text
-    assert "surfaceNorm = min(max(surfaceNorm, -servoLimit), servoLimit);" in text
-    assert "packetSurfaceNorm = min(max(config.servoSigns .* surfaceNorm, -1), 1);" in text
+    np.testing.assert_allclose(recovered, command)
 
 
-def test_servo_limit_clip_contract() -> None:
-    surface_norm = np.asarray([1.0, -1.0, 0.8, -0.8], dtype=float)
-    servo_limit = np.asarray([0.70, 0.70, 0.70, 0.70], dtype=float)
-
-    clipped = np.minimum(np.maximum(surface_norm, -servo_limit), servo_limit)
-
-    np.testing.assert_allclose(clipped, [0.70, -0.70, 0.70, -0.70])
+def test_surface_command_rejects_out_of_limit_radian_values() -> None:
+    with pytest.raises(ValueError, match="outside calibrated aggregate limits"):
+        as_surface_command_rad(np.asarray([np.deg2rad(40.0), 0.0, 0.0], dtype=float))

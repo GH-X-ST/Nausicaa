@@ -17,8 +17,6 @@ from latency import (
     latency_pass_label_for_paired_comparison,
     latency_pass_label_for_single_run,
 )
-from primitive_library_generators import primitive_candidate_inventory
-from primitive_library_schema import PrimitiveLibraryConfig
 
 
 EXPECTED_LATENCY_CASES = ("none", "actuator_lag_only", "nominal", "conservative")
@@ -255,32 +253,3 @@ def test_single_run_latency_labels_and_acceptance_scopes_are_separate() -> None:
 def test_unknown_latency_case_is_rejected() -> None:
     with pytest.raises(ValueError, match="latency_case"):
         latency_case_config("robust_upper")
-
-
-def test_baseline_primitive_library_config_remains_backward_compatible() -> None:
-    config = PrimitiveLibraryConfig(
-        run_id=2,
-        targets_deg=(15.0, 30.0),
-        wind_fidelities=("W0",),
-        updraft_configs=("none",),
-        start_conditions=("favourable", "mid_arena"),
-        direction_signs=(1,),
-    )
-    candidates = primitive_candidate_inventory(config)
-
-    assert candidates
-    assert {candidate.wind_fidelity for candidate in candidates} == {"W0"}
-    assert {candidate.start_condition for candidate in candidates} == {
-        "favourable",
-        "mid_arena",
-    }
-
-
-def test_run_002_to_run_006_modules_still_import() -> None:
-    import run_primitive_library_outer_loop  # noqa: F401
-    import run_primitive_library_pass  # noqa: F401
-    import run_primitive_library_shortlist  # noqa: F401
-    import run_primitive_library_w3_stress  # noqa: F401
-    import run_primitive_library_governor_seed  # noqa: F401
-
-    assert np.isfinite(latency_case_config("nominal").state_feedback_delay_s)

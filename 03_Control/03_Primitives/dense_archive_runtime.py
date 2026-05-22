@@ -8,27 +8,26 @@ from dataclasses import asdict, dataclass
 # =============================================================================
 # SECTION MAP
 # =============================================================================
-# 1) Runtime Contract Constants
-# 2) Worker Count Policy
-# 3) Profiling Metadata Helpers
+# 1) Runtime contract constants
+# 2) Worker count policy
+# 3) Dense-run metadata helpers
 # =============================================================================
 
 
 # =============================================================================
 # 1) Runtime Contract Constants
 # =============================================================================
-RUNTIME_CORE_VERSION = "dense_archive_runtime_v1"
-STORAGE_CONTRACT_VERSION = "dense_archive_storage_contract_v1"
-GOVERNOR_PACKAGE_SCHEMA_VERSION = "dense_archive_governor_package_v1"
+RUNTIME_CORE_VERSION = "contextual_runtime_v1"
+STORAGE_CONTRACT_VERSION = "contextual_storage_contract_v1"
+MAX_GENERATED_FILE_SIZE_MB = 100.0
+PREFERRED_GENERATED_FILE_SIZE_MB = 75.0
 DEFAULT_MEMORY_SAFETY_MARGIN_GB = 8.0
 DEFAULT_ESTIMATED_WORKER_MEMORY_GB = 2.0
 LOCAL_LAPTOP_WORKER_COUNT = 8
 PROFILE_WORKER_COUNTS = (1, 4, 6, 8)
-GPU_ACCELERATION_ASSESSMENT = (
-    "GPU acceleration is deferred in this pass because it would require a "
-    "batched dynamics refactor, new dependencies, and numerical-equivalence "
-    "validation. CPU chunk parallelism preserves RK4, state_derivative, plant "
-    "dynamics, latency constants, command semantics, and acceptance metrics."
+RUNTIME_STORAGE_CONTRACT = (
+    "chunked, resumable, compressed, worker-enabled, checksum-manifested, "
+    "and no generated file above 100 MB"
 )
 
 
@@ -159,7 +158,7 @@ def _memory_total_gb() -> float | None:
 
 
 # =============================================================================
-# 3) Profiling Metadata Helpers
+# 3) Dense-Run Metadata Helpers
 # =============================================================================
 def rows_per_second_by_worker_count(single_worker_rows_per_second: float) -> dict[str, float]:
     return {
@@ -171,38 +170,39 @@ def rows_per_second_by_worker_count(single_worker_rows_per_second: float) -> dic
 def runtime_estimates_by_worker_count(
     rows_per_second: dict[str, float],
     *,
-    total_trials: int,
+    total_rows: int,
 ) -> dict[str, float]:
     estimates: dict[str, float] = {}
     for key, value in rows_per_second.items():
         estimates[key] = (
             float("inf")
             if float(value) <= 0.0
-            else float(total_trials) / float(value)
+            else float(total_rows) / float(value)
         )
     return estimates
 
 
-def runtime_manifest_fields(
+def dense_run_manifest_fields(
     *,
-    simulation_stage: str,
-    environment_mode: str,
-    branch_decision_scope: str,
+    run_stage: str,
+    environment_context: str,
     worker_decision: WorkerCountDecision | None = None,
     profiling_rows_per_second: dict[str, float] | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "runtime_core_version": RUNTIME_CORE_VERSION,
         "storage_contract_version": STORAGE_CONTRACT_VERSION,
-        "simulation_stage": str(simulation_stage),
-        "environment_mode": str(environment_mode),
-        "branch_decision_scope": str(branch_decision_scope),
-        "governor_package_schema_version": GOVERNOR_PACKAGE_SCHEMA_VERSION,
+        "run_stage": str(run_stage),
+        "environment_context": str(environment_context),
+        "runtime_storage_contract": RUNTIME_STORAGE_CONTRACT,
+        "preferred_generated_file_size_mb": PREFERRED_GENERATED_FILE_SIZE_MB,
+        "max_generated_file_size_mb": MAX_GENERATED_FILE_SIZE_MB,
     }
     if worker_decision is not None:
         payload.update(
             {
                 "selected_worker_count": int(worker_decision.selected_worker_count),
+                "max_workers": worker_decision.max_workers,
                 "os_cpu_count": worker_decision.os_cpu_count,
                 "memory_total_gb": worker_decision.memory_total_gb,
                 "memory_safety_margin_gb": worker_decision.memory_safety_margin_gb,
@@ -213,3 +213,20 @@ def runtime_manifest_fields(
     if profiling_rows_per_second is not None:
         payload["rows_per_second_by_worker_count"] = dict(profiling_rows_per_second)
     return payload
+
+
+def runtime_manifest_fields(
+    *,
+    simulation_stage: str,
+    environment_mode: str,
+    worker_decision: WorkerCountDecision | None = None,
+    profiling_rows_per_second: dict[str, float] | None = None,
+) -> dict[str, object]:
+    """Backward-compatible wrapper for retained foundation tests."""
+
+    return dense_run_manifest_fields(
+        run_stage=simulation_stage,
+        environment_context=environment_mode,
+        worker_decision=worker_decision,
+        profiling_rows_per_second=profiling_rows_per_second,
+    )

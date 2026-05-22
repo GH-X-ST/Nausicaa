@@ -24,5 +24,4 @@ pythonpath = [
     "03_Control/02_Inner_Loop",
     "03_Control/03_Primitives",
     "03_Control/04_Scenarios",
-    "03_Control/05_Results",
 ]

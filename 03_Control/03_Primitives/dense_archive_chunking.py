@@ -25,10 +25,10 @@ from dense_archive_table_io import (
 # =============================================================================
 # SECTION MAP
 # =============================================================================
-# 1) Data Containers and Path Builders
-# 2) Chunk Status and Repair Helpers
-# 3) Schedule and Progress Helpers
-# 4) Manifest Validation
+# 1) Data containers and path builders
+# 2) Chunk status and repair helpers
+# 3) Schedule and progress helpers
+# 4) Manifest validation
 # =============================================================================
 
 
@@ -46,12 +46,12 @@ TIMING_FIELDS = (
 
 
 @dataclass(frozen=True)
-class GenericChunkSpec:
+class ContextChunkSpec:
     run_id: int
-    planning_run_id: int
+    source_run_id: int
     result_root: Path | None
-    layout_branch_id: str
-    test_environment_mode: str
+    context_id: str
+    environment_id: str
     chunk_index: int
     chunk_count: int
     chunk_size: int
@@ -60,11 +60,11 @@ class GenericChunkSpec:
     latency_case: str = "nominal"
     dt_s: float = 0.02
     horizon_s: float = 0.60
-    simulation_stage: str = "paired_w0_w1_proof"
+    run_stage: str = "contextual_foundation"
 
 
 @dataclass(frozen=True)
-class GenericChunkPaths:
+class ContextChunkPaths:
     root: Path
     partition_path: Path
     manifest_json: Path
@@ -79,30 +79,35 @@ class GenericChunkPaths:
         }
 
 
-def trial_outcome_paths(spec: GenericChunkSpec, *, run_root: Path) -> GenericChunkPaths:
+# Backward-compatible names for retained import paths.
+GenericChunkSpec = ContextChunkSpec
+GenericChunkPaths = ContextChunkPaths
+
+
+def contextual_table_paths(spec: ContextChunkSpec, *, run_root: Path) -> ContextChunkPaths:
     partition = partition_path(
         run_root,
-        table_name="trial_outcomes",
-        layout_branch_id=spec.layout_branch_id,
-        test_environment_mode=spec.test_environment_mode,
+        table_name="contextual_rows",
+        context_id=spec.context_id,
+        environment_id=spec.environment_id,
         chunk_index=int(spec.chunk_index),
         storage_format=spec.storage_format,
     )
     manifest = (
         run_root
         / "chunk_manifests"
-        / f"layout_branch_id={spec.layout_branch_id}"
-        / f"test_environment_mode={spec.test_environment_mode}"
+        / f"context_id={spec.context_id}"
+        / f"environment_id={spec.environment_id}"
         / f"chunk-{int(spec.chunk_index):05d}.json"
     )
     log_path = (
         run_root
         / "chunk_logs"
-        / f"layout_branch_id={spec.layout_branch_id}"
-        / f"test_environment_mode={spec.test_environment_mode}"
+        / f"context_id={spec.context_id}"
+        / f"environment_id={spec.environment_id}"
         / f"chunk-{int(spec.chunk_index):05d}.log"
     )
-    return GenericChunkPaths(
+    return ContextChunkPaths(
         root=run_root,
         partition_path=partition,
         manifest_json=manifest,
@@ -110,12 +115,18 @@ def trial_outcome_paths(spec: GenericChunkSpec, *, run_root: Path) -> GenericChu
     )
 
 
+def trial_outcome_paths(spec: ContextChunkSpec, *, run_root: Path) -> ContextChunkPaths:
+    """Backward-compatible wrapper for retained tests."""
+
+    return contextual_table_paths(spec, run_root=run_root)
+
+
 def partition_path(
     root: Path,
     *,
     table_name: str,
-    layout_branch_id: str,
-    test_environment_mode: str,
+    context_id: str,
+    environment_id: str,
     chunk_index: int,
     storage_format: str,
 ) -> Path:
@@ -123,28 +134,28 @@ def partition_path(
         Path(root)
         / "tables"
         / table_name
-        / f"layout_branch_id={layout_branch_id}"
-        / f"test_environment_mode={test_environment_mode}"
-        / f"archive_chunk_index={int(chunk_index):05d}"
+        / f"context_id={context_id}"
+        / f"environment_id={environment_id}"
+        / f"chunk_index={int(chunk_index):05d}"
         / f"part-00000.{table_extension(storage_format)}"
     )
 
 
-def chunk_key(spec_or_row: GenericChunkSpec | dict[str, object]) -> tuple[str, str, int]:
-    if isinstance(spec_or_row, GenericChunkSpec):
+def chunk_key(spec_or_row: ContextChunkSpec | dict[str, object]) -> tuple[str, str, int]:
+    if isinstance(spec_or_row, ContextChunkSpec):
         return (
-            str(spec_or_row.layout_branch_id),
-            str(spec_or_row.test_environment_mode),
+            str(spec_or_row.context_id),
+            str(spec_or_row.environment_id),
             int(spec_or_row.chunk_index),
         )
     return (
-        str(spec_or_row["layout_branch_id"]),
-        str(spec_or_row["test_environment_mode"]),
+        str(spec_or_row["context_id"]),
+        str(spec_or_row["environment_id"]),
         int(spec_or_row["chunk_index"]),
     )
 
 
-def chunk_payload(spec: GenericChunkSpec) -> dict[str, object]:
+def chunk_payload(spec: ContextChunkSpec) -> dict[str, object]:
     payload = asdict(spec)
     payload["result_root"] = None if spec.result_root is None else str(spec.result_root)
     return payload
@@ -154,11 +165,11 @@ def chunk_payload(spec: GenericChunkSpec) -> dict[str, object]:
 # 2) Chunk Status and Repair Helpers
 # =============================================================================
 def chunk_status(
-    spec: GenericChunkSpec,
+    spec: ContextChunkSpec,
     *,
     run_root: Path,
 ) -> str:
-    paths = trial_outcome_paths(spec, run_root=run_root)
+    paths = contextual_table_paths(spec, run_root=run_root)
     manifest_exists = filesystem_path(paths.manifest_json).exists()
     partition_exists = filesystem_path(paths.partition_path).exists()
     if not manifest_exists and not partition_exists:
@@ -172,8 +183,8 @@ def chunk_status(
     return "complete"
 
 
-def remove_chunk_outputs(spec: GenericChunkSpec, *, run_root: Path) -> None:
-    paths = trial_outcome_paths(spec, run_root=run_root)
+def remove_chunk_outputs(spec: ContextChunkSpec, *, run_root: Path) -> None:
+    paths = contextual_table_paths(spec, run_root=run_root)
     for path in (
         paths.partition_path,
         paths.partition_path.with_name(f"{paths.partition_path.name}.tmp"),
@@ -190,9 +201,9 @@ def remove_chunk_outputs(spec: GenericChunkSpec, *, run_root: Path) -> None:
 # =============================================================================
 # 3) Schedule and Progress Helpers
 # =============================================================================
-def assert_unique_output_paths(schedule: list[GenericChunkSpec], *, run_root: Path) -> None:
+def assert_unique_output_paths(schedule: list[ContextChunkSpec], *, run_root: Path) -> None:
     paths = [
-        trial_outcome_paths(chunk, run_root=run_root).partition_path.resolve()
+        contextual_table_paths(chunk, run_root=run_root).partition_path.resolve()
         for chunk in schedule
     ]
     if len(paths) != len(set(paths)):
@@ -201,13 +212,13 @@ def assert_unique_output_paths(schedule: list[GenericChunkSpec], *, run_root: Pa
 
 def progress_chunk_records(
     *,
-    schedule: list[GenericChunkSpec],
+    schedule: list[ContextChunkSpec],
     run_root: Path,
-    pending: list[GenericChunkSpec],
+    pending: list[ContextChunkSpec],
     completed: list[dict[str, object]],
-    skipped: list[GenericChunkSpec],
+    skipped: list[ContextChunkSpec],
     failed: list[dict[str, object]],
-    corrupt: list[GenericChunkSpec],
+    corrupt: list[ContextChunkSpec],
     path_text,
 ) -> list[dict[str, object]]:
     completed_keys = {chunk_key(row) for row in completed}
@@ -276,8 +287,10 @@ def progress_manifest_payload(
     *,
     status: str,
     run_id: int,
-    planning_run_id: int,
-    simulation_stage: str,
+    source_run_id: int | None = None,
+    planning_run_id: int | None = None,
+    run_stage: str | None = None,
+    simulation_stage: str | None = None,
     worker_decision: WorkerCountDecision,
     storage_format: str,
     latency_case: str,
@@ -286,19 +299,20 @@ def progress_manifest_payload(
     continue_on_chunk_failure: bool,
     chunks: list[dict[str, object]],
     recommended_command: str,
-    branch_decision_scope: str,
+    context_decision_scope: str | None = None,
     failures: list[dict[str, object]],
     profiling_rows_per_second: dict[str, float] | None = None,
 ) -> dict[str, object]:
     counts = chunk_status_counts(chunks)
+    source = int(source_run_id if source_run_id is not None else planning_run_id or 0)
+    stage = str(run_stage if run_stage is not None else simulation_stage or "contextual_foundation")
     payload: dict[str, object] = {
         "status": str(status),
         "runtime_core_version": RUNTIME_CORE_VERSION,
         "storage_contract_version": STORAGE_CONTRACT_VERSION,
         "run_id": int(run_id),
-        "planning_run_id": int(planning_run_id),
-        "simulation_stage": str(simulation_stage),
-        "environment_mode": "multiple",
+        "source_run_id": source,
+        "run_stage": stage,
         "scheduled_chunk_count": int(len(chunks)),
         "pending_chunk_count": int(counts.get("pending", 0)),
         "completed_chunk_count": int(counts.get("complete", 0)),
@@ -316,7 +330,7 @@ def progress_manifest_payload(
         "resume": bool(resume),
         "repair_incomplete": bool(repair_incomplete),
         "continue_on_chunk_failure": bool(continue_on_chunk_failure),
-        "branch_decision_scope": str(branch_decision_scope),
+        "context_decision_scope": str(context_decision_scope or "context_features_only"),
         "recommended_command": str(recommended_command),
         "failures": failures,
         "chunks": chunks,
@@ -327,14 +341,14 @@ def progress_manifest_payload(
 
 
 def _chunk_record(
-    spec: GenericChunkSpec,
+    spec: ContextChunkSpec,
     *,
     run_root: Path,
     status: str,
     path_text,
     failure: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    paths = trial_outcome_paths(spec, run_root=run_root)
+    paths = contextual_table_paths(spec, run_root=run_root)
     row_count: int | None = None
     checksum = ""
     if status == "complete" and filesystem_path(paths.manifest_json).exists():
@@ -345,8 +359,8 @@ def _chunk_record(
         except (OSError, ValueError, json.JSONDecodeError):
             status = "corrupt"
     return {
-        "layout_branch_id": str(spec.layout_branch_id),
-        "test_environment_mode": str(spec.test_environment_mode),
+        "context_id": str(spec.context_id),
+        "environment_id": str(spec.environment_id),
         "chunk_index": int(spec.chunk_index),
         "chunk_count": int(spec.chunk_count),
         "chunk_size": int(spec.chunk_size),
@@ -363,7 +377,7 @@ def _chunk_record(
 def _progress_report(payload: dict[str, object]) -> str:
     return "\n".join(
         [
-            f"# {payload['simulation_stage']} Chunked Progress",
+            f"# {payload['run_stage']} Chunked Progress",
             "",
             f"- Status: `{payload['status']}`",
             f"- Selected worker count: `{payload['selected_worker_count']}`",
@@ -383,8 +397,8 @@ def _progress_report(payload: dict[str, object]) -> str:
 # =============================================================================
 # 4) Manifest Validation
 # =============================================================================
-def validate_chunk_manifest(spec: GenericChunkSpec, *, run_root: Path) -> dict[str, object]:
-    paths = trial_outcome_paths(spec, run_root=run_root)
+def validate_chunk_manifest(spec: ContextChunkSpec, *, run_root: Path) -> dict[str, object]:
+    paths = contextual_table_paths(spec, run_root=run_root)
     if (
         not filesystem_path(paths.manifest_json).exists()
         or not filesystem_path(paths.partition_path).exists()
@@ -393,9 +407,9 @@ def validate_chunk_manifest(spec: GenericChunkSpec, *, run_root: Path) -> dict[s
     manifest = json.loads(filesystem_path(paths.manifest_json).read_text(encoding="ascii"))
     expected = {
         "run_id": int(spec.run_id),
-        "planning_run_id": int(spec.planning_run_id),
-        "layout_branch_id": str(spec.layout_branch_id),
-        "test_environment_mode": str(spec.test_environment_mode),
+        "source_run_id": int(spec.source_run_id),
+        "context_id": str(spec.context_id),
+        "environment_id": str(spec.environment_id),
         "chunk_index": int(spec.chunk_index),
         "chunk_count": int(spec.chunk_count),
         "chunk_size": int(spec.chunk_size),

@@ -1,0 +1,104 @@
+DAILY SCHEDULE — ENVIRONMENT-CONDITIONED PRIMITIVE RESTART TO 15 JUNE 2026
+
+Assumption
+----------
+The repository restarts from the retained foundation only:
+
+- glider / flight-dynamics model;
+- latency model;
+- updraft / local-flow model;
+- runtime and storage utilities;
+- model tests and current project documentation.
+
+Retired fan-layout-specific archive code, chain-formation logic, stale result archives, stale clustering packages, stale policy outputs, and stale Codex-generated plans are not part of the active method.
+
+Definitions
+-----------
+- Primitive: short feedback-stabilised manoeuvre with entry checks, finite horizon, exit checks, metrics, and failure labels.
+- Environment context: local flow and safety features computed from the current state and wind field.
+- Episode: one simulated or physical launch from the fixed nominal launch gate.
+- W0: dry-air baseline.
+- W1: nominal measured-updraft replay.
+- W2: hardware-aware replay with panelwise wind, latency, actuator lag, and realistic termination.
+- W3: environment-randomised robustness replay, including fan position, fan power, updraft, launch, timing, and model uncertainty.
+- Real flight: fixed-gate repeated-launch validation with Vicon-measured initial states.
+- Deadline: 15 June 2026.
+- Writing protection: 08--15 June is protected for thesis writing and final integration.
+
+Global execution rules
+----------------------
+- Do not resurrect fan-layout-specific controller logic.
+- Do not make reachable-state chaining a required success gate.
+- Single-fan, four-fan, shifted-fan, and fan-power cases are environment instances, not separate algorithms.
+- W labels are validation layers only, not online algorithm branches.
+- Dense runs must use chunked, resumable, compressed, worker-enabled execution.
+- Dense-run default: workers=8, max_workers=8, storage_format=auto/parquet/csv_gz, compression_level=1, resume=true.
+- No generated file may exceed 100 MB; preferred limit is 75 MB.
+- Real-flight transfer claims require matched real logs and sim-real replay.
+
+Execution table
+---------------
+
+| Date | Part | Stage | Run target | Validation / environment target | Runtime and storage target | Quantitative target | Output by end of day | Move-on check |
+|---|---|---|---|---|---|---:|---|---|
+| Fri 22 May | R0 | Repository reset | Model-only cleanup, no simulation evidence | N/A. Retain glider, latency, updraft, runtime/storage, tests, docs | No dense run | Deletion manifest covers every retired category | `model_only_reset_manifest.md`; clean active tree | No retired archive, result, or chain-formation path remains active |
+| Sat 23 May | R1 | Foundation audit | Model audit smoke | W0 dry-air model smoke; W1 measured-updraft model smoke | Smoke only; no dense run | All retained model files inspected | `model_only_foundation_audit.md`; model test report | Any frame, unit, sign, or comment mismatch is fixed or explicitly blocked |
+| Sun 24 May | R2 | Environment context | Context encoder smoke | W0 dry air; W1 nominal measured updraft; W3-style shifted fan and power-scaled fan context only | Smoke table; file <100 MB | At least 8 context features per row | `env_ctx.py`; `ctx_smoke.csv`; `docs/abbr.md` | Context features work for dry, measured, shifted, and power-scaled environments |
+| Mon 25 May | R3 | Primitive catalogue | Primitive interface smoke | W0 dry-air execution assumptions; environment-independent primitive definitions | Smoke only | 6--8 active primitives | `prim_cat.py`; primitive schema tests | Every primitive has parameters, entry checks, exit checks, metrics, and failure labels |
+| Tue 26 May | R4 | Primitive rollout smoke | First state + context + primitive rollout rows | W0 dry-air and W1 nominal measured-updraft; optional small W2 latency smoke | Smoke only; no dense run | 500--1,000 rows | `prim_roll.py`; smoke manifest; compact outcome summary | Accepted, weak, failed, and rejected labels are produced without fan-layout branch logic |
+| Wed 27 May | R5 | Chunked archive runner | Contextual archive preflight | W0/W1 required; W2/W3 interfaces scheduled but not fully claimed | Chunked; workers<=8; csv_gz/parquet; checksums; no file >100 MB | 5k--10k preflight rows | `run_ctx_archive.py`; table manifest; runtime summary | Chunking, resume, repair, checksums, and file-size audit pass |
+| Thu 28 May | R6 | Main contextual archive | First thesis-useful archive | W0 dry-air + W1 nominal measured-updraft + environment metadata for fan position/power | Dense run: workers=8, max_workers=8, chunked, compressed partitions | Preferred 40k--80k rows; fallback 20k | Contextual archive; environment summary; outcome summary | Archive covers dry air, nominal updraft, shifted fan, and power-scaled fan environments |
+| Fri 29 May | R7 | Outcome model and selector | Outcome model training and selector test | Train mainly on W0/W1; reserve environment-shifted cases for generalisation check | No new dense run unless model CV requires chunked evaluation | Compare nearest/medoid/table lookup and one simple classifier/regressor if useful | `prim_model.py`; `prim_select.py`; selector report | Selector predicts accept/weak/fail and cannot bypass the viability governor |
+| Sat 30 May | R8 | W2 replay | Hardware-aware focused replay | W2: panelwise wind, active latency labels, actuator lag, realistic termination | Dense if >10k rows: workers=8, chunked, compressed | Preferred 5k--15k W2 rows; fallback 2k | W2 replay table; W1-to-W2 survival summary | W2 identifies which W1-supported primitives remain realistic |
+| Sun 31 May | R9 | W3 generalisation | Environment-randomised replay | W3: fan position, fan power, updraft amplitude/centre/width, residual field, latency, launch and model uncertainty | Dense if >10k rows: workers=8, chunked, compressed | Preferred 10k--30k W3 rows; fallback 5k | W3 generalisation report; pass/weak/fail labels | Supported candidates survive randomisation or are downgraded with failure labels |
+| Mon 01 Jun | R10 | Repeated-launch simulation | Policy comparison | W1/W2/W3-selected environments; fixed-gate episode distribution | Chunked episode logs if dense; compact metrics | 100--300 episodes per policy; fallback 50 | No-memory, static-map, context-only, and context+memory comparison | Capture, dwell, energy, margin, termination, and rejection count are reported |
+| Tue 02 Jun | R11 | Hardware shortlist and shakedown | Candidate selection and arena readiness | Real-flight target: W0 fan-off/dry baseline and W1 measured-updraft setup | No dense run; real logs <100 MB each | 5--10 candidates; 3--5 shakedown launches if safe | Hardware shortlist; abort rules; logging checklist | Supervisor can understand what will be flown and why it is safe |
+| Wed 03 Jun | R12 | Real baseline | Dry/fan-off and static-map baseline | Real W0 fan-off or dry baseline; real W1 static measured-updraft baseline | Real logs partitioned if needed; every file <100 MB | Minimum 6 usable launches; target 8--10 | Baseline real-flight table; matched replay setup | Baseline outcomes are usable for comparison |
+| Thu 04 Jun | R13 | Real contextual selector | Environment-conditioned primitive selection | Real W1 nominal measured-updraft; optional changed fan power if safe | Real logs with episode IDs; no file >100 MB | Minimum 6 usable launches; target 8--10 | Contextual selector real-flight table | Logs include measured state, selected primitive, rejection log, and termination cause |
+| Fri 05 Jun | R14 | Real memory policy | Repeated-launch memory evaluation | Real W1 nominal; W3-inspired changed fan power or subset only if safe and approved | Real logs with belief snapshots; no file >100 MB | Minimum 6 usable launches; target 8--10 | Belief logs; episode comparison table | Memory benefit, no benefit, or negative transfer is quantified |
+| Sat 06 Jun | R15 | Sim-real pairing | Replay every usable real launch | Matched W1/W2-compatible replay; W3-style replay only for robustness discussion | Chunked replay if dense; compact paired metrics | Every usable real launch has matched replay | Sim-real prediction table: capture, dwell, energy, margin, termination | Transfer labels are metric-specific and claim-safe |
+| Sun 07 Jun | R16 | Results lock | Lock code, results, and claim boundary | All validation layers: W0/W1/W2/W3 plus real flight where available | Manifest and file-size audit | Final evidence package complete | Results package; figure-source manifest; claim-boundary note | No new experiments unless a manifest, safety, or logging error is found |
+| Mon 08 Jun | W1 | Methods writing | Chapter 6 methods | W0--W3 described as validation layers; online method described as state + context + primitive | Writing only | Method skeleton and algorithms complete | Chapter 6 draft | Text matches implemented code and avoids retired branch/chain story |
+| Tue 09 Jun | W2 | Results writing | Chapter 7 results | Report W0/W1 archive, W2 replay, W3 generalisation, real flight, sim-real pairing | Writing only | Core tables and figures integrated | Chapter 7 draft | Results use supported / partial / negative / not-tested labels |
+| Wed 10 Jun | W3 | Introduction and related work | Chapter 1/2 rewrite | Position project as environment-conditioned primitive transfer, not perching or all-arena exploration | Writing only | Intro and related-work draft | Chapter 1/2 updated | No old final-objective trace remains |
+| Thu 11 Jun | W4 | Platform/updraft/model chapters | Chapters 3--5 alignment | Explain retained glider, latency, and updraft/local-flow foundation | Writing only | Platform, updraft, and glider chapters coherent | Chapter 3--5 edits | Assumptions match the final method |
+| Fri 12 Jun | W5 | Figures and captions | Thesis figures | Figures cover W0/W1/W2/W3 and real evidence where available | Figure files <100 MB; preferred <75 MB | All core figures traceable | Figure folder and caption draft | Every figure has data source and claim boundary |
+| Sat 13 Jun | W6 | Full thesis integration | Compile all chapters and appendices | Whole thesis | Writing only | Full compile; missing refs listed | Full draft PDF | No major missing section remains |
+| Sun 14 Jun | W7 | Review and compression | Clarity, consistency, claim safety | Whole thesis | Writing only | Remove repetition and retired strategy traces | Near-final PDF | Supervisor-readable and internally consistent |
+| Mon 15 Jun | W8 | Final checks | Submission package | Whole thesis and repository evidence package | File-size, reference, compile, and reproducibility audit | Zero critical compile errors | Submission-ready thesis package | Submission package complete |
+
+Move-on hierarchy
+-----------------
+1. Model mismatch blocks new controller evidence.
+2. Missing W0/W1 context smoke blocks the archive.
+3. Missing W2 survival blocks hardware shortlist.
+4. Missing W3 generalisation blocks robustness claims, but not all real-flight shakedown.
+5. Missing matched sim-real replay blocks transfer claims.
+6. Missing real flight still allows simulation-only thesis claims if labelled honestly.
+
+Evidence wording
+----------------
+Use these labels in reports and thesis tables:
+
+```text
+simulation_only
+hardware_shakedown
+real_flight_evidence
+partial_transfer
+negative_transfer
+instrumentation_limited
+not_tested
+```
+
+Do not claim:
+
+```text
+mission success
+full autonomy
+real-flight transfer
+full W3 robustness
+environment generalisation
+hardware readiness
+```
+
+unless the exact evidence exists and is paired with its limitations.

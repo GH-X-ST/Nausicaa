@@ -1,4 +1,0 @@
-name,value,pass_check,required,reason
-finite_state,True,True,True,full_state_history_finite
-true_safe_margin,0.10000000000000009,True,True,trajectory_inside_true_safe_bounds
-rollout_success,True,True,True,rollout_metric_success

@@ -73,16 +73,6 @@ REQUIRED_METRIC_COLUMNS = (
     "saturation_fraction",
     "notes",
 )
-AGILE_METRIC_COLUMNS = (
-    "target_heading_deg",
-    "actual_heading_change_deg",
-    "forward_travel_m",
-    "turn_volume_proxy_m2",
-    "exit_recoverable",
-    "source_trajectory_success",
-    "gain_construction_success",
-    "saturation_time_s",
-)
 REQUIRED_BOOLEAN_METRIC_COLUMNS = (
     "success",
     "finite_state_success",
@@ -90,17 +80,12 @@ REQUIRED_BOOLEAN_METRIC_COLUMNS = (
     "primitive_success",
     "closed_loop_replay_success",
 )
-AGILE_BOOLEAN_METRIC_COLUMNS = (
-    "exit_recoverable",
-    "source_trajectory_success",
-    "gain_construction_success",
-)
 
 
 # =============================================================================
 # 2) Metric Row Helpers
 # =============================================================================
-def empty_metric_row(include_agile: bool = False) -> dict[str, object]:
+def empty_metric_row() -> dict[str, object]:
     """Return a metric row with all required keys."""
 
     row: dict[str, object] = {
@@ -132,43 +117,25 @@ def empty_metric_row(include_agile: bool = False) -> dict[str, object]:
         "saturation_fraction": np.nan,
         "notes": "",
     }
-    if include_agile:
-        row.update(
-            {
-                "target_heading_deg": np.nan,
-                "actual_heading_change_deg": np.nan,
-                "forward_travel_m": np.nan,
-                "turn_volume_proxy_m2": np.nan,
-                "exit_recoverable": False,
-                "source_trajectory_success": False,
-                "gain_construction_success": False,
-                "saturation_time_s": np.nan,
-            }
-        )
     return row
 
 
-def validate_metric_row(row: Mapping[str, object], allow_agile: bool = True) -> None:
+def validate_metric_row(row: Mapping[str, object]) -> None:
     """Check required keys and allowed failure labels."""
 
     supplied = set(row.keys())
     required = set(REQUIRED_METRIC_COLUMNS)
-    agile = set(AGILE_METRIC_COLUMNS)
     missing = required - supplied
     if missing:
         raise ValueError(f"metric row missing required keys: {sorted(missing)}.")
 
-    allowed = required | agile if allow_agile else required
-    extra = supplied - allowed
+    extra = supplied - required
     if extra:
         raise ValueError(f"metric row contains unknown keys: {sorted(extra)}.")
     if row["failure_label"] not in FAILURE_LABELS:
         raise ValueError(f"unknown failure_label: {row['failure_label']}.")
     for name in REQUIRED_BOOLEAN_METRIC_COLUMNS:
         if not isinstance(row[name], bool):
-            raise ValueError(f"metric row {name} must be a bool.")
-    for name in AGILE_BOOLEAN_METRIC_COLUMNS:
-        if name in row and not isinstance(row[name], bool):
             raise ValueError(f"metric row {name} must be a bool.")
 
 
@@ -179,11 +146,7 @@ def metric_schema_dataframe() -> pd.DataFrame:
     """Return the metric schema as a table for audit output."""
 
     rows = [
-        {"column": name, "required": True, "agile_only": False}
+        {"column": name, "required": True, "contextual_foundation": True}
         for name in REQUIRED_METRIC_COLUMNS
     ]
-    rows.extend(
-        {"column": name, "required": False, "agile_only": True}
-        for name in AGILE_METRIC_COLUMNS
-    )
     return pd.DataFrame(rows)

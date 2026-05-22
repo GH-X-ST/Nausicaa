@@ -1,1 +1,0 @@
-cluster_id,medoid_sample_id,primitive_id,fan_branch,W_layer,latency_case,entry_source,outcome_class,primitive_family,dwell_time_s,energy_residual_m,minimum_margin_m,exit_speed_m_s,failure_label,recommended_use,is_medoid,controller_mode,feedback_mode,claim_status,evidence_role

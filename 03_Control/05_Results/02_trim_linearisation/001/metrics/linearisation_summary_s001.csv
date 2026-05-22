@@ -1,5 +1,0 @@
-case_name,role,speed_m_s,a_rows,a_cols,b_rows,b_cols,a_shape_pass,b_shape_pass,finite_entries,indexing_pass,max_real_eigenvalue,open_loop_stability_is_diagnostic_only,dynamic_residual_norm,hard_gate_pass
-natural_glide_6p5_none,required,6.5,15,15,15,3,True,True,True,True,0.4921696805875504,True,7.839702805257044e-15,True
-natural_glide_5p5_none,optional,5.5,15,15,15,3,True,True,True,True,0.6389326024336166,True,8.032080986630855e-10,True
-natural_glide_7p5_none,optional,7.5,15,15,15,3,True,True,True,True,0.42486981920496747,True,4.496424544037342e-13,True
-natural_glide_4p5_none,diagnostic,4.5,15,15,15,3,True,True,True,True,1.680691063571157,True,5.5214469428542e-13,True

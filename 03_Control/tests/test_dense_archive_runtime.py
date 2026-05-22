@@ -3,14 +3,30 @@ from __future__ import annotations
 import dense_archive_runtime as runtime
 
 
-def test_runtime_manifest_fields_preserve_shared_contract_versions() -> None:
-    payload = runtime.runtime_manifest_fields(
-        simulation_stage="paired_w0_w1_proof",
-        environment_mode="multiple",
-        branch_decision_scope="branch_local_only_no_cross_layout_decision_transfer",
+def test_runtime_manifest_fields_preserve_contextual_storage_contract() -> None:
+    payload = runtime.dense_run_manifest_fields(
+        run_stage="contextual_foundation",
+        environment_context="local_flow_features",
     )
 
     assert payload["runtime_core_version"] == runtime.RUNTIME_CORE_VERSION
     assert payload["storage_contract_version"] == runtime.STORAGE_CONTRACT_VERSION
-    assert payload["governor_package_schema_version"] == runtime.GOVERNOR_PACKAGE_SCHEMA_VERSION
-    assert "GPU acceleration is deferred" in runtime.GPU_ACCELERATION_ASSESSMENT
+    assert payload["max_generated_file_size_mb"] == 100.0
+    assert "chunked" in runtime.RUNTIME_STORAGE_CONTRACT
+    assert "resumable" in runtime.RUNTIME_STORAGE_CONTRACT
+    assert "compressed" in runtime.RUNTIME_STORAGE_CONTRACT
+    assert "worker-enabled" in runtime.RUNTIME_STORAGE_CONTRACT
+    assert "checksum-manifested" in runtime.RUNTIME_STORAGE_CONTRACT
+
+
+def test_worker_count_decision_caps_and_records_memory_guardrail() -> None:
+    decision = runtime.worker_count_decision(
+        16,
+        logical_cpu_count=20,
+        memory_total_gb=16.0,
+        estimated_worker_memory_gb=3.0,
+        max_workers=8,
+    )
+
+    assert 1 <= decision.selected_worker_count <= 8
+    assert "capped_by_max_workers_8" in decision.fallback_reason

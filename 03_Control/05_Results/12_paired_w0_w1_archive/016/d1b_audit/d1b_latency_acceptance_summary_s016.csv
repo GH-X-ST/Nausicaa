@@ -1,9 +1,0 @@
-test_environment_mode,latency_case,latency_pass_label,trial_count,interpretation
-W0_four_fan_branch,nominal,nominal_fail,24813,nominal open-loop evidence is not hardware-ready delayed-state-feedback evidence
-W0_four_fan_branch,nominal,nominal_pass,187,nominal open-loop evidence is not hardware-ready delayed-state-feedback evidence
-W0_single_fan_branch,nominal,nominal_fail,24870,nominal open-loop evidence is not hardware-ready delayed-state-feedback evidence
-W0_single_fan_branch,nominal,nominal_pass,130,nominal open-loop evidence is not hardware-ready delayed-state-feedback evidence
-W1_four_fan,nominal,nominal_fail,98136,nominal open-loop evidence is not hardware-ready delayed-state-feedback evidence
-W1_four_fan,nominal,nominal_pass,1864,nominal open-loop evidence is not hardware-ready delayed-state-feedback evidence
-W1_single_fan,nominal,nominal_fail,98285,nominal open-loop evidence is not hardware-ready delayed-state-feedback evidence
-W1_single_fan,nominal,nominal_pass,1715,nominal open-loop evidence is not hardware-ready delayed-state-feedback evidence

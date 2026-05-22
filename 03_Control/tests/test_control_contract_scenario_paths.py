@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from result_paths import make_result_tree
 from scenario_contract import (
     LATENCY_CASES,
     WIND_MODES,
@@ -53,23 +52,3 @@ def test_scenario_spec_row_is_csv_ready() -> None:
     assert row["wind_mode"] == "panel"
     assert row["latency_case"] == "conservative"
     assert row["use_true_safe_bounds"] is True
-
-
-def test_make_result_tree_creates_required_subfolders(tmp_path) -> None:
-    paths = make_result_tree(tmp_path, "00_contracts", 1)
-
-    assert paths["root"] == tmp_path / "00_contracts" / "001"
-    for name in ("metrics", "logs", "figures", "manifests", "reports"):
-        assert paths[name].is_dir()
-
-
-def test_make_result_tree_requires_overwrite_and_safe_campaign(tmp_path) -> None:
-    make_result_tree(tmp_path, "contracts", 1)
-
-    with pytest.raises(ValueError, match="already exists"):
-        make_result_tree(tmp_path, "contracts", 1)
-    make_result_tree(tmp_path, "contracts", 1, overwrite=True)
-    with pytest.raises(ValueError, match="campaign"):
-        make_result_tree(tmp_path, "../bad", 1)
-    with pytest.raises(ValueError, match="campaign"):
-        make_result_tree(tmp_path, "BadName", 1)
