@@ -1,0 +1,8 @@
+Metric,Count
+total_events,15804
+strict_true_e2e_raw,15348
+strict_true_e2e_final,13859
+excluded_non_realistic,1489
+excluded_reason:commit_to_anchor_out_of_range,48
+excluded_reason:ppm_to_receiver_out_of_range,1433
+excluded_reason:dispatch_to_rx_out_of_range,8
