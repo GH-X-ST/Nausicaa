@@ -27,6 +27,7 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "docs/housekeeping_and_naming_rules.md",
     "docs/Daily_Schedule.txt",
     "docs/abbr.md",
+    "docs/reset_or_next_step_build_note.md",
     "docs/model_audit/model_only_foundation_audit.md",
     "docs/reset/model_only_reset_manifest.md",
     "docs/reset/kept_file_audit.csv",
@@ -42,6 +43,8 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "03_Control/03_Primitives/metric_contract.py",
     "03_Control/03_Primitives/latency.py",
     "03_Control/03_Primitives/wing_wind_descriptors.py",
+    "03_Control/03_Primitives/prim_cat.py",
+    "03_Control/03_Primitives/prim_roll.py",
     "03_Control/03_Primitives/dense_archive_runtime.py",
     "03_Control/03_Primitives/dense_archive_table_io.py",
     "03_Control/03_Primitives/dense_archive_chunking.py",
@@ -49,6 +52,8 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "03_Control/04_Scenarios/arena_contract.py",
     "03_Control/04_Scenarios/scenario_contract.py",
     "03_Control/04_Scenarios/updraft_models.py",
+    "03_Control/04_Scenarios/env_ctx.py",
+    "03_Control/04_Scenarios/run_ctx_archive.py",
 }
 ALLOWLISTED_TESTS = {
     "03_Control/tests/conftest.py",
@@ -77,6 +82,10 @@ ALLOWLISTED_TESTS = {
     "03_Control/tests/test_updraft_model_shapes.py",
     "03_Control/tests/test_updraft_randomisation.py",
     "03_Control/tests/test_wing_wind_descriptors.py",
+    "03_Control/tests/test_env_ctx.py",
+    "03_Control/tests/test_prim_cat.py",
+    "03_Control/tests/test_prim_roll.py",
+    "03_Control/tests/test_ctx_archive_smoke.py",
 }
 ALLOWLISTED_DATA = {
     "02_Glider_Design/C_results/nausicaa_results.csv",
