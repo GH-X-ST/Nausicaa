@@ -21,6 +21,8 @@ local environment identifier
 real-flight replay metadata
 ```
 
+W labels are validation layers, not online controller branches: W0 is dry air only, W1 is Gaussian plume only, W2 is GP-corrected annular-Gaussian only, and W3 is randomised GP-corrected annular-Gaussian only. Fan count, fan shift, and fan power are environment instances.
+
 ## Comments
 
 Use rich comments for:
@@ -68,7 +70,7 @@ hardware route
 
 Do not change control code and hardware code simultaneously unless necessary. If both change, report which result can still be compared with earlier evidence.
 
-## Fixed-gate and repeated-launch support
+## Launch and repeated-episode support
 
 Hardware code should support:
 
@@ -81,6 +83,7 @@ Hardware code should support:
 - real-flight replay matching.
 
 Do not add complex onboard autonomy unless explicitly requested.
+X/y boundary exits should be logged as terminal episode evidence when they occur. They are not continuation-valid states, and they must not be deleted merely because the episode terminates at a lateral boundary.
 
 ## File-size rule
 

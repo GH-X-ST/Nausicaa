@@ -4,7 +4,7 @@
 
 This plan integrates the full environment-conditioned primitive strategy with the model-only restart assumption. It is the active project contract for the Nausicaa glider control work.
 
-The project uses a compact library of short feedback-stabilised **primitives** to exploit local vertical flow across repeated fixed-gate launches. The online method is independent of a particular fan layout. It uses the measured glider state and local flow-context features to predict primitive outcomes, rejects unsafe choices through a viability governor, executes one short primitive, records the episode result, and updates an episodic lift belief for later launches.
+The project uses a compact library of short feedback-stabilised **primitives** to exploit local vertical flow across repeated approved-launch episodes. The online method is independent of a particular fan layout. It uses the measured glider state and local flow-context features to predict primitive outcomes, rejects unsafe choices through a viability governor, executes one short primitive, records the episode result, and updates an episodic lift belief for later launches.
 
 Submitted thesis title:
 
@@ -68,7 +68,7 @@ The project remains a robotics-style experimental contribution:
 ```text
 measured environment
 real hardware and instrumentation
-fixed-gate launch protocol
+approved physical launch protocol
 short closed-loop primitives
 explicit baselines and ablations
 failure labels
@@ -401,6 +401,18 @@ Termination is an outcome label, not automatic mission failure.
 
 For archive generation before clustering, x-y wall or lateral safety-volume exit should be retained as a terminal outcome rather than used as a row-deletion rule. These terminal rows may be weak, failed, or boundary-terminal evidence, but they are still useful for learning where primitives stop being viable in a repeated-launch task. Floor and ceiling violations remain safety-critical z-boundary failures and must be labelled separately.
 
+Implementation must distinguish two non-z-boundary primitive uses:
+
+```text
+continuation_valid
+    The primitive finishes with enough x-y wall margin, speed margin, attitude margin, and state validity to seed another primitive in the same simulated episode.
+
+episode_terminal_useful
+    The primitive may terminate at an x-y wall limit or lateral safety-volume edge, but it still provides useful lift capture, finite dwell, energy retention, or boundary evidence for the repeated-launch objective. It is retained for archive learning and repeated-launch evaluation, but not used as a downstream continuation state.
+```
+
+This distinction prevents the governor from rejecting every useful primitive merely because every launch eventually reaches the lateral boundary in the small arena. The archive records both labels; the selector decides later whether the current mode is continuation or terminal episode use.
+
 Recommended physical start trigger:
 
 ```text
@@ -443,6 +455,9 @@ minimum_wall_margin_m
 minimum_speed_m_s
 exit_state_vector
 termination_cause
+continuation_valid
+episode_terminal_useful
+boundary_use_class          continuation_valid / episode_terminal_useful / hard_failure / blocked
 failure_label
 claim_status
 ```
@@ -450,6 +465,21 @@ claim_status
 Accepted rows, weak rows, failed rows, and rejected rows are all evidence. Do not erase failures through clustering or averaging.
 
 Do not discard rollout rows before clustering only because the simulated primitive reaches an x-y wall limit or lateral safety-volume edge. In the archive, this is a terminal outcome and a source of boundary evidence. Penalising or rejecting such a primitive for real execution belongs to the viability governor or later selector, not to the archive row-generation filter. A z-boundary violation, nonfinite state, or physically invalid rollout must remain a hard failure label.
+
+Boundary-use labels must be assigned before clustering:
+
+```text
+continuation_valid
+    exit state can be used to seed another primitive in the same simulated episode
+episode_terminal_useful
+    x-y boundary or wall-limit termination is retained as useful repeated-launch terminal evidence
+hard_failure
+    floor/ceiling violation, nonfinite state, corrupt integration, or physically impossible state
+blocked
+    unsupported surrogate, feedback, latency, or entry condition before rollout
+```
+
+The archive should train the outcome model on terminal-useful cases as terminal evidence, but must not let those rows masquerade as continuation-success rows.
 
 Archive evidence should be organised as:
 
@@ -486,7 +516,7 @@ First acceptable implementations:
 ```text
 nearest-neighbour / kNN lookup
 binning table
-medoid lookup
+representative-row lookup
 table-based score model
 calibrated logistic or tree model
 small transparent regressor/classifier
@@ -503,7 +533,12 @@ energy residual
 lift dwell time
 minimum safety margin
 termination label
+continuation_valid probability or label
+episode_terminal_useful probability or label
 ```
+
+
+The outcome model should keep continuation and terminal-use labels separate. A primitive that is useful as an episode-ending lift-capture action should not be counted as a continuation-valid primitive unless its exit state also satisfies the margin and state-validity checks needed to start another primitive.
 
 The model must remain explainable enough to support a robotics-journal method section.
 
@@ -530,6 +565,18 @@ supported latency / feedback mode
 Primitive scoring is allowed only after viability filtering.
 
 The governor is where x-y wall risk is converted into a selection penalty or rejection for real execution. Archive generation should preserve boundary-terminal evidence first, then the governor learns or applies the conservative decision boundary from those labelled outcomes.
+
+The governor must therefore support two explicit operating modes:
+
+```text
+continuation_mode
+    reject primitives predicted to hit the x-y wall before their finite horizon or to exit without enough margin for another primitive
+
+terminal_episode_mode
+    allow an x-y boundary-terminal primitive if it is predicted to provide useful lift capture, finite dwell, or energy retention before a controlled terminal outcome, while still rejecting z-boundary violation, low-speed unrecoverability, nonfinite trajectories, and unsupported feedback or surrogate cases
+```
+
+The selected mode must be logged. This keeps the repeated-launch mission feasible without pretending that lateral-boundary termination is safe continuation evidence.
 
 Suggested utility:
 
@@ -672,7 +719,7 @@ W3 uses the randomised GP-corrected annular-Gaussian surrogate and is the main s
 
 ### 12.5 Real flight
 
-Real flight is fixed-gate repeated-launch validation with measured initial states. Real data must be paired with matched simulation before any transfer claim is made.
+Real flight is approved repeated-launch validation with measured initial states. Real data must be paired with matched simulation before any transfer claim is made.
 
 ---
 
@@ -735,7 +782,7 @@ claim status
 
 ## 15. Real-flight evidence
 
-Real evaluation remains fixed-gate because it makes sim-real comparison interpretable.
+Real evaluation remains controlled by an approved launch protocol because it makes sim-real comparison interpretable.
 
 Minimum useful real evidence:
 
@@ -804,7 +851,7 @@ outcome_class
 evidence_role
 ```
 
-Use medoids or representative real rows where possible. A medoid remains replayable and auditable.
+Use representative real rows where possible. A representative row remains replayable and auditable.
 
 Outputs:
 
@@ -821,6 +868,8 @@ Do not hide failures through clustering. Failed and rejected cases are part of t
 
 Boundary-terminal rows, including x-y wall-limit or lateral safety-volume exits, should form explicit clusters or failure summaries rather than being removed before clustering. They are not automatically hardware candidates, but they are essential for learning the context boundary where the governor should become conservative. Clustering must not select only clean accepted rows for W2/W3; representative weak, boundary-terminal, and informative failed rows are needed so the outcome model and governor learn the operating boundary rather than only the easy region.
 
+Cluster reports should keep `continuation_valid` and `episode_terminal_useful` cases visibly separate. Terminal-useful clusters may support repeated-launch lift-capture decisions, but they must not be promoted to downstream-continuation evidence.
+
 ---
 
 ## 17. Runtime, storage, and file-size contract
@@ -834,7 +883,7 @@ planned rollout rows >= 10,000
 planned candidate rows >= 5,000
 expected runtime > 30 minutes
 expected uncompressed table size > 250 MB
-used for thesis evidence, environment generalisation, envelope maps, clustering, W2/W3 replay, outcome models, or governor packages
+used for thesis evidence, environment generalisation, envelope maps, clustering, W2/W3 replay, outcome models, or selector/governor reports
 ```
 
 Dense runs must be:

@@ -17,7 +17,8 @@ from flight_dynamics import adapt_glider, state_derivative
 from glider import build_nausicaa_glider
 from latency import actuator_tau_for_case, latency_case_config
 from prim_cat import PrimitiveDefinition, primitive_parameters_json
-from state_contract import STATE_INDEX
+from prim_ctrl import PrimitiveControlContext, primitive_command_norm
+from state_contract import STATE_INDEX, STATE_SIZE
 from state_contract import as_state_vector
 
 
@@ -27,7 +28,7 @@ from state_contract import as_state_vector
 # 1) Rollout schema
 # 2) Public rollout evaluation
 # 3) Smoke rollout evaluation
-# 4) Model-backed rollout evaluation
+# 4) Dynamics rollout evaluation
 # 5) Serialisation helpers
 # =============================================================================
 
@@ -35,7 +36,26 @@ from state_contract import as_state_vector
 # =============================================================================
 # 1) Rollout Schema
 # =============================================================================
-OUTCOME_CLASSES = ("accepted", "weak", "failed", "rejected", "blocked")
+OUTCOME_CLASSES = (
+    "accepted",
+    "weak",
+    "failed",
+    "rejected",
+    "boundary_terminal",
+    "blocked",
+)
+ROLLOUT_BACKENDS = (
+    "smoke_only",
+    "model_backed_command_template",
+    "model_backed_feedback",
+    "blocked_feedback",
+)
+EVIDENCE_ROLE_BY_BACKEND = {
+    "smoke_only": "interface_smoke",
+    "model_backed_command_template": "diagnostic_model_rollout",
+    "model_backed_feedback": "feedback_rollout_candidate",
+    "blocked_feedback": "blocked_feedback",
+}
 ROLLOUT_EVIDENCE_COLUMNS = (
     "rollout_id",
     "episode_id",
@@ -50,8 +70,15 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "feedback_mode",
     "latency_case",
     "rollout_backend",
+    "evidence_role",
     "surrogate_binding_status",
     "trajectory_integrity_status",
+    "entry_check_status",
+    "exit_check_status",
+    "continuation_status",
+    "episode_terminal_status",
+    "episode_utility_label",
+    "terminal_use_trainable",
     "accepted",
     "outcome_class",
     "energy_residual_m",
@@ -92,8 +119,15 @@ class RolloutEvidence:
     feedback_mode: str
     latency_case: str
     rollout_backend: str
+    evidence_role: str
     surrogate_binding_status: str
     trajectory_integrity_status: str
+    entry_check_status: str
+    exit_check_status: str
+    continuation_status: str
+    episode_terminal_status: str
+    episode_utility_label: str
+    terminal_use_trainable: bool
     accepted: bool
     outcome_class: str
     energy_residual_m: float
@@ -124,11 +158,13 @@ def simulate_primitive_rollout(
     """Return one primitive rollout row using smoke-only or model-backed backend."""
 
     cfg = config or RolloutConfig()
-    state = as_state_vector(initial_state)
+    state = _initial_state_for_rollout(initial_state)
     if primitive.claim_status != "simulation_only":
         raise ValueError("rollout evidence only supports simulation_only primitives.")
     if float(primitive.finite_horizon_s) <= 0.0:
         raise ValueError("primitive finite_horizon_s must be positive.")
+    if cfg.rollout_backend not in ROLLOUT_BACKENDS:
+        raise ValueError("rollout_backend must be one of the retained rollout backends.")
     if cfg.rollout_backend == "smoke_only":
         return _simulate_smoke_rollout(
             rollout_id=rollout_id,
@@ -138,8 +174,8 @@ def simulate_primitive_rollout(
             primitive=primitive,
             config=cfg,
         )
-    if cfg.rollout_backend == "model_backed":
-        return _simulate_model_backed_rollout(
+    if cfg.rollout_backend in {"model_backed_command_template", "model_backed_feedback"}:
+        return _simulate_dynamics_rollout(
             rollout_id=rollout_id,
             episode_id="" if episode_id is None else str(episode_id),
             state=state,
@@ -148,7 +184,15 @@ def simulate_primitive_rollout(
             config=cfg,
             wind_field=wind_field,
         )
-    raise ValueError("rollout_backend must be 'smoke_only' or 'model_backed'.")
+    return blocked_rollout_evidence(
+        rollout_id=rollout_id,
+        episode_id=episode_id,
+        initial_state=state,
+        context=context,
+        primitive=primitive,
+        config=cfg,
+        failure_label="blocked_feedback_requested",
+    )
 
 
 def blocked_rollout_evidence(
@@ -179,9 +223,16 @@ def blocked_rollout_evidence(
         controller_mode=primitive.controller_mode,
         feedback_mode=primitive.feedback_mode,
         latency_case=context.latency_case,
-        rollout_backend=str(cfg.rollout_backend),
+        rollout_backend="blocked_feedback",
+        evidence_role=EVIDENCE_ROLE_BY_BACKEND["blocked_feedback"],
         surrogate_binding_status=context.surrogate_binding_status,
         trajectory_integrity_status="blocked_before_simulation",
+        entry_check_status=str(failure_label),
+        exit_check_status="not_evaluated",
+        continuation_status="blocked",
+        episode_terminal_status="not_terminal",
+        episode_utility_label="blocked",
+        terminal_use_trainable=False,
         accepted=False,
         outcome_class="blocked",
         energy_residual_m=0.0,
@@ -245,8 +296,19 @@ def _simulate_smoke_rollout(
         feedback_mode=primitive.feedback_mode,
         latency_case=context.latency_case,
         rollout_backend="smoke_only",
+        evidence_role=EVIDENCE_ROLE_BY_BACKEND["smoke_only"],
         surrogate_binding_status=context.surrogate_binding_status,
         trajectory_integrity_status="smoke_only_not_integrated",
+        entry_check_status="interface_smoke_not_evaluated",
+        exit_check_status=_exit_check_status(outcome_class, failure_label),
+        continuation_status=_continuation_status(outcome_class),
+        episode_terminal_status=_episode_terminal_status(outcome_class),
+        episode_utility_label=_episode_utility_label(
+            outcome_class=outcome_class,
+            energy_residual_m=energy_residual_m,
+            lift_dwell_time_s=lift_dwell_time_s,
+        ),
+        terminal_use_trainable=_terminal_use_trainable(outcome_class, trajectory_status="smoke"),
         accepted=accepted,
         outcome_class=outcome_class,
         energy_residual_m=energy_residual_m,
@@ -265,7 +327,7 @@ def _simulate_smoke_rollout(
 # =============================================================================
 # 4) Model-Backed Rollout Evaluation
 # =============================================================================
-def _simulate_model_backed_rollout(
+def _simulate_dynamics_rollout(
     *,
     rollout_id: str,
     episode_id: str,
@@ -285,6 +347,47 @@ def _simulate_model_backed_rollout(
             config=config,
             failure_label="nonfinite_initial_state",
         )
+    initial_margins = position_margin_m(state[:3], TRUE_SAFE_BOUNDS)
+    if float(initial_margins["floor_margin_m"]) < 0.0:
+        return _blocked_from_state(
+            rollout_id=rollout_id,
+            episode_id=episode_id,
+            state=state,
+            context=context,
+            primitive=primitive,
+            config=config,
+            failure_label="initial_floor_violation",
+        )
+    if float(initial_margins["ceiling_margin_m"]) < 0.0:
+        return _blocked_from_state(
+            rollout_id=rollout_id,
+            episode_id=episode_id,
+            state=state,
+            context=context,
+            primitive=primitive,
+            config=config,
+            failure_label="initial_ceiling_violation",
+        )
+    if float(initial_margins["min_wall_margin_m"]) < 0.0:
+        return _blocked_from_state(
+            rollout_id=rollout_id,
+            episode_id=episode_id,
+            state=state,
+            context=context,
+            primitive=primitive,
+            config=config,
+            failure_label="physically_impossible_initial_state",
+        )
+    if _attitude_is_physically_impossible(state):
+        return _blocked_from_state(
+            rollout_id=rollout_id,
+            episode_id=episode_id,
+            state=state,
+            context=context,
+            primitive=primitive,
+            config=config,
+            failure_label="physically_impossible_initial_state",
+        )
     initial_speed_m_s = float(np.linalg.norm(state[6:9]))
     if initial_speed_m_s < float(config.minimum_speed_m_s):
         return _blocked_from_state(
@@ -297,7 +400,9 @@ def _simulate_model_backed_rollout(
             failure_label="speed_low",
         )
 
-    command = normalised_command_to_surface_rad(_primitive_command_norm(primitive))
+    command_template = normalised_command_to_surface_rad(
+        _primitive_command_template_norm(primitive)
+    )
     latency = latency_case_config(context.latency_case)
     tau_s = actuator_tau_for_case(latency)
     wind_mode = _wind_mode_for_rollout(context=context, config=config, wind_field=wind_field)
@@ -311,9 +416,14 @@ def _simulate_model_backed_rollout(
     trajectory_status = "finite_model_backed"
     termination_cause = "controlled_finish"
     failure_label = "success"
+    feedback_mode = (
+        "command_template_diagnostic"
+        if config.rollout_backend == "model_backed_command_template"
+        else primitive.feedback_mode
+    )
     steps = max(1, int(np.ceil(float(primitive.finite_horizon_s) / float(config.dt_s))))
 
-    for _ in range(steps):
+    for step_index in range(steps):
         margins = position_margin_m(x[:3], TRUE_SAFE_BOUNDS)
         min_wall_margin_m = min(min_wall_margin_m, float(margins["min_wall_margin_m"]))
         min_floor_margin_m = min(min_floor_margin_m, float(margins["floor_margin_m"]))
@@ -337,6 +447,19 @@ def _simulate_model_backed_rollout(
             break
         if context.w_wing_mean_m_s > 0.05:
             lift_dwell_time_s += float(config.dt_s)
+        if config.rollout_backend == "model_backed_feedback":
+            control_command = primitive_command_norm(
+                primitive,
+                PrimitiveControlContext(
+                    state_vector=x,
+                    environment_context=context,
+                    time_in_primitive_s=float(step_index) * float(config.dt_s),
+                ),
+            )
+            command = np.asarray(control_command.command_rad, dtype=float)
+            feedback_mode = control_command.feedback_mode
+        else:
+            command = command_template
         x = _rk4_step(
             x=x,
             command=command,
@@ -380,12 +503,26 @@ def _simulate_model_backed_rollout(
         primitive_id=primitive.primitive_id,
         primitive_family=primitive.primitive_family,
         primitive_parameters=primitive_parameters_json(primitive),
-        controller_mode=primitive.controller_mode,
-        feedback_mode=primitive.feedback_mode,
+        controller_mode=_controller_mode_for_backend(config.rollout_backend, primitive),
+        feedback_mode=feedback_mode,
         latency_case=context.latency_case,
-        rollout_backend="model_backed",
+        rollout_backend=config.rollout_backend,
+        evidence_role=_evidence_role_for_backend(config.rollout_backend),
         surrogate_binding_status=context.surrogate_binding_status,
         trajectory_integrity_status=trajectory_status,
+        entry_check_status="passed",
+        exit_check_status=_exit_check_status(outcome_class, failure_label),
+        continuation_status=_continuation_status(outcome_class),
+        episode_terminal_status=_episode_terminal_status(outcome_class),
+        episode_utility_label=_episode_utility_label(
+            outcome_class=outcome_class,
+            energy_residual_m=energy_residual_m,
+            lift_dwell_time_s=lift_dwell_time_s,
+        ),
+        terminal_use_trainable=_terminal_use_trainable(
+            outcome_class,
+            trajectory_status=trajectory_status,
+        ),
         accepted=outcome_class == "accepted",
         outcome_class=outcome_class,
         energy_residual_m=energy_residual_m,
@@ -422,12 +559,23 @@ def _blocked_from_state(
         primitive_id=primitive.primitive_id,
         primitive_family=primitive.primitive_family,
         primitive_parameters=primitive_parameters_json(primitive),
-        controller_mode=primitive.controller_mode,
-        feedback_mode=primitive.feedback_mode,
+        controller_mode=_controller_mode_for_backend(config.rollout_backend, primitive),
+        feedback_mode=(
+            "blocked_feedback"
+            if config.rollout_backend == "model_backed_feedback"
+            else primitive.feedback_mode
+        ),
         latency_case=context.latency_case,
-        rollout_backend="model_backed",
+        rollout_backend=config.rollout_backend,
+        evidence_role=_evidence_role_for_backend(config.rollout_backend),
         surrogate_binding_status=context.surrogate_binding_status,
         trajectory_integrity_status="blocked_before_simulation",
+        entry_check_status=str(failure_label),
+        exit_check_status="not_evaluated",
+        continuation_status="blocked",
+        episode_terminal_status="not_terminal",
+        episode_utility_label="blocked",
+        terminal_use_trainable=False,
         accepted=False,
         outcome_class="blocked",
         energy_residual_m=0.0,
@@ -493,7 +641,7 @@ def _rk4_step(
     return x + (dt_s / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
 
 
-def _primitive_command_norm(primitive: PrimitiveDefinition) -> np.ndarray:
+def _primitive_command_template_norm(primitive: PrimitiveDefinition) -> np.ndarray:
     command_by_id = {
         "glide": (0.0, -0.12, 0.0),
         "recovery": (0.0, 0.08, 0.0),
@@ -505,6 +653,90 @@ def _primitive_command_norm(primitive: PrimitiveDefinition) -> np.ndarray:
         "safe_exit_or_recovery_handoff": (0.0, 0.10, 0.0),
     }
     return np.asarray(command_by_id.get(primitive.primitive_id, (0.0, 0.0, 0.0)), dtype=float)
+
+
+def _initial_state_for_rollout(initial_state: np.ndarray) -> np.ndarray:
+    state = np.asarray(initial_state, dtype=float)
+    if state.size != STATE_SIZE:
+        raise ValueError(f"state vector must contain {STATE_SIZE} values.")
+    return state.reshape(STATE_SIZE).copy()
+
+
+def _attitude_is_physically_impossible(state: np.ndarray) -> bool:
+    phi_rad = abs(float(state[STATE_INDEX["phi"]]))
+    theta_rad = abs(float(state[STATE_INDEX["theta"]]))
+    return phi_rad > np.deg2rad(135.0) or theta_rad > np.deg2rad(85.0)
+
+
+def _evidence_role_for_backend(backend: str) -> str:
+    return EVIDENCE_ROLE_BY_BACKEND.get(str(backend), "blocked_feedback")
+
+
+def _controller_mode_for_backend(
+    backend: str,
+    primitive: PrimitiveDefinition,
+) -> str:
+    if backend == "model_backed_feedback":
+        return "bounded_local_feedback"
+    if backend == "model_backed_command_template":
+        return "command_template_diagnostic"
+    return primitive.controller_mode
+
+
+def _exit_check_status(outcome_class: str, failure_label: str) -> str:
+    if outcome_class == "boundary_terminal":
+        return "boundary_terminal_retained"
+    if outcome_class in {"accepted", "weak"}:
+        return "continuation_exit_valid"
+    if outcome_class == "blocked":
+        return "blocked"
+    if failure_label in {
+        "floor_violation",
+        "ceiling_violation",
+        "nonfinite_trajectory",
+        "corrupt_integration",
+    }:
+        return "hard_failure"
+    return "failed_or_rejected"
+
+
+def _continuation_status(outcome_class: str) -> str:
+    if outcome_class == "accepted":
+        return "continuation_success"
+    if outcome_class == "weak":
+        return "continuation_weak"
+    if outcome_class == "boundary_terminal":
+        return "not_continuation_valid"
+    if outcome_class == "blocked":
+        return "blocked"
+    return "continuation_failed"
+
+
+def _episode_terminal_status(outcome_class: str) -> str:
+    if outcome_class == "boundary_terminal":
+        return "boundary_terminal"
+    return "not_terminal"
+
+
+def _episode_utility_label(
+    *,
+    outcome_class: str,
+    energy_residual_m: float,
+    lift_dwell_time_s: float,
+) -> str:
+    if outcome_class == "boundary_terminal":
+        if energy_residual_m >= 0.0 or lift_dwell_time_s >= 0.20:
+            return "terminal_useful"
+        return "terminal_low_utility"
+    if outcome_class in {"accepted", "weak"}:
+        return "continuation_useful"
+    if outcome_class == "blocked":
+        return "blocked"
+    return "not_useful"
+
+
+def _terminal_use_trainable(outcome_class: str, *, trajectory_status: str) -> bool:
+    return outcome_class == "boundary_terminal" and trajectory_status == "finite_model_backed"
 
 
 def _wind_mode_for_rollout(
@@ -538,7 +770,7 @@ def _classify_model_backed_outcome(
     if ceiling_margin_m < 0.0:
         return "rejected", "ceiling_margin_stop", "ceiling_violation"
     if minimum_wall_margin_m < 0.0:
-        return "rejected", "wall_boundary_exit_retained", "wall_violation"
+        return "boundary_terminal", "wall_boundary_exit_retained", "xy_boundary_terminal"
     if minimum_speed_m_s < minimum_speed_required_m_s:
         return "failed", "speed_floor", "speed_low"
     if energy_residual_m >= 0.02:
@@ -591,7 +823,7 @@ def _classify_smoke_outcome(
     if context.floor_margin_m < 0.0 or context.ceiling_margin_m < 0.0:
         return "rejected", "safety_volume_exit", "true_safety_violation"
     if minimum_wall_margin_m < 0.0:
-        return "rejected", "wall_margin_stop", "wall_violation"
+        return "boundary_terminal", "wall_boundary_exit_retained", "xy_boundary_terminal"
     if minimum_speed_m_s < minimum_speed_required_m_s:
         return "blocked", "low_speed", "speed_low"
     if energy_residual_m >= 0.05:
@@ -612,7 +844,7 @@ def rollout_evidence_row(evidence: RolloutEvidence) -> dict[str, object]:
 
 
 def rollout_with_context_row(evidence: RolloutEvidence, context: EnvironmentContext) -> dict[str, object]:
-    """Return evidence plus expanded context fields for smoke archive partitions."""
+    """Return evidence plus expanded context fields for archive partitions."""
 
     row = rollout_evidence_row(evidence)
     row.update({f"context_{key}": value for key, value in environment_context_row(context).items()})

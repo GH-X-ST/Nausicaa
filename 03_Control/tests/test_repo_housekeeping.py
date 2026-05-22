@@ -29,6 +29,7 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "docs/abbr.md",
     "docs/reset_or_next_step_build_note.md",
     "docs/model_audit/model_only_foundation_audit.md",
+    "docs/model_audit/r6_r8_guidance_alignment_audit.md",
     "docs/reset/model_only_reset_manifest.md",
     "docs/reset/kept_file_audit.csv",
     "docs/reset/kept_file_audit.md",
@@ -44,6 +45,7 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "03_Control/03_Primitives/latency.py",
     "03_Control/03_Primitives/wing_wind_descriptors.py",
     "03_Control/03_Primitives/prim_cat.py",
+    "03_Control/03_Primitives/prim_ctrl.py",
     "03_Control/03_Primitives/prim_roll.py",
     "03_Control/03_Primitives/prim_model.py",
     "03_Control/03_Primitives/prim_select.py",
@@ -57,6 +59,11 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "03_Control/04_Scenarios/env_ctx.py",
     "03_Control/04_Scenarios/env_surrogate.py",
     "03_Control/04_Scenarios/run_ctx_archive.py",
+    "03_Control/04_Scenarios/run_ctx_episode_smoke.py",
+}
+ALLOWLISTED_SUPPORT_DOCS = {
+    "docs/MATLAB Coding.txt",
+    "docs/Python Plotting Guidance.txt",
 }
 ALLOWLISTED_TESTS = {
     "03_Control/tests/conftest.py",
@@ -88,11 +95,14 @@ ALLOWLISTED_TESTS = {
     "03_Control/tests/test_env_ctx.py",
     "03_Control/tests/test_surrogate_ladder.py",
     "03_Control/tests/test_prim_cat.py",
+    "03_Control/tests/test_prim_ctrl.py",
     "03_Control/tests/test_prim_roll.py",
     "03_Control/tests/test_prim_roll_model_backed.py",
     "03_Control/tests/test_prim_model.py",
     "03_Control/tests/test_prim_select.py",
     "03_Control/tests/test_ctx_archive_smoke.py",
+    "03_Control/tests/test_ctx_episode_smoke.py",
+    "03_Control/tests/test_guidance_alignment.py",
 }
 ALLOWLISTED_DATA = {
     "02_Glider_Design/C_results/nausicaa_results.csv",
@@ -225,6 +235,7 @@ def test_active_files_are_allowlisted() -> None:
     files = _repo_files()
     allowed = (
         ALLOWLISTED_ACTIVE_PATHS
+        | ALLOWLISTED_SUPPORT_DOCS
         | ALLOWLISTED_TESTS
         | ALLOWLISTED_DATA
         | {"03_Control/05_Results/.gitkeep"}

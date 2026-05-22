@@ -57,6 +57,8 @@ energy residual
 lift dwell time
 ```
 
+Also show `boundary_terminal` separately when x/y wall or lateral safety-volume exits are retained as terminal episode evidence. Do not colour these rows as continuation success.
+
 ### 3. Repeated-launch episode traces
 
 Show multiple episodes with:
@@ -90,12 +92,14 @@ Show predicted versus measured:
 
 ### 6. Generalisation test
 
-Show performance under changed environment:
+Show validation-layer and environment-instance effects without turning them into online branches:
 
 - shifted fan position;
 - changed fan power;
 - active fan subset;
 - randomised updraft amplitude or width.
+
+Use W0 as dry air only, W1 as Gaussian plume only, W2 as GP-corrected annular-Gaussian only, and W3 as randomised GP-corrected annular-Gaussian only.
 
 ## Colour guidance
 

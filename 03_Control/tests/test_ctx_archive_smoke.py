@@ -16,7 +16,7 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
             rows=500,
             seed=11,
             w_layers=("W0", "W1"),
-            env_modes=("dry_air", "measured_updraft"),
+            env_modes=("dry_air", "gaussian_single"),
             candidate_chunk_size=125,
             workers=8,
             max_workers=8,
@@ -37,8 +37,9 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
     outcome_summary = pd.read_csv(run_root / "metrics" / "outcome_summary.csv")
     file_size_audit = pd.read_csv(run_root / "metrics" / "file_size_audit.csv")
 
-    assert run_manifest["claim_status"] == "simulation_only_model_backed_preflight"
-    assert run_manifest["rollout_backend"] == "model_backed"
+    assert run_manifest["claim_status"] == "simulation_only_feedback_backed_preflight"
+    assert run_manifest["rollout_backend"] == "model_backed_feedback"
+    assert run_manifest["chunk_execution_backend"] == "process_pool"
     assert run_manifest["worker_enabled"] is True
     assert run_manifest["rows_requested"] == 500
     assert len(table_manifest.tables) == 4
@@ -54,10 +55,14 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
         "context_w_cg_m_s",
         "outcome_class",
         "rollout_backend",
+        "evidence_role",
+        "continuation_status",
+        "episode_terminal_status",
         "trajectory_integrity_status",
         "surrogate_binding_status",
     }.issubset(frame.columns)
-    assert set(frame["rollout_backend"]) == {"model_backed"}
+    assert set(frame["rollout_backend"]) == {"model_backed_feedback"}
+    assert set(frame["evidence_role"]) == {"feedback_rollout_candidate"}
 
 
 def test_contextual_archive_smoke_backend_is_explicit_opt_in(tmp_path: Path) -> None:
@@ -67,7 +72,7 @@ def test_contextual_archive_smoke_backend_is_explicit_opt_in(tmp_path: Path) -> 
             rows=16,
             seed=13,
             w_layers=("W0", "W1"),
-            env_modes=("dry_air", "measured_updraft"),
+            env_modes=("dry_air", "gaussian_single"),
             candidate_chunk_size=8,
             workers=2,
             max_workers=2,
@@ -88,6 +93,7 @@ def test_contextual_archive_smoke_backend_is_explicit_opt_in(tmp_path: Path) -> 
     frame = read_table_partition(first_partition, storage_format="csv_gz")
 
     assert set(frame["rollout_backend"]) == {"smoke_only"}
+    assert set(frame["evidence_role"]) == {"interface_smoke"}
 
 
 def test_contextual_archive_preflight_does_not_touch_active_results_root(tmp_path: Path) -> None:
@@ -97,7 +103,7 @@ def test_contextual_archive_preflight_does_not_touch_active_results_root(tmp_pat
             rows=500,
             seed=12,
             w_layers=("W0", "W1"),
-            env_modes=("dry_air", "measured_updraft"),
+            env_modes=("dry_air", "gaussian_single"),
             candidate_chunk_size=125,
             workers=8,
             max_workers=8,

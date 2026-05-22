@@ -28,6 +28,31 @@ def test_w1_accepts_gaussian_plume_only() -> None:
     validate_surrogate_ladder(binding)
 
 
+def test_w0_accepts_dry_air_only() -> None:
+    dry = resolve_surrogate_binding(
+        "W0",
+        EnvironmentMetadata(
+            environment_id="W0_dry",
+            fan_count=0,
+            updraft_model_id="dry_air_zero_wind",
+        ),
+    )
+    invalid = resolve_surrogate_binding(
+        "W0",
+        EnvironmentMetadata(
+            environment_id="bad_W0",
+            fan_count=1,
+            updraft_model_id="single_gaussian_var",
+        ),
+    )
+
+    assert dry.surrogate_binding_status == READY_STATUS
+    assert dry.surrogate_family == "dry_air_zero_wind"
+    assert dry.wind_mode == "none"
+    assert invalid.surrogate_binding_status == "blocked"
+    assert invalid.blocked_reason == "W0_requires_dry_air_zero_wind"
+
+
 def test_w1_blocks_annular_gp_surrogate() -> None:
     metadata = EnvironmentMetadata(
         environment_id="bad_W1",

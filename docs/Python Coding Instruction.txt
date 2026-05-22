@@ -23,6 +23,17 @@ state + local flow context + primitive parameters
 
 Do not encode fan layouts as separate online algorithms. Treat them as environment instances represented through context features.
 
+Use the strict surrogate ladder:
+
+```text
+W0 is dry air only
+W1 is Gaussian plume only
+W2 is GP-corrected annular-Gaussian only
+W3 is randomised GP-corrected annular-Gaussian only
+```
+
+W labels are validation layers, not online branches. Single-fan, four-fan, fan-shift, and fan-power cases are environment instances, not separate algorithms.
+
 ## Core standard
 
 Code must be:
@@ -123,6 +134,10 @@ context features
 primitive family
 primitive parameters
 accepted / weak / failed / rejected / blocked
+boundary_terminal for retained x/y boundary exits
+continuation_status
+episode_terminal_status
+episode_utility_label
 energy residual
 dwell time
 minimum margin
@@ -130,7 +145,7 @@ termination cause
 failure label
 ```
 
-Do not promote diagnostic, open-loop, schema-only, or blocked rows into mission evidence.
+Do not promote diagnostic, open-loop, schema-only, command-template, or blocked rows into mission evidence. Keep continuation-valid labels separate from episode-terminal-useful labels. X/y boundary exits may be useful terminal episode evidence, but they are not downstream-continuation successes.
 
 ## Validation and tests
 

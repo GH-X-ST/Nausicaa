@@ -27,7 +27,7 @@ Preferred result groups:
 99_misc
 ```
 
-Historical result folders may remain where they already exist. New method-facing outputs should use the groups above.
+Historical generated result folders are local-only unless the user explicitly requests preservation. The active repository result root should remain clean during validation, with `03_Control/05_Results/.gitkeep` as the only tracked placeholder. New method-facing outputs should use the groups above.
 
 Scratch and preflight roots are local only. They must not be pushed unless the user explicitly requests preservation.
 
@@ -40,9 +40,9 @@ Use concise numbered lower-snake-case names.
 Good examples:
 
 ```text
-04_context_archive/01_w1_nominal/001
-05_outcome_model/02_ctx_knn/001
-06_policy_eval/03_mem_vs_static/001
+04_context_archive/01_r6_feedback_w1_gaussian/001
+05_outcome_model/01_feedback_terminal_targets/001
+06_policy_eval/01_terminal_episode_smoke/001
 08_simreal/01_rf_replay/001
 ```
 
@@ -56,9 +56,9 @@ ep    episode
 rf    real flight
 sr    sim-real replay
 w0    dry air
-w1    measured updraft
-w2    hardware-aware replay
-w3    environment randomisation
+w1    Gaussian plume validation layer
+w2    GP-corrected annular-Gaussian validation layer
+w3    randomised GP-corrected annular-Gaussian validation layer
 nom   nominal
 rand  randomised
 sum   summary
@@ -123,7 +123,7 @@ planned rollout rows >= 10,000
 planned candidate rows >= 5,000
 expected runtime > 30 minutes
 expected uncompressed table size > 250 MB
-used for thesis evidence, envelope maps, clustering, W2/W3 replay, outcome models, or governor packages
+used for thesis evidence, envelope maps, W2/W3 replay, outcome models, or selector/governor reports
 ```
 
 Dense runs must not use a single-process full-memory runner that builds the entire rollout table before writing.
@@ -201,6 +201,8 @@ above_75mb
 above_100mb
 push_allowed
 ```
+
+Archive, outcome-model, and episode-smoke outputs must keep continuation-valid targets separate from episode-terminal-useful targets. X/y boundary exits may be retained as terminal episode evidence; they must not be relabelled as continuation success.
 
 ---
 

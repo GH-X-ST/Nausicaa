@@ -50,3 +50,11 @@ The active allowlist now includes the strict surrogate resolver, model-backed ro
 R6 validation remains temp-only. Official local archive generation is deferred and must preserve chunked execution, compressed partition tables, worker execution, checksums, resumable manifests, and the 100 MB file limit.
 
 The Git metadata directory is write-denied in this workspace, so branch creation, staging, and final tracked-state verification are recorded in the reset report rather than asserted by the retained test suite.
+
+## R6-R8 Feedback Addendum
+
+The active allowlist now also includes `prim_ctrl.py`, feedback-backed rollout evidence roles, continuation/terminal target separation in `prim_model.py`, explicit `continuation` and `terminal_episode` selector modes, and a temp-only episode smoke runner.
+
+Preserved support documents are not deleted. MATLAB and plotting guidance are retained as non-contract support material after wording alignment. They now describe W labels as validation layers, fan cases as environment instances, and x/y boundary exits as retained terminal episode evidence.
+
+The R6-R8 alignment audit records old-code mismatches as fixed or intentionally preserved non-contract support. No controller-performance, W2/W3 robustness, real-flight transfer, mission-success, hardware-readiness, or repeated-launch improvement claim is made.

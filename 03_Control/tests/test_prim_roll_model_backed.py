@@ -48,11 +48,12 @@ def test_model_backed_rollout_is_distinct_from_smoke_and_finite() -> None:
         initial_state=state,
         context=context,
         primitive=primitive_by_id("glide"),
-        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
         wind_field=wind,
     )
 
-    assert evidence.rollout_backend == "model_backed"
+    assert evidence.rollout_backend == "model_backed_feedback"
+    assert evidence.evidence_role == "feedback_rollout_candidate"
     assert evidence.surrogate_binding_status == "ready"
     assert evidence.trajectory_integrity_status == "finite_model_backed"
     assert np.isfinite(evidence.energy_residual_m)
@@ -69,16 +70,53 @@ def test_model_backed_low_speed_initial_state_is_blocked() -> None:
         initial_state=state,
         context=context,
         primitive=primitive_by_id("glide"),
-        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
         wind_field=wind,
     )
 
     assert evidence.outcome_class == "blocked"
+    assert evidence.continuation_status == "blocked"
     assert evidence.failure_label == "speed_low"
 
 
-def test_model_backed_wall_exit_is_retained_as_rejected_row() -> None:
-    state = _state(x_w_m=1.0)
+def test_model_backed_nonfinite_initial_state_is_blocked() -> None:
+    context, wind = _context_and_wind(_state())
+    state = _state()
+    state[STATE_INDEX["u"]] = np.nan
+
+    evidence = simulate_primitive_rollout(
+        rollout_id="model_rollout_nonfinite",
+        initial_state=state,
+        context=context,
+        primitive=primitive_by_id("glide"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
+        wind_field=wind,
+    )
+
+    assert evidence.outcome_class == "blocked"
+    assert evidence.entry_check_status == "nonfinite_initial_state"
+    assert evidence.failure_label == "nonfinite_initial_state"
+
+
+def test_model_backed_floor_initial_state_is_blocked() -> None:
+    state = _state(z_w_m=0.2)
+    context, wind = _context_and_wind(_state())
+
+    evidence = simulate_primitive_rollout(
+        rollout_id="model_rollout_floor",
+        initial_state=state,
+        context=context,
+        primitive=primitive_by_id("glide"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
+        wind_field=wind,
+    )
+
+    assert evidence.outcome_class == "blocked"
+    assert evidence.failure_label == "initial_floor_violation"
+
+
+def test_model_backed_wall_exit_is_retained_as_boundary_terminal_row() -> None:
+    state = _state(x_w_m=6.55)
     context, wind = _context_and_wind(state)
 
     evidence = simulate_primitive_rollout(
@@ -86,10 +124,34 @@ def test_model_backed_wall_exit_is_retained_as_rejected_row() -> None:
         initial_state=state,
         context=context,
         primitive=primitive_by_id("mild_turn_left"),
-        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
         wind_field=wind,
     )
 
-    assert evidence.outcome_class == "rejected"
-    assert evidence.failure_label == "wall_violation"
+    assert evidence.outcome_class == "boundary_terminal"
+    assert evidence.failure_label == "xy_boundary_terminal"
+    assert evidence.episode_terminal_status == "boundary_terminal"
+    assert evidence.continuation_status == "not_continuation_valid"
+    assert evidence.terminal_use_trainable is True
     assert evidence.minimum_wall_margin_m < 0.0
+
+
+def test_command_template_rows_are_diagnostic_not_feedback_evidence() -> None:
+    state = _state()
+    context, wind = _context_and_wind(state)
+
+    evidence = simulate_primitive_rollout(
+        rollout_id="template_rollout_000",
+        initial_state=state,
+        context=context,
+        primitive=primitive_by_id("glide"),
+        config=RolloutConfig(
+            W_layer="W1",
+            rollout_backend="model_backed_command_template",
+        ),
+        wind_field=wind,
+    )
+
+    assert evidence.rollout_backend == "model_backed_command_template"
+    assert evidence.evidence_role == "diagnostic_model_rollout"
+    assert evidence.feedback_mode == "command_template_diagnostic"

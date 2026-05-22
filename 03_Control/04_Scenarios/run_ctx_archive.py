@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -86,7 +86,7 @@ class ContextArchiveConfig:
     stop_after_chunks: int | None
     continue_on_chunk_failure: bool
     output_root: Path
-    rollout_backend: str = "model_backed"
+    rollout_backend: str = "model_backed_feedback"
 
 
 def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
@@ -97,7 +97,7 @@ def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
     parser.add_argument("--rows", type=int, default=500)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--w-layers", default="W0,W1")
-    parser.add_argument("--env-modes", default="dry_air,measured_updraft")
+    parser.add_argument("--env-modes", default="dry_air,gaussian_single")
     parser.add_argument("--candidate-chunk-size", type=int, default=125)
     parser.add_argument("--workers", default="8")
     parser.add_argument("--max-workers", type=int, default=8)
@@ -113,9 +113,29 @@ def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
     parser.add_argument(
         "--smoke-only",
         action="store_true",
-        help="Use the deterministic smoke backend instead of model-backed rollout.",
+        help="Use the deterministic interface smoke backend; not thesis archive evidence.",
+    )
+    parser.add_argument(
+        "--command-template-diagnostic",
+        action="store_true",
+        help="Use command-template diagnostic dynamics rows; excluded from default training.",
+    )
+    parser.add_argument(
+        "--rollout-backend",
+        choices=(
+            "smoke_only",
+            "model_backed_command_template",
+            "model_backed_feedback",
+        ),
+        default="model_backed_feedback",
+        help="Rollout backend. Feedback is the default R6 evidence path.",
     )
     args = parser.parse_args(argv)
+    rollout_backend = str(args.rollout_backend)
+    if bool(args.smoke_only):
+        rollout_backend = "smoke_only"
+    if bool(args.command_template_diagnostic):
+        rollout_backend = "model_backed_command_template"
     return ContextArchiveConfig(
         run_id=int(args.run_id),
         rows=int(args.rows),
@@ -133,7 +153,7 @@ def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
         stop_after_chunks=args.stop_after_chunks,
         continue_on_chunk_failure=bool(args.continue_on_chunk_failure),
         output_root=Path(args.output_root),
-        rollout_backend="smoke_only" if bool(args.smoke_only) else "model_backed",
+        rollout_backend=rollout_backend,
     )
 
 
@@ -189,7 +209,7 @@ def run_contextual_archive_preflight(config: ContextArchiveConfig) -> dict[str, 
         run_root=run_root,
         worker_fields=dense_run_manifest_fields(
             run_stage="contextual_archive_preflight",
-            environment_context="strict_surrogate_context_model_backed",
+            environment_context="strict_surrogate_feedback_backed",
             worker_decision=worker_decision,
         ),
         partitions=execution["partitions"],
@@ -208,12 +228,16 @@ def _validate_config(config: ContextArchiveConfig) -> None:
     if config.candidate_chunk_size <= 0:
         raise ValueError("candidate_chunk_size must be positive.")
     if not {"W0", "W1"}.issubset(set(config.w_layers)):
-        raise ValueError("R2-R5 preflight requires W0 and W1.")
+        raise ValueError("R6-R8 preflight requires W0 and W1 coverage.")
     unknown = set(config.w_layers) - {"W0", "W1", "W2", "W3"}
     if unknown:
         raise ValueError(f"unknown W layer labels: {sorted(unknown)}")
-    if config.rollout_backend not in {"model_backed", "smoke_only"}:
-        raise ValueError("rollout_backend must be 'model_backed' or 'smoke_only'.")
+    if config.rollout_backend not in {
+        "model_backed_feedback",
+        "model_backed_command_template",
+        "smoke_only",
+    }:
+        raise ValueError("rollout_backend must be a retained R6-R8 backend.")
 
 
 def _build_schedule(
@@ -415,7 +439,7 @@ def _execute_chunks(
 
     worker_count = min(max(1, int(selected_worker_count)), max(1, len(pending) or 1))
     if worker_count > 1 and pending:
-        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
             futures = {
                 executor.submit(
                     _run_single_chunk,
@@ -457,7 +481,7 @@ def _execute_chunks(
         "outcome_rows": outcome_rows,
         "failures": failures,
         "worker_execution": {
-            "chunk_execution_backend": "thread_pool" if worker_count > 1 and pending else "single_worker",
+            "chunk_execution_backend": "process_pool" if worker_count > 1 and pending else "single_worker",
             "actual_worker_count": int(worker_count),
             "parallel_chunk_count": int(len(pending)),
             "worker_enabled": bool(worker_count > 1 and pending),
@@ -499,6 +523,11 @@ def _run_single_chunk(
                 "outcome_class": row["outcome_class"],
                 "accepted": bool(row["accepted"]),
                 "rollout_backend": row["rollout_backend"],
+                "evidence_role": row["evidence_role"],
+                "continuation_status": row["continuation_status"],
+                "episode_terminal_status": row["episode_terminal_status"],
+                "episode_utility_label": row["episode_utility_label"],
+                "terminal_use_trainable": bool(row["terminal_use_trainable"]),
                 "surrogate_binding_status": row["surrogate_binding_status"],
             }
             for row in rows
@@ -608,7 +637,7 @@ def _write_run_outputs(
         "resume": bool(config.resume),
         "repair_incomplete": bool(config.repair_incomplete),
         "dry_run_schedule": bool(dry_run),
-        "claim_status": "simulation_only_model_backed_preflight",
+        "claim_status": "simulation_only_feedback_backed_preflight",
         "blocked_claims": [
             "real_flight_transfer",
             "hardware_readiness",
@@ -679,10 +708,14 @@ def _write_outcome_summary(path: Path, outcome_rows: list[dict[str, object]]) ->
                 "W_layer",
                 "environment_id",
                 "rollout_backend",
+                "evidence_role",
                 "surrogate_binding_status",
                 "outcome_class",
+                "continuation_status",
+                "episode_terminal_status",
                 "row_count",
                 "accepted_count",
+                "terminal_use_trainable_count",
             ]
         )
     else:
@@ -693,12 +726,19 @@ def _write_outcome_summary(path: Path, outcome_rows: list[dict[str, object]]) ->
                     "W_layer",
                     "environment_id",
                     "rollout_backend",
+                    "evidence_role",
                     "surrogate_binding_status",
                     "outcome_class",
+                    "continuation_status",
+                    "episode_terminal_status",
                 ],
                 dropna=False,
             )
-            .agg(row_count=("outcome_class", "size"), accepted_count=("accepted", "sum"))
+            .agg(
+                row_count=("outcome_class", "size"),
+                accepted_count=("accepted", "sum"),
+                terminal_use_trainable_count=("terminal_use_trainable", "sum"),
+            )
             .reset_index()
         )
     frame.to_csv(filesystem_path(path), index=False)
@@ -709,10 +749,15 @@ def _write_file_size_audit(path: Path, run_root: Path) -> list[dict[str, object]
     for item in sorted(run_root.rglob("*")):
         if item.is_file():
             byte_count = int(filesystem_path(item).stat().st_size)
+            size_mb = float(byte_count) / (1024.0 * 1024.0)
             rows.append(
                 {
                     "path": item.relative_to(run_root).as_posix(),
                     "byte_count": byte_count,
+                    "size_mb": size_mb,
+                    "above_75mb": bool(size_mb > 75.0),
+                    "above_100mb": bool(size_mb > MAX_GENERATED_FILE_SIZE_MB),
+                    "push_allowed": bool(size_mb <= MAX_GENERATED_FILE_SIZE_MB),
                     "under_100mb": bool(byte_count <= MAX_GENERATED_FILE_SIZE_MB * 1024 * 1024),
                 }
             )
@@ -741,7 +786,7 @@ def _write_report(
             f"- File-size failures: `{len(oversized)}`",
             f"- Claim status: `{run_manifest['claim_status']}`",
             "",
-            "This preflight writes schema and runtime evidence only. It does not make a controller, transfer, hardware-readiness, or robustness claim.",
+            "This preflight writes schema/runtime evidence and retained terminal-boundary labels only. It does not make a controller-performance, transfer, hardware-readiness, mission-success, or robustness claim.",
             "",
         ]
     )
@@ -750,19 +795,23 @@ def _write_report(
 
 def _official_deferred_commands() -> dict[str, str]:
     return {
-        "r6_20k_fallback": (
+        "r6_feedback_20k_temp_or_local": (
             "python 03_Control/04_Scenarios/run_ctx_archive.py --run-id 60 "
-            "--rows 20000 --seed 60 --w-layers W0,W1 --env-modes dry_air,measured_updraft "
+            "--rows 20000 --seed 60 --w-layers W0,W1,W2,W3 "
+            "--env-modes dry_air,gaussian_single,gaussian_four,fan_shift,power_scale "
             "--candidate-chunk-size 1000 --workers 8 --max-workers 8 "
             "--storage-format auto --compression-level 1 --resume --repair-incomplete "
-            "--output-root 03_Control/05_Results/context_archive/r6_model_backed_20k"
+            "--rollout-backend model_backed_feedback "
+            "--output-root 03_Control/05_Results/context_archive/r6_feedback_20k"
         ),
-        "r6_40k_preferred": (
+        "r6_feedback_40k_temp_or_local": (
             "python 03_Control/04_Scenarios/run_ctx_archive.py --run-id 61 "
-            "--rows 40000 --seed 61 --w-layers W0,W1 --env-modes dry_air,measured_updraft "
+            "--rows 40000 --seed 61 --w-layers W0,W1,W2,W3 "
+            "--env-modes dry_air,gaussian_single,gaussian_four,fan_shift,power_scale "
             "--candidate-chunk-size 1000 --workers 8 --max-workers 8 "
             "--storage-format auto --compression-level 1 --resume --repair-incomplete "
-            "--output-root 03_Control/05_Results/context_archive/r6_model_backed_40k"
+            "--rollout-backend model_backed_feedback "
+            "--output-root 03_Control/05_Results/context_archive/r6_feedback_40k"
         ),
     }
 
