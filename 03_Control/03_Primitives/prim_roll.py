@@ -15,7 +15,15 @@ from env_ctx import (
 )
 from flight_dynamics import adapt_glider, state_derivative
 from glider import build_nausicaa_glider
-from latency import actuator_tau_for_case, latency_case_config
+from latency import (
+    actuator_tau_for_case,
+    delayed_state_sample,
+    latency_adjusted_command_sample,
+    latency_case_config,
+    latency_execution_status,
+    latency_mechanism_flags_from_case,
+    latency_pass_label_for_single_run,
+)
 from prim_cat import PrimitiveDefinition, primitive_parameters_json
 from prim_ctrl import PrimitiveControlContext, primitive_command_norm
 from state_contract import STATE_INDEX, STATE_SIZE
@@ -69,6 +77,12 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "controller_mode",
     "feedback_mode",
     "latency_case",
+    "state_feedback_delay_applied",
+    "command_delay_applied",
+    "actuator_lag_applied",
+    "latency_execution_status",
+    "latency_pass_label",
+    "timing_model_version",
     "rollout_backend",
     "evidence_role",
     "surrogate_binding_status",
@@ -79,6 +93,7 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "episode_terminal_status",
     "episode_utility_label",
     "terminal_use_trainable",
+    "boundary_use_class",
     "accepted",
     "outcome_class",
     "energy_residual_m",
@@ -87,6 +102,10 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "floor_margin_m",
     "ceiling_margin_m",
     "minimum_speed_m_s",
+    "saturation_count",
+    "saturation_fraction",
+    "max_abs_command_norm",
+    "max_abs_surface_rad",
     "exit_state_vector",
     "termination_cause",
     "failure_label",
@@ -118,6 +137,12 @@ class RolloutEvidence:
     controller_mode: str
     feedback_mode: str
     latency_case: str
+    state_feedback_delay_applied: bool
+    command_delay_applied: bool
+    actuator_lag_applied: bool
+    latency_execution_status: str
+    latency_pass_label: str
+    timing_model_version: str
     rollout_backend: str
     evidence_role: str
     surrogate_binding_status: str
@@ -128,6 +153,7 @@ class RolloutEvidence:
     episode_terminal_status: str
     episode_utility_label: str
     terminal_use_trainable: bool
+    boundary_use_class: str
     accepted: bool
     outcome_class: str
     energy_residual_m: float
@@ -136,6 +162,10 @@ class RolloutEvidence:
     floor_margin_m: float
     ceiling_margin_m: float
     minimum_speed_m_s: float
+    saturation_count: int
+    saturation_fraction: float
+    max_abs_command_norm: float
+    max_abs_surface_rad: float
     exit_state_vector: str
     termination_cause: str
     failure_label: str
@@ -210,6 +240,14 @@ def blocked_rollout_evidence(
     cfg = config or RolloutConfig()
     state = as_state_vector(initial_state)
     margins = position_margin_m(state[:3], TRUE_SAFE_BOUNDS)
+    latency_fields = _latency_field_values(
+        latency_case=context.latency_case,
+        accepted=False,
+        state_delay=False,
+        command_delay=False,
+        actuator_lag=False,
+        execution_status="blocked_before_simulation",
+    )
     return RolloutEvidence(
         rollout_id=str(rollout_id),
         episode_id="" if episode_id is None else str(episode_id),
@@ -223,6 +261,7 @@ def blocked_rollout_evidence(
         controller_mode=primitive.controller_mode,
         feedback_mode=primitive.feedback_mode,
         latency_case=context.latency_case,
+        **latency_fields,
         rollout_backend="blocked_feedback",
         evidence_role=EVIDENCE_ROLE_BY_BACKEND["blocked_feedback"],
         surrogate_binding_status=context.surrogate_binding_status,
@@ -233,6 +272,7 @@ def blocked_rollout_evidence(
         episode_terminal_status="not_terminal",
         episode_utility_label="blocked",
         terminal_use_trainable=False,
+        boundary_use_class="blocked",
         accepted=False,
         outcome_class="blocked",
         energy_residual_m=0.0,
@@ -241,6 +281,10 @@ def blocked_rollout_evidence(
         floor_margin_m=float(margins["floor_margin_m"]),
         ceiling_margin_m=float(margins["ceiling_margin_m"]),
         minimum_speed_m_s=float(np.linalg.norm(state[6:9])),
+        saturation_count=0,
+        saturation_fraction=0.0,
+        max_abs_command_norm=0.0,
+        max_abs_surface_rad=0.0,
         exit_state_vector=_vector_json(state),
         termination_cause="surrogate_binding_blocked",
         failure_label=str(failure_label),
@@ -282,6 +326,14 @@ def _simulate_smoke_rollout(
     exit_state[0] += max(speed_m_s, 0.0) * float(primitive.finite_horizon_s) * 0.08
     exit_state[2] += energy_residual_m
     accepted = outcome_class == "accepted"
+    latency_fields = _latency_field_values(
+        latency_case=context.latency_case,
+        accepted=accepted,
+        state_delay=False,
+        command_delay=False,
+        actuator_lag=False,
+        execution_status="interface_smoke_not_integrated",
+    )
     return RolloutEvidence(
         rollout_id=str(rollout_id),
         episode_id=str(episode_id),
@@ -295,6 +347,7 @@ def _simulate_smoke_rollout(
         controller_mode=primitive.controller_mode,
         feedback_mode=primitive.feedback_mode,
         latency_case=context.latency_case,
+        **latency_fields,
         rollout_backend="smoke_only",
         evidence_role=EVIDENCE_ROLE_BY_BACKEND["smoke_only"],
         surrogate_binding_status=context.surrogate_binding_status,
@@ -309,6 +362,7 @@ def _simulate_smoke_rollout(
             lift_dwell_time_s=lift_dwell_time_s,
         ),
         terminal_use_trainable=_terminal_use_trainable(outcome_class, trajectory_status="smoke"),
+        boundary_use_class=_boundary_use_class(outcome_class),
         accepted=accepted,
         outcome_class=outcome_class,
         energy_residual_m=energy_residual_m,
@@ -317,6 +371,10 @@ def _simulate_smoke_rollout(
         floor_margin_m=float(context.floor_margin_m),
         ceiling_margin_m=float(context.ceiling_margin_m),
         minimum_speed_m_s=minimum_speed_m_s,
+        saturation_count=0,
+        saturation_fraction=0.0,
+        max_abs_command_norm=0.0,
+        max_abs_surface_rad=0.0,
         exit_state_vector=_vector_json(exit_state),
         termination_cause=termination_cause,
         failure_label=failure_label,
@@ -400,11 +458,18 @@ def _simulate_dynamics_rollout(
             failure_label="speed_low",
         )
 
-    command_template = normalised_command_to_surface_rad(
-        _primitive_command_template_norm(primitive)
-    )
+    command_template_norm = _primitive_command_template_norm(primitive)
+    command_template = normalised_command_to_surface_rad(command_template_norm)
     latency = latency_case_config(context.latency_case)
-    tau_s = actuator_tau_for_case(latency)
+    mechanism_flags = latency_mechanism_flags_from_case(
+        context.latency_case,
+        state_feedback_delay_applied=context.latency_case in {"nominal", "conservative"},
+    )
+    tau_s = (
+        actuator_tau_for_case(latency)
+        if mechanism_flags["actuator_lag_applied"]
+        else (1.0, 1.0, 1.0)
+    )
     wind_mode = _wind_mode_for_rollout(context=context, config=config, wind_field=wind_field)
     aircraft = _aircraft_model()
     x = state.copy()
@@ -422,8 +487,29 @@ def _simulate_dynamics_rollout(
         else primitive.feedback_mode
     )
     steps = max(1, int(np.ceil(float(primitive.finite_horizon_s) / float(config.dt_s))))
+    times_s = [0.0]
+    states = [x.copy()]
+    if config.rollout_backend == "model_backed_feedback":
+        initial_command = primitive_command_norm(
+            primitive,
+            PrimitiveControlContext(
+                state_vector=x,
+                environment_context=context,
+                time_in_primitive_s=0.0,
+            ),
+        )
+        command_norm_history = [np.asarray(initial_command.command_norm, dtype=float)]
+        saturation_count = int(initial_command.saturation_applied)
+        max_abs_command_norm = float(np.max(np.abs(command_norm_history[-1])))
+        max_abs_surface_rad = float(np.max(np.abs(initial_command.command_rad)))
+    else:
+        command_norm_history = [command_template_norm.copy()]
+        saturation_count = 0
+        max_abs_command_norm = float(np.max(np.abs(command_template_norm)))
+        max_abs_surface_rad = float(np.max(np.abs(command_template)))
 
     for step_index in range(steps):
+        time_s = float(step_index) * float(config.dt_s)
         margins = position_margin_m(x[:3], TRUE_SAFE_BOUNDS)
         min_wall_margin_m = min(min_wall_margin_m, float(margins["min_wall_margin_m"]))
         min_floor_margin_m = min(min_floor_margin_m, float(margins["floor_margin_m"]))
@@ -448,18 +534,51 @@ def _simulate_dynamics_rollout(
         if context.w_wing_mean_m_s > 0.05:
             lift_dwell_time_s += float(config.dt_s)
         if config.rollout_backend == "model_backed_feedback":
+            if mechanism_flags["state_feedback_delay_applied"]:
+                x_control = delayed_state_sample(
+                    np.asarray(times_s, dtype=float),
+                    np.asarray(states, dtype=float),
+                    time_s - float(latency.state_feedback_delay_s),
+                )
+            else:
+                x_control = x
             control_command = primitive_command_norm(
                 primitive,
                 PrimitiveControlContext(
-                    state_vector=x,
+                    state_vector=x_control,
                     environment_context=context,
-                    time_in_primitive_s=float(step_index) * float(config.dt_s),
+                    time_in_primitive_s=time_s,
                 ),
             )
-            command = np.asarray(control_command.command_rad, dtype=float)
+            desired_command_norm = np.asarray(control_command.command_norm, dtype=float)
+            if time_s > times_s[-1]:
+                times_s.append(time_s)
+                states.append(x.copy())
+                command_norm_history.append(desired_command_norm.copy())
+            else:
+                command_norm_history[-1] = desired_command_norm.copy()
+            if mechanism_flags["command_delay_applied"]:
+                applied_norm = latency_adjusted_command_sample(
+                    np.asarray(times_s, dtype=float),
+                    np.asarray(command_norm_history, dtype=float),
+                    time_s,
+                    latency,
+                )
+            else:
+                applied_norm = desired_command_norm
+            command = normalised_command_to_surface_rad(applied_norm)
             feedback_mode = control_command.feedback_mode
+            saturation_count += int(control_command.saturation_applied)
+            max_abs_command_norm = max(max_abs_command_norm, float(np.max(np.abs(applied_norm))))
+            max_abs_surface_rad = max(max_abs_surface_rad, float(np.max(np.abs(command))))
         else:
             command = command_template
+            if time_s > times_s[-1]:
+                times_s.append(time_s)
+                states.append(x.copy())
+                command_norm_history.append(command_template_norm.copy())
+        if not mechanism_flags["actuator_lag_applied"]:
+            x[12:15] = command
         x = _rk4_step(
             x=x,
             command=command,
@@ -475,6 +594,11 @@ def _simulate_dynamics_rollout(
             failure_label = "nonfinite_trajectory"
             x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
             break
+        next_time_s = time_s + float(config.dt_s)
+        if next_time_s > times_s[-1]:
+            times_s.append(next_time_s)
+            states.append(x.copy())
+            command_norm_history.append(command_norm_history[-1].copy())
 
     margins = position_margin_m(x[:3], TRUE_SAFE_BOUNDS)
     min_wall_margin_m = min(min_wall_margin_m, float(margins["min_wall_margin_m"]))
@@ -493,6 +617,20 @@ def _simulate_dynamics_rollout(
         current_termination=termination_cause,
         current_failure=failure_label,
     )
+    accepted = outcome_class == "accepted"
+    latency_fields = _latency_field_values(
+        latency_case=context.latency_case,
+        accepted=accepted,
+        state_delay=mechanism_flags["state_feedback_delay_applied"],
+        command_delay=mechanism_flags["command_delay_applied"],
+        actuator_lag=mechanism_flags["actuator_lag_applied"],
+        execution_status=latency_execution_status(
+            latency_case=context.latency_case,
+            state_feedback_delay_applied=mechanism_flags["state_feedback_delay_applied"],
+            command_delay_applied=mechanism_flags["command_delay_applied"],
+            actuator_lag_applied=mechanism_flags["actuator_lag_applied"],
+        ),
+    )
     return RolloutEvidence(
         rollout_id=str(rollout_id),
         episode_id=str(episode_id),
@@ -506,6 +644,7 @@ def _simulate_dynamics_rollout(
         controller_mode=_controller_mode_for_backend(config.rollout_backend, primitive),
         feedback_mode=feedback_mode,
         latency_case=context.latency_case,
+        **latency_fields,
         rollout_backend=config.rollout_backend,
         evidence_role=_evidence_role_for_backend(config.rollout_backend),
         surrogate_binding_status=context.surrogate_binding_status,
@@ -523,7 +662,8 @@ def _simulate_dynamics_rollout(
             outcome_class,
             trajectory_status=trajectory_status,
         ),
-        accepted=outcome_class == "accepted",
+        boundary_use_class=_boundary_use_class(outcome_class),
+        accepted=accepted,
         outcome_class=outcome_class,
         energy_residual_m=energy_residual_m,
         lift_dwell_time_s=float(lift_dwell_time_s),
@@ -531,6 +671,10 @@ def _simulate_dynamics_rollout(
         floor_margin_m=float(min_floor_margin_m),
         ceiling_margin_m=float(min_ceiling_margin_m),
         minimum_speed_m_s=float(min_speed_m_s),
+        saturation_count=int(saturation_count),
+        saturation_fraction=float(saturation_count / max(1, steps)),
+        max_abs_command_norm=float(max_abs_command_norm),
+        max_abs_surface_rad=float(max_abs_surface_rad),
         exit_state_vector=_vector_json(x),
         termination_cause=termination_cause,
         failure_label=failure_label,
@@ -549,6 +693,14 @@ def _blocked_from_state(
     failure_label: str,
 ) -> RolloutEvidence:
     margins = position_margin_m(state[:3], TRUE_SAFE_BOUNDS)
+    latency_fields = _latency_field_values(
+        latency_case=context.latency_case,
+        accepted=False,
+        state_delay=False,
+        command_delay=False,
+        actuator_lag=False,
+        execution_status="blocked_before_simulation",
+    )
     return RolloutEvidence(
         rollout_id=str(rollout_id),
         episode_id=str(episode_id),
@@ -566,6 +718,7 @@ def _blocked_from_state(
             else primitive.feedback_mode
         ),
         latency_case=context.latency_case,
+        **latency_fields,
         rollout_backend=config.rollout_backend,
         evidence_role=_evidence_role_for_backend(config.rollout_backend),
         surrogate_binding_status=context.surrogate_binding_status,
@@ -576,6 +729,7 @@ def _blocked_from_state(
         episode_terminal_status="not_terminal",
         episode_utility_label="blocked",
         terminal_use_trainable=False,
+        boundary_use_class="blocked",
         accepted=False,
         outcome_class="blocked",
         energy_residual_m=0.0,
@@ -584,6 +738,10 @@ def _blocked_from_state(
         floor_margin_m=float(margins["floor_margin_m"]),
         ceiling_margin_m=float(margins["ceiling_margin_m"]),
         minimum_speed_m_s=float(np.linalg.norm(state[6:9])),
+        saturation_count=0,
+        saturation_fraction=0.0,
+        max_abs_command_norm=0.0,
+        max_abs_surface_rad=0.0,
         exit_state_vector=_vector_json(state),
         termination_cause=str(failure_label),
         failure_label=str(failure_label),
@@ -737,6 +895,36 @@ def _episode_utility_label(
 
 def _terminal_use_trainable(outcome_class: str, *, trajectory_status: str) -> bool:
     return outcome_class == "boundary_terminal" and trajectory_status == "finite_model_backed"
+
+
+def _boundary_use_class(outcome_class: str) -> str:
+    if outcome_class == "boundary_terminal":
+        return "episode_terminal_useful_or_trainable"
+    if outcome_class in {"accepted", "weak"}:
+        return "continuation_valid"
+    if outcome_class == "blocked":
+        return "blocked"
+    return "hard_failure_or_rejected"
+
+
+def _latency_field_values(
+    *,
+    latency_case: str,
+    accepted: bool,
+    state_delay: bool,
+    command_delay: bool,
+    actuator_lag: bool,
+    execution_status: str,
+) -> dict[str, object]:
+    config = latency_case_config(latency_case)
+    return {
+        "state_feedback_delay_applied": bool(state_delay),
+        "command_delay_applied": bool(command_delay),
+        "actuator_lag_applied": bool(actuator_lag),
+        "latency_execution_status": str(execution_status),
+        "latency_pass_label": latency_pass_label_for_single_run(latency_case, accepted),
+        "timing_model_version": str(config.timing_model_version),
+    }
 
 
 def _wind_mode_for_rollout(

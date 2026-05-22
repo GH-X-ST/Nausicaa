@@ -60,6 +60,15 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
         "episode_terminal_status",
         "trajectory_integrity_status",
         "surrogate_binding_status",
+        "state_sample_source",
+        "paired_start_key",
+        "state_envelope_label",
+        "primitive_feature_vector",
+        "boundary_use_class",
+        "state_feedback_delay_applied",
+        "command_delay_applied",
+        "actuator_lag_applied",
+        "saturation_fraction",
     }.issubset(frame.columns)
     assert set(frame["rollout_backend"]) == {"model_backed_feedback"}
     assert set(frame["evidence_role"]) == {"feedback_rollout_candidate"}

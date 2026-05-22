@@ -8,6 +8,7 @@ from updraft_models import (
     FOUR_FAN_CENTERS_XY,
     SINGLE_FAN_CENTER_XY,
     WindField,
+    build_environment_adjusted_wind_field,
     build_randomised_wind_field,
     load_updraft_model,
     sample_updraft_randomisation,
@@ -47,6 +48,12 @@ class SurrogateBinding:
     fan_count: int
     fan_positions_m: tuple[tuple[float, float], ...]
     fan_power_scales: tuple[float, ...]
+    active_fan_mask: tuple[bool, ...] = ()
+    updraft_amplitude_scale: float = 1.0
+    updraft_width_scale: float = 1.0
+    updraft_centre_shift_m: tuple[float, float] = (0.0, 0.0)
+    local_uncertainty_scale: float = 1.0
+    environment_mode: str = ""
     blocked_reason: str = ""
     randomisation_seed: int | None = None
 
@@ -100,6 +107,12 @@ def resolve_surrogate_binding(
             fan_count=0,
             fan_positions_m=(),
             fan_power_scales=(),
+            active_fan_mask=(),
+            updraft_amplitude_scale=1.0,
+            updraft_width_scale=1.0,
+            updraft_centre_shift_m=(0.0, 0.0),
+            local_uncertainty_scale=0.0,
+            environment_mode=str(getattr(environment_metadata, "environment_mode", "dry_air")),
             blocked_reason="",
             randomisation_seed=randomisation_seed,
         )
@@ -134,6 +147,7 @@ def resolve_surrogate_binding(
     fan_positions = _fan_positions_for_model(model_id, environment_metadata)
     fan_count = len(fan_positions)
     power_scales = _fan_power_scales(fan_count, environment_metadata)
+    active_mask = _active_fan_mask(fan_count, environment_metadata)
     seed = (
         randomisation_seed
         if randomisation_seed is not None
@@ -157,6 +171,15 @@ def resolve_surrogate_binding(
         fan_count=fan_count,
         fan_positions_m=fan_positions,
         fan_power_scales=power_scales,
+        active_fan_mask=active_mask,
+        updraft_amplitude_scale=float(getattr(environment_metadata, "updraft_amplitude_scale", 1.0)),
+        updraft_width_scale=float(getattr(environment_metadata, "updraft_width_scale", 1.0)),
+        updraft_centre_shift_m=tuple(
+            float(value)
+            for value in tuple(getattr(environment_metadata, "updraft_centre_shift_m", (0.0, 0.0)))
+        ),
+        local_uncertainty_scale=float(getattr(environment_metadata, "local_uncertainty_scale", 1.0)),
+        environment_mode=str(getattr(environment_metadata, "environment_mode", "")),
         blocked_reason="",
         randomisation_seed=None if seed is None else int(seed),
     )
@@ -184,6 +207,8 @@ def surrogate_binding_row(binding: SurrogateBinding) -> dict[str, object]:
     row = asdict(binding)
     row["fan_positions_m"] = _xy_pairs_text(binding.fan_positions_m)
     row["fan_power_scales"] = _float_tuple_text(binding.fan_power_scales)
+    row["active_fan_mask"] = ";".join("1" if value else "0" for value in binding.active_fan_mask)
+    row["updraft_centre_shift_m"] = _float_tuple_text(binding.updraft_centre_shift_m)
     row["randomisation_seed"] = (
         "" if binding.randomisation_seed is None else int(binding.randomisation_seed)
     )
@@ -205,10 +230,21 @@ def wind_field_for_binding(
     if binding.W_layer == "W0":
         return None
     base = _cached_base_wind(binding.updraft_model_id, _repo_root_key(repo_root))
-    if binding.W_layer != "W3":
-        return base
-    wind, _ = build_randomised_wind_field(
+    adjusted = build_environment_adjusted_wind_field(
         base,
+        amplitude_scale=binding.updraft_amplitude_scale,
+        width_scale=binding.updraft_width_scale,
+        centre_shift_m=binding.updraft_centre_shift_m,
+        fan_positions_m=binding.fan_positions_m,
+        fan_power_scales=binding.fan_power_scales,
+        active_fan_mask=binding.active_fan_mask,
+        local_uncertainty_scale=binding.local_uncertainty_scale,
+        transform_label=str(binding.environment_mode or "environment_instance"),
+    )
+    if binding.W_layer != "W3":
+        return adjusted
+    wind, _ = build_randomised_wind_field(
+        adjusted,
         seed=0 if binding.randomisation_seed is None else int(binding.randomisation_seed),
         enabled=True,
     )
@@ -289,6 +325,13 @@ def _fan_power_scales(fan_count: int, metadata) -> tuple[float, ...]:
     return tuple(1.0 for _ in range(int(fan_count)))
 
 
+def _active_fan_mask(fan_count: int, metadata) -> tuple[bool, ...]:
+    supplied = tuple(bool(value) for value in tuple(getattr(metadata, "active_fan_mask", ()) or ()))
+    if supplied:
+        return supplied
+    return tuple(True for _ in range(int(fan_count)))
+
+
 def _blocked_binding(
     *,
     W_layer: str,
@@ -316,6 +359,15 @@ def _blocked_binding(
         fan_count=fan_count,
         fan_positions_m=fan_positions,
         fan_power_scales=_fan_power_scales(fan_count, metadata),
+        active_fan_mask=_active_fan_mask(fan_count, metadata),
+        updraft_amplitude_scale=float(getattr(metadata, "updraft_amplitude_scale", 1.0)),
+        updraft_width_scale=float(getattr(metadata, "updraft_width_scale", 1.0)),
+        updraft_centre_shift_m=tuple(
+            float(value)
+            for value in tuple(getattr(metadata, "updraft_centre_shift_m", (0.0, 0.0)))
+        ),
+        local_uncertainty_scale=float(getattr(metadata, "local_uncertainty_scale", 1.0)),
+        environment_mode=str(getattr(metadata, "environment_mode", "")),
         blocked_reason=str(reason),
         randomisation_seed=randomisation_seed,
     )

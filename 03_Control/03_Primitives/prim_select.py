@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+import numpy as np
+
 from env_ctx import EnvironmentContext
 from prim_cat import PrimitiveDefinition, active_primitive_catalogue
 from prim_model import (
@@ -64,6 +66,7 @@ def select_primitive(
     context: EnvironmentContext,
     model: PrimitiveOutcomeModel,
     catalogue: tuple[PrimitiveDefinition, ...] | None = None,
+    current_state: np.ndarray | None = None,
     governor_mode: str = "continuation",
     min_acceptance_probability: float = 0.20,
     max_uncertainty: float = 4.0,
@@ -79,7 +82,13 @@ def select_primitive(
     decisions = tuple(
         _candidate_decision(
             context=context,
-            prediction=predict_primitive_outcome(model, context, primitive),
+            prediction=predict_primitive_outcome(
+                model,
+                context,
+                primitive,
+                state=current_state,
+                governor_mode=governor_mode,
+            ),
             governor_mode=governor_mode,
             min_acceptance_probability=float(min_acceptance_probability),
             max_uncertainty=float(max_uncertainty),
@@ -91,6 +100,19 @@ def select_primitive(
     )
     viable = [decision for decision in decisions if decision.viable]
     if not viable:
+        if _hard_context_rejection(
+            context=context,
+            min_speed_margin_m_s=min_speed_margin_m_s,
+            min_attitude_margin_rad=min_attitude_margin_rad,
+        ):
+            return PrimitiveSelectionResult(
+                selected_primitive_id="",
+                governor_mode=governor_mode,
+                decision_status="blocked_no_viability_checked_fallback",
+                candidate_count=len(decisions),
+                viable_count=0,
+                decisions=decisions,
+            )
         return PrimitiveSelectionResult(
             selected_primitive_id="safe_exit_or_recovery_handoff",
             governor_mode=governor_mode,
@@ -203,6 +225,20 @@ def _rejection_reason(
         if prediction.probability_terminal_useful < 0.25:
             return "terminal_or_continuation_utility_low"
     return ""
+
+
+def _hard_context_rejection(
+    *,
+    context: EnvironmentContext,
+    min_speed_margin_m_s: float,
+    min_attitude_margin_rad: float,
+) -> bool:
+    return bool(
+        context.floor_margin_m < 0.0
+        or context.ceiling_margin_m < 0.0
+        or context.speed_margin_m_s < min(float(min_speed_margin_m_s), -0.5)
+        or context.attitude_margin_rad < min(float(min_attitude_margin_rad), -0.1)
+    )
 
 
 def _selection_score(

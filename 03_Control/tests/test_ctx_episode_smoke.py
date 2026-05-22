@@ -30,7 +30,12 @@ def test_episode_smoke_writes_temp_only_feedback_rows(tmp_path: Path) -> None:
     assert len(episode_log) == 10
     assert set(episode_log["evidence_role"]) == {"feedback_rollout_candidate"}
     assert set(episode_log["selector_governor_mode"]) == {"terminal_episode"}
-    assert set(episode_log["memory_label"]) == {"placeholder_no_learning_claim"}
+    assert set(episode_log["memory_label"]) == {
+        "episodic_lift_belief_smoke_no_improvement_claim"
+    }
+    assert "belief_before_local_lift_m_s" in episode_log.columns
+    assert "belief_after_local_lift_m_s" in episode_log.columns
+    assert (run_root / "tables" / "belief_snapshots.csv").is_file()
 
     result_entries = [
         path.relative_to("03_Control/05_Results").as_posix()

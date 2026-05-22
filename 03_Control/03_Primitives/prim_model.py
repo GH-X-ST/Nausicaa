@@ -7,6 +7,11 @@ import numpy as np
 
 from env_ctx import EnvironmentContext, context_feature_vector
 from prim_cat import PrimitiveDefinition
+from prim_features import (
+    PRIMITIVE_FEATURE_SCHEMA_VERSION,
+    primitive_feature_record,
+    primitive_feature_vector_from_row,
+)
 from prim_roll import OUTCOME_CLASSES
 
 
@@ -31,6 +36,7 @@ class PrimitiveModelRecord:
     primitive_id: str
     evidence_role: str
     context_features: tuple[float, ...]
+    feature_schema_version: str
     outcome_class: str
     continuation_status: str
     episode_terminal_status: str
@@ -62,6 +68,7 @@ class PrimitiveOutcomePrediction:
     neighbour_distance: float
     training_row_count: int
     training_evidence_roles: str
+    feature_schema_version: str
     model_backend: str = "auditable_knn_table"
 
 
@@ -103,7 +110,7 @@ def fit_primitive_outcome_model(
         outcome_class = str(row.get("outcome_class", "blocked"))
         if outcome_class not in OUTCOME_CLASSES:
             continue
-        features = _parse_feature_vector(row.get("context_feature_vector", "[]"))
+        features = primitive_feature_vector_from_row(row)
         if not features:
             continue
         records.append(
@@ -111,6 +118,9 @@ def fit_primitive_outcome_model(
                 primitive_id=str(row.get("primitive_id", "")),
                 evidence_role=evidence_role,
                 context_features=features,
+                feature_schema_version=str(
+                    row.get("feature_schema_version", PRIMITIVE_FEATURE_SCHEMA_VERSION)
+                ),
                 outcome_class=outcome_class,
                 continuation_status=str(row.get("continuation_status", "unknown")),
                 episode_terminal_status=str(row.get("episode_terminal_status", "not_terminal")),
@@ -133,10 +143,12 @@ def predict_primitive_outcome(
     model: PrimitiveOutcomeModel,
     context: EnvironmentContext,
     primitive: PrimitiveDefinition,
+    *,
+    state: np.ndarray | None = None,
+    governor_mode: str = "continuation",
 ) -> PrimitiveOutcomePrediction:
     """Predict primitive outcome from context features without environment branching."""
 
-    query = np.asarray(context_feature_vector(context), dtype=float)
     candidates = [
         record for record in model.records if record.primitive_id == primitive.primitive_id
     ]
@@ -144,6 +156,18 @@ def predict_primitive_outcome(
         candidates = list(model.records)
     if not candidates:
         return _prior_prediction(primitive.primitive_id)
+    if len(candidates[0].context_features) == len(context_feature_vector(context)):
+        query = np.asarray(context_feature_vector(context), dtype=float)
+    else:
+        query = np.asarray(
+            primitive_feature_record(
+                state=_state_proxy_from_context(context) if state is None else state,
+                context=context,
+                primitive=primitive,
+                governor_mode=governor_mode,
+            ).feature_vector,
+            dtype=float,
+        )
 
     distances = np.asarray(
         [
@@ -209,6 +233,10 @@ def predict_primitive_outcome(
         neighbour_distance=float(neighbour_distances[0]),
         training_row_count=model.fitted_row_count,
         training_evidence_roles=";".join(model.training_evidence_roles),
+        feature_schema_version=_weighted_mode(
+            [record.feature_schema_version for record in neighbours],
+            weights,
+        ),
     )
 
 
@@ -232,6 +260,7 @@ def _prior_prediction(primitive_id: str) -> PrimitiveOutcomePrediction:
         neighbour_distance=float("inf"),
         training_row_count=0,
         training_evidence_roles="feedback_rollout_candidate",
+        feature_schema_version=PRIMITIVE_FEATURE_SCHEMA_VERSION,
     )
 
 
@@ -250,6 +279,15 @@ def _parse_bool(value: object) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _state_proxy_from_context(context: EnvironmentContext) -> np.ndarray:
+    state = np.zeros(15, dtype=float)
+    state[0] = max(1.2, 1.2 + float(context.wall_margin_m))
+    state[1] = 2.2
+    state[2] = 0.4 + max(float(context.floor_margin_m), 0.0)
+    state[6] = 3.0 + float(context.speed_margin_m_s)
+    return state
 
 
 def _feature_distance(query: np.ndarray, record: np.ndarray) -> float:

@@ -16,13 +16,25 @@ for rel in ("02_Inner_Loop", "03_Primitives", "04_Scenarios"):
         sys.path.insert(0, str(path))
 
 from dense_archive_table_io import filesystem_path  # noqa: E402
+from episodic_lift_belief import (  # noqa: E402
+    belief_snapshot_row,
+    initial_belief,
+    lift_observation_from_rollout_row,
+    query_belief_features,
+    update_belief,
+)
 from env_ctx import build_environment_context  # noqa: E402
+from env_instance import (  # noqa: E402
+    environment_instance_for_mode,
+    environment_metadata_from_instance,
+)
 from env_surrogate import (  # noqa: E402
     READY_STATUS,
     resolve_surrogate_binding,
     wind_field_for_binding,
 )
 from prim_cat import active_primitive_catalogue, primitive_by_id  # noqa: E402
+from prim_features import primitive_feature_record, primitive_feature_row  # noqa: E402
 from prim_model import fit_primitive_outcome_model  # noqa: E402
 from prim_roll import (  # noqa: E402
     RolloutConfig,
@@ -31,7 +43,7 @@ from prim_roll import (  # noqa: E402
     simulate_primitive_rollout,
 )
 from prim_select import primitive_selection_row, select_primitive  # noqa: E402
-from run_ctx_archive import _metadata_for_row, _state_for_row  # noqa: E402
+from state_sampling import archive_state_sample_for_row, archive_state_sample_row  # noqa: E402
 
 
 # =============================================================================
@@ -98,17 +110,26 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
     training_rows: list[dict[str, object]] = []
     episode_rows: list[dict[str, object]] = []
     selector_rows: list[dict[str, object]] = []
+    belief = initial_belief(lambda_value=0.8)
+    belief_rows = [belief_snapshot_row(belief, label="initial")]
 
     for episode_index in range(int(config.episode_count)):
         row_index = int(config.seed + episode_index)
         w_layer = "W0" if episode_index % 2 == 0 else "W1"
         environment_mode = "dry_air" if w_layer == "W0" else "gaussian_single"
-        state = _state_for_row(row_index)
-        metadata = _metadata_for_row(
-            w_layer=w_layer,
+        state_sample = archive_state_sample_for_row(
+            row_index,
+            seed=config.seed,
+            W_layer=w_layer,
             environment_mode=environment_mode,
-            seed=config.seed + episode_index,
         )
+        state = state_sample.state_vector
+        instance = environment_instance_for_mode(
+            w_layer,
+            environment_mode,
+            config.seed + episode_index,
+        )
+        metadata = environment_metadata_from_instance(instance)
         binding = resolve_surrogate_binding(
             w_layer,
             metadata,
@@ -123,6 +144,7 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
             actuator_case="nominal",
             surrogate_binding=binding,
         )
+        belief_before = query_belief_features(state, belief)
         if len(training_rows) < len(primitives):
             training_rows.extend(
                 _bootstrap_feedback_rows(
@@ -181,18 +203,37 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
                 "selector_governor_mode": selection.governor_mode,
                 "selector_status": selection.decision_status,
                 "selected_primitive_id": selection.selected_primitive_id,
-                "memory_label": "placeholder_no_learning_claim",
+                "memory_label": "episodic_lift_belief_smoke_no_improvement_claim",
+                "belief_before_local_lift_m_s": belief_before["belief_local_lift_m_s"],
+                "belief_before_mean_lift_m_s": belief_before["belief_mean_lift_m_s"],
             }
+        )
+        row.update(archive_state_sample_row(state_sample))
+        row.update(
+            primitive_feature_row(
+                primitive_feature_record(
+                    state=state,
+                    context=context,
+                    primitive=primitive,
+                    governor_mode=selection.governor_mode,
+                )
+            )
         )
         training_rows.append(row)
         episode_rows.append(row)
         selector_rows.append(primitive_selection_row(selection))
+        belief = update_belief(belief, lift_observation_from_rollout_row(row))
+        belief_after = query_belief_features(state, belief)
+        row["belief_after_local_lift_m_s"] = belief_after["belief_local_lift_m_s"]
+        row["belief_after_mean_lift_m_s"] = belief_after["belief_mean_lift_m_s"]
+        belief_rows.append(belief_snapshot_row(belief, label=f"episode_{episode_index:03d}"))
 
     return _write_outputs(
         config=config,
         run_root=run_root,
         episode_rows=episode_rows,
         selector_rows=selector_rows,
+        belief_rows=belief_rows,
     )
 
 
@@ -216,7 +257,17 @@ def _bootstrap_feedback_rows(
             config=config,
             wind_field=wind_field,
         )
-        rows.append(rollout_with_context_row(evidence, context))
+        row = rollout_with_context_row(evidence, context)
+        row.update(
+            primitive_feature_row(
+                primitive_feature_record(
+                    state=state,
+                    context=context,
+                    primitive=primitive,
+                )
+            )
+        )
+        rows.append(row)
     return rows
 
 
@@ -229,18 +280,22 @@ def _write_outputs(
     run_root: Path,
     episode_rows: list[dict[str, object]],
     selector_rows: list[dict[str, object]],
+    belief_rows: list[dict[str, object]],
 ) -> dict[str, object]:
     episode_log = run_root / "tables" / "episode_log.csv"
     selector_log = run_root / "tables" / "selector_log.csv"
+    belief_log = run_root / "tables" / "belief_snapshots.csv"
     pd.DataFrame(episode_rows).to_csv(filesystem_path(episode_log), index=False)
     pd.DataFrame(selector_rows).to_csv(filesystem_path(selector_log), index=False)
+    pd.DataFrame(belief_rows).to_csv(filesystem_path(belief_log), index=False)
     manifest = {
         "run_id": int(config.run_id),
         "episode_count": int(config.episode_count),
         "governor_mode": str(config.governor_mode),
         "rollout_backend": "model_backed_feedback",
         "evidence_role": "feedback_rollout_candidate",
-        "memory_label_status": "placeholder_only",
+        "memory_label_status": "episodic_lift_belief_smoke_only",
+        "belief_lambda_values": [0.0, 0.5, 0.8, 0.95],
         "claim_status": "simulation_only_episode_smoke_no_performance_claim",
         "blocked_claims": [
             "controller_performance",
@@ -276,6 +331,7 @@ def _write_outputs(
         "run_root": run_root,
         "episode_log": episode_log,
         "selector_log": selector_log,
+        "belief_log": belief_log,
         "manifest": manifest_path,
         "report": report_path,
     }

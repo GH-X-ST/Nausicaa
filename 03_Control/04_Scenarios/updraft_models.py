@@ -80,6 +80,75 @@ class RandomisedWindField:
         return float(self.params.strength_scale) * np.asarray(self.base(pts), dtype=float)
 
 
+@dataclass(frozen=True)
+class EnvironmentAdjustedWindField:
+    base: WindField
+    amplitude_scale: float = 1.0
+    width_scale: float = 1.0
+    centre_shift_m: tuple[float, float] = (0.0, 0.0)
+    fan_positions_m: tuple[tuple[float, float], ...] = ()
+    fan_power_scales: tuple[float, ...] = ()
+    active_fan_mask: tuple[bool, ...] = ()
+    local_updraft_uncertainty_m_s: float = 0.25
+    transform_label: str = "environment_adjusted"
+
+    @property
+    def name(self) -> str:
+        return f"{self.base.name}_{self.transform_label}"
+
+    @property
+    def source(self) -> str:
+        return (
+            f"{self.base.source}; env_adjustment={self.transform_label}; "
+            f"amplitude_scale={float(self.amplitude_scale):.6f}; "
+            f"width_scale={float(self.width_scale):.6f}; "
+            f"centre_shift_m={tuple(float(v) for v in self.centre_shift_m)}"
+        )
+
+    def __call__(self, points_w_up_m: np.ndarray) -> np.ndarray:
+        if isinstance(self.base, GaussianVarWindField):
+            return self._gaussian_call(points_w_up_m)
+        pts = np.asarray(points_w_up_m, dtype=float).reshape(-1, 3).copy()
+        centre = self._field_centre()
+        width = max(float(self.width_scale), 1e-12)
+        shift = np.asarray(self.centre_shift_m, dtype=float)
+        pts[:, :2] = centre + (pts[:, :2] - centre - shift) / width
+        return float(self.amplitude_scale) * np.asarray(self.base(pts), dtype=float)
+
+    def _gaussian_call(self, points_w_up_m: np.ndarray) -> np.ndarray:
+        pts = np.asarray(points_w_up_m, dtype=float).reshape(-1, 3)
+        wind = np.zeros((pts.shape[0], 3), dtype=float)
+        base = self.base
+        z = np.clip(pts[:, 2], base.z_axis_m[0], base.z_axis_m[-1])
+        centres = self.fan_positions_m or base.fan_centers_xy
+        powers = self.fan_power_scales or tuple(1.0 for _ in centres)
+        active = self.active_fan_mask or tuple(True for _ in centres)
+        width = max(float(self.width_scale), 1e-12)
+        shift = np.asarray(self.centre_shift_m, dtype=float)
+        for fan_id, centre, power, enabled in zip(base.fan_ids, centres, powers, active, strict=False):
+            if not bool(enabled):
+                continue
+            suffix = "" if fan_id == "" else f"_{fan_id}"
+            a = np.asarray(base.interpolators[f"A{suffix}"](z), dtype=float)
+            delta = np.maximum(
+                np.asarray(base.interpolators[f"delta{suffix}"](z), dtype=float),
+                1e-12,
+            )
+            w0 = np.asarray(base.interpolators[f"w0{suffix}"](z), dtype=float)
+            cx, cy = float(centre[0]) + float(shift[0]), float(centre[1]) + float(shift[1])
+            r = np.hypot(pts[:, 0] - cx, pts[:, 1] - cy) / width
+            wind[:, 2] += float(power) * (w0 + a * np.exp(-((r / delta) ** 2)))
+        wind[:, 2] *= float(self.amplitude_scale)
+        return wind
+
+    def _field_centre(self) -> np.ndarray:
+        if self.fan_positions_m:
+            return np.mean(np.asarray(self.fan_positions_m, dtype=float), axis=0)
+        if isinstance(self.base, GaussianVarWindField):
+            return np.mean(np.asarray(self.base.fan_centers_xy, dtype=float), axis=0)
+        return np.asarray(SINGLE_FAN_CENTER_XY, dtype=float)
+
+
 def sample_updraft_randomisation(
     seed: int,
     enabled: bool = True,
@@ -122,6 +191,40 @@ def build_randomised_wind_field(
     if not enabled:
         return wind, updraft_randomisation_label(params)
     return RandomisedWindField(base=wind, params=params), updraft_randomisation_label(params)
+
+
+def build_environment_adjusted_wind_field(
+    wind: WindField,
+    *,
+    amplitude_scale: float = 1.0,
+    width_scale: float = 1.0,
+    centre_shift_m: tuple[float, float] = (0.0, 0.0),
+    fan_positions_m: tuple[tuple[float, float], ...] = (),
+    fan_power_scales: tuple[float, ...] = (),
+    active_fan_mask: tuple[bool, ...] = (),
+    local_uncertainty_scale: float = 1.0,
+    transform_label: str = "environment_adjusted",
+) -> WindField:
+    """Return a wind wrapper whose environment metadata changes sampled wind."""
+
+    uncertainty = getattr(wind, "local_updraft_uncertainty_m_s", 0.25)
+    try:
+        base_uncertainty = float(uncertainty)
+    except (TypeError, ValueError):
+        base_uncertainty = 0.25
+    if not np.isfinite(base_uncertainty) or base_uncertainty <= 0.0:
+        base_uncertainty = 0.25
+    return EnvironmentAdjustedWindField(
+        base=wind,
+        amplitude_scale=float(amplitude_scale),
+        width_scale=float(width_scale),
+        centre_shift_m=tuple(float(value) for value in centre_shift_m),
+        fan_positions_m=tuple((float(x), float(y)) for x, y in fan_positions_m),
+        fan_power_scales=tuple(float(value) for value in fan_power_scales),
+        active_fan_mask=tuple(bool(value) for value in active_fan_mask),
+        local_updraft_uncertainty_m_s=float(base_uncertainty * max(float(local_uncertainty_scale), 1.0)),
+        transform_label=str(transform_label),
+    )
 
 
 # =============================================================================

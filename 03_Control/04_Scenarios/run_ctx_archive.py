@@ -39,6 +39,11 @@ from dense_archive_table_io import (  # noqa: E402
     write_table_partition,
 )
 from env_ctx import EnvironmentMetadata, build_environment_context  # noqa: E402
+from env_instance import (  # noqa: E402
+    environment_instance_for_mode,
+    environment_instance_row,
+    environment_metadata_from_instance,
+)
 from env_surrogate import (  # noqa: E402
     READY_STATUS,
     resolve_surrogate_binding,
@@ -46,13 +51,17 @@ from env_surrogate import (  # noqa: E402
     wind_field_for_binding,
 )
 from prim_cat import active_primitive_catalogue  # noqa: E402
+from prim_features import primitive_feature_record, primitive_feature_row  # noqa: E402
 from prim_roll import (  # noqa: E402
     RolloutConfig,
     blocked_rollout_evidence,
     rollout_with_context_row,
     simulate_primitive_rollout,
 )
-from updraft_models import FOUR_FAN_CENTERS_XY, SINGLE_FAN_CENTER_XY  # noqa: E402
+from state_sampling import (  # noqa: E402
+    archive_state_sample_for_row,
+    archive_state_sample_row,
+)
 
 
 # =============================================================================
@@ -284,12 +293,19 @@ def _chunk_rows(
     rows: list[dict[str, object]] = []
     for offset in range(spec.chunk_size):
         row_index = int(spec.chunk_index * config.candidate_chunk_size + offset)
-        state = _state_for_row(row_index)
-        metadata = _metadata_for_row(
-            w_layer=spec.context_id,
+        state_sample = archive_state_sample_for_row(
+            row_index,
+            seed=config.seed,
+            W_layer=spec.context_id,
             environment_mode=spec.environment_id,
-            seed=config.seed + row_index,
         )
+        state = state_sample.state_vector
+        instance = environment_instance_for_mode(
+            spec.context_id,
+            spec.environment_id,
+            config.seed + row_index,
+        )
+        metadata = environment_metadata_from_instance(instance)
         binding = resolve_surrogate_binding(
             spec.context_id,
             metadata,
@@ -334,20 +350,28 @@ def _chunk_rows(
             )
         row = rollout_with_context_row(evidence, context)
         row.update({f"surrogate_{key}": value for key, value in surrogate_binding_row(binding).items()})
+        row.update({f"environment_instance_{key}": value for key, value in environment_instance_row(instance).items()})
+        row.update(archive_state_sample_row(state_sample))
+        row.update(
+            primitive_feature_row(
+                primitive_feature_record(
+                    state=state,
+                    context=context,
+                    primitive=primitive,
+                )
+            )
+        )
         rows.append(row)
     return rows
 
 
 def _state_for_row(row_index: int) -> np.ndarray:
-    state = np.zeros(15, dtype=float)
-    state[0] = 2.0 + 0.01 * float(row_index % 20)
-    state[1] = 2.0 + 0.02 * float((row_index // 3) % 10)
-    state[2] = 1.45 + 0.01 * float(row_index % 15)
-    state[3] = np.deg2rad(float((row_index % 5) - 2) * 2.0)
-    state[4] = np.deg2rad(float((row_index % 7) - 3) * 1.5)
-    state[5] = 0.0
-    state[6] = 5.5 + 0.05 * float(row_index % 10)
-    return state
+    return archive_state_sample_for_row(
+        row_index,
+        seed=0,
+        W_layer="W0",
+        environment_mode="dry_air",
+    ).state_vector
 
 
 def _metadata_for_row(
@@ -356,55 +380,12 @@ def _metadata_for_row(
     environment_mode: str,
     seed: int,
 ) -> EnvironmentMetadata:
-    fan_count = _fan_count_for_mode(w_layer=w_layer, environment_mode=environment_mode)
-    model_id = _surrogate_model_id_for_mode(
-        w_layer=w_layer,
-        environment_mode=environment_mode,
-        fan_count=fan_count,
+    instance = environment_instance_for_mode(
+        w_layer,
+        environment_mode,
+        seed,
     )
-    return EnvironmentMetadata(
-        environment_id=f"{w_layer}_{environment_mode}",
-        fan_count=fan_count,
-        fan_positions_m=_fan_positions_for_mode(fan_count),
-        fan_power_scales=() if fan_count == 0 else tuple(1.0 for _ in range(fan_count)),
-        updraft_model_id=model_id,
-        updraft_amplitude_scale=1.0,
-        updraft_width_scale=1.0,
-        updraft_centre_shift_m=(0.0, 0.0),
-        residual_field_id="none",
-        randomisation_seed=seed,
-        model_source="resolved_by_env_surrogate",
-        W_layer=w_layer,
-        wind_mode="none" if w_layer == "W0" else "panel",
-    )
-
-
-def _fan_count_for_mode(*, w_layer: str, environment_mode: str) -> int:
-    if w_layer == "W0":
-        return 0
-    return 4 if "four" in str(environment_mode).lower() else 1
-
-
-def _fan_positions_for_mode(fan_count: int) -> tuple[tuple[float, float], ...]:
-    if fan_count == 0:
-        return ()
-    if fan_count == 4:
-        return FOUR_FAN_CENTERS_XY
-    return (SINGLE_FAN_CENTER_XY,)
-
-
-def _surrogate_model_id_for_mode(
-    *,
-    w_layer: str,
-    environment_mode: str,
-    fan_count: int,
-) -> str:
-    del environment_mode
-    if w_layer == "W0":
-        return "dry_air_zero_wind"
-    if w_layer == "W1":
-        return "four_gaussian_var" if fan_count == 4 else "single_gaussian_var"
-    return "four_annular_gp_grid" if fan_count == 4 else "single_annular_gp_grid"
+    return environment_metadata_from_instance(instance)
 
 
 # =============================================================================
@@ -528,6 +509,9 @@ def _run_single_chunk(
                 "episode_terminal_status": row["episode_terminal_status"],
                 "episode_utility_label": row["episode_utility_label"],
                 "terminal_use_trainable": bool(row["terminal_use_trainable"]),
+                "boundary_use_class": row["boundary_use_class"],
+                "state_sample_source": row["state_sample_source"],
+                "state_envelope_label": row["state_envelope_label"],
                 "surrogate_binding_status": row["surrogate_binding_status"],
             }
             for row in rows

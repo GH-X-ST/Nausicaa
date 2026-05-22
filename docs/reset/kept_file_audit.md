@@ -58,3 +58,15 @@ The active allowlist now also includes `prim_ctrl.py`, feedback-backed rollout e
 Preserved support documents are not deleted. MATLAB and plotting guidance are retained as non-contract support material after wording alignment. They now describe W labels as validation layers, fan cases as environment instances, and x/y boundary exits as retained terminal episode evidence.
 
 The R6-R8 alignment audit records old-code mismatches as fixed or intentionally preserved non-contract support. No controller-performance, W2/W3 robustness, real-flight transfer, mission-success, hardware-readiness, or repeated-launch improvement claim is made.
+
+## R6-R8 Pipeline Upgrade Addendum
+
+The active allowlist now includes the Path A code-plus-smoke additions:
+
+- deterministic environment instances and adjusted wind effects;
+- deterministic launch and envelope state sampling with measured-log compatibility;
+- primitive feature rows using state, context, primitive, latency, and uncertainty fields;
+- episodic lift-belief smoke support with the required lambda values;
+- selector, W2 replay, and W3 generalisation report scaffolds.
+
+These files are kept as implementation scaffolds and test-covered interfaces, not as completed evidence runs. The audit boundary remains unchanged: official R6 archive, R7 selector-report, and R8 W2 replay completion are deferred until explicitly approved local runs are produced.

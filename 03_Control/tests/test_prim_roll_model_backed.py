@@ -155,3 +155,35 @@ def test_command_template_rows_are_diagnostic_not_feedback_evidence() -> None:
     assert evidence.rollout_backend == "model_backed_command_template"
     assert evidence.evidence_role == "diagnostic_model_rollout"
     assert evidence.feedback_mode == "command_template_diagnostic"
+
+
+def test_latency_mechanisms_are_applied_and_logged() -> None:
+    state = _state()
+    context, wind = _context_and_wind(state)
+    ideal_context = context.__class__(**{**context.__dict__, "latency_case": "none"})
+
+    ideal = simulate_primitive_rollout(
+        rollout_id="ideal_latency",
+        initial_state=state,
+        context=ideal_context,
+        primitive=primitive_by_id("lift_dwell_arc"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
+        wind_field=wind,
+    )
+    nominal = simulate_primitive_rollout(
+        rollout_id="nominal_latency",
+        initial_state=state,
+        context=context,
+        primitive=primitive_by_id("lift_dwell_arc"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
+        wind_field=wind,
+    )
+
+    assert ideal.state_feedback_delay_applied is False
+    assert ideal.command_delay_applied is False
+    assert ideal.actuator_lag_applied is False
+    assert nominal.state_feedback_delay_applied is True
+    assert nominal.command_delay_applied is True
+    assert nominal.actuator_lag_applied is True
+    assert nominal.latency_execution_status == "full_state_command_actuator_latency"
+    assert np.isfinite(nominal.max_abs_command_norm)
