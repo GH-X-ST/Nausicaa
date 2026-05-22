@@ -119,6 +119,7 @@ def run_fixed_gate_w0_w1_archive(
         pairing_audit=pairing_audit,
         outcome_summary=outcome_summary,
         code_path_map=code_path_map,
+        move_on_gates=move_on_gates,
     )
     manifest = _manifest(
         run_id=int(run_id),
@@ -267,9 +268,11 @@ def _write_outputs(
     pairing_audit: pd.DataFrame,
     outcome_summary: pd.DataFrame,
     code_path_map: pd.DataFrame,
+    move_on_gates: dict[str, object],
 ) -> dict[str, Path]:
     fmt = resolve_storage_format(storage_format)
     extension = table_extension(fmt)
+    branch_coverage = _branch_coverage_summary(rollout_rows, move_on_gates)
     partitions = (
         write_table_partition(samples, paths["tables"] / "fixed_gate_samples" / f"part-00000.{extension}", storage_format=fmt),
         write_table_partition(candidates, paths["tables"] / "candidate_index" / f"part-00000.{extension}", storage_format=fmt),
@@ -292,9 +295,11 @@ def _write_outputs(
         "mission_candidate_rows_csv": paths["metrics"] / "fixed_gate_w0_w1_mission_candidate_rows.csv",
         "pairing_audit_csv": paths["metrics"] / "fixed_gate_w0_w1_pairing_audit.csv",
         "outcome_summary_csv": paths["metrics"] / "fixed_gate_w0_w1_outcome_summary.csv",
+        "branch_coverage_summary_csv": paths["metrics"] / "fixed_gate_w0_w1_branch_coverage_summary.csv",
         "code_path_map_csv": paths["metrics"] / "active_deprecated_code_path_map.csv",
         "manifest_json": paths["manifests"] / "fixed_gate_w0_w1_archive_manifest.json",
         "report_md": paths["reports"] / "fixed_gate_w0_w1_archive_report.md",
+        "branch_coverage_report_md": paths["reports"] / "fixed_gate_w0_w1_branch_coverage_report.md",
     }
     samples.to_csv(filesystem_path(output_paths["samples_csv"]), index=False)
     candidates.to_csv(filesystem_path(output_paths["candidate_index_csv"]), index=False)
@@ -313,7 +318,12 @@ def _write_outputs(
     )
     pairing_audit.to_csv(filesystem_path(output_paths["pairing_audit_csv"]), index=False)
     outcome_summary.to_csv(filesystem_path(output_paths["outcome_summary_csv"]), index=False)
+    branch_coverage.to_csv(filesystem_path(output_paths["branch_coverage_summary_csv"]), index=False)
     code_path_map.to_csv(filesystem_path(output_paths["code_path_map_csv"]), index=False)
+    output_paths["branch_coverage_report_md"].write_text(
+        _branch_coverage_report(branch_coverage, move_on_gates),
+        encoding="ascii",
+    )
     return output_paths
 
 
@@ -321,6 +331,239 @@ def _role_rows(frame: pd.DataFrame, roles: set[str]) -> pd.DataFrame:
     if frame.empty or "evidence_role" not in frame.columns:
         return pd.DataFrame(columns=frame.columns)
     return frame[frame["evidence_role"].astype(str).isin(roles)].copy()
+
+
+def _branch_coverage_summary(rollout_rows: pd.DataFrame, move_on_gates: dict[str, object]) -> pd.DataFrame:
+    """Return compact v11.2 branch-coverage evidence diagnostics.
+
+    The summary is deliberately descriptive only. It reports where accepted
+    fixed-gate partial-feedback evidence exists and where rows remain weak or
+    rejected, without changing acceptance checks or promoting diagnostic rows.
+    """
+
+    columns = (
+        "summary_section",
+        "fan_branch",
+        "W_layer",
+        "primitive_family",
+        "failure_label",
+        "evidence_role",
+        "accepted",
+        "row_count",
+        "minimum_margin_min_m",
+        "minimum_margin_mean_m",
+        "energy_residual_min_m",
+        "energy_residual_mean_m",
+        "energy_residual_max_m",
+        "archive_prepared_status",
+        "mission_evidence_ready_status",
+    )
+    if rollout_rows.empty:
+        return pd.DataFrame(columns=columns)
+
+    rows: list[dict[str, object]] = []
+    frame = rollout_rows.copy()
+    accepted = frame["accepted"].astype(bool) if "accepted" in frame.columns else pd.Series(False, index=frame.index)
+
+    rows.extend(
+        _count_section(
+            frame,
+            "row_count_by_branch_layer",
+            ["fan_branch", "W_layer"],
+            move_on_gates,
+        )
+    )
+    w1_measured = frame[
+        frame["W_layer"].astype(str).eq("W1")
+        & frame["wind_mode"].astype(str).ne("none")
+        & frame["wind_descriptor_status"].astype(str).eq("wind_model_evaluated")
+        & ~frame["wind_descriptor_model_source"].astype(str).str.contains("dry_air", na=False)
+    ].copy()
+    rows.extend(
+        _count_section(
+            w1_measured,
+            "non_dry_w1_measured_updraft_by_branch",
+            ["fan_branch", "W_layer"],
+            move_on_gates,
+        )
+    )
+    accepted_partial = frame[
+        accepted
+        & frame["evidence_role"].astype(str).eq("partial_feedback")
+    ].copy()
+    rows.extend(
+        _count_section(
+            accepted_partial,
+            "accepted_partial_feedback_by_branch_layer_primitive",
+            ["fan_branch", "W_layer", "primitive_family"],
+            move_on_gates,
+        )
+    )
+    rejected = frame[~accepted].copy()
+    rows.extend(
+        _count_section(
+            rejected,
+            "rejection_failure_counts_by_branch_primitive",
+            ["fan_branch", "primitive_family", "failure_label", "evidence_role"],
+            move_on_gates,
+        )
+    )
+    rows.extend(
+        _metric_section(
+            accepted_partial,
+            "accepted_partial_feedback_margin_energy_summary",
+            ["fan_branch", "W_layer", "primitive_family"],
+            move_on_gates,
+        )
+    )
+    weak = frame[
+        ~accepted
+        & frame["evidence_role"].astype(str).eq("partial_feedback")
+        & pd.to_numeric(frame["minimum_margin_m"], errors="coerce").notna()
+    ].copy()
+    rows.extend(
+        _metric_section(
+            weak,
+            "weak_partial_feedback_margin_energy_summary",
+            ["fan_branch", "W_layer", "primitive_family", "failure_label"],
+            move_on_gates,
+        )
+    )
+    rows.append(
+        {
+            "summary_section": "readiness_status",
+            "fan_branch": "all",
+            "W_layer": "W0,W1",
+            "primitive_family": "all",
+            "failure_label": "",
+            "evidence_role": "",
+            "accepted": "",
+            "row_count": int(len(frame)),
+            "minimum_margin_min_m": np.nan,
+            "minimum_margin_mean_m": np.nan,
+            "energy_residual_min_m": np.nan,
+            "energy_residual_mean_m": np.nan,
+            "energy_residual_max_m": np.nan,
+            "archive_prepared_status": str(move_on_gates.get("archive_prepared", "")),
+            "mission_evidence_ready_status": str(move_on_gates.get("mission_evidence_ready", "")),
+        }
+    )
+    return pd.DataFrame(rows, columns=columns)
+
+
+def _count_section(
+    frame: pd.DataFrame,
+    section: str,
+    group_columns: list[str],
+    move_on_gates: dict[str, object],
+) -> list[dict[str, object]]:
+    if frame.empty:
+        return []
+    rows: list[dict[str, object]] = []
+    grouped = frame.groupby(group_columns, dropna=False).size().reset_index(name="row_count")
+    for record in grouped.to_dict(orient="records"):
+        rows.append(
+            {
+                "summary_section": section,
+                "fan_branch": str(record.get("fan_branch", "")),
+                "W_layer": str(record.get("W_layer", "")),
+                "primitive_family": str(record.get("primitive_family", "")),
+                "failure_label": str(record.get("failure_label", "")),
+                "evidence_role": str(record.get("evidence_role", "")),
+                "accepted": str(record.get("accepted", "")),
+                "row_count": int(record["row_count"]),
+                "minimum_margin_min_m": np.nan,
+                "minimum_margin_mean_m": np.nan,
+                "energy_residual_min_m": np.nan,
+                "energy_residual_mean_m": np.nan,
+                "energy_residual_max_m": np.nan,
+                "archive_prepared_status": str(move_on_gates.get("archive_prepared", "")),
+                "mission_evidence_ready_status": str(move_on_gates.get("mission_evidence_ready", "")),
+            }
+        )
+    return rows
+
+
+def _metric_section(
+    frame: pd.DataFrame,
+    section: str,
+    group_columns: list[str],
+    move_on_gates: dict[str, object],
+) -> list[dict[str, object]]:
+    if frame.empty:
+        return []
+    metric_frame = frame.copy()
+    metric_frame["minimum_margin_m"] = pd.to_numeric(metric_frame["minimum_margin_m"], errors="coerce")
+    metric_frame["energy_residual_m"] = pd.to_numeric(metric_frame["energy_residual_m"], errors="coerce")
+    grouped = (
+        metric_frame.groupby(group_columns, dropna=False)
+        .agg(
+            row_count=("sample_id", "size"),
+            minimum_margin_min_m=("minimum_margin_m", "min"),
+            minimum_margin_mean_m=("minimum_margin_m", "mean"),
+            energy_residual_min_m=("energy_residual_m", "min"),
+            energy_residual_mean_m=("energy_residual_m", "mean"),
+            energy_residual_max_m=("energy_residual_m", "max"),
+        )
+        .reset_index()
+    )
+    rows: list[dict[str, object]] = []
+    for record in grouped.to_dict(orient="records"):
+        rows.append(
+            {
+                "summary_section": section,
+                "fan_branch": str(record.get("fan_branch", "")),
+                "W_layer": str(record.get("W_layer", "")),
+                "primitive_family": str(record.get("primitive_family", "")),
+                "failure_label": str(record.get("failure_label", "")),
+                "evidence_role": str(record.get("evidence_role", "")),
+                "accepted": str(record.get("accepted", "")),
+                "row_count": int(record["row_count"]),
+                "minimum_margin_min_m": _finite_or_nan(record["minimum_margin_min_m"]),
+                "minimum_margin_mean_m": _finite_or_nan(record["minimum_margin_mean_m"]),
+                "energy_residual_min_m": _finite_or_nan(record["energy_residual_min_m"]),
+                "energy_residual_mean_m": _finite_or_nan(record["energy_residual_mean_m"]),
+                "energy_residual_max_m": _finite_or_nan(record["energy_residual_max_m"]),
+                "archive_prepared_status": str(move_on_gates.get("archive_prepared", "")),
+                "mission_evidence_ready_status": str(move_on_gates.get("mission_evidence_ready", "")),
+            }
+        )
+    return rows
+
+
+def _branch_coverage_report(summary: pd.DataFrame, move_on_gates: dict[str, object]) -> str:
+    accepted = summary[
+        summary["summary_section"].astype(str).eq("accepted_partial_feedback_by_branch_layer_primitive")
+    ].copy()
+    weak = summary[
+        summary["summary_section"].astype(str).eq("weak_partial_feedback_margin_energy_summary")
+    ].copy()
+    return "\n".join(
+        [
+            "# Fixed-Gate W0/W1 Branch-Coverage Diagnosis",
+            "",
+            f"- Archive-prepared status: `{move_on_gates.get('archive_prepared', '')}`",
+            f"- Mission-evidence-ready status: `{move_on_gates.get('mission_evidence_ready', '')}`",
+            f"- W0 rows by branch: `{move_on_gates.get('w0_row_count_by_branch', {})}`",
+            f"- W1 rows by branch: `{move_on_gates.get('w1_row_count_by_branch', {})}`",
+            f"- Non-dry W1 measured-updraft rows by branch: `{move_on_gates.get('w1_measured_updraft_row_count_by_branch', {})}`",
+            f"- Accepted W0 partial-feedback rows: `{move_on_gates.get('accepted_w0_partial_feedback_row_count', 0)}`",
+            f"- Accepted W1 partial-feedback rows: `{move_on_gates.get('accepted_w1_partial_feedback_row_count', 0)}`",
+            f"- Accepted branch/layer/primitive groups: `{len(accepted)}`",
+            f"- Weak partial-feedback groups: `{len(weak)}`",
+            "",
+            "Weak rows are non-accepted partial-feedback rows with finite true-margin metrics.",
+            "This report is diagnostic only and does not loosen entry, exit, safety, latency, wind, or governor-compatible checks.",
+            "",
+            "No real-flight transfer, mission success, same-flight recapture, perching, all-arena validity, hardware-ready agile-turn, or full delayed-state-feedback claim is made.",
+            "",
+        ]
+    )
+
+
+def _finite_or_nan(value: object) -> float:
+    number = float(value)
+    return number if np.isfinite(number) else float("nan")
 
 
 def _manifest(

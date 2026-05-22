@@ -175,6 +175,26 @@ def test_w0_w1_archive_writes_split_evidence_tables_and_move_on_statuses(tmp_pat
     assert paths["diagnostic_rows_csv"].exists()
     assert paths["partial_feedback_rows_csv"].exists()
     assert paths["mission_candidate_rows_csv"].exists()
+    assert paths["branch_coverage_summary_csv"].exists()
+    assert paths["branch_coverage_report_md"].exists()
+    coverage = pd.read_csv(paths["branch_coverage_summary_csv"])
+    assert {
+        "row_count_by_branch_layer",
+        "non_dry_w1_measured_updraft_by_branch",
+        "rejection_failure_counts_by_branch_primitive",
+        "weak_partial_feedback_margin_energy_summary",
+        "readiness_status",
+    }.issubset(set(coverage["summary_section"]))
+    assert set(coverage["archive_prepared_status"]) == {"ready"}
+    with pytest.raises(RuntimeError, match="result tree already exists"):
+        run_fixed_gate_w0_w1_archive(
+            run_id=301,
+            rows_per_branch=2,
+            latency_case="none",
+            result_root=tmp_path,
+            storage_format="csv",
+            overwrite=False,
+        )
 
 
 def test_clustering_keeps_diagnostic_medoids_out_of_governor_package() -> None:
