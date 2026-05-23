@@ -136,8 +136,7 @@ class StageDriverResult:
 def run_feedback_contextual_v1_4_overnight(config: OvernightV14Config) -> StageDriverResult:
     """Run the hardened stage driver without deleting prior evidence roots."""
 
-    run_root = Path(config.output_root) / f"run_{config.run_id}"
-    run_root.mkdir(parents=True, exist_ok=True)
+    run_root = Path(config.output_root)
     statuses: list[StageEvidenceStatus] = []
     projections: list[ProjectionResult] = []
 
@@ -329,7 +328,17 @@ def _run_preflight(config: OvernightV14Config, run_root: Path) -> list[CommandRe
     results.append(_run_py_compile())
     if results[-1].returncode != 0:
         return results
-    results.append(_run_command("pytest", (sys.executable, "-m", "pytest", "-q", "03_Control/tests"), Path.cwd()))
+    pytest_env = {}
+    if config.resume and run_root.exists():
+        pytest_env["NAUSICAA_ALLOW_LOCAL_EVIDENCE_ROOT"] = run_root.as_posix()
+    results.append(
+        _run_command(
+            "pytest",
+            (sys.executable, "-m", "pytest", "-q", "03_Control/tests"),
+            Path.cwd(),
+            env_extra=pytest_env,
+        )
+    )
     if results[-1].returncode != 0:
         return results
     results.append(_run_command("git_diff_check", ("git", "diff", "--check"), Path.cwd()))
@@ -371,10 +380,21 @@ def _run_py_compile() -> CommandResult:
     )
 
 
-def _run_command(label: str, command: Sequence[str], cwd: Path) -> CommandResult:
+def _run_command(
+    label: str,
+    command: Sequence[str],
+    cwd: Path,
+    *,
+    env_extra: dict[str, str] | None = None,
+) -> CommandResult:
+    env = None
+    if env_extra:
+        env = os.environ.copy()
+        env.update(env_extra)
     completed = subprocess.run(
         list(command),
         cwd=str(cwd),
+        env=env,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -432,7 +452,7 @@ def _run_r6_dry_schedule(config: OvernightV14Config, run_root: Path) -> dict[str
             dry_run_schedule=True,
             stop_after_chunks=None,
             continue_on_chunk_failure=False,
-            output_root=run_root / "dry_run_schedule" / "r6_w0_w1",
+            output_root=run_root / "sched" / "r6",
             rollout_backend="model_backed_feedback",
         )
     )
@@ -440,7 +460,7 @@ def _run_r6_dry_schedule(config: OvernightV14Config, run_root: Path) -> dict[str
 
 def _run_r6_projection(config: OvernightV14Config, run_root: Path) -> ProjectionResult:
     chunk_size = max(1, min(config.candidate_chunk_size, config.r6_target_rows))
-    output_root = run_root / "first_chunk_projection" / "r6_w0_w1"
+    output_root = run_root / "proj" / "r6"
     started = time.perf_counter()
     result = run_contextual_archive_preflight(
         ArchiveRunConfig(
@@ -478,7 +498,7 @@ def _run_r6_projection(config: OvernightV14Config, run_root: Path) -> Projection
 
 def _run_r8_projection(config: OvernightV14Config, run_root: Path, r6_manifest: Path) -> ProjectionResult:
     chunk_size = max(1, min(config.candidate_chunk_size, config.r8_target_rows))
-    output_root = run_root / "first_chunk_projection" / "r8_w2_replay"
+    output_root = run_root / "proj" / "r8"
     started = time.perf_counter()
     result = run_w2_replay(
         W2ReplayConfig(
@@ -511,7 +531,7 @@ def _run_r8_projection(config: OvernightV14Config, run_root: Path, r6_manifest: 
 
 def _run_r9_projection(config: OvernightV14Config, run_root: Path, r8_manifest: Path) -> ProjectionResult:
     chunk_size = max(1, min(config.candidate_chunk_size, config.r9_target_rows))
-    output_root = run_root / "first_chunk_projection" / "r9_w3_generalisation"
+    output_root = run_root / "proj" / "r9"
     started = time.perf_counter()
     result = run_w3_generalisation(
         W3GeneralisationConfig(
@@ -560,7 +580,7 @@ def _run_r6_archive(config: OvernightV14Config, run_root: Path, projection: Proj
             dry_run_schedule=False,
             stop_after_chunks=None,
             continue_on_chunk_failure=False,
-            output_root=run_root / "r6_w0_w1_archive",
+            output_root=run_root / "r6",
             rollout_backend="model_backed_feedback",
         )
     )
@@ -570,7 +590,7 @@ def _run_r7_report(config: OvernightV14Config, run_root: Path, r6_manifest: Path
     return run_primitive_selector_report(
         SelectorReportConfig(
             archive_table=r6_manifest,
-            output_root=run_root / "r7_selector_report",
+            output_root=run_root / "r7",
             run_id=_numeric_run_id(config, 7),
             evaluation_max_rows=config.r7_evaluation_max_rows,
         )
@@ -587,7 +607,7 @@ def _run_r8_replay(
         W2ReplayConfig(
             source_archive=r6_manifest,
             target_rows=projection.selected_rows,
-            output_root=run_root / "r8_w2_replay",
+            output_root=run_root / "r8",
             run_id=_numeric_run_id(config, 8),
             chunk_size=projection.selected_chunk_size,
             workers=config.workers,
@@ -610,7 +630,7 @@ def _run_r9_generalisation(
         W3GeneralisationConfig(
             source_replay=r8_manifest,
             target_rows=projection.selected_rows,
-            output_root=run_root / "r9_w3_generalisation",
+            output_root=run_root / "r9",
             run_id=_numeric_run_id(config, 9),
             chunk_size=projection.selected_chunk_size,
             workers=config.workers,

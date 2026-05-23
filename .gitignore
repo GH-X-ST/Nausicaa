@@ -1,7 +1,8 @@
 
 # Python/cache artifacts
 __pycache__/
-*.py[cod]
+*.pyc
+*.pyo
 .pytest_cache/
 
 # Local validation scratch folders
@@ -11,12 +12,7 @@ _tmp_*/
 CODEX_*.md
 docs/CODEX_*.md
 
-# Generated dense, archive, and thesis-scale control outputs stay local.
-03_Control/05_Results/*
+# Evidence outputs are intentionally visible for open, repeatable review.
+# Temporary write files remain local.
 !03_Control/05_Results/.gitkeep
-03_Control/05_Results/**/tables/
-03_Control/05_Results/**/*.parquet
-03_Control/05_Results/**/*.csv.gz
 03_Control/05_Results/**/*.tmp
-03_Control/05_Results/**/chunk_manifests/
-03_Control/05_Results/**/chunk_logs/

@@ -31,7 +31,7 @@ def test_v1_4_preflight_failure_blocks_before_projection(tmp_path: Path) -> None
     statuses = _status_rows(result.status_manifest_path)
     assert statuses["R6"]["status"] == "blocked"
     assert statuses["R7"]["status"] == "deferred"
-    assert not (result.run_root / "first_chunk_projection").exists()
+    assert not (result.run_root / "proj").exists()
 
 
 def test_v1_4_dry_run_schedule_writes_deferred_status_only(tmp_path: Path) -> None:
@@ -53,8 +53,8 @@ def test_v1_4_dry_run_schedule_writes_deferred_status_only(tmp_path: Path) -> No
     statuses = _status_rows(result.status_manifest_path)
     assert set(statuses) == {"R6", "R7", "R8", "R9"}
     assert all(row["status"] == "deferred" for row in statuses.values())
-    assert (result.run_root / "dry_run_schedule").exists()
-    assert not (result.run_root / "r6_w0_w1_archive").exists()
+    assert (result.run_root / "sched").exists()
+    assert not (result.run_root / "r6").exists()
 
 
 def test_v1_4_stage_local_r8_block_preserves_r6_r7(
@@ -138,3 +138,35 @@ def test_v1_4_status_manifest_updates_include_claim_boundary(tmp_path: Path) -> 
     assert statuses["R6"]["table_manifest_path"]
     assert statuses["R8"]["status"] == "deferred"
     assert pd.notna(statuses["R6"]["row_count"])
+
+
+def test_v1_4_future_output_layout_omits_nested_run_directory(tmp_path: Path) -> None:
+    output_root = tmp_path / "feedback_contextual_v1_4"
+    result = run_feedback_contextual_v1_4_overnight(
+        OvernightV14Config(
+            run_id="146",
+            output_root=output_root,
+            r6_target_rows=8,
+            r6_fallback_rows=4,
+            candidate_chunk_size=4,
+            workers=1,
+            max_workers=1,
+            storage_format="csv_gz",
+            run_preflight_checks=False,
+            stop_after_stage="r6",
+            skip_r9=True,
+        )
+    )
+
+    statuses = _status_rows(result.status_manifest_path)
+    manifest_path = Path(str(statuses["R6"]["table_manifest_path"]))
+    manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+    partition_paths = [str(row["relative_path"]) for row in manifest["tables"]]
+
+    assert result.run_root == output_root
+    assert "run_146" not in result.run_root.as_posix()
+    assert manifest_path.as_posix().startswith(output_root.as_posix())
+    assert all("context_id=" not in path for path in partition_paths)
+    assert all("environment_id=" not in path for path in partition_paths)
+    assert all("chunk_index=" not in path for path in partition_paths)
+    assert all("part-00000" not in path for path in partition_paths)

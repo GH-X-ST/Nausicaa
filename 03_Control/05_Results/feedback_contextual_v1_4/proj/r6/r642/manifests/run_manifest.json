@@ -1,0 +1,54 @@
+{
+  "runtime_core_version": "contextual_runtime_v1",
+  "storage_contract_version": "contextual_storage_contract_v1",
+  "run_stage": "contextual_archive_preflight",
+  "environment_context": "strict_surrogate_feedback_backed",
+  "runtime_storage_contract": "chunked, resumable, compressed, worker-enabled, checksum-manifested, and no generated file above 100 MB",
+  "preferred_generated_file_size_mb": 75.0,
+  "max_generated_file_size_mb": 100.0,
+  "selected_worker_count": 8,
+  "max_workers": 8,
+  "os_cpu_count": 20,
+  "memory_total_gb": 31.668304443359375,
+  "memory_safety_margin_gb": 8.0,
+  "estimated_worker_memory_gb": 2.0,
+  "worker_fallback_reason": "none",
+  "chunk_execution_backend": "single_worker",
+  "actual_worker_count": 1,
+  "parallel_chunk_count": 1,
+  "worker_enabled": false,
+  "run_id": 642,
+  "rows_requested": 1000,
+  "seed": 642,
+  "w_layers": [
+    "W0",
+    "W1"
+  ],
+  "env_modes": [
+    "dry_air",
+    "gaussian_single",
+    "gaussian_four",
+    "fan_shift",
+    "power_scale"
+  ],
+  "rollout_backend": "model_backed_feedback",
+  "candidate_chunk_size": 1000,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "resume": false,
+  "repair_incomplete": true,
+  "dry_run_schedule": false,
+  "claim_status": "simulation_only_feedback_backed_preflight",
+  "blocked_claims": [
+    "real_flight_transfer",
+    "hardware_readiness",
+    "mission_success",
+    "W2_W3_robustness",
+    "controller_performance"
+  ],
+  "failures": [],
+  "official_deferred_commands": {
+    "r6_feedback_20k_temp_or_local": "python 03_Control/04_Scenarios/run_ctx_archive.py --run-id 60 --rows 20000 --seed 60 --w-layers W0,W1,W2,W3 --env-modes dry_air,gaussian_single,gaussian_four,fan_shift,power_scale --candidate-chunk-size 1000 --workers 8 --max-workers 8 --storage-format auto --compression-level 1 --resume --repair-incomplete --rollout-backend model_backed_feedback --output-root 03_Control/05_Results/context_archive/r6_feedback_20k",
+    "r6_feedback_40k_temp_or_local": "python 03_Control/04_Scenarios/run_ctx_archive.py --run-id 61 --rows 40000 --seed 61 --w-layers W0,W1,W2,W3 --env-modes dry_air,gaussian_single,gaussian_four,fan_shift,power_scale --candidate-chunk-size 1000 --workers 8 --max-workers 8 --storage-format auto --compression-level 1 --resume --repair-incomplete --rollout-backend model_backed_feedback --output-root 03_Control/05_Results/context_archive/r6_feedback_40k"
+  }
+}

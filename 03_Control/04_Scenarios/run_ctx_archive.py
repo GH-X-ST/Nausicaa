@@ -191,7 +191,7 @@ def run_contextual_archive_preflight(config: ContextArchiveConfig) -> dict[str, 
     """Run a chunked contextual archive preflight under the provided output root."""
 
     _validate_config(config)
-    run_root = Path(config.output_root) / f"run_{config.run_id:03d}"
+    run_root = Path(config.output_root) / f"r{config.run_id:03d}"
     filesystem_path(run_root).mkdir(parents=True, exist_ok=True)
     storage_format = resolve_storage_format(config.storage_format)
     worker_decision = worker_count_decision(

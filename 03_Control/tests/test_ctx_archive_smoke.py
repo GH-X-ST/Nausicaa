@@ -1,12 +1,48 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
 
 from dense_archive_table_io import load_table_manifest, read_table_partition
 from run_ctx_archive import ContextArchiveConfig, run_contextual_archive_preflight
+
+
+def _results_entries_are_placeholder_or_allowed(entries: list[str]) -> bool:
+    allowed_root = os.environ.get("NAUSICAA_ALLOW_LOCAL_EVIDENCE_ROOT", "").strip()
+    if not allowed_root:
+        return entries == [".gitkeep"]
+
+    root = Path(allowed_root)
+    if root.is_absolute():
+        try:
+            allowed_prefix = root.resolve().relative_to(
+                Path.cwd() / "03_Control" / "05_Results"
+            )
+        except ValueError:
+            return False
+    else:
+        root_text = root.as_posix().rstrip("/")
+        prefix = "03_Control/05_Results/"
+        if root_text.startswith(prefix):
+            root_text = root_text[len(prefix) :]
+        allowed_prefix = Path(root_text)
+
+    allowed_text = allowed_prefix.as_posix().rstrip("/")
+    allowed_parents = {
+        parent.as_posix()
+        for parent in Path(allowed_text).parents
+        if parent.as_posix() != "."
+    }
+    return all(
+        entry == ".gitkeep"
+        or entry == allowed_text
+        or entry in allowed_parents
+        or entry.startswith(f"{allowed_text}/")
+        for entry in entries
+    )
 
 
 def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Path) -> None:
@@ -184,4 +220,4 @@ def test_contextual_archive_preflight_does_not_touch_active_results_root(tmp_pat
         for path in Path("03_Control/05_Results").rglob("*")
     ]
 
-    assert result_entries == [".gitkeep"]
+    assert _results_entries_are_placeholder_or_allowed(result_entries)

@@ -1,0 +1,47 @@
+{
+  "run_id": 648,
+  "stage": "R8_W2_model_backed_replay",
+  "source_archive": "03_Control/05_Results/feedback_contextual_v1_4/r6/r646/manifests/table_manifest.json",
+  "archive_source_info": {
+    "source_path": "03_Control/05_Results/feedback_contextual_v1_4/r6/r646/manifests/table_manifest.json",
+    "source_kind": "table_manifest",
+    "manifest_path": "03_Control/05_Results/feedback_contextual_v1_4/r6/r646/manifests/table_manifest.json",
+    "run_manifest_path": "03_Control/05_Results/feedback_contextual_v1_4/r6/r646/manifests/run_manifest.json",
+    "row_count_loaded": 80000,
+    "row_count_manifested": 80000,
+    "storage_format": "csv_gz",
+    "run_stage": "contextual_archive_preflight",
+    "claim_status": "simulation_only_feedback_backed_preflight",
+    "rollout_backend": "model_backed_feedback",
+    "rows_requested": 80000,
+    "evidence_eligible": true
+  },
+  "W_layer": "W2",
+  "surrogate_family": "gp_corrected_annular_gaussian",
+  "required_latency_mechanisms": [
+    "state_feedback_delay",
+    "command_delay",
+    "actuator_lag"
+  ],
+  "replay_status": "complete",
+  "R8_W2_replay_complete": true,
+  "replayed_row_count": 15000,
+  "partition_count": 15,
+  "chunk_size": 1000,
+  "workers": 8,
+  "max_workers": 8,
+  "resume": true,
+  "repair_incomplete": true,
+  "stop_after_chunks": null,
+  "target_rows": 15000,
+  "fallback_rows": 2000,
+  "blocked_ratio": 0.0,
+  "file_size_status": "pass",
+  "actual_model_backed_replay": true,
+  "claim_status": "simulation_only_w2_replay_no_survival_claim",
+  "blocked_claims": [
+    "full_W2_survival",
+    "hardware_readiness",
+    "real_flight_transfer"
+  ]
+}

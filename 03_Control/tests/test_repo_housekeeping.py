@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import os
 import subprocess
 from pathlib import Path
 
@@ -179,6 +180,19 @@ def _repo_files() -> set[str]:
     return files
 
 
+def _allowed_local_evidence_root() -> str:
+    value = os.environ.get("NAUSICAA_ALLOW_LOCAL_EVIDENCE_ROOT", "").strip()
+    if not value:
+        return ""
+    path = Path(value)
+    if path.is_absolute():
+        try:
+            path = path.resolve().relative_to(REPO_ROOT)
+        except ValueError:
+            return ""
+    return path.as_posix().rstrip("/")
+
+
 def _audit_rows() -> list[dict[str, str]]:
     path = REPO_ROOT / "docs" / "reset" / "kept_file_audit.csv"
     with path.open(newline="", encoding="utf-8") as handle:
@@ -249,7 +263,23 @@ def test_active_import_paths_do_not_include_results() -> None:
 
 def test_results_root_contains_only_gitkeep() -> None:
     entries = sorted(path.relative_to(RESULT_ROOT).as_posix() for path in RESULT_ROOT.rglob("*"))
-    assert entries == [".gitkeep"]
+    allowed_root = _allowed_local_evidence_root()
+    if not allowed_root:
+        assert entries == [".gitkeep"]
+        return
+    allowed_prefix = Path(allowed_root).relative_to("03_Control/05_Results").as_posix()
+    allowed_parents = {
+        Path(allowed_prefix).parents[index].as_posix()
+        for index in range(len(Path(allowed_prefix).parents))
+        if Path(allowed_prefix).parents[index].as_posix() != "."
+    }
+    assert all(
+        entry == ".gitkeep"
+        or entry == allowed_prefix
+        or entry in allowed_parents
+        or entry.startswith(f"{allowed_prefix}/")
+        for entry in entries
+    )
 
 
 def test_active_files_are_allowlisted() -> None:
@@ -275,6 +305,10 @@ def test_active_files_are_allowlisted() -> None:
         if path.startswith(active_prefixes)
         and path not in allowed
         and not path.startswith("docs/reset/")
+        and not (
+            _allowed_local_evidence_root()
+            and path.startswith(f"{_allowed_local_evidence_root()}/")
+        )
     )
     assert unexpected == []
 

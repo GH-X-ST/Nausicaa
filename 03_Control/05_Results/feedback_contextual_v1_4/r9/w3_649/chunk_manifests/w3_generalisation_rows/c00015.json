@@ -1,0 +1,11 @@
+{
+  "status": "complete",
+  "chunk_index": 15,
+  "chunk_count": 30,
+  "chunk_size": 1000,
+  "row_count": 1000,
+  "storage_format": "csv_gz",
+  "relative_path": "w3_generalisation_rows/c00015.csv.gz",
+  "byte_count": 1072361,
+  "checksum_sha256": "77ac0f6f579816eb15bab5a313c4dee10655d24cddc254e9ba742fad5f3ba6c9"
+}

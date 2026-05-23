@@ -70,7 +70,7 @@ def parse_args(argv: list[str] | None = None) -> SelectorReportConfig:
 
 
 def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, object]:
-    run_root = Path(config.output_root) / f"selector_report_{config.run_id:03d}"
+    run_root = Path(config.output_root) / f"sel_{config.run_id:03d}"
     for rel in ("manifests", "tables", "reports", "metrics"):
         filesystem_path(run_root / rel).mkdir(parents=True, exist_ok=True)
     max_rows = None if int(config.max_rows) <= 0 else int(config.max_rows)

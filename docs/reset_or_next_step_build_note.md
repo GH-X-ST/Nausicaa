@@ -99,3 +99,11 @@ The preferred overnight entrypoint is now `run_feedback_contextual_v1_4_overnigh
 The v1.4 driver writes the evidence-status manifest after preflight and after every stage. Preflight is fail-fast and stops before first-chunk projection if retained-module compilation, full pytest, diff check, result-root policy, or W0/W1 surrogate checks fail. R8 and R9 surrogate checks are stage-local, so missing W2 or W3 support blocks only that later stage and preserves earlier statuses.
 
 R6, R8, and R9 now use separate first chunks for runtime and partition-size projection. R7 records full training row count, evaluation row count, evaluation strategy, evaluation strata, bounded-evaluation reason, and source manifest path so a small accidental subset cannot be marked complete. R8 and R9 replay stages are chunked and resumable, with compressed partitions, chunk manifests, checksums, table manifests, and no copied-label completion.
+
+## Evidence Path-Length Hardening Addendum
+
+Future evidence runs should write directly under the requested evidence root, for example `03_Control/05_Results/feedback_contextual_v1_4`, rather than inserting a middle `run_64` directory. Stage folders are short (`sched`, `proj`, `r6`, `r7`, `r8`, `r9`) and chunked tables use capped file names such as `tables/contextual_rows/c00012_W1_gaussian-single.csv.gz`.
+
+Do not reintroduce nested dense-output paths of the form `run_*/context_id=*/environment_id=*/chunk_index=*/part-00000.*`. Those paths are too long for reliable Windows/Git handling in this repository path. Run identity remains recorded in manifests and status JSON, not in every partition directory name.
+
+The completed v1.4 run ID 64 evidence root has been migrated to this shorter layout. The migration moved and renamed existing compressed partitions, then verified table-manifest checksums; it did not regenerate rollout evidence. The audit record is `03_Control/05_Results/feedback_contextual_v1_4/evidence_status/path_shortening_migration_manifest.json`.

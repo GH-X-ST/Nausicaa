@@ -1,11 +1,47 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
 
 from run_ctx_episode_smoke import EpisodeSmokeConfig, run_contextual_episode_smoke
+
+
+def _results_entries_are_placeholder_or_allowed(entries: list[str]) -> bool:
+    allowed_root = os.environ.get("NAUSICAA_ALLOW_LOCAL_EVIDENCE_ROOT", "").strip()
+    if not allowed_root:
+        return entries == [".gitkeep"]
+
+    root = Path(allowed_root)
+    if root.is_absolute():
+        try:
+            allowed_prefix = root.resolve().relative_to(
+                Path.cwd() / "03_Control" / "05_Results"
+            )
+        except ValueError:
+            return False
+    else:
+        root_text = root.as_posix().rstrip("/")
+        prefix = "03_Control/05_Results/"
+        if root_text.startswith(prefix):
+            root_text = root_text[len(prefix) :]
+        allowed_prefix = Path(root_text)
+
+    allowed_text = allowed_prefix.as_posix().rstrip("/")
+    allowed_parents = {
+        parent.as_posix()
+        for parent in Path(allowed_text).parents
+        if parent.as_posix() != "."
+    }
+    return all(
+        entry == ".gitkeep"
+        or entry == allowed_text
+        or entry in allowed_parents
+        or entry.startswith(f"{allowed_text}/")
+        for entry in entries
+    )
 
 
 def test_episode_smoke_writes_temp_only_feedback_rows(tmp_path: Path) -> None:
@@ -41,4 +77,4 @@ def test_episode_smoke_writes_temp_only_feedback_rows(tmp_path: Path) -> None:
         path.relative_to("03_Control/05_Results").as_posix()
         for path in Path("03_Control/05_Results").rglob("*")
     ]
-    assert result_entries == [".gitkeep"]
+    assert _results_entries_are_placeholder_or_allowed(result_entries)

@@ -1,0 +1,2 @@
+chunk_index,status,row_count,partition_path,checksum_sha256
+0,complete,1000,w2_replay_rows/c00000.csv.gz,b54f1079bbb9fd24096b7d1979c8f7d76fe5816d859600a7694cdf12b398a2f0

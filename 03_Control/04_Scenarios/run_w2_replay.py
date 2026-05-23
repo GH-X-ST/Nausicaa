@@ -126,7 +126,7 @@ def run_w2_replay_scaffold(config: W2ReplayConfig) -> dict[str, object]:
 
 
 def run_w2_replay(config: W2ReplayConfig) -> dict[str, object]:
-    run_root = Path(config.output_root) / f"w2_replay_{config.run_id:03d}"
+    run_root = Path(config.output_root) / f"w2_{config.run_id:03d}"
     for rel in ("manifests", "reports", "metrics", "tables"):
         filesystem_path(run_root / rel).mkdir(parents=True, exist_ok=True)
 
@@ -334,13 +334,12 @@ def _chunk_partition_path(run_root: Path, chunk_index: int, storage_format: str 
         Path(run_root)
         / "tables"
         / "w2_replay_rows"
-        / f"chunk_index={int(chunk_index):05d}"
-        / f"part-00000.{table_extension(storage_format)}"
+        / f"c{int(chunk_index):05d}.{table_extension(storage_format)}"
     )
 
 
 def _chunk_manifest_path(run_root: Path, chunk_index: int) -> Path:
-    return Path(run_root) / "chunk_manifests" / "w2_replay_rows" / f"chunk-{int(chunk_index):05d}.json"
+    return Path(run_root) / "chunk_manifests" / "w2_replay_rows" / f"c{int(chunk_index):05d}.json"
 
 
 def _write_chunk_manifest(

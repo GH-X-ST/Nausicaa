@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from dataclasses import asdict, dataclass
@@ -85,6 +86,11 @@ GenericChunkPaths = ContextChunkPaths
 
 
 def contextual_table_paths(spec: ContextChunkSpec, *, run_root: Path) -> ContextChunkPaths:
+    chunk_name = _chunk_file_stem(
+        context_id=spec.context_id,
+        environment_id=spec.environment_id,
+        chunk_index=int(spec.chunk_index),
+    )
     partition = partition_path(
         run_root,
         table_name="contextual_rows",
@@ -96,16 +102,14 @@ def contextual_table_paths(spec: ContextChunkSpec, *, run_root: Path) -> Context
     manifest = (
         run_root
         / "chunk_manifests"
-        / f"context_id={spec.context_id}"
-        / f"environment_id={spec.environment_id}"
-        / f"chunk-{int(spec.chunk_index):05d}.json"
+        / "contextual_rows"
+        / f"{chunk_name}.json"
     )
     log_path = (
         run_root
         / "chunk_logs"
-        / f"context_id={spec.context_id}"
-        / f"environment_id={spec.environment_id}"
-        / f"chunk-{int(spec.chunk_index):05d}.log"
+        / "contextual_rows"
+        / f"{chunk_name}.log"
     )
     return ContextChunkPaths(
         root=run_root,
@@ -130,15 +134,38 @@ def partition_path(
     chunk_index: int,
     storage_format: str,
 ) -> Path:
+    chunk_name = _chunk_file_stem(
+        context_id=context_id,
+        environment_id=environment_id,
+        chunk_index=int(chunk_index),
+    )
     return (
         Path(root)
         / "tables"
         / table_name
-        / f"context_id={context_id}"
-        / f"environment_id={environment_id}"
-        / f"chunk_index={int(chunk_index):05d}"
-        / f"part-00000.{table_extension(storage_format)}"
+        / f"{chunk_name}.{table_extension(storage_format)}"
     )
+
+
+def _chunk_file_stem(*, context_id: str, environment_id: str, chunk_index: int) -> str:
+    return (
+        f"c{int(chunk_index):05d}_"
+        f"{_path_token(context_id, max_chars=12)}_"
+        f"{_path_token(environment_id, max_chars=28)}"
+    )
+
+
+def _path_token(value: object, *, max_chars: int = 32) -> str:
+    text = str(value).strip()
+    safe = "".join(char if char.isalnum() else "-" for char in text)
+    while "--" in safe:
+        safe = safe.replace("--", "-")
+    token = safe.strip("-") or "none"
+    if len(token) <= int(max_chars):
+        return token
+    digest = hashlib.sha1(token.encode("ascii", errors="ignore")).hexdigest()[:8]
+    keep = max(4, int(max_chars) - 9)
+    return f"{token[:keep].rstrip('-')}-{digest}"
 
 
 def chunk_key(spec_or_row: ContextChunkSpec | dict[str, object]) -> tuple[str, str, int]:

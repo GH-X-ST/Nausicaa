@@ -1,0 +1,12 @@
+path,byte_count,size_mb,above_75mb,above_100mb,under_100mb
+manifests/selector_report_manifest.json,2623,0.0025014877319335938,False,False,True
+metrics/blocked_or_approximate_ratio_summary.csv,94,8.96453857421875e-05,False,False,True
+metrics/coverage_summary.csv,255870,0.2440166473388672,False,False,True
+metrics/file_size_audit.csv,616,0.00058746337890625,False,False,True
+metrics/rejection_summary.csv,559,0.0005331039428710938,False,False,True
+metrics/selected_primitive_summary.csv,575,0.0005483627319335938,False,False,True
+metrics/validation_split_summary.csv,6804138,6.488931655883789,False,False,True
+reports/claim_boundary_report.md,406,0.0003871917724609375,False,False,True
+reports/selector_report.md,95,9.059906005859375e-05,False,False,True
+tables/selector_candidate_log.csv,23639991,22.544852256774902,False,False,True
+tables/selector_decisions.csv,4260627,4.063250541687012,False,False,True

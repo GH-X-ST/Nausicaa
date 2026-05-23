@@ -1,0 +1,7 @@
+failure_label,termination_cause,row_count
+floor_violation,floor_margin_stop,222
+model_boundary_only,weak_energy_result,39
+speed_low,speed_floor,45
+success,controlled_finish,180
+terminal_recovery_limited,terminal_recovery_limited,337
+xy_boundary_terminal,wall_boundary_exit_retained,177

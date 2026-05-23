@@ -200,7 +200,7 @@ def _run_first_chunk_projection(config: OvernightEvidenceConfig) -> dict[str, ob
             dry_run_schedule=False,
             stop_after_chunks=1,
             continue_on_chunk_failure=False,
-            output_root=Path(config.output_root) / "preflight_first_chunk",
+            output_root=Path(config.output_root) / "proj" / "r6",
             rollout_backend="model_backed_feedback",
         )
     )
@@ -267,7 +267,7 @@ def _run_r6_stage(
                 dry_run_schedule=False,
                 stop_after_chunks=None,
                 continue_on_chunk_failure=False,
-                output_root=Path(config.output_root) / "r6_w0_w1_archive",
+                output_root=Path(config.output_root) / "r6",
                 rollout_backend="model_backed_feedback",
             )
         )
@@ -308,7 +308,7 @@ def _run_r7_stage(config: OvernightEvidenceConfig, r6: StageEvidenceStatus) -> S
             SelectorReportConfig(
                 run_id=int(config.run_id) * 10 + 7,
                 archive_table=Path(r6.table_manifest_path),
-                output_root=Path(config.output_root) / "r7_selector_report",
+                output_root=Path(config.output_root) / "r7",
                 governor_modes=("continuation", "terminal_episode"),
                 max_rows=0,
             )
@@ -341,7 +341,7 @@ def _run_r8_stage(
         result = run_w2_replay(
             W2ReplayConfig(
                 run_id=int(config.run_id) * 10 + 8,
-                output_root=Path(config.output_root) / "r8_w2_replay",
+                output_root=Path(config.output_root) / "r8",
                 source_archive=Path(r6.table_manifest_path),
                 target_rows=int(row_count),
                 fallback_rows=min(int(row_count), int(config.r8_fallback_rows)),
@@ -379,7 +379,7 @@ def _run_r9_stage(
         result = run_w3_generalisation(
             W3GeneralisationConfig(
                 run_id=int(config.run_id) * 10 + 9,
-                output_root=Path(config.output_root) / "r9_w3_generalisation",
+                output_root=Path(config.output_root) / "r9",
                 source_replay=Path(r8.table_manifest_path),
                 target_rows=int(row_count),
                 fallback_rows=min(int(row_count), int(config.r9_fallback_rows)),

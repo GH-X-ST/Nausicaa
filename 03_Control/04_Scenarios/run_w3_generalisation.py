@@ -127,7 +127,7 @@ def run_w3_generalisation_scaffold(config: W3GeneralisationConfig) -> dict[str, 
 
 
 def run_w3_generalisation(config: W3GeneralisationConfig) -> dict[str, object]:
-    run_root = Path(config.output_root) / f"w3_generalisation_{config.run_id:03d}"
+    run_root = Path(config.output_root) / f"w3_{config.run_id:03d}"
     for rel in ("manifests", "reports", "metrics", "tables"):
         filesystem_path(run_root / rel).mkdir(parents=True, exist_ok=True)
     if config.source_replay is None or not config.execute_replay:
@@ -353,13 +353,12 @@ def _chunk_partition_path(run_root: Path, chunk_index: int, storage_format: str 
         Path(run_root)
         / "tables"
         / "w3_generalisation_rows"
-        / f"chunk_index={int(chunk_index):05d}"
-        / f"part-00000.{table_extension(storage_format)}"
+        / f"c{int(chunk_index):05d}.{table_extension(storage_format)}"
     )
 
 
 def _chunk_manifest_path(run_root: Path, chunk_index: int) -> Path:
-    return Path(run_root) / "chunk_manifests" / "w3_generalisation_rows" / f"chunk-{int(chunk_index):05d}.json"
+    return Path(run_root) / "chunk_manifests" / "w3_generalisation_rows" / f"c{int(chunk_index):05d}.json"
 
 
 def _write_chunk_manifest(

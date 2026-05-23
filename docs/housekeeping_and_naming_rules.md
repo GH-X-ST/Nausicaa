@@ -2,13 +2,23 @@
 
 ## 1. Result folder contract
 
-All generated control results live under:
+Generated control results normally live under:
 
 ```text
 03_Control/05_Results/<NN_group>/<NN_case>/<run_id>/
 ```
 
-The run folder is the atomic evidence unit. It must contain the manifest and the compact analysis files needed to audit the run.
+Pipeline-level evidence roots may instead use:
+
+```text
+03_Control/05_Results/<evidence_family>/<stage>/<stage_run_id>/
+```
+
+For example, the approved v1.4 evidence root is
+`03_Control/05_Results/feedback_contextual_v1_4`, with short stage folders
+`r6`, `r7`, `r8`, and `r9`. The stage run folder is the atomic evidence unit.
+It must contain the manifest and the compact analysis files needed to audit the
+run.
 
 Preferred result groups:
 
@@ -27,7 +37,7 @@ Preferred result groups:
 99_misc
 ```
 
-Historical generated result folders are local-only unless the user explicitly requests preservation. The active repository result root should remain clean during validation, with `03_Control/05_Results/.gitkeep` as the only tracked placeholder. New method-facing outputs should use the groups above.
+Historical generated result folders are local-only unless the user explicitly requests preservation. Approved evidence roots may be tracked when every file passes the 100 MB audit and path-length audit. During ordinary validation, keep `03_Control/05_Results/.gitkeep` as the only result placeholder unless an approved local evidence root is explicitly allowed.
 
 Scratch and preflight roots are local only. They must not be pushed unless the user explicitly requests preservation.
 
@@ -171,11 +181,16 @@ A file above 100 MB is allowed only as explicitly approved local-only evidence. 
 Dense tables must be written as compressed partitions:
 
 ```text
-tables/<table_name>/part-00000.csv.gz
-tables/<table_name>/part-00001.csv.gz
+tables/<table_name>/c00000.csv.gz
+tables/<table_name>/c00001.csv.gz
 ```
 
 or parquet if available.
+
+Contextual archive partitions may include short audit tokens, for example
+`tables/contextual_rows/c00012_W1_gaussian-single.csv.gz`. Do not use nested
+`run_*/context_id=*/environment_id=*/chunk_index=*/part-00000.*` paths for new
+dense evidence; those paths are too long for reliable Git and Windows tooling.
 
 Every partition must be recorded in a table manifest with:
 

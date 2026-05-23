@@ -28,4 +28,4 @@
 
 - Runtime/storage is retained only for chunked, resumable, compressed, worker-enabled, checksum-manifested execution.
 - The hard generated-file limit is 100 MB.
-- The active repository must not track generated result evidence under `03_Control/05_Results`.
+- Generated result evidence under `03_Control/05_Results` may be tracked only when explicitly approved and when every generated file passes the 100 MB file-size audit and path-length audit.
