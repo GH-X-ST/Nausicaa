@@ -7,7 +7,7 @@ Date: 2026-05-23
 - Refactored the R6 W0/W1 LQR tuning runner toward chunk-level execution, resume validation, corrupt-chunk repair, checksum manifests, worker-controlled pending chunk execution, and registry derivation from emitted partitions.
 - Extended generated file audits with path-length and push-safety fields: `relative_path`, `filename_stem_length`, `relative_path_length`, `stem_under_64`, `path_under_140`, and `push_allowed`.
 - Extended the active-contract audit with bounded R6 readiness behavior checks for dry-run, smoke, resume, and repair using a temporary output root.
-- Added `requirements-dev.txt` and documented the Windows validation route using a real interpreter instead of the WindowsApps launcher.
+- Added the Windows validation route using a real interpreter instead of the WindowsApps launcher; R6 control validation now uses `requirements-control-dev.txt`.
 - Kept `03_Control/05_Results` free of active generated evidence; only `.gitkeep` remains.
 
 ## Commands Run
@@ -27,7 +27,7 @@ Date: 2026-05-23
 
 ## Remaining Blockers
 
-- Install development/runtime dependencies into a real interpreter before claiming R6 readiness checks passed, for example with `requirements-dev.txt`.
+- Install control development/runtime dependencies into a real interpreter before claiming R6 readiness checks passed, for example with `requirements-control-dev.txt`.
 - Re-run compileall, pytest, active-contract audit, and the bounded R6 smoke once `pytest` and `casadi` are available.
 
 ## Claim Boundary

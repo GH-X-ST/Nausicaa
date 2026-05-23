@@ -21,6 +21,9 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "pyproject.toml",
     "requirements.txt",
     "requirements-dev.txt",
+    "requirements-control.txt",
+    "requirements-control-dev.txt",
+    "requirements-design.txt",
     "README.md",
     "LICENSE",
     "docs/Glider_Control_Project_Plan.md",
@@ -37,6 +40,7 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "docs/code_audits/lqr_plan_alignment_fix_report.md",
     "docs/code_audits/lqr_current_code_audit_fix_v3_4_report.md",
     "docs/code_audits/r6_readiness_validation_closure_report.md",
+    "docs/code_audits/r6_validation_start_report.md",
     "docs/reset/model_only_reset_manifest.md",
     "docs/reset/kept_file_audit.csv",
     "docs/reset/kept_file_audit.md",
@@ -277,6 +281,73 @@ def test_active_import_paths_do_not_include_results() -> None:
     conftest = (CONTROL_ROOT / "tests" / "conftest.py").read_text(encoding="utf-8")
     assert "03_Control/05_Results" not in pyproject
     assert "05_Results" not in conftest
+
+
+def test_r6_control_dependencies_do_not_require_design_side_aerosandbox() -> None:
+    control = (REPO_ROOT / "requirements-control.txt").read_text(encoding="utf-8")
+    control_dev = (REPO_ROOT / "requirements-control-dev.txt").read_text(encoding="utf-8")
+    design = (REPO_ROOT / "requirements-design.txt").read_text(encoding="utf-8")
+    root = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
+    dev = (REPO_ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert "casadi" in control
+    assert "openpyxl" in control
+    assert "pytest" not in control
+    assert "aerosandbox" not in control
+    assert "-r requirements-control.txt" in control_dev
+    assert "pytest>=7.0" in control_dev
+    assert "aerosandbox" not in control_dev
+    assert "aerosandbox>=4.2,<5" in design
+    assert "-r requirements-control.txt" in root
+    assert "-r requirements-design.txt" in root
+    assert "-r requirements-control-dev.txt" in dev
+    assert "-r requirements-design.txt" in dev
+    runtime_dependencies = pyproject.split("[project.optional-dependencies]", 1)[0]
+    assert "pytest" not in runtime_dependencies
+    assert "[project.optional-dependencies]" in pyproject
+    assert "control-dev = [" in pyproject
+    assert "design = [" in pyproject
+
+
+def test_active_control_imports_do_not_use_aerosandbox_and_do_require_casadi() -> None:
+    active_roots = (
+        CONTROL_ROOT / "02_Inner_Loop",
+        CONTROL_ROOT / "03_Primitives",
+        CONTROL_ROOT / "04_Scenarios",
+    )
+    aerosandbox_imports: list[str] = []
+    casadi_imports: list[str] = []
+    for root in active_roots:
+        for path in root.rglob("*.py"):
+            rel_path = path.relative_to(REPO_ROOT).as_posix()
+            text = path.read_text(encoding="utf-8")
+            if "import aerosandbox" in text or "from aerosandbox" in text:
+                aerosandbox_imports.append(rel_path)
+            if "import casadi" in text or "from casadi" in text:
+                casadi_imports.append(rel_path)
+    assert aerosandbox_imports == []
+    assert sorted(casadi_imports) == [
+        "03_Control/02_Inner_Loop/flight_dynamics.py",
+        "03_Control/02_Inner_Loop/linearisation.py",
+        "03_Control/02_Inner_Loop/trim_solver.py",
+    ]
+
+
+def test_r6_validation_docs_use_control_dev_dependency_route() -> None:
+    docs = (
+        "docs/housekeeping_and_naming_rules.md",
+        "docs/code_audits/r6_readiness_validation_closure_report.md",
+        "docs/code_audits/r6_validation_start_report.md",
+    )
+    for rel_path in docs:
+        text = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+        assert "requirements-control-dev.txt" in text
+        assert "pip install -r requirements-dev.txt" not in text
+    report = (REPO_ROOT / "docs/code_audits/r6_validation_start_report.md").read_text(
+        encoding="utf-8"
+    )
+    assert "aerosandbox` is not required for R6 `03_Control` validation" in report
 
 
 def test_results_root_contains_only_gitkeep() -> None:

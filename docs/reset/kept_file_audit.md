@@ -90,3 +90,9 @@ Stage status is independent: R6, R7, R8, and R9 are recorded as complete, fallba
 The active allowlist now includes the v1.4 run-hardening driver and tests. The preferred entrypoint updates the evidence-status manifest after preflight and after every stage, supports dry-run schedules, stop-after-stage operation, resume, and repair-incomplete handling, and keeps the v1.3 driver available as the previous compatibility path.
 
 The hardening scope is operational safety only. Preflight failures stop before first-chunk projection, R6/R8/R9 use stage-specific first chunks for runtime and partition-size projection, R7 records full-source training and bounded-evaluation metadata, and R8/R9 replay writers produce chunked compressed partitions with chunk manifests and checksums. No full overnight evidence run is launched by this reset or by the v1.4 tests.
+
+## R6 Dependency Hygiene Addendum
+
+The active allowlist now includes separate control and design dependency files. R6 control validation uses `requirements-control-dev.txt`, which includes the active `03_Control` runtime stack plus pytest; `aerosandbox` is isolated in `requirements-design.txt` and must not gate R6 control validation.
+
+The root requirement files remain whole-repository aggregates only. This dependency split changes validation hygiene and audit wording only; it does not change the LQR-only, simulation-only method boundary or promote any dense, hardware, transfer, robustness, or mission-success claim.

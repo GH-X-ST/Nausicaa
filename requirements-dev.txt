@@ -1,2 +1,2 @@
--r requirements.txt
-pytest>=7.0
+-r requirements-control-dev.txt
+-r requirements-design.txt

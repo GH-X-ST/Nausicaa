@@ -296,8 +296,14 @@ py -3.11
 Required validation commands should be run with that interpreter:
 
 ```text
+<real-python> -m pip install -r requirements-control-dev.txt
 <real-python> -m compileall 03_Control
 <real-python> -m pytest -q 03_Control/tests
 <real-python> 03_Control/04_Scenarios/run_active_contract_audit.py
 git diff --check
 ```
+
+Use `requirements-control-dev.txt` for R6 and other active `03_Control`
+validation. `aerosandbox` is a design-side dependency and must not gate the
+control validation route unless a command intentionally imports
+`02_Glider_Design`.

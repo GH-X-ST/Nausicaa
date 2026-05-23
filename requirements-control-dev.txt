@@ -1,2 +1,2 @@
 -r requirements-control.txt
--r requirements-design.txt
+pytest>=7.0

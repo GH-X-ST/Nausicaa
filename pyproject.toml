@@ -10,13 +10,37 @@ description = "Primitive-level control and simulation evidence for the Nausicaa 
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "aerosandbox>=4.2,<5",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+control = [
     "numpy>=1.24",
     "scipy>=1.10",
     "pandas>=2.0",
     "matplotlib>=3.7",
     "casadi>=3.6",
     "openpyxl>=3.1",
+]
+control-dev = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+    "casadi>=3.6",
+    "openpyxl>=3.1",
+    "pytest>=7.0",
+]
+design = [
+    "aerosandbox>=4.2,<5",
+]
+dev = [
+    "casadi>=3.6",
+    "openpyxl>=3.1",
+    "aerosandbox>=4.2,<5",
     "pytest>=7.0",
 ]
 
