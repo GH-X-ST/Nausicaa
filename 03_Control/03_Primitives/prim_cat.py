@@ -30,8 +30,13 @@ class PrimitiveDefinition:
     primitive_family: str
     parameters: tuple[PrimitiveParameter, ...]
     entry_conditions: tuple[str, ...]
+    controller_family: str
     controller_mode: str
     feedback_mode: str
+    controller_id: str
+    linearisation_source: str
+    Q_weight_json: str
+    R_weight_json: str
     finite_horizon_s: float
     exit_checks: tuple[str, ...]
     metrics_to_record: tuple[str, ...]
@@ -85,7 +90,7 @@ _COMMON_FAILURES = (
 # 2) Active Catalogue
 # =============================================================================
 def active_primitive_catalogue() -> tuple[PrimitiveDefinition, ...]:
-    """Return the compact active primitive catalogue for contextual smoke runs."""
+    """Return the exact eight-label active LQR primitive catalogue."""
 
     return (
         _primitive(
@@ -154,8 +159,13 @@ def _primitive(
             for name, value, unit, description in params
         ),
         entry_conditions=_COMMON_ENTRY,
-        controller_mode="contextual_feedback_placeholder",
-        feedback_mode="state_and_context_feedback",
+        controller_family="lqr",
+        controller_mode="lqr_local_feedback",
+        feedback_mode="lqr_state_feedback",
+        controller_id=f"lqr_{primitive_id}_nominal",
+        linearisation_source="straight_trim_plus_primitive_reference_bias",
+        Q_weight_json=_nominal_q_weight_json(),
+        R_weight_json=_nominal_r_weight_json(),
         finite_horizon_s=float(horizon_s),
         exit_checks=_COMMON_EXIT,
         metrics_to_record=_COMMON_METRICS,
@@ -188,6 +198,43 @@ def primitive_parameters_json(primitive: PrimitiveDefinition) -> str:
         for parameter in primitive.parameters
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def _nominal_q_weight_json() -> str:
+    return json.dumps(
+        {
+            "grouping": "diagonal_grouped_log_scaled",
+            "state_mask": [
+                "phi",
+                "theta",
+                "psi",
+                "u",
+                "v",
+                "w",
+                "p",
+                "q",
+                "r",
+                "delta_a",
+                "delta_e",
+                "delta_r",
+            ],
+            "source": "lqr_controller_default",
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _nominal_r_weight_json() -> str:
+    return json.dumps(
+        {
+            "grouping": "diagonal_grouped_log_scaled",
+            "command_names": ["delta_a_cmd", "delta_e_cmd", "delta_r_cmd"],
+            "source": "lqr_controller_default",
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def primitive_definition_row(primitive: PrimitiveDefinition) -> dict[str, object]:

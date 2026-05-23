@@ -1,0 +1,15 @@
+{
+  "run_id": 200,
+  "stage": "R8_W2_model_backed_replay",
+  "replay_status": "blocked",
+  "blocked_reason": "blocked_until_R6_archive_exists",
+  "R8_W2_replay_complete": false,
+  "replayed_row_count": 0,
+  "actual_model_backed_replay": false,
+  "claim_status": "simulation_only_w2_blocked_no_survival_claim",
+  "blocked_claims": [
+    "full_W2_survival",
+    "hardware_readiness",
+    "real_flight_transfer"
+  ]
+}

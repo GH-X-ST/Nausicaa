@@ -27,13 +27,17 @@ from prim_roll import OUTCOME_CLASSES
 # =============================================================================
 # 1) Model Dataclasses
 # =============================================================================
-DEFAULT_TRAINING_EVIDENCE_ROLES = ("feedback_rollout_candidate",)
-DIAGNOSTIC_EVIDENCE_ROLES = ("diagnostic_model_rollout",)
+DEFAULT_TRAINING_EVIDENCE_ROLES = ("lqr_rollout_candidate",)
+DIAGNOSTIC_EVIDENCE_ROLES = ("blocked_lqr_synthesis",)
 
 
 @dataclass(frozen=True)
 class PrimitiveModelRecord:
     primitive_id: str
+    controller_id: str
+    controller_family: str
+    linearisation_id: str
+    lqr_synthesis_status: str
     evidence_role: str
     context_features: tuple[float, ...]
     feature_schema_version: str
@@ -105,7 +109,7 @@ def fit_primitive_outcome_model(
         evidence_roles = tuple(dict.fromkeys((*evidence_roles, *DIAGNOSTIC_EVIDENCE_ROLES)))
     records: list[PrimitiveModelRecord] = []
     for row in rows:
-        evidence_role = str(row.get("evidence_role", "feedback_rollout_candidate"))
+        evidence_role = str(row.get("evidence_role", "lqr_rollout_candidate"))
         if evidence_role not in evidence_roles:
             continue
         outcome_class = str(row.get("outcome_class", "blocked"))
@@ -117,6 +121,10 @@ def fit_primitive_outcome_model(
         records.append(
             PrimitiveModelRecord(
                 primitive_id=str(row.get("primitive_id", "")),
+                controller_id=str(row.get("controller_id", "")),
+                controller_family=str(row.get("controller_family", "lqr")),
+                linearisation_id=str(row.get("linearisation_id", "")),
+                lqr_synthesis_status=str(row.get("lqr_synthesis_status", "")),
                 evidence_role=evidence_role,
                 context_features=features,
                 feature_schema_version=str(
@@ -267,7 +275,7 @@ def _prior_prediction(primitive_id: str) -> PrimitiveOutcomePrediction:
         uncertainty=float("inf"),
         neighbour_distance=float("inf"),
         training_row_count=0,
-        training_evidence_roles="feedback_rollout_candidate",
+        training_evidence_roles="lqr_rollout_candidate",
         feature_schema_version=PRIMITIVE_FEATURE_SCHEMA_VERSION,
     )
 

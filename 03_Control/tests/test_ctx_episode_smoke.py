@@ -44,7 +44,7 @@ def _results_entries_are_placeholder_or_allowed(entries: list[str]) -> bool:
     )
 
 
-def test_episode_smoke_writes_temp_only_feedback_rows(tmp_path: Path) -> None:
+def test_episode_smoke_writes_temp_only_lqr_rows(tmp_path: Path) -> None:
     result = run_contextual_episode_smoke(
         EpisodeSmokeConfig(
             run_id=72,
@@ -62,9 +62,9 @@ def test_episode_smoke_writes_temp_only_feedback_rows(tmp_path: Path) -> None:
     episode_log = pd.read_csv(run_root / "tables" / "episode_log.csv")
 
     assert manifest["claim_status"] == "simulation_only_episode_smoke_no_performance_claim"
-    assert manifest["rollout_backend"] == "model_backed_feedback"
+    assert manifest["rollout_backend"] == "model_backed_lqr"
     assert len(episode_log) == 10
-    assert set(episode_log["evidence_role"]) == {"feedback_rollout_candidate"}
+    assert set(episode_log["evidence_role"]).issubset({"lqr_rollout_candidate", "blocked_lqr_synthesis"})
     assert set(episode_log["selector_governor_mode"]) == {"terminal_episode"}
     assert set(episode_log["memory_label"]) == {
         "episodic_lift_belief_smoke_no_improvement_claim"

@@ -106,7 +106,7 @@ class ContextArchiveConfig:
     stop_after_chunks: int | None
     continue_on_chunk_failure: bool
     output_root: Path
-    rollout_backend: str = "model_backed_feedback"
+    rollout_backend: str = "model_backed_lqr"
 
 
 def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
@@ -136,26 +136,18 @@ def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
         help="Use the deterministic interface smoke backend; not thesis archive evidence.",
     )
     parser.add_argument(
-        "--command-template-diagnostic",
-        action="store_true",
-        help="Use command-template diagnostic dynamics rows; excluded from default training.",
-    )
-    parser.add_argument(
         "--rollout-backend",
         choices=(
             "smoke_only",
-            "model_backed_command_template",
-            "model_backed_feedback",
+            "model_backed_lqr",
         ),
-        default="model_backed_feedback",
-        help="Rollout backend. Feedback is the default R6 evidence path.",
+        default="model_backed_lqr",
+        help="Rollout backend. LQR is the default R6 evidence path.",
     )
     args = parser.parse_args(argv)
     rollout_backend = str(args.rollout_backend)
     if bool(args.smoke_only):
         rollout_backend = "smoke_only"
-    if bool(args.command_template_diagnostic):
-        rollout_backend = "model_backed_command_template"
     return ContextArchiveConfig(
         run_id=int(args.run_id),
         rows=int(args.rows),
@@ -229,7 +221,7 @@ def run_contextual_archive_preflight(config: ContextArchiveConfig) -> dict[str, 
         run_root=run_root,
         worker_fields=dense_run_manifest_fields(
             run_stage="contextual_archive_preflight",
-            environment_context="strict_surrogate_feedback_backed",
+            environment_context="strict_surrogate_lqr_backed",
             worker_decision=worker_decision,
         ),
         partitions=execution["partitions"],
@@ -248,11 +240,11 @@ def _validate_config(config: ContextArchiveConfig) -> None:
     if config.candidate_chunk_size <= 0:
         raise ValueError("candidate_chunk_size must be positive.")
     if not {"W0", "W1"}.issubset(set(config.w_layers)):
-        raise ValueError("R6 contextual archive requires W0 and W1 coverage.")
+        raise ValueError("R6 LQR contextual archive requires W0 and W1 coverage.")
     unknown = set(config.w_layers) - {"W0", "W1"}
     if unknown:
         raise ValueError(
-            "R6 contextual archive is W0/W1 only; "
+            "R6 LQR contextual archive is W0/W1 only; "
             f"reserve {sorted(unknown)} for R8/R9 replay stages."
         )
     if "dry_air" not in set(config.env_modes):
@@ -260,11 +252,10 @@ def _validate_config(config: ContextArchiveConfig) -> None:
     if not any(mode != "dry_air" for mode in config.env_modes):
         raise ValueError("R6 contextual archive requires at least one W1 Gaussian environment mode.")
     if config.rollout_backend not in {
-        "model_backed_feedback",
-        "model_backed_command_template",
+        "model_backed_lqr",
         "smoke_only",
     }:
-        raise ValueError("rollout_backend must be a retained R6-R8 backend.")
+        raise ValueError("rollout_backend must be a retained LQR backend.")
 
 
 def _build_schedule(
@@ -413,6 +404,9 @@ def _chunk_rows(
                     start_state_family=state_sample.start_state_family,
                     previous_primitive_status=state_sample.previous_primitive_status,
                     synthetic_time_since_launch_s=state_sample.synthetic_time_since_launch_s,
+                    controller_id=str(row.get("controller_id", primitive.controller_id)),
+                    linearisation_id=str(row.get("linearisation_id", primitive.linearisation_source)),
+                    lqr_synthesis_status=str(row.get("lqr_synthesis_status", "solved")),
                 )
             )
         )
@@ -691,7 +685,7 @@ def _write_run_outputs(
         "resume": bool(config.resume),
         "repair_incomplete": bool(config.repair_incomplete),
         "dry_run_schedule": bool(dry_run),
-        "claim_status": "simulation_only_feedback_backed_preflight",
+        "claim_status": "simulation_only_lqr_backed_preflight",
         "blocked_claims": [
             "real_flight_transfer",
             "hardware_readiness",
@@ -724,8 +718,12 @@ def _write_run_outputs(
         columns=(
             "start_state_family",
             "primitive_id",
+            "controller_id",
             "environment_id",
+            "environment_instance_environment_id",
             "W_layer",
+            "latency_case",
+            "boundary_use_class",
             "continuation_status",
             "episode_terminal_status",
             "outcome_class",
@@ -735,6 +733,11 @@ def _write_run_outputs(
         metrics_dir / "blocked_or_approximate_ratio_summary.csv",
         outcome_frame,
     )
+    _write_failure_taxonomy(metrics_dir / "failure_taxonomy.csv", outcome_frame)
+    _write_governor_rejection_table(metrics_dir / "governor_rejection_table.csv", outcome_frame)
+    _write_medoid_report(reports_dir / "medoid_cluster_report.md", outcome_frame)
+    _write_hardware_shortlist(metrics_dir / "hardware_shortlist.csv", outcome_frame)
+    _write_figure_source_manifest(manifest_dir / "figure_source_manifest.json", run_root, outcome_frame)
     file_audit, _ = write_stage_file_size_audit(
         run_root,
         metrics_dir / "file_size_audit.csv",
@@ -860,6 +863,94 @@ def _write_file_size_audit(path: Path, run_root: Path) -> list[dict[str, object]
     return rows
 
 
+def _write_failure_taxonomy(path: Path, frame: pd.DataFrame) -> None:
+    columns = ["primitive_id", "controller_id", "W_layer", "outcome_class", "failure_label", "termination_cause"]
+    if frame.empty:
+        pd.DataFrame(columns=[*columns, "row_count"]).to_csv(filesystem_path(path), index=False)
+        return
+    use_columns = [column for column in columns if column in frame.columns]
+    summary = frame.groupby(use_columns, dropna=False).size().reset_index(name="row_count")
+    summary.to_csv(filesystem_path(path), index=False)
+
+
+def _write_governor_rejection_table(path: Path, frame: pd.DataFrame) -> None:
+    columns = ["primitive_id", "controller_id", "W_layer", "entry_check_status", "outcome_class"]
+    if frame.empty:
+        pd.DataFrame(columns=[*columns, "row_count"]).to_csv(filesystem_path(path), index=False)
+        return
+    use_columns = [column for column in columns if column in frame.columns]
+    summary = frame.groupby(use_columns, dropna=False).size().reset_index(name="row_count")
+    summary.to_csv(filesystem_path(path), index=False)
+
+
+def _write_medoid_report(path: Path, frame: pd.DataFrame) -> None:
+    lines = [
+        "# LQR Medoid Cluster Report",
+        "",
+        "Rows are replayable archive rows. LQR gains are never averaged.",
+        "",
+    ]
+    if not frame.empty:
+        strata = [
+            column
+            for column in (
+                "W_layer",
+                "primitive_id",
+                "controller_id",
+                "latency_case",
+                "start_state_family",
+                "outcome_class",
+                "boundary_use_class",
+            )
+            if column in frame.columns
+        ]
+        for values, group in frame.groupby(strata, dropna=False):
+            medoid = group.iloc[len(group) // 2]
+            key = values if isinstance(values, tuple) else (values,)
+            lines.append(f"- {dict(zip(strata, key, strict=True))}: `{medoid.get('rollout_id', '')}`")
+    filesystem_path(path).write_text("\n".join(lines) + "\n", encoding="ascii")
+
+
+def _write_hardware_shortlist(path: Path, frame: pd.DataFrame) -> None:
+    columns = ["primitive_id", "controller_id", "accepted", "minimum_wall_margin_m", "minimum_speed_m_s"]
+    if frame.empty or not {"primitive_id", "controller_id"}.issubset(frame.columns):
+        pd.DataFrame(columns=["primitive_id", "controller_id", "row_count"]).to_csv(
+            filesystem_path(path),
+            index=False,
+        )
+        return
+    summary = (
+        frame.groupby(["primitive_id", "controller_id"], dropna=False)
+        .agg(
+            row_count=("primitive_id", "size"),
+            accepted_count=("accepted", "sum"),
+            min_wall_margin_m=("minimum_wall_margin_m", "min"),
+            min_speed_m_s=("minimum_speed_m_s", "min"),
+        )
+        .reset_index()
+        .sort_values(["accepted_count", "min_wall_margin_m"], ascending=[False, False])
+        .head(10)
+    )
+    summary.to_csv(filesystem_path(path), index=False)
+
+
+def _write_figure_source_manifest(path: Path, run_root: Path, frame: pd.DataFrame) -> None:
+    payload = {
+        "figure_source_manifest_version": "lqr_dense_v1",
+        "run_root": run_root.as_posix(),
+        "row_count": int(len(frame)),
+        "sources": [
+            "metrics/outcome_summary.csv",
+            "metrics/coverage_summary.csv",
+            "metrics/failure_taxonomy.csv",
+            "reports/medoid_cluster_report.md",
+            "metrics/hardware_shortlist.csv",
+        ],
+        "claim_boundary": "simulation_only_until_matched_real_flight_replay",
+    }
+    filesystem_path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="ascii")
+
+
 def _write_report(
     path: Path,
     *,
@@ -892,23 +983,23 @@ def _write_report(
 
 def _official_deferred_commands() -> dict[str, str]:
     return {
-        "r6_feedback_20k_temp_or_local": (
-            "python 03_Control/04_Scenarios/run_ctx_archive.py --run-id 60 "
-            "--rows 20000 --seed 60 --w-layers W0,W1,W2,W3 "
+        "r6_lqr_20k_temp_or_local": (
+            "python 03_Control/04_Scenarios/run_lqr_contextual_archive.py --run-id 60 "
+            "--rows 20000 --seed 60 --w-layers W0,W1 "
             "--env-modes dry_air,gaussian_single,gaussian_four,fan_shift,power_scale "
             "--candidate-chunk-size 1000 --workers 8 --max-workers 8 "
             "--storage-format auto --compression-level 1 --resume --repair-incomplete "
-            "--rollout-backend model_backed_feedback "
-            "--output-root 03_Control/05_Results/context_archive/r6_feedback_20k"
+            "--rollout-backend model_backed_lqr "
+            "--output-root 03_Control/05_Results/lqr_contextual_v1_0/r6_lqr_20k"
         ),
-        "r6_feedback_40k_temp_or_local": (
-            "python 03_Control/04_Scenarios/run_ctx_archive.py --run-id 61 "
-            "--rows 40000 --seed 61 --w-layers W0,W1,W2,W3 "
+        "r6_lqr_40k_temp_or_local": (
+            "python 03_Control/04_Scenarios/run_lqr_contextual_archive.py --run-id 61 "
+            "--rows 40000 --seed 61 --w-layers W0,W1 "
             "--env-modes dry_air,gaussian_single,gaussian_four,fan_shift,power_scale "
             "--candidate-chunk-size 1000 --workers 8 --max-workers 8 "
             "--storage-format auto --compression-level 1 --resume --repair-incomplete "
-            "--rollout-backend model_backed_feedback "
-            "--output-root 03_Control/05_Results/context_archive/r6_feedback_40k"
+            "--rollout-backend model_backed_lqr "
+            "--output-root 03_Control/05_Results/lqr_contextual_v1_0/r6_lqr_40k"
         ),
     }
 

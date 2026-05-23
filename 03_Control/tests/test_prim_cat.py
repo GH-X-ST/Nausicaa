@@ -30,8 +30,10 @@ def test_every_primitive_has_required_schema_and_claim_boundary() -> None:
         assert primitive.failure_labels
         assert primitive.finite_horizon_s > 0.0
         assert primitive.claim_status == "simulation_only"
-        assert primitive.controller_mode == "contextual_feedback_placeholder"
-        assert primitive.feedback_mode == "state_and_context_feedback"
+        assert primitive.controller_family == "lqr"
+        assert primitive.controller_id == f"lqr_{primitive.primitive_id}_nominal"
+        assert primitive.controller_mode == "lqr_local_feedback"
+        assert primitive.feedback_mode == "lqr_state_feedback"
 
 
 def test_primitive_lookup_and_parameter_json_are_stable() -> None:

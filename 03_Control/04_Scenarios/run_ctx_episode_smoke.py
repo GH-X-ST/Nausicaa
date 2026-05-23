@@ -147,13 +147,13 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
         belief_before = query_belief_features(state, belief)
         if len(training_rows) < len(primitives):
             training_rows.extend(
-                _bootstrap_feedback_rows(
+                _bootstrap_lqr_rows(
                     state=state,
                     context=context,
                     primitives=primitives,
                     config=RolloutConfig(
                         W_layer=w_layer,
-                        rollout_backend="model_backed_feedback",
+                        rollout_backend="model_backed_lqr",
                         wind_mode=binding.wind_mode,
                     ),
                     wind_field=wind,
@@ -173,7 +173,7 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
         primitive = primitive_by_id(selection.selected_primitive_id)
         rollout_config = RolloutConfig(
             W_layer=w_layer,
-            rollout_backend="model_backed_feedback",
+            rollout_backend="model_backed_lqr",
             wind_mode=binding.wind_mode,
         )
         rollout_id = f"episode_{config.run_id:03d}_{episode_index:03d}"
@@ -243,7 +243,7 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
     )
 
 
-def _bootstrap_feedback_rows(
+def _bootstrap_lqr_rows(
     *,
     state: np.ndarray,
     context,
@@ -302,8 +302,8 @@ def _write_outputs(
         "run_id": int(config.run_id),
         "episode_count": int(config.episode_count),
         "governor_mode": str(config.governor_mode),
-        "rollout_backend": "model_backed_feedback",
-        "evidence_role": "feedback_rollout_candidate",
+        "rollout_backend": "model_backed_lqr",
+        "evidence_role": "lqr_rollout_candidate",
         "memory_label_status": "episodic_lift_belief_smoke_only",
         "belief_lambda_values": [0.0, 0.5, 0.8, 0.95],
         "claim_status": "simulation_only_episode_smoke_no_performance_claim",
@@ -330,7 +330,7 @@ def _write_outputs(
                 f"- Run ID: `{config.run_id}`",
                 f"- Episodes: `{config.episode_count}`",
                 f"- Governor mode: `{config.governor_mode}`",
-                "- Evidence role: `feedback_rollout_candidate`",
+                "- Evidence role: `lqr_rollout_candidate`",
                 "- Claim boundary: no performance, transfer, mission, robustness, or hardware-readiness claim.",
                 "",
             ]

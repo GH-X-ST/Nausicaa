@@ -57,7 +57,7 @@ def test_contextual_chunk_paths_use_short_future_layout() -> None:
 
     paths = contextual_table_paths(
         spec,
-        run_root=Path("03_Control/05_Results/feedback_contextual_v1_4/r6/r646"),
+        run_root=Path("03_Control/05_Results/lqr_contextual_v1_0/r6/r646"),
     )
     path_text = paths.partition_path.as_posix()
 
@@ -85,7 +85,7 @@ def test_contextual_chunk_paths_cap_long_audit_tokens() -> None:
 
     paths = contextual_table_paths(
         spec,
-        run_root=Path("03_Control/05_Results/feedback_contextual_v1_4/r9/w3_649"),
+        run_root=Path("03_Control/05_Results/lqr_contextual_v1_0/r9/w3_649"),
     )
     file_name = paths.partition_path.name
 

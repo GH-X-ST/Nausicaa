@@ -1,0 +1,9 @@
+path,byte_count,size_mb,above_75mb,above_100mb,under_100mb
+manifests/run_manifest.json,1369,0.0013055801391601562,False,False,True
+manifests/table_manifest.json,4898,0.0046710968017578125,False,False,True
+metrics/coverage_summary.csv,26416,0.0251922607421875,False,False,True
+metrics/lqr_synthesis_audit.csv,26316,0.025096893310546875,False,False,True
+metrics/objective_term_summary.csv,756,0.000720977783203125,False,False,True
+metrics/qr_candidate_rankings.csv,74265,0.07082462310791016,False,False,True
+metrics/runtime_summary.csv,1099,0.0010480880737304688,False,False,True
+tables/lqr_tuning_smoke_rows/c00000.csv.gz,297956,0.2841529846191406,False,False,True

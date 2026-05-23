@@ -50,12 +50,14 @@ def test_model_backed_rollout_is_distinct_from_smoke_and_finite() -> None:
         initial_state=state,
         context=context,
         primitive=primitive_by_id("glide"),
-        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
     )
 
-    assert evidence.rollout_backend == "model_backed_feedback"
-    assert evidence.evidence_role == "feedback_rollout_candidate"
+    assert evidence.rollout_backend == "model_backed_lqr"
+    assert evidence.evidence_role in {"lqr_rollout_candidate", "blocked_lqr_synthesis"}
+    assert evidence.controller_family == "lqr"
+    assert evidence.controller_id.startswith("lqr_glide_")
     assert evidence.surrogate_binding_status == "ready"
     assert evidence.trajectory_integrity_status == "finite_model_backed"
     assert np.isfinite(evidence.energy_residual_m)
@@ -72,7 +74,7 @@ def test_model_backed_low_speed_initial_state_is_blocked() -> None:
         initial_state=state,
         context=context,
         primitive=primitive_by_id("glide"),
-        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
     )
 
@@ -91,7 +93,7 @@ def test_model_backed_nonfinite_initial_state_is_blocked() -> None:
         initial_state=state,
         context=context,
         primitive=primitive_by_id("glide"),
-        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
     )
 
@@ -109,7 +111,7 @@ def test_model_backed_floor_initial_state_is_blocked() -> None:
         initial_state=state,
         context=context,
         primitive=primitive_by_id("glide"),
-        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
     )
 
@@ -126,7 +128,7 @@ def test_model_backed_wall_exit_is_retained_as_boundary_terminal_row() -> None:
         initial_state=state,
         context=context,
         primitive=primitive_by_id("mild_turn_left"),
-        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
     )
 
@@ -138,25 +140,27 @@ def test_model_backed_wall_exit_is_retained_as_boundary_terminal_row() -> None:
     assert evidence.minimum_wall_margin_m < 0.0
 
 
-def test_command_template_rows_are_diagnostic_not_feedback_evidence() -> None:
+def test_retired_feedback_rollout_backends_are_rejected() -> None:
     state = _state()
     context, wind = _context_and_wind(state)
+    retired_backend = "model_backed_" + "feedback"
 
-    evidence = simulate_primitive_rollout(
-        rollout_id="template_rollout_000",
-        initial_state=state,
-        context=context,
-        primitive=primitive_by_id("glide"),
-        config=RolloutConfig(
-            W_layer="W1",
-            rollout_backend="model_backed_command_template",
-        ),
-        wind_field=wind,
-    )
-
-    assert evidence.rollout_backend == "model_backed_command_template"
-    assert evidence.evidence_role == "diagnostic_model_rollout"
-    assert evidence.feedback_mode == "command_template_diagnostic"
+    try:
+        simulate_primitive_rollout(
+            rollout_id="retired_feedback_rollout_000",
+            initial_state=state,
+            context=context,
+            primitive=primitive_by_id("glide"),
+            config=RolloutConfig(
+                W_layer="W1",
+                rollout_backend=retired_backend,
+            ),
+            wind_field=wind,
+        )
+    except ValueError as exc:
+        assert "rollout_backend must be one of the retained rollout backends" in str(exc)
+    else:
+        raise AssertionError("retired feedback rollout backend was accepted")
 
 
 def test_latency_mechanisms_are_applied_and_logged() -> None:
@@ -169,7 +173,7 @@ def test_latency_mechanisms_are_applied_and_logged() -> None:
         initial_state=state,
         context=ideal_context,
         primitive=primitive_by_id("lift_dwell_arc"),
-        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
     )
     nominal = simulate_primitive_rollout(
@@ -177,7 +181,7 @@ def test_latency_mechanisms_are_applied_and_logged() -> None:
         initial_state=state,
         context=context,
         primitive=primitive_by_id("lift_dwell_arc"),
-        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
     )
 
@@ -200,7 +204,7 @@ def test_rollout_row_logs_full_canonical_entry_state() -> None:
         initial_state=state,
         context=context,
         primitive=primitive_by_id("glide"),
-        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
     )
     row = rollout_evidence_row(evidence)
@@ -229,7 +233,7 @@ def test_implementation_and_plant_instances_change_rollout_smoke() -> None:
     state = _state()
     context, wind = _context_and_wind(state)
     primitive = primitive_by_id("lift_dwell_arc")
-    config = RolloutConfig(W_layer="W3", rollout_backend="model_backed_feedback")
+    config = RolloutConfig(W_layer="W3", rollout_backend="model_backed_lqr")
 
     nominal = simulate_primitive_rollout(
         rollout_id="nominal_instance",

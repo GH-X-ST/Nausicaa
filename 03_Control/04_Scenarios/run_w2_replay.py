@@ -179,9 +179,11 @@ def run_w2_replay(config: W2ReplayConfig) -> dict[str, object]:
             "source_start_state_family",
             "source_state_envelope_label",
             "primitive_id",
+            "controller_id",
             "outcome_class",
             "boundary_use_class",
             "latency_case",
+            "environment_instance_environment_id",
         ),
     )
     ratio_summary = write_blocked_approximate_ratio_summary(
@@ -462,7 +464,7 @@ def _w2_replay_row(
     )
     rollout_config = RolloutConfig(
         W_layer="W2",
-        rollout_backend="model_backed_feedback",
+        rollout_backend="model_backed_lqr",
         wind_mode=binding.wind_mode,
     )
     rollout_id = f"w2_r{config.run_id:03d}_{row_index:06d}"

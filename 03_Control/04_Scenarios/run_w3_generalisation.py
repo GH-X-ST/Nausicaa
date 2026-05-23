@@ -173,7 +173,10 @@ def run_w3_generalisation(config: W3GeneralisationConfig) -> dict[str, object]:
         columns=(
             "source_outcome_class",
             "source_boundary_use_class",
+            "primitive_id",
+            "controller_id",
             "environment_instance_environment_mode",
+            "environment_instance_environment_id",
             "implementation_instance_latency_case",
             "plant_instance_plant_adjustment_status",
             "outcome_class",
@@ -469,7 +472,7 @@ def _w3_replay_row(
     )
     rollout_config = RolloutConfig(
         W_layer="W3",
-        rollout_backend="model_backed_feedback",
+        rollout_backend="model_backed_lqr",
         wind_mode=binding.wind_mode,
     )
     rollout_id = f"w3_r{config.run_id:03d}_{row_index:06d}"

@@ -35,7 +35,7 @@ def _model_for(context):
         [
             {
                 "primitive_id": "glide",
-                "evidence_role": "feedback_rollout_candidate",
+                "evidence_role": "lqr_rollout_candidate",
                 "context_feature_vector": features,
                 "outcome_class": "accepted",
                 "continuation_status": "continuation_success",
@@ -49,7 +49,7 @@ def _model_for(context):
             },
             {
                 "primitive_id": "recovery",
-                "evidence_role": "feedback_rollout_candidate",
+                "evidence_role": "lqr_rollout_candidate",
                 "context_feature_vector": features,
                 "outcome_class": "weak",
                 "continuation_status": "continuation_weak",
@@ -102,7 +102,7 @@ def test_selector_modes_treat_boundary_terminal_differently() -> None:
         [
             {
                 "primitive_id": "lift_dwell_arc",
-                "evidence_role": "feedback_rollout_candidate",
+                "evidence_role": "lqr_rollout_candidate",
                 "context_feature_vector": features,
                 "outcome_class": "boundary_terminal",
                 "continuation_status": "not_continuation_valid",

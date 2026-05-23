@@ -1,0 +1,12 @@
+path,byte_count,size_mb,above_75mb,above_100mb,under_100mb
+manifests/figure_source_manifest.json,429,0.00040912628173828125,False,False,True
+manifests/run_manifest.json,2298,0.0021915435791015625,False,False,True
+manifests/table_manifest.json,135,0.00012874603271484375,False,False,True
+metrics/blocked_or_approximate_ratio_summary.csv,90,8.58306884765625e-05,False,False,True
+metrics/coverage_summary.csv,535,0.0005102157592773438,False,False,True
+metrics/failure_taxonomy.csv,92,8.7738037109375e-05,False,False,True
+metrics/governor_rejection_table.csv,79,7.534027099609375e-05,False,False,True
+metrics/hardware_shortlist.csv,38,3.62396240234375e-05,False,False,True
+metrics/outcome_summary.csv,302,0.0002880096435546875,False,False,True
+metrics/runtime_summary.csv,193,0.00018405914306640625,False,False,True
+reports/medoid_cluster_report.md,98,9.34600830078125e-05,False,False,True

@@ -14,8 +14,8 @@ Pipeline-level evidence roots may instead use:
 03_Control/05_Results/<evidence_family>/<stage>/<stage_run_id>/
 ```
 
-For example, the approved v1.4 evidence root is
-`03_Control/05_Results/feedback_contextual_v1_4`, with short stage folders
+For example, the active LQR evidence root is
+`03_Control/05_Results/lqr_contextual_v1_0`, with short stage folders
 `r6`, `r7`, `r8`, and `r9`. The stage run folder is the atomic evidence unit.
 It must contain the manifest and the compact analysis files needed to audit the
 run.
@@ -50,8 +50,8 @@ Use concise numbered lower-snake-case names.
 Good examples:
 
 ```text
-04_context_archive/01_r6_feedback_w1_gaussian/001
-05_outcome_model/01_feedback_terminal_targets/001
+04_context_archive/01_r6_lqr_w1_gaussian/001
+05_outcome_model/01_lqr_terminal_targets/001
 06_policy_eval/01_terminal_episode_smoke/001
 08_simreal/01_rf_replay/001
 ```

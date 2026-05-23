@@ -32,7 +32,12 @@ from implementation_instance import (
 )
 from plant_instance import PlantInstance, apply_plant_instance_to_aircraft, plant_instance_for_layer
 from prim_cat import PrimitiveDefinition, primitive_parameters_json
-from prim_ctrl import PrimitiveControlContext, primitive_command_norm
+from lqr_controller import (
+    LQR_SYNTHESIS_SOLVED,
+    lqr_controller_for_primitive_id,
+    lqr_rollout_metadata,
+)
+from prim_ctrl import PrimitiveControlContext, primitive_lqr_command
 from state_contract import STATE_INDEX, STATE_NAMES, STATE_SIZE
 from state_contract import as_state_vector
 
@@ -61,15 +66,13 @@ OUTCOME_CLASSES = (
 )
 ROLLOUT_BACKENDS = (
     "smoke_only",
-    "model_backed_command_template",
-    "model_backed_feedback",
-    "blocked_feedback",
+    "model_backed_lqr",
+    "blocked_lqr",
 )
 EVIDENCE_ROLE_BY_BACKEND = {
     "smoke_only": "interface_smoke",
-    "model_backed_command_template": "diagnostic_model_rollout",
-    "model_backed_feedback": "feedback_rollout_candidate",
-    "blocked_feedback": "blocked_feedback",
+    "model_backed_lqr": "lqr_rollout_candidate",
+    "blocked_lqr": "blocked_lqr_synthesis",
 }
 ROLLOUT_EVIDENCE_COLUMNS = (
     "rollout_id",
@@ -83,6 +86,28 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "primitive_parameters",
     "controller_mode",
     "feedback_mode",
+    "controller_family",
+    "controller_id",
+    "lqr_reference_id",
+    "linearisation_id",
+    "linearisation_source",
+    "reduced_order_lqr",
+    "lqr_state_mask_json",
+    "zero_position_gain_expansion_status",
+    "lqr_Q_weights_json",
+    "lqr_R_weights_json",
+    "lqr_gain_checksum",
+    "lqr_synthesis_status",
+    "lqr_blocked_reason",
+    "lqr_closed_loop_eigenvalue_summary",
+    "care_residual_norm",
+    "sampled_data_check_status",
+    "sampled_data_spectral_radius",
+    "command_clip_check_status",
+    "saturation_summary",
+    "latency_actuator_survival_status",
+    "tuning_stage",
+    "controller_claim_status",
     "latency_case",
     "state_feedback_delay_applied",
     "command_delay_applied",
@@ -143,6 +168,28 @@ class RolloutEvidence:
     primitive_parameters: str
     controller_mode: str
     feedback_mode: str
+    controller_family: str
+    controller_id: str
+    lqr_reference_id: str
+    linearisation_id: str
+    linearisation_source: str
+    reduced_order_lqr: bool
+    lqr_state_mask_json: str
+    zero_position_gain_expansion_status: str
+    lqr_Q_weights_json: str
+    lqr_R_weights_json: str
+    lqr_gain_checksum: str
+    lqr_synthesis_status: str
+    lqr_blocked_reason: str
+    lqr_closed_loop_eigenvalue_summary: str
+    care_residual_norm: float
+    sampled_data_check_status: str
+    sampled_data_spectral_radius: float
+    command_clip_check_status: str
+    saturation_summary: str
+    latency_actuator_survival_status: str
+    tuning_stage: str
+    controller_claim_status: str
     latency_case: str
     state_feedback_delay_applied: bool
     command_delay_applied: bool
@@ -213,7 +260,7 @@ def simulate_primitive_rollout(
             primitive=primitive,
             config=cfg,
         )
-    if cfg.rollout_backend in {"model_backed_command_template", "model_backed_feedback"}:
+    if cfg.rollout_backend == "model_backed_lqr":
         return _simulate_dynamics_rollout(
             rollout_id=rollout_id,
             episode_id="" if episode_id is None else str(episode_id),
@@ -232,7 +279,7 @@ def simulate_primitive_rollout(
         context=context,
         primitive=primitive,
         config=cfg,
-        failure_label="blocked_feedback_requested",
+        failure_label="blocked_lqr_requested",
     )
 
 
@@ -271,10 +318,11 @@ def blocked_rollout_evidence(
         primitive_parameters=primitive_parameters_json(primitive),
         controller_mode=primitive.controller_mode,
         feedback_mode=primitive.feedback_mode,
+        **_lqr_metadata_for_primitive(primitive),
         latency_case=context.latency_case,
         **latency_fields,
-        rollout_backend="blocked_feedback",
-        evidence_role=EVIDENCE_ROLE_BY_BACKEND["blocked_feedback"],
+        rollout_backend="blocked_lqr",
+        evidence_role=EVIDENCE_ROLE_BY_BACKEND["blocked_lqr"],
         surrogate_binding_status=context.surrogate_binding_status,
         trajectory_integrity_status="blocked_before_simulation",
         entry_check_status=str(failure_label),
@@ -357,6 +405,7 @@ def _simulate_smoke_rollout(
         primitive_parameters=primitive_parameters_json(primitive),
         controller_mode=primitive.controller_mode,
         feedback_mode=primitive.feedback_mode,
+        **_lqr_metadata_for_primitive(primitive),
         latency_case=context.latency_case,
         **latency_fields,
         rollout_backend="smoke_only",
@@ -471,8 +520,17 @@ def _simulate_dynamics_rollout(
             failure_label="speed_low",
         )
 
-    command_template_norm = _primitive_command_template_norm(primitive)
-    command_template = normalised_command_to_surface_rad(command_template_norm)
+    controller = lqr_controller_for_primitive_id(primitive.primitive_id)
+    if controller.lqr_synthesis_status != LQR_SYNTHESIS_SOLVED:
+        return _blocked_from_state(
+            rollout_id=rollout_id,
+            episode_id=episode_id,
+            state=state,
+            context=context,
+            primitive=primitive,
+            config=config,
+            failure_label=controller.lqr_synthesis_status,
+        )
     implementation = implementation_instance or implementation_instance_for_layer(
         config.W_layer,
         0,
@@ -506,23 +564,20 @@ def _simulate_dynamics_rollout(
     trajectory_status = "finite_model_backed"
     termination_cause = "controlled_finish"
     failure_label = "success"
-    feedback_mode = (
-        "command_template_diagnostic"
-        if config.rollout_backend == "model_backed_command_template"
-        else primitive.feedback_mode
-    )
+    feedback_mode = controller.feedback_mode
     steps = max(1, int(np.ceil(float(primitive.finite_horizon_s) / float(config.dt_s))))
     times_s = [0.0]
     states = [x.copy()]
     command_delay_s = float(latency.command_onset_delay_s + latency.command_transport_delay_s)
-    if config.rollout_backend == "model_backed_feedback":
-        initial_command = primitive_command_norm(
+    if config.rollout_backend == "model_backed_lqr":
+        initial_command = primitive_lqr_command(
             primitive,
             PrimitiveControlContext(
                 state_vector=x,
                 environment_context=context,
                 time_in_primitive_s=0.0,
             ),
+            controller,
         )
         if mechanism_flags["command_delay_applied"]:
             command_times_s = [-(command_delay_s + 1e-9)]
@@ -534,11 +589,7 @@ def _simulate_dynamics_rollout(
         max_abs_command_norm = float(np.max(np.abs(initial_command.command_norm)))
         max_abs_surface_rad = float(np.max(np.abs(initial_command.command_rad)))
     else:
-        command_times_s = [0.0]
-        command_norm_history = [command_template_norm.copy()]
-        saturation_count = 0
-        max_abs_command_norm = float(np.max(np.abs(command_template_norm)))
-        max_abs_surface_rad = float(np.max(np.abs(command_template)))
+        raise ValueError("model-backed rollout requires rollout_backend='model_backed_lqr'.")
 
     for step_index in range(steps):
         time_s = float(step_index) * float(config.dt_s)
@@ -565,7 +616,7 @@ def _simulate_dynamics_rollout(
             break
         if context.w_wing_mean_m_s > 0.05:
             lift_dwell_time_s += float(config.dt_s)
-        if config.rollout_backend == "model_backed_feedback":
+        if config.rollout_backend == "model_backed_lqr":
             if mechanism_flags["state_feedback_delay_applied"]:
                 x_control = delayed_state_sample(
                     np.asarray(times_s, dtype=float),
@@ -574,13 +625,14 @@ def _simulate_dynamics_rollout(
                 )
             else:
                 x_control = x
-            control_command = primitive_command_norm(
+            control_command = primitive_lqr_command(
                 primitive,
                 PrimitiveControlContext(
                     state_vector=x_control,
                     environment_context=context,
                     time_in_primitive_s=time_s,
                 ),
+                controller,
             )
             desired_command_norm = np.asarray(control_command.command_norm, dtype=float)
             if time_s > command_times_s[-1]:
@@ -606,7 +658,7 @@ def _simulate_dynamics_rollout(
             max_abs_command_norm = max(max_abs_command_norm, float(np.max(np.abs(applied_norm))))
             max_abs_surface_rad = max(max_abs_surface_rad, float(np.max(np.abs(command))))
         else:
-            command = apply_surface_implementation(command_template, implementation)
+            raise ValueError("model-backed rollout requires rollout_backend='model_backed_lqr'.")
         if not mechanism_flags["actuator_lag_applied"]:
             x[12:15] = command
         x = _rk4_step(
@@ -672,6 +724,7 @@ def _simulate_dynamics_rollout(
         primitive_parameters=primitive_parameters_json(primitive),
         controller_mode=_controller_mode_for_backend(config.rollout_backend, primitive),
         feedback_mode=feedback_mode,
+        **_lqr_metadata_for_primitive(primitive),
         latency_case=context.latency_case,
         **latency_fields,
         rollout_backend=config.rollout_backend,
@@ -742,10 +795,11 @@ def _blocked_from_state(
         primitive_parameters=primitive_parameters_json(primitive),
         controller_mode=_controller_mode_for_backend(config.rollout_backend, primitive),
         feedback_mode=(
-            "blocked_feedback"
-            if config.rollout_backend == "model_backed_feedback"
+            "blocked_lqr"
+            if config.rollout_backend == "model_backed_lqr"
             else primitive.feedback_mode
         ),
+        **_lqr_metadata_for_primitive(primitive),
         latency_case=context.latency_case,
         **latency_fields,
         rollout_backend=config.rollout_backend,
@@ -828,20 +882,6 @@ def _rk4_step(
     return x + (dt_s / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
 
 
-def _primitive_command_template_norm(primitive: PrimitiveDefinition) -> np.ndarray:
-    command_by_id = {
-        "glide": (0.0, -0.12, 0.0),
-        "recovery": (0.0, 0.08, 0.0),
-        "lift_entry": (0.05, 0.03, 0.0),
-        "lift_dwell_arc": (0.22, 0.02, 0.0),
-        "mild_turn_left": (-0.22, 0.0, -0.04),
-        "mild_turn_right": (0.22, 0.0, 0.04),
-        "energy_retaining_bank": (0.16, -0.03, 0.0),
-        "safe_exit_or_recovery_handoff": (0.0, 0.10, 0.0),
-    }
-    return np.asarray(command_by_id.get(primitive.primitive_id, (0.0, 0.0, 0.0)), dtype=float)
-
-
 def _initial_state_for_rollout(initial_state: np.ndarray) -> np.ndarray:
     state = np.asarray(initial_state, dtype=float)
     if state.size != STATE_SIZE:
@@ -856,18 +896,21 @@ def _attitude_is_physically_impossible(state: np.ndarray) -> bool:
 
 
 def _evidence_role_for_backend(backend: str) -> str:
-    return EVIDENCE_ROLE_BY_BACKEND.get(str(backend), "blocked_feedback")
+    return EVIDENCE_ROLE_BY_BACKEND.get(str(backend), "blocked_lqr_synthesis")
 
 
 def _controller_mode_for_backend(
     backend: str,
     primitive: PrimitiveDefinition,
 ) -> str:
-    if backend == "model_backed_feedback":
-        return "bounded_local_feedback"
-    if backend == "model_backed_command_template":
-        return "command_template_diagnostic"
+    if backend == "model_backed_lqr":
+        return "lqr_local_feedback"
     return primitive.controller_mode
+
+
+def _lqr_metadata_for_primitive(primitive: PrimitiveDefinition) -> dict[str, object]:
+    controller = lqr_controller_for_primitive_id(primitive.primitive_id)
+    return lqr_rollout_metadata(controller)
 
 
 def _exit_check_status(outcome_class: str, failure_label: str) -> str:

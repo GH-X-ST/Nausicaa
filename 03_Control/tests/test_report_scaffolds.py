@@ -45,7 +45,7 @@ def _archive_row(
     row = {
         "rollout_id": f"row_{start_row}_{outcome_class}",
         "primitive_id": primitive_id,
-        "evidence_role": "feedback_rollout_candidate",
+        "evidence_role": "lqr_rollout_candidate",
         "outcome_class": outcome_class,
         "continuation_status": "not_continuation_valid" if outcome_class == "boundary_terminal" else "continuation_success",
         "episode_terminal_status": "boundary_terminal" if outcome_class == "boundary_terminal" else "not_terminal",

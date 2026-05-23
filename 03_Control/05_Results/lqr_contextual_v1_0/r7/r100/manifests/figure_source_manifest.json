@@ -1,0 +1,13 @@
+{
+  "figure_source_manifest_version": "lqr_dense_v1",
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/r7/r100",
+  "row_count": 0,
+  "sources": [
+    "metrics/outcome_summary.csv",
+    "metrics/coverage_summary.csv",
+    "metrics/failure_taxonomy.csv",
+    "reports/medoid_cluster_report.md",
+    "metrics/hardware_shortlist.csv"
+  ],
+  "claim_boundary": "simulation_only_until_matched_real_flight_replay"
+}

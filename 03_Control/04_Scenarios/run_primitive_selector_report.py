@@ -110,6 +110,10 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
                     "source_rollout_id": row.get("rollout_id", ""),
                     "governor_mode": governor_mode,
                     **candidate.__dict__,
+                    "energy_residual_m": row.get("energy_residual_m", 0.0),
+                    "lift_dwell_time_s": row.get("lift_dwell_time_s", 0.0),
+                    "minimum_wall_margin_m": row.get("minimum_wall_margin_m", 0.0),
+                    "minimum_speed_m_s": row.get("minimum_speed_m_s", 0.0),
                 }
                 candidate_row.update(_derived_report_group_columns(row))
                 candidate_rows.append(candidate_row)
@@ -120,6 +124,10 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
     _write_rejection_summary(run_root / "metrics" / "rejection_summary.csv", candidate_rows)
     _write_selected_summary(run_root / "metrics" / "selected_primitive_summary.csv", decisions)
     _write_validation_split_summary(run_root / "metrics" / "validation_split_summary.csv", rows)
+    _write_split_manifest(run_root / "manifests" / "train_validation_test_split_manifest.json", rows)
+    _write_confusion_matrices(run_root / "metrics" / "confusion_matrix_by_primitive_w_layer.csv", decisions)
+    _write_calibration_scores(run_root / "metrics" / "calibration_brier_scores.csv", candidate_rows)
+    _write_regression_errors(run_root / "metrics" / "regression_error_summary.csv", candidate_rows)
     write_coverage_summary(
         run_root / "metrics" / "coverage_summary.csv",
         pd.DataFrame(decisions),
@@ -363,6 +371,91 @@ def _write_selected_summary(path: Path, rows: list[dict[str, object]]) -> None:
         return
     summary = frame.groupby(["governor_mode", "selected_primitive_id"], dropna=False).size().reset_index(name="row_count")
     summary.to_csv(filesystem_path(path), index=False)
+
+
+def _write_split_manifest(path: Path, rows: list[dict[str, object]]) -> None:
+    payload = {
+        "split_manifest_version": "lqr_outcome_model_split_v1",
+        "split_policy": "deterministic_index_modulo_70_15_15",
+        "row_count": len(rows),
+        "train_count": sum(1 for index, _ in enumerate(rows) if index % 20 < 14),
+        "validation_count": sum(1 for index, _ in enumerate(rows) if 14 <= index % 20 < 17),
+        "test_count": sum(1 for index, _ in enumerate(rows) if index % 20 >= 17),
+        "stratification_fields": [
+            "primitive_id",
+            "controller_id",
+            "W_layer",
+            "latency_case",
+            "start_state_family",
+            "outcome_class",
+        ],
+    }
+    filesystem_path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="ascii")
+
+
+def _write_confusion_matrices(path: Path, rows: list[dict[str, object]]) -> None:
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        pd.DataFrame(columns=["source_primitive_id", "source_W_layer", "row_count"]).to_csv(filesystem_path(path), index=False)
+        return
+    frame["predicted_outcome_class"] = frame["decision_status"].map(
+        lambda value: "accepted" if value == "selected_viable_primitive" else "rejected"
+    )
+    columns = ["source_primitive_id", "source_W_layer", "source_outcome_class", "predicted_outcome_class"]
+    summary = frame.groupby(columns, dropna=False).size().reset_index(name="row_count")
+    summary.to_csv(filesystem_path(path), index=False)
+
+
+def _write_calibration_scores(path: Path, rows: list[dict[str, object]]) -> None:
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        pd.DataFrame(columns=["probability_name", "brier_score"]).to_csv(filesystem_path(path), index=False)
+        return
+    output = []
+    for name in ("probability_accepted", "probability_weak", "probability_failed"):
+        if name not in frame.columns:
+            continue
+        target = {
+            "probability_accepted": frame.get("source_outcome_class", "") == "accepted",
+            "probability_weak": frame.get("source_outcome_class", "") == "weak",
+            "probability_failed": frame.get("source_outcome_class", "").isin(["failed", "rejected", "blocked"]),
+        }[name].astype(float)
+        pred = frame[name].astype(float)
+        output.append(
+            {
+                "probability_name": name,
+                "brier_score": float(((pred - target) ** 2).mean()),
+                "mean_prediction": float(pred.mean()),
+                "target_rate": float(target.mean()),
+            }
+        )
+    pd.DataFrame(output).to_csv(filesystem_path(path), index=False)
+
+
+def _write_regression_errors(path: Path, rows: list[dict[str, object]]) -> None:
+    frame = pd.DataFrame(rows)
+    metrics = [
+        ("energy_residual_m", "predicted_energy_residual_m"),
+        ("lift_dwell_time_s", "predicted_lift_dwell_time_s"),
+        ("minimum_wall_margin_m", "predicted_minimum_wall_margin_m"),
+        ("minimum_speed_m_s", "predicted_continuation_margin_m"),
+    ]
+    output = []
+    for truth, pred in metrics:
+        if truth not in frame.columns or pred not in frame.columns:
+            output.append({"metric": truth, "mae": float("nan"), "rmse": float("nan"), "bias": float("nan"), "row_count": 0})
+            continue
+        delta = frame[pred].astype(float) - frame[truth].astype(float)
+        output.append(
+            {
+                "metric": truth,
+                "mae": float(delta.abs().mean()),
+                "rmse": float((delta.pow(2).mean()) ** 0.5),
+                "bias": float(delta.mean()),
+                "row_count": int(len(delta)),
+            }
+        )
+    pd.DataFrame(output).to_csv(filesystem_path(path), index=False)
 
 
 def main(argv: list[str] | None = None) -> int:

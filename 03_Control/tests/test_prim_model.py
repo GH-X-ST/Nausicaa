@@ -35,7 +35,7 @@ def test_table_model_predicts_nearest_primitive_outcome() -> None:
         [
             {
                 "primitive_id": "glide",
-                "evidence_role": "feedback_rollout_candidate",
+                "evidence_role": "lqr_rollout_candidate",
                 "context_feature_vector": features,
                 "outcome_class": "accepted",
                 "continuation_status": "continuation_success",
@@ -49,7 +49,7 @@ def test_table_model_predicts_nearest_primitive_outcome() -> None:
             },
             {
                 "primitive_id": "glide",
-                "evidence_role": "feedback_rollout_candidate",
+                "evidence_role": "lqr_rollout_candidate",
                 "context_feature_vector": features,
                 "outcome_class": "weak",
                 "continuation_status": "continuation_weak",
@@ -85,13 +85,13 @@ def test_unfitted_model_returns_uncertain_prior() -> None:
     assert prediction.uncertainty == float("inf")
 
 
-def test_default_training_excludes_command_template_diagnostics() -> None:
+def test_default_training_excludes_blocked_lqr_synthesis_rows() -> None:
     context = _context()
     features = json.dumps(list(context_feature_vector(context)))
     rows = [
         {
             "primitive_id": "glide",
-            "evidence_role": "diagnostic_model_rollout",
+            "evidence_role": "blocked_lqr_synthesis",
             "context_feature_vector": features,
             "outcome_class": "accepted",
             "continuation_status": "continuation_success",
@@ -102,7 +102,7 @@ def test_default_training_excludes_command_template_diagnostics() -> None:
         },
         {
             "primitive_id": "glide",
-            "evidence_role": "feedback_rollout_candidate",
+            "evidence_role": "lqr_rollout_candidate",
             "context_feature_vector": features,
             "outcome_class": "boundary_terminal",
             "continuation_status": "not_continuation_valid",
@@ -123,4 +123,4 @@ def test_default_training_excludes_command_template_diagnostics() -> None:
     assert prediction.probability_boundary_terminal == 1.0
     assert prediction.probability_continuation_success == 0.0
     assert prediction.probability_terminal_useful == 1.0
-    assert prediction.training_evidence_roles == "feedback_rollout_candidate"
+    assert prediction.training_evidence_roles == "lqr_rollout_candidate"

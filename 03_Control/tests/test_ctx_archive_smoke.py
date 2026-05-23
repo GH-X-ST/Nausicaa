@@ -75,8 +75,8 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
     coverage_summary = pd.read_csv(run_root / "metrics" / "coverage_summary.csv")
     ratio_summary = pd.read_csv(run_root / "metrics" / "blocked_or_approximate_ratio_summary.csv")
 
-    assert run_manifest["claim_status"] == "simulation_only_feedback_backed_preflight"
-    assert run_manifest["rollout_backend"] == "model_backed_feedback"
+    assert run_manifest["claim_status"] == "simulation_only_lqr_backed_preflight"
+    assert run_manifest["rollout_backend"] == "model_backed_lqr"
     assert run_manifest["chunk_execution_backend"] == "process_pool"
     assert run_manifest["worker_enabled"] is True
     assert run_manifest["rows_requested"] == 500
@@ -119,6 +119,12 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
         "command_delay_applied",
         "actuator_lag_applied",
         "saturation_fraction",
+        "controller_family",
+        "controller_id",
+        "lqr_synthesis_status",
+        "reduced_order_lqr",
+        "sampled_data_check_status",
+        "latency_actuator_survival_status",
     }.issubset(frame.columns)
     for name in ("x_w", "y_w", "z_w", "phi", "theta", "psi", "u", "v", "w", "p", "q", "r", "delta_a", "delta_e", "delta_r"):
         assert f"initial_{name}" in frame.columns
@@ -131,8 +137,9 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
             "inflight_recovery_edge",
         }
     )
-    assert set(frame["rollout_backend"]) == {"model_backed_feedback"}
-    assert set(frame["evidence_role"]) == {"feedback_rollout_candidate"}
+    assert set(frame["rollout_backend"]) == {"model_backed_lqr"}
+    assert set(frame["evidence_role"]).issubset({"lqr_rollout_candidate", "blocked_lqr_synthesis"})
+    assert set(frame["controller_family"]) == {"lqr"}
     assert set(frame["W_layer"]).issubset({"W0", "W1"})
 
 

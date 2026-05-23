@@ -1,0 +1,49 @@
+{
+  "runtime_core_version": "contextual_runtime_v1",
+  "storage_contract_version": "contextual_storage_contract_v1",
+  "run_stage": "contextual_archive_preflight",
+  "environment_context": "schedule_only",
+  "runtime_storage_contract": "chunked, resumable, compressed, worker-enabled, checksum-manifested, and no generated file above 100 MB",
+  "preferred_generated_file_size_mb": 75.0,
+  "max_generated_file_size_mb": 100.0,
+  "selected_worker_count": 1,
+  "max_workers": 1,
+  "os_cpu_count": 20,
+  "memory_total_gb": 31.668304443359375,
+  "memory_safety_margin_gb": 8.0,
+  "estimated_worker_memory_gb": 2.0,
+  "worker_fallback_reason": "none",
+  "chunk_execution_backend": "not_started",
+  "worker_enabled": false,
+  "run_id": 100,
+  "rows_requested": 500,
+  "seed": 1,
+  "w_layers": [
+    "W0",
+    "W1"
+  ],
+  "env_modes": [
+    "dry_air",
+    "gaussian_single"
+  ],
+  "rollout_backend": "model_backed_lqr",
+  "candidate_chunk_size": 125,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "resume": true,
+  "repair_incomplete": false,
+  "dry_run_schedule": true,
+  "claim_status": "simulation_only_lqr_backed_preflight",
+  "blocked_claims": [
+    "real_flight_transfer",
+    "hardware_readiness",
+    "mission_success",
+    "W2_W3_robustness",
+    "controller_performance"
+  ],
+  "failures": [],
+  "official_deferred_commands": {
+    "r6_lqr_20k_temp_or_local": "python 03_Control/04_Scenarios/run_lqr_contextual_archive.py --run-id 60 --rows 20000 --seed 60 --w-layers W0,W1 --env-modes dry_air,gaussian_single,gaussian_four,fan_shift,power_scale --candidate-chunk-size 1000 --workers 8 --max-workers 8 --storage-format auto --compression-level 1 --resume --repair-incomplete --rollout-backend model_backed_lqr --output-root 03_Control/05_Results/lqr_contextual_v1_0/r6_lqr_20k",
+    "r6_lqr_40k_temp_or_local": "python 03_Control/04_Scenarios/run_lqr_contextual_archive.py --run-id 61 --rows 40000 --seed 61 --w-layers W0,W1 --env-modes dry_air,gaussian_single,gaussian_four,fan_shift,power_scale --candidate-chunk-size 1000 --workers 8 --max-workers 8 --storage-format auto --compression-level 1 --resume --repair-incomplete --rollout-backend model_backed_lqr --output-root 03_Control/05_Results/lqr_contextual_v1_0/r6_lqr_40k"
+  }
+}

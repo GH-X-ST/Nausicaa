@@ -1,172 +1,28 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
-import pandas as pd
-
-import run_feedback_contextual_v1_4_overnight as driver
-from run_feedback_contextual_v1_4_overnight import (
-    OvernightV14Config,
-    run_feedback_contextual_v1_4_overnight,
-)
+from run_lqr_tuning_sweep import LQRTuningSweepConfig, run_lqr_tuning_sweep
 
 
-def _status_rows(path: Path) -> dict[str, dict[str, object]]:
-    payload = json.loads(path.read_text(encoding="ascii"))
-    return {str(row["stage"]): row for row in payload["stage_statuses"]}
-
-
-def test_v1_4_preflight_failure_blocks_before_projection(tmp_path: Path) -> None:
-    result = run_feedback_contextual_v1_4_overnight(
-        OvernightV14Config(
-            run_id="141",
+def test_lqr_tuning_dry_run_records_go_no_go_contract(tmp_path: Path) -> None:
+    result = run_lqr_tuning_sweep(
+        LQRTuningSweepConfig(
+            run_id=141,
             output_root=tmp_path,
-            preflight_commands=((sys.executable, "-c", "import sys; sys.exit(7)"),),
-            run_preflight_checks=True,
-        )
-    )
-
-    statuses = _status_rows(result.status_manifest_path)
-    assert statuses["R6"]["status"] == "blocked"
-    assert statuses["R7"]["status"] == "deferred"
-    assert not (result.run_root / "proj").exists()
-
-
-def test_v1_4_dry_run_schedule_writes_deferred_status_only(tmp_path: Path) -> None:
-    result = run_feedback_contextual_v1_4_overnight(
-        OvernightV14Config(
-            run_id="142",
-            output_root=tmp_path,
-            r6_target_rows=12,
-            r6_fallback_rows=6,
-            candidate_chunk_size=4,
+            rows=32,
+            candidate_count=8,
+            paired_tests_per_candidate=25,
             workers=1,
             max_workers=1,
             storage_format="csv_gz",
-            run_preflight_checks=False,
             dry_run_schedule=True,
         )
     )
 
-    statuses = _status_rows(result.status_manifest_path)
-    assert set(statuses) == {"R6", "R7", "R8", "R9"}
-    assert all(row["status"] == "deferred" for row in statuses.values())
-    assert (result.run_root / "sched").exists()
-    assert not (result.run_root / "r6").exists()
-
-
-def test_v1_4_stage_local_r8_block_preserves_r6_r7(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    def fake_surrogate_status(layers) -> str:
-        layer_tuple = tuple(layers)
-        if layer_tuple == ("W2",):
-            return "blocked:forced_missing_w2_for_stage_local_test"
-        return "ready:forced_test"
-
-    monkeypatch.setattr(driver, "_surrogate_status", fake_surrogate_status)
-    result = run_feedback_contextual_v1_4_overnight(
-        OvernightV14Config(
-            run_id="143",
-            output_root=tmp_path,
-            r6_target_rows=8,
-            r6_fallback_rows=4,
-            r8_target_rows=4,
-            r8_fallback_rows=2,
-            candidate_chunk_size=4,
-            workers=1,
-            max_workers=1,
-            storage_format="csv_gz",
-            run_preflight_checks=False,
-            skip_r9=True,
-        )
-    )
-
-    statuses = _status_rows(result.status_manifest_path)
-    assert statuses["R6"]["status"] in {"complete", "fallback"}
-    assert statuses["R7"]["status"] in {"complete", "fallback", "partial"}
-    assert statuses["R8"]["status"] == "blocked"
-    assert "forced_missing_w2" in statuses["R8"]["surrogate_status"]
-
-
-def test_v1_4_uses_stage_specific_r6_and_r8_projections(tmp_path: Path) -> None:
-    result = run_feedback_contextual_v1_4_overnight(
-        OvernightV14Config(
-            run_id="144",
-            output_root=tmp_path,
-            r6_target_rows=12,
-            r6_fallback_rows=6,
-            r8_target_rows=4,
-            r8_fallback_rows=2,
-            candidate_chunk_size=4,
-            workers=1,
-            max_workers=1,
-            storage_format="csv_gz",
-            run_preflight_checks=False,
-            stop_after_stage="r8_projection",
-            skip_r9=True,
-        )
-    )
-    payload = json.loads(result.status_manifest_path.read_text(encoding="ascii"))
-    projection_stages = [row["stage"] for row in payload["metadata"]["projection_records"]]
-    assert projection_stages == ["R6", "R8"]
-
-
-def test_v1_4_status_manifest_updates_include_claim_boundary(tmp_path: Path) -> None:
-    result = run_feedback_contextual_v1_4_overnight(
-        OvernightV14Config(
-            run_id="145",
-            output_root=tmp_path,
-            r6_target_rows=8,
-            r6_fallback_rows=4,
-            candidate_chunk_size=4,
-            workers=1,
-            max_workers=1,
-            storage_format="csv_gz",
-            run_preflight_checks=False,
-            stop_after_stage="r7",
-            skip_r9=True,
-        )
-    )
-    payload = json.loads(result.status_manifest_path.read_text(encoding="ascii"))
-    statuses = {str(row["stage"]): row for row in payload["stage_statuses"]}
-    assert payload["metadata"]["version"] == "feedback_contextual_primitive_v1_4"
-    assert "No controller-performance" in payload["claim_boundary"]
-    assert statuses["R6"]["table_manifest_path"]
-    assert statuses["R8"]["status"] == "deferred"
-    assert pd.notna(statuses["R6"]["row_count"])
-
-
-def test_v1_4_future_output_layout_omits_nested_run_directory(tmp_path: Path) -> None:
-    output_root = tmp_path / "feedback_contextual_v1_4"
-    result = run_feedback_contextual_v1_4_overnight(
-        OvernightV14Config(
-            run_id="146",
-            output_root=output_root,
-            r6_target_rows=8,
-            r6_fallback_rows=4,
-            candidate_chunk_size=4,
-            workers=1,
-            max_workers=1,
-            storage_format="csv_gz",
-            run_preflight_checks=False,
-            stop_after_stage="r6",
-            skip_r9=True,
-        )
-    )
-
-    statuses = _status_rows(result.status_manifest_path)
-    manifest_path = Path(str(statuses["R6"]["table_manifest_path"]))
-    manifest = json.loads(manifest_path.read_text(encoding="ascii"))
-    partition_paths = [str(row["relative_path"]) for row in manifest["tables"]]
-
-    assert result.run_root == output_root
-    assert "run_146" not in result.run_root.as_posix()
-    assert manifest_path.as_posix().startswith(output_root.as_posix())
-    assert all("context_id=" not in path for path in partition_paths)
-    assert all("environment_id=" not in path for path in partition_paths)
-    assert all("chunk_index=" not in path for path in partition_paths)
-    assert all("part-00000" not in path for path in partition_paths)
+    manifest = json.loads(Path(result["run_manifest"]).read_text(encoding="ascii"))
+    assert manifest["raw_K_tuning_allowed"] is False
+    assert manifest["W0_W1_tune_controller_ids"] is True
+    assert manifest["W2_W3_replay_only"] is True
+    assert "valid_lqr_synthesis" in manifest["hard_gates"]

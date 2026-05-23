@@ -40,6 +40,10 @@ PRIMITIVE_FEATURE_NAMES = (
     "delta_r_norm",
     "primitive_horizon_s",
     "primitive_param_sum",
+    "controller_id_code",
+    "controller_family_code",
+    "linearisation_id_code",
+    "lqr_synthesis_solved_flag",
     "state_feedback_delay_s",
     "command_delay_s",
     "actuator_t50_s",
@@ -67,6 +71,9 @@ def primitive_feature_record(
     start_state_family: str = "unknown",
     previous_primitive_status: str = "unknown",
     synthetic_time_since_launch_s: float = 0.0,
+    controller_id: str | None = None,
+    linearisation_id: str | None = None,
+    lqr_synthesis_status: str = "solved",
 ) -> PrimitiveFeatureRecord:
     """Return the auditable primitive model feature vector."""
 
@@ -91,6 +98,10 @@ def primitive_feature_record(
         float(x[STATE_INDEX["delta_r"]] / 0.5),
         float(primitive.finite_horizon_s),
         primitive_params,
+        _category_code(controller_id or primitive.controller_id),
+        _category_code(primitive.controller_family),
+        _category_code(linearisation_id or primitive.linearisation_source),
+        1.0 if str(lqr_synthesis_status) == "solved" else 0.0,
         float(latency.state_feedback_delay_s),
         command_delay_s,
         float(latency.actuator_t50_s),

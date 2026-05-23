@@ -148,7 +148,7 @@ def _source_info(
     evidence_eligible = bool(
         manifest_path is not None
         and rows_requested >= 40_000
-        and rollout_backend == "model_backed_feedback"
+        and rollout_backend == "model_backed_lqr"
         and not bool(run_manifest.get("dry_run_schedule", False))
     )
     return ArchiveTableSourceInfo(

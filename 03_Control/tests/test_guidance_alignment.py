@@ -26,18 +26,18 @@ def test_strict_surrogate_and_boundary_semantics_are_present_in_code() -> None:
     ):
         assert token in env_surrogate
     for token in (
-        "feedback_rollout_candidate",
-        "diagnostic_model_rollout",
+        "lqr_rollout_candidate",
+        "blocked_lqr_synthesis",
         "boundary_terminal",
         "not_continuation_valid",
         "terminal_useful",
     ):
         assert token in prim_roll
-    assert "DEFAULT_TRAINING_EVIDENCE_ROLES = (\"feedback_rollout_candidate\",)" in prim_model
-    assert "diagnostic_model_rollout" in prim_model
+    assert "DEFAULT_TRAINING_EVIDENCE_ROLES = (\"lqr_rollout_candidate\",)" in prim_model
+    assert "blocked_lqr_synthesis" in prim_model
     assert "continuation" in prim_select
     assert "terminal_episode" in prim_select
-    assert "model_backed_feedback" in run_ctx_archive
+    assert "model_backed_lqr" in run_ctx_archive
     assert "process_pool" in run_ctx_archive
 
 
@@ -80,7 +80,7 @@ def test_preserved_guidance_uses_current_method_language() -> None:
         "boundary_terminal",
         "continuation-valid",
         "episode-terminal-useful",
-        "04_context_archive/01_r6_feedback_w1_gaussian/001",
+        "04_context_archive/01_r6_lqr_w1_gaussian/001",
         "workers = 8",
         "compressed",
         "resume",
@@ -97,7 +97,7 @@ def test_r6_r8_alignment_report_records_statuses() -> None:
         "fixed",
         "intentionally_preserved_non_contract_support",
         "boundary_terminal",
-        "feedback_rollout_candidate",
+        "lqr_rollout_candidate",
         "100 MB",
     ):
         assert token in report
