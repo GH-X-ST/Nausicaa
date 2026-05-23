@@ -112,3 +112,44 @@ def test_selector_and_replay_scaffolds_write_temp_manifests(tmp_path: Path) -> N
     assert not w2_rows["source_label_copied_as_evidence"].astype(bool).any()
     assert set(w3_rows["replay_generation_path"]) == {"simulate_primitive_rollout"}
     assert "approximate_limitation_label" in w3_rows.columns
+
+
+def test_w2_w3_replay_scaffolds_write_chunked_partitions(tmp_path: Path) -> None:
+    archive_table = tmp_path / "archive_rows.csv"
+    rows = [
+        _archive_row(outcome_class=outcome, start_row=index, primitive_id="glide")
+        for index, outcome in enumerate(("accepted", "weak", "boundary_terminal", "failed", "rejected"))
+    ]
+    pd.DataFrame(rows).to_csv(archive_table, index=False)
+
+    w2 = run_w2_replay_scaffold(
+        W2ReplayConfig(
+            run_id=84,
+            output_root=tmp_path,
+            source_archive=archive_table,
+            target_rows=6,
+            fallback_rows=2,
+            chunk_size=2,
+            storage_format="csv_gz",
+        )
+    )
+    w3 = run_w3_generalisation_scaffold(
+        W3GeneralisationConfig(
+            run_id=85,
+            output_root=tmp_path,
+            source_replay=w2["table_manifest"],
+            target_rows=6,
+            fallback_rows=2,
+            chunk_size=2,
+            storage_format="csv_gz",
+        )
+    )
+
+    w2_table_manifest = json.loads(Path(w2["table_manifest"]).read_text())
+    w3_table_manifest = json.loads(Path(w3["table_manifest"]).read_text())
+    assert len(w2_table_manifest["tables"]) >= 2
+    assert len(w3_table_manifest["tables"]) >= 2
+    assert all(row["checksum_sha256"] for row in w2_table_manifest["tables"])
+    assert all(row["checksum_sha256"] for row in w3_table_manifest["tables"])
+    assert (Path(w2["run_root"]) / "metrics" / "chunk_summary.csv").is_file()
+    assert (Path(w3["run_root"]) / "metrics" / "chunk_summary.csv").is_file()

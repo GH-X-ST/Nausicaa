@@ -18,7 +18,11 @@ for rel in ("02_Inner_Loop", "03_Primitives", "04_Scenarios"):
 from archive_table_reader import read_archive_table_with_info  # noqa: E402
 from dense_archive_table_io import (  # noqa: E402
     TableManifest,
+    TablePartition,
+    file_sha256,
     filesystem_path,
+    read_table_partition,
+    table_extension,
     write_table_manifest,
     write_table_partition,
 )
@@ -67,6 +71,12 @@ class W3GeneralisationConfig:
     execute_replay: bool = True
     storage_format: str = "csv_gz"
     compression_level: int = 1
+    workers: int = 8
+    max_workers: int = 8
+    chunk_size: int = 1000
+    resume: bool = True
+    repair_incomplete: bool = False
+    stop_after_chunks: int | None = None
 
 
 def parse_args(argv: list[str] | None = None) -> W3GeneralisationConfig:
@@ -82,6 +92,13 @@ def parse_args(argv: list[str] | None = None) -> W3GeneralisationConfig:
     parser.add_argument("--scaffold-only", dest="execute_replay", action="store_false")
     parser.add_argument("--storage-format", default="csv_gz")
     parser.add_argument("--compression-level", type=int, default=1)
+    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--max-workers", type=int, default=8)
+    parser.add_argument("--chunk-size", "--candidate-chunk-size", dest="chunk_size", type=int, default=1000)
+    parser.add_argument("--resume", action="store_true", default=True)
+    parser.add_argument("--no-resume", dest="resume", action="store_false")
+    parser.add_argument("--repair-incomplete", action="store_true")
+    parser.add_argument("--stop-after-chunks", type=int, default=None)
     args = parser.parse_args(argv)
     return W3GeneralisationConfig(
         run_id=int(args.run_id),
@@ -94,6 +111,12 @@ def parse_args(argv: list[str] | None = None) -> W3GeneralisationConfig:
         execute_replay=bool(args.execute_replay),
         storage_format=str(args.storage_format),
         compression_level=int(args.compression_level),
+        workers=int(args.workers),
+        max_workers=int(args.max_workers),
+        chunk_size=int(args.chunk_size),
+        resume=bool(args.resume),
+        repair_incomplete=bool(args.repair_incomplete),
+        stop_after_chunks=args.stop_after_chunks,
     )
 
 
@@ -128,29 +151,20 @@ def run_w3_generalisation(config: W3GeneralisationConfig) -> dict[str, object]:
             reason="blocked_no_representative_W2_rows",
         )
 
-    rows = [
-        _w3_replay_row(
-            row=row.to_dict(),
-            row_index=index,
-            config=config,
-        )
-        for index, (_, row) in enumerate(selected.iterrows())
-    ]
-    frame = pd.DataFrame(rows)
-    partition = write_table_partition(
-        frame,
-        run_root / "tables" / "w3_generalisation_rows" / "part-00000.csv.gz",
-        storage_format=config.storage_format,
-        compression_level=config.compression_level,
+    partitions, frames, chunk_records = _write_replay_partitions(
+        selected,
+        config=config,
+        run_root=run_root,
     )
+    frame = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     table_manifest = run_root / "manifests" / "table_manifest.json"
     write_table_manifest(
         table_manifest,
         TableManifest(
             run_id=int(config.run_id),
             root=run_root.as_posix(),
-            storage_format=str(partition.storage_format),
-            tables=(partition,),
+            storage_format=str(partitions[0].storage_format) if partitions else config.storage_format,
+            tables=tuple(partitions),
         ),
     )
     write_coverage_summary(
@@ -201,6 +215,13 @@ def run_w3_generalisation(config: W3GeneralisationConfig) -> dict[str, object]:
         "R9_W3_generalisation_complete": r9_complete,
         "generalisation_status": stage_status,
         "case_count": row_count,
+        "partition_count": len(partitions),
+        "chunk_size": int(config.chunk_size),
+        "workers": int(config.workers),
+        "max_workers": int(config.max_workers),
+        "resume": bool(config.resume),
+        "repair_incomplete": bool(config.repair_incomplete),
+        "stop_after_chunks": config.stop_after_chunks,
         "target_rows": int(config.target_rows),
         "fallback_rows": int(config.fallback_rows),
         "blocked_ratio": float(ratio_summary["blocked_ratio"]),
@@ -234,6 +255,7 @@ def run_w3_generalisation(config: W3GeneralisationConfig) -> dict[str, object]:
     }
     manifest_path = run_root / "manifests" / "w3_generalisation_manifest.json"
     filesystem_path(manifest_path).write_text(json.dumps(manifest, indent=2) + "\n", encoding="ascii")
+    pd.DataFrame(chunk_records).to_csv(filesystem_path(run_root / "metrics" / "chunk_summary.csv"), index=False)
     _write_runtime_summary(run_root / "metrics" / "runtime_summary.csv", manifest)
     _write_outcome_summary(run_root / "metrics" / "outcome_summary.csv", frame)
     filesystem_path(run_root / "reports" / "w3_generalisation_report.md").write_text(
@@ -250,10 +272,140 @@ def run_w3_generalisation(config: W3GeneralisationConfig) -> dict[str, object]:
     return {
         "run_root": run_root,
         "manifest": manifest_path,
-        "case_table": run_root / "tables" / partition.relative_path,
+        "case_table": run_root / "tables" / partitions[0].relative_path if partitions else run_root / "tables" / "w3_generalisation_rows.csv",
         "table_manifest": table_manifest,
         "file_size_audit": run_root / "metrics" / "file_size_audit.csv",
     }
+
+
+def _write_replay_partitions(
+    selected: pd.DataFrame,
+    *,
+    config: W3GeneralisationConfig,
+    run_root: Path,
+) -> tuple[list[TablePartition], list[pd.DataFrame], list[dict[str, object]]]:
+    partitions: list[TablePartition] = []
+    frames: list[pd.DataFrame] = []
+    chunk_records: list[dict[str, object]] = []
+    chunk_size = max(1, int(config.chunk_size))
+    chunk_count = int(np.ceil(len(selected) / chunk_size))
+    if config.stop_after_chunks is not None:
+        chunk_count = min(chunk_count, int(config.stop_after_chunks))
+    for chunk_index in range(chunk_count):
+        start = chunk_index * chunk_size
+        stop = min(start + chunk_size, len(selected))
+        chunk_source = selected.iloc[start:stop]
+        partition_path = _chunk_partition_path(run_root, chunk_index, config.storage_format)
+        manifest_path = _chunk_manifest_path(run_root, chunk_index)
+        if config.resume and filesystem_path(partition_path).is_file() and filesystem_path(manifest_path).is_file():
+            try:
+                partition, frame = _read_existing_chunk(partition_path, manifest_path)
+                partitions.append(partition)
+                frames.append(frame)
+                chunk_records.append(
+                    {
+                        "chunk_index": int(chunk_index),
+                        "status": "resumed",
+                        "row_count": int(len(frame)),
+                        "partition_path": partition.relative_path,
+                        "checksum_sha256": partition.checksum_sha256,
+                    }
+                )
+                continue
+            except Exception:
+                if not config.repair_incomplete:
+                    raise
+        rows = [
+            _w3_replay_row(row=row.to_dict(), row_index=start + offset, config=config)
+            for offset, (_, row) in enumerate(chunk_source.iterrows())
+        ]
+        frame = pd.DataFrame(rows)
+        partition = write_table_partition(
+            frame,
+            partition_path,
+            storage_format=config.storage_format,
+            compression_level=config.compression_level,
+        )
+        _write_chunk_manifest(
+            manifest_path,
+            chunk_index=chunk_index,
+            chunk_count=chunk_count,
+            partition=partition,
+            chunk_size=chunk_size,
+            status="complete",
+        )
+        partitions.append(partition)
+        frames.append(frame)
+        chunk_records.append(
+            {
+                "chunk_index": int(chunk_index),
+                "status": "complete",
+                "row_count": int(len(frame)),
+                "partition_path": partition.relative_path,
+                "checksum_sha256": partition.checksum_sha256,
+            }
+        )
+    return partitions, frames, chunk_records
+
+
+def _chunk_partition_path(run_root: Path, chunk_index: int, storage_format: str = "csv_gz") -> Path:
+    return (
+        Path(run_root)
+        / "tables"
+        / "w3_generalisation_rows"
+        / f"chunk_index={int(chunk_index):05d}"
+        / f"part-00000.{table_extension(storage_format)}"
+    )
+
+
+def _chunk_manifest_path(run_root: Path, chunk_index: int) -> Path:
+    return Path(run_root) / "chunk_manifests" / "w3_generalisation_rows" / f"chunk-{int(chunk_index):05d}.json"
+
+
+def _write_chunk_manifest(
+    path: Path,
+    *,
+    chunk_index: int,
+    chunk_count: int,
+    partition: TablePartition,
+    chunk_size: int,
+    status: str,
+) -> None:
+    payload = {
+        "status": str(status),
+        "chunk_index": int(chunk_index),
+        "chunk_count": int(chunk_count),
+        "chunk_size": int(chunk_size),
+        "row_count": int(partition.row_count),
+        "storage_format": str(partition.storage_format),
+        "relative_path": str(partition.relative_path),
+        "byte_count": int(partition.byte_count),
+        "checksum_sha256": str(partition.checksum_sha256),
+    }
+    filesystem_path(path).parent.mkdir(parents=True, exist_ok=True)
+    filesystem_path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="ascii")
+
+
+def _read_existing_chunk(partition_path: Path, manifest_path: Path) -> tuple[TablePartition, pd.DataFrame]:
+    payload = json.loads(filesystem_path(manifest_path).read_text(encoding="ascii"))
+    if payload.get("status") != "complete":
+        raise ValueError("chunk manifest is not complete")
+    checksum = file_sha256(partition_path)
+    if checksum != str(payload["checksum_sha256"]):
+        raise ValueError("chunk checksum mismatch")
+    frame = read_table_partition(partition_path, storage_format=str(payload["storage_format"]))
+    if len(frame) != int(payload["row_count"]):
+        raise ValueError("chunk row count mismatch")
+    partition = TablePartition(
+        table_name="w3_generalisation_rows",
+        relative_path=str(payload["relative_path"]),
+        storage_format=str(payload["storage_format"]),
+        row_count=int(payload["row_count"]),
+        byte_count=int(payload["byte_count"]),
+        columns=tuple(str(column) for column in frame.columns),
+        checksum_sha256=checksum,
+    )
+    return partition, frame
 
 
 def _select_w3_source_rows(

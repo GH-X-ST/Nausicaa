@@ -39,6 +39,7 @@ class SelectorReportConfig:
     governor_modes: tuple[str, ...] = ("continuation", "terminal_episode")
     k_neighbours: int = 3
     max_rows: int = 0
+    evaluation_max_rows: int = 4096
 
 
 def parse_args(argv: list[str] | None = None) -> SelectorReportConfig:
@@ -50,6 +51,7 @@ def parse_args(argv: list[str] | None = None) -> SelectorReportConfig:
     parser.add_argument("--governor-modes", default="continuation,terminal_episode")
     parser.add_argument("--k-neighbours", type=int, default=3)
     parser.add_argument("--max-rows", type=int, default=0)
+    parser.add_argument("--evaluation-max-rows", type=int, default=4096)
     args = parser.parse_args(argv)
     return SelectorReportConfig(
         run_id=int(args.run_id),
@@ -63,6 +65,7 @@ def parse_args(argv: list[str] | None = None) -> SelectorReportConfig:
         ),
         k_neighbours=int(args.k_neighbours),
         max_rows=int(args.max_rows),
+        evaluation_max_rows=int(args.evaluation_max_rows),
     )
 
 
@@ -79,7 +82,11 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
     decisions = []
     candidate_rows = []
     primitives = active_primitive_catalogue()
-    decision_input_rows = rows if max_rows is None else rows[:max_rows]
+    evaluation_frame, evaluation_metadata = _evaluation_frame(
+        frame,
+        max_rows=int(config.evaluation_max_rows),
+    )
+    decision_input_rows = evaluation_frame.to_dict(orient="records")
     for row in decision_input_rows:
         for governor_mode in config.governor_modes:
             context = _context_from_row(row)
@@ -137,12 +144,23 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
         run_root,
         run_root / "metrics" / "file_size_audit.csv",
     )
+    evaluation_row_count = int(len(decision_input_rows))
+    evaluation_strategy = str(evaluation_metadata["evaluation_strategy"])
+    declared_bounded_ok = bool(
+        evaluation_strategy == "declared_stratified_subset"
+        and evaluation_row_count >= min(512, max(1, source_info.row_count_loaded))
+    )
+    full_evaluation_ok = evaluation_strategy == "full_source"
     r7_complete = bool(
         source_info.evidence_eligible
         and model.fitted_row_count == source_info.row_count_manifested
         and set(config.governor_modes) == {"continuation", "terminal_episode"}
         and candidate_rows
         and file_status == "pass"
+        and (full_evaluation_ok or declared_bounded_ok)
+    )
+    stage_status = "complete" if r7_complete and full_evaluation_ok else (
+        "fallback" if r7_complete and declared_bounded_ok else "partial"
     )
     manifest = {
         "run_id": int(config.run_id),
@@ -151,6 +169,12 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
         "training_row_count": int(model.fitted_row_count),
         "decision_row_count": int(len(decisions)),
         "candidate_row_count": int(len(candidate_rows)),
+        "full_training_row_count": int(model.fitted_row_count),
+        "evaluation_row_count": int(len(decision_input_rows)),
+        "evaluation_strategy": evaluation_strategy,
+        "evaluation_strata": evaluation_metadata["evaluation_strata"],
+        "bounded_evaluation_reason": evaluation_metadata["bounded_evaluation_reason"],
+        "source_manifest_path": source_info.manifest_path,
         "validation_split_type": "derived_mixed_start_groups",
         "validation_split_columns": _available_split_columns(rows),
         "governor_modes": list(config.governor_modes),
@@ -158,8 +182,9 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
             model.records[0].feature_schema_version if model.records else "unfitted"
         ),
         "max_rows": int(config.max_rows),
+        "evaluation_max_rows": int(config.evaluation_max_rows),
         "R7_selector_report_complete": r7_complete,
-        "stage_status": "complete" if r7_complete else "partial",
+        "stage_status": stage_status,
         "blocked_ratio": float(ratio_summary["blocked_ratio"]),
         "file_size_status": file_status,
         "claim_status": (
@@ -203,6 +228,61 @@ def _split_csv(text: str) -> tuple[str, ...]:
 
 def _context_from_row(row: dict[str, object]) -> EnvironmentContext:
     return EnvironmentContext(**{name: row[f"context_{name}"] for name in ENV_CONTEXT_COLUMNS})
+
+
+def _evaluation_frame(frame: pd.DataFrame, *, max_rows: int) -> tuple[pd.DataFrame, dict[str, object]]:
+    if frame.empty:
+        return frame.copy(), {
+            "evaluation_strategy": "empty",
+            "evaluation_strata": [],
+            "bounded_evaluation_reason": "empty_source",
+        }
+    if int(max_rows) <= 0 or len(frame) <= int(max_rows):
+        return frame.copy(), {
+            "evaluation_strategy": "full_source",
+            "evaluation_strata": _available_split_columns(frame.to_dict(orient="records")),
+            "bounded_evaluation_reason": "",
+        }
+    strata_columns = [
+        column
+        for column in (
+            "start_state_family",
+            "state_envelope_label",
+            "previous_primitive_status",
+            "environment_instance_environment_id",
+            "primitive_id",
+            "W_layer",
+            "latency_case",
+            "outcome_class",
+            "boundary_use_class",
+        )
+        if column in frame.columns
+    ]
+    if not strata_columns:
+        return frame.head(int(max_rows)).copy(), {
+            "evaluation_strategy": "bounded_head_fallback",
+            "evaluation_strata": [],
+            "bounded_evaluation_reason": "no_stratification_columns_available",
+        }
+    grouped = frame.groupby(strata_columns, dropna=False, sort=False)
+    selected_indices: list[int] = []
+    groups = [group for _, group in grouped]
+    cursor = 0
+    while len(selected_indices) < int(max_rows) and groups:
+        group = groups[cursor % len(groups)]
+        offset = cursor // len(groups)
+        if offset < len(group):
+            selected_indices.append(int(group.index[offset]))
+        cursor += 1
+        if cursor > int(max_rows) * max(2, len(groups) + 1):
+            break
+    return frame.loc[selected_indices].copy(), {
+        "evaluation_strategy": "declared_stratified_subset",
+        "evaluation_strata": strata_columns,
+        "bounded_evaluation_reason": (
+            f"source_rows_{len(frame)}_exceed_evaluation_max_rows_{int(max_rows)}"
+        ),
+    }
 
 
 def _state_from_row(row: dict[str, object]) -> np.ndarray:

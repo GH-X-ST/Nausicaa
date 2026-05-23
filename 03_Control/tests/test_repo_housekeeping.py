@@ -71,6 +71,7 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "03_Control/04_Scenarios/run_w2_replay.py",
     "03_Control/04_Scenarios/run_w3_generalisation.py",
     "03_Control/04_Scenarios/run_feedback_contextual_v1_3_overnight.py",
+    "03_Control/04_Scenarios/run_feedback_contextual_v1_4_overnight.py",
     "03_Control/04_Scenarios/state_sampling.py",
 }
 ALLOWLISTED_SUPPORT_DOCS = {
@@ -122,6 +123,7 @@ ALLOWLISTED_TESTS = {
     "03_Control/tests/test_guidance_alignment.py",
     "03_Control/tests/test_report_scaffolds.py",
     "03_Control/tests/test_v1_3_overnight_driver.py",
+    "03_Control/tests/test_v1_4_run_hardening.py",
 }
 ALLOWLISTED_DATA = {
     "02_Glider_Design/C_results/nausicaa_results.csv",
@@ -322,6 +324,7 @@ def test_active_paths_do_not_group_or_name_by_raw_position_bins() -> None:
         "03_Control/04_Scenarios/run_w2_replay.py",
         "03_Control/04_Scenarios/run_w3_generalisation.py",
         "03_Control/04_Scenarios/run_feedback_contextual_v1_3_overnight.py",
+        "03_Control/04_Scenarios/run_feedback_contextual_v1_4_overnight.py",
     ]
     forbidden = (
         "groupby([\"initial_x_w\"",

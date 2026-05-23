@@ -82,11 +82,15 @@ def write_evidence_status_manifest(
     *,
     statuses: list[StageEvidenceStatus],
     run_label: str,
+    run_root: Path | str = "",
+    metadata: dict[str, object] | None = None,
 ) -> None:
     payload = {
         "run_label": str(run_label),
+        "run_root": "" if not run_root else Path(run_root).as_posix(),
         "stage_statuses": [status.as_row() for status in statuses],
         "claim_boundary": CLAIM_BOUNDARY_TEXT,
+        "metadata": {} if metadata is None else dict(metadata),
     }
     output = filesystem_path(path)
     output.parent.mkdir(parents=True, exist_ok=True)

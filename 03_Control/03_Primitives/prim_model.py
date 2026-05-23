@@ -77,6 +77,7 @@ class PrimitiveOutcomeModel:
     records: tuple[PrimitiveModelRecord, ...]
     k_neighbours: int = 5
     training_evidence_roles: tuple[str, ...] = DEFAULT_TRAINING_EVIDENCE_ROLES
+    records_by_primitive: dict[str, tuple[PrimitiveModelRecord, ...]] | None = None
 
     @property
     def fitted_row_count(self) -> int:
@@ -132,10 +133,17 @@ def fit_primitive_outcome_model(
                 termination_cause=str(row.get("termination_cause", "unknown")),
             )
         )
+    index: dict[str, list[PrimitiveModelRecord]] = {}
+    for record in records:
+        index.setdefault(record.primitive_id, []).append(record)
     return PrimitiveOutcomeModel(
         records=tuple(records),
         k_neighbours=max(1, int(k_neighbours)),
         training_evidence_roles=tuple(evidence_roles),
+        records_by_primitive={
+            primitive_id: tuple(values)
+            for primitive_id, values in index.items()
+        },
     )
 
 
@@ -149,9 +157,9 @@ def predict_primitive_outcome(
 ) -> PrimitiveOutcomePrediction:
     """Predict primitive outcome from context features without environment branching."""
 
-    candidates = [
-        record for record in model.records if record.primitive_id == primitive.primitive_id
-    ]
+    candidates = list(
+        (model.records_by_primitive or {}).get(primitive.primitive_id, ())
+    )
     if not candidates:
         candidates = list(model.records)
     if not candidates:

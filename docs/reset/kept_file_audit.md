@@ -84,3 +84,9 @@ The active allowlist now includes a stage-isolated overnight evidence driver and
 R8 and R9 completion cannot be assigned from copied source labels or scaffold case tables. Completion requires rows generated through the retained primitive rollout path, plus compressed partitions, table manifests, checksums, coverage summaries, blocked/approximate ratio summaries, file-size audits, and claim-boundary reports.
 
 Stage status is independent: R6, R7, R8, and R9 are recorded as complete, fallback, partial, blocked, or deferred without invalidating earlier completed evidence when a later stage blocks. No controller-performance, mission-success, hardware-readiness, real-flight-transfer, full W2 survival, W3 robustness, or environment-generalisation claim is made by these utilities.
+
+## Feedback Contextual Primitive v1.4 Addendum
+
+The active allowlist now includes the v1.4 run-hardening driver and tests. The preferred entrypoint updates the evidence-status manifest after preflight and after every stage, supports dry-run schedules, stop-after-stage operation, resume, and repair-incomplete handling, and keeps the v1.3 driver available as the previous compatibility path.
+
+The hardening scope is operational safety only. Preflight failures stop before first-chunk projection, R6/R8/R9 use stage-specific first chunks for runtime and partition-size projection, R7 records full-source training and bounded-evaluation metadata, and R8/R9 replay writers produce chunked compressed partitions with chunk manifests and checksums. No full overnight evidence run is launched by this reset or by the v1.4 tests.

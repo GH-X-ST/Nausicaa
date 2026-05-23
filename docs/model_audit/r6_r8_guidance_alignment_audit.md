@@ -30,6 +30,7 @@ This audit covers active code paths and preserved support guidance for the feedb
 | R6 W0/W1 boundary | fixed | R6 archive execution is constrained to W0/W1 only. W2 and W3 are reserved for replay/generalisation stages and are not mixed into the R6 contextual archive. |
 | R8/R9 actual replay requirement | fixed | R8 and R9 completion require model-backed primitive rollout rows. Copied source labels and scaffold case tables cannot mark replay stages complete. |
 | Stage evidence outputs | fixed | Dense stages write compressed partitions, table manifests, checksums, runtime/outcome/coverage/file-size summaries, blocked/approximate ratio summaries, and claim-boundary reports. |
+| v1.4 run hardening | fixed | The preferred stage driver adds fail-fast preflight, dry-run schedules, stop-after-stage, resume/repair flags, stage-specific first-chunk projections, and status-manifest updates after every stage without launching the full overnight run during implementation validation. |
 
 ## Claim Boundary
 

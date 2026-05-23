@@ -56,8 +56,8 @@ This pass may support only the claim that a temp-validated, strict-surrogate, fe
 Official local archive runs are deferred. The later local commands are:
 
 ```powershell
-python 03_Control/04_Scenarios/run_ctx_archive.py --run-id 60 --rows 20000 --seed 60 --w-layers W0,W1,W2,W3 --env-modes dry_air,gaussian_single,gaussian_four,fan_shift,power_scale --candidate-chunk-size 1000 --workers 8 --max-workers 8 --storage-format auto --compression-level 1 --resume --repair-incomplete --rollout-backend model_backed_feedback --output-root 03_Control/05_Results/context_archive/r6_feedback_20k
-python 03_Control/04_Scenarios/run_ctx_archive.py --run-id 61 --rows 40000 --seed 61 --w-layers W0,W1,W2,W3 --env-modes dry_air,gaussian_single,gaussian_four,fan_shift,power_scale --candidate-chunk-size 1000 --workers 8 --max-workers 8 --storage-format auto --compression-level 1 --resume --repair-incomplete --rollout-backend model_backed_feedback --output-root 03_Control/05_Results/context_archive/r6_feedback_40k
+python 03_Control/04_Scenarios/run_feedback_contextual_v1_4_overnight.py --run-id 64 --output-root 03_Control/05_Results/feedback_contextual_v1_4 --r6-target-rows 80000 --r6-fallback-rows 40000 --r8-target-rows 15000 --r8-fallback-rows 2000 --r9-target-rows 30000 --r9-fallback-rows 5000 --candidate-chunk-size 1000 --workers 8 --max-workers 8 --storage-format auto --compression-level 1 --dry-run-schedule
+python 03_Control/04_Scenarios/run_feedback_contextual_v1_4_overnight.py --run-id 64 --output-root 03_Control/05_Results/feedback_contextual_v1_4 --r6-target-rows 80000 --r6-fallback-rows 40000 --r8-target-rows 15000 --r8-fallback-rows 2000 --r9-target-rows 30000 --r9-fallback-rows 5000 --candidate-chunk-size 1000 --workers 8 --max-workers 8 --storage-format auto --compression-level 1 --resume --repair-incomplete
 ```
 
 Those runs must preserve chunked execution, resumable chunk manifests, compressed table partitions, worker execution, checksums, table manifests, runtime summaries, outcome summaries, and the 100 MB generated-file limit.
@@ -91,3 +91,11 @@ R6 coverage checks report controllable input strata and observed outcomes withou
 The stage driver preserves earlier evidence if later stages block. Each stage writes table manifests, checksums, runtime/outcome/coverage/file-size summaries, blocked or approximate ratio summaries, and a claim-boundary report before it can receive complete, fallback, partial, blocked, or deferred status.
 
 Default local evidence targets are R6 80k with 40k fallback, R8 15k with 2k fallback, and R9 30k with 5k fallback. Fallbacks are triggered by first-chunk runtime projection, partition-size risk, blocked-row thresholds, or stage-local missing surrogate support. No controller-performance, mission-success, hardware-readiness, real-flight-transfer, full W2 survival, W3 robustness, or environment-generalisation claim is made unless the corresponding evidence table and manifest exist.
+
+## Feedback Contextual Primitive v1.4 Run-Hardening Addendum
+
+The preferred overnight entrypoint is now `run_feedback_contextual_v1_4_overnight.py`. It is a hardening pass only: implementation validation may run tiny or dry schedules, but it does not launch the full overnight evidence run.
+
+The v1.4 driver writes the evidence-status manifest after preflight and after every stage. Preflight is fail-fast and stops before first-chunk projection if retained-module compilation, full pytest, diff check, result-root policy, or W0/W1 surrogate checks fail. R8 and R9 surrogate checks are stage-local, so missing W2 or W3 support blocks only that later stage and preserves earlier statuses.
+
+R6, R8, and R9 now use separate first chunks for runtime and partition-size projection. R7 records full training row count, evaluation row count, evaluation strategy, evaluation strata, bounded-evaluation reason, and source manifest path so a small accidental subset cannot be marked complete. R8 and R9 replay stages are chunked and resumable, with compressed partitions, chunk manifests, checksums, table manifests, and no copied-label completion.
