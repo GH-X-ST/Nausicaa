@@ -76,3 +76,11 @@ These files are kept as implementation scaffolds and test-covered interfaces, no
 The active allowlist now includes first-class mixed primitive-start sampling, archive table reading, implementation/actuator instances, plant instances, W2 mixed-start replay rows, and W3 environment/implementation/plant scaffold cases.
 
 The audit guard is explicit: full raw canonical entry state is logged for replay and safety calculations, but raw arena position is not used as a primitive identifier, online branch, evidence group, result-family name, or primary coordinate-bin summary key. Unsupported W3 perturbations remain labelled `blocked_not_yet_applied` or approximate.
+
+## Feedback Contextual Primitive v1.3 Addendum
+
+The active allowlist now includes a stage-isolated overnight evidence driver and shared stage evidence utilities. R6 archive generation is constrained to W0/W1 only; W2 is reserved for actual R8 model-backed replay, and W3 is reserved for R9 generalisation replay.
+
+R8 and R9 completion cannot be assigned from copied source labels or scaffold case tables. Completion requires rows generated through the retained primitive rollout path, plus compressed partitions, table manifests, checksums, coverage summaries, blocked/approximate ratio summaries, file-size audits, and claim-boundary reports.
+
+Stage status is independent: R6, R7, R8, and R9 are recorded as complete, fallback, partial, blocked, or deferred without invalidating earlier completed evidence when a later stage blocks. No controller-performance, mission-success, hardware-readiness, real-flight-transfer, full W2 survival, W3 robustness, or environment-generalisation claim is made by these utilities.

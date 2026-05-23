@@ -16,7 +16,12 @@ from state_contract import STATE_INDEX, STATE_NAMES, STATE_SIZE
 from state_sampling import archive_state_sample_for_row, archive_state_sample_row
 
 
-def _archive_row() -> dict[str, object]:
+def _archive_row(
+    *,
+    outcome_class: str = "accepted",
+    start_row: int = 0,
+    primitive_id: str = "glide",
+) -> dict[str, object]:
     state = np.zeros(STATE_SIZE)
     state[STATE_INDEX["x_w"]] = 2.0
     state[STATE_INDEX["y_w"]] = 2.0
@@ -25,26 +30,38 @@ def _archive_row() -> dict[str, object]:
     context = build_environment_context(
         state,
         wind_field=None,
-        metadata=EnvironmentMetadata(environment_id="W0_report", fan_count=0),
-        latency_case="none",
+        metadata=EnvironmentMetadata(
+            environment_id="W1_report",
+            fan_count=1,
+            W_layer="W1",
+            wind_mode="panel",
+            environment_mode="gaussian_single",
+            environment_instance_id="W1_report",
+            updraft_model_id="single_gaussian_var",
+        ),
+        latency_case="nominal",
     )
-    primitive = primitive_by_id("glide")
+    primitive = primitive_by_id(primitive_id)
     row = {
-        "rollout_id": "row_0",
-        "primitive_id": "glide",
+        "rollout_id": f"row_{start_row}_{outcome_class}",
+        "primitive_id": primitive_id,
         "evidence_role": "feedback_rollout_candidate",
-        "outcome_class": "accepted",
-        "continuation_status": "continuation_success",
-        "episode_terminal_status": "not_terminal",
-        "episode_utility_label": "continuation_useful",
-        "terminal_use_trainable": False,
+        "outcome_class": outcome_class,
+        "continuation_status": "not_continuation_valid" if outcome_class == "boundary_terminal" else "continuation_success",
+        "episode_terminal_status": "boundary_terminal" if outcome_class == "boundary_terminal" else "not_terminal",
+        "episode_utility_label": "terminal_useful" if outcome_class == "boundary_terminal" else "continuation_useful",
+        "terminal_use_trainable": outcome_class == "boundary_terminal",
         "energy_residual_m": 0.1,
         "lift_dwell_time_s": 0.1,
         "minimum_wall_margin_m": 1.0,
         "termination_cause": "controlled_finish",
+        "W_layer": "W1",
+        "latency_case": "nominal",
+        "boundary_use_class": "episode_terminal_useful_or_trainable" if outcome_class == "boundary_terminal" else "continuation_valid",
+        "environment_mode": "gaussian_single",
     }
     row.update({f"context_{key}": value for key, value in environment_context_row(context).items()})
-    sample = archive_state_sample_for_row(0, seed=1, W_layer="W0", environment_mode="dry_air")
+    sample = archive_state_sample_for_row(start_row, seed=1, W_layer="W1", environment_mode="gaussian_single")
     row.update(archive_state_sample_row(sample))
     row.update({f"initial_{name}": float(state[index]) for index, name in enumerate(STATE_NAMES)})
     row.update(primitive_feature_row(primitive_feature_record(state=state, context=context, primitive=primitive)))
@@ -53,7 +70,11 @@ def _archive_row() -> dict[str, object]:
 
 def test_selector_and_replay_scaffolds_write_temp_manifests(tmp_path: Path) -> None:
     archive_table = tmp_path / "archive_rows.csv"
-    pd.DataFrame([_archive_row()]).to_csv(archive_table, index=False)
+    rows = [
+        _archive_row(outcome_class=outcome, start_row=index, primitive_id="glide")
+        for index, outcome in enumerate(("accepted", "weak", "boundary_terminal", "failed", "rejected"))
+    ]
+    pd.DataFrame(rows).to_csv(archive_table, index=False)
 
     selector = run_primitive_selector_report(
         SelectorReportConfig(
@@ -73,11 +94,12 @@ def test_selector_and_replay_scaffolds_write_temp_manifests(tmp_path: Path) -> N
     w2_manifest = json.loads(Path(w2["manifest"]).read_text())
     w3_manifest = json.loads(Path(w3["manifest"]).read_text())
 
-    assert selector_manifest["claim_status"] == "simulation_only_selector_report_smoke"
+    assert selector_manifest["claim_status"] == "simulation_only_selector_report_smoke_or_subset"
     assert w2_manifest["R8_W2_replay_complete"] is False
-    assert w2_manifest["replay_status"] == "mixed_start_w2_replay_smoke_from_source"
+    assert w2_manifest["actual_model_backed_replay"] is True
+    assert w2_manifest["replayed_row_count"] > 0
     assert w3_manifest["R9_W3_generalisation_complete"] is False
-    assert w3_manifest["generalisation_status"] == "partial_smoke_from_source_no_robustness_claim"
+    assert w3_manifest["actual_model_backed_replay"] is True
 
     selector_rows = pd.read_csv(selector["decision_table"])
     w2_rows = pd.read_csv(w2["replay_table"])
@@ -86,4 +108,7 @@ def test_selector_and_replay_scaffolds_write_temp_manifests(tmp_path: Path) -> N
         for name in STATE_NAMES:
             assert f"entry_{name}" in frame.columns
     assert "validation_split_columns" in selector_manifest
-    assert "environment_adjustment_status" in w3_manifest
+    assert set(w2_rows["replay_generation_path"]) == {"simulate_primitive_rollout"}
+    assert not w2_rows["source_label_copied_as_evidence"].astype(bool).any()
+    assert set(w3_rows["replay_generation_path"]) == {"simulate_primitive_rollout"}
+    assert "approximate_limitation_label" in w3_rows.columns

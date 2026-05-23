@@ -6,6 +6,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 CONTROL_ROOT = Path(__file__).resolve().parents[1]
@@ -14,8 +15,43 @@ for rel in ("02_Inner_Loop", "03_Primitives", "04_Scenarios"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from archive_table_reader import read_archive_table  # noqa: E402
-from dense_archive_table_io import filesystem_path  # noqa: E402
+from archive_table_reader import read_archive_table_with_info  # noqa: E402
+from dense_archive_table_io import (  # noqa: E402
+    TableManifest,
+    filesystem_path,
+    write_table_manifest,
+    write_table_partition,
+)
+from env_ctx import build_environment_context  # noqa: E402
+from env_instance import (  # noqa: E402
+    environment_instance_for_mode,
+    environment_instance_row,
+    environment_metadata_from_instance,
+)
+from env_surrogate import (  # noqa: E402
+    READY_STATUS,
+    resolve_surrogate_binding,
+    surrogate_binding_row,
+    wind_field_for_binding,
+)
+from evidence_stage_utils import (  # noqa: E402
+    write_blocked_approximate_ratio_summary,
+    write_claim_boundary_report,
+    write_coverage_summary,
+    write_file_size_audit,
+)
+from implementation_instance import (  # noqa: E402
+    implementation_instance_for_layer,
+    implementation_instance_row,
+)
+from plant_instance import plant_instance_for_layer, plant_instance_row  # noqa: E402
+from prim_cat import primitive_by_id  # noqa: E402
+from prim_roll import (  # noqa: E402
+    RolloutConfig,
+    blocked_rollout_evidence,
+    rollout_with_context_row,
+    simulate_primitive_rollout,
+)
 from state_contract import STATE_NAMES  # noqa: E402
 
 
@@ -24,124 +60,406 @@ class W2ReplayConfig:
     run_id: int
     output_root: Path
     source_archive: Path | None = None
+    target_rows: int = 15_000
+    fallback_rows: int = 2_000
+    max_source_rows: int = 0
+    representative_reuse_limit: int = 8
+    latency_case: str = "nominal"
+    storage_format: str = "csv_gz"
+    compression_level: int = 1
 
 
 def parse_args(argv: list[str] | None = None) -> W2ReplayConfig:
-    parser = argparse.ArgumentParser(description="Write a temp W2 replay scaffold manifest.")
+    parser = argparse.ArgumentParser(description="Run W2 model-backed replay from R6 rows.")
     parser.add_argument("--run-id", type=int, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--source-archive", type=Path, default=None)
+    parser.add_argument("--target-rows", type=int, default=15_000)
+    parser.add_argument("--fallback-rows", type=int, default=2_000)
+    parser.add_argument("--max-source-rows", type=int, default=0)
+    parser.add_argument("--representative-reuse-limit", type=int, default=8)
+    parser.add_argument("--latency-case", choices=("nominal", "conservative"), default="nominal")
+    parser.add_argument("--storage-format", default="csv_gz")
+    parser.add_argument("--compression-level", type=int, default=1)
     args = parser.parse_args(argv)
     return W2ReplayConfig(
         run_id=int(args.run_id),
         output_root=Path(args.output_root),
         source_archive=None if args.source_archive is None else Path(args.source_archive),
+        target_rows=int(args.target_rows),
+        fallback_rows=int(args.fallback_rows),
+        max_source_rows=int(args.max_source_rows),
+        representative_reuse_limit=int(args.representative_reuse_limit),
+        latency_case=str(args.latency_case),
+        storage_format=str(args.storage_format),
+        compression_level=int(args.compression_level),
     )
 
 
 def run_w2_replay_scaffold(config: W2ReplayConfig) -> dict[str, object]:
+    """Backward-compatible wrapper for the replay-capable R8 entrypoint."""
+
+    return run_w2_replay(config)
+
+
+def run_w2_replay(config: W2ReplayConfig) -> dict[str, object]:
     run_root = Path(config.output_root) / f"w2_replay_{config.run_id:03d}"
     for rel in ("manifests", "reports", "metrics", "tables"):
         filesystem_path(run_root / rel).mkdir(parents=True, exist_ok=True)
-    replay_rows = _replay_rows_from_source(config.source_archive)
-    replay_status = (
-        "mixed_start_w2_replay_smoke_from_source"
-        if replay_rows
-        else "blocked_until_approved_R6_archive_exists"
+
+    if config.source_archive is None:
+        return _write_blocked_outputs(
+            config=config,
+            run_root=run_root,
+            reason="blocked_until_R6_archive_exists",
+        )
+
+    max_rows = None if int(config.max_source_rows) <= 0 else int(config.max_source_rows)
+    source_frame, source_info = read_archive_table_with_info(config.source_archive, max_rows=max_rows)
+    selected = _select_representative_source_rows(
+        source_frame,
+        target_rows=int(config.target_rows),
+        fallback_rows=int(config.fallback_rows),
+        reuse_limit=int(config.representative_reuse_limit),
     )
+    if selected.empty:
+        return _write_blocked_outputs(
+            config=config,
+            run_root=run_root,
+            reason="blocked_no_representative_W1_rows",
+        )
+
+    replay_rows = [
+        _w2_replay_row(
+            row=row.to_dict(),
+            row_index=index,
+            config=config,
+        )
+        for index, (_, row) in enumerate(selected.iterrows())
+    ]
+    replay_frame = pd.DataFrame(replay_rows)
+    partition = write_table_partition(
+        replay_frame,
+        run_root / "tables" / "w2_replay_rows" / "part-00000.csv.gz",
+        storage_format=config.storage_format,
+        compression_level=config.compression_level,
+    )
+    table_manifest = run_root / "manifests" / "table_manifest.json"
+    write_table_manifest(
+        table_manifest,
+        TableManifest(
+            run_id=int(config.run_id),
+            root=run_root.as_posix(),
+            storage_format=str(partition.storage_format),
+            tables=(partition,),
+        ),
+    )
+    _write_mapping_summary(run_root / "metrics" / "source_to_w2_mapping.csv", replay_frame)
+    _write_survival_summary(run_root / "metrics" / "w1_to_w2_survival_summary.csv", replay_frame)
+    _write_failure_summary(run_root / "metrics" / "w2_failure_label_summary.csv", replay_frame)
+    write_coverage_summary(
+        run_root / "metrics" / "coverage_summary.csv",
+        replay_frame,
+        columns=(
+            "source_outcome_class",
+            "source_start_state_family",
+            "source_state_envelope_label",
+            "primitive_id",
+            "outcome_class",
+            "boundary_use_class",
+            "latency_case",
+        ),
+    )
+    ratio_summary = write_blocked_approximate_ratio_summary(
+        run_root / "metrics" / "blocked_or_approximate_ratio_summary.csv",
+        replay_frame,
+    )
+    file_audit, file_status = write_file_size_audit(
+        run_root,
+        run_root / "metrics" / "file_size_audit.csv",
+    )
+    row_count = int(len(replay_frame))
+    target_status = "complete" if row_count >= int(config.target_rows) else "fallback"
+    if row_count < int(config.fallback_rows):
+        target_status = "partial"
+    if float(ratio_summary["blocked_ratio"]) > 0.60:
+        stage_status = "blocked"
+    elif float(ratio_summary["blocked_ratio"]) > 0.35:
+        stage_status = "partial" if target_status == "fallback" else "fallback"
+    else:
+        stage_status = target_status
+    actual_replay = bool(
+        row_count > 0
+        and set(replay_frame.get("replay_generation_path", [])) == {"simulate_primitive_rollout"}
+        and not replay_frame.get("source_label_copied_as_evidence", pd.Series([True])).astype(bool).any()
+    )
+    r8_complete = bool(actual_replay and stage_status in {"complete", "fallback"} and file_status == "pass")
     manifest = {
         "run_id": int(config.run_id),
-        "stage": "R8_W2_replay_scaffold",
-        "source_archive": "" if config.source_archive is None else Path(config.source_archive).as_posix(),
+        "stage": "R8_W2_model_backed_replay",
+        "source_archive": Path(config.source_archive).as_posix(),
+        "archive_source_info": source_info.__dict__,
         "W_layer": "W2",
         "surrogate_family": "gp_corrected_annular_gaussian",
         "required_latency_mechanisms": ["state_feedback_delay", "command_delay", "actuator_lag"],
-        "replay_status": replay_status,
-        "R8_W2_replay_complete": False,
-        "replayed_row_count": len(replay_rows),
-        "claim_status": "simulation_only_w2_scaffold_no_survival_claim",
-        "blocked_claims": ["W2_survival", "hardware_readiness", "real_flight_transfer"],
+        "replay_status": stage_status,
+        "R8_W2_replay_complete": r8_complete,
+        "replayed_row_count": row_count,
+        "target_rows": int(config.target_rows),
+        "fallback_rows": int(config.fallback_rows),
+        "blocked_ratio": float(ratio_summary["blocked_ratio"]),
+        "file_size_status": file_status,
+        "actual_model_backed_replay": actual_replay,
+        "claim_status": "simulation_only_w2_replay_no_survival_claim",
+        "blocked_claims": ["full_W2_survival", "hardware_readiness", "real_flight_transfer"],
     }
     manifest_path = run_root / "manifests" / "w2_replay_manifest.json"
     filesystem_path(manifest_path).write_text(json.dumps(manifest, indent=2) + "\n", encoding="ascii")
-    replay_table = run_root / "tables" / "w2_replay_rows.csv"
-    pd.DataFrame(replay_rows).to_csv(filesystem_path(replay_table), index=False)
+    _write_runtime_summary(run_root / "metrics" / "runtime_summary.csv", manifest)
+    _write_outcome_summary(run_root / "metrics" / "outcome_summary.csv", replay_frame)
     filesystem_path(run_root / "reports" / "w2_replay_report.md").write_text(
-        "# W2 Replay Scaffold\n\nNo W2 survival or hardware-readiness claim is made.\n",
+        "# W2 Model-Backed Replay Report\n\nNo full W2 survival or hardware-readiness claim is made.\n",
         encoding="ascii",
     )
-    _write_file_size_audit(run_root)
-    return {"run_root": run_root, "manifest": manifest_path, "replay_table": replay_table}
+    write_claim_boundary_report(
+        run_root / "reports" / "claim_boundary_report.md",
+        stage="R8 W2 replay",
+        status=stage_status,
+        claim_status=str(manifest["claim_status"]),
+        blocked_claims=tuple(str(item) for item in manifest["blocked_claims"]),
+    )
+    return {
+        "run_root": run_root,
+        "manifest": manifest_path,
+        "replay_table": run_root / "tables" / partition.relative_path,
+        "table_manifest": table_manifest,
+        "file_size_audit": run_root / "metrics" / "file_size_audit.csv",
+    }
 
 
-def _replay_rows_from_source(source_archive: Path | None) -> list[dict[str, object]]:
-    if source_archive is None:
-        return []
-    frame = read_archive_table(Path(source_archive), max_rows=256)
-    if frame.empty:
-        return []
-    rows = []
-    for label in ("accepted", "weak", "boundary_terminal", "failed", "rejected"):
-        subset = frame[frame["outcome_class"] == label] if "outcome_class" in frame else frame.iloc[0:0]
+def _select_representative_source_rows(
+    frame: pd.DataFrame,
+    *,
+    target_rows: int,
+    fallback_rows: int,
+    reuse_limit: int,
+) -> pd.DataFrame:
+    if frame.empty or "outcome_class" not in frame.columns:
+        return pd.DataFrame()
+    source = frame.copy()
+    if "W_layer" in source.columns:
+        source = source[source["W_layer"].astype(str) == "W1"]
+    if source.empty:
+        return pd.DataFrame()
+    requested = max(int(fallback_rows), min(int(target_rows), len(source) * max(1, int(reuse_limit))))
+    strata = []
+    for outcome in ("accepted", "weak", "boundary_terminal", "failed", "rejected"):
+        subset = source[source["outcome_class"].astype(str) == outcome]
         if subset.empty:
             continue
-        row = subset.iloc[0].to_dict()
-        rows.append(_w2_replay_row(row))
-    blocked = frame[frame["outcome_class"] == "blocked"] if "outcome_class" in frame else frame.iloc[0:0]
-    if not blocked.empty:
-        rows.append(_w2_replay_row(blocked.iloc[0].to_dict(), audit_only=True))
-    return rows
+        for start_kind in ("launch_gate", "inflight"):
+            if start_kind == "launch_gate":
+                start_subset = subset[subset.get("start_state_family", "").astype(str) == "launch_gate"]
+            else:
+                start_subset = subset[subset.get("start_state_family", "").astype(str) != "launch_gate"]
+            if not start_subset.empty:
+                strata.append(start_subset)
+    if not strata:
+        strata = [source]
+    selected_rows = []
+    reuse_counts: dict[str, int] = {}
+    cursor = 0
+    while len(selected_rows) < requested:
+        subset = strata[cursor % len(strata)]
+        row = subset.iloc[(cursor // len(strata)) % len(subset)]
+        key = str(row.get("rollout_id", row.name))
+        count = reuse_counts.get(key, 0)
+        if count < max(1, int(reuse_limit)):
+            reuse_counts[key] = count + 1
+            selected = row.copy()
+            selected["source_reuse_count"] = count + 1
+            selected_rows.append(selected)
+        cursor += 1
+        if cursor > requested * max(4, len(strata) * max(1, int(reuse_limit))):
+            break
+    return pd.DataFrame(selected_rows)
 
 
-def _w2_replay_row(row: dict[str, object], *, audit_only: bool = False) -> dict[str, object]:
-    source_outcome = str(row.get("outcome_class", "blocked"))
-    label_by_source = {
-        "accepted": "w2_survived",
-        "weak": "w2_weak",
-        "boundary_terminal": "w2_boundary_terminal",
-        "failed": "w2_failed",
-        "rejected": "w2_failed",
-        "blocked": "w2_blocked",
-    }
-    result = {
-        "source_rollout_id": row.get("rollout_id", ""),
-        "source_outcome_class": source_outcome,
-        "w2_replay_label": "w2_blocked" if audit_only else label_by_source.get(source_outcome, "w2_blocked"),
-        "w2_replay_audit_only": bool(audit_only),
-        "start_state_family": row.get("start_state_family", ""),
-        "state_envelope_label": row.get("state_envelope_label", ""),
-        "previous_primitive_status": row.get("previous_primitive_status", ""),
-        "primitive_id": row.get("primitive_id", ""),
-        "latency_case": "nominal",
-        "boundary_use_class": row.get("boundary_use_class", ""),
-        "claim_status": "simulation_only_w2_replay_smoke_no_survival_claim",
-    }
-    result.update(
-        {
-            f"entry_{name}": float(row.get(f"initial_{name}", 0.0))
-            for name in STATE_NAMES
-        }
+def _w2_replay_row(
+    *,
+    row: dict[str, object],
+    row_index: int,
+    config: W2ReplayConfig,
+) -> dict[str, object]:
+    state = _state_from_source(row)
+    mode = _w2_environment_mode(row)
+    seed = int(config.run_id) * 100_000 + int(row_index)
+    primitive = primitive_by_id(str(row.get("primitive_id", "glide")))
+    instance = environment_instance_for_mode("W2", mode, seed)
+    metadata = environment_metadata_from_instance(instance)
+    binding = resolve_surrogate_binding("W2", metadata, randomisation_seed=seed)
+    wind = wind_field_for_binding(binding)
+    implementation = implementation_instance_for_layer("W2", seed, latency_case=config.latency_case)
+    plant = plant_instance_for_layer("W2", seed)
+    context = build_environment_context(
+        state,
+        wind_field=wind,
+        metadata=metadata,
+        latency_case=implementation.latency_case,
+        actuator_case="nominal",
+        surrogate_binding=binding,
     )
+    rollout_config = RolloutConfig(
+        W_layer="W2",
+        rollout_backend="model_backed_feedback",
+        wind_mode=binding.wind_mode,
+    )
+    rollout_id = f"w2_r{config.run_id:03d}_{row_index:06d}"
+    if binding.surrogate_binding_status != READY_STATUS:
+        evidence = blocked_rollout_evidence(
+            rollout_id=rollout_id,
+            episode_id=f"w2_episode_{row_index:06d}",
+            initial_state=state,
+            context=context,
+            primitive=primitive,
+            config=rollout_config,
+            failure_label="W2_surrogate_binding_blocked",
+        )
+    else:
+        evidence = simulate_primitive_rollout(
+            rollout_id=rollout_id,
+            episode_id=f"w2_episode_{row_index:06d}",
+            initial_state=state,
+            context=context,
+            primitive=primitive,
+            config=rollout_config,
+            wind_field=wind,
+            implementation_instance=implementation,
+            plant_instance=plant,
+        )
+    result = rollout_with_context_row(evidence, context)
+    result.update({f"surrogate_{key}": value for key, value in surrogate_binding_row(binding).items()})
+    result.update({f"environment_instance_{key}": value for key, value in environment_instance_row(instance).items()})
+    result.update({f"implementation_instance_{key}": value for key, value in implementation_instance_row(implementation).items()})
+    result.update({f"plant_instance_{key}": value for key, value in plant_instance_row(plant).items()})
+    result.update(_source_columns(row))
+    result["replay_generation_path"] = "simulate_primitive_rollout"
+    result["source_label_copied_as_evidence"] = False
+    result["w2_outcome_class"] = result["outcome_class"]
+    result["source_reuse_count"] = int(row.get("source_reuse_count", 1))
+    for name in STATE_NAMES:
+        result[f"entry_{name}"] = float(state[STATE_NAMES.index(name)])
     return result
 
 
-def _write_file_size_audit(run_root: Path) -> None:
-    rows = []
-    for path in sorted(run_root.rglob("*")):
-        if path.is_file():
-            size = path.stat().st_size
-            rows.append(
-                {
-                    "path": path.relative_to(run_root).as_posix(),
-                    "byte_count": int(size),
-                    "under_100mb": bool(size <= 100 * 1024 * 1024),
-                }
-            )
-    pd.DataFrame(rows).to_csv(filesystem_path(run_root / "metrics" / "file_size_audit.csv"), index=False)
+def _state_from_source(row: dict[str, object]) -> np.ndarray:
+    values = []
+    for name in STATE_NAMES:
+        values.append(float(row.get(f"initial_{name}", row.get(f"entry_{name}", 0.0))))
+    return np.asarray(values, dtype=float)
+
+
+def _w2_environment_mode(row: dict[str, object]) -> str:
+    mode = str(row.get("environment_mode", row.get("source_environment_mode", "gaussian_single")))
+    if mode in {"gaussian_four", "fan_shift", "power_scale"}:
+        return mode
+    return "gaussian_single"
+
+
+def _source_columns(row: dict[str, object]) -> dict[str, object]:
+    return {
+        "source_rollout_id": row.get("rollout_id", ""),
+        "source_outcome_class": row.get("outcome_class", ""),
+        "source_start_state_family": row.get("start_state_family", ""),
+        "source_state_envelope_label": row.get("state_envelope_label", ""),
+        "source_previous_primitive_status": row.get("previous_primitive_status", ""),
+        "source_W_layer": row.get("W_layer", ""),
+        "source_environment_id": row.get("environment_id", ""),
+        "source_environment_mode": row.get("environment_mode", ""),
+        "source_boundary_use_class": row.get("boundary_use_class", ""),
+    }
+
+
+def _write_blocked_outputs(
+    *,
+    config: W2ReplayConfig,
+    run_root: Path,
+    reason: str,
+) -> dict[str, object]:
+    empty_path = run_root / "tables" / "w2_replay_rows.csv"
+    pd.DataFrame().to_csv(filesystem_path(empty_path), index=False)
+    manifest = {
+        "run_id": int(config.run_id),
+        "stage": "R8_W2_model_backed_replay",
+        "replay_status": "blocked",
+        "blocked_reason": str(reason),
+        "R8_W2_replay_complete": False,
+        "replayed_row_count": 0,
+        "actual_model_backed_replay": False,
+        "claim_status": "simulation_only_w2_blocked_no_survival_claim",
+        "blocked_claims": ["full_W2_survival", "hardware_readiness", "real_flight_transfer"],
+    }
+    manifest_path = run_root / "manifests" / "w2_replay_manifest.json"
+    filesystem_path(manifest_path).write_text(json.dumps(manifest, indent=2) + "\n", encoding="ascii")
+    write_claim_boundary_report(
+        run_root / "reports" / "claim_boundary_report.md",
+        stage="R8 W2 replay",
+        status="blocked",
+        claim_status=str(manifest["claim_status"]),
+        blocked_claims=tuple(str(item) for item in manifest["blocked_claims"]),
+    )
+    write_file_size_audit(run_root, run_root / "metrics" / "file_size_audit.csv")
+    return {"run_root": run_root, "manifest": manifest_path, "replay_table": empty_path}
+
+
+def _write_mapping_summary(path: Path, frame: pd.DataFrame) -> None:
+    columns = ["source_rollout_id", "rollout_id", "source_outcome_class", "w2_outcome_class", "source_reuse_count"]
+    frame[[column for column in columns if column in frame.columns]].to_csv(filesystem_path(path), index=False)
+
+
+def _write_survival_summary(path: Path, frame: pd.DataFrame) -> None:
+    columns = ["source_outcome_class", "outcome_class"]
+    if not set(columns).issubset(frame.columns):
+        pd.DataFrame(columns=[*columns, "row_count"]).to_csv(filesystem_path(path), index=False)
+        return
+    summary = frame.groupby(columns, dropna=False).size().reset_index(name="row_count")
+    summary.to_csv(filesystem_path(path), index=False)
+
+
+def _write_failure_summary(path: Path, frame: pd.DataFrame) -> None:
+    columns = ["failure_label", "termination_cause"]
+    if not set(columns).issubset(frame.columns):
+        pd.DataFrame(columns=[*columns, "row_count"]).to_csv(filesystem_path(path), index=False)
+        return
+    summary = frame.groupby(columns, dropna=False).size().reset_index(name="row_count")
+    summary.to_csv(filesystem_path(path), index=False)
+
+
+def _write_runtime_summary(path: Path, manifest: dict[str, object]) -> None:
+    pd.DataFrame(
+        [
+            {
+                "run_id": manifest["run_id"],
+                "stage": manifest["stage"],
+                "row_count": manifest["replayed_row_count"],
+                "stage_status": manifest["replay_status"],
+                "claim_status": manifest["claim_status"],
+            }
+        ]
+    ).to_csv(filesystem_path(path), index=False)
+
+
+def _write_outcome_summary(path: Path, frame: pd.DataFrame) -> None:
+    columns = ["outcome_class", "continuation_status", "episode_terminal_status", "boundary_use_class"]
+    if frame.empty:
+        pd.DataFrame(columns=[*columns, "row_count"]).to_csv(filesystem_path(path), index=False)
+        return
+    summary = frame.groupby([column for column in columns if column in frame.columns], dropna=False).size().reset_index(name="row_count")
+    summary.to_csv(filesystem_path(path), index=False)
 
 
 def main(argv: list[str] | None = None) -> int:
-    run_w2_replay_scaffold(parse_args(argv))
+    run_w2_replay(parse_args(argv))
     return 0
 
 

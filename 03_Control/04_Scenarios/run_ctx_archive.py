@@ -38,6 +38,12 @@ from dense_archive_table_io import (  # noqa: E402
     write_table_manifest,
     write_table_partition,
 )
+from evidence_stage_utils import (  # noqa: E402
+    write_blocked_approximate_ratio_summary,
+    write_claim_boundary_report,
+    write_coverage_summary,
+    write_file_size_audit as write_stage_file_size_audit,
+)
 from env_ctx import EnvironmentMetadata, build_environment_context  # noqa: E402
 from env_instance import (  # noqa: E402
     environment_instance_for_mode,
@@ -242,10 +248,17 @@ def _validate_config(config: ContextArchiveConfig) -> None:
     if config.candidate_chunk_size <= 0:
         raise ValueError("candidate_chunk_size must be positive.")
     if not {"W0", "W1"}.issubset(set(config.w_layers)):
-        raise ValueError("R6-R8 preflight requires W0 and W1 coverage.")
-    unknown = set(config.w_layers) - {"W0", "W1", "W2", "W3"}
+        raise ValueError("R6 contextual archive requires W0 and W1 coverage.")
+    unknown = set(config.w_layers) - {"W0", "W1"}
     if unknown:
-        raise ValueError(f"unknown W layer labels: {sorted(unknown)}")
+        raise ValueError(
+            "R6 contextual archive is W0/W1 only; "
+            f"reserve {sorted(unknown)} for R8/R9 replay stages."
+        )
+    if "dry_air" not in set(config.env_modes):
+        raise ValueError("R6 contextual archive requires dry_air for W0.")
+    if not any(mode != "dry_air" for mode in config.env_modes):
+        raise ValueError("R6 contextual archive requires at least one W1 Gaussian environment mode.")
     if config.rollout_backend not in {
         "model_backed_feedback",
         "model_backed_command_template",
@@ -261,10 +274,10 @@ def _build_schedule(
     storage_format: str,
 ) -> list[ContextChunkSpec]:
     chunk_count = int(np.ceil(config.rows / config.candidate_chunk_size))
+    pairs = _r6_schedule_pairs(config)
     schedule = []
     for chunk_index in range(chunk_count):
-        w_layer = config.w_layers[chunk_index % len(config.w_layers)]
-        env_mode = config.env_modes[chunk_index % len(config.env_modes)]
+        w_layer, env_mode = pairs[chunk_index % len(pairs)]
         schedule.append(
             ContextChunkSpec(
                 run_id=config.run_id,
@@ -287,6 +300,17 @@ def _build_schedule(
             )
         )
     return schedule
+
+
+def _r6_schedule_pairs(config: ContextArchiveConfig) -> tuple[tuple[str, str], ...]:
+    pairs: list[tuple[str, str]] = []
+    if "W0" in config.w_layers:
+        pairs.append(("W0", "dry_air"))
+    if "W1" in config.w_layers:
+        for mode in config.env_modes:
+            if mode != "dry_air":
+                pairs.append(("W1", mode))
+    return tuple(pairs)
 
 
 def _chunk_rows(
@@ -693,12 +717,41 @@ def _write_run_outputs(
     )
     _write_runtime_summary(metrics_dir / "runtime_summary.csv", run_manifest, partitions)
     _write_outcome_summary(metrics_dir / "outcome_summary.csv", outcome_rows)
-    file_audit = _write_file_size_audit(metrics_dir / "file_size_audit.csv", run_root)
+    outcome_frame = pd.DataFrame(outcome_rows)
+    write_coverage_summary(
+        metrics_dir / "coverage_summary.csv",
+        outcome_frame,
+        columns=(
+            "start_state_family",
+            "primitive_id",
+            "environment_id",
+            "W_layer",
+            "continuation_status",
+            "episode_terminal_status",
+            "outcome_class",
+        ),
+    )
+    ratio_summary = write_blocked_approximate_ratio_summary(
+        metrics_dir / "blocked_or_approximate_ratio_summary.csv",
+        outcome_frame,
+    )
+    file_audit, _ = write_stage_file_size_audit(
+        run_root,
+        metrics_dir / "file_size_audit.csv",
+    )
+    write_claim_boundary_report(
+        reports_dir / "claim_boundary_report.md",
+        stage="R6 W0/W1 contextual archive",
+        status="dry_run" if dry_run else "local_archive_written",
+        claim_status=str(run_manifest["claim_status"]),
+        blocked_claims=tuple(str(item) for item in run_manifest["blocked_claims"]),
+    )
     _write_report(
         reports_dir / "run_report.md",
         run_manifest=run_manifest,
         partition_count=len(partitions),
         file_audit=file_audit,
+        blocked_ratio=float(ratio_summary["blocked_ratio"]),
     )
     return {
         "run_root": run_root,
@@ -813,6 +866,7 @@ def _write_report(
     run_manifest: dict[str, object],
     partition_count: int,
     file_audit: list[dict[str, object]],
+    blocked_ratio: float,
 ) -> None:
     oversized = [row for row in file_audit if not row["under_100mb"]]
     text = "\n".join(
@@ -826,6 +880,7 @@ def _write_report(
             f"- Rollout backend: `{run_manifest['rollout_backend']}`",
             f"- Worker enabled: `{run_manifest.get('worker_enabled', False)}`",
             f"- File-size failures: `{len(oversized)}`",
+            f"- Blocked row ratio: `{blocked_ratio:.6f}`",
             f"- Claim status: `{run_manifest['claim_status']}`",
             "",
             "This preflight writes schema/runtime evidence and retained terminal-boundary labels only. It does not make a controller-performance, transfer, hardware-readiness, mission-success, or robustness claim.",

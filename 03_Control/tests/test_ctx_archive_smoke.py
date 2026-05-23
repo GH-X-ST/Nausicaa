@@ -36,6 +36,8 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
     runtime_summary = pd.read_csv(run_root / "metrics" / "runtime_summary.csv")
     outcome_summary = pd.read_csv(run_root / "metrics" / "outcome_summary.csv")
     file_size_audit = pd.read_csv(run_root / "metrics" / "file_size_audit.csv")
+    coverage_summary = pd.read_csv(run_root / "metrics" / "coverage_summary.csv")
+    ratio_summary = pd.read_csv(run_root / "metrics" / "blocked_or_approximate_ratio_summary.csv")
 
     assert run_manifest["claim_status"] == "simulation_only_feedback_backed_preflight"
     assert run_manifest["rollout_backend"] == "model_backed_feedback"
@@ -46,7 +48,12 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
     assert int(runtime_summary["row_count"].iloc[0]) == 500
     assert int(outcome_summary["row_count"].sum()) == 500
     assert file_size_audit["under_100mb"].all()
+    assert {"start_state_family", "primitive_id", "environment_id", "W_layer"}.issubset(
+        set(coverage_summary["coverage_axis"])
+    )
+    assert "blocked_ratio" in ratio_summary.columns
     assert (run_root / "reports" / "run_report.md").is_file()
+    assert (run_root / "reports" / "claim_boundary_report.md").is_file()
 
     first_partition = run_root / "tables" / table_manifest.tables[0].relative_path
     frame = read_table_partition(first_partition, storage_format="csv_gz")
@@ -90,6 +97,7 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
     )
     assert set(frame["rollout_backend"]) == {"model_backed_feedback"}
     assert set(frame["evidence_role"]) == {"feedback_rollout_candidate"}
+    assert set(frame["W_layer"]).issubset({"W0", "W1"})
 
 
 def test_contextual_archive_smoke_backend_is_explicit_opt_in(tmp_path: Path) -> None:
@@ -121,6 +129,33 @@ def test_contextual_archive_smoke_backend_is_explicit_opt_in(tmp_path: Path) -> 
 
     assert set(frame["rollout_backend"]) == {"smoke_only"}
     assert set(frame["evidence_role"]) == {"interface_smoke"}
+
+
+def test_contextual_archive_rejects_w2_w3_for_r6_stage(tmp_path: Path) -> None:
+    config = ContextArchiveConfig(
+        run_id=27,
+        rows=16,
+        seed=14,
+        w_layers=("W0", "W1", "W2"),
+        env_modes=("dry_air", "gaussian_single"),
+        candidate_chunk_size=8,
+        workers=2,
+        max_workers=2,
+        storage_format="csv_gz",
+        compression_level=1,
+        resume=True,
+        repair_incomplete=False,
+        dry_run_schedule=False,
+        stop_after_chunks=None,
+        continue_on_chunk_failure=False,
+        output_root=tmp_path,
+    )
+    try:
+        run_contextual_archive_preflight(config)
+    except ValueError as exc:
+        assert "W0/W1 only" in str(exc)
+    else:
+        raise AssertionError("R6 archive accepted W2/W3 coverage")
 
 
 def test_contextual_archive_preflight_does_not_touch_active_results_root(tmp_path: Path) -> None:

@@ -26,6 +26,10 @@ This audit covers active code paths and preserved support guidance for the feedb
 | Canonical entry-state logging | fixed | Samples, rollout rows, selector rows, W2 replay rows, and W3 scaffold rows log the full canonical entry state for replay and audit. |
 | Raw-coordinate anti-branch guard | fixed | Active selector, report, replay, model-summary, and primitive-naming paths are audited so raw x/y/z coordinates are not used as primitive names, branches, evidence group names, or primary coordinate bins. |
 | W3 implementation and plant randomisation | fixed | W3 scaffolding includes explicit implementation/actuator and plant instances; supported mass, inertia, actuator, and surface perturbations are applied, while unsupported components are labelled blocked or approximate. |
+| v1.3 stage isolation | fixed | The overnight driver records R6, R7, R8, and R9 independently as complete, fallback, partial, blocked, or deferred; later-stage blocks do not invalidate earlier completed evidence. |
+| R6 W0/W1 boundary | fixed | R6 archive execution is constrained to W0/W1 only. W2 and W3 are reserved for replay/generalisation stages and are not mixed into the R6 contextual archive. |
+| R8/R9 actual replay requirement | fixed | R8 and R9 completion require model-backed primitive rollout rows. Copied source labels and scaffold case tables cannot mark replay stages complete. |
+| Stage evidence outputs | fixed | Dense stages write compressed partitions, table manifests, checksums, runtime/outcome/coverage/file-size summaries, blocked/approximate ratio summaries, and claim-boundary reports. |
 
 ## Claim Boundary
 
