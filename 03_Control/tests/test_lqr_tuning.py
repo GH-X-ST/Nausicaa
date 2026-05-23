@@ -20,7 +20,7 @@ def test_lqr_tuning_rolls_out_candidate_controller_ids_and_writes_registry(tmp_p
             seed=91,
             candidate_count=2,
             paired_tests_per_candidate=1,
-            candidate_chunk_size=32,
+            candidate_chunk_size=8,
             workers=1,
             max_workers=1,
             storage_format="csv_gz",
@@ -30,14 +30,31 @@ def test_lqr_tuning_rolls_out_candidate_controller_ids_and_writes_registry(tmp_p
 
     run_root = Path(result["run_root"])
     table_manifest = load_table_manifest(run_root / "manifests" / "table_manifest.json")
-    frame = read_table_partition(
-        run_root / "tables" / table_manifest.tables[0].relative_path,
-        storage_format="csv_gz",
+    first_chunk_manifest = run_root / "chunk_manifests" / "lqr_tuning_rows" / "c00000.json"
+    last_chunk_manifest = run_root / "chunk_manifests" / "lqr_tuning_rows" / "c00003.json"
+    frame = pd.concat(
+        [
+            read_table_partition(
+                run_root / "tables" / partition.relative_path,
+                storage_format="csv_gz",
+            )
+            for partition in table_manifest.tables
+        ],
+        ignore_index=True,
     )
     registry = pd.read_csv(result["selected_controller_registry"])
 
+    assert first_chunk_manifest.is_file()
+    assert last_chunk_manifest.is_file()
+    assert table_manifest.tables[0].table_name == "lqr_tuning_rows"
+    assert len(table_manifest.tables) == 4
     assert "candidate_weight_label" in frame.columns
     assert "controller_selection_status" in frame.columns
+    assert "entry_rejection_class" in frame.columns
+    assert "continuation_valid" in frame.columns
+    assert "episode_terminal_useful" in frame.columns
+    assert "boundary_terminal" not in set(frame["outcome_class"].astype(str))
+    assert set(frame["hard_gate_status"].astype(str)).issubset({"passed", "blocked"})
     assert set(frame["controller_selection_status"]) == {"W0_W1_candidate_rollout"}
     assert frame.groupby("primitive_id")["controller_id"].nunique().ge(2).all()
     paired_layers = frame.groupby(["primitive_id", "candidate_index", "paired_start_key"])["W_layer"].agg(set)

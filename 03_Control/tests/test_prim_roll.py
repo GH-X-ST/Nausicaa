@@ -81,6 +81,7 @@ def test_rollout_evidence_row_contains_required_fields_and_claim_boundary() -> N
         "continuation_status",
         "episode_terminal_status",
         "outcome_class",
+        "entry_rejection_class",
         "claim_status",
     }
     assert row["outcome_class"] in OUTCOME_CLASSES
@@ -104,6 +105,8 @@ def test_low_speed_state_is_blocked_as_evidence_not_erased() -> None:
     assert evidence.outcome_class == "blocked"
     assert evidence.accepted is False
     assert evidence.failure_label == "speed_low"
+    assert evidence.entry_rejection_class == "speed_gate_blocked"
+    assert evidence.termination_cause == "speed_gate_blocked"
 
 
 def test_wall_margin_violation_is_retained_as_boundary_terminal() -> None:

@@ -3,7 +3,11 @@ from __future__ import annotations
 import numpy as np
 
 from env_ctx import build_environment_context
-from env_instance import environment_instance_for_mode, environment_metadata_from_instance
+from env_instance import (
+    environment_instance_for_mode,
+    environment_metadata_from_instance,
+    sample_environment_randomisation,
+)
 from env_surrogate import resolve_surrogate_binding, wind_field_for_binding
 from state_sampling import archive_state_sample_for_row
 
@@ -65,3 +69,15 @@ def test_invalid_environment_mode_is_blocked() -> None:
 
     assert instance.instance_status == "blocked"
     assert "unknown_environment_mode" in instance.blocked_reason
+
+
+def test_w3_randomisation_mode_selection_is_explicit_for_single_four_and_audit_modes() -> None:
+    single = environment_instance_for_mode("W1", "gaussian_single", 3)
+    four = environment_instance_for_mode("W1", "gaussian_four", 3)
+    shifted = environment_instance_for_mode("W1", "fan_shift", 3)
+    powered = environment_instance_for_mode("W1", "power_scale", 3)
+
+    assert sample_environment_randomisation(single, 4).environment_mode == "w3_randomised_single"
+    assert sample_environment_randomisation(four, 4).environment_mode == "w3_randomised_four"
+    assert sample_environment_randomisation(shifted, 4).environment_mode == "fan_shift"
+    assert sample_environment_randomisation(powered, 4).environment_mode == "power_scale"

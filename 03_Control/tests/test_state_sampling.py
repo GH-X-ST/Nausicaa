@@ -48,10 +48,11 @@ def test_mixed_start_sampler_has_required_40_60_schedule_and_bounds() -> None:
         {"synthetic_launch_gate", "synthetic_inflight", "rollout_exit_resampled", "stress_sample"}
     )
     assert {sample.previous_primitive_status for sample in samples}.issubset(
-        {"launch_start", "clean_exit", "terminal_useful_exit", "recovery_edge"}
+        {"launch_start", "clean_exit", "boundary_terminal", "recovery_edge"}
     )
     boundary_samples = [sample for sample in samples if sample.start_state_family == "inflight_boundary_near"]
-    assert all("legacy_boundary_terminal" in sample.state_sample_detail for sample in boundary_samples)
+    assert all(sample.previous_primitive_status == "boundary_terminal" for sample in boundary_samples)
+    assert all("terminal_useful_exit_detail" in sample.state_sample_detail for sample in boundary_samples)
     assert {sample.state_envelope_label for sample in samples}.issubset(
         {"approved_launch_gate", "local_primitive_envelope", "lift_region", "boundary_near", "recovery_edge"}
     )

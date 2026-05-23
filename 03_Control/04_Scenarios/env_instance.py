@@ -196,11 +196,12 @@ def sample_environment_randomisation(
     """Return a W3-style randomised instance based on an existing mode."""
 
     cfg = randomisation_config or EnvironmentRandomisationConfig()
-    mode = (
-        "w3_randomised_four" if base_instance.fan_count >= 4 else "w3_randomised_single"
-        if base_instance.environment_mode not in {"fan_shift", "power_scale"}
-        else base_instance.environment_mode
-    )
+    if base_instance.environment_mode in {"fan_shift", "power_scale"}:
+        mode = base_instance.environment_mode
+    elif base_instance.fan_count >= 4:
+        mode = "w3_randomised_four"
+    else:
+        mode = "w3_randomised_single"
     return environment_instance_for_mode(
         "W3",
         mode,

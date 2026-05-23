@@ -144,7 +144,7 @@ termination cause
 failure label
 ```
 
-Do not promote diagnostic, open-loop, schema-only, command-template, or blocked rows into mission evidence. Keep `continuation_valid` labels separate from `episode_terminal_useful` labels. X/y boundary exits may be useful terminal episode evidence, but they are not downstream-continuation successes. Compatibility/reporting aliases such as `continuation_status`, `episode_terminal_status`, or `episode_utility_label` may be derived, but they must not replace the primary project-plan fields.
+Do not promote diagnostic, open-loop, schema-only, command-template, or blocked rows into mission evidence. Keep `continuation_valid` labels separate from `episode_terminal_useful` labels. X/y boundary exits may be useful terminal episode evidence, but they are not downstream-continuation successes. `boundary_terminal` is allowed only as previous/source/detail provenance, not as an active `outcome_class`. Compatibility/reporting aliases such as `continuation_status`, `episode_terminal_status`, or `episode_utility_label` may be derived, but they must not replace the primary project-plan fields.
 
 ## Validation and tests
 

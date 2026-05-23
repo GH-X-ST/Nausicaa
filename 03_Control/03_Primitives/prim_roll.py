@@ -125,6 +125,7 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "surrogate_binding_status",
     "trajectory_integrity_status",
     "entry_check_status",
+    "entry_rejection_class",
     "exit_check_status",
     "continuation_valid",
     "episode_terminal_useful",
@@ -216,6 +217,7 @@ class RolloutEvidence:
     surrogate_binding_status: str
     trajectory_integrity_status: str
     entry_check_status: str
+    entry_rejection_class: str
     exit_check_status: str
     continuation_valid: bool
     episode_terminal_useful: bool
@@ -330,11 +332,13 @@ def blocked_rollout_evidence(
     controller_selection_status: str | None = None,
     candidate_index: int | str = "",
     candidate_weight_label: str = "",
+    termination_cause: str | None = None,
 ) -> RolloutEvidence:
     """Return a retained blocked row when a strict surrogate cannot be loaded."""
 
     cfg = config or RolloutConfig()
     state = as_state_vector(initial_state)
+    resolved_termination_cause = _blocked_termination_cause(failure_label, termination_cause)
     margins = position_margin_m(state[:3], TRUE_SAFE_BOUNDS)
     latency_fields = _latency_field_values(
         latency_case=context.latency_case,
@@ -348,7 +352,7 @@ def blocked_rollout_evidence(
     labels = evidence_use_labels(
         outcome_class="blocked",
         failure_label=failure_label,
-        termination_cause="surrogate_binding_blocked",
+        termination_cause=resolved_termination_cause,
         energy_residual_m=0.0,
         lift_dwell_time_s=0.0,
         trajectory_status="blocked_before_simulation",
@@ -387,6 +391,7 @@ def blocked_rollout_evidence(
         surrogate_binding_status=context.surrogate_binding_status,
         trajectory_integrity_status="blocked_before_simulation",
         entry_check_status=str(failure_label),
+        entry_rejection_class=_entry_rejection_class(failure_label),
         exit_check_status=labels.exit_check_status,
         continuation_valid=labels.continuation_valid,
         episode_terminal_useful=labels.episode_terminal_useful,
@@ -408,7 +413,7 @@ def blocked_rollout_evidence(
         max_abs_command_norm=0.0,
         max_abs_surface_rad=0.0,
         exit_state_vector=_vector_json(state),
-        termination_cause="surrogate_binding_blocked",
+        termination_cause=resolved_termination_cause,
         failure_label=str(failure_label),
         archive_evidence_status="blocked",
         evidence_eligibility_reason=str(failure_label),
@@ -506,6 +511,11 @@ def _simulate_smoke_rollout(
         surrogate_binding_status=context.surrogate_binding_status,
         trajectory_integrity_status="smoke_only_not_integrated",
         entry_check_status="interface_smoke_not_evaluated",
+        entry_rejection_class=(
+            _entry_rejection_class(failure_label)
+            if outcome_class == "blocked"
+            else "not_rejected"
+        ),
         exit_check_status=labels.exit_check_status,
         continuation_valid=labels.continuation_valid,
         episode_terminal_useful=labels.episode_terminal_useful,
@@ -896,6 +906,7 @@ def _simulate_dynamics_rollout(
         surrogate_binding_status=context.surrogate_binding_status,
         trajectory_integrity_status=trajectory_status,
         entry_check_status="passed",
+        entry_rejection_class="not_rejected",
         exit_check_status=labels.exit_check_status,
         continuation_valid=labels.continuation_valid,
         episode_terminal_useful=labels.episode_terminal_useful,
@@ -940,8 +951,10 @@ def _blocked_from_state(
     controller_selection_status: str | None = None,
     candidate_index: int | str = "",
     candidate_weight_label: str = "",
+    termination_cause: str | None = None,
 ) -> RolloutEvidence:
     margins = position_margin_m(state[:3], TRUE_SAFE_BOUNDS)
+    resolved_termination_cause = _blocked_termination_cause(failure_label, termination_cause)
     latency_fields = _latency_field_values(
         latency_case=context.latency_case,
         accepted=False,
@@ -954,7 +967,7 @@ def _blocked_from_state(
     labels = evidence_use_labels(
         outcome_class="blocked",
         failure_label=failure_label,
-        termination_cause=str(failure_label),
+        termination_cause=resolved_termination_cause,
         energy_residual_m=0.0,
         lift_dwell_time_s=0.0,
         trajectory_status="blocked_before_simulation",
@@ -997,6 +1010,7 @@ def _blocked_from_state(
         surrogate_binding_status=context.surrogate_binding_status,
         trajectory_integrity_status="blocked_before_simulation",
         entry_check_status=str(failure_label),
+        entry_rejection_class=_entry_rejection_class(failure_label),
         exit_check_status=labels.exit_check_status,
         continuation_valid=labels.continuation_valid,
         episode_terminal_useful=labels.episode_terminal_useful,
@@ -1018,7 +1032,7 @@ def _blocked_from_state(
         max_abs_command_norm=0.0,
         max_abs_surface_rad=0.0,
         exit_state_vector=_vector_json(state),
-        termination_cause=str(failure_label),
+        termination_cause=resolved_termination_cause,
         failure_label=str(failure_label),
         archive_evidence_status="blocked",
         evidence_eligibility_reason=str(failure_label),
@@ -1191,6 +1205,53 @@ def _controller_selection_status(
     return "explicit_lqr_unverified"
 
 
+def _blocked_termination_cause(failure_label: str, explicit: str | None = None) -> str:
+    if explicit:
+        return str(explicit)
+    label = str(failure_label)
+    if "surrogate_binding_blocked" in label:
+        return "surrogate_binding_blocked"
+    if label in {
+        "nonfinite_initial_state",
+        "initial_floor_violation",
+        "initial_ceiling_violation",
+        "physically_impossible_initial_state",
+        "z_boundary_exit",
+    }:
+        return label
+    if label == "speed_low":
+        return "speed_gate_blocked"
+    if (
+        "controller" in label
+        or "registry" in label
+        or label.startswith("missing_explicit_lqr_controller")
+        or label.startswith("blocked_")
+    ):
+        return "controller_blocked"
+    if label == "blocked_lqr_requested":
+        return "controller_blocked"
+    return "blocked_before_simulation"
+
+
+def _entry_rejection_class(failure_label: str) -> str:
+    label = str(failure_label)
+    if label in {
+        "nonfinite_initial_state",
+        "initial_floor_violation",
+        "initial_ceiling_violation",
+        "physically_impossible_initial_state",
+        "z_boundary_exit",
+    }:
+        return "physical_hard_failure"
+    if label == "speed_low":
+        return "speed_gate_blocked"
+    if "surrogate_binding_blocked" in label:
+        return "surrogate_blocked"
+    if "controller" in label or "registry" in label or label == "blocked_lqr_requested":
+        return "controller_blocked"
+    return "other_blocked"
+
+
 def _latency_field_values(
     *,
     latency_case: str,
@@ -1331,7 +1392,7 @@ def _classify_smoke_outcome(
         )
         return outcome, "wall_boundary_exit_retained", "xy_boundary_terminal"
     if minimum_speed_m_s < minimum_speed_required_m_s:
-        return "blocked", "low_speed", "speed_low"
+        return "blocked", "speed_gate_blocked", "speed_low"
     if energy_residual_m >= 0.05:
         return "accepted", "controlled_finish", "success"
     if energy_residual_m >= -0.03:

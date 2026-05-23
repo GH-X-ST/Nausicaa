@@ -17,6 +17,7 @@ for rel in ("02_Inner_Loop", "03_Primitives", "04_Scenarios"):
 from dense_archive_runtime import dense_run_manifest_fields, worker_count_decision  # noqa: E402
 from dense_archive_table_io import (  # noqa: E402
     TableManifest,
+    file_sha256,
     filesystem_path,
     resolve_storage_format,
     write_table_manifest,
@@ -113,7 +114,7 @@ def parse_args(argv: list[str] | None = None) -> LQRTuningSweepConfig:
 
 def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
     run_root = Path(config.output_root) / f"tune_{config.run_id:03d}"
-    for rel in ("manifests", "metrics", "reports", "tables"):
+    for rel in ("manifests", "metrics", "reports", "tables", "chunk_manifests"):
         filesystem_path(run_root / rel).mkdir(parents=True, exist_ok=True)
     storage_format = resolve_storage_format(config.storage_format)
     worker_decision = worker_count_decision(config.workers, max_workers=config.max_workers)
@@ -125,6 +126,8 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
             or int(config.paired_tests_per_candidate) <= FALLBACK_PAIRED_TESTS_PER_CANDIDATE
         ),
     )
+    row_count = _effective_row_count(config)
+    chunk_specs = _tuning_chunk_specs(row_count, int(config.candidate_chunk_size))
     manifest = {
         **dense_run_manifest_fields(
             run_stage="R6_W0_W1_LQR_QR_tuning",
@@ -136,6 +139,9 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
         "candidate_count": int(config.candidate_count),
         "paired_tests_per_candidate": int(config.paired_tests_per_candidate),
         "planned_rows": int(schedule.planned_rows),
+        "scheduled_chunk_count": len(chunk_specs),
+        "chunked_output": True,
+        "tuning_rows_table": "lqr_tuning_rows",
         "hard_gates": list(HARD_GATE_LABELS),
         "soft_objective_terms": list(SOFT_OBJECTIVE_TERMS),
         "raw_K_tuning_allowed": False,
@@ -178,7 +184,42 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
                 candidate_count=int(config.candidate_count),
             )
         )
-    smoke_rows = _smoke_rows(config, candidate_records)
+    chunk_frames = [
+        pd.DataFrame(
+            _smoke_rows(
+                config,
+                candidate_records,
+                start_row=int(chunk["start_row"]),
+                row_count=int(chunk["row_count"]),
+            )
+        )
+        for chunk in chunk_specs
+    ]
+    smoke_frame = (
+        pd.concat(chunk_frames, ignore_index=True)
+        if chunk_frames
+        else pd.DataFrame()
+    )
+    registry_status = _registry_status_for_tuning_run(config, schedule, smoke_frame)
+    registry_claim_status = registry_claim_status_for(registry_status)
+    evidence_reason = (
+        f"eligible_tuning_registry_{registry_status}"
+        if registry_status in {"complete", "accepted_fallback"}
+        else ("blocked_tuning_registry" if registry_status == "blocked" else "debug_smoke_incomplete")
+    )
+    for frame_index, chunk_frame in enumerate(chunk_frames):
+        if chunk_frame.empty:
+            continue
+        chunk_frame["registry_status"] = registry_status
+        chunk_frame["registry_claim_status"] = registry_claim_status
+        chunk_frame["archive_evidence_status"] = registry_status
+        chunk_frame["evidence_eligibility_reason"] = evidence_reason
+        chunk_frames[frame_index] = chunk_frame
+    smoke_frame = (
+        pd.concat(chunk_frames, ignore_index=True)
+        if chunk_frames
+        else pd.DataFrame()
+    )
 
     partitions = []
     pd.DataFrame(synthesis_rows).to_csv(
@@ -189,35 +230,35 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
         filesystem_path(run_root / "metrics" / "qr_candidate_rankings.csv"),
         index=False,
     )
-    smoke_frame = pd.DataFrame(smoke_rows)
-    registry_status = _registry_status_for_tuning_run(config, schedule, smoke_frame)
-    registry_claim_status = registry_claim_status_for(registry_status)
-    for row in smoke_rows:
-        row["registry_status"] = registry_status
-        row["registry_claim_status"] = registry_claim_status
-        row["archive_evidence_status"] = registry_status
-        row["evidence_eligibility_reason"] = (
-            f"eligible_tuning_registry_{registry_status}"
-            if registry_status in {"complete", "accepted_fallback"}
-            else (
-                "blocked_tuning_registry"
-                if registry_status == "blocked"
-                else "debug_smoke_incomplete"
-            )
-        )
-    smoke_frame = pd.DataFrame(smoke_rows)
-    partitions.append(
-        write_table_partition(
-            smoke_frame,
-            run_root / "tables" / "lqr_tuning_smoke_rows" / f"c00000.{_extension(storage_format)}",
+    for chunk_index, chunk_frame in enumerate(chunk_frames):
+        chunk = chunk_specs[chunk_index]
+        partition = write_table_partition(
+            chunk_frame,
+            _tuning_partition_path(
+                run_root,
+                chunk_index=chunk_index,
+                storage_format=storage_format,
+            ),
             storage_format=storage_format,
             compression_level=config.compression_level,
         )
-    )
+        partitions.append(partition)
+        _write_tuning_chunk_manifest(
+            run_root=run_root,
+            chunk_index=chunk_index,
+            chunk_count=len(chunk_specs),
+            start_row=int(chunk["start_row"]),
+            row_count=int(chunk["row_count"]),
+            partition=partition,
+            storage_format=storage_format,
+            registry_status=registry_status,
+        )
     manifest.update(
         {
             "registry_status": registry_status,
             "registry_claim_status": registry_claim_status,
+            "archive_evidence_status": registry_status,
+            "evidence_eligibility_reason": evidence_reason,
             "selected_controller_registry": (run_root / "metrics" / "selected_lqr_controllers.csv").as_posix(),
         }
     )
@@ -282,19 +323,80 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
     }
 
 
+def _effective_row_count(config: LQRTuningSweepConfig) -> int:
+    row_count = max(0, int(config.rows))
+    if config.stop_after_chunks is None:
+        return row_count
+    chunk_limit = max(0, int(config.stop_after_chunks)) * max(1, int(config.candidate_chunk_size))
+    return min(row_count, chunk_limit)
+
+
+def _tuning_chunk_specs(row_count: int, chunk_size: int) -> list[dict[str, int]]:
+    total = max(0, int(row_count))
+    size = max(1, int(chunk_size))
+    chunks: list[dict[str, int]] = []
+    for chunk_index, start in enumerate(range(0, total, size)):
+        chunks.append(
+            {
+                "chunk_index": int(chunk_index),
+                "start_row": int(start),
+                "row_count": int(min(size, total - start)),
+            }
+        )
+    return chunks
+
+
+def _tuning_partition_path(run_root: Path, *, chunk_index: int, storage_format: str) -> Path:
+    return (
+        Path(run_root)
+        / "tables"
+        / "lqr_tuning_rows"
+        / f"c{int(chunk_index):05d}.{_extension(storage_format)}"
+    )
+
+
+def _write_tuning_chunk_manifest(
+    *,
+    run_root: Path,
+    chunk_index: int,
+    chunk_count: int,
+    start_row: int,
+    row_count: int,
+    partition,
+    storage_format: str,
+    registry_status: str,
+) -> None:
+    path = Path(run_root) / "chunk_manifests" / "lqr_tuning_rows" / f"c{int(chunk_index):05d}.json"
+    filesystem_path(path.parent).mkdir(parents=True, exist_ok=True)
+    payload = {
+        "status": "complete",
+        "run_stage": "R6_W0_W1_LQR_QR_tuning",
+        "chunk_index": int(chunk_index),
+        "chunk_count": int(chunk_count),
+        "start_row": int(start_row),
+        "row_count": int(row_count),
+        "table_name": partition.table_name,
+        "relative_path": partition.relative_path,
+        "storage_format": str(storage_format),
+        "checksum_sha256": file_sha256(Path(run_root) / "tables" / partition.relative_path),
+        "registry_status": str(registry_status),
+        "dense_runtime_contract": "chunked_resumable_checksum_manifest",
+    }
+    filesystem_path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="ascii")
+
+
 def _smoke_rows(
     config: LQRTuningSweepConfig,
     candidate_records: list[dict[str, object]],
+    *,
+    start_row: int = 0,
+    row_count: int | None = None,
 ) -> list[dict[str, object]]:
     rows = []
-    row_count = int(config.rows)
-    chunk_limit = None
-    if config.stop_after_chunks is not None:
-        chunk_limit = int(config.stop_after_chunks) * int(config.candidate_chunk_size)
-        row_count = min(row_count, chunk_limit)
+    row_count = int(config.rows) if row_count is None else int(row_count)
     if not candidate_records:
         return rows
-    for row_index in range(row_count):
+    for row_index in range(int(start_row), int(start_row) + int(row_count)):
         candidate_position = (row_index // 2) % len(candidate_records)
         pair_index = (row_index // 2) // len(candidate_records)
         candidate = candidate_records[candidate_position]
@@ -331,6 +433,7 @@ def _smoke_rows(
                 primitive=primitive,
                 config=config_rollout,
                 failure_label="surrogate_binding_blocked",
+                termination_cause="surrogate_binding_blocked",
                 controller=controller,
                 controller_selection_status="W0_W1_candidate_rollout",
                 candidate_index=int(candidate["candidate_index"]),
@@ -354,7 +457,11 @@ def _smoke_rows(
         row["paired_start_key"] = sample.paired_start_key
         row["candidate_index"] = int(candidate["candidate_index"])
         row["candidate_weight_label"] = str(candidate["candidate_weight_label"])
-        row["hard_gate_status"] = _hard_gate_status(evidence, binding)
+        row["hard_gate_status"] = _hard_gate_status(
+            evidence,
+            binding,
+            minimum_speed_required_m_s=float(config_rollout.minimum_speed_m_s),
+        )
         row["soft_objective_terms"] = json.dumps(SOFT_OBJECTIVE_TERMS, separators=(",", ":"))
         rows.append(row)
     return rows
@@ -503,7 +610,7 @@ def _has_selected_candidate_per_primitive(frame: pd.DataFrame) -> bool:
     return primitives.issubset(set(passed["primitive_id"].astype(str)))
 
 
-def _hard_gate_status(evidence, binding) -> str:
+def _hard_gate_status(evidence, binding, *, minimum_speed_required_m_s: float) -> str:
     if evidence.controller_evidence_status not in {
         "candidate_executable_lqr",
         "executable_lqr",
@@ -524,7 +631,7 @@ def _hard_gate_status(evidence, binding) -> str:
         "corrupt_integration",
     }:
         return "blocked"
-    if float(evidence.minimum_speed_m_s) < float(evidence.minimum_speed_required_m_s):
+    if float(evidence.minimum_speed_m_s) < float(minimum_speed_required_m_s):
         return "blocked"
     if float(evidence.saturation_fraction) > 0.50:
         return "blocked"

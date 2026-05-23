@@ -29,10 +29,32 @@ def run_active_contract_audit(repo_root: Path | None = None) -> list[AuditFindin
 
     root = Path(repo_root or REPO_ROOT)
     findings: list[AuditFinding] = []
+    findings.extend(_audit_source_priority(root))
     findings.extend(_audit_status_contract(root))
     findings.extend(_audit_forbidden_methods(root))
     findings.extend(_audit_boundary_outcome_contract(root))
+    findings.extend(_audit_surrogate_ladder(root))
+    findings.extend(_audit_selected_controller_provenance(root))
     findings.extend(_audit_replay_only_contract(root))
+    findings.extend(_audit_dense_runtime_contract(root))
+    findings.extend(_audit_no_stale_active_generated_evidence(root))
+    return findings
+
+
+def _audit_source_priority(root: Path) -> list[AuditFinding]:
+    findings: list[AuditFinding] = []
+    plan = root / "docs" / "Glider_Control_Project_Plan.md"
+    housekeeping = root / "docs" / "housekeeping_and_naming_rules.md"
+    python_guidance = root / "docs" / "Python Coding Instruction.txt"
+    for path, tokens in (
+        (plan, ("active local controller is time-invariant LQR", "outcome_class               accepted / weak / failed / rejected / blocked")),
+        (housekeeping, ("03_Control/05_Results/", "100 MB", "retired_not_active")),
+        (python_guidance, ("continuation_valid", "episode_terminal_useful", "boundary_use_class")),
+    ):
+        text = _read(path)
+        for token in tokens:
+            if token not in text:
+                findings.append(_finding(root, path, "source_priority", f"missing {token}"))
     return findings
 
 
@@ -110,6 +132,62 @@ def _audit_boundary_outcome_contract(root: Path) -> list[AuditFinding]:
     return findings
 
 
+def _audit_surrogate_ladder(root: Path) -> list[AuditFinding]:
+    findings: list[AuditFinding] = []
+    path = root / "03_Control" / "04_Scenarios" / "env_surrogate.py"
+    text = _read(path)
+    for token in (
+        "W0_requires_dry_air_zero_wind",
+        "W1_requires_gaussian_plume_surrogate",
+        "W2_requires_gp_corrected_annular_gaussian_surrogate",
+        "W3_requires_randomised_gp_corrected_annular_gaussian_surrogate",
+        "blocked_no_fallback",
+    ):
+        if token not in text:
+            findings.append(_finding(root, path, "surrogate_ladder", f"missing {token}"))
+    return findings
+
+
+def _audit_selected_controller_provenance(root: Path) -> list[AuditFinding]:
+    findings: list[AuditFinding] = []
+    checks = (
+        (
+            root / "03_Control" / "03_Primitives" / "controller_registry.py",
+            (
+                "SelectedControllerRecord",
+                "load_selected_controller_records",
+                "controller_from_evidence_row",
+                "W0_W1_registry_selected",
+            ),
+        ),
+        (
+            root / "03_Control" / "04_Scenarios" / "run_ctx_archive.py",
+            (
+                "selected_controller_registry",
+                "load_selected_controller_records",
+                "selected_record.row_metadata",
+                "blocked_missing_selected_registry",
+            ),
+        ),
+        (
+            root / "03_Control" / "04_Scenarios" / "run_lqr_tuning_sweep.py",
+            (
+                "selected_lqr_controllers.csv",
+                "selected_lqr_controllers.json",
+                "registry_status",
+                "lqr_gain_checksum",
+                "candidate_weight_label",
+            ),
+        ),
+    )
+    for path, tokens in checks:
+        text = _read(path)
+        for token in tokens:
+            if token not in text:
+                findings.append(_finding(root, path, "selected_controller_registry", f"missing {token}"))
+    return findings
+
+
 def _audit_replay_only_contract(root: Path) -> list[AuditFinding]:
     findings: list[AuditFinding] = []
     for rel, expected_status in (
@@ -130,6 +208,43 @@ def _audit_replay_only_contract(root: Path) -> list[AuditFinding]:
         for forbidden in ("synthesize_lqr_controller", "candidate_weight_specs", "write_selected_controller_registry"):
             if forbidden in text:
                 findings.append(_finding(root, path, "replay_only", f"retuning path {forbidden}"))
+    return findings
+
+
+def _audit_dense_runtime_contract(root: Path) -> list[AuditFinding]:
+    findings: list[AuditFinding] = []
+    for rel in (
+        "03_Control/04_Scenarios/run_ctx_archive.py",
+        "03_Control/04_Scenarios/run_lqr_tuning_sweep.py",
+        "03_Control/04_Scenarios/run_w2_replay.py",
+        "03_Control/04_Scenarios/run_w3_generalisation.py",
+    ):
+        path = root / rel
+        text = _read(path)
+        for token in (
+            "write_table_partition",
+            "write_table_manifest",
+            "write_file_size_audit",
+            "chunk",
+            "checksum",
+        ):
+            if token not in text:
+                findings.append(_finding(root, path, "dense_runtime", f"missing {token}"))
+    return findings
+
+
+def _audit_no_stale_active_generated_evidence(root: Path) -> list[AuditFinding]:
+    findings: list[AuditFinding] = []
+    results_root = root / "03_Control" / "05_Results"
+    if not results_root.exists():
+        return findings
+    for path in results_root.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        if rel == "03_Control/05_Results/.gitkeep":
+            continue
+        findings.append(_finding(root, path, "stale_active_generated_evidence", "active generated evidence file must be regenerated, not tracked"))
     return findings
 
 

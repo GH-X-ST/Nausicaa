@@ -1,4 +1,0 @@
-path,byte_count,size_mb,above_75mb,above_100mb,under_100mb
-manifests/w2_replay_manifest.json,430,0.0004100799560546875,False,False,True
-reports/claim_boundary_report.md,390,0.0003719329833984375,False,False,True
-tables/w2_replay_rows.csv,2,1.9073486328125e-06,False,False,True

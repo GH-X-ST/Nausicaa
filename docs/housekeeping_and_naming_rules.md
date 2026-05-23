@@ -37,7 +37,7 @@ Preferred result groups:
 99_misc
 ```
 
-Historical generated result folders are local-only unless the user explicitly requests preservation. Approved evidence roots may be tracked when every file passes the 100 MB audit and path-length audit. During ordinary validation, keep `03_Control/05_Results/.gitkeep` as the only result placeholder unless an approved local evidence root is explicitly allowed.
+Historical generated result folders are local-only unless the user explicitly requests preservation. Approved evidence roots may be tracked when every file passes the 100 MB audit and path-length audit. During ordinary validation, keep `03_Control/05_Results/.gitkeep` as the only result placeholder unless an approved local evidence root is explicitly allowed. Historical generated roots kept for context must be labelled `retired_not_active`.
 
 Scratch and preflight roots are local only. They must not be pushed unless the user explicitly requests preservation.
 

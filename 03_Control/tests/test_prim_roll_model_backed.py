@@ -92,6 +92,8 @@ def test_model_backed_low_speed_initial_state_is_blocked() -> None:
     assert evidence.continuation_valid is False
     assert evidence.episode_terminal_useful is False
     assert evidence.failure_label == "speed_low"
+    assert evidence.entry_rejection_class == "speed_gate_blocked"
+    assert evidence.termination_cause == "speed_gate_blocked"
 
 
 def test_model_backed_missing_explicit_controller_is_blocked_before_integration() -> None:
@@ -110,6 +112,8 @@ def test_model_backed_missing_explicit_controller_is_blocked_before_integration(
     assert evidence.outcome_class == "blocked"
     assert evidence.controller_selection_status == "missing_explicit_lqr_controller"
     assert evidence.failure_label == "missing_explicit_lqr_controller"
+    assert evidence.entry_rejection_class == "controller_blocked"
+    assert evidence.termination_cause == "controller_blocked"
     assert evidence.trajectory_integrity_status == "blocked_before_simulation"
     assert evidence.max_abs_command_norm == 0.0
 
@@ -132,6 +136,9 @@ def test_model_backed_nonfinite_initial_state_is_blocked() -> None:
     assert evidence.outcome_class == "blocked"
     assert evidence.entry_check_status == "nonfinite_initial_state"
     assert evidence.failure_label == "nonfinite_initial_state"
+    assert evidence.boundary_use_class == "hard_failure"
+    assert evidence.entry_rejection_class == "physical_hard_failure"
+    assert evidence.termination_cause == "nonfinite_initial_state"
 
 
 def test_model_backed_floor_initial_state_is_blocked() -> None:
@@ -150,6 +157,8 @@ def test_model_backed_floor_initial_state_is_blocked() -> None:
 
     assert evidence.outcome_class == "blocked"
     assert evidence.failure_label == "initial_floor_violation"
+    assert evidence.boundary_use_class == "hard_failure"
+    assert evidence.entry_rejection_class == "physical_hard_failure"
 
 
 def test_model_backed_wall_exit_is_retained_as_terminal_useful_not_continuation_row() -> None:

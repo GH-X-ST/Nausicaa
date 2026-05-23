@@ -9,6 +9,7 @@ BOUNDARY_USE_CLASSES = ("continuation_valid", "episode_terminal_useful", "hard_f
 HARD_FAILURE_LABELS = {
     "floor_violation",
     "ceiling_violation",
+    "z_boundary_exit",
     "initial_floor_violation",
     "initial_ceiling_violation",
     "nonfinite_initial_state",
@@ -67,7 +68,12 @@ def evidence_use_labels(
     )
     continuation_valid = outcome in {"accepted", "weak"} and not is_xy_terminal
 
-    if is_blocked:
+    if is_blocked and is_hard_failure:
+        boundary_use_class = "hard_failure"
+        continuation_status = "continuation_failed"
+        episode_utility_label = "not_useful"
+        exit_check_status = "hard_failure"
+    elif is_blocked:
         boundary_use_class = "blocked"
         continuation_status = "blocked"
         episode_utility_label = "blocked"
