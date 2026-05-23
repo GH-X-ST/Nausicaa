@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
+import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,6 +41,7 @@ def run_active_contract_audit(repo_root: Path | None = None) -> list[AuditFindin
     findings.extend(_audit_replay_only_contract(root))
     findings.extend(_audit_dense_runtime_contract(root))
     findings.extend(_audit_no_stale_active_generated_evidence(root))
+    findings.extend(_audit_r6_readiness_behavior(root))
     return findings
 
 
@@ -233,6 +237,128 @@ def _audit_dense_runtime_contract(root: Path) -> list[AuditFinding]:
     return findings
 
 
+def _audit_r6_readiness_behavior(root: Path) -> list[AuditFinding]:
+    findings: list[AuditFinding] = []
+    python_path = Path(sys.executable)
+    if "WindowsApps" in python_path.as_posix():
+        return [
+            AuditFinding(
+                path=str(python_path),
+                check="r6_readiness_behavior",
+                detail="active audit is running under the WindowsApps Python launcher; use a real repo interpreter",
+            )
+        ]
+
+    script = root / "03_Control" / "04_Scenarios" / "run_lqr_tuning_sweep.py"
+    with tempfile.TemporaryDirectory(prefix="nausicaa_r6_readiness_") as tmp:
+        tmp_root = Path(tmp)
+        dry_cmd = _r6_tuning_cmd(root, script, tmp_root, run_id=901, dry_run=True)
+        command_findings = _run_and_check(root, dry_cmd, "r6_dry_run")
+        if command_findings:
+            return command_findings
+        dry_root = tmp_root / "tune_901"
+        for rel in (
+            "manifests/run_manifest.json",
+            "metrics/runtime_summary.csv",
+            "metrics/chunk_summary.csv",
+        ):
+            if not (dry_root / rel).is_file():
+                findings.append(_finding(root, dry_root / rel, "r6_dry_run", "missing compact dry-run output"))
+        if any((dry_root / "tables").rglob("*")):
+            findings.append(_finding(root, dry_root / "tables", "r6_dry_run", "dry-run wrote table files"))
+
+        smoke_cmd = _r6_tuning_cmd(root, script, tmp_root, run_id=902, dry_run=False)
+        command_findings = _run_and_check(root, smoke_cmd, "r6_smoke")
+        if command_findings:
+            return command_findings
+        smoke_root = tmp_root / "tune_902"
+        required = (
+            "manifests/run_manifest.json",
+            "manifests/table_manifest.json",
+            "manifests/selected_lqr_controllers.json",
+            "metrics/runtime_summary.csv",
+            "metrics/chunk_summary.csv",
+            "metrics/coverage_summary.csv",
+            "metrics/file_size_audit.csv",
+            "metrics/selected_lqr_controllers.csv",
+            "chunk_manifests/lqr_tuning_rows/c00000.json",
+            "tables/lqr_tuning_rows/c00000.csv.gz",
+        )
+        for rel in required:
+            if not (smoke_root / rel).is_file():
+                findings.append(_finding(root, smoke_root / rel, "r6_smoke", "missing readiness smoke output"))
+        first_partition = smoke_root / "tables" / "lqr_tuning_rows" / "c00000.csv.gz"
+        first_manifest = smoke_root / "chunk_manifests" / "lqr_tuning_rows" / "c00000.json"
+        if first_partition.is_file() and first_manifest.is_file():
+            before = (first_partition.stat().st_mtime_ns, first_manifest.stat().st_mtime_ns)
+            command_findings = _run_and_check(root, smoke_cmd, "r6_resume")
+            if command_findings:
+                return command_findings
+            after = (first_partition.stat().st_mtime_ns, first_manifest.stat().st_mtime_ns)
+            if before != after:
+                findings.append(_finding(root, first_partition, "r6_resume", "resume rewrote a validated chunk"))
+            with first_partition.open("ab") as handle:
+                handle.write(b"corrupt")
+            repair_cmd = [*smoke_cmd, "--repair-incomplete"]
+            command_findings = _run_and_check(root, repair_cmd, "r6_repair")
+            if command_findings:
+                return command_findings
+            if not first_partition.is_file() or not first_manifest.is_file():
+                findings.append(_finding(root, first_partition, "r6_repair", "repair did not regenerate corrupt chunk"))
+    return findings
+
+
+def _r6_tuning_cmd(root: Path, script: Path, output_root: Path, *, run_id: int, dry_run: bool) -> list[str]:
+    cmd = [
+        sys.executable,
+        str(script),
+        "--run-id",
+        str(run_id),
+        "--output-root",
+        str(output_root),
+        "--rows",
+        "8",
+        "--candidate-count",
+        "1",
+        "--paired-tests-per-candidate",
+        "1",
+        "--candidate-chunk-size",
+        "4",
+        "--workers",
+        "1",
+        "--max-workers",
+        "1",
+        "--storage-format",
+        "csv_gz",
+        "--compression-level",
+        "1",
+        "--resume",
+    ]
+    if dry_run:
+        cmd.append("--dry-run-schedule")
+    return cmd
+
+
+def _run_and_check(root: Path, cmd: list[str], check: str) -> list[AuditFinding]:
+    result = subprocess.run(
+        cmd,
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return []
+    detail = (result.stderr or result.stdout or "command failed").strip().splitlines()
+    return [
+        AuditFinding(
+            path=Path(cmd[1]).relative_to(root).as_posix(),
+            check=check,
+            detail=detail[-1] if detail else "command failed",
+        )
+    ]
+
+
 def _audit_no_stale_active_generated_evidence(root: Path) -> list[AuditFinding]:
     findings: list[AuditFinding] = []
     results_root = root / "03_Control" / "05_Results"
@@ -267,8 +393,12 @@ def _read(path: Path) -> str:
 
 
 def _finding(root: Path, path: Path, check: str, detail: str) -> AuditFinding:
+    try:
+        rel_path = path.relative_to(root).as_posix()
+    except ValueError:
+        rel_path = path.as_posix()
     return AuditFinding(
-        path=path.relative_to(root).as_posix(),
+        path=rel_path,
         check=str(check),
         detail=str(detail),
     )

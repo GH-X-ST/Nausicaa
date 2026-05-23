@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,8 +19,10 @@ for rel in ("02_Inner_Loop", "03_Primitives", "04_Scenarios"):
 from dense_archive_runtime import dense_run_manifest_fields, worker_count_decision  # noqa: E402
 from dense_archive_table_io import (  # noqa: E402
     TableManifest,
+    TablePartition,
     file_sha256,
     filesystem_path,
+    read_table_partition,
     resolve_storage_format,
     write_table_manifest,
     write_table_partition,
@@ -128,7 +132,166 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
     )
     row_count = _effective_row_count(config)
     chunk_specs = _tuning_chunk_specs(row_count, int(config.candidate_chunk_size))
-    manifest = {
+    manifest = _base_manifest(
+        config=config,
+        schedule=schedule,
+        chunk_specs=chunk_specs,
+        worker_decision=worker_decision,
+    )
+    filesystem_path(run_root / "manifests" / "run_manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n",
+        encoding="ascii",
+    )
+    if config.dry_run_schedule:
+        pd.DataFrame(_scheduled_chunk_rows(chunk_specs)).to_csv(
+            filesystem_path(run_root / "metrics" / "chunk_summary.csv"),
+            index=False,
+        )
+        pd.DataFrame([manifest]).to_csv(filesystem_path(run_root / "metrics" / "runtime_summary.csv"), index=False)
+        return {"run_root": run_root, "run_manifest": run_root / "manifests" / "run_manifest.json"}
+
+    candidate_records, synthesis_rows, candidate_rows = _candidate_artifacts(config)
+    execution = _execute_tuning_chunks(
+        config=config,
+        run_root=run_root,
+        chunk_specs=chunk_specs,
+        storage_format=storage_format,
+        candidate_records=candidate_records,
+        selected_worker_count=worker_decision.selected_worker_count,
+    )
+    partitions = execution["partitions"]
+    validated_frame = _validated_tuning_frame(run_root, partitions)
+    registry_status = _registry_status_for_tuning_run(
+        config,
+        schedule,
+        validated_frame,
+        failures=execution["failures"],
+    )
+    registry_claim_status = registry_claim_status_for(registry_status)
+    evidence_reason = (
+        f"eligible_tuning_registry_{registry_status}"
+        if registry_status in {"complete", "accepted_fallback"}
+        else ("blocked_tuning_registry" if registry_status == "blocked" else "debug_smoke_incomplete")
+    )
+    partitions = _rewrite_partitions_with_registry_status(
+        config=config,
+        run_root=run_root,
+        partitions=partitions,
+        chunk_specs=chunk_specs,
+        storage_format=storage_format,
+        registry_status=registry_status,
+        registry_claim_status=registry_claim_status,
+        evidence_reason=evidence_reason,
+    )
+    validated_frame = _validated_tuning_frame(run_root, partitions)
+    chunk_records = _chunk_records_for_summary(
+        run_root=run_root,
+        chunk_specs=chunk_specs,
+        partitions=partitions,
+        skipped=execution["skipped"],
+        failed=execution["failures"],
+        corrupt=execution["corrupt"],
+    )
+    pd.DataFrame(synthesis_rows).to_csv(
+        filesystem_path(run_root / "metrics" / "lqr_synthesis_audit.csv"),
+        index=False,
+    )
+    pd.DataFrame(candidate_rows).to_csv(
+        filesystem_path(run_root / "metrics" / "qr_candidate_rankings.csv"),
+        index=False,
+    )
+    pd.DataFrame(chunk_records).to_csv(
+        filesystem_path(run_root / "metrics" / "chunk_summary.csv"),
+        index=False,
+    )
+    manifest.update(
+        {
+            **execution["worker_execution"],
+            "registry_status": registry_status,
+            "registry_claim_status": registry_claim_status,
+            "archive_evidence_status": registry_status,
+            "evidence_eligibility_reason": evidence_reason,
+            "selected_controller_registry": (run_root / "metrics" / "selected_lqr_controllers.csv").as_posix(),
+            "completed_chunk_count": int(sum(1 for row in chunk_records if row["status"] == "complete")),
+            "skipped_chunk_count": int(sum(1 for row in chunk_records if row["status"] == "skipped")),
+            "failed_chunk_count": int(sum(1 for row in chunk_records if row["status"] == "failed")),
+            "corrupt_chunk_count": int(sum(1 for row in chunk_records if row["status"] == "corrupt")),
+        }
+    )
+    filesystem_path(run_root / "manifests" / "run_manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n",
+        encoding="ascii",
+    )
+    registry_rows = _selected_controller_registry_rows(
+        candidate_records,
+        validated_frame,
+        registry_status=registry_status,
+        registry_claim_status=registry_claim_status,
+    )
+    write_selected_controller_registry(
+        rows=registry_rows,
+        csv_path=run_root / "metrics" / "selected_lqr_controllers.csv",
+        json_path=run_root / "manifests" / "selected_lqr_controllers.json",
+    )
+    write_table_manifest(
+        run_root / "manifests" / "table_manifest.json",
+        TableManifest(
+            run_id=int(config.run_id),
+            root=run_root.as_posix(),
+            storage_format=storage_format,
+            tables=tuple(partitions),
+        ),
+    )
+    write_coverage_summary(
+        run_root / "metrics" / "coverage_summary.csv",
+        validated_frame,
+        columns=(
+            "primitive_id",
+            "controller_id",
+            "W_layer",
+            "latency_case",
+            "start_state_family",
+            "environment_id",
+            "boundary_use_class",
+            "continuation_valid",
+            "episode_terminal_useful",
+            "controller_selection_status",
+            "candidate_weight_label",
+            "registry_status",
+            "registry_claim_status",
+            "hard_gate_status",
+        ),
+    )
+    _write_objective_summary(run_root / "metrics" / "objective_term_summary.csv", validated_frame)
+    write_file_size_audit(run_root, run_root / "metrics" / "file_size_audit.csv")
+    _write_runtime_summary(
+        run_root / "metrics" / "runtime_summary.csv",
+        manifest,
+        row_count=len(validated_frame),
+        status=registry_status,
+    )
+    filesystem_path(run_root / "reports" / "claim_boundary_report.md").write_text(
+        "# LQR Tuning Claim Boundary\n\nSimulation-only W0/W1 Q/R tuning smoke. W2/W3 are replay-only.\n",
+        encoding="ascii",
+    )
+    return {
+        "run_root": run_root,
+        "run_manifest": run_root / "manifests" / "run_manifest.json",
+        "table_manifest": run_root / "manifests" / "table_manifest.json",
+        "synthesis_audit": run_root / "metrics" / "lqr_synthesis_audit.csv",
+        "candidate_rankings": run_root / "metrics" / "qr_candidate_rankings.csv",
+        "selected_controller_registry": run_root / "metrics" / "selected_lqr_controllers.csv",
+    }
+
+
+def _base_manifest(
+    *,
+    config: LQRTuningSweepConfig,
+    schedule,
+    chunk_specs: list[dict[str, int]],
+    worker_decision,
+) -> dict[str, object]:
+    return {
         **dense_run_manifest_fields(
             run_stage="R6_W0_W1_LQR_QR_tuning",
             environment_context="W0_W1_paired_start_keys",
@@ -148,19 +311,17 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
         "W0_W1_tune_controller_ids": True,
         "W2_W3_replay_only": True,
         "dry_run_schedule": bool(config.dry_run_schedule),
+        "resume": bool(config.resume),
+        "repair_incomplete": bool(config.repair_incomplete),
+        "continue_on_chunk_failure": bool(config.continue_on_chunk_failure),
     }
-    filesystem_path(run_root / "manifests" / "run_manifest.json").write_text(
-        json.dumps(manifest, indent=2) + "\n",
-        encoding="ascii",
-    )
-    if config.dry_run_schedule:
-        pd.DataFrame([manifest]).to_csv(filesystem_path(run_root / "metrics" / "runtime_summary.csv"), index=False)
-        return {"run_root": run_root, "run_manifest": run_root / "manifests" / "run_manifest.json"}
 
+
+def _candidate_artifacts(config: LQRTuningSweepConfig) -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]]]:
     primitives = active_primitive_catalogue()
     synthesis_rows = [synthesis_audit_row(primitive) for primitive in primitives]
-    candidate_rows = []
-    candidate_records = []
+    candidate_rows: list[dict[str, object]] = []
+    candidate_records: list[dict[str, object]] = []
     for primitive in primitives:
         for candidate_index, weight_spec in enumerate(
             candidate_weight_specs(
@@ -184,142 +345,290 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
                 candidate_count=int(config.candidate_count),
             )
         )
-    chunk_frames = [
-        pd.DataFrame(
-            _smoke_rows(
-                config,
-                candidate_records,
-                start_row=int(chunk["start_row"]),
-                row_count=int(chunk["row_count"]),
-            )
-        )
+    return candidate_records, synthesis_rows, candidate_rows
+
+
+def _scheduled_chunk_rows(chunk_specs: list[dict[str, int]]) -> list[dict[str, object]]:
+    return [
+        {
+            "chunk_index": int(chunk["chunk_index"]),
+            "start_row": int(chunk["start_row"]),
+            "row_count": int(chunk["row_count"]),
+            "status": "scheduled",
+        }
         for chunk in chunk_specs
     ]
-    smoke_frame = (
-        pd.concat(chunk_frames, ignore_index=True)
-        if chunk_frames
-        else pd.DataFrame()
-    )
-    registry_status = _registry_status_for_tuning_run(config, schedule, smoke_frame)
-    registry_claim_status = registry_claim_status_for(registry_status)
-    evidence_reason = (
-        f"eligible_tuning_registry_{registry_status}"
-        if registry_status in {"complete", "accepted_fallback"}
-        else ("blocked_tuning_registry" if registry_status == "blocked" else "debug_smoke_incomplete")
-    )
-    for frame_index, chunk_frame in enumerate(chunk_frames):
-        if chunk_frame.empty:
-            continue
-        chunk_frame["registry_status"] = registry_status
-        chunk_frame["registry_claim_status"] = registry_claim_status
-        chunk_frame["archive_evidence_status"] = registry_status
-        chunk_frame["evidence_eligibility_reason"] = evidence_reason
-        chunk_frames[frame_index] = chunk_frame
-    smoke_frame = (
-        pd.concat(chunk_frames, ignore_index=True)
-        if chunk_frames
-        else pd.DataFrame()
-    )
 
-    partitions = []
-    pd.DataFrame(synthesis_rows).to_csv(
-        filesystem_path(run_root / "metrics" / "lqr_synthesis_audit.csv"),
-        index=False,
+
+def _execute_tuning_chunks(
+    *,
+    config: LQRTuningSweepConfig,
+    run_root: Path,
+    chunk_specs: list[dict[str, int]],
+    storage_format: str,
+    candidate_records: list[dict[str, object]],
+    selected_worker_count: int,
+) -> dict[str, object]:
+    partitions: list[TablePartition] = []
+    skipped: list[dict[str, object]] = []
+    failures: list[dict[str, object]] = []
+    corrupt: list[dict[str, object]] = []
+    pending: list[dict[str, int]] = []
+
+    for chunk in chunk_specs:
+        try:
+            status = _tuning_chunk_status(config, run_root=run_root, chunk=chunk, storage_format=storage_format)
+            if status == "complete" and config.resume:
+                partition = _partition_from_tuning_manifest(config, run_root=run_root, chunk=chunk, storage_format=storage_format)
+                partitions.append(partition)
+                skipped.append({**chunk, "status": "skipped", "relative_path": partition.relative_path})
+                continue
+            if status == "corrupt":
+                corrupt.append({**chunk, "status": "corrupt"})
+                if config.repair_incomplete:
+                    _remove_tuning_chunk_outputs(run_root, chunk=chunk, storage_format=storage_format)
+                else:
+                    raise ValueError(f"corrupt tuning chunk c{int(chunk['chunk_index']):05d}")
+            pending.append(chunk)
+        except Exception as exc:
+            if config.repair_incomplete and "corrupt tuning chunk" not in str(exc):
+                _remove_tuning_chunk_outputs(run_root, chunk=chunk, storage_format=storage_format)
+                pending.append(chunk)
+                continue
+            failures.append(_tuning_failure_row(chunk, exc))
+            if not config.continue_on_chunk_failure:
+                raise
+
+    worker_count = min(max(1, int(selected_worker_count)), max(1, len(pending) or 1))
+    if worker_count > 1 and pending:
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(
+                    _run_tuning_chunk,
+                    config=config,
+                    run_root=run_root,
+                    chunk=chunk,
+                    storage_format=storage_format,
+                    candidate_records=candidate_records,
+                ): chunk
+                for chunk in pending
+            }
+            for future in as_completed(futures):
+                chunk = futures[future]
+                try:
+                    partitions.append(future.result())
+                except Exception as exc:
+                    failures.append(_tuning_failure_row(chunk, exc))
+                    if not config.continue_on_chunk_failure:
+                        raise
+    else:
+        for chunk in pending:
+            try:
+                partitions.append(
+                    _run_tuning_chunk(
+                        config=config,
+                        run_root=run_root,
+                        chunk=chunk,
+                        storage_format=storage_format,
+                        candidate_records=candidate_records,
+                    )
+                )
+            except Exception as exc:
+                failures.append(_tuning_failure_row(chunk, exc))
+                if not config.continue_on_chunk_failure:
+                    raise
+
+    return {
+        "partitions": sorted(partitions, key=lambda item: item.relative_path),
+        "skipped": skipped,
+        "failures": failures,
+        "corrupt": corrupt,
+        "worker_execution": {
+            "chunk_execution_backend": "process_pool" if worker_count > 1 and pending else "single_worker",
+            "actual_worker_count": int(worker_count),
+            "parallel_chunk_count": int(len(pending)),
+            "worker_enabled": bool(worker_count > 1 and pending),
+        },
+    }
+
+
+def _run_tuning_chunk(
+    *,
+    config: LQRTuningSweepConfig,
+    run_root: Path,
+    chunk: dict[str, int],
+    storage_format: str,
+    candidate_records: list[dict[str, object]],
+) -> TablePartition:
+    started = time.perf_counter()
+    rows = _smoke_rows(
+        config,
+        candidate_records,
+        start_row=int(chunk["start_row"]),
+        row_count=int(chunk["row_count"]),
     )
-    pd.DataFrame(candidate_rows).to_csv(
-        filesystem_path(run_root / "metrics" / "qr_candidate_rankings.csv"),
-        index=False,
+    frame = pd.DataFrame(rows)
+    partition = write_table_partition(
+        frame,
+        _tuning_partition_path(run_root, chunk_index=int(chunk["chunk_index"]), storage_format=storage_format),
+        storage_format=storage_format,
+        compression_level=config.compression_level,
     )
-    for chunk_index, chunk_frame in enumerate(chunk_frames):
-        chunk = chunk_specs[chunk_index]
-        partition = write_table_partition(
-            chunk_frame,
-            _tuning_partition_path(
-                run_root,
-                chunk_index=chunk_index,
-                storage_format=storage_format,
-            ),
+    _write_tuning_chunk_manifest(
+        config=config,
+        run_root=run_root,
+        chunk_index=int(chunk["chunk_index"]),
+        chunk_count=len(_tuning_chunk_specs(_effective_row_count(config), int(config.candidate_chunk_size))),
+        start_row=int(chunk["start_row"]),
+        row_count=int(chunk["row_count"]),
+        partition=partition,
+        storage_format=storage_format,
+        registry_status="pending_registry",
+        columns=tuple(str(column) for column in frame.columns),
+        elapsed_s=time.perf_counter() - started,
+    )
+    return partition
+
+
+def _validated_tuning_frame(run_root: Path, partitions: list[TablePartition]) -> pd.DataFrame:
+    frames = [
+        read_table_partition(
+            Path(run_root) / "tables" / partition.relative_path,
+            storage_format=partition.storage_format,
+        )
+        for partition in partitions
+    ]
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def _rewrite_partitions_with_registry_status(
+    *,
+    config: LQRTuningSweepConfig,
+    run_root: Path,
+    partitions: list[TablePartition],
+    chunk_specs: list[dict[str, int]],
+    storage_format: str,
+    registry_status: str,
+    registry_claim_status: str,
+    evidence_reason: str,
+) -> list[TablePartition]:
+    rewritten: list[TablePartition] = []
+    chunk_by_index = {int(chunk["chunk_index"]): chunk for chunk in chunk_specs}
+    for partition in partitions:
+        chunk_index = _chunk_index_from_partition(partition)
+        chunk = chunk_by_index[chunk_index]
+        if not _partition_needs_registry_rewrite(
+            config,
+            run_root=run_root,
+            chunk=chunk,
+            storage_format=storage_format,
+            registry_status=registry_status,
+        ):
+            rewritten.append(partition)
+            continue
+        frame = read_table_partition(
+            Path(run_root) / "tables" / partition.relative_path,
+            storage_format=partition.storage_format,
+        )
+        if not frame.empty:
+            frame["registry_status"] = registry_status
+            frame["registry_claim_status"] = registry_claim_status
+            frame["archive_evidence_status"] = registry_status
+            frame["evidence_eligibility_reason"] = evidence_reason
+        updated = write_table_partition(
+            frame,
+            _tuning_partition_path(run_root, chunk_index=chunk_index, storage_format=storage_format),
             storage_format=storage_format,
             compression_level=config.compression_level,
         )
-        partitions.append(partition)
         _write_tuning_chunk_manifest(
+            config=config,
             run_root=run_root,
             chunk_index=chunk_index,
             chunk_count=len(chunk_specs),
             start_row=int(chunk["start_row"]),
             row_count=int(chunk["row_count"]),
-            partition=partition,
+            partition=updated,
             storage_format=storage_format,
             registry_status=registry_status,
+            columns=tuple(str(column) for column in frame.columns),
+            elapsed_s=0.0,
         )
-    manifest.update(
-        {
-            "registry_status": registry_status,
-            "registry_claim_status": registry_claim_status,
-            "archive_evidence_status": registry_status,
-            "evidence_eligibility_reason": evidence_reason,
-            "selected_controller_registry": (run_root / "metrics" / "selected_lqr_controllers.csv").as_posix(),
-        }
-    )
-    filesystem_path(run_root / "manifests" / "run_manifest.json").write_text(
-        json.dumps(manifest, indent=2) + "\n",
-        encoding="ascii",
-    )
-    registry_rows = _selected_controller_registry_rows(
-        candidate_records,
-        smoke_frame,
-        registry_status=registry_status,
-        registry_claim_status=registry_claim_status,
-    )
-    write_selected_controller_registry(
-        rows=registry_rows,
-        csv_path=run_root / "metrics" / "selected_lqr_controllers.csv",
-        json_path=run_root / "manifests" / "selected_lqr_controllers.json",
-    )
-    write_table_manifest(
-        run_root / "manifests" / "table_manifest.json",
-        TableManifest(
-            run_id=int(config.run_id),
-            root=run_root.as_posix(),
-            storage_format=storage_format,
-            tables=tuple(partitions),
-        ),
-    )
-    frame = smoke_frame
-    write_coverage_summary(
-        run_root / "metrics" / "coverage_summary.csv",
-        frame,
-        columns=(
-            "primitive_id",
-            "controller_id",
-            "W_layer",
-            "latency_case",
-            "start_state_family",
-            "environment_id",
-            "boundary_use_class",
-            "continuation_valid",
-            "episode_terminal_useful",
-            "controller_selection_status",
-            "candidate_weight_label",
-            "registry_status",
-            "registry_claim_status",
-            "hard_gate_status",
-        ),
-    )
-    _write_objective_summary(run_root / "metrics" / "objective_term_summary.csv", frame)
-    write_file_size_audit(run_root, run_root / "metrics" / "file_size_audit.csv")
-    filesystem_path(run_root / "reports" / "claim_boundary_report.md").write_text(
-        "# LQR Tuning Claim Boundary\n\nSimulation-only W0/W1 Q/R tuning smoke. W2/W3 are replay-only.\n",
-        encoding="ascii",
-    )
+        rewritten.append(updated)
+    return sorted(rewritten, key=lambda item: item.relative_path)
+
+
+def _partition_needs_registry_rewrite(
+    config: LQRTuningSweepConfig,
+    *,
+    run_root: Path,
+    chunk: dict[str, int],
+    storage_format: str,
+    registry_status: str,
+) -> bool:
+    try:
+        manifest = _validate_tuning_chunk_manifest(config, run_root=run_root, chunk=chunk, storage_format=storage_format)
+    except Exception:
+        return True
+    if str(manifest.get("registry_status", "")) != str(registry_status):
+        return True
+    columns = set(str(column) for column in manifest.get("columns", []))
+    return not {"registry_status", "registry_claim_status", "archive_evidence_status", "evidence_eligibility_reason"}.issubset(columns)
+
+
+def _chunk_records_for_summary(
+    *,
+    run_root: Path,
+    chunk_specs: list[dict[str, int]],
+    partitions: list[TablePartition],
+    skipped: list[dict[str, object]],
+    failed: list[dict[str, object]],
+    corrupt: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    by_partition = {_chunk_index_from_partition(partition): partition for partition in partitions}
+    skipped_indices = {int(row["chunk_index"]) for row in skipped}
+    failed_by_index = {int(row["chunk_index"]): row for row in failed}
+    corrupt_indices = {int(row["chunk_index"]) for row in corrupt}
+    rows: list[dict[str, object]] = []
+    for chunk in chunk_specs:
+        chunk_index = int(chunk["chunk_index"])
+        partition = by_partition.get(chunk_index)
+        status = "complete"
+        if chunk_index in skipped_indices:
+            status = "skipped"
+        if chunk_index in failed_by_index:
+            status = "failed"
+        elif chunk_index in corrupt_indices and partition is None:
+            status = "corrupt"
+        rows.append(
+            {
+                "chunk_index": chunk_index,
+                "start_row": int(chunk["start_row"]),
+                "row_count": int(chunk["row_count"]),
+                "status": status,
+                "relative_path": "" if partition is None else partition.relative_path,
+                "checksum_sha256": "" if partition is None else partition.checksum_sha256,
+                "error_type": "" if chunk_index not in failed_by_index else failed_by_index[chunk_index]["error_type"],
+                "error": "" if chunk_index not in failed_by_index else failed_by_index[chunk_index]["error"],
+            }
+        )
+    return rows
+
+
+def _chunk_index_from_partition(partition: TablePartition) -> int:
+    name = Path(partition.relative_path).name
+    return int(name.split(".")[0].lstrip("c"))
+
+
+def _tuning_failure_row(chunk: dict[str, int], exc: Exception) -> dict[str, object]:
     return {
-        "run_root": run_root,
-        "run_manifest": run_root / "manifests" / "run_manifest.json",
-        "table_manifest": run_root / "manifests" / "table_manifest.json",
-        "synthesis_audit": run_root / "metrics" / "lqr_synthesis_audit.csv",
-        "candidate_rankings": run_root / "metrics" / "qr_candidate_rankings.csv",
-        "selected_controller_registry": run_root / "metrics" / "selected_lqr_controllers.csv",
+        "chunk_index": int(chunk["chunk_index"]),
+        "start_row": int(chunk["start_row"]),
+        "row_count": int(chunk["row_count"]),
+        "error_type": type(exc).__name__,
+        "error": str(exc),
     }
 
 
@@ -355,8 +664,105 @@ def _tuning_partition_path(run_root: Path, *, chunk_index: int, storage_format: 
     )
 
 
+def _tuning_chunk_manifest_path(run_root: Path, *, chunk_index: int) -> Path:
+    return Path(run_root) / "chunk_manifests" / "lqr_tuning_rows" / f"c{int(chunk_index):05d}.json"
+
+
+def _tuning_chunk_status(
+    config: LQRTuningSweepConfig,
+    *,
+    run_root: Path,
+    chunk: dict[str, int],
+    storage_format: str,
+) -> str:
+    partition_path = _tuning_partition_path(run_root, chunk_index=int(chunk["chunk_index"]), storage_format=storage_format)
+    manifest_path = _tuning_chunk_manifest_path(run_root, chunk_index=int(chunk["chunk_index"]))
+    partition_exists = filesystem_path(partition_path).is_file()
+    manifest_exists = filesystem_path(manifest_path).is_file()
+    if not partition_exists and not manifest_exists:
+        return "missing"
+    if partition_exists != manifest_exists:
+        return "corrupt"
+    try:
+        _validate_tuning_chunk_manifest(config, run_root=run_root, chunk=chunk, storage_format=storage_format)
+    except Exception:
+        return "corrupt"
+    return "complete"
+
+
+def _validate_tuning_chunk_manifest(
+    config: LQRTuningSweepConfig,
+    *,
+    run_root: Path,
+    chunk: dict[str, int],
+    storage_format: str,
+) -> dict[str, object]:
+    partition_path = _tuning_partition_path(run_root, chunk_index=int(chunk["chunk_index"]), storage_format=storage_format)
+    manifest_path = _tuning_chunk_manifest_path(run_root, chunk_index=int(chunk["chunk_index"]))
+    if not filesystem_path(partition_path).is_file() or not filesystem_path(manifest_path).is_file():
+        raise FileNotFoundError("missing tuning chunk partition or manifest")
+    payload = json.loads(filesystem_path(manifest_path).read_text(encoding="ascii"))
+    expected = {
+        "status": "complete",
+        "run_stage": "R6_W0_W1_LQR_QR_tuning",
+        "run_id": int(config.run_id),
+        "chunk_index": int(chunk["chunk_index"]),
+        "start_row": int(chunk["start_row"]),
+        "row_count": int(chunk["row_count"]),
+        "candidate_count": int(config.candidate_count),
+        "paired_tests_per_candidate": int(config.paired_tests_per_candidate),
+        "storage_format": str(storage_format),
+        "table_name": "lqr_tuning_rows",
+    }
+    for key, value in expected.items():
+        if payload.get(key) != value:
+            raise ValueError(f"tuning chunk manifest mismatch for {key}")
+    if str(payload.get("relative_path", "")) != partition_path.relative_to(Path(run_root) / "tables").as_posix():
+        raise ValueError("tuning chunk manifest mismatch for relative_path")
+    if int(payload["row_count"]) != len(read_table_partition(partition_path, storage_format=storage_format)):
+        raise ValueError("tuning chunk row count mismatch")
+    if str(payload["checksum_sha256"]) != file_sha256(partition_path):
+        raise ValueError("tuning chunk checksum mismatch")
+    return payload
+
+
+def _remove_tuning_chunk_outputs(run_root: Path, *, chunk: dict[str, int], storage_format: str) -> None:
+    partition_path = _tuning_partition_path(run_root, chunk_index=int(chunk["chunk_index"]), storage_format=storage_format)
+    manifest_path = _tuning_chunk_manifest_path(run_root, chunk_index=int(chunk["chunk_index"]))
+    for path in (
+        partition_path,
+        partition_path.with_name(f"{partition_path.name}.tmp"),
+        manifest_path,
+        manifest_path.with_name(f"{manifest_path.name}.tmp"),
+    ):
+        fs_path = filesystem_path(path)
+        if fs_path.exists():
+            fs_path.unlink()
+
+
+def _partition_from_tuning_manifest(
+    config: LQRTuningSweepConfig,
+    *,
+    run_root: Path,
+    chunk: dict[str, int],
+    storage_format: str,
+) -> TablePartition:
+    payload = _validate_tuning_chunk_manifest(config, run_root=run_root, chunk=chunk, storage_format=storage_format)
+    partition_path = _tuning_partition_path(run_root, chunk_index=int(chunk["chunk_index"]), storage_format=storage_format)
+    return TablePartition(
+        table_name="lqr_tuning_rows",
+        relative_path=str(payload["relative_path"]),
+        storage_format=str(payload["storage_format"]),
+        row_count=int(payload["row_count"]),
+        byte_count=int(filesystem_path(partition_path).stat().st_size),
+        columns=tuple(str(column) for column in payload.get("columns", [])),
+        checksum_sha256=str(payload["checksum_sha256"]),
+    )
+
+
 def _write_tuning_chunk_manifest(
     *,
+    config: LQRTuningSweepConfig,
     run_root: Path,
     chunk_index: int,
     chunk_count: int,
@@ -365,21 +771,29 @@ def _write_tuning_chunk_manifest(
     partition,
     storage_format: str,
     registry_status: str,
+    columns: tuple[str, ...],
+    elapsed_s: float,
 ) -> None:
-    path = Path(run_root) / "chunk_manifests" / "lqr_tuning_rows" / f"c{int(chunk_index):05d}.json"
+    path = _tuning_chunk_manifest_path(run_root, chunk_index=int(chunk_index))
     filesystem_path(path.parent).mkdir(parents=True, exist_ok=True)
     payload = {
         "status": "complete",
         "run_stage": "R6_W0_W1_LQR_QR_tuning",
+        "run_id": int(config.run_id),
         "chunk_index": int(chunk_index),
         "chunk_count": int(chunk_count),
         "start_row": int(start_row),
         "row_count": int(row_count),
+        "candidate_count": int(config.candidate_count),
+        "paired_tests_per_candidate": int(config.paired_tests_per_candidate),
         "table_name": partition.table_name,
         "relative_path": partition.relative_path,
         "storage_format": str(storage_format),
+        "columns": list(columns),
         "checksum_sha256": file_sha256(Path(run_root) / "tables" / partition.relative_path),
         "registry_status": str(registry_status),
+        "simulation_s": float(elapsed_s),
+        "total_s": float(elapsed_s),
         "dense_runtime_contract": "chunked_resumable_checksum_manifest",
     }
     filesystem_path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="ascii")
@@ -524,7 +938,11 @@ def _registry_status_for_tuning_run(
     config: LQRTuningSweepConfig,
     schedule,
     frame: pd.DataFrame,
+    *,
+    failures: list[dict[str, object]] | None = None,
 ) -> str:
+    if failures:
+        return "smoke_incomplete" if frame is not None and not frame.empty else "blocked"
     if frame.empty:
         return "blocked"
     if len(frame) < int(schedule.planned_rows):
@@ -667,6 +1085,37 @@ def _write_objective_summary(path: Path, frame: pd.DataFrame) -> None:
         .reset_index()
     )
     summary.to_csv(filesystem_path(path), index=False)
+
+
+def _write_runtime_summary(
+    path: Path,
+    manifest: dict[str, object],
+    *,
+    row_count: int,
+    status: str,
+) -> None:
+    pd.DataFrame(
+        [
+            {
+                "run_id": int(manifest["run_id"]),
+                "stage": manifest["run_stage"],
+                "row_count": int(row_count),
+                "stage_status": str(status),
+                "selected_worker_count": int(manifest.get("selected_worker_count", 0) or 0),
+                "actual_worker_count": int(manifest.get("actual_worker_count", 0) or 0),
+                "worker_enabled": bool(manifest.get("worker_enabled", False)),
+                "chunk_execution_backend": str(manifest.get("chunk_execution_backend", "")),
+                "scheduled_chunk_count": int(manifest.get("scheduled_chunk_count", 0) or 0),
+                "completed_chunk_count": int(manifest.get("completed_chunk_count", 0) or 0),
+                "skipped_chunk_count": int(manifest.get("skipped_chunk_count", 0) or 0),
+                "failed_chunk_count": int(manifest.get("failed_chunk_count", 0) or 0),
+                "registry_status": str(manifest.get("registry_status", "")),
+                "registry_claim_status": str(manifest.get("registry_claim_status", "")),
+                "archive_evidence_status": str(manifest.get("archive_evidence_status", "")),
+                "evidence_eligibility_reason": str(manifest.get("evidence_eligibility_reason", "")),
+            }
+        ]
+    ).to_csv(filesystem_path(path), index=False)
 
 
 def _extension(storage_format: str) -> str:

@@ -1056,17 +1056,28 @@ def _write_file_size_audit(path: Path, run_root: Path) -> list[dict[str, object]
     rows = []
     for item in sorted(run_root.rglob("*")):
         if item.is_file():
+            relative_path = item.relative_to(run_root).as_posix()
             byte_count = int(filesystem_path(item).stat().st_size)
             size_mb = float(byte_count) / (1024.0 * 1024.0)
+            filename_stem_length = len(item.stem)
+            relative_path_length = len(relative_path)
+            above_100mb = bool(size_mb > MAX_GENERATED_FILE_SIZE_MB)
+            stem_under_64 = bool(filename_stem_length <= 64)
+            path_under_140 = bool(relative_path_length <= 140)
             rows.append(
                 {
-                    "path": item.relative_to(run_root).as_posix(),
+                    "path": relative_path,
+                    "relative_path": relative_path,
                     "byte_count": byte_count,
                     "size_mb": size_mb,
+                    "filename_stem_length": filename_stem_length,
+                    "relative_path_length": relative_path_length,
+                    "stem_under_64": stem_under_64,
+                    "path_under_140": path_under_140,
                     "above_75mb": bool(size_mb > 75.0),
-                    "above_100mb": bool(size_mb > MAX_GENERATED_FILE_SIZE_MB),
-                    "push_allowed": bool(size_mb <= MAX_GENERATED_FILE_SIZE_MB),
-                    "under_100mb": bool(byte_count <= MAX_GENERATED_FILE_SIZE_MB * 1024 * 1024),
+                    "above_100mb": above_100mb,
+                    "push_allowed": bool(not above_100mb and stem_under_64 and path_under_140),
+                    "under_100mb": bool(not above_100mb),
                 }
             )
     pd.DataFrame(rows).to_csv(filesystem_path(path), index=False)

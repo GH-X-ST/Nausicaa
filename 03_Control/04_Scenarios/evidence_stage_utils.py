@@ -123,20 +123,32 @@ def write_file_size_audit(run_root: Path, output_path: Path) -> tuple[list[dict[
     status = "pass"
     for path in sorted(Path(run_root).rglob("*")):
         if path.is_file():
+            relative_path = path.relative_to(run_root).as_posix()
             byte_count = int(filesystem_path(path).stat().st_size)
             size_mb = float(byte_count) / (1024.0 * 1024.0)
             above_100mb = bool(size_mb > MAX_GENERATED_FILE_SIZE_MB)
             above_75mb = bool(size_mb > PREFERRED_GENERATED_FILE_SIZE_MB)
-            if above_100mb:
-                status = "fail_oversized_file"
+            filename_stem_length = len(path.stem)
+            relative_path_length = len(relative_path)
+            stem_under_64 = bool(filename_stem_length <= 64)
+            path_under_140 = bool(relative_path_length <= 140)
+            push_allowed = bool(not above_100mb and stem_under_64 and path_under_140)
+            if above_100mb or not stem_under_64 or not path_under_140:
+                status = "fail_push_safety_audit"
             rows.append(
                 {
-                    "path": path.relative_to(run_root).as_posix(),
+                    "path": relative_path,
+                    "relative_path": relative_path,
                     "byte_count": byte_count,
                     "size_mb": size_mb,
+                    "filename_stem_length": filename_stem_length,
+                    "relative_path_length": relative_path_length,
+                    "stem_under_64": stem_under_64,
+                    "path_under_140": path_under_140,
                     "above_75mb": above_75mb,
                     "above_100mb": above_100mb,
                     "under_100mb": not above_100mb,
+                    "push_allowed": push_allowed,
                 }
             )
     filesystem_path(output_path).parent.mkdir(parents=True, exist_ok=True)

@@ -279,3 +279,25 @@ where partition checksums are written
 how the 100 MB file limit is enforced
 why a new runner is needed rather than wrapping an old one
 ```
+
+---
+
+## 9. Windows validation route
+
+Do not use the WindowsApps Python launcher for repository validation. Use a real
+interpreter path such as:
+
+```text
+.venv\Scripts\python.exe
+py -3.11
+<absolute-path-to-python.exe>
+```
+
+Required validation commands should be run with that interpreter:
+
+```text
+<real-python> -m compileall 03_Control
+<real-python> -m pytest -q 03_Control/tests
+<real-python> 03_Control/04_Scenarios/run_active_contract_audit.py
+git diff --check
+```

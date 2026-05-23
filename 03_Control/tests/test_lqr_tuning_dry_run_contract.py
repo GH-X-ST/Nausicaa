@@ -22,7 +22,10 @@ def test_lqr_tuning_dry_run_records_go_no_go_contract(tmp_path: Path) -> None:
     )
 
     manifest = json.loads(Path(result["run_manifest"]).read_text(encoding="ascii"))
+    run_root = Path(result["run_root"])
     assert manifest["raw_K_tuning_allowed"] is False
     assert manifest["W0_W1_tune_controller_ids"] is True
     assert manifest["W2_W3_replay_only"] is True
     assert "valid_lqr_synthesis" in manifest["hard_gates"]
+    assert (run_root / "metrics" / "chunk_summary.csv").is_file()
+    assert not any((run_root / "tables").rglob("*"))
