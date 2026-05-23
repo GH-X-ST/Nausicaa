@@ -22,6 +22,10 @@ This audit covers active code paths and preserved support guidance for the feedb
 | Latency mechanics | fixed | Rollouts apply state delay, command delay, and actuator lag according to the selected latency case and log mechanism flags. |
 | Feature schema and uncertainty | fixed | Primitive model rows include state, context, primitive, latency, and uncertainty features with conservative nonzero uncertainty fallback where needed. |
 | Belief and report scaffolds | fixed | Temp-only lift-belief, selector-report, W2 replay, and W3 generalisation scaffolds emit manifests without claiming completed R6/R7/R8 evidence. |
+| Mixed primitive-start sampling | fixed | Primitive starts now follow the 40% launch-gate / 60% in-flight mixture, with launch-gate compliance and in-flight provenance logged explicitly. |
+| Canonical entry-state logging | fixed | Samples, rollout rows, selector rows, W2 replay rows, and W3 scaffold rows log the full canonical entry state for replay and audit. |
+| Raw-coordinate anti-branch guard | fixed | Active selector, report, replay, model-summary, and primitive-naming paths are audited so raw x/y/z coordinates are not used as primitive names, branches, evidence group names, or primary coordinate bins. |
+| W3 implementation and plant randomisation | fixed | W3 scaffolding includes explicit implementation/actuator and plant instances; supported mass, inertia, actuator, and surface perturbations are applied, while unsupported components are labelled blocked or approximate. |
 
 ## Claim Boundary
 

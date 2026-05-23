@@ -25,9 +25,16 @@ from state_contract import STATE_INDEX, STATE_NAMES, STATE_SIZE, as_state_vector
 @dataclass(frozen=True)
 class ArchiveStateSample:
     state_vector: np.ndarray
+    start_state_family: str
     state_sample_source: str
     paired_start_key: str
     state_envelope_label: str
+    previous_primitive_status: str
+    synthetic_previous_primitive_id: str
+    synthetic_time_since_launch_s: float
+    state_sampling_seed: int
+    launch_gate_compliant: bool
+    state_sampling_version: str = "mixed_primitive_start_v1"
     measured_log_source: str = ""
     measured_log_row_index: int | str = ""
 
@@ -42,36 +49,60 @@ def archive_state_sample_for_row(
     W_layer: str,
     environment_mode: str,
 ) -> ArchiveStateSample:
-    """Return a deterministic launch/envelope state sample for archive rows."""
+    """Return a deterministic mixed primitive-start sample for archive rows."""
 
     paired_key = f"start_{int(row_index) // 2:07d}"
-    selector = int(row_index) % 5
-    rng = np.random.default_rng(_stable_seed(seed, paired_key))
-    if selector == 0:
-        state = _launch_distribution_state(rng)
-        label = "approved_launch_distribution"
-        source = "deterministic_launch_distribution"
-    elif selector == 1:
-        state = _local_envelope_state(rng)
-        label = "local_primitive_envelope"
-        source = "deterministic_local_envelope"
-    elif selector == 2:
-        state = _boundary_near_state(rng, side="x_max")
-        label = "boundary_near_x"
-        source = "deterministic_boundary_near"
-    elif selector == 3:
-        state = _boundary_near_state(rng, side="y_min")
-        label = "boundary_near_y"
-        source = "deterministic_boundary_near"
+    family = start_state_family_for_row(row_index)
+    sample_seed = _stable_seed(seed, f"{paired_key}:{family}")
+    rng = np.random.default_rng(sample_seed)
+    if family == "launch_gate":
+        state = _launch_gate_state(rng)
+        label = "approved_launch_gate"
+        source = "deterministic_mixed_start_launch_gate"
+        previous_status = "episode_start"
+        previous_primitive_id = ""
+        time_since_launch_s = 0.0
+    elif family == "inflight_nominal":
+        state = _inflight_nominal_state(rng)
+        label = "inflight_clean_exit_envelope"
+        source = "deterministic_mixed_start_inflight"
+        previous_status = "clean_exit"
+        previous_primitive_id = _synthetic_previous_primitive_id(row_index)
+        time_since_launch_s = float(rng.uniform(0.8, 2.2))
+    elif family == "inflight_lift_region":
+        state = _inflight_lift_region_state(rng)
+        label = "inflight_lift_region_envelope"
+        source = "deterministic_mixed_start_inflight"
+        previous_status = "clean_exit"
+        previous_primitive_id = _synthetic_previous_primitive_id(row_index)
+        time_since_launch_s = float(rng.uniform(0.6, 2.6))
+    elif family == "inflight_boundary_near":
+        side = "x_max" if int(row_index) % 2 == 0 else "y_min"
+        state = _boundary_near_state(rng, side=side)
+        label = f"{side}_terminal_risk_envelope"
+        source = "deterministic_mixed_start_boundary_near"
+        previous_status = "boundary_terminal_risk"
+        previous_primitive_id = _synthetic_previous_primitive_id(row_index)
+        time_since_launch_s = float(rng.uniform(0.8, 2.8))
     else:
-        state = _paired_comparison_state(rng, W_layer=W_layer, environment_mode=environment_mode)
-        label = "paired_start_comparison"
-        source = "deterministic_paired_start"
+        state = _inflight_recovery_edge_state(rng)
+        label = "inflight_recovery_edge_envelope"
+        source = "deterministic_mixed_start_recovery_edge"
+        previous_status = "recovery_edge"
+        previous_primitive_id = _synthetic_previous_primitive_id(row_index)
+        time_since_launch_s = float(rng.uniform(0.4, 2.0))
+    del W_layer, environment_mode
     return ArchiveStateSample(
         state_vector=as_state_vector(state),
+        start_state_family=family,
         state_sample_source=source,
         paired_start_key=paired_key,
         state_envelope_label=label,
+        previous_primitive_status=previous_status,
+        synthetic_previous_primitive_id=previous_primitive_id,
+        synthetic_time_since_launch_s=time_since_launch_s,
+        state_sampling_seed=int(sample_seed),
+        launch_gate_compliant=state_is_launch_gate_compliant(state),
     )
 
 
@@ -80,9 +111,16 @@ def archive_state_sample_row(sample: ArchiveStateSample) -> dict[str, object]:
 
     state = as_state_vector(sample.state_vector)
     row = {
+        "start_state_family": sample.start_state_family,
         "state_sample_source": sample.state_sample_source,
         "paired_start_key": sample.paired_start_key,
         "state_envelope_label": sample.state_envelope_label,
+        "previous_primitive_status": sample.previous_primitive_status,
+        "synthetic_previous_primitive_id": sample.synthetic_previous_primitive_id,
+        "synthetic_time_since_launch_s": float(sample.synthetic_time_since_launch_s),
+        "state_sampling_seed": int(sample.state_sampling_seed),
+        "launch_gate_compliant": bool(sample.launch_gate_compliant),
+        "state_sampling_version": sample.state_sampling_version,
         "measured_log_source": sample.measured_log_source,
         "measured_log_row_index": sample.measured_log_row_index,
         "initial_state_vector_json": json.dumps(
@@ -94,18 +132,52 @@ def archive_state_sample_row(sample: ArchiveStateSample) -> dict[str, object]:
     return row
 
 
-def _launch_distribution_state(rng: np.random.Generator) -> np.ndarray:
+def start_state_family_for_row(row_index: int) -> str:
+    """Return the deterministic 40/60 primitive-start family assignment."""
+
+    slot = int(row_index) % 20
+    if slot < 8:
+        return "launch_gate"
+    if slot < 13:
+        return "inflight_nominal"
+    if slot < 16:
+        return "inflight_lift_region"
+    if slot < 18:
+        return "inflight_boundary_near"
+    return "inflight_recovery_edge"
+
+
+def state_is_launch_gate_compliant(state: np.ndarray) -> bool:
+    """Return whether a state lies inside the approved physical release gate."""
+
+    x = as_state_vector(state)
+    speed = float(np.linalg.norm(x[6:9]))
+    return bool(
+        1.2 <= x[STATE_INDEX["x_w"]] <= 1.4
+        and 1.8 <= x[STATE_INDEX["y_w"]] <= 2.2
+        and 1.5 <= x[STATE_INDEX["z_w"]] <= 1.9
+        and np.deg2rad(-45.0) <= x[STATE_INDEX["phi"]] <= np.deg2rad(45.0)
+        and np.deg2rad(-45.0) <= x[STATE_INDEX["theta"]] <= np.deg2rad(45.0)
+        and np.deg2rad(-30.0) <= x[STATE_INDEX["psi"]] <= np.deg2rad(30.0)
+        and 3.0 <= speed <= 8.0
+    )
+
+
+def _launch_gate_state(rng: np.random.Generator) -> np.ndarray:
     state = np.zeros(STATE_SIZE, dtype=float)
-    state[STATE_INDEX["x_w"]] = float(rng.normal(2.0, 0.12))
-    state[STATE_INDEX["y_w"]] = float(rng.normal(2.2, 0.18))
-    state[STATE_INDEX["z_w"]] = float(rng.normal(1.55, 0.08))
-    state[STATE_INDEX["phi"]] = float(np.deg2rad(rng.normal(0.0, 3.0)))
-    state[STATE_INDEX["theta"]] = float(np.deg2rad(rng.normal(0.0, 2.5)))
-    state[STATE_INDEX["psi"]] = float(np.deg2rad(rng.normal(0.0, 4.0)))
-    state[STATE_INDEX["u"]] = float(rng.normal(5.8, 0.25))
-    state[STATE_INDEX["v"]] = float(rng.normal(0.0, 0.08))
-    state[STATE_INDEX["w"]] = float(rng.normal(0.0, 0.05))
-    return _clip_state_to_plausible_envelope(state)
+    state[STATE_INDEX["x_w"]] = float(rng.uniform(1.2, 1.4))
+    state[STATE_INDEX["y_w"]] = float(rng.uniform(1.8, 2.2))
+    state[STATE_INDEX["z_w"]] = float(rng.uniform(1.5, 1.9))
+    state[STATE_INDEX["phi"]] = float(np.deg2rad(rng.uniform(-45.0, 45.0)))
+    state[STATE_INDEX["theta"]] = float(np.deg2rad(rng.uniform(-45.0, 45.0)))
+    state[STATE_INDEX["psi"]] = float(np.deg2rad(rng.uniform(-30.0, 30.0)))
+    speed = float(rng.uniform(3.0, 8.0))
+    v_side = float(rng.uniform(-0.08, 0.08) * speed)
+    w_body = float(rng.uniform(-0.04, 0.04) * speed)
+    state[STATE_INDEX["u"]] = float(np.sqrt(max(speed * speed - v_side * v_side - w_body * w_body, 0.0)))
+    state[STATE_INDEX["v"]] = v_side
+    state[STATE_INDEX["w"]] = w_body
+    return state
 
 
 def _local_envelope_state(rng: np.random.Generator) -> np.ndarray:
@@ -119,7 +191,25 @@ def _local_envelope_state(rng: np.random.Generator) -> np.ndarray:
     state[STATE_INDEX["u"]] = float(rng.uniform(3.8, 7.2))
     state[STATE_INDEX["v"]] = float(rng.uniform(-0.25, 0.25))
     state[STATE_INDEX["w"]] = float(rng.uniform(-0.15, 0.15))
-    return state
+    return _with_inflight_rates_and_surfaces(state, rng, rate_scale=0.35, surface_scale=0.22)
+
+
+def _inflight_nominal_state(rng: np.random.Generator) -> np.ndarray:
+    return _local_envelope_state(rng)
+
+
+def _inflight_lift_region_state(rng: np.random.Generator) -> np.ndarray:
+    state = np.zeros(STATE_SIZE, dtype=float)
+    state[STATE_INDEX["x_w"]] = float(rng.uniform(2.0, 4.3))
+    state[STATE_INDEX["y_w"]] = float(rng.uniform(1.2, 3.2))
+    state[STATE_INDEX["z_w"]] = float(rng.uniform(1.2, 2.4))
+    state[STATE_INDEX["phi"]] = float(np.deg2rad(rng.uniform(-22.0, 22.0)))
+    state[STATE_INDEX["theta"]] = float(np.deg2rad(rng.uniform(-12.0, 12.0)))
+    state[STATE_INDEX["psi"]] = float(np.deg2rad(rng.uniform(-35.0, 35.0)))
+    state[STATE_INDEX["u"]] = float(rng.uniform(4.2, 7.0))
+    state[STATE_INDEX["v"]] = float(rng.uniform(-0.20, 0.20))
+    state[STATE_INDEX["w"]] = float(rng.uniform(-0.12, 0.12))
+    return _with_inflight_rates_and_surfaces(state, rng, rate_scale=0.30, surface_scale=0.20)
 
 
 def _boundary_near_state(rng: np.random.Generator, *, side: str) -> np.ndarray:
@@ -134,17 +224,45 @@ def _boundary_near_state(rng: np.random.Generator, *, side: str) -> np.ndarray:
     return state
 
 
-def _paired_comparison_state(
+def _inflight_recovery_edge_state(rng: np.random.Generator) -> np.ndarray:
+    state = _local_envelope_state(rng)
+    state[STATE_INDEX["phi"]] = float(np.deg2rad(rng.uniform(-42.0, 42.0)))
+    state[STATE_INDEX["theta"]] = float(np.deg2rad(rng.uniform(-28.0, 28.0)))
+    state[STATE_INDEX["u"]] = float(rng.uniform(3.05, 4.2))
+    state[STATE_INDEX["v"]] = float(rng.uniform(-0.35, 0.35))
+    state[STATE_INDEX["w"]] = float(rng.uniform(-0.25, 0.25))
+    return _with_inflight_rates_and_surfaces(state, rng, rate_scale=0.70, surface_scale=0.35)
+
+
+def _with_inflight_rates_and_surfaces(
+    state: np.ndarray,
     rng: np.random.Generator,
     *,
-    W_layer: str,
-    environment_mode: str,
+    rate_scale: float,
+    surface_scale: float,
 ) -> np.ndarray:
-    del W_layer, environment_mode
-    state = _launch_distribution_state(rng)
-    state[STATE_INDEX["x_w"]] = 2.0
-    state[STATE_INDEX["y_w"]] = 2.2
-    return state
+    result = np.asarray(state, dtype=float).reshape(STATE_SIZE).copy()
+    result[STATE_INDEX["p"]] = float(rng.uniform(-rate_scale, rate_scale))
+    result[STATE_INDEX["q"]] = float(rng.uniform(-0.7 * rate_scale, 0.7 * rate_scale))
+    result[STATE_INDEX["r"]] = float(rng.uniform(-0.8 * rate_scale, 0.8 * rate_scale))
+    result[STATE_INDEX["delta_a"]] = float(rng.uniform(-surface_scale, surface_scale))
+    result[STATE_INDEX["delta_e"]] = float(rng.uniform(-surface_scale, surface_scale))
+    result[STATE_INDEX["delta_r"]] = float(rng.uniform(-surface_scale, surface_scale))
+    return result
+
+
+def _synthetic_previous_primitive_id(row_index: int) -> str:
+    primitive_ids = (
+        "glide",
+        "recovery",
+        "lift_entry",
+        "lift_dwell_arc",
+        "mild_turn_left",
+        "mild_turn_right",
+        "energy_retaining_bank",
+        "safe_exit_or_recovery_handoff",
+    )
+    return primitive_ids[int(row_index) % len(primitive_ids)]
 
 
 def _clip_state_to_plausible_envelope(state: np.ndarray) -> np.ndarray:
@@ -180,9 +298,15 @@ def measured_log_state_sample_rows(path: Path) -> list[ArchiveStateSample]:
         rows.append(
             ArchiveStateSample(
                 state_vector=as_state_vector(state),
+                start_state_family=str(row.get("start_state_family", "measured_log")),
                 state_sample_source="measured_log_compatible",
                 paired_start_key=str(row.get("paired_start_key", f"measured_{index:07d}")),
                 state_envelope_label=str(row.get("state_envelope_label", "measured_log")),
+                previous_primitive_status=str(row.get("previous_primitive_status", "real_log")),
+                synthetic_previous_primitive_id=str(row.get("synthetic_previous_primitive_id", "")),
+                synthetic_time_since_launch_s=float(row.get("synthetic_time_since_launch_s", 0.0)),
+                state_sampling_seed=int(row.get("state_sampling_seed", index)),
+                launch_gate_compliant=state_is_launch_gate_compliant(state),
                 measured_log_source=Path(path).as_posix(),
                 measured_log_row_index=int(index),
             )
@@ -195,6 +319,6 @@ def measured_log_schema_row() -> dict[str, object]:
 
     return {
         "required_state_columns": ",".join(STATE_NAMES),
-        "optional_metadata_columns": "paired_start_key,state_envelope_label,episode_id",
+        "optional_metadata_columns": "paired_start_key,state_envelope_label,start_state_family,previous_primitive_status,episode_id",
         "state_sample_source": "measured_log_compatible",
     }

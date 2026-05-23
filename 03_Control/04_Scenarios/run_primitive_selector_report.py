@@ -15,11 +15,13 @@ for rel in ("02_Inner_Loop", "03_Primitives", "04_Scenarios"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from archive_table_reader import read_archive_table  # noqa: E402
 from dense_archive_table_io import filesystem_path  # noqa: E402
 from env_ctx import ENV_CONTEXT_COLUMNS, EnvironmentContext  # noqa: E402
 from prim_cat import active_primitive_catalogue  # noqa: E402
 from prim_model import fit_primitive_outcome_model  # noqa: E402
 from prim_select import primitive_selection_row, select_primitive  # noqa: E402
+from state_contract import STATE_NAMES  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -55,7 +57,7 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
     run_root = Path(config.output_root) / f"selector_report_{config.run_id:03d}"
     for rel in ("manifests", "tables", "reports", "metrics"):
         filesystem_path(run_root / rel).mkdir(parents=True, exist_ok=True)
-    frame = pd.read_csv(config.archive_table).head(int(config.max_rows))
+    frame = read_archive_table(config.archive_table, max_rows=int(config.max_rows))
     rows = frame.to_dict(orient="records")
     model = fit_primitive_outcome_model(rows, k_neighbours=config.k_neighbours)
     decisions = []
@@ -73,6 +75,8 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
         )
         out = primitive_selection_row(result)
         out["source_rollout_id"] = row.get("rollout_id", "")
+        out.update(_canonical_entry_state_columns(row))
+        out.update(_derived_report_group_columns(row))
         decisions.append(out)
     decision_path = run_root / "tables" / "selector_decisions.csv"
     pd.DataFrame(decisions).to_csv(filesystem_path(decision_path), index=False)
@@ -80,18 +84,20 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
         "run_id": int(config.run_id),
         "archive_table": Path(config.archive_table).as_posix(),
         "training_row_count": int(model.fitted_row_count),
-        "validation_split_type": "temp_smoke_source_rows_only",
+        "validation_split_type": "derived_mixed_start_smoke_groups",
+        "validation_split_columns": _available_split_columns(rows),
         "governor_mode": str(config.governor_mode),
         "claim_status": "simulation_only_selector_report_smoke",
         "blocked_claims": ["controller_performance", "hardware_readiness", "real_flight_transfer"],
     }
     manifest_path = run_root / "manifests" / "selector_report_manifest.json"
     filesystem_path(manifest_path).write_text(json.dumps(manifest, indent=2) + "\n", encoding="ascii")
-    _write_file_size_audit(run_root)
+    _write_validation_split_summary(run_root / "metrics" / "validation_split_summary.csv", rows)
     filesystem_path(run_root / "reports" / "selector_report.md").write_text(
         "# Primitive Selector Smoke Report\n\nNo performance, transfer, or hardware-readiness claim is made.\n",
         encoding="ascii",
     )
+    _write_file_size_audit(run_root)
     return {"run_root": run_root, "manifest": manifest_path, "decision_table": decision_path}
 
 
@@ -102,6 +108,61 @@ def _context_from_row(row: dict[str, object]) -> EnvironmentContext:
 def _state_from_row(row: dict[str, object]) -> np.ndarray:
     names = ("x_w", "y_w", "z_w", "phi", "theta", "psi", "u", "v", "w", "p", "q", "r", "delta_a", "delta_e", "delta_r")
     return np.asarray([float(row.get(f"initial_{name}", 0.0)) for name in names], dtype=float)
+
+
+def _canonical_entry_state_columns(row: dict[str, object]) -> dict[str, float]:
+    return {
+        f"entry_{name}": float(row.get(f"initial_{name}", 0.0))
+        for name in STATE_NAMES
+    }
+
+
+def _derived_report_group_columns(row: dict[str, object]) -> dict[str, object]:
+    return {
+        "start_state_family": row.get("start_state_family", ""),
+        "state_envelope_label": row.get("state_envelope_label", ""),
+        "previous_primitive_status": row.get("previous_primitive_status", ""),
+        "source_W_layer": row.get("W_layer", ""),
+        "source_environment_instance_id": row.get(
+            "environment_instance_environment_id",
+            row.get("environment_id", ""),
+        ),
+        "source_primitive_id": row.get("primitive_id", ""),
+        "source_latency_case": row.get("latency_case", ""),
+        "source_outcome_class": row.get("outcome_class", ""),
+        "source_boundary_use_class": row.get("boundary_use_class", ""),
+    }
+
+
+def _available_split_columns(rows: list[dict[str, object]]) -> list[str]:
+    candidates = [
+        "start_state_family",
+        "state_envelope_label",
+        "environment_instance_environment_id",
+        "paired_start_key",
+        "primitive_id",
+        "W_layer",
+        "latency_case",
+        "outcome_class",
+        "boundary_use_class",
+    ]
+    keys = set().union(*(row.keys() for row in rows)) if rows else set()
+    return [name for name in candidates if name in keys]
+
+
+def _write_validation_split_summary(path: Path, rows: list[dict[str, object]]) -> None:
+    columns = _available_split_columns(rows)
+    if not rows or not columns:
+        pd.DataFrame(columns=["row_count"]).to_csv(filesystem_path(path), index=False)
+        return
+    group_columns = columns[:4]
+    frame = (
+        pd.DataFrame(rows)
+        .groupby(group_columns, dropna=False)
+        .size()
+        .reset_index(name="row_count")
+    )
+    frame.to_csv(filesystem_path(path), index=False)
 
 
 def _write_file_size_audit(run_root: Path) -> None:

@@ -158,6 +158,7 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
                     ),
                     wind_field=wind,
                     episode_index=episode_index,
+                    state_sample=state_sample,
                 )
             )
 
@@ -216,12 +217,17 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
                     context=context,
                     primitive=primitive,
                     governor_mode=selection.governor_mode,
+                    start_state_family=state_sample.start_state_family,
+                    previous_primitive_status=state_sample.previous_primitive_status,
+                    synthetic_time_since_launch_s=state_sample.synthetic_time_since_launch_s,
                 )
             )
         )
         training_rows.append(row)
         episode_rows.append(row)
-        selector_rows.append(primitive_selection_row(selection))
+        selector_row = primitive_selection_row(selection)
+        selector_row.update(archive_state_sample_row(state_sample))
+        selector_rows.append(selector_row)
         belief = update_belief(belief, lift_observation_from_rollout_row(row))
         belief_after = query_belief_features(state, belief)
         row["belief_after_local_lift_m_s"] = belief_after["belief_local_lift_m_s"]
@@ -245,6 +251,7 @@ def _bootstrap_feedback_rows(
     config: RolloutConfig,
     wind_field: object | None,
     episode_index: int,
+    state_sample,
 ) -> list[dict[str, object]]:
     rows = []
     for primitive in primitives:
@@ -264,6 +271,9 @@ def _bootstrap_feedback_rows(
                     state=state,
                     context=context,
                     primitive=primitive,
+                    start_state_family=state_sample.start_state_family,
+                    previous_primitive_status=state_sample.previous_primitive_status,
+                    synthetic_time_since_launch_s=state_sample.synthetic_time_since_launch_s,
                 )
             )
         )

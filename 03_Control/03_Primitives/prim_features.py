@@ -23,17 +23,21 @@ from state_contract import STATE_INDEX, STATE_SIZE
 # =============================================================================
 # 1) Feature Schema
 # =============================================================================
-PRIMITIVE_FEATURE_SCHEMA_VERSION = "state_context_primitive_latency_uncertainty_v1"
+PRIMITIVE_FEATURE_SCHEMA_VERSION = "mixed_start_context_primitive_latency_uncertainty_v2"
 PRIMITIVE_FEATURE_NAMES = (
-    "x_w_norm",
-    "y_w_norm",
-    "z_w_norm",
+    "start_state_family_code",
+    "previous_primitive_status_code",
+    "synthetic_time_since_launch_norm",
     "phi_norm",
     "theta_norm",
+    "psi_norm",
     "speed_norm",
     "p_norm",
     "q_norm",
     "r_norm",
+    "delta_a_norm",
+    "delta_e_norm",
+    "delta_r_norm",
     "primitive_horizon_s",
     "primitive_param_sum",
     "state_feedback_delay_s",
@@ -60,6 +64,9 @@ def primitive_feature_record(
     context: EnvironmentContext,
     primitive: PrimitiveDefinition,
     governor_mode: str = "continuation",
+    start_state_family: str = "unknown",
+    previous_primitive_status: str = "unknown",
+    synthetic_time_since_launch_s: float = 0.0,
 ) -> PrimitiveFeatureRecord:
     """Return the auditable primitive model feature vector."""
 
@@ -69,15 +76,19 @@ def primitive_feature_record(
     command_delay_s = float(latency.command_onset_delay_s + latency.command_transport_delay_s)
     primitive_params = _numeric_primitive_parameter_sum(primitive)
     values = (
-        float(x[STATE_INDEX["x_w"]] / 8.0),
-        float(x[STATE_INDEX["y_w"]] / 4.8),
-        float(x[STATE_INDEX["z_w"]] / 3.5),
+        _category_code(start_state_family),
+        _category_code(previous_primitive_status),
+        float(np.clip(float(synthetic_time_since_launch_s) / 5.0, 0.0, 4.0)),
         float(x[STATE_INDEX["phi"]] / np.deg2rad(45.0)),
         float(x[STATE_INDEX["theta"]] / np.deg2rad(45.0)),
+        float(x[STATE_INDEX["psi"]] / np.deg2rad(90.0)),
         float(speed / 8.0),
         float(x[STATE_INDEX["p"]]),
         float(x[STATE_INDEX["q"]]),
         float(x[STATE_INDEX["r"]]),
+        float(x[STATE_INDEX["delta_a"]] / 0.5),
+        float(x[STATE_INDEX["delta_e"]] / 0.5),
+        float(x[STATE_INDEX["delta_r"]] / 0.5),
         float(primitive.finite_horizon_s),
         primitive_params,
         float(latency.state_feedback_delay_s),
@@ -141,3 +152,13 @@ def _numeric_primitive_parameter_sum(primitive: PrimitiveDefinition) -> float:
         except (TypeError, ValueError):
             total += float(len(str(parameter.value))) * 0.01
     return float(total)
+
+
+def _category_code(value: str) -> float:
+    text = str(value)
+    if not text:
+        return 0.0
+    total = 0
+    for char in text:
+        total = (total * 131 + ord(char)) % 1000
+    return float(total) / 1000.0

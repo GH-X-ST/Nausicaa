@@ -50,6 +50,11 @@ from env_surrogate import (  # noqa: E402
     surrogate_binding_row,
     wind_field_for_binding,
 )
+from implementation_instance import (  # noqa: E402
+    implementation_instance_for_layer,
+    implementation_instance_row,
+)
+from plant_instance import plant_instance_for_layer, plant_instance_row  # noqa: E402
 from prim_cat import active_primitive_catalogue  # noqa: E402
 from prim_features import primitive_feature_record, primitive_feature_row  # noqa: E402
 from prim_roll import (  # noqa: E402
@@ -305,6 +310,15 @@ def _chunk_rows(
             spec.environment_id,
             config.seed + row_index,
         )
+        implementation = implementation_instance_for_layer(
+            spec.context_id,
+            config.seed + row_index,
+            latency_case="nominal",
+        )
+        plant = plant_instance_for_layer(
+            spec.context_id,
+            config.seed + row_index,
+        )
         metadata = environment_metadata_from_instance(instance)
         binding = resolve_surrogate_binding(
             spec.context_id,
@@ -316,7 +330,7 @@ def _chunk_rows(
             state,
             wind_field=wind,
             metadata=metadata,
-            latency_case="none" if spec.context_id == "W0" else "nominal",
+            latency_case=implementation.latency_case,
             actuator_case="nominal",
             surrogate_binding=binding,
         )
@@ -347,10 +361,24 @@ def _chunk_rows(
                 primitive=primitive,
                 config=rollout_config,
                 wind_field=wind,
+                implementation_instance=implementation,
+                plant_instance=plant,
             )
         row = rollout_with_context_row(evidence, context)
         row.update({f"surrogate_{key}": value for key, value in surrogate_binding_row(binding).items()})
         row.update({f"environment_instance_{key}": value for key, value in environment_instance_row(instance).items()})
+        row["environment_adjustment_status"] = _wind_adjustment_field(
+            wind,
+            "environment_adjustment_status",
+            "dry_air_or_blocked",
+        )
+        row["environment_adjustment_limitations"] = _wind_adjustment_field(
+            wind,
+            "environment_adjustment_limitations",
+            "",
+        )
+        row.update({f"implementation_instance_{key}": value for key, value in implementation_instance_row(implementation).items()})
+        row.update({f"plant_instance_{key}": value for key, value in plant_instance_row(plant).items()})
         row.update(archive_state_sample_row(state_sample))
         row.update(
             primitive_feature_row(
@@ -358,6 +386,9 @@ def _chunk_rows(
                     state=state,
                     context=context,
                     primitive=primitive,
+                    start_state_family=state_sample.start_state_family,
+                    previous_primitive_status=state_sample.previous_primitive_status,
+                    synthetic_time_since_launch_s=state_sample.synthetic_time_since_launch_s,
                 )
             )
         )
@@ -386,6 +417,17 @@ def _metadata_for_row(
         seed,
     )
     return environment_metadata_from_instance(instance)
+
+
+def _wind_adjustment_field(wind: object | None, name: str, default: str) -> str:
+    if wind is None:
+        return str(default)
+    if hasattr(wind, name):
+        return str(getattr(wind, name))
+    base = getattr(wind, "base", None)
+    if base is not None and hasattr(base, name):
+        return str(getattr(base, name))
+    return str(default)
 
 
 # =============================================================================
@@ -510,8 +552,12 @@ def _run_single_chunk(
                 "episode_utility_label": row["episode_utility_label"],
                 "terminal_use_trainable": bool(row["terminal_use_trainable"]),
                 "boundary_use_class": row["boundary_use_class"],
+                "start_state_family": row["start_state_family"],
                 "state_sample_source": row["state_sample_source"],
                 "state_envelope_label": row["state_envelope_label"],
+                "previous_primitive_status": row["previous_primitive_status"],
+                "primitive_id": row["primitive_id"],
+                "latency_case": row["latency_case"],
                 "surrogate_binding_status": row["surrogate_binding_status"],
             }
             for row in rows
@@ -697,6 +743,12 @@ def _write_outcome_summary(path: Path, outcome_rows: list[dict[str, object]]) ->
                 "outcome_class",
                 "continuation_status",
                 "episode_terminal_status",
+                "start_state_family",
+                "state_envelope_label",
+                "previous_primitive_status",
+                "primitive_id",
+                "latency_case",
+                "boundary_use_class",
                 "row_count",
                 "accepted_count",
                 "terminal_use_trainable_count",
@@ -715,6 +767,12 @@ def _write_outcome_summary(path: Path, outcome_rows: list[dict[str, object]]) ->
                     "outcome_class",
                     "continuation_status",
                     "episode_terminal_status",
+                    "start_state_family",
+                    "state_envelope_label",
+                    "previous_primitive_status",
+                    "primitive_id",
+                    "latency_case",
+                    "boundary_use_class",
                 ],
                 dropna=False,
             )

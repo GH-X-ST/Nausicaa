@@ -4,8 +4,10 @@ import numpy as np
 
 from env_ctx import EnvironmentMetadata, build_environment_context
 from env_surrogate import resolve_surrogate_binding, wind_field_for_binding
+from implementation_instance import implementation_instance_for_layer
+from plant_instance import plant_instance_for_layer
 from prim_cat import primitive_by_id
-from prim_roll import RolloutConfig, simulate_primitive_rollout
+from prim_roll import RolloutConfig, rollout_evidence_row, simulate_primitive_rollout
 from state_contract import STATE_INDEX, STATE_SIZE
 
 
@@ -187,3 +189,70 @@ def test_latency_mechanisms_are_applied_and_logged() -> None:
     assert nominal.actuator_lag_applied is True
     assert nominal.latency_execution_status == "full_state_command_actuator_latency"
     assert np.isfinite(nominal.max_abs_command_norm)
+
+
+def test_rollout_row_logs_full_canonical_entry_state() -> None:
+    state = _state()
+    context, wind = _context_and_wind(state)
+
+    evidence = simulate_primitive_rollout(
+        rollout_id="full_state_logging",
+        initial_state=state,
+        context=context,
+        primitive=primitive_by_id("glide"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_feedback"),
+        wind_field=wind,
+    )
+    row = rollout_evidence_row(evidence)
+
+    for name in (
+        "x_w",
+        "y_w",
+        "z_w",
+        "phi",
+        "theta",
+        "psi",
+        "u",
+        "v",
+        "w",
+        "p",
+        "q",
+        "r",
+        "delta_a",
+        "delta_e",
+        "delta_r",
+    ):
+        assert f"initial_{name}" in row
+
+
+def test_implementation_and_plant_instances_change_rollout_smoke() -> None:
+    state = _state()
+    context, wind = _context_and_wind(state)
+    primitive = primitive_by_id("lift_dwell_arc")
+    config = RolloutConfig(W_layer="W3", rollout_backend="model_backed_feedback")
+
+    nominal = simulate_primitive_rollout(
+        rollout_id="nominal_instance",
+        initial_state=state,
+        context=context,
+        primitive=primitive,
+        config=config,
+        wind_field=wind,
+        implementation_instance=implementation_instance_for_layer("W1", 1),
+        plant_instance=plant_instance_for_layer("W1", 1),
+    )
+    randomised = simulate_primitive_rollout(
+        rollout_id="randomised_instance",
+        initial_state=state,
+        context=context,
+        primitive=primitive,
+        config=config,
+        wind_field=wind,
+        implementation_instance=implementation_instance_for_layer("W3", 1),
+        plant_instance=plant_instance_for_layer("W3", 1),
+    )
+
+    assert (
+        nominal.energy_residual_m != randomised.energy_residual_m
+        or nominal.max_abs_surface_rad != randomised.max_abs_surface_rad
+    )

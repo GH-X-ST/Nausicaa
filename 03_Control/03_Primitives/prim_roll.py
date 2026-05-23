@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from functools import lru_cache
 
 import numpy as np
@@ -24,9 +24,16 @@ from latency import (
     latency_mechanism_flags_from_case,
     latency_pass_label_for_single_run,
 )
+from implementation_instance import (
+    ImplementationInstance,
+    adjusted_actuator_tau_s,
+    apply_surface_implementation,
+    implementation_instance_for_layer,
+)
+from plant_instance import PlantInstance, apply_plant_instance_to_aircraft, plant_instance_for_layer
 from prim_cat import PrimitiveDefinition, primitive_parameters_json
 from prim_ctrl import PrimitiveControlContext, primitive_command_norm
-from state_contract import STATE_INDEX, STATE_SIZE
+from state_contract import STATE_INDEX, STATE_NAMES, STATE_SIZE
 from state_contract import as_state_vector
 
 
@@ -184,6 +191,8 @@ def simulate_primitive_rollout(
     primitive: PrimitiveDefinition,
     config: RolloutConfig | None = None,
     wind_field: object | None = None,
+    implementation_instance: ImplementationInstance | None = None,
+    plant_instance: PlantInstance | None = None,
 ) -> RolloutEvidence:
     """Return one primitive rollout row using smoke-only or model-backed backend."""
 
@@ -213,6 +222,8 @@ def simulate_primitive_rollout(
             primitive=primitive,
             config=cfg,
             wind_field=wind_field,
+            implementation_instance=implementation_instance,
+            plant_instance=plant_instance,
         )
     return blocked_rollout_evidence(
         rollout_id=rollout_id,
@@ -394,6 +405,8 @@ def _simulate_dynamics_rollout(
     primitive: PrimitiveDefinition,
     config: RolloutConfig,
     wind_field: object | None,
+    implementation_instance: ImplementationInstance | None = None,
+    plant_instance: PlantInstance | None = None,
 ) -> RolloutEvidence:
     if not np.all(np.isfinite(state)):
         return _blocked_from_state(
@@ -460,18 +473,30 @@ def _simulate_dynamics_rollout(
 
     command_template_norm = _primitive_command_template_norm(primitive)
     command_template = normalised_command_to_surface_rad(command_template_norm)
-    latency = latency_case_config(context.latency_case)
+    implementation = implementation_instance or implementation_instance_for_layer(
+        config.W_layer,
+        0,
+        latency_case=context.latency_case,
+    )
+    latency = _latency_for_implementation(context.latency_case, implementation)
     mechanism_flags = latency_mechanism_flags_from_case(
         context.latency_case,
         state_feedback_delay_applied=context.latency_case in {"nominal", "conservative"},
     )
-    tau_s = (
+    base_tau_s = (
         actuator_tau_for_case(latency)
         if mechanism_flags["actuator_lag_applied"]
         else (1.0, 1.0, 1.0)
     )
+    tau_s = adjusted_actuator_tau_s(base_tau_s, implementation)
     wind_mode = _wind_mode_for_rollout(context=context, config=config, wind_field=wind_field)
-    aircraft = _aircraft_model()
+    base_aircraft = _aircraft_model()
+    plant = plant_instance or plant_instance_for_layer(
+        config.W_layer,
+        0,
+        baseline_mass_kg=float(base_aircraft.mass_kg),
+    )
+    aircraft = apply_plant_instance_to_aircraft(base_aircraft, plant)
     x = state.copy()
     min_wall_margin_m = float("inf")
     min_floor_margin_m = float("inf")
@@ -489,6 +514,7 @@ def _simulate_dynamics_rollout(
     steps = max(1, int(np.ceil(float(primitive.finite_horizon_s) / float(config.dt_s))))
     times_s = [0.0]
     states = [x.copy()]
+    command_delay_s = float(latency.command_onset_delay_s + latency.command_transport_delay_s)
     if config.rollout_backend == "model_backed_feedback":
         initial_command = primitive_command_norm(
             primitive,
@@ -498,11 +524,17 @@ def _simulate_dynamics_rollout(
                 time_in_primitive_s=0.0,
             ),
         )
-        command_norm_history = [np.asarray(initial_command.command_norm, dtype=float)]
+        if mechanism_flags["command_delay_applied"]:
+            command_times_s = [-(command_delay_s + 1e-9)]
+            command_norm_history = [np.zeros(3, dtype=float)]
+        else:
+            command_times_s = [0.0]
+            command_norm_history = [np.asarray(initial_command.command_norm, dtype=float)]
         saturation_count = int(initial_command.saturation_applied)
-        max_abs_command_norm = float(np.max(np.abs(command_norm_history[-1])))
+        max_abs_command_norm = float(np.max(np.abs(initial_command.command_norm)))
         max_abs_surface_rad = float(np.max(np.abs(initial_command.command_rad)))
     else:
+        command_times_s = [0.0]
         command_norm_history = [command_template_norm.copy()]
         saturation_count = 0
         max_abs_command_norm = float(np.max(np.abs(command_template_norm)))
@@ -551,32 +583,30 @@ def _simulate_dynamics_rollout(
                 ),
             )
             desired_command_norm = np.asarray(control_command.command_norm, dtype=float)
-            if time_s > times_s[-1]:
-                times_s.append(time_s)
-                states.append(x.copy())
+            if time_s > command_times_s[-1]:
+                command_times_s.append(time_s)
                 command_norm_history.append(desired_command_norm.copy())
             else:
                 command_norm_history[-1] = desired_command_norm.copy()
             if mechanism_flags["command_delay_applied"]:
                 applied_norm = latency_adjusted_command_sample(
-                    np.asarray(times_s, dtype=float),
+                    np.asarray(command_times_s, dtype=float),
                     np.asarray(command_norm_history, dtype=float),
                     time_s,
                     latency,
                 )
             else:
                 applied_norm = desired_command_norm
-            command = normalised_command_to_surface_rad(applied_norm)
+            command = apply_surface_implementation(
+                normalised_command_to_surface_rad(applied_norm),
+                implementation,
+            )
             feedback_mode = control_command.feedback_mode
             saturation_count += int(control_command.saturation_applied)
             max_abs_command_norm = max(max_abs_command_norm, float(np.max(np.abs(applied_norm))))
             max_abs_surface_rad = max(max_abs_surface_rad, float(np.max(np.abs(command))))
         else:
-            command = command_template
-            if time_s > times_s[-1]:
-                times_s.append(time_s)
-                states.append(x.copy())
-                command_norm_history.append(command_template_norm.copy())
+            command = apply_surface_implementation(command_template, implementation)
         if not mechanism_flags["actuator_lag_applied"]:
             x[12:15] = command
         x = _rk4_step(
@@ -598,7 +628,6 @@ def _simulate_dynamics_rollout(
         if next_time_s > times_s[-1]:
             times_s.append(next_time_s)
             states.append(x.copy())
-            command_norm_history.append(command_norm_history[-1].copy())
 
     margins = position_margin_m(x[:3], TRUE_SAFE_BOUNDS)
     min_wall_margin_m = min(min_wall_margin_m, float(margins["min_wall_margin_m"]))
@@ -927,6 +956,22 @@ def _latency_field_values(
     }
 
 
+def _latency_for_implementation(latency_case: str, implementation: ImplementationInstance):
+    base = latency_case_config(latency_case)
+    return replace(
+        base,
+        state_feedback_delay_s=float(base.state_feedback_delay_s)
+        * float(implementation.state_feedback_delay_scale)
+        + float(implementation.latency_jitter_s),
+        command_onset_delay_s=float(base.command_onset_delay_s)
+        * float(implementation.command_onset_delay_scale),
+        command_transport_delay_s=float(base.command_transport_delay_s)
+        * float(implementation.command_transport_delay_scale)
+        + float(implementation.latency_jitter_s),
+        latency_jitter_s=float(base.latency_jitter_s) + float(implementation.latency_jitter_s),
+    )
+
+
 def _wind_mode_for_rollout(
     *,
     context: EnvironmentContext,
@@ -1028,7 +1073,15 @@ def rollout_evidence_row(evidence: RolloutEvidence) -> dict[str, object]:
     """Return one CSV-ready rollout evidence row."""
 
     row = asdict(evidence)
-    return {name: row[name] for name in ROLLOUT_EVIDENCE_COLUMNS}
+    result = {name: row[name] for name in ROLLOUT_EVIDENCE_COLUMNS}
+    state = np.asarray(json.loads(evidence.initial_state_vector), dtype=float).reshape(STATE_SIZE)
+    result.update(
+        {
+            f"initial_{name}": float(state[index])
+            for index, name in enumerate(STATE_NAMES)
+        }
+    )
+    return result
 
 
 def rollout_with_context_row(evidence: RolloutEvidence, context: EnvironmentContext) -> dict[str, object]:

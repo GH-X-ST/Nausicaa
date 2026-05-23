@@ -43,6 +43,8 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "03_Control/03_Primitives/command_contract.py",
     "03_Control/03_Primitives/metric_contract.py",
     "03_Control/03_Primitives/latency.py",
+    "03_Control/03_Primitives/implementation_instance.py",
+    "03_Control/03_Primitives/plant_instance.py",
     "03_Control/03_Primitives/wing_wind_descriptors.py",
     "03_Control/03_Primitives/episodic_lift_belief.py",
     "03_Control/03_Primitives/prim_cat.py",
@@ -56,6 +58,7 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "03_Control/03_Primitives/dense_archive_chunking.py",
     "03_Control/04_Scenarios/arena.py",
     "03_Control/04_Scenarios/arena_contract.py",
+    "03_Control/04_Scenarios/archive_table_reader.py",
     "03_Control/04_Scenarios/scenario_contract.py",
     "03_Control/04_Scenarios/updraft_models.py",
     "03_Control/04_Scenarios/env_ctx.py",
@@ -83,6 +86,7 @@ ALLOWLISTED_TESTS = {
     "03_Control/tests/test_dense_archive_chunking.py",
     "03_Control/tests/test_dense_archive_runtime.py",
     "03_Control/tests/test_dense_archive_table_io.py",
+    "03_Control/tests/test_implementation_plant_instances.py",
     "03_Control/tests/test_latency_acceptance_labels.py",
     "03_Control/tests/test_latency_chain.py",
     "03_Control/tests/test_latency_step_response.py",
@@ -304,3 +308,35 @@ def test_no_tracked_nonapproved_file_above_100_mb() -> None:
         if path.is_file() and path.stat().st_size > 100 * 1024 * 1024:
             oversized.append(rel_path)
     assert oversized == []
+
+
+def test_active_paths_do_not_group_or_name_by_raw_position_bins() -> None:
+    paths = [
+        "03_Control/03_Primitives/prim_model.py",
+        "03_Control/03_Primitives/prim_select.py",
+        "03_Control/04_Scenarios/run_ctx_archive.py",
+        "03_Control/04_Scenarios/run_primitive_selector_report.py",
+        "03_Control/04_Scenarios/run_w2_replay.py",
+        "03_Control/04_Scenarios/run_w3_generalisation.py",
+    ]
+    forbidden = (
+        "groupby([\"initial_x_w\"",
+        "groupby(['initial_x_w'",
+        "groupby([\"x_w\"",
+        "groupby(['x_w'",
+        "x_w_bin",
+        "y_w_bin",
+        "z_w_bin",
+        "arena_coordinate_bin",
+        "position_branch",
+        "coordinate_branch",
+        "primitive_id_from_position",
+        "evidence_group_x_w",
+    )
+    offenders = []
+    for rel_path in paths:
+        text = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+        offenders.extend(
+            f"{rel_path}: {token}" for token in forbidden if token in text
+        )
+    assert offenders == []

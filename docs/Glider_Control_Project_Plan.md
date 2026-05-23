@@ -4,7 +4,7 @@
 
 This plan integrates the full environment-conditioned primitive strategy with the model-only restart assumption. It is the active project contract for the Nausicaa glider control work.
 
-The project uses a compact library of short feedback-stabilised **primitives** to exploit local vertical flow across repeated approved-launch episodes. The online method is independent of a particular fan layout. It uses the measured glider state and local flow-context features to predict primitive outcomes, rejects unsafe choices through a viability governor, executes one short primitive, records the episode result, and updates an episodic lift belief for later launches.
+The project uses a compact library of short feedback-stabilised **primitives** to exploit local vertical flow across repeated fixed-gate launches. The online method is independent of a particular fan layout. It uses the measured glider state and local flow-context features to predict primitive outcomes, rejects unsafe choices through a viability governor, executes one short primitive, records the episode result, and updates an episodic lift belief for later launches.
 
 Submitted thesis title:
 
@@ -68,7 +68,7 @@ The project remains a robotics-style experimental contribution:
 ```text
 measured environment
 real hardware and instrumentation
-approved physical launch protocol
+fixed-gate launch protocol
 short closed-loop primitives
 explicit baselines and ablations
 failure labels
@@ -422,6 +422,43 @@ state inside gate or accepted tolerance shell
 controller has valid pose and command path ready
 ```
 
+### 7.1 Primitive-start distribution for archive and replay
+
+The fixed launch gate is the physical episode start, but it is not the only primitive-start state used for primitive outcome evidence. A primitive may be attempted at launch, or it may be attempted after a previous primitive has ended. Archive generation should therefore use a mixed primitive-start distribution, with launch-gate states treated as one important subcase of the broader primitive-start distribution rather than as a separate algorithm or separate result family.
+
+Do not use this distribution to rebuild fixed primitive chains or reachable-state chains. The archive should sample independent primitive-attempt states and ask what happens if one primitive is attempted from that state and context. Single-primitive exit states may be resampled into an in-flight start-state pool, but they must be logged as independent primitive-start samples rather than as part of an optimised chain or arena-specific action sequence.
+
+A first default archive mixture is:
+
+```text
+launch_gate                 40%   real episode starts and first primitive choices
+inflight_nominal            25%   ordinary in-flight states after clean primitive exits
+inflight_lift_region        15%   in-flight states near useful local updraft
+inflight_boundary_near      10%   near-wall states for terminal-boundary and governor learning
+inflight_recovery_edge      10%   low-speed, high-attitude, or recovery-margin states
+```
+
+Every sampled primitive-start state should retain the full canonical state, including position, attitude, body velocity, body rates, and surface states:
+
+```text
+x0 = [x_w, y_w, z_w, phi, theta, psi, u, v, w, p, q, r, delta_a, delta_e, delta_r]
+```
+
+The archive should also record primitive-start provenance fields:
+
+```text
+start_state_family          launch_gate / inflight_nominal / inflight_lift_region / inflight_boundary_near / inflight_recovery_edge
+state_sample_source         measured_log / synthetic_launch_gate / synthetic_inflight / rollout_exit_resampled / stress_sample
+state_envelope_label        approved_launch_gate / local_primitive_envelope / lift_region / boundary_near / recovery_edge
+paired_start_key            key for W0/W1/W2/W3 paired comparisons where applicable
+previous_primitive_status   launch_start / clean_exit / weak_exit / boundary_terminal / recovery_edge / unknown
+synthetic_previous_primitive_id
+synthetic_time_since_launch_s
+state_sampling_seed
+```
+
+Launch-gate rows should obey the physical release gate above. In-flight rows should cover plausible primitive-entry states inside the safety volume without encoding a named sequence of previous actions as a controller branch. This gives the outcome model evidence for both first-launch primitive attempts and mid-flight primitive attempts while preserving the project decision not to make chain construction a success gate.
+
 ---
 
 ## 8. Primitive outcome evidence
@@ -460,6 +497,19 @@ episode_terminal_useful
 boundary_use_class          continuation_valid / episode_terminal_useful / hard_failure / blocked
 failure_label
 claim_status
+```
+
+Additional primitive-start provenance fields should be recorded when the archive uses the mixed launch/in-flight start-state distribution:
+
+```text
+start_state_family
+state_sample_source
+state_envelope_label
+paired_start_key
+previous_primitive_status
+synthetic_previous_primitive_id
+synthetic_time_since_launch_s
+state_sampling_seed
 ```
 
 Accepted rows, weak rows, failed rows, and rejected rows are all evidence. Do not erase failures through clustering or averaging.
@@ -511,12 +561,14 @@ The primitive outcome model maps:
 state + environment_context + primitive_parameters -> predicted outcome
 ```
 
+The state distribution used for model fitting should mix launch-gate and in-flight primitive-start states in the same training table. The launch-gate subset is not a separate policy; it is one labelled subset of the primitive-start distribution. Validation splits should therefore report performance by `start_state_family`, `state_envelope_label`, `environment_instance_id`, primitive, W-layer, latency case, and seed where the data volume permits.
+
 First acceptable implementations:
 
 ```text
 nearest-neighbour / kNN lookup
 binning table
-representative-row lookup
+medoid lookup
 table-based score model
 calibrated logistic or tree model
 small transparent regressor/classifier
@@ -715,11 +767,56 @@ mass / CG / inertia
 surface calibration scale
 ```
 
+W3 should be heavier than W2. In addition to environment randomisation, W3 should include implementation and glider-plant randomisation as first-class logged inputs rather than hidden changes inside the dynamics code. Required W3 randomisation groups are:
+
+```text
+environment randomisation
+    fan position
+    fan power
+    active fan subset where the surrogate can represent it honestly
+    updraft amplitude
+    updraft centre
+    updraft width
+    residual vertical field
+    local uncertainty scale
+
+implementation randomisation
+    state-feedback delay
+    command onset / transport delay
+    actuator lag
+    latency jitter
+    command quantisation
+    surface neutral bias
+    surface limit scale
+    surface effectiveness scale
+    left/right aileron asymmetry
+
+glider plant randomisation
+    mass scale
+    centre-of-gravity offset in x/y/z
+    Ixx / Iyy / Izz scale
+    cross-inertia perturbation if supported by the model
+    aerodynamic coefficient scale where justified
+    surface calibration scale
+```
+
+Every W3 replay row should log a deterministic randomisation seed and the active instance identifiers:
+
+```text
+environment_instance_id
+implementation_instance_id
+plant_instance_id
+plant_randomisation_seed
+actuator_randomisation_seed
+```
+
+If a randomisation component cannot be represented honestly by the available surrogate or dynamics model, the row or component must be labelled as approximate or blocked rather than silently treated as exact.
+
 W3 uses the randomised GP-corrected annular-Gaussian surrogate and is the main simulation test that the method is not tied to one fan layout. W3 output should be a pass/fail/weak label under uncertainty, not just a trajectory plot. W3 should stress W2-supported and W2-informative cases; it must not reintroduce extra updraft-surrogate-family branching.
 
 ### 12.5 Real flight
 
-Real flight is approved repeated-launch validation with measured initial states. Real data must be paired with matched simulation before any transfer claim is made.
+Real flight is fixed-gate repeated-launch validation with measured initial states. Real data must be paired with matched simulation before any transfer claim is made.
 
 ---
 
@@ -735,6 +832,8 @@ Use small, meaningful runs first. Dense runs are allowed only after the foundati
 | environment generalisation | 10k--30k rows | 5k | fan position/power/updraft randomisation |
 | repeated-launch simulation | 100--300 episodes | 50 | compare policies |
 | hardware shortlist | 5--10 candidates | 3 | choose real-flight candidates |
+
+For contextual archive and environment-generalisation stages, the default primitive-start mixture should combine launch-gate and in-flight primitive-entry states in a single table. A useful first target is 40% launch-gate states and 60% in-flight states, with in-flight rows divided among nominal, lift-region, boundary-near, and recovery-edge cases. This is not a return to primitive-chain construction; it is a way to train each primitive on realistic launch and mid-flight entry states while keeping each row as one independent primitive attempt.
 
 Do not run large all-arena archives. Large all-arena sweeps are not the main result and must not displace real-flight preparation, analysis, or writing time.
 
@@ -782,7 +881,7 @@ claim status
 
 ## 15. Real-flight evidence
 
-Real evaluation remains controlled by an approved launch protocol because it makes sim-real comparison interpretable.
+Real evaluation remains fixed-gate because it makes sim-real comparison interpretable.
 
 Minimum useful real evidence:
 
@@ -851,7 +950,15 @@ outcome_class
 evidence_role
 ```
 
-Use representative real rows where possible. A representative row remains replayable and auditable.
+When mixed primitive-start evidence is used, reports should also stratify or summarise by:
+
+```text
+start_state_family
+state_envelope_label
+previous_primitive_status
+```
+
+Use medoids or representative real rows where possible. A medoid remains replayable and auditable.
 
 Outputs:
 
@@ -883,7 +990,7 @@ planned rollout rows >= 10,000
 planned candidate rows >= 5,000
 expected runtime > 30 minutes
 expected uncompressed table size > 250 MB
-used for thesis evidence, environment generalisation, envelope maps, clustering, W2/W3 replay, outcome models, or selector/governor reports
+used for thesis evidence, environment generalisation, envelope maps, clustering, W2/W3 replay, outcome models, or governor packages
 ```
 
 Dense runs must be:

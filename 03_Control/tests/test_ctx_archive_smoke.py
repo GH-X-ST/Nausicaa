@@ -61,15 +61,33 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
         "trajectory_integrity_status",
         "surrogate_binding_status",
         "state_sample_source",
+        "start_state_family",
         "paired_start_key",
         "state_envelope_label",
+        "previous_primitive_status",
+        "launch_gate_compliant",
+        "state_sampling_version",
         "primitive_feature_vector",
         "boundary_use_class",
+        "implementation_instance_implementation_instance_id",
+        "plant_instance_plant_instance_id",
+        "environment_adjustment_status",
         "state_feedback_delay_applied",
         "command_delay_applied",
         "actuator_lag_applied",
         "saturation_fraction",
     }.issubset(frame.columns)
+    for name in ("x_w", "y_w", "z_w", "phi", "theta", "psi", "u", "v", "w", "p", "q", "r", "delta_a", "delta_e", "delta_r"):
+        assert f"initial_{name}" in frame.columns
+    assert set(frame["start_state_family"]).issubset(
+        {
+            "launch_gate",
+            "inflight_nominal",
+            "inflight_lift_region",
+            "inflight_boundary_near",
+            "inflight_recovery_edge",
+        }
+    )
     assert set(frame["rollout_backend"]) == {"model_backed_feedback"}
     assert set(frame["evidence_role"]) == {"feedback_rollout_candidate"}
 

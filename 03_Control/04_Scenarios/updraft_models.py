@@ -91,6 +91,8 @@ class EnvironmentAdjustedWindField:
     active_fan_mask: tuple[bool, ...] = ()
     local_updraft_uncertainty_m_s: float = 0.25
     transform_label: str = "environment_adjusted"
+    environment_adjustment_status: str = "applied"
+    environment_adjustment_limitations: str = ""
 
     @property
     def name(self) -> str:
@@ -102,7 +104,9 @@ class EnvironmentAdjustedWindField:
             f"{self.base.source}; env_adjustment={self.transform_label}; "
             f"amplitude_scale={float(self.amplitude_scale):.6f}; "
             f"width_scale={float(self.width_scale):.6f}; "
-            f"centre_shift_m={tuple(float(v) for v in self.centre_shift_m)}"
+            f"centre_shift_m={tuple(float(v) for v in self.centre_shift_m)}; "
+            f"environment_adjustment_status={self.environment_adjustment_status}; "
+            f"environment_adjustment_limitations={self.environment_adjustment_limitations}"
         )
 
     def __call__(self, points_w_up_m: np.ndarray) -> np.ndarray:
@@ -214,6 +218,15 @@ def build_environment_adjusted_wind_field(
         base_uncertainty = 0.25
     if not np.isfinite(base_uncertainty) or base_uncertainty <= 0.0:
         base_uncertainty = 0.25
+    if isinstance(wind, GaussianVarWindField):
+        adjustment_status = "applied"
+        limitations = ""
+    else:
+        adjustment_status = "approximate"
+        limitations = (
+            "non-decomposable field: amplitude width centre and uncertainty "
+            "are applied; active-fan mask and per-fan power are not exact"
+        )
     return EnvironmentAdjustedWindField(
         base=wind,
         amplitude_scale=float(amplitude_scale),
@@ -224,6 +237,8 @@ def build_environment_adjusted_wind_field(
         active_fan_mask=tuple(bool(value) for value in active_fan_mask),
         local_updraft_uncertainty_m_s=float(base_uncertainty * max(float(local_uncertainty_scale), 1.0)),
         transform_label=str(transform_label),
+        environment_adjustment_status=adjustment_status,
+        environment_adjustment_limitations=limitations,
     )
 
 

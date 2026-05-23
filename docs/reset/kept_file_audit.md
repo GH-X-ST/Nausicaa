@@ -70,3 +70,9 @@ The active allowlist now includes the Path A code-plus-smoke additions:
 - selector, W2 replay, and W3 generalisation report scaffolds.
 
 These files are kept as implementation scaffolds and test-covered interfaces, not as completed evidence runs. The audit boundary remains unchanged: official R6 archive, R7 selector-report, and R8 W2 replay completion are deferred until explicitly approved local runs are produced.
+
+## Mixed-Start W3 Scaffold Addendum
+
+The active allowlist now includes first-class mixed primitive-start sampling, archive table reading, implementation/actuator instances, plant instances, W2 mixed-start replay rows, and W3 environment/implementation/plant scaffold cases.
+
+The audit guard is explicit: full raw canonical entry state is logged for replay and safety calculations, but raw arena position is not used as a primitive identifier, online branch, evidence group, result-family name, or primary coordinate-bin summary key. Unsupported W3 perturbations remain labelled `blocked_not_yet_applied` or approximate.

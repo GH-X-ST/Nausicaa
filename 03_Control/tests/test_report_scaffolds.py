@@ -12,7 +12,8 @@ from prim_features import primitive_feature_record, primitive_feature_row
 from run_primitive_selector_report import SelectorReportConfig, run_primitive_selector_report
 from run_w2_replay import W2ReplayConfig, run_w2_replay_scaffold
 from run_w3_generalisation import W3GeneralisationConfig, run_w3_generalisation_scaffold
-from state_contract import STATE_INDEX, STATE_SIZE
+from state_contract import STATE_INDEX, STATE_NAMES, STATE_SIZE
+from state_sampling import archive_state_sample_for_row, archive_state_sample_row
 
 
 def _archive_row() -> dict[str, object]:
@@ -43,7 +44,9 @@ def _archive_row() -> dict[str, object]:
         "termination_cause": "controlled_finish",
     }
     row.update({f"context_{key}": value for key, value in environment_context_row(context).items()})
-    row.update({f"initial_{name}": float(state[index]) for index, name in enumerate(("x_w", "y_w", "z_w", "phi", "theta", "psi", "u", "v", "w", "p", "q", "r", "delta_a", "delta_e", "delta_r"))})
+    sample = archive_state_sample_for_row(0, seed=1, W_layer="W0", environment_mode="dry_air")
+    row.update(archive_state_sample_row(sample))
+    row.update({f"initial_{name}": float(state[index]) for index, name in enumerate(STATE_NAMES)})
     row.update(primitive_feature_row(primitive_feature_record(state=state, context=context, primitive=primitive)))
     return row
 
@@ -59,13 +62,28 @@ def test_selector_and_replay_scaffolds_write_temp_manifests(tmp_path: Path) -> N
             output_root=tmp_path,
         )
     )
-    w2 = run_w2_replay_scaffold(W2ReplayConfig(run_id=82, output_root=tmp_path))
-    w3 = run_w3_generalisation_scaffold(W3GeneralisationConfig(run_id=83, output_root=tmp_path))
+    w2 = run_w2_replay_scaffold(
+        W2ReplayConfig(run_id=82, output_root=tmp_path, source_archive=archive_table)
+    )
+    w3 = run_w3_generalisation_scaffold(
+        W3GeneralisationConfig(run_id=83, output_root=tmp_path, source_replay=archive_table)
+    )
 
     selector_manifest = json.loads(Path(selector["manifest"]).read_text())
     w2_manifest = json.loads(Path(w2["manifest"]).read_text())
     w3_manifest = json.loads(Path(w3["manifest"]).read_text())
 
     assert selector_manifest["claim_status"] == "simulation_only_selector_report_smoke"
-    assert w2_manifest["replay_status"] == "blocked_until_approved_R6_archive_exists"
-    assert w3_manifest["generalisation_status"] == "blocked_until_W2_supported_cases_exist"
+    assert w2_manifest["R8_W2_replay_complete"] is False
+    assert w2_manifest["replay_status"] == "mixed_start_w2_replay_smoke_from_source"
+    assert w3_manifest["R9_W3_generalisation_complete"] is False
+    assert w3_manifest["generalisation_status"] == "partial_smoke_from_source_no_robustness_claim"
+
+    selector_rows = pd.read_csv(selector["decision_table"])
+    w2_rows = pd.read_csv(w2["replay_table"])
+    w3_rows = pd.read_csv(w3["case_table"])
+    for frame in (selector_rows, w2_rows, w3_rows):
+        for name in STATE_NAMES:
+            assert f"entry_{name}" in frame.columns
+    assert "validation_split_columns" in selector_manifest
+    assert "environment_adjustment_status" in w3_manifest
