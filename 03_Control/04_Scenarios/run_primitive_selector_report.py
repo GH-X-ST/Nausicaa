@@ -179,7 +179,7 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
         and (full_evaluation_ok or declared_bounded_ok)
     )
     stage_status = "complete" if r7_complete and full_evaluation_ok else (
-        "fallback" if r7_complete and declared_bounded_ok else "partial"
+        "accepted_fallback" if r7_complete and declared_bounded_ok else "smoke_incomplete"
     )
     manifest = {
         "run_id": int(config.run_id),

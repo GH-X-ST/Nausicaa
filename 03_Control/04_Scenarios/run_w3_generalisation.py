@@ -204,14 +204,14 @@ def run_w3_generalisation(config: W3GeneralisationConfig) -> dict[str, object]:
         run_root / "metrics" / "file_size_audit.csv",
     )
     row_count = int(len(frame))
-    target_status = "complete" if row_count >= int(config.target_rows) else "fallback"
+    target_status = "complete" if row_count >= int(config.target_rows) else "accepted_fallback"
     if row_count < int(config.fallback_rows):
-        target_status = "partial"
+        target_status = "smoke_incomplete"
     exact_blocking_ratio = float(ratio_summary["blocked_ratio"])
     if exact_blocking_ratio > 0.70:
         stage_status = "blocked"
     elif exact_blocking_ratio > 0.50:
-        stage_status = "partial" if target_status == "fallback" else "fallback"
+        stage_status = "smoke_incomplete" if target_status == "accepted_fallback" else "accepted_fallback"
     else:
         stage_status = target_status
     actual_replay = bool(
@@ -242,7 +242,7 @@ def run_w3_generalisation(config: W3GeneralisationConfig) -> dict[str, object]:
         actual_replay
         and source_info.evidence_eligible
         and is_thesis_eligible_status(archive_evidence_status)
-        and stage_status in {"complete", "fallback"}
+        and stage_status in {"complete", "accepted_fallback"}
         and file_status == "pass"
     )
     manifest = {
@@ -770,7 +770,7 @@ def _replay_archive_evidence_status(
         return "blocked", "blocked_file_size_audit"
     if stage_status == "complete" and source_info.archive_evidence_status == "complete":
         return "complete", "eligible_verified_w3_complete"
-    if stage_status in {"complete", "fallback"}:
+    if stage_status in {"complete", "accepted_fallback"}:
         return "accepted_fallback", "eligible_verified_w3_accepted_fallback"
     return "smoke_incomplete", "debug_w3_replay_incomplete"
 

@@ -106,21 +106,29 @@ def test_r6_r8_alignment_report_records_statuses() -> None:
 
 def test_v3_2_evidence_status_enums_are_active_contract_fields() -> None:
     status = _read("03_Control/03_Primitives/evidence_status.py")
+    stage_utils = _read("03_Control/04_Scenarios/evidence_stage_utils.py")
     archive_reader = _read("03_Control/04_Scenarios/archive_table_reader.py")
     run_ctx_archive = _read("03_Control/04_Scenarios/run_ctx_archive.py")
     run_lqr_archive = _read("03_Control/04_Scenarios/run_lqr_contextual_archive.py")
-    for token in (
+    status_tokens = (
         "complete",
         "accepted_fallback",
         "smoke_incomplete",
         "blocked",
         "retired_not_active",
+    )
+    claim_tokens = (
         "simulation_only_registry_complete",
         "simulation_only_registry_accepted_fallback",
         "simulation_only_smoke_incomplete",
         "simulation_only_blocked",
-    ):
+    )
+    for token in status_tokens + claim_tokens:
         assert token in status
+    for token in status_tokens:
+        assert token in stage_utils
+    assert '"fallback"' not in stage_utils
+    assert '"partial"' not in stage_utils
     for token in (
         "registry_backed_row_count",
         "missing_controller_row_count",

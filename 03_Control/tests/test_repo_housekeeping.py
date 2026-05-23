@@ -75,6 +75,7 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "03_Control/04_Scenarios/env_ctx.py",
     "03_Control/04_Scenarios/env_instance.py",
     "03_Control/04_Scenarios/env_surrogate.py",
+    "03_Control/04_Scenarios/run_active_contract_audit.py",
     "03_Control/04_Scenarios/run_ctx_archive.py",
     "03_Control/04_Scenarios/run_ctx_episode_smoke.py",
     "03_Control/04_Scenarios/run_lqr_contextual_archive.py",
@@ -136,6 +137,7 @@ ALLOWLISTED_TESTS = {
     "03_Control/tests/test_episodic_lift_belief.py",
     "03_Control/tests/test_guidance_alignment.py",
     "03_Control/tests/test_report_scaffolds.py",
+    "03_Control/tests/test_active_contract_audit.py",
     "03_Control/tests/test_lqr_contextual_archive_dry_run.py",
     "03_Control/tests/test_lqr_tuning_dry_run_contract.py",
 }

@@ -253,6 +253,21 @@ def _archive_evidence_status(
         return "blocked", "blocked_no_registry_backed_nonblocked_rows", counts
     if not _candidate_metadata_complete(frame, registry_backed & nonblocked):
         return "blocked", "blocked_missing_candidate_metadata", counts
+    registry_statuses = {
+        value
+        for value in _string_series(frame, "registry_status")[registry_backed & nonblocked].str.strip()
+        if value and value.lower() not in {"nan", "none", "null"}
+    }
+    if not registry_statuses:
+        return "blocked", "blocked_missing_registry_status", counts
+    if "retired_not_active" in registry_statuses:
+        return "retired_not_active", "blocked_retired_source", counts
+    if "blocked" in registry_statuses:
+        return "blocked", "blocked_registry_status_not_eligible", counts
+    if "smoke_incomplete" in registry_statuses:
+        return "smoke_incomplete", "debug_smoke_incomplete", counts
+    if not registry_statuses.issubset({"complete", "accepted_fallback"}):
+        return "blocked", "blocked_registry_status_not_eligible", counts
     if missing_controller_ratio > 0.05:
         return "blocked", "blocked_high_missing_controller_ratio", counts
     if not replay_stage and blocked_ratio > 0.60:
@@ -265,9 +280,9 @@ def _archive_evidence_status(
         if manifest_status in {"blocked", "retired_not_active"}:
             return manifest_status, str(run_manifest.get("evidence_eligibility_reason", "blocked_replay_source")), counts
         return "smoke_incomplete", "debug_smoke_incomplete", counts
-    if manifest_status == "accepted_fallback":
+    if manifest_status == "accepted_fallback" or "accepted_fallback" in registry_statuses:
         return "accepted_fallback", "eligible_registry_backed_accepted_fallback", counts
-    if manifest_status == "complete" or rows_requested >= 40_000:
+    if manifest_status == "complete" and registry_statuses == {"complete"}:
         return "complete", "eligible_registry_backed_complete", counts
     return "smoke_incomplete", "debug_smoke_incomplete", counts
 

@@ -285,12 +285,14 @@ def _registry_status_for_rows(rows: list[dict[str, object]]) -> str:
     statuses = {str(row.get("registry_status", "blocked")) for row in rows}
     if "retired_not_active" in statuses:
         return "retired_not_active"
-    if "complete" in statuses:
+    if "blocked" in statuses:
+        return "blocked"
+    if "smoke_incomplete" in statuses:
+        return "smoke_incomplete"
+    if statuses == {"complete"}:
         return "complete"
     if "accepted_fallback" in statuses:
         return "accepted_fallback"
-    if "smoke_incomplete" in statuses:
-        return "smoke_incomplete"
     return "blocked"
 
 

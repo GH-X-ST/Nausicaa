@@ -14,7 +14,13 @@ from dense_archive_runtime import (
 from dense_archive_table_io import filesystem_path
 
 
-STAGE_STATUS_VALUES = ("complete", "fallback", "partial", "blocked", "deferred")
+STAGE_STATUS_VALUES = (
+    "complete",
+    "accepted_fallback",
+    "smoke_incomplete",
+    "blocked",
+    "retired_not_active",
+)
 CLAIM_BOUNDARY_TEXT = (
     "No controller-performance, mission-success, hardware-readiness, "
     "real-flight-transfer, full W2 survival, full W3 robustness, or "
@@ -257,12 +263,12 @@ def status_from_blocked_ratio(
     blocked_ratio: float,
     fallback_threshold: float,
     partial_threshold: float,
-    fallback_status: str = "fallback",
+    fallback_status: str = "accepted_fallback",
 ) -> str:
-    if target_status not in {"complete", "fallback"}:
+    if target_status not in {"complete", "accepted_fallback"}:
         return target_status
     if float(blocked_ratio) > float(partial_threshold):
         return "blocked"
     if float(blocked_ratio) > float(fallback_threshold):
-        return "partial" if target_status == fallback_status else fallback_status
+        return "smoke_incomplete" if target_status == fallback_status else fallback_status
     return target_status

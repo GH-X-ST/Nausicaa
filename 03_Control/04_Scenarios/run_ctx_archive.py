@@ -507,11 +507,18 @@ def _apply_registry_row_status(
         row["archive_evidence_status"] = (
             "blocked" if outcome_class == "blocked" else selected_record.registry_status
         )
-        row["evidence_eligibility_reason"] = (
-            "blocked_registry_backed_row"
-            if outcome_class == "blocked"
-            else f"eligible_registry_backed_{selected_record.registry_status}"
-        )
+        if outcome_class == "blocked":
+            row["evidence_eligibility_reason"] = "blocked_registry_backed_row"
+        elif selected_record.registry_status == "complete":
+            row["evidence_eligibility_reason"] = "eligible_registry_backed_complete"
+        elif selected_record.registry_status == "accepted_fallback":
+            row["evidence_eligibility_reason"] = "eligible_registry_backed_accepted_fallback"
+        elif selected_record.registry_status == "smoke_incomplete":
+            row["evidence_eligibility_reason"] = "debug_smoke_incomplete"
+        elif selected_record.registry_status == "retired_not_active":
+            row["evidence_eligibility_reason"] = "blocked_retired_source"
+        else:
+            row["evidence_eligibility_reason"] = "blocked_registry_status_not_eligible"
         return
 
     if config.rollout_backend == "smoke_only":
@@ -797,13 +804,19 @@ def _archive_evidence_status_for_run(
         return "blocked", "blocked_high_missing_controller_ratio"
     if blocked_ratio > 0.60:
         return "blocked", "blocked_high_blocked_ratio"
-    statuses = set(outcome_frame.get("registry_status", pd.Series(dtype=str)).astype(str))
-    if "complete" in statuses:
+    statuses = {
+        str(value).strip()
+        for value in outcome_frame.get("registry_status", pd.Series(dtype=str)).astype(str)
+        if str(value).strip()
+    }
+    if statuses == {"complete"}:
         return "complete", "eligible_registry_backed_complete"
-    if "accepted_fallback" in statuses:
+    if statuses and statuses.issubset({"complete", "accepted_fallback"}) and "accepted_fallback" in statuses:
         return "accepted_fallback", "eligible_registry_backed_accepted_fallback"
     if "smoke_incomplete" in statuses:
         return "smoke_incomplete", "debug_smoke_incomplete"
+    if "retired_not_active" in statuses:
+        return "retired_not_active", "blocked_retired_source"
     return "blocked", "blocked_registry_status_not_eligible"
 
 

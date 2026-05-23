@@ -94,3 +94,26 @@ Date: 2026-05-23
 ### Claim boundary
 
 No dense archive, hardware-readiness, real-flight transfer, W2/W3 robustness, mission-success, PD/PID fallback, TVLQR/MPC/LQR-tree, reachable-chain, online fan-layout branch, or claim beyond `simulation_only` was introduced by this current-code audit fix.
+
+## Active Contract Guard Addendum
+
+Date: 2026-05-23
+
+### Fixed current-code drift guards
+
+- Added a dependency-free active contract audit entrypoint at `03_Control/04_Scenarios/run_active_contract_audit.py`.
+- Added pytest coverage that requires the active contract audit to have no findings once a working pytest environment is available.
+- The audit checks canonical evidence-status vocabulary, absence of active forbidden controller-method tokens, no active `boundary_terminal` outcome assignment, and W2/W3 replay-only provenance without retuning paths.
+- Housekeeping allowlists now include the audit entrypoint and its test.
+
+### Validation status
+
+- `C:\Users\GH-X-ST\.conda\envs\Paul_Li_FYP\python.exe 03_Control\04_Scenarios\run_active_contract_audit.py` passed.
+- `C:\Program Files\Blender Foundation\Blender 4.4\4.4\python\bin\python.exe -m compileall 03_Control` passed.
+- `git diff --check` passed with line-ending warnings only.
+- `python -m pytest -q 03_Control/tests` remains blocked by the WindowsApps launcher (`specified logon session does not exist`).
+- `C:\Users\GH-X-ST\.conda\envs\Paul_Li_FYP\python.exe -m pytest -q 03_Control/tests` remains blocked because that environment lacks `pytest`.
+
+### Claim boundary
+
+No dense archive, hardware-readiness, real-flight transfer, W2/W3 robustness, mission-success, PD/PID fallback, TVLQR/MPC/LQR-tree, reachable-chain, online fan-layout branch, or claim beyond `simulation_only` was introduced by this guard pass.

@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 
 from env_ctx import EnvironmentMetadata, build_environment_context, environment_context_row
+from archive_table_reader import read_archive_table_with_info
+from dense_archive_table_io import TableManifest, write_table_manifest, write_table_partition
 from lqr_controller import lqr_controller_for_primitive_id, lqr_rollout_metadata
 from prim_cat import primitive_by_id
 from prim_features import primitive_feature_record, primitive_feature_row
@@ -130,10 +132,14 @@ def test_selector_and_replay_scaffolds_write_temp_manifests(tmp_path: Path) -> N
     assert w2_manifest["R8_W2_replay_complete"] is False
     assert w2_manifest["actual_model_backed_replay"] is True
     assert w2_manifest["archive_evidence_status"] == "smoke_incomplete"
+    assert w2_manifest["replay_status"] in {"complete", "accepted_fallback", "smoke_incomplete", "blocked"}
+    assert w2_manifest["replay_status"] not in {"fallback", "partial"}
     assert w2_manifest["replayed_row_count"] > 0
     assert w3_manifest["R9_W3_generalisation_complete"] is False
     assert w3_manifest["actual_model_backed_replay"] is True
     assert w3_manifest["archive_evidence_status"] == "smoke_incomplete"
+    assert w3_manifest["generalisation_status"] in {"complete", "accepted_fallback", "smoke_incomplete", "blocked"}
+    assert w3_manifest["generalisation_status"] not in {"fallback", "partial"}
 
     selector_rows = pd.read_csv(selector["decision_table"])
     w2_rows = pd.read_csv(w2["replay_table"])
@@ -213,3 +219,55 @@ def test_w2_w3_replay_scaffolds_write_chunked_partitions(tmp_path: Path) -> None
     assert all(row["checksum_sha256"] for row in w3_table_manifest["tables"])
     assert (Path(w2["run_root"]) / "metrics" / "chunk_summary.csv").is_file()
     assert (Path(w3["run_root"]) / "metrics" / "chunk_summary.csv").is_file()
+
+
+def test_archive_reader_does_not_promote_row_count_or_mixed_registry_status(tmp_path: Path) -> None:
+    run_root = tmp_path / "r099"
+    (run_root / "manifests").mkdir(parents=True)
+    frame = pd.DataFrame(
+        [
+            _archive_row(outcome_class="accepted", start_row=0, primitive_id="glide"),
+            {
+                **_archive_row(outcome_class="accepted", start_row=1, primitive_id="recovery"),
+                "registry_status": "smoke_incomplete",
+                "registry_claim_status": "simulation_only_smoke_incomplete",
+                "archive_evidence_status": "smoke_incomplete",
+                "evidence_eligibility_reason": "debug_smoke_incomplete",
+            },
+        ]
+    )
+    partition = write_table_partition(
+        frame,
+        run_root / "tables" / "contextual_rows" / "c00000.csv",
+        storage_format="csv",
+    )
+    write_table_manifest(
+        run_root / "manifests" / "table_manifest.json",
+        TableManifest(
+            run_id=99,
+            root=run_root.as_posix(),
+            storage_format="csv",
+            tables=(partition,),
+        ),
+    )
+    (run_root / "manifests" / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": 99,
+                "rows_requested": 40_000,
+                "rollout_backend": "model_backed_lqr",
+                "selected_controller_registry": "test_selected_lqr_controllers.csv",
+                "archive_evidence_status": "complete",
+                "claim_status": "simulation_only_lqr_backed_preflight",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="ascii",
+    )
+
+    _, source_info = read_archive_table_with_info(run_root)
+
+    assert source_info.archive_evidence_status == "smoke_incomplete"
+    assert source_info.evidence_eligibility_reason == "debug_smoke_incomplete"
+    assert source_info.evidence_eligible is False
