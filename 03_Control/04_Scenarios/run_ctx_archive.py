@@ -38,7 +38,8 @@ from dense_archive_table_io import (  # noqa: E402
     write_table_manifest,
     write_table_partition,
 )
-from controller_registry import load_selected_controller_registry  # noqa: E402
+from controller_registry import load_selected_controller_records  # noqa: E402
+from evidence_status import registry_claim_status_for  # noqa: E402
 from evidence_stage_utils import (  # noqa: E402
     write_blocked_approximate_ratio_summary,
     write_claim_boundary_report,
@@ -316,7 +317,7 @@ def _chunk_rows(
     spec: ContextChunkSpec,
 ) -> list[dict[str, object]]:
     primitives = active_primitive_catalogue()
-    controller_registry = load_selected_controller_registry(config.selected_controller_registry)
+    controller_registry = load_selected_controller_records(config.selected_controller_registry)
     rows: list[dict[str, object]] = []
     for offset in range(spec.chunk_size):
         row_index = int(spec.chunk_index * config.candidate_chunk_size + offset)
@@ -357,7 +358,8 @@ def _chunk_rows(
             surrogate_binding=binding,
         )
         primitive = primitives[row_index % len(primitives)]
-        selected_controller = controller_registry.get(primitive.primitive_id) if controller_registry else None
+        selected_record = controller_registry.get(primitive.primitive_id) if controller_registry else None
+        selected_controller = selected_record.controller if selected_record is not None else None
         controller_status = (
             "W0_W1_registry_selected"
             if selected_controller is not None
@@ -385,6 +387,8 @@ def _chunk_rows(
                 failure_label="surrogate_binding_blocked",
                 controller=selected_controller,
                 controller_selection_status=controller_status,
+                candidate_index=selected_record.candidate_index if selected_record is not None else "",
+                candidate_weight_label=selected_record.candidate_weight_label if selected_record is not None else "",
             )
         elif config.selected_controller_registry is not None and selected_controller is None:
             evidence = blocked_rollout_evidence(
@@ -396,6 +400,8 @@ def _chunk_rows(
                 config=rollout_config,
                 failure_label="controller_missing_from_selected_registry",
                 controller_selection_status="missing_selected_registry_entry",
+                candidate_index="",
+                candidate_weight_label="",
             )
         else:
             evidence = simulate_primitive_rollout(
@@ -410,8 +416,16 @@ def _chunk_rows(
                 plant_instance=plant,
                 controller=selected_controller,
                 controller_selection_status=controller_status,
+                candidate_index=selected_record.candidate_index if selected_record is not None else "",
+                candidate_weight_label=selected_record.candidate_weight_label if selected_record is not None else "",
             )
         row = rollout_with_context_row(evidence, context)
+        _apply_registry_row_status(
+            row,
+            selected_record=selected_record,
+            config=config,
+            outcome_class=str(row.get("outcome_class", "")),
+        )
         row.update({f"surrogate_{key}": value for key, value in surrogate_binding_row(binding).items()})
         row.update({f"environment_instance_{key}": value for key, value in environment_instance_row(instance).items()})
         row["environment_adjustment_status"] = _wind_adjustment_field(
@@ -478,6 +492,44 @@ def _wind_adjustment_field(wind: object | None, name: str, default: str) -> str:
     if base is not None and hasattr(base, name):
         return str(getattr(base, name))
     return str(default)
+
+
+def _apply_registry_row_status(
+    row: dict[str, object],
+    *,
+    selected_record,
+    config: ContextArchiveConfig,
+    outcome_class: str,
+) -> None:
+    if selected_record is not None:
+        row.update(selected_record.row_metadata())
+        row["source_controller_selection_status"] = "W0_W1_registry_selected"
+        row["archive_evidence_status"] = (
+            "blocked" if outcome_class == "blocked" else selected_record.registry_status
+        )
+        row["evidence_eligibility_reason"] = (
+            "blocked_registry_backed_row"
+            if outcome_class == "blocked"
+            else f"eligible_registry_backed_{selected_record.registry_status}"
+        )
+        return
+
+    if config.rollout_backend == "smoke_only":
+        row["registry_status"] = "smoke_incomplete"
+        row["registry_claim_status"] = registry_claim_status_for("smoke_incomplete")
+        row["archive_evidence_status"] = "smoke_incomplete"
+        row["evidence_eligibility_reason"] = "debug_smoke_incomplete"
+    else:
+        row["registry_status"] = "blocked"
+        row["registry_claim_status"] = registry_claim_status_for("blocked")
+        row["archive_evidence_status"] = "blocked"
+        row["evidence_eligibility_reason"] = "blocked_missing_selected_registry"
+    row["registry_path"] = (
+        "" if config.selected_controller_registry is None else Path(config.selected_controller_registry).as_posix()
+    )
+    row["selected_controller_status"] = ""
+    row["selected_controller_reason"] = ""
+    row["source_controller_selection_status"] = ""
 
 
 # =============================================================================
@@ -599,6 +651,17 @@ def _run_single_chunk(
                 "evidence_role": row["evidence_role"],
                 "controller_id": row["controller_id"],
                 "controller_selection_status": row.get("controller_selection_status", ""),
+                "controller_evidence_status": row.get("controller_evidence_status", ""),
+                "controller_executable": bool(row.get("controller_executable", False)),
+                "candidate_index": row.get("candidate_index", ""),
+                "candidate_weight_label": row.get("candidate_weight_label", ""),
+                "selected_controller_status": row.get("selected_controller_status", ""),
+                "selected_controller_reason": row.get("selected_controller_reason", ""),
+                "registry_status": row.get("registry_status", ""),
+                "registry_claim_status": row.get("registry_claim_status", ""),
+                "registry_path": row.get("registry_path", ""),
+                "archive_evidence_status": row.get("archive_evidence_status", ""),
+                "evidence_eligibility_reason": row.get("evidence_eligibility_reason", ""),
                 "continuation_valid": bool(row["continuation_valid"]),
                 "episode_terminal_useful": bool(row["episode_terminal_useful"]),
                 "continuation_status": row["continuation_status"],
@@ -690,6 +753,65 @@ def _write_chunk_manifest(
     )
 
 
+def _archive_evidence_status_for_run(
+    *,
+    config: ContextArchiveConfig,
+    outcome_frame: pd.DataFrame,
+    dry_run: bool,
+) -> tuple[str, str]:
+    if dry_run:
+        return "smoke_incomplete", "debug_smoke_incomplete"
+    if config.rollout_backend == "smoke_only":
+        return "smoke_incomplete", "debug_smoke_incomplete"
+    if config.selected_controller_registry is None:
+        return "blocked", "blocked_missing_selected_registry"
+    if outcome_frame.empty:
+        return "blocked", "blocked_no_rows"
+    registry_backed = outcome_frame.get("controller_selection_status", pd.Series(dtype=str)).astype(str).eq(
+        "W0_W1_registry_selected"
+    )
+    nonblocked = outcome_frame.get("outcome_class", pd.Series(dtype=str)).astype(str).ne("blocked")
+    candidate_label = outcome_frame.get("candidate_weight_label", pd.Series(dtype=str)).astype(str)
+    q_json = outcome_frame.get("lqr_Q_weights_json", pd.Series(dtype=str)).astype(str)
+    r_json = outcome_frame.get("lqr_R_weights_json", pd.Series(dtype=str)).astype(str)
+    checksum = outcome_frame.get("lqr_gain_checksum", pd.Series(dtype=str)).astype(str)
+    linearisation = outcome_frame.get("linearisation_id", pd.Series(dtype=str)).astype(str)
+    complete_metadata = (
+        _nonmissing_series(candidate_label)
+        & _nonmissing_series(q_json)
+        & _nonmissing_series(r_json)
+        & _nonmissing_series(checksum)
+        & _nonmissing_series(linearisation)
+    )
+    missing_controller = outcome_frame.get("controller_evidence_status", pd.Series(dtype=str)).astype(str).str.contains(
+        "missing",
+        na=False,
+    )
+    missing_ratio = float(missing_controller.mean()) if len(outcome_frame) else 1.0
+    blocked_ratio = float((~nonblocked).mean()) if len(outcome_frame) else 1.0
+    if not bool((registry_backed & nonblocked).any()):
+        return "blocked", "blocked_no_registry_backed_nonblocked_rows"
+    if not bool((registry_backed & nonblocked & complete_metadata).any()):
+        return "blocked", "blocked_missing_candidate_metadata"
+    if missing_ratio > 0.05:
+        return "blocked", "blocked_high_missing_controller_ratio"
+    if blocked_ratio > 0.60:
+        return "blocked", "blocked_high_blocked_ratio"
+    statuses = set(outcome_frame.get("registry_status", pd.Series(dtype=str)).astype(str))
+    if "complete" in statuses:
+        return "complete", "eligible_registry_backed_complete"
+    if "accepted_fallback" in statuses:
+        return "accepted_fallback", "eligible_registry_backed_accepted_fallback"
+    if "smoke_incomplete" in statuses:
+        return "smoke_incomplete", "debug_smoke_incomplete"
+    return "blocked", "blocked_registry_status_not_eligible"
+
+
+def _nonmissing_series(series: pd.Series) -> pd.Series:
+    normalised = series.astype(str).str.strip().str.lower()
+    return normalised.ne("") & ~normalised.isin(["nan", "none", "null"])
+
+
 def _write_run_outputs(
     *,
     config: ContextArchiveConfig,
@@ -707,6 +829,12 @@ def _write_run_outputs(
     for directory in (manifest_dir, metrics_dir, reports_dir):
         filesystem_path(directory).mkdir(parents=True, exist_ok=True)
 
+    outcome_frame = pd.DataFrame(outcome_rows)
+    archive_evidence_status, evidence_eligibility_reason = _archive_evidence_status_for_run(
+        config=config,
+        outcome_frame=outcome_frame,
+        dry_run=dry_run,
+    )
     run_manifest = {
         **worker_fields,
         **(worker_execution or {"chunk_execution_backend": "not_started", "worker_enabled": False}),
@@ -719,6 +847,9 @@ def _write_run_outputs(
         "selected_controller_registry": ""
         if config.selected_controller_registry is None
         else Path(config.selected_controller_registry).as_posix(),
+        "selected_controller_registry_required": bool(config.rollout_backend == "model_backed_lqr"),
+        "archive_evidence_status": archive_evidence_status,
+        "evidence_eligibility_reason": evidence_eligibility_reason,
         "candidate_chunk_size": int(config.candidate_chunk_size),
         "storage_format": resolve_storage_format(config.storage_format),
         "compression_level": int(config.compression_level),
@@ -751,7 +882,6 @@ def _write_run_outputs(
     )
     _write_runtime_summary(metrics_dir / "runtime_summary.csv", run_manifest, partitions)
     _write_outcome_summary(metrics_dir / "outcome_summary.csv", outcome_rows)
-    outcome_frame = pd.DataFrame(outcome_rows)
     write_coverage_summary(
         metrics_dir / "coverage_summary.csv",
         outcome_frame,
@@ -764,6 +894,11 @@ def _write_run_outputs(
             "W_layer",
             "latency_case",
             "boundary_use_class",
+            "archive_evidence_status",
+            "evidence_eligibility_reason",
+            "registry_status",
+            "registry_claim_status",
+            "controller_evidence_status",
             "continuation_valid",
             "episode_terminal_useful",
             "continuation_status",
@@ -847,6 +982,11 @@ def _write_outcome_summary(path: Path, outcome_rows: list[dict[str, object]]) ->
                 "primitive_id",
                 "latency_case",
                 "boundary_use_class",
+                "archive_evidence_status",
+                "evidence_eligibility_reason",
+                "registry_status",
+                "registry_claim_status",
+                "controller_evidence_status",
                 "continuation_valid",
                 "episode_terminal_useful",
                 "row_count",
@@ -875,6 +1015,11 @@ def _write_outcome_summary(path: Path, outcome_rows: list[dict[str, object]]) ->
                     "primitive_id",
                     "latency_case",
                     "boundary_use_class",
+                    "archive_evidence_status",
+                    "evidence_eligibility_reason",
+                    "registry_status",
+                    "registry_claim_status",
+                    "controller_evidence_status",
                     "continuation_valid",
                     "episode_terminal_useful",
                 ],
@@ -964,26 +1109,65 @@ def _write_medoid_report(path: Path, frame: pd.DataFrame) -> None:
 
 
 def _write_hardware_shortlist(path: Path, frame: pd.DataFrame) -> None:
-    columns = ["primitive_id", "controller_id", "accepted", "minimum_wall_margin_m", "minimum_speed_m_s"]
+    columns = [
+        "primitive_id",
+        "controller_id",
+        "accepted",
+        "minimum_wall_margin_m",
+        "minimum_speed_m_s",
+        "archive_evidence_status",
+        "evidence_eligibility_reason",
+    ]
     if frame.empty or not {"primitive_id", "controller_id"}.issubset(frame.columns):
-        pd.DataFrame(columns=["primitive_id", "controller_id", "row_count"]).to_csv(
+        pd.DataFrame(columns=["primitive_id", "controller_id", "row_count", "hardware_shortlist_status"]).to_csv(
             filesystem_path(path),
             index=False,
         )
         return
+    eligible = frame[
+        frame.get("archive_evidence_status", pd.Series([""] * len(frame))).astype(str).isin(
+            ["complete", "accepted_fallback"]
+        )
+    ].copy()
+    if eligible.empty:
+        pd.DataFrame(
+            [
+                {
+                    "primitive_id": "",
+                    "controller_id": "",
+                    "row_count": 0,
+                    "hardware_shortlist_status": "not_thesis_eligible",
+                    "archive_evidence_status": _dominant_status(frame, "archive_evidence_status"),
+                    "evidence_eligibility_reason": _dominant_status(frame, "evidence_eligibility_reason"),
+                }
+            ]
+        ).to_csv(filesystem_path(path), index=False)
+        return
     summary = (
-        frame.groupby(["primitive_id", "controller_id"], dropna=False)
+        eligible.groupby(["primitive_id", "controller_id"], dropna=False)
         .agg(
             row_count=("primitive_id", "size"),
             accepted_count=("accepted", "sum"),
             min_wall_margin_m=("minimum_wall_margin_m", "min"),
             min_speed_m_s=("minimum_speed_m_s", "min"),
+            archive_evidence_status=("archive_evidence_status", "first"),
+            evidence_eligibility_reason=("evidence_eligibility_reason", "first"),
         )
         .reset_index()
         .sort_values(["accepted_count", "min_wall_margin_m"], ascending=[False, False])
         .head(10)
     )
+    summary["hardware_shortlist_status"] = "simulation_only_candidate_not_hardware_ready"
     summary.to_csv(filesystem_path(path), index=False)
+
+
+def _dominant_status(frame: pd.DataFrame, column: str) -> str:
+    if frame.empty or column not in frame.columns:
+        return ""
+    values = frame[column].astype(str)
+    if values.empty:
+        return ""
+    return str(values.mode().iloc[0]) if not values.mode().empty else str(values.iloc[0])
 
 
 def _write_figure_source_manifest(path: Path, run_root: Path, frame: pd.DataFrame) -> None:
@@ -1042,6 +1226,7 @@ def _official_deferred_commands() -> dict[str, str]:
             "--candidate-chunk-size 1000 --workers 8 --max-workers 8 "
             "--storage-format auto --compression-level 1 --resume --repair-incomplete "
             "--rollout-backend model_backed_lqr "
+            "--selected-controller-registry 03_Control/05_Results/lqr_contextual_v1_0/r6/tune_100/metrics/selected_lqr_controllers.csv "
             "--output-root 03_Control/05_Results/lqr_contextual_v1_0/r6_lqr_20k"
         ),
         "r6_lqr_40k_temp_or_local": (
@@ -1051,6 +1236,7 @@ def _official_deferred_commands() -> dict[str, str]:
             "--candidate-chunk-size 1000 --workers 8 --max-workers 8 "
             "--storage-format auto --compression-level 1 --resume --repair-incomplete "
             "--rollout-backend model_backed_lqr "
+            "--selected-controller-registry 03_Control/05_Results/lqr_contextual_v1_0/r6/tune_100/metrics/selected_lqr_controllers.csv "
             "--output-root 03_Control/05_Results/lqr_contextual_v1_0/r6_lqr_40k"
         ),
     }

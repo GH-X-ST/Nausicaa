@@ -85,8 +85,8 @@ def archive_state_sample_for_row(
         state = _boundary_near_state(rng, side=side)
         label = "boundary_near"
         source = "stress_sample"
-        detail = f"{side}_terminal_risk_envelope"
-        previous_status = "boundary_terminal"
+        detail = f"{side}_terminal_risk_envelope_legacy_boundary_terminal"
+        previous_status = "terminal_useful_exit"
         previous_primitive_id = _synthetic_previous_primitive_id(row_index)
         time_since_launch_s = float(rng.uniform(0.8, 2.8))
     else:

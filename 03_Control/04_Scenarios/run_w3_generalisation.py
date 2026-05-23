@@ -28,6 +28,7 @@ from dense_archive_table_io import (  # noqa: E402
 )
 from env_ctx import build_environment_context  # noqa: E402
 from controller_registry import controller_from_evidence_row  # noqa: E402
+from evidence_status import is_thesis_eligible_status  # noqa: E402
 from env_instance import (  # noqa: E402
     environment_instance_for_mode,
     environment_instance_row,
@@ -156,6 +157,7 @@ def run_w3_generalisation(config: W3GeneralisationConfig) -> dict[str, object]:
         selected,
         config=config,
         run_root=run_root,
+        source_info=source_info,
     )
     frame = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     table_manifest = run_root / "manifests" / "table_manifest.json"
@@ -186,6 +188,11 @@ def run_w3_generalisation(config: W3GeneralisationConfig) -> dict[str, object]:
             "continuation_valid",
             "episode_terminal_useful",
             "boundary_use_class",
+            "archive_evidence_status",
+            "evidence_eligibility_reason",
+            "source_archive_evidence_status",
+            "source_evidence_eligibility_reason",
+            "registry_status",
         ),
     )
     ratio_summary = write_blocked_approximate_ratio_summary(
@@ -211,6 +218,10 @@ def run_w3_generalisation(config: W3GeneralisationConfig) -> dict[str, object]:
         row_count > 0
         and set(frame.get("replay_generation_path", [])) == {"simulate_primitive_rollout"}
         and not frame.get("scaffold_case_table_only", pd.Series([True])).astype(bool).any()
+        and frame.get("source_controller_selection_status", pd.Series(dtype=str))
+        .astype(str)
+        .eq("W2_verified_registry_replay")
+        .any()
         and frame.get("controller_selection_status", pd.Series(dtype=str))
         .astype(str)
         .eq("W3_verified_registry_replay")
@@ -220,7 +231,20 @@ def run_w3_generalisation(config: W3GeneralisationConfig) -> dict[str, object]:
         .ne("blocked_before_simulation")
         .any()
     )
-    r9_complete = bool(actual_replay and stage_status in {"complete", "fallback"} and file_status == "pass")
+    archive_evidence_status, evidence_eligibility_reason = _replay_archive_evidence_status(
+        source_info=source_info,
+        replay_frame=frame,
+        actual_replay=actual_replay,
+        stage_status=stage_status,
+        file_status=file_status,
+    )
+    r9_complete = bool(
+        actual_replay
+        and source_info.evidence_eligible
+        and is_thesis_eligible_status(archive_evidence_status)
+        and stage_status in {"complete", "fallback"}
+        and file_status == "pass"
+    )
     manifest = {
         "run_id": int(config.run_id),
         "stage": "R9_W3_generalisation_replay",
@@ -244,6 +268,10 @@ def run_w3_generalisation(config: W3GeneralisationConfig) -> dict[str, object]:
         "approximate_ratio": float(ratio_summary["approximate_ratio"]),
         "file_size_status": file_status,
         "actual_model_backed_replay": actual_replay,
+        "archive_evidence_status": archive_evidence_status,
+        "evidence_eligibility_reason": evidence_eligibility_reason,
+        "source_archive_evidence_status": source_info.archive_evidence_status,
+        "source_evidence_eligibility_reason": source_info.evidence_eligibility_reason,
         "randomisation_scope": [
             "fan_position",
             "fan_power",
@@ -299,6 +327,7 @@ def _write_replay_partitions(
     *,
     config: W3GeneralisationConfig,
     run_root: Path,
+    source_info,
 ) -> tuple[list[TablePartition], list[pd.DataFrame], list[dict[str, object]]]:
     partitions: list[TablePartition] = []
     frames: list[pd.DataFrame] = []
@@ -332,7 +361,12 @@ def _write_replay_partitions(
                 if not config.repair_incomplete:
                     raise
         rows = [
-            _w3_replay_row(row=row.to_dict(), row_index=start + offset, config=config)
+            _w3_replay_row(
+                row=row.to_dict(),
+                row_index=start + offset,
+                config=config,
+                source_info=source_info,
+            )
             for offset, (_, row) in enumerate(chunk_source.iterrows())
         ]
         frame = pd.DataFrame(rows)
@@ -433,6 +467,15 @@ def _select_w3_source_rows(
     if frame.empty:
         return pd.DataFrame()
     source = frame.copy()
+    if "controller_selection_status" not in source.columns:
+        return pd.DataFrame()
+    source = source[
+        source["controller_selection_status"].astype(str).eq("W2_verified_registry_replay")
+    ].copy()
+    if "W_layer" in source.columns:
+        source = source[source["W_layer"].astype(str).eq("W2")].copy()
+    if source.empty:
+        return pd.DataFrame()
     requested = max(int(fallback_rows), min(int(target_rows), len(source) * max(1, int(reuse_limit))))
     strata = []
     for stratum, subset in _representative_replay_strata(source):
@@ -464,6 +507,7 @@ def _w3_replay_row(
     row: dict[str, object],
     row_index: int,
     config: W3GeneralisationConfig,
+    source_info,
 ) -> dict[str, object]:
     state = _state_from_source(row)
     seed = int(config.run_id) * 100_000 + int(row_index)
@@ -552,14 +596,36 @@ def _w3_replay_row(
             "source_boundary_use_class": row.get("boundary_use_class", ""),
             "source_continuation_valid": row.get("continuation_valid", ""),
             "source_episode_terminal_useful": row.get("episode_terminal_useful", ""),
+            "source_controller_selection_status": row.get("controller_selection_status", ""),
+            "source_selected_controller_status": row.get("selected_controller_status", ""),
+            "source_selected_controller_reason": row.get("selected_controller_reason", ""),
+            "source_registry_status": row.get("registry_status", row.get("source_registry_status", "")),
+            "source_registry_claim_status": row.get(
+                "registry_claim_status",
+                row.get("source_registry_claim_status", ""),
+            ),
+            "source_registry_path": row.get("registry_path", row.get("source_registry_path", "")),
+            "source_archive_evidence_status": row.get(
+                "archive_evidence_status",
+                row.get("source_archive_evidence_status", ""),
+            ),
+            "source_evidence_eligibility_reason": row.get(
+                "evidence_eligibility_reason",
+                row.get("source_evidence_eligibility_reason", ""),
+            ),
             "source_reuse_count": int(row.get("source_reuse_count", 1)),
             "replay_generation_path": "simulate_primitive_rollout",
             "scaffold_case_table_only": False,
             "nondecomposable_gp_grid_effect_status": "approximate",
             "approximate_limitation_label": "active_fan_subset_and_per_fan_power_not_exactly_decomposable",
-            "randomisation_component_status_json": _randomisation_component_status_json(environment),
+            "randomisation_component_status_json": _randomisation_component_status_json(
+                environment,
+                implementation,
+                plant,
+            ),
         }
     )
+    _apply_replay_evidence_status(result, row, source_info=source_info)
     for name in STATE_NAMES:
         result[f"entry_{name}"] = float(state[STATE_NAMES.index(name)])
     return result
@@ -574,19 +640,91 @@ def _w3_environment_mode(row: dict[str, object], row_index: int) -> str:
     return "w3_randomised_single"
 
 
-def _randomisation_component_status_json(environment) -> str:
+def _randomisation_component_status_json(environment, implementation=None, plant=None) -> str:
     fan_count = int(getattr(environment, "fan_count", 0))
     active_mask = tuple(getattr(environment, "active_fan_mask", ()))
-    active_subset_status = "exact" if fan_count <= 1 or any(not bool(value) for value in active_mask) else "approximate"
+    four_fan_active = fan_count > 1 and sum(1 for value in active_mask if bool(value)) > 1
+    fan_power_status = "approximate" if four_fan_active else ("exact" if fan_count > 0 else "blocked")
+    active_subset_status = "approximate" if four_fan_active else ("exact" if fan_count > 0 else "blocked")
+    limitations = " ".join(
+        str(getattr(item, "randomisation_limitations", ""))
+        for item in (environment, implementation, plant)
+        if item is not None
+    ).lower()
     payload = {
-        "fan_position": "exact",
-        "fan_power": "exact" if fan_count > 0 else "blocked",
-        "active_fan_subset": active_subset_status,
-        "residual_vertical_field": "approximate",
-        "implementation_randomisation": "exact",
-        "plant_randomisation": "exact",
+        "environment_fan_position": "exact" if fan_count > 0 else "blocked",
+        "environment_fan_power": fan_power_status,
+        "environment_active_subset": active_subset_status,
+        "environment_amplitude": "exact",
+        "environment_width": "exact",
+        "environment_centre": "exact",
+        "environment_residual_field": "approximate",
+        "environment_uncertainty": "approximate",
+        "implementation_latency": "exact",
+        "implementation_actuator_tau": "exact",
+        "implementation_surface_effectiveness": "exact",
+        "implementation_neutral_bias": "exact",
+        "implementation_limit_scale": "exact",
+        "implementation_quantisation": "exact",
+        "implementation_aileron_asymmetry": (
+            "metadata_only" if "aileron" in limitations and "metadata" in limitations else "approximate"
+        ),
+        "plant_mass": "exact",
+        "plant_inertia_diagonal": "exact",
+        "plant_aero_scale": "exact",
+        "plant_surface_calibration": "exact",
+        "plant_cg_offset": "blocked" if "cg" in limitations and "not" in limitations else "approximate",
+        "plant_cross_inertia": (
+            "blocked" if "cross" in limitations and "not" in limitations else "metadata_only"
+        ),
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def _apply_replay_evidence_status(
+    result: dict[str, object],
+    source_row: dict[str, object],
+    *,
+    source_info,
+) -> None:
+    source_archive_status = str(source_info.archive_evidence_status or "smoke_incomplete")
+    source_reason = str(source_info.evidence_eligibility_reason or "debug_smoke_incomplete")
+    if source_info.evidence_eligible:
+        source_archive_status = str(
+            source_row.get("archive_evidence_status", source_row.get("source_archive_evidence_status", ""))
+            or source_archive_status
+        )
+        source_reason = str(
+            source_row.get("evidence_eligibility_reason", source_row.get("source_evidence_eligibility_reason", ""))
+            or source_reason
+        )
+    result["registry_status"] = str(
+        source_row.get("registry_status", source_row.get("source_registry_status", ""))
+    )
+    result["registry_claim_status"] = str(
+        source_row.get("registry_claim_status", source_row.get("source_registry_claim_status", ""))
+    )
+    result["registry_path"] = str(source_row.get("registry_path", source_row.get("source_registry_path", "")))
+    result["selected_controller_status"] = str(
+        source_row.get("selected_controller_status", source_row.get("source_selected_controller_status", ""))
+    )
+    result["selected_controller_reason"] = str(
+        source_row.get("selected_controller_reason", source_row.get("source_selected_controller_reason", ""))
+    )
+    if str(result.get("outcome_class", "")) == "blocked":
+        result["archive_evidence_status"] = "blocked"
+        result["evidence_eligibility_reason"] = str(result.get("failure_label", "") or "blocked_w3_replay_row")
+        return
+    if str(result.get("controller_selection_status", "")) != "W3_verified_registry_replay":
+        result["archive_evidence_status"] = "blocked"
+        result["evidence_eligibility_reason"] = "blocked_missing_verified_registry_replay"
+        return
+    if source_archive_status in {"complete", "accepted_fallback"}:
+        result["archive_evidence_status"] = source_archive_status
+        result["evidence_eligibility_reason"] = f"eligible_verified_w3_{source_archive_status}"
+        return
+    result["archive_evidence_status"] = source_archive_status
+    result["evidence_eligibility_reason"] = source_reason
 
 
 def _representative_replay_strata(source: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
@@ -604,6 +742,37 @@ def _representative_replay_strata(source: pd.DataFrame) -> list[tuple[str, pd.Da
         ("informative_failed", source[(outcome == "failed") & (failure != "speed_low")]),
         ("failed", source[outcome == "failed"]),
     ]
+
+
+def _replay_archive_evidence_status(
+    *,
+    source_info,
+    replay_frame: pd.DataFrame,
+    actual_replay: bool,
+    stage_status: str,
+    file_status: str,
+) -> tuple[str, str]:
+    if source_info.archive_evidence_status == "retired_not_active":
+        return "retired_not_active", "blocked_retired_source"
+    if not source_info.evidence_eligible:
+        return source_info.archive_evidence_status, source_info.evidence_eligibility_reason
+    if replay_frame.empty:
+        return "blocked", "blocked_no_verified_replay_rows"
+    verified = replay_frame.get("controller_selection_status", pd.Series(dtype=str)).astype(str).eq(
+        "W3_verified_registry_replay"
+    )
+    nonblocked = replay_frame.get("outcome_class", pd.Series(dtype=str)).astype(str).ne("blocked")
+    if not bool((verified & nonblocked).any()):
+        return "blocked", "blocked_no_verified_registry_replay_rows"
+    if not actual_replay:
+        return "blocked", "blocked_not_actual_model_backed_replay"
+    if file_status != "pass":
+        return "blocked", "blocked_file_size_audit"
+    if stage_status == "complete" and source_info.archive_evidence_status == "complete":
+        return "complete", "eligible_verified_w3_complete"
+    if stage_status in {"complete", "fallback"}:
+        return "accepted_fallback", "eligible_verified_w3_accepted_fallback"
+    return "smoke_incomplete", "debug_w3_replay_incomplete"
 
 
 def _bool_series(series: pd.Series) -> pd.Series:
@@ -630,6 +799,8 @@ def _write_blocked_outputs(
         "stage": "R9_W3_generalisation_replay",
         "generalisation_status": "blocked",
         "blocked_reason": str(reason),
+        "archive_evidence_status": "blocked",
+        "evidence_eligibility_reason": str(reason),
         "R9_W3_generalisation_complete": False,
         "case_count": 0,
         "actual_model_backed_replay": False,
@@ -658,6 +829,8 @@ def _write_runtime_summary(path: Path, manifest: dict[str, object]) -> None:
                 "row_count": manifest["case_count"],
                 "stage_status": manifest["generalisation_status"],
                 "claim_status": manifest["claim_status"],
+                "archive_evidence_status": manifest.get("archive_evidence_status", ""),
+                "evidence_eligibility_reason": manifest.get("evidence_eligibility_reason", ""),
             }
         ]
     ).to_csv(filesystem_path(path), index=False)
@@ -671,6 +844,10 @@ def _write_outcome_summary(path: Path, frame: pd.DataFrame) -> None:
         "continuation_status",
         "episode_terminal_status",
         "boundary_use_class",
+        "archive_evidence_status",
+        "evidence_eligibility_reason",
+        "source_archive_evidence_status",
+        "source_evidence_eligibility_reason",
     ]
     if frame.empty:
         pd.DataFrame(columns=[*columns, "row_count"]).to_csv(filesystem_path(path), index=False)

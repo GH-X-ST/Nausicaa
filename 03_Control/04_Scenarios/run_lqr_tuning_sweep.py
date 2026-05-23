@@ -26,13 +26,21 @@ from env_ctx import build_environment_context  # noqa: E402
 from env_instance import environment_instance_for_mode, environment_metadata_from_instance  # noqa: E402
 from env_surrogate import READY_STATUS, resolve_surrogate_binding, wind_field_for_binding  # noqa: E402
 from evidence_stage_utils import write_coverage_summary, write_file_size_audit  # noqa: E402
-from controller_registry import controller_registry_row, write_selected_controller_registry  # noqa: E402
+from controller_registry import (  # noqa: E402
+    SELECTED_CONTROLLER_STATUS,
+    SMOKE_SELECTED_CONTROLLER_STATUS,
+    controller_registry_row,
+    write_selected_controller_registry,
+)
+from evidence_status import registry_claim_status_for  # noqa: E402
 from lqr_controller import LQR_SYNTHESIS_SOLVED, synthesize_lqr_controller, synthesis_audit_row  # noqa: E402
 from lqr_tuning import (  # noqa: E402
     FALLBACK_CANDIDATES_PER_PRIMITIVE,
     FALLBACK_PAIRED_TESTS_PER_CANDIDATE,
-    SOFT_OBJECTIVE_TERMS,
     HARD_GATE_LABELS,
+    PREFERRED_CANDIDATES_PER_PRIMITIVE,
+    PREFERRED_PAIRED_TESTS_PER_CANDIDATE,
+    SOFT_OBJECTIVE_TERMS,
     candidate_weight_specs,
     lqr_tuning_schedule,
     tuning_candidate_row,
@@ -173,14 +181,6 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
     smoke_rows = _smoke_rows(config, candidate_records)
 
     partitions = []
-    partitions.append(
-        write_table_partition(
-            pd.DataFrame(smoke_rows),
-            run_root / "tables" / "lqr_tuning_smoke_rows" / f"c00000.{_extension(storage_format)}",
-            storage_format=storage_format,
-            compression_level=config.compression_level,
-        )
-    )
     pd.DataFrame(synthesis_rows).to_csv(
         filesystem_path(run_root / "metrics" / "lqr_synthesis_audit.csv"),
         index=False,
@@ -189,7 +189,48 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
         filesystem_path(run_root / "metrics" / "qr_candidate_rankings.csv"),
         index=False,
     )
-    registry_rows = _selected_controller_registry_rows(candidate_records, pd.DataFrame(smoke_rows))
+    smoke_frame = pd.DataFrame(smoke_rows)
+    registry_status = _registry_status_for_tuning_run(config, schedule, smoke_frame)
+    registry_claim_status = registry_claim_status_for(registry_status)
+    for row in smoke_rows:
+        row["registry_status"] = registry_status
+        row["registry_claim_status"] = registry_claim_status
+        row["archive_evidence_status"] = registry_status
+        row["evidence_eligibility_reason"] = (
+            f"eligible_tuning_registry_{registry_status}"
+            if registry_status in {"complete", "accepted_fallback"}
+            else (
+                "blocked_tuning_registry"
+                if registry_status == "blocked"
+                else "debug_smoke_incomplete"
+            )
+        )
+    smoke_frame = pd.DataFrame(smoke_rows)
+    partitions.append(
+        write_table_partition(
+            smoke_frame,
+            run_root / "tables" / "lqr_tuning_smoke_rows" / f"c00000.{_extension(storage_format)}",
+            storage_format=storage_format,
+            compression_level=config.compression_level,
+        )
+    )
+    manifest.update(
+        {
+            "registry_status": registry_status,
+            "registry_claim_status": registry_claim_status,
+            "selected_controller_registry": (run_root / "metrics" / "selected_lqr_controllers.csv").as_posix(),
+        }
+    )
+    filesystem_path(run_root / "manifests" / "run_manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n",
+        encoding="ascii",
+    )
+    registry_rows = _selected_controller_registry_rows(
+        candidate_records,
+        smoke_frame,
+        registry_status=registry_status,
+        registry_claim_status=registry_claim_status,
+    )
     write_selected_controller_registry(
         rows=registry_rows,
         csv_path=run_root / "metrics" / "selected_lqr_controllers.csv",
@@ -204,7 +245,7 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
             tables=tuple(partitions),
         ),
     )
-    frame = pd.DataFrame(smoke_rows)
+    frame = smoke_frame
     write_coverage_summary(
         run_root / "metrics" / "coverage_summary.csv",
         frame,
@@ -220,6 +261,9 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
             "episode_terminal_useful",
             "controller_selection_status",
             "candidate_weight_label",
+            "registry_status",
+            "registry_claim_status",
+            "hard_gate_status",
         ),
     )
     _write_objective_summary(run_root / "metrics" / "objective_term_summary.csv", frame)
@@ -258,6 +302,8 @@ def _smoke_rows(
         controller = candidate["controller"]
         w_layer = "W0" if row_index % 2 == 0 else "W1"
         env_mode = "dry_air" if w_layer == "W0" else "gaussian_single"
+        if w_layer == "W1":
+            env_mode = "gaussian_single" if (pair_index + candidate_position) % 2 == 0 else "gaussian_four"
         sample_row_index = int((pair_index * len(candidate_records) + candidate_position) * 2)
         sample = archive_state_sample_for_row(
             sample_row_index,
@@ -308,7 +354,7 @@ def _smoke_rows(
         row["paired_start_key"] = sample.paired_start_key
         row["candidate_index"] = int(candidate["candidate_index"])
         row["candidate_weight_label"] = str(candidate["candidate_weight_label"])
-        row["hard_gate_status"] = "passed" if evidence.outcome_class != "blocked" else "blocked"
+        row["hard_gate_status"] = _hard_gate_status(evidence, binding)
         row["soft_objective_terms"] = json.dumps(SOFT_OBJECTIVE_TERMS, separators=(",", ":"))
         rows.append(row)
     return rows
@@ -317,6 +363,9 @@ def _smoke_rows(
 def _selected_controller_registry_rows(
     candidate_records: list[dict[str, object]],
     frame: pd.DataFrame,
+    *,
+    registry_status: str,
+    registry_claim_status: str,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for primitive_id in sorted({record["controller"].primitive_id for record in candidate_records}):
@@ -335,8 +384,15 @@ def _selected_controller_registry_rows(
         for score, record, status in scores:
             controller = record["controller"]
             if best_record is record and status == "selected_candidate":
-                selected_status = "selected"
-                reason = "best_passed_W0_W1_soft_score"
+                if registry_status in {"complete", "accepted_fallback"}:
+                    selected_status = SELECTED_CONTROLLER_STATUS
+                    reason = "best_passed_W0_W1_soft_score"
+                elif registry_status == "smoke_incomplete":
+                    selected_status = SMOKE_SELECTED_CONTROLLER_STATUS
+                    reason = "best_passed_W0_W1_soft_score_debug_smoke_incomplete"
+                else:
+                    selected_status = "blocked"
+                    reason = "registry_blocked_not_active"
             elif controller.lqr_synthesis_status != LQR_SYNTHESIS_SOLVED:
                 selected_status = "blocked"
                 reason = controller.lqr_blocked_reason or controller.lqr_synthesis_status
@@ -350,9 +406,36 @@ def _selected_controller_registry_rows(
                     selected_controller_reason=reason,
                     candidate_index=int(record["candidate_index"]),
                     candidate_weight_label=str(record["candidate_weight_label"]),
+                    registry_status=registry_status,
+                    registry_claim_status=registry_claim_status,
                 )
             )
     return rows
+
+
+def _registry_status_for_tuning_run(
+    config: LQRTuningSweepConfig,
+    schedule,
+    frame: pd.DataFrame,
+) -> str:
+    if frame.empty:
+        return "blocked"
+    if len(frame) < int(schedule.planned_rows):
+        return "smoke_incomplete"
+    if not _has_complete_w0_w1_candidate_coverage(frame):
+        return "smoke_incomplete"
+    if not _has_selected_candidate_per_primitive(frame):
+        return "blocked"
+    if int(config.candidate_count) in PREFERRED_CANDIDATES_PER_PRIMITIVE and int(
+        config.paired_tests_per_candidate
+    ) in PREFERRED_PAIRED_TESTS_PER_CANDIDATE:
+        return "complete"
+    if (
+        int(config.candidate_count) >= FALLBACK_CANDIDATES_PER_PRIMITIVE
+        and int(config.paired_tests_per_candidate) >= FALLBACK_PAIRED_TESTS_PER_CANDIDATE
+    ):
+        return "accepted_fallback"
+    return "smoke_incomplete"
 
 
 def _candidate_registry_status(controller, subset: pd.DataFrame) -> str:
@@ -363,6 +446,70 @@ def _candidate_registry_status(controller, subset: pd.DataFrame) -> str:
     if subset.get("hard_gate_status", pd.Series(dtype=str)).astype(str).eq("blocked").any():
         return "blocked_rollout_rows_present"
     return "selected_candidate"
+
+
+def _has_complete_w0_w1_candidate_coverage(frame: pd.DataFrame) -> bool:
+    required = {"primitive_id", "candidate_index", "W_layer", "hard_gate_status", "candidate_weight_label"}
+    if frame.empty or not required.issubset(frame.columns):
+        return False
+    coverage = (
+        frame.groupby(["primitive_id", "candidate_index", "W_layer"], dropna=False)
+        .size()
+        .reset_index(name="row_count")
+    )
+    expected_groups = set()
+    for primitive_id in sorted(frame["primitive_id"].astype(str).unique()):
+        for candidate_index in sorted(frame["candidate_index"].astype(str).unique()):
+            expected_groups.add((primitive_id, candidate_index, "W0"))
+            expected_groups.add((primitive_id, candidate_index, "W1"))
+    actual_groups = {
+        (str(row["primitive_id"]), str(row["candidate_index"]), str(row["W_layer"]))
+        for _, row in coverage.iterrows()
+    }
+    if not expected_groups.issubset(actual_groups):
+        return False
+    metadata = frame[["candidate_weight_label", "lqr_Q_weights_json", "lqr_R_weights_json", "lqr_gain_checksum"]]
+    for column in metadata.columns:
+        values = metadata[column].astype(str).str.strip().str.lower()
+        if values.isin(["", "nan", "none", "null"]).any():
+            return False
+    return True
+
+
+def _has_selected_candidate_per_primitive(frame: pd.DataFrame) -> bool:
+    if frame.empty or not {"primitive_id", "hard_gate_status"}.issubset(frame.columns):
+        return False
+    passed = frame[frame["hard_gate_status"].astype(str) == "passed"]
+    primitives = set(frame["primitive_id"].astype(str))
+    return primitives.issubset(set(passed["primitive_id"].astype(str)))
+
+
+def _hard_gate_status(evidence, binding) -> str:
+    if evidence.controller_evidence_status not in {
+        "candidate_executable_lqr",
+        "executable_lqr",
+        "registry_backed_executable",
+    }:
+        return "blocked"
+    if getattr(binding, "surrogate_binding_status", "") != READY_STATUS:
+        return "blocked"
+    if evidence.trajectory_integrity_status not in {"finite_model_backed", "smoke_only_not_integrated"}:
+        return "blocked"
+    if evidence.boundary_use_class in {"hard_failure", "blocked"}:
+        return "blocked"
+    if str(evidence.failure_label) in {
+        "nonfinite_initial_state",
+        "nonfinite_trajectory",
+        "z_boundary_exit",
+        "impossible_initial_state",
+        "corrupt_integration",
+    }:
+        return "blocked"
+    if float(evidence.minimum_speed_m_s) < float(evidence.minimum_speed_required_m_s):
+        return "blocked"
+    if float(evidence.saturation_fraction) > 0.50:
+        return "blocked"
+    return "passed"
 
 
 def _candidate_soft_score(subset: pd.DataFrame) -> float:

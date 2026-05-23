@@ -33,6 +33,7 @@ from env_surrogate import (  # noqa: E402
     resolve_surrogate_binding,
     wind_field_for_binding,
 )
+from lqr_controller import lqr_controller_for_primitive_id  # noqa: E402
 from prim_cat import active_primitive_catalogue, primitive_by_id  # noqa: E402
 from prim_features import primitive_feature_record, primitive_feature_row  # noqa: E402
 from prim_model import fit_primitive_outcome_model  # noqa: E402
@@ -170,13 +171,50 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
             governor_mode=config.governor_mode,
             max_uncertainty=1_000_000.0,
         )
-        primitive = primitive_by_id(selection.selected_primitive_id)
         rollout_config = RolloutConfig(
             W_layer=w_layer,
             rollout_backend="model_backed_lqr",
             wind_mode=binding.wind_mode,
         )
         rollout_id = f"episode_{config.run_id:03d}_{episode_index:03d}"
+        if not selection.selected_primitive_id:
+            primitive = primitive_by_id("safe_exit_or_recovery_handoff")
+            evidence = blocked_rollout_evidence(
+                rollout_id=rollout_id,
+                episode_id=rollout_id,
+                initial_state=state,
+                context=context,
+                primitive=primitive,
+                config=rollout_config,
+                failure_label="selector_blocked_no_viable_lqr_primitive",
+                controller_selection_status="missing_selected_registry_entry",
+            )
+            row = rollout_with_context_row(evidence, context)
+            row.update(
+                {
+                    "episode_index": episode_index,
+                    "selector_governor_mode": selection.governor_mode,
+                    "selector_status": selection.decision_status,
+                    "selected_primitive_id": selection.selected_primitive_id,
+                    "memory_label": "episodic_lift_belief_smoke_no_improvement_claim",
+                    "belief_before_local_lift_m_s": belief_before["belief_local_lift_m_s"],
+                    "belief_before_mean_lift_m_s": belief_before["belief_mean_lift_m_s"],
+                }
+            )
+            row.update(archive_state_sample_row(state_sample))
+            training_rows.append(row)
+            episode_rows.append(row)
+            selector_row = primitive_selection_row(selection)
+            selector_row.update(archive_state_sample_row(state_sample))
+            selector_rows.append(selector_row)
+            belief_rows.append(belief_snapshot_row(belief, label=f"episode_{episode_index:03d}"))
+            continue
+        primitive = primitive_by_id(selection.selected_primitive_id)
+        selected_controller = (
+            lqr_controller_for_primitive_id(selection.selected_primitive_id)
+            if selection.selected_primitive_id
+            else None
+        )
         if binding.surrogate_binding_status != READY_STATUS:
             evidence = blocked_rollout_evidence(
                 rollout_id=rollout_id,
@@ -186,6 +224,8 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
                 primitive=primitive,
                 config=rollout_config,
                 failure_label="surrogate_binding_blocked",
+                controller=selected_controller,
+                controller_selection_status="nominal_unselected_smoke",
             )
         else:
             evidence = simulate_primitive_rollout(
@@ -196,6 +236,8 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
                 primitive=primitive,
                 config=rollout_config,
                 wind_field=wind,
+                controller=selected_controller,
+                controller_selection_status="nominal_unselected_smoke",
             )
         row = rollout_with_context_row(evidence, context)
         row.update(
@@ -255,6 +297,7 @@ def _bootstrap_lqr_rows(
 ) -> list[dict[str, object]]:
     rows = []
     for primitive in primitives:
+        controller = lqr_controller_for_primitive_id(primitive.primitive_id)
         evidence = simulate_primitive_rollout(
             rollout_id=f"bootstrap_{episode_index:03d}_{primitive.primitive_id}",
             episode_id=f"bootstrap_{episode_index:03d}",
@@ -263,6 +306,8 @@ def _bootstrap_lqr_rows(
             primitive=primitive,
             config=config,
             wind_field=wind_field,
+            controller=controller,
+            controller_selection_status="nominal_unselected_smoke",
         )
         row = rollout_with_context_row(evidence, context)
         row.update(

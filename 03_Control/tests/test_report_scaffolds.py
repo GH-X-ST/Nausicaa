@@ -72,7 +72,7 @@ def _archive_row(
         "lift_dwell_time_s": 0.1,
         "minimum_wall_margin_m": 1.0,
         "termination_cause": "wall_boundary_exit_retained" if terminal_useful else "controlled_finish",
-        "failure_label": "xy_boundary_terminal" if terminal_useful else "success",
+        "failure_label": "wall_boundary_exit_retained" if terminal_useful else "success",
         "W_layer": "W1",
         "latency_case": "nominal",
         "boundary_use_class": boundary_use_class,
@@ -80,6 +80,15 @@ def _archive_row(
         "candidate_index": 0,
         "candidate_weight_label": "nominal",
         "controller_selection_status": "W0_W1_registry_selected",
+        "selected_controller_status": "selected",
+        "selected_controller_reason": "test_registry_selected",
+        "registry_status": "complete",
+        "registry_claim_status": "simulation_only_registry_complete",
+        "registry_path": "test_selected_lqr_controllers.csv",
+        "archive_evidence_status": "complete",
+        "evidence_eligibility_reason": "eligible_registry_backed_complete",
+        "controller_executable": canonical_outcome != "blocked",
+        "controller_evidence_status": "registry_backed_executable",
     }
     row.update(lqr_rollout_metadata(controller))
     row.update({f"context_{key}": value for key, value in environment_context_row(context).items()})
@@ -109,7 +118,7 @@ def test_selector_and_replay_scaffolds_write_temp_manifests(tmp_path: Path) -> N
         W2ReplayConfig(run_id=82, output_root=tmp_path, source_archive=archive_table)
     )
     w3 = run_w3_generalisation_scaffold(
-        W3GeneralisationConfig(run_id=83, output_root=tmp_path, source_replay=archive_table)
+        W3GeneralisationConfig(run_id=83, output_root=tmp_path, source_replay=w2["table_manifest"])
     )
 
     selector_manifest = json.loads(Path(selector["manifest"]).read_text())
@@ -117,11 +126,14 @@ def test_selector_and_replay_scaffolds_write_temp_manifests(tmp_path: Path) -> N
     w3_manifest = json.loads(Path(w3["manifest"]).read_text())
 
     assert selector_manifest["claim_status"] == "simulation_only_selector_report_smoke_or_subset"
+    assert selector_manifest["archive_evidence_status"] == "smoke_incomplete"
     assert w2_manifest["R8_W2_replay_complete"] is False
     assert w2_manifest["actual_model_backed_replay"] is True
+    assert w2_manifest["archive_evidence_status"] == "smoke_incomplete"
     assert w2_manifest["replayed_row_count"] > 0
     assert w3_manifest["R9_W3_generalisation_complete"] is False
     assert w3_manifest["actual_model_backed_replay"] is True
+    assert w3_manifest["archive_evidence_status"] == "smoke_incomplete"
 
     selector_rows = pd.read_csv(selector["decision_table"])
     w2_rows = pd.read_csv(w2["replay_table"])
@@ -132,10 +144,34 @@ def test_selector_and_replay_scaffolds_write_temp_manifests(tmp_path: Path) -> N
     assert "validation_split_columns" in selector_manifest
     assert set(w2_rows["replay_generation_path"]) == {"simulate_primitive_rollout"}
     assert not w2_rows["source_label_copied_as_evidence"].astype(bool).any()
+    thesis_statuses = {"complete", "accepted_fallback"}
+    assert set(w2_rows["archive_evidence_status"].astype(str)).isdisjoint(thesis_statuses)
     assert set(w3_rows["replay_generation_path"]) == {"simulate_primitive_rollout"}
+    assert set(w3_rows["archive_evidence_status"].astype(str)).isdisjoint(thesis_statuses)
     assert "approximate_limitation_label" in w3_rows.columns
     assert "randomisation_component_status_json" in w3_rows.columns
+    status_payload = json.loads(str(w3_rows["randomisation_component_status_json"].iloc[0]))
+    assert status_payload["environment_active_subset"] in {"exact", "approximate", "blocked"}
+    assert status_payload["implementation_aileron_asymmetry"] in {"approximate", "metadata_only"}
+    assert status_payload["plant_cg_offset"] in {"approximate", "blocked"}
     assert w3_rows["environment_instance_environment_mode"].astype(str).str.contains("w3_randomised").any()
+
+
+def test_w3_blocks_direct_r6_source_without_verified_w2_replay(tmp_path: Path) -> None:
+    archive_table = tmp_path / "archive_rows.csv"
+    pd.DataFrame([_archive_row(outcome_class="accepted", start_row=0, primitive_id="glide")]).to_csv(
+        archive_table,
+        index=False,
+    )
+
+    w3 = run_w3_generalisation_scaffold(
+        W3GeneralisationConfig(run_id=86, output_root=tmp_path, source_replay=archive_table)
+    )
+    manifest = json.loads(Path(w3["manifest"]).read_text())
+
+    assert manifest["R9_W3_generalisation_complete"] is False
+    assert manifest["actual_model_backed_replay"] is False
+    assert manifest["blocked_reason"] == "blocked_no_representative_W2_rows"
 
 
 def test_w2_w3_replay_scaffolds_write_chunked_partitions(tmp_path: Path) -> None:

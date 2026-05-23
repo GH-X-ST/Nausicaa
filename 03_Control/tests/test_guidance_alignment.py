@@ -102,3 +102,32 @@ def test_r6_r8_alignment_report_records_statuses() -> None:
         "100 MB",
     ):
         assert token in report
+
+
+def test_v3_2_evidence_status_enums_are_active_contract_fields() -> None:
+    status = _read("03_Control/03_Primitives/evidence_status.py")
+    archive_reader = _read("03_Control/04_Scenarios/archive_table_reader.py")
+    run_ctx_archive = _read("03_Control/04_Scenarios/run_ctx_archive.py")
+    for token in (
+        "complete",
+        "accepted_fallback",
+        "smoke_incomplete",
+        "blocked",
+        "retired_not_active",
+        "simulation_only_registry_complete",
+        "simulation_only_registry_accepted_fallback",
+        "simulation_only_smoke_incomplete",
+        "simulation_only_blocked",
+    ):
+        assert token in status
+    for token in (
+        "registry_backed_row_count",
+        "missing_controller_row_count",
+        "missing_controller_ratio",
+        "archive_evidence_status",
+        "evidence_eligibility_reason",
+        "blocked_missing_candidate_metadata",
+        "blocked_retired_source",
+    ):
+        assert token in archive_reader
+    assert "--selected-controller-registry" in run_ctx_archive

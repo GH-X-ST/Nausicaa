@@ -55,6 +55,7 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "03_Control/03_Primitives/lqr_controller.py",
     "03_Control/03_Primitives/lqr_tuning.py",
     "03_Control/03_Primitives/controller_registry.py",
+    "03_Control/03_Primitives/evidence_status.py",
     "03_Control/03_Primitives/primitive_evidence_schema.py",
     "03_Control/03_Primitives/prim_cat.py",
     "03_Control/03_Primitives/prim_ctrl.py",

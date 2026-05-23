@@ -109,6 +109,8 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "tuning_stage",
     "controller_claim_status",
     "controller_selection_status",
+    "controller_executable",
+    "controller_evidence_status",
     "candidate_index",
     "candidate_weight_label",
     "latency_case",
@@ -146,6 +148,8 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "exit_state_vector",
     "termination_cause",
     "failure_label",
+    "archive_evidence_status",
+    "evidence_eligibility_reason",
     "claim_status",
 )
 
@@ -196,6 +200,8 @@ class RolloutEvidence:
     tuning_stage: str
     controller_claim_status: str
     controller_selection_status: str
+    controller_executable: bool
+    controller_evidence_status: str
     candidate_index: int | str
     candidate_weight_label: str
     latency_case: str
@@ -233,6 +239,8 @@ class RolloutEvidence:
     exit_state_vector: str
     termination_cause: str
     failure_label: str
+    archive_evidence_status: str
+    evidence_eligibility_reason: str
     claim_status: str
 
 
@@ -345,6 +353,10 @@ def blocked_rollout_evidence(
         lift_dwell_time_s=0.0,
         trajectory_status="blocked_before_simulation",
     )
+    selection_status = _controller_selection_status(
+        controller=controller,
+        explicit_status=controller_selection_status,
+    )
     return RolloutEvidence(
         rollout_id=str(rollout_id),
         episode_id="" if episode_id is None else str(episode_id),
@@ -357,11 +369,15 @@ def blocked_rollout_evidence(
         primitive_parameters=primitive_parameters_json(primitive),
         controller_mode=primitive.controller_mode,
         feedback_mode=primitive.feedback_mode,
-        **_lqr_metadata_for_controller(resolved_controller),
-        controller_selection_status=_controller_selection_status(
+        **_lqr_metadata_for_evidence(
             controller=controller,
-            explicit_status=controller_selection_status,
+            fallback_controller=resolved_controller,
+            primitive=primitive,
+            controller_selection_status=selection_status,
         ),
+        controller_selection_status=selection_status,
+        controller_executable=_controller_executable(controller, selection_status),
+        controller_evidence_status=_controller_evidence_status(controller, selection_status),
         candidate_index=candidate_index,
         candidate_weight_label=str(candidate_weight_label),
         latency_case=context.latency_case,
@@ -394,6 +410,8 @@ def blocked_rollout_evidence(
         exit_state_vector=_vector_json(state),
         termination_cause="surrogate_binding_blocked",
         failure_label=str(failure_label),
+        archive_evidence_status="blocked",
+        evidence_eligibility_reason=str(failure_label),
         claim_status=primitive.claim_status,
     )
 
@@ -454,6 +472,10 @@ def _simulate_smoke_rollout(
         lift_dwell_time_s=lift_dwell_time_s,
         trajectory_status="smoke_only_not_integrated",
     )
+    selection_status = _controller_selection_status(
+        controller=controller,
+        explicit_status=controller_selection_status,
+    )
     return RolloutEvidence(
         rollout_id=str(rollout_id),
         episode_id=str(episode_id),
@@ -466,11 +488,15 @@ def _simulate_smoke_rollout(
         primitive_parameters=primitive_parameters_json(primitive),
         controller_mode=primitive.controller_mode,
         feedback_mode=primitive.feedback_mode,
-        **_lqr_metadata_for_controller(resolved_controller),
-        controller_selection_status=_controller_selection_status(
+        **_lqr_metadata_for_evidence(
             controller=controller,
-            explicit_status=controller_selection_status,
+            fallback_controller=resolved_controller,
+            primitive=primitive,
+            controller_selection_status=selection_status,
         ),
+        controller_selection_status=selection_status,
+        controller_executable=_controller_executable(controller, selection_status),
+        controller_evidence_status=_controller_evidence_status(controller, selection_status),
         candidate_index=candidate_index,
         candidate_weight_label=str(candidate_weight_label),
         latency_case=context.latency_case,
@@ -503,6 +529,8 @@ def _simulate_smoke_rollout(
         exit_state_vector=_vector_json(exit_state),
         termination_cause=termination_cause,
         failure_label=failure_label,
+        archive_evidence_status="smoke_incomplete",
+        evidence_eligibility_reason="debug_smoke_incomplete",
         claim_status=primitive.claim_status,
     )
 
@@ -834,6 +862,10 @@ def _simulate_dynamics_rollout(
         lift_dwell_time_s=lift_dwell_time_s,
         trajectory_status=trajectory_status,
     )
+    selection_status = _controller_selection_status(
+        controller=controller,
+        explicit_status=controller_selection_status,
+    )
     return RolloutEvidence(
         rollout_id=str(rollout_id),
         episode_id=str(episode_id),
@@ -846,11 +878,15 @@ def _simulate_dynamics_rollout(
         primitive_parameters=primitive_parameters_json(primitive),
         controller_mode=_controller_mode_for_backend(config.rollout_backend, primitive),
         feedback_mode=feedback_mode,
-        **_lqr_metadata_for_controller(resolved_controller),
-        controller_selection_status=_controller_selection_status(
+        **_lqr_metadata_for_evidence(
             controller=controller,
-            explicit_status=controller_selection_status,
+            fallback_controller=resolved_controller,
+            primitive=primitive,
+            controller_selection_status=selection_status,
         ),
+        controller_selection_status=selection_status,
+        controller_executable=_controller_executable(controller, selection_status),
+        controller_evidence_status=_controller_evidence_status(controller, selection_status),
         candidate_index=candidate_index,
         candidate_weight_label=str(candidate_weight_label),
         latency_case=context.latency_case,
@@ -883,6 +919,10 @@ def _simulate_dynamics_rollout(
         exit_state_vector=_vector_json(x),
         termination_cause=termination_cause,
         failure_label=failure_label,
+        archive_evidence_status="blocked" if outcome_class == "blocked" else "smoke_incomplete",
+        evidence_eligibility_reason=(
+            "blocked_rollout" if outcome_class == "blocked" else "debug_registry_status_not_assessed"
+        ),
         claim_status=primitive.claim_status,
     )
 
@@ -919,6 +959,10 @@ def _blocked_from_state(
         lift_dwell_time_s=0.0,
         trajectory_status="blocked_before_simulation",
     )
+    selection_status = _controller_selection_status(
+        controller=controller,
+        explicit_status=controller_selection_status,
+    )
     return RolloutEvidence(
         rollout_id=str(rollout_id),
         episode_id=str(episode_id),
@@ -935,11 +979,15 @@ def _blocked_from_state(
             if config.rollout_backend == "model_backed_lqr"
             else primitive.feedback_mode
         ),
-        **_lqr_metadata_for_controller(resolved_controller),
-        controller_selection_status=_controller_selection_status(
+        **_lqr_metadata_for_evidence(
             controller=controller,
-            explicit_status=controller_selection_status,
+            fallback_controller=resolved_controller,
+            primitive=primitive,
+            controller_selection_status=selection_status,
         ),
+        controller_selection_status=selection_status,
+        controller_executable=_controller_executable(controller, selection_status),
+        controller_evidence_status=_controller_evidence_status(controller, selection_status),
         candidate_index=candidate_index,
         candidate_weight_label=str(candidate_weight_label),
         latency_case=context.latency_case,
@@ -972,6 +1020,8 @@ def _blocked_from_state(
         exit_state_vector=_vector_json(state),
         termination_cause=str(failure_label),
         failure_label=str(failure_label),
+        archive_evidence_status="blocked",
+        evidence_eligibility_reason=str(failure_label),
         claim_status=primitive.claim_status,
     )
 
@@ -1059,6 +1109,74 @@ def _lqr_metadata_for_primitive(primitive: PrimitiveDefinition) -> dict[str, obj
 
 def _lqr_metadata_for_controller(controller: LQRController) -> dict[str, object]:
     return lqr_rollout_metadata(controller)
+
+
+def _lqr_metadata_for_evidence(
+    *,
+    controller: LQRController | None,
+    fallback_controller: LQRController,
+    primitive: PrimitiveDefinition,
+    controller_selection_status: str,
+) -> dict[str, object]:
+    if controller is None and _controller_selection_is_missing(controller_selection_status):
+        metadata = lqr_rollout_metadata(fallback_controller)
+        metadata.update(
+            {
+                "controller_id": f"blocked_missing_selected_controller_{primitive.primitive_id}",
+                "lqr_reference_id": "",
+                "linearisation_id": "",
+                "linearisation_source": "",
+                "lqr_Q_weights_json": "",
+                "lqr_R_weights_json": "",
+                "lqr_gain_checksum": "",
+                "lqr_synthesis_status": str(controller_selection_status),
+                "lqr_blocked_reason": str(controller_selection_status),
+                "lqr_closed_loop_eigenvalue_summary": "not_evaluated_missing_selected_controller",
+                "care_residual_norm": float("inf"),
+                "sampled_data_check_status": "not_evaluated_missing_selected_controller",
+                "sampled_data_spectral_radius": float("inf"),
+                "command_clip_check_status": "not_evaluated_missing_selected_controller",
+                "saturation_summary": "not_evaluated_missing_selected_controller",
+                "latency_actuator_survival_status": "not_evaluated_missing_selected_controller",
+                "controller_claim_status": "simulation_only_blocked",
+            }
+        )
+        return metadata
+    return lqr_rollout_metadata(controller or fallback_controller)
+
+
+def _controller_executable(controller: LQRController | None, controller_selection_status: str) -> bool:
+    if controller is None or _controller_selection_is_missing(controller_selection_status):
+        return False
+    ok, _ = controller_is_executable_lqr(controller)
+    return bool(ok)
+
+
+def _controller_evidence_status(controller: LQRController | None, controller_selection_status: str) -> str:
+    selection_status = str(controller_selection_status)
+    if controller is None and _controller_selection_is_missing(controller_selection_status):
+        return "blocked_missing_selected_controller"
+    if controller is None:
+        return "nominal_unselected_smoke"
+    ok, reason = controller_is_executable_lqr(controller)
+    if not ok:
+        return f"blocked_{reason}"
+    if selection_status in {
+        "W0_W1_registry_selected",
+        "W2_verified_registry_replay",
+        "W3_verified_registry_replay",
+    }:
+        return "registry_backed_executable"
+    if selection_status == "W0_W1_candidate_rollout":
+        return "candidate_executable_lqr"
+    if selection_status == "nominal_unselected_smoke":
+        return "nominal_unselected_smoke_executable"
+    return "executable_lqr"
+
+
+def _controller_selection_is_missing(controller_selection_status: str) -> bool:
+    text = str(controller_selection_status)
+    return "missing" in text or "invalid_source_controller" in text
 
 
 def _controller_selection_status(

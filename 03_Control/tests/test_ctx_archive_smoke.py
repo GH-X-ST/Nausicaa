@@ -8,6 +8,7 @@ import pandas as pd
 
 from dense_archive_table_io import load_table_manifest, read_table_partition
 from run_ctx_archive import ContextArchiveConfig, run_contextual_archive_preflight
+from run_lqr_contextual_archive import parse_args as parse_official_archive_args
 
 
 def _results_entries_are_placeholder_or_allowed(entries: list[str]) -> bool:
@@ -77,6 +78,9 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
 
     assert run_manifest["claim_status"] == "simulation_only_lqr_backed_preflight"
     assert run_manifest["rollout_backend"] == "model_backed_lqr"
+    assert run_manifest["selected_controller_registry_required"] is True
+    assert run_manifest["archive_evidence_status"] == "blocked"
+    assert run_manifest["evidence_eligibility_reason"] == "blocked_missing_selected_registry"
     assert run_manifest["chunk_execution_backend"] == "process_pool"
     assert run_manifest["worker_enabled"] is True
     assert run_manifest["rows_requested"] == 500
@@ -124,6 +128,13 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
         "controller_family",
         "controller_id",
         "controller_selection_status",
+        "controller_executable",
+        "controller_evidence_status",
+        "archive_evidence_status",
+        "evidence_eligibility_reason",
+        "registry_status",
+        "registry_claim_status",
+        "registry_path",
         "lqr_synthesis_status",
         "reduced_order_lqr",
         "sampled_data_check_status",
@@ -145,6 +156,9 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
     assert set(frame["controller_family"]) == {"lqr"}
     assert set(frame["W_layer"]).issubset({"W0", "W1"})
     assert set(frame["controller_selection_status"]) == {"missing_selected_registry_entry"}
+    assert set(frame["controller_executable"].astype(str).str.lower()) == {"false"}
+    assert set(frame["archive_evidence_status"]) == {"blocked"}
+    assert set(frame["evidence_eligibility_reason"]) == {"blocked_missing_selected_registry"}
     assert set(frame["outcome_class"]) == {"blocked"}
     assert "boundary_terminal" not in set(frame["outcome_class"].astype(str))
 
@@ -178,6 +192,21 @@ def test_contextual_archive_smoke_backend_is_explicit_opt_in(tmp_path: Path) -> 
 
     assert set(frame["rollout_backend"]) == {"smoke_only"}
     assert set(frame["evidence_role"]) == {"interface_smoke"}
+
+
+def test_official_contextual_archive_passes_selected_registry_path() -> None:
+    config = parse_official_archive_args(
+        [
+            "--run-id",
+            "31",
+            "--rows",
+            "16",
+            "--selected-controller-registry",
+            "03_Control/05_Results/lqr_contextual_v1_0/r6/tune_100/metrics/selected_lqr_controllers.csv",
+        ]
+    )
+    assert config.selected_controller_registry is not None
+    assert config.selected_controller_registry.as_posix().endswith("selected_lqr_controllers.csv")
 
 
 def test_contextual_archive_rejects_w2_w3_for_r6_stage(tmp_path: Path) -> None:

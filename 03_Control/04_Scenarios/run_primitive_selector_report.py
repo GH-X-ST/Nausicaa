@@ -149,6 +149,9 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
             "source_boundary_use_class",
             "source_continuation_valid",
             "source_episode_terminal_useful",
+            "source_archive_evidence_status",
+            "source_evidence_eligibility_reason",
+            "source_registry_status",
             "governor_mode",
         ),
     )
@@ -201,6 +204,8 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
         "evaluation_max_rows": int(config.evaluation_max_rows),
         "R7_selector_report_complete": r7_complete,
         "stage_status": stage_status,
+        "archive_evidence_status": source_info.archive_evidence_status,
+        "evidence_eligibility_reason": source_info.evidence_eligibility_reason,
         "blocked_ratio": float(ratio_summary["blocked_ratio"]),
         "file_size_status": file_status,
         "claim_status": (
@@ -329,6 +334,11 @@ def _derived_report_group_columns(row: dict[str, object]) -> dict[str, object]:
         "source_boundary_use_class": row.get("boundary_use_class", ""),
         "source_continuation_valid": row.get("continuation_valid", ""),
         "source_episode_terminal_useful": row.get("episode_terminal_useful", ""),
+        "source_archive_evidence_status": row.get("archive_evidence_status", ""),
+        "source_evidence_eligibility_reason": row.get("evidence_eligibility_reason", ""),
+        "source_registry_status": row.get("registry_status", ""),
+        "source_registry_claim_status": row.get("registry_claim_status", ""),
+        "source_registry_path": row.get("registry_path", ""),
     }
 
 

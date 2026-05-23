@@ -41,8 +41,12 @@ def test_lqr_tuning_rolls_out_candidate_controller_ids_and_writes_registry(tmp_p
     assert set(frame["controller_selection_status"]) == {"W0_W1_candidate_rollout"}
     assert frame.groupby("primitive_id")["controller_id"].nunique().ge(2).all()
     assert set(registry["primitive_id"]) == set(ACTIVE_PRIMITIVE_IDS)
-    assert set(registry["selected_controller_status"]).issuperset({"selected", "rejected"})
-    selected = registry[registry["selected_controller_status"] == "selected"]
+    assert set(registry["selected_controller_status"]).issuperset(
+        {"smoke_selected_not_thesis_evidence", "rejected"}
+    )
+    assert set(registry["registry_status"]) == {"smoke_incomplete"}
+    assert set(registry["registry_claim_status"]) == {"simulation_only_smoke_incomplete"}
+    selected = registry[registry["selected_controller_status"] == "smoke_selected_not_thesis_evidence"]
     assert set(selected["primitive_id"]) == set(ACTIVE_PRIMITIVE_IDS)
     controller = controller_from_evidence_row(selected.iloc[0].to_dict())
     assert controller.controller_id == str(selected.iloc[0]["controller_id"])

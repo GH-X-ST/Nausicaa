@@ -33,6 +33,7 @@ def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
     parser.add_argument("--continue-on-chunk-failure", action="store_true")
     parser.add_argument("--output-root", type=Path, default=Path("03_Control/05_Results/lqr_contextual_v1_0/r7"))
     parser.add_argument("--rollout-backend", choices=("model_backed_lqr", "smoke_only"), default="model_backed_lqr")
+    parser.add_argument("--selected-controller-registry", type=Path, default=None)
     args = parser.parse_args(argv)
     return ContextArchiveConfig(
         run_id=int(args.run_id),
@@ -52,6 +53,9 @@ def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
         continue_on_chunk_failure=bool(args.continue_on_chunk_failure),
         output_root=Path(args.output_root),
         rollout_backend=str(args.rollout_backend),
+        selected_controller_registry=None
+        if args.selected_controller_registry is None
+        else Path(args.selected_controller_registry),
     )
 
 
@@ -69,4 +73,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
