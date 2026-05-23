@@ -2,17 +2,17 @@
 
 ## Scope
 
-This audit covers active code paths and preserved support guidance for the feedback-backed contextual primitive evidence pass.
+This audit covers active code paths and preserved support guidance for the LQR contextual primitive evidence pass. `docs/Glider_Control_Project_Plan.md` remains the active project contract; `nausicaa_codex_fix_guidance_2026-05-23.md` is implementation guidance under that contract.
 
 ## Current Alignment
 
 | Item | Status | Note |
 |---|---|---|
 | Strict W0-W3 surrogate ladder | fixed | W0 is dry air only; W1 Gaussian plume only; W2 GP-corrected annular-Gaussian only; W3 randomised GP-corrected annular-Gaussian only. Invalid requests produce blocked bindings or blocked rows, not fallback. |
-| Feedback rollout evidence roles | fixed | Feedback, command-template diagnostic, smoke, and blocked feedback rows are explicitly labelled. |
-| Boundary-terminal evidence | fixed | X/y wall or lateral boundary exits are retained as `boundary_terminal` episode evidence and are not continuation successes. |
+| LQR rollout evidence roles | fixed | Selected-registry LQR, smoke, replay, and blocked rows are explicitly labelled with controller selection status. |
+| Terminal-use boundary evidence | fixed | Finite x/y wall or lateral boundary exits are retained only as `episode_terminal_useful` evidence when justified; they are not continuation-valid and are not `boundary_terminal` outcome rows. |
 | Hard failure labels | fixed | Floor/ceiling, nonfinite, corrupt, low-speed, and physically impossible initial states remain failed, rejected, or blocked evidence. |
-| Outcome-model targets | fixed | Default training uses `lqr_rollout_candidate` rows and separates continuation success from terminal usefulness. Explicit `blocked_lqr_synthesis` rows are excluded by default. |
+| Outcome-model targets | fixed | Default training uses canonical outcome rows and first-class `continuation_valid` / `episode_terminal_useful` targets. Explicit blocked LQR rows are retained as blocked evidence, not continuation or terminal-use targets. |
 | Selector modes | fixed | Selector exposes `continuation` and `terminal_episode` modes with different gates. |
 | Restored support docs | fixed | MATLAB, plotting, daily schedule, coding, and housekeeping guidance now describe W labels as validation layers, fan cases as environment instances, and boundary exits as retained terminal episode evidence. |
 | Unrelated restored docs | intentionally_preserved_non_contract_support | Non-contract restored support material is preserved unless it breaks imports, active contracts, file-size rules, or active control-method gates. |

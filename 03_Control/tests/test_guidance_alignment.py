@@ -28,7 +28,8 @@ def test_strict_surrogate_and_boundary_semantics_are_present_in_code() -> None:
     for token in (
         "lqr_rollout_candidate",
         "blocked_lqr_synthesis",
-        "boundary_terminal",
+        "episode_terminal_useful",
+        "continuation_valid",
         "not_continuation_valid",
         "terminal_useful",
     ):
@@ -96,7 +97,7 @@ def test_r6_r8_alignment_report_records_statuses() -> None:
     for token in (
         "fixed",
         "intentionally_preserved_non_contract_support",
-        "boundary_terminal",
+        "episode_terminal_useful",
         "lqr_rollout_candidate",
         "100 MB",
     ):

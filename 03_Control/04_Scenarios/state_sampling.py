@@ -30,6 +30,7 @@ class ArchiveStateSample:
     paired_start_key: str
     state_envelope_label: str
     previous_primitive_status: str
+    state_sample_detail: str
     synthetic_previous_primitive_id: str
     synthetic_time_since_launch_s: float
     state_sampling_seed: int
@@ -58,36 +59,41 @@ def archive_state_sample_for_row(
     if family == "launch_gate":
         state = _launch_gate_state(rng)
         label = "approved_launch_gate"
-        source = "deterministic_mixed_start_launch_gate"
-        previous_status = "episode_start"
+        source = "synthetic_launch_gate"
+        detail = "deterministic_mixed_start_launch_gate"
+        previous_status = "launch_start"
         previous_primitive_id = ""
         time_since_launch_s = 0.0
     elif family == "inflight_nominal":
         state = _inflight_nominal_state(rng)
-        label = "inflight_clean_exit_envelope"
-        source = "deterministic_mixed_start_inflight"
+        label = "local_primitive_envelope"
+        source = "rollout_exit_resampled"
+        detail = "deterministic_mixed_start_inflight_nominal"
         previous_status = "clean_exit"
         previous_primitive_id = _synthetic_previous_primitive_id(row_index)
         time_since_launch_s = float(rng.uniform(0.8, 2.2))
     elif family == "inflight_lift_region":
         state = _inflight_lift_region_state(rng)
-        label = "inflight_lift_region_envelope"
-        source = "deterministic_mixed_start_inflight"
+        label = "lift_region"
+        source = "synthetic_inflight"
+        detail = "deterministic_mixed_start_lift_region"
         previous_status = "clean_exit"
         previous_primitive_id = _synthetic_previous_primitive_id(row_index)
         time_since_launch_s = float(rng.uniform(0.6, 2.6))
     elif family == "inflight_boundary_near":
         side = "x_max" if int(row_index) % 2 == 0 else "y_min"
         state = _boundary_near_state(rng, side=side)
-        label = f"{side}_terminal_risk_envelope"
-        source = "deterministic_mixed_start_boundary_near"
-        previous_status = "boundary_terminal_risk"
+        label = "boundary_near"
+        source = "stress_sample"
+        detail = f"{side}_terminal_risk_envelope"
+        previous_status = "boundary_terminal"
         previous_primitive_id = _synthetic_previous_primitive_id(row_index)
         time_since_launch_s = float(rng.uniform(0.8, 2.8))
     else:
         state = _inflight_recovery_edge_state(rng)
-        label = "inflight_recovery_edge_envelope"
-        source = "deterministic_mixed_start_recovery_edge"
+        label = "recovery_edge"
+        source = "stress_sample"
+        detail = "deterministic_mixed_start_recovery_edge"
         previous_status = "recovery_edge"
         previous_primitive_id = _synthetic_previous_primitive_id(row_index)
         time_since_launch_s = float(rng.uniform(0.4, 2.0))
@@ -99,6 +105,7 @@ def archive_state_sample_for_row(
         paired_start_key=paired_key,
         state_envelope_label=label,
         previous_primitive_status=previous_status,
+        state_sample_detail=detail,
         synthetic_previous_primitive_id=previous_primitive_id,
         synthetic_time_since_launch_s=time_since_launch_s,
         state_sampling_seed=int(sample_seed),
@@ -116,6 +123,7 @@ def archive_state_sample_row(sample: ArchiveStateSample) -> dict[str, object]:
         "paired_start_key": sample.paired_start_key,
         "state_envelope_label": sample.state_envelope_label,
         "previous_primitive_status": sample.previous_primitive_status,
+        "state_sample_detail": sample.state_sample_detail,
         "synthetic_previous_primitive_id": sample.synthetic_previous_primitive_id,
         "synthetic_time_since_launch_s": float(sample.synthetic_time_since_launch_s),
         "state_sampling_seed": int(sample.state_sampling_seed),
@@ -299,10 +307,11 @@ def measured_log_state_sample_rows(path: Path) -> list[ArchiveStateSample]:
             ArchiveStateSample(
                 state_vector=as_state_vector(state),
                 start_state_family=str(row.get("start_state_family", "measured_log")),
-                state_sample_source="measured_log_compatible",
+                state_sample_source="measured_log",
                 paired_start_key=str(row.get("paired_start_key", f"measured_{index:07d}")),
-                state_envelope_label=str(row.get("state_envelope_label", "measured_log")),
-                previous_primitive_status=str(row.get("previous_primitive_status", "real_log")),
+                state_envelope_label=str(row.get("state_envelope_label", "local_primitive_envelope")),
+                previous_primitive_status=str(row.get("previous_primitive_status", "unknown")),
+                state_sample_detail=str(row.get("state_sample_detail", "measured_log_compatible")),
                 synthetic_previous_primitive_id=str(row.get("synthetic_previous_primitive_id", "")),
                 synthetic_time_since_launch_s=float(row.get("synthetic_time_since_launch_s", 0.0)),
                 state_sampling_seed=int(row.get("state_sampling_seed", index)),
@@ -320,5 +329,5 @@ def measured_log_schema_row() -> dict[str, object]:
     return {
         "required_state_columns": ",".join(STATE_NAMES),
         "optional_metadata_columns": "paired_start_key,state_envelope_label,start_state_family,previous_primitive_status,episode_id",
-        "state_sample_source": "measured_log_compatible",
+        "state_sample_source": "measured_log",
     }

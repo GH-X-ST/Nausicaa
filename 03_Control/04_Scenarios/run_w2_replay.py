@@ -27,6 +27,7 @@ from dense_archive_table_io import (  # noqa: E402
     write_table_partition,
 )
 from env_ctx import build_environment_context  # noqa: E402
+from controller_registry import controller_from_evidence_row  # noqa: E402
 from env_instance import (  # noqa: E402
     environment_instance_for_mode,
     environment_instance_row,
@@ -176,11 +177,15 @@ def run_w2_replay(config: W2ReplayConfig) -> dict[str, object]:
         replay_frame,
         columns=(
             "source_outcome_class",
+            "source_continuation_valid",
+            "source_episode_terminal_useful",
             "source_start_state_family",
             "source_state_envelope_label",
             "primitive_id",
             "controller_id",
             "outcome_class",
+            "continuation_valid",
+            "episode_terminal_useful",
             "boundary_use_class",
             "latency_case",
             "environment_instance_environment_id",
@@ -208,6 +213,14 @@ def run_w2_replay(config: W2ReplayConfig) -> dict[str, object]:
         row_count > 0
         and set(replay_frame.get("replay_generation_path", [])) == {"simulate_primitive_rollout"}
         and not replay_frame.get("source_label_copied_as_evidence", pd.Series([True])).astype(bool).any()
+        and replay_frame.get("controller_selection_status", pd.Series(dtype=str))
+        .astype(str)
+        .eq("W2_verified_registry_replay")
+        .any()
+        and replay_frame.get("trajectory_integrity_status", pd.Series(dtype=str))
+        .astype(str)
+        .ne("blocked_before_simulation")
+        .any()
     )
     r8_complete = bool(actual_replay and stage_status in {"complete", "fallback"} and file_status == "pass")
     manifest = {
@@ -406,8 +419,7 @@ def _select_representative_source_rows(
         return pd.DataFrame()
     requested = max(int(fallback_rows), min(int(target_rows), len(source) * max(1, int(reuse_limit))))
     strata = []
-    for outcome in ("accepted", "weak", "boundary_terminal", "failed", "rejected"):
-        subset = source[source["outcome_class"].astype(str) == outcome]
+    for stratum, subset in _representative_replay_strata(source):
         if subset.empty:
             continue
         for start_kind in ("launch_gate", "inflight"):
@@ -448,6 +460,14 @@ def _w2_replay_row(
     mode = _w2_environment_mode(row)
     seed = int(config.run_id) * 100_000 + int(row_index)
     primitive = primitive_by_id(str(row.get("primitive_id", "glide")))
+    try:
+        controller = controller_from_evidence_row(row)
+        controller_status = "W2_verified_registry_replay"
+        controller_failure = ""
+    except Exception as exc:
+        controller = None
+        controller_status = "missing_or_invalid_source_controller_registry"
+        controller_failure = f"controller_registry_verification_failed:{type(exc).__name__}:{exc}"
     instance = environment_instance_for_mode("W2", mode, seed)
     metadata = environment_metadata_from_instance(instance)
     binding = resolve_surrogate_binding("W2", metadata, randomisation_seed=seed)
@@ -477,6 +497,23 @@ def _w2_replay_row(
             primitive=primitive,
             config=rollout_config,
             failure_label="W2_surrogate_binding_blocked",
+            controller=controller,
+            controller_selection_status=controller_status,
+            candidate_index=row.get("candidate_index", ""),
+            candidate_weight_label=str(row.get("candidate_weight_label", "")),
+        )
+    elif controller is None:
+        evidence = blocked_rollout_evidence(
+            rollout_id=rollout_id,
+            episode_id=f"w2_episode_{row_index:06d}",
+            initial_state=state,
+            context=context,
+            primitive=primitive,
+            config=rollout_config,
+            failure_label=controller_failure,
+            controller_selection_status=controller_status,
+            candidate_index=row.get("candidate_index", ""),
+            candidate_weight_label=str(row.get("candidate_weight_label", "")),
         )
     else:
         evidence = simulate_primitive_rollout(
@@ -489,6 +526,10 @@ def _w2_replay_row(
             wind_field=wind,
             implementation_instance=implementation,
             plant_instance=plant,
+            controller=controller,
+            controller_selection_status=controller_status,
+            candidate_index=row.get("candidate_index", ""),
+            candidate_weight_label=str(row.get("candidate_weight_label", "")),
         )
     result = rollout_with_context_row(evidence, context)
     result.update({f"surrogate_{key}": value for key, value in surrogate_binding_row(binding).items()})
@@ -530,7 +571,30 @@ def _source_columns(row: dict[str, object]) -> dict[str, object]:
         "source_environment_id": row.get("environment_id", ""),
         "source_environment_mode": row.get("environment_mode", ""),
         "source_boundary_use_class": row.get("boundary_use_class", ""),
+        "source_continuation_valid": row.get("continuation_valid", ""),
+        "source_episode_terminal_useful": row.get("episode_terminal_useful", ""),
     }
+
+
+def _representative_replay_strata(source: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
+    if source.empty:
+        return []
+    outcome = source["outcome_class"].astype(str) if "outcome_class" in source.columns else pd.Series([""] * len(source))
+    terminal = _bool_series(source.get("episode_terminal_useful", pd.Series([False] * len(source))))
+    failure = source.get("failure_label", pd.Series([""] * len(source))).astype(str)
+    return [
+        ("accepted", source[outcome == "accepted"]),
+        ("weak", source[(outcome == "weak") & ~terminal]),
+        ("terminal_useful", source[terminal]),
+        ("rejected", source[outcome == "rejected"]),
+        ("blocked", source[outcome == "blocked"]),
+        ("informative_failed", source[(outcome == "failed") & (failure != "speed_low")]),
+        ("failed", source[outcome == "failed"]),
+    ]
+
+
+def _bool_series(series: pd.Series) -> pd.Series:
+    return series.map(lambda value: str(value).strip().lower() in {"1", "true", "yes", "y"})
 
 
 def _write_blocked_outputs(
@@ -566,12 +630,29 @@ def _write_blocked_outputs(
 
 
 def _write_mapping_summary(path: Path, frame: pd.DataFrame) -> None:
-    columns = ["source_rollout_id", "rollout_id", "source_outcome_class", "w2_outcome_class", "source_reuse_count"]
+    columns = [
+        "source_rollout_id",
+        "rollout_id",
+        "source_outcome_class",
+        "source_continuation_valid",
+        "source_episode_terminal_useful",
+        "w2_outcome_class",
+        "continuation_valid",
+        "episode_terminal_useful",
+        "source_reuse_count",
+    ]
     frame[[column for column in columns if column in frame.columns]].to_csv(filesystem_path(path), index=False)
 
 
 def _write_survival_summary(path: Path, frame: pd.DataFrame) -> None:
-    columns = ["source_outcome_class", "outcome_class"]
+    columns = [
+        "source_outcome_class",
+        "source_continuation_valid",
+        "source_episode_terminal_useful",
+        "outcome_class",
+        "continuation_valid",
+        "episode_terminal_useful",
+    ]
     if not set(columns).issubset(frame.columns):
         pd.DataFrame(columns=[*columns, "row_count"]).to_csv(filesystem_path(path), index=False)
         return
@@ -603,7 +684,14 @@ def _write_runtime_summary(path: Path, manifest: dict[str, object]) -> None:
 
 
 def _write_outcome_summary(path: Path, frame: pd.DataFrame) -> None:
-    columns = ["outcome_class", "continuation_status", "episode_terminal_status", "boundary_use_class"]
+    columns = [
+        "outcome_class",
+        "continuation_valid",
+        "episode_terminal_useful",
+        "continuation_status",
+        "episode_terminal_status",
+        "boundary_use_class",
+    ]
     if frame.empty:
         pd.DataFrame(columns=[*columns, "row_count"]).to_csv(filesystem_path(path), index=False)
         return

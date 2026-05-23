@@ -5,6 +5,7 @@ import numpy as np
 from env_ctx import EnvironmentMetadata, build_environment_context
 from env_surrogate import resolve_surrogate_binding, wind_field_for_binding
 from implementation_instance import implementation_instance_for_layer
+from lqr_controller import lqr_controller_for_primitive_id
 from plant_instance import plant_instance_for_layer
 from prim_cat import primitive_by_id
 from prim_roll import RolloutConfig, rollout_evidence_row, simulate_primitive_rollout
@@ -40,6 +41,10 @@ def _context_and_wind(state: np.ndarray):
     return context, wind
 
 
+def _controller(primitive_id: str):
+    return lqr_controller_for_primitive_id(primitive_id)
+
+
 def test_model_backed_rollout_is_distinct_from_smoke_and_finite() -> None:
     state = _state()
     context, wind = _context_and_wind(state)
@@ -52,6 +57,7 @@ def test_model_backed_rollout_is_distinct_from_smoke_and_finite() -> None:
         primitive=primitive_by_id("glide"),
         config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
+        controller=_controller("glide"),
     )
 
     assert evidence.rollout_backend == "model_backed_lqr"
@@ -76,11 +82,34 @@ def test_model_backed_low_speed_initial_state_is_blocked() -> None:
         primitive=primitive_by_id("glide"),
         config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
+        controller=_controller("glide"),
     )
 
     assert evidence.outcome_class == "blocked"
     assert evidence.continuation_status == "blocked"
+    assert evidence.continuation_valid is False
+    assert evidence.episode_terminal_useful is False
     assert evidence.failure_label == "speed_low"
+
+
+def test_model_backed_missing_explicit_controller_is_blocked_before_integration() -> None:
+    state = _state()
+    context, wind = _context_and_wind(state)
+
+    evidence = simulate_primitive_rollout(
+        rollout_id="model_rollout_missing_controller",
+        initial_state=state,
+        context=context,
+        primitive=primitive_by_id("glide"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
+        wind_field=wind,
+    )
+
+    assert evidence.outcome_class == "blocked"
+    assert evidence.controller_selection_status == "missing_explicit_lqr_controller"
+    assert evidence.failure_label == "missing_explicit_lqr_controller"
+    assert evidence.trajectory_integrity_status == "blocked_before_simulation"
+    assert evidence.max_abs_command_norm == 0.0
 
 
 def test_model_backed_nonfinite_initial_state_is_blocked() -> None:
@@ -95,6 +124,7 @@ def test_model_backed_nonfinite_initial_state_is_blocked() -> None:
         primitive=primitive_by_id("glide"),
         config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
+        controller=_controller("glide"),
     )
 
     assert evidence.outcome_class == "blocked"
@@ -113,13 +143,14 @@ def test_model_backed_floor_initial_state_is_blocked() -> None:
         primitive=primitive_by_id("glide"),
         config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
+        controller=_controller("glide"),
     )
 
     assert evidence.outcome_class == "blocked"
     assert evidence.failure_label == "initial_floor_violation"
 
 
-def test_model_backed_wall_exit_is_retained_as_boundary_terminal_row() -> None:
+def test_model_backed_wall_exit_is_retained_as_terminal_useful_not_continuation_row() -> None:
     state = _state(x_w_m=6.55)
     context, wind = _context_and_wind(state)
 
@@ -130,12 +161,17 @@ def test_model_backed_wall_exit_is_retained_as_boundary_terminal_row() -> None:
         primitive=primitive_by_id("mild_turn_left"),
         config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
+        controller=_controller("mild_turn_left"),
     )
 
-    assert evidence.outcome_class == "boundary_terminal"
+    assert evidence.outcome_class in {"weak", "failed"}
+    assert evidence.outcome_class != "boundary_terminal"
     assert evidence.failure_label == "xy_boundary_terminal"
-    assert evidence.episode_terminal_status == "boundary_terminal"
+    assert evidence.episode_terminal_status == "episode_terminal_useful"
     assert evidence.continuation_status == "not_continuation_valid"
+    assert evidence.continuation_valid is False
+    assert evidence.episode_terminal_useful is True
+    assert evidence.boundary_use_class == "episode_terminal_useful"
     assert evidence.terminal_use_trainable is True
     assert evidence.minimum_wall_margin_m < 0.0
 
@@ -175,6 +211,7 @@ def test_latency_mechanisms_are_applied_and_logged() -> None:
         primitive=primitive_by_id("lift_dwell_arc"),
         config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
+        controller=_controller("lift_dwell_arc"),
     )
     nominal = simulate_primitive_rollout(
         rollout_id="nominal_latency",
@@ -183,6 +220,7 @@ def test_latency_mechanisms_are_applied_and_logged() -> None:
         primitive=primitive_by_id("lift_dwell_arc"),
         config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
+        controller=_controller("lift_dwell_arc"),
     )
 
     assert ideal.state_feedback_delay_applied is False
@@ -206,6 +244,7 @@ def test_rollout_row_logs_full_canonical_entry_state() -> None:
         primitive=primitive_by_id("glide"),
         config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
         wind_field=wind,
+        controller=_controller("glide"),
     )
     row = rollout_evidence_row(evidence)
 
@@ -242,6 +281,7 @@ def test_implementation_and_plant_instances_change_rollout_smoke() -> None:
         primitive=primitive,
         config=config,
         wind_field=wind,
+        controller=_controller(primitive.primitive_id),
         implementation_instance=implementation_instance_for_layer("W1", 1),
         plant_instance=plant_instance_for_layer("W1", 1),
     )
@@ -252,6 +292,7 @@ def test_implementation_and_plant_instances_change_rollout_smoke() -> None:
         primitive=primitive,
         config=config,
         wind_field=wind,
+        controller=_controller(primitive.primitive_id),
         implementation_instance=implementation_instance_for_layer("W3", 1),
         plant_instance=plant_instance_for_layer("W3", 1),
     )

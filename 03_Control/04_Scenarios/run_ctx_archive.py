@@ -38,6 +38,7 @@ from dense_archive_table_io import (  # noqa: E402
     write_table_manifest,
     write_table_partition,
 )
+from controller_registry import load_selected_controller_registry  # noqa: E402
 from evidence_stage_utils import (  # noqa: E402
     write_blocked_approximate_ratio_summary,
     write_claim_boundary_report,
@@ -107,6 +108,7 @@ class ContextArchiveConfig:
     continue_on_chunk_failure: bool
     output_root: Path
     rollout_backend: str = "model_backed_lqr"
+    selected_controller_registry: Path | None = None
 
 
 def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
@@ -130,6 +132,7 @@ def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
     parser.add_argument("--stop-after-chunks", type=int, default=None)
     parser.add_argument("--continue-on-chunk-failure", action="store_true")
     parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument("--selected-controller-registry", type=Path, default=None)
     parser.add_argument(
         "--smoke-only",
         action="store_true",
@@ -166,6 +169,9 @@ def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
         continue_on_chunk_failure=bool(args.continue_on_chunk_failure),
         output_root=Path(args.output_root),
         rollout_backend=rollout_backend,
+        selected_controller_registry=None
+        if args.selected_controller_registry is None
+        else Path(args.selected_controller_registry),
     )
 
 
@@ -310,6 +316,7 @@ def _chunk_rows(
     spec: ContextChunkSpec,
 ) -> list[dict[str, object]]:
     primitives = active_primitive_catalogue()
+    controller_registry = load_selected_controller_registry(config.selected_controller_registry)
     rows: list[dict[str, object]] = []
     for offset in range(spec.chunk_size):
         row_index = int(spec.chunk_index * config.candidate_chunk_size + offset)
@@ -350,6 +357,16 @@ def _chunk_rows(
             surrogate_binding=binding,
         )
         primitive = primitives[row_index % len(primitives)]
+        selected_controller = controller_registry.get(primitive.primitive_id) if controller_registry else None
+        controller_status = (
+            "W0_W1_registry_selected"
+            if selected_controller is not None
+            else (
+                "nominal_unselected_smoke"
+                if config.rollout_backend == "smoke_only"
+                else "missing_selected_registry_entry"
+            )
+        )
         rollout_id = f"r{config.run_id:03d}_c{spec.chunk_index:05d}_{offset:05d}"
         rollout_config = RolloutConfig(
             W_layer=spec.context_id,
@@ -366,6 +383,19 @@ def _chunk_rows(
                 primitive=primitive,
                 config=rollout_config,
                 failure_label="surrogate_binding_blocked",
+                controller=selected_controller,
+                controller_selection_status=controller_status,
+            )
+        elif config.selected_controller_registry is not None and selected_controller is None:
+            evidence = blocked_rollout_evidence(
+                rollout_id=rollout_id,
+                episode_id=f"episode_{row_index:07d}",
+                initial_state=state,
+                context=context,
+                primitive=primitive,
+                config=rollout_config,
+                failure_label="controller_missing_from_selected_registry",
+                controller_selection_status="missing_selected_registry_entry",
             )
         else:
             evidence = simulate_primitive_rollout(
@@ -378,6 +408,8 @@ def _chunk_rows(
                 wind_field=wind,
                 implementation_instance=implementation,
                 plant_instance=plant,
+                controller=selected_controller,
+                controller_selection_status=controller_status,
             )
         row = rollout_with_context_row(evidence, context)
         row.update({f"surrogate_{key}": value for key, value in surrogate_binding_row(binding).items()})
@@ -565,6 +597,10 @@ def _run_single_chunk(
                 "accepted": bool(row["accepted"]),
                 "rollout_backend": row["rollout_backend"],
                 "evidence_role": row["evidence_role"],
+                "controller_id": row["controller_id"],
+                "controller_selection_status": row.get("controller_selection_status", ""),
+                "continuation_valid": bool(row["continuation_valid"]),
+                "episode_terminal_useful": bool(row["episode_terminal_useful"]),
                 "continuation_status": row["continuation_status"],
                 "episode_terminal_status": row["episode_terminal_status"],
                 "episode_utility_label": row["episode_utility_label"],
@@ -577,6 +613,7 @@ def _run_single_chunk(
                 "primitive_id": row["primitive_id"],
                 "latency_case": row["latency_case"],
                 "surrogate_binding_status": row["surrogate_binding_status"],
+                "environment_instance_environment_id": row.get("environment_instance_environment_id", ""),
             }
             for row in rows
         ],
@@ -679,6 +716,9 @@ def _write_run_outputs(
         "w_layers": list(config.w_layers),
         "env_modes": list(config.env_modes),
         "rollout_backend": str(config.rollout_backend),
+        "selected_controller_registry": ""
+        if config.selected_controller_registry is None
+        else Path(config.selected_controller_registry).as_posix(),
         "candidate_chunk_size": int(config.candidate_chunk_size),
         "storage_format": resolve_storage_format(config.storage_format),
         "compression_level": int(config.compression_level),
@@ -724,6 +764,8 @@ def _write_run_outputs(
             "W_layer",
             "latency_case",
             "boundary_use_class",
+            "continuation_valid",
+            "episode_terminal_useful",
             "continuation_status",
             "episode_terminal_status",
             "outcome_class",
@@ -805,8 +847,12 @@ def _write_outcome_summary(path: Path, outcome_rows: list[dict[str, object]]) ->
                 "primitive_id",
                 "latency_case",
                 "boundary_use_class",
+                "continuation_valid",
+                "episode_terminal_useful",
                 "row_count",
                 "accepted_count",
+                "continuation_valid_count",
+                "episode_terminal_useful_count",
                 "terminal_use_trainable_count",
             ]
         )
@@ -829,12 +875,16 @@ def _write_outcome_summary(path: Path, outcome_rows: list[dict[str, object]]) ->
                     "primitive_id",
                     "latency_case",
                     "boundary_use_class",
+                    "continuation_valid",
+                    "episode_terminal_useful",
                 ],
                 dropna=False,
             )
             .agg(
                 row_count=("outcome_class", "size"),
                 accepted_count=("accepted", "sum"),
+                continuation_valid_count=("continuation_valid", "sum"),
+                episode_terminal_useful_count=("episode_terminal_useful", "sum"),
                 terminal_use_trainable_count=("terminal_use_trainable", "sum"),
             )
             .reset_index()
@@ -900,6 +950,8 @@ def _write_medoid_report(path: Path, frame: pd.DataFrame) -> None:
                 "latency_case",
                 "start_state_family",
                 "outcome_class",
+                "continuation_valid",
+                "episode_terminal_useful",
                 "boundary_use_class",
             )
             if column in frame.columns

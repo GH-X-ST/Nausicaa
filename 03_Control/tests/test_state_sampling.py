@@ -21,7 +21,9 @@ def test_archive_state_sampler_is_deterministic_and_labels_rows() -> None:
     assert first.paired_start_key == second.paired_start_key
     assert first.start_state_family == "launch_gate"
     assert first.state_envelope_label == "approved_launch_gate"
-    assert row["state_sample_source"] == "deterministic_mixed_start_launch_gate"
+    assert row["state_sample_source"] == "synthetic_launch_gate"
+    assert row["previous_primitive_status"] == "launch_start"
+    assert row["state_sample_detail"] == "deterministic_mixed_start_launch_gate"
     assert row["launch_gate_compliant"] is True
     for name in STATE_NAMES:
         assert f"initial_{name}" in row
@@ -42,6 +44,15 @@ def test_mixed_start_sampler_has_required_40_60_schedule_and_bounds() -> None:
     assert families.count("inflight_recovery_edge") == 2
     assert all(state_is_launch_gate_compliant(sample.state_vector) for sample in samples[:8])
     assert not any(sample.launch_gate_compliant for sample in samples[8:])
+    assert {sample.state_sample_source for sample in samples}.issubset(
+        {"synthetic_launch_gate", "synthetic_inflight", "rollout_exit_resampled", "stress_sample"}
+    )
+    assert {sample.previous_primitive_status for sample in samples}.issubset(
+        {"launch_start", "clean_exit", "boundary_terminal", "recovery_edge"}
+    )
+    assert {sample.state_envelope_label for sample in samples}.issubset(
+        {"approved_launch_gate", "local_primitive_envelope", "lift_region", "boundary_near", "recovery_edge"}
+    )
 
 
 def test_inflight_samples_include_rates_and_surface_states() -> None:
@@ -65,7 +76,7 @@ def test_measured_log_compatibility_shape_without_real_logs(tmp_path) -> None:
     rows = measured_log_state_sample_rows(path)
     schema = measured_log_schema_row()
 
-    assert rows[0].state_sample_source == "measured_log_compatible"
+    assert rows[0].state_sample_source == "measured_log"
     assert rows[0].paired_start_key == "real_000"
     assert rows[0].launch_gate_compliant is False
     assert "x_w" in schema["required_state_columns"]

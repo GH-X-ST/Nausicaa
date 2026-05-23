@@ -17,6 +17,7 @@ for rel in ("02_Inner_Loop", "03_Primitives", "04_Scenarios"):
 
 from archive_table_reader import read_archive_table_with_info  # noqa: E402
 from dense_archive_table_io import filesystem_path  # noqa: E402
+from controller_registry import controller_from_evidence_row  # noqa: E402
 from evidence_stage_utils import (  # noqa: E402
     write_blocked_approximate_ratio_summary,
     write_claim_boundary_report,
@@ -82,6 +83,7 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
     decisions = []
     candidate_rows = []
     primitives = active_primitive_catalogue()
+    controller_registry = _controller_registry_from_rows(rows)
     evaluation_frame, evaluation_metadata = _evaluation_frame(
         frame,
         max_rows=int(config.evaluation_max_rows),
@@ -98,6 +100,8 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
                 current_state=state,
                 governor_mode=governor_mode,
                 max_uncertainty=1_000_000.0,
+                controller_registry=controller_registry,
+                require_controller_registry=True,
             )
             out = primitive_selection_row(result)
             out["source_rollout_id"] = row.get("rollout_id", "")
@@ -114,6 +118,8 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
                     "lift_dwell_time_s": row.get("lift_dwell_time_s", 0.0),
                     "minimum_wall_margin_m": row.get("minimum_wall_margin_m", 0.0),
                     "minimum_speed_m_s": row.get("minimum_speed_m_s", 0.0),
+                    "continuation_valid": row.get("continuation_valid", False),
+                    "episode_terminal_useful": row.get("episode_terminal_useful", False),
                 }
                 candidate_row.update(_derived_report_group_columns(row))
                 candidate_rows.append(candidate_row)
@@ -141,6 +147,8 @@ def run_primitive_selector_report(config: SelectorReportConfig) -> dict[str, obj
             "source_latency_case",
             "source_outcome_class",
             "source_boundary_use_class",
+            "source_continuation_valid",
+            "source_episode_terminal_useful",
             "governor_mode",
         ),
     )
@@ -319,7 +327,22 @@ def _derived_report_group_columns(row: dict[str, object]) -> dict[str, object]:
         "source_latency_case": row.get("latency_case", ""),
         "source_outcome_class": row.get("outcome_class", ""),
         "source_boundary_use_class": row.get("boundary_use_class", ""),
+        "source_continuation_valid": row.get("continuation_valid", ""),
+        "source_episode_terminal_useful": row.get("episode_terminal_useful", ""),
     }
+
+
+def _controller_registry_from_rows(rows: list[dict[str, object]]) -> dict:
+    registry = {}
+    for row in rows:
+        primitive_id = str(row.get("primitive_id", ""))
+        if not primitive_id or primitive_id in registry:
+            continue
+        try:
+            registry[primitive_id] = controller_from_evidence_row(row)
+        except Exception:
+            continue
+    return registry
 
 
 def _available_split_columns(rows: list[dict[str, object]]) -> list[str]:
@@ -412,14 +435,31 @@ def _write_calibration_scores(path: Path, rows: list[dict[str, object]]) -> None
         pd.DataFrame(columns=["probability_name", "brier_score"]).to_csv(filesystem_path(path), index=False)
         return
     output = []
-    for name in ("probability_accepted", "probability_weak", "probability_failed"):
+    source_outcome = frame.get("source_outcome_class", pd.Series([""] * len(frame))).astype(str)
+    targets = {
+        "probability_accepted": source_outcome == "accepted",
+        "probability_weak": source_outcome == "weak",
+        "probability_failed": source_outcome.isin(["failed", "rejected", "blocked"]),
+        "probability_continuation_valid": _bool_series(
+            frame.get("source_continuation_valid", frame.get("continuation_valid", pd.Series([False] * len(frame))))
+        ),
+        "probability_episode_terminal_useful": _bool_series(
+            frame.get(
+                "source_episode_terminal_useful",
+                frame.get("episode_terminal_useful", pd.Series([False] * len(frame))),
+            )
+        ),
+    }
+    for name in (
+        "probability_accepted",
+        "probability_weak",
+        "probability_failed",
+        "probability_continuation_valid",
+        "probability_episode_terminal_useful",
+    ):
         if name not in frame.columns:
             continue
-        target = {
-            "probability_accepted": frame.get("source_outcome_class", "") == "accepted",
-            "probability_weak": frame.get("source_outcome_class", "") == "weak",
-            "probability_failed": frame.get("source_outcome_class", "").isin(["failed", "rejected", "blocked"]),
-        }[name].astype(float)
+        target = targets[name].astype(float)
         pred = frame[name].astype(float)
         output.append(
             {
@@ -432,13 +472,16 @@ def _write_calibration_scores(path: Path, rows: list[dict[str, object]]) -> None
     pd.DataFrame(output).to_csv(filesystem_path(path), index=False)
 
 
+def _bool_series(series: pd.Series) -> pd.Series:
+    return series.map(lambda value: str(value).strip().lower() in {"1", "true", "yes", "y"})
+
+
 def _write_regression_errors(path: Path, rows: list[dict[str, object]]) -> None:
     frame = pd.DataFrame(rows)
     metrics = [
         ("energy_residual_m", "predicted_energy_residual_m"),
         ("lift_dwell_time_s", "predicted_lift_dwell_time_s"),
         ("minimum_wall_margin_m", "predicted_minimum_wall_margin_m"),
-        ("minimum_speed_m_s", "predicted_continuation_margin_m"),
     ]
     output = []
     for truth, pred in metrics:

@@ -38,6 +38,8 @@ def _model_for(context):
                 "evidence_role": "lqr_rollout_candidate",
                 "context_feature_vector": features,
                 "outcome_class": "accepted",
+                "continuation_valid": True,
+                "episode_terminal_useful": False,
                 "continuation_status": "continuation_success",
                 "episode_terminal_status": "not_terminal",
                 "episode_utility_label": "continuation_useful",
@@ -52,6 +54,8 @@ def _model_for(context):
                 "evidence_role": "lqr_rollout_candidate",
                 "context_feature_vector": features,
                 "outcome_class": "weak",
+                "continuation_valid": True,
+                "episode_terminal_useful": False,
                 "continuation_status": "continuation_weak",
                 "episode_terminal_status": "not_terminal",
                 "episode_utility_label": "continuation_useful",
@@ -89,8 +93,8 @@ def test_selector_rejects_high_wall_risk_without_dropping_candidate_log() -> Non
         min_wall_margin_m=0.25,
     )
 
-    assert result.decision_status == "recovery_handoff_no_viable_primitive"
-    assert result.selected_primitive_id == "safe_exit_or_recovery_handoff"
+    assert result.decision_status == "blocked_no_viable_lqr_primitive"
+    assert result.selected_primitive_id == ""
     assert result.candidate_count == 2
     assert all(decision.rejection_reason for decision in result.decisions)
 
@@ -104,9 +108,12 @@ def test_selector_modes_treat_boundary_terminal_differently() -> None:
                 "primitive_id": "lift_dwell_arc",
                 "evidence_role": "lqr_rollout_candidate",
                 "context_feature_vector": features,
-                "outcome_class": "boundary_terminal",
-                "continuation_status": "not_continuation_valid",
-                "episode_terminal_status": "boundary_terminal",
+            "outcome_class": "weak",
+            "continuation_valid": False,
+            "episode_terminal_useful": True,
+            "boundary_use_class": "episode_terminal_useful",
+            "continuation_status": "not_continuation_valid",
+            "episode_terminal_status": "episode_terminal_useful",
                 "episode_utility_label": "terminal_useful",
                 "terminal_use_trainable": True,
                 "energy_residual_m": 0.1,
@@ -131,9 +138,11 @@ def test_selector_modes_treat_boundary_terminal_differently() -> None:
         governor_mode="terminal_episode",
     )
 
-    assert continuation.decision_status == "recovery_handoff_no_viable_primitive"
-    assert continuation.decisions[0].rejection_reason == (
-        "predicted_boundary_terminal_not_continuation_valid"
-    )
+    assert continuation.decision_status == "blocked_no_viable_lqr_primitive"
+    assert continuation.decisions[0].rejection_reason in {
+        "predicted_wall_margin_low",
+        "predicted_continuation_margin_low",
+        "continuation_valid_probability_low",
+    }
     assert terminal.decision_status == "selected_viable_primitive"
     assert terminal.selected_primitive_id == "lift_dwell_arc"

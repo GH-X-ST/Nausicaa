@@ -32,12 +32,20 @@ from implementation_instance import (
 )
 from plant_instance import PlantInstance, apply_plant_instance_to_aircraft, plant_instance_for_layer
 from prim_cat import PrimitiveDefinition, primitive_parameters_json
+from controller_registry import controller_is_executable_lqr
 from lqr_controller import (
     LQR_SYNTHESIS_SOLVED,
+    LQRController,
     lqr_controller_for_primitive_id,
     lqr_rollout_metadata,
 )
 from prim_ctrl import PrimitiveControlContext, primitive_lqr_command
+from primitive_evidence_schema import (
+    BOUNDARY_USE_CLASSES,
+    OUTCOME_CLASSES,
+    evidence_use_labels,
+    terminal_evidence_is_useful,
+)
 from state_contract import STATE_INDEX, STATE_NAMES, STATE_SIZE
 from state_contract import as_state_vector
 
@@ -56,14 +64,6 @@ from state_contract import as_state_vector
 # =============================================================================
 # 1) Rollout Schema
 # =============================================================================
-OUTCOME_CLASSES = (
-    "accepted",
-    "weak",
-    "failed",
-    "rejected",
-    "boundary_terminal",
-    "blocked",
-)
 ROLLOUT_BACKENDS = (
     "smoke_only",
     "model_backed_lqr",
@@ -108,6 +108,9 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "latency_actuator_survival_status",
     "tuning_stage",
     "controller_claim_status",
+    "controller_selection_status",
+    "candidate_index",
+    "candidate_weight_label",
     "latency_case",
     "state_feedback_delay_applied",
     "command_delay_applied",
@@ -121,6 +124,8 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "trajectory_integrity_status",
     "entry_check_status",
     "exit_check_status",
+    "continuation_valid",
+    "episode_terminal_useful",
     "continuation_status",
     "episode_terminal_status",
     "episode_utility_label",
@@ -190,6 +195,9 @@ class RolloutEvidence:
     latency_actuator_survival_status: str
     tuning_stage: str
     controller_claim_status: str
+    controller_selection_status: str
+    candidate_index: int | str
+    candidate_weight_label: str
     latency_case: str
     state_feedback_delay_applied: bool
     command_delay_applied: bool
@@ -203,6 +211,8 @@ class RolloutEvidence:
     trajectory_integrity_status: str
     entry_check_status: str
     exit_check_status: str
+    continuation_valid: bool
+    episode_terminal_useful: bool
     continuation_status: str
     episode_terminal_status: str
     episode_utility_label: str
@@ -240,6 +250,10 @@ def simulate_primitive_rollout(
     wind_field: object | None = None,
     implementation_instance: ImplementationInstance | None = None,
     plant_instance: PlantInstance | None = None,
+    controller: LQRController | None = None,
+    controller_selection_status: str | None = None,
+    candidate_index: int | str = "",
+    candidate_weight_label: str = "",
 ) -> RolloutEvidence:
     """Return one primitive rollout row using smoke-only or model-backed backend."""
 
@@ -259,6 +273,10 @@ def simulate_primitive_rollout(
             context=context,
             primitive=primitive,
             config=cfg,
+            controller=controller,
+            controller_selection_status=controller_selection_status,
+            candidate_index=candidate_index,
+            candidate_weight_label=candidate_weight_label,
         )
     if cfg.rollout_backend == "model_backed_lqr":
         return _simulate_dynamics_rollout(
@@ -271,6 +289,10 @@ def simulate_primitive_rollout(
             wind_field=wind_field,
             implementation_instance=implementation_instance,
             plant_instance=plant_instance,
+            controller=controller,
+            controller_selection_status=controller_selection_status,
+            candidate_index=candidate_index,
+            candidate_weight_label=candidate_weight_label,
         )
     return blocked_rollout_evidence(
         rollout_id=rollout_id,
@@ -280,6 +302,10 @@ def simulate_primitive_rollout(
         primitive=primitive,
         config=cfg,
         failure_label="blocked_lqr_requested",
+        controller=controller,
+        controller_selection_status=controller_selection_status,
+        candidate_index=candidate_index,
+        candidate_weight_label=candidate_weight_label,
     )
 
 
@@ -292,6 +318,10 @@ def blocked_rollout_evidence(
     primitive: PrimitiveDefinition,
     config: RolloutConfig | None = None,
     failure_label: str = "surrogate_binding_blocked",
+    controller: LQRController | None = None,
+    controller_selection_status: str | None = None,
+    candidate_index: int | str = "",
+    candidate_weight_label: str = "",
 ) -> RolloutEvidence:
     """Return a retained blocked row when a strict surrogate cannot be loaded."""
 
@@ -306,6 +336,15 @@ def blocked_rollout_evidence(
         actuator_lag=False,
         execution_status="blocked_before_simulation",
     )
+    resolved_controller = controller or lqr_controller_for_primitive_id(primitive.primitive_id)
+    labels = evidence_use_labels(
+        outcome_class="blocked",
+        failure_label=failure_label,
+        termination_cause="surrogate_binding_blocked",
+        energy_residual_m=0.0,
+        lift_dwell_time_s=0.0,
+        trajectory_status="blocked_before_simulation",
+    )
     return RolloutEvidence(
         rollout_id=str(rollout_id),
         episode_id="" if episode_id is None else str(episode_id),
@@ -318,7 +357,13 @@ def blocked_rollout_evidence(
         primitive_parameters=primitive_parameters_json(primitive),
         controller_mode=primitive.controller_mode,
         feedback_mode=primitive.feedback_mode,
-        **_lqr_metadata_for_primitive(primitive),
+        **_lqr_metadata_for_controller(resolved_controller),
+        controller_selection_status=_controller_selection_status(
+            controller=controller,
+            explicit_status=controller_selection_status,
+        ),
+        candidate_index=candidate_index,
+        candidate_weight_label=str(candidate_weight_label),
         latency_case=context.latency_case,
         **latency_fields,
         rollout_backend="blocked_lqr",
@@ -326,12 +371,14 @@ def blocked_rollout_evidence(
         surrogate_binding_status=context.surrogate_binding_status,
         trajectory_integrity_status="blocked_before_simulation",
         entry_check_status=str(failure_label),
-        exit_check_status="not_evaluated",
-        continuation_status="blocked",
-        episode_terminal_status="not_terminal",
-        episode_utility_label="blocked",
-        terminal_use_trainable=False,
-        boundary_use_class="blocked",
+        exit_check_status=labels.exit_check_status,
+        continuation_valid=labels.continuation_valid,
+        episode_terminal_useful=labels.episode_terminal_useful,
+        continuation_status=labels.continuation_status,
+        episode_terminal_status=labels.episode_terminal_status,
+        episode_utility_label=labels.episode_utility_label,
+        terminal_use_trainable=labels.terminal_use_trainable,
+        boundary_use_class=labels.boundary_use_class,
         accepted=False,
         outcome_class="blocked",
         energy_residual_m=0.0,
@@ -362,6 +409,10 @@ def _simulate_smoke_rollout(
     context: EnvironmentContext,
     primitive: PrimitiveDefinition,
     config: RolloutConfig,
+    controller: LQRController | None,
+    controller_selection_status: str | None,
+    candidate_index: int | str,
+    candidate_weight_label: str,
 ) -> RolloutEvidence:
     speed_m_s = float(np.linalg.norm(state[6:9]))
     energy_residual_m = _smoke_energy_residual(context, primitive)
@@ -377,6 +428,7 @@ def _simulate_smoke_rollout(
     outcome_class, termination_cause, failure_label = _classify_smoke_outcome(
         context=context,
         energy_residual_m=energy_residual_m,
+        lift_dwell_time_s=lift_dwell_time_s,
         minimum_wall_margin_m=minimum_wall_margin_m,
         minimum_speed_m_s=minimum_speed_m_s,
         minimum_speed_required_m_s=float(config.minimum_speed_m_s),
@@ -393,6 +445,15 @@ def _simulate_smoke_rollout(
         actuator_lag=False,
         execution_status="interface_smoke_not_integrated",
     )
+    resolved_controller = controller or lqr_controller_for_primitive_id(primitive.primitive_id)
+    labels = evidence_use_labels(
+        outcome_class=outcome_class,
+        failure_label=failure_label,
+        termination_cause=termination_cause,
+        energy_residual_m=energy_residual_m,
+        lift_dwell_time_s=lift_dwell_time_s,
+        trajectory_status="smoke_only_not_integrated",
+    )
     return RolloutEvidence(
         rollout_id=str(rollout_id),
         episode_id=str(episode_id),
@@ -405,7 +466,13 @@ def _simulate_smoke_rollout(
         primitive_parameters=primitive_parameters_json(primitive),
         controller_mode=primitive.controller_mode,
         feedback_mode=primitive.feedback_mode,
-        **_lqr_metadata_for_primitive(primitive),
+        **_lqr_metadata_for_controller(resolved_controller),
+        controller_selection_status=_controller_selection_status(
+            controller=controller,
+            explicit_status=controller_selection_status,
+        ),
+        candidate_index=candidate_index,
+        candidate_weight_label=str(candidate_weight_label),
         latency_case=context.latency_case,
         **latency_fields,
         rollout_backend="smoke_only",
@@ -413,16 +480,14 @@ def _simulate_smoke_rollout(
         surrogate_binding_status=context.surrogate_binding_status,
         trajectory_integrity_status="smoke_only_not_integrated",
         entry_check_status="interface_smoke_not_evaluated",
-        exit_check_status=_exit_check_status(outcome_class, failure_label),
-        continuation_status=_continuation_status(outcome_class),
-        episode_terminal_status=_episode_terminal_status(outcome_class),
-        episode_utility_label=_episode_utility_label(
-            outcome_class=outcome_class,
-            energy_residual_m=energy_residual_m,
-            lift_dwell_time_s=lift_dwell_time_s,
-        ),
-        terminal_use_trainable=_terminal_use_trainable(outcome_class, trajectory_status="smoke"),
-        boundary_use_class=_boundary_use_class(outcome_class),
+        exit_check_status=labels.exit_check_status,
+        continuation_valid=labels.continuation_valid,
+        episode_terminal_useful=labels.episode_terminal_useful,
+        continuation_status=labels.continuation_status,
+        episode_terminal_status=labels.episode_terminal_status,
+        episode_utility_label=labels.episode_utility_label,
+        terminal_use_trainable=labels.terminal_use_trainable,
+        boundary_use_class=labels.boundary_use_class,
         accepted=accepted,
         outcome_class=outcome_class,
         energy_residual_m=energy_residual_m,
@@ -456,7 +521,27 @@ def _simulate_dynamics_rollout(
     wind_field: object | None,
     implementation_instance: ImplementationInstance | None = None,
     plant_instance: PlantInstance | None = None,
+    controller: LQRController | None = None,
+    controller_selection_status: str | None = None,
+    candidate_index: int | str = "",
+    candidate_weight_label: str = "",
 ) -> RolloutEvidence:
+    if controller is None:
+        return _blocked_from_state(
+            rollout_id=rollout_id,
+            episode_id=episode_id,
+            state=state,
+            context=context,
+            primitive=primitive,
+            config=config,
+            failure_label="missing_explicit_lqr_controller",
+            controller=None,
+            controller_selection_status=controller_selection_status
+            or "missing_explicit_lqr_controller",
+            candidate_index=candidate_index,
+            candidate_weight_label=candidate_weight_label,
+        )
+    resolved_controller = controller
     if not np.all(np.isfinite(state)):
         return _blocked_from_state(
             rollout_id=rollout_id,
@@ -466,6 +551,10 @@ def _simulate_dynamics_rollout(
             primitive=primitive,
             config=config,
             failure_label="nonfinite_initial_state",
+            controller=resolved_controller,
+            controller_selection_status=controller_selection_status,
+            candidate_index=candidate_index,
+            candidate_weight_label=candidate_weight_label,
         )
     initial_margins = position_margin_m(state[:3], TRUE_SAFE_BOUNDS)
     if float(initial_margins["floor_margin_m"]) < 0.0:
@@ -477,6 +566,10 @@ def _simulate_dynamics_rollout(
             primitive=primitive,
             config=config,
             failure_label="initial_floor_violation",
+            controller=resolved_controller,
+            controller_selection_status=controller_selection_status,
+            candidate_index=candidate_index,
+            candidate_weight_label=candidate_weight_label,
         )
     if float(initial_margins["ceiling_margin_m"]) < 0.0:
         return _blocked_from_state(
@@ -487,6 +580,10 @@ def _simulate_dynamics_rollout(
             primitive=primitive,
             config=config,
             failure_label="initial_ceiling_violation",
+            controller=resolved_controller,
+            controller_selection_status=controller_selection_status,
+            candidate_index=candidate_index,
+            candidate_weight_label=candidate_weight_label,
         )
     if float(initial_margins["min_wall_margin_m"]) < 0.0:
         return _blocked_from_state(
@@ -497,6 +594,10 @@ def _simulate_dynamics_rollout(
             primitive=primitive,
             config=config,
             failure_label="physically_impossible_initial_state",
+            controller=resolved_controller,
+            controller_selection_status=controller_selection_status,
+            candidate_index=candidate_index,
+            candidate_weight_label=candidate_weight_label,
         )
     if _attitude_is_physically_impossible(state):
         return _blocked_from_state(
@@ -507,6 +608,10 @@ def _simulate_dynamics_rollout(
             primitive=primitive,
             config=config,
             failure_label="physically_impossible_initial_state",
+            controller=resolved_controller,
+            controller_selection_status=controller_selection_status,
+            candidate_index=candidate_index,
+            candidate_weight_label=candidate_weight_label,
         )
     initial_speed_m_s = float(np.linalg.norm(state[6:9]))
     if initial_speed_m_s < float(config.minimum_speed_m_s):
@@ -518,10 +623,14 @@ def _simulate_dynamics_rollout(
             primitive=primitive,
             config=config,
             failure_label="speed_low",
+            controller=resolved_controller,
+            controller_selection_status=controller_selection_status,
+            candidate_index=candidate_index,
+            candidate_weight_label=candidate_weight_label,
         )
 
-    controller = lqr_controller_for_primitive_id(primitive.primitive_id)
-    if controller.lqr_synthesis_status != LQR_SYNTHESIS_SOLVED:
+    controller_ok, controller_reason = controller_is_executable_lqr(resolved_controller)
+    if not controller_ok:
         return _blocked_from_state(
             rollout_id=rollout_id,
             episode_id=episode_id,
@@ -529,7 +638,11 @@ def _simulate_dynamics_rollout(
             context=context,
             primitive=primitive,
             config=config,
-            failure_label=controller.lqr_synthesis_status,
+            failure_label=controller_reason,
+            controller=resolved_controller,
+            controller_selection_status=controller_selection_status,
+            candidate_index=candidate_index,
+            candidate_weight_label=candidate_weight_label,
         )
     implementation = implementation_instance or implementation_instance_for_layer(
         config.W_layer,
@@ -564,7 +677,7 @@ def _simulate_dynamics_rollout(
     trajectory_status = "finite_model_backed"
     termination_cause = "controlled_finish"
     failure_label = "success"
-    feedback_mode = controller.feedback_mode
+    feedback_mode = resolved_controller.feedback_mode
     steps = max(1, int(np.ceil(float(primitive.finite_horizon_s) / float(config.dt_s))))
     times_s = [0.0]
     states = [x.copy()]
@@ -577,7 +690,7 @@ def _simulate_dynamics_rollout(
                 environment_context=context,
                 time_in_primitive_s=0.0,
             ),
-            controller,
+            resolved_controller,
         )
         if mechanism_flags["command_delay_applied"]:
             command_times_s = [-(command_delay_s + 1e-9)]
@@ -632,7 +745,7 @@ def _simulate_dynamics_rollout(
                     environment_context=context,
                     time_in_primitive_s=time_s,
                 ),
-                controller,
+                resolved_controller,
             )
             desired_command_norm = np.asarray(control_command.command_norm, dtype=float)
             if time_s > command_times_s[-1]:
@@ -689,6 +802,7 @@ def _simulate_dynamics_rollout(
     energy_residual_m = float(x[STATE_INDEX["z_w"]] - state[STATE_INDEX["z_w"]])
     outcome_class, termination_cause, failure_label = _classify_model_backed_outcome(
         energy_residual_m=energy_residual_m,
+        lift_dwell_time_s=lift_dwell_time_s,
         minimum_wall_margin_m=min_wall_margin_m,
         floor_margin_m=min_floor_margin_m,
         ceiling_margin_m=min_ceiling_margin_m,
@@ -712,6 +826,14 @@ def _simulate_dynamics_rollout(
             actuator_lag_applied=mechanism_flags["actuator_lag_applied"],
         ),
     )
+    labels = evidence_use_labels(
+        outcome_class=outcome_class,
+        failure_label=failure_label,
+        termination_cause=termination_cause,
+        energy_residual_m=energy_residual_m,
+        lift_dwell_time_s=lift_dwell_time_s,
+        trajectory_status=trajectory_status,
+    )
     return RolloutEvidence(
         rollout_id=str(rollout_id),
         episode_id=str(episode_id),
@@ -724,7 +846,13 @@ def _simulate_dynamics_rollout(
         primitive_parameters=primitive_parameters_json(primitive),
         controller_mode=_controller_mode_for_backend(config.rollout_backend, primitive),
         feedback_mode=feedback_mode,
-        **_lqr_metadata_for_primitive(primitive),
+        **_lqr_metadata_for_controller(resolved_controller),
+        controller_selection_status=_controller_selection_status(
+            controller=controller,
+            explicit_status=controller_selection_status,
+        ),
+        candidate_index=candidate_index,
+        candidate_weight_label=str(candidate_weight_label),
         latency_case=context.latency_case,
         **latency_fields,
         rollout_backend=config.rollout_backend,
@@ -732,19 +860,14 @@ def _simulate_dynamics_rollout(
         surrogate_binding_status=context.surrogate_binding_status,
         trajectory_integrity_status=trajectory_status,
         entry_check_status="passed",
-        exit_check_status=_exit_check_status(outcome_class, failure_label),
-        continuation_status=_continuation_status(outcome_class),
-        episode_terminal_status=_episode_terminal_status(outcome_class),
-        episode_utility_label=_episode_utility_label(
-            outcome_class=outcome_class,
-            energy_residual_m=energy_residual_m,
-            lift_dwell_time_s=lift_dwell_time_s,
-        ),
-        terminal_use_trainable=_terminal_use_trainable(
-            outcome_class,
-            trajectory_status=trajectory_status,
-        ),
-        boundary_use_class=_boundary_use_class(outcome_class),
+        exit_check_status=labels.exit_check_status,
+        continuation_valid=labels.continuation_valid,
+        episode_terminal_useful=labels.episode_terminal_useful,
+        continuation_status=labels.continuation_status,
+        episode_terminal_status=labels.episode_terminal_status,
+        episode_utility_label=labels.episode_utility_label,
+        terminal_use_trainable=labels.terminal_use_trainable,
+        boundary_use_class=labels.boundary_use_class,
         accepted=accepted,
         outcome_class=outcome_class,
         energy_residual_m=energy_residual_m,
@@ -773,6 +896,10 @@ def _blocked_from_state(
     primitive: PrimitiveDefinition,
     config: RolloutConfig,
     failure_label: str,
+    controller: LQRController | None = None,
+    controller_selection_status: str | None = None,
+    candidate_index: int | str = "",
+    candidate_weight_label: str = "",
 ) -> RolloutEvidence:
     margins = position_margin_m(state[:3], TRUE_SAFE_BOUNDS)
     latency_fields = _latency_field_values(
@@ -782,6 +909,15 @@ def _blocked_from_state(
         command_delay=False,
         actuator_lag=False,
         execution_status="blocked_before_simulation",
+    )
+    resolved_controller = controller or lqr_controller_for_primitive_id(primitive.primitive_id)
+    labels = evidence_use_labels(
+        outcome_class="blocked",
+        failure_label=failure_label,
+        termination_cause=str(failure_label),
+        energy_residual_m=0.0,
+        lift_dwell_time_s=0.0,
+        trajectory_status="blocked_before_simulation",
     )
     return RolloutEvidence(
         rollout_id=str(rollout_id),
@@ -799,7 +935,13 @@ def _blocked_from_state(
             if config.rollout_backend == "model_backed_lqr"
             else primitive.feedback_mode
         ),
-        **_lqr_metadata_for_primitive(primitive),
+        **_lqr_metadata_for_controller(resolved_controller),
+        controller_selection_status=_controller_selection_status(
+            controller=controller,
+            explicit_status=controller_selection_status,
+        ),
+        candidate_index=candidate_index,
+        candidate_weight_label=str(candidate_weight_label),
         latency_case=context.latency_case,
         **latency_fields,
         rollout_backend=config.rollout_backend,
@@ -807,12 +949,14 @@ def _blocked_from_state(
         surrogate_binding_status=context.surrogate_binding_status,
         trajectory_integrity_status="blocked_before_simulation",
         entry_check_status=str(failure_label),
-        exit_check_status="not_evaluated",
-        continuation_status="blocked",
-        episode_terminal_status="not_terminal",
-        episode_utility_label="blocked",
-        terminal_use_trainable=False,
-        boundary_use_class="blocked",
+        exit_check_status=labels.exit_check_status,
+        continuation_valid=labels.continuation_valid,
+        episode_terminal_useful=labels.episode_terminal_useful,
+        continuation_status=labels.continuation_status,
+        episode_terminal_status=labels.episode_terminal_status,
+        episode_utility_label=labels.episode_utility_label,
+        terminal_use_trainable=labels.terminal_use_trainable,
+        boundary_use_class=labels.boundary_use_class,
         accepted=False,
         outcome_class="blocked",
         energy_residual_m=0.0,
@@ -910,73 +1054,23 @@ def _controller_mode_for_backend(
 
 def _lqr_metadata_for_primitive(primitive: PrimitiveDefinition) -> dict[str, object]:
     controller = lqr_controller_for_primitive_id(primitive.primitive_id)
+    return _lqr_metadata_for_controller(controller)
+
+
+def _lqr_metadata_for_controller(controller: LQRController) -> dict[str, object]:
     return lqr_rollout_metadata(controller)
 
 
-def _exit_check_status(outcome_class: str, failure_label: str) -> str:
-    if outcome_class == "boundary_terminal":
-        return "boundary_terminal_retained"
-    if outcome_class in {"accepted", "weak"}:
-        return "continuation_exit_valid"
-    if outcome_class == "blocked":
-        return "blocked"
-    if failure_label in {
-        "floor_violation",
-        "ceiling_violation",
-        "nonfinite_trajectory",
-        "corrupt_integration",
-    }:
-        return "hard_failure"
-    return "failed_or_rejected"
-
-
-def _continuation_status(outcome_class: str) -> str:
-    if outcome_class == "accepted":
-        return "continuation_success"
-    if outcome_class == "weak":
-        return "continuation_weak"
-    if outcome_class == "boundary_terminal":
-        return "not_continuation_valid"
-    if outcome_class == "blocked":
-        return "blocked"
-    return "continuation_failed"
-
-
-def _episode_terminal_status(outcome_class: str) -> str:
-    if outcome_class == "boundary_terminal":
-        return "boundary_terminal"
-    return "not_terminal"
-
-
-def _episode_utility_label(
+def _controller_selection_status(
     *,
-    outcome_class: str,
-    energy_residual_m: float,
-    lift_dwell_time_s: float,
+    controller: LQRController | None,
+    explicit_status: str | None,
 ) -> str:
-    if outcome_class == "boundary_terminal":
-        if energy_residual_m >= 0.0 or lift_dwell_time_s >= 0.20:
-            return "terminal_useful"
-        return "terminal_low_utility"
-    if outcome_class in {"accepted", "weak"}:
-        return "continuation_useful"
-    if outcome_class == "blocked":
-        return "blocked"
-    return "not_useful"
-
-
-def _terminal_use_trainable(outcome_class: str, *, trajectory_status: str) -> bool:
-    return outcome_class == "boundary_terminal" and trajectory_status == "finite_model_backed"
-
-
-def _boundary_use_class(outcome_class: str) -> str:
-    if outcome_class == "boundary_terminal":
-        return "episode_terminal_useful_or_trainable"
-    if outcome_class in {"accepted", "weak"}:
-        return "continuation_valid"
-    if outcome_class == "blocked":
-        return "blocked"
-    return "hard_failure_or_rejected"
+    if explicit_status:
+        return str(explicit_status)
+    if controller is None:
+        return "nominal_unselected_smoke"
+    return "W0_W1_registry_selected"
 
 
 def _latency_field_values(
@@ -1030,6 +1124,7 @@ def _wind_mode_for_rollout(
 def _classify_model_backed_outcome(
     *,
     energy_residual_m: float,
+    lift_dwell_time_s: float,
     minimum_wall_margin_m: float,
     floor_margin_m: float,
     ceiling_margin_m: float,
@@ -1042,11 +1137,19 @@ def _classify_model_backed_outcome(
     if trajectory_status != "finite_model_backed":
         return "blocked", current_termination, current_failure
     if floor_margin_m < 0.0:
-        return "rejected", "floor_margin_stop", "floor_violation"
+        return "failed", "floor_margin_stop", "floor_violation"
     if ceiling_margin_m < 0.0:
-        return "rejected", "ceiling_margin_stop", "ceiling_violation"
+        return "failed", "ceiling_margin_stop", "ceiling_violation"
     if minimum_wall_margin_m < 0.0:
-        return "boundary_terminal", "wall_boundary_exit_retained", "xy_boundary_terminal"
+        outcome = (
+            "weak"
+            if terminal_evidence_is_useful(
+                energy_residual_m=energy_residual_m,
+                lift_dwell_time_s=lift_dwell_time_s,
+            )
+            else "failed"
+        )
+        return outcome, "wall_boundary_exit_retained", "xy_boundary_terminal"
     if minimum_speed_m_s < minimum_speed_required_m_s:
         return "failed", "speed_floor", "speed_low"
     if energy_residual_m >= 0.02:
@@ -1092,14 +1195,23 @@ def _classify_smoke_outcome(
     *,
     context: EnvironmentContext,
     energy_residual_m: float,
+    lift_dwell_time_s: float,
     minimum_wall_margin_m: float,
     minimum_speed_m_s: float,
     minimum_speed_required_m_s: float,
 ) -> tuple[str, str, str]:
     if context.floor_margin_m < 0.0 or context.ceiling_margin_m < 0.0:
-        return "rejected", "safety_volume_exit", "true_safety_violation"
+        return "failed", "safety_volume_exit", "true_safety_violation"
     if minimum_wall_margin_m < 0.0:
-        return "boundary_terminal", "wall_boundary_exit_retained", "xy_boundary_terminal"
+        outcome = (
+            "weak"
+            if terminal_evidence_is_useful(
+                energy_residual_m=energy_residual_m,
+                lift_dwell_time_s=lift_dwell_time_s,
+            )
+            else "failed"
+        )
+        return outcome, "wall_boundary_exit_retained", "xy_boundary_terminal"
     if minimum_speed_m_s < minimum_speed_required_m_s:
         return "blocked", "low_speed", "speed_low"
     if energy_residual_m >= 0.05:

@@ -32,6 +32,8 @@ def test_every_primitive_has_required_schema_and_claim_boundary() -> None:
         assert primitive.claim_status == "simulation_only"
         assert primitive.controller_family == "lqr"
         assert primitive.controller_id == f"lqr_{primitive.primitive_id}_nominal"
+        assert primitive.controller_id_policy == "resolved_by_lqr_controller"
+        assert primitive.nominal_controller_label == primitive.controller_id
         assert primitive.controller_mode == "lqr_local_feedback"
         assert primitive.feedback_mode == "lqr_state_feedback"
 

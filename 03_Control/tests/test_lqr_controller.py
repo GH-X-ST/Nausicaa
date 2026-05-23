@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import replace
 
 import numpy as np
+import pytest
 
 from lqr_controller import (
     LQR_SYNTHESIS_SOLVED,
+    lqr_command_for_state,
     lqr_controller_for_primitive_id,
     lqr_controller_metadata_row,
     synthesis_audit_row,
 )
 from lqr_linearisation import LQR_STATE_MASK, ZERO_POSITION_GAIN_STATES
-from prim_cat import ACTIVE_PRIMITIVE_IDS
+from prim_cat import ACTIVE_PRIMITIVE_IDS, primitive_by_id
 from state_contract import STATE_INDEX
 
 
@@ -31,7 +34,7 @@ def test_lqr_controller_audit_contract_for_all_primitives() -> None:
     for primitive_id in ACTIVE_PRIMITIVE_IDS:
         controller = lqr_controller_for_primitive_id(primitive_id)
         metadata = lqr_controller_metadata_row(controller)
-        audit = synthesis_audit_row(controller)
+        audit = synthesis_audit_row(primitive_by_id(primitive_id))
 
         assert controller.controller_family == "lqr"
         assert controller.controller_id.startswith(f"lqr_{primitive_id}_")
@@ -54,3 +57,14 @@ def test_lqr_controller_audit_contract_for_all_primitives() -> None:
         assert gain.shape == (3, 15)
         for state_name in ZERO_POSITION_GAIN_STATES:
             assert np.allclose(gain[:, STATE_INDEX[state_name]], 0.0)
+
+
+def test_blocked_lqr_controller_cannot_emit_executable_zero_command() -> None:
+    controller = replace(
+        lqr_controller_for_primitive_id("glide"),
+        lqr_synthesis_status="blocked_lqr_synthesis",
+        lqr_blocked_reason="unit_test_blocked",
+    )
+
+    with pytest.raises(RuntimeError, match="blocked LQR controller"):
+        lqr_command_for_state(controller=controller, state_vector=np.zeros(15))

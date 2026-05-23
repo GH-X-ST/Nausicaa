@@ -26,12 +26,14 @@ from env_ctx import build_environment_context  # noqa: E402
 from env_instance import environment_instance_for_mode, environment_metadata_from_instance  # noqa: E402
 from env_surrogate import READY_STATUS, resolve_surrogate_binding, wind_field_for_binding  # noqa: E402
 from evidence_stage_utils import write_coverage_summary, write_file_size_audit  # noqa: E402
-from lqr_controller import synthesis_audit_row  # noqa: E402
+from controller_registry import controller_registry_row, write_selected_controller_registry  # noqa: E402
+from lqr_controller import LQR_SYNTHESIS_SOLVED, synthesize_lqr_controller, synthesis_audit_row  # noqa: E402
 from lqr_tuning import (  # noqa: E402
     FALLBACK_CANDIDATES_PER_PRIMITIVE,
     FALLBACK_PAIRED_TESTS_PER_CANDIDATE,
     SOFT_OBJECTIVE_TERMS,
     HARD_GATE_LABELS,
+    candidate_weight_specs,
     lqr_tuning_schedule,
     tuning_candidate_row,
     tuning_candidates_for_primitive,
@@ -144,7 +146,23 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
     primitives = active_primitive_catalogue()
     synthesis_rows = [synthesis_audit_row(primitive) for primitive in primitives]
     candidate_rows = []
+    candidate_records = []
     for primitive in primitives:
+        for candidate_index, weight_spec in enumerate(
+            candidate_weight_specs(
+                primitive_id=primitive.primitive_id,
+                candidate_count=int(config.candidate_count),
+            )
+        ):
+            controller = synthesize_lqr_controller(primitive, weight_spec=weight_spec)
+            candidate_records.append(
+                {
+                    "primitive": primitive,
+                    "controller": controller,
+                    "candidate_index": int(candidate_index),
+                    "candidate_weight_label": weight_spec.weight_label,
+                }
+            )
         candidate_rows.extend(
             tuning_candidate_row(candidate)
             for candidate in tuning_candidates_for_primitive(
@@ -152,7 +170,7 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
                 candidate_count=int(config.candidate_count),
             )
         )
-    smoke_rows = _smoke_rows(config, primitives)
+    smoke_rows = _smoke_rows(config, candidate_records)
 
     partitions = []
     partitions.append(
@@ -170,6 +188,12 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
     pd.DataFrame(candidate_rows).to_csv(
         filesystem_path(run_root / "metrics" / "qr_candidate_rankings.csv"),
         index=False,
+    )
+    registry_rows = _selected_controller_registry_rows(candidate_records, pd.DataFrame(smoke_rows))
+    write_selected_controller_registry(
+        rows=registry_rows,
+        csv_path=run_root / "metrics" / "selected_lqr_controllers.csv",
+        json_path=run_root / "manifests" / "selected_lqr_controllers.json",
     )
     write_table_manifest(
         run_root / "manifests" / "table_manifest.json",
@@ -192,6 +216,10 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
             "start_state_family",
             "environment_id",
             "boundary_use_class",
+            "continuation_valid",
+            "episode_terminal_useful",
+            "controller_selection_status",
+            "candidate_weight_label",
         ),
     )
     _write_objective_summary(run_root / "metrics" / "objective_term_summary.csv", frame)
@@ -206,12 +234,13 @@ def run_lqr_tuning_sweep(config: LQRTuningSweepConfig) -> dict[str, object]:
         "table_manifest": run_root / "manifests" / "table_manifest.json",
         "synthesis_audit": run_root / "metrics" / "lqr_synthesis_audit.csv",
         "candidate_rankings": run_root / "metrics" / "qr_candidate_rankings.csv",
+        "selected_controller_registry": run_root / "metrics" / "selected_lqr_controllers.csv",
     }
 
 
 def _smoke_rows(
     config: LQRTuningSweepConfig,
-    primitives: tuple,
+    candidate_records: list[dict[str, object]],
 ) -> list[dict[str, object]]:
     rows = []
     row_count = int(config.rows)
@@ -219,12 +248,19 @@ def _smoke_rows(
     if config.stop_after_chunks is not None:
         chunk_limit = int(config.stop_after_chunks) * int(config.candidate_chunk_size)
         row_count = min(row_count, chunk_limit)
+    if not candidate_records:
+        return rows
     for row_index in range(row_count):
-        primitive = primitives[row_index % len(primitives)]
+        candidate_position = (row_index // 2) % len(candidate_records)
+        pair_index = (row_index // 2) // len(candidate_records)
+        candidate = candidate_records[candidate_position]
+        primitive = candidate["primitive"]
+        controller = candidate["controller"]
         w_layer = "W0" if row_index % 2 == 0 else "W1"
         env_mode = "dry_air" if w_layer == "W0" else "gaussian_single"
+        sample_row_index = int((pair_index * len(candidate_records) + candidate_position) * 2)
         sample = archive_state_sample_for_row(
-            row_index,
+            sample_row_index,
             seed=int(config.seed),
             W_layer=w_layer,
             environment_mode=env_mode,
@@ -249,6 +285,10 @@ def _smoke_rows(
                 primitive=primitive,
                 config=config_rollout,
                 failure_label="surrogate_binding_blocked",
+                controller=controller,
+                controller_selection_status="W0_W1_candidate_rollout",
+                candidate_index=int(candidate["candidate_index"]),
+                candidate_weight_label=str(candidate["candidate_weight_label"]),
             )
         else:
             evidence = simulate_primitive_rollout(
@@ -258,14 +298,84 @@ def _smoke_rows(
                 primitive=primitive,
                 config=config_rollout,
                 wind_field=wind,
+                controller=controller,
+                controller_selection_status="W0_W1_candidate_rollout",
+                candidate_index=int(candidate["candidate_index"]),
+                candidate_weight_label=str(candidate["candidate_weight_label"]),
             )
         row = rollout_with_context_row(evidence, context)
         row.update(archive_state_sample_row(sample))
         row["paired_start_key"] = sample.paired_start_key
+        row["candidate_index"] = int(candidate["candidate_index"])
+        row["candidate_weight_label"] = str(candidate["candidate_weight_label"])
         row["hard_gate_status"] = "passed" if evidence.outcome_class != "blocked" else "blocked"
         row["soft_objective_terms"] = json.dumps(SOFT_OBJECTIVE_TERMS, separators=(",", ":"))
         rows.append(row)
     return rows
+
+
+def _selected_controller_registry_rows(
+    candidate_records: list[dict[str, object]],
+    frame: pd.DataFrame,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for primitive_id in sorted({record["controller"].primitive_id for record in candidate_records}):
+        records = [record for record in candidate_records if record["controller"].primitive_id == primitive_id]
+        scores = []
+        for record in records:
+            controller = record["controller"]
+            subset = frame[
+                (frame.get("primitive_id", "") == primitive_id)
+                & (frame.get("candidate_index", -1).astype(str) == str(record["candidate_index"]))
+            ] if not frame.empty else pd.DataFrame()
+            status = _candidate_registry_status(controller, subset)
+            score = _candidate_soft_score(subset) if status == "selected_candidate" else float("-inf")
+            scores.append((score, record, status))
+        best_record = max(scores, key=lambda item: item[0])[1] if scores else None
+        for score, record, status in scores:
+            controller = record["controller"]
+            if best_record is record and status == "selected_candidate":
+                selected_status = "selected"
+                reason = "best_passed_W0_W1_soft_score"
+            elif controller.lqr_synthesis_status != LQR_SYNTHESIS_SOLVED:
+                selected_status = "blocked"
+                reason = controller.lqr_blocked_reason or controller.lqr_synthesis_status
+            else:
+                selected_status = "rejected"
+                reason = "lower_W0_W1_soft_score" if status == "selected_candidate" else status
+            rows.append(
+                controller_registry_row(
+                    controller,
+                    selected_controller_status=selected_status,
+                    selected_controller_reason=reason,
+                    candidate_index=int(record["candidate_index"]),
+                    candidate_weight_label=str(record["candidate_weight_label"]),
+                )
+            )
+    return rows
+
+
+def _candidate_registry_status(controller, subset: pd.DataFrame) -> str:
+    if controller.lqr_synthesis_status != LQR_SYNTHESIS_SOLVED:
+        return controller.lqr_synthesis_status
+    if subset.empty:
+        return "no_rollout_rows"
+    if subset.get("hard_gate_status", pd.Series(dtype=str)).astype(str).eq("blocked").any():
+        return "blocked_rollout_rows_present"
+    return "selected_candidate"
+
+
+def _candidate_soft_score(subset: pd.DataFrame) -> float:
+    if subset.empty:
+        return float("-inf")
+    terminal = subset.get("episode_terminal_useful", pd.Series([False] * len(subset))).astype(bool)
+    return float(
+        subset.get("energy_residual_m", pd.Series([0.0] * len(subset))).astype(float).mean()
+        + 0.25 * subset.get("lift_dwell_time_s", pd.Series([0.0] * len(subset))).astype(float).mean()
+        + 0.10 * subset.get("minimum_wall_margin_m", pd.Series([0.0] * len(subset))).astype(float).min()
+        + 0.05 * terminal.mean()
+        - 0.20 * subset.get("saturation_fraction", pd.Series([0.0] * len(subset))).astype(float).max()
+    )
 
 
 def _write_objective_summary(path: Path, frame: pd.DataFrame) -> None:
@@ -301,4 +411,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

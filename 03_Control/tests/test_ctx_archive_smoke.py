@@ -99,6 +99,8 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
         "outcome_class",
         "rollout_backend",
         "evidence_role",
+        "continuation_valid",
+        "episode_terminal_useful",
         "continuation_status",
         "episode_terminal_status",
         "trajectory_integrity_status",
@@ -121,6 +123,7 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
         "saturation_fraction",
         "controller_family",
         "controller_id",
+        "controller_selection_status",
         "lqr_synthesis_status",
         "reduced_order_lqr",
         "sampled_data_check_status",
@@ -141,6 +144,9 @@ def test_contextual_archive_preflight_writes_temp_chunked_evidence(tmp_path: Pat
     assert set(frame["evidence_role"]).issubset({"lqr_rollout_candidate", "blocked_lqr_synthesis"})
     assert set(frame["controller_family"]) == {"lqr"}
     assert set(frame["W_layer"]).issubset({"W0", "W1"})
+    assert set(frame["controller_selection_status"]) == {"missing_selected_registry_entry"}
+    assert set(frame["outcome_class"]) == {"blocked"}
+    assert "boundary_terminal" not in set(frame["outcome_class"].astype(str))
 
 
 def test_contextual_archive_smoke_backend_is_explicit_opt_in(tmp_path: Path) -> None:

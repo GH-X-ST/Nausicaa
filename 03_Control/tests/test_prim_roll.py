@@ -76,6 +76,8 @@ def test_rollout_evidence_row_contains_required_fields_and_claim_boundary() -> N
         "context_feature_vector",
         "primitive_id",
         "evidence_role",
+        "continuation_valid",
+        "episode_terminal_useful",
         "continuation_status",
         "episode_terminal_status",
         "outcome_class",
@@ -85,6 +87,9 @@ def test_rollout_evidence_row_contains_required_fields_and_claim_boundary() -> N
     assert row["claim_status"] == "simulation_only"
     assert row["evidence_role"] == "interface_smoke"
     assert row["accepted"] is True
+    assert "boundary_terminal" not in OUTCOME_CLASSES
+    assert isinstance(row["continuation_valid"], bool)
+    assert isinstance(row["episode_terminal_useful"], bool)
 
 
 def test_low_speed_state_is_blocked_as_evidence_not_erased() -> None:
@@ -111,10 +116,11 @@ def test_wall_margin_violation_is_retained_as_boundary_terminal() -> None:
         config=RolloutConfig(W_layer="W1"),
     )
 
-    assert evidence.outcome_class == "boundary_terminal"
-    assert evidence.episode_terminal_status == "boundary_terminal"
+    assert evidence.outcome_class in {"weak", "failed"}
+    assert evidence.outcome_class != "boundary_terminal"
+    assert evidence.episode_terminal_status in {"not_terminal", "episode_terminal_useful"}
     assert evidence.continuation_status == "not_continuation_valid"
-    assert evidence.terminal_use_trainable is False
+    assert evidence.continuation_valid is False
     assert evidence.termination_cause == "wall_boundary_exit_retained"
     assert evidence.failure_label == "xy_boundary_terminal"
 

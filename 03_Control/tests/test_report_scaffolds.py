@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from env_ctx import EnvironmentMetadata, build_environment_context, environment_context_row
+from lqr_controller import lqr_controller_for_primitive_id, lqr_rollout_metadata
 from prim_cat import primitive_by_id
 from prim_features import primitive_feature_record, primitive_feature_row
 from run_primitive_selector_report import SelectorReportConfig, run_primitive_selector_report
@@ -42,24 +43,45 @@ def _archive_row(
         latency_case="nominal",
     )
     primitive = primitive_by_id(primitive_id)
+    controller = lqr_controller_for_primitive_id(primitive_id)
+    terminal_useful = outcome_class == "weak_terminal"
+    canonical_outcome = "weak" if terminal_useful else outcome_class
+    continuation_valid = canonical_outcome in {"accepted", "weak"} and not terminal_useful
+    continuation_status = (
+        "not_continuation_valid"
+        if terminal_useful
+        else ("continuation_success" if continuation_valid else ("blocked" if canonical_outcome == "blocked" else "continuation_failed"))
+    )
+    boundary_use_class = (
+        "episode_terminal_useful"
+        if terminal_useful
+        else ("continuation_valid" if continuation_valid else ("blocked" if canonical_outcome == "blocked" else "hard_failure"))
+    )
     row = {
-        "rollout_id": f"row_{start_row}_{outcome_class}",
+        "rollout_id": f"row_{start_row}_{canonical_outcome}",
         "primitive_id": primitive_id,
         "evidence_role": "lqr_rollout_candidate",
-        "outcome_class": outcome_class,
-        "continuation_status": "not_continuation_valid" if outcome_class == "boundary_terminal" else "continuation_success",
-        "episode_terminal_status": "boundary_terminal" if outcome_class == "boundary_terminal" else "not_terminal",
-        "episode_utility_label": "terminal_useful" if outcome_class == "boundary_terminal" else "continuation_useful",
-        "terminal_use_trainable": outcome_class == "boundary_terminal",
+        "outcome_class": canonical_outcome,
+        "continuation_valid": continuation_valid,
+        "episode_terminal_useful": terminal_useful,
+        "continuation_status": continuation_status,
+        "episode_terminal_status": "episode_terminal_useful" if terminal_useful else "not_terminal",
+        "episode_utility_label": "terminal_useful" if terminal_useful else "continuation_useful",
+        "terminal_use_trainable": terminal_useful,
         "energy_residual_m": 0.1,
         "lift_dwell_time_s": 0.1,
         "minimum_wall_margin_m": 1.0,
-        "termination_cause": "controlled_finish",
+        "termination_cause": "wall_boundary_exit_retained" if terminal_useful else "controlled_finish",
+        "failure_label": "xy_boundary_terminal" if terminal_useful else "success",
         "W_layer": "W1",
         "latency_case": "nominal",
-        "boundary_use_class": "episode_terminal_useful_or_trainable" if outcome_class == "boundary_terminal" else "continuation_valid",
+        "boundary_use_class": boundary_use_class,
         "environment_mode": "gaussian_single",
+        "candidate_index": 0,
+        "candidate_weight_label": "nominal",
+        "controller_selection_status": "W0_W1_registry_selected",
     }
+    row.update(lqr_rollout_metadata(controller))
     row.update({f"context_{key}": value for key, value in environment_context_row(context).items()})
     sample = archive_state_sample_for_row(start_row, seed=1, W_layer="W1", environment_mode="gaussian_single")
     row.update(archive_state_sample_row(sample))
@@ -72,7 +94,7 @@ def test_selector_and_replay_scaffolds_write_temp_manifests(tmp_path: Path) -> N
     archive_table = tmp_path / "archive_rows.csv"
     rows = [
         _archive_row(outcome_class=outcome, start_row=index, primitive_id="glide")
-        for index, outcome in enumerate(("accepted", "weak", "boundary_terminal", "failed", "rejected"))
+        for index, outcome in enumerate(("accepted", "weak", "weak_terminal", "failed", "rejected", "blocked"))
     ]
     pd.DataFrame(rows).to_csv(archive_table, index=False)
 
@@ -112,13 +134,15 @@ def test_selector_and_replay_scaffolds_write_temp_manifests(tmp_path: Path) -> N
     assert not w2_rows["source_label_copied_as_evidence"].astype(bool).any()
     assert set(w3_rows["replay_generation_path"]) == {"simulate_primitive_rollout"}
     assert "approximate_limitation_label" in w3_rows.columns
+    assert "randomisation_component_status_json" in w3_rows.columns
+    assert w3_rows["environment_instance_environment_mode"].astype(str).str.contains("w3_randomised").any()
 
 
 def test_w2_w3_replay_scaffolds_write_chunked_partitions(tmp_path: Path) -> None:
     archive_table = tmp_path / "archive_rows.csv"
     rows = [
         _archive_row(outcome_class=outcome, start_row=index, primitive_id="glide")
-        for index, outcome in enumerate(("accepted", "weak", "boundary_terminal", "failed", "rejected"))
+        for index, outcome in enumerate(("accepted", "weak", "weak_terminal", "failed", "rejected", "blocked"))
     ]
     pd.DataFrame(rows).to_csv(archive_table, index=False)
 

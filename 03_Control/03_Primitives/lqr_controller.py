@@ -289,14 +289,9 @@ def lqr_command_for_state(
     u_ref = np.asarray(controller.reference_command_vector, dtype=float)
     gain = np.asarray(controller.k_gain_matrix, dtype=float).reshape(3, STATE_SIZE)
     if controller.lqr_synthesis_status != LQR_SYNTHESIS_SOLVED:
-        return LQRCommand(
-            primitive_id=controller.primitive_id,
-            controller_id=controller.controller_id,
-            feedback_mode=controller.feedback_mode,
-            command_norm=(0.0, 0.0, 0.0),
-            command_rad=(0.0, 0.0, 0.0),
-            saturation_applied=False,
-            raw_command_rad=(0.0, 0.0, 0.0),
+        raise RuntimeError(
+            "blocked LQR controller cannot produce an executable command: "
+            f"{controller.controller_id}:{controller.lqr_synthesis_status}"
         )
     raw_rad = u_ref - gain @ (state - x_ref)
     raw_norm = _surface_rad_to_unclipped_norm(raw_rad)

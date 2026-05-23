@@ -34,6 +34,8 @@ class PrimitiveDefinition:
     controller_mode: str
     feedback_mode: str
     controller_id: str
+    controller_id_policy: str
+    nominal_controller_label: str
     linearisation_source: str
     Q_weight_json: str
     R_weight_json: str
@@ -163,6 +165,8 @@ def _primitive(
         controller_mode="lqr_local_feedback",
         feedback_mode="lqr_state_feedback",
         controller_id=f"lqr_{primitive_id}_nominal",
+        controller_id_policy="resolved_by_lqr_controller",
+        nominal_controller_label=f"lqr_{primitive_id}_nominal",
         linearisation_source="straight_trim_plus_primitive_reference_bias",
         Q_weight_json=_nominal_q_weight_json(),
         R_weight_json=_nominal_r_weight_json(),

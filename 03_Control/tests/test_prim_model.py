@@ -38,6 +38,8 @@ def test_table_model_predicts_nearest_primitive_outcome() -> None:
                 "evidence_role": "lqr_rollout_candidate",
                 "context_feature_vector": features,
                 "outcome_class": "accepted",
+                "continuation_valid": True,
+                "episode_terminal_useful": False,
                 "continuation_status": "continuation_success",
                 "episode_terminal_status": "not_terminal",
                 "episode_utility_label": "continuation_useful",
@@ -52,6 +54,8 @@ def test_table_model_predicts_nearest_primitive_outcome() -> None:
                 "evidence_role": "lqr_rollout_candidate",
                 "context_feature_vector": features,
                 "outcome_class": "weak",
+                "continuation_valid": True,
+                "episode_terminal_useful": False,
                 "continuation_status": "continuation_weak",
                 "episode_terminal_status": "not_terminal",
                 "episode_utility_label": "continuation_useful",
@@ -72,6 +76,8 @@ def test_table_model_predicts_nearest_primitive_outcome() -> None:
     assert prediction.probability_accepted == 0.5
     assert prediction.probability_weak == 0.5
     assert prediction.probability_continuation_success == 1.0
+    assert prediction.probability_continuation_valid == 1.0
+    assert prediction.probability_episode_terminal_useful == 0.0
     assert prediction.predicted_energy_residual_m == 0.05
     assert prediction.neighbour_distance == 0.0
 
@@ -104,9 +110,12 @@ def test_default_training_excludes_blocked_lqr_synthesis_rows() -> None:
             "primitive_id": "glide",
             "evidence_role": "lqr_rollout_candidate",
             "context_feature_vector": features,
-            "outcome_class": "boundary_terminal",
+            "outcome_class": "weak",
+            "continuation_valid": False,
+            "episode_terminal_useful": True,
+            "boundary_use_class": "episode_terminal_useful",
             "continuation_status": "not_continuation_valid",
-            "episode_terminal_status": "boundary_terminal",
+            "episode_terminal_status": "episode_terminal_useful",
             "episode_utility_label": "terminal_useful",
             "terminal_use_trainable": True,
             "energy_residual_m": 0.2,
@@ -120,7 +129,9 @@ def test_default_training_excludes_blocked_lqr_synthesis_rows() -> None:
     prediction = predict_primitive_outcome(model, context, primitive_by_id("glide"))
 
     assert model.fitted_row_count == 1
-    assert prediction.probability_boundary_terminal == 1.0
+    assert prediction.probability_weak == 1.0
+    assert prediction.probability_continuation_valid == 0.0
+    assert prediction.probability_episode_terminal_useful == 1.0
     assert prediction.probability_continuation_success == 0.0
     assert prediction.probability_terminal_useful == 1.0
     assert prediction.training_evidence_roles == "lqr_rollout_candidate"

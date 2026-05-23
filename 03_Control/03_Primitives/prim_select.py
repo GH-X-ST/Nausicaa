@@ -4,7 +4,9 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 
+from controller_registry import controller_is_executable_lqr
 from env_ctx import EnvironmentContext
+from lqr_controller import LQRController, lqr_controller_for_primitive_id
 from prim_cat import PrimitiveDefinition, active_primitive_catalogue
 from prim_model import (
     PrimitiveOutcomeModel,
@@ -31,13 +33,16 @@ class PrimitiveCandidateDecision:
     governor_mode: str
     viable: bool
     rejection_reason: str
+    controller_id: str
+    controller_audit_status: str
     score: float
     probability_accepted: float
     probability_weak: float
     probability_failed: float
     probability_rejected: float
-    probability_boundary_terminal: float
     probability_blocked: float
+    probability_continuation_valid: float
+    probability_episode_terminal_useful: float
     probability_continuation_success: float
     probability_terminal_useful: float
     predicted_energy_residual_m: float
@@ -73,6 +78,8 @@ def select_primitive(
     min_wall_margin_m: float = 0.10,
     min_speed_margin_m_s: float = 0.0,
     min_attitude_margin_rad: float = 0.0,
+    controller_registry: dict[str, LQRController] | None = None,
+    require_controller_registry: bool = False,
 ) -> PrimitiveSelectionResult:
     """Select a primitive through context features, model predictions, and viability."""
 
@@ -82,6 +89,7 @@ def select_primitive(
     decisions = tuple(
         _candidate_decision(
             context=context,
+            primitive=primitive,
             prediction=predict_primitive_outcome(
                 model,
                 context,
@@ -95,28 +103,17 @@ def select_primitive(
             min_wall_margin_m=float(min_wall_margin_m),
             min_speed_margin_m_s=float(min_speed_margin_m_s),
             min_attitude_margin_rad=float(min_attitude_margin_rad),
+            controller_registry=controller_registry,
+            require_controller_registry=bool(require_controller_registry),
         )
         for primitive in primitives
     )
     viable = [decision for decision in decisions if decision.viable]
     if not viable:
-        if _hard_context_rejection(
-            context=context,
-            min_speed_margin_m_s=min_speed_margin_m_s,
-            min_attitude_margin_rad=min_attitude_margin_rad,
-        ):
-            return PrimitiveSelectionResult(
-                selected_primitive_id="",
-                governor_mode=governor_mode,
-                decision_status="blocked_no_viability_checked_fallback",
-                candidate_count=len(decisions),
-                viable_count=0,
-                decisions=decisions,
-            )
         return PrimitiveSelectionResult(
-            selected_primitive_id="safe_exit_or_recovery_handoff",
+            selected_primitive_id="",
             governor_mode=governor_mode,
-            decision_status="recovery_handoff_no_viable_primitive",
+            decision_status="blocked_no_viable_lqr_primitive",
             candidate_count=len(decisions),
             viable_count=0,
             decisions=decisions,
@@ -138,6 +135,7 @@ def select_primitive(
 def _candidate_decision(
     *,
     context: EnvironmentContext,
+    primitive: PrimitiveDefinition,
     prediction: PrimitiveOutcomePrediction,
     governor_mode: str,
     min_acceptance_probability: float,
@@ -145,7 +143,14 @@ def _candidate_decision(
     min_wall_margin_m: float,
     min_speed_margin_m_s: float,
     min_attitude_margin_rad: float,
+    controller_registry: dict[str, LQRController] | None,
+    require_controller_registry: bool,
 ) -> PrimitiveCandidateDecision:
+    controller, controller_status, controller_rejection = _controller_for_candidate(
+        primitive=primitive,
+        controller_registry=controller_registry,
+        require_controller_registry=require_controller_registry,
+    )
     rejection_reason = _rejection_reason(
         context=context,
         prediction=prediction,
@@ -155,7 +160,7 @@ def _candidate_decision(
         min_wall_margin_m=min_wall_margin_m,
         min_speed_margin_m_s=min_speed_margin_m_s,
         min_attitude_margin_rad=min_attitude_margin_rad,
-    )
+    ) if not controller_rejection else controller_rejection
     viable = rejection_reason == ""
     score = _selection_score(prediction=prediction, governor_mode=governor_mode)
     return PrimitiveCandidateDecision(
@@ -163,13 +168,16 @@ def _candidate_decision(
         governor_mode=governor_mode,
         viable=viable,
         rejection_reason=rejection_reason,
+        controller_id="" if controller is None else controller.controller_id,
+        controller_audit_status=controller_status,
         score=float(score if viable else float("-inf")),
         probability_accepted=float(prediction.probability_accepted),
         probability_weak=float(prediction.probability_weak),
         probability_failed=float(prediction.probability_failed),
         probability_rejected=float(prediction.probability_rejected),
-        probability_boundary_terminal=float(prediction.probability_boundary_terminal),
         probability_blocked=float(prediction.probability_blocked),
+        probability_continuation_valid=float(prediction.probability_continuation_valid),
+        probability_episode_terminal_useful=float(prediction.probability_episode_terminal_useful),
         probability_continuation_success=float(
             prediction.probability_continuation_success
         ),
@@ -208,22 +216,17 @@ def _rejection_reason(
     if prediction.probability_rejected + prediction.probability_blocked > 0.65:
         return "predicted_rejection_or_block_high"
     if governor_mode == "continuation":
-        if prediction.probability_boundary_terminal > 0.35:
-            return "predicted_boundary_terminal_not_continuation_valid"
         if prediction.predicted_minimum_wall_margin_m < min_wall_margin_m:
             return "predicted_wall_margin_low"
         if prediction.predicted_continuation_margin_m < min_wall_margin_m:
             return "predicted_continuation_margin_low"
-        if prediction.probability_continuation_success < min_acceptance_probability:
-            return "continuation_success_probability_low"
+        if prediction.probability_continuation_valid < min_acceptance_probability:
+            return "continuation_valid_probability_low"
         return ""
-    if prediction.probability_boundary_terminal > 0.45:
-        if prediction.probability_terminal_useful < 0.25:
-            return "terminal_utility_low"
+    if prediction.probability_episode_terminal_useful >= 0.25:
         return ""
-    if prediction.probability_continuation_success < min_acceptance_probability:
-        if prediction.probability_terminal_useful < 0.25:
-            return "terminal_or_continuation_utility_low"
+    if prediction.probability_continuation_valid < min_acceptance_probability:
+        return "terminal_or_continuation_utility_low"
     return ""
 
 
@@ -241,6 +244,28 @@ def _hard_context_rejection(
     )
 
 
+def _controller_for_candidate(
+    *,
+    primitive: PrimitiveDefinition,
+    controller_registry: dict[str, LQRController] | None,
+    require_controller_registry: bool,
+) -> tuple[LQRController | None, str, str]:
+    if controller_registry is not None:
+        controller = controller_registry.get(primitive.primitive_id)
+        if controller is None:
+            return None, "missing_selected_registry_entry", "controller_missing_from_selected_registry"
+    elif require_controller_registry:
+        return None, "missing_selected_registry", "controller_registry_required"
+    else:
+        controller = lqr_controller_for_primitive_id(primitive.primitive_id)
+    ok, reason = controller_is_executable_lqr(controller)
+    if not ok:
+        return controller, reason, reason
+    if controller.primitive_id != primitive.primitive_id:
+        return controller, "controller_primitive_mismatch", "controller_primitive_mismatch"
+    return controller, "passed", ""
+
+
 def _selection_score(
     *,
     prediction: PrimitiveOutcomePrediction,
@@ -248,8 +273,7 @@ def _selection_score(
 ) -> float:
     if governor_mode == "terminal_episode":
         return float(
-            0.65 * prediction.probability_terminal_useful
-            + 0.25 * prediction.probability_boundary_terminal
+            0.80 * prediction.probability_episode_terminal_useful
             + 0.12 * prediction.predicted_lift_dwell_time_s
             + 0.10 * prediction.predicted_energy_residual_m
             - 0.30 * prediction.probability_rejected
@@ -257,10 +281,10 @@ def _selection_score(
             - 0.05 * prediction.uncertainty
         )
     return float(
-        prediction.probability_continuation_success
+        prediction.probability_continuation_valid
         + 0.15 * prediction.predicted_energy_residual_m
         + 0.05 * prediction.predicted_continuation_margin_m
-        - 0.40 * prediction.probability_boundary_terminal
+        - 0.40 * prediction.probability_episode_terminal_useful
         - 0.05 * prediction.uncertainty
     )
 

@@ -48,6 +48,7 @@ SOFT_OBJECTIVE_TERMS = (
 class LQRTuningCandidate:
     primitive_id: str
     candidate_index: int
+    candidate_weight_label: str
     controller_id: str
     lqr_Q_weights_json: str
     lqr_R_weights_json: str
@@ -142,6 +143,7 @@ def tuning_candidates_for_primitive(
             LQRTuningCandidate(
                 primitive_id=primitive.primitive_id,
                 candidate_index=int(index),
+                candidate_weight_label=weight_spec.weight_label,
                 controller_id=controller.controller_id,
                 lqr_Q_weights_json=controller.lqr_Q_weights_json,
                 lqr_R_weights_json=controller.lqr_R_weights_json,
@@ -159,4 +161,3 @@ def tuning_candidate_row(candidate: LQRTuningCandidate) -> dict[str, object]:
 
 def tuning_schedule_row(schedule: LQRTuningSchedule) -> dict[str, object]:
     return asdict(schedule)
-

@@ -96,7 +96,7 @@ def environment_instance_for_mode(
             randomisation_seed=int(seed),
         )
 
-    fan_count = 4 if mode in {"gaussian_four", "fan_shift", "power_scale"} else 1
+    fan_count = 4 if mode in {"gaussian_four", "fan_shift", "power_scale", "w3_randomised_four"} else 1
     positions = _base_fan_positions(fan_count)
     power_scales = tuple(1.0 for _ in range(fan_count))
     active_mask = tuple(True for _ in range(fan_count))
@@ -119,6 +119,8 @@ def environment_instance_for_mode(
         "fan_shift",
         "power_scale",
         "w3_randomised",
+        "w3_randomised_single",
+        "w3_randomised_four",
     }:
         return _blocked_instance(
             W_layer=layer,
@@ -141,7 +143,7 @@ def environment_instance_for_mode(
             )
         )
         amplitude_scale = float(np.mean(power_scales))
-    elif layer == "W3" or mode == "w3_randomised":
+    elif layer == "W3" or mode in {"w3_randomised", "w3_randomised_single", "w3_randomised_four"}:
         fan_shift = _uniform_pair(rng, cfg.fan_position_shift_range_m)
         positions = tuple((float(x + fan_shift[0]), float(y + fan_shift[1])) for x, y in positions)
         power_scales = tuple(
@@ -195,7 +197,7 @@ def sample_environment_randomisation(
 
     cfg = randomisation_config or EnvironmentRandomisationConfig()
     mode = (
-        "w3_randomised"
+        "w3_randomised_four" if base_instance.fan_count >= 4 else "w3_randomised_single"
         if base_instance.environment_mode not in {"fan_shift", "power_scale"}
         else base_instance.environment_mode
     )
