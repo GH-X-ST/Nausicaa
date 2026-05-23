@@ -40,6 +40,8 @@ def test_lqr_tuning_rolls_out_candidate_controller_ids_and_writes_registry(tmp_p
     assert "controller_selection_status" in frame.columns
     assert set(frame["controller_selection_status"]) == {"W0_W1_candidate_rollout"}
     assert frame.groupby("primitive_id")["controller_id"].nunique().ge(2).all()
+    paired_layers = frame.groupby(["primitive_id", "candidate_index", "paired_start_key"])["W_layer"].agg(set)
+    assert paired_layers.map(lambda layers: {"W0", "W1"}.issubset(layers)).all()
     assert set(registry["primitive_id"]) == set(ACTIVE_PRIMITIVE_IDS)
     assert set(registry["selected_controller_status"]).issuperset(
         {"smoke_selected_not_thesis_evidence", "rejected"}

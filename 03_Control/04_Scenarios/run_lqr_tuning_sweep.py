@@ -449,7 +449,14 @@ def _candidate_registry_status(controller, subset: pd.DataFrame) -> str:
 
 
 def _has_complete_w0_w1_candidate_coverage(frame: pd.DataFrame) -> bool:
-    required = {"primitive_id", "candidate_index", "W_layer", "hard_gate_status", "candidate_weight_label"}
+    required = {
+        "primitive_id",
+        "candidate_index",
+        "W_layer",
+        "paired_start_key",
+        "hard_gate_status",
+        "candidate_weight_label",
+    }
     if frame.empty or not required.issubset(frame.columns):
         return False
     coverage = (
@@ -467,6 +474,18 @@ def _has_complete_w0_w1_candidate_coverage(frame: pd.DataFrame) -> bool:
         for _, row in coverage.iterrows()
     }
     if not expected_groups.issubset(actual_groups):
+        return False
+    paired = (
+        frame.groupby(["primitive_id", "candidate_index", "paired_start_key"], dropna=False)["W_layer"]
+        .agg(lambda values: set(str(value) for value in values))
+        .reset_index(name="w_layers_present")
+    )
+    paired_ok = (
+        paired.groupby(["primitive_id", "candidate_index"], dropna=False)["w_layers_present"]
+        .agg(lambda values: any({"W0", "W1"}.issubset(set(item)) for item in values))
+        .reset_index(name="has_paired_w0_w1")
+    )
+    if not bool(paired_ok["has_paired_w0_w1"].all()):
         return False
     metadata = frame[["candidate_weight_label", "lqr_Q_weights_json", "lqr_R_weights_json", "lqr_gain_checksum"]]
     for column in metadata.columns:

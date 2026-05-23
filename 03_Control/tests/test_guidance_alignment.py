@@ -108,6 +108,7 @@ def test_v3_2_evidence_status_enums_are_active_contract_fields() -> None:
     status = _read("03_Control/03_Primitives/evidence_status.py")
     archive_reader = _read("03_Control/04_Scenarios/archive_table_reader.py")
     run_ctx_archive = _read("03_Control/04_Scenarios/run_ctx_archive.py")
+    run_lqr_archive = _read("03_Control/04_Scenarios/run_lqr_contextual_archive.py")
     for token in (
         "complete",
         "accepted_fallback",
@@ -131,3 +132,5 @@ def test_v3_2_evidence_status_enums_are_active_contract_fields() -> None:
     ):
         assert token in archive_reader
     assert "--selected-controller-registry" in run_ctx_archive
+    assert 'default=Path("03_Control/05_Results/lqr_contextual_v1_0/r6")' in run_lqr_archive
+    assert "lqr_contextual_v1_0/r6_lqr_" not in run_ctx_archive

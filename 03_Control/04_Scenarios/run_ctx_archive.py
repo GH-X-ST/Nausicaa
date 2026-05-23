@@ -1227,7 +1227,7 @@ def _official_deferred_commands() -> dict[str, str]:
             "--storage-format auto --compression-level 1 --resume --repair-incomplete "
             "--rollout-backend model_backed_lqr "
             "--selected-controller-registry 03_Control/05_Results/lqr_contextual_v1_0/r6/tune_100/metrics/selected_lqr_controllers.csv "
-            "--output-root 03_Control/05_Results/lqr_contextual_v1_0/r6_lqr_20k"
+            "--output-root 03_Control/05_Results/lqr_contextual_v1_0/r6"
         ),
         "r6_lqr_40k_temp_or_local": (
             "python 03_Control/04_Scenarios/run_lqr_contextual_archive.py --run-id 61 "
@@ -1237,7 +1237,7 @@ def _official_deferred_commands() -> dict[str, str]:
             "--storage-format auto --compression-level 1 --resume --repair-incomplete "
             "--rollout-backend model_backed_lqr "
             "--selected-controller-registry 03_Control/05_Results/lqr_contextual_v1_0/r6/tune_100/metrics/selected_lqr_controllers.csv "
-            "--output-root 03_Control/05_Results/lqr_contextual_v1_0/r6_lqr_40k"
+            "--output-root 03_Control/05_Results/lqr_contextual_v1_0/r6"
         ),
     }
 

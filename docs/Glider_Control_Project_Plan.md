@@ -452,7 +452,7 @@ controlled finish
 
 Termination is an outcome label, not automatic mission failure.
 
-For archive generation before clustering, x-y wall or lateral safety-volume exit should be retained as a terminal outcome rather than used as a row-deletion rule. These terminal rows may be weak, failed, or boundary-terminal evidence, but they are still useful for learning where primitives stop being viable in a repeated-launch task. Floor and ceiling violations remain safety-critical z-boundary failures and must be labelled separately.
+For archive generation before clustering, x-y wall or lateral safety-volume exit should be retained as a terminal outcome rather than used as a row-deletion rule. These terminal rows may be weak, failed, or `episode_terminal_useful` boundary evidence, but they are still useful for learning where primitives stop being viable in a repeated-launch task. Floor and ceiling violations remain safety-critical z-boundary failures and must be labelled separately.
 
 Implementation must distinguish two non-z-boundary primitive uses:
 
@@ -684,7 +684,7 @@ supported latency / LQR feedback mode
 
 Primitive scoring is allowed only after viability filtering. The governor must reject a primitive if its LQR controller is missing, unstable under the recorded audit, outside its supported reference envelope, or marked blocked/approximate beyond the allowed claim status. It must not substitute an archived PD-like controller.
 
-The governor is where x-y wall risk is converted into a selection penalty or rejection for real execution. Archive generation should preserve boundary-terminal evidence first, then the governor learns or applies the conservative decision boundary from those labelled outcomes.
+The governor is where x-y wall risk is converted into a selection penalty or rejection for real execution. Archive generation should preserve `episode_terminal_useful` x-y boundary evidence first, then the governor learns or applies the conservative decision boundary from those labelled outcomes.
 
 The governor must therefore support two explicit operating modes:
 
@@ -693,7 +693,7 @@ continuation_mode
     reject primitives predicted to hit the x-y wall before their finite horizon or to exit without enough margin for another primitive
 
 terminal_episode_mode
-    allow an x-y boundary-terminal primitive if it is predicted to provide useful lift capture, finite dwell, or energy retention before a controlled terminal outcome, while still rejecting z-boundary violation, low-speed unrecoverability, nonfinite trajectories, and unsupported feedback or surrogate cases
+    allow an x-y terminal-useful primitive if it is predicted to provide useful lift capture, finite dwell, or energy retention before a controlled terminal outcome, while still rejecting z-boundary violation, low-speed unrecoverability, nonfinite trajectories, and unsupported feedback or surrogate cases
 ```
 
 The selected mode must be logged. This keeps the repeated-launch mission feasible without pretending that lateral-boundary termination is safe continuation evidence.
@@ -830,7 +830,7 @@ real safety-volume termination
 measured launch-state distribution when available
 ```
 
-W2 uses the GP-corrected annular-Gaussian surrogate and reduces the gap between cheap nominal simulation and hardware. W2 must not retune LQR weights in place. W2 should replay a representative selection of W1 accepted, weak, boundary-terminal, and informative failed cases; it must not be limited to W1 winners only.
+W2 uses the GP-corrected annular-Gaussian surrogate and reduces the gap between cheap nominal simulation and hardware. W2 must not retune LQR weights in place. W2 should replay a representative selection of W1 accepted, weak, `episode_terminal_useful` x-y boundary, and informative failed cases; it must not be limited to W1 winners only.
 
 ### 12.4 W3 — environment-randomised robustness replay
 
@@ -1064,13 +1064,15 @@ figure-source manifest
 
 Do not hide failures through clustering. Failed and rejected cases are part of the result because they define the boundary of transfer.
 
-Boundary-terminal rows, including x-y wall-limit or lateral safety-volume exits, should form explicit clusters or failure summaries rather than being removed before clustering. They are not automatically hardware candidates, but they are essential for learning the context boundary where the governor should become conservative. Clustering must not select only clean accepted rows for W2/W3; representative weak, boundary-terminal, and informative failed rows are needed so the outcome model and governor learn the operating boundary rather than only the easy region.
+Episode-terminal-useful x-y boundary rows, including x-y wall-limit or lateral safety-volume exits, should form explicit clusters or failure summaries rather than being removed before clustering. They are not automatically hardware candidates, but they are essential for learning the context boundary where the governor should become conservative. Clustering must not select only clean accepted rows for W2/W3; representative weak, episode-terminal-useful, and informative failed rows are needed so the outcome model and governor learn the operating boundary rather than only the easy region.
 
 Cluster reports should keep `continuation_valid` and `episode_terminal_useful` cases visibly separate. Terminal-useful clusters may support repeated-launch lift-capture decisions, but they must not be promoted to downstream-continuation evidence.
 
 ---
 
 ## 17. Runtime, storage, and file-size contract
+
+Housekeeping precedence: when result folders, naming, runtime, storage, cleanup, or file-size details conflict, `housekeeping_and_naming_rules.md` is the controlling document. This section keeps the project-plan method requirement that dense evidence must be chunked, resumable, compressed, worker-enabled, checksum-manifested, and file-size-audited.
 
 This section is mandatory for all future dense/archive/thesis-scale simulation.
 
@@ -1157,24 +1159,28 @@ Preferred result groups:
 07_real_flight
 08_simreal
 09_figures
+12_reproducibility
 99_misc
 ```
 
 Preferred abbreviations:
 
 ```text
-ctx  environment context
-prim primitive
-pol  policy
-ep   episode
-sim  simulation
-rf   real flight
-sr   sim-real replay
-lqr  linear quadratic regulator
-w0   dry air
-w1   measured updraft
-w2   hardware-aware replay
-w3   environment randomisation
+ctx   environment context
+prim  primitive
+pol   policy
+ep    episode
+sim   simulation
+rf    real flight
+sr    sim-real replay
+lqr   linear quadratic regulator
+w0    dry air
+w1    Gaussian plume validation layer
+w2    GP-corrected annular-Gaussian validation layer
+w3    randomised GP-corrected annular-Gaussian validation layer
+nom   nominal
+rand  randomised
+sum   summary
 ```
 
 Avoid long filenames that can stall OneDrive or exceed Windows path limits. Target:

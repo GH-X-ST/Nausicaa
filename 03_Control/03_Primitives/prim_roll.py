@@ -1188,7 +1188,7 @@ def _controller_selection_status(
         return str(explicit_status)
     if controller is None:
         return "nominal_unselected_smoke"
-    return "W0_W1_registry_selected"
+    return "explicit_lqr_unverified"
 
 
 def _latency_field_values(

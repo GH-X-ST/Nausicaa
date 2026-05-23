@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from run_lqr_contextual_archive import parse_args, main
+from run_lqr_contextual_archive import main, parse_args
 
 
 def test_lqr_contextual_archive_dry_run_schedule(tmp_path: Path) -> None:

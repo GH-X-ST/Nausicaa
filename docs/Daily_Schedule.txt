@@ -19,9 +19,9 @@ Definitions
 - Environment context: local flow and safety features computed from the current state and wind field.
 - Episode: one simulated or physical launch from the fixed nominal launch gate.
 - W0: dry-air LQR synthesis and sanity baseline.
-- W1: nominal measured-updraft replay for LQR Q/R tuning and controller selection.
-- W2: hardware-aware survival replay with panelwise wind, latency, actuator lag, and realistic termination; no hidden LQR retuning.
-- W3: environment-randomised robustness replay, including fan position, fan power, updraft, launch, timing, implementation, and model uncertainty; no hidden LQR retuning.
+- W1: nominal measured-updraft replay using the Gaussian plume surrogate for LQR Q/R tuning and controller selection.
+- W2: hardware-aware survival replay using the GP-corrected annular-Gaussian surrogate, panelwise wind, latency, actuator lag, and realistic termination; no hidden LQR retuning.
+- W3: environment-randomised robustness replay using the randomised GP-corrected annular-Gaussian surrogate, including fan position, fan power, updraft, launch, timing, implementation, and model uncertainty; no hidden LQR retuning.
 - Real flight: fixed-gate repeated-launch validation with Vicon-measured initial states.
 - Deadline: 15 June 2026.
 - Writing protection: 08--15 June is protected for thesis writing and final integration.
@@ -37,6 +37,7 @@ Global execution rules
 - Do not make reachable-state chaining a required success gate.
 - Single-fan, four-fan, shifted-fan, and fan-power cases are environment instances, not separate algorithms.
 - W labels are validation layers only, not online algorithm branches.
+- Strict surrogate ladder: W0 is dry air only, W1 is Gaussian plume only, W2 is GP-corrected annular-Gaussian only, and W3 is randomised GP-corrected annular-Gaussian only.
 - W0/W1 may tune or select LQR controllers. W2/W3 may only replay and downgrade them. Retuning after W2/W3 failure requires a new controller ID and a return to W0/W1.
 - Dense runs must use chunked, resumable, compressed, worker-enabled execution.
 - Dense-run default: workers=8, max_workers=8, storage_format=auto/parquet/csv_gz, compression_level=1, resume=true.
@@ -55,7 +56,7 @@ Execution table
 | Tue 26 May | R4 | LQR synthesis smoke | First LQR controllers for active primitive families | W0 dry-air linearisation and W1 nominal context sanity | Smoke only; no dense run | At least one solved or explicitly blocked LQR controller per primitive family | `lqr_controller.py`; `lqr_linearisation.py`; LQR smoke manifest | No primitive silently falls back to PD; each failure has a blocked reason |
 | Wed 27 May | R5 | LQR rollout and chunked archive preflight | State + context + primitive + controller rollout rows | W0/W1 required; small W2 latency smoke optional | Chunked preflight; workers<=8; csv_gz/parquet; checksums; no file >100 MB | 1k--5k preflight rows | `run_lqr_contextual_archive_chunked.py`; table manifest; runtime summary | Chunking, resume, repair, checksums, file-size audit, and LQR row schema pass |
 | Thu 28 May | R6 | W0/W1 LQR tuning sweep | Tune Q/R weights for every active primitive | W0 dry air + W1 nominal measured updraft with paired start-state keys | Dense if >10k rows: workers=8, max_workers=8, chunked, compressed partitions | Preferred 8 primitives x 16--32 candidates x 50--100 paired tests; fallback 8 x 8 x 25 | LQR tuning table; selected controller IDs; tuning objective summary | Every primitive has selected, rejected, or blocked LQR controller status |
-| Fri 29 May | R7 | Main contextual LQR archive and selector | First thesis-useful LQR archive | W0/W1 with selected controller IDs; environment metadata for fan position/power | Dense run: workers=8, max_workers=8, chunked, compressed partitions | Preferred 40k--80k rows; fallback 20k | Contextual LQR archive; environment summary; outcome summary; selector report | Archive covers dry air, nominal updraft, shifted fan, and power-scaled fan environments with active LQR controllers only |
+| Fri 29 May | R7 | Main contextual LQR archive and selector | First thesis-useful LQR archive | W0/W1 with selected controller IDs; environment metadata for fan position/power | Dense run: workers=8, max_workers=8, chunked, compressed partitions | Preferred 40k--80k rows; fallback 20k | Contextual LQR archive; environment summary; outcome summary; selector report | Archive covers dry air plus Gaussian-plume W1 environment instances for nominal updraft, shifted fan, and power-scaled fan cases with active LQR controllers only |
 | Sat 30 May | R8 | W2 LQR survival replay | Hardware-aware focused replay | W2: panelwise wind, active latency labels, actuator lag, realistic termination | Dense if >10k rows: workers=8, chunked, compressed | Preferred 5k--15k W2 rows; fallback 2k | W2 replay table; W1-to-W2 LQR survival summary | W2 identifies which W1-selected LQR controllers remain realistic without retuning |
 | Sun 31 May | R9 | W3 LQR generalisation | Environment-randomised survival replay | W3: fan position, fan power, updraft amplitude/centre/width, residual field, latency, launch, implementation, and model uncertainty | Dense if >10k rows: workers=8, chunked, compressed | Preferred 10k--30k W3 rows; fallback 5k | W3 generalisation report; pass/weak/fail labels by controller ID | Supported LQR controllers survive randomisation or are downgraded with failure labels; no W3 retuning |
 | Mon 01 Jun | R10 | Repeated-launch simulation | Policy comparison using surviving LQR controllers | W1/W2/W3-selected environments; fixed-gate episode distribution | Chunked episode logs if dense; compact metrics | 100--300 episodes per policy; fallback 50 | No-memory, static-map, context-only, and context+memory comparison | Capture, dwell, energy, margin, termination, and rejection count are reported |

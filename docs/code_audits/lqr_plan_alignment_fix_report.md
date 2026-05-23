@@ -77,6 +77,10 @@ Date: 2026-05-23
 - Updated contextual episode smoke rollout to pass an explicit nominal LQR controller and label it `nominal_unselected_smoke`; selector-blocked episodes now write a non-execution audit row with an empty selected primitive instead of executing a placeholder primitive.
 - Split executable controller evidence status so W0/W1 candidate rows and nominal smoke rows are not labelled `registry_backed_executable`.
 - Made W3 replay row evidence status follow the source table's `ArchiveTableSourceInfo` unless the source itself is evidence-eligible, matching the W2 rule and preventing row-level metadata from upgrading smoke or retired sources.
+- Corrected the public LQR contextual archive default and deferred command output roots to the `lqr_contextual_v1_0/r6` stage folder, preserving the documented short-stage result layout.
+- Changed direct model-backed rollouts with an explicit LQR controller but no registry provenance from `W0_W1_registry_selected` to `explicit_lqr_unverified`, so only registry-loaded rows carry active selected-controller evidence.
+- Tightened W0/W1 tuning coverage so completion/fallback registry status requires paired W0 and W1 rows for the same primitive, candidate, and `paired_start_key`.
+- Removed retired feedback-contextual runner stubs from the active scenario tree and renamed their dry-run tests to LQR-specific names, leaving retired evidence only under `03_Control/99_Archive`.
 
 ### Validation status
 

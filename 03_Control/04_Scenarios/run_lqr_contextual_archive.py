@@ -31,7 +31,7 @@ def parse_args(argv: list[str] | None = None) -> ContextArchiveConfig:
     parser.add_argument("--dry-run-schedule", action="store_true")
     parser.add_argument("--stop-after-chunks", type=int, default=None)
     parser.add_argument("--continue-on-chunk-failure", action="store_true")
-    parser.add_argument("--output-root", type=Path, default=Path("03_Control/05_Results/lqr_contextual_v1_0/r7"))
+    parser.add_argument("--output-root", type=Path, default=Path("03_Control/05_Results/lqr_contextual_v1_0/r6"))
     parser.add_argument("--rollout-backend", choices=("model_backed_lqr", "smoke_only"), default="model_backed_lqr")
     parser.add_argument("--selected-controller-registry", type=Path, default=None)
     args = parser.parse_args(argv)

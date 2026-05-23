@@ -57,7 +57,7 @@ energy residual
 lift dwell time
 ```
 
-Also show `boundary_terminal` separately when x/y wall or lateral safety-volume exits are retained as terminal episode evidence. Do not colour these rows as continuation success.
+Also show `episode_terminal_useful` or `boundary_use_class == "episode_terminal_useful"` separately when x/y wall or lateral safety-volume exits are retained as terminal episode evidence. Do not colour these rows as continuation success.
 
 ### 3. Repeated-launch episode traces
 
