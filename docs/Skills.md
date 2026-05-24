@@ -24,22 +24,6 @@ Do not silently merge conflicting versions. State which source controls the deci
 
 ---
 
-## 0.1 Local validation environment
-
-Use the project-owned virtual environment for active validation and development:
-
-```text
-.\.venv\Scripts\python.exe
-```
-
-Install `requirements-control-dev.txt` into this environment for `03_Control`.
-Install `requirements-dev.txt` into the same environment only when
-whole-repository or design-side validation is required. Do not use old named
-Conda environments, including `Paul_Li_FYP`, for active validation or new
-development work; `Paul_Li_FYP` is not the active validation environment.
-
----
-
 ## 1. Stable project centre
 
 The stable centre is:
@@ -47,6 +31,8 @@ The stable centre is:
 > Primitive-level sim-to-real transfer of feedback-stabilised fixed-wing manoeuvre primitives for a small glider operating in measured, uncertain indoor updrafts.
 
 The preferred method is environment-conditioned primitive selection: use glider state and local flow-context features to select short primitives through a viability governor, then update an episodic lift belief across launches.
+
+Treat the LQR stabiliser as part of the primitive. R6-style work should tune fixed, auditable primitive-controller variants; R7-style work should evaluate, cluster, and shrink the fixed primitive-controller library; W2/W3-style work should replay fixed variants on learning/shrinkage or held-out conditions without hidden validation retuning. Any retuned design receives a new `primitive_variant_id` and `controller_id` and returns to W0/W1/R6 before renewed replay.
 
 Do not turn the work into:
 

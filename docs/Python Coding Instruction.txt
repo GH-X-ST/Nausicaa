@@ -6,20 +6,6 @@ Use this guide for Python code in modelling, simulation, primitive rollout, arch
 
 The code should be readable by a future researcher without needing a verbal explanation.
 
-## Local validation environment
-
-Run active Python validation with the project-owned environment:
-
-```text
-.\.venv\Scripts\python.exe
-```
-
-For `03_Control`, install and validate with `requirements-control-dev.txt`.
-Use the same `.venv` with `requirements-dev.txt` only when whole-repository or
-design-side code is intentionally included. Do not use old named Conda
-environments, including `Paul_Li_FYP`, for active validation or new development
-work; `Paul_Li_FYP` is not the active validation environment.
-
 ## Current method language
 
 Use **primitive**, not skill.
@@ -47,6 +33,14 @@ W3 is randomised GP-corrected annular-Gaussian only
 ```
 
 W labels are validation layers, not online branches. Single-fan, four-fan, fan-shift, and fan-power cases are environment instances, not separate algorithms.
+
+## Primitive-local LQR variants and archive separation
+
+The LQR stabiliser is part of the primitive, not a separate controller bank. Represent the active library item as a primitive-controller variant with `primitive_variant_id`, `primitive_id`, `entry_role`, `controller_id`, reference state/command, finite horizon, Q/R JSON, gain checksum, exit checks, metrics, failure labels, and claim status.
+
+Use R6 to tune a rich but bounded set of fixed primitive-local LQR variants. Use R7 for the broad contextual archive, clustering, representative-case selection, library shrinking, and outcome-model/governor evidence over those fixed variants. R7 may select among fixed variants, but it must not retune Q/R weights or mutate gains. W2/W3 replay fixed variants on hardware-aware and randomised conditions; if robustness retuning is needed, create new primitive-controller variants and return to W0/W1/R6 before another replay.
+
+Primitive entry roles should be explicit where relevant: `launch_capable`, `inflight_only`, and `terminal_or_recovery`. Do not reject an in-flight-only primitive solely because it cannot start from the broad launch gate.
 
 ## Core standard
 
@@ -151,6 +145,9 @@ accepted / weak / failed / rejected / blocked
 continuation_valid
 episode_terminal_useful
 boundary_use_class
+continuation_status
+episode_terminal_status
+episode_utility_label
 energy residual
 dwell time
 minimum margin
@@ -158,7 +155,7 @@ termination cause
 failure label
 ```
 
-Do not promote diagnostic, open-loop, schema-only, command-template, or blocked rows into mission evidence. Keep `continuation_valid` labels separate from `episode_terminal_useful` labels. X/y boundary exits may be useful terminal episode evidence, but they are not downstream-continuation successes. `boundary_terminal` is allowed only as previous/source/detail provenance, not as an active `outcome_class`. Compatibility/reporting aliases such as `continuation_status`, `episode_terminal_status`, or `episode_utility_label` may be derived, but they must not replace the primary project-plan fields.
+Do not promote diagnostic, open-loop, schema-only, command-template, or blocked rows into mission evidence. Keep continuation-valid labels separate from episode-terminal-useful labels. X/y boundary exits may be useful terminal episode evidence, but they are not downstream-continuation successes.
 
 ## Validation and tests
 

@@ -66,9 +66,10 @@ specific fan layout or arena-specific chain of actions?
 Controller-level implementation question:
 
 ```text
-Can each active primitive be stabilised by a compact time-invariant LQR controller
-whose Q/R weights are tuned in W0/W1 and then tested, without hidden retuning,
-through W2 hardware-aware replay and W3 environment-randomised replay?
+Can each active primitive be stabilised by its own compact time-invariant LQR
+controller, tuned as part of that primitive's local reference/entry-set design,
+then evaluated and shrunk through contextual archive evidence without hidden
+validation retuning?
 ```
 
 The expected contribution is not one attractive trajectory. It is an auditable method linking measured environment, primitive outcome evidence, viability filtering, repeated-launch belief update, and sim-real replay.
@@ -145,7 +146,7 @@ failure labels
 claim status
 ```
 
-The active local controller is time-invariant LQR. Each primitive must expose a nominal reference state, nominal surface command, linearisation metadata, Q/R weights, LQR gain matrix, controller identifier, and synthesis/audit status. A primitive whose LQR synthesis fails must be marked `blocked` or `not_supported`; it must not silently fall back to the old PD-like bounded controller. TVLQR is outside the active workflow because the primitives are short and the additional implementation burden is not justified at this stage.
+The active local controller is time-invariant LQR. The LQR controller is part of the primitive definition, not a free-standing bank chosen independently after the primitive is defined. The active evidence unit is a **primitive-controller variant**: one primitive entry set, reference state, nominal command, finite horizon, local LQR Q/R weights, gain matrix, exit checks, metrics, failure labels, and claim status. Each primitive-controller variant must expose a stable `primitive_variant_id`, `primitive_id`, `controller_id`, nominal reference state, nominal surface command, linearisation metadata, Q/R weights, LQR gain matrix, gain checksum, and synthesis/audit status. A primitive whose LQR synthesis fails must be marked `blocked` or `not_supported`; it must not silently fall back to the old PD-like bounded controller. TVLQR is outside the active workflow because the primitives are short and the additional implementation burden is not justified at this stage.
 
 The online controller must not branch on a named fan setup. Fan count, fan position, and fan power are environment parameters used to create the flow field. The controller receives only:
 
@@ -159,6 +160,24 @@ safety limits
 ```
 
 Single-fan, four-fan, fan-shift, and fan-power cases are environment instances used for training, validation, and reporting. They are not separate online algorithms.
+
+Compressed-schedule learning and validation separation:
+
+```text
+R6  develops primitive-local LQR variants: Q/R weights and limited reference
+    parameters are tuned inside each primitive/entry role, producing a rich but
+    bounded set of fixed primitive-controller variants.
+R7  runs the broad contextual archive, clustering, representative-case
+    selection, and library shrinking using those fixed primitive-controller
+    variants. R7 may choose among variants, but it must not mutate Q/R weights
+    or gains while generating archive evidence.
+W2/W3 learning sweeps may replay and shrink the surviving fixed variants under
+    hardware-aware and randomised conditions. If a failure motivates retuning,
+    the retuned design receives a new primitive_variant_id/controller_id and
+    returns to W0/W1/R6 before being replayed again.
+Final validation uses frozen variants on held-out randomised simulation and
+    real fixed-gate launches. No hidden retuning is allowed in validation.
+```
 
 ---
 
@@ -322,6 +341,16 @@ failure labels
 
 High-incidence or aggressive manoeuvres may remain as diagnostic boundary evidence, but they are not required for final mission success unless direct closed-loop evidence supports their use. Do not build the main thesis around 45--180 deg agile turns.
 
+Each active primitive-controller variant should also declare an entry role for R6/R7 use:
+
+```text
+launch_capable        may be evaluated from the fixed launch gate or launch-acquisition entry set
+inflight_only         evaluated from in-flight primitive-entry states, not rejected solely by launch-gate failure
+terminal_or_recovery  evaluated for safe recovery, handoff, or useful terminal episode evidence
+```
+
+The catalogue may contain more primitive-controller variants than are finally used online. R7 clustering and outcome modelling are expected to shrink the usable library to a smaller real-time set.
+
 
 ### 5.1 LQR primitive synthesis contract
 
@@ -331,7 +360,8 @@ Each active primitive controller must define:
 
 ```text
 controller_family              lqr
-controller_id                  stable unique ID for the primitive/controller pair
+primitive_variant_id           stable unique ID for the primitive entry role, reference, and controller package
+controller_id                  stable unique ID for the primitive-local LQR controller
 primitive_id                   active primitive ID
 reference_state_vector         x_ref in the canonical 15-state order
 reference_command_vector       u_ref in command/surface order
@@ -346,18 +376,18 @@ lqr_synthesis_status           solved / blocked / approximate
 controller_claim_status        simulation_only / hardware_shakedown / real_flight_evidence / not_tested
 ```
 
-Do not tune the raw gain matrix directly. Tune the LQR weight parameterisation, normally log-scaled diagonal entries of `Q` and `R`, plus only a small number of primitive-level reference parameters where required. The first implementation should keep the search small and auditable: start from physically interpretable baseline Q/R weights, then use a deterministic coarse search or compact random search to improve the objective.
+Do not tune the raw gain matrix directly. Tune the LQR weight parameterisation, normally log-scaled diagonal entries of `Q` and `R`, plus only a small number of primitive-level reference or entry-set parameters where required. Tuning is part of primitive synthesis: it produces primitive-controller variants rather than a separate controller bank. The first implementation should keep the search auditable but rich enough to give R7 a useful library: start from physically interpretable baseline Q/R weights, generate several role-aware variants per primitive, then let R7 evidence and clustering shrink the library.
 
 Tuning policy:
 
 ```text
-W0  dry-air LQR synthesis and sanity checks
-W1  nominal measured-updraft LQR weight tuning and candidate selection
-W2  hardware-aware survival replay with no hidden retuning
-W3  environment-randomised survival replay with no hidden retuning
+W0  dry-air LQR synthesis and sanity checks for primitive-local variants
+W1  nominal measured-updraft LQR weight/reference tuning and candidate selection
+W2  hardware-aware survival replay for fixed variants; any retuned design becomes a new variant and returns to W0/W1
+W3  environment-randomised replay for fixed variants; any retuned design becomes a new variant and returns to W0/W1
 ```
 
-If W2 or W3 exposes a failure mode that requires retuning, create a new `controller_id`, return the candidate to W0/W1, and then replay W2/W3 again. Do not mutate an already reported controller in place.
+If W2 or W3 exposes a failure mode that requires retuning, create a new `primitive_variant_id` and `controller_id`, return the candidate to W0/W1, and then replay W2/W3 again. Do not mutate an already reported variant in place.
 
 ---
 
@@ -452,7 +482,7 @@ controlled finish
 
 Termination is an outcome label, not automatic mission failure.
 
-For archive generation before clustering, x-y wall or lateral safety-volume exit should be retained as a terminal outcome rather than used as a row-deletion rule. These terminal rows may be weak, failed, or `episode_terminal_useful` boundary evidence, but they are still useful for learning where primitives stop being viable in a repeated-launch task. Floor and ceiling violations remain safety-critical z-boundary failures and must be labelled separately.
+For archive generation before clustering, x-y wall or lateral safety-volume exit should be retained as a terminal outcome rather than used as a row-deletion rule. These terminal rows may be weak, failed, or boundary-terminal evidence, but they are still useful for learning where primitives stop being viable in a repeated-launch task. Floor and ceiling violations remain safety-critical z-boundary failures and must be labelled separately.
 
 Implementation must distinguish two non-z-boundary primitive uses:
 
@@ -684,7 +714,7 @@ supported latency / LQR feedback mode
 
 Primitive scoring is allowed only after viability filtering. The governor must reject a primitive if its LQR controller is missing, unstable under the recorded audit, outside its supported reference envelope, or marked blocked/approximate beyond the allowed claim status. It must not substitute an archived PD-like controller.
 
-The governor is where x-y wall risk is converted into a selection penalty or rejection for real execution. Archive generation should preserve `episode_terminal_useful` x-y boundary evidence first, then the governor learns or applies the conservative decision boundary from those labelled outcomes.
+The governor is where x-y wall risk is converted into a selection penalty or rejection for real execution. Archive generation should preserve boundary-terminal evidence first, then the governor learns or applies the conservative decision boundary from those labelled outcomes.
 
 The governor must therefore support two explicit operating modes:
 
@@ -693,7 +723,7 @@ continuation_mode
     reject primitives predicted to hit the x-y wall before their finite horizon or to exit without enough margin for another primitive
 
 terminal_episode_mode
-    allow an x-y terminal-useful primitive if it is predicted to provide useful lift capture, finite dwell, or energy retention before a controlled terminal outcome, while still rejecting z-boundary violation, low-speed unrecoverability, nonfinite trajectories, and unsupported feedback or surrogate cases
+    allow an x-y boundary-terminal primitive if it is predicted to provide useful lift capture, finite dwell, or energy retention before a controlled terminal outcome, while still rejecting z-boundary violation, low-speed unrecoverability, nonfinite trajectories, and unsupported feedback or surrogate cases
 ```
 
 The selected mode must be logged. This keeps the repeated-launch mission feasible without pretending that lateral-boundary termination is safe continuation evidence.
@@ -773,17 +803,19 @@ W3  environment-randomised replay; use the randomised GP-corrected annular-Gauss
 ```
 
 
-Controller use across the validation ladder:
+Primitive-controller variant use across the validation ladder:
 
 ```text
-W0  synthesise and sanity-check time-invariant LQR controllers for each active primitive
+W0  synthesise and sanity-check time-invariant LQR variants for each active primitive/entry role
 W1  tune LQR Q/R weights and primitive reference parameters under nominal measured-updraft replay
-W2  test W1-selected LQR controllers under hardware-aware assumptions without hidden retuning
-W3  test W2-supported and informative LQR controllers under environment/implementation/plant randomisation without hidden retuning
-real flight  use only controllers whose claim status permits hardware shakedown or real-flight evidence collection
+W2  replay fixed W1-supported variants under hardware-aware assumptions; shrink or downgrade the library
+W3  replay fixed W2-supported and informative variants under environment/implementation/plant randomisation; shrink or downgrade the library
+real flight  use only variants whose claim status permits hardware shakedown or real-flight evidence collection
 ```
 
-W0/W1 are synthesis and tuning layers. W2/W3 are survival and evidence layers. A W2/W3 failure may motivate a new controller version, but the new version must return to W0/W1 before being presented as W2/W3-supported.
+W0/W1 are synthesis and tuning layers. W2/W3 have two explicitly separated uses: learning/shrinking sweeps may identify failures and motivate new primitive-controller variants, while held-out validation replays frozen variants without hidden retuning. Any W2/W3-motivated retuning must create a new `primitive_variant_id` and `controller_id`, return to W0/W1, and then be replayed again before support is claimed.
+
+For the compressed project schedule, R6 should be treated as a primitive-local LQR variant generation stage rather than a thesis-scale coverage archive. It should produce a rich but bounded set of fixed, auditable primitive-controller variants to unlock R7. R7 is the first broad dense archive used for validation, clustering, representative-case selection, and library shrinking. R6 may include a small training-randomised band if needed for controller robustness, but those rows are training/tuning evidence, not held-out W2/W3 validation.
 
 The implementation must record `updraft_model_id`, model source, residual / uncertainty descriptor, and environment metadata for every row. The online primitive selector should not branch on Gaussian versus GP-corrected model family; it should use the resulting local context features and uncertainty labels. If the requested W-layer surrogate is unavailable, the run must write a blocked manifest rather than silently falling back to another surrogate.
 
@@ -830,7 +862,7 @@ real safety-volume termination
 measured launch-state distribution when available
 ```
 
-W2 uses the GP-corrected annular-Gaussian surrogate and reduces the gap between cheap nominal simulation and hardware. W2 must not retune LQR weights in place. W2 should replay a representative selection of W1 accepted, weak, `episode_terminal_useful` x-y boundary, and informative failed cases; it must not be limited to W1 winners only.
+W2 uses the GP-corrected annular-Gaussian surrogate and reduces the gap between cheap nominal simulation and hardware. W2 must not retune LQR weights in place. W2 should replay a representative selection of W1 accepted, weak, boundary-terminal, and informative failed cases; it must not be limited to W1 winners only.
 
 ### 12.4 W3 — environment-randomised robustness replay
 
@@ -913,14 +945,14 @@ Use small, meaningful runs first. Dense runs are allowed only after the foundati
 | model audit smoke | 100--500 rows | 50 | check model, latency, wind, storage |
 | LQR synthesis smoke | 1--2 controllers per primitive | 1 primitive family | check trim/local reference, linearisation, Riccati solve, gain audit |
 | contextual primitive smoke | 1k--3k rows | 500 | check LQR primitive interfaces and labels |
-| W0/W1 LQR tuning sweep | 8 primitives x 16--32 candidates x 50--100 paired tests | 8 primitives x 8 candidates x 25 tests | tune Q/R weights and select controller IDs |
-| contextual LQR archive | 40k--80k rows | 20k | train/select primitive outcome model for active LQR controllers |
+| W0/W1 primitive-local LQR variant tuning | rich but bounded entry-role-aware primitive-controller variant set; preferred 12--24 selected/accepted-fallback variant IDs plus rejected/blocked records, emergency minimum 8--12 if time-constrained | minimum launch/recovery, glide/continuation, lift/context, and terminal/recovery coverage if physically viable | tune Q/R weights and limited primitive/reference entry-role parameters enough to give R7 a useful library |
+| contextual LQR archive | 40k--80k rows | 20k | validate fixed R6 primitive-controller variants, train outcome model, cluster evidence, and shrink library for real-time selection |
 | hardware-aware LQR survival | 5k--15k rows | 2k | W2 survival under latency, actuator, panelwise wind, realistic termination |
 | environment generalisation | 10k--30k rows | 5k | W3 fan position/power/updraft/implementation/plant randomisation |
 | repeated-launch simulation | 100--300 episodes | 50 | compare policies using W2/W3-supported LQR controllers |
 | hardware shortlist | 5--10 candidates | 3 | choose real-flight LQR primitive candidates |
 
-For contextual LQR archive and environment-generalisation stages, the default primitive-start mixture should combine launch-gate and in-flight primitive-entry states in a single table. LQR tuning should be completed before the main dense archive; the dense archive should evaluate declared `controller_id` values rather than continue searching over controllers. A useful first target is 40% launch-gate states and 60% in-flight states, with in-flight rows divided among nominal, lift-region, boundary-near, and recovery-edge cases. This is not a return to primitive-chain construction; it is a way to train each primitive on realistic launch and mid-flight entry states while keeping each row as one independent primitive attempt.
+For contextual LQR archive and environment-generalisation stages, the default primitive-start mixture should combine launch-gate and in-flight primitive-entry states in a single table. Primitive-local LQR variant tuning should be completed before the main dense archive; the dense archive should evaluate declared `primitive_variant_id` and `controller_id` values rather than continue searching over Q/R weights. A useful first target is 40% launch-gate states and 60% in-flight states, with in-flight rows divided among nominal, lift-region, boundary-near, and recovery-edge cases. R7 may cluster and shrink the fixed primitive-controller library, but it must not retune Q/R weights in place. This is not a return to primitive-chain construction; it is a way to evaluate each primitive-controller variant on realistic launch and mid-flight entry states while keeping each row as one independent primitive attempt.
 
 Do not run large all-arena archives. Large all-arena sweeps are not the main result and must not displace real-flight preparation, analysis, or writing time.
 
@@ -1064,15 +1096,13 @@ figure-source manifest
 
 Do not hide failures through clustering. Failed and rejected cases are part of the result because they define the boundary of transfer.
 
-Episode-terminal-useful x-y boundary rows, including x-y wall-limit or lateral safety-volume exits, should form explicit clusters or failure summaries rather than being removed before clustering. They are not automatically hardware candidates, but they are essential for learning the context boundary where the governor should become conservative. Clustering must not select only clean accepted rows for W2/W3; representative weak, episode-terminal-useful, and informative failed rows are needed so the outcome model and governor learn the operating boundary rather than only the easy region.
+Boundary-terminal rows, including x-y wall-limit or lateral safety-volume exits, should form explicit clusters or failure summaries rather than being removed before clustering. They are not automatically hardware candidates, but they are essential for learning the context boundary where the governor should become conservative. Clustering must not select only clean accepted rows for W2/W3; representative weak, boundary-terminal, and informative failed rows are needed so the outcome model and governor learn the operating boundary rather than only the easy region.
 
 Cluster reports should keep `continuation_valid` and `episode_terminal_useful` cases visibly separate. Terminal-useful clusters may support repeated-launch lift-capture decisions, but they must not be promoted to downstream-continuation evidence.
 
 ---
 
 ## 17. Runtime, storage, and file-size contract
-
-Housekeeping precedence: when result folders, naming, runtime, storage, cleanup, or file-size details conflict, `housekeeping_and_naming_rules.md` is the controlling document. This section keeps the project-plan method requirement that dense evidence must be chunked, resumable, compressed, worker-enabled, checksum-manifested, and file-size-audited.
 
 This section is mandatory for all future dense/archive/thesis-scale simulation.
 
@@ -1159,28 +1189,24 @@ Preferred result groups:
 07_real_flight
 08_simreal
 09_figures
-12_reproducibility
 99_misc
 ```
 
 Preferred abbreviations:
 
 ```text
-ctx   environment context
-prim  primitive
-pol   policy
-ep    episode
-sim   simulation
-rf    real flight
-sr    sim-real replay
-lqr   linear quadratic regulator
-w0    dry air
-w1    Gaussian plume validation layer
-w2    GP-corrected annular-Gaussian validation layer
-w3    randomised GP-corrected annular-Gaussian validation layer
-nom   nominal
-rand  randomised
-sum   summary
+ctx  environment context
+prim primitive
+pol  policy
+ep   episode
+sim  simulation
+rf   real flight
+sr   sim-real replay
+lqr  linear quadratic regulator
+w0   dry air
+w1   measured updraft
+w2   hardware-aware replay
+w3   environment randomisation
 ```
 
 Avoid long filenames that can stall OneDrive or exceed Windows path limits. Target:
