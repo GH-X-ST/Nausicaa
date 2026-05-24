@@ -43,15 +43,6 @@ class ArchiveStateSample:
 # =============================================================================
 # 2) Deterministic Archive Samplers
 # =============================================================================
-R61_STAGE_C_STRATA = (
-    ("launch_gate", 4),
-    ("inflight_nominal", 3),
-    ("inflight_lift_region", 2),
-    ("inflight_boundary_near", 2),
-    ("inflight_recovery_edge", 1),
-)
-
-
 def archive_state_sample_for_row(
     row_index: int,
     *,
@@ -122,90 +113,6 @@ def archive_state_sample_for_row(
     )
 
 
-def r6_1_stage_c_start_state_family_for_pair(pair_index: int) -> str:
-    """Return the exact 4/3/2/2/1 Stage C sentinel family assignment."""
-
-    slot = int(pair_index) % sum(count for _, count in R61_STAGE_C_STRATA)
-    cursor = 0
-    for family, count in R61_STAGE_C_STRATA:
-        cursor += int(count)
-        if slot < cursor:
-            return family
-    return R61_STAGE_C_STRATA[-1][0]
-
-
-def archive_state_sample_for_r6_1_pair(
-    pair_index: int,
-    *,
-    seed: int,
-    stage_label: str,
-    start_state_family: str,
-) -> ArchiveStateSample:
-    """Return a common-random-number R6.1 state sample for a paired start."""
-
-    family = str(start_state_family)
-    if family not in {name for name, _ in R61_STAGE_C_STRATA}:
-        raise ValueError(f"unknown R6.1 start_state_family: {family}")
-    paired_key = f"r6_1_{stage_label}_{family}_{int(pair_index):07d}"
-    sample_seed = _stable_seed(seed, paired_key)
-    rng = np.random.default_rng(sample_seed)
-    if family == "launch_gate":
-        state = _launch_gate_state(rng)
-        label = "approved_launch_gate"
-        source = "synthetic_launch_gate"
-        detail = f"r6_1_{stage_label}_stratified_launch_gate"
-        previous_status = "launch_start"
-        previous_primitive_id = ""
-        time_since_launch_s = 0.0
-    elif family == "inflight_nominal":
-        state = _inflight_nominal_state(rng)
-        label = "local_primitive_envelope"
-        source = "rollout_exit_resampled"
-        detail = f"r6_1_{stage_label}_stratified_inflight_nominal"
-        previous_status = "clean_exit"
-        previous_primitive_id = _synthetic_previous_primitive_id(pair_index)
-        time_since_launch_s = float(rng.uniform(0.8, 2.2))
-    elif family == "inflight_lift_region":
-        state = _inflight_lift_region_state(rng)
-        label = "lift_region"
-        source = "synthetic_inflight"
-        detail = f"r6_1_{stage_label}_stratified_lift_region"
-        previous_status = "clean_exit"
-        previous_primitive_id = _synthetic_previous_primitive_id(pair_index)
-        time_since_launch_s = float(rng.uniform(0.6, 2.6))
-    elif family == "inflight_boundary_near":
-        side = "x_max" if int(pair_index) % 2 == 0 else "y_min"
-        state = _boundary_near_state(rng, side=side)
-        label = "boundary_near"
-        source = "stress_sample"
-        detail = f"r6_1_{stage_label}_{side}_terminal_useful_exit_detail"
-        previous_status = "terminal_useful_boundary_detail"
-        previous_primitive_id = _synthetic_previous_primitive_id(pair_index)
-        time_since_launch_s = float(rng.uniform(0.8, 2.8))
-    else:
-        state = _inflight_recovery_edge_state(rng)
-        label = "recovery_edge"
-        source = "stress_sample"
-        detail = f"r6_1_{stage_label}_stratified_recovery_edge"
-        previous_status = "recovery_edge"
-        previous_primitive_id = _synthetic_previous_primitive_id(pair_index)
-        time_since_launch_s = float(rng.uniform(0.4, 2.0))
-    return ArchiveStateSample(
-        state_vector=as_state_vector(state),
-        start_state_family=family,
-        state_sample_source=source,
-        paired_start_key=paired_key,
-        state_envelope_label=label,
-        previous_primitive_status=previous_status,
-        state_sample_detail=detail,
-        synthetic_previous_primitive_id=previous_primitive_id,
-        synthetic_time_since_launch_s=time_since_launch_s,
-        state_sampling_seed=int(sample_seed),
-        launch_gate_compliant=state_is_launch_gate_compliant(state),
-        state_sampling_version="r6_1_stratified_common_random_v1",
-    )
-
-
 def archive_state_sample_row(sample: ArchiveStateSample) -> dict[str, object]:
     """Return state sample metadata and expanded canonical state columns."""
 
@@ -234,7 +141,7 @@ def archive_state_sample_row(sample: ArchiveStateSample) -> dict[str, object]:
 
 
 def start_state_family_for_row(row_index: int) -> str:
-    """Return the deterministic 40/60 primitive-start family assignment."""
+    """Return the deterministic 40/25/15/10/10 primitive-start family assignment."""
 
     slot = int(row_index) % 20
     if slot < 8:

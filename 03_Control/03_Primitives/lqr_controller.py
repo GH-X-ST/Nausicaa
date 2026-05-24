@@ -352,6 +352,22 @@ def lqr_rollout_metadata(controller: LQRController) -> dict[str, object]:
     }
 
 
+def controller_is_executable_lqr(controller: LQRController) -> tuple[bool, str]:
+    """Return whether an LQR controller can be executed in active W01 evidence."""
+
+    if controller.controller_family != "lqr":
+        return False, "controller_family_not_lqr"
+    if controller.lqr_synthesis_status != LQR_SYNTHESIS_SOLVED:
+        return False, "lqr_synthesis_not_solved"
+    if controller.sampled_data_check_status != "sampled_stable":
+        return False, "sampled_data_not_stable"
+    if controller.zero_position_gain_expansion_status != "zero_position_gains_verified":
+        return False, "zero_position_gains_not_verified"
+    if controller.controller_claim_status != "simulation_only":
+        return False, "controller_claim_status_not_allowed"
+    return True, ""
+
+
 # =============================================================================
 # 4) Audit Helpers
 # =============================================================================

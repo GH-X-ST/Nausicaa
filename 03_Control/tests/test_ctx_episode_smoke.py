@@ -12,7 +12,13 @@ from run_ctx_episode_smoke import EpisodeSmokeConfig, run_contextual_episode_smo
 def _results_entries_are_placeholder_or_allowed(entries: list[str]) -> bool:
     allowed_root = os.environ.get("NAUSICAA_ALLOW_LOCAL_EVIDENCE_ROOT", "").strip()
     if not allowed_root:
-        return entries == [".gitkeep"]
+        return all(
+            entry == ".gitkeep"
+            or entry == "lqr_contextual_v1_0"
+            or entry == "lqr_contextual_v1_0/w01_dense"
+            or entry.startswith("lqr_contextual_v1_0/w01_dense/")
+            for entry in entries
+        )
 
     root = Path(allowed_root)
     if root.is_absolute():

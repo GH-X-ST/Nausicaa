@@ -1,31 +1,32 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from run_lqr_tuning_sweep import LQRTuningSweepConfig, run_lqr_tuning_sweep
+import pandas as pd
+
+from dense_archive_table_io import load_table_manifest
+from run_lqr_w01_dense_chunked import W01DenseRunConfig, run_lqr_w01_dense_chunked
 
 
-def test_lqr_tuning_dry_run_records_go_no_go_contract(tmp_path: Path) -> None:
-    result = run_lqr_tuning_sweep(
-        LQRTuningSweepConfig(
-            run_id=141,
+def test_w01_dry_run_writes_compact_manifests_and_no_partitions(tmp_path: Path) -> None:
+    result = run_lqr_w01_dense_chunked(
+        W01DenseRunConfig(
+            run_id=1,
             output_root=tmp_path,
-            rows=32,
-            candidate_count=8,
-            paired_tests_per_candidate=25,
+            rows=60,
+            seed=1,
+            candidate_chunk_size=20,
             workers=1,
             max_workers=1,
-            storage_format="csv_gz",
             dry_run_schedule=True,
+            candidate_count=1,
         )
     )
-
-    manifest = json.loads(Path(result["run_manifest"]).read_text(encoding="ascii"))
     run_root = Path(result["run_root"])
-    assert manifest["raw_K_tuning_allowed"] is False
-    assert manifest["W0_W1_tune_controller_ids"] is True
-    assert manifest["W2_W3_replay_only"] is True
-    assert "valid_lqr_synthesis" in manifest["hard_gates"]
-    assert (run_root / "metrics" / "chunk_summary.csv").is_file()
-    assert not any((run_root / "tables").rglob("*"))
+    table_manifest = load_table_manifest(run_root / "manifests" / "table_manifest.json")
+    chunk_summary = pd.read_csv(run_root / "metrics" / "chunk_summary.csv")
+
+    assert table_manifest.tables == ()
+    assert not (run_root / "tables" / "w01_primitive_rows").exists()
+    assert set(chunk_summary["status"]) == {"scheduled"}
+    assert (run_root / "manifests" / "primitive_variant_registry.json").is_file()

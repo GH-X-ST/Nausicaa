@@ -32,10 +32,10 @@ from implementation_instance import (
 )
 from plant_instance import PlantInstance, apply_plant_instance_to_aircraft, plant_instance_for_layer
 from prim_cat import PrimitiveDefinition, primitive_parameters_json
-from controller_registry import controller_is_executable_lqr
 from lqr_controller import (
     LQR_SYNTHESIS_SOLVED,
     LQRController,
+    controller_is_executable_lqr,
     lqr_controller_for_primitive_id,
     lqr_rollout_metadata,
 )
@@ -1140,7 +1140,7 @@ def _lqr_metadata_for_evidence(
         metadata = lqr_rollout_metadata(fallback_controller)
         metadata.update(
             {
-                "controller_id": f"blocked_missing_selected_controller_{primitive.primitive_id}",
+                "controller_id": f"blocked_missing_explicit_lqr_controller_{primitive.primitive_id}",
                 "lqr_reference_id": "",
                 "linearisation_id": "",
                 "linearisation_source": "",
@@ -1149,13 +1149,13 @@ def _lqr_metadata_for_evidence(
                 "lqr_gain_checksum": "",
                 "lqr_synthesis_status": str(controller_selection_status),
                 "lqr_blocked_reason": str(controller_selection_status),
-                "lqr_closed_loop_eigenvalue_summary": "not_evaluated_missing_selected_controller",
+                "lqr_closed_loop_eigenvalue_summary": "not_evaluated_missing_explicit_lqr_controller",
                 "care_residual_norm": float("inf"),
-                "sampled_data_check_status": "not_evaluated_missing_selected_controller",
+                "sampled_data_check_status": "not_evaluated_missing_explicit_lqr_controller",
                 "sampled_data_spectral_radius": float("inf"),
-                "command_clip_check_status": "not_evaluated_missing_selected_controller",
-                "saturation_summary": "not_evaluated_missing_selected_controller",
-                "latency_actuator_survival_status": "not_evaluated_missing_selected_controller",
+                "command_clip_check_status": "not_evaluated_missing_explicit_lqr_controller",
+                "saturation_summary": "not_evaluated_missing_explicit_lqr_controller",
+                "latency_actuator_survival_status": "not_evaluated_missing_explicit_lqr_controller",
                 "controller_claim_status": "simulation_only_blocked",
             }
         )
@@ -1173,22 +1173,22 @@ def _controller_executable(controller: LQRController | None, controller_selectio
 def _controller_evidence_status(controller: LQRController | None, controller_selection_status: str) -> str:
     selection_status = str(controller_selection_status)
     if controller is None and _controller_selection_is_missing(controller_selection_status):
-        return "blocked_missing_selected_controller"
+        return "blocked_missing_explicit_lqr_controller"
     if controller is None:
-        return "nominal_unselected_smoke"
+        return "nominal_debug_smoke"
     ok, reason = controller_is_executable_lqr(controller)
     if not ok:
         return f"blocked_{reason}"
     if selection_status in {
-        "W0_W1_registry_selected",
-        "W2_verified_registry_replay",
-        "W3_verified_registry_replay",
+        "W01_variant_registry_candidate",
+        "W2_fixed_lqr_survival_replay",
+        "W3_fixed_lqr_survival_replay",
     }:
         return "registry_backed_executable"
-    if selection_status == "W0_W1_candidate_rollout":
+    if selection_status == "W01_variant_registry_candidate":
         return "candidate_executable_lqr"
-    if selection_status == "nominal_unselected_smoke":
-        return "nominal_unselected_smoke_executable"
+    if selection_status == "nominal_debug_smoke":
+        return "nominal_debug_smoke_executable"
     return "executable_lqr"
 
 
@@ -1205,7 +1205,7 @@ def _controller_selection_status(
     if explicit_status:
         return str(explicit_status)
     if controller is None:
-        return "nominal_unselected_smoke"
+        return "nominal_debug_smoke"
     return "explicit_lqr_unverified"
 
 

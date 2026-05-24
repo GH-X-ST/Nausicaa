@@ -1,9 +1,0 @@
-primitive_id,stage_e_required,stage_e_reason,candidate_indices
-energy_retaining_bank,False,stage_e_not_applicable_no_candidate_above_minimum_gate,[]
-glide,False,stage_e_not_applicable_no_candidate_above_minimum_gate,[]
-lift_dwell_arc,False,stage_e_not_applicable_no_candidate_above_minimum_gate,[]
-lift_entry,False,stage_e_not_applicable_no_candidate_above_minimum_gate,[]
-mild_turn_left,False,stage_e_not_applicable_no_candidate_above_minimum_gate,[]
-mild_turn_right,False,stage_e_not_applicable_no_candidate_above_minimum_gate,[]
-recovery,False,stage_e_not_applicable_no_candidate_above_minimum_gate,[]
-safe_exit_or_recovery_handoff,False,stage_e_not_applicable_no_candidate_above_minimum_gate,[]

@@ -4,9 +4,8 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 
-from controller_registry import controller_is_executable_lqr
 from env_ctx import EnvironmentContext
-from lqr_controller import LQRController, lqr_controller_for_primitive_id
+from lqr_controller import LQRController, controller_is_executable_lqr, lqr_controller_for_primitive_id
 from prim_cat import PrimitiveDefinition, active_primitive_catalogue
 from prim_model import (
     PrimitiveOutcomeModel,
@@ -253,9 +252,9 @@ def _controller_for_candidate(
     if controller_registry is not None:
         controller = controller_registry.get(primitive.primitive_id)
         if controller is None:
-            return None, "missing_selected_registry_entry", "controller_missing_from_selected_registry"
+            return None, "missing_primitive_variant_controller", "controller_missing_from_variant_registry"
     elif require_controller_registry:
-        return None, "missing_selected_registry", "controller_registry_required"
+        return None, "missing_primitive_variant_registry", "primitive_variant_registry_required"
     else:
         controller = lqr_controller_for_primitive_id(primitive.primitive_id)
     ok, reason = controller_is_executable_lqr(controller)

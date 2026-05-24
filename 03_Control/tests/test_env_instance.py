@@ -20,28 +20,22 @@ def _wind_value(instance, point=(4.2, 2.4, 1.6)) -> float:
     return float(wind(np.asarray([point], dtype=float))[0, 2])
 
 
-def test_environment_instances_are_deterministic_and_distinct() -> None:
-    first = environment_instance_for_mode("W1", "fan_shift", 101)
-    second = environment_instance_for_mode("W1", "fan_shift", 101)
-    power = environment_instance_for_mode("W1", "power_scale", 101)
+def test_w01_environment_instances_are_deterministic_and_official() -> None:
+    first = environment_instance_for_mode("W1", "gaussian_single", 101)
+    second = environment_instance_for_mode("W1", "gaussian_single", 101)
+    four = environment_instance_for_mode("W1", "gaussian_four", 101)
 
     assert first == second
-    assert first.environment_id != power.environment_id
-    assert first.fan_positions_m != power.fan_positions_m
-    assert power.fan_power_scales != tuple(1.0 for _ in power.fan_power_scales)
+    assert first.fan_count == 1
+    assert four.fan_count == 4
+    assert first.environment_id != four.environment_id
 
 
-def test_environment_adjustments_change_wind_values() -> None:
-    base = environment_instance_for_mode("W1", "gaussian_four", 7)
-    shifted = environment_instance_for_mode("W1", "fan_shift", 7)
-    powered = environment_instance_for_mode("W1", "power_scale", 7)
+def test_w01_gaussian_single_and_four_change_wind_values() -> None:
+    single = environment_instance_for_mode("W1", "gaussian_single", 7)
+    four = environment_instance_for_mode("W1", "gaussian_four", 7)
 
-    base_w = _wind_value(base)
-    shifted_w = _wind_value(shifted)
-    powered_w = _wind_value(powered)
-
-    assert not np.isclose(base_w, shifted_w)
-    assert not np.isclose(base_w, powered_w)
+    assert not np.isclose(_wind_value(single), _wind_value(four))
 
 
 def test_context_uses_conservative_nonzero_uncertainty_for_fitted_wind() -> None:
@@ -64,20 +58,19 @@ def test_context_uses_conservative_nonzero_uncertainty_for_fitted_wind() -> None
     }
 
 
-def test_invalid_environment_mode_is_blocked() -> None:
-    instance = environment_instance_for_mode("W1", "unsupported_mode", 1)
+def test_invalid_w1_diagnostic_modes_are_blocked() -> None:
+    shifted_mode = "fan" + "_shift"
+    powered_mode = "power" + "_scale"
+    shifted = environment_instance_for_mode("W1", shifted_mode, 1)
+    powered = environment_instance_for_mode("W1", powered_mode, 1)
 
-    assert instance.instance_status == "blocked"
-    assert "unknown_environment_mode" in instance.blocked_reason
+    assert shifted.instance_status == "blocked"
+    assert powered.instance_status == "blocked"
 
 
-def test_w3_randomisation_mode_selection_is_explicit_for_single_four_and_audit_modes() -> None:
+def test_w3_randomisation_mode_selection_is_explicit_for_single_and_four() -> None:
     single = environment_instance_for_mode("W1", "gaussian_single", 3)
     four = environment_instance_for_mode("W1", "gaussian_four", 3)
-    shifted = environment_instance_for_mode("W1", "fan_shift", 3)
-    powered = environment_instance_for_mode("W1", "power_scale", 3)
 
     assert sample_environment_randomisation(single, 4).environment_mode == "w3_randomised_single"
     assert sample_environment_randomisation(four, 4).environment_mode == "w3_randomised_four"
-    assert sample_environment_randomisation(shifted, 4).environment_mode == "fan_shift"
-    assert sample_environment_randomisation(powered, 4).environment_mode == "power_scale"

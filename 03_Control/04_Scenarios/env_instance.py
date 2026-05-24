@@ -96,7 +96,7 @@ def environment_instance_for_mode(
             randomisation_seed=int(seed),
         )
 
-    fan_count = 4 if mode in {"gaussian_four", "fan_shift", "power_scale", "w3_randomised_four"} else 1
+    fan_count = 4 if mode in {"gaussian_four", "annular_gp_four", "w3_randomised_four"} else 1
     positions = _base_fan_positions(fan_count)
     power_scales = tuple(1.0 for _ in range(fan_count))
     active_mask = tuple(True for _ in range(fan_count))
@@ -116,8 +116,8 @@ def environment_instance_for_mode(
     if mode not in {
         "gaussian_single",
         "gaussian_four",
-        "fan_shift",
-        "power_scale",
+        "annular_gp_single",
+        "annular_gp_four",
         "w3_randomised",
         "w3_randomised_single",
         "w3_randomised_four",
@@ -129,21 +129,7 @@ def environment_instance_for_mode(
             reason=f"unknown_environment_mode_{mode}",
         )
 
-    if mode == "fan_shift":
-        shift = _uniform_pair(rng, cfg.fan_position_shift_range_m)
-        positions = tuple((float(x + shift[0]), float(y + shift[1])) for x, y in positions)
-        centre_shift = shift
-    elif mode == "power_scale":
-        power_scales = tuple(
-            float(value)
-            for value in rng.uniform(
-                cfg.fan_power_scale_range[0],
-                cfg.fan_power_scale_range[1],
-                size=fan_count,
-            )
-        )
-        amplitude_scale = float(np.mean(power_scales))
-    elif layer == "W3" or mode in {"w3_randomised", "w3_randomised_single", "w3_randomised_four"}:
+    if layer == "W3" or mode in {"w3_randomised", "w3_randomised_single", "w3_randomised_four"}:
         fan_shift = _uniform_pair(rng, cfg.fan_position_shift_range_m)
         positions = tuple((float(x + fan_shift[0]), float(y + fan_shift[1])) for x, y in positions)
         power_scales = tuple(
@@ -196,9 +182,7 @@ def sample_environment_randomisation(
     """Return a W3-style randomised instance based on an existing mode."""
 
     cfg = randomisation_config or EnvironmentRandomisationConfig()
-    if base_instance.environment_mode in {"fan_shift", "power_scale"}:
-        mode = base_instance.environment_mode
-    elif base_instance.fan_count >= 4:
+    if base_instance.fan_count >= 4:
         mode = "w3_randomised_four"
     else:
         mode = "w3_randomised_single"
@@ -263,6 +247,8 @@ def _model_id_for_instance(W_layer: str, fan_count: int) -> str:
         return "dry_air_zero_wind"
     if layer == "W1":
         return "four_gaussian_var" if int(fan_count) >= 4 else "single_gaussian_var"
+    if layer == "W2":
+        return "four_annular_gp_grid" if int(fan_count) >= 4 else "single_annular_gp_grid"
     return "four_annular_gp_grid" if int(fan_count) >= 4 else "single_annular_gp_grid"
 
 

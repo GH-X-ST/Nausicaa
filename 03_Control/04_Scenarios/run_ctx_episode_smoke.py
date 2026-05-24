@@ -188,7 +188,7 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
                 config=rollout_config,
                 failure_label="selector_blocked_no_viable_lqr_primitive",
                 termination_cause="controller_blocked",
-                controller_selection_status="missing_selected_registry_entry",
+                controller_selection_status="missing_primitive_variant_registry",
             )
             row = rollout_with_context_row(evidence, context)
             row.update(
@@ -213,7 +213,7 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
             belief_rows.append(belief_snapshot_row(belief, label=f"episode_{episode_index:03d}"))
             continue
         primitive = primitive_by_id(selection.selected_primitive_id)
-        selected_controller = (
+        chosen_controller = (
             lqr_controller_for_primitive_id(selection.selected_primitive_id)
             if selection.selected_primitive_id
             else None
@@ -228,8 +228,8 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
                 config=rollout_config,
                 failure_label="surrogate_binding_blocked",
                 termination_cause="surrogate_binding_blocked",
-                controller=selected_controller,
-                controller_selection_status="nominal_unselected_smoke",
+                controller=chosen_controller,
+                controller_selection_status="W01_variant_registry_candidate",
             )
         else:
             evidence = simulate_primitive_rollout(
@@ -240,8 +240,8 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
                 primitive=primitive,
                 config=rollout_config,
                 wind_field=wind,
-                controller=selected_controller,
-                controller_selection_status="nominal_unselected_smoke",
+                controller=chosen_controller,
+                controller_selection_status="W01_variant_registry_candidate",
             )
         row = rollout_with_context_row(evidence, context)
         row.update(

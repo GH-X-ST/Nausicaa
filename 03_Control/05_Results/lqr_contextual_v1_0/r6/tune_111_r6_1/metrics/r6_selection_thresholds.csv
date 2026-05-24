@@ -1,2 +1,0 @@
-launch_gate_min_pass_rate,nominal_inflight_min_pass_rate,systemic_blocker_max_ratio,hard_failure_max_ratio,fallback_launch_gate_min_pass_rate,fallback_nominal_inflight_min_pass_rate,fallback_hard_failure_max_ratio,score_tie_margin
-0.5,0.35,0.02,0.75,0.4,0.25,0.85,0.05
