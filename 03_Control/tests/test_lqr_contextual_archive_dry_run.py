@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -46,6 +47,18 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
     assert {"dry_air", "gaussian_single", "gaussian_four"}.issubset(set(frame["environment_mode"]))
     assert set(frame["small_library_selection_allowed"]) == {False}
     assert set(frame["pd_pid_fallback_allowed"]) == {False}
+    assert set(frame["schedule_mode"]) == {"balanced_paired"}
+    assert "context_W_layer" in frame.columns
+    assert "surrogate_surrogate_binding_status" in frame.columns
+    assert "environment_environment_id" in frame.columns
+    assert "implementation_instance_status" in frame.columns
+    assert "plant_instance_status" in frame.columns
+    assert "timing_aware_synthesis_level" in frame.columns
+    assert not frame["candidate_weight_label"].astype(str).eq("W0_W1").any()
+
+    run_manifest = json.loads((run_root / "manifests" / "run_manifest.json").read_text(encoding="ascii"))
+    assert run_manifest["schedule_mode"] == "balanced_paired"
+    assert run_manifest["per_start_family_row_counts"]["launch_gate"] == 48
 
 
 def test_w01_launch_gate_rejections_are_not_controller_failures(tmp_path: Path) -> None:

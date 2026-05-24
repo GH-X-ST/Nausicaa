@@ -40,6 +40,8 @@ def test_variant_registry_schema_stable_ids_and_checksum_validation() -> None:
     assert variant_a.primitive_variant_id == variant_b.primitive_variant_id
     assert variant_a.primitive_variant_id.startswith("primvar_glide_launch_capable_")
     assert variant_a.K_gain_checksum == controller.lqr_gain_checksum
+    assert variant_a.timing_aware_synthesis_level == "trim_local_reduced_order_lqr_no_delay_augmentation"
+    assert variant_a.delayed_state_lqr_augmentation_status == "not_implemented_state_delay_simulated_in_rollout"
     validate_variant_controller_match(variant_a, controller)
     with pytest.raises(ValueError, match="gain checksum"):
         validate_variant_controller_match(variant_a, changed)

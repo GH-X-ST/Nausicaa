@@ -63,6 +63,11 @@ class PrimitiveControllerVariant:
     sampled_data_check_status: str
     lqr_synthesis_status: str
     lqr_blocked_reason: str
+    timing_aware_synthesis_level: str
+    timing_effects_in_synthesis: str
+    timing_effects_in_rollout: str
+    sampled_data_timing_audit_status: str
+    delayed_state_lqr_augmentation_status: str
     exit_checks: str
     metrics: str
     failure_labels: str
@@ -157,6 +162,11 @@ def primitive_controller_variant(
         sampled_data_check_status=controller.sampled_data_check_status,
         lqr_synthesis_status=controller.lqr_synthesis_status,
         lqr_blocked_reason=controller.lqr_blocked_reason,
+        timing_aware_synthesis_level=controller.timing_aware_synthesis_level,
+        timing_effects_in_synthesis=controller.timing_effects_in_synthesis,
+        timing_effects_in_rollout=controller.timing_effects_in_rollout,
+        sampled_data_timing_audit_status=controller.sampled_data_timing_audit_status,
+        delayed_state_lqr_augmentation_status=controller.delayed_state_lqr_augmentation_status,
         exit_checks=";".join(primitive.exit_checks),
         metrics=";".join(primitive.metrics_to_record),
         failure_labels=";".join(primitive.failure_labels),
@@ -233,6 +243,11 @@ def load_variant_registry(path: Path | str) -> dict[str, PrimitiveControllerVari
 def _normalise_row(row: dict[str, object]) -> dict[str, object]:
     out = dict(row)
     out["finite_horizon_s"] = float(out["finite_horizon_s"])
+    out.setdefault("timing_aware_synthesis_level", "trim_local_reduced_order_lqr_no_delay_augmentation")
+    out.setdefault("timing_effects_in_synthesis", "sampled_data_stability_and_nominal_latency_actuator_smoke_only")
+    out.setdefault("timing_effects_in_rollout", "feedback_delay_command_timing_actuator_lag_applied_in_w01_rollout")
+    out.setdefault("sampled_data_timing_audit_status", "legacy_registry_not_recorded")
+    out.setdefault("delayed_state_lqr_augmentation_status", "not_implemented_state_delay_simulated_in_rollout")
     return out
 
 

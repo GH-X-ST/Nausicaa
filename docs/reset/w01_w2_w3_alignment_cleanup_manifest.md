@@ -124,3 +124,16 @@ Validation after implementation:
 Remaining boundary: the repo is ready only for the first W0/W1 dense preflight.
 No W0/W1 dense evidence completion, W2 survival, W3 robustness, compact-library,
 governor, hardware, transfer, or mission-success claim is made.
+
+## LQR-Stabilised Contextual Primitive v4.0 Readiness Fix Addendum
+
+The tracked W01 readiness roots `03_Control/05_Results/lqr_contextual_v1_0/w01_dense/001`
+and `03_Control/05_Results/lqr_contextual_v1_0/w01_dense/002` are retained as
+prior approved dry-run/tiny-smoke artifacts. They are superseded for future
+readiness by the v4.0 W01 dense-readiness fix pass and must not be interpreted
+as completed W0/W1 dense evidence.
+
+This addendum keeps the same claim boundary: W01 evidence generation readiness
+only. It does not claim W0/W1 dense evidence completion, W2 survival, W3
+robustness, post-W3 compact-library readiness, governor validation, hardware
+readiness, real-flight transfer, or mission success.

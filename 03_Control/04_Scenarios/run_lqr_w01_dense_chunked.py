@@ -5,6 +5,8 @@ import json
 import math
 import sys
 import time
+from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
@@ -37,13 +39,13 @@ from dense_archive_table_io import (  # noqa: E402
     write_table_manifest,
     write_table_partition,
 )
-from env_ctx import build_environment_context  # noqa: E402
-from env_instance import environment_instance_for_mode, environment_metadata_from_instance  # noqa: E402
-from env_surrogate import resolve_surrogate_binding, wind_field_for_binding  # noqa: E402
-from implementation_instance import implementation_instance_for_layer  # noqa: E402
+from env_ctx import build_environment_context, environment_context_row  # noqa: E402
+from env_instance import environment_instance_for_mode, environment_instance_row, environment_metadata_from_instance  # noqa: E402
+from env_surrogate import resolve_surrogate_binding, surrogate_binding_row, wind_field_for_binding  # noqa: E402
+from implementation_instance import implementation_instance_for_layer, implementation_instance_row  # noqa: E402
 from lqr_controller import synthesize_lqr_controller  # noqa: E402
 from lqr_tuning import candidate_weight_specs, lqr_tuning_schedule, tuning_schedule_row  # noqa: E402
-from plant_instance import plant_instance_for_layer  # noqa: E402
+from plant_instance import plant_instance_for_layer, plant_instance_row  # noqa: E402
 from prim_cat import ACTIVE_PRIMITIVE_IDS, active_primitive_catalogue  # noqa: E402
 from prim_roll import (  # noqa: E402
     RolloutConfig,
@@ -60,7 +62,7 @@ from primitive_variant_registry import (  # noqa: E402
     variant_row,
     write_variant_registry,
 )
-from state_sampling import archive_state_sample_for_row, archive_state_sample_row  # noqa: E402
+from state_sampling import archive_state_sample_for_family, archive_state_sample_for_row, archive_state_sample_row, start_state_family_for_row  # noqa: E402
 
 
 W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v1"
@@ -84,6 +86,15 @@ BLOCKED_CLAIMS = (
     "real_flight_transfer",
     "mission_success",
 )
+START_FAMILY_MIX = {
+    "launch_gate": 0.40,
+    "inflight_nominal": 0.25,
+    "inflight_lift_region": 0.15,
+    "inflight_boundary_near": 0.10,
+    "inflight_recovery_edge": 0.10,
+}
+BALANCED_SCHEDULE_MODE = "balanced_paired"
+SMOKE_SCHEDULE_MODE = "smoke_row_index"
 
 
 @dataclass(frozen=True)
@@ -93,11 +104,11 @@ class W01DenseRunConfig:
     rows: int = 400
     seed: int = 1
     candidate_chunk_size: int = 100
-    workers: str | int = 1
-    max_workers: int | None = 1
-    storage_format: str = "csv_gz"
+    workers: str | int = 8
+    max_workers: int | None = 8
+    storage_format: str = "auto"
     compression_level: int = 1
-    resume: bool = False
+    resume: bool = True
     repair_incomplete: bool = False
     dry_run_schedule: bool = False
     stop_after_chunks: int | None = None
@@ -105,6 +116,7 @@ class W01DenseRunConfig:
     candidate_count: int = 16
     latency_case: str = "nominal"
     rollout_dt_s: float = 0.02
+    schedule_mode: str = BALANCED_SCHEDULE_MODE
 
 
 @dataclass(frozen=True)
@@ -118,6 +130,19 @@ class W01ChunkSpec:
     compression_level: int
 
 
+@dataclass(frozen=True)
+class W01RowSchedule:
+    row_index: int
+    primitive_id: str
+    candidate_index: int
+    W_layer: str
+    environment_mode: str
+    start_state_family: str
+    paired_start_key: str
+    paired_start_index: int
+    schedule_mode: str
+
+
 def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
     """Run or schedule the corrected W0/W1 primitive-controller dense preflight."""
 
@@ -127,6 +152,8 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
         raise ValueError("candidate_chunk_size must be positive.")
     if int(config.candidate_count) <= 0:
         raise ValueError("candidate_count must be positive.")
+    if str(config.schedule_mode) not in {BALANCED_SCHEDULE_MODE, SMOKE_SCHEDULE_MODE}:
+        raise ValueError(f"schedule_mode must be {BALANCED_SCHEDULE_MODE!r} or {SMOKE_SCHEDULE_MODE!r}.")
 
     storage_format = resolve_storage_format(config.storage_format)
     run_root = _run_root(config)
@@ -166,6 +193,7 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
     completed_partitions = []
     chunk_records: list[dict[str, object]] = []
     failures: list[dict[str, object]] = []
+    pending_chunks: list[W01ChunkSpec] = []
     for chunk in schedule:
         try:
             status = _existing_chunk_status(chunk, run_root=run_root)
@@ -180,14 +208,7 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
                 if not config.repair_incomplete:
                     raise RuntimeError(f"corrupt or incomplete chunk exists: c{chunk.chunk_index:05d}; use --repair-incomplete")
                 _remove_chunk_files(chunk, run_root)
-            partition, record = _write_chunk(
-                chunk,
-                run_root=run_root,
-                config=config,
-                variants_by_key=variants_by_key,
-            )
-            completed_partitions.append(partition)
-            chunk_records.append(record)
+            pending_chunks.append(chunk)
         except Exception as exc:
             failure = {
                 "chunk_index": int(chunk.chunk_index),
@@ -201,6 +222,21 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
                 _write_chunk_summary(run_root, chunk_records)
                 raise
 
+    executed_partitions, executed_records, executed_failures = _execute_pending_chunks(
+        pending_chunks,
+        run_root=run_root,
+        config=config,
+        variants_by_key=variants_by_key,
+        selected_worker_count=int(worker_decision.selected_worker_count),
+    )
+    completed_partitions.extend(executed_partitions)
+    chunk_records.extend(executed_records)
+    failures.extend(executed_failures)
+    if executed_failures and not config.continue_on_chunk_failure:
+        _write_chunk_summary(run_root, sorted(chunk_records, key=lambda item: int(item.get("chunk_index", -1))))
+        first = executed_failures[0]
+        raise RuntimeError(f"W01 chunk failed: c{int(first['chunk_index']):05d}: {first.get('error', '')}")
+
     write_table_manifest(
         run_root / "manifests" / "table_manifest.json",
         TableManifest(
@@ -211,18 +247,17 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
         ),
     )
     ended = time.time()
-    frame = _read_completed_frame(run_root, completed_partitions, storage_format)
-    _write_chunk_summary(run_root, chunk_records)
-    _write_dense_metrics(run_root, frame)
+    row_count = _write_dense_metrics_from_partitions(run_root, completed_partitions, storage_format)
+    _write_chunk_summary(run_root, sorted(chunk_records, key=lambda item: int(item.get("chunk_index", -1))))
     _write_runtime_summary(
         run_root,
         config,
-        row_count=len(frame),
+        row_count=row_count,
         status="complete" if not failures else "partial_failed",
         started=started,
         ended=ended,
     )
-    _write_reports(run_root, status="complete" if not failures else "partial_failed", row_count=len(frame))
+    _write_reports(run_root, status="complete" if not failures else "partial_failed", row_count=row_count)
     _write_file_size_audit(run_root)
     return _result_payload(run_root, status="complete" if not failures else "partial_failed")
 
@@ -305,22 +340,109 @@ def _write_chunk(
     return partition, record
 
 
+def _write_chunk_worker(payload):
+    chunk, run_root, config, variants_by_key = payload
+    return _write_chunk(
+        chunk,
+        run_root=Path(run_root),
+        config=config,
+        variants_by_key=variants_by_key,
+    )
+
+
+def _execute_pending_chunks(
+    chunks: list[W01ChunkSpec],
+    *,
+    run_root: Path,
+    config: W01DenseRunConfig,
+    variants_by_key: dict[tuple[str, int], tuple[object, object, PrimitiveControllerVariant, str]],
+    selected_worker_count: int,
+):
+    if not chunks:
+        return [], [], []
+    partitions = []
+    records: list[dict[str, object]] = []
+    failures: list[dict[str, object]] = []
+    worker_count = max(1, int(selected_worker_count))
+    if worker_count <= 1 or len(chunks) <= 1:
+        for chunk in chunks:
+            try:
+                partition, record = _write_chunk(
+                    chunk,
+                    run_root=run_root,
+                    config=config,
+                    variants_by_key=variants_by_key,
+                )
+                partitions.append(partition)
+                records.append(record)
+            except Exception as exc:
+                failure = _chunk_failure_row(chunk, exc)
+                failures.append(failure)
+                records.append({**_scheduled_chunk_row(chunk, run_root), **failure})
+                if not config.continue_on_chunk_failure:
+                    break
+        return partitions, records, failures
+
+    payloads = [(chunk, run_root, config, variants_by_key) for chunk in chunks]
+    with ProcessPoolExecutor(max_workers=worker_count) as executor:
+        future_to_chunk = {
+            executor.submit(_write_chunk_worker, payload): payload[0]
+            for payload in payloads
+        }
+        for future in as_completed(future_to_chunk):
+            chunk = future_to_chunk[future]
+            try:
+                partition, record = future.result()
+                partitions.append(partition)
+                records.append(record)
+            except Exception as exc:
+                failure = _chunk_failure_row(chunk, exc)
+                failures.append(failure)
+                records.append({**_scheduled_chunk_row(chunk, run_root), **failure})
+                if not config.continue_on_chunk_failure:
+                    for pending in future_to_chunk:
+                        pending.cancel()
+                    break
+    return partitions, records, failures
+
+
+def _chunk_failure_row(chunk: W01ChunkSpec, exc: Exception) -> dict[str, object]:
+    return {
+        "chunk_index": int(chunk.chunk_index),
+        "status": "failed",
+        "error_type": type(exc).__name__,
+        "error": str(exc),
+    }
+
+
 def _row_for_index(
     *,
     row_index: int,
     config: W01DenseRunConfig,
     variants_by_key: dict[tuple[str, int], tuple[object, object, PrimitiveControllerVariant, str]],
 ) -> dict[str, object]:
-    primitive_id = ACTIVE_PRIMITIVE_IDS[int(row_index) % len(ACTIVE_PRIMITIVE_IDS)]
-    candidate_index = (int(row_index) // len(ACTIVE_PRIMITIVE_IDS)) % int(config.candidate_count)
+    schedule = _row_schedule_for_index(row_index, config)
+    primitive_id = schedule.primitive_id
+    candidate_index = int(schedule.candidate_index)
     primitive, controller, variant, weight_label = variants_by_key[(primitive_id, int(candidate_index))]
-    W_layer, environment_mode = OFFICIAL_W01_ENVIRONMENT_CASES[int(row_index) % len(OFFICIAL_W01_ENVIRONMENT_CASES)]
-    sample = archive_state_sample_for_row(
-        int(row_index),
-        seed=int(config.seed),
-        W_layer=W_layer,
-        environment_mode=environment_mode,
-    )
+    W_layer = schedule.W_layer
+    environment_mode = schedule.environment_mode
+    if schedule.schedule_mode == SMOKE_SCHEDULE_MODE:
+        sample = archive_state_sample_for_row(
+            int(row_index),
+            seed=int(config.seed),
+            W_layer=W_layer,
+            environment_mode=environment_mode,
+        )
+    else:
+        sample = archive_state_sample_for_family(
+            start_state_family=schedule.start_state_family,
+            paired_start_key=schedule.paired_start_key,
+            sample_index=int(schedule.paired_start_index),
+            seed=int(config.seed),
+            W_layer=W_layer,
+            environment_mode=environment_mode,
+        )
     environment = environment_instance_for_mode(W_layer, environment_mode, int(config.seed) + int(row_index))
     metadata = environment_metadata_from_instance(environment)
     binding = resolve_surrogate_binding(
@@ -359,7 +481,7 @@ def _row_for_index(
             controller=controller,
             controller_selection_status="W01_variant_registry_candidate",
             candidate_index=candidate_index,
-            candidate_weight_label=str(controller.tuning_stage),
+            candidate_weight_label=str(weight_label),
             termination_cause=str(binding.blocked_reason),
         )
         row = rollout_evidence_row(evidence)
@@ -380,7 +502,7 @@ def _row_for_index(
             controller=controller,
             controller_selection_status="W01_variant_registry_candidate",
             candidate_index=candidate_index,
-            candidate_weight_label=str(controller.tuning_stage),
+            candidate_weight_label=str(weight_label),
             termination_cause=ENTRY_ROLE_REJECTION_STATUS,
         )
         row = rollout_evidence_row(evidence)
@@ -417,7 +539,7 @@ def _row_for_index(
             controller=controller,
             controller_selection_status="W01_variant_registry_candidate",
             candidate_index=candidate_index,
-            candidate_weight_label=str(controller.tuning_stage),
+            candidate_weight_label=str(weight_label),
         )
         row = rollout_evidence_row(evidence)
         row["implementation_instance_id"] = implementation.implementation_instance_id
@@ -425,11 +547,27 @@ def _row_for_index(
 
     row.update(archive_state_sample_row(sample))
     row.update(_variant_prefix_row(variant))
+    row.update({f"context_{key}": value for key, value in environment_context_row(context).items()})
+    row.update({f"surrogate_{key}": value for key, value in surrogate_binding_row(binding).items()})
+    row.update({f"environment_{key}": value for key, value in environment_instance_row(environment).items()})
+    if compatible and binding.surrogate_binding_status == "ready":
+        row.update({f"implementation_{key}": value for key, value in implementation_instance_row(implementation).items()})
+        row.update({f"plant_{key}": value for key, value in plant_instance_row(plant).items()})
+        implementation_audit_status = "applied_in_rollout"
+        plant_audit_status = "applied_in_rollout"
+    else:
+        row.update(_blocked_instance_prefix_rows("implementation"))
+        row.update(_blocked_instance_prefix_rows("plant"))
+        implementation_audit_status = "not_applied_blocked_before_rollout"
+        plant_audit_status = "not_applied_blocked_before_rollout"
     row.update(
         {
             "runner_version": W01_RUNNER_VERSION,
             "run_stage": "W01_dense_primitive_variant_generation",
             "row_index": int(row_index),
+            "schedule_mode": schedule.schedule_mode,
+            "paired_start_policy": "common_random_start_key_reused_across_primitives_candidates_and_w01_environments",
+            "schedule_paired_start_index": int(schedule.paired_start_index),
             "primitive_variant_id": variant.primitive_variant_id,
             "entry_role": variant.entry_role,
             "entry_role_compatible": bool(compatible),
@@ -438,6 +576,8 @@ def _row_for_index(
             "environment_mode": environment_mode,
             "environment_instance_id": environment.environment_id,
             "surrogate_blocked_reason": binding.blocked_reason,
+            "implementation_instance_status": implementation_audit_status,
+            "plant_instance_status": plant_audit_status,
             "W_layer_official_role": "W0_dry_air" if W_layer == "W0" else "W1_gaussian_preflight",
             "small_library_selection_allowed": False,
             "clustering_before_w2_w3_allowed": False,
@@ -447,11 +587,74 @@ def _row_for_index(
             "command_timing_active": True,
             "actuator_lag_active": True,
             "pd_pid_fallback_allowed": False,
-            "delayed_state_lqr_augmentation_status": "not_implemented_state_delay_simulated_in_rollout",
+            "timing_aware_synthesis_level": controller.timing_aware_synthesis_level,
+            "timing_effects_in_synthesis": controller.timing_effects_in_synthesis,
+            "timing_effects_in_rollout": controller.timing_effects_in_rollout,
+            "sampled_data_timing_audit_status": controller.sampled_data_timing_audit_status,
+            "delayed_state_lqr_augmentation_status": controller.delayed_state_lqr_augmentation_status,
             "claim_boundary": CLAIM_BOUNDARY,
         }
     )
     return row
+
+
+def _row_schedule_for_index(row_index: int, config: W01DenseRunConfig) -> W01RowSchedule:
+    if str(config.schedule_mode) == SMOKE_SCHEDULE_MODE:
+        primitive_id = ACTIVE_PRIMITIVE_IDS[int(row_index) % len(ACTIVE_PRIMITIVE_IDS)]
+        candidate_index = (int(row_index) // len(ACTIVE_PRIMITIVE_IDS)) % int(config.candidate_count)
+        W_layer, environment_mode = OFFICIAL_W01_ENVIRONMENT_CASES[int(row_index) % len(OFFICIAL_W01_ENVIRONMENT_CASES)]
+        family = start_state_family_for_row(row_index)
+        return W01RowSchedule(
+            row_index=int(row_index),
+            primitive_id=str(primitive_id),
+            candidate_index=int(candidate_index),
+            W_layer=str(W_layer),
+            environment_mode=str(environment_mode),
+            start_state_family=str(family),
+            paired_start_key=f"smoke_start_{int(row_index) // 2:07d}",
+            paired_start_index=int(row_index) // 2,
+            schedule_mode=SMOKE_SCHEDULE_MODE,
+        )
+
+    primitive_index = int(row_index) % len(ACTIVE_PRIMITIVE_IDS)
+    primitive_id = ACTIVE_PRIMITIVE_IDS[primitive_index]
+    grouped_index = int(row_index) // len(ACTIVE_PRIMITIVE_IDS)
+    candidate_index = grouped_index % int(config.candidate_count)
+    W_layer, environment_mode = OFFICIAL_W01_ENVIRONMENT_CASES[grouped_index % len(OFFICIAL_W01_ENVIRONMENT_CASES)]
+    family = start_state_family_for_row(row_index)
+    full_cycle = len(ACTIVE_PRIMITIVE_IDS) * int(config.candidate_count) * len(OFFICIAL_W01_ENVIRONMENT_CASES)
+    cycle_index = int(row_index) // max(1, full_cycle)
+    family_slot = int(row_index) % 20
+    paired_start_index = int(cycle_index * 20 + family_slot)
+    paired_start_key = f"paired_{paired_start_index:07d}_{family}"
+    return W01RowSchedule(
+        row_index=int(row_index),
+        primitive_id=str(primitive_id),
+        candidate_index=int(candidate_index),
+        W_layer=str(W_layer),
+        environment_mode=str(environment_mode),
+        start_state_family=str(family),
+        paired_start_key=paired_start_key,
+        paired_start_index=paired_start_index,
+        schedule_mode=BALANCED_SCHEDULE_MODE,
+    )
+
+
+def _blocked_instance_prefix_rows(prefix: str) -> dict[str, object]:
+    if prefix == "implementation":
+        return {
+            "implementation_implementation_instance_id": "",
+            "implementation_W_layer": "",
+            "implementation_latency_case": "",
+            "implementation_implementation_adjustment_status": "not_applied_blocked_before_rollout",
+            "implementation_implementation_adjustment_limitations": "blocked_before_rollout_simulation",
+        }
+    return {
+        "plant_plant_instance_id": "",
+        "plant_W_layer": "",
+        "plant_plant_adjustment_status": "not_applied_blocked_before_rollout",
+        "plant_plant_adjustment_limitations": "blocked_before_rollout_simulation",
+    }
 
 
 def _variant_prefix_row(variant: PrimitiveControllerVariant) -> dict[str, object]:
@@ -563,10 +766,10 @@ def _completed_chunk_row(chunk: W01ChunkSpec, run_root: Path, *, status: str) ->
     }
 
 
-def _write_dense_metrics(run_root: Path, frame: pd.DataFrame) -> None:
-    _value_counts(frame, "outcome_class").to_csv(filesystem_path(run_root / "metrics" / "outcome_summary.csv"), index=False)
-    _value_counts(frame, "failure_label").to_csv(filesystem_path(run_root / "metrics" / "failure_summary.csv"), index=False)
-    _value_counts(frame, "boundary_use_class").to_csv(filesystem_path(run_root / "metrics" / "boundary_summary.csv"), index=False)
+def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[object], storage_format: str) -> int:
+    counters: dict[str, Counter] = defaultdict(Counter)
+    grouped: dict[str, Counter] = defaultdict(Counter)
+    row_count = 0
     coverage_columns = (
         "primitive_id",
         "entry_role",
@@ -575,14 +778,91 @@ def _write_dense_metrics(run_root: Path, frame: pd.DataFrame) -> None:
         "environment_mode",
         "lqr_synthesis_status",
     )
+    for partition in partitions:
+        frame = read_table_partition(run_root / "tables" / partition.relative_path, storage_format=storage_format)
+        row_count += int(len(frame))
+        for column in ("outcome_class", "failure_label", "boundary_use_class"):
+            _counter_update(counters[column], frame, column)
+        for column in coverage_columns:
+            _counter_update(counters[f"coverage:{column}"], frame, column)
+        _group_counter_update(
+            grouped["variant_synthesis"],
+            frame,
+            (
+                "primitive_id",
+                "entry_role",
+                "candidate_index",
+                "lqr_synthesis_status",
+                "sampled_data_check_status",
+                "sampled_data_timing_audit_status",
+            ),
+        )
+        _group_counter_update(
+            grouped["start_family"],
+            frame,
+            ("start_state_family", "primitive_id", "entry_role", "W_layer"),
+        )
+        _group_counter_update(grouped["environment"], frame, ("W_layer", "environment_mode"))
+        _group_counter_update(
+            grouped["entry_role_rejection"],
+            frame,
+            ("entry_role", "start_state_family", "entry_check_status", "failure_label"),
+        )
+        _group_counter_update(
+            grouped["boundary_use"],
+            frame,
+            ("boundary_use_class", "continuation_valid", "episode_terminal_useful", "outcome_class"),
+        )
+
+    _counter_frame(counters["outcome_class"]).to_csv(filesystem_path(run_root / "metrics" / "outcome_summary.csv"), index=False)
+    _counter_frame(counters["failure_label"]).to_csv(filesystem_path(run_root / "metrics" / "failure_summary.csv"), index=False)
+    _counter_frame(counters["boundary_use_class"]).to_csv(filesystem_path(run_root / "metrics" / "boundary_summary.csv"), index=False)
     coverage_rows = []
     for column in coverage_columns:
-        coverage_rows.extend(_value_counts(frame, column).assign(coverage_axis=column).to_dict(orient="records"))
+        coverage_rows.extend(
+            _counter_frame(counters[f"coverage:{column}"]).assign(coverage_axis=column).to_dict(orient="records")
+        )
     pd.DataFrame(coverage_rows).to_csv(filesystem_path(run_root / "metrics" / "coverage_summary.csv"), index=False)
+    _group_counter_frame(
+        grouped["variant_synthesis"],
+        (
+            "primitive_id",
+            "entry_role",
+            "candidate_index",
+            "lqr_synthesis_status",
+            "sampled_data_check_status",
+            "sampled_data_timing_audit_status",
+        ),
+    ).to_csv(filesystem_path(run_root / "metrics" / "variant_synthesis_summary.csv"), index=False)
+    _group_counter_frame(
+        grouped["start_family"],
+        ("start_state_family", "primitive_id", "entry_role", "W_layer"),
+    ).to_csv(filesystem_path(run_root / "metrics" / "start_family_coverage.csv"), index=False)
+    _group_counter_frame(grouped["environment"], ("W_layer", "environment_mode")).to_csv(
+        filesystem_path(run_root / "metrics" / "environment_coverage.csv"),
+        index=False,
+    )
+    rejection = _entry_role_rejection_summary(grouped["entry_role_rejection"])
+    rejection.to_csv(filesystem_path(run_root / "metrics" / "entry_role_rejection_summary.csv"), index=False)
+    _group_counter_frame(
+        grouped["boundary_use"],
+        ("boundary_use_class", "continuation_valid", "episode_terminal_useful", "outcome_class"),
+    ).to_csv(filesystem_path(run_root / "metrics" / "boundary_use_summary.csv"), index=False)
+    return int(row_count)
 
 
 def _write_empty_metrics(run_root: Path) -> None:
-    for name in ("outcome_summary.csv", "coverage_summary.csv", "failure_summary.csv", "boundary_summary.csv"):
+    for name in (
+        "outcome_summary.csv",
+        "coverage_summary.csv",
+        "failure_summary.csv",
+        "boundary_summary.csv",
+        "variant_synthesis_summary.csv",
+        "start_family_coverage.csv",
+        "environment_coverage.csv",
+        "entry_role_rejection_summary.csv",
+        "boundary_use_summary.csv",
+    ):
         pd.DataFrame().to_csv(filesystem_path(run_root / "metrics" / name), index=False)
 
 
@@ -593,6 +873,73 @@ def _value_counts(frame: pd.DataFrame, column: str) -> pd.DataFrame:
     return pd.DataFrame(
         [{"value": str(value), "row_count": int(count)} for value, count in counts.items()]
     )
+
+
+def _counter_update(counter: Counter, frame: pd.DataFrame, column: str) -> None:
+    if frame.empty or column not in frame.columns:
+        counter["missing_or_empty"] += 0
+        return
+    counter.update(frame[column].fillna("").astype(str).tolist())
+
+
+def _counter_frame(counter: Counter) -> pd.DataFrame:
+    if not counter:
+        return pd.DataFrame([{"value": "missing_or_empty", "row_count": 0}])
+    return pd.DataFrame(
+        [{"value": str(value), "row_count": int(count)} for value, count in counter.items()]
+    ).sort_values(["value"]).reset_index(drop=True)
+
+
+def _group_counter_update(counter: Counter, frame: pd.DataFrame, columns: tuple[str, ...]) -> None:
+    if frame.empty or any(column not in frame.columns for column in columns):
+        return
+    values = frame.loc[:, list(columns)].fillna("").astype(str)
+    counter.update(tuple(row) for row in values.itertuples(index=False, name=None))
+
+
+def _group_counter_frame(counter: Counter, columns: tuple[str, ...]) -> pd.DataFrame:
+    rows = []
+    for key, count in counter.items():
+        rows.append({**{column: key[index] for index, column in enumerate(columns)}, "row_count": int(count)})
+    if not rows:
+        return pd.DataFrame([{**{column: "" for column in columns}, "row_count": 0}])
+    return pd.DataFrame(rows).sort_values(list(columns)).reset_index(drop=True)
+
+
+def _entry_role_rejection_summary(counter: Counter) -> pd.DataFrame:
+    rows = []
+    totals: Counter = Counter()
+    rejected: Counter = Counter()
+    for key, count in counter.items():
+        entry_role, start_family, entry_status, failure_label = key
+        group = (entry_role, start_family)
+        totals[group] += int(count)
+        if entry_status == "entry_role_incompatible_start" or failure_label == "entry_role_not_launch_capable":
+            rejected[group] += int(count)
+    for (entry_role, start_family), total in totals.items():
+        rejection_count = int(rejected[(entry_role, start_family)])
+        rows.append(
+            {
+                "entry_role": entry_role,
+                "start_state_family": start_family,
+                "row_count": int(total),
+                "entry_role_rejection_count": rejection_count,
+                "entry_role_rejection_rate": float(rejection_count) / float(total) if total else 0.0,
+            }
+        )
+    if not rows:
+        return pd.DataFrame(
+            [
+                {
+                    "entry_role": "",
+                    "start_state_family": "",
+                    "row_count": 0,
+                    "entry_role_rejection_count": 0,
+                    "entry_role_rejection_rate": 0.0,
+                }
+            ]
+        )
+    return pd.DataFrame(rows).sort_values(["entry_role", "start_state_family"]).reset_index(drop=True)
 
 
 def _write_runtime_summary(
@@ -636,7 +983,9 @@ def _write_file_size_audit(run_root: Path) -> None:
                 "relative_path": rel,
                 "byte_count": byte_count,
                 "size_mb": float(byte_count) / (1024.0 * 1024.0),
-                "under_100mb": bool(byte_count <= MAX_GENERATED_FILE_SIZE_MB * 1024.0 * 1024.0),
+                "above_75mb": bool(byte_count > 75.0 * 1024.0 * 1024.0),
+                "above_100mb": bool(byte_count > MAX_GENERATED_FILE_SIZE_MB * 1024.0 * 1024.0),
+                "push_allowed": bool(byte_count <= MAX_GENERATED_FILE_SIZE_MB * 1024.0 * 1024.0),
                 "dense_table_partition": rel.startswith(f"tables/{W01_TABLE_NAME}/"),
             }
         )
@@ -660,17 +1009,49 @@ def _write_reports(run_root: Path, *, status: str, row_count: int) -> None:
         ]
     )
     filesystem_path(run_root / "reports" / "claim_boundary_report.md").write_text(claim_report, encoding="ascii")
+    run_class, move_on_blockers = _l6_move_on_status(status=status, row_count=row_count)
     run_report = "\n".join(
         [
             "# W01 Dense Preflight Readiness Run",
             "",
             f"- Status: `{status}`",
             f"- Rows written: `{int(row_count)}`",
+            f"- Run class: `{run_class}`",
             "- Retired controller-picking, compact-library, integration, hardware, transfer, and mission-success claims remain blocked.",
             "",
         ]
     )
     filesystem_path(run_root / "reports" / "run_report.md").write_text(run_report, encoding="ascii")
+    l6_report = "\n".join(
+        [
+            "# L6 Move-On Check",
+            "",
+            f"- Status: `{status}`",
+            f"- Run class: `{run_class}`",
+            f"- Rows written: `{int(row_count)}`",
+            "- Controller synthesis boundary: `trim_local_reduced_order_lqr_no_delay_augmentation`",
+            "- Rollout boundary: `panel_wind_feedback_delay_command_timing_actuator_lag_with_plant_and_implementation_instances`",
+            f"- Heavy W01 move-on allowed: `{not move_on_blockers}`",
+            "",
+            "Blockers before heavy W01:",
+            "",
+            *[f"- `{item}`" for item in (move_on_blockers or ["none"])],
+            "",
+            "Blocked claims remain W0/W1 dense completion, W2 survival, W3 robustness, compact-library readiness, governor validation, hardware readiness, real-flight transfer, and mission success.",
+            "",
+        ]
+    )
+    filesystem_path(run_root / "reports" / "l6_move_on_check.md").write_text(l6_report, encoding="ascii")
+
+
+def _l6_move_on_status(*, status: str, row_count: int) -> tuple[str, list[str]]:
+    if status == "dry_run_schedule":
+        return "dry_run_schedule", ["no_rollout_evidence_written"]
+    if int(row_count) < 1000:
+        return "smoke", ["below_1000_row_preflight_threshold"]
+    if int(row_count) < 10000:
+        return "preflight", []
+    return "dense_evidence", []
 
 
 def _write_empty_table_manifest(run_root: Path, run_id: int, storage_format: str) -> None:
@@ -702,8 +1083,10 @@ def _run_manifest(
             paired_tests_per_candidate=max(1, int(config.rows) // max(1, len(variants))),
         )
     )
+    schedule_counts = _schedule_count_summary(config)
     return {
         "runner_version": W01_RUNNER_VERSION,
+        "project_title_version": "LQR-Stabilised Contextual Primitive v4.0",
         "run_stage": "W01_dense_primitive_variant_generation",
         "run_id": int(config.run_id),
         "run_root": run_root.as_posix(),
@@ -719,30 +1102,59 @@ def _run_manifest(
         "selected_worker_count": int(worker_decision.selected_worker_count),
         "worker_decision": asdict(worker_decision),
         "chunk_count": int(len(schedule)),
+        "schedule_mode": str(config.schedule_mode),
+        "paired_start_policy": "common_random_start_key_reused_across_primitives_candidates_and_w01_environments",
+        "per_primitive_row_counts": schedule_counts["primitive_id"],
+        "per_candidate_row_counts": schedule_counts["candidate_index"],
+        "per_W_layer_row_counts": schedule_counts["W_layer"],
+        "per_environment_mode_row_counts": schedule_counts["environment_mode"],
+        "per_start_family_row_counts": schedule_counts["start_state_family"],
         "official_W_layers": {"W0": ["dry_air"], "W1": ["gaussian_single", "gaussian_four"]},
         "W2_generated": False,
         "W3_generated": False,
-        "mixed_primitive_start_sampling": {
-            "launch_gate": 0.40,
-            "inflight_nominal": 0.25,
-            "inflight_lift_region": 0.15,
-            "inflight_boundary_near": 0.10,
-            "inflight_recovery_edge": 0.10,
-        },
+        "mixed_primitive_start_sampling": START_FAMILY_MIX,
         "no_small_library_selection": True,
         "no_clustering_before_W2_W3": True,
         "W2_W3_replay_only": True,
         "panelwise_timing_actuator_effects_active_from_W01": True,
         "PD_PID_fallback_allowed": False,
+        "timing_aware_synthesis_level": "trim_local_reduced_order_lqr_no_delay_augmentation",
+        "timing_effects_in_rollout": "panel_wind_feedback_delay_command_timing_actuator_lag_with_plant_and_implementation_instances",
         "claim_status": CLAIM_BOUNDARY,
         "blocked_claims": list(BLOCKED_CLAIMS),
         "tuning_schedule": schedule_row,
     }
 
 
+def _schedule_count_summary(config: W01DenseRunConfig) -> dict[str, dict[str, int]]:
+    counters = {
+        "primitive_id": Counter(),
+        "candidate_index": Counter(),
+        "W_layer": Counter(),
+        "environment_mode": Counter(),
+        "start_state_family": Counter(),
+    }
+    for row_index in range(int(config.rows)):
+        row = _row_schedule_for_index(row_index, config)
+        counters["primitive_id"][row.primitive_id] += 1
+        counters["candidate_index"][str(row.candidate_index)] += 1
+        counters["W_layer"][row.W_layer] += 1
+        counters["environment_mode"][row.environment_mode] += 1
+        counters["start_state_family"][row.start_state_family] += 1
+    return {
+        key: {str(item): int(count) for item, count in sorted(counter.items())}
+        for key, counter in counters.items()
+    }
+
+
 def _ensure_run_root(config: W01DenseRunConfig, run_root: Path) -> None:
     if config.dry_run_schedule:
         return
+    if filesystem_path(run_root).exists() and not (config.resume or config.repair_incomplete):
+        runtime_summary = run_root / "metrics" / "runtime_summary.csv"
+        table_manifest = run_root / "manifests" / "table_manifest.json"
+        if filesystem_path(runtime_summary).is_file() or filesystem_path(table_manifest).is_file():
+            raise RuntimeError(f"W01 run root already exists: {run_root}; use --resume, --repair-incomplete, or a new run id.")
     tables = run_root / "tables" / W01_TABLE_NAME
     if filesystem_path(tables).exists() and not (config.resume or config.repair_incomplete):
         existing = list(filesystem_path(tables).glob("*"))
@@ -780,17 +1192,19 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--rows", type=int, default=400)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--candidate-chunk-size", "--chunk-size", dest="candidate_chunk_size", type=int, default=100)
-    parser.add_argument("--workers", default=1)
-    parser.add_argument("--max-workers", type=int, default=1)
-    parser.add_argument("--storage-format", choices=("auto", "parquet", "csv_gz", "csv"), default="csv_gz")
+    parser.add_argument("--workers", default=8)
+    parser.add_argument("--max-workers", type=int, default=8)
+    parser.add_argument("--storage-format", choices=("auto", "parquet", "csv_gz", "csv"), default="auto")
     parser.add_argument("--compression-level", type=int, default=1)
-    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--resume", dest="resume", action="store_true", default=True)
+    parser.add_argument("--no-resume", dest="resume", action="store_false")
     parser.add_argument("--repair-incomplete", action="store_true")
     parser.add_argument("--dry-run-schedule", action="store_true")
     parser.add_argument("--stop-after-chunks", type=int, default=None)
     parser.add_argument("--continue-on-chunk-failure", action="store_true")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--candidate-count", type=int, default=16)
+    parser.add_argument("--schedule-mode", choices=(BALANCED_SCHEDULE_MODE, SMOKE_SCHEDULE_MODE), default=BALANCED_SCHEDULE_MODE)
     return parser.parse_args(argv)
 
 
@@ -812,6 +1226,7 @@ def main(argv: list[str] | None = None) -> int:
         stop_after_chunks=args.stop_after_chunks,
         continue_on_chunk_failure=args.continue_on_chunk_failure,
         candidate_count=args.candidate_count,
+        schedule_mode=args.schedule_mode,
     )
     result = run_lqr_w01_dense_chunked(config)
     print(json.dumps(result, indent=2, sort_keys=True))

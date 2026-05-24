@@ -24,6 +24,7 @@ from dense_archive_table_io import filesystem_path  # noqa: E402
 
 W2_SURVIVAL_VERSION = "w2_fixed_lqr_survival_replay_scaffold_v1"
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")
+SURVIVAL_STATUS_VOCABULARY = ("blocked", "ready_for_fixed_lqr_replay", "survived", "downgraded", "eliminated", "not_run")
 BLOCKED_CLAIMS = (
     "W2_survival_complete",
     "W3_robustness_complete",
@@ -61,15 +62,19 @@ def run_w2_survival(config: W2SurvivalConfig) -> dict[str, object]:
         variant_count = int(payload.get("variant_count", 0))
         if variant_count <= 0:
             blocked_reason = "empty_W01_primitive_variant_registry"
-    status = "blocked" if blocked_reason else "ready_for_fixed_lqr_w2_replay"
+    status = "blocked" if blocked_reason else "ready_for_fixed_lqr_replay"
     manifest = {
         "version": W2_SURVIVAL_VERSION,
         "status": status,
         "run_id": int(config.run_id),
         "input_root": Path(config.input_root).as_posix(),
+        "input_contract": "W01 run root with manifests/primitive_variant_registry.json and manifests/table_manifest.json",
+        "future_replay_environment_contract": "W2 fixed variants under single/four fan annular-GP only",
         "variant_count": int(variant_count),
         "fixed_lqr_replay_only": True,
         "mutates_Q_R_K_reference_horizon_entry_set_or_entry_role": False,
+        "forbidden_mutations": "Q/R,K,reference,horizon,entry_set,entry_role",
+        "status_vocabulary": list(SURVIVAL_STATUS_VOCABULARY),
         "redesign_policy": "new_ids_return_to_W01",
         "blocked_reason": blocked_reason,
         "blocked_claims": list(BLOCKED_CLAIMS),
@@ -81,7 +86,7 @@ def run_w2_survival(config: W2SurvivalConfig) -> dict[str, object]:
                 "status": status,
                 "variant_count": int(variant_count),
                 "blocked_reason": blocked_reason,
-                "allowed_labels": "survived;downgraded;eliminated;blocked",
+                "allowed_labels": ";".join(SURVIVAL_STATUS_VOCABULARY),
             }
         ]
     ).to_csv(filesystem_path(run_root / "metrics" / "w2_survival_summary.csv"), index=False)

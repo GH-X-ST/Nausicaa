@@ -15,6 +15,12 @@ def test_w2_w3_scaffolds_are_blocked_without_required_survivors(tmp_path: Path) 
     assert w2["status"] == "blocked"
     assert w3["status"] == "blocked"
     assert post["status"] == "blocked"
+    w2_manifest = (Path(w2["run_root"]) / "manifests" / "w2_survival_manifest.json").read_text(encoding="ascii")
+    w3_manifest = (Path(w3["run_root"]) / "manifests" / "w3_survival_manifest.json").read_text(encoding="ascii")
+    assert "ready_for_fixed_lqr_replay" in w2_manifest
+    assert "ready_for_fixed_lqr_replay" in w3_manifest
+    assert "input_contract" in w2_manifest
+    assert "input_contract" in w3_manifest
 
 
 def test_w2_w3_scaffolds_do_not_import_retuning_dependencies() -> None:

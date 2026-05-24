@@ -30,3 +30,14 @@ def test_w01_dry_run_writes_compact_manifests_and_no_partitions(tmp_path: Path) 
     assert not (run_root / "tables" / "w01_primitive_rows").exists()
     assert set(chunk_summary["status"]) == {"scheduled"}
     assert (run_root / "manifests" / "primitive_variant_registry.json").is_file()
+    assert (run_root / "reports" / "l6_move_on_check.md").is_file()
+    file_audit = pd.read_csv(run_root / "metrics" / "file_size_audit.csv")
+    assert {
+        "relative_path",
+        "byte_count",
+        "size_mb",
+        "above_75mb",
+        "above_100mb",
+        "push_allowed",
+        "dense_table_partition",
+    }.issubset(file_audit.columns)

@@ -54,6 +54,29 @@ def archive_state_sample_for_row(
 
     paired_key = f"start_{int(row_index) // 2:07d}"
     family = start_state_family_for_row(row_index)
+    return archive_state_sample_for_family(
+        start_state_family=family,
+        paired_start_key=paired_key,
+        sample_index=int(row_index),
+        seed=seed,
+        W_layer=W_layer,
+        environment_mode=environment_mode,
+    )
+
+
+def archive_state_sample_for_family(
+    *,
+    start_state_family: str,
+    paired_start_key: str,
+    sample_index: int,
+    seed: int,
+    W_layer: str,
+    environment_mode: str,
+) -> ArchiveStateSample:
+    """Return a deterministic state sample for an explicit paired start family."""
+
+    family = str(start_state_family)
+    paired_key = str(paired_start_key)
     sample_seed = _stable_seed(seed, f"{paired_key}:{family}")
     rng = np.random.default_rng(sample_seed)
     if family == "launch_gate":
@@ -70,7 +93,7 @@ def archive_state_sample_for_row(
         source = "rollout_exit_resampled"
         detail = "deterministic_mixed_start_inflight_nominal"
         previous_status = "clean_exit"
-        previous_primitive_id = _synthetic_previous_primitive_id(row_index)
+        previous_primitive_id = _synthetic_previous_primitive_id(sample_index)
         time_since_launch_s = float(rng.uniform(0.8, 2.2))
     elif family == "inflight_lift_region":
         state = _inflight_lift_region_state(rng)
@@ -78,16 +101,16 @@ def archive_state_sample_for_row(
         source = "synthetic_inflight"
         detail = "deterministic_mixed_start_lift_region"
         previous_status = "clean_exit"
-        previous_primitive_id = _synthetic_previous_primitive_id(row_index)
+        previous_primitive_id = _synthetic_previous_primitive_id(sample_index)
         time_since_launch_s = float(rng.uniform(0.6, 2.6))
     elif family == "inflight_boundary_near":
-        side = "x_max" if int(row_index) % 2 == 0 else "y_min"
+        side = "x_max" if int(sample_index) % 2 == 0 else "y_min"
         state = _boundary_near_state(rng, side=side)
         label = "boundary_near"
         source = "stress_sample"
         detail = f"{side}_terminal_useful_exit_detail_legacy_boundary_terminal"
         previous_status = "boundary_terminal"
-        previous_primitive_id = _synthetic_previous_primitive_id(row_index)
+        previous_primitive_id = _synthetic_previous_primitive_id(sample_index)
         time_since_launch_s = float(rng.uniform(0.8, 2.8))
     else:
         state = _inflight_recovery_edge_state(rng)
@@ -95,7 +118,7 @@ def archive_state_sample_for_row(
         source = "stress_sample"
         detail = "deterministic_mixed_start_recovery_edge"
         previous_status = "recovery_edge"
-        previous_primitive_id = _synthetic_previous_primitive_id(row_index)
+        previous_primitive_id = _synthetic_previous_primitive_id(sample_index)
         time_since_launch_s = float(rng.uniform(0.4, 2.0))
     del W_layer, environment_mode
     return ArchiveStateSample(

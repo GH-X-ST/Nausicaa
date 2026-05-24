@@ -85,6 +85,11 @@ class LQRController:
     command_clip_check_status: str
     saturation_summary: str
     latency_actuator_survival_status: str
+    timing_aware_synthesis_level: str
+    timing_effects_in_synthesis: str
+    timing_effects_in_rollout: str
+    sampled_data_timing_audit_status: str
+    delayed_state_lqr_augmentation_status: str
     tuning_stage: str
     controller_claim_status: str
     k_gain_matrix: tuple[tuple[float, ...], ...]
@@ -188,6 +193,11 @@ def synthesize_lqr_controller(
             if sampled_status == "sampled_stable" and float(np.max(np.real(eig_cont))) < 0.0
             else "failed_linear_lag_smoke"
         )
+        sampled_data_timing_audit_status = (
+            "sampled_stable_with_nominal_timing_smoke"
+            if latency_status == "survives_nominal_latency_actuator_lag"
+            else "failed_nominal_timing_smoke"
+        )
         synthesis_status = (
             LQR_SYNTHESIS_SOLVED
             if (
@@ -222,6 +232,7 @@ def synthesize_lqr_controller(
         latency_status = "not_evaluated"
         expansion_status = "not_evaluated"
         synthesis_status = LQR_SYNTHESIS_BLOCKED
+        sampled_data_timing_audit_status = "not_evaluated"
         blocked_reason = f"reduced_care_failed:{type(exc).__name__}:{exc}"
 
     q_json = json.dumps(_q_weight_payload(weights), sort_keys=True, separators=(",", ":"))
@@ -266,6 +277,11 @@ def synthesize_lqr_controller(
         command_clip_check_status=command_status,
         saturation_summary=saturation_summary,
         latency_actuator_survival_status=latency_status,
+        timing_aware_synthesis_level="trim_local_reduced_order_lqr_no_delay_augmentation",
+        timing_effects_in_synthesis="sampled_data_stability_and_nominal_latency_actuator_smoke_only",
+        timing_effects_in_rollout="feedback_delay_command_timing_actuator_lag_applied_in_w01_rollout",
+        sampled_data_timing_audit_status=sampled_data_timing_audit_status,
+        delayed_state_lqr_augmentation_status="not_implemented_state_delay_simulated_in_rollout",
         tuning_stage=weights.tuning_stage,
         controller_claim_status="simulation_only",
         k_gain_matrix=tuple(tuple(float(value) for value in row) for row in k_full),
@@ -347,6 +363,11 @@ def lqr_rollout_metadata(controller: LQRController) -> dict[str, object]:
         "command_clip_check_status": controller.command_clip_check_status,
         "saturation_summary": controller.saturation_summary,
         "latency_actuator_survival_status": controller.latency_actuator_survival_status,
+        "timing_aware_synthesis_level": controller.timing_aware_synthesis_level,
+        "timing_effects_in_synthesis": controller.timing_effects_in_synthesis,
+        "timing_effects_in_rollout": controller.timing_effects_in_rollout,
+        "sampled_data_timing_audit_status": controller.sampled_data_timing_audit_status,
+        "delayed_state_lqr_augmentation_status": controller.delayed_state_lqr_augmentation_status,
         "tuning_stage": controller.tuning_stage,
         "controller_claim_status": controller.controller_claim_status,
     }

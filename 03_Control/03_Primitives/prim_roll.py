@@ -106,6 +106,11 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "command_clip_check_status",
     "saturation_summary",
     "latency_actuator_survival_status",
+    "timing_aware_synthesis_level",
+    "timing_effects_in_synthesis",
+    "timing_effects_in_rollout",
+    "sampled_data_timing_audit_status",
+    "delayed_state_lqr_augmentation_status",
     "tuning_stage",
     "controller_claim_status",
     "controller_selection_status",
@@ -202,6 +207,11 @@ class RolloutEvidence:
     command_clip_check_status: str
     saturation_summary: str
     latency_actuator_survival_status: str
+    timing_aware_synthesis_level: str
+    timing_effects_in_synthesis: str
+    timing_effects_in_rollout: str
+    sampled_data_timing_audit_status: str
+    delayed_state_lqr_augmentation_status: str
     tuning_stage: str
     controller_claim_status: str
     controller_selection_status: str
@@ -1156,6 +1166,11 @@ def _lqr_metadata_for_evidence(
                 "command_clip_check_status": "not_evaluated_missing_explicit_lqr_controller",
                 "saturation_summary": "not_evaluated_missing_explicit_lqr_controller",
                 "latency_actuator_survival_status": "not_evaluated_missing_explicit_lqr_controller",
+                "timing_aware_synthesis_level": "not_evaluated_missing_explicit_lqr_controller",
+                "timing_effects_in_synthesis": "not_evaluated_missing_explicit_lqr_controller",
+                "timing_effects_in_rollout": "not_evaluated_missing_explicit_lqr_controller",
+                "sampled_data_timing_audit_status": "not_evaluated_missing_explicit_lqr_controller",
+                "delayed_state_lqr_augmentation_status": "not_evaluated_missing_explicit_lqr_controller",
                 "controller_claim_status": "simulation_only_blocked",
             }
         )
