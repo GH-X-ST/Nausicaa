@@ -42,6 +42,7 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "docs/code_audits/lqr_current_code_audit_fix_v3_4_report.md",
     "docs/code_audits/r6_readiness_validation_closure_report.md",
     "docs/code_audits/r6_validation_start_report.md",
+    "docs/code_audits/r6_lqr_tuning_dense_report.md",
     "docs/reset/model_only_reset_manifest.md",
     "docs/reset/kept_file_audit.csv",
     "docs/reset/kept_file_audit.md",
