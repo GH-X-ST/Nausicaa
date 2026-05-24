@@ -1,5 +1,12 @@
 # LQR Dense Evidence Restart Build Note
 
+Status: retained implementation note. The current source of truth is
+`docs/Glider_Control_Project_Plan.md`, `docs/Skills.md`,
+`docs/housekeeping_and_naming_rules.md`, and
+`docs/local_validation_environment.md`. This note is still usable for interface
+orientation, but new evidence naming and validation commands must follow those
+files.
+
 ## Status
 
 This note supersedes the old reset-era build note. Active control is now
@@ -63,13 +70,14 @@ corresponding replay table, manifest, and claim-boundary notes exist.
 Use these commands for the pre-dense go/no-go sequence:
 
 ```powershell
-python -m compileall 03_Control
-python -m pytest 03_Control -q
-python 03_Control/04_Scenarios/run_lqr_tuning_sweep.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
-python 03_Control/04_Scenarios/run_lqr_contextual_archive.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
-python 03_Control/04_Scenarios/run_lqr_w2_replay.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
-python 03_Control/04_Scenarios/run_lqr_w3_generalisation.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
-python 03_Control/04_Scenarios/run_lqr_tuning_sweep.py --rows 500 --seed 1 --candidate-count 16 --paired-tests-per-candidate 50 --candidate-chunk-size 125 --workers 1 --max-workers 1 --storage-format csv_gz --compression-level 1 --stop-after-chunks 4 --repair-incomplete
+.\.venv\Scripts\python.exe -m compileall 03_Control
+.\.venv\Scripts\python.exe -m pytest -q 03_Control/tests --basetemp .codex_run_logs\pytest_tmp -o cache_dir=.codex_run_logs\pytest_cache
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_active_contract_audit.py
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_lqr_tuning_sweep.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_lqr_contextual_archive.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_lqr_w2_replay.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_lqr_w3_generalisation.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_lqr_tuning_sweep.py --rows 500 --seed 1 --candidate-count 16 --paired-tests-per-candidate 50 --candidate-chunk-size 125 --workers 1 --max-workers 1 --storage-format csv_gz --compression-level 1 --stop-after-chunks 4 --repair-incomplete
 ```
 
 When local smoke evidence remains under `03_Control/05_Results/lqr_contextual_v1_0`,
@@ -78,7 +86,7 @@ for housekeeping tests.
 
 ## Dense Evidence Targets
 
-R6 W0/W1 tuning targets are 8 primitives x 16-32 grouped Q/R candidates x
+W0/W1 tuning targets are 8 primitives x 16-32 grouped Q/R candidates x
 50-100 paired W0/W1 start keys, with the documented fallback of 8 x 8 x 25.
 W2 and W3 are replay-only survival stages. Retuning after W2/W3 requires a new
 controller ID and a return to W0/W1 tuning evidence.
@@ -86,4 +94,3 @@ controller ID and a return to W0/W1 tuning evidence.
 Dense tables must remain chunked, resumable, compressed, checksum-manifested,
 and under the 100 MB generated-file limit unless the user explicitly approves a
 local-only exception.
-

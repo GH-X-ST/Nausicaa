@@ -1,5 +1,10 @@
 # LQR Restart Archive Manifest
 
+Status: retained historical retirement manifest. This file records what was
+moved out of active use. It is not a naming template for new evidence runs; use
+`docs/housekeeping_and_naming_rules.md` for current result folders and file-size
+rules.
+
 ## Retired Artefact
 
 - Retired artefact path: `03_Control/05_Results/feedback_contextual_v1_4/`
@@ -8,6 +13,9 @@
 - Retirement reason: the active method is now time-invariant LQR-stabilised primitives. The old dense run came from the retired contextual feedback workflow and is not active evidence, fallback, baseline, or ablation material.
 
 ## Row Counts
+
+The `r6`, `r7`, `r8`, and `r9` labels below are archived run identifiers from
+the retired workflow.
 
 | Manifest | Tables | Rows | Storage |
 |---|---:|---:|---|
@@ -30,6 +38,11 @@
 
 The archive is `retired_not_active`. It must not be imported by active code, used as LQR evidence, used as a fallback controller source, used as a thesis baseline, or mixed into active LQR clustering. It may be cited only as a retired implementation record.
 
+Current W labels remain fidelity/evidence layers only: W0 dry air, W1 variable
+Gaussian plume, W2 fixed-LQR annular-GP survival replay, W3 fixed-LQR
+randomised annular-GP survival replay, followed by post-W3 clustering and
+merging.
+
 The active restart must use:
 
 ```text
@@ -41,4 +54,3 @@ The active restart must use:
 03_Control/04_Scenarios/run_lqr_w2_replay.py
 03_Control/04_Scenarios/run_lqr_w3_generalisation.py
 ```
-

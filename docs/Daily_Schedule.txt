@@ -1,0 +1,129 @@
+DAILY SCHEDULE — W0/W1 → W2 → W3 → POST-W3 CLUSTERING → VALIDATION TO 15 JUNE 2026
+
+Assumption
+----------
+The repository restarts from the retained foundation only:
+
+- glider / flight-dynamics model;
+- panel-wise aerodynamic / local-flow model;
+- feedback-latency, command-timing, and actuator-lag models;
+- updraft / local-flow model;
+- runtime and storage utilities;
+- model tests and current project documentation.
+
+Retired fan-layout-specific archive code, chain-formation logic, stale result archives, stale clustering packages, stale policy outputs, stale Codex-generated plans, and the first bounded-PD/contextual-feedback dense run are not part of the active method. The previous dense run must be archived or deleted before the new LQR dense run is started.
+
+Definitions
+-----------
+- Primitive: short LQR-stabilised manoeuvre with entry checks, finite horizon, exit checks, metrics, and failure labels.
+- LQR controller: time-invariant local feedback controller embedded inside one primitive, identified by `controller_id`, `linearisation_id`, Q/R weights, gain checksum, and closed-loop audit status.
+- Primitive-controller variant: the active library item combining one primitive entry set, reference state/command, finite horizon, local LQR Q/R/K, exit checks, failure labels, and claim status.
+- Environment context: local flow and safety features computed from the current state and wind field.
+- Episode: one simulated or physical launch from the fixed nominal launch gate.
+- W0/W1 dense generation: the heavy primitive-library creation stage. W0 uses no updraft. W1 uses the simple variable-Gaussian plume surrogate for both single-fan and four-fan cases. Each primitive-controller variant receives its own LQR tuning. All solved, blocked, weak, failed, rejected, continuation-valid, and x-y terminal-useful rows are preserved.
+- W2 dense survival sweep: fixed-LQR replay using the single-fan and four-fan GP-corrected annular-Gaussian surrogate (`annular-GP` in the repository), panel-wise wind, feedback latency, command timing, actuator lag, and realistic termination. No hidden LQR retuning.
+- W3 dense survival sweep: fixed-LQR replay under domain randomisation of updraft parameters, fan positions, fan number, glider model parameters, feedback latency, command timing, and actuator delay. No hidden LQR retuning.
+- Post-W3 clustering and merging: compression of the W3-surviving primitive library into the final small robust library for the governor and realistic in-flight computation.
+- Full-loop validation: frozen compact library + outcome model + viability governor + selector + episodic memory, tested across W0--W3 and then in real repeated launches.
+- Real flight: fixed-gate repeated-launch validation with Vicon-measured initial states.
+- Deadline: 15 June 2026.
+- Writing protection: 08--15 June is protected for thesis writing and final integration.
+
+Global execution rules
+----------------------
+- The active primitive inner loop is time-invariant LQR only.
+- The LQR stabiliser is part of each primitive-controller variant, not a free-standing controller bank.
+- Do not implement TVLQR in the active workflow.
+- Do not preserve the previous PD-like bounded controller as a fallback, baseline, or ablation.
+- Do not use LQR-tree or funnel-library terminology to brand the method.
+- If LQR synthesis fails for a primitive, label the controller or rollout as blocked; do not substitute PD.
+- Do not resurrect fan-layout-specific controller logic.
+- Do not make reachable-state chaining a required success gate.
+- Single-fan, four-fan, shifted-fan, and fan-power cases are environment instances, not separate algorithms.
+- W labels are fidelity/evidence layers only, not online algorithm branches.
+- Strict surrogate ladder: W0 is dry air only, W1 is variable Gaussian plume only, W2 is GP-corrected annular-Gaussian only, and W3 is randomised GP-corrected annular-Gaussian only.
+- W0/W1 generate and tune a rich primitive-controller library; they do not output a 12--24 retained shortlist.
+- W2/W3 replay fixed primitive-controller variants and shrink only by survival evidence; they do not regenerate, retune, or mutate LQR gains, Q/R weights, horizons, references, or entry sets.
+- Clustering and merging happen only after W3.
+- X/y boundary exits are retained as terminal episode evidence when appropriate; they are not continuation-valid states and must not be deleted merely because a launch reaches the lateral boundary.
+- Dense runs must use chunked, resumable, compressed, worker-enabled execution.
+- Dense-run default: workers=8, max_workers=8, storage_format=auto/parquet/csv_gz, compression_level=1, resume=true.
+- No generated file may exceed 100 MB; preferred limit is 75 MB.
+- Real-flight transfer claims require matched real logs and sim-real replay.
+
+Execution table
+---------------
+
+| Date | Part | Stage | Run target | Fidelity / environment target | Runtime and storage target | Quantitative target | Output by end of day | Move-on check |
+|---|---|---|---|---|---|---:|---|---|
+| Fri 22 May | L0 | Repository reset and PD run retirement | Model-only cleanup plus archive/delete previous bounded-PD dense run | N/A. Retain glider, panel-wise model, latency, updraft, runtime/storage, tests, docs | No dense run | Retirement manifest covers previous dense-run outputs and active PD controller paths | `lqr_restart_archive_manifest.md`; clean active tree | No previous dense-run result, PD controller path, retired archive, or chain-formation path remains active |
+| Sat 23 May | L1 | Foundation and timing-aware model audit | Model audit plus trim/local-reference and linearisation smoke | W0 dry-air smoke; W1 variable-Gaussian smoke; panel-wise wind, feedback latency, command timing, and actuator lag active from this stage | Smoke only; no dense run | All retained model files inspected; at least one controllability/Riccati solve attempted | `lqr_foundation_audit.md`; timing/model audit report | Frame, unit, sign, trim, linearisation, Riccati, panel-wise wind, latency, command-timing, or actuator-lag mismatch is fixed or explicitly blocked |
+| Sun 24 May | L2 | Environment context and mixed start-state sampler | Context encoder plus launch/in-flight primitive-start sampler | W0 dry air; W1 variable Gaussian; W2 annular-GP availability check; W3-style shifted fan and power-scaled context smoke | Smoke table; file <100 MB | Mixed start-state distribution implemented: 40% launch_gate, 25% inflight_nominal, 15% inflight_lift_region, 10% inflight_boundary_near, 10% inflight_recovery_edge | `env_ctx.py`; `prim_start_sampler.py`; `ctx_smoke.csv`; `docs/abbr.md` | Context features and provenance fields work for dry, Gaussian, annular-GP, shifted, and power-scaled environments |
+| Mon 25 May | L3 | Primitive catalogue and variant schema | Primitive and controller metadata smoke | Environment-independent definitions; W0/W1 execution assumptions include panel-wise and timing models | Smoke only | 8 active primitive families; each has declared primitive-controller fields | `prim_cat.py`; primitive schema tests | Every primitive has entry set, reference, finite horizon, LQR metadata, exit checks, metrics, failure labels, and claim status |
+| Tue 26 May | L4 | LQR synthesis and timing-aware rollout smoke | First primitive-controller variants for active primitive families | W0 dry-air and W1 variable-Gaussian contexts; panel-wise wind, feedback latency, command timing, and actuator lag active | Smoke only; no dense run | At least one solved or explicitly blocked LQR controller per primitive family | `lqr_controller.py`; `lqr_linearisation.py`; LQR/timing smoke manifest | No primitive silently falls back to PD; each failure has a blocked reason |
+| Wed 27 May | L5 | W0/W1 dense preflight | State + context + primitive + controller rollout rows | W0/W1 required; no W2/W3 filtering yet | Chunked preflight; workers<=8; csv_gz/parquet; checksums; no file >100 MB | 1k--5k preflight rows covering all start-state families | `run_lqr_w01_dense_chunked.py`; table manifest; runtime summary | Chunking, resume, repair, checksums, file-size audit, LQR metadata, timing fields, and boundary-use labels pass |
+| Thu 28 May | L6 | W0/W1 rich primitive-library generation I | Tune primitive-local variants inside each primitive using mixed primitive-start states | W0 dry air + W1 variable Gaussian for single-fan and four-fan cases; no small-library selection | Dense if >10k rows: workers=8, max_workers=8, chunked, compressed partitions | Preferred rich library: 8 primitives x 32--128 variants x 100--300 paired tests; fallback 8 x 16 x 50 | Primitive-controller variant registry; Q/R/reference diagnostics; failure-label summary | Every generated variant is retained or explicitly blocked; no 12--24 shortlist is produced |
+| Fri 29 May | L7 | W0/W1 rich primitive-library generation II and completeness audit | Complete W0/W1 dense generation and prepare fixed library for W2 | W0/W1 only; include accepted, weak, failed, rejected, continuation-valid, and x-y terminal-useful rows | Dense run continues with resume/repair; compressed partitions | Preferred 40k--100k W0/W1 rows; fallback 20k | W0/W1 rich library manifest; paired-start audit; boundary-use audit; no-clustering note | W2 is cleared only when the rich fixed W0/W1 primitive-controller library is available and uncompressed shortlist logic is absent |
+| Sat 30 May | L8 | W2 annular-GP dense survival sweep | Replay the fixed W0/W1 library under hardware-aware realism | W2: single-fan and four-fan annular-GP, panel-wise wind, feedback latency, command timing, actuator lag, realistic termination | Dense if >10k rows: workers=8, chunked, compressed | Preferred 20k--60k W2 rows; fallback 10k | W2 survival table; eliminated/downgraded/surviving variant summary; no-retune audit | Variants that pass W0/W1 but fail W2 are eliminated or downgraded; no LQR retuning occurs |
+| Sun 31 May | L9 | W3 domain-randomised dense survival sweep | Stress W2 survivors under randomised environment, implementation, timing, launch, and plant uncertainty | W3: randomised annular-GP, fan position, fan number, fan power, updraft amplitude/centre/width, residual field, mass, CG, inertia tensor, aerodynamic efficiency, latency jitter, command timing, actuator delay | Dense if >10k rows: workers=8, chunked, compressed | Preferred 30k--100k W3 rows; fallback 15k | W3 survival table; pass/weak/fail labels; randomisation manifest; no-retune audit | Only variants that survive W3 move to post-W3 clustering; blocked/downgraded reasons are explicit |
+| Mon 01 Jun | L10 | Post-W3 clustering and merging | Cluster and merge the W3-surviving primitive library | Post-W3 only; use labelled weak/failure/terminal evidence for boundary explanation | Compact reports; dense inputs remain partitioned | Final compact library target is small enough for real-time governor computation; no fixed 12--24 target is imposed | Final primitive library registry; medoid/merge report; failure-cluster summary; hardware-candidate shortlist | Clustering/merging uses W3-surviving variants only and keeps continuation-valid separate from episode-terminal-useful cases |
+| Tue 02 Jun | G1 | Outcome model, governor, selector, and episodic memory | Train/use the outcome model, viability governor, selector, and episodic lift belief over the post-W3 compact library | Frozen compact library for integration; no hidden controller mutation | Chunked episode logs if dense; compact metrics | Outcome model plus governor smoke; memory λ in {0.0, 0.5, 0.8, 0.95} | Outcome model report; governor rejection logs; selector and belief smoke results | Governor can select primitives after a previous primitive ends, log rejection reasons, and distinguish continuation_mode from terminal_episode_mode |
+| Wed 03 Jun | V1 | Full-loop simulation validation | Test the entire outer loop across W0--W3 | W0 dry air; W1 variable Gaussian; W2 annular-GP; W3 domain randomisation; frozen library, governor, selector, and memory | Chunked if dense; compact metrics | 100--300 episodes per policy; fallback 50 | No-memory, static-map, context-only, and context+memory comparison | Safe primitive execution, prediction alignment, memory benefit/no-benefit, dwell, energy, margin, termination, and rejection count are reported |
+| Thu 04 Jun | H1 | Hardware shortlist and arena readiness | Real-flight readiness using post-W3 compact library | Real no-updraft/fan-off target first; Vicon start trigger and abort logic checked | No dense run; real logs <100 MB each | 5--10 candidates; 3--5 shakedown launches if safe | Hardware shortlist; abort rules; logging checklist; shakedown log | Supervisor can understand which LQR primitives will be flown and why they are safe to attempt |
+| Fri 05 Jun | H2 | Real no-updraft baseline | Dry/fan-off repeated launches | Real W0 fan-off or dry baseline with Vicon-measured initial states | Real logs partitioned if needed; every file <100 MB | Minimum 6 usable launches; target 8--10 | Baseline real-flight table; matched W0 replay setup | Baseline outcomes are usable for comparison; x/y boundary exits are logged as terminal outcomes, not deleted |
+| Sat 06 Jun | H3 | Real updraft and memory experiments | Environment-conditioned primitive selection and episodic memory | Real single-fan and four-fan measured-updraft cases; changed fan power or subset only if safe and approved | Real logs with episode IDs and belief snapshots; no file >100 MB | Minimum 6 usable launches per approved condition; target 8--10 | Contextual selector table; belief logs; episode comparison table | Logs include measured state, selected primitive, controller ID, rejection log, belief before/after, and termination cause |
+| Sun 07 Jun | H4 | Changed-environment test, sim-real pairing, and results lock | Replay every usable real launch and lock claim boundary | Changed fan number/position and added mass only if safe and approved; matched W1/W2-compatible replay; W3-style replay for robustness discussion | Chunked replay if dense; compact paired metrics; manifest and file-size audit | Every usable real launch has matched replay | Sim-real prediction table; results package; figure-source manifest; claim-boundary note | Transfer labels are metric-specific and claim-safe; no new experiments unless a manifest, safety, or logging error is found |
+| Mon 08 Jun | W1 | Methods writing | Chapter 6 methods | W0/W1 generation, W2/W3 survival, post-W3 clustering, governor, selector, and memory described in order | Writing only | Method skeleton and algorithms complete | Chapter 6 draft | Text matches implemented code and avoids retired branch/chain/PD story |
+| Tue 09 Jun | W2 | Results writing | Chapter 7 results | Report W0/W1 rich library, W2 survival, W3 survival, post-W3 clustering, full-loop simulation, real flight, and sim-real pairing | Writing only | Core tables and figures integrated | Chapter 7 draft | Results use supported / partial / negative / not-tested labels |
+| Wed 10 Jun | W3 | Introduction and related work | Chapter 1/2 rewrite | Position project as feedback-stabilised primitive sim-to-real transfer, not perching or all-arena exploration | Writing only | Intro and related-work draft | Chapter 1/2 updated | No old final-objective trace remains |
+| Thu 11 Jun | W4 | Platform/updraft/model chapters | Chapters 3--5 alignment | Explain retained glider, panel-wise, timing, and updraft/local-flow foundations | Writing only | Platform, updraft, and glider chapters coherent | Chapter 3--5 edits | Assumptions match the final method |
+| Fri 12 Jun | W5 | Figures and captions | Thesis figures | Figures cover W0/W1 generation, W2/W3 survival, post-W3 clustering, full-loop validation, and real evidence where available | Figure files <100 MB; preferred <75 MB | All core figures traceable | Figure folder and caption draft | Every figure has data source and claim boundary |
+| Sat 13 Jun | W6 | Full thesis integration | Compile all chapters and appendices | Whole thesis | Writing only | Full compile; missing refs listed | Full draft PDF | No major missing section remains |
+| Sun 14 Jun | W7 | Review and compression | Clarity, consistency, claim safety | Whole thesis | Writing only | Remove repetition and retired strategy traces | Near-final PDF | Supervisor-readable and internally consistent |
+| Mon 15 Jun | W8 | Final checks | Submission package | Whole thesis and repository evidence package | File-size, reference, compile, and reproducibility audit | Zero critical compile errors | Submission-ready thesis package | Submission package complete |
+
+Move-on hierarchy
+-----------------
+1. Model, sign, trim, panel-wise wind, feedback-latency, command-timing, or actuator-lag mismatch blocks new LQR controller evidence.
+2. Missing LQR synthesis and audit blocks W0/W1 rich primitive-library generation.
+3. Missing W0/W1 rich primitive-controller library blocks W2.
+4. Missing W2 survival blocks W3 and hardware shortlist.
+5. Missing W3 survival blocks post-W3 clustering and robust-library claims.
+6. Missing post-W3 clustering blocks the compact governor library and realistic real-time selection claim.
+7. Missing full-loop simulation validation blocks claims about outer-loop governor and memory behaviour.
+8. Missing matched sim-real replay blocks transfer claims.
+9. Missing real flight still allows simulation-only thesis claims if labelled honestly.
+10. Reintroducing PD as an active controller, selecting a 12--24 W0/W1 shortlist, or clustering before W2/W3 is not a valid unblock path.
+
+Evidence wording
+----------------
+Use these labels in reports and thesis tables:
+
+```text
+simulation_only
+hardware_shakedown
+real_flight_evidence
+partial_transfer
+negative_transfer
+instrumentation_limited
+not_tested
+retired_not_active
+blocked_lqr_synthesis
+eliminated_w2_survival
+eliminated_w3_survival
+post_w3_cluster_representative
+```
+
+Do not claim:
+
+```text
+mission success
+full autonomy
+real-flight transfer
+full W3 robustness
+environment generalisation
+hardware readiness
+formal LQR-tree, funnel, or verified region-of-attraction guarantees
+```
+
+unless the exact evidence exists and is paired with its limitations.

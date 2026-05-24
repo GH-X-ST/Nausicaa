@@ -2,6 +2,13 @@
 
 Date: 2026-05-23
 
+Status: retained historical audit. Use `docs/Skills.md`,
+`docs/Glider_Control_Project_Plan.md`,
+`docs/housekeeping_and_naming_rules.md`, and
+`docs/local_validation_environment.md` as the current source of truth when this
+audit's old command spelling or run-folder labels differ from the updated
+housekeeping rules.
+
 ## Active Contract
 
 - Active controller family: time-invariant LQR only.
@@ -31,10 +38,12 @@ Valid `context`, `environment context`, and `environment-conditioned` terminolog
 
 ## Smoke Evidence
 
-Executed simulated W0/W1 smoke:
+Executed simulated W0/W1 smoke. The `r6/tune_100` folder name below is a
+historical run identifier, not the preferred naming pattern for new evidence
+roots:
 
 ```text
-python 03_Control/04_Scenarios/run_lqr_tuning_sweep.py --rows 500 --seed 1 --candidate-count 16 --paired-tests-per-candidate 50 --candidate-chunk-size 125 --workers 1 --max-workers 1 --storage-format csv_gz --compression-level 1 --stop-after-chunks 4 --repair-incomplete
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_lqr_tuning_sweep.py --rows 500 --seed 1 --candidate-count 16 --paired-tests-per-candidate 50 --candidate-chunk-size 125 --workers 1 --max-workers 1 --storage-format csv_gz --compression-level 1 --stop-after-chunks 4 --repair-incomplete
 ```
 
 Smoke root: `03_Control/05_Results/lqr_contextual_v1_0/r6/tune_100/`
@@ -49,15 +58,18 @@ Observed smoke coverage:
 - File-size audit: all generated files under 100 MB.
 - Manifest flags: `W0_W1_tune_controller_ids=true`, `W2_W3_replay_only=true`.
 
-## Go/No-Go Commands Passed
+## Historical Go/No-Go Commands Passed
+
+Run the same checks through the repo-local `.venv` for current validation:
 
 ```text
-python -m compileall 03_Control
-python -m pytest 03_Control -q
-python 03_Control/04_Scenarios/run_lqr_tuning_sweep.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
-python 03_Control/04_Scenarios/run_lqr_contextual_archive.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
-python 03_Control/04_Scenarios/run_lqr_w2_replay.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
-python 03_Control/04_Scenarios/run_lqr_w3_generalisation.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
+.\.venv\Scripts\python.exe -m compileall 03_Control
+.\.venv\Scripts\python.exe -m pytest -q 03_Control/tests --basetemp .codex_run_logs\pytest_tmp -o cache_dir=.codex_run_logs\pytest_cache
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_active_contract_audit.py
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_lqr_tuning_sweep.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_lqr_contextual_archive.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_lqr_w2_replay.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_lqr_w3_generalisation.py --dry-run-schedule --stop-after-chunks 1 --workers 1 --max-workers 1
 ```
 
 Final active-code search found no retired controller/fallback tokens in `03_Control/02_Inner_Loop`, `03_Control/03_Primitives`, `03_Control/04_Scenarios`, or `03_Control/tests`, excluding `03_Control/99_Archive` and generated `03_Control/05_Results`.

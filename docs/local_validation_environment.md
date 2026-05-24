@@ -2,13 +2,17 @@
 
 Date: 2026-05-24
 
-This repository uses one project-owned virtual environment for active work:
+This repository uses one project-owned virtual environment for active Python
+work:
 
 ```text
 .\.venv\Scripts\python.exe
 ```
 
-Do not use the old `Paul_Li_FYP` Conda environment for active validation or new development work. `Paul_Li_FYP` is not the active validation environment. Historical audit notes may mention it as a past fallback, but it is not the active project environment.
+Do not use the old `Paul_Li_FYP` Conda environment for active validation or new
+development work. `Paul_Li_FYP` is not the active validation environment.
+Historical audit notes may mention it as a past fallback, but it is not the
+active project environment.
 
 The current `.venv` was created from the Miniforge base interpreter:
 
@@ -16,7 +20,7 @@ The current `.venv` was created from the Miniforge base interpreter:
 C:\ProgramData\miniforge3\python.exe
 ```
 
-R6 control validation dependencies are installed from:
+Active control validation dependencies are installed from:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-control-dev.txt
@@ -41,4 +45,8 @@ git diff --check
 
 Use the repo-local pytest temp/cache paths above so validation does not depend on the Windows user temp directory. Local `.venv` and `.codex_run_logs` contents are ignored and must not be committed.
 
-`aerosandbox` is not part of R6 `03_Control` validation. It remains isolated in `requirements-design.txt` for glider-design-side work and is installed only when whole-repository or design-side validation is needed. The active control route requires `casadi`, `pytest`, and `openpyxl` through `requirements-control-dev.txt`.
+`aerosandbox` is not part of active `03_Control` validation. It remains isolated
+in `requirements-design.txt` for glider-design-side work and is installed only
+when whole-repository or design-side validation is needed. The active control
+route requires `casadi`, `pytest`, and `openpyxl` through
+`requirements-control-dev.txt`.

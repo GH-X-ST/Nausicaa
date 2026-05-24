@@ -1,0 +1,146 @@
+# Literature Review Guidance — Environment-Conditioned Primitive Selection
+
+## Purpose
+
+Use this guide for related-work searching, literature-review rewriting, and reference selection. The goal is to support a robotics-style thesis or paper about environment-conditioned primitive selection for repeated-launch fixed-wing updraft exploitation.
+
+## Search priorities
+
+Use this order:
+
+1. Existing thesis bibliography and uploaded PDFs.
+2. High-quality robotics, UAV, and control papers with real experiments.
+3. Papers on fixed-wing soaring, local lift exploitation, gust-aware flight, and wind-field-aware control.
+4. Papers on viability, safety filters, motion primitives, primitive libraries, and reference governors.
+5. Papers on sim-to-real transfer, domain randomisation, and environment generalisation.
+6. Papers on post-W3 archive compression, clustering, merging, and representative rollout selection.
+7. Preprints only when no peer-reviewed source exists or the topic is very recent.
+
+## Required literature groups
+
+### 1. Sim-to-real transfer under aerodynamic forcing
+
+Use this group to justify domain randomisation as a survival-filtering and held-out validation tool: simulated variation can remove or downgrade weak primitive-controller variants, but final validation must freeze the post-W3 compact library or explicitly declare adaptation.
+
+Purpose: justify why measured updrafts, latency, and wing-scale wind descriptors matter.
+
+Look for:
+
+- fixed-wing sim-to-real control;
+- aerodynamic model mismatch;
+- wind-field-aware control;
+- paired simulation and real-flight replay.
+
+### 2. Local lift exploitation
+
+Purpose: connect the indoor updraft to real-life flow near terrain, buildings, slopes, or obstacles without claiming exact outdoor equivalence.
+
+Use wording:
+
+```text
+local vertical-flow exploitation near terrain-induced or built-environment flow features
+```
+
+Avoid:
+
+```text
+the fan updraft is an urban thermal
+```
+
+### 3. Autonomous soaring and wind-field inference
+
+Purpose: show that lift exploitation and partial lift knowledge are real aerospace robotics problems.
+
+Use as precedent, not as the final objective. The arena is too small for continuous thermalling or ridge soaring.
+
+### 4. Viability and safety filtering
+
+Purpose: justify the governor as a constraint filter over candidate primitives.
+
+Explain:
+
+- admissible sets;
+- safe candidate rejection;
+- separation between candidate generation and safety filtering;
+- why logging rejections matters.
+
+### 5. Manoeuvre primitives and libraries
+
+The feedback stabiliser should be treated as embedded inside the primitive. Use this group to support primitive-controller variants rather than a free-standing controller bank.
+
+Purpose: justify short actions with entry sets, feedback, exit checks, and metrics.
+
+Use this group to distinguish the project from generic waypoint following.
+
+### 6. Environment-conditioned decision making
+
+Purpose: support the new method abstraction.
+
+Look for:
+
+- context-conditioned policies;
+- local feature-conditioned action selection;
+- environment-adaptive primitive or behaviour libraries;
+- real robot tests across changed environment parameters.
+
+### 7. Domain randomisation and generalisation
+
+Purpose: support W3 as fixed-LQR environment-randomised survival filtering and later held-out full-loop validation, including fan position, fan power, fan number, updraft amplitude, launch-state variation, glider-plant variation, latency jitter, command timing, and actuator delay.
+
+### 8. Repeated experiments and episodic learning
+
+Purpose: support repeated-launch learning from physical rollouts.
+
+Look for:
+
+- repeated physical trials;
+- belief update or confidence decay;
+- non-identical initial conditions;
+- real-world data improving future decisions.
+
+### 9. Perching and LQR-Trees, as contrast only
+
+Perching is not the final objective. Use it to explain what the project does not do:
+
+- no terminal landing target;
+- no post-stall terminal capture requirement;
+- no attempt to reproduce LQR-Tree perching.
+
+## Paragraph structure
+
+Use:
+
+```text
+Prior work does X under assumptions Y. This supports our use of Z. However, those works do not address A, which motivates the present method.
+```
+
+Example:
+
+```text
+Autonomous soaring studies show that useful lift can be inferred and exploited by fixed-wing vehicles, but they usually assume larger outdoor volumes or longer flight times. This thesis instead studies whether a small glider can select short primitives from local flow context inside a confined measured updraft.
+```
+
+## Avoid generic literature writing
+
+Do not write:
+
+```text
+Recent years have witnessed increasing attention...
+Many researchers have proposed many methods.
+```
+
+Prefer specific comparisons.
+
+## Reference quality check
+
+For every candidate reference, record:
+
+```text
+reference type: foundational / method / experimental / review / contrast
+system: real robot / simulation / wind tunnel / theory
+why it matters
+what it does not support
+replacement needed: yes/no
+```
+
+Discard references that cannot support a claim or contrast.
