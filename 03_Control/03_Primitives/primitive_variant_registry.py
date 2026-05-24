@@ -63,6 +63,27 @@ class PrimitiveControllerVariant:
     sampled_data_check_status: str
     lqr_synthesis_status: str
     lqr_blocked_reason: str
+    controller_design_role: str
+    timing_augmentation_type: str
+    timing_design_version: str
+    sample_time_s: float
+    latency_case: str
+    state_feedback_delay_s: float
+    command_delay_s: float
+    command_delay_steps: int
+    actuator_tau_s: str
+    actuator_state_count: int
+    command_delay_state_count: int
+    predictor_horizon_steps: int
+    augmented_state_size: int
+    augmented_input_size: int
+    augmented_A_checksum: str
+    augmented_B_checksum: str
+    augmented_Q_json: str
+    augmented_R_json: str
+    augmented_gain_checksum: str
+    augmented_closed_loop_spectral_radius: float
+    timing_lqr_blocked_reason: str
     timing_aware_synthesis_level: str
     timing_effects_in_synthesis: str
     timing_effects_in_rollout: str
@@ -140,6 +161,17 @@ def primitive_controller_variant(
         q_json=controller.lqr_Q_weights_json,
         r_json=controller.lqr_R_weights_json,
         gain_checksum=checksum,
+        timing_augmentation_type=controller.timing_augmentation_type,
+        timing_design_version=controller.timing_design_version,
+        sample_time_s=controller.sample_time_s,
+        latency_case=controller.latency_case,
+        command_delay_steps=controller.command_delay_steps,
+        predictor_horizon_steps=controller.predictor_horizon_steps,
+        augmented_a_checksum=controller.augmented_A_checksum,
+        augmented_b_checksum=controller.augmented_B_checksum,
+        augmented_q_json=controller.augmented_Q_json,
+        augmented_r_json=controller.augmented_R_json,
+        augmented_gain_checksum=controller.augmented_gain_checksum,
         exit_check_version=EXIT_CHECK_VERSION,
     )
     return PrimitiveControllerVariant(
@@ -162,6 +194,27 @@ def primitive_controller_variant(
         sampled_data_check_status=controller.sampled_data_check_status,
         lqr_synthesis_status=controller.lqr_synthesis_status,
         lqr_blocked_reason=controller.lqr_blocked_reason,
+        controller_design_role=controller.controller_design_role,
+        timing_augmentation_type=controller.timing_augmentation_type,
+        timing_design_version=controller.timing_design_version,
+        sample_time_s=float(controller.sample_time_s),
+        latency_case=controller.latency_case,
+        state_feedback_delay_s=float(controller.state_feedback_delay_s),
+        command_delay_s=float(controller.command_delay_s),
+        command_delay_steps=int(controller.command_delay_steps),
+        actuator_tau_s=json.dumps(list(controller.actuator_tau_s), separators=(",", ":")),
+        actuator_state_count=int(controller.actuator_state_count),
+        command_delay_state_count=int(controller.command_delay_state_count),
+        predictor_horizon_steps=int(controller.predictor_horizon_steps),
+        augmented_state_size=int(controller.augmented_state_size),
+        augmented_input_size=int(controller.augmented_input_size),
+        augmented_A_checksum=controller.augmented_A_checksum,
+        augmented_B_checksum=controller.augmented_B_checksum,
+        augmented_Q_json=controller.augmented_Q_json,
+        augmented_R_json=controller.augmented_R_json,
+        augmented_gain_checksum=controller.augmented_gain_checksum,
+        augmented_closed_loop_spectral_radius=float(controller.augmented_closed_loop_spectral_radius),
+        timing_lqr_blocked_reason=controller.timing_lqr_blocked_reason,
         timing_aware_synthesis_level=controller.timing_aware_synthesis_level,
         timing_effects_in_synthesis=controller.timing_effects_in_synthesis,
         timing_effects_in_rollout=controller.timing_effects_in_rollout,
@@ -248,6 +301,43 @@ def _normalise_row(row: dict[str, object]) -> dict[str, object]:
     out.setdefault("timing_effects_in_rollout", "feedback_delay_command_timing_actuator_lag_applied_in_w01_rollout")
     out.setdefault("sampled_data_timing_audit_status", "legacy_registry_not_recorded")
     out.setdefault("delayed_state_lqr_augmentation_status", "not_implemented_state_delay_simulated_in_rollout")
+    out.setdefault("controller_design_role", "legacy_or_superseded_controller")
+    out.setdefault("timing_augmentation_type", "legacy_not_recorded")
+    out.setdefault("timing_design_version", "legacy_not_recorded")
+    out.setdefault("sample_time_s", 0.0)
+    out.setdefault("latency_case", "legacy_not_recorded")
+    out.setdefault("state_feedback_delay_s", 0.0)
+    out.setdefault("command_delay_s", 0.0)
+    out.setdefault("command_delay_steps", 0)
+    out.setdefault("actuator_tau_s", "[]")
+    out.setdefault("actuator_state_count", 0)
+    out.setdefault("command_delay_state_count", 0)
+    out.setdefault("predictor_horizon_steps", 0)
+    out.setdefault("augmented_state_size", 0)
+    out.setdefault("augmented_input_size", 0)
+    out.setdefault("augmented_A_checksum", "")
+    out.setdefault("augmented_B_checksum", "")
+    out.setdefault("augmented_Q_json", "")
+    out.setdefault("augmented_R_json", "")
+    out.setdefault("augmented_gain_checksum", "")
+    out.setdefault("augmented_closed_loop_spectral_radius", float("inf"))
+    out.setdefault("timing_lqr_blocked_reason", "")
+    for key in (
+        "sample_time_s",
+        "state_feedback_delay_s",
+        "command_delay_s",
+        "augmented_closed_loop_spectral_radius",
+    ):
+        out[key] = float(out[key])
+    for key in (
+        "command_delay_steps",
+        "actuator_state_count",
+        "command_delay_state_count",
+        "predictor_horizon_steps",
+        "augmented_state_size",
+        "augmented_input_size",
+    ):
+        out[key] = int(out[key])
     return out
 
 
@@ -263,6 +353,17 @@ def _variant_id(
     q_json: str,
     r_json: str,
     gain_checksum: str,
+    timing_augmentation_type: str,
+    timing_design_version: str,
+    sample_time_s: float,
+    latency_case: str,
+    command_delay_steps: int,
+    predictor_horizon_steps: int,
+    augmented_a_checksum: str,
+    augmented_b_checksum: str,
+    augmented_q_json: str,
+    augmented_r_json: str,
+    augmented_gain_checksum: str,
     exit_check_version: str,
 ) -> str:
     payload = {
@@ -276,6 +377,17 @@ def _variant_id(
         "Q_weight_json": q_json,
         "R_weight_json": r_json,
         "K_gain_checksum": gain_checksum,
+        "timing_augmentation_type": timing_augmentation_type,
+        "timing_design_version": timing_design_version,
+        "sample_time_s": float(sample_time_s),
+        "latency_case": str(latency_case),
+        "command_delay_steps": int(command_delay_steps),
+        "predictor_horizon_steps": int(predictor_horizon_steps),
+        "augmented_A_checksum": augmented_a_checksum,
+        "augmented_B_checksum": augmented_b_checksum,
+        "augmented_Q_json": augmented_q_json,
+        "augmented_R_json": augmented_r_json,
+        "augmented_gain_checksum": augmented_gain_checksum,
         "exit_check_version": exit_check_version,
     }
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()[:12]

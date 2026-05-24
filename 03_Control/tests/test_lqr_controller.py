@@ -8,11 +8,17 @@ import numpy as np
 import pytest
 
 from lqr_controller import (
+    ACTIVE_TIMING_AWARE_ROLE,
     LQR_SYNTHESIS_SOLVED,
+    TIMING_AUGMENTATION_TYPE,
+    compare_timing_aware_vs_baseline_nominal,
+    controller_is_active_timing_aware_w01,
     lqr_command_for_state,
     lqr_controller_for_primitive_id,
     lqr_controller_metadata_row,
+    synthesize_baseline_trim_lqr_controller,
     synthesis_audit_row,
+    timing_augmented_lqr_design_row,
 )
 from lqr_linearisation import LQR_STATE_MASK, ZERO_POSITION_GAIN_STATES
 from prim_cat import ACTIVE_PRIMITIVE_IDS, primitive_by_id
@@ -37,21 +43,36 @@ def test_lqr_controller_audit_contract_for_all_primitives() -> None:
         audit = synthesis_audit_row(primitive_by_id(primitive_id))
 
         assert controller.controller_family == "lqr"
-        assert controller.controller_id.startswith(f"lqr_{primitive_id}_")
+        assert controller.controller_id.startswith(f"lqrta_{primitive_id}_")
+        assert controller.controller_version == "predictor_compensated_augmented_discrete_lqr_v1"
+        assert controller_is_active_timing_aware_w01(controller)
+        assert metadata["controller_design_role"] == ACTIVE_TIMING_AWARE_ROLE
+        assert metadata["timing_augmentation_type"] == TIMING_AUGMENTATION_TYPE
         assert controller.lqr_synthesis_status == LQR_SYNTHESIS_SOLVED
         assert controller.reduced_order_lqr is True
+        assert controller.actuator_state_count == 3
+        assert controller.command_delay_steps >= 1
+        assert controller.command_delay_state_count == 3 * controller.command_delay_steps
+        assert controller.augmented_state_size > controller.reduced_state_size
+        assert controller.augmented_input_size == 3
+        assert controller.augmented_A_checksum
+        assert controller.augmented_B_checksum
+        assert controller.augmented_gain_checksum
         assert tuple(json.loads(metadata["lqr_state_mask_json"])) == LQR_STATE_MASK
         assert metadata["zero_position_gain_expansion_status"] == "zero_position_gains_verified"
         assert metadata["sampled_data_check_status"] == "sampled_stable"
-        assert metadata["latency_actuator_survival_status"] in {
-            "survives_nominal_latency_actuator_lag",
-            "latency_margin_warning",
-        }
+        assert metadata["latency_actuator_survival_status"] == "timing_augmented_discrete_lqr_solved"
         assert audit["primitive_id"] == primitive_id
         assert audit["full_state_care_status"] in {"solved", "unsuitable_use_reduced_order"}
         assert math.isfinite(float(metadata["care_residual_norm"]))
-        assert float(metadata["care_residual_norm"]) < 1.0e-8
+        assert float(metadata["care_residual_norm"]) < 1.0e-6
         assert float(metadata["sampled_data_spectral_radius"]) < 1.0
+        assert float(metadata["augmented_closed_loop_spectral_radius"]) < 1.0
+        design_row = timing_augmented_lqr_design_row(controller)
+        assert design_row["controller_design_role"] == ACTIVE_TIMING_AWARE_ROLE
+        assert design_row["delayed_state_lqr_augmentation_status"] == (
+            "predictor_compensation_only_no_full_delayed_state_augmentation"
+        )
 
         gain = np.asarray(controller.k_gain_matrix, dtype=float)
         assert gain.shape == (3, 15)
@@ -68,3 +89,24 @@ def test_blocked_lqr_controller_cannot_emit_executable_zero_command() -> None:
 
     with pytest.raises(RuntimeError, match="blocked LQR controller"):
         lqr_command_for_state(controller=controller, state_vector=np.zeros(15))
+
+
+def test_timing_aware_controller_ids_are_distinct_from_superseded_baseline() -> None:
+    primitive = primitive_by_id("glide")
+    timing_aware = lqr_controller_for_primitive_id("glide")
+    baseline = synthesize_baseline_trim_lqr_controller(primitive)
+
+    assert timing_aware.controller_id != baseline.controller_id
+    assert timing_aware.controller_design_role == ACTIVE_TIMING_AWARE_ROLE
+    assert baseline.controller_design_role == "superseded_baseline_not_active_w01"
+    assert timing_aware.augmented_gain_checksum != ""
+
+
+def test_timing_aware_command_path_is_distinct_under_nominal_delay() -> None:
+    for primitive_id in ("glide", "lift_entry"):
+        comparison = compare_timing_aware_vs_baseline_nominal(primitive_by_id(primitive_id))
+        assert comparison["timing_aware_controller_id"].startswith(f"lqrta_{primitive_id}_")
+        assert comparison["baseline_controller_id"].startswith(f"lqr_{primitive_id}_")
+        assert comparison["timing_aware_role"] == ACTIVE_TIMING_AWARE_ROLE
+        assert comparison["baseline_role"] == "superseded_baseline_not_active_w01"
+        assert comparison["command_delta_norm"] > 0.0

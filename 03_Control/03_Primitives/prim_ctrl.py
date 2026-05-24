@@ -29,7 +29,7 @@ def lqr_mode_for_primitive(primitive: PrimitiveDefinition) -> str:
 
     if primitive.controller_family != "lqr":
         return "blocked_non_lqr_primitive"
-    return "lqr_state_feedback"
+    return "predictor_compensated_augmented_discrete_lqr"
 
 
 def primitive_lqr_command(

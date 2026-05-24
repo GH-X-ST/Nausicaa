@@ -44,7 +44,7 @@ def test_lqr_commands_are_bounded_for_all_active_primitives() -> None:
         )
 
         assert primitive.controller_family == "lqr"
-        assert lqr_mode_for_primitive(primitive) == "lqr_state_feedback"
+        assert lqr_mode_for_primitive(primitive) == "predictor_compensated_augmented_discrete_lqr"
         assert command.primitive_id == primitive.primitive_id
         assert command.controller_id == controller.controller_id
         assert np.asarray(command.command_norm).shape == (3,)

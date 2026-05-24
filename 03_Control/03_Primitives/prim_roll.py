@@ -106,6 +106,26 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "command_clip_check_status",
     "saturation_summary",
     "latency_actuator_survival_status",
+    "controller_design_role",
+    "timing_augmentation_type",
+    "timing_design_version",
+    "sample_time_s",
+    "state_feedback_delay_s",
+    "command_delay_s",
+    "command_delay_steps",
+    "actuator_tau_s",
+    "actuator_state_count",
+    "command_delay_state_count",
+    "predictor_horizon_steps",
+    "augmented_state_size",
+    "augmented_input_size",
+    "augmented_A_checksum",
+    "augmented_B_checksum",
+    "augmented_Q_json",
+    "augmented_R_json",
+    "augmented_gain_checksum",
+    "augmented_closed_loop_spectral_radius",
+    "timing_lqr_blocked_reason",
     "timing_aware_synthesis_level",
     "timing_effects_in_synthesis",
     "timing_effects_in_rollout",
@@ -207,6 +227,26 @@ class RolloutEvidence:
     command_clip_check_status: str
     saturation_summary: str
     latency_actuator_survival_status: str
+    controller_design_role: str
+    timing_augmentation_type: str
+    timing_design_version: str
+    sample_time_s: float
+    state_feedback_delay_s: float
+    command_delay_s: float
+    command_delay_steps: int
+    actuator_tau_s: str
+    actuator_state_count: int
+    command_delay_state_count: int
+    predictor_horizon_steps: int
+    augmented_state_size: int
+    augmented_input_size: int
+    augmented_A_checksum: str
+    augmented_B_checksum: str
+    augmented_Q_json: str
+    augmented_R_json: str
+    augmented_gain_checksum: str
+    augmented_closed_loop_spectral_radius: float
+    timing_lqr_blocked_reason: str
     timing_aware_synthesis_level: str
     timing_effects_in_synthesis: str
     timing_effects_in_rollout: str
@@ -1166,6 +1206,26 @@ def _lqr_metadata_for_evidence(
                 "command_clip_check_status": "not_evaluated_missing_explicit_lqr_controller",
                 "saturation_summary": "not_evaluated_missing_explicit_lqr_controller",
                 "latency_actuator_survival_status": "not_evaluated_missing_explicit_lqr_controller",
+                "controller_design_role": "not_evaluated_missing_explicit_lqr_controller",
+                "timing_augmentation_type": "not_evaluated_missing_explicit_lqr_controller",
+                "timing_design_version": "not_evaluated_missing_explicit_lqr_controller",
+                "sample_time_s": 0.0,
+                "state_feedback_delay_s": 0.0,
+                "command_delay_s": 0.0,
+                "command_delay_steps": 0,
+                "actuator_tau_s": "[]",
+                "actuator_state_count": 0,
+                "command_delay_state_count": 0,
+                "predictor_horizon_steps": 0,
+                "augmented_state_size": 0,
+                "augmented_input_size": 0,
+                "augmented_A_checksum": "",
+                "augmented_B_checksum": "",
+                "augmented_Q_json": "",
+                "augmented_R_json": "",
+                "augmented_gain_checksum": "",
+                "augmented_closed_loop_spectral_radius": float("inf"),
+                "timing_lqr_blocked_reason": "not_evaluated_missing_explicit_lqr_controller",
                 "timing_aware_synthesis_level": "not_evaluated_missing_explicit_lqr_controller",
                 "timing_effects_in_synthesis": "not_evaluated_missing_explicit_lqr_controller",
                 "timing_effects_in_rollout": "not_evaluated_missing_explicit_lqr_controller",

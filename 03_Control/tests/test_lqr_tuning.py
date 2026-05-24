@@ -40,8 +40,20 @@ def test_variant_registry_schema_stable_ids_and_checksum_validation() -> None:
     assert variant_a.primitive_variant_id == variant_b.primitive_variant_id
     assert variant_a.primitive_variant_id.startswith("primvar_glide_launch_capable_")
     assert variant_a.K_gain_checksum == controller.lqr_gain_checksum
-    assert variant_a.timing_aware_synthesis_level == "trim_local_reduced_order_lqr_no_delay_augmentation"
-    assert variant_a.delayed_state_lqr_augmentation_status == "not_implemented_state_delay_simulated_in_rollout"
+    assert variant_a.controller_design_role == "active_timing_aware_w01"
+    assert variant_a.timing_augmentation_type == "actuator_surface_state_command_fifo_predictor_compensated"
+    assert variant_a.timing_design_version == "predictor_compensated_augmented_discrete_lqr_v1"
+    assert variant_a.command_delay_steps >= 1
+    assert variant_a.actuator_state_count == 3
+    assert variant_a.command_delay_state_count == 3 * variant_a.command_delay_steps
+    assert variant_a.augmented_state_size > 12
+    assert variant_a.augmented_A_checksum
+    assert variant_a.augmented_B_checksum
+    assert variant_a.augmented_gain_checksum
+    assert variant_a.timing_aware_synthesis_level == "predictor_compensated_augmented_discrete_lqr"
+    assert variant_a.delayed_state_lqr_augmentation_status == (
+        "predictor_compensation_only_no_full_delayed_state_augmentation"
+    )
     validate_variant_controller_match(variant_a, controller)
     with pytest.raises(ValueError, match="gain checksum"):
         validate_variant_controller_match(variant_a, changed)

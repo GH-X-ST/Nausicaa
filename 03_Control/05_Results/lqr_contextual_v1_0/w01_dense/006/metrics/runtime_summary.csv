@@ -1,0 +1,2 @@
+run_id,status,rows_requested,row_count,duration_s,runtime_storage_contract,max_generated_file_size_mb,claim_boundary
+6,complete,2000,2000,19.94518756866455,"chunked, resumable, compressed, worker-enabled, checksum-manifested, and no generated file above 100 MB",100.0,cleaned_and_restructured_for_corrected_W0_W1_rich_primitive_controller_dense_generation_readiness_only

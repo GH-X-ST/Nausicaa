@@ -137,3 +137,47 @@ This addendum keeps the same claim boundary: W01 evidence generation readiness
 only. It does not claim W0/W1 dense evidence completion, W2 survival, W3
 robustness, post-W3 compact-library readiness, governor validation, hardware
 readiness, real-flight transfer, or mission success.
+
+## LQR-Stabilised Contextual Primitive v4.3 Timing-Aware Addendum
+
+Date/time: 2026-05-24 20:15:09 +01:00
+
+Current branch: `main`
+
+Current HEAD: `f54941b256571499771e7fdaa3c5213d206e786a`
+
+This pass supersedes the v4.2 trim/local reduced-order active W01 controller
+with `predictor_compensated_augmented_discrete_lqr_v1` as the active W01
+controller method. The implementation uses a discrete-time augmented LQR with
+actuator surface states, command-delay FIFO states, and predictor compensation
+for nominal measured-state delay. It does not claim true full delayed-state
+feedback augmentation.
+
+Historical W01 roots `001` through `004` are retained as prior approved
+readiness artifacts. New v4.3 readiness artifacts are:
+
+- `03_Control/05_Results/lqr_contextual_v1_0/w01_dense/005`: dry-run
+  schedule/manifest readiness only, no table partitions.
+- `03_Control/05_Results/lqr_contextual_v1_0/w01_dense/006`: 2000-row
+  timing-aware W01 preflight validation with partitioned dense rows.
+
+Validation after this v4.3 pass:
+
+- PowerShell-expanded `py_compile` over `03_Control/02_Inner_Loop`,
+  `03_Control/03_Primitives`, and `03_Control/04_Scenarios`: passed.
+- `python -m pytest -q 03_Control/tests --basetemp .codex_run_logs\pytest_tmp -o cache_dir=.codex_run_logs\pytest_cache`:
+  passed, 154 tests.
+- `python 03_Control/04_Scenarios/run_w01_w2_w3_contract_audit.py`: passed.
+- W01 dry-run readiness command for run `005`: passed.
+- W01 timing-aware preflight command for run `006`: passed, 2000 rows.
+- Separate `.codex_run_logs` repair validation regenerated corrupted chunk
+  `c00000` and preserved deterministic row count/checksum behavior; no active
+  evidence root was deliberately corrupted.
+- File-size audit for run `006`: passed; largest generated file is below 1 MB,
+  well under the 100 MB hard limit.
+- `git diff --check`: passed with line-ending warnings only.
+
+The v4.3 claim boundary remains workflow and readiness only. It does not claim
+W0/W1 dense evidence completion, W2 survival, W3 robustness,
+post-W3 compact-library readiness, governor validation, hardware readiness,
+real-flight transfer, or mission success.

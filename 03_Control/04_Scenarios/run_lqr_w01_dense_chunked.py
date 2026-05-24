@@ -43,7 +43,7 @@ from env_ctx import build_environment_context, environment_context_row  # noqa: 
 from env_instance import environment_instance_for_mode, environment_instance_row, environment_metadata_from_instance  # noqa: E402
 from env_surrogate import resolve_surrogate_binding, surrogate_binding_row, wind_field_for_binding  # noqa: E402
 from implementation_instance import implementation_instance_for_layer, implementation_instance_row  # noqa: E402
-from lqr_controller import synthesize_lqr_controller  # noqa: E402
+from lqr_controller import ACTIVE_TIMING_AWARE_ROLE, controller_is_active_timing_aware_w01, synthesize_lqr_controller  # noqa: E402
 from lqr_tuning import candidate_weight_specs, lqr_tuning_schedule, tuning_schedule_row  # noqa: E402
 from plant_instance import plant_instance_for_layer, plant_instance_row  # noqa: E402
 from prim_cat import ACTIVE_PRIMITIVE_IDS, active_primitive_catalogue  # noqa: E402
@@ -66,6 +66,7 @@ from state_sampling import archive_state_sample_for_family, archive_state_sample
 
 
 W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v1"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.3"
 W01_TABLE_NAME = "w01_primitive_rows"
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 OFFICIAL_W01_ENVIRONMENT_CASES = (
@@ -592,6 +593,8 @@ def _row_for_index(
             "timing_effects_in_rollout": controller.timing_effects_in_rollout,
             "sampled_data_timing_audit_status": controller.sampled_data_timing_audit_status,
             "delayed_state_lqr_augmentation_status": controller.delayed_state_lqr_augmentation_status,
+            "active_timing_aware_controller_used": controller_is_active_timing_aware_w01(controller),
+            "baseline_controller_active": False,
             "claim_boundary": CLAIM_BOUNDARY,
         }
     )
@@ -777,6 +780,7 @@ def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[ob
         "W_layer",
         "environment_mode",
         "lqr_synthesis_status",
+        "controller_design_role",
     )
     for partition in partitions:
         frame = read_table_partition(run_root / "tables" / partition.relative_path, storage_format=storage_format)
@@ -792,6 +796,9 @@ def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[ob
                 "primitive_id",
                 "entry_role",
                 "candidate_index",
+                "controller_design_role",
+                "timing_augmentation_type",
+                "timing_design_version",
                 "lqr_synthesis_status",
                 "sampled_data_check_status",
                 "sampled_data_timing_audit_status",
@@ -829,6 +836,9 @@ def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[ob
             "primitive_id",
             "entry_role",
             "candidate_index",
+            "controller_design_role",
+            "timing_augmentation_type",
+            "timing_design_version",
             "lqr_synthesis_status",
             "sampled_data_check_status",
             "sampled_data_timing_audit_status",
@@ -1009,7 +1019,7 @@ def _write_reports(run_root: Path, *, status: str, row_count: int) -> None:
         ]
     )
     filesystem_path(run_root / "reports" / "claim_boundary_report.md").write_text(claim_report, encoding="ascii")
-    run_class, move_on_blockers = _l6_move_on_status(status=status, row_count=row_count)
+    run_class, move_on_blockers = _l6_move_on_status(run_root=run_root, status=status, row_count=row_count)
     run_report = "\n".join(
         [
             "# W01 Dense Preflight Readiness Run",
@@ -1029,8 +1039,10 @@ def _write_reports(run_root: Path, *, status: str, row_count: int) -> None:
             f"- Status: `{status}`",
             f"- Run class: `{run_class}`",
             f"- Rows written: `{int(row_count)}`",
-            "- Controller synthesis boundary: `trim_local_reduced_order_lqr_no_delay_augmentation`",
+            "- Controller synthesis boundary: `predictor_compensated_augmented_discrete_lqr_v1`",
+            "- Timing design: `actuator_surface_state_command_fifo_predictor_compensated`",
             "- Rollout boundary: `panel_wind_feedback_delay_command_timing_actuator_lag_with_plant_and_implementation_instances`",
+            "- Deferred validation: `no_true_full_delayed_state_feedback_validation_claim`",
             f"- Heavy W01 move-on allowed: `{not move_on_blockers}`",
             "",
             "Blockers before heavy W01:",
@@ -1042,16 +1054,83 @@ def _write_reports(run_root: Path, *, status: str, row_count: int) -> None:
         ]
     )
     filesystem_path(run_root / "reports" / "l6_move_on_check.md").write_text(l6_report, encoding="ascii")
+    timing_report = "\n".join(
+        [
+            "# Timing Synthesis Boundary",
+            "",
+            f"- Project title version: `{PROJECT_TITLE_VERSION}`",
+            "- Active W01 controller: `predictor_compensated_augmented_discrete_lqr_v1`",
+            "- Augmentation: actuator surface states and command-delay FIFO states in a discrete-time LQR model.",
+            "- State-feedback delay treatment: predictor compensation using the local reduced-order model and nominal delay horizon.",
+            "- Rollout timing: panel-wise wind, feedback latency, command timing, actuator lag, implementation instance, and plant instance remain applied in evidence rows.",
+            "- Not claimed: true full delayed-state-feedback augmentation, hardware readiness, transfer, or mission success.",
+            "",
+        ]
+    )
+    filesystem_path(run_root / "reports" / "timing_synthesis_boundary.md").write_text(timing_report, encoding="ascii")
 
 
-def _l6_move_on_status(*, status: str, row_count: int) -> tuple[str, list[str]]:
+def _l6_move_on_status(*, run_root: Path, status: str, row_count: int) -> tuple[str, list[str]]:
+    blockers = _timing_aware_gate_blockers(run_root=run_root, row_count=row_count)
     if status == "dry_run_schedule":
-        return "dry_run_schedule", ["no_rollout_evidence_written"]
+        return "dry_run_schedule", ["no_rollout_evidence_written", *blockers]
     if int(row_count) < 1000:
-        return "smoke", ["below_1000_row_preflight_threshold"]
+        return "smoke", ["below_1000_row_preflight_threshold", *blockers]
     if int(row_count) < 10000:
-        return "preflight", []
-    return "dense_evidence", []
+        return "preflight", blockers
+    return "dense_evidence", blockers
+
+
+def _timing_aware_gate_blockers(*, run_root: Path, row_count: int) -> list[str]:
+    blockers: list[str] = []
+    registry_path = filesystem_path(run_root / "metrics" / "primitive_variant_registry.csv")
+    if not registry_path.is_file():
+        blockers.append("missing_primitive_variant_registry")
+    else:
+        registry = pd.read_csv(registry_path)
+        required_columns = {"primitive_id", "controller_design_role", "lqr_synthesis_status"}
+        if not required_columns.issubset(set(registry.columns)):
+            blockers.append("registry_missing_timing_aware_controller_columns")
+        else:
+            for primitive_id in ACTIVE_PRIMITIVE_IDS:
+                primitive_rows = registry[registry["primitive_id"].astype(str) == str(primitive_id)]
+                active_rows = primitive_rows[
+                    (primitive_rows["controller_design_role"].astype(str) == ACTIVE_TIMING_AWARE_ROLE)
+                    & (
+                        primitive_rows["lqr_synthesis_status"]
+                        .astype(str)
+                        .isin(["solved", "blocked_lqr_synthesis"])
+                    )
+                ]
+                if active_rows.empty:
+                    blockers.append(f"missing_timing_aware_solved_or_blocked_variant_for_{primitive_id}")
+    if int(row_count) <= 0:
+        return blockers
+    summary_path = filesystem_path(run_root / "metrics" / "variant_synthesis_summary.csv")
+    if not summary_path.is_file():
+        blockers.append("missing_variant_synthesis_summary")
+        return blockers
+    summary = pd.read_csv(summary_path)
+    if "controller_design_role" not in summary.columns:
+        blockers.append("variant_synthesis_summary_missing_controller_design_role")
+        return blockers
+    active_count = int(
+        summary.loc[
+            summary["controller_design_role"].astype(str) == ACTIVE_TIMING_AWARE_ROLE,
+            "row_count",
+        ].sum()
+    )
+    non_active_count = int(
+        summary.loc[
+            summary["controller_design_role"].astype(str) != ACTIVE_TIMING_AWARE_ROLE,
+            "row_count",
+        ].sum()
+    )
+    if active_count <= 0:
+        blockers.append("w01_rows_missing_active_timing_aware_controller_ids")
+    if non_active_count > 0:
+        blockers.append("w01_rows_include_superseded_baseline_controller_ids")
+    return blockers
 
 
 def _write_empty_table_manifest(run_root: Path, run_id: int, storage_format: str) -> None:
@@ -1086,7 +1165,7 @@ def _run_manifest(
     schedule_counts = _schedule_count_summary(config)
     return {
         "runner_version": W01_RUNNER_VERSION,
-        "project_title_version": "LQR-Stabilised Contextual Primitive v4.0",
+        "project_title_version": PROJECT_TITLE_VERSION,
         "run_stage": "W01_dense_primitive_variant_generation",
         "run_id": int(config.run_id),
         "run_root": run_root.as_posix(),
@@ -1118,7 +1197,9 @@ def _run_manifest(
         "W2_W3_replay_only": True,
         "panelwise_timing_actuator_effects_active_from_W01": True,
         "PD_PID_fallback_allowed": False,
-        "timing_aware_synthesis_level": "trim_local_reduced_order_lqr_no_delay_augmentation",
+        "timing_aware_synthesis_level": "predictor_compensated_augmented_discrete_lqr",
+        "active_controller_design_role": ACTIVE_TIMING_AWARE_ROLE,
+        "timing_augmentation_type": "actuator_surface_state_command_fifo_predictor_compensated",
         "timing_effects_in_rollout": "panel_wind_feedback_delay_command_timing_actuator_lag_with_plant_and_implementation_instances",
         "claim_status": CLAIM_BOUNDARY,
         "blocked_claims": list(BLOCKED_CLAIMS),

@@ -9,7 +9,7 @@ import numpy as np
 from scipy import linalg
 
 from command_contract import clip_normalised_command, normalised_command_to_surface_rad
-from latency import AGGREGATE_LIMITS, angle_to_command_norm
+from latency import AGGREGATE_LIMITS, angle_to_command_norm, latency_case_config
 from lqr_linearisation import (
     LQR_STATE_MASK,
     LQRLinearisation,
@@ -34,10 +34,15 @@ from state_contract import STATE_INDEX, STATE_NAMES, STATE_SIZE, as_state_vector
 # =============================================================================
 # 1) Controller Dataclasses
 # =============================================================================
-LQR_CONTROLLER_VERSION = "time_invariant_reduced_order_lqr_v1"
+LQR_CONTROLLER_VERSION = "predictor_compensated_augmented_discrete_lqr_v1"
+BASELINE_LQR_CONTROLLER_VERSION = "time_invariant_reduced_order_lqr_v1"
 LQR_SYNTHESIS_SOLVED = "solved"
 LQR_SYNTHESIS_BLOCKED = "blocked_lqr_synthesis"
 ROLLOUT_DT_S = 0.02
+ACTIVE_TIMING_AWARE_ROLE = "active_timing_aware_w01"
+BASELINE_CONTROLLER_ROLE = "superseded_baseline_not_active_w01"
+TIMING_AUGMENTATION_TYPE = "actuator_surface_state_command_fifo_predictor_compensated"
+TIMING_DESIGN_VERSION = "predictor_compensated_augmented_discrete_lqr_v1"
 
 
 @dataclass(frozen=True)
@@ -85,6 +90,29 @@ class LQRController:
     command_clip_check_status: str
     saturation_summary: str
     latency_actuator_survival_status: str
+    controller_design_role: str
+    timing_augmentation_type: str
+    timing_design_version: str
+    sample_time_s: float
+    latency_case: str
+    state_feedback_delay_s: float
+    command_delay_s: float
+    command_delay_steps: int
+    actuator_tau_s: tuple[float, float, float]
+    actuator_state_count: int
+    command_delay_state_count: int
+    predictor_horizon_steps: int
+    augmented_state_size: int
+    augmented_input_size: int
+    augmented_A_checksum: str
+    augmented_B_checksum: str
+    augmented_Q_json: str
+    augmented_R_json: str
+    augmented_gain_checksum: str
+    augmented_gain_matrix_json: str
+    augmented_closed_loop_spectral_radius: float
+    timing_lqr_blocked_reason: str
+    predictor_A_reduced_json: str
     timing_aware_synthesis_level: str
     timing_effects_in_synthesis: str
     timing_effects_in_rollout: str
@@ -160,8 +188,173 @@ def synthesize_lqr_controller(
     *,
     weight_spec: LQRWeightSpec | None = None,
     rollout_dt_s: float = ROLLOUT_DT_S,
+    latency_case: str = "nominal",
 ) -> LQRController:
-    """Synthesize the active time-invariant LQR controller for one primitive."""
+    """Synthesize the active timing-aware W01 LQR controller for one primitive."""
+
+    weights = weight_spec or default_lqr_weight_spec(primitive.primitive_id)
+    linearisation = build_lqr_linearisation(primitive)
+    a_full = np.asarray(linearisation.a_full, dtype=float)
+    b_full = np.asarray(linearisation.b_full, dtype=float)
+    a_reduced = np.asarray(linearisation.a_reduced, dtype=float)
+    b_reduced = np.asarray(linearisation.b_reduced, dtype=float)
+    q_reduced = _q_reduced(weights)
+    r_matrix = _r_matrix(weights)
+    q_full = _expand_q_to_full(q_reduced)
+    full_status, full_message = _care_attempt_status(a_full, b_full, q_full, r_matrix)
+
+    timing = latency_case_config(latency_case)
+    command_delay_s = float(timing.command_onset_delay_s + timing.command_transport_delay_s)
+    delay_steps = max(1, int(np.ceil(command_delay_s / float(rollout_dt_s))))
+    predictor_steps = max(0, int(np.ceil(float(timing.state_feedback_delay_s) / float(rollout_dt_s))))
+    actuator_tau = tuple(float(value) for value in timing.actuator_tau_s)
+
+    ad_reduced, bd_reduced = _discretise_zoh(a_reduced, b_reduced, float(rollout_dt_s))
+    a_aug, b_aug = _augment_discrete_command_delay(ad_reduced, bd_reduced, delay_steps)
+    q_aug = _augmented_q_matrix(q_reduced, weights, delay_steps)
+    r_aug = r_matrix.copy()
+    k_aug = np.zeros((3, a_aug.shape[0]), dtype=float)
+    care_residual = float("inf")
+    augmented_radius = float("inf")
+    sampled_status = LQR_SYNTHESIS_BLOCKED
+    synthesis_status = LQR_SYNTHESIS_BLOCKED
+    timing_blocked_reason = ""
+    eig_summary = "not_evaluated"
+    try:
+        p_aug = linalg.solve_discrete_are(a_aug, b_aug, q_aug, r_aug)
+        k_aug = np.linalg.solve(b_aug.T @ p_aug @ b_aug + r_aug, b_aug.T @ p_aug @ a_aug)
+        care_residual = _dare_residual_norm(a_aug, b_aug, q_aug, r_aug, p_aug)
+        closed_loop = a_aug - b_aug @ k_aug
+        eig_aug = np.linalg.eigvals(closed_loop)
+        eig_summary = _eigen_summary(eig_aug)
+        augmented_radius = float(np.max(np.abs(eig_aug)))
+        sampled_status = "sampled_stable" if augmented_radius < 1.0 else "failed_augmented_sampled_data_instability"
+    except Exception as exc:
+        timing_blocked_reason = f"augmented_discrete_lqr_failed:{type(exc).__name__}:{exc}"
+
+    k_physical_full = _expand_gain_to_full(k_aug[:, : len(LQR_STATE_MASK)])
+    expansion_status = _gain_expansion_status(k_physical_full)
+    command_status, saturation_summary = _reference_command_check(
+        tuple(linearisation.reference.reference_command_vector)
+    )
+    if not timing_blocked_reason:
+        reasons = _timing_blocked_reason(
+            linearisation=linearisation,
+            dare_residual=care_residual,
+            sampled_status=sampled_status,
+            command_status=command_status,
+            expansion_status=expansion_status,
+        )
+        timing_blocked_reason = reasons
+    synthesis_status = LQR_SYNTHESIS_SOLVED if not timing_blocked_reason else LQR_SYNTHESIS_BLOCKED
+
+    q_json = json.dumps(_q_weight_payload(weights), sort_keys=True, separators=(",", ":"))
+    r_json = json.dumps(_r_weight_payload(weights), sort_keys=True, separators=(",", ":"))
+    augmented_q_json = json.dumps(_augmented_q_payload(weights, delay_steps), sort_keys=True, separators=(",", ":"))
+    augmented_r_json = json.dumps(_augmented_r_payload(weights), sort_keys=True, separators=(",", ":"))
+    gain_checksum = gain_checksum_sha256(k_physical_full)
+    augmented_gain_checksum = gain_checksum_sha256(k_aug)
+    a_checksum = matrix_checksum_sha256(a_aug)
+    b_checksum = matrix_checksum_sha256(b_aug)
+    controller_id = _timing_controller_id(
+        primitive_id=primitive.primitive_id,
+        linearisation_id=linearisation.linearisation_id,
+        q_json=q_json,
+        r_json=r_json,
+        augmented_q_json=augmented_q_json,
+        augmented_r_json=augmented_r_json,
+        gain_checksum=gain_checksum,
+        augmented_gain_checksum=augmented_gain_checksum,
+        weight_label=weights.weight_label,
+        sample_time_s=float(rollout_dt_s),
+        latency_case=str(latency_case),
+        command_delay_steps=delay_steps,
+        predictor_horizon_steps=predictor_steps,
+        augmented_A_checksum=a_checksum,
+        augmented_B_checksum=b_checksum,
+    )
+    return LQRController(
+        primitive_id=primitive.primitive_id,
+        controller_family="lqr",
+        controller_mode="lqr_local_feedback",
+        feedback_mode="predictor_compensated_augmented_discrete_lqr",
+        controller_id=controller_id,
+        controller_version=LQR_CONTROLLER_VERSION,
+        lqr_reference_id=linearisation.reference.reference_id,
+        linearisation_id=linearisation.linearisation_id,
+        linearisation_source=linearisation.linearisation_source,
+        reduced_order_lqr=True,
+        lqr_state_mask_json=json.dumps(LQR_STATE_MASK, separators=(",", ":")),
+        zero_position_gain_expansion_status=expansion_status,
+        full_state_care_status=full_status,
+        full_state_care_message=full_message,
+        full_controllability_rank=int(linearisation.full_controllability_rank),
+        full_state_size=int(linearisation.full_state_size),
+        reduced_controllability_rank=int(linearisation.reduced_controllability_rank),
+        reduced_state_size=int(linearisation.reduced_state_size),
+        care_residual_norm=float(care_residual),
+        lqr_Q_weights_json=q_json,
+        lqr_R_weights_json=r_json,
+        lqr_gain_checksum=gain_checksum,
+        lqr_synthesis_status=synthesis_status,
+        lqr_blocked_reason=timing_blocked_reason,
+        lqr_closed_loop_eigenvalue_summary=eig_summary,
+        sampled_data_check_status=sampled_status,
+        sampled_data_spectral_radius=float(augmented_radius),
+        command_clip_check_status=command_status,
+        saturation_summary=saturation_summary,
+        latency_actuator_survival_status=(
+            "timing_augmented_discrete_lqr_solved"
+            if synthesis_status == LQR_SYNTHESIS_SOLVED
+            else "timing_augmented_discrete_lqr_blocked"
+        ),
+        controller_design_role=ACTIVE_TIMING_AWARE_ROLE,
+        timing_augmentation_type=TIMING_AUGMENTATION_TYPE,
+        timing_design_version=TIMING_DESIGN_VERSION,
+        sample_time_s=float(rollout_dt_s),
+        latency_case=str(latency_case),
+        state_feedback_delay_s=float(timing.state_feedback_delay_s),
+        command_delay_s=float(command_delay_s),
+        command_delay_steps=int(delay_steps),
+        actuator_tau_s=actuator_tau,
+        actuator_state_count=3,
+        command_delay_state_count=int(3 * delay_steps),
+        predictor_horizon_steps=int(predictor_steps),
+        augmented_state_size=int(a_aug.shape[0]),
+        augmented_input_size=int(b_aug.shape[1]),
+        augmented_A_checksum=a_checksum,
+        augmented_B_checksum=b_checksum,
+        augmented_Q_json=augmented_q_json,
+        augmented_R_json=augmented_r_json,
+        augmented_gain_checksum=augmented_gain_checksum,
+        augmented_gain_matrix_json=json.dumps(_rounded_matrix_payload(k_aug), separators=(",", ":")),
+        augmented_closed_loop_spectral_radius=float(augmented_radius),
+        timing_lqr_blocked_reason=timing_blocked_reason,
+        predictor_A_reduced_json=json.dumps(_rounded_matrix_payload(ad_reduced), separators=(",", ":")),
+        timing_aware_synthesis_level="predictor_compensated_augmented_discrete_lqr",
+        timing_effects_in_synthesis="discrete_lqr_with_actuator_surface_states_and_command_delay_fifo",
+        timing_effects_in_rollout="predictor_compensation_feedback_delay_command_timing_actuator_lag_applied",
+        sampled_data_timing_audit_status=(
+            "augmented_discrete_sampled_stable"
+            if synthesis_status == LQR_SYNTHESIS_SOLVED
+            else "augmented_discrete_lqr_blocked"
+        ),
+        delayed_state_lqr_augmentation_status="predictor_compensation_only_no_full_delayed_state_augmentation",
+        tuning_stage=weights.tuning_stage,
+        controller_claim_status="simulation_only",
+        k_gain_matrix=tuple(tuple(float(value) for value in row) for row in k_physical_full),
+        reference_state_vector=linearisation.reference.reference_state_vector,
+        reference_command_vector=linearisation.reference.reference_command_vector,
+    )
+
+
+def synthesize_baseline_trim_lqr_controller(
+    primitive: PrimitiveDefinition,
+    *,
+    weight_spec: LQRWeightSpec | None = None,
+    rollout_dt_s: float = ROLLOUT_DT_S,
+) -> LQRController:
+    """Synthesize the superseded non-augmented trim/local baseline LQR."""
 
     weights = weight_spec or default_lqr_weight_spec(primitive.primitive_id)
     linearisation = build_lqr_linearisation(primitive)
@@ -252,7 +445,7 @@ def synthesize_lqr_controller(
         controller_mode="lqr_local_feedback",
         feedback_mode="lqr_state_feedback",
         controller_id=controller_id,
-        controller_version=LQR_CONTROLLER_VERSION,
+        controller_version=BASELINE_LQR_CONTROLLER_VERSION,
         lqr_reference_id=linearisation.reference.reference_id,
         linearisation_id=linearisation.linearisation_id,
         linearisation_source=linearisation.linearisation_source,
@@ -277,6 +470,29 @@ def synthesize_lqr_controller(
         command_clip_check_status=command_status,
         saturation_summary=saturation_summary,
         latency_actuator_survival_status=latency_status,
+        controller_design_role=BASELINE_CONTROLLER_ROLE,
+        timing_augmentation_type="none",
+        timing_design_version=BASELINE_LQR_CONTROLLER_VERSION,
+        sample_time_s=float(rollout_dt_s),
+        latency_case="nominal",
+        state_feedback_delay_s=0.0,
+        command_delay_s=0.0,
+        command_delay_steps=0,
+        actuator_tau_s=(0.0, 0.0, 0.0),
+        actuator_state_count=0,
+        command_delay_state_count=0,
+        predictor_horizon_steps=0,
+        augmented_state_size=int(linearisation.reduced_state_size),
+        augmented_input_size=3,
+        augmented_A_checksum=matrix_checksum_sha256(a_reduced),
+        augmented_B_checksum=matrix_checksum_sha256(b_reduced),
+        augmented_Q_json=json.dumps({"baseline_q": _q_weight_payload(weights)}, sort_keys=True, separators=(",", ":")),
+        augmented_R_json=json.dumps({"baseline_r": _r_weight_payload(weights)}, sort_keys=True, separators=(",", ":")),
+        augmented_gain_checksum=gain_checksum,
+        augmented_gain_matrix_json=json.dumps(_rounded_matrix_payload(k_reduced if "k_reduced" in locals() else np.zeros((3, len(LQR_STATE_MASK)))), separators=(",", ":")),
+        augmented_closed_loop_spectral_radius=float(sampled_radius),
+        timing_lqr_blocked_reason=blocked_reason,
+        predictor_A_reduced_json=json.dumps(_rounded_matrix_payload(linalg.expm(a_reduced * float(rollout_dt_s))), separators=(",", ":")),
         timing_aware_synthesis_level="trim_local_reduced_order_lqr_no_delay_augmentation",
         timing_effects_in_synthesis="sampled_data_stability_and_nominal_latency_actuator_smoke_only",
         timing_effects_in_rollout="feedback_delay_command_timing_actuator_lag_applied_in_w01_rollout",
@@ -309,7 +525,10 @@ def lqr_command_for_state(
             "blocked LQR controller cannot produce an executable command: "
             f"{controller.controller_id}:{controller.lqr_synthesis_status}"
         )
-    raw_rad = u_ref - gain @ (state - x_ref)
+    if controller_is_active_timing_aware_w01(controller):
+        raw_rad = _timing_aware_raw_command_rad(controller=controller, state=state)
+    else:
+        raw_rad = u_ref - gain @ (state - x_ref)
     raw_norm = _surface_rad_to_unclipped_norm(raw_rad)
     clipped_norm = clip_normalised_command(raw_norm)
     clipped_rad = normalised_command_to_surface_rad(clipped_norm)
@@ -363,6 +582,26 @@ def lqr_rollout_metadata(controller: LQRController) -> dict[str, object]:
         "command_clip_check_status": controller.command_clip_check_status,
         "saturation_summary": controller.saturation_summary,
         "latency_actuator_survival_status": controller.latency_actuator_survival_status,
+        "controller_design_role": controller.controller_design_role,
+        "timing_augmentation_type": controller.timing_augmentation_type,
+        "timing_design_version": controller.timing_design_version,
+        "sample_time_s": controller.sample_time_s,
+        "state_feedback_delay_s": controller.state_feedback_delay_s,
+        "command_delay_s": controller.command_delay_s,
+        "command_delay_steps": controller.command_delay_steps,
+        "actuator_tau_s": json.dumps(list(controller.actuator_tau_s), separators=(",", ":")),
+        "actuator_state_count": controller.actuator_state_count,
+        "command_delay_state_count": controller.command_delay_state_count,
+        "predictor_horizon_steps": controller.predictor_horizon_steps,
+        "augmented_state_size": controller.augmented_state_size,
+        "augmented_input_size": controller.augmented_input_size,
+        "augmented_A_checksum": controller.augmented_A_checksum,
+        "augmented_B_checksum": controller.augmented_B_checksum,
+        "augmented_Q_json": controller.augmented_Q_json,
+        "augmented_R_json": controller.augmented_R_json,
+        "augmented_gain_checksum": controller.augmented_gain_checksum,
+        "augmented_closed_loop_spectral_radius": controller.augmented_closed_loop_spectral_radius,
+        "timing_lqr_blocked_reason": controller.timing_lqr_blocked_reason,
         "timing_aware_synthesis_level": controller.timing_aware_synthesis_level,
         "timing_effects_in_synthesis": controller.timing_effects_in_synthesis,
         "timing_effects_in_rollout": controller.timing_effects_in_rollout,
@@ -378,6 +617,8 @@ def controller_is_executable_lqr(controller: LQRController) -> tuple[bool, str]:
 
     if controller.controller_family != "lqr":
         return False, "controller_family_not_lqr"
+    if not controller_is_active_timing_aware_w01(controller):
+        return False, "baseline_controller_not_active_w01"
     if controller.lqr_synthesis_status != LQR_SYNTHESIS_SOLVED:
         return False, "lqr_synthesis_not_solved"
     if controller.sampled_data_check_status != "sampled_stable":
@@ -392,6 +633,78 @@ def controller_is_executable_lqr(controller: LQRController) -> tuple[bool, str]:
 # =============================================================================
 # 4) Audit Helpers
 # =============================================================================
+def controller_is_active_timing_aware_w01(controller: LQRController) -> bool:
+    """Return whether a controller is the active v4.3 W01 timing-aware design."""
+
+    return (
+        controller.controller_design_role == ACTIVE_TIMING_AWARE_ROLE
+        and controller.timing_augmentation_type == TIMING_AUGMENTATION_TYPE
+        and controller.timing_design_version == TIMING_DESIGN_VERSION
+    )
+
+
+def timing_augmented_lqr_design_row(controller: LQRController) -> dict[str, object]:
+    """Return the compact timing-aware design audit row used by tests and reports."""
+
+    return {
+        "primitive_id": controller.primitive_id,
+        "controller_id": controller.controller_id,
+        "controller_design_role": controller.controller_design_role,
+        "timing_augmentation_type": controller.timing_augmentation_type,
+        "timing_design_version": controller.timing_design_version,
+        "sample_time_s": float(controller.sample_time_s),
+        "latency_case": controller.latency_case,
+        "state_feedback_delay_s": float(controller.state_feedback_delay_s),
+        "command_delay_s": float(controller.command_delay_s),
+        "command_delay_steps": int(controller.command_delay_steps),
+        "actuator_tau_s": json.dumps(list(controller.actuator_tau_s), separators=(",", ":")),
+        "actuator_state_count": int(controller.actuator_state_count),
+        "command_delay_state_count": int(controller.command_delay_state_count),
+        "predictor_horizon_steps": int(controller.predictor_horizon_steps),
+        "augmented_state_size": int(controller.augmented_state_size),
+        "augmented_input_size": int(controller.augmented_input_size),
+        "augmented_A_checksum": controller.augmented_A_checksum,
+        "augmented_B_checksum": controller.augmented_B_checksum,
+        "augmented_Q_json": controller.augmented_Q_json,
+        "augmented_R_json": controller.augmented_R_json,
+        "augmented_gain_checksum": controller.augmented_gain_checksum,
+        "augmented_closed_loop_spectral_radius": float(controller.augmented_closed_loop_spectral_radius),
+        "lqr_synthesis_status": controller.lqr_synthesis_status,
+        "timing_lqr_blocked_reason": controller.timing_lqr_blocked_reason,
+        "delayed_state_lqr_augmentation_status": controller.delayed_state_lqr_augmentation_status,
+        "controller_claim_status": controller.controller_claim_status,
+    }
+
+
+def compare_timing_aware_vs_baseline_nominal(
+    primitive: PrimitiveDefinition,
+    *,
+    weight_spec: LQRWeightSpec | None = None,
+) -> dict[str, object]:
+    """Return a deterministic command-path comparison under nominal timing assumptions."""
+
+    timing_aware = synthesize_lqr_controller(primitive, weight_spec=weight_spec)
+    baseline = synthesize_baseline_trim_lqr_controller(primitive, weight_spec=weight_spec)
+    state = np.asarray(timing_aware.reference_state_vector, dtype=float).copy()
+    state[STATE_INDEX["theta"]] += np.deg2rad(1.0)
+    state[STATE_INDEX["q"]] += 0.02
+    state[STATE_INDEX["delta_e"]] += np.deg2rad(0.5)
+    timing_command = lqr_command_for_state(controller=timing_aware, state_vector=state)
+    baseline_command = lqr_command_for_state(controller=baseline, state_vector=state)
+    timing_rad = np.asarray(timing_command.command_rad, dtype=float)
+    baseline_rad = np.asarray(baseline_command.command_rad, dtype=float)
+    return {
+        "primitive_id": primitive.primitive_id,
+        "timing_aware_controller_id": timing_aware.controller_id,
+        "baseline_controller_id": baseline.controller_id,
+        "timing_aware_role": timing_aware.controller_design_role,
+        "baseline_role": baseline.controller_design_role,
+        "command_delta_norm": float(np.linalg.norm(timing_rad - baseline_rad)),
+        "timing_aware_command_rad": tuple(float(value) for value in timing_rad),
+        "baseline_command_rad": tuple(float(value) for value in baseline_rad),
+    }
+
+
 def synthesis_audit_row(primitive: PrimitiveDefinition) -> dict[str, object]:
     controller = synthesize_lqr_controller(primitive)
     row = lqr_controller_metadata_row(controller)
@@ -407,6 +720,196 @@ def synthesis_audit_row(primitive: PrimitiveDefinition) -> dict[str, object]:
 def gain_checksum_sha256(gain_matrix: np.ndarray) -> str:
     rounded = np.round(np.asarray(gain_matrix, dtype=float), decimals=12)
     return hashlib.sha256(rounded.tobytes()).hexdigest()
+
+
+def matrix_checksum_sha256(matrix: np.ndarray) -> str:
+    """Return a stable checksum for an audited numeric matrix."""
+
+    rounded = np.round(np.asarray(matrix, dtype=float), decimals=12)
+    return hashlib.sha256(rounded.tobytes()).hexdigest()
+
+
+def _rounded_matrix_payload(matrix: np.ndarray, *, decimals: int = 12) -> list[list[float]]:
+    rounded = np.round(np.asarray(matrix, dtype=float), decimals=int(decimals))
+    return [[float(value) for value in row] for row in rounded.tolist()]
+
+
+def _discretise_zoh(a: np.ndarray, b: np.ndarray, dt_s: float) -> tuple[np.ndarray, np.ndarray]:
+    """Return exact zero-order-hold discrete A/B matrices."""
+
+    a_matrix = np.asarray(a, dtype=float)
+    b_matrix = np.asarray(b, dtype=float)
+    n_state, n_input = b_matrix.shape
+    block = np.zeros((n_state + n_input, n_state + n_input), dtype=float)
+    block[:n_state, :n_state] = a_matrix
+    block[:n_state, n_state:] = b_matrix
+    expm = linalg.expm(block * float(dt_s))
+    return expm[:n_state, :n_state], expm[:n_state, n_state:]
+
+
+def _augment_discrete_command_delay(
+    a_discrete: np.ndarray,
+    b_discrete: np.ndarray,
+    delay_steps: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Add a command FIFO chain to the reduced discrete plant."""
+
+    ad = np.asarray(a_discrete, dtype=float)
+    bd = np.asarray(b_discrete, dtype=float)
+    steps = max(0, int(delay_steps))
+    if steps <= 0:
+        return ad, bd
+    n_state = int(ad.shape[0])
+    n_input = int(bd.shape[1])
+    fifo_size = steps * n_input
+    a_aug = np.zeros((n_state + fifo_size, n_state + fifo_size), dtype=float)
+    b_aug = np.zeros((n_state + fifo_size, n_input), dtype=float)
+    a_aug[:n_state, :n_state] = ad
+    a_aug[:n_state, n_state : n_state + n_input] = bd
+    for fifo_index in range(steps - 1):
+        row_start = n_state + fifo_index * n_input
+        col_start = n_state + (fifo_index + 1) * n_input
+        a_aug[row_start : row_start + n_input, col_start : col_start + n_input] = np.eye(n_input)
+    b_aug[n_state + (steps - 1) * n_input : n_state + steps * n_input, :] = np.eye(n_input)
+    return a_aug, b_aug
+
+
+def _augmented_q_matrix(q_reduced: np.ndarray, weights: LQRWeightSpec, delay_steps: int) -> np.ndarray:
+    q = np.asarray(q_reduced, dtype=float)
+    steps = max(0, int(delay_steps))
+    if steps <= 0:
+        return q.copy()
+    fifo_weight = max(1e-6, float(weights.q_surfaces) * 0.25)
+    q_fifo = np.eye(3 * steps, dtype=float) * fifo_weight
+    out = np.zeros((q.shape[0] + q_fifo.shape[0], q.shape[1] + q_fifo.shape[1]), dtype=float)
+    out[: q.shape[0], : q.shape[1]] = q
+    out[q.shape[0] :, q.shape[1] :] = q_fifo
+    return out
+
+
+def _augmented_q_payload(weights: LQRWeightSpec, delay_steps: int) -> dict[str, object]:
+    return {
+        "grouping": "reduced_physical_plus_command_fifo_diagonal",
+        "physical_state_q": _q_weight_payload(weights),
+        "command_fifo_step_count": int(delay_steps),
+        "command_fifo_state_count": int(max(0, delay_steps) * 3),
+        "command_fifo_weight": float(max(1e-6, float(weights.q_surfaces) * 0.25)),
+    }
+
+
+def _augmented_r_payload(weights: LQRWeightSpec) -> dict[str, object]:
+    payload = _r_weight_payload(weights)
+    payload["input_role"] = "new_command_request_after_fifo"
+    return payload
+
+
+def _dare_residual_norm(
+    a: np.ndarray,
+    b: np.ndarray,
+    q: np.ndarray,
+    r: np.ndarray,
+    p: np.ndarray,
+) -> float:
+    bt_p_b = b.T @ p @ b
+    gain_term = a.T @ p @ b @ np.linalg.solve(bt_p_b + r, b.T @ p @ a)
+    residual = a.T @ p @ a - p - gain_term + q
+    scale = max(1.0, float(np.linalg.norm(q, ord="fro")))
+    return float(np.linalg.norm(residual, ord="fro") / scale)
+
+
+def _timing_blocked_reason(
+    *,
+    linearisation: LQRLinearisation,
+    dare_residual: float,
+    sampled_status: str,
+    command_status: str,
+    expansion_status: str,
+) -> str:
+    reasons = []
+    if linearisation.finite_ab_check != "finite":
+        reasons.append("nonfinite_linearisation")
+    if linearisation.reduced_controllability_rank != linearisation.reduced_state_size:
+        reasons.append("reduced_controllability_rank_deficient")
+    if not np.isfinite(dare_residual) or dare_residual >= 1e-6:
+        reasons.append("augmented_dare_residual_high")
+    if sampled_status != "sampled_stable":
+        reasons.append(sampled_status)
+    if command_status != "passed":
+        reasons.append(command_status)
+    if expansion_status != "zero_position_gains_verified":
+        reasons.append(expansion_status)
+    return ";".join(reasons)
+
+
+def _timing_controller_id(
+    *,
+    primitive_id: str,
+    linearisation_id: str,
+    q_json: str,
+    r_json: str,
+    augmented_q_json: str,
+    augmented_r_json: str,
+    gain_checksum: str,
+    augmented_gain_checksum: str,
+    weight_label: str,
+    sample_time_s: float,
+    latency_case: str,
+    command_delay_steps: int,
+    predictor_horizon_steps: int,
+    augmented_A_checksum: str,
+    augmented_B_checksum: str,
+) -> str:
+    payload = {
+        "primitive_id": primitive_id,
+        "linearisation_id": linearisation_id,
+        "controller_design_role": ACTIVE_TIMING_AWARE_ROLE,
+        "timing_augmentation_type": TIMING_AUGMENTATION_TYPE,
+        "timing_design_version": TIMING_DESIGN_VERSION,
+        "sample_time_s": float(sample_time_s),
+        "latency_case": str(latency_case),
+        "command_delay_steps": int(command_delay_steps),
+        "predictor_horizon_steps": int(predictor_horizon_steps),
+        "Q_weight_json": q_json,
+        "R_weight_json": r_json,
+        "augmented_Q_json": augmented_q_json,
+        "augmented_R_json": augmented_r_json,
+        "K_gain_checksum": gain_checksum,
+        "augmented_gain_checksum": augmented_gain_checksum,
+        "augmented_A_checksum": augmented_A_checksum,
+        "augmented_B_checksum": augmented_B_checksum,
+        "weight_label": str(weight_label),
+    }
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()[:12]
+    return f"lqrta_{primitive_id}_{digest}"
+
+
+def _timing_aware_raw_command_rad(*, controller: LQRController, state: np.ndarray) -> np.ndarray:
+    """Evaluate the augmented gain with a simple predictor-compensated state error."""
+
+    x_ref = np.asarray(controller.reference_state_vector, dtype=float)
+    u_ref = np.asarray(controller.reference_command_vector, dtype=float)
+    reduced_indices = list(reduced_state_indices())
+    x_error = np.asarray(state, dtype=float)[reduced_indices] - x_ref[reduced_indices]
+    try:
+        predictor_a = np.asarray(json.loads(controller.predictor_A_reduced_json), dtype=float)
+        for _ in range(max(0, int(controller.predictor_horizon_steps))):
+            x_error = predictor_a @ x_error
+    except Exception:
+        pass
+    fifo_steps = max(0, int(controller.command_delay_steps))
+    if fifo_steps:
+        surface_indices = [
+            LQR_STATE_MASK.index("delta_a"),
+            LQR_STATE_MASK.index("delta_e"),
+            LQR_STATE_MASK.index("delta_r"),
+        ]
+        surface_error = x_error[surface_indices]
+        fifo_error = np.tile(surface_error, fifo_steps)
+        augmented_error = np.concatenate([x_error, fifo_error])
+    else:
+        augmented_error = x_error
+    gain = np.asarray(json.loads(controller.augmented_gain_matrix_json), dtype=float)
+    return u_ref - gain @ augmented_error
 
 
 def _q_reduced(weights: LQRWeightSpec) -> np.ndarray:

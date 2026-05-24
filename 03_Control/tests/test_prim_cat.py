@@ -31,11 +31,11 @@ def test_every_primitive_has_required_schema_and_claim_boundary() -> None:
         assert primitive.finite_horizon_s > 0.0
         assert primitive.claim_status == "simulation_only"
         assert primitive.controller_family == "lqr"
-        assert primitive.controller_id == f"lqr_{primitive.primitive_id}_nominal"
+        assert primitive.controller_id == f"lqrta_{primitive.primitive_id}_resolved_by_synthesis"
         assert primitive.controller_id_policy == "resolved_by_lqr_controller"
-        assert primitive.nominal_controller_label == primitive.controller_id
+        assert primitive.nominal_controller_label == f"lqrta_{primitive.primitive_id}_timing_aware_nominal"
         assert primitive.controller_mode == "lqr_local_feedback"
-        assert primitive.feedback_mode == "lqr_state_feedback"
+        assert primitive.feedback_mode == "predictor_compensated_augmented_discrete_lqr"
 
 
 def test_primitive_lookup_and_parameter_json_are_stable() -> None:
