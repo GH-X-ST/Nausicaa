@@ -18,7 +18,7 @@ For example, the active LQR evidence root is
 `03_Control/05_Results/lqr_contextual_v1_0`, with short stage folders
 `r6`, `r7`, `r8`, and `r9`. The stage run folder is the atomic evidence unit.
 It must contain the manifest and the compact analysis files needed to audit the
-run.
+run. Primitive-controller variant registries and variant-selection summaries are compact audit artefacts; raw dense partitions still belong under `tables/`.
 
 Preferred result groups:
 
@@ -37,7 +37,7 @@ Preferred result groups:
 99_misc
 ```
 
-Historical generated result folders are local-only unless the user explicitly requests preservation. Approved evidence roots may be tracked when every file passes the 100 MB audit and path-length audit. During ordinary validation, keep `03_Control/05_Results/.gitkeep` as the only result placeholder unless an approved local evidence root is explicitly allowed. Historical generated roots kept for context must be labelled `retired_not_active`.
+Historical generated result folders are local-only unless the user explicitly requests preservation. Approved evidence roots may be tracked when every file passes the 100 MB audit and path-length audit. During ordinary validation, keep `03_Control/05_Results/.gitkeep` as the only result placeholder unless an approved local evidence root is explicitly allowed.
 
 Scratch and preflight roots are local only. They must not be pushed unless the user explicitly requests preservation.
 

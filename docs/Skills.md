@@ -32,7 +32,7 @@ The stable centre is:
 
 The preferred method is environment-conditioned primitive selection: use glider state and local flow-context features to select short primitives through a viability governor, then update an episodic lift belief across launches.
 
-Treat the LQR stabiliser as part of the primitive. R6-style work should tune fixed, auditable primitive-controller variants; R7-style work should evaluate, cluster, and shrink the fixed primitive-controller library; W2/W3-style work should replay fixed variants on learning/shrinkage or held-out conditions without hidden validation retuning. Any retuned design receives a new `primitive_variant_id` and `controller_id` and returns to W0/W1/R6 before renewed replay.
+Treat the LQR stabiliser as part of the primitive. The active control/evidence unit is a primitive-controller variant, not a free-standing controller bank. Dense W0--W3 learning sweeps may develop, evaluate, shrink, and version variants; late validation freezes the library and tests the full outer loop. Hidden retuning inside validation is not allowed.
 
 Do not turn the work into:
 

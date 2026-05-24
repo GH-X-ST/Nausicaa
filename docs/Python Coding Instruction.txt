@@ -34,13 +34,12 @@ W3 is randomised GP-corrected annular-Gaussian only
 
 W labels are validation layers, not online branches. Single-fan, four-fan, fan-shift, and fan-power cases are environment instances, not separate algorithms.
 
-## Primitive-local LQR variants and archive separation
+## Primitive-local LQR variant learning
 
-The LQR stabiliser is part of the primitive, not a separate controller bank. Represent the active library item as a primitive-controller variant with `primitive_variant_id`, `primitive_id`, `entry_role`, `controller_id`, reference state/command, finite horizon, Q/R JSON, gain checksum, exit checks, metrics, failure labels, and claim status.
+The LQR stabiliser is part of the primitive, not an external controller bank. Represent the active library item as a primitive-controller variant with `primitive_variant_id`, `primitive_id`, `entry_role`, `controller_id`, reference state/command, finite horizon, Q/R JSON, gain checksum, exit checks, metrics, failure labels, and claim status.
 
-Use R6 to tune a rich but bounded set of fixed primitive-local LQR variants. Use R7 for the broad contextual archive, clustering, representative-case selection, library shrinking, and outcome-model/governor evidence over those fixed variants. R7 may select among fixed variants, but it must not retune Q/R weights or mutate gains. W2/W3 replay fixed variants on hardware-aware and randomised conditions; if robustness retuning is needed, create new primitive-controller variants and return to W0/W1/R6 before another replay.
+Dense W0--W3 learning sweeps develop, evaluate, and shrink the variant library. The mixed primitive-start distribution includes launch and in-flight starts; do not reject an in-flight-only primitive solely because it cannot start from the broad launch gate. Late validation uses frozen variants and must not hide Q/R or gain retuning.
 
-Primitive entry roles should be explicit where relevant: `launch_capable`, `inflight_only`, and `terminal_or_recovery`. Do not reject an in-flight-only primitive solely because it cannot start from the broad launch gate.
 
 ## Core standard
 
@@ -142,9 +141,7 @@ context features
 primitive family
 primitive parameters
 accepted / weak / failed / rejected / blocked
-continuation_valid
-episode_terminal_useful
-boundary_use_class
+boundary_terminal for retained x/y boundary exits
 continuation_status
 episode_terminal_status
 episode_utility_label

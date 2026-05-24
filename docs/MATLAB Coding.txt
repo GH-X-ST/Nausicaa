@@ -80,7 +80,7 @@ Hardware code should support:
 - abort command path;
 - episode ID tagging;
 - selected primitive ID tagging;
-selected primitive_variant_id / controller_id tagging;
+- selected primitive_variant_id / controller_id tagging;
 - real-flight replay matching.
 
 Do not add complex onboard autonomy unless explicitly requested.

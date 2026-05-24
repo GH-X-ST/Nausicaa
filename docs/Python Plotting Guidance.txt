@@ -47,8 +47,6 @@ Show:
 
 Show accepted, weak, failed, and rejected primitive outcomes over physically meaningful axes:
 
-For R6/R7 figures, distinguish primitive-local LQR variant diagnostics from contextual archive evidence. R6 figures should explain entry roles, Q/R tuning evidence, and primitive-controller variant selection. R7 figures should show archive coverage, clustering/library shrinkage, and outcome-model evidence for fixed primitive-controller variants.
-
 ```text
 speed
 heading error
