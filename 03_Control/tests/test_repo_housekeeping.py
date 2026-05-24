@@ -26,6 +26,7 @@ ALLOWLISTED_ACTIVE_PATHS = {
     "requirements-design.txt",
     "README.md",
     "LICENSE",
+    "docs/local_validation_environment.md",
     "docs/Glider_Control_Project_Plan.md",
     "docs/Skills.md",
     "docs/Python Coding Instruction.txt",
@@ -335,19 +336,53 @@ def test_active_control_imports_do_not_use_aerosandbox_and_do_require_casadi() -
 
 
 def test_r6_validation_docs_use_control_dev_dependency_route() -> None:
-    docs = (
+    active_environment_docs = (
         "docs/housekeeping_and_naming_rules.md",
+        "docs/local_validation_environment.md",
+    )
+    for rel_path in active_environment_docs:
+        text = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+        assert "requirements-control-dev.txt" in text
+        assert "requirements-dev.txt" in text
+        assert "same `.venv`" in text
+
+    r6_docs = (
         "docs/code_audits/r6_readiness_validation_closure_report.md",
         "docs/code_audits/r6_validation_start_report.md",
     )
-    for rel_path in docs:
+    for rel_path in r6_docs:
         text = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
         assert "requirements-control-dev.txt" in text
-        assert "pip install -r requirements-dev.txt" not in text
+        if "pip install -r requirements-dev.txt" in text:
+            assert "Whole-repository" in text or "whole-repository" in text
+            assert "same `.venv`" in text
     report = (REPO_ROOT / "docs/code_audits/r6_validation_start_report.md").read_text(
         encoding="utf-8"
     )
     assert "aerosandbox` is not required for R6 `03_Control` validation" in report
+
+
+def test_active_validation_environment_is_repo_local_venv() -> None:
+    active_docs = (
+        "docs/housekeeping_and_naming_rules.md",
+        "docs/local_validation_environment.md",
+        "docs/Skills.md",
+        "docs/Python Coding Instruction.txt",
+        "docs/code_audits/r6_validation_start_report.md",
+    )
+    for rel_path in active_docs:
+        text = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+        normalized = " ".join(text.split())
+        assert ".venv\\Scripts\\python.exe" in text
+        assert "Paul_Li_FYP" not in text or "not the active validation environment" in normalized
+        if rel_path != "docs/code_audits/r6_validation_start_report.md":
+            assert "requirements-control-dev.txt" in text
+    env_doc = (REPO_ROOT / "docs/local_validation_environment.md").read_text(encoding="utf-8")
+    assert "requirements-dev.txt" in env_doc
+    assert "same `.venv`" in env_doc
+    gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert ".venv/" in gitignore
+    assert ".codex_run_logs/" in gitignore
 
 
 def test_results_root_contains_only_gitkeep() -> None:

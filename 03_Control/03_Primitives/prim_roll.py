@@ -153,6 +153,10 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "evidence_eligibility_reason",
     "claim_status",
 )
+ROLLOUT_EVIDENCE_ALIAS_VALUES = (
+    "not_continuation_valid",
+    "terminal_useful",
+)
 
 
 @dataclass(frozen=True)

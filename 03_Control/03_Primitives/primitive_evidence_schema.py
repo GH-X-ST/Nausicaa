@@ -35,7 +35,7 @@ class EvidenceUseLabels:
 def terminal_evidence_is_useful(*, energy_residual_m: float, lift_dwell_time_s: float) -> bool:
     """Return whether a retained x-y boundary exit is useful terminal episode evidence."""
 
-    return bool(float(energy_residual_m) >= 0.0 or float(lift_dwell_time_s) >= 0.20)
+    return bool(float(energy_residual_m) >= -0.02 or float(lift_dwell_time_s) >= 0.20)
 
 
 def evidence_use_labels(
@@ -83,6 +83,11 @@ def evidence_use_labels(
         continuation_status = "not_continuation_valid"
         episode_utility_label = "terminal_useful"
         exit_check_status = "episode_terminal_useful_retained"
+    elif is_xy_terminal:
+        boundary_use_class = "hard_failure"
+        continuation_status = "not_continuation_valid"
+        episode_utility_label = "not_useful"
+        exit_check_status = "xy_terminal_not_trainable"
     elif continuation_valid:
         boundary_use_class = "continuation_valid"
         continuation_status = "continuation_success" if outcome == "accepted" else "continuation_weak"

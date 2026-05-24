@@ -6,6 +6,20 @@ Use this guide for Python code in modelling, simulation, primitive rollout, arch
 
 The code should be readable by a future researcher without needing a verbal explanation.
 
+## Local validation environment
+
+Run active Python validation with the project-owned environment:
+
+```text
+.\.venv\Scripts\python.exe
+```
+
+For `03_Control`, install and validate with `requirements-control-dev.txt`.
+Use the same `.venv` with `requirements-dev.txt` only when whole-repository or
+design-side code is intentionally included. Do not use old named Conda
+environments, including `Paul_Li_FYP`, for active validation or new development
+work; `Paul_Li_FYP` is not the active validation environment.
+
 ## Current method language
 
 Use **primitive**, not skill.

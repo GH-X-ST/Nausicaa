@@ -24,6 +24,22 @@ Do not silently merge conflicting versions. State which source controls the deci
 
 ---
 
+## 0.1 Local validation environment
+
+Use the project-owned virtual environment for active validation and development:
+
+```text
+.\.venv\Scripts\python.exe
+```
+
+Install `requirements-control-dev.txt` into this environment for `03_Control`.
+Install `requirements-dev.txt` into the same environment only when
+whole-repository or design-side validation is required. Do not use old named
+Conda environments, including `Paul_Li_FYP`, for active validation or new
+development work; `Paul_Li_FYP` is not the active validation environment.
+
+---
+
 ## 1. Stable project centre
 
 The stable centre is:

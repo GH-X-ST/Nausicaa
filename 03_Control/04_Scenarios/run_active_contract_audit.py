@@ -33,6 +33,7 @@ def run_active_contract_audit(repo_root: Path | None = None) -> list[AuditFindin
     root = Path(repo_root or REPO_ROOT)
     findings: list[AuditFinding] = []
     findings.extend(_audit_source_priority(root))
+    findings.extend(_audit_validation_environment(root))
     findings.extend(_audit_status_contract(root))
     findings.extend(_audit_forbidden_methods(root))
     findings.extend(_audit_boundary_outcome_contract(root))
@@ -42,6 +43,44 @@ def run_active_contract_audit(repo_root: Path | None = None) -> list[AuditFindin
     findings.extend(_audit_dense_runtime_contract(root))
     findings.extend(_audit_no_stale_active_generated_evidence(root))
     findings.extend(_audit_r6_readiness_behavior(root))
+    return findings
+
+
+def _audit_validation_environment(root: Path) -> list[AuditFinding]:
+    findings: list[AuditFinding] = []
+    expected_python = (root / ".venv" / "Scripts" / "python.exe").resolve()
+    actual_python = Path(sys.executable).resolve()
+    if actual_python != expected_python:
+        findings.append(
+            _finding(
+                root,
+                actual_python,
+                "validation_environment",
+                f"active audit must run with {expected_python}",
+            )
+        )
+
+    active_docs = (
+        root / "docs" / "local_validation_environment.md",
+        root / "docs" / "housekeeping_and_naming_rules.md",
+        root / "docs" / "Skills.md",
+        root / "docs" / "Python Coding Instruction.txt",
+    )
+    for path in active_docs:
+        text = _read(path)
+        normalized = " ".join(text.split())
+        for token in (".venv\\Scripts\\python.exe", "requirements-control-dev.txt"):
+            if token not in text:
+                findings.append(_finding(root, path, "validation_environment", f"missing {token}"))
+        if "Paul_Li_FYP" in text and "not the active validation environment" not in normalized:
+            findings.append(
+                _finding(
+                    root,
+                    path,
+                    "validation_environment",
+                    "old Conda environment appears without active rejection wording",
+                )
+            )
     return findings
 
 

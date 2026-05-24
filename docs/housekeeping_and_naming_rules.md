@@ -284,22 +284,27 @@ why a new runner is needed rather than wrapping an old one
 
 ## 9. Windows validation route
 
-Do not use the WindowsApps Python launcher for repository validation. Use a real
-interpreter path such as:
+Do not use the WindowsApps Python launcher for repository validation. Use the
+project-owned virtual environment:
 
 ```text
 .venv\Scripts\python.exe
-py -3.11
-<absolute-path-to-python.exe>
 ```
 
-Required validation commands should be run with that interpreter:
+Do not use old named Conda environments, including `Paul_Li_FYP`, for active
+validation or new development work. `Paul_Li_FYP` is not the active validation
+environment. If `.venv` is missing, recreate it from a real Python installation.
+Install `requirements-control-dev.txt` for `03_Control`; install
+`requirements-dev.txt` into the same `.venv` only when whole-repository or
+design-side validation is required.
+
+Required validation commands should be run with the project environment:
 
 ```text
-<real-python> -m pip install -r requirements-control-dev.txt
-<real-python> -m compileall 03_Control
-<real-python> -m pytest -q 03_Control/tests
-<real-python> 03_Control/04_Scenarios/run_active_contract_audit.py
+.\.venv\Scripts\python.exe -m pip install -r requirements-control-dev.txt
+.\.venv\Scripts\python.exe -m compileall 03_Control
+.\.venv\Scripts\python.exe -m pytest -q 03_Control/tests --basetemp .codex_run_logs\pytest_tmp -o cache_dir=.codex_run_logs\pytest_cache
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_active_contract_audit.py
 git diff --check
 ```
 
@@ -307,3 +312,7 @@ Use `requirements-control-dev.txt` for R6 and other active `03_Control`
 validation. `aerosandbox` is a design-side dependency and must not gate the
 control validation route unless a command intentionally imports
 `02_Glider_Design`.
+
+Whole-repository work must still use the same `.venv`; dependency scope changes
+by installing the appropriate requirement file, not by switching Python
+environments.

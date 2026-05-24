@@ -901,7 +901,12 @@ def _selected_controller_registry_rows(
             status = _candidate_registry_status(controller, subset)
             score = _candidate_soft_score(subset) if status == "selected_candidate" else float("-inf")
             scores.append((score, record, status))
-        best_record = max(scores, key=lambda item: item[0])[1] if scores else None
+        best_pool = (
+            [item for item in scores if item[1]["controller"].lqr_synthesis_status == LQR_SYNTHESIS_SOLVED]
+            if registry_status == "smoke_incomplete"
+            else scores
+        )
+        best_record = max(best_pool, key=lambda item: item[0])[1] if best_pool else None
         for score, record, status in scores:
             controller = record["controller"]
             if best_record is record and status == "selected_candidate":
@@ -914,6 +919,13 @@ def _selected_controller_registry_rows(
                 else:
                     selected_status = "blocked"
                     reason = "registry_blocked_not_active"
+            elif (
+                best_record is record
+                and registry_status == "smoke_incomplete"
+                and controller.lqr_synthesis_status == LQR_SYNTHESIS_SOLVED
+            ):
+                selected_status = SMOKE_SELECTED_CONTROLLER_STATUS
+                reason = "best_available_debug_smoke_incomplete_not_thesis_evidence"
             elif controller.lqr_synthesis_status != LQR_SYNTHESIS_SOLVED:
                 selected_status = "blocked"
                 reason = controller.lqr_blocked_reason or controller.lqr_synthesis_status
@@ -950,6 +962,11 @@ def _registry_status_for_tuning_run(
     if not _has_complete_w0_w1_candidate_coverage(frame):
         return "smoke_incomplete"
     if not _has_selected_candidate_per_primitive(frame):
+        if (
+            int(config.candidate_count) < FALLBACK_CANDIDATES_PER_PRIMITIVE
+            or int(config.paired_tests_per_candidate) < FALLBACK_PAIRED_TESTS_PER_CANDIDATE
+        ):
+            return "smoke_incomplete"
         return "blocked"
     if int(config.candidate_count) in PREFERRED_CANDIDATES_PER_PRIMITIVE and int(
         config.paired_tests_per_candidate
@@ -1008,9 +1025,9 @@ def _has_complete_w0_w1_candidate_coverage(frame: pd.DataFrame) -> bool:
     paired_ok = (
         paired.groupby(["primitive_id", "candidate_index"], dropna=False)["w_layers_present"]
         .agg(lambda values: any({"W0", "W1"}.issubset(set(item)) for item in values))
-        .reset_index(name="has_paired_w0_w1")
+        .reset_index(name="has_w0_w1_pair")
     )
-    if not bool(paired_ok["has_paired_w0_w1"].all()):
+    if not bool(paired_ok["has_w0_w1_pair"].all()):
         return False
     metadata = frame[["candidate_weight_label", "lqr_Q_weights_json", "lqr_R_weights_json", "lqr_gain_checksum"]]
     for column in metadata.columns:

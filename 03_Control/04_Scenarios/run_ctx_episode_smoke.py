@@ -200,6 +200,8 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
                     "memory_label": "episodic_lift_belief_smoke_no_improvement_claim",
                     "belief_before_local_lift_m_s": belief_before["belief_local_lift_m_s"],
                     "belief_before_mean_lift_m_s": belief_before["belief_mean_lift_m_s"],
+                    "belief_after_local_lift_m_s": belief_before["belief_local_lift_m_s"],
+                    "belief_after_mean_lift_m_s": belief_before["belief_mean_lift_m_s"],
                 }
             )
             row.update(archive_state_sample_row(state_sample))

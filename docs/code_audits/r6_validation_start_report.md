@@ -1,52 +1,56 @@
-# R6 Validation Start and Dependency Hygiene Report
+# R6 Validation Start, Dependency Hygiene, and Environment Report
 
 Date: 2026-05-24
 
 ## Result
 
-- R6 W0/W1 tuning is not cleared to start in this shell.
-- No LQR method code was changed in this pass because the remaining blocker is the execution environment, not an observed controller-code failure.
+- R6 W0/W1 tuning is cleared to start from the project-owned `.venv` validation environment.
+- No LQR method code was changed in this pass.
 - `03_Control/05_Results` remains clean for active evidence; only `.gitkeep` is present.
 
 ## Interpreter and Dependencies
 
-- Interpreter used: `C:\Users\GH-X-ST\.conda\envs\Paul_Li_FYP\python.exe`.
-- Shell `python.exe` and `python3.exe` still resolve to WindowsApps shims and were not used for validation.
-- `.venv` was not present in the repository, and `conda` was not discoverable on `PATH`.
+- Active project interpreter: `.\.venv\Scripts\python.exe`.
+- The old `Paul_Li_FYP` Conda environment is not the active validation environment and must not be used for future development or validation.
+- Shell `python.exe` resolves first to `C:\ProgramData\miniforge3\python.exe`, then to the WindowsApps shim; active validation still uses the repo-local `.venv` explicitly.
 - Dependency file used for R6 control validation: `requirements-control-dev.txt`.
+- Dependency file used for whole-repository validation: `requirements-dev.txt`, installed into the same `.venv`.
 - Dependency install command:
-  - `C:\Users\GH-X-ST\.conda\envs\Paul_Li_FYP\python.exe -m pip install -r requirements-control-dev.txt` - blocked.
-  - pip defaulted to user installation because normal site-packages is not writeable; installed control packages already present were reused, then network/socket permission failure `WinError 10013` prevented resolving `casadi`.
+  - `.\.venv\Scripts\python.exe -m pip install -r requirements-control-dev.txt` - passed.
 - Dependency import check for the active R6 control validation route:
-  - present: `numpy`, `scipy`, `pandas`, `matplotlib`.
-  - missing direct R6 blockers: `pytest`, `casadi`, `openpyxl`.
-  - `aerosandbox` is not required for R6 `03_Control` validation; it is a design-side dependency for `02_Glider_Design` and is isolated in `requirements-design.txt`.
-  - `casadi` is not installed in this interpreter; it is currently required by the active `03_Control` trim, linearisation, and flight-dynamics path.
+  - present: `numpy`, `scipy`, `pandas`, `matplotlib`, `pytest`, `casadi`, `openpyxl`.
+  - `aerosandbox` is not required for R6 `03_Control` validation; it is installed in the current `.venv` for design-side work, belongs to `02_Glider_Design`, and is isolated in `requirements-design.txt`.
+  - `casadi` is installed in `.venv`; it is required by the active `03_Control` trim, linearisation, and flight-dynamics path.
+- Whole-repository or design-side validation uses the same `.venv` with `.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt`; do not switch to another Python environment.
 
 ## Validation Commands
 
-- `C:\Users\GH-X-ST\.conda\envs\Paul_Li_FYP\python.exe -m compileall 03_Control` - passed.
-- `C:\Users\GH-X-ST\.conda\envs\Paul_Li_FYP\python.exe -m pytest -q 03_Control/tests` - blocked: `No module named pytest`.
-- `C:\Users\GH-X-ST\.conda\envs\Paul_Li_FYP\python.exe 03_Control/04_Scenarios/run_active_contract_audit.py` - failed honestly with one environment finding: `ModuleNotFoundError: No module named 'casadi'`.
+- `.\.venv\Scripts\python.exe -m compileall 03_Control` - passed.
+- `.\.venv\Scripts\python.exe -m compileall -q 01_Thermal 02_Glider_Design 03_Control A_Miscellaneous B_Test_Lantency C_Overall_Latency` - passed with existing invalid-escape syntax warnings in plot-label/docstring strings only.
+- `.\.venv\Scripts\python.exe -m pytest -q 03_Control/tests --basetemp .codex_run_logs\pytest_tmp -o cache_dir=.codex_run_logs\pytest_cache` - passed: 166 tests.
+- `.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_active_contract_audit.py` - passed; the audit now fails if it is run outside the repo-local `.venv`.
 - `git diff --check` - passed with line-ending warnings only.
 
 ## R6 Smoke Status
 
-- Bounded smoke command remains blocked before output creation because `03_Control/02_Inner_Loop/linearisation.py` imports `casadi`, which is not installed.
-- Previous temporary output root requested: `C:\Users\GH-X-ST\AppData\Local\Temp\nausicaa_r6_validation_start_902`.
-- Resume and repair behavior were not exercised because no tuning chunk was created.
-- No generated smoke output was kept or tracked.
+- Bounded smoke command passed with run id `902`, eight rows, one candidate, one paired test, serial workers, `csv_gz`, and `--resume`.
+- Temporary output root: `.codex_run_logs\r6_validation_start_env_lock\tune_902`.
+- Required run manifest, table manifest, selected-controller registry, runtime summary, coverage summary, chunk summary, file-size audit, chunk manifest, and first compressed partition were created.
+- A second `--resume` run reused the validated first chunk without rewriting it.
+- A deliberately corrupted first partition was regenerated by `--repair-incomplete`.
+- Smoke output remained local-only under ignored `.codex_run_logs` and was not promoted to evidence.
 
 ## File-Size and Path Audit
 
-- No R6 smoke table, chunk manifest, or registry output was generated in this pass.
+- The bounded smoke wrote `metrics/file_size_audit.csv` under the ignored temp root.
+- Required smoke files passed the runtime file-size/path checks.
 - `03_Control/05_Results` was checked and still contains only `.gitkeep`.
-- No generated file-size/path audit could be produced before the `casadi` import blocker.
 
 ## Move-On Status
 
-- R6 is blocked by missing control dependencies in the available real interpreter, specifically `pytest`, `casadi`, and `openpyxl`.
-- After installing `requirements-control-dev.txt` into a real interpreter, rerun compileall, pytest, active-contract audit, `git diff --check`, and the bounded R6 smoke/resume/repair sequence before starting scheduled W0/W1 tuning evidence.
+- R6 tuning cleared.
+- Future validation and tuning must use `.\.venv\Scripts\python.exe` and repo-local pytest temp/cache paths, not `Paul_Li_FYP` or the WindowsApps launcher.
+- Whole-repository environment consistency is prepared: the same `.venv` is now the documented and audited active environment, and `requirements-dev.txt` has been installed into that `.venv`.
 
 ## Claim Boundary
 

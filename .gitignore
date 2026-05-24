@@ -1,11 +1,13 @@
 
 # Python/cache artifacts
+.venv/
 __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
 
 # Local validation scratch folders
+.codex_run_logs/
 _tmp_*/
 
 # Private local instruction/context files shared with the assistant, not publication artifacts.

@@ -13,6 +13,7 @@ This audit covers active code paths and preserved support guidance for the LQR c
 | Terminal-use boundary evidence | fixed | Finite x/y wall or lateral boundary exits are retained only as `episode_terminal_useful` evidence when justified; they are not continuation-valid and are not `boundary_terminal` outcome rows. |
 | Hard failure labels | fixed | Floor/ceiling, nonfinite, corrupt, low-speed, and physically impossible initial states remain failed, rejected, or blocked evidence. |
 | Outcome-model targets | fixed | Default training uses canonical outcome rows and first-class `continuation_valid` / `episode_terminal_useful` targets. Explicit blocked LQR rows are retained as blocked evidence, not continuation or terminal-use targets. |
+| LQR rollout evidence roles | fixed | Active rollout rows preserve `lqr_rollout_candidate` and `blocked_lqr_synthesis` roles so selector, archive, and replay stages distinguish executable LQR evidence from blocked debug rows. |
 | Selector modes | fixed | Selector exposes `continuation` and `terminal_episode` modes with different gates. |
 | Restored support docs | fixed | MATLAB, plotting, daily schedule, coding, and housekeeping guidance now describe W labels as validation layers, fan cases as environment instances, and boundary exits as retained terminal episode evidence. |
 | Unrelated restored docs | intentionally_preserved_non_contract_support | Non-contract restored support material is preserved unless it breaks imports, active contracts, file-size rules, or active control-method gates. |
