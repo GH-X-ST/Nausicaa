@@ -66,6 +66,7 @@ def test_model_backed_rollout_is_distinct_from_smoke_and_finite() -> None:
     assert evidence.controller_id.startswith("lqrta_glide_")
     assert evidence.controller_design_role == "active_timing_aware_w01"
     assert evidence.timing_augmentation_type == "actuator_surface_state_command_fifo_predictor_compensated"
+    assert evidence.timing_state_source == "history_backed_fifo"
     assert evidence.augmented_gain_checksum
     assert evidence.controller_selection_status == "explicit_lqr_unverified"
     assert evidence.controller_evidence_status == "executable_lqr"

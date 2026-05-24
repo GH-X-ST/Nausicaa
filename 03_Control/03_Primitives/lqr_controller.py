@@ -43,6 +43,8 @@ ACTIVE_TIMING_AWARE_ROLE = "active_timing_aware_w01"
 BASELINE_CONTROLLER_ROLE = "superseded_baseline_not_active_w01"
 TIMING_AUGMENTATION_TYPE = "actuator_surface_state_command_fifo_predictor_compensated"
 TIMING_DESIGN_VERSION = "predictor_compensated_augmented_discrete_lqr_v1"
+TIMING_STATE_HISTORY_BACKED = "history_backed_fifo"
+TIMING_STATE_INITIALISED = "initialised_fifo_not_history_backed"
 
 
 @dataclass(frozen=True)
@@ -126,6 +128,16 @@ class LQRController:
 
 
 @dataclass(frozen=True)
+class TimingAwareControllerState:
+    command_fifo_rad: tuple[tuple[float, float, float], ...]
+    last_requested_command_rad: tuple[float, float, float]
+    last_applied_command_rad: tuple[float, float, float]
+    predictor_reference_command_rad: tuple[float, float, float]
+    current_surface_state_rad: tuple[float, float, float]
+    timing_state_source: str = TIMING_STATE_HISTORY_BACKED
+
+
+@dataclass(frozen=True)
 class LQRCommand:
     primitive_id: str
     controller_id: str
@@ -134,6 +146,7 @@ class LQRCommand:
     command_rad: tuple[float, float, float]
     saturation_applied: bool
     raw_command_rad: tuple[float, float, float]
+    timing_state_source: str = TIMING_STATE_INITIALISED
     command_units: str = "normalised_command_and_radian_surface_targets"
 
 
@@ -513,6 +526,7 @@ def lqr_command_for_state(
     *,
     controller: LQRController,
     state_vector: np.ndarray,
+    timing_state: TimingAwareControllerState | None = None,
 ) -> LQRCommand:
     """Return the LQR surface command for one state."""
 
@@ -524,11 +538,16 @@ def lqr_command_for_state(
         raise RuntimeError(
             "blocked LQR controller cannot produce an executable command: "
             f"{controller.controller_id}:{controller.lqr_synthesis_status}"
-        )
+    )
     if controller_is_active_timing_aware_w01(controller):
-        raw_rad = _timing_aware_raw_command_rad(controller=controller, state=state)
+        raw_rad, timing_state_source = _timing_aware_raw_command_rad(
+            controller=controller,
+            state=state,
+            timing_state=timing_state,
+        )
     else:
         raw_rad = u_ref - gain @ (state - x_ref)
+        timing_state_source = "not_applicable_baseline_controller"
     raw_norm = _surface_rad_to_unclipped_norm(raw_rad)
     clipped_norm = clip_normalised_command(raw_norm)
     clipped_rad = normalised_command_to_surface_rad(clipped_norm)
@@ -540,6 +559,7 @@ def lqr_command_for_state(
         command_rad=tuple(float(value) for value in clipped_rad),
         saturation_applied=bool(np.any(np.abs(raw_norm - clipped_norm) > 1e-12)),
         raw_command_rad=tuple(float(value) for value in raw_rad),
+        timing_state_source=timing_state_source,
     )
 
 
@@ -689,7 +709,11 @@ def compare_timing_aware_vs_baseline_nominal(
     state[STATE_INDEX["theta"]] += np.deg2rad(1.0)
     state[STATE_INDEX["q"]] += 0.02
     state[STATE_INDEX["delta_e"]] += np.deg2rad(0.5)
-    timing_command = lqr_command_for_state(controller=timing_aware, state_vector=state)
+    timing_command = lqr_command_for_state(
+        controller=timing_aware,
+        state_vector=state,
+        timing_state=initialised_timing_state_for_controller(timing_aware, state),
+    )
     baseline_command = lqr_command_for_state(controller=baseline, state_vector=state)
     timing_rad = np.asarray(timing_command.command_rad, dtype=float)
     baseline_rad = np.asarray(baseline_command.command_rad, dtype=float)
@@ -883,8 +907,34 @@ def _timing_controller_id(
     return f"lqrta_{primitive_id}_{digest}"
 
 
-def _timing_aware_raw_command_rad(*, controller: LQRController, state: np.ndarray) -> np.ndarray:
-    """Evaluate the augmented gain with a simple predictor-compensated state error."""
+def initialised_timing_state_for_controller(
+    controller: LQRController,
+    state_vector: np.ndarray,
+) -> TimingAwareControllerState:
+    """Return a deterministic compatibility timing state when no history exists."""
+
+    state = as_state_vector(state_vector)
+    reference_command = tuple(float(value) for value in controller.reference_command_vector)
+    fifo_steps = max(0, int(controller.command_delay_steps))
+    return TimingAwareControllerState(
+        command_fifo_rad=tuple(reference_command for _ in range(fifo_steps)),
+        last_requested_command_rad=reference_command,
+        last_applied_command_rad=reference_command,
+        predictor_reference_command_rad=reference_command,
+        current_surface_state_rad=tuple(
+            float(state[STATE_INDEX[name]]) for name in ("delta_a", "delta_e", "delta_r")
+        ),
+        timing_state_source=TIMING_STATE_INITIALISED,
+    )
+
+
+def _timing_aware_raw_command_rad(
+    *,
+    controller: LQRController,
+    state: np.ndarray,
+    timing_state: TimingAwareControllerState | None,
+) -> tuple[np.ndarray, str]:
+    """Evaluate the augmented gain with predictor compensation and command FIFO state."""
 
     x_ref = np.asarray(controller.reference_state_vector, dtype=float)
     u_ref = np.asarray(controller.reference_command_vector, dtype=float)
@@ -898,18 +948,43 @@ def _timing_aware_raw_command_rad(*, controller: LQRController, state: np.ndarra
         pass
     fifo_steps = max(0, int(controller.command_delay_steps))
     if fifo_steps:
-        surface_indices = [
-            LQR_STATE_MASK.index("delta_a"),
-            LQR_STATE_MASK.index("delta_e"),
-            LQR_STATE_MASK.index("delta_r"),
-        ]
-        surface_error = x_error[surface_indices]
-        fifo_error = np.tile(surface_error, fifo_steps)
+        resolved_timing_state = timing_state or initialised_timing_state_for_controller(controller, state)
+        fifo = _normalised_fifo_rad(
+            resolved_timing_state.command_fifo_rad,
+            fifo_steps=fifo_steps,
+            reference_command_rad=u_ref,
+        )
+        fifo_error = (fifo - u_ref.reshape(1, 3)).reshape(-1)
         augmented_error = np.concatenate([x_error, fifo_error])
+        timing_state_source = str(resolved_timing_state.timing_state_source)
     else:
         augmented_error = x_error
+        timing_state_source = "no_command_delay_fifo_configured"
     gain = np.asarray(json.loads(controller.augmented_gain_matrix_json), dtype=float)
-    return u_ref - gain @ augmented_error
+    return u_ref - gain @ augmented_error, timing_state_source
+
+
+def _normalised_fifo_rad(
+    command_fifo_rad: tuple[tuple[float, float, float], ...],
+    *,
+    fifo_steps: int,
+    reference_command_rad: np.ndarray,
+) -> np.ndarray:
+    fifo = np.asarray(command_fifo_rad, dtype=float)
+    if fifo.size == 0:
+        fifo = np.tile(np.asarray(reference_command_rad, dtype=float).reshape(1, 3), (int(fifo_steps), 1))
+    if fifo.ndim == 1:
+        fifo = fifo.reshape(1, 3)
+    if fifo.shape[1] != 3:
+        raise ValueError("command_fifo_rad must contain 3-column radian command rows.")
+    if fifo.shape[0] < int(fifo_steps):
+        pad = np.tile(fifo[-1].reshape(1, 3), (int(fifo_steps) - fifo.shape[0], 1))
+        fifo = np.vstack([fifo, pad])
+    if fifo.shape[0] > int(fifo_steps):
+        fifo = fifo[: int(fifo_steps), :]
+    if not np.all(np.isfinite(fifo)):
+        raise ValueError("command_fifo_rad must be finite.")
+    return fifo
 
 
 def _q_reduced(weights: LQRWeightSpec) -> np.ndarray:

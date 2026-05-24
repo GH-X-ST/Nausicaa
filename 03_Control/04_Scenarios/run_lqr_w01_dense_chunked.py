@@ -66,9 +66,13 @@ from state_sampling import archive_state_sample_for_family, archive_state_sample
 
 
 W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v1"
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.3"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.4"
 W01_TABLE_NAME = "w01_primitive_rows"
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
+L6_FALLBACK_ROW_COUNT = 19_200
+L6_RICH_SIDE_ROW_COUNT = 76_800
+L6_RICH_SIDE_CANDIDATE_COUNT = 32
+L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE = 100
 OFFICIAL_W01_ENVIRONMENT_CASES = (
     ("W0", "dry_air"),
     ("W1", "gaussian_single"),
@@ -115,6 +119,7 @@ class W01DenseRunConfig:
     stop_after_chunks: int | None = None
     continue_on_chunk_failure: bool = False
     candidate_count: int = 16
+    paired_tests_per_candidate: int | None = None
     latency_case: str = "nominal"
     rollout_dt_s: float = 0.02
     schedule_mode: str = BALANCED_SCHEDULE_MODE
@@ -153,6 +158,8 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
         raise ValueError("candidate_chunk_size must be positive.")
     if int(config.candidate_count) <= 0:
         raise ValueError("candidate_count must be positive.")
+    if config.paired_tests_per_candidate is not None and int(config.paired_tests_per_candidate) <= 0:
+        raise ValueError("paired_tests_per_candidate must be positive when provided.")
     if str(config.schedule_mode) not in {BALANCED_SCHEDULE_MODE, SMOKE_SCHEDULE_MODE}:
         raise ValueError(f"schedule_mode must be {BALANCED_SCHEDULE_MODE!r} or {SMOKE_SCHEDULE_MODE!r}.")
 
@@ -186,6 +193,7 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
         _write_empty_table_manifest(run_root, config.run_id, storage_format)
         _write_runtime_summary(run_root, config, row_count=0, status="dry_run_schedule", started=time.time(), ended=time.time())
         _write_empty_metrics(run_root)
+        _write_file_size_audit(run_root)
         _write_reports(run_root, status="dry_run_schedule", row_count=0)
         _write_file_size_audit(run_root)
         return _result_payload(run_root, status="dry_run_schedule")
@@ -258,6 +266,7 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
         started=started,
         ended=ended,
     )
+    _write_file_size_audit(run_root)
     _write_reports(run_root, status="complete" if not failures else "partial_failed", row_count=row_count)
     _write_file_size_audit(run_root)
     return _result_payload(run_root, status="complete" if not failures else "partial_failed")
@@ -272,7 +281,12 @@ def _build_variant_registry(
         specs = candidate_weight_specs(primitive_id=primitive.primitive_id, candidate_count=candidate_count)
         for candidate_index, weight_spec in enumerate(specs):
             controller = synthesize_lqr_controller(primitive, weight_spec=weight_spec)
-            variant = primitive_controller_variant(primitive=primitive, controller=controller)
+            variant = primitive_controller_variant(
+                primitive=primitive,
+                controller=controller,
+                candidate_index=int(candidate_index),
+                candidate_weight_label=weight_spec.weight_label,
+            )
             variants_by_key[(primitive.primitive_id, int(candidate_index))] = (
                 primitive,
                 controller,
@@ -619,6 +633,30 @@ def _row_schedule_for_index(row_index: int, config: W01DenseRunConfig) -> W01Row
             schedule_mode=SMOKE_SCHEDULE_MODE,
         )
 
+    if config.paired_tests_per_candidate is not None:
+        primitive_index = int(row_index) % len(ACTIVE_PRIMITIVE_IDS)
+        primitive_id = ACTIVE_PRIMITIVE_IDS[primitive_index]
+        grouped_index = int(row_index) // len(ACTIVE_PRIMITIVE_IDS)
+        candidate_environment_count = int(config.candidate_count) * len(OFFICIAL_W01_ENVIRONMENT_CASES)
+        paired_start_index = grouped_index // max(1, candidate_environment_count)
+        candidate_environment_index = grouped_index % max(1, candidate_environment_count)
+        candidate_index = candidate_environment_index // len(OFFICIAL_W01_ENVIRONMENT_CASES)
+        W_layer, environment_mode = OFFICIAL_W01_ENVIRONMENT_CASES[
+            candidate_environment_index % len(OFFICIAL_W01_ENVIRONMENT_CASES)
+        ]
+        family = start_state_family_for_row(paired_start_index)
+        return W01RowSchedule(
+            row_index=int(row_index),
+            primitive_id=str(primitive_id),
+            candidate_index=int(candidate_index),
+            W_layer=str(W_layer),
+            environment_mode=str(environment_mode),
+            start_state_family=str(family),
+            paired_start_key=f"paired_{int(paired_start_index):07d}_{family}",
+            paired_start_index=int(paired_start_index),
+            schedule_mode=BALANCED_SCHEDULE_MODE,
+        )
+
     primitive_index = int(row_index) % len(ACTIVE_PRIMITIVE_IDS)
     primitive_id = ACTIVE_PRIMITIVE_IDS[primitive_index]
     grouped_index = int(row_index) // len(ACTIVE_PRIMITIVE_IDS)
@@ -776,11 +814,17 @@ def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[ob
     coverage_columns = (
         "primitive_id",
         "entry_role",
+        "candidate_index",
         "start_state_family",
         "W_layer",
         "environment_mode",
         "lqr_synthesis_status",
         "controller_design_role",
+        "timing_state_source",
+        "active_timing_aware_controller_used",
+        "baseline_controller_active",
+        "outcome_class",
+        "boundary_use_class",
     )
     for partition in partitions:
         frame = read_table_partition(run_root / "tables" / partition.relative_path, storage_format=storage_format)
@@ -824,6 +868,10 @@ def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[ob
     _counter_frame(counters["outcome_class"]).to_csv(filesystem_path(run_root / "metrics" / "outcome_summary.csv"), index=False)
     _counter_frame(counters["failure_label"]).to_csv(filesystem_path(run_root / "metrics" / "failure_summary.csv"), index=False)
     _counter_frame(counters["boundary_use_class"]).to_csv(filesystem_path(run_root / "metrics" / "boundary_summary.csv"), index=False)
+    _counter_frame(counters["coverage:timing_state_source"]).to_csv(
+        filesystem_path(run_root / "metrics" / "timing_state_summary.csv"),
+        index=False,
+    )
     coverage_rows = []
     for column in coverage_columns:
         coverage_rows.extend(
@@ -872,6 +920,7 @@ def _write_empty_metrics(run_root: Path) -> None:
         "environment_coverage.csv",
         "entry_role_rejection_summary.csv",
         "boundary_use_summary.csv",
+        "timing_state_summary.csv",
     ):
         pd.DataFrame().to_csv(filesystem_path(run_root / "metrics" / name), index=False)
 
@@ -1043,13 +1092,13 @@ def _write_reports(run_root: Path, *, status: str, row_count: int) -> None:
             "- Timing design: `actuator_surface_state_command_fifo_predictor_compensated`",
             "- Rollout boundary: `panel_wind_feedback_delay_command_timing_actuator_lag_with_plant_and_implementation_instances`",
             "- Deferred validation: `no_true_full_delayed_state_feedback_validation_claim`",
-            f"- Heavy W01 move-on allowed: `{not move_on_blockers}`",
+            f"- Rich-side W01 fixed-library cleared for W2 planning: `{not move_on_blockers and run_class == 'rich_side_l6_candidate'}`",
             "",
             "Blockers before heavy W01:",
             "",
             *[f"- `{item}`" for item in (move_on_blockers or ["none"])],
             "",
-            "Blocked claims remain W0/W1 dense completion, W2 survival, W3 robustness, compact-library readiness, governor validation, hardware readiness, real-flight transfer, and mission success.",
+            "Blocked claims remain final W0/W1 dense completion, W2 survival execution, W3 robustness, compact-library readiness, governor validation, hardware readiness, real-flight transfer, and mission success.",
             "",
         ]
     )
@@ -1068,27 +1117,133 @@ def _write_reports(run_root: Path, *, status: str, row_count: int) -> None:
         ]
     )
     filesystem_path(run_root / "reports" / "timing_synthesis_boundary.md").write_text(timing_report, encoding="ascii")
+    _write_l7_completeness_audit(
+        run_root=run_root,
+        status=status,
+        row_count=row_count,
+        run_class=run_class,
+        move_on_blockers=move_on_blockers,
+    )
+
+
+def _write_l7_completeness_audit(
+    *,
+    run_root: Path,
+    status: str,
+    row_count: int,
+    run_class: str,
+    move_on_blockers: list[str],
+) -> None:
+    manifest_path = filesystem_path(run_root / "manifests" / "run_manifest.json")
+    manifest = json.loads(manifest_path.read_text(encoding="ascii")) if manifest_path.is_file() else {}
+    largest = _largest_file_audit_row(run_root)
+    primitive_counts = _coverage_counts(run_root, "primitive_id")
+    candidate_counts = _coverage_counts(run_root, "candidate_index")
+    start_counts = _coverage_counts(run_root, "start_state_family")
+    environment_counts = _coverage_counts(run_root, "environment_mode")
+    boundary_counts = _coverage_counts(run_root, "boundary_use_class")
+    synthesis_rows = _read_metric_preview(run_root / "metrics" / "variant_synthesis_summary.csv", limit=12)
+    cleared = bool(not move_on_blockers and run_class == "rich_side_l6_candidate")
+    report = "\n".join(
+        [
+            "# L7 W01 Completeness Audit",
+            "",
+            f"- Status: `{status}`",
+            f"- Run class: `{run_class}`",
+            f"- Rows written: `{int(row_count)}`",
+            f"- Worker count: `{manifest.get('selected_worker_count', '')}`",
+            f"- Chunk count: `{manifest.get('chunk_count', '')}`",
+            f"- Chunk size: `{manifest.get('candidate_chunk_size', '')}`",
+            f"- Storage format: `{manifest.get('storage_format', '')}`",
+            f"- Candidate count requested: `{manifest.get('candidate_count', '')}`",
+            f"- Paired tests per candidate: `{manifest.get('paired_tests_per_candidate', '')}`",
+            f"- Largest file: `{largest.get('relative_path', '')}` at `{largest.get('size_mb', '')}` MB",
+            f"- Above 75 MB present: `{largest.get('above_75mb', '')}`",
+            f"- Above 100 MB present: `{largest.get('above_100mb', '')}`",
+            f"- W1 single/four mixed in one root: `{ {'gaussian_single', 'gaussian_four'}.issubset(set(environment_counts)) }`",
+            f"- Fixed W01 library cleared for future W2 fixed-LQR replay: `{cleared}`",
+            "",
+            "Coverage summaries:",
+            "",
+            f"- Primitives: `{json.dumps(primitive_counts, sort_keys=True)}`",
+            f"- Candidate indices present: `{len(candidate_counts)}`",
+            f"- Start families: `{json.dumps(start_counts, sort_keys=True)}`",
+            f"- Environments: `{json.dumps(environment_counts, sort_keys=True)}`",
+            f"- Boundary use: `{json.dumps(boundary_counts, sort_keys=True)}`",
+            "",
+            "Timing-aware synthesis preview:",
+            "",
+            *[f"- `{row}`" for row in synthesis_rows],
+            "",
+            "Blockers:",
+            "",
+            *[f"- `{item}`" for item in (move_on_blockers or ["none"])],
+            "",
+            "Blocked claims remain W2 execution, W3 robustness, post-W3 compact-library readiness, governor validation, hardware readiness, real-flight transfer, mission success, and formal LQR-tree/funnel/region-of-attraction guarantees.",
+            "",
+        ]
+    )
+    filesystem_path(run_root / "reports" / "l7_w01_completeness_audit.md").write_text(report, encoding="ascii")
+
+
+def _largest_file_audit_row(run_root: Path) -> dict[str, object]:
+    path = filesystem_path(run_root / "metrics" / "file_size_audit.csv")
+    if not path.is_file():
+        return {}
+    frame = pd.read_csv(path)
+    if frame.empty or "size_mb" not in frame.columns:
+        return {}
+    frame["size_mb"] = frame["size_mb"].astype(float)
+    row = frame.sort_values("size_mb", ascending=False).iloc[0].to_dict()
+    return {str(key): value for key, value in row.items()}
+
+
+def _read_metric_preview(path: Path, *, limit: int) -> list[str]:
+    fs_path = filesystem_path(path)
+    if not fs_path.is_file():
+        return ["missing"]
+    try:
+        frame = pd.read_csv(fs_path)
+    except pd.errors.EmptyDataError:
+        return ["empty"]
+    if frame.empty:
+        return ["empty"]
+    columns = [
+        column
+        for column in (
+            "primitive_id",
+            "candidate_index",
+            "controller_design_role",
+            "lqr_synthesis_status",
+            "row_count",
+        )
+        if column in frame.columns
+    ]
+    return [
+        json.dumps(row, sort_keys=True, separators=(",", ":"))
+        for row in frame.loc[:, columns].head(int(limit)).to_dict(orient="records")
+    ]
 
 
 def _l6_move_on_status(*, run_root: Path, status: str, row_count: int) -> tuple[str, list[str]]:
-    blockers = _timing_aware_gate_blockers(run_root=run_root, row_count=row_count)
+    blockers = _rich_side_gate_blockers(run_root=run_root, row_count=row_count)
     if status == "dry_run_schedule":
         return "dry_run_schedule", ["no_rollout_evidence_written", *blockers]
-    if int(row_count) < 1000:
-        return "smoke", ["below_1000_row_preflight_threshold", *blockers]
-    if int(row_count) < 10000:
-        return "preflight", blockers
-    return "dense_evidence", blockers
+    if int(row_count) < L6_FALLBACK_ROW_COUNT:
+        return "preflight", ["below_19200_fallback_scale_threshold", *blockers]
+    if int(row_count) < L6_RICH_SIDE_ROW_COUNT:
+        return "fallback_scale_only", ["below_76800_rich_side_threshold", *blockers]
+    return "rich_side_l6_candidate", blockers
 
 
-def _timing_aware_gate_blockers(*, run_root: Path, row_count: int) -> list[str]:
+def _rich_side_gate_blockers(*, run_root: Path, row_count: int) -> list[str]:
     blockers: list[str] = []
     registry_path = filesystem_path(run_root / "metrics" / "primitive_variant_registry.csv")
     if not registry_path.is_file():
         blockers.append("missing_primitive_variant_registry")
     else:
         registry = pd.read_csv(registry_path)
-        required_columns = {"primitive_id", "controller_design_role", "lqr_synthesis_status"}
+        required_columns = {"primitive_id", "candidate_index", "controller_id", "controller_design_role", "lqr_synthesis_status"}
         if not required_columns.issubset(set(registry.columns)):
             blockers.append("registry_missing_timing_aware_controller_columns")
         else:
@@ -1104,33 +1259,181 @@ def _timing_aware_gate_blockers(*, run_root: Path, row_count: int) -> list[str]:
                 ]
                 if active_rows.empty:
                     blockers.append(f"missing_timing_aware_solved_or_blocked_variant_for_{primitive_id}")
+            candidate_values = {
+                int(float(value))
+                for value in registry["candidate_index"].dropna().tolist()
+                if str(value) != ""
+            }
+            expected_candidates = set(range(L6_RICH_SIDE_CANDIDATE_COUNT))
+            if int(row_count) >= L6_RICH_SIDE_ROW_COUNT and candidate_values != expected_candidates:
+                blockers.append("registry_missing_32_rich_side_candidate_indices")
     if int(row_count) <= 0:
         return blockers
     summary_path = filesystem_path(run_root / "metrics" / "variant_synthesis_summary.csv")
     if not summary_path.is_file():
         blockers.append("missing_variant_synthesis_summary")
-        return blockers
-    summary = pd.read_csv(summary_path)
-    if "controller_design_role" not in summary.columns:
-        blockers.append("variant_synthesis_summary_missing_controller_design_role")
-        return blockers
-    active_count = int(
-        summary.loc[
-            summary["controller_design_role"].astype(str) == ACTIVE_TIMING_AWARE_ROLE,
-            "row_count",
-        ].sum()
-    )
-    non_active_count = int(
-        summary.loc[
-            summary["controller_design_role"].astype(str) != ACTIVE_TIMING_AWARE_ROLE,
-            "row_count",
-        ].sum()
-    )
-    if active_count <= 0:
-        blockers.append("w01_rows_missing_active_timing_aware_controller_ids")
-    if non_active_count > 0:
-        blockers.append("w01_rows_include_superseded_baseline_controller_ids")
+    else:
+        summary = pd.read_csv(summary_path)
+        if "controller_design_role" not in summary.columns:
+            blockers.append("variant_synthesis_summary_missing_controller_design_role")
+        else:
+            active_count = int(
+                summary.loc[
+                    summary["controller_design_role"].astype(str) == ACTIVE_TIMING_AWARE_ROLE,
+                    "row_count",
+                ].sum()
+            )
+            non_active_count = int(
+                summary.loc[
+                    summary["controller_design_role"].astype(str) != ACTIVE_TIMING_AWARE_ROLE,
+                    "row_count",
+                ].sum()
+            )
+            if active_count <= 0:
+                blockers.append("w01_rows_missing_active_timing_aware_controller_ids")
+            if non_active_count > 0:
+                blockers.append("w01_rows_include_superseded_baseline_controller_ids")
+    blockers.extend(_coverage_gate_blockers(run_root=run_root, row_count=row_count))
+    blockers.extend(_active_timing_state_gate_blockers(run_root=run_root))
+    blockers.extend(_file_size_gate_blockers(run_root=run_root))
+    blockers.extend(_manifest_checksum_gate_blockers(run_root=run_root))
+    blockers.extend(_contract_audit_gate_blockers())
     return blockers
+
+
+def _coverage_gate_blockers(*, run_root: Path, row_count: int) -> list[str]:
+    blockers: list[str] = []
+    primitive_values = set(_coverage_values(run_root, "primitive_id"))
+    if primitive_values and primitive_values != set(ACTIVE_PRIMITIVE_IDS):
+        blockers.append("missing_active_primitive_coverage")
+    candidate_values = {int(value) for value in _coverage_values(run_root, "candidate_index") if str(value).isdigit()}
+    if int(row_count) >= L6_RICH_SIDE_ROW_COUNT and candidate_values != set(range(L6_RICH_SIDE_CANDIDATE_COUNT)):
+        blockers.append("missing_32_candidate_row_coverage")
+    environment_values = set(_coverage_values(run_root, "environment_mode"))
+    if not {"dry_air", "gaussian_single", "gaussian_four"}.issubset(environment_values):
+        blockers.append("missing_w01_dry_single_four_environment_mix")
+    w_values = set(_coverage_values(run_root, "W_layer"))
+    if not {"W0", "W1"}.issubset(w_values):
+        blockers.append("missing_w0_w1_layer_coverage")
+    start_counts = _coverage_counts(run_root, "start_state_family")
+    expected = {
+        family: int(round(float(row_count) * proportion))
+        for family, proportion in START_FAMILY_MIX.items()
+    }
+    if int(row_count) >= L6_RICH_SIDE_ROW_COUNT and start_counts != expected:
+        blockers.append("start_family_mix_not_exact_40_25_15_10_10")
+    return blockers
+
+
+def _coverage_values(run_root: Path, axis: str) -> list[str]:
+    return list(_coverage_counts(run_root, axis).keys())
+
+
+def _coverage_counts(run_root: Path, axis: str) -> dict[str, int]:
+    path = filesystem_path(run_root / "metrics" / "coverage_summary.csv")
+    if not path.is_file():
+        return {}
+    try:
+        frame = pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return {}
+    if frame.empty or "coverage_axis" not in frame.columns:
+        return {}
+    rows = frame[frame["coverage_axis"].astype(str) == str(axis)]
+    return {
+        str(row["value"]): int(row["row_count"])
+        for row in rows.to_dict(orient="records")
+        if str(row["value"]) != "missing_or_empty"
+    }
+
+
+def _active_timing_state_gate_blockers(*, run_root: Path) -> list[str]:
+    manifest_path = filesystem_path(run_root / "manifests" / "table_manifest.json")
+    if not manifest_path.is_file():
+        return ["missing_table_manifest_for_timing_state_gate"]
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+        storage_format = str(manifest["storage_format"])
+        non_history_count = 0
+        active_row_count = 0
+        for table in manifest.get("tables", []):
+            frame = read_table_partition(
+                run_root / "tables" / str(table["relative_path"]),
+                storage_format=storage_format,
+            )
+            if frame.empty or "controller_design_role" not in frame.columns:
+                continue
+            active = frame[
+                (frame["controller_design_role"].astype(str) == ACTIVE_TIMING_AWARE_ROLE)
+                & (frame["rollout_backend"].astype(str) == "model_backed_lqr")
+            ]
+            active_row_count += int(len(active))
+            if "timing_state_source" not in active.columns:
+                non_history_count += int(len(active))
+            else:
+                non_history_count += int((active["timing_state_source"].astype(str) != "history_backed_fifo").sum())
+    except Exception as exc:
+        return [f"timing_state_gate_unreadable:{type(exc).__name__}"]
+    blockers = []
+    if active_row_count <= 0:
+        blockers.append("no_active_model_backed_timing_rows")
+    if non_history_count > 0:
+        blockers.append("active_timing_rows_not_history_backed_fifo")
+    return blockers
+
+
+def _file_size_gate_blockers(*, run_root: Path) -> list[str]:
+    path = filesystem_path(run_root / "metrics" / "file_size_audit.csv")
+    if not path.is_file():
+        return ["missing_file_size_audit"]
+    frame = pd.read_csv(path)
+    if "above_100mb" not in frame.columns:
+        return ["file_size_audit_missing_above_100mb"]
+    if frame["above_100mb"].astype(str).str.lower().isin({"true", "1"}).any():
+        return ["file_size_audit_above_100mb"]
+    return []
+
+
+def _manifest_checksum_gate_blockers(*, run_root: Path) -> list[str]:
+    manifest_path = filesystem_path(run_root / "manifests" / "table_manifest.json")
+    if not manifest_path.is_file():
+        return ["missing_table_manifest"]
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+        storage_format = str(manifest["storage_format"])
+        for table in manifest.get("tables", []):
+            partition_path = run_root / "tables" / str(table["relative_path"])
+            if file_sha256(partition_path) != str(table["checksum_sha256"]):
+                return ["table_manifest_partition_checksum_mismatch"]
+            frame = read_table_partition(partition_path, storage_format=storage_format)
+            if int(table["row_count"]) != int(len(frame)):
+                return ["table_manifest_partition_row_count_mismatch"]
+            chunk_stem = Path(str(table["relative_path"])).name
+            if chunk_stem.endswith(".csv.gz"):
+                chunk_stem = chunk_stem[: -len(".csv.gz")]
+            else:
+                chunk_stem = Path(chunk_stem).stem
+            chunk_manifest = filesystem_path(run_root / "chunk_manifests" / W01_TABLE_NAME / f"{chunk_stem}.json")
+            if not chunk_manifest.is_file():
+                return ["missing_chunk_manifest"]
+            chunk_payload = json.loads(chunk_manifest.read_text(encoding="ascii"))
+            if str(chunk_payload.get("checksum_sha256", "")) != str(table["checksum_sha256"]):
+                return ["chunk_manifest_checksum_mismatch"]
+    except Exception as exc:
+        return [f"manifest_checksum_gate_unreadable:{type(exc).__name__}"]
+    return []
+
+
+def _contract_audit_gate_blockers() -> list[str]:
+    try:
+        from run_w01_w2_w3_contract_audit import run_w01_w2_w3_contract_audit
+
+        findings = run_w01_w2_w3_contract_audit(Path("."))
+    except Exception as exc:
+        return [f"contract_audit_not_passed:{type(exc).__name__}"]
+    if findings:
+        return ["contract_audit_not_passed"]
+    return []
 
 
 def _write_empty_table_manifest(run_root: Path, run_id: int, storage_format: str) -> None:
@@ -1156,10 +1459,15 @@ def _run_manifest(
     schedule: list[W01ChunkSpec],
     variants: tuple[PrimitiveControllerVariant, ...],
 ) -> dict[str, object]:
+    paired_tests = (
+        int(config.paired_tests_per_candidate)
+        if config.paired_tests_per_candidate is not None
+        else max(1, int(config.rows) // max(1, len(variants) * len(OFFICIAL_W01_ENVIRONMENT_CASES)))
+    )
     schedule_row = tuning_schedule_row(
         lqr_tuning_schedule(
             candidate_count=int(config.candidate_count),
-            paired_tests_per_candidate=max(1, int(config.rows) // max(1, len(variants))),
+            paired_tests_per_candidate=paired_tests,
         )
     )
     schedule_counts = _schedule_count_summary(config)
@@ -1173,6 +1481,13 @@ def _run_manifest(
         "seed": int(config.seed),
         "candidate_chunk_size": int(config.candidate_chunk_size),
         "candidate_count": int(config.candidate_count),
+        "paired_tests_per_candidate": (
+            int(config.paired_tests_per_candidate)
+            if config.paired_tests_per_candidate is not None
+            else paired_tests
+        ),
+        "rich_side_l6_row_threshold": int(L6_RICH_SIDE_ROW_COUNT),
+        "fallback_l6_row_threshold": int(L6_FALLBACK_ROW_COUNT),
         "storage_format": storage_format,
         "compression_level": int(config.compression_level),
         "dry_run_schedule": bool(config.dry_run_schedule),
@@ -1285,6 +1600,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--continue-on-chunk-failure", action="store_true")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--candidate-count", type=int, default=16)
+    parser.add_argument("--paired-tests-per-candidate", type=int, default=None)
     parser.add_argument("--schedule-mode", choices=(BALANCED_SCHEDULE_MODE, SMOKE_SCHEDULE_MODE), default=BALANCED_SCHEDULE_MODE)
     return parser.parse_args(argv)
 
@@ -1307,6 +1623,7 @@ def main(argv: list[str] | None = None) -> int:
         stop_after_chunks=args.stop_after_chunks,
         continue_on_chunk_failure=args.continue_on_chunk_failure,
         candidate_count=args.candidate_count,
+        paired_tests_per_candidate=args.paired_tests_per_candidate,
         schedule_mode=args.schedule_mode,
     )
     result = run_lqr_w01_dense_chunked(config)

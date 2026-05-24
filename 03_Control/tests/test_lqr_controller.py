@@ -10,9 +10,13 @@ import pytest
 from lqr_controller import (
     ACTIVE_TIMING_AWARE_ROLE,
     LQR_SYNTHESIS_SOLVED,
+    TIMING_STATE_HISTORY_BACKED,
+    TIMING_STATE_INITIALISED,
     TIMING_AUGMENTATION_TYPE,
+    TimingAwareControllerState,
     compare_timing_aware_vs_baseline_nominal,
     controller_is_active_timing_aware_w01,
+    initialised_timing_state_for_controller,
     lqr_command_for_state,
     lqr_controller_for_primitive_id,
     lqr_controller_metadata_row,
@@ -110,3 +114,36 @@ def test_timing_aware_command_path_is_distinct_under_nominal_delay() -> None:
         assert comparison["timing_aware_role"] == ACTIVE_TIMING_AWARE_ROLE
         assert comparison["baseline_role"] == "superseded_baseline_not_active_w01"
         assert comparison["command_delta_norm"] > 0.0
+
+
+def test_timing_aware_command_uses_history_backed_fifo_when_supplied() -> None:
+    controller = lqr_controller_for_primitive_id("glide")
+    state = np.asarray(controller.reference_state_vector, dtype=float).copy()
+    state[STATE_INDEX["theta"]] += np.deg2rad(1.0)
+    reference = tuple(float(value) for value in controller.reference_command_vector)
+    fifo_command = tuple(float(value + 0.02) for value in reference)
+    timing_state = TimingAwareControllerState(
+        command_fifo_rad=tuple(fifo_command for _ in range(controller.command_delay_steps)),
+        last_requested_command_rad=fifo_command,
+        last_applied_command_rad=fifo_command,
+        predictor_reference_command_rad=reference,
+        current_surface_state_rad=tuple(float(state[STATE_INDEX[name]]) for name in ("delta_a", "delta_e", "delta_r")),
+        timing_state_source=TIMING_STATE_HISTORY_BACKED,
+    )
+
+    compatibility = lqr_command_for_state(controller=controller, state_vector=state)
+    initialised = lqr_command_for_state(
+        controller=controller,
+        state_vector=state,
+        timing_state=initialised_timing_state_for_controller(controller, state),
+    )
+    history_backed = lqr_command_for_state(
+        controller=controller,
+        state_vector=state,
+        timing_state=timing_state,
+    )
+
+    assert compatibility.timing_state_source == TIMING_STATE_INITIALISED
+    assert initialised.timing_state_source == TIMING_STATE_INITIALISED
+    assert history_backed.timing_state_source == TIMING_STATE_HISTORY_BACKED
+    assert not np.allclose(history_backed.command_rad, initialised.command_rad)

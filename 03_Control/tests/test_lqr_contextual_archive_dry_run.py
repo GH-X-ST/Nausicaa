@@ -61,17 +61,20 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
     assert frame["controller_id"].astype(str).str.startswith("lqrta_").all()
     assert frame["active_timing_aware_controller_used"].astype(bool).all()
     assert not frame["baseline_controller_active"].astype(bool).any()
+    model_rows = frame[frame["rollout_backend"].astype(str).eq("model_backed_lqr")]
+    assert not model_rows.empty
+    assert set(model_rows["timing_state_source"]) == {"history_backed_fifo"}
     assert "augmented_gain_checksum" in frame.columns
     assert not frame["candidate_weight_label"].astype(str).eq("W0_W1").any()
 
     run_manifest = json.loads((run_root / "manifests" / "run_manifest.json").read_text(encoding="ascii"))
     assert run_manifest["schedule_mode"] == "balanced_paired"
-    assert run_manifest["project_title_version"] == "LQR-Stabilised Contextual Primitive v4.3"
+    assert run_manifest["project_title_version"] == "LQR-Stabilised Contextual Primitive v4.4"
     assert run_manifest["active_controller_design_role"] == "active_timing_aware_w01"
     assert run_manifest["per_start_family_row_counts"]["launch_gate"] == 48
     l6_report = (run_root / "reports" / "l6_move_on_check.md").read_text(encoding="ascii")
     assert "predictor_compensated_augmented_discrete_lqr_v1" in l6_report
-    assert "below_1000_row_preflight_threshold" in l6_report
+    assert "below_19200_fallback_scale_threshold" in l6_report
 
 
 def test_w01_launch_gate_rejections_are_not_controller_failures(tmp_path: Path) -> None:

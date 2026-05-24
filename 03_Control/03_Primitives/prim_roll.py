@@ -7,7 +7,7 @@ from functools import lru_cache
 import numpy as np
 
 from arena_contract import TRUE_SAFE_BOUNDS, position_margin_m
-from command_contract import normalised_command_to_surface_rad
+from command_contract import normalised_command_to_surface_rad, surface_rad_to_normalised_command
 from env_ctx import (
     EnvironmentContext,
     context_feature_vector_json,
@@ -17,6 +17,7 @@ from flight_dynamics import adapt_glider, state_derivative
 from glider import build_nausicaa_glider
 from latency import (
     actuator_tau_for_case,
+    delayed_command_sample,
     delayed_state_sample,
     latency_adjusted_command_sample,
     latency_case_config,
@@ -34,8 +35,12 @@ from plant_instance import PlantInstance, apply_plant_instance_to_aircraft, plan
 from prim_cat import PrimitiveDefinition, primitive_parameters_json
 from lqr_controller import (
     LQR_SYNTHESIS_SOLVED,
+    TIMING_STATE_HISTORY_BACKED,
+    TIMING_STATE_INITIALISED,
     LQRController,
+    TimingAwareControllerState,
     controller_is_executable_lqr,
+    initialised_timing_state_for_controller,
     lqr_controller_for_primitive_id,
     lqr_rollout_metadata,
 )
@@ -145,6 +150,7 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "latency_execution_status",
     "latency_pass_label",
     "timing_model_version",
+    "timing_state_source",
     "rollout_backend",
     "evidence_role",
     "surrogate_binding_status",
@@ -266,6 +272,7 @@ class RolloutEvidence:
     latency_execution_status: str
     latency_pass_label: str
     timing_model_version: str
+    timing_state_source: str
     rollout_backend: str
     evidence_role: str
     surrogate_binding_status: str
@@ -440,6 +447,7 @@ def blocked_rollout_evidence(
         candidate_weight_label=str(candidate_weight_label),
         latency_case=context.latency_case,
         **latency_fields,
+        timing_state_source="not_evaluated_blocked_before_rollout",
         rollout_backend="blocked_lqr",
         evidence_role=EVIDENCE_ROLE_BY_BACKEND["blocked_lqr"],
         surrogate_binding_status=context.surrogate_binding_status,
@@ -560,6 +568,7 @@ def _simulate_smoke_rollout(
         candidate_weight_label=str(candidate_weight_label),
         latency_case=context.latency_case,
         **latency_fields,
+        timing_state_source="not_evaluated_smoke_only",
         rollout_backend="smoke_only",
         evidence_role=EVIDENCE_ROLE_BY_BACKEND["smoke_only"],
         surrogate_binding_status=context.surrogate_binding_status,
@@ -774,6 +783,7 @@ def _simulate_dynamics_rollout(
     times_s = [0.0]
     states = [x.copy()]
     command_delay_s = float(latency.command_onset_delay_s + latency.command_transport_delay_s)
+    timing_state_source = "not_evaluated_before_first_command"
     if config.rollout_backend == "model_backed_lqr":
         initial_command = primitive_lqr_command(
             primitive,
@@ -781,12 +791,16 @@ def _simulate_dynamics_rollout(
                 state_vector=x,
                 environment_context=context,
                 time_in_primitive_s=0.0,
+                timing_state=initialised_timing_state_for_controller(resolved_controller, x),
             ),
             resolved_controller,
         )
+        reference_command_norm = surface_rad_to_normalised_command(
+            np.asarray(resolved_controller.reference_command_vector, dtype=float)
+        )
         if mechanism_flags["command_delay_applied"]:
             command_times_s = [-(command_delay_s + 1e-9)]
-            command_norm_history = [np.zeros(3, dtype=float)]
+            command_norm_history = [reference_command_norm.copy()]
         else:
             command_times_s = [0.0]
             command_norm_history = [np.asarray(initial_command.command_norm, dtype=float)]
@@ -836,9 +850,19 @@ def _simulate_dynamics_rollout(
                     state_vector=x_control,
                     environment_context=context,
                     time_in_primitive_s=time_s,
+                    timing_state=_timing_state_from_command_history(
+                        controller=resolved_controller,
+                        state_vector=x_control,
+                        command_times_s=command_times_s,
+                        command_norm_history=command_norm_history,
+                        time_s=time_s,
+                        latency=latency,
+                        dt_s=float(config.dt_s),
+                    ),
                 ),
                 resolved_controller,
             )
+            timing_state_source = control_command.timing_state_source
             desired_command_norm = np.asarray(control_command.command_norm, dtype=float)
             if time_s > command_times_s[-1]:
                 command_times_s.append(time_s)
@@ -955,6 +979,7 @@ def _simulate_dynamics_rollout(
         candidate_weight_label=str(candidate_weight_label),
         latency_case=context.latency_case,
         **latency_fields,
+        timing_state_source=timing_state_source,
         rollout_backend=config.rollout_backend,
         evidence_role=_evidence_role_for_backend(config.rollout_backend),
         surrogate_binding_status=context.surrogate_binding_status,
@@ -1059,6 +1084,7 @@ def _blocked_from_state(
         candidate_weight_label=str(candidate_weight_label),
         latency_case=context.latency_case,
         **latency_fields,
+        timing_state_source="not_evaluated_blocked_before_rollout",
         rollout_backend=config.rollout_backend,
         evidence_role=_evidence_role_for_backend(config.rollout_backend),
         surrogate_binding_status=context.surrogate_binding_status,
@@ -1349,6 +1375,47 @@ def _latency_field_values(
         "latency_pass_label": latency_pass_label_for_single_run(latency_case, accepted),
         "timing_model_version": str(config.timing_model_version),
     }
+
+
+def _timing_state_from_command_history(
+    *,
+    controller: LQRController,
+    state_vector: np.ndarray,
+    command_times_s: list[float],
+    command_norm_history: list[np.ndarray],
+    time_s: float,
+    latency,
+    dt_s: float,
+) -> TimingAwareControllerState:
+    """Build the augmented-LQR command FIFO from rollout command history."""
+
+    state = as_state_vector(state_vector)
+    fifo_steps = max(0, int(controller.command_delay_steps))
+    if fifo_steps <= 0:
+        return initialised_timing_state_for_controller(controller, state)
+    times = np.asarray(command_times_s, dtype=float)
+    commands_norm = np.asarray(command_norm_history, dtype=float).reshape(-1, 3)
+    commands_rad = np.vstack(
+        [normalised_command_to_surface_rad(row) for row in commands_norm]
+    )
+    command_delay_s = float(latency.command_onset_delay_s + latency.command_transport_delay_s)
+    fifo_rows = []
+    for fifo_index in range(fifo_steps):
+        query_time_s = float(time_s) - command_delay_s + float(fifo_index) * float(dt_s)
+        fifo_rows.append(delayed_command_sample(times, commands_rad, query_time_s))
+    last_requested = commands_rad[-1]
+    last_applied = fifo_rows[0] if fifo_rows else last_requested
+    reference_command = np.asarray(controller.reference_command_vector, dtype=float)
+    return TimingAwareControllerState(
+        command_fifo_rad=tuple(tuple(float(value) for value in row) for row in fifo_rows),
+        last_requested_command_rad=tuple(float(value) for value in last_requested),
+        last_applied_command_rad=tuple(float(value) for value in last_applied),
+        predictor_reference_command_rad=tuple(float(value) for value in reference_command),
+        current_surface_state_rad=tuple(
+            float(state[STATE_INDEX[name]]) for name in ("delta_a", "delta_e", "delta_r")
+        ),
+        timing_state_source=TIMING_STATE_HISTORY_BACKED,
+    )
 
 
 def _latency_for_implementation(latency_case: str, implementation: ImplementationInstance):

@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 import numpy as np
 
 from env_ctx import EnvironmentContext
-from lqr_controller import LQRCommand, LQRController, lqr_command_for_state
+from lqr_controller import LQRCommand, LQRController, TimingAwareControllerState, lqr_command_for_state
 from prim_cat import PrimitiveDefinition
 
 
@@ -22,6 +22,7 @@ class PrimitiveControlContext:
     state_vector: np.ndarray
     environment_context: EnvironmentContext
     time_in_primitive_s: float = 0.0
+    timing_state: TimingAwareControllerState | None = None
 
 
 def lqr_mode_for_primitive(primitive: PrimitiveDefinition) -> str:
@@ -44,6 +45,7 @@ def primitive_lqr_command(
     return lqr_command_for_state(
         controller=controller,
         state_vector=control_context.state_vector,
+        timing_state=control_context.timing_state,
     )
 
 
@@ -54,4 +56,5 @@ def primitive_control_command_row(command: LQRCommand) -> dict[str, object]:
     row["command_norm"] = ";".join(f"{value:.9f}" for value in command.command_norm)
     row["command_rad"] = ";".join(f"{value:.9f}" for value in command.command_rad)
     row["raw_command_rad"] = ";".join(f"{value:.9f}" for value in command.raw_command_rad)
+    row["timing_state_source"] = command.timing_state_source
     return row

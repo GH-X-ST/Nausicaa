@@ -48,6 +48,8 @@ class PrimitiveControllerVariant:
     primitive_id: str
     primitive_family: str
     entry_role: str
+    candidate_index: int | str
+    candidate_weight_label: str
     controller_id: str
     controller_family: str
     reference_state_vector: str
@@ -142,6 +144,8 @@ def primitive_controller_variant(
     primitive: PrimitiveDefinition,
     controller: LQRController,
     entry_role: str | None = None,
+    candidate_index: int | str = "",
+    candidate_weight_label: str | None = None,
 ) -> PrimitiveControllerVariant:
     role = str(entry_role or entry_role_for_primitive_id(primitive.primitive_id))
     if role not in ENTRY_ROLES:
@@ -179,6 +183,8 @@ def primitive_controller_variant(
         primitive_id=primitive.primitive_id,
         primitive_family=primitive.primitive_family,
         entry_role=role,
+        candidate_index=candidate_index,
+        candidate_weight_label=str(candidate_weight_label or controller.tuning_stage),
         controller_id=controller.controller_id,
         controller_family=controller.controller_family,
         reference_state_vector=reference_state_json,
@@ -296,6 +302,8 @@ def load_variant_registry(path: Path | str) -> dict[str, PrimitiveControllerVari
 def _normalise_row(row: dict[str, object]) -> dict[str, object]:
     out = dict(row)
     out["finite_horizon_s"] = float(out["finite_horizon_s"])
+    out.setdefault("candidate_index", "")
+    out.setdefault("candidate_weight_label", "")
     out.setdefault("timing_aware_synthesis_level", "trim_local_reduced_order_lqr_no_delay_augmentation")
     out.setdefault("timing_effects_in_synthesis", "sampled_data_stability_and_nominal_latency_actuator_smoke_only")
     out.setdefault("timing_effects_in_rollout", "feedback_delay_command_timing_actuator_lag_applied_in_w01_rollout")

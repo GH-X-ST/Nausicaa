@@ -181,3 +181,83 @@ The v4.3 claim boundary remains workflow and readiness only. It does not claim
 W0/W1 dense evidence completion, W2 survival, W3 robustness,
 post-W3 compact-library readiness, governor validation, hardware readiness,
 real-flight transfer, or mission success.
+
+## LQR-Stabilised Contextual Primitive v4.4 Rich-Side L6 Addendum
+
+Date/time: 2026-05-24 22:15:12 +01:00
+
+Current branch: `main`
+
+Current HEAD: `4c5cbd4c98a31b82ef48766f8bda0b359927f30a`
+
+This pass strengthens the active timing-aware W01 command path with an explicit
+`TimingAwareControllerState` and requires active model-backed W01 rows to use
+`timing_state_source=history_backed_fifo`. Compatibility calls without rollout
+history are retained only as `initialised_fifo_not_history_backed` and do not
+clear the rich-side L6 gate.
+
+New v4.4 readiness/evidence artifacts are:
+
+- `03_Control/05_Results/lqr_contextual_v1_0/w01_dense/007`: dry-run schedule
+  for the rich-side L6 W01 library.
+- `03_Control/05_Results/lqr_contextual_v1_0/w01_dense/008`: executable
+  rich-side W01 library run.
+
+Run `008` summary:
+
+- Version label: `LQR-Stabilised Contextual Primitive v4.4`.
+- Rows: 76,800.
+- Candidate count: 32.
+- Paired tests per candidate: 100.
+- Worker count: 8.
+- Chunk count: 96.
+- Chunk size: 800.
+- Storage format: `csv_gz` resolved from `auto`.
+- Resume/repair flags: `resume=True`, `repair_incomplete=True`.
+- Largest generated file: `manifests/primitive_variant_registry.json`,
+  1.316 MB.
+- File-size audit: no file above 75 MB or 100 MB.
+- Checksum status: table and chunk manifests passed the W01 gate.
+- Timing-aware controller status: all active variants use
+  `active_timing_aware_w01` with
+  `predictor_compensated_augmented_discrete_lqr_v1`.
+- Timing-state status: 42,240 active model-backed rows use
+  `history_backed_fifo`; 34,560 rejected/blocked-before-rollout rows are
+  explicitly `not_evaluated_blocked_before_rollout`.
+- W1 mixing status: `gaussian_single` and `gaussian_four` are present in the
+  same W01 root, with `dry_air` W0 rows also present.
+- L6 gate result: rich-side W01 fixed library cleared for future W2
+  fixed-LQR survival-replay planning.
+
+Coverage recorded by the L7-style completeness audit:
+
+- Each of the 8 primitives has 9,600 rows.
+- Each of the 32 candidate indices is present.
+- Start-family counts match the 40/25/15/10/10 mix:
+  `launch_gate=30720`, `inflight_nominal=19200`,
+  `inflight_lift_region=11520`, `inflight_boundary_near=7680`,
+  `inflight_recovery_edge=7680`.
+- W01 environment counts are balanced:
+  `dry_air=25600`, `gaussian_single=25600`, `gaussian_four=25600`.
+
+Validation after this v4.4 pass:
+
+- PowerShell-expanded `py_compile` over `03_Control/02_Inner_Loop`,
+  `03_Control/03_Primitives`, and `03_Control/04_Scenarios`: passed.
+- `python -m pytest -q 03_Control/tests --basetemp .codex_run_logs\pytest_tmp -o cache_dir=.codex_run_logs\pytest_cache`:
+  passed, 157 tests.
+- `python 03_Control/04_Scenarios/run_w01_w2_w3_contract_audit.py`: passed.
+- W01 dry-run schedule command for run `007`: passed.
+- W01 executable rich-side command for run `008`: passed.
+- Separate `.codex_run_logs` repair validation regenerated corrupted chunk
+  `c00000` deterministically and preserved the expected 768-row count; no
+  retained evidence root was deliberately corrupted.
+
+Allowed claim after this pass: simulation-only rich-side W0/W1
+primitive-controller library evidence exists using timing-aware primitive-local
+LQR variants and is ready for W2 fixed-LQR survival-replay implementation.
+
+Blocked claims remain final W0/W1 dense completion, W2 survival execution,
+W3 robustness, post-W3 compact-library readiness, governor validation,
+hardware readiness, real-flight transfer, mission success, and formal
+LQR-tree/funnel/region-of-attraction guarantees.
