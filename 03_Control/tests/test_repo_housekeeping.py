@@ -135,6 +135,7 @@ ALLOWLISTED_TESTS = {
     "03_Control/tests/test_prim_cat.py",
     "03_Control/tests/test_lqr_controller.py",
     "03_Control/tests/test_lqr_tuning.py",
+    "03_Control/tests/test_lqr_tuning_r6_1.py",
     "03_Control/tests/test_prim_ctrl.py",
     "03_Control/tests/test_prim_features.py",
     "03_Control/tests/test_prim_roll.py",

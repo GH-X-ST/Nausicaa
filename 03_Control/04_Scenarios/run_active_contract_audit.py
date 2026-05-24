@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -403,14 +404,33 @@ def _audit_no_stale_active_generated_evidence(root: Path) -> list[AuditFinding]:
     results_root = root / "03_Control" / "05_Results"
     if not results_root.exists():
         return findings
+    allowed_root = _allowed_local_evidence_root(root)
     for path in results_root.rglob("*"):
         if not path.is_file():
             continue
         rel = path.relative_to(root).as_posix()
         if rel == "03_Control/05_Results/.gitkeep":
             continue
+        if allowed_root and (rel == allowed_root or rel.startswith(f"{allowed_root}/")):
+            continue
         findings.append(_finding(root, path, "stale_active_generated_evidence", "active generated evidence file must be regenerated, not tracked"))
     return findings
+
+
+def _allowed_local_evidence_root(root: Path) -> str:
+    value = os.environ.get("NAUSICAA_ALLOW_LOCAL_EVIDENCE_ROOT", "").strip()
+    if not value:
+        return ""
+    path = Path(value)
+    if path.is_absolute():
+        try:
+            path = path.resolve().relative_to(root)
+        except ValueError:
+            return ""
+    rel = path.as_posix().rstrip("/")
+    if not rel.startswith("03_Control/05_Results/"):
+        return ""
+    return rel
 
 
 def _active_python_files(root: Path, *, include_tests: bool) -> list[Path]:

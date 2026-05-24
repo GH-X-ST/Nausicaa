@@ -18,9 +18,15 @@ from prim_cat import primitive_by_id
 
 
 SELECTED_CONTROLLER_STATUS = "selected"
+ACCEPTED_FALLBACK_CONTROLLER_STATUS = "accepted_fallback"
 REJECTED_CONTROLLER_STATUS = "rejected"
 BLOCKED_CONTROLLER_STATUS = "blocked"
 SMOKE_SELECTED_CONTROLLER_STATUS = "smoke_selected_not_thesis_evidence"
+LOADABLE_CONTROLLER_STATUSES = (
+    SELECTED_CONTROLLER_STATUS,
+    ACCEPTED_FALLBACK_CONTROLLER_STATUS,
+    SMOKE_SELECTED_CONTROLLER_STATUS,
+)
 
 
 @dataclass(frozen=True)
@@ -127,7 +133,7 @@ def write_selected_controller_registry(
     selected = [
         row
         for row in rows
-        if row.get("selected_controller_status") in {SELECTED_CONTROLLER_STATUS, SMOKE_SELECTED_CONTROLLER_STATUS}
+        if row.get("selected_controller_status") in LOADABLE_CONTROLLER_STATUSES
     ]
     filesystem_path(csv_path).parent.mkdir(parents=True, exist_ok=True)
     filesystem_path(json_path).parent.mkdir(parents=True, exist_ok=True)
@@ -168,7 +174,7 @@ def load_selected_controller_records(path: Path | str | None) -> dict[str, Selec
     registry: dict[str, SelectedControllerRecord] = {}
     for row in rows:
         status = str(row.get("selected_controller_status", ""))
-        if status not in {SELECTED_CONTROLLER_STATUS, SMOKE_SELECTED_CONTROLLER_STATUS}:
+        if status not in LOADABLE_CONTROLLER_STATUSES:
             continue
         row = _normalised_registry_row(row, registry_path=Path(path).as_posix())
         controller = controller_from_registry_row(row)
