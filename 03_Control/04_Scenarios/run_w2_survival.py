@@ -8,7 +8,7 @@ import sys
 import time
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Iterable
 
@@ -80,11 +80,16 @@ from state_sampling import (  # noqa: E402
 
 W2_SURVIVAL_VERSION = "w2_fixed_lqr_survival_replay_v1"
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.5"
-DEFAULT_W01_INPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense/012")
+DEFAULT_W01_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
+DEFAULT_W01_INPUT_ROOT: Path | None = None
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")
 W2_TABLE_NAME = "w2_survival_rows"
 W2_ENVIRONMENT_CASES = ("annular_gp_single", "annular_gp_four")
 W2_STATUS_VOCABULARY = ("survived", "downgraded", "eliminated", "blocked", "not_run")
+W2_RUN_STATUSES = ("blocked", "dry_run_schedule", "w2_artifact_smoke_pass", "w2_smoke_no_survivors", "w2_dense_survival_pass", "w2_dense_no_survivors")
+W2_DENSE_ROW_COUNT = 51_200
+W2_DENSE_VARIANT_COUNT = 256
+W2_SMOKE_MIN_PAIRED_TESTS = 20
 CLAIM_BOUNDARY = (
     "simulation_only_W2_fixed_LQR_survival_replay_for_frozen_W01_timing_aware_primitive_library"
 )
@@ -99,10 +104,57 @@ BLOCKED_CLAIMS = (
 )
 
 
+def discover_latest_w01_root_for_w2(
+    discovery_root: Path = DEFAULT_W01_DISCOVERY_ROOT,
+) -> Path | None:
+    """Return the latest artifact-complete W01 root eligible for default W2 input."""
+
+    root = filesystem_path(discovery_root)
+    if not root.is_dir():
+        return None
+    candidates = []
+    for path in root.iterdir():
+        if not path.is_dir():
+            continue
+        try:
+            numeric_id = int(path.name)
+        except ValueError:
+            continue
+        if _w01_root_is_default_w2_eligible(Path(path)):
+            candidates.append((numeric_id, Path(path)))
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: item[0])[-1][1]
+
+
+def _resolve_w01_input_root(input_root: Path | None) -> Path:
+    if input_root is not None:
+        return Path(input_root)
+    discovered = discover_latest_w01_root_for_w2()
+    if discovered is not None:
+        return discovered
+    return DEFAULT_W01_DISCOVERY_ROOT / "__missing_eligible_w01_root__"
+
+
+def _w01_root_is_default_w2_eligible(root: Path) -> bool:
+    manifest_path = filesystem_path(root / "manifests" / "run_manifest.json")
+    bundle_path = filesystem_path(root / "manifests" / "frozen_w01_controller_bundle.json")
+    if not manifest_path.is_file() or not bundle_path.is_file():
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+        if manifest.get("cross_layer_smoke_status") != "cross_layer_smoke_start_family_complete":
+            return False
+        bundle = load_frozen_w01_controller_bundle(bundle_path)
+    except Exception:
+        return False
+    return int(bundle.variant_count) == int(bundle.ready_count) and int(bundle.ready_count) > 0
+
+
 @dataclass(frozen=True)
 class W2SurvivalConfig:
     run_id: int
-    input_root: Path = DEFAULT_W01_INPUT_ROOT
+    input_root: Path | None = DEFAULT_W01_INPUT_ROOT
     output_root: Path = DEFAULT_OUTPUT_ROOT
     seed: int = 10
     paired_tests_per_variant: int = 100
@@ -145,6 +197,7 @@ class W2RowSchedule:
 def run_w2_survival(config: W2SurvivalConfig) -> dict[str, object]:
     """Run W2 fixed-LQR survival replay from a frozen W01 controller bundle."""
 
+    config = replace(config, input_root=_resolve_w01_input_root(config.input_root))
     if int(config.paired_tests_per_variant) <= 0:
         raise ValueError("paired_tests_per_variant must be positive.")
     if int(config.candidate_chunk_size) <= 0:
@@ -742,12 +795,13 @@ def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[ob
     for partition in partitions:
         frame = read_table_partition(run_root / "tables" / partition.relative_path, storage_format=partition.storage_format)
         row_count += int(len(frame))
-        for column in ("w2_survival_status", "failure_label", "boundary_use_class", "environment_mode", "start_state_family"):
+        for column in ("w2_survival_status", "failure_label", "boundary_use_class", "environment_mode", "start_state_family", "timing_state_source"):
             _counter_update(counters[column], frame, column)
         _group_counter_update(grouped["environment"], frame, ("W_layer", "environment_mode", "fan_count", "annular_gp_model_id"))
         _group_counter_update(grouped["failure"], frame, ("w2_survival_status", "failure_label", "termination_cause"))
         _group_counter_update(grouped["boundary"], frame, ("boundary_use_class", "continuation_valid", "episode_terminal_useful", "w2_survival_status"))
         _group_counter_update(grouped["variant"], frame, ("primitive_variant_id", "primitive_id", "candidate_index", "environment_mode", "w2_survival_status", "entry_role_compatible"))
+        _group_counter_update(grouped["entry_role_compatibility"], frame, ("primitive_id", "entry_role", "entry_role_compatible"))
         variant_rows.extend(
             frame[
                 [
@@ -774,6 +828,10 @@ def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[ob
     )
     _group_counter_frame(grouped["boundary"], ("boundary_use_class", "continuation_valid", "episode_terminal_useful", "w2_survival_status")).to_csv(
         filesystem_path(run_root / "metrics" / "w2_boundary_use_summary.csv"),
+        index=False,
+    )
+    _group_counter_frame(grouped["entry_role_compatibility"], ("primitive_id", "entry_role", "entry_role_compatible")).to_csv(
+        filesystem_path(run_root / "metrics" / "w2_entry_role_compatibility_by_primitive.csv"),
         index=False,
     )
     variant_summary = _variant_survival_summary(pd.DataFrame(variant_rows))
@@ -891,6 +949,7 @@ def _write_empty_metrics(run_root: Path, *, bundle: FrozenW01ControllerBundle, r
             }
         ]
     ).to_csv(filesystem_path(run_root / "metrics" / "w2_schedule_summary.csv"), index=False)
+    pd.DataFrame().to_csv(filesystem_path(run_root / "metrics" / "w2_entry_role_compatibility_by_primitive.csv"), index=False)
 
 
 def _missing_source_bundle(input_root: Path, blocked_reason: str) -> FrozenW01ControllerBundle:
@@ -1000,20 +1059,44 @@ def _w2_move_on_status(
     row_count: int,
     variant_summary: pd.DataFrame,
 ) -> tuple[str, list[str]]:
-    blockers: list[str] = []
-    expected_rows = int(bundle.variant_count) * len(W2_ENVIRONMENT_CASES) * 100
-    if int(row_count) < expected_rows:
-        blockers.append("below_51200_w2_survival_row_threshold")
-    if int(bundle.variant_count) != 256:
-        blockers.append("variant_count_not_256")
+    common_blockers = []
     if int(bundle.ready_count) <= 0:
-        blockers.append("no_ready_frozen_timing_aware_controllers")
-    if variant_summary.empty or not variant_summary["eligible_for_w3"].astype(bool).any():
-        blockers.append("no_w2_survived_variants_available")
-    blockers.extend(_manifest_checksum_gate_blockers(run_root))
-    blockers.extend(_file_size_gate_blockers(run_root))
-    status = "survived_variants_available" if not blockers else "blocked"
-    return status, blockers
+        common_blockers.append("no_ready_frozen_timing_aware_controllers")
+    if int(bundle.ready_count) != int(bundle.variant_count):
+        common_blockers.append("not_all_frozen_controllers_ready")
+    common_blockers.extend(_manifest_checksum_gate_blockers(run_root))
+    common_blockers.extend(_file_size_gate_blockers(run_root))
+    smoke_blockers = _w2_smoke_gate_blockers(run_root=run_root, bundle=bundle, row_count=row_count)
+    survived = bool(not variant_summary.empty and variant_summary["eligible_for_w3"].astype(bool).any())
+    dense_shape = int(row_count) >= W2_DENSE_ROW_COUNT and int(bundle.variant_count) == W2_DENSE_VARIANT_COUNT
+    if common_blockers:
+        return "blocked", common_blockers
+    if dense_shape:
+        if int(bundle.ready_count) != W2_DENSE_VARIANT_COUNT:
+            return "blocked", ["ready_controller_count_not_256"]
+        return ("w2_dense_survival_pass" if survived else "w2_dense_no_survivors"), []
+    if smoke_blockers:
+        return "blocked", smoke_blockers
+    return ("w2_artifact_smoke_pass" if survived else "w2_smoke_no_survivors"), []
+
+
+def _w2_smoke_gate_blockers(*, run_root: Path, bundle: FrozenW01ControllerBundle, row_count: int) -> list[str]:
+    blockers: list[str] = []
+    if int(bundle.variant_count) <= 0:
+        blockers.append("missing_expected_smoke_variants")
+    if int(row_count) <= 0:
+        blockers.append("no_w2_smoke_rows_written")
+    environment_values = set(_coverage_values(run_root, "environment_mode"))
+    if not set(W2_ENVIRONMENT_CASES).issubset(environment_values):
+        blockers.append("w2_smoke_missing_single_four_annular_gp_modes")
+    start_values = set(_coverage_values(run_root, "start_state_family"))
+    required_families = {"launch_gate", "inflight_nominal", "inflight_lift_region", "inflight_boundary_near", "inflight_recovery_edge"}
+    if not required_families.issubset(start_values):
+        blockers.append("w2_smoke_missing_all_start_families")
+    history_count = _coverage_count(run_root, "timing_state_source", "history_backed_fifo")
+    if history_count <= 0:
+        blockers.append("w2_smoke_missing_history_backed_fifo_rows")
+    return blockers
 
 
 def _manifest_checksum_gate_blockers(run_root: Path) -> list[str]:
@@ -1043,6 +1126,37 @@ def _file_size_gate_blockers(run_root: Path) -> list[str]:
     if frame["above_100mb"].astype(bool).any():
         return ["file_size_audit_above_100mb"]
     return []
+
+
+def _coverage_values(run_root: Path, axis: str) -> list[str]:
+    path = filesystem_path(run_root / "metrics" / "w2_coverage_summary.csv")
+    if not path.is_file():
+        return []
+    try:
+        frame = pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return []
+    if frame.empty or "coverage_axis" not in frame.columns:
+        return []
+    rows = frame[frame["coverage_axis"].astype(str) == str(axis)]
+    return [str(value) for value in rows["value"].dropna().tolist()]
+
+
+def _coverage_count(run_root: Path, axis: str, value: str) -> int:
+    path = filesystem_path(run_root / "metrics" / "w2_coverage_summary.csv")
+    if not path.is_file():
+        return 0
+    try:
+        frame = pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return 0
+    if frame.empty or "coverage_axis" not in frame.columns:
+        return 0
+    rows = frame[
+        (frame["coverage_axis"].astype(str) == str(axis))
+        & (frame["value"].astype(str) == str(value))
+    ]
+    return int(rows["row_count"].astype(int).sum()) if not rows.empty else 0
 
 
 def _write_run_manifest(
@@ -1085,7 +1199,9 @@ def _write_run_manifest(
         "worker_decision": worker_decision,
         "fixed_lqr_replay_only": True,
         "mutates_Q_R_K_reference_horizon_entry_set_or_entry_role": False,
-        "status_vocabulary": list(W2_STATUS_VOCABULARY),
+        "variant_status_vocabulary": list(W2_STATUS_VOCABULARY),
+        "run_status_vocabulary": list(W2_RUN_STATUSES),
+        "w2_smoke_dense_label_policy": "smoke_labels_do_not_clear_dense_W2_evidence",
         "controller_bundle_source_policy": "load_only_w01_emitted_frozen_bundle_no_materialisation_no_design",
         "source_controller_bundle_path": (Path(config.input_root) / "manifests" / "frozen_w01_controller_bundle.json").as_posix(),
         "controller_bundle_path": (run_root / "manifests" / "frozen_w01_controller_bundle.json").as_posix(),
@@ -1108,6 +1224,13 @@ def _write_reports(
     blockers: list[str] | None = None,
 ) -> None:
     blockers = blockers or []
+    start_family_counts = {
+        value: _coverage_count(run_root, "start_state_family", value)
+        for value in _coverage_values(run_root, "start_state_family")
+    }
+    entry_role_counts = _entry_role_compatibility_counts_for_report(run_root)
+    history_backed_fifo_count = _coverage_count(run_root, "timing_state_source", "history_backed_fifo")
+    survivors_available_label = status in ("w2_artifact_smoke_pass", "w2_dense_survival_pass")
     report_lines = [
         "# W2 Fixed-LQR Survival Replay",
         "",
@@ -1118,6 +1241,10 @@ def _write_reports(
         f"- Ready frozen controllers: `{int(bundle.ready_count)}`",
         f"- Blocked frozen controllers: `{int(bundle.blocked_count)}`",
         "- W2 environments: `annular_gp_single`, `annular_gp_four`",
+        f"- Start-family counts: `{json.dumps(start_family_counts, sort_keys=True)}`",
+        f"- Entry-role compatibility by primitive: `{json.dumps(entry_role_counts, sort_keys=True)}`",
+        f"- History-backed FIFO count: `{history_backed_fifo_count}`",
+        f"- Smoke/dense status labels are separate: `{status}`",
         "- Fixed replay only: `True`",
         "- Q/R, K, reference, horizon, entry role, controller ID, and variant ID mutation: `False`",
         "- Boundary terminal-useful evidence is retained.",
@@ -1131,7 +1258,9 @@ def _write_reports(
         "",
         f"- Status: `{status}`",
         f"- Rows: `{int(row_count)}`",
-        f"- Survived variants available: `{status == 'survived_variants_available'}`",
+        f"- Survived variants available: `{survivors_available_label}`",
+        f"- Start-family counts: `{json.dumps(start_family_counts, sort_keys=True)}`",
+        f"- History-backed FIFO count: `{history_backed_fifo_count}`",
         "",
         "Blockers:",
         "",
@@ -1141,6 +1270,24 @@ def _write_reports(
     else:
         gate_lines.append("- `none`")
     filesystem_path(run_root / "reports" / "l8_w2_move_on_check.md").write_text("\n".join(gate_lines), encoding="ascii")
+
+
+def _entry_role_compatibility_counts_for_report(run_root: Path) -> dict[str, dict[str, int]]:
+    path = filesystem_path(run_root / "metrics" / "w2_entry_role_compatibility_by_primitive.csv")
+    if not path.is_file():
+        return {}
+    try:
+        frame = pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return {}
+    rows: dict[str, dict[str, int]] = {}
+    for row in frame.to_dict(orient="records"):
+        primitive_id = str(row.get("primitive_id", ""))
+        compatible = str(row.get("entry_role_compatible", "")).lower() in {"true", "1"}
+        key = "compatible" if compatible else "incompatible"
+        rows.setdefault(primitive_id, {"compatible": 0, "incompatible": 0})
+        rows[primitive_id][key] += int(row.get("row_count", 0))
+    return rows
 
 
 def _write_file_size_audit(run_root: Path) -> None:

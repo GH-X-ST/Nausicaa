@@ -1,0 +1,17 @@
+primitive_variant_id,primitive_id,candidate_index,compatible_row_count,survived_environment_count,downgraded_row_count,eliminated_row_count,blocked_row_count,w2_variant_status,eligible_for_w3
+primvar_energy_retaining_bank_inflight_only_99e733c535ed,energy_retaining_bank,0,24,1,15,8,0,downgraded,False
+primvar_energy_retaining_bank_inflight_only_07d256f533e6,energy_retaining_bank,1,24,1,15,8,0,downgraded,False
+primvar_lift_dwell_arc_inflight_only_5c80bdd0db54,lift_dwell_arc,0,24,0,16,8,0,downgraded,False
+primvar_lift_dwell_arc_inflight_only_6a1c4b9fee07,lift_dwell_arc,1,24,0,16,8,0,downgraded,False
+primvar_mild_turn_left_inflight_only_4fc4211d446a,mild_turn_left,0,24,1,15,8,0,downgraded,False
+primvar_mild_turn_left_inflight_only_ffc55d8b31d6,mild_turn_left,1,24,1,15,8,0,downgraded,False
+primvar_mild_turn_right_inflight_only_9540b8fc46ed,mild_turn_right,0,24,1,15,8,0,downgraded,False
+primvar_mild_turn_right_inflight_only_c4022b786a5b,mild_turn_right,1,24,1,15,8,0,downgraded,False
+primvar_recovery_terminal_or_recovery_562677a48db2,recovery,0,8,0,4,4,0,downgraded,False
+primvar_recovery_terminal_or_recovery_a57d976902c9,recovery,1,8,0,4,4,0,downgraded,False
+primvar_safe_exit_or_recovery_handoff_terminal_or_recovery_dc2005d418ee,safe_exit_or_recovery_handoff,0,8,0,4,4,0,downgraded,False
+primvar_safe_exit_or_recovery_handoff_terminal_or_recovery_ef4123b96c30,safe_exit_or_recovery_handoff,1,8,0,4,4,0,downgraded,False
+primvar_glide_launch_capable_52faeec40e88,glide,0,40,2,16,20,0,survived,True
+primvar_glide_launch_capable_95842b9301ac,glide,1,40,2,16,20,0,survived,True
+primvar_lift_entry_inflight_only_fafeaa25d0d6,lift_entry,0,24,2,15,7,0,survived,True
+primvar_lift_entry_inflight_only_3f220a8a1718,lift_entry,1,24,2,15,7,0,survived,True

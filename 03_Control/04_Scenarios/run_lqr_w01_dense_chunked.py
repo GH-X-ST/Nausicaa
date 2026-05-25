@@ -44,6 +44,7 @@ from env_instance import environment_instance_for_mode, environment_instance_row
 from env_surrogate import resolve_surrogate_binding, surrogate_binding_row, wind_field_for_binding  # noqa: E402
 from implementation_instance import implementation_instance_for_layer, implementation_instance_row  # noqa: E402
 from frozen_w01_controller_bundle import load_frozen_w01_controller_bundle, write_frozen_w01_controller_bundle  # noqa: E402
+from latency import DEFAULT_LATENCY_ENVELOPE, latency_case_config  # noqa: E402
 from lqr_controller import ACTIVE_TIMING_AWARE_ROLE, controller_is_active_timing_aware_w01, synthesize_lqr_controller  # noqa: E402
 from lqr_tuning import candidate_weight_specs, lqr_tuning_schedule, tuning_schedule_row  # noqa: E402
 from plant_instance import plant_instance_for_layer, plant_instance_row  # noqa: E402
@@ -74,6 +75,9 @@ L6_FALLBACK_ROW_COUNT = 19_200
 L6_RICH_SIDE_ROW_COUNT = 76_800
 L6_RICH_SIDE_CANDIDATE_COUNT = 32
 L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE = 100
+CROSS_LAYER_START_FAMILY_CYCLE = 20
+CROSS_LAYER_SMOKE_READY = "cross_layer_smoke_start_family_complete"
+CROSS_LAYER_SMOKE_INCOMPLETE = "artifact_smoke_only_start_family_incomplete"
 OFFICIAL_W01_ENVIRONMENT_CASES = (
     ("W0", "dry_air"),
     ("W1", "gaussian_single"),
@@ -883,6 +887,11 @@ def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[ob
             ("entry_role", "start_state_family", "entry_check_status", "failure_label"),
         )
         _group_counter_update(
+            grouped["entry_role_compatibility"],
+            frame,
+            ("primitive_id", "entry_role", "entry_role_compatible"),
+        )
+        _group_counter_update(
             grouped["boundary_use"],
             frame,
             ("boundary_use_class", "continuation_valid", "episode_terminal_useful", "outcome_class"),
@@ -926,6 +935,10 @@ def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[ob
     rejection = _entry_role_rejection_summary(grouped["entry_role_rejection"])
     rejection.to_csv(filesystem_path(run_root / "metrics" / "entry_role_rejection_summary.csv"), index=False)
     _group_counter_frame(
+        grouped["entry_role_compatibility"],
+        ("primitive_id", "entry_role", "entry_role_compatible"),
+    ).to_csv(filesystem_path(run_root / "metrics" / "entry_role_compatibility_by_primitive.csv"), index=False)
+    _group_counter_frame(
         grouped["boundary_use"],
         ("boundary_use_class", "continuation_valid", "episode_terminal_useful", "outcome_class"),
     ).to_csv(filesystem_path(run_root / "metrics" / "boundary_use_summary.csv"), index=False)
@@ -942,6 +955,7 @@ def _write_empty_metrics(run_root: Path) -> None:
         "start_family_coverage.csv",
         "environment_coverage.csv",
         "entry_role_rejection_summary.csv",
+        "entry_role_compatibility_by_primitive.csv",
         "boundary_use_summary.csv",
         "timing_state_summary.csv",
     ):
@@ -1076,6 +1090,14 @@ def _write_file_size_audit(run_root: Path) -> None:
 
 def _write_reports(run_root: Path, *, status: str, row_count: int) -> None:
     blocked_claims = "\n".join(f"- `{claim}`" for claim in BLOCKED_CLAIMS)
+    start_family_counts = _start_family_counts_for_report(run_root, row_count=row_count)
+    cross_layer_status, cross_layer_blockers = _cross_layer_smoke_status_from_counts(
+        start_family_counts,
+        row_count=_planned_or_written_row_count(run_root, row_count),
+    )
+    entry_role_counts = _entry_role_compatibility_counts_for_report(run_root)
+    history_backed_fifo_count = _timing_state_count_for_report(run_root, "history_backed_fifo")
+    ready_frozen_controller_count = _ready_frozen_controller_count(run_root)
     claim_report = "\n".join(
         [
             "# W01 Claim Boundary",
@@ -1099,6 +1121,12 @@ def _write_reports(run_root: Path, *, status: str, row_count: int) -> None:
             f"- Status: `{status}`",
             f"- Rows written: `{int(row_count)}`",
             f"- Run class: `{run_class}`",
+            f"- Cross-layer smoke status: `{cross_layer_status}`",
+            f"- Start-family counts: `{json.dumps(start_family_counts, sort_keys=True)}`",
+            f"- Start-family mix exact or blocked: `{not cross_layer_blockers}`",
+            f"- Entry-role compatibility by primitive: `{json.dumps(entry_role_counts, sort_keys=True)}`",
+            f"- History-backed FIFO count: `{history_backed_fifo_count}`",
+            f"- Ready frozen controller count: `{ready_frozen_controller_count}`",
             "- Retired controller-picking, compact-library, integration, hardware, transfer, and mission-success claims remain blocked.",
             "",
         ]
@@ -1115,11 +1143,17 @@ def _write_reports(run_root: Path, *, status: str, row_count: int) -> None:
             "- Timing design: `actuator_surface_state_command_fifo_predictor_compensated`",
             "- Rollout boundary: `panel_wind_feedback_delay_command_timing_actuator_lag_with_plant_and_implementation_instances`",
             "- Deferred validation: `no_true_full_delayed_state_feedback_validation_claim`",
+            f"- Cross-layer smoke status: `{cross_layer_status}`",
+            f"- Start-family counts: `{json.dumps(start_family_counts, sort_keys=True)}`",
+            f"- Start-family mix exact or blocked: `{not cross_layer_blockers}`",
+            f"- Entry-role compatibility by primitive: `{json.dumps(entry_role_counts, sort_keys=True)}`",
+            f"- History-backed FIFO count: `{history_backed_fifo_count}`",
+            f"- Ready frozen controller count: `{ready_frozen_controller_count}`",
             f"- Rich-side W01 fixed-library cleared for W2 planning: `{not move_on_blockers and run_class == 'rich_side_l6_candidate'}`",
             "",
             "Blockers before heavy W01:",
             "",
-            *[f"- `{item}`" for item in (move_on_blockers or ["none"])],
+            *[f"- `{item}`" for item in (move_on_blockers + cross_layer_blockers or ["none"])],
             "",
             "Blocked claims remain final W0/W1 dense completion, W2 survival execution, W3 robustness, compact-library readiness, governor validation, hardware readiness, real-flight transfer, and mission success.",
             "",
@@ -1210,11 +1244,100 @@ def _write_l7_completeness_audit(
     filesystem_path(run_root / "reports" / "l7_w01_completeness_audit.md").write_text(report, encoding="ascii")
 
 
+def _planned_or_written_row_count(run_root: Path, row_count: int) -> int:
+    if int(row_count) > 0:
+        return int(row_count)
+    manifest_path = filesystem_path(run_root / "manifests" / "run_manifest.json")
+    if not manifest_path.is_file():
+        return 0
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+        return int(manifest.get("rows_requested", 0))
+    except Exception:
+        return 0
+
+
+def _start_family_counts_for_report(run_root: Path, *, row_count: int) -> dict[str, int]:
+    counts = _coverage_counts(run_root, "start_state_family") if int(row_count) > 0 else {}
+    if counts:
+        return counts
+    manifest_path = filesystem_path(run_root / "manifests" / "run_manifest.json")
+    if not manifest_path.is_file():
+        return {}
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+        return {str(key): int(value) for key, value in dict(manifest.get("per_start_family_row_counts", {})).items()}
+    except Exception:
+        return {}
+
+
+def _cross_layer_smoke_status_from_counts(start_family_counts: dict[str, int], *, row_count: int) -> tuple[str, list[str]]:
+    blockers: list[str] = []
+    expected = {
+        family: int(round(float(row_count) * proportion))
+        for family, proportion in START_FAMILY_MIX.items()
+    }
+    missing = [family for family in START_FAMILY_MIX if int(start_family_counts.get(family, 0)) <= 0]
+    if missing:
+        blockers.append("cross_layer_smoke_missing_start_families:" + ",".join(missing))
+    if int(row_count) > 0 and start_family_counts != expected:
+        blockers.append("cross_layer_start_family_mix_not_exact_40_25_15_10_10")
+    status = CROSS_LAYER_SMOKE_READY if not blockers else CROSS_LAYER_SMOKE_INCOMPLETE
+    return status, blockers
+
+
+def _entry_role_compatibility_counts_for_report(run_root: Path) -> dict[str, dict[str, int]]:
+    path = filesystem_path(run_root / "metrics" / "entry_role_compatibility_by_primitive.csv")
+    if not path.is_file():
+        return {}
+    try:
+        frame = pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return {}
+    rows: dict[str, dict[str, int]] = {}
+    for row in frame.to_dict(orient="records"):
+        primitive_id = str(row.get("primitive_id", ""))
+        compatible = str(row.get("entry_role_compatible", "")).lower() in {"true", "1"}
+        key = "compatible" if compatible else "incompatible"
+        rows.setdefault(primitive_id, {"compatible": 0, "incompatible": 0})
+        rows[primitive_id][key] += int(row.get("row_count", 0))
+    return rows
+
+
+def _timing_state_count_for_report(run_root: Path, value: str) -> int:
+    path = filesystem_path(run_root / "metrics" / "timing_state_summary.csv")
+    if not path.is_file():
+        return 0
+    try:
+        frame = pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return 0
+    if frame.empty or "value" not in frame.columns or "row_count" not in frame.columns:
+        return 0
+    rows = frame[frame["value"].astype(str) == str(value)]
+    return int(rows["row_count"].astype(int).sum()) if not rows.empty else 0
+
+
+def _ready_frozen_controller_count(run_root: Path) -> int:
+    bundle_path = filesystem_path(run_root / "manifests" / "frozen_w01_controller_bundle.json")
+    if not bundle_path.is_file():
+        return 0
+    try:
+        bundle = load_frozen_w01_controller_bundle(bundle_path)
+    except Exception:
+        return 0
+    return int(bundle.ready_count)
+
+
 def _write_timing_contract_audit(*, run_root: Path, status: str, row_count: int) -> None:
     registry_path = filesystem_path(run_root / "metrics" / "primitive_variant_registry.csv")
     timing_state_path = filesystem_path(run_root / "metrics" / "timing_state_summary.csv")
     registry = _read_csv_or_empty(registry_path)
     timing_state = _read_csv_or_empty(timing_state_path)
+    manifest_path = filesystem_path(run_root / "manifests" / "run_manifest.json")
+    manifest = json.loads(manifest_path.read_text(encoding="ascii")) if manifest_path.is_file() else {}
+    latency_case = str(manifest.get("latency_case", "nominal"))
+    latency = latency_case_config(latency_case)
     timing_state_sources = (
         ",".join(sorted(timing_state["value"].dropna().astype(str).unique()))
         if not timing_state.empty and "value" in timing_state.columns
@@ -1226,11 +1349,24 @@ def _write_timing_contract_audit(*, run_root: Path, status: str, row_count: int)
         "row_count": int(row_count),
         "active_timing_aware_variant_count": int(len(active)),
         "state_feedback_delay_s_values": _unique_csv(active, "state_feedback_delay_s"),
+        "vicon_latency_nominal_s": float(DEFAULT_LATENCY_ENVELOPE.vicon_latency_nominal_s),
+        "vicon_filter_delay_s": float(DEFAULT_LATENCY_ENVELOPE.vicon_filter_delay_s),
         "command_delay_s_values": _unique_csv(active, "command_delay_s"),
+        "command_onset_delay_s": float(latency.command_onset_delay_s),
+        "command_transport_delay_s": float(latency.command_transport_delay_s),
         "actuator_tau_s_values": _unique_csv(active, "actuator_tau_s"),
+        "actuator_t50_s": float(latency.actuator_t50_s),
+        "actuator_t90_s": float(latency.actuator_t90_s),
+        "latency_jitter_s": float(latency.latency_jitter_s),
         "command_delay_steps_values": _unique_csv(active, "command_delay_steps"),
         "predictor_horizon_steps_values": _unique_csv(active, "predictor_horizon_steps"),
         "timing_state_sources": timing_state_sources,
+        "history_backed_fifo_count": _timing_state_count_for_report(run_root, "history_backed_fifo"),
+        "latency_case": latency_case,
+        "state_delay_affects_predictor_horizon": bool(latency.state_feedback_delay_s > 0.0),
+        "command_delay_affects_fifo_length": bool(latency.command_onset_delay_s + latency.command_transport_delay_s > 0.0),
+        "actuator_lag_affects_rollout_state_propagation": bool(max(latency.actuator_tau_s) > 0.0),
+        "W3_randomisation_changes_timing_terms_where_configured": "not_applicable_W01",
         "history_backed_fifo_required_for_l6": True,
         "full_delayed_state_feedback_claim": False,
     }
@@ -1243,11 +1379,21 @@ def _write_timing_contract_audit(*, run_root: Path, status: str, row_count: int)
             f"- Rows written: `{int(row_count)}`",
             f"- Active timing-aware variants: `{row['active_timing_aware_variant_count']}`",
             f"- State feedback delay values: `{row['state_feedback_delay_s_values']}`",
+            f"- Vicon nominal latency: `{row['vicon_latency_nominal_s']}`",
+            f"- Vicon/filter delay: `{row['vicon_filter_delay_s']}`",
             f"- Command delay values: `{row['command_delay_s_values']}`",
+            f"- Command onset delay: `{row['command_onset_delay_s']}`",
+            f"- Command transport delay: `{row['command_transport_delay_s']}`",
             f"- Actuator tau values: `{row['actuator_tau_s_values']}`",
+            f"- Actuator t50/t90: `{row['actuator_t50_s']}` / `{row['actuator_t90_s']}`",
+            f"- Latency jitter: `{row['latency_jitter_s']}`",
             f"- Command FIFO lengths: `{row['command_delay_steps_values']}`",
             f"- Predictor horizons: `{row['predictor_horizon_steps_values']}`",
             f"- Timing state sources: `{timing_state_sources}`",
+            f"- History-backed FIFO count: `{row['history_backed_fifo_count']}`",
+            f"- State delay affects predictor horizon: `{row['state_delay_affects_predictor_horizon']}`",
+            f"- Command delay affects FIFO length: `{row['command_delay_affects_fifo_length']}`",
+            f"- Actuator lag affects rollout state propagation: `{row['actuator_lag_affects_rollout_state_propagation']}`",
             "- Vicon/filter delay, command delay, actuator lag/t50/t90, and jitter are represented by the active latency/implementation instances in rollout evidence.",
             "- Not claimed: true full delayed-state-feedback validation, hardware readiness, transfer, or mission success.",
             "",
@@ -1406,6 +1552,9 @@ def _coverage_gate_blockers(*, run_root: Path, row_count: int) -> list[str]:
         family: int(round(float(row_count) * proportion))
         for family, proportion in START_FAMILY_MIX.items()
     }
+    if int(row_count) > 0:
+        _, cross_layer_blockers = _cross_layer_smoke_status_from_counts(start_counts, row_count=int(row_count))
+        blockers.extend(cross_layer_blockers)
     if int(row_count) >= L6_RICH_SIDE_ROW_COUNT and start_counts != expected:
         blockers.append("start_family_mix_not_exact_40_25_15_10_10")
     return blockers
@@ -1591,6 +1740,10 @@ def _run_manifest(
         )
     )
     schedule_counts = _schedule_count_summary(config)
+    cross_layer_status, cross_layer_blockers = _cross_layer_smoke_status_from_counts(
+        schedule_counts["start_state_family"],
+        row_count=int(config.rows),
+    )
     return {
         "runner_version": W01_RUNNER_VERSION,
         "project_title_version": PROJECT_TITLE_VERSION,
@@ -1599,6 +1752,8 @@ def _run_manifest(
         "run_root": run_root.as_posix(),
         "rows_requested": int(config.rows),
         "seed": int(config.seed),
+        "latency_case": str(config.latency_case),
+        "rollout_dt_s": float(config.rollout_dt_s),
         "candidate_chunk_size": int(config.candidate_chunk_size),
         "candidate_count": int(config.candidate_count),
         "paired_tests_per_candidate": (
@@ -1623,6 +1778,10 @@ def _run_manifest(
         "per_W_layer_row_counts": schedule_counts["W_layer"],
         "per_environment_mode_row_counts": schedule_counts["environment_mode"],
         "per_start_family_row_counts": schedule_counts["start_state_family"],
+        "cross_layer_smoke_status": cross_layer_status,
+        "cross_layer_smoke_blockers": cross_layer_blockers,
+        "cross_layer_minimum_paired_start_cycle": int(CROSS_LAYER_START_FAMILY_CYCLE),
+        "start_family_mix_exact_or_blocked": bool(not cross_layer_blockers),
         "official_W_layers": {"W0": ["dry_air"], "W1": ["gaussian_single", "gaussian_four"]},
         "W2_generated": False,
         "W3_generated": False,

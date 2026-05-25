@@ -20,8 +20,8 @@ from primitive_variant_registry import (
     primitive_controller_variant,
     variant_row,
 )
-from run_w2_survival import W2SurvivalConfig, run_w2_survival
-from run_w3_survival import W3SurvivalConfig, run_w3_survival
+from run_w2_survival import W2SurvivalConfig, discover_latest_w01_root_for_w2, run_w2_survival
+from run_w3_survival import TEST_FIXTURE_LABEL, W3SurvivalConfig, run_w3_survival, write_w3_fixture_survivor_root
 
 
 def test_frozen_w01_bundle_restores_complete_timing_controller(tmp_path: Path) -> None:
@@ -181,6 +181,66 @@ def test_w3_executes_from_valid_w2_survivor_registry_and_frozen_bundle(tmp_path:
     assert frame["fixed_lqr_replay_only"].astype(bool).all()
 
 
+def test_w2_default_discovery_excludes_sparse_family_roots(tmp_path: Path) -> None:
+    discovery_root = tmp_path / "w01_dense"
+    sparse_root = _write_w01_source_fixture(discovery_root / "012", "glide", include_augmented_payload=True)
+    ready_root = _write_w01_source_fixture(discovery_root / "014", "glide", include_augmented_payload=True)
+    (sparse_root / "manifests" / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": 12,
+                "rows_requested": 240,
+                "cross_layer_smoke_status": "artifact_smoke_only_start_family_incomplete",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="ascii",
+    )
+    (ready_root / "manifests" / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": 14,
+                "rows_requested": 960,
+                "cross_layer_smoke_status": "cross_layer_smoke_start_family_complete",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="ascii",
+    )
+
+    discovered = discover_latest_w01_root_for_w2(discovery_root)
+    assert discovered is not None
+    assert _normal_path_text(discovered) == _normal_path_text(ready_root)
+
+
+def test_w3_fixture_plumbing_is_labelled_non_method_evidence(tmp_path: Path) -> None:
+    source_root = _write_w01_source_fixture(tmp_path / "w01", "glide", include_augmented_payload=True)
+    fixture_root = write_w3_fixture_survivor_root(
+        fixture_root=tmp_path / "fixture_w2_survivor",
+        source_w01_root=source_root,
+    )
+
+    result = run_w3_survival(
+        W3SurvivalConfig(
+            run_id=14,
+            input_root=fixture_root,
+            output_root=tmp_path / "w3",
+            paired_tests_per_variant=1,
+            storage_format="csv_gz",
+        )
+    )
+    run_root = Path(result["run_root"])
+    manifest = json.loads((run_root / "manifests" / "w3_survival_manifest.json").read_text(encoding="ascii"))
+    frame = _read_frame(run_root)
+
+    assert result["status"] == "complete"
+    assert manifest["test_fixture_not_method_evidence"] is True
+    assert set(frame["source_evidence_label"]) == {TEST_FIXTURE_LABEL}
+    assert set(frame["claim_boundary"]) == {TEST_FIXTURE_LABEL}
+
+
 def test_w2_default_schedule_dimensions() -> None:
     assert 256 * 2 * 100 == 51200
 
@@ -250,3 +310,7 @@ def _read_frame(run_root: Path) -> pd.DataFrame:
         ],
         ignore_index=True,
     )
+
+
+def _normal_path_text(path: Path) -> str:
+    return str(Path(path)).replace("\\\\?\\", "").replace("\\", "/")

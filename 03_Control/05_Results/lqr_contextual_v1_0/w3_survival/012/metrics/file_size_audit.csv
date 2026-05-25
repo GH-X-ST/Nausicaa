@@ -1,0 +1,8 @@
+relative_path,byte_count,size_mb,above_75mb,above_100mb,push_allowed,dense_table_partition
+chunk_manifests/w3_survival_rows/c00000.json,514,0.0004901885986328125,False,False,True,False
+manifests/table_manifest.json,11764,0.011219024658203125,False,False,True,False
+manifests/w3_randomisation_manifest.json,315,0.00030040740966796875,False,False,True,False
+manifests/w3_survival_manifest.json,1604,0.001529693603515625,False,False,True,False
+metrics/chunk_summary.csv,304,0.0002899169921875,False,False,True,False
+metrics/w3_survival_summary.csv,967,0.0009222030639648438,False,False,True,False
+tables/w3_survival_rows/c00000.csv.gz,326493,0.3113679885864258,False,False,True,True
