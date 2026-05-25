@@ -108,6 +108,8 @@ class LQRController:
     augmented_input_size: int
     augmented_A_checksum: str
     augmented_B_checksum: str
+    augmented_A_matrix_json: str
+    augmented_B_matrix_json: str
     augmented_Q_json: str
     augmented_R_json: str
     augmented_gain_checksum: str
@@ -337,6 +339,8 @@ def synthesize_lqr_controller(
         augmented_input_size=int(b_aug.shape[1]),
         augmented_A_checksum=a_checksum,
         augmented_B_checksum=b_checksum,
+        augmented_A_matrix_json=json.dumps(_rounded_matrix_payload(a_aug), separators=(",", ":")),
+        augmented_B_matrix_json=json.dumps(_rounded_matrix_payload(b_aug), separators=(",", ":")),
         augmented_Q_json=augmented_q_json,
         augmented_R_json=augmented_r_json,
         augmented_gain_checksum=augmented_gain_checksum,
@@ -499,6 +503,8 @@ def synthesize_baseline_trim_lqr_controller(
         augmented_input_size=3,
         augmented_A_checksum=matrix_checksum_sha256(a_reduced),
         augmented_B_checksum=matrix_checksum_sha256(b_reduced),
+        augmented_A_matrix_json=json.dumps(_rounded_matrix_payload(a_reduced), separators=(",", ":")),
+        augmented_B_matrix_json=json.dumps(_rounded_matrix_payload(b_reduced), separators=(",", ":")),
         augmented_Q_json=json.dumps({"baseline_q": _q_weight_payload(weights)}, sort_keys=True, separators=(",", ":")),
         augmented_R_json=json.dumps({"baseline_r": _r_weight_payload(weights)}, sort_keys=True, separators=(",", ":")),
         augmented_gain_checksum=gain_checksum,
@@ -685,6 +691,8 @@ def timing_augmented_lqr_design_row(controller: LQRController) -> dict[str, obje
         "augmented_input_size": int(controller.augmented_input_size),
         "augmented_A_checksum": controller.augmented_A_checksum,
         "augmented_B_checksum": controller.augmented_B_checksum,
+        "augmented_A_matrix_recorded": bool(controller.augmented_A_matrix_json),
+        "augmented_B_matrix_recorded": bool(controller.augmented_B_matrix_json),
         "augmented_Q_json": controller.augmented_Q_json,
         "augmented_R_json": controller.augmented_R_json,
         "augmented_gain_checksum": controller.augmented_gain_checksum,

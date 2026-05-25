@@ -1,0 +1,7 @@
+w2_survival_status,failure_label,termination_cause,row_count
+blocked,entry_role_not_launch_capable,entry_role_incompatible_start,140
+downgraded,xy_boundary_terminal,wall_boundary_exit_retained,2
+eliminated,floor_violation,floor_margin_stop,2
+eliminated,speed_low,speed_floor,4
+eliminated,terminal_recovery_limited,terminal_recovery_limited,10
+survived,model_boundary_only,weak_energy_result,2

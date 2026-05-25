@@ -43,6 +43,7 @@ from env_ctx import build_environment_context, environment_context_row  # noqa: 
 from env_instance import environment_instance_for_mode, environment_instance_row, environment_metadata_from_instance  # noqa: E402
 from env_surrogate import resolve_surrogate_binding, surrogate_binding_row, wind_field_for_binding  # noqa: E402
 from implementation_instance import implementation_instance_for_layer, implementation_instance_row  # noqa: E402
+from frozen_w01_controller_bundle import load_frozen_w01_controller_bundle, write_frozen_w01_controller_bundle  # noqa: E402
 from lqr_controller import ACTIVE_TIMING_AWARE_ROLE, controller_is_active_timing_aware_w01, synthesize_lqr_controller  # noqa: E402
 from lqr_tuning import candidate_weight_specs, lqr_tuning_schedule, tuning_schedule_row  # noqa: E402
 from plant_instance import plant_instance_for_layer, plant_instance_row  # noqa: E402
@@ -66,7 +67,7 @@ from state_sampling import archive_state_sample_for_family, archive_state_sample
 
 
 W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v1"
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.4"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.5"
 W01_TABLE_NAME = "w01_primitive_rows"
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 L6_FALLBACK_ROW_COUNT = 19_200
@@ -193,6 +194,10 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
         _write_empty_table_manifest(run_root, config.run_id, storage_format)
         _write_runtime_summary(run_root, config, row_count=0, status="dry_run_schedule", started=time.time(), ended=time.time())
         _write_empty_metrics(run_root)
+        write_frozen_w01_controller_bundle(
+            run_root=run_root,
+            source_records=_frozen_bundle_source_records(variants_by_key, variants),
+        )
         _write_file_size_audit(run_root)
         _write_reports(run_root, status="dry_run_schedule", row_count=0)
         _write_file_size_audit(run_root)
@@ -255,6 +260,10 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
             tables=tuple(completed_partitions),
         ),
     )
+    write_frozen_w01_controller_bundle(
+        run_root=run_root,
+        source_records=_frozen_bundle_source_records(variants_by_key, variants),
+    )
     ended = time.time()
     row_count = _write_dense_metrics_from_partitions(run_root, completed_partitions, storage_format)
     _write_chunk_summary(run_root, sorted(chunk_records, key=lambda item: int(item.get("chunk_index", -1))))
@@ -295,6 +304,20 @@ def _build_variant_registry(
             )
             variants.append(variant)
     return variants_by_key, tuple(variants)
+
+
+def _frozen_bundle_source_records(
+    variants_by_key: dict[tuple[str, int], tuple[object, object, PrimitiveControllerVariant, str]],
+    variants: tuple[PrimitiveControllerVariant, ...],
+):
+    controller_by_variant_id = {
+        variant.primitive_variant_id: controller
+        for _, controller, variant, _ in variants_by_key.values()
+    }
+    return tuple(
+        (variant, controller_by_variant_id[variant.primitive_variant_id])
+        for variant in variants
+    )
 
 
 def _write_chunk(
@@ -1117,6 +1140,7 @@ def _write_reports(run_root: Path, *, status: str, row_count: int) -> None:
         ]
     )
     filesystem_path(run_root / "reports" / "timing_synthesis_boundary.md").write_text(timing_report, encoding="ascii")
+    _write_timing_contract_audit(run_root=run_root, status=status, row_count=row_count)
     _write_l7_completeness_audit(
         run_root=run_root,
         status=status,
@@ -1184,6 +1208,67 @@ def _write_l7_completeness_audit(
         ]
     )
     filesystem_path(run_root / "reports" / "l7_w01_completeness_audit.md").write_text(report, encoding="ascii")
+
+
+def _write_timing_contract_audit(*, run_root: Path, status: str, row_count: int) -> None:
+    registry_path = filesystem_path(run_root / "metrics" / "primitive_variant_registry.csv")
+    timing_state_path = filesystem_path(run_root / "metrics" / "timing_state_summary.csv")
+    registry = _read_csv_or_empty(registry_path)
+    timing_state = _read_csv_or_empty(timing_state_path)
+    timing_state_sources = (
+        ",".join(sorted(timing_state["value"].dropna().astype(str).unique()))
+        if not timing_state.empty and "value" in timing_state.columns
+        else ""
+    )
+    active = registry[registry["controller_design_role"].astype(str) == ACTIVE_TIMING_AWARE_ROLE] if not registry.empty and "controller_design_role" in registry.columns else pd.DataFrame()
+    row = {
+        "status": status,
+        "row_count": int(row_count),
+        "active_timing_aware_variant_count": int(len(active)),
+        "state_feedback_delay_s_values": _unique_csv(active, "state_feedback_delay_s"),
+        "command_delay_s_values": _unique_csv(active, "command_delay_s"),
+        "actuator_tau_s_values": _unique_csv(active, "actuator_tau_s"),
+        "command_delay_steps_values": _unique_csv(active, "command_delay_steps"),
+        "predictor_horizon_steps_values": _unique_csv(active, "predictor_horizon_steps"),
+        "timing_state_sources": timing_state_sources,
+        "history_backed_fifo_required_for_l6": True,
+        "full_delayed_state_feedback_claim": False,
+    }
+    pd.DataFrame([row]).to_csv(filesystem_path(run_root / "metrics" / "timing_contract_audit.csv"), index=False)
+    report = "\n".join(
+        [
+            "# Timing Contract Audit",
+            "",
+            f"- Status: `{status}`",
+            f"- Rows written: `{int(row_count)}`",
+            f"- Active timing-aware variants: `{row['active_timing_aware_variant_count']}`",
+            f"- State feedback delay values: `{row['state_feedback_delay_s_values']}`",
+            f"- Command delay values: `{row['command_delay_s_values']}`",
+            f"- Actuator tau values: `{row['actuator_tau_s_values']}`",
+            f"- Command FIFO lengths: `{row['command_delay_steps_values']}`",
+            f"- Predictor horizons: `{row['predictor_horizon_steps_values']}`",
+            f"- Timing state sources: `{timing_state_sources}`",
+            "- Vicon/filter delay, command delay, actuator lag/t50/t90, and jitter are represented by the active latency/implementation instances in rollout evidence.",
+            "- Not claimed: true full delayed-state-feedback validation, hardware readiness, transfer, or mission success.",
+            "",
+        ]
+    )
+    filesystem_path(run_root / "reports" / "timing_contract_audit.md").write_text(report, encoding="ascii")
+
+
+def _unique_csv(frame: pd.DataFrame, column: str) -> str:
+    if frame.empty or column not in frame.columns:
+        return ""
+    return ",".join(sorted({str(value) for value in frame[column].dropna().tolist()}))
+
+
+def _read_csv_or_empty(path: Path) -> pd.DataFrame:
+    if not filesystem_path(path).is_file():
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(filesystem_path(path))
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
 
 
 def _largest_file_audit_row(run_root: Path) -> dict[str, object]:
@@ -1295,6 +1380,7 @@ def _rich_side_gate_blockers(*, run_root: Path, row_count: int) -> list[str]:
                 blockers.append("w01_rows_include_superseded_baseline_controller_ids")
     blockers.extend(_coverage_gate_blockers(run_root=run_root, row_count=row_count))
     blockers.extend(_active_timing_state_gate_blockers(run_root=run_root))
+    blockers.extend(_frozen_bundle_gate_blockers(run_root=run_root))
     blockers.extend(_file_size_gate_blockers(run_root=run_root))
     blockers.extend(_manifest_checksum_gate_blockers(run_root=run_root))
     blockers.extend(_contract_audit_gate_blockers())
@@ -1379,6 +1465,40 @@ def _active_timing_state_gate_blockers(*, run_root: Path) -> list[str]:
         blockers.append("no_active_model_backed_timing_rows")
     if non_history_count > 0:
         blockers.append("active_timing_rows_not_history_backed_fifo")
+    return blockers
+
+
+def _frozen_bundle_gate_blockers(*, run_root: Path) -> list[str]:
+    bundle_path = filesystem_path(run_root / "manifests" / "frozen_w01_controller_bundle.json")
+    if not bundle_path.is_file():
+        return ["missing_frozen_w01_controller_bundle"]
+    try:
+        bundle = load_frozen_w01_controller_bundle(bundle_path)
+    except Exception as exc:
+        return [f"frozen_w01_controller_bundle_unloadable:{type(exc).__name__}"]
+    blockers: list[str] = []
+    if int(bundle.variant_count) <= 0:
+        blockers.append("frozen_w01_controller_bundle_empty")
+    if int(bundle.blocked_count) > 0:
+        blockers.append("frozen_w01_controller_bundle_has_incomplete_payloads")
+    if int(bundle.ready_count) != int(bundle.variant_count):
+        blockers.append("frozen_w01_controller_bundle_not_fully_ready")
+    for record in bundle.records:
+        if record.bundle_status != "ready":
+            continue
+        controller = record.controller
+        if not controller.augmented_gain_matrix_json:
+            blockers.append("frozen_bundle_missing_augmented_gain_matrix_json")
+            break
+        if not controller.predictor_A_reduced_json:
+            blockers.append("frozen_bundle_missing_predictor_A_reduced_json")
+            break
+        if not controller.augmented_A_matrix_json:
+            blockers.append("frozen_bundle_missing_augmented_A_matrix_json")
+            break
+        if not controller.augmented_B_matrix_json:
+            blockers.append("frozen_bundle_missing_augmented_B_matrix_json")
+            break
     return blockers
 
 

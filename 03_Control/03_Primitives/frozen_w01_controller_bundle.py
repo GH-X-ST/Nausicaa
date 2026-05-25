@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import numpy as np
+import pandas as pd
 
 from dense_archive_table_io import (
     file_sha256,
@@ -13,7 +14,7 @@ from dense_archive_table_io import (
     load_table_manifest,
     read_table_partition,
 )
-from lqr_controller import LQRController, gain_checksum_sha256
+from lqr_controller import LQRController, gain_checksum_sha256, matrix_checksum_sha256
 from lqr_linearisation import LQR_STATE_MASK
 from primitive_variant_registry import PrimitiveControllerVariant
 
@@ -56,12 +57,58 @@ class FrozenW01ControllerBundle:
         return {record.primitive_variant_id: record for record in self.records}
 
 
+def write_frozen_w01_controller_bundle(
+    *,
+    run_root: Path,
+    source_records: Iterable[tuple[PrimitiveControllerVariant, LQRController]],
+) -> dict[str, object]:
+    """Write the executable W01 frozen-controller bundle from in-memory W01 controllers."""
+
+    source_root = Path(run_root)
+    records: list[dict[str, object]] = []
+    for variant, controller in source_records:
+        controller_payload = _controller_payload_from_controller(variant=variant, controller=controller)
+        status, blocked_reason = _payload_status(
+            variant=variant,
+            controller_payload=controller_payload,
+        )
+        records.append(
+            {
+                "primitive_variant_id": variant.primitive_variant_id,
+                "controller_id": variant.controller_id,
+                "primitive_id": variant.primitive_id,
+                "candidate_index": variant.candidate_index,
+                "candidate_weight_label": variant.candidate_weight_label,
+                "bundle_status": status,
+                "blocked_reason": blocked_reason,
+                "variant": _variant_payload(variant, {}),
+                "controller_payload": controller_payload,
+            }
+        )
+
+    ready_count = sum(1 for record in records if record["bundle_status"] == FROZEN_CONTROLLER_READY)
+    payload: dict[str, object] = {
+        "bundle_version": FROZEN_W01_CONTROLLER_BUNDLE_VERSION,
+        **_source_info(source_root),
+        "variant_count": len(records),
+        "ready_count": int(ready_count),
+        "blocked_count": int(len(records) - ready_count),
+        "exact_replay_policy": "restore_payload_from_w01_emitted_bundle_only_no_controller_design",
+        "physical_K_only_active_replay_allowed": False,
+        "artifact_complete_required_for_w2": True,
+        "records": records,
+    }
+    _write_json(source_root / "manifests" / "frozen_w01_controller_bundle.json", payload)
+    _write_bundle_summary_and_report(source_root, payload)
+    return payload
+
+
 def materialize_frozen_w01_controller_bundle(
     *,
     input_root: Path,
     bundle_path: Path,
 ) -> dict[str, object]:
-    """Write a compact W01-to-W2 controller bundle without designing controllers."""
+    """Legacy diagnostic bundle materialisation from incomplete W01 metadata only."""
 
     source_root = Path(input_root)
     registry_path = source_root / "manifests" / "primitive_variant_registry.json"
@@ -228,8 +275,12 @@ def _source_info(source_root: Path) -> dict[str, object]:
     return {
         "source_w01_root": Path(source_root).as_posix(),
         "source_w01_run_id": _run_id_from_root(source_root),
-        "source_registry_sha256": file_sha256(registry_path),
-        "source_table_manifest_sha256": file_sha256(table_manifest_path),
+        "source_registry_sha256": file_sha256(registry_path) if filesystem_path(registry_path).is_file() else "",
+        "source_table_manifest_sha256": (
+            file_sha256(table_manifest_path)
+            if filesystem_path(table_manifest_path).is_file()
+            else ""
+        ),
         "source_run_manifest_sha256": (
             file_sha256(run_manifest_path)
             if filesystem_path(run_manifest_path).is_file()
@@ -258,6 +309,81 @@ def _representative_rows_by_variant_id(source_root: Path) -> dict[str, dict[str,
         if len(rows) >= 256:
             break
     return rows
+
+
+def _controller_payload_from_controller(
+    *,
+    variant: PrimitiveControllerVariant,
+    controller: LQRController,
+) -> dict[str, object]:
+    return {
+        "primitive_id": controller.primitive_id,
+        "controller_family": controller.controller_family,
+        "controller_mode": controller.controller_mode,
+        "feedback_mode": controller.feedback_mode,
+        "controller_id": controller.controller_id,
+        "controller_version": controller.controller_version,
+        "lqr_reference_id": controller.lqr_reference_id,
+        "linearisation_id": controller.linearisation_id,
+        "linearisation_source": controller.linearisation_source,
+        "reduced_order_lqr": controller.reduced_order_lqr,
+        "lqr_state_mask_json": controller.lqr_state_mask_json,
+        "zero_position_gain_expansion_status": controller.zero_position_gain_expansion_status,
+        "full_state_care_status": controller.full_state_care_status,
+        "full_state_care_message": controller.full_state_care_message,
+        "full_controllability_rank": controller.full_controllability_rank,
+        "full_state_size": controller.full_state_size,
+        "reduced_controllability_rank": controller.reduced_controllability_rank,
+        "reduced_state_size": controller.reduced_state_size,
+        "care_residual_norm": controller.care_residual_norm,
+        "lqr_Q_weights_json": controller.lqr_Q_weights_json,
+        "lqr_R_weights_json": controller.lqr_R_weights_json,
+        "lqr_gain_checksum": controller.lqr_gain_checksum,
+        "lqr_synthesis_status": controller.lqr_synthesis_status,
+        "lqr_blocked_reason": controller.lqr_blocked_reason,
+        "lqr_closed_loop_eigenvalue_summary": controller.lqr_closed_loop_eigenvalue_summary,
+        "sampled_data_check_status": controller.sampled_data_check_status,
+        "sampled_data_spectral_radius": controller.sampled_data_spectral_radius,
+        "command_clip_check_status": controller.command_clip_check_status,
+        "saturation_summary": controller.saturation_summary,
+        "latency_actuator_survival_status": controller.latency_actuator_survival_status,
+        "controller_design_role": controller.controller_design_role,
+        "timing_augmentation_type": controller.timing_augmentation_type,
+        "timing_design_version": controller.timing_design_version,
+        "sample_time_s": controller.sample_time_s,
+        "latency_case": controller.latency_case,
+        "state_feedback_delay_s": controller.state_feedback_delay_s,
+        "command_delay_s": controller.command_delay_s,
+        "command_delay_steps": controller.command_delay_steps,
+        "actuator_tau_s": controller.actuator_tau_s,
+        "actuator_state_count": controller.actuator_state_count,
+        "command_delay_state_count": controller.command_delay_state_count,
+        "predictor_horizon_steps": controller.predictor_horizon_steps,
+        "augmented_state_size": controller.augmented_state_size,
+        "augmented_input_size": controller.augmented_input_size,
+        "augmented_A_checksum": controller.augmented_A_checksum,
+        "augmented_B_checksum": controller.augmented_B_checksum,
+        "augmented_A_matrix_json": controller.augmented_A_matrix_json,
+        "augmented_B_matrix_json": controller.augmented_B_matrix_json,
+        "augmented_Q_json": controller.augmented_Q_json,
+        "augmented_R_json": controller.augmented_R_json,
+        "augmented_gain_checksum": controller.augmented_gain_checksum,
+        "augmented_gain_matrix_json": controller.augmented_gain_matrix_json,
+        "augmented_closed_loop_spectral_radius": controller.augmented_closed_loop_spectral_radius,
+        "timing_lqr_blocked_reason": controller.timing_lqr_blocked_reason,
+        "predictor_A_reduced_json": controller.predictor_A_reduced_json,
+        "timing_aware_synthesis_level": controller.timing_aware_synthesis_level,
+        "timing_effects_in_synthesis": controller.timing_effects_in_synthesis,
+        "timing_effects_in_rollout": controller.timing_effects_in_rollout,
+        "sampled_data_timing_audit_status": controller.sampled_data_timing_audit_status,
+        "delayed_state_lqr_augmentation_status": controller.delayed_state_lqr_augmentation_status,
+        "tuning_stage": controller.tuning_stage,
+        "controller_claim_status": controller.controller_claim_status,
+        "k_gain_matrix": tuple(tuple(float(value) for value in row) for row in controller.k_gain_matrix),
+        "reference_state_vector": tuple(float(value) for value in controller.reference_state_vector),
+        "reference_command_vector": tuple(float(value) for value in controller.reference_command_vector),
+        "variant_id_for_checksum_audit": variant.primitive_variant_id,
+    }
 
 
 def _controller_payload_from_variant(
@@ -375,6 +501,26 @@ def _payload_status(
     predictor_json = str(controller_payload.get("predictor_A_reduced_json", ""))
     if not predictor_json:
         reasons.append("missing_predictor_A_reduced_json")
+    augmented_a_json = str(controller_payload.get("augmented_A_matrix_json", ""))
+    if not augmented_a_json:
+        reasons.append("missing_augmented_A_matrix_json")
+    else:
+        try:
+            augmented_a = np.asarray(json.loads(augmented_a_json), dtype=float)
+            if matrix_checksum_sha256(augmented_a) != variant.augmented_A_checksum:
+                reasons.append("augmented_A_matrix_checksum_mismatch")
+        except Exception:
+            reasons.append("invalid_augmented_A_matrix_json")
+    augmented_b_json = str(controller_payload.get("augmented_B_matrix_json", ""))
+    if not augmented_b_json:
+        reasons.append("missing_augmented_B_matrix_json")
+    else:
+        try:
+            augmented_b = np.asarray(json.loads(augmented_b_json), dtype=float)
+            if matrix_checksum_sha256(augmented_b) != variant.augmented_B_checksum:
+                reasons.append("augmented_B_matrix_checksum_mismatch")
+        except Exception:
+            reasons.append("invalid_augmented_B_matrix_json")
     if str(controller_payload.get("augmented_A_checksum", "")) != variant.augmented_A_checksum:
         reasons.append("augmented_A_checksum_mismatch")
     if str(controller_payload.get("augmented_B_checksum", "")) != variant.augmented_B_checksum:
@@ -438,6 +584,8 @@ def _controller_from_payload(
         augmented_input_size=_int(payload.get("augmented_input_size"), 0),
         augmented_A_checksum=str(payload["augmented_A_checksum"]),
         augmented_B_checksum=str(payload["augmented_B_checksum"]),
+        augmented_A_matrix_json=str(payload.get("augmented_A_matrix_json", "")),
+        augmented_B_matrix_json=str(payload.get("augmented_B_matrix_json", "")),
         augmented_Q_json=str(payload["augmented_Q_json"]),
         augmented_R_json=str(payload["augmented_R_json"]),
         augmented_gain_checksum=str(payload["augmented_gain_checksum"]),
@@ -550,6 +698,51 @@ def _append_reason(existing: str, reason: str) -> str:
     if reason in existing.split(";"):
         return existing
     return f"{existing};{reason}"
+
+
+def _write_bundle_summary_and_report(source_root: Path, payload: dict[str, object]) -> None:
+    records = list(payload.get("records", []))
+    rows = [
+        {
+            "primitive_variant_id": str(record.get("primitive_variant_id", "")),
+            "controller_id": str(record.get("controller_id", "")),
+            "primitive_id": str(record.get("primitive_id", "")),
+            "candidate_index": record.get("candidate_index", ""),
+            "candidate_weight_label": str(record.get("candidate_weight_label", "")),
+            "bundle_status": str(record.get("bundle_status", "")),
+            "blocked_reason": str(record.get("blocked_reason", "")),
+        }
+        for record in records
+    ]
+    metrics_path = source_root / "metrics" / "frozen_w01_controller_bundle_summary.csv"
+    filesystem_path(metrics_path).parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(filesystem_path(metrics_path), index=False)
+    blocked = [row for row in rows if row["bundle_status"] != FROZEN_CONTROLLER_READY]
+    report = "\n".join(
+        [
+            "# Frozen W01 Controller Bundle Audit",
+            "",
+            f"- Bundle version: `{payload.get('bundle_version', '')}`",
+            f"- Source W01 root: `{payload.get('source_w01_root', '')}`",
+            f"- Variant count: `{payload.get('variant_count', 0)}`",
+            f"- Ready payloads: `{payload.get('ready_count', 0)}`",
+            f"- Blocked payloads: `{payload.get('blocked_count', 0)}`",
+            "- Exact replay policy: `restore_payload_from_w01_emitted_bundle_only_no_controller_design`",
+            "- Physical-K-only active replay allowed: `False`",
+            "- W2 executable source: `manifests/frozen_w01_controller_bundle.json`",
+            "",
+            "Blocked payload preview:",
+            "",
+            *[
+                f"- `{row['primitive_variant_id']}`: `{row['blocked_reason']}`"
+                for row in blocked[:12]
+            ],
+            *([] if blocked else ["- `none`"]),
+            "",
+        ]
+    )
+    filesystem_path(source_root / "reports" / "frozen_controller_bundle_audit.md").parent.mkdir(parents=True, exist_ok=True)
+    filesystem_path(source_root / "reports" / "frozen_controller_bundle_audit.md").write_text(report, encoding="ascii")
 
 
 def _run_id_from_root(root: Path) -> int | str:

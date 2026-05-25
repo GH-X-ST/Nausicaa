@@ -1,0 +1,4 @@
+boundary_use_class,continuation_valid,episode_terminal_useful,outcome_class,row_count
+blocked,False,False,rejected,210
+continuation_valid,True,False,accepted,2
+hard_failure,False,False,failed,28

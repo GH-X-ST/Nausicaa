@@ -39,8 +39,12 @@ def test_w01_dry_run_writes_compact_manifests_and_no_partitions(tmp_path: Path) 
     assert not (run_root / "tables" / "w01_primitive_rows").exists()
     assert set(chunk_summary["status"]) == {"scheduled"}
     assert (run_root / "manifests" / "primitive_variant_registry.json").is_file()
+    assert (run_root / "manifests" / "frozen_w01_controller_bundle.json").is_file()
+    assert (run_root / "metrics" / "frozen_w01_controller_bundle_summary.csv").is_file()
     assert (run_root / "reports" / "l6_move_on_check.md").is_file()
     assert (run_root / "reports" / "timing_synthesis_boundary.md").is_file()
+    assert (run_root / "reports" / "timing_contract_audit.md").is_file()
+    assert (run_root / "reports" / "frozen_controller_bundle_audit.md").is_file()
     assert (run_root / "reports" / "l7_w01_completeness_audit.md").is_file()
     l6_report = (run_root / "reports" / "l6_move_on_check.md").read_text(encoding="ascii")
     assert "predictor_compensated_augmented_discrete_lqr_v1" in l6_report

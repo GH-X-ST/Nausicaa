@@ -69,7 +69,7 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
 
     run_manifest = json.loads((run_root / "manifests" / "run_manifest.json").read_text(encoding="ascii"))
     assert run_manifest["schedule_mode"] == "balanced_paired"
-    assert run_manifest["project_title_version"] == "LQR-Stabilised Contextual Primitive v4.4"
+    assert run_manifest["project_title_version"] == "LQR-Stabilised Contextual Primitive v4.5"
     assert run_manifest["active_controller_design_role"] == "active_timing_aware_w01"
     assert run_manifest["per_start_family_row_counts"]["launch_gate"] == 48
     l6_report = (run_root / "reports" / "l6_move_on_check.md").read_text(encoding="ascii")

@@ -10,7 +10,7 @@ from frozen_w01_controller_bundle import (
     FROZEN_CONTROLLER_BLOCKED,
     FROZEN_CONTROLLER_READY,
     load_frozen_w01_controller_bundle,
-    materialize_frozen_w01_controller_bundle,
+    write_frozen_w01_controller_bundle,
 )
 from lqr_controller import lqr_controller_for_primitive_id
 from prim_cat import primitive_by_id
@@ -21,14 +21,13 @@ from primitive_variant_registry import (
     variant_row,
 )
 from run_w2_survival import W2SurvivalConfig, run_w2_survival
+from run_w3_survival import W3SurvivalConfig, run_w3_survival
 
 
 def test_frozen_w01_bundle_restores_complete_timing_controller(tmp_path: Path) -> None:
     source_root = _write_w01_source_fixture(tmp_path / "w01", "glide", include_augmented_payload=True)
-    bundle_path = tmp_path / "bundle.json"
 
-    materialize_frozen_w01_controller_bundle(input_root=source_root, bundle_path=bundle_path)
-    bundle = load_frozen_w01_controller_bundle(bundle_path)
+    bundle = load_frozen_w01_controller_bundle(source_root / "manifests" / "frozen_w01_controller_bundle.json")
     record = bundle.records[0]
 
     assert record.bundle_status == FROZEN_CONTROLLER_READY
@@ -37,19 +36,21 @@ def test_frozen_w01_bundle_restores_complete_timing_controller(tmp_path: Path) -
     assert record.controller.augmented_gain_checksum == record.variant.augmented_gain_checksum
     assert record.controller.augmented_gain_matrix_json
     assert record.controller.predictor_A_reduced_json
+    assert record.controller.augmented_A_matrix_json
+    assert record.controller.augmented_B_matrix_json
 
 
 def test_missing_augmented_payload_blocks_instead_of_using_physical_k_only(tmp_path: Path) -> None:
     source_root = _write_w01_source_fixture(tmp_path / "w01", "glide", include_augmented_payload=False)
-    bundle_path = tmp_path / "bundle.json"
 
-    materialize_frozen_w01_controller_bundle(input_root=source_root, bundle_path=bundle_path)
-    bundle = load_frozen_w01_controller_bundle(bundle_path)
+    bundle = load_frozen_w01_controller_bundle(source_root / "manifests" / "frozen_w01_controller_bundle.json")
     record = bundle.records[0]
 
     assert record.bundle_status == FROZEN_CONTROLLER_BLOCKED
     assert "missing_augmented_gain_matrix_json" in record.blocked_reason
     assert "missing_predictor_A_reduced_json" in record.blocked_reason
+    assert "missing_augmented_A_matrix_json" in record.blocked_reason
+    assert "missing_augmented_B_matrix_json" in record.blocked_reason
     assert record.controller.k_gain_matrix
     assert not record.controller.augmented_gain_matrix_json
 
@@ -111,6 +112,75 @@ def test_w2_entry_role_rejections_are_preserved_but_not_survival_scored(tmp_path
     assert variant_summary["w2_variant_status"].iloc[0] == "not_run"
 
 
+def test_w2_blocks_w01_roots_without_emitted_frozen_bundle(tmp_path: Path) -> None:
+    source_root = tmp_path / "w01_without_bundle"
+    (source_root / "manifests").mkdir(parents=True)
+    (source_root / "manifests" / "run_manifest.json").write_text('{"run_id": 8}\n', encoding="ascii")
+
+    result = run_w2_survival(
+        W2SurvivalConfig(
+            run_id=12,
+            input_root=source_root,
+            output_root=tmp_path / "w2",
+            workers=1,
+            max_workers=1,
+            storage_format="csv_gz",
+        )
+    )
+    manifest = (Path(result["run_root"]) / "manifests" / "w2_survival_manifest.json").read_text(encoding="ascii")
+
+    assert result["status"] == "blocked"
+    assert "missing_W01_frozen_controller_bundle" in manifest
+
+
+def test_w3_executes_from_valid_w2_survivor_registry_and_frozen_bundle(tmp_path: Path) -> None:
+    source_root = _write_w01_source_fixture(tmp_path / "w01", "glide", include_augmented_payload=True)
+    bundle = load_frozen_w01_controller_bundle(source_root / "manifests" / "frozen_w01_controller_bundle.json")
+    record = bundle.records[0]
+    w2_root = tmp_path / "w2_survivor_source"
+    manifests = w2_root / "manifests"
+    manifests.mkdir(parents=True)
+    (manifests / "frozen_w01_controller_bundle.json").write_text(
+        (source_root / "manifests" / "frozen_w01_controller_bundle.json").read_text(encoding="ascii"),
+        encoding="ascii",
+    )
+    (manifests / "w2_survival_manifest.json").write_text(
+        json.dumps({"status": "survived_variants_available"}, indent=2) + "\n",
+        encoding="ascii",
+    )
+    survivor = variant_row(record.variant)
+    survivor.update({"w2_variant_status": "survived", "eligible_for_w3": True})
+    (manifests / "w2_survivor_registry.json").write_text(
+        json.dumps(
+            {
+                "survivor_registry_version": "w2_survivor_registry_v1",
+                "status": "survived_variants_available",
+                "survivor_count": 1,
+                "survivors": [survivor],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="ascii",
+    )
+
+    result = run_w3_survival(
+        W3SurvivalConfig(
+            run_id=13,
+            input_root=w2_root,
+            output_root=tmp_path / "w3",
+            paired_tests_per_variant=1,
+            storage_format="csv_gz",
+        )
+    )
+    frame = _read_frame(Path(result["run_root"]))
+
+    assert result["status"] == "complete"
+    assert len(frame) == 2
+    assert set(frame["environment_mode"]) == {"w3_randomised_single", "w3_randomised_four"}
+    assert frame["fixed_lqr_replay_only"].astype(bool).all()
+
+
 def test_w2_default_schedule_dimensions() -> None:
     assert 256 * 2 * 100 == 51200
 
@@ -130,9 +200,6 @@ def _write_w01_source_fixture(
         candidate_weight_label=f"{primitive_id}_fixture",
     )
     row = variant_row(variant)
-    if include_augmented_payload:
-        row["augmented_gain_matrix_json"] = controller.augmented_gain_matrix_json
-        row["predictor_A_reduced_json"] = controller.predictor_A_reduced_json
     manifests = root / "manifests"
     manifests.mkdir(parents=True, exist_ok=True)
     (manifests / "primitive_variant_registry.json").write_text(
@@ -157,10 +224,24 @@ def _write_w01_source_fixture(
         manifests / "table_manifest.json",
         TableManifest(run_id=8, root=root.as_posix(), storage_format="csv_gz", tables=()),
     )
+    write_frozen_w01_controller_bundle(run_root=root, source_records=((variant, controller),))
+    if not include_augmented_payload:
+        bundle_path = manifests / "frozen_w01_controller_bundle.json"
+        payload = json.loads(bundle_path.read_text(encoding="ascii"))
+        controller_payload = payload["records"][0]["controller_payload"]
+        controller_payload["augmented_gain_matrix_json"] = ""
+        controller_payload["predictor_A_reduced_json"] = ""
+        controller_payload["augmented_A_matrix_json"] = ""
+        controller_payload["augmented_B_matrix_json"] = ""
+        bundle_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="ascii")
     return root
 
 
 def _read_w2_frame(run_root: Path) -> pd.DataFrame:
+    return _read_frame(run_root)
+
+
+def _read_frame(run_root: Path) -> pd.DataFrame:
     manifest = load_table_manifest(run_root / "manifests" / "table_manifest.json")
     return pd.concat(
         [

@@ -1,0 +1,17 @@
+start_state_family,primitive_id,entry_role,W_layer,row_count
+launch_gate,energy_retaining_bank,inflight_only,W0,10
+launch_gate,energy_retaining_bank,inflight_only,W1,20
+launch_gate,glide,launch_capable,W0,10
+launch_gate,glide,launch_capable,W1,20
+launch_gate,lift_dwell_arc,inflight_only,W0,10
+launch_gate,lift_dwell_arc,inflight_only,W1,20
+launch_gate,lift_entry,inflight_only,W0,10
+launch_gate,lift_entry,inflight_only,W1,20
+launch_gate,mild_turn_left,inflight_only,W0,10
+launch_gate,mild_turn_left,inflight_only,W1,20
+launch_gate,mild_turn_right,inflight_only,W0,10
+launch_gate,mild_turn_right,inflight_only,W1,20
+launch_gate,recovery,terminal_or_recovery,W0,10
+launch_gate,recovery,terminal_or_recovery,W1,20
+launch_gate,safe_exit_or_recovery_handoff,terminal_or_recovery,W0,10
+launch_gate,safe_exit_or_recovery_handoff,terminal_or_recovery,W1,20

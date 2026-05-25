@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import shutil
 import sys
 import time
 from collections import Counter, defaultdict
@@ -49,11 +50,11 @@ from env_instance import (  # noqa: E402
 from env_surrogate import resolve_surrogate_binding, surrogate_binding_row, wind_field_for_binding  # noqa: E402
 from frozen_w01_controller_bundle import (  # noqa: E402
     FROZEN_CONTROLLER_READY,
+    FROZEN_W01_CONTROLLER_BUNDLE_VERSION,
     FrozenW01ControllerBundle,
     FrozenW01ControllerRecord,
     frozen_bundle_record_row,
     load_frozen_w01_controller_bundle,
-    materialize_frozen_w01_controller_bundle,
 )
 from implementation_instance import implementation_instance_for_layer, implementation_instance_row  # noqa: E402
 from plant_instance import plant_instance_for_layer, plant_instance_row  # noqa: E402
@@ -79,7 +80,7 @@ from state_sampling import (  # noqa: E402
 
 W2_SURVIVAL_VERSION = "w2_fixed_lqr_survival_replay_v1"
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.5"
-DEFAULT_W01_INPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense/008")
+DEFAULT_W01_INPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense/012")
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")
 W2_TABLE_NAME = "w2_survival_rows"
 W2_ENVIRONMENT_CASES = ("annular_gp_single", "annular_gp_four")
@@ -152,14 +153,22 @@ def run_w2_survival(config: W2SurvivalConfig) -> dict[str, object]:
     run_root = Path(config.output_root) / f"{int(config.run_id):03d}"
     for subdir in ("manifests", "metrics", "reports", "chunk_manifests", "tables"):
         filesystem_path(run_root / subdir).mkdir(parents=True, exist_ok=True)
+    source_bundle_path = Path(config.input_root) / "manifests" / "frozen_w01_controller_bundle.json"
     bundle_path = run_root / "manifests" / "frozen_w01_controller_bundle.json"
-    materialize_frozen_w01_controller_bundle(
-        input_root=Path(config.input_root),
-        bundle_path=bundle_path,
-    )
-    bundle = load_frozen_w01_controller_bundle(bundle_path)
+    if filesystem_path(source_bundle_path).is_file():
+        shutil.copyfile(filesystem_path(source_bundle_path), filesystem_path(bundle_path))
+        bundle = load_frozen_w01_controller_bundle(source_bundle_path)
+    else:
+        bundle = _missing_source_bundle(Path(config.input_root), "missing_W01_frozen_controller_bundle")
+        _write_json(bundle_path, _blocked_bundle_payload(bundle, "missing_W01_frozen_controller_bundle"))
     if int(bundle.variant_count) <= 0:
-        _write_blocked_run(run_root=run_root, config=config, bundle=bundle, storage_format=storage_format)
+        _write_blocked_run(
+            run_root=run_root,
+            config=config,
+            bundle=bundle,
+            storage_format=storage_format,
+            blocker="missing_W01_frozen_controller_bundle",
+        )
         return _result_payload(run_root, "blocked")
 
     row_count = _planned_row_count(bundle=bundle, config=config)
@@ -884,12 +893,53 @@ def _write_empty_metrics(run_root: Path, *, bundle: FrozenW01ControllerBundle, r
     ).to_csv(filesystem_path(run_root / "metrics" / "w2_schedule_summary.csv"), index=False)
 
 
+def _missing_source_bundle(input_root: Path, blocked_reason: str) -> FrozenW01ControllerBundle:
+    return FrozenW01ControllerBundle(
+        bundle_version=FROZEN_W01_CONTROLLER_BUNDLE_VERSION,
+        source_w01_root=Path(input_root).as_posix(),
+        source_w01_run_id=_run_id_from_root(input_root),
+        source_registry_sha256="",
+        source_table_manifest_sha256="",
+        source_run_manifest_sha256="",
+        variant_count=0,
+        ready_count=0,
+        blocked_count=0,
+        records=(),
+    )
+
+
+def _blocked_bundle_payload(bundle: FrozenW01ControllerBundle, blocked_reason: str) -> dict[str, object]:
+    return {
+        "bundle_version": bundle.bundle_version,
+        "source_w01_root": bundle.source_w01_root,
+        "source_w01_run_id": bundle.source_w01_run_id,
+        "source_registry_sha256": bundle.source_registry_sha256,
+        "source_table_manifest_sha256": bundle.source_table_manifest_sha256,
+        "source_run_manifest_sha256": bundle.source_run_manifest_sha256,
+        "variant_count": 0,
+        "ready_count": 0,
+        "blocked_count": 0,
+        "exact_replay_policy": "blocked_missing_w01_emitted_bundle_no_controller_design",
+        "physical_K_only_active_replay_allowed": False,
+        "blocked_reason": blocked_reason,
+        "records": [],
+    }
+
+
+def _run_id_from_root(root: Path) -> int | str:
+    try:
+        return int(Path(root).name)
+    except ValueError:
+        return Path(root).name
+
+
 def _write_blocked_run(
     *,
     run_root: Path,
     config: W2SurvivalConfig,
     bundle: FrozenW01ControllerBundle,
     storage_format: str,
+    blocker: str = "missing_or_empty_frozen_w01_controller_bundle",
 ) -> None:
     _write_empty_table_manifest(run_root, config.run_id, storage_format)
     _write_empty_metrics(run_root, bundle=bundle, row_count=0)
@@ -904,7 +954,7 @@ def _write_blocked_run(
         selected_worker_count=0,
         worker_decision={},
         status="blocked",
-        blockers=["missing_or_empty_frozen_w01_controller_bundle"],
+        blockers=[blocker],
     )
     _write_json(
         run_root / "manifests" / "w2_survivor_registry.json",
@@ -921,7 +971,7 @@ def _write_blocked_run(
         bundle=bundle,
         status="blocked",
         row_count=0,
-        blockers=["missing_or_empty_frozen_w01_controller_bundle"],
+        blockers=[blocker],
     )
 
 
@@ -1036,6 +1086,8 @@ def _write_run_manifest(
         "fixed_lqr_replay_only": True,
         "mutates_Q_R_K_reference_horizon_entry_set_or_entry_role": False,
         "status_vocabulary": list(W2_STATUS_VOCABULARY),
+        "controller_bundle_source_policy": "load_only_w01_emitted_frozen_bundle_no_materialisation_no_design",
+        "source_controller_bundle_path": (Path(config.input_root) / "manifests" / "frozen_w01_controller_bundle.json").as_posix(),
         "controller_bundle_path": (run_root / "manifests" / "frozen_w01_controller_bundle.json").as_posix(),
         "table_manifest": (run_root / "manifests" / "table_manifest.json").as_posix(),
         "survivor_registry": (run_root / "manifests" / "w2_survivor_registry.json").as_posix(),
