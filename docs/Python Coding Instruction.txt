@@ -1,5 +1,7 @@
 # Python Coding Instruction — Environment-Conditioned Primitive Standard
 
+Use the explicit library-size case labels `heavy_cluster`, `balanced_cluster`, `light_cluster`, and `no-clustering/no-merging` in reports or manifests where the human-readable case name is needed.
+
 ## Purpose
 
 Use this guide for Python code in modelling, simulation, primitive rollout, archive execution, context-feature extraction, outcome modelling, belief updates, plotting, and real-flight analysis.
@@ -15,11 +17,13 @@ The current method is environment-conditioned primitive selection:
 ```text
 state + local flow context + primitive parameters
     -> primitive outcome estimate
-    -> viability governor
-    -> selected primitive
+    -> viability governor with safe exploration/exploitation
+    -> selected 0.10 s primitive
     -> episode outcome
-    -> lift-belief update
+    -> directional 3D residual lift-belief update
 ```
+Repeated-launch validation must report memory histories after 0, 5, 10, 20, 50, and 100 prior launches. These history lengths are required comparison groups, not optional diagnostics.
+
 
 Do not encode fan layouts as separate online algorithms. Treat them as environment instances represented through context features.
 
@@ -38,7 +42,18 @@ W labels are fidelity/evidence layers, not online branches. Single-fan, four-fan
 
 The LQR stabiliser is part of the primitive, not an external controller bank. Represent the active library item as a primitive-controller variant with `primitive_variant_id`, `primitive_id`, `entry_role`, `controller_id`, reference state/command, finite horizon, Q/R JSON, gain checksum, exit checks, metrics, failure labels, and claim status.
 
-W0/W1 dense generation develops a rich primitive-controller variant library and tunes the primitive-local LQR inside every generated variant. Preserve all W0/W1 variants and evidence rows; do not reduce them to a 12--24 retained shortlist. W2 and W3 replay fixed variants to eliminate or downgrade failures without regenerating or retuning LQR controllers. Clustering and merging occur only after W3. The mixed primitive-start distribution includes launch and in-flight starts; do not reject an in-flight-only primitive solely because it cannot start from the broad launch gate. Late validation uses frozen post-W3 variants and must not hide Q/R or gain retuning.
+W0/W1 dense generation develops a rich primitive-controller variant library and tunes the primitive-local LQR inside every generated variant. Preserve all W0/W1 variants and evidence rows; do not reduce them to a 12--24 retained shortlist. W2 and W3 replay fixed variants to eliminate or downgrade failures without regenerating or retuning LQR controllers. Clustering, merging, or no-clustering library-size cases occur only after W3 as the required four-case cross-study. The mixed primitive-start distribution includes launch and in-flight starts; do not reject an in-flight-only primitive solely because it cannot start from the broad launch gate. Late validation uses frozen post-W3 variants and must not hide Q/R or gain retuning.
+
+
+Current overwrite for active primitive timing:
+
+```text
+finite_horizon_s = 0.100
+controller_input_slots_per_primitive = 5
+controller_input_update_period_s = 0.020
+```
+
+Every primitive-controller variant generated in the next W0/W1 dense cycle must use the 0.10 s horizon and record the 5 controller-input slots at a 20 ms controller update-period contract. Any code path that silently keeps older long horizons must be deleted, rewritten, or marked retired_not_active before evidence generation.
 
 
 ## Core standard
@@ -131,9 +146,42 @@ attitude_margin_rad
 
 The encoder should not contain separate online logic for particular fan layouts.
 
+
+## Directional 3D residual memory code
+
+The active belief implementation must be 3D and directional-aware. It should store residual evidence relative to the current model and local flow context rather than an arena-specific fan map. Minimum fields:
+
+```text
+mean_lift_residual_m_s
+mean_energy_residual_m
+mean_dwell_residual_s
+observation_count
+uncertainty
+last_update_launch_index
+```
+
+Keep the implementation simple and auditable: dataclasses, deterministic binning or compact sparse tables, explicit units, and clear update equations. The old 2D 4 x 4 memory may remain only as a labelled baseline or retired diagnostic.
+
+## Safe exploration/exploitation code
+
+The governor may add an exploration or uncertainty bonus only after a primitive passes entry, safety, and viability checks. Log the exploit score, memory residual bonus, exploration bonus, total score, rank without memory, rank with memory, and selected primitive. If memory or exploration never changes ranking, the result must be reported as not passed.
+
+## Post-W3 library-size cross-study code
+
+Post-W3 code must support four library-size cases:
+
+```text
+heavy_cluster
+balanced_cluster
+light_cluster
+no_cluster
+```
+
+All four cases must consume the same W3-surviving evidence and must not mutate controller gains, Q/R weights, references, horizons, entry roles, controller IDs, or primitive variant IDs.
+
 ## Primitive outcome code
 
-Outcome datasets should preserve W0/W1 rich evidence, W2/W3 survival evidence, and post-W3 clustering labels. They should record:
+Outcome datasets should preserve W0/W1 rich evidence, W2/W3 survival evidence, and post-W3 library-size case labels. They should record:
 
 ```text
 state
@@ -153,6 +201,9 @@ failure label
 ```
 
 Do not promote diagnostic, open-loop, schema-only, command-template, or blocked rows into mission evidence. Keep continuation-valid labels separate from episode-terminal-useful labels. X/y boundary exits may be useful terminal episode evidence, but they are not downstream-continuation successes. Do not run clustering or small-library selection on W0/W1 outputs; compression is a post-W3 operation.
+
+
+The next active dense generation must archive rejected old results first, label v4.10-style outputs as diagnostic_not_passed, then rerun W0/W1 with the 0.10 s horizon setting. New dense evidence must not overwrite the v4.10-style diagnostic outputs.
 
 ## Validation and tests
 

@@ -6,6 +6,8 @@ This file defines stable working rules for coding, writing, experiments, slides,
 
 The goal is to make every output useful, auditable, easy to explain, and suitable for a robotics-style thesis or paper.
 
+Current repair-cycle checks also include history lengths `0, 5, 10, 20, 50, and 100` and require rejected v4.10-style evidence to be labelled `diagnostic_not_passed` before new W0/W1 evidence is generated.
+
 ---
 
 ## 0. Source priority
@@ -22,6 +24,15 @@ When sources conflict, use this order:
 
 Do not silently merge conflicting versions. State which source controls the decision when it matters.
 
+
+Current controlling project overwrite:
+
+```text
+Latest user instruction requires 0.10 s primitives with 5 controller-input slots at a 20 ms controller update period, directional 3D residual memory, safe exploration/exploitation, a four-case post-W3 library-size cross-study, archival of rejected v4.10-style results, and a new W0/W1 dense rerun before further validation.
+```
+
+If this conflicts with older project-plan or schedule wording, this overwrite controls until explicitly replaced.
+
 ---
 
 ## 1. Stable project centre
@@ -30,9 +41,9 @@ The stable centre is:
 
 > Primitive-level sim-to-real transfer of feedback-stabilised fixed-wing manoeuvre primitives for a small glider operating in measured, uncertain indoor updrafts.
 
-The preferred method is environment-conditioned primitive selection: use glider state and local flow-context features to select short primitives through a viability governor, then update an episodic lift belief across launches.
+The preferred method is environment-conditioned primitive selection: use glider state and local flow-context features to select 0.10 s primitives through a viability governor, safely explore and exploit viable lift-field choices, then update a directional 3D residual lift belief across launches.
 
-Treat the LQR stabiliser as part of the primitive. The active control/evidence unit is a primitive-controller variant, not a free-standing controller bank. W0/W1 dense generation tunes a primitive-local LQR for every generated variant and preserves the rich library. W2 and W3 replay fixed variants to eliminate or downgrade cases that fail under higher-fidelity or randomised conditions. Clustering and merging occur only after W3, and late validation freezes the compact post-W3 library, governor, selector, and memory logic. Hidden retuning inside W2, W3, clustering, or validation is not allowed.
+Treat the LQR stabiliser as part of the primitive. The active control/evidence unit is a primitive-controller variant, not a free-standing controller bank. W0/W1 dense generation tunes a primitive-local LQR for every generated variant and preserves the rich library. W2 and W3 replay fixed variants to eliminate or downgrade cases that fail under higher-fidelity or randomised conditions. Post-W3 compression still occurs only after W3, but it must now be studied across heavy, balanced, light, and no-clustering/no-merging cases before a validation library-size condition is accepted. Late validation freezes the selected library-size condition, governor, selector, and memory logic. Hidden retuning inside W2, W3, clustering, or validation is not allowed.
 
 Do not turn the work into:
 
@@ -63,6 +74,13 @@ Preserve unless explicitly changed:
 - Wind modes: no wind, centre-of-gravity wind, panelwise wind.
 - Latency evidence must distinguish ideal timing, actuator lag, command delay, state delay, nominal latency, and conservative timing.
 - W0/W1 primitive-controller evidence must already use the panel-wise glider model, feedback latency, command timing, and actuator lag when those effects affect LQR tuning.
+
+
+- Each active primitive-controller variant must use `finite_horizon_s = 0.100`.
+- Each active primitive must support `controller_input_slots_per_primitive = 5` and `controller_input_update_period_s = 0.020`.
+- Legacy longer primitive horizons are diagnostic only unless a later explicit decision restores them.
+- The active belief is directional, 3D, residual-based, and non-fan-layout-specific.
+- Safe exploration may modify ranking only after viability filtering; it must not bypass safety gates.
 
 ---
 
@@ -111,7 +129,7 @@ Use comments for:
 - why a safety gate exists;
 - why a metric supports or does not support a claim;
 - why a branch is simulation-only, hardware-shakedown, or blocked;
-- assumptions behind sampling, post-W3 clustering, and latency labels.
+- assumptions behind sampling, the post-W3 library-size cross-study, and latency labels.
 
 For nontrivial modules, use a section map when it improves auditability.
 
@@ -214,7 +232,7 @@ Good figures usually show:
 - primitive outcome envelope;
 - accepted / weak / failed / rejected regions;
 - repeated-launch traces;
-- belief evolution;
+- directional 3D residual belief evolution;
 - baseline comparison;
 - sim-real pairing;
 - failure labels.

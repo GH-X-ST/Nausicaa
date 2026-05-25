@@ -18,7 +18,7 @@ For example, the active LQR evidence root is
 `03_Control/05_Results/lqr_contextual_v1_0`, with short stage folders such as
 `w01_dense`, `w2_survival`, `w3_survival`, and `post_w3_cluster`. The stage run folder is the atomic evidence unit.
 It must contain the manifest and the compact analysis files needed to audit the
-run. Primitive-controller variant registries, W2/W3 survival summaries, and post-W3 merge summaries are compact audit artefacts; raw dense partitions still belong under `tables/`.
+run. Primitive-controller variant registries, W2/W3 survival summaries, and post-W3 library-size cross-study summaries are compact audit artefacts; raw dense partitions still belong under `tables/`.
 
 Preferred result groups:
 
@@ -41,6 +41,21 @@ Historical generated result folders are local-only unless the user explicitly re
 
 Scratch and preflight roots are local only. They must not be pushed unless the user explicitly requests preservation.
 
+
+Current archive requirement:
+
+Rejected v4.10-style outer-loop and governor-calibration results must be preserved only as diagnostic_not_passed evidence before the 0.10 s primitive rerun. Do not overwrite those folders. New evidence from the repair cycle should use a new run root and include an archive manifest that lists the superseded roots, their claim boundary, and why they do not unblock hardware.
+
+Suggested compact archive labels:
+
+```text
+diagnostic_not_passed
+archived_superseded_result
+v410_outer_loop_rejected
+```
+
+For the current repair cycle, result manifests must record 0.10 s primitive horizon compliance, 5 controller-input-slot compliance at a 20 ms controller update period, directional 3D residual memory status, safe exploration/exploitation status, heavy/balanced/light/no-clustering library-size case, and history lengths `0, 5, 10, 20, 50, and 100` where applicable.
+
 ---
 
 ## 2. Naming rules
@@ -62,6 +77,11 @@ Good examples:
 Use these abbreviations consistently:
 
 ```text
+
+
+lc    repeated-launch learning curve
+lib   library-size study
+mem   directional 3D residual memory
 ctx   environment context
 prim  primitive
 pol   policy
@@ -73,7 +93,7 @@ w1    variable Gaussian plume fidelity layer
 w2    GP-corrected annular-Gaussian survival layer
 w3    randomised GP-corrected annular-Gaussian survival layer
 w01   combined W0/W1 rich primitive-library generation
-post_w3  post-W3 clustering and merging
+post_w3  post-W3 library-size cross-study and clustering/merging cases
 nom   nominal
 rand  randomised
 sum   summary
@@ -138,7 +158,7 @@ planned rollout rows >= 10,000
 planned candidate rows >= 5,000
 expected runtime > 30 minutes
 expected uncompressed table size > 250 MB
-used for thesis evidence, primitive-controller variant evidence, W0/W1 dense generation, W2/W3 survival replay, post-W3 clustering, envelope maps, outcome models, or selector/governor reports
+used for thesis evidence, primitive-controller variant evidence, W0/W1 dense generation, W2/W3 survival replay, post-W3 library-size studies, envelope maps, outcome models, or selector/governor reports
 ```
 
 Dense runs must not use a single-process full-memory runner that builds the entire rollout table before writing.
@@ -146,6 +166,10 @@ Dense runs must not use a single-process full-memory runner that builds the enti
 Dense runners must support:
 
 ```text
+
+
+--history-lengths 0,5,10,20,50,100
+--library-size-case heavy|balanced|light|no_cluster
 --workers
 --max-workers
 --candidate-chunk-size or --chunk-size
@@ -222,7 +246,7 @@ above_100mb
 push_allowed
 ```
 
-Archive, W2/W3 survival, post-W3 clustering, outcome-model, and episode-smoke outputs must keep continuation-valid targets separate from episode-terminal-useful targets. X/y boundary exits may be retained as terminal episode evidence; they must not be relabelled as continuation success. W0/W1 outputs must not be compressed into a small retained shortlist before W2/W3.
+Archive, W2/W3 survival, post-W3 library-size study, outcome-model, and episode-smoke outputs must keep continuation-valid targets separate from episode-terminal-useful targets. X/y boundary exits may be retained as terminal episode evidence; they must not be relabelled as continuation success. W0/W1 outputs must not be compressed into a small retained shortlist before W2/W3.
 
 ---
 

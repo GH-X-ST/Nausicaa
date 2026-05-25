@@ -1,5 +1,7 @@
 # Python Plotting Guidance — Robotics-Journal Figures
 
+For current repair-cycle plots, include 0.10 s primitive horizon compliance, 5 controller-input-slot compliance at a 20 ms update period, directional 3D residual belief behaviour, safe exploration/exploitation traces, heavy/balanced/light/no-clustering library-size cases, 0, 5, 10, 20, 50, and 100 launch history curves, and mark rejected v4.10-style evidence as `diagnostic_not_passed` where shown.
+
 ## Purpose
 
 Use this guide when creating plots for thesis, slides, logs, or robotics-style paper figures. Figures should show physical evidence, not decorative output.
@@ -67,7 +69,7 @@ Show multiple episodes with:
 - accepted primitive;
 - termination point;
 - local updraft contour;
-- belief before/after where useful.
+- directional 3D residual belief before/after where useful.
 
 Do not overlay too many episodes in one plot.
 
@@ -75,10 +77,11 @@ Do not overlay too many episodes in one plot.
 
 Show:
 
-- belief before and after repeated launches;
-- observed lift evidence;
+- directional 3D residual belief before and after repeated launches;
+- observed lift, energy, and dwell residual evidence;
 - decay setting;
-- capture or dwell metric over launch index.
+- history length at 0, 5, 10, 20, 50, and 100 launches;
+- capture, dwell, safety, and selection-change metrics over launch index.
 
 ### 5. Sim-real pairing
 
@@ -102,6 +105,18 @@ Show fidelity-layer and environment-instance effects without turning them into o
 Use W0 as dry air only, W1 as variable Gaussian plume only, W2 as GP-corrected annular-Gaussian only, and W3 as randomised GP-corrected annular-Gaussian only. Do not present W0/W1 clustering as the final library-compression result.
 
 ### 7. Post-W3 library compression
+
+
+Show the four required library-size cases separately:
+
+```text
+heavy clustering and merging
+balanced clustering and merging
+light clustering and merging
+no-clustering/no-merging
+```
+
+Figures must show how library size affects safety success, selected primitive diversity, lift capture, dwell, no-viable rate, and memory/exploration selection changes. Do not present one compact-library case as the final method unless the cross-study supports it.
 
 Show clustering and merging only after W3 survival filtering. Figures should distinguish:
 
@@ -157,6 +172,17 @@ Results of simulation and real flight.
 ```
 
 ## Audit metadata
+
+
+Additional required figure types for the current repair cycle:
+
+```text
+0.10 s primitive horizon audit
+safe exploration/exploitation trace
+memory history-length learning curve
+library-size cross-study comparison
+primitive selection diversity summary
+```
 
 Each saved plot should have a nearby source note or manifest stating:
 

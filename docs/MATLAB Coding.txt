@@ -1,5 +1,7 @@
 # MATLAB and Arduino Coding Guidance
 
+Do not implement hardware execution for the repaired controller until simulation has passed. If hardware logs are later used, include 0.10 s horizon, 5 controller-input-slot compliance, directional 3D residual memory status, safe exploration/exploitation mode, heavy/balanced/light/no-clustering library-size case, history length `0, 5, 10, 20, 50, and 100` where applicable, and diagnostic_not_passed labels for superseded simulation evidence.
+
 ## Purpose
 
 Use this guide for MATLAB scripts, Arduino/receiver code, latency tests, command-path tests, and hardware-facing tools.
@@ -20,6 +22,20 @@ termination cause
 local environment identifier
 real-flight replay metadata
 ```
+
+
+For any hardware-facing support of the repaired controller, logs must also record:
+
+```text
+finite_horizon_s = 0.100
+controller_input_slots_per_primitive = 5
+controller_input_update_period_s = 0.020
+selected library-size case
+memory history length
+safe exploration/exploitation mode
+```
+
+Hardware execution remains blocked until the simulation repair cycle passes the required safety and repeated-launch gates.
 
 W labels are fidelity/evidence layers, not online controller branches: W0 is dry air only, W1 is variable Gaussian plume only, W2 is GP-corrected annular-Gaussian only, and W3 is randomised GP-corrected annular-Gaussian only. Fan count, fan shift, and fan power are environment instances. W0/W1 evidence should already use the feedback-latency, command-timing, and actuator-lag assumptions that affect primitive-local LQR tuning.
 

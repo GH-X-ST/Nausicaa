@@ -4,7 +4,7 @@
 
 This plan integrates the full environment-conditioned primitive strategy with the model-only restart assumption. It is the active project contract for the Nausicaa glider control work.
 
-The project first learns a rich library of short LQR-stabilised **primitive-controller variants** and only later compresses that library for real-time use. W0/W1 dense sweeps randomise launch and in-flight primitive-start states and tune a primitive-local LQR controller for every generated variant. W2 and W3 then replay the fixed W0/W1 library under higher-fidelity and randomised conditions to remove or downgrade variants that do not survive. Clustering and merging occur only after W3, producing the final compact library used by the viability governor in real-time repeated-launch operation.
+The project first learns a rich library of short LQR-stabilised **primitive-controller variants** and only later compresses that library for real-time use. W0/W1 dense sweeps randomise launch and in-flight primitive-start states and tune a primitive-local LQR controller for every generated variant. W2 and W3 then replay the fixed W0/W1 library under higher-fidelity and randomised conditions to remove or downgrade variants that do not survive. Post-W3 compression occurs only after W3 and is now evaluated as a four-case library-size cross-study: heavy, balanced, light, and no-clustering/no-merging. The governor must be tested across those library-size conditions before any final library-size choice is accepted.
 
 The active inner-loop controller for each primitive is a time-invariant Linear Quadratic Regulator (LQR) controller synthesised from the control-oriented glider model. The earlier dense run based on simple bounded PD-like feedback is retired. It must be archived or deleted before the next dense run, and it must not be retained as a fallback, baseline, or final-method comparison unless a later explicit project decision reverses this.
 
@@ -15,6 +15,38 @@ Viability-Guided Sim-to-Real Transfer for a Small Fixed-Wing Glider in Uncertain
 ```
 
 The title remains suitable because the thesis is still about primitive-level sim-to-real transfer in uncertain indoor updrafts.
+
+
+---
+
+## Current controlling overwrite: repeated-launch lift exploitation repair
+
+The latest project decision supersedes any earlier wording that allowed the v4.10 outer-loop result to pass. The current result is not accepted because the governor did not demonstrate near-100% safe success, did not visibly explore and exploit the lift field, and did not show a useful memory learning curve. The next development cycle must repair the algorithm and simulation design before any hardware-readiness step.
+
+This overwrite controls the method until replaced by a later explicit project decision:
+
+```text
+1. Each primitive-controller variant must use a 0.10 s primitive horizon.
+2. Each 0.10 s primitive must use 5 controller-input slots at a 20 ms controller update period.
+3. The old 2D 4 x 4 lift memory is insufficient as the active method.
+4. The active memory must be 3D and directional-aware while remaining non-arena-specific.
+5. The governor must support safe exploration and exploitation of the lift field.
+6. Exploration may occur only among candidates that pass viability and safety checks.
+7. Current compact-library collapse is unacceptable and must be audited before acceptance.
+8. Library reduction must be studied across four post-W3 cases:
+   I. heavy clustering and merging, aiming for minimum library size;
+   II. balanced clustering and merging, balancing library size and primitive robustness;
+   III. light clustering and merging, retaining a rich library;
+   IV. no-clustering/no-merging, directly using the rich W3-replayed library.
+9. Repeated-launch validation must compare memory histories after 0, 5, 10, 20, 50, and 100 launches.
+10. Within each fixed test case, environment, glider, and latency/actuator instances are sampled at the beginning and then held fixed across all launches and policy comparisons.
+11. Only after the first fixed-case success may environment-only changes be introduced inside a test case.
+12. Glider parameters and latency must not vary inside a repeated-launch test case during the first accepted evaluation.
+13. Old v4.10-style results are diagnostic only and must be archived before the new W0/W1 dense cycle.
+14. The next implementation step is to change the current code, delete or rewrite misaligned parts, archive old results, and rerun W0/W1 dense generation with the 0.10 s horizon setting.
+```
+
+The algorithmic repair must remain simple, auditable, and explainable for a robotics-journal-style thesis. It must not become direct reinforcement learning, nonlinear MPC, or a hidden arena-specific controller. The controller may use local flow-context features, directional 3D residual belief, uncertainty, primitive parameters, and safety limits; it must not branch on named fan layouts.
 
 ---
 
@@ -69,7 +101,7 @@ Controller-level implementation question:
 Can each active primitive be developed as a primitive-controller variant whose
 local time-invariant LQR stabiliser is tuned inside that primitive's own
 entry-set/reference design during W0/W1 dense generation, then filtered through
-W2 and W3 survival sweeps before post-W3 clustering and frozen full-loop
+W2 and W3 survival sweeps before the post-W3 library-size cross-study and frozen full-loop
 validation?
 ```
 
@@ -129,7 +161,7 @@ measured state
     -> viability governor
     -> selected primitive
     -> episode outcome log
-    -> lift-belief update
+    -> directional 3D residual belief update
     -> next launch
 ```
 
@@ -160,10 +192,21 @@ primitive-controller variant
     + claim status
 ```
 
-The primitive should not choose an external LQR controller from a free-standing controller bank. Each primitive develops its own local LQR variants during W0/W1 dense generation. W0/W1 preserve the generated primitive library as a rich evidence set rather than selecting a 12--24 variant shortlist. W2 and W3 replay fixed W0/W1 variants and shrink the library only by survival evidence. Post-W3 clustering and merging then compress the surviving library toward a small set that can be used fast in real flight.
+
+The finite horizon is fixed by the latest project decision:
+
+```text
+finite_horizon_s = 0.100
+controller_input_slots_per_primitive = 5
+controller_input_update_period_s = 0.020
+```
+
+Every active primitive-controller variant must therefore represent a 0.10 s primitive made of 5 controller-input slots at a 20 ms controller update period. Legacy 20 ms and longer primitive-horizon wording is superseded and must not be used as active evidence for the next W0/W1 dense rerun.
+
+The primitive should not choose an external LQR controller from a free-standing controller bank. Each primitive develops its own local LQR variants during W0/W1 dense generation. W0/W1 preserve the generated primitive library as a rich evidence set rather than selecting a 12--24 variant shortlist. W2 and W3 replay fixed W0/W1 variants and shrink the library only by survival evidence. Post-W3 processing is now a four-case library-size cross-study, from heavy clustering to no clustering, so that the impact of reducing the library can be measured rather than assumed.
 
 
-The active local controller is time-invariant LQR. The LQR stabiliser is part of the primitive, not an external controller bank. Each primitive-controller variant must expose a stable `primitive_variant_id`, `primitive_id`, `entry_role`, `controller_id`, nominal reference state, nominal surface command, finite horizon, linearisation metadata, Q/R weights, LQR gain matrix, gain checksum, exit checks, metrics, failure labels, and synthesis/audit status. A primitive whose LQR synthesis fails must be marked `blocked` or `not_supported`; it must not silently fall back to the old PD-like bounded controller. TVLQR is outside the active workflow because the primitives are short and the additional implementation burden is not justified at this stage.
+The active local controller is time-invariant LQR. The LQR stabiliser is part of the primitive, not an external controller bank. Each primitive-controller variant must expose a stable `primitive_variant_id`, `primitive_id`, `entry_role`, `controller_id`, nominal reference state, nominal surface command, 0.10 s finite horizon, 5 controller-input-slot metadata, linearisation metadata, Q/R weights, LQR gain matrix, gain checksum, exit checks, metrics, failure labels, and synthesis/audit status. A primitive whose LQR synthesis fails must be marked `blocked` or `not_supported`; it must not silently fall back to the old PD-like bounded controller. TVLQR is outside the active workflow because the primitives are short and the additional implementation burden is not justified at this stage.
 
 The online controller must not branch on a named fan setup. Fan count, fan position, and fan power are environment parameters used to create the flow field. The controller receives only:
 
@@ -172,7 +215,7 @@ state
 local flow-context features
 primitive parameters
 uncertainty information
-belief map
+directional 3D residual belief features
 safety limits
 ```
 
@@ -321,7 +364,9 @@ primitive_family
 primitive_parameters
 entry_set
 local_lqr_controller
-finite_horizon_s
+finite_horizon_s = 0.100
+controller_input_slots_per_primitive = 5
+controller_input_update_period_s = 0.020
 exit_checks
 safety_metrics
 failure_labels
@@ -335,7 +380,9 @@ parameters
 entry conditions
 LQR reference state and nominal command
 Q/R weight metadata and LQR gain matrix
-finite horizon
+finite horizon fixed at 0.10 s
+5 controller-input slots per primitive at a 20 ms controller update period
+controller_update_period_s = 0.020
 exit checks
 metrics
 failure labels
@@ -393,9 +440,13 @@ W3 dense survival sweep
     Do not regenerate or retune LQR controllers. Remove, downgrade, or label
     variants that fail under randomisation.
 
-Post-W3 clustering and merging
-    Cluster and merge only the W3-surviving library to obtain the final compact
-    robust library for the governor and realistic in-flight computation.
+Post-W3 library-size cross-study
+    Evaluate heavy, balanced, light, and no-clustering/no-merging cases using
+    the same W3-surviving evidence. Heavy clustering aims for minimum library
+    size; balanced clustering trades library size against primitive robustness;
+    light clustering keeps a rich library; no clustering directly uses the rich
+    W3 replay result. Do not mutate controllers, references, entry roles, or
+    horizons in any case.
 ```
 
 If W2 or W3 exposes a failure mode, the current library item is eliminated, downgraded, or labelled in that survival pass. A redesigned controller is a separate future W0/W1 learning cycle and must not mutate an already reported primitive-controller variant in place.
@@ -493,7 +544,7 @@ controlled finish
 
 Termination is an outcome label, not automatic mission failure.
 
-For archive generation before post-W3 clustering, x-y wall or lateral safety-volume exit should be retained as a terminal outcome rather than used as a row-deletion rule. These terminal rows may be weak, failed, or `episode_terminal_useful` boundary evidence, but they are still useful for learning where primitives stop being viable in a repeated-launch task. Floor and ceiling violations remain safety-critical z-boundary failures and must be labelled separately.
+For archive generation before post-W3 library-size processing, x-y wall or lateral safety-volume exit should be retained as a terminal outcome rather than used as a row-deletion rule. These terminal rows may be weak, failed, or `episode_terminal_useful` boundary evidence, but they are still useful for learning where primitives stop being viable in a repeated-launch task. Floor and ceiling violations remain safety-critical z-boundary failures and must be labelled separately.
 
 Implementation must distinguish two non-z-boundary primitive uses:
 
@@ -554,6 +605,78 @@ state_sampling_seed
 Launch-gate rows should obey the physical release gate above. In-flight rows should cover plausible primitive-entry states inside the safety volume without encoding a named sequence of previous actions as a controller branch. This gives the outcome model evidence for both first-launch primitive attempts and mid-flight primitive attempts while preserving the project decision not to make chain construction a success gate.
 
 ---
+### Directional 3D residual lift belief
+
+The active repeated-launch memory is no longer a coarse 2D arena heatmap. It must be a compact directional 3D residual belief that remains portable across environment instances. The map may use position, height, local lift direction, and flow-context bins, but its stored quantities must be tied to local flow and model residuals rather than to a named fan layout.
+
+The belief should store at least:
+
+```text
+mean_lift_residual_m_s
+mean_energy_residual_m
+mean_dwell_residual_s
+observation_count
+uncertainty
+last_update_launch_index
+```
+
+The preferred update target is residual evidence:
+
+```text
+lift_residual_m_s = observed_w_wing_mean_m_s - predicted_w_wing_mean_m_s
+energy_residual_error_m = actual_energy_residual_m - predicted_energy_residual_m
+dwell_residual_error_s = actual_lift_dwell_time_s - predicted_lift_dwell_time_s
+```
+
+This keeps the memory aligned with sim-to-real transfer: the belief learns where the current model and current repeated-launch environment disagree, not merely where the nominal surrogate already predicts lift.
+
+### Safe exploration and exploitation
+
+The governor must no longer behave as pure exploitation of the current highest deterministic score. It must be able to explore and exploit the lift field across repeated launches.
+
+Exploration is allowed only after viability filtering. The selector must never choose an unsafe primitive only to gather information. Among viable candidates, the score may include:
+
+```text
+predicted_task_utility
+risk_penalty
+memory_residual_bonus
+uncertainty_or_exploration_bonus
+```
+
+The exploration bonus must decay as launch history increases. The report must show whether memory or exploration changed the selected primitive ranking. If the memory or exploration terms never change selection, the outer loop has not passed.
+
+### Four-case post-W3 library-size cross-study
+
+Post-W3 compression is no longer a single final compact-library step. It must be evaluated as a cross-study over four cases:
+
+```text
+I. heavy clustering and merging
+   Aim: minimum library size.
+
+II. balanced clustering and merging
+   Aim: balance library size and robustness of each primitive.
+
+III. light clustering and merging
+   Aim: retain a rich but still organised library.
+
+IV. no-clustering/no-merging
+   Aim: use the directly retained rich W3 replay result and maximise library size.
+```
+
+All four cases must use the same W0/W1, W2, and W3 evidence boundaries. Clustering or no-clustering changes only the post-W3 library-size condition; it must not mutate primitive-controller IDs, Q/R, K, entry roles, references, horizons, or survival labels.
+
+### Repeated-launch validation and move-on gates
+
+The next accepted validation must report learning curves at these history lengths:
+
+```text
+0, 5, 10, 20, 50, 100 launches
+```
+
+For each fixed test case, the environment instance, glider plant instance, latency/actuator instance, and launch-seed sequence are sampled once and then held fixed across all policies and launches. The memory-retained policies may use previous launches from the defined random launch-state constraints; the no-memory and static-map policies must face the same current held-out episodes.
+
+A result does not pass unless it shows near-100% safe success in the declared validation envelope, a functional exploration/exploitation trace, non-collapsed primitive diversity, and a positive repeated-launch memory trend. The first accepted evaluation must keep environment, glider, and latency fixed inside each test case. Later evaluation may allow environment-only changes inside a case, but not glider or latency variation inside the same case.
+
 
 ## 8. Primitive outcome evidence
 
@@ -618,9 +741,9 @@ state_sampling_seed
 
 Accepted rows, weak rows, failed rows, and rejected rows are all evidence. Do not erase failures through clustering or averaging.
 
-Do not discard rollout rows before post-W3 clustering only because the simulated primitive reaches an x-y wall limit or lateral safety-volume edge. In the archive, this is a terminal outcome and a source of boundary evidence. Penalising or rejecting such a primitive for real execution belongs to the viability governor or later selector, not to the archive row-generation filter. A z-boundary violation, nonfinite state, or physically invalid rollout must remain a hard failure label.
+Do not discard rollout rows before post-W3 library-size processing only because the simulated primitive reaches an x-y wall limit or lateral safety-volume edge. In the archive, this is a terminal outcome and a source of boundary evidence. Penalising or rejecting such a primitive for real execution belongs to the viability governor or later selector, not to the archive row-generation filter. A z-boundary violation, nonfinite state, or physically invalid rollout must remain a hard failure label.
 
-Boundary-use labels must be assigned before post-W3 clustering:
+Boundary-use labels must be assigned before post-W3 library-size processing:
 
 ```text
 continuation_valid
@@ -744,8 +867,10 @@ Suggested utility:
 ```text
 utility = predicted_energy_residual
         + lift_dwell_weight * predicted_lift_dwell_time
+        + memory_residual_bonus
+        + exploration_bonus_after_viability_filter
         - wall_risk_weight * predicted_wall_risk
-        - uncertainty_weight * local_uncertainty
+        - uncertainty_risk_weight * local_uncertainty
         - saturation_weight * predicted_saturation
 ```
 
@@ -755,23 +880,23 @@ The governor must log both accepted and rejected candidates. Rejection logs are 
 
 ---
 
-## 11. Repeated-launch belief
+## 11. Repeated-launch directional 3D residual belief
 
-The belief layer estimates where useful lift was observed and how stale that information is. A first auditable update is:
-
-```text
-b_{k+1}(r) = lambda b_k(r) + (1 - lambda) w_hat_k(r)
-```
-
-Evaluate:
+The belief layer estimates directional 3D residual lift, energy, and dwell evidence relative to the current local-flow model. A first auditable update for each local residual bin is:
 
 ```text
-lambda in {0.0, 0.5, 0.8, 0.95}
+b_{k+1}(r,d,z) = lambda b_k(r,d,z) + (1 - lambda) residual_hat_k(r,d,z)
 ```
 
-where `lambda = 0` is the no-memory baseline.
+Evaluate memory-retention settings where useful, but report the required repeated-launch history lengths as the main comparison:
 
-The belief proposes objectives or lift-seeking context. The viability governor still decides whether a primitive is allowed.
+```text
+history_length in {0, 5, 10, 20, 50, 100}
+```
+
+The no-memory baseline does not query or update this belief. The static-map baseline may query a prior but does not update from launches. The directional residual-memory policy updates from previous launches within the fixed test case.
+
+The belief proposes lift-seeking context and residual bonuses. The viability governor still decides whether a primitive is allowed.
 
 The repeated-launch objective is:
 
@@ -786,11 +911,29 @@ Evaluation policies:
 no_memory_baseline
 static_map_baseline
 environment_conditioned_selector_without_memory
-environment_conditioned_selector_with_episodic_lift_belief
-oracle_simulation_upper_bound_optional
+environment_conditioned_selector_with_directional_3d_residual_memory
 ```
 
 ---
+## 11A. Required next implementation cycle after rejected v4.10 result
+
+The current v4.10-style full-loop outcome is diagnostic only and does not pass. The next implementation cycle is:
+
+```text
+1. Archive old result roots and record them as diagnostic_not_passed.
+2. Delete or rewrite active code paths that assume long primitive horizons, 2D memory, pure exploitation, or one final compact-library case.
+3. Implement 0.10 s primitive-controller variants with 5 controller-input slots at a 20 ms controller update period.
+4. Rerun W0/W1 dense generation with the 0.10 s horizon setting.
+5. Replay fixed variants through W2 and W3 without retuning.
+6. Run the four-case post-W3 library-size cross-study.
+7. Run repeated-launch learning-curve validation at 0, 5, 10, 20, 50, and 100 history launches.
+8. Move to hardware-readiness work only if the validation gates pass.
+```
+
+No code or report should describe the archived v4.10 result as a successful outer-loop validation.
+
+---
+
 
 ## 12. Fidelity ladder, learning sequence, and late validation
 
@@ -800,8 +943,8 @@ W0--W3 are fidelity layers for primitive-library learning and later full-loop si
 W0/W1 dense generation      rich primitive-controller library with per-variant LQR tuning
 W2 dense survival sweep     fixed-LQR replay under hardware-aware annular-GP conditions
 W3 dense survival sweep     fixed-LQR replay under domain randomisation
-post-W3 clustering/merging  final compact robust library for the governor
-late validation             frozen library + governor + selector + memory across W0--W3 and real flight
+post-W3 library-size cross-study  heavy, balanced, light, and no-clustering/no-merging library conditions for the governor
+late validation             frozen library-size condition + governor + selector + directional residual memory across W0--W3 and real flight
 ```
 
 Updraft surrogate use across the validation ladder:
@@ -824,7 +967,7 @@ W2     replay the fixed W0/W1 library under hardware-aware annular-GP conditions
        eliminate, downgrade, or label variants; no LQR retuning or regeneration
 W3     replay W2 survivors under domain randomisation of updraft, fan layout,
        glider plant, latency, command timing, and actuator delay; no LQR retuning
-post-W3 cluster/merge  compress only the W3-surviving library into the final compact set
+post-W3 library-size cross-study  evaluate heavy, balanced, light, and no-clustering/no-merging cases using the same W3-surviving evidence
 real flight  use only frozen primitive-controller variants whose claim status permits hardware shakedown or real-flight evidence collection
 ```
 
@@ -944,7 +1087,7 @@ actuator_randomisation_seed
 
 If a randomisation component cannot be represented honestly by the available surrogate or dynamics model, the row or component must be labelled as approximate or blocked rather than silently treated as exact.
 
-W3 uses the randomised GP-corrected annular-Gaussian surrogate and is the main simulation test that the method is not tied to one fan layout. W3 must not regenerate, retune, or mutate LQR weights, references, gains, horizons, or entry sets in place. W3 output should be a pass/fail/weak label under uncertainty, not just a trajectory plot. W3 stresses W2 survivors under randomised updraft parameters, fan positions, fan number, glider mass, CG, inertia tensor, aerodynamic efficiency, latency jitter, command timing, and actuator delay. The W3 survivors are then passed to post-W3 clustering and merging.
+W3 uses the randomised GP-corrected annular-Gaussian surrogate and is the main simulation test that the method is not tied to one fan layout. W3 must not regenerate, retune, or mutate LQR weights, references, gains, horizons, or entry sets in place. W3 output should be a pass/fail/weak label under uncertainty, not just a trajectory plot. W3 stresses W2 survivors under randomised updraft parameters, fan positions, fan number, glider mass, CG, inertia tensor, aerodynamic efficiency, latency jitter, command timing, and actuator delay. The W3 survivors are then passed to the post-W3 library-size cross-study with heavy, balanced, light, and no-clustering/no-merging cases.
 
 ### 12.5 Real flight
 
@@ -964,9 +1107,9 @@ Use small, meaningful runs first. Dense runs are allowed only after the foundati
 | W0/W1 dense primitive-library generation | 8 primitives x 32--128 variants x 100--300 paired tests | 8 primitives x 16 variants x 50 tests | tune a primitive-local LQR for every generated variant and preserve the rich library for W2 |
 | W2 annular-GP survival sweep | 20k--60k rows | 10k | replay the fixed W0/W1 library in single-fan and four-fan annular-GP with panel-wise wind and timing realism; eliminate/downgrade failures without retuning |
 | W3 domain-randomised survival sweep | 30k--100k rows | 15k | replay W2 survivors under updraft, fan-layout, plant, latency, command-timing, and actuator-delay randomisation; eliminate/downgrade failures without retuning |
-| post-W3 clustering and merging | all W3 survivors plus labelled weak/failure evidence | compact representative subset | merge similar surviving primitives into the final small robust library for online computation |
-| full-loop simulation validation | 100--300 episodes per policy | 50 | compare frozen governor/selector/memory policies across W0--W3 using the compact post-W3 library |
-| hardware shortlist | 5--10 candidates | 3 | choose real-flight LQR primitive candidates from the post-W3 compact library |
+| post-W3 library-size cross-study | all W3 survivors plus labelled weak/failure evidence | heavy / balanced / light / no-clustering cases | measure how reducing the library changes safety success, primitive diversity, lift capture, dwell, no-viable rate, and memory/exploration selection changes |
+| repeated-launch full-loop validation | histories at 0, 5, 10, 20, 50, and 100 launches | fixed-case first | compare no-memory, static-map, and directional-memory policies under fixed environment, glider, and latency within each case |
+| hardware shortlist | blocked until validation passes | N/A | choose candidates only after near-100% simulation safety success, non-collapsed diversity, and repeated-launch learning evidence |
 
 For W0/W1 dense primitive-library generation, W2 survival, and W3 survival, the default primitive-start mixture should combine launch-gate and in-flight primitive-entry states in a single table. LQR tuning is completed inside W0/W1 for each primitive-controller variant. W2 and W3 evaluate declared `controller_id` values rather than continuing the controller search. The required mixture is 40% launch-gate states and 60% in-flight states, with in-flight rows divided into nominal, lift-region, boundary-near, and recovery-edge cases. This is not a return to primitive-chain construction; it is a way to train each primitive on realistic launch and mid-flight entry states while keeping each row as one independent primitive attempt.
 
@@ -983,8 +1126,7 @@ no_memory_baseline
 static_measured_map_baseline
 state_only_primitive_selector
 state_plus_flow_context_selector
-episodic_memory_selector
-oracle_simulation_upper_bound_optional
+directional_3d_residual_memory_selector
 ```
 
 Minimum ablations:
@@ -992,7 +1134,7 @@ Minimum ablations:
 ```text
 without wing-scale wind features
 without uncertainty penalty
-without episodic memory
+without directional 3D residual memory
 without viability governor, simulation only
 without environment randomisation
 without LQR weight tuning, using nominal LQR weights only
@@ -1025,7 +1167,7 @@ Minimum useful real evidence:
 dry-air or fan-off baseline
 measured-updraft static-map baseline
 measured-updraft environment-conditioned primitive selection
-episodic-memory repeated launches
+directional-memory repeated launches
 changed fan power or fan subset if safe
 matched sim-real replay for every usable flight
 ```
@@ -1049,7 +1191,7 @@ Minimum real-flight comparison:
 dry-air / fan-off baseline
 static-map updraft baseline
 environment-conditioned selector without memory
-environment-conditioned selector with episodic belief
+environment-conditioned selector with directional 3D residual belief
 matched sim-real replay
 ```
 
@@ -1071,9 +1213,9 @@ matched simulation result
 
 ---
 
-## 16. Archive compression and clustering
+## 16. Post-W3 library-size cross-study and archive compression
 
-Clustering and merging occur only after W3 survival replay. They are for compression, explanation, representative examples, hardware shortlist, and figures. Clustering is not the online controller and must not be used after W0/W1 to preselect a small library before W2/W3. In the active workflow, clustering compresses W3-surviving LQR controller/outcome evidence and must not mix retired PD-like evidence into active clusters.
+Post-W3 library-size processing occurs only after W3 survival replay. The active workflow must evaluate four cases: heavy clustering and merging, balanced clustering and merging, light clustering and merging, and no clustering or merging. These cases are for measuring the effect of reducing the W3-surviving library; they are not online controller branches and must not be used after W0/W1 to preselect a small library before W2/W3. The process must not mix retired PD-like evidence into active cases.
 
 Cluster within physically meaningful strata:
 
@@ -1102,19 +1244,23 @@ Use medoids or representative real rows where possible. A medoid remains replaya
 Outputs:
 
 ```text
+heavy_cluster summary
+balanced_cluster summary
+light_cluster summary
+no_cluster summary
 representative accepted cases
 representative weak cases
 representative failures
-hardware-candidate shortlist
+library-size case summary
 failure-label summary
 figure-source manifest
 ```
 
 Do not hide failures through clustering. Failed and rejected cases are part of the result because they define the boundary of transfer.
 
-Episode-terminal-useful x-y boundary rows, including x-y wall-limit or lateral safety-volume exits, should form explicit clusters or failure summaries rather than being removed before clustering. They are not automatically hardware candidates, but they are essential for learning the context boundary where the governor should become conservative. Post-W3 clustering must not select only clean accepted rows; representative weak, episode-terminal-useful, and informative failed rows are needed so the outcome model and governor learn the operating boundary rather than only the easy region.
+Episode-terminal-useful x-y boundary rows, including x-y wall-limit or lateral safety-volume exits, should form explicit clusters or failure summaries rather than being removed before clustering. They are not automatically hardware candidates, but they are essential for learning the context boundary where the governor should become conservative. Post-W3 library-size cases must not select only clean accepted rows; representative weak, episode-terminal-useful, and informative failed rows are needed so the outcome model and governor learn the operating boundary rather than only the easy region.
 
-Cluster reports should keep `continuation_valid` and `episode_terminal_useful` cases visibly separate. Terminal-useful clusters may support repeated-launch lift-capture decisions, but they must not be promoted to downstream-continuation evidence.
+Library-size reports should keep `continuation_valid` and `episode_terminal_useful` cases visibly separate. Terminal-useful clusters may support repeated-launch lift-capture decisions, but they must not be promoted to downstream-continuation evidence.
 
 ---
 
@@ -1227,7 +1373,7 @@ w1    variable Gaussian plume fidelity layer
 w2    GP-corrected annular-Gaussian survival layer
 w3    randomised GP-corrected annular-Gaussian survival layer
 w01   combined W0/W1 rich primitive-library generation
-post_w3  post-W3 clustering and merging
+post_w3  post-W3 library-size cross-study and optional compression
 nom   nominal
 rand  randomised
 sum   summary
@@ -1360,8 +1506,8 @@ environment context
 LQR primitive synthesis
 primitive outcome evidence
 viability-governed primitive selection
-episodic lift belief
-W0/W1 generation, W2/W3 survival filtering, post-W3 clustering, and full-loop validation
+directional 3D residual episodic lift belief
+W0/W1 generation with 0.10 s primitives, W2/W3 survival filtering, post-W3 library-size cross-study, and repeated-launch validation
 sim-real replay pairing
 ```
 
@@ -1373,10 +1519,10 @@ The results chapter should be structured around:
 model audit
 W0/W1 rich LQR primitive-library evidence
 W2 and W3 survival filtering evidence
-post-W3 clustering and merging evidence
+post-W3 library-size cross-study evidence
 outcome-model / lookup performance
-full-loop simulation validation
-environment generalisation
+repeated-launch learning-curve validation
+fixed-case and environment-only changed-case validation
 repeated-launch simulation
 real-flight comparison
 claim boundaries

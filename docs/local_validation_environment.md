@@ -1,6 +1,11 @@
 # Local Validation Environment
 
-Date: 2026-05-24
+Date: 2026-05-25
+
+Status: active environment note. The workflow details are controlled by
+`docs/Glider_Control_Project_Plan.md`, `docs/Daily_Schedule.txt`,
+`docs/Skills.md`, `docs/Python Coding Instruction.txt`,
+`docs/MATLAB Coding.txt`, and `docs/housekeeping_and_naming_rules.md`.
 
 This repository uses one project-owned virtual environment for active Python
 work:
@@ -10,9 +15,8 @@ work:
 ```
 
 Do not use the old `Paul_Li_FYP` Conda environment for active validation or new
-development work. `Paul_Li_FYP` is not the active validation environment.
-Historical audit notes may mention it as a past fallback, but it is not the
-active project environment.
+development work. Historical audit notes may mention it as a past fallback, but
+it is not the active project environment.
 
 The current `.venv` was created from the Miniforge base interpreter:
 
@@ -26,24 +30,36 @@ Active control validation dependencies are installed from:
 .\.venv\Scripts\python.exe -m pip install -r requirements-control-dev.txt
 ```
 
-Whole-repository development should still use the same `.venv`. If design-side code is being run, install the aggregate development dependencies into the same environment:
+Whole-repository development should still use the same `.venv`. If design-side
+code is being run, install the aggregate development dependencies into the same
+environment:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 ```
 
-Do not create or switch to a second named environment for `02_Glider_Design` or `03_Control`. The dependency files define which packages are needed; the active interpreter stays the same.
+Do not create or switch to a second named environment for `02_Glider_Design` or
+`03_Control`. The dependency files define which packages are needed; the active
+interpreter stays the same.
 
-Required active validation commands:
+Required active validation baseline:
 
 ```powershell
-.\.venv\Scripts\python.exe -m compileall 03_Control
+.\.venv\Scripts\python.exe -m py_compile 03_Control/02_Inner_Loop/*.py 03_Control/03_Primitives/*.py 03_Control/04_Scenarios/*.py
 .\.venv\Scripts\python.exe -m pytest -q 03_Control/tests --basetemp .codex_run_logs\pytest_tmp -o cache_dir=.codex_run_logs\pytest_cache
-.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_active_contract_audit.py
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_w01_w2_w3_contract_audit.py
 git diff --check
 ```
 
-Use the repo-local pytest temp/cache paths above so validation does not depend on the Windows user temp directory. Local `.venv` and `.codex_run_logs` contents are ignored and must not be committed.
+`run_active_contract_audit.py` is retained only as a compatibility wrapper for
+`run_w01_w2_w3_contract_audit.py`; new instructions should name the W01/W2/W3
+audit directly.
+
+Use the repo-local pytest temp/cache paths above so validation does not depend
+on the Windows user temp directory. Local `.venv` and `.codex_run_logs`
+contents are ignored and must not be committed. Generated evidence roots must
+also follow the 100 MB file-size rule, path-length audit, and local-only result
+handling in `docs/housekeeping_and_naming_rules.md`.
 
 `aerosandbox` is not part of active `03_Control` validation. It remains isolated
 in `requirements-design.txt` for glider-design-side work and is installed only
