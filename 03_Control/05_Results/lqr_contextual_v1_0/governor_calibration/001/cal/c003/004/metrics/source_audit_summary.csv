@@ -1,0 +1,8 @@
+stage,root,status,row_count,variant_count,ready_count,representative_count,file_size_audit_status,largest_source_file_size_mb,source_file_above_100mb_count,blockers,survivor_count,source_role,terminal_rate_values,hard_failure_rate_values,no_viable_count_values
+W01,03_Control/05_Results/lqr_contextual_v1_0/w01_dense/015,pass,76800,256,256,0,below_100mb,4.514593124389648,0,[],,,,,
+W2,03_Control/05_Results/lqr_contextual_v1_0/w2_survival/015,pass,51200,256,256,0,below_100mb,4.514593124389648,0,[],256.0,,,,
+W3,03_Control/05_Results/lqr_contextual_v1_0/w3_survival/013,pass,51200,256,256,0,below_100mb,1.5586605072021484,0,[],189.0,,,,
+post_W3,03_Control/05_Results/lqr_contextual_v1_0/post_w3_cluster/001,pass,0,0,0,29,below_100mb,0.0809965133666992,0,[],189.0,,,,
+outcome_model_002,03_Control/05_Results/lqr_contextual_v1_0/outcome_model/002,pass,29,29,29,29,below_100mb,0.0129718780517578,0,[],0.0,frozen_advisory_outcome_model,,,
+governor_smoke_001,03_Control/05_Results/lqr_contextual_v1_0/governor_smoke/001,pass,232,0,8,0,below_100mb,0.0856647491455078,0,[],,infrastructure_smoke_for_governor_interface,,,
+full_loop_005,03_Control/05_Results/lqr_contextual_v1_0/full_loop_validation/005,pass,1200,0,0,29,below_100mb,29.84873390197754,0,[],,frozen_v49_paired_full_loop_evidence_for_calibration_diagnosis,0.16,0.565,55

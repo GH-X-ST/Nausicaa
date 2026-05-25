@@ -1,0 +1,8 @@
+stage,status,row_count,survivor_count,representative_count
+W01,pass,76800,,0
+W2,pass,51200,256.0,0
+W3,pass,51200,189.0,0
+post_W3,pass,0,189.0,29
+outcome_model_002,pass,29,0.0,29
+governor_smoke_001,pass,232,,0
+full_loop_005,pass,1200,,29

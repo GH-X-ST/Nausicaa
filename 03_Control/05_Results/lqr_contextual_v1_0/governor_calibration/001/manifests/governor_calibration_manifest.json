@@ -1,0 +1,60 @@
+{
+  "manifest_version": "v410_outer_loop_governor_calibration_v1",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v4.10",
+  "status": "complete",
+  "run_id": 1,
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/governor_calibration/001",
+  "ranking_config_count": 50,
+  "top_config_count": 5,
+  "calibration_episodes_per_policy": 100,
+  "context_sample_count": 360,
+  "source_full_loop_root": "03_Control/05_Results/lqr_contextual_v1_0/full_loop_validation/005",
+  "top_governor_config_ids": [
+    "v410_cfg_000_b0.05_h0.75_tb0",
+    "v410_cfg_001_b0.05_h0.75_tb0.05",
+    "v410_cfg_002_b0.05_h0.72_tb0",
+    "v410_cfg_003_b0.05_h0.72_tb0.05",
+    "v410_cfg_004_b0.05_h0.7_tb0"
+  ],
+  "selected_governor_config_id": "v410_cfg_001_b0.05_h0.75_tb0.05",
+  "calibration_run_count": 5,
+  "controller_mutation_allowed": false,
+  "retuning_allowed": false,
+  "claim_status": "simulation_only_outer_loop_governor_calibration",
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "memory_improves_performance_without_full_loop_evidence",
+    "formal_LQR_tree_funnel_region_of_attraction",
+    "post_hoc_controller_retuning",
+    "full_autonomy",
+    "sim_real_transfer",
+    "memory_improves_performance_without_paired_v49_evidence",
+    "W01_W2_W3_rerun_superiority",
+    "memory_improvement_without_paired_heldout_evidence"
+  ],
+  "calibration_subrun_layout": "cal/cNNN/<run_id>",
+  "calibration_subrun_map": [
+    {
+      "governor_config_id": "v410_cfg_000_b0.05_h0.75_tb0",
+      "calibration_subrun_dir": "c000"
+    },
+    {
+      "governor_config_id": "v410_cfg_001_b0.05_h0.75_tb0.05",
+      "calibration_subrun_dir": "c001"
+    },
+    {
+      "governor_config_id": "v410_cfg_002_b0.05_h0.72_tb0",
+      "calibration_subrun_dir": "c002"
+    },
+    {
+      "governor_config_id": "v410_cfg_003_b0.05_h0.72_tb0.05",
+      "calibration_subrun_dir": "c003"
+    },
+    {
+      "governor_config_id": "v410_cfg_004_b0.05_h0.7_tb0",
+      "calibration_subrun_dir": "c004"
+    }
+  ]
+}

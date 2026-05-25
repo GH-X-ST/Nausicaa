@@ -1,0 +1,7 @@
+policy_id,memory_lambda,episode_count,terminal_useful_rate,continuation_valid_rate,hard_failure_rate,mean_primitive_count,mean_episode_duration_s,no_viable_primitive_count,max_belief_update_count
+context_only_without_memory,0.0,100,0.13,0.0,0.61,0.92,0.561,26,0
+context_plus_memory_lambda_0_5,0.5,100,0.13,0.0,0.61,0.92,0.561,26,100
+context_plus_memory_lambda_0_8,0.8,100,0.13,0.0,0.61,0.92,0.561,26,100
+context_plus_memory_lambda_0_95,0.95,100,0.13,0.0,0.61,0.92,0.561,26,100
+no_memory_baseline,0.0,100,0.13,0.0,0.61,0.92,0.561,26,0
+static_map_baseline,0.8,100,0.13,0.0,0.61,0.92,0.561,26,0

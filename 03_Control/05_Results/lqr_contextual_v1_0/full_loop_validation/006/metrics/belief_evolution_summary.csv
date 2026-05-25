@@ -1,0 +1,7 @@
+policy_id,snapshot_count,min_belief_update_count,max_belief_update_count,final_belief_update_count,uses_memory_features,updates_belief,static_map_status,belief_persistence_status
+context_only_without_memory,300,0,0,0,False,False,not_applicable,memory_not_queried_or_updated
+context_plus_memory_lambda_0_5,300,1,300,300,True,True,not_applicable,persistent_updates_observed
+context_plus_memory_lambda_0_8,300,1,300,300,True,True,not_applicable,persistent_updates_observed
+context_plus_memory_lambda_0_95,300,1,300,300,True,True,not_applicable,persistent_updates_observed
+no_memory_baseline,300,0,0,0,False,False,not_applicable,memory_not_queried_or_updated
+static_map_baseline,300,0,0,0,True,False,ready,static_or_read_only_belief_no_episode_update

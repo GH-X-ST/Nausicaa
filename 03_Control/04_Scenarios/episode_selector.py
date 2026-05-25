@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from viability_governor import GOVERNOR_MODES, governor_candidate_row
+from viability_governor import DEFAULT_GOVERNOR_CONFIG, GOVERNOR_MODES, GovernorConfig, governor_candidate_row
 
 
 def select_compact_representative(
@@ -11,11 +11,13 @@ def select_compact_representative(
     governor_mode: str,
     policy_id: str = "",
     belief_features: dict[str, float] | None = None,
+    governor_config: GovernorConfig | None = None,
 ) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
     """Return the highest-scoring viable compact representative and all candidate rows."""
 
     if governor_mode not in GOVERNOR_MODES:
         raise ValueError("governor_mode must be continuation_mode or terminal_episode_mode.")
+    cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     candidate_rows = []
     for representative in representatives:
         outcome = outcome_rows_by_variant_id.get(str(representative.get("primitive_variant_id", "")), {})
@@ -27,8 +29,10 @@ def select_compact_representative(
                 governor_mode=governor_mode,
                 policy_id=policy_id,
                 belief_features=belief_features,
+                governor_config=cfg,
             )
         )
+    _add_rank_diagnostics(candidate_rows)
     viable = [row for row in candidate_rows if bool(row.get("viable", False))]
     if not viable:
         return None, candidate_rows
@@ -40,6 +44,13 @@ def select_compact_representative(
             str(row.get("primitive_variant_id", "")),
         ),
     )[0]
+    selected_score = float(selected.get("score", float("-inf")))
+    for row in candidate_rows:
+        row["score_margin_to_selected"] = (
+            selected_score - float(row.get("score", float("-inf")))
+            if bool(row.get("viable", False))
+            else float("inf")
+        )
     return selected, candidate_rows
 
 
@@ -53,9 +64,11 @@ def selector_decision_row(
     selected: dict[str, object] | None,
     candidate_count: int,
     viable_count: int,
+    governor_config: GovernorConfig | None = None,
 ) -> dict[str, object]:
     """Return a compact selector audit row."""
 
+    cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     return {
         "episode_id": str(episode_id),
         "primitive_step_index": int(primitive_step_index),
@@ -65,6 +78,9 @@ def selector_decision_row(
         "environment_mode": str(context.get("environment_mode", "")),
         "start_state_family": str(context.get("start_state_family", "")),
         "governor_mode": str(governor_mode),
+        "governor_config_id": cfg.config_id,
+        "governor_belief_weight": float(cfg.belief_weight),
+        "governor_maximum_hard_failure_risk": float(cfg.maximum_hard_failure_risk),
         "candidate_count": int(candidate_count),
         "viable_count": int(viable_count),
         "decision_status": "selected_compact_representative" if selected else "blocked_no_viable_representative",
@@ -75,3 +91,30 @@ def selector_decision_row(
         "selected_score": float("-inf") if selected is None else float(selected.get("score", float("-inf"))),
         "claim_status": "simulation_only_selector_decision",
     }
+
+
+def _add_rank_diagnostics(rows: list[dict[str, object]]) -> None:
+    viable = [row for row in rows if bool(row.get("viable", False))]
+    with_memory = sorted(
+        viable,
+        key=lambda row: (
+            -float(row.get("score_with_memory", float("-inf"))),
+            str(row.get("primitive_id", "")),
+            str(row.get("primitive_variant_id", "")),
+        ),
+    )
+    without_memory = sorted(
+        viable,
+        key=lambda row: (
+            -float(row.get("base_score_without_memory", float("-inf"))),
+            str(row.get("primitive_id", "")),
+            str(row.get("primitive_variant_id", "")),
+        ),
+    )
+    rank_with = {str(row.get("primitive_variant_id", "")): rank for rank, row in enumerate(with_memory, start=1)}
+    rank_without = {str(row.get("primitive_variant_id", "")): rank for rank, row in enumerate(without_memory, start=1)}
+    for row in rows:
+        variant_id = str(row.get("primitive_variant_id", ""))
+        row["rank_with_memory"] = int(rank_with.get(variant_id, 0))
+        row["rank_without_memory"] = int(rank_without.get(variant_id, 0))
+        row["rank_change_due_to_memory"] = int(rank_without.get(variant_id, 0) - rank_with.get(variant_id, 0))

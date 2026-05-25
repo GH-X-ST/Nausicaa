@@ -11,6 +11,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd
+from pandas.errors import EmptyDataError
 
 
 def _bootstrap_import_paths() -> None:
@@ -357,7 +358,10 @@ def _read_csv(path: Path) -> pd.DataFrame:
     fs_path = filesystem_path(path)
     if not fs_path.is_file():
         return pd.DataFrame()
-    return pd.read_csv(fs_path)
+    try:
+        return pd.read_csv(fs_path)
+    except EmptyDataError:
+        return pd.DataFrame()
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:

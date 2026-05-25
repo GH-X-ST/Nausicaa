@@ -41,6 +41,7 @@ from implementation_instance import implementation_instance_for_layer  # noqa: E
 from plant_instance import plant_instance_for_layer  # noqa: E402
 from prim_cat import primitive_by_id  # noqa: E402
 from prim_roll import RolloutConfig, rollout_evidence_row, simulate_primitive_rollout  # noqa: E402
+from viability_governor import DEFAULT_GOVERNOR_CONFIG, GovernorConfig, governor_config_from_row, governor_config_to_row  # noqa: E402
 from run_outcome_model_build import (  # noqa: E402
     DEFAULT_COMPACT_LIBRARY,
     DEFAULT_OUTPUT_ROOT as DEFAULT_OUTCOME_MODEL_ROOT,
@@ -57,6 +58,11 @@ from run_v49_source_audit import (  # noqa: E402
     DEFAULT_W3_ROOT,
     V49SourceAuditConfig,
     run_v49_source_audit,
+)
+from run_v410_source_audit import (  # noqa: E402
+    DEFAULT_FULL_LOOP_ROOT as DEFAULT_SOURCE_FULL_LOOP_ROOT,
+    V410SourceAuditConfig,
+    run_v410_source_audit,
 )
 from state_contract import STATE_INDEX, STATE_SIZE, as_state_vector  # noqa: E402
 from state_sampling import archive_state_sample_for_family  # noqa: E402
@@ -161,9 +167,12 @@ class FullLoopValidationConfig:
     post_w3_root: Path = DEFAULT_POST_W3_ROOT
     outcome_root: Path = DEFAULT_SOURCE_OUTCOME_ROOT
     governor_smoke_root: Path = DEFAULT_GOVERNOR_SMOKE_ROOT
+    source_full_loop_root: Path = DEFAULT_SOURCE_FULL_LOOP_ROOT
     compact_library_path: Path = DEFAULT_COMPACT_LIBRARY
     outcome_model_root: Path = DEFAULT_OUTCOME_MODEL_ROOT
     outcome_model_run_id: int = 2
+    governor_config: GovernorConfig = DEFAULT_GOVERNOR_CONFIG
+    governor_config_path: Path | None = None
 
 
 def run_full_loop_validation(config: FullLoopValidationConfig) -> dict[str, object]:
@@ -173,15 +182,31 @@ def run_full_loop_validation(config: FullLoopValidationConfig) -> dict[str, obje
     for subdir in ("manifests", "metrics", "reports"):
         filesystem_path(run_root / subdir).mkdir(parents=True, exist_ok=True)
 
-    source_result = run_v49_source_audit(
-        V49SourceAuditConfig(
-            output_root=run_root,
-            w01_root=config.source_w01_root,
-            w2_root=config.source_w2_root,
-            w3_root=config.source_w3_root,
-            post_w3_root=config.post_w3_root,
-            outcome_root=config.outcome_root,
-            governor_smoke_root=config.governor_smoke_root,
+    governor_config = _resolve_governor_config(config)
+    source_result = (
+        run_v410_source_audit(
+            V410SourceAuditConfig(
+                output_root=run_root,
+                w01_root=config.source_w01_root,
+                w2_root=config.source_w2_root,
+                w3_root=config.source_w3_root,
+                post_w3_root=config.post_w3_root,
+                outcome_root=config.outcome_root,
+                governor_smoke_root=config.governor_smoke_root,
+                full_loop_root=config.source_full_loop_root,
+            )
+        )
+        if str(config.source_audit_version).lower() == "v410"
+        else run_v49_source_audit(
+            V49SourceAuditConfig(
+                output_root=run_root,
+                w01_root=config.source_w01_root,
+                w2_root=config.source_w2_root,
+                w3_root=config.source_w3_root,
+                post_w3_root=config.post_w3_root,
+                outcome_root=config.outcome_root,
+                governor_smoke_root=config.governor_smoke_root,
+            )
         )
     )
     if source_result["status"] != "source_audit_pass":
@@ -227,7 +252,7 @@ def run_full_loop_validation(config: FullLoopValidationConfig) -> dict[str, obje
     _write_policy_set(run_root, policy_rows)
     _write_schedule_outputs(run_root, paired_schedule, episode_schedule)
     if config.dry_run_schedule:
-        _write_run_manifests(run_root, config, "dry_run_schedule", library, len(episode_schedule), 0, [], static_prior_result)
+        _write_run_manifests(run_root, config, "dry_run_schedule", library, len(episode_schedule), 0, [], static_prior_result, governor_config)
         _write_file_size_audit(run_root)
         _write_reports(run_root=run_root, status="dry_run_schedule", episode_rows=[], primitive_rows=[], paired_comparison=pd.DataFrame())
         return {"status": "dry_run_schedule", "run_root": run_root.as_posix(), "episode_count": int(len(episode_schedule))}
@@ -249,6 +274,7 @@ def run_full_loop_validation(config: FullLoopValidationConfig) -> dict[str, obje
             outcomes_by_variant=outcomes_by_variant,
             records_by_variant=records_by_variant,
             belief=belief_state[key],
+            governor_config=governor_config,
         )
         belief_state[key] = episode_result["belief_after"]
         episode_rows.append(episode_result["episode_row"])
@@ -260,6 +286,8 @@ def run_full_loop_validation(config: FullLoopValidationConfig) -> dict[str, obje
 
     prediction_summary = _prediction_alignment_summary(prediction_rows)
     paired_comparison = _paired_policy_comparison(episode_rows, governor_rows, prediction_rows, static_prior_result["status"])
+    if str(config.source_audit_version).lower() == "v410" and not paired_comparison.empty:
+        paired_comparison["memory_effect_label"] = paired_comparison["memory_effect_label"].astype(str).map(_v410_memory_label).fillna(paired_comparison["memory_effect_label"])
     _write_csv(run_root / "metrics" / "episode_summary.csv", pd.DataFrame(episode_rows))
     _write_csv(run_root / "metrics" / "primitive_execution_log.csv", pd.DataFrame(primitive_rows))
     _write_csv(run_root / "metrics" / "governor_rejection_log.csv", pd.DataFrame(governor_rows))
@@ -272,7 +300,7 @@ def run_full_loop_validation(config: FullLoopValidationConfig) -> dict[str, obje
     _write_csv(run_root / "metrics" / "termination_summary.csv", _termination_summary(episode_rows))
     _write_csv(run_root / "metrics" / "paired_policy_comparison.csv", paired_comparison)
     _write_csv(run_root / "metrics" / "policy_summary.csv", _policy_summary(episode_rows, governor_rows, prediction_rows))
-    _write_run_manifests(run_root, config, "complete", library, len(episode_rows), len(primitive_rows), [], static_prior_result)
+    _write_run_manifests(run_root, config, "complete", library, len(episode_rows), len(primitive_rows), [], static_prior_result, governor_config)
     _write_file_size_audit(run_root)
     _write_reports(run_root=run_root, status="complete", episode_rows=episode_rows, primitive_rows=primitive_rows, paired_comparison=paired_comparison)
     return {
@@ -292,6 +320,7 @@ def _run_episode(
     outcomes_by_variant: dict[str, dict[str, object]],
     records_by_variant: dict[str, object],
     belief: LiftBeliefGrid,
+    governor_config: GovernorConfig,
 ) -> dict[str, object]:
     policy = dict(scheduled["policy"])
     episode_id = str(scheduled["episode_id"])
@@ -360,6 +389,7 @@ def _run_episode(
             governor_mode=governor_mode,
             policy_id=str(policy["policy_id"]),
             belief_features=belief_features,
+            governor_config=governor_config,
         )
         if selected is None and governor_mode == "continuation_mode":
             selected, terminal_candidate_rows = select_compact_representative(
@@ -369,6 +399,7 @@ def _run_episode(
                 governor_mode="terminal_episode_mode",
                 policy_id=str(policy["policy_id"]),
                 belief_features=belief_features,
+                governor_config=governor_config,
             )
             candidate_rows.extend(terminal_candidate_rows)
             governor_mode = "terminal_episode_mode" if selected is not None else governor_mode
@@ -395,6 +426,7 @@ def _run_episode(
                     selected=selected,
                     candidate_count=len(candidate_rows),
                     viable_count=viable_count,
+                    governor_config=governor_config,
                 ),
                 "paired_episode_index": int(scheduled["paired_episode_index"]),
                 "replicate_id": int(scheduled["replicate_id"]),
@@ -543,6 +575,7 @@ def _run_episode(
         belief_before=belief,
         belief_after=belief_after,
         observed_lift=observed_lift,
+        governor_config=governor_config,
     )
     return {
         "episode_row": episode_row,
@@ -570,6 +603,7 @@ def _episode_row(
     belief_before: LiftBeliefGrid,
     belief_after: LiftBeliefGrid,
     observed_lift: float,
+    governor_config: GovernorConfig,
 ) -> dict[str, object]:
     if primitive_rows:
         last = primitive_rows[-1]
@@ -609,6 +643,7 @@ def _episode_row(
         "launch_state_seed": int(scheduled["launch_state_seed"]),
         "environment_seed": int(scheduled["environment_seed"]),
         "policy_id": str(policy["policy_id"]),
+        "governor_config_id": governor_config.config_id,
         "memory_lambda": float(policy["lambda_value"]),
         "uses_memory_features": bool(policy["uses_memory_features"]),
         "updates_belief": bool(policy["updates_belief"]),
@@ -695,7 +730,10 @@ def _paired_episode_schedule(config: FullLoopValidationConfig) -> list[dict[str,
                     "environment_mode": mode,
                     "launch_state_seed": int(launch_seed),
                     "environment_seed": int(environment_seed),
-                    "common_random_key": f"v49_pair_r{replicate_id:02d}_e{paired_index:05d}",
+                    "common_random_key": (
+                        f"{config.source_audit_version}_run{int(config.run_id):03d}_"
+                        f"seed{int(config.seed):05d}_r{replicate_id:02d}_e{paired_index:05d}"
+                    ),
                     "paired_schedule_version": config.paired_schedule_version,
                     "claim_status": "simulation_only_common_random_paired_episode",
                 }
@@ -1109,6 +1147,7 @@ def _paired_policy_comparison(
                 "W_layer": item["W_layer"],
                 "environment_mode": item["environment_mode"],
                 "common_random_key": item["common_random_key"],
+                "governor_config_id": str(item.get("governor_config_id_treatment", item.get("governor_config_id", ""))),
             }
             for metric in metric_columns:
                 treatment_value = _numeric(item[f"{metric}_treatment"])
@@ -1176,9 +1215,15 @@ def _overall_memory_effect_label(paired_comparison: pd.DataFrame) -> str:
     labels = set(paired_comparison["memory_effect_label"].astype(str))
     if labels == {"memory_benefit_supported"}:
         return "memory_benefit_supported"
-    if "memory_benefit_supported" in labels or "mixed_memory_effect" in labels:
-        return "mixed_memory_effect"
+    if "memory_benefit_supported" in labels or "mixed_memory_effect" in labels or "memory_benefit_mixed" in labels:
+        return "memory_benefit_mixed" if "memory_benefit_mixed" in labels else "mixed_memory_effect"
     return "memory_benefit_not_supported"
+
+
+def _v410_memory_label(label: str) -> str:
+    if str(label) == "mixed_memory_effect":
+        return "memory_benefit_mixed"
+    return str(label)
 
 
 def _policy_summary(
@@ -1227,7 +1272,17 @@ def _write_policy_set(run_root: Path, policy_rows: list[dict[str, object]]) -> N
 
 
 def _write_blocked_outputs(run_root: Path, config: FullLoopValidationConfig, blocked_reason: str, blockers: list[object]) -> None:
-    _write_run_manifests(run_root, config, "blocked", {}, 0, 0, [blocked_reason, *[str(item) for item in blockers if item]], {"status": "not_evaluated"})
+    _write_run_manifests(
+        run_root,
+        config,
+        "blocked",
+        {},
+        0,
+        0,
+        [blocked_reason, *[str(item) for item in blockers if item]],
+        {"status": "not_evaluated"},
+        _resolve_governor_config(config),
+    )
     _write_csv(run_root / "metrics" / "episode_summary.csv", pd.DataFrame())
     _write_file_size_audit(run_root)
     _write_reports(run_root=run_root, status="blocked", episode_rows=[], primitive_rows=[], paired_comparison=pd.DataFrame())
@@ -1242,10 +1297,18 @@ def _write_run_manifests(
     primitive_execution_count: int,
     blockers: list[str],
     static_prior_result: dict[str, object],
+    governor_config: GovernorConfig,
 ) -> None:
+    project_title = "LQR-Stabilised Contextual Primitive v4.10" if str(config.source_audit_version).lower() == "v410" else PROJECT_TITLE_VERSION
+    manifest_version = "v410_heldout_full_loop_validation_v1" if str(config.source_audit_version).lower() == "v410" else FULL_LOOP_VERSION
+    claim_status = (
+        "simulation_only_outer_loop_governor_calibration_and_heldout_validation"
+        if str(config.source_audit_version).lower() == "v410"
+        else "simulation_only_paired_full_loop_validation"
+    )
     manifest = {
-        "manifest_version": FULL_LOOP_VERSION,
-        "project_title_version": PROJECT_TITLE_VERSION,
+        "manifest_version": manifest_version,
+        "project_title_version": project_title,
         "status": status,
         "run_id": int(config.run_id),
         "run_root": run_root.as_posix(),
@@ -1271,6 +1334,7 @@ def _write_run_manifests(
         "source_w01_root": config.source_w01_root.as_posix(),
         "source_w2_root": config.source_w2_root.as_posix(),
         "source_w3_root": config.source_w3_root.as_posix(),
+        "source_full_loop_root": config.source_full_loop_root.as_posix(),
         "post_w3_root": config.post_w3_root.as_posix(),
         "outcome_root": config.outcome_root.as_posix(),
         "compact_library_path": config.compact_library_path.as_posix(),
@@ -1278,9 +1342,12 @@ def _write_run_manifests(
         "environment_cases": [f"{layer}:{mode}" for layer, mode in ENVIRONMENT_CASES],
         "policy_ids": [str(policy["policy_id"]) for policy in POLICIES],
         "paired_common_random_policy": "same_launch_state_seed_environment_seed_and_common_random_key_for_every_policy",
+        "governor_config": governor_config_to_row(governor_config),
+        "governor_config_id": governor_config.config_id,
+        "governor_config_path": "" if config.governor_config_path is None else config.governor_config_path.as_posix(),
         "controller_mutation_allowed": False,
         "retuning_allowed": False,
-        "claim_status": "simulation_only_paired_full_loop_validation",
+        "claim_status": claim_status,
         "blocked_claims": list(BLOCKED_CLAIMS),
         "blockers": blockers,
     }
@@ -1288,13 +1355,23 @@ def _write_run_manifests(
     _write_json(
         run_root / "manifests" / "claim_boundary.json",
         {
-            "allowed_claim": "simulation_only_paired_full_loop_validation_for_frozen_post_W3_compact_library",
+            "allowed_claim": claim_status,
             "blocked_claims": list(BLOCKED_CLAIMS),
             "controller_mutation_allowed": False,
+            "governor_config_id": governor_config.config_id,
             "hardware_or_real_flight_claim_allowed": False,
             "memory_improvement_claim_requires_paired_comparison_support": True,
         },
     )
+
+
+def _resolve_governor_config(config: FullLoopValidationConfig) -> GovernorConfig:
+    if config.governor_config_path is None:
+        return config.governor_config
+    payload = _read_json(config.governor_config_path)
+    if "governor_config" in payload and isinstance(payload["governor_config"], dict):
+        payload = dict(payload["governor_config"])
+    return governor_config_from_row(payload)
 
 
 def _write_reports(
@@ -1403,7 +1480,7 @@ def _write_csv(path: Path, frame: pd.DataFrame) -> None:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run v4.9 paired full-loop validation with episodic memory.")
+    parser = argparse.ArgumentParser(description="Run paired full-loop validation with episodic memory.")
     parser.add_argument("--run-id", type=int, default=3)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--episodes-per-policy", type=int, default=100)
@@ -1418,6 +1495,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--repair-incomplete", action="store_true", default=False)
     parser.add_argument("--dry-run-schedule", action="store_true", default=False)
     parser.add_argument("--replicate-count", type=int, default=1)
+    parser.add_argument("--source-audit-version", default="v49", choices=("v49", "v410"))
+    parser.add_argument("--source-full-loop-root", type=Path, default=DEFAULT_SOURCE_FULL_LOOP_ROOT)
+    parser.add_argument("--governor-config-path", type=Path, default=None)
     return parser.parse_args(argv)
 
 
@@ -1438,6 +1518,9 @@ def main(argv: list[str] | None = None) -> int:
             repair_incomplete=args.repair_incomplete,
             dry_run_schedule=args.dry_run_schedule,
             replicate_count=args.replicate_count,
+            source_audit_version=args.source_audit_version,
+            source_full_loop_root=args.source_full_loop_root,
+            governor_config_path=args.governor_config_path,
         )
     )
     print(json.dumps(result, indent=2, sort_keys=True))
