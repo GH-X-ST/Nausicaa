@@ -1,0 +1,9 @@
+cluster_group_id,primitive_id,entry_role,surviving_variant_count,representative_count,max_representatives_per_primitive,distance_stop_threshold,mean_continuation_valid_rate,mean_episode_terminal_useful_rate,mean_hard_failure_rate
+postw3_energy_retaining_bank_inflight_only,energy_retaining_bank,inflight_only,32,4,4,0.15,0.0747395833333333,0.60390625,0.32135416666666666
+postw3_glide_launch_capable,glide,launch_capable,32,4,4,0.15,0.175625,0.31203125000000004,0.51234375
+postw3_lift_dwell_arc_inflight_only,lift_dwell_arc,inflight_only,24,4,4,0.15,0.049305555555555526,0.6725694444444444,0.278125
+postw3_lift_entry_inflight_only,lift_entry,inflight_only,32,4,4,0.15,0.07812499999999997,0.603125,0.31875
+postw3_mild_turn_left_inflight_only,mild_turn_left,inflight_only,32,4,4,0.15,0.0903645833333333,0.5700520833333333,0.33958333333333335
+postw3_mild_turn_right_inflight_only,mild_turn_right,inflight_only,32,4,4,0.15,0.09062499999999997,0.5697916666666667,0.33958333333333335
+postw3_recovery_terminal_or_recovery,recovery,terminal_or_recovery,4,4,4,0.15,0.05,0.40625,0.5437500000000001
+postw3_safe_exit_or_recovery_handoff_terminal_or_recovery,safe_exit_or_recovery_handoff,terminal_or_recovery,1,1,4,0.15,0.05,0.4,0.55

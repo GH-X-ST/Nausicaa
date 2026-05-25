@@ -1,0 +1,12 @@
+primitive_id,entry_role,w3_variant_status,variant_count,continuation_valid_count,episode_terminal_useful_count,mean_continuation_valid_rate,mean_episode_terminal_useful_rate
+energy_retaining_bank,inflight_only,survived,32,287,2319,0.0747395833333333,0.60390625
+glide,launch_capable,survived,32,1124,1997,0.175625,0.31203125
+lift_dwell_arc,inflight_only,downgraded,8,35,648,0.0364583333333333,0.675
+lift_dwell_arc,inflight_only,survived,24,142,1937,0.049305555555555526,0.6725694444444444
+lift_entry,inflight_only,survived,32,300,2316,0.07812499999999996,0.603125
+mild_turn_left,inflight_only,survived,32,347,2189,0.0903645833333333,0.5700520833333333
+mild_turn_right,inflight_only,survived,32,348,2188,0.09062499999999997,0.5697916666666667
+recovery,terminal_or_recovery,downgraded,28,17,463,0.01517857142857143,0.4133928571428571
+recovery,terminal_or_recovery,survived,4,8,65,0.05,0.40625
+safe_exit_or_recovery_handoff,terminal_or_recovery,downgraded,31,22,454,0.017741935483870968,0.3661290322580645
+safe_exit_or_recovery_handoff,terminal_or_recovery,survived,1,2,16,0.05,0.4

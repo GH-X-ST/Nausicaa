@@ -1,11 +1,7 @@
-# W3 Fixed-LQR Survival Replay
+# L9 W3 Move-On Check
 
-- Status: `complete`
-- Rows written: `51200`
-- Blocked reason: ``
-- Source evidence label: ``
-- Test fixture not method evidence: `False`
-- Fixed-LQR replay only: `True`
-- Q/R, K, reference, horizon, entry set, and entry role mutation: `False`
-- Chunked/resumable dense runtime contract: `True`
-- W3 robustness, compact-library readiness, hardware readiness, transfer, and mission success remain blocked.
+- W3 survivor registry exists: `True`
+- W3 survivors available: `True`
+- Post-W3 clustering allowed: `True`
+- No Q/R, K, reference, horizon, entry role, controller ID, or primitive-variant ID mutation occurred.
+- Blocked claims remain hardware readiness, transfer, mission success, and formal LQR-tree/funnel/ROA guarantees.

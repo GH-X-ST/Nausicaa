@@ -1,0 +1,7 @@
+relative_path,byte_count,size_mb,above_75mb,above_100mb,push_allowed,dense_table_partition
+manifests/final_compact_primitive_library.json,84931,0.08099651336669922,False,False,True,False
+manifests/post_w3_cluster_manifest.json,1070,0.0010204315185546875,False,False,True,False
+metrics/post_w3_boundary_terminal_summary.csv,1090,0.0010395050048828125,False,False,True,False
+metrics/post_w3_cluster_summary.csv,1230,0.0011730194091796875,False,False,True,False
+metrics/post_w3_failure_cluster_summary.csv,856,0.00081634521484375,False,False,True,False
+metrics/post_w3_representative_library.csv,48991,0.046721458435058594,False,False,True,False
