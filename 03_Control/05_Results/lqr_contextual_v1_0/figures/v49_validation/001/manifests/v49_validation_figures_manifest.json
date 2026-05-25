@@ -1,0 +1,35 @@
+{
+  "manifest_version": "v49_paired_full_loop_validation_figures_v1",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v4.9",
+  "status": "complete",
+  "input_root": "03_Control/05_Results/lqr_contextual_v1_0/full_loop_validation/004",
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/figures/v49_validation/001",
+  "figure_count": 6,
+  "table_count": 4,
+  "figures": [
+    "policy_terminal_hard_failure_bar.png",
+    "memory_lambda_comparison.png",
+    "belief_evolution_example.png",
+    "prediction_alignment_summary.png",
+    "governor_rejection_summary.png",
+    "termination_summary.png"
+  ],
+  "tables": [
+    "chapter7_w01_w2_w3_evidence_table.csv",
+    "chapter7_post_w3_compact_library_table.csv",
+    "chapter7_full_loop_policy_table.csv",
+    "chapter7_claim_boundary_table.csv"
+  ],
+  "claim_status": "simulation_only_thesis_ready_validation_figures",
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "memory_improves_performance_without_full_loop_evidence",
+    "formal_LQR_tree_funnel_region_of_attraction",
+    "post_hoc_controller_retuning",
+    "full_autonomy",
+    "sim_real_transfer",
+    "memory_improves_performance_without_paired_v49_evidence"
+  ]
+}

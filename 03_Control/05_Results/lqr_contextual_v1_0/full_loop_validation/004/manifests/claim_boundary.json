@@ -1,0 +1,17 @@
+{
+  "allowed_claim": "simulation_only_paired_full_loop_validation_for_frozen_post_W3_compact_library",
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "memory_improves_performance_without_full_loop_evidence",
+    "formal_LQR_tree_funnel_region_of_attraction",
+    "post_hoc_controller_retuning",
+    "full_autonomy",
+    "sim_real_transfer",
+    "memory_improves_performance_without_paired_v49_evidence"
+  ],
+  "controller_mutation_allowed": false,
+  "hardware_or_real_flight_claim_allowed": false,
+  "memory_improvement_claim_requires_paired_comparison_support": true
+}

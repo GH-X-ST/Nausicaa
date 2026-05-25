@@ -29,6 +29,8 @@ def _results_entries_are_placeholder_or_allowed(entries: list[str]) -> bool:
             or entry.startswith("lqr_contextual_v1_0/governor_smoke/")
             or entry == "lqr_contextual_v1_0/full_loop_validation"
             or entry.startswith("lqr_contextual_v1_0/full_loop_validation/")
+            or entry == "lqr_contextual_v1_0/figures"
+            or entry.startswith("lqr_contextual_v1_0/figures/")
             for entry in entries
         )
 
