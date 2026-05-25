@@ -1,0 +1,17 @@
+{
+  "runner_version": "w2_fixed_lqr_survival_replay_v1",
+  "status": "complete",
+  "run_id": 10,
+  "chunk_index": 35,
+  "chunk_count": 64,
+  "row_start": 28000,
+  "row_stop": 28800,
+  "row_count": 800,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "partition_path": "w2_survival_rows/c00035.csv.gz",
+  "byte_count": 1030182,
+  "checksum_sha256": "fedb33cf35fa1bbc351c38491dad8fb12e8b301451ed5cdeaef8d26e6ec17100",
+  "duration_s": 4.193321228027344,
+  "table_name": "w2_survival_rows"
+}

@@ -261,3 +261,81 @@ Blocked claims remain final W0/W1 dense completion, W2 survival execution,
 W3 robustness, post-W3 compact-library readiness, governor validation,
 hardware readiness, real-flight transfer, mission success, and formal
 LQR-tree/funnel/region-of-attraction guarantees.
+
+## LQR-Stabilised Contextual Primitive v4.5 W2 Fixed-LQR Addendum
+
+Date/time: 2026-05-25 01:00:36 +01:00
+
+Current branch: `main`
+
+Current HEAD: `3baec7c7748848d5a0d3f396885fe5ac149d542f`
+
+This pass replaces the W2 scaffold with a chunked fixed-library replay runner.
+W2 now consumes W01 run `008` through a frozen controller bundle and must not
+mutate Q/R, K, reference, horizon, entry role, `controller_id`, or
+`primitive_variant_id`.
+
+New v4.5 artifacts are:
+
+- `03_Control/05_Results/lqr_contextual_v1_0/w2_survival/009`: dry-run W2
+  schedule and frozen-bundle audit.
+- `03_Control/05_Results/lqr_contextual_v1_0/w2_survival/010`: executable W2
+  replay attempt over the full fixed schedule.
+
+Run `010` summary:
+
+- Version label: `LQR-Stabilised Contextual Primitive v4.5`.
+- Source W01 root: `03_Control/05_Results/lqr_contextual_v1_0/w01_dense/008`.
+- Rows: 51,200.
+- Variant count: 256.
+- W2 environment modes: `annular_gp_single`, `annular_gp_four`.
+- Paired tests per variant/environment: 100.
+- Worker count: 8.
+- Chunk count: 64.
+- Chunk size: 800.
+- Storage format: `csv_gz` resolved from `auto`.
+- File-size audit: no file above 75 MB or 100 MB; largest file is
+  `manifests/frozen_w01_controller_bundle.json`, 3.169 MB.
+- Source W01 registry checksum:
+  `4e5b18f4ab4d58e86f541bf2cbb11f4e08c8b9a2027856faf86ff53ff5e9a942`.
+- Source W01 table-manifest checksum:
+  `664c50a4da4cbdb00cf751f597a193b82cf6f8e081801b1bb8b1c2312caccdfd`.
+- W2 result: `blocked`.
+- Frozen-controller bundle result: 0 ready controllers, 256 blocked
+  controllers.
+- Variant survival summary: 256 `blocked`, 0 `survived`, 0 eligible for W3.
+- L8 move-on blockers:
+  `no_ready_frozen_timing_aware_controllers`;
+  `no_w2_survived_variants_available`.
+
+The W2 rows are retained as strict fixed-replay/block evidence. The W01 run
+`008` registry stores physical K and timing checksums but does not store the
+full augmented gain matrix or predictor matrix required for exact timing-aware
+controller restoration. Because v4.5 forbids hidden LQR redesign or physical-K
+fallback replay, the W2 runner blocks those variants instead of retuning or
+silently changing the controller payload.
+
+Validation after this v4.5 pass:
+
+- PowerShell-expanded `py_compile` over `03_Control/02_Inner_Loop`,
+  `03_Control/03_Primitives`, and `03_Control/04_Scenarios`: passed.
+- `python -m pytest -q 03_Control/tests --basetemp .codex_run_logs\pytest_tmp -o cache_dir=.codex_run_logs\pytest_cache`:
+  passed, 162 tests.
+- `python 03_Control/04_Scenarios/run_w01_w2_w3_contract_audit.py`: passed.
+- W2 dry-run schedule command for run `009`: passed.
+- W2 executable command for run `010`: passed and correctly blocked W3
+  move-on because no exact frozen timing-aware controller payload was
+  restorable.
+- Separate `.codex_run_logs` repair validation regenerated corrupted chunk
+  `c00000` and restored the original checksum and row count; no retained
+  evidence root was deliberately corrupted.
+
+Allowed claim after this pass: the active code now implements a simulation-only
+W2 fixed-library replay runner and records that run `008` cannot be replayed
+as exact timing-aware W2 survival evidence without the missing frozen
+augmented payload.
+
+Blocked claims remain W2 survival success, W3 robustness,
+post-W3 compact-library readiness, governor validation, hardware readiness,
+real-flight transfer, mission success, and formal LQR-tree/funnel/region-of-
+attraction guarantees.

@@ -49,12 +49,20 @@ def run_w3_survival(config: W3SurvivalConfig) -> dict[str, object]:
     for subdir in ("manifests", "metrics", "reports"):
         filesystem_path(run_root / subdir).mkdir(parents=True, exist_ok=True)
     w2_manifest = Path(config.input_root) / "manifests" / "w2_survival_manifest.json"
+    survivor_registry = Path(config.input_root) / "manifests" / "w2_survivor_registry.json"
     blocked_reason = ""
     if not filesystem_path(w2_manifest).is_file():
         blocked_reason = "missing_W2_survival_manifest"
+    elif not filesystem_path(survivor_registry).is_file():
+        blocked_reason = "missing_W2_survivor_registry"
     else:
         source = json.loads(filesystem_path(w2_manifest).read_text(encoding="ascii"))
-        if source.get("status") != "survived":
+        survivors = json.loads(filesystem_path(survivor_registry).read_text(encoding="ascii"))
+        if source.get("status") != "survived_variants_available":
+            blocked_reason = "W2_survival_status_not_survived_variants_available"
+        elif survivors.get("status") != "survived_variants_available":
+            blocked_reason = "W2_survivor_registry_not_available"
+        elif int(survivors.get("survivor_count", 0)) <= 0:
             blocked_reason = "missing_W2_surviving_variants"
     status = "blocked" if blocked_reason else "ready_for_fixed_lqr_replay"
     manifest = {
@@ -62,7 +70,7 @@ def run_w3_survival(config: W3SurvivalConfig) -> dict[str, object]:
         "status": status,
         "run_id": int(config.run_id),
         "input_root": Path(config.input_root).as_posix(),
-        "input_contract": "W2 survival root with survived variants; raw W01 variants are not accepted",
+        "input_contract": "W2 survival root with w2_survival_manifest.json and w2_survivor_registry.json reporting survived_variants_available; raw W01 variants are not accepted",
         "future_replay_environment_contract": "W3 fixed variants under approved randomisation only",
         "fixed_lqr_replay_only": True,
         "mutates_Q_R_K_reference_horizon_entry_set_or_entry_role": False,

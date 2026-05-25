@@ -1,0 +1,12 @@
+coverage_axis,value,row_count
+w2_survival_status,blocked,51200
+failure_label,entry_role_not_launch_capable,23040
+failure_label,w2_controller_reconstruction_failed,28160
+boundary_use_class,blocked,51200
+environment_mode,annular_gp_four,25600
+environment_mode,annular_gp_single,25600
+start_state_family,inflight_boundary_near,5120
+start_state_family,inflight_lift_region,7680
+start_state_family,inflight_nominal,12800
+start_state_family,inflight_recovery_edge,5120
+start_state_family,launch_gate,20480

@@ -17,6 +17,8 @@ def _results_entries_are_placeholder_or_allowed(entries: list[str]) -> bool:
             or entry == "lqr_contextual_v1_0"
             or entry == "lqr_contextual_v1_0/w01_dense"
             or entry.startswith("lqr_contextual_v1_0/w01_dense/")
+            or entry == "lqr_contextual_v1_0/w2_survival"
+            or entry.startswith("lqr_contextual_v1_0/w2_survival/")
             for entry in entries
         )
 

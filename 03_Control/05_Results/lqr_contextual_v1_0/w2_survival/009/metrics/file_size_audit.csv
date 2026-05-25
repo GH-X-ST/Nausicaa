@@ -1,0 +1,12 @@
+relative_path,byte_count,size_mb,above_75mb,above_100mb,push_allowed,dense_table_partition
+manifests/frozen_w01_controller_bundle.json,3322755,3.168826103210449,False,False,True,False
+manifests/table_manifest.json,141,0.00013446807861328125,False,False,True,False
+manifests/w2_survival_manifest.json,2319,0.0022115707397460938,False,False,True,False
+manifests/w2_survivor_registry.json,168,0.00016021728515625,False,False,True,False
+metrics/chunk_summary.csv,7756,0.007396697998046875,False,False,True,False
+metrics/file_size_audit.csv,682,0.0006504058837890625,False,False,True,False
+metrics/w2_controller_bundle_summary.csv,64149,0.06117725372314453,False,False,True,False
+metrics/w2_schedule_summary.csv,98,9.34600830078125e-05,False,False,True,False
+metrics/w2_survival_summary.csv,41,3.910064697265625e-05,False,False,True,False
+reports/l8_w2_move_on_check.md,131,0.00012493133544921875,False,False,True,False
+reports/w2_survival_report.md,676,0.000644683837890625,False,False,True,False
