@@ -1,0 +1,106 @@
+{
+  "manifest_version": "v48_full_loop_source_audit_v1",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v4.8",
+  "status": "source_audit_pass",
+  "source_roots": {
+    "w01_root": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/015",
+    "w2_root": "03_Control/05_Results/lqr_contextual_v1_0/w2_survival/015",
+    "w3_root": "03_Control/05_Results/lqr_contextual_v1_0/w3_survival/013",
+    "post_w3_root": "03_Control/05_Results/lqr_contextual_v1_0/post_w3_cluster/001",
+    "outcome_smoke_root": "03_Control/05_Results/lqr_contextual_v1_0/outcome_model/001",
+    "governor_smoke_root": "03_Control/05_Results/lqr_contextual_v1_0/governor_smoke/001"
+  },
+  "checks": [
+    {
+      "stage": "W01",
+      "root": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/015",
+      "status": "pass",
+      "row_count": 76800,
+      "variant_count": 256,
+      "ready_count": 256,
+      "representative_count": 0,
+      "file_size_audit_status": "below_100mb",
+      "largest_source_file_size_mb": 4.514593124389648,
+      "source_file_above_100mb_count": 0,
+      "blockers": []
+    },
+    {
+      "stage": "W2",
+      "root": "03_Control/05_Results/lqr_contextual_v1_0/w2_survival/015",
+      "status": "pass",
+      "row_count": 51200,
+      "variant_count": 256,
+      "ready_count": 256,
+      "survivor_count": 256,
+      "representative_count": 0,
+      "file_size_audit_status": "below_100mb",
+      "largest_source_file_size_mb": 4.514593124389648,
+      "source_file_above_100mb_count": 0,
+      "blockers": []
+    },
+    {
+      "stage": "W3",
+      "root": "03_Control/05_Results/lqr_contextual_v1_0/w3_survival/013",
+      "status": "pass",
+      "row_count": 51200,
+      "variant_count": 256,
+      "ready_count": 256,
+      "survivor_count": 189,
+      "representative_count": 0,
+      "file_size_audit_status": "below_100mb",
+      "largest_source_file_size_mb": 1.5586605072021484,
+      "source_file_above_100mb_count": 0,
+      "blockers": []
+    },
+    {
+      "stage": "post_W3",
+      "root": "03_Control/05_Results/lqr_contextual_v1_0/post_w3_cluster/001",
+      "status": "pass",
+      "row_count": 0,
+      "variant_count": 0,
+      "ready_count": 0,
+      "survivor_count": 189,
+      "representative_count": 29,
+      "file_size_audit_status": "below_100mb",
+      "largest_source_file_size_mb": 0.0809965133666992,
+      "source_file_above_100mb_count": 0,
+      "blockers": []
+    },
+    {
+      "stage": "outcome_model",
+      "root": "03_Control/05_Results/lqr_contextual_v1_0/outcome_model/001",
+      "status": "pass",
+      "row_count": 0,
+      "variant_count": 0,
+      "ready_count": 0,
+      "representative_count": 29,
+      "file_size_audit_status": "below_100mb",
+      "largest_source_file_size_mb": 0.0095233917236328,
+      "source_file_above_100mb_count": 0,
+      "blockers": []
+    },
+    {
+      "stage": "governor_smoke",
+      "root": "03_Control/05_Results/lqr_contextual_v1_0/governor_smoke/001",
+      "status": "pass",
+      "row_count": 0,
+      "variant_count": 0,
+      "ready_count": 0,
+      "representative_count": 0,
+      "file_size_audit_status": "below_100mb",
+      "largest_source_file_size_mb": 0.0856647491455078,
+      "source_file_above_100mb_count": 0,
+      "blockers": []
+    }
+  ],
+  "blockers": [],
+  "claim_status": "simulation_only_source_audit_for_full_loop_validation",
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "memory_improves_performance_without_full_loop_evidence",
+    "formal_LQR_tree_funnel_region_of_attraction",
+    "post_hoc_controller_retuning"
+  ]
+}

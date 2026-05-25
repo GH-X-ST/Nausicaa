@@ -1,0 +1,54 @@
+{
+  "policy_set_version": "v48_memory_policy_set_v1",
+  "policies": [
+    {
+      "policy_id": "no_memory_baseline",
+      "lambda_value": 0.0,
+      "uses_memory_features": false,
+      "updates_belief": false,
+      "policy_role": "baseline_no_memory",
+      "claim_status": "simulation_only_memory_policy"
+    },
+    {
+      "policy_id": "static_map_baseline",
+      "lambda_value": 0.8,
+      "uses_memory_features": true,
+      "updates_belief": false,
+      "policy_role": "static_initial_map_no_episode_update",
+      "claim_status": "simulation_only_memory_policy"
+    },
+    {
+      "policy_id": "context_only_without_memory",
+      "lambda_value": 0.0,
+      "uses_memory_features": false,
+      "updates_belief": false,
+      "policy_role": "context_outcome_model_no_memory",
+      "claim_status": "simulation_only_memory_policy"
+    },
+    {
+      "policy_id": "context_plus_memory_lambda_0_5",
+      "lambda_value": 0.5,
+      "uses_memory_features": true,
+      "updates_belief": true,
+      "policy_role": "context_plus_episodic_memory",
+      "claim_status": "simulation_only_memory_policy"
+    },
+    {
+      "policy_id": "context_plus_memory_lambda_0_8",
+      "lambda_value": 0.8,
+      "uses_memory_features": true,
+      "updates_belief": true,
+      "policy_role": "context_plus_episodic_memory",
+      "claim_status": "simulation_only_memory_policy"
+    },
+    {
+      "policy_id": "context_plus_memory_lambda_0_95",
+      "lambda_value": 0.95,
+      "uses_memory_features": true,
+      "updates_belief": true,
+      "policy_role": "context_plus_episodic_memory",
+      "claim_status": "simulation_only_memory_policy"
+    }
+  ],
+  "claim_status": "simulation_only_memory_ablation_policy_set"
+}
