@@ -13,6 +13,7 @@ _tmp_*/
 # Private local instruction/context files shared with the assistant, not publication artifacts.
 CODEX_*.md
 docs/CODEX_*.md
+!docs/CODEX_R9_launch_gate_coverage_repair_guidance.md
 
 # Evidence outputs are intentionally visible for open, repeatable review.
 # Temporary write files remain local.

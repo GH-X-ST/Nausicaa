@@ -1,0 +1,127 @@
+{
+  "R6_R7_R8_R9_R10_deliberately_not_run_when_stop_after_stage_R5": true,
+  "active_primitive_count": 14,
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "full_autonomy",
+    "memory_improvement"
+  ],
+  "blocked_reason": "",
+  "config": {
+    "allow_stage_smoke": false,
+    "candidate_chunk_size": 800,
+    "compression_level": 1,
+    "continue_on_stage_failure": false,
+    "dry_run_schedule": true,
+    "max_workers": 8,
+    "output_root": "03_Control/05_Results/lqr_contextual_v1_0/r5_r10_pipeline",
+    "r10_mode": "full",
+    "repair_incomplete": true,
+    "resume": true,
+    "run_id": null,
+    "start_stage": "R5",
+    "stop_after_stage": "R5",
+    "storage_format": "csv_gz",
+    "workers": "8"
+  },
+  "docs_alignment_baseline": {
+    "docs/CODEX_R9_launch_gate_coverage_repair_guidance.md": {
+      "byte_count": 15725,
+      "modified_time_utc": "2026-05-26T12:22:04.605350+00:00",
+      "path": "docs/CODEX_R9_launch_gate_coverage_repair_guidance.md",
+      "readable": true,
+      "sha256": "fc532dbb27db09b7db494c569312f193c076ff2c78d85294de2b8b575921134e"
+    },
+    "docs/Daily_Schedule.txt": {
+      "byte_count": 19987,
+      "modified_time_utc": "2026-05-26T12:39:25.646510+00:00",
+      "path": "docs/Daily_Schedule.txt",
+      "readable": true,
+      "sha256": "4e1e293ea4e90c9151084a5538ad1f9c001349e39cdaa572760e1fd9934d06f3"
+    },
+    "docs/Glider_Control_Project_Plan.md": {
+      "byte_count": 57194,
+      "modified_time_utc": "2026-05-26T12:39:25.654038+00:00",
+      "path": "docs/Glider_Control_Project_Plan.md",
+      "readable": true,
+      "sha256": "0f6652ee39241ea5d062bb8286cce88a262f19b4f2ed02f28033fcaae3a338b3"
+    },
+    "docs/MATLAB Coding.txt": {
+      "byte_count": 5118,
+      "modified_time_utc": "2026-05-26T12:39:25.680682+00:00",
+      "path": "docs/MATLAB Coding.txt",
+      "readable": true,
+      "sha256": "f316533239d5b9f2749f9acd22d6781b8464cd600a737bf80d37b293666614ed"
+    },
+    "docs/PR.txt": {
+      "byte_count": 4952,
+      "modified_time_utc": "2026-05-26T12:39:25.688773+00:00",
+      "path": "docs/PR.txt",
+      "readable": true,
+      "sha256": "0be5bebd921f9464d7c58d7940a04fcedd720b0bb9efe1a2e8ef2492126abac3"
+    },
+    "docs/Python Coding Instruction.txt": {
+      "byte_count": 8093,
+      "modified_time_utc": "2026-05-26T12:39:25.718415+00:00",
+      "path": "docs/Python Coding Instruction.txt",
+      "readable": true,
+      "sha256": "13e91a86903e4424972e54f381fa4b5a68a13507027e196832d62f602a183194"
+    },
+    "docs/Python Coding to CODEX.txt": {
+      "byte_count": 6769,
+      "modified_time_utc": "2026-05-26T12:39:25.728085+00:00",
+      "path": "docs/Python Coding to CODEX.txt",
+      "readable": true,
+      "sha256": "44f3327a3e5bc4f38504baa4c14716ba25f91f1eda91d6773218c5715c23a83c"
+    },
+    "docs/R5_R10_Full_Evidence_Execution_Plan.md": {
+      "byte_count": 29934,
+      "modified_time_utc": "2026-05-26T12:39:25.744617+00:00",
+      "path": "docs/R5_R10_Full_Evidence_Execution_Plan.md",
+      "readable": true,
+      "sha256": "58c0dc6d48e2da98206ab384cb13376877df068c2179a472df2d554922422bf0"
+    },
+    "docs/Skills.md": {
+      "byte_count": 9354,
+      "modified_time_utc": "2026-05-26T12:39:25.759617+00:00",
+      "path": "docs/Skills.md",
+      "readable": true,
+      "sha256": "167c62c800c496d0b041947bc206ee3be9b9c9304ce7824e7324660fb0d9897e"
+    },
+    "docs/housekeeping_and_naming_rules.md": {
+      "byte_count": 9593,
+      "modified_time_utc": "2026-05-26T12:39:25.793282+00:00",
+      "path": "docs/housekeeping_and_naming_rules.md",
+      "readable": true,
+      "sha256": "5e0d2aeb16eb3911799d0adfaeaf72802ff4eb68222fc96ccecd2cabe33d630c"
+    }
+  },
+  "docs_changed_during_run": false,
+  "execution_scope": "R5_only",
+  "full_run_policy": "R5_then_R6_R7_R8_R9_R10_only_after_previous_stage_passes",
+  "launch_capture_primitive_ids": [
+    "launch_capture_glide_stabilise",
+    "launch_capture_lift_seek",
+    "launch_capture_energy_build",
+    "launch_capture_shallow_left",
+    "launch_capture_shallow_right",
+    "launch_capture_safe_handoff"
+  ],
+  "pipeline_version": "v53_r5_only_launch_aware_pipeline_with_repeated_docs_guard",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
+  "r5_expected_dense_rows": 134400,
+  "r5_only_scope": true,
+  "run_id": 902,
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/r5_r10_pipeline/902",
+  "stage_order": [
+    "R5",
+    "R6",
+    "R7",
+    "R8",
+    "R9",
+    "R10"
+  ],
+  "status": "complete"
+}

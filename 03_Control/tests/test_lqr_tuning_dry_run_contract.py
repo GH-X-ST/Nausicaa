@@ -46,6 +46,8 @@ def test_w01_dry_run_writes_compact_manifests_and_no_partitions(tmp_path: Path) 
     assert (run_root / "reports" / "timing_contract_audit.md").is_file()
     assert (run_root / "reports" / "frozen_controller_bundle_audit.md").is_file()
     assert (run_root / "reports" / "l7_w01_completeness_audit.md").is_file()
+    assert (run_root / "reports" / "r5_launch_capture_diagnosis.md").is_file()
+    assert (run_root / "metrics" / "r5_launch_capture_diagnosis.csv").is_file()
     l6_report = (run_root / "reports" / "l6_move_on_check.md").read_text(encoding="ascii")
     assert "predictor_compensated_augmented_discrete_lqr_v1" in l6_report
     assert "no_rollout_evidence_written" in l6_report

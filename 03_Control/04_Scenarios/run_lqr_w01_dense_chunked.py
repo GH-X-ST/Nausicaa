@@ -71,8 +71,8 @@ from primitive_timing_contract import (  # noqa: E402
 from state_sampling import archive_state_sample_for_family, archive_state_sample_for_row, archive_state_sample_row, start_state_family_for_row  # noqa: E402
 
 
-W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v411"
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
+W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v53"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
 W01_TABLE_NAME = "w01_primitive_rows"
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 L6_FALLBACK_ROW_COUNT = 19_200
@@ -104,6 +104,10 @@ CROSS_LAYER_SMOKE_INCOMPLETE = "artifact_smoke_only_start_family_incomplete"
 W01_DRY_SCHEDULE_ONLY = "w01_dry_schedule_only"
 W01_SMOKE_OR_PREFLIGHT_ONLY = "w01_smoke_or_preflight_only"
 W01_DENSE_EVIDENCE_COMPLETE = "w01_dense_evidence_complete"
+R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW = "R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW"
+R5_LAUNCH_AWARE_DENSE_BLOCKED_FIX_REQUIRED = "R5_LAUNCH_AWARE_DENSE_BLOCKED_FIX_REQUIRED"
+R5_LAUNCH_AWARE_DENSE_INCOMPLETE_RESUME_REQUIRED = "R5_LAUNCH_AWARE_DENSE_INCOMPLETE_RESUME_REQUIRED"
+DOCS_CHANGED_REAUDIT_REQUIRED = "DOCS_CHANGED_REAUDIT_REQUIRED"
 REQUIRED_DOCS = (
     "Glider_Control_Project_Plan.md",
     "Skills.md",
@@ -112,6 +116,8 @@ REQUIRED_DOCS = (
     "MATLAB Coding.txt",
     "housekeeping_and_naming_rules.md",
     "Daily_Schedule.txt",
+    "R5_R10_Full_Evidence_Execution_Plan.md",
+    "CODEX_R9_launch_gate_coverage_repair_guidance.md",
     "PR.txt",
 )
 OFFICIAL_W01_ENVIRONMENT_CASES = (
@@ -139,6 +145,31 @@ START_FAMILY_MIX = {
     "inflight_boundary_near": 0.10,
     "inflight_recovery_edge": 0.10,
 }
+LAUNCH_CAPTURE_REGIME_LABEL = "launch_capture_from_launch_gate"
+INFLIGHT_REGIME_LABEL = "inflight_from_nominal_or_lift_region"
+RECOVERY_REGIME_LABEL = "recovery_or_safe_exit_from_boundary_or_recovery_edge"
+OUT_OF_REGIME_LABEL = "out_of_regime_or_entry_role_incompatible"
+INFLIGHT_REGIME_STARTS = ("inflight_nominal", "inflight_lift_region")
+RECOVERY_REGIME_STARTS = ("inflight_boundary_near", "inflight_recovery_edge")
+R5_REGIME_GROUP_COLUMNS = (
+    "start_state_family",
+    "primitive_id",
+    "primitive_family",
+    "entry_role",
+    "regime_label",
+)
+R5_REGIME_COUNT_COLUMNS = (
+    "accepted_count",
+    "weak_count",
+    "failed_count",
+    "rejected_count",
+    "blocked_count",
+    "continuation_valid_count",
+    "terminal_useful_count",
+    "hard_failure_count",
+    "entry_role_rejection_count",
+    "total_rows",
+)
 BALANCED_SCHEDULE_MODE = "balanced_paired"
 SMOKE_SCHEDULE_MODE = "smoke_row_index"
 
@@ -322,6 +353,7 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
         ended=ended,
     )
     _write_file_size_audit(run_root)
+    _refresh_run_manifest_after_execution(run_root=run_root, config=config, row_count=row_count)
     _write_reports(run_root, status="complete" if not failures else "partial_failed", row_count=row_count)
     _write_file_size_audit(run_root)
     return _result_payload(run_root, status="complete" if not failures else "partial_failed")
@@ -880,6 +912,7 @@ def _completed_chunk_row(chunk: W01ChunkSpec, run_root: Path, *, status: str) ->
 def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[object], storage_format: str) -> int:
     counters: dict[str, Counter] = defaultdict(Counter)
     grouped: dict[str, Counter] = defaultdict(Counter)
+    regime_frames: list[pd.DataFrame] = []
     row_count = 0
     coverage_columns = (
         "primitive_id",
@@ -939,6 +972,7 @@ def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[ob
             frame,
             ("boundary_use_class", "continuation_valid", "episode_terminal_useful", "outcome_class"),
         )
+        regime_frames.append(_regime_counts_for_frame(frame))
 
     _counter_frame(counters["outcome_class"]).to_csv(filesystem_path(run_root / "metrics" / "outcome_summary.csv"), index=False)
     _counter_frame(counters["failure_label"]).to_csv(filesystem_path(run_root / "metrics" / "failure_summary.csv"), index=False)
@@ -985,7 +1019,7 @@ def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[ob
         grouped["boundary_use"],
         ("boundary_use_class", "continuation_valid", "episode_terminal_useful", "outcome_class"),
     ).to_csv(filesystem_path(run_root / "metrics" / "boundary_use_summary.csv"), index=False)
-    _write_launch_gate_audit_tables(run_root)
+    _write_launch_gate_audit_tables(run_root, _combine_regime_counts(regime_frames))
     return int(row_count)
 
 
@@ -1002,11 +1036,9 @@ def _write_empty_metrics(run_root: Path) -> None:
         "entry_role_compatibility_by_primitive.csv",
         "boundary_use_summary.csv",
         "timing_state_summary.csv",
-        "launch_gate_entry_role_audit.csv",
-        "launch_gate_outcome_audit.csv",
-        "launch_gate_candidate_availability.csv",
     ):
         pd.DataFrame().to_csv(filesystem_path(run_root / "metrics" / name), index=False)
+    _write_launch_gate_audit_tables(run_root, _empty_r5_diagnosis_frame())
 
 
 def _write_csv(path: Path, frame: pd.DataFrame) -> None:
@@ -1014,92 +1046,234 @@ def _write_csv(path: Path, frame: pd.DataFrame) -> None:
     frame.to_csv(filesystem_path(path), index=False)
 
 
-def _write_launch_gate_audit_tables(run_root: Path) -> None:
-    metrics = filesystem_path(run_root / "metrics")
-    start_path = metrics / "start_family_coverage.csv"
-    compat_path = metrics / "entry_role_compatibility_by_primitive.csv"
-    outcome_path = metrics / "outcome_summary.csv"
-    if start_path.is_file():
-        start = pd.read_csv(start_path)
-    else:
-        start = pd.DataFrame()
-    if compat_path.is_file():
-        compat = pd.read_csv(compat_path)
-    else:
-        compat = pd.DataFrame()
-    launch = start[start.get("start_state_family", pd.Series(dtype=str)).astype(str) == "launch_gate"].copy() if not start.empty else pd.DataFrame()
-    if not launch.empty:
-        launch["stage_id"] = "W01"
-        launch["launch_capture_family"] = launch["primitive_id"].astype(str).isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS))
-        launch["entry_role_compatible"] = launch["entry_role"].astype(str) == "launch_capable"
-        launch["launch_gate_candidate_rows"] = pd.to_numeric(launch["row_count"], errors="coerce").fillna(0).astype(int)
-        audit = launch[
-            [
-                "stage_id",
-                "primitive_id",
-                "entry_role",
-                "W_layer",
-                "launch_capture_family",
-                "entry_role_compatible",
-                "launch_gate_candidate_rows",
-            ]
-        ].copy()
-    else:
-        audit = pd.DataFrame(
-            columns=[
-                "stage_id",
-                "primitive_id",
-                "entry_role",
-                "W_layer",
-                "launch_capture_family",
-                "entry_role_compatible",
-                "launch_gate_candidate_rows",
-            ]
-        )
+def _write_launch_gate_audit_tables(run_root: Path, diagnosis: pd.DataFrame | None = None) -> None:
+    if diagnosis is None:
+        diagnosis = _read_csv_or_empty(run_root / "metrics" / "r5_launch_capture_diagnosis.csv")
+    if diagnosis is None or diagnosis.empty:
+        diagnosis = _empty_r5_diagnosis_frame()
+    diagnosis = diagnosis.copy()
+    if "stage_id" not in diagnosis.columns:
+        diagnosis.insert(0, "stage_id", "W01")
+    _write_csv(run_root / "metrics" / "r5_launch_capture_diagnosis.csv", diagnosis)
+
+    launch_capable_count = _unique_group_count(
+        diagnosis,
+        (diagnosis.get("start_state_family", pd.Series(dtype=str)).astype(str) == "launch_gate")
+        & (diagnosis.get("entry_role", pd.Series(dtype=str)).astype(str) == "launch_capable"),
+    )
+    launch_capture_count = _unique_group_count(
+        diagnosis,
+        (diagnosis.get("start_state_family", pd.Series(dtype=str)).astype(str) == "launch_gate")
+        & (diagnosis.get("primitive_id", pd.Series(dtype=str)).astype(str).isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS))),
+    )
+
+    audit = diagnosis.copy()
+    audit["entry_role_compatible"] = audit["entry_role"].astype(str) == "launch_capable"
+    audit["launch_gate_candidate_rows"] = audit.apply(
+        lambda row: int(row.get("total_rows", 0)) if str(row.get("start_state_family", "")) == "launch_gate" else 0,
+        axis=1,
+    )
     _write_csv(run_root / "metrics" / "launch_gate_entry_role_audit.csv", audit)
 
-    if outcome_path.is_file():
-        outcome = pd.read_csv(outcome_path)
-        outcome.insert(0, "stage_id", "W01")
-    else:
-        outcome = pd.DataFrame(columns=["stage_id", "value", "row_count"])
-    _write_csv(run_root / "metrics" / "launch_gate_outcome_audit.csv", outcome)
+    outcome_columns = [
+        "stage_id",
+        *R5_REGIME_GROUP_COLUMNS,
+        "accepted_count",
+        "weak_count",
+        "failed_count",
+        "rejected_count",
+        "blocked_count",
+        "continuation_valid_count",
+        "terminal_useful_count",
+        "hard_failure_count",
+        "entry_role_rejection_count",
+        "total_rows",
+        "rejection_rate",
+        "credible_launch_gate_outcome",
+        "r5_launch_capture_gate_passed",
+    ]
+    _write_csv(run_root / "metrics" / "launch_gate_outcome_audit.csv", audit.loc[:, _existing_columns(audit, outcome_columns)])
 
-    if not compat.empty:
-        compat_launch = compat[compat["entry_role"].astype(str) == "launch_capable"].copy()
-        availability = pd.DataFrame(
+    availability = audit.copy()
+    availability["library_size_case_id"] = "not_applicable_w01"
+    availability["launch_capable_primitive_family_count"] = int(launch_capable_count)
+    availability["launch_capture_primitive_family_count"] = int(launch_capture_count)
+    availability["first_decision_audit_mode"] = "not_applicable_w01"
+    availability["launch_gate_candidate_rows"] = availability.apply(
+        lambda row: int(row.get("total_rows", 0)) if str(row.get("start_state_family", "")) == "launch_gate" else 0,
+        axis=1,
+    )
+    availability_columns = [
+        "stage_id",
+        "library_size_case_id",
+        *R5_REGIME_GROUP_COLUMNS,
+        "launch_capable_primitive_family_count",
+        "launch_capture_primitive_family_count",
+        "launch_gate_candidate_rows",
+        "expected_launch_gate_rows_per_launch_capture_primitive",
+        "expected_full_dense_launch_gate_rows_present",
+        "entry_role_rejection_count",
+        "rejection_rate",
+        "accepted_count",
+        "weak_count",
+        "failed_count",
+        "rejected_count",
+        "blocked_count",
+        "continuation_valid_count",
+        "terminal_useful_count",
+        "hard_failure_count",
+        "credible_launch_gate_outcome",
+        "r5_launch_capture_gate_passed",
+        "first_decision_audit_mode",
+    ]
+    _write_csv(
+        run_root / "metrics" / "launch_gate_candidate_availability.csv",
+        availability.loc[:, _existing_columns(availability, availability_columns)],
+    )
+
+
+def _regime_counts_for_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return _empty_r5_diagnosis_frame(finalised=False)
+    work = pd.DataFrame(
+        {
+            "start_state_family": frame.get("start_state_family", pd.Series("", index=frame.index)).fillna("").astype(str),
+            "primitive_id": frame.get("primitive_id", pd.Series("", index=frame.index)).fillna("").astype(str),
+            "primitive_family": _primitive_family_series(frame),
+            "entry_role": frame.get("entry_role", pd.Series("", index=frame.index)).fillna("").astype(str),
+            "outcome_class": frame.get("outcome_class", pd.Series("", index=frame.index)).fillna("").astype(str),
+            "boundary_use_class": frame.get("boundary_use_class", pd.Series("", index=frame.index)).fillna("").astype(str),
+            "entry_check_status": frame.get("entry_check_status", pd.Series("", index=frame.index)).fillna("").astype(str),
+            "failure_label": frame.get("failure_label", pd.Series("", index=frame.index)).fillna("").astype(str),
+        }
+    )
+    work["regime_label"] = _regime_label_series(work)
+    work["accepted_count"] = work["outcome_class"].eq("accepted").astype(int)
+    work["weak_count"] = work["outcome_class"].eq("weak").astype(int)
+    work["failed_count"] = work["outcome_class"].eq("failed").astype(int)
+    work["rejected_count"] = work["outcome_class"].eq("rejected").astype(int)
+    work["blocked_count"] = work["outcome_class"].eq("blocked").astype(int)
+    work["continuation_valid_count"] = _truthy_series(frame, "continuation_valid").astype(int)
+    work["terminal_useful_count"] = _truthy_series(frame, "episode_terminal_useful").astype(int)
+    work["hard_failure_count"] = work["boundary_use_class"].eq("hard_failure").astype(int)
+    work["entry_role_rejection_count"] = (
+        work["entry_check_status"].eq(ENTRY_ROLE_REJECTION_STATUS) | work["failure_label"].eq(ENTRY_ROLE_REJECTION_LABEL)
+    ).astype(int)
+    work["total_rows"] = 1
+    return (
+        work.groupby(list(R5_REGIME_GROUP_COLUMNS), dropna=False, as_index=False)[list(R5_REGIME_COUNT_COLUMNS)]
+        .sum()
+        .reset_index(drop=True)
+    )
+
+
+def _combine_regime_counts(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    nonempty = [frame for frame in frames if frame is not None and not frame.empty]
+    if not nonempty:
+        return _empty_r5_diagnosis_frame()
+    combined = pd.concat(nonempty, ignore_index=True)
+    grouped = (
+        combined.groupby(list(R5_REGIME_GROUP_COLUMNS), dropna=False, as_index=False)[list(R5_REGIME_COUNT_COLUMNS)]
+        .sum()
+        .reset_index(drop=True)
+    )
+    return _finalise_regime_counts(grouped)
+
+
+def _finalise_regime_counts(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return _empty_r5_diagnosis_frame()
+    result = frame.copy()
+    for column in R5_REGIME_COUNT_COLUMNS:
+        result[column] = pd.to_numeric(result.get(column, 0), errors="coerce").fillna(0).astype(int)
+    total = result["total_rows"].replace(0, pd.NA)
+    result["rejection_rate"] = (result["rejected_count"] / total).fillna(0.0).astype(float)
+    result["launch_capture_family"] = result["primitive_id"].astype(str).isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS))
+    result["launch_gate_rows_exist"] = (result["start_state_family"].astype(str) == "launch_gate") & (result["total_rows"] > 0)
+    result["non_rejected_launch_gate_rows"] = (
+        result["total_rows"] - result["rejected_count"] - result["blocked_count"]
+    ).clip(lower=0)
+    expected_launch_rows = _expected_launch_gate_rows_per_launch_capture_primitive()
+    result["expected_launch_gate_rows_per_launch_capture_primitive"] = expected_launch_rows
+    result["expected_full_dense_launch_gate_rows_present"] = (
+        (result["start_state_family"].astype(str) == "launch_gate")
+        & result["launch_capture_family"].astype(bool)
+        & (result["total_rows"] == expected_launch_rows)
+    )
+    result["credible_launch_gate_outcome"] = (
+        (result["accepted_count"] + result["weak_count"] + result["continuation_valid_count"] + result["terminal_useful_count"] > 0)
+        & (result["hard_failure_count"] < result["total_rows"])
+        & (result["blocked_count"] + result["rejected_count"] < result["total_rows"])
+    )
+    result["r5_launch_capture_gate_passed"] = (
+        (result["start_state_family"].astype(str) == "launch_gate")
+        & result["launch_capture_family"].astype(bool)
+        & (result["entry_role"].astype(str) == "launch_capable")
+        & result["expected_full_dense_launch_gate_rows_present"].astype(bool)
+        & (result["entry_role_rejection_count"] == 0)
+        & result["credible_launch_gate_outcome"].astype(bool)
+    )
+    return result.sort_values(list(R5_REGIME_GROUP_COLUMNS)).reset_index(drop=True)
+
+
+def _empty_r5_diagnosis_frame(*, finalised: bool = True) -> pd.DataFrame:
+    columns = [*R5_REGIME_GROUP_COLUMNS, *R5_REGIME_COUNT_COLUMNS]
+    if finalised:
+        columns.extend(
             [
-                {
-                    "stage_id": "W01",
-                    "library_size_case_id": "not_applicable_w01",
-                    "launch_capable_primitive_family_count": int(compat_launch["primitive_id"].astype(str).nunique()),
-                    "launch_capture_primitive_family_count": int(
-                        compat_launch.loc[
-                            compat_launch["primitive_id"].astype(str).isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS)),
-                            "primitive_id",
-                        ]
-                        .astype(str)
-                        .nunique()
-                    ),
-                    "launch_gate_candidate_rows": int(audit["launch_gate_candidate_rows"].sum()) if not audit.empty else 0,
-                    "first_decision_audit_mode": "not_applicable_w01",
-                }
+                "rejection_rate",
+                "launch_capture_family",
+                "launch_gate_rows_exist",
+                "non_rejected_launch_gate_rows",
+                "expected_launch_gate_rows_per_launch_capture_primitive",
+                "expected_full_dense_launch_gate_rows_present",
+                "credible_launch_gate_outcome",
+                "r5_launch_capture_gate_passed",
             ]
         )
-    else:
-        availability = pd.DataFrame(
-            [
-                {
-                    "stage_id": "W01",
-                    "library_size_case_id": "not_applicable_w01",
-                    "launch_capable_primitive_family_count": 0,
-                    "launch_capture_primitive_family_count": 0,
-                    "launch_gate_candidate_rows": 0,
-                    "first_decision_audit_mode": "not_applicable_w01",
-                }
-            ]
-        )
-    _write_csv(run_root / "metrics" / "launch_gate_candidate_availability.csv", availability)
+    return pd.DataFrame(columns=columns)
+
+
+def _primitive_family_series(frame: pd.DataFrame) -> pd.Series:
+    if "primitive_family" in frame.columns:
+        return frame["primitive_family"].fillna("").astype(str)
+    if "variant_primitive_family" in frame.columns:
+        return frame["variant_primitive_family"].fillna("").astype(str)
+    return pd.Series("", index=frame.index, dtype=str)
+
+
+def _regime_label_series(frame: pd.DataFrame) -> pd.Series:
+    labels = pd.Series(OUT_OF_REGIME_LABEL, index=frame.index, dtype=object)
+    start = frame["start_state_family"].astype(str)
+    primitive_id = frame["primitive_id"].astype(str)
+    entry_role = frame["entry_role"].astype(str)
+    labels.loc[primitive_id.isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS)) & start.eq("launch_gate")] = LAUNCH_CAPTURE_REGIME_LABEL
+    labels.loc[entry_role.eq("inflight_only") & start.isin(INFLIGHT_REGIME_STARTS)] = INFLIGHT_REGIME_LABEL
+    labels.loc[entry_role.eq("terminal_or_recovery") & start.isin(RECOVERY_REGIME_STARTS)] = RECOVERY_REGIME_LABEL
+    return labels
+
+
+def _truthy_series(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame.columns:
+        return pd.Series(False, index=frame.index)
+    values = frame[column]
+    if values.dtype == bool:
+        return values.fillna(False).astype(bool)
+    return values.fillna("").astype(str).str.lower().isin({"true", "1", "yes", "y"})
+
+
+def _existing_columns(frame: pd.DataFrame, columns: list[str]) -> list[str]:
+    return [column for column in columns if column in frame.columns]
+
+
+def _unique_group_count(frame: pd.DataFrame, mask: pd.Series) -> int:
+    if frame.empty or "primitive_id" not in frame.columns:
+        return 0
+    return int(frame.loc[mask, "primitive_id"].astype(str).nunique())
+
+
+def _expected_launch_gate_rows_per_launch_capture_primitive() -> int:
+    return int(round(float(L6_RICH_SIDE_ROW_COUNT) * float(START_FAMILY_MIX["launch_gate"]) / float(len(ACTIVE_PRIMITIVE_IDS))))
 
 
 def _value_counts(frame: pd.DataFrame, column: str) -> pd.DataFrame:
@@ -1328,6 +1502,7 @@ def _write_reports(run_root: Path, *, status: str, row_count: int) -> None:
         run_class=run_class,
         move_on_blockers=move_on_blockers,
     )
+    _write_r5_launch_capture_diagnosis_report(run_root=run_root, status=status, row_count=row_count)
 
 
 def _write_l7_completeness_audit(
@@ -1388,6 +1563,66 @@ def _write_l7_completeness_audit(
         ]
     )
     filesystem_path(run_root / "reports" / "l7_w01_completeness_audit.md").write_text(report, encoding="ascii")
+
+
+def _write_r5_launch_capture_diagnosis_report(*, run_root: Path, status: str, row_count: int) -> None:
+    decision, blockers = _r5_launch_aware_decision_and_blockers(run_root=run_root, status=status, row_count=row_count)
+    diagnosis = _read_csv_or_empty(run_root / "metrics" / "r5_launch_capture_diagnosis.csv")
+    if diagnosis.empty:
+        launch_summary = ["- `missing_or_empty_r5_launch_capture_diagnosis`"]
+    else:
+        launch_rows = diagnosis[
+            (diagnosis["start_state_family"].astype(str) == "launch_gate")
+            & (diagnosis["primitive_id"].astype(str).isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS)))
+        ].copy()
+        launch_summary = []
+        for primitive_id in LAUNCH_CAPTURE_PRIMITIVE_IDS:
+            primitive_rows = launch_rows[launch_rows["primitive_id"].astype(str) == primitive_id]
+            if primitive_rows.empty:
+                launch_summary.append(f"- `{primitive_id}`: `missing_launch_gate_rows`")
+                continue
+            row = primitive_rows.iloc[0].to_dict()
+            launch_summary.append(
+                "- `{}: rows={}, accepted={}, weak={}, continuation_valid={}, terminal_useful={}, hard_failure={}, rejected={}, blocked={}, entry_role_rejections={}, gate_passed={}`".format(
+                    primitive_id,
+                    int(row.get("total_rows", 0)),
+                    int(row.get("accepted_count", 0)),
+                    int(row.get("weak_count", 0)),
+                    int(row.get("continuation_valid_count", 0)),
+                    int(row.get("terminal_useful_count", 0)),
+                    int(row.get("hard_failure_count", 0)),
+                    int(row.get("rejected_count", 0)),
+                    int(row.get("blocked_count", 0)),
+                    int(row.get("entry_role_rejection_count", 0)),
+                    str(row.get("r5_launch_capture_gate_passed", False)),
+                )
+            )
+    report = "\n".join(
+        [
+            "# R5 Launch-Capture Diagnosis",
+            "",
+            f"- Project title version: `{PROJECT_TITLE_VERSION}`",
+            f"- Status: `{status}`",
+            f"- Rows written: `{int(row_count)}`",
+            f"- Expected dense rows: `{int(L6_RICH_SIDE_ROW_COUNT)}`",
+            f"- Expected launch-gate rows per launch-capture primitive: `{_expected_launch_gate_rows_per_launch_capture_primitive()}`",
+            f"- R5 launch-aware decision: `{decision}`",
+            "- Regime labels: `launch_capture_from_launch_gate`, `inflight_from_nominal_or_lift_region`, `recovery_or_safe_exit_from_boundary_or_recovery_edge`.",
+            "- In-flight and recovery/safe-exit rows are diagnostics only and cannot satisfy launch-capture gates.",
+            "",
+            "Launch-capture launch-gate summary:",
+            "",
+            *launch_summary,
+            "",
+            "Blockers:",
+            "",
+            *[f"- `{item}`" for item in (blockers or ["none"])],
+            "",
+            "Later validation stages are deliberately not claimed by this R5-only evidence pass.",
+            "",
+        ]
+    )
+    filesystem_path(run_root / "reports" / "r5_launch_capture_diagnosis.md").write_text(report, encoding="ascii")
 
 
 def _planned_or_written_row_count(run_root: Path, row_count: int) -> int:
@@ -1711,25 +1946,115 @@ def _launch_gate_coverage_blockers(*, run_root: Path, row_count: int) -> list[st
     if int(row_count) < L6_RICH_SIDE_ROW_COUNT:
         return []
     blockers: list[str] = []
-    path = filesystem_path(run_root / "metrics" / "launch_gate_candidate_availability.csv")
+    path = filesystem_path(run_root / "metrics" / "r5_launch_capture_diagnosis.csv")
     if not path.is_file():
-        blockers.append("missing_launch_gate_candidate_availability_audit")
+        blockers.append("missing_r5_launch_capture_diagnosis")
         return blockers
     audit = pd.read_csv(path)
     if audit.empty:
-        blockers.append("empty_launch_gate_candidate_availability_audit")
+        blockers.append("empty_r5_launch_capture_diagnosis")
         return blockers
-    row = audit.iloc[0].to_dict()
-    launch_capable_count = int(float(row.get("launch_capable_primitive_family_count", 0)))
-    launch_capture_count = int(float(row.get("launch_capture_primitive_family_count", 0)))
-    launch_gate_rows = int(float(row.get("launch_gate_candidate_rows", 0)))
+    required = {
+        "start_state_family",
+        "primitive_id",
+        "primitive_family",
+        "entry_role",
+        "accepted_count",
+        "weak_count",
+        "rejected_count",
+        "blocked_count",
+        "continuation_valid_count",
+        "terminal_useful_count",
+        "hard_failure_count",
+        "entry_role_rejection_count",
+        "total_rows",
+        "credible_launch_gate_outcome",
+        "r5_launch_capture_gate_passed",
+    }
+    if not required.issubset(set(audit.columns)):
+        blockers.append("r5_launch_capture_diagnosis_missing_required_columns")
+        return blockers
+    launch_rows = audit[audit["start_state_family"].astype(str) == "launch_gate"].copy()
+    launch_capable_count = int(
+        launch_rows.loc[
+            (launch_rows["entry_role"].astype(str) == "launch_capable")
+            & (pd.to_numeric(launch_rows["total_rows"], errors="coerce").fillna(0) > 0),
+            "primitive_id",
+        ]
+        .astype(str)
+        .nunique()
+    )
+    launch_capture_rows = launch_rows[
+        launch_rows["primitive_id"].astype(str).isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS))
+    ].copy()
+    launch_capture_count = int(launch_capture_rows["primitive_id"].astype(str).nunique())
     if launch_capable_count < 2:
         blockers.append("launch_capable_primitive_family_count_below_2")
     if launch_capture_count < len(LAUNCH_CAPTURE_PRIMITIVE_IDS):
         blockers.append("launch_capture_primitive_coverage_incomplete")
-    if launch_gate_rows <= 0:
-        blockers.append("launch_gate_candidate_rows_missing")
+    expected_rows = _expected_launch_gate_rows_per_launch_capture_primitive()
+    for primitive_id in LAUNCH_CAPTURE_PRIMITIVE_IDS:
+        rows = launch_capture_rows[launch_capture_rows["primitive_id"].astype(str) == str(primitive_id)]
+        if rows.empty:
+            blockers.append(f"{primitive_id}:missing_launch_gate_rows")
+            continue
+        total_rows = int(pd.to_numeric(rows["total_rows"], errors="coerce").fillna(0).sum())
+        entry_roles = set(rows["entry_role"].astype(str))
+        entry_role_rejections = int(pd.to_numeric(rows["entry_role_rejection_count"], errors="coerce").fillna(0).sum())
+        accepted = int(pd.to_numeric(rows["accepted_count"], errors="coerce").fillna(0).sum())
+        weak = int(pd.to_numeric(rows["weak_count"], errors="coerce").fillna(0).sum())
+        continuation = int(pd.to_numeric(rows["continuation_valid_count"], errors="coerce").fillna(0).sum())
+        terminal = int(pd.to_numeric(rows["terminal_useful_count"], errors="coerce").fillna(0).sum())
+        hard_failure = int(pd.to_numeric(rows["hard_failure_count"], errors="coerce").fillna(0).sum())
+        blocked = int(pd.to_numeric(rows["blocked_count"], errors="coerce").fillna(0).sum())
+        rejected = int(pd.to_numeric(rows["rejected_count"], errors="coerce").fillna(0).sum())
+        passed = rows["r5_launch_capture_gate_passed"].astype(str).str.lower().isin({"true", "1"}).any()
+        if total_rows != expected_rows:
+            blockers.append(f"{primitive_id}:launch_gate_row_count_{total_rows}_expected_{expected_rows}")
+        if entry_roles != {"launch_capable"}:
+            blockers.append(f"{primitive_id}:entry_role_not_launch_capable")
+        if entry_role_rejections != 0:
+            blockers.append(f"{primitive_id}:entry_role_rejection_count_{entry_role_rejections}")
+        if accepted + weak + continuation + terminal <= 0:
+            blockers.append(f"{primitive_id}:no_credible_non_rejected_launch_gate_outcome")
+        if hard_failure >= total_rows:
+            blockers.append(f"{primitive_id}:all_launch_gate_rows_hard_failure")
+        if blocked + rejected >= total_rows:
+            blockers.append(f"{primitive_id}:all_launch_gate_rows_blocked_or_rejected")
+        if not passed:
+            blockers.append(f"{primitive_id}:r5_launch_capture_gate_not_passed")
     return blockers
+
+
+def _r5_launch_aware_decision_and_blockers(*, run_root: Path, status: str, row_count: int) -> tuple[str, list[str]]:
+    if str(status) == "dry_run_schedule":
+        return R5_LAUNCH_AWARE_DENSE_INCOMPLETE_RESUME_REQUIRED, ["dry_run_schedule_only_no_rollout_evidence"]
+    if int(row_count) < L6_RICH_SIDE_ROW_COUNT:
+        return R5_LAUNCH_AWARE_DENSE_INCOMPLETE_RESUME_REQUIRED, [
+            f"actual_row_count_{int(row_count)}_below_{int(L6_RICH_SIDE_ROW_COUNT)}"
+        ]
+    blockers = _rich_side_gate_blockers(run_root=run_root, row_count=int(row_count))
+    if blockers:
+        return R5_LAUNCH_AWARE_DENSE_BLOCKED_FIX_REQUIRED, blockers
+    return R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW, []
+
+
+def _r5_launch_aware_manifest_fields(*, run_root: Path, status: str, row_count: int) -> dict[str, object]:
+    decision, blockers = _r5_launch_aware_decision_and_blockers(run_root=run_root, status=status, row_count=row_count)
+    return {
+        "r5_launch_aware_decision": decision,
+        "r5_launch_aware_gate_blockers": blockers,
+        "r5_regime_labels": [
+            LAUNCH_CAPTURE_REGIME_LABEL,
+            INFLIGHT_REGIME_LABEL,
+            RECOVERY_REGIME_LABEL,
+        ],
+        "r5_regime_separation_gate": "launch_capture_rows_judged_only_from_launch_gate_and_not_compensated_by_inflight_or_recovery_rows",
+        "launch_capture_primitive_ids": list(LAUNCH_CAPTURE_PRIMITIVE_IDS),
+        "active_primitive_count": int(len(ACTIVE_PRIMITIVE_IDS)),
+        "expected_launch_gate_rows_per_launch_capture_primitive": _expected_launch_gate_rows_per_launch_capture_primitive(),
+        "later_validation_stages_deliberately_not_run_in_v53_r5_only_pass": True,
+    }
 
 
 def _coverage_values(run_root: Path, axis: str) -> list[str]:
@@ -1987,6 +2312,13 @@ def _refresh_run_manifest_after_execution(*, run_root: Path, config: W01DenseRun
             primitive_counts=schedule_counts["primitive_id"],
         )
     )
+    manifest.update(
+        _r5_launch_aware_manifest_fields(
+            run_root=run_root,
+            status="complete",
+            row_count=int(row_count),
+        )
+    )
     _write_json(run_root / "manifests" / "run_manifest.json", manifest)
 
 
@@ -2069,6 +2401,17 @@ def _run_manifest(
         "per_W_layer_row_counts": schedule_counts["W_layer"],
         "per_environment_mode_row_counts": schedule_counts["environment_mode"],
         "per_start_family_row_counts": schedule_counts["start_state_family"],
+        "r5_launch_aware_decision": R5_LAUNCH_AWARE_DENSE_INCOMPLETE_RESUME_REQUIRED,
+        "r5_launch_aware_gate_blockers": ["rollout_evidence_not_yet_completed"],
+        "r5_regime_labels": [
+            LAUNCH_CAPTURE_REGIME_LABEL,
+            INFLIGHT_REGIME_LABEL,
+            RECOVERY_REGIME_LABEL,
+        ],
+        "r5_regime_separation_gate": "launch_capture_rows_judged_only_from_launch_gate_and_not_compensated_by_inflight_or_recovery_rows",
+        "launch_capture_primitive_ids": list(LAUNCH_CAPTURE_PRIMITIVE_IDS),
+        "active_primitive_count": int(len(ACTIVE_PRIMITIVE_IDS)),
+        "expected_launch_gate_rows_per_launch_capture_primitive": _expected_launch_gate_rows_per_launch_capture_primitive(),
         "cross_layer_smoke_status": cross_layer_status,
         "cross_layer_smoke_blockers": cross_layer_blockers,
         "cross_layer_minimum_paired_start_cycle": int(CROSS_LAYER_START_FAMILY_CYCLE),
@@ -2088,6 +2431,7 @@ def _run_manifest(
         "timing_effects_in_rollout": "panel_wind_feedback_delay_command_timing_actuator_lag_with_plant_and_implementation_instances",
         "claim_status": CLAIM_BOUNDARY,
         "blocked_claims": list(BLOCKED_CLAIMS),
+        "later_validation_stages_deliberately_not_run_in_v53_r5_only_pass": True,
         "tuning_schedule": schedule_row,
     }
 

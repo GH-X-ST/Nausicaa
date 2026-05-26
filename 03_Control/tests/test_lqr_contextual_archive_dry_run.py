@@ -69,7 +69,7 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
 
     run_manifest = json.loads((run_root / "manifests" / "run_manifest.json").read_text(encoding="ascii"))
     assert run_manifest["schedule_mode"] == "balanced_paired"
-    assert run_manifest["project_title_version"] == "LQR-Stabilised Contextual Primitive v5.0"
+    assert run_manifest["project_title_version"] == "LQR-Stabilised Contextual Primitive v5.3"
     assert run_manifest["method_evidence_level"] == "w01_smoke_or_preflight_only"
     assert run_manifest["w01_dense_evidence_complete"] is False
     assert run_manifest["w01_dense_required_for_w2"] is True
@@ -79,6 +79,29 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
     assert set(frame["controller_input_update_period_s"]) == {0.02}
     assert run_manifest["active_controller_design_role"] == "active_timing_aware_w01"
     assert run_manifest["per_start_family_row_counts"]["launch_gate"] == 48
+    assert run_manifest["r5_launch_aware_decision"] == "R5_LAUNCH_AWARE_DENSE_INCOMPLETE_RESUME_REQUIRED"
+    assert run_manifest["active_primitive_count"] == 14
+    diagnosis = pd.read_csv(run_root / "metrics" / "r5_launch_capture_diagnosis.csv")
+    assert {
+        "start_state_family",
+        "primitive_id",
+        "primitive_family",
+        "entry_role",
+        "regime_label",
+        "accepted_count",
+        "weak_count",
+        "failed_count",
+        "rejected_count",
+        "blocked_count",
+        "continuation_valid_count",
+        "terminal_useful_count",
+        "hard_failure_count",
+        "entry_role_rejection_count",
+        "total_rows",
+        "rejection_rate",
+    }.issubset(diagnosis.columns)
+    assert "launch_capture_from_launch_gate" in set(diagnosis["regime_label"])
+    assert (run_root / "reports" / "r5_launch_capture_diagnosis.md").is_file()
     l6_report = (run_root / "reports" / "l6_move_on_check.md").read_text(encoding="ascii")
     assert "predictor_compensated_augmented_discrete_lqr_v1" in l6_report
     assert "below_19200_fallback_scale_threshold" in l6_report

@@ -19,7 +19,8 @@ def _bootstrap_import_paths() -> None:
 
 _bootstrap_import_paths()
 
-from prim_cat import active_primitive_catalogue  # noqa: E402
+from prim_cat import ACTIVE_PRIMITIVE_IDS, LAUNCH_CAPTURE_PRIMITIVE_IDS, active_primitive_catalogue  # noqa: E402
+from primitive_variant_registry import ENTRY_ROLE_BY_PRIMITIVE_ID  # noqa: E402
 from primitive_timing_contract import (  # noqa: E402
     PRIMITIVE_TIMING_CONTRACT_VERSION,
     primitive_timing_contract_row,
@@ -28,8 +29,8 @@ from primitive_timing_contract import (  # noqa: E402
 from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
-SOURCE_AUDIT_VERSION = "v411_source_audit_rerun_readiness_gate"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
+SOURCE_AUDIT_VERSION = "v53_r5_only_launch_aware_source_audit"
 REQUIRED_DOCS = (
     "Glider_Control_Project_Plan.md",
     "Skills.md",
@@ -38,6 +39,8 @@ REQUIRED_DOCS = (
     "MATLAB Coding.txt",
     "housekeeping_and_naming_rules.md",
     "Daily_Schedule.txt",
+    "R5_R10_Full_Evidence_Execution_Plan.md",
+    "CODEX_R9_launch_gate_coverage_repair_guidance.md",
     "PR.txt",
 )
 RESULT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0")
@@ -272,7 +275,7 @@ def write_diagnostic_not_passed_archive(
                 "",
                 f"- Status: `{manifest['status']}`",
                 f"- Superseded roots: `{len(superseded_roots)}`",
-                "- Evidence in this archive is rejected for v5.0 claims.",
+                "- Evidence in this archive is rejected for v5.3 launch-aware R5 claims.",
                 "- No hardware-readiness, real-flight transfer, mission-success, autonomy, or memory-improvement claim is allowed.",
                 "",
             ]
@@ -297,6 +300,7 @@ def _audit_blockers(
     if missing_docs:
         blockers.append({"blocker_id": "missing_required_docs", "details": ",".join(missing_docs)})
     blockers.extend(_primitive_timing_blockers())
+    blockers.extend(_launch_aware_catalogue_blockers())
     blockers.extend(_active_source_blockers(repo_root=repo_root, inventory=inventory))
     if archive_manifest is None and not (archive_root / "manifest.json").is_file():
         blockers.append({"blocker_id": "missing_diagnostic_not_passed_archive", "details": archive_root.as_posix()})
@@ -321,6 +325,39 @@ def _primitive_timing_blockers() -> list[dict[str, object]]:
                     "details": f"{primitive.primitive_id}:{reason}",
                 }
             )
+    return blockers
+
+
+def _launch_aware_catalogue_blockers() -> list[dict[str, object]]:
+    blockers: list[dict[str, object]] = []
+    required_launch_capture = {
+        "launch_capture_glide_stabilise",
+        "launch_capture_lift_seek",
+        "launch_capture_energy_build",
+        "launch_capture_shallow_left",
+        "launch_capture_shallow_right",
+        "launch_capture_safe_handoff",
+    }
+    if len(ACTIVE_PRIMITIVE_IDS) != 14:
+        blockers.append({"blocker_id": "active_primitive_count_not_14", "details": str(len(ACTIVE_PRIMITIVE_IDS))})
+    if set(LAUNCH_CAPTURE_PRIMITIVE_IDS) != required_launch_capture:
+        blockers.append(
+            {
+                "blocker_id": "launch_capture_ids_not_exact_required_set",
+                "details": ",".join(sorted(set(LAUNCH_CAPTURE_PRIMITIVE_IDS) ^ required_launch_capture)),
+            }
+        )
+    for primitive_id in sorted(required_launch_capture):
+        if primitive_id not in ACTIVE_PRIMITIVE_IDS:
+            blockers.append({"blocker_id": "launch_capture_id_missing_from_active_catalogue", "details": primitive_id})
+        if ENTRY_ROLE_BY_PRIMITIVE_ID.get(primitive_id) != "launch_capable":
+            blockers.append({"blocker_id": "launch_capture_entry_role_not_launch_capable", "details": primitive_id})
+    for primitive_id in ("lift_entry", "lift_dwell_arc", "mild_turn_left", "mild_turn_right", "energy_retaining_bank"):
+        if ENTRY_ROLE_BY_PRIMITIVE_ID.get(primitive_id) != "inflight_only":
+            blockers.append({"blocker_id": "inflight_primitive_relabelled_launch_capable", "details": primitive_id})
+    for primitive_id in ("recovery", "safe_exit_or_recovery_handoff"):
+        if ENTRY_ROLE_BY_PRIMITIVE_ID.get(primitive_id) != "terminal_or_recovery":
+            blockers.append({"blocker_id": "recovery_primitive_entry_role_changed", "details": primitive_id})
     return blockers
 
 
