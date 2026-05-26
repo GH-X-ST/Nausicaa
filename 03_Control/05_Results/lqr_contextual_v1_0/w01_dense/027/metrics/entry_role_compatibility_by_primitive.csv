@@ -1,0 +1,15 @@
+primitive_id,entry_role,entry_role_compatible,row_count
+energy_retaining_bank,inflight_only,True,9600
+glide,inflight_only,True,9600
+launch_capture_energy_build,launch_capable,True,9600
+launch_capture_glide_stabilise,launch_capable,True,9600
+launch_capture_lift_seek,launch_capable,True,9600
+launch_capture_safe_handoff,launch_capable,True,9600
+launch_capture_shallow_left,launch_capable,True,9600
+launch_capture_shallow_right,launch_capable,True,9600
+lift_dwell_arc,inflight_only,True,9600
+lift_entry,inflight_only,True,9600
+mild_turn_left,inflight_only,True,9600
+mild_turn_right,inflight_only,True,9600
+recovery,terminal_or_recovery,True,9600
+safe_exit_or_recovery_handoff,terminal_or_recovery,True,9600

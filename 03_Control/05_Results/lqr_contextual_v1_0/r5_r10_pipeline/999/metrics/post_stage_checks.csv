@@ -1,0 +1,19 @@
+timestamp_utc,stage_id,check_id,passed,observed,required
+2026-05-26T19:59:02.555636+00:00,R5,stage_status_not_diagnostic,True,complete,complete
+2026-05-26T19:59:02.555636+00:00,R5,method_evidence_level_w01_dense,True,w01_dense_evidence_complete,w01_dense_evidence_complete
+2026-05-26T19:59:02.555636+00:00,R5,w01_dense_evidence_complete_true,True,True,True
+2026-05-26T19:59:02.555636+00:00,R5,actual_row_count_active_dense_target,True,134400,134400
+2026-05-26T19:59:02.555636+00:00,R5,candidate_count_32,True,32,32
+2026-05-26T19:59:02.555636+00:00,R5,paired_tests_per_candidate_100,True,100,100
+2026-05-26T19:59:02.555636+00:00,R5,active_primitive_count_14,True,14,14
+2026-05-26T19:59:02.555636+00:00,R5,all_six_launch_capture_ids,True,"[""launch_capture_glide_stabilise"", ""launch_capture_lift_seek"", ""launch_capture_energy_build"", ""launch_capture_shallow_left"", ""launch_capture_shallow_right"", ""launch_capture_safe_handoff""]","[""launch_capture_glide_stabilise"", ""launch_capture_lift_seek"", ""launch_capture_energy_build"", ""launch_capture_shallow_left"", ""launch_capture_shallow_right"", ""launch_capture_safe_handoff""]"
+2026-05-26T19:59:02.555636+00:00,R5,r5_launch_aware_decision_passed_for_review,True,R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW,R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW
+2026-05-26T19:59:02.578675+00:00,R5,launch_gate_candidate_availability_audit,True,audit,passed
+2026-05-26T19:59:02.578675+00:00,R5,w3_replay_only,True,True,True
+2026-05-26T19:59:02.578675+00:00,R5,w2_not_required_for_move_on,True,False,False
+2026-05-26T19:59:02.578675+00:00,R5,r6_archived_diagnostic_only,True,True,True
+2026-05-26T19:59:02.578675+00:00,R5,no_clustering_before_w3,True,True,True
+2026-05-26T19:59:02.578675+00:00,R5,selected_worker_count_8,True,8,8
+2026-05-26T19:59:02.579661+00:00,R5,frozen_bundle_exists,True,03_Control/05_Results/lqr_contextual_v1_0/w01_dense/027/manifests/frozen_w01_controller_bundle.json,exists
+2026-05-26T19:59:02.579661+00:00,R5,table_manifest_exists,True,03_Control/05_Results/lqr_contextual_v1_0/w01_dense/027/manifests/table_manifest.json,exists
+2026-05-26T19:59:02.681816+00:00,R5,no_generated_file_above_100mb,True,8.008,<=100.0
