@@ -29,7 +29,7 @@ from dense_archive_table_io import (  # noqa: E402
 from primitive_timing_contract import PRIMITIVE_TIMING_CONTRACT_VERSION, primitive_timing_contract_row  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
 W3_ANALYSIS_VERSION = "w3_variant_survival_analysis_v411"
 DEFAULT_W3_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival/013")
 W3_ENVIRONMENT_MODES = ("w3_randomised_single", "w3_randomised_four")

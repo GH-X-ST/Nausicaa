@@ -26,7 +26,7 @@ from prim_cat import LAUNCH_CAPTURE_PRIMITIVE_IDS  # noqa: E402
 from primitive_timing_contract import primitive_timing_contract_row, primitive_timing_contract_status  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
 POST_W3_LIBRARY_STUDY_VERSION = "post_w3_library_size_study_v411"
 DEFAULT_W3_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")
 DEFAULT_INPUT_ROOT: Path | None = None
@@ -75,7 +75,7 @@ class PostW3LibrarySizeStudyConfig:
 
 
 def run_post_w3_library_size_study(config: PostW3LibrarySizeStudyConfig) -> dict[str, object]:
-    """Build the four v5.0 post-W3 library-size cases from W3 survivors."""
+    """Build the four v5.3 post-W3 library-size cases from W3 survivors."""
 
     config = PostW3LibrarySizeStudyConfig(
         input_root=_resolve_w3_input_root(config.input_root),
@@ -363,6 +363,7 @@ def _library_payload(
         "claim_status": "simulation_only_post_w3_library_size_case",
         "no_controller_mutation": True,
         "continuation_and_terminal_evidence_separate": True,
+        "entry_role_regime_separation_policy": "representatives_grouped_by_primitive_id_and_entry_role_no_cross_role_merge",
         "primitive_timing_contract": primitive_timing_contract_row(),
         "blocked_claims": list(BLOCKED_CLAIMS),
         "representatives": representatives,
@@ -385,6 +386,9 @@ def _launch_gate_candidate_availability(representatives: list[dict[str, object]]
         launch_capable_count = int(launch_capable.get("primitive_id", pd.Series(dtype=str)).astype(str).nunique()) if not launch_capable.empty else 0
         launch_capture_count = int(launch_capture.get("primitive_id", pd.Series(dtype=str)).astype(str).nunique()) if not launch_capture.empty else 0
         representative_count = int(len(launch_capable))
+        launch_capable_ids = set(launch_capable.get("primitive_id", pd.Series(dtype=str)).astype(str)) if not launch_capable.empty else set()
+        non_launch_capture_launch_capable = sorted(launch_capable_ids - launch_capture_ids)
+        missing_launch_capture_ids = sorted(launch_capture_ids - set(launch_capture.get("primitive_id", pd.Series(dtype=str)).astype(str))) if not launch_capture.empty else sorted(launch_capture_ids)
         rows.append(
             {
                 "stage_id": "R8",
@@ -392,13 +396,18 @@ def _launch_gate_candidate_availability(representatives: list[dict[str, object]]
                 "launch_capable_primitive_family_count": launch_capable_count,
                 "launch_capture_primitive_family_count": launch_capture_count,
                 "launch_gate_candidate_rows": representative_count,
+                "required_launch_capture_primitive_family_count": int(len(launch_capture_ids)),
+                "missing_launch_capture_primitive_ids": ",".join(missing_launch_capture_ids),
+                "non_launch_capture_launch_capable_primitive_ids": ",".join(non_launch_capture_launch_capable),
                 "first_decision_audit_mode": "post_w3_library_availability",
             }
         )
         if launch_capable_count < 2:
             blockers.append(f"{case_id}:launch_capable_primitive_family_count_below_2")
-        if launch_capture_count <= 0:
-            blockers.append(f"{case_id}:launch_capture_representative_missing")
+        if launch_capture_count < len(launch_capture_ids):
+            blockers.append(f"{case_id}:launch_capture_representative_missing:{','.join(missing_launch_capture_ids)}")
+        if non_launch_capture_launch_capable:
+            blockers.append(f"{case_id}:non_launch_capture_launch_capable:{','.join(non_launch_capture_launch_capable)}")
     return pd.DataFrame(rows), blockers
 
 
@@ -435,6 +444,7 @@ def _study_manifest(
         "library_size_case_ids": list(LIBRARY_SIZE_CASE_IDS),
         "library_size_cases": case_rows,
         "primitive_timing_contract": primitive_timing_contract_row(),
+        "entry_role_regime_separation_policy": "representatives_grouped_by_primitive_id_and_entry_role_no_cross_role_merge",
         "claim_status": "simulation_only_post_w3_library_size_study",
         "blocked_claims": list(BLOCKED_CLAIMS),
     }
@@ -460,7 +470,7 @@ def _write_blocked_outputs(run_root: Path, config: PostW3LibrarySizeStudyConfig,
 
 def _write_report(run_root: Path, manifest: dict[str, object]) -> None:
     lines = [
-        "# v5.0 Post-W3 Library-Size Study",
+        "# v5.3 Post-W3 Library-Size Study",
         "",
         f"- Status: `{manifest.get('status', '')}`",
         f"- Library-size cases: `{','.join(LIBRARY_SIZE_CASE_IDS)}`",
@@ -517,7 +527,7 @@ def _write_csv(path: Path, frame: pd.DataFrame) -> None:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build v5.0 four-case post-W3 library-size study.")
+    parser = argparse.ArgumentParser(description="Build v5.3 four-case post-W3 library-size study.")
     parser.add_argument("--input-root", type=Path, default=DEFAULT_INPUT_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-id", type=int, default=1)

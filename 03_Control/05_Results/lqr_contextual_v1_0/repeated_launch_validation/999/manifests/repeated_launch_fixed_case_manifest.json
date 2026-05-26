@@ -1,0 +1,18 @@
+{
+  "manifest_version": "repeated_launch_fixed_case_rollout_validation_v6",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
+  "status": "blocked",
+  "stage_id": "R9",
+  "run_id": 999,
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/repeated_launch_validation/999",
+  "blocked_reason": "post_w3_library_size_study_not_v5_project_title",
+  "pass_gate": false,
+  "claim_status": "simulation_only_blocked_repeated_launch_validation",
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "full_autonomy",
+    "memory_improvement"
+  ]
+}

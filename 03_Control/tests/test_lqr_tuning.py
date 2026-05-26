@@ -38,7 +38,7 @@ def test_variant_registry_schema_stable_ids_and_checksum_validation() -> None:
     changed = replace(controller, lqr_gain_checksum="0" * 64)
 
     assert variant_a.primitive_variant_id == variant_b.primitive_variant_id
-    assert variant_a.primitive_variant_id.startswith("primvar_glide_launch_capable_")
+    assert variant_a.primitive_variant_id.startswith("primvar_glide_inflight_only_")
     assert variant_a.K_gain_checksum == controller.lqr_gain_checksum
     assert variant_a.controller_design_role == "active_timing_aware_w01"
     assert variant_a.timing_augmentation_type == "actuator_surface_state_command_fifo_predictor_compensated"
@@ -61,7 +61,7 @@ def test_variant_registry_schema_stable_ids_and_checksum_validation() -> None:
 
 def test_correct_first_pass_entry_roles_and_launch_gate_rejections() -> None:
     assert ENTRY_ROLE_BY_PRIMITIVE_ID == {
-        "glide": "launch_capable",
+        "glide": "inflight_only",
         "lift_entry": "inflight_only",
         "lift_dwell_arc": "inflight_only",
         "mild_turn_left": "inflight_only",
@@ -78,7 +78,12 @@ def test_correct_first_pass_entry_roles_and_launch_gate_rejections() -> None:
     }
     assert set(ENTRY_ROLE_BY_PRIMITIVE_ID) == set(ACTIVE_PRIMITIVE_IDS)
     assert start_family_is_compatible(entry_role="launch_capable", start_state_family="launch_gate")
+    assert not start_family_is_compatible(entry_role="launch_capable", start_state_family="inflight_nominal")
+    assert start_family_is_compatible(entry_role="inflight_only", start_state_family="inflight_nominal")
+    assert start_family_is_compatible(entry_role="inflight_only", start_state_family="inflight_lift_region")
     assert not start_family_is_compatible(entry_role="inflight_only", start_state_family="launch_gate")
+    assert start_family_is_compatible(entry_role="terminal_or_recovery", start_state_family="inflight_boundary_near")
+    assert start_family_is_compatible(entry_role="terminal_or_recovery", start_state_family="inflight_recovery_edge")
     assert not start_family_is_compatible(entry_role="terminal_or_recovery", start_state_family="launch_gate")
 
     fields = entry_role_rejection_fields(entry_role="inflight_only", start_state_family="launch_gate")

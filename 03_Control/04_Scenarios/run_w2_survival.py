@@ -58,7 +58,7 @@ from frozen_w01_controller_bundle import (  # noqa: E402
 )
 from implementation_instance import implementation_instance_for_layer, implementation_instance_row  # noqa: E402
 from plant_instance import plant_instance_for_layer, plant_instance_row  # noqa: E402
-from prim_cat import primitive_by_id  # noqa: E402
+from prim_cat import ACTIVE_PRIMITIVE_IDS, primitive_by_id  # noqa: E402
 from prim_roll import (  # noqa: E402
     RolloutConfig,
     blocked_rollout_evidence,
@@ -68,6 +68,7 @@ from prim_roll import (  # noqa: E402
 from primitive_variant_registry import (  # noqa: E402
     ENTRY_ROLE_REJECTION_LABEL,
     ENTRY_ROLE_REJECTION_STATUS,
+    start_family_for_entry_role_index,
     start_family_is_compatible,
     variant_row,
 )
@@ -79,12 +80,11 @@ from primitive_timing_contract import (  # noqa: E402
 from state_sampling import (  # noqa: E402
     archive_state_sample_for_family,
     archive_state_sample_row,
-    start_state_family_for_row,
 )
 
 
 W2_SURVIVAL_VERSION = "w2_fixed_lqr_survival_replay_v411"
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
 DEFAULT_W01_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 DEFAULT_W01_INPUT_ROOT: Path | None = None
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")
@@ -92,8 +92,8 @@ W2_TABLE_NAME = "w2_survival_rows"
 W2_ENVIRONMENT_CASES = ("annular_gp_single", "annular_gp_four")
 W2_STATUS_VOCABULARY = ("survived", "downgraded", "eliminated", "blocked", "not_run")
 W2_RUN_STATUSES = ("blocked", "dry_run_schedule", "w2_artifact_smoke_pass", "w2_smoke_no_survivors", "w2_dense_survival_pass", "w2_dense_no_survivors")
-W2_DENSE_ROW_COUNT = 51_200
-W2_DENSE_VARIANT_COUNT = 256
+W2_DENSE_VARIANT_COUNT = len(ACTIVE_PRIMITIVE_IDS) * 32
+W2_DENSE_ROW_COUNT = W2_DENSE_VARIANT_COUNT * len(W2_ENVIRONMENT_CASES) * 100
 W2_SMOKE_MIN_PAIRED_TESTS = 20
 CLAIM_BOUNDARY = (
     "simulation_only_W2_fixed_LQR_survival_replay_for_frozen_W01_timing_aware_primitive_library"
@@ -714,13 +714,17 @@ def _row_schedule_for_index(
 ) -> W2RowSchedule:
     variant_count = max(1, len(records))
     variant_index = int(row_index) % variant_count
+    record = records[variant_index]
     grouped_index = int(row_index) // variant_count
     environment_index = grouped_index % len(W2_ENVIRONMENT_CASES)
     paired_start_index = grouped_index // len(W2_ENVIRONMENT_CASES)
-    family = start_state_family_for_row(paired_start_index)
+    family = start_family_for_entry_role_index(
+        entry_role=record.variant.entry_role,
+        index=int(paired_start_index),
+    )
     return W2RowSchedule(
         row_index=int(row_index),
-        primitive_variant_id=records[variant_index].primitive_variant_id,
+        primitive_variant_id=record.primitive_variant_id,
         variant_index=int(variant_index),
         environment_mode=W2_ENVIRONMENT_CASES[environment_index],
         paired_start_index=int(paired_start_index),
@@ -1129,7 +1133,7 @@ def _w2_move_on_status(
         return "blocked", common_blockers
     if dense_shape:
         if int(bundle.ready_count) != W2_DENSE_VARIANT_COUNT:
-            return "blocked", ["ready_controller_count_not_256"]
+            return "blocked", [f"ready_controller_count_not_{W2_DENSE_VARIANT_COUNT}"]
         return ("w2_dense_survival_pass" if survived else "w2_dense_no_survivors"), []
     if smoke_blockers:
         return "blocked", smoke_blockers
@@ -1270,6 +1274,7 @@ def _write_run_manifest(
         "worker_decision": worker_decision,
         "fixed_lqr_replay_only": True,
         "mutates_Q_R_K_reference_horizon_entry_set_or_entry_role": False,
+        "entry_role_regime_separation_policy": "role_aware_start_family_schedule_launch_inflight_recovery_not_mixed",
         "variant_status_vocabulary": list(W2_STATUS_VOCABULARY),
         "run_status_vocabulary": list(W2_RUN_STATUSES),
         "w2_smoke_dense_label_policy": "smoke_labels_do_not_clear_dense_W2_evidence",

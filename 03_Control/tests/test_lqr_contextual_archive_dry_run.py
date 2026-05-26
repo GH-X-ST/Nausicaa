@@ -107,7 +107,7 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
     assert "below_19200_fallback_scale_threshold" in l6_report
 
 
-def test_w01_launch_gate_rejections_are_not_controller_failures(tmp_path: Path) -> None:
+def test_w01_role_aware_schedule_avoids_launch_gate_entry_rejections(tmp_path: Path) -> None:
     result = run_lqr_w01_dense_chunked(
         W01DenseRunConfig(
             run_id=3,
@@ -126,13 +126,11 @@ def test_w01_launch_gate_rejections_are_not_controller_failures(tmp_path: Path) 
         run_root / "tables" / manifest.tables[0].relative_path,
         storage_format=manifest.tables[0].storage_format,
     )
-    rejected = frame[
-        frame["start_state_family"].eq("launch_gate")
-        & frame["entry_role"].isin(["inflight_only", "terminal_or_recovery"])
-    ]
+    launch_rows = frame[frame["start_state_family"].eq("launch_gate")]
+    non_launch_rows = frame[frame["start_state_family"].ne("launch_gate")]
 
-    assert not rejected.empty
-    assert set(rejected["outcome_class"]) == {"rejected"}
-    assert set(rejected["entry_check_status"]) == {"entry_role_incompatible_start"}
-    assert set(rejected["failure_label"]) == {"entry_role_not_launch_capable"}
-    assert not rejected["lqr_synthesis_status"].astype(str).str.contains("entry_role").any()
+    assert not launch_rows.empty
+    assert set(launch_rows["entry_role"]) == {"launch_capable"}
+    assert {"inflight_only", "terminal_or_recovery"}.issubset(set(non_launch_rows["entry_role"]))
+    assert not frame["entry_check_status"].astype(str).eq("entry_role_incompatible_start").any()
+    assert not frame["failure_label"].astype(str).eq("entry_role_not_launch_capable").any()

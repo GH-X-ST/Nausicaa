@@ -35,6 +35,7 @@ from dense_archive_table_io import (  # noqa: E402
     write_table_manifest,
     write_table_partition,
 )
+from arena_contract import TRUE_SAFE_BOUNDS, position_margin_m  # noqa: E402
 from directional_residual_lift_belief import (  # noqa: E402
     DirectionalResidualLiftBelief,
     DirectionalResidualObservation,
@@ -51,14 +52,14 @@ from implementation_instance import implementation_instance_for_layer  # noqa: E
 from plant_instance import plant_instance_for_layer  # noqa: E402
 from prim_cat import LAUNCH_CAPTURE_PRIMITIVE_IDS, primitive_by_id  # noqa: E402
 from prim_roll import RolloutConfig, rollout_evidence_row, simulate_primitive_rollout  # noqa: E402
-from primitive_timing_contract import primitive_timing_contract_row  # noqa: E402
+from primitive_timing_contract import PRIMITIVE_FINITE_HORIZON_S, primitive_timing_contract_row  # noqa: E402
 from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS  # noqa: E402
 from state_contract import STATE_INDEX, as_state_vector  # noqa: E402
 from state_sampling import archive_state_sample_for_family  # noqa: E402
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, GovernorConfig  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
 VALIDATION_VERSION = "repeated_launch_fixed_case_rollout_validation_v6"
 HISTORY_LENGTHS = (0, 5, 10, 20, 50, 100)
 HISTORY_LENGTH_SUM = sum(HISTORY_LENGTHS)
@@ -95,6 +96,19 @@ TABLE_NAMES = (
     "memory_residual_update_log",
     "belief_snapshot_log",
 )
+LAUNCH_SEQUENCE_POLICY_ID = "first_0p10s_launch_capture_then_inflight_then_recovery_safe_exit"
+FIRST_PRIMITIVE_START_FAMILY = "launch_gate"
+POST_LAUNCH_START_FAMILY = "inflight_nominal"
+BOUNDARY_RECOVERY_START_FAMILY = "inflight_boundary_near"
+TERMINAL_SAFE_EXIT_START_FAMILY = "inflight_recovery_edge"
+RECOVERY_ROUTE_MARGIN_M = 0.25
+RECOVERY_EDGE_MIN_SPEED_M_S = 4.2
+RECOVERY_EDGE_MAX_ABS_ROLL_RAD = math.radians(35.0)
+RECOVERY_EDGE_MAX_ABS_PITCH_RAD = math.radians(22.0)
+RECOVERY_EDGE_MAX_BODY_RATE_RAD_S = 0.65
+LAUNCH_SCORE_VERSION = "r9_r10_specific_energy_multiplicative_launch_score_v1"
+SPECIFIC_ENERGY_GRAVITY_M_S2 = 9.80665
+SCORING_TARGET_EPISODE_TIME_S = 1.5
 BLOCKED_CLAIMS = (
     "hardware_readiness",
     "real_flight_transfer",
@@ -472,7 +486,8 @@ def _outer_case_schedule(*, protocol: ValidationProtocol, seed: int) -> list[dic
                     "launch_state_seed": launch_seed,
                     "environment_seed": env_seed,
                     "common_final_launch_key": f"{protocol.final_schedule_prefix}_final_{outer_index:04d}",
-                    "start_state_family": "launch_gate",
+                    "start_state_family": FIRST_PRIMITIVE_START_FAMILY,
+                    "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
                     "claim_status": "simulation_only_controlled_outer_case",
                 }
             )
@@ -593,7 +608,7 @@ def _run_one_launch(
 ) -> dict[str, object]:
     episode_id = str(scheduled["episode_id"])
     sample = archive_state_sample_for_family(
-        start_state_family="launch_gate",
+        start_state_family=FIRST_PRIMITIVE_START_FAMILY,
         paired_start_key=str(scheduled["common_final_launch_key"]),
         sample_index=int(scheduled["outer_case_index"]),
         seed=int(scheduled["launch_state_seed"]),
@@ -612,7 +627,9 @@ def _run_one_launch(
     context_row: dict[str, object] = {}
     blocked_reason = ""
     for primitive_step_index in range(max_steps):
-        start_state_family = "launch_gate" if primitive_step_index == 0 else _continuation_start_family(state)
+        route = validation_route_for_primitive_step(primitive_step_index, state=state)
+        start_state_family = str(route["start_state_family"])
+        governor_mode = _governor_mode_for_route(route)
         context_payload = _context_payload(
             state=state,
             scheduled=scheduled,
@@ -620,6 +637,7 @@ def _run_one_launch(
             protocol=protocol,
             start_state_family=start_state_family,
             primitive_step_index=primitive_step_index,
+            route=route,
         )
         context_row = context_payload["row"]
         belief_features = None
@@ -635,7 +653,7 @@ def _run_one_launch(
             representatives=representatives,
             outcome_rows_by_variant_id=outcome_rows_by_variant_id,
             context=context_payload["row"],
-            governor_mode="continuation_mode",
+            governor_mode=governor_mode,
             policy_id=str(policy["policy_id"]),
             belief_features=belief_features,
             governor_config=governor_config,
@@ -644,13 +662,17 @@ def _run_one_launch(
             row.update(_schedule_identity_row(scheduled))
             row["launch_role"] = str(scheduled["launch_role"])
             row["primitive_step_index"] = int(primitive_step_index)
+            row["launch_sequence_policy"] = LAUNCH_SEQUENCE_POLICY_ID
+            row["launch_sequence_phase"] = str(route["launch_sequence_phase"])
+            row["route_required_entry_role"] = str(route["route_required_entry_role"])
+            row["route_reason"] = str(route["route_reason"])
         candidate_rows_all.extend(candidate_rows)
         selector_row = {
             **selector_decision_row(
                 episode_id=episode_id,
                 primitive_step_index=primitive_step_index,
                 policy_id=str(policy["policy_id"]),
-                governor_mode="continuation_mode",
+                governor_mode=governor_mode,
                 context=context_payload["row"],
                 selected=selected,
                 candidate_count=len(candidate_rows),
@@ -659,6 +681,10 @@ def _run_one_launch(
             ),
             **_schedule_identity_row(scheduled),
             "launch_role": str(scheduled["launch_role"]),
+            "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
+            "launch_sequence_phase": str(route["launch_sequence_phase"]),
+            "route_required_entry_role": str(route["route_required_entry_role"]),
+            "route_reason": str(route["route_reason"]),
         }
         selector_rows.append(selector_row)
         belief_rows.append(
@@ -698,6 +724,12 @@ def _run_one_launch(
                 **_schedule_identity_row(scheduled),
                 "launch_role": str(scheduled["launch_role"]),
                 "primitive_step_index": int(primitive_step_index),
+                "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
+                "launch_sequence_phase": str(route["launch_sequence_phase"]),
+                "start_state_family": start_state_family,
+                "route_required_entry_role": str(route["route_required_entry_role"]),
+                "route_reason": str(route["route_reason"]),
+                "selected_entry_role": str(selected.get("entry_role", "")),
                 "policy_id": str(policy["policy_id"]),
                 "selected_compact_library_id": str(selected.get("compact_library_id", "")),
                 "selected_score": float(selected.get("total_score_with_memory_and_exploration", selected.get("score", 0.0))),
@@ -799,9 +831,92 @@ def _outcome_for_selected(
     return {}
 
 
-def _continuation_start_family(state: np.ndarray) -> str:
-    del state
-    return "inflight_nominal"
+def validation_route_for_primitive_step(primitive_step_index: int, *, state: np.ndarray | None = None) -> dict[str, object]:
+    """Return the governor-facing route without using rollout-budget knowledge."""
+
+    if int(primitive_step_index) == 0:
+        start_family = FIRST_PRIMITIVE_START_FAMILY
+        reason = "first_0p10s_launch_window"
+    else:
+        start_family, reason = _continuation_start_family_and_reason(state)
+    return {
+        "start_state_family": start_family,
+        "launch_sequence_phase": _launch_sequence_phase_for_start_family(
+            primitive_step_index,
+            start_state_family=start_family,
+        ),
+        "route_required_entry_role": _required_entry_role_for_start_family(start_family),
+        "route_reason": reason,
+    }
+
+
+def validation_start_family_for_primitive_step(primitive_step_index: int, *, state: np.ndarray | None = None) -> str:
+    """Return the governor-facing start family for the launch-aware sequence."""
+
+    return str(validation_route_for_primitive_step(primitive_step_index, state=state)["start_state_family"])
+
+
+def _continuation_start_family(state: np.ndarray | None) -> str:
+    return _continuation_start_family_and_reason(state)[0]
+
+
+def _continuation_start_family_and_reason(state: np.ndarray | None) -> tuple[str, str]:
+    if state is None:
+        return POST_LAUNCH_START_FAMILY, "state_unavailable_default_nominal_continuation"
+    try:
+        x = as_state_vector(state)
+        margins = position_margin_m(x[[STATE_INDEX["x_w"], STATE_INDEX["y_w"], STATE_INDEX["z_w"]]], TRUE_SAFE_BOUNDS)
+    except Exception:
+        return TERMINAL_SAFE_EXIT_START_FAMILY, "invalid_state_recovery_edge_route"
+    speed = float(np.linalg.norm(x[[STATE_INDEX["u"], STATE_INDEX["v"], STATE_INDEX["w"]]]))
+    max_body_rate = max(
+        abs(float(x[STATE_INDEX["p"]])),
+        abs(float(x[STATE_INDEX["q"]])),
+        abs(float(x[STATE_INDEX["r"]])),
+    )
+    degraded_energy_or_attitude = (
+        speed < RECOVERY_EDGE_MIN_SPEED_M_S
+        or abs(float(x[STATE_INDEX["phi"]])) > RECOVERY_EDGE_MAX_ABS_ROLL_RAD
+        or abs(float(x[STATE_INDEX["theta"]])) > RECOVERY_EDGE_MAX_ABS_PITCH_RAD
+        or max_body_rate > RECOVERY_EDGE_MAX_BODY_RATE_RAD_S
+    )
+    if degraded_energy_or_attitude:
+        return TERMINAL_SAFE_EXIT_START_FAMILY, "degraded_energy_attitude_or_rate_recovery_edge_route"
+    if float(margins["min_margin_m"]) <= 0.0:
+        return TERMINAL_SAFE_EXIT_START_FAMILY, "outside_or_on_true_safe_boundary_recovery_edge_route"
+    if float(margins["min_margin_m"]) <= RECOVERY_ROUTE_MARGIN_M:
+        return BOUNDARY_RECOVERY_START_FAMILY, "true_safe_margin_below_recovery_route_threshold"
+    return POST_LAUNCH_START_FAMILY, "normal_post_launch_continuation"
+
+
+def _launch_sequence_phase_for_start_family(primitive_step_index: int, *, start_state_family: str) -> str:
+    if int(primitive_step_index) == 0:
+        return "first_0p10s_launch_capture"
+    family = str(start_state_family)
+    if family == BOUNDARY_RECOVERY_START_FAMILY:
+        return "state_routed_boundary_recovery"
+    if family == TERMINAL_SAFE_EXIT_START_FAMILY:
+        return "state_routed_recovery_safe_exit"
+    return "post_launch_inflight"
+
+
+def _launch_sequence_phase_for_step(primitive_step_index: int) -> str:
+    return str(validation_route_for_primitive_step(primitive_step_index)["launch_sequence_phase"])
+
+
+def _required_entry_role_for_start_family(start_state_family: str) -> str:
+    family = str(start_state_family)
+    if family == FIRST_PRIMITIVE_START_FAMILY:
+        return "launch_capable"
+    if family in {BOUNDARY_RECOVERY_START_FAMILY, TERMINAL_SAFE_EXIT_START_FAMILY}:
+        return "terminal_or_recovery"
+    return "inflight_only"
+
+
+def _governor_mode_for_route(route: dict[str, object]) -> str:
+    if str(route.get("route_required_entry_role", "")) == "terminal_or_recovery":
+        return "terminal_episode_mode"
+    return "continuation_mode"
 
 
 def _context_payload(
@@ -812,6 +927,7 @@ def _context_payload(
     protocol: ValidationProtocol,
     start_state_family: str,
     primitive_step_index: int,
+    route: dict[str, object] | None = None,
 ) -> dict[str, object]:
     env_layer = str(scheduled["W_layer"])
     mode = str(scheduled["environment_mode"])
@@ -831,6 +947,7 @@ def _context_payload(
     )
     plant_layer = "W2" if protocol.requires_no_glider_latency_variation_audit else env_layer
     implementation_layer = "W2" if protocol.requires_no_glider_latency_variation_audit else env_layer
+    route = route or validation_route_for_primitive_step(primitive_step_index, state=state)
     row = {
         "context_id": f"{episode_id}_ctx{int(primitive_step_index):02d}",
         "W_layer": env_layer,
@@ -840,6 +957,10 @@ def _context_payload(
         "outer_case_type": str(scheduled.get("outer_case_type", "")),
         "start_state_family": str(start_state_family),
         "primitive_step_index": int(primitive_step_index),
+        "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
+        "launch_sequence_phase": str(route.get("launch_sequence_phase", _launch_sequence_phase_for_step(primitive_step_index))),
+        "route_required_entry_role": str(route.get("route_required_entry_role", _required_entry_role_for_start_family(start_state_family))),
+        "route_reason": str(route.get("route_reason", "")),
         "latency_case": latency_case,
         "wall_margin_m": float(context.wall_margin_m),
         "floor_margin_m": float(context.floor_margin_m),
@@ -904,8 +1025,14 @@ def _episode_row_from_sequence(
     selected_variants = _sequence_values(primitive_rows, "primitive_variant_id")
     selected_primitives = _sequence_values(primitive_rows, "primitive_id")
     selected_controllers = _sequence_values(primitive_rows, "controller_id")
+    selected_entry_roles = _sequence_values(primitive_rows, "selected_entry_role")
+    selected_start_families = _sequence_values(primitive_rows, "start_state_family")
+    selected_required_roles = _sequence_values(primitive_rows, "route_required_entry_role")
+    selected_route_reasons = _sequence_values(primitive_rows, "route_reason")
+    energy_summary = _episode_specific_energy_summary(primitive_rows)
     last_row = primitive_rows[-1]
-    return {
+    sequence_compliant = _launch_sequence_compliant(primitive_rows)
+    row = {
         **_schedule_identity_row(scheduled),
         "launch_role": str(scheduled["launch_role"]),
         "policy_family": str(policy["policy_family"]),
@@ -913,7 +1040,14 @@ def _episode_row_from_sequence(
         "selected_primitive_variant_id": ";".join(selected_variants),
         "selected_primitive_id": ";".join(selected_primitives),
         "selected_controller_id": ";".join(selected_controllers),
+        "selected_entry_role_sequence": ";".join(selected_entry_roles),
+        "selected_start_state_family_sequence": ";".join(selected_start_families),
+        "selected_route_required_entry_role_sequence": ";".join(selected_required_roles),
+        "selected_route_reason_sequence": ";".join(selected_route_reasons),
         "selected_primitive_step_count": int(len(primitive_rows)),
+        "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
+        "launch_first_then_inflight_sequence_compliant": bool(sequence_compliant),
+        "launch_inflight_recovery_sequence_compliant": bool(sequence_compliant),
         "termination_cause": str(blocked_reason or last_row.get("termination_cause", "")),
         "hard_failure": bool(hard_failure),
         "floor_or_ceiling_violation": bool(floor_or_ceiling),
@@ -923,6 +1057,7 @@ def _episode_row_from_sequence(
         "lift_capture": bool(lift_capture),
         "lift_dwell_time_s": float(sum(_float_value(row.get("lift_dwell_time_s", 0.0)) for row in primitive_rows)),
         "energy_residual_m": float(sum(_float_value(row.get("energy_residual_m", 0.0)) for row in primitive_rows)),
+        **energy_summary,
         "min_wall_margin_m": float(min(_float_value(row.get("minimum_wall_margin_m", 0.0)) for row in primitive_rows)),
         "governor_rejection_count": int(
             sum(int(row.get("candidate_count", 0)) - int(row.get("viable_count", 0)) for row in selector_rows)
@@ -936,6 +1071,8 @@ def _episode_row_from_sequence(
         "belief_update_count_before": int(belief_before.update_count),
         "belief_update_count_after": int(belief_after.update_count),
     }
+    row.update(_launch_score_fields(row))
+    return row
 
 
 def _episode_row_from_rollout(
@@ -947,7 +1084,7 @@ def _episode_row_from_rollout(
     belief_before: DirectionalResidualLiftBelief,
     belief_after: DirectionalResidualLiftBelief,
 ) -> dict[str, object]:
-    return {
+    row = {
         **_schedule_identity_row(scheduled),
         "launch_role": str(scheduled["launch_role"]),
         "policy_family": str(policy["policy_family"]),
@@ -955,6 +1092,20 @@ def _episode_row_from_rollout(
         "selected_primitive_variant_id": str(selector_row.get("selected_primitive_variant_id", "")),
         "selected_primitive_id": str(selector_row.get("selected_primitive_id", "")),
         "selected_controller_id": str(selector_row.get("selected_controller_id", "")),
+        "selected_entry_role_sequence": str(selector_row.get("selected_entry_role", "")),
+        "selected_start_state_family_sequence": str(context_row.get("start_state_family", "")),
+        "selected_route_required_entry_role_sequence": str(context_row.get("route_required_entry_role", "")),
+        "selected_route_reason_sequence": str(context_row.get("route_reason", "")),
+        "selected_primitive_step_count": 1,
+        "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
+        "launch_first_then_inflight_sequence_compliant": bool(
+            str(selector_row.get("selected_entry_role", selector_row.get("entry_role", "")))
+            == _required_entry_role_for_start_family(str(context_row.get("start_state_family", "")))
+        ),
+        "launch_inflight_recovery_sequence_compliant": bool(
+            str(selector_row.get("selected_entry_role", selector_row.get("entry_role", "")))
+            == _required_entry_role_for_start_family(str(context_row.get("start_state_family", "")))
+        ),
         "termination_cause": str(rollout_row.get("termination_cause", "")),
         "hard_failure": bool(str(rollout_row.get("boundary_use_class", "")) == "hard_failure" or str(rollout_row.get("outcome_class", "")) == "failed"),
         "floor_or_ceiling_violation": bool(str(rollout_row.get("failure_label", "")) in {"floor_violation", "ceiling_violation"}),
@@ -964,6 +1115,7 @@ def _episode_row_from_rollout(
         "lift_capture": bool(float(rollout_row.get("lift_dwell_time_s", 0.0)) > 0.0),
         "lift_dwell_time_s": float(rollout_row.get("lift_dwell_time_s", 0.0)),
         "energy_residual_m": float(rollout_row.get("energy_residual_m", 0.0)),
+        **_episode_specific_energy_summary([rollout_row]),
         "min_wall_margin_m": float(rollout_row.get("minimum_wall_margin_m", 0.0)),
         "governor_rejection_count": int(selector_row.get("candidate_count", 0)) - int(selector_row.get("viable_count", 0)),
         "belief_observation_count": int(belief_after.update_count),
@@ -975,6 +1127,8 @@ def _episode_row_from_rollout(
         "belief_update_count_before": int(belief_before.update_count),
         "belief_update_count_after": int(belief_after.update_count),
     }
+    row.update(_launch_score_fields(row))
+    return row
 
 
 def _episode_row_from_blocked(
@@ -984,7 +1138,7 @@ def _episode_row_from_blocked(
     *,
     reason: str = "no_viable_primitive",
 ) -> dict[str, object]:
-    return {
+    row = {
         **_schedule_identity_row(scheduled),
         "launch_role": str(scheduled["launch_role"]),
         "policy_family": str(policy["policy_family"]),
@@ -992,6 +1146,14 @@ def _episode_row_from_blocked(
         "selected_primitive_variant_id": "",
         "selected_primitive_id": "",
         "selected_controller_id": "",
+        "selected_entry_role_sequence": "",
+        "selected_start_state_family_sequence": "",
+        "selected_route_required_entry_role_sequence": "",
+        "selected_route_reason_sequence": str(context_row.get("route_reason", "")),
+        "selected_primitive_step_count": 0,
+        "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
+        "launch_first_then_inflight_sequence_compliant": False,
+        "launch_inflight_recovery_sequence_compliant": False,
         "termination_cause": reason,
         "hard_failure": False,
         "floor_or_ceiling_violation": False,
@@ -1001,6 +1163,11 @@ def _episode_row_from_blocked(
         "lift_capture": False,
         "lift_dwell_time_s": 0.0,
         "energy_residual_m": 0.0,
+        "episode_specific_energy_start_m": 0.0,
+        "episode_specific_energy_end_m": 0.0,
+        "net_specific_energy_delta_m": 0.0,
+        "gross_specific_energy_gain_m": 0.0,
+        "gross_specific_energy_loss_m": 0.0,
         "min_wall_margin_m": float(context_row.get("wall_margin_m", 0.0)),
         "governor_rejection_count": 0,
         "belief_observation_count": 0,
@@ -1012,6 +1179,192 @@ def _episode_row_from_blocked(
         "belief_update_count_before": 0,
         "belief_update_count_after": 0,
     }
+    row.update(_launch_score_fields(row))
+    return row
+
+
+def _episode_specific_energy_summary(primitive_rows: list[dict[str, object]]) -> dict[str, float]:
+    energy_pairs: list[tuple[float, float]] = []
+    for row in primitive_rows:
+        start = _state_vector_from_rollout_row(row, prefix="initial_")
+        end = _state_vector_from_json(row.get("exit_state_vector", ""))
+        if start is None or end is None:
+            continue
+        energy_pairs.append((_specific_energy_m(start), _specific_energy_m(end)))
+    if not energy_pairs:
+        return {
+            "episode_specific_energy_start_m": 0.0,
+            "episode_specific_energy_end_m": 0.0,
+            "net_specific_energy_delta_m": 0.0,
+            "gross_specific_energy_gain_m": 0.0,
+            "gross_specific_energy_loss_m": 0.0,
+        }
+    deltas = [end - start for start, end in energy_pairs]
+    return {
+        "episode_specific_energy_start_m": float(energy_pairs[0][0]),
+        "episode_specific_energy_end_m": float(energy_pairs[-1][1]),
+        "net_specific_energy_delta_m": float(energy_pairs[-1][1] - energy_pairs[0][0]),
+        "gross_specific_energy_gain_m": float(sum(max(delta, 0.0) for delta in deltas)),
+        "gross_specific_energy_loss_m": float(sum(max(-delta, 0.0) for delta in deltas)),
+    }
+
+
+def _specific_energy_m(state: np.ndarray) -> float:
+    x = as_state_vector(state)
+    speed = float(np.linalg.norm(x[[STATE_INDEX["u"], STATE_INDEX["v"], STATE_INDEX["w"]]]))
+    return float(x[STATE_INDEX["z_w"]] + speed * speed / (2.0 * SPECIFIC_ENERGY_GRAVITY_M_S2))
+
+
+def _state_vector_from_rollout_row(row: dict[str, object], *, prefix: str) -> np.ndarray | None:
+    if prefix == "initial_" and row.get("initial_state_vector", ""):
+        parsed = _state_vector_from_json(row.get("initial_state_vector", ""))
+        if parsed is not None:
+            return parsed
+    values: dict[str, float] = {}
+    for name in ("x_w", "y_w", "z_w", "phi", "theta", "psi", "u", "v", "w", "p", "q", "r", "delta_a", "delta_e", "delta_r"):
+        key = f"{prefix}{name}"
+        if key not in row:
+            return None
+        values[name] = _float_value(row.get(key, 0.0))
+    return as_state_vector(np.array([values[name] for name in STATE_INDEX.keys()], dtype=float))
+
+
+def _state_vector_from_json(value: object) -> np.ndarray | None:
+    try:
+        return as_state_vector(np.asarray(json.loads(str(value)), dtype=float))
+    except Exception:
+        return None
+
+
+def _launch_score_fields(row: dict[str, object]) -> dict[str, object]:
+    selected_steps = int(_float_value(row.get("selected_primitive_step_count", 0)))
+    episode_time_s = float(selected_steps) * PRIMITIVE_FINITE_HORIZON_S
+    hard_failure = _truthy(row.get("hard_failure", False))
+    floor_or_ceiling = _truthy(row.get("floor_or_ceiling_violation", False))
+    no_viable = _truthy(row.get("no_viable_primitive", False))
+    no_viable_at_launch = bool(no_viable and selected_steps <= 0)
+    no_viable_after_launch = bool(no_viable and selected_steps > 0)
+    min_wall_margin = _float_value(row.get("min_wall_margin_m", 0.0))
+    wall_boundary_issue = bool(min_wall_margin < 0.0 and not hard_failure and not floor_or_ceiling)
+    base_penalty, penalty_reason = _base_failure_penalty(
+        hard_failure=hard_failure,
+        floor_or_ceiling=floor_or_ceiling,
+        no_viable_at_launch=no_viable_at_launch,
+        no_viable_after_launch=no_viable_after_launch,
+        wall_boundary_issue=wall_boundary_issue,
+    )
+    outcome_multiplier = _outcome_multiplier(
+        safe_success=_truthy(row.get("safe_success", False)),
+        terminal_useful=_truthy(row.get("terminal_useful", False)),
+        lift_capture=_truthy(row.get("lift_capture", False)),
+        hard_failure=hard_failure,
+    )
+    safety_multiplier = _safety_multiplier(
+        hard_failure=hard_failure,
+        floor_or_ceiling=floor_or_ceiling,
+        wall_boundary_issue=wall_boundary_issue,
+    )
+    viability_multiplier = _viability_multiplier(
+        no_viable_at_launch=no_viable_at_launch,
+        no_viable_after_launch=no_viable_after_launch,
+    )
+    net_energy_factor = _clip(1.0 + _float_value(row.get("net_specific_energy_delta_m", row.get("energy_residual_m", 0.0))) / 2.0, 0.25, 1.75)
+    energy_loss_factor = _clip(1.0 - _float_value(row.get("gross_specific_energy_loss_m", 0.0)) / 2.0, 0.50, 1.00)
+    flight_time_factor = _clip(episode_time_s / SCORING_TARGET_EPISODE_TIME_S, 0.10, 1.25)
+    wall_margin_factor = _wall_margin_factor(min_wall_margin)
+    multiplicative_component = (
+        100.0
+        * outcome_multiplier
+        * safety_multiplier
+        * viability_multiplier
+        * net_energy_factor
+        * energy_loss_factor
+        * flight_time_factor
+        * wall_margin_factor
+    )
+    return {
+        "launch_score_version": LAUNCH_SCORE_VERSION,
+        "episode_flight_time_s": float(episode_time_s),
+        "base_failure_penalty": float(base_penalty),
+        "base_failure_penalty_reason": penalty_reason,
+        "outcome_multiplier": float(outcome_multiplier),
+        "safety_multiplier": float(safety_multiplier),
+        "viability_multiplier": float(viability_multiplier),
+        "net_energy_factor": float(net_energy_factor),
+        "energy_loss_factor": float(energy_loss_factor),
+        "flight_time_factor": float(flight_time_factor),
+        "wall_margin_factor": float(wall_margin_factor),
+        "launch_score_multiplicative_component": float(multiplicative_component),
+        "launch_score": float(base_penalty + multiplicative_component),
+    }
+
+
+def _base_failure_penalty(
+    *,
+    hard_failure: bool,
+    floor_or_ceiling: bool,
+    no_viable_at_launch: bool,
+    no_viable_after_launch: bool,
+    wall_boundary_issue: bool,
+) -> tuple[float, str]:
+    if hard_failure:
+        return -100.0, "hard_failure"
+    if floor_or_ceiling:
+        return -100.0, "floor_or_ceiling_violation"
+    if no_viable_at_launch:
+        return -70.0, "no_viable_primitive_at_launch"
+    if no_viable_after_launch:
+        return -40.0, "no_viable_primitive_after_launch"
+    if wall_boundary_issue:
+        return -30.0, "wall_boundary_issue_not_hard_failure"
+    return 0.0, "none"
+
+
+def _outcome_multiplier(*, safe_success: bool, terminal_useful: bool, lift_capture: bool, hard_failure: bool) -> float:
+    if safe_success and terminal_useful:
+        return 1.00
+    if safe_success and lift_capture:
+        return 0.90
+    if safe_success:
+        return 0.75
+    if terminal_useful and not hard_failure:
+        return 0.50
+    if lift_capture and not hard_failure:
+        return 0.35
+    return 0.10
+
+
+def _safety_multiplier(*, hard_failure: bool, floor_or_ceiling: bool, wall_boundary_issue: bool) -> float:
+    if hard_failure or floor_or_ceiling:
+        return 0.0
+    if wall_boundary_issue:
+        return 0.60
+    return 1.0
+
+
+def _viability_multiplier(*, no_viable_at_launch: bool, no_viable_after_launch: bool) -> float:
+    if no_viable_at_launch:
+        return 0.0
+    if no_viable_after_launch:
+        return 0.50
+    return 1.0
+
+
+def _wall_margin_factor(min_wall_margin_m: float) -> float:
+    margin = float(min_wall_margin_m)
+    if margin < 0.00:
+        return 0.50
+    if margin < 0.05:
+        return 0.80
+    if margin < 0.15:
+        return 0.95
+    if margin < 0.40:
+        return 1.00
+    return 1.05
+
+
+def _clip(value: float, lower: float, upper: float) -> float:
+    return float(max(float(lower), min(float(upper), float(value))))
 
 
 def _belief_snapshot_compact(
@@ -1057,6 +1410,21 @@ def _sequence_values(rows: list[dict[str, object]], column: str) -> list[str]:
         if value:
             values.append(value)
     return values
+
+
+def _launch_sequence_compliant(rows: list[dict[str, object]]) -> bool:
+    if not rows:
+        return False
+    for index, row in enumerate(rows):
+        start_family = str(row.get("start_state_family", ""))
+        if index == 0 and start_family != FIRST_PRIMITIVE_START_FAMILY:
+            return False
+        if index > 0 and start_family == FIRST_PRIMITIVE_START_FAMILY:
+            return False
+        expected_role = _required_entry_role_for_start_family(start_family)
+        if str(row.get("selected_entry_role", "")) != expected_role:
+            return False
+    return True
 
 
 def _append_launch_result(buffers: dict[str, list[dict[str, object]]], result: dict[str, object]) -> None:
@@ -1208,11 +1576,16 @@ def _write_first_decision_audits_from_partitions(
     for row in availability.values():
         launch_capable = set(row.pop("launch_capable_primitives"))
         launch_capture = set(row.pop("launch_capture_primitives"))
+        non_launch_capture_launch_capable = sorted(launch_capable - launch_capture_ids)
+        missing_launch_capture = sorted(launch_capture_ids - launch_capture)
         availability_rows.append(
             {
                 **row,
                 "launch_capable_primitive_family_count": int(len(launch_capable)),
                 "launch_capture_primitive_family_count": int(len(launch_capture)),
+                "required_launch_capture_primitive_family_count": int(len(launch_capture_ids)),
+                "missing_launch_capture_primitive_ids": ",".join(missing_launch_capture),
+                "non_launch_capture_launch_capable_primitive_ids": ",".join(non_launch_capture_launch_capable),
                 "first_decision_audit_mode": "full_validation" if any(bool(partition.table_name == "candidate_score_log") for partition in partitions) else "not_run",
             }
         )
@@ -1241,7 +1614,9 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
     frame = pd.DataFrame(episode_rows)
     final = frame[frame["launch_role"].astype(str) == "final_heldout"] if not frame.empty else pd.DataFrame()
     if not final.empty:
+        final = _with_launch_score_columns(final)
         final = _with_selection_change_flags(final)
+    _write_csv(run_root / "metrics" / "final_launch_score.csv", final)
     if final.empty:
         comparison = pd.DataFrame()
     else:
@@ -1257,6 +1632,11 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
                 lift_capture_rate=("lift_capture", "mean"),
                 mean_lift_dwell_time_s=("lift_dwell_time_s", "mean"),
                 mean_energy_residual_m=("energy_residual_m", "mean"),
+                mean_net_specific_energy_delta_m=("net_specific_energy_delta_m", "mean"),
+                mean_gross_specific_energy_loss_m=("gross_specific_energy_loss_m", "mean"),
+                mean_episode_flight_time_s=("episode_flight_time_s", "mean"),
+                mean_launch_score=("launch_score", "mean"),
+                median_launch_score=("launch_score", "median"),
                 mean_min_wall_margin_m=("min_wall_margin_m", "mean"),
                 selected_primitive_family_count=("selected_primitive_id", pd.Series.nunique),
                 selected_variant_count=("selected_primitive_variant_id", pd.Series.nunique),
@@ -1269,6 +1649,14 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
             .reset_index()
         )
     _write_csv(run_root / "metrics" / "policy_history_comparison.csv", comparison)
+    memory_delta = _paired_score_delta_rows(final, baseline_policy_id="no_memory_baseline")
+    safe_explore_delta = _paired_safe_explore_delta_rows(final)
+    _write_csv(run_root / "metrics" / "paired_memory_score_delta.csv", memory_delta)
+    _write_csv(run_root / "metrics" / "paired_safe_explore_score_delta.csv", safe_explore_delta)
+    _write_csv(
+        run_root / "metrics" / "paired_score_delta_summary.csv",
+        _paired_score_delta_summary(pd.concat([memory_delta, safe_explore_delta], ignore_index=True)),
+    )
     if final.empty:
         library = pd.DataFrame()
     else:
@@ -1279,6 +1667,7 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
                 safe_success_rate=("safe_success", "mean"),
                 hard_failure_rate=("hard_failure", "mean"),
                 no_viable_primitive_rate=("no_viable_primitive", "mean"),
+                mean_launch_score=("launch_score", "mean"),
             )
             .reset_index()
         )
@@ -1286,7 +1675,11 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
     if protocol.stage_id == "R10":
         env = (
             final.groupby(["environment_block_id"], dropna=False)
-            .agg(launch_count=("episode_id", "count"), safe_success_rate=("safe_success", "mean"))
+            .agg(
+                launch_count=("episode_id", "count"),
+                safe_success_rate=("safe_success", "mean"),
+                mean_launch_score=("launch_score", "mean"),
+            )
             .reset_index()
             if not final.empty
             else pd.DataFrame()
@@ -1305,6 +1698,142 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
             run_root / "metrics" / f"{required_name}.csv",
             pd.DataFrame([{"table_name": required_name, "row_level_log": f"tables/{required_name}/", "storage": "partitioned"}]),
         )
+
+
+def _with_launch_score_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    out = frame.copy()
+    score_rows = []
+    for row in out.to_dict(orient="records"):
+        fields = _launch_score_fields(row)
+        if "net_specific_energy_delta_m" not in row:
+            fields["net_specific_energy_delta_m"] = _float_value(row.get("energy_residual_m", 0.0))
+            fields["gross_specific_energy_gain_m"] = max(fields["net_specific_energy_delta_m"], 0.0)
+            fields["gross_specific_energy_loss_m"] = max(-fields["net_specific_energy_delta_m"], 0.0)
+        score_rows.append(fields)
+    scores = pd.DataFrame(score_rows, index=out.index)
+    for column in scores.columns:
+        out[column] = scores[column]
+    return out
+
+
+def _paired_score_delta_rows(final: pd.DataFrame, *, baseline_policy_id: str) -> pd.DataFrame:
+    if final.empty:
+        return pd.DataFrame()
+    baseline = final[final["policy_id"].astype(str) == str(baseline_policy_id)]
+    if baseline.empty:
+        return pd.DataFrame()
+    baseline_map = {_paired_launch_key(row): row for row in baseline.to_dict(orient="records")}
+    rows: list[dict[str, object]] = []
+    for row in final.to_dict(orient="records"):
+        policy_id = str(row.get("policy_id", ""))
+        if policy_id == str(baseline_policy_id):
+            continue
+        if not (policy_id.startswith(MEMORY_POLICY_PREFIX) or policy_id == "static_map_baseline"):
+            continue
+        baseline_row = baseline_map.get(_paired_launch_key(row))
+        if baseline_row is None:
+            continue
+        rows.append(_paired_score_delta_row(row, baseline_row, baseline_policy_id=str(baseline_policy_id), comparison_type="memory_vs_no_memory"))
+    return pd.DataFrame(rows)
+
+
+def _paired_safe_explore_delta_rows(final: pd.DataFrame) -> pd.DataFrame:
+    if final.empty:
+        return pd.DataFrame()
+    memory = final[final["policy_id"].astype(str).str.startswith(MEMORY_POLICY_PREFIX)]
+    memory_map = {
+        (_paired_launch_key(row), int(_float_value(row.get("history_length", 0)))): row
+        for row in memory.to_dict(orient="records")
+    }
+    rows: list[dict[str, object]] = []
+    for row in final[final["policy_id"].astype(str).str.startswith(SAFE_EXPLORE_POLICY_PREFIX)].to_dict(orient="records"):
+        history_length = int(_float_value(row.get("history_length", 0)))
+        baseline_row = memory_map.get((_paired_launch_key(row), history_length))
+        if baseline_row is None:
+            continue
+        rows.append(
+            _paired_score_delta_row(
+                row,
+                baseline_row,
+                baseline_policy_id=str(baseline_row.get("policy_id", "")),
+                comparison_type="safe_explore_vs_matching_memory",
+            )
+        )
+    return pd.DataFrame(rows)
+
+
+def _paired_launch_key(row: dict[str, object]) -> tuple[str, str]:
+    return (
+        str(row.get("library_size_case_id", "")),
+        str(row.get("common_final_launch_key", row.get("outer_case_index", ""))),
+    )
+
+
+def _paired_score_delta_row(row: dict[str, object], baseline_row: dict[str, object], *, baseline_policy_id: str, comparison_type: str) -> dict[str, object]:
+    safety_regression = bool(
+        (_truthy(row.get("hard_failure", False)) and not _truthy(baseline_row.get("hard_failure", False)))
+        or (
+            _truthy(row.get("floor_or_ceiling_violation", False))
+            and not _truthy(baseline_row.get("floor_or_ceiling_violation", False))
+        )
+        or (
+            _truthy(row.get("no_viable_primitive", False))
+            and not _truthy(baseline_row.get("no_viable_primitive", False))
+        )
+    )
+    return {
+        "comparison_type": str(comparison_type),
+        "library_size_case_id": str(row.get("library_size_case_id", "")),
+        "environment_block_id": str(row.get("environment_block_id", "")),
+        "outer_case_index": int(_float_value(row.get("outer_case_index", 0))),
+        "common_final_launch_key": str(row.get("common_final_launch_key", "")),
+        "policy_id": str(row.get("policy_id", "")),
+        "baseline_policy_id": str(baseline_policy_id),
+        "history_length": int(_float_value(row.get("history_length", 0))),
+        "launch_score": _float_value(row.get("launch_score", 0.0)),
+        "baseline_launch_score": _float_value(baseline_row.get("launch_score", 0.0)),
+        "paired_delta_launch_score": _float_value(row.get("launch_score", 0.0)) - _float_value(baseline_row.get("launch_score", 0.0)),
+        "safe_success_delta": int(_truthy(row.get("safe_success", False))) - int(_truthy(baseline_row.get("safe_success", False))),
+        "hard_failure_delta": int(_truthy(row.get("hard_failure", False))) - int(_truthy(baseline_row.get("hard_failure", False))),
+        "floor_or_ceiling_violation_delta": int(_truthy(row.get("floor_or_ceiling_violation", False)))
+        - int(_truthy(baseline_row.get("floor_or_ceiling_violation", False))),
+        "no_viable_primitive_delta": int(_truthy(row.get("no_viable_primitive", False))) - int(_truthy(baseline_row.get("no_viable_primitive", False))),
+        "net_specific_energy_delta_m_delta": _float_value(row.get("net_specific_energy_delta_m", 0.0))
+        - _float_value(baseline_row.get("net_specific_energy_delta_m", 0.0)),
+        "gross_specific_energy_loss_m_delta": _float_value(row.get("gross_specific_energy_loss_m", 0.0))
+        - _float_value(baseline_row.get("gross_specific_energy_loss_m", 0.0)),
+        "episode_flight_time_s_delta": _float_value(row.get("episode_flight_time_s", 0.0))
+        - _float_value(baseline_row.get("episode_flight_time_s", 0.0)),
+        "memory_changed_selection": bool(row.get("memory_changed_selection", False)),
+        "exploration_changed_selection": bool(row.get("exploration_changed_selection", False)),
+        "safety_regression": safety_regression,
+        "claim_status": "simulation_only_paired_launch_score_audit",
+    }
+
+
+def _paired_score_delta_summary(delta_rows: pd.DataFrame) -> pd.DataFrame:
+    if delta_rows.empty:
+        return pd.DataFrame()
+    frame = delta_rows.copy()
+    frame["win"] = pd.to_numeric(frame["paired_delta_launch_score"], errors="coerce").fillna(0.0) > 0.0
+    frame["loss"] = pd.to_numeric(frame["paired_delta_launch_score"], errors="coerce").fillna(0.0) < 0.0
+    return (
+        frame.groupby(["comparison_type", "library_size_case_id", "policy_id", "baseline_policy_id", "history_length"], dropna=False)
+        .agg(
+            paired_launch_count=("paired_delta_launch_score", "count"),
+            mean_paired_delta_launch_score=("paired_delta_launch_score", "mean"),
+            median_paired_delta_launch_score=("paired_delta_launch_score", "median"),
+            win_rate=("win", "mean"),
+            loss_rate=("loss", "mean"),
+            safety_regression_rate=("safety_regression", "mean"),
+            memory_changed_selection_rate=("memory_changed_selection", "mean"),
+            exploration_changed_selection_rate=("exploration_changed_selection", "mean"),
+            mean_net_specific_energy_delta_m_delta=("net_specific_energy_delta_m_delta", "mean"),
+            mean_gross_specific_energy_loss_m_delta=("gross_specific_energy_loss_m_delta", "mean"),
+            mean_episode_flight_time_s_delta=("episode_flight_time_s_delta", "mean"),
+        )
+        .reset_index()
+    )
 
 
 def _with_selection_change_flags(final: pd.DataFrame) -> pd.DataFrame:
@@ -1366,8 +1895,17 @@ def _pass_fail_summary(
     if final_rows:
         selected_primitives = _selected_set(final_rows, "selected_primitive_id")
         selected_variants = _selected_set(final_rows, "selected_primitive_variant_id")
+        sequence_compliant_count = sum(
+            1 for row in episode_rows if _truthy(row.get("launch_inflight_recovery_sequence_compliant", False))
+        )
         rows.extend(
             [
+                _gate_row(
+                    "launch_inflight_recovery_sequence_policy",
+                    sequence_compliant_count == len(episode_rows),
+                    sequence_compliant_count,
+                    len(episode_rows),
+                ),
                 _gate_row("hard_failure_rate_le_1pct", _mean_bool(final_rows, "hard_failure") <= 0.01, _mean_bool(final_rows, "hard_failure"), 0.01),
                 _gate_row("floor_or_ceiling_violation_rate_zero", _mean_bool(final_rows, "floor_or_ceiling_violation") == 0.0, _mean_bool(final_rows, "floor_or_ceiling_violation"), 0.0),
                 _gate_row("no_viable_primitive_rate_le_2pct", _mean_bool(final_rows, "no_viable_primitive") <= 0.02, _mean_bool(final_rows, "no_viable_primitive"), 0.02),
@@ -1484,6 +2022,23 @@ def _write_manifest(
         "compression_level": int(config.compression_level),
         "candidate_chunk_size": int(config.candidate_chunk_size),
         "max_primitives_per_launch": int(config.max_primitives_per_launch),
+        "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
+        "first_primitive_start_state_family": FIRST_PRIMITIVE_START_FAMILY,
+        "post_launch_start_state_family": POST_LAUNCH_START_FAMILY,
+        "boundary_recovery_start_state_family": BOUNDARY_RECOVERY_START_FAMILY,
+        "terminal_safe_exit_start_state_family": TERMINAL_SAFE_EXIT_START_FAMILY,
+        "first_primitive_required_entry_role": "launch_capable",
+        "post_launch_required_entry_role": "inflight_only",
+        "boundary_recovery_required_entry_role": "terminal_or_recovery",
+        "terminal_safe_exit_required_entry_role": "terminal_or_recovery",
+        "recovery_route_margin_m": float(RECOVERY_ROUTE_MARGIN_M),
+        "recovery_edge_min_speed_m_s": float(RECOVERY_EDGE_MIN_SPEED_M_S),
+        "recovery_edge_max_abs_roll_rad": float(RECOVERY_EDGE_MAX_ABS_ROLL_RAD),
+        "recovery_edge_max_abs_pitch_rad": float(RECOVERY_EDGE_MAX_ABS_PITCH_RAD),
+        "recovery_edge_max_body_rate_rad_s": float(RECOVERY_EDGE_MAX_BODY_RATE_RAD_S),
+        "launch_score_version": LAUNCH_SCORE_VERSION,
+        "launch_score_target_episode_time_s": float(SCORING_TARGET_EPISODE_TIME_S),
+        "launch_score_gravity_m_s2": float(SPECIFIC_ENERGY_GRAVITY_M_S2),
         "duration_s": float(duration_s),
         "pass_gate": _overall_pass(pass_summary),
         "claim_status": "simulation_only_repeated_launch_validation",
@@ -1524,6 +2079,9 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Pass gate: `{_overall_pass(pass_summary)}`",
         f"- Expected final held-out launches: `{protocol.expected_final_heldout_launches}`",
         f"- Expected history launches: `{protocol.expected_history_launches}`",
+        f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
+        f"- Recovery route: `{BOUNDARY_RECOVERY_START_FAMILY}` below `{RECOVERY_ROUTE_MARGIN_M}` m safe margin, `{TERMINAL_SAFE_EXIT_START_FAMILY}` for degraded speed, attitude, rate, or boundary contact.",
+        f"- Launch score: `{LAUNCH_SCORE_VERSION}`; paired score deltas are audit evidence, not pass-gate substitutes.",
         "- Claim boundary: simulation-only; no hardware, real-flight transfer, mission, autonomy, or memory-improvement claim.",
         "",
         "Gate summary:",

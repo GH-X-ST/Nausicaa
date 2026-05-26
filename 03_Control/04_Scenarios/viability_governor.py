@@ -179,6 +179,10 @@ def governor_candidate_row(
         "W_layer": str(context.get("W_layer", "")),
         "environment_mode": str(context.get("environment_mode", "")),
         "start_state_family": str(context.get("start_state_family", "")),
+        "launch_sequence_policy": str(context.get("launch_sequence_policy", "")),
+        "launch_sequence_phase": str(context.get("launch_sequence_phase", "")),
+        "route_required_entry_role": str(context.get("route_required_entry_role", "")),
+        "route_reason": str(context.get("route_reason", "")),
         "governor_mode": str(governor_mode),
         "governor_config_id": cfg.config_id,
         **{f"governor_{key}": value for key, value in asdict(cfg).items() if key != "config_id"},
@@ -248,12 +252,18 @@ def governor_rejection_reason(
     cfg = governor_config or _config_from_thresholds(thresholds)
     if not representative.get("compact_library_id") or not representative.get("primitive_variant_id"):
         return "primitive_not_in_compact_library"
+    entry_role = str(representative.get("entry_role", ""))
+    start_state_family = str(context.get("start_state_family", ""))
     if not start_family_is_compatible(
-        entry_role=str(representative.get("entry_role", "")),
-        start_state_family=str(context.get("start_state_family", "")),
+        entry_role=entry_role,
+        start_state_family=start_state_family,
     ):
         return "entry_role_incompatible_start_family"
-    if _float(context.get("wall_margin_m", 0.0)) < float(cfg.minimum_wall_margin_m):
+    recovery_route = entry_role == "terminal_or_recovery" and start_state_family in {
+        "inflight_boundary_near",
+        "inflight_recovery_edge",
+    }
+    if _float(context.get("wall_margin_m", 0.0)) < float(cfg.minimum_wall_margin_m) and not recovery_route:
         return "context_wall_margin_low"
     if _float(context.get("floor_margin_m", 0.0)) < 0.0 or _float(context.get("ceiling_margin_m", 0.0)) < 0.0:
         return "context_vertical_safety_violation"

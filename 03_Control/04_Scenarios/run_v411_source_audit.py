@@ -352,7 +352,7 @@ def _launch_aware_catalogue_blockers() -> list[dict[str, object]]:
             blockers.append({"blocker_id": "launch_capture_id_missing_from_active_catalogue", "details": primitive_id})
         if ENTRY_ROLE_BY_PRIMITIVE_ID.get(primitive_id) != "launch_capable":
             blockers.append({"blocker_id": "launch_capture_entry_role_not_launch_capable", "details": primitive_id})
-    for primitive_id in ("lift_entry", "lift_dwell_arc", "mild_turn_left", "mild_turn_right", "energy_retaining_bank"):
+    for primitive_id in ("glide", "lift_entry", "lift_dwell_arc", "mild_turn_left", "mild_turn_right", "energy_retaining_bank"):
         if ENTRY_ROLE_BY_PRIMITIVE_ID.get(primitive_id) != "inflight_only":
             blockers.append({"blocker_id": "inflight_primitive_relabelled_launch_capable", "details": primitive_id})
     for primitive_id in ("recovery", "safe_exit_or_recovery_handoff"):

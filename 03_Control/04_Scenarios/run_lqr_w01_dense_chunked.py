@@ -60,6 +60,7 @@ from primitive_variant_registry import (  # noqa: E402
     ENTRY_ROLE_REJECTION_STATUS,
     PrimitiveControllerVariant,
     primitive_controller_variant,
+    start_family_for_entry_role_index,
     start_family_is_compatible,
     variant_row,
     write_variant_registry,
@@ -139,11 +140,11 @@ BLOCKED_CLAIMS = (
     "mission_success",
 )
 START_FAMILY_MIX = {
-    "launch_gate": 0.40,
-    "inflight_nominal": 0.25,
-    "inflight_lift_region": 0.15,
-    "inflight_boundary_near": 0.10,
-    "inflight_recovery_edge": 0.10,
+    "launch_gate": 3.0 / 7.0,
+    "inflight_nominal": 15.0 / 56.0,
+    "inflight_lift_region": 9.0 / 56.0,
+    "inflight_boundary_near": 1.0 / 14.0,
+    "inflight_recovery_edge": 1.0 / 14.0,
 }
 LAUNCH_CAPTURE_REGIME_LABEL = "launch_capture_from_launch_gate"
 INFLIGHT_REGIME_LABEL = "inflight_from_nominal_or_lift_region"
@@ -722,7 +723,10 @@ def _row_schedule_for_index(row_index: int, config: W01DenseRunConfig) -> W01Row
         primitive_id = ACTIVE_PRIMITIVE_IDS[int(row_index) % len(ACTIVE_PRIMITIVE_IDS)]
         candidate_index = (int(row_index) // len(ACTIVE_PRIMITIVE_IDS)) % int(config.candidate_count)
         W_layer, environment_mode = OFFICIAL_W01_ENVIRONMENT_CASES[int(row_index) % len(OFFICIAL_W01_ENVIRONMENT_CASES)]
-        family = start_state_family_for_row(row_index)
+        family = _role_aware_start_family(
+            primitive_id=str(primitive_id),
+            role_local_index=int(row_index) // len(ACTIVE_PRIMITIVE_IDS),
+        )
         return W01RowSchedule(
             row_index=int(row_index),
             primitive_id=str(primitive_id),
@@ -730,8 +734,8 @@ def _row_schedule_for_index(row_index: int, config: W01DenseRunConfig) -> W01Row
             W_layer=str(W_layer),
             environment_mode=str(environment_mode),
             start_state_family=str(family),
-            paired_start_key=f"smoke_start_{int(row_index) // 2:07d}",
-            paired_start_index=int(row_index) // 2,
+            paired_start_key=f"smoke_role_start_{int(row_index) // len(ACTIVE_PRIMITIVE_IDS):07d}_{family}",
+            paired_start_index=int(row_index) // len(ACTIVE_PRIMITIVE_IDS),
             schedule_mode=SMOKE_SCHEDULE_MODE,
         )
 
@@ -746,7 +750,8 @@ def _row_schedule_for_index(row_index: int, config: W01DenseRunConfig) -> W01Row
         W_layer, environment_mode = OFFICIAL_W01_ENVIRONMENT_CASES[
             candidate_environment_index % len(OFFICIAL_W01_ENVIRONMENT_CASES)
         ]
-        family = start_state_family_for_row(paired_start_index)
+        role_local_index = int(candidate_environment_index) * int(config.paired_tests_per_candidate) + int(paired_start_index)
+        family = _role_aware_start_family(primitive_id=str(primitive_id), role_local_index=role_local_index)
         return W01RowSchedule(
             row_index=int(row_index),
             primitive_id=str(primitive_id),
@@ -754,8 +759,8 @@ def _row_schedule_for_index(row_index: int, config: W01DenseRunConfig) -> W01Row
             W_layer=str(W_layer),
             environment_mode=str(environment_mode),
             start_state_family=str(family),
-            paired_start_key=f"paired_{int(paired_start_index):07d}_{family}",
-            paired_start_index=int(paired_start_index),
+            paired_start_key=f"paired_role_start_{int(role_local_index):07d}_{family}",
+            paired_start_index=int(role_local_index),
             schedule_mode=BALANCED_SCHEDULE_MODE,
         )
 
@@ -764,12 +769,12 @@ def _row_schedule_for_index(row_index: int, config: W01DenseRunConfig) -> W01Row
     grouped_index = int(row_index) // len(ACTIVE_PRIMITIVE_IDS)
     candidate_index = grouped_index % int(config.candidate_count)
     W_layer, environment_mode = OFFICIAL_W01_ENVIRONMENT_CASES[grouped_index % len(OFFICIAL_W01_ENVIRONMENT_CASES)]
-    family = start_state_family_for_row(row_index)
+    family = _role_aware_start_family(primitive_id=str(primitive_id), role_local_index=int(grouped_index))
     full_cycle = len(ACTIVE_PRIMITIVE_IDS) * int(config.candidate_count) * len(OFFICIAL_W01_ENVIRONMENT_CASES)
     cycle_index = int(row_index) // max(1, full_cycle)
     family_slot = int(row_index) % 20
-    paired_start_index = int(cycle_index * 20 + family_slot)
-    paired_start_key = f"paired_{paired_start_index:07d}_{family}"
+    paired_start_index = int(grouped_index if config.paired_tests_per_candidate is None else cycle_index * 20 + family_slot)
+    paired_start_key = f"paired_role_start_{paired_start_index:07d}_{family}"
     return W01RowSchedule(
         row_index=int(row_index),
         primitive_id=str(primitive_id),
@@ -780,6 +785,15 @@ def _row_schedule_for_index(row_index: int, config: W01DenseRunConfig) -> W01Row
         paired_start_key=paired_start_key,
         paired_start_index=paired_start_index,
         schedule_mode=BALANCED_SCHEDULE_MODE,
+    )
+
+
+def _role_aware_start_family(*, primitive_id: str, role_local_index: int) -> str:
+    from primitive_variant_registry import entry_role_for_primitive_id
+
+    return start_family_for_entry_role_index(
+        entry_role=entry_role_for_primitive_id(str(primitive_id)),
+        index=int(role_local_index),
     )
 
 
@@ -1273,7 +1287,11 @@ def _unique_group_count(frame: pd.DataFrame, mask: pd.Series) -> int:
 
 
 def _expected_launch_gate_rows_per_launch_capture_primitive() -> int:
-    return int(round(float(L6_RICH_SIDE_ROW_COUNT) * float(START_FAMILY_MIX["launch_gate"]) / float(len(ACTIVE_PRIMITIVE_IDS))))
+    return int(
+        L6_RICH_SIDE_CANDIDATE_COUNT
+        * len(OFFICIAL_W01_ENVIRONMENT_CASES)
+        * L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE
+    )
 
 
 def _value_counts(frame: pd.DataFrame, column: str) -> pd.DataFrame:
@@ -2395,7 +2413,7 @@ def _run_manifest(
         "worker_decision": asdict(worker_decision),
         "chunk_count": int(len(schedule)),
         "schedule_mode": str(config.schedule_mode),
-        "paired_start_policy": "common_random_start_key_reused_across_primitives_candidates_and_w01_environments",
+        "paired_start_policy": "common_random_start_key_reused_within_entry_role_compatible_start_family_regimes",
         "per_primitive_row_counts": schedule_counts["primitive_id"],
         "per_candidate_row_counts": schedule_counts["candidate_index"],
         "per_W_layer_row_counts": schedule_counts["W_layer"],
@@ -2419,7 +2437,9 @@ def _run_manifest(
         "official_W_layers": {"W0": ["dry_air"], "W1": ["gaussian_single", "gaussian_four"]},
         "W2_generated": False,
         "W3_generated": False,
-        "mixed_primitive_start_sampling": START_FAMILY_MIX,
+        "entry_role_regime_separation_policy": "role_aware_start_family_schedule_launch_inflight_recovery_not_mixed",
+        "role_aware_start_family_mix": START_FAMILY_MIX,
+        "mixed_primitive_start_sampling": False,
         "no_small_library_selection": True,
         "no_clustering_before_W2_W3": True,
         "W2_W3_replay_only": True,

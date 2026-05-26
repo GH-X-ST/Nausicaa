@@ -82,7 +82,7 @@ def test_l6_move_on_blocks_baseline_rows_and_missing_timing_coverage(tmp_path: P
         [
             {
                 "primitive_id": "glide",
-                "entry_role": "launch_capable",
+                "entry_role": "inflight_only",
                 "candidate_index": 0,
                 "controller_design_role": "superseded_baseline_not_active_w01",
                 "timing_augmentation_type": "none",
@@ -115,11 +115,11 @@ def test_rich_side_schedule_has_32_candidates_100_paired_tests_and_exact_start_m
     assert len(summary["candidate_index"]) == 32
     assert set(summary["environment_mode"]) == {"dry_air", "gaussian_single", "gaussian_four"}
     assert summary["start_state_family"] == {
-        "inflight_boundary_near": 13440,
-        "inflight_lift_region": 20160,
-        "inflight_nominal": 33600,
-        "inflight_recovery_edge": 13440,
-        "launch_gate": 53760,
+        "inflight_boundary_near": 9600,
+        "inflight_lift_region": 21600,
+        "inflight_nominal": 36000,
+        "inflight_recovery_edge": 9600,
+        "launch_gate": 57600,
     }
 
 

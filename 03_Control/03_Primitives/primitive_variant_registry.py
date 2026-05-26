@@ -34,8 +34,22 @@ from primitive_timing_contract import (
 VARIANT_REGISTRY_VERSION = "w01_primitive_controller_variant_registry_v411"
 EXIT_CHECK_VERSION = "w01_exit_checks_v1"
 ENTRY_ROLES = ("launch_capable", "inflight_only", "terminal_or_recovery")
+ENTRY_ROLE_START_FAMILY_SEQUENCE = {
+    "launch_capable": ("launch_gate",),
+    "inflight_only": (
+        "inflight_nominal",
+        "inflight_nominal",
+        "inflight_nominal",
+        "inflight_nominal",
+        "inflight_nominal",
+        "inflight_lift_region",
+        "inflight_lift_region",
+        "inflight_lift_region",
+    ),
+    "terminal_or_recovery": ("inflight_boundary_near", "inflight_recovery_edge"),
+}
 ENTRY_ROLE_BY_PRIMITIVE_ID = {
-    "glide": "launch_capable",
+    "glide": "inflight_only",
     "lift_entry": "inflight_only",
     "lift_dwell_arc": "inflight_only",
     "mild_turn_left": "inflight_only",
@@ -127,13 +141,21 @@ def entry_role_for_primitive_id(primitive_id: str) -> str:
 def start_family_is_compatible(*, entry_role: str, start_state_family: str) -> bool:
     role = str(entry_role)
     family = str(start_state_family)
-    if role == "launch_capable":
-        return True
-    if role == "inflight_only":
-        return family != "launch_gate"
-    if role == "terminal_or_recovery":
-        return family in {"inflight_boundary_near", "inflight_recovery_edge"}
-    raise ValueError(f"unknown entry_role: {entry_role}")
+    return family in allowed_start_families_for_entry_role(role)
+
+
+def start_family_for_entry_role_index(*, entry_role: str, index: int) -> str:
+    sequence = ENTRY_ROLE_START_FAMILY_SEQUENCE.get(str(entry_role))
+    if sequence is None:
+        raise ValueError(f"unknown entry_role: {entry_role}")
+    return str(sequence[int(index) % len(sequence)])
+
+
+def allowed_start_families_for_entry_role(entry_role: str) -> tuple[str, ...]:
+    sequence = ENTRY_ROLE_START_FAMILY_SEQUENCE.get(str(entry_role))
+    if sequence is None:
+        raise ValueError(f"unknown entry_role: {entry_role}")
+    return tuple(dict.fromkeys(sequence))
 
 
 def entry_role_rejection_fields(*, entry_role: str, start_state_family: str) -> dict[str, object]:

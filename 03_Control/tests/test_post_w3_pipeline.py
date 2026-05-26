@@ -38,8 +38,8 @@ def test_w3_analysis_separates_terminal_and_continuation_evidence(tmp_path: Path
     registry = json.loads((w3_root / "manifests" / "w3_survivor_registry.json").read_text(encoding="ascii"))
 
     assert result["status"] == "w3_survivors_available"
-    assert registry["survivor_count"] == 3
-    survived = summary[summary["primitive_variant_id"] == "primvar_glide_launch"]
+    assert registry["survivor_count"] == 8
+    survived = summary[summary["primitive_variant_id"] == "primvar_glide_inflight"]
     downgraded = summary[summary["primitive_variant_id"] == "primvar_lift_terminal"]
     assert survived["w3_variant_status"].iloc[0] == "survived"
     assert downgraded["w3_variant_status"].iloc[0] == "downgraded"
@@ -68,18 +68,44 @@ def test_post_w3_library_size_study_writes_four_cases_without_mutation(tmp_path:
     assert result["status"] == "complete"
     assert tuple(summary["library_size_case_id"]) == LIBRARY_SIZE_CASE_IDS
     assert library["library_size_human_label"] == "no-clustering/no-merging"
+    assert library["entry_role_regime_separation_policy"] == "representatives_grouped_by_primitive_id_and_entry_role_no_cross_role_merge"
     assert representative_ids == {
-        "primvar_glide_launch",
+        "primvar_glide_inflight",
         "primvar_lift_survived",
         "primvar_launch_capture_glide_stabilise",
+        "primvar_launch_capture_lift_seek",
+        "primvar_launch_capture_energy_build",
+        "primvar_launch_capture_shallow_left",
+        "primvar_launch_capture_shallow_right",
+        "primvar_launch_capture_safe_handoff",
     }
     for representative in representatives:
         assert representative["w3_variant_status"] == "survived"
         assert representative["mutation_status"].startswith("references_existing_frozen_variant")
         assert representative["library_size_case_id"] == "no_cluster_no_merge"
-    glide = [row for row in representatives if row["primitive_variant_id"] == "primvar_glide_launch"][0]
+    glide = [row for row in representatives if row["primitive_variant_id"] == "primvar_glide_inflight"][0]
     assert glide["controller_id"] == "ctrl_glide"
     assert glide["K_gain_checksum"] == "k_glide"
+    availability = pd.read_csv(run_root / "metrics" / "launch_gate_candidate_availability.csv")
+    assert set(availability["library_size_case_id"]) == set(LIBRARY_SIZE_CASE_IDS)
+    assert (availability["launch_capture_primitive_family_count"] == 6).all()
+    assert (availability["missing_launch_capture_primitive_ids"].fillna("") == "").all()
+    assert (availability["non_launch_capture_launch_capable_primitive_ids"].fillna("") == "").all()
+    for case_id in LIBRARY_SIZE_CASE_IDS:
+        case_library = json.loads((run_root / "manifests" / f"{case_id}_primitive_library.json").read_text(encoding="ascii"))
+        case_launch = {
+            row["primitive_id"]
+            for row in case_library["representatives"]
+            if row["entry_role"] == "launch_capable"
+        }
+        assert case_launch == {
+            "launch_capture_glide_stabilise",
+            "launch_capture_lift_seek",
+            "launch_capture_energy_build",
+            "launch_capture_shallow_left",
+            "launch_capture_shallow_right",
+            "launch_capture_safe_handoff",
+        }
 
 
 def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_counts(tmp_path: Path) -> None:
@@ -181,9 +207,9 @@ def test_retired_single_compact_wrapper_requires_explicit_gate(tmp_path: Path) -
 
 def _write_tiny_w3_root(root: Path) -> Path:
     rows = [
-        _w3_row("primvar_glide_launch", "glide", "launch_capable", "ctrl_glide", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 0),
-        _w3_row("primvar_glide_launch", "glide", "launch_capable", "ctrl_glide", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 0),
-        _w3_row("primvar_glide_launch", "glide", "launch_capable", "ctrl_glide", "w3_randomised_four", True, "failed", False, False, "hard_failure", "floor_violation", 0),
+        _w3_row("primvar_glide_inflight", "glide", "inflight_only", "ctrl_glide", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 0),
+        _w3_row("primvar_glide_inflight", "glide", "inflight_only", "ctrl_glide", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 0),
+        _w3_row("primvar_glide_inflight", "glide", "inflight_only", "ctrl_glide", "w3_randomised_four", True, "failed", False, False, "hard_failure", "floor_violation", 0),
         _w3_row("primvar_lift_terminal", "lift_entry", "inflight_only", "ctrl_lift", "w3_randomised_single", True, "weak", False, True, "episode_terminal_useful", "xy_boundary_terminal", 1),
         _w3_row("primvar_lift_terminal", "lift_entry", "inflight_only", "ctrl_lift", "w3_randomised_four", True, "weak", False, True, "episode_terminal_useful", "xy_boundary_terminal", 1),
         _w3_row("primvar_lift_terminal", "lift_entry", "inflight_only", "ctrl_lift", "w3_randomised_four", False, "rejected", False, False, "blocked", "entry_role_not_launch_capable", 1),
@@ -191,6 +217,16 @@ def _write_tiny_w3_root(root: Path) -> Path:
         _w3_row("primvar_lift_survived", "lift_entry", "inflight_only", "ctrl_lift_survived", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 2),
         _w3_row("primvar_launch_capture_glide_stabilise", "launch_capture_glide_stabilise", "launch_capable", "ctrl_launch_capture", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 3),
         _w3_row("primvar_launch_capture_glide_stabilise", "launch_capture_glide_stabilise", "launch_capable", "ctrl_launch_capture", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 3),
+        _w3_row("primvar_launch_capture_lift_seek", "launch_capture_lift_seek", "launch_capable", "ctrl_launch_capture_lift_seek", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 4),
+        _w3_row("primvar_launch_capture_lift_seek", "launch_capture_lift_seek", "launch_capable", "ctrl_launch_capture_lift_seek", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 4),
+        _w3_row("primvar_launch_capture_energy_build", "launch_capture_energy_build", "launch_capable", "ctrl_launch_capture_energy_build", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 5),
+        _w3_row("primvar_launch_capture_energy_build", "launch_capture_energy_build", "launch_capable", "ctrl_launch_capture_energy_build", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 5),
+        _w3_row("primvar_launch_capture_shallow_left", "launch_capture_shallow_left", "launch_capable", "ctrl_launch_capture_shallow_left", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 6),
+        _w3_row("primvar_launch_capture_shallow_left", "launch_capture_shallow_left", "launch_capable", "ctrl_launch_capture_shallow_left", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 6),
+        _w3_row("primvar_launch_capture_shallow_right", "launch_capture_shallow_right", "launch_capable", "ctrl_launch_capture_shallow_right", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 7),
+        _w3_row("primvar_launch_capture_shallow_right", "launch_capture_shallow_right", "launch_capable", "ctrl_launch_capture_shallow_right", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 7),
+        _w3_row("primvar_launch_capture_safe_handoff", "launch_capture_safe_handoff", "launch_capable", "ctrl_launch_capture_safe_handoff", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 8),
+        _w3_row("primvar_launch_capture_safe_handoff", "launch_capture_safe_handoff", "launch_capable", "ctrl_launch_capture_safe_handoff", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 8),
     ]
     table_root = root / "tables" / "w3_survival_rows"
     table_root.mkdir(parents=True, exist_ok=True)
@@ -203,7 +239,7 @@ def _write_tiny_w3_root(root: Path) -> Path:
                 "status": "complete",
                 "input_root": (root.parent.parent / "w2_survival" / "015").as_posix(),
                 "row_count": len(rows),
-                "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
+                "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
                 "primitive_timing_contract": {
                     "finite_horizon_s": 0.1,
                     "controller_input_slots_per_primitive": 5,
@@ -228,7 +264,7 @@ def _write_tiny_w3_root(root: Path) -> Path:
         json.dumps(
             {
                 "source_w01_root": (root.parent.parent / "w01_dense" / "015").as_posix(),
-                "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
+                "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
                 "status": "w2_dense_survival_pass",
             },
             indent=2,

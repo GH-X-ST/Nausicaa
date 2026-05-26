@@ -355,6 +355,7 @@ def _compact_library_payload(
         "claim_status": "simulation_only_post_w3_compact_representative_library",
         "no_controller_mutation": True,
         "continuation_and_terminal_evidence_separate": True,
+        "entry_role_regime_separation_policy": "retired_diagnostic_groups_by_primitive_id_and_entry_role_no_cross_role_merge",
         "blocked_claims": list(BLOCKED_CLAIMS),
         "representatives": representatives,
     }
@@ -382,6 +383,7 @@ def _cluster_manifest(
         "max_representatives_per_primitive": int(config.max_representatives_per_primitive),
         "distance_stop_threshold": float(config.distance_stop_threshold),
         "representative_selection_policy": "highest_score_then_farthest_feature_distance_with_stop_threshold",
+        "entry_role_regime_separation_policy": "retired_diagnostic_groups_by_primitive_id_and_entry_role_no_cross_role_merge",
         "no_controller_mutation": True,
         "claim_status": "simulation_only_post_w3_compression",
         "blocked_claims": list(BLOCKED_CLAIMS),

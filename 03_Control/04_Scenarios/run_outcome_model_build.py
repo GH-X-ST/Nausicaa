@@ -24,7 +24,7 @@ from dense_archive_table_io import filesystem_path  # noqa: E402
 from primitive_timing_contract import primitive_timing_contract_row  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
 OUTCOME_MODEL_VERSION = "v411_library_size_case_outcome_model_v1"
 DEFAULT_COMPACT_LIBRARY = Path(
     "03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/001/manifests/post_w3_library_size_study_manifest.json"
@@ -271,7 +271,7 @@ def _write_blocked_outputs(run_root: Path, config: OutcomeModelBuildConfig, bloc
 
 def _write_report(run_root: Path, manifest: dict[str, object]) -> None:
     report = [
-        "# v5.0 Outcome Model Report",
+        "# v5.3 Outcome Model Report",
         "",
         f"- Status: `{manifest['status']}`",
         f"- Representatives: `{manifest['representative_count']}`",
@@ -322,7 +322,7 @@ def _write_csv(path: Path, frame: pd.DataFrame) -> None:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build v5.0 library-size-case W3-derived outcome model.")
+    parser = argparse.ArgumentParser(description="Build v5.3 library-size-case W3-derived outcome model.")
     parser.add_argument("--compact-library", dest="compact_library_path", type=Path, default=DEFAULT_COMPACT_LIBRARY)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-id", type=int, default=2)

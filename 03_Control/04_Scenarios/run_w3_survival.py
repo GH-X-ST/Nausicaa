@@ -44,17 +44,23 @@ from implementation_instance import implementation_instance_for_layer, implement
 from plant_instance import plant_instance_for_layer, plant_instance_row  # noqa: E402
 from prim_cat import primitive_by_id  # noqa: E402
 from prim_roll import RolloutConfig, blocked_rollout_evidence, rollout_evidence_row, simulate_primitive_rollout  # noqa: E402
-from primitive_variant_registry import ENTRY_ROLE_REJECTION_LABEL, ENTRY_ROLE_REJECTION_STATUS, start_family_is_compatible, variant_row  # noqa: E402
+from primitive_variant_registry import (  # noqa: E402
+    ENTRY_ROLE_REJECTION_LABEL,
+    ENTRY_ROLE_REJECTION_STATUS,
+    start_family_for_entry_role_index,
+    start_family_is_compatible,
+    variant_row,
+)
 from primitive_timing_contract import (  # noqa: E402
     CONTROLLER_INPUT_UPDATE_PERIOD_S,
     PRIMITIVE_TIMING_CONTRACT_VERSION,
     primitive_timing_contract_row,
 )
-from state_sampling import archive_state_sample_for_family, archive_state_sample_row, start_state_family_for_row  # noqa: E402
+from state_sampling import archive_state_sample_for_family, archive_state_sample_row  # noqa: E402
 
 
 W3_SURVIVAL_VERSION = "w3_fixed_lqr_survival_replay_v411"
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
 DEFAULT_W2_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")
 W3_TABLE_NAME = "w3_survival_rows"
@@ -474,7 +480,10 @@ def _row_for_index(
     grouped_index = int(row_index) // len(records)
     environment_mode = W3_ENVIRONMENT_CASES[grouped_index % len(W3_ENVIRONMENT_CASES)]
     paired_start_index = grouped_index // len(W3_ENVIRONMENT_CASES)
-    start_family = start_state_family_for_row(paired_start_index)
+    start_family = start_family_for_entry_role_index(
+        entry_role=record.variant.entry_role,
+        index=int(paired_start_index),
+    )
     paired_start_key = f"w3_paired_{int(paired_start_index):07d}_{start_family}"
     sample = archive_state_sample_for_family(
         start_state_family=start_family,
@@ -764,6 +773,7 @@ def _write_run_manifest(
         "test_fixture_not_method_evidence": bool(fixture_label == TEST_FIXTURE_LABEL),
         "fixed_lqr_replay_only": True,
         "mutates_Q_R_K_reference_horizon_entry_set_or_entry_role": False,
+        "entry_role_regime_separation_policy": "role_aware_start_family_schedule_launch_inflight_recovery_not_mixed",
         "forbidden_mutations": "Q/R,K,reference,horizon,entry_set,entry_role",
         "status_vocabulary": list(SURVIVAL_STATUS_VOCABULARY),
         "redesign_policy": "new_ids_return_to_W01",

@@ -1010,7 +1010,7 @@ def _r5_launch_gate_audit_passed(run_root: Path) -> bool:
         ].astype(str).nunique()
     ) < 2:
         return False
-    expected_per_primitive = int(round(float(L6_RICH_SIDE_ROW_COUNT) * 0.40 / float(len(ACTIVE_PRIMITIVE_IDS))))
+    expected_per_primitive = int(L6_RICH_SIDE_ROW_COUNT // len(ACTIVE_PRIMITIVE_IDS))
     for primitive_id in LAUNCH_CAPTURE_PRIMITIVE_IDS:
         rows = launch[launch["primitive_id"].astype(str) == str(primitive_id)]
         if rows.empty:
@@ -1049,7 +1049,11 @@ def _r8_launch_gate_audit_passed(run_root: Path) -> bool:
     for row in frame.to_dict(orient="records"):
         if int(float(row.get("launch_capable_primitive_family_count", 0))) < 2:
             return False
-        if int(float(row.get("launch_capture_primitive_family_count", 0))) <= 0:
+        if int(float(row.get("launch_capture_primitive_family_count", 0))) < len(LAUNCH_CAPTURE_PRIMITIVE_IDS):
+            return False
+        if str(row.get("missing_launch_capture_primitive_ids", "")).strip():
+            return False
+        if str(row.get("non_launch_capture_launch_capable_primitive_ids", "")).strip():
             return False
         if int(float(row.get("launch_gate_candidate_rows", 0))) <= 0:
             return False
@@ -1072,7 +1076,11 @@ def _validation_launch_gate_audit_passed(run_root: Path) -> bool:
     for row in availability.to_dict(orient="records"):
         if int(float(row.get("launch_capable_primitive_family_count", 0))) < 2:
             return False
-        if int(float(row.get("launch_capture_primitive_family_count", 0))) <= 0:
+        if int(float(row.get("launch_capture_primitive_family_count", 0))) < len(LAUNCH_CAPTURE_PRIMITIVE_IDS):
+            return False
+        if str(row.get("missing_launch_capture_primitive_ids", "")).strip():
+            return False
+        if str(row.get("non_launch_capture_launch_capable_primitive_ids", "")).strip():
             return False
     return True
 

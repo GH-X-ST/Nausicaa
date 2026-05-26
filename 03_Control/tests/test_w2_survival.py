@@ -21,7 +21,7 @@ from primitive_variant_registry import (
     primitive_controller_variant,
     variant_row,
 )
-from run_w2_survival import W2SurvivalConfig, discover_latest_w01_root_for_w2, run_w2_survival
+from run_w2_survival import W2_DENSE_ROW_COUNT, W2_DENSE_VARIANT_COUNT, W2SurvivalConfig, discover_latest_w01_root_for_w2, run_w2_survival
 from run_w3_survival import TEST_FIXTURE_LABEL, W3SurvivalConfig, run_w3_survival, write_w3_fixture_survivor_root
 
 
@@ -84,7 +84,7 @@ def test_w2_small_replay_uses_frozen_history_backed_timing_state(tmp_path: Path)
     assert not frame["baseline_controller_active"].astype(bool).any()
 
 
-def test_w2_entry_role_rejections_are_preserved_but_not_survival_scored(tmp_path: Path) -> None:
+def test_w2_role_aware_schedule_avoids_inflight_launch_gate_rejections(tmp_path: Path) -> None:
     source_root = _write_w01_source_fixture(tmp_path / "w01", "lift_entry", include_augmented_payload=True)
     result = run_w2_survival(
         W2SurvivalConfig(
@@ -105,12 +105,10 @@ def test_w2_entry_role_rejections_are_preserved_but_not_survival_scored(tmp_path
     frame = _read_w2_frame(run_root)
     variant_summary = pd.read_csv(run_root / "metrics" / "w2_variant_survival_summary.csv")
 
-    assert set(frame["entry_check_status"]) == {ENTRY_ROLE_REJECTION_STATUS}
-    assert set(frame["failure_label"]) == {ENTRY_ROLE_REJECTION_LABEL}
-    assert set(frame["outcome_class"]) == {"rejected"}
-    assert set(frame["w2_survival_status"]) == {"blocked"}
-    assert int(variant_summary["compatible_row_count"].iloc[0]) == 0
-    assert variant_summary["w2_variant_status"].iloc[0] == "not_run"
+    assert set(frame["start_state_family"]) == {"inflight_nominal"}
+    assert not frame["entry_check_status"].astype(str).eq(ENTRY_ROLE_REJECTION_STATUS).any()
+    assert not frame["failure_label"].astype(str).eq(ENTRY_ROLE_REJECTION_LABEL).any()
+    assert int(variant_summary["compatible_row_count"].iloc[0]) == 2
 
 
 def test_w2_blocks_w01_roots_without_emitted_frozen_bundle(tmp_path: Path) -> None:
@@ -149,7 +147,7 @@ def test_w3_executes_from_valid_w2_survivor_registry_and_frozen_bundle(tmp_path:
         json.dumps(
             {
                 "status": "w2_dense_survival_pass",
-                "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
+                "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
                 "primitive_timing_contract": primitive_timing_contract_row(),
                 "method_evidence_level": "w2_dense_survival_pass",
                 "w2_dense_survival_evidence_complete": True,
@@ -202,7 +200,7 @@ def test_w2_default_discovery_requires_dense_method_evidence(tmp_path: Path) -> 
                     "run_id": 12,
                     "rows_requested": 240,
                     "cross_layer_smoke_status": "artifact_smoke_only_start_family_incomplete",
-                    "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
+                    "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
                     "primitive_timing_contract": primitive_timing_contract_row(),
                     "method_evidence_level": "w01_smoke_or_preflight_only",
                     "w01_dense_evidence_complete": False,
@@ -218,7 +216,7 @@ def test_w2_default_discovery_requires_dense_method_evidence(tmp_path: Path) -> 
                     "run_id": 14,
                     "rows_requested": 960,
                     "cross_layer_smoke_status": "cross_layer_smoke_start_family_complete",
-                    "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
+                    "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
                     "primitive_timing_contract": primitive_timing_contract_row(),
                     "method_evidence_level": "w01_dense_evidence_complete",
                     "w01_dense_evidence_complete": True,
@@ -263,7 +261,8 @@ def test_w3_fixture_plumbing_is_labelled_non_method_evidence(tmp_path: Path) -> 
 
 
 def test_w2_default_schedule_dimensions() -> None:
-    assert 256 * 2 * 100 == 51200
+    assert W2_DENSE_VARIANT_COUNT == 14 * 32
+    assert W2_DENSE_ROW_COUNT == 14 * 32 * 2 * 100
 
 
 def _write_w01_source_fixture(
@@ -302,7 +301,7 @@ def _write_w01_source_fixture(
             {
                 "run_id": 8,
                 "status": "fixture",
-                "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
+                "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
                 "cross_layer_smoke_status": "cross_layer_smoke_start_family_complete",
                 "primitive_timing_contract": primitive_timing_contract_row(),
                 "method_evidence_level": "w01_dense_evidence_complete",
