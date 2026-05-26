@@ -48,7 +48,7 @@ from latency import DEFAULT_LATENCY_ENVELOPE, latency_case_config  # noqa: E402
 from lqr_controller import ACTIVE_TIMING_AWARE_ROLE, controller_is_active_timing_aware_w01, synthesize_lqr_controller  # noqa: E402
 from lqr_tuning import candidate_weight_specs, lqr_tuning_schedule, tuning_schedule_row  # noqa: E402
 from plant_instance import plant_instance_for_layer, plant_instance_row  # noqa: E402
-from prim_cat import ACTIVE_PRIMITIVE_IDS, active_primitive_catalogue  # noqa: E402
+from prim_cat import ACTIVE_PRIMITIVE_IDS, LAUNCH_CAPTURE_PRIMITIVE_IDS, active_primitive_catalogue  # noqa: E402
 from prim_roll import (  # noqa: E402
     RolloutConfig,
     blocked_rollout_evidence,
@@ -76,9 +76,28 @@ PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
 W01_TABLE_NAME = "w01_primitive_rows"
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 L6_FALLBACK_ROW_COUNT = 19_200
-L6_RICH_SIDE_ROW_COUNT = 76_800
 L6_RICH_SIDE_CANDIDATE_COUNT = 32
 L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE = 100
+
+
+def rich_side_dense_row_count(
+    *,
+    primitive_count: int | None = None,
+    candidate_count: int = L6_RICH_SIDE_CANDIDATE_COUNT,
+    environment_case_count: int = 3,
+    paired_tests_per_candidate: int = L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE,
+) -> int:
+    """Return the active rich-side W0/W1 dense target for the primitive catalogue."""
+
+    return (
+        int(len(ACTIVE_PRIMITIVE_IDS) if primitive_count is None else primitive_count)
+        * int(candidate_count)
+        * int(environment_case_count)
+        * int(paired_tests_per_candidate)
+    )
+
+
+L6_RICH_SIDE_ROW_COUNT = rich_side_dense_row_count()
 CROSS_LAYER_START_FAMILY_CYCLE = 20
 CROSS_LAYER_SMOKE_READY = "cross_layer_smoke_start_family_complete"
 CROSS_LAYER_SMOKE_INCOMPLETE = "artifact_smoke_only_start_family_incomplete"
@@ -966,6 +985,7 @@ def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[ob
         grouped["boundary_use"],
         ("boundary_use_class", "continuation_valid", "episode_terminal_useful", "outcome_class"),
     ).to_csv(filesystem_path(run_root / "metrics" / "boundary_use_summary.csv"), index=False)
+    _write_launch_gate_audit_tables(run_root)
     return int(row_count)
 
 
@@ -982,8 +1002,104 @@ def _write_empty_metrics(run_root: Path) -> None:
         "entry_role_compatibility_by_primitive.csv",
         "boundary_use_summary.csv",
         "timing_state_summary.csv",
+        "launch_gate_entry_role_audit.csv",
+        "launch_gate_outcome_audit.csv",
+        "launch_gate_candidate_availability.csv",
     ):
         pd.DataFrame().to_csv(filesystem_path(run_root / "metrics" / name), index=False)
+
+
+def _write_csv(path: Path, frame: pd.DataFrame) -> None:
+    filesystem_path(path).parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(filesystem_path(path), index=False)
+
+
+def _write_launch_gate_audit_tables(run_root: Path) -> None:
+    metrics = filesystem_path(run_root / "metrics")
+    start_path = metrics / "start_family_coverage.csv"
+    compat_path = metrics / "entry_role_compatibility_by_primitive.csv"
+    outcome_path = metrics / "outcome_summary.csv"
+    if start_path.is_file():
+        start = pd.read_csv(start_path)
+    else:
+        start = pd.DataFrame()
+    if compat_path.is_file():
+        compat = pd.read_csv(compat_path)
+    else:
+        compat = pd.DataFrame()
+    launch = start[start.get("start_state_family", pd.Series(dtype=str)).astype(str) == "launch_gate"].copy() if not start.empty else pd.DataFrame()
+    if not launch.empty:
+        launch["stage_id"] = "W01"
+        launch["launch_capture_family"] = launch["primitive_id"].astype(str).isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS))
+        launch["entry_role_compatible"] = launch["entry_role"].astype(str) == "launch_capable"
+        launch["launch_gate_candidate_rows"] = pd.to_numeric(launch["row_count"], errors="coerce").fillna(0).astype(int)
+        audit = launch[
+            [
+                "stage_id",
+                "primitive_id",
+                "entry_role",
+                "W_layer",
+                "launch_capture_family",
+                "entry_role_compatible",
+                "launch_gate_candidate_rows",
+            ]
+        ].copy()
+    else:
+        audit = pd.DataFrame(
+            columns=[
+                "stage_id",
+                "primitive_id",
+                "entry_role",
+                "W_layer",
+                "launch_capture_family",
+                "entry_role_compatible",
+                "launch_gate_candidate_rows",
+            ]
+        )
+    _write_csv(run_root / "metrics" / "launch_gate_entry_role_audit.csv", audit)
+
+    if outcome_path.is_file():
+        outcome = pd.read_csv(outcome_path)
+        outcome.insert(0, "stage_id", "W01")
+    else:
+        outcome = pd.DataFrame(columns=["stage_id", "value", "row_count"])
+    _write_csv(run_root / "metrics" / "launch_gate_outcome_audit.csv", outcome)
+
+    if not compat.empty:
+        compat_launch = compat[compat["entry_role"].astype(str) == "launch_capable"].copy()
+        availability = pd.DataFrame(
+            [
+                {
+                    "stage_id": "W01",
+                    "library_size_case_id": "not_applicable_w01",
+                    "launch_capable_primitive_family_count": int(compat_launch["primitive_id"].astype(str).nunique()),
+                    "launch_capture_primitive_family_count": int(
+                        compat_launch.loc[
+                            compat_launch["primitive_id"].astype(str).isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS)),
+                            "primitive_id",
+                        ]
+                        .astype(str)
+                        .nunique()
+                    ),
+                    "launch_gate_candidate_rows": int(audit["launch_gate_candidate_rows"].sum()) if not audit.empty else 0,
+                    "first_decision_audit_mode": "not_applicable_w01",
+                }
+            ]
+        )
+    else:
+        availability = pd.DataFrame(
+            [
+                {
+                    "stage_id": "W01",
+                    "library_size_case_id": "not_applicable_w01",
+                    "launch_capable_primitive_family_count": 0,
+                    "launch_capture_primitive_family_count": 0,
+                    "launch_gate_candidate_rows": 0,
+                    "first_decision_audit_mode": "not_applicable_w01",
+                }
+            ]
+        )
+    _write_csv(run_root / "metrics" / "launch_gate_candidate_availability.csv", availability)
 
 
 def _value_counts(frame: pd.DataFrame, column: str) -> pd.DataFrame:
@@ -1493,7 +1609,7 @@ def _l6_move_on_status(*, run_root: Path, status: str, row_count: int) -> tuple[
     if int(row_count) < L6_FALLBACK_ROW_COUNT:
         return "preflight", ["below_19200_fallback_scale_threshold", *blockers]
     if int(row_count) < L6_RICH_SIDE_ROW_COUNT:
-        return "fallback_scale_only", ["below_76800_rich_side_threshold", *blockers]
+        return "fallback_scale_only", [f"below_{L6_RICH_SIDE_ROW_COUNT}_rich_side_threshold", *blockers]
     return "rich_side_l6_candidate", blockers
 
 
@@ -1555,6 +1671,7 @@ def _rich_side_gate_blockers(*, run_root: Path, row_count: int) -> list[str]:
             if non_active_count > 0:
                 blockers.append("w01_rows_include_superseded_baseline_controller_ids")
     blockers.extend(_coverage_gate_blockers(run_root=run_root, row_count=row_count))
+    blockers.extend(_launch_gate_coverage_blockers(run_root=run_root, row_count=row_count))
     blockers.extend(_active_timing_state_gate_blockers(run_root=run_root))
     blockers.extend(_frozen_bundle_gate_blockers(run_root=run_root))
     blockers.extend(_file_size_gate_blockers(run_root=run_root))
@@ -1587,6 +1704,31 @@ def _coverage_gate_blockers(*, run_root: Path, row_count: int) -> list[str]:
         blockers.extend(cross_layer_blockers)
     if int(row_count) >= L6_RICH_SIDE_ROW_COUNT and start_counts != expected:
         blockers.append("start_family_mix_not_exact_40_25_15_10_10")
+    return blockers
+
+
+def _launch_gate_coverage_blockers(*, run_root: Path, row_count: int) -> list[str]:
+    if int(row_count) < L6_RICH_SIDE_ROW_COUNT:
+        return []
+    blockers: list[str] = []
+    path = filesystem_path(run_root / "metrics" / "launch_gate_candidate_availability.csv")
+    if not path.is_file():
+        blockers.append("missing_launch_gate_candidate_availability_audit")
+        return blockers
+    audit = pd.read_csv(path)
+    if audit.empty:
+        blockers.append("empty_launch_gate_candidate_availability_audit")
+        return blockers
+    row = audit.iloc[0].to_dict()
+    launch_capable_count = int(float(row.get("launch_capable_primitive_family_count", 0)))
+    launch_capture_count = int(float(row.get("launch_capture_primitive_family_count", 0)))
+    launch_gate_rows = int(float(row.get("launch_gate_candidate_rows", 0)))
+    if launch_capable_count < 2:
+        blockers.append("launch_capable_primitive_family_count_below_2")
+    if launch_capture_count < len(LAUNCH_CAPTURE_PRIMITIVE_IDS):
+        blockers.append("launch_capture_primitive_coverage_incomplete")
+    if launch_gate_rows <= 0:
+        blockers.append("launch_gate_candidate_rows_missing")
     return blockers
 
 

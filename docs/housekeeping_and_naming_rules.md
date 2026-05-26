@@ -1,5 +1,36 @@
 # Repository Housekeeping, Naming, Runtime, and Storage Rules
 
+<!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
+## Current controlling update — R9 launch-gate coverage repair
+
+This document is aligned with `docs/R5_R10_Full_Evidence_Execution_Plan.md` and `docs/CODEX_R9_launch_gate_coverage_repair_guidance.md`. If these two documents conflict, `CODEX_R9_launch_gate_coverage_repair_guidance.md` controls for the current implementation pass.
+
+Current decision:
+
+```text
+BLOCKED_FIX_REQUIRED
+```
+
+The current R9 repeated-launch result is diagnostic evidence only. It must not be used to claim memory improvement, hardware readiness, real-flight transfer, mission success, or full autonomy. The repair is to address launch-gate candidate starvation and the R9 compressed-library outcome-lookup issue before continuing to R10.
+
+Required repair direction:
+
+```text
+1. Add a dedicated LQR-only launch-capture primitive family or launch-gate-capable subset.
+2. Keep existing in-flight primitive families intact; do not relabel all in-flight primitives as launch-capable.
+3. Preserve the active primitive contract: 0.100 s horizon, 5 controller-input slots, 20 ms controller update period.
+4. Preserve primitive-local time-invariant LQR only; no PD/PID/bounded fallback and no TVLQR active workflow.
+5. Keep W2/W3 as fixed-LQR replay with no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation.
+6. Keep post-W3 reduction as the four-case library-size cross-study: heavy, balanced, light, and no-clustering/no-merging.
+7. Fix R9 outcome lookup so representatives are matched by library-size case and compact-library identity, not only by primitive_variant_id.
+8. Compute memory_changed_selection and exploration_changed_selection from actual matched selections; do not hard-code them to zero.
+9. Add first-decision launch-gate audits for candidate count, viable count, rejection reason, selected family, and transition-to-inflight evidence.
+10. Regenerate evidence from the corrected R5 W0/W1 dense run before reusing R6, R7, R8, R9, or R10 evidence.
+```
+
+Forbidden changes remain unchanged: no fan-layout-specific controller logic, no pre-W3 clustering, no W2/W3 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
+<!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
+
 ## 1. Result folder contract
 
 Generated control results normally live under:
@@ -18,7 +49,7 @@ For example, the active LQR evidence root is
 `03_Control/05_Results/lqr_contextual_v1_0`, with short stage folders such as
 `w01_dense`, `w2_survival`, `w3_survival`, and `post_w3_cluster`. The stage run folder is the atomic evidence unit.
 It must contain the manifest and the compact analysis files needed to audit the
-run. Primitive-controller variant registries, W2/W3 survival summaries, and post-W3 library-size cross-study summaries are compact audit artefacts; raw dense partitions still belong under `tables/`.
+run. Primitive-controller variant registries, W2/W3 survival summaries, and post-W3 merge summaries are compact audit artefacts; raw dense partitions still belong under `tables/`.
 
 Preferred result groups:
 
@@ -41,21 +72,6 @@ Historical generated result folders are local-only unless the user explicitly re
 
 Scratch and preflight roots are local only. They must not be pushed unless the user explicitly requests preservation.
 
-
-Current archive requirement:
-
-Rejected v4.10-style outer-loop and governor-calibration results must be preserved only as diagnostic_not_passed evidence before the 0.10 s primitive rerun. Do not overwrite those folders. New evidence from the repair cycle should use a new run root and include an archive manifest that lists the superseded roots, their claim boundary, and why they do not unblock hardware.
-
-Suggested compact archive labels:
-
-```text
-diagnostic_not_passed
-archived_superseded_result
-v410_outer_loop_rejected
-```
-
-For the current repair cycle, result manifests must record 0.10 s primitive horizon compliance, 5 controller-input-slot compliance at a 20 ms controller update period, directional 3D residual memory status, safe exploration/exploitation status, heavy/balanced/light/no-clustering library-size case, and history lengths `0, 5, 10, 20, 50, and 100` where applicable.
-
 ---
 
 ## 2. Naming rules
@@ -77,11 +93,6 @@ Good examples:
 Use these abbreviations consistently:
 
 ```text
-
-
-lc    repeated-launch learning curve
-lib   library-size study
-mem   directional 3D residual memory
 ctx   environment context
 prim  primitive
 pol   policy
@@ -93,7 +104,7 @@ w1    variable Gaussian plume fidelity layer
 w2    GP-corrected annular-Gaussian survival layer
 w3    randomised GP-corrected annular-Gaussian survival layer
 w01   combined W0/W1 rich primitive-library generation
-post_w3  post-W3 library-size cross-study and clustering/merging cases
+post_w3  post-W3 library-size cross-study
 nom   nominal
 rand  randomised
 sum   summary
@@ -158,7 +169,7 @@ planned rollout rows >= 10,000
 planned candidate rows >= 5,000
 expected runtime > 30 minutes
 expected uncompressed table size > 250 MB
-used for thesis evidence, primitive-controller variant evidence, W0/W1 dense generation, W2/W3 survival replay, post-W3 library-size studies, envelope maps, outcome models, or selector/governor reports
+used for thesis evidence, primitive-controller variant evidence, W0/W1 dense generation, W2/W3 survival replay, post-W3 library-size cross-study, envelope maps, outcome models, or selector/governor reports
 ```
 
 Dense runs must not use a single-process full-memory runner that builds the entire rollout table before writing.
@@ -166,10 +177,6 @@ Dense runs must not use a single-process full-memory runner that builds the enti
 Dense runners must support:
 
 ```text
-
-
---history-lengths 0,5,10,20,50,100
---library-size-case heavy|balanced|light|no_cluster
 --workers
 --max-workers
 --candidate-chunk-size or --chunk-size
@@ -246,7 +253,7 @@ above_100mb
 push_allowed
 ```
 
-Archive, W2/W3 survival, post-W3 library-size study, outcome-model, and episode-smoke outputs must keep continuation-valid targets separate from episode-terminal-useful targets. X/y boundary exits may be retained as terminal episode evidence; they must not be relabelled as continuation success. W0/W1 outputs must not be compressed into a small retained shortlist before W2/W3.
+Archive, W2/W3 survival, post-W3 library-size cross-study, outcome-model, and episode-smoke outputs must keep continuation-valid targets separate from episode-terminal-useful targets. X/y boundary exits may be retained as terminal episode evidence; they must not be relabelled as continuation success. W0/W1 outputs must not be compressed into a small retained shortlist before W2/W3.
 
 ---
 

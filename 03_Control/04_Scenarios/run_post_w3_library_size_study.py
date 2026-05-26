@@ -22,6 +22,7 @@ _bootstrap_import_paths()
 
 from dense_archive_runtime import MAX_GENERATED_FILE_SIZE_MB  # noqa: E402
 from dense_archive_table_io import file_sha256, filesystem_path  # noqa: E402
+from prim_cat import LAUNCH_CAPTURE_PRIMITIVE_IDS  # noqa: E402
 from primitive_timing_contract import primitive_timing_contract_row, primitive_timing_contract_status  # noqa: E402
 
 
@@ -127,6 +128,13 @@ def run_post_w3_library_size_study(config: PostW3LibrarySizeStudyConfig) -> dict
     summary = pd.DataFrame(case_manifest_rows)
     _write_csv(run_root / "metrics" / "library_size_case_summary.csv", summary)
     _write_csv(run_root / "metrics" / "post_w3_representative_library_all_cases.csv", pd.DataFrame(all_representatives))
+    availability, availability_blockers = _launch_gate_candidate_availability(all_representatives)
+    _write_csv(run_root / "metrics" / "launch_gate_candidate_availability.csv", availability)
+    _write_csv(run_root / "metrics" / "launch_gate_entry_role_audit.csv", _launch_gate_entry_role_audit(all_representatives))
+    if availability_blockers:
+        blocked_reason = "launch_gate_candidate_availability_failed:" + ";".join(availability_blockers)
+        _write_blocked_outputs(run_root, config, blocked_reason)
+        return {"status": "blocked", "blocked_reason": blocked_reason, "run_root": run_root.as_posix()}
     manifest = _study_manifest(config=config, run_root=run_root, registry=registry, case_rows=case_manifest_rows)
     _write_json(run_root / "manifests" / "post_w3_library_size_study_manifest.json", manifest)
     _write_file_size_audit(run_root)
@@ -359,6 +367,53 @@ def _library_payload(
         "blocked_claims": list(BLOCKED_CLAIMS),
         "representatives": representatives,
     }
+
+
+def _launch_gate_candidate_availability(representatives: list[dict[str, object]]) -> tuple[pd.DataFrame, list[str]]:
+    frame = pd.DataFrame(representatives)
+    rows: list[dict[str, object]] = []
+    blockers: list[str] = []
+    launch_capture_ids = set(LAUNCH_CAPTURE_PRIMITIVE_IDS)
+    for case_id in LIBRARY_SIZE_CASE_IDS:
+        case = frame[frame.get("library_size_case_id", pd.Series(dtype=str)).astype(str) == str(case_id)] if not frame.empty else pd.DataFrame()
+        launch_capable = case[case.get("entry_role", pd.Series(dtype=str)).astype(str) == "launch_capable"] if not case.empty else pd.DataFrame()
+        launch_capture = (
+            launch_capable[launch_capable.get("primitive_id", pd.Series(dtype=str)).astype(str).isin(launch_capture_ids)]
+            if not launch_capable.empty
+            else pd.DataFrame()
+        )
+        launch_capable_count = int(launch_capable.get("primitive_id", pd.Series(dtype=str)).astype(str).nunique()) if not launch_capable.empty else 0
+        launch_capture_count = int(launch_capture.get("primitive_id", pd.Series(dtype=str)).astype(str).nunique()) if not launch_capture.empty else 0
+        representative_count = int(len(launch_capable))
+        rows.append(
+            {
+                "stage_id": "R8",
+                "library_size_case_id": case_id,
+                "launch_capable_primitive_family_count": launch_capable_count,
+                "launch_capture_primitive_family_count": launch_capture_count,
+                "launch_gate_candidate_rows": representative_count,
+                "first_decision_audit_mode": "post_w3_library_availability",
+            }
+        )
+        if launch_capable_count < 2:
+            blockers.append(f"{case_id}:launch_capable_primitive_family_count_below_2")
+        if launch_capture_count <= 0:
+            blockers.append(f"{case_id}:launch_capture_representative_missing")
+    return pd.DataFrame(rows), blockers
+
+
+def _launch_gate_entry_role_audit(representatives: list[dict[str, object]]) -> pd.DataFrame:
+    frame = pd.DataFrame(representatives)
+    if frame.empty:
+        return pd.DataFrame()
+    audit = (
+        frame.groupby(["library_size_case_id", "primitive_id", "entry_role"], dropna=False)
+        .size()
+        .reset_index(name="representative_count")
+    )
+    audit.insert(0, "stage_id", "R8")
+    audit["launch_capture_family"] = audit["primitive_id"].astype(str).isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS))
+    return audit
 
 
 def _study_manifest(

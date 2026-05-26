@@ -129,6 +129,30 @@ def build_lqr_reference(
         x_ref[STATE_INDEX["phi"]] = 0.0
         x_ref[STATE_INDEX["theta"]] += 0.03
         note = "trim_with_safe_exit_recovery_bias"
+    elif primitive.primitive_id == "launch_capture_glide_stabilise":
+        x_ref[STATE_INDEX["phi"]] = 0.0
+        x_ref[STATE_INDEX["theta"]] += -0.02
+        note = "trim_with_launch_capture_glide_stabilise_bias"
+    elif primitive.primitive_id == "launch_capture_lift_seek":
+        x_ref[STATE_INDEX["phi"]] = 0.0
+        x_ref[STATE_INDEX["theta"]] += 0.02
+        note = "trim_with_launch_capture_lift_seek_bias"
+    elif primitive.primitive_id == "launch_capture_energy_build":
+        x_ref[STATE_INDEX["phi"]] = 0.0
+        x_ref[STATE_INDEX["theta"]] += -0.035
+        note = "trim_with_launch_capture_energy_build_bias"
+    elif primitive.primitive_id == "launch_capture_shallow_left":
+        x_ref[STATE_INDEX["phi"]] = -0.12
+        x_ref[STATE_INDEX["theta"]] += -0.005
+        note = "trim_with_launch_capture_shallow_left_bias"
+    elif primitive.primitive_id == "launch_capture_shallow_right":
+        x_ref[STATE_INDEX["phi"]] = 0.12
+        x_ref[STATE_INDEX["theta"]] += -0.005
+        note = "trim_with_launch_capture_shallow_right_bias"
+    elif primitive.primitive_id == "launch_capture_safe_handoff":
+        x_ref[STATE_INDEX["phi"]] = 0.0
+        x_ref[STATE_INDEX["theta"]] += 0.015
+        note = "trim_with_launch_capture_safe_handoff_bias"
 
     reference_id = _stable_id(
         "lqr_ref",
@@ -257,4 +281,3 @@ def _stable_id(prefix: str, *parts: object) -> str:
     payload = json.dumps(parts, sort_keys=True, separators=(",", ":"), default=str)
     digest = hashlib.sha256(payload.encode("ascii")).hexdigest()[:12]
     return f"{prefix}_{digest}"
-

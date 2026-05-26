@@ -1,5 +1,36 @@
 First inspect the local repo history, tags, and existing docs/PR wording for recent title/version patterns. Propose a concise high-level PR title with a version label that continues the existing project sequence rather than inventing a fresh v1.0. Use the same title family when this change extends the same development line; increment minor versions for scaffold/refinement work, and reserve major versions for completed evidence milestones or major claim-boundary changes.
 
+<!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
+## Current controlling update — R9 launch-gate coverage repair
+
+This document is aligned with `docs/R5_R10_Full_Evidence_Execution_Plan.md` and `docs/CODEX_R9_launch_gate_coverage_repair_guidance.md`. If these two documents conflict, `CODEX_R9_launch_gate_coverage_repair_guidance.md` controls for the current implementation pass.
+
+Current decision:
+
+```text
+BLOCKED_FIX_REQUIRED
+```
+
+The current R9 repeated-launch result is diagnostic evidence only. It must not be used to claim memory improvement, hardware readiness, real-flight transfer, mission success, or full autonomy. The repair is to address launch-gate candidate starvation and the R9 compressed-library outcome-lookup issue before continuing to R10.
+
+Required repair direction:
+
+```text
+1. Add a dedicated LQR-only launch-capture primitive family or launch-gate-capable subset.
+2. Keep existing in-flight primitive families intact; do not relabel all in-flight primitives as launch-capable.
+3. Preserve the active primitive contract: 0.100 s horizon, 5 controller-input slots, 20 ms controller update period.
+4. Preserve primitive-local time-invariant LQR only; no PD/PID/bounded fallback and no TVLQR active workflow.
+5. Keep W2/W3 as fixed-LQR replay with no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation.
+6. Keep post-W3 reduction as the four-case library-size cross-study: heavy, balanced, light, and no-clustering/no-merging.
+7. Fix R9 outcome lookup so representatives are matched by library-size case and compact-library identity, not only by primitive_variant_id.
+8. Compute memory_changed_selection and exploration_changed_selection from actual matched selections; do not hard-code them to zero.
+9. Add first-decision launch-gate audits for candidate count, viable count, rejection reason, selected family, and transition-to-inflight evidence.
+10. Regenerate evidence from the corrected R5 W0/W1 dense run before reusing R6, R7, R8, R9, or R10 evidence.
+```
+
+Forbidden changes remain unchanged: no fan-layout-specific controller logic, no pre-W3 clustering, no W2/W3 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
+<!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
+
 Then write a short GitHub push or PR comment in this style:
 
 - Language or area.
@@ -10,15 +41,10 @@ Then write a short GitHub push or PR comment in this style:
 
 Do not list every file changed. Keep it general, audit-focused, and suitable for a robotics research codebase.
 
-
-For the current repair cycle, continue the existing title family and use the next minor version after `LQR-Stabilised Contextual Primitive v4.10` unless the repository history shows a later version.
-
-The PR comment must explicitly state whether the change archives rejected v4.10-style evidence, implements the 0.10 s primitive horizon and 5 controller-input slots at a 20 ms controller update period, introduces directional 3D residual memory, adds safe exploration/exploitation, or adds the four-case post-W3 library-size cross-study. Do not claim hardware readiness or memory improvement until the new repeated-launch validation passes.
-
 Example:
 
 ```text
-LQR-Stabilised Contextual Primitive v4.11
+Glider Design v5.6
 ```
 
 ```text
@@ -30,20 +56,19 @@ Python control-simulation pipeline
 - Checks run: fixed-gate archive tests, dense runtime tests, and git diff --check.
 - No real-flight transfer, mission success, or hardware-readiness claim is made by this change.
 ```
-Current repair-cycle example:
+
+Current R9 launch-gate repair example:
 
 ```text
-LQR-Stabilised Contextual Primitive v4.11
+LQR-Stabilised Contextual Primitive v5.1
 ```
 
 ```text
 Python control-simulation pipeline
 
-- Archives rejected v4.10-style outer-loop evidence as diagnostic_not_passed and starts the 0.10 s primitive repair cycle.
-- Aligns primitive-controller variants with a 0.10 s horizon and 5 controller-input slots at a 20 ms controller update period, with W0/W1 dense generation required to rerun before W2/W3 replay.
-- Adds directional 3D residual memory, safe exploration/exploitation after viability filtering, and the required heavy/balanced/light/no-clustering post-W3 library-size cross-study.
-- Preserves fixed-controller W2/W3 replay boundaries, result archiving, file-size audits, and simulation-only claim limits.
-- No hardware readiness, real-flight transfer, mission success, or memory-improvement claim is made by this change.
+- Repairs the blocked R9 repeated-launch validation path by adding launch-gate coverage diagnostics and a project-aligned launch-capture primitive repair plan.
+- Preserves the primitive-local time-invariant LQR workflow, 0.100 s / 5-slot / 20 ms timing contract, directional 3D residual memory, safe exploration/exploitation, and post-W3 heavy/balanced/light/no-clustering/no-merging library-size study.
+- Clarifies that current R9 evidence is diagnostic_not_passed until launch-capture coverage, outcome lookup, and selection-change metrics are repaired and evidence is regenerated from R5.
+- Checks run: source audit, relevant unit tests, R5-R10 gate checks, and R9 launch-gate audit where applicable.
+- No memory improvement, hardware readiness, real-flight transfer, mission success, or full autonomy claim is made by this change.
 ```
-
-For repair-cycle PRs, state the required history lengths `0, 5, 10, 20, 50, and 100` whenever the change touches repeated-launch validation.

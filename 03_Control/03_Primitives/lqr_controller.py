@@ -173,6 +173,12 @@ def default_lqr_weight_spec(primitive_id: str, *, tuning_stage: str = "W0_W1") -
         "mild_turn_right": (5.0, 2.0, 2.1, 0.18, 0.9, 1.1, 1.0),
         "energy_retaining_bank": (4.8, 2.8, 1.8, 0.15, 1.0, 0.9, 1.2),
         "safe_exit_or_recovery_handoff": (6.0, 2.0, 2.4, 0.20, 1.1, 0.8, 1.2),
+        "launch_capture_glide_stabilise": (5.2, 2.4, 2.0, 0.18, 1.2, 0.9, 1.3),
+        "launch_capture_lift_seek": (5.0, 2.8, 2.0, 0.18, 1.1, 0.9, 1.2),
+        "launch_capture_energy_build": (4.8, 3.0, 1.9, 0.16, 1.1, 0.8, 1.2),
+        "launch_capture_shallow_left": (5.3, 2.3, 2.2, 0.18, 1.0, 1.0, 1.1),
+        "launch_capture_shallow_right": (5.3, 2.3, 2.2, 0.18, 1.0, 1.0, 1.1),
+        "launch_capture_safe_handoff": (6.2, 2.3, 2.4, 0.20, 1.2, 0.8, 1.2),
     }.get(str(primitive_id), (4.0, 2.0, 2.0, 0.2, 1.0, 1.0, 1.0))
     return LQRWeightSpec(
         q_attitude=base[0],

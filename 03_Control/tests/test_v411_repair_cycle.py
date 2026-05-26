@@ -21,7 +21,8 @@ from primitive_timing_contract import (
 from primitive_variant_registry import _variant_id
 from run_post_w3_cluster_merge import run_post_w3_cluster_merge
 from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS
-from run_repeated_launch_learning_curve import HISTORY_LENGTHS
+from run_changed_case_validation import ChangedCaseValidationConfig
+from run_repeated_launch_learning_curve import HISTORY_LENGTHS, RepeatedLaunchValidationConfig, _read_outcome_rows
 from run_v411_source_audit import (
     SourceAuditConfig,
     build_control_inventory,
@@ -237,3 +238,28 @@ def test_v411_case_ids_histories_and_retired_gate(tmp_path: Path) -> None:
     )
     assert result["status"] == "blocked"
     assert result["blocked_reason"] == "retired_diagnostic_requires_explicit_allow_retired_diagnostic"
+
+
+def test_r9_repair_uses_compact_outcome_keys_and_full_multi_step_default(tmp_path: Path) -> None:
+    outcome_root = tmp_path / "outcome"
+    metrics = outcome_root / "metrics"
+    metrics.mkdir(parents=True)
+    (metrics / "outcome_model_table.csv").write_text(
+        "\n".join(
+            [
+                "library_size_case_id,compact_library_id,primitive_variant_id,continuation_probability,hard_failure_risk",
+                "heavy_cluster,heavy_rep,shared_variant,0.2,0.1",
+                "balanced_cluster,balanced_rep,shared_variant,0.9,0.1",
+            ]
+        )
+        + "\n",
+        encoding="ascii",
+    )
+
+    rows = _read_outcome_rows(outcome_root)
+
+    assert rows["heavy_rep"]["continuation_probability"] == 0.2
+    assert rows["balanced_rep"]["continuation_probability"] == 0.9
+    assert rows["heavy_cluster|shared_variant|heavy_rep"]["continuation_probability"] == 0.2
+    assert RepeatedLaunchValidationConfig().max_primitives_per_launch == 4
+    assert ChangedCaseValidationConfig().max_primitives_per_launch == 4

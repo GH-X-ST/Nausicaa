@@ -550,6 +550,7 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
                 compression_level=int(config.compression_level),
                 candidate_chunk_size=int(config.candidate_chunk_size),
                 dry_run_schedule=bool(config.dry_run_schedule),
+                max_primitives_per_launch=4,
             )
         )
     if stage_id == "R10":
@@ -568,6 +569,7 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
                 compression_level=int(config.compression_level),
                 candidate_chunk_size=int(config.candidate_chunk_size),
                 dry_run_schedule=bool(config.dry_run_schedule),
+                max_primitives_per_launch=4,
                 r10_mode=config.r10_mode,
             )
         )
@@ -604,9 +606,10 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "stage_status_not_diagnostic", result.get("status") == "complete", result.get("status", ""), "complete"),
             _check_row(stage_id, "method_evidence_level_w01_dense", manifest.get("method_evidence_level") == "w01_dense_evidence_complete", manifest.get("method_evidence_level", ""), "w01_dense_evidence_complete"),
             _check_row(stage_id, "w01_dense_evidence_complete_true", bool(manifest.get("w01_dense_evidence_complete", False)), manifest.get("w01_dense_evidence_complete", False), True),
-            _check_row(stage_id, "actual_row_count_76800", int(manifest.get("actual_row_count", 0)) == L6_RICH_SIDE_ROW_COUNT, manifest.get("actual_row_count", 0), L6_RICH_SIDE_ROW_COUNT),
+            _check_row(stage_id, "actual_row_count_active_dense_target", int(manifest.get("actual_row_count", 0)) == L6_RICH_SIDE_ROW_COUNT, manifest.get("actual_row_count", 0), L6_RICH_SIDE_ROW_COUNT),
             _check_row(stage_id, "candidate_count_32", int(manifest.get("candidate_count", 0)) == 32, manifest.get("candidate_count", 0), 32),
             _check_row(stage_id, "paired_tests_per_candidate_100", int(manifest.get("paired_tests_per_candidate", 0)) == 100, manifest.get("paired_tests_per_candidate", 0), 100),
+            _check_row(stage_id, "launch_gate_candidate_availability_audit", _r5_launch_gate_audit_passed(run_root), "audit", "passed"),
             _check_row(stage_id, "w2_w3_replay_only", bool(manifest.get("W2_W3_replay_only", False)), manifest.get("W2_W3_replay_only", False), True),
             _check_row(stage_id, "no_clustering_before_w2_w3", bool(manifest.get("no_clustering_before_W2_W3", False)), manifest.get("no_clustering_before_W2_W3", False), True),
             _check_row(stage_id, "selected_worker_count_8", int(manifest.get("selected_worker_count", 0)) == 8, manifest.get("selected_worker_count", 0), 8),
@@ -651,6 +654,7 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "outcome_model_complete", result.get("outcome_status") == "complete", result.get("outcome_status", ""), "complete"),
             _check_row(stage_id, "all_four_library_cases_present", set(summary.get("library_size_case_id", pd.Series(dtype=str)).astype(str)) == set(LIBRARY_SIZE_CASE_IDS), sorted(set(summary.get("library_size_case_id", pd.Series(dtype=str)).astype(str))), sorted(LIBRARY_SIZE_CASE_IDS)),
             _check_row(stage_id, "outcome_all_four_library_cases_present", set(str(value) for value in outcome_manifest.get("library_size_case_ids", [])) == set(LIBRARY_SIZE_CASE_IDS), outcome_manifest.get("library_size_case_ids", []), list(LIBRARY_SIZE_CASE_IDS)),
+            _check_row(stage_id, "launch_gate_candidate_availability_audit", _r8_launch_gate_audit_passed(study_root), "audit", "passed"),
             _file_size_check(stage_id, study_root),
             _file_size_check(stage_id, outcome_root),
         ]
@@ -664,6 +668,7 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "history_launch_count_exact", int(manifest.get("actual_history_launches", 0)) == R9_EXPECTED_HISTORY_LAUNCHES, manifest.get("actual_history_launches", 0), R9_EXPECTED_HISTORY_LAUNCHES),
             _check_row(stage_id, "four_library_cases", set(manifest.get("library_size_case_ids", [])) == set(LIBRARY_SIZE_CASE_IDS), manifest.get("library_size_case_ids", []), list(LIBRARY_SIZE_CASE_IDS)),
             _check_row(stage_id, "fourteen_policy_history_conditions", set(manifest.get("policy_history_conditions", [])) == set(POLICY_HISTORY_CONDITIONS), manifest.get("policy_history_condition_count", 0), 14),
+            _check_row(stage_id, "first_decision_launch_gate_audits_present", _validation_launch_gate_audit_passed(run_root), "audit", "passed"),
             _file_size_check(stage_id, run_root),
         ]
         rows.extend(_validation_gate_checks(stage_id, run_root, prefix="r9_validation_gate"))
@@ -677,6 +682,7 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "final_heldout_launch_count_exact", int(manifest.get("actual_final_heldout_launches", 0)) == EXPECTED_R10_FINAL_HELDOUT_LAUNCHES, manifest.get("actual_final_heldout_launches", 0), EXPECTED_R10_FINAL_HELDOUT_LAUNCHES),
             _check_row(stage_id, "history_launch_count_exact", int(manifest.get("actual_history_launches", 0)) == EXPECTED_R10_HISTORY_LAUNCHES, manifest.get("actual_history_launches", 0), EXPECTED_R10_HISTORY_LAUNCHES),
             _check_row(stage_id, "r10_no_model_latency_variation_audit", _r10_variation_audit_passed(run_root), "audit", "passed"),
+            _check_row(stage_id, "first_decision_launch_gate_audits_present", _validation_launch_gate_audit_passed(run_root), "audit", "passed"),
             _file_size_check(stage_id, run_root),
         ]
         rows.extend(_validation_gate_checks(stage_id, run_root, prefix="r10_validation_gate"))
@@ -913,6 +919,55 @@ def _r10_variation_audit_passed(run_root: Path) -> bool:
     if frame.empty or "variation_audit_passed" not in frame.columns:
         return False
     return bool(frame["variation_audit_passed"].astype(bool).all())
+
+
+def _r5_launch_gate_audit_passed(run_root: Path) -> bool:
+    frame = _read_csv_if_exists(run_root / "metrics" / "launch_gate_candidate_availability.csv")
+    if frame.empty:
+        return False
+    row = frame.iloc[0].to_dict()
+    return (
+        int(float(row.get("launch_capable_primitive_family_count", 0))) >= 2
+        and int(float(row.get("launch_capture_primitive_family_count", 0))) >= 6
+        and int(float(row.get("launch_gate_candidate_rows", 0))) > 0
+    )
+
+
+def _r8_launch_gate_audit_passed(run_root: Path) -> bool:
+    frame = _read_csv_if_exists(run_root / "metrics" / "launch_gate_candidate_availability.csv")
+    if frame.empty:
+        return False
+    if set(frame.get("library_size_case_id", pd.Series(dtype=str)).astype(str)) != set(LIBRARY_SIZE_CASE_IDS):
+        return False
+    for row in frame.to_dict(orient="records"):
+        if int(float(row.get("launch_capable_primitive_family_count", 0))) < 2:
+            return False
+        if int(float(row.get("launch_capture_primitive_family_count", 0))) <= 0:
+            return False
+        if int(float(row.get("launch_gate_candidate_rows", 0))) <= 0:
+            return False
+    return True
+
+
+def _validation_launch_gate_audit_passed(run_root: Path) -> bool:
+    required = (
+        "launch_gate_entry_role_audit.csv",
+        "launch_gate_outcome_audit.csv",
+        "launch_gate_candidate_availability.csv",
+        "first_decision_candidate_summary.csv",
+        "first_decision_governor_rejection_summary.csv",
+    )
+    for name in required:
+        frame = _read_csv_if_exists(run_root / "metrics" / name)
+        if frame.empty:
+            return False
+    availability = _read_csv_if_exists(run_root / "metrics" / "launch_gate_candidate_availability.csv")
+    for row in availability.to_dict(orient="records"):
+        if int(float(row.get("launch_capable_primitive_family_count", 0))) < 2:
+            return False
+        if int(float(row.get("launch_capture_primitive_family_count", 0))) <= 0:
+            return False
+    return True
 
 
 def _validation_gate_checks(stage_id: str, run_root: Path, *, prefix: str) -> list[dict[str, object]]:

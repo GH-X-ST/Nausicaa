@@ -1,5 +1,36 @@
 # CODEX Instruction — Python Implementation for Nausicaa
 
+<!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
+## Current controlling update — R9 launch-gate coverage repair
+
+This document is aligned with `docs/R5_R10_Full_Evidence_Execution_Plan.md` and `docs/CODEX_R9_launch_gate_coverage_repair_guidance.md`. If these two documents conflict, `CODEX_R9_launch_gate_coverage_repair_guidance.md` controls for the current implementation pass.
+
+Current decision:
+
+```text
+BLOCKED_FIX_REQUIRED
+```
+
+The current R9 repeated-launch result is diagnostic evidence only. It must not be used to claim memory improvement, hardware readiness, real-flight transfer, mission success, or full autonomy. The repair is to address launch-gate candidate starvation and the R9 compressed-library outcome-lookup issue before continuing to R10.
+
+Required repair direction:
+
+```text
+1. Add a dedicated LQR-only launch-capture primitive family or launch-gate-capable subset.
+2. Keep existing in-flight primitive families intact; do not relabel all in-flight primitives as launch-capable.
+3. Preserve the active primitive contract: 0.100 s horizon, 5 controller-input slots, 20 ms controller update period.
+4. Preserve primitive-local time-invariant LQR only; no PD/PID/bounded fallback and no TVLQR active workflow.
+5. Keep W2/W3 as fixed-LQR replay with no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation.
+6. Keep post-W3 reduction as the four-case library-size cross-study: heavy, balanced, light, and no-clustering/no-merging.
+7. Fix R9 outcome lookup so representatives are matched by library-size case and compact-library identity, not only by primitive_variant_id.
+8. Compute memory_changed_selection and exploration_changed_selection from actual matched selections; do not hard-code them to zero.
+9. Add first-decision launch-gate audits for candidate count, viable count, rejection reason, selected family, and transition-to-inflight evidence.
+10. Regenerate evidence from the corrected R5 W0/W1 dense run before reusing R6, R7, R8, R9, or R10 evidence.
+```
+
+Forbidden changes remain unchanged: no fan-layout-specific controller logic, no pre-W3 clustering, no W2/W3 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
+<!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
+
 ## Role
 
 You are editing Python code for a research-grade robotics/aerospace simulation and experiment pipeline. Implement only the requested change while preserving physical conventions, rich comments, runtime efficiency, storage discipline, and auditability.
@@ -23,21 +54,6 @@ Fan layout, fan power, W layer, and reachable primitive chains are fidelity/evid
 
 Primitive-local LQR variants are part of the active method. The LQR stabiliser is embedded inside each primitive. W0/W1 dense generation develops a rich primitive-controller library and tunes each variant's local LQR using the panel-wise glider model, feedback latency, command timing, and actuator lag. W2/W3 replay fixed variants to eliminate or downgrade failures without retuning. Clustering and merging occur only after W3 and must not be moved before W2/W3. Any future redesigned controller is a separate W0/W1 learning cycle, not an in-place W2/W3 mutation.
 
-
-Current requested implementation change:
-
-```text
-- archive old v4.10-style results as diagnostic_not_passed;
-- delete or rewrite active code that assumes long primitive horizons, 2D memory, pure exploitation, or a single compact-library case;
-- implement 0.10 s primitives with 5 controller-input slots at a 20 ms controller update period;
-- rerun W0/W1 dense generation using the new horizon setting;
-- keep W2/W3 replay fixed and no-retune;
-- compare heavy, balanced, light, and no-clustering/no-merging post-W3 cases;
-- validate repeated-launch memory histories at 0, 5, 10, 20, 50, and 100 launches.
-```
-
-Do not add clever extra method branches outside this requested scope.
-
 Entry roles should be explicit when they affect evidence: `launch_capable`, `inflight_only`, and `terminal_or_recovery`. Launch-gate failure is not, by itself, a blocker for an in-flight-only primitive.
 
 
@@ -48,11 +64,6 @@ Entry roles should be explicit when they affect evidence: `launch_capable`, `inf
 3. Identify which outputs become evidence: manifest, table, plot, report, or log.
 4. Do not edit unrelated code.
 5. Do not reset or overwrite existing result directories unless explicitly authorised.
-
-
-6. For this repair cycle, do not overwrite previous v4.10-style result directories. Archive them with an explicit diagnostic_not_passed manifest before generating new evidence.
-7. Treat 0.10 s horizon and 5 controller-input slots at a 20 ms controller update period as public interface requirements, not tunable defaults.
-8. Treat the four post-W3 library-size cases as required outputs, not optional diagnostics.
 
 ## Coding style
 
@@ -114,19 +125,13 @@ Do not claim real-flight transfer, mission success, hardware readiness, all-envi
 
 Prefer changes that support:
 
-
-- 0.10 s primitive-controller variants with 5 controller-input slots at a 20 ms controller update period;
-- directional 3D residual belief updates;
-- safe exploration/exploitation after viability filtering;
-- library-size cross-study cases: heavy, balanced, light, and no-clustering/no-merging;
-
 - environment-context feature extraction;
 - compact primitive catalogue;
 - primitive outcome datasets;
 - viability-filtered primitive selection;
 - repeated-launch episode records;
-- directional 3D residual lift-belief update;
-- W0/W1 rich primitive-library generation, W2/W3 survival filtering, and the post-W3 library-size cross-study as evidence layers;
+- decaying directional 3D residual lift-belief update;
+- W0/W1 rich primitive-library generation, W2/W3 survival filtering, and post-W3 library-size cross-study as evidence layers;
 - real-flight replay pairing;
 - chunked archive execution and compact file management.
 

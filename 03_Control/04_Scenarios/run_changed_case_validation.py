@@ -134,7 +134,7 @@ class ChangedCaseValidationConfig:
     compression_level: int = 1
     candidate_chunk_size: int = 800
     dry_run_schedule: bool = False
-    max_primitives_per_launch: int = 1
+    max_primitives_per_launch: int = 4
     r10_mode: str = "full"
 
 
@@ -171,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--storage-format", default="auto", choices=("auto", "parquet", "csv_gz", "csv"))
     parser.add_argument("--compression-level", type=int, default=1)
     parser.add_argument("--candidate-chunk-size", type=int, default=800)
-    parser.add_argument("--max-primitives-per-launch", type=int, default=1)
+    parser.add_argument("--max-primitives-per-launch", type=int, default=4)
     parser.add_argument("--dry-run-schedule", action="store_true")
     parser.add_argument("--r10-mode", default="full", choices=("full", "reduced_diagnostic_50"))
     args = parser.parse_args(argv)

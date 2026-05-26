@@ -1,5 +1,32 @@
 # R5–R10 Full Evidence Execution Plan
 
+<!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
+## Current amendment — launch-gate repair controls R5–R10 rerun
+
+The current R9 result is `BLOCKED_FIX_REQUIRED` / blocked. For the next implementation pass, `CODEX_R9_launch_gate_coverage_repair_guidance.md` controls any conflict with this R5–R10 plan.
+
+The existing R5–R10 staged pipeline remains required, but it must restart from R5 after the launch-capture repair because the primitive catalogue and entry-role set change the evidence chain.
+
+Amended R5 rule:
+
+```text
+If a launch-capture primitive family or launch-gate-capable subset is added, the R5 row target must be recomputed from the active primitive catalogue and family-specific candidate allocation. The previous 8 * 32 * 3 * 100 = 76,800 formula applies only to the pre-launch-capture 8-primitive baseline and must not be reused as the accepted dense target after the catalogue changes.
+```
+
+Additional R5/R9 gates:
+
+```text
+launch-capable primitive family count >= 2
+launch-gate admissible variant count recorded by library-size case
+first-decision candidate and viable counts recorded
+R9 outcome rows matched by library-size case and compact-library identity
+memory_changed_selection and exploration_changed_selection computed from actual matched selections
+current blocked R9 result labelled diagnostic_not_passed
+```
+
+All R5→R10 stage gates still apply. R10 may run only after the launch-aware R9 pass gate succeeds.
+<!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
+
 ## Status and authority
 
 This file is a hard project-control document for the Nausicaa glider control pipeline. It should be placed at:

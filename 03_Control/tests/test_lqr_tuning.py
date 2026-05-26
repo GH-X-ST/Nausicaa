@@ -69,6 +69,12 @@ def test_correct_first_pass_entry_roles_and_launch_gate_rejections() -> None:
         "energy_retaining_bank": "inflight_only",
         "recovery": "terminal_or_recovery",
         "safe_exit_or_recovery_handoff": "terminal_or_recovery",
+        "launch_capture_glide_stabilise": "launch_capable",
+        "launch_capture_lift_seek": "launch_capable",
+        "launch_capture_energy_build": "launch_capable",
+        "launch_capture_shallow_left": "launch_capable",
+        "launch_capture_shallow_right": "launch_capable",
+        "launch_capture_safe_handoff": "launch_capable",
     }
     assert set(ENTRY_ROLE_BY_PRIMITIVE_ID) == set(ACTIVE_PRIMITIVE_IDS)
     assert start_family_is_compatible(entry_role="launch_capable", start_state_family="launch_gate")

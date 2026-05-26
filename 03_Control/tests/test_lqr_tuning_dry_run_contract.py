@@ -96,7 +96,7 @@ def test_l6_move_on_blocks_baseline_rows_and_missing_timing_coverage(tmp_path: P
     run_class, blockers = _l6_move_on_status(run_root=tmp_path, status="complete", row_count=1000)
 
     assert run_class == "preflight"
-    assert "missing_timing_aware_solved_or_blocked_variant_for_safe_exit_or_recovery_handoff" in blockers
+    assert "missing_timing_aware_solved_or_blocked_variant_for_launch_capture_safe_handoff" in blockers
     assert "w01_rows_missing_active_timing_aware_controller_ids" in blockers
     assert "w01_rows_include_superseded_baseline_controller_ids" in blockers
 
@@ -113,11 +113,11 @@ def test_rich_side_schedule_has_32_candidates_100_paired_tests_and_exact_start_m
     assert len(summary["candidate_index"]) == 32
     assert set(summary["environment_mode"]) == {"dry_air", "gaussian_single", "gaussian_four"}
     assert summary["start_state_family"] == {
-        "inflight_boundary_near": 7680,
-        "inflight_lift_region": 11520,
-        "inflight_nominal": 19200,
-        "inflight_recovery_edge": 7680,
-        "launch_gate": 30720,
+        "inflight_boundary_near": 13440,
+        "inflight_lift_region": 20160,
+        "inflight_nominal": 33600,
+        "inflight_recovery_edge": 13440,
+        "launch_gate": 53760,
     }
 
 
@@ -125,4 +125,4 @@ def test_l6_move_on_labels_19200_rows_as_fallback_only(tmp_path: Path) -> None:
     run_class, blockers = _l6_move_on_status(run_root=tmp_path, status="complete", row_count=19_200)
 
     assert run_class == "fallback_scale_only"
-    assert "below_76800_rich_side_threshold" in blockers
+    assert f"below_{L6_RICH_SIDE_ROW_COUNT}_rich_side_threshold" in blockers

@@ -38,7 +38,7 @@ def test_w3_analysis_separates_terminal_and_continuation_evidence(tmp_path: Path
     registry = json.loads((w3_root / "manifests" / "w3_survivor_registry.json").read_text(encoding="ascii"))
 
     assert result["status"] == "w3_survivors_available"
-    assert registry["survivor_count"] == 2
+    assert registry["survivor_count"] == 3
     survived = summary[summary["primitive_variant_id"] == "primvar_glide_launch"]
     downgraded = summary[summary["primitive_variant_id"] == "primvar_lift_terminal"]
     assert survived["w3_variant_status"].iloc[0] == "survived"
@@ -68,7 +68,11 @@ def test_post_w3_library_size_study_writes_four_cases_without_mutation(tmp_path:
     assert result["status"] == "complete"
     assert tuple(summary["library_size_case_id"]) == LIBRARY_SIZE_CASE_IDS
     assert library["library_size_human_label"] == "no-clustering/no-merging"
-    assert representative_ids == {"primvar_glide_launch", "primvar_lift_survived"}
+    assert representative_ids == {
+        "primvar_glide_launch",
+        "primvar_lift_survived",
+        "primvar_launch_capture_glide_stabilise",
+    }
     for representative in representatives:
         assert representative["w3_variant_status"] == "survived"
         assert representative["mutation_status"].startswith("references_existing_frozen_variant")
@@ -185,6 +189,8 @@ def _write_tiny_w3_root(root: Path) -> Path:
         _w3_row("primvar_lift_terminal", "lift_entry", "inflight_only", "ctrl_lift", "w3_randomised_four", False, "rejected", False, False, "blocked", "entry_role_not_launch_capable", 1),
         _w3_row("primvar_lift_survived", "lift_entry", "inflight_only", "ctrl_lift_survived", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 2),
         _w3_row("primvar_lift_survived", "lift_entry", "inflight_only", "ctrl_lift_survived", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 2),
+        _w3_row("primvar_launch_capture_glide_stabilise", "launch_capture_glide_stabilise", "launch_capable", "ctrl_launch_capture", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 3),
+        _w3_row("primvar_launch_capture_glide_stabilise", "launch_capture_glide_stabilise", "launch_capable", "ctrl_launch_capture", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 3),
     ]
     table_root = root / "tables" / "w3_survival_rows"
     table_root.mkdir(parents=True, exist_ok=True)

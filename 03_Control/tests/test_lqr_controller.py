@@ -39,6 +39,12 @@ def test_lqr_controller_audit_contract_for_all_primitives() -> None:
         "mild_turn_right",
         "energy_retaining_bank",
         "safe_exit_or_recovery_handoff",
+        "launch_capture_glide_stabilise",
+        "launch_capture_lift_seek",
+        "launch_capture_energy_build",
+        "launch_capture_shallow_left",
+        "launch_capture_shallow_right",
+        "launch_capture_safe_handoff",
     )
 
     for primitive_id in ACTIVE_PRIMITIVE_IDS:

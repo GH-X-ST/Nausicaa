@@ -20,7 +20,7 @@ def select_compact_representative(
     cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     candidate_rows = []
     for representative in representatives:
-        outcome = outcome_rows_by_variant_id.get(str(representative.get("primitive_variant_id", "")), {})
+        outcome = _outcome_for_representative(representative, outcome_rows_by_variant_id)
         candidate_rows.append(
             governor_candidate_row(
                 representative=representative,
@@ -52,6 +52,19 @@ def select_compact_representative(
             else float("inf")
         )
     return selected, candidate_rows
+
+
+def _outcome_for_representative(
+    representative: dict[str, object],
+    outcome_rows_by_variant_id: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    case_id = str(representative.get("library_size_case_id", ""))
+    compact_id = str(representative.get("compact_library_id", ""))
+    variant_id = str(representative.get("primitive_variant_id", ""))
+    for key in (compact_id, f"{case_id}|{compact_id}", f"{case_id}|{variant_id}|{compact_id}", variant_id):
+        if key and key in outcome_rows_by_variant_id:
+            return outcome_rows_by_variant_id[key]
+    return {}
 
 
 def selector_decision_row(

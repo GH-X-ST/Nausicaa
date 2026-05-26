@@ -43,6 +43,12 @@ ENTRY_ROLE_BY_PRIMITIVE_ID = {
     "energy_retaining_bank": "inflight_only",
     "recovery": "terminal_or_recovery",
     "safe_exit_or_recovery_handoff": "terminal_or_recovery",
+    "launch_capture_glide_stabilise": "launch_capable",
+    "launch_capture_lift_seek": "launch_capable",
+    "launch_capture_energy_build": "launch_capable",
+    "launch_capture_shallow_left": "launch_capable",
+    "launch_capture_shallow_right": "launch_capable",
+    "launch_capture_safe_handoff": "launch_capable",
 }
 ENTRY_ROLE_REJECTION_STATUS = "entry_role_incompatible_start"
 ENTRY_ROLE_REJECTION_LABEL = "entry_role_not_launch_capable"
