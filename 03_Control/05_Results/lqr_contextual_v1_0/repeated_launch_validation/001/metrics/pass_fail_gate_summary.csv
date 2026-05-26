@@ -1,0 +1,13 @@
+gate_id,passed,observed,required
+final_heldout_launch_count,True,3360.0,3360.0
+history_launch_count,True,88800.0,88800.0
+library_size_case_count,True,4.0,4.0
+policy_history_condition_count,True,14.0,14.0
+pairing_audit,True,60.0,60.0
+hard_failure_rate_le_1pct,False,0.08333333333333333,0.01
+floor_or_ceiling_violation_rate_zero,True,0.0,0.0
+no_viable_primitive_rate_le_2pct,False,0.8041666666666667,0.02
+safe_success_rate_near_100pct,False,0.1125,0.99
+terminal_or_lift_capture_ge_90pct,False,0.058333333333333334,0.9
+selected_primitive_family_count_ge_5,False,2.0,5.0
+selected_variant_count_ge_10,False,2.0,10.0

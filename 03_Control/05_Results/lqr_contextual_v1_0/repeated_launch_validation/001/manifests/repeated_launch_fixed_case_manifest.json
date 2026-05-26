@@ -1,0 +1,68 @@
+{
+  "manifest_version": "repeated_launch_fixed_case_rollout_validation_v6",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
+  "status": "complete",
+  "run_id": 1,
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/repeated_launch_validation/001",
+  "stage_id": "R9",
+  "library_root": "03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/001",
+  "outcome_root": "03_Control/05_Results/lqr_contextual_v1_0/outcome_model/003",
+  "source_w2_root": "03_Control/05_Results/lqr_contextual_v1_0/w2_survival/016",
+  "history_lengths": [
+    0,
+    5,
+    10,
+    20,
+    50,
+    100
+  ],
+  "policy_history_conditions": [
+    "no_memory_baseline",
+    "static_map_baseline",
+    "directional_3d_residual_memory_h0",
+    "directional_3d_residual_memory_h5",
+    "directional_3d_residual_memory_h10",
+    "directional_3d_residual_memory_h20",
+    "directional_3d_residual_memory_h50",
+    "directional_3d_residual_memory_h100",
+    "safe_explore_then_exploit_h0",
+    "safe_explore_then_exploit_h5",
+    "safe_explore_then_exploit_h10",
+    "safe_explore_then_exploit_h20",
+    "safe_explore_then_exploit_h50",
+    "safe_explore_then_exploit_h100"
+  ],
+  "policy_history_condition_count": 14,
+  "library_size_case_ids": [
+    "heavy_cluster",
+    "balanced_cluster",
+    "light_cluster",
+    "no_cluster_no_merge"
+  ],
+  "outer_cases_per_condition": 60,
+  "expected_final_heldout_launches": 3360,
+  "actual_final_heldout_launches": 3360,
+  "expected_history_launches": 88800,
+  "actual_history_launches": 88800,
+  "primitive_timing_contract": {
+    "finite_horizon_s": 0.1,
+    "controller_input_slots_per_primitive": 5,
+    "controller_input_update_period_s": 0.02,
+    "primitive_timing_contract_version": "v411_0p10s_5slot_20ms"
+  },
+  "validation_protocol": "full_fixed_case_repeated_launch_rollout_validation",
+  "dry_run_schedule": false,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "candidate_chunk_size": 800,
+  "duration_s": 1189.4829297065735,
+  "pass_gate": false,
+  "claim_status": "simulation_only_repeated_launch_validation",
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "full_autonomy",
+    "memory_improvement"
+  ]
+}

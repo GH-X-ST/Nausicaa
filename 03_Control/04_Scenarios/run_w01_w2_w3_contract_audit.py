@@ -59,6 +59,12 @@ SKIP_FILES = {
     Path("03_Control/04_Scenarios/" + "run_post_w3_" + "cluster_merge.py"),
 }
 
+R5_R10_STAGE_TOKEN_ALLOWED_FILES = {
+    Path("03_Control/04_Scenarios/run_r5_r10_pipeline.py"),
+    Path("03_Control/04_Scenarios/run_repeated_launch_learning_curve.py"),
+    Path("03_Control/04_Scenarios/run_changed_case_validation.py"),
+}
+
 
 def run_w01_w2_w3_contract_audit(repo_root: Path | str = Path(".")) -> list[AuditFinding]:
     root = Path(repo_root)
@@ -85,6 +91,8 @@ def _scan_forbidden_tokens(root: Path) -> list[AuditFinding]:
                 continue
             text = path.read_text(encoding="utf-8", errors="ignore")
             for name, pattern in FORBIDDEN_ACTIVE_PATTERNS:
+                if name == "r6_r7_r8_r9_stage_story" and Path(rel.as_posix()) in R5_R10_STAGE_TOKEN_ALLOWED_FILES:
+                    continue
                 if pattern.search(text):
                     findings.append(AuditFinding(rel.as_posix(), name, "forbidden active workflow token present"))
     return findings

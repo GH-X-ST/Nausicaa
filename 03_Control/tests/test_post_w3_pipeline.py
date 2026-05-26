@@ -6,6 +6,12 @@ from pathlib import Path
 import pandas as pd
 
 from dense_archive_table_io import TableManifest, write_table_manifest, write_table_partition
+from run_changed_case_validation import (
+    R10_EXPECTED_FINAL_HELDOUT_LAUNCHES,
+    R10_EXPECTED_HISTORY_LAUNCHES,
+    ChangedCaseValidationConfig,
+    run_changed_case_validation,
+)
 from run_outcome_model_build import OutcomeModelBuildConfig, run_outcome_model_build
 from run_post_w3_cluster_merge import run_post_w3_cluster_merge
 from run_post_w3_library_size_study import (
@@ -15,6 +21,9 @@ from run_post_w3_library_size_study import (
 )
 from run_repeated_launch_learning_curve import (
     HISTORY_LENGTHS,
+    POLICY_HISTORY_CONDITIONS,
+    R9_EXPECTED_FINAL_HELDOUT_LAUNCHES,
+    R9_EXPECTED_HISTORY_LAUNCHES,
     RepeatedLaunchValidationConfig,
     run_repeated_launch_learning_curve,
 )
@@ -69,7 +78,7 @@ def test_post_w3_library_size_study_writes_four_cases_without_mutation(tmp_path:
     assert glide["K_gain_checksum"] == "k_glide"
 
 
-def test_outcome_and_repeated_launch_validation_use_case_ids_and_histories(tmp_path: Path) -> None:
+def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_counts(tmp_path: Path) -> None:
     w3_root = _write_tiny_w3_root(tmp_path / "w3_survival" / "013")
     run_w3_survival_analysis(W3SurvivalAnalysisConfig(input_root=w3_root))
     study = run_post_w3_library_size_study(
@@ -93,13 +102,27 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_and_histories(tmp_p
             outcome_root=Path(outcome_result["run_root"]),
             output_root=tmp_path / "repeated_launch_validation",
             run_id=1,
+            dry_run_schedule=True,
+        )
+    )
+    r10_validation = run_changed_case_validation(
+        ChangedCaseValidationConfig(
+            library_root=Path(study["run_root"]),
+            outcome_root=Path(outcome_result["run_root"]),
+            output_root=tmp_path / "changed_case_validation",
+            run_id=1,
+            dry_run_schedule=True,
         )
     )
     outcome = pd.read_csv(Path(outcome_result["run_root"]) / "metrics" / "outcome_model_summary.csv")
-    learning_curve = pd.read_csv(Path(validation["run_root"]) / "metrics" / "validation_learning_curve.csv")
+    r9_final = pd.read_csv(Path(validation["run_root"]) / "metrics" / "final_heldout_launch_schedule.csv")
+    r9_history = pd.read_csv(Path(validation["run_root"]) / "metrics" / "history_launch_schedule.csv")
+    r10_final = pd.read_csv(Path(r10_validation["run_root"]) / "metrics" / "final_heldout_launch_schedule.csv")
+    r10_history = pd.read_csv(Path(r10_validation["run_root"]) / "metrics" / "history_launch_schedule.csv")
 
     assert outcome_result["status"] == "complete"
-    assert validation["status"] == "complete"
+    assert validation["status"] == "dry_run_schedule"
+    assert r10_validation["status"] == "dry_run_schedule"
     assert {
         "continuation_probability",
         "terminal_useful_probability",
@@ -110,21 +133,20 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_and_histories(tmp_p
         "primitive_timing_contract_version",
     }.issubset(outcome.columns)
     assert set(outcome["library_size_case_id"]) == set(LIBRARY_SIZE_CASE_IDS)
-    assert set(learning_curve["library_size_case_id"]) == set(LIBRARY_SIZE_CASE_IDS)
-    assert set(learning_curve["history_length"]) == set(HISTORY_LENGTHS)
-    assert {
-        "no_memory",
-        "static_prior",
-        "directional_residual_memory_N",
-        "safe_explore_then_exploit_N",
-    }.issubset(set(learning_curve["policy_group"]))
-    assert {
-        "safe_success_rate",
-        "hard_failure_rate",
-        "no_viable_primitive_rate",
-        "memory_changed_selection_rate",
-        "exploration_changed_selection_rate",
-    }.issubset(learning_curve.columns)
+    assert len(r9_final) == R9_EXPECTED_FINAL_HELDOUT_LAUNCHES
+    assert len(r9_history) == R9_EXPECTED_HISTORY_LAUNCHES
+    assert len(r10_final) == R10_EXPECTED_FINAL_HELDOUT_LAUNCHES
+    assert len(r10_history) == R10_EXPECTED_HISTORY_LAUNCHES
+    assert set(r9_final["library_size_case_id"]) == set(LIBRARY_SIZE_CASE_IDS)
+    assert set(r9_final["policy_id"]) == set(POLICY_HISTORY_CONDITIONS)
+    assert set(r9_final["history_length"]) == set(HISTORY_LENGTHS)
+    assert set(r10_final["environment_block_id"]) == {
+        "nominal_single_fan_perturbations",
+        "nominal_four_fan_perturbations",
+        "shifted_single_fan_positions",
+        "shifted_four_fan_positions",
+        "active_fan_number_variation",
+    }
 
 
 def test_post_w3_compression_refuses_roots_without_w3_registry(tmp_path: Path) -> None:

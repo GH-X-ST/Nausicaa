@@ -29,6 +29,10 @@ def _results_entries_are_placeholder_or_allowed(entries: list[str]) -> bool:
             or entry.startswith("lqr_contextual_v1_0/outcome_model/")
             or entry == "lqr_contextual_v1_0/repeated_launch_validation"
             or entry.startswith("lqr_contextual_v1_0/repeated_launch_validation/")
+            or entry == "lqr_contextual_v1_0/changed_case_validation"
+            or entry.startswith("lqr_contextual_v1_0/changed_case_validation/")
+            or entry == "lqr_contextual_v1_0/r5_r10_pipeline"
+            or entry.startswith("lqr_contextual_v1_0/r5_r10_pipeline/")
             or entry == "lqr_contextual_v1_0/archive"
             or entry.startswith("lqr_contextual_v1_0/archive/")
             or entry == "lqr_contextual_v1_0/governor_smoke"

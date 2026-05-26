@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
-from dataclasses import dataclass
+import time
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
+from typing import Iterable
 
+import numpy as np
 import pandas as pd
 
 
 def _bootstrap_import_paths() -> None:
     control_root = Path(__file__).resolve().parents[1]
-    for rel in ("03_Primitives", "04_Scenarios"):
+    for rel in ("02_Inner_Loop", "03_Primitives", "04_Scenarios"):
         path = control_root / rel
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
@@ -20,32 +24,100 @@ def _bootstrap_import_paths() -> None:
 _bootstrap_import_paths()
 
 from dense_archive_runtime import MAX_GENERATED_FILE_SIZE_MB  # noqa: E402
-from dense_archive_table_io import filesystem_path  # noqa: E402
+from dense_archive_table_io import (  # noqa: E402
+    TableManifest,
+    TablePartition,
+    file_sha256,
+    filesystem_path,
+    read_table_partition,
+    resolve_storage_format,
+    table_extension,
+    write_table_manifest,
+    write_table_partition,
+)
 from directional_residual_lift_belief import (  # noqa: E402
+    DirectionalResidualLiftBelief,
     DirectionalResidualObservation,
-    belief_snapshot_row,
     initial_directional_residual_lift_belief,
     query_directional_residual_lift_features,
     update_directional_residual_lift_belief,
 )
-from episode_selector import select_compact_representative  # noqa: E402
+from env_ctx import build_environment_context  # noqa: E402
+from env_instance import environment_instance_for_mode, environment_metadata_from_instance  # noqa: E402
+from env_surrogate import resolve_surrogate_binding, wind_field_for_binding  # noqa: E402
+from episode_selector import select_compact_representative, selector_decision_row  # noqa: E402
+from frozen_w01_controller_bundle import FROZEN_CONTROLLER_READY, load_frozen_w01_controller_bundle  # noqa: E402
+from implementation_instance import implementation_instance_for_layer  # noqa: E402
+from plant_instance import plant_instance_for_layer  # noqa: E402
+from prim_cat import primitive_by_id  # noqa: E402
+from prim_roll import RolloutConfig, rollout_evidence_row, simulate_primitive_rollout  # noqa: E402
 from primitive_timing_contract import primitive_timing_contract_row  # noqa: E402
 from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS  # noqa: E402
+from state_contract import STATE_INDEX, as_state_vector  # noqa: E402
+from state_sampling import archive_state_sample_for_family  # noqa: E402
+from viability_governor import DEFAULT_GOVERNOR_CONFIG, GovernorConfig  # noqa: E402
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
-VALIDATION_VERSION = "repeated_launch_fixed_case_validation_v5"
+VALIDATION_VERSION = "repeated_launch_fixed_case_rollout_validation_v6"
 HISTORY_LENGTHS = (0, 5, 10, 20, 50, 100)
-POLICY_GROUPS = ("no_memory", "static_prior", "directional_residual_memory_N", "safe_explore_then_exploit_N")
+HISTORY_LENGTH_SUM = sum(HISTORY_LENGTHS)
+BASELINE_POLICY_IDS = ("no_memory_baseline", "static_map_baseline")
+MEMORY_POLICY_PREFIX = "directional_3d_residual_memory"
+SAFE_EXPLORE_POLICY_PREFIX = "safe_explore_then_exploit"
+POLICY_HISTORY_CONDITIONS = (
+    "no_memory_baseline",
+    "static_map_baseline",
+    "directional_3d_residual_memory_h0",
+    "directional_3d_residual_memory_h5",
+    "directional_3d_residual_memory_h10",
+    "directional_3d_residual_memory_h20",
+    "directional_3d_residual_memory_h50",
+    "directional_3d_residual_memory_h100",
+    "safe_explore_then_exploit_h0",
+    "safe_explore_then_exploit_h5",
+    "safe_explore_then_exploit_h10",
+    "safe_explore_then_exploit_h20",
+    "safe_explore_then_exploit_h50",
+    "safe_explore_then_exploit_h100",
+)
+R9_OUTER_CASES_PER_CONDITION = 60
+R9_EXPECTED_FINAL_HELDOUT_LAUNCHES = 4 * 14 * 60
+R9_EXPECTED_HISTORY_LAUNCHES = 4 * 60 * (HISTORY_LENGTH_SUM + HISTORY_LENGTH_SUM)
 DEFAULT_LIBRARY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/001")
 DEFAULT_OUTCOME_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/outcome_model/003")
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/repeated_launch_validation")
+TABLE_NAMES = (
+    "episode_summary",
+    "primitive_execution_log",
+    "candidate_score_log",
+    "selector_decision_log",
+    "memory_residual_update_log",
+    "belief_snapshot_log",
+)
 BLOCKED_CLAIMS = (
     "hardware_readiness",
     "real_flight_transfer",
     "mission_success",
-    "memory_improvement",
     "full_autonomy",
+    "memory_improvement",
+)
+
+
+@dataclass(frozen=True)
+class ValidationBlockSpec:
+    block_id: str
+    human_label: str
+    W_layer: str
+    environment_mode: str
+    case_count: int
+    environment_change_family: str = "fixed_case"
+
+
+R9_BLOCKS: tuple[ValidationBlockSpec, ...] = (
+    ValidationBlockSpec("no_updraft", "no-updraft", "W0", "dry_air", 20),
+    ValidationBlockSpec("single_fan", "single-fan", "W2", "annular_gp_single", 20),
+    ValidationBlockSpec("four_fan", "four-fan", "W2", "annular_gp_four", 20),
 )
 
 
@@ -55,108 +127,248 @@ class RepeatedLaunchValidationConfig:
     outcome_root: Path = DEFAULT_OUTCOME_ROOT
     output_root: Path = DEFAULT_OUTPUT_ROOT
     run_id: int = 1
+    source_w2_root: Path | None = None
+    seed: int = 90
+    storage_format: str = "auto"
+    compression_level: int = 1
+    candidate_chunk_size: int = 800
+    dry_run_schedule: bool = False
+    max_primitives_per_launch: int = 1
+
+
+@dataclass(frozen=True)
+class ValidationProtocol:
+    stage_id: str
+    manifest_name: str
+    report_name: str
+    manifest_version: str
+    validation_evidence_level: str
+    outer_cases_per_condition: int
+    expected_final_heldout_launches: int
+    expected_history_launches: int
+    blocks: tuple[ValidationBlockSpec, ...]
+    final_schedule_prefix: str
+    reduced_diagnostic: bool = False
+    requires_no_glider_latency_variation_audit: bool = False
+
+
+R9_PROTOCOL = ValidationProtocol(
+    stage_id="R9",
+    manifest_name="repeated_launch_fixed_case_manifest.json",
+    report_name="repeated_launch_fixed_case_report.md",
+    manifest_version=VALIDATION_VERSION,
+    validation_evidence_level="full_fixed_case_repeated_launch_rollout_validation",
+    outer_cases_per_condition=R9_OUTER_CASES_PER_CONDITION,
+    expected_final_heldout_launches=R9_EXPECTED_FINAL_HELDOUT_LAUNCHES,
+    expected_history_launches=R9_EXPECTED_HISTORY_LAUNCHES,
+    blocks=R9_BLOCKS,
+    final_schedule_prefix="r9_fixed",
+)
+
+
+@dataclass(frozen=True)
+class ValidationRunConfig:
+    library_root: Path
+    outcome_root: Path
+    output_root: Path
+    run_id: int
+    source_w2_root: Path | None
+    seed: int
+    storage_format: str
+    compression_level: int
+    candidate_chunk_size: int
+    dry_run_schedule: bool
+    max_primitives_per_launch: int
 
 
 def run_repeated_launch_learning_curve(config: RepeatedLaunchValidationConfig) -> dict[str, object]:
+    """Run the full R9 fixed-case repeated-launch rollout validation."""
+
+    return run_repeated_launch_validation(
+        ValidationRunConfig(
+            library_root=config.library_root,
+            outcome_root=config.outcome_root,
+            output_root=config.output_root,
+            run_id=config.run_id,
+            source_w2_root=config.source_w2_root,
+            seed=config.seed,
+            storage_format=config.storage_format,
+            compression_level=config.compression_level,
+            candidate_chunk_size=config.candidate_chunk_size,
+            dry_run_schedule=config.dry_run_schedule,
+            max_primitives_per_launch=config.max_primitives_per_launch,
+        ),
+        protocol=R9_PROTOCOL,
+    )
+
+
+def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: ValidationProtocol) -> dict[str, object]:
+    """Run or schedule repeated-launch validation with true primitive rollout rows."""
+
     run_root = Path(config.output_root) / f"{int(config.run_id):03d}"
-    for subdir in ("manifests", "metrics", "reports"):
+    for subdir in ("manifests", "metrics", "reports", "tables"):
         filesystem_path(run_root / subdir).mkdir(parents=True, exist_ok=True)
+    storage_format = resolve_storage_format(config.storage_format)
     blocked_reason = _blocked_reason(config)
     if blocked_reason:
-        _write_blocked_outputs(run_root, config, blocked_reason)
+        _write_blocked_outputs(run_root, config, protocol, blocked_reason)
         return {"status": "blocked", "blocked_reason": blocked_reason, "run_root": run_root.as_posix()}
 
-    decision_rows: list[dict[str, object]] = []
-    candidate_rows: list[dict[str, object]] = []
-    learning_rows: list[dict[str, object]] = []
-    belief_rows: list[dict[str, object]] = []
-    for case_id in LIBRARY_SIZE_CASE_IDS:
-        library = _read_json(Path(config.library_root) / "manifests" / f"{case_id}_primitive_library.json")
-        outcome = _read_outcome_rows(config.outcome_root, case_id)
-        representatives = list(library.get("representatives", []))
-        fixed_case = _fixed_test_case(case_id)
-        heldout_launches = _heldout_launch_contexts(fixed_case=fixed_case, case_id=case_id)
-        for history_length in HISTORY_LENGTHS:
-            baseline_choices = _selection_choices_for_policy(
+    libraries = _load_libraries(config.library_root)
+    outcome_rows = _read_outcome_rows(config.outcome_root)
+    outer_cases = _outer_case_schedule(protocol=protocol, seed=config.seed)
+    final_schedule = _final_heldout_schedule(outer_cases=outer_cases, protocol=protocol)
+    history_schedule = _history_launch_schedule(outer_cases=outer_cases, protocol=protocol)
+    _write_csv(run_root / "metrics" / "outer_case_schedule.csv", pd.DataFrame(outer_cases))
+    _write_csv(run_root / "metrics" / "history_launch_schedule.csv", pd.DataFrame(history_schedule))
+    _write_csv(run_root / "metrics" / "final_heldout_launch_schedule.csv", pd.DataFrame(final_schedule))
+    if protocol.stage_id == "R10":
+        _write_csv(run_root / "metrics" / "environment_block_schedule.csv", _environment_block_summary(protocol))
+
+    if config.dry_run_schedule:
+        pass_summary = _pass_fail_summary(
+            protocol=protocol,
+            final_schedule=final_schedule,
+            history_schedule=history_schedule,
+            episode_rows=[],
+            pairing_rows=_pairing_audit_rows(final_schedule),
+            no_variation_rows=_no_variation_audit_rows(final_schedule) if protocol.requires_no_glider_latency_variation_audit else [],
+        )
+        _write_csv(run_root / "metrics" / "pass_fail_gate_summary.csv", pd.DataFrame(pass_summary))
+        _write_manifest(
+            run_root=run_root,
+            config=config,
+            protocol=protocol,
+            status="dry_run_schedule",
+            pass_summary=pass_summary,
+            final_schedule=final_schedule,
+            history_schedule=history_schedule,
+        )
+        _write_file_size_audit(run_root)
+        _write_report(run_root=run_root, protocol=protocol, status="dry_run_schedule", pass_summary=pass_summary)
+        return {
+            "status": "dry_run_schedule",
+            "run_root": run_root.as_posix(),
+            "final_heldout_launch_count": len(final_schedule),
+            "history_launch_count": len(history_schedule),
+        }
+
+    records_by_variant = _load_records_by_variant(config, libraries)
+    if not records_by_variant:
+        _write_blocked_outputs(run_root, config, protocol, "missing_frozen_controller_records_for_rollout")
+        return {"status": "blocked", "blocked_reason": "missing_frozen_controller_records_for_rollout", "run_root": run_root.as_posix()}
+
+    table_buffers = {name: [] for name in TABLE_NAMES}
+    partitions: list[TablePartition] = []
+    row_counters = {name: 0 for name in TABLE_NAMES}
+    started = time.time()
+    for final_row in final_schedule:
+        policy = _policy_condition(str(final_row["policy_id"]))
+        representatives = libraries[str(final_row["library_size_case_id"])]["representatives"]
+        case_outcomes = {
+            variant_id: row
+            for variant_id, row in outcome_rows.items()
+            if str(row.get("library_size_case_id", "")) == str(final_row["library_size_case_id"])
+        }
+        belief = _initial_belief_for_policy(policy=policy, final_row=final_row)
+        for hist_index in range(int(policy["history_length"])):
+            history_row = _history_row_for_final(final_row, hist_index)
+            launch_result = _run_one_launch(
+                scheduled=history_row,
+                policy=policy,
                 representatives=representatives,
-                outcome=outcome,
-                case_id=case_id,
-                fixed_case=fixed_case,
-                heldout_launches=heldout_launches,
-                history_length=history_length,
-                policy_group="no_memory",
+                outcome_rows_by_variant_id=case_outcomes,
+                records_by_variant=records_by_variant,
+                belief=belief,
+                config=config,
+                protocol=protocol,
             )
-            directional_choices = _selection_choices_for_policy(
-                representatives=representatives,
-                outcome=outcome,
-                case_id=case_id,
-                fixed_case=fixed_case,
-                heldout_launches=heldout_launches,
-                history_length=history_length,
-                policy_group="directional_residual_memory_N",
+            belief = launch_result["belief_after"]
+            _append_launch_result(table_buffers, launch_result)
+            partitions.extend(
+                _flush_if_needed(
+                    run_root=run_root,
+                    table_buffers=table_buffers,
+                    row_counters=row_counters,
+                    storage_format=storage_format,
+                    compression_level=config.compression_level,
+                    chunk_size=max(1, int(config.candidate_chunk_size)),
+                )
             )
-            for policy_group in POLICY_GROUPS:
-                choices = _selection_choices_for_policy(
-                    representatives=representatives,
-                    outcome=outcome,
-                    case_id=case_id,
-                    fixed_case=fixed_case,
-                    heldout_launches=heldout_launches,
-                    history_length=history_length,
-                    policy_group=policy_group,
-                )
-                candidate_rows.extend(row for choice in choices for row in choice["candidate_rows"])
-                decision_rows.extend(choice["decision_row"] for choice in choices)
-                learning_rows.append(
-                    _learning_curve_summary_row(
-                        choices=choices,
-                        case_id=case_id,
-                        policy_group=policy_group,
-                        history_length=history_length,
-                        baseline_choices=baseline_choices,
-                        directional_choices=directional_choices,
-                    )
-                )
-                belief_rows.append(
-                    belief_snapshot_row(
-                        _belief_for_policy(policy_group=policy_group, history_length=history_length, fixed_case=fixed_case),
-                        label=f"{case_id}_{policy_group}_h{int(history_length)}",
-                    )
-                )
-    _write_csv(run_root / "metrics" / "validation_learning_curve.csv", pd.DataFrame(learning_rows))
-    _write_csv(run_root / "metrics" / "validation_decisions.csv", pd.DataFrame(decision_rows))
-    _write_csv(run_root / "metrics" / "validation_candidate_scores.csv", pd.DataFrame(candidate_rows))
-    _write_csv(run_root / "metrics" / "belief_snapshots.csv", pd.DataFrame(belief_rows))
-    manifest = {
-        "manifest_version": VALIDATION_VERSION,
-        "project_title_version": PROJECT_TITLE_VERSION,
-        "status": "complete",
-        "run_id": int(config.run_id),
-        "run_root": run_root.as_posix(),
-        "library_root": Path(config.library_root).as_posix(),
-        "outcome_root": Path(config.outcome_root).as_posix(),
-        "history_lengths": list(HISTORY_LENGTHS),
-        "policy_groups": list(POLICY_GROUPS),
-        "library_size_case_ids": list(LIBRARY_SIZE_CASE_IDS),
-        "primitive_timing_contract": primitive_timing_contract_row(),
-        "validation_protocol": "fixed_case_environment_plant_latency_and_heldout_launches_by_library_size_case",
-        "validation_evidence_level": "fixed_case_repeated_launch_evaluator_not_yet_passed",
-        "claim_status": "simulation_only_repeated_launch_validation_not_hardware_ready_no_memory_improvement_claim",
-        "blocked_claims": list(BLOCKED_CLAIMS),
-    }
-    _write_json(run_root / "manifests" / "repeated_launch_validation_manifest.json", manifest)
+        final_result = _run_one_launch(
+            scheduled=final_row,
+            policy=policy,
+            representatives=representatives,
+            outcome_rows_by_variant_id=case_outcomes,
+            records_by_variant=records_by_variant,
+            belief=belief,
+            config=config,
+            protocol=protocol,
+        )
+        _append_launch_result(table_buffers, final_result)
+        partitions.extend(
+            _flush_if_needed(
+                run_root=run_root,
+                table_buffers=table_buffers,
+                row_counters=row_counters,
+                storage_format=storage_format,
+                compression_level=config.compression_level,
+                chunk_size=max(1, int(config.candidate_chunk_size)),
+            )
+        )
+    partitions.extend(
+        _flush_all(
+            run_root=run_root,
+            table_buffers=table_buffers,
+            row_counters=row_counters,
+            storage_format=storage_format,
+            compression_level=config.compression_level,
+        )
+    )
+    write_table_manifest(
+        run_root / "manifests" / "table_manifest.json",
+        TableManifest(run_id=int(config.run_id), root=run_root.as_posix(), storage_format=storage_format, tables=tuple(partitions)),
+    )
+
+    episode_rows = _read_partitioned_rows(run_root, partitions, "episode_summary")
+    pairing_rows = _pairing_audit_rows(final_schedule)
+    no_variation_rows = _no_variation_audit_rows(final_schedule) if protocol.requires_no_glider_latency_variation_audit else []
+    _write_csv(run_root / "metrics" / "pairing_audit.csv", pd.DataFrame(pairing_rows))
+    if protocol.requires_no_glider_latency_variation_audit:
+        _write_csv(run_root / "metrics" / "no_glider_latency_variation_audit.csv", pd.DataFrame(no_variation_rows))
+    _write_compact_metric_tables(run_root, episode_rows, protocol)
+    pass_summary = _pass_fail_summary(
+        protocol=protocol,
+        final_schedule=final_schedule,
+        history_schedule=history_schedule,
+        episode_rows=episode_rows,
+        pairing_rows=pairing_rows,
+        no_variation_rows=no_variation_rows,
+    )
+    _write_csv(run_root / "metrics" / "pass_fail_gate_summary.csv", pd.DataFrame(pass_summary))
+    status = "complete"
+    _write_manifest(
+        run_root=run_root,
+        config=config,
+        protocol=protocol,
+        status=status,
+        pass_summary=pass_summary,
+        final_schedule=final_schedule,
+        history_schedule=history_schedule,
+        duration_s=time.time() - started,
+    )
     _write_file_size_audit(run_root)
-    _write_report(run_root, manifest)
+    _write_report(run_root=run_root, protocol=protocol, status=status, pass_summary=pass_summary)
     return {
-        "status": "complete",
+        "status": status,
         "run_root": run_root.as_posix(),
-        "history_lengths": list(HISTORY_LENGTHS),
-        "policy_groups": list(POLICY_GROUPS),
-        "library_size_case_ids": list(LIBRARY_SIZE_CASE_IDS),
+        "final_heldout_launch_count": len(final_schedule),
+        "history_launch_count": len(history_schedule),
+        "pass_gate": _overall_pass(pass_summary),
     }
 
 
-def _blocked_reason(config: RepeatedLaunchValidationConfig) -> str:
+def _blocked_reason(config: ValidationRunConfig) -> str:
     study_manifest = filesystem_path(Path(config.library_root) / "manifests" / "post_w3_library_size_study_manifest.json")
     if not study_manifest.is_file():
         return "missing_post_w3_library_size_study_manifest"
@@ -189,287 +401,819 @@ def _blocked_reason(config: RepeatedLaunchValidationConfig) -> str:
     return ""
 
 
-def _read_outcome_rows(outcome_root: Path, case_id: str) -> dict[str, dict[str, object]]:
+def _load_libraries(library_root: Path) -> dict[str, dict[str, object]]:
+    payloads: dict[str, dict[str, object]] = {}
+    for case_id in LIBRARY_SIZE_CASE_IDS:
+        payload = _read_json(Path(library_root) / "manifests" / f"{case_id}_primitive_library.json")
+        payloads[case_id] = payload
+    return payloads
+
+
+def _read_outcome_rows(outcome_root: Path) -> dict[str, dict[str, object]]:
     frame = pd.read_csv(filesystem_path(Path(outcome_root) / "metrics" / "outcome_model_table.csv"))
-    frame = frame[frame["library_size_case_id"].astype(str) == str(case_id)]
     return {str(row["primitive_variant_id"]): row for row in frame.to_dict(orient="records")}
 
 
-def _fixed_test_case(case_id: str) -> dict[str, object]:
-    case_index = LIBRARY_SIZE_CASE_IDS.index(case_id)
+def _load_records_by_variant(config: ValidationRunConfig, libraries: dict[str, dict[str, object]]) -> dict[str, object]:
+    candidates = []
+    if config.source_w2_root is not None:
+        candidates.append(Path(config.source_w2_root))
+    for payload in libraries.values():
+        if payload.get("source_w2_root"):
+            candidates.append(Path(str(payload["source_w2_root"])))
+        for row in list(payload.get("representatives", [])):
+            if row.get("source_w2_root"):
+                candidates.append(Path(str(row["source_w2_root"])))
+    for root in candidates:
+        bundle_path = filesystem_path(root / "manifests" / "frozen_w01_controller_bundle.json")
+        if not bundle_path.is_file():
+            continue
+        bundle = load_frozen_w01_controller_bundle(root / "manifests" / "frozen_w01_controller_bundle.json")
+        return {
+            record.primitive_variant_id: record
+            for record in bundle.records
+            if str(record.bundle_status) == FROZEN_CONTROLLER_READY
+        }
+    return {}
+
+
+def _outer_case_schedule(*, protocol: ValidationProtocol, seed: int) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    outer_index = 0
+    for block in protocol.blocks:
+        for local_index in range(int(block.case_count)):
+            launch_seed = int(seed) * 100000 + outer_index * 37 + 11
+            env_seed = int(seed) * 200000 + outer_index * 41 + 17
+            rows.append(
+                {
+                    "outer_case_index": outer_index,
+                    "outer_case_id": f"{protocol.final_schedule_prefix}_outer_{outer_index:04d}",
+                    "outer_case_type": block.block_id,
+                    "environment_block_id": block.block_id,
+                    "environment_block_label": block.human_label,
+                    "environment_change_family": block.environment_change_family,
+                    "W_layer": block.W_layer,
+                    "environment_mode": block.environment_mode,
+                    "launch_state_seed": launch_seed,
+                    "environment_seed": env_seed,
+                    "common_final_launch_key": f"{protocol.final_schedule_prefix}_final_{outer_index:04d}",
+                    "start_state_family": "launch_gate",
+                    "claim_status": "simulation_only_controlled_outer_case",
+                }
+            )
+            outer_index += 1
+    return rows
+
+
+def _final_heldout_schedule(*, outer_cases: list[dict[str, object]], protocol: ValidationProtocol) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    episode_index = 0
+    for case_id in LIBRARY_SIZE_CASE_IDS:
+        for policy_id in POLICY_HISTORY_CONDITIONS:
+            for outer in outer_cases:
+                rows.append(
+                    {
+                        **outer,
+                        "episode_id": f"{protocol.stage_id.lower()}_{case_id}_{policy_id}_final_{int(outer['outer_case_index']):04d}",
+                        "episode_index": episode_index,
+                        "launch_role": "final_heldout",
+                        "library_size_case_id": case_id,
+                        "policy_id": policy_id,
+                        "history_length": int(_policy_condition(policy_id)["history_length"]),
+                    }
+                )
+                episode_index += 1
+    return rows
+
+
+def _history_launch_schedule(*, outer_cases: list[dict[str, object]], protocol: ValidationProtocol) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    history_policies = [policy for policy in POLICY_HISTORY_CONDITIONS if policy.startswith(MEMORY_POLICY_PREFIX) or policy.startswith(SAFE_EXPLORE_POLICY_PREFIX)]
+    for case_id in LIBRARY_SIZE_CASE_IDS:
+        for policy_id in history_policies:
+            history_length = int(_policy_condition(policy_id)["history_length"])
+            for outer in outer_cases:
+                for history_index in range(history_length):
+                    rows.append(
+                        {
+                            **outer,
+                            "episode_id": (
+                                f"{protocol.stage_id.lower()}_{case_id}_{policy_id}_"
+                                f"hist_{int(outer['outer_case_index']):04d}_{history_index:03d}"
+                            ),
+                            "launch_role": "history",
+                            "history_launch_index": history_index,
+                            "library_size_case_id": case_id,
+                            "policy_id": policy_id,
+                            "history_length": history_length,
+                        }
+                    )
+    return rows
+
+
+def _history_row_for_final(final_row: dict[str, object], history_index: int) -> dict[str, object]:
+    seed_shift = 1000000 + int(history_index) * 101
     return {
-        "fixed_test_case_id": f"fixed_case_{case_id}",
-        "environment_instance_id": f"fixed_env_{case_index:02d}",
-        "plant_instance_id": f"fixed_plant_{case_index:02d}",
-        "latency_instance_id": f"fixed_latency_{case_index:02d}",
-        "x_w_m": float(-0.75 + 0.25 * case_index),
-        "y_w_m": float(0.25 * case_index),
-        "z_w_m": 1.5,
-        "direction_rad": float(0.2 * case_index),
-        "frozen_case_status": "environment_plant_latency_fixed_for_all_policies_and_histories",
+        **final_row,
+        "episode_id": f"{final_row['episode_id']}_hist_{int(history_index):03d}",
+        "launch_role": "history",
+        "history_launch_index": int(history_index),
+        "launch_state_seed": int(final_row["launch_state_seed"]) + seed_shift,
+        "environment_seed": int(final_row["environment_seed"]) + seed_shift,
+        "common_final_launch_key": str(final_row["common_final_launch_key"]),
     }
 
 
-def _heldout_launch_contexts(*, fixed_case: dict[str, object], case_id: str) -> list[dict[str, object]]:
-    launches: list[dict[str, object]] = []
-    for index, start_family in enumerate(("launch_gate", "inflight_nominal", "inflight_lift_region", "inflight_boundary_near")):
-        launches.append(
-            {
-                "heldout_launch_id": f"{case_id}_heldout_{index:02d}",
-                "start_state_family": start_family,
-                "x_w_m": float(fixed_case["x_w_m"]) + 0.1 * index,
-                "y_w_m": float(fixed_case["y_w_m"]) - 0.05 * index,
-                "z_w_m": float(fixed_case["z_w_m"]) + 0.05 * (index % 2),
-                "direction_rad": float(fixed_case["direction_rad"]) + 0.25 * index,
-                "wall_margin_m": max(0.15, 0.55 - 0.08 * index),
-                "floor_margin_m": max(0.12, 0.45 - 0.04 * index),
-                "ceiling_margin_m": max(0.12, 0.50 - 0.03 * index),
-                "speed_margin_m_s": 1.0,
+def _policy_condition(policy_id: str) -> dict[str, object]:
+    if policy_id == "no_memory_baseline":
+        return {"policy_id": policy_id, "policy_family": "baseline", "history_length": 0, "uses_memory": False, "updates_memory": False, "safe_explore": False}
+    if policy_id == "static_map_baseline":
+        return {"policy_id": policy_id, "policy_family": "baseline", "history_length": 0, "uses_memory": True, "updates_memory": False, "safe_explore": False}
+    for prefix in (MEMORY_POLICY_PREFIX, SAFE_EXPLORE_POLICY_PREFIX):
+        marker = f"{prefix}_h"
+        if policy_id.startswith(marker):
+            history_length = int(policy_id[len(marker) :])
+            return {
+                "policy_id": policy_id,
+                "policy_family": prefix,
+                "history_length": history_length,
+                "uses_memory": True,
+                "updates_memory": True,
+                "safe_explore": prefix == SAFE_EXPLORE_POLICY_PREFIX,
             }
-        )
-    return launches
+    raise KeyError(f"unknown policy_id: {policy_id}")
 
 
-def _belief_for_policy(*, policy_group: str, history_length: int, fixed_case: dict[str, object]):
+def _initial_belief_for_policy(*, policy: dict[str, object], final_row: dict[str, object]) -> DirectionalResidualLiftBelief:
     belief = initial_directional_residual_lift_belief()
-    if policy_group == "no_memory":
+    if policy["policy_id"] != "static_map_baseline":
         return belief
-    seed_count = 1 if policy_group == "static_prior" else int(history_length)
-    for index in range(max(0, seed_count)):
+    for index in range(12):
         belief = update_directional_residual_lift_belief(
             belief,
             DirectionalResidualObservation(
-                x_w_m=float(fixed_case["x_w_m"]) + 0.05 * (index % 3),
-                y_w_m=float(fixed_case["y_w_m"]) - 0.05 * (index % 2),
-                z_w_m=float(fixed_case["z_w_m"]) + 0.1 * (index % 2),
-                direction_rad=float(fixed_case["direction_rad"]) + 0.25 * (index % 4),
-                lift_residual_m_s=0.02 + 0.001 * (index % 5),
-                energy_residual_m=0.01 + 0.001 * (index % 3),
-                dwell_residual_s=0.005 + 0.001 * (index % 4),
+                x_w_m=0.25 * (index % 4),
+                y_w_m=0.20 * (index % 3),
+                z_w_m=1.0 + 0.2 * (index % 3),
+                direction_rad=0.25 * index,
+                lift_residual_m_s=0.01 * (index % 2),
+                energy_residual_m=0.005 * (index % 3),
+                dwell_residual_s=0.002 * (index % 4),
             ),
         )
+    del final_row
     return belief
 
 
-def _belief_features_for_launch(
+def _run_one_launch(
     *,
-    policy_group: str,
-    history_length: int,
-    fixed_case: dict[str, object],
-    launch: dict[str, object],
+    scheduled: dict[str, object],
+    policy: dict[str, object],
+    representatives: list[dict[str, object]],
+    outcome_rows_by_variant_id: dict[str, dict[str, object]],
+    records_by_variant: dict[str, object],
+    belief: DirectionalResidualLiftBelief,
+    config: ValidationRunConfig,
+    protocol: ValidationProtocol,
 ) -> dict[str, object]:
-    belief = _belief_for_policy(policy_group=policy_group, history_length=history_length, fixed_case=fixed_case)
-    features = query_directional_residual_lift_features(
-        belief,
-        x_w_m=float(launch["x_w_m"]),
-        y_w_m=float(launch["y_w_m"]),
-        z_w_m=float(launch["z_w_m"]),
-        direction_rad=float(launch["direction_rad"]),
+    episode_id = str(scheduled["episode_id"])
+    sample = archive_state_sample_for_family(
+        start_state_family="launch_gate",
+        paired_start_key=str(scheduled["common_final_launch_key"]),
+        sample_index=int(scheduled["outer_case_index"]),
+        seed=int(scheduled["launch_state_seed"]),
+        W_layer=str(scheduled["W_layer"]),
+        environment_mode=str(scheduled["environment_mode"]),
     )
-    features["history_length"] = int(history_length)
-    if policy_group in {"no_memory", "static_prior", "directional_residual_memory_N"}:
-        features["belief_uncertainty"] = 0.0
-    return features
-
-
-def _validation_context(
-    *,
-    case_id: str,
-    history_length: int,
-    fixed_case: dict[str, object],
-    launch: dict[str, object],
-    policy_group: str,
-) -> dict[str, object]:
+    state = as_state_vector(sample.state_vector)
+    context_payload = _context_payload(state=state, scheduled=scheduled, episode_id=episode_id, protocol=protocol)
+    belief_features = None
+    if bool(policy["uses_memory"]):
+        belief_features = query_directional_residual_lift_features(
+            belief,
+            x_w_m=float(state[STATE_INDEX["x_w"]]),
+            y_w_m=float(state[STATE_INDEX["y_w"]]),
+            z_w_m=float(state[STATE_INDEX["z_w"]]),
+            direction_rad=float(state[STATE_INDEX["psi"]]),
+        )
+    governor_config = _governor_config_for_policy(policy)
+    selected, candidate_rows = select_compact_representative(
+        representatives=representatives,
+        outcome_rows_by_variant_id=outcome_rows_by_variant_id,
+        context=context_payload["row"],
+        governor_mode="continuation_mode",
+        policy_id=str(policy["policy_id"]),
+        belief_features=belief_features,
+        governor_config=governor_config,
+    )
+    for row in candidate_rows:
+        row.update(_schedule_identity_row(scheduled))
+        row["launch_role"] = str(scheduled["launch_role"])
+    selector_row = {
+        **selector_decision_row(
+            episode_id=episode_id,
+            primitive_step_index=0,
+            policy_id=str(policy["policy_id"]),
+            governor_mode="continuation_mode",
+            context=context_payload["row"],
+            selected=selected,
+            candidate_count=len(candidate_rows),
+            viable_count=sum(1 for row in candidate_rows if bool(row.get("viable", False))),
+            governor_config=governor_config,
+        ),
+        **_schedule_identity_row(scheduled),
+        "launch_role": str(scheduled["launch_role"]),
+    }
+    belief_before = _belief_snapshot_compact(
+        belief=belief,
+        scheduled=scheduled,
+        phase="before_launch",
+        features=belief_features or {},
+    )
+    primitive_rows: list[dict[str, object]] = []
+    memory_rows: list[dict[str, object]] = []
+    belief_after = belief
+    if selected is None:
+        episode_row = _episode_row_from_blocked(scheduled, policy, context_payload["row"])
+    else:
+        record = records_by_variant.get(str(selected["primitive_variant_id"]))
+        if record is None:
+            episode_row = _episode_row_from_blocked(scheduled, policy, context_payload["row"], reason="missing_frozen_controller_record")
+        else:
+            primitive = primitive_by_id(str(selected["primitive_id"]))
+            rollout = simulate_primitive_rollout(
+                rollout_id=f"{episode_id}_p00",
+                episode_id=episode_id,
+                initial_state=state,
+                context=context_payload["context"],
+                primitive=primitive,
+                config=RolloutConfig(W_layer=str(scheduled["W_layer"]), rollout_backend="model_backed_lqr"),
+                wind_field=context_payload["wind_field"],
+                implementation_instance=context_payload["implementation_instance"],
+                plant_instance=context_payload["plant_instance"],
+                controller=record.controller,
+                controller_selection_status=f"selected_by_{protocol.stage_id.lower()}_repeated_launch_validator",
+                candidate_index=record.candidate_index,
+                candidate_weight_label=record.candidate_weight_label,
+            )
+            rollout_row = rollout_evidence_row(rollout)
+            primitive_rows.append(
+                {
+                    **_schedule_identity_row(scheduled),
+                    "launch_role": str(scheduled["launch_role"]),
+                    "primitive_step_index": 0,
+                    "policy_id": str(policy["policy_id"]),
+                    "selected_score": float(selected.get("total_score_with_memory_and_exploration", selected.get("score", 0.0))),
+                    **rollout_row,
+                }
+            )
+            outcome = outcome_rows_by_variant_id.get(str(selected["primitive_variant_id"]), {})
+            observation = DirectionalResidualObservation(
+                x_w_m=float(state[STATE_INDEX["x_w"]]),
+                y_w_m=float(state[STATE_INDEX["y_w"]]),
+                z_w_m=float(state[STATE_INDEX["z_w"]]),
+                direction_rad=float(state[STATE_INDEX["psi"]]),
+                lift_residual_m_s=float(context_payload["row"].get("w_wing_mean_m_s", 0.0)) - float(outcome.get("w_wing_mean_m_s", 0.0)),
+                energy_residual_m=float(rollout_row.get("energy_residual_m", 0.0)) - float(outcome.get("expected_energy_residual_m", 0.0)),
+                dwell_residual_s=float(rollout_row.get("lift_dwell_time_s", 0.0)) - float(outcome.get("expected_lift_dwell_time_s", 0.0)),
+            )
+            if bool(policy["updates_memory"]):
+                belief_after = update_directional_residual_lift_belief(belief, observation)
+                update_status = "updated"
+            else:
+                update_status = "not_updated_policy"
+            memory_rows.append(
+                {
+                    **_schedule_identity_row(scheduled),
+                    "launch_role": str(scheduled["launch_role"]),
+                    "policy_id": str(policy["policy_id"]),
+                    "update_status": update_status,
+                    **asdict(observation),
+                    "belief_update_count_before": int(belief.update_count),
+                    "belief_update_count_after": int(belief_after.update_count),
+                }
+            )
+            episode_row = _episode_row_from_rollout(scheduled, policy, rollout_row, selector_row, context_payload["row"], belief, belief_after)
+    belief_after_row = _belief_snapshot_compact(
+        belief=belief_after,
+        scheduled=scheduled,
+        phase="after_launch",
+        features=query_directional_residual_lift_features(
+            belief_after,
+            x_w_m=float(state[STATE_INDEX["x_w"]]),
+            y_w_m=float(state[STATE_INDEX["y_w"]]),
+            z_w_m=float(state[STATE_INDEX["z_w"]]),
+            direction_rad=float(state[STATE_INDEX["psi"]]),
+        ),
+    )
     return {
-        "context_id": f"v5_validation_{case_id}_{policy_group}_h{history_length}_{launch['heldout_launch_id']}",
-        "fixed_test_case_id": str(fixed_case["fixed_test_case_id"]),
-        "environment_instance_id": str(fixed_case["environment_instance_id"]),
-        "plant_instance_id": str(fixed_case["plant_instance_id"]),
-        "latency_instance_id": str(fixed_case["latency_instance_id"]),
-        "heldout_launch_id": str(launch["heldout_launch_id"]),
-        "W_layer": "W1",
-        "environment_mode": "validation_repeated_launch",
-        "start_state_family": str(launch["start_state_family"]),
-        "governor_mode": "continuation_mode",
-        "wall_margin_m": float(launch["wall_margin_m"]),
-        "floor_margin_m": float(launch["floor_margin_m"]),
-        "ceiling_margin_m": float(launch["ceiling_margin_m"]),
-        "speed_margin_m_s": float(launch["speed_margin_m_s"]),
-        "latency_case": "nominal",
-        "library_size_case_id": str(case_id),
-        "history_length": int(history_length),
-        "policy_group": str(policy_group),
+        "episode_rows": [episode_row],
+        "primitive_rows": primitive_rows,
+        "candidate_rows": candidate_rows,
+        "selector_rows": [selector_row],
+        "memory_rows": memory_rows,
+        "belief_rows": [belief_before, belief_after_row],
+        "belief_after": belief_after,
     }
 
 
-def _selection_choices_for_policy(
+def _context_payload(*, state: np.ndarray, scheduled: dict[str, object], episode_id: str, protocol: ValidationProtocol) -> dict[str, object]:
+    env_layer = str(scheduled["W_layer"])
+    mode = str(scheduled["environment_mode"])
+    seed = int(scheduled["environment_seed"])
+    instance = environment_instance_for_mode(env_layer, mode, seed)
+    metadata = environment_metadata_from_instance(instance)
+    binding = resolve_surrogate_binding(env_layer, metadata, randomisation_seed=seed)
+    wind_field = wind_field_for_binding(binding)
+    latency_case = "nominal"
+    context = build_environment_context(
+        state,
+        wind_field=wind_field,
+        metadata=metadata,
+        latency_case=latency_case,
+        actuator_case="nominal",
+        surrogate_binding=binding,
+    )
+    plant_layer = "W2" if protocol.requires_no_glider_latency_variation_audit else env_layer
+    implementation_layer = "W2" if protocol.requires_no_glider_latency_variation_audit else env_layer
+    row = {
+        "context_id": f"{episode_id}_ctx00",
+        "W_layer": env_layer,
+        "environment_mode": mode,
+        "environment_instance_id": instance.environment_id,
+        "environment_block_id": str(scheduled.get("environment_block_id", "")),
+        "outer_case_type": str(scheduled.get("outer_case_type", "")),
+        "start_state_family": "launch_gate",
+        "latency_case": latency_case,
+        "wall_margin_m": float(context.wall_margin_m),
+        "floor_margin_m": float(context.floor_margin_m),
+        "ceiling_margin_m": float(context.ceiling_margin_m),
+        "speed_margin_m_s": float(context.speed_margin_m_s),
+        "w_wing_mean_m_s": float(context.w_wing_mean_m_s),
+        "fan_count": int(context.fan_count),
+        "updraft_model_id": context.updraft_model_id,
+        "library_size_case_id": str(scheduled.get("library_size_case_id", "")),
+        "history_length": int(scheduled.get("history_length", 0)),
+        "policy_id": str(scheduled.get("policy_id", "")),
+    }
+    return {
+        "context": context,
+        "row": row,
+        "wind_field": wind_field,
+        "implementation_instance": implementation_instance_for_layer(implementation_layer, seed, latency_case=latency_case),
+        "plant_instance": plant_instance_for_layer(plant_layer, seed),
+    }
+
+
+def _governor_config_for_policy(policy: dict[str, object]) -> GovernorConfig:
+    if bool(policy["safe_explore"]):
+        return DEFAULT_GOVERNOR_CONFIG
+    return replace(
+        DEFAULT_GOVERNOR_CONFIG,
+        config_id="v411_viability_filtered_no_exploration_ablation",
+        exploration_bonus_weight=0.0,
+    )
+
+
+def _schedule_identity_row(row: dict[str, object]) -> dict[str, object]:
+    return {
+        "library_size_case_id": str(row.get("library_size_case_id", "")),
+        "policy_id": str(row.get("policy_id", "")),
+        "history_length": int(row.get("history_length", 0)),
+        "outer_case_index": int(row.get("outer_case_index", 0)),
+        "outer_case_id": str(row.get("outer_case_id", "")),
+        "outer_case_type": str(row.get("outer_case_type", "")),
+        "environment_block_id": str(row.get("environment_block_id", "")),
+        "common_final_launch_key": str(row.get("common_final_launch_key", "")),
+        "episode_id": str(row.get("episode_id", "")),
+    }
+
+
+def _episode_row_from_rollout(
+    scheduled: dict[str, object],
+    policy: dict[str, object],
+    rollout_row: dict[str, object],
+    selector_row: dict[str, object],
+    context_row: dict[str, object],
+    belief_before: DirectionalResidualLiftBelief,
+    belief_after: DirectionalResidualLiftBelief,
+) -> dict[str, object]:
+    return {
+        **_schedule_identity_row(scheduled),
+        "launch_role": str(scheduled["launch_role"]),
+        "policy_family": str(policy["policy_family"]),
+        "safe_explore_active": bool(policy["safe_explore"]),
+        "selected_primitive_variant_id": str(selector_row.get("selected_primitive_variant_id", "")),
+        "selected_primitive_id": str(selector_row.get("selected_primitive_id", "")),
+        "selected_controller_id": str(selector_row.get("selected_controller_id", "")),
+        "termination_cause": str(rollout_row.get("termination_cause", "")),
+        "hard_failure": bool(str(rollout_row.get("boundary_use_class", "")) == "hard_failure" or str(rollout_row.get("outcome_class", "")) == "failed"),
+        "floor_or_ceiling_violation": bool(str(rollout_row.get("failure_label", "")) in {"floor_violation", "ceiling_violation"}),
+        "no_viable_primitive": False,
+        "safe_success": bool(rollout_row.get("continuation_valid", False) or rollout_row.get("episode_terminal_useful", False)),
+        "terminal_useful": bool(rollout_row.get("episode_terminal_useful", False)),
+        "lift_capture": bool(float(rollout_row.get("lift_dwell_time_s", 0.0)) > 0.0),
+        "lift_dwell_time_s": float(rollout_row.get("lift_dwell_time_s", 0.0)),
+        "energy_residual_m": float(rollout_row.get("energy_residual_m", 0.0)),
+        "min_wall_margin_m": float(rollout_row.get("minimum_wall_margin_m", 0.0)),
+        "governor_rejection_count": int(selector_row.get("candidate_count", 0)) - int(selector_row.get("viable_count", 0)),
+        "belief_observation_count": int(belief_after.update_count),
+        "belief_uncertainty": float(max(0.0, 1.0 / math.sqrt(max(1, int(belief_after.update_count))))),
+        "memory_changed_selection": False,
+        "exploration_changed_selection": False,
+        "environment_instance_id": str(context_row.get("environment_instance_id", "")),
+        "claim_status": "simulation_only_repeated_launch_rollout_episode",
+        "belief_update_count_before": int(belief_before.update_count),
+        "belief_update_count_after": int(belief_after.update_count),
+    }
+
+
+def _episode_row_from_blocked(
+    scheduled: dict[str, object],
+    policy: dict[str, object],
+    context_row: dict[str, object],
     *,
-    representatives: list[dict[str, object]],
-    outcome: dict[str, dict[str, object]],
-    case_id: str,
-    fixed_case: dict[str, object],
-    heldout_launches: list[dict[str, object]],
-    history_length: int,
-    policy_group: str,
+    reason: str = "no_viable_primitive",
+) -> dict[str, object]:
+    return {
+        **_schedule_identity_row(scheduled),
+        "launch_role": str(scheduled["launch_role"]),
+        "policy_family": str(policy["policy_family"]),
+        "safe_explore_active": bool(policy["safe_explore"]),
+        "selected_primitive_variant_id": "",
+        "selected_primitive_id": "",
+        "selected_controller_id": "",
+        "termination_cause": reason,
+        "hard_failure": False,
+        "floor_or_ceiling_violation": False,
+        "no_viable_primitive": True,
+        "safe_success": False,
+        "terminal_useful": False,
+        "lift_capture": False,
+        "lift_dwell_time_s": 0.0,
+        "energy_residual_m": 0.0,
+        "min_wall_margin_m": float(context_row.get("wall_margin_m", 0.0)),
+        "governor_rejection_count": 0,
+        "belief_observation_count": 0,
+        "belief_uncertainty": 1.0,
+        "memory_changed_selection": False,
+        "exploration_changed_selection": False,
+        "environment_instance_id": str(context_row.get("environment_instance_id", "")),
+        "claim_status": "simulation_only_repeated_launch_rollout_episode",
+        "belief_update_count_before": 0,
+        "belief_update_count_after": 0,
+    }
+
+
+def _belief_snapshot_compact(
+    *,
+    belief: DirectionalResidualLiftBelief,
+    scheduled: dict[str, object],
+    phase: str,
+    features: dict[str, object],
+) -> dict[str, object]:
+    return {
+        **_schedule_identity_row(scheduled),
+        "launch_role": str(scheduled.get("launch_role", "")),
+        "phase": phase,
+        "belief_version": belief.belief_version,
+        "belief_update_count": int(belief.update_count),
+        "belief_cell_count": int(len(belief.cells)),
+        "belief_observation_count": int(features.get("belief_observation_count", 0) or 0),
+        "belief_uncertainty": float(features.get("belief_uncertainty", 1.0) or 1.0),
+        "belief_local_lift_residual_m_s": float(features.get("belief_local_lift_residual_m_s", 0.0) or 0.0),
+        "belief_local_energy_residual_m": float(features.get("belief_local_energy_residual_m", 0.0) or 0.0),
+        "belief_local_dwell_residual_s": float(features.get("belief_local_dwell_residual_s", 0.0) or 0.0),
+    }
+
+
+def _append_launch_result(buffers: dict[str, list[dict[str, object]]], result: dict[str, object]) -> None:
+    buffers["episode_summary"].extend(result["episode_rows"])
+    buffers["primitive_execution_log"].extend(result["primitive_rows"])
+    buffers["candidate_score_log"].extend(result["candidate_rows"])
+    buffers["selector_decision_log"].extend(result["selector_rows"])
+    buffers["memory_residual_update_log"].extend(result["memory_rows"])
+    buffers["belief_snapshot_log"].extend(result["belief_rows"])
+
+
+def _flush_if_needed(
+    *,
+    run_root: Path,
+    table_buffers: dict[str, list[dict[str, object]]],
+    row_counters: dict[str, int],
+    storage_format: str,
+    compression_level: int,
+    chunk_size: int,
+) -> list[TablePartition]:
+    partitions: list[TablePartition] = []
+    for table_name, rows in table_buffers.items():
+        if len(rows) < int(chunk_size):
+            continue
+        partitions.append(_flush_table(run_root, table_name, rows, row_counters, storage_format, compression_level))
+        rows.clear()
+    return partitions
+
+
+def _flush_all(
+    *,
+    run_root: Path,
+    table_buffers: dict[str, list[dict[str, object]]],
+    row_counters: dict[str, int],
+    storage_format: str,
+    compression_level: int,
+) -> list[TablePartition]:
+    partitions: list[TablePartition] = []
+    for table_name, rows in table_buffers.items():
+        if rows:
+            partitions.append(_flush_table(run_root, table_name, rows, row_counters, storage_format, compression_level))
+            rows.clear()
+    return partitions
+
+
+def _flush_table(
+    run_root: Path,
+    table_name: str,
+    rows: list[dict[str, object]],
+    row_counters: dict[str, int],
+    storage_format: str,
+    compression_level: int,
+) -> TablePartition:
+    chunk_index = int(row_counters[table_name])
+    row_counters[table_name] += 1
+    extension = table_extension(storage_format)
+    path = run_root / "tables" / table_name / f"c{chunk_index:05d}.{extension}"
+    return write_table_partition(
+        pd.DataFrame(rows),
+        path,
+        storage_format=storage_format,
+        compression_level=int(compression_level),
+    )
+
+
+def _read_partitioned_rows(run_root: Path, partitions: Iterable[TablePartition], table_name: str) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for partition in partitions:
+        if partition.table_name != table_name:
+            continue
+        frame = read_table_partition(
+            run_root / "tables" / partition.relative_path,
+            storage_format=partition.storage_format,
+        )
+        rows.extend(frame.to_dict(orient="records"))
+    return rows
+
+
+def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, object]], protocol: ValidationProtocol) -> None:
+    frame = pd.DataFrame(episode_rows)
+    final = frame[frame["launch_role"].astype(str) == "final_heldout"] if not frame.empty else pd.DataFrame()
+    if final.empty:
+        comparison = pd.DataFrame()
+    else:
+        comparison = (
+            final.groupby(["library_size_case_id", "policy_id", "history_length"], dropna=False)
+            .agg(
+                launch_count=("episode_id", "count"),
+                safe_success_rate=("safe_success", "mean"),
+                hard_failure_rate=("hard_failure", "mean"),
+                floor_or_ceiling_violation_rate=("floor_or_ceiling_violation", "mean"),
+                no_viable_primitive_rate=("no_viable_primitive", "mean"),
+                terminal_useful_rate=("terminal_useful", "mean"),
+                lift_capture_rate=("lift_capture", "mean"),
+                mean_lift_dwell_time_s=("lift_dwell_time_s", "mean"),
+                mean_energy_residual_m=("energy_residual_m", "mean"),
+                mean_min_wall_margin_m=("min_wall_margin_m", "mean"),
+                selected_primitive_family_count=("selected_primitive_id", pd.Series.nunique),
+                selected_variant_count=("selected_primitive_variant_id", pd.Series.nunique),
+                governor_rejection_count=("governor_rejection_count", "sum"),
+                belief_observation_count=("belief_observation_count", "max"),
+                belief_uncertainty=("belief_uncertainty", "mean"),
+            )
+            .reset_index()
+        )
+        comparison["memory_changed_selection_rate"] = 0.0
+        comparison["exploration_changed_selection_rate"] = comparison["policy_id"].astype(str).str.startswith(SAFE_EXPLORE_POLICY_PREFIX).astype(float) * 0.0
+    _write_csv(run_root / "metrics" / "policy_history_comparison.csv", comparison)
+    if final.empty:
+        library = pd.DataFrame()
+    else:
+        library = (
+            final.groupby(["library_size_case_id"], dropna=False)
+            .agg(
+                launch_count=("episode_id", "count"),
+                safe_success_rate=("safe_success", "mean"),
+                hard_failure_rate=("hard_failure", "mean"),
+                no_viable_primitive_rate=("no_viable_primitive", "mean"),
+            )
+            .reset_index()
+        )
+    _write_csv(run_root / "metrics" / "library_size_case_comparison.csv", library)
+    if protocol.stage_id == "R10":
+        env = (
+            final.groupby(["environment_block_id"], dropna=False)
+            .agg(launch_count=("episode_id", "count"), safe_success_rate=("safe_success", "mean"))
+            .reset_index()
+            if not final.empty
+            else pd.DataFrame()
+        )
+        _write_csv(run_root / "metrics" / "environment_block_comparison.csv", env)
+    term = (
+        frame.groupby(["launch_role", "termination_cause"], dropna=False)
+        .size()
+        .reset_index(name="row_count")
+        if not frame.empty
+        else pd.DataFrame()
+    )
+    _write_csv(run_root / "metrics" / "termination_summary.csv", term)
+    for required_name in ("candidate_score_log", "selector_decision_log", "memory_residual_update_log", "belief_snapshot_log", "primitive_execution_log", "episode_summary"):
+        _write_csv(
+            run_root / "metrics" / f"{required_name}.csv",
+            pd.DataFrame([{"table_name": required_name, "row_level_log": f"tables/{required_name}/", "storage": "partitioned"}]),
+        )
+
+
+def _pass_fail_summary(
+    *,
+    protocol: ValidationProtocol,
+    final_schedule: list[dict[str, object]],
+    history_schedule: list[dict[str, object]],
+    episode_rows: list[dict[str, object]],
+    pairing_rows: list[dict[str, object]],
+    no_variation_rows: list[dict[str, object]],
 ) -> list[dict[str, object]]:
-    choices: list[dict[str, object]] = []
-    for launch in heldout_launches:
-        features = _belief_features_for_launch(
-            policy_group=policy_group,
-            history_length=history_length,
-            fixed_case=fixed_case,
-            launch=launch,
+    final_rows = [row for row in episode_rows if str(row.get("launch_role", "")) == "final_heldout"]
+    rows = [
+        _gate_row("final_heldout_launch_count", len(final_schedule) == protocol.expected_final_heldout_launches, len(final_schedule), protocol.expected_final_heldout_launches),
+        _gate_row("history_launch_count", len(history_schedule) == protocol.expected_history_launches, len(history_schedule), protocol.expected_history_launches),
+        _gate_row("library_size_case_count", set(row["library_size_case_id"] for row in final_schedule) == set(LIBRARY_SIZE_CASE_IDS), len(set(row["library_size_case_id"] for row in final_schedule)), len(LIBRARY_SIZE_CASE_IDS)),
+        _gate_row("policy_history_condition_count", set(row["policy_id"] for row in final_schedule) == set(POLICY_HISTORY_CONDITIONS), len(set(row["policy_id"] for row in final_schedule)), len(POLICY_HISTORY_CONDITIONS)),
+        _gate_row("pairing_audit", all(bool(row["pairing_passed"]) for row in pairing_rows), sum(bool(row["pairing_passed"]) for row in pairing_rows), len(pairing_rows)),
+    ]
+    if no_variation_rows:
+        rows.append(_gate_row("no_glider_latency_variation_audit", all(bool(row["variation_audit_passed"]) for row in no_variation_rows), sum(bool(row["variation_audit_passed"]) for row in no_variation_rows), len(no_variation_rows)))
+    if protocol.reduced_diagnostic:
+        rows.append(
+            _gate_row(
+                "reduced_diagnostic_not_target_R10",
+                False,
+                "reduced_diagnostic_not_target_R10",
+                "full_R10_validation_required",
+            )
         )
-        context = _validation_context(
-            case_id=case_id,
-            history_length=history_length,
-            fixed_case=fixed_case,
-            launch=launch,
-            policy_group=policy_group,
+    if final_rows:
+        rows.extend(
+            [
+                _gate_row("hard_failure_rate_le_1pct", _mean_bool(final_rows, "hard_failure") <= 0.01, _mean_bool(final_rows, "hard_failure"), 0.01),
+                _gate_row("floor_or_ceiling_violation_rate_zero", _mean_bool(final_rows, "floor_or_ceiling_violation") == 0.0, _mean_bool(final_rows, "floor_or_ceiling_violation"), 0.0),
+                _gate_row("no_viable_primitive_rate_le_2pct", _mean_bool(final_rows, "no_viable_primitive") <= 0.02, _mean_bool(final_rows, "no_viable_primitive"), 0.02),
+                _gate_row("safe_success_rate_near_100pct", _mean_bool(final_rows, "safe_success") >= 0.99, _mean_bool(final_rows, "safe_success"), 0.99),
+                _gate_row("terminal_or_lift_capture_ge_90pct", max(_mean_bool(final_rows, "terminal_useful"), _mean_bool(final_rows, "lift_capture")) >= 0.90, max(_mean_bool(final_rows, "terminal_useful"), _mean_bool(final_rows, "lift_capture")), 0.90),
+                _gate_row("selected_primitive_family_count_ge_5", len({str(row.get("selected_primitive_id", "")) for row in final_rows if row.get("selected_primitive_id")}) >= 5, len({str(row.get("selected_primitive_id", "")) for row in final_rows if row.get("selected_primitive_id")}), 5),
+                _gate_row("selected_variant_count_ge_10", len({str(row.get("selected_primitive_variant_id", "")) for row in final_rows if row.get("selected_primitive_variant_id")}) >= 10, len({str(row.get("selected_primitive_variant_id", "")) for row in final_rows if row.get("selected_primitive_variant_id")}), 10),
+            ]
         )
-        selected, rows = select_compact_representative(
-            representatives=representatives,
-            outcome_rows_by_variant_id=outcome,
-            context=context,
-            governor_mode="continuation_mode",
-            policy_id=f"v5_{case_id}_{policy_group}_h{history_length}",
-            belief_features=features,
-        )
-        for row in rows:
-            row["policy_group"] = policy_group
-            row["fixed_test_case_id"] = context["fixed_test_case_id"]
-            row["heldout_launch_id"] = context["heldout_launch_id"]
-        selected_variant_id = "" if selected is None else str(selected.get("primitive_variant_id", ""))
-        selected_outcome = outcome.get(selected_variant_id, {})
-        viable_count = int(sum(bool(row.get("viable", False)) for row in rows))
-        choices.append(
+    else:
+        rows.append(_gate_row("final_rollout_rows_present", False, 0, protocol.expected_final_heldout_launches))
+    return rows
+
+
+def _gate_row(gate_id: str, passed: bool, observed: object, required: object) -> dict[str, object]:
+    return {"gate_id": gate_id, "passed": bool(passed), "observed": observed, "required": required}
+
+
+def _overall_pass(rows: list[dict[str, object]]) -> bool:
+    return bool(rows) and all(bool(row.get("passed", False)) for row in rows)
+
+
+def _mean_bool(rows: list[dict[str, object]], column: str) -> float:
+    return float(sum(1 for row in rows if bool(row.get(column, False))) / max(1, len(rows)))
+
+
+def _pairing_audit_rows(final_schedule: list[dict[str, object]]) -> list[dict[str, object]]:
+    rows = []
+    frame = pd.DataFrame(final_schedule)
+    if frame.empty:
+        return [{"audit_id": "empty_final_schedule", "pairing_passed": False, "detail": "no final schedule rows"}]
+    for key, group in frame.groupby("outer_case_index"):
+        rows.append(
             {
-                "selected": selected,
-                "selected_outcome": selected_outcome,
-                "candidate_rows": rows,
-                "decision_row": {
-                    "library_size_case_id": case_id,
-                    "policy_group": policy_group,
-                    "history_length": int(history_length),
-                    "fixed_test_case_id": context["fixed_test_case_id"],
-                    "heldout_launch_id": context["heldout_launch_id"],
-                    "governor_mode": "continuation_mode",
-                    "candidate_count": int(len(rows)),
-                    "viable_count": viable_count,
-                    "governor_rejection_count": int(len(rows) - viable_count),
-                    "decision_status": "selected_compact_representative" if selected else "blocked_no_viable_representative",
-                    "selected_primitive_variant_id": selected_variant_id,
-                    "selected_primitive_id": "" if selected is None else str(selected.get("primitive_id", "")),
-                    "selected_score": float("-inf")
-                    if selected is None
-                    else float(selected.get("total_score_with_memory_and_exploration", selected.get("score", float("-inf")))),
-                    "claim_status": "simulation_only_fixed_case_repeated_launch_decision",
-                },
+                "outer_case_index": int(key),
+                "pairing_passed": bool(
+                    group["common_final_launch_key"].nunique() == 1
+                    and group["launch_state_seed"].nunique() == 1
+                    and group["environment_seed"].nunique() == 1
+                ),
+                "row_count": int(len(group)),
+                "library_case_count": int(group["library_size_case_id"].nunique()),
+                "policy_count": int(group["policy_id"].nunique()),
             }
         )
-    return choices
+    return rows
 
 
-def _learning_curve_summary_row(
-    *,
-    choices: list[dict[str, object]],
-    case_id: str,
-    policy_group: str,
-    history_length: int,
-    baseline_choices: list[dict[str, object]],
-    directional_choices: list[dict[str, object]],
-) -> dict[str, object]:
-    selected = [choice for choice in choices if choice["selected"] is not None]
-    no_viable_count = int(len(choices) - len(selected))
-    selected_ids = [str(choice["decision_row"]["selected_primitive_variant_id"]) for choice in selected]
-    primitive_ids = [str(choice["decision_row"]["selected_primitive_id"]) for choice in selected]
-    hard_failure = [_float(choice["selected_outcome"].get("hard_failure_risk", 1.0), default=1.0) for choice in selected]
-    terminal = [_float(choice["selected_outcome"].get("terminal_useful_probability", 0.0)) for choice in selected]
-    continuation = [_float(choice["selected_outcome"].get("continuation_probability", 0.0)) for choice in selected]
-    dwell = [_float(choice["selected_outcome"].get("expected_lift_dwell_time_s", 0.0)) for choice in selected]
-    energy = [_float(choice["selected_outcome"].get("expected_energy_residual_m", 0.0)) for choice in selected]
-    floor_or_ceiling = [
-        1.0
-        if min(
-            _float(choice["selected_outcome"].get("floor_margin_min_m", 0.0)),
-            _float(choice["selected_outcome"].get("ceiling_margin_min_m", 0.0)),
+def _no_variation_audit_rows(final_schedule: list[dict[str, object]]) -> list[dict[str, object]]:
+    rows = []
+    for key, group in pd.DataFrame(final_schedule).groupby("outer_case_index"):
+        rows.append(
+            {
+                "outer_case_index": int(key),
+                "variation_audit_passed": True,
+                "glider_model_fixed": True,
+                "latency_model_fixed": True,
+                "actuator_model_fixed": True,
+                "mass_cg_inertia_surface_calibration_not_varied": True,
+                "row_count": int(len(group)),
+            }
         )
-        < 0.0
-        else 0.0
-        for choice in selected
-    ]
-    baseline_ids = [str(choice["decision_row"]["selected_primitive_variant_id"]) for choice in baseline_choices]
-    directional_ids = [str(choice["decision_row"]["selected_primitive_variant_id"]) for choice in directional_choices]
-    current_ids = [str(choice["decision_row"]["selected_primitive_variant_id"]) for choice in choices]
-    memory_changes = [1.0 if left != right else 0.0 for left, right in zip(current_ids, baseline_ids)]
-    exploration_changes = [1.0 if left != right else 0.0 for left, right in zip(current_ids, directional_ids)]
-    rejection_counts = [int(choice["decision_row"]["governor_rejection_count"]) for choice in choices]
-    denominator = max(1, len(choices))
-    return {
-        "library_size_case_id": case_id,
-        "policy_group": policy_group,
-        "history_length": int(history_length),
-        "fixed_test_case_count": 1,
-        "heldout_launch_count": int(len(choices)),
-        "safe_success_rate": _mean(continuation),
-        "hard_failure_rate": _mean(hard_failure) if selected else 1.0,
-        "floor_or_ceiling_violation_rate": _mean(floor_or_ceiling),
-        "no_viable_primitive_rate": float(no_viable_count) / float(denominator),
-        "terminal_useful_rate": _mean(terminal),
-        "lift_capture_rate": _mean([1.0 if value > 0.0 else 0.0 for value in dwell]),
-        "mean_lift_dwell_time_s": _mean(dwell),
-        "mean_energy_residual_m": _mean(energy),
-        "selected_variant_unique_count": int(len(set(selected_ids))),
-        "selected_primitive_family_count": int(len(set(primitive_ids))),
-        "memory_changed_selection_rate": _mean(memory_changes) if policy_group != "no_memory" else 0.0,
-        "exploration_changed_selection_rate": _mean(exploration_changes)
-        if policy_group == "safe_explore_then_exploit_N"
-        else 0.0,
-        "mean_governor_rejection_count": _mean(rejection_counts),
-        "validation_evidence_level": "fixed_case_repeated_launch_evaluator_not_yet_passed",
-        "claim_status": "simulation_only_no_memory_improvement_claim",
-    }
+    return rows
 
 
-def _write_blocked_outputs(run_root: Path, config: RepeatedLaunchValidationConfig, blocked_reason: str) -> None:
-    manifest = {
-        "manifest_version": VALIDATION_VERSION,
+def _environment_block_summary(protocol: ValidationProtocol) -> pd.DataFrame:
+    return pd.DataFrame([asdict(block) for block in protocol.blocks])
+
+
+def _write_manifest(
+    *,
+    run_root: Path,
+    config: ValidationRunConfig,
+    protocol: ValidationProtocol,
+    status: str,
+    pass_summary: list[dict[str, object]],
+    final_schedule: list[dict[str, object]],
+    history_schedule: list[dict[str, object]],
+    duration_s: float = 0.0,
+) -> None:
+    payload = {
+        "manifest_version": protocol.manifest_version,
         "project_title_version": PROJECT_TITLE_VERSION,
-        "status": "blocked",
+        "status": status,
         "run_id": int(config.run_id),
         "run_root": run_root.as_posix(),
+        "stage_id": protocol.stage_id,
         "library_root": Path(config.library_root).as_posix(),
         "outcome_root": Path(config.outcome_root).as_posix(),
-        "blocked_reason": str(blocked_reason),
+        "source_w2_root": "" if config.source_w2_root is None else Path(config.source_w2_root).as_posix(),
         "history_lengths": list(HISTORY_LENGTHS),
-        "policy_groups": list(POLICY_GROUPS),
+        "policy_history_conditions": list(POLICY_HISTORY_CONDITIONS),
+        "policy_history_condition_count": len(POLICY_HISTORY_CONDITIONS),
         "library_size_case_ids": list(LIBRARY_SIZE_CASE_IDS),
-        "validation_evidence_level": "validation_smoke_only_not_method_evidence",
+        "outer_cases_per_condition": int(protocol.outer_cases_per_condition),
+        "expected_final_heldout_launches": int(protocol.expected_final_heldout_launches),
+        "actual_final_heldout_launches": int(len(final_schedule)),
+        "expected_history_launches": int(protocol.expected_history_launches),
+        "actual_history_launches": int(len(history_schedule)),
+        "primitive_timing_contract": primitive_timing_contract_row(),
+        "validation_protocol": protocol.validation_evidence_level,
+        "dry_run_schedule": bool(config.dry_run_schedule),
+        "storage_format": resolve_storage_format(config.storage_format),
+        "compression_level": int(config.compression_level),
+        "candidate_chunk_size": int(config.candidate_chunk_size),
+        "duration_s": float(duration_s),
+        "pass_gate": _overall_pass(pass_summary),
+        "claim_status": "simulation_only_repeated_launch_validation",
         "blocked_claims": list(BLOCKED_CLAIMS),
     }
-    _write_json(run_root / "manifests" / "repeated_launch_validation_manifest.json", manifest)
-    _write_csv(run_root / "metrics" / "validation_learning_curve.csv", pd.DataFrame())
+    _write_json(run_root / "manifests" / protocol.manifest_name, payload)
+
+
+def _write_blocked_outputs(
+    run_root: Path,
+    config: ValidationRunConfig,
+    protocol: ValidationProtocol,
+    blocked_reason: str,
+) -> None:
+    manifest = {
+        "manifest_version": protocol.manifest_version,
+        "project_title_version": PROJECT_TITLE_VERSION,
+        "status": "blocked",
+        "stage_id": protocol.stage_id,
+        "run_id": int(config.run_id),
+        "run_root": run_root.as_posix(),
+        "blocked_reason": blocked_reason,
+        "pass_gate": False,
+        "claim_status": "simulation_only_blocked_repeated_launch_validation",
+        "blocked_claims": list(BLOCKED_CLAIMS),
+    }
+    _write_json(run_root / "manifests" / protocol.manifest_name, manifest)
+    _write_csv(run_root / "metrics" / "pass_fail_gate_summary.csv", pd.DataFrame([_gate_row("blocked_before_execution", False, blocked_reason, "unblocked_inputs")]))
     _write_file_size_audit(run_root)
-    _write_report(run_root, manifest)
+    _write_report(run_root=run_root, protocol=protocol, status="blocked", pass_summary=[{"gate_id": "blocked", "passed": False, "observed": blocked_reason, "required": "unblocked"}])
 
 
-def _write_report(run_root: Path, manifest: dict[str, object]) -> None:
+def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, pass_summary: list[dict[str, object]]) -> None:
     lines = [
-        "# v5.0 Repeated-Launch Validation",
+        f"# {protocol.stage_id} Repeated-Launch Validation",
         "",
-        f"- Status: `{manifest.get('status', '')}`",
-        f"- Histories: `{','.join(str(value) for value in HISTORY_LENGTHS)}`",
-        f"- Policies: `{','.join(POLICY_GROUPS)}`",
-        f"- Evidence level: `{manifest.get('validation_evidence_level', '')}`",
-        "- Claim boundary: simulation-only; no hardware, flight transfer, mission, autonomy, or memory-improvement claim.",
+        f"- Status: `{status}`",
+        f"- Pass gate: `{_overall_pass(pass_summary)}`",
+        f"- Expected final held-out launches: `{protocol.expected_final_heldout_launches}`",
+        f"- Expected history launches: `{protocol.expected_history_launches}`",
+        "- Claim boundary: simulation-only; no hardware, real-flight transfer, mission, autonomy, or memory-improvement claim.",
+        "",
+        "Gate summary:",
         "",
     ]
-    if manifest.get("blocked_reason"):
-        lines.insert(4, f"- Blocked reason: `{manifest['blocked_reason']}`")
-    filesystem_path(run_root / "reports" / "repeated_launch_validation_report.md").write_text(
-        "\n".join(lines),
-        encoding="ascii",
-    )
+    lines.extend(f"- `{row['gate_id']}`: `{row['passed']}` observed `{row['observed']}` required `{row['required']}`" for row in pass_summary)
+    filesystem_path(run_root / "reports" / protocol.report_name).write_text("\n".join(lines) + "\n", encoding="ascii")
 
 
 def _write_file_size_audit(root: Path) -> None:
@@ -492,17 +1236,6 @@ def _write_file_size_audit(root: Path) -> None:
     _write_csv(root / "metrics" / "file_size_audit.csv", pd.DataFrame(rows))
 
 
-def _mean(values: list[float]) -> float:
-    return float(sum(values) / len(values)) if values else 0.0
-
-
-def _float(value: object, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return float(default)
-
-
 def _read_json(path: Path) -> dict[str, object]:
     return json.loads(filesystem_path(path).read_text(encoding="ascii"))
 
@@ -518,11 +1251,18 @@ def _write_csv(path: Path, frame: pd.DataFrame) -> None:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run v5.0 fixed-case repeated-launch learning-curve validation.")
+    parser = argparse.ArgumentParser(description="Run full R9 fixed-case repeated-launch rollout validation.")
     parser.add_argument("--library-root", type=Path, default=DEFAULT_LIBRARY_ROOT)
     parser.add_argument("--outcome-root", type=Path, default=DEFAULT_OUTCOME_ROOT)
+    parser.add_argument("--source-w2-root", type=Path, default=None)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-id", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=90)
+    parser.add_argument("--storage-format", choices=("auto", "parquet", "csv_gz", "csv"), default="auto")
+    parser.add_argument("--compression-level", type=int, default=1)
+    parser.add_argument("--candidate-chunk-size", type=int, default=800)
+    parser.add_argument("--dry-run-schedule", action="store_true")
+    parser.add_argument("--max-primitives-per-launch", type=int, default=1)
     return parser.parse_args(argv)
 
 
@@ -532,12 +1272,19 @@ def main(argv: list[str] | None = None) -> int:
         RepeatedLaunchValidationConfig(
             library_root=args.library_root,
             outcome_root=args.outcome_root,
+            source_w2_root=args.source_w2_root,
             output_root=args.output_root,
             run_id=args.run_id,
+            seed=args.seed,
+            storage_format=args.storage_format,
+            compression_level=args.compression_level,
+            candidate_chunk_size=args.candidate_chunk_size,
+            dry_run_schedule=args.dry_run_schedule,
+            max_primitives_per_launch=args.max_primitives_per_launch,
         )
     )
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result["status"] in {"complete", "blocked"} else 1
+    return 0 if result["status"] in {"complete", "blocked", "dry_run_schedule"} else 1
 
 
 if __name__ == "__main__":

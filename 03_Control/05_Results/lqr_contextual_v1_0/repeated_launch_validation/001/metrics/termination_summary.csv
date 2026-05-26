@@ -1,0 +1,10 @@
+launch_role,termination_cause,row_count
+final_heldout,controlled_finish,280
+final_heldout,no_viable_primitive,2702
+final_heldout,terminal_recovery_limited,280
+final_heldout,weak_energy_result,98
+history,controlled_finish,6634
+history,no_viable_primitive,72220
+history,speed_floor,508
+history,terminal_recovery_limited,7520
+history,weak_energy_result,1918

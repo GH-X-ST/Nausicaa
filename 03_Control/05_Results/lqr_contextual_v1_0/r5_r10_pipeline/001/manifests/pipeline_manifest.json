@@ -1,0 +1,106 @@
+{
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "full_autonomy",
+    "memory_improvement"
+  ],
+  "blocked_reason": "failed_gate:pass_gate_true",
+  "config": {
+    "candidate_chunk_size": 800,
+    "compression_level": 1,
+    "continue_on_stage_failure": false,
+    "dry_run_schedule": false,
+    "max_workers": 8,
+    "output_root": "03_Control/05_Results/lqr_contextual_v1_0/r5_r10_pipeline",
+    "r10_mode": "full",
+    "repair_incomplete": true,
+    "resume": true,
+    "run_id": 1,
+    "start_stage": "R5",
+    "stop_after_stage": "",
+    "storage_format": "csv_gz",
+    "workers": "8"
+  },
+  "docs_alignment_baseline": {
+    "docs/Daily_Schedule.txt": {
+      "byte_count": 12609,
+      "modified_time_utc": "2026-05-25T22:45:01.946717+00:00",
+      "path": "docs/Daily_Schedule.txt",
+      "readable": true,
+      "sha256": "e21f4970424df2c10e3014e50e40949e5c1d648d4955bffcc2c782c41c6ea76a"
+    },
+    "docs/Glider_Control_Project_Plan.md": {
+      "byte_count": 63667,
+      "modified_time_utc": "2026-05-25T22:45:01.961232+00:00",
+      "path": "docs/Glider_Control_Project_Plan.md",
+      "readable": true,
+      "sha256": "b70a540934f94b9709841df32dd1722688f988855e53a6866e81b81faf8d8471"
+    },
+    "docs/MATLAB Coding.txt": {
+      "byte_count": 3653,
+      "modified_time_utc": "2026-05-25T22:45:01.991660+00:00",
+      "path": "docs/MATLAB Coding.txt",
+      "readable": true,
+      "sha256": "091876bc9e69a0b871a41a0ff3919d4e1f01f7af296105cc7e95c315e85adfdf"
+    },
+    "docs/PR.txt": {
+      "byte_count": 3329,
+      "modified_time_utc": "2026-05-25T22:47:19.804968+00:00",
+      "path": "docs/PR.txt",
+      "readable": true,
+      "sha256": "a8519de520cc2805fb18e198ef1b2cbd4c4781ce81470e4ac2a98d4c12e5bb19"
+    },
+    "docs/Python Coding Instruction.txt": {
+      "byte_count": 8339,
+      "modified_time_utc": "2026-05-25T22:45:02.029193+00:00",
+      "path": "docs/Python Coding Instruction.txt",
+      "readable": true,
+      "sha256": "c02689c02e24f4ccb0f6b8060ceb0191b5e1bd8a63efe0031059d1acc85e6b21"
+    },
+    "docs/Python Coding to CODEX.txt": {
+      "byte_count": 5835,
+      "modified_time_utc": "2026-05-25T22:45:02.039223+00:00",
+      "path": "docs/Python Coding to CODEX.txt",
+      "readable": true,
+      "sha256": "716b82ee0aba6ca1e778363dbe7b41561d2f42520cca6cbd6c4b01fd61947ca0"
+    },
+    "docs/R5_R10_Full_Evidence_Execution_Plan.md": {
+      "byte_count": 28458,
+      "modified_time_utc": "2026-05-26T03:18:44.662849+00:00",
+      "path": "docs/R5_R10_Full_Evidence_Execution_Plan.md",
+      "readable": true,
+      "sha256": "f0abd114462b8d4563c7b9a40ca502e07576426a49fa9516c12ebd4226473212"
+    },
+    "docs/Skills.md": {
+      "byte_count": 9510,
+      "modified_time_utc": "2026-05-25T22:45:02.064878+00:00",
+      "path": "docs/Skills.md",
+      "readable": true,
+      "sha256": "905620deb95885612996f4b116df6aa5eef7f0646d552a04b7b035335e47b567"
+    },
+    "docs/housekeeping_and_naming_rules.md": {
+      "byte_count": 8392,
+      "modified_time_utc": "2026-05-25T22:45:02.079899+00:00",
+      "path": "docs/housekeeping_and_naming_rules.md",
+      "readable": true,
+      "sha256": "653ea9a38f3c0ee985263720a836ab5810178eb94050dca61fb542e1d5cc7fed"
+    }
+  },
+  "docs_changed_during_run": false,
+  "full_run_policy": "R5_then_R6_R7_R8_R9_R10_only_after_previous_stage_passes",
+  "pipeline_version": "r5_r10_full_evidence_pipeline_with_repeated_docs_guard_v1",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
+  "run_id": 1,
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/r5_r10_pipeline/001",
+  "stage_order": [
+    "R5",
+    "R6",
+    "R7",
+    "R8",
+    "R9",
+    "R10"
+  ],
+  "status": "blocked"
+}
