@@ -1,0 +1,158 @@
+# CODEX Instruction — Python Implementation for Nausicaa
+
+## Role
+
+You are editing Python code for a research-grade robotics/aerospace simulation and experiment pipeline. Implement only the requested change while preserving physical conventions, rich comments, runtime efficiency, storage discipline, and auditability.
+
+## Current method
+
+Use **primitive**, not skill.
+
+The active direction is environment-conditioned primitive selection:
+
+```text
+state + local flow context + primitive parameters
+    -> primitive outcome estimate
+    -> viability governor with safe exploration/exploitation
+    -> selected 0.10 s primitive
+    -> episode log
+    -> directional 3D residual lift-belief update
+```
+
+Fan layout, fan power, W layer, and reachable primitive chains are fidelity/evidence structures. They are not the online controller.
+
+Primitive-local LQR variants are part of the active method. The LQR stabiliser is embedded inside each primitive. W0/W1 dense generation develops a rich primitive-controller library and tunes each variant's local LQR using the panel-wise glider model, feedback latency, command timing, and actuator lag. W2/W3 replay fixed variants to eliminate or downgrade failures without retuning. Clustering and merging occur only after W3 and must not be moved before W2/W3. Any future redesigned controller is a separate W0/W1 learning cycle, not an in-place W2/W3 mutation.
+
+
+Current requested implementation change:
+
+```text
+- archive old v4.10-style results as diagnostic_not_passed;
+- delete or rewrite active code that assumes long primitive horizons, 2D memory, pure exploitation, or a single compact-library case;
+- implement 0.10 s primitives with 5 controller-input slots at a 20 ms controller update period;
+- rerun W0/W1 dense generation using the new horizon setting;
+- keep W2/W3 replay fixed and no-retune;
+- compare heavy, balanced, light, and no-clustering/no-merging post-W3 cases;
+- validate repeated-launch memory histories at 0, 5, 10, 20, 50, and 100 launches.
+```
+
+Do not add clever extra method branches outside this requested scope.
+
+Entry roles should be explicit when they affect evidence: `launch_capable`, `inflight_only`, and `terminal_or_recovery`. Launch-gate failure is not, by itself, a blocker for an in-flight-only primitive.
+
+
+## Before editing
+
+1. Identify the exact files allowed to change.
+2. Inspect current public interfaces, imports, state order, command order, units, and file-size behaviour.
+3. Identify which outputs become evidence: manifest, table, plot, report, or log.
+4. Do not edit unrelated code.
+5. Do not reset or overwrite existing result directories unless explicitly authorised.
+
+
+6. For this repair cycle, do not overwrite previous v4.10-style result directories. Archive them with an explicit diagnostic_not_passed manifest before generating new evidence.
+7. Treat 0.10 s horizon and 5 controller-input slots at a 20 ms controller update period as public interface requirements, not tunable defaults.
+8. Treat the four post-W3 library-size cases as required outputs, not optional diagnostics.
+
+## Coding style
+
+Use rich comments. Comments should explain physical assumptions, context features, evidence boundaries, unit/frame conventions, and why a gate or metric exists.
+
+Prefer:
+
+- type hints;
+- dataclasses for structured records;
+- explicit unit suffixes;
+- deterministic seeds;
+- narrow helpers;
+- explicit validation at module boundaries;
+- `Path` for file paths.
+
+Avoid:
+
+- speculative frameworks;
+- generic configuration systems;
+- hidden unit conversion;
+- silent frame conversion;
+- broad try/except that hides failures;
+- new dependencies unless justified.
+
+## Runtime and storage rule
+
+Any dense/archive/thesis-scale run must be:
+
+```text
+chunked
+resumable
+compressed
+worker-enabled
+checksum-manifested
+file-size audited
+```
+
+A generated file must stay below 100 MB unless explicitly local-only and approved. Dense table data must be partitioned under `tables/`. Root or `metrics/` outputs should be compact summaries only.
+
+Do not create or use a full-memory single-process runner for dense evidence.
+
+## Evidence and claims
+
+Every output should state whether it is:
+
+```text
+simulation_only
+hardware_shakedown
+real_flight_evidence
+partial_transfer
+negative_transfer
+instrumentation_limited
+not_tested
+```
+
+Do not claim real-flight transfer, mission success, hardware readiness, all-environment validity, or full W3 robustness unless direct evidence supports it.
+
+## Current implementation priorities
+
+Prefer changes that support:
+
+
+- 0.10 s primitive-controller variants with 5 controller-input slots at a 20 ms controller update period;
+- directional 3D residual belief updates;
+- safe exploration/exploitation after viability filtering;
+- library-size cross-study cases: heavy, balanced, light, and no-clustering/no-merging;
+
+- environment-context feature extraction;
+- compact primitive catalogue;
+- primitive outcome datasets;
+- viability-filtered primitive selection;
+- repeated-launch episode records;
+- directional 3D residual lift-belief update;
+- W0/W1 rich primitive-library generation, W2/W3 survival filtering, and the post-W3 library-size cross-study as evidence layers;
+- real-flight replay pairing;
+- chunked archive execution and compact file management.
+
+Do not make high-angle agile turns or within-flight reachable chaining a required final mission dependency.
+
+## Validation
+
+Run the narrowest meaningful checks:
+
+- import check;
+- unit test;
+- schema check;
+- small deterministic sample;
+- row-count and manifest check;
+- file-size audit;
+- no-overwrite check.
+
+If a check cannot run, report why. Do not imply that it passed.
+
+## Final response
+
+Report:
+
+1. files changed;
+2. public interfaces added or preserved;
+3. tests/checks run;
+4. evidence files generated;
+5. claim boundaries preserved;
+6. remaining risks.

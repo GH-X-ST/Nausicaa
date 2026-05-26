@@ -217,11 +217,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--outcome-root", type=Path, default=DEFAULT_OUTCOME_ROOT)
     parser.add_argument("--governor-smoke-root", type=Path, default=DEFAULT_GOVERNOR_SMOKE_ROOT)
     parser.add_argument("--full-loop-root", type=Path, default=DEFAULT_FULL_LOOP_ROOT)
+    parser.add_argument("--allow-retired-diagnostic", action="store_true")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    if not args.allow_retired_diagnostic:
+        print(json.dumps({"status": "blocked", "blocked_reason": "retired_diagnostic_requires_explicit_allow_retired_diagnostic"}, indent=2, sort_keys=True))
+        return 1
     result = run_v410_source_audit(
         V410SourceAuditConfig(
             output_root=args.output_root,

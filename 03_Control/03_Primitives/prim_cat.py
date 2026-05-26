@@ -3,6 +3,14 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 
+from primitive_timing_contract import (
+    CONTROLLER_INPUT_SLOTS_PER_PRIMITIVE,
+    CONTROLLER_INPUT_UPDATE_PERIOD_S,
+    PRIMITIVE_FINITE_HORIZON_S,
+    PRIMITIVE_TIMING_CONTRACT_VERSION,
+    assert_primitive_timing_contract,
+)
+
 
 # =============================================================================
 # SECTION MAP
@@ -40,6 +48,9 @@ class PrimitiveDefinition:
     Q_weight_json: str
     R_weight_json: str
     finite_horizon_s: float
+    controller_input_slots_per_primitive: int
+    controller_input_update_period_s: float
+    primitive_timing_contract_version: str
     exit_checks: tuple[str, ...]
     metrics_to_record: tuple[str, ...]
     failure_labels: tuple[str, ...]
@@ -98,49 +109,41 @@ def active_primitive_catalogue() -> tuple[PrimitiveDefinition, ...]:
         _primitive(
             primitive_id="glide",
             primitive_family="glide",
-            horizon_s=0.60,
             params=(("target_pitch_rad", -0.04, "rad", "small nose-down glide bias"),),
         ),
         _primitive(
             primitive_id="recovery",
             primitive_family="recovery",
-            horizon_s=0.50,
             params=(("target_pitch_rad", 0.02, "rad", "level recovery pitch target"),),
         ),
         _primitive(
             primitive_id="lift_entry",
             primitive_family="lift_entry",
-            horizon_s=0.70,
             params=(("lift_score_threshold", 0.10, "1", "minimum useful local lift score"),),
         ),
         _primitive(
             primitive_id="lift_dwell_arc",
             primitive_family="lift_dwell",
-            horizon_s=0.80,
             params=(("arc_bank_rad", 0.30, "rad", "bounded dwell bank angle"),),
         ),
         _primitive(
             primitive_id="mild_turn_left",
             primitive_family="mild_turn",
-            horizon_s=0.65,
             params=(("turn_direction", "left", "label", "left turn command sign"),),
         ),
         _primitive(
             primitive_id="mild_turn_right",
             primitive_family="mild_turn",
-            horizon_s=0.65,
             params=(("turn_direction", "right", "label", "right turn command sign"),),
         ),
         _primitive(
             primitive_id="energy_retaining_bank",
             primitive_family="energy_retaining_bank",
-            horizon_s=0.70,
             params=(("bank_limit_rad", 0.35, "rad", "energy-preserving bank limit"),),
         ),
         _primitive(
             primitive_id="safe_exit_or_recovery_handoff",
             primitive_family="safe_exit",
-            horizon_s=0.45,
             params=(("handoff_margin_m", 0.30, "m", "minimum wall margin for exit handoff"),),
         ),
     )
@@ -150,9 +153,14 @@ def _primitive(
     *,
     primitive_id: str,
     primitive_family: str,
-    horizon_s: float,
     params: tuple[tuple[str, float | str, str, str], ...],
 ) -> PrimitiveDefinition:
+    assert_primitive_timing_contract(
+        finite_horizon_s=PRIMITIVE_FINITE_HORIZON_S,
+        controller_input_slots_per_primitive=CONTROLLER_INPUT_SLOTS_PER_PRIMITIVE,
+        controller_input_update_period_s=CONTROLLER_INPUT_UPDATE_PERIOD_S,
+        primitive_timing_contract_version=PRIMITIVE_TIMING_CONTRACT_VERSION,
+    )
     return PrimitiveDefinition(
         primitive_id=primitive_id,
         primitive_family=primitive_family,
@@ -170,7 +178,10 @@ def _primitive(
         linearisation_source="straight_trim_plus_primitive_reference_bias",
         Q_weight_json=_nominal_q_weight_json(),
         R_weight_json=_nominal_r_weight_json(),
-        finite_horizon_s=float(horizon_s),
+        finite_horizon_s=PRIMITIVE_FINITE_HORIZON_S,
+        controller_input_slots_per_primitive=CONTROLLER_INPUT_SLOTS_PER_PRIMITIVE,
+        controller_input_update_period_s=CONTROLLER_INPUT_UPDATE_PERIOD_S,
+        primitive_timing_contract_version=PRIMITIVE_TIMING_CONTRACT_VERSION,
         exit_checks=_COMMON_EXIT,
         metrics_to_record=_COMMON_METRICS,
         failure_labels=_COMMON_FAILURES,

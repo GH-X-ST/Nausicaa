@@ -33,6 +33,12 @@ from implementation_instance import (
 )
 from plant_instance import PlantInstance, apply_plant_instance_to_aircraft, plant_instance_for_layer
 from prim_cat import PrimitiveDefinition, primitive_parameters_json
+from primitive_timing_contract import (
+    CONTROLLER_INPUT_UPDATE_PERIOD_S,
+    assert_primitive_timing_contract,
+    primitive_step_count,
+    primitive_timing_contract_status,
+)
 from lqr_controller import (
     LQR_SYNTHESIS_SOLVED,
     TIMING_STATE_HISTORY_BACKED,
@@ -91,6 +97,12 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "primitive_parameters",
     "controller_mode",
     "feedback_mode",
+    "finite_horizon_s",
+    "controller_input_slots_per_primitive",
+    "controller_input_update_period_s",
+    "primitive_timing_contract_version",
+    "primitive_timing_contract_status",
+    "primitive_timing_contract_blocked_reason",
     "controller_family",
     "controller_id",
     "lqr_reference_id",
@@ -193,7 +205,7 @@ ROLLOUT_EVIDENCE_ALIAS_VALUES = (
 @dataclass(frozen=True)
 class RolloutConfig:
     W_layer: str = "W0"
-    dt_s: float = 0.02
+    dt_s: float = CONTROLLER_INPUT_UPDATE_PERIOD_S
     minimum_speed_m_s: float = 3.0
     wall_margin_reserve_m: float = 0.20
     rollout_backend: str = "smoke_only"
@@ -213,6 +225,12 @@ class RolloutEvidence:
     primitive_parameters: str
     controller_mode: str
     feedback_mode: str
+    finite_horizon_s: float
+    controller_input_slots_per_primitive: int
+    controller_input_update_period_s: float
+    primitive_timing_contract_version: str
+    primitive_timing_contract_status: str
+    primitive_timing_contract_blocked_reason: str
     controller_family: str
     controller_id: str
     lqr_reference_id: str
@@ -332,8 +350,14 @@ def simulate_primitive_rollout(
     state = _initial_state_for_rollout(initial_state)
     if primitive.claim_status != "simulation_only":
         raise ValueError("rollout evidence only supports simulation_only primitives.")
-    if float(primitive.finite_horizon_s) <= 0.0:
-        raise ValueError("primitive finite_horizon_s must be positive.")
+    assert_primitive_timing_contract(
+        finite_horizon_s=primitive.finite_horizon_s,
+        controller_input_slots_per_primitive=primitive.controller_input_slots_per_primitive,
+        controller_input_update_period_s=primitive.controller_input_update_period_s,
+        primitive_timing_contract_version=primitive.primitive_timing_contract_version,
+    )
+    if not np.isclose(float(cfg.dt_s), CONTROLLER_INPUT_UPDATE_PERIOD_S, rtol=0.0, atol=1e-12):
+        raise ValueError("rollout_dt_s_not_v411_0p020s")
     if cfg.rollout_backend not in ROLLOUT_BACKENDS:
         raise ValueError("rollout_backend must be one of the retained rollout backends.")
     if cfg.rollout_backend == "smoke_only":
@@ -434,6 +458,7 @@ def blocked_rollout_evidence(
         primitive_parameters=primitive_parameters_json(primitive),
         controller_mode=primitive.controller_mode,
         feedback_mode=primitive.feedback_mode,
+        **_primitive_timing_fields(primitive),
         **_lqr_metadata_for_evidence(
             controller=controller,
             fallback_controller=resolved_controller,
@@ -555,6 +580,7 @@ def _simulate_smoke_rollout(
         primitive_parameters=primitive_parameters_json(primitive),
         controller_mode=primitive.controller_mode,
         feedback_mode=primitive.feedback_mode,
+        **_primitive_timing_fields(primitive),
         **_lqr_metadata_for_evidence(
             controller=controller,
             fallback_controller=resolved_controller,
@@ -779,7 +805,10 @@ def _simulate_dynamics_rollout(
     termination_cause = "controlled_finish"
     failure_label = "success"
     feedback_mode = resolved_controller.feedback_mode
-    steps = max(1, int(np.ceil(float(primitive.finite_horizon_s) / float(config.dt_s))))
+    steps = primitive_step_count(
+        finite_horizon_s=primitive.finite_horizon_s,
+        controller_input_update_period_s=float(config.dt_s),
+    )
     times_s = [0.0]
     states = [x.copy()]
     command_delay_s = float(latency.command_onset_delay_s + latency.command_transport_delay_s)
@@ -966,6 +995,7 @@ def _simulate_dynamics_rollout(
         primitive_parameters=primitive_parameters_json(primitive),
         controller_mode=_controller_mode_for_backend(config.rollout_backend, primitive),
         feedback_mode=feedback_mode,
+        **_primitive_timing_fields(primitive),
         **_lqr_metadata_for_evidence(
             controller=controller,
             fallback_controller=resolved_controller,
@@ -1071,6 +1101,7 @@ def _blocked_from_state(
             if config.rollout_backend == "model_backed_lqr"
             else primitive.feedback_mode
         ),
+        **_primitive_timing_fields(primitive),
         **_lqr_metadata_for_evidence(
             controller=controller,
             fallback_controller=resolved_controller,
@@ -1262,6 +1293,23 @@ def _lqr_metadata_for_evidence(
         )
         return metadata
     return lqr_rollout_metadata(controller or fallback_controller)
+
+
+def _primitive_timing_fields(primitive: PrimitiveDefinition) -> dict[str, object]:
+    status, reason = primitive_timing_contract_status(
+        finite_horizon_s=primitive.finite_horizon_s,
+        controller_input_slots_per_primitive=primitive.controller_input_slots_per_primitive,
+        controller_input_update_period_s=primitive.controller_input_update_period_s,
+        primitive_timing_contract_version=primitive.primitive_timing_contract_version,
+    )
+    return {
+        "finite_horizon_s": float(primitive.finite_horizon_s),
+        "controller_input_slots_per_primitive": int(primitive.controller_input_slots_per_primitive),
+        "controller_input_update_period_s": float(primitive.controller_input_update_period_s),
+        "primitive_timing_contract_version": str(primitive.primitive_timing_contract_version),
+        "primitive_timing_contract_status": status,
+        "primitive_timing_contract_blocked_reason": reason,
+    }
 
 
 def _controller_executable(controller: LQRController | None, controller_selection_status: str) -> bool:

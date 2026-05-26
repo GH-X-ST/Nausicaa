@@ -45,11 +45,16 @@ from plant_instance import plant_instance_for_layer, plant_instance_row  # noqa:
 from prim_cat import primitive_by_id  # noqa: E402
 from prim_roll import RolloutConfig, blocked_rollout_evidence, rollout_evidence_row, simulate_primitive_rollout  # noqa: E402
 from primitive_variant_registry import ENTRY_ROLE_REJECTION_LABEL, ENTRY_ROLE_REJECTION_STATUS, start_family_is_compatible, variant_row  # noqa: E402
+from primitive_timing_contract import (  # noqa: E402
+    CONTROLLER_INPUT_UPDATE_PERIOD_S,
+    PRIMITIVE_TIMING_CONTRACT_VERSION,
+    primitive_timing_contract_row,
+)
 from state_sampling import archive_state_sample_for_family, archive_state_sample_row, start_state_family_for_row  # noqa: E402
 
 
-W3_SURVIVAL_VERSION = "w3_fixed_lqr_survival_replay_v2_chunked"
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.5"
+W3_SURVIVAL_VERSION = "w3_fixed_lqr_survival_replay_v411"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.11"
 DEFAULT_W2_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")
 W3_TABLE_NAME = "w3_survival_rows"
@@ -59,7 +64,7 @@ SURVIVAL_STATUS_VOCABULARY = ("blocked", "ready_for_fixed_lqr_replay", "complete
 TEST_FIXTURE_LABEL = "test_fixture_not_method_evidence"
 BLOCKED_CLAIMS = (
     "W3_robustness_complete",
-    "post_W3_compact_library_ready",
+    "post_W3_library_size_study_ready",
     "governor_validation",
     "hardware_readiness",
     "real_flight_transfer",
@@ -85,7 +90,7 @@ class W3SurvivalConfig:
     dry_run_schedule: bool = False
     stop_after_chunks: int | None = None
     continue_on_chunk_failure: bool = False
-    rollout_dt_s: float = 0.02
+    rollout_dt_s: float = CONTROLLER_INPUT_UPDATE_PERIOD_S
     latency_case: str = "nominal"
 
 
@@ -164,6 +169,8 @@ def run_w3_survival(config: W3SurvivalConfig) -> dict[str, object]:
     """Run chunked fixed-LQR W3 replay from W2 survivors, or block cleanly."""
 
     config = replace(config, input_root=_resolve_w2_input_root(config.input_root))
+    if not math.isclose(float(config.rollout_dt_s), CONTROLLER_INPUT_UPDATE_PERIOD_S, rel_tol=0.0, abs_tol=1e-12):
+        raise ValueError("rollout_dt_s_not_v411_0p020s")
     storage_format = resolve_storage_format(config.storage_format)
     run_root = Path(config.output_root) / f"{int(config.run_id):03d}"
     for subdir in ("manifests", "metrics", "reports", "chunk_manifests", "tables"):
@@ -294,8 +301,11 @@ def _w2_root_is_default_w3_eligible(root: Path) -> bool:
         survivors = json.loads(survivor_path.read_text(encoding="ascii"))
     except Exception:
         return False
+    timing = manifest.get("primitive_timing_contract", {})
     return (
         str(manifest.get("status", "")) in ACCEPTED_W2_SOURCE_STATUSES
+        and str(manifest.get("project_title_version", "")) == PROJECT_TITLE_VERSION
+        and str(timing.get("primitive_timing_contract_version", "")) == PRIMITIVE_TIMING_CONTRACT_VERSION
         and str(survivors.get("status", "")) == "survived_variants_available"
         and int(survivors.get("survivor_count", 0)) > 0
         and str(survivors.get("fixture_evidence_label", "")) != TEST_FIXTURE_LABEL
@@ -314,6 +324,12 @@ def _input_blocked_reason(input_root: Path) -> str:
         return "missing_frozen_w01_controller_bundle_from_W2_root"
     source = json.loads(filesystem_path(w2_manifest).read_text(encoding="ascii"))
     survivors = json.loads(filesystem_path(survivor_registry).read_text(encoding="ascii"))
+    timing = source.get("primitive_timing_contract", {})
+    is_fixture = str(survivors.get("fixture_evidence_label", "")) == TEST_FIXTURE_LABEL
+    if not is_fixture and str(source.get("project_title_version", "")) != PROJECT_TITLE_VERSION:
+        return "W2_source_not_v411_project_title"
+    if not is_fixture and str(timing.get("primitive_timing_contract_version", "")) != PRIMITIVE_TIMING_CONTRACT_VERSION:
+        return "W2_source_missing_v411_timing_contract"
     if source.get("status") not in ACCEPTED_W2_SOURCE_STATUSES:
         return "W2_survival_status_not_accepted_for_W3_fixed_replay"
     if survivors.get("status") != "survived_variants_available":
@@ -373,6 +389,7 @@ def _write_chunk(
         "checksum_sha256": partition.checksum_sha256,
         "duration_s": float(ended - started),
         "table_name": W3_TABLE_NAME,
+        "primitive_timing_contract": primitive_timing_contract_row(),
     }
     _write_json(_chunk_manifest_path(chunk, run_root), manifest)
     return partition, {
@@ -716,6 +733,8 @@ def _write_run_manifest(
         "survivor_count": int(survivor_count),
         "storage_format": storage_format,
         "compression_level": int(config.compression_level),
+        "rollout_dt_s": float(config.rollout_dt_s),
+        "primitive_timing_contract": primitive_timing_contract_row(),
         "paired_tests_per_variant": int(config.paired_tests_per_variant),
         "candidate_chunk_size": int(config.candidate_chunk_size),
         "chunk_count": int(len(schedule)),
@@ -832,7 +851,7 @@ def _write_reports(*, run_root: Path, status: str, row_count: int, blocked_reaso
         "- Fixed-LQR replay only: `True`",
         "- Q/R, K, reference, horizon, entry set, and entry role mutation: `False`",
         "- Chunked/resumable dense runtime contract: `True`",
-        "- W3 robustness, compact-library readiness, hardware readiness, transfer, and mission success remain blocked.",
+        "- W3 robustness, post-W3 library-size readiness, hardware readiness, transfer, and mission success remain blocked.",
         "",
     ]
     filesystem_path(run_root / "reports" / "w3_survival_report.md").write_text("\n".join(lines), encoding="ascii")

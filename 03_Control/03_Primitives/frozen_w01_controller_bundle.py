@@ -620,6 +620,7 @@ def _normalise_variant_payload(payload: object) -> dict[str, object]:
     row = dict(payload)  # type: ignore[arg-type]
     for key in (
         "finite_horizon_s",
+        "controller_input_update_period_s",
         "sample_time_s",
         "state_feedback_delay_s",
         "command_delay_s",
@@ -627,6 +628,7 @@ def _normalise_variant_payload(payload: object) -> dict[str, object]:
     ):
         row[key] = _float(row.get(key), 0.0)
     for key in (
+        "controller_input_slots_per_primitive",
         "command_delay_steps",
         "actuator_state_count",
         "command_delay_state_count",
@@ -635,6 +637,7 @@ def _normalise_variant_payload(payload: object) -> dict[str, object]:
         "augmented_input_size",
     ):
         row[key] = _int(row.get(key), 0)
+    row.setdefault("primitive_timing_contract_version", "legacy_not_recorded")
     return {
         field_name: row[field_name]
         for field_name in PrimitiveControllerVariant.__dataclass_fields__

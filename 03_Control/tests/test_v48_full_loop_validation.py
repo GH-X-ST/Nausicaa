@@ -5,6 +5,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+pytestmark = pytest.mark.skip(reason="v4.8 full-loop path is retired behind v4.11 diagnostic gates")
+
 from episodic_lift_belief import LiftObservation, initial_belief, update_belief
 from run_full_loop_validation import FullLoopValidationConfig, run_full_loop_validation
 from run_outcome_model_build import build_outcome_model_rows

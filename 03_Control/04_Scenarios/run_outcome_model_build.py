@@ -23,10 +23,10 @@ from dense_archive_runtime import MAX_GENERATED_FILE_SIZE_MB  # noqa: E402
 from dense_archive_table_io import filesystem_path  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.8"
-OUTCOME_MODEL_VERSION = "v48_interpretable_w3_compact_outcome_model_v1"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.11"
+OUTCOME_MODEL_VERSION = "v411_library_size_case_outcome_model_v1"
 DEFAULT_COMPACT_LIBRARY = Path(
-    "03_Control/05_Results/lqr_contextual_v1_0/post_w3_cluster/001/manifests/final_compact_primitive_library.json"
+    "03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/001/manifests/post_w3_library_size_study_manifest.json"
 )
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/outcome_model")
 BLOCKED_CLAIMS = (
@@ -44,6 +44,7 @@ class OutcomeModelBuildConfig:
     compact_library_path: Path = DEFAULT_COMPACT_LIBRARY
     output_root: Path = DEFAULT_OUTPUT_ROOT
     run_id: int = 2
+    library_size_case_id: str = "balanced_cluster"
 
 
 def run_outcome_model_build(config: OutcomeModelBuildConfig) -> dict[str, object]:
@@ -57,9 +58,17 @@ def run_outcome_model_build(config: OutcomeModelBuildConfig) -> dict[str, object
         _write_blocked_outputs(run_root, config, blocked_reason)
         return {"status": "blocked", "blocked_reason": blocked_reason, "run_root": run_root.as_posix()}
 
-    library = _read_json(config.compact_library_path)
-    representatives = list(library.get("representatives", []))
-    rows = build_outcome_model_rows(representatives)
+    libraries = _load_libraries(config.compact_library_path, default_case_id=config.library_size_case_id)
+    representatives = [row for library in libraries for row in list(library.get("representatives", []))]
+    case_ids = sorted({str(library.get("library_size_case_id", config.library_size_case_id)) for library in libraries})
+    rows = [
+        row
+        for library in libraries
+        for row in build_outcome_model_rows(
+            list(library.get("representatives", [])),
+            library_size_case_id=str(library.get("library_size_case_id", config.library_size_case_id)),
+        )
+    ]
     frame = pd.DataFrame(rows)
     _write_csv(run_root / "metrics" / "outcome_model_table.csv", frame)
     _write_csv(run_root / "metrics" / "outcome_model_summary.csv", frame)
@@ -70,7 +79,12 @@ def run_outcome_model_build(config: OutcomeModelBuildConfig) -> dict[str, object
         "run_id": int(config.run_id),
         "run_root": run_root.as_posix(),
         "compact_library_path": config.compact_library_path.as_posix(),
-        "source_compact_library_version": str(library.get("library_version", "")),
+        "source_compact_library_version": ",".join(sorted({str(library.get("library_version", "")) for library in libraries})),
+        "library_size_case_ids": case_ids,
+        "library_size_case_id": ",".join(case_ids),
+        "library_size_human_label": ",".join(
+            sorted({str(library.get("library_size_human_label", "")) for library in libraries if library.get("library_size_human_label")})
+        ),
         "representative_count": int(len(representatives)),
         "outcome_row_count": int(len(rows)),
         "prediction_source": "W3_summary_interpretable",
@@ -90,7 +104,11 @@ def run_outcome_model_build(config: OutcomeModelBuildConfig) -> dict[str, object
     }
 
 
-def build_outcome_model_rows(representatives: list[dict[str, object]]) -> list[dict[str, object]]:
+def build_outcome_model_rows(
+    representatives: list[dict[str, object]],
+    *,
+    library_size_case_id: str = "balanced_cluster",
+) -> list[dict[str, object]]:
     """Return one prediction row per compact representative."""
 
     rows = []
@@ -101,6 +119,8 @@ def build_outcome_model_rows(representatives: list[dict[str, object]]) -> list[d
         rows.append(
             {
                 "compact_library_id": str(representative.get("compact_library_id", "")),
+                "library_size_case_id": str(representative.get("library_size_case_id", library_size_case_id)),
+                "library_size_human_label": str(representative.get("library_size_human_label", "")),
                 "primitive_variant_id": str(representative.get("primitive_variant_id", "")),
                 "primitive_id": str(representative.get("primitive_id", "")),
                 "entry_role": str(representative.get("entry_role", "")),
@@ -137,8 +157,21 @@ def _blocked_reason(compact_library_path: Path) -> str:
         library = json.loads(path.read_text(encoding="ascii"))
     except Exception as exc:
         return f"unreadable_final_compact_primitive_library:{type(exc).__name__}"
-    if str(library.get("library_version", "")) != "post_w3_compact_representative_library_v1":
+    if str(library.get("manifest_version", "")) == "post_w3_library_size_study_v411":
+        for case in library.get("library_size_cases", []):
+            case_path = path.parent / Path(str(case.get("library_manifest", ""))).name
+            if not case_path.is_file():
+                return f"missing_library_size_case_file:{case.get('library_size_case_id', '')}"
+        return ""
+    if str(library.get("library_version", "")) not in {
+        "post_w3_library_size_study_v411",
+        "post_w3_compact_representative_library_v1",
+    }:
         return "unsupported_compact_library_version"
+    if str(library.get("library_version", "")) == "post_w3_compact_representative_library_v1":
+        return "retired_single_compact_library_not_active_v411"
+    if not library.get("library_size_case_id"):
+        return "missing_library_size_case_id"
     if int(library.get("representative_count", 0)) <= 0:
         return "compact_library_has_no_representatives"
     if not bool(library.get("no_controller_mutation", False)):
@@ -148,10 +181,30 @@ def _blocked_reason(compact_library_path: Path) -> str:
     for representative in library.get("representatives", []):
         if str(representative.get("w3_variant_status", "")) != "survived":
             return "compact_library_contains_non_survived_executable_representative"
-        for key in ("controller_id", "primitive_variant_id", "K_gain_checksum", "augmented_gain_checksum", "source_w2_root"):
+        for key in (
+            "controller_id",
+            "primitive_variant_id",
+            "K_gain_checksum",
+            "augmented_gain_checksum",
+            "source_w2_root",
+            "library_size_case_id",
+        ):
             if not representative.get(key):
                 return f"compact_representative_missing_{key}"
     return ""
+
+
+def _load_libraries(compact_library_path: Path, *, default_case_id: str) -> list[dict[str, object]]:
+    path = filesystem_path(compact_library_path)
+    payload = json.loads(path.read_text(encoding="ascii"))
+    if str(payload.get("manifest_version", "")) == "post_w3_library_size_study_v411":
+        libraries = []
+        for case in payload.get("library_size_cases", []):
+            case_path = path.parent / Path(str(case.get("library_manifest", ""))).name
+            libraries.append(_read_json(case_path))
+        return libraries
+    payload.setdefault("library_size_case_id", default_case_id)
+    return [payload]
 
 
 def _margin_class(wall_margin: float, floor_margin: float, ceiling_margin: float) -> str:
@@ -192,7 +245,7 @@ def _write_blocked_outputs(run_root: Path, config: OutcomeModelBuildConfig, bloc
 
 def _write_report(run_root: Path, manifest: dict[str, object]) -> None:
     report = [
-        "# v4.8 Outcome Model Report",
+        "# v4.11 Outcome Model Report",
         "",
         f"- Status: `{manifest['status']}`",
         f"- Representatives: `{manifest['representative_count']}`",
@@ -243,10 +296,11 @@ def _write_csv(path: Path, frame: pd.DataFrame) -> None:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build v4.8 W3-derived interpretable outcome model.")
+    parser = argparse.ArgumentParser(description="Build v4.11 library-size-case W3-derived outcome model.")
     parser.add_argument("--compact-library", dest="compact_library_path", type=Path, default=DEFAULT_COMPACT_LIBRARY)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-id", type=int, default=2)
+    parser.add_argument("--library-size-case-id", default="balanced_cluster")
     return parser.parse_args(argv)
 
 
@@ -257,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
             compact_library_path=args.compact_library_path,
             output_root=args.output_root,
             run_id=args.run_id,
+            library_size_case_id=args.library_size_case_id,
         )
     )
     print(json.dumps(result, indent=2, sort_keys=True))

@@ -64,11 +64,15 @@ from primitive_variant_registry import (  # noqa: E402
     variant_row,
     write_variant_registry,
 )
+from primitive_timing_contract import (  # noqa: E402
+    CONTROLLER_INPUT_UPDATE_PERIOD_S,
+    primitive_timing_contract_row,
+)
 from state_sampling import archive_state_sample_for_family, archive_state_sample_for_row, archive_state_sample_row, start_state_family_for_row  # noqa: E402
 
 
-W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v1"
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.5"
+W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v411"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.11"
 W01_TABLE_NAME = "w01_primitive_rows"
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 L6_FALLBACK_ROW_COUNT = 19_200
@@ -90,7 +94,7 @@ BLOCKED_CLAIMS = (
     "W0_W1_dense_evidence_complete",
     "W2_survival_complete",
     "W3_robustness_complete",
-    "post_W3_compact_library_ready",
+    "post_W3_library_size_study_ready",
     "governor_validation",
     "hardware_readiness",
     "real_flight_transfer",
@@ -126,7 +130,7 @@ class W01DenseRunConfig:
     candidate_count: int = 16
     paired_tests_per_candidate: int | None = None
     latency_case: str = "nominal"
-    rollout_dt_s: float = 0.02
+    rollout_dt_s: float = CONTROLLER_INPUT_UPDATE_PERIOD_S
     schedule_mode: str = BALANCED_SCHEDULE_MODE
 
 
@@ -163,6 +167,8 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
         raise ValueError("candidate_chunk_size must be positive.")
     if int(config.candidate_count) <= 0:
         raise ValueError("candidate_count must be positive.")
+    if not math.isclose(float(config.rollout_dt_s), CONTROLLER_INPUT_UPDATE_PERIOD_S, rel_tol=0.0, abs_tol=1e-12):
+        raise ValueError("rollout_dt_s_not_v411_0p020s")
     if config.paired_tests_per_candidate is not None and int(config.paired_tests_per_candidate) <= 0:
         raise ValueError("paired_tests_per_candidate must be positive when provided.")
     if str(config.schedule_mode) not in {BALANCED_SCHEDULE_MODE, SMOKE_SCHEDULE_MODE}:
@@ -365,6 +371,7 @@ def _write_chunk(
         "checksum_sha256": partition.checksum_sha256,
         "duration_s": float(ended - started),
         "table_name": W01_TABLE_NAME,
+        "primitive_timing_contract": primitive_timing_contract_row(),
     }
     _write_json(_chunk_manifest_path(chunk, run_root), manifest)
     record = {
@@ -1754,6 +1761,7 @@ def _run_manifest(
         "seed": int(config.seed),
         "latency_case": str(config.latency_case),
         "rollout_dt_s": float(config.rollout_dt_s),
+        "primitive_timing_contract": primitive_timing_contract_row(),
         "candidate_chunk_size": int(config.candidate_chunk_size),
         "candidate_count": int(config.candidate_count),
         "paired_tests_per_candidate": (

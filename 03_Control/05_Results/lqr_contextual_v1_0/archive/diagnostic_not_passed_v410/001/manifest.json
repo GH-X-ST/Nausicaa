@@ -1,0 +1,82 @@
+{
+  "manifest_version": "diagnostic_not_passed_v410_archive_manifest_v411",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v4.11",
+  "status": "diagnostic_not_passed",
+  "archive_root": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001",
+  "superseded_result_root_count": 36,
+  "required_docs": [
+    {
+      "doc_name": "Glider_Control_Project_Plan.md",
+      "relative_path": "docs/Glider_Control_Project_Plan.md",
+      "readable": true,
+      "byte_count": 63667,
+      "sha256": "b70a540934f94b9709841df32dd1722688f988855e53a6866e81b81faf8d8471"
+    },
+    {
+      "doc_name": "Skills.md",
+      "relative_path": "docs/Skills.md",
+      "readable": true,
+      "byte_count": 9510,
+      "sha256": "905620deb95885612996f4b116df6aa5eef7f0646d552a04b7b035335e47b567"
+    },
+    {
+      "doc_name": "Python Coding Instruction.txt",
+      "relative_path": "docs/Python Coding Instruction.txt",
+      "readable": true,
+      "byte_count": 8339,
+      "sha256": "c02689c02e24f4ccb0f6b8060ceb0191b5e1bd8a63efe0031059d1acc85e6b21"
+    },
+    {
+      "doc_name": "Python Coding to CODEX.txt",
+      "relative_path": "docs/Python Coding to CODEX.txt",
+      "readable": true,
+      "byte_count": 5835,
+      "sha256": "716b82ee0aba6ca1e778363dbe7b41561d2f42520cca6cbd6c4b01fd61947ca0"
+    },
+    {
+      "doc_name": "MATLAB Coding.txt",
+      "relative_path": "docs/MATLAB Coding.txt",
+      "readable": true,
+      "byte_count": 3653,
+      "sha256": "091876bc9e69a0b871a41a0ff3919d4e1f01f7af296105cc7e95c315e85adfdf"
+    },
+    {
+      "doc_name": "housekeeping_and_naming_rules.md",
+      "relative_path": "docs/housekeeping_and_naming_rules.md",
+      "readable": true,
+      "byte_count": 8392,
+      "sha256": "653ea9a38f3c0ee985263720a836ab5810178eb94050dca61fb542e1d5cc7fed"
+    },
+    {
+      "doc_name": "Daily_Schedule.txt",
+      "relative_path": "docs/Daily_Schedule.txt",
+      "readable": true,
+      "byte_count": 12609,
+      "sha256": "e21f4970424df2c10e3014e50e40949e5c1d648d4955bffcc2c782c41c6ea76a"
+    },
+    {
+      "doc_name": "PR.txt",
+      "relative_path": "docs/PR.txt",
+      "readable": true,
+      "byte_count": 3329,
+      "sha256": "a8519de520cc2805fb18e198ef1b2cbd4c4781ce81470e4ac2a98d4c12e5bb19"
+    }
+  ],
+  "inventory_counts": {
+    "active_foundation": 361,
+    "active_repair_cycle": 159,
+    "retired_not_active": 21,
+    "generated_result": 1633,
+    "test_fixture": 213
+  },
+  "archived_result_roots_csv": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001/archived_result_roots.csv",
+  "file_size_audit_csv": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001/file_size_audit.csv",
+  "claim_status": "diagnostic_archive_only_not_v411_validation_evidence",
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "full_autonomy",
+    "memory_improvement"
+  ]
+}

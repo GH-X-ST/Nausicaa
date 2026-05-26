@@ -46,7 +46,7 @@ class GovernorConfig:
 
 
 DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
-    config_id="v49_default_governor",
+    config_id="v411_viability_filtered_safe_exploration_governor",
     minimum_wall_margin_m=0.05,
     minimum_speed_margin_m_s=0.0,
     maximum_hard_failure_risk=0.75,
@@ -57,7 +57,7 @@ DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
     lift_dwell_weight=0.03,
     wall_margin_weight=0.02,
     belief_weight=0.05,
-    exploration_bonus_weight=0.0,
+    exploration_bonus_weight=0.02,
     no_viable_penalty=-1.0,
     terminal_mode_bias=0.0,
     continuation_mode_bias=0.0,
@@ -122,9 +122,20 @@ def governor_candidate_row(
     energy = _float(outcome.get("expected_energy_residual_m", 0.0))
     dwell = _float(outcome.get("expected_lift_dwell_time_s", 0.0))
     wall_margin = _float(context.get("wall_margin_m", 0.0))
-    belief_local = 0.0 if belief_features is None else _float(belief_features.get("belief_local_lift_m_s", 0.0))
-    belief_mean = 0.0 if belief_features is None else _float(belief_features.get("belief_mean_lift_m_s", 0.0))
-    belief_max = 0.0 if belief_features is None else _float(belief_features.get("belief_max_lift_m_s", 0.0))
+    belief_features = belief_features or {}
+    belief_local = _float(
+        belief_features.get(
+            "belief_local_lift_residual_m_s",
+            belief_features.get("belief_local_lift_m_s", 0.0),
+        )
+    )
+    belief_energy = _float(belief_features.get("belief_local_energy_residual_m", 0.0))
+    belief_dwell = _float(belief_features.get("belief_local_dwell_residual_s", 0.0))
+    belief_mean = _float(belief_features.get("belief_mean_lift_m_s", belief_local))
+    belief_max = _float(belief_features.get("belief_max_lift_m_s", belief_local))
+    belief_uncertainty = _float(belief_features.get("belief_uncertainty", 1.0), default=1.0)
+    belief_observation_count = int(_float(belief_features.get("belief_observation_count", 0.0)))
+    history_length = int(_float(context.get("history_length", belief_features.get("history_length", belief_observation_count))))
     base_score = governor_score(
         governor_mode=governor_mode,
         continuation_probability=continuation_probability,
@@ -148,6 +159,20 @@ def governor_candidate_row(
         governor_config=cfg,
     )
     memory_component = float(score_with_memory) - float(base_score)
+    viable = bool(rejection_reason == "")
+    exploration_component = _safe_exploration_bonus(
+        viable=viable,
+        belief_uncertainty=belief_uncertainty,
+        history_length=history_length,
+        governor_config=cfg,
+    )
+    total_score = float(score_with_memory) + float(exploration_component)
+    library_size_case_id = str(
+        representative.get(
+            "library_size_case_id",
+            outcome.get("library_size_case_id", context.get("library_size_case_id", "unknown_library_size_case")),
+        )
+    )
     return {
         "policy_id": str(policy_id),
         "context_id": str(context.get("context_id", "")),
@@ -162,19 +187,40 @@ def governor_candidate_row(
         "primitive_id": str(representative.get("primitive_id", "")),
         "entry_role": str(representative.get("entry_role", "")),
         "controller_id": str(representative.get("controller_id", "")),
-        "viable": bool(rejection_reason == ""),
+        "library_size_case_id": library_size_case_id,
+        "library_size_human_label": str(
+            representative.get("library_size_human_label", outcome.get("library_size_human_label", ""))
+        ),
+        "viable": viable,
         "rejection_reason": rejection_reason,
-        "score": float(score_with_memory if rejection_reason == "" else float("-inf")),
+        "score": float(total_score if viable else float("-inf")),
+        "exploit_score_component": float(base_score if viable else float("-inf")),
         "base_score_without_memory": float(base_score if rejection_reason == "" else float("-inf")),
-        "memory_score_component": float(memory_component if rejection_reason == "" else 0.0),
+        "memory_score_component": float(memory_component if viable else 0.0),
+        "memory_residual_score_component": float(memory_component if viable else 0.0),
+        "exploration_score_component": float(exploration_component if viable else 0.0),
         "score_with_memory": float(score_with_memory if rejection_reason == "" else float("-inf")),
+        "total_score_with_memory_and_exploration": float(total_score if viable else float("-inf")),
+        "safe_exploration_status": "applied_after_viability_filter" if viable else "not_applied_rejected_before_exploration",
         "score_margin_to_selected": 0.0,
         "rank_without_memory": 0,
         "rank_with_memory": 0,
+        "rank_with_memory_and_exploration": 0,
         "rank_change_due_to_memory": 0,
+        "rank_change_due_to_exploration": 0,
+        "history_length": history_length,
+        "belief_version": str(belief_features.get("belief_version", "")),
         "belief_local_lift_m_s": belief_local,
+        "belief_local_lift_residual_m_s": belief_local,
+        "belief_local_energy_residual_m": belief_energy,
+        "belief_local_dwell_residual_s": belief_dwell,
         "belief_mean_lift_m_s": belief_mean,
         "belief_max_lift_m_s": belief_max,
+        "belief_uncertainty": belief_uncertainty,
+        "belief_observation_count": belief_observation_count,
+        "belief_direction_bin": int(_float(belief_features.get("belief_direction_bin", 0.0))),
+        "belief_z_bin": int(_float(belief_features.get("belief_z_bin", 0.0))),
+        "belief_update_count": int(_float(belief_features.get("belief_update_count", 0.0))),
         "continuation_probability": continuation_probability,
         "terminal_useful_probability": terminal_probability,
         "hard_failure_risk": hard_failure_risk,
@@ -287,8 +333,25 @@ def _has_timing_payload(representative: dict[str, object]) -> bool:
         "augmented_A_checksum",
         "augmented_B_checksum",
         "augmented_gain_checksum",
+        "finite_horizon_s",
+        "controller_input_slots_per_primitive",
+        "controller_input_update_period_s",
+        "primitive_timing_contract_version",
     )
     return all(bool(str(representative.get(key, ""))) for key in required)
+
+
+def _safe_exploration_bonus(
+    *,
+    viable: bool,
+    belief_uncertainty: float,
+    history_length: int,
+    governor_config: GovernorConfig,
+) -> float:
+    if not viable:
+        return 0.0
+    attenuation = 1.0 / max(1.0, float(history_length + 1) ** 0.5)
+    return float(governor_config.exploration_bonus_weight) * max(0.0, float(belief_uncertainty)) * attenuation
 
 
 def _float(value: object, default: float = 0.0) -> float:

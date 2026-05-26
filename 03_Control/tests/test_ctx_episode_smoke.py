@@ -23,8 +23,14 @@ def _results_entries_are_placeholder_or_allowed(entries: list[str]) -> bool:
             or entry.startswith("lqr_contextual_v1_0/w3_survival/")
             or entry == "lqr_contextual_v1_0/post_w3_cluster"
             or entry.startswith("lqr_contextual_v1_0/post_w3_cluster/")
+            or entry == "lqr_contextual_v1_0/post_w3_library_size_study"
+            or entry.startswith("lqr_contextual_v1_0/post_w3_library_size_study/")
             or entry == "lqr_contextual_v1_0/outcome_model"
             or entry.startswith("lqr_contextual_v1_0/outcome_model/")
+            or entry == "lqr_contextual_v1_0/repeated_launch_validation"
+            or entry.startswith("lqr_contextual_v1_0/repeated_launch_validation/")
+            or entry == "lqr_contextual_v1_0/archive"
+            or entry.startswith("lqr_contextual_v1_0/archive/")
             or entry == "lqr_contextual_v1_0/governor_smoke"
             or entry.startswith("lqr_contextual_v1_0/governor_smoke/")
             or entry == "lqr_contextual_v1_0/full_loop_validation"
@@ -89,10 +95,10 @@ def test_episode_smoke_writes_temp_only_lqr_rows(tmp_path: Path) -> None:
     assert set(episode_log["evidence_role"]).issubset({"lqr_rollout_candidate", "blocked_lqr_synthesis"})
     assert set(episode_log["selector_governor_mode"]) == {"terminal_episode"}
     assert set(episode_log["memory_label"]) == {
-        "episodic_lift_belief_smoke_no_improvement_claim"
+        "directional_residual_lift_belief_smoke_no_improvement_claim"
     }
-    assert "belief_before_local_lift_m_s" in episode_log.columns
-    assert "belief_after_local_lift_m_s" in episode_log.columns
+    assert "belief_before_local_lift_residual_m_s" in episode_log.columns
+    assert "belief_after_local_lift_residual_m_s" in episode_log.columns
     assert (run_root / "tables" / "belief_snapshots.csv").is_file()
 
     result_entries = [

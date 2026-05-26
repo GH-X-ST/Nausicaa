@@ -463,11 +463,25 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--context-sample-count", type=int, default=360)
     parser.add_argument("--seed", type=int, default=410)
     parser.add_argument("--dry-run-schedule", action="store_true", default=False)
+    parser.add_argument("--allow-retired-diagnostic", action="store_true")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    if not args.allow_retired_diagnostic:
+        print(
+            json.dumps(
+                {
+                    "status": "blocked",
+                    "blocked_reason": "retired_diagnostic_requires_explicit_allow_retired_diagnostic",
+                    "replacement": "run_repeated_launch_learning_curve.py",
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 1
     result = run_governor_calibration(
         GovernorCalibrationConfig(
             run_id=args.run_id,

@@ -11,6 +11,12 @@ import pandas as pd
 from dense_archive_table_io import filesystem_path
 from lqr_controller import LQRController
 from prim_cat import PrimitiveDefinition
+from primitive_timing_contract import (
+    CONTROLLER_INPUT_SLOTS_PER_PRIMITIVE,
+    CONTROLLER_INPUT_UPDATE_PERIOD_S,
+    PRIMITIVE_TIMING_CONTRACT_VERSION,
+    assert_primitive_timing_contract,
+)
 
 
 # =============================================================================
@@ -25,7 +31,7 @@ from prim_cat import PrimitiveDefinition
 # =============================================================================
 # 1) Variant Schema and Entry-Role Policy
 # =============================================================================
-VARIANT_REGISTRY_VERSION = "w01_primitive_controller_variant_registry_v1"
+VARIANT_REGISTRY_VERSION = "w01_primitive_controller_variant_registry_v411"
 EXIT_CHECK_VERSION = "w01_exit_checks_v1"
 ENTRY_ROLES = ("launch_capable", "inflight_only", "terminal_or_recovery")
 ENTRY_ROLE_BY_PRIMITIVE_ID = {
@@ -55,6 +61,9 @@ class PrimitiveControllerVariant:
     reference_state_vector: str
     reference_command_vector: str
     finite_horizon_s: float
+    controller_input_slots_per_primitive: int
+    controller_input_update_period_s: float
+    primitive_timing_contract_version: str
     linearisation_id: str
     linearisation_source: str
     Q_weight_json: str
@@ -150,6 +159,12 @@ def primitive_controller_variant(
     role = str(entry_role or entry_role_for_primitive_id(primitive.primitive_id))
     if role not in ENTRY_ROLES:
         raise ValueError(f"entry_role must be one of {ENTRY_ROLES}")
+    assert_primitive_timing_contract(
+        finite_horizon_s=primitive.finite_horizon_s,
+        controller_input_slots_per_primitive=primitive.controller_input_slots_per_primitive,
+        controller_input_update_period_s=primitive.controller_input_update_period_s,
+        primitive_timing_contract_version=primitive.primitive_timing_contract_version,
+    )
     k_json = json.dumps(controller.k_gain_matrix, separators=(",", ":"))
     reference_state_json = json.dumps(list(controller.reference_state_vector), separators=(",", ":"))
     reference_command_json = json.dumps(list(controller.reference_command_vector), separators=(",", ":"))
@@ -158,6 +173,9 @@ def primitive_controller_variant(
         primitive_id=primitive.primitive_id,
         entry_role=role,
         finite_horizon_s=primitive.finite_horizon_s,
+        controller_input_slots_per_primitive=primitive.controller_input_slots_per_primitive,
+        controller_input_update_period_s=primitive.controller_input_update_period_s,
+        primitive_timing_contract_version=primitive.primitive_timing_contract_version,
         reference_state_vector=reference_state_json,
         reference_command_vector=reference_command_json,
         controller_id=controller.controller_id,
@@ -190,6 +208,9 @@ def primitive_controller_variant(
         reference_state_vector=reference_state_json,
         reference_command_vector=reference_command_json,
         finite_horizon_s=float(primitive.finite_horizon_s),
+        controller_input_slots_per_primitive=int(primitive.controller_input_slots_per_primitive),
+        controller_input_update_period_s=float(primitive.controller_input_update_period_s),
+        primitive_timing_contract_version=str(primitive.primitive_timing_contract_version),
         linearisation_id=controller.linearisation_id,
         linearisation_source=controller.linearisation_source,
         Q_weight_json=controller.lqr_Q_weights_json,
@@ -302,6 +323,9 @@ def load_variant_registry(path: Path | str) -> dict[str, PrimitiveControllerVari
 def _normalise_row(row: dict[str, object]) -> dict[str, object]:
     out = dict(row)
     out["finite_horizon_s"] = float(out["finite_horizon_s"])
+    out.setdefault("controller_input_slots_per_primitive", 0)
+    out.setdefault("controller_input_update_period_s", 0.0)
+    out.setdefault("primitive_timing_contract_version", "legacy_not_recorded")
     out.setdefault("candidate_index", "")
     out.setdefault("candidate_weight_label", "")
     out.setdefault("timing_aware_synthesis_level", "trim_local_reduced_order_lqr_no_delay_augmentation")
@@ -335,9 +359,11 @@ def _normalise_row(row: dict[str, object]) -> dict[str, object]:
         "state_feedback_delay_s",
         "command_delay_s",
         "augmented_closed_loop_spectral_radius",
+        "controller_input_update_period_s",
     ):
         out[key] = float(out[key])
     for key in (
+        "controller_input_slots_per_primitive",
         "command_delay_steps",
         "actuator_state_count",
         "command_delay_state_count",
@@ -354,6 +380,9 @@ def _variant_id(
     primitive_id: str,
     entry_role: str,
     finite_horizon_s: float,
+    controller_input_slots_per_primitive: int,
+    controller_input_update_period_s: float,
+    primitive_timing_contract_version: str,
     reference_state_vector: str,
     reference_command_vector: str,
     controller_id: str,
@@ -378,6 +407,9 @@ def _variant_id(
         "primitive_id": primitive_id,
         "entry_role": entry_role,
         "finite_horizon_s": float(finite_horizon_s),
+        "controller_input_slots_per_primitive": int(controller_input_slots_per_primitive),
+        "controller_input_update_period_s": float(controller_input_update_period_s),
+        "primitive_timing_contract_version": str(primitive_timing_contract_version),
         "reference_state_vector": reference_state_vector,
         "reference_command_vector": reference_command_vector,
         "controller_id": controller_id,

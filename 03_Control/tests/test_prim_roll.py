@@ -87,7 +87,10 @@ def test_rollout_evidence_row_contains_required_fields_and_claim_boundary() -> N
     assert row["outcome_class"] in OUTCOME_CLASSES
     assert row["claim_status"] == "simulation_only"
     assert row["evidence_role"] == "interface_smoke"
-    assert row["accepted"] is True
+    assert row["accepted"] is False
+    assert row["finite_horizon_s"] == 0.1
+    assert row["controller_input_slots_per_primitive"] == 5
+    assert row["primitive_timing_contract_status"] == "compliant"
     assert "boundary_terminal" not in OUTCOME_CLASSES
     assert isinstance(row["continuation_valid"], bool)
     assert isinstance(row["episode_terminal_useful"], bool)

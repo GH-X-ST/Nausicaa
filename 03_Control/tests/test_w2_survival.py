@@ -14,6 +14,7 @@ from frozen_w01_controller_bundle import (
 )
 from lqr_controller import lqr_controller_for_primitive_id
 from prim_cat import primitive_by_id
+from primitive_timing_contract import primitive_timing_contract_row
 from primitive_variant_registry import (
     ENTRY_ROLE_REJECTION_LABEL,
     ENTRY_ROLE_REJECTION_STATUS,
@@ -145,7 +146,15 @@ def test_w3_executes_from_valid_w2_survivor_registry_and_frozen_bundle(tmp_path:
         encoding="ascii",
     )
     (manifests / "w2_survival_manifest.json").write_text(
-        json.dumps({"status": "survived_variants_available"}, indent=2) + "\n",
+        json.dumps(
+            {
+                "status": "survived_variants_available",
+                "project_title_version": "LQR-Stabilised Contextual Primitive v4.11",
+                "primitive_timing_contract": primitive_timing_contract_row(),
+            },
+            indent=2,
+        )
+        + "\n",
         encoding="ascii",
     )
     survivor = variant_row(record.variant)
@@ -188,10 +197,12 @@ def test_w2_default_discovery_excludes_sparse_family_roots(tmp_path: Path) -> No
     (sparse_root / "manifests" / "run_manifest.json").write_text(
         json.dumps(
             {
-                "run_id": 12,
-                "rows_requested": 240,
-                "cross_layer_smoke_status": "artifact_smoke_only_start_family_incomplete",
-            },
+                    "run_id": 12,
+                    "rows_requested": 240,
+                    "cross_layer_smoke_status": "artifact_smoke_only_start_family_incomplete",
+                    "project_title_version": "LQR-Stabilised Contextual Primitive v4.11",
+                    "primitive_timing_contract": primitive_timing_contract_row(),
+                },
             indent=2,
         )
         + "\n",
@@ -200,10 +211,12 @@ def test_w2_default_discovery_excludes_sparse_family_roots(tmp_path: Path) -> No
     (ready_root / "manifests" / "run_manifest.json").write_text(
         json.dumps(
             {
-                "run_id": 14,
-                "rows_requested": 960,
-                "cross_layer_smoke_status": "cross_layer_smoke_start_family_complete",
-            },
+                    "run_id": 14,
+                    "rows_requested": 960,
+                    "cross_layer_smoke_status": "cross_layer_smoke_start_family_complete",
+                    "project_title_version": "LQR-Stabilised Contextual Primitive v4.11",
+                    "primitive_timing_contract": primitive_timing_contract_row(),
+                },
             indent=2,
         )
         + "\n",
@@ -277,7 +290,17 @@ def _write_w01_source_fixture(
         encoding="ascii",
     )
     (manifests / "run_manifest.json").write_text(
-        json.dumps({"run_id": 8, "status": "fixture"}, indent=2) + "\n",
+        json.dumps(
+            {
+                "run_id": 8,
+                "status": "fixture",
+                "project_title_version": "LQR-Stabilised Contextual Primitive v4.11",
+                "cross_layer_smoke_status": "cross_layer_smoke_start_family_complete",
+                "primitive_timing_contract": primitive_timing_contract_row(),
+            },
+            indent=2,
+        )
+        + "\n",
         encoding="ascii",
     )
     write_table_manifest(

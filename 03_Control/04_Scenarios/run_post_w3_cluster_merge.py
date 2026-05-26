@@ -59,6 +59,7 @@ class PostW3ClusterConfig:
     run_id: int = 1
     max_representatives_per_primitive: int = 4
     distance_stop_threshold: float = 0.15
+    allow_retired_diagnostic: bool = False
 
 
 def run_post_w3_cluster_merge(
@@ -68,8 +69,9 @@ def run_post_w3_cluster_merge(
     run_id: int = 1,
     max_representatives_per_primitive: int = 4,
     distance_stop_threshold: float = 0.15,
+    allow_retired_diagnostic: bool = False,
 ) -> dict[str, object]:
-    """Build a compact representative library from W3-surviving variants only."""
+    """Retired v4.7 diagnostic wrapper for the old single compact-library flow."""
 
     config = PostW3ClusterConfig(
         input_root=Path(input_root),
@@ -77,10 +79,15 @@ def run_post_w3_cluster_merge(
         run_id=int(run_id),
         max_representatives_per_primitive=int(max_representatives_per_primitive),
         distance_stop_threshold=float(distance_stop_threshold),
+        allow_retired_diagnostic=bool(allow_retired_diagnostic),
     )
     run_root = config.output_root / f"{config.run_id:03d}"
     for subdir in ("manifests", "metrics", "reports"):
         filesystem_path(run_root / subdir).mkdir(parents=True, exist_ok=True)
+    if not config.allow_retired_diagnostic:
+        blocked_reason = "retired_diagnostic_requires_explicit_allow_retired_diagnostic"
+        _write_blocked_outputs(run_root=run_root, config=config, blocked_reason=blocked_reason)
+        return _result_payload(run_root, "blocked", blocked_reason)
 
     blocked_reason = _input_blocked_reason(config.input_root)
     if blocked_reason:
@@ -527,6 +534,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--run-id", type=int, default=1)
     parser.add_argument("--max-representatives-per-primitive", type=int, default=4)
     parser.add_argument("--distance-stop-threshold", type=float, default=0.15)
+    parser.add_argument("--allow-retired-diagnostic", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -538,6 +546,7 @@ def main(argv: list[str] | None = None) -> int:
         run_id=args.run_id,
         max_representatives_per_primitive=args.max_representatives_per_primitive,
         distance_stop_threshold=args.distance_stop_threshold,
+        allow_retired_diagnostic=args.allow_retired_diagnostic,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result.get("status") != "blocked" else 1

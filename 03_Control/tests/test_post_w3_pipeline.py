@@ -6,8 +6,18 @@ from pathlib import Path
 import pandas as pd
 
 from dense_archive_table_io import TableManifest, write_table_manifest, write_table_partition
+from run_outcome_model_build import OutcomeModelBuildConfig, run_outcome_model_build
 from run_post_w3_cluster_merge import run_post_w3_cluster_merge
-from run_post_w3_governor_smoke import PostW3GovernorSmokeConfig, run_post_w3_governor_smoke
+from run_post_w3_library_size_study import (
+    LIBRARY_SIZE_CASE_IDS,
+    PostW3LibrarySizeStudyConfig,
+    run_post_w3_library_size_study,
+)
+from run_repeated_launch_learning_curve import (
+    HISTORY_LENGTHS,
+    RepeatedLaunchValidationConfig,
+    run_repeated_launch_learning_curve,
+)
 from run_w3_survival_analysis import W3SurvivalAnalysisConfig, run_w3_survival_analysis
 
 
@@ -29,69 +39,97 @@ def test_w3_analysis_separates_terminal_and_continuation_evidence(tmp_path: Path
     assert int(downgraded["episode_terminal_useful_count"].iloc[0]) == 2
 
 
-def test_post_w3_compression_uses_only_w3_survivors_without_mutation(tmp_path: Path) -> None:
+def test_post_w3_library_size_study_writes_four_cases_without_mutation(tmp_path: Path) -> None:
     w3_root = _write_tiny_w3_root(tmp_path / "w3_survival" / "013")
     run_w3_survival_analysis(W3SurvivalAnalysisConfig(input_root=w3_root))
 
-    result = run_post_w3_cluster_merge(
-        input_root=w3_root,
-        output_root=tmp_path / "post_w3_cluster",
-        run_id=1,
-        max_representatives_per_primitive=4,
+    result = run_post_w3_library_size_study(
+        PostW3LibrarySizeStudyConfig(
+            input_root=w3_root,
+            output_root=tmp_path / "post_w3_library_size_study",
+            run_id=1,
+        )
     )
-    library_path = Path(result["compact_library"])
-    library = json.loads(library_path.read_text(encoding="ascii"))
+    run_root = Path(result["run_root"])
+    summary = pd.read_csv(run_root / "metrics" / "library_size_case_summary.csv")
+    library = json.loads((run_root / "manifests" / "no_cluster_no_merge_primitive_library.json").read_text(encoding="ascii"))
     representatives = library["representatives"]
     representative_ids = {row["primitive_variant_id"] for row in representatives}
 
     assert result["status"] == "complete"
+    assert tuple(summary["library_size_case_id"]) == LIBRARY_SIZE_CASE_IDS
+    assert library["library_size_human_label"] == "no-clustering/no-merging"
     assert representative_ids == {"primvar_glide_launch", "primvar_lift_survived"}
     for representative in representatives:
         assert representative["w3_variant_status"] == "survived"
         assert representative["mutation_status"].startswith("references_existing_frozen_variant")
+        assert representative["library_size_case_id"] == "no_cluster_no_merge"
     glide = [row for row in representatives if row["primitive_variant_id"] == "primvar_glide_launch"][0]
     assert glide["controller_id"] == "ctrl_glide"
     assert glide["K_gain_checksum"] == "k_glide"
 
 
-def test_post_w3_governor_smoke_logs_rejections_and_modes(tmp_path: Path) -> None:
+def test_outcome_and_repeated_launch_validation_use_case_ids_and_histories(tmp_path: Path) -> None:
     w3_root = _write_tiny_w3_root(tmp_path / "w3_survival" / "013")
     run_w3_survival_analysis(W3SurvivalAnalysisConfig(input_root=w3_root))
-    cluster = run_post_w3_cluster_merge(
-        input_root=w3_root,
-        output_root=tmp_path / "post_w3_cluster",
-        run_id=1,
-    )
-
-    result = run_post_w3_governor_smoke(
-        PostW3GovernorSmokeConfig(
-            compact_library_path=Path(cluster["compact_library"]),
-            outcome_output_root=tmp_path / "outcome_model",
-            governor_output_root=tmp_path / "governor_smoke",
+    study = run_post_w3_library_size_study(
+        PostW3LibrarySizeStudyConfig(
+            input_root=w3_root,
+            output_root=tmp_path / "post_w3_library_size_study",
             run_id=1,
         )
     )
-    outcome = pd.read_csv(Path(result["outcome_root"]) / "metrics" / "outcome_model_summary.csv")
-    selection = pd.read_csv(Path(result["governor_root"]) / "metrics" / "governor_selection_summary.csv")
-    rejections = pd.read_csv(Path(result["governor_root"]) / "metrics" / "governor_rejection_summary.csv")
 
-    assert result["status"] == "complete"
+    outcome_result = run_outcome_model_build(
+        OutcomeModelBuildConfig(
+            compact_library_path=Path(study["manifest"]),
+            output_root=tmp_path / "outcome_model",
+            run_id=2,
+        )
+    )
+    validation = run_repeated_launch_learning_curve(
+        RepeatedLaunchValidationConfig(
+            library_root=Path(study["run_root"]),
+            outcome_root=Path(outcome_result["run_root"]),
+            output_root=tmp_path / "repeated_launch_validation",
+            run_id=1,
+        )
+    )
+    outcome = pd.read_csv(Path(outcome_result["run_root"]) / "metrics" / "outcome_model_summary.csv")
+    learning_curve = pd.read_csv(Path(validation["run_root"]) / "metrics" / "validation_learning_curve.csv")
+
+    assert outcome_result["status"] == "complete"
+    assert validation["status"] == "complete"
     assert {"continuation_probability", "terminal_useful_probability", "hard_failure_risk"}.issubset(outcome.columns)
-    assert set(selection["governor_mode"]) == {"continuation_mode", "terminal_episode_mode"}
-    assert "entry_role_incompatible_start_family" in set(rejections["rejection_reason"])
+    assert set(outcome["library_size_case_id"]) == set(LIBRARY_SIZE_CASE_IDS)
+    assert set(learning_curve["library_size_case_id"]) == set(LIBRARY_SIZE_CASE_IDS)
+    assert set(learning_curve["history_length"]) == set(HISTORY_LENGTHS)
 
 
 def test_post_w3_compression_refuses_roots_without_w3_registry(tmp_path: Path) -> None:
     w3_root = _write_tiny_w3_root(tmp_path / "w3_survival" / "013")
 
+    result = run_post_w3_library_size_study(
+        PostW3LibrarySizeStudyConfig(
+            input_root=w3_root,
+            output_root=tmp_path / "post_w3_library_size_study",
+            run_id=1,
+        )
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocked_reason"] == "missing_w3_survivor_registry"
+
+
+def test_retired_single_compact_wrapper_requires_explicit_gate(tmp_path: Path) -> None:
     result = run_post_w3_cluster_merge(
-        input_root=w3_root,
+        input_root=tmp_path / "w3_survival" / "013",
         output_root=tmp_path / "post_w3_cluster",
         run_id=1,
     )
 
     assert result["status"] == "blocked"
-    assert result["blocked_reason"] == "missing_w3_survivor_registry"
+    assert result["blocked_reason"] == "retired_diagnostic_requires_explicit_allow_retired_diagnostic"
 
 
 def _write_tiny_w3_root(root: Path) -> Path:
@@ -179,6 +217,9 @@ def _w3_row(
         "variant_R_weight_json": "{\"r\":1}",
         "variant_reference_state_vector": "[0,0,0]",
         "variant_reference_command_vector": "[0,0,0]",
-        "variant_finite_horizon_s": 0.8,
+        "variant_finite_horizon_s": 0.1,
+        "variant_controller_input_slots_per_primitive": 5,
+        "variant_controller_input_update_period_s": 0.02,
+        "variant_primitive_timing_contract_version": "v411_0p10s_5slot_20ms",
         "variant_timing_augmentation_type": "predictor_compensated_augmented_discrete_lqr_v1",
     }

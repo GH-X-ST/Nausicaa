@@ -6,6 +6,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+pytestmark = pytest.mark.skip(reason="v4.9 full-loop path is retired behind v4.11 diagnostic gates")
+
 from run_full_loop_validation import FullLoopValidationConfig, run_full_loop_validation
 from run_v49_source_audit import V49SourceAuditConfig, run_v49_source_audit
 from run_v49_validation_figures import V49ValidationFigureConfig, run_v49_validation_figures

@@ -71,6 +71,11 @@ from primitive_variant_registry import (  # noqa: E402
     start_family_is_compatible,
     variant_row,
 )
+from primitive_timing_contract import (  # noqa: E402
+    CONTROLLER_INPUT_UPDATE_PERIOD_S,
+    PRIMITIVE_TIMING_CONTRACT_VERSION,
+    primitive_timing_contract_row,
+)
 from state_sampling import (  # noqa: E402
     archive_state_sample_for_family,
     archive_state_sample_row,
@@ -78,8 +83,8 @@ from state_sampling import (  # noqa: E402
 )
 
 
-W2_SURVIVAL_VERSION = "w2_fixed_lqr_survival_replay_v1"
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.5"
+W2_SURVIVAL_VERSION = "w2_fixed_lqr_survival_replay_v411"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.11"
 DEFAULT_W01_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 DEFAULT_W01_INPUT_ROOT: Path | None = None
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")
@@ -95,7 +100,7 @@ CLAIM_BOUNDARY = (
 )
 BLOCKED_CLAIMS = (
     "W3_robustness_complete",
-    "post_W3_compact_library_ready",
+    "post_W3_library_size_study_ready",
     "governor_validation",
     "hardware_readiness",
     "real_flight_transfer",
@@ -143,12 +148,36 @@ def _w01_root_is_default_w2_eligible(root: Path) -> bool:
         return False
     try:
         manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+        if str(manifest.get("project_title_version", "")) != PROJECT_TITLE_VERSION:
+            return False
+        timing = manifest.get("primitive_timing_contract", {})
+        if str(timing.get("primitive_timing_contract_version", "")) != PRIMITIVE_TIMING_CONTRACT_VERSION:
+            return False
         if manifest.get("cross_layer_smoke_status") != "cross_layer_smoke_start_family_complete":
             return False
         bundle = load_frozen_w01_controller_bundle(bundle_path)
     except Exception:
         return False
     return int(bundle.variant_count) == int(bundle.ready_count) and int(bundle.ready_count) > 0
+
+
+def _w01_input_blocked_reason(root: Path) -> str:
+    manifest_path = filesystem_path(root / "manifests" / "run_manifest.json")
+    bundle_path = filesystem_path(root / "manifests" / "frozen_w01_controller_bundle.json")
+    if not manifest_path.is_file():
+        return "missing_W01_run_manifest"
+    if not bundle_path.is_file():
+        return "missing_W01_frozen_controller_bundle"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+    except Exception as exc:
+        return f"unreadable_W01_run_manifest:{type(exc).__name__}"
+    timing = manifest.get("primitive_timing_contract", {})
+    if str(manifest.get("project_title_version", "")) != PROJECT_TITLE_VERSION:
+        return "W01_source_not_v411_project_title"
+    if str(timing.get("primitive_timing_contract_version", "")) != PRIMITIVE_TIMING_CONTRACT_VERSION:
+        return "W01_source_missing_v411_timing_contract"
+    return ""
 
 
 @dataclass(frozen=True)
@@ -168,7 +197,7 @@ class W2SurvivalConfig:
     dry_run_schedule: bool = False
     stop_after_chunks: int | None = None
     continue_on_chunk_failure: bool = False
-    rollout_dt_s: float = 0.02
+    rollout_dt_s: float = CONTROLLER_INPUT_UPDATE_PERIOD_S
     latency_case: str = "nominal"
 
 
@@ -202,12 +231,26 @@ def run_w2_survival(config: W2SurvivalConfig) -> dict[str, object]:
         raise ValueError("paired_tests_per_variant must be positive.")
     if int(config.candidate_chunk_size) <= 0:
         raise ValueError("candidate_chunk_size must be positive.")
+    if not math.isclose(float(config.rollout_dt_s), CONTROLLER_INPUT_UPDATE_PERIOD_S, rel_tol=0.0, abs_tol=1e-12):
+        raise ValueError("rollout_dt_s_not_v411_0p020s")
     storage_format = resolve_storage_format(config.storage_format)
     run_root = Path(config.output_root) / f"{int(config.run_id):03d}"
     for subdir in ("manifests", "metrics", "reports", "chunk_manifests", "tables"):
         filesystem_path(run_root / subdir).mkdir(parents=True, exist_ok=True)
     source_bundle_path = Path(config.input_root) / "manifests" / "frozen_w01_controller_bundle.json"
     bundle_path = run_root / "manifests" / "frozen_w01_controller_bundle.json"
+    source_blocker = _w01_input_blocked_reason(Path(config.input_root))
+    if source_blocker:
+        bundle = _missing_source_bundle(Path(config.input_root), source_blocker)
+        _write_json(bundle_path, _blocked_bundle_payload(bundle, source_blocker))
+        _write_blocked_run(
+            run_root=run_root,
+            config=config,
+            bundle=bundle,
+            storage_format=storage_format,
+            blocker=source_blocker,
+        )
+        return _result_payload(run_root, "blocked")
     if filesystem_path(source_bundle_path).is_file():
         shutil.copyfile(filesystem_path(source_bundle_path), filesystem_path(bundle_path))
         bundle = load_frozen_w01_controller_bundle(source_bundle_path)
@@ -355,6 +398,7 @@ def _write_chunk(
         "checksum_sha256": partition.checksum_sha256,
         "duration_s": float(ended - started),
         "table_name": W2_TABLE_NAME,
+        "primitive_timing_contract": primitive_timing_contract_row(),
     }
     _write_json(_chunk_manifest_path(chunk, run_root), manifest)
     return partition, {
@@ -1192,6 +1236,8 @@ def _write_run_manifest(
         "chunk_count": int(len(schedule)),
         "storage_format": storage_format,
         "compression_level": int(config.compression_level),
+        "rollout_dt_s": float(config.rollout_dt_s),
+        "primitive_timing_contract": primitive_timing_contract_row(),
         "dry_run_schedule": bool(config.dry_run_schedule),
         "resume": bool(config.resume),
         "repair_incomplete": bool(config.repair_incomplete),
@@ -1249,7 +1295,7 @@ def _write_reports(
         "- Q/R, K, reference, horizon, entry role, controller ID, and variant ID mutation: `False`",
         "- Boundary terminal-useful evidence is retained.",
         "",
-        "Blocked claims remain W3 robustness, post-W3 compact-library readiness, governor validation, hardware readiness, real-flight transfer, mission success, and formal ROA guarantees.",
+        "Blocked claims remain W3 robustness, post-W3 library-size readiness, governor validation, hardware readiness, real-flight transfer, mission success, and formal ROA guarantees.",
         "",
     ]
     filesystem_path(run_root / "reports" / "w2_survival_report.md").write_text("\n".join(report_lines), encoding="ascii")

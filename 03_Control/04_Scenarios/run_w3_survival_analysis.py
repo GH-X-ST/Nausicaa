@@ -26,10 +26,11 @@ from dense_archive_table_io import (  # noqa: E402
     load_table_manifest,
     read_table_partition,
 )
+from primitive_timing_contract import primitive_timing_contract_row  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.7"
-W3_ANALYSIS_VERSION = "w3_variant_survival_analysis_v1"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.11"
+W3_ANALYSIS_VERSION = "w3_variant_survival_analysis_v411"
 DEFAULT_W3_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival/013")
 W3_ENVIRONMENT_MODES = ("w3_randomised_single", "w3_randomised_four")
 STATUS_VOCABULARY = ("survived", "downgraded", "eliminated", "blocked", "not_run")
@@ -142,7 +143,7 @@ def _variant_summary(frame: pd.DataFrame, *, config: W3SurvivalAnalysisConfig) -
             row.update(
                 {
                     "w3_variant_status": "not_run",
-                    "eligible_for_post_w3_clustering": False,
+                    "eligible_for_post_w3_library_size_study": False,
                     "compatible_row_count": 0,
                     "incompatible_row_count": incompatible_count,
                     "continuation_valid_count": 0,
@@ -186,7 +187,7 @@ def _variant_summary(frame: pd.DataFrame, *, config: W3SurvivalAnalysisConfig) -
         row.update(
             {
                 "w3_variant_status": status,
-                "eligible_for_post_w3_clustering": status == "survived",
+                "eligible_for_post_w3_library_size_study": status == "survived",
                 "compatible_row_count": int(len(compatible)),
                 "incompatible_row_count": incompatible_count,
                 "continuation_valid_count": int(_continuation_series(compatible).sum()),
@@ -215,6 +216,7 @@ def _variant_summary(frame: pd.DataFrame, *, config: W3SurvivalAnalysisConfig) -
 
 
 def _base_variant_row(first: pd.Series, variant_id: str) -> dict[str, object]:
+    _ = primitive_timing_contract_row()
     return {
         "primitive_variant_id": str(variant_id),
         "primitive_id": str(first.get("primitive_id", first.get("variant_primitive_id", ""))),
@@ -231,6 +233,26 @@ def _base_variant_row(first: pd.Series, variant_id: str) -> dict[str, object]:
         "reference_state_vector": str(first.get("variant_reference_state_vector", "")),
         "reference_command_vector": str(first.get("variant_reference_command_vector", "")),
         "finite_horizon_s": float(first.get("variant_finite_horizon_s", 0.0)),
+        "controller_input_slots_per_primitive": int(
+            float(
+                first.get(
+                    "variant_controller_input_slots_per_primitive",
+                    first.get("controller_input_slots_per_primitive", 0),
+                )
+            )
+        ),
+        "controller_input_update_period_s": float(
+            first.get(
+                "variant_controller_input_update_period_s",
+                first.get("controller_input_update_period_s", 0.0),
+            )
+        ),
+        "primitive_timing_contract_version": str(
+            first.get(
+                "variant_primitive_timing_contract_version",
+                first.get("primitive_timing_contract_version", "legacy_not_recorded"),
+            )
+        ),
         "timing_augmentation_type": str(first.get("variant_timing_augmentation_type", first.get("timing_augmentation_type", ""))),
     }
 
@@ -341,7 +363,7 @@ def _records_for_registry(frame: pd.DataFrame) -> list[dict[str, object]]:
         "candidate_index",
         "candidate_weight_label",
         "w3_variant_status",
-        "eligible_for_post_w3_clustering",
+        "eligible_for_post_w3_library_size_study",
         "continuation_valid_count",
         "episode_terminal_useful_count",
         "hard_failure_count",
@@ -358,6 +380,9 @@ def _records_for_registry(frame: pd.DataFrame) -> list[dict[str, object]]:
         "reference_state_vector",
         "reference_command_vector",
         "finite_horizon_s",
+        "controller_input_slots_per_primitive",
+        "controller_input_update_period_s",
+        "primitive_timing_contract_version",
         "timing_augmentation_type",
         "hard_failure_rate",
         "continuation_valid_rate",

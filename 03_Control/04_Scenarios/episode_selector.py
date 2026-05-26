@@ -39,15 +39,15 @@ def select_compact_representative(
     selected = sorted(
         viable,
         key=lambda row: (
-            -float(row.get("score", float("-inf"))),
+            -float(row.get("total_score_with_memory_and_exploration", row.get("score", float("-inf")))),
             str(row.get("primitive_id", "")),
             str(row.get("primitive_variant_id", "")),
         ),
     )[0]
-    selected_score = float(selected.get("score", float("-inf")))
+    selected_score = float(selected.get("total_score_with_memory_and_exploration", selected.get("score", float("-inf"))))
     for row in candidate_rows:
         row["score_margin_to_selected"] = (
-            selected_score - float(row.get("score", float("-inf")))
+            selected_score - float(row.get("total_score_with_memory_and_exploration", row.get("score", float("-inf"))))
             if bool(row.get("viable", False))
             else float("inf")
         )
@@ -111,10 +111,21 @@ def _add_rank_diagnostics(rows: list[dict[str, object]]) -> None:
             str(row.get("primitive_variant_id", "")),
         ),
     )
+    with_exploration = sorted(
+        viable,
+        key=lambda row: (
+            -float(row.get("total_score_with_memory_and_exploration", row.get("score", float("-inf")))),
+            str(row.get("primitive_id", "")),
+            str(row.get("primitive_variant_id", "")),
+        ),
+    )
     rank_with = {str(row.get("primitive_variant_id", "")): rank for rank, row in enumerate(with_memory, start=1)}
     rank_without = {str(row.get("primitive_variant_id", "")): rank for rank, row in enumerate(without_memory, start=1)}
+    rank_explore = {str(row.get("primitive_variant_id", "")): rank for rank, row in enumerate(with_exploration, start=1)}
     for row in rows:
         variant_id = str(row.get("primitive_variant_id", ""))
         row["rank_with_memory"] = int(rank_with.get(variant_id, 0))
         row["rank_without_memory"] = int(rank_without.get(variant_id, 0))
+        row["rank_with_memory_and_exploration"] = int(rank_explore.get(variant_id, 0))
         row["rank_change_due_to_memory"] = int(rank_without.get(variant_id, 0) - rank_with.get(variant_id, 0))
+        row["rank_change_due_to_exploration"] = int(rank_with.get(variant_id, 0) - rank_explore.get(variant_id, 0))

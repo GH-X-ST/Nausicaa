@@ -18,6 +18,12 @@ from lqr_linearisation import (
     reduced_state_indices,
 )
 from prim_cat import PrimitiveDefinition, primitive_by_id
+from primitive_timing_contract import (
+    CONTROLLER_INPUT_SLOTS_PER_PRIMITIVE,
+    CONTROLLER_INPUT_UPDATE_PERIOD_S,
+    PRIMITIVE_TIMING_CONTRACT_VERSION,
+    assert_primitive_timing_contract,
+)
 from state_contract import STATE_INDEX, STATE_NAMES, STATE_SIZE, as_state_vector
 
 
@@ -38,7 +44,7 @@ LQR_CONTROLLER_VERSION = "predictor_compensated_augmented_discrete_lqr_v1"
 BASELINE_LQR_CONTROLLER_VERSION = "time_invariant_reduced_order_lqr_v1"
 LQR_SYNTHESIS_SOLVED = "solved"
 LQR_SYNTHESIS_BLOCKED = "blocked_lqr_synthesis"
-ROLLOUT_DT_S = 0.02
+ROLLOUT_DT_S = CONTROLLER_INPUT_UPDATE_PERIOD_S
 ACTIVE_TIMING_AWARE_ROLE = "active_timing_aware_w01"
 BASELINE_CONTROLLER_ROLE = "superseded_baseline_not_active_w01"
 TIMING_AUGMENTATION_TYPE = "actuator_surface_state_command_fifo_predictor_compensated"
@@ -207,6 +213,14 @@ def synthesize_lqr_controller(
 ) -> LQRController:
     """Synthesize the active timing-aware W01 LQR controller for one primitive."""
 
+    assert_primitive_timing_contract(
+        finite_horizon_s=primitive.finite_horizon_s,
+        controller_input_slots_per_primitive=primitive.controller_input_slots_per_primitive,
+        controller_input_update_period_s=primitive.controller_input_update_period_s,
+        primitive_timing_contract_version=primitive.primitive_timing_contract_version,
+    )
+    if not np.isclose(float(rollout_dt_s), CONTROLLER_INPUT_UPDATE_PERIOD_S, rtol=0.0, atol=1e-12):
+        raise ValueError("rollout_dt_s_not_v411_0p020s")
     weights = weight_spec or default_lqr_weight_spec(primitive.primitive_id)
     linearisation = build_lqr_linearisation(primitive)
     a_full = np.asarray(linearisation.a_full, dtype=float)
@@ -282,6 +296,10 @@ def synthesize_lqr_controller(
         augmented_gain_checksum=augmented_gain_checksum,
         weight_label=weights.weight_label,
         sample_time_s=float(rollout_dt_s),
+        finite_horizon_s=float(primitive.finite_horizon_s),
+        controller_input_slots_per_primitive=CONTROLLER_INPUT_SLOTS_PER_PRIMITIVE,
+        controller_input_update_period_s=CONTROLLER_INPUT_UPDATE_PERIOD_S,
+        primitive_timing_contract_version=PRIMITIVE_TIMING_CONTRACT_VERSION,
         latency_case=str(latency_case),
         command_delay_steps=delay_steps,
         predictor_horizon_steps=predictor_steps,
@@ -885,6 +903,10 @@ def _timing_controller_id(
     augmented_gain_checksum: str,
     weight_label: str,
     sample_time_s: float,
+    finite_horizon_s: float,
+    controller_input_slots_per_primitive: int,
+    controller_input_update_period_s: float,
+    primitive_timing_contract_version: str,
     latency_case: str,
     command_delay_steps: int,
     predictor_horizon_steps: int,
@@ -898,6 +920,10 @@ def _timing_controller_id(
         "timing_augmentation_type": TIMING_AUGMENTATION_TYPE,
         "timing_design_version": TIMING_DESIGN_VERSION,
         "sample_time_s": float(sample_time_s),
+        "finite_horizon_s": float(finite_horizon_s),
+        "controller_input_slots_per_primitive": int(controller_input_slots_per_primitive),
+        "controller_input_update_period_s": float(controller_input_update_period_s),
+        "primitive_timing_contract_version": str(primitive_timing_contract_version),
         "latency_case": str(latency_case),
         "command_delay_steps": int(command_delay_steps),
         "predictor_horizon_steps": int(predictor_horizon_steps),

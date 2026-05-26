@@ -1498,11 +1498,25 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--source-audit-version", default="v49", choices=("v49", "v410"))
     parser.add_argument("--source-full-loop-root", type=Path, default=DEFAULT_SOURCE_FULL_LOOP_ROOT)
     parser.add_argument("--governor-config-path", type=Path, default=None)
+    parser.add_argument("--allow-retired-diagnostic", action="store_true")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    if not args.allow_retired_diagnostic:
+        print(
+            json.dumps(
+                {
+                    "status": "blocked",
+                    "blocked_reason": "retired_diagnostic_requires_explicit_allow_retired_diagnostic",
+                    "replacement": "run_repeated_launch_learning_curve.py",
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 1
     result = run_full_loop_validation(
         FullLoopValidationConfig(
             run_id=args.run_id,

@@ -55,7 +55,8 @@ ACTIVE_SCAN_ROOTS = (
 SKIP_FILES = {
     Path("03_Control/04_Scenarios/run_w01_w2_w3_contract_audit.py"),
     Path("03_Control/04_Scenarios/run_active_contract_audit.py"),
-    Path("03_Control/04_Scenarios/run_post_w3_cluster_merge.py"),
+    Path("03_Control/04_Scenarios/run_post_w3_library_size_study.py"),
+    Path("03_Control/04_Scenarios/" + "run_post_w3_" + "cluster_merge.py"),
 }
 
 

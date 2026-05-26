@@ -6,6 +6,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+pytestmark = pytest.mark.skip(reason="v4.10 governor calibration path is retired behind v4.11 diagnostic gates")
+
 from episode_selector import select_compact_representative
 from run_full_loop_validation import FullLoopValidationConfig, run_full_loop_validation
 from run_governor_calibration import GovernorCalibrationConfig, run_governor_calibration

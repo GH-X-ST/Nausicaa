@@ -1,0 +1,49 @@
+First inspect the local repo history, tags, and existing docs/PR wording for recent title/version patterns. Propose a concise high-level PR title with a version label that continues the existing project sequence rather than inventing a fresh v1.0. Use the same title family when this change extends the same development line; increment minor versions for scaffold/refinement work, and reserve major versions for completed evidence milestones or major claim-boundary changes.
+
+Then write a short GitHub push or PR comment in this style:
+
+- Language or area.
+- High-level intent.
+- Key interfaces, assumptions, or evidence boundaries clarified, including whether evidence concerns W0/W1 primitive-local variants, W2/W3 survival filtering, post-W3 library compression, or late validation.
+- Tests or checks run, if any.
+- Claims explicitly not made, if relevant.
+
+Do not list every file changed. Keep it general, audit-focused, and suitable for a robotics research codebase.
+
+
+For the current repair cycle, continue the existing title family and use the next minor version after `LQR-Stabilised Contextual Primitive v4.10` unless the repository history shows a later version.
+
+The PR comment must explicitly state whether the change archives rejected v4.10-style evidence, implements the 0.10 s primitive horizon and 5 controller-input slots at a 20 ms controller update period, introduces directional 3D residual memory, adds safe exploration/exploitation, or adds the four-case post-W3 library-size cross-study. Do not claim hardware readiness or memory improvement until the new repeated-launch validation passes.
+
+Example:
+
+```text
+LQR-Stabilised Contextual Primitive v4.11
+```
+
+```text
+Python control-simulation pipeline
+
+- Adds environment-context fields for primitive outcome evidence, so fan layout and fan power are represented as local flow features rather than controller branches tied to fan layout.
+- Preserves state/command conventions, latency labels, viability filtering, and simulation-only claim boundaries.
+- Dense outputs remain chunked, compressed, resumable, and partitioned below the 100 MB project file limit.
+- Checks run: fixed-gate archive tests, dense runtime tests, and git diff --check.
+- No real-flight transfer, mission success, or hardware-readiness claim is made by this change.
+```
+Current repair-cycle example:
+
+```text
+LQR-Stabilised Contextual Primitive v4.11
+```
+
+```text
+Python control-simulation pipeline
+
+- Archives rejected v4.10-style outer-loop evidence as diagnostic_not_passed and starts the 0.10 s primitive repair cycle.
+- Aligns primitive-controller variants with a 0.10 s horizon and 5 controller-input slots at a 20 ms controller update period, with W0/W1 dense generation required to rerun before W2/W3 replay.
+- Adds directional 3D residual memory, safe exploration/exploitation after viability filtering, and the required heavy/balanced/light/no-clustering post-W3 library-size cross-study.
+- Preserves fixed-controller W2/W3 replay boundaries, result archiving, file-size audits, and simulation-only claim limits.
+- No hardware readiness, real-flight transfer, mission success, or memory-improvement claim is made by this change.
+```
+
+For repair-cycle PRs, state the required history lengths `0, 5, 10, 20, 50, and 100` whenever the change touches repeated-launch validation.

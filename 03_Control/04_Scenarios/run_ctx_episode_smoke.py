@@ -16,12 +16,12 @@ for rel in ("02_Inner_Loop", "03_Primitives", "04_Scenarios"):
         sys.path.insert(0, str(path))
 
 from dense_archive_table_io import filesystem_path  # noqa: E402
-from episodic_lift_belief import (  # noqa: E402
+from directional_residual_lift_belief import (  # noqa: E402
+    DirectionalResidualObservation,
     belief_snapshot_row,
-    initial_belief,
-    lift_observation_from_rollout_row,
-    query_belief_features,
-    update_belief,
+    initial_directional_residual_lift_belief,
+    query_directional_residual_lift_features,
+    update_directional_residual_lift_belief,
 )
 from env_ctx import build_environment_context  # noqa: E402
 from env_instance import (  # noqa: E402
@@ -111,7 +111,7 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
     training_rows: list[dict[str, object]] = []
     episode_rows: list[dict[str, object]] = []
     selector_rows: list[dict[str, object]] = []
-    belief = initial_belief(lambda_value=0.8)
+    belief = initial_directional_residual_lift_belief()
     belief_rows = [belief_snapshot_row(belief, label="initial")]
 
     for episode_index in range(int(config.episode_count)):
@@ -145,7 +145,7 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
             actuator_case="nominal",
             surrogate_binding=binding,
         )
-        belief_before = query_belief_features(state, belief)
+        belief_before = _query_directional_belief(state, belief)
         if len(training_rows) < len(primitives):
             training_rows.extend(
                 _bootstrap_lqr_rows(
@@ -197,11 +197,11 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
                     "selector_governor_mode": selection.governor_mode,
                     "selector_status": selection.decision_status,
                     "selected_primitive_id": selection.selected_primitive_id,
-                    "memory_label": "episodic_lift_belief_smoke_no_improvement_claim",
-                    "belief_before_local_lift_m_s": belief_before["belief_local_lift_m_s"],
-                    "belief_before_mean_lift_m_s": belief_before["belief_mean_lift_m_s"],
-                    "belief_after_local_lift_m_s": belief_before["belief_local_lift_m_s"],
-                    "belief_after_mean_lift_m_s": belief_before["belief_mean_lift_m_s"],
+                    "memory_label": "directional_residual_lift_belief_smoke_no_improvement_claim",
+                    "belief_before_local_lift_residual_m_s": belief_before["belief_local_lift_residual_m_s"],
+                    "belief_before_uncertainty": belief_before["belief_uncertainty"],
+                    "belief_after_local_lift_residual_m_s": belief_before["belief_local_lift_residual_m_s"],
+                    "belief_after_uncertainty": belief_before["belief_uncertainty"],
                 }
             )
             row.update(archive_state_sample_row(state_sample))
@@ -250,9 +250,9 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
                 "selector_governor_mode": selection.governor_mode,
                 "selector_status": selection.decision_status,
                 "selected_primitive_id": selection.selected_primitive_id,
-                "memory_label": "episodic_lift_belief_smoke_no_improvement_claim",
-                "belief_before_local_lift_m_s": belief_before["belief_local_lift_m_s"],
-                "belief_before_mean_lift_m_s": belief_before["belief_mean_lift_m_s"],
+                "memory_label": "directional_residual_lift_belief_smoke_no_improvement_claim",
+                "belief_before_local_lift_residual_m_s": belief_before["belief_local_lift_residual_m_s"],
+                "belief_before_uncertainty": belief_before["belief_uncertainty"],
             }
         )
         row.update(archive_state_sample_row(state_sample))
@@ -274,10 +274,10 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
         selector_row = primitive_selection_row(selection)
         selector_row.update(archive_state_sample_row(state_sample))
         selector_rows.append(selector_row)
-        belief = update_belief(belief, lift_observation_from_rollout_row(row))
-        belief_after = query_belief_features(state, belief)
-        row["belief_after_local_lift_m_s"] = belief_after["belief_local_lift_m_s"]
-        row["belief_after_mean_lift_m_s"] = belief_after["belief_mean_lift_m_s"]
+        belief = update_directional_residual_lift_belief(belief, _directional_observation_from_row(row))
+        belief_after = _query_directional_belief(state, belief)
+        row["belief_after_local_lift_residual_m_s"] = belief_after["belief_local_lift_residual_m_s"]
+        row["belief_after_uncertainty"] = belief_after["belief_uncertainty"]
         belief_rows.append(belief_snapshot_row(belief, label=f"episode_{episode_index:03d}"))
 
     return _write_outputs(
@@ -287,6 +287,36 @@ def run_contextual_episode_smoke(config: EpisodeSmokeConfig) -> dict[str, object
         selector_rows=selector_rows,
         belief_rows=belief_rows,
     )
+
+
+def _query_directional_belief(state: np.ndarray, belief) -> dict[str, object]:
+    vector = np.asarray(state, dtype=float)
+    return query_directional_residual_lift_features(
+        belief,
+        x_m=float(vector[0]),
+        y_m=float(vector[1]),
+        z_m=float(vector[2]),
+        direction_rad=float(vector[5]) if vector.size > 5 else 0.0,
+    )
+
+
+def _directional_observation_from_row(row: dict[str, object]) -> DirectionalResidualObservation:
+    return DirectionalResidualObservation(
+        x_m=_float(row.get("initial_x_n", 0.0)),
+        y_m=_float(row.get("initial_y_e", 0.0)),
+        z_m=_float(row.get("initial_z_w", 0.0)),
+        direction_rad=_float(row.get("initial_psi", 0.0)),
+        lift_residual_m_s=_float(row.get("context_w_wing_mean_m_s", 0.0)),
+        energy_residual_m=_float(row.get("energy_residual_m", 0.0)),
+        dwell_residual_s=_float(row.get("lift_dwell_time_s", 0.0)),
+    )
+
+
+def _float(value: object, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
 
 
 def _bootstrap_lqr_rows(
@@ -353,8 +383,8 @@ def _write_outputs(
         "governor_mode": str(config.governor_mode),
         "rollout_backend": "model_backed_lqr",
         "evidence_role": "lqr_rollout_candidate",
-        "memory_label_status": "episodic_lift_belief_smoke_only",
-        "belief_lambda_values": [0.0, 0.5, 0.8, 0.95],
+        "memory_label_status": "directional_residual_lift_belief_smoke_only",
+        "belief_memory_axes": ["x", "y", "z", "direction"],
         "claim_status": "simulation_only_episode_smoke_no_performance_claim",
         "blocked_claims": [
             "controller_performance",
