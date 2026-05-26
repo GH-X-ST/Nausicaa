@@ -40,7 +40,12 @@ from dense_archive_table_io import (  # noqa: E402
     write_table_partition,
 )
 from env_ctx import build_environment_context, environment_context_row  # noqa: E402
-from env_instance import environment_instance_for_mode, environment_instance_row, environment_metadata_from_instance  # noqa: E402
+from env_instance import (  # noqa: E402
+    EnvironmentRandomisationConfig,
+    environment_instance_for_mode,
+    environment_instance_row,
+    environment_metadata_from_instance,
+)
 from env_surrogate import resolve_surrogate_binding, surrogate_binding_row, wind_field_for_binding  # noqa: E402
 from implementation_instance import implementation_instance_for_layer, implementation_instance_row  # noqa: E402
 from frozen_w01_controller_bundle import load_frozen_w01_controller_bundle, write_frozen_w01_controller_bundle  # noqa: E402
@@ -117,21 +122,20 @@ REQUIRED_DOCS = (
     "MATLAB Coding.txt",
     "housekeeping_and_naming_rules.md",
     "Daily_Schedule.txt",
-    "R5_R10_Full_Evidence_Execution_Plan.md",
-    "CODEX_R9_launch_gate_coverage_repair_guidance.md",
     "PR.txt",
 )
 OFFICIAL_W01_ENVIRONMENT_CASES = (
     ("W0", "dry_air"),
-    ("W1", "gaussian_single"),
-    ("W1", "gaussian_four"),
+    ("W1", "w1_randomised_single"),
+    ("W1", "w1_randomised_four"),
 )
+R5_ACTIVE_FAN_COUNT_SEQUENCE = (1, 2, 3, 4)
 CLAIM_BOUNDARY = (
-    "cleaned_and_restructured_for_corrected_W0_W1_rich_primitive_controller_dense_generation_readiness_only"
+    "simulation_only_R5_robust_randomised_W0_W1_synthesis_training_no_heldout_W3_or_validation_claim"
 )
 BLOCKED_CLAIMS = (
     "W0_W1_dense_evidence_complete",
-    "W2_survival_complete",
+    "R6_W2_archived_diagnostic",
     "W3_robustness_complete",
     "post_W3_library_size_study_ready",
     "governor_validation",
@@ -561,7 +565,16 @@ def _row_for_index(
             W_layer=W_layer,
             environment_mode=environment_mode,
         )
-    environment = environment_instance_for_mode(W_layer, environment_mode, int(config.seed) + int(row_index))
+    randomisation_config = _r5_randomisation_config(
+        environment_mode=environment_mode,
+        paired_start_index=int(schedule.paired_start_index),
+    )
+    environment = environment_instance_for_mode(
+        W_layer,
+        environment_mode,
+        int(config.seed) + int(row_index),
+        randomisation_config=randomisation_config,
+    )
     metadata = environment_metadata_from_instance(environment)
     binding = resolve_surrogate_binding(
         W_layer,
@@ -638,12 +651,16 @@ def _row_for_index(
             }
         )
     else:
+        implementation_plant_layer = _r5_implementation_plant_layer(
+            W_layer=W_layer,
+            environment_mode=environment_mode,
+        )
         implementation = implementation_instance_for_layer(
-            W_layer,
+            implementation_plant_layer,
             int(config.seed) + int(row_index),
             latency_case=str(config.latency_case),
         )
-        plant = plant_instance_for_layer(W_layer, int(config.seed) + int(row_index))
+        plant = plant_instance_for_layer(implementation_plant_layer, int(config.seed) + int(row_index))
         evidence = simulate_primitive_rollout(
             rollout_id=_rollout_id(config.run_id, row_index),
             episode_id=f"w01_{int(row_index):07d}",
@@ -681,7 +698,7 @@ def _row_for_index(
     row.update(
         {
             "runner_version": W01_RUNNER_VERSION,
-            "run_stage": "W01_dense_primitive_variant_generation",
+            "run_stage": "R5_W0_W1_robust_randomised_primitive_synthesis",
             "row_index": int(row_index),
             "schedule_mode": schedule.schedule_mode,
             "paired_start_policy": "common_random_start_key_reused_across_primitives_candidates_and_w01_environments",
@@ -696,10 +713,18 @@ def _row_for_index(
             "surrogate_blocked_reason": binding.blocked_reason,
             "implementation_instance_status": implementation_audit_status,
             "plant_instance_status": plant_audit_status,
-            "W_layer_official_role": "W0_dry_air" if W_layer == "W0" else "W1_gaussian_preflight",
+            "W_layer_official_role": _official_w01_role(W_layer=W_layer, environment_mode=environment_mode),
+            "scheduled_active_fan_count": int(sum(bool(value) for value in environment.active_fan_mask)),
+            "r5_training_randomisation_role": _r5_training_randomisation_role(environment_mode),
+            "implementation_plant_instance_layer_for_synthesis": _r5_implementation_plant_layer(
+                W_layer=W_layer,
+                environment_mode=environment_mode,
+            ),
             "small_library_selection_allowed": False,
-            "clustering_before_w2_w3_allowed": False,
-            "w2_w3_replay_only": True,
+            "clustering_before_w3_allowed": False,
+            "w2_required_for_move_on": False,
+            "r6_w2_archived_diagnostic_only": True,
+            "w3_frozen_holdout_required": True,
             "panelwise_glider_dynamics_active": True,
             "state_feedback_latency_lag_active": True,
             "command_timing_active": True,
@@ -716,6 +741,38 @@ def _row_for_index(
         }
     )
     return row
+
+
+def _r5_randomisation_config(*, environment_mode: str, paired_start_index: int) -> EnvironmentRandomisationConfig | None:
+    if str(environment_mode) == "w1_randomised_four":
+        return EnvironmentRandomisationConfig(
+            active_fan_count=int(R5_ACTIVE_FAN_COUNT_SEQUENCE[int(paired_start_index) % len(R5_ACTIVE_FAN_COUNT_SEQUENCE)])
+        )
+    if str(environment_mode) == "w1_randomised_single":
+        return EnvironmentRandomisationConfig(active_fan_count=1)
+    return None
+
+
+def _r5_implementation_plant_layer(*, W_layer: str, environment_mode: str) -> str:
+    if str(environment_mode).startswith("w1_randomised"):
+        return "W3"
+    return str(W_layer).upper()
+
+
+def _r5_training_randomisation_role(environment_mode: str) -> str:
+    if str(environment_mode) == "dry_air":
+        return "dry_baseline_training_case"
+    if str(environment_mode) == "w1_randomised_single":
+        return "robust_randomised_single_fan_training_case"
+    if str(environment_mode) == "w1_randomised_four":
+        return "robust_randomised_multi_fan_training_case_with_active_fan_count_1_2_3_4"
+    return "unknown_training_case"
+
+
+def _official_w01_role(*, W_layer: str, environment_mode: str) -> str:
+    if str(W_layer).upper() == "W0":
+        return "W0_dry_air_baseline"
+    return f"W1_robust_randomised_synthesis_{environment_mode}"
 
 
 def _row_schedule_for_index(row_index: int, config: W01DenseRunConfig) -> W01RowSchedule:
@@ -1557,8 +1614,8 @@ def _write_l7_completeness_audit(
             f"- Largest file: `{largest.get('relative_path', '')}` at `{largest.get('size_mb', '')}` MB",
             f"- Above 75 MB present: `{largest.get('above_75mb', '')}`",
             f"- Above 100 MB present: `{largest.get('above_100mb', '')}`",
-            f"- W1 single/four mixed in one root: `{ {'gaussian_single', 'gaussian_four'}.issubset(set(environment_counts)) }`",
-            f"- Fixed W01 library cleared for future W2 fixed-LQR replay: `{cleared}`",
+            f"- W1 randomised single/four mixed in one root: `{ {'w1_randomised_single', 'w1_randomised_four'}.issubset(set(environment_counts)) }`",
+            f"- Fixed R5 library cleared for future W3 frozen held-out replay: `{cleared}`",
             "",
             "Coverage summaries:",
             "",
@@ -1576,7 +1633,7 @@ def _write_l7_completeness_audit(
             "",
             *[f"- `{item}`" for item in (move_on_blockers or ["none"])],
             "",
-            "Blocked claims remain W2 execution, W3 robustness, post-W3 compact-library readiness, governor validation, hardware readiness, real-flight transfer, mission success, and formal LQR-tree/funnel/region-of-attraction guarantees.",
+            "Blocked claims remain W3 robustness, post-W3 compact-library readiness, governor validation, hardware readiness, real-flight transfer, mission success, and formal LQR-tree/funnel/region-of-attraction guarantees.",
             "",
         ]
     )
@@ -1942,8 +1999,8 @@ def _coverage_gate_blockers(*, run_root: Path, row_count: int) -> list[str]:
     if int(row_count) >= L6_RICH_SIDE_ROW_COUNT and candidate_values != set(range(L6_RICH_SIDE_CANDIDATE_COUNT)):
         blockers.append("missing_32_candidate_row_coverage")
     environment_values = set(_coverage_values(run_root, "environment_mode"))
-    if not {"dry_air", "gaussian_single", "gaussian_four"}.issubset(environment_values):
-        blockers.append("missing_w01_dry_single_four_environment_mix")
+    if not {"dry_air", "w1_randomised_single", "w1_randomised_four"}.issubset(environment_values):
+        blockers.append("missing_w01_dry_randomised_single_four_environment_mix")
     w_values = set(_coverage_values(run_root, "W_layer"))
     if not {"W0", "W1"}.issubset(w_values):
         blockers.append("missing_w0_w1_layer_coverage")
@@ -2305,7 +2362,8 @@ def _w01_method_evidence_fields(
     return {
         "method_evidence_level": method_evidence_level,
         "w01_dense_evidence_complete": bool(dense_complete),
-        "w01_dense_required_for_w2": True,
+        "w01_dense_required_for_w3": True,
+        "w01_dense_required_for_w2": False,
         "minimum_rows_required_for_dense_claim": int(L6_RICH_SIDE_ROW_COUNT),
         "actual_row_count": int(actual_row_count),
         "candidate_count": int(config.candidate_count),
@@ -2382,7 +2440,7 @@ def _run_manifest(
     return {
         "runner_version": W01_RUNNER_VERSION,
         "project_title_version": PROJECT_TITLE_VERSION,
-        "run_stage": "W01_dense_primitive_variant_generation",
+        "run_stage": "R5_W0_W1_robust_randomised_primitive_synthesis",
         "run_id": int(config.run_id),
         "run_root": run_root.as_posix(),
         "rows_requested": int(config.rows),
@@ -2434,15 +2492,26 @@ def _run_manifest(
         "cross_layer_smoke_blockers": cross_layer_blockers,
         "cross_layer_minimum_paired_start_cycle": int(CROSS_LAYER_START_FAMILY_CYCLE),
         "start_family_mix_exact_or_blocked": bool(not cross_layer_blockers),
-        "official_W_layers": {"W0": ["dry_air"], "W1": ["gaussian_single", "gaussian_four"]},
+        "official_W_layers": {"W0": ["dry_air"], "W1": ["w1_randomised_single", "w1_randomised_four"]},
+        "r5_training_randomisation_policy": {
+            "W0": "dry_air_baseline",
+            "W1_single": "fan_position_power_and_implementation_plant_randomised_training_case",
+            "W1_multi": "fan_position_power_active_fan_count_and_implementation_plant_randomised_training_case",
+            "active_fan_count_sequence": list(R5_ACTIVE_FAN_COUNT_SEQUENCE),
+        },
+        "R6_W2_active_pipeline_gate": False,
+        "R6_W2_archived_diagnostic_only": True,
+        "R7_W3_direct_source": "frozen_R5_W0_W1_controller_bundle",
         "W2_generated": False,
         "W3_generated": False,
         "entry_role_regime_separation_policy": "role_aware_start_family_schedule_launch_inflight_recovery_not_mixed",
         "role_aware_start_family_mix": START_FAMILY_MIX,
         "mixed_primitive_start_sampling": False,
         "no_small_library_selection": True,
-        "no_clustering_before_W2_W3": True,
-        "W2_W3_replay_only": True,
+        "no_clustering_before_W3": True,
+        "W3_replay_only": True,
+        "W2_required_for_move_on": False,
+        "w3_frozen_holdout_required": True,
         "panelwise_timing_actuator_effects_active_from_W01": True,
         "PD_PID_fallback_allowed": False,
         "timing_aware_synthesis_level": "predictor_compensated_augmented_discrete_lqr",
@@ -2451,7 +2520,7 @@ def _run_manifest(
         "timing_effects_in_rollout": "panel_wind_feedback_delay_command_timing_actuator_lag_with_plant_and_implementation_instances",
         "claim_status": CLAIM_BOUNDARY,
         "blocked_claims": list(BLOCKED_CLAIMS),
-        "later_validation_stages_deliberately_not_run_in_v53_r5_only_pass": True,
+        "later_validation_stages_not_written_by_r5_runner": True,
         "tuning_schedule": schedule_row,
     }
 

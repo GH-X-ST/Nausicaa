@@ -59,8 +59,6 @@ from run_repeated_launch_learning_curve import (  # noqa: E402
     run_repeated_launch_learning_curve,
 )
 from run_v411_source_audit import SourceAuditConfig, run_v411_source_audit  # noqa: E402
-from run_w2_survival import DEFAULT_OUTPUT_ROOT as W2_OUTPUT_ROOT  # noqa: E402
-from run_w2_survival import W2SurvivalConfig, run_w2_survival  # noqa: E402
 from run_w3_survival import DEFAULT_OUTPUT_ROOT as W3_OUTPUT_ROOT  # noqa: E402
 from run_w3_survival import W3SurvivalConfig, run_w3_survival  # noqa: E402
 from run_w3_survival_analysis import W3SurvivalAnalysisConfig, run_w3_survival_analysis  # noqa: E402
@@ -68,15 +66,13 @@ from prim_cat import ACTIVE_PRIMITIVE_IDS, LAUNCH_CAPTURE_PRIMITIVE_IDS  # noqa:
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
-PIPELINE_VERSION = "v53_r5_only_launch_aware_pipeline_with_repeated_docs_guard"
+PIPELINE_VERSION = "v54_r5_r7_r10_pipeline_r6_archived_with_repeated_docs_guard"
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/r5_r10_pipeline")
 DEFAULT_REPEATED_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/repeated_launch_validation")
 DEFAULT_CHANGED_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/changed_case_validation")
 EXPECTED_R10_FINAL_HELDOUT_LAUNCHES = 4 * 14 * 100
 EXPECTED_R10_HISTORY_LAUNCHES = 4 * 100 * 370
 CONTROLLING_DOCS = (
-    Path("docs/R5_R10_Full_Evidence_Execution_Plan.md"),
-    Path("docs/CODEX_R9_launch_gate_coverage_repair_guidance.md"),
     Path("docs/Glider_Control_Project_Plan.md"),
     Path("docs/Daily_Schedule.txt"),
     Path("docs/Skills.md"),
@@ -86,7 +82,8 @@ CONTROLLING_DOCS = (
     Path("docs/housekeeping_and_naming_rules.md"),
     Path("docs/PR.txt"),
 )
-STAGE_ORDER = ("R5", "R6", "R7", "R8", "R9", "R10")
+STAGE_ORDER = ("R5", "R7", "R8", "R9", "R10")
+ARCHIVED_STAGES = ("R6",)
 BLOCKED_CLAIMS = (
     "hardware_readiness",
     "real_flight_transfer",
@@ -473,31 +470,13 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
                 schedule_mode=BALANCED_SCHEDULE_MODE,
             )
         )
-    if stage_id == "R6":
-        r5_root = Path(str(context["stages"]["R5"]["run_root"]))
-        stage_run_id = _next_run_id(W2_OUTPUT_ROOT)
-        return run_w2_survival(
-            W2SurvivalConfig(
-                run_id=stage_run_id,
-                input_root=r5_root,
-                paired_tests_per_variant=100,
-                candidate_chunk_size=int(config.candidate_chunk_size),
-                workers=config.workers,
-                max_workers=config.max_workers,
-                storage_format=config.storage_format,
-                compression_level=int(config.compression_level),
-                resume=bool(config.resume),
-                repair_incomplete=bool(config.repair_incomplete),
-                dry_run_schedule=bool(config.dry_run_schedule),
-            )
-        )
     if stage_id == "R7":
-        r6_root = Path(str(context["stages"]["R6"]["run_root"]))
+        r5_root = Path(str(context["stages"]["R5"]["run_root"]))
         stage_run_id = _next_run_id(W3_OUTPUT_ROOT)
         replay = run_w3_survival(
             W3SurvivalConfig(
                 run_id=stage_run_id,
-                input_root=r6_root,
+                input_root=r5_root,
                 paired_tests_per_variant=20,
                 candidate_chunk_size=int(config.candidate_chunk_size),
                 workers=config.workers,
@@ -539,7 +518,6 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
         study["outcome_model_table"] = outcome.get("outcome_model_table", "")
         return study
     if stage_id == "R9":
-        r6_root = Path(str(context["stages"]["R6"]["run_root"]))
         r8_root = Path(str(context["stages"]["R8"]["run_root"]))
         outcome_root = Path(str(context["stages"]["R8"]["outcome_run_root"]))
         stage_run_id = _next_run_id(DEFAULT_REPEATED_OUTPUT_ROOT)
@@ -549,7 +527,6 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
                 outcome_root=outcome_root,
                 output_root=DEFAULT_REPEATED_OUTPUT_ROOT,
                 run_id=stage_run_id,
-                source_w2_root=r6_root,
                 storage_format=config.storage_format,
                 compression_level=int(config.compression_level),
                 candidate_chunk_size=int(config.candidate_chunk_size),
@@ -558,7 +535,6 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
             )
         )
     if stage_id == "R10":
-        r6_root = Path(str(context["stages"]["R6"]["run_root"]))
         r8_root = Path(str(context["stages"]["R8"]["run_root"]))
         outcome_root = Path(str(context["stages"]["R8"]["outcome_run_root"]))
         stage_run_id = _next_run_id(DEFAULT_CHANGED_OUTPUT_ROOT)
@@ -568,7 +544,6 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
                 outcome_root=outcome_root,
                 output_root=DEFAULT_CHANGED_OUTPUT_ROOT,
                 run_id=stage_run_id,
-                source_w2_root=r6_root,
                 storage_format=config.storage_format,
                 compression_level=int(config.compression_level),
                 candidate_chunk_size=int(config.candidate_chunk_size),
@@ -591,10 +566,8 @@ def _stage_preflight(stage_id: str, context: dict[str, object]) -> list[dict[str
     if stage_id != "R5":
         previous = STAGE_ORDER[STAGE_ORDER.index(stage_id) - 1]
         rows.append(_check_row(stage_id, f"previous_stage_{previous}_passed", previous in stages, previous in stages, True))
-    if stage_id == "R6" and "R5" in stages:
-        rows.append(_check_row(stage_id, "R5_dense_root_available", bool(stages["R5"].get("run_root")), stages["R5"].get("run_root", ""), "nonempty"))
-    if stage_id == "R7" and "R6" in stages:
-        rows.append(_check_row(stage_id, "R6_dense_survivor_root_available", bool(stages["R6"].get("run_root")), stages["R6"].get("run_root", ""), "nonempty"))
+    if stage_id == "R7" and "R5" in stages:
+        rows.append(_check_row(stage_id, "R5_frozen_bundle_root_available", bool(stages["R5"].get("run_root")), stages["R5"].get("run_root", ""), "nonempty"))
     if stage_id in {"R9", "R10"} and "R8" in stages:
         rows.append(_check_row(stage_id, "R8_library_and_outcome_available", bool(stages["R8"].get("run_root")) and bool(stages["R8"].get("outcome_run_root")), stages["R8"], "library_root_and_outcome_root"))
     return rows
@@ -625,7 +598,8 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
                 _check_row(stage_id, "dry_schedule_active_primitive_count_14", int(manifest.get("active_primitive_count", 0)) == 14, manifest.get("active_primitive_count", 0), 14),
                 _check_row(stage_id, "dry_schedule_all_six_launch_capture_ids", set(manifest.get("launch_capture_primitive_ids", [])) == set(LAUNCH_CAPTURE_PRIMITIVE_IDS), manifest.get("launch_capture_primitive_ids", []), list(LAUNCH_CAPTURE_PRIMITIVE_IDS)),
                 _check_row(stage_id, "dry_schedule_all_start_state_regimes", set(start_counts) == required_start_families, sorted(start_counts), sorted(required_start_families)),
-                _check_row(stage_id, "dry_schedule_r6_r10_not_run_scope", bool(manifest.get("later_validation_stages_deliberately_not_run_in_v53_r5_only_pass", False)), manifest.get("later_validation_stages_deliberately_not_run_in_v53_r5_only_pass", False), True),
+                _check_row(stage_id, "dry_schedule_r6_archived", bool(manifest.get("R6_W2_archived_diagnostic_only", False)), manifest.get("R6_W2_archived_diagnostic_only", False), True),
+                _check_row(stage_id, "dry_schedule_w3_direct_source", manifest.get("R7_W3_direct_source") == "frozen_R5_W0_W1_controller_bundle", manifest.get("R7_W3_direct_source", ""), "frozen_R5_W0_W1_controller_bundle"),
                 _file_size_check(stage_id, run_root),
             ]
         return [
@@ -639,26 +613,13 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "all_six_launch_capture_ids", set(manifest.get("launch_capture_primitive_ids", [])) == set(LAUNCH_CAPTURE_PRIMITIVE_IDS), manifest.get("launch_capture_primitive_ids", []), list(LAUNCH_CAPTURE_PRIMITIVE_IDS)),
             _check_row(stage_id, "r5_launch_aware_decision_passed_for_review", manifest.get("r5_launch_aware_decision") == R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW, manifest.get("r5_launch_aware_decision", ""), R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW),
             _check_row(stage_id, "launch_gate_candidate_availability_audit", _r5_launch_gate_audit_passed(run_root), "audit", "passed"),
-            _check_row(stage_id, "w2_w3_replay_only", bool(manifest.get("W2_W3_replay_only", False)), manifest.get("W2_W3_replay_only", False), True),
-            _check_row(stage_id, "no_clustering_before_w2_w3", bool(manifest.get("no_clustering_before_W2_W3", False)), manifest.get("no_clustering_before_W2_W3", False), True),
+            _check_row(stage_id, "w3_replay_only", bool(manifest.get("W3_replay_only", False)), manifest.get("W3_replay_only", False), True),
+            _check_row(stage_id, "w2_not_required_for_move_on", not bool(manifest.get("W2_required_for_move_on", True)), manifest.get("W2_required_for_move_on", True), False),
+            _check_row(stage_id, "r6_archived_diagnostic_only", bool(manifest.get("R6_W2_archived_diagnostic_only", False)), manifest.get("R6_W2_archived_diagnostic_only", False), True),
+            _check_row(stage_id, "no_clustering_before_w3", bool(manifest.get("no_clustering_before_W3", False)), manifest.get("no_clustering_before_W3", False), True),
             _check_row(stage_id, "selected_worker_count_8", int(manifest.get("selected_worker_count", 0)) == 8, manifest.get("selected_worker_count", 0), 8),
-            _check_row(stage_id, "r6_r10_not_run_scope", bool(manifest.get("later_validation_stages_deliberately_not_run_in_v53_r5_only_pass", False)), manifest.get("later_validation_stages_deliberately_not_run_in_v53_r5_only_pass", False), True),
             _check_row(stage_id, "frozen_bundle_exists", (run_root / "manifests" / "frozen_w01_controller_bundle.json").is_file(), (run_root / "manifests" / "frozen_w01_controller_bundle.json").as_posix(), "exists"),
             _check_row(stage_id, "table_manifest_exists", (run_root / "manifests" / "table_manifest.json").is_file(), (run_root / "manifests" / "table_manifest.json").as_posix(), "exists"),
-            _file_size_check(stage_id, run_root),
-        ]
-    if stage_id == "R6":
-        manifest = _read_json_if_exists(run_root / "manifests" / "w2_survival_manifest.json")
-        registry = _read_json_if_exists(run_root / "manifests" / "w2_survivor_registry.json")
-        return [
-            _check_row(stage_id, "stage_status_w2_dense_survival_pass", result.get("status") == "w2_dense_survival_pass", result.get("status", ""), "w2_dense_survival_pass"),
-            _check_row(stage_id, "method_evidence_level_w2_dense", manifest.get("method_evidence_level") == "w2_dense_survival_pass", manifest.get("method_evidence_level", ""), "w2_dense_survival_pass"),
-            _check_row(stage_id, "w2_dense_survival_evidence_complete", bool(manifest.get("w2_dense_survival_evidence_complete", False)), manifest.get("w2_dense_survival_evidence_complete", False), True),
-            _check_row(stage_id, "source_w01_dense_evidence_complete", bool(manifest.get("source_w01_dense_evidence_complete", False)), manifest.get("source_w01_dense_evidence_complete", False), True),
-            _check_row(stage_id, "fixed_lqr_replay_only", bool(manifest.get("fixed_lqr_replay_only", False)), manifest.get("fixed_lqr_replay_only", False), True),
-            _check_row(stage_id, "no_w2_retuning", not bool(manifest.get("mutates_Q_R_K_reference_horizon_entry_set_or_entry_role", True)), manifest.get("mutates_Q_R_K_reference_horizon_entry_set_or_entry_role", True), False),
-            _check_row(stage_id, "paired_tests_per_variant_100", int(manifest.get("paired_tests_per_variant", 0)) == 100, manifest.get("paired_tests_per_variant", 0), 100),
-            _check_row(stage_id, "w2_survivors_available", int(registry.get("survivor_count", 0)) > 0, registry.get("survivor_count", 0), ">0"),
             _file_size_check(stage_id, run_root),
         ]
     if stage_id == "R7":
@@ -669,6 +630,7 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "w3_analysis_survivors_available", result.get("analysis_status") == "w3_survivors_available", result.get("analysis_status", ""), "w3_survivors_available"),
             _check_row(stage_id, "method_evidence_level_w3_dense", manifest.get("method_evidence_level") == "w3_dense_survival_pass", manifest.get("method_evidence_level", ""), "w3_dense_survival_pass"),
             _check_row(stage_id, "fixed_lqr_replay_only", bool(manifest.get("fixed_lqr_replay_only", False)), manifest.get("fixed_lqr_replay_only", False), True),
+            _check_row(stage_id, "source_input_kind_r5", manifest.get("source_input_kind") == "r5_frozen_bundle_direct", manifest.get("source_input_kind", ""), "r5_frozen_bundle_direct"),
             _check_row(stage_id, "no_w3_retuning", not bool(manifest.get("mutates_Q_R_K_reference_horizon_entry_set_or_entry_role", True)), manifest.get("mutates_Q_R_K_reference_horizon_entry_set_or_entry_role", True), False),
             _check_row(stage_id, "not_fixture_evidence", not bool(manifest.get("test_fixture_not_method_evidence", True)), manifest.get("test_fixture_not_method_evidence", True), False),
             _check_row(stage_id, "w3_survivor_count_positive", int(registry.get("survivor_count", 0)) > 0, registry.get("survivor_count", 0), ">0"),
@@ -777,10 +739,11 @@ def _write_pipeline_manifest(run_root: Path, config: R5R10PipelineConfig, contex
         "run_root": run_root.as_posix(),
         "config": _json_ready(asdict(config)),
         "stage_order": list(STAGE_ORDER),
-        "full_run_policy": "R5_then_R6_R7_R8_R9_R10_only_after_previous_stage_passes",
-        "execution_scope": "R5_only" if (config.stop_after_stage or "").upper() == "R5" else "R5_R10_chain",
+        "full_run_policy": "R5_then_R7_R8_R9_R10_only_after_previous_stage_passes_R6_archived_diagnostic_only",
+        "execution_scope": "R5_only" if (config.stop_after_stage or "").upper() == "R5" else "R5_R7_R8_R9_R10_chain",
+        "archived_stages": list(ARCHIVED_STAGES),
         "r5_only_scope": bool((config.stop_after_stage or "").upper() == "R5"),
-        "R6_R7_R8_R9_R10_deliberately_not_run_when_stop_after_stage_R5": bool((config.stop_after_stage or "").upper() == "R5"),
+        "R7_R8_R9_R10_deliberately_not_run_when_stop_after_stage_R5": bool((config.stop_after_stage or "").upper() == "R5"),
         "r5_expected_dense_rows": int(L6_RICH_SIDE_ROW_COUNT),
         "active_primitive_count": int(len(ACTIVE_PRIMITIVE_IDS)),
         "launch_capture_primitive_ids": list(LAUNCH_CAPTURE_PRIMITIVE_IDS),
@@ -827,7 +790,8 @@ def _write_pipeline_report(run_root: Path, context: dict[str, object], *, status
         f"- R5 rows written: `{r5_row_count}` / `{L6_RICH_SIDE_ROW_COUNT}`",
         f"- Worker/chunk/storage settings: workers `{r5_manifest.get('selected_worker_count', '')}`, chunk count `{r5_manifest.get('chunk_count', '')}`, chunk size `{r5_manifest.get('candidate_chunk_size', '')}`, storage `{r5_manifest.get('storage_format', '')}`.",
         f"- Launch-capture primitive IDs: `{json.dumps(list(LAUNCH_CAPTURE_PRIMITIVE_IDS))}`",
-        "- R6-R10 deliberately not run when `--stop-after-stage R5` is selected.",
+        "- R6 is archived as diagnostic-only and is not an active gate in this pipeline.",
+        "- R7-R10 deliberately not run when `--stop-after-stage R5` is selected.",
         "- Claim boundary: simulation evidence only; no hardware readiness, real-flight transfer, mission success, full autonomy, or memory-improvement claim is made here.",
         "",
         "Stages:",

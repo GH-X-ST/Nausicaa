@@ -9,9 +9,9 @@ The latest explicit project instruction adds the following to the existing repai
 The current R9 result is BLOCKED_FIX_REQUIRED. The project must repair launch-gate primitive coverage, add a dedicated LQR-only launch-capture primitive family or launch-gate-capable subset, fix R9 outcome lookup across library-size cases, compute memory/exploration selection-change metrics from actual matched selections, and regenerate evidence from R5 before any R10 or hardware-facing claim.
 ```
 
-When this conflicts with `R5_R10_Full_Evidence_Execution_Plan.md`, follow `CODEX_R9_launch_gate_coverage_repair_guidance.md` for the current implementation pass.
+When this conflicts with older generated plans or result roots, follow `Glider_Control_Project_Plan.md` for the current implementation pass.
 
-This does not change the stable project centre. It refines the primitive catalogue and validation evidence requirements while preserving primitive-local time-invariant LQR, the 0.100 s / 5-slot / 20 ms timing contract, directional 3D residual memory, viability-filtered safe exploration/exploitation, post-W3 heavy/balanced/light/no-clustering/no-merging study, fixed W2/W3 no-retune replay, and simulation-first claim boundaries.
+This does not change the stable project centre. It refines the primitive catalogue and validation evidence requirements while preserving primitive-local time-invariant LQR, the 0.100 s / 5-slot / 20 ms timing contract, directional 3D residual memory, viability-filtered safe exploration/exploitation, post-W3 heavy/balanced/light/no-clustering/no-merging study, robust R5 synthesis, optional W2 diagnostics, frozen W3 no-retune replay, and simulation-first claim boundaries.
 <!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
 
 ## Purpose

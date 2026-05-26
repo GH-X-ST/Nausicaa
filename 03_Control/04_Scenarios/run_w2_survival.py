@@ -185,10 +185,10 @@ def _w01_input_blocked_reason(root: Path) -> str:
         return "W01_source_not_w01_dense_evidence_complete"
     if not bool(manifest.get("w01_dense_evidence_complete", False)):
         return "W01_source_dense_evidence_flag_false"
-    if not bool(manifest.get("W2_W3_replay_only", False)):
+    if not (bool(manifest.get("W2_W3_replay_only", False)) or bool(manifest.get("W3_replay_only", False))):
         return "W01_source_missing_fixed_replay_boundary"
-    if not bool(manifest.get("no_clustering_before_W2_W3", False)):
-        return "W01_source_allows_pre_W2_W3_clustering"
+    if not (bool(manifest.get("no_clustering_before_W2_W3", False)) or bool(manifest.get("no_clustering_before_W3", False))):
+        return "W01_source_allows_pre_W3_clustering"
     return ""
 
 

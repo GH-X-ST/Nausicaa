@@ -97,7 +97,7 @@ def environment_instance_for_mode(
             randomisation_seed=int(seed),
         )
 
-    fan_count = 4 if mode in {"gaussian_four", "annular_gp_four", "w3_randomised_four"} else 1
+    fan_count = 4 if mode in {"gaussian_four", "annular_gp_four", "w1_randomised_four", "w3_randomised_four"} else 1
     positions = _base_fan_positions(fan_count)
     power_scales = tuple(1.0 for _ in range(fan_count))
     active_mask = tuple(True for _ in range(fan_count))
@@ -119,6 +119,8 @@ def environment_instance_for_mode(
         "gaussian_four",
         "annular_gp_single",
         "annular_gp_four",
+        "w1_randomised_single",
+        "w1_randomised_four",
         "w3_randomised",
         "w3_randomised_single",
         "w3_randomised_four",
@@ -130,7 +132,14 @@ def environment_instance_for_mode(
             reason=f"unknown_environment_mode_{mode}",
         )
 
-    if layer == "W3" or mode in {"w3_randomised", "w3_randomised_single", "w3_randomised_four"}:
+    randomised_modes = {
+        "w1_randomised_single",
+        "w1_randomised_four",
+        "w3_randomised",
+        "w3_randomised_single",
+        "w3_randomised_four",
+    }
+    if layer == "W3" or mode in randomised_modes:
         fan_shift = _uniform_pair(rng, cfg.fan_position_shift_range_m)
         positions = tuple((float(x + fan_shift[0]), float(y + fan_shift[1])) for x, y in positions)
         power_scales = tuple(

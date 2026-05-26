@@ -25,11 +25,11 @@ rand      randomised
 sum       summary
 diag      diagnostic_not_passed / not move-on evidence
 
-w0        dry-air fidelity layer
-w1        variable Gaussian plume fidelity layer
-w2        GP-corrected annular-Gaussian fixed-LQR survival layer
-w3        randomised GP-corrected annular-Gaussian fixed-LQR survival layer
-w01       combined W0/W1 rich primitive-library generation
+w0        dry-air / near-dry R5 synthesis layer
+w1        randomized measured-updraft R5 synthesis layer
+w2        optional GP-corrected annular-Gaussian fixed-LQR diagnostic layer
+w3        frozen held-out randomised GP-corrected annular-Gaussian fixed-LQR validation layer
+w01       combined R5 W0/W1 robust primitive-library synthesis
 post_w3   post-W3 library-size cross-study and optional compression
 flv       repeated-launch full-loop validation
 

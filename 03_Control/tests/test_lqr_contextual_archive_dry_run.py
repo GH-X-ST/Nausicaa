@@ -44,7 +44,7 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
         "inflight_recovery_edge",
     }
     assert {"W0", "W1"}.issubset(set(frame["W_layer"]))
-    assert {"dry_air", "gaussian_single", "gaussian_four"}.issubset(set(frame["environment_mode"]))
+    assert {"dry_air", "w1_randomised_single", "w1_randomised_four"}.issubset(set(frame["environment_mode"]))
     assert set(frame["small_library_selection_allowed"]) == {False}
     assert set(frame["pd_pid_fallback_allowed"]) == {False}
     assert set(frame["schedule_mode"]) == {"balanced_paired"}
@@ -72,7 +72,8 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
     assert run_manifest["project_title_version"] == "LQR-Stabilised Contextual Primitive v5.3"
     assert run_manifest["method_evidence_level"] == "w01_smoke_or_preflight_only"
     assert run_manifest["w01_dense_evidence_complete"] is False
-    assert run_manifest["w01_dense_required_for_w2"] is True
+    assert run_manifest["w01_dense_required_for_w3"] is True
+    assert run_manifest["w01_dense_required_for_w2"] is False
     assert run_manifest["primitive_timing_contract"]["primitive_timing_contract_version"] == "v411_0p10s_5slot_20ms"
     assert set(frame["finite_horizon_s"]) == {0.1}
     assert set(frame["controller_input_slots_per_primitive"]) == {5}

@@ -61,6 +61,7 @@ SKIP_FILES = {
 
 R5_R10_STAGE_TOKEN_ALLOWED_FILES = {
     Path("03_Control/04_Scenarios/run_r5_r10_pipeline.py"),
+    Path("03_Control/04_Scenarios/run_w3_survival.py"),
     Path("03_Control/04_Scenarios/run_repeated_launch_learning_curve.py"),
     Path("03_Control/04_Scenarios/run_changed_case_validation.py"),
 }

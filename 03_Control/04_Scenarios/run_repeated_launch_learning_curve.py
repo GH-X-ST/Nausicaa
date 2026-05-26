@@ -460,9 +460,17 @@ def _load_records_by_variant(config: ValidationRunConfig, libraries: dict[str, d
     for payload in libraries.values():
         if payload.get("source_w2_root"):
             candidates.append(Path(str(payload["source_w2_root"])))
+        if payload.get("source_w01_root"):
+            candidates.append(Path(str(payload["source_w01_root"])))
+        if payload.get("source_r5_root"):
+            candidates.append(Path(str(payload["source_r5_root"])))
         for row in list(payload.get("representatives", [])):
             if row.get("source_w2_root"):
                 candidates.append(Path(str(row["source_w2_root"])))
+            if row.get("source_w01_root"):
+                candidates.append(Path(str(row["source_w01_root"])))
+            if row.get("source_r5_root"):
+                candidates.append(Path(str(row["source_r5_root"])))
     for root in candidates:
         bundle_path = filesystem_path(root / "manifests" / "frozen_w01_controller_bundle.json")
         if not bundle_path.is_file():

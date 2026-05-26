@@ -3,7 +3,7 @@
 <!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
 ## Current controlling update — R9 launch-gate coverage repair
 
-This document is aligned with `docs/R5_R10_Full_Evidence_Execution_Plan.md` and `docs/CODEX_R9_launch_gate_coverage_repair_guidance.md`. If these two documents conflict, `CODEX_R9_launch_gate_coverage_repair_guidance.md` controls for the current implementation pass.
+This document is aligned with `docs/Glider_Control_Project_Plan.md`, which is the single method-control document for the current implementation pass.
 
 Current decision:
 

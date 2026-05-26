@@ -35,12 +35,12 @@ def test_controlling_docs_and_active_runner_share_w01_contract_language() -> Non
     ):
         assert token in controlling
     for token in (
-        "W01_dense_primitive_variant_generation",
-        "gaussian_single",
-        "gaussian_four",
+        "R5_W0_W1_robust_randomised_primitive_synthesis",
+        "w1_randomised_single",
+        "w1_randomised_four",
         "launch_gate",
         "inflight_recovery_edge",
-        "W2_W3_replay_only",
+        "W3_replay_only",
         "pd_pid_fallback_allowed",
     ):
         assert token in runner

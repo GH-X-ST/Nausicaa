@@ -66,12 +66,16 @@ from state_sampling import archive_state_sample_for_family, archive_state_sample
 
 W3_SURVIVAL_VERSION = "w3_fixed_lqr_survival_replay_v411"
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
+DEFAULT_R5_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 DEFAULT_W2_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")
 W3_TABLE_NAME = "w3_survival_rows"
 W3_ENVIRONMENT_CASES = ("w3_randomised_single", "w3_randomised_four")
 W3_ACTIVE_FAN_COUNT_SEQUENCE = (1, 2, 3, 4)
 ACCEPTED_W2_SOURCE_STATUSES = ("w2_dense_survival_pass",)
+R5_INPUT_KIND = "r5_frozen_bundle_direct"
+LEGACY_W2_INPUT_KIND = "legacy_w2_survivor_registry_diagnostic"
+UNKNOWN_INPUT_KIND = "unknown_input_root"
 SURVIVAL_STATUS_VOCABULARY = ("blocked", "ready_for_fixed_lqr_replay", "complete", "not_run")
 TEST_FIXTURE_LABEL = "test_fixture_not_method_evidence"
 BLOCKED_CLAIMS = (
@@ -117,6 +121,25 @@ class W3ChunkSpec:
     compression_level: int
 
 
+def discover_latest_r5_root_for_w3(discovery_root: Path = DEFAULT_R5_DISCOVERY_ROOT) -> Path | None:
+    root = filesystem_path(discovery_root)
+    if not root.is_dir():
+        return None
+    candidates = []
+    for path in root.iterdir():
+        if not path.is_dir():
+            continue
+        try:
+            numeric_id = int(path.name)
+        except ValueError:
+            continue
+        if _r5_root_is_default_w3_eligible(Path(path)):
+            candidates.append((numeric_id, Path(path)))
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: item[0])[-1][1]
+
+
 def discover_latest_w2_root_for_w3(discovery_root: Path = DEFAULT_W2_DISCOVERY_ROOT) -> Path | None:
     root = filesystem_path(discovery_root)
     if not root.is_dir():
@@ -160,6 +183,7 @@ def write_w3_fixture_survivor_root(*, fixture_root: Path, source_w01_root: Path)
         {
             "status": "w2_artifact_smoke_pass",
             "fixture_evidence_label": TEST_FIXTURE_LABEL,
+            "source_w01_root": Path(source_w01_root).as_posix(),
             "fixed_lqr_replay_only": True,
             "mutates_Q_R_K_reference_horizon_entry_set_or_entry_role": False,
         },
@@ -178,9 +202,9 @@ def write_w3_fixture_survivor_root(*, fixture_root: Path, source_w01_root: Path)
 
 
 def run_w3_survival(config: W3SurvivalConfig) -> dict[str, object]:
-    """Run chunked fixed-LQR W3 replay from W2 survivors, or block cleanly."""
+    """Run chunked fixed-LQR W3 replay from frozen R5 controllers, or block cleanly."""
 
-    config = replace(config, input_root=_resolve_w2_input_root(config.input_root))
+    config = replace(config, input_root=_resolve_w3_input_root(config.input_root))
     if not math.isclose(float(config.rollout_dt_s), CONTROLLER_INPUT_UPDATE_PERIOD_S, rel_tol=0.0, abs_tol=1e-12):
         raise ValueError("rollout_dt_s_not_v411_0p020s")
     storage_format = resolve_storage_format(config.storage_format)
@@ -195,13 +219,13 @@ def run_w3_survival(config: W3SurvivalConfig) -> dict[str, object]:
 
     bundle_path = Path(config.input_root) / "manifests" / "frozen_w01_controller_bundle.json"
     bundle = load_frozen_w01_controller_bundle(bundle_path)
-    records = _surviving_records(Path(config.input_root), bundle)
+    records = _input_records(Path(config.input_root), bundle)
     if not records:
         _write_blocked_outputs(
             run_root=run_root,
             config=config,
             storage_format=storage_format,
-            blocked_reason="missing_reconstructable_W2_surviving_frozen_records",
+            blocked_reason="missing_reconstructable_R5_or_legacy_W2_frozen_records",
         )
         return _result_payload(run_root, "blocked")
 
@@ -293,13 +317,40 @@ def run_w3_survival(config: W3SurvivalConfig) -> dict[str, object]:
     return _result_payload(run_root, "complete")
 
 
-def _resolve_w2_input_root(input_root: Path | None) -> Path:
+def _resolve_w3_input_root(input_root: Path | None) -> Path:
     if input_root is not None:
         return Path(input_root)
+    discovered_r5 = discover_latest_r5_root_for_w3()
+    if discovered_r5 is not None:
+        return discovered_r5
     discovered = discover_latest_w2_root_for_w3()
     if discovered is not None:
         return discovered
-    return DEFAULT_W2_DISCOVERY_ROOT / "__missing_eligible_w2_root__"
+    return DEFAULT_R5_DISCOVERY_ROOT / "__missing_eligible_r5_root__"
+
+
+def _r5_root_is_default_w3_eligible(root: Path) -> bool:
+    manifest_path = filesystem_path(root / "manifests" / "run_manifest.json")
+    bundle_path = filesystem_path(root / "manifests" / "frozen_w01_controller_bundle.json")
+    if not manifest_path.is_file() or not bundle_path.is_file():
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+        bundle = load_frozen_w01_controller_bundle(bundle_path)
+    except Exception:
+        return False
+    timing = manifest.get("primitive_timing_contract", {})
+    official_w1 = set(manifest.get("official_W_layers", {}).get("W1", []))
+    ready_count = sum(1 for record in bundle.records if record.bundle_status == FROZEN_CONTROLLER_READY)
+    return (
+        str(manifest.get("project_title_version", "")) == PROJECT_TITLE_VERSION
+        and str(timing.get("primitive_timing_contract_version", "")) == PRIMITIVE_TIMING_CONTRACT_VERSION
+        and bool(manifest.get("w01_dense_evidence_complete", False))
+        and str(manifest.get("method_evidence_level", "")) == "w01_dense_evidence_complete"
+        and str(manifest.get("R7_W3_direct_source", "")) == "frozen_R5_W0_W1_controller_bundle"
+        and {"w1_randomised_single", "w1_randomised_four"}.issubset(official_w1)
+        and ready_count > 0
+    )
 
 
 def _w2_root_is_default_w3_eligible(root: Path) -> bool:
@@ -324,7 +375,47 @@ def _w2_root_is_default_w3_eligible(root: Path) -> bool:
     )
 
 
+def _source_input_kind(input_root: Path) -> str:
+    r5_manifest = filesystem_path(input_root / "manifests" / "run_manifest.json")
+    bundle_path = filesystem_path(input_root / "manifests" / "frozen_w01_controller_bundle.json")
+    if r5_manifest.is_file() and bundle_path.is_file():
+        return R5_INPUT_KIND
+    w2_manifest = filesystem_path(input_root / "manifests" / "w2_survival_manifest.json")
+    survivor_registry = filesystem_path(input_root / "manifests" / "w2_survivor_registry.json")
+    if w2_manifest.is_file() and survivor_registry.is_file() and bundle_path.is_file():
+        return LEGACY_W2_INPUT_KIND
+    return UNKNOWN_INPUT_KIND
+
+
 def _input_blocked_reason(input_root: Path) -> str:
+    input_kind = _source_input_kind(input_root)
+    if input_kind == R5_INPUT_KIND:
+        r5_manifest = Path(input_root) / "manifests" / "run_manifest.json"
+        bundle_path = Path(input_root) / "manifests" / "frozen_w01_controller_bundle.json"
+        if not filesystem_path(r5_manifest).is_file():
+            return "missing_R5_run_manifest"
+        if not filesystem_path(bundle_path).is_file():
+            return "missing_frozen_w01_controller_bundle_from_R5_root"
+        source = json.loads(filesystem_path(r5_manifest).read_text(encoding="ascii"))
+        timing = source.get("primitive_timing_contract", {})
+        if str(source.get("project_title_version", "")) != PROJECT_TITLE_VERSION:
+            return "R5_source_not_v5_project_title"
+        if str(timing.get("primitive_timing_contract_version", "")) != PRIMITIVE_TIMING_CONTRACT_VERSION:
+            return "R5_source_missing_v411_timing_contract"
+        if not bool(source.get("w01_dense_evidence_complete", False)):
+            return "R5_source_not_w01_dense_evidence_complete"
+        if str(source.get("method_evidence_level", "")) != "w01_dense_evidence_complete":
+            return "R5_source_method_evidence_level_not_dense"
+        if bool(source.get("W2_required_for_move_on", False)):
+            return "R5_source_still_requires_archived_W2"
+        if str(source.get("R7_W3_direct_source", "")) != "frozen_R5_W0_W1_controller_bundle":
+            return "R5_source_missing_direct_W3_contract"
+        official_w1 = set(source.get("official_W_layers", {}).get("W1", []))
+        if not {"w1_randomised_single", "w1_randomised_four"}.issubset(official_w1):
+            return "R5_source_missing_robust_randomised_W1_cases"
+        return ""
+    if input_kind == UNKNOWN_INPUT_KIND:
+        return "missing_R5_frozen_bundle_or_legacy_W2_survivor_root"
     w2_manifest = Path(input_root) / "manifests" / "w2_survival_manifest.json"
     survivor_registry = Path(input_root) / "manifests" / "w2_survivor_registry.json"
     bundle_path = Path(input_root) / "manifests" / "frozen_w01_controller_bundle.json"
@@ -353,6 +444,17 @@ def _input_blocked_reason(input_root: Path) -> str:
     if int(survivors.get("survivor_count", 0)) <= 0:
         return "missing_W2_surviving_variants"
     return ""
+
+
+def _input_records(input_root: Path, bundle) -> tuple[FrozenW01ControllerRecord, ...]:
+    if _source_input_kind(input_root) == R5_INPUT_KIND:
+        return tuple(
+            sorted(
+                (record for record in bundle.records if record.bundle_status == FROZEN_CONTROLLER_READY),
+                key=lambda record: record.variant.primitive_variant_id,
+            )
+        )
+    return _surviving_records(input_root, bundle)
 
 
 def _surviving_records(input_root: Path, bundle) -> tuple[FrozenW01ControllerRecord, ...]:
@@ -582,7 +684,14 @@ def _row_for_index(
             "project_title_version": PROJECT_TITLE_VERSION,
             "run_stage": "W3_fixed_LQR_randomised_survival_replay",
             "row_index": int(row_index),
-            "source_w2_root": Path(config.input_root).as_posix(),
+            "source_input_kind": _source_input_kind(Path(config.input_root)),
+            "source_input_root": Path(config.input_root).as_posix(),
+            "source_w01_root": Path(config.input_root).as_posix()
+            if _source_input_kind(Path(config.input_root)) == R5_INPUT_KIND
+            else "",
+            "source_w2_root": Path(config.input_root).as_posix()
+            if _source_input_kind(Path(config.input_root)) == LEGACY_W2_INPUT_KIND
+            else "",
             "source_evidence_label": fixture_label,
             "primitive_variant_id": variant.primitive_variant_id,
             "entry_role": variant.entry_role,
@@ -759,18 +868,30 @@ def _write_run_manifest(
     worker_decision: dict[str, object],
     fixture_label: str,
 ) -> None:
-    source_w2_manifest = _read_json_or_empty(Path(config.input_root) / "manifests" / "w2_survival_manifest.json")
+    input_root = Path(config.input_root)
+    source_input_kind = _source_input_kind(input_root)
+    source_r5_manifest = _read_json_or_empty(input_root / "manifests" / "run_manifest.json")
+    source_w2_manifest = _read_json_or_empty(input_root / "manifests" / "w2_survival_manifest.json")
+    source_w01_root = input_root.as_posix() if source_input_kind == R5_INPUT_KIND else str(source_w2_manifest.get("source_w01_root", ""))
+    source_w2_root = input_root.as_posix() if source_input_kind == LEGACY_W2_INPUT_KIND else ""
     manifest = {
         "version": W3_SURVIVAL_VERSION,
         "project_title_version": PROJECT_TITLE_VERSION,
         "status": status,
         "run_id": int(config.run_id),
-        "input_root": Path(config.input_root).as_posix(),
-        "input_contract": "W2 survival root with survivor registry and frozen bundle; raw W01 variants are not accepted",
+        "input_root": input_root.as_posix(),
+        "input_contract": "R5 frozen controller bundle direct for W3 held-out validation; legacy W2 survivor roots are diagnostic fixtures only",
+        "source_input_kind": source_input_kind,
+        "source_w01_root": source_w01_root,
+        "source_w2_root": source_w2_root,
+        "source_r5_status": str(source_r5_manifest.get("status", "")),
+        "source_r5_method_evidence_level": str(source_r5_manifest.get("method_evidence_level", "")),
+        "source_r5_w01_dense_evidence_complete": bool(source_r5_manifest.get("w01_dense_evidence_complete", False)),
         "source_w2_status": str(source_w2_manifest.get("status", "")),
         "source_w2_dense_survival_evidence_complete": bool(
             source_w2_manifest.get("w2_dense_survival_evidence_complete", False)
         ),
+        "source_w2_required_for_move_on": False,
         "row_count": int(row_count),
         "survivor_count": int(survivor_count),
         "storage_format": storage_format,
@@ -931,6 +1052,7 @@ def _write_reports(*, run_root: Path, status: str, row_count: int, blocked_reaso
         f"- Status: `{status}`",
         f"- Rows written: `{int(row_count)}`",
         f"- Blocked reason: `{blocked_reason}`",
+        "- Input contract: `R5 frozen bundle direct; R6/W2 archived diagnostic only`",
         f"- Source evidence label: `{fixture_label}`",
         f"- Test fixture not method evidence: `{fixture_label == TEST_FIXTURE_LABEL}`",
         "- Fixed-LQR replay only: `True`",
@@ -993,7 +1115,7 @@ def _result_payload(run_root: Path, status: str) -> dict[str, object]:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run W3 fixed-LQR survival replay from W2 survivors.")
+    parser = argparse.ArgumentParser(description="Run W3 fixed-LQR survival replay from a frozen R5 controller bundle.")
     parser.add_argument("--run-id", type=int, required=True)
     parser.add_argument("--input-root", type=Path, default=None)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)

@@ -6,6 +6,10 @@ This report defines a simple audit score for R9 fixed-case repeated-launch valid
 
 No hardware readiness, real-flight transfer, mission success, full autonomy, or memory-improvement claim is made by this score alone.
 
+This score also cannot override W3 launch-capture survival gates. If launch_capable variants are only downgraded in W3, as in W3 run 015 (`0 survived / 192 downgraded`), the score may be used to diagnose failure modes but must not be used to claim post-W3 launch-aware readiness, R9 pass, R10 pass, or memory improvement.
+
+Current stage placement: the score is applied only after robust randomized R5 W0/W1 synthesis has produced a frozen controller bundle and frozen held-out W3 validation has accepted launch-capable, inflight, and recovery/safe-exit evidence. Optional W2 diagnostics cannot make this score pass an R9/R10 gate.
+
 ## Per-Launch Score
 
 Each final held-out launch receives:
@@ -196,4 +200,3 @@ metrics/paired_score_delta_summary.csv
 ```
 
 The existing `policy_history_comparison.csv`, `library_size_case_comparison.csv`, and R10 `environment_block_comparison.csv` also include launch-score summaries.
-

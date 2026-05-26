@@ -39,8 +39,6 @@ REQUIRED_DOCS = (
     "MATLAB Coding.txt",
     "housekeeping_and_naming_rules.md",
     "Daily_Schedule.txt",
-    "R5_R10_Full_Evidence_Execution_Plan.md",
-    "CODEX_R9_launch_gate_coverage_repair_guidance.md",
     "PR.txt",
 )
 RESULT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0")

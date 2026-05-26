@@ -32,7 +32,7 @@ def test_docs_alignment_guard_repeats_and_writes_audit(tmp_path: Path) -> None:
         "timestamp_utc",
         "docs_alignment_status",
     }.issubset(audit.columns)
-    assert "docs/R5_R10_Full_Evidence_Execution_Plan.md" in second.controlling_hashes
+    assert "docs/Glider_Control_Project_Plan.md" in second.controlling_hashes
 
 
 def test_terminate_blocked_decision_includes_docs_alignment_fields(tmp_path: Path) -> None:

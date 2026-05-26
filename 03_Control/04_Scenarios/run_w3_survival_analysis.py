@@ -328,8 +328,17 @@ def _survivor_registry(
     source_manifest = json.loads(
         filesystem_path(input_root / "manifests" / "w3_survival_manifest.json").read_text(encoding="ascii")
     )
-    source_w2_root = Path(str(source_manifest.get("input_root", "")))
-    source_w01_root = _source_w01_from_w2_root(source_w2_root)
+    source_input_kind = str(source_manifest.get("source_input_kind", ""))
+    raw_source_w2_root = str(source_manifest.get("source_w2_root", ""))
+    raw_source_w01_root = str(source_manifest.get("source_w01_root", ""))
+    if not raw_source_w01_root and str(source_manifest.get("input_root", "")) and source_input_kind == "r5_frozen_bundle_direct":
+        raw_source_w01_root = str(source_manifest.get("input_root", ""))
+    if not raw_source_w2_root and str(source_manifest.get("input_root", "")) and source_input_kind != "r5_frozen_bundle_direct":
+        raw_source_w2_root = str(source_manifest.get("input_root", ""))
+    if not raw_source_w01_root and raw_source_w2_root:
+        raw_source_w01_root = _source_w01_from_w2_root(Path(raw_source_w2_root)).as_posix()
+    source_w2_root = Path(raw_source_w2_root) if raw_source_w2_root else Path("")
+    source_w01_root = Path(raw_source_w01_root) if raw_source_w01_root else Path("")
     status_rule = {
         "compatible_rows_only": True,
         "positive_continuation": "continuation_valid_true_or_outcome_class_accepted",
@@ -344,8 +353,9 @@ def _survivor_registry(
         "registry_version": W3_ANALYSIS_VERSION,
         "project_title_version": PROJECT_TITLE_VERSION,
         "source_w3_root": input_root.as_posix(),
-        "source_w2_root": source_w2_root.as_posix(),
-        "source_w01_root": source_w01_root.as_posix(),
+        "source_input_kind": source_input_kind,
+        "source_w2_root": raw_source_w2_root,
+        "source_w01_root": raw_source_w01_root,
         "source_table_manifest_sha256": file_sha256(input_root / "manifests" / "table_manifest.json"),
         "status": "w3_survivors_available" if len(survivors) else "blocked_no_w3_survivors",
         "survivor_count": int(len(survivors)),

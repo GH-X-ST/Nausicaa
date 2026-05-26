@@ -1,0 +1,115 @@
+{
+  "R7_R8_R9_R10_deliberately_not_run_when_stop_after_stage_R5": true,
+  "active_primitive_count": 14,
+  "archived_stages": [
+    "R6"
+  ],
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "full_autonomy",
+    "memory_improvement"
+  ],
+  "blocked_reason": "",
+  "config": {
+    "allow_stage_smoke": false,
+    "candidate_chunk_size": 134400,
+    "compression_level": 1,
+    "continue_on_stage_failure": false,
+    "dry_run_schedule": true,
+    "max_workers": 1,
+    "output_root": "03_Control/05_Results/lqr_contextual_v1_0/r5_r10_pipeline",
+    "r10_mode": "full",
+    "repair_incomplete": true,
+    "resume": true,
+    "run_id": 998,
+    "start_stage": "R5",
+    "stop_after_stage": "R5",
+    "storage_format": "csv_gz",
+    "workers": "1"
+  },
+  "docs_alignment_baseline": {
+    "docs/Daily_Schedule.txt": {
+      "byte_count": 21646,
+      "modified_time_utc": "2026-05-26T19:00:44.582906+00:00",
+      "path": "docs/Daily_Schedule.txt",
+      "readable": true,
+      "sha256": "546a9ec600cd5fa6c1bb257f383fe75ebbe68941486e53b0bb16c66427903c4a"
+    },
+    "docs/Glider_Control_Project_Plan.md": {
+      "byte_count": 65351,
+      "modified_time_utc": "2026-05-26T19:05:11.500520+00:00",
+      "path": "docs/Glider_Control_Project_Plan.md",
+      "readable": true,
+      "sha256": "f0e8a5dea7b8c23772d1d2b14eb8422fe5cbec4896b8b66c4fd1e78bf396b0cc"
+    },
+    "docs/MATLAB Coding.txt": {
+      "byte_count": 5002,
+      "modified_time_utc": "2026-05-26T19:05:23.745853+00:00",
+      "path": "docs/MATLAB Coding.txt",
+      "readable": true,
+      "sha256": "00964d659747df437f1e7e3dcefe33a0350d919112e66eeace14fda2171ece8f"
+    },
+    "docs/PR.txt": {
+      "byte_count": 6530,
+      "modified_time_utc": "2026-05-26T19:05:33.637884+00:00",
+      "path": "docs/PR.txt",
+      "readable": true,
+      "sha256": "203e383fb0f6d809537fa1eb125002071b289d2f8f0f49f3aced1fbaca7eaec8"
+    },
+    "docs/Python Coding Instruction.txt": {
+      "byte_count": 7977,
+      "modified_time_utc": "2026-05-26T19:05:38.174171+00:00",
+      "path": "docs/Python Coding Instruction.txt",
+      "readable": true,
+      "sha256": "78360ec32cc25d71853106461fd586c6d35786f963b53a4e30f96612d721d95f"
+    },
+    "docs/Python Coding to CODEX.txt": {
+      "byte_count": 6653,
+      "modified_time_utc": "2026-05-26T19:05:42.939801+00:00",
+      "path": "docs/Python Coding to CODEX.txt",
+      "readable": true,
+      "sha256": "077ad2b47c8e33616d1eba7b45bdbec9a4cf4611b091031883e086e03c5c10cd"
+    },
+    "docs/Skills.md": {
+      "byte_count": 9378,
+      "modified_time_utc": "2026-05-26T19:05:18.952280+00:00",
+      "path": "docs/Skills.md",
+      "readable": true,
+      "sha256": "2c489882160dba755bb0439587ec0650cfed5c9a8ad792231e26766f57a92941"
+    },
+    "docs/housekeeping_and_naming_rules.md": {
+      "byte_count": 9477,
+      "modified_time_utc": "2026-05-26T19:05:28.582198+00:00",
+      "path": "docs/housekeeping_and_naming_rules.md",
+      "readable": true,
+      "sha256": "0eddb103f1adc102391be15f059fef69052980f966760e947148d3e125d89c87"
+    }
+  },
+  "docs_changed_during_run": false,
+  "execution_scope": "R5_only",
+  "full_run_policy": "R5_then_R7_R8_R9_R10_only_after_previous_stage_passes_R6_archived_diagnostic_only",
+  "launch_capture_primitive_ids": [
+    "launch_capture_glide_stabilise",
+    "launch_capture_lift_seek",
+    "launch_capture_energy_build",
+    "launch_capture_shallow_left",
+    "launch_capture_shallow_right",
+    "launch_capture_safe_handoff"
+  ],
+  "pipeline_version": "v54_r5_r7_r10_pipeline_r6_archived_with_repeated_docs_guard",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
+  "r5_expected_dense_rows": 134400,
+  "r5_only_scope": true,
+  "run_id": 998,
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/r5_r10_pipeline/998",
+  "stage_order": [
+    "R5",
+    "R7",
+    "R8",
+    "R9",
+    "R10"
+  ],
+  "status": "complete"
+}

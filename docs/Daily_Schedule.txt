@@ -1,4 +1,4 @@
-DAILY SCHEDULE — R9 LAUNCH-GATE REPAIR → R5 W0/W1 RERUN → W2 → W3 → POST-W3 LIBRARY-SIZE CROSS-STUDY → R9/R10 VALIDATION
+DAILY SCHEDULE — R9 LAUNCH-GATE REPAIR → ROBUST R5 W0/W1 SYNTHESIS → FROZEN W3 HOLDOUT → POST-W3 LIBRARY-SIZE CROSS-STUDY → R9/R10 VALIDATION
 
 <!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
 Current blocking update — R9 launch-gate coverage repair
@@ -6,30 +6,32 @@ Current blocking update — R9 launch-gate coverage repair
 
 The current implementation stage is **R9 blocked / repair required (`BLOCKED_FIX_REQUIRED`)**, not R10 and not hardware preparation.
 
+Update after W3 run 015: the launch-aware chain is also blocked at W3 launch-capture survival. W3 replay completed, but `launch_capable` variants are `0 survived / 192 downgraded`, while in-flight and recovery variants survived. This explains the earlier R9 outer-loop failure and makes the next active task a launch-capture synthesis repair, not an R9 tuning pass.
+
 The next active implementation package is:
 
 ```text
-repair launch-capture primitive coverage
+repair launch-capture primitive references, weights, and launch_gate start subregimes inside robust randomized R5 synthesis
 + repair R9 outcome lookup
 + repair memory/exploration selection-change metrics
-+ regenerate from R5 through R10 under the gated pipeline
++ regenerate from R5 through frozen W3, R8, R9, and R10 under the gated pipeline
 ```
 
-The R5→R10 chain remains required, but any evidence generated before the launch-capture repair is diagnostic for this issue. After the launch-capture primitive family or launch-gate-capable subset is added, the pipeline must restart at R5 because primitive IDs, entry roles, W0/W1 rows, W2/W3 survivors, R8 representatives, outcome rows, and R9/R10 validation all depend on the primitive catalogue.
+The R5→R10 chain remains required, but any evidence generated before the launch-capture repair is diagnostic for this issue. After the launch-capture synthesis repair, the pipeline must restart at R5 because primitive IDs, entry roles, W0/W1 rows, W3 survivors, R8 representatives, outcome rows, and R9/R10 validation all depend on the frozen primitive catalogue. W2 may be run only as optional diagnostic or legacy comparison evidence.
 
 Implementation order for the current repair:
 
 ```text
-R4.9 launch-gate repair: add LQR-only launch-capture subset and R9 lookup/audit fixes
-R5 launch-aware W0/W1 dense rerun
-R6 W2 fixed-LQR replay only if R5 passes
-R7 W3 fixed-LQR replay only if R6 passes
+R4.9 launch-gate repair: keep LQR-only launch-capture subset and R9 lookup/audit fixes
+R5 robust launch-aware W0/W1 randomized synthesis and Q/R tuning
+optional R6 W2 fixed-LQR diagnostic replay only if explicitly requested
+R7 frozen held-out W3 fixed-LQR replay only if R5 passes
 R8 four-case library-size cross-study and outcome model only if R7 passes
 R9 fixed-case repeated-launch validation only if R8 passes
 R10 environment-only changed-case validation only if R9 passes
 ```
 
-Do not proceed from the current blocked R9 result. It is diagnostic_not_passed evidence.
+Do not proceed from the current blocked R9 result or from W3 run 015 as accepted launch-aware move-on evidence. Both are diagnostic_not_passed for the launch-capture repair.
 <!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
 
 Assumption
@@ -52,9 +54,9 @@ Definitions
 - Primitive-controller variant: the active library item combining one primitive entry set, reference state/command, finite horizon, local LQR Q/R/K, exit checks, failure labels, and claim status.
 - Environment context: local flow and safety features computed from the current state and wind field.
 - Episode: one simulated or physical launch from the fixed nominal launch gate.
-- W0/W1 dense generation: the heavy primitive-library creation stage. W0 uses no updraft. W1 uses the simple variable-Gaussian plume surrogate for both single-fan and four-fan cases. Each primitive-controller variant receives its own LQR tuning. All solved, blocked, weak, failed, rejected, continuation-valid, and x-y terminal-useful rows are preserved.
-- W2 dense survival sweep: fixed-LQR replay using the single-fan and four-fan GP-corrected annular-Gaussian surrogate (`annular-GP` in the repository), panel-wise wind, feedback latency, command timing, actuator lag, and realistic termination. No hidden LQR retuning.
-- W3 dense survival sweep: fixed-LQR replay under domain randomisation of updraft parameters, fan positions, fan number, glider model parameters, feedback latency, command timing, and actuator delay. No hidden LQR retuning.
+- R5 W0/W1 robust synthesis: the heavy primitive-library creation and tuning stage. W0 uses dry/near-dry baseline conditions. W1 uses nominal and randomized supported updraft approximations for single-fan, four-fan, and active-fan-count variation where supported. Each primitive-controller variant receives its own LQR Q/R/reference tuning here only. All solved, blocked, weak, failed, rejected, continuation-valid, and x-y terminal-useful rows are preserved.
+- W2 diagnostic sweep: optional fixed-LQR replay using the single-fan and four-fan GP-corrected annular-Gaussian surrogate (`annular-GP` in the repository), panel-wise wind, feedback latency, command timing, actuator lag, and realistic termination. No hidden LQR retuning. W2 is diagnostic/legacy comparison evidence only, not a required pass gate.
+- R7 W3 frozen holdout sweep: fixed-LQR replay under held-out domain randomisation of updraft parameters, fan positions, explicit 1/2/3/4 active-fan count for four-fan cases, glider model parameters, CG offset, left/right aileron asymmetry, feedback latency, command timing, and actuator delay. No hidden LQR retuning.
 - Post-W3 library-size cross-study: the heavy, balanced, light, and no-clustering/no-merging comparison of W3-surviving primitive-controller variants before any validation library-size condition is accepted.
 - Full-loop validation: frozen post-W3 library-size condition + outcome model + viability governor + selector + directional 3D residual memory, tested across W0--W3 and then in real repeated launches.
 - Real flight: fixed-gate repeated-launch validation with Vicon-measured initial states.
@@ -73,9 +75,9 @@ Global execution rules
 - Do not make reachable-state chaining a required success gate.
 - Single-fan, four-fan, shifted-fan, and fan-power cases are environment instances, not separate algorithms.
 - W labels are fidelity/evidence layers only, not online algorithm branches.
-- Strict surrogate ladder: W0 is dry air only, W1 is variable Gaussian plume only, W2 is GP-corrected annular-Gaussian only, and W3 is randomised GP-corrected annular-Gaussian only.
+- Strict evidence ladder: R5 W0/W1 is randomized synthesis/training; W2 is optional GP-corrected annular-Gaussian diagnostic only; W3 is frozen held-out randomised GP-corrected annular-Gaussian validation.
 - W0/W1 generate and tune a rich primitive-controller library; they do not output a 12--24 retained shortlist.
-- W2/W3 replay fixed primitive-controller variants and shrink only by survival evidence; they do not regenerate, retune, or mutate LQR gains, Q/R weights, horizons, references, or entry sets.
+- W3 replays fixed primitive-controller variants and shrinks only by held-out survival evidence; it does not regenerate, retune, or mutate LQR gains, Q/R weights, horizons, references, or entry sets. Optional W2 follows the same no-retune rule but has no required move-on authority.
 - Clustering and merging happen only after W3.
 - X/y boundary exits are retained as terminal episode evidence when appropriate; they are not continuation-valid states and must not be deleted merely because a launch reaches the lateral boundary.
 - Dense runs must use chunked, resumable, compressed, worker-enabled execution.
@@ -93,11 +95,11 @@ Execution table
 | Sun 24 May | L2 | Environment context and mixed start-state sampler | Context encoder plus launch/in-flight primitive-start sampler | W0 dry air; W1 variable Gaussian; W2 annular-GP availability check; W3-style shifted fan and power-scaled context smoke | Smoke table; file <100 MB | Mixed start-state distribution implemented: 40% launch_gate, 25% inflight_nominal, 15% inflight_lift_region, 10% inflight_boundary_near, 10% inflight_recovery_edge | `env_ctx.py`; `prim_start_sampler.py`; `ctx_smoke.csv`; `docs/abbr.md` | Context features and provenance fields work for dry, Gaussian, annular-GP, shifted, and power-scaled environments |
 | Mon 25 May | L3 | Primitive catalogue and variant schema | Primitive and controller metadata smoke | Environment-independent definitions; W0/W1 execution assumptions include panel-wise and timing models | Smoke only | 8 active primitive families; each has declared primitive-controller fields | `prim_cat.py`; primitive schema tests | Every primitive has entry set, reference, finite horizon, LQR metadata, exit checks, metrics, failure labels, and claim status |
 | Tue 26 May | L4 | LQR synthesis and timing-aware rollout smoke | First primitive-controller variants for active primitive families | W0 dry-air and W1 variable-Gaussian contexts; panel-wise wind, feedback latency, command timing, and actuator lag active | Smoke only; no dense run | At least one solved or explicitly blocked LQR controller per primitive family | `lqr_controller.py`; `lqr_linearisation.py`; LQR/timing smoke manifest | No primitive silently falls back to PD; each failure has a blocked reason |
-| Wed 27 May | L5 | W0/W1 dense preflight | State + context + primitive + controller rollout rows | W0/W1 required; no W2/W3 filtering yet | Chunked preflight; workers<=8; csv_gz/parquet; checksums; no file >100 MB | 1k--5k preflight rows covering all start-state families | `run_lqr_w01_dense_chunked.py`; table manifest; runtime summary | Chunking, resume, repair, checksums, file-size audit, LQR metadata, timing fields, and boundary-use labels pass |
-| Thu 28 May | L6 | W0/W1 rich primitive-library generation I | Tune primitive-local variants inside each primitive using mixed primitive-start states | W0 dry air + W1 variable Gaussian for single-fan and four-fan cases; no small-library selection | Dense if >10k rows: workers=8, max_workers=8, chunked, compressed partitions | Preferred rich library: 8 primitives x 32--128 variants x 100--300 paired tests; fallback 8 x 16 x 50 | Primitive-controller variant registry; Q/R/reference diagnostics; failure-label summary | Every generated variant is retained or explicitly blocked; no 12--24 shortlist is produced |
-| Fri 29 May | L7 | W0/W1 rich primitive-library generation II and completeness audit | Complete W0/W1 dense generation and prepare fixed library for W2 | W0/W1 only; include accepted, weak, failed, rejected, continuation-valid, and x-y terminal-useful rows | Dense run continues with resume/repair; compressed partitions | Preferred 40k--100k W0/W1 rows; fallback 20k | W0/W1 rich library manifest; paired-start audit; boundary-use audit; no-clustering note | W2 is cleared only when the rich fixed W0/W1 primitive-controller library is available and uncompressed shortlist logic is absent |
-| Sat 30 May | L8 | W2 annular-GP dense survival sweep | Replay the fixed W0/W1 library under hardware-aware realism | W2: single-fan and four-fan annular-GP, panel-wise wind, feedback latency, command timing, actuator lag, realistic termination | Dense if >10k rows: workers=8, chunked, compressed | Preferred 20k--60k W2 rows; fallback 10k | W2 survival table; eliminated/downgraded/surviving variant summary; no-retune audit | Variants that pass W0/W1 but fail W2 are eliminated or downgraded; no LQR retuning occurs |
-| Sun 31 May | L9 | W3 domain-randomised dense survival sweep | Stress W2 survivors under randomised environment, implementation, timing, launch, and plant uncertainty | W3: randomised annular-GP, fan position, fan number, fan power, updraft amplitude/centre/width, residual field, mass, CG, inertia tensor, aerodynamic efficiency, latency jitter, command timing, actuator delay | Dense if >10k rows: workers=8, chunked, compressed | Preferred 30k--100k W3 rows; fallback 15k | W3 survival table; pass/weak/fail labels; randomisation manifest; no-retune audit | Only variants that survive W3 move to post-W3 library-size cross-study; blocked/downgraded reasons are explicit |
+| Wed 27 May | L5 | R5 robust synthesis preflight | State + context + primitive + controller rollout rows | R5 W0/W1 required; no W3 filtering yet | Chunked preflight; workers<=8; csv_gz/parquet; checksums; no file >100 MB | 1k--5k preflight rows covering all start-state families and role regimes | `run_lqr_w01_dense_chunked.py`; table manifest; runtime summary | Chunking, resume, repair, checksums, file-size audit, LQR metadata, timing fields, role separation, and boundary-use labels pass |
+| Thu 28 May | L6 | R5 robust primitive-library synthesis I | Tune primitive-local variants inside each primitive using mixed primitive-start states and W3-style randomised training | W0 dry/near-dry + W1 randomized single/multi-fan cases; no small-library selection | Dense if >10k rows: workers=8, max_workers=8, chunked, compressed partitions | Preferred rich library: active primitives x 32--128 variants x 100--300 paired tests; fallback active primitives x 16 x 50 | Primitive-controller variant registry; Q/R/reference diagnostics; failure-label summary | Every generated variant is retained or explicitly blocked; no 12--24 shortlist is produced |
+| Fri 29 May | L7 | R5 robust primitive-library synthesis II and freeze audit | Complete W0/W1 dense synthesis and prepare frozen library for held-out W3 | W0/W1 randomized synthesis only; include accepted, weak, failed, rejected, continuation-valid, and x-y terminal-useful rows | Dense run continues with resume/repair; compressed partitions | Preferred >=134,400 rows for the current 14-primitive catalogue; larger if randomized training blocks increase | W0/W1 rich library manifest; paired-start audit; boundary-use audit; no-clustering note; frozen bundle | W3 is cleared only when the rich fixed R5 primitive-controller library is available, seed separation is recorded, and uncompressed shortlist logic is absent |
+| Sat 30 May | L8 | Optional W2 annular-GP diagnostic sweep | Replay the fixed R5 library under hardware-aware realism for diagnosis only | W2: single-fan and four-fan annular-GP, panel-wise wind, feedback latency, command timing, actuator lag, realistic termination | Dense if >10k rows: workers=8, chunked, compressed | Preferred 20k--60k W2 rows if requested; fallback 10k | W2 diagnostic table; eliminated/downgraded/surviving variant summary; no-retune audit | W2 cannot unblock R8/R9/R10; any W2 failure is diagnostic and does not weaken W3 holdout gates |
+| Sun 31 May | L9 | R7 W3 frozen held-out dense survival sweep | Stress frozen R5 variants under held-out randomised environment, implementation, timing, launch, and plant uncertainty | W3: randomised annular-GP, fan position, fan number, fan power, updraft amplitude/centre/width, residual field, mass, CG, inertia tensor, aerodynamic efficiency, latency jitter, command timing, actuator delay | Dense if >10k rows: workers=8, chunked, compressed | Preferred 30k--100k W3 rows; fallback 15k | W3 survival table; pass/weak/fail labels; randomisation and seed-separation manifest; no-retune audit | Only variants that survive W3 move to post-W3 library-size cross-study; blocked/downgraded reasons are explicit and at least two launch_capable families must survive before R8 acceptance |
 | Mon 01 Jun | L10 | Post-W3 library-size cross-study | Cluster and merge the W3-surviving primitive library | Post-W3 only; use labelled weak/failure/terminal evidence for boundary explanation | Compact reports; dense inputs remain partitioned | Final selected library-size condition target is small enough for real-time governor computation; no fixed 12--24 target is imposed | Final primitive library registry; medoid/merge report; failure-cluster summary; hardware-candidate shortlist | Clustering/merging uses W3-surviving variants only and keeps continuation-valid separate from episode-terminal-useful cases |
 | Tue 02 Jun | G1 | Outcome model, governor, selector, and directional 3D residual memory | Train/use the outcome model, viability governor, selector, and directional 3D residual lift belief over the post-W3 selected library-size condition | Frozen selected library-size condition for integration; no hidden controller mutation | Chunked episode logs if dense; compact metrics | Outcome model plus governor smoke; memory λ in {0.0, 0.5, 0.8, 0.95} | Outcome model report; governor rejection logs; selector and belief smoke results | Governor can select primitives after a previous primitive ends, log rejection reasons, and distinguish continuation_mode from terminal_episode_mode |
 | Wed 03 Jun | V1 | Full-loop simulation validation | Test the entire outer loop across W0--W3 | W0 dry air; W1 variable Gaussian; W2 annular-GP; W3 domain randomisation; frozen library, governor, selector, and memory | Chunked if dense; compact metrics | 100--300 episodes per policy; fallback 50 | No-memory, static-map, context-only, and context+memory comparison | Safe primitive execution, prediction alignment, memory benefit/no-benefit, dwell, energy, margin, termination, and rejection count are reported |
@@ -105,11 +107,11 @@ Execution table
 | Fri 05 Jun | H2 | Real no-updraft baseline | Dry/fan-off repeated launches | Real W0 fan-off or dry baseline with Vicon-measured initial states | Real logs partitioned if needed; every file <100 MB | Minimum 6 usable launches; target 8--10 | Baseline real-flight table; matched W0 replay setup | Baseline outcomes are usable for comparison; x/y boundary exits are logged as terminal outcomes, not deleted |
 | Sat 06 Jun | H3 | Real updraft and memory experiments | Environment-conditioned primitive selection and directional 3D residual memory | Real single-fan and four-fan measured-updraft cases; changed fan power or subset only if safe and approved | Real logs with episode IDs and belief snapshots; no file >100 MB | Minimum 6 usable launches per approved condition; target 8--10 | Contextual selector table; belief logs; episode comparison table | Logs include measured state, selected primitive, controller ID, rejection log, belief before/after, and termination cause |
 | Sun 07 Jun | H4 | Changed-environment test, sim-real pairing, and results lock | Replay every usable real launch and lock claim boundary | Changed fan number/position and added mass only if safe and approved; matched W1/W2-compatible replay; W3-style replay for robustness discussion | Chunked replay if dense; compact paired metrics; manifest and file-size audit | Every usable real launch has matched replay | Sim-real prediction table; results package; figure-source manifest; claim-boundary note | Transfer labels are metric-specific and claim-safe; no new experiments unless a manifest, safety, or logging error is found |
-| Mon 08 Jun | W1 | Methods writing | Chapter 6 methods | W0/W1 generation, W2/W3 survival, post-W3 library-size cross-study, governor, selector, and memory described in order | Writing only | Method skeleton and algorithms complete | Chapter 6 draft | Text matches implemented code and avoids retired branch/chain/PD story |
-| Tue 09 Jun | W2 | Results writing | Chapter 7 results | Report W0/W1 rich library, W2 survival, W3 survival, post-W3 library-size cross-study, full-loop simulation, real flight, and sim-real pairing | Writing only | Core tables and figures integrated | Chapter 7 draft | Results use supported / partial / negative / not-tested labels |
+| Mon 08 Jun | W1 | Methods writing | Chapter 6 methods | R5 robust W0/W1 synthesis, optional W2 diagnostics, frozen W3 survival, post-W3 library-size cross-study, governor, selector, and memory described in order | Writing only | Method skeleton and algorithms complete | Chapter 6 draft | Text matches implemented code and avoids retired branch/chain/PD story |
+| Tue 09 Jun | W2 | Results writing | Chapter 7 results | Report R5 robust rich library, optional W2 diagnostics if run, frozen W3 survival, post-W3 library-size cross-study, full-loop simulation, real flight, and sim-real pairing | Writing only | Core tables and figures integrated | Chapter 7 draft | Results use supported / partial / negative / not-tested labels |
 | Wed 10 Jun | W3 | Introduction and related work | Chapter 1/2 rewrite | Position project as feedback-stabilised primitive sim-to-real transfer, not perching or all-arena exploration | Writing only | Intro and related-work draft | Chapter 1/2 updated | No old final-objective trace remains |
 | Thu 11 Jun | W4 | Platform/updraft/model chapters | Chapters 3--5 alignment | Explain retained glider, panel-wise, timing, and updraft/local-flow foundations | Writing only | Platform, updraft, and glider chapters coherent | Chapter 3--5 edits | Assumptions match the final method |
-| Fri 12 Jun | W5 | Figures and captions | Thesis figures | Figures cover W0/W1 generation, W2/W3 survival, post-W3 library-size cross-study, full-loop validation, and real evidence where available | Figure files <100 MB; preferred <75 MB | All core figures traceable | Figure folder and caption draft | Every figure has data source and claim boundary |
+| Fri 12 Jun | W5 | Figures and captions | Thesis figures | Figures cover R5 robust synthesis, optional W2 diagnostics if run, frozen W3 survival, post-W3 library-size cross-study, full-loop validation, and real evidence where available | Figure files <100 MB; preferred <75 MB | All core figures traceable | Figure folder and caption draft | Every figure has data source and claim boundary |
 | Sat 13 Jun | W6 | Full thesis integration | Compile all chapters and appendices | Whole thesis | Writing only | Full compile; missing refs listed | Full draft PDF | No major missing section remains |
 | Sun 14 Jun | W7 | Review and compression | Clarity, consistency, claim safety | Whole thesis | Writing only | Remove repetition and retired strategy traces | Near-final PDF | Supervisor-readable and internally consistent |
 | Mon 15 Jun | W8 | Final checks | Submission package | Whole thesis and repository evidence package | File-size, reference, compile, and reproducibility audit | Zero critical compile errors | Submission-ready thesis package | Submission package complete |
@@ -118,14 +120,14 @@ Move-on hierarchy
 -----------------
 1. Model, sign, trim, panel-wise wind, feedback-latency, command-timing, or actuator-lag mismatch blocks new LQR controller evidence.
 2. Missing LQR synthesis and audit blocks W0/W1 rich primitive-library generation.
-3. Missing W0/W1 rich primitive-controller library blocks W2.
-4. Missing W2 survival blocks W3 and hardware shortlist.
-5. Missing W3 survival blocks post-W3 library-size cross-study and robust-library claims.
+3. Missing R5 W0/W1 robust frozen primitive-controller library blocks W3.
+4. Missing W3 held-out survival blocks post-W3 library-size cross-study and robust-library claims.
+5. Missing at least two W3-surviving launch_capable families blocks R8/R9/R10.
 6. Missing post-W3 library-size cross-study blocks the compact governor library and realistic real-time selection claim.
 7. Missing full-loop simulation validation blocks claims about outer-loop governor and memory behaviour.
 8. Missing matched sim-real replay blocks transfer claims.
 9. Missing real flight still allows simulation-only thesis claims if labelled honestly.
-10. Reintroducing PD as an active controller, selecting a 12--24 W0/W1 shortlist, or clustering before W2/W3 is not a valid unblock path.
+10. Reintroducing PD as an active controller, selecting a 12--24 W0/W1 shortlist, clustering before W3, or using W2 diagnostic survival as an accepted move-on gate is not a valid unblock path.
 
 Evidence wording
 ----------------
