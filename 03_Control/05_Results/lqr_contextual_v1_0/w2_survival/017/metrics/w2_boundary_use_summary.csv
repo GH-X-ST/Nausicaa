@@ -1,0 +1,4 @@
+boundary_use_class,continuation_valid,episode_terminal_useful,w2_survival_status,row_count
+continuation_valid,True,False,survived,60800
+episode_terminal_useful,False,True,downgraded,5504
+hard_failure,False,False,eliminated,23296
