@@ -148,9 +148,11 @@ def test_w3_executes_from_valid_w2_survivor_registry_and_frozen_bundle(tmp_path:
     (manifests / "w2_survival_manifest.json").write_text(
         json.dumps(
             {
-                "status": "survived_variants_available",
-                "project_title_version": "LQR-Stabilised Contextual Primitive v4.11",
+                "status": "w2_dense_survival_pass",
+                "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
                 "primitive_timing_contract": primitive_timing_contract_row(),
+                "method_evidence_level": "w2_dense_survival_pass",
+                "w2_dense_survival_evidence_complete": True,
             },
             indent=2,
         )
@@ -190,7 +192,7 @@ def test_w3_executes_from_valid_w2_survivor_registry_and_frozen_bundle(tmp_path:
     assert frame["fixed_lqr_replay_only"].astype(bool).all()
 
 
-def test_w2_default_discovery_excludes_sparse_family_roots(tmp_path: Path) -> None:
+def test_w2_default_discovery_requires_dense_method_evidence(tmp_path: Path) -> None:
     discovery_root = tmp_path / "w01_dense"
     sparse_root = _write_w01_source_fixture(discovery_root / "012", "glide", include_augmented_payload=True)
     ready_root = _write_w01_source_fixture(discovery_root / "014", "glide", include_augmented_payload=True)
@@ -200,8 +202,10 @@ def test_w2_default_discovery_excludes_sparse_family_roots(tmp_path: Path) -> No
                     "run_id": 12,
                     "rows_requested": 240,
                     "cross_layer_smoke_status": "artifact_smoke_only_start_family_incomplete",
-                    "project_title_version": "LQR-Stabilised Contextual Primitive v4.11",
+                    "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
                     "primitive_timing_contract": primitive_timing_contract_row(),
+                    "method_evidence_level": "w01_smoke_or_preflight_only",
+                    "w01_dense_evidence_complete": False,
                 },
             indent=2,
         )
@@ -214,8 +218,12 @@ def test_w2_default_discovery_excludes_sparse_family_roots(tmp_path: Path) -> No
                     "run_id": 14,
                     "rows_requested": 960,
                     "cross_layer_smoke_status": "cross_layer_smoke_start_family_complete",
-                    "project_title_version": "LQR-Stabilised Contextual Primitive v4.11",
+                    "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
                     "primitive_timing_contract": primitive_timing_contract_row(),
+                    "method_evidence_level": "w01_dense_evidence_complete",
+                    "w01_dense_evidence_complete": True,
+                    "W2_W3_replay_only": True,
+                    "no_clustering_before_W2_W3": True,
                 },
             indent=2,
         )
@@ -294,9 +302,13 @@ def _write_w01_source_fixture(
             {
                 "run_id": 8,
                 "status": "fixture",
-                "project_title_version": "LQR-Stabilised Contextual Primitive v4.11",
+                "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
                 "cross_layer_smoke_status": "cross_layer_smoke_start_family_complete",
                 "primitive_timing_contract": primitive_timing_contract_row(),
+                "method_evidence_level": "w01_dense_evidence_complete",
+                "w01_dense_evidence_complete": True,
+                "W2_W3_replay_only": True,
+                "no_clustering_before_W2_W3": True,
             },
             indent=2,
         )

@@ -1,0 +1,34 @@
+{
+  "manifest_version": "v411_source_audit_rerun_readiness_gate",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
+  "status": "ready",
+  "dry_run": false,
+  "required_doc_count": 8,
+  "missing_docs": [],
+  "inventory_count": 2421,
+  "active_path_count": 175,
+  "retired_path_count": 366,
+  "superseded_result_root_count": 35,
+  "archive_root": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001",
+  "archive_manifest": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001/manifest.json",
+  "blockers": [],
+  "primitive_timing_contract": {
+    "finite_horizon_s": 0.1,
+    "controller_input_slots_per_primitive": 5,
+    "controller_input_update_period_s": 0.02,
+    "primitive_timing_contract_version": "v411_0p10s_5slot_20ms"
+  },
+  "library_size_case_ids": [
+    "heavy_cluster",
+    "balanced_cluster",
+    "light_cluster",
+    "no_cluster_no_merge"
+  ],
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "full_autonomy",
+    "memory_improvement"
+  ]
+}

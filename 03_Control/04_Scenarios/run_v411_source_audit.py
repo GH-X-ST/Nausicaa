@@ -28,7 +28,7 @@ from primitive_timing_contract import (  # noqa: E402
 from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.11"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
 SOURCE_AUDIT_VERSION = "v411_source_audit_rerun_readiness_gate"
 REQUIRED_DOCS = (
     "Glider_Control_Project_Plan.md",
@@ -194,6 +194,8 @@ def classify_control_file(relative_path: str) -> str:
     lower = rel.lower()
     if "/05_results/" in f"/{lower}/" or lower.startswith("05_results/"):
         return "generated_result"
+    if lower.startswith("99_archive/"):
+        return "retired_not_active"
     if "/tests/" in f"/{lower}/" or lower.startswith("tests/"):
         return "test_fixture"
     if "scratch" in lower or lower.endswith(".tmp"):
@@ -247,8 +249,9 @@ def write_diagnostic_not_passed_archive(
     _write_csv(root / "metrics" / "active_retired_control_inventory.csv", inventory)
     _write_csv(root / "archived_result_roots.csv", superseded_roots)
     _write_csv(root / "file_size_audit.csv", _file_size_audit_rows(root))
+    _write_csv(root / "metrics" / "file_size_audit.csv", _file_size_audit_rows(root))
     manifest = {
-        "manifest_version": "diagnostic_not_passed_v410_archive_manifest_v411",
+        "manifest_version": "diagnostic_not_passed_v410_archive_manifest_v5",
         "project_title_version": PROJECT_TITLE_VERSION,
         "status": "diagnostic_not_passed",
         "archive_root": root.as_posix(),
@@ -256,8 +259,8 @@ def write_diagnostic_not_passed_archive(
         "required_docs": docs,
         "inventory_counts": _inventory_counts(inventory),
         "archived_result_roots_csv": (root / "archived_result_roots.csv").as_posix(),
-        "file_size_audit_csv": (root / "file_size_audit.csv").as_posix(),
-        "claim_status": "diagnostic_archive_only_not_v411_validation_evidence",
+        "file_size_audit_csv": (root / "metrics" / "file_size_audit.csv").as_posix(),
+        "claim_status": "diagnostic_archive_only_not_v5_validation_evidence",
         "blocked_claims": list(BLOCKED_CLAIMS),
     }
     _write_json(root / "manifest.json", manifest)
@@ -269,7 +272,7 @@ def write_diagnostic_not_passed_archive(
                 "",
                 f"- Status: `{manifest['status']}`",
                 f"- Superseded roots: `{len(superseded_roots)}`",
-                "- Evidence in this archive is rejected for v4.11 claims.",
+                "- Evidence in this archive is rejected for v5.0 claims.",
                 "- No hardware-readiness, real-flight transfer, mission-success, autonomy, or memory-improvement claim is allowed.",
                 "",
             ]
@@ -354,11 +357,14 @@ def _superseded_result_reason(root: Path, relative: str) -> str:
     reasons = [f"path:{fragment}" for fragment in SUPERSEDED_PATH_FRAGMENTS if fragment in lower_rel]
     manifest_paths = sorted((root / "manifests").glob("*.json")) if (root / "manifests").is_dir() else []
     manifest_paths.extend(sorted(root.glob("*.json")))
+    metadata_text = []
     for path in manifest_paths[:20]:
         text = _read_text_or_empty(path)
+        metadata_text.append(text)
         reasons.extend(f"manifest:{fragment}" for fragment in SUPERSEDED_TEXT_FRAGMENTS if fragment in text)
-        if PRIMITIVE_TIMING_CONTRACT_VERSION not in text and "v411" not in text.lower():
-            reasons.append("manifest_missing_v411_timing_contract")
+    combined_metadata = "\n".join(metadata_text)
+    if metadata_text and PRIMITIVE_TIMING_CONTRACT_VERSION not in combined_metadata and "v411" not in combined_metadata.lower():
+        reasons.append("manifest_missing_v411_timing_contract")
     if _root_has_long_horizon_tables(root):
         reasons.append("table_long_primitive_horizon")
     return ";".join(sorted(set(reasons)))

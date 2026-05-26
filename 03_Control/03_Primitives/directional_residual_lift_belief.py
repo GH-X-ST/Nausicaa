@@ -15,9 +15,9 @@ DEFAULT_Z_BINS_M = (0.0, 1.0, 2.0, 3.0)
 
 @dataclass(frozen=True)
 class DirectionalResidualObservation:
-    x_m: float
-    y_m: float
-    z_m: float
+    x_w_m: float
+    y_w_m: float
+    z_w_m: float
     direction_rad: float
     lift_residual_m_s: float
     energy_residual_m: float
@@ -106,12 +106,12 @@ def update_directional_residual_lift_belief(
 def query_directional_residual_lift_features(
     belief: DirectionalResidualLiftBelief,
     *,
-    x_m: float,
-    y_m: float,
-    z_m: float,
+    x_w_m: float,
+    y_w_m: float,
+    z_w_m: float,
     direction_rad: float,
 ) -> dict[str, float | int | str]:
-    key = _cell_key_for_values(belief, x_m=x_m, y_m=y_m, z_m=z_m, direction_rad=direction_rad)
+    key = _cell_key_for_values(belief, x_w_m=x_w_m, y_w_m=y_w_m, z_w_m=z_w_m, direction_rad=direction_rad)
     cells = {_cell_key(cell): cell for cell in belief.cells}
     cell = cells.get(key)
     if cell is None:
@@ -148,9 +148,9 @@ def directional_residual_observation_from_rows(
     """Build one residual-memory observation from expected and observed rollout rows."""
 
     return DirectionalResidualObservation(
-        x_m=float(observed_row.get("initial_x_n", observed_row.get("x_m", 0.0))),
-        y_m=float(observed_row.get("initial_y_e", observed_row.get("y_m", 0.0))),
-        z_m=float(observed_row.get("initial_z_w", observed_row.get("z_m", 0.0))),
+        x_w_m=_required_float(observed_row, "initial_x_w", "x_w_m"),
+        y_w_m=_required_float(observed_row, "initial_y_w", "y_w_m"),
+        z_w_m=_required_float(observed_row, "initial_z_w", "z_w_m"),
         direction_rad=float(direction_rad),
         lift_residual_m_s=float(observed_row.get("w_wing_mean_m_s", 0.0))
         - float(expected_row.get("w_wing_mean_m_s", 0.0)),
@@ -179,9 +179,9 @@ def _cell_key_for_observation(
 ) -> tuple[int, int, int, int]:
     return _cell_key_for_values(
         belief,
-        x_m=observation.x_m,
-        y_m=observation.y_m,
-        z_m=observation.z_m,
+        x_w_m=observation.x_w_m,
+        y_w_m=observation.y_w_m,
+        z_w_m=observation.z_w_m,
         direction_rad=observation.direction_rad,
     )
 
@@ -189,15 +189,15 @@ def _cell_key_for_observation(
 def _cell_key_for_values(
     belief: DirectionalResidualLiftBelief,
     *,
-    x_m: float,
-    y_m: float,
-    z_m: float,
+    x_w_m: float,
+    y_w_m: float,
+    z_w_m: float,
     direction_rad: float,
 ) -> tuple[int, int, int, int]:
     return (
-        _bin_index(float(x_m), belief.x_edges_m),
-        _bin_index(float(y_m), belief.y_edges_m),
-        _bin_index(float(z_m), belief.z_edges_m),
+        _bin_index(float(x_w_m), belief.x_edges_m),
+        _bin_index(float(y_w_m), belief.y_edges_m),
+        _bin_index(float(z_w_m), belief.z_edges_m),
         _direction_bin(float(direction_rad), int(belief.direction_bin_count)),
     )
 
@@ -221,3 +221,10 @@ def _direction_bin(direction_rad: float, count: int) -> int:
 
 def _blend(old: float, new: float, alpha: float) -> float:
     return float(old) + float(alpha) * (float(new) - float(old))
+
+
+def _required_float(row: dict[str, object], *names: str) -> float:
+    for name in names:
+        if name in row and row[name] not in ("", None):
+            return float(row[name])
+    raise ValueError("directional_residual_memory_missing_canonical_coordinate:" + ",".join(names))

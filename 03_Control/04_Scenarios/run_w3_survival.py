@@ -54,12 +54,12 @@ from state_sampling import archive_state_sample_for_family, archive_state_sample
 
 
 W3_SURVIVAL_VERSION = "w3_fixed_lqr_survival_replay_v411"
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.11"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
 DEFAULT_W2_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")
 W3_TABLE_NAME = "w3_survival_rows"
 W3_ENVIRONMENT_CASES = ("w3_randomised_single", "w3_randomised_four")
-ACCEPTED_W2_SOURCE_STATUSES = ("w2_artifact_smoke_pass", "w2_dense_survival_pass", "survived_variants_available")
+ACCEPTED_W2_SOURCE_STATUSES = ("w2_dense_survival_pass",)
 SURVIVAL_STATUS_VOCABULARY = ("blocked", "ready_for_fixed_lqr_replay", "complete", "not_run")
 TEST_FIXTURE_LABEL = "test_fixture_not_method_evidence"
 BLOCKED_CLAIMS = (
@@ -327,11 +327,15 @@ def _input_blocked_reason(input_root: Path) -> str:
     timing = source.get("primitive_timing_contract", {})
     is_fixture = str(survivors.get("fixture_evidence_label", "")) == TEST_FIXTURE_LABEL
     if not is_fixture and str(source.get("project_title_version", "")) != PROJECT_TITLE_VERSION:
-        return "W2_source_not_v411_project_title"
+        return "W2_source_not_v5_project_title"
     if not is_fixture and str(timing.get("primitive_timing_contract_version", "")) != PRIMITIVE_TIMING_CONTRACT_VERSION:
         return "W2_source_missing_v411_timing_contract"
-    if source.get("status") not in ACCEPTED_W2_SOURCE_STATUSES:
+    if not is_fixture and source.get("status") not in ACCEPTED_W2_SOURCE_STATUSES:
         return "W2_survival_status_not_accepted_for_W3_fixed_replay"
+    if is_fixture and source.get("status") not in {"w2_artifact_smoke_pass", "survived_variants_available"}:
+        return "W2_fixture_status_not_accepted_for_W3_plumbing"
+    if not is_fixture and not bool(source.get("w2_dense_survival_evidence_complete", False)):
+        return "W2_source_not_dense_survival_evidence_complete"
     if survivors.get("status") != "survived_variants_available":
         return "W2_survivor_registry_not_available"
     if int(survivors.get("survivor_count", 0)) <= 0:
@@ -722,6 +726,7 @@ def _write_run_manifest(
     worker_decision: dict[str, object],
     fixture_label: str,
 ) -> None:
+    source_w2_manifest = _read_json_or_empty(Path(config.input_root) / "manifests" / "w2_survival_manifest.json")
     manifest = {
         "version": W3_SURVIVAL_VERSION,
         "project_title_version": PROJECT_TITLE_VERSION,
@@ -729,12 +734,24 @@ def _write_run_manifest(
         "run_id": int(config.run_id),
         "input_root": Path(config.input_root).as_posix(),
         "input_contract": "W2 survival root with survivor registry and frozen bundle; raw W01 variants are not accepted",
+        "source_w2_status": str(source_w2_manifest.get("status", "")),
+        "source_w2_dense_survival_evidence_complete": bool(
+            source_w2_manifest.get("w2_dense_survival_evidence_complete", False)
+        ),
         "row_count": int(row_count),
         "survivor_count": int(survivor_count),
         "storage_format": storage_format,
         "compression_level": int(config.compression_level),
         "rollout_dt_s": float(config.rollout_dt_s),
         "primitive_timing_contract": primitive_timing_contract_row(),
+        "primitive_timing_contract_status": "compliant",
+        "method_evidence_level": (
+            "w3_dense_survival_pass"
+            if status == "complete" and fixture_label != TEST_FIXTURE_LABEL
+            else "w3_fixture_or_smoke_only"
+            if fixture_label == TEST_FIXTURE_LABEL
+            else status
+        ),
         "paired_tests_per_variant": int(config.paired_tests_per_variant),
         "candidate_chunk_size": int(config.candidate_chunk_size),
         "chunk_count": int(len(schedule)),
@@ -889,6 +906,13 @@ def _blocked_instance_prefix_rows(prefix: str) -> dict[str, object]:
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     filesystem_path(path).parent.mkdir(parents=True, exist_ok=True)
     filesystem_path(path).write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="ascii")
+
+
+def _read_json_or_empty(path: Path) -> dict[str, object]:
+    try:
+        return json.loads(filesystem_path(path).read_text(encoding="ascii"))
+    except Exception:
+        return {}
 
 
 def _result_payload(run_root: Path, status: str) -> dict[str, object]:

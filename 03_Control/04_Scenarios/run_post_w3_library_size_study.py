@@ -25,26 +25,27 @@ from dense_archive_table_io import file_sha256, filesystem_path  # noqa: E402
 from primitive_timing_contract import primitive_timing_contract_row, primitive_timing_contract_status  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.11"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
 POST_W3_LIBRARY_STUDY_VERSION = "post_w3_library_size_study_v411"
-DEFAULT_INPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival/013")
+DEFAULT_W3_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")
+DEFAULT_INPUT_ROOT: Path | None = None
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study")
 LIBRARY_SIZE_CASES: tuple[dict[str, object], ...] = (
     {
         "library_size_case_id": "heavy_cluster",
-        "library_size_human_label": "heavy clustering",
+        "library_size_human_label": "heavy clustering and merging",
         "max_representatives_per_group": 1,
         "selection_policy": "top_score_per_primitive_entry_role",
     },
     {
         "library_size_case_id": "balanced_cluster",
-        "library_size_human_label": "balanced clustering",
+        "library_size_human_label": "balanced clustering and merging",
         "max_representatives_per_group": 3,
         "selection_policy": "top_score_then_diverse_per_primitive_entry_role",
     },
     {
         "library_size_case_id": "light_cluster",
-        "library_size_human_label": "light clustering",
+        "library_size_human_label": "light clustering and merging",
         "max_representatives_per_group": 6,
         "selection_policy": "broad_top_score_then_diverse_per_primitive_entry_role",
     },
@@ -67,14 +68,19 @@ BLOCKED_CLAIMS = (
 
 @dataclass(frozen=True)
 class PostW3LibrarySizeStudyConfig:
-    input_root: Path = DEFAULT_INPUT_ROOT
+    input_root: Path | None = DEFAULT_INPUT_ROOT
     output_root: Path = DEFAULT_OUTPUT_ROOT
     run_id: int = 1
 
 
 def run_post_w3_library_size_study(config: PostW3LibrarySizeStudyConfig) -> dict[str, object]:
-    """Build the four v4.11 post-W3 library-size cases from W3 survivors."""
+    """Build the four v5.0 post-W3 library-size cases from W3 survivors."""
 
+    config = PostW3LibrarySizeStudyConfig(
+        input_root=_resolve_w3_input_root(config.input_root),
+        output_root=config.output_root,
+        run_id=config.run_id,
+    )
     run_root = Path(config.output_root) / f"{int(config.run_id):03d}"
     for subdir in ("manifests", "metrics", "reports"):
         filesystem_path(run_root / subdir).mkdir(parents=True, exist_ok=True)
@@ -141,20 +147,69 @@ def library_size_case_by_id(case_id: str) -> dict[str, object]:
     raise KeyError(f"unknown library_size_case_id: {case_id}")
 
 
+def discover_latest_w3_root_for_post_w3(discovery_root: Path = DEFAULT_W3_DISCOVERY_ROOT) -> Path | None:
+    root = filesystem_path(discovery_root)
+    if not root.is_dir():
+        return None
+    candidates: list[tuple[int, Path]] = []
+    for path in root.iterdir():
+        if not path.is_dir():
+            continue
+        try:
+            numeric_id = int(path.name)
+        except ValueError:
+            continue
+        candidate = Path(path)
+        if _input_blocked_reason(candidate):
+            continue
+        try:
+            survived = pd.read_csv(filesystem_path(candidate / "metrics" / "w3_variant_survival_summary.csv"))
+            survived = survived[survived["w3_variant_status"].astype(str) == "survived"].copy()
+        except Exception:
+            continue
+        if _survived_frame_blocked_reason(survived):
+            continue
+        candidates.append((numeric_id, candidate))
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: item[0])[-1][1]
+
+
+def _resolve_w3_input_root(input_root: Path | None) -> Path:
+    if input_root is not None:
+        return Path(input_root)
+    discovered = discover_latest_w3_root_for_post_w3()
+    if discovered is not None:
+        return discovered
+    return DEFAULT_W3_DISCOVERY_ROOT / "__missing_eligible_w3_root__"
+
+
 def _input_blocked_reason(input_root: Path) -> str:
     root = Path(input_root)
     if "w3_survival" not in root.as_posix():
         return "input_root_is_not_W3_survival_root"
     registry_path = filesystem_path(root / "manifests" / "w3_survivor_registry.json")
     summary_path = filesystem_path(root / "metrics" / "w3_variant_survival_summary.csv")
+    source_manifest_path = filesystem_path(root / "manifests" / "w3_survival_manifest.json")
     if not registry_path.is_file():
         return "missing_w3_survivor_registry"
     if not summary_path.is_file():
         return "missing_w3_variant_survival_summary"
+    if not source_manifest_path.is_file():
+        return "missing_w3_survival_manifest"
     try:
         registry = json.loads(registry_path.read_text(encoding="ascii"))
+        source_manifest = json.loads(source_manifest_path.read_text(encoding="ascii"))
     except Exception as exc:
-        return f"unreadable_w3_survivor_registry:{type(exc).__name__}"
+        return f"unreadable_w3_survival_metadata:{type(exc).__name__}"
+    if str(registry.get("project_title_version", "")) != PROJECT_TITLE_VERSION:
+        return "w3_survivor_registry_not_v5_project_title"
+    if str(source_manifest.get("project_title_version", "")) != PROJECT_TITLE_VERSION:
+        return "w3_survival_manifest_not_v5_project_title"
+    if bool(source_manifest.get("test_fixture_not_method_evidence", False)):
+        return "w3_survival_fixture_not_method_evidence"
+    if str(source_manifest.get("method_evidence_level", "")) not in {"w3_dense_survival_pass", "complete"}:
+        return "w3_survival_not_dense_method_evidence"
     if str(registry.get("status", "")) != "w3_survivors_available":
         return "w3_survivor_registry_not_available"
     if int(registry.get("survivor_count", 0)) <= 0:
@@ -165,7 +220,12 @@ def _input_blocked_reason(input_root: Path) -> str:
 def _survived_frame_blocked_reason(survived: pd.DataFrame) -> str:
     if survived.empty:
         return "w3_registry_has_no_surviving_variants"
-    required = ("finite_horizon_s",)
+    required = (
+        "finite_horizon_s",
+        "controller_input_slots_per_primitive",
+        "controller_input_update_period_s",
+        "primitive_timing_contract_version",
+    )
     missing = [name for name in required if name not in survived.columns]
     if missing:
         return "w3_survivor_summary_missing_" + "_".join(missing)
@@ -345,7 +405,7 @@ def _write_blocked_outputs(run_root: Path, config: PostW3LibrarySizeStudyConfig,
 
 def _write_report(run_root: Path, manifest: dict[str, object]) -> None:
     lines = [
-        "# v4.11 Post-W3 Library-Size Study",
+        "# v5.0 Post-W3 Library-Size Study",
         "",
         f"- Status: `{manifest.get('status', '')}`",
         f"- Library-size cases: `{','.join(LIBRARY_SIZE_CASE_IDS)}`",
@@ -402,7 +462,7 @@ def _write_csv(path: Path, frame: pd.DataFrame) -> None:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build v4.11 four-case post-W3 library-size study.")
+    parser = argparse.ArgumentParser(description="Build v5.0 four-case post-W3 library-size study.")
     parser.add_argument("--input-root", type=Path, default=DEFAULT_INPUT_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-id", type=int, default=1)
@@ -424,4 +484,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -72,7 +72,7 @@ from state_sampling import archive_state_sample_for_family, archive_state_sample
 
 
 W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v411"
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.11"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
 W01_TABLE_NAME = "w01_primitive_rows"
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 L6_FALLBACK_ROW_COUNT = 19_200
@@ -82,6 +82,19 @@ L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE = 100
 CROSS_LAYER_START_FAMILY_CYCLE = 20
 CROSS_LAYER_SMOKE_READY = "cross_layer_smoke_start_family_complete"
 CROSS_LAYER_SMOKE_INCOMPLETE = "artifact_smoke_only_start_family_incomplete"
+W01_DRY_SCHEDULE_ONLY = "w01_dry_schedule_only"
+W01_SMOKE_OR_PREFLIGHT_ONLY = "w01_smoke_or_preflight_only"
+W01_DENSE_EVIDENCE_COMPLETE = "w01_dense_evidence_complete"
+REQUIRED_DOCS = (
+    "Glider_Control_Project_Plan.md",
+    "Skills.md",
+    "Python Coding Instruction.txt",
+    "Python Coding to CODEX.txt",
+    "MATLAB Coding.txt",
+    "housekeeping_and_naming_rules.md",
+    "Daily_Schedule.txt",
+    "PR.txt",
+)
 OFFICIAL_W01_ENVIRONMENT_CASES = (
     ("W0", "dry_air"),
     ("W1", "gaussian_single"),
@@ -173,6 +186,9 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
         raise ValueError("paired_tests_per_candidate must be positive when provided.")
     if str(config.schedule_mode) not in {BALANCED_SCHEDULE_MODE, SMOKE_SCHEDULE_MODE}:
         raise ValueError(f"schedule_mode must be {BALANCED_SCHEDULE_MODE!r} or {SMOKE_SCHEDULE_MODE!r}.")
+    _, docs_blockers = _required_docs_gate_rows(Path("docs"))
+    if docs_blockers:
+        raise RuntimeError("missing_required_docs:" + ",".join(docs_blockers))
 
     storage_format = resolve_storage_format(config.storage_format)
     run_root = _run_root(config)
@@ -276,6 +292,7 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
     )
     ended = time.time()
     row_count = _write_dense_metrics_from_partitions(run_root, completed_partitions, storage_format)
+    _refresh_run_manifest_after_execution(run_root=run_root, config=config, row_count=row_count)
     _write_chunk_summary(run_root, sorted(chunk_records, key=lambda item: int(item.get("chunk_index", -1))))
     _write_runtime_summary(
         run_root,
@@ -1065,6 +1082,12 @@ def _write_runtime_summary(
                 "runtime_storage_contract": RUNTIME_STORAGE_CONTRACT,
                 "max_generated_file_size_mb": float(MAX_GENERATED_FILE_SIZE_MB),
                 "claim_boundary": CLAIM_BOUNDARY,
+                "method_evidence_level": _w01_method_evidence_fields(
+                    config=config,
+                    actual_row_count=row_count,
+                    start_family_counts=_schedule_count_summary(config)["start_state_family"],
+                    primitive_counts=_schedule_count_summary(config)["primitive_id"],
+                )["method_evidence_level"],
             }
         ]
     ).to_csv(filesystem_path(run_root / "metrics" / "runtime_summary.csv"), index=False)
@@ -1719,6 +1742,112 @@ def _write_empty_table_manifest(run_root: Path, run_id: int, storage_format: str
     )
 
 
+def _required_docs_gate_rows(docs_root: Path) -> tuple[list[dict[str, object]], list[str]]:
+    rows: list[dict[str, object]] = []
+    blockers: list[str] = []
+    for doc_name in REQUIRED_DOCS:
+        path = Path(docs_root) / doc_name
+        try:
+            text = path.read_text(encoding="utf-8")
+            rows.append(
+                {
+                    "doc_name": doc_name,
+                    "relative_path": path.as_posix(),
+                    "readable": True,
+                    "byte_count": int(path.stat().st_size),
+                    "contains_text": bool(text.strip()),
+                }
+            )
+        except Exception as exc:
+            blockers.append(doc_name)
+            rows.append(
+                {
+                    "doc_name": doc_name,
+                    "relative_path": path.as_posix(),
+                    "readable": False,
+                    "byte_count": 0,
+                    "contains_text": False,
+                    "error": f"{type(exc).__name__}:{exc}",
+                }
+            )
+    return rows, blockers
+
+
+def _w01_method_evidence_fields(
+    *,
+    config: W01DenseRunConfig,
+    actual_row_count: int,
+    start_family_counts: dict[str, int],
+    primitive_counts: dict[str, int],
+) -> dict[str, object]:
+    _, start_family_blockers = _cross_layer_smoke_status_from_counts(
+        start_family_counts,
+        row_count=int(config.rows),
+    )
+    paired_tests = (
+        int(config.paired_tests_per_candidate)
+        if config.paired_tests_per_candidate is not None
+        else max(
+            1,
+            int(config.rows)
+            // max(1, len(ACTIVE_PRIMITIVE_IDS) * int(config.candidate_count) * len(OFFICIAL_W01_ENVIRONMENT_CASES)),
+        )
+    )
+    primitive_family_coverage_complete = set(primitive_counts) >= set(ACTIVE_PRIMITIVE_IDS) and all(
+        int(primitive_counts.get(primitive_id, 0)) > 0 for primitive_id in ACTIVE_PRIMITIVE_IDS
+    )
+    start_family_mix_complete = not start_family_blockers
+    dense_blockers: list[str] = []
+    if int(actual_row_count) < L6_RICH_SIDE_ROW_COUNT:
+        dense_blockers.append("actual_row_count_below_dense_threshold")
+    if int(config.candidate_count) < L6_RICH_SIDE_CANDIDATE_COUNT:
+        dense_blockers.append("candidate_count_below_dense_threshold")
+    if int(paired_tests) < L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE:
+        dense_blockers.append("paired_tests_per_candidate_below_dense_threshold")
+    if not start_family_mix_complete:
+        dense_blockers.extend(start_family_blockers)
+    if not primitive_family_coverage_complete:
+        dense_blockers.append("primitive_family_coverage_incomplete")
+    if bool(config.dry_run_schedule):
+        method_evidence_level = W01_DRY_SCHEDULE_ONLY
+        dense_complete = False
+    elif dense_blockers:
+        method_evidence_level = W01_SMOKE_OR_PREFLIGHT_ONLY
+        dense_complete = False
+    else:
+        method_evidence_level = W01_DENSE_EVIDENCE_COMPLETE
+        dense_complete = True
+    return {
+        "method_evidence_level": method_evidence_level,
+        "w01_dense_evidence_complete": bool(dense_complete),
+        "w01_dense_required_for_w2": True,
+        "minimum_rows_required_for_dense_claim": int(L6_RICH_SIDE_ROW_COUNT),
+        "actual_row_count": int(actual_row_count),
+        "candidate_count": int(config.candidate_count),
+        "paired_tests_per_candidate": int(paired_tests),
+        "start_family_mix_complete": bool(start_family_mix_complete),
+        "primitive_family_coverage_complete": bool(primitive_family_coverage_complete),
+        "method_evidence_blockers": dense_blockers if not dense_complete else [],
+    }
+
+
+def _refresh_run_manifest_after_execution(*, run_root: Path, config: W01DenseRunConfig, row_count: int) -> None:
+    manifest_path = filesystem_path(run_root / "manifests" / "run_manifest.json")
+    if not manifest_path.is_file():
+        return
+    manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+    schedule_counts = _schedule_count_summary(config)
+    manifest.update(
+        _w01_method_evidence_fields(
+            config=config,
+            actual_row_count=int(row_count),
+            start_family_counts=schedule_counts["start_state_family"],
+            primitive_counts=schedule_counts["primitive_id"],
+        )
+    )
+    _write_json(run_root / "manifests" / "run_manifest.json", manifest)
+
+
 def _read_completed_frame(run_root: Path, partitions: Iterable[object], storage_format: str) -> pd.DataFrame:
     frames = [
         read_table_partition(run_root / "tables" / partition.relative_path, storage_format=storage_format)
@@ -1751,6 +1880,13 @@ def _run_manifest(
         schedule_counts["start_state_family"],
         row_count=int(config.rows),
     )
+    docs_rows, docs_blockers = _required_docs_gate_rows(Path("docs"))
+    method_fields = _w01_method_evidence_fields(
+        config=config,
+        actual_row_count=0 if config.dry_run_schedule else int(config.rows),
+        start_family_counts=schedule_counts["start_state_family"],
+        primitive_counts=schedule_counts["primitive_id"],
+    )
     return {
         "runner_version": W01_RUNNER_VERSION,
         "project_title_version": PROJECT_TITLE_VERSION,
@@ -1762,6 +1898,11 @@ def _run_manifest(
         "latency_case": str(config.latency_case),
         "rollout_dt_s": float(config.rollout_dt_s),
         "primitive_timing_contract": primitive_timing_contract_row(),
+        "primitive_timing_contract_status": "compliant",
+        "required_docs_gate_status": "passed" if not docs_blockers else "blocked",
+        "required_docs": docs_rows,
+        "missing_required_docs": docs_blockers,
+        **method_fields,
         "candidate_chunk_size": int(config.candidate_chunk_size),
         "candidate_count": int(config.candidate_count),
         "paired_tests_per_candidate": (

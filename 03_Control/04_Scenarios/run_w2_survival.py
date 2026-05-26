@@ -84,7 +84,7 @@ from state_sampling import (  # noqa: E402
 
 
 W2_SURVIVAL_VERSION = "w2_fixed_lqr_survival_replay_v411"
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.11"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
 DEFAULT_W01_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 DEFAULT_W01_INPUT_ROOT: Path | None = None
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")
@@ -155,6 +155,10 @@ def _w01_root_is_default_w2_eligible(root: Path) -> bool:
             return False
         if manifest.get("cross_layer_smoke_status") != "cross_layer_smoke_start_family_complete":
             return False
+        if str(manifest.get("method_evidence_level", "")) != "w01_dense_evidence_complete":
+            return False
+        if not bool(manifest.get("w01_dense_evidence_complete", False)):
+            return False
         bundle = load_frozen_w01_controller_bundle(bundle_path)
     except Exception:
         return False
@@ -174,9 +178,17 @@ def _w01_input_blocked_reason(root: Path) -> str:
         return f"unreadable_W01_run_manifest:{type(exc).__name__}"
     timing = manifest.get("primitive_timing_contract", {})
     if str(manifest.get("project_title_version", "")) != PROJECT_TITLE_VERSION:
-        return "W01_source_not_v411_project_title"
+        return "W01_source_not_v5_project_title"
     if str(timing.get("primitive_timing_contract_version", "")) != PRIMITIVE_TIMING_CONTRACT_VERSION:
         return "W01_source_missing_v411_timing_contract"
+    if str(manifest.get("method_evidence_level", "")) != "w01_dense_evidence_complete":
+        return "W01_source_not_w01_dense_evidence_complete"
+    if not bool(manifest.get("w01_dense_evidence_complete", False)):
+        return "W01_source_dense_evidence_flag_false"
+    if not bool(manifest.get("W2_W3_replay_only", False)):
+        return "W01_source_missing_fixed_replay_boundary"
+    if not bool(manifest.get("no_clustering_before_W2_W3", False)):
+        return "W01_source_allows_pre_W2_W3_clustering"
     return ""
 
 
@@ -1216,6 +1228,7 @@ def _write_run_manifest(
     status: str,
     blockers: list[str] | None = None,
 ) -> None:
+    source_w01_manifest = _read_json_or_empty(Path(config.input_root) / "manifests" / "run_manifest.json")
     manifest = {
         "runner_version": W2_SURVIVAL_VERSION,
         "project_title_version": PROJECT_TITLE_VERSION,
@@ -1224,6 +1237,9 @@ def _write_run_manifest(
         "run_root": run_root.as_posix(),
         "source_w01_root": Path(config.input_root).as_posix(),
         "source_w01_run_id": bundle.source_w01_run_id,
+        "source_w01_method_evidence_level": str(source_w01_manifest.get("method_evidence_level", "")),
+        "source_w01_dense_evidence_complete": bool(source_w01_manifest.get("w01_dense_evidence_complete", False)),
+        "source_w01_fixed_controller_replay_boundary": bool(source_w01_manifest.get("W2_W3_replay_only", False)),
         "source_w01_registry_sha256": bundle.source_registry_sha256,
         "source_w01_table_manifest_sha256": bundle.source_table_manifest_sha256,
         "rows_written_or_planned": int(row_count),
@@ -1238,6 +1254,15 @@ def _write_run_manifest(
         "compression_level": int(config.compression_level),
         "rollout_dt_s": float(config.rollout_dt_s),
         "primitive_timing_contract": primitive_timing_contract_row(),
+        "primitive_timing_contract_status": "compliant",
+        "method_evidence_level": (
+            "w2_dense_survival_pass"
+            if status == "w2_dense_survival_pass"
+            else "w2_smoke_or_preflight_only"
+            if status in {"w2_artifact_smoke_pass", "w2_smoke_no_survivors"}
+            else status
+        ),
+        "w2_dense_survival_evidence_complete": bool(status == "w2_dense_survival_pass"),
         "dry_run_schedule": bool(config.dry_run_schedule),
         "resume": bool(config.resume),
         "repair_incomplete": bool(config.repair_incomplete),
@@ -1438,6 +1463,13 @@ def _result_payload(run_root: Path, status: str) -> dict[str, object]:
         "manifest": (run_root / "manifests" / "w2_survival_manifest.json").as_posix(),
         "survivor_registry": (run_root / "manifests" / "w2_survivor_registry.json").as_posix(),
     }
+
+
+def _read_json_or_empty(path: Path) -> dict[str, object]:
+    try:
+        return json.loads(filesystem_path(path).read_text(encoding="ascii"))
+    except Exception:
+        return {}
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:

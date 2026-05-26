@@ -69,7 +69,10 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
 
     run_manifest = json.loads((run_root / "manifests" / "run_manifest.json").read_text(encoding="ascii"))
     assert run_manifest["schedule_mode"] == "balanced_paired"
-    assert run_manifest["project_title_version"] == "LQR-Stabilised Contextual Primitive v4.11"
+    assert run_manifest["project_title_version"] == "LQR-Stabilised Contextual Primitive v5.0"
+    assert run_manifest["method_evidence_level"] == "w01_smoke_or_preflight_only"
+    assert run_manifest["w01_dense_evidence_complete"] is False
+    assert run_manifest["w01_dense_required_for_w2"] is True
     assert run_manifest["primitive_timing_contract"]["primitive_timing_contract_version"] == "v411_0p10s_5slot_20ms"
     assert set(frame["finite_horizon_s"]) == {0.1}
     assert set(frame["controller_input_slots_per_primitive"]) == {5}

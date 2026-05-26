@@ -26,10 +26,10 @@ from dense_archive_table_io import (  # noqa: E402
     load_table_manifest,
     read_table_partition,
 )
-from primitive_timing_contract import primitive_timing_contract_row  # noqa: E402
+from primitive_timing_contract import PRIMITIVE_TIMING_CONTRACT_VERSION, primitive_timing_contract_row  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.11"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
 W3_ANALYSIS_VERSION = "w3_variant_survival_analysis_v411"
 DEFAULT_W3_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival/013")
 W3_ENVIRONMENT_MODES = ("w3_randomised_single", "w3_randomised_four")
@@ -115,6 +115,15 @@ def _input_blocked_reason(input_root: Path) -> str:
         return f"unreadable_w3_survival_manifest:{type(exc).__name__}"
     if str(manifest.get("status", "")) != "complete":
         return "w3_survival_root_not_complete"
+    if str(manifest.get("project_title_version", "")) != PROJECT_TITLE_VERSION:
+        return "W3_source_not_v5_project_title"
+    timing = manifest.get("primitive_timing_contract", {})
+    if str(timing.get("primitive_timing_contract_version", "")) != PRIMITIVE_TIMING_CONTRACT_VERSION:
+        return "W3_source_missing_v411_timing_contract"
+    if bool(manifest.get("test_fixture_not_method_evidence", False)):
+        return "W3_fixture_root_not_method_evidence"
+    if str(manifest.get("method_evidence_level", "")) not in {"w3_dense_survival_pass", "complete"}:
+        return "W3_source_not_dense_survival_evidence"
     if "w3_survival" not in input_root.as_posix():
         return "input_root_is_not_w3_survival_root"
     return ""

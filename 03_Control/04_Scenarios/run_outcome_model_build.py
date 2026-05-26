@@ -21,9 +21,10 @@ _bootstrap_import_paths()
 
 from dense_archive_runtime import MAX_GENERATED_FILE_SIZE_MB  # noqa: E402
 from dense_archive_table_io import filesystem_path  # noqa: E402
+from primitive_timing_contract import primitive_timing_contract_row  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.11"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.0"
 OUTCOME_MODEL_VERSION = "v411_library_size_case_outcome_model_v1"
 DEFAULT_COMPACT_LIBRARY = Path(
     "03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/001/manifests/post_w3_library_size_study_manifest.json"
@@ -43,7 +44,7 @@ BLOCKED_CLAIMS = (
 class OutcomeModelBuildConfig:
     compact_library_path: Path = DEFAULT_COMPACT_LIBRARY
     output_root: Path = DEFAULT_OUTPUT_ROOT
-    run_id: int = 2
+    run_id: int = 3
     library_size_case_id: str = "balanced_cluster"
 
 
@@ -112,6 +113,7 @@ def build_outcome_model_rows(
     """Return one prediction row per compact representative."""
 
     rows = []
+    timing = primitive_timing_contract_row()
     for representative in representatives:
         wall_margin = _float(representative.get("minimum_wall_margin_min_m", 0.0))
         floor_margin = _float(representative.get("floor_margin_min_m", 0.0))
@@ -125,6 +127,28 @@ def build_outcome_model_rows(
                 "primitive_id": str(representative.get("primitive_id", "")),
                 "entry_role": str(representative.get("entry_role", "")),
                 "controller_id": str(representative.get("controller_id", "")),
+                "finite_horizon_s": float(representative.get("finite_horizon_s", timing["finite_horizon_s"])),
+                "controller_input_slots_per_primitive": int(
+                    float(
+                        representative.get(
+                            "controller_input_slots_per_primitive",
+                            timing["controller_input_slots_per_primitive"],
+                        )
+                    )
+                ),
+                "controller_input_update_period_s": float(
+                    representative.get(
+                        "controller_input_update_period_s",
+                        timing["controller_input_update_period_s"],
+                    )
+                ),
+                "primitive_timing_contract_version": str(
+                    representative.get(
+                        "primitive_timing_contract_version",
+                        timing["primitive_timing_contract_version"],
+                    )
+                ),
+                "primitive_timing_contract_status": "compliant",
                 "continuation_probability": _clamp_probability(representative.get("continuation_valid_rate", 0.0)),
                 "terminal_useful_probability": _clamp_probability(representative.get("episode_terminal_useful_rate", 0.0)),
                 "hard_failure_risk": _clamp_probability(representative.get("hard_failure_rate", 1.0)),
@@ -158,6 +182,8 @@ def _blocked_reason(compact_library_path: Path) -> str:
     except Exception as exc:
         return f"unreadable_final_compact_primitive_library:{type(exc).__name__}"
     if str(library.get("manifest_version", "")) == "post_w3_library_size_study_v411":
+        if str(library.get("project_title_version", "")) != PROJECT_TITLE_VERSION:
+            return "post_w3_library_size_study_not_v5_project_title"
         for case in library.get("library_size_cases", []):
             case_path = path.parent / Path(str(case.get("library_manifest", ""))).name
             if not case_path.is_file():
@@ -245,7 +271,7 @@ def _write_blocked_outputs(run_root: Path, config: OutcomeModelBuildConfig, bloc
 
 def _write_report(run_root: Path, manifest: dict[str, object]) -> None:
     report = [
-        "# v4.11 Outcome Model Report",
+        "# v5.0 Outcome Model Report",
         "",
         f"- Status: `{manifest['status']}`",
         f"- Representatives: `{manifest['representative_count']}`",
@@ -296,7 +322,7 @@ def _write_csv(path: Path, frame: pd.DataFrame) -> None:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build v4.11 library-size-case W3-derived outcome model.")
+    parser = argparse.ArgumentParser(description="Build v5.0 library-size-case W3-derived outcome model.")
     parser.add_argument("--compact-library", dest="compact_library_path", type=Path, default=DEFAULT_COMPACT_LIBRARY)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-id", type=int, default=2)

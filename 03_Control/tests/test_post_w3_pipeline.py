@@ -100,10 +100,31 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_and_histories(tmp_p
 
     assert outcome_result["status"] == "complete"
     assert validation["status"] == "complete"
-    assert {"continuation_probability", "terminal_useful_probability", "hard_failure_risk"}.issubset(outcome.columns)
+    assert {
+        "continuation_probability",
+        "terminal_useful_probability",
+        "hard_failure_risk",
+        "finite_horizon_s",
+        "controller_input_slots_per_primitive",
+        "controller_input_update_period_s",
+        "primitive_timing_contract_version",
+    }.issubset(outcome.columns)
     assert set(outcome["library_size_case_id"]) == set(LIBRARY_SIZE_CASE_IDS)
     assert set(learning_curve["library_size_case_id"]) == set(LIBRARY_SIZE_CASE_IDS)
     assert set(learning_curve["history_length"]) == set(HISTORY_LENGTHS)
+    assert {
+        "no_memory",
+        "static_prior",
+        "directional_residual_memory_N",
+        "safe_explore_then_exploit_N",
+    }.issubset(set(learning_curve["policy_group"]))
+    assert {
+        "safe_success_rate",
+        "hard_failure_rate",
+        "no_viable_primitive_rate",
+        "memory_changed_selection_rate",
+        "exploration_changed_selection_rate",
+    }.issubset(learning_curve.columns)
 
 
 def test_post_w3_compression_refuses_roots_without_w3_registry(tmp_path: Path) -> None:
@@ -154,7 +175,15 @@ def _write_tiny_w3_root(root: Path) -> Path:
                 "status": "complete",
                 "input_root": (root.parent.parent / "w2_survival" / "015").as_posix(),
                 "row_count": len(rows),
-                "project_title_version": "LQR-Stabilised Contextual Primitive v4.7",
+                "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
+                "primitive_timing_contract": {
+                    "finite_horizon_s": 0.1,
+                    "controller_input_slots_per_primitive": 5,
+                    "controller_input_update_period_s": 0.02,
+                    "primitive_timing_contract_version": "v411_0p10s_5slot_20ms",
+                },
+                "method_evidence_level": "w3_dense_survival_pass",
+                "test_fixture_not_method_evidence": False,
             },
             indent=2,
         )
@@ -168,7 +197,15 @@ def _write_tiny_w3_root(root: Path) -> Path:
     w2_manifests = root.parent.parent / "w2_survival" / "015" / "manifests"
     w2_manifests.mkdir(parents=True, exist_ok=True)
     (w2_manifests / "w2_survival_manifest.json").write_text(
-        json.dumps({"source_w01_root": (root.parent.parent / "w01_dense" / "015").as_posix()}, indent=2) + "\n",
+        json.dumps(
+            {
+                "source_w01_root": (root.parent.parent / "w01_dense" / "015").as_posix(),
+                "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
+                "status": "w2_dense_survival_pass",
+            },
+            indent=2,
+        )
+        + "\n",
         encoding="ascii",
     )
     return root

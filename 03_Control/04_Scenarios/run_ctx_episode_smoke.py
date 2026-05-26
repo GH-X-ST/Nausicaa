@@ -293,18 +293,18 @@ def _query_directional_belief(state: np.ndarray, belief) -> dict[str, object]:
     vector = np.asarray(state, dtype=float)
     return query_directional_residual_lift_features(
         belief,
-        x_m=float(vector[0]),
-        y_m=float(vector[1]),
-        z_m=float(vector[2]),
+        x_w_m=float(vector[0]),
+        y_w_m=float(vector[1]),
+        z_w_m=float(vector[2]),
         direction_rad=float(vector[5]) if vector.size > 5 else 0.0,
     )
 
 
 def _directional_observation_from_row(row: dict[str, object]) -> DirectionalResidualObservation:
     return DirectionalResidualObservation(
-        x_m=_float(row.get("initial_x_n", 0.0)),
-        y_m=_float(row.get("initial_y_e", 0.0)),
-        z_m=_float(row.get("initial_z_w", 0.0)),
+        x_w_m=_float(row.get("initial_x_w", 0.0)),
+        y_w_m=_float(row.get("initial_y_w", 0.0)),
+        z_w_m=_float(row.get("initial_z_w", 0.0)),
         direction_rad=_float(row.get("initial_psi", 0.0)),
         lift_residual_m_s=_float(row.get("context_w_wing_mean_m_s", 0.0)),
         energy_residual_m=_float(row.get("energy_residual_m", 0.0)),

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from directional_residual_lift_belief import (
     DirectionalResidualObservation,
+    directional_residual_observation_from_rows,
     initial_directional_residual_lift_belief,
     query_directional_residual_lift_features,
     update_directional_residual_lift_belief,
@@ -130,9 +131,9 @@ def test_v411_directional_memory_and_safe_exploration_after_filtering() -> None:
     belief = update_directional_residual_lift_belief(
         belief,
         DirectionalResidualObservation(
-            x_m=0.0,
-            y_m=0.0,
-            z_m=1.5,
+            x_w_m=0.0,
+            y_w_m=0.0,
+            z_w_m=1.5,
             direction_rad=0.0,
             lift_residual_m_s=0.2,
             energy_residual_m=0.1,
@@ -141,9 +142,9 @@ def test_v411_directional_memory_and_safe_exploration_after_filtering() -> None:
     )
     features = query_directional_residual_lift_features(
         belief,
-        x_m=0.0,
-        y_m=0.0,
-        z_m=1.5,
+        x_w_m=0.0,
+        y_w_m=0.0,
+        z_w_m=1.5,
         direction_rad=0.0,
     )
     assert features["belief_local_lift_residual_m_s"] > 0.0
@@ -209,6 +210,16 @@ def test_v411_directional_memory_and_safe_exploration_after_filtering() -> None:
     assert viable["good"]["exploration_score_component"] > 0.0
     assert viable["bad"]["safe_exploration_status"] == "not_applied_rejected_before_exploration"
     assert viable["bad"]["exploration_score_component"] == 0.0
+    try:
+        directional_residual_observation_from_rows(
+            expected_row={},
+            observed_row={"initial_x_n": 1.0, "initial_y_e": 2.0, "initial_z_w": 1.5},
+            direction_rad=0.0,
+        )
+    except ValueError as exc:
+        assert "directional_residual_memory_missing_canonical_coordinate" in str(exc)
+    else:
+        raise AssertionError("old non-canonical coordinate fields must not silently pass")
 
 
 def test_v411_case_ids_histories_and_retired_gate(tmp_path: Path) -> None:
@@ -226,4 +237,3 @@ def test_v411_case_ids_histories_and_retired_gate(tmp_path: Path) -> None:
     )
     assert result["status"] == "blocked"
     assert result["blocked_reason"] == "retired_diagnostic_requires_explicit_allow_retired_diagnostic"
-

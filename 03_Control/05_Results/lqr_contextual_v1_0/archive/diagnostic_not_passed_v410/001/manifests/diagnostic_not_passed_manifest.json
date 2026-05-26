@@ -1,9 +1,9 @@
 {
-  "manifest_version": "diagnostic_not_passed_v410_archive_manifest_v411",
-  "project_title_version": "LQR-Stabilised Contextual Primitive v4.11",
+  "manifest_version": "diagnostic_not_passed_v410_archive_manifest_v5",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
   "status": "diagnostic_not_passed",
   "archive_root": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001",
-  "superseded_result_root_count": 36,
+  "superseded_result_root_count": 35,
   "required_docs": [
     {
       "doc_name": "Glider_Control_Project_Plan.md",
@@ -63,15 +63,15 @@
     }
   ],
   "inventory_counts": {
-    "active_foundation": 361,
+    "active_foundation": 16,
     "active_repair_cycle": 159,
-    "retired_not_active": 21,
-    "generated_result": 1633,
+    "retired_not_active": 366,
+    "generated_result": 1667,
     "test_fixture": 213
   },
   "archived_result_roots_csv": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001/archived_result_roots.csv",
-  "file_size_audit_csv": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001/file_size_audit.csv",
-  "claim_status": "diagnostic_archive_only_not_v411_validation_evidence",
+  "file_size_audit_csv": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001/metrics/file_size_audit.csv",
+  "claim_status": "diagnostic_archive_only_not_v5_validation_evidence",
   "blocked_claims": [
     "hardware_readiness",
     "real_flight_transfer",
