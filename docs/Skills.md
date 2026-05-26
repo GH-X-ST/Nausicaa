@@ -46,7 +46,7 @@ The stable centre is:
 
 The preferred method is environment-conditioned primitive selection: use glider state and local flow-context features to select 0.100 s primitives through a viability governor with safe exploration/exploitation, then update a directional 3D residual lift belief across launches.
 
-Treat the LQR stabiliser as part of the primitive. The active control/evidence unit is a primitive-controller variant, not a free-standing controller bank. W0/W1 dense generation tunes a primitive-local LQR for every generated variant and preserves the rich library. W2 and W3 replay fixed variants to eliminate or downgrade cases that fail under higher-fidelity or randomised conditions. Clustering and merging occur only after W3, and late validation freezes the post-W3 library-size condition, governor, selector, and memory logic. Hidden retuning inside W2, W3, clustering, or validation is not allowed.
+Treat the LQR stabiliser as part of the primitive. The active control/evidence unit is a primitive-controller variant, not a free-standing controller bank. R5 dry-air plus annular-GP dense generation tunes a primitive-local LQR for every generated variant and preserves the rich library; axisymmetric Gaussian plume evidence is diagnostic-only. W2 and W3 replay fixed variants to eliminate or downgrade cases that fail under higher-fidelity or randomised conditions. Clustering and merging occur only after W3, and late validation freezes the post-W3 library-size condition, governor, selector, and memory logic. Hidden retuning inside W2, W3, clustering, or validation is not allowed.
 
 Do not turn the work into:
 

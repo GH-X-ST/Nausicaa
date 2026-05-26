@@ -36,8 +36,8 @@ def test_controlling_docs_and_active_runner_share_w01_contract_language() -> Non
         assert token in controlling
     for token in (
         "R5_W0_W1_robust_randomised_primitive_synthesis",
-        "w1_randomised_single",
-        "w1_randomised_four",
+        "w1_annular_gp_randomised_single",
+        "w1_annular_gp_randomised_four",
         "launch_gate",
         "inflight_recovery_edge",
         "W3_replay_only",

@@ -228,6 +228,16 @@ def _input_blocked_reason(input_root: Path) -> str:
 def _survived_frame_blocked_reason(survived: pd.DataFrame) -> str:
     if survived.empty:
         return "w3_registry_has_no_surviving_variants"
+    if "entry_role" not in survived.columns:
+        return "w3_survivor_summary_missing_entry_role"
+    if "primitive_id" not in survived.columns:
+        return "w3_survivor_summary_missing_primitive_id"
+    launch = survived[survived["entry_role"].astype(str) == "launch_capable"]
+    if launch.empty:
+        return "w3_registry_has_no_launch_capable_survivors"
+    missing_launch = sorted(set(LAUNCH_CAPTURE_PRIMITIVE_IDS) - set(launch["primitive_id"].astype(str)))
+    if missing_launch:
+        return "w3_registry_missing_launch_capture_survivors:" + ",".join(missing_launch)
     required = (
         "finite_horizon_s",
         "controller_input_slots_per_primitive",

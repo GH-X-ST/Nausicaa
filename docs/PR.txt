@@ -11,7 +11,7 @@ Current decision:
 BLOCKED_FIX_REQUIRED
 ```
 
-The current R9 repeated-launch result and W3 run 015 launch-capture result are diagnostic evidence only. They must not be used to claim memory improvement, hardware readiness, real-flight transfer, mission success, or full autonomy. The repair is now to improve launch-capture synthesis quality inside robust randomized R5 W0/W1 training: references, LQR weights, launch_gate start subregimes, handoff-quality gates, and the R9/R10 lookup and selection-change metrics.
+The current R9 repeated-launch result and W3 run 015 launch-capture result are diagnostic evidence only. They must not be used to claim memory improvement, hardware readiness, real-flight transfer, mission success, or full autonomy. The repair is now to improve launch-capture synthesis quality inside robust randomized R5 dry-air plus annular-GP training: references, LQR weights, launch_gate start subregimes, handoff-quality gates, and the R9/R10 lookup and selection-change metrics.
 
 Required repair direction:
 
@@ -26,7 +26,7 @@ Required repair direction:
 8. Fix R9 outcome lookup so representatives are matched by library-size case and compact-library identity, not only by primitive_variant_id.
 9. Compute memory_changed_selection and exploration_changed_selection from actual matched selections; do not hard-code them to zero.
 10. Add first-decision launch-gate audits for candidate count, viable count, rejection reason, selected family, and transition-to-inflight evidence.
-11. Regenerate evidence from the corrected R5 W0/W1 robust synthesis run before reusing R7, R8, R9, or R10 evidence.
+11. Regenerate evidence from the corrected R5 dry-air plus annular-GP robust synthesis run before reusing R7, R8, R9, or R10 evidence.
 12. Treat W3 run 015 as diagnostic_not_passed for launch-aware move-on because launch_capable variants are 0 survived / 192 downgraded.
 ```
 
@@ -84,7 +84,7 @@ LQR-Stabilised Contextual Primitive v5.6
 ```text
 Python control-simulation pipeline
 
-- Reframes the launch-capture repair around robust randomized R5 W0/W1 synthesis, where primitive-local references and LQR Q/R are tuned before freezing the controller bundle.
+- Reframes the launch-capture repair around robust randomized R5 dry-air plus annular-GP synthesis, where primitive-local references and LQR Q/R are tuned before freezing the controller bundle.
 - Makes W2 optional diagnostic evidence only, and keeps W3 as the frozen held-out validation stage with seed separation, active-fan-count variation, CG offset, and left/right aileron asymmetry captured in the audit boundary.
 - Preserves role separation: launch_capture_* primitives are launch_capable, glide and ordinary manoeuvres are inflight_only, and recovery/safe-exit handoff primitives are terminal_or_recovery; post-W3 compression keeps the heavy/balanced/light/no-clustering cases.
 - Late validation still uses directional 3D residual memory histories 0, 5, 10, 20, 50, and 100, safe exploration/exploitation after viability filtering, controlled final-launch pairing, and the launch-score audit as secondary analysis only.

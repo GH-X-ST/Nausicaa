@@ -26,6 +26,7 @@ from dense_archive_table_io import (  # noqa: E402
     load_table_manifest,
     read_table_partition,
 )
+from prim_cat import LAUNCH_CAPTURE_PRIMITIVE_IDS  # noqa: E402
 from primitive_timing_contract import PRIMITIVE_TIMING_CONTRACT_VERSION, primitive_timing_contract_row  # noqa: E402
 
 
@@ -345,10 +346,13 @@ def _survivor_registry(
         "terminal_useful": "episode_terminal_useful_true_or_boundary_use_class_episode_terminal_useful",
         "hard_failure": "outcome_class_failed_or_boundary_use_class_hard_failure",
         "survived": "both_W3_modes_positive_and_hard_failure_rate_less_or_equal_survived_limit",
+        "registry_pass": "requires_nonzero_survivors_and_at_least_one_survivor_for_every_launch_capture_family",
         "downgraded": "useful_terminal_or_partial_continuation_and_hard_failure_rate_less_or_equal_downgraded_limit",
         "survived_hard_failure_rate_max": float(config.survived_hard_failure_rate_max),
         "downgraded_hard_failure_rate_max": float(config.downgraded_hard_failure_rate_max),
     }
+    role_summary = _role_survival_summary(variant_summary)
+    registry_status, registry_blocked_reason = _registry_status_from_survivors(survivors)
     return {
         "registry_version": W3_ANALYSIS_VERSION,
         "project_title_version": PROJECT_TITLE_VERSION,
@@ -357,8 +361,16 @@ def _survivor_registry(
         "source_w2_root": raw_source_w2_root,
         "source_w01_root": raw_source_w01_root,
         "source_table_manifest_sha256": file_sha256(input_root / "manifests" / "table_manifest.json"),
-        "status": "w3_survivors_available" if len(survivors) else "blocked_no_w3_survivors",
+        "status": registry_status,
+        "blocked_reason": registry_blocked_reason,
         "survivor_count": int(len(survivors)),
+        "launch_capable_survivor_count": int(_entry_role_survivor_count(survivors, "launch_capable")),
+        "inflight_only_survivor_count": int(_entry_role_survivor_count(survivors, "inflight_only")),
+        "terminal_or_recovery_survivor_count": int(_entry_role_survivor_count(survivors, "terminal_or_recovery")),
+        "required_launch_capture_primitive_ids": list(LAUNCH_CAPTURE_PRIMITIVE_IDS),
+        "surviving_launch_capture_primitive_ids": _surviving_launch_capture_ids(survivors),
+        "missing_launch_capture_primitive_ids": _missing_launch_capture_ids(survivors),
+        "role_survival_summary": role_summary,
         "downgraded_count": int(len(downgraded)),
         "eliminated_count": int(len(eliminated)),
         "blocked_count": int(len(blocked)),
@@ -371,6 +383,53 @@ def _survivor_registry(
         "downgraded": _records_for_registry(downgraded),
         "eliminated": _records_for_registry(eliminated),
     }
+
+
+def _registry_status_from_survivors(survivors: pd.DataFrame) -> tuple[str, str]:
+    if survivors.empty:
+        return "blocked_no_w3_survivors", "w3_registry_has_no_surviving_variants"
+    launch_survivors = survivors[survivors.get("entry_role", pd.Series(dtype=str)).astype(str) == "launch_capable"]
+    if launch_survivors.empty:
+        return "blocked_no_launch_capable_w3_survivors", "launch_capable_survivor_count_zero"
+    missing = _missing_launch_capture_ids(survivors)
+    if missing:
+        return (
+            "blocked_missing_launch_capture_family_w3_survivors",
+            "missing_launch_capture_primitive_ids:" + ",".join(missing),
+        )
+    return "w3_survivors_available", ""
+
+
+def _entry_role_survivor_count(survivors: pd.DataFrame, entry_role: str) -> int:
+    if survivors.empty or "entry_role" not in survivors.columns:
+        return 0
+    return int((survivors["entry_role"].astype(str) == str(entry_role)).sum())
+
+
+def _surviving_launch_capture_ids(survivors: pd.DataFrame) -> list[str]:
+    if survivors.empty or "primitive_id" not in survivors.columns or "entry_role" not in survivors.columns:
+        return []
+    launch = survivors[survivors["entry_role"].astype(str) == "launch_capable"]
+    ids = sorted(set(launch["primitive_id"].astype(str)).intersection(set(LAUNCH_CAPTURE_PRIMITIVE_IDS)))
+    return ids
+
+
+def _missing_launch_capture_ids(survivors: pd.DataFrame) -> list[str]:
+    present = set(_surviving_launch_capture_ids(survivors))
+    return sorted(set(LAUNCH_CAPTURE_PRIMITIVE_IDS) - present)
+
+
+def _role_survival_summary(variant_summary: pd.DataFrame) -> list[dict[str, object]]:
+    if variant_summary.empty or "entry_role" not in variant_summary.columns:
+        return []
+    rows: list[dict[str, object]] = []
+    grouped = variant_summary.groupby(["entry_role", "w3_variant_status"], dropna=False).size().reset_index(name="count")
+    for entry_role, group in grouped.groupby("entry_role", dropna=False):
+        row = {"entry_role": str(entry_role)}
+        for status, count in zip(group["w3_variant_status"], group["count"]):
+            row[f"{status}_count"] = int(count)
+        rows.append(row)
+    return rows
 
 
 def _records_for_registry(frame: pd.DataFrame) -> list[dict[str, object]]:
@@ -434,7 +493,10 @@ def _write_reports(*, input_root: Path, registry: dict[str, object]) -> None:
         f"- Project title version: `{PROJECT_TITLE_VERSION}`",
         f"- Source W3 root: `{registry['source_w3_root']}`",
         f"- Status: `{registry['status']}`",
+        f"- Blocked reason: `{registry.get('blocked_reason', '')}`",
         f"- Survivors: `{registry['survivor_count']}`",
+        f"- Launch-capable survivors: `{registry.get('launch_capable_survivor_count', 0)}`",
+        f"- Missing launch-capture families: `{','.join(registry.get('missing_launch_capture_primitive_ids', []))}`",
         f"- Downgraded: `{registry['downgraded_count']}`",
         f"- Eliminated: `{registry['eliminated_count']}`",
         "- Entry-role-incompatible rows are preserved as rejection/block evidence and excluded from survival scoring.",
@@ -448,8 +510,8 @@ def _write_reports(*, input_root: Path, registry: dict[str, object]) -> None:
         "# L9 W3 Move-On Check",
         "",
         f"- W3 survivor registry exists: `{True}`",
-        f"- W3 survivors available: `{int(registry['survivor_count']) > 0}`",
-        f"- Post-W3 clustering allowed: `{int(registry['survivor_count']) > 0}`",
+        f"- W3 survivors available: `{registry['status'] == 'w3_survivors_available'}`",
+        f"- Post-W3 clustering allowed: `{registry['status'] == 'w3_survivors_available'}`",
         "- No Q/R, K, reference, horizon, entry role, controller ID, or primitive-variant ID mutation occurred.",
         "- Blocked claims remain hardware readiness, transfer, mission success, and formal LQR-tree/funnel/ROA guarantees.",
         "",

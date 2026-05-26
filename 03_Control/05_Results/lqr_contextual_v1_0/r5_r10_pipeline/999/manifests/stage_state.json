@@ -70,8 +70,16 @@
       "table_manifest": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/027/manifests/table_manifest.json",
       "variant_registry_csv": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/027/metrics/primitive_variant_registry.csv",
       "variant_registry_json": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/027/manifests/primitive_variant_registry.json"
+    },
+    "R7": {
+      "analysis_status": "w3_survivors_available",
+      "manifest": "03_Control/05_Results/lqr_contextual_v1_0/w3_survival/016/manifests/w3_survival_manifest.json",
+      "run_root": "03_Control/05_Results/lqr_contextual_v1_0/w3_survival/016",
+      "status": "complete",
+      "survivor_count": 256,
+      "survivor_registry": "03_Control/05_Results/lqr_contextual_v1_0/w3_survival/016/manifests/w3_survivor_registry.json"
     }
   },
   "status": "complete",
-  "updated_utc": "2026-05-26T19:59:02.748843+00:00"
+  "updated_utc": "2026-05-26T20:13:11.301369+00:00"
 }

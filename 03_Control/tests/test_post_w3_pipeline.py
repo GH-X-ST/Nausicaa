@@ -48,6 +48,34 @@ def test_w3_analysis_separates_terminal_and_continuation_evidence(tmp_path: Path
     assert int(downgraded["episode_terminal_useful_count"].iloc[0]) == 2
 
 
+def test_w3_analysis_blocks_when_launch_capable_has_no_survivors(tmp_path: Path) -> None:
+    w3_root = _write_tiny_w3_root(tmp_path / "w3_survival" / "013")
+    table_path = w3_root / "tables" / "w3_survival_rows" / "c00000.csv.gz"
+    frame = pd.read_csv(table_path)
+    launch = frame["entry_role"].astype(str) == "launch_capable"
+    frame.loc[launch, "outcome_class"] = "failed"
+    frame.loc[launch, "continuation_valid"] = False
+    frame.loc[launch, "episode_terminal_useful"] = False
+    frame.loc[launch, "boundary_use_class"] = "hard_failure"
+    frame.loc[launch, "failure_label"] = "floor_violation"
+    frame.to_csv(table_path, index=False, compression="gzip")
+
+    result = run_w3_survival_analysis(W3SurvivalAnalysisConfig(input_root=w3_root))
+    registry = json.loads((w3_root / "manifests" / "w3_survivor_registry.json").read_text(encoding="ascii"))
+
+    assert result["status"] == "blocked_no_launch_capable_w3_survivors"
+    assert registry["survivor_count"] > 0
+    assert registry["launch_capable_survivor_count"] == 0
+    assert set(registry["missing_launch_capture_primitive_ids"]) == {
+        "launch_capture_glide_stabilise",
+        "launch_capture_lift_seek",
+        "launch_capture_energy_build",
+        "launch_capture_shallow_left",
+        "launch_capture_shallow_right",
+        "launch_capture_safe_handoff",
+    }
+
+
 def test_post_w3_library_size_study_writes_four_cases_without_mutation(tmp_path: Path) -> None:
     w3_root = _write_tiny_w3_root(tmp_path / "w3_survival" / "013")
     run_w3_survival_analysis(W3SurvivalAnalysisConfig(input_root=w3_root))

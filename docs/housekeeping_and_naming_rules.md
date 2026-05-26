@@ -25,7 +25,7 @@ Required repair direction:
 7. Fix R9 outcome lookup so representatives are matched by library-size case and compact-library identity, not only by primitive_variant_id.
 8. Compute memory_changed_selection and exploration_changed_selection from actual matched selections; do not hard-code them to zero.
 9. Add first-decision launch-gate audits for candidate count, viable count, rejection reason, selected family, and transition-to-inflight evidence.
-10. Regenerate evidence from the corrected R5 W0/W1 dense run before reusing R6, R7, R8, R9, or R10 evidence.
+10. Regenerate evidence from the corrected R5 dry-air plus annular-GP dense run before reusing R7, R8, R9, or R10 evidence. R6/W2 is optional diagnostic only.
 ```
 
 Forbidden changes remain unchanged: no fan-layout-specific controller logic, no pre-W3 clustering, no W2/W3 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
@@ -81,7 +81,7 @@ Use concise numbered lower-snake-case names.
 Good examples:
 
 ```text
-04_context_archive/01_w01_lqr_var_gaussian/001
+04_context_archive/01_w01_lqr_annular_gp/001
 04_context_archive/02_w2_survival_annular_gp/001
 04_context_archive/03_w3_survival_rand_annular_gp/001
 04_context_archive/04_post_w3_cluster_merge/001
@@ -100,7 +100,7 @@ ep    episode
 rf    real flight
 sr    sim-real replay
 w0    dry air
-w1    variable Gaussian plume fidelity layer
+w1    active annular-GP randomized training layer; Gaussian plume diagnostic-only
 w2    GP-corrected annular-Gaussian survival layer
 w3    randomised GP-corrected annular-Gaussian survival layer
 w01   combined W0/W1 rich primitive-library generation
@@ -224,7 +224,7 @@ tables/<table_name>/c00001.csv.gz
 or parquet if available.
 
 Contextual archive partitions may include short audit tokens, for example
-`tables/contextual_rows/c00012_W1_gaussian-single.csv.gz`. Do not use nested
+`tables/contextual_rows/c00012_W1_annular-gp-single.csv.gz`. Do not use nested
 `run_*/context_id=*/environment_id=*/chunk_index=*/part-00000.*` paths for new
 dense evidence; those paths are too long for reliable Git and Windows tooling.
 

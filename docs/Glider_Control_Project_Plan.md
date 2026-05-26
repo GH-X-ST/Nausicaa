@@ -25,24 +25,25 @@ Required method repair:
 
 ```text
 1. Redesign or widen launch-capture references, LQR Q/R weights, and launch_gate start subregimes inside R5 W0/W1 robust synthesis.
-2. Make R5 W0/W1 use the W3-style randomisation family during synthesis/training: fan position, fan power, active fan count where applicable, launch-state perturbations, latency/implementation perturbations, left/right aileron asymmetry, and CG offset within approved simulation bounds.
-3. Tune Q/R and primitive references only inside R5 W0/W1 synthesis; after the frozen bundle is written, W3/R8/R9/R10 must not mutate Q/R, K, references, horizons, entry roles, controller IDs, or primitive variant IDs.
-4. Treat W2 as an optional diagnostic or legacy comparison layer, not a required pass gate and not a source of accepted move-on evidence.
-5. Keep the launch-capture subset LQR-only, 0.100 s horizon, 5 controller-input slots, and 20 ms controller update period.
-6. Keep launch_capture_* separate from inflight_only and terminal_or_recovery primitives; do not distort glide, lift-entry, dwell, turn, or energy-retaining primitives into launch actions.
-7. Optimise launch-capture success around handoff quality: continuation-valid exit state, speed/attitude/rate margins, positive or non-bad specific energy, and no terminal_recovery_limited label.
-8. Widen launch_gate starts into auditable subregimes such as nominal, low-energy, attitude-perturbed, rate-perturbed, lateral-offset, and lift-misaligned starts.
-9. Increase launch-capture emphasis on forward speed/specific energy, pitch/roll/body-rate damping, floor/wall margin, and handoff-state error; command penalties may be relaxed only within the LQR-only primitive-local R5 synthesis grid.
-10. R9/R10 must match outcome rows by library-size case and compact-library identity, not only by primitive_variant_id.
-11. R9/R10 must compute memory and exploration selection-change metrics from actual matched selections.
-12. Any evidence generated before the repaired robust R5 synthesis -> frozen W3 holdout chain remains diagnostic and cannot unblock the next accepted stage.
+2. Retire axisymmetric Gaussian plume from active pass-gated R5/R7 acceptance evidence. Gaussian evidence may remain only as archived diagnostic or historical comparison.
+3. Make active R5 W0/W1 use dry air plus annular-GP randomized single-fan and four-fan training blocks with the same randomisation dimensions as R7 W3 holdout: fan position, fan power, active fan count where applicable, launch-state perturbations, latency/implementation perturbations, left/right aileron asymmetry, and CG offset within approved simulation bounds.
+4. Tune Q/R and primitive references only inside R5 W0/W1 synthesis; after the frozen bundle is written, W3/R8/R9/R10 must not mutate Q/R, K, references, horizons, entry roles, controller IDs, or primitive variant IDs.
+5. Treat W2 as an optional diagnostic or legacy comparison layer, not a required pass gate and not a source of accepted move-on evidence.
+6. Keep the launch-capture subset LQR-only, 0.100 s horizon, 5 controller-input slots, and 20 ms controller update period.
+7. Keep launch_capture_* separate from inflight_only and terminal_or_recovery primitives; do not distort glide, lift-entry, dwell, turn, or energy-retaining primitives into launch actions.
+8. Optimise launch-capture success around handoff quality: continuation-valid exit state, speed/attitude/rate margins, positive or non-bad specific energy, and no terminal_recovery_limited label.
+9. Widen launch_gate starts into auditable subregimes such as nominal, low-energy, attitude-perturbed, rate-perturbed, lateral-offset, and lift-misaligned starts.
+10. Increase launch-capture emphasis on forward speed/specific energy, pitch/roll/body-rate damping, floor/wall margin, and handoff-state error; command penalties may be relaxed only within the LQR-only primitive-local R5 synthesis grid.
+11. R9/R10 must match outcome rows by library-size case and compact-library identity, not only by primitive_variant_id.
+12. R9/R10 must compute memory and exploration selection-change metrics from actual matched selections.
+13. Any evidence generated before the repaired robust R5 synthesis -> frozen W3 holdout chain remains diagnostic and cannot unblock the next accepted stage.
 ```
 
 Regeneration rule:
 
 ```text
 After launch-capture references, weights, start subregimes, outcome lookup, and R9/R10 diagnostics are repaired, regenerate the accepted evidence chain from R5:
-R5 robust W0/W1 randomized launch-aware primitive synthesis and Q/R tuning
+R5 robust dry-air plus annular-GP randomized launch-aware primitive synthesis and Q/R tuning
 -> optional W2 diagnostic replay, if explicitly requested and labelled diagnostic
 -> R7 frozen held-out W3 fixed-LQR validation using the R5 frozen bundle and held-out seeds
 -> R8 four-case library-size cross-study and outcome model
@@ -57,7 +58,7 @@ All previous prohibitions still apply: no PD/PID/bounded fallback, no TVLQR acti
 
 This plan integrates the full environment-conditioned primitive strategy with the model-only restart assumption. It is the active project contract for the Nausicaa glider control work.
 
-The project first learns a rich library of short LQR-stabilised **primitive-controller variants** and only later compresses that library for real-time use. R5 W0/W1 is now the robust randomized synthesis/training stage: it randomises launch and in-flight primitive-start states, applies W3-style environment/implementation/plant variation where supported, and tunes primitive-local LQR references and Q/R weights for generated variants. W2 is retained only as an optional diagnostic or legacy comparison. Frozen W3 holdout replay then validates the R5 frozen bundle under held-out randomised conditions without retuning. Clustering and merging occur only after W3, producing the accepted post-W3 library-size condition used by the viability governor in real-time repeated-launch operation.
+The project first learns a rich library of short LQR-stabilised **primitive-controller variants** and only later compresses that library for real-time use. R5 W0/W1 is now the robust randomized synthesis/training stage: it randomises launch and in-flight primitive-start states, uses dry air plus annular-GP randomized training blocks for active pass evidence, applies W3-style environment/implementation/plant variation where supported, and tunes primitive-local LQR references and Q/R weights for generated variants. Axisymmetric Gaussian plume rows are retired from active R5/R7 acceptance evidence. W2 is retained only as an optional diagnostic or legacy comparison. Frozen W3 holdout replay then validates the R5 frozen bundle under held-out randomised annular-GP conditions without retuning. Clustering and merging occur only after W3, producing the accepted post-W3 library-size condition used by the viability governor in real-time repeated-launch operation.
 
 The active inner-loop controller for each primitive is a time-invariant Linear Quadratic Regulator (LQR) controller synthesised from the control-oriented glider model. The earlier dense run based on simple bounded PD-like feedback is retired. It must be archived or deleted before the next dense run, and it must not be retained as a fallback, baseline, or final-method comparison unless a later explicit project decision reverses this.
 
@@ -316,10 +317,11 @@ fallback handling when a measured model is unavailable
 Surrogate roles for implementation:
 
 ```text
-variable Gaussian plume surrogate                W1 nominal measured-updraft dense generation only
-GP-corrected annular-Gaussian surrogate          W2 hardware-aware measured-updraft replay only
-randomised GP-corrected annular-Gaussian         W3 environment-randomised robustness replay only
-GP residual / empirical uncertainty              local uncertainty descriptor for W2/W3 and conservative scoring
+dry-air zero-wind surrogate                      W0 no-updraft baseline inside R5 synthesis
+randomised GP-corrected annular-Gaussian         active W1 annular-GP training blocks and W3 held-out validation
+GP-corrected annular-Gaussian surrogate          optional W2 hardware-aware measured-updraft diagnostic replay only
+axisymmetric Gaussian plume surrogate            retired diagnostic / historical comparison only, not active R5/R7 pass evidence
+GP residual / empirical uncertainty              local uncertainty descriptor for annular-GP training, W2/W3, and conservative scoring
 ```
 
 Do not introduce any additional updraft-surrogate family into the active validation ladder. Earlier fitted surrogates may remain background model-development history, but they are not active W-layer surrogates and must not become implementation branches. These are environment-model choices, not online controller branches. The controller should see only local flow-context features, model-source labels, and uncertainty descriptors.
@@ -904,7 +906,7 @@ oracle_simulation_upper_bound_optional
 W0--W3 are fidelity layers for primitive-library learning and later full-loop simulation validation. They are not online controller branches. The accepted learning order is now a two-stage evidence flow with W2 retained only as an optional diagnostic:
 
 ```text
-R5 robust W0/W1 synthesis   rich primitive-controller library with per-variant LQR tuning under W3-style randomisation
+R5 robust W0/W1 synthesis   rich primitive-controller library with per-variant LQR tuning under dry-air plus annular-GP W3-style randomisation
 optional W2 diagnostic      fixed-LQR replay under hardware-aware annular-GP conditions, diagnostic only
 R7 frozen W3 holdout        fixed-LQR replay under held-out domain randomisation, no retuning
 post-W3 library-size cross-study/merging  final compact robust library for the governor
@@ -915,7 +917,7 @@ Updraft surrogate use across the validation ladder:
 
 ```text
 W0  no updraft; use dry air only
-W1  randomized measured-updraft synthesis; use nominal and perturbed variable-Gaussian / supported measured-updraft approximations for single-fan, four-fan, and active-fan-count variation where supported
+W1  randomized measured-updraft synthesis; active pass-gated R5 evidence uses annular-GP randomized single-fan and four-fan training blocks with active-fan-count variation where supported; Gaussian plume is diagnostic-only
 W2  optional hardware-aware diagnostic replay; use panelwise wind and the GP-corrected annular-Gaussian surrogate only, carrying its residual or empirical uncertainty into the context features; do not treat it as a required pass gate
 W3  frozen held-out environment-randomised replay; use the randomised GP-corrected annular-Gaussian surrogate only, randomising fan position, fan power, amplitude, centre, width, residual field, active fan count, and GP/residual uncertainty on held-out seeds
 ```
@@ -925,7 +927,7 @@ Primitive-controller variant learning across the fidelity ladder:
 
 ```text
 W0/W1  generate and tune a rich primitive-controller library using mixed start states
-       and W3-style randomized training conditions; preserve all generated
+       and dry-air plus annular-GP W3-style randomized training conditions; preserve all generated
        variants, blocked rows, weak rows, failures, and x-y terminal outcomes;
        do not compress to a 12--24 variant shortlist
 W2     optional diagnostic replay of the fixed R5 library under hardware-aware
@@ -940,7 +942,7 @@ real flight  use only frozen primitive-controller variants whose claim status pe
 
 R5 W0/W1 synthesis and R7 W3 holdout form the accepted learning and library-shrinking ladder. W2 can still be useful for debugging the annular-GP bridge, but it cannot be the evidence stage that makes a weak launch library acceptable. Final full-loop validation is later and uses frozen variants, governor, selector, and memory logic. A redesign after W3 failure is a separate explicitly authorised R5 W0/W1 synthesis cycle, not an in-place W3/R8/R9/R10 retune.
 
-The implementation must record `updraft_model_id`, model source, residual / uncertainty descriptor, and environment metadata for every row. The online primitive selector should not branch on Gaussian versus GP-corrected model family; it should use the resulting local context features and uncertainty labels. If the requested W-layer surrogate is unavailable, the run must write a blocked manifest rather than silently falling back to another surrogate.
+The implementation must record `updraft_model_id`, model source, residual / uncertainty descriptor, and environment metadata for every row. The online primitive selector should not branch on Gaussian versus GP-corrected model family; active accepted R5/R7 evidence is annular-GP or dry-air only, and Gaussian rows are diagnostic-only. The selector should use the resulting local context features and uncertainty labels. If the requested W-layer surrogate is unavailable, the run must write a blocked manifest rather than silently falling back to another surrogate.
 
 ### 12.1 W0 — dry-air and perturbed launch baseline inside R5 synthesis
 
@@ -961,7 +963,7 @@ launch_capture handoff-quality stress before W3 holdout
 
 ### 12.2 W1 — randomized measured-updraft synthesis
 
-Randomized measured-updraft synthesis using nominal and perturbed supported updraft approximations. W1 is paired with W0 as the second half of the robust R5 dense synthesis stage and is run for single-fan, four-fan, and active-fan-count variation where the surrogate can represent it honestly.
+Randomized measured-updraft synthesis using the annular-GP surrogate for active pass-gated evidence. W1 is paired with W0 as the second half of the robust R5 dense synthesis stage and is run for single-fan, four-fan, and active-fan-count variation where the surrogate can represent it honestly. Axisymmetric Gaussian plume remains available only as diagnostic or historical comparison evidence and cannot satisfy an R5/R7 acceptance gate.
 
 Rules:
 
@@ -974,6 +976,7 @@ W1 output is a rich primitive-controller library, not a 12--24 variant shortlist
 All solved, blocked, weak, failed, rejected, continuation-valid, and x-y terminal-useful rows are retained for the frozen W3 holdout and optional W2 diagnostic.
 Fan layout is environment metadata, not an online branch.
 Training seeds used in W1 must be separated from W3 holdout seeds.
+W1 annular-GP training and W3 annular-GP holdout use the same randomisation dimensions but disjoint seeds/environment instances.
 ```
 
 ### 12.3 W2 — optional hardware-aware diagnostic replay
@@ -1347,7 +1350,7 @@ rf    real flight
 sr    sim-real replay
 lqr   linear quadratic regulator
 w0    dry air
-w1    variable Gaussian plume fidelity layer
+w1    active annular-GP randomized training layer; Gaussian plume diagnostic-only
 w2    GP-corrected annular-Gaussian survival layer
 w3    randomised GP-corrected annular-Gaussian survival layer
 w01   combined W0/W1 rich primitive-library generation

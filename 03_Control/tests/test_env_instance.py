@@ -39,6 +39,21 @@ def test_w01_gaussian_single_and_four_change_wind_values() -> None:
     assert not np.isclose(_wind_value(single), _wind_value(four))
 
 
+def test_w01_active_annular_gp_training_modes_use_annular_gp_models() -> None:
+    single = environment_instance_for_mode("W1", "w1_annular_gp_randomised_single", 7)
+    four = environment_instance_for_mode("W1", "w1_annular_gp_randomised_four", 8)
+
+    assert single.fan_count == 1
+    assert four.fan_count == 4
+    assert single.updraft_model_id == "single_annular_gp_grid"
+    assert four.updraft_model_id == "four_annular_gp_grid"
+    assert single.residual_field_id == "randomised_residual_not_modelled"
+    assert four.residual_field_id == "randomised_residual_not_modelled"
+    assert wind_field_for_binding(
+        resolve_surrogate_binding("W1", environment_metadata_from_instance(single), randomisation_seed=7)
+    ) is not None
+
+
 def test_context_uses_conservative_nonzero_uncertainty_for_fitted_wind() -> None:
     instance = environment_instance_for_mode("W1", "gaussian_single", 11)
     state = archive_state_sample_for_row(0, seed=11, W_layer="W1", environment_mode="gaussian_single").state_vector

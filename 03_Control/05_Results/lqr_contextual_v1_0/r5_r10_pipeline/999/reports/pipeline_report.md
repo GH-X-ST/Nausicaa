@@ -15,7 +15,7 @@
 
 Stages:
 - `R5`: `complete` root `03_Control/05_Results/lqr_contextual_v1_0/w01_dense/027`
-- `R7`: `not_run` root ``
+- `R7`: `complete` root `03_Control/05_Results/lqr_contextual_v1_0/w3_survival/016`
 - `R8`: `not_run` root ``
 - `R9`: `not_run` root ``
 - `R10`: `not_run` root ``

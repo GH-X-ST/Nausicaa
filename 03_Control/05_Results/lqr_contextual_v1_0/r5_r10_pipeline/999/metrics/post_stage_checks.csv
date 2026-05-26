@@ -17,3 +17,12 @@ timestamp_utc,stage_id,check_id,passed,observed,required
 2026-05-26T19:59:02.579661+00:00,R5,frozen_bundle_exists,True,03_Control/05_Results/lqr_contextual_v1_0/w01_dense/027/manifests/frozen_w01_controller_bundle.json,exists
 2026-05-26T19:59:02.579661+00:00,R5,table_manifest_exists,True,03_Control/05_Results/lqr_contextual_v1_0/w01_dense/027/manifests/table_manifest.json,exists
 2026-05-26T19:59:02.681816+00:00,R5,no_generated_file_above_100mb,True,8.008,<=100.0
+2026-05-26T20:13:11.233281+00:00,R7,w3_replay_complete,True,complete,complete
+2026-05-26T20:13:11.233281+00:00,R7,w3_analysis_survivors_available,True,w3_survivors_available,w3_survivors_available
+2026-05-26T20:13:11.233281+00:00,R7,method_evidence_level_w3_dense,True,w3_dense_survival_pass,w3_dense_survival_pass
+2026-05-26T20:13:11.233281+00:00,R7,fixed_lqr_replay_only,True,True,True
+2026-05-26T20:13:11.233281+00:00,R7,source_input_kind_r5,True,r5_frozen_bundle_direct,r5_frozen_bundle_direct
+2026-05-26T20:13:11.233281+00:00,R7,no_w3_retuning,True,False,False
+2026-05-26T20:13:11.233281+00:00,R7,not_fixture_evidence,True,False,False
+2026-05-26T20:13:11.233281+00:00,R7,w3_survivor_count_positive,True,256,>0
+2026-05-26T20:13:11.247812+00:00,R7,no_generated_file_above_100mb,True,1.577,<=100.0

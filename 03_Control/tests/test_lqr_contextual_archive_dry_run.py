@@ -44,7 +44,9 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
         "inflight_recovery_edge",
     }
     assert {"W0", "W1"}.issubset(set(frame["W_layer"]))
-    assert {"dry_air", "w1_randomised_single", "w1_randomised_four"}.issubset(set(frame["environment_mode"]))
+    assert {"dry_air", "w1_annular_gp_randomised_single", "w1_annular_gp_randomised_four"}.issubset(
+        set(frame["environment_mode"])
+    )
     assert set(frame["small_library_selection_allowed"]) == {False}
     assert set(frame["pd_pid_fallback_allowed"]) == {False}
     assert set(frame["schedule_mode"]) == {"balanced_paired"}

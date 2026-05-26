@@ -33,6 +33,10 @@ GAUSSIAN_PLUME_IDS = ("single_gaussian_var", "four_gaussian_var")
 ANNULAR_GP_IDS = ("single_annular_gp_grid", "four_annular_gp_grid")
 DRY_AIR_MODEL_ID = "dry_air_zero_wind"
 READY_STATUS = "ready"
+R5_ANNULAR_GP_TRAINING_MODES = (
+    "w1_annular_gp_randomised_single",
+    "w1_annular_gp_randomised_four",
+)
 
 
 @dataclass(frozen=True)
@@ -123,7 +127,8 @@ def resolve_surrogate_binding(
         requested_was_default=requested_was_default,
         fan_count=int(getattr(environment_metadata, "fan_count", 1)),
     )
-    invalid_reason = _invalid_ladder_reason(layer, model_id)
+    environment_mode = str(getattr(environment_metadata, "environment_mode", ""))
+    invalid_reason = _invalid_ladder_reason(layer, model_id, environment_mode=environment_mode)
     if invalid_reason:
         return _blocked_binding(
             W_layer=layer,
@@ -153,7 +158,7 @@ def resolve_surrogate_binding(
         if randomisation_seed is not None
         else getattr(environment_metadata, "randomisation_seed", None)
     )
-    if layer == "W3":
+    if layer == "W3" or _is_r5_annular_gp_training_mode(layer, environment_mode):
         randomisation = sample_updraft_randomisation(seed=0 if seed is None else int(seed))
         randomisation_label = updraft_randomisation_label(randomisation)
     else:
@@ -164,8 +169,8 @@ def resolve_surrogate_binding(
         wind_mode="panel",
         updraft_model_id=model_id,
         updraft_model_source=str(wind.source),
-        surrogate_family=_surrogate_family(layer),
-        surrogate_role=_surrogate_role(layer),
+        surrogate_family=_surrogate_family(layer, environment_mode=environment_mode),
+        surrogate_role=_surrogate_role(layer, environment_mode=environment_mode),
         surrogate_binding_status=READY_STATUS,
         randomisation_label=randomisation_label,
         fan_count=fan_count,
@@ -179,7 +184,7 @@ def resolve_surrogate_binding(
             for value in tuple(getattr(environment_metadata, "updraft_centre_shift_m", (0.0, 0.0)))
         ),
         local_uncertainty_scale=float(getattr(environment_metadata, "local_uncertainty_scale", 1.0)),
-        environment_mode=str(getattr(environment_metadata, "environment_mode", "")),
+        environment_mode=environment_mode,
         blocked_reason="",
         randomisation_seed=None if seed is None else int(seed),
     )
@@ -190,7 +195,11 @@ def validate_surrogate_ladder(binding: SurrogateBinding) -> None:
 
     if binding.surrogate_binding_status != READY_STATUS:
         raise ValueError(f"surrogate binding is blocked: {binding.blocked_reason}")
-    reason = _invalid_ladder_reason(binding.W_layer, binding.updraft_model_id)
+    reason = _invalid_ladder_reason(
+        binding.W_layer,
+        binding.updraft_model_id,
+        environment_mode=binding.environment_mode,
+    )
     if reason:
         raise ValueError(reason)
     if binding.W_layer == "W0" and (
@@ -241,7 +250,10 @@ def wind_field_for_binding(
         local_uncertainty_scale=binding.local_uncertainty_scale,
         transform_label=str(binding.environment_mode or "environment_instance"),
     )
-    if binding.W_layer != "W3":
+    if binding.W_layer != "W3" and not _is_r5_annular_gp_training_mode(
+        binding.W_layer,
+        binding.environment_mode,
+    ):
         return adjusted
     wind, _ = build_randomised_wind_field(
         adjusted,
@@ -275,7 +287,11 @@ def _model_id_for_layer(
     return "four_annular_gp_grid" if int(fan_count) >= 4 else "single_annular_gp_grid"
 
 
-def _invalid_ladder_reason(layer: str, model_id: str) -> str:
+def _invalid_ladder_reason(layer: str, model_id: str, *, environment_mode: str = "") -> str:
+    if layer == "W1" and _is_r5_annular_gp_training_mode(layer, environment_mode):
+        if model_id not in ANNULAR_GP_IDS:
+            return "W1_annular_gp_training_requires_annular_gp_surrogate"
+        return ""
     if layer == "W1" and model_id not in GAUSSIAN_PLUME_IDS:
         return "W1_requires_gaussian_plume_surrogate"
     if layer == "W2" and model_id not in ANNULAR_GP_IDS:
@@ -285,7 +301,9 @@ def _invalid_ladder_reason(layer: str, model_id: str) -> str:
     return ""
 
 
-def _surrogate_family(layer: str) -> str:
+def _surrogate_family(layer: str, *, environment_mode: str = "") -> str:
+    if _is_r5_annular_gp_training_mode(layer, environment_mode):
+        return "randomised_gp_corrected_annular_gaussian_training"
     if layer == "W1":
         return "gaussian_plume"
     if layer == "W2":
@@ -295,12 +313,18 @@ def _surrogate_family(layer: str) -> str:
     return "dry_air_zero_wind"
 
 
-def _surrogate_role(layer: str) -> str:
+def _surrogate_role(layer: str, *, environment_mode: str = "") -> str:
+    if _is_r5_annular_gp_training_mode(layer, environment_mode):
+        return "r5_annular_gp_randomised_training_surrogate"
     return {
         "W1": "measured_gaussian_plume_preflight",
         "W2": "gp_corrected_annular_surrogate",
         "W3": "randomised_gp_corrected_annular_surrogate",
     }.get(layer, "baseline_no_wind")
+
+
+def _is_r5_annular_gp_training_mode(layer: str, environment_mode: str) -> bool:
+    return str(layer).upper() == "W1" and str(environment_mode) in R5_ANNULAR_GP_TRAINING_MODES
 
 
 def _fan_positions_for_model(

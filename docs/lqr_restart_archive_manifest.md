@@ -54,15 +54,15 @@ Current W labels are fidelity/evidence layers only:
 
 ```text
 W0      dry-air primitive-library generation
-W1      variable Gaussian primitive-library generation
-W2      fixed-LQR GP-corrected annular-Gaussian survival replay
-W3      fixed-LQR randomised GP-corrected annular-Gaussian survival replay
+W1      active annular-GP randomized primitive-library training; Gaussian plume diagnostic-only
+W2      optional fixed-LQR GP-corrected annular-Gaussian diagnostic replay
+W3      fixed-LQR randomised GP-corrected annular-Gaussian held-out survival replay
 post_w3 four-case library-size cross-study
 late    repeated-launch validation with frozen library/governor/selector/memory
 ```
 
 The next active restart is not the old R6/R8/R9 runner family. It must rerun
-W0/W1 dense generation with 0.10 s primitives, 5 controller-input slots, and a
-20 ms controller update period, then replay fixed variants through W2 and W3,
-then run the post-W3 library-size cross-study and repeated-launch validation
-only if the earlier gates pass.
+R5 dry-air plus annular-GP randomized dense generation with 0.10 s primitives,
+5 controller-input slots, and a 20 ms controller update period, then replay
+fixed variants through held-out W3, then run the post-W3 library-size
+cross-study and repeated-launch validation only if the earlier gates pass.

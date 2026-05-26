@@ -126,8 +126,8 @@ REQUIRED_DOCS = (
 )
 OFFICIAL_W01_ENVIRONMENT_CASES = (
     ("W0", "dry_air"),
-    ("W1", "w1_randomised_single"),
-    ("W1", "w1_randomised_four"),
+    ("W1", "w1_annular_gp_randomised_single"),
+    ("W1", "w1_annular_gp_randomised_four"),
 )
 R5_ACTIVE_FAN_COUNT_SEQUENCE = (1, 2, 3, 4)
 CLAIM_BOUNDARY = (
@@ -744,17 +744,17 @@ def _row_for_index(
 
 
 def _r5_randomisation_config(*, environment_mode: str, paired_start_index: int) -> EnvironmentRandomisationConfig | None:
-    if str(environment_mode) == "w1_randomised_four":
+    if str(environment_mode) == "w1_annular_gp_randomised_four":
         return EnvironmentRandomisationConfig(
             active_fan_count=int(R5_ACTIVE_FAN_COUNT_SEQUENCE[int(paired_start_index) % len(R5_ACTIVE_FAN_COUNT_SEQUENCE)])
         )
-    if str(environment_mode) == "w1_randomised_single":
+    if str(environment_mode) == "w1_annular_gp_randomised_single":
         return EnvironmentRandomisationConfig(active_fan_count=1)
     return None
 
 
 def _r5_implementation_plant_layer(*, W_layer: str, environment_mode: str) -> str:
-    if str(environment_mode).startswith("w1_randomised"):
+    if str(environment_mode).startswith("w1_annular_gp_randomised"):
         return "W3"
     return str(W_layer).upper()
 
@@ -762,10 +762,10 @@ def _r5_implementation_plant_layer(*, W_layer: str, environment_mode: str) -> st
 def _r5_training_randomisation_role(environment_mode: str) -> str:
     if str(environment_mode) == "dry_air":
         return "dry_baseline_training_case"
-    if str(environment_mode) == "w1_randomised_single":
-        return "robust_randomised_single_fan_training_case"
-    if str(environment_mode) == "w1_randomised_four":
-        return "robust_randomised_multi_fan_training_case_with_active_fan_count_1_2_3_4"
+    if str(environment_mode) == "w1_annular_gp_randomised_single":
+        return "robust_annular_gp_randomised_single_fan_training_case"
+    if str(environment_mode) == "w1_annular_gp_randomised_four":
+        return "robust_annular_gp_randomised_multi_fan_training_case_with_active_fan_count_1_2_3_4"
     return "unknown_training_case"
 
 
@@ -1614,7 +1614,7 @@ def _write_l7_completeness_audit(
             f"- Largest file: `{largest.get('relative_path', '')}` at `{largest.get('size_mb', '')}` MB",
             f"- Above 75 MB present: `{largest.get('above_75mb', '')}`",
             f"- Above 100 MB present: `{largest.get('above_100mb', '')}`",
-            f"- W1 randomised single/four mixed in one root: `{ {'w1_randomised_single', 'w1_randomised_four'}.issubset(set(environment_counts)) }`",
+            f"- W1 annular-GP randomised single/four mixed in one root: `{ {'w1_annular_gp_randomised_single', 'w1_annular_gp_randomised_four'}.issubset(set(environment_counts)) }`",
             f"- Fixed R5 library cleared for future W3 frozen held-out replay: `{cleared}`",
             "",
             "Coverage summaries:",
@@ -1999,8 +1999,8 @@ def _coverage_gate_blockers(*, run_root: Path, row_count: int) -> list[str]:
     if int(row_count) >= L6_RICH_SIDE_ROW_COUNT and candidate_values != set(range(L6_RICH_SIDE_CANDIDATE_COUNT)):
         blockers.append("missing_32_candidate_row_coverage")
     environment_values = set(_coverage_values(run_root, "environment_mode"))
-    if not {"dry_air", "w1_randomised_single", "w1_randomised_four"}.issubset(environment_values):
-        blockers.append("missing_w01_dry_randomised_single_four_environment_mix")
+    if not {"dry_air", "w1_annular_gp_randomised_single", "w1_annular_gp_randomised_four"}.issubset(environment_values):
+        blockers.append("missing_w01_dry_annular_gp_randomised_single_four_environment_mix")
     w_values = set(_coverage_values(run_root, "W_layer"))
     if not {"W0", "W1"}.issubset(w_values):
         blockers.append("missing_w0_w1_layer_coverage")
@@ -2492,11 +2492,12 @@ def _run_manifest(
         "cross_layer_smoke_blockers": cross_layer_blockers,
         "cross_layer_minimum_paired_start_cycle": int(CROSS_LAYER_START_FAMILY_CYCLE),
         "start_family_mix_exact_or_blocked": bool(not cross_layer_blockers),
-        "official_W_layers": {"W0": ["dry_air"], "W1": ["w1_randomised_single", "w1_randomised_four"]},
+        "official_W_layers": {"W0": ["dry_air"], "W1": ["w1_annular_gp_randomised_single", "w1_annular_gp_randomised_four"]},
         "r5_training_randomisation_policy": {
             "W0": "dry_air_baseline",
-            "W1_single": "fan_position_power_and_implementation_plant_randomised_training_case",
-            "W1_multi": "fan_position_power_active_fan_count_and_implementation_plant_randomised_training_case",
+            "W1_single": "annular_gp_fan_position_power_and_implementation_plant_randomised_training_case",
+            "W1_multi": "annular_gp_fan_position_power_active_fan_count_and_implementation_plant_randomised_training_case",
+            "axisymmetric_gaussian_plume": "diagnostic_only_not_active_pass_evidence",
             "active_fan_count_sequence": list(R5_ACTIVE_FAN_COUNT_SEQUENCE),
         },
         "R6_W2_active_pipeline_gate": False,

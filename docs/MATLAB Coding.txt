@@ -25,7 +25,7 @@ Required repair direction:
 7. Fix R9 outcome lookup so representatives are matched by library-size case and compact-library identity, not only by primitive_variant_id.
 8. Compute memory_changed_selection and exploration_changed_selection from actual matched selections; do not hard-code them to zero.
 9. Add first-decision launch-gate audits for candidate count, viable count, rejection reason, selected family, and transition-to-inflight evidence.
-10. Regenerate evidence from the corrected R5 W0/W1 dense run before reusing R6, R7, R8, R9, or R10 evidence.
+10. Regenerate evidence from the corrected R5 dry-air plus annular-GP dense run before reusing R7, R8, R9, or R10 evidence. R6/W2 is optional diagnostic only.
 ```
 
 Forbidden changes remain unchanged: no fan-layout-specific controller logic, no pre-W3 clustering, no W2/W3 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
@@ -52,7 +52,7 @@ local environment identifier
 real-flight replay metadata
 ```
 
-W labels are fidelity/evidence layers, not online controller branches: W0 is dry air only, W1 is variable Gaussian plume only, W2 is GP-corrected annular-Gaussian only, and W3 is randomised GP-corrected annular-Gaussian only. Fan count, fan shift, and fan power are environment instances. W0/W1 evidence should already use the feedback-latency, command-timing, and actuator-lag assumptions that affect primitive-local LQR tuning.
+W labels are fidelity/evidence layers, not online controller branches. W0 is dry air only. Active pass-gated R5 W1 evidence now uses annular-GP randomized single-fan and four-fan training blocks with the same randomisation dimensions as W3 held-out validation; axisymmetric Gaussian plume is diagnostic-only. W2 is optional GP-corrected annular-Gaussian diagnostic replay, and W3 is randomised GP-corrected annular-Gaussian held-out validation. Fan count, fan shift, and fan power are environment instances. W0/W1 evidence should already use the feedback-latency, command-timing, and actuator-lag assumptions that affect primitive-local LQR tuning.
 
 ## Comments
 

@@ -634,6 +634,8 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "no_w3_retuning", not bool(manifest.get("mutates_Q_R_K_reference_horizon_entry_set_or_entry_role", True)), manifest.get("mutates_Q_R_K_reference_horizon_entry_set_or_entry_role", True), False),
             _check_row(stage_id, "not_fixture_evidence", not bool(manifest.get("test_fixture_not_method_evidence", True)), manifest.get("test_fixture_not_method_evidence", True), False),
             _check_row(stage_id, "w3_survivor_count_positive", int(registry.get("survivor_count", 0)) > 0, registry.get("survivor_count", 0), ">0"),
+            _check_row(stage_id, "w3_launch_capable_survivor_count_positive", int(registry.get("launch_capable_survivor_count", 0)) > 0, registry.get("launch_capable_survivor_count", 0), ">0"),
+            _check_row(stage_id, "w3_all_launch_capture_families_survived", set(registry.get("surviving_launch_capture_primitive_ids", [])) == set(LAUNCH_CAPTURE_PRIMITIVE_IDS), registry.get("surviving_launch_capture_primitive_ids", []), list(LAUNCH_CAPTURE_PRIMITIVE_IDS)),
             _file_size_check(stage_id, run_root),
         ]
     if stage_id == "R8":

@@ -72,6 +72,10 @@ DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_surviva
 W3_TABLE_NAME = "w3_survival_rows"
 W3_ENVIRONMENT_CASES = ("w3_randomised_single", "w3_randomised_four")
 W3_ACTIVE_FAN_COUNT_SEQUENCE = (1, 2, 3, 4)
+REQUIRED_R5_ANNULAR_GP_TRAINING_CASES = (
+    "w1_annular_gp_randomised_single",
+    "w1_annular_gp_randomised_four",
+)
 ACCEPTED_W2_SOURCE_STATUSES = ("w2_dense_survival_pass",)
 R5_INPUT_KIND = "r5_frozen_bundle_direct"
 LEGACY_W2_INPUT_KIND = "legacy_w2_survivor_registry_diagnostic"
@@ -348,7 +352,7 @@ def _r5_root_is_default_w3_eligible(root: Path) -> bool:
         and bool(manifest.get("w01_dense_evidence_complete", False))
         and str(manifest.get("method_evidence_level", "")) == "w01_dense_evidence_complete"
         and str(manifest.get("R7_W3_direct_source", "")) == "frozen_R5_W0_W1_controller_bundle"
-        and {"w1_randomised_single", "w1_randomised_four"}.issubset(official_w1)
+        and set(REQUIRED_R5_ANNULAR_GP_TRAINING_CASES).issubset(official_w1)
         and ready_count > 0
     )
 
@@ -411,8 +415,8 @@ def _input_blocked_reason(input_root: Path) -> str:
         if str(source.get("R7_W3_direct_source", "")) != "frozen_R5_W0_W1_controller_bundle":
             return "R5_source_missing_direct_W3_contract"
         official_w1 = set(source.get("official_W_layers", {}).get("W1", []))
-        if not {"w1_randomised_single", "w1_randomised_four"}.issubset(official_w1):
-            return "R5_source_missing_robust_randomised_W1_cases"
+        if not set(REQUIRED_R5_ANNULAR_GP_TRAINING_CASES).issubset(official_w1):
+            return "R5_source_missing_annular_gp_randomised_W1_training_cases"
         return ""
     if input_kind == UNKNOWN_INPUT_KIND:
         return "missing_R5_frozen_bundle_or_legacy_W2_survivor_root"

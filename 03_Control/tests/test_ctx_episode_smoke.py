@@ -43,6 +43,8 @@ def _results_entries_are_placeholder_or_allowed(entries: list[str]) -> bool:
             or entry.startswith("lqr_contextual_v1_0/figures/")
             or entry == "lqr_contextual_v1_0/governor_calibration"
             or entry.startswith("lqr_contextual_v1_0/governor_calibration/")
+            or entry == "lqr_contextual_v1_0/run_logs"
+            or entry.startswith("lqr_contextual_v1_0/run_logs/")
             for entry in entries
         )
 

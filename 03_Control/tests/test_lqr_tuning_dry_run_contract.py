@@ -113,7 +113,11 @@ def test_rich_side_schedule_has_32_candidates_100_paired_tests_and_exact_start_m
     summary = _schedule_count_summary(config)
 
     assert len(summary["candidate_index"]) == 32
-    assert set(summary["environment_mode"]) == {"dry_air", "w1_randomised_single", "w1_randomised_four"}
+    assert set(summary["environment_mode"]) == {
+        "dry_air",
+        "w1_annular_gp_randomised_single",
+        "w1_annular_gp_randomised_four",
+    }
     assert summary["start_state_family"] == {
         "inflight_boundary_near": 9600,
         "inflight_lift_region": 21600,

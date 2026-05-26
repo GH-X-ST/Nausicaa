@@ -1,5 +1,5 @@
 {
-  "R7_R8_R9_R10_deliberately_not_run_when_stop_after_stage_R5": true,
+  "R7_R8_R9_R10_deliberately_not_run_when_stop_after_stage_R5": false,
   "active_primitive_count": 14,
   "archived_stages": [
     "R6"
@@ -24,8 +24,8 @@
     "repair_incomplete": true,
     "resume": true,
     "run_id": 999,
-    "start_stage": "R5",
-    "stop_after_stage": "R5",
+    "start_stage": "R7",
+    "stop_after_stage": "R7",
     "storage_format": "auto",
     "workers": "8"
   },
@@ -88,7 +88,7 @@
     }
   },
   "docs_changed_during_run": false,
-  "execution_scope": "R5_only",
+  "execution_scope": "R5_R7_R8_R9_R10_chain",
   "full_run_policy": "R5_then_R7_R8_R9_R10_only_after_previous_stage_passes_R6_archived_diagnostic_only",
   "launch_capture_primitive_ids": [
     "launch_capture_glide_stabilise",
@@ -101,7 +101,7 @@
   "pipeline_version": "v54_r5_r7_r10_pipeline_r6_archived_with_repeated_docs_guard",
   "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
   "r5_expected_dense_rows": 134400,
-  "r5_only_scope": true,
+  "r5_only_scope": false,
   "run_id": 999,
   "run_root": "03_Control/05_Results/lqr_contextual_v1_0/r5_r10_pipeline/999",
   "stage_order": [

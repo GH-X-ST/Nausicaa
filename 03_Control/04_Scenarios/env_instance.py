@@ -8,6 +8,12 @@ from env_ctx import EnvironmentMetadata
 from updraft_models import FOUR_FAN_CENTERS_XY, SINGLE_FAN_CENTER_XY
 
 
+R5_ANNULAR_GP_TRAINING_MODES = (
+    "w1_annular_gp_randomised_single",
+    "w1_annular_gp_randomised_four",
+)
+
+
 # =============================================================================
 # SECTION MAP
 # =============================================================================
@@ -97,7 +103,12 @@ def environment_instance_for_mode(
             randomisation_seed=int(seed),
         )
 
-    fan_count = 4 if mode in {"gaussian_four", "annular_gp_four", "w1_randomised_four", "w3_randomised_four"} else 1
+    fan_count = 4 if mode in {
+        "gaussian_four",
+        "annular_gp_four",
+        "w1_annular_gp_randomised_four",
+        "w3_randomised_four",
+    } else 1
     positions = _base_fan_positions(fan_count)
     power_scales = tuple(1.0 for _ in range(fan_count))
     active_mask = tuple(True for _ in range(fan_count))
@@ -119,8 +130,8 @@ def environment_instance_for_mode(
         "gaussian_four",
         "annular_gp_single",
         "annular_gp_four",
-        "w1_randomised_single",
-        "w1_randomised_four",
+        "w1_annular_gp_randomised_single",
+        "w1_annular_gp_randomised_four",
         "w3_randomised",
         "w3_randomised_single",
         "w3_randomised_four",
@@ -133,8 +144,8 @@ def environment_instance_for_mode(
         )
 
     randomised_modes = {
-        "w1_randomised_single",
-        "w1_randomised_four",
+        "w1_annular_gp_randomised_single",
+        "w1_annular_gp_randomised_four",
         "w3_randomised",
         "w3_randomised_single",
         "w3_randomised_four",
@@ -177,7 +188,7 @@ def environment_instance_for_mode(
         fan_positions_m=positions,
         fan_power_scales=power_scales,
         active_fan_mask=active_mask,
-        updraft_model_id=_model_id_for_instance(layer, fan_count),
+        updraft_model_id=_model_id_for_instance(layer, fan_count, mode),
         updraft_amplitude_scale=amplitude_scale,
         updraft_width_scale=width_scale,
         updraft_centre_shift_m=centre_shift,
@@ -255,10 +266,13 @@ def _base_fan_positions(fan_count: int) -> tuple[tuple[float, float], ...]:
     return (tuple(float(value) for value in SINGLE_FAN_CENTER_XY),)
 
 
-def _model_id_for_instance(W_layer: str, fan_count: int) -> str:
+def _model_id_for_instance(W_layer: str, fan_count: int, environment_mode: str = "") -> str:
     layer = str(W_layer).upper()
+    mode = str(environment_mode)
     if layer == "W0":
         return "dry_air_zero_wind"
+    if mode in R5_ANNULAR_GP_TRAINING_MODES:
+        return "four_annular_gp_grid" if int(fan_count) >= 4 else "single_annular_gp_grid"
     if layer == "W1":
         return "four_gaussian_var" if int(fan_count) >= 4 else "single_gaussian_var"
     if layer == "W2":

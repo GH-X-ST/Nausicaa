@@ -16,9 +16,12 @@ audit differs from the latest workflow.
   primitive-controller variants.
 - Current primitive horizon contract: `finite_horizon_s = 0.100`, with
   5 controller-input slots at a 20 ms controller update period.
-- Active primitive labels are exactly: `glide`, `recovery`, `lift_entry`,
-  `lift_dwell_arc`, `mild_turn_left`, `mild_turn_right`,
-  `energy_retaining_bank`, and `safe_exit_or_recovery_handoff`.
+- Historical primitive labels at the time of this audit were: `glide`,
+  `recovery`, `lift_entry`, `lift_dwell_arc`, `mild_turn_left`,
+  `mild_turn_right`, `energy_retaining_bank`, and
+  `safe_exit_or_recovery_handoff`. The active catalogue is controlled by
+  `docs/Glider_Control_Project_Plan.md` and includes explicit
+  `launch_capture_*` families.
 - Controller identity is carried by stable `controller_id` and
   `primitive_variant_id` values. W2, W3, post-W3 processing, governor
   calibration, and repeated-launch validation must not mutate Q/R, K,

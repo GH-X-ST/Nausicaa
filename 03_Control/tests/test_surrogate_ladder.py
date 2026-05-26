@@ -68,6 +68,24 @@ def test_w1_blocks_annular_gp_surrogate() -> None:
         validate_surrogate_ladder(binding)
 
 
+def test_w1_annular_gp_training_mode_accepts_randomised_annular_gp() -> None:
+    metadata = EnvironmentMetadata(
+        environment_id="W1_annular_train",
+        fan_count=1,
+        updraft_model_id="single_annular_gp_grid",
+        environment_mode="w1_annular_gp_randomised_single",
+        randomisation_seed=23,
+    )
+
+    binding = resolve_surrogate_binding("W1", metadata, randomisation_seed=23)
+    wind = wind_field_for_binding(binding)
+
+    assert binding.surrogate_binding_status == READY_STATUS
+    assert binding.surrogate_family == "randomised_gp_corrected_annular_gaussian_training"
+    assert "strength_scale" in binding.randomisation_label
+    assert wind is not None
+
+
 def test_w2_blocks_gaussian_fallback() -> None:
     metadata = EnvironmentMetadata(
         environment_id="bad_W2",

@@ -25,7 +25,7 @@ Required repair direction:
 7. Fix R9 outcome lookup so representatives are matched by library-size case and compact-library identity, not only by primitive_variant_id.
 8. Compute memory_changed_selection and exploration_changed_selection from actual matched selections; do not hard-code them to zero.
 9. Add first-decision launch-gate audits for candidate count, viable count, rejection reason, selected family, and transition-to-inflight evidence.
-10. Regenerate evidence from the corrected R5 W0/W1 dense run before reusing R6, R7, R8, R9, or R10 evidence.
+10. Regenerate evidence from the corrected R5 dry-air plus annular-GP dense run before reusing R7, R8, R9, or R10 evidence. R6/W2 is optional diagnostic only.
 ```
 
 Forbidden changes remain unchanged: no fan-layout-specific controller logic, no pre-W3 clustering, no W2/W3 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
@@ -130,7 +130,7 @@ Show fidelity-layer and environment-instance effects without turning them into o
 - active fan subset;
 - randomised updraft amplitude or width.
 
-Use W0 as dry air only, W1 as variable Gaussian plume only, W2 as GP-corrected annular-Gaussian only, and W3 as randomised GP-corrected annular-Gaussian only. Do not present W0/W1 clustering as the final library-compression result.
+Use W0 as dry air only. For active pass-gated R5/R7 evidence, use W1 as annular-GP randomized training and W3 as held-out randomised GP-corrected annular-Gaussian validation; Gaussian plume plots are diagnostic-only. W2 remains optional GP-corrected annular-Gaussian diagnostic replay. Do not present W0/W1 clustering as the final library-compression result.
 
 ### 7. Post-W3 library compression
 
