@@ -5,6 +5,7 @@ import numpy as np
 from flight_dynamics import adapt_glider
 from glider import build_nausicaa_glider
 from implementation_instance import (
+    apply_aileron_asymmetry_to_aircraft,
     adjusted_actuator_tau_s,
     apply_surface_implementation,
     implementation_instance_for_layer,
@@ -30,6 +31,9 @@ def test_implementation_instance_is_deterministic_and_changes_surface_and_tau() 
         apply_surface_implementation(command, first),
         apply_surface_implementation(command, nominal),
     )
+    asymmetric = apply_aileron_asymmetry_to_aircraft(adapt_glider(build_nausicaa_glider()), first)
+    nominal_aircraft = apply_aileron_asymmetry_to_aircraft(adapt_glider(build_nausicaa_glider()), nominal)
+    assert not np.allclose(asymmetric.control_mix, nominal_aircraft.control_mix)
 
 
 def test_plant_instance_is_deterministic_and_changes_aircraft_model() -> None:
@@ -39,8 +43,12 @@ def test_plant_instance_is_deterministic_and_changes_aircraft_model() -> None:
     adjusted = apply_plant_instance_to_aircraft(aircraft, first)
 
     assert first == second
-    assert "blocked_not_yet_applied" in first.plant_adjustment_limitations
-    assert plant_instance_row(first)["plant_adjustment_status"] == "randomised_partly_applied"
+    assert "cg offset shifts aerodynamic moment arms" in first.plant_adjustment_limitations
+    assert plant_instance_row(first)["plant_adjustment_status"] == "randomised_applied"
     assert not np.isclose(adjusted.mass_kg, aircraft.mass_kg)
     assert not np.allclose(adjusted.inertia_b, aircraft.inertia_b)
+    assert np.allclose(
+        adjusted.r_strip_b,
+        aircraft.r_strip_b - np.asarray(first.cg_offset_m, dtype=float).reshape(1, 3),
+    )
     assert not np.allclose(adjusted.flap_scale_strip, aircraft.flap_scale_strip)

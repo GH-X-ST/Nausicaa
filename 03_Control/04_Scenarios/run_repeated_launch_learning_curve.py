@@ -44,7 +44,11 @@ from directional_residual_lift_belief import (  # noqa: E402
     update_directional_residual_lift_belief,
 )
 from env_ctx import build_environment_context  # noqa: E402
-from env_instance import environment_instance_for_mode, environment_metadata_from_instance  # noqa: E402
+from env_instance import (  # noqa: E402
+    EnvironmentRandomisationConfig,
+    environment_instance_for_mode,
+    environment_metadata_from_instance,
+)
 from env_surrogate import resolve_surrogate_binding, wind_field_for_binding  # noqa: E402
 from episode_selector import select_compact_representative, selector_decision_row  # noqa: E402
 from frozen_w01_controller_bundle import FROZEN_CONTROLLER_READY, load_frozen_w01_controller_bundle  # noqa: E402
@@ -101,6 +105,8 @@ FIRST_PRIMITIVE_START_FAMILY = "launch_gate"
 POST_LAUNCH_START_FAMILY = "inflight_nominal"
 BOUNDARY_RECOVERY_START_FAMILY = "inflight_boundary_near"
 TERMINAL_SAFE_EXIT_START_FAMILY = "inflight_recovery_edge"
+ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID = "active_fan_number_variation"
+R10_ACTIVE_FAN_COUNT_SEQUENCE = (1, 2, 3, 4)
 RECOVERY_ROUTE_MARGIN_M = 0.25
 RECOVERY_EDGE_MIN_SPEED_M_S = 4.2
 RECOVERY_EDGE_MAX_ABS_ROLL_RAD = math.radians(35.0)
@@ -238,6 +244,10 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
     _write_csv(run_root / "metrics" / "final_heldout_launch_schedule.csv", pd.DataFrame(final_schedule))
     if protocol.stage_id == "R10":
         _write_csv(run_root / "metrics" / "environment_block_schedule.csv", _environment_block_summary(protocol))
+        _write_csv(
+            run_root / "metrics" / "active_fan_count_schedule_audit.csv",
+            pd.DataFrame(_active_fan_count_schedule_audit_rows(outer_cases)),
+        )
 
     if config.dry_run_schedule:
         pass_summary = _pass_fail_summary(
@@ -466,6 +476,36 @@ def _load_records_by_variant(config: ValidationRunConfig, libraries: dict[str, d
     return {}
 
 
+def _scheduled_active_fan_count_for_outer_case(
+    *,
+    protocol: ValidationProtocol,
+    environment_block_id: str,
+    environment_block_local_index: int,
+) -> int | None:
+    if str(protocol.stage_id) != "R10":
+        return None
+    if str(environment_block_id) != ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID:
+        return None
+    return int(
+        R10_ACTIVE_FAN_COUNT_SEQUENCE[
+            int(environment_block_local_index) % len(R10_ACTIVE_FAN_COUNT_SEQUENCE)
+        ]
+    )
+
+
+def _active_fan_count_policy_for_outer_case(
+    *,
+    protocol: ValidationProtocol,
+    environment_block_id: str,
+) -> str:
+    if (
+        str(protocol.stage_id) == "R10"
+        and str(environment_block_id) == ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID
+    ):
+        return "balanced_1_2_3_4_for_active_fan_number_variation"
+    return "environment_default"
+
+
 def _outer_case_schedule(*, protocol: ValidationProtocol, seed: int) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     outer_index = 0
@@ -473,16 +513,29 @@ def _outer_case_schedule(*, protocol: ValidationProtocol, seed: int) -> list[dic
         for local_index in range(int(block.case_count)):
             launch_seed = int(seed) * 100000 + outer_index * 37 + 11
             env_seed = int(seed) * 200000 + outer_index * 41 + 17
+            scheduled_active_fan_count = _scheduled_active_fan_count_for_outer_case(
+                protocol=protocol,
+                environment_block_id=block.block_id,
+                environment_block_local_index=local_index,
+            )
             rows.append(
                 {
                     "outer_case_index": outer_index,
                     "outer_case_id": f"{protocol.final_schedule_prefix}_outer_{outer_index:04d}",
                     "outer_case_type": block.block_id,
                     "environment_block_id": block.block_id,
+                    "environment_block_local_index": int(local_index),
                     "environment_block_label": block.human_label,
                     "environment_change_family": block.environment_change_family,
                     "W_layer": block.W_layer,
                     "environment_mode": block.environment_mode,
+                    "scheduled_active_fan_count": (
+                        "" if scheduled_active_fan_count is None else int(scheduled_active_fan_count)
+                    ),
+                    "active_fan_count_policy": _active_fan_count_policy_for_outer_case(
+                        protocol=protocol,
+                        environment_block_id=block.block_id,
+                    ),
                     "launch_state_seed": launch_seed,
                     "environment_seed": env_seed,
                     "common_final_launch_key": f"{protocol.final_schedule_prefix}_final_{outer_index:04d}",
@@ -552,6 +605,23 @@ def _history_row_for_final(final_row: dict[str, object], history_index: int) -> 
         "environment_seed": int(final_row["environment_seed"]) + seed_shift,
         "common_final_launch_key": str(final_row["common_final_launch_key"]),
     }
+
+
+def _scheduled_active_fan_count_for_context(
+    *,
+    protocol: ValidationProtocol,
+    scheduled: dict[str, object],
+) -> int | None:
+    scheduled_count = scheduled.get("scheduled_active_fan_count", "")
+    if str(scheduled_count).strip() not in {"", "nan", "None"}:
+        return int(scheduled_count)
+    return _scheduled_active_fan_count_for_outer_case(
+        protocol=protocol,
+        environment_block_id=str(scheduled.get("environment_block_id", "")),
+        environment_block_local_index=int(
+            scheduled.get("environment_block_local_index", scheduled.get("outer_case_index", 0))
+        ),
+    )
 
 
 def _policy_condition(policy_id: str) -> dict[str, object]:
@@ -932,7 +1002,21 @@ def _context_payload(
     env_layer = str(scheduled["W_layer"])
     mode = str(scheduled["environment_mode"])
     seed = int(scheduled["environment_seed"])
-    instance = environment_instance_for_mode(env_layer, mode, seed)
+    scheduled_active_fan_count = _scheduled_active_fan_count_for_context(
+        protocol=protocol,
+        scheduled=scheduled,
+    )
+    randomisation_config = (
+        EnvironmentRandomisationConfig(active_fan_count=scheduled_active_fan_count)
+        if scheduled_active_fan_count is not None
+        else None
+    )
+    instance = environment_instance_for_mode(
+        env_layer,
+        mode,
+        seed,
+        randomisation_config=randomisation_config,
+    )
     metadata = environment_metadata_from_instance(instance)
     binding = resolve_surrogate_binding(env_layer, metadata, randomisation_seed=seed)
     wind_field = wind_field_for_binding(binding)
@@ -955,6 +1039,14 @@ def _context_payload(
         "environment_instance_id": instance.environment_id,
         "environment_block_id": str(scheduled.get("environment_block_id", "")),
         "outer_case_type": str(scheduled.get("outer_case_type", "")),
+        "scheduled_active_fan_count": (
+            "" if scheduled_active_fan_count is None else int(scheduled_active_fan_count)
+        ),
+        "actual_active_fan_count": int(sum(bool(value) for value in instance.active_fan_mask)),
+        "active_fan_count_policy": _active_fan_count_policy_for_outer_case(
+            protocol=protocol,
+            environment_block_id=str(scheduled.get("environment_block_id", "")),
+        ),
         "start_state_family": str(start_state_family),
         "primitive_step_index": int(primitive_step_index),
         "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
@@ -1985,6 +2077,57 @@ def _environment_block_summary(protocol: ValidationProtocol) -> pd.DataFrame:
     return pd.DataFrame([asdict(block) for block in protocol.blocks])
 
 
+def _active_fan_count_schedule_audit_rows(outer_cases: list[dict[str, object]]) -> list[dict[str, object]]:
+    if not outer_cases:
+        return [
+            {
+                "environment_block_id": ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
+                "scheduled_active_fan_count": "",
+                "outer_case_count": 0,
+                "policy": "balanced_1_2_3_4_for_active_fan_number_variation",
+                "audit_passed": False,
+            }
+        ]
+    frame = pd.DataFrame(outer_cases)
+    if "scheduled_active_fan_count" not in frame.columns:
+        return []
+    active = frame[frame["environment_block_id"].eq(ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID)].copy()
+    if active.empty:
+        return []
+    active["scheduled_active_fan_count"] = pd.to_numeric(
+        active["scheduled_active_fan_count"],
+        errors="coerce",
+    )
+    rows: list[dict[str, object]] = []
+    counts = active.groupby("scheduled_active_fan_count", dropna=False).size()
+    expected_counts = {
+        value: sum(
+            1
+            for index in range(int(len(active)))
+            if R10_ACTIVE_FAN_COUNT_SEQUENCE[index % len(R10_ACTIVE_FAN_COUNT_SEQUENCE)] == value
+        )
+        for value in R10_ACTIVE_FAN_COUNT_SEQUENCE
+    }
+    for active_count, row_count in counts.items():
+        count_value = "" if pd.isna(active_count) else int(active_count)
+        expected_count = expected_counts.get(count_value, 0) if isinstance(count_value, int) else 0
+        rows.append(
+            {
+                "environment_block_id": ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
+                "scheduled_active_fan_count": count_value,
+                "outer_case_count": int(row_count),
+                "expected_outer_case_count": expected_count,
+                "expected_active_fan_counts": ";".join(str(value) for value in R10_ACTIVE_FAN_COUNT_SEQUENCE),
+                "policy": "balanced_1_2_3_4_for_active_fan_number_variation",
+                "audit_passed": bool(
+                    count_value in set(R10_ACTIVE_FAN_COUNT_SEQUENCE)
+                    and int(row_count) == expected_count
+                ),
+            }
+        )
+    return rows
+
+
 def _write_manifest(
     *,
     run_root: Path,
@@ -2031,6 +2174,12 @@ def _write_manifest(
         "post_launch_required_entry_role": "inflight_only",
         "boundary_recovery_required_entry_role": "terminal_or_recovery",
         "terminal_safe_exit_required_entry_role": "terminal_or_recovery",
+        "r10_active_fan_count_policy": "balanced_1_2_3_4_for_active_fan_number_variation"
+        if str(protocol.stage_id) == "R10"
+        else "not_applicable",
+        "r10_active_fan_count_sequence": list(R10_ACTIVE_FAN_COUNT_SEQUENCE)
+        if str(protocol.stage_id) == "R10"
+        else [],
         "recovery_route_margin_m": float(RECOVERY_ROUTE_MARGIN_M),
         "recovery_edge_min_speed_m_s": float(RECOVERY_EDGE_MIN_SPEED_M_S),
         "recovery_edge_max_abs_roll_rad": float(RECOVERY_EDGE_MAX_ABS_ROLL_RAD),

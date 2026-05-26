@@ -25,6 +25,7 @@ class EnvironmentRandomisationConfig:
     fan_position_shift_range_m: tuple[float, float] = (-0.20, 0.20)
     fan_power_scale_range: tuple[float, float] = (0.85, 1.15)
     active_fan_subset_policy: str = "at_least_one_active"
+    active_fan_count: int | None = None
     amplitude_scale_range: tuple[float, float] = (0.85, 1.15)
     width_scale_range: tuple[float, float] = (0.85, 1.15)
     centre_shift_range_m: tuple[float, float] = (-0.20, 0.20)
@@ -141,7 +142,11 @@ def environment_instance_for_mode(
             )
         )
         if fan_count > 1:
-            active_mask = _active_fan_mask(rng, fan_count)
+            active_mask = _active_fan_mask(
+                rng,
+                fan_count,
+                active_fan_count=cfg.active_fan_count,
+            )
         amplitude_scale = float(
             rng.uniform(cfg.amplitude_scale_range[0], cfg.amplitude_scale_range[1])
         )
@@ -252,7 +257,18 @@ def _model_id_for_instance(W_layer: str, fan_count: int) -> str:
     return "four_annular_gp_grid" if int(fan_count) >= 4 else "single_annular_gp_grid"
 
 
-def _active_fan_mask(rng: np.random.Generator, fan_count: int) -> tuple[bool, ...]:
+def _active_fan_mask(
+    rng: np.random.Generator,
+    fan_count: int,
+    *,
+    active_fan_count: int | None = None,
+) -> tuple[bool, ...]:
+    if active_fan_count is not None:
+        count = int(active_fan_count)
+        if count < 1 or count > int(fan_count):
+            raise ValueError("active_fan_count must be between 1 and fan_count.")
+        active_indices = set(int(index) for index in rng.choice(int(fan_count), size=count, replace=False))
+        return tuple(index in active_indices for index in range(int(fan_count)))
     mask = tuple(bool(value) for value in rng.integers(0, 2, size=int(fan_count)))
     if any(mask):
         return mask

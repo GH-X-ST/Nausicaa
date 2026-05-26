@@ -81,10 +81,10 @@ def plant_instance_for_layer(
             Izz_scale=float(rng.uniform(0.92, 1.08)),
             aero_coefficient_scale=float(rng.uniform(0.95, 1.05)),
             surface_calibration_scale=float(rng.uniform(0.90, 1.10)),
-            plant_adjustment_status="randomised_partly_applied",
+            plant_adjustment_status="randomised_applied",
             plant_adjustment_limitations=(
-                "mass inertia aero and surface calibration applied; "
-                "cg offset and cross inertia logged but blocked_not_yet_applied"
+                "mass inertia aero surface calibration and cg offset applied; "
+                "cg offset shifts aerodynamic moment arms; cross inertia remains not perturbed"
             ),
         )
     return _plant_instance(
@@ -163,11 +163,13 @@ def apply_plant_instance_to_aircraft(
     inertia_inv = np.linalg.inv(inertia)
     aero_scale = float(instance.aero_coefficient_scale)
     surface_scale = float(instance.surface_calibration_scale)
+    cg_offset_b = np.asarray(instance.cg_offset_m, dtype=float).reshape(3)
     return replace(
         aircraft,
         mass_kg=float(aircraft.mass_kg) * float(instance.mass_scale),
         inertia_b=inertia,
         inertia_inv_b=inertia_inv,
+        r_strip_b=np.asarray(aircraft.r_strip_b, dtype=float) - cg_offset_b.reshape(1, 3),
         cd0_strip=np.asarray(aircraft.cd0_strip, dtype=float) * aero_scale,
         flap_scale_strip=np.asarray(aircraft.flap_scale_strip, dtype=float) * surface_scale,
     )

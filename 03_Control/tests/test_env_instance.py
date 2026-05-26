@@ -4,6 +4,7 @@ import numpy as np
 
 from env_ctx import build_environment_context
 from env_instance import (
+    EnvironmentRandomisationConfig,
     environment_instance_for_mode,
     environment_metadata_from_instance,
     sample_environment_randomisation,
@@ -74,3 +75,15 @@ def test_w3_randomisation_mode_selection_is_explicit_for_single_and_four() -> No
 
     assert sample_environment_randomisation(single, 4).environment_mode == "w3_randomised_single"
     assert sample_environment_randomisation(four, 4).environment_mode == "w3_randomised_four"
+
+
+def test_w3_four_fan_randomisation_can_request_exact_active_fan_count() -> None:
+    instance = environment_instance_for_mode(
+        "W3",
+        "w3_randomised_four",
+        9,
+        randomisation_config=EnvironmentRandomisationConfig(active_fan_count=2),
+    )
+
+    assert instance.fan_count == 4
+    assert sum(instance.active_fan_mask) == 2

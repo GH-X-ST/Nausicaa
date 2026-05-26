@@ -149,6 +149,9 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
     r9_history = pd.read_csv(Path(validation["run_root"]) / "metrics" / "history_launch_schedule.csv")
     r10_final = pd.read_csv(Path(r10_validation["run_root"]) / "metrics" / "final_heldout_launch_schedule.csv")
     r10_history = pd.read_csv(Path(r10_validation["run_root"]) / "metrics" / "history_launch_schedule.csv")
+    r10_active_fan_audit = pd.read_csv(
+        Path(r10_validation["run_root"]) / "metrics" / "active_fan_count_schedule_audit.csv"
+    )
 
     assert outcome_result["status"] == "complete"
     assert validation["status"] == "dry_run_schedule"
@@ -177,6 +180,19 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
         "shifted_four_fan_positions",
         "active_fan_number_variation",
     }
+    r10_active_final = r10_final[
+        r10_final["environment_block_id"].eq("active_fan_number_variation")
+    ].copy()
+    assert set(r10_active_final["scheduled_active_fan_count"].astype(int)) == {1, 2, 3, 4}
+    assert r10_active_final.groupby("scheduled_active_fan_count").size().to_dict() == {
+        1: 280,
+        2: 280,
+        3: 280,
+        4: 280,
+    }
+    assert set(r10_active_fan_audit["scheduled_active_fan_count"].astype(int)) == {1, 2, 3, 4}
+    assert set(r10_active_fan_audit["outer_case_count"].astype(int)) == {5}
+    assert r10_active_fan_audit["audit_passed"].all()
 
 
 def test_post_w3_compression_refuses_roots_without_w3_registry(tmp_path: Path) -> None:

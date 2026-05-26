@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -258,6 +259,62 @@ def test_w3_fixture_plumbing_is_labelled_non_method_evidence(tmp_path: Path) -> 
     assert manifest["test_fixture_not_method_evidence"] is True
     assert set(frame["source_evidence_label"]) == {TEST_FIXTURE_LABEL}
     assert set(frame["claim_boundary"]) == {TEST_FIXTURE_LABEL}
+
+
+def test_w3_balances_active_fan_count_for_four_fan_randomisation(tmp_path: Path) -> None:
+    w01_root = _write_w01_source_fixture(tmp_path / "w01" / "024", "glide", include_augmented_payload=True)
+    w2_root = tmp_path / "w2" / "017"
+    manifests = w2_root / "manifests"
+    manifests.mkdir(parents=True)
+    shutil.copyfile(
+        w01_root / "manifests" / "frozen_w01_controller_bundle.json",
+        manifests / "frozen_w01_controller_bundle.json",
+    )
+    (manifests / "w2_survival_manifest.json").write_text(
+        json.dumps(
+            {
+                "status": "w2_dense_survival_pass",
+                "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
+                "primitive_timing_contract": primitive_timing_contract_row(),
+                "method_evidence_level": "w2_dense_survival_pass",
+                "w2_dense_survival_evidence_complete": True,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="ascii",
+    )
+    bundle = load_frozen_w01_controller_bundle(manifests / "frozen_w01_controller_bundle.json")
+    survivor = variant_row(bundle.records[0].variant)
+    survivor.update({"w2_variant_status": "survived", "eligible_for_w3": True})
+    (manifests / "w2_survivor_registry.json").write_text(
+        json.dumps(
+            {
+                "survivor_registry_version": "w2_survivor_registry_v1",
+                "status": "survived_variants_available",
+                "survivor_count": 1,
+                "survivors": [survivor],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="ascii",
+    )
+
+    result = run_w3_survival(
+        W3SurvivalConfig(
+            run_id=15,
+            input_root=w2_root,
+            output_root=tmp_path / "w3",
+            paired_tests_per_variant=4,
+            storage_format="csv_gz",
+        )
+    )
+    audit = pd.read_csv(Path(result["run_root"]) / "metrics" / "w3_active_fan_count_audit.csv")
+
+    four = audit[audit["environment_mode"].eq("w3_randomised_four")]
+    assert set(four["active_fan_count"].astype(int)) == {1, 2, 3, 4}
+    assert set(four["row_count"].astype(int)) == {1}
 
 
 def test_w2_default_schedule_dimensions() -> None:

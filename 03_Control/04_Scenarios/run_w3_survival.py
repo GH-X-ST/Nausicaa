@@ -37,7 +37,12 @@ from dense_archive_table_io import (  # noqa: E402
     write_table_partition,
 )
 from env_ctx import build_environment_context, environment_context_row  # noqa: E402
-from env_instance import environment_instance_for_mode, environment_instance_row, environment_metadata_from_instance  # noqa: E402
+from env_instance import (  # noqa: E402
+    EnvironmentRandomisationConfig,
+    environment_instance_for_mode,
+    environment_instance_row,
+    environment_metadata_from_instance,
+)
 from env_surrogate import resolve_surrogate_binding, surrogate_binding_row, wind_field_for_binding  # noqa: E402
 from frozen_w01_controller_bundle import FROZEN_CONTROLLER_READY, FrozenW01ControllerRecord, load_frozen_w01_controller_bundle  # noqa: E402
 from implementation_instance import implementation_instance_for_layer, implementation_instance_row  # noqa: E402
@@ -65,6 +70,7 @@ DEFAULT_W2_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_s
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")
 W3_TABLE_NAME = "w3_survival_rows"
 W3_ENVIRONMENT_CASES = ("w3_randomised_single", "w3_randomised_four")
+W3_ACTIVE_FAN_COUNT_SEQUENCE = (1, 2, 3, 4)
 ACCEPTED_W2_SOURCE_STATUSES = ("w2_dense_survival_pass",)
 SURVIVAL_STATUS_VOCABULARY = ("blocked", "ready_for_fixed_lqr_replay", "complete", "not_run")
 TEST_FIXTURE_LABEL = "test_fixture_not_method_evidence"
@@ -485,6 +491,10 @@ def _row_for_index(
         index=int(paired_start_index),
     )
     paired_start_key = f"w3_paired_{int(paired_start_index):07d}_{start_family}"
+    scheduled_active_fan_count = _scheduled_active_fan_count(
+        environment_mode=environment_mode,
+        paired_start_index=int(paired_start_index),
+    )
     sample = archive_state_sample_for_family(
         start_state_family=start_family,
         paired_start_key=paired_start_key,
@@ -493,7 +503,14 @@ def _row_for_index(
         W_layer="W3",
         environment_mode=environment_mode,
     )
-    environment = environment_instance_for_mode("W3", environment_mode, int(config.seed) + int(row_index))
+    environment = environment_instance_for_mode(
+        "W3",
+        environment_mode,
+        int(config.seed) + int(row_index),
+        randomisation_config=EnvironmentRandomisationConfig(
+            active_fan_count=scheduled_active_fan_count if environment_mode == "w3_randomised_four" else None
+        ),
+    )
     metadata = environment_metadata_from_instance(environment)
     binding = resolve_surrogate_binding("W3", metadata, randomisation_seed=int(config.seed) + int(row_index))
     wind_field = wind_field_for_binding(binding)
@@ -571,6 +588,7 @@ def _row_for_index(
             "entry_role": variant.entry_role,
             "entry_role_compatible": bool(compatible),
             "environment_mode": environment_mode,
+            "scheduled_active_fan_count": int(sum(bool(value) for value in environment.active_fan_mask)),
             "fixed_lqr_replay_only": True,
             "mutates_Q_R_K_reference_horizon_entry_set_or_entry_role": False,
             "w3_environment_contract": "randomised_single_and_four_annular_gp_survival_replay_only",
@@ -583,6 +601,12 @@ def _row_for_index(
         }
     )
     return row
+
+
+def _scheduled_active_fan_count(*, environment_mode: str, paired_start_index: int) -> int:
+    if str(environment_mode) == "w3_randomised_four":
+        return int(W3_ACTIVE_FAN_COUNT_SEQUENCE[int(paired_start_index) % len(W3_ACTIVE_FAN_COUNT_SEQUENCE)])
+    return 1
 
 
 def _chunk_schedule(config: W3SurvivalConfig, *, row_count: int, storage_format: str) -> list[W3ChunkSpec]:
@@ -792,6 +816,8 @@ def _write_randomisation_manifest(*, run_root: Path, config: W3SurvivalConfig, r
             "environment_modes": list(W3_ENVIRONMENT_CASES),
             "seed": int(config.seed),
             "randomisation_source": "env_instance_W3_randomised_annular_gp_modes",
+            "active_fan_count_policy": "w3_randomised_single_fixed_one_w3_randomised_four_balanced_1_2_3_4",
+            "w3_randomised_four_active_fan_count_sequence": list(W3_ACTIVE_FAN_COUNT_SEQUENCE),
             "W3_randomisation_changes_timing_terms_where_configured": True,
         },
     )
@@ -799,11 +825,31 @@ def _write_randomisation_manifest(*, run_root: Path, config: W3SurvivalConfig, r
 
 def _write_metrics_from_partitions(run_root: Path, partitions: Iterable[object]) -> int:
     counters: dict[str, dict[str, int]] = {}
+    active_fan_counts: dict[tuple[str, int], int] = {}
     row_count = 0
     for partition in partitions:
         frame = read_table_partition(run_root / "tables" / partition.relative_path, storage_format=partition.storage_format)
         row_count += int(len(frame))
-        for column in ("outcome_class", "failure_label", "boundary_use_class", "environment_mode", "start_state_family", "timing_state_source", "source_evidence_label"):
+        if "scheduled_active_fan_count" in frame.columns and "environment_mode" in frame.columns:
+            active_counts = frame[["environment_mode", "scheduled_active_fan_count"]].copy()
+            active_counts["environment_mode"] = active_counts["environment_mode"].fillna("").astype(str)
+            active_counts["scheduled_active_fan_count"] = pd.to_numeric(
+                active_counts["scheduled_active_fan_count"],
+                errors="coerce",
+            ).fillna(0).astype(int)
+            for (mode, active_count), count in active_counts.value_counts(dropna=False).items():
+                key = (str(mode), int(active_count))
+                active_fan_counts[key] = active_fan_counts.get(key, 0) + int(count)
+        for column in (
+            "outcome_class",
+            "failure_label",
+            "boundary_use_class",
+            "environment_mode",
+            "start_state_family",
+            "timing_state_source",
+            "source_evidence_label",
+            "scheduled_active_fan_count",
+        ):
             if column not in frame.columns:
                 continue
             values = frame[column].fillna("").astype(str).value_counts(dropna=False)
@@ -816,6 +862,15 @@ def _write_metrics_from_partitions(run_root: Path, partitions: Iterable[object])
         for value, count in sorted(values.items())
     ]
     pd.DataFrame(rows).to_csv(filesystem_path(run_root / "metrics" / "w3_survival_summary.csv"), index=False)
+    active_rows = [
+        {
+            "environment_mode": mode,
+            "active_fan_count": active_count,
+            "row_count": count,
+        }
+        for (mode, active_count), count in sorted(active_fan_counts.items())
+    ]
+    pd.DataFrame(active_rows).to_csv(filesystem_path(run_root / "metrics" / "w3_active_fan_count_audit.csv"), index=False)
     return int(row_count)
 
 
@@ -830,6 +885,9 @@ def _write_empty_metrics(run_root: Path, *, row_count: int, status: str, fixture
             }
         ]
     ).to_csv(filesystem_path(run_root / "metrics" / "w3_survival_summary.csv"), index=False)
+    pd.DataFrame(
+        columns=["environment_mode", "active_fan_count", "row_count"]
+    ).to_csv(filesystem_path(run_root / "metrics" / "w3_active_fan_count_audit.csv"), index=False)
 
 
 def _write_empty_table_manifest(run_root: Path, run_id: int, storage_format: str) -> None:
@@ -877,6 +935,7 @@ def _write_reports(*, run_root: Path, status: str, row_count: int, blocked_reaso
         f"- Test fixture not method evidence: `{fixture_label == TEST_FIXTURE_LABEL}`",
         "- Fixed-LQR replay only: `True`",
         "- Q/R, K, reference, horizon, entry set, and entry role mutation: `False`",
+        "- W3 active-fan-count policy: `w3_randomised_single=1`, `w3_randomised_four=balanced 1/2/3/4`",
         "- Chunked/resumable dense runtime contract: `True`",
         "- W3 robustness, post-W3 library-size readiness, hardware readiness, transfer, and mission success remain blocked.",
         "",

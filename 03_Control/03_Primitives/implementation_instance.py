@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 import numpy as np
 
@@ -90,9 +90,7 @@ def implementation_instance_for_layer(
             left_right_aileron_asymmetry_scale=float(rng.uniform(0.95, 1.05)),
             command_quantisation_mode="none",
             implementation_adjustment_status="randomised_applied",
-            implementation_adjustment_limitations=(
-                "aggregate aileron asymmetry is metadata-only until a split-aileron model is active"
-            ),
+            implementation_adjustment_limitations="left-right aileron asymmetry applied to per-strip control mix",
         )
     return _implementation_instance(
         layer=layer,
@@ -186,6 +184,24 @@ def apply_surface_implementation(
     bias = np.asarray(instance.surface_neutral_bias_rad, dtype=float).reshape(3)
     adjusted = command * effectiveness + bias
     return _clip_surface_rad(adjusted, surface_limit_scale=instance.surface_limit_scale)
+
+
+def apply_aileron_asymmetry_to_aircraft(aircraft, instance: ImplementationInstance):
+    """Return an aircraft model with side-specific aileron effectiveness applied."""
+
+    scale = float(instance.left_right_aileron_asymmetry_scale)
+    if np.isclose(scale, 1.0, rtol=0.0, atol=1e-12):
+        return aircraft
+    control_mix = np.asarray(aircraft.control_mix, dtype=float).copy()
+    r_strip_b = np.asarray(aircraft.r_strip_b, dtype=float)
+    aileron_active = np.abs(control_mix[:, 0]) > 0.0
+    if not np.any(aileron_active):
+        return aircraft
+    starboard = aileron_active & (r_strip_b[:, 1] >= 0.0)
+    port = aileron_active & (r_strip_b[:, 1] < 0.0)
+    control_mix[starboard, 0] *= scale
+    control_mix[port, 0] /= max(scale, 1e-12)
+    return replace(aircraft, control_mix=control_mix)
 
 
 def _clip_surface_rad(command_rad: np.ndarray, *, surface_limit_scale: float) -> np.ndarray:

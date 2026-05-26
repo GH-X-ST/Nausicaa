@@ -27,6 +27,7 @@ from latency import (
 )
 from implementation_instance import (
     ImplementationInstance,
+    apply_aileron_asymmetry_to_aircraft,
     adjusted_actuator_tau_s,
     apply_surface_implementation,
     implementation_instance_for_layer,
@@ -795,6 +796,7 @@ def _simulate_dynamics_rollout(
         baseline_mass_kg=float(base_aircraft.mass_kg),
     )
     aircraft = apply_plant_instance_to_aircraft(base_aircraft, plant)
+    aircraft = apply_aileron_asymmetry_to_aircraft(aircraft, implementation)
     x = state.copy()
     min_wall_margin_m = float("inf")
     min_floor_margin_m = float("inf")

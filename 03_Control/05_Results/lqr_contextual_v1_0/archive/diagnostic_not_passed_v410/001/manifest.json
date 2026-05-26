@@ -3,7 +3,7 @@
   "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
   "status": "diagnostic_not_passed",
   "archive_root": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001",
-  "superseded_result_root_count": 46,
+  "superseded_result_root_count": 47,
   "required_docs": [
     {
       "doc_name": "Glider_Control_Project_Plan.md",
@@ -80,7 +80,7 @@
     "active_foundation": 16,
     "active_repair_cycle": 163,
     "retired_not_active": 366,
-    "generated_result": 11576,
+    "generated_result": 11944,
     "test_fixture": 216
   },
   "archived_result_roots_csv": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001/archived_result_roots.csv",
