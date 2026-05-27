@@ -1,7 +1,0 @@
-policy_id,memory_lambda,episode_count,terminal_useful_rate,continuation_valid_rate,hard_failure_rate,mean_primitive_count,mean_episode_duration_s,no_viable_primitive_count
-context_only_without_memory,0.0,50,0.2,0.0,0.54,0.98,0.6,13
-context_plus_memory_lambda_0_5,0.5,50,0.14,0.0,0.64,0.96,0.585,11
-context_plus_memory_lambda_0_8,0.8,50,0.16,0.0,0.6,1.02,0.625,12
-context_plus_memory_lambda_0_95,0.95,50,0.18,0.0,0.62,1.06,0.649,10
-no_memory_baseline,0.0,50,0.16,0.02,0.56,0.92,0.561,14
-static_map_baseline,0.8,50,0.22,0.0,0.56,1.04,0.637,11

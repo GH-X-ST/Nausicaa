@@ -11,3 +11,25 @@ timestamp_utc,stage_id,check_id,passed,observed,required
 2026-05-27T17:05:36.362131+00:00,R7,primitive_timing_contract_v411,True,v411_0p10s_5slot_20ms,v411_0p10s_5slot_20ms
 2026-05-27T17:05:36.362131+00:00,R7,previous_stage_R5_passed,True,True,True
 2026-05-27T17:05:36.362131+00:00,R7,R5_frozen_bundle_root_available,True,03_Control/05_Results/lqr_contextual_v1_0/w01_dense/036,nonempty
+2026-05-27T18:01:35.077093+00:00,PIPELINE,source_audit_ready,True,ready,ready
+2026-05-27T18:28:16.831388+00:00,PIPELINE,source_audit_ready,True,ready,ready
+2026-05-27T18:31:18.491686+00:00,PIPELINE,source_audit_ready,True,ready,ready
+2026-05-27T18:31:18.508688+00:00,R8,primitive_horizon_exact_0p100s,True,0.1,0.1
+2026-05-27T18:31:18.508688+00:00,R8,controller_input_slots_exact_5,True,5,5
+2026-05-27T18:31:18.508688+00:00,R8,controller_update_period_exact_0p020s,True,0.02,0.02
+2026-05-27T18:31:18.508688+00:00,R8,primitive_timing_contract_v411,True,v411_0p10s_5slot_20ms,v411_0p10s_5slot_20ms
+2026-05-27T18:31:18.508688+00:00,R8,previous_stage_R7_passed,True,True,True
+2026-05-27T18:36:34.493405+00:00,PIPELINE,source_audit_ready,True,ready,ready
+2026-05-27T18:36:34.517436+00:00,R9,primitive_horizon_exact_0p100s,True,0.1,0.1
+2026-05-27T18:36:34.517436+00:00,R9,controller_input_slots_exact_5,True,5,5
+2026-05-27T18:36:34.517436+00:00,R9,controller_update_period_exact_0p020s,True,0.02,0.02
+2026-05-27T18:36:34.517436+00:00,R9,primitive_timing_contract_v411,True,v411_0p10s_5slot_20ms,v411_0p10s_5slot_20ms
+2026-05-27T18:36:34.517436+00:00,R9,previous_stage_R8_passed,True,True,True
+2026-05-27T18:36:34.517436+00:00,R9,R8_library_and_outcome_available,True,"{""library_size_case_ids"": [""heavy_cluster"", ""balanced_cluster"", ""light_cluster"", ""super_light_cluster"", ""no_cluster_no_merge""], ""manifest"": ""03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/999/manifests/post_w3_library_size_study_manifest.json"", ""outcome_model_table"": ""03_Control/05_Results/lqr_contextual_v1_0/outcome_model/005/metrics/outcome_model_table.csv"", ""outcome_run_root"": ""03_Control/05_Results/lqr_contextual_v1_0/outcome_model/005"", ""outcome_status"": ""complete"", ""representative_count"": 756, ""run_root"": ""03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/999"", ""status"": ""complete""}",library_root_and_outcome_root
+2026-05-27T19:10:46.699697+00:00,PIPELINE,source_audit_ready,True,ready,ready
+2026-05-27T19:10:46.726208+00:00,R9,primitive_horizon_exact_0p100s,True,0.1,0.1
+2026-05-27T19:10:46.726208+00:00,R9,controller_input_slots_exact_5,True,5,5
+2026-05-27T19:10:46.726208+00:00,R9,controller_update_period_exact_0p020s,True,0.02,0.02
+2026-05-27T19:10:46.726208+00:00,R9,primitive_timing_contract_v411,True,v411_0p10s_5slot_20ms,v411_0p10s_5slot_20ms
+2026-05-27T19:10:46.726208+00:00,R9,previous_stage_R8_passed,True,True,True
+2026-05-27T19:10:46.726208+00:00,R9,R8_library_and_outcome_available,True,"{""library_size_case_ids"": [""heavy_cluster"", ""balanced_cluster"", ""light_cluster"", ""super_light_cluster"", ""no_cluster_no_merge""], ""manifest"": ""03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/999/manifests/post_w3_library_size_study_manifest.json"", ""outcome_model_table"": ""03_Control/05_Results/lqr_contextual_v1_0/outcome_model/005/metrics/outcome_model_table.csv"", ""outcome_run_root"": ""03_Control/05_Results/lqr_contextual_v1_0/outcome_model/005"", ""outcome_status"": ""complete"", ""representative_count"": 756, ""run_root"": ""03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/999"", ""status"": ""complete""}",library_root_and_outcome_root

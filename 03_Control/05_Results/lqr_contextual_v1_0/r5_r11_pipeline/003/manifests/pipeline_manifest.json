@@ -24,8 +24,8 @@
     "repair_incomplete": true,
     "resume": true,
     "run_id": 3,
-    "start_stage": "R7",
-    "stop_after_stage": "R7",
+    "start_stage": "R9",
+    "stop_after_stage": "R9",
     "storage_format": "auto",
     "workers": "8"
   },
@@ -121,5 +121,5 @@
     "R8": "post_w3_clustering_and_library_size_study",
     "R9": "internal_reduced_fixed_case_outer_loop_preflight_initial_governor_tuning_for_r10"
   },
-  "status": "complete"
+  "status": "running"
 }

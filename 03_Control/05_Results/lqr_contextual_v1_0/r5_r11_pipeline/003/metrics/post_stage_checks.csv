@@ -28,3 +28,10 @@ timestamp_utc,stage_id,check_id,passed,observed,required
 2026-05-27T17:09:54.277071+00:00,R7,w3_launch_capable_survivor_count_positive,True,192,>0
 2026-05-27T17:09:54.277071+00:00,R7,w3_all_launch_capture_families_survived,True,"[""launch_capture_energy_build"", ""launch_capture_glide_stabilise"", ""launch_capture_lift_seek"", ""launch_capture_safe_handoff"", ""launch_capture_shallow_left"", ""launch_capture_shallow_right""]","[""launch_capture_glide_stabilise"", ""launch_capture_lift_seek"", ""launch_capture_energy_build"", ""launch_capture_shallow_left"", ""launch_capture_shallow_right"", ""launch_capture_safe_handoff""]"
 2026-05-27T17:09:54.289593+00:00,R7,no_generated_file_above_100mb,True,1.662,<=100.0
+2026-05-27T18:32:05.322839+00:00,R8,post_w3_study_complete,True,complete,complete
+2026-05-27T18:32:05.322839+00:00,R8,outcome_model_complete,True,complete,complete
+2026-05-27T18:32:05.322839+00:00,R8,all_active_library_size_cases_present,True,"[""balanced_cluster"", ""heavy_cluster"", ""light_cluster"", ""no_cluster_no_merge"", ""super_light_cluster""]","[""balanced_cluster"", ""heavy_cluster"", ""light_cluster"", ""no_cluster_no_merge"", ""super_light_cluster""]"
+2026-05-27T18:32:05.322839+00:00,R8,outcome_all_active_library_size_cases_present,True,"[""balanced_cluster"", ""heavy_cluster"", ""light_cluster"", ""no_cluster_no_merge"", ""super_light_cluster""]","[""heavy_cluster"", ""balanced_cluster"", ""light_cluster"", ""super_light_cluster"", ""no_cluster_no_merge""]"
+2026-05-27T18:32:05.325838+00:00,R8,launch_gate_candidate_availability_audit,True,audit,passed
+2026-05-27T18:32:05.328837+00:00,R8,no_generated_file_above_100mb,True,2.053,<=100.0
+2026-05-27T18:32:05.329840+00:00,R8,no_generated_file_above_100mb,True,0.589,<=100.0

@@ -188,7 +188,7 @@ class ChangedCaseValidationConfig:
     seed: int = 110
     storage_format: str = "auto"
     compression_level: int = 1
-    candidate_chunk_size: int = 800
+    candidate_chunk_size: int = 20_000
     dry_run_schedule: bool = False
     max_primitives_per_launch: int = 0
     max_episode_time_s: float = DEFAULT_VALIDATION_MAX_EPISODE_TIME_S
@@ -196,7 +196,7 @@ class ChangedCaseValidationConfig:
     r10_mode: str = "full"
     workers: int = 1
     max_workers: int | None = None
-    worker_backend: str = "thread"
+    worker_backend: str = "process"
     governor_config: GovernorConfig | None = None
     governor_config_path: Path | None = None
 
@@ -285,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=110)
     parser.add_argument("--storage-format", default="auto", choices=("auto", "parquet", "csv_gz", "csv"))
     parser.add_argument("--compression-level", type=int, default=1)
-    parser.add_argument("--candidate-chunk-size", type=int, default=800)
+    parser.add_argument("--candidate-chunk-size", type=int, default=20_000)
     parser.add_argument(
         "--max-primitives-per-launch",
         type=int,
@@ -298,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--r10-mode", default="full", choices=("full", "reduced_diagnostic_50"))
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--max-workers", type=int, default=None)
-    parser.add_argument("--worker-backend", choices=("thread", "process"), default="thread")
+    parser.add_argument("--worker-backend", choices=("thread", "process"), default="process")
     parser.add_argument("--governor-config-path", type=Path, default=None)
     args = parser.parse_args(argv)
 

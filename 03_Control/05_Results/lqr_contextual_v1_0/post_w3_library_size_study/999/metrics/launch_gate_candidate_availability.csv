@@ -1,0 +1,6 @@
+stage_id,library_size_case_id,launch_capable_primitive_family_count,launch_capture_primitive_family_count,launch_gate_candidate_rows,required_launch_capture_primitive_family_count,missing_launch_capture_primitive_ids,non_launch_capture_launch_capable_primitive_ids,first_decision_audit_mode
+R8,heavy_cluster,6,6,6,6,,,post_w3_library_availability
+R8,balanced_cluster,6,6,18,6,,,post_w3_library_availability
+R8,light_cluster,6,6,36,6,,,post_w3_library_availability
+R8,super_light_cluster,6,6,72,6,,,post_w3_library_availability
+R8,no_cluster_no_merge,6,6,192,6,,,post_w3_library_availability

@@ -1,9 +1,0 @@
-stage,status,row_count,survivor_count,representative_count,source_role
-W01,pass,76800,,0,
-W2,pass,51200,256.0,0,
-W3,pass,51200,189.0,0,
-post_W3,pass,0,189.0,29,
-outcome_model_002,pass,29,0.0,29,frozen_advisory_outcome_model
-governor_smoke_001,pass,232,,0,infrastructure_smoke_for_governor_interface
-full_loop_001,pass,300,,29,infrastructure_evidence_not_final_memory_comparison
-full_loop_002,pass,600,,29,infrastructure_evidence_not_final_memory_comparison

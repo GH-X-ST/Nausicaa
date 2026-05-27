@@ -536,11 +536,12 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
                 run_id=stage_run_id,
                 storage_format=config.storage_format,
                 compression_level=int(config.compression_level),
-                candidate_chunk_size=int(config.candidate_chunk_size),
+                candidate_chunk_size=_validation_chunk_size(config.candidate_chunk_size),
                 dry_run_schedule=bool(config.dry_run_schedule),
                 max_primitives_per_launch=0,
                 workers=_validation_worker_count(config.workers),
                 max_workers=config.max_workers,
+                worker_backend="process",
             )
         )
     if stage_id == "R10":
@@ -556,13 +557,14 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
                 run_id=stage_run_id,
                 storage_format=config.storage_format,
                 compression_level=int(config.compression_level),
-                candidate_chunk_size=int(config.candidate_chunk_size),
+                candidate_chunk_size=_validation_chunk_size(config.candidate_chunk_size),
                 dry_run_schedule=bool(config.dry_run_schedule),
                 max_primitives_per_launch=0,
                 r10_mode=config.r10_mode,
                 workers=_validation_worker_count(config.workers),
                 max_workers=config.max_workers,
                 governor_config_path=governor_config_path,
+                worker_backend="process",
             )
         )
     if stage_id == "R11":
@@ -578,12 +580,13 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
                 run_id=stage_run_id,
                 storage_format=config.storage_format,
                 compression_level=int(config.compression_level),
-                candidate_chunk_size=int(config.candidate_chunk_size),
+                candidate_chunk_size=_validation_chunk_size(config.candidate_chunk_size),
                 dry_run_schedule=bool(config.dry_run_schedule),
                 max_primitives_per_launch=0,
                 workers=_validation_worker_count(config.workers),
                 max_workers=config.max_workers,
                 governor_config_path=governor_config_path,
+                worker_backend="process",
             )
         )
     raise KeyError(f"unknown stage_id: {stage_id}")
@@ -993,6 +996,10 @@ def _validation_worker_count(workers: int | str) -> int:
     return max(1, int(workers))
 
 
+def _validation_chunk_size(candidate_chunk_size: int | str) -> int:
+    return max(20_000, int(candidate_chunk_size))
+
+
 def _r9_initial_governor_config_path(context: dict[str, object]) -> Path | None:
     stage = dict(dict(context.get("stages", {})).get("R9", {}))
     run_root = Path(str(stage.get("run_root", "")))
@@ -1107,9 +1114,9 @@ def _r8_launch_gate_audit_passed(run_root: Path) -> bool:
             return False
         if int(float(row.get("launch_capture_primitive_family_count", 0))) < len(LAUNCH_CAPTURE_PRIMITIVE_IDS):
             return False
-        if str(row.get("missing_launch_capture_primitive_ids", "")).strip():
+        if _nonempty_csv_cell(row.get("missing_launch_capture_primitive_ids", "")):
             return False
-        if str(row.get("non_launch_capture_launch_capable_primitive_ids", "")).strip():
+        if _nonempty_csv_cell(row.get("non_launch_capture_launch_capable_primitive_ids", "")):
             return False
         if int(float(row.get("launch_gate_candidate_rows", 0))) <= 0:
             return False
@@ -1134,11 +1141,22 @@ def _validation_launch_gate_audit_passed(run_root: Path) -> bool:
             return False
         if int(float(row.get("launch_capture_primitive_family_count", 0))) < len(LAUNCH_CAPTURE_PRIMITIVE_IDS):
             return False
-        if str(row.get("missing_launch_capture_primitive_ids", "")).strip():
+        if _nonempty_csv_cell(row.get("missing_launch_capture_primitive_ids", "")):
             return False
-        if str(row.get("non_launch_capture_launch_capable_primitive_ids", "")).strip():
+        if _nonempty_csv_cell(row.get("non_launch_capture_launch_capable_primitive_ids", "")):
             return False
     return True
+
+
+def _nonempty_csv_cell(value: object) -> bool:
+    if value is None:
+        return False
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        pass
+    return bool(str(value).strip())
 
 
 def _validation_gate_checks(stage_id: str, run_root: Path, *, prefix: str) -> list[dict[str, object]]:

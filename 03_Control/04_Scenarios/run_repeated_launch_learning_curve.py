@@ -107,6 +107,8 @@ TABLE_NAMES = (
     "memory_residual_update_log",
     "belief_snapshot_log",
 )
+SCHEDULE_INLINE_ROW_LIMIT = 50_000
+SCHEDULE_PARTITION_ROW_COUNT = 50_000
 LAUNCH_SEQUENCE_POLICY_ID = "first_0p10s_launch_capture_then_inflight_then_recovery_safe_exit"
 FIRST_PRIMITIVE_START_FAMILY = "launch_gate"
 POST_LAUNCH_START_FAMILY = "inflight_nominal"
@@ -198,14 +200,14 @@ class RepeatedLaunchValidationConfig:
     seed: int = 90
     storage_format: str = "auto"
     compression_level: int = 1
-    candidate_chunk_size: int = 800
+    candidate_chunk_size: int = 20_000
     dry_run_schedule: bool = False
     max_primitives_per_launch: int = 0
     max_episode_time_s: float = DEFAULT_VALIDATION_MAX_EPISODE_TIME_S
     smoke_outer_cases_per_block: int = 0
     workers: int = 1
     max_workers: int | None = None
-    worker_backend: str = "thread"
+    worker_backend: str = "process"
     governor_config: GovernorConfig | None = None
 
 
@@ -319,9 +321,30 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
     )
     final_schedule = _final_heldout_schedule(outer_cases=outer_cases, protocol=protocol)
     history_schedule = _history_launch_schedule(outer_cases=outer_cases, protocol=protocol)
-    _write_csv(run_root / "metrics" / "outer_case_schedule.csv", pd.DataFrame(outer_cases))
-    _write_csv(run_root / "metrics" / "history_launch_schedule.csv", pd.DataFrame(history_schedule))
-    _write_csv(run_root / "metrics" / "final_heldout_launch_schedule.csv", pd.DataFrame(final_schedule))
+    _write_schedule_metric(
+        run_root=run_root,
+        table_name="outer_case_schedule",
+        rows=outer_cases,
+        run_id=int(config.run_id),
+        storage_format=storage_format,
+        compression_level=int(config.compression_level),
+    )
+    _write_schedule_metric(
+        run_root=run_root,
+        table_name="history_launch_schedule",
+        rows=history_schedule,
+        run_id=int(config.run_id),
+        storage_format=storage_format,
+        compression_level=int(config.compression_level),
+    )
+    _write_schedule_metric(
+        run_root=run_root,
+        table_name="final_heldout_launch_schedule",
+        rows=final_schedule,
+        run_id=int(config.run_id),
+        storage_format=storage_format,
+        compression_level=int(config.compression_level),
+    )
     if protocol.stage_id in CHANGED_CASE_VALIDATION_STAGE_IDS:
         _write_csv(run_root / "metrics" / "environment_block_schedule.csv", _environment_block_summary(protocol))
         _write_csv(
@@ -2144,6 +2167,62 @@ def _flush_table(
     )
 
 
+def _write_schedule_metric(
+    *,
+    run_root: Path,
+    table_name: str,
+    rows: list[dict[str, object]],
+    run_id: int,
+    storage_format: str,
+    compression_level: int,
+) -> None:
+    frame = pd.DataFrame(rows)
+    metrics_path = run_root / "metrics" / f"{table_name}.csv"
+    if len(frame) <= SCHEDULE_INLINE_ROW_LIMIT:
+        _write_csv(metrics_path, frame)
+        return
+
+    partitions: list[TablePartition] = []
+    extension = table_extension(storage_format)
+    for partition_index, start in enumerate(range(0, len(frame), SCHEDULE_PARTITION_ROW_COUNT)):
+        chunk = frame.iloc[start : start + SCHEDULE_PARTITION_ROW_COUNT].copy()
+        path = run_root / "tables" / table_name / f"c{partition_index:05d}.{extension}"
+        partitions.append(
+            write_table_partition(
+                chunk,
+                path,
+                storage_format=storage_format,
+                compression_level=int(compression_level),
+            )
+        )
+    manifest_path = run_root / "manifests" / f"{table_name}_manifest.json"
+    write_table_manifest(
+        manifest_path,
+        TableManifest(
+            run_id=int(run_id),
+            root=run_root.as_posix(),
+            storage_format=storage_format,
+            tables=tuple(partitions),
+        ),
+    )
+    _write_csv(
+        metrics_path,
+        pd.DataFrame(
+            [
+                {
+                    "table_name": table_name,
+                    "row_level_log": f"tables/{table_name}/",
+                    "storage": storage_format,
+                    "partition_count": int(len(partitions)),
+                    "row_count": int(len(frame)),
+                    "manifest": manifest_path.relative_to(run_root).as_posix(),
+                    "file_size_policy": "partitioned_to_avoid_large_git_blobs",
+                }
+            ]
+        ),
+    )
+
+
 def _read_partitioned_rows(run_root: Path, partitions: Iterable[TablePartition], table_name: str) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for partition in partitions:
@@ -3125,7 +3204,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=90)
     parser.add_argument("--storage-format", choices=("auto", "parquet", "csv_gz", "csv"), default="auto")
     parser.add_argument("--compression-level", type=int, default=1)
-    parser.add_argument("--candidate-chunk-size", type=int, default=800)
+    parser.add_argument("--candidate-chunk-size", type=int, default=20_000)
     parser.add_argument("--dry-run-schedule", action="store_true")
     parser.add_argument(
         "--max-primitives-per-launch",
@@ -3137,7 +3216,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--smoke-outer-cases-per-block", type=int, default=0)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--max-workers", type=int, default=None)
-    parser.add_argument("--worker-backend", choices=("thread", "process"), default="thread")
+    parser.add_argument("--worker-backend", choices=("thread", "process"), default="process")
     return parser.parse_args(argv)
 
 
