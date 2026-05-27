@@ -22,10 +22,11 @@ _bootstrap_import_paths()
 from dense_archive_runtime import MAX_GENERATED_FILE_SIZE_MB  # noqa: E402
 from dense_archive_table_io import filesystem_path  # noqa: E402
 from primitive_timing_contract import primitive_timing_contract_row  # noqa: E402
+from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS, POST_W3_LIBRARY_STUDY_VERSION  # noqa: E402
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
-OUTCOME_MODEL_VERSION = "v411_library_size_case_outcome_model_v1"
+OUTCOME_MODEL_VERSION = "v53_five_case_library_size_outcome_model_v1"
 DEFAULT_COMPACT_LIBRARY = Path(
     "03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/001/manifests/post_w3_library_size_study_manifest.json"
 )
@@ -49,7 +50,7 @@ class OutcomeModelBuildConfig:
 
 
 def run_outcome_model_build(config: OutcomeModelBuildConfig) -> dict[str, object]:
-    """Build the v4.8 interpretable W3-derived outcome model table."""
+    """Build the v5.3 interpretable W3-derived outcome model table."""
 
     run_root = Path(config.output_root) / f"{int(config.run_id):03d}"
     for subdir in ("manifests", "metrics", "reports"):
@@ -181,21 +182,24 @@ def _blocked_reason(compact_library_path: Path) -> str:
         library = json.loads(path.read_text(encoding="ascii"))
     except Exception as exc:
         return f"unreadable_final_compact_primitive_library:{type(exc).__name__}"
-    if str(library.get("manifest_version", "")) == "post_w3_library_size_study_v411":
+    if str(library.get("manifest_version", "")) == POST_W3_LIBRARY_STUDY_VERSION:
         if str(library.get("project_title_version", "")) != PROJECT_TITLE_VERSION:
             return "post_w3_library_size_study_not_v5_project_title"
+        case_ids = {str(case.get("library_size_case_id", "")) for case in library.get("library_size_cases", [])}
+        if case_ids != set(LIBRARY_SIZE_CASE_IDS):
+            return "post_w3_library_size_study_missing_active_five_case_set"
         for case in library.get("library_size_cases", []):
             case_path = path.parent / Path(str(case.get("library_manifest", ""))).name
             if not case_path.is_file():
                 return f"missing_library_size_case_file:{case.get('library_size_case_id', '')}"
         return ""
     if str(library.get("library_version", "")) not in {
-        "post_w3_library_size_study_v411",
+        POST_W3_LIBRARY_STUDY_VERSION,
         "post_w3_compact_representative_library_v1",
     }:
         return "unsupported_compact_library_version"
     if str(library.get("library_version", "")) == "post_w3_compact_representative_library_v1":
-        return "retired_single_compact_library_not_active_v411"
+        return "retired_single_compact_library_not_active_five_case_study"
     if not library.get("library_size_case_id"):
         return "missing_library_size_case_id"
     if int(library.get("representative_count", 0)) <= 0:
@@ -223,7 +227,7 @@ def _blocked_reason(compact_library_path: Path) -> str:
 def _load_libraries(compact_library_path: Path, *, default_case_id: str) -> list[dict[str, object]]:
     path = filesystem_path(compact_library_path)
     payload = json.loads(path.read_text(encoding="ascii"))
-    if str(payload.get("manifest_version", "")) == "post_w3_library_size_study_v411":
+    if str(payload.get("manifest_version", "")) == POST_W3_LIBRARY_STUDY_VERSION:
         libraries = []
         for case in payload.get("library_size_cases", []):
             case_path = path.parent / Path(str(case.get("library_manifest", ""))).name

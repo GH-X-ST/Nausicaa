@@ -19,7 +19,7 @@ Required repair direction:
 3. R5 and R7 use single-layer composed annular-GP randomisation: fan position, active fan count where applicable, per-fan power, width/spread, local uncertainty, launch/start-state perturbations, latency/implementation perturbations, left/right aileron asymmetry, and CG/plant perturbations.
 4. Do not duplicate randomisation channels: per-fan power is updraft strength, fan position is spatial/layout shift, width is spread, local uncertainty is context/belief uncertainty, amplitude stays fixed at 1.0, and centre shift stays zero for active pass-gated annular-GP evidence.
 5. Keep W2/R6 optional diagnostic only; R7 is the frozen held-out W3 fixed-LQR replay with no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation.
-6. Keep post-W3 reduction as the four-case library-size cross-study: heavy, balanced, light, and no-clustering/no-merging.
+6. Keep post-W3 reduction as the five-case library-size cross-study: heavy, balanced, light, super-light, and no-clustering/no-merging.
 7. R9 is fixed-case repeated-launch validation with no glider, latency, actuator, or environment randomisation beyond controlled launch/history sampling.
 8. R10 is environment-only changed-case validation with six 20-case blocks: nominal single, nominal four, shifted single, shifted four, active-fan-number variation, and arena-wide fan-position plus active-fan-count generalisation.
 9. R9/R10 must use controlled final-launch pairing, compact-library-aware outcome lookup, actual memory/exploration selection-change metrics, and secondary launch-score analysis only after strict gates pass.

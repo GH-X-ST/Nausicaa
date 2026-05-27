@@ -76,7 +76,7 @@ def test_w3_analysis_blocks_when_launch_capable_has_no_survivors(tmp_path: Path)
     }
 
 
-def test_post_w3_library_size_study_writes_four_cases_without_mutation(tmp_path: Path) -> None:
+def test_post_w3_library_size_study_writes_five_cases_without_mutation(tmp_path: Path) -> None:
     w3_root = _write_tiny_w3_root(tmp_path / "w3_survival" / "013")
     run_w3_survival_analysis(W3SurvivalAnalysisConfig(input_root=w3_root))
 
@@ -241,10 +241,10 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
     }
     assert set(r10_active_final["scheduled_active_fan_count"].astype(int)) == {1, 2, 3, 4}
     assert r10_active_final.groupby("scheduled_active_fan_count").size().to_dict() == {
-        1: 280,
-        2: 280,
-        3: 280,
-        4: 280,
+        1: 350,
+        2: 350,
+        3: 350,
+        4: 350,
     }
     assert set(r10_active_fan_audit["environment_block_id"]) == {
         "active_fan_number_variation",
@@ -256,14 +256,14 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
     r10_arena_wide = r10_final[
         r10_final["environment_block_id"].eq("arena_wide_fan_position_generalisation")
     ].copy()
-    assert len(r10_arena_wide) == 1120
+    assert len(r10_arena_wide) == 1400
     assert set(r10_arena_wide["fan_position_policy"]) == {"independent_uniform_xy_bounds"}
     assert set(r10_arena_wide["scheduled_active_fan_count"].astype(int)) == {1, 2, 3, 4}
     assert r10_arena_wide.groupby("scheduled_active_fan_count").size().to_dict() == {
-        1: 280,
-        2: 280,
-        3: 280,
-        4: 280,
+        1: 350,
+        2: 350,
+        3: 350,
+        4: 350,
     }
 
 

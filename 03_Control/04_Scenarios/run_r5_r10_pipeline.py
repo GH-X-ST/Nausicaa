@@ -31,7 +31,12 @@ from primitive_timing_contract import (  # noqa: E402
     PRIMITIVE_FINITE_HORIZON_S,
     PRIMITIVE_TIMING_CONTRACT_VERSION,
 )
-from run_changed_case_validation import ChangedCaseValidationConfig, run_changed_case_validation  # noqa: E402
+from run_changed_case_validation import (  # noqa: E402
+    ChangedCaseValidationConfig,
+    R10_EXPECTED_FINAL_HELDOUT_LAUNCHES,
+    R10_EXPECTED_HISTORY_LAUNCHES,
+    run_changed_case_validation,
+)
 from run_lqr_w01_dense_chunked import (  # noqa: E402
     BALANCED_SCHEDULE_MODE,
     DEFAULT_OUTPUT_ROOT as W01_OUTPUT_ROOT,
@@ -70,8 +75,6 @@ PIPELINE_VERSION = "v54_r5_r7_r10_pipeline_r6_archived_with_repeated_docs_guard"
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/r5_r10_pipeline")
 DEFAULT_REPEATED_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/repeated_launch_validation")
 DEFAULT_CHANGED_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/changed_case_validation")
-EXPECTED_R10_FINAL_HELDOUT_LAUNCHES = 4 * 14 * 100
-EXPECTED_R10_HISTORY_LAUNCHES = 4 * 100 * 370
 CONTROLLING_DOCS = (
     Path("docs/Glider_Control_Project_Plan.md"),
     Path("docs/Daily_Schedule.txt"),
@@ -646,8 +649,8 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
         return [
             _check_row(stage_id, "post_w3_study_complete", result.get("status") == "complete", result.get("status", ""), "complete"),
             _check_row(stage_id, "outcome_model_complete", result.get("outcome_status") == "complete", result.get("outcome_status", ""), "complete"),
-            _check_row(stage_id, "all_four_library_cases_present", set(summary.get("library_size_case_id", pd.Series(dtype=str)).astype(str)) == set(LIBRARY_SIZE_CASE_IDS), sorted(set(summary.get("library_size_case_id", pd.Series(dtype=str)).astype(str))), sorted(LIBRARY_SIZE_CASE_IDS)),
-            _check_row(stage_id, "outcome_all_four_library_cases_present", set(str(value) for value in outcome_manifest.get("library_size_case_ids", [])) == set(LIBRARY_SIZE_CASE_IDS), outcome_manifest.get("library_size_case_ids", []), list(LIBRARY_SIZE_CASE_IDS)),
+            _check_row(stage_id, "all_active_library_size_cases_present", set(summary.get("library_size_case_id", pd.Series(dtype=str)).astype(str)) == set(LIBRARY_SIZE_CASE_IDS), sorted(set(summary.get("library_size_case_id", pd.Series(dtype=str)).astype(str))), sorted(LIBRARY_SIZE_CASE_IDS)),
+            _check_row(stage_id, "outcome_all_active_library_size_cases_present", set(str(value) for value in outcome_manifest.get("library_size_case_ids", [])) == set(LIBRARY_SIZE_CASE_IDS), outcome_manifest.get("library_size_case_ids", []), list(LIBRARY_SIZE_CASE_IDS)),
             _check_row(stage_id, "launch_gate_candidate_availability_audit", _r8_launch_gate_audit_passed(study_root), "audit", "passed"),
             _file_size_check(stage_id, study_root),
             _file_size_check(stage_id, outcome_root),
@@ -660,7 +663,7 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "pass_gate_true", bool(manifest.get("pass_gate", False)), manifest.get("pass_gate", False), True),
             _check_row(stage_id, "final_heldout_launch_count_exact", int(manifest.get("actual_final_heldout_launches", 0)) == R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, manifest.get("actual_final_heldout_launches", 0), R9_EXPECTED_FINAL_HELDOUT_LAUNCHES),
             _check_row(stage_id, "history_launch_count_exact", int(manifest.get("actual_history_launches", 0)) == R9_EXPECTED_HISTORY_LAUNCHES, manifest.get("actual_history_launches", 0), R9_EXPECTED_HISTORY_LAUNCHES),
-            _check_row(stage_id, "four_library_cases", set(manifest.get("library_size_case_ids", [])) == set(LIBRARY_SIZE_CASE_IDS), manifest.get("library_size_case_ids", []), list(LIBRARY_SIZE_CASE_IDS)),
+            _check_row(stage_id, "all_active_library_size_cases", set(manifest.get("library_size_case_ids", [])) == set(LIBRARY_SIZE_CASE_IDS), manifest.get("library_size_case_ids", []), list(LIBRARY_SIZE_CASE_IDS)),
             _check_row(stage_id, "fourteen_policy_history_conditions", set(manifest.get("policy_history_conditions", [])) == set(POLICY_HISTORY_CONDITIONS), manifest.get("policy_history_condition_count", 0), 14),
             _check_row(stage_id, "first_decision_launch_gate_audits_present", _validation_launch_gate_audit_passed(run_root), "audit", "passed"),
             _file_size_check(stage_id, run_root),
@@ -673,8 +676,8 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "stage_status_complete", result.get("status") == "complete", result.get("status", ""), "complete"),
             _check_row(stage_id, "not_dry_run_or_diagnostic", not bool(manifest.get("dry_run_schedule", False)) and manifest.get("validation_protocol") != "reduced_diagnostic_not_target_R10", manifest.get("validation_protocol", ""), "full_environment_only_changed_case_repeated_launch_rollout_validation"),
             _check_row(stage_id, "pass_gate_true", bool(manifest.get("pass_gate", False)), manifest.get("pass_gate", False), True),
-            _check_row(stage_id, "final_heldout_launch_count_exact", int(manifest.get("actual_final_heldout_launches", 0)) == EXPECTED_R10_FINAL_HELDOUT_LAUNCHES, manifest.get("actual_final_heldout_launches", 0), EXPECTED_R10_FINAL_HELDOUT_LAUNCHES),
-            _check_row(stage_id, "history_launch_count_exact", int(manifest.get("actual_history_launches", 0)) == EXPECTED_R10_HISTORY_LAUNCHES, manifest.get("actual_history_launches", 0), EXPECTED_R10_HISTORY_LAUNCHES),
+            _check_row(stage_id, "final_heldout_launch_count_exact", int(manifest.get("actual_final_heldout_launches", 0)) == R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, manifest.get("actual_final_heldout_launches", 0), R10_EXPECTED_FINAL_HELDOUT_LAUNCHES),
+            _check_row(stage_id, "history_launch_count_exact", int(manifest.get("actual_history_launches", 0)) == R10_EXPECTED_HISTORY_LAUNCHES, manifest.get("actual_history_launches", 0), R10_EXPECTED_HISTORY_LAUNCHES),
             _check_row(stage_id, "r10_no_model_latency_variation_audit", _r10_variation_audit_passed(run_root), "audit", "passed"),
             _check_row(stage_id, "first_decision_launch_gate_audits_present", _validation_launch_gate_audit_passed(run_root), "audit", "passed"),
             _file_size_check(stage_id, run_root),

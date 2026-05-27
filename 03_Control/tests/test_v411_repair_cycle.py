@@ -496,6 +496,7 @@ def test_v411_case_ids_histories_and_retired_gate(tmp_path: Path) -> None:
         "heavy_cluster",
         "balanced_cluster",
         "light_cluster",
+        "super_light_cluster",
         "no_cluster_no_merge",
     )
     assert HISTORY_LENGTHS == (0, 5, 10, 20, 50, 100)

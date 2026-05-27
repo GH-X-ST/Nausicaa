@@ -27,7 +27,7 @@ from primitive_timing_contract import primitive_timing_contract_row, primitive_t
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
-POST_W3_LIBRARY_STUDY_VERSION = "post_w3_library_size_study_v411"
+POST_W3_LIBRARY_STUDY_VERSION = "post_w3_library_size_study_v53_five_case_v1"
 DEFAULT_W3_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")
 DEFAULT_INPUT_ROOT: Path | None = None
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study")
@@ -36,19 +36,25 @@ LIBRARY_SIZE_CASES: tuple[dict[str, object], ...] = (
         "library_size_case_id": "heavy_cluster",
         "library_size_human_label": "heavy clustering and merging",
         "max_representatives_per_group": 1,
-        "selection_policy": "top_score_per_primitive_entry_role",
+        "selection_policy": "top_1_score_per_primitive_entry_role",
     },
     {
         "library_size_case_id": "balanced_cluster",
         "library_size_human_label": "balanced clustering and merging",
         "max_representatives_per_group": 3,
-        "selection_policy": "top_score_then_diverse_per_primitive_entry_role",
+        "selection_policy": "top_3_score_per_primitive_entry_role",
     },
     {
         "library_size_case_id": "light_cluster",
         "library_size_human_label": "light clustering and merging",
         "max_representatives_per_group": 6,
-        "selection_policy": "broad_top_score_then_diverse_per_primitive_entry_role",
+        "selection_policy": "top_6_score_per_primitive_entry_role",
+    },
+    {
+        "library_size_case_id": "super_light_cluster",
+        "library_size_human_label": "super-light clustering and merging",
+        "max_representatives_per_group": 12,
+        "selection_policy": "top_12_score_per_primitive_entry_role",
     },
     {
         "library_size_case_id": "no_cluster_no_merge",
@@ -75,7 +81,7 @@ class PostW3LibrarySizeStudyConfig:
 
 
 def run_post_w3_library_size_study(config: PostW3LibrarySizeStudyConfig) -> dict[str, object]:
-    """Build the four v5.3 post-W3 library-size cases from W3 survivors."""
+    """Build the five v5.3 post-W3 library-size cases from W3 survivors."""
 
     config = PostW3LibrarySizeStudyConfig(
         input_root=_resolve_w3_input_root(config.input_root),
@@ -519,7 +525,7 @@ def _write_file_size_audit(root: Path) -> None:
 
 def _compact_library_id(case_id: str, variant_id: str, cluster_id: str) -> str:
     digest = hashlib.sha256(f"{case_id}|{variant_id}|{cluster_id}".encode("ascii")).hexdigest()[:12]
-    return f"v411lib_{case_id}_{digest}"
+    return f"v53lib_{case_id}_{digest}"
 
 
 def _read_json(path: Path) -> dict[str, object]:
@@ -537,7 +543,7 @@ def _write_csv(path: Path, frame: pd.DataFrame) -> None:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build v5.3 four-case post-W3 library-size study.")
+    parser = argparse.ArgumentParser(description="Build v5.3 five-case post-W3 library-size study.")
     parser.add_argument("--input-root", type=Path, default=DEFAULT_INPUT_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-id", type=int, default=1)

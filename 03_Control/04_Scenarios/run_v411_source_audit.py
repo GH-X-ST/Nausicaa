@@ -382,8 +382,15 @@ def _active_source_blockers(*, repo_root: Path, inventory: list[dict[str, object
     governor = _read_text_or_empty(repo_root / "03_Control/04_Scenarios/viability_governor.py")
     if "exploration_bonus_weight=0.0," in governor or "applied_after_viability_filter" not in governor:
         blockers.append({"blocker_id": "pure_exploitation_without_safe_exploration", "details": "viability_governor.py"})
-    if set(LIBRARY_SIZE_CASE_IDS) != {"heavy_cluster", "balanced_cluster", "light_cluster", "no_cluster_no_merge"}:
-        blockers.append({"blocker_id": "missing_four_library_size_cases", "details": ",".join(LIBRARY_SIZE_CASE_IDS)})
+    required_library_cases = {
+        "heavy_cluster",
+        "balanced_cluster",
+        "light_cluster",
+        "super_light_cluster",
+        "no_cluster_no_merge",
+    }
+    if set(LIBRARY_SIZE_CASE_IDS) != required_library_cases:
+        blockers.append({"blocker_id": "missing_five_library_size_cases", "details": ",".join(LIBRARY_SIZE_CASE_IDS)})
     return blockers
 
 

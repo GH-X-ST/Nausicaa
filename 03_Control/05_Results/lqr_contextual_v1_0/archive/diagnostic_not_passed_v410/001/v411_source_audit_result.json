@@ -5,10 +5,10 @@
   "dry_run": false,
   "required_doc_count": 8,
   "missing_docs": [],
-  "inventory_count": 12748,
+  "inventory_count": 14100,
   "active_path_count": 179,
   "retired_path_count": 366,
-  "superseded_result_root_count": 48,
+  "superseded_result_root_count": 52,
   "archive_root": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001",
   "archive_manifest": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001/manifest.json",
   "blockers": [],
@@ -22,6 +22,7 @@
     "heavy_cluster",
     "balanced_cluster",
     "light_cluster",
+    "super_light_cluster",
     "no_cluster_no_merge"
   ],
   "blocked_claims": [

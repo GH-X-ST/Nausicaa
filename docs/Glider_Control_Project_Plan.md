@@ -46,12 +46,14 @@ After launch-capture references, weights, start subregimes, outcome lookup, and 
 R5 robust dry-air plus annular-GP randomized launch-aware primitive synthesis and Q/R tuning
 -> optional W2 diagnostic replay, if explicitly requested and labelled diagnostic
 -> R7 frozen held-out W3 fixed-LQR validation using the R5 frozen bundle and held-out seeds
--> R8 four-case library-size cross-study and outcome model
+-> R8 five-case library-size cross-study and outcome model
 -> R9 fixed-case repeated-launch validation
 -> R10 environment-only changed-case validation only if R9 passes.
 ```
 
-R10 full changed-case validation now uses 120 outer cases per policy/history condition per library-size case. This is the original five 20-case blocks plus an extra 20-case arena-wide generalisation block that combines independently sampled fan positions across the tracker footprint with balanced active fan counts `1, 2, 3, 4`. The full R10 target is therefore `4 * 14 * 120 = 6720` final held-out launches and `4 * 120 * (185 + 185) = 177600` history launches. The additional block is R10-only and must not be backported into R5/R7 pass-gated synthesis or W3 survival replay.
+R8 now compares five post-W3 library-size conditions: `heavy_cluster`, `balanced_cluster`, `light_cluster`, `super_light_cluster`, and `no_cluster_no_merge`. `super_light_cluster` sits between `light_cluster` and `no_cluster_no_merge`; with 14 primitive/entry-role groups and 32 variants per group it keeps up to 12 representatives per group, giving 168 representatives when every W3 variant survives. The full expected R8 representative counts from the current 448-survivor W3 library are 14, 42, 84, 168, and 448 respectively. With five library-size cases, full R9 fixed-case validation is `5 * 14 * 60 = 4200` final held-out launches and `5 * 60 * (185 + 185) = 111000` history launches.
+
+R10 full changed-case validation now uses 120 outer cases per policy/history condition per library-size case. This is the original five 20-case blocks plus an extra 20-case arena-wide generalisation block that combines independently sampled fan positions across the tracker footprint with balanced active fan counts `1, 2, 3, 4`. With five library-size cases, the full R10 target is therefore `5 * 14 * 120 = 8400` final held-out launches and `5 * 120 * (185 + 185) = 222000` history launches. The additional block is R10-only and must not be backported into R5/R7 pass-gated synthesis or W3 survival replay.
 
 Active randomisation contract:
 
@@ -1137,7 +1139,7 @@ Use small, meaningful runs first. Dense runs are allowed only after the foundati
 | R5 W0/W1 robust randomized primitive synthesis | active primitive catalogue x 32--128 variants x 100--300 paired tests, with W3-style randomized training blocks | active primitive catalogue x 16 variants x 50 tests | tune a primitive-local LQR for every generated variant and preserve the rich frozen library for W3 holdout; after the launch-aware repair this means 14 primitives unless the catalogue is explicitly changed |
 | optional W2 annular-GP diagnostic sweep | 20k--60k rows if requested | 10k | replay the fixed R5 library in single-fan and four-fan annular-GP with panel-wise wind and timing realism; diagnostic labels only, no required move-on gate, no retuning |
 | R7 W3 frozen held-out domain-randomised survival sweep | 30k--100k rows | 15k | replay frozen R5 variants under held-out updraft, fan-layout/count, plant, latency, command-timing, and actuator-delay randomisation; eliminate/downgrade failures without retuning |
-| post-W3 library-size cross-study | all W3 survivors plus labelled weak/failure evidence | compact representative subset | compare heavy, balanced, light, and no-clustering/no-merging library-size conditions before accepting any online validation library |
+| post-W3 library-size cross-study | all W3 survivors plus labelled weak/failure evidence | compact representative subset | compare heavy, balanced, light, super-light, and no-clustering/no-merging library-size conditions before accepting any online validation library |
 | full-loop simulation validation | 100--300 episodes per policy | 50 | compare frozen governor/selector/memory policies across W0--W3 using the post-W3 library-size condition |
 | future hardware shortlist | 5--10 candidates | 3 | choose candidate LQR primitives from the post-W3 selected library-size condition only after the full simulation gates permit hardware-facing work |
 
