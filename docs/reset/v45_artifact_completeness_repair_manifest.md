@@ -1,5 +1,10 @@
 # v4.5 Artifact-Completeness Repair Manifest
 
+Status: historical v4.5 manifest. This file is retained under `docs/reset/`
+as deleted-history context only. It is not current move-on evidence, stage
+naming, or run guidance. For current method control, use
+`docs/Glider_Control_Project_Plan.md`.
+
 - Project line: `LQR-Stabilised Contextual Primitive v4.5`
 - Branch: `main`
 - HEAD inspected before repair edits: `f72bcad4`

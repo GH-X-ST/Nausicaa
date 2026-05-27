@@ -66,6 +66,12 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
     model_rows = frame[frame["rollout_backend"].astype(str).eq("model_backed_lqr")]
     assert not model_rows.empty
     assert set(model_rows["timing_state_source"]) == {"history_backed_fifo"}
+    dry_model_rows = model_rows[model_rows["environment_mode"].astype(str).eq("dry_air")]
+    assert not dry_model_rows.empty
+    assert set(dry_model_rows["implementation_W_layer"]) == {"W3"}
+    assert set(dry_model_rows["plant_W_layer"]) == {"W3"}
+    assert set(dry_model_rows["environment_W_layer"]) == {"W0"}
+    assert set(dry_model_rows["environment_updraft_model_id"]) == {"dry_air_zero_wind"}
     assert "augmented_gain_checksum" in frame.columns
     assert not frame["candidate_weight_label"].astype(str).eq("W0_W1").any()
 

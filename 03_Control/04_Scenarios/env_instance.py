@@ -29,6 +29,8 @@ R5_ANNULAR_GP_TRAINING_MODES = (
 @dataclass(frozen=True)
 class EnvironmentRandomisationConfig:
     fan_position_shift_range_m: tuple[float, float] = (-0.20, 0.20)
+    fan_position_policy: str = "common_shift"
+    fan_position_xy_bounds_m: tuple[tuple[float, float], tuple[float, float]] = ((0.0, 8.0), (0.0, 4.8))
     fan_power_scale_range: tuple[float, float] = (0.85, 1.15)
     active_fan_subset_policy: str = "at_least_one_active"
     active_fan_count: int | None = None
@@ -151,8 +153,7 @@ def environment_instance_for_mode(
         "w3_randomised_four",
     }
     if layer == "W3" or mode in randomised_modes:
-        fan_shift = _uniform_pair(rng, cfg.fan_position_shift_range_m)
-        positions = tuple((float(x + fan_shift[0]), float(y + fan_shift[1])) for x, y in positions)
+        positions = _randomised_fan_positions(rng, positions, cfg)
         power_scales = tuple(
             float(value)
             for value in rng.uniform(
@@ -167,18 +168,18 @@ def environment_instance_for_mode(
                 fan_count,
                 active_fan_count=cfg.active_fan_count,
             )
-        amplitude_scale = float(
-            rng.uniform(cfg.amplitude_scale_range[0], cfg.amplitude_scale_range[1])
-        )
+        # Annular-GP randomisation uses one active strength channel: per-fan power.
+        # A second global amplitude or centre shift would duplicate fan strength/position.
+        amplitude_scale = 1.0
         width_scale = float(rng.uniform(cfg.width_scale_range[0], cfg.width_scale_range[1]))
-        centre_shift = _uniform_pair(rng, cfg.centre_shift_range_m)
+        centre_shift = (0.0, 0.0)
         uncertainty_scale = float(
             rng.uniform(
                 cfg.uncertainty_scale_range[0],
                 cfg.uncertainty_scale_range[1],
             )
         )
-        residual_field_id = "randomised_residual_not_modelled"
+        residual_field_id = "single_layer_annular_gp_randomisation_no_duplicate_strength_or_shift"
 
     return EnvironmentInstance(
         environment_id=f"{layer}_{mode}_s{int(seed):06d}",
@@ -296,6 +297,29 @@ def _active_fan_mask(
     if any(mask):
         return mask
     return tuple(index == 0 for index in range(int(fan_count)))
+
+
+def _randomised_fan_positions(
+    rng: np.random.Generator,
+    positions: tuple[tuple[float, float], ...],
+    cfg: EnvironmentRandomisationConfig,
+) -> tuple[tuple[float, float], ...]:
+    policy = str(cfg.fan_position_policy)
+    if policy == "fixed_base_positions":
+        return positions
+    if policy == "common_shift":
+        fan_shift = _uniform_pair(rng, cfg.fan_position_shift_range_m)
+        return tuple((float(x + fan_shift[0]), float(y + fan_shift[1])) for x, y in positions)
+    if policy == "independent_uniform_xy_bounds":
+        x_bounds, y_bounds = cfg.fan_position_xy_bounds_m
+        return tuple(
+            (
+                float(rng.uniform(float(x_bounds[0]), float(x_bounds[1]))),
+                float(rng.uniform(float(y_bounds[0]), float(y_bounds[1]))),
+            )
+            for _ in positions
+        )
+    raise ValueError(f"unknown fan_position_policy: {policy}")
 
 
 def _uniform_pair(

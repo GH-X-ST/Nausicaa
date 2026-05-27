@@ -1,0 +1,203 @@
+# Thesis Writing Guidance — Environment-Conditioned Primitive Library
+
+<!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
+## Current controlling update - robust R5 synthesis and frozen W3 holdout
+
+This document is aligned with `docs/Glider_Control_Project_Plan.md`, which is the single method-control document for the current implementation pass.
+
+Current decision:
+
+```text
+BLOCKED_FIX_REQUIRED until the repaired R5 -> R7 -> R8 -> R9 -> R10 evidence chain passes.
+```
+
+Required repair direction:
+
+```text
+1. Restart accepted evidence from robust R5 dry-air plus annular-GP synthesis; older R5/R7/R8/R9/R10 roots remain diagnostic unless regenerated under the current contract.
+2. R5 dry-air rows keep the W0 no-updraft environment but use W3-style plant and implementation perturbations; R5 annular-GP rows use the same W3-style plant/implementation perturbation family.
+3. R5 and R7 use single-layer composed annular-GP randomisation: fan position, active fan count where applicable, per-fan power, width/spread, local uncertainty, launch/start-state perturbations, latency/implementation perturbations, left/right aileron asymmetry, and CG/plant perturbations.
+4. Do not duplicate randomisation channels: per-fan power is updraft strength, fan position is spatial/layout shift, width is spread, local uncertainty is context/belief uncertainty, amplitude stays fixed at 1.0, and centre shift stays zero for active pass-gated annular-GP evidence.
+5. Keep W2/R6 optional diagnostic only; R7 is the frozen held-out W3 fixed-LQR replay with no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation.
+6. Keep post-W3 reduction as the four-case library-size cross-study: heavy, balanced, light, and no-clustering/no-merging.
+7. R9 is fixed-case repeated-launch validation with no glider, latency, actuator, or environment randomisation beyond controlled launch/history sampling.
+8. R10 is environment-only changed-case validation with six 20-case blocks: nominal single, nominal four, shifted single, shifted four, active-fan-number variation, and arena-wide fan-position plus active-fan-count generalisation.
+9. R9/R10 must use controlled final-launch pairing, compact-library-aware outcome lookup, actual memory/exploration selection-change metrics, and secondary launch-score analysis only after strict gates pass.
+10. No memory improvement, hardware readiness, real-flight transfer, mission success, full autonomy, or formal LQR-tree/funnel/ROA claim is allowed until full R9 and R10 gates pass.
+```
+
+Forbidden changes remain unchanged: no PD/PID/bounded fallback, no TVLQR active workflow, no fan-layout-specific controller logic, no pre-W3 clustering, no W3/R8/R9/R10 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
+<!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
+
+## Purpose
+
+Use this guide when drafting or revising thesis text, captions, abstracts, and conclusions. The target style is a robotics-journal-style engineering thesis: real system, measured environment, experimental protocol, baselines, failure cases, and reproducibility.
+
+## Current project framing
+
+Use this mission framing:
+
+> Environment-conditioned primitive selection for repeated-launch lift capture and finite-horizon dwell in a measured uncertain indoor updraft.
+
+The final evaluation treats each physical launch as an episode. The glider starts from a fixed nominal launch gate, the actual initial state is measured, local flow-context features are computed, the viability governor selects among post-W3 validated short primitives, and the flight log updates a directional 3D residual lift belief for later launches.
+
+Method wording should treat the LQR stabiliser as part of each primitive. The active library item is a primitive-controller variant: entry set, reference, finite horizon, local time-invariant LQR Q/R/K, exit checks, metrics, and failure labels. W0/W1 dense generation tunes each primitive-local LQR and preserves a rich library; W2 and W3 replay fixed variants to remove cases that fail under higher-fidelity and domain-randomised conditions; post-W3 library-size cross-study produce the compact robust library used by the governor. Late validation freezes the selected library-size condition, governor, selector, and memory logic before full-loop randomised simulation and real repeated launches. Do not describe W0/W1 as an external controller-bank step or move clustering before W2/W3.
+
+## What the thesis is not
+
+Do not frame the thesis as:
+
+```text
+perching
+generic thermal soaring
+generic path following
+all-arena exploration
+fan-layout-specific controller design
+same-flight recapture
+long primitive-chain construction
+```
+
+## Chapter-level implications
+
+### Chapter 1
+
+Update the objective and research questions around:
+
+```text
+environment-conditioned primitive selection
+local flow-context features
+repeated-launch lift learning
+viability filtering
+sim-to-real transfer under updraft uncertainty
+```
+
+### Chapter 2
+
+Use related work to support:
+
+```text
+sim-to-real under aerodynamic forcing
+local lift exploitation
+motion primitive libraries
+viability and safety filtering
+environment-conditioned decision making
+domain randomisation
+repeated physical rollouts
+```
+
+Use perching literature only as contrast.
+
+### Chapter 3
+
+Emphasise:
+
+```text
+Vicon-measured initial state
+fixed nominal release gate
+command timing
+logging
+abort and termination conditions
+```
+
+### Chapter 4
+
+Frame the fan updraft as:
+
+```text
+repeatable local vertical-flow forcing for controlled sim-to-real study
+```
+
+not as a dynamically exact outdoor thermal.
+
+### Chapter 6
+
+Main method sections should be:
+
+```text
+environment context encoding
+primitive catalogue
+primitive outcome model
+viability-governed primitive selection
+directional 3D residual lift belief
+W0/W1 generation, W2/W3 survival filtering, post-W3 library-size cross-study, and full-loop validation protocol
+```
+
+### Chapter 7
+
+Results should be organised around:
+
+```text
+W0/W1 rich primitive-library evidence
+W2/W3 survival filtering evidence
+post-W3 library-size cross-study and outcome evidence
+context-feature importance or ablation
+generalisation under changed environments
+policy baseline comparison
+real-flight repeated launches
+sim-real replay pairing
+failure modes and blocked claims
+```
+
+## Writing style
+
+Use compact, precise, traceable engineering prose.
+
+Each results paragraph should follow:
+
+```text
+claim -> metric -> baseline comparison -> limitation
+```
+
+Avoid vague claims such as:
+
+```text
+significantly improves
+robust performance
+highly effective
+```
+
+unless a metric and test condition directly support them.
+
+## Claim labels
+
+Use:
+
+```text
+simulation_only
+hardware_shakedown
+real_flight_evidence
+partial_transfer
+negative_transfer
+instrumentation_limited
+not_tested
+```
+
+Do not claim real-flight transfer, mission success, hardware readiness, or full robustness unless direct evidence supports it.
+
+## Figure captions
+
+Good caption pattern:
+
+```text
+Environment-conditioned primitive outcome map under measured-updraft replay. Accepted cases occupy high wing-mean wind and adequate wall-margin regions, while low-speed cases remain rejected by the governor.
+```
+
+Bad caption pattern:
+
+```text
+Results of the controller.
+```
+
+## Reviewer self-check
+
+Before finalising a paragraph, ask:
+
+1. What is the precise claim?
+2. What measurement, simulation, or reference supports it?
+3. What is the baseline?
+4. What limitation remains?
+5. Could this sentence appear in any generic UAV paper? If yes, make it project-specific.
+
+### R9 launch-gate repair wording
+
+When discussing the current blocked simulation evidence, state that R9 revealed a launch-gate coverage limitation: the post-W3 library did not yet provide enough launch-capable primitive diversity for the first decision. The repair is a dedicated LQR-only launch-capture primitive subset that transitions the glider from the physical release gate into the in-flight primitive envelope. This should be presented as a project-aligned primitive-library repair, not as LQR-tree, funnel-library, TVLQR, or a new controller family.

@@ -2,6 +2,11 @@
 
 Date: 2026-05-24
 
+Status: historical readiness report. This file is retained for traceability
+only and is not current move-on guidance. For current method control, use
+`docs/Glider_Control_Project_Plan.md`; the active evidence chain is current R5
+-> R7 -> R8 -> R9 -> R10, with R6/W2 optional diagnostic only.
+
 ## Result
 
 - R6 W0/W1 tuning is cleared to start from the project-owned `.venv` validation environment.

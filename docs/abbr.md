@@ -25,10 +25,10 @@ rand      randomised
 sum       summary
 diag      diagnostic_not_passed / not move-on evidence
 
-w0        dry-air / near-dry R5 synthesis layer
-w1        randomized measured-updraft R5 synthesis layer
-w2        optional GP-corrected annular-Gaussian fixed-LQR diagnostic layer
-w3        frozen held-out randomised GP-corrected annular-Gaussian fixed-LQR validation layer
+w0        dry-air / near-dry R5 synthesis environment layer
+w1        annular-GP randomized R5 synthesis environment layer
+w2        optional fixed-LQR annular-GP diagnostic layer
+w3        frozen held-out randomised annular-GP fixed-LQR validation layer
 w01       combined R5 W0/W1 robust primitive-library synthesis
 post_w3   post-W3 library-size cross-study and optional compression
 flv       repeated-launch full-loop validation
@@ -40,6 +40,7 @@ fifo      command-delay first-in-first-out timing state
 roa       region of attraction
 ```
 
-Do not use old R6/R7/R8/R9 labels, selected-controller labels, or
+Current active stage labels are R5, optional diagnostic R6/W2, R7, R8, R9, and
+R10. Do not reuse older R6/R6.1 selected-controller/finalist labels or
 hardware-shortlist labels for new active evidence. Historical files may mention
 those labels only with an explicit retired or diagnostic boundary.

@@ -1,0 +1,127 @@
+# Reference Searching Guidance — Robotics-Focused, Citation-Quality Controlled
+
+<!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
+## Current controlling update - robust R5 synthesis and frozen W3 holdout
+
+This document is aligned with `docs/Glider_Control_Project_Plan.md`, which is the single method-control document for the current implementation pass.
+
+Current decision:
+
+```text
+BLOCKED_FIX_REQUIRED until the repaired R5 -> R7 -> R8 -> R9 -> R10 evidence chain passes.
+```
+
+Required repair direction:
+
+```text
+1. Restart accepted evidence from robust R5 dry-air plus annular-GP synthesis; older R5/R7/R8/R9/R10 roots remain diagnostic unless regenerated under the current contract.
+2. R5 dry-air rows keep the W0 no-updraft environment but use W3-style plant and implementation perturbations; R5 annular-GP rows use the same W3-style plant/implementation perturbation family.
+3. R5 and R7 use single-layer composed annular-GP randomisation: fan position, active fan count where applicable, per-fan power, width/spread, local uncertainty, launch/start-state perturbations, latency/implementation perturbations, left/right aileron asymmetry, and CG/plant perturbations.
+4. Do not duplicate randomisation channels: per-fan power is updraft strength, fan position is spatial/layout shift, width is spread, local uncertainty is context/belief uncertainty, amplitude stays fixed at 1.0, and centre shift stays zero for active pass-gated annular-GP evidence.
+5. Keep W2/R6 optional diagnostic only; R7 is the frozen held-out W3 fixed-LQR replay with no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation.
+6. Keep post-W3 reduction as the four-case library-size cross-study: heavy, balanced, light, and no-clustering/no-merging.
+7. R9 is fixed-case repeated-launch validation with no glider, latency, actuator, or environment randomisation beyond controlled launch/history sampling.
+8. R10 is environment-only changed-case validation with six 20-case blocks: nominal single, nominal four, shifted single, shifted four, active-fan-number variation, and arena-wide fan-position plus active-fan-count generalisation.
+9. R9/R10 must use controlled final-launch pairing, compact-library-aware outcome lookup, actual memory/exploration selection-change metrics, and secondary launch-score analysis only after strict gates pass.
+10. No memory improvement, hardware readiness, real-flight transfer, mission success, full autonomy, or formal LQR-tree/funnel/ROA claim is allowed until full R9 and R10 gates pass.
+```
+
+Forbidden changes remain unchanged: no PD/PID/bounded fallback, no TVLQR active workflow, no fan-layout-specific controller logic, no pre-W3 clustering, no W3/R8/R9/R10 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
+<!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
+
+## Purpose
+
+Use this guide when searching, selecting, and using references for the Nausicaa glider thesis and paper-style writing. The target contribution is robotics-style: real system, measured uncertain flow, environment-conditioned primitive selection, repeated-launch lift learning, viability filtering, and sim-to-real transfer.
+
+The goal is not to collect many references. The goal is to choose credible references that directly support the thesis claims, methods, and contrasts.
+
+## Reference quality hierarchy
+
+Use references in this order unless there is a clear reason not to:
+
+1. Peer-reviewed papers in top robotics venues: IJRR, IEEE T-RO, Science Robotics, RA-L, RSS, ICRA, IROS.
+2. Peer-reviewed aerospace/control venues when directly relevant: Journal of Guidance, Control, and Dynamics, Journal of Aircraft, AIAA Journal, Aerospace Science and Technology, IEEE Control Systems Magazine, Automatica, IEEE TAC.
+3. High-quality review papers.
+4. Well-known foundational papers or books.
+5. Preprints, theses, technical reports, and documentation only when necessary.
+
+## Search scope
+
+Search these categories:
+
+1. fixed-wing autonomous soaring and local lift exploitation;
+2. wind-field-aware UAV control;
+3. gust-aware flight and low-altitude wind interaction;
+4. motion primitives and primitive libraries;
+5. viability kernels, reference governors, reachability, and safety filters;
+6. environment-conditioned policies and contextual decision making;
+7. domain randomisation and sim-to-real transfer, especially training/validation separation and explicit adaptation loops;
+8. repeated physical rollouts and episodic learning;
+9. post-W3 trajectory or rollout clustering and merging for representative selection;
+10. primitive-local feedback controllers embedded in motion primitives;
+11. real aerial-robot experiments under environmental uncertainty.
+
+## Search phrases
+
+```text
+fixed-wing UAV local updraft exploitation
+fixed-wing UAV wind field control
+small fixed-wing UAV gust-aware control
+motion primitive library aerial robot safety
+viability governor UAV primitive selection
+reference governor motion primitives robotics
+environment-conditioned policy robotics
+contextual action selection robot control
+sim-to-real aerial robot domain randomization wind
+fixed-wing UAV autonomous soaring local lift
+repeated physical rollouts robot learning
+post-W3 trajectory clustering motion primitive library robotics
+primitive local feedback controller motion primitive
+sim-to-real explicit adaptation held-out validation
+```
+
+## Project-specific reference roles
+
+Every reference should have one role:
+
+```text
+foundation
+robotics precedent
+method support
+environment support
+contrast
+survey
+implementation
+```
+
+Do not cite a paper only because it contains a similar keyword.
+
+## Minimum reference standard by claim
+
+Major method claims need at least one peer-reviewed method reference or one well-known foundational reference.
+
+Real-world application motivation needs at least one credible robotics, aerospace, or environmental source. Avoid broad unsupported statements about urban wind.
+
+Hardware/platform statements should use primary documentation or direct measurement.
+
+## Candidate-paper checklist
+
+Record:
+
+```text
+title
+year
+venue
+peer reviewed: yes/no/unclear
+citation strength: high/medium/low/unknown
+system: real robot / simulation / wind tunnel / theory / review
+vehicle: fixed wing / multirotor / other / abstract
+method
+environment
+what it supports
+what it does not support
+risk if cited
+replacement needed: yes/no
+```
+
+For the current R9 launch-gate repair, also search for literature on launch transients, launch capture, mode switching between launch and in-flight primitive sets, and safe first-action selection in constrained aerial robots. Use this only to support the project-aligned launch-capture primitive subset; do not reframe the project as LQR-tree, funnel-library, TVLQR, or generic autopilot work.

@@ -1,36 +1,32 @@
 First inspect the local repo history, tags, and existing docs/PR wording for recent title/version patterns. Propose a concise high-level PR title with a version label that continues the existing project sequence rather than inventing a fresh v1.0. Use the same title family when this change extends the same development line; increment minor versions for scaffold/refinement work, and reserve major versions for completed evidence milestones or major claim-boundary changes.
 
 <!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
-## Current controlling update — robust R5 synthesis and frozen W3 holdout
+## Current controlling update - robust R5 synthesis and frozen W3 holdout
 
 This document is aligned with `docs/Glider_Control_Project_Plan.md`, which is the single method-control document for the current implementation pass.
 
 Current decision:
 
 ```text
-BLOCKED_FIX_REQUIRED
+BLOCKED_FIX_REQUIRED until the repaired R5 -> R7 -> R8 -> R9 -> R10 evidence chain passes.
 ```
-
-The current R9 repeated-launch result and W3 run 015 launch-capture result are diagnostic evidence only. They must not be used to claim memory improvement, hardware readiness, real-flight transfer, mission success, or full autonomy. The repair is now to improve launch-capture synthesis quality inside robust randomized R5 dry-air plus annular-GP training: references, LQR weights, launch_gate start subregimes, handoff-quality gates, and the R9/R10 lookup and selection-change metrics.
 
 Required repair direction:
 
 ```text
-1. Keep the dedicated LQR-only launch-capture primitive family, but redesign or widen its references, weights, and launch_gate start subregimes inside R5 robust synthesis.
-2. Keep existing in-flight primitive families intact; do not relabel all in-flight primitives as launch-capable.
-3. Preserve the active primitive contract: 0.100 s horizon, 5 controller-input slots, 20 ms controller update period.
-4. Preserve primitive-local time-invariant LQR only; no PD/PID/bounded fallback and no TVLQR active workflow.
-5. Use W2 only as optional diagnostic/legacy comparison evidence, not as a required pass gate.
-6. Keep frozen W3 as fixed-LQR held-out validation with no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation.
-7. Keep post-W3 reduction as the four-case library-size cross-study: heavy, balanced, light, and no-clustering/no-merging.
-8. Fix R9 outcome lookup so representatives are matched by library-size case and compact-library identity, not only by primitive_variant_id.
-9. Compute memory_changed_selection and exploration_changed_selection from actual matched selections; do not hard-code them to zero.
-10. Add first-decision launch-gate audits for candidate count, viable count, rejection reason, selected family, and transition-to-inflight evidence.
-11. Regenerate evidence from the corrected R5 dry-air plus annular-GP robust synthesis run before reusing R7, R8, R9, or R10 evidence.
-12. Treat W3 run 015 as diagnostic_not_passed for launch-aware move-on because launch_capable variants are 0 survived / 192 downgraded.
+1. Restart accepted evidence from robust R5 dry-air plus annular-GP synthesis; older R5/R7/R8/R9/R10 roots remain diagnostic unless regenerated under the current contract.
+2. R5 dry-air rows keep the W0 no-updraft environment but use W3-style plant and implementation perturbations; R5 annular-GP rows use the same W3-style plant/implementation perturbation family.
+3. R5 and R7 use single-layer composed annular-GP randomisation: fan position, active fan count where applicable, per-fan power, width/spread, local uncertainty, launch/start-state perturbations, latency/implementation perturbations, left/right aileron asymmetry, and CG/plant perturbations.
+4. Do not duplicate randomisation channels: per-fan power is updraft strength, fan position is spatial/layout shift, width is spread, local uncertainty is context/belief uncertainty, amplitude stays fixed at 1.0, and centre shift stays zero for active pass-gated annular-GP evidence.
+5. Keep W2/R6 optional diagnostic only; R7 is the frozen held-out W3 fixed-LQR replay with no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation.
+6. Keep post-W3 reduction as the four-case library-size cross-study: heavy, balanced, light, and no-clustering/no-merging.
+7. R9 is fixed-case repeated-launch validation with no glider, latency, actuator, or environment randomisation beyond controlled launch/history sampling.
+8. R10 is environment-only changed-case validation with six 20-case blocks: nominal single, nominal four, shifted single, shifted four, active-fan-number variation, and arena-wide fan-position plus active-fan-count generalisation.
+9. R9/R10 must use controlled final-launch pairing, compact-library-aware outcome lookup, actual memory/exploration selection-change metrics, and secondary launch-score analysis only after strict gates pass.
+10. No memory improvement, hardware readiness, real-flight transfer, mission success, full autonomy, or formal LQR-tree/funnel/ROA claim is allowed until full R9 and R10 gates pass.
 ```
 
-Forbidden changes remain unchanged: no fan-layout-specific controller logic, no pre-W3 clustering, no W3/R8/R9/R10 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
+Forbidden changes remain unchanged: no PD/PID/bounded fallback, no TVLQR active workflow, no fan-layout-specific controller logic, no pre-W3 clustering, no W3/R8/R9/R10 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
 <!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
 
 Then write a short GitHub push or PR comment in this style:
@@ -85,8 +81,8 @@ LQR-Stabilised Contextual Primitive v5.6
 Python control-simulation pipeline
 
 - Reframes the launch-capture repair around robust randomized R5 dry-air plus annular-GP synthesis, where primitive-local references and LQR Q/R are tuned before freezing the controller bundle.
-- Makes W2 optional diagnostic evidence only, and keeps W3 as the frozen held-out validation stage with seed separation, active-fan-count variation, CG offset, and left/right aileron asymmetry captured in the audit boundary.
+- Makes W2 optional diagnostic evidence only, applies W3-style plant/implementation perturbations even to R5 dry-air rows, and keeps W3 as the frozen held-out validation stage with seed separation, active-fan-count variation, CG offset, and left/right aileron asymmetry captured in the audit boundary.
 - Preserves role separation: launch_capture_* primitives are launch_capable, glide and ordinary manoeuvres are inflight_only, and recovery/safe-exit handoff primitives are terminal_or_recovery; post-W3 compression keeps the heavy/balanced/light/no-clustering cases.
-- Late validation still uses directional 3D residual memory histories 0, 5, 10, 20, 50, and 100, safe exploration/exploitation after viability filtering, controlled final-launch pairing, and the launch-score audit as secondary analysis only.
+- Late validation still uses directional 3D residual memory histories 0, 5, 10, 20, 50, and 100, safe exploration/exploitation after viability filtering, controlled final-launch pairing, R9 fixed cases, R10 six changed-environment blocks including arena-wide fan-position plus active-fan-count generalisation, and the launch-score audit as secondary analysis only.
 - No memory improvement, hardware readiness, real-flight transfer, mission success, or full autonomy claim is made until full R9/R10 gates pass.
 ```

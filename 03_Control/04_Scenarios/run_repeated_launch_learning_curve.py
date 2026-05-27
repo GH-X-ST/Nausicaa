@@ -106,7 +106,29 @@ POST_LAUNCH_START_FAMILY = "inflight_nominal"
 BOUNDARY_RECOVERY_START_FAMILY = "inflight_boundary_near"
 TERMINAL_SAFE_EXIT_START_FAMILY = "inflight_recovery_edge"
 ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID = "active_fan_number_variation"
+BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID = "arena_wide_fan_position_generalisation"
+R10_NOMINAL_FAN_POSITION_BLOCK_IDS = (
+    "nominal_single_fan_perturbations",
+    "nominal_four_fan_perturbations",
+)
+R10_SHIFTED_FAN_POSITION_BLOCK_IDS = (
+    "shifted_single_fan_positions",
+    "shifted_four_fan_positions",
+)
+R10_FIXED_BASE_POSITION_BLOCK_IDS = (
+    *R10_NOMINAL_FAN_POSITION_BLOCK_IDS,
+    ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
+)
+R10_ACTIVE_FAN_COUNT_VARIATION_BLOCK_IDS = (
+    ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
+    BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
+)
+R10_FIXED_FOUR_ACTIVE_BLOCK_IDS = (
+    "nominal_four_fan_perturbations",
+    "shifted_four_fan_positions",
+)
 R10_ACTIVE_FAN_COUNT_SEQUENCE = (1, 2, 3, 4)
+R10_ARENA_WIDE_FAN_POSITION_XY_BOUNDS_M = ((0.0, 8.0), (0.0, 4.8))
 RECOVERY_ROUTE_MARGIN_M = 0.25
 RECOVERY_EDGE_MIN_SPEED_M_S = 4.2
 RECOVERY_EDGE_MAX_ABS_ROLL_RAD = math.radians(35.0)
@@ -492,13 +514,16 @@ def _scheduled_active_fan_count_for_outer_case(
 ) -> int | None:
     if str(protocol.stage_id) != "R10":
         return None
-    if str(environment_block_id) != ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID:
-        return None
-    return int(
-        R10_ACTIVE_FAN_COUNT_SEQUENCE[
-            int(environment_block_local_index) % len(R10_ACTIVE_FAN_COUNT_SEQUENCE)
-        ]
-    )
+    block_id = str(environment_block_id)
+    if block_id in R10_ACTIVE_FAN_COUNT_VARIATION_BLOCK_IDS:
+        return int(
+            R10_ACTIVE_FAN_COUNT_SEQUENCE[
+                int(environment_block_local_index) % len(R10_ACTIVE_FAN_COUNT_SEQUENCE)
+            ]
+        )
+    if block_id in R10_FIXED_FOUR_ACTIVE_BLOCK_IDS:
+        return 4
+    return None
 
 
 def _active_fan_count_policy_for_outer_case(
@@ -506,12 +531,85 @@ def _active_fan_count_policy_for_outer_case(
     protocol: ValidationProtocol,
     environment_block_id: str,
 ) -> str:
-    if (
-        str(protocol.stage_id) == "R10"
-        and str(environment_block_id) == ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID
-    ):
+    if str(protocol.stage_id) != "R10":
+        return "environment_default"
+    block_id = str(environment_block_id)
+    if block_id == ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID:
         return "balanced_1_2_3_4_for_active_fan_number_variation"
+    if block_id == BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID:
+        return "balanced_1_2_3_4_with_arena_wide_fan_position_generalisation"
+    if block_id in R10_FIXED_FOUR_ACTIVE_BLOCK_IDS:
+        return "fixed_4_for_four_fan_geometry_non_active_count_block"
+    if "single_fan" in block_id:
+        return "single_fan_geometry_implicit_one_active_fan"
     return "environment_default"
+
+
+def _fan_layout_policy_for_outer_case(
+    *,
+    protocol: ValidationProtocol,
+    environment_block_id: str,
+) -> str:
+    if str(protocol.stage_id) != "R10":
+        return "fixed_case_layout"
+    block_id = str(environment_block_id)
+    if "single_fan" in block_id:
+        return "single_fan_geometry"
+    if "four_fan" in block_id or block_id in {
+        ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
+        BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
+    }:
+        return "four_fan_geometry"
+    return "unknown_layout"
+
+
+def _scheduled_fan_layout_count_for_outer_case(
+    *,
+    protocol: ValidationProtocol,
+    environment_block_id: str,
+) -> int | str:
+    layout = _fan_layout_policy_for_outer_case(
+        protocol=protocol,
+        environment_block_id=environment_block_id,
+    )
+    if layout == "single_fan_geometry":
+        return 1
+    if layout == "four_fan_geometry":
+        return 4
+    return ""
+
+
+def _fan_position_policy_for_outer_case(
+    *,
+    protocol: ValidationProtocol,
+    environment_block_id: str,
+) -> str:
+    if str(protocol.stage_id) != "R10":
+        return "common_shift"
+    block_id = str(environment_block_id)
+    if block_id == BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID:
+        return "independent_uniform_xy_bounds"
+    if block_id in R10_FIXED_BASE_POSITION_BLOCK_IDS:
+        return "fixed_base_positions"
+    if block_id in R10_SHIFTED_FAN_POSITION_BLOCK_IDS:
+        return "common_shift"
+    return "common_shift"
+
+
+def _fan_position_bounds_text_for_outer_case(
+    *,
+    protocol: ValidationProtocol,
+    environment_block_id: str,
+) -> str:
+    if str(protocol.stage_id) != "R10":
+        return "common_shift_range=-0.200:0.200"
+    block_id = str(environment_block_id)
+    if block_id == BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID:
+        x_bounds, y_bounds = R10_ARENA_WIDE_FAN_POSITION_XY_BOUNDS_M
+        return f"x={float(x_bounds[0]):.3f}:{float(x_bounds[1]):.3f};y={float(y_bounds[0]):.3f}:{float(y_bounds[1]):.3f}"
+    if block_id in R10_FIXED_BASE_POSITION_BLOCK_IDS:
+        return "fixed_base_positions_no_shift"
+    return "common_shift_range=-0.200:0.200"
 
 
 def _outer_case_schedule(*, protocol: ValidationProtocol, seed: int) -> list[dict[str, object]]:
@@ -537,10 +635,26 @@ def _outer_case_schedule(*, protocol: ValidationProtocol, seed: int) -> list[dic
                     "environment_change_family": block.environment_change_family,
                     "W_layer": block.W_layer,
                     "environment_mode": block.environment_mode,
+                    "fan_layout_policy": _fan_layout_policy_for_outer_case(
+                        protocol=protocol,
+                        environment_block_id=block.block_id,
+                    ),
+                    "scheduled_fan_layout_count": _scheduled_fan_layout_count_for_outer_case(
+                        protocol=protocol,
+                        environment_block_id=block.block_id,
+                    ),
                     "scheduled_active_fan_count": (
                         "" if scheduled_active_fan_count is None else int(scheduled_active_fan_count)
                     ),
                     "active_fan_count_policy": _active_fan_count_policy_for_outer_case(
+                        protocol=protocol,
+                        environment_block_id=block.block_id,
+                    ),
+                    "fan_position_policy": _fan_position_policy_for_outer_case(
+                        protocol=protocol,
+                        environment_block_id=block.block_id,
+                    ),
+                    "fan_position_xy_bounds_m": _fan_position_bounds_text_for_outer_case(
                         protocol=protocol,
                         environment_block_id=block.block_id,
                     ),
@@ -1014,10 +1128,10 @@ def _context_payload(
         protocol=protocol,
         scheduled=scheduled,
     )
-    randomisation_config = (
-        EnvironmentRandomisationConfig(active_fan_count=scheduled_active_fan_count)
-        if scheduled_active_fan_count is not None
-        else None
+    randomisation_config = _environment_randomisation_config_for_context(
+        protocol=protocol,
+        scheduled=scheduled,
+        scheduled_active_fan_count=scheduled_active_fan_count,
     )
     instance = environment_instance_for_mode(
         env_layer,
@@ -1047,6 +1161,8 @@ def _context_payload(
         "environment_instance_id": instance.environment_id,
         "environment_block_id": str(scheduled.get("environment_block_id", "")),
         "outer_case_type": str(scheduled.get("outer_case_type", "")),
+        "fan_layout_policy": str(scheduled.get("fan_layout_policy", "")),
+        "scheduled_fan_layout_count": str(scheduled.get("scheduled_fan_layout_count", "")),
         "scheduled_active_fan_count": (
             "" if scheduled_active_fan_count is None else int(scheduled_active_fan_count)
         ),
@@ -1055,6 +1171,8 @@ def _context_payload(
             protocol=protocol,
             environment_block_id=str(scheduled.get("environment_block_id", "")),
         ),
+        "fan_position_policy": str(scheduled.get("fan_position_policy", "")),
+        "fan_position_xy_bounds_m": str(scheduled.get("fan_position_xy_bounds_m", "")),
         "start_state_family": str(start_state_family),
         "primitive_step_index": int(primitive_step_index),
         "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
@@ -1080,6 +1198,34 @@ def _context_payload(
         "implementation_instance": implementation_instance_for_layer(implementation_layer, seed, latency_case=latency_case),
         "plant_instance": plant_instance_for_layer(plant_layer, seed),
     }
+
+
+def _environment_randomisation_config_for_context(
+    *,
+    protocol: ValidationProtocol,
+    scheduled: dict[str, object],
+    scheduled_active_fan_count: int | None,
+) -> EnvironmentRandomisationConfig | None:
+    block_id = str(scheduled.get("environment_block_id", ""))
+    if str(protocol.stage_id) == "R10" and block_id == BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID:
+        return EnvironmentRandomisationConfig(
+            active_fan_count=scheduled_active_fan_count,
+            fan_position_policy="independent_uniform_xy_bounds",
+            fan_position_xy_bounds_m=R10_ARENA_WIDE_FAN_POSITION_XY_BOUNDS_M,
+        )
+    if str(protocol.stage_id) == "R10" and block_id in R10_FIXED_BASE_POSITION_BLOCK_IDS:
+        return EnvironmentRandomisationConfig(
+            active_fan_count=scheduled_active_fan_count,
+            fan_position_policy="fixed_base_positions",
+        )
+    if str(protocol.stage_id) == "R10" and block_id in R10_SHIFTED_FAN_POSITION_BLOCK_IDS:
+        return EnvironmentRandomisationConfig(
+            active_fan_count=scheduled_active_fan_count,
+            fan_position_policy="common_shift",
+        )
+    if scheduled_active_fan_count is not None:
+        return EnvironmentRandomisationConfig(active_fan_count=scheduled_active_fan_count)
+    return None
 
 
 def _governor_config_for_policy(policy: dict[str, object]) -> GovernorConfig:
@@ -2099,40 +2245,46 @@ def _active_fan_count_schedule_audit_rows(outer_cases: list[dict[str, object]]) 
     frame = pd.DataFrame(outer_cases)
     if "scheduled_active_fan_count" not in frame.columns:
         return []
-    active = frame[frame["environment_block_id"].eq(ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID)].copy()
-    if active.empty:
-        return []
-    active["scheduled_active_fan_count"] = pd.to_numeric(
-        active["scheduled_active_fan_count"],
+    frame["scheduled_active_fan_count"] = pd.to_numeric(
+        frame["scheduled_active_fan_count"],
         errors="coerce",
     )
     rows: list[dict[str, object]] = []
-    counts = active.groupby("scheduled_active_fan_count", dropna=False).size()
-    expected_counts = {
-        value: sum(
-            1
-            for index in range(int(len(active)))
-            if R10_ACTIVE_FAN_COUNT_SEQUENCE[index % len(R10_ACTIVE_FAN_COUNT_SEQUENCE)] == value
+    for block_id in R10_ACTIVE_FAN_COUNT_VARIATION_BLOCK_IDS:
+        active = frame[frame["environment_block_id"].eq(block_id)].copy()
+        if active.empty:
+            continue
+        counts = active.groupby("scheduled_active_fan_count", dropna=False).size()
+        expected_counts = {
+            value: sum(
+                1
+                for index in range(int(len(active)))
+                if R10_ACTIVE_FAN_COUNT_SEQUENCE[index % len(R10_ACTIVE_FAN_COUNT_SEQUENCE)] == value
+            )
+            for value in R10_ACTIVE_FAN_COUNT_SEQUENCE
+        }
+        policy = str(
+            active["active_fan_count_policy"].iloc[0]
+            if "active_fan_count_policy" in active.columns and not active.empty
+            else "balanced_1_2_3_4"
         )
-        for value in R10_ACTIVE_FAN_COUNT_SEQUENCE
-    }
-    for active_count, row_count in counts.items():
-        count_value = "" if pd.isna(active_count) else int(active_count)
-        expected_count = expected_counts.get(count_value, 0) if isinstance(count_value, int) else 0
-        rows.append(
-            {
-                "environment_block_id": ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
-                "scheduled_active_fan_count": count_value,
-                "outer_case_count": int(row_count),
-                "expected_outer_case_count": expected_count,
-                "expected_active_fan_counts": ";".join(str(value) for value in R10_ACTIVE_FAN_COUNT_SEQUENCE),
-                "policy": "balanced_1_2_3_4_for_active_fan_number_variation",
-                "audit_passed": bool(
-                    count_value in set(R10_ACTIVE_FAN_COUNT_SEQUENCE)
-                    and int(row_count) == expected_count
-                ),
-            }
-        )
+        for active_count, row_count in counts.items():
+            count_value = "" if pd.isna(active_count) else int(active_count)
+            expected_count = expected_counts.get(count_value, 0) if isinstance(count_value, int) else 0
+            rows.append(
+                {
+                    "environment_block_id": block_id,
+                    "scheduled_active_fan_count": count_value,
+                    "outer_case_count": int(row_count),
+                    "expected_outer_case_count": expected_count,
+                    "expected_active_fan_counts": ";".join(str(value) for value in R10_ACTIVE_FAN_COUNT_SEQUENCE),
+                    "policy": policy,
+                    "audit_passed": bool(
+                        count_value in set(R10_ACTIVE_FAN_COUNT_SEQUENCE)
+                        and int(row_count) == expected_count
+                    ),
+                }
+            )
     return rows
 
 
@@ -2188,6 +2340,12 @@ def _write_manifest(
         "r10_active_fan_count_sequence": list(R10_ACTIVE_FAN_COUNT_SEQUENCE)
         if str(protocol.stage_id) == "R10"
         else [],
+        "r10_arena_wide_fan_position_block_id": BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID
+        if str(protocol.stage_id) == "R10"
+        else "not_applicable",
+        "r10_arena_wide_fan_position_xy_bounds_m": R10_ARENA_WIDE_FAN_POSITION_XY_BOUNDS_M
+        if str(protocol.stage_id) == "R10"
+        else (),
         "recovery_route_margin_m": float(RECOVERY_ROUTE_MARGIN_M),
         "recovery_edge_min_speed_m_s": float(RECOVERY_EDGE_MIN_SPEED_M_S),
         "recovery_edge_max_abs_roll_rad": float(RECOVERY_EDGE_MAX_ABS_ROLL_RAD),

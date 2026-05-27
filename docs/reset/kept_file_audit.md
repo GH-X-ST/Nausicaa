@@ -1,5 +1,10 @@
 # Kept File Audit
 
+Status: historical reset audit. This file is retained under `docs/reset/` as
+deleted-history context only. It is not an active allowlist, project plan, or
+stage contract. For current method control, use
+`docs/Glider_Control_Project_Plan.md`.
+
 This audit is strict allowlist-based. Every active retained code file, test file, data loader, importable module, and active contract document is listed in `kept_file_audit.csv`.
 
 ## Audit Rules

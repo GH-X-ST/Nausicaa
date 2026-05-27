@@ -1,5 +1,10 @@
 # v4.5 Cross-Layer Smoke and Dense Repair Manifest
 
+Status: historical v4.5 manifest. This file is retained under `docs/reset/`
+as deleted-history context only. It is not current move-on evidence, stage
+naming, or run guidance. For current method control, use
+`docs/Glider_Control_Project_Plan.md`.
+
 - Project line: `LQR-Stabilised Contextual Primitive v4.5`
 - Branch: `main`
 - HEAD inspected before cross-layer repair edits: `af6f5d6d8fe868053ff6c7ff9e6c3ff490cf813d`

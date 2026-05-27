@@ -47,8 +47,14 @@ def test_w01_active_annular_gp_training_modes_use_annular_gp_models() -> None:
     assert four.fan_count == 4
     assert single.updraft_model_id == "single_annular_gp_grid"
     assert four.updraft_model_id == "four_annular_gp_grid"
-    assert single.residual_field_id == "randomised_residual_not_modelled"
-    assert four.residual_field_id == "randomised_residual_not_modelled"
+    assert single.residual_field_id == "single_layer_annular_gp_randomisation_no_duplicate_strength_or_shift"
+    assert four.residual_field_id == "single_layer_annular_gp_randomisation_no_duplicate_strength_or_shift"
+    assert single.updraft_amplitude_scale == 1.0
+    assert four.updraft_amplitude_scale == 1.0
+    assert single.updraft_centre_shift_m == (0.0, 0.0)
+    assert four.updraft_centre_shift_m == (0.0, 0.0)
+    assert any(not np.isclose(value, 1.0) for value in single.fan_power_scales)
+    assert any(not np.isclose(value, 1.0) for value in four.fan_power_scales)
     assert wind_field_for_binding(
         resolve_surrogate_binding("W1", environment_metadata_from_instance(single), randomisation_seed=7)
     ) is not None
@@ -102,3 +108,37 @@ def test_w3_four_fan_randomisation_can_request_exact_active_fan_count() -> None:
 
     assert instance.fan_count == 4
     assert sum(instance.active_fan_mask) == 2
+
+
+def test_r10_nominal_fan_position_policy_keeps_base_positions() -> None:
+    instance = environment_instance_for_mode(
+        "W3",
+        "w3_randomised_four",
+        15,
+        randomisation_config=EnvironmentRandomisationConfig(
+            active_fan_count=4,
+            fan_position_policy="fixed_base_positions",
+        ),
+    )
+
+    assert instance.fan_count == 4
+    assert sum(instance.active_fan_mask) == 4
+    assert instance.fan_positions_m == ((3.0, 3.6), (5.4, 3.6), (3.0, 1.2), (5.4, 1.2))
+
+
+def test_r10_arena_wide_fan_position_policy_samples_inside_tracker_footprint() -> None:
+    instance = environment_instance_for_mode(
+        "W3",
+        "w3_randomised_four",
+        15,
+        randomisation_config=EnvironmentRandomisationConfig(
+            active_fan_count=4,
+            fan_position_policy="independent_uniform_xy_bounds",
+            fan_position_xy_bounds_m=((0.0, 8.0), (0.0, 4.8)),
+        ),
+    )
+
+    assert instance.fan_count == 4
+    assert sum(instance.active_fan_mask) == 4
+    assert all(0.0 <= x <= 8.0 and 0.0 <= y <= 4.8 for x, y in instance.fan_positions_m)
+    assert any(abs(x - nominal_x) > 0.20 or abs(y - nominal_y) > 0.20 for (x, y), (nominal_x, nominal_y) in zip(instance.fan_positions_m, ((3.0, 3.6), (5.4, 3.6), (3.0, 1.2), (5.4, 1.2)), strict=True))

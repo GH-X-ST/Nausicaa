@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -8,11 +9,9 @@ from updraft_models import (
     FOUR_FAN_CENTERS_XY,
     SINGLE_FAN_CENTER_XY,
     WindField,
+    build_composed_annular_gp_wind_field,
     build_environment_adjusted_wind_field,
-    build_randomised_wind_field,
     load_updraft_model,
-    sample_updraft_randomisation,
-    updraft_randomisation_label,
 )
 
 
@@ -159,8 +158,10 @@ def resolve_surrogate_binding(
         else getattr(environment_metadata, "randomisation_seed", None)
     )
     if layer == "W3" or _is_r5_annular_gp_training_mode(layer, environment_mode):
-        randomisation = sample_updraft_randomisation(seed=0 if seed is None else int(seed))
-        randomisation_label = updraft_randomisation_label(randomisation)
+        randomisation_label = _single_layer_annular_randomisation_label(
+            environment_metadata,
+            seed=0 if seed is None else int(seed),
+        )
     else:
         randomisation_label = "none"
 
@@ -238,8 +239,21 @@ def wind_field_for_binding(
         return None
     if binding.W_layer == "W0":
         return None
+    if _uses_composed_annular_gp(binding):
+        single_kernel = _cached_base_wind("single_annular_gp_grid", _repo_root_key(repo_root))
+        return build_composed_annular_gp_wind_field(
+            single_kernel,
+            fan_positions_m=binding.fan_positions_m,
+            fan_power_scales=binding.fan_power_scales,
+            active_fan_mask=binding.active_fan_mask,
+            amplitude_scale=binding.updraft_amplitude_scale,
+            width_scale=binding.updraft_width_scale,
+            centre_shift_m=binding.updraft_centre_shift_m,
+            local_uncertainty_scale=binding.local_uncertainty_scale,
+            transform_label=str(binding.environment_mode or "annular_gp_single_layer_randomised"),
+        )
     base = _cached_base_wind(binding.updraft_model_id, _repo_root_key(repo_root))
-    adjusted = build_environment_adjusted_wind_field(
+    return build_environment_adjusted_wind_field(
         base,
         amplitude_scale=binding.updraft_amplitude_scale,
         width_scale=binding.updraft_width_scale,
@@ -250,17 +264,6 @@ def wind_field_for_binding(
         local_uncertainty_scale=binding.local_uncertainty_scale,
         transform_label=str(binding.environment_mode or "environment_instance"),
     )
-    if binding.W_layer != "W3" and not _is_r5_annular_gp_training_mode(
-        binding.W_layer,
-        binding.environment_mode,
-    ):
-        return adjusted
-    wind, _ = build_randomised_wind_field(
-        adjusted,
-        seed=0 if binding.randomisation_seed is None else int(binding.randomisation_seed),
-        enabled=True,
-    )
-    return wind
 
 
 @lru_cache(maxsize=16)
@@ -325,6 +328,46 @@ def _surrogate_role(layer: str, *, environment_mode: str = "") -> str:
 
 def _is_r5_annular_gp_training_mode(layer: str, environment_mode: str) -> bool:
     return str(layer).upper() == "W1" and str(environment_mode) in R5_ANNULAR_GP_TRAINING_MODES
+
+
+def _uses_composed_annular_gp(binding: SurrogateBinding) -> bool:
+    return str(binding.updraft_model_id) in ANNULAR_GP_IDS and (
+        str(binding.W_layer).upper() == "W3"
+        or _is_r5_annular_gp_training_mode(binding.W_layer, binding.environment_mode)
+    )
+
+
+def _single_layer_annular_randomisation_label(metadata, *, seed: int) -> str:
+    active_mask = tuple(bool(value) for value in tuple(getattr(metadata, "active_fan_mask", ()) or ()))
+    power_scales = tuple(float(value) for value in tuple(getattr(metadata, "fan_power_scales", ()) or ()))
+    positions = tuple(
+        (float(x), float(y))
+        for x, y in tuple(getattr(metadata, "fan_positions_m", ()) or ())
+    )
+    return json.dumps(
+        {
+            "contract": "single_layer_annular_gp_randomisation_v1",
+            "seed": int(seed),
+            "active_strength_source": "fan_power_scales",
+            "global_strength_scale": float(getattr(metadata, "updraft_amplitude_scale", 1.0)),
+            "global_strength_status": "fixed_for_no_duplicate_strength"
+            if float(getattr(metadata, "updraft_amplitude_scale", 1.0)) == 1.0
+            else "explicit_residual_calibration",
+            "active_fan_mask": active_mask,
+            "fan_power_scales": power_scales,
+            "fan_positions_m": positions,
+            "width_scale": float(getattr(metadata, "updraft_width_scale", 1.0)),
+            "centre_shift_m": tuple(
+                float(value)
+                for value in tuple(getattr(metadata, "updraft_centre_shift_m", (0.0, 0.0)))
+            ),
+            "centre_shift_status": "fixed_for_no_duplicate_position_shift",
+            "extra_randomised_wind_wrapper": "disabled",
+            "field_composition": "active_fans_composed_from_single_annular_gp_kernel",
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _fan_positions_for_model(

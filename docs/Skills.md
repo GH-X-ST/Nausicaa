@@ -1,17 +1,32 @@
 # Nausicaa Project Skills
 
 <!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
-## Current controlling overwrite — R9 launch-gate repair
+## Current controlling update - robust R5 synthesis and frozen W3 holdout
 
-The latest explicit project instruction adds the following to the existing repair-cycle contract:
+This document is aligned with `docs/Glider_Control_Project_Plan.md`, which is the single method-control document for the current implementation pass.
+
+Current decision:
 
 ```text
-The current R9 result is BLOCKED_FIX_REQUIRED. The project must repair launch-gate primitive coverage, add a dedicated LQR-only launch-capture primitive family or launch-gate-capable subset, fix R9 outcome lookup across library-size cases, compute memory/exploration selection-change metrics from actual matched selections, and regenerate evidence from R5 before any R10 or hardware-facing claim.
+BLOCKED_FIX_REQUIRED until the repaired R5 -> R7 -> R8 -> R9 -> R10 evidence chain passes.
 ```
 
-When this conflicts with older generated plans or result roots, follow `Glider_Control_Project_Plan.md` for the current implementation pass.
+Required repair direction:
 
-This does not change the stable project centre. It refines the primitive catalogue and validation evidence requirements while preserving primitive-local time-invariant LQR, the 0.100 s / 5-slot / 20 ms timing contract, directional 3D residual memory, viability-filtered safe exploration/exploitation, post-W3 heavy/balanced/light/no-clustering/no-merging study, robust R5 synthesis, optional W2 diagnostics, frozen W3 no-retune replay, and simulation-first claim boundaries.
+```text
+1. Restart accepted evidence from robust R5 dry-air plus annular-GP synthesis; older R5/R7/R8/R9/R10 roots remain diagnostic unless regenerated under the current contract.
+2. R5 dry-air rows keep the W0 no-updraft environment but use W3-style plant and implementation perturbations; R5 annular-GP rows use the same W3-style plant/implementation perturbation family.
+3. R5 and R7 use single-layer composed annular-GP randomisation: fan position, active fan count where applicable, per-fan power, width/spread, local uncertainty, launch/start-state perturbations, latency/implementation perturbations, left/right aileron asymmetry, and CG/plant perturbations.
+4. Do not duplicate randomisation channels: per-fan power is updraft strength, fan position is spatial/layout shift, width is spread, local uncertainty is context/belief uncertainty, amplitude stays fixed at 1.0, and centre shift stays zero for active pass-gated annular-GP evidence.
+5. Keep W2/R6 optional diagnostic only; R7 is the frozen held-out W3 fixed-LQR replay with no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation.
+6. Keep post-W3 reduction as the four-case library-size cross-study: heavy, balanced, light, and no-clustering/no-merging.
+7. R9 is fixed-case repeated-launch validation with no glider, latency, actuator, or environment randomisation beyond controlled launch/history sampling.
+8. R10 is environment-only changed-case validation with six 20-case blocks: nominal single, nominal four, shifted single, shifted four, active-fan-number variation, and arena-wide fan-position plus active-fan-count generalisation.
+9. R9/R10 must use controlled final-launch pairing, compact-library-aware outcome lookup, actual memory/exploration selection-change metrics, and secondary launch-score analysis only after strict gates pass.
+10. No memory improvement, hardware readiness, real-flight transfer, mission success, full autonomy, or formal LQR-tree/funnel/ROA claim is allowed until full R9 and R10 gates pass.
+```
+
+Forbidden changes remain unchanged: no PD/PID/bounded fallback, no TVLQR active workflow, no fan-layout-specific controller logic, no pre-W3 clustering, no W3/R8/R9/R10 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
 <!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
 
 ## Purpose
@@ -46,7 +61,7 @@ The stable centre is:
 
 The preferred method is environment-conditioned primitive selection: use glider state and local flow-context features to select 0.100 s primitives through a viability governor with safe exploration/exploitation, then update a directional 3D residual lift belief across launches.
 
-Treat the LQR stabiliser as part of the primitive. The active control/evidence unit is a primitive-controller variant, not a free-standing controller bank. R5 dry-air plus annular-GP dense generation tunes a primitive-local LQR for every generated variant and preserves the rich library; axisymmetric Gaussian plume evidence is diagnostic-only. W2 and W3 replay fixed variants to eliminate or downgrade cases that fail under higher-fidelity or randomised conditions. Clustering and merging occur only after W3, and late validation freezes the post-W3 library-size condition, governor, selector, and memory logic. Hidden retuning inside W2, W3, clustering, or validation is not allowed.
+Treat the LQR stabiliser as part of the primitive. The active control/evidence unit is a primitive-controller variant, not a free-standing controller bank. R5 dry-air plus annular-GP dense generation tunes a primitive-local LQR for every generated variant and preserves the rich library; dry-air rows use no updraft but still use W3-style plant and implementation perturbations. Axisymmetric Gaussian plume evidence is diagnostic-only. W2 is optional diagnostic evidence only, while W3 replays fixed variants under held-out randomisation to eliminate or downgrade cases that fail. Clustering and merging occur only after W3, and late validation freezes the post-W3 library-size condition, governor, selector, and memory logic. Hidden retuning inside W2, W3, clustering, or validation is not allowed.
 
 Do not turn the work into:
 

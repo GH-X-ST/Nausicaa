@@ -207,10 +207,38 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
         "shifted_single_fan_positions",
         "shifted_four_fan_positions",
         "active_fan_number_variation",
+        "arena_wide_fan_position_generalisation",
     }
     r10_active_final = r10_final[
         r10_final["environment_block_id"].eq("active_fan_number_variation")
     ].copy()
+    r10_nominal_final = r10_final[
+        r10_final["environment_block_id"].isin(
+            {"nominal_single_fan_perturbations", "nominal_four_fan_perturbations"}
+        )
+    ].copy()
+    r10_shifted_final = r10_final[
+        r10_final["environment_block_id"].isin(
+            {"shifted_single_fan_positions", "shifted_four_fan_positions"}
+        )
+    ].copy()
+    r10_non_active_four = r10_final[
+        r10_final["environment_block_id"].isin(
+            {
+                "nominal_four_fan_perturbations",
+                "shifted_four_fan_positions",
+            }
+        )
+    ].copy()
+    assert set(r10_nominal_final["fan_position_policy"]) == {"fixed_base_positions"}
+    assert set(r10_nominal_final["fan_position_xy_bounds_m"]) == {"fixed_base_positions_no_shift"}
+    assert set(r10_active_final["fan_position_policy"]) == {"fixed_base_positions"}
+    assert set(r10_shifted_final["fan_position_policy"]) == {"common_shift"}
+    assert set(r10_non_active_four["scheduled_active_fan_count"].astype(int)) == {4}
+    assert set(r10_non_active_four["fan_layout_policy"]) == {"four_fan_geometry"}
+    assert set(r10_final[r10_final["environment_block_id"].str.contains("single_fan")]["fan_layout_policy"]) == {
+        "single_fan_geometry"
+    }
     assert set(r10_active_final["scheduled_active_fan_count"].astype(int)) == {1, 2, 3, 4}
     assert r10_active_final.groupby("scheduled_active_fan_count").size().to_dict() == {
         1: 280,
@@ -218,9 +246,25 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
         3: 280,
         4: 280,
     }
+    assert set(r10_active_fan_audit["environment_block_id"]) == {
+        "active_fan_number_variation",
+        "arena_wide_fan_position_generalisation",
+    }
     assert set(r10_active_fan_audit["scheduled_active_fan_count"].astype(int)) == {1, 2, 3, 4}
     assert set(r10_active_fan_audit["outer_case_count"].astype(int)) == {5}
     assert r10_active_fan_audit["audit_passed"].all()
+    r10_arena_wide = r10_final[
+        r10_final["environment_block_id"].eq("arena_wide_fan_position_generalisation")
+    ].copy()
+    assert len(r10_arena_wide) == 1120
+    assert set(r10_arena_wide["fan_position_policy"]) == {"independent_uniform_xy_bounds"}
+    assert set(r10_arena_wide["scheduled_active_fan_count"].astype(int)) == {1, 2, 3, 4}
+    assert r10_arena_wide.groupby("scheduled_active_fan_count").size().to_dict() == {
+        1: 280,
+        2: 280,
+        3: 280,
+        4: 280,
+    }
 
 
 def test_post_w3_compression_refuses_roots_without_w3_registry(tmp_path: Path) -> None:

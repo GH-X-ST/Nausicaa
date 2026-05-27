@@ -1,5 +1,10 @@
 # Model-Only Contextual Primitive Reset Manifest
 
+Status: historical reset manifest. This file is retained under `docs/reset/`
+as deleted-history context only. It is not an active project plan, allowlist, or
+stage contract. For current method control, use
+`docs/Glider_Control_Project_Plan.md`.
+
 ## Pre-Reset State
 
 - Pre-reset HEAD: `98595797abdf23b257f1a884504fca59436997ca`

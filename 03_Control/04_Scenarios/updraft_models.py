@@ -153,6 +153,52 @@ class EnvironmentAdjustedWindField:
         return np.asarray(SINGLE_FAN_CENTER_XY, dtype=float)
 
 
+@dataclass(frozen=True)
+class ComposedAnnularGPWindField:
+    single_fan_kernel: WindField
+    fan_positions_m: tuple[tuple[float, float], ...]
+    fan_power_scales: tuple[float, ...]
+    active_fan_mask: tuple[bool, ...]
+    amplitude_scale: float = 1.0
+    width_scale: float = 1.0
+    centre_shift_m: tuple[float, float] = (0.0, 0.0)
+    local_updraft_uncertainty_m_s: float = 0.25
+    transform_label: str = "composed_annular_gp"
+
+    @property
+    def name(self) -> str:
+        return f"{self.single_fan_kernel.name}_{self.transform_label}"
+
+    @property
+    def source(self) -> str:
+        active_count = sum(bool(value) for value in self.active_fan_mask)
+        return (
+            f"{self.single_fan_kernel.source}; composed_annular_gp={self.transform_label}; "
+            f"active_fan_count={active_count}; "
+            f"amplitude_scale={float(self.amplitude_scale):.6f}; "
+            f"width_scale={float(self.width_scale):.6f}; "
+            f"centre_shift_m={tuple(float(v) for v in self.centre_shift_m)}"
+        )
+
+    def __call__(self, points_w_up_m: np.ndarray) -> np.ndarray:
+        pts = np.asarray(points_w_up_m, dtype=float).reshape(-1, 3)
+        wind = np.zeros((pts.shape[0], 3), dtype=float)
+        powers = self.fan_power_scales or tuple(1.0 for _ in self.fan_positions_m)
+        active = self.active_fan_mask or tuple(True for _ in self.fan_positions_m)
+        width = max(float(self.width_scale), 1e-12)
+        shift = np.asarray(self.centre_shift_m, dtype=float)
+        kernel_center = np.asarray(SINGLE_FAN_CENTER_XY, dtype=float)
+        for centre, power, enabled in zip(self.fan_positions_m, powers, active, strict=False):
+            if not bool(enabled):
+                continue
+            fan_center = np.asarray(centre, dtype=float) + shift
+            query = pts.copy()
+            query[:, :2] = kernel_center + (pts[:, :2] - fan_center) / width
+            wind += float(power) * np.asarray(self.single_fan_kernel(query), dtype=float)
+        wind[:, 2] *= float(self.amplitude_scale)
+        return wind
+
+
 def sample_updraft_randomisation(
     seed: int,
     enabled: bool = True,
@@ -239,6 +285,40 @@ def build_environment_adjusted_wind_field(
         transform_label=str(transform_label),
         environment_adjustment_status=adjustment_status,
         environment_adjustment_limitations=limitations,
+    )
+
+
+def build_composed_annular_gp_wind_field(
+    single_fan_kernel: WindField,
+    *,
+    fan_positions_m: tuple[tuple[float, float], ...],
+    fan_power_scales: tuple[float, ...] = (),
+    active_fan_mask: tuple[bool, ...] = (),
+    amplitude_scale: float = 1.0,
+    width_scale: float = 1.0,
+    centre_shift_m: tuple[float, float] = (0.0, 0.0),
+    local_uncertainty_scale: float = 1.0,
+    transform_label: str = "composed_annular_gp",
+) -> WindField:
+    """Compose active annular-GP fans from the measured single-fan kernel."""
+
+    uncertainty = getattr(single_fan_kernel, "local_updraft_uncertainty_m_s", 0.25)
+    try:
+        base_uncertainty = float(uncertainty)
+    except (TypeError, ValueError):
+        base_uncertainty = 0.25
+    if not np.isfinite(base_uncertainty) or base_uncertainty <= 0.0:
+        base_uncertainty = 0.25
+    return ComposedAnnularGPWindField(
+        single_fan_kernel=single_fan_kernel,
+        fan_positions_m=tuple((float(x), float(y)) for x, y in fan_positions_m),
+        fan_power_scales=tuple(float(value) for value in fan_power_scales),
+        active_fan_mask=tuple(bool(value) for value in active_fan_mask),
+        amplitude_scale=float(amplitude_scale),
+        width_scale=float(width_scale),
+        centre_shift_m=tuple(float(value) for value in centre_shift_m),
+        local_updraft_uncertainty_m_s=float(base_uncertainty * max(float(local_uncertainty_scale), 1.0)),
+        transform_label=str(transform_label),
     )
 
 

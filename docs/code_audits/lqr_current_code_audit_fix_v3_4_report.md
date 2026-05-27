@@ -2,6 +2,12 @@
 
 Date: 2026-05-23
 
+Status: historical audit report. This file is retained for traceability only.
+It is not an active project plan, evidence target, or stage-naming contract.
+For current method control, use `docs/Glider_Control_Project_Plan.md`.
+Older W0/W1/W2/W3 and selected-controller wording below is superseded where it
+conflicts with the current R5 -> R7 -> R8 -> R9 -> R10 workflow.
+
 ## Fixed mismatches
 
 - W0/W1 tuning hard gates now receive the configured minimum speed explicitly instead of reading a missing rollout-evidence field.

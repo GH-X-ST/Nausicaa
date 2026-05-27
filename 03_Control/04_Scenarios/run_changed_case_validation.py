@@ -27,11 +27,11 @@ from run_repeated_launch_learning_curve import (  # noqa: E402
 )
 
 
-R10_VALIDATION_VERSION = "environment_changed_case_repeated_launch_validation_v6"
-R10_OUTER_CASES_PER_CONDITION = 100
+R10_VALIDATION_VERSION = "environment_changed_case_repeated_launch_validation_v7"
+R10_OUTER_CASES_PER_CONDITION = 120
 R10_REDUCED_OUTER_CASES_PER_CONDITION = 50
-R10_EXPECTED_FINAL_HELDOUT_LAUNCHES = 4 * 14 * 100
-R10_EXPECTED_HISTORY_LAUNCHES = 4 * 100 * (HISTORY_LENGTH_SUM + HISTORY_LENGTH_SUM)
+R10_EXPECTED_FINAL_HELDOUT_LAUNCHES = 4 * 14 * 120
+R10_EXPECTED_HISTORY_LAUNCHES = 4 * 120 * (HISTORY_LENGTH_SUM + HISTORY_LENGTH_SUM)
 R10_REDUCED_EXPECTED_FINAL_HELDOUT_LAUNCHES = 4 * 14 * 50
 R10_REDUCED_EXPECTED_HISTORY_LAUNCHES = 4 * 50 * (HISTORY_LENGTH_SUM + HISTORY_LENGTH_SUM)
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/changed_case_validation")
@@ -77,7 +77,24 @@ R10_BLOCKS: tuple[ValidationBlockSpec, ...] = (
         20,
         "active_fan_number_variation",
     ),
+    ValidationBlockSpec(
+        "arena_wide_fan_position_generalisation",
+        "arena-wide fan-position generalisation",
+        "W3",
+        "w3_randomised_four",
+        20,
+        "arena_wide_fan_position_generalisation",
+    ),
 )
+
+R10_REDUCED_BLOCK_COUNTS = {
+    "nominal_single_fan_perturbations": 8,
+    "nominal_four_fan_perturbations": 8,
+    "shifted_single_fan_positions": 8,
+    "shifted_four_fan_positions": 8,
+    "active_fan_number_variation": 9,
+    "arena_wide_fan_position_generalisation": 9,
+}
 
 R10_REDUCED_BLOCKS: tuple[ValidationBlockSpec, ...] = tuple(
     ValidationBlockSpec(
@@ -85,7 +102,7 @@ R10_REDUCED_BLOCKS: tuple[ValidationBlockSpec, ...] = tuple(
         block.human_label,
         block.W_layer,
         block.environment_mode,
-        10,
+        R10_REDUCED_BLOCK_COUNTS[block.block_id],
         block.environment_change_family,
     )
     for block in R10_BLOCKS

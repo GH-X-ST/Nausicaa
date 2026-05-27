@@ -2,6 +2,12 @@
 
 Date: 2026-05-23
 
+Status: historical audit report. This file is retained for traceability only.
+It is not an active project plan, evidence target, or stage-naming contract.
+For current method control, use `docs/Glider_Control_Project_Plan.md`.
+Older W0/W1/W2/W3, R6, and selected-controller wording below is superseded
+where it conflicts with the current R5 -> R7 -> R8 -> R9 -> R10 workflow.
+
 ## Fixed mismatches
 
 - Re-centred source priority on `docs/Glider_Control_Project_Plan.md`, with the uploaded 2026-05-23 guidance treated as implementation guidance under that active contract.

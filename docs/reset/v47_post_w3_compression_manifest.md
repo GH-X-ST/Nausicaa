@@ -1,5 +1,11 @@
 # v4.7 Post-W3 Compression Manifest
 
+Status: historical v4.7 manifest. This file is retained under `docs/reset/`
+as deleted-history context only. It is not current move-on evidence, stage
+naming, or run guidance. The 76,800-row and W01/W2/W3 details below are
+superseded by the current robust R5 dry-air plus annular-GP synthesis contract
+in `docs/Glider_Control_Project_Plan.md`.
+
 - Project line: `LQR-Stabilised Contextual Primitive v4.7`
 - Branch: `main`
 - HEAD inspected before v4.7 edits: `aa6dd8cbad5d73f67b685e245fd1c69b49ab7a2b`

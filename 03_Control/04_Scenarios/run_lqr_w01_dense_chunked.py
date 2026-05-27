@@ -754,7 +754,11 @@ def _r5_randomisation_config(*, environment_mode: str, paired_start_index: int) 
 
 
 def _r5_implementation_plant_layer(*, W_layer: str, environment_mode: str) -> str:
-    if str(environment_mode).startswith("w1_annular_gp_randomised"):
+    if str(environment_mode) in {
+        "dry_air",
+        "w1_annular_gp_randomised_single",
+        "w1_annular_gp_randomised_four",
+    }:
         return "W3"
     return str(W_layer).upper()
 
@@ -2495,8 +2499,9 @@ def _run_manifest(
         "official_W_layers": {"W0": ["dry_air"], "W1": ["w1_annular_gp_randomised_single", "w1_annular_gp_randomised_four"]},
         "r5_training_randomisation_policy": {
             "W0": "dry_air_baseline",
-            "W1_single": "annular_gp_fan_position_power_and_implementation_plant_randomised_training_case",
-            "W1_multi": "annular_gp_fan_position_power_active_fan_count_and_implementation_plant_randomised_training_case",
+            "W1_single": "single_layer_annular_gp_fan_position_power_width_and_implementation_plant_randomised_training_case",
+            "W1_multi": "single_layer_annular_gp_fan_position_power_width_active_fan_count_and_implementation_plant_randomised_training_case",
+            "duplicate_strength_width_centre_wrapper": "disabled_for_annular_gp_training",
             "axisymmetric_gaussian_plume": "diagnostic_only_not_active_pass_evidence",
             "active_fan_count_sequence": list(R5_ACTIVE_FAN_COUNT_SEQUENCE),
         },

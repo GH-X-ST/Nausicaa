@@ -2,6 +2,12 @@
 
 Date: 2026-05-24
 
+Status: historical diagnostic report. This file describes a superseded R6-era
+dense run and must not be used as current move-on evidence, current stage
+naming, or current run guidance. For current method control, use
+`docs/Glider_Control_Project_Plan.md`; accepted evidence must restart from the
+current robust R5 dry-air plus annular-GP synthesis contract.
+
 ## Result
 
 - Move-on decision: `R7 blocked`.
@@ -92,4 +98,3 @@ Date: 2026-05-24
 ## Claim Boundary
 
 This run is simulation-only R6 W0/W1 Q/R tuning evidence. It makes no dense thesis archive, R7 contextual archive, W2/W3 replay, hardware-readiness, real-flight transfer, robustness, mission-success, PD/PID fallback, TVLQR, MPC, LQR-tree, reachable-chain, online fan-layout branch, or non-LQR controller claim.
-

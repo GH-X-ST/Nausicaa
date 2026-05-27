@@ -1,0 +1,120 @@
+# Progress Report Guidance — Robotics-Style Weekly Updates
+
+<!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
+## Current controlling update - robust R5 synthesis and frozen W3 holdout
+
+This document is aligned with `docs/Glider_Control_Project_Plan.md`, which is the single method-control document for the current implementation pass.
+
+Current decision:
+
+```text
+BLOCKED_FIX_REQUIRED until the repaired R5 -> R7 -> R8 -> R9 -> R10 evidence chain passes.
+```
+
+Required repair direction:
+
+```text
+1. Restart accepted evidence from robust R5 dry-air plus annular-GP synthesis; older R5/R7/R8/R9/R10 roots remain diagnostic unless regenerated under the current contract.
+2. R5 dry-air rows keep the W0 no-updraft environment but use W3-style plant and implementation perturbations; R5 annular-GP rows use the same W3-style plant/implementation perturbation family.
+3. R5 and R7 use single-layer composed annular-GP randomisation: fan position, active fan count where applicable, per-fan power, width/spread, local uncertainty, launch/start-state perturbations, latency/implementation perturbations, left/right aileron asymmetry, and CG/plant perturbations.
+4. Do not duplicate randomisation channels: per-fan power is updraft strength, fan position is spatial/layout shift, width is spread, local uncertainty is context/belief uncertainty, amplitude stays fixed at 1.0, and centre shift stays zero for active pass-gated annular-GP evidence.
+5. Keep W2/R6 optional diagnostic only; R7 is the frozen held-out W3 fixed-LQR replay with no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation.
+6. Keep post-W3 reduction as the four-case library-size cross-study: heavy, balanced, light, and no-clustering/no-merging.
+7. R9 is fixed-case repeated-launch validation with no glider, latency, actuator, or environment randomisation beyond controlled launch/history sampling.
+8. R10 is environment-only changed-case validation with six 20-case blocks: nominal single, nominal four, shifted single, shifted four, active-fan-number variation, and arena-wide fan-position plus active-fan-count generalisation.
+9. R9/R10 must use controlled final-launch pairing, compact-library-aware outcome lookup, actual memory/exploration selection-change metrics, and secondary launch-score analysis only after strict gates pass.
+10. No memory improvement, hardware readiness, real-flight transfer, mission success, full autonomy, or formal LQR-tree/funnel/ROA claim is allowed until full R9 and R10 gates pass.
+```
+
+Forbidden changes remain unchanged: no PD/PID/bounded fallback, no TVLQR active workflow, no fan-layout-specific controller logic, no pre-W3 clustering, no W3/R8/R9/R10 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
+<!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
+
+## Purpose
+
+Use this guide for weekly progress reports and meeting summaries. The report should tell supervisors what changed, what evidence exists, what failed, and what decision is needed next.
+
+## Structure
+
+Recommended structure:
+
+1. One-sentence project status.
+2. Main technical progress.
+3. Evidence obtained.
+4. Problems or blocked claims.
+5. Next-week plan.
+6. Decision or feedback requested.
+
+## Current mission language
+
+Use:
+
+```text
+environment-conditioned primitive selection
+local flow-context features
+fixed-gate repeated launches
+finite lift dwell
+directional 3D residual lift belief
+primitive outcome evidence
+primitive-controller variant evidence
+post-W3 library-size cross-study
+viability-filtered primitive selection
+sim-real replay pairing
+environment-randomised robustness
+```
+
+Avoid:
+
+```text
+perching-like final objective
+same-flight recapture
+all-arena exploration
+fan-layout-specific controller
+large-angle agile turn as required final behaviour
+```
+
+## Weekly evidence standard
+
+A good report should contain at least one of:
+
+- a quantitative table;
+- a plot or figure reference;
+- a failure-label summary;
+- a runtime/storage summary;
+- a clear claim boundary;
+- a real-flight readiness or risk note.
+
+## Runtime/storage reporting
+
+For any dense simulation week, report:
+
+```text
+row count
+chunk count
+worker count
+largest file size
+storage format
+resume/repair status
+file-size audit result
+```
+
+## Example compact weekly summary
+
+```text
+This week shifted the controller to environment-conditioned primitive selection. The main evidence is a chunked primitive archive with local flow-context fields and an initial outcome-model audit. The next decision is whether W3 environment randomisation should prioritise fan-position shifts or fan-power changes.
+```
+
+## Avoid AI-like progress writing
+
+Poor:
+
+```text
+This week made substantial progress toward a robust and comprehensive framework.
+```
+
+Better:
+
+```text
+This week produced a 480k-row primitive outcome archive, a context-feature audit, and a blocked-claim note for real-flight transfer.
+```
+
+For the current R9 launch-gate blocker, weekly reports should state whether the launch-capture primitive family or launch-gate-capable subset has been added, whether the compressed-library outcome lookup has been fixed, whether memory/exploration selection-change metrics are computed from actual matched selections, and whether evidence has been regenerated from R5.

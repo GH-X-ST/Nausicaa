@@ -1,5 +1,10 @@
 # Model-Only Contextual Primitive Reset Report
 
+Status: historical reset report. This file is retained under `docs/reset/` as
+deleted-history context only. It is not an active project plan, allowlist, or
+stage contract. For current method control, use
+`docs/Glider_Control_Project_Plan.md`.
+
 ## Status
 
 Working-tree reset complete. Git metadata finalisation is blocked by workspace ACLs:

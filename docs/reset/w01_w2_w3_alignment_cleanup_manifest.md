@@ -1,5 +1,11 @@
 # W01/W2/W3 Alignment Cleanup Manifest
 
+Status: historical alignment-cleanup manifest. This file is retained under
+`docs/reset/` as deleted-history context only. It is not current move-on
+evidence, stage naming, or run guidance. The W01/W2/W3 and 76,800-row details
+below are superseded by the current robust R5 -> R7 -> R8 -> R9 -> R10
+contract in `docs/Glider_Control_Project_Plan.md`.
+
 Date/time: 2026-05-24 17:42:17 +01:00
 
 Current branch: `main`

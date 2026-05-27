@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from env_ctx import EnvironmentMetadata
+from updraft_models import FOUR_FAN_CENTERS_XY
 from env_surrogate import (
     READY_STATUS,
     resolve_surrogate_binding,
@@ -82,7 +84,8 @@ def test_w1_annular_gp_training_mode_accepts_randomised_annular_gp() -> None:
 
     assert binding.surrogate_binding_status == READY_STATUS
     assert binding.surrogate_family == "randomised_gp_corrected_annular_gaussian_training"
-    assert "strength_scale" in binding.randomisation_label
+    assert "single_layer_annular_gp_randomisation_v1" in binding.randomisation_label
+    assert "extra_randomised_wind_wrapper" in binding.randomisation_label
     assert wind is not None
 
 
@@ -112,9 +115,41 @@ def test_w3_is_randomised_gp_corrected_annular_only() -> None:
 
     assert binding.surrogate_binding_status == READY_STATUS
     assert binding.surrogate_family == "randomised_gp_corrected_annular_gaussian"
-    assert "strength_scale" in binding.randomisation_label
+    assert "single_layer_annular_gp_randomisation_v1" in binding.randomisation_label
     assert wind is not None
-    assert wind.name.endswith("_randomised")
+    assert "composed_annular_gp" in wind.source
+
+
+def test_w3_annular_active_fan_mask_changes_composed_wind() -> None:
+    positions = tuple((float(x), float(y)) for x, y in FOUR_FAN_CENTERS_XY)
+    one_active = EnvironmentMetadata(
+        environment_id="W3_four_one_active",
+        fan_count=4,
+        fan_positions_m=positions,
+        fan_power_scales=(1.0, 1.0, 1.0, 1.0),
+        active_fan_mask=(True, False, False, False),
+        updraft_model_id="four_annular_gp_grid",
+        environment_mode="w3_randomised_four",
+        randomisation_seed=17,
+    )
+    all_active = EnvironmentMetadata(
+        environment_id="W3_four_all_active",
+        fan_count=4,
+        fan_positions_m=positions,
+        fan_power_scales=(1.0, 1.0, 1.0, 1.0),
+        active_fan_mask=(True, True, True, True),
+        updraft_model_id="four_annular_gp_grid",
+        environment_mode="w3_randomised_four",
+        randomisation_seed=17,
+    )
+
+    point = np.asarray([[4.2, 2.4, 1.6]], dtype=float)
+    one_wind = wind_field_for_binding(resolve_surrogate_binding("W3", one_active, randomisation_seed=17))
+    all_wind = wind_field_for_binding(resolve_surrogate_binding("W3", all_active, randomisation_seed=17))
+
+    assert one_wind is not None
+    assert all_wind is not None
+    assert not np.isclose(float(one_wind(point)[0, 2]), float(all_wind(point)[0, 2]))
 
 
 def test_missing_surrogate_is_blocked_not_replaced(tmp_path: Path) -> None:

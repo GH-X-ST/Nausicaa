@@ -2,6 +2,12 @@
 
 Date: 2026-05-23
 
+Status: historical readiness report. This file is retained for traceability
+only and is not current move-on guidance. For current method control, use
+`docs/Glider_Control_Project_Plan.md`; R6/W2 is optional diagnostic only and
+accepted evidence must restart from current R5 when the primitive catalogue or
+randomisation contract changes.
+
 ## Changed Areas
 
 - Refactored the R6 W0/W1 LQR tuning runner toward chunk-level execution, resume validation, corrupt-chunk repair, checksum manifests, worker-controlled pending chunk execution, and registry derivation from emitted partitions.
