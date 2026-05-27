@@ -3,13 +3,15 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 from primitive_timing_contract import PRIMITIVE_FINITE_HORIZON_S
-from primitive_variant_registry import start_family_is_compatible
+from transition_labels import classify_state, entry_roles_for_state_class, transition_is_chain_compatible
 
 
 GOVERNOR_MODES = ("continuation_mode", "terminal_episode_mode")
 REJECTION_REASONS = (
     "entry_role_incompatible_start_family",
-    "context_wall_margin_low",
+    "transition_entry_class_incompatible",
+    "transition_success_probability_zero",
+    "transition_predicted_exit_class_incompatible",
     "context_vertical_safety_violation",
     "timing_payload_checksum_missing",
     "known_hard_failure_boundary_high",
@@ -114,7 +116,10 @@ def governor_candidate_row(
         governor_mode=governor_mode,
         governor_config=cfg,
     )
-    continuation_probability = _float(outcome.get("continuation_probability", 0.0))
+    transition_success_probability = _float(
+        outcome.get("transition_success_probability", outcome.get("transition_chain_compatible_rate", outcome.get("continuation_probability", 0.0)))
+    )
+    continuation_probability = transition_success_probability
     terminal_probability = _float(outcome.get("terminal_useful_probability", 0.0))
     hard_failure_risk = _float(outcome.get("hard_failure_risk", 1.0))
     expected_net_specific_energy_delta_m = _float(outcome.get("expected_energy_residual_m", 0.0))
@@ -169,7 +174,7 @@ def governor_candidate_row(
         expected_updraft_gain_proxy_m=score_updraft_gain,
         expected_lift_dwell_time_s=dwell,
         wall_margin_m=wall_margin,
-        belief_local_lift_m_s=belief_local,
+        belief_local_lift_m_s=belief_updraft_gain_residual,
         governor_config=cfg,
     )
     memory_component = float(score_with_memory) - float(base_score)
@@ -243,6 +248,12 @@ def governor_candidate_row(
         "belief_z_bin": int(_float(belief_features.get("belief_z_bin", 0.0))),
         "belief_update_count": int(_float(belief_features.get("belief_update_count", 0.0))),
         "continuation_probability": continuation_probability,
+        "transition_success_probability": transition_success_probability,
+        "transition_chain_compatible_rate": _float(
+            outcome.get("transition_chain_compatible_rate", transition_success_probability)
+        ),
+        "transition_exit_classes_seen": str(outcome.get("transition_exit_classes_seen", "")),
+        "transition_pairs_seen": str(outcome.get("transition_pairs_seen", "")),
         "terminal_useful_probability": terminal_probability,
         "hard_failure_risk": hard_failure_risk,
         "expected_net_specific_energy_delta_m": expected_net_specific_energy_delta_m,
@@ -280,17 +291,13 @@ def governor_rejection_reason(
         return "primitive_not_in_compact_library"
     entry_role = str(representative.get("entry_role", ""))
     start_state_family = str(context.get("start_state_family", ""))
-    if not start_family_is_compatible(
-        entry_role=entry_role,
-        start_state_family=start_state_family,
-    ):
+    entry_class = str(context.get("current_state_class", context.get("transition_current_state_class", "")))
+    if not entry_class:
+        entry_class = classify_state(start_state_family=start_state_family)
+    if entry_role not in entry_roles_for_state_class(entry_class):
+        return "transition_entry_class_incompatible"
+    if str(context.get("start_state_family", "")) and entry_class == "launch_gate" and start_state_family != "launch_gate":
         return "entry_role_incompatible_start_family"
-    recovery_route = entry_role == "terminal_or_recovery" and start_state_family in {
-        "inflight_boundary_near",
-        "inflight_recovery_edge",
-    }
-    if _governor_wall_margin(context) < float(cfg.minimum_wall_margin_m) and not recovery_route:
-        return "context_wall_margin_low"
     if _float(context.get("floor_margin_m", 0.0)) < 0.0 or _float(context.get("ceiling_margin_m", 0.0)) < 0.0:
         return "context_vertical_safety_violation"
     if not _has_timing_payload(representative):
@@ -303,7 +310,14 @@ def governor_rejection_reason(
     hard_failure_risk = _float(outcome.get("hard_failure_risk", 1.0))
     if hard_failure_risk > float(cfg.maximum_hard_failure_risk):
         return "known_hard_failure_boundary_high"
-    continuation_probability = _float(outcome.get("continuation_probability", 0.0))
+    transition_success_probability = _float(
+        outcome.get("transition_success_probability", outcome.get("transition_chain_compatible_rate", outcome.get("continuation_probability", 0.0)))
+    )
+    if transition_success_probability <= 0.0:
+        return "transition_success_probability_zero"
+    if not transition_is_chain_compatible(entry_role=entry_role, exit_class=_predicted_exit_class(outcome, entry_role)):
+        return "transition_predicted_exit_class_incompatible"
+    continuation_probability = transition_success_probability
     terminal_probability = _float(outcome.get("terminal_useful_probability", 0.0))
     if governor_mode == "continuation_mode" and continuation_probability <= 0.0:
         return "continuation_probability_zero"
@@ -384,6 +398,8 @@ def _has_outcome_evidence(outcome: dict[str, object]) -> bool:
     if "sample_count" in outcome and _float(outcome.get("sample_count", 0.0)) <= 0.0:
         return False
     evidence_keys = (
+        "transition_success_probability",
+        "transition_chain_compatible_rate",
         "continuation_probability",
         "terminal_useful_probability",
         "hard_failure_risk",
@@ -391,6 +407,21 @@ def _has_outcome_evidence(outcome: dict[str, object]) -> bool:
         "expected_lift_dwell_time_s",
     )
     return any(key in outcome for key in evidence_keys)
+
+
+def _predicted_exit_class(outcome: dict[str, object], entry_role: str) -> str:
+    classes = str(outcome.get("transition_exit_classes_seen", "")).replace(",", ";").split(";")
+    classes = [item.strip() for item in classes if item.strip()]
+    if classes:
+        for candidate in classes:
+            if transition_is_chain_compatible(entry_role=entry_role, exit_class=candidate):
+                return candidate
+        return classes[0]
+    if _float(outcome.get("transition_success_probability", outcome.get("continuation_probability", 0.0))) > 0.0:
+        return "post_launch_degraded" if str(entry_role) == "launch_capable" else "inflight_stable"
+    if _float(outcome.get("terminal_useful_probability", 0.0)) > 0.0:
+        return "safe_terminal"
+    return "hard_failure"
 
 
 def _contextual_updraft_gain_proxy_m(

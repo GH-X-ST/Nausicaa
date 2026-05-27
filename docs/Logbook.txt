@@ -1,34 +1,40 @@
 ﻿# Logbook Guidance 鈥?Evidence-Focused
 
 <!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
-## Current controlling update - robust R5 synthesis and frozen W3 holdout
+## Current controlling update - transition-aware primitive method
 
-This document is aligned with `docs/Glider_Control_Project_Plan.md`, which is the single method-control document for the current implementation pass.
+The active thesis algorithm is now deliberately simple and transition-based:
+`R5 -> R7 -> R8 -> R10 -> R11 -> Reality`.
+R9 remains internal preflight only and is not thesis-facing evidence, not a final claim gate, and not required before R10.
 
-Current decision:
+Core method:
+1. R5 learns transition-aware primitive variants under rich randomized synthesis.
+2. R7 validates transition compatibility under held-out randomisation with frozen LQR controllers.
+3. R8 compresses only transition-compatible primitives using coverage-aware medoid selection.
+4. R10 tunes the viability governor with residual updraft adaptation on the frozen R8 library.
+5. R11 is strict held-out validation of the frozen R10 governor.
+6. Reality is a later real flight transfer attempt only after simulation gates pass.
 
-```text
-BLOCKED_FIX_REQUIRED until the repaired R5 -> R7 -> R8 -> R9 -> R10 -> R11 evidence chain passes, with R6 archived diagnostic-only and R11 as the strict held-out validation gate.
-```
+Every primitive is treated as a transition object with primitive_id, entry_class, exit_class, transition_success_probability, hard_failure_probability, updraft_gain_proxy, flight_time, and controller metadata. The governor asks: given the current state class, which primitive has a valid entry class and predicts a viable exit class?
 
-Required repair direction:
+Use these compact state classes only unless later data proves more are needed: launch_gate, post_launch_degraded, inflight_stable, boundary_near, recoverable_degraded, safe_terminal, and hard_failure. boundary_near is a route state, not automatic failure. hard_failure is the failure class.
 
-```text
-1. Restart accepted evidence from robust R5 dry-air plus annular-GP synthesis; older R5/R7/R8/R9/R10/R11 roots remain diagnostic unless regenerated under the current contract.
-2. R5 dry-air rows keep the W0 no-updraft environment but use W3-style plant and implementation perturbations; R5 annular-GP rows use the same W3-style plant/implementation perturbation family.
-3. R5 and R7 use single-layer composed annular-GP randomisation: fan position, active fan count where applicable, per-fan power, width/spread, local uncertainty, launch/start-state perturbations, latency/implementation perturbations, left/right aileron asymmetry, and CG/plant perturbations.
-4. Do not duplicate randomisation channels: per-fan power is updraft strength, fan position is spatial/layout shift, width is spread, local uncertainty is context/belief uncertainty, amplitude stays fixed at 1.0, and centre shift stays zero for active pass-gated annular-GP evidence.
-5. Keep W2/R6 archived optional diagnostic only; R7 is the frozen held-out W3 fixed-LQR replay with no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation.
-6. Keep post-W3 reduction as the five-case coverage-aware medoid library-size cross-study: heavy, balanced, light, super-light, and no-clustering/no-merging. R8 selects existing W3-surviving variants by hard safety filtering, per-case coverage, behavior/Q-R medoid centrality, and greedy marginal coverage, without averaging Q/R or synthesising new controllers.
-7. R9 is an internal reduced fixed-case preflight with no glider, latency, actuator, or environment randomisation beyond controlled launch/history sampling; it uses one no-updraft, one single-fan, and one four-fan outer case per policy/history condition with a 10 s episode budget to produce an initial governor handoff for R10. R9 is not formal thesis evidence, is not the final claim gate, and must be excluded from the thesis-facing workflow narrative.
-8. R10 is environment-only changed-case governor tuning with six 20-case blocks: nominal single, nominal four, shifted single, shifted four, active-fan-number variation, and arena-wide fan-position plus active-fan-count generalisation. R10 consumes the R9 initial governor handoff when available, then writes the frozen governor configuration for R11.
-9. R11 repeats the changed-case structure as strict held-out validation after R10 tuning.
-10. R9/R10/R11 must use controlled final-launch pairing, compact-library-aware outcome lookup, actual memory/exploration selection-change metrics, secondary launch-score analysis, retained history/final selected-primitive trajectory evidence, and compact exhaustive-candidate score logging.
-11. The thesis-facing workflow is R5 -> R7 -> R8 -> R10 -> R11 -> Reality only; R8 is the post-R7 library-compression and library-size cross-study stage and R9 is internal preflight only.
-12. No memory improvement, hardware readiness, real-flight transfer, mission success, full autonomy, or formal LQR-tree/funnel/ROA claim is allowed until the strict R11 gates pass.
-```
+Primitive-role transition contract:
+- launch_capable: entry launch_gate; required exit post_launch_degraded or inflight_stable.
+- inflight_only: entry inflight_stable; required exit inflight_stable, boundary_near, or safe_terminal.
+- terminal_or_recovery: entry boundary_near or recoverable_degraded; required exit inflight_stable or safe_terminal.
 
-Forbidden changes remain unchanged: no PD/PID/bounded fallback, no TVLQR active workflow, no fan-layout-specific controller logic, no pre-W3 clustering, no W3/R8/R9/R10/R11 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
+No primitive may pass R7 solely on local rollout success. R7 must reject or downgrade locally accepted rows that are not chain-compatible for the declared primitive role. R5 reports transition coverage but does not claim primitive validity from aggregate local accepted rows.
+
+R8 selection objective is the smallest existing validated set that covers useful entry_class -> exit_class transitions with low hard_failure_probability. Do not average Q/R, synthesize new controllers, mix launch/inflight/recovery roles, or cluster before R7.
+
+The active governor path is transition_viability_governor: classify current state, filter matching primitive entry class, reject high hard_failure risk, score transition viability plus updraft gain plus flight time plus residual-memory correction, execute the best primitive, then update residual memory. Residual memory is only a small modifier: predicted_updraft_gain = library_prediction + residual_memory_correction. It must not change state classification or entry/exit rules.
+
+Thesis-core comparisons are reduced to no memory versus residual memory histories h5, h20, and h100, with at most one safe-explore ablation. The old 14 policy/history matrix, large repeated history-launch matrices, secondary launch score, exhaustive candidate logs, multiple diagnostic archives, and R9 are audit/ablation/appendix material only.
+
+Memory is reinitialised per final test row. Final scoring is computed only from the final held-out rollout path. full_safe_success is the strict claim gate. updraft_gain_weight is the active soft reward; expected_energy_residual_m is a legacy net-energy audit alias. Low speed is not an active governor rejection reason. Energy loss is also not a hard-failure reason. sample_count remains an outcome-model coverage audit field. R11 consumes the frozen governor config written by R10.
+
+Preserve these constraints: LQR-only primitive controllers, 0.100 s horizon, 5 controller-input slots, 20 ms controller update, no PD/PID, no TVLQR active workflow, no new controller family, no fan-layout-specific controller logic, no hidden speed gate, no energy-loss hard failure, no stale v4.10 evidence, and no hardware readiness, real-flight transfer, mission success, full autonomy, or memory-improvement claim until R11 and later real flight evidence pass.
 <!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
 
 ## Purpose

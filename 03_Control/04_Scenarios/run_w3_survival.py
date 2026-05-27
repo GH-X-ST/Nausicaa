@@ -62,6 +62,7 @@ from primitive_timing_contract import (  # noqa: E402
     primitive_timing_contract_row,
 )
 from state_sampling import archive_state_sample_for_family, archive_state_sample_row  # noqa: E402
+from transition_labels import transition_contract_row, transition_row_fields  # noqa: E402
 
 
 W3_SURVIVAL_VERSION = "w3_fixed_lqr_survival_replay_v411"
@@ -676,6 +677,14 @@ def _row_for_index(
     row.update({f"context_{key}": value for key, value in environment_context_row(context).items()})
     row.update({f"surrogate_{key}": value for key, value in surrogate_binding_row(binding).items()})
     row.update({f"environment_{key}": value for key, value in environment_instance_row(environment).items()})
+    row.update(
+        transition_row_fields(
+            row,
+            entry_role=variant.entry_role,
+            start_state_family=start_family,
+            primitive_step_index=0 if start_family == "launch_gate" else None,
+        )
+    )
     if implementation is None or plant is None:
         row.update(_blocked_instance_prefix_rows("implementation"))
         row.update(_blocked_instance_prefix_rows("plant"))
@@ -923,6 +932,8 @@ def _write_run_manifest(
         "fixed_lqr_replay_only": True,
         "mutates_Q_R_K_reference_horizon_entry_set_or_entry_role": False,
         "entry_role_regime_separation_policy": "role_aware_start_family_schedule_launch_inflight_recovery_not_mixed",
+        "transition_contract": transition_contract_row(),
+        "transition_success_policy": "R7_survival_requires_transition_compatibility_not_local_rollout_success_only",
         "forbidden_mutations": "Q/R,K,reference,horizon,entry_set,entry_role",
         "status_vocabulary": list(SURVIVAL_STATUS_VOCABULARY),
         "redesign_policy": "new_ids_return_to_W01",
@@ -978,6 +989,11 @@ def _write_metrics_from_partitions(run_root: Path, partitions: Iterable[object])
             "timing_state_source",
             "source_evidence_label",
             "scheduled_active_fan_count",
+            "transition_entry_class",
+            "transition_exit_class",
+            "transition_pair",
+            "transition_chain_compatible",
+            "transition_failure_reason",
         ):
             if column not in frame.columns:
                 continue

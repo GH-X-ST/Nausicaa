@@ -32,6 +32,7 @@ w3        frozen held-out randomised annular-GP fixed-LQR validation layer
 w01       combined R5 W0/W1 robust primitive-library synthesis
 post_w3   post-W3 library-size cross-study and optional compression
 flv       repeated-launch full-loop validation
+trans     transition-aware primitive object
 
 q         LQR state-weight matrix
 r         LQR input-weight matrix
@@ -40,7 +41,9 @@ fifo      command-delay first-in-first-out timing state
 roa       region of attraction
 ```
 
-Current active stage labels are R5, optional diagnostic R6/W2, R7, R8, R9, and
-R10. Do not reuse older R6/R6.1 selected-controller/finalist labels or
-hardware-shortlist labels for new active evidence. Historical files may mention
-those labels only with an explicit retired or diagnostic boundary.
+Current active thesis stage labels are R5, R7, R8, R10, R11, and Reality.
+R6/W2 is archived diagnostic-only. R9 is internal preflight/ablation only and
+is not thesis-facing evidence. Do not reuse older R6/R6.1
+selected-controller/finalist labels or hardware-shortlist labels for new active
+evidence. Historical files may mention those labels only with an explicit
+retired, diagnostic, or appendix boundary.

@@ -54,6 +54,14 @@ from run_post_w3_library_size_study import (  # noqa: E402
     _representative_score,
 )
 from run_r5_r10_pipeline import ARCHIVED_STAGES, STAGE_ORDER  # noqa: E402
+from transition_labels import (
+    REQUIRED_EXIT_CLASSES_BY_ROLE,
+    STATE_CLASSES,
+    classify_transition,
+    transition_contract_row,
+    transition_is_chain_compatible,
+)  # noqa: E402
+from transition_viability_governor import ACTIVE_GOVERNOR_PATH  # noqa: E402
 from run_repeated_launch_learning_curve import (  # noqa: E402
     ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
     BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
@@ -149,8 +157,12 @@ def run_v53_algorithm_contract_audit(config: AlgorithmContractAuditConfig) -> di
 
 def _active_code_contract_rows() -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    rows.append(_row("stage_order_r5_r7_r8_r9_r10_r11", STAGE_ORDER == ("R5", "R7", "R8", "R9", "R10", "R11"), STAGE_ORDER, ("R5", "R7", "R8", "R9", "R10", "R11")))
+    rows.append(_row("stage_order_r5_r7_r8_r10_r11", STAGE_ORDER == ("R5", "R7", "R8", "R10", "R11"), STAGE_ORDER, ("R5", "R7", "R8", "R10", "R11")))
     rows.append(_row("r6_archived_only", ARCHIVED_STAGES == ("R6",), ARCHIVED_STAGES, ("R6",)))
+    rows.append(_row("active_governor_path_transition_viability", ACTIVE_GOVERNOR_PATH == "transition_viability_governor_v1", ACTIVE_GOVERNOR_PATH, "transition_viability_governor_v1"))
+    rows.append(_row("transition_state_classes_exact", STATE_CLASSES == ("launch_gate", "post_launch_degraded", "inflight_stable", "boundary_near", "recoverable_degraded", "safe_terminal", "hard_failure"), STATE_CLASSES, "seven compact transition classes"))
+    rows.append(_row("transition_role_exit_contract_exact", REQUIRED_EXIT_CLASSES_BY_ROLE == {"launch_capable": ("post_launch_degraded", "inflight_stable"), "inflight_only": ("inflight_stable", "boundary_near", "safe_terminal"), "terminal_or_recovery": ("inflight_stable", "safe_terminal")}, REQUIRED_EXIT_CLASSES_BY_ROLE, "launch/inflight/recovery transition exits"))
+    rows.extend(_transition_contract_invariant_rows())
     rows.append(_row("active_primitive_catalogue_has_14_variants", len(ACTIVE_PRIMITIVE_IDS) == 14, len(ACTIVE_PRIMITIVE_IDS), 14))
     rows.append(_row("launch_capture_catalogue_has_6_stable_ids", len(LAUNCH_CAPTURE_PRIMITIVE_IDS) == 6 and all(ENTRY_ROLE_BY_PRIMITIVE_ID.get(pid) == "launch_capable" for pid in LAUNCH_CAPTURE_PRIMITIVE_IDS), list(LAUNCH_CAPTURE_PRIMITIVE_IDS), "six launch_capture_* primitives marked launch_capable"))
     rows.append(_row("r5_dense_target_dynamic_14x32x3x100", L6_RICH_SIDE_ROW_COUNT == rich_side_dense_row_count() == 134400, {"row_count": L6_RICH_SIDE_ROW_COUNT, "candidate_count": L6_RICH_SIDE_CANDIDATE_COUNT, "paired_tests": L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE}, "14*32*3*100=134400"))
@@ -179,12 +191,12 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r10_is_governor_learning_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level == "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level, "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate"))
     rows.append(_row("r11_is_strict_heldout_validation", R11_PROTOCOL.validation_evidence_level == "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation", R11_PROTOCOL.validation_evidence_level, "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation"))
     rows.append(_row("r11_gates_full_safe_success", R11_PROTOCOL.min_full_safe_success_rate == 0.99, R11_PROTOCOL.min_full_safe_success_rate, 0.99))
-    rows.append(_row("r9_expected_final_launches", R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION, R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*14*3"))
-    rows.append(_row("r9_expected_history_launches", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + sum(HISTORY_LENGTHS)), R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*3*(185+185)"))
-    rows.append(_row("r10_r11_expected_final_launches", R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION, R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*14*120"))
-    rows.append(_row("r10_r11_expected_history_launches", R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + sum(HISTORY_LENGTHS)), R10_EXPECTED_HISTORY_LAUNCHES, "library_cases*120*(185+185)"))
-    rows.append(_row("fourteen_policy_history_conditions", len(POLICY_HISTORY_CONDITIONS) == 14, len(POLICY_HISTORY_CONDITIONS), 14))
-    rows.append(_row("history_lengths_exact", HISTORY_LENGTHS == (0, 5, 10, 20, 50, 100), HISTORY_LENGTHS, (0, 5, 10, 20, 50, 100)))
+    rows.append(_row("r9_expected_final_launches", R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION, R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*5*3"))
+    rows.append(_row("r9_expected_history_launches_internal_preflight", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + 20), R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*3*(h5+h20+h100+safe_h20)"))
+    rows.append(_row("r10_r11_expected_final_launches", R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION, R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*5*120"))
+    rows.append(_row("r10_r11_expected_history_launches_core_matrix", R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + 20), R10_EXPECTED_HISTORY_LAUNCHES, "library_cases*120*(h5+h20+h100+safe_h20)"))
+    rows.append(_row("five_policy_history_conditions_core", len(POLICY_HISTORY_CONDITIONS) == 5, len(POLICY_HISTORY_CONDITIONS), 5))
+    rows.append(_row("history_lengths_core_exact", HISTORY_LENGTHS == (5, 20, 100), HISTORY_LENGTHS, (5, 20, 100)))
     rows.append(_row("empty_prior_baseline_name", EMPTY_FROZEN_PRIOR_BASELINE_ID == "empty_frozen_prior_baseline", EMPTY_FROZEN_PRIOR_BASELINE_ID, "empty_frozen_prior_baseline"))
     rows.append(_row("governor_wall_guard_0p10cm", abs(DEFAULT_GOVERNOR_CONFIG.minimum_wall_margin_m - 0.001) <= 1e-12, DEFAULT_GOVERNOR_CONFIG.minimum_wall_margin_m, 0.001))
     rows.append(_row("no_speed_rejection_reason", not any("speed" in reason for reason in REJECTION_REASONS), REJECTION_REASONS, "no speed rejection reason"))
@@ -214,7 +226,7 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     final_score = _launch_score_fields_for_role({**base_score_row, "launch_role": "final_heldout"})
     rows.append(_row("history_launches_not_outer_loop_scored", str(history_score.get("launch_score_scope")) == "history_launch_memory_update_not_outer_loop_score", history_score.get("launch_score_scope"), "history_launch_memory_update_not_outer_loop_score"))
     rows.append(_row("final_heldout_launches_are_outer_loop_scored", str(final_score.get("launch_score_scope")) == "final_heldout_outer_loop_score", final_score.get("launch_score_scope"), "final_heldout_outer_loop_score"))
-    rows.append(_row("launch_score_version_mentions_r9_r10_r11", "r9_r10_r11" in LAUNCH_SCORE_VERSION, LAUNCH_SCORE_VERSION, "r9_r10_r11"))
+    rows.append(_row("launch_score_version_mentions_r10_r11_not_r9", "r10_r11" in LAUNCH_SCORE_VERSION and "r9" not in LAUNCH_SCORE_VERSION, LAUNCH_SCORE_VERSION, "r10_r11 without r9"))
     pairing_audit = _outer_loop_pairing_and_memory_audit()
     rows.append(_row("outer_loop_final_launches_controlled_paired", bool(pairing_audit["pairing_passed"]), pairing_audit, "same final launch key, start seed, and environment seed across policies/library cases"))
     rows.append(_row("outer_loop_history_memory_scoped_to_same_final_case", bool(pairing_audit["history_scoped"]), pairing_audit, "history rows keep library/policy/common final key and use shifted seeds"))
@@ -231,6 +243,65 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
         rows.append(_row(f"{protocol.stage_id.lower()}_arena_wide_varies_fan_positions_and_active_count", _fan_position_policy_for_outer_case(protocol=protocol, environment_block_id=BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID) == "independent_uniform_xy_bounds" and _active_fan_count_policy_for_outer_case(protocol=protocol, environment_block_id=BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID) == "balanced_1_2_3_4_with_arena_wide_fan_position_generalisation", {"fan_position": _fan_position_policy_for_outer_case(protocol=protocol, environment_block_id=BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID), "active_count": _active_fan_count_policy_for_outer_case(protocol=protocol, environment_block_id=BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID)}, "independent positions plus balanced 1/2/3/4 active fan count"))
     rows.append(_row("changed_case_active_fan_count_sequence", R10_ACTIVE_FAN_COUNT_SEQUENCE == (1, 2, 3, 4), R10_ACTIVE_FAN_COUNT_SEQUENCE, (1, 2, 3, 4)))
     return rows
+
+
+def _transition_contract_invariant_rows() -> list[dict[str, object]]:
+    launch_bad = classify_transition(
+        {
+            "entry_role": "launch_capable",
+            "start_state_family": "launch_gate",
+            "outcome_class": "accepted",
+            "continuation_valid": True,
+            "boundary_use_class": "model_boundary_only",
+            "minimum_wall_margin_m": 0.0,
+            "floor_margin_m": 0.5,
+            "ceiling_margin_m": 1.0,
+        }
+    )
+    launch_good = classify_transition(
+        {
+            "entry_role": "launch_capable",
+            "start_state_family": "launch_gate",
+            "outcome_class": "accepted",
+            "continuation_valid": True,
+            "boundary_use_class": "inside",
+            "minimum_wall_margin_m": 1.0,
+            "floor_margin_m": 0.5,
+            "ceiling_margin_m": 1.0,
+        }
+    )
+    inflight_bad = classify_transition(
+        {
+            "entry_role": "inflight_only",
+            "start_state_family": "inflight_nominal",
+            "outcome_class": "weak",
+            "continuation_valid": False,
+            "boundary_use_class": "inside",
+            "minimum_wall_margin_m": 1.0,
+            "floor_margin_m": 0.5,
+            "ceiling_margin_m": 1.0,
+        }
+    )
+    recovery_good = classify_transition(
+        {
+            "entry_role": "terminal_or_recovery",
+            "start_state_family": "inflight_recovery_edge",
+            "outcome_class": "accepted",
+            "continuation_valid": True,
+            "boundary_use_class": "inside",
+            "minimum_wall_margin_m": 1.0,
+            "floor_margin_m": 0.5,
+            "ceiling_margin_m": 1.0,
+        }
+    )
+    return [
+        _row("transition_contract_row_boundary_near_route_state", bool(transition_contract_row()["boundary_near_is_route_state_not_failure"]), transition_contract_row(), "boundary_near route state"),
+        _row("launch_boundary_exit_cannot_pass_transition_gate", not bool(launch_bad["transition_chain_compatible"]), launch_bad, "launch boundary_near exit rejected"),
+        _row("launch_post_launch_exit_can_pass_transition_gate", bool(launch_good["transition_chain_compatible"]), launch_good, "launch post_launch_degraded/inflight exit accepted"),
+        _row("inflight_recoverable_degraded_exit_cannot_pass_transition_gate", not transition_is_chain_compatible(entry_role="inflight_only", entry_class="inflight_stable", exit_class="recoverable_degraded"), "recoverable_degraded", "not allowed for inflight_only"),
+        _row("inflight_weak_without_chain_handoff_rejected", not bool(inflight_bad["transition_chain_compatible"]), inflight_bad, "weak local rollout is not sufficient"),
+        _row("recovery_to_inflight_passes_transition_gate", bool(recovery_good["transition_chain_compatible"]), recovery_good, "terminal_or_recovery can restore inflight_stable"),
+    ]
 
 
 def _r5_schedule_role_audit() -> dict[str, object]:
@@ -432,29 +503,28 @@ def _docs_code_consistency_rows(repo_root: Path) -> list[dict[str, object]]:
 
     stage_docs = [doc for doc, text in docs_text.items() if DOCS_ALIGNMENT_MARKER in text]
     stage_fragments = (
-        "R5 -> R7 -> R8 -> R9 -> R10 -> R11",
-        "R6",
-        "archived",
-        "internal reduced fixed-case",
-        "initial governor handoff for R10",
-        "R10 is environment-only changed-case governor tuning",
-        "R11",
-        "strict held-out",
         "R5 -> R7 -> R8 -> R10 -> R11 -> Reality",
-        "R9 is internal preflight only",
+        "R9 remains internal preflight only",
+        "transition-aware primitive",
+        "R10 tunes the viability governor",
+        "R11",
+        "held-out validation",
     )
     for doc in stage_docs:
         text = docs_text.get(doc, "")
         missing = [fragment for fragment in stage_fragments if fragment not in text]
-        rows.append(_row(f"stage_semantics:{doc.as_posix()}", not missing, missing, "current R5/R7/R8/R9/R10/R11 semantics"))
+        rows.append(_row(f"stage_semantics:{doc.as_posix()}", not missing, missing, "current R5/R7/R8/R10/R11 semantics with R9 internal only"))
 
     combined = "\n".join(docs_text.values())
     combined_requirements = {
+        "active_thesis_workflow_transition_aware": "R5 -> R7 -> R8 -> R10 -> R11 -> Reality",
+        "r9_internal_only": "R9 remains internal preflight only",
+        "transition_object_core": "Every primitive is treated as a transition object",
+        "r7_not_local_success_only": "No primitive may pass R7 solely on local rollout success",
         "memory_scoped_per_final_row": "Memory is reinitialised per final test row",
         "final_score_only_final_heldout_path": "Final scoring is computed only from the final held-out rollout path",
         "full_safe_success_gate": "full_safe_success",
         "updraft_gain_active_weight": "updraft_gain_weight",
-        "wall_guard_0p10cm": "0.001 m` (0.10 cm)",
         "no_speed_active_gate": "Low speed is not an active governor rejection reason",
         "energy_loss_not_hard_failure": "Energy loss is also not a hard-failure reason",
         "sample_count_coverage": "sample_count",
@@ -504,7 +574,7 @@ def _legacy_alias_rows() -> list[dict[str, object]]:
         },
         {
             "legacy_alias": "R6 / W2 replay",
-            "real_active_logic": "R6 is archived diagnostic-only; active chain is R5 -> R7 -> R8 -> R9 -> R10 -> R11.",
+            "real_active_logic": "R6 is archived diagnostic-only; active thesis chain is R5 -> R7 -> R8 -> R10 -> R11 -> Reality, with R9 internal preflight only.",
             "intentional_status": "legacy_stage_alias_not_pass_gate",
         },
     ]
@@ -566,7 +636,7 @@ def _write_report(path: Path, manifest: dict[str, object], legacy_alias_rows: li
         f"- Docs/code consistency passed: `{manifest['docs_code_consistency_passed']}`",
         f"- Failed invariant count: `{manifest['failed_invariant_count']}`",
         "- Archived/generated evidence is ignored by the active-source scan unless an archive audit is explicitly requested.",
-        "- No dense evidence, R5/R7/R8/R9/R10/R11 rollout, or claim-bearing validation is generated by this audit.",
+        "- No dense evidence, R5/R7/R8/R10/R11 rollout, internal R9 preflight, or claim-bearing validation is generated by this audit.",
         "",
         "## Intentional Legacy Aliases",
         "",

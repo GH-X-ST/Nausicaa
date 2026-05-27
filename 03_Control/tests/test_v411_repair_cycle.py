@@ -324,7 +324,7 @@ def test_r9_r10_launch_sequence_routes_launch_inflight_and_state_recovery_select
     first_route = validation_route_for_primitive_step(0, state=nominal_state)
     second_route = validation_route_for_primitive_step(1, state=nominal_state)
     boundary_route = validation_route_for_primitive_step(1, state=boundary_state)
-    recovery_edge_route = validation_route_for_primitive_step(1, state=recovery_edge_state)
+    recovery_edge_route = validation_route_for_primitive_step(2, state=recovery_edge_state)
 
     first_context = {**base_context, **first_route}
     second_context = {**base_context, **second_route}
@@ -882,7 +882,7 @@ def test_v411_case_ids_histories_and_retired_gate(tmp_path: Path) -> None:
         "super_light_cluster",
         "no_cluster_no_merge",
     )
-    assert HISTORY_LENGTHS == (0, 5, 10, 20, 50, 100)
+    assert HISTORY_LENGTHS == (5, 20, 100)
     result = run_post_w3_cluster_merge(
         input_root=tmp_path / "missing_w3",
         output_root=tmp_path / "post_w3_cluster",
@@ -915,5 +915,5 @@ def test_r9_repair_uses_compact_outcome_keys_and_full_multi_step_default(tmp_pat
     assert rows["heavy_cluster|shared_variant|heavy_rep"]["continuation_probability"] == 0.2
     assert RepeatedLaunchValidationConfig().max_primitives_per_launch == 0
     assert ChangedCaseValidationConfig().max_primitives_per_launch == 0
-    assert RepeatedLaunchValidationConfig().max_episode_time_s == 20.0
+    assert RepeatedLaunchValidationConfig().max_episode_time_s == 10.0
     assert ChangedCaseValidationConfig().max_episode_time_s == 20.0

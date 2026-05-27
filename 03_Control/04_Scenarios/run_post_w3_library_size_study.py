@@ -25,6 +25,7 @@ from dense_archive_runtime import MAX_GENERATED_FILE_SIZE_MB  # noqa: E402
 from dense_archive_table_io import file_sha256, filesystem_path, load_table_manifest, read_table_partition  # noqa: E402
 from prim_cat import LAUNCH_CAPTURE_PRIMITIVE_IDS  # noqa: E402
 from primitive_timing_contract import primitive_timing_contract_row, primitive_timing_contract_status  # noqa: E402
+from transition_labels import transition_contract_row  # noqa: E402
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
@@ -244,6 +245,13 @@ def _survived_frame_blocked_reason(survived: pd.DataFrame) -> str:
         return "w3_survivor_summary_missing_entry_role"
     if "primitive_id" not in survived.columns:
         return "w3_survivor_summary_missing_primitive_id"
+    if "transition_chain_compatible_rate" not in survived.columns:
+        return "w3_survivor_summary_missing_transition_chain_compatible_rate"
+    if "transition_success_probability" not in survived.columns:
+        return "w3_survivor_summary_missing_transition_success_probability"
+    transition_rate = pd.to_numeric(survived["transition_chain_compatible_rate"], errors="coerce").fillna(0.0)
+    if bool((transition_rate <= 0.0).any()):
+        return "w3_survivor_summary_contains_non_transition_compatible_survivor"
     launch = survived[survived["entry_role"].astype(str) == "launch_capable"]
     if launch.empty:
         return "w3_registry_has_no_launch_capable_survivors"
@@ -278,9 +286,9 @@ def _robustness_profile_frame(input_root: Path) -> pd.DataFrame:
     compatible = rows[_bool_series(rows.get("entry_role_compatible", pd.Series(False, index=rows.index)))].copy()
     if compatible.empty:
         return pd.DataFrame()
-    compatible["_positive"] = _positive_series(compatible)
+    compatible["_positive"] = _transition_positive_series(compatible)
     compatible["_terminal_useful"] = _terminal_series(compatible)
-    compatible["_hard_failure"] = _hard_failure_series(compatible)
+    compatible["_hard_failure"] = _transition_hard_failure_series(compatible)
     labels = _profile_labels(compatible)
     profile_rows: list[dict[str, object]] = []
     for variant_id, group in compatible.groupby("primitive_variant_id", sort=True):
@@ -336,6 +344,8 @@ def _profile_labels(frame: pd.DataFrame) -> list[str]:
         ("environment_mode", "env"),
         ("start_state_family", "start"),
         ("scheduled_active_fan_count", "active_fan_count"),
+        ("transition_pair", "transition"),
+        ("transition_exit_class", "exit"),
     ):
         if column not in frame.columns:
             continue
@@ -388,6 +398,12 @@ def _positive_series(frame: pd.DataFrame) -> pd.Series:
     return continuation | outcome.eq("accepted")
 
 
+def _transition_positive_series(frame: pd.DataFrame) -> pd.Series:
+    if "transition_chain_compatible" in frame.columns:
+        return _bool_series(frame["transition_chain_compatible"])
+    return _positive_series(frame)
+
+
 def _terminal_series(frame: pd.DataFrame) -> pd.Series:
     boundary = frame.get("boundary_use_class", pd.Series("", index=frame.index)).fillna("").astype(str)
     terminal = _bool_series(frame.get("episode_terminal_useful", pd.Series(False, index=frame.index)))
@@ -398,6 +414,12 @@ def _hard_failure_series(frame: pd.DataFrame) -> pd.Series:
     outcome = frame.get("outcome_class", pd.Series("", index=frame.index)).fillna("").astype(str)
     boundary = frame.get("boundary_use_class", pd.Series("", index=frame.index)).fillna("").astype(str)
     return outcome.eq("failed") | boundary.eq("hard_failure")
+
+
+def _transition_hard_failure_series(frame: pd.DataFrame) -> pd.Series:
+    if "transition_exit_class" in frame.columns:
+        return frame["transition_exit_class"].fillna("").astype(str).eq("hard_failure") | _hard_failure_series(frame)
+    return _hard_failure_series(frame)
 
 
 def _bool_series(values: object) -> pd.Series:
@@ -553,6 +575,7 @@ def _hard_safety_filtered_group(group: pd.DataFrame) -> pd.DataFrame:
 
 
 def _representative_score(group: pd.DataFrame) -> pd.Series:
+    transition = _numeric_metric_series(group, "transition_success_probability", "transition_chain_compatible_rate", default=0.0)
     continuation = _numeric_metric_series(group, "continuation_valid_rate", default=0.0)
     terminal = _numeric_metric_series(group, "episode_terminal_useful_rate", default=0.0)
     hard = _numeric_metric_series(group, "hard_failure_rate", default=1.0)
@@ -563,7 +586,7 @@ def _representative_score(group: pd.DataFrame) -> pd.Series:
         default=0.0,
     )
     dwell = _numeric_metric_series(group, "lift_dwell_mean_s", default=0.0)
-    return continuation + 0.35 * terminal - 0.75 * hard + 0.05 * updraft_gain + 0.03 * dwell
+    return 1.50 * transition + 0.25 * continuation + 0.25 * terminal - 0.75 * hard + 0.05 * updraft_gain + 0.03 * dwell
 
 
 def _coverage_matrix(group: pd.DataFrame) -> np.ndarray:
@@ -838,6 +861,11 @@ def _representative_row(
         "robustness_active_fan_counts_seen": str(row.get("robustness_active_fan_counts_seen", "")),
         "continuation_valid_count": int(float(row.get("continuation_valid_count", 0))),
         "continuation_valid_rate": float(row.get("continuation_valid_rate", 0.0)),
+        "transition_chain_compatible_count": int(float(row.get("transition_chain_compatible_count", 0))),
+        "transition_chain_compatible_rate": float(row.get("transition_chain_compatible_rate", 0.0)),
+        "transition_success_probability": float(row.get("transition_success_probability", row.get("transition_chain_compatible_rate", 0.0))),
+        "transition_exit_classes_seen": str(row.get("transition_exit_classes_seen", "")),
+        "transition_pairs_seen": str(row.get("transition_pairs_seen", "")),
         "episode_terminal_useful_count": int(float(row.get("episode_terminal_useful_count", 0))),
         "episode_terminal_useful_rate": float(row.get("episode_terminal_useful_rate", 0.0)),
         "hard_failure_count": int(float(row.get("hard_failure_count", 0))),
@@ -883,7 +911,8 @@ def _library_payload(
         "selection_policy": str(case["selection_policy"]),
         "selection_algorithm": "coverage_aware_behavior_qr_medoid_greedy_marginal",
         "hard_safety_filter_policy": "prefer hard_failure_rate_below_0p75_within_primitive_entry_role_group",
-        "coverage_objective": "smallest_existing_validated_variant_set_covering_widest_W3_case_distribution_with_low_hard_failure_risk",
+        "coverage_objective": "smallest_existing_transition_compatible_variant_set_covering_useful_entry_exit_transitions_with_low_hard_failure_risk",
+        "transition_contract": transition_contract_row(),
         "claim_status": "simulation_only_post_w3_library_size_case",
         "no_controller_mutation": True,
         "continuation_and_terminal_evidence_separate": True,

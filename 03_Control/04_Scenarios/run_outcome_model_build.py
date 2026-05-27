@@ -154,7 +154,23 @@ def build_outcome_model_rows(
                     )
                 ),
                 "primitive_timing_contract_status": "compliant",
-                "continuation_probability": _clamp_probability(representative.get("continuation_valid_rate", 0.0)),
+                "transition_success_probability": _clamp_probability(
+                    representative.get(
+                        "transition_success_probability",
+                        representative.get("transition_chain_compatible_rate", 0.0),
+                    )
+                ),
+                "transition_chain_compatible_rate": _clamp_probability(
+                    representative.get("transition_chain_compatible_rate", representative.get("transition_success_probability", 0.0))
+                ),
+                "transition_exit_classes_seen": str(representative.get("transition_exit_classes_seen", "")),
+                "transition_pairs_seen": str(representative.get("transition_pairs_seen", "")),
+                "continuation_probability": _clamp_probability(
+                    representative.get(
+                        "transition_success_probability",
+                        representative.get("transition_chain_compatible_rate", representative.get("continuation_valid_rate", 0.0)),
+                    )
+                ),
                 "terminal_useful_probability": _clamp_probability(representative.get("episode_terminal_useful_rate", 0.0)),
                 "hard_failure_risk": _clamp_probability(representative.get("hard_failure_rate", 1.0)),
                 "expected_energy_residual_m": _float(representative.get("expected_energy_residual_m", 0.0)),

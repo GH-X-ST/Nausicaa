@@ -62,40 +62,37 @@ from primitive_timing_contract import PRIMITIVE_FINITE_HORIZON_S, primitive_timi
 from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS  # noqa: E402
 from state_contract import STATE_INDEX, as_state_vector  # noqa: E402
 from state_sampling import archive_state_sample_for_family  # noqa: E402
+from transition_labels import (
+    classify_state,
+    required_entry_role_for_state_class,
+    start_family_for_state_class,
+    transition_contract_row,
+    transition_row_fields,
+)  # noqa: E402
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, GovernorConfig, governor_config_to_row  # noqa: E402
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
 VALIDATION_VERSION = "repeated_launch_fixed_case_rollout_preflight_v7"
 GOVERNOR_TUNING_HANDOFF_VERSION = "governor_tuning_handoff_v2"
-HISTORY_LENGTHS = (0, 5, 10, 20, 50, 100)
-HISTORY_LENGTH_SUM = sum(HISTORY_LENGTHS)
+HISTORY_LENGTHS = (5, 20, 100)
+SAFE_EXPLORE_ABLATION_HISTORY_LENGTH = 20
+HISTORY_LENGTH_SUM = sum(HISTORY_LENGTHS) + SAFE_EXPLORE_ABLATION_HISTORY_LENGTH
 EMPTY_FROZEN_PRIOR_BASELINE_ID = "empty_frozen_prior_baseline"
-BASELINE_POLICY_IDS = ("no_memory_baseline", EMPTY_FROZEN_PRIOR_BASELINE_ID)
+BASELINE_POLICY_IDS = ("no_memory_baseline",)
 MEMORY_POLICY_PREFIX = "directional_3d_residual_memory"
 SAFE_EXPLORE_POLICY_PREFIX = "safe_explore_then_exploit"
 POLICY_HISTORY_CONDITIONS = (
     "no_memory_baseline",
-    EMPTY_FROZEN_PRIOR_BASELINE_ID,
-    "directional_3d_residual_memory_h0",
     "directional_3d_residual_memory_h5",
-    "directional_3d_residual_memory_h10",
     "directional_3d_residual_memory_h20",
-    "directional_3d_residual_memory_h50",
     "directional_3d_residual_memory_h100",
-    "safe_explore_then_exploit_h0",
-    "safe_explore_then_exploit_h5",
-    "safe_explore_then_exploit_h10",
     "safe_explore_then_exploit_h20",
-    "safe_explore_then_exploit_h50",
-    "safe_explore_then_exploit_h100",
 )
 R9_PREFLIGHT_CASES_PER_BLOCK = 1
 R9_OUTER_CASES_PER_CONDITION = 3 * R9_PREFLIGHT_CASES_PER_BLOCK
 R9_EXPECTED_FINAL_HELDOUT_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION
-R9_EXPECTED_HISTORY_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * (
-    HISTORY_LENGTH_SUM + HISTORY_LENGTH_SUM
-)
+R9_EXPECTED_HISTORY_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM
 DEFAULT_LIBRARY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/001")
 DEFAULT_OUTCOME_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/outcome_model/003")
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/repeated_launch_validation")
@@ -146,7 +143,7 @@ RECOVERY_ROUTE_MARGIN_M = 0.25
 RECOVERY_EDGE_MAX_ABS_ROLL_RAD = math.radians(35.0)
 RECOVERY_EDGE_MAX_ABS_PITCH_RAD = math.radians(22.0)
 RECOVERY_EDGE_MAX_BODY_RATE_RAD_S = 0.65
-LAUNCH_SCORE_VERSION = "r9_r10_r11_updraft_gain_multiplicative_launch_score_v3"
+LAUNCH_SCORE_VERSION = "r10_r11_updraft_gain_multiplicative_launch_score_v4"
 SPECIFIC_ENERGY_GRAVITY_M_S2 = 9.80665
 SCORING_TARGET_EPISODE_TIME_S = 1.5
 PHYSICAL_HARD_FAILURE_LABELS = {
@@ -1142,6 +1139,14 @@ def _run_one_launch(
             candidate_weight_label=record.candidate_weight_label,
         )
         rollout_row = rollout_evidence_row(rollout)
+        rollout_row.update(
+            transition_row_fields(
+                rollout_row,
+                entry_role=str(selected.get("entry_role", "")),
+                start_state_family=start_state_family,
+                primitive_step_index=primitive_step_index,
+            )
+        )
         primitive_rows.append(
             {
                 **_schedule_identity_row(scheduled),
@@ -1152,6 +1157,10 @@ def _run_one_launch(
                 "start_state_family": start_state_family,
                 "route_required_entry_role": str(route["route_required_entry_role"]),
                 "route_reason": str(route["route_reason"]),
+                "transition_current_state_class": str(route.get("current_state_class", "")),
+                "transition_exit_class": str(rollout_row.get("transition_exit_class", "")),
+                "transition_chain_compatible": bool(rollout_row.get("transition_chain_compatible", False)),
+                "transition_failure_reason": str(rollout_row.get("transition_failure_reason", "")),
                 "selected_entry_role": str(selected.get("entry_role", "")),
                 "policy_id": str(policy["policy_id"]),
                 "selected_compact_library_id": str(selected.get("compact_library_id", "")),
@@ -1228,8 +1237,9 @@ def _run_one_launch(
                 ),
             )
         )
-        hard_failure = _rollout_row_is_hard_failure(rollout_row)
-        if hard_failure or bool(rollout_row.get("episode_terminal_useful", False)) or not bool(rollout_row.get("continuation_valid", False)):
+        exit_class = str(rollout_row.get("transition_exit_class", "hard_failure"))
+        hard_failure = exit_class == "hard_failure" or _rollout_row_is_hard_failure(rollout_row)
+        if hard_failure or exit_class == "safe_terminal":
             break
     else:
         if primitive_rows:
@@ -1382,17 +1392,23 @@ def validation_route_for_primitive_step(primitive_step_index: int, *, state: np.
     """Return the governor-facing route without using rollout-budget knowledge."""
 
     if int(primitive_step_index) == 0:
+        current_state_class = "launch_gate"
         start_family = FIRST_PRIMITIVE_START_FAMILY
         reason = "first_0p10s_launch_window"
     else:
-        start_family, reason = _continuation_start_family_and_reason(state)
+        current_state_class, start_family, reason = _continuation_state_class_start_family_and_reason(
+            state,
+            primitive_step_index=int(primitive_step_index),
+        )
+    required_role = required_entry_role_for_state_class(current_state_class) or _required_entry_role_for_start_family(start_family)
     return {
+        "current_state_class": current_state_class,
         "start_state_family": start_family,
         "launch_sequence_phase": _launch_sequence_phase_for_start_family(
             primitive_step_index,
             start_state_family=start_family,
         ),
-        "route_required_entry_role": _required_entry_role_for_start_family(start_family),
+        "route_required_entry_role": required_role,
         "route_reason": reason,
     }
 
@@ -1408,30 +1424,39 @@ def _continuation_start_family(state: np.ndarray | None) -> str:
 
 
 def _continuation_start_family_and_reason(state: np.ndarray | None) -> tuple[str, str]:
+    state_class, start_family, reason = _continuation_state_class_start_family_and_reason(state, primitive_step_index=1)
+    del state_class
+    return start_family, reason
+
+
+def _continuation_state_class_start_family_and_reason(
+    state: np.ndarray | None,
+    *,
+    primitive_step_index: int,
+) -> tuple[str, str, str]:
     if state is None:
-        return POST_LAUNCH_START_FAMILY, "state_unavailable_default_nominal_continuation"
+        return "post_launch_degraded", POST_LAUNCH_START_FAMILY, "state_unavailable_default_post_launch_handoff"
     try:
         x = as_state_vector(state)
-        margins = position_margin_m(x[[STATE_INDEX["x_w"], STATE_INDEX["y_w"], STATE_INDEX["z_w"]]], TRUE_SAFE_BOUNDS)
     except Exception:
-        return TERMINAL_SAFE_EXIT_START_FAMILY, "invalid_state_recovery_edge_route"
-    max_body_rate = max(
-        abs(float(x[STATE_INDEX["p"]])),
-        abs(float(x[STATE_INDEX["q"]])),
-        abs(float(x[STATE_INDEX["r"]])),
+        return "hard_failure", TERMINAL_SAFE_EXIT_START_FAMILY, "invalid_state_hard_failure_route"
+    state_class = classify_state(
+        x,
+        primitive_step_index=int(primitive_step_index),
+        allow_post_launch_degraded=int(primitive_step_index) == 1,
     )
-    degraded_attitude_or_rate = (
-        abs(float(x[STATE_INDEX["phi"]])) > RECOVERY_EDGE_MAX_ABS_ROLL_RAD
-        or abs(float(x[STATE_INDEX["theta"]])) > RECOVERY_EDGE_MAX_ABS_PITCH_RAD
-        or max_body_rate > RECOVERY_EDGE_MAX_BODY_RATE_RAD_S
-    )
-    if degraded_attitude_or_rate:
-        return TERMINAL_SAFE_EXIT_START_FAMILY, "degraded_attitude_or_rate_recovery_edge_route"
-    if float(margins["min_margin_m"]) <= 0.0:
-        return TERMINAL_SAFE_EXIT_START_FAMILY, "outside_or_on_true_safe_boundary_recovery_edge_route"
-    if float(margins["min_margin_m"]) <= RECOVERY_ROUTE_MARGIN_M:
-        return BOUNDARY_RECOVERY_START_FAMILY, "true_safe_margin_below_recovery_route_threshold"
-    return POST_LAUNCH_START_FAMILY, "normal_post_launch_continuation"
+    start_family = start_family_for_state_class(state_class)
+    if state_class == "post_launch_degraded":
+        return state_class, start_family, "post_launch_degraded_handoff_to_inflight"
+    if state_class == "inflight_stable":
+        return state_class, start_family, "inflight_stable_continuation"
+    if state_class == "boundary_near":
+        return state_class, start_family, "boundary_near_route_not_failure"
+    if state_class == "recoverable_degraded":
+        return state_class, start_family, "recoverable_degraded_route"
+    if state_class == "safe_terminal":
+        return state_class, start_family, "safe_terminal_no_further_primitive_expected"
+    return state_class, start_family, "hard_failure_no_further_primitive_expected"
 
 
 def _launch_sequence_phase_for_start_family(primitive_step_index: int, *, start_state_family: str) -> str:
@@ -1532,6 +1557,8 @@ def _context_payload(
         "launch_sequence_phase": str(route.get("launch_sequence_phase", _launch_sequence_phase_for_step(primitive_step_index))),
         "route_required_entry_role": str(route.get("route_required_entry_role", _required_entry_role_for_start_family(start_state_family))),
         "route_reason": str(route.get("route_reason", "")),
+        "current_state_class": str(route.get("current_state_class", classify_state(start_state_family=start_state_family))),
+        "transition_current_state_class": str(route.get("current_state_class", classify_state(start_state_family=start_state_family))),
         "latency_case": latency_case,
         "wall_margin_m": float(context.wall_margin_m),
         "all_wall_margin_m": float(context.all_wall_margin_m),
@@ -3208,6 +3235,9 @@ def _write_manifest(
         "post_launch_required_entry_role": "inflight_only",
         "boundary_recovery_required_entry_role": "terminal_or_recovery",
         "terminal_safe_exit_required_entry_role": "terminal_or_recovery",
+        "transition_contract": transition_contract_row(),
+        "active_governor_path": "transition_viability_governor_v1",
+        "boundary_near_status": "route_state_not_automatic_failure",
         "changed_case_active_fan_count_policy": "balanced_1_2_3_4_for_active_fan_number_variation"
         if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
         else "not_applicable",
@@ -3220,10 +3250,7 @@ def _write_manifest(
         "changed_case_arena_wide_fan_position_xy_bounds_m": R10_ARENA_WIDE_FAN_POSITION_XY_BOUNDS_M
         if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
         else (),
-        "recovery_route_margin_m": float(RECOVERY_ROUTE_MARGIN_M),
-        "recovery_edge_max_abs_roll_rad": float(RECOVERY_EDGE_MAX_ABS_ROLL_RAD),
-        "recovery_edge_max_abs_pitch_rad": float(RECOVERY_EDGE_MAX_ABS_PITCH_RAD),
-        "recovery_edge_max_body_rate_rad_s": float(RECOVERY_EDGE_MAX_BODY_RATE_RAD_S),
+        "legacy_recovery_threshold_alias_status": "superseded_by_transition_labels_contract",
         "launch_score_version": LAUNCH_SCORE_VERSION,
         "launch_score_target_episode_time_s": float(SCORING_TARGET_EPISODE_TIME_S),
         "launch_score_gravity_m_s2": float(SPECIFIC_ENERGY_GRAVITY_M_S2),
@@ -3270,7 +3297,8 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Gate profile: `{protocol.gate_profile}`",
         f"- Safety thresholds: hard failure <= `{protocol.max_hard_failure_rate}`, no-viable <= `{protocol.max_no_viable_rate}`, safe success >= `{protocol.min_safe_success_rate}`, full safe success >= `{protocol.min_full_safe_success_rate}`, terminal/lift >= `{protocol.min_terminal_or_lift_capture_rate}`.",
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
-        f"- Recovery route: `{BOUNDARY_RECOVERY_START_FAMILY}` below `{RECOVERY_ROUTE_MARGIN_M}` m safe margin, `{TERMINAL_SAFE_EXIT_START_FAMILY}` for degraded attitude, rate, or boundary contact.",
+        "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, updraft gain, flight time, and residual memory.",
+        "- Boundary-near is a route state, not automatic failure; hard_failure is the failure class.",
         f"- Launch score: `{LAUNCH_SCORE_VERSION}`; rewards safe valid flight time and updraft-gain proxy, while net/gross energy drift remains audit-only.",
         "- Claim boundary: simulation-only; no hardware, real-flight transfer, mission, autonomy, or memory-improvement claim.",
         "",

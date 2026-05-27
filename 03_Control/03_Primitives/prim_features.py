@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from env_ctx import EnvironmentContext, context_feature_vector
+from env_ctx import EnvironmentContext, NUMERIC_CONTEXT_FEATURES, context_feature_vector
 from latency import latency_case_config
 from prim_cat import PrimitiveDefinition
 from state_contract import STATE_INDEX, STATE_SIZE
@@ -49,7 +49,7 @@ PRIMITIVE_FEATURE_NAMES = (
     "actuator_t50_s",
     "uncertainty_m_s",
     "terminal_mode_flag",
-) + tuple(f"context_{index:02d}" for index in range(13))
+) + tuple(f"context_{index:02d}" for index in range(len(NUMERIC_CONTEXT_FEATURES)))
 
 
 @dataclass(frozen=True)

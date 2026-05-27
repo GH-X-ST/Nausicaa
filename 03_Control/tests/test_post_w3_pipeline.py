@@ -5,7 +5,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from dense_archive_table_io import TableManifest, write_table_manifest, write_table_partition
+from dense_archive_table_io import (
+    TableManifest,
+    load_table_manifest,
+    read_table_partition,
+    write_table_manifest,
+    write_table_partition,
+)
 from run_changed_case_validation import (
     HeldoutChangedCaseValidationConfig,
     R10_EXPECTED_FINAL_HELDOUT_LAUNCHES,
@@ -41,14 +47,15 @@ def test_w3_analysis_separates_terminal_and_continuation_evidence(tmp_path: Path
     registry = json.loads((w3_root / "manifests" / "w3_survivor_registry.json").read_text(encoding="ascii"))
 
     assert result["status"] == "w3_survivors_available"
-    assert registry["survivor_count"] == 8
+    assert registry["survivor_count"] == 9
     survived = summary[summary["primitive_variant_id"] == "primvar_glide_inflight"]
-    downgraded = summary[summary["primitive_variant_id"] == "primvar_lift_terminal"]
+    terminal_safe = summary[summary["primitive_variant_id"] == "primvar_lift_terminal"]
     assert survived["w3_variant_status"].iloc[0] == "survived"
-    assert downgraded["w3_variant_status"].iloc[0] == "downgraded"
-    assert int(downgraded["incompatible_row_count"].iloc[0]) == 1
-    assert int(downgraded["continuation_valid_count"].iloc[0]) == 0
-    assert int(downgraded["episode_terminal_useful_count"].iloc[0]) == 2
+    assert terminal_safe["w3_variant_status"].iloc[0] == "survived"
+    assert int(terminal_safe["incompatible_row_count"].iloc[0]) == 1
+    assert int(terminal_safe["continuation_valid_count"].iloc[0]) == 0
+    assert int(terminal_safe["episode_terminal_useful_count"].iloc[0]) == 2
+    assert int(terminal_safe["transition_chain_compatible_count"].iloc[0]) == 2
 
 
 def test_w3_analysis_blocks_when_launch_capable_has_no_survivors(tmp_path: Path) -> None:
@@ -104,6 +111,7 @@ def test_post_w3_library_size_study_writes_five_cases_without_mutation(tmp_path:
     assert library["no_controller_mutation"] is True
     assert representative_ids == {
         "primvar_glide_inflight",
+        "primvar_lift_terminal",
         "primvar_lift_survived",
         "primvar_launch_capture_glide_stabilise",
         "primvar_launch_capture_lift_seek",
@@ -245,9 +253,9 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
     r9_final = pd.read_csv(Path(validation["run_root"]) / "metrics" / "final_heldout_launch_schedule.csv")
     r9_history = pd.read_csv(Path(validation["run_root"]) / "metrics" / "history_launch_schedule.csv")
     r10_final = pd.read_csv(Path(r10_validation["run_root"]) / "metrics" / "final_heldout_launch_schedule.csv")
-    r10_history = pd.read_csv(Path(r10_validation["run_root"]) / "metrics" / "history_launch_schedule.csv")
+    r10_history = _read_schedule_table(Path(r10_validation["run_root"]), "history_launch_schedule")
     r11_final = pd.read_csv(Path(r11_validation["run_root"]) / "metrics" / "final_heldout_launch_schedule.csv")
-    r11_history = pd.read_csv(Path(r11_validation["run_root"]) / "metrics" / "history_launch_schedule.csv")
+    r11_history = _read_schedule_table(Path(r11_validation["run_root"]), "history_launch_schedule")
     r10_active_fan_audit = pd.read_csv(
         Path(r10_validation["run_root"]) / "metrics" / "active_fan_count_schedule_audit.csv"
     )
@@ -274,7 +282,7 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
     assert len(r11_history) == R10_EXPECTED_HISTORY_LAUNCHES
     assert set(r9_final["library_size_case_id"]) == set(LIBRARY_SIZE_CASE_IDS)
     assert set(r9_final["policy_id"]) == set(POLICY_HISTORY_CONDITIONS)
-    assert set(r9_final["history_length"]) == set(HISTORY_LENGTHS)
+    assert set(r9_final["history_length"]) == {0, *HISTORY_LENGTHS}
     assert set(r10_final["environment_block_id"]) == {
         "nominal_single_fan_perturbations",
         "nominal_four_fan_perturbations",
@@ -315,10 +323,10 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
     }
     assert set(r10_active_final["scheduled_active_fan_count"].astype(int)) == {1, 2, 3, 4}
     assert r10_active_final.groupby("scheduled_active_fan_count").size().to_dict() == {
-        1: 350,
-        2: 350,
-        3: 350,
-        4: 350,
+        1: 125,
+        2: 125,
+        3: 125,
+        4: 125,
     }
     assert set(r10_active_fan_audit["environment_block_id"]) == {
         "active_fan_number_variation",
@@ -330,14 +338,14 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
     r10_arena_wide = r10_final[
         r10_final["environment_block_id"].eq("arena_wide_fan_position_generalisation")
     ].copy()
-    assert len(r10_arena_wide) == 1400
+    assert len(r10_arena_wide) == 500
     assert set(r10_arena_wide["fan_position_policy"]) == {"independent_uniform_xy_bounds"}
     assert set(r10_arena_wide["scheduled_active_fan_count"].astype(int)) == {1, 2, 3, 4}
     assert r10_arena_wide.groupby("scheduled_active_fan_count").size().to_dict() == {
-        1: 350,
-        2: 350,
-        3: 350,
-        4: 350,
+        1: 125,
+        2: 125,
+        3: 125,
+        4: 125,
     }
 
 
@@ -365,6 +373,21 @@ def test_retired_single_compact_wrapper_requires_explicit_gate(tmp_path: Path) -
 
     assert result["status"] == "blocked"
     assert result["blocked_reason"] == "retired_diagnostic_requires_explicit_allow_retired_diagnostic"
+
+
+def _read_schedule_table(run_root: Path, table_name: str) -> pd.DataFrame:
+    manifest_path = run_root / "manifests" / f"{table_name}_manifest.json"
+    if manifest_path.is_file():
+        manifest = load_table_manifest(manifest_path)
+        frames = [
+            read_table_partition(
+                run_root / "tables" / partition.relative_path,
+                storage_format=partition.storage_format,
+            )
+            for partition in manifest.tables
+        ]
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    return pd.read_csv(run_root / "metrics" / f"{table_name}.csv")
 
 
 def _write_tiny_w3_root(root: Path) -> Path:

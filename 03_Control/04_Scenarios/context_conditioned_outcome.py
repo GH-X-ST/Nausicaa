@@ -49,9 +49,10 @@ def context_conditioned_outcome(
     row = dict(base_outcome)
     reasons: list[str] = []
     base_continuation = _probability(row.get("continuation_probability", 0.0))
+    base_transition = _probability(row.get("transition_success_probability", row.get("transition_chain_compatible_rate", base_continuation)))
     base_terminal = _probability(row.get("terminal_useful_probability", 0.0))
     base_risk = _probability(row.get("hard_failure_risk", 1.0))
-    continuation = base_continuation
+    continuation = base_transition
     terminal = base_terminal
     risk = base_risk
     expected_updraft = max(_float(row.get("expected_updraft_gain_proxy_m", 0.0)), 0.0)
@@ -135,11 +136,16 @@ def context_conditioned_outcome(
     row.update(
         {
             "base_continuation_probability": base_continuation,
+            "base_transition_success_probability": base_transition,
             "base_terminal_useful_probability": base_terminal,
             "base_hard_failure_risk": base_risk,
             "base_expected_updraft_gain_proxy_m": max(_float(base_outcome.get("expected_updraft_gain_proxy_m", 0.0)), 0.0),
             "base_expected_lift_dwell_time_s": max(_float(base_outcome.get("expected_lift_dwell_time_s", 0.0)), 0.0),
             "continuation_probability": _probability(continuation),
+            "transition_success_probability": _probability(continuation),
+            "transition_chain_compatible_rate": _probability(continuation),
+            "transition_exit_classes_seen": str(row.get("transition_exit_classes_seen", "")),
+            "transition_pairs_seen": str(row.get("transition_pairs_seen", "")),
             "terminal_useful_probability": _probability(terminal),
             "hard_failure_risk": _probability(risk),
             "expected_updraft_gain_proxy_m": max(float(expected_updraft), 0.0),

@@ -25,6 +25,8 @@ from run_repeated_launch_learning_curve import (
     ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
     BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
     EMPTY_FROZEN_PRIOR_BASELINE_ID,
+    HISTORY_LENGTHS,
+    SAFE_EXPLORE_ABLATION_HISTORY_LENGTH,
     LIBRARY_SIZE_CASE_IDS,
     POLICY_HISTORY_CONDITIONS,
     R9_BLOCKS,
@@ -49,8 +51,8 @@ from run_w3_survival import R5_INPUT_KIND, W3_ACTIVE_FAN_COUNT_SEQUENCE, W3_ENVI
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, REJECTION_REASONS, governor_candidate_row
 
 
-def test_v53_stage_contract_is_r5_r7_r8_r9_r10_r11_with_r6_archived() -> None:
-    assert STAGE_ORDER == ("R5", "R7", "R8", "R9", "R10", "R11")
+def test_v53_stage_contract_is_r5_r7_r8_r10_r11_with_r6_archived_and_r9_internal() -> None:
+    assert STAGE_ORDER == ("R5", "R7", "R8", "R10", "R11")
     assert ARCHIVED_STAGES == ("R6",)
 
     assert R9_PROTOCOL.validation_evidence_level == "internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence"
@@ -63,10 +65,14 @@ def test_v53_stage_contract_is_r5_r7_r8_r9_r10_r11_with_r6_archived() -> None:
 
 
 def test_v53_r9_is_reduced_internal_preflight_and_can_seed_r10_governor() -> None:
-    assert tuple(block.case_count for block in R9_BLOCKS) == (2, 2, 2)
-    assert R9_OUTER_CASES_PER_CONDITION == 6
-    assert R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * 6
-    assert R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 6 * (185 + 185)
+    assert tuple(block.case_count for block in R9_BLOCKS) == (1, 1, 1)
+    assert R9_OUTER_CASES_PER_CONDITION == 3
+    assert R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * 3
+    assert R9_EXPECTED_HISTORY_LAUNCHES == (
+        len(LIBRARY_SIZE_CASE_IDS)
+        * 3
+        * (sum(HISTORY_LENGTHS) + SAFE_EXPLORE_ABLATION_HISTORY_LENGTH)
+    )
 
     tuned, decisions = _tuned_governor_config_from_metrics(
         base_config=DEFAULT_GOVERNOR_CONFIG,

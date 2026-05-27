@@ -1,121 +1,40 @@
 ﻿# Glider Control Project Plan
 
 <!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
-## Current controlling overwrite: robust R5 synthesis and frozen W3 holdout
+## Current controlling update - transition-aware primitive method
 
-This overwrite updates the earlier repeated-launch repair and the older W0/W1 -> W2 -> W3 ladder. This project plan is now the single method-control document for the active repair cycle; if older generated notes or result roots conflict with this section, this section controls.
+The active thesis algorithm is now deliberately simple and transition-based:
+`R5 -> R7 -> R8 -> R10 -> R11 -> Reality`.
+R9 remains internal preflight only and is not thesis-facing evidence, not a final claim gate, and not required before R10.
 
-Current validation staging supersedes older R9/R10-only wording: the active accepted engineering chain is R5 -> R7 -> R8 -> R9 -> R10 -> R11, with R6 archived diagnostic-only. R5 is primitive learning/synthesis, R7 is frozen primitive validation, R8 is post-W3 clustering and library-size study, R9 is an internal reduced fixed-case outer-loop preflight, R10 is environment-only changed-case governor tuning with relaxed gates, and R11 is the strict held-out viability-governor validation gate. The thesis-facing workflow must be presented as R5 -> R7 -> R8 -> R10 -> R11 -> Reality only: R8 is the post-R7 library-compression and library-size cross-study stage, and R9 is internal preflight only, excluded from the thesis workflow narrative. R9 uses only one no-updraft, one single-fan, and one four-fan outer case per policy/history condition with a 10 s episode budget, and may write an initial governor-configuration handoff for R10; it is not formal thesis evidence and must not be presented as final validation. R10 consumes the R9 initial handoff when available and writes a frozen governor-configuration handoff for R11; R11 must consume that handoff and pass both `safe_success` and `full_safe_success` gates before any final validation claim. Hardware-readiness preparation, real-flight transfer, mission-success, full-autonomy, or memory-improvement claims remain blocked until the strict R11 gate passes.
+Core method:
+1. R5 learns transition-aware primitive variants under rich randomized synthesis.
+2. R7 validates transition compatibility under held-out randomisation with frozen LQR controllers.
+3. R8 compresses only transition-compatible primitives using coverage-aware medoid selection.
+4. R10 tunes the viability governor with residual updraft adaptation on the frozen R8 library.
+5. R11 is strict held-out validation of the frozen R10 governor.
+6. Reality is a later real flight transfer attempt only after simulation gates pass.
 
-Older R9 fixed-case repeated-launch evidence is diagnostic only. It showed that the R5-to-R8 pipeline could run, but launch-gate coverage, compact-library outcome lookup, and governor calibration needed repair. It cannot be used for R10, R11, hardware preparation, real-flight transfer, or memory-improvement claims.
+Every primitive is treated as a transition object with primitive_id, entry_class, exit_class, transition_success_probability, hard_failure_probability, updraft_gain_proxy, flight_time, and controller metadata. The governor asks: given the current state class, which primitive has a valid entry class and predicts a viable exit class?
 
-The latest W3 dense replay reached W3 successfully but diagnosed the physical root of the earlier R9 failure: the launch-capture family does not survive W3 randomisation strongly enough to support the first 0.100 s outer-loop decision. Any older sentence in this section that describes the blocker as only "glide is launch-capable" is superseded.
+Use these compact state classes only unless later data proves more are needed: launch_gate, post_launch_degraded, inflight_stable, boundary_near, recoverable_degraded, safe_terminal, and hard_failure. boundary_near is a route state, not automatic failure. hard_failure is the failure class.
 
-Controlling diagnosis:
+Primitive-role transition contract:
+- launch_capable: entry launch_gate; required exit post_launch_degraded or inflight_stable.
+- inflight_only: entry inflight_stable; required exit inflight_stable, boundary_near, or safe_terminal.
+- terminal_or_recovery: entry boundary_near or recoverable_degraded; required exit inflight_stable or safe_terminal.
 
-```text
-1. The six launch_capture_* primitive families now exist and are the only launch_capable primitive families.
-2. glide is an inflight_only primitive and must not be relabelled as launch_capable.
-3. W3 run 015 replayed 448 W2 survivors and produced 256 survived variants plus 192 downgraded variants.
-4. All launch_capable variants were downgraded: 0 survived / 192 downgraded.
-5. launch_capable W3 hard-failure rate was about 59% under the earlier outcome labels, dominated by weak handoff and recovery-transition behaviour, not actuator saturation.
-6. This explains the earlier R9 first-decision and outer-loop failure: memory and exploration cannot rescue an episode when the required first launch primitive is weak.
-7. Any R8/R9/R10/R11 evidence built on this W3 root is diagnostic unless the launch-capable W3 survival gate is explicitly repaired.
-```
+No primitive may pass R7 solely on local rollout success. R7 must reject or downgrade locally accepted rows that are not chain-compatible for the declared primitive role. R5 reports transition coverage but does not claim primitive validity from aggregate local accepted rows.
 
-Required method repair:
+R8 selection objective is the smallest existing validated set that covers useful entry_class -> exit_class transitions with low hard_failure_probability. Do not average Q/R, synthesize new controllers, mix launch/inflight/recovery roles, or cluster before R7.
 
-```text
-1. Redesign or widen launch-capture references, LQR Q/R weights, and launch_gate start subregimes inside R5 W0/W1 robust synthesis.
-2. Retire axisymmetric Gaussian plume from active pass-gated R5/R7 acceptance evidence. Gaussian evidence may remain only as archived diagnostic or historical comparison.
-3. Make active R5 W0/W1 use dry air plus annular-GP randomized single-fan and four-fan training blocks with the same single-layer randomisation dimensions as R7 W3 holdout: fan position, per-fan power, active fan count where applicable, width/spread, launch-state perturbations, latency/implementation perturbations, left/right aileron asymmetry, and CG offset within approved simulation bounds. Dry-air rows keep the W0 no-updraft environment but still use W3-style plant and implementation perturbations; do not add duplicate amplitude or centre-shift randomisation on top of fan power and fan position.
-4. Tune Q/R and primitive references only inside R5 W0/W1 synthesis; after the frozen bundle is written, W3/R8/R9/R10/R11 must not mutate Q/R, K, references, horizons, entry roles, controller IDs, or primitive variant IDs.
-5. Treat W2 as an optional diagnostic or legacy comparison layer, not a required pass gate and not a source of accepted move-on evidence.
-6. Keep the launch-capture subset LQR-only, 0.100 s horizon, 5 controller-input slots, and 20 ms controller update period.
-7. Keep launch_capture_* separate from inflight_only and terminal_or_recovery primitives; do not distort glide, lift-entry, dwell, turn, or energy-retaining primitives into launch actions.
-8. Optimise launch-capture success around handoff quality: continuation-valid exit state, attitude/rate margins, physically valid state evolution, and useful specific-energy behaviour. Low speed and energy loss are not standalone hard-failure gates.
-9. Widen launch_gate starts into auditable subregimes such as nominal, low-energy, attitude-perturbed, rate-perturbed, lateral-offset, and lift-misaligned starts.
-10. Increase launch-capture emphasis on specific energy, pitch/roll/body-rate damping, floor/wall safety, and handoff-state error; command penalties may be relaxed only within the LQR-only primitive-local R5 synthesis grid.
-11. R9/R10/R11 must match outcome rows by library-size case and compact-library identity, not only by primitive_variant_id.
-12. R9/R10/R11 must compute memory and exploration selection-change metrics from actual matched selections.
-13. Any evidence generated before the repaired robust R5 synthesis -> frozen W3 holdout chain remains diagnostic and cannot unblock the next accepted stage.
-```
+The active governor path is transition_viability_governor: classify current state, filter matching primitive entry class, reject high hard_failure risk, score transition viability plus updraft gain plus flight time plus residual-memory correction, execute the best primitive, then update residual memory. Residual memory is only a small modifier: predicted_updraft_gain = library_prediction + residual_memory_correction. It must not change state classification or entry/exit rules.
 
-Regeneration rule:
+Thesis-core comparisons are reduced to no memory versus residual memory histories h5, h20, and h100, with at most one safe-explore ablation. The old 14 policy/history matrix, large repeated history-launch matrices, secondary launch score, exhaustive candidate logs, multiple diagnostic archives, and R9 are audit/ablation/appendix material only.
 
-```text
-After launch-capture references, weights, start subregimes, outcome lookup, and R9/R10/R11 diagnostics are repaired, regenerate the accepted evidence chain from R5:
-R5 robust dry-air plus annular-GP randomized launch-aware primitive synthesis and Q/R tuning
--> optional W2 diagnostic replay, if explicitly requested and labelled diagnostic
--> R7 frozen held-out W3 fixed-LQR validation using the R5 frozen bundle and held-out seeds
--> R8 five-case library-size cross-study and outcome model
--> R9 internal reduced fixed-case repeated-launch governor preflight and initial governor handoff for R10
--> R10 environment-only changed-case governor tuning only if R9 passes; consume the R9 initial handoff when available
--> R11 strict held-out environment-only changed-case validation only if R10 passes.
-```
+Memory is reinitialised per final test row. Final scoring is computed only from the final held-out rollout path. full_safe_success is the strict claim gate. updraft_gain_weight is the active soft reward; expected_energy_residual_m is a legacy net-energy audit alias. Low speed is not an active governor rejection reason. Energy loss is also not a hard-failure reason. sample_count remains an outcome-model coverage audit field. R11 consumes the frozen governor config written by R10.
 
-R8 now compares five post-W3 library-size conditions: `heavy_cluster`, `balanced_cluster`, `light_cluster`, `super_light_cluster`, and `no_cluster_no_merge`. R8 selection is coverage-aware medoid compression: within each `(primitive_id, entry_role)` group it applies a hard safety filter, builds per-case coverage over W3 environment case, start-state family, active fan count, terminal usefulness, hard failure, updraft-gain proxy, flight time, and normalized/log-scaled Q/R/reference features, then selects existing W3-surviving candidates as medoids using behavior/Q-R centrality and greedy marginal coverage. It must not average Q/R, synthesize new controllers, or mix launch, in-flight, and recovery roles. `heavy_cluster` keeps the best worst-case-coverage medoid; `balanced_cluster`, `light_cluster`, and `super_light_cluster` keep 3, 6, and 12 representatives per group by marginal coverage; `no_cluster_no_merge` keeps all W3 survivors. Q/R commonality is a tie-breaker only after coverage and hard-failure risk. `super_light_cluster` sits between `light_cluster` and `no_cluster_no_merge`; with 14 primitive/entry-role groups and 32 variants per group it keeps up to 12 representatives per group, giving 168 representatives when every W3 variant survives. The full expected R8 representative counts from the current 448-survivor W3 library are 14, 42, 84, 168, and 448 respectively. With five library-size cases, reduced internal R9 preflight is `5 * 14 * 3 = 210` final held-out launches and `5 * 3 * (185 + 185) = 5550` history launches.
-
-R10 changed-case governor tuning and R11 strict held-out changed-case validation each use 120 outer cases per policy/history condition per library-size case. This is the original five 20-case blocks plus an extra 20-case arena-wide generalisation block that combines independently sampled fan positions across the tracker footprint with balanced active fan counts `1, 2, 3, 4`. With five library-size cases, each full R10/R11 target is therefore `5 * 14 * 120 = 8400` final held-out launches and `5 * 120 * (185 + 185) = 222000` history launches. The additional block is changed-case validation only and must not be backported into R5/R7 pass-gated synthesis or W3 survival replay.
-
-Active randomisation contract:
-
-```text
-R5 dry-air rows:
-  environment = W0 dry_air, no updraft, no fan field
-  plant/implementation = W3-style randomised plant and implementation instances
-
-R5 annular-GP rows:
-  environment = W1 annular-GP randomized single/four-fan training
-  plant/implementation = W3-style randomised plant and implementation instances
-
-R7 W3 rows:
-  environment = held-out W3 annular-GP randomized single/four-fan validation
-  plant/implementation = W3-style randomised plant and implementation instances
-
-R9 rows:
-  internal reduced fixed-case preflight only; no environment, glider, latency, or actuator randomisation
-  W0 dry air, W2 single-fan annular-GP, and W2 four-fan annular-GP are fixed preflight cases
-  use one outer case per block per policy/history condition, use a 10 s episode budget, and write only an initial governor handoff for R10
-
-R10 rows:
-  environment-only changed-case governor tuning
-  glider model, latency model, actuator model, controller library, policy settings, and launch comparison protocol remain fixed inside each test case
-  mass, CG, inertia, surface calibration, actuator lag, and latency must not vary in R10
-
-R11 rows:
-  strict held-out environment-only changed-case validation
-  glider model, latency model, actuator model, controller library, policy settings, and launch comparison protocol remain fixed inside each test case
-  mass, CG, inertia, surface calibration, actuator lag, and latency must not vary in R11
-```
-
-Active R10/R11 block structure:
-
-```text
-1. nominal_single_fan_perturbations
-   single-fan geometry; fixed base fan position; implicit one active fan
-
-2. nominal_four_fan_perturbations
-   four-fan geometry; fixed base fan positions; fixed four active fans
-
-3. shifted_single_fan_positions
-   single-fan geometry; common XY fan-position shift [-0.20, +0.20] m; implicit one active fan
-
-4. shifted_four_fan_positions
-   four-fan geometry; common XY fan-position shift [-0.20, +0.20] m; fixed four active fans
-
-5. active_fan_number_variation
-   four-fan geometry; fixed base fan positions; balanced active fan counts 1, 2, 3, and 4
-
-6. arena_wide_fan_position_generalisation
-   four-fan geometry; independent fan positions over x=[0.0, 8.0] m and y=[0.0, 4.8] m; balanced active fan counts 1, 2, 3, and 4
-```
-
-Do not duplicate randomisation channels. `fan_power_scales` is the active updraft-strength channel, `fan_positions_m` is the active spatial/layout channel, `updraft_width_scale` is the active spread channel, and `local_uncertainty_scale` is a context/belief uncertainty channel rather than a wind-strength channel. `updraft_amplitude_scale` remains fixed at `1.0` and `updraft_centre_shift_m` remains fixed at zero for active pass-gated annular-GP evidence unless a future diagnostic is explicitly labelled as such. The local uncertainty value should be applied once in the context path, not compounded as an extra wind perturbation.
-
-R9/R10/R11 launch scoring is secondary post-analysis, not a pass-gate substitute. The score uses specific mechanical energy `E = z_w + V^2 / (2g)` for audit, separates whole-episode net energy drift, positive specific-energy increments, gross energy loss, and an updraft-specific gain proxy. The score rewards safe valid flight time and the updraft-gain proxy; net energy drift and gross energy loss are reported but do not directly reduce the score. Model-backed rollout rows must integrate positive wing-panel vertical wind along the actually simulated primitive trajectory and archive `trajectory_integrated_updraft_gain_m`, `trajectory_mean_positive_w_wing_m_s`, `trajectory_lift_dwell_time_s`, and `updraft_integration_status`. R9/R10/R11 scoring must prefer this trajectory-integrated value; primitive-start local `w_wing` exposure is only a legacy/smoke fallback. Dry/no-local-lift contexts must not inherit a positive updraft score from aggregate representative evidence. The selector must use a robust context-conditioned outcome adapter between the post-W3 representative outcome table and the governor. The adapter may only downgrade probabilities, cap soft reward proxies, or increase hard-failure risk relative to the representative-average row; it must never boost a candidate because a local context appears favourable. Sparse evidence, missing `sample_count`, unknown/mismatched environment class, changed-case blocks, local uncertainty, tight margins, and no local updraft all produce conservative adjustments or explicit rejection; full R10/R11 must block if the outcome table lacks numeric positive `sample_count` coverage, while reduced R9 must block before writing any handoff if the same coverage is missing. The governor's soft energy preference must use context-conditioned `expected_updraft_gain_proxy_m`, not `expected_energy_residual_m`; the active memory residual is `updraft_gain_residual_m`, while old `energy_residual` names are legacy audit aliases only. The active configuration fields are `updraft_gain_weight` and `terminal_updraft_gain_weight`, with older `energy_weight` names accepted only when reading legacy frozen configs. It does not include wall-margin or speed-margin score factors. Governor wall admission is a policy guard at `0.001 m` (0.10 cm) using heading-aware front/left/right clearance; rear/all-wall margins remain audit and physical-boundary fields. Energy loss is never a standalone hard failure; hard penalties are reserved for physical hard failures, floor/ceiling violations, no-viable launch decisions, and wall exits. `safe_success` requires a role-compliant launch -> in-flight/recovery primitive sequence that ends in continuation-valid, terminal-useful, or explicit episode-time-budget completion, with no physical hard failure, no floor/ceiling violation, and no no-viable primitive tail. `full_safe_success` excludes terminal-useful safe-exit-only endings; R11 must gate on it so x-y boundary exits cannot satisfy final validation alone. Missing candidate outcome evidence must be rejected explicitly as `missing_outcome_evidence_for_candidate`, not hidden behind a zero-probability rejection. Memory is scoped to the policy/history launches of one final test case only; it is reinitialised per final row and must not carry across library cases, policies, or outer cases. Memory policies must be compared against `no_memory_baseline` by controlled final-launch pairing; safe-explore policies must be compared against the matching directional-memory history length. The final launch score is computed only from the final held-out rollout path, and compared policies/history lengths/library cases must share the same final launch state and environment instance through `common_final_launch_key`, launch seed, and environment seed pairing. The empty-prior baseline is named `empty_frozen_prior_baseline`; it must not seed hand-made synthetic prior observations. R9 is an internal fixed-case software preflight used only to decide whether the pipeline is healthy enough to run R10 and to write an initial governor handoff; R10 is changed-case viability-governor learning/tuning and writes the frozen governor configuration for R11; R11 is strict held-out viability-governor validation. Thesis writing must present the workflow as R5 -> R7 -> R8 -> R10 -> R11 -> Reality only. R8 is the library-compression and library-size cross-study stage, and R9 must not be included in the thesis-facing workflow narrative or presented as thesis evidence. R10 changed-case fan-count and fan-position randomisation semantics must also apply to R11. The score cannot override W3 launch-capture survival gates, exact launch counts, pairing gates, safety gates, or no-viable-rate gates, and it cannot by itself support a memory-improvement claim.
-
-All previous prohibitions still apply: no PD/PID/bounded fallback, no TVLQR active workflow, no fan-layout-specific controller logic, no W3/R8/R9/R10/R11 primitive retuning, no pre-W3 clustering, no deletion of useful x-y terminal boundary evidence, no direct surface-command reinforcement learning, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
+Preserve these constraints: LQR-only primitive controllers, 0.100 s horizon, 5 controller-input slots, 20 ms controller update, no PD/PID, no TVLQR active workflow, no new controller family, no fan-layout-specific controller logic, no hidden speed gate, no energy-loss hard failure, no stale v4.10 evidence, and no hardware readiness, real-flight transfer, mission success, full autonomy, or memory-improvement claim until R11 and later real flight evidence pass.
 <!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
 
 ## LQR-stabilised environment-conditioned primitive library after model-only restart
@@ -244,10 +163,11 @@ measured state
 + local flow context
 + LQR-stabilised primitive catalogue
     -> primitive outcome model
-    -> viability governor with safe exploration/exploitation
+    -> transition viability governor
     -> selected 0.10 s primitive
+    -> entry_class -> exit_class transition log
     -> episode outcome log
-    -> directional 3D residual lift-belief update
+    -> directional 3D residual updraft-gain update
     -> next launch
 ```
 
@@ -654,26 +574,26 @@ Implementation must distinguish two non-z-boundary primitive uses:
 
 ```text
 continuation_valid
-    The primitive finishes with enough x-y wall margin, attitude margin, and state validity to seed another primitive in the same simulated episode.
+    The primitive finishes in a chain-compatible exit class that can seed another primitive in the same simulated episode.
 
 episode_terminal_useful
-    The primitive may terminate at an x-y wall limit or lateral safety-volume edge, but it still provides useful lift capture, finite dwell, energy retention, or boundary evidence for the repeated-launch objective. It is retained for archive learning and repeated-launch evaluation, but not used as a downstream continuation state.
+    The primitive may terminate at an x-y wall limit or lateral safety-volume edge, but it still provides useful lift capture, finite dwell, updraft extraction, or boundary evidence for the repeated-launch objective. It is retained for archive learning and repeated-launch evaluation, but not used as a downstream continuation state.
 ```
 
 This distinction prevents the governor from rejecting every useful primitive merely because every launch eventually reaches the lateral boundary in the small arena. The archive records both labels; the selector decides later whether the current mode is continuation or terminal episode use.
 
-Recommended physical start trigger:
+Recommended hardware-only physical start trigger:
 
 ```text
 Vicon rigid body valid for several consecutive frames
-speed above start threshold
+speed readiness logged by the launch system if required for hardware arming
 state inside gate or accepted tolerance shell
 controller has valid pose and command path ready
 ```
 
 ### 7.1 Primitive-start distribution for archive and replay
 
-The fixed launch gate is the physical episode start, but it is not the only primitive-start state used for primitive outcome evidence. A primitive may be attempted at launch, or it may be attempted after a previous primitive has ended. Archive generation should therefore use a mixed primitive-start distribution, with launch-gate states treated as one important subcase of the broader primitive-start distribution rather than as a separate algorithm or separate result family.
+The fixed launch gate is the physical episode start, but it is not the only primitive-start state used for primitive outcome evidence. A primitive may be attempted at launch, or it may be attempted after a previous primitive has ended. Archive generation should therefore use a mixed primitive-start distribution and must label every rollout as a transition object, with an explicit `entry_class -> exit_class` pair.
 
 Do not use this distribution to rebuild fixed primitive chains or reachable-state chains. The archive should sample independent primitive-attempt states and ask what happens if one primitive is attempted from that state and context. Single-primitive exit states may be resampled into an in-flight start-state pool, but they must be logged as independent primitive-start samples rather than as part of an optimised chain or arena-specific action sequence.
 
@@ -863,12 +783,18 @@ energy residual
 lift dwell time
 minimum safety margin
 termination label
+entry_class
+exit_class
+transition_success_probability
+hard_failure_probability
+updraft_gain_proxy
+flight_time
 continuation_valid probability or label
 episode_terminal_useful probability or label
 ```
 
 
-The outcome model should keep continuation and terminal-use labels separate. A primitive that is useful as an episode-ending lift-capture action should not be counted as a continuation-valid primitive unless its exit state also satisfies the margin and state-validity checks needed to start another primitive.
+The outcome model should keep continuation, terminal-use, and transition labels separate. A primitive that is locally accepted but exits to the wrong state class is not a chain-compatible primitive for its declared role.
 
 The model must remain explainable enough to support a robotics-journal method section.
 
@@ -876,18 +802,18 @@ The model must remain explainable enough to support a robotics-journal method se
 
 ## 10. Viability governor
 
-The governor is the safety filter. It rejects primitives before execution if predicted, checked, or simulated behaviour violates:
+The governor is the transition and safety filter. It rejects primitives before execution if predicted, checked, or simulated behaviour violates:
 
 ```text
 safety volume
-minimum wall / floor / ceiling margin
+floor / ceiling safety or hard arena boundary
 attitude or incidence limits
 surface limits
 actuator saturation
 valid LQR synthesis and closed-loop audit
-primitive entry set
-exit check
-recovery margin
+primitive entry class
+required exit class
+transition compatibility
 uncertainty margin
 supported latency / LQR feedback mode
 ```
@@ -902,9 +828,9 @@ terminal failure. Raw `minimum_speed_m_s` may remain in legacy rollout telemetry
 for backward compatibility, but speed margin must not block, terminate, route,
 or score a primitive.
 
-The governor is where x-y wall risk is converted into a selection penalty or rejection for real execution. Archive generation should preserve `episode_terminal_useful` x-y boundary evidence first, then the governor learns or applies the conservative decision boundary from those labelled outcomes.
+The governor is where x-y boundary proximity is routed into `boundary_near` or recovery/safe-terminal transitions. Archive generation should preserve `episode_terminal_useful` x-y boundary evidence first, then the governor learns or applies conservative transition decisions from those labelled outcomes.
 
-Governor wall admission is heading-aware: preselection uses the logged `governor_wall_margin_m`, normally `min(front_wall_margin_m, left_wall_margin_m, right_wall_margin_m)`, while all-wall and rear-wall margins remain audit and rollout-boundary fields. The active soft gain terms are `updraft_gain_weight` and `terminal_updraft_gain_weight`; legacy `energy_weight` names may be read from old frozen configs but must not be emitted by new governor manifests. If a compact representative has no supported outcome evidence, the rejection reason is `missing_outcome_evidence_for_candidate` before any zero-probability test is applied.
+Governor admission is transition-class based: `launch_gate` uses `launch_capable`, `post_launch_degraded` or `inflight_stable` uses `inflight_only`, and `boundary_near` or `recoverable_degraded` uses `terminal_or_recovery`. Wall margin fields remain audit and rollout-boundary telemetry, but `boundary_near` is a route state, not automatic failure. The active soft gain terms are `updraft_gain_weight` and `terminal_updraft_gain_weight`; legacy `energy_weight` names may be read from old frozen configs but must not be emitted by new governor manifests. If a compact representative has no supported outcome evidence, the rejection reason is `missing_outcome_evidence_for_candidate` before any zero-probability test is applied.
 
 The governor must therefore support two explicit operating modes:
 
@@ -933,13 +859,14 @@ primitive_step_index >= 1
 
 The governor does not need a separate "is this launch?" detector beyond `primitive_step_index = 0`. Later recovery routing is state-based: the system does not know whether the next primitive is the final allowed primitive, so recovery/safe-exit candidates become viable when the current state itself indicates degraded margin or boundary-near conditions. This prevents recovery primitives from being ignored until after it is too late.
 
-Suggested utility:
+Active utility:
 
 ```text
-utility = predicted_energy_residual
-        + lift_dwell_weight * predicted_lift_dwell_time
-        - uncertainty_weight * local_uncertainty
-        - saturation_weight * predicted_saturation
+utility = transition_viability
+        + updraft_gain_weight * predicted_updraft_gain_proxy
+        + flight_time_weight * predicted_flight_time
+        + residual_memory_weight * residual_updraft_correction
+        - hard_failure_weight * hard_failure_probability
 ```
 
 Keep the score simple enough to explain in one slide or algorithm box.
@@ -950,19 +877,22 @@ The governor must log both accepted and rejected candidates. Rejection logs are 
 
 ## 11. Repeated-launch belief
 
-The belief layer estimates where useful lift was observed and how stale that information is. A first auditable update is:
+The belief layer estimates residual updraft gain for repeated launches inside one paired validation case. It is a small score modifier only; it cannot alter state classification, entry-class rules, or exit-class compatibility. A first auditable update is:
 
 ```text
 b_{k+1}(r) = lambda b_k(r) + (1 - lambda) w_hat_k(r)
 ```
 
-Evaluate:
+Thesis-core comparison:
 
 ```text
-lambda in {0.0, 0.5, 0.8, 0.95}
+no_memory_baseline
+directional_3d_residual_memory_h5
+directional_3d_residual_memory_h20
+directional_3d_residual_memory_h100
 ```
 
-where `lambda = 0` is the no-memory baseline.
+Safe-explore policies and older 14-condition matrices are ablation/appendix material only.
 
 The belief proposes objectives or lift-seeking context. The viability governor still decides whether a primitive is allowed.
 
@@ -973,14 +903,11 @@ improve lift capture, finite dwell, and energy retention across launches
 while preserving safety margins and rejection logs
 ```
 
-Evaluation policies:
+Do not present R9 as thesis-facing evidence. The thesis-facing repeated-launch stages are:
 
 ```text
-no_memory_baseline
-empty_frozen_prior_baseline
-environment_conditioned_selector_without_memory
-environment_conditioned_selector_with_episodic_lift_belief
-oracle_simulation_upper_bound_optional
+R10 governor tuning
+R11 held-out validation
 ```
 
 ---

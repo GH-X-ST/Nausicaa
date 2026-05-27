@@ -89,7 +89,8 @@ CONTROLLING_DOCS = (
     Path("docs/housekeeping_and_naming_rules.md"),
     Path("docs/PR.txt"),
 )
-STAGE_ORDER = ("R5", "R7", "R8", "R9", "R10", "R11")
+STAGE_ORDER = ("R5", "R7", "R8", "R10", "R11")
+INTERNAL_PREFLIGHT_STAGES = ("R9",)
 ARCHIVED_STAGES = ("R6",)
 BLOCKED_CLAIMS = (
     "hardware_readiness",
@@ -609,7 +610,7 @@ def _stage_preflight(stage_id: str, context: dict[str, object]) -> list[dict[str
         rows.append(_check_row(stage_id, "R8_library_and_outcome_available", bool(stages["R8"].get("run_root")) and bool(stages["R8"].get("outcome_run_root")), stages["R8"], "library_root_and_outcome_root"))
     if stage_id == "R10":
         path = _r9_initial_governor_config_path(context)
-        rows.append(_check_row(stage_id, "R9_initial_governor_config_for_R10_available", path is not None, "" if path is None else path.as_posix(), "exists_after_R9_pass"))
+        rows.append(_check_row(stage_id, "R9_initial_governor_config_for_R10_optional_internal_preflight_only", True, "" if path is None else path.as_posix(), "optional_not_active_gate"))
     if stage_id == "R11":
         path = _r10_frozen_governor_config_path(context)
         rows.append(_check_row(stage_id, "R10_frozen_governor_config_for_R11_available", path is not None, "" if path is None else path.as_posix(), "exists_after_R10_pass"))
@@ -719,7 +720,7 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "stage_status_complete", result.get("status") == "complete", result.get("status", ""), "complete"),
             _check_row(stage_id, "not_dry_run_or_reduced_diagnostic", not bool(manifest.get("dry_run_schedule", False)) and manifest.get("validation_protocol") != "reduced_diagnostic_not_target_R10", manifest.get("validation_protocol", ""), "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate"),
             _check_row(stage_id, "pass_gate_true", bool(manifest.get("pass_gate", False)), manifest.get("pass_gate", False), True),
-            _check_row(stage_id, "r10_consumed_r9_initial_governor_config", bool(manifest.get("governor_config_override_active", False)), manifest.get("governor_config_override_active", False), True),
+            _check_row(stage_id, "r10_not_gated_by_r9_internal_preflight", True, manifest.get("governor_config_override_active", False), "R9 optional internal preflight only"),
             _check_row(stage_id, "final_heldout_launch_count_exact", int(manifest.get("actual_final_heldout_launches", 0)) == R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, manifest.get("actual_final_heldout_launches", 0), R10_EXPECTED_FINAL_HELDOUT_LAUNCHES),
             _check_row(stage_id, "history_launch_count_exact", int(manifest.get("actual_history_launches", 0)) == R10_EXPECTED_HISTORY_LAUNCHES, manifest.get("actual_history_launches", 0), R10_EXPECTED_HISTORY_LAUNCHES),
             _check_row(stage_id, "r10_no_model_latency_variation_audit", _r10_variation_audit_passed(run_root), "audit", "passed"),
@@ -810,18 +811,18 @@ def _write_pipeline_manifest(run_root: Path, config: R5R10PipelineConfig, contex
             "R6": "archived_diagnostic_only",
             "R7": "primitive_validation_frozen_w3_holdout",
             "R8": "post_w3_clustering_and_library_size_study",
-            "R9": "internal_reduced_fixed_case_outer_loop_preflight_initial_governor_tuning_for_r10",
-            "R10": "viability_governor_changed_case_tuning_consumes_r9_initial_config",
+            "R9": "internal_preflight_ablation_only_not_active_pipeline_gate",
+            "R10": "viability_governor_changed_case_tuning",
             "R11": "viability_governor_strict_heldout_validation",
         },
-        "full_run_policy": "R5_then_R7_R8_R9_R10_R11_only_after_previous_stage_passes_R6_archived_diagnostic_only",
+        "full_run_policy": "R5_then_R7_R8_R10_R11_only_after_previous_stage_passes_R6_archived_diagnostic_only_R9_internal_preflight_only",
         "thesis_facing_workflow": "R5 -> R7 -> R8 -> R10 -> R11 -> Reality",
         "r8_thesis_role": "post_R7_library_compression_and_library_size_cross_study",
         "r9_thesis_role": "internal_preflight_excluded_from_thesis_workflow_narrative",
-        "execution_scope": "R5_only" if (config.stop_after_stage or "").upper() == "R5" else "R5_R7_R8_R9_R10_R11_chain",
+        "execution_scope": "R5_only" if (config.stop_after_stage or "").upper() == "R5" else "R5_R7_R8_R10_R11_chain",
         "archived_stages": list(ARCHIVED_STAGES),
         "r5_only_scope": bool((config.stop_after_stage or "").upper() == "R5"),
-        "R7_R8_R9_R10_R11_deliberately_not_run_when_stop_after_stage_R5": bool((config.stop_after_stage or "").upper() == "R5"),
+        "R7_R8_R10_R11_deliberately_not_run_when_stop_after_stage_R5": bool((config.stop_after_stage or "").upper() == "R5"),
         "r5_expected_dense_rows": int(L6_RICH_SIDE_ROW_COUNT),
         "active_primitive_count": int(len(ACTIVE_PRIMITIVE_IDS)),
         "launch_capture_primitive_ids": list(LAUNCH_CAPTURE_PRIMITIVE_IDS),
@@ -869,7 +870,8 @@ def _write_pipeline_report(run_root: Path, context: dict[str, object], *, status
         f"- Worker/chunk/storage settings: workers `{r5_manifest.get('selected_worker_count', '')}`, chunk count `{r5_manifest.get('chunk_count', '')}`, chunk size `{r5_manifest.get('candidate_chunk_size', '')}`, storage `{r5_manifest.get('storage_format', '')}`.",
         f"- Launch-capture primitive IDs: `{json.dumps(list(LAUNCH_CAPTURE_PRIMITIVE_IDS))}`",
         "- R6 is archived as diagnostic-only and is not an active gate in this pipeline.",
-        "- R7-R11 deliberately not run when `--stop-after-stage R5` is selected.",
+        "- Active thesis workflow: R5 -> R7 -> R8 -> R10 -> R11 -> Reality; R9 is internal preflight/ablation only.",
+        "- R7-R8-R10-R11 deliberately not run when `--stop-after-stage R5` is selected.",
         "- Claim boundary: simulation evidence only; no hardware readiness, real-flight transfer, mission success, full autonomy, or memory-improvement claim is made here.",
         "",
         "Stages:",

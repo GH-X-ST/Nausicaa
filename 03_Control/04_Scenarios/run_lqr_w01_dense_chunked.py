@@ -75,6 +75,7 @@ from primitive_timing_contract import (  # noqa: E402
     primitive_timing_contract_row,
 )
 from state_sampling import archive_state_sample_for_family, archive_state_sample_for_row, archive_state_sample_row, start_state_family_for_row  # noqa: E402
+from transition_labels import transition_contract_row, transition_row_fields  # noqa: E402
 
 
 W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v53"
@@ -685,6 +686,14 @@ def _row_for_index(
     row.update({f"context_{key}": value for key, value in environment_context_row(context).items()})
     row.update({f"surrogate_{key}": value for key, value in surrogate_binding_row(binding).items()})
     row.update({f"environment_{key}": value for key, value in environment_instance_row(environment).items()})
+    row.update(
+        transition_row_fields(
+            row,
+            entry_role=variant.entry_role,
+            start_state_family=sample.start_state_family,
+            primitive_step_index=0 if sample.start_state_family == "launch_gate" else None,
+        )
+    )
     if compatible and binding.surrogate_binding_status == "ready":
         row.update({f"implementation_{key}": value for key, value in implementation_instance_row(implementation).items()})
         row.update({f"plant_{key}": value for key, value in plant_instance_row(plant).items()})
@@ -1047,6 +1056,18 @@ def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[ob
             frame,
             ("boundary_use_class", "continuation_valid", "episode_terminal_useful", "outcome_class"),
         )
+        _group_counter_update(
+            grouped["transition_coverage"],
+            frame,
+            (
+                "primitive_id",
+                "entry_role",
+                "transition_entry_class",
+                "transition_exit_class",
+                "transition_chain_compatible",
+                "transition_failure_reason",
+            ),
+        )
         regime_frames.append(_regime_counts_for_frame(frame))
 
     _counter_frame(counters["outcome_class"]).to_csv(filesystem_path(run_root / "metrics" / "outcome_summary.csv"), index=False)
@@ -1094,6 +1115,17 @@ def _write_dense_metrics_from_partitions(run_root: Path, partitions: Iterable[ob
         grouped["boundary_use"],
         ("boundary_use_class", "continuation_valid", "episode_terminal_useful", "outcome_class"),
     ).to_csv(filesystem_path(run_root / "metrics" / "boundary_use_summary.csv"), index=False)
+    _group_counter_frame(
+        grouped["transition_coverage"],
+        (
+            "primitive_id",
+            "entry_role",
+            "transition_entry_class",
+            "transition_exit_class",
+            "transition_chain_compatible",
+            "transition_failure_reason",
+        ),
+    ).to_csv(filesystem_path(run_root / "metrics" / "transition_coverage_summary.csv"), index=False)
     _write_launch_gate_audit_tables(run_root, _combine_regime_counts(regime_frames))
     return int(row_count)
 
@@ -1111,6 +1143,7 @@ def _write_empty_metrics(run_root: Path) -> None:
         "entry_role_compatibility_by_primitive.csv",
         "boundary_use_summary.csv",
         "timing_state_summary.csv",
+        "transition_coverage_summary.csv",
     ):
         pd.DataFrame().to_csv(filesystem_path(run_root / "metrics" / name), index=False)
     _write_launch_gate_audit_tables(run_root, _empty_r5_diagnosis_frame())
@@ -2129,6 +2162,8 @@ def _r5_launch_aware_manifest_fields(*, run_root: Path, status: str, row_count: 
             RECOVERY_REGIME_LABEL,
         ],
         "r5_regime_separation_gate": "launch_capture_rows_judged_only_from_launch_gate_and_not_compensated_by_inflight_or_recovery_rows",
+        "transition_contract": transition_contract_row(),
+        "transition_success_policy": "local_rollout_success_is_diagnostic_only_transition_compatibility_is_required_downstream",
         "launch_capture_primitive_ids": list(LAUNCH_CAPTURE_PRIMITIVE_IDS),
         "active_primitive_count": int(len(ACTIVE_PRIMITIVE_IDS)),
         "expected_launch_gate_rows_per_launch_capture_primitive": _expected_launch_gate_rows_per_launch_capture_primitive(),
@@ -2514,6 +2549,8 @@ def _run_manifest(
         "W2_generated": False,
         "W3_generated": False,
         "entry_role_regime_separation_policy": "role_aware_start_family_schedule_launch_inflight_recovery_not_mixed",
+        "transition_contract": transition_contract_row(),
+        "transition_success_policy": "R5_reports_transition_coverage_without_claiming_local_rollout_success_as_sufficient",
         "role_aware_start_family_mix": START_FAMILY_MIX,
         "mixed_primitive_start_sampling": False,
         "no_small_library_selection": True,

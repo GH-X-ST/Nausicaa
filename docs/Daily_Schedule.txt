@@ -1,41 +1,40 @@
 ﻿DAILY SCHEDULE - ROBUST R5 DRY+ANNULAR-GP SYNTHESIS -> FROZEN W3 HOLDOUT -> POST-W3 LIBRARY-SIZE CROSS-STUDY -> R9/R10/R11 VALIDATION
 
 <!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
-Current blocking update - robust R5 synthesis and frozen W3 holdout
--------------------------------------------------------------------
+## Current controlling update - transition-aware primitive method
 
-The current implementation stage is **hard audit before rerun from R5 (`BLOCKED_FIX_REQUIRED`)**, not R10 and not hardware preparation. The active accepted chain is R5 -> R7 -> R8 -> R9 -> R10 -> R11, with R6 archived diagnostic-only.
+The active thesis algorithm is now deliberately simple and transition-based:
+`R5 -> R7 -> R8 -> R10 -> R11 -> Reality`.
+R9 remains internal preflight only and is not thesis-facing evidence, not a final claim gate, and not required before R10.
 
-Update after W3 run 015: the launch-aware chain is blocked at W3 launch-capture survival. W3 replay completed, but `launch_capable` variants are `0 survived / 192 downgraded`, while in-flight and recovery variants survived. This explains the earlier R9 outer-loop failure and makes the next active task a launch-capture synthesis repair, not an R9 tuning pass.
+Core method:
+1. R5 learns transition-aware primitive variants under rich randomized synthesis.
+2. R7 validates transition compatibility under held-out randomisation with frozen LQR controllers.
+3. R8 compresses only transition-compatible primitives using coverage-aware medoid selection.
+4. R10 tunes the viability governor with residual updraft adaptation on the frozen R8 library.
+5. R11 is strict held-out validation of the frozen R10 governor.
+6. Reality is a later real flight transfer attempt only after simulation gates pass.
 
-The next active implementation package is:
+Every primitive is treated as a transition object with primitive_id, entry_class, exit_class, transition_success_probability, hard_failure_probability, updraft_gain_proxy, flight_time, and controller metadata. The governor asks: given the current state class, which primitive has a valid entry class and predicts a viable exit class?
 
-```text
-repair launch-capture primitive references, weights, and launch_gate start subregimes inside robust randomized R5 dry-air plus annular-GP synthesis
-+ keep R5 dry-air as W0 no-updraft environment while applying W3-style plant and implementation perturbations
-+ repair R9 outcome lookup
-+ repair memory/exploration selection-change metrics
-+ regenerate from R5 through frozen W3, R8, R9, R10, and R11 under the gated pipeline
-```
+Use these compact state classes only unless later data proves more are needed: launch_gate, post_launch_degraded, inflight_stable, boundary_near, recoverable_degraded, safe_terminal, and hard_failure. boundary_near is a route state, not automatic failure. hard_failure is the failure class.
 
-The R5->R11 chain remains required, but any evidence generated before the launch-capture repair is diagnostic for this issue. After the launch-capture synthesis repair, the pipeline must restart at R5 because primitive IDs, entry roles, W0/W1 rows, W3 survivors, R8 representatives, outcome rows, and R9/R10/R11 validation all depend on the frozen primitive catalogue. W2 may be run only as optional diagnostic or legacy comparison evidence.
+Primitive-role transition contract:
+- launch_capable: entry launch_gate; required exit post_launch_degraded or inflight_stable.
+- inflight_only: entry inflight_stable; required exit inflight_stable, boundary_near, or safe_terminal.
+- terminal_or_recovery: entry boundary_near or recoverable_degraded; required exit inflight_stable or safe_terminal.
 
-Implementation order for the current repair:
+No primitive may pass R7 solely on local rollout success. R7 must reject or downgrade locally accepted rows that are not chain-compatible for the declared primitive role. R5 reports transition coverage but does not claim primitive validity from aggregate local accepted rows.
 
-```text
-R4.9 launch-gate repair: keep LQR-only launch-capture subset and R9 lookup/audit fixes
-R5 robust launch-aware dry-air plus annular-GP randomized synthesis and Q/R tuning
-optional R6 W2 fixed-LQR diagnostic replay only if explicitly requested
-R7 frozen held-out W3 fixed-LQR replay only if R5 passes
-R8 five-case coverage-aware medoid library-size cross-study and outcome model only if R7 passes
-R9 is internal reduced fixed-case outer-loop preflight with one no-updraft, one single-fan, and one four-fan outer case per policy/history condition and a 10 s episode budget; it produces the initial governor handoff for R10 and is not formal thesis evidence
-R10 is environment-only changed-case governor tuning only if R9 passes; it consumes the R9 initial handoff when available and writes the frozen governor configuration for R11
-R11 strict held-out environment-only changed-case validation only if R10 passes; full R10/R11 use 120 outer cases per policy/history condition per library-size case after adding a sixth 20-case arena-wide fan-position plus active-fan-count generalisation block
-```
+R8 selection objective is the smallest existing validated set that covers useful entry_class -> exit_class transitions with low hard_failure_probability. Do not average Q/R, synthesize new controllers, mix launch/inflight/recovery roles, or cluster before R7.
 
-For thesis-facing explanation, present the workflow as R5 -> R7 -> R8 -> R10 -> R11 -> Reality only. Treat R8 as the library-compression and library-size cross-study stage; R9 is internal preflight only and not included in the thesis workflow narrative.
+The active governor path is transition_viability_governor: classify current state, filter matching primitive entry class, reject high hard_failure risk, score transition viability plus updraft gain plus flight time plus residual-memory correction, execute the best primitive, then update residual memory. Residual memory is only a small modifier: predicted_updraft_gain = library_prediction + residual_memory_correction. It must not change state classification or entry/exit rules.
 
-Do not proceed from the current blocked R9 result or from W3 run 015 as accepted launch-aware move-on evidence. Both are diagnostic_not_passed for the launch-capture repair.
+Thesis-core comparisons are reduced to no memory versus residual memory histories h5, h20, and h100, with at most one safe-explore ablation. The old 14 policy/history matrix, large repeated history-launch matrices, secondary launch score, exhaustive candidate logs, multiple diagnostic archives, and R9 are audit/ablation/appendix material only.
+
+Memory is reinitialised per final test row. Final scoring is computed only from the final held-out rollout path. full_safe_success is the strict claim gate. updraft_gain_weight is the active soft reward; expected_energy_residual_m is a legacy net-energy audit alias. Low speed is not an active governor rejection reason. Energy loss is also not a hard-failure reason. sample_count remains an outcome-model coverage audit field. R11 consumes the frozen governor config written by R10.
+
+Preserve these constraints: LQR-only primitive controllers, 0.100 s horizon, 5 controller-input slots, 20 ms controller update, no PD/PID, no TVLQR active workflow, no new controller family, no fan-layout-specific controller logic, no hidden speed gate, no energy-loss hard failure, no stale v4.10 evidence, and no hardware readiness, real-flight transfer, mission success, full autonomy, or memory-improvement claim until R11 and later real flight evidence pass.
 <!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
 
 Assumption

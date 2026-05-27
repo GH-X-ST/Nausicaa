@@ -28,6 +28,7 @@ from dense_archive_table_io import (  # noqa: E402
 )
 from prim_cat import LAUNCH_CAPTURE_PRIMITIVE_IDS  # noqa: E402
 from primitive_timing_contract import PRIMITIVE_TIMING_CONTRACT_VERSION, primitive_timing_contract_row  # noqa: E402
+from transition_labels import transition_contract_row, transition_row_fields  # noqa: E402
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
@@ -49,7 +50,9 @@ BLOCKED_CLAIMS = (
 @dataclass(frozen=True)
 class W3SurvivalAnalysisConfig:
     input_root: Path = DEFAULT_W3_ROOT
+    survived_transition_success_rate_min: float = 0.50
     survived_hard_failure_rate_max: float = 0.55
+    downgraded_transition_success_rate_min: float = 0.25
     downgraded_hard_failure_rate_max: float = 0.75
 
 
@@ -68,7 +71,7 @@ def run_w3_survival_analysis(config: W3SurvivalAnalysisConfig) -> dict[str, obje
     for subdir in ("manifests", "metrics", "reports"):
         filesystem_path(input_root / subdir).mkdir(parents=True, exist_ok=True)
 
-    frame = _read_w3_rows(input_root)
+    frame = _ensure_transition_columns(_read_w3_rows(input_root))
     if frame.empty:
         return {
             "status": "blocked",
@@ -78,6 +81,7 @@ def run_w3_survival_analysis(config: W3SurvivalAnalysisConfig) -> dict[str, obje
 
     variant_summary = _variant_summary(frame, config=config)
     environment_summary = _environment_summary(frame)
+    transition_summary = _transition_summary(frame)
     boundary_summary = _count_summary(frame, ["boundary_use_class"])
     failure_summary = _count_summary(frame, ["failure_label", "outcome_class"])
     registry = _survivor_registry(
@@ -88,6 +92,7 @@ def run_w3_survival_analysis(config: W3SurvivalAnalysisConfig) -> dict[str, obje
 
     _write_csv(input_root / "metrics" / "w3_variant_survival_summary.csv", variant_summary)
     _write_csv(input_root / "metrics" / "w3_environment_variant_summary.csv", environment_summary)
+    _write_csv(input_root / "metrics" / "w3_transition_compatibility_summary.csv", transition_summary)
     _write_csv(input_root / "metrics" / "w3_boundary_use_summary.csv", boundary_summary)
     _write_csv(input_root / "metrics" / "w3_failure_summary.csv", failure_summary)
     _write_json(input_root / "manifests" / "w3_survivor_registry.json", registry)
@@ -142,6 +147,40 @@ def _read_w3_rows(input_root: Path) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
+def _ensure_transition_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty or {
+        "transition_entry_class",
+        "transition_exit_class",
+        "transition_chain_compatible",
+    }.issubset(set(frame.columns)):
+        return frame
+    rows = []
+    for row in frame.to_dict(orient="records"):
+        start_state_family = _start_state_family_for_transition_row(row)
+        fields = transition_row_fields(
+            row,
+            entry_role=str(row.get("entry_role", row.get("variant_entry_role", ""))),
+            start_state_family=start_state_family,
+            primitive_step_index=0 if start_state_family == "launch_gate" else None,
+        )
+        rows.append({**row, "start_state_family": start_state_family, **fields})
+    return pd.DataFrame(rows)
+
+
+def _start_state_family_for_transition_row(row: dict[str, object]) -> str:
+    family = str(row.get("start_state_family", "")).strip()
+    if family:
+        return family
+    role = str(row.get("entry_role", row.get("variant_entry_role", ""))).strip()
+    if role == "launch_capable":
+        return "launch_gate"
+    if role == "inflight_only":
+        return "inflight_nominal"
+    if role == "terminal_or_recovery":
+        return "inflight_boundary_near"
+    return ""
+
+
 def _variant_summary(frame: pd.DataFrame, *, config: W3SurvivalAnalysisConfig) -> pd.DataFrame:
     rows = []
     for variant_id, group in frame.groupby("primitive_variant_id", sort=True):
@@ -171,9 +210,9 @@ def _variant_summary(frame: pd.DataFrame, *, config: W3SurvivalAnalysisConfig) -
             rows.append(row)
             continue
 
-        positive = _positive_series(compatible)
+        positive = _transition_success_series(compatible)
         terminal = _terminal_useful_series(compatible)
-        hard = _hard_failure_series(compatible)
+        hard = _transition_hard_failure_series(compatible)
         blocked = _blocked_series(compatible)
         modes = tuple(sorted(str(value) for value in compatible["environment_mode"].dropna().unique()))
         mode_positive_frame = pd.DataFrame(
@@ -185,11 +224,14 @@ def _variant_summary(frame: pd.DataFrame, *, config: W3SurvivalAnalysisConfig) -
         mode_positive = mode_positive_frame.groupby("environment_mode")["_positive"].sum()
         both_modes_positive = all(int(mode_positive.get(mode, 0)) > 0 for mode in W3_ENVIRONMENT_MODES)
         hard_rate = float(int(hard.sum()) / max(1, len(compatible)))
-        useful_count = int(positive.sum()) + int(terminal.sum())
+        transition_success_count = int(positive.sum())
+        transition_success_rate = float(transition_success_count / max(1, len(compatible)))
+        useful_count = transition_success_count
         status, reason = _status_for_variant(
             both_modes_positive=both_modes_positive,
             useful_count=useful_count,
             compatible_row_count=len(compatible),
+            transition_success_rate=transition_success_rate,
             hard_failure_rate=hard_rate,
             config=config,
         )
@@ -205,6 +247,11 @@ def _variant_summary(frame: pd.DataFrame, *, config: W3SurvivalAnalysisConfig) -
                 "hard_failure_count": int(hard.sum()),
                 "blocked_count": int(blocked.sum()),
                 "positive_continuation_count": int(positive.sum()),
+                "transition_chain_compatible_count": transition_success_count,
+                "transition_chain_compatible_rate": transition_success_rate,
+                "transition_success_probability": transition_success_rate,
+                "transition_exit_classes_seen": _unique_join(compatible, "transition_exit_class"),
+                "transition_pairs_seen": _unique_join(compatible, "transition_pair"),
                 "accepted_count": int((compatible["outcome_class"].astype(str) == "accepted").sum()),
                 "continuation_valid_rate": float(_continuation_series(compatible).sum() / max(1, len(compatible))),
                 "episode_terminal_useful_rate": float(terminal.sum() / max(1, len(compatible))),
@@ -272,15 +319,24 @@ def _status_for_variant(
     both_modes_positive: bool,
     useful_count: int,
     compatible_row_count: int,
+    transition_success_rate: float,
     hard_failure_rate: float,
     config: W3SurvivalAnalysisConfig,
 ) -> tuple[str, str]:
     if compatible_row_count <= 0:
         return "not_run", "no_compatible_rows"
-    if both_modes_positive and hard_failure_rate <= float(config.survived_hard_failure_rate_max):
-        return "survived", "both_W3_modes_positive_and_hard_failure_rate_within_survival_limit"
-    if useful_count > 0 and hard_failure_rate <= float(config.downgraded_hard_failure_rate_max):
-        return "downgraded", "useful_but_partial_or_terminal_W3_evidence"
+    if (
+        both_modes_positive
+        and float(transition_success_rate) >= float(config.survived_transition_success_rate_min)
+        and hard_failure_rate <= float(config.survived_hard_failure_rate_max)
+    ):
+        return "survived", "transition_compatible_in_both_W3_modes_and_hard_failure_rate_within_survival_limit"
+    if (
+        useful_count > 0
+        and float(transition_success_rate) >= float(config.downgraded_transition_success_rate_min)
+        and hard_failure_rate <= float(config.downgraded_hard_failure_rate_max)
+    ):
+        return "downgraded", "some_transition_compatible_W3_evidence_but_not_survivor_gate"
     return "eliminated", "no_useful_evidence_or_hard_failures_dominate"
 
 
@@ -288,19 +344,53 @@ def _environment_summary(frame: pd.DataFrame) -> pd.DataFrame:
     compatible = frame[_bool_series(frame.get("entry_role_compatible", False))].copy()
     if compatible.empty:
         return pd.DataFrame()
-    compatible["_positive_continuation"] = _positive_series(compatible)
+    compatible["_positive_continuation"] = _transition_success_series(compatible)
     compatible["_terminal_useful"] = _terminal_useful_series(compatible)
-    compatible["_hard_failure"] = _hard_failure_series(compatible)
+    compatible["_hard_failure"] = _transition_hard_failure_series(compatible)
     return (
         compatible.groupby(["primitive_variant_id", "primitive_id", "environment_mode"], dropna=False)
         .agg(
             compatible_row_count=("primitive_variant_id", "size"),
             positive_continuation_count=("_positive_continuation", "sum"),
+            transition_chain_compatible_count=("_positive_continuation", "sum"),
             episode_terminal_useful_count=("_terminal_useful", "sum"),
             hard_failure_count=("_hard_failure", "sum"),
             minimum_wall_margin_min_m=("minimum_wall_margin_m", "min"),
             energy_residual_mean_m=("energy_residual_m", "mean"),
             lift_dwell_mean_s=("lift_dwell_time_s", "mean"),
+        )
+        .reset_index()
+    )
+
+
+def _transition_summary(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return pd.DataFrame()
+    work = frame.copy()
+    work["_transition_chain_compatible"] = _transition_success_series(work)
+    work["_transition_hard_failure"] = _transition_hard_failure_series(work)
+    group_columns = [
+        column
+        for column in (
+            "primitive_id",
+            "entry_role",
+            "start_state_family",
+            "environment_mode",
+            "transition_entry_class",
+            "transition_exit_class",
+            "transition_pair",
+            "transition_failure_reason",
+        )
+        if column in work.columns
+    ]
+    if not group_columns:
+        return pd.DataFrame()
+    return (
+        work.groupby(group_columns, dropna=False)
+        .agg(
+            row_count=("primitive_variant_id", "size"),
+            transition_chain_compatible_count=("_transition_chain_compatible", "sum"),
+            hard_failure_count=("_transition_hard_failure", "sum"),
         )
         .reset_index()
     )
@@ -342,13 +432,15 @@ def _survivor_registry(
     source_w01_root = Path(raw_source_w01_root) if raw_source_w01_root else Path("")
     status_rule = {
         "compatible_rows_only": True,
-        "positive_continuation": "continuation_valid_true_or_outcome_class_accepted",
+        "positive_continuation": "transition_chain_compatible_true",
         "terminal_useful": "episode_terminal_useful_true_or_boundary_use_class_episode_terminal_useful",
-        "hard_failure": "outcome_class_failed_or_boundary_use_class_hard_failure",
-        "survived": "both_W3_modes_positive_and_hard_failure_rate_less_or_equal_survived_limit",
+        "hard_failure": "transition_exit_class_hard_failure_or_legacy_hard_failure",
+        "survived": "both_W3_modes_transition_compatible_and_transition_success_rate_above_min_and_hard_failure_rate_less_or_equal_survived_limit",
         "registry_pass": "requires_nonzero_survivors_and_at_least_one_survivor_for_every_launch_capture_family",
-        "downgraded": "useful_terminal_or_partial_continuation_and_hard_failure_rate_less_or_equal_downgraded_limit",
+        "downgraded": "partial_transition_compatible_evidence_and_hard_failure_rate_less_or_equal_downgraded_limit",
+        "survived_transition_success_rate_min": float(config.survived_transition_success_rate_min),
         "survived_hard_failure_rate_max": float(config.survived_hard_failure_rate_max),
+        "downgraded_transition_success_rate_min": float(config.downgraded_transition_success_rate_min),
         "downgraded_hard_failure_rate_max": float(config.downgraded_hard_failure_rate_max),
     }
     role_summary = _role_survival_summary(variant_summary)
@@ -377,6 +469,7 @@ def _survivor_registry(
         "not_run_count": int((variant_summary["w3_variant_status"] == "not_run").sum()),
         "status_vocabulary": list(STATUS_VOCABULARY),
         "status_rule": status_rule,
+        "transition_contract": transition_contract_row(),
         "claim_status": "simulation_only_W3_variant_survival_analysis",
         "blocked_claims": list(BLOCKED_CLAIMS),
         "survivors": _records_for_registry(survivors),
@@ -448,6 +541,11 @@ def _records_for_registry(frame: pd.DataFrame) -> list[dict[str, object]]:
         "blocked_count",
         "compatible_row_count",
         "incompatible_row_count",
+        "transition_chain_compatible_count",
+        "transition_chain_compatible_rate",
+        "transition_success_probability",
+        "transition_exit_classes_seen",
+        "transition_pairs_seen",
         "w3_environment_modes_seen",
         "K_gain_checksum",
         "augmented_A_checksum",
@@ -556,6 +654,12 @@ def _positive_series(frame: pd.DataFrame) -> pd.Series:
     return _continuation_series(frame) | (frame["outcome_class"].astype(str) == "accepted")
 
 
+def _transition_success_series(frame: pd.DataFrame) -> pd.Series:
+    if "transition_chain_compatible" in frame.columns:
+        return _bool_series(frame["transition_chain_compatible"])
+    return _positive_series(frame)
+
+
 def _terminal_useful_series(frame: pd.DataFrame) -> pd.Series:
     return _bool_series(frame.get("episode_terminal_useful", False)) | (
         frame["boundary_use_class"].astype(str) == "episode_terminal_useful"
@@ -566,6 +670,12 @@ def _hard_failure_series(frame: pd.DataFrame) -> pd.Series:
     return (frame["outcome_class"].astype(str) == "failed") | (
         frame["boundary_use_class"].astype(str) == "hard_failure"
     )
+
+
+def _transition_hard_failure_series(frame: pd.DataFrame) -> pd.Series:
+    if "transition_exit_class" in frame.columns:
+        return frame["transition_exit_class"].fillna("").astype(str).eq("hard_failure") | _hard_failure_series(frame)
+    return _hard_failure_series(frame)
 
 
 def _blocked_series(frame: pd.DataFrame) -> pd.Series:
@@ -586,6 +696,13 @@ def _safe_mean(frame: pd.DataFrame, column: str) -> float:
     if column not in frame.columns or frame.empty:
         return 0.0
     return float(pd.to_numeric(frame[column], errors="coerce").mean())
+
+
+def _unique_join(frame: pd.DataFrame, column: str) -> str:
+    if column not in frame.columns:
+        return ""
+    values = sorted(str(value) for value in frame[column].fillna("").astype(str).unique() if str(value))
+    return ";".join(values)
 
 
 def _json_scalar(value):
@@ -609,7 +726,9 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build W3 variant-level survival registry.")
     parser.add_argument("--input-root", type=Path, default=DEFAULT_W3_ROOT)
+    parser.add_argument("--survived-transition-success-rate-min", type=float, default=0.50)
     parser.add_argument("--survived-hard-failure-rate-max", type=float, default=0.55)
+    parser.add_argument("--downgraded-transition-success-rate-min", type=float, default=0.25)
     parser.add_argument("--downgraded-hard-failure-rate-max", type=float, default=0.75)
     return parser.parse_args(argv)
 
@@ -619,7 +738,9 @@ def main(argv: list[str] | None = None) -> int:
     result = run_w3_survival_analysis(
         W3SurvivalAnalysisConfig(
             input_root=args.input_root,
+            survived_transition_success_rate_min=args.survived_transition_success_rate_min,
             survived_hard_failure_rate_max=args.survived_hard_failure_rate_max,
+            downgraded_transition_success_rate_min=args.downgraded_transition_success_rate_min,
             downgraded_hard_failure_rate_max=args.downgraded_hard_failure_rate_max,
         )
     )
