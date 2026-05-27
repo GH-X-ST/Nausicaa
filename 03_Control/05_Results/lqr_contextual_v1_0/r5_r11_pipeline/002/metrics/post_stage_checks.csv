@@ -1,0 +1,13 @@
+timestamp_utc,stage_id,check_id,passed,observed,required
+2026-05-27T16:36:03.896130+00:00,R5,stage_status_dry_run_schedule,True,dry_run_schedule,dry_run_schedule
+2026-05-27T16:36:03.896130+00:00,R5,method_evidence_level_dry_schedule_only,True,w01_dry_schedule_only,w01_dry_schedule_only
+2026-05-27T16:36:03.896130+00:00,R5,dry_schedule_rows_requested_active_dense_target,True,134400,134400
+2026-05-27T16:36:03.896130+00:00,R5,dry_schedule_no_stale_76800_target,True,134400,not_76800
+2026-05-27T16:36:03.896130+00:00,R5,dry_schedule_candidate_count_32,True,32,32
+2026-05-27T16:36:03.896130+00:00,R5,dry_schedule_paired_tests_per_candidate_100,True,100,100
+2026-05-27T16:36:03.896130+00:00,R5,dry_schedule_active_primitive_count_14,True,14,14
+2026-05-27T16:36:03.896130+00:00,R5,dry_schedule_all_six_launch_capture_ids,True,"[""launch_capture_glide_stabilise"", ""launch_capture_lift_seek"", ""launch_capture_energy_build"", ""launch_capture_shallow_left"", ""launch_capture_shallow_right"", ""launch_capture_safe_handoff""]","[""launch_capture_glide_stabilise"", ""launch_capture_lift_seek"", ""launch_capture_energy_build"", ""launch_capture_shallow_left"", ""launch_capture_shallow_right"", ""launch_capture_safe_handoff""]"
+2026-05-27T16:36:03.896130+00:00,R5,dry_schedule_all_start_state_regimes,True,"[""inflight_boundary_near"", ""inflight_lift_region"", ""inflight_nominal"", ""inflight_recovery_edge"", ""launch_gate""]","[""inflight_boundary_near"", ""inflight_lift_region"", ""inflight_nominal"", ""inflight_recovery_edge"", ""launch_gate""]"
+2026-05-27T16:36:03.896130+00:00,R5,dry_schedule_r6_archived,True,True,True
+2026-05-27T16:36:03.896130+00:00,R5,dry_schedule_w3_direct_source,True,frozen_R5_W0_W1_controller_bundle,frozen_R5_W0_W1_controller_bundle
+2026-05-27T16:36:03.900126+00:00,R5,no_generated_file_above_100mb,True,7.971,<=100.0

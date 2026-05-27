@@ -2271,13 +2271,16 @@ def _manifest_checksum_gate_blockers(*, run_root: Path) -> list[str]:
 
 def _contract_audit_gate_blockers() -> list[str]:
     try:
-        from run_w01_w2_w3_contract_audit import run_w01_w2_w3_contract_audit
+        from run_v53_algorithm_contract_audit import AlgorithmContractAuditConfig, run_v53_algorithm_contract_audit
 
-        findings = run_w01_w2_w3_contract_audit(Path("."))
+        result = run_v53_algorithm_contract_audit(
+            AlgorithmContractAuditConfig(repo_root=Path("."), dry_run=True)
+        )
     except Exception as exc:
         return [f"contract_audit_not_passed:{type(exc).__name__}"]
-    if findings:
-        return ["contract_audit_not_passed"]
+    if str(result.get("status", "")) != "ready":
+        failed_count = int(result.get("failed_invariant_count", 0) or 0)
+        return [f"contract_audit_not_passed:{failed_count}_failed_invariants"]
     return []
 
 

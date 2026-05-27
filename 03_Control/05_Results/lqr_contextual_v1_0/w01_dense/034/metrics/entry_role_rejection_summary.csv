@@ -1,0 +1,6 @@
+entry_role,start_state_family,row_count,entry_role_rejection_count,entry_role_rejection_rate
+inflight_only,inflight_lift_region,21600,0,0.0
+inflight_only,inflight_nominal,36000,0,0.0
+launch_capable,launch_gate,57600,0,0.0
+terminal_or_recovery,inflight_boundary_near,9600,0,0.0
+terminal_or_recovery,inflight_recovery_edge,9600,0,0.0

@@ -1,0 +1,23 @@
+{
+  "runner_version": "w3_fixed_lqr_survival_replay_v411",
+  "status": "complete",
+  "run_id": 18,
+  "chunk_index": 1,
+  "chunk_count": 23,
+  "row_start": 800,
+  "row_stop": 1600,
+  "row_count": 800,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "partition_path": "w3_survival_rows/c00001.csv.gz",
+  "byte_count": 1715347,
+  "checksum_sha256": "da1f2f6b7a2fe0658a9d4e06dfdd95fbfab3e7d2246ed0023375285745bd30a3",
+  "duration_s": 76.65928554534912,
+  "table_name": "w3_survival_rows",
+  "primitive_timing_contract": {
+    "finite_horizon_s": 0.1,
+    "controller_input_slots_per_primitive": 5,
+    "controller_input_update_period_s": 0.02,
+    "primitive_timing_contract_version": "v411_0p10s_5slot_20ms"
+  }
+}

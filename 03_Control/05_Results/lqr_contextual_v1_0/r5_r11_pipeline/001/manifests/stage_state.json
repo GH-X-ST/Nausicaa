@@ -1,0 +1,68 @@
+{
+  "blocked_reason": "failed_gate:r5_launch_aware_decision_passed_for_review",
+  "docs_alignment_baseline": {
+    "docs/Daily_Schedule.txt": {
+      "byte_count": 23988,
+      "modified_time_utc": "2026-05-27T15:31:15.703857+00:00",
+      "path": "docs/Daily_Schedule.txt",
+      "readable": true,
+      "sha256": "95b8388ad9c83bee59924f6b72d95a6a19a6434f85708e2b456d8c62be924a35"
+    },
+    "docs/Glider_Control_Project_Plan.md": {
+      "byte_count": 81618,
+      "modified_time_utc": "2026-05-27T15:38:15.382767+00:00",
+      "path": "docs/Glider_Control_Project_Plan.md",
+      "readable": true,
+      "sha256": "bbef92a314a992add165ed27ce12448a0bea692772fb99626eb9e860f9ba39df"
+    },
+    "docs/MATLAB Coding.txt": {
+      "byte_count": 6584,
+      "modified_time_utc": "2026-05-27T15:30:55.174727+00:00",
+      "path": "docs/MATLAB Coding.txt",
+      "readable": true,
+      "sha256": "4a0555c1838ba4d12740429f8378b5028a326fa000087c030ad65904ca01fd21"
+    },
+    "docs/PR.txt": {
+      "byte_count": 7783,
+      "modified_time_utc": "2026-05-27T15:30:55.995361+00:00",
+      "path": "docs/PR.txt",
+      "readable": true,
+      "sha256": "8a8a07af3bff676d40383391d5e632a93b16070799a16b174edf6f5627c7e53f"
+    },
+    "docs/Python Coding Instruction.txt": {
+      "byte_count": 13335,
+      "modified_time_utc": "2026-05-27T15:30:55.271798+00:00",
+      "path": "docs/Python Coding Instruction.txt",
+      "readable": true,
+      "sha256": "3e89accab51cabf48507cdeabd7c33d2402fbd7258e89e880d188b060df4e515"
+    },
+    "docs/Python Coding to CODEX.txt": {
+      "byte_count": 8016,
+      "modified_time_utc": "2026-05-27T15:30:55.374953+00:00",
+      "path": "docs/Python Coding to CODEX.txt",
+      "readable": true,
+      "sha256": "f0f6e257eed99200a1741ffd356a5bc9473b7b31313d7a7158df6fa30e954b90"
+    },
+    "docs/Skills.md": {
+      "byte_count": 14963,
+      "modified_time_utc": "2026-05-27T15:31:04.234336+00:00",
+      "path": "docs/Skills.md",
+      "readable": true,
+      "sha256": "e0b93b0a736879aca8b02947ff680c98e6df97186884d42b0ebb501869cb2db2"
+    },
+    "docs/housekeeping_and_naming_rules.md": {
+      "byte_count": 10877,
+      "modified_time_utc": "2026-05-27T15:30:54.961531+00:00",
+      "path": "docs/housekeeping_and_naming_rules.md",
+      "readable": true,
+      "sha256": "2f2c37e3e34dd2a092e8b50af12268e2bd863bc6cffc0792bf7892c3bea7c264"
+    }
+  },
+  "docs_changed_during_run": false,
+  "pipeline_version": "v55_r5_r7_r11_pipeline_r6_archived_with_repeated_docs_guard",
+  "run_id": 1,
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/r5_r11_pipeline/001",
+  "stages": {},
+  "status": "blocked",
+  "updated_utc": "2026-05-27T16:27:26.863185+00:00"
+}
