@@ -1,0 +1,6 @@
+stage_id,library_size_case_id,first_decision_candidate_rows,first_decision_viable_rows,launch_capable_primitive_family_count,launch_capture_primitive_family_count,required_launch_capture_primitive_family_count,missing_launch_capture_primitive_ids,non_launch_capture_launch_capable_primitive_ids,first_decision_audit_mode
+R9_R10_R11,heavy_cluster,9216,6912,6,6,6,,,full_validation
+R9_R10_R11,balanced_cluster,15006,12702,6,6,6,,,full_validation
+R9_R10_R11,light_cluster,15400,13096,6,6,6,,,full_validation
+R9_R10_R11,super_light_cluster,15794,13490,6,6,6,,,full_validation
+R9_R10_R11,no_cluster_no_merge,16188,13884,6,6,6,,,full_validation
