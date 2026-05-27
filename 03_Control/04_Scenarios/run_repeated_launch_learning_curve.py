@@ -56,7 +56,7 @@ from episode_selector import select_compact_representative, selector_decision_ro
 from frozen_w01_controller_bundle import FROZEN_CONTROLLER_READY, load_frozen_w01_controller_bundle  # noqa: E402
 from implementation_instance import implementation_instance_for_layer  # noqa: E402
 from plant_instance import plant_instance_for_layer  # noqa: E402
-from prim_cat import LAUNCH_CAPTURE_PRIMITIVE_IDS, primitive_by_id  # noqa: E402
+from prim_cat import primitive_by_id  # noqa: E402
 from prim_roll import RolloutConfig, rollout_evidence_row, simulate_primitive_rollout  # noqa: E402
 from primitive_timing_contract import PRIMITIVE_FINITE_HORIZON_S, primitive_timing_contract_row  # noqa: E402
 from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS  # noqa: E402
@@ -64,6 +64,7 @@ from state_contract import STATE_INDEX, as_state_vector  # noqa: E402
 from state_sampling import archive_state_sample_for_family  # noqa: E402
 from transition_labels import (
     classify_state,
+    entry_classes_for_state_class,
     required_entry_role_for_state_class,
     start_family_for_state_class,
     transition_contract_row,
@@ -109,7 +110,7 @@ SCHEDULE_PARTITION_ROW_COUNT = 50_000
 CANDIDATE_SCORE_TOP_K_PER_DECISION = 10
 THESIS_FACING_WORKFLOW = "R5 -> R7 -> R8 -> R10 -> R11 -> Reality"
 R9_THESIS_REPORTING_STATUS = "internal_preflight_excluded_from_thesis_workflow_narrative"
-LAUNCH_SEQUENCE_POLICY_ID = "first_0p10s_launch_capture_then_inflight_then_recovery_safe_exit"
+LAUNCH_SEQUENCE_POLICY_ID = "state_class_transition_entry_governor_no_launch_specific_family"
 FIRST_PRIMITIVE_START_FAMILY = "launch_gate"
 POST_LAUNCH_START_FAMILY = "inflight_nominal"
 BOUNDARY_RECOVERY_START_FAMILY = "inflight_boundary_near"
@@ -529,9 +530,12 @@ def _read_outcome_rows(outcome_root: Path) -> dict[str, dict[str, object]]:
         case_id = str(row.get("library_size_case_id", ""))
         compact_id = str(row.get("compact_library_id", ""))
         variant_id = str(row.get("primitive_variant_id", ""))
+        transition_object_id = str(row.get("transition_object_id", ""))
         if compact_id:
             rows[compact_id] = row
             rows[f"{case_id}|{compact_id}"] = row
+        if transition_object_id and compact_id:
+            rows[f"{case_id}|{transition_object_id}|{compact_id}"] = row
         if variant_id and compact_id:
             rows[f"{case_id}|{variant_id}|{compact_id}"] = row
         elif variant_id and variant_id not in rows:
@@ -1077,6 +1081,7 @@ def _run_one_launch(
             row["launch_sequence_policy"] = LAUNCH_SEQUENCE_POLICY_ID
             row["launch_sequence_phase"] = str(route["launch_sequence_phase"])
             row["route_required_entry_role"] = str(route["route_required_entry_role"])
+            row["route_required_entry_class"] = str(route.get("route_required_entry_class", ""))
             row["route_reason"] = str(route["route_reason"])
         candidate_rows_all.extend(
             _compact_candidate_score_rows(
@@ -1104,6 +1109,7 @@ def _run_one_launch(
             "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
             "launch_sequence_phase": str(route["launch_sequence_phase"]),
             "route_required_entry_role": str(route["route_required_entry_role"]),
+            "route_required_entry_class": str(route.get("route_required_entry_class", "")),
             "route_reason": str(route["route_reason"]),
         }
         selector_rows.append(selector_row)
@@ -1156,8 +1162,10 @@ def _run_one_launch(
                 "launch_sequence_phase": str(route["launch_sequence_phase"]),
                 "start_state_family": start_state_family,
                 "route_required_entry_role": str(route["route_required_entry_role"]),
+                "route_required_entry_class": str(route.get("route_required_entry_class", "")),
                 "route_reason": str(route["route_reason"]),
                 "transition_current_state_class": str(route.get("current_state_class", "")),
+                "selected_transition_entry_class": str(selected.get("transition_entry_class", "")),
                 "transition_exit_class": str(rollout_row.get("transition_exit_class", "")),
                 "transition_chain_compatible": bool(rollout_row.get("transition_chain_compatible", False)),
                 "transition_failure_reason": str(rollout_row.get("transition_failure_reason", "")),
@@ -1317,6 +1325,7 @@ def _compact_candidate_score_rows(
                 str(row.get("primitive_variant_id", "")),
                 str(row.get("primitive_id", "")),
                 str(row.get("entry_role", "")),
+                str(row.get("transition_entry_class", "")),
             ]
         )
 
@@ -1349,18 +1358,17 @@ def _compact_candidate_score_rows(
     for row in sorted(viable, key=lambda item: (-score(item), str(item.get("primitive_id", ""))))[: max(1, int(top_k))]:
         add(row, f"top_{int(top_k)}_viable_candidate")
 
-    required_role = str(candidate_rows[0].get("route_required_entry_role", ""))
+    required_entry_class = str(candidate_rows[0].get("route_required_entry_class", ""))
     for primitive_id, rows in _group_rows(
         [
             row
             for row in candidate_rows
-            if str(row.get("entry_role", "")) == required_role
-            and str(row.get("primitive_id", "")) in set(LAUNCH_CAPTURE_PRIMITIVE_IDS)
+            if str(row.get("transition_entry_class", "")) == required_entry_class
         ],
         "primitive_id",
     ).items():
         del primitive_id
-        add(sorted(rows, key=lambda item: (-score(item), str(item.get("primitive_variant_id", ""))))[0], "first_decision_launch_family_availability")
+        add(sorted(rows, key=lambda item: (-score(item), str(item.get("primitive_variant_id", ""))))[0], "required_transition_entry_family_availability")
 
     for reason, rows in _group_rows(candidate_rows, "rejection_reason").items():
         if str(reason).strip() and str(reason).lower() not in {"nan", "none"}:
@@ -1370,13 +1378,9 @@ def _compact_candidate_score_rows(
         if str(role).strip():
             add(sorted(rows, key=lambda item: (-score(item), str(item.get("primitive_variant_id", ""))))[0], "entry_role_representative")
 
-    if int(primitive_step_index) == 0:
-        for primitive_id, rows in _group_rows(
-            [row for row in candidate_rows if str(row.get("entry_role", "")) == "launch_capable"],
-            "primitive_id",
-        ).items():
-            del primitive_id
-            add(sorted(rows, key=lambda item: (-score(item), str(item.get("primitive_variant_id", ""))))[0], "first_decision_launch_capable_family_representative")
+    for entry_class, rows in _group_rows(candidate_rows, "transition_entry_class").items():
+        if str(entry_class).strip():
+            add(sorted(rows, key=lambda item: (-score(item), str(item.get("primitive_variant_id", ""))))[0], "transition_entry_class_representative")
 
     return list(keep.values())
 
@@ -1400,7 +1404,9 @@ def validation_route_for_primitive_step(primitive_step_index: int, *, state: np.
             state,
             primitive_step_index=int(primitive_step_index),
         )
-    required_role = required_entry_role_for_state_class(current_state_class) or _required_entry_role_for_start_family(start_family)
+    required_role = required_entry_role_for_state_class(current_state_class) or "transition_object"
+    required_entry_classes = entry_classes_for_state_class(current_state_class)
+    required_entry_class = required_entry_classes[0] if required_entry_classes else ""
     return {
         "current_state_class": current_state_class,
         "start_state_family": start_family,
@@ -1409,6 +1415,7 @@ def validation_route_for_primitive_step(primitive_step_index: int, *, state: np.
             start_state_family=start_family,
         ),
         "route_required_entry_role": required_role,
+        "route_required_entry_class": required_entry_class,
         "route_reason": reason,
     }
 
@@ -1461,7 +1468,7 @@ def _continuation_state_class_start_family_and_reason(
 
 def _launch_sequence_phase_for_start_family(primitive_step_index: int, *, start_state_family: str) -> str:
     if int(primitive_step_index) == 0:
-        return "first_0p10s_launch_capture"
+        return "first_0p10s_launch_entry"
     family = str(start_state_family)
     if family == BOUNDARY_RECOVERY_START_FAMILY:
         return "state_routed_boundary_recovery"
@@ -1475,16 +1482,12 @@ def _launch_sequence_phase_for_step(primitive_step_index: int) -> str:
 
 
 def _required_entry_role_for_start_family(start_state_family: str) -> str:
-    family = str(start_state_family)
-    if family == FIRST_PRIMITIVE_START_FAMILY:
-        return "launch_capable"
-    if family in {BOUNDARY_RECOVERY_START_FAMILY, TERMINAL_SAFE_EXIT_START_FAMILY}:
-        return "terminal_or_recovery"
-    return "inflight_only"
+    del start_state_family
+    return "transition_object"
 
 
 def _governor_mode_for_route(route: dict[str, object]) -> str:
-    if str(route.get("route_required_entry_role", "")) == "terminal_or_recovery":
+    if str(route.get("route_required_entry_class", "")) in {"boundary_near", "recoverable_degraded"}:
         return "terminal_episode_mode"
     return "continuation_mode"
 
@@ -1556,6 +1559,7 @@ def _context_payload(
         "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
         "launch_sequence_phase": str(route.get("launch_sequence_phase", _launch_sequence_phase_for_step(primitive_step_index))),
         "route_required_entry_role": str(route.get("route_required_entry_role", _required_entry_role_for_start_family(start_state_family))),
+        "route_required_entry_class": str(route.get("route_required_entry_class", "")),
         "route_reason": str(route.get("route_reason", "")),
         "current_state_class": str(route.get("current_state_class", classify_state(start_state_family=start_state_family))),
         "transition_current_state_class": str(route.get("current_state_class", classify_state(start_state_family=start_state_family))),
@@ -2233,6 +2237,15 @@ def _launch_sequence_compliant(rows: list[dict[str, object]]) -> bool:
         expected_role = _required_entry_role_for_start_family(start_family)
         if str(row.get("selected_entry_role", "")) != expected_role:
             return False
+        required_entry_class = str(row.get("route_required_entry_class", "")).strip()
+        allowed_entry_classes = {required_entry_class} if required_entry_class else set(
+            entry_classes_for_state_class(classify_state(start_state_family=start_family))
+        )
+        selected_entry_class = str(
+            row.get("selected_transition_entry_class", row.get("transition_entry_class", ""))
+        ).strip()
+        if selected_entry_class and selected_entry_class not in allowed_entry_classes:
+            return False
     return True
 
 
@@ -2379,7 +2392,6 @@ def _write_first_decision_audits_from_partitions(
     rejection_rows: list[dict[str, object]] = []
     entry_rows: list[dict[str, object]] = []
     availability: dict[str, dict[str, object]] = {}
-    launch_capture_ids = set(LAUNCH_CAPTURE_PRIMITIVE_IDS)
     for partition in partitions:
         if partition.table_name != "candidate_score_log":
             continue
@@ -2406,7 +2418,7 @@ def _write_first_decision_audits_from_partitions(
             .to_dict(orient="records")
         )
         entry_rows.extend(
-            first.groupby(["library_size_case_id", "primitive_id", "entry_role", "start_state_family"], dropna=False)
+            first.groupby(["library_size_case_id", "primitive_id", "transition_entry_class", "start_state_family"], dropna=False)
             .agg(candidate_rows=("primitive_variant_id", "count"), viable_rows=("viable_int", "sum"))
             .reset_index()
             .to_dict(orient="records")
@@ -2418,41 +2430,26 @@ def _write_first_decision_audits_from_partitions(
                 {
                     "stage_id": "R9_R10_R11",
                     "library_size_case_id": key,
-                    "launch_capable_primitives": set(),
-                    "launch_capture_primitives": set(),
+                    "launch_gate_entry_primitives": set(),
                     "first_decision_candidate_rows": 0,
                     "first_decision_viable_rows": 0,
                 },
             )
-            launch_capable = group[group["entry_role"].astype(str) == "launch_capable"]
-            row["launch_capable_primitives"].update(launch_capable["primitive_id"].astype(str).tolist())
-            row["launch_capture_primitives"].update(
-                launch_capable.loc[
-                    launch_capable["primitive_id"].astype(str).isin(launch_capture_ids),
-                    "primitive_id",
-                ]
-                .astype(str)
-                .tolist()
-            )
+            launch_entry = group[group["transition_entry_class"].astype(str) == "launch_gate"]
+            row["launch_gate_entry_primitives"].update(launch_entry["primitive_id"].astype(str).tolist())
             row["first_decision_candidate_rows"] = int(row["first_decision_candidate_rows"]) + int(len(group))
             row["first_decision_viable_rows"] = int(row["first_decision_viable_rows"]) + int(group["viable_int"].sum())
     _write_csv(run_root / "metrics" / "first_decision_candidate_summary.csv", _sum_rows(first_decision_rows, ["library_size_case_id", "policy_id", "launch_role"]))
     _write_csv(run_root / "metrics" / "first_decision_governor_rejection_summary.csv", _sum_rows(rejection_rows, ["library_size_case_id", "policy_id", "launch_role", "rejection_reason"]))
-    _write_csv(run_root / "metrics" / "launch_gate_entry_role_audit.csv", _sum_rows(entry_rows, ["library_size_case_id", "primitive_id", "entry_role", "start_state_family"]))
+    _write_csv(run_root / "metrics" / "launch_gate_entry_role_audit.csv", _sum_rows(entry_rows, ["library_size_case_id", "primitive_id", "transition_entry_class", "start_state_family"]))
     availability_rows = []
     for row in availability.values():
-        launch_capable = set(row.pop("launch_capable_primitives"))
-        launch_capture = set(row.pop("launch_capture_primitives"))
-        non_launch_capture_launch_capable = sorted(launch_capable - launch_capture_ids)
-        missing_launch_capture = sorted(launch_capture_ids - launch_capture)
+        launch_entry = set(row.pop("launch_gate_entry_primitives"))
         availability_rows.append(
             {
                 **row,
-                "launch_capable_primitive_family_count": int(len(launch_capable)),
-                "launch_capture_primitive_family_count": int(len(launch_capture)),
-                "required_launch_capture_primitive_family_count": int(len(launch_capture_ids)),
-                "missing_launch_capture_primitive_ids": ",".join(missing_launch_capture),
-                "non_launch_capture_launch_capable_primitive_ids": ",".join(non_launch_capture_launch_capable),
+                "launch_gate_entry_primitive_family_count": int(len(launch_entry)),
+                "launch_gate_entry_primitive_ids": ",".join(sorted(launch_entry)),
                 "first_decision_audit_mode": "full_validation" if any(bool(partition.table_name == "candidate_score_log") for partition in partitions) else "not_run",
             }
         )
@@ -3231,10 +3228,10 @@ def _write_manifest(
         "post_launch_start_state_family": POST_LAUNCH_START_FAMILY,
         "boundary_recovery_start_state_family": BOUNDARY_RECOVERY_START_FAMILY,
         "terminal_safe_exit_start_state_family": TERMINAL_SAFE_EXIT_START_FAMILY,
-        "first_primitive_required_entry_role": "launch_capable",
-        "post_launch_required_entry_role": "inflight_only",
-        "boundary_recovery_required_entry_role": "terminal_or_recovery",
-        "terminal_safe_exit_required_entry_role": "terminal_or_recovery",
+        "first_primitive_required_entry_class": "launch_gate",
+        "post_launch_required_entry_class": "inflight_stable",
+        "boundary_recovery_required_entry_class": "boundary_near_or_recoverable_degraded",
+        "terminal_safe_exit_required_entry_class": "recoverable_degraded",
         "transition_contract": transition_contract_row(),
         "active_governor_path": "transition_viability_governor_v1",
         "boundary_near_status": "route_state_not_automatic_failure",

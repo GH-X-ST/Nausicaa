@@ -23,7 +23,15 @@ def lookup_outcome_for_identity(
     case_id = str(identity.get("library_size_case_id", ""))
     compact_id = str(identity.get("compact_library_id", ""))
     variant_id = str(identity.get("primitive_variant_id", ""))
-    for key in (f"{case_id}|{compact_id}", f"{case_id}|{variant_id}|{compact_id}", compact_id, variant_id):
+    transition_object_id = str(identity.get("transition_object_id", ""))
+    for key in (
+        f"{case_id}|{compact_id}",
+        f"{case_id}|{transition_object_id}|{compact_id}",
+        f"{case_id}|{variant_id}|{compact_id}",
+        compact_id,
+        transition_object_id,
+        variant_id,
+    ):
         if key and key in outcome_rows_by_variant_id:
             return outcome_rows_by_variant_id[key]
     return {}

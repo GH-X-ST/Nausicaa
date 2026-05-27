@@ -84,7 +84,7 @@ def test_v411_timing_contract_exact_five_slots_and_variant_id_sensitivity() -> N
 
     common = {
         "primitive_id": "glide",
-        "entry_role": "inflight_only",
+        "entry_role": "transition_object",
         "reference_state_vector": "[0,0,0]",
         "reference_command_vector": "[0,0,0]",
         "controller_id": "ctrl",
@@ -184,8 +184,9 @@ def test_v411_directional_memory_and_safe_exploration_after_filtering() -> None:
         {
             "compact_library_id": "good",
             "primitive_variant_id": "good",
-            "primitive_id": "launch_capture_glide_stabilise",
-            "entry_role": "launch_capable",
+            "primitive_id": "glide",
+            "entry_role": "transition_object",
+            "transition_entry_class": "launch_gate",
             "controller_id": "ctrl",
             "K_gain_checksum": "k",
             "augmented_A_checksum": "a",
@@ -198,7 +199,8 @@ def test_v411_directional_memory_and_safe_exploration_after_filtering() -> None:
             "compact_library_id": "bad",
             "primitive_variant_id": "bad",
             "primitive_id": "lift_entry",
-            "entry_role": "inflight_only",
+            "entry_role": "transition_object",
+            "transition_entry_class": "inflight_stable",
             "controller_id": "ctrl",
             "K_gain_checksum": "k",
             "augmented_A_checksum": "a",
@@ -209,8 +211,18 @@ def test_v411_directional_memory_and_safe_exploration_after_filtering() -> None:
         },
     ]
     outcome_rows = {
-        "good": {"continuation_probability": 0.8, "hard_failure_risk": 0.1},
-        "bad": {"continuation_probability": 0.9, "hard_failure_risk": 0.1},
+        "good": {
+            "transition_entry_class": "launch_gate",
+            "transition_success_probability": 0.8,
+            "transition_exit_classes_seen": "post_launch_degraded",
+            "hard_failure_risk": 0.1,
+        },
+        "bad": {
+            "transition_entry_class": "inflight_stable",
+            "transition_success_probability": 0.9,
+            "transition_exit_classes_seen": "inflight_stable",
+            "hard_failure_risk": 0.1,
+        },
     }
     selected, rows = select_compact_representative(
         representatives=representatives,
@@ -256,8 +268,9 @@ def test_r9_r10_launch_sequence_routes_launch_inflight_and_state_recovery_select
         {
             "compact_library_id": "launch",
             "primitive_variant_id": "launch",
-            "primitive_id": "launch_capture_glide_stabilise",
-            "entry_role": "launch_capable",
+            "primitive_id": "glide",
+            "entry_role": "transition_object",
+            "transition_entry_class": "launch_gate",
             "controller_id": "ctrl_launch",
             "K_gain_checksum": "k",
             "augmented_A_checksum": "a",
@@ -270,7 +283,8 @@ def test_r9_r10_launch_sequence_routes_launch_inflight_and_state_recovery_select
             "compact_library_id": "glide",
             "primitive_variant_id": "glide",
             "primitive_id": "glide",
-            "entry_role": "inflight_only",
+            "entry_role": "transition_object",
+            "transition_entry_class": "inflight_stable",
             "controller_id": "ctrl_glide",
             "K_gain_checksum": "k",
             "augmented_A_checksum": "a",
@@ -280,10 +294,25 @@ def test_r9_r10_launch_sequence_routes_launch_inflight_and_state_recovery_select
             **timing_payload,
         },
         {
-            "compact_library_id": "recovery",
-            "primitive_variant_id": "recovery",
+            "compact_library_id": "boundary_recovery",
+            "primitive_variant_id": "boundary_recovery",
             "primitive_id": "recovery",
-            "entry_role": "terminal_or_recovery",
+            "entry_role": "transition_object",
+            "transition_entry_class": "boundary_near",
+            "controller_id": "ctrl_recovery",
+            "K_gain_checksum": "k",
+            "augmented_A_checksum": "a",
+            "augmented_B_checksum": "b",
+            "augmented_gain_checksum": "g",
+            "library_size_case_id": "balanced_cluster",
+            **timing_payload,
+        },
+        {
+            "compact_library_id": "degraded_recovery",
+            "primitive_variant_id": "degraded_recovery",
+            "primitive_id": "recovery",
+            "entry_role": "transition_object",
+            "transition_entry_class": "recoverable_degraded",
             "controller_id": "ctrl_recovery",
             "K_gain_checksum": "k",
             "augmented_A_checksum": "a",
@@ -294,9 +323,32 @@ def test_r9_r10_launch_sequence_routes_launch_inflight_and_state_recovery_select
         },
     ]
     outcome_rows = {
-        "launch": {"continuation_probability": 0.7, "hard_failure_risk": 0.1},
-        "glide": {"continuation_probability": 0.9, "hard_failure_risk": 0.1},
-        "recovery": {"continuation_probability": 0.2, "terminal_useful_probability": 0.9, "hard_failure_risk": 0.1},
+        "launch": {
+            "transition_entry_class": "launch_gate",
+            "transition_success_probability": 0.7,
+            "transition_exit_classes_seen": "post_launch_degraded",
+            "hard_failure_risk": 0.1,
+        },
+        "glide": {
+            "transition_entry_class": "inflight_stable",
+            "transition_success_probability": 0.9,
+            "transition_exit_classes_seen": "inflight_stable",
+            "hard_failure_risk": 0.1,
+        },
+        "boundary_recovery": {
+            "transition_entry_class": "boundary_near",
+            "transition_success_probability": 0.2,
+            "transition_exit_classes_seen": "safe_terminal",
+            "terminal_useful_probability": 0.9,
+            "hard_failure_risk": 0.1,
+        },
+        "degraded_recovery": {
+            "transition_entry_class": "recoverable_degraded",
+            "transition_success_probability": 0.2,
+            "transition_exit_classes_seen": "safe_terminal",
+            "terminal_useful_probability": 0.9,
+            "hard_failure_risk": 0.1,
+        },
     }
     base_context = {
         "context_id": "ctx",
@@ -359,33 +411,41 @@ def test_r9_r10_launch_sequence_routes_launch_inflight_and_state_recovery_select
     assert POST_LAUNCH_START_FAMILY == "inflight_nominal"
     assert BOUNDARY_RECOVERY_START_FAMILY == "inflight_boundary_near"
     assert TERMINAL_SAFE_EXIT_START_FAMILY == "inflight_recovery_edge"
-    assert first_route["route_required_entry_role"] == "launch_capable"
-    assert second_route["route_required_entry_role"] == "inflight_only"
-    assert boundary_route["route_required_entry_role"] == "terminal_or_recovery"
-    assert recovery_edge_route["route_required_entry_role"] == "terminal_or_recovery"
-    assert first_selected["entry_role"] == "launch_capable"
-    assert second_selected["entry_role"] == "inflight_only"
-    assert boundary_selected["entry_role"] == "terminal_or_recovery"
-    assert recovery_selected["entry_role"] == "terminal_or_recovery"
-    assert {row["entry_role"]: row["viable"] for row in first_rows} == {
-        "launch_capable": True,
-        "inflight_only": False,
-        "terminal_or_recovery": False,
+    assert first_route["route_required_entry_class"] == "launch_gate"
+    assert second_route["route_required_entry_class"] == "inflight_stable"
+    assert boundary_route["route_required_entry_class"] == "boundary_near"
+    assert recovery_edge_route["route_required_entry_class"] == "recoverable_degraded"
+    assert first_selected["entry_role"] == "transition_object"
+    assert second_selected["entry_role"] == "transition_object"
+    assert boundary_selected["entry_role"] == "transition_object"
+    assert recovery_selected["entry_role"] == "transition_object"
+    assert first_selected["transition_entry_class"] == "launch_gate"
+    assert second_selected["transition_entry_class"] == "inflight_stable"
+    assert boundary_selected["transition_entry_class"] == "boundary_near"
+    assert recovery_selected["transition_entry_class"] == "recoverable_degraded"
+    assert {row["transition_entry_class"]: row["viable"] for row in first_rows} == {
+        "launch_gate": True,
+        "inflight_stable": False,
+        "boundary_near": False,
+        "recoverable_degraded": False,
     }
-    assert {row["entry_role"]: row["viable"] for row in second_rows} == {
-        "launch_capable": False,
-        "inflight_only": True,
-        "terminal_or_recovery": False,
+    assert {row["transition_entry_class"]: row["viable"] for row in second_rows} == {
+        "launch_gate": False,
+        "inflight_stable": True,
+        "boundary_near": False,
+        "recoverable_degraded": False,
     }
-    assert {row["entry_role"]: row["viable"] for row in boundary_rows} == {
-        "launch_capable": False,
-        "inflight_only": False,
-        "terminal_or_recovery": True,
+    assert {row["transition_entry_class"]: row["viable"] for row in boundary_rows} == {
+        "launch_gate": False,
+        "inflight_stable": False,
+        "boundary_near": True,
+        "recoverable_degraded": False,
     }
-    assert {row["entry_role"]: row["viable"] for row in recovery_rows} == {
-        "launch_capable": False,
-        "inflight_only": False,
-        "terminal_or_recovery": True,
+    assert {row["transition_entry_class"]: row["viable"] for row in recovery_rows} == {
+        "launch_gate": False,
+        "inflight_stable": False,
+        "boundary_near": False,
+        "recoverable_degraded": True,
     }
 
 
@@ -400,8 +460,9 @@ def test_governor_uses_heading_aware_margin_not_rear_wall_minimum() -> None:
         {
             "compact_library_id": "launch",
             "primitive_variant_id": "launch",
-            "primitive_id": "launch_capture_glide_stabilise",
-            "entry_role": "launch_capable",
+            "primitive_id": "glide",
+            "entry_role": "transition_object",
+            "transition_entry_class": "launch_gate",
             "controller_id": "ctrl_launch",
             "K_gain_checksum": "k",
             "augmented_A_checksum": "a",
@@ -411,7 +472,14 @@ def test_governor_uses_heading_aware_margin_not_rear_wall_minimum() -> None:
             **timing_payload,
         }
     ]
-    outcome_rows = {"launch": {"continuation_probability": 0.7, "hard_failure_risk": 0.1}}
+    outcome_rows = {
+        "launch": {
+            "transition_entry_class": "launch_gate",
+            "transition_success_probability": 0.7,
+            "transition_exit_classes_seen": "post_launch_degraded",
+            "hard_failure_risk": 0.1,
+        }
+    }
     context = {
         "context_id": "rear_wall_close_launch",
         "start_state_family": "launch_gate",
@@ -454,8 +522,9 @@ def test_governor_keeps_hard_failure_risk_gate_after_speed_rule_removal() -> Non
         representative={
             "compact_library_id": "launch",
             "primitive_variant_id": "launch",
-            "primitive_id": "launch_capture_glide_stabilise",
-            "entry_role": "launch_capable",
+            "primitive_id": "glide",
+            "entry_role": "transition_object",
+            "transition_entry_class": "launch_gate",
             "controller_id": "ctrl_launch",
             "K_gain_checksum": "k",
             "augmented_A_checksum": "a",
@@ -463,7 +532,12 @@ def test_governor_keeps_hard_failure_risk_gate_after_speed_rule_removal() -> Non
             "augmented_gain_checksum": "g",
             **timing_payload,
         },
-        outcome={"continuation_probability": 1.0, "hard_failure_risk": 0.76},
+        outcome={
+            "transition_entry_class": "launch_gate",
+            "transition_success_probability": 1.0,
+            "transition_exit_classes_seen": "post_launch_degraded",
+            "hard_failure_risk": 0.76,
+        },
         context={
             "context_id": "ctx",
             "start_state_family": "launch_gate",
@@ -507,8 +581,9 @@ def test_governor_uses_updraft_gain_config_names_and_missing_evidence_rejection(
         representative={
             "compact_library_id": "launch",
             "primitive_variant_id": "launch",
-            "primitive_id": "launch_capture_glide_stabilise",
-            "entry_role": "launch_capable",
+            "primitive_id": "glide",
+            "entry_role": "transition_object",
+            "transition_entry_class": "launch_gate",
             "controller_id": "ctrl_launch",
             "K_gain_checksum": "k",
             "augmented_A_checksum": "a",
@@ -540,8 +615,9 @@ def test_governor_uses_updraft_gain_config_names_and_missing_evidence_rejection(
         representative={
             "compact_library_id": "launch",
             "primitive_variant_id": "launch",
-            "primitive_id": "launch_capture_glide_stabilise",
-            "entry_role": "launch_capable",
+            "primitive_id": "glide",
+            "entry_role": "transition_object",
+            "transition_entry_class": "launch_gate",
             "controller_id": "ctrl_launch",
             "K_gain_checksum": "k",
             "augmented_A_checksum": "a",
@@ -550,7 +626,9 @@ def test_governor_uses_updraft_gain_config_names_and_missing_evidence_rejection(
             **timing_payload,
         },
         outcome={
-            "continuation_probability": 1.0,
+            "transition_entry_class": "launch_gate",
+            "transition_success_probability": 1.0,
+            "transition_exit_classes_seen": "post_launch_degraded",
             "terminal_useful_probability": 0.0,
             "hard_failure_risk": 0.0,
             "expected_updraft_gain_proxy_m": 0.8,
@@ -585,8 +663,9 @@ def test_context_conditioned_outcome_is_robust_first_and_selector_uses_it() -> N
     representative = {
         "compact_library_id": "optimistic_single",
         "primitive_variant_id": "optimistic_single",
-        "primitive_id": "launch_capture_lift_seek",
-        "entry_role": "launch_capable",
+        "primitive_id": "lift_entry",
+        "entry_role": "transition_object",
+        "transition_entry_class": "launch_gate",
         "controller_id": "ctrl_launch",
         "K_gain_checksum": "k",
         "augmented_A_checksum": "a",
@@ -599,6 +678,9 @@ def test_context_conditioned_outcome_is_robust_first_and_selector_uses_it() -> N
         "library_size_case_id": "balanced_cluster",
         "compact_library_id": "optimistic_single",
         "primitive_variant_id": "optimistic_single",
+        "transition_entry_class": "launch_gate",
+        "transition_success_probability": 0.95,
+        "transition_exit_classes_seen": "post_launch_degraded",
         "continuation_probability": 0.95,
         "terminal_useful_probability": 0.20,
         "hard_failure_risk": 0.10,
@@ -640,7 +722,7 @@ def test_context_conditioned_outcome_is_robust_first_and_selector_uses_it() -> N
         **representative,
         "compact_library_id": "dry_matched",
         "primitive_variant_id": "dry_matched",
-        "primitive_id": "launch_capture_glide_stabilise",
+        "primitive_id": "glide",
     }
     selected, rows = select_compact_representative(
         representatives=[representative, dry_representative],
@@ -650,6 +732,7 @@ def test_context_conditioned_outcome_is_robust_first_and_selector_uses_it() -> N
                 **base,
                 "compact_library_id": "dry_matched",
                 "primitive_variant_id": "dry_matched",
+                "transition_success_probability": 0.60,
                 "continuation_probability": 0.60,
                 "expected_updraft_gain_proxy_m": 0.0,
                 "expected_lift_dwell_time_s": 0.0,
@@ -814,12 +897,14 @@ def test_r9_r10_episode_success_requires_compliant_sequence_and_no_blocked_tail(
     primitive_rows = [
         {
             "primitive_variant_id": "launch_variant",
-            "primitive_id": "launch_capture_glide_stabilise",
+            "primitive_id": "glide",
             "controller_id": "ctrl_launch",
-            "selected_entry_role": "launch_capable",
+            "selected_entry_role": "transition_object",
+            "transition_entry_class": "launch_gate",
             "start_state_family": "launch_gate",
-            "route_required_entry_role": "launch_capable",
-            "route_reason": "first_primitive_launch_capture",
+            "route_required_entry_role": "transition_object",
+            "route_required_entry_class": "launch_gate",
+            "route_reason": "state_class_transition_entry",
             "continuation_valid": True,
             "episode_terminal_useful": False,
             "failure_label": "success",
@@ -833,10 +918,12 @@ def test_r9_r10_episode_success_requires_compliant_sequence_and_no_blocked_tail(
             "primitive_variant_id": "glide_variant",
             "primitive_id": "glide",
             "controller_id": "ctrl_glide",
-            "selected_entry_role": "inflight_only",
+            "selected_entry_role": "transition_object",
+            "transition_entry_class": "inflight_stable",
             "start_state_family": "inflight_nominal",
-            "route_required_entry_role": "inflight_only",
-            "route_reason": "post_launch_inflight",
+            "route_required_entry_role": "transition_object",
+            "route_required_entry_class": "inflight_stable",
+            "route_reason": "state_class_transition_entry",
             "continuation_valid": True,
             "episode_terminal_useful": False,
             "failure_label": "success",

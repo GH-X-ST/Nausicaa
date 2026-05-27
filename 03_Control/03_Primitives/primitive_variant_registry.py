@@ -29,12 +29,21 @@ from primitive_timing_contract import (
 
 
 # =============================================================================
-# 1) Variant Schema and Entry-Role Policy
+# 1) Variant Schema and Transition-Entry Policy
 # =============================================================================
 VARIANT_REGISTRY_VERSION = "w01_primitive_controller_variant_registry_v411"
 EXIT_CHECK_VERSION = "w01_exit_checks_v1"
-ENTRY_ROLES = ("launch_capable", "inflight_only", "terminal_or_recovery")
+TRANSITION_OBJECT_ENTRY_ROLE = "transition_object"
+ENTRY_ROLES = (TRANSITION_OBJECT_ENTRY_ROLE, "launch_capable", "inflight_only", "terminal_or_recovery")
+TRANSITION_START_FAMILY_SEQUENCE_100 = (
+    *(("launch_gate",) * 40),
+    *(("inflight_nominal",) * 25),
+    *(("inflight_lift_region",) * 15),
+    *(("inflight_boundary_near",) * 10),
+    *(("inflight_recovery_edge",) * 10),
+)
 ENTRY_ROLE_START_FAMILY_SEQUENCE = {
+    TRANSITION_OBJECT_ENTRY_ROLE: TRANSITION_START_FAMILY_SEQUENCE_100,
     "launch_capable": ("launch_gate",),
     "inflight_only": (
         "inflight_nominal",
@@ -49,14 +58,16 @@ ENTRY_ROLE_START_FAMILY_SEQUENCE = {
     "terminal_or_recovery": ("inflight_boundary_near", "inflight_recovery_edge"),
 }
 ENTRY_ROLE_BY_PRIMITIVE_ID = {
-    "glide": "inflight_only",
-    "lift_entry": "inflight_only",
-    "lift_dwell_arc": "inflight_only",
-    "mild_turn_left": "inflight_only",
-    "mild_turn_right": "inflight_only",
-    "energy_retaining_bank": "inflight_only",
-    "recovery": "terminal_or_recovery",
-    "safe_exit_or_recovery_handoff": "terminal_or_recovery",
+    "glide": TRANSITION_OBJECT_ENTRY_ROLE,
+    "lift_entry": TRANSITION_OBJECT_ENTRY_ROLE,
+    "lift_dwell_arc": TRANSITION_OBJECT_ENTRY_ROLE,
+    "mild_turn_left": TRANSITION_OBJECT_ENTRY_ROLE,
+    "mild_turn_right": TRANSITION_OBJECT_ENTRY_ROLE,
+    "energy_retaining_bank": TRANSITION_OBJECT_ENTRY_ROLE,
+    "recovery": TRANSITION_OBJECT_ENTRY_ROLE,
+    "safe_exit_or_recovery_handoff": TRANSITION_OBJECT_ENTRY_ROLE,
+    # Retired archive aliases. These are not active primitives, but old
+    # manifests can still be interpreted without changing historical evidence.
     "launch_capture_glide_stabilise": "launch_capable",
     "launch_capture_lift_seek": "launch_capable",
     "launch_capture_energy_build": "launch_capable",

@@ -129,8 +129,10 @@ def build_outcome_model_rows(
                 "library_size_case_id": str(representative.get("library_size_case_id", library_size_case_id)),
                 "library_size_human_label": str(representative.get("library_size_human_label", "")),
                 "primitive_variant_id": str(representative.get("primitive_variant_id", "")),
+                "transition_object_id": str(representative.get("transition_object_id", "")),
                 "primitive_id": str(representative.get("primitive_id", "")),
                 "entry_role": str(representative.get("entry_role", "")),
+                "transition_entry_class": str(representative.get("transition_entry_class", "")),
                 "controller_id": str(representative.get("controller_id", "")),
                 "finite_horizon_s": float(representative.get("finite_horizon_s", timing["finite_horizon_s"])),
                 "controller_input_slots_per_primitive": int(

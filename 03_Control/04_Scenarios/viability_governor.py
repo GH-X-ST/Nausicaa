@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 from primitive_timing_contract import PRIMITIVE_FINITE_HORIZON_S
-from transition_labels import classify_state, entry_roles_for_state_class, transition_is_chain_compatible
+from transition_labels import classify_state, entry_classes_for_state_class, transition_is_chain_compatible
 
 
 GOVERNOR_MODES = ("continuation_mode", "terminal_episode_mode")
@@ -201,6 +201,7 @@ def governor_candidate_row(
         "launch_sequence_policy": str(context.get("launch_sequence_policy", "")),
         "launch_sequence_phase": str(context.get("launch_sequence_phase", "")),
         "route_required_entry_role": str(context.get("route_required_entry_role", "")),
+        "route_required_entry_class": str(context.get("route_required_entry_class", "")),
         "route_reason": str(context.get("route_reason", "")),
         "governor_mode": str(governor_mode),
         "governor_config_id": cfg.config_id,
@@ -209,6 +210,12 @@ def governor_candidate_row(
         "primitive_variant_id": str(representative.get("primitive_variant_id", "")),
         "primitive_id": str(representative.get("primitive_id", "")),
         "entry_role": str(representative.get("entry_role", "")),
+        "transition_entry_class": str(
+            representative.get(
+                "transition_entry_class",
+                outcome.get("transition_entry_class", ""),
+            )
+        ),
         "controller_id": str(representative.get("controller_id", "")),
         "library_size_case_id": library_size_case_id,
         "library_size_human_label": str(
@@ -290,11 +297,13 @@ def governor_rejection_reason(
     if not representative.get("compact_library_id") or not representative.get("primitive_variant_id"):
         return "primitive_not_in_compact_library"
     entry_role = str(representative.get("entry_role", ""))
+    candidate_entry_class = _candidate_entry_class(representative=representative, outcome=outcome)
     start_state_family = str(context.get("start_state_family", ""))
     entry_class = str(context.get("current_state_class", context.get("transition_current_state_class", "")))
     if not entry_class:
         entry_class = classify_state(start_state_family=start_state_family)
-    if entry_role not in entry_roles_for_state_class(entry_class):
+    allowed_entry_classes = set(entry_classes_for_state_class(entry_class))
+    if candidate_entry_class not in allowed_entry_classes:
         return "transition_entry_class_incompatible"
     if str(context.get("start_state_family", "")) and entry_class == "launch_gate" and start_state_family != "launch_gate":
         return "entry_role_incompatible_start_family"
@@ -315,7 +324,11 @@ def governor_rejection_reason(
     )
     if transition_success_probability <= 0.0:
         return "transition_success_probability_zero"
-    if not transition_is_chain_compatible(entry_role=entry_role, exit_class=_predicted_exit_class(outcome, entry_role)):
+    if not transition_is_chain_compatible(
+        entry_role=entry_role,
+        entry_class=candidate_entry_class,
+        exit_class=_predicted_exit_class(outcome, entry_role, candidate_entry_class),
+    ):
         return "transition_predicted_exit_class_incompatible"
     continuation_probability = transition_success_probability
     terminal_probability = _float(outcome.get("terminal_useful_probability", 0.0))
@@ -409,16 +422,27 @@ def _has_outcome_evidence(outcome: dict[str, object]) -> bool:
     return any(key in outcome for key in evidence_keys)
 
 
-def _predicted_exit_class(outcome: dict[str, object], entry_role: str) -> str:
+def _candidate_entry_class(*, representative: dict[str, object], outcome: dict[str, object]) -> str:
+    for source in (representative, outcome):
+        value = str(source.get("transition_entry_class", "")).strip()
+        if value:
+            return value
+        pair = str(source.get("transition_pair", "")).strip()
+        if "->" in pair:
+            return pair.split("->", 1)[0].strip()
+    return ""
+
+
+def _predicted_exit_class(outcome: dict[str, object], entry_role: str, entry_class: str = "") -> str:
     classes = str(outcome.get("transition_exit_classes_seen", "")).replace(",", ";").split(";")
     classes = [item.strip() for item in classes if item.strip()]
     if classes:
         for candidate in classes:
-            if transition_is_chain_compatible(entry_role=entry_role, exit_class=candidate):
+            if transition_is_chain_compatible(entry_role=entry_role, entry_class=entry_class, exit_class=candidate):
                 return candidate
         return classes[0]
     if _float(outcome.get("transition_success_probability", outcome.get("continuation_probability", 0.0))) > 0.0:
-        return "post_launch_degraded" if str(entry_role) == "launch_capable" else "inflight_stable"
+        return "post_launch_degraded" if str(entry_class) == "launch_gate" else "inflight_stable"
     if _float(outcome.get("terminal_useful_probability", 0.0)) > 0.0:
         return "safe_terminal"
     return "hard_failure"

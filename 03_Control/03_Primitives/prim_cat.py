@@ -57,7 +57,7 @@ class PrimitiveDefinition:
     claim_status: str = "simulation_only"
 
 
-LAUNCH_CAPTURE_PRIMITIVE_IDS = (
+RETIRED_LAUNCH_CAPTURE_PRIMITIVE_IDS = (
     "launch_capture_glide_stabilise",
     "launch_capture_lift_seek",
     "launch_capture_energy_build",
@@ -65,6 +65,9 @@ LAUNCH_CAPTURE_PRIMITIVE_IDS = (
     "launch_capture_shallow_right",
     "launch_capture_safe_handoff",
 )
+
+# Compatibility alias for old archives only. These IDs are not active evidence.
+LAUNCH_CAPTURE_PRIMITIVE_IDS = RETIRED_LAUNCH_CAPTURE_PRIMITIVE_IDS
 
 ACTIVE_PRIMITIVE_IDS = (
     "glide",
@@ -75,7 +78,6 @@ ACTIVE_PRIMITIVE_IDS = (
     "mild_turn_right",
     "energy_retaining_bank",
     "safe_exit_or_recovery_handoff",
-    *LAUNCH_CAPTURE_PRIMITIVE_IDS,
 )
 
 _COMMON_ENTRY = (
@@ -108,7 +110,12 @@ _COMMON_FAILURES = (
 # 2) Active Catalogue
 # =============================================================================
 def active_primitive_catalogue() -> tuple[PrimitiveDefinition, ...]:
-    """Return the active LQR primitive catalogue, including launch-capture variants."""
+    """Return the active 8-family LQR primitive catalogue.
+
+    Launch is an entry regime for these manoeuvre families, not a separate
+    active primitive family. Retired launch_capture_* aliases remain only for
+    historical archive interpretation.
+    """
 
     return (
         _primitive(
@@ -150,36 +157,6 @@ def active_primitive_catalogue() -> tuple[PrimitiveDefinition, ...]:
             primitive_id="safe_exit_or_recovery_handoff",
             primitive_family="safe_exit",
             params=(("handoff_margin_m", 0.30, "m", "minimum wall margin for exit handoff"),),
-        ),
-        _primitive(
-            primitive_id="launch_capture_glide_stabilise",
-            primitive_family="launch_capture",
-            params=(("capture_mode", "glide_stabilise", "label", "launch gate glide stabilisation"),),
-        ),
-        _primitive(
-            primitive_id="launch_capture_lift_seek",
-            primitive_family="launch_capture",
-            params=(("capture_mode", "lift_seek", "label", "launch gate local lift seeking"),),
-        ),
-        _primitive(
-            primitive_id="launch_capture_energy_build",
-            primitive_family="launch_capture",
-            params=(("capture_mode", "energy_build", "label", "launch gate energy build"),),
-        ),
-        _primitive(
-            primitive_id="launch_capture_shallow_left",
-            primitive_family="launch_capture",
-            params=(("capture_mode", "shallow_left", "label", "launch gate shallow left capture"),),
-        ),
-        _primitive(
-            primitive_id="launch_capture_shallow_right",
-            primitive_family="launch_capture",
-            params=(("capture_mode", "shallow_right", "label", "launch gate shallow right capture"),),
-        ),
-        _primitive(
-            primitive_id="launch_capture_safe_handoff",
-            primitive_family="launch_capture",
-            params=(("capture_mode", "safe_handoff", "label", "launch gate safe handoff"),),
         ),
     )
 

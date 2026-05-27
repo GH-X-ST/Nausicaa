@@ -11,6 +11,7 @@ from primitive_variant_registry import (
     ENTRY_ROLE_BY_PRIMITIVE_ID,
     ENTRY_ROLE_REJECTION_LABEL,
     ENTRY_ROLE_REJECTION_STATUS,
+    TRANSITION_OBJECT_ENTRY_ROLE,
     entry_role_rejection_fields,
     primitive_controller_variant,
     start_family_is_compatible,
@@ -38,7 +39,7 @@ def test_variant_registry_schema_stable_ids_and_checksum_validation() -> None:
     changed = replace(controller, lqr_gain_checksum="0" * 64)
 
     assert variant_a.primitive_variant_id == variant_b.primitive_variant_id
-    assert variant_a.primitive_variant_id.startswith("primvar_glide_inflight_only_")
+    assert variant_a.primitive_variant_id.startswith("primvar_glide_transition_object_")
     assert variant_a.K_gain_checksum == controller.lqr_gain_checksum
     assert variant_a.controller_design_role == "active_timing_aware_w01"
     assert variant_a.timing_augmentation_type == "actuator_surface_state_command_fifo_predictor_compensated"
@@ -59,34 +60,20 @@ def test_variant_registry_schema_stable_ids_and_checksum_validation() -> None:
         validate_variant_controller_match(variant_a, changed)
 
 
-def test_correct_first_pass_entry_roles_and_launch_gate_rejections() -> None:
-    assert ENTRY_ROLE_BY_PRIMITIVE_ID == {
-        "glide": "inflight_only",
-        "lift_entry": "inflight_only",
-        "lift_dwell_arc": "inflight_only",
-        "mild_turn_left": "inflight_only",
-        "mild_turn_right": "inflight_only",
-        "energy_retaining_bank": "inflight_only",
-        "recovery": "terminal_or_recovery",
-        "safe_exit_or_recovery_handoff": "terminal_or_recovery",
-        "launch_capture_glide_stabilise": "launch_capable",
-        "launch_capture_lift_seek": "launch_capable",
-        "launch_capture_energy_build": "launch_capable",
-        "launch_capture_shallow_left": "launch_capable",
-        "launch_capture_shallow_right": "launch_capable",
-        "launch_capture_safe_handoff": "launch_capable",
+def test_transition_object_entry_role_accepts_all_active_start_families() -> None:
+    assert {ENTRY_ROLE_BY_PRIMITIVE_ID[primitive_id] for primitive_id in ACTIVE_PRIMITIVE_IDS} == {
+        TRANSITION_OBJECT_ENTRY_ROLE
     }
-    assert set(ENTRY_ROLE_BY_PRIMITIVE_ID) == set(ACTIVE_PRIMITIVE_IDS)
-    assert start_family_is_compatible(entry_role="launch_capable", start_state_family="launch_gate")
-    assert not start_family_is_compatible(entry_role="launch_capable", start_state_family="inflight_nominal")
-    assert start_family_is_compatible(entry_role="inflight_only", start_state_family="inflight_nominal")
-    assert start_family_is_compatible(entry_role="inflight_only", start_state_family="inflight_lift_region")
-    assert not start_family_is_compatible(entry_role="inflight_only", start_state_family="launch_gate")
-    assert start_family_is_compatible(entry_role="terminal_or_recovery", start_state_family="inflight_boundary_near")
-    assert start_family_is_compatible(entry_role="terminal_or_recovery", start_state_family="inflight_recovery_edge")
-    assert not start_family_is_compatible(entry_role="terminal_or_recovery", start_state_family="launch_gate")
+    for family in (
+        "launch_gate",
+        "inflight_nominal",
+        "inflight_lift_region",
+        "inflight_boundary_near",
+        "inflight_recovery_edge",
+    ):
+        assert start_family_is_compatible(entry_role=TRANSITION_OBJECT_ENTRY_ROLE, start_state_family=family)
 
-    fields = entry_role_rejection_fields(entry_role="inflight_only", start_state_family="launch_gate")
+    fields = entry_role_rejection_fields(entry_role="launch_capable", start_state_family="inflight_nominal")
     assert fields["entry_check_status"] == ENTRY_ROLE_REJECTION_STATUS
     assert fields["failure_label"] == ENTRY_ROLE_REJECTION_LABEL
     assert fields["outcome_class"] == "rejected"

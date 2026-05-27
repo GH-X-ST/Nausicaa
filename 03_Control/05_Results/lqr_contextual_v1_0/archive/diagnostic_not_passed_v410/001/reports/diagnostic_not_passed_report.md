@@ -2,5 +2,5 @@
 
 - Status: `diagnostic_not_passed`
 - Superseded roots: `53`
-- Evidence in this archive is rejected for v5.3 launch-aware R5 claims.
+- Evidence in this archive is rejected for active transition-entry evidence claims.
 - No hardware-readiness, real-flight transfer, mission-success, autonomy, or memory-improvement claim is allowed.

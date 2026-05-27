@@ -85,7 +85,7 @@ def test_w2_small_replay_uses_frozen_history_backed_timing_state(tmp_path: Path)
     assert not frame["baseline_controller_active"].astype(bool).any()
 
 
-def test_w2_role_aware_schedule_avoids_inflight_launch_gate_rejections(tmp_path: Path) -> None:
+def test_w2_transition_entry_schedule_starts_with_launch_gate_without_role_rejections(tmp_path: Path) -> None:
     source_root = _write_w01_source_fixture(tmp_path / "w01", "lift_entry", include_augmented_payload=True)
     result = run_w2_survival(
         W2SurvivalConfig(
@@ -106,7 +106,7 @@ def test_w2_role_aware_schedule_avoids_inflight_launch_gate_rejections(tmp_path:
     frame = _read_w2_frame(run_root)
     variant_summary = pd.read_csv(run_root / "metrics" / "w2_variant_survival_summary.csv")
 
-    assert set(frame["start_state_family"]) == {"inflight_nominal"}
+    assert set(frame["start_state_family"]) == {"launch_gate"}
     assert not frame["entry_check_status"].astype(str).eq(ENTRY_ROLE_REJECTION_STATUS).any()
     assert not frame["failure_label"].astype(str).eq(ENTRY_ROLE_REJECTION_LABEL).any()
     assert int(variant_summary["compatible_row_count"].iloc[0]) == 2
@@ -318,8 +318,8 @@ def test_w3_balances_active_fan_count_for_four_fan_randomisation(tmp_path: Path)
 
 
 def test_w2_default_schedule_dimensions() -> None:
-    assert W2_DENSE_VARIANT_COUNT == 14 * 32
-    assert W2_DENSE_ROW_COUNT == 14 * 32 * 2 * 100
+    assert W2_DENSE_VARIANT_COUNT == 8 * 32
+    assert W2_DENSE_ROW_COUNT == 8 * 32 * 2 * 100
 
 
 def _write_w01_source_fixture(

@@ -70,7 +70,7 @@ from run_v411_source_audit import SourceAuditConfig, run_v411_source_audit  # no
 from run_w3_survival import DEFAULT_OUTPUT_ROOT as W3_OUTPUT_ROOT  # noqa: E402
 from run_w3_survival import W3SurvivalConfig, run_w3_survival  # noqa: E402
 from run_w3_survival_analysis import W3SurvivalAnalysisConfig, run_w3_survival_analysis  # noqa: E402
-from prim_cat import ACTIVE_PRIMITIVE_IDS, LAUNCH_CAPTURE_PRIMITIVE_IDS  # noqa: E402
+from prim_cat import ACTIVE_PRIMITIVE_IDS  # noqa: E402
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
@@ -639,8 +639,8 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
                 _check_row(stage_id, "dry_schedule_no_stale_76800_target", int(manifest.get("rows_requested", 0)) != 76800, manifest.get("rows_requested", 0), "not_76800"),
                 _check_row(stage_id, "dry_schedule_candidate_count_32", int(manifest.get("candidate_count", 0)) == 32, manifest.get("candidate_count", 0), 32),
                 _check_row(stage_id, "dry_schedule_paired_tests_per_candidate_100", int(manifest.get("paired_tests_per_candidate", 0)) == 100, manifest.get("paired_tests_per_candidate", 0), 100),
-                _check_row(stage_id, "dry_schedule_active_primitive_count_14", int(manifest.get("active_primitive_count", 0)) == 14, manifest.get("active_primitive_count", 0), 14),
-                _check_row(stage_id, "dry_schedule_all_six_launch_capture_ids", set(manifest.get("launch_capture_primitive_ids", [])) == set(LAUNCH_CAPTURE_PRIMITIVE_IDS), manifest.get("launch_capture_primitive_ids", []), list(LAUNCH_CAPTURE_PRIMITIVE_IDS)),
+                _check_row(stage_id, "dry_schedule_active_primitive_count_8", int(manifest.get("active_primitive_count", 0)) == 8, manifest.get("active_primitive_count", 0), 8),
+                _check_row(stage_id, "dry_schedule_retired_launch_capture_not_active", not bool(manifest.get("retired_launch_capture_primitive_ids_active", True)), manifest.get("retired_launch_capture_primitive_ids_active", ""), False),
                 _check_row(stage_id, "dry_schedule_all_start_state_regimes", set(start_counts) == required_start_families, sorted(start_counts), sorted(required_start_families)),
                 _check_row(stage_id, "dry_schedule_r6_archived", bool(manifest.get("R6_W2_archived_diagnostic_only", False)), manifest.get("R6_W2_archived_diagnostic_only", False), True),
                 _check_row(stage_id, "dry_schedule_w3_direct_source", manifest.get("R7_W3_direct_source") == "frozen_R5_W0_W1_controller_bundle", manifest.get("R7_W3_direct_source", ""), "frozen_R5_W0_W1_controller_bundle"),
@@ -653,8 +653,8 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "actual_row_count_active_dense_target", int(manifest.get("actual_row_count", 0)) == L6_RICH_SIDE_ROW_COUNT, manifest.get("actual_row_count", 0), L6_RICH_SIDE_ROW_COUNT),
             _check_row(stage_id, "candidate_count_32", int(manifest.get("candidate_count", 0)) == 32, manifest.get("candidate_count", 0), 32),
             _check_row(stage_id, "paired_tests_per_candidate_100", int(manifest.get("paired_tests_per_candidate", 0)) == 100, manifest.get("paired_tests_per_candidate", 0), 100),
-            _check_row(stage_id, "active_primitive_count_14", int(manifest.get("active_primitive_count", 0)) == 14, manifest.get("active_primitive_count", 0), 14),
-            _check_row(stage_id, "all_six_launch_capture_ids", set(manifest.get("launch_capture_primitive_ids", [])) == set(LAUNCH_CAPTURE_PRIMITIVE_IDS), manifest.get("launch_capture_primitive_ids", []), list(LAUNCH_CAPTURE_PRIMITIVE_IDS)),
+            _check_row(stage_id, "active_primitive_count_8", int(manifest.get("active_primitive_count", 0)) == 8, manifest.get("active_primitive_count", 0), 8),
+            _check_row(stage_id, "retired_launch_capture_not_active", not bool(manifest.get("retired_launch_capture_primitive_ids_active", True)), manifest.get("retired_launch_capture_primitive_ids_active", ""), False),
             _check_row(stage_id, "r5_launch_aware_decision_passed_for_review", manifest.get("r5_launch_aware_decision") == R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW, manifest.get("r5_launch_aware_decision", ""), R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW),
             _check_row(stage_id, "launch_gate_candidate_availability_audit", _r5_launch_gate_audit_passed(run_root), "audit", "passed"),
             _check_row(stage_id, "w3_replay_only", bool(manifest.get("W3_replay_only", False)), manifest.get("W3_replay_only", False), True),
@@ -678,8 +678,8 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "no_w3_retuning", not bool(manifest.get("mutates_Q_R_K_reference_horizon_entry_set_or_entry_role", True)), manifest.get("mutates_Q_R_K_reference_horizon_entry_set_or_entry_role", True), False),
             _check_row(stage_id, "not_fixture_evidence", not bool(manifest.get("test_fixture_not_method_evidence", True)), manifest.get("test_fixture_not_method_evidence", True), False),
             _check_row(stage_id, "w3_survivor_count_positive", int(registry.get("survivor_count", 0)) > 0, registry.get("survivor_count", 0), ">0"),
-            _check_row(stage_id, "w3_launch_capable_survivor_count_positive", int(registry.get("launch_capable_survivor_count", 0)) > 0, registry.get("launch_capable_survivor_count", 0), ">0"),
-            _check_row(stage_id, "w3_all_launch_capture_families_survived", set(registry.get("surviving_launch_capture_primitive_ids", [])) == set(LAUNCH_CAPTURE_PRIMITIVE_IDS), registry.get("surviving_launch_capture_primitive_ids", []), list(LAUNCH_CAPTURE_PRIMITIVE_IDS)),
+            _check_row(stage_id, "w3_launch_gate_entry_survivor_count_positive", int(registry.get("launch_gate_entry_survivor_count", 0)) > 0, registry.get("launch_gate_entry_survivor_count", 0), ">0"),
+            _check_row(stage_id, "w3_all_active_families_have_launch_gate_entry_survivors", set(registry.get("surviving_launch_gate_entry_primitive_ids", [])) == set(ACTIVE_PRIMITIVE_IDS), registry.get("surviving_launch_gate_entry_primitive_ids", []), list(ACTIVE_PRIMITIVE_IDS)),
             _file_size_check(stage_id, run_root),
         ]
     if stage_id == "R8":
@@ -825,7 +825,7 @@ def _write_pipeline_manifest(run_root: Path, config: R5R10PipelineConfig, contex
         "R7_R8_R10_R11_deliberately_not_run_when_stop_after_stage_R5": bool((config.stop_after_stage or "").upper() == "R5"),
         "r5_expected_dense_rows": int(L6_RICH_SIDE_ROW_COUNT),
         "active_primitive_count": int(len(ACTIVE_PRIMITIVE_IDS)),
-        "launch_capture_primitive_ids": list(LAUNCH_CAPTURE_PRIMITIVE_IDS),
+        "retired_launch_capture_primitive_ids_active": False,
         "docs_alignment_baseline": {} if guard is None or guard.baseline is None else guard.baseline,
         "docs_changed_during_run": False if guard is None else bool(guard.changed_during_run),
         "blocked_reason": context.get("blocked_reason", ""),
@@ -858,7 +858,7 @@ def _write_pipeline_report(run_root: Path, context: dict[str, object], *, status
     r5_run_root = str(r5_stage.get("run_root", ""))
     docs_hashes = _latest_docs_hashes_for_report(run_root)
     lines = [
-        "# v5.3 R5 Launch-Aware Dense Pipeline Report",
+        "# v5.3 Transition-Aware Dense Pipeline Report",
         "",
         f"- Status: `{status}`",
         f"- Blocked reason: `{blocked_reason}`",
@@ -868,7 +868,7 @@ def _write_pipeline_report(run_root: Path, context: dict[str, object], *, status
         f"- R5 run root: `{r5_run_root}`",
         f"- R5 rows written: `{r5_row_count}` / `{L6_RICH_SIDE_ROW_COUNT}`",
         f"- Worker/chunk/storage settings: workers `{r5_manifest.get('selected_worker_count', '')}`, chunk count `{r5_manifest.get('chunk_count', '')}`, chunk size `{r5_manifest.get('candidate_chunk_size', '')}`, storage `{r5_manifest.get('storage_format', '')}`.",
-        f"- Launch-capture primitive IDs: `{json.dumps(list(LAUNCH_CAPTURE_PRIMITIVE_IDS))}`",
+        f"- Active primitive IDs: `{json.dumps(list(ACTIVE_PRIMITIVE_IDS))}`",
         "- R6 is archived as diagnostic-only and is not an active gate in this pipeline.",
         "- Active thesis workflow: R5 -> R7 -> R8 -> R10 -> R11 -> Reality; R9 is internal preflight/ablation only.",
         "- R7-R8-R10-R11 deliberately not run when `--stop-after-stage R5` is selected.",
@@ -1049,11 +1049,14 @@ def _r10_variation_audit_passed(run_root: Path) -> bool:
 
 
 def _r5_launch_gate_audit_passed(run_root: Path) -> bool:
-    frame = _read_csv_if_exists(run_root / "metrics" / "r5_launch_capture_diagnosis.csv")
+    frame = _read_csv_if_exists(run_root / "metrics" / "r5_launch_gate_entry_diagnosis.csv")
+    if frame.empty:
+        frame = _read_csv_if_exists(run_root / "metrics" / "r5_launch_capture_diagnosis.csv")
     if frame.empty:
         return False
     required = {
         "start_state_family",
+        "transition_entry_class",
         "primitive_id",
         "entry_role",
         "total_rows",
@@ -1065,28 +1068,22 @@ def _r5_launch_gate_audit_passed(run_root: Path) -> bool:
         "hard_failure_count",
         "blocked_count",
         "rejected_count",
-        "r5_launch_capture_gate_passed",
+        "r5_launch_entry_gate_passed",
     }
     if not required.issubset(set(frame.columns)):
         return False
     launch = frame[frame["start_state_family"].astype(str) == "launch_gate"].copy()
-    if int(
-        launch.loc[
-            (launch["entry_role"].astype(str) == "launch_capable")
-            & (pd.to_numeric(launch["total_rows"], errors="coerce").fillna(0) > 0),
-            "primitive_id",
-        ].astype(str).nunique()
-    ) < 2:
+    if int(launch["primitive_id"].astype(str).nunique()) < len(ACTIVE_PRIMITIVE_IDS):
         return False
-    expected_per_primitive = int(L6_RICH_SIDE_ROW_COUNT // len(ACTIVE_PRIMITIVE_IDS))
-    for primitive_id in LAUNCH_CAPTURE_PRIMITIVE_IDS:
+    expected_per_primitive = 32 * 3 * 40
+    for primitive_id in ACTIVE_PRIMITIVE_IDS:
         rows = launch[launch["primitive_id"].astype(str) == str(primitive_id)]
         if rows.empty:
             return False
         total_rows = int(pd.to_numeric(rows["total_rows"], errors="coerce").fillna(0).sum())
         if total_rows != expected_per_primitive:
             return False
-        if set(rows["entry_role"].astype(str)) != {"launch_capable"}:
+        if set(rows["transition_entry_class"].astype(str)) != {"launch_gate"}:
             return False
         if int(pd.to_numeric(rows["entry_role_rejection_count"], errors="coerce").fillna(0).sum()) != 0:
             return False
@@ -1103,7 +1100,7 @@ def _r5_launch_gate_audit_passed(run_root: Path) -> bool:
             return False
         if blocked + rejected >= total_rows:
             return False
-        if not rows["r5_launch_capture_gate_passed"].astype(str).str.lower().isin({"true", "1"}).any():
+        if not rows["r5_launch_entry_gate_passed"].astype(str).str.lower().isin({"true", "1"}).any():
             return False
     return True
 
@@ -1115,13 +1112,9 @@ def _r8_launch_gate_audit_passed(run_root: Path) -> bool:
     if set(frame.get("library_size_case_id", pd.Series(dtype=str)).astype(str)) != set(LIBRARY_SIZE_CASE_IDS):
         return False
     for row in frame.to_dict(orient="records"):
-        if int(float(row.get("launch_capable_primitive_family_count", 0))) < 2:
+        if int(float(row.get("launch_gate_entry_primitive_family_count", 0))) < len(ACTIVE_PRIMITIVE_IDS):
             return False
-        if int(float(row.get("launch_capture_primitive_family_count", 0))) < len(LAUNCH_CAPTURE_PRIMITIVE_IDS):
-            return False
-        if _nonempty_csv_cell(row.get("missing_launch_capture_primitive_ids", "")):
-            return False
-        if _nonempty_csv_cell(row.get("non_launch_capture_launch_capable_primitive_ids", "")):
+        if _nonempty_csv_cell(row.get("missing_launch_gate_entry_primitive_ids", "")):
             return False
         if int(float(row.get("launch_gate_candidate_rows", 0))) <= 0:
             return False
@@ -1142,13 +1135,7 @@ def _validation_launch_gate_audit_passed(run_root: Path) -> bool:
             return False
     availability = _read_csv_if_exists(run_root / "metrics" / "launch_gate_candidate_availability.csv")
     for row in availability.to_dict(orient="records"):
-        if int(float(row.get("launch_capable_primitive_family_count", 0))) < 2:
-            return False
-        if int(float(row.get("launch_capture_primitive_family_count", 0))) < len(LAUNCH_CAPTURE_PRIMITIVE_IDS):
-            return False
-        if _nonempty_csv_cell(row.get("missing_launch_capture_primitive_ids", "")):
-            return False
-        if _nonempty_csv_cell(row.get("non_launch_capture_launch_capable_primitive_ids", "")):
+        if int(float(row.get("launch_gate_entry_primitive_family_count", 0))) < 1:
             return False
     return True
 

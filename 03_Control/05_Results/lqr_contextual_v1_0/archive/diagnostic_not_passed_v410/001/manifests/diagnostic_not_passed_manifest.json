@@ -9,57 +9,57 @@
       "doc_name": "Glider_Control_Project_Plan.md",
       "relative_path": "docs/Glider_Control_Project_Plan.md",
       "readable": true,
-      "byte_count": 71297,
-      "sha256": "69a32840a6de10154ab201986321c43099194224ff0b6401ed0a18ccd7a7936b"
+      "byte_count": 67461,
+      "sha256": "2de002a608c27fa460ac45d763c53cdf38c38e26e0cbe4c726d2c565ac059c21"
     },
     {
       "doc_name": "Skills.md",
       "relative_path": "docs/Skills.md",
       "readable": true,
-      "byte_count": 15957,
-      "sha256": "e37f9e97c75b3958264c13aa5840da3ab2c5d5a1ca1fd8f5f9dbd061643a22d6"
+      "byte_count": 14167,
+      "sha256": "8d73629dd1c0302b768e02c4b8192ac760d9a6ad7b0d1c092ba2f2c11c911efb"
     },
     {
       "doc_name": "Python Coding Instruction.txt",
       "relative_path": "docs/Python Coding Instruction.txt",
       "readable": true,
-      "byte_count": 14341,
-      "sha256": "166d15cdf0c68683b4cc6395bacd782d0bbe15cfd6b1882f575719c55adebe4b"
+      "byte_count": 12584,
+      "sha256": "d0700d6e1616a7d5bd00a1ed8ffd7ecd1afc9d4f2e5c5b8a858285145f682dac"
     },
     {
       "doc_name": "Python Coding to CODEX.txt",
       "relative_path": "docs/Python Coding to CODEX.txt",
       "readable": true,
-      "byte_count": 8929,
-      "sha256": "553beb182068fd5bea6cd2db8a715b227c1bdb29f0b6094f5a2e4fa6782e28b7"
+      "byte_count": 7330,
+      "sha256": "a215c862507daf0a9a6791aad7e6648afbe9088386ddeba24db13a8d90ff0878"
     },
     {
       "doc_name": "MATLAB Coding.txt",
       "relative_path": "docs/MATLAB Coding.txt",
       "readable": true,
-      "byte_count": 7362,
-      "sha256": "9d6cbca977a97ffabbe13ce48841c8f3f4aaabd83cc9e0775403c89cb970f671"
+      "byte_count": 5718,
+      "sha256": "0a0d14a88a5335aeadd6306bade8db360fb271d5d88fac82397f67d10600803a"
     },
     {
       "doc_name": "housekeeping_and_naming_rules.md",
       "relative_path": "docs/housekeeping_and_naming_rules.md",
       "readable": true,
-      "byte_count": 11850,
-      "sha256": "130170f5c9540c327d9af388abe4ef7927754ed65e2663bf6642ea7d591ab734"
+      "byte_count": 10011,
+      "sha256": "6a4d1a775275d92949ba717a50537390c11b7eacd3e70af9a1194f7914dd2bb8"
     },
     {
       "doc_name": "Daily_Schedule.txt",
       "relative_path": "docs/Daily_Schedule.txt",
       "readable": true,
-      "byte_count": 25446,
-      "sha256": "3b8d8d3ec78b4a583808bf5d2603ad01a94e084d3ad0e25fc3a16cd563a4ed65"
+      "byte_count": 23981,
+      "sha256": "4db4a4df09bc750c7a938f29d7b2fef655babde55469de07c0a8fb02694694d2"
     },
     {
       "doc_name": "PR.txt",
       "relative_path": "docs/PR.txt",
       "readable": true,
-      "byte_count": 8249,
-      "sha256": "c625bf1386b3b5f86e87e86a1cbd839768e699818a9f0b4e9cdf7d0d46ffeb93"
+      "byte_count": 6626,
+      "sha256": "6b982acaa16245841aa6fa3357f56d4859669401747c5c1840caa575a73d885a"
     }
   ],
   "inventory_counts": {

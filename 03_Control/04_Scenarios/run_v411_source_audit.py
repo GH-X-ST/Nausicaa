@@ -19,7 +19,11 @@ def _bootstrap_import_paths() -> None:
 
 _bootstrap_import_paths()
 
-from prim_cat import ACTIVE_PRIMITIVE_IDS, LAUNCH_CAPTURE_PRIMITIVE_IDS, active_primitive_catalogue  # noqa: E402
+from prim_cat import (  # noqa: E402
+    ACTIVE_PRIMITIVE_IDS,
+    LAUNCH_CAPTURE_PRIMITIVE_IDS,
+    active_primitive_catalogue,
+)
 from primitive_variant_registry import ENTRY_ROLE_BY_PRIMITIVE_ID  # noqa: E402
 from primitive_timing_contract import (  # noqa: E402
     PRIMITIVE_TIMING_CONTRACT_VERSION,
@@ -30,7 +34,7 @@ from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS  # noqa: E402
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
-SOURCE_AUDIT_VERSION = "v53_r5_only_launch_aware_source_audit"
+SOURCE_AUDIT_VERSION = "v53_transition_entry_8_family_source_audit"
 REQUIRED_DOCS = (
     "Glider_Control_Project_Plan.md",
     "Skills.md",
@@ -273,7 +277,7 @@ def write_diagnostic_not_passed_archive(
                 "",
                 f"- Status: `{manifest['status']}`",
                 f"- Superseded roots: `{len(superseded_roots)}`",
-                "- Evidence in this archive is rejected for v5.3 launch-aware R5 claims.",
+                "- Evidence in this archive is rejected for active transition-entry evidence claims.",
                 "- No hardware-readiness, real-flight transfer, mission-success, autonomy, or memory-improvement claim is allowed.",
                 "",
             ]
@@ -328,7 +332,17 @@ def _primitive_timing_blockers() -> list[dict[str, object]]:
 
 def _launch_aware_catalogue_blockers() -> list[dict[str, object]]:
     blockers: list[dict[str, object]] = []
-    required_launch_capture = {
+    expected_active = {
+        "glide",
+        "recovery",
+        "lift_entry",
+        "lift_dwell_arc",
+        "mild_turn_left",
+        "mild_turn_right",
+        "energy_retaining_bank",
+        "safe_exit_or_recovery_handoff",
+    }
+    retired_launch_capture = {
         "launch_capture_glide_stabilise",
         "launch_capture_lift_seek",
         "launch_capture_energy_build",
@@ -336,26 +350,31 @@ def _launch_aware_catalogue_blockers() -> list[dict[str, object]]:
         "launch_capture_shallow_right",
         "launch_capture_safe_handoff",
     }
-    if len(ACTIVE_PRIMITIVE_IDS) != 14:
-        blockers.append({"blocker_id": "active_primitive_count_not_14", "details": str(len(ACTIVE_PRIMITIVE_IDS))})
-    if set(LAUNCH_CAPTURE_PRIMITIVE_IDS) != required_launch_capture:
+    active = set(ACTIVE_PRIMITIVE_IDS)
+    if active != expected_active:
         blockers.append(
             {
-                "blocker_id": "launch_capture_ids_not_exact_required_set",
-                "details": ",".join(sorted(set(LAUNCH_CAPTURE_PRIMITIVE_IDS) ^ required_launch_capture)),
+                "blocker_id": "active_primitive_ids_not_exact_8_transition_families",
+                "details": ",".join(sorted(active ^ expected_active)),
             }
         )
-    for primitive_id in sorted(required_launch_capture):
-        if primitive_id not in ACTIVE_PRIMITIVE_IDS:
-            blockers.append({"blocker_id": "launch_capture_id_missing_from_active_catalogue", "details": primitive_id})
-        if ENTRY_ROLE_BY_PRIMITIVE_ID.get(primitive_id) != "launch_capable":
-            blockers.append({"blocker_id": "launch_capture_entry_role_incompatible", "details": primitive_id})
-    for primitive_id in ("glide", "lift_entry", "lift_dwell_arc", "mild_turn_left", "mild_turn_right", "energy_retaining_bank"):
-        if ENTRY_ROLE_BY_PRIMITIVE_ID.get(primitive_id) != "inflight_only":
-            blockers.append({"blocker_id": "inflight_primitive_relabelled_launch_capable", "details": primitive_id})
-    for primitive_id in ("recovery", "safe_exit_or_recovery_handoff"):
-        if ENTRY_ROLE_BY_PRIMITIVE_ID.get(primitive_id) != "terminal_or_recovery":
-            blockers.append({"blocker_id": "recovery_primitive_entry_role_changed", "details": primitive_id})
+    if active.intersection(retired_launch_capture):
+        blockers.append(
+            {
+                "blocker_id": "retired_launch_capture_ids_still_active",
+                "details": ",".join(sorted(active.intersection(retired_launch_capture))),
+            }
+        )
+    if set(LAUNCH_CAPTURE_PRIMITIVE_IDS) != retired_launch_capture:
+        blockers.append(
+            {
+                "blocker_id": "retired_launch_capture_aliases_not_exact_archive_set",
+                "details": ",".join(sorted(set(LAUNCH_CAPTURE_PRIMITIVE_IDS) ^ retired_launch_capture)),
+            }
+        )
+    for primitive_id in sorted(expected_active):
+        if ENTRY_ROLE_BY_PRIMITIVE_ID.get(primitive_id) != "transition_object":
+            blockers.append({"blocker_id": "active_primitive_not_transition_object", "details": primitive_id})
     return blockers
 
 

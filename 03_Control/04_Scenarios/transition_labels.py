@@ -21,6 +21,7 @@ STATE_CLASSES = (
 )
 
 ENTRY_CLASSES_BY_ROLE = {
+    "transition_object": ("launch_gate", "inflight_stable", "boundary_near", "recoverable_degraded"),
     "launch_capable": ("launch_gate",),
     "inflight_only": ("inflight_stable",),
     "terminal_or_recovery": ("boundary_near", "recoverable_degraded"),
@@ -29,12 +30,24 @@ ENTRY_CLASSES_BY_ROLE = {
 # The online route lets the first post-launch handoff use the same in-flight
 # primitive set while still recording the state as a distinct transition class.
 GOVERNOR_ENTRY_CLASSES_BY_ROLE = {
+    "transition_object": ("launch_gate", "post_launch_degraded", "inflight_stable", "boundary_near", "recoverable_degraded"),
     "launch_capable": ("launch_gate",),
     "inflight_only": ("post_launch_degraded", "inflight_stable"),
     "terminal_or_recovery": ("boundary_near", "recoverable_degraded"),
 }
 
+REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS = {
+    "launch_gate": ("post_launch_degraded", "inflight_stable"),
+    "post_launch_degraded": ("inflight_stable", "boundary_near", "safe_terminal"),
+    "inflight_stable": ("inflight_stable", "boundary_near", "safe_terminal"),
+    "boundary_near": ("inflight_stable", "safe_terminal"),
+    "recoverable_degraded": ("inflight_stable", "safe_terminal"),
+    "safe_terminal": (),
+    "hard_failure": (),
+}
+
 REQUIRED_EXIT_CLASSES_BY_ROLE = {
+    "transition_object": tuple(sorted({item for values in REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS.values() for item in values})),
     "launch_capable": ("post_launch_degraded", "inflight_stable"),
     "inflight_only": ("inflight_stable", "boundary_near", "safe_terminal"),
     "terminal_or_recovery": ("inflight_stable", "safe_terminal"),
@@ -124,7 +137,12 @@ def classify_transition(
         else row.get("start_state_family", row.get("context_start_state_family", ""))
     )
     entry_class = classify_state(start_state_family=family)
-    exit_class = _exit_class_from_row(row, entry_role=role, primitive_step_index=primitive_step_index)
+    exit_class = _exit_class_from_row(
+        row,
+        entry_role=role,
+        entry_class=entry_class,
+        primitive_step_index=primitive_step_index,
+    )
     compatible = transition_is_chain_compatible(entry_role=role, entry_class=entry_class, exit_class=exit_class)
     hard_failure = exit_class == "hard_failure"
     transition_success_probability = 1.0 if compatible else 0.0
@@ -141,6 +159,7 @@ def classify_transition(
         "updraft_gain_proxy_m": _updraft_gain_proxy(row),
         "flight_time_s": _float(row.get("rollout_duration_s", row.get("flight_time_s", 0.0))),
         "next_allowed_entry_roles": ";".join(entry_roles_for_state_class(exit_class)),
+        "next_allowed_entry_classes": ";".join(entry_classes_for_state_class(exit_class)),
     }
 
 
@@ -171,17 +190,16 @@ def transition_row_fields(
         "transition_updraft_gain_proxy_m": transition["updraft_gain_proxy_m"],
         "transition_flight_time_s": transition["flight_time_s"],
         "transition_next_allowed_entry_roles": transition["next_allowed_entry_roles"],
+        "transition_next_allowed_entry_classes": transition["next_allowed_entry_classes"],
     }
 
 
 def transition_is_chain_compatible(*, entry_role: str, exit_class: str, entry_class: str = "") -> bool:
+    if entry_class:
+        return str(exit_class) in REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS.get(str(entry_class), ())
     role = str(entry_role)
     if role not in REQUIRED_EXIT_CLASSES_BY_ROLE:
         return False
-    if entry_class:
-        allowed_entries = GOVERNOR_ENTRY_CLASSES_BY_ROLE.get(role, ())
-        if str(entry_class) not in allowed_entries:
-            return False
     return str(exit_class) in REQUIRED_EXIT_CLASSES_BY_ROLE[role]
 
 
@@ -190,6 +208,15 @@ def entry_roles_for_state_class(state_class: str) -> tuple[str, ...]:
     if state in {"safe_terminal", "hard_failure"}:
         return ()
     return tuple(role for role, classes in GOVERNOR_ENTRY_CLASSES_BY_ROLE.items() if state in classes)
+
+
+def entry_classes_for_state_class(state_class: str) -> tuple[str, ...]:
+    state = str(state_class)
+    if state in {"safe_terminal", "hard_failure"}:
+        return ()
+    if state == "post_launch_degraded":
+        return ("inflight_stable",)
+    return (state,)
 
 
 def required_entry_role_for_state_class(state_class: str) -> str:
@@ -205,15 +232,23 @@ def transition_contract_row() -> dict[str, object]:
     return {
         "transition_label_version": TRANSITION_LABEL_VERSION,
         "state_classes": ";".join(STATE_CLASSES),
-        "launch_capable_required_exit_classes": ";".join(REQUIRED_EXIT_CLASSES_BY_ROLE["launch_capable"]),
-        "inflight_only_required_exit_classes": ";".join(REQUIRED_EXIT_CLASSES_BY_ROLE["inflight_only"]),
-        "terminal_or_recovery_required_exit_classes": ";".join(REQUIRED_EXIT_CLASSES_BY_ROLE["terminal_or_recovery"]),
+        "active_primitive_role_policy": "launch_is_entry_regime_not_primitive_family",
+        "launch_gate_required_exit_classes": ";".join(REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS["launch_gate"]),
+        "inflight_stable_required_exit_classes": ";".join(REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS["inflight_stable"]),
+        "boundary_near_required_exit_classes": ";".join(REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS["boundary_near"]),
+        "recoverable_degraded_required_exit_classes": ";".join(REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS["recoverable_degraded"]),
         "boundary_near_is_route_state_not_failure": True,
         "hard_failure_is_only_failure_class": True,
     }
 
 
-def _exit_class_from_row(row: dict[str, Any], *, entry_role: str, primitive_step_index: int | None) -> str:
+def _exit_class_from_row(
+    row: dict[str, Any],
+    *,
+    entry_role: str,
+    entry_class: str,
+    primitive_step_index: int | None,
+) -> str:
     outcome = str(row.get("outcome_class", "")).lower()
     boundary = str(row.get("boundary_use_class", "")).lower()
     failure = str(row.get("failure_label", "")).lower()
@@ -237,28 +272,26 @@ def _exit_class_from_row(row: dict[str, Any], *, entry_role: str, primitive_step
         state_class = classify_state(
             exit_state,
             primitive_step_index=primitive_step_index,
-            allow_post_launch_degraded=str(entry_role) == "launch_capable",
+            allow_post_launch_degraded=str(entry_class) == "launch_gate" or str(entry_role) == "launch_capable",
         )
-        if str(entry_role) == "launch_capable" and state_class == "recoverable_degraded":
+        if str(entry_class) == "launch_gate" and state_class == "recoverable_degraded":
             return "post_launch_degraded"
         return state_class
 
     if "boundary" in boundary or _float(row.get("minimum_wall_margin_m", 1.0)) <= BOUNDARY_NEAR_MARGIN_M:
         return "boundary_near"
     if continuation:
-        return "post_launch_degraded" if str(entry_role) == "launch_capable" else "inflight_stable"
+        return "post_launch_degraded" if str(entry_class) == "launch_gate" else "inflight_stable"
     if outcome == "weak":
-        return "post_launch_degraded" if str(entry_role) == "launch_capable" else "recoverable_degraded"
+        return "post_launch_degraded" if str(entry_class) == "launch_gate" else "recoverable_degraded"
     return "recoverable_degraded"
 
 
 def _transition_failure_reason(entry_role: str, entry_class: str, exit_class: str) -> str:
     role = str(entry_role)
-    if role not in REQUIRED_EXIT_CLASSES_BY_ROLE:
-        return "unknown_entry_role"
-    if str(entry_class) not in GOVERNOR_ENTRY_CLASSES_BY_ROLE.get(role, ()):
-        return f"entry_class_{entry_class}_not_valid_for_{role}"
-    return f"exit_class_{exit_class}_not_chain_compatible_for_{role}"
+    if str(entry_class) not in REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS:
+        return f"unknown_transition_entry_class_{entry_class}"
+    return f"exit_class_{exit_class}_not_chain_compatible_for_entry_class_{entry_class}_role_{role}"
 
 
 def _state_vector(state: Any) -> np.ndarray:

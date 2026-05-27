@@ -12,6 +12,7 @@ from dense_archive_table_io import (
     write_table_manifest,
     write_table_partition,
 )
+from prim_cat import ACTIVE_PRIMITIVE_IDS
 from run_changed_case_validation import (
     HeldoutChangedCaseValidationConfig,
     R10_EXPECTED_FINAL_HELDOUT_LAUNCHES,
@@ -47,7 +48,7 @@ def test_w3_analysis_separates_terminal_and_continuation_evidence(tmp_path: Path
     registry = json.loads((w3_root / "manifests" / "w3_survivor_registry.json").read_text(encoding="ascii"))
 
     assert result["status"] == "w3_survivors_available"
-    assert registry["survivor_count"] == 9
+    assert registry["survivor_count"] == 11
     survived = summary[summary["primitive_variant_id"] == "primvar_glide_inflight"]
     terminal_safe = summary[summary["primitive_variant_id"] == "primvar_lift_terminal"]
     assert survived["w3_variant_status"].iloc[0] == "survived"
@@ -58,32 +59,27 @@ def test_w3_analysis_separates_terminal_and_continuation_evidence(tmp_path: Path
     assert int(terminal_safe["transition_chain_compatible_count"].iloc[0]) == 2
 
 
-def test_w3_analysis_blocks_when_launch_capable_has_no_survivors(tmp_path: Path) -> None:
+def test_w3_analysis_blocks_when_launch_gate_entry_has_no_survivors(tmp_path: Path) -> None:
     w3_root = _write_tiny_w3_root(tmp_path / "w3_survival" / "013")
     table_path = w3_root / "tables" / "w3_survival_rows" / "c00000.csv.gz"
     frame = pd.read_csv(table_path)
-    launch = frame["entry_role"].astype(str) == "launch_capable"
+    launch = frame["transition_entry_class"].astype(str) == "launch_gate"
     frame.loc[launch, "outcome_class"] = "failed"
     frame.loc[launch, "continuation_valid"] = False
     frame.loc[launch, "episode_terminal_useful"] = False
     frame.loc[launch, "boundary_use_class"] = "hard_failure"
     frame.loc[launch, "failure_label"] = "floor_violation"
+    frame.loc[launch, "transition_exit_class"] = "hard_failure"
+    frame.loc[launch, "transition_chain_compatible"] = False
     frame.to_csv(table_path, index=False, compression="gzip")
 
     result = run_w3_survival_analysis(W3SurvivalAnalysisConfig(input_root=w3_root))
     registry = json.loads((w3_root / "manifests" / "w3_survivor_registry.json").read_text(encoding="ascii"))
 
-    assert result["status"] == "blocked_no_launch_capable_w3_survivors"
+    assert result["status"] == "blocked_no_launch_gate_entry_w3_survivors"
     assert registry["survivor_count"] > 0
-    assert registry["launch_capable_survivor_count"] == 0
-    assert set(registry["missing_launch_capture_primitive_ids"]) == {
-        "launch_capture_glide_stabilise",
-        "launch_capture_lift_seek",
-        "launch_capture_energy_build",
-        "launch_capture_shallow_left",
-        "launch_capture_shallow_right",
-        "launch_capture_safe_handoff",
-    }
+    assert registry["launch_gate_entry_survivor_count"] == 0
+    assert set(registry["missing_launch_gate_entry_primitive_ids"]) == set(ACTIVE_PRIMITIVE_IDS)
 
 
 def test_post_w3_library_size_study_writes_five_cases_without_mutation(tmp_path: Path) -> None:
@@ -106,23 +102,18 @@ def test_post_w3_library_size_study_writes_five_cases_without_mutation(tmp_path:
     assert result["status"] == "complete"
     assert tuple(summary["library_size_case_id"]) == LIBRARY_SIZE_CASE_IDS
     assert library["library_size_human_label"] == "no-clustering/no-merging"
-    assert library["entry_role_regime_separation_policy"] == "representatives_grouped_by_primitive_id_and_entry_role_no_cross_role_merge"
+    assert library["entry_role_regime_separation_policy"] == "representatives_grouped_by_primitive_id_and_transition_entry_class_no_cross_entry_merge"
     assert library["selection_algorithm"] == "coverage_aware_behavior_qr_medoid_greedy_marginal"
     assert library["no_controller_mutation"] is True
     assert representative_ids == {
         "primvar_glide_inflight",
         "primvar_lift_terminal",
         "primvar_lift_survived",
-        "primvar_launch_capture_glide_stabilise",
-        "primvar_launch_capture_lift_seek",
-        "primvar_launch_capture_energy_build",
-        "primvar_launch_capture_shallow_left",
-        "primvar_launch_capture_shallow_right",
-        "primvar_launch_capture_safe_handoff",
+        *(f"primvar_{primitive_id}_launch_gate" for primitive_id in ACTIVE_PRIMITIVE_IDS),
     }
     for representative in representatives:
         assert representative["w3_variant_status"] == "survived"
-        assert representative["mutation_status"].startswith("references_existing_frozen_variant")
+        assert representative["mutation_status"].startswith("references_existing_frozen_transition_object")
         assert representative["library_size_case_id"] == "no_cluster_no_merge"
         assert representative["selection_algorithm"] == "coverage_aware_behavior_qr_medoid_greedy_marginal"
     glide = [row for row in representatives if row["primitive_variant_id"] == "primvar_glide_inflight"][0]
@@ -130,24 +121,16 @@ def test_post_w3_library_size_study_writes_five_cases_without_mutation(tmp_path:
     assert glide["K_gain_checksum"] == "k_glide"
     availability = pd.read_csv(run_root / "metrics" / "launch_gate_candidate_availability.csv")
     assert set(availability["library_size_case_id"]) == set(LIBRARY_SIZE_CASE_IDS)
-    assert (availability["launch_capture_primitive_family_count"] == 6).all()
-    assert (availability["missing_launch_capture_primitive_ids"].fillna("") == "").all()
-    assert (availability["non_launch_capture_launch_capable_primitive_ids"].fillna("") == "").all()
+    assert (availability["launch_gate_entry_primitive_family_count"] == len(ACTIVE_PRIMITIVE_IDS)).all()
+    assert (availability["missing_launch_gate_entry_primitive_ids"].fillna("") == "").all()
     for case_id in LIBRARY_SIZE_CASE_IDS:
         case_library = json.loads((run_root / "manifests" / f"{case_id}_primitive_library.json").read_text(encoding="ascii"))
         case_launch = {
             row["primitive_id"]
             for row in case_library["representatives"]
-            if row["entry_role"] == "launch_capable"
+            if row["transition_entry_class"] == "launch_gate"
         }
-        assert case_launch == {
-            "launch_capture_glide_stabilise",
-            "launch_capture_lift_seek",
-            "launch_capture_energy_build",
-            "launch_capture_shallow_left",
-            "launch_capture_shallow_right",
-            "launch_capture_safe_handoff",
-        }
+        assert case_launch == set(ACTIVE_PRIMITIVE_IDS)
 
 
 def test_post_w3_medoid_selection_keeps_existing_broad_coverage_variant() -> None:
@@ -156,7 +139,8 @@ def test_post_w3_medoid_selection_keeps_existing_broad_coverage_variant() -> Non
             {
                 "primitive_variant_id": "narrow_high_average",
                 "primitive_id": "glide",
-                "entry_role": "inflight_only",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
                 "continuation_valid_rate": 0.95,
                 "episode_terminal_useful_rate": 0.1,
                 "hard_failure_rate": 0.01,
@@ -170,7 +154,8 @@ def test_post_w3_medoid_selection_keeps_existing_broad_coverage_variant() -> Non
             {
                 "primitive_variant_id": "broad_medoid",
                 "primitive_id": "glide",
-                "entry_role": "inflight_only",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
                 "continuation_valid_rate": 0.75,
                 "episode_terminal_useful_rate": 0.1,
                 "hard_failure_rate": 0.02,
@@ -184,7 +169,8 @@ def test_post_w3_medoid_selection_keeps_existing_broad_coverage_variant() -> Non
             {
                 "primitive_variant_id": "unsafe_high_coverage",
                 "primitive_id": "glide",
-                "entry_role": "inflight_only",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
                 "continuation_valid_rate": 1.0,
                 "episode_terminal_useful_rate": 0.5,
                 "hard_failure_rate": 0.90,
@@ -392,27 +378,52 @@ def _read_schedule_table(run_root: Path, table_name: str) -> pd.DataFrame:
 
 def _write_tiny_w3_root(root: Path) -> Path:
     rows = [
-        _w3_row("primvar_glide_inflight", "glide", "inflight_only", "ctrl_glide", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 0),
-        _w3_row("primvar_glide_inflight", "glide", "inflight_only", "ctrl_glide", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 0),
-        _w3_row("primvar_glide_inflight", "glide", "inflight_only", "ctrl_glide", "w3_randomised_four", True, "failed", False, False, "hard_failure", "floor_violation", 0),
-        _w3_row("primvar_lift_terminal", "lift_entry", "inflight_only", "ctrl_lift", "w3_randomised_single", True, "weak", False, True, "episode_terminal_useful", "xy_boundary_terminal", 1),
-        _w3_row("primvar_lift_terminal", "lift_entry", "inflight_only", "ctrl_lift", "w3_randomised_four", True, "weak", False, True, "episode_terminal_useful", "xy_boundary_terminal", 1),
-        _w3_row("primvar_lift_terminal", "lift_entry", "inflight_only", "ctrl_lift", "w3_randomised_four", False, "rejected", False, False, "blocked", "entry_role_incompatible_start_family", 1),
-        _w3_row("primvar_lift_survived", "lift_entry", "inflight_only", "ctrl_lift_survived", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 2),
-        _w3_row("primvar_lift_survived", "lift_entry", "inflight_only", "ctrl_lift_survived", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 2),
-        _w3_row("primvar_launch_capture_glide_stabilise", "launch_capture_glide_stabilise", "launch_capable", "ctrl_launch_capture", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 3),
-        _w3_row("primvar_launch_capture_glide_stabilise", "launch_capture_glide_stabilise", "launch_capable", "ctrl_launch_capture", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 3),
-        _w3_row("primvar_launch_capture_lift_seek", "launch_capture_lift_seek", "launch_capable", "ctrl_launch_capture_lift_seek", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 4),
-        _w3_row("primvar_launch_capture_lift_seek", "launch_capture_lift_seek", "launch_capable", "ctrl_launch_capture_lift_seek", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 4),
-        _w3_row("primvar_launch_capture_energy_build", "launch_capture_energy_build", "launch_capable", "ctrl_launch_capture_energy_build", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 5),
-        _w3_row("primvar_launch_capture_energy_build", "launch_capture_energy_build", "launch_capable", "ctrl_launch_capture_energy_build", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 5),
-        _w3_row("primvar_launch_capture_shallow_left", "launch_capture_shallow_left", "launch_capable", "ctrl_launch_capture_shallow_left", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 6),
-        _w3_row("primvar_launch_capture_shallow_left", "launch_capture_shallow_left", "launch_capable", "ctrl_launch_capture_shallow_left", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 6),
-        _w3_row("primvar_launch_capture_shallow_right", "launch_capture_shallow_right", "launch_capable", "ctrl_launch_capture_shallow_right", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 7),
-        _w3_row("primvar_launch_capture_shallow_right", "launch_capture_shallow_right", "launch_capable", "ctrl_launch_capture_shallow_right", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 7),
-        _w3_row("primvar_launch_capture_safe_handoff", "launch_capture_safe_handoff", "launch_capable", "ctrl_launch_capture_safe_handoff", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 8),
-        _w3_row("primvar_launch_capture_safe_handoff", "launch_capture_safe_handoff", "launch_capable", "ctrl_launch_capture_safe_handoff", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 8),
+        _w3_row("primvar_glide_inflight", "glide", "transition_object", "ctrl_glide", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 0, transition_entry_class="inflight_stable"),
+        _w3_row("primvar_glide_inflight", "glide", "transition_object", "ctrl_glide", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 0, transition_entry_class="inflight_stable"),
+        _w3_row("primvar_glide_inflight", "glide", "transition_object", "ctrl_glide", "w3_randomised_four", True, "failed", False, False, "hard_failure", "floor_violation", 0, transition_entry_class="inflight_stable"),
+        _w3_row("primvar_lift_terminal", "lift_entry", "transition_object", "ctrl_lift", "w3_randomised_single", True, "weak", False, True, "episode_terminal_useful", "xy_boundary_terminal", 1, transition_entry_class="inflight_stable", transition_exit_class="safe_terminal"),
+        _w3_row("primvar_lift_terminal", "lift_entry", "transition_object", "ctrl_lift", "w3_randomised_four", True, "weak", False, True, "episode_terminal_useful", "xy_boundary_terminal", 1, transition_entry_class="inflight_stable", transition_exit_class="safe_terminal"),
+        _w3_row("primvar_lift_terminal", "lift_entry", "transition_object", "ctrl_lift", "w3_randomised_four", False, "rejected", False, False, "blocked", "entry_class_incompatible_start_family", 1, transition_entry_class="inflight_stable", transition_exit_class="hard_failure", transition_chain_compatible=False),
+        _w3_row("primvar_lift_survived", "lift_entry", "transition_object", "ctrl_lift_survived", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 2, transition_entry_class="inflight_stable"),
+        _w3_row("primvar_lift_survived", "lift_entry", "transition_object", "ctrl_lift_survived", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 2, transition_entry_class="inflight_stable"),
     ]
+    for offset, primitive_id in enumerate(ACTIVE_PRIMITIVE_IDS, start=3):
+        rows.extend(
+            [
+                _w3_row(
+                    f"primvar_{primitive_id}_launch_gate",
+                    primitive_id,
+                    "transition_object",
+                    f"ctrl_{primitive_id}_launch_gate",
+                    "w3_randomised_single",
+                    True,
+                    "accepted",
+                    True,
+                    False,
+                    "continuation_valid",
+                    "success",
+                    offset,
+                    transition_entry_class="launch_gate",
+                    transition_exit_class="post_launch_degraded",
+                ),
+                _w3_row(
+                    f"primvar_{primitive_id}_launch_gate",
+                    primitive_id,
+                    "transition_object",
+                    f"ctrl_{primitive_id}_launch_gate",
+                    "w3_randomised_four",
+                    True,
+                    "accepted",
+                    True,
+                    False,
+                    "continuation_valid",
+                    "success",
+                    offset,
+                    transition_entry_class="launch_gate",
+                    transition_exit_class="inflight_stable",
+                ),
+            ]
+        )
     table_root = root / "tables" / "w3_survival_rows"
     table_root.mkdir(parents=True, exist_ok=True)
     partition = write_table_partition(pd.DataFrame(rows), table_root / "c00000.csv.gz", storage_format="csv_gz", compression_level=1)
@@ -473,8 +484,29 @@ def _w3_row(
     boundary_use_class: str,
     failure_label: str,
     candidate_index: int,
+    *,
+    transition_entry_class: str = "inflight_stable",
+    transition_exit_class: str = "",
+    transition_chain_compatible: bool | None = None,
 ) -> dict[str, object]:
     prefix = "glide" if primitive_id == "glide" else "lift"
+    if not transition_exit_class:
+        if str(boundary_use_class) == "hard_failure" or str(outcome_class) == "failed":
+            transition_exit_class = "hard_failure"
+        elif bool(terminal_useful):
+            transition_exit_class = "safe_terminal"
+        elif transition_entry_class == "launch_gate":
+            transition_exit_class = "post_launch_degraded"
+        else:
+            transition_exit_class = "inflight_stable"
+    if transition_chain_compatible is None:
+        transition_chain_compatible = str(transition_exit_class) != "hard_failure" and bool(compatible)
+    start_state_family_by_entry = {
+        "launch_gate": "launch_gate",
+        "inflight_stable": "inflight_nominal",
+        "boundary_near": "inflight_boundary_near",
+        "recoverable_degraded": "inflight_recovery_edge",
+    }
     return {
         "primitive_variant_id": variant_id,
         "primitive_id": primitive_id,
@@ -482,8 +514,14 @@ def _w3_row(
         "controller_id": controller_id,
         "candidate_index": candidate_index,
         "candidate_weight_label": f"{prefix}_weights",
+        "start_state_family": start_state_family_by_entry.get(transition_entry_class, "inflight_nominal"),
         "environment_mode": environment_mode,
         "entry_role_compatible": compatible,
+        "transition_entry_class": transition_entry_class,
+        "transition_exit_class": transition_exit_class,
+        "transition_pair": f"{transition_entry_class}->{transition_exit_class}",
+        "transition_chain_compatible": bool(transition_chain_compatible),
+        "transition_success": bool(transition_chain_compatible),
         "continuation_valid": continuation_valid,
         "episode_terminal_useful": terminal_useful,
         "boundary_use_class": boundary_use_class,

@@ -53,7 +53,7 @@ from latency import DEFAULT_LATENCY_ENVELOPE, latency_case_config  # noqa: E402
 from lqr_controller import ACTIVE_TIMING_AWARE_ROLE, controller_is_active_timing_aware_w01, synthesize_lqr_controller  # noqa: E402
 from lqr_tuning import candidate_weight_specs, lqr_tuning_schedule, tuning_schedule_row  # noqa: E402
 from plant_instance import plant_instance_for_layer, plant_instance_row  # noqa: E402
-from prim_cat import ACTIVE_PRIMITIVE_IDS, LAUNCH_CAPTURE_PRIMITIVE_IDS, active_primitive_catalogue  # noqa: E402
+from prim_cat import ACTIVE_PRIMITIVE_IDS, active_primitive_catalogue  # noqa: E402
 from prim_roll import (  # noqa: E402
     RolloutConfig,
     blocked_rollout_evidence,
@@ -81,6 +81,8 @@ from transition_labels import transition_contract_row, transition_row_fields  # 
 W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v53"
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
 W01_TABLE_NAME = "w01_primitive_rows"
+R5_LAUNCH_GATE_ENTRY_DIAGNOSIS_CSV = "r5_launch_gate_entry_diagnosis.csv"
+R5_LEGACY_LAUNCH_CAPTURE_DIAGNOSIS_CSV = "r5_launch_capture_diagnosis.csv"
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 L6_FALLBACK_ROW_COUNT = 19_200
 L6_RICH_SIDE_CANDIDATE_COUNT = 32
@@ -105,15 +107,15 @@ def rich_side_dense_row_count(
 
 
 L6_RICH_SIDE_ROW_COUNT = rich_side_dense_row_count()
-CROSS_LAYER_START_FAMILY_CYCLE = 20
+CROSS_LAYER_START_FAMILY_CYCLE = 100
 CROSS_LAYER_SMOKE_READY = "cross_layer_smoke_start_family_complete"
 CROSS_LAYER_SMOKE_INCOMPLETE = "artifact_smoke_only_start_family_incomplete"
 W01_DRY_SCHEDULE_ONLY = "w01_dry_schedule_only"
 W01_SMOKE_OR_PREFLIGHT_ONLY = "w01_smoke_or_preflight_only"
 W01_DENSE_EVIDENCE_COMPLETE = "w01_dense_evidence_complete"
-R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW = "R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW"
-R5_LAUNCH_AWARE_DENSE_BLOCKED_FIX_REQUIRED = "R5_LAUNCH_AWARE_DENSE_BLOCKED_FIX_REQUIRED"
-R5_LAUNCH_AWARE_DENSE_INCOMPLETE_RESUME_REQUIRED = "R5_LAUNCH_AWARE_DENSE_INCOMPLETE_RESUME_REQUIRED"
+R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW = "R5_TRANSITION_AWARE_DENSE_PASSED_FOR_REVIEW"
+R5_LAUNCH_AWARE_DENSE_BLOCKED_FIX_REQUIRED = "R5_TRANSITION_AWARE_DENSE_BLOCKED_FIX_REQUIRED"
+R5_LAUNCH_AWARE_DENSE_INCOMPLETE_RESUME_REQUIRED = "R5_TRANSITION_AWARE_DENSE_INCOMPLETE_RESUME_REQUIRED"
 DOCS_CHANGED_REAUDIT_REQUIRED = "DOCS_CHANGED_REAUDIT_REQUIRED"
 REQUIRED_DOCS = (
     "Glider_Control_Project_Plan.md",
@@ -145,20 +147,22 @@ BLOCKED_CLAIMS = (
     "mission_success",
 )
 START_FAMILY_MIX = {
-    "launch_gate": 3.0 / 7.0,
-    "inflight_nominal": 15.0 / 56.0,
-    "inflight_lift_region": 9.0 / 56.0,
-    "inflight_boundary_near": 1.0 / 14.0,
-    "inflight_recovery_edge": 1.0 / 14.0,
+    "launch_gate": 0.40,
+    "inflight_nominal": 0.25,
+    "inflight_lift_region": 0.15,
+    "inflight_boundary_near": 0.10,
+    "inflight_recovery_edge": 0.10,
 }
-LAUNCH_CAPTURE_REGIME_LABEL = "launch_capture_from_launch_gate"
-INFLIGHT_REGIME_LABEL = "inflight_from_nominal_or_lift_region"
-RECOVERY_REGIME_LABEL = "recovery_or_safe_exit_from_boundary_or_recovery_edge"
-OUT_OF_REGIME_LABEL = "out_of_regime_or_entry_role_incompatible"
+LAUNCH_CAPTURE_REGIME_LABEL = "launch_entry_evidence_for_8_families"
+INFLIGHT_REGIME_LABEL = "inflight_entry_evidence_for_8_families"
+RECOVERY_REGIME_LABEL = "boundary_or_recovery_entry_evidence_for_8_families"
+OUT_OF_REGIME_LABEL = "unknown_transition_entry_regime"
 INFLIGHT_REGIME_STARTS = ("inflight_nominal", "inflight_lift_region")
 RECOVERY_REGIME_STARTS = ("inflight_boundary_near", "inflight_recovery_edge")
 R5_REGIME_GROUP_COLUMNS = (
     "start_state_family",
+    "transition_entry_class",
+    "transition_exit_class",
     "primitive_id",
     "primitive_family",
     "entry_role",
@@ -1156,27 +1160,27 @@ def _write_csv(path: Path, frame: pd.DataFrame) -> None:
 
 def _write_launch_gate_audit_tables(run_root: Path, diagnosis: pd.DataFrame | None = None) -> None:
     if diagnosis is None:
-        diagnosis = _read_csv_or_empty(run_root / "metrics" / "r5_launch_capture_diagnosis.csv")
+        diagnosis = _read_csv_or_empty(run_root / "metrics" / R5_LAUNCH_GATE_ENTRY_DIAGNOSIS_CSV)
+        if diagnosis.empty:
+            diagnosis = _read_csv_or_empty(run_root / "metrics" / R5_LEGACY_LAUNCH_CAPTURE_DIAGNOSIS_CSV)
     if diagnosis is None or diagnosis.empty:
         diagnosis = _empty_r5_diagnosis_frame()
     diagnosis = diagnosis.copy()
     if "stage_id" not in diagnosis.columns:
         diagnosis.insert(0, "stage_id", "W01")
-    _write_csv(run_root / "metrics" / "r5_launch_capture_diagnosis.csv", diagnosis)
+    _write_csv(run_root / "metrics" / R5_LAUNCH_GATE_ENTRY_DIAGNOSIS_CSV, diagnosis)
+    _write_csv(run_root / "metrics" / R5_LEGACY_LAUNCH_CAPTURE_DIAGNOSIS_CSV, diagnosis)
 
-    launch_capable_count = _unique_group_count(
+    launch_entry_count = _unique_group_count(
         diagnosis,
         (diagnosis.get("start_state_family", pd.Series(dtype=str)).astype(str) == "launch_gate")
-        & (diagnosis.get("entry_role", pd.Series(dtype=str)).astype(str) == "launch_capable"),
-    )
-    launch_capture_count = _unique_group_count(
-        diagnosis,
-        (diagnosis.get("start_state_family", pd.Series(dtype=str)).astype(str) == "launch_gate")
-        & (diagnosis.get("primitive_id", pd.Series(dtype=str)).astype(str).isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS))),
+        & (diagnosis.get("transition_entry_class", pd.Series(dtype=str)).astype(str) == "launch_gate"),
     )
 
     audit = diagnosis.copy()
-    audit["entry_role_compatible"] = audit["entry_role"].astype(str) == "launch_capable"
+    audit["entry_role_compatible"] = audit["transition_entry_class"].astype(str).isin(
+        {"launch_gate", "inflight_stable", "boundary_near", "recoverable_degraded"}
+    )
     audit["launch_gate_candidate_rows"] = audit.apply(
         lambda row: int(row.get("total_rows", 0)) if str(row.get("start_state_family", "")) == "launch_gate" else 0,
         axis=1,
@@ -1198,14 +1202,14 @@ def _write_launch_gate_audit_tables(run_root: Path, diagnosis: pd.DataFrame | No
         "total_rows",
         "rejection_rate",
         "credible_launch_gate_outcome",
-        "r5_launch_capture_gate_passed",
+        "r5_launch_entry_gate_passed",
     ]
     _write_csv(run_root / "metrics" / "launch_gate_outcome_audit.csv", audit.loc[:, _existing_columns(audit, outcome_columns)])
 
     availability = audit.copy()
     availability["library_size_case_id"] = "not_applicable_w01"
-    availability["launch_capable_primitive_family_count"] = int(launch_capable_count)
-    availability["launch_capture_primitive_family_count"] = int(launch_capture_count)
+    availability["launch_gate_entry_primitive_family_count"] = int(launch_entry_count)
+    availability["active_primitive_family_count"] = int(len(ACTIVE_PRIMITIVE_IDS))
     availability["first_decision_audit_mode"] = "not_applicable_w01"
     availability["launch_gate_candidate_rows"] = availability.apply(
         lambda row: int(row.get("total_rows", 0)) if str(row.get("start_state_family", "")) == "launch_gate" else 0,
@@ -1215,10 +1219,10 @@ def _write_launch_gate_audit_tables(run_root: Path, diagnosis: pd.DataFrame | No
         "stage_id",
         "library_size_case_id",
         *R5_REGIME_GROUP_COLUMNS,
-        "launch_capable_primitive_family_count",
-        "launch_capture_primitive_family_count",
+        "launch_gate_entry_primitive_family_count",
+        "active_primitive_family_count",
         "launch_gate_candidate_rows",
-        "expected_launch_gate_rows_per_launch_capture_primitive",
+        "expected_launch_gate_rows_per_active_primitive",
         "expected_full_dense_launch_gate_rows_present",
         "entry_role_rejection_count",
         "rejection_rate",
@@ -1231,7 +1235,7 @@ def _write_launch_gate_audit_tables(run_root: Path, diagnosis: pd.DataFrame | No
         "terminal_useful_count",
         "hard_failure_count",
         "credible_launch_gate_outcome",
-        "r5_launch_capture_gate_passed",
+        "r5_launch_entry_gate_passed",
         "first_decision_audit_mode",
     ]
     _write_csv(
@@ -1246,6 +1250,8 @@ def _regime_counts_for_frame(frame: pd.DataFrame) -> pd.DataFrame:
     work = pd.DataFrame(
         {
             "start_state_family": frame.get("start_state_family", pd.Series("", index=frame.index)).fillna("").astype(str),
+            "transition_entry_class": frame.get("transition_entry_class", pd.Series("", index=frame.index)).fillna("").astype(str),
+            "transition_exit_class": frame.get("transition_exit_class", pd.Series("", index=frame.index)).fillna("").astype(str),
             "primitive_id": frame.get("primitive_id", pd.Series("", index=frame.index)).fillna("").astype(str),
             "primitive_family": _primitive_family_series(frame),
             "entry_role": frame.get("entry_role", pd.Series("", index=frame.index)).fillna("").astype(str),
@@ -1296,16 +1302,16 @@ def _finalise_regime_counts(frame: pd.DataFrame) -> pd.DataFrame:
         result[column] = pd.to_numeric(result.get(column, 0), errors="coerce").fillna(0).astype(int)
     total = result["total_rows"].replace(0, pd.NA)
     result["rejection_rate"] = (result["rejected_count"] / total).fillna(0.0).astype(float)
-    result["launch_capture_family"] = result["primitive_id"].astype(str).isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS))
+    result["active_primitive_family"] = result["primitive_id"].astype(str).isin(set(ACTIVE_PRIMITIVE_IDS))
     result["launch_gate_rows_exist"] = (result["start_state_family"].astype(str) == "launch_gate") & (result["total_rows"] > 0)
     result["non_rejected_launch_gate_rows"] = (
         result["total_rows"] - result["rejected_count"] - result["blocked_count"]
     ).clip(lower=0)
-    expected_launch_rows = _expected_launch_gate_rows_per_launch_capture_primitive()
-    result["expected_launch_gate_rows_per_launch_capture_primitive"] = expected_launch_rows
+    expected_launch_rows = _expected_launch_gate_rows_per_active_primitive()
+    result["expected_launch_gate_rows_per_active_primitive"] = expected_launch_rows
     result["expected_full_dense_launch_gate_rows_present"] = (
         (result["start_state_family"].astype(str) == "launch_gate")
-        & result["launch_capture_family"].astype(bool)
+        & result["active_primitive_family"].astype(bool)
         & (result["total_rows"] == expected_launch_rows)
     )
     result["credible_launch_gate_outcome"] = (
@@ -1313,10 +1319,10 @@ def _finalise_regime_counts(frame: pd.DataFrame) -> pd.DataFrame:
         & (result["hard_failure_count"] < result["total_rows"])
         & (result["blocked_count"] + result["rejected_count"] < result["total_rows"])
     )
-    result["r5_launch_capture_gate_passed"] = (
+    result["r5_launch_entry_gate_passed"] = (
         (result["start_state_family"].astype(str) == "launch_gate")
-        & result["launch_capture_family"].astype(bool)
-        & (result["entry_role"].astype(str) == "launch_capable")
+        & result["active_primitive_family"].astype(bool)
+        & (result["transition_entry_class"].astype(str) == "launch_gate")
         & result["expected_full_dense_launch_gate_rows_present"].astype(bool)
         & (result["entry_role_rejection_count"] == 0)
         & result["credible_launch_gate_outcome"].astype(bool)
@@ -1330,13 +1336,13 @@ def _empty_r5_diagnosis_frame(*, finalised: bool = True) -> pd.DataFrame:
         columns.extend(
             [
                 "rejection_rate",
-                "launch_capture_family",
+                "active_primitive_family",
                 "launch_gate_rows_exist",
                 "non_rejected_launch_gate_rows",
-                "expected_launch_gate_rows_per_launch_capture_primitive",
+                "expected_launch_gate_rows_per_active_primitive",
                 "expected_full_dense_launch_gate_rows_present",
                 "credible_launch_gate_outcome",
-                "r5_launch_capture_gate_passed",
+                "r5_launch_entry_gate_passed",
             ]
         )
     return pd.DataFrame(columns=columns)
@@ -1353,11 +1359,9 @@ def _primitive_family_series(frame: pd.DataFrame) -> pd.Series:
 def _regime_label_series(frame: pd.DataFrame) -> pd.Series:
     labels = pd.Series(OUT_OF_REGIME_LABEL, index=frame.index, dtype=object)
     start = frame["start_state_family"].astype(str)
-    primitive_id = frame["primitive_id"].astype(str)
-    entry_role = frame["entry_role"].astype(str)
-    labels.loc[primitive_id.isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS)) & start.eq("launch_gate")] = LAUNCH_CAPTURE_REGIME_LABEL
-    labels.loc[entry_role.eq("inflight_only") & start.isin(INFLIGHT_REGIME_STARTS)] = INFLIGHT_REGIME_LABEL
-    labels.loc[entry_role.eq("terminal_or_recovery") & start.isin(RECOVERY_REGIME_STARTS)] = RECOVERY_REGIME_LABEL
+    labels.loc[start.eq("launch_gate")] = LAUNCH_CAPTURE_REGIME_LABEL
+    labels.loc[start.isin(INFLIGHT_REGIME_STARTS)] = INFLIGHT_REGIME_LABEL
+    labels.loc[start.isin(RECOVERY_REGIME_STARTS)] = RECOVERY_REGIME_LABEL
     return labels
 
 
@@ -1380,11 +1384,11 @@ def _unique_group_count(frame: pd.DataFrame, mask: pd.Series) -> int:
     return int(frame.loc[mask, "primitive_id"].astype(str).nunique())
 
 
-def _expected_launch_gate_rows_per_launch_capture_primitive() -> int:
+def _expected_launch_gate_rows_per_active_primitive() -> int:
     return int(
         L6_RICH_SIDE_CANDIDATE_COUNT
         * len(OFFICIAL_W01_ENVIRONMENT_CASES)
-        * L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE
+        * 40
     )
 
 
@@ -1679,16 +1683,18 @@ def _write_l7_completeness_audit(
 
 def _write_r5_launch_capture_diagnosis_report(*, run_root: Path, status: str, row_count: int) -> None:
     decision, blockers = _r5_launch_aware_decision_and_blockers(run_root=run_root, status=status, row_count=row_count)
-    diagnosis = _read_csv_or_empty(run_root / "metrics" / "r5_launch_capture_diagnosis.csv")
+    diagnosis = _read_csv_or_empty(run_root / "metrics" / R5_LAUNCH_GATE_ENTRY_DIAGNOSIS_CSV)
     if diagnosis.empty:
-        launch_summary = ["- `missing_or_empty_r5_launch_capture_diagnosis`"]
+        diagnosis = _read_csv_or_empty(run_root / "metrics" / R5_LEGACY_LAUNCH_CAPTURE_DIAGNOSIS_CSV)
+    if diagnosis.empty:
+        launch_summary = ["- `missing_or_empty_r5_transition_diagnosis`"]
     else:
         launch_rows = diagnosis[
             (diagnosis["start_state_family"].astype(str) == "launch_gate")
-            & (diagnosis["primitive_id"].astype(str).isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS)))
+            & (diagnosis["primitive_id"].astype(str).isin(set(ACTIVE_PRIMITIVE_IDS)))
         ].copy()
         launch_summary = []
-        for primitive_id in LAUNCH_CAPTURE_PRIMITIVE_IDS:
+        for primitive_id in ACTIVE_PRIMITIVE_IDS:
             primitive_rows = launch_rows[launch_rows["primitive_id"].astype(str) == primitive_id]
             if primitive_rows.empty:
                 launch_summary.append(f"- `{primitive_id}`: `missing_launch_gate_rows`")
@@ -1706,23 +1712,23 @@ def _write_r5_launch_capture_diagnosis_report(*, run_root: Path, status: str, ro
                     int(row.get("rejected_count", 0)),
                     int(row.get("blocked_count", 0)),
                     int(row.get("entry_role_rejection_count", 0)),
-                    str(row.get("r5_launch_capture_gate_passed", False)),
+                    str(row.get("r5_launch_entry_gate_passed", False)),
                 )
             )
     report = "\n".join(
         [
-            "# R5 Launch-Capture Diagnosis",
+            "# R5 Launch-Entry Transition Diagnosis",
             "",
             f"- Project title version: `{PROJECT_TITLE_VERSION}`",
             f"- Status: `{status}`",
             f"- Rows written: `{int(row_count)}`",
             f"- Expected dense rows: `{int(L6_RICH_SIDE_ROW_COUNT)}`",
-            f"- Expected launch-gate rows per launch-capture primitive: `{_expected_launch_gate_rows_per_launch_capture_primitive()}`",
-            f"- R5 launch-aware decision: `{decision}`",
-            "- Regime labels: `launch_capture_from_launch_gate`, `inflight_from_nominal_or_lift_region`, `recovery_or_safe_exit_from_boundary_or_recovery_edge`.",
-            "- In-flight and recovery/safe-exit rows are diagnostics only and cannot satisfy launch-capture gates.",
+            f"- Expected launch-gate rows per active primitive: `{_expected_launch_gate_rows_per_active_primitive()}`",
+            f"- R5 transition-aware decision: `{decision}`",
+            "- Regime labels: `launch_entry_evidence_for_8_families`, `inflight_entry_evidence_for_8_families`, `boundary_or_recovery_entry_evidence_for_8_families`.",
+            "- Launch, in-flight, boundary, and recovery evidence are separate transition entries for the same eight active primitive families.",
             "",
-            "Launch-capture launch-gate summary:",
+            "Launch-entry transition summary:",
             "",
             *launch_summary,
             "",
@@ -1734,6 +1740,7 @@ def _write_r5_launch_capture_diagnosis_report(*, run_root: Path, status: str, ro
             "",
         ]
     )
+    filesystem_path(run_root / "reports" / "r5_launch_gate_entry_diagnosis.md").write_text(report, encoding="ascii")
     filesystem_path(run_root / "reports" / "r5_launch_capture_diagnosis.md").write_text(report, encoding="ascii")
 
 
@@ -2058,13 +2065,15 @@ def _launch_gate_coverage_blockers(*, run_root: Path, row_count: int) -> list[st
     if int(row_count) < L6_RICH_SIDE_ROW_COUNT:
         return []
     blockers: list[str] = []
-    path = filesystem_path(run_root / "metrics" / "r5_launch_capture_diagnosis.csv")
+    path = filesystem_path(run_root / "metrics" / R5_LAUNCH_GATE_ENTRY_DIAGNOSIS_CSV)
     if not path.is_file():
-        blockers.append("missing_r5_launch_capture_diagnosis")
+        path = filesystem_path(run_root / "metrics" / R5_LEGACY_LAUNCH_CAPTURE_DIAGNOSIS_CSV)
+    if not path.is_file():
+        blockers.append("missing_r5_launch_gate_entry_diagnosis")
         return blockers
     audit = pd.read_csv(path)
     if audit.empty:
-        blockers.append("empty_r5_launch_capture_diagnosis")
+        blockers.append("empty_r5_launch_gate_entry_diagnosis")
         return blockers
     required = {
         "start_state_family",
@@ -2081,37 +2090,27 @@ def _launch_gate_coverage_blockers(*, run_root: Path, row_count: int) -> list[st
         "entry_role_rejection_count",
         "total_rows",
         "credible_launch_gate_outcome",
-        "r5_launch_capture_gate_passed",
+        "r5_launch_entry_gate_passed",
+        "transition_entry_class",
     }
     if not required.issubset(set(audit.columns)):
-        blockers.append("r5_launch_capture_diagnosis_missing_required_columns")
+        blockers.append("r5_transition_diagnosis_missing_required_columns")
         return blockers
     launch_rows = audit[audit["start_state_family"].astype(str) == "launch_gate"].copy()
-    launch_capable_count = int(
-        launch_rows.loc[
-            (launch_rows["entry_role"].astype(str) == "launch_capable")
-            & (pd.to_numeric(launch_rows["total_rows"], errors="coerce").fillna(0) > 0),
-            "primitive_id",
-        ]
-        .astype(str)
-        .nunique()
-    )
-    launch_capture_rows = launch_rows[
-        launch_rows["primitive_id"].astype(str).isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS))
+    launch_entry_rows = launch_rows[
+        launch_rows["primitive_id"].astype(str).isin(set(ACTIVE_PRIMITIVE_IDS))
     ].copy()
-    launch_capture_count = int(launch_capture_rows["primitive_id"].astype(str).nunique())
-    if launch_capable_count < 2:
-        blockers.append("launch_capable_primitive_family_count_below_2")
-    if launch_capture_count < len(LAUNCH_CAPTURE_PRIMITIVE_IDS):
-        blockers.append("launch_capture_primitive_coverage_incomplete")
-    expected_rows = _expected_launch_gate_rows_per_launch_capture_primitive()
-    for primitive_id in LAUNCH_CAPTURE_PRIMITIVE_IDS:
-        rows = launch_capture_rows[launch_capture_rows["primitive_id"].astype(str) == str(primitive_id)]
+    launch_entry_count = int(launch_entry_rows["primitive_id"].astype(str).nunique())
+    if launch_entry_count < len(ACTIVE_PRIMITIVE_IDS):
+        blockers.append("launch_gate_entry_coverage_incomplete_for_8_active_primitives")
+    expected_rows = _expected_launch_gate_rows_per_active_primitive()
+    for primitive_id in ACTIVE_PRIMITIVE_IDS:
+        rows = launch_entry_rows[launch_entry_rows["primitive_id"].astype(str) == str(primitive_id)]
         if rows.empty:
             blockers.append(f"{primitive_id}:missing_launch_gate_rows")
             continue
         total_rows = int(pd.to_numeric(rows["total_rows"], errors="coerce").fillna(0).sum())
-        entry_roles = set(rows["entry_role"].astype(str))
+        entry_classes = set(rows["transition_entry_class"].astype(str))
         entry_role_rejections = int(pd.to_numeric(rows["entry_role_rejection_count"], errors="coerce").fillna(0).sum())
         accepted = int(pd.to_numeric(rows["accepted_count"], errors="coerce").fillna(0).sum())
         weak = int(pd.to_numeric(rows["weak_count"], errors="coerce").fillna(0).sum())
@@ -2120,11 +2119,11 @@ def _launch_gate_coverage_blockers(*, run_root: Path, row_count: int) -> list[st
         hard_failure = int(pd.to_numeric(rows["hard_failure_count"], errors="coerce").fillna(0).sum())
         blocked = int(pd.to_numeric(rows["blocked_count"], errors="coerce").fillna(0).sum())
         rejected = int(pd.to_numeric(rows["rejected_count"], errors="coerce").fillna(0).sum())
-        passed = rows["r5_launch_capture_gate_passed"].astype(str).str.lower().isin({"true", "1"}).any()
+        passed = rows["r5_launch_entry_gate_passed"].astype(str).str.lower().isin({"true", "1"}).any()
         if total_rows != expected_rows:
             blockers.append(f"{primitive_id}:launch_gate_row_count_{total_rows}_expected_{expected_rows}")
-        if entry_roles != {"launch_capable"}:
-            blockers.append(f"{primitive_id}:entry_role_incompatible_start_family")
+        if entry_classes != {"launch_gate"}:
+            blockers.append(f"{primitive_id}:transition_entry_class_not_launch_gate")
         if entry_role_rejections != 0:
             blockers.append(f"{primitive_id}:entry_role_rejection_count_{entry_role_rejections}")
         if accepted + weak + continuation + terminal <= 0:
@@ -2134,7 +2133,7 @@ def _launch_gate_coverage_blockers(*, run_root: Path, row_count: int) -> list[st
         if blocked + rejected >= total_rows:
             blockers.append(f"{primitive_id}:all_launch_gate_rows_blocked_or_rejected")
         if not passed:
-            blockers.append(f"{primitive_id}:r5_launch_capture_gate_not_passed")
+            blockers.append(f"{primitive_id}:r5_launch_entry_gate_not_passed")
     return blockers
 
 
@@ -2161,12 +2160,12 @@ def _r5_launch_aware_manifest_fields(*, run_root: Path, status: str, row_count: 
             INFLIGHT_REGIME_LABEL,
             RECOVERY_REGIME_LABEL,
         ],
-        "r5_regime_separation_gate": "launch_capture_rows_judged_only_from_launch_gate_and_not_compensated_by_inflight_or_recovery_rows",
+        "r5_regime_separation_gate": "transition_entry_rows_judged_by_start_family_and_entry_class_for_the_same_8_primitives",
         "transition_contract": transition_contract_row(),
         "transition_success_policy": "local_rollout_success_is_diagnostic_only_transition_compatibility_is_required_downstream",
-        "launch_capture_primitive_ids": list(LAUNCH_CAPTURE_PRIMITIVE_IDS),
+        "retired_launch_capture_primitive_ids_active": False,
         "active_primitive_count": int(len(ACTIVE_PRIMITIVE_IDS)),
-        "expected_launch_gate_rows_per_launch_capture_primitive": _expected_launch_gate_rows_per_launch_capture_primitive(),
+        "expected_launch_gate_rows_per_active_primitive": _expected_launch_gate_rows_per_active_primitive(),
         "later_validation_stages_deliberately_not_run_in_v53_r5_only_pass": True,
     }
 
@@ -2513,7 +2512,7 @@ def _run_manifest(
         "worker_decision": asdict(worker_decision),
         "chunk_count": int(len(schedule)),
         "schedule_mode": str(config.schedule_mode),
-        "paired_start_policy": "common_random_start_key_reused_within_entry_role_compatible_start_family_regimes",
+        "paired_start_policy": "common_random_start_key_reused_within_transition_entry_start_family_regimes",
         "per_primitive_row_counts": schedule_counts["primitive_id"],
         "per_candidate_row_counts": schedule_counts["candidate_index"],
         "per_W_layer_row_counts": schedule_counts["W_layer"],
@@ -2526,10 +2525,10 @@ def _run_manifest(
             INFLIGHT_REGIME_LABEL,
             RECOVERY_REGIME_LABEL,
         ],
-        "r5_regime_separation_gate": "launch_capture_rows_judged_only_from_launch_gate_and_not_compensated_by_inflight_or_recovery_rows",
-        "launch_capture_primitive_ids": list(LAUNCH_CAPTURE_PRIMITIVE_IDS),
+        "r5_regime_separation_gate": "transition_entry_rows_judged_by_start_family_and_entry_class_for_the_same_8_primitives",
+        "retired_launch_capture_primitive_ids_active": False,
         "active_primitive_count": int(len(ACTIVE_PRIMITIVE_IDS)),
-        "expected_launch_gate_rows_per_launch_capture_primitive": _expected_launch_gate_rows_per_launch_capture_primitive(),
+        "expected_launch_gate_rows_per_active_primitive": _expected_launch_gate_rows_per_active_primitive(),
         "cross_layer_smoke_status": cross_layer_status,
         "cross_layer_smoke_blockers": cross_layer_blockers,
         "cross_layer_minimum_paired_start_cycle": int(CROSS_LAYER_START_FAMILY_CYCLE),
@@ -2548,11 +2547,11 @@ def _run_manifest(
         "R7_W3_direct_source": "frozen_R5_W0_W1_controller_bundle",
         "W2_generated": False,
         "W3_generated": False,
-        "entry_role_regime_separation_policy": "role_aware_start_family_schedule_launch_inflight_recovery_not_mixed",
+        "entry_role_regime_separation_policy": "all_8_active_primitives_scheduled_across_launch_inflight_boundary_recovery_entry_regimes",
         "transition_contract": transition_contract_row(),
         "transition_success_policy": "R5_reports_transition_coverage_without_claiming_local_rollout_success_as_sufficient",
-        "role_aware_start_family_mix": START_FAMILY_MIX,
-        "mixed_primitive_start_sampling": False,
+        "transition_entry_start_family_mix": START_FAMILY_MIX,
+        "mixed_primitive_start_sampling": True,
         "no_small_library_selection": True,
         "no_clustering_before_W3": True,
         "W3_replay_only": True,

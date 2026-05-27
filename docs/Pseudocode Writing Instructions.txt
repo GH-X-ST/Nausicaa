@@ -1,40 +1,23 @@
 ﻿# Pseudocode Writing Instructions 鈥?Environment-Conditioned Primitive Methods
 
 <!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
-## Current controlling update - transition-aware primitive method
 
-The active thesis algorithm is now deliberately simple and transition-based:
-`R5 -> R7 -> R8 -> R10 -> R11 -> Reality`.
-R9 remains internal preflight only and is not thesis-facing evidence, not a final claim gate, and not required before R10.
+## Active Transition-Aware Thesis Workflow
 
-Core method:
-1. R5 learns transition-aware primitive variants under rich randomized synthesis.
-2. R7 validates transition compatibility under held-out randomisation with frozen LQR controllers.
-3. R8 compresses only transition-compatible primitives using coverage-aware medoid selection.
-4. R10 tunes the viability governor with residual updraft adaptation on the frozen R8 library.
-5. R11 is strict held-out validation of the frozen R10 governor.
-6. Reality is a later real flight transfer attempt only after simulation gates pass.
+The active thesis workflow is `R5 -> R7 -> R8 -> R10 -> R11 -> Reality`. R9 remains internal preflight only and is not thesis-facing evidence. R10 tunes the viability governor with residual updraft adaptation, and R11 is the held-out validation gate.
 
-Every primitive is treated as a transition object with primitive_id, entry_class, exit_class, transition_success_probability, hard_failure_probability, updraft_gain_proxy, flight_time, and controller metadata. The governor asks: given the current state class, which primitive has a valid entry class and predicts a viable exit class?
+Launch is an entry regime, not a separate controller family. The active primitive catalogue has exactly eight manoeuvre families: `glide`, `recovery`, `lift_entry`, `lift_dwell_arc`, `mild_turn_left`, `mild_turn_right`, `energy_retaining_bank`, and `safe_exit_or_recovery_handoff`. Retired `launch_capture_*` IDs are archive aliases only and must not appear in active evidence.
 
-Use these compact state classes only unless later data proves more are needed: launch_gate, post_launch_degraded, inflight_stable, boundary_near, recoverable_degraded, safe_terminal, and hard_failure. boundary_near is a route state, not automatic failure. hard_failure is the failure class.
+Every primitive is treated as a transition object. R5 learns transition-aware primitive variants across five entry start families with exact dense proportions per primitive/candidate/environment: 40 `launch_gate`, 25 `inflight_nominal`, 15 `inflight_lift_region`, 10 `inflight_boundary_near`, and 10 `inflight_recovery_edge`. The dense target is `8 * 32 * 3 * 100 = 76,800` rows.
 
-Primitive-role transition contract:
-- launch_capable: entry launch_gate; required exit post_launch_degraded or inflight_stable.
-- inflight_only: entry inflight_stable; required exit inflight_stable, boundary_near, or safe_terminal.
-- terminal_or_recovery: entry boundary_near or recoverable_degraded; required exit inflight_stable or safe_terminal.
+R7 is the hard transition gate. No primitive may pass R7 solely on local rollout success. A controller can survive for one `primitive_id + entry_class` and fail for another. R8 compresses transition objects grouped by `primitive_id` and `transition_entry_class` using coverage-aware medoid selection without averaging Q/R, K, references, or controller IDs.
 
-No primitive may pass R7 solely on local rollout success. R7 must reject or downgrade locally accepted rows that are not chain-compatible for the declared primitive role. R5 reports transition coverage but does not claim primitive validity from aggregate local accepted rows.
+The governor classifies the current state, filters representatives by validated `transition_entry_class`, rejects high hard-failure risk, scores transition probability plus updraft gain plus flight time plus residual-memory correction, executes the best transition object, and updates case-local residual memory. Step 0 has `current_state_class = launch_gate`, so it selects only transition objects validated for `entry_class = launch_gate`; there is no launch-specific primitive family route.
 
-R8 selection objective is the smallest existing validated set that covers useful entry_class -> exit_class transitions with low hard_failure_probability. Do not average Q/R, synthesize new controllers, mix launch/inflight/recovery roles, or cluster before R7.
+Residual memory is a small case-local modifier: `predicted_updraft_gain = library_prediction + residual_memory_correction`. It must not override state classification or entry/exit compatibility. Memory is reinitialised per final test row. Final scoring is computed only from the final held-out rollout path. There is no hidden speed gate, no energy-loss hard failure, no PD/PID, no TVLQR, and no fan-layout-specific controller logic.
 
-The active governor path is transition_viability_governor: classify current state, filter matching primitive entry class, reject high hard_failure risk, score transition viability plus updraft gain plus flight time plus residual-memory correction, execute the best primitive, then update residual memory. Residual memory is only a small modifier: predicted_updraft_gain = library_prediction + residual_memory_correction. It must not change state classification or entry/exit rules.
+Core comparison is no memory versus residual-memory histories such as h5, h20, and h100, with safe-explore only as optional ablation. Hardware readiness, real-flight transfer, mission success, autonomy, and memory-improvement claims require R11 and later real-flight evidence.
 
-Thesis-core comparisons are reduced to no memory versus residual memory histories h5, h20, and h100, with at most one safe-explore ablation. The old 14 policy/history matrix, large repeated history-launch matrices, secondary launch score, exhaustive candidate logs, multiple diagnostic archives, and R9 are audit/ablation/appendix material only.
-
-Memory is reinitialised per final test row. Final scoring is computed only from the final held-out rollout path. full_safe_success is the strict claim gate. updraft_gain_weight is the active soft reward; expected_energy_residual_m is a legacy net-energy audit alias. Low speed is not an active governor rejection reason. Energy loss is also not a hard-failure reason. sample_count remains an outcome-model coverage audit field. R11 consumes the frozen governor config written by R10.
-
-Preserve these constraints: LQR-only primitive controllers, 0.100 s horizon, 5 controller-input slots, 20 ms controller update, no PD/PID, no TVLQR active workflow, no new controller family, no fan-layout-specific controller logic, no hidden speed gate, no energy-loss hard failure, no stale v4.10 evidence, and no hardware readiness, real-flight transfer, mission success, full autonomy, or memory-improvement claim until R11 and later real flight evidence pass.
 <!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
 
 ## Purpose

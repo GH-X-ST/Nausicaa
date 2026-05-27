@@ -23,7 +23,7 @@ _bootstrap_import_paths()
 
 from dense_archive_runtime import MAX_GENERATED_FILE_SIZE_MB  # noqa: E402
 from dense_archive_table_io import file_sha256, filesystem_path, load_table_manifest, read_table_partition  # noqa: E402
-from prim_cat import LAUNCH_CAPTURE_PRIMITIVE_IDS  # noqa: E402
+from prim_cat import ACTIVE_PRIMITIVE_IDS  # noqa: E402
 from primitive_timing_contract import primitive_timing_contract_row, primitive_timing_contract_status  # noqa: E402
 from transition_labels import transition_contract_row  # noqa: E402
 
@@ -38,25 +38,25 @@ LIBRARY_SIZE_CASES: tuple[dict[str, object], ...] = (
         "library_size_case_id": "heavy_cluster",
         "library_size_human_label": "heavy clustering and merging",
         "max_representatives_per_group": 1,
-        "selection_policy": "coverage_medoid_best_worst_case_per_primitive_entry_role",
+        "selection_policy": "coverage_medoid_best_worst_case_per_primitive_transition_entry",
     },
     {
         "library_size_case_id": "balanced_cluster",
         "library_size_human_label": "balanced clustering and merging",
         "max_representatives_per_group": 3,
-        "selection_policy": "coverage_medoid_greedy_marginal_top_3_per_primitive_entry_role",
+        "selection_policy": "coverage_medoid_greedy_marginal_top_3_per_primitive_transition_entry",
     },
     {
         "library_size_case_id": "light_cluster",
         "library_size_human_label": "light clustering and merging",
         "max_representatives_per_group": 6,
-        "selection_policy": "coverage_medoid_greedy_marginal_top_6_per_primitive_entry_role",
+        "selection_policy": "coverage_medoid_greedy_marginal_top_6_per_primitive_transition_entry",
     },
     {
         "library_size_case_id": "super_light_cluster",
         "library_size_human_label": "super-light clustering and merging",
         "max_representatives_per_group": 12,
-        "selection_policy": "coverage_medoid_greedy_marginal_top_12_per_primitive_entry_role",
+        "selection_policy": "coverage_medoid_greedy_marginal_top_12_per_primitive_transition_entry",
     },
     {
         "library_size_case_id": "no_cluster_no_merge",
@@ -107,7 +107,10 @@ def run_post_w3_library_size_study(config: PostW3LibrarySizeStudyConfig) -> dict
         return {"status": "blocked", "blocked_reason": blocked_reason, "run_root": run_root.as_posix()}
     robustness_profiles = _robustness_profile_frame(config.input_root)
     if not robustness_profiles.empty:
-        survived = survived.merge(robustness_profiles, on="primitive_variant_id", how="left")
+        merge_columns = ["primitive_variant_id"]
+        if "transition_entry_class" in survived.columns and "transition_entry_class" in robustness_profiles.columns:
+            merge_columns.append("transition_entry_class")
+        survived = survived.merge(robustness_profiles, on=merge_columns, how="left")
 
     all_representatives: list[dict[str, object]] = []
     case_manifest_rows: list[dict[str, object]] = []
@@ -241,8 +244,8 @@ def _input_blocked_reason(input_root: Path) -> str:
 def _survived_frame_blocked_reason(survived: pd.DataFrame) -> str:
     if survived.empty:
         return "w3_registry_has_no_surviving_variants"
-    if "entry_role" not in survived.columns:
-        return "w3_survivor_summary_missing_entry_role"
+    if "transition_entry_class" not in survived.columns:
+        return "w3_survivor_summary_missing_transition_entry_class"
     if "primitive_id" not in survived.columns:
         return "w3_survivor_summary_missing_primitive_id"
     if "transition_chain_compatible_rate" not in survived.columns:
@@ -252,12 +255,12 @@ def _survived_frame_blocked_reason(survived: pd.DataFrame) -> str:
     transition_rate = pd.to_numeric(survived["transition_chain_compatible_rate"], errors="coerce").fillna(0.0)
     if bool((transition_rate <= 0.0).any()):
         return "w3_survivor_summary_contains_non_transition_compatible_survivor"
-    launch = survived[survived["entry_role"].astype(str) == "launch_capable"]
+    launch = survived[survived["transition_entry_class"].astype(str) == "launch_gate"]
     if launch.empty:
-        return "w3_registry_has_no_launch_capable_survivors"
-    missing_launch = sorted(set(LAUNCH_CAPTURE_PRIMITIVE_IDS) - set(launch["primitive_id"].astype(str)))
+        return "w3_registry_has_no_launch_gate_entry_survivors"
+    missing_launch = sorted(set(ACTIVE_PRIMITIVE_IDS) - set(launch["primitive_id"].astype(str)))
     if missing_launch:
-        return "w3_registry_missing_launch_capture_survivors:" + ",".join(missing_launch)
+        return "w3_registry_missing_launch_gate_entry_survivors:" + ",".join(missing_launch)
     required = (
         "finite_horizon_s",
         "controller_input_slots_per_primitive",
@@ -291,13 +294,24 @@ def _robustness_profile_frame(input_root: Path) -> pd.DataFrame:
     compatible["_hard_failure"] = _transition_hard_failure_series(compatible)
     labels = _profile_labels(compatible)
     profile_rows: list[dict[str, object]] = []
-    for variant_id, group in compatible.groupby("primitive_variant_id", sort=True):
+    group_columns = ["primitive_variant_id"]
+    if "transition_entry_class" in compatible.columns:
+        group_columns.append("transition_entry_class")
+    for group_key, group in compatible.groupby(group_columns, sort=True, dropna=False):
+        if isinstance(group_key, tuple):
+            variant_id = str(group_key[0])
+            transition_entry_class = str(group_key[1])
+        else:
+            variant_id = str(group_key)
+            transition_entry_class = str(group.iloc[0].get("transition_entry_class", ""))
         coverage_rates = [_coverage_rate_for_label(group, label) for label in labels]
         terminal_rates = [_terminal_rate_for_label(group, label) for label in labels]
         hard_rates = [_hard_rate_for_label(group, label) for label in labels]
         profile_rows.append(
             {
                 "primitive_variant_id": str(variant_id),
+                "transition_object_id": f"{variant_id}__entry_{transition_entry_class or 'unknown'}",
+                "transition_entry_class": transition_entry_class,
                 "robustness_profile_version": "coverage_behavior_qr_medoid_profile_v1",
                 "robustness_profile_row_count": int(len(group)),
                 "robustness_profile_axis_count": int(len(labels)),
@@ -459,8 +473,8 @@ def _representatives_for_case(
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     max_per_group = int(case["max_representatives_per_group"])
-    for (primitive_id, entry_role), group in survived.groupby(["primitive_id", "entry_role"], sort=True):
-        del primitive_id, entry_role
+    for (primitive_id, entry_class), group in survived.groupby(["primitive_id", "transition_entry_class"], sort=True):
+        del primitive_id, entry_class
         selected = _coverage_medoid_selection(group.copy(), max_representatives=max_per_group, case_id=str(case["library_size_case_id"]))
         for rank, (_, row) in enumerate(selected.iterrows()):
             rows.append(_representative_row(row.to_dict(), case=case, source_roots=source_roots, rank=rank))
@@ -805,7 +819,9 @@ def _representative_row(
 ) -> dict[str, object]:
     case_id = str(case["library_size_case_id"])
     variant_id = str(row.get("primitive_variant_id", ""))
-    cluster_id = f"{case_id}_{row.get('primitive_id', '')}_{row.get('entry_role', '')}_r{int(rank):03d}"
+    transition_entry_class = str(row.get("transition_entry_class", ""))
+    transition_object_id = str(row.get("transition_object_id", f"{variant_id}__entry_{transition_entry_class or 'unknown'}"))
+    cluster_id = f"{case_id}_{row.get('primitive_id', '')}_{transition_entry_class or 'unknown_entry'}_r{int(rank):03d}"
     timing = primitive_timing_contract_row()
     return {
         "compact_library_id": _compact_library_id(case_id, variant_id, cluster_id),
@@ -813,8 +829,10 @@ def _representative_row(
         "library_size_human_label": str(case["library_size_human_label"]),
         "selection_policy": str(case["selection_policy"]),
         "primitive_variant_id": variant_id,
+        "transition_object_id": transition_object_id,
         "primitive_id": str(row.get("primitive_id", "")),
         "entry_role": str(row.get("entry_role", "")),
+        "transition_entry_class": transition_entry_class,
         "controller_id": str(row.get("controller_id", "")),
         "reference_state_vector": str(row.get("reference_state_vector", "")),
         "reference_command_vector": str(row.get("reference_command_vector", "")),
@@ -886,7 +904,7 @@ def _representative_row(
         "w3_environment_modes_seen": str(row.get("w3_environment_modes_seen", "")),
         "w3_variant_status": str(row.get("w3_variant_status", "")),
         "claim_status": "simulation_only_post_w3_library_size_case_representative",
-        "mutation_status": "references_existing_frozen_variant_no_Q_R_K_reference_horizon_entry_role_ID_mutation",
+        "mutation_status": "references_existing_frozen_transition_object_no_Q_R_K_reference_horizon_ID_mutation",
     }
 
 
@@ -910,13 +928,13 @@ def _library_payload(
         "representative_count": int(len(representatives)),
         "selection_policy": str(case["selection_policy"]),
         "selection_algorithm": "coverage_aware_behavior_qr_medoid_greedy_marginal",
-        "hard_safety_filter_policy": "prefer hard_failure_rate_below_0p75_within_primitive_entry_role_group",
+        "hard_safety_filter_policy": "prefer hard_failure_rate_below_0p75_within_primitive_transition_entry_group",
         "coverage_objective": "smallest_existing_transition_compatible_variant_set_covering_useful_entry_exit_transitions_with_low_hard_failure_risk",
         "transition_contract": transition_contract_row(),
         "claim_status": "simulation_only_post_w3_library_size_case",
         "no_controller_mutation": True,
         "continuation_and_terminal_evidence_separate": True,
-        "entry_role_regime_separation_policy": "representatives_grouped_by_primitive_id_and_entry_role_no_cross_role_merge",
+        "entry_role_regime_separation_policy": "representatives_grouped_by_primitive_id_and_transition_entry_class_no_cross_entry_merge",
         "primitive_timing_contract": primitive_timing_contract_row(),
         "blocked_claims": list(BLOCKED_CLAIMS),
         "representatives": representatives,
@@ -927,40 +945,27 @@ def _launch_gate_candidate_availability(representatives: list[dict[str, object]]
     frame = pd.DataFrame(representatives)
     rows: list[dict[str, object]] = []
     blockers: list[str] = []
-    launch_capture_ids = set(LAUNCH_CAPTURE_PRIMITIVE_IDS)
+    active_ids = set(ACTIVE_PRIMITIVE_IDS)
     for case_id in LIBRARY_SIZE_CASE_IDS:
         case = frame[frame.get("library_size_case_id", pd.Series(dtype=str)).astype(str) == str(case_id)] if not frame.empty else pd.DataFrame()
-        launch_capable = case[case.get("entry_role", pd.Series(dtype=str)).astype(str) == "launch_capable"] if not case.empty else pd.DataFrame()
-        launch_capture = (
-            launch_capable[launch_capable.get("primitive_id", pd.Series(dtype=str)).astype(str).isin(launch_capture_ids)]
-            if not launch_capable.empty
-            else pd.DataFrame()
-        )
-        launch_capable_count = int(launch_capable.get("primitive_id", pd.Series(dtype=str)).astype(str).nunique()) if not launch_capable.empty else 0
-        launch_capture_count = int(launch_capture.get("primitive_id", pd.Series(dtype=str)).astype(str).nunique()) if not launch_capture.empty else 0
-        representative_count = int(len(launch_capable))
-        launch_capable_ids = set(launch_capable.get("primitive_id", pd.Series(dtype=str)).astype(str)) if not launch_capable.empty else set()
-        non_launch_capture_launch_capable = sorted(launch_capable_ids - launch_capture_ids)
-        missing_launch_capture_ids = sorted(launch_capture_ids - set(launch_capture.get("primitive_id", pd.Series(dtype=str)).astype(str))) if not launch_capture.empty else sorted(launch_capture_ids)
+        launch_entry = case[case.get("transition_entry_class", pd.Series(dtype=str)).astype(str) == "launch_gate"] if not case.empty else pd.DataFrame()
+        launch_entry_ids = set(launch_entry.get("primitive_id", pd.Series(dtype=str)).astype(str)) if not launch_entry.empty else set()
+        launch_entry_count = int(len(launch_entry))
+        launch_entry_family_count = int(len(launch_entry_ids.intersection(active_ids)))
+        missing_launch_entry_ids = sorted(active_ids - launch_entry_ids)
         rows.append(
             {
                 "stage_id": "R8",
                 "library_size_case_id": case_id,
-                "launch_capable_primitive_family_count": launch_capable_count,
-                "launch_capture_primitive_family_count": launch_capture_count,
-                "launch_gate_candidate_rows": representative_count,
-                "required_launch_capture_primitive_family_count": int(len(launch_capture_ids)),
-                "missing_launch_capture_primitive_ids": ",".join(missing_launch_capture_ids),
-                "non_launch_capture_launch_capable_primitive_ids": ",".join(non_launch_capture_launch_capable),
+                "launch_gate_entry_primitive_family_count": launch_entry_family_count,
+                "launch_gate_candidate_rows": launch_entry_count,
+                "required_launch_gate_entry_primitive_family_count": int(len(active_ids)),
+                "missing_launch_gate_entry_primitive_ids": ",".join(missing_launch_entry_ids),
                 "first_decision_audit_mode": "post_w3_library_availability",
             }
         )
-        if launch_capable_count < 2:
-            blockers.append(f"{case_id}:launch_capable_primitive_family_count_below_2")
-        if launch_capture_count < len(launch_capture_ids):
-            blockers.append(f"{case_id}:launch_capture_representative_missing:{','.join(missing_launch_capture_ids)}")
-        if non_launch_capture_launch_capable:
-            blockers.append(f"{case_id}:non_launch_capture_launch_capable:{','.join(non_launch_capture_launch_capable)}")
+        if launch_entry_family_count < len(active_ids):
+            blockers.append(f"{case_id}:launch_gate_entry_representative_missing:{','.join(missing_launch_entry_ids)}")
     return pd.DataFrame(rows), blockers
 
 
@@ -972,6 +977,8 @@ def _coverage_medoid_selection_audit(representatives: list[dict[str, object]]) -
         "library_size_case_id",
         "primitive_id",
         "entry_role",
+        "transition_entry_class",
+        "transition_object_id",
         "primitive_variant_id",
         "selection_algorithm",
         "medoid_selection_reason",
@@ -996,12 +1003,12 @@ def _launch_gate_entry_role_audit(representatives: list[dict[str, object]]) -> p
     if frame.empty:
         return pd.DataFrame()
     audit = (
-        frame.groupby(["library_size_case_id", "primitive_id", "entry_role"], dropna=False)
+        frame.groupby(["library_size_case_id", "primitive_id", "transition_entry_class"], dropna=False)
         .size()
         .reset_index(name="representative_count")
     )
     audit.insert(0, "stage_id", "R8")
-    audit["launch_capture_family"] = audit["primitive_id"].astype(str).isin(set(LAUNCH_CAPTURE_PRIMITIVE_IDS))
+    audit["active_primitive_family"] = audit["primitive_id"].astype(str).isin(set(ACTIVE_PRIMITIVE_IDS))
     return audit
 
 
@@ -1025,9 +1032,9 @@ def _study_manifest(
         "library_size_cases": case_rows,
         "selection_algorithm": "coverage_aware_behavior_qr_medoid_greedy_marginal",
         "selection_policy_summary": "hard safety filter, per-case coverage table, behavior/Q_R medoid selection, greedy marginal coverage fill",
-        "hard_safety_filter_policy": "prefer hard_failure_rate_below_0p75_within_primitive_entry_role_group",
+        "hard_safety_filter_policy": "prefer hard_failure_rate_below_0p75_within_primitive_transition_entry_group",
         "primitive_timing_contract": primitive_timing_contract_row(),
-        "entry_role_regime_separation_policy": "representatives_grouped_by_primitive_id_and_entry_role_no_cross_role_merge",
+        "entry_role_regime_separation_policy": "representatives_grouped_by_primitive_id_and_transition_entry_class_no_cross_entry_merge",
         "claim_status": "simulation_only_post_w3_library_size_study",
         "blocked_claims": list(BLOCKED_CLAIMS),
     }

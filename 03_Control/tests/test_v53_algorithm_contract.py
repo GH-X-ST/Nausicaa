@@ -92,11 +92,12 @@ def test_v53_r9_is_reduced_internal_preflight_and_can_seed_r10_governor() -> Non
     assert {row["parameter"] for row in decisions} >= {"maximum_hard_failure_risk", "exploration_bonus_weight"}
 
 
-def test_v53_r5_dense_schedule_is_role_separated_and_uses_current_randomisation_cases() -> None:
-    assert len(ACTIVE_PRIMITIVE_IDS) == 14
+def test_v53_r5_dense_schedule_is_transition_entry_separated_and_uses_current_randomisation_cases() -> None:
+    assert len(ACTIVE_PRIMITIVE_IDS) == 8
     assert len(LAUNCH_CAPTURE_PRIMITIVE_IDS) == 6
-    assert rich_side_dense_row_count() == 134400
-    assert L6_RICH_SIDE_ROW_COUNT == 134400
+    assert not set(LAUNCH_CAPTURE_PRIMITIVE_IDS).intersection(set(ACTIVE_PRIMITIVE_IDS))
+    assert rich_side_dense_row_count() == 76800
+    assert L6_RICH_SIDE_ROW_COUNT == 76800
     assert L6_RICH_SIDE_CANDIDATE_COUNT == 32
     assert L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE == 100
     assert OFFICIAL_W01_ENVIRONMENT_CASES == (
@@ -123,16 +124,16 @@ def test_v53_r5_dense_schedule_is_role_separated_and_uses_current_randomisation_
         environment_counts[key] = environment_counts.get(key, 0) + 1
 
     assert family_counts == {
-        "launch_gate": 57600,
-        "inflight_nominal": 36000,
-        "inflight_lift_region": 21600,
-        "inflight_boundary_near": 9600,
-        "inflight_recovery_edge": 9600,
+        "launch_gate": 30720,
+        "inflight_nominal": 19200,
+        "inflight_lift_region": 11520,
+        "inflight_boundary_near": 7680,
+        "inflight_recovery_edge": 7680,
     }
     assert environment_counts == {
-        ("W0", "dry_air"): 44800,
-        ("W1", "w1_annular_gp_randomised_single"): 44800,
-        ("W1", "w1_annular_gp_randomised_four"): 44800,
+        ("W0", "dry_air"): 25600,
+        ("W1", "w1_annular_gp_randomised_single"): 25600,
+        ("W1", "w1_annular_gp_randomised_four"): 25600,
     }
 
 
@@ -173,7 +174,8 @@ def test_v53_r8_coverage_medoid_prefers_worst_case_coverage_over_average_rank() 
             {
                 "primitive_variant_id": "average_strong_but_rare_case_gap",
                 "primitive_id": "glide",
-                "entry_role": "inflight_only",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
                 "continuation_valid_rate": 0.95,
                 "episode_terminal_useful_rate": 0.3,
                 "hard_failure_rate": 0.01,
@@ -187,7 +189,8 @@ def test_v53_r8_coverage_medoid_prefers_worst_case_coverage_over_average_rank() 
             {
                 "primitive_variant_id": "broad_case_existing_medoid",
                 "primitive_id": "glide",
-                "entry_role": "inflight_only",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
                 "continuation_valid_rate": 0.75,
                 "episode_terminal_useful_rate": 0.1,
                 "hard_failure_rate": 0.02,
@@ -201,7 +204,8 @@ def test_v53_r8_coverage_medoid_prefers_worst_case_coverage_over_average_rank() 
             {
                 "primitive_variant_id": "unsafe_high_coverage_not_allowed_to_dominate",
                 "primitive_id": "glide",
-                "entry_role": "inflight_only",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
                 "continuation_valid_rate": 1.0,
                 "episode_terminal_useful_rate": 0.5,
                 "hard_failure_rate": 0.90,
@@ -273,8 +277,9 @@ def test_v53_governor_has_no_speed_boundary_and_wall_guard_is_0p10cm() -> None:
         representative={
             "compact_library_id": "launch",
             "primitive_variant_id": "launch",
-            "primitive_id": "launch_capture_glide_stabilise",
-            "entry_role": "launch_capable",
+            "primitive_id": "glide",
+            "entry_role": "transition_object",
+            "transition_entry_class": "launch_gate",
             "controller_id": "ctrl_launch",
             "K_gain_checksum": "k",
             "augmented_A_checksum": "a",
@@ -282,7 +287,7 @@ def test_v53_governor_has_no_speed_boundary_and_wall_guard_is_0p10cm() -> None:
             "augmented_gain_checksum": "g",
             **timing_payload,
         },
-        outcome={"continuation_probability": 0.8, "terminal_useful_probability": 0.1, "hard_failure_risk": 0.1},
+        outcome={"continuation_probability": 0.8, "transition_success_probability": 0.8, "transition_exit_classes_seen": "post_launch_degraded", "terminal_useful_probability": 0.1, "hard_failure_risk": 0.1},
         context={
             "context_id": "very_low_speed_context",
             "start_state_family": "launch_gate",
@@ -409,8 +414,8 @@ def test_v53_r11_full_safe_success_gate_catches_safe_exit_only_passes() -> None:
 
 
 def test_v53_launch_then_inflight_then_recovery_routing_contract() -> None:
-    assert validation_route_for_primitive_step(0)["route_required_entry_role"] == "launch_capable"
-    assert validation_route_for_primitive_step(1)["route_required_entry_role"] == "inflight_only"
+    assert validation_route_for_primitive_step(0)["route_required_entry_class"] == "launch_gate"
+    assert validation_route_for_primitive_step(1)["route_required_entry_class"] == "inflight_stable"
 
 
 def test_v53_hard_algorithm_contract_audit_writes_ready_report(tmp_path) -> None:

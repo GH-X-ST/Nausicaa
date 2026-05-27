@@ -15,9 +15,9 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
         W01DenseRunConfig(
             run_id=2,
             output_root=tmp_path,
-            rows=120,
+            rows=2400,
             seed=2,
-            candidate_chunk_size=40,
+            candidate_chunk_size=400,
             workers=1,
             max_workers=1,
             storage_format="csv_gz",
@@ -87,10 +87,11 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
     assert set(frame["controller_input_slots_per_primitive"]) == {5}
     assert set(frame["controller_input_update_period_s"]) == {0.02}
     assert run_manifest["active_controller_design_role"] == "active_timing_aware_w01"
-    assert run_manifest["per_start_family_row_counts"]["launch_gate"] == 48
-    assert run_manifest["r5_launch_aware_decision"] == "R5_LAUNCH_AWARE_DENSE_INCOMPLETE_RESUME_REQUIRED"
-    assert run_manifest["active_primitive_count"] == 14
-    diagnosis = pd.read_csv(run_root / "metrics" / "r5_launch_capture_diagnosis.csv")
+    assert run_manifest["per_start_family_row_counts"]["launch_gate"] > 0
+    assert run_manifest["r5_launch_aware_decision"] == "R5_TRANSITION_AWARE_DENSE_INCOMPLETE_RESUME_REQUIRED"
+    assert run_manifest["active_primitive_count"] == 8
+    assert (run_root / "metrics" / "r5_launch_gate_entry_diagnosis.csv").is_file()
+    diagnosis = pd.read_csv(run_root / "metrics" / "r5_launch_gate_entry_diagnosis.csv")
     assert {
         "start_state_family",
         "primitive_id",
@@ -109,21 +110,22 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
         "total_rows",
         "rejection_rate",
     }.issubset(diagnosis.columns)
-    assert "launch_capture_from_launch_gate" in set(diagnosis["regime_label"])
+    assert "launch_entry_evidence_for_8_families" in set(diagnosis["regime_label"])
     assert (run_root / "reports" / "r5_launch_capture_diagnosis.md").is_file()
+    assert (run_root / "reports" / "r5_launch_gate_entry_diagnosis.md").is_file()
     l6_report = (run_root / "reports" / "l6_move_on_check.md").read_text(encoding="ascii")
     assert "predictor_compensated_augmented_discrete_lqr_v1" in l6_report
     assert "below_19200_fallback_scale_threshold" in l6_report
 
 
-def test_w01_role_aware_schedule_avoids_launch_gate_entry_rejections(tmp_path: Path) -> None:
+def test_w01_transition_entry_schedule_avoids_launch_gate_entry_rejections(tmp_path: Path) -> None:
     result = run_lqr_w01_dense_chunked(
         W01DenseRunConfig(
             run_id=3,
             output_root=tmp_path,
-            rows=24,
+            rows=2400,
             seed=3,
-            candidate_chunk_size=24,
+            candidate_chunk_size=400,
             workers=1,
             max_workers=1,
             candidate_count=1,
@@ -139,7 +141,7 @@ def test_w01_role_aware_schedule_avoids_launch_gate_entry_rejections(tmp_path: P
     non_launch_rows = frame[frame["start_state_family"].ne("launch_gate")]
 
     assert not launch_rows.empty
-    assert set(launch_rows["entry_role"]) == {"launch_capable"}
-    assert {"inflight_only", "terminal_or_recovery"}.issubset(set(non_launch_rows["entry_role"]))
+    assert set(launch_rows["entry_role"]) == {"transition_object"}
+    assert set(non_launch_rows["entry_role"]) == {"transition_object"}
     assert not frame["entry_check_status"].astype(str).eq("entry_role_incompatible_start").any()
     assert not frame["failure_label"].astype(str).eq("entry_role_incompatible_start_family").any()

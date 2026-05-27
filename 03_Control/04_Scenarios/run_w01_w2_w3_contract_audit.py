@@ -70,7 +70,7 @@ R5_R10_STAGE_TOKEN_ALLOWED_FILES = {
 def run_w01_w2_w3_contract_audit(repo_root: Path | str = Path(".")) -> list[AuditFinding]:
     """Compatibility wrapper for the current active algorithm audit.
 
-    The original W01/W2/W3 audit predates the R5 -> R7 -> R8 -> R9 -> R10
+    The original W01/W2/W3 audit predates the R5 -> R7 -> R8 -> R10 -> R11
     -> R11 workflow and treated later-stage tokens, medoid clustering, and
     generated evidence folders as stale by construction. Keep the entrypoint
     for old tests/scripts, but gate active logic through the current v5.3

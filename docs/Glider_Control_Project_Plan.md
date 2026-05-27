@@ -1,40 +1,23 @@
 ﻿# Glider Control Project Plan
 
 <!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
-## Current controlling update - transition-aware primitive method
 
-The active thesis algorithm is now deliberately simple and transition-based:
-`R5 -> R7 -> R8 -> R10 -> R11 -> Reality`.
-R9 remains internal preflight only and is not thesis-facing evidence, not a final claim gate, and not required before R10.
+## Active Transition-Aware Thesis Workflow
 
-Core method:
-1. R5 learns transition-aware primitive variants under rich randomized synthesis.
-2. R7 validates transition compatibility under held-out randomisation with frozen LQR controllers.
-3. R8 compresses only transition-compatible primitives using coverage-aware medoid selection.
-4. R10 tunes the viability governor with residual updraft adaptation on the frozen R8 library.
-5. R11 is strict held-out validation of the frozen R10 governor.
-6. Reality is a later real flight transfer attempt only after simulation gates pass.
+The active thesis workflow is `R5 -> R7 -> R8 -> R10 -> R11 -> Reality`. R9 remains internal preflight only and is not thesis-facing evidence. R10 tunes the viability governor with residual updraft adaptation, and R11 is the held-out validation gate.
 
-Every primitive is treated as a transition object with primitive_id, entry_class, exit_class, transition_success_probability, hard_failure_probability, updraft_gain_proxy, flight_time, and controller metadata. The governor asks: given the current state class, which primitive has a valid entry class and predicts a viable exit class?
+Launch is an entry regime, not a separate controller family. The active primitive catalogue has exactly eight manoeuvre families: `glide`, `recovery`, `lift_entry`, `lift_dwell_arc`, `mild_turn_left`, `mild_turn_right`, `energy_retaining_bank`, and `safe_exit_or_recovery_handoff`. Retired `launch_capture_*` IDs are archive aliases only and must not appear in active evidence.
 
-Use these compact state classes only unless later data proves more are needed: launch_gate, post_launch_degraded, inflight_stable, boundary_near, recoverable_degraded, safe_terminal, and hard_failure. boundary_near is a route state, not automatic failure. hard_failure is the failure class.
+Every primitive is treated as a transition object. R5 learns transition-aware primitive variants across five entry start families with exact dense proportions per primitive/candidate/environment: 40 `launch_gate`, 25 `inflight_nominal`, 15 `inflight_lift_region`, 10 `inflight_boundary_near`, and 10 `inflight_recovery_edge`. The dense target is `8 * 32 * 3 * 100 = 76,800` rows.
 
-Primitive-role transition contract:
-- launch_capable: entry launch_gate; required exit post_launch_degraded or inflight_stable.
-- inflight_only: entry inflight_stable; required exit inflight_stable, boundary_near, or safe_terminal.
-- terminal_or_recovery: entry boundary_near or recoverable_degraded; required exit inflight_stable or safe_terminal.
+R7 is the hard transition gate. No primitive may pass R7 solely on local rollout success. A controller can survive for one `primitive_id + entry_class` and fail for another. R8 compresses transition objects grouped by `primitive_id` and `transition_entry_class` using coverage-aware medoid selection without averaging Q/R, K, references, or controller IDs.
 
-No primitive may pass R7 solely on local rollout success. R7 must reject or downgrade locally accepted rows that are not chain-compatible for the declared primitive role. R5 reports transition coverage but does not claim primitive validity from aggregate local accepted rows.
+The governor classifies the current state, filters representatives by validated `transition_entry_class`, rejects high hard-failure risk, scores transition probability plus updraft gain plus flight time plus residual-memory correction, executes the best transition object, and updates case-local residual memory. Step 0 has `current_state_class = launch_gate`, so it selects only transition objects validated for `entry_class = launch_gate`; there is no launch-specific primitive family route.
 
-R8 selection objective is the smallest existing validated set that covers useful entry_class -> exit_class transitions with low hard_failure_probability. Do not average Q/R, synthesize new controllers, mix launch/inflight/recovery roles, or cluster before R7.
+Residual memory is a small case-local modifier: `predicted_updraft_gain = library_prediction + residual_memory_correction`. It must not override state classification or entry/exit compatibility. Memory is reinitialised per final test row. Final scoring is computed only from the final held-out rollout path. There is no hidden speed gate, no energy-loss hard failure, no PD/PID, no TVLQR, and no fan-layout-specific controller logic.
 
-The active governor path is transition_viability_governor: classify current state, filter matching primitive entry class, reject high hard_failure risk, score transition viability plus updraft gain plus flight time plus residual-memory correction, execute the best primitive, then update residual memory. Residual memory is only a small modifier: predicted_updraft_gain = library_prediction + residual_memory_correction. It must not change state classification or entry/exit rules.
+Core comparison is no memory versus residual-memory histories such as h5, h20, and h100, with safe-explore only as optional ablation. Hardware readiness, real-flight transfer, mission success, autonomy, and memory-improvement claims require R11 and later real-flight evidence.
 
-Thesis-core comparisons are reduced to no memory versus residual memory histories h5, h20, and h100, with at most one safe-explore ablation. The old 14 policy/history matrix, large repeated history-launch matrices, secondary launch score, exhaustive candidate logs, multiple diagnostic archives, and R9 are audit/ablation/appendix material only.
-
-Memory is reinitialised per final test row. Final scoring is computed only from the final held-out rollout path. full_safe_success is the strict claim gate. updraft_gain_weight is the active soft reward; expected_energy_residual_m is a legacy net-energy audit alias. Low speed is not an active governor rejection reason. Energy loss is also not a hard-failure reason. sample_count remains an outcome-model coverage audit field. R11 consumes the frozen governor config written by R10.
-
-Preserve these constraints: LQR-only primitive controllers, 0.100 s horizon, 5 controller-input slots, 20 ms controller update, no PD/PID, no TVLQR active workflow, no new controller family, no fan-layout-specific controller logic, no hidden speed gate, no energy-loss hard failure, no stale v4.10 evidence, and no hardware readiness, real-flight transfer, mission success, full autonomy, or memory-improvement claim until R11 and later real flight evidence pass.
 <!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
 
 ## LQR-stabilised environment-conditioned primitive library after model-only restart
@@ -201,7 +184,7 @@ primitive-controller variant
 The primitive should not choose an external LQR controller from a free-standing controller bank. Each primitive develops its own local LQR variants during robust R5 W0/W1 synthesis. R5 preserves the generated primitive library as a rich evidence set rather than selecting a 12--24 variant shortlist. W2 may be run as an optional diagnostic, but it is not the accepted move-on gate. Frozen W3 holdout replay shrinks the library only by survival evidence and must not retune. Post-W3 library-size cross-study then compresses the surviving library toward a small set that can be evaluated efficiently in late simulation and, only after the required gates pass, considered as future real-flight candidates.
 
 
-The active local controller is time-invariant LQR. The LQR stabiliser is part of the primitive, not an external controller bank. Each primitive-controller variant must expose a stable `primitive_variant_id`, `primitive_id`, `entry_role`, `controller_id`, nominal reference state, nominal surface command, finite horizon, linearisation metadata, Q/R weights, LQR gain matrix, gain checksum, exit checks, metrics, failure labels, and synthesis/audit status. A primitive whose LQR synthesis fails must be marked `blocked` or `not_supported`; it must not silently fall back to the old PD-like bounded controller. TVLQR is outside the active workflow because the primitives are short and the additional implementation burden is not justified at this stage.
+The active local controller is time-invariant LQR. The LQR stabiliser is part of the primitive, not an external controller bank. Each primitive-controller variant must expose a stable `primitive_variant_id`, `primitive_id`, `transition_entry_class` where evidence is entry-specific, `controller_id`, nominal reference state, nominal surface command, finite horizon, linearisation metadata, Q/R weights, LQR gain matrix, gain checksum, exit checks, metrics, failure labels, and synthesis/audit status. A primitive whose LQR synthesis fails must be marked `blocked` or `not_supported`; it must not silently fall back to the old PD-like bounded controller. TVLQR is outside the active workflow because the primitives are short and the additional implementation burden is not justified at this stage.
 
 The online controller must not branch on a named fan setup. Fan count, fan position, and fan power are environment parameters used to create the flow field. The controller receives only:
 
@@ -339,15 +322,11 @@ no generated file exceeds 100 MB without explicit local-only approval
 
 ## 5. Primitive catalogue
 
-The operational primitive catalogue should stay compact:
+The operational primitive catalogue is deliberately compact. Launch is an
+entry regime for these same manoeuvre families, not a separate primitive
+family:
 
 ```text
-launch_capture_glide_stabilise
-launch_capture_lift_seek
-launch_capture_energy_build
-launch_capture_shallow_left
-launch_capture_shallow_right
-launch_capture_safe_handoff
 glide
 recovery
 lift_entry
@@ -358,21 +337,13 @@ energy_retaining_bank
 safe_exit_or_recovery_handoff
 ```
 
-Entry-role separation is mandatory:
+The retired `launch_capture_*` IDs are archive aliases only. They must not be
+used in active R5/R7/R8/R10/R11 evidence.
 
-```text
-launch_capture_*                  launch_capable
-glide                             inflight_only
-lift_entry                        inflight_only
-lift_dwell_arc                    inflight_only
-mild_turn_left                    inflight_only
-mild_turn_right                   inflight_only
-energy_retaining_bank             inflight_only
-recovery                          terminal_or_recovery
-safe_exit_or_recovery_handoff     terminal_or_recovery
-```
-
-Do not relabel in-flight primitives as launch-capable to repair a gate. In particular, `glide` is an in-flight primitive in the current launch-aware design. Launch repair must happen by improving the `launch_capture_*` references, weights, and start-regime coverage.
+Every active primitive is tested as a transition object across launch,
+in-flight, boundary-near, and recovery-edge entry regimes. R7 decides which
+`primitive_id + entry_class -> exit_class` transitions survive. Do not create a
+launch-specific controller family to repair a gate.
 
 Each primitive has:
 
@@ -413,7 +384,7 @@ Each active primitive controller must define:
 
 ```text
 controller_family              lqr
-primitive_variant_id           stable unique ID for the primitive entry role, reference, horizon, and controller package
+primitive_variant_id           stable unique ID for the primitive reference, horizon, and controller package
 controller_id                  stable unique ID for the primitive-local LQR controller
 primitive_id                   active primitive ID
 reference_state_vector         x_ref in the canonical 15-state order
@@ -628,20 +599,22 @@ state_sampling_seed
 
 Launch-gate rows should obey the physical release gate above. In-flight rows should cover plausible primitive-entry states inside the safety volume without encoding a named sequence of previous actions as a controller branch. This gives the outcome model evidence for both first-launch primitive attempts and mid-flight primitive attempts while preserving the project decision not to make chain construction a success gate.
 
-The global dense sweep may remain one auditable evidence run, but acceptance must be separated by entry role and start-state regime. Launch-capture evidence is judged only from `launch_gate` rows for `launch_capture_*` primitives. In-flight evidence is judged from `inflight_nominal` and `inflight_lift_region` rows for `inflight_only` primitives. Recovery/safe-exit evidence is judged from `inflight_boundary_near` and `inflight_recovery_edge` rows for `terminal_or_recovery` primitives. Out-of-regime rows are useful diagnostics, but they must not be counted as accepted evidence for the wrong primitive class.
-
-For the next launch-capture repair, `launch_gate` should be internally stratified into auditable subregimes while remaining one `start_state_family`:
+The global dense sweep remains one auditable evidence run, but acceptance is
+separated by transition entry class. Every active primitive is scheduled across:
 
 ```text
-launch_gate_nominal
-launch_gate_low_energy
-launch_gate_attitude_perturbed
-launch_gate_rate_perturbed
-launch_gate_lateral_offset
-launch_gate_lift_misaligned
+40 launch_gate
+25 inflight_nominal
+15 inflight_lift_region
+10 inflight_boundary_near
+10 inflight_recovery_edge
 ```
 
-The launch-capture pass gate must require every launch-capture family to have credible non-rejected launch-gate evidence in these subregimes. Accepted in-flight rows cannot compensate for weak launch-capture handoff rows.
+Launch-gate rows, in-flight rows, boundary-near rows, and recovery-edge rows
+are reported as separate `entry_class -> exit_class` transition evidence. A
+primitive may pass for `inflight_stable` and fail for `launch_gate`, or the
+reverse. Accepted rows from one entry class cannot compensate for weak handoff
+evidence in another entry class.
 
 ---
 
@@ -830,7 +803,18 @@ or score a primitive.
 
 The governor is where x-y boundary proximity is routed into `boundary_near` or recovery/safe-terminal transitions. Archive generation should preserve `episode_terminal_useful` x-y boundary evidence first, then the governor learns or applies conservative transition decisions from those labelled outcomes.
 
-Governor admission is transition-class based: `launch_gate` uses `launch_capable`, `post_launch_degraded` or `inflight_stable` uses `inflight_only`, and `boundary_near` or `recoverable_degraded` uses `terminal_or_recovery`. Wall margin fields remain audit and rollout-boundary telemetry, but `boundary_near` is a route state, not automatic failure. The active soft gain terms are `updraft_gain_weight` and `terminal_updraft_gain_weight`; legacy `energy_weight` names may be read from old frozen configs but must not be emitted by new governor manifests. If a compact representative has no supported outcome evidence, the rejection reason is `missing_outcome_evidence_for_candidate` before any zero-probability test is applied.
+Governor admission is transition-entry based. The governor classifies the
+current state, filters compact representatives by validated
+`transition_entry_class`, rejects high hard-failure risk, scores transition
+probability plus updraft gain plus flight time plus residual-memory correction,
+executes the best transition object, and updates case-local residual memory.
+Wall margin fields remain audit and rollout-boundary telemetry, but
+`boundary_near` is a route state, not automatic failure. The active soft gain
+terms are `updraft_gain_weight` and `terminal_updraft_gain_weight`; legacy
+`energy_weight` names may be read from old frozen configs but must not be
+emitted by new governor manifests. If a compact representative has no supported
+outcome evidence, the rejection reason is `missing_outcome_evidence_for_candidate`
+before any zero-probability test is applied.
 
 The governor must therefore support two explicit operating modes:
 
@@ -848,13 +832,13 @@ Repeated-launch routing is deterministic at the episode level:
 
 ```text
 primitive_step_index = 0
-    route only to launch_capable launch_capture_* candidates
+    current_state_class = launch_gate
+    route only to representatives validated for transition_entry_class = launch_gate
     start_state_family = launch_gate
 
 primitive_step_index >= 1
     use the current simulated state to choose the route
-    route to inflight_only candidates for ordinary continuation states
-    route to terminal_or_recovery candidates near boundary, high attitude/rate, or recovery margin states
+    route by current state class and validated transition_entry_class
 ```
 
 The governor does not need a separate "is this launch?" detector beyond `primitive_step_index = 0`. Later recovery routing is state-based: the system does not know whether the next primitive is the final allowed primitive, so recovery/safe-exit candidates become viable when the current state itself indicates degraded margin or boundary-near conditions. This prevents recovery primitives from being ignored until after it is too late.
@@ -969,7 +953,7 @@ dry-air energy-loss baseline
 checking whether a primitive only works because of lift
 paired comparison with measured-updraft and randomized-updraft runs
 rich dry-air primitive evidence, not shortlist selection
-launch_capture handoff-quality stress before W3 holdout
+launch_gate transition handoff-quality stress before W3 holdout
 ```
 
 ### 12.2 W1 鈥?randomized measured-updraft synthesis
@@ -1059,7 +1043,7 @@ Current implementation notes that must remain true:
 ```text
 left/right aileron asymmetry is applied to the per-strip control mix
 centre-of-gravity offset is applied by shifting aerodynamic moment arms
-W3 still does not retune Q/R, K, reference, horizon, entry role, controller ID, or primitive variant ID
+W3 still does not retune Q/R, K, reference, horizon, transition entry, controller ID, or primitive variant ID
 ```
 
 Every W3 replay row should log a deterministic randomisation seed and the active instance identifiers:
@@ -1225,7 +1209,7 @@ When mixed primitive-start evidence is used, reports should also stratify or sum
 start_state_family
 state_envelope_label
 previous_primitive_status
-entry_role
+transition_entry_class
 regime_label
 ```
 
@@ -1305,7 +1289,7 @@ resume = true
 
 This 8-worker and compressed-partition policy is a hard project requirement for dense/archive/thesis-scale runs. New evidence runners must reuse the retained runtime and table-I/O utilities instead of introducing a full-memory single-process path.
 
-R9/R10/R11 repeated-launch validators must also be worker-enabled. Parallelism is across independent final held-out schedule rows; each worker runs the policy/history launches for that row sequentially so directional memory causality is preserved. The parent process owns table partition writing, chunk manifests, file-size audits, and final pass/fail summaries. The validation runner must not impose a fixed primitive-count cap in R10/R11 full validation; it uses a high simulation safety budget of 20 s per episode instead. Any `max_primitives_per_launch > 0` setting is a diagnostic cap and cannot satisfy the R10/R11 full gate. Short smoke runs may lower `max_episode_time_s` explicitly, but full R10/R11 should not. R9 is already reduced by design and remains an internal preflight only. The default worker backend for R9/R10/R11 is process-based for speed. The row-level rollout evidence keeps history and final launch episode summaries, selected-primitive execution rows, selector decisions, memory updates, and belief snapshots for plotting and thesis audit. The exhaustive all-candidate score table is compact by default: it retains the selected candidate, top-k viable candidates, launch-family representatives, entry-role representatives, and rejection-reason representatives rather than every rejected candidate at every primitive step.
+R9/R10/R11 repeated-launch validators must also be worker-enabled. Parallelism is across independent final held-out schedule rows; each worker runs the policy/history launches for that row sequentially so directional memory causality is preserved. The parent process owns table partition writing, chunk manifests, file-size audits, and final pass/fail summaries. The validation runner must not impose a fixed primitive-count cap in R10/R11 full validation; it uses a high simulation safety budget of 20 s per episode instead. Any `max_primitives_per_launch > 0` setting is a diagnostic cap and cannot satisfy the R10/R11 full gate. Short smoke runs may lower `max_episode_time_s` explicitly, but full R10/R11 should not. R9 is already reduced by design and remains an internal preflight only. The default worker backend for R9/R10/R11 is process-based for speed. The row-level rollout evidence keeps history and final launch episode summaries, selected-primitive execution rows, selector decisions, memory updates, and belief snapshots for plotting and thesis audit. The exhaustive all-candidate score table is compact by default: it retains the selected candidate, top-k viable candidates, transition-entry representatives, and rejection-reason representatives rather than every rejected candidate at every primitive step.
 
 Do not use a single-process full-memory runner for dense runs.
 

@@ -47,7 +47,9 @@ def test_w01_dry_run_writes_compact_manifests_and_no_partitions(tmp_path: Path) 
     assert (run_root / "reports" / "frozen_controller_bundle_audit.md").is_file()
     assert (run_root / "reports" / "l7_w01_completeness_audit.md").is_file()
     assert (run_root / "reports" / "r5_launch_capture_diagnosis.md").is_file()
+    assert (run_root / "reports" / "r5_launch_gate_entry_diagnosis.md").is_file()
     assert (run_root / "metrics" / "r5_launch_capture_diagnosis.csv").is_file()
+    assert (run_root / "metrics" / "r5_launch_gate_entry_diagnosis.csv").is_file()
     l6_report = (run_root / "reports" / "l6_move_on_check.md").read_text(encoding="ascii")
     assert "predictor_compensated_augmented_discrete_lqr_v1" in l6_report
     assert "no_rollout_evidence_written" in l6_report
@@ -98,7 +100,7 @@ def test_l6_move_on_blocks_baseline_rows_and_missing_timing_coverage(tmp_path: P
     run_class, blockers = _l6_move_on_status(run_root=tmp_path, status="complete", row_count=1000)
 
     assert run_class == "preflight"
-    assert "missing_timing_aware_solved_or_blocked_variant_for_launch_capture_safe_handoff" in blockers
+    assert "missing_timing_aware_solved_or_blocked_variant_for_safe_exit_or_recovery_handoff" in blockers
     assert "w01_rows_missing_active_timing_aware_controller_ids" in blockers
     assert "w01_rows_include_superseded_baseline_controller_ids" in blockers
 
@@ -119,11 +121,11 @@ def test_rich_side_schedule_has_32_candidates_100_paired_tests_and_exact_start_m
         "w1_annular_gp_randomised_four",
     }
     assert summary["start_state_family"] == {
-        "inflight_boundary_near": 9600,
-        "inflight_lift_region": 21600,
-        "inflight_nominal": 36000,
-        "inflight_recovery_edge": 9600,
-        "launch_gate": 57600,
+        "inflight_boundary_near": 7680,
+        "inflight_lift_region": 11520,
+        "inflight_nominal": 19200,
+        "inflight_recovery_edge": 7680,
+        "launch_gate": 30720,
     }
 
 

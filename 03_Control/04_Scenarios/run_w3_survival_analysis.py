@@ -26,7 +26,7 @@ from dense_archive_table_io import (  # noqa: E402
     load_table_manifest,
     read_table_partition,
 )
-from prim_cat import LAUNCH_CAPTURE_PRIMITIVE_IDS  # noqa: E402
+from prim_cat import ACTIVE_PRIMITIVE_IDS  # noqa: E402
 from primitive_timing_contract import PRIMITIVE_TIMING_CONTRACT_VERSION, primitive_timing_contract_row  # noqa: E402
 from transition_labels import transition_contract_row, transition_row_fields  # noqa: E402
 
@@ -183,14 +183,25 @@ def _start_state_family_for_transition_row(row: dict[str, object]) -> str:
 
 def _variant_summary(frame: pd.DataFrame, *, config: W3SurvivalAnalysisConfig) -> pd.DataFrame:
     rows = []
-    for variant_id, group in frame.groupby("primitive_variant_id", sort=True):
+    group_columns = ["primitive_variant_id"]
+    if "transition_entry_class" in frame.columns:
+        group_columns.append("transition_entry_class")
+    for group_key, group in frame.groupby(group_columns, sort=True, dropna=False):
+        if isinstance(group_key, tuple):
+            variant_id = str(group_key[0])
+            transition_entry_class = str(group_key[1])
+        else:
+            variant_id = str(group_key)
+            transition_entry_class = str(group.iloc[0].get("transition_entry_class", ""))
+        transition_object_id = f"{variant_id}__entry_{transition_entry_class or 'unknown'}"
         first = group.iloc[0]
         compatible = group[_bool_series(group.get("entry_role_compatible", False))]
         incompatible_count = int(len(group) - len(compatible))
         if compatible.empty:
-            row = _base_variant_row(first, variant_id)
+            row = _base_variant_row(first, variant_id, transition_entry_class=transition_entry_class)
             row.update(
                 {
+                    "transition_object_id": transition_object_id,
                     "w3_variant_status": "not_run",
                     "eligible_for_post_w3_library_size_study": False,
                     "compatible_row_count": 0,
@@ -235,9 +246,10 @@ def _variant_summary(frame: pd.DataFrame, *, config: W3SurvivalAnalysisConfig) -
             hard_failure_rate=hard_rate,
             config=config,
         )
-        row = _base_variant_row(first, variant_id)
+        row = _base_variant_row(first, variant_id, transition_entry_class=transition_entry_class)
         row.update(
             {
+                "transition_object_id": transition_object_id,
                 "w3_variant_status": status,
                 "eligible_for_post_w3_library_size_study": status == "survived",
                 "compatible_row_count": int(len(compatible)),
@@ -269,15 +281,20 @@ def _variant_summary(frame: pd.DataFrame, *, config: W3SurvivalAnalysisConfig) -
             }
         )
         rows.append(row)
-    return pd.DataFrame(rows).sort_values(["primitive_id", "candidate_index", "primitive_variant_id"]).reset_index(drop=True)
+    return (
+        pd.DataFrame(rows)
+        .sort_values(["primitive_id", "transition_entry_class", "candidate_index", "primitive_variant_id"])
+        .reset_index(drop=True)
+    )
 
 
-def _base_variant_row(first: pd.Series, variant_id: str) -> dict[str, object]:
+def _base_variant_row(first: pd.Series, variant_id: str, *, transition_entry_class: str = "") -> dict[str, object]:
     _ = primitive_timing_contract_row()
     return {
         "primitive_variant_id": str(variant_id),
         "primitive_id": str(first.get("primitive_id", first.get("variant_primitive_id", ""))),
         "entry_role": str(first.get("entry_role", first.get("variant_entry_role", ""))),
+        "transition_entry_class": str(transition_entry_class or first.get("transition_entry_class", "")),
         "controller_id": str(first.get("controller_id", first.get("variant_controller_id", ""))),
         "candidate_index": int(float(first.get("candidate_index", first.get("variant_candidate_index", 0)))),
         "candidate_weight_label": str(first.get("candidate_weight_label", first.get("variant_candidate_weight_label", ""))),
@@ -435,8 +452,8 @@ def _survivor_registry(
         "positive_continuation": "transition_chain_compatible_true",
         "terminal_useful": "episode_terminal_useful_true_or_boundary_use_class_episode_terminal_useful",
         "hard_failure": "transition_exit_class_hard_failure_or_legacy_hard_failure",
-        "survived": "both_W3_modes_transition_compatible_and_transition_success_rate_above_min_and_hard_failure_rate_less_or_equal_survived_limit",
-        "registry_pass": "requires_nonzero_survivors_and_at_least_one_survivor_for_every_launch_capture_family",
+        "survived": "both_W3_modes_transition_compatible_for_this_entry_class_and_transition_success_rate_above_min_and_hard_failure_rate_less_or_equal_survived_limit",
+        "registry_pass": "requires_nonzero_transition_object_survivors_and_launch_gate_entry_survivor_for_every_active_primitive_family",
         "downgraded": "partial_transition_compatible_evidence_and_hard_failure_rate_less_or_equal_downgraded_limit",
         "survived_transition_success_rate_min": float(config.survived_transition_success_rate_min),
         "survived_hard_failure_rate_max": float(config.survived_hard_failure_rate_max),
@@ -456,12 +473,13 @@ def _survivor_registry(
         "status": registry_status,
         "blocked_reason": registry_blocked_reason,
         "survivor_count": int(len(survivors)),
-        "launch_capable_survivor_count": int(_entry_role_survivor_count(survivors, "launch_capable")),
-        "inflight_only_survivor_count": int(_entry_role_survivor_count(survivors, "inflight_only")),
-        "terminal_or_recovery_survivor_count": int(_entry_role_survivor_count(survivors, "terminal_or_recovery")),
-        "required_launch_capture_primitive_ids": list(LAUNCH_CAPTURE_PRIMITIVE_IDS),
-        "surviving_launch_capture_primitive_ids": _surviving_launch_capture_ids(survivors),
-        "missing_launch_capture_primitive_ids": _missing_launch_capture_ids(survivors),
+        "launch_gate_entry_survivor_count": int(_transition_entry_survivor_count(survivors, "launch_gate")),
+        "inflight_stable_entry_survivor_count": int(_transition_entry_survivor_count(survivors, "inflight_stable")),
+        "boundary_near_entry_survivor_count": int(_transition_entry_survivor_count(survivors, "boundary_near")),
+        "recoverable_degraded_entry_survivor_count": int(_transition_entry_survivor_count(survivors, "recoverable_degraded")),
+        "required_active_primitive_ids": list(ACTIVE_PRIMITIVE_IDS),
+        "surviving_launch_gate_entry_primitive_ids": _surviving_launch_gate_entry_ids(survivors),
+        "missing_launch_gate_entry_primitive_ids": _missing_launch_gate_entry_ids(survivors),
         "role_survival_summary": role_summary,
         "downgraded_count": int(len(downgraded)),
         "eliminated_count": int(len(eliminated)),
@@ -481,14 +499,16 @@ def _survivor_registry(
 def _registry_status_from_survivors(survivors: pd.DataFrame) -> tuple[str, str]:
     if survivors.empty:
         return "blocked_no_w3_survivors", "w3_registry_has_no_surviving_variants"
-    launch_survivors = survivors[survivors.get("entry_role", pd.Series(dtype=str)).astype(str) == "launch_capable"]
+    if "transition_entry_class" not in survivors.columns:
+        return "blocked_missing_transition_entry_class", "w3_survivors_missing_transition_entry_class"
+    launch_survivors = survivors[survivors.get("transition_entry_class", pd.Series(dtype=str)).astype(str) == "launch_gate"]
     if launch_survivors.empty:
-        return "blocked_no_launch_capable_w3_survivors", "launch_capable_survivor_count_zero"
-    missing = _missing_launch_capture_ids(survivors)
+        return "blocked_no_launch_gate_entry_w3_survivors", "launch_gate_entry_survivor_count_zero"
+    missing = _missing_launch_gate_entry_ids(survivors)
     if missing:
         return (
-            "blocked_missing_launch_capture_family_w3_survivors",
-            "missing_launch_capture_primitive_ids:" + ",".join(missing),
+            "blocked_missing_launch_gate_entry_family_w3_survivors",
+            "missing_launch_gate_entry_primitive_ids:" + ",".join(missing),
         )
     return "w3_survivors_available", ""
 
@@ -499,17 +519,23 @@ def _entry_role_survivor_count(survivors: pd.DataFrame, entry_role: str) -> int:
     return int((survivors["entry_role"].astype(str) == str(entry_role)).sum())
 
 
-def _surviving_launch_capture_ids(survivors: pd.DataFrame) -> list[str]:
-    if survivors.empty or "primitive_id" not in survivors.columns or "entry_role" not in survivors.columns:
+def _transition_entry_survivor_count(survivors: pd.DataFrame, entry_class: str) -> int:
+    if survivors.empty or "transition_entry_class" not in survivors.columns:
+        return 0
+    return int((survivors["transition_entry_class"].astype(str) == str(entry_class)).sum())
+
+
+def _surviving_launch_gate_entry_ids(survivors: pd.DataFrame) -> list[str]:
+    if survivors.empty or "primitive_id" not in survivors.columns or "transition_entry_class" not in survivors.columns:
         return []
-    launch = survivors[survivors["entry_role"].astype(str) == "launch_capable"]
-    ids = sorted(set(launch["primitive_id"].astype(str)).intersection(set(LAUNCH_CAPTURE_PRIMITIVE_IDS)))
+    launch = survivors[survivors["transition_entry_class"].astype(str) == "launch_gate"]
+    ids = sorted(set(launch["primitive_id"].astype(str)).intersection(set(ACTIVE_PRIMITIVE_IDS)))
     return ids
 
 
-def _missing_launch_capture_ids(survivors: pd.DataFrame) -> list[str]:
-    present = set(_surviving_launch_capture_ids(survivors))
-    return sorted(set(LAUNCH_CAPTURE_PRIMITIVE_IDS) - present)
+def _missing_launch_gate_entry_ids(survivors: pd.DataFrame) -> list[str]:
+    present = set(_surviving_launch_gate_entry_ids(survivors))
+    return sorted(set(ACTIVE_PRIMITIVE_IDS) - present)
 
 
 def _role_survival_summary(variant_summary: pd.DataFrame) -> list[dict[str, object]]:
@@ -528,8 +554,10 @@ def _role_survival_summary(variant_summary: pd.DataFrame) -> list[dict[str, obje
 def _records_for_registry(frame: pd.DataFrame) -> list[dict[str, object]]:
     wanted = [
         "primitive_variant_id",
+        "transition_object_id",
         "primitive_id",
         "entry_role",
+        "transition_entry_class",
         "controller_id",
         "candidate_index",
         "candidate_weight_label",
@@ -593,11 +621,11 @@ def _write_reports(*, input_root: Path, registry: dict[str, object]) -> None:
         f"- Status: `{registry['status']}`",
         f"- Blocked reason: `{registry.get('blocked_reason', '')}`",
         f"- Survivors: `{registry['survivor_count']}`",
-        f"- Launch-capable survivors: `{registry.get('launch_capable_survivor_count', 0)}`",
-        f"- Missing launch-capture families: `{','.join(registry.get('missing_launch_capture_primitive_ids', []))}`",
+        f"- Launch-gate entry survivors: `{registry.get('launch_gate_entry_survivor_count', 0)}`",
+        f"- Missing launch-gate entry families: `{','.join(registry.get('missing_launch_gate_entry_primitive_ids', []))}`",
         f"- Downgraded: `{registry['downgraded_count']}`",
         f"- Eliminated: `{registry['eliminated_count']}`",
-        "- Entry-role-incompatible rows are preserved as rejection/block evidence and excluded from survival scoring.",
+        "- Transition-entry-incompatible rows are preserved as rejection/block evidence and excluded from survival scoring.",
         "- Continuation-valid evidence and terminal-useful evidence remain separate.",
         "- Claim boundary: simulation-only W3 variant analysis; no hardware, real-flight, mission, or formal ROA claim.",
         "",

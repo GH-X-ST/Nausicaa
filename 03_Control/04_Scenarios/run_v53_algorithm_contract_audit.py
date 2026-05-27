@@ -55,6 +55,7 @@ from run_post_w3_library_size_study import (  # noqa: E402
 )
 from run_r5_r10_pipeline import ARCHIVED_STAGES, STAGE_ORDER  # noqa: E402
 from transition_labels import (
+    REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS,
     REQUIRED_EXIT_CLASSES_BY_ROLE,
     STATE_CLASSES,
     classify_transition,
@@ -161,25 +162,34 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r6_archived_only", ARCHIVED_STAGES == ("R6",), ARCHIVED_STAGES, ("R6",)))
     rows.append(_row("active_governor_path_transition_viability", ACTIVE_GOVERNOR_PATH == "transition_viability_governor_v1", ACTIVE_GOVERNOR_PATH, "transition_viability_governor_v1"))
     rows.append(_row("transition_state_classes_exact", STATE_CLASSES == ("launch_gate", "post_launch_degraded", "inflight_stable", "boundary_near", "recoverable_degraded", "safe_terminal", "hard_failure"), STATE_CLASSES, "seven compact transition classes"))
-    rows.append(_row("transition_role_exit_contract_exact", REQUIRED_EXIT_CLASSES_BY_ROLE == {"launch_capable": ("post_launch_degraded", "inflight_stable"), "inflight_only": ("inflight_stable", "boundary_near", "safe_terminal"), "terminal_or_recovery": ("inflight_stable", "safe_terminal")}, REQUIRED_EXIT_CLASSES_BY_ROLE, "launch/inflight/recovery transition exits"))
+    expected_entry_contract = {
+        "launch_gate": ("post_launch_degraded", "inflight_stable"),
+        "post_launch_degraded": ("inflight_stable", "boundary_near", "safe_terminal"),
+        "inflight_stable": ("inflight_stable", "boundary_near", "safe_terminal"),
+        "boundary_near": ("inflight_stable", "safe_terminal"),
+        "recoverable_degraded": ("inflight_stable", "safe_terminal"),
+        "safe_terminal": (),
+        "hard_failure": (),
+    }
+    rows.append(_row("transition_entry_exit_contract_exact", REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS == expected_entry_contract, REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS, expected_entry_contract))
     rows.extend(_transition_contract_invariant_rows())
-    rows.append(_row("active_primitive_catalogue_has_14_variants", len(ACTIVE_PRIMITIVE_IDS) == 14, len(ACTIVE_PRIMITIVE_IDS), 14))
-    rows.append(_row("launch_capture_catalogue_has_6_stable_ids", len(LAUNCH_CAPTURE_PRIMITIVE_IDS) == 6 and all(ENTRY_ROLE_BY_PRIMITIVE_ID.get(pid) == "launch_capable" for pid in LAUNCH_CAPTURE_PRIMITIVE_IDS), list(LAUNCH_CAPTURE_PRIMITIVE_IDS), "six launch_capture_* primitives marked launch_capable"))
-    rows.append(_row("r5_dense_target_dynamic_14x32x3x100", L6_RICH_SIDE_ROW_COUNT == rich_side_dense_row_count() == 134400, {"row_count": L6_RICH_SIDE_ROW_COUNT, "candidate_count": L6_RICH_SIDE_CANDIDATE_COUNT, "paired_tests": L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE}, "14*32*3*100=134400"))
+    rows.append(_row("active_primitive_catalogue_has_8_variants", len(ACTIVE_PRIMITIVE_IDS) == 8, len(ACTIVE_PRIMITIVE_IDS), 8))
+    rows.append(_row("launch_capture_aliases_retired_not_active", len(LAUNCH_CAPTURE_PRIMITIVE_IDS) == 6 and not set(LAUNCH_CAPTURE_PRIMITIVE_IDS).intersection(set(ACTIVE_PRIMITIVE_IDS)), {"active": list(ACTIVE_PRIMITIVE_IDS), "retired": list(LAUNCH_CAPTURE_PRIMITIVE_IDS)}, "retired launch_capture aliases disjoint from active primitives"))
+    rows.append(_row("r5_dense_target_dynamic_8x32x3x100", L6_RICH_SIDE_ROW_COUNT == rich_side_dense_row_count() == 76800, {"row_count": L6_RICH_SIDE_ROW_COUNT, "candidate_count": L6_RICH_SIDE_CANDIDATE_COUNT, "paired_tests": L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE}, "8*32*3*100=76800"))
     rows.append(_row("r5_official_environment_cases_annular_gp_only", OFFICIAL_W01_ENVIRONMENT_CASES == (("W0", "dry_air"), ("W1", "w1_annular_gp_randomised_single"), ("W1", "w1_annular_gp_randomised_four")), OFFICIAL_W01_ENVIRONMENT_CASES, "W0 dry plus W1 annular-GP single/four"))
     rows.append(_row("r5_active_fan_count_sequence_balanced_1_2_3_4", R5_ACTIVE_FAN_COUNT_SEQUENCE == (1, 2, 3, 4), R5_ACTIVE_FAN_COUNT_SEQUENCE, (1, 2, 3, 4)))
     r5_schedule = _r5_schedule_role_audit()
-    rows.append(_row("r5_schedule_has_no_cross_entry_role_start_family", int(r5_schedule["mismatch_count"]) == 0, r5_schedule, "all scheduled rows role-compatible"))
-    rows.append(_row("r5_role_separated_start_family_counts", r5_schedule["family_counts"] == _expected_r5_family_counts(), r5_schedule["family_counts"], _expected_r5_family_counts()))
-    rows.append(_row("r5_environment_case_counts_balanced", r5_schedule["environment_case_counts"] == {"W0|dry_air": 44800, "W1|w1_annular_gp_randomised_four": 44800, "W1|w1_annular_gp_randomised_single": 44800}, r5_schedule["environment_case_counts"], "44800 rows per W0/W1 environment case"))
+    rows.append(_row("r5_schedule_has_no_cross_entry_role_start_family", int(r5_schedule["mismatch_count"]) == 0, r5_schedule, "all scheduled rows transition-object compatible"))
+    rows.append(_row("r5_transition_entry_start_family_counts", r5_schedule["family_counts"] == _expected_r5_family_counts(), r5_schedule["family_counts"], _expected_r5_family_counts()))
+    rows.append(_row("r5_environment_case_counts_balanced", r5_schedule["environment_case_counts"] == {"W0|dry_air": 25600, "W1|w1_annular_gp_randomised_four": 25600, "W1|w1_annular_gp_randomised_single": 25600}, r5_schedule["environment_case_counts"], "25600 rows per W0/W1 environment case"))
     w3_row_source = inspect.getsource(_w3_row_for_index)
     rows.append(_row("r7_uses_direct_r5_frozen_bundle_not_active_w2_gate", R5_INPUT_KIND == "r5_frozen_bundle_direct", R5_INPUT_KIND, "r5_frozen_bundle_direct"))
     rows.append(_row("r7_environment_cases_annular_gp_single_four", W3_ENVIRONMENT_CASES == ("w3_randomised_single", "w3_randomised_four"), W3_ENVIRONMENT_CASES, ("w3_randomised_single", "w3_randomised_four")))
     rows.append(_row("r7_active_fan_count_sequence_balanced_1_2_3_4", W3_ACTIVE_FAN_COUNT_SEQUENCE == (1, 2, 3, 4), W3_ACTIVE_FAN_COUNT_SEQUENCE, (1, 2, 3, 4)))
-    rows.append(_row("r7_row_scheduler_uses_variant_entry_role_for_start_family", "start_family_for_entry_role_index" in w3_row_source and "entry_role=record.variant.entry_role" in w3_row_source, "role-aware W3 scheduler source" if "start_family_for_entry_role_index" in w3_row_source else "missing", "start_family_for_entry_role_index(entry_role=record.variant.entry_role)"))
+    rows.append(_row("r7_row_scheduler_uses_transition_object_start_family_schedule", "start_family_for_entry_role_index" in w3_row_source and "entry_role=record.variant.entry_role" in w3_row_source, "transition-entry W3 scheduler source" if "start_family_for_entry_role_index" in w3_row_source else "missing", "start_family_for_entry_role_index(entry_role=record.variant.entry_role)"))
     r8_representatives_source = inspect.getsource(_representatives_for_case)
     r8_selection_source = inspect.getsource(_coverage_medoid_selection)
-    rows.append(_row("r8_library_cases_group_by_primitive_and_entry_role", 'groupby(["primitive_id", "entry_role"]' in r8_representatives_source, "active grouping source", 'survived.groupby(["primitive_id", "entry_role"])'))
+    rows.append(_row("r8_library_cases_group_by_primitive_and_transition_entry", 'groupby(["primitive_id", "transition_entry_class"]' in r8_representatives_source, "active grouping source", 'survived.groupby(["primitive_id", "transition_entry_class"])'))
     rows.append(_row("r8_selection_applies_hard_safety_filter_first", "_hard_safety_filtered_group" in r8_selection_source, "coverage selection source", "_hard_safety_filtered_group before scoring"))
     rows.append(_row("r8_compressed_cases_use_coverage_medoid_policy", _r8_compressed_cases_use_coverage_medoid_policy(), _r8_library_selection_policies(), "heavy/balanced/light/super_light use coverage_medoid; no_cluster keeps all W3 survivors"))
     rows.append(_row("r8_heavy_medoid_prefers_worst_case_coverage", _r8_heavy_medoid_prefers_worst_case_coverage(), "synthetic coverage-medoid selection", "select existing variant with stronger worst-case coverage"))
@@ -234,8 +244,8 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
 
     route0 = validation_route_for_primitive_step(0)
     route1 = validation_route_for_primitive_step(1)
-    rows.append(_row("first_primitive_is_launch_capable_route", route0.get("route_required_entry_role") == "launch_capable", route0, "launch_capable"))
-    rows.append(_row("later_nominal_route_is_inflight_only", route1.get("route_required_entry_role") == "inflight_only", route1, "inflight_only"))
+    rows.append(_row("first_primitive_uses_launch_gate_entry_class", route0.get("route_required_entry_class") == "launch_gate", route0, "launch_gate"))
+    rows.append(_row("later_nominal_route_uses_inflight_entry_class", route1.get("route_required_entry_class") == "inflight_stable", route1, "inflight_stable"))
     for protocol in (R10_PROTOCOL, R11_PROTOCOL):
         rows.append(_row(f"{protocol.stage_id.lower()}_nominal_fan_positions_fixed", _fan_position_policy_for_outer_case(protocol=protocol, environment_block_id="nominal_single_fan_perturbations") == "fixed_base_positions", _fan_position_policy_for_outer_case(protocol=protocol, environment_block_id="nominal_single_fan_perturbations"), "fixed_base_positions"))
         rows.append(_row(f"{protocol.stage_id.lower()}_four_fan_non_active_block_fixed_to_4", _scheduled_active_fan_count_for_outer_case(protocol=protocol, environment_block_id="nominal_four_fan_perturbations", environment_block_local_index=0) == 4, _scheduled_active_fan_count_for_outer_case(protocol=protocol, environment_block_id="nominal_four_fan_perturbations", environment_block_local_index=0), 4))
@@ -248,7 +258,7 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
 def _transition_contract_invariant_rows() -> list[dict[str, object]]:
     launch_bad = classify_transition(
         {
-            "entry_role": "launch_capable",
+            "entry_role": "transition_object",
             "start_state_family": "launch_gate",
             "outcome_class": "accepted",
             "continuation_valid": True,
@@ -260,7 +270,7 @@ def _transition_contract_invariant_rows() -> list[dict[str, object]]:
     )
     launch_good = classify_transition(
         {
-            "entry_role": "launch_capable",
+            "entry_role": "transition_object",
             "start_state_family": "launch_gate",
             "outcome_class": "accepted",
             "continuation_valid": True,
@@ -272,7 +282,7 @@ def _transition_contract_invariant_rows() -> list[dict[str, object]]:
     )
     inflight_bad = classify_transition(
         {
-            "entry_role": "inflight_only",
+            "entry_role": "transition_object",
             "start_state_family": "inflight_nominal",
             "outcome_class": "weak",
             "continuation_valid": False,
@@ -284,7 +294,7 @@ def _transition_contract_invariant_rows() -> list[dict[str, object]]:
     )
     recovery_good = classify_transition(
         {
-            "entry_role": "terminal_or_recovery",
+            "entry_role": "transition_object",
             "start_state_family": "inflight_recovery_edge",
             "outcome_class": "accepted",
             "continuation_valid": True,
@@ -298,9 +308,9 @@ def _transition_contract_invariant_rows() -> list[dict[str, object]]:
         _row("transition_contract_row_boundary_near_route_state", bool(transition_contract_row()["boundary_near_is_route_state_not_failure"]), transition_contract_row(), "boundary_near route state"),
         _row("launch_boundary_exit_cannot_pass_transition_gate", not bool(launch_bad["transition_chain_compatible"]), launch_bad, "launch boundary_near exit rejected"),
         _row("launch_post_launch_exit_can_pass_transition_gate", bool(launch_good["transition_chain_compatible"]), launch_good, "launch post_launch_degraded/inflight exit accepted"),
-        _row("inflight_recoverable_degraded_exit_cannot_pass_transition_gate", not transition_is_chain_compatible(entry_role="inflight_only", entry_class="inflight_stable", exit_class="recoverable_degraded"), "recoverable_degraded", "not allowed for inflight_only"),
+        _row("inflight_recoverable_degraded_exit_cannot_pass_transition_gate", not transition_is_chain_compatible(entry_role="transition_object", entry_class="inflight_stable", exit_class="recoverable_degraded"), "recoverable_degraded", "not allowed for inflight_stable transition object"),
         _row("inflight_weak_without_chain_handoff_rejected", not bool(inflight_bad["transition_chain_compatible"]), inflight_bad, "weak local rollout is not sufficient"),
-        _row("recovery_to_inflight_passes_transition_gate", bool(recovery_good["transition_chain_compatible"]), recovery_good, "terminal_or_recovery can restore inflight_stable"),
+        _row("recovery_to_inflight_passes_transition_gate", bool(recovery_good["transition_chain_compatible"]), recovery_good, "recoverable_degraded transition object can restore inflight_stable"),
     ]
 
 
@@ -353,11 +363,11 @@ def _r5_schedule_role_audit() -> dict[str, object]:
 
 def _expected_r5_family_counts() -> dict[str, int]:
     return {
-        "inflight_boundary_near": 9600,
-        "inflight_lift_region": 21600,
-        "inflight_nominal": 36000,
-        "inflight_recovery_edge": 9600,
-        "launch_gate": 57600,
+        "inflight_boundary_near": 7680,
+        "inflight_lift_region": 11520,
+        "inflight_nominal": 19200,
+        "inflight_recovery_edge": 7680,
+        "launch_gate": 30720,
     }
 
 
@@ -418,7 +428,8 @@ def _r8_heavy_medoid_prefers_worst_case_coverage() -> bool:
             {
                 "primitive_variant_id": "rare_case_fragile_high_average",
                 "primitive_id": "glide",
-                "entry_role": "inflight_only",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
                 "continuation_valid_rate": 0.95,
                 "episode_terminal_useful_rate": 0.20,
                 "hard_failure_rate": 0.01,
@@ -432,7 +443,8 @@ def _r8_heavy_medoid_prefers_worst_case_coverage() -> bool:
             {
                 "primitive_variant_id": "broad_case_medoid",
                 "primitive_id": "glide",
-                "entry_role": "inflight_only",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
                 "continuation_valid_rate": 0.75,
                 "episode_terminal_useful_rate": 0.10,
                 "hard_failure_rate": 0.02,

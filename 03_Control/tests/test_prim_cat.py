@@ -17,8 +17,8 @@ def test_active_primitive_catalogue_has_unique_expected_ids() -> None:
     ids = tuple(primitive.primitive_id for primitive in catalogue)
 
     assert ids == ACTIVE_PRIMITIVE_IDS
-    assert len(set(ids)) == len(ids) == 14
-    assert set(LAUNCH_CAPTURE_PRIMITIVE_IDS).issubset(set(ids))
+    assert len(set(ids)) == len(ids) == 8
+    assert not set(LAUNCH_CAPTURE_PRIMITIVE_IDS).intersection(set(ids))
 
 
 def test_every_primitive_has_required_schema_and_claim_boundary() -> None:
