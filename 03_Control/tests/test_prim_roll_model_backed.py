@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from env_ctx import EnvironmentMetadata, build_environment_context
 from env_surrogate import resolve_surrogate_binding, wind_field_for_binding
@@ -10,6 +11,24 @@ from plant_instance import plant_instance_for_layer
 from prim_cat import primitive_by_id
 from prim_roll import RolloutConfig, rollout_evidence_row, simulate_primitive_rollout
 from state_contract import STATE_INDEX, STATE_SIZE
+
+
+class ConstantWind:
+    name = "constant_unit_test_wind"
+    source = "unit_test"
+
+    def __init__(self, value_m_s: float) -> None:
+        self.value_m_s = float(value_m_s)
+
+    def __call__(self, points_w_up_m: np.ndarray) -> np.ndarray:
+        points = np.asarray(points_w_up_m, dtype=float).reshape(-1, 3)
+        return np.column_stack(
+            [
+                np.zeros(points.shape[0]),
+                np.zeros(points.shape[0]),
+                np.full(points.shape[0], self.value_m_s),
+            ]
+        )
 
 
 def _state(*, x_w_m: float = 2.0, z_w_m: float = 1.6, u_m_s: float = 5.8) -> np.ndarray:
@@ -77,12 +96,26 @@ def test_model_backed_rollout_is_distinct_from_smoke_and_finite() -> None:
     assert np.isfinite(evidence.ceiling_margin_m)
 
 
-def test_model_backed_low_speed_initial_state_is_blocked() -> None:
-    state = _state(u_m_s=2.0)
-    context, wind = _context_and_wind(state)
+def test_model_backed_rollout_integrates_positive_wing_updraft_along_trajectory() -> None:
+    state = _state()
+    metadata = EnvironmentMetadata(
+        environment_id="constant_updraft",
+        fan_count=1,
+        fan_positions_m=((4.2, 2.4),),
+        fan_power_scales=(1.0,),
+        updraft_model_id="constant_unit_test_wind",
+    )
+    wind = ConstantWind(1.0)
+    context = build_environment_context(
+        state,
+        wind_field=wind,
+        metadata=metadata,
+        latency_case="nominal",
+    )
 
     evidence = simulate_primitive_rollout(
-        rollout_id="model_rollout_low_speed",
+        rollout_id="model_rollout_integrated_updraft",
+        episode_id="episode_integrated_updraft",
         initial_state=state,
         context=context,
         primitive=primitive_by_id("glide"),
@@ -90,14 +123,32 @@ def test_model_backed_low_speed_initial_state_is_blocked() -> None:
         wind_field=wind,
         controller=_controller("glide"),
     )
+    row = rollout_evidence_row(evidence)
 
-    assert evidence.outcome_class == "blocked"
-    assert evidence.continuation_status == "blocked"
-    assert evidence.continuation_valid is False
-    assert evidence.episode_terminal_useful is False
-    assert evidence.failure_label == "speed_low"
-    assert evidence.entry_rejection_class == "speed_gate_blocked"
-    assert evidence.termination_cause == "speed_gate_blocked"
+    assert evidence.updraft_integration_status == "trajectory_integrated_wing_panel_positive_updraft"
+    assert evidence.trajectory_integrated_updraft_gain_m == pytest.approx(evidence.rollout_duration_s)
+    assert evidence.trajectory_mean_positive_w_wing_m_s == pytest.approx(1.0)
+    assert evidence.trajectory_lift_dwell_time_s == pytest.approx(evidence.rollout_duration_s)
+    assert row["trajectory_integrated_updraft_gain_m"] == pytest.approx(evidence.rollout_duration_s)
+
+
+def test_model_backed_low_speed_initial_state_is_simulated_and_audited() -> None:
+    state = _state(u_m_s=2.0)
+    context, wind = _context_and_wind(state)
+    config = RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr")
+
+    evidence = simulate_primitive_rollout(
+        rollout_id="model_rollout_low_speed",
+        initial_state=state,
+        context=context,
+        primitive=primitive_by_id("glide"),
+        config=config,
+        wind_field=wind,
+        controller=_controller("glide"),
+    )
+
+    assert evidence.outcome_class != "blocked"
+    assert evidence.trajectory_integrity_status == "finite_model_backed"
 
 
 def test_model_backed_missing_explicit_controller_is_blocked_before_integration() -> None:

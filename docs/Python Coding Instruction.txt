@@ -152,13 +152,61 @@ spanwise_w_gradient_m_s_per_m
 w_local_uncertainty_m_s
 lift_score
 wall_margin_m
+all_wall_margin_m
+front_wall_margin_m
+left_wall_margin_m
+right_wall_margin_m
+rear_wall_margin_m
+governor_wall_margin_m
 floor_margin_m
 ceiling_margin_m
-speed_margin_m_s
 attitude_margin_rad
 ```
 
 The encoder should not contain separate online logic for particular fan layouts.
+For governor preselection, use `governor_wall_margin_m = min(front, left,
+right)` when heading-aware margins are available; keep `wall_margin_m` as the
+all-wall hard-boundary audit value. Rollout boundary checks must still enforce
+all walls, floor, and ceiling.
+Do not include `speed_margin_m_s` in active context features, governor
+rejection logic, recovery routing, launch scoring, or validation audit gates.
+Do not block or terminate a primitive solely because speed drops below a nominal
+reference; the physical rollout must decide whether the state actually causes
+floor, ceiling, wall, nonfinite, or unrecoverable terminal failure.
+Likewise, negative net energy or gross energy loss must never produce a hard
+failure label, governor rejection, or termination gate. R9/R10 scoring should
+report whole-episode net energy drift and gross energy loss as audit fields, but
+score useful updraft extraction separately through an updraft-gain proxy. The
+active model-backed proxy is trajectory-integrated positive wing-panel vertical
+wind from the actually simulated primitive rollout, archived as
+`trajectory_integrated_updraft_gain_m`,
+`trajectory_mean_positive_w_wing_m_s`, `trajectory_lift_dwell_time_s`, and
+`updraft_integration_status`. Primitive-start local `w_wing` exposure is only a
+legacy/smoke fallback; dry/no-local-lift contexts must not inherit positive
+updraft score from aggregate representative evidence, and positive
+specific-energy increments are only a fallback when local updraft context is
+unavailable. Governor soft scoring must use context-conditioned
+`expected_updraft_gain_proxy_m`; keep `expected_energy_residual_m` as an audit
+field only. Use
+`updraft_gain_weight` and `terminal_updraft_gain_weight` for active governor
+configuration output; accept legacy `energy_weight` names only when reading old
+frozen configs. Missing compact-library outcome evidence must be rejected as
+`missing_outcome_evidence_for_candidate`, not collapsed into a zero-probability
+rejection.
+R9/R10 must not feed raw representative-average outcome rows directly into the
+governor. Use the robust context-conditioned outcome adapter first. The adapter
+is downgrade-only: it can reduce continuation or terminal probability, cap
+updraft/dwell soft rewards, or increase hard-failure risk based on current
+start regime, environment class, local lift, local uncertainty, margins,
+environment block, active fan count, and evidence sparsity. It must never make a
+candidate look safer or more performant than the base post-W3 representative
+evidence.
+`safe_success` in R9/R10 requires a role-compliant launch -> in-flight/recovery
+sequence ending in continuation-valid, terminal-useful, or explicit
+time-budget completion, with no physical hard failure, floor/ceiling violation,
+or no-viable primitive tail. `static_map_baseline` must not seed hand-made
+synthetic observations; use an empty frozen prior unless a real static map is
+explicitly supplied.
 
 ## Primitive outcome code
 

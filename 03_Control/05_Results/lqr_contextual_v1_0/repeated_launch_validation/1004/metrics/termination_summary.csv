@@ -1,0 +1,8 @@
+launch_role,termination_cause,row_count
+final_heldout,episode_time_budget_reached,70
+final_heldout,no_viable_primitive,70
+final_heldout,speed_floor,70
+history,episode_time_budget_reached,1380
+history,no_viable_primitive,1620
+history,speed_floor,390
+history,terminal_recovery_limited,2160

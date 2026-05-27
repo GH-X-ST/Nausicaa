@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from directional_residual_lift_belief import (
     DirectionalResidualObservation,
@@ -13,6 +15,7 @@ from directional_residual_lift_belief import (
     query_directional_residual_lift_features,
     update_directional_residual_lift_belief,
 )
+from context_conditioned_outcome import CONTEXT_CONDITIONED_OUTCOME_MODEL_VERSION, context_conditioned_outcome
 from episode_selector import select_compact_representative
 from primitive_timing_contract import (
     CONTROLLER_INPUT_SLOTS_PER_PRIMITIVE,
@@ -32,6 +35,7 @@ from run_repeated_launch_learning_curve import (
     LAUNCH_SEQUENCE_POLICY_ID,
     POST_LAUNCH_START_FAMILY,
     TERMINAL_SAFE_EXIT_START_FAMILY,
+    _episode_row_from_sequence,
     _episode_specific_energy_summary,
     _launch_score_fields,
     _paired_safe_explore_delta_rows,
@@ -49,6 +53,7 @@ from run_v411_source_audit import (
     write_diagnostic_not_passed_archive,
 )
 from state_contract import STATE_INDEX, STATE_SIZE
+from viability_governor import DEFAULT_GOVERNOR_CONFIG, governor_candidate_row, governor_config_from_row, governor_config_to_row
 
 
 def test_v411_docs_gate_inventory_and_audit_are_ready() -> None:
@@ -166,6 +171,7 @@ def test_v411_directional_memory_and_safe_exploration_after_filtering() -> None:
         direction_rad=0.0,
     )
     assert features["belief_local_lift_residual_m_s"] > 0.0
+    assert features["belief_local_updraft_gain_proxy_m"] > 0.0
     assert features["belief_direction_bin"] == 0
 
     timing_payload = {
@@ -214,7 +220,6 @@ def test_v411_directional_memory_and_safe_exploration_after_filtering() -> None:
             "wall_margin_m": 0.5,
             "floor_margin_m": 0.5,
             "ceiling_margin_m": 0.5,
-            "speed_margin_m_s": 1.0,
             "latency_case": "nominal",
             "history_length": 5,
             "library_size_case_id": "balanced_cluster",
@@ -300,7 +305,6 @@ def test_r9_r10_launch_sequence_routes_launch_inflight_and_state_recovery_select
         "wall_margin_m": 0.5,
         "floor_margin_m": 0.5,
         "ceiling_margin_m": 0.5,
-        "speed_margin_m_s": 1.0,
         "latency_case": "nominal",
         "history_length": 0,
         "library_size_case_id": "balanced_cluster",
@@ -315,7 +319,7 @@ def test_r9_r10_launch_sequence_routes_launch_inflight_and_state_recovery_select
     boundary_state = nominal_state.copy()
     boundary_state[STATE_INDEX["x_w"]] = 6.45
     recovery_edge_state = nominal_state.copy()
-    recovery_edge_state[STATE_INDEX["u"]] = 3.6
+    recovery_edge_state[STATE_INDEX["theta"]] = math.radians(24.0)
 
     first_route = validation_route_for_primitive_step(0, state=nominal_state)
     second_route = validation_route_for_primitive_step(1, state=nominal_state)
@@ -385,6 +389,284 @@ def test_r9_r10_launch_sequence_routes_launch_inflight_and_state_recovery_select
     }
 
 
+def test_governor_uses_heading_aware_margin_not_rear_wall_minimum() -> None:
+    timing_payload = {
+        "finite_horizon_s": 0.1,
+        "controller_input_slots_per_primitive": 5,
+        "controller_input_update_period_s": 0.02,
+        "primitive_timing_contract_version": PRIMITIVE_TIMING_CONTRACT_VERSION,
+    }
+    representatives = [
+        {
+            "compact_library_id": "launch",
+            "primitive_variant_id": "launch",
+            "primitive_id": "launch_capture_glide_stabilise",
+            "entry_role": "launch_capable",
+            "controller_id": "ctrl_launch",
+            "K_gain_checksum": "k",
+            "augmented_A_checksum": "a",
+            "augmented_B_checksum": "b",
+            "augmented_gain_checksum": "g",
+            "library_size_case_id": "balanced_cluster",
+            **timing_payload,
+        }
+    ]
+    outcome_rows = {"launch": {"continuation_probability": 0.7, "hard_failure_risk": 0.1}}
+    context = {
+        "context_id": "rear_wall_close_launch",
+        "start_state_family": "launch_gate",
+        "wall_margin_m": 0.019,
+        "all_wall_margin_m": 0.019,
+        "front_wall_margin_m": 5.0,
+        "left_wall_margin_m": 2.0,
+        "right_wall_margin_m": 2.0,
+        "rear_wall_margin_m": 0.019,
+        "governor_wall_margin_m": 2.0,
+        "floor_margin_m": 1.0,
+        "ceiling_margin_m": 1.0,
+        "latency_case": "nominal",
+        "history_length": 0,
+        "library_size_case_id": "balanced_cluster",
+        "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
+    }
+
+    selected, rows = select_compact_representative(
+        representatives=representatives,
+        outcome_rows_by_variant_id=outcome_rows,
+        context=context,
+        governor_mode="continuation_mode",
+    )
+
+    assert selected is not None
+    assert rows[0]["viable"] is True
+    assert rows[0]["wall_margin_m"] == 0.019
+    assert rows[0]["governor_wall_margin_m"] == 2.0
+
+
+def test_governor_keeps_hard_failure_risk_gate_after_speed_rule_removal() -> None:
+    timing_payload = {
+        "finite_horizon_s": 0.1,
+        "controller_input_slots_per_primitive": 5,
+        "controller_input_update_period_s": 0.02,
+        "primitive_timing_contract_version": PRIMITIVE_TIMING_CONTRACT_VERSION,
+    }
+    row = governor_candidate_row(
+        representative={
+            "compact_library_id": "launch",
+            "primitive_variant_id": "launch",
+            "primitive_id": "launch_capture_glide_stabilise",
+            "entry_role": "launch_capable",
+            "controller_id": "ctrl_launch",
+            "K_gain_checksum": "k",
+            "augmented_A_checksum": "a",
+            "augmented_B_checksum": "b",
+            "augmented_gain_checksum": "g",
+            **timing_payload,
+        },
+        outcome={"continuation_probability": 1.0, "hard_failure_risk": 0.76},
+        context={
+            "context_id": "ctx",
+            "start_state_family": "launch_gate",
+            "wall_margin_m": 1.0,
+            "governor_wall_margin_m": 1.0,
+            "floor_margin_m": 1.0,
+            "ceiling_margin_m": 1.0,
+            "latency_case": "nominal",
+        },
+        governor_mode="continuation_mode",
+    )
+
+    assert row["viable"] is False
+    assert row["rejection_reason"] == "known_hard_failure_boundary_high"
+
+
+def test_governor_uses_updraft_gain_config_names_and_missing_evidence_rejection() -> None:
+    row = governor_config_to_row(DEFAULT_GOVERNOR_CONFIG)
+    assert "updraft_gain_weight" in row
+    assert "terminal_updraft_gain_weight" in row
+    assert "energy_weight" not in row
+    assert "terminal_energy_weight" not in row
+
+    legacy = governor_config_from_row(
+        {
+            "config_id": "legacy",
+            "energy_weight": 0.12,
+            "terminal_energy_weight": 0.34,
+        }
+    )
+    assert legacy.updraft_gain_weight == pytest.approx(0.12)
+    assert legacy.terminal_updraft_gain_weight == pytest.approx(0.34)
+
+    timing_payload = {
+        "finite_horizon_s": 0.1,
+        "controller_input_slots_per_primitive": 5,
+        "controller_input_update_period_s": 0.02,
+        "primitive_timing_contract_version": PRIMITIVE_TIMING_CONTRACT_VERSION,
+    }
+    candidate = governor_candidate_row(
+        representative={
+            "compact_library_id": "launch",
+            "primitive_variant_id": "launch",
+            "primitive_id": "launch_capture_glide_stabilise",
+            "entry_role": "launch_capable",
+            "controller_id": "ctrl_launch",
+            "K_gain_checksum": "k",
+            "augmented_A_checksum": "a",
+            "augmented_B_checksum": "b",
+            "augmented_gain_checksum": "g",
+            **timing_payload,
+        },
+        outcome={},
+        context={
+            "context_id": "ctx",
+            "start_state_family": "launch_gate",
+            "wall_margin_m": 1.0,
+            "governor_wall_margin_m": 1.0,
+            "floor_margin_m": 1.0,
+            "ceiling_margin_m": 1.0,
+            "latency_case": "nominal",
+        },
+        governor_mode="continuation_mode",
+        belief_features={"belief_local_energy_residual_m": -0.5},
+    )
+
+    assert candidate["viable"] is False
+    assert candidate["rejection_reason"] == "missing_outcome_evidence_for_candidate"
+    assert "governor_updraft_gain_weight" in candidate
+    assert "governor_energy_weight" not in candidate
+    assert candidate["belief_local_updraft_gain_proxy_m"] == 0.0
+
+    dry_candidate = governor_candidate_row(
+        representative={
+            "compact_library_id": "launch",
+            "primitive_variant_id": "launch",
+            "primitive_id": "launch_capture_glide_stabilise",
+            "entry_role": "launch_capable",
+            "controller_id": "ctrl_launch",
+            "K_gain_checksum": "k",
+            "augmented_A_checksum": "a",
+            "augmented_B_checksum": "b",
+            "augmented_gain_checksum": "g",
+            **timing_payload,
+        },
+        outcome={
+            "continuation_probability": 1.0,
+            "terminal_useful_probability": 0.0,
+            "hard_failure_risk": 0.0,
+            "expected_updraft_gain_proxy_m": 0.8,
+            "expected_lift_dwell_time_s": 0.0,
+        },
+        context={
+            "context_id": "dry_ctx",
+            "start_state_family": "launch_gate",
+            "wall_margin_m": 1.0,
+            "governor_wall_margin_m": 1.0,
+            "floor_margin_m": 1.0,
+            "ceiling_margin_m": 1.0,
+            "latency_case": "nominal",
+            "w_wing_mean_m_s": 0.0,
+        },
+        governor_mode="continuation_mode",
+    )
+
+    assert dry_candidate["viable"] is True
+    assert dry_candidate["expected_updraft_gain_proxy_m"] == pytest.approx(0.8)
+    assert dry_candidate["score_updraft_gain_proxy_m"] == pytest.approx(0.0)
+    assert dry_candidate["context_conditioned_outcome_score_version"] == "context_limited_updraft_gain_proxy_v1"
+
+
+def test_context_conditioned_outcome_is_robust_first_and_selector_uses_it() -> None:
+    timing_payload = {
+        "finite_horizon_s": 0.1,
+        "controller_input_slots_per_primitive": 5,
+        "controller_input_update_period_s": 0.02,
+        "primitive_timing_contract_version": PRIMITIVE_TIMING_CONTRACT_VERSION,
+    }
+    representative = {
+        "compact_library_id": "optimistic_single",
+        "primitive_variant_id": "optimistic_single",
+        "primitive_id": "launch_capture_lift_seek",
+        "entry_role": "launch_capable",
+        "controller_id": "ctrl_launch",
+        "K_gain_checksum": "k",
+        "augmented_A_checksum": "a",
+        "augmented_B_checksum": "b",
+        "augmented_gain_checksum": "g",
+        "library_size_case_id": "balanced_cluster",
+        **timing_payload,
+    }
+    base = {
+        "library_size_case_id": "balanced_cluster",
+        "compact_library_id": "optimistic_single",
+        "primitive_variant_id": "optimistic_single",
+        "continuation_probability": 0.95,
+        "terminal_useful_probability": 0.20,
+        "hard_failure_risk": 0.10,
+        "expected_updraft_gain_proxy_m": 0.80,
+        "expected_lift_dwell_time_s": 0.10,
+        "environment_coverage": "w3_randomised_single",
+        "sample_count": 60,
+    }
+    dry_context = {
+        "context_id": "dry_launch",
+        "start_state_family": "launch_gate",
+        "environment_mode": "dry_air",
+        "environment_block_id": "",
+        "wall_margin_m": 1.0,
+        "governor_wall_margin_m": 1.0,
+        "floor_margin_m": 1.0,
+        "ceiling_margin_m": 1.0,
+        "latency_case": "nominal",
+        "w_wing_mean_m_s": 0.0,
+        "w_local_uncertainty_m_s": 0.0,
+    }
+
+    conditioned = context_conditioned_outcome(
+        representative=representative,
+        base_outcome=base,
+        context=dry_context,
+        governor_mode="continuation_mode",
+    )
+
+    assert conditioned["context_conditioned_outcome_model_version"] == CONTEXT_CONDITIONED_OUTCOME_MODEL_VERSION
+    assert conditioned["continuation_probability"] < base["continuation_probability"]
+    assert conditioned["terminal_useful_probability"] < base["terminal_useful_probability"]
+    assert conditioned["hard_failure_risk"] > base["hard_failure_risk"]
+    assert conditioned["expected_updraft_gain_proxy_m"] == 0.0
+    assert conditioned["expected_lift_dwell_time_s"] == 0.0
+    assert "environment_class_mismatch" in conditioned["context_conditioning_reasons"]
+
+    dry_representative = {
+        **representative,
+        "compact_library_id": "dry_matched",
+        "primitive_variant_id": "dry_matched",
+        "primitive_id": "launch_capture_glide_stabilise",
+    }
+    selected, rows = select_compact_representative(
+        representatives=[representative, dry_representative],
+        outcome_rows_by_variant_id={
+            "optimistic_single": base,
+            "dry_matched": {
+                **base,
+                "compact_library_id": "dry_matched",
+                "primitive_variant_id": "dry_matched",
+                "continuation_probability": 0.60,
+                "expected_updraft_gain_proxy_m": 0.0,
+                "expected_lift_dwell_time_s": 0.0,
+                "environment_coverage": "dry_air",
+            },
+        },
+        context=dry_context,
+        governor_mode="continuation_mode",
+    )
+
+    by_variant = {str(row["primitive_variant_id"]): row for row in rows}
+    assert selected is not None
+    assert selected["primitive_variant_id"] == "dry_matched"
+    assert by_variant["optimistic_single"]["expected_updraft_gain_proxy_m"] == pytest.approx(0.0)
+    assert by_variant["optimistic_single"]["hard_failure_risk"] >= 0.55
+
+
 def test_r9_r10_launch_score_uses_specific_energy_loss_and_paired_deltas() -> None:
     def state(*, z: float, u: float) -> np.ndarray:
         x = np.zeros(STATE_SIZE, dtype=float)
@@ -396,16 +678,22 @@ def test_r9_r10_launch_score_uses_specific_energy_loss_and_paired_deltas() -> No
         {
             "initial_state_vector": json.dumps(state(z=1.0, u=4.0).tolist()),
             "exit_state_vector": json.dumps(state(z=1.4, u=5.0).tolist()),
+            "context_w_wing_mean_m_s": 1.2,
+            "updraft_specific_energy_gain_proxy_m": 0.12,
         },
         {
             "initial_state_vector": json.dumps(state(z=1.4, u=5.0).tolist()),
             "exit_state_vector": json.dumps(state(z=1.3, u=4.5).tolist()),
+            "context_w_wing_mean_m_s": 0.8,
+            "updraft_specific_energy_gain_proxy_m": 0.08,
         },
     ]
     energy = _episode_specific_energy_summary(primitive_rows)
     assert energy["net_specific_energy_delta_m"] > 0.0
     assert energy["gross_specific_energy_gain_m"] > 0.0
     assert energy["gross_specific_energy_loss_m"] > 0.0
+    assert energy["updraft_specific_energy_gain_proxy_m"] == pytest.approx(0.20)
+    assert energy["updraft_gain_proxy_source"] == "primitive_start_local_w_wing_proxy"
 
     safe_row = {
         "safe_success": True,
@@ -415,6 +703,7 @@ def test_r9_r10_launch_score_uses_specific_energy_loss_and_paired_deltas() -> No
         "floor_or_ceiling_violation": False,
         "no_viable_primitive": False,
         "selected_primitive_step_count": 15,
+        "episode_rollout_duration_s": 2.4,
         "min_wall_margin_m": 0.08,
         **energy,
     }
@@ -422,6 +711,19 @@ def test_r9_r10_launch_score_uses_specific_energy_loss_and_paired_deltas() -> No
     no_viable_launch = {**safe_row, "safe_success": False, "lift_capture": False, "no_viable_primitive": True, "selected_primitive_step_count": 0}
 
     assert _launch_score_fields(safe_row)["launch_score"] > 0.0
+    assert _launch_score_fields(safe_row)["episode_flight_time_s"] == pytest.approx(2.4)
+    assert "wall_margin_factor" not in _launch_score_fields(safe_row)
+    assert "energy_loss_factor" not in _launch_score_fields(safe_row)
+    assert "net_energy_factor" not in _launch_score_fields(safe_row)
+    assert _launch_score_fields({**safe_row, "gross_specific_energy_loss_m": 0.0})["launch_score"] == pytest.approx(
+        _launch_score_fields({**safe_row, "gross_specific_energy_loss_m": 10.0})["launch_score"]
+    )
+    assert _launch_score_fields({**safe_row, "updraft_specific_energy_gain_proxy_m": 0.5})["launch_score"] > _launch_score_fields(
+        {**safe_row, "updraft_specific_energy_gain_proxy_m": 0.0}
+    )["launch_score"]
+    assert _launch_score_fields({**safe_row, "min_wall_margin_m": 0.02})["launch_score"] == pytest.approx(
+        _launch_score_fields({**safe_row, "min_wall_margin_m": 1.00})["launch_score"]
+    )
     assert _launch_score_fields(hard_failure)["launch_score"] == -100.0
     assert _launch_score_fields(no_viable_launch)["launch_score"] == -70.0
 
@@ -491,6 +793,87 @@ def test_r9_r10_launch_score_uses_specific_energy_loss_and_paired_deltas() -> No
     assert not summary.empty
 
 
+def test_r9_r10_episode_success_requires_compliant_sequence_and_no_blocked_tail() -> None:
+    scheduled = {
+        "launch_role": "final_heldout",
+        "library_size_case_id": "balanced_cluster",
+        "outer_case_index": 1,
+        "policy_id": "no_memory_baseline",
+        "history_length": 0,
+        "W_layer": "W2",
+        "environment_mode": "annular_gp_single",
+        "environment_block_id": "",
+        "common_final_launch_key": "paired_001",
+        "episode_id": "episode_001",
+    }
+    policy = {
+        "policy_family": "baseline",
+        "safe_explore": False,
+    }
+    belief = initial_directional_residual_lift_belief()
+    primitive_rows = [
+        {
+            "primitive_variant_id": "launch_variant",
+            "primitive_id": "launch_capture_glide_stabilise",
+            "controller_id": "ctrl_launch",
+            "selected_entry_role": "launch_capable",
+            "start_state_family": "launch_gate",
+            "route_required_entry_role": "launch_capable",
+            "route_reason": "first_primitive_launch_capture",
+            "continuation_valid": True,
+            "episode_terminal_useful": False,
+            "failure_label": "success",
+            "boundary_use_class": "continuation",
+            "lift_dwell_time_s": 0.0,
+            "energy_residual_m": 0.0,
+            "rollout_duration_s": 0.10,
+            "minimum_wall_margin_m": 0.5,
+        },
+        {
+            "primitive_variant_id": "glide_variant",
+            "primitive_id": "glide",
+            "controller_id": "ctrl_glide",
+            "selected_entry_role": "inflight_only",
+            "start_state_family": "inflight_nominal",
+            "route_required_entry_role": "inflight_only",
+            "route_reason": "post_launch_inflight",
+            "continuation_valid": True,
+            "episode_terminal_useful": False,
+            "failure_label": "success",
+            "boundary_use_class": "continuation",
+            "lift_dwell_time_s": 0.0,
+            "energy_residual_m": 0.0,
+            "rollout_duration_s": 0.12,
+            "minimum_wall_margin_m": 0.5,
+        },
+    ]
+
+    clean = _episode_row_from_sequence(
+        scheduled=scheduled,
+        policy=policy,
+        primitive_rows=primitive_rows,
+        selector_rows=[{"candidate_count": 1, "viable_count": 1}],
+        context_row={"environment_instance_id": "env"},
+        belief_before=belief,
+        belief_after=belief,
+    )
+    blocked_tail = _episode_row_from_sequence(
+        scheduled=scheduled,
+        policy=policy,
+        primitive_rows=primitive_rows,
+        selector_rows=[{"candidate_count": 1, "viable_count": 1}],
+        context_row={"environment_instance_id": "env"},
+        belief_before=belief,
+        belief_after=belief,
+        blocked_reason="no_viable_primitive_after_launch",
+    )
+
+    assert clean["safe_success"] is True
+    assert clean["episode_rollout_duration_s"] == pytest.approx(0.22)
+    assert blocked_tail["safe_success"] is False
+    assert blocked_tail["base_failure_penalty_reason"] == "no_viable_primitive_after_launch"
+
+
 def test_v411_case_ids_histories_and_retired_gate(tmp_path: Path) -> None:
     assert LIBRARY_SIZE_CASE_IDS == (
         "heavy_cluster",
@@ -530,5 +913,7 @@ def test_r9_repair_uses_compact_outcome_keys_and_full_multi_step_default(tmp_pat
     assert rows["heavy_rep"]["continuation_probability"] == 0.2
     assert rows["balanced_rep"]["continuation_probability"] == 0.9
     assert rows["heavy_cluster|shared_variant|heavy_rep"]["continuation_probability"] == 0.2
-    assert RepeatedLaunchValidationConfig().max_primitives_per_launch == 4
-    assert ChangedCaseValidationConfig().max_primitives_per_launch == 4
+    assert RepeatedLaunchValidationConfig().max_primitives_per_launch == 0
+    assert ChangedCaseValidationConfig().max_primitives_per_launch == 0
+    assert RepeatedLaunchValidationConfig().max_episode_time_s == 20.0
+    assert ChangedCaseValidationConfig().max_episode_time_s == 20.0

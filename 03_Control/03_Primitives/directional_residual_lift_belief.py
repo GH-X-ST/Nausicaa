@@ -118,6 +118,7 @@ def query_directional_residual_lift_features(
         return {
             "belief_version": belief.belief_version,
             "belief_local_lift_residual_m_s": 0.0,
+            "belief_local_updraft_gain_proxy_m": 0.0,
             "belief_local_energy_residual_m": 0.0,
             "belief_local_dwell_residual_s": 0.0,
             "belief_uncertainty": 1.0,
@@ -129,6 +130,7 @@ def query_directional_residual_lift_features(
     return {
         "belief_version": belief.belief_version,
         "belief_local_lift_residual_m_s": float(cell.lift_residual_mean_m_s),
+        "belief_local_updraft_gain_proxy_m": max(float(cell.energy_residual_mean_m), 0.0),
         "belief_local_energy_residual_m": float(cell.energy_residual_mean_m),
         "belief_local_dwell_residual_s": float(cell.dwell_residual_mean_s),
         "belief_uncertainty": float(cell.uncertainty),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from context_conditioned_outcome import context_conditioned_outcome, lookup_outcome_for_identity
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, GOVERNOR_MODES, GovernorConfig, governor_candidate_row
 
 
@@ -20,7 +21,12 @@ def select_compact_representative(
     cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     candidate_rows = []
     for representative in representatives:
-        outcome = _outcome_for_representative(representative, outcome_rows_by_variant_id)
+        outcome = _outcome_for_representative(
+            representative,
+            outcome_rows_by_variant_id,
+            context=context,
+            governor_mode=governor_mode,
+        )
         candidate_rows.append(
             governor_candidate_row(
                 representative=representative,
@@ -57,14 +63,22 @@ def select_compact_representative(
 def _outcome_for_representative(
     representative: dict[str, object],
     outcome_rows_by_variant_id: dict[str, dict[str, object]],
+    *,
+    context: dict[str, object] | None = None,
+    governor_mode: str = "",
 ) -> dict[str, object]:
-    case_id = str(representative.get("library_size_case_id", ""))
-    compact_id = str(representative.get("compact_library_id", ""))
-    variant_id = str(representative.get("primitive_variant_id", ""))
-    for key in (compact_id, f"{case_id}|{compact_id}", f"{case_id}|{variant_id}|{compact_id}", variant_id):
-        if key and key in outcome_rows_by_variant_id:
-            return outcome_rows_by_variant_id[key]
-    return {}
+    base = lookup_outcome_for_identity(
+        identity=representative,
+        outcome_rows_by_variant_id=outcome_rows_by_variant_id,
+    )
+    if context is None:
+        return base
+    return context_conditioned_outcome(
+        representative=representative,
+        base_outcome=base,
+        context=context,
+        governor_mode=governor_mode,
+    )
 
 
 def selector_decision_row(
@@ -98,6 +112,8 @@ def selector_decision_row(
         "governor_config_id": cfg.config_id,
         "governor_belief_weight": float(cfg.belief_weight),
         "governor_maximum_hard_failure_risk": float(cfg.maximum_hard_failure_risk),
+        "wall_margin_m": float(context.get("wall_margin_m", 0.0)),
+        "governor_wall_margin_m": float(context.get("governor_wall_margin_m", context.get("wall_margin_m", 0.0))),
         "candidate_count": int(candidate_count),
         "viable_count": int(viable_count),
         "decision_status": "selected_compact_representative" if selected else "blocked_no_viable_representative",

@@ -40,6 +40,7 @@ from primitive_timing_contract import (
     primitive_step_count,
     primitive_timing_contract_status,
 )
+from wing_wind_descriptors import wing_panel_points_w
 from lqr_controller import (
     LQR_SYNTHESIS_SOLVED,
     TIMING_STATE_HISTORY_BACKED,
@@ -99,6 +100,7 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "controller_mode",
     "feedback_mode",
     "finite_horizon_s",
+    "rollout_duration_s",
     "controller_input_slots_per_primitive",
     "controller_input_update_period_s",
     "primitive_timing_contract_version",
@@ -182,6 +184,10 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "outcome_class",
     "energy_residual_m",
     "lift_dwell_time_s",
+    "trajectory_integrated_updraft_gain_m",
+    "trajectory_mean_positive_w_wing_m_s",
+    "trajectory_lift_dwell_time_s",
+    "updraft_integration_status",
     "minimum_wall_margin_m",
     "floor_margin_m",
     "ceiling_margin_m",
@@ -207,7 +213,6 @@ ROLLOUT_EVIDENCE_ALIAS_VALUES = (
 class RolloutConfig:
     W_layer: str = "W0"
     dt_s: float = CONTROLLER_INPUT_UPDATE_PERIOD_S
-    minimum_speed_m_s: float = 3.0
     wall_margin_reserve_m: float = 0.20
     rollout_backend: str = "smoke_only"
     wind_mode: str = "panel"
@@ -227,6 +232,7 @@ class RolloutEvidence:
     controller_mode: str
     feedback_mode: str
     finite_horizon_s: float
+    rollout_duration_s: float
     controller_input_slots_per_primitive: int
     controller_input_update_period_s: float
     primitive_timing_contract_version: str
@@ -310,6 +316,10 @@ class RolloutEvidence:
     outcome_class: str
     energy_residual_m: float
     lift_dwell_time_s: float
+    trajectory_integrated_updraft_gain_m: float
+    trajectory_mean_positive_w_wing_m_s: float
+    trajectory_lift_dwell_time_s: float
+    updraft_integration_status: str
     minimum_wall_margin_m: float
     floor_margin_m: float
     ceiling_margin_m: float
@@ -460,6 +470,7 @@ def blocked_rollout_evidence(
         controller_mode=primitive.controller_mode,
         feedback_mode=primitive.feedback_mode,
         **_primitive_timing_fields(primitive),
+        rollout_duration_s=0.0,
         **_lqr_metadata_for_evidence(
             controller=controller,
             fallback_controller=resolved_controller,
@@ -492,6 +503,10 @@ def blocked_rollout_evidence(
         outcome_class="blocked",
         energy_residual_m=0.0,
         lift_dwell_time_s=0.0,
+        trajectory_integrated_updraft_gain_m=0.0,
+        trajectory_mean_positive_w_wing_m_s=0.0,
+        trajectory_lift_dwell_time_s=0.0,
+        updraft_integration_status="blocked_before_simulation",
         minimum_wall_margin_m=float(margins["min_wall_margin_m"]),
         floor_margin_m=float(margins["floor_margin_m"]),
         ceiling_margin_m=float(margins["ceiling_margin_m"]),
@@ -532,6 +547,7 @@ def _simulate_smoke_rollout(
         if context.w_wing_mean_m_s > 0.05 and context.wall_margin_m > 0.0
         else 0.0
     )
+    updraft_gain_m = max(float(context.w_wing_mean_m_s), 0.0) * float(primitive.finite_horizon_s)
     minimum_wall_margin_m = float(
         context.wall_margin_m - _primitive_wall_reserve_m(primitive, config)
     )
@@ -541,8 +557,6 @@ def _simulate_smoke_rollout(
         energy_residual_m=energy_residual_m,
         lift_dwell_time_s=lift_dwell_time_s,
         minimum_wall_margin_m=minimum_wall_margin_m,
-        minimum_speed_m_s=minimum_speed_m_s,
-        minimum_speed_required_m_s=float(config.minimum_speed_m_s),
     )
     exit_state = state.copy()
     exit_state[0] += max(speed_m_s, 0.0) * float(primitive.finite_horizon_s) * 0.08
@@ -582,6 +596,7 @@ def _simulate_smoke_rollout(
         controller_mode=primitive.controller_mode,
         feedback_mode=primitive.feedback_mode,
         **_primitive_timing_fields(primitive),
+        rollout_duration_s=float(primitive.finite_horizon_s),
         **_lqr_metadata_for_evidence(
             controller=controller,
             fallback_controller=resolved_controller,
@@ -618,6 +633,10 @@ def _simulate_smoke_rollout(
         outcome_class=outcome_class,
         energy_residual_m=energy_residual_m,
         lift_dwell_time_s=lift_dwell_time_s,
+        trajectory_integrated_updraft_gain_m=float(updraft_gain_m),
+        trajectory_mean_positive_w_wing_m_s=float(max(float(context.w_wing_mean_m_s), 0.0)),
+        trajectory_lift_dwell_time_s=float(lift_dwell_time_s),
+        updraft_integration_status="primitive_start_context_smoke_fallback",
         minimum_wall_margin_m=minimum_wall_margin_m,
         floor_margin_m=float(context.floor_margin_m),
         ceiling_margin_m=float(context.ceiling_margin_m),
@@ -741,22 +760,6 @@ def _simulate_dynamics_rollout(
             candidate_index=candidate_index,
             candidate_weight_label=candidate_weight_label,
         )
-    initial_speed_m_s = float(np.linalg.norm(state[6:9]))
-    if initial_speed_m_s < float(config.minimum_speed_m_s):
-        return _blocked_from_state(
-            rollout_id=rollout_id,
-            episode_id=episode_id,
-            state=state,
-            context=context,
-            primitive=primitive,
-            config=config,
-            failure_label="speed_low",
-            controller=resolved_controller,
-            controller_selection_status=controller_selection_status,
-            candidate_index=candidate_index,
-            candidate_weight_label=candidate_weight_label,
-        )
-
     controller_ok, controller_reason = controller_is_executable_lqr(resolved_controller)
     if not controller_ok:
         return _blocked_from_state(
@@ -801,8 +804,16 @@ def _simulate_dynamics_rollout(
     min_wall_margin_m = float("inf")
     min_floor_margin_m = float("inf")
     min_ceiling_margin_m = float("inf")
-    min_speed_m_s = initial_speed_m_s
+    min_speed_m_s = float(np.linalg.norm(state[6:9]))
     lift_dwell_time_s = 0.0
+    trajectory_integrated_updraft_gain_m = 0.0
+    trajectory_positive_wing_sample_count = 0
+    trajectory_wing_sample_count = 0
+    updraft_integration_status = (
+        "trajectory_integrated_wing_panel_positive_updraft"
+        if wind_field is not None
+        else "dry_or_missing_wind_field_zero_updraft"
+    )
     trajectory_status = "finite_model_backed"
     termination_cause = "controlled_finish"
     failure_label = "success"
@@ -860,11 +871,17 @@ def _simulate_dynamics_rollout(
             termination_cause = "wall_boundary_exit_retained"
             failure_label = "wall_violation"
             break
-        if min_speed_m_s < float(config.minimum_speed_m_s):
-            termination_cause = "speed_floor"
-            failure_label = "speed_low"
-            break
-        if context.w_wing_mean_m_s > 0.05:
+        w_wing_step_m_s, w_wing_status = _trajectory_w_wing_mean_m_s(
+            state=x,
+            wind_field=wind_field,
+        )
+        if w_wing_status != "available":
+            updraft_integration_status = w_wing_status
+        trajectory_wing_sample_count += int(w_wing_status == "available")
+        if w_wing_step_m_s > 0.0:
+            trajectory_integrated_updraft_gain_m += float(w_wing_step_m_s) * float(config.dt_s)
+            trajectory_positive_wing_sample_count += 1
+        if w_wing_step_m_s > 0.05:
             lift_dwell_time_s += float(config.dt_s)
         if config.rollout_backend == "model_backed_lqr":
             if mechanism_flags["state_feedback_delay_applied"]:
@@ -947,14 +964,18 @@ def _simulate_dynamics_rollout(
     min_ceiling_margin_m = min(min_ceiling_margin_m, float(margins["ceiling_margin_m"]))
     min_speed_m_s = min(min_speed_m_s, float(np.linalg.norm(x[6:9])))
     energy_residual_m = float(x[STATE_INDEX["z_w"]] - state[STATE_INDEX["z_w"]])
+    trajectory_mean_positive_w_wing_m_s = (
+        float(trajectory_integrated_updraft_gain_m)
+        / (float(config.dt_s) * float(trajectory_positive_wing_sample_count))
+        if trajectory_positive_wing_sample_count > 0
+        else 0.0
+    )
     outcome_class, termination_cause, failure_label = _classify_model_backed_outcome(
         energy_residual_m=energy_residual_m,
         lift_dwell_time_s=lift_dwell_time_s,
         minimum_wall_margin_m=min_wall_margin_m,
         floor_margin_m=min_floor_margin_m,
         ceiling_margin_m=min_ceiling_margin_m,
-        minimum_speed_m_s=min_speed_m_s,
-        minimum_speed_required_m_s=float(config.minimum_speed_m_s),
         trajectory_status=trajectory_status,
         current_termination=termination_cause,
         current_failure=failure_label,
@@ -998,6 +1019,7 @@ def _simulate_dynamics_rollout(
         controller_mode=_controller_mode_for_backend(config.rollout_backend, primitive),
         feedback_mode=feedback_mode,
         **_primitive_timing_fields(primitive),
+        rollout_duration_s=float(times_s[-1] if times_s else 0.0),
         **_lqr_metadata_for_evidence(
             controller=controller,
             fallback_controller=resolved_controller,
@@ -1030,6 +1052,10 @@ def _simulate_dynamics_rollout(
         outcome_class=outcome_class,
         energy_residual_m=energy_residual_m,
         lift_dwell_time_s=float(lift_dwell_time_s),
+        trajectory_integrated_updraft_gain_m=float(trajectory_integrated_updraft_gain_m),
+        trajectory_mean_positive_w_wing_m_s=float(trajectory_mean_positive_w_wing_m_s),
+        trajectory_lift_dwell_time_s=float(lift_dwell_time_s),
+        updraft_integration_status=str(updraft_integration_status),
         minimum_wall_margin_m=float(min_wall_margin_m),
         floor_margin_m=float(min_floor_margin_m),
         ceiling_margin_m=float(min_ceiling_margin_m),
@@ -1104,6 +1130,7 @@ def _blocked_from_state(
             else primitive.feedback_mode
         ),
         **_primitive_timing_fields(primitive),
+        rollout_duration_s=0.0,
         **_lqr_metadata_for_evidence(
             controller=controller,
             fallback_controller=resolved_controller,
@@ -1136,6 +1163,10 @@ def _blocked_from_state(
         outcome_class="blocked",
         energy_residual_m=0.0,
         lift_dwell_time_s=0.0,
+        trajectory_integrated_updraft_gain_m=0.0,
+        trajectory_mean_positive_w_wing_m_s=0.0,
+        trajectory_lift_dwell_time_s=0.0,
+        updraft_integration_status="blocked_before_simulation",
         minimum_wall_margin_m=float(margins["min_wall_margin_m"]),
         floor_margin_m=float(margins["floor_margin_m"]),
         ceiling_margin_m=float(margins["ceiling_margin_m"]),
@@ -1156,6 +1187,30 @@ def _blocked_from_state(
 @lru_cache(maxsize=1)
 def _aircraft_model():
     return adapt_glider(build_nausicaa_glider())
+
+
+def _trajectory_w_wing_mean_m_s(
+    *,
+    state: np.ndarray,
+    wind_field: object | None,
+) -> tuple[float, str]:
+    if wind_field is None:
+        return 0.0, "dry_or_missing_wind_field_zero_updraft"
+    try:
+        points_w_up_m, _ = wing_panel_points_w(
+            x_w_m=float(state[STATE_INDEX["x_w"]]),
+            y_w_m=float(state[STATE_INDEX["y_w"]]),
+            z_w_m=float(state[STATE_INDEX["z_w"]]),
+            phi_rad=float(state[STATE_INDEX["phi"]]),
+            theta_rad=float(state[STATE_INDEX["theta"]]),
+            psi_rad=float(state[STATE_INDEX["psi"]]),
+        )
+        wind_w = np.asarray(wind_field(points_w_up_m), dtype=float)
+    except Exception:
+        return 0.0, "trajectory_wing_wind_sample_failed"
+    if wind_w.shape != (points_w_up_m.shape[0], 3) or not np.all(np.isfinite(wind_w)):
+        return 0.0, "trajectory_wing_wind_sample_invalid"
+    return float(np.mean(wind_w[:, 2])), "available"
 
 
 def _rk4_step(
@@ -1374,8 +1429,6 @@ def _blocked_termination_cause(failure_label: str, explicit: str | None = None) 
         "z_boundary_exit",
     }:
         return label
-    if label == "speed_low":
-        return "speed_gate_blocked"
     if (
         "controller" in label
         or "registry" in label
@@ -1398,8 +1451,6 @@ def _entry_rejection_class(failure_label: str) -> str:
         "z_boundary_exit",
     }:
         return "physical_hard_failure"
-    if label == "speed_low":
-        return "speed_gate_blocked"
     if "surrogate_binding_blocked" in label:
         return "surrogate_blocked"
     if "controller" in label or "registry" in label or label == "blocked_lqr_requested":
@@ -1503,8 +1554,6 @@ def _classify_model_backed_outcome(
     minimum_wall_margin_m: float,
     floor_margin_m: float,
     ceiling_margin_m: float,
-    minimum_speed_m_s: float,
-    minimum_speed_required_m_s: float,
     trajectory_status: str,
     current_termination: str,
     current_failure: str,
@@ -1525,13 +1574,9 @@ def _classify_model_backed_outcome(
             else "failed"
         )
         return outcome, "wall_boundary_exit_retained", "xy_boundary_terminal"
-    if minimum_speed_m_s < minimum_speed_required_m_s:
-        return "failed", "speed_floor", "speed_low"
     if energy_residual_m >= 0.02:
         return "accepted", "controlled_finish", "success"
-    if energy_residual_m >= -0.08:
-        return "weak", "weak_energy_result", "model_boundary_only"
-    return "failed", "terminal_recovery_limited", "terminal_recovery_limited"
+    return "weak", "weak_energy_result", "model_boundary_only"
 
 
 def _smoke_energy_residual(
@@ -1572,8 +1617,6 @@ def _classify_smoke_outcome(
     energy_residual_m: float,
     lift_dwell_time_s: float,
     minimum_wall_margin_m: float,
-    minimum_speed_m_s: float,
-    minimum_speed_required_m_s: float,
 ) -> tuple[str, str, str]:
     if context.floor_margin_m < 0.0 or context.ceiling_margin_m < 0.0:
         return "failed", "safety_volume_exit", "true_safety_violation"
@@ -1587,13 +1630,9 @@ def _classify_smoke_outcome(
             else "failed"
         )
         return outcome, "wall_boundary_exit_retained", "xy_boundary_terminal"
-    if minimum_speed_m_s < minimum_speed_required_m_s:
-        return "blocked", "speed_gate_blocked", "speed_low"
     if energy_residual_m >= 0.05:
         return "accepted", "controlled_finish", "success"
-    if energy_residual_m >= -0.03:
-        return "weak", "weak_energy_result", "model_boundary_only"
-    return "failed", "terminal_recovery_limited", "terminal_recovery_limited"
+    return "weak", "weak_energy_result", "model_boundary_only"
 
 
 # =============================================================================

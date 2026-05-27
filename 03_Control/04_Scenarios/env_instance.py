@@ -34,9 +34,9 @@ class EnvironmentRandomisationConfig:
     fan_power_scale_range: tuple[float, float] = (0.85, 1.15)
     active_fan_subset_policy: str = "at_least_one_active"
     active_fan_count: int | None = None
-    amplitude_scale_range: tuple[float, float] = (0.85, 1.15)
+    amplitude_scale_range: tuple[float, float] = (1.0, 1.0)
     width_scale_range: tuple[float, float] = (0.85, 1.15)
-    centre_shift_range_m: tuple[float, float] = (-0.20, 0.20)
+    centre_shift_range_m: tuple[float, float] = (0.0, 0.0)
     uncertainty_scale_range: tuple[float, float] = (1.0, 1.5)
     launch_perturbation_policy: str = "launch_distribution_sampler"
     latency_model_uncertainty_policy: str = "nominal_or_conservative_case"

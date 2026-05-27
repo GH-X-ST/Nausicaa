@@ -19,6 +19,7 @@ _bootstrap_import_paths()
 from run_repeated_launch_learning_curve import (  # noqa: E402
     DEFAULT_LIBRARY_ROOT,
     DEFAULT_OUTCOME_ROOT,
+    DEFAULT_VALIDATION_MAX_EPISODE_TIME_S,
     HISTORY_LENGTH_SUM,
     LIBRARY_SIZE_CASE_IDS,
     POLICY_HISTORY_CONDITIONS,
@@ -159,8 +160,13 @@ class ChangedCaseValidationConfig:
     compression_level: int = 1
     candidate_chunk_size: int = 800
     dry_run_schedule: bool = False
-    max_primitives_per_launch: int = 4
+    max_primitives_per_launch: int = 0
+    max_episode_time_s: float = DEFAULT_VALIDATION_MAX_EPISODE_TIME_S
+    smoke_outer_cases_per_block: int = 0
     r10_mode: str = "full"
+    workers: int = 1
+    max_workers: int | None = None
+    worker_backend: str = "thread"
 
 
 def run_changed_case_validation(config: ChangedCaseValidationConfig) -> dict[str, object]:
@@ -180,6 +186,11 @@ def run_changed_case_validation(config: ChangedCaseValidationConfig) -> dict[str
             candidate_chunk_size=config.candidate_chunk_size,
             dry_run_schedule=config.dry_run_schedule,
             max_primitives_per_launch=config.max_primitives_per_launch,
+            max_episode_time_s=config.max_episode_time_s,
+            smoke_outer_cases_per_block=config.smoke_outer_cases_per_block,
+            workers=config.workers,
+            max_workers=config.max_workers,
+            worker_backend=config.worker_backend,
         ),
         protocol=protocol,
     )
@@ -196,9 +207,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--storage-format", default="auto", choices=("auto", "parquet", "csv_gz", "csv"))
     parser.add_argument("--compression-level", type=int, default=1)
     parser.add_argument("--candidate-chunk-size", type=int, default=800)
-    parser.add_argument("--max-primitives-per-launch", type=int, default=4)
+    parser.add_argument(
+        "--max-primitives-per-launch",
+        type=int,
+        default=0,
+        help="Optional diagnostic primitive-count cap. Use 0 to disable the cap for full validation.",
+    )
+    parser.add_argument("--max-episode-time-s", type=float, default=DEFAULT_VALIDATION_MAX_EPISODE_TIME_S)
+    parser.add_argument("--smoke-outer-cases-per-block", type=int, default=0)
     parser.add_argument("--dry-run-schedule", action="store_true")
     parser.add_argument("--r10-mode", default="full", choices=("full", "reduced_diagnostic_50"))
+    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--max-workers", type=int, default=None)
+    parser.add_argument("--worker-backend", choices=("thread", "process"), default="thread")
     args = parser.parse_args(argv)
 
     result = run_changed_case_validation(
@@ -214,11 +235,16 @@ def main(argv: list[str] | None = None) -> int:
             candidate_chunk_size=args.candidate_chunk_size,
             dry_run_schedule=args.dry_run_schedule,
             max_primitives_per_launch=args.max_primitives_per_launch,
+            max_episode_time_s=args.max_episode_time_s,
+            smoke_outer_cases_per_block=args.smoke_outer_cases_per_block,
             r10_mode=args.r10_mode,
+            workers=args.workers,
+            max_workers=args.max_workers,
+            worker_backend=args.worker_backend,
         )
     )
     print(result)
-    return 0 if result.get("status") in {"complete", "dry_run_schedule"} else 2
+    return 0 if result.get("status") in {"complete", "dry_run_schedule", "smoke_run"} else 2
 
 
 if __name__ == "__main__":

@@ -534,7 +534,9 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
                 compression_level=int(config.compression_level),
                 candidate_chunk_size=int(config.candidate_chunk_size),
                 dry_run_schedule=bool(config.dry_run_schedule),
-                max_primitives_per_launch=4,
+                max_primitives_per_launch=0,
+                workers=_validation_worker_count(config.workers),
+                max_workers=config.max_workers,
             )
         )
     if stage_id == "R10":
@@ -551,8 +553,10 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
                 compression_level=int(config.compression_level),
                 candidate_chunk_size=int(config.candidate_chunk_size),
                 dry_run_schedule=bool(config.dry_run_schedule),
-                max_primitives_per_launch=4,
+                max_primitives_per_launch=0,
                 r10_mode=config.r10_mode,
+                workers=_validation_worker_count(config.workers),
+                max_workers=config.max_workers,
             )
         )
     raise KeyError(f"unknown stage_id: {stage_id}")
@@ -918,6 +922,12 @@ def _next_run_id(output_root: Path) -> int:
         except ValueError:
             continue
     return max(ids, default=0) + 1
+
+
+def _validation_worker_count(workers: int | str) -> int:
+    if str(workers).strip().lower() == "auto":
+        return 8
+    return max(1, int(workers))
 
 
 def _check_row(stage_id: str, check_id: str, passed: bool, observed: object, required: object) -> dict[str, object]:

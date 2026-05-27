@@ -1,0 +1,6 @@
+relative_path,byte_count,size_mb,above_75mb,above_100mb,push_allowed
+manifests/repeated_launch_fixed_case_manifest.json,3774,0.0035991668701171875,False,False,True
+metrics/final_heldout_launch_schedule.csv,1902202,1.8140811920166016,False,False,True
+metrics/history_launch_schedule.csv,50353519,48.02085781097412,False,False,True
+metrics/outer_case_schedule.csv,19769,0.018853187561035156,False,False,True
+metrics/pass_fail_gate_summary.csv,317,0.00030231475830078125,False,False,True

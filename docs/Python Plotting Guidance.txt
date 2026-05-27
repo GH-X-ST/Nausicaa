@@ -176,7 +176,7 @@ wing-mean vertical wind (m s^{-1})
 Good caption:
 
 ```text
-Primitive outcome map under measured-updraft replay. The accepted region expands with wing-mean vertical wind, while low-speed and low-margin cases remain rejected by the viability governor.
+Primitive outcome map under measured-updraft replay. The accepted region expands with wing-mean vertical wind, while rejected cases are labelled by viability-governor reason rather than by speed margin.
 ```
 
 Poor caption:

@@ -5,6 +5,7 @@ import json
 import math
 import sys
 import time
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Iterable
@@ -50,6 +51,7 @@ from env_instance import (  # noqa: E402
     environment_metadata_from_instance,
 )
 from env_surrogate import resolve_surrogate_binding, wind_field_for_binding  # noqa: E402
+from context_conditioned_outcome import context_conditioned_outcome, lookup_outcome_for_identity  # noqa: E402
 from episode_selector import select_compact_representative, selector_decision_row  # noqa: E402
 from frozen_w01_controller_bundle import FROZEN_CONTROLLER_READY, load_frozen_w01_controller_bundle  # noqa: E402
 from implementation_instance import implementation_instance_for_layer  # noqa: E402
@@ -132,13 +134,25 @@ R10_FIXED_FOUR_ACTIVE_BLOCK_IDS = (
 R10_ACTIVE_FAN_COUNT_SEQUENCE = (1, 2, 3, 4)
 R10_ARENA_WIDE_FAN_POSITION_XY_BOUNDS_M = ((0.0, 8.0), (0.0, 4.8))
 RECOVERY_ROUTE_MARGIN_M = 0.25
-RECOVERY_EDGE_MIN_SPEED_M_S = 4.2
 RECOVERY_EDGE_MAX_ABS_ROLL_RAD = math.radians(35.0)
 RECOVERY_EDGE_MAX_ABS_PITCH_RAD = math.radians(22.0)
 RECOVERY_EDGE_MAX_BODY_RATE_RAD_S = 0.65
-LAUNCH_SCORE_VERSION = "r9_r10_specific_energy_multiplicative_launch_score_v1"
+LAUNCH_SCORE_VERSION = "r9_r10_updraft_gain_multiplicative_launch_score_v2"
 SPECIFIC_ENERGY_GRAVITY_M_S2 = 9.80665
 SCORING_TARGET_EPISODE_TIME_S = 1.5
+PHYSICAL_HARD_FAILURE_LABELS = {
+    "floor_violation",
+    "ceiling_violation",
+    "z_boundary_exit",
+    "initial_floor_violation",
+    "initial_ceiling_violation",
+    "nonfinite_initial_state",
+    "nonfinite_trajectory",
+    "corrupt_integration",
+    "physically_impossible_initial_state",
+    "true_safety_violation",
+}
+DEFAULT_VALIDATION_MAX_EPISODE_TIME_S = 20.0
 BLOCKED_CLAIMS = (
     "hardware_readiness",
     "real_flight_transfer",
@@ -146,6 +160,11 @@ BLOCKED_CLAIMS = (
     "full_autonomy",
     "memory_improvement",
 )
+_WORKER_LIBRARIES: dict[str, dict[str, object]] | None = None
+_WORKER_OUTCOME_ROWS_BY_CASE: dict[str, dict[str, dict[str, object]]] | None = None
+_WORKER_RECORDS_BY_VARIANT: dict[str, object] | None = None
+_WORKER_CONFIG: "ValidationRunConfig | None" = None
+_WORKER_PROTOCOL: "ValidationProtocol | None" = None
 
 
 @dataclass(frozen=True)
@@ -177,7 +196,12 @@ class RepeatedLaunchValidationConfig:
     compression_level: int = 1
     candidate_chunk_size: int = 800
     dry_run_schedule: bool = False
-    max_primitives_per_launch: int = 4
+    max_primitives_per_launch: int = 0
+    max_episode_time_s: float = DEFAULT_VALIDATION_MAX_EPISODE_TIME_S
+    smoke_outer_cases_per_block: int = 0
+    workers: int = 1
+    max_workers: int | None = None
+    worker_backend: str = "thread"
 
 
 @dataclass(frozen=True)
@@ -223,6 +247,11 @@ class ValidationRunConfig:
     candidate_chunk_size: int
     dry_run_schedule: bool
     max_primitives_per_launch: int
+    max_episode_time_s: float
+    smoke_outer_cases_per_block: int
+    workers: int
+    max_workers: int | None
+    worker_backend: str
 
 
 def run_repeated_launch_learning_curve(config: RepeatedLaunchValidationConfig) -> dict[str, object]:
@@ -241,6 +270,11 @@ def run_repeated_launch_learning_curve(config: RepeatedLaunchValidationConfig) -
             candidate_chunk_size=config.candidate_chunk_size,
             dry_run_schedule=config.dry_run_schedule,
             max_primitives_per_launch=config.max_primitives_per_launch,
+            max_episode_time_s=config.max_episode_time_s,
+            smoke_outer_cases_per_block=config.smoke_outer_cases_per_block,
+            workers=config.workers,
+            max_workers=config.max_workers,
+            worker_backend=config.worker_backend,
         ),
         protocol=R9_PROTOCOL,
     )
@@ -260,7 +294,11 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
 
     libraries = _load_libraries(config.library_root)
     outcome_rows = _read_outcome_rows(config.outcome_root)
-    outer_cases = _outer_case_schedule(protocol=protocol, seed=config.seed)
+    outer_cases = _outer_case_schedule(
+        protocol=protocol,
+        seed=config.seed,
+        smoke_outer_cases_per_block=int(config.smoke_outer_cases_per_block),
+    )
     final_schedule = _final_heldout_schedule(outer_cases=outer_cases, protocol=protocol)
     history_schedule = _history_launch_schedule(outer_cases=outer_cases, protocol=protocol)
     _write_csv(run_root / "metrics" / "outer_case_schedule.csv", pd.DataFrame(outer_cases))
@@ -277,6 +315,7 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
         pass_summary = _pass_fail_summary(
             protocol=protocol,
             max_primitives_per_launch=int(config.max_primitives_per_launch),
+            max_episode_time_s=float(config.max_episode_time_s),
             final_schedule=final_schedule,
             history_schedule=history_schedule,
             episode_rows=[],
@@ -306,55 +345,24 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
     if not records_by_variant:
         _write_blocked_outputs(run_root, config, protocol, "missing_frozen_controller_records_for_rollout")
         return {"status": "blocked", "blocked_reason": "missing_frozen_controller_records_for_rollout", "run_root": run_root.as_posix()}
+    outcome_rows_by_case = _outcome_rows_by_case(outcome_rows)
+    selected_workers = _selected_worker_count(config)
 
     table_buffers = {name: [] for name in TABLE_NAMES}
     partitions: list[TablePartition] = []
     row_counters = {name: 0 for name in TABLE_NAMES}
     started = time.time()
-    for final_row in final_schedule:
-        policy = _policy_condition(str(final_row["policy_id"]))
-        representatives = libraries[str(final_row["library_size_case_id"])]["representatives"]
-        case_outcomes = {
-            variant_id: row
-            for variant_id, row in outcome_rows.items()
-            if str(row.get("library_size_case_id", "")) == str(final_row["library_size_case_id"])
-        }
-        belief = _initial_belief_for_policy(policy=policy, final_row=final_row)
-        for hist_index in range(int(policy["history_length"])):
-            history_row = _history_row_for_final(final_row, hist_index)
-            launch_result = _run_one_launch(
-                scheduled=history_row,
-                policy=policy,
-                representatives=representatives,
-                outcome_rows_by_variant_id=case_outcomes,
-                records_by_variant=records_by_variant,
-                belief=belief,
-                config=config,
-                protocol=protocol,
-            )
-            belief = launch_result["belief_after"]
+    for launch_results in _iter_launch_result_batches(
+        final_schedule=final_schedule,
+        libraries=libraries,
+        outcome_rows_by_case=outcome_rows_by_case,
+        records_by_variant=records_by_variant,
+        config=config,
+        protocol=protocol,
+        selected_workers=selected_workers,
+    ):
+        for launch_result in launch_results:
             _append_launch_result(table_buffers, launch_result)
-            partitions.extend(
-                _flush_if_needed(
-                    run_root=run_root,
-                    table_buffers=table_buffers,
-                    row_counters=row_counters,
-                    storage_format=storage_format,
-                    compression_level=config.compression_level,
-                    chunk_size=max(1, int(config.candidate_chunk_size)),
-                )
-            )
-        final_result = _run_one_launch(
-            scheduled=final_row,
-            policy=policy,
-            representatives=representatives,
-            outcome_rows_by_variant_id=case_outcomes,
-            records_by_variant=records_by_variant,
-            belief=belief,
-            config=config,
-            protocol=protocol,
-        )
-        _append_launch_result(table_buffers, final_result)
         partitions.extend(
             _flush_if_needed(
                 run_root=run_root,
@@ -390,6 +398,7 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
     pass_summary = _pass_fail_summary(
         protocol=protocol,
         max_primitives_per_launch=int(config.max_primitives_per_launch),
+        max_episode_time_s=float(config.max_episode_time_s),
         final_schedule=final_schedule,
         history_schedule=history_schedule,
         episode_rows=episode_rows,
@@ -397,7 +406,7 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
         no_variation_rows=no_variation_rows,
     )
     _write_csv(run_root / "metrics" / "pass_fail_gate_summary.csv", pd.DataFrame(pass_summary))
-    status = "complete"
+    status = "smoke_run" if int(config.smoke_outer_cases_per_block) > 0 else "complete"
     _write_manifest(
         run_root=run_root,
         config=config,
@@ -477,6 +486,15 @@ def _read_outcome_rows(outcome_root: Path) -> dict[str, dict[str, object]]:
     return rows
 
 
+def _outcome_rows_by_case(outcome_rows: dict[str, dict[str, object]]) -> dict[str, dict[str, dict[str, object]]]:
+    rows_by_case: dict[str, dict[str, dict[str, object]]] = {case_id: {} for case_id in LIBRARY_SIZE_CASE_IDS}
+    for key, row in outcome_rows.items():
+        case_id = str(row.get("library_size_case_id", ""))
+        if case_id in rows_by_case:
+            rows_by_case[case_id][str(key)] = row
+    return rows_by_case
+
+
 def _load_records_by_variant(config: ValidationRunConfig, libraries: dict[str, dict[str, object]]) -> dict[str, object]:
     candidates = []
     if config.source_w2_root is not None:
@@ -506,6 +524,153 @@ def _load_records_by_variant(config: ValidationRunConfig, libraries: dict[str, d
             if str(record.bundle_status) == FROZEN_CONTROLLER_READY
         }
     return {}
+
+
+def _selected_worker_count(config: ValidationRunConfig) -> int:
+    requested = max(1, int(config.workers or 1))
+    if config.max_workers is None:
+        return requested
+    return max(1, min(requested, int(config.max_workers)))
+
+
+def _iter_launch_result_batches(
+    *,
+    final_schedule: list[dict[str, object]],
+    libraries: dict[str, dict[str, object]],
+    outcome_rows_by_case: dict[str, dict[str, dict[str, object]]],
+    records_by_variant: dict[str, object],
+    config: ValidationRunConfig,
+    protocol: ValidationProtocol,
+    selected_workers: int,
+) -> Iterable[list[dict[str, object]]]:
+    if int(selected_workers) <= 1:
+        for final_row in final_schedule:
+            yield _run_final_schedule_row(
+                final_row,
+                libraries=libraries,
+                outcome_rows_by_case=outcome_rows_by_case,
+                records_by_variant=records_by_variant,
+                config=config,
+                protocol=protocol,
+            )
+        return
+
+    backend = str(config.worker_backend or "process").strip().lower()
+    executor_cls = ThreadPoolExecutor if backend == "thread" else ProcessPoolExecutor
+    with executor_cls(
+        max_workers=int(selected_workers),
+        initializer=_initialise_validation_worker,
+        initargs=(libraries, outcome_rows_by_case, records_by_variant, config, protocol),
+    ) as executor:
+        schedule_iter = iter(final_schedule)
+        in_flight = set()
+        max_in_flight = max(int(selected_workers), int(selected_workers) * 2)
+
+        def submit_until_full() -> None:
+            while len(in_flight) < max_in_flight:
+                try:
+                    row = next(schedule_iter)
+                except StopIteration:
+                    return
+                in_flight.add(executor.submit(_run_final_schedule_row_worker, row))
+
+        submit_until_full()
+        while in_flight:
+            done, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
+            for future in done:
+                yield future.result()
+            submit_until_full()
+
+
+def _initialise_validation_worker(
+    libraries: dict[str, dict[str, object]],
+    outcome_rows_by_case: dict[str, dict[str, dict[str, object]]],
+    records_by_variant: dict[str, object],
+    config: ValidationRunConfig,
+    protocol: ValidationProtocol,
+) -> None:
+    global _WORKER_LIBRARIES
+    global _WORKER_OUTCOME_ROWS_BY_CASE
+    global _WORKER_RECORDS_BY_VARIANT
+    global _WORKER_CONFIG
+    global _WORKER_PROTOCOL
+    _WORKER_LIBRARIES = libraries
+    _WORKER_OUTCOME_ROWS_BY_CASE = outcome_rows_by_case
+    _WORKER_RECORDS_BY_VARIANT = records_by_variant
+    _WORKER_CONFIG = config
+    _WORKER_PROTOCOL = protocol
+
+
+def _run_final_schedule_row_worker(final_row: dict[str, object]) -> list[dict[str, object]]:
+    if (
+        _WORKER_LIBRARIES is None
+        or _WORKER_OUTCOME_ROWS_BY_CASE is None
+        or _WORKER_RECORDS_BY_VARIANT is None
+        or _WORKER_CONFIG is None
+        or _WORKER_PROTOCOL is None
+    ):
+        raise RuntimeError("validation_worker_not_initialised")
+    return _run_final_schedule_row(
+        final_row,
+        libraries=_WORKER_LIBRARIES,
+        outcome_rows_by_case=_WORKER_OUTCOME_ROWS_BY_CASE,
+        records_by_variant=_WORKER_RECORDS_BY_VARIANT,
+        config=_WORKER_CONFIG,
+        protocol=_WORKER_PROTOCOL,
+    )
+
+
+def _run_final_schedule_row(
+    final_row: dict[str, object],
+    *,
+    libraries: dict[str, dict[str, object]],
+    outcome_rows_by_case: dict[str, dict[str, dict[str, object]]],
+    records_by_variant: dict[str, object],
+    config: ValidationRunConfig,
+    protocol: ValidationProtocol,
+) -> list[dict[str, object]]:
+    policy = _policy_condition(str(final_row["policy_id"]))
+    representatives = libraries[str(final_row["library_size_case_id"])]["representatives"]
+    case_outcomes = outcome_rows_by_case.get(str(final_row["library_size_case_id"]), {})
+    belief = _initial_belief_for_policy(policy=policy, final_row=final_row)
+    launch_results: list[dict[str, object]] = []
+    for hist_index in range(int(policy["history_length"])):
+        history_row = _history_row_for_final(final_row, hist_index)
+        history_result = _run_one_launch(
+            scheduled=history_row,
+            policy=policy,
+            representatives=representatives,
+            outcome_rows_by_variant_id=case_outcomes,
+            records_by_variant=records_by_variant,
+            belief=belief,
+            config=config,
+            protocol=protocol,
+        )
+        belief = history_result["belief_after"]
+        launch_results.append(_launch_result_for_parent(history_result))
+    final_result = _run_one_launch(
+        scheduled=final_row,
+        policy=policy,
+        representatives=representatives,
+        outcome_rows_by_variant_id=case_outcomes,
+        records_by_variant=records_by_variant,
+        belief=belief,
+        config=config,
+        protocol=protocol,
+    )
+    launch_results.append(_launch_result_for_parent(final_result))
+    return launch_results
+
+
+def _launch_result_for_parent(result: dict[str, object]) -> dict[str, object]:
+    return {
+        "episode_rows": result["episode_rows"],
+        "primitive_rows": result["primitive_rows"],
+        "candidate_rows": result["candidate_rows"],
+        "selector_rows": result["selector_rows"],
+        "memory_rows": result["memory_rows"],
+        "belief_rows": result["belief_rows"],
+    }
 
 
 def _scheduled_active_fan_count_for_outer_case(
@@ -614,11 +779,19 @@ def _fan_position_bounds_text_for_outer_case(
     return "common_shift_range=-0.200:0.200"
 
 
-def _outer_case_schedule(*, protocol: ValidationProtocol, seed: int) -> list[dict[str, object]]:
+def _outer_case_schedule(
+    *,
+    protocol: ValidationProtocol,
+    seed: int,
+    smoke_outer_cases_per_block: int = 0,
+) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     outer_index = 0
     for block in protocol.blocks:
-        for local_index in range(int(block.case_count)):
+        case_count = int(block.case_count)
+        if int(smoke_outer_cases_per_block) > 0:
+            case_count = min(case_count, int(smoke_outer_cases_per_block))
+        for local_index in range(case_count):
             launch_seed = int(seed) * 100000 + outer_index * 37 + 11
             env_seed = int(seed) * 200000 + outer_index * 41 + 17
             scheduled_active_fan_count = _scheduled_active_fan_count_for_outer_case(
@@ -770,21 +943,6 @@ def _policy_condition(policy_id: str) -> dict[str, object]:
 
 def _initial_belief_for_policy(*, policy: dict[str, object], final_row: dict[str, object]) -> DirectionalResidualLiftBelief:
     belief = initial_directional_residual_lift_belief()
-    if policy["policy_id"] != "static_map_baseline":
-        return belief
-    for index in range(12):
-        belief = update_directional_residual_lift_belief(
-            belief,
-            DirectionalResidualObservation(
-                x_w_m=0.25 * (index % 4),
-                y_w_m=0.20 * (index % 3),
-                z_w_m=1.0 + 0.2 * (index % 3),
-                direction_rad=0.25 * index,
-                lift_residual_m_s=0.01 * (index % 2),
-                energy_residual_m=0.005 * (index % 3),
-                dwell_residual_s=0.002 * (index % 4),
-            ),
-        )
     del final_row
     return belief
 
@@ -811,7 +969,14 @@ def _run_one_launch(
     )
     state = as_state_vector(sample.state_vector)
     governor_config = _governor_config_for_policy(policy)
-    max_steps = max(1, int(config.max_primitives_per_launch))
+    time_budget_steps = max(
+        1,
+        int(math.ceil(float(config.max_episode_time_s) / float(PRIMITIVE_FINITE_HORIZON_S))),
+    )
+    if int(config.max_primitives_per_launch) > 0:
+        max_steps = min(time_budget_steps, int(config.max_primitives_per_launch))
+    else:
+        max_steps = time_budget_steps
     primitive_rows: list[dict[str, object]] = []
     candidate_rows_all: list[dict[str, object]] = []
     selector_rows: list[dict[str, object]] = []
@@ -926,11 +1091,24 @@ def _run_one_launch(
                 "selected_entry_role": str(selected.get("entry_role", "")),
                 "policy_id": str(policy["policy_id"]),
                 "selected_compact_library_id": str(selected.get("compact_library_id", "")),
+                "primitive_variant_id": str(selected.get("primitive_variant_id", "")),
+                "selected_primitive_variant_id": str(selected.get("primitive_variant_id", "")),
                 "selected_score": float(selected.get("total_score_with_memory_and_exploration", selected.get("score", 0.0))),
+                "context_w_wing_mean_m_s": float(context_payload["row"].get("w_wing_mean_m_s", 0.0)),
+                "context_lift_score": float(context_payload["row"].get("lift_score", 0.0)),
+                "updraft_specific_energy_gain_proxy_m": _primitive_updraft_gain_proxy_m(
+                    context_payload["row"],
+                    rollout_row=rollout_row,
+                ),
                 **rollout_row,
             }
         )
-        outcome = _outcome_for_selected(selected, outcome_rows_by_variant_id)
+        outcome = _outcome_for_selected(
+            selected,
+            outcome_rows_by_variant_id,
+            context=context_payload["row"],
+            governor_mode=governor_mode,
+        )
         observation = DirectionalResidualObservation(
             x_w_m=float(state[STATE_INDEX["x_w"]]),
             y_w_m=float(state[STATE_INDEX["y_w"]]),
@@ -977,12 +1155,12 @@ def _run_one_launch(
                 ),
             )
         )
-        hard_failure = bool(
-            str(rollout_row.get("boundary_use_class", "")) == "hard_failure"
-            or str(rollout_row.get("outcome_class", "")) == "failed"
-        )
+        hard_failure = _rollout_row_is_hard_failure(rollout_row)
         if hard_failure or bool(rollout_row.get("episode_terminal_useful", False)) or not bool(rollout_row.get("continuation_valid", False)):
             break
+    else:
+        if primitive_rows:
+            blocked_reason = "episode_time_budget_reached"
     if primitive_rows:
         episode_row = _episode_row_from_sequence(
             scheduled=scheduled,
@@ -1015,14 +1193,22 @@ def _run_one_launch(
 def _outcome_for_selected(
     selected: dict[str, object],
     outcome_rows_by_variant_id: dict[str, dict[str, object]],
+    *,
+    context: dict[str, object] | None = None,
+    governor_mode: str = "",
 ) -> dict[str, object]:
-    case_id = str(selected.get("library_size_case_id", ""))
-    compact_id = str(selected.get("compact_library_id", ""))
-    variant_id = str(selected.get("primitive_variant_id", ""))
-    for key in (compact_id, f"{case_id}|{compact_id}", f"{case_id}|{variant_id}|{compact_id}", variant_id):
-        if key and key in outcome_rows_by_variant_id:
-            return outcome_rows_by_variant_id[key]
-    return {}
+    base = lookup_outcome_for_identity(
+        identity=selected,
+        outcome_rows_by_variant_id=outcome_rows_by_variant_id,
+    )
+    if context is None:
+        return base
+    return context_conditioned_outcome(
+        representative=selected,
+        base_outcome=base,
+        context=context,
+        governor_mode=governor_mode,
+    )
 
 
 def validation_route_for_primitive_step(primitive_step_index: int, *, state: np.ndarray | None = None) -> dict[str, object]:
@@ -1062,20 +1248,18 @@ def _continuation_start_family_and_reason(state: np.ndarray | None) -> tuple[str
         margins = position_margin_m(x[[STATE_INDEX["x_w"], STATE_INDEX["y_w"], STATE_INDEX["z_w"]]], TRUE_SAFE_BOUNDS)
     except Exception:
         return TERMINAL_SAFE_EXIT_START_FAMILY, "invalid_state_recovery_edge_route"
-    speed = float(np.linalg.norm(x[[STATE_INDEX["u"], STATE_INDEX["v"], STATE_INDEX["w"]]]))
     max_body_rate = max(
         abs(float(x[STATE_INDEX["p"]])),
         abs(float(x[STATE_INDEX["q"]])),
         abs(float(x[STATE_INDEX["r"]])),
     )
-    degraded_energy_or_attitude = (
-        speed < RECOVERY_EDGE_MIN_SPEED_M_S
-        or abs(float(x[STATE_INDEX["phi"]])) > RECOVERY_EDGE_MAX_ABS_ROLL_RAD
+    degraded_attitude_or_rate = (
+        abs(float(x[STATE_INDEX["phi"]])) > RECOVERY_EDGE_MAX_ABS_ROLL_RAD
         or abs(float(x[STATE_INDEX["theta"]])) > RECOVERY_EDGE_MAX_ABS_PITCH_RAD
         or max_body_rate > RECOVERY_EDGE_MAX_BODY_RATE_RAD_S
     )
-    if degraded_energy_or_attitude:
-        return TERMINAL_SAFE_EXIT_START_FAMILY, "degraded_energy_attitude_or_rate_recovery_edge_route"
+    if degraded_attitude_or_rate:
+        return TERMINAL_SAFE_EXIT_START_FAMILY, "degraded_attitude_or_rate_recovery_edge_route"
     if float(margins["min_margin_m"]) <= 0.0:
         return TERMINAL_SAFE_EXIT_START_FAMILY, "outside_or_on_true_safe_boundary_recovery_edge_route"
     if float(margins["min_margin_m"]) <= RECOVERY_ROUTE_MARGIN_M:
@@ -1183,10 +1367,17 @@ def _context_payload(
         "route_reason": str(route.get("route_reason", "")),
         "latency_case": latency_case,
         "wall_margin_m": float(context.wall_margin_m),
+        "all_wall_margin_m": float(context.all_wall_margin_m),
+        "front_wall_margin_m": float(context.front_wall_margin_m),
+        "left_wall_margin_m": float(context.left_wall_margin_m),
+        "right_wall_margin_m": float(context.right_wall_margin_m),
+        "rear_wall_margin_m": float(context.rear_wall_margin_m),
+        "governor_wall_margin_m": float(context.governor_wall_margin_m),
         "floor_margin_m": float(context.floor_margin_m),
         "ceiling_margin_m": float(context.ceiling_margin_m),
-        "speed_margin_m_s": float(context.speed_margin_m_s),
         "w_wing_mean_m_s": float(context.w_wing_mean_m_s),
+        "w_local_uncertainty_m_s": float(context.w_local_uncertainty_m_s),
+        "lift_score": float(context.lift_score),
         "fan_count": int(context.fan_count),
         "updraft_model_id": context.updraft_model_id,
         "library_size_case_id": str(scheduled.get("library_size_case_id", "")),
@@ -1265,9 +1456,8 @@ def _episode_row_from_sequence(
     belief_after: DirectionalResidualLiftBelief,
     blocked_reason: str = "",
 ) -> dict[str, object]:
-    hard_failure = any(_truthy(row.get("boundary_use_class", "") == "hard_failure") or _truthy(row.get("outcome_class", "") == "failed") for row in primitive_rows)
-    floor_or_ceiling = any(str(row.get("failure_label", "")) in {"floor_violation", "ceiling_violation"} for row in primitive_rows)
-    continuation_or_terminal = any(_truthy(row.get("continuation_valid", False)) or _truthy(row.get("episode_terminal_useful", False)) for row in primitive_rows)
+    hard_failure = any(_rollout_row_is_hard_failure(row) for row in primitive_rows)
+    floor_or_ceiling = any(_rollout_row_is_floor_or_ceiling_violation(row) for row in primitive_rows)
     terminal_useful = any(_truthy(row.get("episode_terminal_useful", False)) for row in primitive_rows)
     lift_capture = any(_float_value(row.get("lift_dwell_time_s", 0.0)) > 0.0 for row in primitive_rows)
     selected_variants = _sequence_values(primitive_rows, "primitive_variant_id")
@@ -1279,7 +1469,14 @@ def _episode_row_from_sequence(
     selected_route_reasons = _sequence_values(primitive_rows, "route_reason")
     energy_summary = _episode_specific_energy_summary(primitive_rows)
     last_row = primitive_rows[-1]
+    no_viable = bool(str(blocked_reason).startswith("no_viable"))
     sequence_compliant = _launch_sequence_compliant(primitive_rows)
+    last_continuation_or_terminal = bool(
+        _truthy(last_row.get("continuation_valid", False))
+        or _truthy(last_row.get("episode_terminal_useful", False))
+        or str(blocked_reason) == "episode_time_budget_reached"
+    )
+    episode_duration_s = _episode_rollout_duration_s(primitive_rows)
     row = {
         **_schedule_identity_row(scheduled),
         "launch_role": str(scheduled["launch_role"]),
@@ -1299,10 +1496,11 @@ def _episode_row_from_sequence(
         "termination_cause": str(blocked_reason or last_row.get("termination_cause", "")),
         "hard_failure": bool(hard_failure),
         "floor_or_ceiling_violation": bool(floor_or_ceiling),
-        "no_viable_primitive": bool(str(blocked_reason).startswith("no_viable")),
-        "safe_success": bool(continuation_or_terminal and not hard_failure),
+        "no_viable_primitive": no_viable,
+        "safe_success": bool(sequence_compliant and last_continuation_or_terminal and not hard_failure and not floor_or_ceiling and not no_viable),
         "terminal_useful": bool(terminal_useful),
         "lift_capture": bool(lift_capture),
+        "episode_rollout_duration_s": float(episode_duration_s),
         "lift_dwell_time_s": float(sum(_float_value(row.get("lift_dwell_time_s", 0.0)) for row in primitive_rows)),
         "energy_residual_m": float(sum(_float_value(row.get("energy_residual_m", 0.0)) for row in primitive_rows)),
         **energy_summary,
@@ -1355,12 +1553,17 @@ def _episode_row_from_rollout(
             == _required_entry_role_for_start_family(str(context_row.get("start_state_family", "")))
         ),
         "termination_cause": str(rollout_row.get("termination_cause", "")),
-        "hard_failure": bool(str(rollout_row.get("boundary_use_class", "")) == "hard_failure" or str(rollout_row.get("outcome_class", "")) == "failed"),
-        "floor_or_ceiling_violation": bool(str(rollout_row.get("failure_label", "")) in {"floor_violation", "ceiling_violation"}),
+        "hard_failure": _rollout_row_is_hard_failure(rollout_row),
+        "floor_or_ceiling_violation": _rollout_row_is_floor_or_ceiling_violation(rollout_row),
         "no_viable_primitive": False,
-        "safe_success": bool(rollout_row.get("continuation_valid", False) or rollout_row.get("episode_terminal_useful", False)),
+        "safe_success": bool(
+            (_truthy(rollout_row.get("continuation_valid", False)) or _truthy(rollout_row.get("episode_terminal_useful", False)))
+            and not _rollout_row_is_hard_failure(rollout_row)
+            and not _rollout_row_is_floor_or_ceiling_violation(rollout_row)
+        ),
         "terminal_useful": bool(rollout_row.get("episode_terminal_useful", False)),
         "lift_capture": bool(float(rollout_row.get("lift_dwell_time_s", 0.0)) > 0.0),
+        "episode_rollout_duration_s": float(_episode_rollout_duration_s([rollout_row])),
         "lift_dwell_time_s": float(rollout_row.get("lift_dwell_time_s", 0.0)),
         "energy_residual_m": float(rollout_row.get("energy_residual_m", 0.0)),
         **_episode_specific_energy_summary([rollout_row]),
@@ -1409,6 +1612,7 @@ def _episode_row_from_blocked(
         "safe_success": False,
         "terminal_useful": False,
         "lift_capture": False,
+        "episode_rollout_duration_s": 0.0,
         "lift_dwell_time_s": 0.0,
         "energy_residual_m": 0.0,
         "episode_specific_energy_start_m": 0.0,
@@ -1416,6 +1620,9 @@ def _episode_row_from_blocked(
         "net_specific_energy_delta_m": 0.0,
         "gross_specific_energy_gain_m": 0.0,
         "gross_specific_energy_loss_m": 0.0,
+        "positive_specific_energy_gain_m": 0.0,
+        "updraft_specific_energy_gain_proxy_m": 0.0,
+        "updraft_gain_proxy_source": "blocked_no_primitive",
         "min_wall_margin_m": float(context_row.get("wall_margin_m", 0.0)),
         "governor_rejection_count": 0,
         "belief_observation_count": 0,
@@ -1431,14 +1638,18 @@ def _episode_row_from_blocked(
     return row
 
 
-def _episode_specific_energy_summary(primitive_rows: list[dict[str, object]]) -> dict[str, float]:
+def _episode_specific_energy_summary(primitive_rows: list[dict[str, object]]) -> dict[str, object]:
     energy_pairs: list[tuple[float, float]] = []
+    updraft_proxy_terms: list[float] = []
+    has_trajectory_integrated_updraft = any("trajectory_integrated_updraft_gain_m" in row for row in primitive_rows)
     for row in primitive_rows:
         start = _state_vector_from_rollout_row(row, prefix="initial_")
         end = _state_vector_from_json(row.get("exit_state_vector", ""))
         if start is None or end is None:
             continue
         energy_pairs.append((_specific_energy_m(start), _specific_energy_m(end)))
+        if "updraft_specific_energy_gain_proxy_m" in row:
+            updraft_proxy_terms.append(max(_float_value(row.get("updraft_specific_energy_gain_proxy_m", 0.0)), 0.0))
     if not energy_pairs:
         return {
             "episode_specific_energy_start_m": 0.0,
@@ -1446,15 +1657,80 @@ def _episode_specific_energy_summary(primitive_rows: list[dict[str, object]]) ->
             "net_specific_energy_delta_m": 0.0,
             "gross_specific_energy_gain_m": 0.0,
             "gross_specific_energy_loss_m": 0.0,
+            "positive_specific_energy_gain_m": 0.0,
+            "updraft_specific_energy_gain_proxy_m": float(sum(updraft_proxy_terms)),
+            "updraft_gain_proxy_source": (
+                "trajectory_integrated_positive_w_wing"
+                if updraft_proxy_terms and has_trajectory_integrated_updraft
+                else "primitive_start_local_w_wing_proxy"
+                if updraft_proxy_terms
+                else "unavailable"
+            ),
         }
     deltas = [end - start for start, end in energy_pairs]
+    positive_specific_gain = float(sum(max(delta, 0.0) for delta in deltas))
+    if updraft_proxy_terms:
+        updraft_proxy = float(sum(updraft_proxy_terms))
+        updraft_source = (
+            "trajectory_integrated_positive_w_wing"
+            if has_trajectory_integrated_updraft
+            else "primitive_start_local_w_wing_proxy"
+        )
+    else:
+        updraft_proxy = positive_specific_gain
+        updraft_source = "positive_specific_energy_gain_fallback"
     return {
         "episode_specific_energy_start_m": float(energy_pairs[0][0]),
         "episode_specific_energy_end_m": float(energy_pairs[-1][1]),
         "net_specific_energy_delta_m": float(energy_pairs[-1][1] - energy_pairs[0][0]),
-        "gross_specific_energy_gain_m": float(sum(max(delta, 0.0) for delta in deltas)),
+        "gross_specific_energy_gain_m": positive_specific_gain,
         "gross_specific_energy_loss_m": float(sum(max(-delta, 0.0) for delta in deltas)),
+        "positive_specific_energy_gain_m": positive_specific_gain,
+        "updraft_specific_energy_gain_proxy_m": updraft_proxy,
+        "updraft_gain_proxy_source": updraft_source,
     }
+
+
+def _rollout_row_is_hard_failure(row: dict[str, object]) -> bool:
+    failure_label = str(row.get("failure_label", ""))
+    if failure_label in PHYSICAL_HARD_FAILURE_LABELS or "nonfinite" in failure_label or "corrupt" in failure_label:
+        return True
+    if str(row.get("boundary_use_class", "")) == "hard_failure":
+        return failure_label not in {"model_boundary_only", "weak_energy_result", "success", ""}
+    return False
+
+
+def _rollout_row_is_floor_or_ceiling_violation(row: dict[str, object]) -> bool:
+    return str(row.get("failure_label", "")) in {
+        "floor_violation",
+        "ceiling_violation",
+        "initial_floor_violation",
+        "initial_ceiling_violation",
+        "z_boundary_exit",
+    }
+
+
+def _episode_rollout_duration_s(primitive_rows: list[dict[str, object]]) -> float:
+    total = 0.0
+    for row in primitive_rows:
+        if "rollout_duration_s" in row:
+            total += max(_float_value(row.get("rollout_duration_s", 0.0)), 0.0)
+        else:
+            total += float(PRIMITIVE_FINITE_HORIZON_S)
+    return float(total)
+
+
+def _primitive_updraft_gain_proxy_m(
+    context_row: dict[str, object],
+    *,
+    rollout_row: dict[str, object] | None = None,
+) -> float:
+    """Estimate useful updraft exposure, preferring trajectory integration."""
+
+    if rollout_row is not None and "trajectory_integrated_updraft_gain_m" in rollout_row:
+        return float(max(_float_value(rollout_row.get("trajectory_integrated_updraft_gain_m", 0.0)), 0.0))
+    w_wing = max(_float_value(context_row.get("w_wing_mean_m_s", 0.0)), 0.0)
+    return float(w_wing * PRIMITIVE_FINITE_HORIZON_S)
 
 
 def _specific_energy_m(state: np.ndarray) -> float:
@@ -1486,7 +1762,12 @@ def _state_vector_from_json(value: object) -> np.ndarray | None:
 
 def _launch_score_fields(row: dict[str, object]) -> dict[str, object]:
     selected_steps = int(_float_value(row.get("selected_primitive_step_count", 0)))
-    episode_time_s = float(selected_steps) * PRIMITIVE_FINITE_HORIZON_S
+    episode_time_s = _float_value(
+        row.get(
+            "episode_rollout_duration_s",
+            float(selected_steps) * float(PRIMITIVE_FINITE_HORIZON_S),
+        )
+    )
     hard_failure = _truthy(row.get("hard_failure", False))
     floor_or_ceiling = _truthy(row.get("floor_or_ceiling_violation", False))
     no_viable = _truthy(row.get("no_viable_primitive", False))
@@ -1516,19 +1797,15 @@ def _launch_score_fields(row: dict[str, object]) -> dict[str, object]:
         no_viable_at_launch=no_viable_at_launch,
         no_viable_after_launch=no_viable_after_launch,
     )
-    net_energy_factor = _clip(1.0 + _float_value(row.get("net_specific_energy_delta_m", row.get("energy_residual_m", 0.0))) / 2.0, 0.25, 1.75)
-    energy_loss_factor = _clip(1.0 - _float_value(row.get("gross_specific_energy_loss_m", 0.0)) / 2.0, 0.50, 1.00)
+    updraft_gain_factor = _clip(1.0 + _float_value(row.get("updraft_specific_energy_gain_proxy_m", 0.0)) / 1.0, 1.00, 1.75)
     flight_time_factor = _clip(episode_time_s / SCORING_TARGET_EPISODE_TIME_S, 0.10, 1.25)
-    wall_margin_factor = _wall_margin_factor(min_wall_margin)
     multiplicative_component = (
         100.0
         * outcome_multiplier
         * safety_multiplier
         * viability_multiplier
-        * net_energy_factor
-        * energy_loss_factor
+        * updraft_gain_factor
         * flight_time_factor
-        * wall_margin_factor
     )
     return {
         "launch_score_version": LAUNCH_SCORE_VERSION,
@@ -1538,10 +1815,8 @@ def _launch_score_fields(row: dict[str, object]) -> dict[str, object]:
         "outcome_multiplier": float(outcome_multiplier),
         "safety_multiplier": float(safety_multiplier),
         "viability_multiplier": float(viability_multiplier),
-        "net_energy_factor": float(net_energy_factor),
-        "energy_loss_factor": float(energy_loss_factor),
+        "updraft_gain_factor": float(updraft_gain_factor),
         "flight_time_factor": float(flight_time_factor),
-        "wall_margin_factor": float(wall_margin_factor),
         "launch_score_multiplicative_component": float(multiplicative_component),
         "launch_score": float(base_penalty + multiplicative_component),
     }
@@ -1598,19 +1873,6 @@ def _viability_multiplier(*, no_viable_at_launch: bool, no_viable_after_launch: 
     return 1.0
 
 
-def _wall_margin_factor(min_wall_margin_m: float) -> float:
-    margin = float(min_wall_margin_m)
-    if margin < 0.00:
-        return 0.50
-    if margin < 0.05:
-        return 0.80
-    if margin < 0.15:
-        return 0.95
-    if margin < 0.40:
-        return 1.00
-    return 1.05
-
-
 def _clip(value: float, lower: float, upper: float) -> float:
     return float(max(float(lower), min(float(upper), float(value))))
 
@@ -1632,6 +1894,13 @@ def _belief_snapshot_compact(
         "belief_observation_count": int(features.get("belief_observation_count", 0) or 0),
         "belief_uncertainty": float(features.get("belief_uncertainty", 1.0) or 1.0),
         "belief_local_lift_residual_m_s": float(features.get("belief_local_lift_residual_m_s", 0.0) or 0.0),
+        "belief_local_updraft_gain_proxy_m": float(
+            features.get(
+                "belief_local_updraft_gain_proxy_m",
+                max(float(features.get("belief_local_energy_residual_m", 0.0) or 0.0), 0.0),
+            )
+            or 0.0
+        ),
         "belief_local_energy_residual_m": float(features.get("belief_local_energy_residual_m", 0.0) or 0.0),
         "belief_local_dwell_residual_s": float(features.get("belief_local_dwell_residual_s", 0.0) or 0.0),
     }
@@ -1695,10 +1964,12 @@ def _flush_if_needed(
 ) -> list[TablePartition]:
     partitions: list[TablePartition] = []
     for table_name, rows in table_buffers.items():
-        if len(rows) < int(chunk_size):
-            continue
-        partitions.append(_flush_table(run_root, table_name, rows, row_counters, storage_format, compression_level))
-        rows.clear()
+        while len(rows) >= int(chunk_size):
+            chunk_rows = rows[: int(chunk_size)]
+            del rows[: int(chunk_size)]
+            partitions.append(
+                _flush_table(run_root, table_name, chunk_rows, row_counters, storage_format, compression_level)
+            )
     return partitions
 
 
@@ -1881,6 +2152,8 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
                 mean_lift_dwell_time_s=("lift_dwell_time_s", "mean"),
                 mean_energy_residual_m=("energy_residual_m", "mean"),
                 mean_net_specific_energy_delta_m=("net_specific_energy_delta_m", "mean"),
+                mean_positive_specific_energy_gain_m=("positive_specific_energy_gain_m", "mean"),
+                mean_updraft_specific_energy_gain_proxy_m=("updraft_specific_energy_gain_proxy_m", "mean"),
                 mean_gross_specific_energy_loss_m=("gross_specific_energy_loss_m", "mean"),
                 mean_episode_flight_time_s=("episode_flight_time_s", "mean"),
                 mean_launch_score=("launch_score", "mean"),
@@ -1955,8 +2228,17 @@ def _with_launch_score_columns(frame: pd.DataFrame) -> pd.DataFrame:
         fields = _launch_score_fields(row)
         if "net_specific_energy_delta_m" not in row:
             fields["net_specific_energy_delta_m"] = _float_value(row.get("energy_residual_m", 0.0))
-            fields["gross_specific_energy_gain_m"] = max(fields["net_specific_energy_delta_m"], 0.0)
-            fields["gross_specific_energy_loss_m"] = max(-fields["net_specific_energy_delta_m"], 0.0)
+        if "gross_specific_energy_gain_m" not in row:
+            fields["gross_specific_energy_gain_m"] = max(fields.get("net_specific_energy_delta_m", _float_value(row.get("net_specific_energy_delta_m", 0.0))), 0.0)
+        if "gross_specific_energy_loss_m" not in row:
+            fields["gross_specific_energy_loss_m"] = max(-fields.get("net_specific_energy_delta_m", _float_value(row.get("net_specific_energy_delta_m", 0.0))), 0.0)
+        if "positive_specific_energy_gain_m" not in row:
+            fields["positive_specific_energy_gain_m"] = _float_value(row.get("gross_specific_energy_gain_m", fields.get("gross_specific_energy_gain_m", 0.0)))
+        if "updraft_specific_energy_gain_proxy_m" not in row:
+            fields["updraft_specific_energy_gain_proxy_m"] = _float_value(
+                row.get("positive_specific_energy_gain_m", row.get("gross_specific_energy_gain_m", 0.0))
+            )
+            fields["updraft_gain_proxy_source"] = "positive_specific_energy_gain_fallback"
         score_rows.append(fields)
     scores = pd.DataFrame(score_rows, index=out.index)
     for column in scores.columns:
@@ -2048,6 +2330,10 @@ def _paired_score_delta_row(row: dict[str, object], baseline_row: dict[str, obje
         "no_viable_primitive_delta": int(_truthy(row.get("no_viable_primitive", False))) - int(_truthy(baseline_row.get("no_viable_primitive", False))),
         "net_specific_energy_delta_m_delta": _float_value(row.get("net_specific_energy_delta_m", 0.0))
         - _float_value(baseline_row.get("net_specific_energy_delta_m", 0.0)),
+        "positive_specific_energy_gain_m_delta": _float_value(row.get("positive_specific_energy_gain_m", 0.0))
+        - _float_value(baseline_row.get("positive_specific_energy_gain_m", 0.0)),
+        "updraft_specific_energy_gain_proxy_m_delta": _float_value(row.get("updraft_specific_energy_gain_proxy_m", 0.0))
+        - _float_value(baseline_row.get("updraft_specific_energy_gain_proxy_m", 0.0)),
         "gross_specific_energy_loss_m_delta": _float_value(row.get("gross_specific_energy_loss_m", 0.0))
         - _float_value(baseline_row.get("gross_specific_energy_loss_m", 0.0)),
         "episode_flight_time_s_delta": _float_value(row.get("episode_flight_time_s", 0.0))
@@ -2077,6 +2363,8 @@ def _paired_score_delta_summary(delta_rows: pd.DataFrame) -> pd.DataFrame:
             memory_changed_selection_rate=("memory_changed_selection", "mean"),
             exploration_changed_selection_rate=("exploration_changed_selection", "mean"),
             mean_net_specific_energy_delta_m_delta=("net_specific_energy_delta_m_delta", "mean"),
+            mean_positive_specific_energy_gain_m_delta=("positive_specific_energy_gain_m_delta", "mean"),
+            mean_updraft_specific_energy_gain_proxy_m_delta=("updraft_specific_energy_gain_proxy_m_delta", "mean"),
             mean_gross_specific_energy_loss_m_delta=("gross_specific_energy_loss_m_delta", "mean"),
             mean_episode_flight_time_s_delta=("episode_flight_time_s_delta", "mean"),
         )
@@ -2114,6 +2402,7 @@ def _pass_fail_summary(
     *,
     protocol: ValidationProtocol,
     max_primitives_per_launch: int,
+    max_episode_time_s: float,
     final_schedule: list[dict[str, object]],
     history_schedule: list[dict[str, object]],
     episode_rows: list[dict[str, object]],
@@ -2127,7 +2416,8 @@ def _pass_fail_summary(
         _gate_row("library_size_case_count", set(row["library_size_case_id"] for row in final_schedule) == set(LIBRARY_SIZE_CASE_IDS), len(set(row["library_size_case_id"] for row in final_schedule)), len(LIBRARY_SIZE_CASE_IDS)),
         _gate_row("policy_history_condition_count", set(row["policy_id"] for row in final_schedule) == set(POLICY_HISTORY_CONDITIONS), len(set(row["policy_id"] for row in final_schedule)), len(POLICY_HISTORY_CONDITIONS)),
         _gate_row("pairing_audit", all(bool(row["pairing_passed"]) for row in pairing_rows), sum(bool(row["pairing_passed"]) for row in pairing_rows), len(pairing_rows)),
-        _gate_row("max_primitives_per_launch_full_validation", int(max_primitives_per_launch) >= 4, int(max_primitives_per_launch), ">=4"),
+        _gate_row("primitive_count_cap_disabled_for_full_validation", int(max_primitives_per_launch) <= 0, int(max_primitives_per_launch), "0_or_negative_disabled"),
+        _gate_row("max_episode_time_budget_positive", float(max_episode_time_s) >= float(PRIMITIVE_FINITE_HORIZON_S), float(max_episode_time_s), f">={PRIMITIVE_FINITE_HORIZON_S}"),
     ]
     if no_variation_rows:
         rows.append(_gate_row("no_glider_latency_variation_audit", all(bool(row["variation_audit_passed"]) for row in no_variation_rows), sum(bool(row["variation_audit_passed"]) for row in no_variation_rows), len(no_variation_rows)))
@@ -2326,7 +2616,19 @@ def _write_manifest(
         "storage_format": resolve_storage_format(config.storage_format),
         "compression_level": int(config.compression_level),
         "candidate_chunk_size": int(config.candidate_chunk_size),
+        "requested_workers": int(config.workers),
+        "max_workers": None if config.max_workers is None else int(config.max_workers),
+        "selected_workers": int(_selected_worker_count(config)),
+        "worker_backend": str(config.worker_backend),
+        "parallel_execution_policy": "parallelise_across_independent_final_schedule_rows_history_sequential_inside_worker_parent_writes_partitions",
         "max_primitives_per_launch": int(config.max_primitives_per_launch),
+        "primitive_count_cap_status": "disabled" if int(config.max_primitives_per_launch) <= 0 else "diagnostic_cap_enabled",
+        "max_episode_time_s": float(config.max_episode_time_s),
+        "max_episode_steps_from_time_budget": int(
+            math.ceil(float(config.max_episode_time_s) / float(PRIMITIVE_FINITE_HORIZON_S))
+        ),
+        "smoke_outer_cases_per_block": int(config.smoke_outer_cases_per_block),
+        "smoke_run_not_full_gate_evidence": bool(int(config.smoke_outer_cases_per_block) > 0),
         "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
         "first_primitive_start_state_family": FIRST_PRIMITIVE_START_FAMILY,
         "post_launch_start_state_family": POST_LAUNCH_START_FAMILY,
@@ -2349,7 +2651,6 @@ def _write_manifest(
         if str(protocol.stage_id) == "R10"
         else (),
         "recovery_route_margin_m": float(RECOVERY_ROUTE_MARGIN_M),
-        "recovery_edge_min_speed_m_s": float(RECOVERY_EDGE_MIN_SPEED_M_S),
         "recovery_edge_max_abs_roll_rad": float(RECOVERY_EDGE_MAX_ABS_ROLL_RAD),
         "recovery_edge_max_abs_pitch_rad": float(RECOVERY_EDGE_MAX_ABS_PITCH_RAD),
         "recovery_edge_max_body_rate_rad_s": float(RECOVERY_EDGE_MAX_BODY_RATE_RAD_S),
@@ -2397,8 +2698,8 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Expected final held-out launches: `{protocol.expected_final_heldout_launches}`",
         f"- Expected history launches: `{protocol.expected_history_launches}`",
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
-        f"- Recovery route: `{BOUNDARY_RECOVERY_START_FAMILY}` below `{RECOVERY_ROUTE_MARGIN_M}` m safe margin, `{TERMINAL_SAFE_EXIT_START_FAMILY}` for degraded speed, attitude, rate, or boundary contact.",
-        f"- Launch score: `{LAUNCH_SCORE_VERSION}`; paired score deltas are audit evidence, not pass-gate substitutes.",
+        f"- Recovery route: `{BOUNDARY_RECOVERY_START_FAMILY}` below `{RECOVERY_ROUTE_MARGIN_M}` m safe margin, `{TERMINAL_SAFE_EXIT_START_FAMILY}` for degraded attitude, rate, or boundary contact.",
+        f"- Launch score: `{LAUNCH_SCORE_VERSION}`; rewards safe valid flight time and updraft-gain proxy, while net/gross energy drift remains audit-only.",
         "- Claim boundary: simulation-only; no hardware, real-flight transfer, mission, autonomy, or memory-improvement claim.",
         "",
         "Gate summary:",
@@ -2454,7 +2755,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--compression-level", type=int, default=1)
     parser.add_argument("--candidate-chunk-size", type=int, default=800)
     parser.add_argument("--dry-run-schedule", action="store_true")
-    parser.add_argument("--max-primitives-per-launch", type=int, default=4)
+    parser.add_argument(
+        "--max-primitives-per-launch",
+        type=int,
+        default=0,
+        help="Optional diagnostic primitive-count cap. Use 0 to disable the cap for full validation.",
+    )
+    parser.add_argument("--max-episode-time-s", type=float, default=DEFAULT_VALIDATION_MAX_EPISODE_TIME_S)
+    parser.add_argument("--smoke-outer-cases-per-block", type=int, default=0)
+    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--max-workers", type=int, default=None)
+    parser.add_argument("--worker-backend", choices=("thread", "process"), default="thread")
     return parser.parse_args(argv)
 
 
@@ -2473,10 +2784,15 @@ def main(argv: list[str] | None = None) -> int:
             candidate_chunk_size=args.candidate_chunk_size,
             dry_run_schedule=args.dry_run_schedule,
             max_primitives_per_launch=args.max_primitives_per_launch,
+            max_episode_time_s=args.max_episode_time_s,
+            smoke_outer_cases_per_block=args.smoke_outer_cases_per_block,
+            workers=args.workers,
+            max_workers=args.max_workers,
+            worker_backend=args.worker_backend,
         )
     )
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result["status"] in {"complete", "blocked", "dry_run_schedule"} else 1
+    return 0 if result["status"] in {"complete", "blocked", "dry_run_schedule", "smoke_run"} else 1
 
 
 if __name__ == "__main__":

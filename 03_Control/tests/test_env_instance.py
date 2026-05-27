@@ -60,6 +60,14 @@ def test_w01_active_annular_gp_training_modes_use_annular_gp_models() -> None:
     ) is not None
 
 
+def test_randomisation_defaults_do_not_duplicate_strength_or_position_channels() -> None:
+    cfg = EnvironmentRandomisationConfig()
+
+    assert cfg.fan_power_scale_range != (1.0, 1.0)
+    assert cfg.amplitude_scale_range == (1.0, 1.0)
+    assert cfg.centre_shift_range_m == (0.0, 0.0)
+
+
 def test_context_uses_conservative_nonzero_uncertainty_for_fitted_wind() -> None:
     instance = environment_instance_for_mode("W1", "gaussian_single", 11)
     state = archive_state_sample_for_row(0, seed=11, W_layer="W1", environment_mode="gaussian_single").state_vector

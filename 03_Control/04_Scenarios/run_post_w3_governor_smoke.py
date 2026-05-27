@@ -145,6 +145,9 @@ def _outcome_row(row: dict[str, object]) -> dict[str, object]:
         "terminal_useful_probability": float(row.get("episode_terminal_useful_rate", 0.0)),
         "hard_failure_risk": float(row.get("hard_failure_rate", 0.0)),
         "expected_energy_residual_m": float(row.get("expected_energy_residual_m", 0.0)),
+        "expected_updraft_gain_proxy_m": float(
+            row.get("expected_updraft_gain_proxy_m", max(float(row.get("expected_energy_residual_m", 0.0)), 0.0))
+        ),
         "expected_lift_dwell_time_s": float(row.get("expected_lift_dwell_time_s", 0.0)),
         "minimum_wall_margin_class": margin_class,
         "known_failure_boundaries": str(row.get("known_failure_boundaries", "")),
@@ -190,9 +193,14 @@ def _deterministic_context_rows(seed: int) -> list[dict[str, object]]:
                 "context": context,
                 "context_feature_vector": json.dumps([float(value) for value in context_feature_vector(context)]),
                 "wall_margin_m": float(context.wall_margin_m),
+                "all_wall_margin_m": float(context.all_wall_margin_m),
+                "front_wall_margin_m": float(context.front_wall_margin_m),
+                "left_wall_margin_m": float(context.left_wall_margin_m),
+                "right_wall_margin_m": float(context.right_wall_margin_m),
+                "rear_wall_margin_m": float(context.rear_wall_margin_m),
+                "governor_wall_margin_m": float(context.governor_wall_margin_m),
                 "floor_margin_m": float(context.floor_margin_m),
                 "ceiling_margin_m": float(context.ceiling_margin_m),
-                "speed_margin_m_s": float(context.speed_margin_m_s),
                 "attitude_margin_rad": float(context.attitude_margin_rad),
             }
         )
@@ -264,9 +272,14 @@ def _candidate_decision(
         "terminal_useful_probability": terminal_probability,
         "hard_failure_risk": hard_risk,
         "wall_margin_m": float(context_row["wall_margin_m"]),
+        "all_wall_margin_m": float(context_row.get("all_wall_margin_m", context_row["wall_margin_m"])),
+        "front_wall_margin_m": float(context_row.get("front_wall_margin_m", context_row["wall_margin_m"])),
+        "left_wall_margin_m": float(context_row.get("left_wall_margin_m", context_row["wall_margin_m"])),
+        "right_wall_margin_m": float(context_row.get("right_wall_margin_m", context_row["wall_margin_m"])),
+        "rear_wall_margin_m": float(context_row.get("rear_wall_margin_m", context_row["wall_margin_m"])),
+        "governor_wall_margin_m": float(context_row.get("governor_wall_margin_m", context_row["wall_margin_m"])),
         "floor_margin_m": float(context_row["floor_margin_m"]),
         "ceiling_margin_m": float(context_row["ceiling_margin_m"]),
-        "speed_margin_m_s": float(context_row["speed_margin_m_s"]),
         "claim_status": "simulation_only_governor_candidate_smoke",
     }
 
@@ -281,14 +294,14 @@ def _rejection_reason(
         start_state_family=str(context_row["start_state_family"]),
     ):
         return "entry_role_incompatible_start_family"
-    if float(context_row["wall_margin_m"]) < 0.05:
+    if float(context_row.get("governor_wall_margin_m", context_row["wall_margin_m"])) < 0.05:
         return "context_wall_margin_low"
     if float(context_row["floor_margin_m"]) < 0.0 or float(context_row["ceiling_margin_m"]) < 0.0:
         return "context_vertical_safety_violation"
-    if float(context_row["speed_margin_m_s"]) < 0.0:
-        return "context_speed_margin_low"
     if not representative.get("augmented_gain_checksum", ""):
         return "timing_payload_checksum_missing"
+    if not _representative_has_outcome_evidence(representative):
+        return "missing_outcome_evidence_for_candidate"
     hard_risk = float(representative.get("hard_failure_rate", 1.0))
     continuation_probability = float(representative.get("continuation_valid_rate", 0.0))
     terminal_probability = float(representative.get("episode_terminal_useful_rate", 0.0))
@@ -299,6 +312,21 @@ def _rejection_reason(
     if governor_mode == "terminal_episode_mode" and max(terminal_probability, continuation_probability) <= 0.0:
         return "terminal_and_continuation_probability_zero"
     return ""
+
+
+def _representative_has_outcome_evidence(representative: dict[str, object]) -> bool:
+    if "sample_count" in representative and float(representative.get("sample_count", 0.0) or 0.0) <= 0.0:
+        return False
+    return any(
+        key in representative
+        for key in (
+            "continuation_valid_rate",
+            "episode_terminal_useful_rate",
+            "hard_failure_rate",
+            "expected_updraft_gain_proxy_m",
+            "expected_lift_dwell_time_s",
+        )
+    )
 
 
 def _rejection_summary(candidate_rows: list[dict[str, object]]) -> pd.DataFrame:

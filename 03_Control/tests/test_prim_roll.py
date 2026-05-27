@@ -96,20 +96,18 @@ def test_rollout_evidence_row_contains_required_fields_and_claim_boundary() -> N
     assert isinstance(row["episode_terminal_useful"], bool)
 
 
-def test_low_speed_state_is_blocked_as_evidence_not_erased() -> None:
+def test_low_speed_state_is_simulated_not_blocked() -> None:
     state = _state(u_m_s=2.0)
+    config = RolloutConfig()
     evidence = simulate_primitive_rollout(
         rollout_id="rollout_low_speed",
         initial_state=state,
         context=_context(state),
         primitive=primitive_by_id("glide"),
+        config=config,
     )
 
-    assert evidence.outcome_class == "blocked"
-    assert evidence.accepted is False
-    assert evidence.failure_label == "speed_low"
-    assert evidence.entry_rejection_class == "speed_gate_blocked"
-    assert evidence.termination_cause == "speed_gate_blocked"
+    assert evidence.outcome_class != "blocked"
 
 
 def test_wall_margin_violation_is_retained_as_boundary_terminal() -> None:

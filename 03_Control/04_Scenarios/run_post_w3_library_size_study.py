@@ -345,6 +345,12 @@ def _representative_row(
         "hard_failure_count": int(float(row.get("hard_failure_count", 0))),
         "hard_failure_rate": float(row.get("hard_failure_rate", 0.0)),
         "expected_energy_residual_m": float(row.get("energy_residual_mean_m", 0.0)),
+        "expected_updraft_gain_proxy_m": float(
+            row.get("updraft_gain_proxy_mean_m", max(float(row.get("energy_residual_mean_m", 0.0)), 0.0))
+        ),
+        "expected_positive_specific_energy_gain_m": float(
+            row.get("positive_specific_energy_gain_mean_m", max(float(row.get("energy_residual_mean_m", 0.0)), 0.0))
+        ),
         "expected_lift_dwell_time_s": float(row.get("lift_dwell_mean_s", 0.0)),
         "minimum_wall_margin_min_m": float(row.get("minimum_wall_margin_min_m", 0.0)),
         "floor_margin_min_m": float(row.get("floor_margin_min_m", 0.0)),

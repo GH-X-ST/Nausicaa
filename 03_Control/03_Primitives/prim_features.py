@@ -23,7 +23,7 @@ from state_contract import STATE_INDEX, STATE_SIZE
 # =============================================================================
 # 1) Feature Schema
 # =============================================================================
-PRIMITIVE_FEATURE_SCHEMA_VERSION = "mixed_start_context_primitive_latency_uncertainty_v2"
+PRIMITIVE_FEATURE_SCHEMA_VERSION = "mixed_start_context_primitive_latency_uncertainty_no_speed_v3"
 PRIMITIVE_FEATURE_NAMES = (
     "start_state_family_code",
     "previous_primitive_status_code",

@@ -21,12 +21,13 @@ _bootstrap_import_paths()
 
 from dense_archive_runtime import MAX_GENERATED_FILE_SIZE_MB  # noqa: E402
 from dense_archive_table_io import filesystem_path  # noqa: E402
+from context_conditioned_outcome import CONTEXT_CONDITIONED_OUTCOME_MODEL_VERSION  # noqa: E402
 from primitive_timing_contract import primitive_timing_contract_row  # noqa: E402
 from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS, POST_W3_LIBRARY_STUDY_VERSION  # noqa: E402
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
-OUTCOME_MODEL_VERSION = "v53_five_case_library_size_outcome_model_v1"
+OUTCOME_MODEL_VERSION = "v53_context_conditioned_library_size_outcome_model_v2"
 DEFAULT_COMPACT_LIBRARY = Path(
     "03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/001/manifests/post_w3_library_size_study_manifest.json"
 )
@@ -90,6 +91,9 @@ def run_outcome_model_build(config: OutcomeModelBuildConfig) -> dict[str, object
         "representative_count": int(len(representatives)),
         "outcome_row_count": int(len(rows)),
         "prediction_source": "W3_summary_interpretable",
+        "runtime_context_conditioning_required": True,
+        "runtime_context_conditioning_version": CONTEXT_CONDITIONED_OUTCOME_MODEL_VERSION,
+        "runtime_context_conditioning_policy": "robust_downgrade_only_never_optimistic",
         "continuation_and_terminal_evidence_separate": True,
         "controller_mutation_allowed": False,
         "claim_status": "simulation_only_outcome_model_for_full_loop_validation",
@@ -154,6 +158,12 @@ def build_outcome_model_rows(
                 "terminal_useful_probability": _clamp_probability(representative.get("episode_terminal_useful_rate", 0.0)),
                 "hard_failure_risk": _clamp_probability(representative.get("hard_failure_rate", 1.0)),
                 "expected_energy_residual_m": _float(representative.get("expected_energy_residual_m", 0.0)),
+                "expected_updraft_gain_proxy_m": _float(
+                    representative.get(
+                        "expected_updraft_gain_proxy_m",
+                        max(_float(representative.get("expected_positive_specific_energy_gain_m", 0.0)), 0.0),
+                    )
+                ),
                 "expected_lift_dwell_time_s": _float(representative.get("expected_lift_dwell_time_s", 0.0)),
                 "minimum_wall_margin_min_m": wall_margin,
                 "floor_margin_min_m": floor_margin,
@@ -161,6 +171,13 @@ def build_outcome_model_rows(
                 "saturation_fraction_mean": _float(representative.get("saturation_fraction_mean", 0.0)),
                 "known_failure_boundaries": str(representative.get("known_failure_boundaries", "")),
                 "environment_coverage": str(representative.get("w3_environment_modes_seen", "")),
+                "runtime_context_conditioning_required": True,
+                "runtime_context_conditioning_version": CONTEXT_CONDITIONED_OUTCOME_MODEL_VERSION,
+                "runtime_context_conditioning_policy": "robust_downgrade_only_never_optimistic",
+                "context_conditioning_keys": (
+                    "library_size_case_id;compact_library_id;start_state_family;environment_class;"
+                    "local_w_wing;local_uncertainty;margins;environment_block;active_fan_count"
+                ),
                 "sample_count": int(
                     _float(representative.get("continuation_valid_count", 0.0))
                     + _float(representative.get("episode_terminal_useful_count", 0.0))

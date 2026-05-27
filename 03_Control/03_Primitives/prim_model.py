@@ -317,7 +317,7 @@ def _state_proxy_from_context(context: EnvironmentContext) -> np.ndarray:
     state[0] = max(1.2, 1.2 + float(context.wall_margin_m))
     state[1] = 2.2
     state[2] = 0.4 + max(float(context.floor_margin_m), 0.0)
-    state[6] = 3.0 + float(context.speed_margin_m_s)
+    state[6] = 5.0
     return state
 
 

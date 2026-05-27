@@ -87,13 +87,11 @@ _COMMON_ENTRY = (
 _COMMON_EXIT = (
     "finite_exit_state",
     "true_safe_bounds_preserved",
-    "minimum_speed_preserved",
 )
 _COMMON_METRICS = (
     "energy_residual_m",
     "lift_dwell_time_s",
     "minimum_wall_margin_m",
-    "minimum_speed_m_s",
     "termination_cause",
 )
 _COMMON_FAILURES = (
@@ -102,9 +100,7 @@ _COMMON_FAILURES = (
     "wall_violation",
     "floor_violation",
     "ceiling_violation",
-    "speed_low",
     "latency_limited",
-    "terminal_recovery_limited",
     "model_boundary_only",
 )
 

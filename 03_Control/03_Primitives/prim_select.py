@@ -13,6 +13,8 @@ from prim_model import (
     predict_primitive_outcome,
 )
 
+LEGACY_SELECTOR_STATUS = "legacy_smoke_selector_not_used_by_R9_R10_compact_library_governor"
+
 
 # =============================================================================
 # SECTION MAP
@@ -59,7 +61,7 @@ class PrimitiveSelectionResult:
     candidate_count: int
     viable_count: int
     decisions: tuple[PrimitiveCandidateDecision, ...]
-    claim_status: str = "simulation_only_model_scaffold"
+    claim_status: str = LEGACY_SELECTOR_STATUS
 
 
 # =============================================================================
@@ -75,12 +77,15 @@ def select_primitive(
     min_acceptance_probability: float = 0.20,
     max_uncertainty: float = 4.0,
     min_wall_margin_m: float = 0.10,
-    min_speed_margin_m_s: float = 0.0,
     min_attitude_margin_rad: float = 0.0,
     controller_registry: dict[str, LQRController] | None = None,
     require_controller_registry: bool = False,
 ) -> PrimitiveSelectionResult:
-    """Select a primitive through context features, model predictions, and viability."""
+    """Select a primitive through the legacy smoke/report path.
+
+    R9/R10 compact-library validation uses ``episode_selector`` plus
+    ``viability_governor`` instead of this scaffold.
+    """
 
     if governor_mode not in {"continuation", "terminal_episode"}:
         raise ValueError("governor_mode must be 'continuation' or 'terminal_episode'.")
@@ -100,7 +105,6 @@ def select_primitive(
             min_acceptance_probability=float(min_acceptance_probability),
             max_uncertainty=float(max_uncertainty),
             min_wall_margin_m=float(min_wall_margin_m),
-            min_speed_margin_m_s=float(min_speed_margin_m_s),
             min_attitude_margin_rad=float(min_attitude_margin_rad),
             controller_registry=controller_registry,
             require_controller_registry=bool(require_controller_registry),
@@ -140,7 +144,6 @@ def _candidate_decision(
     min_acceptance_probability: float,
     max_uncertainty: float,
     min_wall_margin_m: float,
-    min_speed_margin_m_s: float,
     min_attitude_margin_rad: float,
     controller_registry: dict[str, LQRController] | None,
     require_controller_registry: bool,
@@ -157,7 +160,6 @@ def _candidate_decision(
         min_acceptance_probability=min_acceptance_probability,
         max_uncertainty=max_uncertainty,
         min_wall_margin_m=min_wall_margin_m,
-        min_speed_margin_m_s=min_speed_margin_m_s,
         min_attitude_margin_rad=min_attitude_margin_rad,
     ) if not controller_rejection else controller_rejection
     viable = rejection_reason == ""
@@ -199,15 +201,12 @@ def _rejection_reason(
     min_acceptance_probability: float,
     max_uncertainty: float,
     min_wall_margin_m: float,
-    min_speed_margin_m_s: float,
     min_attitude_margin_rad: float,
 ) -> str:
     if context.wall_margin_m < min_wall_margin_m:
         return "context_wall_margin_low"
     if context.floor_margin_m < 0.0 or context.ceiling_margin_m < 0.0:
         return "context_vertical_safety_violation"
-    if context.speed_margin_m_s < min_speed_margin_m_s:
-        return "context_speed_margin_low"
     if context.attitude_margin_rad < min_attitude_margin_rad:
         return "context_attitude_margin_low"
     if prediction.uncertainty > max_uncertainty:
@@ -232,13 +231,11 @@ def _rejection_reason(
 def _hard_context_rejection(
     *,
     context: EnvironmentContext,
-    min_speed_margin_m_s: float,
     min_attitude_margin_rad: float,
 ) -> bool:
     return bool(
         context.floor_margin_m < 0.0
         or context.ceiling_margin_m < 0.0
-        or context.speed_margin_m_s < min(float(min_speed_margin_m_s), -0.5)
         or context.attitude_margin_rad < min(float(min_attitude_margin_rad), -0.1)
     )
 
@@ -270,22 +267,27 @@ def _selection_score(
     prediction: PrimitiveOutcomePrediction,
     governor_mode: str,
 ) -> float:
+    updraft_gain_proxy_m = _predicted_updraft_gain_proxy_m(prediction)
     if governor_mode == "terminal_episode":
         return float(
             0.80 * prediction.probability_episode_terminal_useful
             + 0.12 * prediction.predicted_lift_dwell_time_s
-            + 0.10 * prediction.predicted_energy_residual_m
+            + 0.10 * updraft_gain_proxy_m
             - 0.30 * prediction.probability_rejected
             - 0.40 * prediction.probability_blocked
             - 0.05 * prediction.uncertainty
         )
     return float(
         prediction.probability_continuation_valid
-        + 0.15 * prediction.predicted_energy_residual_m
+        + 0.15 * updraft_gain_proxy_m
         + 0.05 * prediction.predicted_continuation_margin_m
         - 0.40 * prediction.probability_episode_terminal_useful
         - 0.05 * prediction.uncertainty
     )
+
+
+def _predicted_updraft_gain_proxy_m(prediction: PrimitiveOutcomePrediction) -> float:
+    return max(float(prediction.predicted_energy_residual_m), 0.0)
 
 
 def primitive_selection_row(result: PrimitiveSelectionResult) -> dict[str, object]:

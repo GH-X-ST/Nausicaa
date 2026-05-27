@@ -3,28 +3,28 @@
   "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
   "status": "diagnostic_not_passed",
   "archive_root": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001",
-  "superseded_result_root_count": 52,
+  "superseded_result_root_count": 54,
   "required_docs": [
     {
       "doc_name": "Glider_Control_Project_Plan.md",
       "relative_path": "docs/Glider_Control_Project_Plan.md",
       "readable": true,
-      "byte_count": 72092,
-      "sha256": "cbaee0384fedaca1e7d494c910e4e63bb8c7f552b808fb141b7bd3d10945b02f"
+      "byte_count": 76872,
+      "sha256": "62b9d573fd96956c5ad0ca01e915b2668b3d9f2195c0211e0596c732818511d5"
     },
     {
       "doc_name": "Skills.md",
       "relative_path": "docs/Skills.md",
       "readable": true,
-      "byte_count": 11142,
-      "sha256": "61042659df2fceb7dc1141d6327a4e7514c5eb9672e64413dd9614a5bd048206"
+      "byte_count": 13200,
+      "sha256": "d9ec3e56db2dd1533f78fde7e8064c481c77ad0b92e06476ddfab2ec51d62606"
     },
     {
       "doc_name": "Python Coding Instruction.txt",
       "relative_path": "docs/Python Coding Instruction.txt",
       "readable": true,
-      "byte_count": 8900,
-      "sha256": "9edea6d77e24c7f696edb4a2cf39eb2a66f70edee668e48e8dba4b03412ee19d"
+      "byte_count": 11707,
+      "sha256": "bc3a62974d53f99e60b27916011524334bee7afb14d2177d69e41a5cf3a6806a"
     },
     {
       "doc_name": "Python Coding to CODEX.txt",
@@ -51,8 +51,8 @@
       "doc_name": "Daily_Schedule.txt",
       "relative_path": "docs/Daily_Schedule.txt",
       "readable": true,
-      "byte_count": 22692,
-      "sha256": "e7b47f4752f92b9b23469996e4917b395d37656924ee9c4bfd320d9b1ba80201"
+      "byte_count": 23184,
+      "sha256": "281ba888ba82a23cf168112f74d53fcbe04d8fec1d6f2f110b5354fad4ea3b37"
     },
     {
       "doc_name": "PR.txt",
@@ -64,9 +64,9 @@
   ],
   "inventory_counts": {
     "active_foundation": 16,
-    "active_repair_cycle": 163,
+    "active_repair_cycle": 165,
     "retired_not_active": 366,
-    "generated_result": 13339,
+    "generated_result": 15298,
     "test_fixture": 216
   },
   "archived_result_roots_csv": "03_Control/05_Results/lqr_contextual_v1_0/archive/diagnostic_not_passed_v410/001/archived_result_roots.csv",

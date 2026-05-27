@@ -90,7 +90,6 @@ def test_v48_governor_rejects_incompatible_without_controller_failure() -> None:
         "wall_margin_m": 1.0,
         "floor_margin_m": 1.0,
         "ceiling_margin_m": 1.0,
-        "speed_margin_m_s": 1.0,
     }
 
     row = governor_candidate_row(

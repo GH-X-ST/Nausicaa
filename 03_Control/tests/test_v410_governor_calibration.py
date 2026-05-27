@@ -46,7 +46,7 @@ def test_default_governor_config_reproduces_v49_scores() -> None:
         continuation_probability=0.4,
         terminal_useful_probability=0.2,
         hard_failure_risk=0.3,
-        expected_energy_residual_m=0.1,
+        expected_updraft_gain_proxy_m=0.1,
         expected_lift_dwell_time_s=0.5,
         wall_margin_m=0.6,
         belief_local_lift_m_s=0.7,
@@ -57,15 +57,15 @@ def test_default_governor_config_reproduces_v49_scores() -> None:
         continuation_probability=0.4,
         terminal_useful_probability=0.2,
         hard_failure_risk=0.3,
-        expected_energy_residual_m=0.1,
+        expected_updraft_gain_proxy_m=0.1,
         expected_lift_dwell_time_s=0.5,
         wall_margin_m=0.6,
         belief_local_lift_m_s=0.7,
         governor_config=DEFAULT_GOVERNOR_CONFIG,
     )
 
-    assert continuation == pytest.approx(0.4 - 0.3 * 0.2 - 0.8 * 0.3 + 0.04 * 0.1 + 0.03 * 0.5 + 0.02 * 0.6 + 0.05 * 0.7)
-    assert terminal == pytest.approx(1.10 * 0.2 + 0.25 * 0.4 - 0.75 * 0.3 + 0.05 * 0.1 + 0.04 * 0.5 + 0.01 * 0.6 + 0.05 * 0.7)
+    assert continuation == pytest.approx(0.4 - 0.3 * 0.2 - 0.8 * 0.3 + 0.04 * 0.1 + 0.03 * 0.5 + 0.05 * 0.7)
+    assert terminal == pytest.approx(1.10 * 0.2 + 0.25 * 0.4 - 0.75 * 0.3 + 0.05 * 0.1 + 0.04 * 0.5 + 0.05 * 0.7)
 
 
 def test_belief_weight_changes_score_when_belief_nonzero() -> None:
@@ -74,7 +74,7 @@ def test_belief_weight_changes_score_when_belief_nonzero() -> None:
         continuation_probability=0.2,
         terminal_useful_probability=0.1,
         hard_failure_risk=0.2,
-        expected_energy_residual_m=0.0,
+        expected_updraft_gain_proxy_m=0.0,
         expected_lift_dwell_time_s=0.0,
         wall_margin_m=0.1,
         belief_local_lift_m_s=0.0,
@@ -85,7 +85,7 @@ def test_belief_weight_changes_score_when_belief_nonzero() -> None:
         continuation_probability=0.2,
         terminal_useful_probability=0.1,
         hard_failure_risk=0.2,
-        expected_energy_residual_m=0.0,
+        expected_updraft_gain_proxy_m=0.0,
         expected_lift_dwell_time_s=0.0,
         wall_margin_m=0.1,
         belief_local_lift_m_s=1.0,
@@ -133,7 +133,6 @@ def test_candidate_diagnostics_include_memory_and_rank_fields() -> None:
         "wall_margin_m": 1.0,
         "floor_margin_m": 1.0,
         "ceiling_margin_m": 1.0,
-        "speed_margin_m_s": 1.0,
     }
 
     selected, rows = select_compact_representative(

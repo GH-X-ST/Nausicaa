@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+from primitive_timing_contract import PRIMITIVE_FINITE_HORIZON_S
 from primitive_variant_registry import start_family_is_compatible
 
 
@@ -10,9 +11,9 @@ REJECTION_REASONS = (
     "entry_role_incompatible_start_family",
     "context_wall_margin_low",
     "context_vertical_safety_violation",
-    "context_speed_margin_low",
     "timing_payload_checksum_missing",
     "known_hard_failure_boundary_high",
+    "missing_outcome_evidence_for_candidate",
     "continuation_probability_zero",
     "terminal_and_continuation_probability_zero",
     "primitive_not_in_compact_library",
@@ -24,14 +25,12 @@ REJECTION_REASONS = (
 class GovernorConfig:
     config_id: str
     minimum_wall_margin_m: float
-    minimum_speed_margin_m_s: float
     maximum_hard_failure_risk: float
     continuation_weight: float
     terminal_weight: float
     hard_failure_weight: float
-    energy_weight: float
+    updraft_gain_weight: float
     lift_dwell_weight: float
-    wall_margin_weight: float
     belief_weight: float
     exploration_bonus_weight: float
     no_viable_penalty: float
@@ -40,22 +39,19 @@ class GovernorConfig:
     terminal_continuation_weight: float
     terminal_terminal_weight: float
     terminal_hard_failure_weight: float
-    terminal_energy_weight: float
+    terminal_updraft_gain_weight: float
     terminal_lift_dwell_weight: float
-    terminal_wall_margin_weight: float
 
 
 DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
     config_id="v411_viability_filtered_safe_exploration_governor",
     minimum_wall_margin_m=0.05,
-    minimum_speed_margin_m_s=0.0,
     maximum_hard_failure_risk=0.75,
     continuation_weight=1.00,
     terminal_weight=-0.30,
     hard_failure_weight=-0.80,
-    energy_weight=0.04,
+    updraft_gain_weight=0.04,
     lift_dwell_weight=0.03,
-    wall_margin_weight=0.02,
     belief_weight=0.05,
     exploration_bonus_weight=0.02,
     no_viable_penalty=-1.0,
@@ -64,16 +60,14 @@ DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
     terminal_continuation_weight=0.25,
     terminal_terminal_weight=1.10,
     terminal_hard_failure_weight=-0.75,
-    terminal_energy_weight=0.05,
+    terminal_updraft_gain_weight=0.05,
     terminal_lift_dwell_weight=0.04,
-    terminal_wall_margin_weight=0.01,
 )
 
 
 @dataclass(frozen=True)
 class GovernorThresholds:
     minimum_wall_margin_m: float = DEFAULT_GOVERNOR_CONFIG.minimum_wall_margin_m
-    minimum_speed_margin_m_s: float = DEFAULT_GOVERNOR_CONFIG.minimum_speed_margin_m_s
     maximum_hard_failure_risk: float = DEFAULT_GOVERNOR_CONFIG.maximum_hard_failure_risk
 
 
@@ -85,6 +79,10 @@ def governor_config_to_row(config: GovernorConfig) -> dict[str, object]:
 
 def governor_config_from_row(row: dict[str, object]) -> GovernorConfig:
     values = asdict(DEFAULT_GOVERNOR_CONFIG)
+    if "updraft_gain_weight" not in row and "energy_weight" in row:
+        values["updraft_gain_weight"] = row["energy_weight"]
+    if "terminal_updraft_gain_weight" not in row and "terminal_energy_weight" in row:
+        values["terminal_updraft_gain_weight"] = row["terminal_energy_weight"]
     values.update({key: row[key] for key in values if key in row})
     values["config_id"] = str(values["config_id"])
     for key, value in list(values.items()):
@@ -119,9 +117,14 @@ def governor_candidate_row(
     continuation_probability = _float(outcome.get("continuation_probability", 0.0))
     terminal_probability = _float(outcome.get("terminal_useful_probability", 0.0))
     hard_failure_risk = _float(outcome.get("hard_failure_risk", 1.0))
-    energy = _float(outcome.get("expected_energy_residual_m", 0.0))
+    expected_energy_residual_m = _float(outcome.get("expected_energy_residual_m", 0.0))
+    updraft_gain = _float(outcome.get("expected_updraft_gain_proxy_m", 0.0))
+    score_updraft_gain = _contextual_updraft_gain_proxy_m(
+        expected_updraft_gain_proxy_m=updraft_gain,
+        context=context,
+    )
     dwell = _float(outcome.get("expected_lift_dwell_time_s", 0.0))
-    wall_margin = _float(context.get("wall_margin_m", 0.0))
+    wall_margin = _governor_wall_margin(context)
     belief_features = belief_features or {}
     belief_local = _float(
         belief_features.get(
@@ -130,6 +133,12 @@ def governor_candidate_row(
         )
     )
     belief_energy = _float(belief_features.get("belief_local_energy_residual_m", 0.0))
+    belief_updraft_gain = _float(
+        belief_features.get(
+            "belief_local_updraft_gain_proxy_m",
+            max(belief_energy, 0.0),
+        )
+    )
     belief_dwell = _float(belief_features.get("belief_local_dwell_residual_s", 0.0))
     belief_mean = _float(belief_features.get("belief_mean_lift_m_s", belief_local))
     belief_max = _float(belief_features.get("belief_max_lift_m_s", belief_local))
@@ -141,7 +150,7 @@ def governor_candidate_row(
         continuation_probability=continuation_probability,
         terminal_useful_probability=terminal_probability,
         hard_failure_risk=hard_failure_risk,
-        expected_energy_residual_m=energy,
+        expected_updraft_gain_proxy_m=score_updraft_gain,
         expected_lift_dwell_time_s=dwell,
         wall_margin_m=wall_margin,
         belief_local_lift_m_s=0.0,
@@ -152,7 +161,7 @@ def governor_candidate_row(
         continuation_probability=continuation_probability,
         terminal_useful_probability=terminal_probability,
         hard_failure_risk=hard_failure_risk,
-        expected_energy_residual_m=energy,
+        expected_updraft_gain_proxy_m=score_updraft_gain,
         expected_lift_dwell_time_s=dwell,
         wall_margin_m=wall_margin,
         belief_local_lift_m_s=belief_local,
@@ -216,6 +225,7 @@ def governor_candidate_row(
         "belief_version": str(belief_features.get("belief_version", "")),
         "belief_local_lift_m_s": belief_local,
         "belief_local_lift_residual_m_s": belief_local,
+        "belief_local_updraft_gain_proxy_m": belief_updraft_gain,
         "belief_local_energy_residual_m": belief_energy,
         "belief_local_dwell_residual_s": belief_dwell,
         "belief_mean_lift_m_s": belief_mean,
@@ -228,12 +238,20 @@ def governor_candidate_row(
         "continuation_probability": continuation_probability,
         "terminal_useful_probability": terminal_probability,
         "hard_failure_risk": hard_failure_risk,
-        "expected_energy_residual_m": energy,
+        "expected_energy_residual_m": expected_energy_residual_m,
+        "expected_updraft_gain_proxy_m": updraft_gain,
+        "score_updraft_gain_proxy_m": score_updraft_gain,
+        "context_conditioned_outcome_score_version": "context_limited_updraft_gain_proxy_v1",
         "expected_lift_dwell_time_s": dwell,
-        "wall_margin_m": wall_margin,
+        "wall_margin_m": _float(context.get("wall_margin_m", wall_margin)),
+        "all_wall_margin_m": _float(context.get("all_wall_margin_m", context.get("wall_margin_m", 0.0))),
+        "front_wall_margin_m": _float(context.get("front_wall_margin_m", context.get("wall_margin_m", 0.0))),
+        "left_wall_margin_m": _float(context.get("left_wall_margin_m", context.get("wall_margin_m", 0.0))),
+        "right_wall_margin_m": _float(context.get("right_wall_margin_m", context.get("wall_margin_m", 0.0))),
+        "rear_wall_margin_m": _float(context.get("rear_wall_margin_m", context.get("wall_margin_m", 0.0))),
+        "governor_wall_margin_m": wall_margin,
         "floor_margin_m": _float(context.get("floor_margin_m", 0.0)),
         "ceiling_margin_m": _float(context.get("ceiling_margin_m", 0.0)),
-        "speed_margin_m_s": _float(context.get("speed_margin_m_s", 0.0)),
         "claim_status": "simulation_only_viability_governor_candidate",
     }
 
@@ -263,17 +281,17 @@ def governor_rejection_reason(
         "inflight_boundary_near",
         "inflight_recovery_edge",
     }
-    if _float(context.get("wall_margin_m", 0.0)) < float(cfg.minimum_wall_margin_m) and not recovery_route:
+    if _governor_wall_margin(context) < float(cfg.minimum_wall_margin_m) and not recovery_route:
         return "context_wall_margin_low"
     if _float(context.get("floor_margin_m", 0.0)) < 0.0 or _float(context.get("ceiling_margin_m", 0.0)) < 0.0:
         return "context_vertical_safety_violation"
-    if _float(context.get("speed_margin_m_s", 0.0)) < float(cfg.minimum_speed_margin_m_s):
-        return "context_speed_margin_low"
     if not _has_timing_payload(representative):
         return "timing_payload_checksum_missing"
     latency_case = str(context.get("latency_case", "nominal"))
     if latency_case not in {"none", "nominal", "conservative"}:
         return "unsupported_feedback_or_latency_case"
+    if not _has_outcome_evidence(outcome):
+        return "missing_outcome_evidence_for_candidate"
     hard_failure_risk = _float(outcome.get("hard_failure_risk", 1.0))
     if hard_failure_risk > float(cfg.maximum_hard_failure_risk):
         return "known_hard_failure_boundary_high"
@@ -292,7 +310,7 @@ def governor_score(
     continuation_probability: float,
     terminal_useful_probability: float,
     hard_failure_risk: float,
-    expected_energy_residual_m: float,
+    expected_updraft_gain_proxy_m: float,
     expected_lift_dwell_time_s: float,
     wall_margin_m: float,
     belief_local_lift_m_s: float = 0.0,
@@ -307,9 +325,8 @@ def governor_score(
             + cfg.terminal_terminal_weight * float(terminal_useful_probability)
             + cfg.terminal_continuation_weight * float(continuation_probability)
             + cfg.terminal_hard_failure_weight * float(hard_failure_risk)
-            + cfg.terminal_energy_weight * float(expected_energy_residual_m)
+            + cfg.terminal_updraft_gain_weight * float(expected_updraft_gain_proxy_m)
             + cfg.terminal_lift_dwell_weight * float(expected_lift_dwell_time_s)
-            + cfg.terminal_wall_margin_weight * float(wall_margin_m)
             + cfg.belief_weight * float(belief_local_lift_m_s)
         )
     return (
@@ -317,9 +334,8 @@ def governor_score(
         + cfg.continuation_weight * float(continuation_probability)
         + cfg.terminal_weight * float(terminal_useful_probability)
         + cfg.hard_failure_weight * float(hard_failure_risk)
-        + cfg.energy_weight * float(expected_energy_residual_m)
+        + cfg.updraft_gain_weight * float(expected_updraft_gain_proxy_m)
         + cfg.lift_dwell_weight * float(expected_lift_dwell_time_s)
-        + cfg.wall_margin_weight * float(wall_margin_m)
         + cfg.belief_weight * float(belief_local_lift_m_s)
     )
 
@@ -330,9 +346,12 @@ def _config_from_thresholds(thresholds: GovernorThresholds | None) -> GovernorCo
     values = asdict(DEFAULT_GOVERNOR_CONFIG)
     values["config_id"] = "legacy_threshold_override"
     values["minimum_wall_margin_m"] = float(thresholds.minimum_wall_margin_m)
-    values["minimum_speed_margin_m_s"] = float(thresholds.minimum_speed_margin_m_s)
     values["maximum_hard_failure_risk"] = float(thresholds.maximum_hard_failure_risk)
     return GovernorConfig(**values)
+
+
+def _governor_wall_margin(context: dict[str, object]) -> float:
+    return _float(context.get("governor_wall_margin_m", context.get("wall_margin_m", 0.0)))
 
 
 def _has_timing_payload(representative: dict[str, object]) -> bool:
@@ -349,6 +368,35 @@ def _has_timing_payload(representative: dict[str, object]) -> bool:
         "primitive_timing_contract_version",
     )
     return all(bool(str(representative.get(key, ""))) for key in required)
+
+
+def _has_outcome_evidence(outcome: dict[str, object]) -> bool:
+    if not outcome:
+        return False
+    if "sample_count" in outcome and _float(outcome.get("sample_count", 0.0)) <= 0.0:
+        return False
+    evidence_keys = (
+        "continuation_probability",
+        "terminal_useful_probability",
+        "hard_failure_risk",
+        "expected_updraft_gain_proxy_m",
+        "expected_lift_dwell_time_s",
+    )
+    return any(key in outcome for key in evidence_keys)
+
+
+def _contextual_updraft_gain_proxy_m(
+    *,
+    expected_updraft_gain_proxy_m: float,
+    context: dict[str, object],
+) -> float:
+    local_wing_lift = max(_float(context.get("w_wing_mean_m_s", 0.0)), 0.0)
+    local_one_primitive_proxy = local_wing_lift * float(PRIMITIVE_FINITE_HORIZON_S)
+    expected = max(float(expected_updraft_gain_proxy_m), 0.0)
+    if expected <= 0.0:
+        return float(local_one_primitive_proxy)
+    context_tolerance = 0.05 if local_one_primitive_proxy > 0.0 else 0.0
+    return float(min(expected, local_one_primitive_proxy + context_tolerance))
 
 
 def _safe_exploration_bonus(

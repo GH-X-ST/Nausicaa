@@ -279,13 +279,15 @@ def _load_context_samples(full_loop_root: Path, limit: int) -> list[dict[str, ob
         "start_state_family",
         "governor_mode",
         "wall_margin_m",
+        "governor_wall_margin_m",
         "floor_margin_m",
         "ceiling_margin_m",
-        "speed_margin_m_s",
         "belief_local_lift_m_s",
         "belief_mean_lift_m_s",
         "belief_max_lift_m_s",
     ]
+    if "governor_wall_margin_m" not in frame.columns:
+        frame["governor_wall_margin_m"] = frame["wall_margin_m"]
     return frame[columns].drop_duplicates().head(int(limit)).to_dict(orient="records")
 
 

@@ -81,9 +81,39 @@ def test_w0_dry_air_context_has_zero_wind_and_safety_margins() -> None:
     assert context.wind_mode == "none"
     assert context.surrogate_binding_status == "ready"
     assert context.wall_margin_m > 0.0
+    assert context.all_wall_margin_m == context.wall_margin_m
+    assert context.governor_wall_margin_m >= context.wall_margin_m
+    assert context.front_wall_margin_m > 0.0
+    assert context.left_wall_margin_m > 0.0
+    assert context.right_wall_margin_m > 0.0
+    assert context.rear_wall_margin_m > 0.0
     assert context.floor_margin_m > 0.0
     assert context.ceiling_margin_m > 0.0
-    assert context.speed_margin_m_s > 0.0
+
+
+def test_heading_aware_governor_margin_does_not_reject_rear_wall_only() -> None:
+    state = _state()
+    state[STATE_INDEX["x_w"]] = 1.22
+    state[STATE_INDEX["y_w"]] = 2.05
+    state[STATE_INDEX["psi"]] = 0.44
+    metadata = EnvironmentMetadata(environment_id="W0_dry", fan_count=0)
+    binding = resolve_surrogate_binding("W0", metadata)
+
+    context = build_environment_context(
+        state,
+        wind_field=None,
+        metadata=metadata,
+        latency_case="none",
+        actuator_case="nominal",
+        surrogate_binding=binding,
+    )
+
+    assert context.wall_margin_m < 0.05
+    assert context.rear_wall_margin_m < 0.05
+    assert context.front_wall_margin_m > 0.05
+    assert context.left_wall_margin_m > 0.05
+    assert context.right_wall_margin_m > 0.05
+    assert context.governor_wall_margin_m > 0.05
 
 
 def test_w1_measured_updraft_context_uses_same_interface() -> None:
@@ -110,7 +140,7 @@ def test_w1_measured_updraft_context_uses_same_interface() -> None:
     assert context.updraft_model_id == "single_gaussian_var"
     assert context.updraft_model_source.endswith("single_var_params.xlsx")
     assert context.surrogate_family == "gaussian_plume"
-    assert len(context_feature_vector(context)) == 13
+    assert len(context_feature_vector(context)) == 12
     assert np.all(np.isfinite(context_feature_vector(context)))
 
 
@@ -137,7 +167,7 @@ def test_w2_context_keeps_annular_gp_as_metadata_not_online_branch() -> None:
     assert context.W_layer == "W2"
     assert context.wind_mode == "panel"
     assert context.surrogate_family == "gp_corrected_annular_gaussian"
-    assert len(context_feature_vector(context)) == 13
+    assert len(context_feature_vector(context)) == 12
 
 
 def test_shifted_and_power_scaled_environment_metadata_is_audit_only() -> None:

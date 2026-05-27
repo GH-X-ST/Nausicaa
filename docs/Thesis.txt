@@ -179,7 +179,7 @@ Do not claim real-flight transfer, mission success, hardware readiness, or full 
 Good caption pattern:
 
 ```text
-Environment-conditioned primitive outcome map under measured-updraft replay. Accepted cases occupy high wing-mean wind and adequate wall-margin regions, while low-speed cases remain rejected by the governor.
+Environment-conditioned primitive outcome map under measured-updraft replay. Accepted cases occupy high wing-mean wind and physically valid boundary regions, while rejected cases are labelled by governor reason rather than by speed margin.
 ```
 
 Bad caption pattern:

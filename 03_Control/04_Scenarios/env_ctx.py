@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 
-from arena_contract import TRUE_SAFE_BOUNDS, BoxBounds, position_margin_m
+from arena_contract import TRUE_SAFE_BOUNDS, BoxBounds, heading_aligned_wall_margins_m, position_margin_m
 from env_surrogate import READY_STATUS, SurrogateBinding
 from latency import LATENCY_CASES
 from state_contract import STATE_INDEX, as_state_vector
@@ -39,9 +39,14 @@ ENV_CONTEXT_COLUMNS = (
     "lift_direction_x",
     "lift_direction_y",
     "wall_margin_m",
+    "all_wall_margin_m",
+    "front_wall_margin_m",
+    "left_wall_margin_m",
+    "right_wall_margin_m",
+    "rear_wall_margin_m",
+    "governor_wall_margin_m",
     "floor_margin_m",
     "ceiling_margin_m",
-    "speed_margin_m_s",
     "attitude_margin_rad",
     "latency_case",
     "actuator_case",
@@ -81,7 +86,6 @@ NUMERIC_CONTEXT_FEATURES = (
     "wall_margin_m",
     "floor_margin_m",
     "ceiling_margin_m",
-    "speed_margin_m_s",
     "attitude_margin_rad",
 )
 
@@ -120,9 +124,14 @@ class EnvironmentContext:
     lift_direction_x: float
     lift_direction_y: float
     wall_margin_m: float
+    all_wall_margin_m: float
+    front_wall_margin_m: float
+    left_wall_margin_m: float
+    right_wall_margin_m: float
+    rear_wall_margin_m: float
+    governor_wall_margin_m: float
     floor_margin_m: float
     ceiling_margin_m: float
-    speed_margin_m_s: float
     attitude_margin_rad: float
     latency_case: str
     actuator_case: str
@@ -162,7 +171,6 @@ def build_environment_context(
     actuator_case: str = "nominal",
     surrogate_binding: SurrogateBinding | None = None,
     bounds: BoxBounds = TRUE_SAFE_BOUNDS,
-    minimum_speed_m_s: float = 3.0,
     attitude_limit_rad: float = np.deg2rad(45.0),
     wing_config: WingWindDescriptorConfig | None = None,
 ) -> EnvironmentContext:
@@ -206,7 +214,11 @@ def build_environment_context(
         config=wing_config,
     )
     margins = position_margin_m(x[:3], bounds)
-    speed_m_s = float(np.linalg.norm(x[6:9]))
+    heading_margins = heading_aligned_wall_margins_m(
+        x[:3],
+        float(x[STATE_INDEX["psi"]]),
+        bounds,
+    )
     max_attitude_rad = float(max(abs(x[STATE_INDEX["phi"]]), abs(x[STATE_INDEX["theta"]])))
     w_local_uncertainty, w_local_uncertainty_status = _local_uncertainty_for_context(
         descriptor=descriptor,
@@ -234,9 +246,14 @@ def build_environment_context(
         lift_direction_x=lift_direction_x,
         lift_direction_y=lift_direction_y,
         wall_margin_m=float(margins["min_wall_margin_m"]),
+        all_wall_margin_m=float(heading_margins["all_wall_margin_m"]),
+        front_wall_margin_m=float(heading_margins["front_wall_margin_m"]),
+        left_wall_margin_m=float(heading_margins["left_wall_margin_m"]),
+        right_wall_margin_m=float(heading_margins["right_wall_margin_m"]),
+        rear_wall_margin_m=float(heading_margins["rear_wall_margin_m"]),
+        governor_wall_margin_m=float(heading_margins["governor_wall_margin_m"]),
         floor_margin_m=float(margins["floor_margin_m"]),
         ceiling_margin_m=float(margins["ceiling_margin_m"]),
-        speed_margin_m_s=float(speed_m_s - float(minimum_speed_m_s)),
         attitude_margin_rad=float(float(attitude_limit_rad) - max_attitude_rad),
         latency_case=str(latency_case),
         actuator_case=str(actuator_case),

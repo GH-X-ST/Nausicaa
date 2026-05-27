@@ -78,6 +78,71 @@ def position_margin_m(position_w: np.ndarray, bounds: BoxBounds) -> dict[str, fl
     }
 
 
+def heading_aligned_wall_margins_m(
+    position_w: np.ndarray,
+    heading_rad: float,
+    bounds: BoxBounds,
+) -> dict[str, float]:
+    """Return front/side/rear wall clearances relative to the heading.
+
+    The all-wall minimum remains the hard safety audit value. The governor
+    clearance deliberately excludes the rear wall for forward-moving flight so
+    a launch near the wall behind the aircraft is not rejected before rollout.
+    """
+
+    margins = position_margin_m(position_w, bounds)
+    all_wall_margin = float(margins["min_wall_margin_m"])
+    if all_wall_margin < 0.0:
+        return {
+            "front_wall_margin_m": all_wall_margin,
+            "left_wall_margin_m": all_wall_margin,
+            "right_wall_margin_m": all_wall_margin,
+            "rear_wall_margin_m": all_wall_margin,
+            "all_wall_margin_m": all_wall_margin,
+            "governor_wall_margin_m": all_wall_margin,
+        }
+
+    heading = float(heading_rad)
+    forward = np.array([np.cos(heading), np.sin(heading)], dtype=float)
+    left = np.array([-forward[1], forward[0]], dtype=float)
+    right = -left
+    x_min, x_max = margins["x_min_margin_m"], margins["x_max_margin_m"]
+    y_min, y_max = margins["y_min_margin_m"], margins["y_max_margin_m"]
+    faces = (
+        ("x_min", float(x_min), np.array([-1.0, 0.0], dtype=float)),
+        ("x_max", float(x_max), np.array([1.0, 0.0], dtype=float)),
+        ("y_min", float(y_min), np.array([0.0, -1.0], dtype=float)),
+        ("y_max", float(y_max), np.array([0.0, 1.0], dtype=float)),
+    )
+    rear_exclusion_cos = -0.5
+    side_or_front = [margin for _, margin, normal in faces if float(np.dot(normal, forward)) >= rear_exclusion_cos]
+    front = [margin for _, margin, normal in faces if float(np.dot(normal, forward)) > 0.5]
+    left_side = [
+        margin
+        for _, margin, normal in faces
+        if float(np.dot(normal, left)) > 0.0 and float(np.dot(normal, forward)) >= rear_exclusion_cos
+    ]
+    right_side = [
+        margin
+        for _, margin, normal in faces
+        if float(np.dot(normal, right)) > 0.0 and float(np.dot(normal, forward)) >= rear_exclusion_cos
+    ]
+    rear = [margin for _, margin, normal in faces if float(np.dot(normal, forward)) < rear_exclusion_cos]
+    front_margin = float(min(front or side_or_front or [all_wall_margin]))
+    left_margin = float(min(left_side or side_or_front or [all_wall_margin]))
+    right_margin = float(min(right_side or side_or_front or [all_wall_margin]))
+    rear_margin = float(min(rear or [all_wall_margin]))
+    governor_margin = float(min(side_or_front or [all_wall_margin]))
+    return {
+        "front_wall_margin_m": front_margin,
+        "left_wall_margin_m": left_margin,
+        "right_wall_margin_m": right_margin,
+        "rear_wall_margin_m": rear_margin,
+        "all_wall_margin_m": all_wall_margin,
+        "governor_wall_margin_m": governor_margin,
+    }
+
+
 def inside_bounds(position_w: np.ndarray, bounds: BoxBounds) -> bool:
     """Return True if position is inside the selected bounds."""
 

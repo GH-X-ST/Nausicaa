@@ -73,6 +73,18 @@ FULL_LOOP_VERSION = "v49_paired_full_loop_memory_validation_v1"
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/full_loop_validation")
 PAIRED_SCHEDULE_VERSION = "v49_common_random_paired_episode_schedule_v1"
 STATIC_MAP_PRIOR_VERSION = "v49_surrogate_grid_static_lift_prior_v1"
+PHYSICAL_HARD_FAILURE_LABELS = {
+    "floor_violation",
+    "ceiling_violation",
+    "z_boundary_exit",
+    "initial_floor_violation",
+    "initial_ceiling_violation",
+    "nonfinite_initial_state",
+    "nonfinite_trajectory",
+    "corrupt_integration",
+    "physically_impossible_initial_state",
+    "true_safety_violation",
+}
 ENVIRONMENT_CASES = (
     ("W0", "dry_air"),
     ("W1", "gaussian_single"),
@@ -519,7 +531,7 @@ def _run_episode(
         )
         continuation_valid = bool(rollout_row["continuation_valid"])
         terminal_useful = bool(rollout_row["episode_terminal_useful"])
-        hard_failure = str(rollout_row["boundary_use_class"]) == "hard_failure" or str(rollout_row["outcome_class"]) == "failed"
+        hard_failure = _rollout_row_is_hard_failure(rollout_row)
         total_duration_s += float(primitive.finite_horizon_s)
         state = as_state_vector(np.asarray(json.loads(str(rollout_row["exit_state_vector"])), dtype=float))
         start_family = "inflight_nominal"
@@ -698,9 +710,14 @@ def _context_payload(
         "start_state_family": start_state_family,
         "latency_case": latency_case,
         "wall_margin_m": float(context.wall_margin_m),
+        "all_wall_margin_m": float(context.all_wall_margin_m),
+        "front_wall_margin_m": float(context.front_wall_margin_m),
+        "left_wall_margin_m": float(context.left_wall_margin_m),
+        "right_wall_margin_m": float(context.right_wall_margin_m),
+        "rear_wall_margin_m": float(context.rear_wall_margin_m),
+        "governor_wall_margin_m": float(context.governor_wall_margin_m),
         "floor_margin_m": float(context.floor_margin_m),
         "ceiling_margin_m": float(context.ceiling_margin_m),
-        "speed_margin_m_s": float(context.speed_margin_m_s),
         "w_wing_mean_m_s": float(context.w_wing_mean_m_s),
         "fan_count": int(context.fan_count),
         "updraft_model_id": context.updraft_model_id,
@@ -946,7 +963,7 @@ def _prediction_alignment_row(
 ) -> dict[str, object]:
     actual_continuation = bool(rollout_row.get("continuation_valid", False))
     actual_terminal = bool(rollout_row.get("episode_terminal_useful", False))
-    actual_hard_failure = str(rollout_row.get("boundary_use_class", "")) == "hard_failure" or str(rollout_row.get("outcome_class", "")) == "failed"
+    actual_hard_failure = _rollout_row_is_hard_failure(rollout_row)
     return {
         "episode_id": episode_id,
         "paired_episode_index": int(paired_episode_index),
@@ -968,6 +985,15 @@ def _prediction_alignment_row(
         "prediction_actual_agree_hard_failure": bool((float(outcome.get("hard_failure_risk", 1.0)) >= 0.5) == actual_hard_failure),
         "claim_status": "simulation_only_prediction_alignment",
     }
+
+
+def _rollout_row_is_hard_failure(row: dict[str, object]) -> bool:
+    failure_label = str(row.get("failure_label", ""))
+    if failure_label in PHYSICAL_HARD_FAILURE_LABELS or "nonfinite" in failure_label or "corrupt" in failure_label:
+        return True
+    if str(row.get("boundary_use_class", "")) == "hard_failure":
+        return failure_label not in {"model_boundary_only", "weak_energy_result", "success", ""}
+    return False
 
 
 def _representative_by_variant(representatives: list[dict[str, object]], variant_id: str) -> dict[str, object]:
@@ -1247,7 +1273,6 @@ def _policy_summary(
             mean_lift_dwell_time_s=("lift_dwell_time_s", "mean"),
             mean_min_wall_margin_m=("minimum_wall_margin_m", "mean"),
             floor_or_ceiling_violation_count=("termination_cause", lambda values: int(sum(str(value) in {"floor_violation", "ceiling_violation"} for value in values))),
-            low_speed_count=("termination_cause", lambda values: int(sum(str(value) == "speed_low" for value in values))),
             no_viable_primitive_count=("no_viable_primitive", "sum"),
             x_y_terminal_count=("x_y_terminal", "sum"),
             governor_rejection_count=("governor_rejection_count", "sum"),
