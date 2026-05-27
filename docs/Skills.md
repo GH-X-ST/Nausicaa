@@ -20,11 +20,12 @@ Required repair direction:
 4. Do not duplicate randomisation channels: per-fan power is updraft strength, fan position is spatial/layout shift, width is spread, local uncertainty is context/belief uncertainty, amplitude stays fixed at 1.0, and centre shift stays zero for active pass-gated annular-GP evidence.
 5. Keep W2/R6 archived optional diagnostic only; R7 is the frozen held-out W3 fixed-LQR replay with no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation.
 6. Keep post-W3 reduction as the five-case coverage-aware medoid library-size cross-study: heavy, balanced, light, super-light, and no-clustering/no-merging. R8 selects existing W3-surviving variants by hard safety filtering, per-case coverage, behavior/Q-R medoid centrality, and greedy marginal coverage, without averaging Q/R or synthesising new controllers.
-7. R9 is an internal reduced fixed-case preflight with no glider, latency, actuator, or environment randomisation beyond controlled launch/history sampling; it uses two no-updraft, two single-fan, and two four-fan outer cases per policy/history condition to produce an initial governor handoff for R10. R9 is not formal thesis evidence and is not the final claim gate.
+7. R9 is an internal reduced fixed-case preflight with no glider, latency, actuator, or environment randomisation beyond controlled launch/history sampling; it uses one no-updraft, one single-fan, and one four-fan outer case per policy/history condition with a 10 s episode budget to produce an initial governor handoff for R10. R9 is not formal thesis evidence, is not the final claim gate, and must be excluded from the thesis-facing workflow narrative.
 8. R10 is environment-only changed-case governor tuning with six 20-case blocks: nominal single, nominal four, shifted single, shifted four, active-fan-number variation, and arena-wide fan-position plus active-fan-count generalisation. R10 consumes the R9 initial governor handoff when available, then writes the frozen governor configuration for R11.
 9. R11 repeats the changed-case structure as strict held-out validation after R10 tuning.
-10. R9/R10/R11 must use controlled final-launch pairing, compact-library-aware outcome lookup, actual memory/exploration selection-change metrics, and secondary launch-score analysis.
-11. No memory improvement, hardware readiness, real-flight transfer, mission success, full autonomy, or formal LQR-tree/funnel/ROA claim is allowed until full strict R11 gates pass.
+10. R9/R10/R11 must use controlled final-launch pairing, compact-library-aware outcome lookup, actual memory/exploration selection-change metrics, secondary launch-score analysis, retained history/final selected-primitive trajectory evidence, and compact exhaustive-candidate score logging.
+11. The thesis-facing workflow is R5 -> R7 -> R8 -> R10 -> R11 -> Reality only; R8 is the post-R7 library-compression and library-size cross-study stage and R9 is internal preflight only.
+12. No memory improvement, hardware readiness, real-flight transfer, mission success, full autonomy, or formal LQR-tree/funnel/ROA claim is allowed until full strict R11 gates pass.
 ```
 
 Forbidden changes remain unchanged: no PD/PID/bounded fallback, no TVLQR active workflow, no fan-layout-specific controller logic, no pre-W3 clustering, no W3/R8/R9/R10/R11 primitive retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
@@ -179,7 +180,7 @@ checksums and table manifests
 no giant in-memory final table
 ```
 
-For R9/R10/R11 repeated-launch validation, worker parallelism is across independent final held-out schedule rows. Each worker must run that row's history launches sequentially before its final launch; do not parallelise within a memory-history chain. Full validation uses a 20 s per-episode simulation safety budget, not a primitive-count cap; any primitive-count cap is diagnostic only.
+For R9/R10/R11 repeated-launch validation, worker parallelism is across independent final held-out schedule rows. Each worker must run that row's history launches sequentially before its final launch; do not parallelise within a memory-history chain. R10/R11 full validation uses a 20 s per-episode simulation safety budget, not a primitive-count cap; R9 is a reduced internal preflight with a 10 s episode budget. Any primitive-count cap is diagnostic only. History and final launch selected-primitive trajectory evidence must be retained for thesis plotting; exhaustive all-candidate score rows should be compacted by default.
 
 Default local dense-run policy:
 

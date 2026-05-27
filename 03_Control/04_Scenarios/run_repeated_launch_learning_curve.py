@@ -90,7 +90,7 @@ POLICY_HISTORY_CONDITIONS = (
     "safe_explore_then_exploit_h50",
     "safe_explore_then_exploit_h100",
 )
-R9_PREFLIGHT_CASES_PER_BLOCK = 2
+R9_PREFLIGHT_CASES_PER_BLOCK = 1
 R9_OUTER_CASES_PER_CONDITION = 3 * R9_PREFLIGHT_CASES_PER_BLOCK
 R9_EXPECTED_FINAL_HELDOUT_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION
 R9_EXPECTED_HISTORY_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * (
@@ -109,6 +109,9 @@ TABLE_NAMES = (
 )
 SCHEDULE_INLINE_ROW_LIMIT = 50_000
 SCHEDULE_PARTITION_ROW_COUNT = 50_000
+CANDIDATE_SCORE_TOP_K_PER_DECISION = 10
+THESIS_FACING_WORKFLOW = "R5 -> R7 -> R8 -> R10 -> R11 -> Reality"
+R9_THESIS_REPORTING_STATUS = "internal_preflight_excluded_from_thesis_workflow_narrative"
 LAUNCH_SEQUENCE_POLICY_ID = "first_0p10s_launch_capture_then_inflight_then_recovery_safe_exit"
 FIRST_PRIMITIVE_START_FAMILY = "launch_gate"
 POST_LAUNCH_START_FAMILY = "inflight_nominal"
@@ -159,6 +162,7 @@ PHYSICAL_HARD_FAILURE_LABELS = {
     "true_safety_violation",
 }
 DEFAULT_VALIDATION_MAX_EPISODE_TIME_S = 20.0
+R9_PREFLIGHT_MAX_EPISODE_TIME_S = 10.0
 BLOCKED_CLAIMS = (
     "hardware_readiness",
     "real_flight_transfer",
@@ -203,7 +207,7 @@ class RepeatedLaunchValidationConfig:
     candidate_chunk_size: int = 20_000
     dry_run_schedule: bool = False
     max_primitives_per_launch: int = 0
-    max_episode_time_s: float = DEFAULT_VALIDATION_MAX_EPISODE_TIME_S
+    max_episode_time_s: float = R9_PREFLIGHT_MAX_EPISODE_TIME_S
     smoke_outer_cases_per_block: int = 0
     workers: int = 1
     max_workers: int | None = None
@@ -1077,7 +1081,15 @@ def _run_one_launch(
             row["launch_sequence_phase"] = str(route["launch_sequence_phase"])
             row["route_required_entry_role"] = str(route["route_required_entry_role"])
             row["route_reason"] = str(route["route_reason"])
-        candidate_rows_all.extend(candidate_rows)
+        candidate_rows_all.extend(
+            _compact_candidate_score_rows(
+                candidate_rows,
+                selected=selected,
+                scheduled=scheduled,
+                primitive_step_index=primitive_step_index,
+                top_k=CANDIDATE_SCORE_TOP_K_PER_DECISION,
+            )
+        )
         selector_row = {
             **selector_decision_row(
                 episode_id=episode_id,
@@ -1148,6 +1160,7 @@ def _run_one_launch(
                 "selected_score": float(selected.get("total_score_with_memory_and_exploration", selected.get("score", 0.0))),
                 "context_w_wing_mean_m_s": float(context_payload["row"].get("w_wing_mean_m_s", 0.0)),
                 "context_lift_score": float(context_payload["row"].get("lift_score", 0.0)),
+                "trajectory_plot_scope": "plot_ready_all_final_and_history_selected_primitives",
                 "updraft_specific_energy_gain_proxy_m": _primitive_updraft_gain_proxy_m(
                     context_payload["row"],
                     rollout_row=rollout_row,
@@ -1269,6 +1282,100 @@ def _outcome_for_selected(
         context=context,
         governor_mode=governor_mode,
     )
+
+
+def _compact_candidate_score_rows(
+    candidate_rows: list[dict[str, object]],
+    *,
+    selected: dict[str, object] | None,
+    scheduled: dict[str, object],
+    primitive_step_index: int,
+    top_k: int,
+) -> list[dict[str, object]]:
+    """Keep thesis-grade candidate evidence without storing every rejected row."""
+
+    if not candidate_rows:
+        return []
+    decision_candidate_count = int(len(candidate_rows))
+    decision_viable_count = int(sum(1 for row in candidate_rows if bool(row.get("viable", False))))
+    keep: dict[str, dict[str, object]] = {}
+
+    def key(row: dict[str, object]) -> str:
+        return "|".join(
+            [
+                str(row.get("compact_library_id", "")),
+                str(row.get("primitive_variant_id", "")),
+                str(row.get("primitive_id", "")),
+                str(row.get("entry_role", "")),
+            ]
+        )
+
+    def score(row: dict[str, object]) -> float:
+        return _float_value(
+            row.get(
+                "total_score_with_memory_and_exploration",
+                row.get("score_with_memory", row.get("score", float("-inf"))),
+            ),
+            default=float("-inf"),
+        )
+
+    def add(row: dict[str, object], reason: str) -> None:
+        copied = dict(row)
+        copied["candidate_log_policy"] = "thesis_compact_topk_selected_family_rejection_summary"
+        copied["candidate_log_retention_reason"] = reason
+        copied["decision_candidate_count"] = decision_candidate_count
+        copied["decision_viable_count"] = decision_viable_count
+        copied["candidate_score_log_full_rows_retained"] = False
+        keep.setdefault(key(copied), copied)
+
+    selected_variant = "" if selected is None else str(selected.get("primitive_variant_id", ""))
+    if selected_variant:
+        for row in candidate_rows:
+            if str(row.get("primitive_variant_id", "")) == selected_variant:
+                add(row, "selected_candidate")
+                break
+
+    viable = [row for row in candidate_rows if bool(row.get("viable", False))]
+    for row in sorted(viable, key=lambda item: (-score(item), str(item.get("primitive_id", ""))))[: max(1, int(top_k))]:
+        add(row, f"top_{int(top_k)}_viable_candidate")
+
+    required_role = str(candidate_rows[0].get("route_required_entry_role", ""))
+    for primitive_id, rows in _group_rows(
+        [
+            row
+            for row in candidate_rows
+            if str(row.get("entry_role", "")) == required_role
+            and str(row.get("primitive_id", "")) in set(LAUNCH_CAPTURE_PRIMITIVE_IDS)
+        ],
+        "primitive_id",
+    ).items():
+        del primitive_id
+        add(sorted(rows, key=lambda item: (-score(item), str(item.get("primitive_variant_id", ""))))[0], "first_decision_launch_family_availability")
+
+    for reason, rows in _group_rows(candidate_rows, "rejection_reason").items():
+        if str(reason).strip() and str(reason).lower() not in {"nan", "none"}:
+            add(sorted(rows, key=lambda item: (-score(item), str(item.get("primitive_variant_id", ""))))[0], "rejection_reason_representative")
+
+    for role, rows in _group_rows(candidate_rows, "entry_role").items():
+        if str(role).strip():
+            add(sorted(rows, key=lambda item: (-score(item), str(item.get("primitive_variant_id", ""))))[0], "entry_role_representative")
+
+    if int(primitive_step_index) == 0:
+        for primitive_id, rows in _group_rows(
+            [row for row in candidate_rows if str(row.get("entry_role", "")) == "launch_capable"],
+            "primitive_id",
+        ).items():
+            del primitive_id
+            add(sorted(rows, key=lambda item: (-score(item), str(item.get("primitive_variant_id", ""))))[0], "first_decision_launch_capable_family_representative")
+
+    return list(keep.values())
+
+
+def _group_rows(rows: list[dict[str, object]], column: str) -> dict[str, list[dict[str, object]]]:
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row.get(column, "")), []).append(row)
+    return grouped
 
 
 def validation_route_for_primitive_step(primitive_step_index: int, *, state: np.ndarray | None = None) -> dict[str, object]:
@@ -2859,7 +2966,7 @@ def _write_governor_tuning_outputs(
         status = "selected_for_r10_initialisation" if _overall_pass(pass_summary) else "not_selected_r9_preflight_gate_failed"
         selection_policy = "internal_r9_preflight_initialises_r10_only_after_reduced_gate_pass"
         target_stage = "R10"
-        thesis_status = "internal_development_preflight_not_formal_thesis_evidence"
+        thesis_status = R9_THESIS_REPORTING_STATUS
     else:
         output_name = "frozen_governor_config_for_r11.json"
         status = "selected_for_r11" if _overall_pass(pass_summary) else "not_selected_r10_gate_failed"
@@ -2879,6 +2986,7 @@ def _write_governor_tuning_outputs(
         "tuning_decisions": tuning_rows,
         "controller_mutation_allowed": False,
         "primitive_retuning_allowed": False,
+        "thesis_facing_workflow": THESIS_FACING_WORKFLOW,
         "thesis_reporting_status": thesis_status,
         "claim_status": "simulation_only_governor_tuning_handoff_not_memory_improvement_claim",
         "blocked_claims": list(BLOCKED_CLAIMS),
@@ -3055,6 +3163,7 @@ def _write_manifest(
         "selected_workers": int(_selected_worker_count(config)),
         "worker_backend": str(config.worker_backend),
         "parallel_execution_policy": "parallelise_across_independent_final_schedule_rows_history_sequential_inside_worker_parent_writes_partitions",
+        "thesis_facing_workflow": THESIS_FACING_WORKFLOW,
         "governor_config_override_active": config.governor_config is not None,
         "governor_config": governor_config_to_row(config.governor_config or DEFAULT_GOVERNOR_CONFIG),
         "r9_initial_governor_config_for_r10": (
@@ -3067,7 +3176,7 @@ def _write_manifest(
             if protocol.stage_id == "R10"
             else ""
         ),
-        "thesis_reporting_status": "internal_development_preflight_not_formal_thesis_evidence"
+        "thesis_reporting_status": R9_THESIS_REPORTING_STATUS
         if protocol.stage_id == "R9"
         else "claim_bearing_stage_only_if_final_gate_passes",
         "max_primitives_per_launch": int(config.max_primitives_per_launch),
@@ -3076,6 +3185,18 @@ def _write_manifest(
         "max_episode_steps_from_time_budget": int(
             math.ceil(float(config.max_episode_time_s) / float(PRIMITIVE_FINITE_HORIZON_S))
         ),
+        "candidate_score_log_policy": "compact_topk_selected_family_rejection_summary",
+        "candidate_score_top_k_per_decision": int(CANDIDATE_SCORE_TOP_K_PER_DECISION),
+        "full_candidate_score_log_default": False,
+        "history_launch_plot_evidence_retained": True,
+        "history_launch_retained_tables": [
+            "episode_summary",
+            "primitive_execution_log",
+            "selector_decision_log",
+            "memory_residual_update_log",
+            "belief_snapshot_log",
+        ],
+        "final_launch_plot_evidence_retained": True,
         "smoke_outer_cases_per_block": int(config.smoke_outer_cases_per_block),
         "smoke_run_not_full_gate_evidence": bool(int(config.smoke_outer_cases_per_block) > 0),
         "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
@@ -3212,7 +3333,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=0,
         help="Optional diagnostic primitive-count cap. Use 0 to disable the cap for full validation.",
     )
-    parser.add_argument("--max-episode-time-s", type=float, default=DEFAULT_VALIDATION_MAX_EPISODE_TIME_S)
+    parser.add_argument("--max-episode-time-s", type=float, default=R9_PREFLIGHT_MAX_EPISODE_TIME_S)
     parser.add_argument("--smoke-outer-cases-per-block", type=int, default=0)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--max-workers", type=int, default=None)

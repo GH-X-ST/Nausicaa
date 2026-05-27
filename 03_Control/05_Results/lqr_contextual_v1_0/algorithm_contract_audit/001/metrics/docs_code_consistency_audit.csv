@@ -1,19 +1,19 @@
 check_id,observed,passed,required
-doc_readable:docs/Daily_Schedule.txt,23988,True,readable
-doc_readable:docs/Glider_Control_Project_Plan.md,81618,True,readable
-doc_readable:docs/Literature_Review.txt,8677,True,readable
-doc_readable:docs/Logbook.txt,6325,True,readable
-doc_readable:docs/MATLAB Coding.txt,6584,True,readable
-doc_readable:docs/PR.txt,7783,True,readable
-doc_readable:docs/Progrewss Report.txt,6081,True,readable
-doc_readable:docs/Pseudocode Writing Instructions.txt,7342,True,readable
-doc_readable:docs/Python Coding Instruction.txt,13335,True,readable
-doc_readable:docs/Python Coding to CODEX.txt,8016,True,readable
-doc_readable:docs/Python Plotting Guidance.txt,8255,True,readable
-doc_readable:docs/Reference Searching.txt,7598,True,readable
-doc_readable:docs/Skills.md,14963,True,readable
-doc_readable:docs/Thesis.txt,8964,True,readable
-doc_readable:docs/housekeeping_and_naming_rules.md,10877,True,readable
+doc_readable:docs/Daily_Schedule.txt,24380,True,readable
+doc_readable:docs/Glider_Control_Project_Plan.md,82361,True,readable
+doc_readable:docs/Literature_Review.txt,9062,True,readable
+doc_readable:docs/Logbook.txt,6710,True,readable
+doc_readable:docs/MATLAB Coding.txt,6969,True,readable
+doc_readable:docs/PR.txt,8209,True,readable
+doc_readable:docs/Progrewss Report.txt,6466,True,readable
+doc_readable:docs/Pseudocode Writing Instructions.txt,7727,True,readable
+doc_readable:docs/Python Coding Instruction.txt,13720,True,readable
+doc_readable:docs/Python Coding to CODEX.txt,8401,True,readable
+doc_readable:docs/Python Plotting Guidance.txt,8640,True,readable
+doc_readable:docs/Reference Searching.txt,7983,True,readable
+doc_readable:docs/Skills.md,15587,True,readable
+doc_readable:docs/Thesis.txt,9349,True,readable
+doc_readable:docs/housekeeping_and_naming_rules.md,11262,True,readable
 doc_readable:docs/local_validation_environment.md,3253,True,readable
 stage_semantics:docs/Daily_Schedule.txt,[],True,current R5/R7/R8/R9/R10/R11 semantics
 stage_semantics:docs/Glider_Control_Project_Plan.md,[],True,current R5/R7/R8/R9/R10/R11 semantics

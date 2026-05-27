@@ -19,14 +19,14 @@ r8_compressed_cases_use_coverage_medoid_policy,"{""balanced_cluster"": ""coverag
 r8_heavy_medoid_prefers_worst_case_coverage,synthetic coverage-medoid selection,True,select existing variant with stronger worst-case coverage
 r8_representative_score_uses_updraft_gain_not_net_energy,updraft-gain score check,True,net energy residual must not improve representative score
 five_library_size_cases,"[""heavy_cluster"", ""balanced_cluster"", ""light_cluster"", ""super_light_cluster"", ""no_cluster_no_merge""]",True,heavy/balanced/light/super_light/no_cluster
-r9_reduced_internal_preflight_blocks_exact,"[[""no_updraft"", ""W0"", ""dry_air"", 2], [""single_fan"", ""W2"", ""annular_gp_single"", 2], [""four_fan"", ""W2"", ""annular_gp_four"", 2]]",True,"2 no-updraft, 2 single-fan, 2 four-fan internal preflight cases"
+r9_reduced_internal_preflight_blocks_exact,"[[""no_updraft"", ""W0"", ""dry_air"", 1], [""single_fan"", ""W2"", ""annular_gp_single"", 1], [""four_fan"", ""W2"", ""annular_gp_four"", 1]]",True,"1 no-updraft, 1 single-fan, 1 four-fan internal preflight cases"
 r10_r11_changed_case_blocks_exact,"[[""nominal_single_fan_perturbations"", ""W3"", ""w3_randomised_single"", 20], [""nominal_four_fan_perturbations"", ""W3"", ""w3_randomised_four"", 20], [""shifted_single_fan_positions"", ""W3"", ""w3_randomised_single"", 20], [""shifted_four_fan_positions"", ""W3"", ""w3_randomised_four"", 20], [""active_fan_number_variation"", ""W3"", ""w3_randomised_four"", 20], [""arena_wide_fan_position_generalisation"", ""W3"", ""w3_randomised_four"", 20]]",True,"six changed-case blocks, 20 each"
 r9_is_internal_reduced_preflight,internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence,True,internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence
 r10_is_governor_learning_not_final_claim_gate,changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate,True,changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate
 r11_is_strict_heldout_validation,strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation,True,strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation
 r11_gates_full_safe_success,0.99,True,0.99
-r9_expected_final_launches,420,True,library_cases*14*6
-r9_expected_history_launches,11100,True,library_cases*6*(185+185)
+r9_expected_final_launches,210,True,library_cases*14*3
+r9_expected_history_launches,5550,True,library_cases*3*(185+185)
 r10_r11_expected_final_launches,8400,True,library_cases*14*120
 r10_r11_expected_history_launches,222000,True,library_cases*120*(185+185)
 fourteen_policy_history_conditions,14,True,14

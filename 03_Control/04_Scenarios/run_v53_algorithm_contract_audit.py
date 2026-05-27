@@ -173,14 +173,14 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r8_heavy_medoid_prefers_worst_case_coverage", _r8_heavy_medoid_prefers_worst_case_coverage(), "synthetic coverage-medoid selection", "select existing variant with stronger worst-case coverage"))
     rows.append(_row("r8_representative_score_uses_updraft_gain_not_net_energy", _r8_score_uses_updraft_gain_not_net_energy(), "updraft-gain score check", "net energy residual must not improve representative score"))
     rows.append(_row("five_library_size_cases", set(LIBRARY_SIZE_CASE_IDS) == {"heavy_cluster", "balanced_cluster", "light_cluster", "super_light_cluster", "no_cluster_no_merge"}, LIBRARY_SIZE_CASE_IDS, "heavy/balanced/light/super_light/no_cluster"))
-    rows.append(_row("r9_reduced_internal_preflight_blocks_exact", _block_tuples(R9_BLOCKS) == (("no_updraft", "W0", "dry_air", 2), ("single_fan", "W2", "annular_gp_single", 2), ("four_fan", "W2", "annular_gp_four", 2)), _block_tuples(R9_BLOCKS), "2 no-updraft, 2 single-fan, 2 four-fan internal preflight cases"))
+    rows.append(_row("r9_reduced_internal_preflight_blocks_exact", _block_tuples(R9_BLOCKS) == (("no_updraft", "W0", "dry_air", 1), ("single_fan", "W2", "annular_gp_single", 1), ("four_fan", "W2", "annular_gp_four", 1)), _block_tuples(R9_BLOCKS), "1 no-updraft, 1 single-fan, 1 four-fan internal preflight cases"))
     rows.append(_row("r10_r11_changed_case_blocks_exact", _block_tuples(R10_BLOCKS) == (("nominal_single_fan_perturbations", "W3", "w3_randomised_single", 20), ("nominal_four_fan_perturbations", "W3", "w3_randomised_four", 20), ("shifted_single_fan_positions", "W3", "w3_randomised_single", 20), ("shifted_four_fan_positions", "W3", "w3_randomised_four", 20), ("active_fan_number_variation", "W3", "w3_randomised_four", 20), ("arena_wide_fan_position_generalisation", "W3", "w3_randomised_four", 20)), _block_tuples(R10_BLOCKS), "six changed-case blocks, 20 each"))
     rows.append(_row("r9_is_internal_reduced_preflight", R9_PROTOCOL.validation_evidence_level == "internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence", R9_PROTOCOL.validation_evidence_level, "internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence"))
     rows.append(_row("r10_is_governor_learning_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level == "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level, "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate"))
     rows.append(_row("r11_is_strict_heldout_validation", R11_PROTOCOL.validation_evidence_level == "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation", R11_PROTOCOL.validation_evidence_level, "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation"))
     rows.append(_row("r11_gates_full_safe_success", R11_PROTOCOL.min_full_safe_success_rate == 0.99, R11_PROTOCOL.min_full_safe_success_rate, 0.99))
-    rows.append(_row("r9_expected_final_launches", R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION, R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*14*6"))
-    rows.append(_row("r9_expected_history_launches", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + sum(HISTORY_LENGTHS)), R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*6*(185+185)"))
+    rows.append(_row("r9_expected_final_launches", R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION, R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*14*3"))
+    rows.append(_row("r9_expected_history_launches", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + sum(HISTORY_LENGTHS)), R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*3*(185+185)"))
     rows.append(_row("r10_r11_expected_final_launches", R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION, R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*14*120"))
     rows.append(_row("r10_r11_expected_history_launches", R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + sum(HISTORY_LENGTHS)), R10_EXPECTED_HISTORY_LAUNCHES, "library_cases*120*(185+185)"))
     rows.append(_row("fourteen_policy_history_conditions", len(POLICY_HISTORY_CONDITIONS) == 14, len(POLICY_HISTORY_CONDITIONS), 14))
@@ -440,6 +440,8 @@ def _docs_code_consistency_rows(repo_root: Path) -> list[dict[str, object]]:
         "R10 is environment-only changed-case governor tuning",
         "R11",
         "strict held-out",
+        "R5 -> R7 -> R8 -> R10 -> R11 -> Reality",
+        "R9 is internal preflight only",
     )
     for doc in stage_docs:
         text = docs_text.get(doc, "")
