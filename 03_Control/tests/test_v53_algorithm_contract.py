@@ -18,7 +18,7 @@ from run_lqr_w01_dense_chunked import (
     _row_schedule_for_index as _r5_row_schedule_for_index,
     rich_side_dense_row_count,
 )
-from run_post_w3_library_size_study import _representative_score
+from run_post_w3_library_size_study import _coverage_medoid_selection, _representative_score
 from run_r5_r10_pipeline import ARCHIVED_STAGES, STAGE_ORDER
 from run_v53_algorithm_contract_audit import AlgorithmContractAuditConfig, run_v53_algorithm_contract_audit
 from run_repeated_launch_learning_curve import (
@@ -27,6 +27,10 @@ from run_repeated_launch_learning_curve import (
     EMPTY_FROZEN_PRIOR_BASELINE_ID,
     LIBRARY_SIZE_CASE_IDS,
     POLICY_HISTORY_CONDITIONS,
+    R9_BLOCKS,
+    R9_EXPECTED_FINAL_HELDOUT_LAUNCHES,
+    R9_EXPECTED_HISTORY_LAUNCHES,
+    R9_OUTER_CASES_PER_CONDITION,
     R9_PROTOCOL,
     _fan_position_policy_for_outer_case,
     _history_row_for_final,
@@ -38,6 +42,7 @@ from run_repeated_launch_learning_curve import (
     _policy_condition,
     _scheduled_active_fan_count_for_outer_case,
     _selected_set,
+    _tuned_governor_config_from_metrics,
     validation_route_for_primitive_step,
 )
 from run_w3_survival import R5_INPUT_KIND, W3_ACTIVE_FAN_COUNT_SEQUENCE, W3_ENVIRONMENT_CASES
@@ -48,13 +53,37 @@ def test_v53_stage_contract_is_r5_r7_r8_r9_r10_r11_with_r6_archived() -> None:
     assert STAGE_ORDER == ("R5", "R7", "R8", "R9", "R10", "R11")
     assert ARCHIVED_STAGES == ("R6",)
 
-    assert R9_PROTOCOL.validation_evidence_level == "fixed_case_outer_loop_verification_proceed_to_r10_not_final_claim_gate"
-    assert R9_PROTOCOL.gate_profile == "relaxed_fixed_case_outer_loop_verification_proceed_to_r10"
+    assert R9_PROTOCOL.validation_evidence_level == "internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence"
+    assert R9_PROTOCOL.gate_profile == "internal_reduced_fixed_case_preflight_for_r10_initialisation"
     assert R10_PROTOCOL.validation_evidence_level == "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate"
     assert R10_PROTOCOL.gate_profile == "relaxed_changed_case_viability_governor_learning_not_final_validation"
     assert R11_PROTOCOL.validation_evidence_level == "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation"
     assert R11_PROTOCOL.gate_profile == "strict_final_heldout_validation"
     assert R11_PROTOCOL.min_full_safe_success_rate == pytest.approx(0.99)
+
+
+def test_v53_r9_is_reduced_internal_preflight_and_can_seed_r10_governor() -> None:
+    assert tuple(block.case_count for block in R9_BLOCKS) == (2, 2, 2)
+    assert R9_OUTER_CASES_PER_CONDITION == 6
+    assert R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * 6
+    assert R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 6 * (185 + 185)
+
+    tuned, decisions = _tuned_governor_config_from_metrics(
+        base_config=DEFAULT_GOVERNOR_CONFIG,
+        metrics={
+            "hard_failure_rate": 0.50,
+            "no_viable_primitive_rate": 0.0,
+            "safe_success_rate": 0.0,
+            "terminal_or_lift_capture_rate": 0.0,
+        },
+        protocol=R9_PROTOCOL,
+    )
+
+    assert tuned.config_id == "v53_r9_tuned_viability_governor"
+    assert tuned.minimum_wall_margin_m == DEFAULT_GOVERNOR_CONFIG.minimum_wall_margin_m
+    assert tuned.maximum_hard_failure_risk < DEFAULT_GOVERNOR_CONFIG.maximum_hard_failure_risk
+    assert tuned.exploration_bonus_weight < DEFAULT_GOVERNOR_CONFIG.exploration_bonus_weight
+    assert {row["parameter"] for row in decisions} >= {"maximum_hard_failure_risk", "exploration_bonus_weight"}
 
 
 def test_v53_r5_dense_schedule_is_role_separated_and_uses_current_randomisation_cases() -> None:
@@ -130,6 +159,60 @@ def test_v53_r7_and_r8_contracts_are_direct_holdout_and_updraft_scored() -> None
     )
     low_updraft_high_net_energy, high_updraft_low_net_energy = list(_representative_score(frame))
     assert high_updraft_low_net_energy > low_updraft_high_net_energy
+
+
+def test_v53_r8_coverage_medoid_prefers_worst_case_coverage_over_average_rank() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "primitive_variant_id": "average_strong_but_rare_case_gap",
+                "primitive_id": "glide",
+                "entry_role": "inflight_only",
+                "continuation_valid_rate": 0.95,
+                "episode_terminal_useful_rate": 0.3,
+                "hard_failure_rate": 0.01,
+                "robustness_coverage_labels_json": '["env:single","env:four","active_fan_count:1","active_fan_count:4"]',
+                "robustness_coverage_rates_json": "[1.0,1.0,1.0,0.0]",
+                "Q_weight_json": '{"q":1.0}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            },
+            {
+                "primitive_variant_id": "broad_case_existing_medoid",
+                "primitive_id": "glide",
+                "entry_role": "inflight_only",
+                "continuation_valid_rate": 0.75,
+                "episode_terminal_useful_rate": 0.1,
+                "hard_failure_rate": 0.02,
+                "robustness_coverage_labels_json": '["env:single","env:four","active_fan_count:1","active_fan_count:4"]',
+                "robustness_coverage_rates_json": "[0.70,0.70,0.70,0.70]",
+                "Q_weight_json": '{"q":1.1}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            },
+            {
+                "primitive_variant_id": "unsafe_high_coverage_not_allowed_to_dominate",
+                "primitive_id": "glide",
+                "entry_role": "inflight_only",
+                "continuation_valid_rate": 1.0,
+                "episode_terminal_useful_rate": 0.5,
+                "hard_failure_rate": 0.90,
+                "robustness_coverage_labels_json": '["env:single","env:four","active_fan_count:1","active_fan_count:4"]',
+                "robustness_coverage_rates_json": "[1.0,1.0,1.0,1.0]",
+                "Q_weight_json": '{"q":1.0}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            },
+        ]
+    )
+
+    selected = _coverage_medoid_selection(frame, max_representatives=1, case_id="heavy_cluster")
+
+    assert list(selected["primitive_variant_id"]) == ["broad_case_existing_medoid"]
+    assert selected["_medoid_selection_reason"].iloc[0] == "best_worst_case_coverage_medoid"
 
 
 def test_v53_memory_scope_is_per_final_case_and_final_launches_are_paired() -> None:

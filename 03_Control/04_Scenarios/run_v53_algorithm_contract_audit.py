@@ -48,6 +48,8 @@ from run_lqr_w01_dense_chunked import (  # noqa: E402
 )
 from run_post_w3_library_size_study import (  # noqa: E402
     LIBRARY_SIZE_CASE_IDS,
+    LIBRARY_SIZE_CASES,
+    _coverage_medoid_selection,
     _representatives_for_case,
     _representative_score,
 )
@@ -164,17 +166,21 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r7_active_fan_count_sequence_balanced_1_2_3_4", W3_ACTIVE_FAN_COUNT_SEQUENCE == (1, 2, 3, 4), W3_ACTIVE_FAN_COUNT_SEQUENCE, (1, 2, 3, 4)))
     rows.append(_row("r7_row_scheduler_uses_variant_entry_role_for_start_family", "start_family_for_entry_role_index" in w3_row_source and "entry_role=record.variant.entry_role" in w3_row_source, "role-aware W3 scheduler source" if "start_family_for_entry_role_index" in w3_row_source else "missing", "start_family_for_entry_role_index(entry_role=record.variant.entry_role)"))
     r8_representatives_source = inspect.getsource(_representatives_for_case)
+    r8_selection_source = inspect.getsource(_coverage_medoid_selection)
     rows.append(_row("r8_library_cases_group_by_primitive_and_entry_role", 'groupby(["primitive_id", "entry_role"]' in r8_representatives_source, "active grouping source", 'survived.groupby(["primitive_id", "entry_role"])'))
+    rows.append(_row("r8_selection_applies_hard_safety_filter_first", "_hard_safety_filtered_group" in r8_selection_source, "coverage selection source", "_hard_safety_filtered_group before scoring"))
+    rows.append(_row("r8_compressed_cases_use_coverage_medoid_policy", _r8_compressed_cases_use_coverage_medoid_policy(), _r8_library_selection_policies(), "heavy/balanced/light/super_light use coverage_medoid; no_cluster keeps all W3 survivors"))
+    rows.append(_row("r8_heavy_medoid_prefers_worst_case_coverage", _r8_heavy_medoid_prefers_worst_case_coverage(), "synthetic coverage-medoid selection", "select existing variant with stronger worst-case coverage"))
     rows.append(_row("r8_representative_score_uses_updraft_gain_not_net_energy", _r8_score_uses_updraft_gain_not_net_energy(), "updraft-gain score check", "net energy residual must not improve representative score"))
     rows.append(_row("five_library_size_cases", set(LIBRARY_SIZE_CASE_IDS) == {"heavy_cluster", "balanced_cluster", "light_cluster", "super_light_cluster", "no_cluster_no_merge"}, LIBRARY_SIZE_CASE_IDS, "heavy/balanced/light/super_light/no_cluster"))
-    rows.append(_row("r9_fixed_case_blocks_exact", _block_tuples(R9_BLOCKS) == (("no_updraft", "W0", "dry_air", 20), ("single_fan", "W2", "annular_gp_single", 20), ("four_fan", "W2", "annular_gp_four", 20)), _block_tuples(R9_BLOCKS), "20 no-updraft, 20 single-fan, 20 four-fan fixed cases"))
+    rows.append(_row("r9_reduced_internal_preflight_blocks_exact", _block_tuples(R9_BLOCKS) == (("no_updraft", "W0", "dry_air", 2), ("single_fan", "W2", "annular_gp_single", 2), ("four_fan", "W2", "annular_gp_four", 2)), _block_tuples(R9_BLOCKS), "2 no-updraft, 2 single-fan, 2 four-fan internal preflight cases"))
     rows.append(_row("r10_r11_changed_case_blocks_exact", _block_tuples(R10_BLOCKS) == (("nominal_single_fan_perturbations", "W3", "w3_randomised_single", 20), ("nominal_four_fan_perturbations", "W3", "w3_randomised_four", 20), ("shifted_single_fan_positions", "W3", "w3_randomised_single", 20), ("shifted_four_fan_positions", "W3", "w3_randomised_four", 20), ("active_fan_number_variation", "W3", "w3_randomised_four", 20), ("arena_wide_fan_position_generalisation", "W3", "w3_randomised_four", 20)), _block_tuples(R10_BLOCKS), "six changed-case blocks, 20 each"))
-    rows.append(_row("r9_is_fixed_case_outer_loop_verification", R9_PROTOCOL.validation_evidence_level == "fixed_case_outer_loop_verification_proceed_to_r10_not_final_claim_gate", R9_PROTOCOL.validation_evidence_level, "fixed_case_outer_loop_verification_proceed_to_r10_not_final_claim_gate"))
+    rows.append(_row("r9_is_internal_reduced_preflight", R9_PROTOCOL.validation_evidence_level == "internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence", R9_PROTOCOL.validation_evidence_level, "internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence"))
     rows.append(_row("r10_is_governor_learning_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level == "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level, "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate"))
     rows.append(_row("r11_is_strict_heldout_validation", R11_PROTOCOL.validation_evidence_level == "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation", R11_PROTOCOL.validation_evidence_level, "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation"))
     rows.append(_row("r11_gates_full_safe_success", R11_PROTOCOL.min_full_safe_success_rate == 0.99, R11_PROTOCOL.min_full_safe_success_rate, 0.99))
-    rows.append(_row("r9_expected_final_launches", R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION, R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*14*60"))
-    rows.append(_row("r9_expected_history_launches", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + sum(HISTORY_LENGTHS)), R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*60*(185+185)"))
+    rows.append(_row("r9_expected_final_launches", R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION, R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*14*6"))
+    rows.append(_row("r9_expected_history_launches", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + sum(HISTORY_LENGTHS)), R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*6*(185+185)"))
     rows.append(_row("r10_r11_expected_final_launches", R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION, R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*14*120"))
     rows.append(_row("r10_r11_expected_history_launches", R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + sum(HISTORY_LENGTHS)), R10_EXPECTED_HISTORY_LAUNCHES, "library_cases*120*(185+185)"))
     rows.append(_row("fourteen_policy_history_conditions", len(POLICY_HISTORY_CONDITIONS) == 14, len(POLICY_HISTORY_CONDITIONS), 14))
@@ -323,6 +329,55 @@ def _r8_score_uses_updraft_gain_not_net_energy() -> bool:
     return len(scores) == 2 and float(scores[1]) > float(scores[0])
 
 
+def _r8_library_selection_policies() -> dict[str, str]:
+    return {str(case["library_size_case_id"]): str(case["selection_policy"]) for case in LIBRARY_SIZE_CASES}
+
+
+def _r8_compressed_cases_use_coverage_medoid_policy() -> bool:
+    policies = _r8_library_selection_policies()
+    compressed_case_ids = {"heavy_cluster", "balanced_cluster", "light_cluster", "super_light_cluster"}
+    return all("coverage_medoid" in policies.get(case_id, "") for case_id in compressed_case_ids) and policies.get(
+        "no_cluster_no_merge", ""
+    ) == "all_w3_survivors_no_clustering_no_merging"
+
+
+def _r8_heavy_medoid_prefers_worst_case_coverage() -> bool:
+    frame = pd.DataFrame(
+        [
+            {
+                "primitive_variant_id": "rare_case_fragile_high_average",
+                "primitive_id": "glide",
+                "entry_role": "inflight_only",
+                "continuation_valid_rate": 0.95,
+                "episode_terminal_useful_rate": 0.20,
+                "hard_failure_rate": 0.01,
+                "robustness_coverage_labels_json": '["env:a","env:b","active_fan_count:1","active_fan_count:4"]',
+                "robustness_coverage_rates_json": "[1.0,1.0,1.0,0.0]",
+                "Q_weight_json": '{"q":1.0}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            },
+            {
+                "primitive_variant_id": "broad_case_medoid",
+                "primitive_id": "glide",
+                "entry_role": "inflight_only",
+                "continuation_valid_rate": 0.75,
+                "episode_terminal_useful_rate": 0.10,
+                "hard_failure_rate": 0.02,
+                "robustness_coverage_labels_json": '["env:a","env:b","active_fan_count:1","active_fan_count:4"]',
+                "robustness_coverage_rates_json": "[0.70,0.70,0.70,0.70]",
+                "Q_weight_json": '{"q":1.1}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            },
+        ]
+    )
+    selected = _coverage_medoid_selection(frame, max_representatives=1, case_id="heavy_cluster")
+    return len(selected) == 1 and str(selected.iloc[0]["primitive_variant_id"]) == "broad_case_medoid"
+
+
 def _outer_loop_pairing_and_memory_audit() -> dict[str, object]:
     outer_cases = _outer_case_schedule(protocol=R9_PROTOCOL, seed=90, smoke_outer_cases_per_block=1)
     final_schedule = _final_heldout_schedule(outer_cases=outer_cases, protocol=R9_PROTOCOL)
@@ -380,8 +435,8 @@ def _docs_code_consistency_rows(repo_root: Path) -> list[dict[str, object]]:
         "R5 -> R7 -> R8 -> R9 -> R10 -> R11",
         "R6",
         "archived",
-        "R9 is fixed-case",
-        "proceed-to-R10",
+        "internal reduced fixed-case",
+        "initial governor handoff for R10",
         "R10 is environment-only changed-case governor tuning",
         "R11",
         "strict held-out",
@@ -402,6 +457,8 @@ def _docs_code_consistency_rows(repo_root: Path) -> list[dict[str, object]]:
         "energy_loss_not_hard_failure": "Energy loss is also not a hard-failure reason",
         "sample_count_coverage": "sample_count",
         "r11_consumes_r10_frozen_config": "frozen governor config written by R10",
+        "r8_coverage_medoid_selection": "coverage-aware medoid",
+        "r8_no_synthetic_controller_in_clustering": "without averaging Q/R or synthesising new controllers",
     }
     for check_id, fragment in combined_requirements.items():
         rows.append(_row(check_id, fragment in combined, fragment if fragment in combined else "missing", fragment))

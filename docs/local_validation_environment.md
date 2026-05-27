@@ -57,10 +57,10 @@ as compatibility references. New instructions should name the active source
 audit and the v5.3 algorithm contract audit directly. The current evidence
 workflow is controlled by `docs/Glider_Control_Project_Plan.md`: R5 is robust
 primitive synthesis, R6/W2 is archived diagnostic-only, R7 is frozen W3
-validation, R8 is the five-case post-W3 library-size study, R9 is fixed-case
-outer-loop verification used only as the proceed-to-R10 gate, R10 is
-environment-only changed-case governor tuning, and R11 is strict held-out
-changed-case validation.
+validation, R8 is the five-case coverage-aware medoid post-W3 library-size
+study, R9 is an internal reduced fixed-case preflight that writes an initial
+governor handoff for R10, R10 is environment-only changed-case governor tuning,
+and R11 is strict held-out changed-case validation.
 
 Use the repo-local pytest temp/cache paths above so validation does not depend
 on the Windows user temp directory. Local `.venv` and `.codex_run_logs`

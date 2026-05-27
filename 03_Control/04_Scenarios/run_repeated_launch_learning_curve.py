@@ -66,7 +66,8 @@ from viability_governor import DEFAULT_GOVERNOR_CONFIG, GovernorConfig, governor
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
-VALIDATION_VERSION = "repeated_launch_fixed_case_rollout_validation_v6"
+VALIDATION_VERSION = "repeated_launch_fixed_case_rollout_preflight_v7"
+GOVERNOR_TUNING_HANDOFF_VERSION = "governor_tuning_handoff_v2"
 HISTORY_LENGTHS = (0, 5, 10, 20, 50, 100)
 HISTORY_LENGTH_SUM = sum(HISTORY_LENGTHS)
 EMPTY_FROZEN_PRIOR_BASELINE_ID = "empty_frozen_prior_baseline"
@@ -89,7 +90,8 @@ POLICY_HISTORY_CONDITIONS = (
     "safe_explore_then_exploit_h50",
     "safe_explore_then_exploit_h100",
 )
-R9_OUTER_CASES_PER_CONDITION = 60
+R9_PREFLIGHT_CASES_PER_BLOCK = 2
+R9_OUTER_CASES_PER_CONDITION = 3 * R9_PREFLIGHT_CASES_PER_BLOCK
 R9_EXPECTED_FINAL_HELDOUT_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION
 R9_EXPECTED_HISTORY_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * (
     HISTORY_LENGTH_SUM + HISTORY_LENGTH_SUM
@@ -180,9 +182,9 @@ class ValidationBlockSpec:
 
 
 R9_BLOCKS: tuple[ValidationBlockSpec, ...] = (
-    ValidationBlockSpec("no_updraft", "no-updraft", "W0", "dry_air", 20),
-    ValidationBlockSpec("single_fan", "single-fan", "W2", "annular_gp_single", 20),
-    ValidationBlockSpec("four_fan", "four-fan", "W2", "annular_gp_four", 20),
+    ValidationBlockSpec("no_updraft", "no-updraft", "W0", "dry_air", R9_PREFLIGHT_CASES_PER_BLOCK),
+    ValidationBlockSpec("single_fan", "single-fan", "W2", "annular_gp_single", R9_PREFLIGHT_CASES_PER_BLOCK),
+    ValidationBlockSpec("four_fan", "four-fan", "W2", "annular_gp_four", R9_PREFLIGHT_CASES_PER_BLOCK),
 )
 
 
@@ -234,13 +236,13 @@ R9_PROTOCOL = ValidationProtocol(
     manifest_name="repeated_launch_fixed_case_manifest.json",
     report_name="repeated_launch_fixed_case_report.md",
     manifest_version=VALIDATION_VERSION,
-    validation_evidence_level="fixed_case_outer_loop_verification_proceed_to_r10_not_final_claim_gate",
+    validation_evidence_level="internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence",
     outer_cases_per_condition=R9_OUTER_CASES_PER_CONDITION,
     expected_final_heldout_launches=R9_EXPECTED_FINAL_HELDOUT_LAUNCHES,
     expected_history_launches=R9_EXPECTED_HISTORY_LAUNCHES,
     blocks=R9_BLOCKS,
     final_schedule_prefix="r9_fixed",
-    gate_profile="relaxed_fixed_case_outer_loop_verification_proceed_to_r10",
+    gate_profile="internal_reduced_fixed_case_preflight_for_r10_initialisation",
     max_hard_failure_rate=0.20,
     max_no_viable_rate=0.30,
     min_safe_success_rate=0.20,
@@ -270,7 +272,7 @@ class ValidationRunConfig:
 
 
 def run_repeated_launch_learning_curve(config: RepeatedLaunchValidationConfig) -> dict[str, object]:
-    """Run the full R9 fixed-case repeated-launch rollout validation."""
+    """Run the reduced internal R9 fixed-case repeated-launch preflight."""
 
     return run_repeated_launch_validation(
         ValidationRunConfig(
@@ -422,8 +424,10 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
         no_variation_rows=no_variation_rows,
     )
     _write_csv(run_root / "metrics" / "pass_fail_gate_summary.csv", pd.DataFrame(pass_summary))
+    if protocol.stage_id == "R9":
+        _write_governor_tuning_outputs(run_root, config, protocol, pass_summary, episode_rows)
     if protocol.stage_id == "R10":
-        _write_r10_governor_tuning_outputs(run_root, config, pass_summary, episode_rows)
+        _write_governor_tuning_outputs(run_root, config, protocol, pass_summary, episode_rows)
     status = "smoke_run" if int(config.smoke_outer_cases_per_block) > 0 else "complete"
     _write_manifest(
         run_root=run_root,
@@ -2744,16 +2748,15 @@ def _active_fan_count_schedule_audit_rows(outer_cases: list[dict[str, object]]) 
     return rows
 
 
-def _write_r10_governor_tuning_outputs(
+def _write_governor_tuning_outputs(
     run_root: Path,
     config: ValidationRunConfig,
+    protocol: ValidationProtocol,
     pass_summary: list[dict[str, object]],
     episode_rows: list[dict[str, object]],
 ) -> None:
     final = pd.DataFrame([row for row in episode_rows if str(row.get("launch_role", "")) == "final_heldout"])
-    selected_config = config.governor_config or DEFAULT_GOVERNOR_CONFIG
     metrics = {
-        "governor_config_id": selected_config.config_id,
         "final_launch_count": int(len(final)),
         "hard_failure_rate": _mean_bool(final.to_dict(orient="records"), "hard_failure") if not final.empty else 1.0,
         "no_viable_primitive_rate": _mean_bool(final.to_dict(orient="records"), "no_viable_primitive") if not final.empty else 1.0,
@@ -2764,22 +2767,164 @@ def _write_r10_governor_tuning_outputs(
             _mean_bool(final.to_dict(orient="records"), "lift_capture") if not final.empty else 0.0,
         ),
     }
-    status = "selected_for_r11" if _overall_pass(pass_summary) else "not_selected_r10_gate_failed"
+    base_config = config.governor_config or DEFAULT_GOVERNOR_CONFIG
+    selected_config, tuning_rows = _tuned_governor_config_from_metrics(
+        base_config=base_config,
+        metrics=metrics,
+        protocol=protocol,
+    )
+    metrics["input_governor_config_id"] = base_config.config_id
+    metrics["governor_config_id"] = selected_config.config_id
+    if protocol.stage_id == "R9":
+        output_name = "initial_governor_config_for_r10.json"
+        status = "selected_for_r10_initialisation" if _overall_pass(pass_summary) else "not_selected_r9_preflight_gate_failed"
+        selection_policy = "internal_r9_preflight_initialises_r10_only_after_reduced_gate_pass"
+        target_stage = "R10"
+        thesis_status = "internal_development_preflight_not_formal_thesis_evidence"
+    else:
+        output_name = "frozen_governor_config_for_r11.json"
+        status = "selected_for_r11" if _overall_pass(pass_summary) else "not_selected_r10_gate_failed"
+        selection_policy = "robust_first_freeze_only_after_full_r10_pass_gate"
+        target_stage = "R11"
+        thesis_status = "changed_case_governor_tuning_not_final_claim_gate"
     payload = {
-        "manifest_version": "r10_frozen_governor_config_for_r11_v1",
+        "manifest_version": GOVERNOR_TUNING_HANDOFF_VERSION,
         "project_title_version": PROJECT_TITLE_VERSION,
         "status": status,
-        "selection_policy": "robust_first_freeze_only_after_full_r10_pass_gate",
-        "source_r10_root": run_root.as_posix(),
+        "stage_id": protocol.stage_id,
+        "target_stage": target_stage,
+        "selection_policy": selection_policy,
+        "source_run_root": run_root.as_posix(),
         "governor_config": governor_config_to_row(selected_config),
         "selection_metrics": metrics,
+        "tuning_decisions": tuning_rows,
         "controller_mutation_allowed": False,
         "primitive_retuning_allowed": False,
+        "thesis_reporting_status": thesis_status,
         "claim_status": "simulation_only_governor_tuning_handoff_not_memory_improvement_claim",
         "blocked_claims": list(BLOCKED_CLAIMS),
     }
-    _write_json(run_root / "manifests" / "frozen_governor_config_for_r11.json", payload)
-    _write_csv(run_root / "metrics" / "governor_config_selection.csv", pd.DataFrame([metrics | {"status": status}]))
+    _write_json(run_root / "manifests" / output_name, payload)
+    _write_csv(
+        run_root / "metrics" / "governor_config_selection.csv",
+        pd.DataFrame([metrics | {"status": status, "target_stage": target_stage, "selection_policy": selection_policy}]),
+    )
+    _write_csv(run_root / "metrics" / "governor_config_tuning_decisions.csv", pd.DataFrame(tuning_rows))
+
+
+def _tuned_governor_config_from_metrics(
+    *,
+    base_config: GovernorConfig,
+    metrics: dict[str, object],
+    protocol: ValidationProtocol,
+) -> tuple[GovernorConfig, list[dict[str, object]]]:
+    values = asdict(base_config)
+    decisions: list[dict[str, object]] = []
+
+    def update(key: str, value: float, reason: str) -> None:
+        old = float(values[key])
+        new = float(value)
+        if abs(old - new) <= 1e-12:
+            return
+        values[key] = new
+        decisions.append(
+            {
+                "parameter": key,
+                "old_value": old,
+                "new_value": new,
+                "reason": reason,
+                "stage_id": protocol.stage_id,
+            }
+        )
+
+    hard_failure_rate = _float_metric(metrics.get("hard_failure_rate", 1.0), default=1.0)
+    no_viable_rate = _float_metric(metrics.get("no_viable_primitive_rate", 1.0), default=1.0)
+    safe_success_rate = _float_metric(metrics.get("safe_success_rate", 0.0), default=0.0)
+    terminal_or_lift_rate = _float_metric(metrics.get("terminal_or_lift_capture_rate", 0.0), default=0.0)
+
+    if hard_failure_rate > float(protocol.max_hard_failure_rate):
+        update(
+            "maximum_hard_failure_risk",
+            max(0.45, float(values["maximum_hard_failure_risk"]) - 0.10),
+            "hard_failure_rate_above_stage_profile_tighten_admission",
+        )
+        update(
+            "hard_failure_weight",
+            min(-0.20, float(values["hard_failure_weight"]) * 1.25),
+            "hard_failure_rate_above_stage_profile_penalise_risk_more",
+        )
+        update(
+            "terminal_hard_failure_weight",
+            min(-0.20, float(values["terminal_hard_failure_weight"]) * 1.25),
+            "hard_failure_rate_above_stage_profile_penalise_terminal_risk_more",
+        )
+        update(
+            "exploration_bonus_weight",
+            max(0.0, float(values["exploration_bonus_weight"]) * 0.50),
+            "hard_failure_rate_above_stage_profile_reduce_exploration_bonus",
+        )
+    elif no_viable_rate > float(protocol.max_no_viable_rate):
+        update(
+            "maximum_hard_failure_risk",
+            min(0.90, float(values["maximum_hard_failure_risk"]) + 0.05),
+            "no_viable_rate_above_stage_profile_relax_admission_without_removing_safety_gate",
+        )
+        update(
+            "continuation_weight",
+            float(values["continuation_weight"]) + 0.05,
+            "no_viable_rate_above_stage_profile_prefer_continuation_candidates",
+        )
+        update(
+            "terminal_continuation_weight",
+            float(values["terminal_continuation_weight"]) + 0.05,
+            "no_viable_rate_above_stage_profile_keep_terminal_mode_from_dead_ending",
+        )
+
+    if terminal_or_lift_rate < float(protocol.min_terminal_or_lift_capture_rate):
+        update(
+            "updraft_gain_weight",
+            float(values["updraft_gain_weight"]) + 0.01,
+            "terminal_or_lift_capture_below_stage_profile_increase_updraft_gain_preference",
+        )
+        update(
+            "terminal_updraft_gain_weight",
+            float(values["terminal_updraft_gain_weight"]) + 0.01,
+            "terminal_or_lift_capture_below_stage_profile_increase_terminal_updraft_gain_preference",
+        )
+        update(
+            "lift_dwell_weight",
+            float(values["lift_dwell_weight"]) + 0.005,
+            "terminal_or_lift_capture_below_stage_profile_increase_lift_dwell_preference",
+        )
+
+    if safe_success_rate < float(protocol.min_safe_success_rate) and hard_failure_rate <= float(protocol.max_hard_failure_rate):
+        update(
+            "belief_weight",
+            min(0.20, float(values["belief_weight"]) + 0.01),
+            "safe_success_below_stage_profile_increase_memory_residual_sensitivity",
+        )
+
+    values["minimum_wall_margin_m"] = float(base_config.minimum_wall_margin_m)
+    values["config_id"] = f"v53_{protocol.stage_id.lower()}_tuned_viability_governor"
+    if not decisions:
+        decisions.append(
+            {
+                "parameter": "none",
+                "old_value": "",
+                "new_value": "",
+                "reason": "base_governor_config_retained_metrics_within_stage_profile",
+                "stage_id": protocol.stage_id,
+            }
+        )
+    return GovernorConfig(**values), decisions
+
+
+def _float_metric(value: object, *, default: float) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    return result if math.isfinite(result) else float(default)
 
 
 def _write_manifest(
@@ -2833,11 +2978,19 @@ def _write_manifest(
         "parallel_execution_policy": "parallelise_across_independent_final_schedule_rows_history_sequential_inside_worker_parent_writes_partitions",
         "governor_config_override_active": config.governor_config is not None,
         "governor_config": governor_config_to_row(config.governor_config or DEFAULT_GOVERNOR_CONFIG),
+        "r9_initial_governor_config_for_r10": (
+            (run_root / "manifests" / "initial_governor_config_for_r10.json").as_posix()
+            if protocol.stage_id == "R9"
+            else ""
+        ),
         "r10_frozen_governor_config_for_r11": (
             (run_root / "manifests" / "frozen_governor_config_for_r11.json").as_posix()
             if protocol.stage_id == "R10"
             else ""
         ),
+        "thesis_reporting_status": "internal_development_preflight_not_formal_thesis_evidence"
+        if protocol.stage_id == "R9"
+        else "claim_bearing_stage_only_if_final_gate_passes",
         "max_primitives_per_launch": int(config.max_primitives_per_launch),
         "primitive_count_cap_status": "disabled" if int(config.max_primitives_per_launch) <= 0 else "diagnostic_cap_enabled",
         "max_episode_time_s": float(config.max_episode_time_s),
@@ -2963,7 +3116,7 @@ def _write_csv(path: Path, frame: pd.DataFrame) -> None:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run full R9 fixed-case repeated-launch rollout validation.")
+    parser = argparse.ArgumentParser(description="Run reduced internal R9 fixed-case repeated-launch preflight.")
     parser.add_argument("--library-root", type=Path, default=DEFAULT_LIBRARY_ROOT)
     parser.add_argument("--outcome-root", type=Path, default=DEFAULT_OUTCOME_ROOT)
     parser.add_argument("--source-w2-root", type=Path, default=None)

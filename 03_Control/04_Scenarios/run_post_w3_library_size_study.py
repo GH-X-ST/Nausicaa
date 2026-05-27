@@ -7,6 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 
@@ -21,13 +22,13 @@ def _bootstrap_import_paths() -> None:
 _bootstrap_import_paths()
 
 from dense_archive_runtime import MAX_GENERATED_FILE_SIZE_MB  # noqa: E402
-from dense_archive_table_io import file_sha256, filesystem_path  # noqa: E402
+from dense_archive_table_io import file_sha256, filesystem_path, load_table_manifest, read_table_partition  # noqa: E402
 from prim_cat import LAUNCH_CAPTURE_PRIMITIVE_IDS  # noqa: E402
 from primitive_timing_contract import primitive_timing_contract_row, primitive_timing_contract_status  # noqa: E402
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
-POST_W3_LIBRARY_STUDY_VERSION = "post_w3_library_size_study_v53_five_case_v1"
+POST_W3_LIBRARY_STUDY_VERSION = "post_w3_library_size_study_v53_coverage_medoid_v1"
 DEFAULT_W3_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")
 DEFAULT_INPUT_ROOT: Path | None = None
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study")
@@ -36,25 +37,25 @@ LIBRARY_SIZE_CASES: tuple[dict[str, object], ...] = (
         "library_size_case_id": "heavy_cluster",
         "library_size_human_label": "heavy clustering and merging",
         "max_representatives_per_group": 1,
-        "selection_policy": "top_1_score_per_primitive_entry_role",
+        "selection_policy": "coverage_medoid_best_worst_case_per_primitive_entry_role",
     },
     {
         "library_size_case_id": "balanced_cluster",
         "library_size_human_label": "balanced clustering and merging",
         "max_representatives_per_group": 3,
-        "selection_policy": "top_3_score_per_primitive_entry_role",
+        "selection_policy": "coverage_medoid_greedy_marginal_top_3_per_primitive_entry_role",
     },
     {
         "library_size_case_id": "light_cluster",
         "library_size_human_label": "light clustering and merging",
         "max_representatives_per_group": 6,
-        "selection_policy": "top_6_score_per_primitive_entry_role",
+        "selection_policy": "coverage_medoid_greedy_marginal_top_6_per_primitive_entry_role",
     },
     {
         "library_size_case_id": "super_light_cluster",
         "library_size_human_label": "super-light clustering and merging",
         "max_representatives_per_group": 12,
-        "selection_policy": "top_12_score_per_primitive_entry_role",
+        "selection_policy": "coverage_medoid_greedy_marginal_top_12_per_primitive_entry_role",
     },
     {
         "library_size_case_id": "no_cluster_no_merge",
@@ -103,6 +104,9 @@ def run_post_w3_library_size_study(config: PostW3LibrarySizeStudyConfig) -> dict
     if blocked_reason:
         _write_blocked_outputs(run_root, config, blocked_reason)
         return {"status": "blocked", "blocked_reason": blocked_reason, "run_root": run_root.as_posix()}
+    robustness_profiles = _robustness_profile_frame(config.input_root)
+    if not robustness_profiles.empty:
+        survived = survived.merge(robustness_profiles, on="primitive_variant_id", how="left")
 
     all_representatives: list[dict[str, object]] = []
     case_manifest_rows: list[dict[str, object]] = []
@@ -132,8 +136,10 @@ def run_post_w3_library_size_study(config: PostW3LibrarySizeStudyConfig) -> dict
             }
         )
     summary = pd.DataFrame(case_manifest_rows)
+    _write_csv(run_root / "metrics" / "post_w3_robustness_profile.csv", robustness_profiles)
     _write_csv(run_root / "metrics" / "library_size_case_summary.csv", summary)
     _write_csv(run_root / "metrics" / "post_w3_representative_library_all_cases.csv", pd.DataFrame(all_representatives))
+    _write_csv(run_root / "metrics" / "coverage_medoid_selection_audit.csv", _coverage_medoid_selection_audit(all_representatives))
     availability, availability_blockers = _launch_gate_candidate_availability(all_representatives)
     _write_csv(run_root / "metrics" / "launch_gate_candidate_availability.csv", availability)
     _write_csv(run_root / "metrics" / "launch_gate_entry_role_audit.csv", _launch_gate_entry_role_audit(all_representatives))
@@ -265,6 +271,164 @@ def _survived_frame_blocked_reason(survived: pd.DataFrame) -> str:
     return ""
 
 
+def _robustness_profile_frame(input_root: Path) -> pd.DataFrame:
+    rows = _read_w3_evidence_rows(input_root)
+    if rows.empty or "primitive_variant_id" not in rows.columns:
+        return pd.DataFrame()
+    compatible = rows[_bool_series(rows.get("entry_role_compatible", pd.Series(False, index=rows.index)))].copy()
+    if compatible.empty:
+        return pd.DataFrame()
+    compatible["_positive"] = _positive_series(compatible)
+    compatible["_terminal_useful"] = _terminal_series(compatible)
+    compatible["_hard_failure"] = _hard_failure_series(compatible)
+    labels = _profile_labels(compatible)
+    profile_rows: list[dict[str, object]] = []
+    for variant_id, group in compatible.groupby("primitive_variant_id", sort=True):
+        coverage_rates = [_coverage_rate_for_label(group, label) for label in labels]
+        terminal_rates = [_terminal_rate_for_label(group, label) for label in labels]
+        hard_rates = [_hard_rate_for_label(group, label) for label in labels]
+        profile_rows.append(
+            {
+                "primitive_variant_id": str(variant_id),
+                "robustness_profile_version": "coverage_behavior_qr_medoid_profile_v1",
+                "robustness_profile_row_count": int(len(group)),
+                "robustness_profile_axis_count": int(len(labels)),
+                "robustness_coverage_labels_json": json.dumps(labels, separators=(",", ":")),
+                "robustness_coverage_rates_json": json.dumps(coverage_rates, separators=(",", ":")),
+                "robustness_terminal_rates_json": json.dumps(terminal_rates, separators=(",", ":")),
+                "robustness_hard_failure_rates_json": json.dumps(hard_rates, separators=(",", ":")),
+                "robustness_worst_case_coverage": float(min(coverage_rates) if coverage_rates else 0.0),
+                "robustness_mean_coverage": float(sum(coverage_rates) / max(1, len(coverage_rates))),
+                "robustness_max_hard_failure_rate": float(max(hard_rates) if hard_rates else 0.0),
+                "robustness_environment_modes_seen": _unique_join(group, "environment_mode"),
+                "robustness_start_families_seen": _unique_join(group, "start_state_family"),
+                "robustness_active_fan_counts_seen": _unique_join(group, "scheduled_active_fan_count"),
+                "updraft_gain_proxy_mean_m": _mean_or_zero(group, "updraft_specific_energy_gain_proxy_m"),
+                "positive_specific_energy_gain_mean_m": _mean_positive_energy_gain(group),
+                "rollout_duration_mean_s": _mean_or_zero(group, "rollout_duration_s"),
+            }
+        )
+    return pd.DataFrame(profile_rows)
+
+
+def _read_w3_evidence_rows(input_root: Path) -> pd.DataFrame:
+    try:
+        manifest = load_table_manifest(Path(input_root) / "manifests" / "table_manifest.json")
+    except Exception:
+        return pd.DataFrame()
+    frames = []
+    for partition in manifest.tables:
+        try:
+            frames.append(
+                read_table_partition(
+                    Path(input_root) / "tables" / partition.relative_path,
+                    storage_format=partition.storage_format,
+                )
+            )
+        except Exception:
+            continue
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+def _profile_labels(frame: pd.DataFrame) -> list[str]:
+    labels: list[str] = []
+    for column, prefix in (
+        ("environment_mode", "env"),
+        ("start_state_family", "start"),
+        ("scheduled_active_fan_count", "active_fan_count"),
+    ):
+        if column not in frame.columns:
+            continue
+        values = sorted(str(value) for value in frame[column].fillna("unknown").astype(str).unique())
+        labels.extend(f"{prefix}:{value}" for value in values)
+    return labels or ["all:compatible"]
+
+
+def _coverage_rate_for_label(group: pd.DataFrame, label: str) -> float:
+    subset = _profile_subset(group, label)
+    if subset.empty:
+        return 0.0
+    return float(subset["_positive"].mean())
+
+
+def _terminal_rate_for_label(group: pd.DataFrame, label: str) -> float:
+    subset = _profile_subset(group, label)
+    if subset.empty:
+        return 0.0
+    return float(subset["_terminal_useful"].mean())
+
+
+def _hard_rate_for_label(group: pd.DataFrame, label: str) -> float:
+    subset = _profile_subset(group, label)
+    if subset.empty:
+        return 0.0
+    return float(subset["_hard_failure"].mean())
+
+
+def _profile_subset(group: pd.DataFrame, label: str) -> pd.DataFrame:
+    if label == "all:compatible":
+        return group
+    try:
+        prefix, value = label.split(":", 1)
+    except ValueError:
+        return pd.DataFrame()
+    column = {
+        "env": "environment_mode",
+        "start": "start_state_family",
+        "active_fan_count": "scheduled_active_fan_count",
+    }.get(prefix)
+    if column is None or column not in group.columns:
+        return pd.DataFrame()
+    return group[group[column].fillna("unknown").astype(str) == value]
+
+
+def _positive_series(frame: pd.DataFrame) -> pd.Series:
+    outcome = frame.get("outcome_class", pd.Series("", index=frame.index)).fillna("").astype(str)
+    continuation = _bool_series(frame.get("continuation_valid", pd.Series(False, index=frame.index)))
+    return continuation | outcome.eq("accepted")
+
+
+def _terminal_series(frame: pd.DataFrame) -> pd.Series:
+    boundary = frame.get("boundary_use_class", pd.Series("", index=frame.index)).fillna("").astype(str)
+    terminal = _bool_series(frame.get("episode_terminal_useful", pd.Series(False, index=frame.index)))
+    return terminal | boundary.eq("episode_terminal_useful")
+
+
+def _hard_failure_series(frame: pd.DataFrame) -> pd.Series:
+    outcome = frame.get("outcome_class", pd.Series("", index=frame.index)).fillna("").astype(str)
+    boundary = frame.get("boundary_use_class", pd.Series("", index=frame.index)).fillna("").astype(str)
+    return outcome.eq("failed") | boundary.eq("hard_failure")
+
+
+def _bool_series(values: object) -> pd.Series:
+    if isinstance(values, pd.Series):
+        return values.fillna(False).astype(str).str.lower().isin({"true", "1", "yes"})
+    return pd.Series(bool(values))
+
+
+def _unique_join(frame: pd.DataFrame, column: str) -> str:
+    if column not in frame.columns:
+        return ""
+    values = sorted(str(value) for value in frame[column].dropna().astype(str).unique())
+    return ";".join(values)
+
+
+def _mean_or_zero(frame: pd.DataFrame, column: str) -> float:
+    if column not in frame.columns:
+        return 0.0
+    values = pd.to_numeric(frame[column], errors="coerce").dropna()
+    return float(values.mean()) if len(values) else 0.0
+
+
+def _mean_positive_energy_gain(frame: pd.DataFrame) -> float:
+    if "positive_specific_energy_gain_m" in frame.columns:
+        return _mean_or_zero(frame, "positive_specific_energy_gain_m")
+    if "energy_residual_m" in frame.columns:
+        values = pd.to_numeric(frame["energy_residual_m"], errors="coerce").fillna(0.0).clip(lower=0.0)
+        return float(values.mean()) if len(values) else 0.0
+    return 0.0
+
+
 def _representatives_for_case(
     survived: pd.DataFrame,
     *,
@@ -274,29 +438,332 @@ def _representatives_for_case(
     rows: list[dict[str, object]] = []
     max_per_group = int(case["max_representatives_per_group"])
     for (primitive_id, entry_role), group in survived.groupby(["primitive_id", "entry_role"], sort=True):
-        scored = group.copy()
-        scored["_representative_score"] = _representative_score(scored)
-        selected = scored.sort_values(
-            by=["_representative_score", "primitive_variant_id"],
-            ascending=[False, True],
-        ).head(max_per_group)
+        del primitive_id, entry_role
+        selected = _coverage_medoid_selection(group.copy(), max_representatives=max_per_group, case_id=str(case["library_size_case_id"]))
         for rank, (_, row) in enumerate(selected.iterrows()):
             rows.append(_representative_row(row.to_dict(), case=case, source_roots=source_roots, rank=rank))
     return rows
 
 
+def _coverage_medoid_selection(group: pd.DataFrame, *, max_representatives: int, case_id: str) -> pd.DataFrame:
+    """Select real survived variants by robust coverage, design centrality, and marginal coverage."""
+
+    if group.empty:
+        return group
+    scored = _hard_safety_filtered_group(group).copy().reset_index(drop=True)
+    scored["_representative_score"] = _representative_score(scored)
+    coverage = _coverage_matrix(scored)
+    feature_matrix = _normalised_feature_matrix(scored, coverage)
+    distance = _pairwise_distance(feature_matrix)
+    centrality = _centrality_score(distance)
+    worst_case = coverage.min(axis=1) if coverage.size else _numeric_metric_series(scored, "continuation_valid_rate", default=0.0).to_numpy(dtype=float)
+    breadth = coverage.mean(axis=1) if coverage.size else _numeric_metric_series(scored, "continuation_valid_rate", default=0.0).to_numpy(dtype=float)
+    safety = 1.0 - _numeric_metric_series(scored, "hard_failure_rate", default=1.0).clip(0.0, 1.0).to_numpy(dtype=float)
+    perf = _normalise_array(scored["_representative_score"].to_numpy(dtype=float))
+    medoid_quality = 0.45 * worst_case + 0.25 * breadth + 0.15 * safety + 0.10 * centrality + 0.05 * perf
+
+    scored["_coverage_worst_case"] = worst_case
+    scored["_coverage_breadth"] = breadth
+    scored["_medoid_design_centrality"] = centrality
+    scored["_medoid_quality_score"] = medoid_quality
+    scored["_selection_algorithm"] = "coverage_aware_behavior_qr_medoid_greedy_marginal"
+    group_center = feature_matrix.mean(axis=0) if feature_matrix.size else np.zeros(1)
+    scored["_medoid_distance_to_group_center"] = np.linalg.norm(feature_matrix - group_center.reshape(1, -1), axis=1) if feature_matrix.size else 0.0
+
+    max_count = min(int(max_representatives), len(scored))
+    if max_count >= len(scored):
+        selected_indices = list(range(len(scored)))
+        selection_reasons = ["no_cluster_no_merge_keep_all_survivors" if str(case_id) == "no_cluster_no_merge" else "all_survivors_fit_case_limit"] * len(selected_indices)
+        marginal_gains = [float(value) for value in breadth]
+        redundancy = [0.0 for _ in selected_indices]
+    else:
+        sort_key = _variant_sort_key(scored)
+        if str(case_id) == "heavy_cluster":
+            first = _best_index(
+                worst_case,
+                tie_breakers=[
+                    breadth,
+                    safety,
+                    centrality,
+                    perf,
+                    -sort_key,
+                ],
+            )
+        else:
+            first = _best_index(
+                medoid_quality,
+                tie_breakers=[
+                    worst_case,
+                    breadth,
+                    safety,
+                    centrality,
+                    -sort_key,
+                ],
+            )
+        selected_indices = [first]
+        selection_reasons = ["best_worst_case_coverage_medoid"]
+        marginal_gains = [float(breadth[first])]
+        redundancy = [0.0]
+        covered = coverage[first].copy()
+        remaining = set(range(len(scored))) - {first}
+        while remaining and len(selected_indices) < max_count:
+            best_candidate = None
+            best_tuple = None
+            for index in sorted(remaining):
+                marginal = _marginal_coverage_gain(covered, coverage[index])
+                diversity = _normalised_min_distance(index, selected_indices, distance)
+                total = 0.50 * marginal + 0.25 * medoid_quality[index] + 0.20 * diversity + 0.05 * centrality[index]
+                candidate_tuple = (
+                    float(total),
+                    float(marginal),
+                    float(worst_case[index]),
+                    float(diversity),
+                    -float(sort_key[index]),
+                )
+                if best_tuple is None or candidate_tuple > best_tuple:
+                    best_tuple = candidate_tuple
+                    best_candidate = index
+            if best_candidate is None:
+                break
+            selected_indices.append(best_candidate)
+            selection_reasons.append("greedy_marginal_coverage_medoid")
+            gain = _marginal_coverage_gain(covered, coverage[best_candidate])
+            marginal_gains.append(float(gain))
+            redundancy.append(float(1.0 - _normalised_min_distance(best_candidate, selected_indices[:-1], distance)))
+            covered = np.maximum(covered, coverage[best_candidate])
+            remaining.remove(best_candidate)
+
+    selected = scored.iloc[selected_indices].copy()
+    selected["_coverage_marginal_gain"] = marginal_gains
+    selected["_medoid_redundancy_penalty"] = redundancy
+    selected["_medoid_selection_reason"] = selection_reasons
+    selected["_coverage_vector_json"] = [
+        json.dumps([float(value) for value in coverage[index].tolist()], separators=(",", ":"))
+        for index in selected_indices
+    ]
+    selected["_coverage_feature_labels_json"] = json.dumps(_coverage_feature_labels(scored), separators=(",", ":"))
+    selected["_selection_rank_order"] = list(range(len(selected_indices)))
+    return selected
+
+
+def _hard_safety_filtered_group(group: pd.DataFrame) -> pd.DataFrame:
+    hard = _numeric_metric_series(group, "hard_failure_rate", default=1.0).clip(0.0, 1.0)
+    filtered = group[hard < 0.75].copy()
+    return filtered if not filtered.empty else group
+
+
 def _representative_score(group: pd.DataFrame) -> pd.Series:
-    continuation = pd.to_numeric(group.get("continuation_valid_rate", 0.0), errors="coerce").fillna(0.0)
-    terminal = pd.to_numeric(group.get("episode_terminal_useful_rate", 0.0), errors="coerce").fillna(0.0)
-    hard = pd.to_numeric(group.get("hard_failure_rate", 1.0), errors="coerce").fillna(1.0)
+    continuation = _numeric_metric_series(group, "continuation_valid_rate", default=0.0)
+    terminal = _numeric_metric_series(group, "episode_terminal_useful_rate", default=0.0)
+    hard = _numeric_metric_series(group, "hard_failure_rate", default=1.0)
     updraft_gain = _numeric_metric_series(
         group,
         "updraft_gain_proxy_mean_m",
         "positive_specific_energy_gain_mean_m",
         default=0.0,
     )
-    dwell = pd.to_numeric(group.get("lift_dwell_mean_s", 0.0), errors="coerce").fillna(0.0)
+    dwell = _numeric_metric_series(group, "lift_dwell_mean_s", default=0.0)
     return continuation + 0.35 * terminal - 0.75 * hard + 0.05 * updraft_gain + 0.03 * dwell
+
+
+def _coverage_matrix(group: pd.DataFrame) -> np.ndarray:
+    labels = _coverage_feature_labels(group)
+    if not labels:
+        return _default_coverage_matrix(group)
+    rows = []
+    for _, row in group.iterrows():
+        payload = _parse_json(row.get("robustness_coverage_rates_json", "[]"), default=[])
+        values = [float(value) for value in payload] if isinstance(payload, list) else []
+        if len(values) < len(labels):
+            values.extend([0.0] * (len(labels) - len(values)))
+        rows.append([float(np.clip(value, 0.0, 1.0)) for value in values[: len(labels)]])
+    return np.asarray(rows, dtype=float)
+
+
+def _coverage_feature_labels(group: pd.DataFrame) -> list[str]:
+    for value in group.get("robustness_coverage_labels_json", pd.Series(dtype=str)).fillna("").astype(str):
+        labels = _parse_json(value, default=[])
+        if isinstance(labels, list) and labels:
+            return [str(item) for item in labels]
+    return []
+
+
+def _default_coverage_matrix(group: pd.DataFrame) -> np.ndarray:
+    continuation = _numeric_metric_series(group, "continuation_valid_rate", default=0.0).clip(0.0, 1.0).to_numpy(dtype=float)
+    terminal = _numeric_metric_series(group, "episode_terminal_useful_rate", default=0.0).clip(0.0, 1.0).to_numpy(dtype=float)
+    hard = _numeric_metric_series(group, "hard_failure_rate", default=1.0).clip(0.0, 1.0).to_numpy(dtype=float)
+    return np.vstack([continuation, terminal, 1.0 - hard]).T
+
+
+def _normalised_feature_matrix(group: pd.DataFrame, coverage: np.ndarray) -> np.ndarray:
+    feature_rows = []
+    for _, row in group.iterrows():
+        features = {}
+        features.update(_controller_design_features(row))
+        features.update(_behavior_features(row))
+        feature_rows.append(features)
+    keys = sorted({key for features in feature_rows for key in features})
+    if not keys and coverage.size == 0:
+        return np.zeros((len(group), 1), dtype=float)
+    matrix = np.asarray([[float(features.get(key, 0.0)) for key in keys] for features in feature_rows], dtype=float)
+    if coverage.size:
+        matrix = np.hstack([matrix, coverage]) if matrix.size else coverage
+    return _normalise_matrix(matrix)
+
+
+def _controller_design_features(row: pd.Series) -> dict[str, float]:
+    features: dict[str, float] = {}
+    for prefix, field in (("q", "Q_weight_json"), ("r", "R_weight_json")):
+        for key, value in _numeric_json_items(row.get(field, "")).items():
+            features[f"{prefix}_{key}"] = float(np.log10(max(abs(float(value)), 1e-12)))
+    for prefix, field in (("ref_state", "reference_state_vector"), ("ref_cmd", "reference_command_vector")):
+        values = _numeric_json_vector(row.get(field, ""))
+        for index, value in enumerate(values[:24]):
+            features[f"{prefix}_{index:02d}"] = float(value)
+    return features
+
+
+def _behavior_features(row: pd.Series) -> dict[str, float]:
+    fields = (
+        "continuation_valid_rate",
+        "episode_terminal_useful_rate",
+        "hard_failure_rate",
+        "minimum_wall_margin_min_m",
+        "floor_margin_min_m",
+        "ceiling_margin_min_m",
+        "expected_updraft_gain_proxy_m",
+        "updraft_gain_proxy_mean_m",
+        "positive_specific_energy_gain_mean_m",
+        "lift_dwell_mean_s",
+        "saturation_fraction_mean",
+    )
+    return {field: _float(row.get(field, 0.0)) for field in fields}
+
+
+def _pairwise_distance(matrix: np.ndarray) -> np.ndarray:
+    if matrix.size == 0:
+        return np.zeros((0, 0), dtype=float)
+    diff = matrix[:, None, :] - matrix[None, :, :]
+    return np.sqrt(np.sum(diff * diff, axis=2))
+
+
+def _centrality_score(distance: np.ndarray) -> np.ndarray:
+    if distance.size == 0:
+        return np.ones(1, dtype=float)
+    if len(distance) == 1:
+        return np.ones(1, dtype=float)
+    mean_distance = distance.sum(axis=1) / max(1, len(distance) - 1)
+    return 1.0 / (1.0 + mean_distance)
+
+
+def _best_index(values: np.ndarray, *, tie_breakers: list[np.ndarray]) -> int:
+    best_index = 0
+    best_tuple = None
+    for index, value in enumerate(values):
+        candidate = (float(value),) + tuple(float(item[index]) for item in tie_breakers)
+        if best_tuple is None or candidate > best_tuple:
+            best_tuple = candidate
+            best_index = index
+    return int(best_index)
+
+
+def _marginal_coverage_gain(covered: np.ndarray, candidate: np.ndarray) -> float:
+    if covered.size == 0 or candidate.size == 0:
+        return 0.0
+    return float(np.maximum(candidate - covered, 0.0).mean())
+
+
+def _normalised_min_distance(index: int, selected_indices: list[int], distance: np.ndarray) -> float:
+    if not selected_indices or distance.size == 0:
+        return 1.0
+    max_distance = float(np.max(distance)) or 1.0
+    return float(np.min(distance[index, selected_indices]) / max_distance)
+
+
+def _variant_sort_key(frame: pd.DataFrame) -> np.ndarray:
+    keys = []
+    for value in frame.get("primitive_variant_id", pd.Series(range(len(frame)))).fillna("").astype(str):
+        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+        keys.append(int(digest, 16) / float(16**12))
+    return np.asarray(keys, dtype=float)
+
+
+def _normalise_matrix(matrix: np.ndarray) -> np.ndarray:
+    if matrix.size == 0:
+        return matrix
+    finite = np.where(np.isfinite(matrix), matrix, 0.0)
+    median = np.median(finite, axis=0)
+    spread = np.percentile(finite, 75, axis=0) - np.percentile(finite, 25, axis=0)
+    spread = np.where(spread > 1e-12, spread, 1.0)
+    return (finite - median.reshape(1, -1)) / spread.reshape(1, -1)
+
+
+def _normalise_array(values: np.ndarray) -> np.ndarray:
+    if values.size == 0:
+        return values
+    finite = np.where(np.isfinite(values), values, 0.0)
+    lo = float(np.min(finite))
+    hi = float(np.max(finite))
+    if hi - lo <= 1e-12:
+        return np.zeros_like(finite)
+    return (finite - lo) / (hi - lo)
+
+
+def _numeric_json_items(value: object) -> dict[str, float]:
+    payload = _parse_json(value, default={})
+    items: dict[str, float] = {}
+
+    def visit(prefix: str, obj: object) -> None:
+        if isinstance(obj, dict):
+            for key in sorted(obj):
+                visit(f"{prefix}.{key}" if prefix else str(key), obj[key])
+            return
+        if isinstance(obj, (list, tuple)):
+            for index, item in enumerate(obj):
+                visit(f"{prefix}.{index:02d}" if prefix else f"{index:02d}", item)
+            return
+        try:
+            items[prefix or "value"] = float(obj)
+        except (TypeError, ValueError):
+            return
+
+    visit("", payload)
+    return items
+
+
+def _numeric_json_vector(value: object) -> list[float]:
+    payload = _parse_json(value, default=[])
+    if isinstance(payload, dict):
+        return [float(item) for _, item in sorted(_numeric_json_items(value).items())]
+    if isinstance(payload, (list, tuple)):
+        values = []
+        for item in payload:
+            try:
+                values.append(float(item))
+            except (TypeError, ValueError):
+                values.append(0.0)
+        return values
+    return []
+
+
+def _parse_json(value: object, *, default: object) -> object:
+    if isinstance(value, (dict, list, tuple)):
+        return value
+    text = str(value).strip()
+    if not text:
+        return default
+    try:
+        return json.loads(text)
+    except Exception:
+        return default
+
+
+def _float(value: object, default: float = 0.0) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    return result if np.isfinite(result) else float(default)
 
 
 def _numeric_metric_series(group: pd.DataFrame, *columns: str, default: float) -> pd.Series:
@@ -351,6 +818,24 @@ def _representative_row(
         "representative_rank": int(rank),
         "representative_score": float(row.get("_representative_score", 0.0)),
         "representative_score_energy_term_source": "updraft_gain_proxy_mean_m_not_net_energy_residual",
+        "selection_algorithm": str(row.get("_selection_algorithm", "coverage_aware_behavior_qr_medoid_greedy_marginal")),
+        "medoid_selection_reason": str(row.get("_medoid_selection_reason", "")),
+        "coverage_marginal_gain": float(row.get("_coverage_marginal_gain", 0.0)),
+        "coverage_worst_case": float(row.get("_coverage_worst_case", row.get("robustness_worst_case_coverage", 0.0))),
+        "coverage_breadth": float(row.get("_coverage_breadth", row.get("robustness_mean_coverage", 0.0))),
+        "medoid_quality_score": float(row.get("_medoid_quality_score", 0.0)),
+        "medoid_design_centrality": float(row.get("_medoid_design_centrality", 0.0)),
+        "medoid_distance_to_group_center": float(row.get("_medoid_distance_to_group_center", 0.0)),
+        "medoid_redundancy_penalty": float(row.get("_medoid_redundancy_penalty", 0.0)),
+        "selection_rank_order": int(float(row.get("_selection_rank_order", rank))),
+        "robustness_profile_version": str(row.get("robustness_profile_version", "")),
+        "robustness_coverage_labels_json": str(row.get("_coverage_feature_labels_json", row.get("robustness_coverage_labels_json", "[]"))),
+        "robustness_coverage_rates_json": str(row.get("_coverage_vector_json", row.get("robustness_coverage_rates_json", "[]"))),
+        "robustness_terminal_rates_json": str(row.get("robustness_terminal_rates_json", "[]")),
+        "robustness_hard_failure_rates_json": str(row.get("robustness_hard_failure_rates_json", "[]")),
+        "robustness_environment_modes_seen": str(row.get("robustness_environment_modes_seen", "")),
+        "robustness_start_families_seen": str(row.get("robustness_start_families_seen", "")),
+        "robustness_active_fan_counts_seen": str(row.get("robustness_active_fan_counts_seen", "")),
         "continuation_valid_count": int(float(row.get("continuation_valid_count", 0))),
         "continuation_valid_rate": float(row.get("continuation_valid_rate", 0.0)),
         "episode_terminal_useful_count": int(float(row.get("episode_terminal_useful_count", 0))),
@@ -395,6 +880,10 @@ def _library_payload(
         "source_w01_root": str(registry.get("source_w01_root", "")),
         "source_w3_survivor_registry_sha256": file_sha256(config.input_root / "manifests" / "w3_survivor_registry.json"),
         "representative_count": int(len(representatives)),
+        "selection_policy": str(case["selection_policy"]),
+        "selection_algorithm": "coverage_aware_behavior_qr_medoid_greedy_marginal",
+        "hard_safety_filter_policy": "prefer hard_failure_rate_below_0p75_within_primitive_entry_role_group",
+        "coverage_objective": "smallest_existing_validated_variant_set_covering_widest_W3_case_distribution_with_low_hard_failure_risk",
         "claim_status": "simulation_only_post_w3_library_size_case",
         "no_controller_mutation": True,
         "continuation_and_terminal_evidence_separate": True,
@@ -446,6 +935,33 @@ def _launch_gate_candidate_availability(representatives: list[dict[str, object]]
     return pd.DataFrame(rows), blockers
 
 
+def _coverage_medoid_selection_audit(representatives: list[dict[str, object]]) -> pd.DataFrame:
+    frame = pd.DataFrame(representatives)
+    if frame.empty:
+        return pd.DataFrame()
+    wanted = [
+        "library_size_case_id",
+        "primitive_id",
+        "entry_role",
+        "primitive_variant_id",
+        "selection_algorithm",
+        "medoid_selection_reason",
+        "selection_rank_order",
+        "coverage_marginal_gain",
+        "coverage_worst_case",
+        "coverage_breadth",
+        "medoid_quality_score",
+        "medoid_design_centrality",
+        "medoid_distance_to_group_center",
+        "medoid_redundancy_penalty",
+        "robustness_environment_modes_seen",
+        "robustness_start_families_seen",
+        "robustness_active_fan_counts_seen",
+    ]
+    available = [column for column in wanted if column in frame.columns]
+    return frame[available].copy()
+
+
 def _launch_gate_entry_role_audit(representatives: list[dict[str, object]]) -> pd.DataFrame:
     frame = pd.DataFrame(representatives)
     if frame.empty:
@@ -478,6 +994,9 @@ def _study_manifest(
         "source_w3_survivor_count": int(registry.get("survivor_count", 0)),
         "library_size_case_ids": list(LIBRARY_SIZE_CASE_IDS),
         "library_size_cases": case_rows,
+        "selection_algorithm": "coverage_aware_behavior_qr_medoid_greedy_marginal",
+        "selection_policy_summary": "hard safety filter, per-case coverage table, behavior/Q_R medoid selection, greedy marginal coverage fill",
+        "hard_safety_filter_policy": "prefer hard_failure_rate_below_0p75_within_primitive_entry_role_group",
         "primitive_timing_contract": primitive_timing_contract_row(),
         "entry_role_regime_separation_policy": "representatives_grouped_by_primitive_id_and_entry_role_no_cross_role_merge",
         "claim_status": "simulation_only_post_w3_library_size_study",
@@ -510,6 +1029,9 @@ def _write_report(run_root: Path, manifest: dict[str, object]) -> None:
         f"- Status: `{manifest.get('status', '')}`",
         f"- Library-size cases: `{','.join(LIBRARY_SIZE_CASE_IDS)}`",
         "- Human label retained for no_cluster_no_merge: `no-clustering/no-merging`",
+        "- Selection: `coverage-aware behavior/Q-R medoid selection with greedy marginal coverage fill`",
+        "- Hard safety filter: within each primitive/entry-role group, prefer survivors with `hard_failure_rate < 0.75`; if all candidates exceed that threshold the group is retained for explicit downstream blocking/audit.",
+        "- Medoids are existing W3-surviving variants; no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation is performed.",
         "- Claim boundary: simulation-only; no hardware-readiness, transfer, mission, or memory-improvement claim.",
         "",
     ]

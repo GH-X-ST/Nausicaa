@@ -19,6 +19,7 @@ from run_post_w3_cluster_merge import run_post_w3_cluster_merge
 from run_post_w3_library_size_study import (
     LIBRARY_SIZE_CASE_IDS,
     PostW3LibrarySizeStudyConfig,
+    _coverage_medoid_selection,
     run_post_w3_library_size_study,
 )
 from run_repeated_launch_learning_curve import (
@@ -99,6 +100,8 @@ def test_post_w3_library_size_study_writes_five_cases_without_mutation(tmp_path:
     assert tuple(summary["library_size_case_id"]) == LIBRARY_SIZE_CASE_IDS
     assert library["library_size_human_label"] == "no-clustering/no-merging"
     assert library["entry_role_regime_separation_policy"] == "representatives_grouped_by_primitive_id_and_entry_role_no_cross_role_merge"
+    assert library["selection_algorithm"] == "coverage_aware_behavior_qr_medoid_greedy_marginal"
+    assert library["no_controller_mutation"] is True
     assert representative_ids == {
         "primvar_glide_inflight",
         "primvar_lift_survived",
@@ -113,6 +116,7 @@ def test_post_w3_library_size_study_writes_five_cases_without_mutation(tmp_path:
         assert representative["w3_variant_status"] == "survived"
         assert representative["mutation_status"].startswith("references_existing_frozen_variant")
         assert representative["library_size_case_id"] == "no_cluster_no_merge"
+        assert representative["selection_algorithm"] == "coverage_aware_behavior_qr_medoid_greedy_marginal"
     glide = [row for row in representatives if row["primitive_variant_id"] == "primvar_glide_inflight"][0]
     assert glide["controller_id"] == "ctrl_glide"
     assert glide["K_gain_checksum"] == "k_glide"
@@ -136,6 +140,60 @@ def test_post_w3_library_size_study_writes_five_cases_without_mutation(tmp_path:
             "launch_capture_shallow_right",
             "launch_capture_safe_handoff",
         }
+
+
+def test_post_w3_medoid_selection_keeps_existing_broad_coverage_variant() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "primitive_variant_id": "narrow_high_average",
+                "primitive_id": "glide",
+                "entry_role": "inflight_only",
+                "continuation_valid_rate": 0.95,
+                "episode_terminal_useful_rate": 0.1,
+                "hard_failure_rate": 0.01,
+                "robustness_coverage_labels_json": '["env:single","env:four","start:inflight_nominal","active_fan_count:4"]',
+                "robustness_coverage_rates_json": "[1.0,1.0,1.0,0.0]",
+                "Q_weight_json": '{"q":1.0}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            },
+            {
+                "primitive_variant_id": "broad_medoid",
+                "primitive_id": "glide",
+                "entry_role": "inflight_only",
+                "continuation_valid_rate": 0.75,
+                "episode_terminal_useful_rate": 0.1,
+                "hard_failure_rate": 0.02,
+                "robustness_coverage_labels_json": '["env:single","env:four","start:inflight_nominal","active_fan_count:4"]',
+                "robustness_coverage_rates_json": "[0.7,0.7,0.7,0.7]",
+                "Q_weight_json": '{"q":1.1}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            },
+            {
+                "primitive_variant_id": "unsafe_high_coverage",
+                "primitive_id": "glide",
+                "entry_role": "inflight_only",
+                "continuation_valid_rate": 1.0,
+                "episode_terminal_useful_rate": 0.5,
+                "hard_failure_rate": 0.90,
+                "robustness_coverage_labels_json": '["env:single","env:four","start:inflight_nominal","active_fan_count:4"]',
+                "robustness_coverage_rates_json": "[1.0,1.0,1.0,1.0]",
+                "Q_weight_json": '{"q":1.0}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            },
+        ]
+    )
+
+    selected = _coverage_medoid_selection(frame, max_representatives=1, case_id="heavy_cluster")
+
+    assert list(selected["primitive_variant_id"]) == ["broad_medoid"]
+    assert selected["_selection_algorithm"].iloc[0] == "coverage_aware_behavior_qr_medoid_greedy_marginal"
 
 
 def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_counts(tmp_path: Path) -> None:
