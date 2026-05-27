@@ -111,7 +111,7 @@ POLICIES = (
         "policy_role": "baseline_no_memory",
     },
     {
-        "policy_id": "static_map_baseline",
+        "policy_id": "static_lift_prior_baseline",
         "lambda_value": 0.8,
         "uses_memory_features": True,
         "updates_belief": False,
@@ -151,7 +151,7 @@ PAIRED_COMPARISONS = (
     ("context_plus_memory_lambda_0_8", "context_only_without_memory"),
     ("context_plus_memory_lambda_0_95", "context_only_without_memory"),
     ("context_plus_memory_lambda_0_8", "no_memory_baseline"),
-    ("static_map_baseline", "context_plus_memory_lambda_0_8"),
+    ("static_lift_prior_baseline", "context_plus_memory_lambda_0_8"),
 )
 
 
@@ -789,7 +789,7 @@ def _policy_rows(static_prior_status: str = "ready") -> list[dict[str, object]]:
     for policy in POLICIES:
         row = {
             **policy,
-            "static_map_status": static_prior_status if policy["policy_id"] == "static_map_baseline" else "not_applicable",
+            "static_map_status": static_prior_status if policy["policy_id"] == "static_lift_prior_baseline" else "not_applicable",
             "claim_status": "simulation_only_memory_policy",
         }
         rows.append(row)
@@ -806,7 +806,7 @@ def _initial_policy_beliefs(
     for policy in policy_rows:
         for replicate_id in range(replicate_count):
             lambda_value = float(policy["lambda_value"])
-            if policy["policy_id"] == "static_map_baseline" and isinstance(static_prior, LiftBeliefGrid):
+            if policy["policy_id"] == "static_lift_prior_baseline" and isinstance(static_prior, LiftBeliefGrid):
                 beliefs[(str(policy["policy_id"]), replicate_id)] = replace(static_prior, lambda_value=lambda_value, update_count=0)
             else:
                 beliefs[(str(policy["policy_id"]), replicate_id)] = initial_belief(lambda_value=lambda_value if lambda_value in BELIEF_LAMBDA_VALUES else 0.0)
@@ -1152,7 +1152,7 @@ def _paired_policy_comparison(
     )
     rows = []
     for treatment, baseline in PAIRED_COMPARISONS:
-        if treatment == "static_map_baseline" and static_prior_status != "ready":
+        if treatment == "static_lift_prior_baseline" and static_prior_status != "ready":
             continue
         left = frame[frame["policy_id"] == treatment]
         right = frame[frame["policy_id"] == baseline]

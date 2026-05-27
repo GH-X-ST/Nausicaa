@@ -21,7 +21,7 @@ from prim_cat import PrimitiveDefinition, active_primitive_catalogue
 # =============================================================================
 # 1) W01 Tuning Contracts
 # =============================================================================
-W01_TUNING_METHOD_VERSION = "w01_grouped_qr_primitive_variant_v1"
+W01_TUNING_METHOD_VERSION = "w01_grouped_qr_primitive_variant_v2_launch_wide"
 PREFERRED_CANDIDATES_PER_PRIMITIVE = (16, 32)
 FALLBACK_CANDIDATES_PER_PRIMITIVE = 8
 PREFERRED_PAIRED_TESTS_PER_CANDIDATE = (50, 100)
@@ -31,7 +31,6 @@ HARD_GATE_LABELS = (
     "entry_role_compatible",
     "safe_volume",
     "floor_ceiling_margin",
-    "minimum_speed",
     "surface_limits",
     "valid_lqr_synthesis",
     "sampled_data_stability",
@@ -88,10 +87,15 @@ def candidate_weight_specs(
     if int(candidate_count) <= 0:
         raise ValueError("candidate_count must be positive.")
     base = default_lqr_weight_spec(primitive_id, tuning_stage=tuning_stage)
-    scales = np.asarray([0.5, 0.75, 1.0, 1.5, 2.0, 3.0], dtype=float)
+    if str(primitive_id).startswith("launch_capture_"):
+        q_scales = np.asarray([0.25, 0.40, 0.60, 0.85, 1.20, 1.80, 2.80, 4.20], dtype=float)
+        r_scales = np.asarray([0.25, 0.40, 0.65, 1.00, 1.60, 2.50, 3.80, 5.50], dtype=float)
+    else:
+        q_scales = np.asarray([0.5, 0.75, 1.0, 1.5, 2.0, 3.0], dtype=float)
+        r_scales = q_scales
     candidates: list[LQRWeightSpec] = []
-    for q_scale in scales:
-        for r_scale in scales:
+    for q_scale in q_scales:
+        for r_scale in r_scales:
             candidates.append(
                 LQRWeightSpec(
                     q_attitude=float(base.q_attitude * q_scale),

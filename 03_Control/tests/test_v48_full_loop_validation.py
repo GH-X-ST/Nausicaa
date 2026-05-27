@@ -129,7 +129,7 @@ def test_v48_full_loop_dry_run_covers_policies_and_environments(tmp_path: Path) 
     assert result["status"] == "dry_run_schedule"
     assert set(schedule["policy_id"]) == {
         "no_memory_baseline",
-        "static_map_baseline",
+        "static_lift_prior_baseline",
         "context_only_without_memory",
         "context_plus_memory_lambda_0_5",
         "context_plus_memory_lambda_0_8",

@@ -142,4 +142,4 @@ def test_w01_role_aware_schedule_avoids_launch_gate_entry_rejections(tmp_path: P
     assert set(launch_rows["entry_role"]) == {"launch_capable"}
     assert {"inflight_only", "terminal_or_recovery"}.issubset(set(non_launch_rows["entry_role"]))
     assert not frame["entry_check_status"].astype(str).eq("entry_role_incompatible_start").any()
-    assert not frame["failure_label"].astype(str).eq("entry_role_not_launch_capable").any()
+    assert not frame["failure_label"].astype(str).eq("entry_role_incompatible_start_family").any()

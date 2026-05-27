@@ -159,7 +159,7 @@ def test_v411_directional_memory_and_safe_exploration_after_filtering() -> None:
             z_w_m=1.5,
             direction_rad=0.0,
             lift_residual_m_s=0.2,
-            energy_residual_m=0.1,
+            updraft_gain_residual_m=0.1,
             dwell_residual_s=0.05,
         ),
     )
@@ -572,7 +572,7 @@ def test_governor_uses_updraft_gain_config_names_and_missing_evidence_rejection(
     assert dry_candidate["viable"] is True
     assert dry_candidate["expected_updraft_gain_proxy_m"] == pytest.approx(0.8)
     assert dry_candidate["score_updraft_gain_proxy_m"] == pytest.approx(0.0)
-    assert dry_candidate["context_conditioned_outcome_score_version"] == "context_limited_updraft_gain_proxy_v1"
+    assert dry_candidate["context_conditioned_outcome_score_version"] == "context_limited_updraft_gain_proxy_v2_no_energy_residual_score"
 
 
 def test_context_conditioned_outcome_is_robust_first_and_selector_uses_it() -> None:

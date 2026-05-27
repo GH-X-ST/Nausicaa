@@ -47,18 +47,20 @@ Required active validation baseline:
 ```powershell
 .\.venv\Scripts\python.exe -m py_compile 03_Control/02_Inner_Loop/*.py 03_Control/03_Primitives/*.py 03_Control/04_Scenarios/*.py
 .\.venv\Scripts\python.exe -m pytest -q 03_Control/tests --basetemp .codex_run_logs\pytest_tmp -o cache_dir=.codex_run_logs\pytest_cache
-.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_v49_source_audit.py
-.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_w01_w2_w3_contract_audit.py
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_v411_source_audit.py --dry-run --no-write-archive
+.\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_v53_algorithm_contract_audit.py
 git diff --check
 ```
 
-`run_active_contract_audit.py` is retained only as a compatibility wrapper for
-`run_w01_w2_w3_contract_audit.py`; new instructions should name the current
-source audit and the W01/W2/W3 compatibility audit directly. The current
-evidence workflow is still controlled by `docs/Glider_Control_Project_Plan.md`,
-where R5 dry-air rows use W0 no-updraft environment plus W3-style
-plant/implementation perturbations, R7 is frozen W3 validation, R9 is fixed
-case, and R10 is environment-only changed-case validation.
+`run_active_contract_audit.py` and W01/W2/W3-only audit names are retained only
+as compatibility references. New instructions should name the active source
+audit and the v5.3 algorithm contract audit directly. The current evidence
+workflow is controlled by `docs/Glider_Control_Project_Plan.md`: R5 is robust
+primitive synthesis, R6/W2 is archived diagnostic-only, R7 is frozen W3
+validation, R8 is the five-case post-W3 library-size study, R9 is fixed-case
+outer-loop verification used only as the proceed-to-R10 gate, R10 is
+environment-only changed-case governor tuning, and R11 is strict held-out
+changed-case validation.
 
 Use the repo-local pytest temp/cache paths above so validation does not depend
 on the Windows user temp directory. Local `.venv` and `.codex_run_logs`

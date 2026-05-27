@@ -20,7 +20,7 @@ class DirectionalResidualObservation:
     z_w_m: float
     direction_rad: float
     lift_residual_m_s: float
-    energy_residual_m: float
+    updraft_gain_residual_m: float
     dwell_residual_s: float
     observation_weight: float = 1.0
 
@@ -33,7 +33,7 @@ class DirectionalResidualCell:
     direction_bin: int
     observation_count: int
     lift_residual_mean_m_s: float
-    energy_residual_mean_m: float
+    updraft_gain_residual_mean_m: float
     dwell_residual_mean_s: float
     uncertainty: float
 
@@ -81,7 +81,7 @@ def update_directional_residual_lift_belief(
             direction_bin=key[3],
             observation_count=count,
             lift_residual_mean_m_s=float(observation.lift_residual_m_s),
-            energy_residual_mean_m=float(observation.energy_residual_m),
+            updraft_gain_residual_mean_m=float(observation.updraft_gain_residual_m),
             dwell_residual_mean_s=float(observation.dwell_residual_s),
             uncertainty=1.0 / math.sqrt(float(count)),
         )
@@ -92,7 +92,11 @@ def update_directional_residual_lift_belief(
             prior,
             observation_count=count,
             lift_residual_mean_m_s=_blend(prior.lift_residual_mean_m_s, observation.lift_residual_m_s, alpha),
-            energy_residual_mean_m=_blend(prior.energy_residual_mean_m, observation.energy_residual_m, alpha),
+            updraft_gain_residual_mean_m=_blend(
+                prior.updraft_gain_residual_mean_m,
+                observation.updraft_gain_residual_m,
+                alpha,
+            ),
             dwell_residual_mean_s=_blend(prior.dwell_residual_mean_s, observation.dwell_residual_s, alpha),
             uncertainty=1.0 / math.sqrt(float(count)),
         )
@@ -119,6 +123,7 @@ def query_directional_residual_lift_features(
             "belief_version": belief.belief_version,
             "belief_local_lift_residual_m_s": 0.0,
             "belief_local_updraft_gain_proxy_m": 0.0,
+            "belief_local_updraft_gain_residual_m": 0.0,
             "belief_local_energy_residual_m": 0.0,
             "belief_local_dwell_residual_s": 0.0,
             "belief_uncertainty": 1.0,
@@ -130,8 +135,9 @@ def query_directional_residual_lift_features(
     return {
         "belief_version": belief.belief_version,
         "belief_local_lift_residual_m_s": float(cell.lift_residual_mean_m_s),
-        "belief_local_updraft_gain_proxy_m": max(float(cell.energy_residual_mean_m), 0.0),
-        "belief_local_energy_residual_m": float(cell.energy_residual_mean_m),
+        "belief_local_updraft_gain_proxy_m": max(float(cell.updraft_gain_residual_mean_m), 0.0),
+        "belief_local_updraft_gain_residual_m": float(cell.updraft_gain_residual_mean_m),
+        "belief_local_energy_residual_m": float(cell.updraft_gain_residual_mean_m),
         "belief_local_dwell_residual_s": float(cell.dwell_residual_mean_s),
         "belief_uncertainty": float(cell.uncertainty),
         "belief_observation_count": int(cell.observation_count),
@@ -156,8 +162,18 @@ def directional_residual_observation_from_rows(
         direction_rad=float(direction_rad),
         lift_residual_m_s=float(observed_row.get("w_wing_mean_m_s", 0.0))
         - float(expected_row.get("w_wing_mean_m_s", 0.0)),
-        energy_residual_m=float(observed_row.get("energy_residual_m", 0.0))
-        - float(expected_row.get("expected_energy_residual_m", 0.0)),
+        updraft_gain_residual_m=float(
+            observed_row.get(
+                "trajectory_integrated_updraft_gain_m",
+                observed_row.get("updraft_specific_energy_gain_proxy_m", max(float(observed_row.get("energy_residual_m", 0.0)), 0.0)),
+            )
+        )
+        - float(
+            expected_row.get(
+                "expected_updraft_gain_proxy_m",
+                max(float(expected_row.get("expected_energy_residual_m", 0.0)), 0.0),
+            )
+        ),
         dwell_residual_s=float(observed_row.get("lift_dwell_time_s", 0.0))
         - float(expected_row.get("expected_lift_dwell_time_s", 0.0)),
     )
@@ -170,7 +186,12 @@ def belief_snapshot_row(belief: DirectionalResidualLiftBelief, label: str = "") 
     payload["y_edges_m"] = json.dumps(list(belief.y_edges_m), separators=(",", ":"))
     payload["z_edges_m"] = json.dumps(list(belief.z_edges_m), separators=(",", ":"))
     payload["cell_count"] = len(belief.cells)
-    payload["cells_json"] = json.dumps([asdict(cell) for cell in belief.cells], separators=(",", ":"))
+    cell_rows = []
+    for cell in belief.cells:
+        row = asdict(cell)
+        row["energy_residual_mean_m"] = row["updraft_gain_residual_mean_m"]
+        cell_rows.append(row)
+    payload["cells_json"] = json.dumps(cell_rows, separators=(",", ":"))
     payload.pop("cells")
     return payload
 

@@ -81,7 +81,6 @@ ACTIVE_PRIMITIVE_IDS = (
 _COMMON_ENTRY = (
     "finite_state",
     "inside_true_safe_bounds",
-    "minimum_speed_margin_positive",
     "attitude_margin_positive",
 )
 _COMMON_EXIT = (

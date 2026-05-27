@@ -3,8 +3,8 @@ from __future__ import annotations
 from primitive_timing_contract import PRIMITIVE_FINITE_HORIZON_S
 
 
-CONTEXT_CONDITIONED_OUTCOME_MODEL_VERSION = "robust_context_conditioned_outcome_v1"
-R10_CHANGED_CASE_BLOCK_IDS = {
+CONTEXT_CONDITIONED_OUTCOME_MODEL_VERSION = "robust_context_conditioned_outcome_v2_changed_case_and_sample_coverage"
+CHANGED_CASE_BLOCK_IDS = {
     "nominal_single_fan_perturbations",
     "nominal_four_fan_perturbations",
     "shifted_single_fan_positions",
@@ -12,6 +12,7 @@ R10_CHANGED_CASE_BLOCK_IDS = {
     "active_fan_number_variation",
     "arena_wide_fan_position_generalisation",
 }
+GOVERNOR_TIGHT_WALL_MARGIN_M = 0.001
 
 
 def lookup_outcome_for_identity(
@@ -71,6 +72,9 @@ def context_conditioned_outcome(
             risk = max(risk, 0.55)
             reasons.append("sparse_outcome_evidence")
     else:
+        continuation *= 0.50
+        terminal *= 0.50
+        risk = max(risk, 0.75)
         reasons.append("sample_count_unavailable")
 
     environment_status = _environment_match_status(row, context)
@@ -85,11 +89,11 @@ def context_conditioned_outcome(
         risk = max(risk, 0.35)
         reasons.append("environment_coverage_unknown")
 
-    if str(context.get("environment_block_id", "")) in R10_CHANGED_CASE_BLOCK_IDS:
+    if str(context.get("environment_block_id", "")) in CHANGED_CASE_BLOCK_IDS:
         continuation *= 0.85
         terminal *= 0.85
         risk = max(risk, 0.35)
-        reasons.append("r10_changed_case_conservative_penalty")
+        reasons.append("changed_case_conservative_penalty")
 
     local_uncertainty = max(_float(context.get("w_local_uncertainty_m_s", 0.0)), 0.0)
     if local_uncertainty > 0.0:
@@ -112,7 +116,7 @@ def context_conditioned_outcome(
         terminal *= 0.40
         risk = max(risk, 0.85)
         reasons.append("vertical_margin_tight")
-    if governor_wall_margin < 0.05 and str(governor_mode) != "terminal_episode_mode":
+    if governor_wall_margin < GOVERNOR_TIGHT_WALL_MARGIN_M and str(governor_mode) != "terminal_episode_mode":
         continuation *= 0.40
         terminal *= 0.40
         risk = max(risk, 0.85)

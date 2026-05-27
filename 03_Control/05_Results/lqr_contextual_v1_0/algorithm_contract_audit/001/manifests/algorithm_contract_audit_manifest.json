@@ -1,0 +1,110 @@
+{
+  "audit_version": "v53_algorithm_contract_audit_v1",
+  "status": "ready",
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/algorithm_contract_audit/001",
+  "dry_run": false,
+  "active_code_contract_passed": true,
+  "active_source_audit_passed": true,
+  "docs_code_consistency_passed": true,
+  "failed_invariant_count": 0,
+  "failed_invariants": [],
+  "legacy_alias_count": 6,
+  "docs_hashes": [
+    {
+      "path": "docs/Daily_Schedule.txt",
+      "readable": true,
+      "byte_count": 23467,
+      "sha256": "e9b14bd5f923989d9251b590e6daa85abee10218b0318f4d62bd5a8d3c2bfd22"
+    },
+    {
+      "path": "docs/Glider_Control_Project_Plan.md",
+      "readable": true,
+      "byte_count": 79713,
+      "sha256": "d9db9af8c6aa5ed737ee1e2cd3d8e28939bd9fe6dc631feff2c85c09d1d19be1"
+    },
+    {
+      "path": "docs/Literature_Review.txt",
+      "readable": true,
+      "byte_count": 8176,
+      "sha256": "65d36bc2062f41d78ae1cb3f3222f351778262954a8448baab3fbe2bad057393"
+    },
+    {
+      "path": "docs/Logbook.txt",
+      "readable": true,
+      "byte_count": 5824,
+      "sha256": "bd8aeb06bd062f89bf9851243aa9f30633aeac96a67b9eba4db58542725063b0"
+    },
+    {
+      "path": "docs/MATLAB Coding.txt",
+      "readable": true,
+      "byte_count": 6083,
+      "sha256": "9023e8f1f05dc5ac66c36f186b0d21f4059666280a74bcd7b37e8f5d4a4a673a"
+    },
+    {
+      "path": "docs/PR.txt",
+      "readable": true,
+      "byte_count": 7354,
+      "sha256": "6b2fed2fd2e11e3d614a977918b0156f316f99662939299a41a389a55626bfa2"
+    },
+    {
+      "path": "docs/Progrewss Report.txt",
+      "readable": true,
+      "byte_count": 5580,
+      "sha256": "807f202b699fdec14845443c41a078633867c38c219cf3168ca9d41fb22a17bc"
+    },
+    {
+      "path": "docs/Pseudocode Writing Instructions.txt",
+      "readable": true,
+      "byte_count": 6841,
+      "sha256": "28fdf957f944637b06dc806485eeea21e8cd207b09738230d85a330ffc478c43"
+    },
+    {
+      "path": "docs/Python Coding Instruction.txt",
+      "readable": true,
+      "byte_count": 12834,
+      "sha256": "3e11116957f8cf65aa25b853dea292a85e9abaf249783d3debfa41a30f2f295a"
+    },
+    {
+      "path": "docs/Python Coding to CODEX.txt",
+      "readable": true,
+      "byte_count": 7515,
+      "sha256": "0798f92ba6b3fc723e1a4f792865870c32302bab01cbe2018887b5e32a8e9307"
+    },
+    {
+      "path": "docs/Python Plotting Guidance.txt",
+      "readable": true,
+      "byte_count": 7754,
+      "sha256": "c948bcf2da875a23977a8b9894d57c102d50a61e8ac6fd707d8768dc0472524f"
+    },
+    {
+      "path": "docs/Reference Searching.txt",
+      "readable": true,
+      "byte_count": 7097,
+      "sha256": "12d42199d02894c9aa41051ad69e84784d2390649f4505de4890c6e197a5ed20"
+    },
+    {
+      "path": "docs/Skills.md",
+      "readable": true,
+      "byte_count": 14503,
+      "sha256": "b10ba904392f9639cd1d45c6ca8e322695c807dfec397e5afe7d13a8ba61779a"
+    },
+    {
+      "path": "docs/Thesis.txt",
+      "readable": true,
+      "byte_count": 8463,
+      "sha256": "37d7378f8417c8194f1958f720fd2fdfbbd0959bb5ec7ba4b8b797e9864bccc8"
+    },
+    {
+      "path": "docs/housekeeping_and_naming_rules.md",
+      "readable": true,
+      "byte_count": 10376,
+      "sha256": "a4f1a5cb2975764f7bd9a96999786be577c2f1adae0cc8075f0835da8b4e1bba"
+    },
+    {
+      "path": "docs/local_validation_environment.md",
+      "readable": true,
+      "byte_count": 3214,
+      "sha256": "acfb33eec98a38653f35a4e8c3a568b8f8e1e4ed860cad2ef71ccd6a1377bddb"
+    }
+  ]
+}

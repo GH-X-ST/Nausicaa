@@ -1,0 +1,4 @@
+check_id,observed,passed,required
+active_source_files_scanned,185,True,>0 active source files
+archived_and_generated_evidence_ignored_by_default,15670,True,ignored unless archive audit is explicit
+active_source_blockers_absent,[],True,no active-source blockers

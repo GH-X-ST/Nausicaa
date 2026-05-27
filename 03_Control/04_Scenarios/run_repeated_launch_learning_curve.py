@@ -62,19 +62,20 @@ from primitive_timing_contract import PRIMITIVE_FINITE_HORIZON_S, primitive_timi
 from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS  # noqa: E402
 from state_contract import STATE_INDEX, as_state_vector  # noqa: E402
 from state_sampling import archive_state_sample_for_family  # noqa: E402
-from viability_governor import DEFAULT_GOVERNOR_CONFIG, GovernorConfig  # noqa: E402
+from viability_governor import DEFAULT_GOVERNOR_CONFIG, GovernorConfig, governor_config_to_row  # noqa: E402
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
 VALIDATION_VERSION = "repeated_launch_fixed_case_rollout_validation_v6"
 HISTORY_LENGTHS = (0, 5, 10, 20, 50, 100)
 HISTORY_LENGTH_SUM = sum(HISTORY_LENGTHS)
-BASELINE_POLICY_IDS = ("no_memory_baseline", "static_map_baseline")
+EMPTY_FROZEN_PRIOR_BASELINE_ID = "empty_frozen_prior_baseline"
+BASELINE_POLICY_IDS = ("no_memory_baseline", EMPTY_FROZEN_PRIOR_BASELINE_ID)
 MEMORY_POLICY_PREFIX = "directional_3d_residual_memory"
 SAFE_EXPLORE_POLICY_PREFIX = "safe_explore_then_exploit"
 POLICY_HISTORY_CONDITIONS = (
     "no_memory_baseline",
-    "static_map_baseline",
+    EMPTY_FROZEN_PRIOR_BASELINE_ID,
     "directional_3d_residual_memory_h0",
     "directional_3d_residual_memory_h5",
     "directional_3d_residual_memory_h10",
@@ -111,6 +112,7 @@ BOUNDARY_RECOVERY_START_FAMILY = "inflight_boundary_near"
 TERMINAL_SAFE_EXIT_START_FAMILY = "inflight_recovery_edge"
 ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID = "active_fan_number_variation"
 BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID = "arena_wide_fan_position_generalisation"
+CHANGED_CASE_VALIDATION_STAGE_IDS = {"R10", "R11"}
 R10_NOMINAL_FAN_POSITION_BLOCK_IDS = (
     "nominal_single_fan_perturbations",
     "nominal_four_fan_perturbations",
@@ -137,7 +139,7 @@ RECOVERY_ROUTE_MARGIN_M = 0.25
 RECOVERY_EDGE_MAX_ABS_ROLL_RAD = math.radians(35.0)
 RECOVERY_EDGE_MAX_ABS_PITCH_RAD = math.radians(22.0)
 RECOVERY_EDGE_MAX_BODY_RATE_RAD_S = 0.65
-LAUNCH_SCORE_VERSION = "r9_r10_updraft_gain_multiplicative_launch_score_v2"
+LAUNCH_SCORE_VERSION = "r9_r10_r11_updraft_gain_multiplicative_launch_score_v3"
 SPECIFIC_ENERGY_GRAVITY_M_S2 = 9.80665
 SCORING_TARGET_EPISODE_TIME_S = 1.5
 PHYSICAL_HARD_FAILURE_LABELS = {
@@ -202,6 +204,7 @@ class RepeatedLaunchValidationConfig:
     workers: int = 1
     max_workers: int | None = None
     worker_backend: str = "thread"
+    governor_config: GovernorConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -218,6 +221,12 @@ class ValidationProtocol:
     final_schedule_prefix: str
     reduced_diagnostic: bool = False
     requires_no_glider_latency_variation_audit: bool = False
+    gate_profile: str = "strict_final_validation"
+    max_hard_failure_rate: float = 0.01
+    max_no_viable_rate: float = 0.02
+    min_safe_success_rate: float = 0.99
+    min_full_safe_success_rate: float | None = None
+    min_terminal_or_lift_capture_rate: float = 0.90
 
 
 R9_PROTOCOL = ValidationProtocol(
@@ -225,12 +234,17 @@ R9_PROTOCOL = ValidationProtocol(
     manifest_name="repeated_launch_fixed_case_manifest.json",
     report_name="repeated_launch_fixed_case_report.md",
     manifest_version=VALIDATION_VERSION,
-    validation_evidence_level="full_fixed_case_repeated_launch_rollout_validation",
+    validation_evidence_level="fixed_case_outer_loop_verification_proceed_to_r10_not_final_claim_gate",
     outer_cases_per_condition=R9_OUTER_CASES_PER_CONDITION,
     expected_final_heldout_launches=R9_EXPECTED_FINAL_HELDOUT_LAUNCHES,
     expected_history_launches=R9_EXPECTED_HISTORY_LAUNCHES,
     blocks=R9_BLOCKS,
     final_schedule_prefix="r9_fixed",
+    gate_profile="relaxed_fixed_case_outer_loop_verification_proceed_to_r10",
+    max_hard_failure_rate=0.20,
+    max_no_viable_rate=0.30,
+    min_safe_success_rate=0.20,
+    min_terminal_or_lift_capture_rate=0.30,
 )
 
 
@@ -252,6 +266,7 @@ class ValidationRunConfig:
     workers: int
     max_workers: int | None
     worker_backend: str
+    governor_config: GovernorConfig | None = None
 
 
 def run_repeated_launch_learning_curve(config: RepeatedLaunchValidationConfig) -> dict[str, object]:
@@ -275,6 +290,7 @@ def run_repeated_launch_learning_curve(config: RepeatedLaunchValidationConfig) -
             workers=config.workers,
             max_workers=config.max_workers,
             worker_backend=config.worker_backend,
+            governor_config=config.governor_config,
         ),
         protocol=R9_PROTOCOL,
     )
@@ -304,7 +320,7 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
     _write_csv(run_root / "metrics" / "outer_case_schedule.csv", pd.DataFrame(outer_cases))
     _write_csv(run_root / "metrics" / "history_launch_schedule.csv", pd.DataFrame(history_schedule))
     _write_csv(run_root / "metrics" / "final_heldout_launch_schedule.csv", pd.DataFrame(final_schedule))
-    if protocol.stage_id == "R10":
+    if protocol.stage_id in CHANGED_CASE_VALIDATION_STAGE_IDS:
         _write_csv(run_root / "metrics" / "environment_block_schedule.csv", _environment_block_summary(protocol))
         _write_csv(
             run_root / "metrics" / "active_fan_count_schedule_audit.csv",
@@ -406,6 +422,8 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
         no_variation_rows=no_variation_rows,
     )
     _write_csv(run_root / "metrics" / "pass_fail_gate_summary.csv", pd.DataFrame(pass_summary))
+    if protocol.stage_id == "R10":
+        _write_r10_governor_tuning_outputs(run_root, config, pass_summary, episode_rows)
     status = "smoke_run" if int(config.smoke_outer_cases_per_block) > 0 else "complete"
     _write_manifest(
         run_root=run_root,
@@ -455,6 +473,13 @@ def _blocked_reason(config: ValidationRunConfig) -> str:
     if str(outcome_payload.get("project_title_version", "")) != PROJECT_TITLE_VERSION:
         return "outcome_model_not_v5_project_title"
     outcome = pd.read_csv(outcome_path)
+    if "sample_count" not in outcome.columns:
+        return "outcome_model_missing_sample_count_coverage_column"
+    sample_counts = pd.to_numeric(outcome["sample_count"], errors="coerce")
+    if sample_counts.isna().any():
+        return "outcome_model_sample_count_contains_non_numeric_values"
+    if bool((sample_counts <= 0).any()):
+        return "outcome_model_contains_non_positive_sample_count_rows"
     missing_cases = set(LIBRARY_SIZE_CASE_IDS) - set(outcome.get("library_size_case_id", pd.Series(dtype=str)).astype(str))
     if missing_cases:
         return "outcome_model_missing_library_size_cases:" + ",".join(sorted(missing_cases))
@@ -679,7 +704,7 @@ def _scheduled_active_fan_count_for_outer_case(
     environment_block_id: str,
     environment_block_local_index: int,
 ) -> int | None:
-    if str(protocol.stage_id) != "R10":
+    if str(protocol.stage_id) not in CHANGED_CASE_VALIDATION_STAGE_IDS:
         return None
     block_id = str(environment_block_id)
     if block_id in R10_ACTIVE_FAN_COUNT_VARIATION_BLOCK_IDS:
@@ -698,7 +723,7 @@ def _active_fan_count_policy_for_outer_case(
     protocol: ValidationProtocol,
     environment_block_id: str,
 ) -> str:
-    if str(protocol.stage_id) != "R10":
+    if str(protocol.stage_id) not in CHANGED_CASE_VALIDATION_STAGE_IDS:
         return "environment_default"
     block_id = str(environment_block_id)
     if block_id == ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID:
@@ -717,7 +742,7 @@ def _fan_layout_policy_for_outer_case(
     protocol: ValidationProtocol,
     environment_block_id: str,
 ) -> str:
-    if str(protocol.stage_id) != "R10":
+    if str(protocol.stage_id) not in CHANGED_CASE_VALIDATION_STAGE_IDS:
         return "fixed_case_layout"
     block_id = str(environment_block_id)
     if "single_fan" in block_id:
@@ -751,7 +776,7 @@ def _fan_position_policy_for_outer_case(
     protocol: ValidationProtocol,
     environment_block_id: str,
 ) -> str:
-    if str(protocol.stage_id) != "R10":
+    if str(protocol.stage_id) not in CHANGED_CASE_VALIDATION_STAGE_IDS:
         return "common_shift"
     block_id = str(environment_block_id)
     if block_id == BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID:
@@ -768,7 +793,7 @@ def _fan_position_bounds_text_for_outer_case(
     protocol: ValidationProtocol,
     environment_block_id: str,
 ) -> str:
-    if str(protocol.stage_id) != "R10":
+    if str(protocol.stage_id) not in CHANGED_CASE_VALIDATION_STAGE_IDS:
         return "common_shift_range=-0.200:0.200"
     block_id = str(environment_block_id)
     if block_id == BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID:
@@ -924,7 +949,7 @@ def _scheduled_active_fan_count_for_context(
 def _policy_condition(policy_id: str) -> dict[str, object]:
     if policy_id == "no_memory_baseline":
         return {"policy_id": policy_id, "policy_family": "baseline", "history_length": 0, "uses_memory": False, "updates_memory": False, "safe_explore": False}
-    if policy_id == "static_map_baseline":
+    if policy_id == EMPTY_FROZEN_PRIOR_BASELINE_ID:
         return {"policy_id": policy_id, "policy_family": "baseline", "history_length": 0, "uses_memory": True, "updates_memory": False, "safe_explore": False}
     for prefix in (MEMORY_POLICY_PREFIX, SAFE_EXPLORE_POLICY_PREFIX):
         marker = f"{prefix}_h"
@@ -968,7 +993,7 @@ def _run_one_launch(
         environment_mode=str(scheduled["environment_mode"]),
     )
     state = as_state_vector(sample.state_vector)
-    governor_config = _governor_config_for_policy(policy)
+    governor_config = _governor_config_for_policy(policy, base_config=config.governor_config or DEFAULT_GOVERNOR_CONFIG)
     time_budget_steps = max(
         1,
         int(math.ceil(float(config.max_episode_time_s) / float(PRIMITIVE_FINITE_HORIZON_S))),
@@ -1114,8 +1139,16 @@ def _run_one_launch(
             y_w_m=float(state[STATE_INDEX["y_w"]]),
             z_w_m=float(state[STATE_INDEX["z_w"]]),
             direction_rad=float(state[STATE_INDEX["psi"]]),
-            lift_residual_m_s=float(context_payload["row"].get("w_wing_mean_m_s", 0.0)) - float(outcome.get("w_wing_mean_m_s", 0.0)),
-            energy_residual_m=float(rollout_row.get("energy_residual_m", 0.0)) - float(outcome.get("expected_energy_residual_m", 0.0)),
+            lift_residual_m_s=_lift_residual_for_memory_update(
+                context_payload["row"],
+                rollout_row=rollout_row,
+                outcome=outcome,
+            ),
+            updraft_gain_residual_m=_updraft_gain_residual_for_memory_update(
+                context_payload["row"],
+                rollout_row=rollout_row,
+                outcome=outcome,
+            ),
             dwell_residual_s=float(rollout_row.get("lift_dwell_time_s", 0.0)) - float(outcome.get("expected_lift_dwell_time_s", 0.0)),
         )
         belief_before_update = belief_after
@@ -1400,18 +1433,18 @@ def _environment_randomisation_config_for_context(
     scheduled_active_fan_count: int | None,
 ) -> EnvironmentRandomisationConfig | None:
     block_id = str(scheduled.get("environment_block_id", ""))
-    if str(protocol.stage_id) == "R10" and block_id == BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID:
+    if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS and block_id == BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID:
         return EnvironmentRandomisationConfig(
             active_fan_count=scheduled_active_fan_count,
             fan_position_policy="independent_uniform_xy_bounds",
             fan_position_xy_bounds_m=R10_ARENA_WIDE_FAN_POSITION_XY_BOUNDS_M,
         )
-    if str(protocol.stage_id) == "R10" and block_id in R10_FIXED_BASE_POSITION_BLOCK_IDS:
+    if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS and block_id in R10_FIXED_BASE_POSITION_BLOCK_IDS:
         return EnvironmentRandomisationConfig(
             active_fan_count=scheduled_active_fan_count,
             fan_position_policy="fixed_base_positions",
         )
-    if str(protocol.stage_id) == "R10" and block_id in R10_SHIFTED_FAN_POSITION_BLOCK_IDS:
+    if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS and block_id in R10_SHIFTED_FAN_POSITION_BLOCK_IDS:
         return EnvironmentRandomisationConfig(
             active_fan_count=scheduled_active_fan_count,
             fan_position_policy="common_shift",
@@ -1421,12 +1454,12 @@ def _environment_randomisation_config_for_context(
     return None
 
 
-def _governor_config_for_policy(policy: dict[str, object]) -> GovernorConfig:
+def _governor_config_for_policy(policy: dict[str, object], *, base_config: GovernorConfig = DEFAULT_GOVERNOR_CONFIG) -> GovernorConfig:
     if bool(policy["safe_explore"]):
-        return DEFAULT_GOVERNOR_CONFIG
+        return base_config
     return replace(
-        DEFAULT_GOVERNOR_CONFIG,
-        config_id="v411_viability_filtered_no_exploration_ablation",
+        base_config,
+        config_id=f"{base_config.config_id}_no_exploration_ablation",
         exploration_bonus_weight=0.0,
     )
 
@@ -1459,6 +1492,7 @@ def _episode_row_from_sequence(
     hard_failure = any(_rollout_row_is_hard_failure(row) for row in primitive_rows)
     floor_or_ceiling = any(_rollout_row_is_floor_or_ceiling_violation(row) for row in primitive_rows)
     terminal_useful = any(_truthy(row.get("episode_terminal_useful", False)) for row in primitive_rows)
+    terminal_useful_safe_exit_only = any(_rollout_row_is_terminal_safe_exit_only(row) for row in primitive_rows)
     lift_capture = any(_float_value(row.get("lift_dwell_time_s", 0.0)) > 0.0 for row in primitive_rows)
     selected_variants = _sequence_values(primitive_rows, "primitive_variant_id")
     selected_primitives = _sequence_values(primitive_rows, "primitive_id")
@@ -1477,6 +1511,7 @@ def _episode_row_from_sequence(
         or str(blocked_reason) == "episode_time_budget_reached"
     )
     episode_duration_s = _episode_rollout_duration_s(primitive_rows)
+    safe_success = bool(sequence_compliant and last_continuation_or_terminal and not hard_failure and not floor_or_ceiling and not no_viable)
     row = {
         **_schedule_identity_row(scheduled),
         "launch_role": str(scheduled["launch_role"]),
@@ -1497,8 +1532,10 @@ def _episode_row_from_sequence(
         "hard_failure": bool(hard_failure),
         "floor_or_ceiling_violation": bool(floor_or_ceiling),
         "no_viable_primitive": no_viable,
-        "safe_success": bool(sequence_compliant and last_continuation_or_terminal and not hard_failure and not floor_or_ceiling and not no_viable),
+        "safe_success": safe_success,
+        "full_safe_success": bool(safe_success and not terminal_useful_safe_exit_only),
         "terminal_useful": bool(terminal_useful),
+        "terminal_useful_safe_exit_only": bool(terminal_useful_safe_exit_only),
         "lift_capture": bool(lift_capture),
         "episode_rollout_duration_s": float(episode_duration_s),
         "lift_dwell_time_s": float(sum(_float_value(row.get("lift_dwell_time_s", 0.0)) for row in primitive_rows)),
@@ -1517,7 +1554,7 @@ def _episode_row_from_sequence(
         "belief_update_count_before": int(belief_before.update_count),
         "belief_update_count_after": int(belief_after.update_count),
     }
-    row.update(_launch_score_fields(row))
+    row.update(_launch_score_fields_for_role(row))
     return row
 
 
@@ -1561,7 +1598,14 @@ def _episode_row_from_rollout(
             and not _rollout_row_is_hard_failure(rollout_row)
             and not _rollout_row_is_floor_or_ceiling_violation(rollout_row)
         ),
+        "full_safe_success": bool(
+            (_truthy(rollout_row.get("continuation_valid", False)) or _truthy(rollout_row.get("episode_terminal_useful", False)))
+            and not _rollout_row_is_hard_failure(rollout_row)
+            and not _rollout_row_is_floor_or_ceiling_violation(rollout_row)
+            and not _rollout_row_is_terminal_safe_exit_only(rollout_row)
+        ),
         "terminal_useful": bool(rollout_row.get("episode_terminal_useful", False)),
+        "terminal_useful_safe_exit_only": bool(_rollout_row_is_terminal_safe_exit_only(rollout_row)),
         "lift_capture": bool(float(rollout_row.get("lift_dwell_time_s", 0.0)) > 0.0),
         "episode_rollout_duration_s": float(_episode_rollout_duration_s([rollout_row])),
         "lift_dwell_time_s": float(rollout_row.get("lift_dwell_time_s", 0.0)),
@@ -1578,7 +1622,7 @@ def _episode_row_from_rollout(
         "belief_update_count_before": int(belief_before.update_count),
         "belief_update_count_after": int(belief_after.update_count),
     }
-    row.update(_launch_score_fields(row))
+    row.update(_launch_score_fields_for_role(row))
     return row
 
 
@@ -1610,7 +1654,9 @@ def _episode_row_from_blocked(
         "floor_or_ceiling_violation": False,
         "no_viable_primitive": True,
         "safe_success": False,
+        "full_safe_success": False,
         "terminal_useful": False,
+        "terminal_useful_safe_exit_only": False,
         "lift_capture": False,
         "episode_rollout_duration_s": 0.0,
         "lift_dwell_time_s": 0.0,
@@ -1634,7 +1680,7 @@ def _episode_row_from_blocked(
         "belief_update_count_before": 0,
         "belief_update_count_after": 0,
     }
-    row.update(_launch_score_fields(row))
+    row.update(_launch_score_fields_for_role(row))
     return row
 
 
@@ -1710,6 +1756,22 @@ def _rollout_row_is_floor_or_ceiling_violation(row: dict[str, object]) -> bool:
     }
 
 
+def _rollout_row_is_terminal_safe_exit_only(row: dict[str, object]) -> bool:
+    if not _truthy(row.get("episode_terminal_useful", False)):
+        return False
+    if _rollout_row_is_hard_failure(row) or _rollout_row_is_floor_or_ceiling_violation(row):
+        return False
+    boundary_class = str(row.get("boundary_use_class", ""))
+    cause = str(row.get("termination_cause", ""))
+    label = str(row.get("failure_label", ""))
+    return bool(
+        boundary_class == "episode_terminal_useful"
+        or "wall" in cause
+        or "xy_boundary" in label
+        or "boundary_terminal" in label
+    )
+
+
 def _episode_rollout_duration_s(primitive_rows: list[dict[str, object]]) -> float:
     total = 0.0
     for row in primitive_rows:
@@ -1731,6 +1793,40 @@ def _primitive_updraft_gain_proxy_m(
         return float(max(_float_value(rollout_row.get("trajectory_integrated_updraft_gain_m", 0.0)), 0.0))
     w_wing = max(_float_value(context_row.get("w_wing_mean_m_s", 0.0)), 0.0)
     return float(w_wing * PRIMITIVE_FINITE_HORIZON_S)
+
+
+def _lift_residual_for_memory_update(
+    context_row: dict[str, object],
+    *,
+    rollout_row: dict[str, object],
+    outcome: dict[str, object],
+) -> float:
+    """Compare experienced positive wing lift with the context-conditioned expectation."""
+
+    if "trajectory_mean_positive_w_wing_m_s" in rollout_row:
+        observed = _float_value(rollout_row.get("trajectory_mean_positive_w_wing_m_s", 0.0))
+    else:
+        observed = max(_float_value(context_row.get("w_wing_mean_m_s", 0.0)), 0.0)
+    if "w_wing_mean_m_s" in outcome:
+        expected = max(_float_value(outcome.get("w_wing_mean_m_s", 0.0)), 0.0)
+    else:
+        expected = max(_float_value(outcome.get("expected_updraft_gain_proxy_m", 0.0)), 0.0) / float(
+            PRIMITIVE_FINITE_HORIZON_S
+        )
+    return float(observed - expected)
+
+
+def _updraft_gain_residual_for_memory_update(
+    context_row: dict[str, object],
+    *,
+    rollout_row: dict[str, object],
+    outcome: dict[str, object],
+) -> float:
+    """Update memory from useful updraft exposure, not whole-flight energy loss."""
+
+    observed = _primitive_updraft_gain_proxy_m(context_row, rollout_row=rollout_row)
+    expected = max(_float_value(outcome.get("expected_updraft_gain_proxy_m", 0.0)), 0.0)
+    return float(observed - expected)
 
 
 def _specific_energy_m(state: np.ndarray) -> float:
@@ -1822,6 +1918,34 @@ def _launch_score_fields(row: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _launch_score_fields_for_role(row: dict[str, object]) -> dict[str, object]:
+    if str(row.get("launch_role", "")) == "final_heldout":
+        fields = _launch_score_fields(row)
+        fields["launch_score_scope"] = "final_heldout_outer_loop_score"
+        return fields
+    selected_steps = int(_float_value(row.get("selected_primitive_step_count", 0)))
+    episode_time_s = _float_value(
+        row.get(
+            "episode_rollout_duration_s",
+            float(selected_steps) * float(PRIMITIVE_FINITE_HORIZON_S),
+        )
+    )
+    return {
+        "launch_score_version": LAUNCH_SCORE_VERSION,
+        "episode_flight_time_s": float(episode_time_s),
+        "base_failure_penalty": float("nan"),
+        "base_failure_penalty_reason": "not_scored_history_launch",
+        "outcome_multiplier": float("nan"),
+        "safety_multiplier": float("nan"),
+        "viability_multiplier": float("nan"),
+        "updraft_gain_factor": float("nan"),
+        "flight_time_factor": float("nan"),
+        "launch_score_multiplicative_component": float("nan"),
+        "launch_score": float("nan"),
+        "launch_score_scope": "history_launch_memory_update_not_outer_loop_score",
+    }
+
+
 def _base_failure_penalty(
     *,
     hard_failure: bool,
@@ -1897,11 +2021,18 @@ def _belief_snapshot_compact(
         "belief_local_updraft_gain_proxy_m": float(
             features.get(
                 "belief_local_updraft_gain_proxy_m",
-                max(float(features.get("belief_local_energy_residual_m", 0.0) or 0.0), 0.0),
+                max(float(features.get("belief_local_updraft_gain_residual_m", 0.0) or 0.0), 0.0),
             )
             or 0.0
         ),
-        "belief_local_energy_residual_m": float(features.get("belief_local_energy_residual_m", 0.0) or 0.0),
+        "belief_local_updraft_gain_residual_m": float(features.get("belief_local_updraft_gain_residual_m", 0.0) or 0.0),
+        "belief_local_energy_residual_m": float(
+            features.get(
+                "belief_local_energy_residual_m",
+                features.get("belief_local_updraft_gain_residual_m", 0.0),
+            )
+            or 0.0
+        ),
         "belief_local_dwell_residual_s": float(features.get("belief_local_dwell_residual_s", 0.0) or 0.0),
     }
 
@@ -2068,7 +2199,7 @@ def _write_first_decision_audits_from_partitions(
             row = availability.setdefault(
                 key,
                 {
-                    "stage_id": "R9_R10",
+                    "stage_id": "R9_R10_R11",
                     "library_size_case_id": key,
                     "launch_capable_primitives": set(),
                     "launch_capture_primitives": set(),
@@ -2144,6 +2275,7 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
             .agg(
                 launch_count=("episode_id", "count"),
                 safe_success_rate=("safe_success", "mean"),
+                full_safe_success_rate=("full_safe_success", "mean"),
                 hard_failure_rate=("hard_failure", "mean"),
                 floor_or_ceiling_violation_rate=("floor_or_ceiling_violation", "mean"),
                 no_viable_primitive_rate=("no_viable_primitive", "mean"),
@@ -2186,6 +2318,7 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
             .agg(
                 launch_count=("episode_id", "count"),
                 safe_success_rate=("safe_success", "mean"),
+                full_safe_success_rate=("full_safe_success", "mean"),
                 hard_failure_rate=("hard_failure", "mean"),
                 no_viable_primitive_rate=("no_viable_primitive", "mean"),
                 mean_launch_score=("launch_score", "mean"),
@@ -2193,12 +2326,13 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
             .reset_index()
         )
     _write_csv(run_root / "metrics" / "library_size_case_comparison.csv", library)
-    if protocol.stage_id == "R10":
+    if protocol.stage_id in CHANGED_CASE_VALIDATION_STAGE_IDS:
         env = (
             final.groupby(["environment_block_id"], dropna=False)
             .agg(
                 launch_count=("episode_id", "count"),
                 safe_success_rate=("safe_success", "mean"),
+                full_safe_success_rate=("full_safe_success", "mean"),
                 mean_launch_score=("launch_score", "mean"),
             )
             .reset_index()
@@ -2258,7 +2392,7 @@ def _paired_score_delta_rows(final: pd.DataFrame, *, baseline_policy_id: str) ->
         policy_id = str(row.get("policy_id", ""))
         if policy_id == str(baseline_policy_id):
             continue
-        if not (policy_id.startswith(MEMORY_POLICY_PREFIX) or policy_id == "static_map_baseline"):
+        if not (policy_id.startswith(MEMORY_POLICY_PREFIX) or policy_id == EMPTY_FROZEN_PRIOR_BASELINE_ID):
             continue
         baseline_row = baseline_map.get(_paired_launch_key(row))
         if baseline_row is None:
@@ -2390,7 +2524,7 @@ def _with_selection_change_flags(final: pd.DataFrame) -> pd.DataFrame:
         policy_id = str(row["policy_id"])
         key = (str(row["library_size_case_id"]), int(row["outer_case_index"]))
         signature = str(row["selection_signature"])
-        if policy_id.startswith(MEMORY_POLICY_PREFIX) or policy_id == "static_map_baseline":
+        if policy_id.startswith(MEMORY_POLICY_PREFIX) or policy_id == EMPTY_FROZEN_PRIOR_BASELINE_ID:
             out.at[index, "memory_changed_selection"] = signature != baseline_map.get(key, signature)
         if policy_id.startswith(SAFE_EXPLORE_POLICY_PREFIX):
             memory_key = (str(row["library_size_case_id"]), int(row["outer_case_index"]), int(row["history_length"]))
@@ -2444,15 +2578,45 @@ def _pass_fail_summary(
                     sequence_compliant_count,
                     len(episode_rows),
                 ),
-                _gate_row("hard_failure_rate_le_1pct", _mean_bool(final_rows, "hard_failure") <= 0.01, _mean_bool(final_rows, "hard_failure"), 0.01),
+                _gate_row(
+                    "hard_failure_rate_within_stage_profile",
+                    _mean_bool(final_rows, "hard_failure") <= float(protocol.max_hard_failure_rate),
+                    _mean_bool(final_rows, "hard_failure"),
+                    protocol.max_hard_failure_rate,
+                ),
                 _gate_row("floor_or_ceiling_violation_rate_zero", _mean_bool(final_rows, "floor_or_ceiling_violation") == 0.0, _mean_bool(final_rows, "floor_or_ceiling_violation"), 0.0),
-                _gate_row("no_viable_primitive_rate_le_2pct", _mean_bool(final_rows, "no_viable_primitive") <= 0.02, _mean_bool(final_rows, "no_viable_primitive"), 0.02),
-                _gate_row("safe_success_rate_near_100pct", _mean_bool(final_rows, "safe_success") >= 0.99, _mean_bool(final_rows, "safe_success"), 0.99),
-                _gate_row("terminal_or_lift_capture_ge_90pct", max(_mean_bool(final_rows, "terminal_useful"), _mean_bool(final_rows, "lift_capture")) >= 0.90, max(_mean_bool(final_rows, "terminal_useful"), _mean_bool(final_rows, "lift_capture")), 0.90),
+                _gate_row(
+                    "no_viable_primitive_rate_within_stage_profile",
+                    _mean_bool(final_rows, "no_viable_primitive") <= float(protocol.max_no_viable_rate),
+                    _mean_bool(final_rows, "no_viable_primitive"),
+                    protocol.max_no_viable_rate,
+                ),
+                _gate_row(
+                    "safe_success_rate_within_stage_profile",
+                    _mean_bool(final_rows, "safe_success") >= float(protocol.min_safe_success_rate),
+                    _mean_bool(final_rows, "safe_success"),
+                    protocol.min_safe_success_rate,
+                ),
+                _gate_row(
+                    "terminal_or_lift_capture_within_stage_profile",
+                    max(_mean_bool(final_rows, "terminal_useful"), _mean_bool(final_rows, "lift_capture"))
+                    >= float(protocol.min_terminal_or_lift_capture_rate),
+                    max(_mean_bool(final_rows, "terminal_useful"), _mean_bool(final_rows, "lift_capture")),
+                    protocol.min_terminal_or_lift_capture_rate,
+                ),
                 _gate_row("selected_primitive_family_count_ge_5", len(selected_primitives) >= 5, len(selected_primitives), 5),
                 _gate_row("selected_variant_count_ge_10", len(selected_variants) >= 10, len(selected_variants), 10),
             ]
         )
+        if protocol.min_full_safe_success_rate is not None:
+            rows.append(
+                _gate_row(
+                    "full_safe_success_rate_within_stage_profile",
+                    _mean_bool(final_rows, "full_safe_success") >= float(protocol.min_full_safe_success_rate),
+                    _mean_bool(final_rows, "full_safe_success"),
+                    protocol.min_full_safe_success_rate,
+                )
+            )
     else:
         rows.append(_gate_row("final_rollout_rows_present", False, 0, protocol.expected_final_heldout_launches))
     return rows
@@ -2580,6 +2744,44 @@ def _active_fan_count_schedule_audit_rows(outer_cases: list[dict[str, object]]) 
     return rows
 
 
+def _write_r10_governor_tuning_outputs(
+    run_root: Path,
+    config: ValidationRunConfig,
+    pass_summary: list[dict[str, object]],
+    episode_rows: list[dict[str, object]],
+) -> None:
+    final = pd.DataFrame([row for row in episode_rows if str(row.get("launch_role", "")) == "final_heldout"])
+    selected_config = config.governor_config or DEFAULT_GOVERNOR_CONFIG
+    metrics = {
+        "governor_config_id": selected_config.config_id,
+        "final_launch_count": int(len(final)),
+        "hard_failure_rate": _mean_bool(final.to_dict(orient="records"), "hard_failure") if not final.empty else 1.0,
+        "no_viable_primitive_rate": _mean_bool(final.to_dict(orient="records"), "no_viable_primitive") if not final.empty else 1.0,
+        "safe_success_rate": _mean_bool(final.to_dict(orient="records"), "safe_success") if not final.empty else 0.0,
+        "full_safe_success_rate": _mean_bool(final.to_dict(orient="records"), "full_safe_success") if not final.empty else 0.0,
+        "terminal_or_lift_capture_rate": max(
+            _mean_bool(final.to_dict(orient="records"), "terminal_useful") if not final.empty else 0.0,
+            _mean_bool(final.to_dict(orient="records"), "lift_capture") if not final.empty else 0.0,
+        ),
+    }
+    status = "selected_for_r11" if _overall_pass(pass_summary) else "not_selected_r10_gate_failed"
+    payload = {
+        "manifest_version": "r10_frozen_governor_config_for_r11_v1",
+        "project_title_version": PROJECT_TITLE_VERSION,
+        "status": status,
+        "selection_policy": "robust_first_freeze_only_after_full_r10_pass_gate",
+        "source_r10_root": run_root.as_posix(),
+        "governor_config": governor_config_to_row(selected_config),
+        "selection_metrics": metrics,
+        "controller_mutation_allowed": False,
+        "primitive_retuning_allowed": False,
+        "claim_status": "simulation_only_governor_tuning_handoff_not_memory_improvement_claim",
+        "blocked_claims": list(BLOCKED_CLAIMS),
+    }
+    _write_json(run_root / "manifests" / "frozen_governor_config_for_r11.json", payload)
+    _write_csv(run_root / "metrics" / "governor_config_selection.csv", pd.DataFrame([metrics | {"status": status}]))
+
+
 def _write_manifest(
     *,
     run_root: Path,
@@ -2612,6 +2814,14 @@ def _write_manifest(
         "actual_history_launches": int(len(history_schedule)),
         "primitive_timing_contract": primitive_timing_contract_row(),
         "validation_protocol": protocol.validation_evidence_level,
+        "validation_gate_profile": protocol.gate_profile,
+        "max_hard_failure_rate": float(protocol.max_hard_failure_rate),
+        "max_no_viable_rate": float(protocol.max_no_viable_rate),
+        "min_safe_success_rate": float(protocol.min_safe_success_rate),
+        "min_full_safe_success_rate": (
+            None if protocol.min_full_safe_success_rate is None else float(protocol.min_full_safe_success_rate)
+        ),
+        "min_terminal_or_lift_capture_rate": float(protocol.min_terminal_or_lift_capture_rate),
         "dry_run_schedule": bool(config.dry_run_schedule),
         "storage_format": resolve_storage_format(config.storage_format),
         "compression_level": int(config.compression_level),
@@ -2621,6 +2831,13 @@ def _write_manifest(
         "selected_workers": int(_selected_worker_count(config)),
         "worker_backend": str(config.worker_backend),
         "parallel_execution_policy": "parallelise_across_independent_final_schedule_rows_history_sequential_inside_worker_parent_writes_partitions",
+        "governor_config_override_active": config.governor_config is not None,
+        "governor_config": governor_config_to_row(config.governor_config or DEFAULT_GOVERNOR_CONFIG),
+        "r10_frozen_governor_config_for_r11": (
+            (run_root / "manifests" / "frozen_governor_config_for_r11.json").as_posix()
+            if protocol.stage_id == "R10"
+            else ""
+        ),
         "max_primitives_per_launch": int(config.max_primitives_per_launch),
         "primitive_count_cap_status": "disabled" if int(config.max_primitives_per_launch) <= 0 else "diagnostic_cap_enabled",
         "max_episode_time_s": float(config.max_episode_time_s),
@@ -2638,17 +2855,17 @@ def _write_manifest(
         "post_launch_required_entry_role": "inflight_only",
         "boundary_recovery_required_entry_role": "terminal_or_recovery",
         "terminal_safe_exit_required_entry_role": "terminal_or_recovery",
-        "r10_active_fan_count_policy": "balanced_1_2_3_4_for_active_fan_number_variation"
-        if str(protocol.stage_id) == "R10"
+        "changed_case_active_fan_count_policy": "balanced_1_2_3_4_for_active_fan_number_variation"
+        if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
         else "not_applicable",
-        "r10_active_fan_count_sequence": list(R10_ACTIVE_FAN_COUNT_SEQUENCE)
-        if str(protocol.stage_id) == "R10"
+        "changed_case_active_fan_count_sequence": list(R10_ACTIVE_FAN_COUNT_SEQUENCE)
+        if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
         else [],
-        "r10_arena_wide_fan_position_block_id": BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID
-        if str(protocol.stage_id) == "R10"
+        "changed_case_arena_wide_fan_position_block_id": BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID
+        if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
         else "not_applicable",
-        "r10_arena_wide_fan_position_xy_bounds_m": R10_ARENA_WIDE_FAN_POSITION_XY_BOUNDS_M
-        if str(protocol.stage_id) == "R10"
+        "changed_case_arena_wide_fan_position_xy_bounds_m": R10_ARENA_WIDE_FAN_POSITION_XY_BOUNDS_M
+        if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
         else (),
         "recovery_route_margin_m": float(RECOVERY_ROUTE_MARGIN_M),
         "recovery_edge_max_abs_roll_rad": float(RECOVERY_EDGE_MAX_ABS_ROLL_RAD),
@@ -2697,6 +2914,8 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Pass gate: `{_overall_pass(pass_summary)}`",
         f"- Expected final held-out launches: `{protocol.expected_final_heldout_launches}`",
         f"- Expected history launches: `{protocol.expected_history_launches}`",
+        f"- Gate profile: `{protocol.gate_profile}`",
+        f"- Safety thresholds: hard failure <= `{protocol.max_hard_failure_rate}`, no-viable <= `{protocol.max_no_viable_rate}`, safe success >= `{protocol.min_safe_success_rate}`, full safe success >= `{protocol.min_full_safe_success_rate}`, terminal/lift >= `{protocol.min_terminal_or_lift_capture_rate}`.",
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
         f"- Recovery route: `{BOUNDARY_RECOVERY_START_FAMILY}` below `{RECOVERY_ROUTE_MARGIN_M}` m safe margin, `{TERMINAL_SAFE_EXIT_START_FAMILY}` for degraded attitude, rate, or boundary contact.",
         f"- Launch score: `{LAUNCH_SCORE_VERSION}`; rewards safe valid flight time and updraft-gain proxy, while net/gross energy drift remains audit-only.",

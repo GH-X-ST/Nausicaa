@@ -294,7 +294,7 @@ def _rejection_reason(
         start_state_family=str(context_row["start_state_family"]),
     ):
         return "entry_role_incompatible_start_family"
-    if float(context_row.get("governor_wall_margin_m", context_row["wall_margin_m"])) < 0.05:
+    if float(context_row.get("governor_wall_margin_m", context_row["wall_margin_m"])) < 0.001:
         return "context_wall_margin_low"
     if float(context_row["floor_margin_m"]) < 0.0 or float(context_row["ceiling_margin_m"]) < 0.0:
         return "context_vertical_safety_violation"

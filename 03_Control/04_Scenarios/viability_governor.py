@@ -44,8 +44,8 @@ class GovernorConfig:
 
 
 DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
-    config_id="v411_viability_filtered_safe_exploration_governor",
-    minimum_wall_margin_m=0.05,
+    config_id="v53_viability_filtered_safe_exploration_governor_wall_0p10cm",
+    minimum_wall_margin_m=0.001,
     maximum_hard_failure_risk=0.75,
     continuation_weight=1.00,
     terminal_weight=-0.30,
@@ -117,7 +117,7 @@ def governor_candidate_row(
     continuation_probability = _float(outcome.get("continuation_probability", 0.0))
     terminal_probability = _float(outcome.get("terminal_useful_probability", 0.0))
     hard_failure_risk = _float(outcome.get("hard_failure_risk", 1.0))
-    expected_energy_residual_m = _float(outcome.get("expected_energy_residual_m", 0.0))
+    expected_net_specific_energy_delta_m = _float(outcome.get("expected_energy_residual_m", 0.0))
     updraft_gain = _float(outcome.get("expected_updraft_gain_proxy_m", 0.0))
     score_updraft_gain = _contextual_updraft_gain_proxy_m(
         expected_updraft_gain_proxy_m=updraft_gain,
@@ -132,11 +132,16 @@ def governor_candidate_row(
             belief_features.get("belief_local_lift_m_s", 0.0),
         )
     )
-    belief_energy = _float(belief_features.get("belief_local_energy_residual_m", 0.0))
+    belief_updraft_gain_residual = _float(
+        belief_features.get(
+            "belief_local_updraft_gain_residual_m",
+            belief_features.get("belief_local_energy_residual_m", 0.0),
+        )
+    )
     belief_updraft_gain = _float(
         belief_features.get(
             "belief_local_updraft_gain_proxy_m",
-            max(belief_energy, 0.0),
+            max(belief_updraft_gain_residual, 0.0),
         )
     )
     belief_dwell = _float(belief_features.get("belief_local_dwell_residual_s", 0.0))
@@ -226,7 +231,9 @@ def governor_candidate_row(
         "belief_local_lift_m_s": belief_local,
         "belief_local_lift_residual_m_s": belief_local,
         "belief_local_updraft_gain_proxy_m": belief_updraft_gain,
-        "belief_local_energy_residual_m": belief_energy,
+        "belief_local_updraft_gain_residual_m": belief_updraft_gain_residual,
+        "belief_local_energy_residual_m": belief_updraft_gain_residual,
+        "belief_energy_residual_alias_status": "legacy_alias_for_updraft_gain_residual_not_total_energy",
         "belief_local_dwell_residual_s": belief_dwell,
         "belief_mean_lift_m_s": belief_mean,
         "belief_max_lift_m_s": belief_max,
@@ -238,10 +245,11 @@ def governor_candidate_row(
         "continuation_probability": continuation_probability,
         "terminal_useful_probability": terminal_probability,
         "hard_failure_risk": hard_failure_risk,
-        "expected_energy_residual_m": expected_energy_residual_m,
+        "expected_net_specific_energy_delta_m": expected_net_specific_energy_delta_m,
+        "expected_energy_residual_alias_status": "legacy_outcome_column_not_used_for_governor_soft_score",
         "expected_updraft_gain_proxy_m": updraft_gain,
         "score_updraft_gain_proxy_m": score_updraft_gain,
-        "context_conditioned_outcome_score_version": "context_limited_updraft_gain_proxy_v1",
+        "context_conditioned_outcome_score_version": "context_limited_updraft_gain_proxy_v2_no_energy_residual_score",
         "expected_lift_dwell_time_s": dwell,
         "wall_margin_m": _float(context.get("wall_margin_m", wall_margin)),
         "all_wall_margin_m": _float(context.get("all_wall_margin_m", context.get("wall_margin_m", 0.0))),

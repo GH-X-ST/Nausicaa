@@ -349,7 +349,7 @@ def _launch_aware_catalogue_blockers() -> list[dict[str, object]]:
         if primitive_id not in ACTIVE_PRIMITIVE_IDS:
             blockers.append({"blocker_id": "launch_capture_id_missing_from_active_catalogue", "details": primitive_id})
         if ENTRY_ROLE_BY_PRIMITIVE_ID.get(primitive_id) != "launch_capable":
-            blockers.append({"blocker_id": "launch_capture_entry_role_not_launch_capable", "details": primitive_id})
+            blockers.append({"blocker_id": "launch_capture_entry_role_incompatible", "details": primitive_id})
     for primitive_id in ("glide", "lift_entry", "lift_dwell_arc", "mild_turn_left", "mild_turn_right", "energy_retaining_bank"):
         if ENTRY_ROLE_BY_PRIMITIVE_ID.get(primitive_id) != "inflight_only":
             blockers.append({"blocker_id": "inflight_primitive_relabelled_launch_capable", "details": primitive_id})
@@ -377,7 +377,16 @@ def _active_source_blockers(*, repo_root: Path, inventory: list[dict[str, object
             blockers.append({"blocker_id": "active_old_validation_import", "details": rel})
         if "run_full_loop_validation" in text or "run_governor_calibration" in text:
             blockers.append({"blocker_id": "active_retired_validation_or_calibration_import", "details": rel})
-        if "post_w3_cluster" in text and "run_post_w3_library_size_study" not in rel:
+        stale_post_w3_reference = any(
+            marker in text
+            for marker in (
+                "post_w3_cluster/",
+                "post_w3_cluster\\",
+                "post_w3_cluster" + '"',
+                "post_w3_cluster" + "'",
+            )
+        )
+        if stale_post_w3_reference and "run_post_w3_library_size_study" not in rel:
             blockers.append({"blocker_id": "active_single_post_w3_library_reference", "details": rel})
     governor = _read_text_or_empty(repo_root / "03_Control/04_Scenarios/viability_governor.py")
     if "exploration_bonus_weight=0.0," in governor or "applied_after_viability_filter" not in governor:

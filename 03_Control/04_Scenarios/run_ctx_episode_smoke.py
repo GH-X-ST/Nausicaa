@@ -307,7 +307,12 @@ def _directional_observation_from_row(row: dict[str, object]) -> DirectionalResi
         z_w_m=_float(row.get("initial_z_w", 0.0)),
         direction_rad=_float(row.get("initial_psi", 0.0)),
         lift_residual_m_s=_float(row.get("context_w_wing_mean_m_s", 0.0)),
-        energy_residual_m=_float(row.get("energy_residual_m", 0.0)),
+        updraft_gain_residual_m=_float(
+            row.get(
+                "trajectory_integrated_updraft_gain_m",
+                row.get("updraft_specific_energy_gain_proxy_m", max(_float(row.get("energy_residual_m", 0.0)), 0.0)),
+            )
+        ),
         dwell_residual_s=_float(row.get("lift_dwell_time_s", 0.0)),
     )
 

@@ -1,4 +1,4 @@
-# Python Coding Instruction — Environment-Conditioned Primitive Standard
+﻿# Python Coding Instruction 鈥?Environment-Conditioned Primitive Standard
 
 <!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
 ## Current controlling update - robust R5 synthesis and frozen W3 holdout
@@ -8,25 +8,26 @@ This document is aligned with `docs/Glider_Control_Project_Plan.md`, which is th
 Current decision:
 
 ```text
-BLOCKED_FIX_REQUIRED until the repaired R5 -> R7 -> R8 -> R9 -> R10 evidence chain passes.
+BLOCKED_FIX_REQUIRED until the repaired R5 -> R7 -> R8 -> R9 -> R10 -> R11 evidence chain passes, with R6 archived diagnostic-only and R11 as the strict held-out validation gate.
 ```
 
 Required repair direction:
 
 ```text
-1. Restart accepted evidence from robust R5 dry-air plus annular-GP synthesis; older R5/R7/R8/R9/R10 roots remain diagnostic unless regenerated under the current contract.
+1. Restart accepted evidence from robust R5 dry-air plus annular-GP synthesis; older R5/R7/R8/R9/R10/R11 roots remain diagnostic unless regenerated under the current contract.
 2. R5 dry-air rows keep the W0 no-updraft environment but use W3-style plant and implementation perturbations; R5 annular-GP rows use the same W3-style plant/implementation perturbation family.
 3. R5 and R7 use single-layer composed annular-GP randomisation: fan position, active fan count where applicable, per-fan power, width/spread, local uncertainty, launch/start-state perturbations, latency/implementation perturbations, left/right aileron asymmetry, and CG/plant perturbations.
 4. Do not duplicate randomisation channels: per-fan power is updraft strength, fan position is spatial/layout shift, width is spread, local uncertainty is context/belief uncertainty, amplitude stays fixed at 1.0, and centre shift stays zero for active pass-gated annular-GP evidence.
-5. Keep W2/R6 optional diagnostic only; R7 is the frozen held-out W3 fixed-LQR replay with no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation.
+5. Keep W2/R6 archived optional diagnostic only; R7 is the frozen held-out W3 fixed-LQR replay with no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation.
 6. Keep post-W3 reduction as the five-case library-size cross-study: heavy, balanced, light, super-light, and no-clustering/no-merging.
-7. R9 is fixed-case repeated-launch validation with no glider, latency, actuator, or environment randomisation beyond controlled launch/history sampling.
-8. R10 is environment-only changed-case validation with six 20-case blocks: nominal single, nominal four, shifted single, shifted four, active-fan-number variation, and arena-wide fan-position plus active-fan-count generalisation.
-9. R9/R10 must use controlled final-launch pairing, compact-library-aware outcome lookup, actual memory/exploration selection-change metrics, and secondary launch-score analysis only after strict gates pass.
-10. No memory improvement, hardware readiness, real-flight transfer, mission success, full autonomy, or formal LQR-tree/funnel/ROA claim is allowed until full R9 and R10 gates pass.
+7. R9 is fixed-case outer-loop verification with no glider, latency, actuator, or environment randomisation beyond controlled launch/history sampling; it is the proceed-to-R10 gate, not the final claim gate.
+8. R10 is environment-only changed-case governor tuning with six 20-case blocks: nominal single, nominal four, shifted single, shifted four, active-fan-number variation, and arena-wide fan-position plus active-fan-count generalisation.
+9. R11 repeats the changed-case structure as strict held-out validation after R10 tuning.
+10. R9/R10/R11 must use controlled final-launch pairing, compact-library-aware outcome lookup, actual memory/exploration selection-change metrics, and secondary launch-score analysis.
+11. No memory improvement, hardware readiness, real-flight transfer, mission success, full autonomy, or formal LQR-tree/funnel/ROA claim is allowed until the strict R11 gate passes.
 ```
 
-Forbidden changes remain unchanged: no PD/PID/bounded fallback, no TVLQR active workflow, no fan-layout-specific controller logic, no pre-W3 clustering, no W3/R8/R9/R10 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
+Forbidden changes remain unchanged: no PD/PID/bounded fallback, no TVLQR active workflow, no fan-layout-specific controller logic, no pre-W3 clustering, no W3/R8/R9/R10/R11 retuning, no deletion of useful x-y terminal boundary evidence, no direct surface-command RL, no nonlinear MPC substitution, and no LQR-tree/funnel-library claim.
 <!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
 
 ## Purpose
@@ -167,7 +168,9 @@ The encoder should not contain separate online logic for particular fan layouts.
 For governor preselection, use `governor_wall_margin_m = min(front, left,
 right)` when heading-aware margins are available; keep `wall_margin_m` as the
 all-wall hard-boundary audit value. Rollout boundary checks must still enforce
-all walls, floor, and ceiling.
+all walls, floor, and ceiling. The active governor wall guard is `0.001 m`
+(0.10 cm); tighter wall-margin logic must be treated as a safety-policy choice,
+not a physical failure.
 Do not include `speed_margin_m_s` in active context features, governor
 rejection logic, recovery routing, launch scoring, or validation audit gates.
 Do not block or terminate a primitive solely because speed drops below a nominal
@@ -186,27 +189,35 @@ legacy/smoke fallback; dry/no-local-lift contexts must not inherit positive
 updraft score from aggregate representative evidence, and positive
 specific-energy increments are only a fallback when local updraft context is
 unavailable. Governor soft scoring must use context-conditioned
-`expected_updraft_gain_proxy_m`; keep `expected_energy_residual_m` as an audit
-field only. Use
+`expected_updraft_gain_proxy_m`; keep `expected_energy_residual_m` only as a
+legacy audit input/output alias for net specific-energy drift. Directional
+memory residuals must be named `updraft_gain_residual_m`, not total-energy
+residuals. Use
 `updraft_gain_weight` and `terminal_updraft_gain_weight` for active governor
 configuration output; accept legacy `energy_weight` names only when reading old
 frozen configs. Missing compact-library outcome evidence must be rejected as
 `missing_outcome_evidence_for_candidate`, not collapsed into a zero-probability
 rejection.
-R9/R10 must not feed raw representative-average outcome rows directly into the
+R9/R10/R11 must not feed raw representative-average outcome rows directly into the
 governor. Use the robust context-conditioned outcome adapter first. The adapter
 is downgrade-only: it can reduce continuation or terminal probability, cap
 updraft/dwell soft rewards, or increase hard-failure risk based on current
 start regime, environment class, local lift, local uncertainty, margins,
-environment block, active fan count, and evidence sparsity. It must never make a
+environment block, active fan count, and numeric positive `sample_count`
+coverage. Full R9/R10/R11 must block if the outcome table lacks usable
+`sample_count` coverage. It must never make a
 candidate look safer or more performant than the base post-W3 representative
 evidence.
-`safe_success` in R9/R10 requires a role-compliant launch -> in-flight/recovery
+`safe_success` in R9/R10/R11 requires a role-compliant launch -> in-flight/recovery
 sequence ending in continuation-valid, terminal-useful, or explicit
 time-budget completion, with no physical hard failure, floor/ceiling violation,
-or no-viable primitive tail. `static_map_baseline` must not seed hand-made
-synthetic observations; use an empty frozen prior unless a real static map is
-explicitly supplied.
+or no-viable primitive tail. Terminal-useful safe exits must be reported
+separately from `full_safe_success`; strict R11 must gate on
+`full_safe_success` and consume the frozen governor configuration written by
+R10. The empty-prior baseline is named
+`empty_frozen_prior_baseline`; it must not seed hand-made synthetic
+observations unless a real static map is explicitly supplied under a separate
+diagnostic label.
 
 ## Primitive outcome code
 

@@ -7,10 +7,12 @@ import pandas as pd
 
 from dense_archive_table_io import TableManifest, write_table_manifest, write_table_partition
 from run_changed_case_validation import (
+    HeldoutChangedCaseValidationConfig,
     R10_EXPECTED_FINAL_HELDOUT_LAUNCHES,
     R10_EXPECTED_HISTORY_LAUNCHES,
     ChangedCaseValidationConfig,
     run_changed_case_validation,
+    run_heldout_changed_case_validation,
 )
 from run_outcome_model_build import OutcomeModelBuildConfig, run_outcome_model_build
 from run_post_w3_cluster_merge import run_post_w3_cluster_merge
@@ -172,11 +174,22 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
             dry_run_schedule=True,
         )
     )
+    r11_validation = run_heldout_changed_case_validation(
+        HeldoutChangedCaseValidationConfig(
+            library_root=Path(study["run_root"]),
+            outcome_root=Path(outcome_result["run_root"]),
+            output_root=tmp_path / "heldout_changed_case_validation",
+            run_id=1,
+            dry_run_schedule=True,
+        )
+    )
     outcome = pd.read_csv(Path(outcome_result["run_root"]) / "metrics" / "outcome_model_summary.csv")
     r9_final = pd.read_csv(Path(validation["run_root"]) / "metrics" / "final_heldout_launch_schedule.csv")
     r9_history = pd.read_csv(Path(validation["run_root"]) / "metrics" / "history_launch_schedule.csv")
     r10_final = pd.read_csv(Path(r10_validation["run_root"]) / "metrics" / "final_heldout_launch_schedule.csv")
     r10_history = pd.read_csv(Path(r10_validation["run_root"]) / "metrics" / "history_launch_schedule.csv")
+    r11_final = pd.read_csv(Path(r11_validation["run_root"]) / "metrics" / "final_heldout_launch_schedule.csv")
+    r11_history = pd.read_csv(Path(r11_validation["run_root"]) / "metrics" / "history_launch_schedule.csv")
     r10_active_fan_audit = pd.read_csv(
         Path(r10_validation["run_root"]) / "metrics" / "active_fan_count_schedule_audit.csv"
     )
@@ -184,6 +197,7 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
     assert outcome_result["status"] == "complete"
     assert validation["status"] == "dry_run_schedule"
     assert r10_validation["status"] == "dry_run_schedule"
+    assert r11_validation["status"] == "dry_run_schedule"
     assert {
         "continuation_probability",
         "terminal_useful_probability",
@@ -198,6 +212,8 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
     assert len(r9_history) == R9_EXPECTED_HISTORY_LAUNCHES
     assert len(r10_final) == R10_EXPECTED_FINAL_HELDOUT_LAUNCHES
     assert len(r10_history) == R10_EXPECTED_HISTORY_LAUNCHES
+    assert len(r11_final) == R10_EXPECTED_FINAL_HELDOUT_LAUNCHES
+    assert len(r11_history) == R10_EXPECTED_HISTORY_LAUNCHES
     assert set(r9_final["library_size_case_id"]) == set(LIBRARY_SIZE_CASE_IDS)
     assert set(r9_final["policy_id"]) == set(POLICY_HISTORY_CONDITIONS)
     assert set(r9_final["history_length"]) == set(HISTORY_LENGTHS)
@@ -300,7 +316,7 @@ def _write_tiny_w3_root(root: Path) -> Path:
         _w3_row("primvar_glide_inflight", "glide", "inflight_only", "ctrl_glide", "w3_randomised_four", True, "failed", False, False, "hard_failure", "floor_violation", 0),
         _w3_row("primvar_lift_terminal", "lift_entry", "inflight_only", "ctrl_lift", "w3_randomised_single", True, "weak", False, True, "episode_terminal_useful", "xy_boundary_terminal", 1),
         _w3_row("primvar_lift_terminal", "lift_entry", "inflight_only", "ctrl_lift", "w3_randomised_four", True, "weak", False, True, "episode_terminal_useful", "xy_boundary_terminal", 1),
-        _w3_row("primvar_lift_terminal", "lift_entry", "inflight_only", "ctrl_lift", "w3_randomised_four", False, "rejected", False, False, "blocked", "entry_role_not_launch_capable", 1),
+        _w3_row("primvar_lift_terminal", "lift_entry", "inflight_only", "ctrl_lift", "w3_randomised_four", False, "rejected", False, False, "blocked", "entry_role_incompatible_start_family", 1),
         _w3_row("primvar_lift_survived", "lift_entry", "inflight_only", "ctrl_lift_survived", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 2),
         _w3_row("primvar_lift_survived", "lift_entry", "inflight_only", "ctrl_lift_survived", "w3_randomised_four", True, "accepted", True, False, "continuation_valid", "success", 2),
         _w3_row("primvar_launch_capture_glide_stabilise", "launch_capture_glide_stabilise", "launch_capable", "ctrl_launch_capture", "w3_randomised_single", True, "accepted", True, False, "continuation_valid", "success", 3),

@@ -1403,7 +1403,7 @@ def _entry_role_rejection_summary(counter: Counter) -> pd.DataFrame:
         entry_role, start_family, entry_status, failure_label = key
         group = (entry_role, start_family)
         totals[group] += int(count)
-        if entry_status == "entry_role_incompatible_start" or failure_label == "entry_role_not_launch_capable":
+        if entry_status == "entry_role_incompatible_start" or failure_label == ENTRY_ROLE_REJECTION_LABEL:
             rejected[group] += int(count)
     for (entry_role, start_family), total in totals.items():
         rejection_count = int(rejected[(entry_role, start_family)])
@@ -2091,7 +2091,7 @@ def _launch_gate_coverage_blockers(*, run_root: Path, row_count: int) -> list[st
         if total_rows != expected_rows:
             blockers.append(f"{primitive_id}:launch_gate_row_count_{total_rows}_expected_{expected_rows}")
         if entry_roles != {"launch_capable"}:
-            blockers.append(f"{primitive_id}:entry_role_not_launch_capable")
+            blockers.append(f"{primitive_id}:entry_role_incompatible_start_family")
         if entry_role_rejections != 0:
             blockers.append(f"{primitive_id}:entry_role_rejection_count_{entry_role_rejections}")
         if accepted + weak + continuation + terminal <= 0:

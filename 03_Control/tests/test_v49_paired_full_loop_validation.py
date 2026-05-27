@@ -46,7 +46,7 @@ def test_v49_paired_schedule_uses_identical_physical_episode_keys(v49_smoke_root
     schedule = pd.read_csv(v49_smoke_root / "metrics" / "episode_schedule.csv")
     expected_policies = {
         "no_memory_baseline",
-        "static_map_baseline",
+        "static_lift_prior_baseline",
         "context_only_without_memory",
         "context_plus_memory_lambda_0_5",
         "context_plus_memory_lambda_0_8",
@@ -71,7 +71,7 @@ def test_v49_belief_persists_for_memory_policies_only(v49_smoke_root: Path) -> N
     assert int(by_policy.loc["context_plus_memory_lambda_0_95", "final_belief_update_count"]) >= 3
     assert int(by_policy.loc["no_memory_baseline", "final_belief_update_count"]) == 0
     assert int(by_policy.loc["context_only_without_memory", "final_belief_update_count"]) == 0
-    assert int(by_policy.loc["static_map_baseline", "final_belief_update_count"]) == 0
+    assert int(by_policy.loc["static_lift_prior_baseline", "final_belief_update_count"]) == 0
     assert by_policy.loc["context_plus_memory_lambda_0_8", "belief_persistence_status"] == "persistent_updates_observed"
 
 

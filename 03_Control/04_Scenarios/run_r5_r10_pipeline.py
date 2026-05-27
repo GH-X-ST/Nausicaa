@@ -33,9 +33,12 @@ from primitive_timing_contract import (  # noqa: E402
 )
 from run_changed_case_validation import (  # noqa: E402
     ChangedCaseValidationConfig,
+    DEFAULT_R11_OUTPUT_ROOT,
+    HeldoutChangedCaseValidationConfig,
     R10_EXPECTED_FINAL_HELDOUT_LAUNCHES,
     R10_EXPECTED_HISTORY_LAUNCHES,
     run_changed_case_validation,
+    run_heldout_changed_case_validation,
 )
 from run_lqr_w01_dense_chunked import (  # noqa: E402
     BALANCED_SCHEDULE_MODE,
@@ -71,10 +74,11 @@ from prim_cat import ACTIVE_PRIMITIVE_IDS, LAUNCH_CAPTURE_PRIMITIVE_IDS  # noqa:
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
-PIPELINE_VERSION = "v54_r5_r7_r10_pipeline_r6_archived_with_repeated_docs_guard"
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/r5_r10_pipeline")
+PIPELINE_VERSION = "v55_r5_r7_r11_pipeline_r6_archived_with_repeated_docs_guard"
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/r5_r11_pipeline")
 DEFAULT_REPEATED_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/repeated_launch_validation")
 DEFAULT_CHANGED_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/changed_case_validation")
+DEFAULT_HELDOUT_CHANGED_OUTPUT_ROOT = DEFAULT_R11_OUTPUT_ROOT
 CONTROLLING_DOCS = (
     Path("docs/Glider_Control_Project_Plan.md"),
     Path("docs/Daily_Schedule.txt"),
@@ -85,7 +89,7 @@ CONTROLLING_DOCS = (
     Path("docs/housekeeping_and_naming_rules.md"),
     Path("docs/PR.txt"),
 )
-STAGE_ORDER = ("R5", "R7", "R8", "R9", "R10")
+STAGE_ORDER = ("R5", "R7", "R8", "R9", "R10", "R11")
 ARCHIVED_STAGES = ("R6",)
 BLOCKED_CLAIMS = (
     "hardware_readiness",
@@ -559,6 +563,27 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
                 max_workers=config.max_workers,
             )
         )
+    if stage_id == "R11":
+        r8_root = Path(str(context["stages"]["R8"]["run_root"]))
+        outcome_root = Path(str(context["stages"]["R8"]["outcome_run_root"]))
+        governor_config_path = _r10_frozen_governor_config_path(context)
+        stage_run_id = _next_run_id(DEFAULT_HELDOUT_CHANGED_OUTPUT_ROOT)
+        return run_heldout_changed_case_validation(
+            HeldoutChangedCaseValidationConfig(
+                library_root=r8_root,
+                outcome_root=outcome_root,
+                output_root=DEFAULT_HELDOUT_CHANGED_OUTPUT_ROOT,
+                run_id=stage_run_id,
+                storage_format=config.storage_format,
+                compression_level=int(config.compression_level),
+                candidate_chunk_size=int(config.candidate_chunk_size),
+                dry_run_schedule=bool(config.dry_run_schedule),
+                max_primitives_per_launch=0,
+                workers=_validation_worker_count(config.workers),
+                max_workers=config.max_workers,
+                governor_config_path=governor_config_path,
+            )
+        )
     raise KeyError(f"unknown stage_id: {stage_id}")
 
 
@@ -575,8 +600,11 @@ def _stage_preflight(stage_id: str, context: dict[str, object]) -> list[dict[str
         rows.append(_check_row(stage_id, f"previous_stage_{previous}_passed", previous in stages, previous in stages, True))
     if stage_id == "R7" and "R5" in stages:
         rows.append(_check_row(stage_id, "R5_frozen_bundle_root_available", bool(stages["R5"].get("run_root")), stages["R5"].get("run_root", ""), "nonempty"))
-    if stage_id in {"R9", "R10"} and "R8" in stages:
+    if stage_id in {"R9", "R10", "R11"} and "R8" in stages:
         rows.append(_check_row(stage_id, "R8_library_and_outcome_available", bool(stages["R8"].get("run_root")) and bool(stages["R8"].get("outcome_run_root")), stages["R8"], "library_root_and_outcome_root"))
+    if stage_id == "R11":
+        path = _r10_frozen_governor_config_path(context)
+        rows.append(_check_row(stage_id, "R10_frozen_governor_config_for_R11_available", path is not None, "" if path is None else path.as_posix(), "exists_after_R10_pass"))
     return rows
 
 
@@ -678,15 +706,32 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
         manifest = _read_json_if_exists(run_root / "manifests" / "environment_changed_case_manifest.json")
         rows = [
             _check_row(stage_id, "stage_status_complete", result.get("status") == "complete", result.get("status", ""), "complete"),
-            _check_row(stage_id, "not_dry_run_or_diagnostic", not bool(manifest.get("dry_run_schedule", False)) and manifest.get("validation_protocol") != "reduced_diagnostic_not_target_R10", manifest.get("validation_protocol", ""), "full_environment_only_changed_case_repeated_launch_rollout_validation"),
+            _check_row(stage_id, "not_dry_run_or_reduced_diagnostic", not bool(manifest.get("dry_run_schedule", False)) and manifest.get("validation_protocol") != "reduced_diagnostic_not_target_R10", manifest.get("validation_protocol", ""), "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate"),
             _check_row(stage_id, "pass_gate_true", bool(manifest.get("pass_gate", False)), manifest.get("pass_gate", False), True),
             _check_row(stage_id, "final_heldout_launch_count_exact", int(manifest.get("actual_final_heldout_launches", 0)) == R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, manifest.get("actual_final_heldout_launches", 0), R10_EXPECTED_FINAL_HELDOUT_LAUNCHES),
             _check_row(stage_id, "history_launch_count_exact", int(manifest.get("actual_history_launches", 0)) == R10_EXPECTED_HISTORY_LAUNCHES, manifest.get("actual_history_launches", 0), R10_EXPECTED_HISTORY_LAUNCHES),
             _check_row(stage_id, "r10_no_model_latency_variation_audit", _r10_variation_audit_passed(run_root), "audit", "passed"),
+            _check_row(stage_id, "r10_frozen_governor_config_for_r11_exists", (run_root / "manifests" / "frozen_governor_config_for_r11.json").is_file(), (run_root / "manifests" / "frozen_governor_config_for_r11.json").as_posix(), "exists"),
+            _check_row(stage_id, "r10_frozen_governor_config_selected_for_r11", _read_json_if_exists(run_root / "manifests" / "frozen_governor_config_for_r11.json").get("status") == "selected_for_r11", _read_json_if_exists(run_root / "manifests" / "frozen_governor_config_for_r11.json").get("status", ""), "selected_for_r11"),
             _check_row(stage_id, "first_decision_launch_gate_audits_present", _validation_launch_gate_audit_passed(run_root), "audit", "passed"),
             _file_size_check(stage_id, run_root),
         ]
         rows.extend(_validation_gate_checks(stage_id, run_root, prefix="r10_validation_gate"))
+        return rows
+    if stage_id == "R11":
+        manifest = _read_json_if_exists(run_root / "manifests" / "heldout_environment_validation_manifest.json")
+        rows = [
+            _check_row(stage_id, "stage_status_complete", result.get("status") == "complete", result.get("status", ""), "complete"),
+            _check_row(stage_id, "strict_heldout_protocol", manifest.get("validation_protocol") == "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation", manifest.get("validation_protocol", ""), "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation"),
+            _check_row(stage_id, "pass_gate_true", bool(manifest.get("pass_gate", False)), manifest.get("pass_gate", False), True),
+            _check_row(stage_id, "r11_consumed_r10_frozen_governor_config", bool(manifest.get("governor_config_override_active", False)), manifest.get("governor_config_override_active", False), True),
+            _check_row(stage_id, "final_heldout_launch_count_exact", int(manifest.get("actual_final_heldout_launches", 0)) == R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, manifest.get("actual_final_heldout_launches", 0), R10_EXPECTED_FINAL_HELDOUT_LAUNCHES),
+            _check_row(stage_id, "history_launch_count_exact", int(manifest.get("actual_history_launches", 0)) == R10_EXPECTED_HISTORY_LAUNCHES, manifest.get("actual_history_launches", 0), R10_EXPECTED_HISTORY_LAUNCHES),
+            _check_row(stage_id, "r11_no_model_latency_variation_audit", _r10_variation_audit_passed(run_root), "audit", "passed"),
+            _check_row(stage_id, "first_decision_launch_gate_audits_present", _validation_launch_gate_audit_passed(run_root), "audit", "passed"),
+            _file_size_check(stage_id, run_root),
+        ]
+        rows.extend(_validation_gate_checks(stage_id, run_root, prefix="r11_validation_gate"))
         return rows
     return [_check_row(stage_id, "unknown_stage", False, stage_id, "known_stage")]
 
@@ -748,11 +793,20 @@ def _write_pipeline_manifest(run_root: Path, config: R5R10PipelineConfig, contex
         "run_root": run_root.as_posix(),
         "config": _json_ready(asdict(config)),
         "stage_order": list(STAGE_ORDER),
-        "full_run_policy": "R5_then_R7_R8_R9_R10_only_after_previous_stage_passes_R6_archived_diagnostic_only",
-        "execution_scope": "R5_only" if (config.stop_after_stage or "").upper() == "R5" else "R5_R7_R8_R9_R10_chain",
+        "stage_role_map": {
+            "R5": "primitive_learning_dense_synthesis",
+            "R6": "archived_diagnostic_only",
+            "R7": "primitive_validation_frozen_w3_holdout",
+            "R8": "post_w3_clustering_and_library_size_study",
+            "R9": "outer_loop_fixed_case_verification_proceed_to_r10_gate",
+            "R10": "viability_governor_learning_changed_case_tuning",
+            "R11": "viability_governor_strict_heldout_validation",
+        },
+        "full_run_policy": "R5_then_R7_R8_R9_R10_R11_only_after_previous_stage_passes_R6_archived_diagnostic_only",
+        "execution_scope": "R5_only" if (config.stop_after_stage or "").upper() == "R5" else "R5_R7_R8_R9_R10_R11_chain",
         "archived_stages": list(ARCHIVED_STAGES),
         "r5_only_scope": bool((config.stop_after_stage or "").upper() == "R5"),
-        "R7_R8_R9_R10_deliberately_not_run_when_stop_after_stage_R5": bool((config.stop_after_stage or "").upper() == "R5"),
+        "R7_R8_R9_R10_R11_deliberately_not_run_when_stop_after_stage_R5": bool((config.stop_after_stage or "").upper() == "R5"),
         "r5_expected_dense_rows": int(L6_RICH_SIDE_ROW_COUNT),
         "active_primitive_count": int(len(ACTIVE_PRIMITIVE_IDS)),
         "launch_capture_primitive_ids": list(LAUNCH_CAPTURE_PRIMITIVE_IDS),
@@ -800,7 +854,7 @@ def _write_pipeline_report(run_root: Path, context: dict[str, object], *, status
         f"- Worker/chunk/storage settings: workers `{r5_manifest.get('selected_worker_count', '')}`, chunk count `{r5_manifest.get('chunk_count', '')}`, chunk size `{r5_manifest.get('candidate_chunk_size', '')}`, storage `{r5_manifest.get('storage_format', '')}`.",
         f"- Launch-capture primitive IDs: `{json.dumps(list(LAUNCH_CAPTURE_PRIMITIVE_IDS))}`",
         "- R6 is archived as diagnostic-only and is not an active gate in this pipeline.",
-        "- R7-R10 deliberately not run when `--stop-after-stage R5` is selected.",
+        "- R7-R11 deliberately not run when `--stop-after-stage R5` is selected.",
         "- Claim boundary: simulation evidence only; no hardware readiness, real-flight transfer, mission success, full autonomy, or memory-improvement claim is made here.",
         "",
         "Stages:",
@@ -898,7 +952,7 @@ def _controlling_hashes_json(current: dict[str, dict[str, object]]) -> str:
 
 def _selected_stages(start_stage: str, stop_after_stage: str) -> tuple[str, ...]:
     start = start_stage.upper()
-    stop = stop_after_stage.upper() if stop_after_stage else "R10"
+    stop = stop_after_stage.upper() if stop_after_stage else "R11"
     if start not in STAGE_ORDER:
         raise ValueError(f"start_stage must be one of {STAGE_ORDER}")
     if stop not in STAGE_ORDER:
@@ -928,6 +982,13 @@ def _validation_worker_count(workers: int | str) -> int:
     if str(workers).strip().lower() == "auto":
         return 8
     return max(1, int(workers))
+
+
+def _r10_frozen_governor_config_path(context: dict[str, object]) -> Path | None:
+    stage = dict(dict(context.get("stages", {})).get("R10", {}))
+    run_root = Path(str(stage.get("run_root", "")))
+    path = run_root / "manifests" / "frozen_governor_config_for_r11.json"
+    return path if path.is_file() else None
 
 
 def _check_row(stage_id: str, check_id: str, passed: bool, observed: object, required: object) -> dict[str, object]:

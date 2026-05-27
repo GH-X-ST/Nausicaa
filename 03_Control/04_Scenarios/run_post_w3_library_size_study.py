@@ -289,9 +289,21 @@ def _representative_score(group: pd.DataFrame) -> pd.Series:
     continuation = pd.to_numeric(group.get("continuation_valid_rate", 0.0), errors="coerce").fillna(0.0)
     terminal = pd.to_numeric(group.get("episode_terminal_useful_rate", 0.0), errors="coerce").fillna(0.0)
     hard = pd.to_numeric(group.get("hard_failure_rate", 1.0), errors="coerce").fillna(1.0)
-    energy = pd.to_numeric(group.get("energy_residual_mean_m", 0.0), errors="coerce").fillna(0.0)
+    updraft_gain = _numeric_metric_series(
+        group,
+        "updraft_gain_proxy_mean_m",
+        "positive_specific_energy_gain_mean_m",
+        default=0.0,
+    )
     dwell = pd.to_numeric(group.get("lift_dwell_mean_s", 0.0), errors="coerce").fillna(0.0)
-    return continuation + 0.35 * terminal - 0.75 * hard + 0.05 * energy + 0.03 * dwell
+    return continuation + 0.35 * terminal - 0.75 * hard + 0.05 * updraft_gain + 0.03 * dwell
+
+
+def _numeric_metric_series(group: pd.DataFrame, *columns: str, default: float) -> pd.Series:
+    for column in columns:
+        if column in group.columns:
+            return pd.to_numeric(group[column], errors="coerce").fillna(float(default))
+    return pd.Series(float(default), index=group.index, dtype=float)
 
 
 def _representative_row(
@@ -338,6 +350,7 @@ def _representative_row(
         "cluster_id": cluster_id,
         "representative_rank": int(rank),
         "representative_score": float(row.get("_representative_score", 0.0)),
+        "representative_score_energy_term_source": "updraft_gain_proxy_mean_m_not_net_energy_residual",
         "continuation_valid_count": int(float(row.get("continuation_valid_count", 0))),
         "continuation_valid_rate": float(row.get("continuation_valid_rate", 0.0)),
         "episode_terminal_useful_count": int(float(row.get("episode_terminal_useful_count", 0))),

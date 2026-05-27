@@ -65,7 +65,7 @@ ENTRY_ROLE_BY_PRIMITIVE_ID = {
     "launch_capture_safe_handoff": "launch_capable",
 }
 ENTRY_ROLE_REJECTION_STATUS = "entry_role_incompatible_start"
-ENTRY_ROLE_REJECTION_LABEL = "entry_role_not_launch_capable"
+ENTRY_ROLE_REJECTION_LABEL = "entry_role_incompatible_start_family"
 
 
 @dataclass(frozen=True)
