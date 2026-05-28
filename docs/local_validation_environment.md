@@ -69,10 +69,15 @@ workflow is controlled by `docs/Glider_Control_Project_Plan.md`: R5 is robust
 primitive synthesis, R6/W2 is archived diagnostic-only, R7 is frozen W3
 validation, R8 is the five-case coverage-aware medoid post-W3 library-size
 study, R9 is internal quick fixed-case preflight/ablation only and is not
-thesis-facing evidence, R10 is environment-only changed-case governor tuning,
-and R11 is strict held-out changed-case validation. R9 defaults to all five
+thesis-facing evidence, R10 is single-block full-domain arena-wide governor
+tuning, and R11 is strict held-out eight-block fidelity-ladder validation. R9 defaults to all five
 library-size cases, no-updraft/single-fan/four-fan fixed blocks, no-memory plus
 h20 residual memory only, 30 final held-out launches, and 300 history launches.
+R9/R10/R11 also write a repeated-launch real-time scheduler profile: context
+construction, memory query, and compact-library selection are measured against
+a preferred 20 ms controller-slot budget and a hard 0.100 s primitive-boundary
+budget, with next decisions prepared before primitive-boundary commit where
+possible. This is an offline wall-clock audit, not a hardware real-time claim.
 
 Use the repo-local pytest temp/cache paths above so validation does not depend
 on the Windows user temp directory. Local `.venv` and `.codex_run_logs`

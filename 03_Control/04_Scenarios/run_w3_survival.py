@@ -65,13 +65,13 @@ from state_sampling import archive_state_sample_for_family, archive_state_sample
 from transition_labels import transition_contract_row, transition_row_fields, turn_intent_row_fields  # noqa: E402
 
 
-W3_SURVIVAL_VERSION = "w3_fixed_lqr_survival_replay_v414_turn_metrics_diagnostic_only"
+W3_SURVIVAL_VERSION = "r7_fixed_lqr_survival_replay_v415_includes_dry_air"
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 DEFAULT_R5_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 DEFAULT_W2_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")
 W3_TABLE_NAME = "w3_survival_rows"
-W3_ENVIRONMENT_CASES = ("w3_randomised_single", "w3_randomised_four")
+W3_ENVIRONMENT_CASES = ("dry_air", "w3_randomised_single", "w3_randomised_four")
 W3_ACTIVE_FAN_COUNT_SEQUENCE = (1, 2, 3, 4)
 REQUIRED_R5_ANNULAR_GP_TRAINING_CASES = (
     "w1_annular_gp_randomised_single",
@@ -642,6 +642,7 @@ def _row_for_index(
     record = replay_record.record
     grouped_index = int(row_index) // len(records)
     environment_mode = W3_ENVIRONMENT_CASES[grouped_index % len(W3_ENVIRONMENT_CASES)]
+    environment_layer = _environment_layer_for_mode(environment_mode)
     paired_start_index = grouped_index // len(W3_ENVIRONMENT_CASES)
     start_family = _start_family_for_r5_selected_entry_class(
         transition_entry_class=replay_record.transition_entry_class,
@@ -658,11 +659,11 @@ def _row_for_index(
         paired_start_key=paired_start_key,
         sample_index=int(paired_start_index),
         seed=int(config.seed),
-        W_layer="W3",
+        W_layer=environment_layer,
         environment_mode=environment_mode,
     )
     environment = environment_instance_for_mode(
-        "W3",
+        environment_layer,
         environment_mode,
         int(config.seed) + int(row_index),
         randomisation_config=EnvironmentRandomisationConfig(
@@ -670,7 +671,7 @@ def _row_for_index(
         ),
     )
     metadata = environment_metadata_from_instance(environment)
-    binding = resolve_surrogate_binding("W3", metadata, randomisation_seed=int(config.seed) + int(row_index))
+    binding = resolve_surrogate_binding(environment_layer, metadata, randomisation_seed=int(config.seed) + int(row_index))
     wind_field = wind_field_for_binding(binding)
     context = build_environment_context(
         sample.state_vector,
@@ -683,7 +684,12 @@ def _row_for_index(
     variant = record.variant
     primitive = primitive_by_id(variant.primitive_id)
     compatible = start_family_is_compatible(entry_role=variant.entry_role, start_state_family=start_family)
-    rollout_config = RolloutConfig(W_layer="W3", dt_s=float(config.rollout_dt_s), rollout_backend="model_backed_lqr", wind_mode="panel")
+    rollout_config = RolloutConfig(
+        W_layer=environment_layer,
+        dt_s=float(config.rollout_dt_s),
+        rollout_backend="model_backed_lqr",
+        wind_mode="none" if environment_layer == "W0" else "panel",
+    )
     if not compatible or binding.surrogate_binding_status != "ready":
         failure_label = ENTRY_ROLE_REJECTION_LABEL if not compatible else "w3_surrogate_binding_blocked"
         termination = ENTRY_ROLE_REJECTION_STATUS if not compatible else str(binding.blocked_reason)
@@ -693,7 +699,12 @@ def _row_for_index(
             initial_state=sample.state_vector,
             context=context,
             primitive=primitive,
-            config=RolloutConfig(W_layer="W3", dt_s=float(config.rollout_dt_s), rollout_backend="blocked_lqr", wind_mode="panel"),
+            config=RolloutConfig(
+                W_layer=environment_layer,
+                dt_s=float(config.rollout_dt_s),
+                rollout_backend="blocked_lqr",
+                wind_mode="none" if environment_layer == "W0" else "panel",
+            ),
             failure_label=failure_label,
             controller=record.controller,
             controller_selection_status="W3_fixed_lqr_survival_replay",
@@ -772,10 +783,11 @@ def _row_for_index(
             "entry_role": variant.entry_role,
             "entry_role_compatible": bool(compatible),
             "environment_mode": environment_mode,
+            "environment_validation_layer": environment_layer,
             "scheduled_active_fan_count": int(sum(bool(value) for value in environment.active_fan_mask)),
             "fixed_lqr_replay_only": True,
             "mutates_Q_R_K_reference_horizon_entry_set_or_entry_role": False,
-            "w3_environment_contract": "randomised_single_and_four_annular_gp_survival_replay_only",
+            "w3_environment_contract": "dry_air_plus_randomised_single_and_four_annular_gp_survival_replay_only",
             "baseline_controller_active": False,
             "claim_boundary": (
                 "test_fixture_not_method_evidence"
@@ -813,9 +825,17 @@ def _selection_float(replay_record: W3ReplayRecord, key: str) -> float:
 
 
 def _scheduled_active_fan_count(*, environment_mode: str, paired_start_index: int) -> int:
+    if str(environment_mode) == "dry_air":
+        return 0
     if str(environment_mode) == "w3_randomised_four":
         return int(W3_ACTIVE_FAN_COUNT_SEQUENCE[int(paired_start_index) % len(W3_ACTIVE_FAN_COUNT_SEQUENCE)])
     return 1
+
+
+def _environment_layer_for_mode(environment_mode: str) -> str:
+    if str(environment_mode) == "dry_air":
+        return "W0"
+    return "W3"
 
 
 def _chunk_schedule(config: W3SurvivalConfig, *, row_count: int, storage_format: str) -> list[W3ChunkSpec]:
@@ -1045,7 +1065,7 @@ def _write_randomisation_manifest(*, run_root: Path, config: W3SurvivalConfig, r
             "environment_modes": list(W3_ENVIRONMENT_CASES),
             "seed": int(config.seed),
             "randomisation_source": "env_instance_W3_single_layer_composed_annular_gp_modes",
-            "active_fan_count_policy": "w3_randomised_single_fixed_one_w3_randomised_four_balanced_1_2_3_4",
+            "active_fan_count_policy": "dry_air_zero_fans_w3_randomised_single_fixed_one_w3_randomised_four_balanced_1_2_3_4",
             "w3_randomised_four_active_fan_count_sequence": list(W3_ACTIVE_FAN_COUNT_SEQUENCE),
             "duplicate_strength_width_centre_wrapper": "disabled",
             "active_strength_source": "fan_power_scales",
@@ -1177,7 +1197,8 @@ def _write_reports(*, run_root: Path, status: str, row_count: int, blocked_reaso
         f"- Test fixture not method evidence: `{fixture_label == TEST_FIXTURE_LABEL}`",
         "- Fixed-LQR replay only: `True`",
         "- Q/R, K, reference, horizon, entry set, and entry role mutation: `False`",
-        "- W3 active-fan-count policy: `w3_randomised_single=1`, `w3_randomised_four=balanced 1/2/3/4`",
+        "- R7 environment cases: `dry_air`, `w3_randomised_single`, `w3_randomised_four`",
+        "- W3 active-fan-count policy: `dry_air=0`, `w3_randomised_single=1`, `w3_randomised_four=balanced 1/2/3/4`",
         "- Chunked/resumable dense runtime contract: `True`",
         "- W3 robustness, post-W3 library-size readiness, hardware readiness, transfer, and mission success remain blocked.",
         "",

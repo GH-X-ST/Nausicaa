@@ -24,6 +24,15 @@ from run_repeated_launch_learning_curve import (  # noqa: E402
     HISTORY_LENGTH_SUM,
     LIBRARY_SIZE_CASE_IDS,
     POLICY_HISTORY_CONDITIONS,
+    R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    R11_L0_DRY_AIR_FIXED_BLOCK_ID,
+    R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
+    R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
+    R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+    R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
+    R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     ValidationBlockSpec,
     ValidationProtocol,
     ValidationRunConfig,
@@ -32,12 +41,15 @@ from run_repeated_launch_learning_curve import (  # noqa: E402
 from viability_governor import GovernorConfig, governor_config_from_row  # noqa: E402
 
 
-R10_VALIDATION_VERSION = "environment_changed_case_repeated_launch_validation_v7"
-R11_VALIDATION_VERSION = "heldout_environment_changed_case_repeated_launch_validation_v1"
-R10_OUTER_CASES_PER_CONDITION = 120
+R10_VALIDATION_VERSION = "full_domain_randomisation_governor_tuning_v8"
+R11_VALIDATION_VERSION = "heldout_fidelity_ladder_validation_v2"
+R10_OUTER_CASES_PER_CONDITION = 140
+R11_OUTER_CASES_PER_CONDITION = 160
 R10_REDUCED_OUTER_CASES_PER_CONDITION = 50
 R10_EXPECTED_FINAL_HELDOUT_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION
 R10_EXPECTED_HISTORY_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM
+R11_EXPECTED_FINAL_HELDOUT_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R11_OUTER_CASES_PER_CONDITION
+R11_EXPECTED_HISTORY_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * R11_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM
 R10_REDUCED_EXPECTED_FINAL_HELDOUT_LAUNCHES = (
     len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_REDUCED_OUTER_CASES_PER_CONDITION
 )
@@ -47,63 +59,25 @@ DEFAULT_R11_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/heldou
 
 R10_BLOCKS: tuple[ValidationBlockSpec, ...] = (
     ValidationBlockSpec(
-        "nominal_single_fan_perturbations",
-        "nominal single-fan perturbations",
-        "W3",
-        "w3_randomised_single",
-        20,
-        "nominal_single_fan_perturbations",
-    ),
-    ValidationBlockSpec(
-        "nominal_four_fan_perturbations",
-        "nominal four-fan perturbations",
+        R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+        "R10 L7 full-domain randomisation arena-wide governor tuning",
         "W3",
         "w3_randomised_four",
-        20,
-        "nominal_four_fan_perturbations",
-    ),
-    ValidationBlockSpec(
-        "shifted_single_fan_positions",
-        "shifted single-fan positions",
-        "W3",
-        "w3_randomised_single",
-        20,
-        "shifted_single_fan_positions",
-    ),
-    ValidationBlockSpec(
-        "shifted_four_fan_positions",
-        "shifted four-fan positions",
-        "W3",
-        "w3_randomised_four",
-        20,
-        "shifted_four_fan_positions",
-    ),
-    ValidationBlockSpec(
-        "active_fan_number_variation",
-        "active-fan-number variation",
-        "W3",
-        "w3_randomised_four",
-        20,
-        "active_fan_number_variation",
-    ),
-    ValidationBlockSpec(
-        "arena_wide_fan_position_generalisation",
-        "arena-wide fan-position generalisation",
-        "W3",
-        "w3_randomised_four",
-        20,
-        "arena_wide_fan_position_generalisation",
+        R10_OUTER_CASES_PER_CONDITION,
+        "r10_l7_full_domain_randomisation_arena_wide_training",
     ),
 )
 
-R10_REDUCED_BLOCK_COUNTS = {
-    "nominal_single_fan_perturbations": 8,
-    "nominal_four_fan_perturbations": 8,
-    "shifted_single_fan_positions": 8,
-    "shifted_four_fan_positions": 8,
-    "active_fan_number_variation": 9,
-    "arena_wide_fan_position_generalisation": 9,
-}
+R11_BLOCKS: tuple[ValidationBlockSpec, ...] = (
+    ValidationBlockSpec(R11_L0_DRY_AIR_FIXED_BLOCK_ID, "R11 L0 dry air fixed", "W0", "dry_air", 20, "l0_dry_air_fixed"),
+    ValidationBlockSpec(R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID, "R11 L1 single fan fixed nominal", "W2", "annular_gp_single", 20, "l1_single_fan_fixed_nominal"),
+    ValidationBlockSpec(R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID, "R11 L2 four fan fixed nominal", "W2", "annular_gp_four", 20, "l2_four_fan_fixed_nominal"),
+    ValidationBlockSpec(R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID, "R11 L3 fan parameter uncertainty", "W3", "w3_randomised_four", 20, "l3_fan_parameter_uncertainty"),
+    ValidationBlockSpec(R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID, "R11 L4 local fan position uncertainty", "W3", "w3_randomised_four", 20, "l4_local_fan_position_uncertainty"),
+    ValidationBlockSpec(R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID, "R11 L5 active fan count uncertainty", "W3", "w3_randomised_four", 20, "l5_active_fan_count_uncertainty"),
+    ValidationBlockSpec(R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID, "R11 L6 environment-only full uncertainty", "W3", "w3_randomised_four", 20, "l6_environment_only_full_uncertainty"),
+    ValidationBlockSpec(R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID, "R11 L7 full-domain randomisation arena-wide", "W3", "w3_randomised_four", 20, "l7_full_domain_randomisation_arena_wide"),
+)
 
 R10_REDUCED_BLOCKS: tuple[ValidationBlockSpec, ...] = tuple(
     ValidationBlockSpec(
@@ -111,7 +85,7 @@ R10_REDUCED_BLOCKS: tuple[ValidationBlockSpec, ...] = tuple(
         block.human_label,
         block.W_layer,
         block.environment_mode,
-        R10_REDUCED_BLOCK_COUNTS[block.block_id],
+        R10_REDUCED_OUTER_CASES_PER_CONDITION,
         block.environment_change_family,
     )
     for block in R10_BLOCKS
@@ -143,10 +117,10 @@ R11_PROTOCOL = ValidationProtocol(
     report_name="heldout_environment_validation_report.md",
     manifest_version=R11_VALIDATION_VERSION,
     validation_evidence_level="strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation",
-    outer_cases_per_condition=R10_OUTER_CASES_PER_CONDITION,
-    expected_final_heldout_launches=R10_EXPECTED_FINAL_HELDOUT_LAUNCHES,
-    expected_history_launches=R10_EXPECTED_HISTORY_LAUNCHES,
-    blocks=R10_BLOCKS,
+    outer_cases_per_condition=R11_OUTER_CASES_PER_CONDITION,
+    expected_final_heldout_launches=R11_EXPECTED_FINAL_HELDOUT_LAUNCHES,
+    expected_history_launches=R11_EXPECTED_HISTORY_LAUNCHES,
+    blocks=R11_BLOCKS,
     final_schedule_prefix="r11_heldout",
     reduced_diagnostic=False,
     requires_no_glider_latency_variation_audit=True,

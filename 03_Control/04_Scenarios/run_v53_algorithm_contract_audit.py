@@ -29,6 +29,10 @@ from run_changed_case_validation import (  # noqa: E402
     R10_EXPECTED_HISTORY_LAUNCHES,
     R10_OUTER_CASES_PER_CONDITION,
     R10_PROTOCOL,
+    R11_BLOCKS,
+    R11_EXPECTED_FINAL_HELDOUT_LAUNCHES,
+    R11_EXPECTED_HISTORY_LAUNCHES,
+    R11_OUTER_CASES_PER_CONDITION,
     R11_PROTOCOL,
 )
 from prim_cat import ACTIVE_PRIMITIVE_IDS, LAUNCH_CAPTURE_PRIMITIVE_IDS  # noqa: E402
@@ -71,9 +75,20 @@ from run_repeated_launch_learning_curve import (  # noqa: E402
     EMPTY_FROZEN_PRIOR_BASELINE_ID,
     HISTORY_LENGTHS,
     LAUNCH_SCORE_VERSION,
+    NO_UPDRAFT_CHANGED_CASE_BLOCK_ID,
     POLICY_HISTORY_CONDITIONS,
+    R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     R9_POLICY_HISTORY_CONDITIONS,
     R10_ACTIVE_FAN_COUNT_SEQUENCE,
+    R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M,
+    R11_L0_DRY_AIR_FIXED_BLOCK_ID,
+    R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
+    R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
+    R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+    R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
+    R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     R9_BLOCKS,
     R9_EXPECTED_FINAL_HELDOUT_LAUNCHES,
     R9_EXPECTED_HISTORY_LAUNCHES,
@@ -84,12 +99,14 @@ from run_repeated_launch_learning_curve import (  # noqa: E402
     _final_heldout_schedule,
     _history_row_for_final,
     _initial_belief_for_policy,
+    _no_variation_audit_rows,
     _outer_case_schedule,
     _pairing_audit_rows,
     _policy_condition,
     _launch_score_fields,
     _launch_score_fields_for_role,
     _scheduled_active_fan_count_for_outer_case,
+    _uses_full_w3_randomisation_block,
     validation_route_for_primitive_step,
 )
 from run_v411_source_audit import _active_source_blockers, build_control_inventory  # noqa: E402
@@ -190,7 +207,7 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r5_environment_case_counts_balanced", r5_schedule["environment_case_counts"] == {"W0|dry_air": 25600, "W1|w1_annular_gp_randomised_four": 25600, "W1|w1_annular_gp_randomised_single": 25600}, r5_schedule["environment_case_counts"], "25600 rows per W0/W1 environment case"))
     w3_row_source = inspect.getsource(_w3_row_for_index)
     rows.append(_row("r7_uses_direct_r5_frozen_bundle_not_active_w2_gate", R5_INPUT_KIND == "r5_frozen_bundle_direct", R5_INPUT_KIND, "r5_frozen_bundle_direct"))
-    rows.append(_row("r7_environment_cases_annular_gp_single_four", W3_ENVIRONMENT_CASES == ("w3_randomised_single", "w3_randomised_four"), W3_ENVIRONMENT_CASES, ("w3_randomised_single", "w3_randomised_four")))
+    rows.append(_row("r7_environment_cases_dry_air_annular_gp_single_four", W3_ENVIRONMENT_CASES == ("dry_air", "w3_randomised_single", "w3_randomised_four"), W3_ENVIRONMENT_CASES, ("dry_air", "w3_randomised_single", "w3_randomised_four")))
     rows.append(_row("r7_active_fan_count_sequence_balanced_1_2_3_4", W3_ACTIVE_FAN_COUNT_SEQUENCE == (1, 2, 3, 4), W3_ACTIVE_FAN_COUNT_SEQUENCE, (1, 2, 3, 4)))
     rows.append(_row("r7_row_scheduler_uses_r5_selected_transition_entry_class", "_start_family_for_r5_selected_entry_class" in w3_row_source and "r5_selected_transition_entry_class" in w3_row_source, "R5 selected transition-entry W3 scheduler source", "start family selected from r5_transition_selected_for_r7 transition_entry_class"))
     r8_representatives_source = inspect.getsource(_representatives_for_case)
@@ -203,7 +220,19 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r8_representative_score_uses_updraft_gain_not_net_energy", _r8_score_uses_updraft_gain_not_net_energy(), "updraft-gain score check", "net energy residual must not improve representative score"))
     rows.append(_row("five_library_size_cases", set(LIBRARY_SIZE_CASE_IDS) == {"heavy_cluster", "balanced_cluster", "light_cluster", "super_light_cluster", "no_cluster_no_merge"}, LIBRARY_SIZE_CASE_IDS, "heavy/balanced/light/super_light/no_cluster"))
     rows.append(_row("r9_reduced_internal_preflight_blocks_exact", _block_tuples(R9_BLOCKS) == (("no_updraft", "W0", "dry_air", 1), ("single_fan", "W2", "annular_gp_single", 1), ("four_fan", "W2", "annular_gp_four", 1)), _block_tuples(R9_BLOCKS), "1 no-updraft, 1 single-fan, 1 four-fan internal preflight cases"))
-    rows.append(_row("r10_r11_changed_case_blocks_exact", _block_tuples(R10_BLOCKS) == (("nominal_single_fan_perturbations", "W3", "w3_randomised_single", 20), ("nominal_four_fan_perturbations", "W3", "w3_randomised_four", 20), ("shifted_single_fan_positions", "W3", "w3_randomised_single", 20), ("shifted_four_fan_positions", "W3", "w3_randomised_four", 20), ("active_fan_number_variation", "W3", "w3_randomised_four", 20), ("arena_wide_fan_position_generalisation", "W3", "w3_randomised_four", 20)), _block_tuples(R10_BLOCKS), "six changed-case blocks, 20 each"))
+    rows.append(_row("r10_single_l7_training_block_exact", _block_tuples(R10_BLOCKS) == ((R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID, "W3", "w3_randomised_four", 140),), _block_tuples(R10_BLOCKS), "one hard L7 full-domain randomisation training block with 140 outer cases"))
+    expected_r11_blocks = (
+        (R11_L0_DRY_AIR_FIXED_BLOCK_ID, "W0", "dry_air", 20),
+        (R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID, "W2", "annular_gp_single", 20),
+        (R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID, "W2", "annular_gp_four", 20),
+        (R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 20),
+        (R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 20),
+        (R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 20),
+        (R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 20),
+        (R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID, "W3", "w3_randomised_four", 20),
+    )
+    rows.append(_row("r11_fidelity_ladder_blocks_exact", _block_tuples(R11_BLOCKS) == expected_r11_blocks, _block_tuples(R11_BLOCKS), "L0 dry, L1 single fixed, L2 four fixed, L3 fan params, L4 local position, L5 active count, L6 environment-only, L7 full-domain"))
+    rows.append(_row("r10_r11_arena_wide_fan_positions_nonoverlap_radius_0p5m", R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M == 0.5, R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M, "0.5 m radius; centers must be at least 1.0 m apart"))
     rows.append(_row("r9_is_internal_reduced_preflight", R9_PROTOCOL.validation_evidence_level == "internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence", R9_PROTOCOL.validation_evidence_level, "internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence"))
     rows.append(_row("r10_is_governor_learning_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level == "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level, "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate"))
     rows.append(_row("r11_is_strict_heldout_validation", R11_PROTOCOL.validation_evidence_level == "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation", R11_PROTOCOL.validation_evidence_level, "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation"))
@@ -211,8 +240,10 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r9_quick_preflight_policy_history_conditions", R9_POLICY_HISTORY_CONDITIONS == ("no_memory_baseline", "directional_3d_residual_memory_h20"), R9_POLICY_HISTORY_CONDITIONS, "no_memory_baseline + directional_3d_residual_memory_h20"))
     rows.append(_row("r9_expected_final_launches_quick_preflight", R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R9_POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION == 30, R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*2*3=30"))
     rows.append(_row("r9_expected_history_launches_quick_preflight", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * 20 == 300, R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*3*h20=300"))
-    rows.append(_row("r10_r11_expected_final_launches", R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION, R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*5*120"))
-    rows.append(_row("r10_r11_expected_history_launches_core_matrix", R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + 20), R10_EXPECTED_HISTORY_LAUNCHES, "library_cases*120*(h5+h20+h100+safe_h20)"))
+    rows.append(_row("r10_expected_final_launches_l7_training", R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION, R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*5*140"))
+    rows.append(_row("r10_expected_history_launches_l7_training", R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + 20), R10_EXPECTED_HISTORY_LAUNCHES, "library_cases*140*(h5+h20+h100+safe_h20)"))
+    rows.append(_row("r11_expected_final_launches_fidelity_ladder", R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R11_OUTER_CASES_PER_CONDITION, R11_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*5*160"))
+    rows.append(_row("r11_expected_history_launches_fidelity_ladder", R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R11_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + 20), R11_EXPECTED_HISTORY_LAUNCHES, "library_cases*160*(h5+h20+h100+safe_h20)"))
     rows.append(_row("five_policy_history_conditions_core", len(POLICY_HISTORY_CONDITIONS) == 5, len(POLICY_HISTORY_CONDITIONS), 5))
     rows.append(_row("history_lengths_core_exact", HISTORY_LENGTHS == (5, 20, 100), HISTORY_LENGTHS, (5, 20, 100)))
     rows.append(_row("empty_prior_baseline_name", EMPTY_FROZEN_PRIOR_BASELINE_ID == "empty_frozen_prior_baseline", EMPTY_FROZEN_PRIOR_BASELINE_ID, "empty_frozen_prior_baseline"))
@@ -269,12 +300,23 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     route1 = validation_route_for_primitive_step(1)
     rows.append(_row("first_primitive_uses_launch_gate_entry_class", route0.get("route_required_entry_class") == "launch_gate", route0, "launch_gate"))
     rows.append(_row("later_nominal_route_uses_inflight_entry_class", route1.get("route_required_entry_class") == "inflight_stable", route1, "inflight_stable"))
-    for protocol in (R10_PROTOCOL, R11_PROTOCOL):
-        rows.append(_row(f"{protocol.stage_id.lower()}_nominal_fan_positions_fixed", _fan_position_policy_for_outer_case(protocol=protocol, environment_block_id="nominal_single_fan_perturbations") == "fixed_base_positions", _fan_position_policy_for_outer_case(protocol=protocol, environment_block_id="nominal_single_fan_perturbations"), "fixed_base_positions"))
-        rows.append(_row(f"{protocol.stage_id.lower()}_four_fan_non_active_block_fixed_to_4", _scheduled_active_fan_count_for_outer_case(protocol=protocol, environment_block_id="nominal_four_fan_perturbations", environment_block_local_index=0) == 4, _scheduled_active_fan_count_for_outer_case(protocol=protocol, environment_block_id="nominal_four_fan_perturbations", environment_block_local_index=0), 4))
-        rows.append(_row(f"{protocol.stage_id.lower()}_active_fan_variation_policy", _active_fan_count_policy_for_outer_case(protocol=protocol, environment_block_id=ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID) == "balanced_1_2_3_4_for_active_fan_number_variation", _active_fan_count_policy_for_outer_case(protocol=protocol, environment_block_id=ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID), "balanced_1_2_3_4_for_active_fan_number_variation"))
-        rows.append(_row(f"{protocol.stage_id.lower()}_arena_wide_varies_fan_positions_and_active_count", _fan_position_policy_for_outer_case(protocol=protocol, environment_block_id=BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID) == "independent_uniform_xy_bounds" and _active_fan_count_policy_for_outer_case(protocol=protocol, environment_block_id=BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID) == "balanced_1_2_3_4_with_arena_wide_fan_position_generalisation", {"fan_position": _fan_position_policy_for_outer_case(protocol=protocol, environment_block_id=BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID), "active_count": _active_fan_count_policy_for_outer_case(protocol=protocol, environment_block_id=BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID)}, "independent positions plus balanced 1/2/3/4 active fan count"))
-    rows.append(_row("changed_case_active_fan_count_sequence", R10_ACTIVE_FAN_COUNT_SEQUENCE == (1, 2, 3, 4), R10_ACTIVE_FAN_COUNT_SEQUENCE, (1, 2, 3, 4)))
+    rows.append(_row("r10_l7_arena_wide_varies_fan_positions_and_active_count", _fan_position_policy_for_outer_case(protocol=R10_PROTOCOL, environment_block_id=R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID) == "independent_uniform_xy_bounds" and _active_fan_count_policy_for_outer_case(protocol=R10_PROTOCOL, environment_block_id=R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID) == "balanced_0_1_2_3_4_with_arena_wide_fan_position_generalisation", {"fan_position": _fan_position_policy_for_outer_case(protocol=R10_PROTOCOL, environment_block_id=R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID), "active_count": _active_fan_count_policy_for_outer_case(protocol=R10_PROTOCOL, environment_block_id=R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID)}, "R10 single hard L7 training distribution"))
+    rows.append(_row("r10_l7_uses_full_w3_randomisation", _uses_full_w3_randomisation_block(protocol=R10_PROTOCOL, environment_block_id=R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID), "r10_l7_full_w3_randomisation", True))
+    rows.append(_row("r11_l0_no_updraft_zero_fan_block", _scheduled_active_fan_count_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=R11_L0_DRY_AIR_FIXED_BLOCK_ID, environment_block_local_index=0) == 0, _scheduled_active_fan_count_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=R11_L0_DRY_AIR_FIXED_BLOCK_ID, environment_block_local_index=0), 0))
+    rows.append(_row("r11_l0_no_updraft_no_fan_positions", _fan_position_policy_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=R11_L0_DRY_AIR_FIXED_BLOCK_ID) == "no_fan_positions", _fan_position_policy_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=R11_L0_DRY_AIR_FIXED_BLOCK_ID), "no_fan_positions"))
+    rows.append(_row("r11_l1_l2_nominal_fan_positions_fixed", _fan_position_policy_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID) == "fixed_base_positions" and _fan_position_policy_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID) == "fixed_base_positions", {"l1": _fan_position_policy_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID), "l2": _fan_position_policy_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID)}, "fixed_base_positions"))
+    rows.append(_row("r11_l2_l3_l4_fixed_to_4_active_fans", all(_scheduled_active_fan_count_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=block_id, environment_block_local_index=0) == 4 for block_id in (R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID, R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID, R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID)), "L2/L3/L4 active counts", 4))
+    rows.append(_row("r11_l5_active_fan_variation_policy", _active_fan_count_policy_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID) == "balanced_0_1_2_3_4_for_active_fan_number_variation", _active_fan_count_policy_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID), "balanced_0_1_2_3_4_for_active_fan_number_variation"))
+    rows.append(_row("r11_l7_arena_wide_varies_fan_positions_and_active_count", _fan_position_policy_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID) == "independent_uniform_xy_bounds" and _active_fan_count_policy_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID) == "balanced_0_1_2_3_4_with_arena_wide_fan_position_generalisation", {"fan_position": _fan_position_policy_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID), "active_count": _active_fan_count_policy_for_outer_case(protocol=R11_PROTOCOL, environment_block_id=R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID)}, "R11 L7 independent positions plus balanced 0/1/2/3/4 active fan count"))
+    rows.append(_row("r11_l7_uses_full_w3_randomisation", _uses_full_w3_randomisation_block(protocol=R11_PROTOCOL, environment_block_id=R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID), "r11_l7_full_w3_randomisation", True))
+    for protocol, full_domain_block_id in ((R10_PROTOCOL, R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID), (R11_PROTOCOL, R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID)):
+        no_variation_audit = pd.DataFrame(_no_variation_audit_rows(_final_heldout_schedule(outer_cases=_outer_case_schedule(protocol=protocol, seed=91), protocol=protocol)))
+        case7 = no_variation_audit[no_variation_audit["environment_block_id"].astype(str).eq(full_domain_block_id)]
+        rows.append(_row(f"{protocol.stage_id.lower()}_full_domain_declared_full_w3_exception", not case7.empty and bool(case7["full_w3_randomisation_exception"].all()) and bool(case7["variation_audit_passed"].all()), case7.to_dict(orient="records")[:1], "full-domain block is explicit full-W3 perturbation exception"))
+        outer = next(row for row in _outer_case_schedule(protocol=protocol, seed=91) if row["environment_block_id"] == full_domain_block_id)
+        history = _history_row_for_final({**outer, "episode_id": "audit", "launch_role": "final_heldout"}, 0)
+        rows.append(_row(f"{protocol.stage_id.lower()}_history_varies_environment_but_not_plant_seed", int(history["environment_seed"]) != int(outer["environment_seed"]) and int(history["plant_implementation_seed"]) == int(outer["plant_implementation_seed"]), {"outer": outer, "history": history}, "history shifts environment/launch seed while plant/implementation seed stays fixed per outer case"))
+    rows.append(_row("changed_case_active_fan_count_sequence", R10_ACTIVE_FAN_COUNT_SEQUENCE == (0, 1, 2, 3, 4), R10_ACTIVE_FAN_COUNT_SEQUENCE, (0, 1, 2, 3, 4)))
     return rows
 
 
@@ -719,6 +761,10 @@ def _docs_code_consistency_rows(repo_root: Path) -> list[dict[str, object]]:
         "recovery_boundary_route_not_full_pass": "recoverable_degraded -> boundary_near",
         "r9_quick_preflight_30_final": "30 final held-out launches",
         "r9_quick_preflight_300_history": "300 history launches",
+        "r10_single_hard_training_distribution": "R10 is governor/residual-memory tuning on one hard training distribution",
+        "r11_eight_block_fidelity_ladder": "R11 is held-out validation on an eight-block fidelity ladder",
+        "plant_implementation_fixed_per_outer_case": "sampled once per outer case and held fixed",
+        "outer_loop_realtime_scheduler_profile": "preferred 20 ms controller-slot budget and a hard 0.100 s primitive-boundary budget",
     }
     for check_id, fragment in combined_requirements.items():
         rows.append(_row(check_id, fragment in combined, fragment if fragment in combined else "missing", fragment))

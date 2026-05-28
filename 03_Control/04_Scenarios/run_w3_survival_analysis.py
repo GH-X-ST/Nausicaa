@@ -33,9 +33,9 @@ from transition_labels import transition_contract_row, transition_row_fields  # 
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
-W3_ANALYSIS_VERSION = "w3_variant_survival_analysis_v412_route_usable"
+W3_ANALYSIS_VERSION = "r7_variant_survival_analysis_v413_dry_air_route_usable"
 DEFAULT_W3_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival/013")
-W3_ENVIRONMENT_MODES = ("w3_randomised_single", "w3_randomised_four")
+W3_ENVIRONMENT_MODES = ("dry_air", "w3_randomised_single", "w3_randomised_four")
 STATUS_VOCABULARY = (
     "survived",
     "route_usable",
@@ -251,14 +251,14 @@ def _variant_summary(frame: pd.DataFrame, *, config: W3SurvivalAnalysisConfig) -
             }
         )
         mode_positive = mode_positive_frame.groupby("environment_mode")["_positive"].sum()
-        both_modes_positive = all(int(mode_positive.get(mode, 0)) > 0 for mode in W3_ENVIRONMENT_MODES)
+        all_holdout_modes_positive = all(int(mode_positive.get(mode, 0)) > 0 for mode in W3_ENVIRONMENT_MODES)
         hard_rate = float(int(hard.sum()) / max(1, len(compatible)))
         transition_success_count = int(positive.sum())
         transition_success_rate = float(transition_success_count / max(1, len(compatible)))
         useful_count = transition_success_count
         status, reason = _status_for_variant(
             transition_entry_class=transition_entry_class,
-            both_modes_positive=both_modes_positive,
+            both_modes_positive=all_holdout_modes_positive,
             useful_count=useful_count,
             compatible_row_count=len(compatible),
             transition_success_rate=transition_success_rate,
@@ -295,7 +295,8 @@ def _variant_summary(frame: pd.DataFrame, *, config: W3SurvivalAnalysisConfig) -
                 "saturation_fraction_mean": _safe_mean(compatible, "saturation_fraction"),
                 "w3_environment_modes_seen": ";".join(modes),
                 "w3_environment_mode_count": int(len(modes)),
-                "both_w3_modes_positive": bool(both_modes_positive),
+                "all_r7_modes_positive": bool(all_holdout_modes_positive),
+                "both_w3_modes_positive": bool(all_holdout_modes_positive),
                 "status_reason": reason,
             }
         )
@@ -506,8 +507,8 @@ def _survivor_registry(
         "terminal_useful": "episode_terminal_useful_true_or_boundary_use_class_episode_terminal_useful",
         "hard_failure": "transition_exit_class_hard_failure_or_legacy_hard_failure",
         "survived": "inflight_stable_only_strict_high_probability_survivor",
-        "route_usable": "launch_gate_or_boundary_near_entry_has_both_W3_modes_positive_transition_evidence_and_low_hard_failure_rate",
-        "recovery_route_usable": "recoverable_degraded_entry_has_nonzero_transition_progress_in_both_W3_modes_and_low_hard_failure_rate",
+        "route_usable": "launch_gate_or_boundary_near_entry_has_dry_air_single_fan_and_four_fan_positive_transition_evidence_and_low_hard_failure_rate",
+        "recovery_route_usable": "recoverable_degraded_entry_has_nonzero_transition_progress_in_dry_air_single_fan_and_four_fan_modes_and_low_hard_failure_rate",
         "registry_pass": "requires_nonzero_eligible_transition_objects_and_launch_gate_entry_eligible_object_for_every_active_primitive_family",
         "downgraded": "partial_transition_compatible_evidence_and_hard_failure_rate_less_or_equal_downgraded_limit",
         "survived_transition_success_rate_min": float(config.survived_transition_success_rate_min),

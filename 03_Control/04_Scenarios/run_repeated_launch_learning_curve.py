@@ -58,7 +58,11 @@ from implementation_instance import implementation_instance_for_layer  # noqa: E
 from plant_instance import plant_instance_for_layer  # noqa: E402
 from prim_cat import primitive_by_id  # noqa: E402
 from prim_roll import RolloutConfig, rollout_evidence_row, simulate_primitive_rollout  # noqa: E402
-from primitive_timing_contract import PRIMITIVE_FINITE_HORIZON_S, primitive_timing_contract_row  # noqa: E402
+from primitive_timing_contract import (  # noqa: E402
+    CONTROLLER_INPUT_UPDATE_PERIOD_S,
+    PRIMITIVE_FINITE_HORIZON_S,
+    primitive_timing_contract_row,
+)
 from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS  # noqa: E402
 from state_contract import STATE_INDEX, as_state_vector  # noqa: E402
 from state_sampling import archive_state_sample_for_family  # noqa: E402
@@ -113,6 +117,9 @@ TABLE_NAMES = (
 SCHEDULE_INLINE_ROW_LIMIT = 50_000
 SCHEDULE_PARTITION_ROW_COUNT = 50_000
 CANDIDATE_SCORE_TOP_K_PER_DECISION = 10
+REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION = "predictive_next_primitive_scheduler_profile_v1"
+REAL_TIME_PREFERRED_DECISION_BUDGET_S = CONTROLLER_INPUT_UPDATE_PERIOD_S
+REAL_TIME_HARD_DECISION_BUDGET_S = PRIMITIVE_FINITE_HORIZON_S
 THESIS_FACING_WORKFLOW = "R5 -> R7 -> R8 -> R10 -> R11 -> Reality"
 R9_THESIS_REPORTING_STATUS = "internal_preflight_excluded_from_thesis_workflow_narrative"
 LAUNCH_SEQUENCE_POLICY_ID = "state_class_transition_entry_governor_no_launch_specific_family"
@@ -122,29 +129,100 @@ BOUNDARY_RECOVERY_START_FAMILY = "inflight_boundary_near"
 TERMINAL_SAFE_EXIT_START_FAMILY = "inflight_recovery_edge"
 ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID = "active_fan_number_variation"
 BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID = "arena_wide_fan_position_generalisation"
+NO_UPDRAFT_CHANGED_CASE_BLOCK_ID = "no_updraft_dry_air_generalisation"
+R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID = "r10_l7_full_domain_randomisation_arena_wide_training"
+R11_L0_DRY_AIR_FIXED_BLOCK_ID = "r11_l0_dry_air_fixed"
+R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID = "r11_l1_single_fan_fixed_nominal"
+R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID = "r11_l2_four_fan_fixed_nominal"
+R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID = "r11_l3_fan_parameter_uncertainty"
+R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID = "r11_l4_local_fan_position_uncertainty"
+R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID = "r11_l5_active_fan_count_uncertainty"
+R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID = "r11_l6_environment_only_full_uncertainty"
+R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID = "r11_l7_full_domain_randomisation_arena_wide"
+R11_FIDELITY_LADDER_BLOCK_IDS = (
+    R11_L0_DRY_AIR_FIXED_BLOCK_ID,
+    R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
+    R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
+    R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+    R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
+    R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+)
 CHANGED_CASE_VALIDATION_STAGE_IDS = {"R10", "R11"}
-R10_NOMINAL_FAN_POSITION_BLOCK_IDS = (
+R10_FULL_DOMAIN_RANDOMISATION_BLOCK_IDS = (
+    R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+)
+R10_SINGLE_FAN_GEOMETRY_BLOCK_IDS = (
+    "nominal_single_fan_perturbations",
+    R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
+)
+R10_FOUR_FAN_GEOMETRY_BLOCK_IDS = (
+    "nominal_four_fan_perturbations",
+    "shifted_four_fan_positions",
+    ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
+    BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
+    R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
+    R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
+    R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+    R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
+    R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+)
+R10_FIXED_BASE_POSITION_BLOCK_IDS = (
     "nominal_single_fan_perturbations",
     "nominal_four_fan_perturbations",
+    ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
+    R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
+    R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
 )
 R10_SHIFTED_FAN_POSITION_BLOCK_IDS = (
     "shifted_single_fan_positions",
     "shifted_four_fan_positions",
-)
-R10_FIXED_BASE_POSITION_BLOCK_IDS = (
-    *R10_NOMINAL_FAN_POSITION_BLOCK_IDS,
-    ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
+    R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
+    R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
 )
 R10_ACTIVE_FAN_COUNT_VARIATION_BLOCK_IDS = (
+    R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
     BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
+    R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+    R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
+    R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
 )
 R10_FIXED_FOUR_ACTIVE_BLOCK_IDS = (
     "nominal_four_fan_perturbations",
     "shifted_four_fan_positions",
+    R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
+    R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
 )
-R10_ACTIVE_FAN_COUNT_SEQUENCE = (1, 2, 3, 4)
+R10_NO_UPDRAFT_BLOCK_IDS = (
+    NO_UPDRAFT_CHANGED_CASE_BLOCK_ID,
+    R11_L0_DRY_AIR_FIXED_BLOCK_ID,
+)
+R10_ARENA_WIDE_FAN_POSITION_BLOCK_IDS = (
+    R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
+    R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+)
+R10_FIXED_ENVIRONMENT_BETWEEN_HISTORY_BLOCK_IDS = (
+    R11_L0_DRY_AIR_FIXED_BLOCK_ID,
+    R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+)
+R10_NOMINAL_FAN_PARAMETER_BLOCK_IDS = (
+    R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+)
+R10_ACTIVE_FAN_COUNT_SEQUENCE = (0, 1, 2, 3, 4)
 R10_ARENA_WIDE_FAN_POSITION_XY_BOUNDS_M = ((0.0, 8.0), (0.0, 4.8))
+R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M = 0.5
 RECOVERY_ROUTE_MARGIN_M = 0.25
 RECOVERY_EDGE_MAX_ABS_ROLL_RAD = math.radians(35.0)
 RECOVERY_EDGE_MAX_ABS_PITCH_RAD = math.radians(22.0)
@@ -374,6 +452,7 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
             no_variation_rows=_no_variation_audit_rows(final_schedule) if protocol.requires_no_glider_latency_variation_audit else [],
         )
         _write_csv(run_root / "metrics" / "pass_fail_gate_summary.csv", pd.DataFrame(pass_summary))
+        _write_real_time_scheduler_audit_from_partitions(run_root, [], storage_format)
         _write_manifest(
             run_root=run_root,
             config=config,
@@ -439,6 +518,7 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
     )
 
     _write_first_decision_audits_from_partitions(run_root, partitions, storage_format)
+    _write_real_time_scheduler_audit_from_partitions(run_root, partitions, storage_format)
     episode_rows = _read_partitioned_rows(run_root, partitions, "episode_summary")
     pairing_rows = _pairing_audit_rows(final_schedule)
     no_variation_rows = _no_variation_audit_rows(final_schedule) if protocol.requires_no_glider_latency_variation_audit else []
@@ -746,7 +826,20 @@ def _scheduled_active_fan_count_for_outer_case(
 ) -> int | None:
     if str(protocol.stage_id) not in CHANGED_CASE_VALIDATION_STAGE_IDS:
         return None
+    return _scheduled_active_fan_count_for_block_id(
+        environment_block_id=environment_block_id,
+        environment_block_local_index=environment_block_local_index,
+    )
+
+
+def _scheduled_active_fan_count_for_block_id(
+    *,
+    environment_block_id: str,
+    environment_block_local_index: int,
+) -> int | None:
     block_id = str(environment_block_id)
+    if block_id in R10_NO_UPDRAFT_BLOCK_IDS:
+        return 0
     if block_id in R10_ACTIVE_FAN_COUNT_VARIATION_BLOCK_IDS:
         return int(
             R10_ACTIVE_FAN_COUNT_SEQUENCE[
@@ -766,13 +859,17 @@ def _active_fan_count_policy_for_outer_case(
     if str(protocol.stage_id) not in CHANGED_CASE_VALIDATION_STAGE_IDS:
         return "environment_default"
     block_id = str(environment_block_id)
-    if block_id == ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID:
-        return "balanced_1_2_3_4_for_active_fan_number_variation"
-    if block_id == BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID:
-        return "balanced_1_2_3_4_with_arena_wide_fan_position_generalisation"
+    if block_id in R10_NO_UPDRAFT_BLOCK_IDS:
+        return "zero_active_fans_no_updraft"
+    if block_id in {ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID, R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID}:
+        return "balanced_0_1_2_3_4_for_active_fan_number_variation"
+    if block_id == R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID:
+        return "balanced_0_1_2_3_4_for_environment_only_full_uncertainty"
+    if block_id in R10_ARENA_WIDE_FAN_POSITION_BLOCK_IDS:
+        return "balanced_0_1_2_3_4_with_arena_wide_fan_position_generalisation"
     if block_id in R10_FIXED_FOUR_ACTIVE_BLOCK_IDS:
         return "fixed_4_for_four_fan_geometry_non_active_count_block"
-    if "single_fan" in block_id:
+    if block_id in R10_SINGLE_FAN_GEOMETRY_BLOCK_IDS:
         return "single_fan_geometry_implicit_one_active_fan"
     return "environment_default"
 
@@ -785,12 +882,11 @@ def _fan_layout_policy_for_outer_case(
     if str(protocol.stage_id) not in CHANGED_CASE_VALIDATION_STAGE_IDS:
         return "fixed_case_layout"
     block_id = str(environment_block_id)
-    if "single_fan" in block_id:
+    if block_id in R10_NO_UPDRAFT_BLOCK_IDS:
+        return "zero_fan_no_updraft"
+    if block_id in R10_SINGLE_FAN_GEOMETRY_BLOCK_IDS:
         return "single_fan_geometry"
-    if "four_fan" in block_id or block_id in {
-        ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
-        BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
-    }:
+    if block_id in R10_FOUR_FAN_GEOMETRY_BLOCK_IDS:
         return "four_fan_geometry"
     return "unknown_layout"
 
@@ -804,6 +900,8 @@ def _scheduled_fan_layout_count_for_outer_case(
         protocol=protocol,
         environment_block_id=environment_block_id,
     )
+    if layout == "zero_fan_no_updraft":
+        return 0
     if layout == "single_fan_geometry":
         return 1
     if layout == "four_fan_geometry":
@@ -819,7 +917,9 @@ def _fan_position_policy_for_outer_case(
     if str(protocol.stage_id) not in CHANGED_CASE_VALIDATION_STAGE_IDS:
         return "common_shift"
     block_id = str(environment_block_id)
-    if block_id == BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID:
+    if block_id in R10_NO_UPDRAFT_BLOCK_IDS:
+        return "no_fan_positions"
+    if block_id in R10_ARENA_WIDE_FAN_POSITION_BLOCK_IDS:
         return "independent_uniform_xy_bounds"
     if block_id in R10_FIXED_BASE_POSITION_BLOCK_IDS:
         return "fixed_base_positions"
@@ -836,7 +936,9 @@ def _fan_position_bounds_text_for_outer_case(
     if str(protocol.stage_id) not in CHANGED_CASE_VALIDATION_STAGE_IDS:
         return "common_shift_range=-0.200:0.200"
     block_id = str(environment_block_id)
-    if block_id == BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID:
+    if block_id in R10_NO_UPDRAFT_BLOCK_IDS:
+        return "no_fan_positions"
+    if block_id in R10_ARENA_WIDE_FAN_POSITION_BLOCK_IDS:
         x_bounds, y_bounds = R10_ARENA_WIDE_FAN_POSITION_XY_BOUNDS_M
         return f"x={float(x_bounds[0]):.3f}:{float(x_bounds[1]):.3f};y={float(y_bounds[0]):.3f}:{float(y_bounds[1]):.3f}"
     if block_id in R10_FIXED_BASE_POSITION_BLOCK_IDS:
@@ -859,6 +961,7 @@ def _outer_case_schedule(
         for local_index in range(case_count):
             launch_seed = int(seed) * 100000 + outer_index * 37 + 11
             env_seed = int(seed) * 200000 + outer_index * 41 + 17
+            plant_implementation_seed = int(seed) * 300000 + outer_index * 43 + 23
             scheduled_active_fan_count = _scheduled_active_fan_count_for_outer_case(
                 protocol=protocol,
                 environment_block_id=block.block_id,
@@ -898,8 +1001,20 @@ def _outer_case_schedule(
                         protocol=protocol,
                         environment_block_id=block.block_id,
                     ),
+                    "fan_position_safety_radius_m": (
+                        R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M
+                        if block.block_id in R10_ARENA_WIDE_FAN_POSITION_BLOCK_IDS
+                        else ""
+                    ),
                     "launch_state_seed": launch_seed,
                     "environment_seed": env_seed,
+                    "plant_implementation_seed": plant_implementation_seed,
+                    "between_episode_environment_variation": _block_varies_environment_between_history_episodes(block.block_id),
+                    "plant_implementation_variation_scope": (
+                        "fixed_per_outer_case"
+                        if block.block_id in R10_FULL_DOMAIN_RANDOMISATION_BLOCK_IDS
+                        else "fixed_nominal_or_deterministic_for_block"
+                    ),
                     "common_final_launch_key": f"{protocol.final_schedule_prefix}_final_{outer_index:04d}",
                     "start_state_family": FIRST_PRIMITIVE_START_FAMILY,
                     "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
@@ -962,15 +1077,38 @@ def _history_launch_schedule(*, outer_cases: list[dict[str, object]], protocol: 
 
 def _history_row_for_final(final_row: dict[str, object], history_index: int) -> dict[str, object]:
     seed_shift = 1000000 + int(history_index) * 101
-    return {
+    block_id = str(final_row.get("environment_block_id", ""))
+    environment_seed = int(final_row["environment_seed"])
+    if _block_varies_environment_between_history_episodes(block_id):
+        environment_seed += seed_shift
+    local_index = int(final_row.get("environment_block_local_index", final_row.get("outer_case_index", 0)))
+    if _block_varies_active_fan_count_between_history_episodes(block_id):
+        local_index += int(history_index) + 1
+    scheduled_active_fan_count = _scheduled_active_fan_count_for_block_id(
+        environment_block_id=block_id,
+        environment_block_local_index=local_index,
+    )
+    row = {
         **final_row,
         "episode_id": f"{final_row['episode_id']}_hist_{int(history_index):03d}",
         "launch_role": "history",
         "history_launch_index": int(history_index),
         "launch_state_seed": int(final_row["launch_state_seed"]) + seed_shift,
-        "environment_seed": int(final_row["environment_seed"]) + seed_shift,
+        "environment_seed": environment_seed,
         "common_final_launch_key": str(final_row["common_final_launch_key"]),
     }
+    if scheduled_active_fan_count is not None:
+        row["scheduled_active_fan_count"] = int(scheduled_active_fan_count)
+    return row
+
+
+def _block_varies_environment_between_history_episodes(environment_block_id: str) -> bool:
+    block_id = str(environment_block_id)
+    return block_id not in R10_FIXED_ENVIRONMENT_BETWEEN_HISTORY_BLOCK_IDS
+
+
+def _block_varies_active_fan_count_between_history_episodes(environment_block_id: str) -> bool:
+    return str(environment_block_id) in R10_ACTIVE_FAN_COUNT_VARIATION_BLOCK_IDS
 
 
 def _scheduled_active_fan_count_for_context(
@@ -1057,40 +1195,45 @@ def _run_one_launch(
     episode_absolute_time_s = 0.0
     episode_command_history_times_s_json = ""
     episode_command_norm_history_json = ""
+    prepared_decision: dict[str, object] | None = None
     for primitive_step_index in range(max_steps):
-        route = validation_route_for_primitive_step(primitive_step_index, state=state)
-        start_state_family = str(route["start_state_family"])
-        governor_mode = _governor_mode_for_route(route)
-        context_payload = _context_payload(
-            state=state,
-            scheduled=scheduled,
-            episode_id=episode_id,
-            protocol=protocol,
-            start_state_family=start_state_family,
-            primitive_step_index=primitive_step_index,
-            route=route,
-        )
-        context_row = context_payload["row"]
-        belief_features = None
-        if bool(policy["uses_memory"]):
-            belief_features = query_directional_residual_lift_features(
-                belief_after,
-                x_w_m=float(state[STATE_INDEX["x_w"]]),
-                y_w_m=float(state[STATE_INDEX["y_w"]]),
-                z_w_m=float(state[STATE_INDEX["z_w"]]),
-                direction_rad=float(state[STATE_INDEX["psi"]]),
+        if (
+            prepared_decision is not None
+            and int(prepared_decision.get("primitive_step_index", -1)) == int(primitive_step_index)
+        ):
+            decision = prepared_decision
+            prepared_decision = None
+            _mark_prepared_decision_committed(decision)
+        else:
+            decision = _prepare_realtime_governor_decision(
+                state=state,
+                scheduled=scheduled,
+                episode_id=episode_id,
+                protocol=protocol,
+                primitive_step_index=primitive_step_index,
+                policy=policy,
+                belief=belief_after,
+                representatives=representatives,
+                outcome_rows_by_variant_id=outcome_rows_by_variant_id,
+                governor_config=governor_config,
+                scheduler_decision_source=(
+                    "initial_launch_precomputed_before_release"
+                    if int(primitive_step_index) == 0
+                    else "boundary_compute_no_prepared_decision"
+                ),
             )
-        selected, candidate_rows = select_compact_representative(
-            representatives=representatives,
-            outcome_rows_by_variant_id=outcome_rows_by_variant_id,
-            context=context_payload["row"],
-            governor_mode=governor_mode,
-            policy_id=str(policy["policy_id"]),
-            belief_features=belief_features,
-            governor_config=governor_config,
-        )
+        route = dict(decision["route"])
+        start_state_family = str(decision["start_state_family"])
+        governor_mode = str(decision["governor_mode"])
+        context_payload = dict(decision["context_payload"])
+        context_row = context_payload["row"]
+        belief_features = decision["belief_features"]
+        selected = decision["selected"]
+        candidate_rows = list(decision["candidate_rows"])
+        scheduler_fields = dict(decision["scheduler_fields"])
         for row in candidate_rows:
             row.update(_schedule_identity_row(scheduled))
+            row.update(scheduler_fields)
             row["launch_role"] = str(scheduled["launch_role"])
             row["primitive_step_index"] = int(primitive_step_index)
             row["launch_sequence_policy"] = LAUNCH_SEQUENCE_POLICY_ID
@@ -1120,6 +1263,7 @@ def _run_one_launch(
                 governor_config=governor_config,
             ),
             **_schedule_identity_row(scheduled),
+            **scheduler_fields,
             "launch_role": str(scheduled["launch_role"]),
             "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
             "launch_sequence_phase": str(route["launch_sequence_phase"]),
@@ -1205,6 +1349,7 @@ def _run_one_launch(
                 "primitive_variant_id": str(selected.get("primitive_variant_id", "")),
                 "selected_primitive_variant_id": str(selected.get("primitive_variant_id", "")),
                 "selected_score": float(selected.get("total_score_with_memory_and_exploration", selected.get("score", 0.0))),
+                **scheduler_fields,
                 "context_w_wing_mean_m_s": float(context_payload["row"].get("w_wing_mean_m_s", 0.0)),
                 "context_lift_score": float(context_payload["row"].get("lift_score", 0.0)),
                 "trajectory_plot_scope": "plot_ready_all_final_and_history_selected_primitives",
@@ -1279,6 +1424,21 @@ def _run_one_launch(
         hard_failure = exit_class == "hard_failure" or _rollout_row_is_hard_failure(rollout_row)
         if hard_failure or exit_class == "safe_terminal":
             break
+        next_step_index = int(primitive_step_index) + 1
+        if next_step_index < int(max_steps):
+            prepared_decision = _prepare_realtime_governor_decision(
+                state=state,
+                scheduled=scheduled,
+                episode_id=episode_id,
+                protocol=protocol,
+                primitive_step_index=next_step_index,
+                policy=policy,
+                belief=belief_after,
+                representatives=representatives,
+                outcome_rows_by_variant_id=outcome_rows_by_variant_id,
+                governor_config=governor_config,
+                scheduler_decision_source="prepared_during_previous_primitive_window",
+            )
     else:
         if primitive_rows:
             blocked_reason = "episode_time_budget_reached"
@@ -1309,6 +1469,135 @@ def _run_one_launch(
         "belief_rows": belief_rows,
         "belief_after": belief_after,
     }
+
+
+def _prepare_realtime_governor_decision(
+    *,
+    state: np.ndarray,
+    scheduled: dict[str, object],
+    episode_id: str,
+    protocol: ValidationProtocol,
+    primitive_step_index: int,
+    policy: dict[str, object],
+    belief: DirectionalResidualLiftBelief,
+    representatives: list[dict[str, object]],
+    outcome_rows_by_variant_id: dict[str, dict[str, object]],
+    governor_config: GovernorConfig,
+    scheduler_decision_source: str,
+) -> dict[str, object]:
+    """Prepare one primitive decision and profile whether it fits the real-time budget."""
+
+    context_started = time.perf_counter()
+    route = validation_route_for_primitive_step(primitive_step_index, state=state)
+    start_state_family = str(route["start_state_family"])
+    governor_mode = _governor_mode_for_route(route)
+    context_payload = _context_payload(
+        state=state,
+        scheduled=scheduled,
+        episode_id=episode_id,
+        protocol=protocol,
+        start_state_family=start_state_family,
+        primitive_step_index=primitive_step_index,
+        route=route,
+    )
+    context_build_duration_s = time.perf_counter() - context_started
+
+    belief_started = time.perf_counter()
+    belief_features = None
+    if bool(policy["uses_memory"]):
+        belief_features = query_directional_residual_lift_features(
+            belief,
+            x_w_m=float(state[STATE_INDEX["x_w"]]),
+            y_w_m=float(state[STATE_INDEX["y_w"]]),
+            z_w_m=float(state[STATE_INDEX["z_w"]]),
+            direction_rad=float(state[STATE_INDEX["psi"]]),
+        )
+    belief_query_duration_s = time.perf_counter() - belief_started
+
+    selection_started = time.perf_counter()
+    selected, candidate_rows = select_compact_representative(
+        representatives=representatives,
+        outcome_rows_by_variant_id=outcome_rows_by_variant_id,
+        context=context_payload["row"],
+        governor_mode=governor_mode,
+        policy_id=str(policy["policy_id"]),
+        belief_features=belief_features,
+        governor_config=governor_config,
+    )
+    selection_duration_s = time.perf_counter() - selection_started
+
+    scheduler_fields = _real_time_scheduler_decision_fields(
+        primitive_step_index=primitive_step_index,
+        scheduler_decision_source=scheduler_decision_source,
+        context_build_duration_s=context_build_duration_s,
+        belief_query_duration_s=belief_query_duration_s,
+        selection_duration_s=selection_duration_s,
+        candidate_count=len(candidate_rows),
+        viable_count=sum(1 for row in candidate_rows if bool(row.get("viable", False))),
+    )
+    for row in candidate_rows:
+        row.update(scheduler_fields)
+    return {
+        "primitive_step_index": int(primitive_step_index),
+        "route": route,
+        "start_state_family": start_state_family,
+        "governor_mode": governor_mode,
+        "context_payload": context_payload,
+        "belief_features": belief_features,
+        "selected": selected,
+        "candidate_rows": candidate_rows,
+        "scheduler_fields": scheduler_fields,
+    }
+
+
+def _real_time_scheduler_decision_fields(
+    *,
+    primitive_step_index: int,
+    scheduler_decision_source: str,
+    context_build_duration_s: float,
+    belief_query_duration_s: float,
+    selection_duration_s: float,
+    candidate_count: int,
+    viable_count: int,
+) -> dict[str, object]:
+    total_duration_s = float(context_build_duration_s) + float(belief_query_duration_s) + float(selection_duration_s)
+    preferred_margin_s = float(REAL_TIME_PREFERRED_DECISION_BUDGET_S) - float(total_duration_s)
+    hard_margin_s = float(REAL_TIME_HARD_DECISION_BUDGET_S) - float(total_duration_s)
+    prepared_before_boundary = str(scheduler_decision_source) in {
+        "initial_launch_precomputed_before_release",
+        "prepared_during_previous_primitive_window",
+    }
+    return {
+        "real_time_outer_loop_scheduler_version": REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION,
+        "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
+        "scheduler_policy": "prepare_next_decision_before_primitive_boundary_and_commit_without_resetting_command_timing",
+        "scheduler_decision_source": str(scheduler_decision_source),
+        "scheduler_commit_status": "prepared_pending_commit" if prepared_before_boundary else "computed_at_boundary",
+        "scheduler_prepared_before_primitive_boundary": bool(prepared_before_boundary),
+        "decision_context_build_duration_s": float(context_build_duration_s),
+        "decision_belief_query_duration_s": float(belief_query_duration_s),
+        "decision_selection_duration_s": float(selection_duration_s),
+        "decision_total_duration_s": float(total_duration_s),
+        "decision_candidate_count": int(candidate_count),
+        "decision_viable_count": int(viable_count),
+        "preferred_decision_budget_s": float(REAL_TIME_PREFERRED_DECISION_BUDGET_S),
+        "hard_decision_budget_s": float(REAL_TIME_HARD_DECISION_BUDGET_S),
+        "preferred_20ms_slot_met": bool(preferred_margin_s >= 0.0),
+        "hard_100ms_boundary_met": bool(hard_margin_s >= 0.0),
+        "preferred_decision_budget_margin_s": float(preferred_margin_s),
+        "hard_decision_budget_margin_s": float(hard_margin_s),
+        "primitive_step_index_profiled": int(primitive_step_index),
+    }
+
+
+def _mark_prepared_decision_committed(decision: dict[str, object]) -> None:
+    fields = dict(decision.get("scheduler_fields", {}))
+    fields["scheduler_commit_status"] = "committed_prepared_decision"
+    fields["scheduler_prepared_before_primitive_boundary"] = True
+    decision["scheduler_fields"] = fields
+    for row in list(decision.get("candidate_rows", [])):
+        if isinstance(row, dict):
+            row.update(fields)
 
 
 def _outcome_for_selected(
@@ -1535,6 +1824,7 @@ def _context_payload(
     env_layer = str(scheduled["W_layer"])
     mode = str(scheduled["environment_mode"])
     seed = int(scheduled["environment_seed"])
+    plant_implementation_seed = int(scheduled.get("plant_implementation_seed", seed))
     scheduled_active_fan_count = _scheduled_active_fan_count_for_context(
         protocol=protocol,
         scheduled=scheduled,
@@ -1553,7 +1843,23 @@ def _context_payload(
     metadata = environment_metadata_from_instance(instance)
     binding = resolve_surrogate_binding(env_layer, metadata, randomisation_seed=seed)
     wind_field = wind_field_for_binding(binding)
-    latency_case = "nominal"
+    full_w3_randomisation = _uses_full_w3_randomisation_block(
+        protocol=protocol,
+        environment_block_id=str(scheduled.get("environment_block_id", "")),
+    )
+    plant_layer = env_layer if full_w3_randomisation else (
+        "W2" if protocol.requires_no_glider_latency_variation_audit else env_layer
+    )
+    implementation_layer = env_layer if full_w3_randomisation else (
+        "W2" if protocol.requires_no_glider_latency_variation_audit else env_layer
+    )
+    implementation_instance = implementation_instance_for_layer(
+        implementation_layer,
+        plant_implementation_seed,
+        latency_case="nominal",
+    )
+    plant_instance = plant_instance_for_layer(plant_layer, plant_implementation_seed)
+    latency_case = str(implementation_instance.latency_case)
     context = build_environment_context(
         state,
         wind_field=wind_field,
@@ -1562,8 +1868,6 @@ def _context_payload(
         actuator_case="nominal",
         surrogate_binding=binding,
     )
-    plant_layer = "W2" if protocol.requires_no_glider_latency_variation_audit else env_layer
-    implementation_layer = "W2" if protocol.requires_no_glider_latency_variation_audit else env_layer
     route = route or validation_route_for_primitive_step(primitive_step_index, state=state)
     row = {
         "context_id": f"{episode_id}_ctx{int(primitive_step_index):02d}",
@@ -1584,6 +1888,11 @@ def _context_payload(
         ),
         "fan_position_policy": str(scheduled.get("fan_position_policy", "")),
         "fan_position_xy_bounds_m": str(scheduled.get("fan_position_xy_bounds_m", "")),
+        "fan_position_safety_radius_m": str(scheduled.get("fan_position_safety_radius_m", "")),
+        "environment_seed": seed,
+        "plant_implementation_seed": plant_implementation_seed,
+        "between_episode_environment_variation": bool(scheduled.get("between_episode_environment_variation", False)),
+        "plant_implementation_variation_scope": str(scheduled.get("plant_implementation_variation_scope", "")),
         "start_state_family": str(start_state_family),
         "primitive_step_index": int(primitive_step_index),
         "launch_sequence_policy": LAUNCH_SEQUENCE_POLICY_ID,
@@ -1594,6 +1903,9 @@ def _context_payload(
         "current_state_class": str(route.get("current_state_class", classify_state(start_state_family=start_state_family))),
         "transition_current_state_class": str(route.get("current_state_class", classify_state(start_state_family=start_state_family))),
         "latency_case": latency_case,
+        "plant_W_layer": plant_layer,
+        "implementation_W_layer": implementation_layer,
+        "full_w3_randomisation_block": bool(full_w3_randomisation),
         "wall_margin_m": float(context.wall_margin_m),
         "all_wall_margin_m": float(context.all_wall_margin_m),
         "front_wall_margin_m": float(context.front_wall_margin_m),
@@ -1616,9 +1928,16 @@ def _context_payload(
         "context": context,
         "row": row,
         "wind_field": wind_field,
-        "implementation_instance": implementation_instance_for_layer(implementation_layer, seed, latency_case=latency_case),
-        "plant_instance": plant_instance_for_layer(plant_layer, seed),
+        "implementation_instance": implementation_instance,
+        "plant_instance": plant_instance,
     }
+
+
+def _uses_full_w3_randomisation_block(*, protocol: ValidationProtocol, environment_block_id: str) -> bool:
+    return (
+        str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
+        and str(environment_block_id) in R10_FULL_DOMAIN_RANDOMISATION_BLOCK_IDS
+    )
 
 
 def _environment_randomisation_config_for_context(
@@ -1628,11 +1947,21 @@ def _environment_randomisation_config_for_context(
     scheduled_active_fan_count: int | None,
 ) -> EnvironmentRandomisationConfig | None:
     block_id = str(scheduled.get("environment_block_id", ""))
-    if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS and block_id == BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID:
+    if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS and block_id in R10_ARENA_WIDE_FAN_POSITION_BLOCK_IDS:
         return EnvironmentRandomisationConfig(
             active_fan_count=scheduled_active_fan_count,
             fan_position_policy="independent_uniform_xy_bounds",
             fan_position_xy_bounds_m=R10_ARENA_WIDE_FAN_POSITION_XY_BOUNDS_M,
+            fan_position_safety_radius_m=R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M,
+        )
+    if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS and block_id in R10_NOMINAL_FAN_PARAMETER_BLOCK_IDS:
+        return EnvironmentRandomisationConfig(
+            active_fan_count=scheduled_active_fan_count,
+            fan_position_policy="fixed_base_positions",
+            fan_power_scale_range=(1.0, 1.0),
+            amplitude_scale_range=(1.0, 1.0),
+            width_scale_range=(1.0, 1.0),
+            uncertainty_scale_range=(1.0, 1.0),
         )
     if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS and block_id in R10_FIXED_BASE_POSITION_BLOCK_IDS:
         return EnvironmentRandomisationConfig(
@@ -2489,6 +2818,86 @@ def _write_first_decision_audits_from_partitions(
     _write_csv(run_root / "metrics" / "launch_gate_outcome_audit.csv", _sum_rows(rejection_rows, ["library_size_case_id", "rejection_reason"]))
 
 
+def _write_real_time_scheduler_audit_from_partitions(
+    run_root: Path,
+    partitions: Iterable[TablePartition],
+    storage_format: str,
+) -> None:
+    rows: list[dict[str, object]] = []
+    for partition in partitions:
+        if partition.table_name != "selector_decision_log":
+            continue
+        frame = read_table_partition(
+            run_root / "tables" / partition.relative_path,
+            storage_format=storage_format,
+        )
+        if not frame.empty:
+            rows.extend(frame.to_dict(orient="records"))
+    if not rows:
+        _write_csv(
+            run_root / "metrics" / "real_time_scheduler_audit.csv",
+            pd.DataFrame(
+                [
+                    {
+                        "audit_scope": "overall",
+                        "selector_decision_count": 0,
+                        "audit_status": "no_selector_decision_rows",
+                        "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
+                    }
+                ]
+            ),
+        )
+        return
+
+    frame = pd.DataFrame(rows)
+    duration = pd.to_numeric(frame.get("decision_total_duration_s", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+    preferred = frame.get("preferred_20ms_slot_met", pd.Series(dtype=bool)).map(_truthy) if "preferred_20ms_slot_met" in frame else pd.Series(False, index=frame.index)
+    hard = frame.get("hard_100ms_boundary_met", pd.Series(dtype=bool)).map(_truthy) if "hard_100ms_boundary_met" in frame else pd.Series(False, index=frame.index)
+    prepared = (
+        frame.get("scheduler_prepared_before_primitive_boundary", pd.Series(dtype=bool)).map(_truthy)
+        if "scheduler_prepared_before_primitive_boundary" in frame
+        else pd.Series(False, index=frame.index)
+    )
+    frame["_duration"] = duration
+    frame["_preferred"] = preferred.astype(bool)
+    frame["_hard"] = hard.astype(bool)
+    frame["_prepared"] = prepared.astype(bool)
+
+    audit_rows = [_real_time_scheduler_summary_row("overall", frame)]
+    if "launch_role" in frame.columns:
+        for launch_role, group in frame.groupby("launch_role", dropna=False):
+            audit_rows.append(_real_time_scheduler_summary_row(f"launch_role:{launch_role}", group))
+    if "policy_id" in frame.columns:
+        for policy_id, group in frame.groupby("policy_id", dropna=False):
+            audit_rows.append(_real_time_scheduler_summary_row(f"policy_id:{policy_id}", group))
+    _write_csv(run_root / "metrics" / "real_time_scheduler_audit.csv", pd.DataFrame(audit_rows))
+
+
+def _real_time_scheduler_summary_row(audit_scope: str, frame: pd.DataFrame) -> dict[str, object]:
+    count = int(len(frame))
+    duration = pd.to_numeric(frame["_duration"], errors="coerce").fillna(0.0)
+    preferred = frame["_preferred"].astype(bool)
+    hard = frame["_hard"].astype(bool)
+    prepared = frame["_prepared"].astype(bool)
+    return {
+        "audit_scope": str(audit_scope),
+        "selector_decision_count": count,
+        "prepared_before_boundary_count": int(prepared.sum()),
+        "prepared_before_boundary_rate": float(prepared.mean()) if count else 0.0,
+        "preferred_20ms_slot_met_count": int(preferred.sum()),
+        "preferred_20ms_slot_met_rate": float(preferred.mean()) if count else 0.0,
+        "hard_100ms_boundary_met_count": int(hard.sum()),
+        "hard_100ms_boundary_met_rate": float(hard.mean()) if count else 0.0,
+        "max_decision_total_duration_s": float(duration.max()) if count else 0.0,
+        "p99_decision_total_duration_s": float(duration.quantile(0.99)) if count else 0.0,
+        "mean_decision_total_duration_s": float(duration.mean()) if count else 0.0,
+        "preferred_decision_budget_s": float(REAL_TIME_PREFERRED_DECISION_BUDGET_S),
+        "hard_decision_budget_s": float(REAL_TIME_HARD_DECISION_BUDGET_S),
+        "audit_status": "profiled",
+        "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
+    }
+
+
 def _sum_rows(rows: list[dict[str, object]], group_columns: list[str]) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
@@ -2903,6 +3312,10 @@ def _pairing_audit_rows(final_schedule: list[dict[str, object]]) -> list[dict[st
                     group["common_final_launch_key"].nunique() == 1
                     and group["launch_state_seed"].nunique() == 1
                     and group["environment_seed"].nunique() == 1
+                    and (
+                        "plant_implementation_seed" not in group.columns
+                        or group["plant_implementation_seed"].nunique() == 1
+                    )
                 ),
                 "row_count": int(len(group)),
                 "library_case_count": int(group["library_size_case_id"].nunique()),
@@ -2915,14 +3328,23 @@ def _pairing_audit_rows(final_schedule: list[dict[str, object]]) -> list[dict[st
 def _no_variation_audit_rows(final_schedule: list[dict[str, object]]) -> list[dict[str, object]]:
     rows = []
     for key, group in pd.DataFrame(final_schedule).groupby("outer_case_index"):
+        environment_block_id = str(group["environment_block_id"].iloc[0]) if "environment_block_id" in group.columns and not group.empty else ""
+        full_w3_randomisation = environment_block_id in R10_FULL_DOMAIN_RANDOMISATION_BLOCK_IDS
         rows.append(
             {
                 "outer_case_index": int(key),
+                "environment_block_id": environment_block_id,
                 "variation_audit_passed": True,
-                "glider_model_fixed": True,
-                "latency_model_fixed": True,
-                "actuator_model_fixed": True,
-                "mass_cg_inertia_surface_calibration_not_varied": True,
+                "glider_model_fixed": not full_w3_randomisation,
+                "latency_model_fixed": not full_w3_randomisation,
+                "actuator_model_fixed": not full_w3_randomisation,
+                "mass_cg_inertia_surface_calibration_not_varied": not full_w3_randomisation,
+                "full_w3_randomisation_exception": bool(full_w3_randomisation),
+                "variation_policy": (
+                    "explicit_full_w3_randomisation_case_7"
+                    if full_w3_randomisation
+                    else "fixed_glider_latency_actuator_changed_environment_only"
+                ),
                 "row_count": int(len(group)),
             }
         )
@@ -2940,7 +3362,7 @@ def _active_fan_count_schedule_audit_rows(outer_cases: list[dict[str, object]]) 
                 "environment_block_id": ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
                 "scheduled_active_fan_count": "",
                 "outer_case_count": 0,
-                "policy": "balanced_1_2_3_4_for_active_fan_number_variation",
+                "policy": "balanced_0_1_2_3_4_for_active_fan_number_variation",
                 "audit_passed": False,
             }
         ]
@@ -2968,7 +3390,7 @@ def _active_fan_count_schedule_audit_rows(outer_cases: list[dict[str, object]]) 
         policy = str(
             active["active_fan_count_policy"].iloc[0]
             if "active_fan_count_policy" in active.columns and not active.empty
-            else "balanced_1_2_3_4"
+            else "balanced_0_1_2_3_4"
         )
         for active_count, row_count in counts.items():
             count_value = "" if pd.isna(active_count) else int(active_count)
@@ -3225,6 +3647,12 @@ def _write_manifest(
         "selected_workers": int(_selected_worker_count(config)),
         "worker_backend": str(config.worker_backend),
         "parallel_execution_policy": "parallelise_across_independent_final_schedule_rows_history_sequential_inside_worker_parent_writes_partitions",
+        "real_time_outer_loop_scheduler_version": REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION,
+        "real_time_outer_loop_scheduler_policy": "prepare_next_decision_before_primitive_boundary_profile_context_belief_selector_wallclock",
+        "real_time_preferred_decision_budget_s": float(REAL_TIME_PREFERRED_DECISION_BUDGET_S),
+        "real_time_hard_decision_budget_s": float(REAL_TIME_HARD_DECISION_BUDGET_S),
+        "real_time_scheduler_audit": "metrics/real_time_scheduler_audit.csv",
+        "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
         "thesis_facing_workflow": THESIS_FACING_WORKFLOW,
         "governor_config_override_active": config.governor_config is not None,
         "governor_config": governor_config_to_row(config.governor_config or DEFAULT_GOVERNOR_CONFIG),
@@ -3273,18 +3701,26 @@ def _write_manifest(
         "transition_contract": transition_contract_row(),
         "active_governor_path": "transition_viability_governor_v1",
         "boundary_near_status": "route_state_not_automatic_failure",
-        "changed_case_active_fan_count_policy": "balanced_1_2_3_4_for_active_fan_number_variation"
+        "changed_case_active_fan_count_policy": "balanced_0_1_2_3_4_for_active_fan_number_variation"
         if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
         else "not_applicable",
         "changed_case_active_fan_count_sequence": list(R10_ACTIVE_FAN_COUNT_SEQUENCE)
         if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
         else [],
-        "changed_case_arena_wide_fan_position_block_id": BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID
+        "changed_case_arena_wide_fan_position_block_ids": list(R10_ARENA_WIDE_FAN_POSITION_BLOCK_IDS)
         if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
-        else "not_applicable",
+        else [],
         "changed_case_arena_wide_fan_position_xy_bounds_m": R10_ARENA_WIDE_FAN_POSITION_XY_BOUNDS_M
         if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
         else (),
+        "changed_case_arena_wide_fan_position_safety_radius_m": R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M
+        if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
+        else "",
+        "changed_case_plant_implementation_variation_scope": (
+            "full-domain blocks sample plant/implementation per outer case; history launches vary environment/fan/launch only"
+            if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
+            else "not_applicable"
+        ),
         "legacy_recovery_threshold_alias_status": "superseded_by_transition_labels_contract",
         "launch_score_version": LAUNCH_SCORE_VERSION,
         "launch_score_target_episode_time_s": float(SCORING_TARGET_EPISODE_TIME_S),

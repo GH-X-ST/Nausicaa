@@ -31,6 +31,8 @@ class EnvironmentRandomisationConfig:
     fan_position_shift_range_m: tuple[float, float] = (-0.20, 0.20)
     fan_position_policy: str = "common_shift"
     fan_position_xy_bounds_m: tuple[tuple[float, float], tuple[float, float]] = ((0.0, 8.0), (0.0, 4.8))
+    fan_position_safety_radius_m: float = 0.5
+    fan_position_rejection_sample_attempts: int = 10_000
     fan_power_scale_range: tuple[float, float] = (0.85, 1.15)
     active_fan_subset_policy: str = "at_least_one_active"
     active_fan_count: int | None = None
@@ -289,8 +291,10 @@ def _active_fan_mask(
 ) -> tuple[bool, ...]:
     if active_fan_count is not None:
         count = int(active_fan_count)
-        if count < 1 or count > int(fan_count):
-            raise ValueError("active_fan_count must be between 1 and fan_count.")
+        if count < 0 or count > int(fan_count):
+            raise ValueError("active_fan_count must be between 0 and fan_count.")
+        if count == 0:
+            return tuple(False for _ in range(int(fan_count)))
         active_indices = set(int(index) for index in rng.choice(int(fan_count), size=count, replace=False))
         return tuple(index in active_indices for index in range(int(fan_count)))
     mask = tuple(bool(value) for value in rng.integers(0, 2, size=int(fan_count)))
@@ -312,14 +316,55 @@ def _randomised_fan_positions(
         return tuple((float(x + fan_shift[0]), float(y + fan_shift[1])) for x, y in positions)
     if policy == "independent_uniform_xy_bounds":
         x_bounds, y_bounds = cfg.fan_position_xy_bounds_m
-        return tuple(
-            (
-                float(rng.uniform(float(x_bounds[0]), float(x_bounds[1]))),
-                float(rng.uniform(float(y_bounds[0]), float(y_bounds[1]))),
-            )
-            for _ in positions
+        return _non_overlapping_uniform_positions(
+            rng,
+            count=len(positions),
+            x_bounds=(float(x_bounds[0]), float(x_bounds[1])),
+            y_bounds=(float(y_bounds[0]), float(y_bounds[1])),
+            safety_radius_m=float(cfg.fan_position_safety_radius_m),
+            max_attempts=int(cfg.fan_position_rejection_sample_attempts),
         )
     raise ValueError(f"unknown fan_position_policy: {policy}")
+
+
+def _non_overlapping_uniform_positions(
+    rng: np.random.Generator,
+    *,
+    count: int,
+    x_bounds: tuple[float, float],
+    y_bounds: tuple[float, float],
+    safety_radius_m: float,
+    max_attempts: int,
+) -> tuple[tuple[float, float], ...]:
+    if int(count) <= 0:
+        return ()
+    if float(safety_radius_m) < 0.0:
+        raise ValueError("fan_position_safety_radius_m must be non-negative.")
+    if int(max_attempts) <= 0:
+        raise ValueError("fan_position_rejection_sample_attempts must be positive.")
+    min_center_distance = 2.0 * float(safety_radius_m)
+    accepted: list[tuple[float, float]] = []
+    attempts = 0
+    while len(accepted) < int(count) and attempts < int(max_attempts):
+        attempts += 1
+        candidate = (
+            float(rng.uniform(float(x_bounds[0]), float(x_bounds[1]))),
+            float(rng.uniform(float(y_bounds[0]), float(y_bounds[1]))),
+        )
+        if all(_xy_distance_m(candidate, existing) >= min_center_distance for existing in accepted):
+            accepted.append(candidate)
+    if len(accepted) != int(count):
+        raise ValueError(
+            "could_not_sample_non_overlapping_fan_positions:"
+            f"count={int(count)} safety_radius_m={float(safety_radius_m):.3f}"
+        )
+    return tuple(accepted)
+
+
+def _xy_distance_m(a: tuple[float, float], b: tuple[float, float]) -> float:
+    dx = float(a[0]) - float(b[0])
+    dy = float(a[1]) - float(b[1])
+    return float(np.hypot(dx, dy))
 
 
 def _uniform_pair(

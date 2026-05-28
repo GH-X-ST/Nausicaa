@@ -1,4 +1,4 @@
-# Pseudocode Writing Instructions éˆ¥?Environment-Conditioned Primitive Methods
+# Pseudocode Writing Instructions éˆ?Environment-Conditioned Primitive Methods
 
 <!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
 
@@ -18,7 +18,9 @@ The inner LQR remains a stabilising tracker around the primitive-defined local r
 
 Residual memory is a small case-local modifier: `predicted_updraft_gain = library_prediction + residual_memory_correction`. It must not override state classification or entry/exit compatibility. Memory is reinitialised per final test row. Final scoring is computed only from the final held-out rollout path. There is no hidden speed gate, no energy-loss hard failure, no PD/PID, no TVLQR, and no fan-layout-specific controller logic.
 
-Core comparison is no memory versus residual-memory histories such as h5, h20, and h100, with safe-explore only as optional ablation. Hardware readiness, real-flight transfer, mission success, autonomy, and memory-improvement claims require R11 and later real-flight evidence.
+The repeated-launch outer-loop scheduler must not assume free real-time computation. R9/R10/R11 profile context construction, residual-memory query, and compact-library selection for every primitive decision against a preferred 20 ms controller-slot budget and a hard 0.100 s primitive-boundary budget. Step 0 may be prepared before release; later steps use a prepared next-decision path so the next primitive is committed at the boundary while actuator/command FIFO history remains continuous. This is an offline wall-clock profile only, not a hardware real-time-readiness claim.
+
+R10 and R11 have separate roles. R10 is governor/residual-memory tuning on one hard training distribution, `r10_l7_full_domain_randomisation_arena_wide_training`, with 140 outer cases per condition: four-fan geometry, active fan count 0/1/2/3/4, fan parameter uncertainty, arena-wide non-overlapping fan positions, and W3 plant/implementation perturbations. Arena-wide fan positions are rejection-sampled inside the tracker footprint with a 0.5 m safety radius around each fan, so fan-centre distances must be at least 1.0 m and safety circles do not overlap. Between R10 history launches, launch state and environment/fan realisations are resampled, but glider physical parameters, latency, and actuator implementation are sampled once per outer case and held fixed to keep memory learning interpretable. R11 is held-out validation on an eight-block fidelity ladder: L0 dry-air fixed, L1 single-fan fixed nominal, L2 four-fan fixed nominal, L3 fan-parameter uncertainty, L4 local fan-position uncertainty, L5 active-fan-count uncertainty 0/1/2/3/4, L6 environment-only full uncertainty, and L7 full-domain arena-wide randomisation. R11 L0-L2 keep the environment fixed between history episodes; L3-L7 resample environment/fan/launch histories, with plant/implementation perturbations only in L7 and still fixed per outer case. Core comparison is no memory versus residual-memory histories such as h5, h20, and h100, with safe-explore only as optional ablation. Hardware readiness, real-flight transfer, mission success, autonomy, and memory-improvement claims require R11 and later real-flight evidence.
 
 <!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
 

@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
+import numpy as np
 import pandas as pd
 import pytest
 
-from run_changed_case_validation import R10_PROTOCOL, R11_PROTOCOL
+from run_changed_case_validation import (
+    R10_EXPECTED_FINAL_HELDOUT_LAUNCHES,
+    R10_EXPECTED_HISTORY_LAUNCHES,
+    R10_PROTOCOL,
+    R11_EXPECTED_FINAL_HELDOUT_LAUNCHES,
+    R11_EXPECTED_HISTORY_LAUNCHES,
+    R11_PROTOCOL,
+)
 from prim_cat import ACTIVE_PRIMITIVE_IDS, LAUNCH_CAPTURE_PRIMITIVE_IDS
 from primitive_variant_registry import ENTRY_ROLE_BY_PRIMITIVE_ID, start_family_is_compatible
 from run_lqr_w01_dense_chunked import (
@@ -25,6 +33,7 @@ from run_repeated_launch_learning_curve import (
     ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
     BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
     EMPTY_FROZEN_PRIOR_BASELINE_ID,
+    NO_UPDRAFT_CHANGED_CASE_BLOCK_ID,
     LIBRARY_SIZE_CASE_IDS,
     POLICY_HISTORY_CONDITIONS,
     R9_POLICY_HISTORY_CONDITIONS,
@@ -33,7 +42,9 @@ from run_repeated_launch_learning_curve import (
     R9_EXPECTED_HISTORY_LAUNCHES,
     R9_OUTER_CASES_PER_CONDITION,
     R9_PROTOCOL,
+    R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     _fan_position_policy_for_outer_case,
+    _context_payload,
     _history_row_for_final,
     _launch_score_fields,
     _launch_score_fields_for_role,
@@ -41,11 +52,26 @@ from run_repeated_launch_learning_curve import (
     _pairing_audit_rows,
     _pass_fail_summary,
     _policy_condition,
+    _real_time_scheduler_decision_fields,
     _scheduled_active_fan_count_for_outer_case,
     _selected_set,
     _tuned_governor_config_from_metrics,
+    _uses_full_w3_randomisation_block,
+    REAL_TIME_HARD_DECISION_BUDGET_S,
+    REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION,
+    REAL_TIME_PREFERRED_DECISION_BUDGET_S,
+    R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M,
+    R11_L0_DRY_AIR_FIXED_BLOCK_ID,
+    R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
+    R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
+    R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+    R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
+    R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     validation_route_for_primitive_step,
 )
+from state_contract import STATE_INDEX
 from run_w3_survival import R5_INPUT_KIND, W3_ACTIVE_FAN_COUNT_SEQUENCE, W3_ENVIRONMENT_CASES
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, REJECTION_REASONS, governor_candidate_row
 
@@ -86,6 +112,40 @@ def test_v53_r9_is_reduced_internal_preflight_and_can_seed_r10_governor() -> Non
     assert tuned.maximum_hard_failure_risk < DEFAULT_GOVERNOR_CONFIG.maximum_hard_failure_risk
     assert tuned.exploration_bonus_weight < DEFAULT_GOVERNOR_CONFIG.exploration_bonus_weight
     assert {row["parameter"] for row in decisions} >= {"maximum_hard_failure_risk", "exploration_bonus_weight"}
+
+
+def test_v53_repeated_launch_outer_loop_has_realtime_scheduler_profile_contract() -> None:
+    assert REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION == "predictive_next_primitive_scheduler_profile_v1"
+    assert REAL_TIME_PREFERRED_DECISION_BUDGET_S == pytest.approx(0.020)
+    assert REAL_TIME_HARD_DECISION_BUDGET_S == pytest.approx(0.100)
+
+    fast = _real_time_scheduler_decision_fields(
+        primitive_step_index=1,
+        scheduler_decision_source="prepared_during_previous_primitive_window",
+        context_build_duration_s=0.002,
+        belief_query_duration_s=0.001,
+        selection_duration_s=0.003,
+        candidate_count=24,
+        viable_count=6,
+    )
+    assert fast["scheduler_prepared_before_primitive_boundary"] is True
+    assert fast["preferred_20ms_slot_met"] is True
+    assert fast["hard_100ms_boundary_met"] is True
+    assert fast["decision_candidate_count"] == 24
+    assert fast["decision_viable_count"] == 6
+
+    slow = _real_time_scheduler_decision_fields(
+        primitive_step_index=2,
+        scheduler_decision_source="boundary_compute_no_prepared_decision",
+        context_build_duration_s=0.040,
+        belief_query_duration_s=0.020,
+        selection_duration_s=0.050,
+        candidate_count=24,
+        viable_count=6,
+    )
+    assert slow["scheduler_prepared_before_primitive_boundary"] is False
+    assert slow["preferred_20ms_slot_met"] is False
+    assert slow["hard_100ms_boundary_met"] is False
 
 
 def test_v53_r5_dense_schedule_is_transition_entry_separated_and_uses_current_randomisation_cases() -> None:
@@ -135,7 +195,7 @@ def test_v53_r5_dense_schedule_is_transition_entry_separated_and_uses_current_ra
 
 def test_v53_r7_and_r8_contracts_are_direct_holdout_and_updraft_scored() -> None:
     assert R5_INPUT_KIND == "r5_frozen_bundle_direct"
-    assert W3_ENVIRONMENT_CASES == ("w3_randomised_single", "w3_randomised_four")
+    assert W3_ENVIRONMENT_CASES == ("dry_air", "w3_randomised_single", "w3_randomised_four")
     assert W3_ACTIVE_FAN_COUNT_SEQUENCE == (1, 2, 3, 4)
 
     frame = pd.DataFrame(
@@ -341,31 +401,143 @@ def test_v53_score_rewards_final_path_updraft_and_time_without_speed_or_energy_l
 
 
 def test_v53_r10_and_r11_changed_case_randomisation_semantics_match() -> None:
-    for protocol in (R10_PROTOCOL, R11_PROTOCOL):
-        assert _scheduled_active_fan_count_for_outer_case(
-            protocol=protocol,
-            environment_block_id=ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
-            environment_block_local_index=0,
-        ) == 1
-        assert _scheduled_active_fan_count_for_outer_case(
-            protocol=protocol,
-            environment_block_id="nominal_four_fan_perturbations",
-            environment_block_local_index=0,
-        ) == 4
-        assert (
-            _fan_position_policy_for_outer_case(
-                protocol=protocol,
-                environment_block_id="nominal_single_fan_perturbations",
-            )
-            == "fixed_base_positions"
+    assert tuple(block.block_id for block in R10_PROTOCOL.blocks) == (
+        R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    )
+    assert R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * 140
+    assert R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 140 * (5 + 20 + 100 + 20)
+
+    assert tuple(block.block_id for block in R11_PROTOCOL.blocks) == (
+        R11_L0_DRY_AIR_FIXED_BLOCK_ID,
+        R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
+        R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+        R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
+        R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
+        R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+        R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
+        R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    )
+    assert R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * 160
+    assert R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 160 * (5 + 20 + 100 + 20)
+
+    assert _scheduled_active_fan_count_for_outer_case(
+        protocol=R11_PROTOCOL,
+        environment_block_id=R11_L0_DRY_AIR_FIXED_BLOCK_ID,
+        environment_block_local_index=0,
+    ) == 0
+    assert (
+        _fan_position_policy_for_outer_case(
+            protocol=R11_PROTOCOL,
+            environment_block_id=R11_L0_DRY_AIR_FIXED_BLOCK_ID,
         )
+        == "no_fan_positions"
+    )
+    assert _scheduled_active_fan_count_for_outer_case(
+        protocol=R11_PROTOCOL,
+        environment_block_id=R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+        environment_block_local_index=0,
+    ) == 0
+    assert _scheduled_active_fan_count_for_outer_case(
+        protocol=R11_PROTOCOL,
+        environment_block_id=R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+        environment_block_local_index=4,
+    ) == 4
+    assert _scheduled_active_fan_count_for_outer_case(
+        protocol=R11_PROTOCOL,
+        environment_block_id=R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+        environment_block_local_index=0,
+    ) == 4
+    assert (
+        _fan_position_policy_for_outer_case(
+            protocol=R11_PROTOCOL,
+            environment_block_id=R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
+        )
+        == "fixed_base_positions"
+    )
+    for protocol, block_id in (
+        (R10_PROTOCOL, R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID),
+        (R11_PROTOCOL, R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID),
+    ):
         assert (
             _fan_position_policy_for_outer_case(
                 protocol=protocol,
-                environment_block_id=BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
+                environment_block_id=block_id,
             )
             == "independent_uniform_xy_bounds"
         )
+        broad = next(
+            row
+            for row in _outer_case_schedule(protocol=protocol, seed=110)
+            if row["environment_block_id"] == block_id
+        )
+        history = _history_row_for_final({**broad, "episode_id": "contract", "launch_role": "final_heldout"}, 0)
+        assert broad["fan_position_safety_radius_m"] == pytest.approx(0.5)
+        assert R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M == pytest.approx(0.5)
+        assert _uses_full_w3_randomisation_block(protocol=protocol, environment_block_id=block_id)
+        assert history["environment_seed"] != broad["environment_seed"]
+        assert history["plant_implementation_seed"] == broad["plant_implementation_seed"]
+        assert history["scheduled_active_fan_count"] != broad["scheduled_active_fan_count"]
+
+    for fixed_block_id in (
+        R11_L0_DRY_AIR_FIXED_BLOCK_ID,
+        R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
+        R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+    ):
+        outer = next(
+            row
+            for row in _outer_case_schedule(protocol=R11_PROTOCOL, seed=110)
+            if row["environment_block_id"] == fixed_block_id
+        )
+        history = _history_row_for_final({**outer, "episode_id": "fixed_contract", "launch_role": "final_heldout"}, 0)
+        assert history["environment_seed"] == outer["environment_seed"]
+        assert history["plant_implementation_seed"] == outer["plant_implementation_seed"]
+
+    for varying_block_id in (
+        R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
+        R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
+        R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+        R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
+        R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    ):
+        outer = next(
+            row
+            for row in _outer_case_schedule(protocol=R11_PROTOCOL, seed=110)
+            if row["environment_block_id"] == varying_block_id
+        )
+        history = _history_row_for_final({**outer, "episode_id": "varying_contract", "launch_role": "final_heldout"}, 0)
+        assert history["environment_seed"] != outer["environment_seed"]
+        assert history["plant_implementation_seed"] == outer["plant_implementation_seed"]
+
+
+def test_v53_r10_r11_case7_uses_w3_plant_and_implementation_randomisation() -> None:
+    state = np.zeros(15, dtype=float)
+    state[STATE_INDEX["x_w"]] = 1.3
+    state[STATE_INDEX["y_w"]] = 2.0
+    state[STATE_INDEX["z_w"]] = 1.7
+    state[STATE_INDEX["u"]] = 5.5
+
+    for protocol, block_id in (
+        (R10_PROTOCOL, R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID),
+        (R11_PROTOCOL, R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID),
+    ):
+        outer = next(
+            row
+            for row in _outer_case_schedule(protocol=protocol, seed=110)
+            if row["environment_block_id"] == block_id
+        )
+        payload = _context_payload(
+            state=state,
+            scheduled=outer,
+            episode_id="case7_contract",
+            protocol=protocol,
+            start_state_family="launch_gate",
+            primitive_step_index=0,
+        )
+        assert payload["row"]["full_w3_randomisation_block"] is True
+        assert payload["plant_instance"].W_layer == "W3"
+        assert payload["implementation_instance"].W_layer == "W3"
+        assert payload["implementation_instance"].implementation_adjustment_status == "randomised_applied"
+        assert payload["plant_instance"].plant_adjustment_status == "randomised_applied"
 
 
 def test_v53_r11_full_safe_success_gate_catches_safe_exit_only_passes() -> None:

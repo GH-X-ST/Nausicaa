@@ -18,6 +18,8 @@ from run_changed_case_validation import (
     HeldoutChangedCaseValidationConfig,
     R10_EXPECTED_FINAL_HELDOUT_LAUNCHES,
     R10_EXPECTED_HISTORY_LAUNCHES,
+    R11_EXPECTED_FINAL_HELDOUT_LAUNCHES,
+    R11_EXPECTED_HISTORY_LAUNCHES,
     ChangedCaseValidationConfig,
     run_changed_case_validation,
     run_heldout_changed_case_validation,
@@ -35,6 +37,15 @@ from run_repeated_launch_learning_curve import (
     R9_POLICY_HISTORY_CONDITIONS,
     R9_EXPECTED_FINAL_HELDOUT_LAUNCHES,
     R9_EXPECTED_HISTORY_LAUNCHES,
+    R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    R11_L0_DRY_AIR_FIXED_BLOCK_ID,
+    R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+    R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
+    R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
+    R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+    R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
+    R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     RepeatedLaunchValidationConfig,
     run_repeated_launch_learning_curve,
 )
@@ -331,75 +342,52 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
     assert len(r9_history) == R9_EXPECTED_HISTORY_LAUNCHES
     assert len(r10_final) == R10_EXPECTED_FINAL_HELDOUT_LAUNCHES
     assert len(r10_history) == R10_EXPECTED_HISTORY_LAUNCHES
-    assert len(r11_final) == R10_EXPECTED_FINAL_HELDOUT_LAUNCHES
-    assert len(r11_history) == R10_EXPECTED_HISTORY_LAUNCHES
+    assert len(r11_final) == R11_EXPECTED_FINAL_HELDOUT_LAUNCHES
+    assert len(r11_history) == R11_EXPECTED_HISTORY_LAUNCHES
     assert set(r9_final["library_size_case_id"]) == set(LIBRARY_SIZE_CASE_IDS)
     assert set(r9_final["policy_id"]) == set(R9_POLICY_HISTORY_CONDITIONS)
     assert set(r9_final["history_length"]) == {0, 20}
-    assert set(r10_final["environment_block_id"]) == {
-        "nominal_single_fan_perturbations",
-        "nominal_four_fan_perturbations",
-        "shifted_single_fan_positions",
-        "shifted_four_fan_positions",
-        "active_fan_number_variation",
-        "arena_wide_fan_position_generalisation",
+    assert set(r10_final["environment_block_id"]) == {R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID}
+    assert set(r11_final["environment_block_id"]) == {
+        R11_L0_DRY_AIR_FIXED_BLOCK_ID,
+        R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
+        R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+        R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
+        R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
+        R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+        R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
+        R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     }
-    r10_active_final = r10_final[
-        r10_final["environment_block_id"].eq("active_fan_number_variation")
-    ].copy()
-    r10_nominal_final = r10_final[
-        r10_final["environment_block_id"].isin(
-            {"nominal_single_fan_perturbations", "nominal_four_fan_perturbations"}
+    r10_l7_final = r10_final[r10_final["environment_block_id"].eq(R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID)].copy()
+    r11_l0_final = r11_final[r11_final["environment_block_id"].eq(R11_L0_DRY_AIR_FIXED_BLOCK_ID)].copy()
+    r11_l1_l2_final = r11_final[
+        r11_final["environment_block_id"].isin(
+            {R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID, R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID}
         )
     ].copy()
-    r10_shifted_final = r10_final[
-        r10_final["environment_block_id"].isin(
-            {"shifted_single_fan_positions", "shifted_four_fan_positions"}
-        )
-    ].copy()
-    r10_non_active_four = r10_final[
-        r10_final["environment_block_id"].isin(
-            {
-                "nominal_four_fan_perturbations",
-                "shifted_four_fan_positions",
-            }
-        )
-    ].copy()
-    assert set(r10_nominal_final["fan_position_policy"]) == {"fixed_base_positions"}
-    assert set(r10_nominal_final["fan_position_xy_bounds_m"]) == {"fixed_base_positions_no_shift"}
-    assert set(r10_active_final["fan_position_policy"]) == {"fixed_base_positions"}
-    assert set(r10_shifted_final["fan_position_policy"]) == {"common_shift"}
-    assert set(r10_non_active_four["scheduled_active_fan_count"].astype(int)) == {4}
-    assert set(r10_non_active_four["fan_layout_policy"]) == {"four_fan_geometry"}
-    assert set(r10_final[r10_final["environment_block_id"].str.contains("single_fan")]["fan_layout_policy"]) == {
-        "single_fan_geometry"
+    r11_l5_final = r11_final[r11_final["environment_block_id"].eq(R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID)].copy()
+    r11_l7_final = r11_final[r11_final["environment_block_id"].eq(R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID)].copy()
+    assert set(r11_l0_final["fan_position_policy"]) == {"no_fan_positions"}
+    assert set(r11_l0_final["scheduled_active_fan_count"].astype(int)) == {0}
+    assert set(r11_l1_l2_final["fan_position_policy"]) == {"fixed_base_positions"}
+    assert set(r11_l1_l2_final["fan_position_xy_bounds_m"]) == {"fixed_base_positions_no_shift"}
+    assert set(r11_l5_final["fan_position_policy"]) == {"fixed_base_positions"}
+    assert set(r10_l7_final["fan_position_policy"]) == {"independent_uniform_xy_bounds"}
+    assert set(r11_l7_final["fan_position_policy"]) == {"independent_uniform_xy_bounds"}
+    assert set(r10_l7_final["scheduled_active_fan_count"].astype(int)) == {0, 1, 2, 3, 4}
+    assert set(r11_l5_final["scheduled_active_fan_count"].astype(int)) == {0, 1, 2, 3, 4}
+    assert set(r11_l7_final["scheduled_active_fan_count"].astype(int)) == {0, 1, 2, 3, 4}
+    assert r10_l7_final.groupby("scheduled_active_fan_count").size().to_dict() == {
+        0: 700,
+        1: 700,
+        2: 700,
+        3: 700,
+        4: 700,
     }
-    assert set(r10_active_final["scheduled_active_fan_count"].astype(int)) == {1, 2, 3, 4}
-    assert r10_active_final.groupby("scheduled_active_fan_count").size().to_dict() == {
-        1: 125,
-        2: 125,
-        3: 125,
-        4: 125,
-    }
-    assert set(r10_active_fan_audit["environment_block_id"]) == {
-        "active_fan_number_variation",
-        "arena_wide_fan_position_generalisation",
-    }
-    assert set(r10_active_fan_audit["scheduled_active_fan_count"].astype(int)) == {1, 2, 3, 4}
-    assert set(r10_active_fan_audit["outer_case_count"].astype(int)) == {5}
+    assert set(r10_active_fan_audit["scheduled_active_fan_count"].astype(int)) == {0, 1, 2, 3, 4}
+    assert set(r10_active_fan_audit["environment_block_id"]) == {R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID}
+    assert set(r10_active_fan_audit["outer_case_count"].astype(int)) == {28}
     assert r10_active_fan_audit["audit_passed"].all()
-    r10_arena_wide = r10_final[
-        r10_final["environment_block_id"].eq("arena_wide_fan_position_generalisation")
-    ].copy()
-    assert len(r10_arena_wide) == 500
-    assert set(r10_arena_wide["fan_position_policy"]) == {"independent_uniform_xy_bounds"}
-    assert set(r10_arena_wide["scheduled_active_fan_count"].astype(int)) == {1, 2, 3, 4}
-    assert r10_arena_wide.groupby("scheduled_active_fan_count").size().to_dict() == {
-        1: 125,
-        2: 125,
-        3: 125,
-        4: 125,
-    }
 
 
 def test_post_w3_compression_refuses_roots_without_w3_registry(tmp_path: Path) -> None:

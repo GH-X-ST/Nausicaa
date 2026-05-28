@@ -117,6 +117,15 @@ def test_w3_four_fan_randomisation_can_request_exact_active_fan_count() -> None:
     assert instance.fan_count == 4
     assert sum(instance.active_fan_mask) == 2
 
+    no_active = environment_instance_for_mode(
+        "W3",
+        "w3_randomised_four",
+        10,
+        randomisation_config=EnvironmentRandomisationConfig(active_fan_count=0),
+    )
+    assert no_active.fan_count == 4
+    assert sum(no_active.active_fan_mask) == 0
+
 
 def test_r10_nominal_fan_position_policy_keeps_base_positions() -> None:
     instance = environment_instance_for_mode(
@@ -149,4 +158,7 @@ def test_r10_arena_wide_fan_position_policy_samples_inside_tracker_footprint() -
     assert instance.fan_count == 4
     assert sum(instance.active_fan_mask) == 4
     assert all(0.0 <= x <= 8.0 and 0.0 <= y <= 4.8 for x, y in instance.fan_positions_m)
+    for index, first in enumerate(instance.fan_positions_m):
+        for second in instance.fan_positions_m[index + 1 :]:
+            assert float(np.linalg.norm(np.asarray(first) - np.asarray(second))) >= 1.0
     assert any(abs(x - nominal_x) > 0.20 or abs(y - nominal_y) > 0.20 for (x, y), (nominal_x, nominal_y) in zip(instance.fan_positions_m, ((3.0, 3.6), (5.4, 3.6), (3.0, 1.2), (5.4, 1.2)), strict=True))

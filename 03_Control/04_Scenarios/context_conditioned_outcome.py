@@ -5,6 +5,7 @@ from primitive_timing_contract import PRIMITIVE_FINITE_HORIZON_S
 
 CONTEXT_CONDITIONED_OUTCOME_MODEL_VERSION = "robust_context_conditioned_outcome_v2_changed_case_and_sample_coverage"
 CHANGED_CASE_BLOCK_IDS = {
+    "no_updraft_dry_air_generalisation",
     "nominal_single_fan_perturbations",
     "nominal_four_fan_perturbations",
     "shifted_single_fan_positions",
