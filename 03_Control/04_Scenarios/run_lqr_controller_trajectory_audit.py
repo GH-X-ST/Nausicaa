@@ -105,6 +105,7 @@ class TrajectoryAuditConfig:
     center_start_y_w_m: float = 2.2
     center_start_z_w_m: float = 2.2
     center_start_u_m_s: float | None = None
+    primitive_ids: tuple[str, ...] | None = None
 
 
 def run_lqr_controller_trajectory_audit(config: TrajectoryAuditConfig) -> dict[str, object]:
@@ -148,6 +149,7 @@ def run_lqr_controller_trajectory_audit(config: TrajectoryAuditConfig) -> dict[s
     _plot_3d(trace_frame, run_root / "plots" / "selected_trajectories_3d.png", duration_s=float(config.duration_s))
     _plot_altitude(trace_frame, run_root / "plots" / "selected_altitude_time.png")
     _plot_attitude(trace_frame, run_root / "plots" / "selected_bank_pitch_time.png")
+    _plot_command_roll_yaw(trace_frame, run_root / "plots" / "selected_command_roll_yaw_time.png")
 
     manifest = {
         "audit_version": AUDIT_VERSION,
@@ -165,6 +167,7 @@ def run_lqr_controller_trajectory_audit(config: TrajectoryAuditConfig) -> dict[s
         "same_environment_mode": str(config.same_environment_mode) if config.same_start_comparison else "",
         "same_seed_offset": int(config.same_seed_offset) if config.same_start_comparison else -1,
         "same_start_key": str(config.same_start_key) if config.same_start_comparison else "",
+        "primitive_ids_tested": list(config.primitive_ids or ACTIVE_PRIMITIVE_IDS),
         "center_start_override": bool(config.center_start_override),
         "center_start_x_w_m": float(config.center_start_x_w_m) if config.center_start_override else "",
         "center_start_y_w_m": float(config.center_start_y_w_m) if config.center_start_override else "",
@@ -179,6 +182,7 @@ def run_lqr_controller_trajectory_audit(config: TrajectoryAuditConfig) -> dict[s
             "plots/selected_trajectories_3d.png",
             "plots/selected_altitude_time.png",
             "plots/selected_bank_pitch_time.png",
+            "plots/selected_command_roll_yaw_time.png",
         ],
         "claim_status": "controller_sanity_audit_only_not_dense_evidence",
     }
@@ -210,6 +214,7 @@ def _audit_cases() -> tuple[AuditCase, ...]:
 
 
 def _same_start_audit_cases(config: TrajectoryAuditConfig) -> tuple[AuditCase, ...]:
+    primitive_ids = tuple(config.primitive_ids or ACTIVE_PRIMITIVE_IDS)
     return tuple(
         AuditCase(
             f"same_start_{primitive_id}",
@@ -219,7 +224,7 @@ def _same_start_audit_cases(config: TrajectoryAuditConfig) -> tuple[AuditCase, .
             str(config.same_environment_mode),
             int(config.same_seed_offset),
         )
-        for primitive_id in ACTIVE_PRIMITIVE_IDS
+        for primitive_id in primitive_ids
     )
 
 
@@ -408,6 +413,7 @@ def _run_case_trace(
             normalised_command_to_surface_rad(applied_norm),
             implementation,
         )
+        raw_command_rad = np.asarray(control_command.raw_command_rad, dtype=float)
         saturation_count += int(control_command.saturation_applied)
         max_abs_command_norm = max(max_abs_command_norm, float(np.max(np.abs(applied_norm))))
         max_abs_surface_rad = max(max_abs_surface_rad, float(np.max(np.abs(command_rad))))
@@ -445,6 +451,9 @@ def _run_case_trace(
                 time_s=time_s + float(CONTROLLER_INPUT_UPDATE_PERIOD_S),
                 state=x,
                 command_norm=applied_norm,
+                command_rad=command_rad,
+                raw_command_rad=raw_command_rad,
+                saturation_applied=bool(control_command.saturation_applied),
             )
         )
         if min_floor_margin_m < 0.0:
@@ -467,6 +476,12 @@ def _run_case_trace(
     yaw_delta_deg = float(np.rad2deg(final_state[STATE_INDEX["psi"]] - initial_state[STATE_INDEX["psi"]]))
     roll_delta_deg = float(np.rad2deg(final_state[STATE_INDEX["phi"]] - initial_state[STATE_INDEX["phi"]]))
     pitch_delta_deg = float(np.rad2deg(final_state[STATE_INDEX["theta"]] - initial_state[STATE_INDEX["theta"]]))
+    dx_w_m = float(final_state[STATE_INDEX["x_w"]] - initial_state[STATE_INDEX["x_w"]])
+    dy_w_m = float(final_state[STATE_INDEX["y_w"]] - initial_state[STATE_INDEX["y_w"]])
+    heading0 = float(initial_state[STATE_INDEX["psi"]])
+    lateral_delta_m = float(-np.sin(heading0) * dx_w_m + np.cos(heading0) * dy_w_m)
+    expected_lateral_sign = _expected_lateral_turn_sign(case.primitive_id)
+    expected_roll_sign = _expected_roll_turn_sign(case.primitive_id)
     saturation_fraction = float(saturation_count / max(1, len(trace_rows)))
     summary = {
         "case_id": case.case_id,
@@ -491,6 +506,14 @@ def _run_case_trace(
         "yaw_delta_deg": yaw_delta_deg,
         "roll_delta_deg": roll_delta_deg,
         "pitch_delta_deg": pitch_delta_deg,
+        "initial_roll_rate_rad_s": float(initial_state[STATE_INDEX["p"]]),
+        "final_roll_rate_rad_s": float(final_state[STATE_INDEX["p"]]),
+        "roll_rate_delta_rad_s": float(final_state[STATE_INDEX["p"]] - initial_state[STATE_INDEX["p"]]),
+        "lateral_delta_m": lateral_delta_m,
+        "signed_lateral_delta_m": float(expected_lateral_sign * lateral_delta_m) if expected_lateral_sign else 0.0,
+        "signed_roll_rate_delta_rad_s": float(expected_roll_sign * (final_state[STATE_INDEX["p"]] - initial_state[STATE_INDEX["p"]])) if expected_roll_sign else 0.0,
+        "turn_expected_lateral_sign": float(expected_lateral_sign),
+        "turn_expected_roll_sign": float(expected_roll_sign),
         "trajectory_integrated_updraft_gain_m": float(trajectory_integrated_updraft_gain_m),
         "saturation_fraction": saturation_fraction,
         "max_abs_command_norm": float(max_abs_command_norm),
@@ -510,6 +533,9 @@ def _trace_row(
     time_s: float,
     state: np.ndarray,
     command_norm: np.ndarray,
+    command_rad: np.ndarray,
+    raw_command_rad: np.ndarray,
+    saturation_applied: bool,
 ) -> dict[str, object]:
     row = {
         "case_id": case.case_id,
@@ -526,9 +552,32 @@ def _trace_row(
         "command_aileron_norm": float(command_norm[0]),
         "command_elevator_norm": float(command_norm[1]),
         "command_rudder_norm": float(command_norm[2]),
+        "applied_aileron_rad": float(command_rad[0]),
+        "applied_elevator_rad": float(command_rad[1]),
+        "applied_rudder_rad": float(command_rad[2]),
+        "raw_aileron_rad": float(raw_command_rad[0]),
+        "raw_elevator_rad": float(raw_command_rad[1]),
+        "raw_rudder_rad": float(raw_command_rad[2]),
+        "saturation_applied": bool(saturation_applied),
     }
     row.update({name: float(state[index]) for index, name in enumerate(STATE_NAMES)})
     return row
+
+
+def _expected_lateral_turn_sign(primitive_id: str) -> float:
+    if str(primitive_id) == "mild_turn_left":
+        return -1.0
+    if str(primitive_id) == "mild_turn_right":
+        return 1.0
+    return 0.0
+
+
+def _expected_roll_turn_sign(primitive_id: str) -> float:
+    if str(primitive_id) == "mild_turn_left":
+        return -1.0
+    if str(primitive_id) == "mild_turn_right":
+        return 1.0
+    return 0.0
 
 
 def _audit_initial_state_vector(state_vector: object, *, config: TrajectoryAuditConfig) -> np.ndarray:
@@ -709,6 +758,27 @@ def _plot_attitude(frame: pd.DataFrame, path: Path) -> None:
     plt.close(fig)
 
 
+def _plot_command_roll_yaw(frame: pd.DataFrame, path: Path) -> None:
+    fig, axes = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
+    for case_id, group in frame.groupby("case_id", sort=False):
+        label = f"{group['primitive_id'].iloc[0]} | {case_id}"
+        axes[0].plot(group["time_s"], group["command_aileron_norm"], linewidth=1.4, label=label)
+        axes[1].plot(group["time_s"], np.rad2deg(group["p"]), linewidth=1.4, label=label)
+        axes[2].plot(group["time_s"], np.rad2deg(group["phi"]), linewidth=1.4, label=label)
+        axes[3].plot(group["time_s"], np.rad2deg(group["psi"] - group["psi"].iloc[0]), linewidth=1.4, label=label)
+    axes[0].set_ylabel("aileron cmd [-]")
+    axes[1].set_ylabel("roll rate p [deg/s]")
+    axes[2].set_ylabel("bank phi [deg]")
+    axes[3].set_ylabel("heading delta [deg]")
+    axes[3].set_xlabel("time [s]")
+    axes[0].set_title("Command, roll-rate, bank, and heading audit")
+    for ax in axes:
+        ax.grid(True, alpha=0.3)
+    axes[0].legend(fontsize=7, loc="center left", bbox_to_anchor=(1.02, 0.5), borderaxespad=0.0)
+    fig.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+
 def _write_report(run_root: Path, manifest: dict[str, object], selected_frame: pd.DataFrame) -> None:
     lines = [
         "# LQR Controller Trajectory Audit",
@@ -785,6 +855,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--center-start-y-w-m", type=float, default=2.2)
     parser.add_argument("--center-start-z-w-m", type=float, default=2.2)
     parser.add_argument("--center-start-u-m-s", type=float, default=None)
+    parser.add_argument("--primitive-ids", type=str, default="")
     return parser.parse_args(argv)
 
 
@@ -807,6 +878,7 @@ def main(argv: list[str] | None = None) -> int:
         center_start_y_w_m=float(args.center_start_y_w_m),
         center_start_z_w_m=float(args.center_start_z_w_m),
         center_start_u_m_s=args.center_start_u_m_s,
+        primitive_ids=tuple(item.strip() for item in str(args.primitive_ids).split(",") if item.strip()) or None,
     )
     manifest = run_lqr_controller_trajectory_audit(config)
     print(json.dumps(manifest, indent=2, sort_keys=True))

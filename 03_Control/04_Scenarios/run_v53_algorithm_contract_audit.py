@@ -42,6 +42,7 @@ from run_lqr_w01_dense_chunked import (  # noqa: E402
     L6_RICH_SIDE_ROW_COUNT,
     OFFICIAL_W01_ENVIRONMENT_CASES,
     R5_ACTIVE_FAN_COUNT_SEQUENCE,
+    R5_TRANSITION_TRAINING_SCORE_FORMULA,
     W01DenseRunConfig,
     _row_schedule_for_index as _r5_row_schedule_for_index,
     rich_side_dense_row_count,
@@ -177,8 +178,9 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("active_primitive_catalogue_has_8_variants", len(ACTIVE_PRIMITIVE_IDS) == 8, len(ACTIVE_PRIMITIVE_IDS), 8))
     rows.append(_row("launch_capture_aliases_retired_not_active", len(LAUNCH_CAPTURE_PRIMITIVE_IDS) == 6 and not set(LAUNCH_CAPTURE_PRIMITIVE_IDS).intersection(set(ACTIVE_PRIMITIVE_IDS)), {"active": list(ACTIVE_PRIMITIVE_IDS), "retired": list(LAUNCH_CAPTURE_PRIMITIVE_IDS)}, "retired launch_capture aliases disjoint from active primitives"))
     rows.append(_row("r5_dense_target_dynamic_8x32x3x100", L6_RICH_SIDE_ROW_COUNT == rich_side_dense_row_count() == 76800, {"row_count": L6_RICH_SIDE_ROW_COUNT, "candidate_count": L6_RICH_SIDE_CANDIDATE_COUNT, "paired_tests": L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE}, "8*32*3*100=76800"))
-    rows.append(_row("r5_qr_reference_tuning_method_transition_robust", W01_TUNING_METHOD_VERSION == "w01_transition_passive_speed_qr_reference_v5", W01_TUNING_METHOD_VERSION, "w01_transition_passive_speed_qr_reference_v5"))
-    rows.append(_row("r5_qr_reference_generator_exact_32_structured_candidates", _qr_generator_contract_passes(), "structured Q/R plus attitude/bank reference-bias candidate generator", "candidate 0 nominal, 1-7 physical anchors, 8-31 LHS log Q/R plus small attitude/bank reference bias; speed is scheduling-only"))
+    rows.append(_row("r5_qr_reference_tuning_method_transition_robust", W01_TUNING_METHOD_VERSION == "w01_transition_robust_reference_v8", W01_TUNING_METHOD_VERSION, "w01_transition_robust_reference_v8"))
+    rows.append(_row("r5_qr_reference_generator_exact_32_structured_candidates", _qr_generator_contract_passes(), "structured Q/R plus attitude/bank reference-bias candidate generator", "candidate 0 nominal, 1-7 physical anchors, 8-31 LHS log Q/R plus small attitude/bank reference bias; speed is scheduling-only; turn metrics are audit-only"))
+    rows.append(_row("r5_selection_score_has_no_turn_expression_bonus", "turn_intent" not in R5_TRANSITION_TRAINING_SCORE_FORMULA and "turn_primitive" not in R5_TRANSITION_TRAINING_SCORE_FORMULA, R5_TRANSITION_TRAINING_SCORE_FORMULA, "transition robustness score excludes turn expression bonus"))
     rows.append(_row("r5_official_environment_cases_annular_gp_only", OFFICIAL_W01_ENVIRONMENT_CASES == (("W0", "dry_air"), ("W1", "w1_annular_gp_randomised_single"), ("W1", "w1_annular_gp_randomised_four")), OFFICIAL_W01_ENVIRONMENT_CASES, "W0 dry plus W1 annular-GP single/four"))
     rows.append(_row("r5_active_fan_count_sequence_balanced_1_2_3_4", R5_ACTIVE_FAN_COUNT_SEQUENCE == (1, 2, 3, 4), R5_ACTIVE_FAN_COUNT_SEQUENCE, (1, 2, 3, 4)))
     r5_schedule = _r5_schedule_role_audit()
@@ -351,10 +353,13 @@ def _qr_generator_contract_passes() -> bool:
             if (
                 specs[0].reference_pitch_bias_rad != 0.0
                 or specs[0].reference_bank_bias_rad != 0.0
+                or specs[0].reference_roll_rate_bias_rad_s != 0.0
                 or specs[0].reference_speed_bias_m_s != 0.0
             ):
                 return False
             if any(float(spec.reference_speed_bias_m_s) != 0.0 for spec in specs):
+                return False
+            if any(abs(float(spec.reference_roll_rate_bias_rad_s)) > 0.0 for spec in specs):
                 return False
             if not any(
                 abs(float(spec.reference_pitch_bias_rad)) > 0.0

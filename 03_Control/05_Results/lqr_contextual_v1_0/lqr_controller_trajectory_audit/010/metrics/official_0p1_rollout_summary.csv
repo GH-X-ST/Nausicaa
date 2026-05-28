@@ -1,0 +1,5 @@
+case_id,candidate_index,candidate_weight_label,outcome_class,termination_cause,failure_label,rollout_duration_s,energy_residual_m,minimum_floor_margin_m,minimum_wall_margin_m,saturation_fraction,max_abs_command_norm
+same_start_glide,1,glide_robust_anchor_attitude_heavy_ref_pitch_up_001,weak,weak_energy_result,model_boundary_only,0.1,-0.07687131518198154,1.7231286848180187,0.8,0.0,0.8817065208040422
+same_start_mild_turn_left,0,mild_turn_left_robust_anchor_nominal_ref_nominal_000,weak,weak_energy_result,model_boundary_only,0.1,-0.07687131518198154,1.7231286848180187,0.8,0.8,1.0
+same_start_mild_turn_right,7,mild_turn_right_robust_anchor_balanced_agile_ref_right_bias_007,weak,weak_energy_result,model_boundary_only,0.1,-0.07687131518198154,1.7231286848180187,0.8,0.0,0.6416257741857013
+same_start_energy_retaining_bank,7,energy_retaining_bank_robust_anchor_balanced_agile_ref_right_bias_007,weak,weak_energy_result,model_boundary_only,0.1,-0.07687131518198154,1.7231286848180187,0.8,0.0,0.4834491895764675

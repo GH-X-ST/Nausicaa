@@ -78,15 +78,15 @@ from primitive_timing_contract import (  # noqa: E402
     primitive_timing_contract_row,
 )
 from state_sampling import archive_state_sample_for_family, archive_state_sample_for_row, archive_state_sample_row, start_state_family_for_row  # noqa: E402
-from transition_labels import transition_contract_row, transition_row_fields  # noqa: E402
+from transition_labels import transition_contract_row, transition_row_fields, turn_intent_row_fields  # noqa: E402
 
 
-W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v520"
+W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v524"
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 W01_TABLE_NAME = "w01_primitive_rows"
 R5_LAUNCH_GATE_ENTRY_DIAGNOSIS_CSV = "r5_launch_gate_entry_diagnosis.csv"
 R5_LEGACY_LAUNCH_CAPTURE_DIAGNOSIS_CSV = "r5_launch_capture_diagnosis.csv"
-R5_TRANSITION_TRAINING_VERSION = "r5_transition_robust_qr_reference_training_v2"
+R5_TRANSITION_TRAINING_VERSION = "r5_transition_robust_qr_reference_training_v5_no_turn_expression_objective"
 R5_TRANSITION_CANDIDATE_TRAINING_SUMMARY_CSV = "r5_transition_candidate_training_summary.csv"
 R5_TRANSITION_SELECTED_FOR_R7_CSV = "r5_transition_selected_for_r7.csv"
 R5_TRANSITION_PARETO_FRONT_CSV = "r5_transition_pareto_front.csv"
@@ -124,6 +124,7 @@ R5_TRANSITION_TRAINING_SCORE_FORMULA = (
 R5_REFERENCE_BIAS_COLUMNS = (
     "reference_pitch_bias_rad",
     "reference_bank_bias_rad",
+    "reference_roll_rate_bias_rad_s",
     "reference_speed_bias_m_s",
 )
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
@@ -793,6 +794,7 @@ def _row_for_index(
             primitive_step_index=0 if sample.start_state_family == "launch_gate" else None,
         )
     )
+    row.update(turn_intent_row_fields(row))
     if compatible and binding.surrogate_binding_status == "ready":
         row.update({f"implementation_{key}": value for key, value in implementation_instance_row(implementation).items()})
         row.update({f"plant_{key}": value for key, value in plant_instance_row(plant).items()})
@@ -1338,6 +1340,14 @@ def _r5_transition_training_tables(frame: pd.DataFrame) -> tuple[pd.DataFrame, p
         clipped_updraft_gain = _clip01(float(group["_updraft_gain"].mean()) / 1.0)
         clipped_lift_dwell = _clip01(float(group["_lift_dwell"].mean()) / 0.10)
         clipped_rollout_duration = _clip01(float(group["_rollout_duration"].mean()) / 0.10)
+        turn_success_count = int(group["_turn_intent_correct"].sum())
+        turn_intent_success_lcb = _wilson_lower_bound(turn_success_count, total)
+        turn_intent_score_mean = _clip01(float(group["_turn_intent_score"].mean()))
+        signed_turn_bank_delta_mean_rad = float(group["_turn_signed_bank_delta_rad"].mean())
+        signed_turn_heading_delta_mean_rad = float(group["_turn_signed_heading_delta_rad"].mean())
+        signed_turn_lateral_displacement_mean_m = float(group["_turn_signed_lateral_displacement_m"].mean())
+        signed_turn_exit_roll_rate_mean_rad_s = float(group["_turn_signed_exit_roll_rate_rad_s"].mean())
+        turn_intent_roll_rate_score_mean = _clip01(float(group["_turn_intent_roll_rate_score"].mean()))
         thresholds = _r5_transition_thresholds(entry_class)
         row_complete = bool(expected_rows > 0 and total >= expected_rows)
         timing_compliant = bool(group["_timing_compliant"].all())
@@ -1370,6 +1380,7 @@ def _r5_transition_training_tables(frame: pd.DataFrame) -> tuple[pd.DataFrame, p
                 "controller_id": _r5_candidate_transition_group_id(base),
                 "reference_pitch_bias_rad": float(group["reference_pitch_bias_rad"].iloc[0]),
                 "reference_bank_bias_rad": float(group["reference_bank_bias_rad"].iloc[0]),
+                "reference_roll_rate_bias_rad_s": float(group["reference_roll_rate_bias_rad_s"].iloc[0]),
                 "reference_speed_bias_m_s": float(group["reference_speed_bias_m_s"].iloc[0]),
                 "row_count": total,
                 "expected_row_count": int(expected_rows),
@@ -1391,6 +1402,16 @@ def _r5_transition_training_tables(frame: pd.DataFrame) -> tuple[pd.DataFrame, p
                 "rollout_duration_mean_s": float(group["_rollout_duration"].mean()),
                 "clipped_rollout_duration": float(clipped_rollout_duration),
                 "saturation_mean": float(saturation_mean),
+                "turn_primitive": bool(turn_primitive),
+                "turn_intent_success_count": int(turn_success_count),
+                "turn_intent_success_rate": float(turn_success_count / max(1, total)),
+                "turn_intent_success_lcb": float(turn_intent_success_lcb),
+                "turn_intent_score_mean": float(turn_intent_score_mean),
+                "signed_turn_bank_delta_mean_rad": float(signed_turn_bank_delta_mean_rad),
+                "signed_turn_heading_delta_mean_rad": float(signed_turn_heading_delta_mean_rad),
+                "signed_turn_lateral_displacement_mean_m": float(signed_turn_lateral_displacement_mean_m),
+                "signed_turn_exit_roll_rate_mean_rad_s": float(signed_turn_exit_roll_rate_mean_rad_s),
+                "turn_intent_roll_rate_score_mean": float(turn_intent_roll_rate_score_mean),
                 "transition_exit_class_distribution_json": exit_distribution,
                 "timing_compliant": bool(timing_compliant),
                 "success_lcb_threshold": float(thresholds["success_lcb_min"]),
@@ -1520,6 +1541,16 @@ def _normalise_r5_training_frame(frame: pd.DataFrame) -> pd.DataFrame:
         work,
         ("saturation_fraction", "surface_saturation_fraction", "command_saturation_fraction"),
     ).clip(lower=0.0, upper=1.0)
+    work["_turn_intent_score"] = _numeric_series_first(work, ("turn_intent_score",)).clip(lower=0.0, upper=1.0)
+    work["_turn_intent_correct"] = _bool_series(work.get("turn_intent_correct_sign", pd.Series(False, index=work.index)))
+    work["_turn_signed_bank_delta_rad"] = _numeric_series_first(work, ("turn_signed_bank_delta_rad",))
+    work["_turn_signed_heading_delta_rad"] = _numeric_series_first(work, ("turn_signed_heading_delta_rad",))
+    work["_turn_signed_lateral_displacement_m"] = _numeric_series_first(work, ("turn_signed_lateral_displacement_m",))
+    work["_turn_signed_exit_roll_rate_rad_s"] = _numeric_series_first(work, ("turn_signed_exit_roll_rate_rad_s",))
+    work["_turn_intent_roll_rate_score"] = _numeric_series_first(work, ("turn_intent_roll_rate_score",)).clip(
+        lower=0.0,
+        upper=1.0,
+    )
     work["_timing_compliant"] = (
         _numeric_series_first(work, ("finite_horizon_s",)).sub(0.1).abs().le(1e-9)
         & _numeric_series_first(work, ("controller_input_slots_per_primitive",)).round().astype(int).eq(5)
@@ -1568,6 +1599,7 @@ def _r5_transition_training_summary_columns() -> list[str]:
         "candidate_weight_label",
         "reference_pitch_bias_rad",
         "reference_bank_bias_rad",
+        "reference_roll_rate_bias_rad_s",
         "reference_speed_bias_m_s",
         "transition_entry_class",
         "row_count",
@@ -1590,6 +1622,16 @@ def _r5_transition_training_summary_columns() -> list[str]:
         "rollout_duration_mean_s",
         "clipped_rollout_duration",
         "saturation_mean",
+        "turn_primitive",
+        "turn_intent_success_count",
+        "turn_intent_success_rate",
+        "turn_intent_success_lcb",
+        "turn_intent_score_mean",
+        "signed_turn_bank_delta_mean_rad",
+        "signed_turn_heading_delta_mean_rad",
+        "signed_turn_lateral_displacement_mean_m",
+        "signed_turn_exit_roll_rate_mean_rad_s",
+        "turn_intent_roll_rate_score_mean",
         "transition_exit_class_distribution_json",
         "timing_compliant",
         "success_lcb_threshold",

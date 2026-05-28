@@ -126,7 +126,7 @@ def test_active_trim_and_lqr_require_local_speed_not_global_default() -> None:
     assert np.isclose(launch_ref_speed, 3.0)
     assert np.isclose(inflight_ref_speed, 6.5)
     assert not np.isclose(launch_ref_speed, 6.5)
-    assert launch_speed_controller.linearisation_source == "gain_scheduled_local_speed_operating_point_v1"
+    assert launch_speed_controller.linearisation_source == "gain_scheduled_passive_speed_operating_point_v2"
     assert launch_speed_controller.linearisation_id != inflight_speed_controller.linearisation_id
     assert linearise_trim(target=TrimTarget(speed_m_s=4.8)).f_trim.shape == (15,)
 

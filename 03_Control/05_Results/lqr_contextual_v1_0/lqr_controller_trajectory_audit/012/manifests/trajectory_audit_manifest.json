@@ -1,0 +1,51 @@
+{
+  "active_primitive_ids": [
+    "glide",
+    "recovery",
+    "lift_entry",
+    "lift_dwell_arc",
+    "mild_turn_left",
+    "mild_turn_right",
+    "energy_retaining_bank",
+    "safe_exit_or_recovery_handoff"
+  ],
+  "audit_case_mode": "same_start_comparison",
+  "audit_version": "lqr_controller_trajectory_audit_v2_continuous_command_history",
+  "candidate_indices_tested": [
+    0
+  ],
+  "case_count": 4,
+  "center_start_override": true,
+  "center_start_u_m_s": 5.5,
+  "center_start_x_w_m": 2.0,
+  "center_start_y_w_m": 2.2,
+  "center_start_z_w_m": 2.2,
+  "claim_status": "controller_sanity_audit_only_not_dense_evidence",
+  "controller_update_period_s": 0.02,
+  "duration_s": 0.6,
+  "plot_files": [
+    "plots/selected_trajectories_3d.png",
+    "plots/selected_altitude_time.png",
+    "plots/selected_bank_pitch_time.png",
+    "plots/selected_command_roll_yaw_time.png"
+  ],
+  "primitive_ids_tested": [
+    "glide",
+    "mild_turn_left",
+    "mild_turn_right",
+    "energy_retaining_bank"
+  ],
+  "primitive_reschedule_period_s": 0.1,
+  "project_title_version": "LQR-Stabilised Contextual Primitive v5.20",
+  "run_root": "//?/C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/lqr_contextual_v1_0/lqr_controller_trajectory_audit/012",
+  "same_W_layer": "W0",
+  "same_environment_mode": "dry_air",
+  "same_seed_offset": 0,
+  "same_start_family": "inflight_nominal",
+  "same_start_key": "same_start_controller_behavior_audit",
+  "selected_floor_failure_count": 0,
+  "selected_full_duration_count": 4,
+  "selected_max_altitude_loss_m": 0.4712602162670385,
+  "selected_wall_failure_count": 0,
+  "status": "complete"
+}

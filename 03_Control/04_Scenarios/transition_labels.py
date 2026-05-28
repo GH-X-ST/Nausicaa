@@ -72,6 +72,7 @@ STATE_CLASS_START_FAMILY = {
 }
 
 TRANSITION_LABEL_VERSION = "transition_labels_v2_time_to_boundary"
+TURN_INTENT_METRIC_VERSION = "signed_turn_intent_v3_rollrate_lateral_convention"
 BOUNDARY_NEAR_MARGIN_M = 0.25
 BOUNDARY_NEAR_FRONT_TIME_MARGIN_S = 0.45
 BOUNDARY_NEAR_SIDE_TIME_MARGIN_S = 0.35
@@ -196,6 +197,81 @@ def transition_row_fields(
         "transition_flight_time_s": transition["flight_time_s"],
         "transition_next_allowed_entry_roles": transition["next_allowed_entry_roles"],
         "transition_next_allowed_entry_classes": transition["next_allowed_entry_classes"],
+    }
+
+
+def turn_intent_row_fields(row: dict[str, Any]) -> dict[str, object]:
+    """Return signed turn-intent metrics for mild-turn primitive evidence rows."""
+
+    primitive_id = str(row.get("primitive_id", row.get("variant_primitive_id", "")))
+    desired_bank_sign = _turn_desired_bank_sign(primitive_id)
+    desired_lateral_sign = _turn_desired_lateral_sign(primitive_id)
+    label = _turn_intent_label(primitive_id)
+    empty = {
+        "turn_intent_metric_version": TURN_INTENT_METRIC_VERSION,
+        "turn_intent_label": label,
+        "turn_intent_desired_bank_sign": float(desired_bank_sign),
+        "turn_intent_desired_lateral_sign": float(desired_lateral_sign),
+        "turn_delta_bank_rad": 0.0,
+        "turn_delta_heading_rad": 0.0,
+        "turn_lateral_displacement_body_m": 0.0,
+        "turn_initial_roll_rate_rad_s": 0.0,
+        "turn_exit_roll_rate_rad_s": 0.0,
+        "turn_signed_bank_delta_rad": 0.0,
+        "turn_signed_heading_delta_rad": 0.0,
+        "turn_signed_lateral_displacement_m": 0.0,
+        "turn_signed_exit_roll_rate_rad_s": 0.0,
+        "turn_signed_roll_rate_delta_rad_s": 0.0,
+        "turn_intent_bank_score": 0.0,
+        "turn_intent_roll_rate_score": 0.0,
+        "turn_intent_lateral_score": 0.0,
+        "turn_intent_score": 0.0,
+        "turn_intent_correct_sign": False,
+        "turn_intent_status": "not_turn_primitive" if desired_bank_sign == 0.0 else "unmeasurable_turn_intent",
+    }
+    if desired_bank_sign == 0.0:
+        return empty
+    initial = _state_from_row(row, prefix="initial")
+    exit_state = _json_state(row.get("exit_state_vector", ""))
+    if initial is None or exit_state is None:
+        return empty
+
+    delta_bank = float(exit_state[STATE_INDEX["phi"]] - initial[STATE_INDEX["phi"]])
+    delta_heading = _wrap_angle_rad(float(exit_state[STATE_INDEX["psi"]] - initial[STATE_INDEX["psi"]]))
+    initial_roll_rate = float(initial[STATE_INDEX["p"]])
+    exit_roll_rate = float(exit_state[STATE_INDEX["p"]])
+    dx = float(exit_state[STATE_INDEX["x_w"]] - initial[STATE_INDEX["x_w"]])
+    dy = float(exit_state[STATE_INDEX["y_w"]] - initial[STATE_INDEX["y_w"]])
+    heading0 = float(initial[STATE_INDEX["psi"]])
+    lateral_body = float(dx * (-math.sin(heading0)) + dy * math.cos(heading0))
+    signed_bank = float(desired_bank_sign) * delta_bank
+    signed_heading = float(desired_bank_sign) * delta_heading
+    signed_lateral = float(desired_lateral_sign) * lateral_body
+    signed_exit_roll_rate = float(desired_bank_sign) * exit_roll_rate
+    signed_roll_rate_delta = float(desired_bank_sign) * (exit_roll_rate - initial_roll_rate)
+    bank_score = _clip01(signed_bank / 0.040)
+    roll_rate_score = _clip01(signed_exit_roll_rate / 0.35)
+    lateral_score = _clip01(signed_lateral / 0.030)
+    turn_score = _clip01(0.55 * bank_score + 0.30 * roll_rate_score + 0.15 * lateral_score)
+    correct_sign = bool(signed_bank > 0.0 or signed_exit_roll_rate > 0.0 or signed_lateral > 0.0)
+    return {
+        **empty,
+        "turn_delta_bank_rad": delta_bank,
+        "turn_delta_heading_rad": delta_heading,
+        "turn_lateral_displacement_body_m": lateral_body,
+        "turn_initial_roll_rate_rad_s": initial_roll_rate,
+        "turn_exit_roll_rate_rad_s": exit_roll_rate,
+        "turn_signed_bank_delta_rad": signed_bank,
+        "turn_signed_heading_delta_rad": signed_heading,
+        "turn_signed_lateral_displacement_m": signed_lateral,
+        "turn_signed_exit_roll_rate_rad_s": signed_exit_roll_rate,
+        "turn_signed_roll_rate_delta_rad_s": signed_roll_rate_delta,
+        "turn_intent_bank_score": bank_score,
+        "turn_intent_roll_rate_score": roll_rate_score,
+        "turn_intent_lateral_score": lateral_score,
+        "turn_intent_score": turn_score,
+        "turn_intent_correct_sign": correct_sign,
+        "turn_intent_status": "measurable_turn_intent" if turn_score > 0.0 else "weak_or_wrong_turn_intent",
     }
 
 
@@ -341,6 +417,68 @@ def _json_state(value: Any) -> np.ndarray | None:
         return _state_vector(value)
     except Exception:
         return None
+
+
+def _state_from_row(row: dict[str, Any], *, prefix: str) -> np.ndarray | None:
+    vector = _json_state(row.get(f"{prefix}_state_vector", row.get(f"{prefix}_state_vector_json", "")))
+    if vector is not None:
+        return vector
+    keys = (
+        "x_w",
+        "y_w",
+        "z_w",
+        "phi",
+        "theta",
+        "psi",
+        "u",
+        "v",
+        "w",
+        "p",
+        "q",
+        "r",
+        "delta_a",
+        "delta_e",
+        "delta_r",
+    )
+    if not any(f"{prefix}_{key}" in row for key in keys):
+        return None
+    values = [_float(row.get(f"{prefix}_{key}", 0.0)) for key in keys]
+    try:
+        return as_state_vector(np.asarray(values, dtype=float).reshape(STATE_SIZE))
+    except Exception:
+        return None
+
+
+def _wrap_angle_rad(value: float) -> float:
+    return float(math.atan2(math.sin(float(value)), math.cos(float(value))))
+
+
+def _clip01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
+def _turn_intent_label(primitive_id: str) -> str:
+    if str(primitive_id) == "mild_turn_left":
+        return "left"
+    if str(primitive_id) == "mild_turn_right":
+        return "right"
+    return "neutral"
+
+
+def _turn_desired_bank_sign(primitive_id: str) -> float:
+    if str(primitive_id) == "mild_turn_left":
+        return -1.0
+    if str(primitive_id) == "mild_turn_right":
+        return 1.0
+    return 0.0
+
+
+def _turn_desired_lateral_sign(primitive_id: str) -> float:
+    if str(primitive_id) == "mild_turn_left":
+        return -1.0
+    if str(primitive_id) == "mild_turn_right":
+        return 1.0
+    return 0.0
 
 
 def _truthy(value: Any) -> bool:

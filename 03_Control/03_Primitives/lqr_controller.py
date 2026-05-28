@@ -66,6 +66,7 @@ class LQRWeightSpec:
     r_rudder: float
     reference_pitch_bias_rad: float = 0.0
     reference_bank_bias_rad: float = 0.0
+    reference_roll_rate_bias_rad_s: float = 0.0
     reference_speed_bias_m_s: float = 0.0
     tuning_stage: str = "W0_W1"
     weight_label: str = "nominal"
@@ -246,6 +247,7 @@ def synthesize_lqr_controller(
         local_reference_speed_m_s=float(local_reference_speed_m_s),
         reference_pitch_bias_rad=float(weights.reference_pitch_bias_rad),
         reference_bank_bias_rad=float(weights.reference_bank_bias_rad),
+        reference_roll_rate_bias_rad_s=float(weights.reference_roll_rate_bias_rad_s),
         reference_speed_bias_m_s=float(weights.reference_speed_bias_m_s),
     )
     a_full = np.asarray(linearisation.a_full, dtype=float)
@@ -423,6 +425,7 @@ def synthesize_baseline_trim_lqr_controller(
         local_reference_speed_m_s=float(local_reference_speed_m_s),
         reference_pitch_bias_rad=float(weights.reference_pitch_bias_rad),
         reference_bank_bias_rad=float(weights.reference_bank_bias_rad),
+        reference_roll_rate_bias_rad_s=float(weights.reference_roll_rate_bias_rad_s),
         reference_speed_bias_m_s=float(weights.reference_speed_bias_m_s),
     )
     a_full = np.asarray(linearisation.a_full, dtype=float)
@@ -1241,6 +1244,7 @@ def _q_weight_payload(weights: LQRWeightSpec) -> dict[str, object]:
         "q_surfaces": float(weights.q_surfaces),
         "reference_pitch_bias_rad": float(weights.reference_pitch_bias_rad),
         "reference_bank_bias_rad": float(weights.reference_bank_bias_rad),
+        "reference_roll_rate_bias_rad_s": float(weights.reference_roll_rate_bias_rad_s),
         "reference_speed_bias_m_s": float(weights.reference_speed_bias_m_s),
     }
 

@@ -5,7 +5,7 @@ import pandas as pd
 from run_post_w3_library_size_study import _survived_frame_blocked_reason
 import numpy as np
 
-from transition_labels import classify_state, classify_transition, transition_is_chain_compatible
+from transition_labels import classify_state, classify_transition, transition_is_chain_compatible, turn_intent_row_fields
 from viability_governor import governor_rejection_reason
 
 
@@ -91,6 +91,47 @@ def test_boundary_near_time_margin_ignores_rear_wall_for_forward_flight() -> Non
     state[6] = 4.0
 
     assert classify_state(state) == "inflight_stable"
+
+
+def test_turn_intent_metrics_are_signed_by_turn_family() -> None:
+    initial = np.zeros(15, dtype=float)
+    initial[2] = 1.0
+    exit_left = initial.copy()
+    exit_left[3] = -0.06
+    exit_left[9] = -0.45
+    exit_left[1] = -0.04
+    exit_right = initial.copy()
+    exit_right[3] = 0.06
+    exit_right[9] = 0.45
+    exit_right[1] = 0.04
+
+    left = turn_intent_row_fields(
+        {
+            "primitive_id": "mild_turn_left",
+            "initial_state_vector": initial.tolist(),
+            "exit_state_vector": exit_left.tolist(),
+        }
+    )
+    right = turn_intent_row_fields(
+        {
+            "primitive_id": "mild_turn_right",
+            "initial_state_vector": initial.tolist(),
+            "exit_state_vector": exit_right.tolist(),
+        }
+    )
+
+    assert left["turn_intent_correct_sign"] is True
+    assert right["turn_intent_correct_sign"] is True
+    assert left["turn_signed_bank_delta_rad"] > 0.0
+    assert right["turn_signed_bank_delta_rad"] > 0.0
+    assert left["turn_signed_exit_roll_rate_rad_s"] > 0.0
+    assert right["turn_signed_exit_roll_rate_rad_s"] > 0.0
+    assert left["turn_signed_lateral_displacement_m"] > 0.0
+    assert right["turn_signed_lateral_displacement_m"] > 0.0
+    assert left["turn_intent_roll_rate_score"] > 0.0
+    assert right["turn_intent_roll_rate_score"] > 0.0
+    assert left["turn_intent_score"] > 0.0
+    assert right["turn_intent_score"] > 0.0
 
 
 def test_r8_blocks_old_w3_summary_without_transition_gate() -> None:

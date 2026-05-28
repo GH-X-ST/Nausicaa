@@ -1,0 +1,23 @@
+{
+  "runner_version": "run_lqr_w01_dense_chunked_v522",
+  "status": "complete",
+  "run_id": 39,
+  "chunk_index": 52,
+  "chunk_count": 77,
+  "row_start": 52000,
+  "row_stop": 53000,
+  "row_count": 1000,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "partition_path": "w01_primitive_rows/c00052.csv.gz",
+  "byte_count": 2570932,
+  "checksum_sha256": "9d8c8ab50e0ce27ada918936f3922cadedd454edec37066c25317ba10831ba5d",
+  "duration_s": 131.76088786125183,
+  "table_name": "w01_primitive_rows",
+  "primitive_timing_contract": {
+    "finite_horizon_s": 0.1,
+    "controller_input_slots_per_primitive": 5,
+    "controller_input_update_period_s": 0.02,
+    "primitive_timing_contract_version": "v411_0p10s_5slot_20ms"
+  }
+}

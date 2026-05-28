@@ -31,7 +31,7 @@ def test_w01_candidate_generation_keeps_multiple_variants_per_primitive() -> Non
 
 
 def test_w01_qr_generator_is_structured_32_candidate_transition_training() -> None:
-    assert W01_TUNING_METHOD_VERSION == "w01_transition_passive_speed_qr_reference_v5"
+    assert W01_TUNING_METHOD_VERSION == "w01_transition_robust_reference_v8"
     for primitive_id in ACTIVE_PRIMITIVE_IDS:
         specs = candidate_weight_specs(primitive_id=primitive_id, candidate_count=32)
         labels = [spec.weight_label for spec in specs]
@@ -45,6 +45,7 @@ def test_w01_qr_generator_is_structured_32_candidate_transition_training() -> No
         assert len({spec.weight_label for spec in specs}) == 32
         assert specs[0].reference_pitch_bias_rad == 0.0
         assert specs[0].reference_bank_bias_rad == 0.0
+        assert specs[0].reference_roll_rate_bias_rad_s == 0.0
         assert specs[0].reference_speed_bias_m_s == 0.0
         assert all(spec.reference_speed_bias_m_s == 0.0 for spec in specs)
         assert any(
@@ -52,6 +53,26 @@ def test_w01_qr_generator_is_structured_32_candidate_transition_training() -> No
             or abs(spec.reference_bank_bias_rad) > 0.0
             for spec in specs[1:]
         )
+
+
+def test_mild_turn_reference_biases_are_not_active_turn_expression_objectives() -> None:
+    left_specs = candidate_weight_specs(primitive_id="mild_turn_left", candidate_count=32)
+    right_specs = candidate_weight_specs(primitive_id="mild_turn_right", candidate_count=32)
+    glide_specs = candidate_weight_specs(primitive_id="glide", candidate_count=32)
+
+    assert left_specs[0].reference_bank_bias_rad == 0.0
+    assert right_specs[0].reference_bank_bias_rad == 0.0
+    assert any(spec.reference_bank_bias_rad < 0.0 for spec in left_specs)
+    assert any(spec.reference_bank_bias_rad > 0.0 for spec in left_specs)
+    assert any(spec.reference_bank_bias_rad < 0.0 for spec in right_specs)
+    assert any(spec.reference_bank_bias_rad > 0.0 for spec in right_specs)
+    assert any(spec.reference_bank_bias_rad < 0.0 for spec in glide_specs)
+    assert any(spec.reference_bank_bias_rad > 0.0 for spec in glide_specs)
+    assert all(
+        spec.reference_roll_rate_bias_rad_s == 0.0
+        for spec in [*left_specs, *right_specs, *glide_specs]
+    )
+    assert all(spec.reference_speed_bias_m_s == 0.0 for spec in [*left_specs, *right_specs])
 
 
 def test_reference_bias_changes_controller_identity_and_is_serialised() -> None:
@@ -73,6 +94,7 @@ def test_reference_bias_changes_controller_identity_and_is_serialised() -> None:
     assert nominal.linearisation_id != biased.linearisation_id
     assert q_payload["reference_pitch_bias_rad"] == biased_spec.reference_pitch_bias_rad
     assert q_payload["reference_bank_bias_rad"] == biased_spec.reference_bank_bias_rad
+    assert q_payload["reference_roll_rate_bias_rad_s"] == biased_spec.reference_roll_rate_bias_rad_s
     assert q_payload["reference_speed_bias_m_s"] == biased_spec.reference_speed_bias_m_s
     assert q_payload["longitudinal_speed_error_policy"] == "passive_u_error_zeroed_speed_is_scheduling_only_v1"
 

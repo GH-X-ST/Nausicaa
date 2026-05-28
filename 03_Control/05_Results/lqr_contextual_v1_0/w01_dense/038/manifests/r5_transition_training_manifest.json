@@ -1,0 +1,64 @@
+{
+  "r5_transition_training_version": "r5_transition_robust_qr_reference_training_v3_signed_turn",
+  "status": "passed",
+  "row_count": 76800,
+  "candidate_training_summary_csv": "metrics/r5_transition_candidate_training_summary.csv",
+  "selected_for_r7_csv": "metrics/r5_transition_selected_for_r7.csv",
+  "pareto_front_csv": "metrics/r5_transition_pareto_front.csv",
+  "all_candidate_frozen_bundle": "manifests/frozen_w01_controller_bundle_all_candidates.json",
+  "active_downstream_frozen_bundle": "manifests/frozen_w01_controller_bundle.json",
+  "selected_transition_object_count": 1119,
+  "selected_unique_primitive_variant_count": 906,
+  "selected_count_by_entry_class": {
+    "boundary_near": 240,
+    "inflight_stable": 336,
+    "launch_gate": 528,
+    "recoverable_degraded": 15
+  },
+  "required_selected_entry_classes_for_every_active_primitive": [
+    "launch_gate",
+    "inflight_stable"
+  ],
+  "max_selected_candidates_per_primitive_entry": 6,
+  "thresholds": {
+    "launch_gate": {
+      "success_lcb_min": 0.35,
+      "hard_failure_ucb_max": 0.45,
+      "useful_environment_count_min": 3
+    },
+    "inflight_stable": {
+      "success_lcb_min": 0.35,
+      "hard_failure_ucb_max": 0.45,
+      "useful_environment_count_min": 3
+    },
+    "boundary_near": {
+      "success_lcb_min": 0.2,
+      "hard_failure_ucb_max": 0.55,
+      "useful_environment_count_min": 2
+    },
+    "recoverable_degraded": {
+      "success_lcb_min": 0.2,
+      "hard_failure_ucb_max": 0.55,
+      "useful_environment_count_min": 2
+    }
+  },
+  "score_formula": "0.55*success_lcb + 0.20*worst_env_success_lcb + 0.10*clipped_updraft_gain + 0.05*clipped_lift_dwell + 0.05*clipped_rollout_duration + turn_primitive*(0.12*turn_intent_success_lcb + 0.08*turn_intent_score_mean) - 0.35*hard_failure_ucb - 0.10*saturation_mean",
+  "controller_tuning_surface": "structured_log_qr_plus_small_primitive_reference_bias",
+  "reference_bias_columns": [
+    "reference_pitch_bias_rad",
+    "reference_bank_bias_rad",
+    "reference_speed_bias_m_s"
+  ],
+  "blockers": [],
+  "dense_row_count_alone_can_pass_r5": false,
+  "local_accepted_rows_alone_can_pass_r5": false,
+  "aggregate_primitive_success_across_entry_classes_can_pass_r5": false,
+  "r7_must_consume_selected_transition_manifest": true,
+  "no_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "autonomy",
+    "memory_improvement"
+  ]
+}

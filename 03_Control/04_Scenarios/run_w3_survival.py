@@ -62,10 +62,10 @@ from primitive_timing_contract import (  # noqa: E402
     primitive_timing_contract_row,
 )
 from state_sampling import archive_state_sample_for_family, archive_state_sample_row  # noqa: E402
-from transition_labels import transition_contract_row, transition_row_fields  # noqa: E402
+from transition_labels import transition_contract_row, transition_row_fields, turn_intent_row_fields  # noqa: E402
 
 
-W3_SURVIVAL_VERSION = "w3_fixed_lqr_survival_replay_v411"
+W3_SURVIVAL_VERSION = "w3_fixed_lqr_survival_replay_v414_turn_metrics_diagnostic_only"
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 DEFAULT_R5_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 DEFAULT_W2_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")
@@ -736,6 +736,7 @@ def _row_for_index(
             primitive_step_index=0 if start_family == "launch_gate" else None,
         )
     )
+    row.update(turn_intent_row_fields(row))
     if implementation is None or plant is None:
         row.update(_blocked_instance_prefix_rows("implementation"))
         row.update(_blocked_instance_prefix_rows("plant"))
@@ -761,6 +762,11 @@ def _row_for_index(
             "r5_transition_training_score": _selection_float(replay_record, "r5_transition_training_score"),
             "r5_transition_success_lcb": _selection_float(replay_record, "transition_success_lcb"),
             "r5_transition_hard_failure_ucb": _selection_float(replay_record, "hard_failure_ucb"),
+            "r5_turn_intent_success_lcb": _selection_float(replay_record, "turn_intent_success_lcb"),
+            "r5_turn_intent_score_mean": _selection_float(replay_record, "turn_intent_score_mean"),
+            "r5_turn_intent_roll_rate_score_mean": _selection_float(replay_record, "turn_intent_roll_rate_score_mean"),
+            "r5_signed_turn_bank_delta_mean_rad": _selection_float(replay_record, "signed_turn_bank_delta_mean_rad"),
+            "r5_signed_turn_exit_roll_rate_mean_rad_s": _selection_float(replay_record, "signed_turn_exit_roll_rate_mean_rad_s"),
             "r5_selected_rank": str(replay_record.r5_selection_row.get("selected_rank", "")),
             "primitive_variant_id": variant.primitive_variant_id,
             "entry_role": variant.entry_role,
@@ -1081,6 +1087,9 @@ def _write_metrics_from_partitions(run_root: Path, partitions: Iterable[object])
             "transition_pair",
             "transition_chain_compatible",
             "transition_failure_reason",
+            "turn_intent_label",
+            "turn_intent_status",
+            "turn_intent_correct_sign",
         ):
             if column not in frame.columns:
                 continue

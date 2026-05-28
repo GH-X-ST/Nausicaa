@@ -23,7 +23,7 @@ from prim_cat import PrimitiveDefinition, active_primitive_catalogue
 # =============================================================================
 # 1) W01 Tuning Contracts
 # =============================================================================
-W01_TUNING_METHOD_VERSION = "w01_transition_passive_speed_qr_reference_v5"
+W01_TUNING_METHOD_VERSION = "w01_transition_robust_reference_v8"
 PREFERRED_CANDIDATES_PER_PRIMITIVE = (16, 32)
 FALLBACK_CANDIDATES_PER_PRIMITIVE = 8
 PREFERRED_PAIRED_TESTS_PER_CANDIDATE = (50, 100)
@@ -46,6 +46,7 @@ SOFT_OBJECTIVE_TERMS = (
     "rollout_duration_s",
     "saturation_fraction",
     "attitude_bank_reference_bias_sweep_coverage",
+    "turn_intent_audit_metrics_not_selection_objective",
 )
 LQR_WEIGHT_FIELD_NAMES = (
     "q_attitude",
@@ -69,17 +70,18 @@ STRUCTURED_ANCHOR_MULTIPLIERS: tuple[tuple[str, tuple[float, float, float, float
 REFERENCE_BIAS_FIELD_NAMES = (
     "reference_pitch_bias_rad",
     "reference_bank_bias_rad",
+    "reference_roll_rate_bias_rad_s",
     "reference_speed_bias_m_s",
 )
-STRUCTURED_REFERENCE_BIASES: tuple[tuple[str, tuple[float, float, float]], ...] = (
-    ("ref_nominal", (0.0, 0.0, 0.0)),
-    ("ref_pitch_up", (0.025, 0.0, 0.0)),
-    ("ref_energy_seek_pitch", (-0.020, 0.0, 0.0)),
-    ("ref_damped_level", (0.0, 0.0, 0.0)),
-    ("ref_conservative_level", (0.0, 0.0, 0.0)),
-    ("ref_agile_pitch_up", (0.018, 0.0, 0.0)),
-    ("ref_left_bias", (0.0, -0.055, 0.0)),
-    ("ref_right_bias", (0.0, 0.055, 0.0)),
+STRUCTURED_REFERENCE_BIASES: tuple[tuple[str, tuple[float, float, float, float]], ...] = (
+    ("ref_nominal", (0.0, 0.0, 0.0, 0.0)),
+    ("ref_pitch_up", (0.025, 0.0, 0.0, 0.0)),
+    ("ref_energy_seek_pitch", (-0.020, 0.0, 0.0, 0.0)),
+    ("ref_damped_level", (0.0, 0.0, 0.0, 0.0)),
+    ("ref_conservative_level", (0.0, 0.0, 0.0, 0.0)),
+    ("ref_agile_pitch_up", (0.018, 0.0, 0.0, 0.0)),
+    ("ref_left_bias", (0.0, -0.055, 0.0, 0.0)),
+    ("ref_right_bias", (0.0, 0.055, 0.0, 0.0)),
 )
 REFERENCE_PITCH_BIAS_RANGE_RAD = (-0.040, 0.040)
 REFERENCE_BANK_BIAS_RANGE_RAD = (-0.080, 0.080)
@@ -142,7 +144,11 @@ def candidate_weight_specs(
                 base,
                 primitive_id=str(primitive_id),
                 multipliers=multipliers,
-                reference_bias=reference_bias,
+                reference_bias=_reference_bias_for_primitive(
+                    primitive_id=str(primitive_id),
+                    reference_label=str(reference_label),
+                    reference_bias=reference_bias,
+                ),
                 tuning_stage=tuning_stage,
                 weight_label=f"{primitive_id}_robust_anchor_{label}_{reference_label}_{len(candidates):03d}",
             )
@@ -180,7 +186,7 @@ def _weight_spec_from_multipliers(
     *,
     primitive_id: str,
     multipliers: tuple[float, float, float, float, float, float, float],
-    reference_bias: tuple[float, float, float],
+    reference_bias: tuple[float, float, float, float],
     tuning_stage: str,
     weight_label: str,
 ) -> LQRWeightSpec:
@@ -198,7 +204,8 @@ def _weight_spec_from_multipliers(
         r_rudder=values["r_rudder"],
         reference_pitch_bias_rad=float(reference_bias[0]),
         reference_bank_bias_rad=float(reference_bias[1]),
-        reference_speed_bias_m_s=float(reference_bias[2]),
+        reference_roll_rate_bias_rad_s=float(reference_bias[2]),
+        reference_speed_bias_m_s=float(reference_bias[3]),
         tuning_stage=tuning_stage,
         weight_label=weight_label,
     )
@@ -232,26 +239,40 @@ def _deterministic_lhs_reference_biases(
     primitive_id: str,
     tuning_stage: str,
     sample_count: int,
-) -> tuple[tuple[float, float, float], ...]:
+) -> tuple[tuple[float, float, float, float], ...]:
     if int(sample_count) <= 0:
         return ()
     seed_material = f"{W01_TUNING_METHOD_VERSION}:reference:{primitive_id}:{tuning_stage}:{sample_count}".encode("ascii")
     seed = int.from_bytes(hashlib.sha256(seed_material).digest()[:8], byteorder="big", signed=False)
     rng = np.random.default_rng(seed)
-    ranges = (
-        REFERENCE_PITCH_BIAS_RANGE_RAD,
-        REFERENCE_BANK_BIAS_RANGE_RAD,
-        REFERENCE_SPEED_BIAS_RANGE_M_S,
-    )
     columns: list[np.ndarray] = []
-    for low, high in ranges:
-        permutation = rng.permutation(int(sample_count))
-        u = (permutation.astype(float) + 0.5) / float(sample_count)
-        columns.append(float(low) + (float(high) - float(low)) * u)
+    pitch_low, pitch_high = REFERENCE_PITCH_BIAS_RANGE_RAD
+    permutation = rng.permutation(int(sample_count))
+    u = (permutation.astype(float) + 0.5) / float(sample_count)
+    columns.append(float(pitch_low) + (float(pitch_high) - float(pitch_low)) * u)
+    permutation = rng.permutation(int(sample_count))
+    u = (permutation.astype(float) + 0.5) / float(sample_count)
+    bank_low, bank_high = REFERENCE_BANK_BIAS_RANGE_RAD
+    columns.append(float(bank_low) + (float(bank_high) - float(bank_low)) * u)
+    columns.append(np.zeros(int(sample_count), dtype=float))
+    speed_low, speed_high = REFERENCE_SPEED_BIAS_RANGE_M_S
+    permutation = rng.permutation(int(sample_count))
+    u = (permutation.astype(float) + 0.5) / float(sample_count)
+    columns.append(float(speed_low) + (float(speed_high) - float(speed_low)) * u)
     return tuple(
         tuple(float(columns[dim][sample_index]) for dim in range(len(REFERENCE_BIAS_FIELD_NAMES)))
         for sample_index in range(int(sample_count))
     )
+
+
+def _reference_bias_for_primitive(
+    *,
+    primitive_id: str,
+    reference_label: str,
+    reference_bias: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    _ = primitive_id, reference_label
+    return reference_bias
 
 
 def lqr_tuning_schedule(
