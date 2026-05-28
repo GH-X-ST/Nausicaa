@@ -54,7 +54,7 @@ git diff --check
 
 `run_active_contract_audit.py` and W01/W2/W3-only audit names are retained only
 as compatibility references. New instructions should name the active source
-audit and the v5.20 algorithm contract audit directly. The current evidence
+audit and the current transition-aware algorithm contract audit directly. The current evidence
 workflow is controlled by `docs/Glider_Control_Project_Plan.md`: R5 is robust
 primitive synthesis, R6/W2 is archived diagnostic-only, R7 is frozen W3
 validation, R8 is the five-case coverage-aware medoid post-W3 library-size

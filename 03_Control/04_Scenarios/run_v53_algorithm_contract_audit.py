@@ -177,8 +177,8 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("active_primitive_catalogue_has_8_variants", len(ACTIVE_PRIMITIVE_IDS) == 8, len(ACTIVE_PRIMITIVE_IDS), 8))
     rows.append(_row("launch_capture_aliases_retired_not_active", len(LAUNCH_CAPTURE_PRIMITIVE_IDS) == 6 and not set(LAUNCH_CAPTURE_PRIMITIVE_IDS).intersection(set(ACTIVE_PRIMITIVE_IDS)), {"active": list(ACTIVE_PRIMITIVE_IDS), "retired": list(LAUNCH_CAPTURE_PRIMITIVE_IDS)}, "retired launch_capture aliases disjoint from active primitives"))
     rows.append(_row("r5_dense_target_dynamic_8x32x3x100", L6_RICH_SIDE_ROW_COUNT == rich_side_dense_row_count() == 76800, {"row_count": L6_RICH_SIDE_ROW_COUNT, "candidate_count": L6_RICH_SIDE_CANDIDATE_COUNT, "paired_tests": L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE}, "8*32*3*100=76800"))
-    rows.append(_row("r5_qr_reference_tuning_method_transition_robust", W01_TUNING_METHOD_VERSION == "w01_transition_robust_qr_reference_v4", W01_TUNING_METHOD_VERSION, "w01_transition_robust_qr_reference_v4"))
-    rows.append(_row("r5_qr_reference_generator_exact_32_structured_candidates", _qr_generator_contract_passes(), "structured Q/R plus reference-bias candidate generator", "candidate 0 nominal, 1-7 physical anchors, 8-31 LHS log Q/R plus small reference bias"))
+    rows.append(_row("r5_qr_reference_tuning_method_transition_robust", W01_TUNING_METHOD_VERSION == "w01_transition_passive_speed_qr_reference_v5", W01_TUNING_METHOD_VERSION, "w01_transition_passive_speed_qr_reference_v5"))
+    rows.append(_row("r5_qr_reference_generator_exact_32_structured_candidates", _qr_generator_contract_passes(), "structured Q/R plus attitude/bank reference-bias candidate generator", "candidate 0 nominal, 1-7 physical anchors, 8-31 LHS log Q/R plus small attitude/bank reference bias; speed is scheduling-only"))
     rows.append(_row("r5_official_environment_cases_annular_gp_only", OFFICIAL_W01_ENVIRONMENT_CASES == (("W0", "dry_air"), ("W1", "w1_annular_gp_randomised_single"), ("W1", "w1_annular_gp_randomised_four")), OFFICIAL_W01_ENVIRONMENT_CASES, "W0 dry plus W1 annular-GP single/four"))
     rows.append(_row("r5_active_fan_count_sequence_balanced_1_2_3_4", R5_ACTIVE_FAN_COUNT_SEQUENCE == (1, 2, 3, 4), R5_ACTIVE_FAN_COUNT_SEQUENCE, (1, 2, 3, 4)))
     r5_schedule = _r5_schedule_role_audit()
@@ -196,6 +196,7 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r8_selection_applies_hard_safety_filter_first", "_hard_safety_filtered_group" in r8_selection_source, "coverage selection source", "_hard_safety_filtered_group before scoring"))
     rows.append(_row("r8_compressed_cases_use_coverage_medoid_policy", _r8_compressed_cases_use_coverage_medoid_policy(), _r8_library_selection_policies(), "heavy/balanced/light/super_light use coverage_medoid; no_cluster keeps all W3 survivors"))
     rows.append(_row("r8_heavy_medoid_prefers_worst_case_coverage", _r8_heavy_medoid_prefers_worst_case_coverage(), "synthetic coverage-medoid selection", "select existing variant with stronger worst-case coverage"))
+    rows.append(_row("r8_medoid_preserves_speed_bin_coverage_when_budget_allows", _r8_speed_bin_medoid_preserves_distinct_bins(), "synthetic speed-bin medoid selection", "compressed R8 cases preserve distinct W3-surviving local LQR speed bins up to case budget"))
     rows.append(_row("r8_representative_score_uses_updraft_gain_not_net_energy", _r8_score_uses_updraft_gain_not_net_energy(), "updraft-gain score check", "net energy residual must not improve representative score"))
     rows.append(_row("five_library_size_cases", set(LIBRARY_SIZE_CASE_IDS) == {"heavy_cluster", "balanced_cluster", "light_cluster", "super_light_cluster", "no_cluster_no_merge"}, LIBRARY_SIZE_CASE_IDS, "heavy/balanced/light/super_light/no_cluster"))
     rows.append(_row("r9_reduced_internal_preflight_blocks_exact", _block_tuples(R9_BLOCKS) == (("no_updraft", "W0", "dry_air", 1), ("single_fan", "W2", "annular_gp_single", 1), ("four_fan", "W2", "annular_gp_four", 1)), _block_tuples(R9_BLOCKS), "1 no-updraft, 1 single-fan, 1 four-fan internal preflight cases"))
@@ -353,10 +354,11 @@ def _qr_generator_contract_passes() -> bool:
                 or specs[0].reference_speed_bias_m_s != 0.0
             ):
                 return False
+            if any(float(spec.reference_speed_bias_m_s) != 0.0 for spec in specs):
+                return False
             if not any(
                 abs(float(spec.reference_pitch_bias_rad)) > 0.0
                 or abs(float(spec.reference_bank_bias_rad)) > 0.0
-                or abs(float(spec.reference_speed_bias_m_s)) > 0.0
                 for spec in specs[1:]
             ):
                 return False
@@ -514,6 +516,66 @@ def _r8_heavy_medoid_prefers_worst_case_coverage() -> bool:
     return len(selected) == 1 and str(selected.iloc[0]["primitive_variant_id"]) == "broad_case_medoid"
 
 
+def _r8_speed_bin_medoid_preserves_distinct_bins() -> bool:
+    frame = pd.DataFrame(
+        [
+            {
+                "primitive_variant_id": "strong_speed_5p0",
+                "primitive_id": "glide",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
+                "local_lqr_speed_bin_id": "speed_bin_5p0_m_s",
+                "local_lqr_reference_speed_m_s": 5.0,
+                "continuation_valid_rate": 0.95,
+                "episode_terminal_useful_rate": 0.2,
+                "hard_failure_rate": 0.01,
+                "robustness_coverage_labels_json": '["env:a","speed_bin:speed_bin_5p0_m_s"]',
+                "robustness_coverage_rates_json": "[0.95,0.95]",
+                "Q_weight_json": '{"q":1.0}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            },
+            {
+                "primitive_variant_id": "redundant_speed_5p0",
+                "primitive_id": "glide",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
+                "local_lqr_speed_bin_id": "speed_bin_5p0_m_s",
+                "local_lqr_reference_speed_m_s": 5.0,
+                "continuation_valid_rate": 0.93,
+                "episode_terminal_useful_rate": 0.2,
+                "hard_failure_rate": 0.01,
+                "robustness_coverage_labels_json": '["env:a","speed_bin:speed_bin_5p0_m_s"]',
+                "robustness_coverage_rates_json": "[0.93,0.93]",
+                "Q_weight_json": '{"q":1.01}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            },
+            {
+                "primitive_variant_id": "needed_speed_7p0",
+                "primitive_id": "glide",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
+                "local_lqr_speed_bin_id": "speed_bin_7p0_m_s",
+                "local_lqr_reference_speed_m_s": 7.0,
+                "continuation_valid_rate": 0.70,
+                "episode_terminal_useful_rate": 0.1,
+                "hard_failure_rate": 0.02,
+                "robustness_coverage_labels_json": '["env:a","speed_bin:speed_bin_7p0_m_s"]',
+                "robustness_coverage_rates_json": "[0.70,0.70]",
+                "Q_weight_json": '{"q":1.3}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            },
+        ]
+    )
+    selected = _coverage_medoid_selection(frame, max_representatives=2, case_id="balanced_cluster")
+    return set(selected["local_lqr_speed_bin_id"].astype(str)) == {"speed_bin_5p0_m_s", "speed_bin_7p0_m_s"}
+
+
 def _outer_loop_pairing_and_memory_audit() -> dict[str, object]:
     outer_cases = _outer_case_schedule(protocol=R9_PROTOCOL, seed=90, smoke_outer_cases_per_block=1)
     final_schedule = _final_heldout_schedule(outer_cases=outer_cases, protocol=R9_PROTOCOL)
@@ -596,6 +658,7 @@ def _docs_code_consistency_rows(repo_root: Path) -> list[dict[str, object]]:
         "r11_consumes_r10_frozen_config": "frozen governor config written by R10",
         "r8_coverage_medoid_selection": "coverage-aware medoid",
         "r8_no_synthetic_controller_in_clustering": "without averaging Q/R or synthesising new controllers",
+        "r8_speed_bin_coverage_preservation": "speed-bin collapse is a library-coverage failure",
     }
     for check_id, fragment in combined_requirements.items():
         rows.append(_row(check_id, fragment in combined, fragment if fragment in combined else "missing", fragment))

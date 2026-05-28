@@ -23,13 +23,14 @@ _bootstrap_import_paths()
 
 from dense_archive_runtime import MAX_GENERATED_FILE_SIZE_MB  # noqa: E402
 from dense_archive_table_io import file_sha256, filesystem_path, load_table_manifest, read_table_partition  # noqa: E402
+from lqr_linearisation import lqr_speed_bin_id  # noqa: E402
 from prim_cat import ACTIVE_PRIMITIVE_IDS  # noqa: E402
 from primitive_timing_contract import primitive_timing_contract_row, primitive_timing_contract_status  # noqa: E402
 from transition_labels import transition_contract_row  # noqa: E402
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
-POST_W3_LIBRARY_STUDY_VERSION = "post_w3_library_size_study_v53_coverage_medoid_v1"
+POST_W3_LIBRARY_STUDY_VERSION = "post_w3_library_size_study_v53_coverage_speed_bin_medoid_v2"
 DEFAULT_W3_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")
 DEFAULT_INPUT_ROOT: Path | None = None
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study")
@@ -144,9 +145,15 @@ def run_post_w3_library_size_study(config: PostW3LibrarySizeStudyConfig) -> dict
     _write_csv(run_root / "metrics" / "library_size_case_summary.csv", summary)
     _write_csv(run_root / "metrics" / "post_w3_representative_library_all_cases.csv", pd.DataFrame(all_representatives))
     _write_csv(run_root / "metrics" / "coverage_medoid_selection_audit.csv", _coverage_medoid_selection_audit(all_representatives))
+    speed_bin_audit, speed_bin_blockers = _speed_bin_coverage_audit(survived, all_representatives)
+    _write_csv(run_root / "metrics" / "speed_bin_coverage_audit.csv", speed_bin_audit)
     availability, availability_blockers = _launch_gate_candidate_availability(all_representatives)
     _write_csv(run_root / "metrics" / "launch_gate_candidate_availability.csv", availability)
     _write_csv(run_root / "metrics" / "launch_gate_entry_role_audit.csv", _launch_gate_entry_role_audit(all_representatives))
+    if speed_bin_blockers:
+        blocked_reason = "speed_bin_coverage_preservation_failed:" + ";".join(speed_bin_blockers)
+        _write_blocked_outputs(run_root, config, blocked_reason)
+        return {"status": "blocked", "blocked_reason": blocked_reason, "run_root": run_root.as_posix()}
     if availability_blockers:
         blocked_reason = "launch_gate_candidate_availability_failed:" + ";".join(availability_blockers)
         _write_blocked_outputs(run_root, config, blocked_reason)
@@ -289,6 +296,7 @@ def _robustness_profile_frame(input_root: Path) -> pd.DataFrame:
     compatible = rows[_bool_series(rows.get("entry_role_compatible", pd.Series(False, index=rows.index)))].copy()
     if compatible.empty:
         return pd.DataFrame()
+    compatible = _ensure_local_speed_bin_columns(compatible)
     compatible["_positive"] = _transition_positive_series(compatible)
     compatible["_terminal_useful"] = _terminal_series(compatible)
     compatible["_hard_failure"] = _transition_hard_failure_series(compatible)
@@ -325,6 +333,7 @@ def _robustness_profile_frame(input_root: Path) -> pd.DataFrame:
                 "robustness_environment_modes_seen": _unique_join(group, "environment_mode"),
                 "robustness_start_families_seen": _unique_join(group, "start_state_family"),
                 "robustness_active_fan_counts_seen": _unique_join(group, "scheduled_active_fan_count"),
+                "robustness_speed_bins_seen": _unique_join(group, "local_lqr_speed_bin_id"),
                 "updraft_gain_proxy_mean_m": _mean_or_zero(group, "updraft_specific_energy_gain_proxy_m"),
                 "positive_specific_energy_gain_mean_m": _mean_positive_energy_gain(group),
                 "rollout_duration_mean_s": _mean_or_zero(group, "rollout_duration_s"),
@@ -352,12 +361,47 @@ def _read_w3_evidence_rows(input_root: Path) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
+def _ensure_local_speed_bin_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    work = frame.copy()
+    work["local_lqr_speed_bin_id"] = [
+        _speed_bin_from_row(row)
+        for row in work.to_dict(orient="records")
+    ]
+    if "local_lqr_reference_speed_m_s" not in work.columns:
+        work["local_lqr_reference_speed_m_s"] = [
+            _speed_from_row(row)
+            for row in work.to_dict(orient="records")
+        ]
+    return work
+
+
+def _speed_bin_from_row(row: dict[str, object] | pd.Series) -> str:
+    for key in ("local_lqr_speed_bin_id", "variant_local_lqr_speed_bin_id"):
+        value = str(row.get(key, "")).strip()
+        if value and value.lower() != "nan":
+            return value
+    speed = _speed_from_row(row)
+    if speed > 0.0:
+        return lqr_speed_bin_id(speed)
+    return ""
+
+
+def _speed_from_row(row: dict[str, object] | pd.Series) -> float:
+    for key in ("local_lqr_reference_speed_m_s", "variant_local_lqr_reference_speed_m_s"):
+        value = row.get(key, "")
+        text = str(value).strip()
+        if text and text.lower() != "nan":
+            return _float(value, default=0.0)
+    return 0.0
+
+
 def _profile_labels(frame: pd.DataFrame) -> list[str]:
     labels: list[str] = []
     for column, prefix in (
         ("environment_mode", "env"),
         ("start_state_family", "start"),
         ("scheduled_active_fan_count", "active_fan_count"),
+        ("local_lqr_speed_bin_id", "speed_bin"),
         ("transition_pair", "transition"),
         ("transition_exit_class", "exit"),
     ):
@@ -400,6 +444,7 @@ def _profile_subset(group: pd.DataFrame, label: str) -> pd.DataFrame:
         "env": "environment_mode",
         "start": "start_state_family",
         "active_fan_count": "scheduled_active_fan_count",
+        "speed_bin": "local_lqr_speed_bin_id",
     }.get(prefix)
     if column is None or column not in group.columns:
         return pd.DataFrame()
@@ -497,6 +542,7 @@ def _coverage_medoid_selection(group: pd.DataFrame, *, max_representatives: int,
     safety = 1.0 - _numeric_metric_series(scored, "hard_failure_rate", default=1.0).clip(0.0, 1.0).to_numpy(dtype=float)
     perf = _normalise_array(scored["_representative_score"].to_numpy(dtype=float))
     medoid_quality = 0.45 * worst_case + 0.25 * breadth + 0.15 * safety + 0.10 * centrality + 0.05 * perf
+    source_speed_bins = _speed_bin_set(scored)
 
     scored["_coverage_worst_case"] = worst_case
     scored["_coverage_breadth"] = breadth
@@ -514,6 +560,7 @@ def _coverage_medoid_selection(group: pd.DataFrame, *, max_representatives: int,
         redundancy = [0.0 for _ in selected_indices]
     else:
         sort_key = _variant_sort_key(scored)
+        speed_bin_target_count = min(max_count, len(source_speed_bins)) if source_speed_bins else 0
         if str(case_id) == "heavy_cluster":
             first = _best_index(
                 worst_case,
@@ -545,12 +592,30 @@ def _coverage_medoid_selection(group: pd.DataFrame, *, max_representatives: int,
         while remaining and len(selected_indices) < max_count:
             best_candidate = None
             best_tuple = None
-            for index in sorted(remaining):
+            selected_speed_bins = _speed_bins_for_indices(scored, selected_indices)
+            missing_speed_bins = source_speed_bins - selected_speed_bins
+            speed_bin_fill_required = bool(missing_speed_bins) and len(selected_speed_bins) < speed_bin_target_count
+            candidate_pool = [
+                index for index in sorted(remaining)
+                if not speed_bin_fill_required or _row_speed_bin(scored.iloc[index]) in missing_speed_bins
+            ]
+            if not candidate_pool:
+                candidate_pool = sorted(remaining)
+                speed_bin_fill_required = False
+            for index in candidate_pool:
                 marginal = _marginal_coverage_gain(covered, coverage[index])
                 diversity = _normalised_min_distance(index, selected_indices, distance)
-                total = 0.50 * marginal + 0.25 * medoid_quality[index] + 0.20 * diversity + 0.05 * centrality[index]
+                speed_bin_gain = 1.0 if _row_speed_bin(scored.iloc[index]) in missing_speed_bins else 0.0
+                total = (
+                    0.40 * marginal
+                    + 0.25 * speed_bin_gain
+                    + 0.20 * medoid_quality[index]
+                    + 0.10 * diversity
+                    + 0.05 * centrality[index]
+                )
                 candidate_tuple = (
                     float(total),
+                    float(speed_bin_gain),
                     float(marginal),
                     float(worst_case[index]),
                     float(diversity),
@@ -562,7 +627,11 @@ def _coverage_medoid_selection(group: pd.DataFrame, *, max_representatives: int,
             if best_candidate is None:
                 break
             selected_indices.append(best_candidate)
-            selection_reasons.append("greedy_marginal_coverage_medoid")
+            selection_reasons.append(
+                "greedy_speed_bin_marginal_coverage_medoid"
+                if speed_bin_fill_required
+                else "greedy_marginal_coverage_medoid"
+            )
             gain = _marginal_coverage_gain(covered, coverage[best_candidate])
             marginal_gains.append(float(gain))
             redundancy.append(float(1.0 - _normalised_min_distance(best_candidate, selected_indices[:-1], distance)))
@@ -609,20 +678,37 @@ def _coverage_matrix(group: pd.DataFrame) -> np.ndarray:
         return _default_coverage_matrix(group)
     rows = []
     for _, row in group.iterrows():
-        payload = _parse_json(row.get("robustness_coverage_rates_json", "[]"), default=[])
-        values = [float(value) for value in payload] if isinstance(payload, list) else []
-        if len(values) < len(labels):
-            values.extend([0.0] * (len(labels) - len(values)))
-        rows.append([float(np.clip(value, 0.0, 1.0)) for value in values[: len(labels)]])
+        label_rates = _coverage_label_rate_map(row)
+        rows.append([float(np.clip(label_rates.get(label, 0.0), 0.0, 1.0)) for label in labels])
     return np.asarray(rows, dtype=float)
 
 
 def _coverage_feature_labels(group: pd.DataFrame) -> list[str]:
+    labels: list[str] = []
+    seen: set[str] = set()
     for value in group.get("robustness_coverage_labels_json", pd.Series(dtype=str)).fillna("").astype(str):
-        labels = _parse_json(value, default=[])
-        if isinstance(labels, list) and labels:
-            return [str(item) for item in labels]
-    return []
+        payload = _parse_json(value, default=[])
+        if not isinstance(payload, list):
+            continue
+        for item in payload:
+            label = str(item)
+            if label and label not in seen:
+                seen.add(label)
+                labels.append(label)
+    return labels
+
+
+def _coverage_label_rate_map(row: pd.Series) -> dict[str, float]:
+    labels = _parse_json(row.get("robustness_coverage_labels_json", "[]"), default=[])
+    rates = _parse_json(row.get("robustness_coverage_rates_json", "[]"), default=[])
+    if not isinstance(labels, list) or not isinstance(rates, list):
+        return {}
+    out: dict[str, float] = {}
+    for index, label in enumerate(labels):
+        if index >= len(rates):
+            break
+        out[str(label)] = _float(rates[index], default=0.0)
+    return out
 
 
 def _default_coverage_matrix(group: pd.DataFrame) -> np.ndarray:
@@ -715,6 +801,26 @@ def _normalised_min_distance(index: int, selected_indices: list[int], distance: 
         return 1.0
     max_distance = float(np.max(distance)) or 1.0
     return float(np.min(distance[index, selected_indices]) / max_distance)
+
+
+def _speed_bin_set(frame: pd.DataFrame) -> set[str]:
+    return {
+        _row_speed_bin(row)
+        for _, row in frame.iterrows()
+        if _row_speed_bin(row)
+    }
+
+
+def _speed_bins_for_indices(frame: pd.DataFrame, indices: list[int]) -> set[str]:
+    return {
+        _row_speed_bin(frame.iloc[index])
+        for index in indices
+        if _row_speed_bin(frame.iloc[index])
+    }
+
+
+def _row_speed_bin(row: pd.Series) -> str:
+    return _speed_bin_from_row(row)
 
 
 def _variant_sort_key(frame: pd.DataFrame) -> np.ndarray:
@@ -834,6 +940,8 @@ def _representative_row(
         "entry_role": str(row.get("entry_role", "")),
         "transition_entry_class": transition_entry_class,
         "controller_id": str(row.get("controller_id", "")),
+        "local_lqr_speed_bin_id": _speed_bin_from_row(row),
+        "local_lqr_reference_speed_m_s": _speed_from_row(row),
         "reference_state_vector": str(row.get("reference_state_vector", "")),
         "reference_command_vector": str(row.get("reference_command_vector", "")),
         "finite_horizon_s": float(row.get("finite_horizon_s", timing["finite_horizon_s"])),
@@ -877,6 +985,7 @@ def _representative_row(
         "robustness_environment_modes_seen": str(row.get("robustness_environment_modes_seen", "")),
         "robustness_start_families_seen": str(row.get("robustness_start_families_seen", "")),
         "robustness_active_fan_counts_seen": str(row.get("robustness_active_fan_counts_seen", "")),
+        "robustness_speed_bins_seen": str(row.get("robustness_speed_bins_seen", "")),
         "continuation_valid_count": int(float(row.get("continuation_valid_count", 0))),
         "continuation_valid_rate": float(row.get("continuation_valid_rate", 0.0)),
         "transition_chain_compatible_count": int(float(row.get("transition_chain_compatible_count", 0))),
@@ -930,6 +1039,7 @@ def _library_payload(
         "selection_algorithm": "coverage_aware_behavior_qr_medoid_greedy_marginal",
         "hard_safety_filter_policy": "prefer hard_failure_rate_below_0p75_within_primitive_transition_entry_group",
         "coverage_objective": "smallest_existing_transition_compatible_variant_set_covering_useful_entry_exit_transitions_with_low_hard_failure_risk",
+        "speed_bin_coverage_policy": "preserve distinct W3-surviving local LQR speed bins within each primitive_id + transition_entry_class group up to the library-size case budget",
         "transition_contract": transition_contract_row(),
         "claim_status": "simulation_only_post_w3_library_size_case",
         "no_controller_mutation": True,
@@ -969,6 +1079,62 @@ def _launch_gate_candidate_availability(representatives: list[dict[str, object]]
     return pd.DataFrame(rows), blockers
 
 
+def _speed_bin_coverage_audit(survived: pd.DataFrame, representatives: list[dict[str, object]]) -> tuple[pd.DataFrame, list[str]]:
+    source = _ensure_local_speed_bin_columns(survived)
+    reps = _ensure_local_speed_bin_columns(pd.DataFrame(representatives)) if representatives else pd.DataFrame()
+    rows: list[dict[str, object]] = []
+    blockers: list[str] = []
+    if source.empty:
+        return pd.DataFrame(), ["source_w3_survivor_frame_empty_for_speed_bin_coverage"]
+    for case in LIBRARY_SIZE_CASES:
+        case_id = str(case["library_size_case_id"])
+        max_per_group = int(case["max_representatives_per_group"])
+        case_reps = (
+            reps[reps.get("library_size_case_id", pd.Series(dtype=str)).astype(str) == case_id]
+            if not reps.empty
+            else pd.DataFrame()
+        )
+        for (primitive_id, entry_class), group in source.groupby(["primitive_id", "transition_entry_class"], sort=True, dropna=False):
+            source_speed_bins = sorted(_speed_bin_set(group))
+            selected_group = (
+                case_reps[
+                    (case_reps.get("primitive_id", pd.Series(dtype=str)).astype(str) == str(primitive_id))
+                    & (case_reps.get("transition_entry_class", pd.Series(dtype=str)).astype(str) == str(entry_class))
+                ]
+                if not case_reps.empty
+                else pd.DataFrame()
+            )
+            selected_speed_bins = sorted(_speed_bin_set(selected_group)) if not selected_group.empty else []
+            target_count = min(max_per_group, len(source_speed_bins))
+            status = "passed"
+            if not source_speed_bins:
+                status = "blocked_source_speed_bin_missing"
+            elif len(selected_speed_bins) < target_count:
+                status = "blocked_speed_bin_coverage_collapsed"
+            rows.append(
+                {
+                    "stage_id": "R8",
+                    "library_size_case_id": case_id,
+                    "primitive_id": str(primitive_id),
+                    "transition_entry_class": str(entry_class),
+                    "source_speed_bin_count": int(len(source_speed_bins)),
+                    "selected_speed_bin_count": int(len(selected_speed_bins)),
+                    "target_speed_bin_count_for_case_budget": int(target_count),
+                    "source_speed_bins": ";".join(source_speed_bins),
+                    "selected_speed_bins": ";".join(selected_speed_bins),
+                    "max_representatives_per_group": int(max_per_group),
+                    "speed_bin_coverage_status": status,
+                    "speed_bin_coverage_policy": (
+                        "preserve distinct W3-surviving local LQR speed bins within each "
+                        "primitive_id + transition_entry_class group up to the library-size case budget"
+                    ),
+                }
+            )
+            if status != "passed":
+                blockers.append(f"{case_id}:{primitive_id}:{entry_class}:{status}")
+    return pd.DataFrame(rows), blockers
+
+
 def _coverage_medoid_selection_audit(representatives: list[dict[str, object]]) -> pd.DataFrame:
     frame = pd.DataFrame(representatives)
     if frame.empty:
@@ -993,6 +1159,9 @@ def _coverage_medoid_selection_audit(representatives: list[dict[str, object]]) -
         "robustness_environment_modes_seen",
         "robustness_start_families_seen",
         "robustness_active_fan_counts_seen",
+        "robustness_speed_bins_seen",
+        "local_lqr_speed_bin_id",
+        "local_lqr_reference_speed_m_s",
     ]
     available = [column for column in wanted if column in frame.columns]
     return frame[available].copy()
@@ -1031,8 +1200,9 @@ def _study_manifest(
         "library_size_case_ids": list(LIBRARY_SIZE_CASE_IDS),
         "library_size_cases": case_rows,
         "selection_algorithm": "coverage_aware_behavior_qr_medoid_greedy_marginal",
-        "selection_policy_summary": "hard safety filter, per-case coverage table, behavior/Q_R medoid selection, greedy marginal coverage fill",
+        "selection_policy_summary": "hard safety filter, per-case coverage table including speed-bin coverage, behavior/Q_R medoid selection, greedy marginal coverage fill",
         "hard_safety_filter_policy": "prefer hard_failure_rate_below_0p75_within_primitive_transition_entry_group",
+        "speed_bin_coverage_policy": "R8 compression must preserve local LQR speed-bin diversity within each primitive_id + transition_entry_class group up to the case representative budget",
         "primitive_timing_contract": primitive_timing_contract_row(),
         "entry_role_regime_separation_policy": "representatives_grouped_by_primitive_id_and_transition_entry_class_no_cross_entry_merge",
         "claim_status": "simulation_only_post_w3_library_size_study",
@@ -1066,6 +1236,7 @@ def _write_report(run_root: Path, manifest: dict[str, object]) -> None:
         f"- Library-size cases: `{','.join(LIBRARY_SIZE_CASE_IDS)}`",
         "- Human label retained for no_cluster_no_merge: `no-clustering/no-merging`",
         "- Selection: `coverage-aware behavior/Q-R medoid selection with greedy marginal coverage fill`",
+        "- Speed-bin coverage: R8 preserves distinct W3-surviving local LQR speed bins within each primitive/entry-class group up to the case budget and writes `speed_bin_coverage_audit.csv`.",
         "- Hard safety filter: within each primitive/entry-role group, prefer survivors with `hard_failure_rate < 0.75`; if all candidates exceed that threshold the group is retained for explicit downstream blocking/audit.",
         "- Medoids are existing W3-surviving variants; no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation is performed.",
         "- Claim boundary: simulation-only; no hardware-readiness, transfer, mission, or memory-improvement claim.",

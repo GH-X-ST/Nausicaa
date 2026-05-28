@@ -8,11 +8,13 @@ The active thesis workflow is `R5 -> R7 -> R8 -> R10 -> R11 -> Reality`. R9 rema
 
 Launch is an entry regime, not a separate controller family. The active primitive catalogue has exactly eight manoeuvre families: `glide`, `recovery`, `lift_entry`, `lift_dwell_arc`, `mild_turn_left`, `mild_turn_right`, `energy_retaining_bank`, and `safe_exit_or_recovery_handoff`. Retired `launch_capture_*` IDs are archive aliases only and must not appear in active evidence.
 
-Every primitive is treated as a transition object. R5 is robust transition-aware primitive / transition-object Q/R plus primitive-reference-bias training across five entry start families with exact dense proportions per primitive/candidate/environment: 40 `launch_gate`, 25 `inflight_nominal`, 15 `inflight_lift_region`, 10 `inflight_boundary_near`, and 10 `inflight_recovery_edge`. The dense evaluation target remains `8 * 32 * 3 * 100 = 76,800` rows, but row count alone is not a pass condition. Candidate 0 is nominal, candidates 1-7 are named physical anchors with small interpretable reference biases, and candidates 8-31 are deterministic Latin-hypercube log multipliers over the seven grouped LQR weights plus bounded pitch, bank, and speed reference biases. R5 writes `r5_transition_candidate_training_summary.csv`, `r5_transition_selected_for_r7.csv`, `r5_transition_pareto_front.csv`, and `r5_transition_training_manifest.json`, then freezes only selected transition objects for R7 while keeping the full candidate bundle as audit evidence.
+Every primitive is treated as a transition object. R5 is robust transition-aware primitive / transition-object Q/R plus primitive attitude/bank reference-bias training across five entry start families with exact dense proportions per primitive/candidate/environment: 40 `launch_gate`, 25 `inflight_nominal`, 15 `inflight_lift_region`, 10 `inflight_boundary_near`, and 10 `inflight_recovery_edge`. The dense evaluation target remains `8 * 32 * 3 * 100 = 76,800` rows, but row count alone is not a pass condition. Candidate 0 is nominal, candidates 1-7 are named physical anchors with small interpretable attitude/bank reference biases, and candidates 8-31 are deterministic Latin-hypercube log multipliers over the seven grouped LQR weights plus bounded pitch and bank reference biases. Speed-bin selection is for local model scheduling only; active primitives must not chase speed as a hard reference. R5 writes `r5_transition_candidate_training_summary.csv`, `r5_transition_selected_for_r7.csv`, `r5_transition_pareto_front.csv`, and `r5_transition_training_manifest.json`, then freezes only selected transition objects for R7 while keeping the full candidate bundle as audit evidence.
 
-R7 is held-out transition validation of the frozen R5-selected transition objects. No primitive may pass R7 solely on local rollout success; no primitive may pass R5 or R7 from dense row count or aggregate primitive success across entry classes. A controller can survive for one `primitive_id + entry_class` and fail for another. R8 compresses transition objects grouped by `primitive_id` and `transition_entry_class` using coverage-aware medoid selection without averaging Q/R, K, references, or controller IDs.
+R7 is held-out transition validation of the frozen R5-selected transition objects. No primitive may pass R7 solely on local rollout success; no primitive may pass R5 or R7 from dense row count or aggregate primitive success across entry classes. A controller can survive for one `primitive_id + entry_class` and fail for another. R8 compresses transition objects grouped by `primitive_id` and `transition_entry_class` using coverage-aware medoid selection without averaging Q/R, K, references, or controller IDs. R8 must also preserve distinct W3-surviving local LQR speed-bin coverage within each primitive/entry-class group up to the case representative budget; speed-bin collapse is a library-coverage failure, not an LQR-principle failure.
 
 The governor classifies the current state, filters representatives by validated `transition_entry_class`, rejects high hard-failure risk, scores transition probability plus updraft gain plus flight time plus residual-memory correction, executes the best transition object, and updates case-local residual memory. Step 0 has `current_state_class = launch_gate`, so it selects only transition objects validated for `entry_class = launch_gate`; there is no launch-specific primitive family route.
+
+The inner LQR remains a stabilising tracker around the primitive-defined local reference. It must not become the manoeuvre planner: primitive transition objects define manoeuvre intent and R5/R7/R8 decide which transition objects are valid, while the governor selects among those frozen transition objects. Same-start trajectory plots are diagnostic-only sanity checks for controller behaviour and do not replace R5/R7 transition evidence.
 
 Residual memory is a small case-local modifier: `predicted_updraft_gain = library_prediction + residual_memory_correction`. It must not override state classification or entry/exit compatibility. Memory is reinitialised per final test row. Final scoring is computed only from the final held-out rollout path. There is no hidden speed gate, no energy-loss hard failure, no PD/PID, no TVLQR, and no fan-layout-specific controller logic.
 
@@ -76,4 +78,20 @@ Python control-simulation pipeline
 - Simplifies launch handling: launch is a `launch_gate` entry regime for the same eight active manoeuvre families, while retired `launch_capture_*` IDs remain archive aliases only; post-W3 compression keeps the heavy/balanced/light/super-light/no-clustering cases.
 - Late validation now uses the simplified no-memory versus residual-memory h5/h20/h100 core comparison, controlled final-launch pairing, R10 governor tuning, R11 held-out validation, and R9 only as internal preflight/ablation material.
 - No memory improvement, hardware readiness, real-flight transfer, mission success, or full autonomy claim is made until strict R11 gates pass.
+```
+
+Current passive-speed inner-loop audit example:
+
+```text
+LQR-Stabilised Contextual Primitive v5.22
+```
+
+```text
+Python control-simulation pipeline
+
+- Keeps the LQR inner loop as a stabilising tracker around primitive-defined local references, with manoeuvre intent carried by transition objects and governor selection rather than hidden speed chasing.
+- Treats local speed bins as model-scheduling evidence only, preserves passive longitudinal speed handling, and keeps same-start trajectory plots as diagnostic controller sanity checks rather than R5/R7 pass evidence.
+- Strengthens post-W3 compression so R8 medoid selection preserves transition coverage and available local LQR speed-bin coverage before late-validation governor tuning.
+- Checks run: transition algorithm contract audit, focused LQR/R8 tests, same-start trajectory audit, and git diff --check.
+- No dense evidence regeneration, memory improvement, hardware readiness, real-flight transfer, mission success, or full autonomy claim is made by this change.
 ```

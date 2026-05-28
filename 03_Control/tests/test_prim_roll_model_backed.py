@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 
@@ -297,6 +299,48 @@ def test_latency_mechanisms_are_applied_and_logged() -> None:
     assert nominal.actuator_lag_applied is True
     assert nominal.latency_execution_status == "full_state_command_actuator_latency"
     assert np.isfinite(nominal.max_abs_command_norm)
+
+
+def test_command_timing_history_can_continue_across_primitive_rollouts() -> None:
+    state = _state()
+    context, wind = _context_and_wind(state)
+    primitive = primitive_by_id("glide")
+    first = simulate_primitive_rollout(
+        rollout_id="timing_continuity_first",
+        initial_state=state,
+        context=context,
+        primitive=primitive,
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
+        wind_field=wind,
+        controller=_controller("glide"),
+    )
+    first_row = rollout_evidence_row(first)
+    next_state = np.asarray(json.loads(str(first_row["exit_state_vector"])), dtype=float)
+
+    second = simulate_primitive_rollout(
+        rollout_id="timing_continuity_second",
+        initial_state=next_state,
+        context=context,
+        primitive=primitive,
+        config=RolloutConfig(
+            W_layer="W1",
+            rollout_backend="model_backed_lqr",
+            absolute_start_time_s=float(first_row["rollout_absolute_end_time_s"]),
+            preserve_command_timing_state=True,
+            initial_command_history_times_s_json=str(first_row["command_history_times_s_json"]),
+            initial_command_norm_history_json=str(first_row["command_norm_history_json"]),
+        ),
+        wind_field=wind,
+        controller=_controller("glide"),
+    )
+    second_row = rollout_evidence_row(second)
+    second_times = json.loads(str(second_row["command_history_times_s_json"]))
+
+    assert first_row["primitive_timing_state_continuity_status"] == "command_timing_state_reset_at_primitive_start"
+    assert second_row["primitive_timing_state_continuity_status"] == "continued_from_previous_primitive_command_history"
+    assert second_row["rollout_absolute_start_time_s"] == pytest.approx(first_row["rollout_absolute_end_time_s"])
+    assert min(second_times) < float(second_row["rollout_absolute_start_time_s"])
+    assert max(second_times) >= float(second_row["rollout_absolute_start_time_s"])
 
 
 def test_rollout_row_logs_full_canonical_entry_state() -> None:

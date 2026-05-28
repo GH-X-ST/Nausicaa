@@ -372,6 +372,9 @@ def _run_episode(
     terminal_useful = False
     continuation_valid = False
     total_duration_s = 0.0
+    episode_absolute_time_s = 0.0
+    episode_command_history_times_s_json = ""
+    episode_command_norm_history_json = ""
 
     for primitive_step_index in range(int(config.max_primitives_per_episode)):
         context_payload = _context_payload(
@@ -471,7 +474,14 @@ def _run_episode(
             initial_state=state,
             context=context_payload["context"],
             primitive=primitive,
-            config=RolloutConfig(W_layer=layer, rollout_backend="model_backed_lqr"),
+            config=RolloutConfig(
+                W_layer=layer,
+                rollout_backend="model_backed_lqr",
+                absolute_start_time_s=float(episode_absolute_time_s),
+                preserve_command_timing_state=True,
+                initial_command_history_times_s_json=episode_command_history_times_s_json,
+                initial_command_norm_history_json=episode_command_norm_history_json,
+            ),
             wind_field=context_payload["wind_field"],
             implementation_instance=context_payload["implementation_instance"],
             plant_instance=context_payload["plant_instance"],
@@ -481,6 +491,14 @@ def _run_episode(
             candidate_weight_label=record.candidate_weight_label,
         )
         rollout_row = rollout_evidence_row(rollout)
+        episode_absolute_time_s = float(
+            rollout_row.get(
+                "rollout_absolute_end_time_s",
+                episode_absolute_time_s + float(rollout_row.get("rollout_duration_s", 0.0)),
+            )
+        )
+        episode_command_history_times_s_json = str(rollout_row.get("command_history_times_s_json", ""))
+        episode_command_norm_history_json = str(rollout_row.get("command_norm_history_json", ""))
         representative = _representative_by_variant(representatives, str(selected["primitive_variant_id"]))
         outcome = outcomes_by_variant[str(selected["primitive_variant_id"])]
         primitive_rows.append(

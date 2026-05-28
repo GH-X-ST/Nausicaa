@@ -12,6 +12,7 @@ from dense_archive_table_io import (
     write_table_manifest,
     write_table_partition,
 )
+from lqr_linearisation import lqr_speed_bin_id
 from prim_cat import ACTIVE_PRIMITIVE_IDS
 from run_changed_case_validation import (
     HeldoutChangedCaseValidationConfig,
@@ -189,6 +190,69 @@ def test_post_w3_medoid_selection_keeps_existing_broad_coverage_variant() -> Non
 
     assert list(selected["primitive_variant_id"]) == ["broad_medoid"]
     assert selected["_selection_algorithm"].iloc[0] == "coverage_aware_behavior_qr_medoid_greedy_marginal"
+
+
+def test_post_w3_medoid_selection_preserves_speed_bin_coverage_when_budget_allows() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "primitive_variant_id": "strong_speed_5p0",
+                "primitive_id": "glide",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
+                "local_lqr_reference_speed_m_s": 5.0,
+                "local_lqr_speed_bin_id": lqr_speed_bin_id(5.0),
+                "continuation_valid_rate": 0.95,
+                "episode_terminal_useful_rate": 0.2,
+                "hard_failure_rate": 0.01,
+                "robustness_coverage_labels_json": '["env:single","speed_bin:speed_bin_5p0_m_s"]',
+                "robustness_coverage_rates_json": "[0.95,0.95]",
+                "Q_weight_json": '{"q":1.0}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            },
+            {
+                "primitive_variant_id": "redundant_speed_5p0",
+                "primitive_id": "glide",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
+                "local_lqr_reference_speed_m_s": 5.0,
+                "local_lqr_speed_bin_id": lqr_speed_bin_id(5.0),
+                "continuation_valid_rate": 0.93,
+                "episode_terminal_useful_rate": 0.2,
+                "hard_failure_rate": 0.01,
+                "robustness_coverage_labels_json": '["env:single","speed_bin:speed_bin_5p0_m_s"]',
+                "robustness_coverage_rates_json": "[0.93,0.93]",
+                "Q_weight_json": '{"q":1.01}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            },
+            {
+                "primitive_variant_id": "needed_speed_7p0",
+                "primitive_id": "glide",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
+                "local_lqr_reference_speed_m_s": 7.0,
+                "local_lqr_speed_bin_id": lqr_speed_bin_id(7.0),
+                "continuation_valid_rate": 0.70,
+                "episode_terminal_useful_rate": 0.1,
+                "hard_failure_rate": 0.02,
+                "robustness_coverage_labels_json": '["env:single","speed_bin:speed_bin_7p0_m_s"]',
+                "robustness_coverage_rates_json": "[0.70,0.70]",
+                "Q_weight_json": '{"q":1.3}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            },
+        ]
+    )
+
+    selected = _coverage_medoid_selection(frame, max_representatives=2, case_id="balanced_cluster")
+
+    assert set(selected["local_lqr_speed_bin_id"]) == {lqr_speed_bin_id(5.0), lqr_speed_bin_id(7.0)}
+    assert "greedy_speed_bin_marginal_coverage_medoid" in set(selected["_medoid_selection_reason"])
 
 
 def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_counts(tmp_path: Path) -> None:
@@ -489,6 +553,7 @@ def _w3_row(
     transition_entry_class: str = "inflight_stable",
     transition_exit_class: str = "",
     transition_chain_compatible: bool | None = None,
+    local_speed_m_s: float = 5.0,
 ) -> dict[str, object]:
     prefix = "glide" if primitive_id == "glide" else "lift"
     if not transition_exit_class:
@@ -542,6 +607,8 @@ def _w3_row(
         "variant_R_weight_json": "{\"r\":1}",
         "variant_reference_state_vector": "[0,0,0]",
         "variant_reference_command_vector": "[0,0,0]",
+        "variant_local_lqr_reference_speed_m_s": float(local_speed_m_s),
+        "variant_local_lqr_speed_bin_id": lqr_speed_bin_id(float(local_speed_m_s)),
         "variant_finite_horizon_s": 0.1,
         "variant_controller_input_slots_per_primitive": 5,
         "variant_controller_input_update_period_s": 0.02,

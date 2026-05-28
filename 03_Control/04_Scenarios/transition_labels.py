@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from arena_contract import TRUE_SAFE_BOUNDS, position_margin_m
+from arena_contract import TRUE_SAFE_BOUNDS, heading_aligned_wall_margins_m, position_margin_m
 from state_contract import STATE_INDEX, STATE_SIZE, as_state_vector
 
 
@@ -71,8 +71,11 @@ STATE_CLASS_START_FAMILY = {
     "hard_failure": "inflight_recovery_edge",
 }
 
-TRANSITION_LABEL_VERSION = "transition_labels_v1_transition_aware_primitives"
+TRANSITION_LABEL_VERSION = "transition_labels_v2_time_to_boundary"
 BOUNDARY_NEAR_MARGIN_M = 0.25
+BOUNDARY_NEAR_FRONT_TIME_MARGIN_S = 0.45
+BOUNDARY_NEAR_SIDE_TIME_MARGIN_S = 0.35
+BOUNDARY_NEAR_MIN_SPEED_FOR_TIME_MARGIN_M_S = 0.50
 RECOVERABLE_MAX_ABS_ROLL_RAD = math.radians(35.0)
 RECOVERABLE_MAX_ABS_PITCH_RAD = math.radians(22.0)
 RECOVERABLE_MAX_BODY_RATE_RAD_S = 0.65
@@ -101,6 +104,8 @@ def classify_state(
 
     if min(float(margins["floor_margin_m"]), float(margins["ceiling_margin_m"])) < 0.0:
         return "hard_failure"
+    if _time_to_boundary_is_near(x):
+        return "boundary_near"
     if float(margins["min_wall_margin_m"]) <= BOUNDARY_NEAR_MARGIN_M:
         return "boundary_near"
 
@@ -238,6 +243,10 @@ def transition_contract_row() -> dict[str, object]:
         "boundary_near_required_exit_classes": ";".join(REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS["boundary_near"]),
         "recoverable_degraded_required_exit_classes": ";".join(REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS["recoverable_degraded"]),
         "boundary_near_is_route_state_not_failure": True,
+        "boundary_near_static_wall_margin_m": float(BOUNDARY_NEAR_MARGIN_M),
+        "boundary_near_front_time_margin_s": float(BOUNDARY_NEAR_FRONT_TIME_MARGIN_S),
+        "boundary_near_side_time_margin_s": float(BOUNDARY_NEAR_SIDE_TIME_MARGIN_S),
+        "boundary_near_time_margin_uses_front_and_side_not_rear": True,
         "hard_failure_is_only_failure_class": True,
     }
 
@@ -298,6 +307,31 @@ def _state_vector(state: Any) -> np.ndarray:
     if isinstance(state, str):
         state = json.loads(state)
     return as_state_vector(np.asarray(state, dtype=float).reshape(STATE_SIZE))
+
+
+def _time_to_boundary_is_near(state: np.ndarray) -> bool:
+    """Return true when front/side boundary arrival is too close for handoff."""
+
+    try:
+        margins = heading_aligned_wall_margins_m(
+            state[[STATE_INDEX["x_w"], STATE_INDEX["y_w"], STATE_INDEX["z_w"]]],
+            float(state[STATE_INDEX["psi"]]),
+            TRUE_SAFE_BOUNDS,
+        )
+        speed_m_s = float(np.linalg.norm(state[[STATE_INDEX["u"], STATE_INDEX["v"], STATE_INDEX["w"]]]))
+    except Exception:
+        return True
+    if speed_m_s < BOUNDARY_NEAR_MIN_SPEED_FOR_TIME_MARGIN_M_S:
+        return False
+    front_time_s = float(margins["front_wall_margin_m"]) / max(speed_m_s, 1e-9)
+    side_time_s = min(
+        float(margins["left_wall_margin_m"]),
+        float(margins["right_wall_margin_m"]),
+    ) / max(speed_m_s, 1e-9)
+    return bool(
+        front_time_s <= BOUNDARY_NEAR_FRONT_TIME_MARGIN_S
+        or side_time_s <= BOUNDARY_NEAR_SIDE_TIME_MARGIN_S
+    )
 
 
 def _json_state(value: Any) -> np.ndarray | None:

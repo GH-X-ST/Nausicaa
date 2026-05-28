@@ -3,7 +3,9 @@ from __future__ import annotations
 import pandas as pd
 
 from run_post_w3_library_size_study import _survived_frame_blocked_reason
-from transition_labels import classify_transition, transition_is_chain_compatible
+import numpy as np
+
+from transition_labels import classify_state, classify_transition, transition_is_chain_compatible
 from viability_governor import governor_rejection_reason
 
 
@@ -69,6 +71,28 @@ def test_recovery_to_inflight_is_chain_compatible() -> None:
     )
 
 
+def test_boundary_near_uses_front_time_margin_not_static_distance_only() -> None:
+    state = np.zeros(15, dtype=float)
+    state[0] = 5.05
+    state[1] = 2.20
+    state[2] = 1.20
+    state[5] = 0.0
+    state[6] = 6.2
+
+    assert classify_state(state) == "boundary_near"
+
+
+def test_boundary_near_time_margin_ignores_rear_wall_for_forward_flight() -> None:
+    state = np.zeros(15, dtype=float)
+    state[0] = 1.52
+    state[1] = 2.20
+    state[2] = 1.20
+    state[5] = 0.0
+    state[6] = 4.0
+
+    assert classify_state(state) == "inflight_stable"
+
+
 def test_r8_blocks_old_w3_summary_without_transition_gate() -> None:
     survived = pd.DataFrame(
         [
@@ -129,7 +153,7 @@ def test_governor_rejects_zero_transition_success() -> None:
     )
 
 
-def test_governor_rejects_transition_object_from_wrong_lqr_speed_bin() -> None:
+def test_governor_treats_lqr_speed_bin_mismatch_as_audit_metadata_not_rejection() -> None:
     representative = {
         "compact_library_id": "lib_v0",
         "primitive_variant_id": "v0",
@@ -168,5 +192,5 @@ def test_governor_rejects_transition_object_from_wrong_lqr_speed_bin() -> None:
             context=context,
             governor_mode="continuation_mode",
         )
-        == "local_speed_bin_incompatible"
+        == ""
     )

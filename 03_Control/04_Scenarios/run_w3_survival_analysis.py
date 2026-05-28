@@ -26,6 +26,7 @@ from dense_archive_table_io import (  # noqa: E402
     load_table_manifest,
     read_table_partition,
 )
+from lqr_linearisation import lqr_speed_bin_id  # noqa: E402
 from prim_cat import ACTIVE_PRIMITIVE_IDS  # noqa: E402
 from primitive_timing_contract import PRIMITIVE_TIMING_CONTRACT_VERSION, primitive_timing_contract_row  # noqa: E402
 from transition_labels import transition_contract_row, transition_row_fields  # noqa: E402
@@ -298,6 +299,13 @@ def _base_variant_row(first: pd.Series, variant_id: str, *, transition_entry_cla
         "controller_id": str(first.get("controller_id", first.get("variant_controller_id", ""))),
         "candidate_index": int(float(first.get("candidate_index", first.get("variant_candidate_index", 0)))),
         "candidate_weight_label": str(first.get("candidate_weight_label", first.get("variant_candidate_weight_label", ""))),
+        "local_lqr_speed_bin_id": _safe_speed_bin_value(
+            first.get("variant_local_lqr_speed_bin_id", first.get("local_lqr_speed_bin_id", "")),
+            first.get("variant_local_lqr_reference_speed_m_s", first.get("local_lqr_reference_speed_m_s", 0.0)),
+        ),
+        "local_lqr_reference_speed_m_s": _safe_float_value(
+            first.get("variant_local_lqr_reference_speed_m_s", first.get("local_lqr_reference_speed_m_s", 0.0))
+        ),
         "K_gain_checksum": str(first.get("variant_K_gain_checksum", first.get("lqr_gain_checksum", ""))),
         "augmented_A_checksum": str(first.get("variant_augmented_A_checksum", first.get("augmented_A_checksum", ""))),
         "augmented_B_checksum": str(first.get("variant_augmented_B_checksum", first.get("augmented_B_checksum", ""))),
@@ -718,6 +726,22 @@ def _safe_min(frame: pd.DataFrame, column: str) -> float:
     if column not in frame.columns or frame.empty:
         return 0.0
     return float(pd.to_numeric(frame[column], errors="coerce").min())
+
+
+def _safe_float_value(value: object, default: float = 0.0) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    return result if pd.notna(result) else float(default)
+
+
+def _safe_speed_bin_value(value: object, speed_value: object) -> str:
+    text = str(value).strip()
+    if text and text.lower() != "nan":
+        return text
+    speed = _safe_float_value(speed_value)
+    return lqr_speed_bin_id(speed) if speed > 0.0 else ""
 
 
 def _safe_mean(frame: pd.DataFrame, column: str) -> float:

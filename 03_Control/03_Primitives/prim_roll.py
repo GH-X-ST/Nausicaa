@@ -166,6 +166,11 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "latency_pass_label",
     "timing_model_version",
     "timing_state_source",
+    "rollout_absolute_start_time_s",
+    "rollout_absolute_end_time_s",
+    "primitive_timing_state_continuity_status",
+    "command_history_times_s_json",
+    "command_norm_history_json",
     "rollout_backend",
     "evidence_role",
     "surrogate_binding_status",
@@ -207,6 +212,7 @@ ROLLOUT_EVIDENCE_ALIAS_VALUES = (
     "not_continuation_valid",
     "terminal_useful",
 )
+COMMAND_HISTORY_EXPORT_LIMIT = 64
 
 
 @dataclass(frozen=True)
@@ -216,6 +222,10 @@ class RolloutConfig:
     wall_margin_reserve_m: float = 0.20
     rollout_backend: str = "smoke_only"
     wind_mode: str = "panel"
+    absolute_start_time_s: float = 0.0
+    preserve_command_timing_state: bool = False
+    initial_command_history_times_s_json: str = ""
+    initial_command_norm_history_json: str = ""
 
 
 @dataclass(frozen=True)
@@ -298,6 +308,11 @@ class RolloutEvidence:
     latency_pass_label: str
     timing_model_version: str
     timing_state_source: str
+    rollout_absolute_start_time_s: float
+    rollout_absolute_end_time_s: float
+    primitive_timing_state_continuity_status: str
+    command_history_times_s_json: str
+    command_norm_history_json: str
     rollout_backend: str
     evidence_role: str
     surrogate_binding_status: str
@@ -485,6 +500,11 @@ def blocked_rollout_evidence(
         latency_case=context.latency_case,
         **latency_fields,
         timing_state_source="not_evaluated_blocked_before_rollout",
+        **_rollout_timing_continuity_fields(
+            config=cfg,
+            rollout_duration_s=0.0,
+            continuity_status="blocked_before_rollout",
+        ),
         rollout_backend="blocked_lqr",
         evidence_role=EVIDENCE_ROLE_BY_BACKEND["blocked_lqr"],
         surrogate_binding_status=context.surrogate_binding_status,
@@ -611,6 +631,11 @@ def _simulate_smoke_rollout(
         latency_case=context.latency_case,
         **latency_fields,
         timing_state_source="not_evaluated_smoke_only",
+        **_rollout_timing_continuity_fields(
+            config=config,
+            rollout_duration_s=float(primitive.finite_horizon_s),
+            continuity_status="smoke_only_not_integrated",
+        ),
         rollout_backend="smoke_only",
         evidence_role=EVIDENCE_ROLE_BY_BACKEND["smoke_only"],
         surrogate_binding_status=context.surrogate_binding_status,
@@ -822,10 +847,12 @@ def _simulate_dynamics_rollout(
         finite_horizon_s=primitive.finite_horizon_s,
         controller_input_update_period_s=float(config.dt_s),
     )
+    absolute_start_time_s = float(config.absolute_start_time_s)
     times_s = [0.0]
     states = [x.copy()]
     command_delay_s = float(latency.command_onset_delay_s + latency.command_transport_delay_s)
     timing_state_source = "not_evaluated_before_first_command"
+    timing_state_continuity_status = "command_timing_state_reset_at_primitive_start"
     if config.rollout_backend == "model_backed_lqr":
         initial_command = primitive_lqr_command(
             primitive,
@@ -840,11 +867,20 @@ def _simulate_dynamics_rollout(
         reference_command_norm = surface_rad_to_normalised_command(
             np.asarray(resolved_controller.reference_command_vector, dtype=float)
         )
-        if mechanism_flags["command_delay_applied"]:
-            command_times_s = [-(command_delay_s + 1e-9)]
+        restored_times_s, restored_command_norm_history = _initial_command_history_from_config(config)
+        if (
+            bool(config.preserve_command_timing_state)
+            and restored_times_s
+            and restored_command_norm_history
+        ):
+            command_times_s = restored_times_s
+            command_norm_history = restored_command_norm_history
+            timing_state_continuity_status = "continued_from_previous_primitive_command_history"
+        elif mechanism_flags["command_delay_applied"]:
+            command_times_s = [absolute_start_time_s - (command_delay_s + 1e-9)]
             command_norm_history = [reference_command_norm.copy()]
         else:
-            command_times_s = [0.0]
+            command_times_s = [absolute_start_time_s]
             command_norm_history = [np.asarray(initial_command.command_norm, dtype=float)]
         saturation_count = int(initial_command.saturation_applied)
         max_abs_command_norm = float(np.max(np.abs(initial_command.command_norm)))
@@ -854,6 +890,7 @@ def _simulate_dynamics_rollout(
 
     for step_index in range(steps):
         time_s = float(step_index) * float(config.dt_s)
+        absolute_time_s = absolute_start_time_s + time_s
         margins = position_margin_m(x[:3], TRUE_SAFE_BOUNDS)
         min_wall_margin_m = min(min_wall_margin_m, float(margins["min_wall_margin_m"]))
         min_floor_margin_m = min(min_floor_margin_m, float(margins["floor_margin_m"]))
@@ -903,7 +940,7 @@ def _simulate_dynamics_rollout(
                         state_vector=x_control,
                         command_times_s=command_times_s,
                         command_norm_history=command_norm_history,
-                        time_s=time_s,
+                        time_s=absolute_time_s,
                         latency=latency,
                         dt_s=float(config.dt_s),
                     ),
@@ -912,8 +949,8 @@ def _simulate_dynamics_rollout(
             )
             timing_state_source = control_command.timing_state_source
             desired_command_norm = np.asarray(control_command.command_norm, dtype=float)
-            if time_s > command_times_s[-1]:
-                command_times_s.append(time_s)
+            if absolute_time_s > command_times_s[-1]:
+                command_times_s.append(absolute_time_s)
                 command_norm_history.append(desired_command_norm.copy())
             else:
                 command_norm_history[-1] = desired_command_norm.copy()
@@ -921,7 +958,7 @@ def _simulate_dynamics_rollout(
                 applied_norm = latency_adjusted_command_sample(
                     np.asarray(command_times_s, dtype=float),
                     np.asarray(command_norm_history, dtype=float),
-                    time_s,
+                    absolute_time_s,
                     latency,
                 )
             else:
@@ -1034,6 +1071,13 @@ def _simulate_dynamics_rollout(
         latency_case=context.latency_case,
         **latency_fields,
         timing_state_source=timing_state_source,
+        **_rollout_timing_continuity_fields(
+            config=config,
+            rollout_duration_s=float(times_s[-1] if times_s else 0.0),
+            continuity_status=timing_state_continuity_status,
+            command_times_s=command_times_s,
+            command_norm_history=command_norm_history,
+        ),
         rollout_backend=config.rollout_backend,
         evidence_role=_evidence_role_for_backend(config.rollout_backend),
         surrogate_binding_status=context.surrogate_binding_status,
@@ -1145,6 +1189,11 @@ def _blocked_from_state(
         latency_case=context.latency_case,
         **latency_fields,
         timing_state_source="not_evaluated_blocked_before_rollout",
+        **_rollout_timing_continuity_fields(
+            config=config,
+            rollout_duration_s=0.0,
+            continuity_status="blocked_before_rollout",
+        ),
         rollout_backend=config.rollout_backend,
         evidence_role=_evidence_role_for_backend(config.rollout_backend),
         surrogate_binding_status=context.surrogate_binding_status,
@@ -1663,3 +1712,67 @@ def rollout_with_context_row(evidence: RolloutEvidence, context: EnvironmentCont
 
 def _vector_json(values: np.ndarray) -> str:
     return json.dumps([float(value) for value in values], separators=(",", ":"))
+
+
+def _rollout_timing_continuity_fields(
+    *,
+    config: RolloutConfig,
+    rollout_duration_s: float,
+    continuity_status: str,
+    command_times_s: list[float] | None = None,
+    command_norm_history: list[np.ndarray] | None = None,
+) -> dict[str, object]:
+    start_s = float(config.absolute_start_time_s)
+    duration_s = float(rollout_duration_s)
+    times, commands = _compact_command_history(command_times_s or [], command_norm_history or [])
+    return {
+        "rollout_absolute_start_time_s": start_s,
+        "rollout_absolute_end_time_s": start_s + duration_s,
+        "primitive_timing_state_continuity_status": str(continuity_status),
+        "command_history_times_s_json": _float_list_json(times),
+        "command_norm_history_json": _command_norm_history_json(commands),
+    }
+
+
+def _initial_command_history_from_config(config: RolloutConfig) -> tuple[list[float], list[np.ndarray]]:
+    try:
+        times = [float(value) for value in json.loads(str(config.initial_command_history_times_s_json or "[]"))]
+        commands_raw = json.loads(str(config.initial_command_norm_history_json or "[]"))
+        commands = [np.asarray(row, dtype=float).reshape(3) for row in commands_raw]
+    except Exception:
+        return [], []
+    if not times or len(times) != len(commands):
+        return [], []
+    if not np.all(np.isfinite(np.asarray(times, dtype=float))):
+        return [], []
+    if not np.all(np.isfinite(np.asarray(commands, dtype=float))):
+        return [], []
+    times, commands = _compact_command_history(times, commands)
+    return times, commands
+
+
+def _compact_command_history(
+    times: list[float],
+    commands: list[np.ndarray],
+) -> tuple[list[float], list[np.ndarray]]:
+    if not times or not commands:
+        return [], []
+    count = min(len(times), len(commands))
+    start_index = max(0, count - COMMAND_HISTORY_EXPORT_LIMIT)
+    compact_times = [float(value) for value in times[start_index:count]]
+    compact_commands = [np.asarray(row, dtype=float).reshape(3) for row in commands[start_index:count]]
+    return compact_times, compact_commands
+
+
+def _float_list_json(values: list[float]) -> str:
+    return json.dumps([float(value) for value in values], separators=(",", ":"))
+
+
+def _command_norm_history_json(commands: list[np.ndarray]) -> str:
+    return json.dumps(
+        [
+            [float(value) for value in np.asarray(row, dtype=float).reshape(3)]
+            for row in commands
+        ],
+        separators=(",", ":"),
+    )

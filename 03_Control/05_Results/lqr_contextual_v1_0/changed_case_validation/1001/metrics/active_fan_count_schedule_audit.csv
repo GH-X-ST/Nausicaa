@@ -1,9 +1,0 @@
-environment_block_id,scheduled_active_fan_count,outer_case_count,expected_outer_case_count,expected_active_fan_counts,policy,audit_passed
-active_fan_number_variation,1,5,5,1;2;3;4,balanced_1_2_3_4_for_active_fan_number_variation,True
-active_fan_number_variation,2,5,5,1;2;3;4,balanced_1_2_3_4_for_active_fan_number_variation,True
-active_fan_number_variation,3,5,5,1;2;3;4,balanced_1_2_3_4_for_active_fan_number_variation,True
-active_fan_number_variation,4,5,5,1;2;3;4,balanced_1_2_3_4_for_active_fan_number_variation,True
-arena_wide_fan_position_generalisation,1,5,5,1;2;3;4,balanced_1_2_3_4_with_arena_wide_fan_position_generalisation,True
-arena_wide_fan_position_generalisation,2,5,5,1;2;3;4,balanced_1_2_3_4_with_arena_wide_fan_position_generalisation,True
-arena_wide_fan_position_generalisation,3,5,5,1;2;3;4,balanced_1_2_3_4_with_arena_wide_fan_position_generalisation,True
-arena_wide_fan_position_generalisation,4,5,5,1;2;3;4,balanced_1_2_3_4_with_arena_wide_fan_position_generalisation,True

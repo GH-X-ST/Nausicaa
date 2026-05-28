@@ -13,7 +13,6 @@ REJECTION_REASONS = (
     "transition_entry_class_incompatible",
     "transition_success_probability_zero",
     "transition_predicted_exit_class_incompatible",
-    "local_speed_bin_incompatible",
     "context_vertical_safety_violation",
     "timing_payload_checksum_missing",
     "known_hard_failure_boundary_high",
@@ -311,10 +310,6 @@ def governor_rejection_reason(
         return "transition_entry_class_incompatible"
     if str(context.get("start_state_family", "")) and entry_class == "launch_gate" and start_state_family != "launch_gate":
         return "entry_role_incompatible_start_family"
-    candidate_speed_bin = _candidate_speed_bin(representative=representative, outcome=outcome)
-    context_speed_bin = _context_speed_bin(context)
-    if candidate_speed_bin and context_speed_bin and candidate_speed_bin != context_speed_bin:
-        return "local_speed_bin_incompatible"
     if _float(context.get("floor_margin_m", 0.0)) < 0.0 or _float(context.get("ceiling_margin_m", 0.0)) < 0.0:
         return "context_vertical_safety_violation"
     if not _has_timing_payload(representative):

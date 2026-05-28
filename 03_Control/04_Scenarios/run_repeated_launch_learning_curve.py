@@ -1042,6 +1042,9 @@ def _run_one_launch(
     belief_after = belief
     context_row: dict[str, object] = {}
     blocked_reason = ""
+    episode_absolute_time_s = 0.0
+    episode_command_history_times_s_json = ""
+    episode_command_norm_history_json = ""
     for primitive_step_index in range(max_steps):
         route = validation_route_for_primitive_step(primitive_step_index, state=state)
         start_state_family = str(route["start_state_family"])
@@ -1135,7 +1138,14 @@ def _run_one_launch(
             initial_state=state,
             context=context_payload["context"],
             primitive=primitive,
-            config=RolloutConfig(W_layer=str(scheduled["W_layer"]), rollout_backend="model_backed_lqr"),
+            config=RolloutConfig(
+                W_layer=str(scheduled["W_layer"]),
+                rollout_backend="model_backed_lqr",
+                absolute_start_time_s=float(episode_absolute_time_s),
+                preserve_command_timing_state=True,
+                initial_command_history_times_s_json=episode_command_history_times_s_json,
+                initial_command_norm_history_json=episode_command_norm_history_json,
+            ),
             wind_field=context_payload["wind_field"],
             implementation_instance=context_payload["implementation_instance"],
             plant_instance=context_payload["plant_instance"],
@@ -1145,6 +1155,14 @@ def _run_one_launch(
             candidate_weight_label=record.candidate_weight_label,
         )
         rollout_row = rollout_evidence_row(rollout)
+        episode_absolute_time_s = float(
+            rollout_row.get(
+                "rollout_absolute_end_time_s",
+                episode_absolute_time_s + float(rollout_row.get("rollout_duration_s", PRIMITIVE_FINITE_HORIZON_S)),
+            )
+        )
+        episode_command_history_times_s_json = str(rollout_row.get("command_history_times_s_json", ""))
+        episode_command_norm_history_json = str(rollout_row.get("command_norm_history_json", ""))
         rollout_row.update(
             transition_row_fields(
                 rollout_row,

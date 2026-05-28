@@ -23,7 +23,7 @@ from prim_cat import PrimitiveDefinition, active_primitive_catalogue
 # =============================================================================
 # 1) W01 Tuning Contracts
 # =============================================================================
-W01_TUNING_METHOD_VERSION = "w01_transition_robust_qr_reference_v4"
+W01_TUNING_METHOD_VERSION = "w01_transition_passive_speed_qr_reference_v5"
 PREFERRED_CANDIDATES_PER_PRIMITIVE = (16, 32)
 FALLBACK_CANDIDATES_PER_PRIMITIVE = 8
 PREFERRED_PAIRED_TESTS_PER_CANDIDATE = (50, 100)
@@ -45,7 +45,7 @@ SOFT_OBJECTIVE_TERMS = (
     "lift_dwell_time_s",
     "rollout_duration_s",
     "saturation_fraction",
-    "reference_bias_sweep_coverage",
+    "attitude_bank_reference_bias_sweep_coverage",
 )
 LQR_WEIGHT_FIELD_NAMES = (
     "q_attitude",
@@ -59,7 +59,7 @@ LQR_WEIGHT_FIELD_NAMES = (
 STRUCTURED_ANCHOR_MULTIPLIERS: tuple[tuple[str, tuple[float, float, float, float, float, float, float]], ...] = (
     ("nominal", (1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)),
     ("attitude_heavy", (1.8, 1.0, 1.2, 1.0, 1.1, 1.1, 1.1)),
-    ("velocity_energy_heavy", (1.0, 1.8, 1.0, 1.0, 1.0, 1.0, 1.0)),
+    ("passive_velocity_moderate", (1.0, 0.75, 1.0, 1.0, 1.0, 1.0, 1.0)),
     ("rate_damped", (1.0, 1.0, 1.8, 1.0, 1.2, 1.2, 1.2)),
     ("surface_conservative", (1.0, 1.0, 1.0, 1.4, 1.8, 1.8, 1.8)),
     ("surface_aggressive", (1.1, 1.1, 1.1, 0.8, 0.6, 0.6, 0.6)),
@@ -74,16 +74,16 @@ REFERENCE_BIAS_FIELD_NAMES = (
 STRUCTURED_REFERENCE_BIASES: tuple[tuple[str, tuple[float, float, float]], ...] = (
     ("ref_nominal", (0.0, 0.0, 0.0)),
     ("ref_pitch_up", (0.025, 0.0, 0.0)),
-    ("ref_energy_seek", (-0.020, 0.0, 0.35)),
-    ("ref_damped_level", (0.0, 0.0, -0.25)),
+    ("ref_energy_seek_pitch", (-0.020, 0.0, 0.0)),
+    ("ref_damped_level", (0.0, 0.0, 0.0)),
     ("ref_conservative_level", (0.0, 0.0, 0.0)),
-    ("ref_agile_pitch_up", (0.018, 0.0, 0.15)),
+    ("ref_agile_pitch_up", (0.018, 0.0, 0.0)),
     ("ref_left_bias", (0.0, -0.055, 0.0)),
     ("ref_right_bias", (0.0, 0.055, 0.0)),
 )
 REFERENCE_PITCH_BIAS_RANGE_RAD = (-0.040, 0.040)
 REFERENCE_BANK_BIAS_RANGE_RAD = (-0.080, 0.080)
-REFERENCE_SPEED_BIAS_RANGE_M_S = (-0.500, 0.500)
+REFERENCE_SPEED_BIAS_RANGE_M_S = (0.0, 0.0)
 LHS_LOG10_MULTIPLIER_MIN = -0.75
 LHS_LOG10_MULTIPLIER_MAX = 0.75
 

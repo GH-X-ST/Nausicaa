@@ -52,6 +52,7 @@ TIMING_AUGMENTATION_TYPE = "actuator_surface_state_command_fifo_predictor_compen
 TIMING_DESIGN_VERSION = "predictor_compensated_augmented_discrete_lqr_v1"
 TIMING_STATE_HISTORY_BACKED = "history_backed_fifo"
 TIMING_STATE_INITIALISED = "initialised_fifo_not_history_backed"
+LONGITUDINAL_SPEED_ERROR_POLICY = "passive_u_error_zeroed_speed_is_scheduling_only_v1"
 
 
 @dataclass(frozen=True)
@@ -169,23 +170,23 @@ def default_lqr_weight_spec(primitive_id: str, *, tuning_stage: str = "W0_W1") -
     """Return conservative grouped diagonal Q/R weights for one primitive."""
 
     base = {
-        "glide": (4.0, 2.0, 1.5, 0.15, 1.3, 0.9, 1.4),
-        "recovery": (6.0, 2.2, 2.0, 0.20, 1.1, 0.8, 1.2),
-        "lift_entry": (4.5, 2.5, 1.8, 0.15, 1.1, 0.9, 1.2),
-        "lift_dwell_arc": (5.0, 2.2, 2.1, 0.18, 0.9, 1.0, 1.1),
-        "mild_turn_left": (5.0, 2.0, 2.1, 0.18, 0.9, 1.1, 1.0),
-        "mild_turn_right": (5.0, 2.0, 2.1, 0.18, 0.9, 1.1, 1.0),
-        "energy_retaining_bank": (4.8, 2.8, 1.8, 0.15, 1.0, 0.9, 1.2),
-        "safe_exit_or_recovery_handoff": (6.0, 2.0, 2.4, 0.20, 1.1, 0.8, 1.2),
+        "glide": (4.0, 0.45, 1.5, 0.15, 1.3, 0.9, 1.4),
+        "recovery": (6.0, 0.55, 2.0, 0.20, 1.1, 0.8, 1.2),
+        "lift_entry": (4.5, 0.55, 1.8, 0.15, 1.1, 0.9, 1.2),
+        "lift_dwell_arc": (5.0, 0.50, 2.1, 0.18, 0.9, 1.0, 1.1),
+        "mild_turn_left": (5.0, 0.45, 2.1, 0.18, 0.9, 1.1, 1.0),
+        "mild_turn_right": (5.0, 0.45, 2.1, 0.18, 0.9, 1.1, 1.0),
+        "energy_retaining_bank": (4.8, 0.60, 1.8, 0.15, 1.0, 0.9, 1.2),
+        "safe_exit_or_recovery_handoff": (6.0, 0.50, 2.4, 0.20, 1.1, 0.8, 1.2),
         # Archive compatibility only: active evidence generation obtains
         # primitives through primitive_by_id(), which rejects these retired IDs.
-        "launch_capture_glide_stabilise": (5.2, 2.4, 2.0, 0.18, 1.2, 0.9, 1.3),
-        "launch_capture_lift_seek": (5.0, 2.8, 2.0, 0.18, 1.1, 0.9, 1.2),
-        "launch_capture_energy_build": (4.8, 3.0, 1.9, 0.16, 1.1, 0.8, 1.2),
-        "launch_capture_shallow_left": (5.3, 2.3, 2.2, 0.18, 1.0, 1.0, 1.1),
-        "launch_capture_shallow_right": (5.3, 2.3, 2.2, 0.18, 1.0, 1.0, 1.1),
-        "launch_capture_safe_handoff": (6.2, 2.3, 2.4, 0.20, 1.2, 0.8, 1.2),
-    }.get(str(primitive_id), (4.0, 2.0, 2.0, 0.2, 1.0, 1.0, 1.0))
+        "launch_capture_glide_stabilise": (5.2, 0.55, 2.0, 0.18, 1.2, 0.9, 1.3),
+        "launch_capture_lift_seek": (5.0, 0.60, 2.0, 0.18, 1.1, 0.9, 1.2),
+        "launch_capture_energy_build": (4.8, 0.65, 1.9, 0.16, 1.1, 0.8, 1.2),
+        "launch_capture_shallow_left": (5.3, 0.50, 2.2, 0.18, 1.0, 1.0, 1.1),
+        "launch_capture_shallow_right": (5.3, 0.50, 2.2, 0.18, 1.0, 1.0, 1.1),
+        "launch_capture_safe_handoff": (6.2, 0.55, 2.4, 0.20, 1.2, 0.8, 1.2),
+    }.get(str(primitive_id), (4.0, 0.50, 2.0, 0.2, 1.0, 1.0, 1.0))
     return LQRWeightSpec(
         q_attitude=base[0],
         q_velocity=base[1],
@@ -601,7 +602,7 @@ def lqr_command_for_state(
             timing_state=timing_state,
         )
     else:
-        raw_rad = u_ref - gain @ (state - x_ref)
+        raw_rad = u_ref - gain @ _passive_longitudinal_speed_error_full(state - x_ref)
         timing_state_source = "not_applicable_baseline_controller"
     raw_norm = _surface_rad_to_unclipped_norm(raw_rad)
     clipped_norm = clip_normalised_command(raw_norm)
@@ -1022,10 +1023,12 @@ def _timing_aware_raw_command_rad(
     u_ref = np.asarray(controller.reference_command_vector, dtype=float)
     reduced_indices = list(reduced_state_indices())
     x_error = np.asarray(state, dtype=float)[reduced_indices] - x_ref[reduced_indices]
+    x_error = _passive_longitudinal_speed_error_reduced(x_error)
     try:
         predictor_a = np.asarray(json.loads(controller.predictor_A_reduced_json), dtype=float)
         for _ in range(max(0, int(controller.predictor_horizon_steps))):
             x_error = predictor_a @ x_error
+        x_error = _passive_longitudinal_speed_error_reduced(x_error)
     except Exception:
         pass
     fifo_steps = max(0, int(controller.command_delay_steps))
@@ -1067,6 +1070,19 @@ def _normalised_fifo_rad(
     if not np.all(np.isfinite(fifo)):
         raise ValueError("command_fifo_rad must be finite.")
     return fifo
+
+
+def _passive_longitudinal_speed_error_reduced(error: np.ndarray) -> np.ndarray:
+    result = np.asarray(error, dtype=float).reshape(len(LQR_STATE_MASK)).copy()
+    if "u" in LQR_STATE_MASK:
+        result[LQR_STATE_MASK.index("u")] = 0.0
+    return result
+
+
+def _passive_longitudinal_speed_error_full(error: np.ndarray) -> np.ndarray:
+    result = np.asarray(error, dtype=float).reshape(STATE_SIZE).copy()
+    result[STATE_INDEX["u"]] = 0.0
+    return result
 
 
 def _q_reduced(weights: LQRWeightSpec) -> np.ndarray:
@@ -1218,6 +1234,7 @@ def _q_weight_payload(weights: LQRWeightSpec) -> dict[str, object]:
     return {
         "grouping": "diagonal_grouped_log_scaled_with_reference_bias",
         "state_mask": list(LQR_STATE_MASK),
+        "longitudinal_speed_error_policy": LONGITUDINAL_SPEED_ERROR_POLICY,
         "q_attitude": float(weights.q_attitude),
         "q_velocity": float(weights.q_velocity),
         "q_rates": float(weights.q_rates),

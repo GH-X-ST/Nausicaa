@@ -34,7 +34,7 @@ from trim_solver import TrimTarget  # noqa: E402
 # 1) LQR Linearisation Contract
 # =============================================================================
 LQR_LINEARISATION_VERSION = "reduced_order_lqr_linearisation_v1"
-LQR_LOCAL_OPERATING_POINT_VERSION = "gain_scheduled_local_speed_operating_point_v1"
+LQR_LOCAL_OPERATING_POINT_VERSION = "gain_scheduled_passive_speed_operating_point_v2"
 LQR_LOCAL_OPERATING_SPEED_GRID_M_S = (
     2.0,
     2.5,
@@ -127,10 +127,10 @@ def build_lqr_reference(
 ) -> LQRReference:
     """Return a local reference state and nominal command for one primitive.
 
-    The active LQR implementation is gain-scheduled by local entry speed.  It
-    never uses the old global 6.5 m/s trim as an implicit target; the reference
-    speed comes from the selected local operating point and only receives the
-    small audited tuning bias below.
+    The active LQR implementation is gain-scheduled by local entry speed for
+    model validity.  Longitudinal speed is not a hard tracking objective in the
+    primitive command law, and speed-reference bias is retained only as a
+    backwards-compatible audit field.
     """
 
     model = trim_model
@@ -197,15 +197,14 @@ def build_lqr_reference(
 
     pitch_bias = float(reference_pitch_bias_rad)
     bank_bias = float(reference_bank_bias_rad)
-    speed_bias = float(reference_speed_bias_m_s)
-    if pitch_bias or bank_bias or speed_bias:
+    requested_speed_bias = float(reference_speed_bias_m_s)
+    if pitch_bias or bank_bias or requested_speed_bias:
         x_ref[STATE_INDEX["theta"]] += pitch_bias
         x_ref[STATE_INDEX["phi"]] += bank_bias
-        biased_speed = max(0.1, float(np.linalg.norm(x_ref[6:9])) + speed_bias)
-        x_ref = _state_with_body_speed_preserving_alpha(x_ref, biased_speed)
         note = (
             f"{note}_plus_tuned_reference_bias"
-            f"_pitch_{pitch_bias:+.4f}_bank_{bank_bias:+.4f}_speed_{speed_bias:+.4f}"
+            f"_pitch_{pitch_bias:+.4f}_bank_{bank_bias:+.4f}"
+            f"_speed_bias_ignored_{requested_speed_bias:+.4f}"
         )
 
     reference_id = _stable_id(
