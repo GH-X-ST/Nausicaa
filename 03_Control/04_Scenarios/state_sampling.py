@@ -219,9 +219,9 @@ def _local_envelope_state(rng: np.random.Generator) -> np.ndarray:
     state[STATE_INDEX["phi"]] = float(np.deg2rad(rng.uniform(-18.0, 18.0)))
     state[STATE_INDEX["theta"]] = float(np.deg2rad(rng.uniform(-10.0, 10.0)))
     state[STATE_INDEX["psi"]] = float(np.deg2rad(rng.uniform(-25.0, 25.0)))
-    state[STATE_INDEX["u"]] = float(rng.uniform(3.8, 7.2))
-    state[STATE_INDEX["v"]] = float(rng.uniform(-0.25, 0.25))
-    state[STATE_INDEX["w"]] = float(rng.uniform(-0.15, 0.15))
+    state[STATE_INDEX["u"]] = float(rng.uniform(3.0, 8.2))
+    state[STATE_INDEX["v"]] = float(rng.uniform(-0.35, 0.35))
+    state[STATE_INDEX["w"]] = float(rng.uniform(-0.25, 0.25))
     return _with_inflight_rates_and_surfaces(state, rng, rate_scale=0.35, surface_scale=0.22)
 
 
@@ -237,9 +237,9 @@ def _inflight_lift_region_state(rng: np.random.Generator) -> np.ndarray:
     state[STATE_INDEX["phi"]] = float(np.deg2rad(rng.uniform(-22.0, 22.0)))
     state[STATE_INDEX["theta"]] = float(np.deg2rad(rng.uniform(-12.0, 12.0)))
     state[STATE_INDEX["psi"]] = float(np.deg2rad(rng.uniform(-35.0, 35.0)))
-    state[STATE_INDEX["u"]] = float(rng.uniform(4.2, 7.0))
-    state[STATE_INDEX["v"]] = float(rng.uniform(-0.20, 0.20))
-    state[STATE_INDEX["w"]] = float(rng.uniform(-0.12, 0.12))
+    state[STATE_INDEX["u"]] = float(rng.uniform(3.2, 8.0))
+    state[STATE_INDEX["v"]] = float(rng.uniform(-0.30, 0.30))
+    state[STATE_INDEX["w"]] = float(rng.uniform(-0.22, 0.22))
     return _with_inflight_rates_and_surfaces(state, rng, rate_scale=0.30, surface_scale=0.20)
 
 
@@ -251,7 +251,7 @@ def _boundary_near_state(rng: np.random.Generator, *, side: str) -> np.ndarray:
         state[STATE_INDEX["y_w"]] = float(rng.uniform(0.04, 0.20))
     else:
         raise ValueError("unknown boundary side.")
-    state[STATE_INDEX["u"]] = float(rng.uniform(4.5, 6.5))
+    state[STATE_INDEX["u"]] = float(rng.uniform(3.0, 8.0))
     return state
 
 
@@ -259,9 +259,9 @@ def _inflight_recovery_edge_state(rng: np.random.Generator) -> np.ndarray:
     state = _local_envelope_state(rng)
     state[STATE_INDEX["phi"]] = float(np.deg2rad(rng.uniform(-42.0, 42.0)))
     state[STATE_INDEX["theta"]] = float(np.deg2rad(rng.uniform(-28.0, 28.0)))
-    state[STATE_INDEX["u"]] = float(rng.uniform(3.05, 4.2))
-    state[STATE_INDEX["v"]] = float(rng.uniform(-0.35, 0.35))
-    state[STATE_INDEX["w"]] = float(rng.uniform(-0.25, 0.25))
+    state[STATE_INDEX["u"]] = float(rng.uniform(2.2, 5.2))
+    state[STATE_INDEX["v"]] = float(rng.uniform(-0.45, 0.45))
+    state[STATE_INDEX["w"]] = float(rng.uniform(-0.35, 0.35))
     return _with_inflight_rates_and_surfaces(state, rng, rate_scale=0.70, surface_scale=0.35)
 
 

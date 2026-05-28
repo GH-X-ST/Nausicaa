@@ -41,7 +41,7 @@ REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS = {
     "post_launch_degraded": ("inflight_stable", "boundary_near", "safe_terminal"),
     "inflight_stable": ("inflight_stable", "boundary_near", "safe_terminal"),
     "boundary_near": ("inflight_stable", "safe_terminal"),
-    "recoverable_degraded": ("inflight_stable", "safe_terminal"),
+    "recoverable_degraded": ("inflight_stable", "recoverable_degraded", "safe_terminal"),
     "safe_terminal": (),
     "hard_failure": (),
 }
@@ -50,7 +50,7 @@ REQUIRED_EXIT_CLASSES_BY_ROLE = {
     "transition_object": tuple(sorted({item for values in REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS.values() for item in values})),
     "launch_capable": ("post_launch_degraded", "inflight_stable"),
     "inflight_only": ("inflight_stable", "boundary_near", "safe_terminal"),
-    "terminal_or_recovery": ("inflight_stable", "safe_terminal"),
+    "terminal_or_recovery": ("inflight_stable", "recoverable_degraded", "safe_terminal"),
 }
 
 START_FAMILY_ENTRY_CLASS = {
@@ -71,7 +71,7 @@ STATE_CLASS_START_FAMILY = {
     "hard_failure": "inflight_recovery_edge",
 }
 
-TRANSITION_LABEL_VERSION = "transition_labels_v2_time_to_boundary"
+TRANSITION_LABEL_VERSION = "transition_labels_v3_recovery_progress"
 TURN_INTENT_METRIC_VERSION = "signed_turn_intent_v3_rollrate_lateral_convention"
 BOUNDARY_NEAR_MARGIN_M = 0.25
 BOUNDARY_NEAR_FRONT_TIME_MARGIN_S = 0.45
@@ -80,6 +80,10 @@ BOUNDARY_NEAR_MIN_SPEED_FOR_TIME_MARGIN_M_S = 0.50
 RECOVERABLE_MAX_ABS_ROLL_RAD = math.radians(35.0)
 RECOVERABLE_MAX_ABS_PITCH_RAD = math.radians(22.0)
 RECOVERABLE_MAX_BODY_RATE_RAD_S = 0.65
+RECOVERY_PROGRESS_MIN_RISK_REDUCTION = 0.05
+RECOVERY_PROGRESS_MAX_FLOOR_MARGIN_LOSS_M = 0.03
+RECOVERY_PROGRESS_MAX_BOUNDARY_TIME_LOSS_S = 0.05
+RECOVERY_PROGRESS_TIME_MARGIN_CAP_S = 10.0
 
 
 def classify_state(
@@ -149,23 +153,30 @@ def classify_transition(
         entry_class=entry_class,
         primitive_step_index=primitive_step_index,
     )
+    progress = _recovery_progress_fields(row, entry_class=entry_class, exit_class=exit_class)
     compatible = transition_is_chain_compatible(entry_role=role, entry_class=entry_class, exit_class=exit_class)
+    if entry_class == "recoverable_degraded" and exit_class == "recoverable_degraded":
+        compatible = bool(progress["recovery_progress_valid"])
     hard_failure = exit_class == "hard_failure"
     transition_success_probability = 1.0 if compatible else 0.0
     hard_failure_probability = 1.0 if hard_failure else 0.0
+    failure_reason = "" if compatible else _transition_failure_reason(role, entry_class, exit_class)
+    if entry_class == "recoverable_degraded" and exit_class == "recoverable_degraded" and not compatible:
+        failure_reason = str(progress["recovery_progress_status"])
     return {
         "transition_label_version": TRANSITION_LABEL_VERSION,
         "entry_class": entry_class,
         "exit_class": exit_class,
         "transition_pair": f"{entry_class}->{exit_class}",
         "transition_chain_compatible": bool(compatible),
-        "transition_failure_reason": "" if compatible else _transition_failure_reason(role, entry_class, exit_class),
+        "transition_failure_reason": failure_reason,
         "transition_success_probability": float(transition_success_probability),
         "hard_failure_probability": float(hard_failure_probability),
         "updraft_gain_proxy_m": _updraft_gain_proxy(row),
         "flight_time_s": _float(row.get("rollout_duration_s", row.get("flight_time_s", 0.0))),
         "next_allowed_entry_roles": ";".join(entry_roles_for_state_class(exit_class)),
         "next_allowed_entry_classes": ";".join(entry_classes_for_state_class(exit_class)),
+        **progress,
     }
 
 
@@ -197,6 +208,13 @@ def transition_row_fields(
         "transition_flight_time_s": transition["flight_time_s"],
         "transition_next_allowed_entry_roles": transition["next_allowed_entry_roles"],
         "transition_next_allowed_entry_classes": transition["next_allowed_entry_classes"],
+        "recovery_progress_valid": transition["recovery_progress_valid"],
+        "recovery_progress_status": transition["recovery_progress_status"],
+        "recovery_progress_initial_risk": transition["recovery_progress_initial_risk"],
+        "recovery_progress_exit_risk": transition["recovery_progress_exit_risk"],
+        "recovery_progress_risk_delta": transition["recovery_progress_risk_delta"],
+        "recovery_progress_floor_margin_delta_m": transition["recovery_progress_floor_margin_delta_m"],
+        "recovery_progress_boundary_time_delta_s": transition["recovery_progress_boundary_time_delta_s"],
     }
 
 
@@ -318,6 +336,10 @@ def transition_contract_row() -> dict[str, object]:
         "inflight_stable_required_exit_classes": ";".join(REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS["inflight_stable"]),
         "boundary_near_required_exit_classes": ";".join(REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS["boundary_near"]),
         "recoverable_degraded_required_exit_classes": ";".join(REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS["recoverable_degraded"]),
+        "recoverable_degraded_self_exit_requires_progress": True,
+        "recovery_progress_min_risk_reduction": float(RECOVERY_PROGRESS_MIN_RISK_REDUCTION),
+        "recovery_progress_max_floor_margin_loss_m": float(RECOVERY_PROGRESS_MAX_FLOOR_MARGIN_LOSS_M),
+        "recovery_progress_max_boundary_time_loss_s": float(RECOVERY_PROGRESS_MAX_BOUNDARY_TIME_LOSS_S),
         "boundary_near_is_route_state_not_failure": True,
         "boundary_near_static_wall_margin_m": float(BOUNDARY_NEAR_MARGIN_M),
         "boundary_near_front_time_margin_s": float(BOUNDARY_NEAR_FRONT_TIME_MARGIN_S),
@@ -377,6 +399,114 @@ def _transition_failure_reason(entry_role: str, entry_class: str, exit_class: st
     if str(entry_class) not in REQUIRED_EXIT_CLASSES_BY_ENTRY_CLASS:
         return f"unknown_transition_entry_class_{entry_class}"
     return f"exit_class_{exit_class}_not_chain_compatible_for_entry_class_{entry_class}_role_{role}"
+
+
+def _recovery_progress_fields(
+    row: dict[str, Any],
+    *,
+    entry_class: str,
+    exit_class: str,
+) -> dict[str, object]:
+    empty = {
+        "recovery_progress_valid": False,
+        "recovery_progress_status": "not_recoverable_degraded_self_transition",
+        "recovery_progress_initial_risk": 0.0,
+        "recovery_progress_exit_risk": 0.0,
+        "recovery_progress_risk_delta": 0.0,
+        "recovery_progress_floor_margin_delta_m": 0.0,
+        "recovery_progress_boundary_time_delta_s": 0.0,
+    }
+    if str(entry_class) != "recoverable_degraded" or str(exit_class) != "recoverable_degraded":
+        return empty
+
+    initial = _state_from_row(row, prefix="initial")
+    exit_state = _json_state(row.get("exit_state_vector", ""))
+    if initial is None or exit_state is None:
+        return {**empty, "recovery_progress_status": "recoverable_degraded_self_transition_missing_state_trace"}
+
+    initial_risk = _recoverable_degraded_risk(initial)
+    exit_risk = _recoverable_degraded_risk(exit_state)
+    risk_delta = float(initial_risk - exit_risk)
+    initial_floor = _floor_margin_m(initial)
+    exit_floor = _floor_margin_m(exit_state)
+    floor_delta = float(exit_floor - initial_floor)
+    initial_time = _front_side_boundary_time_margin_s(initial)
+    exit_time = _front_side_boundary_time_margin_s(exit_state)
+    boundary_time_delta = float(exit_time - initial_time)
+
+    risk_improved = risk_delta >= RECOVERY_PROGRESS_MIN_RISK_REDUCTION
+    floor_not_worse = floor_delta >= -RECOVERY_PROGRESS_MAX_FLOOR_MARGIN_LOSS_M
+    boundary_time_not_collapsed = boundary_time_delta >= -RECOVERY_PROGRESS_MAX_BOUNDARY_TIME_LOSS_S
+    valid = bool(risk_improved and floor_not_worse and boundary_time_not_collapsed)
+    if valid:
+        status = "recoverable_degraded_self_transition_with_measurable_recovery_progress"
+    elif not risk_improved:
+        status = "recoverable_degraded_self_transition_without_attitude_rate_progress"
+    elif not floor_not_worse:
+        status = "recoverable_degraded_self_transition_floor_margin_collapsed"
+    else:
+        status = "recoverable_degraded_self_transition_boundary_time_margin_collapsed"
+    return {
+        "recovery_progress_valid": valid,
+        "recovery_progress_status": status,
+        "recovery_progress_initial_risk": float(initial_risk),
+        "recovery_progress_exit_risk": float(exit_risk),
+        "recovery_progress_risk_delta": risk_delta,
+        "recovery_progress_floor_margin_delta_m": floor_delta,
+        "recovery_progress_boundary_time_delta_s": boundary_time_delta,
+    }
+
+
+def _recoverable_degraded_risk(state: np.ndarray) -> float:
+    roll_excess = max(abs(float(state[STATE_INDEX["phi"]])) - RECOVERABLE_MAX_ABS_ROLL_RAD, 0.0) / max(
+        RECOVERABLE_MAX_ABS_ROLL_RAD,
+        1e-9,
+    )
+    pitch_excess = max(abs(float(state[STATE_INDEX["theta"]])) - RECOVERABLE_MAX_ABS_PITCH_RAD, 0.0) / max(
+        RECOVERABLE_MAX_ABS_PITCH_RAD,
+        1e-9,
+    )
+    max_body_rate = max(
+        abs(float(state[STATE_INDEX["p"]])),
+        abs(float(state[STATE_INDEX["q"]])),
+        abs(float(state[STATE_INDEX["r"]])),
+    )
+    rate_excess = max(max_body_rate - RECOVERABLE_MAX_BODY_RATE_RAD_S, 0.0) / max(
+        RECOVERABLE_MAX_BODY_RATE_RAD_S,
+        1e-9,
+    )
+    return float(roll_excess + pitch_excess + rate_excess)
+
+
+def _floor_margin_m(state: np.ndarray) -> float:
+    try:
+        margins = position_margin_m(
+            state[[STATE_INDEX["x_w"], STATE_INDEX["y_w"], STATE_INDEX["z_w"]]],
+            TRUE_SAFE_BOUNDS,
+        )
+        return float(margins["floor_margin_m"])
+    except Exception:
+        return -1.0
+
+
+def _front_side_boundary_time_margin_s(state: np.ndarray) -> float:
+    try:
+        margins = heading_aligned_wall_margins_m(
+            state[[STATE_INDEX["x_w"], STATE_INDEX["y_w"], STATE_INDEX["z_w"]]],
+            float(state[STATE_INDEX["psi"]]),
+            TRUE_SAFE_BOUNDS,
+        )
+        speed_m_s = float(np.linalg.norm(state[[STATE_INDEX["u"], STATE_INDEX["v"], STATE_INDEX["w"]]]))
+    except Exception:
+        return 0.0
+    if speed_m_s < BOUNDARY_NEAR_MIN_SPEED_FOR_TIME_MARGIN_M_S:
+        return float(RECOVERY_PROGRESS_TIME_MARGIN_CAP_S)
+    front_time_s = float(margins["front_wall_margin_m"]) / max(speed_m_s, 1e-9)
+    side_time_s = min(
+        float(margins["left_wall_margin_m"]),
+        float(margins["right_wall_margin_m"]),
+    ) / max(speed_m_s, 1e-9)
+    return float(max(0.0, min(RECOVERY_PROGRESS_TIME_MARGIN_CAP_S, front_time_s, side_time_s)))
 
 
 def _state_vector(state: Any) -> np.ndarray:

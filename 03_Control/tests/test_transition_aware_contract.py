@@ -71,6 +71,80 @@ def test_recovery_to_inflight_is_chain_compatible() -> None:
     )
 
 
+def test_recovery_self_transition_requires_measurable_progress() -> None:
+    initial = _recovery_state(phi=0.80, theta=0.45, p=0.90)
+    exit_state = _recovery_state(phi=0.74, theta=0.42, p=0.80)
+
+    transition = classify_transition(
+        {
+            "entry_role": "transition_object",
+            "start_state_family": "inflight_recovery_edge",
+            "outcome_class": "accepted",
+            "continuation_valid": True,
+            "boundary_use_class": "inside",
+            "minimum_wall_margin_m": 1.0,
+            "floor_margin_m": 0.6,
+            "ceiling_margin_m": 1.0,
+            "initial_state_vector": initial.tolist(),
+            "exit_state_vector": exit_state.tolist(),
+        }
+    )
+
+    assert transition["exit_class"] == "recoverable_degraded"
+    assert transition["transition_chain_compatible"] is True
+    assert transition["recovery_progress_valid"] is True
+    assert transition["recovery_progress_risk_delta"] > 0.0
+
+
+def test_recovery_self_transition_without_progress_is_rejected() -> None:
+    initial = _recovery_state(phi=0.80, theta=0.45, p=0.90)
+    exit_state = _recovery_state(phi=0.82, theta=0.46, p=0.92)
+
+    transition = classify_transition(
+        {
+            "entry_role": "transition_object",
+            "start_state_family": "inflight_recovery_edge",
+            "outcome_class": "accepted",
+            "continuation_valid": True,
+            "boundary_use_class": "inside",
+            "minimum_wall_margin_m": 1.0,
+            "floor_margin_m": 0.6,
+            "ceiling_margin_m": 1.0,
+            "initial_state_vector": initial.tolist(),
+            "exit_state_vector": exit_state.tolist(),
+        }
+    )
+
+    assert transition["exit_class"] == "recoverable_degraded"
+    assert transition["transition_chain_compatible"] is False
+    assert transition["recovery_progress_valid"] is False
+    assert "without_attitude_rate_progress" in str(transition["transition_failure_reason"])
+
+
+def test_recovery_to_boundary_near_is_route_not_full_pass() -> None:
+    initial = _recovery_state(phi=0.80, theta=0.45, p=0.90)
+    exit_state = _recovery_state(phi=0.74, theta=0.42, p=0.80)
+    exit_state[0] = 5.30
+
+    transition = classify_transition(
+        {
+            "entry_role": "transition_object",
+            "start_state_family": "inflight_recovery_edge",
+            "outcome_class": "accepted",
+            "continuation_valid": True,
+            "boundary_use_class": "inside",
+            "minimum_wall_margin_m": 1.0,
+            "floor_margin_m": 0.6,
+            "ceiling_margin_m": 1.0,
+            "initial_state_vector": initial.tolist(),
+            "exit_state_vector": exit_state.tolist(),
+        }
+    )
+
+    assert transition["exit_class"] == "boundary_near"
+    assert transition["transition_chain_compatible"] is False
+
+
 def test_boundary_near_uses_front_time_margin_not_static_distance_only() -> None:
     state = np.zeros(15, dtype=float)
     state[0] = 5.05
@@ -235,3 +309,16 @@ def test_governor_treats_lqr_speed_bin_mismatch_as_audit_metadata_not_rejection(
         )
         == ""
     )
+
+
+def _recovery_state(*, phi: float, theta: float, p: float) -> np.ndarray:
+    state = np.zeros(15, dtype=float)
+    state[0] = 3.0
+    state[1] = 2.0
+    state[2] = 1.0
+    state[3] = phi
+    state[4] = theta
+    state[5] = 0.0
+    state[6] = 4.0
+    state[9] = p
+    return state

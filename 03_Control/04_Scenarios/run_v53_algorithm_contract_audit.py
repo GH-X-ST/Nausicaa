@@ -169,7 +169,7 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
         "post_launch_degraded": ("inflight_stable", "boundary_near", "safe_terminal"),
         "inflight_stable": ("inflight_stable", "boundary_near", "safe_terminal"),
         "boundary_near": ("inflight_stable", "safe_terminal"),
-        "recoverable_degraded": ("inflight_stable", "safe_terminal"),
+        "recoverable_degraded": ("inflight_stable", "recoverable_degraded", "safe_terminal"),
         "safe_terminal": (),
         "hard_failure": (),
     }
@@ -325,6 +325,52 @@ def _transition_contract_invariant_rows() -> list[dict[str, object]]:
             "ceiling_margin_m": 1.0,
         }
     )
+    recovery_initial = [3.0, 2.0, 1.0, 0.80, 0.45, 0.0, 4.0, 0.0, 0.0, 0.90, 0.0, 0.0, 0.0, 0.0, 0.0]
+    recovery_exit_progress = [3.0, 2.0, 1.0, 0.74, 0.42, 0.0, 4.0, 0.0, 0.0, 0.80, 0.0, 0.0, 0.0, 0.0, 0.0]
+    recovery_exit_no_progress = [3.0, 2.0, 1.0, 0.82, 0.46, 0.0, 4.0, 0.0, 0.0, 0.92, 0.0, 0.0, 0.0, 0.0, 0.0]
+    recovery_exit_boundary = [5.30, 2.0, 1.0, 0.74, 0.42, 0.0, 4.0, 0.0, 0.0, 0.80, 0.0, 0.0, 0.0, 0.0, 0.0]
+    recovery_progress = classify_transition(
+        {
+            "entry_role": "transition_object",
+            "start_state_family": "inflight_recovery_edge",
+            "outcome_class": "accepted",
+            "continuation_valid": True,
+            "boundary_use_class": "inside",
+            "minimum_wall_margin_m": 1.0,
+            "floor_margin_m": 0.6,
+            "ceiling_margin_m": 1.0,
+            "initial_state_vector": recovery_initial,
+            "exit_state_vector": recovery_exit_progress,
+        }
+    )
+    recovery_no_progress = classify_transition(
+        {
+            "entry_role": "transition_object",
+            "start_state_family": "inflight_recovery_edge",
+            "outcome_class": "accepted",
+            "continuation_valid": True,
+            "boundary_use_class": "inside",
+            "minimum_wall_margin_m": 1.0,
+            "floor_margin_m": 0.6,
+            "ceiling_margin_m": 1.0,
+            "initial_state_vector": recovery_initial,
+            "exit_state_vector": recovery_exit_no_progress,
+        }
+    )
+    recovery_boundary = classify_transition(
+        {
+            "entry_role": "transition_object",
+            "start_state_family": "inflight_recovery_edge",
+            "outcome_class": "accepted",
+            "continuation_valid": True,
+            "boundary_use_class": "inside",
+            "minimum_wall_margin_m": 1.0,
+            "floor_margin_m": 0.6,
+            "ceiling_margin_m": 1.0,
+            "initial_state_vector": recovery_initial,
+            "exit_state_vector": recovery_exit_boundary,
+        }
+    )
     return [
         _row("transition_contract_row_boundary_near_route_state", bool(transition_contract_row()["boundary_near_is_route_state_not_failure"]), transition_contract_row(), "boundary_near route state"),
         _row("launch_boundary_exit_cannot_pass_transition_gate", not bool(launch_bad["transition_chain_compatible"]), launch_bad, "launch boundary_near exit rejected"),
@@ -332,6 +378,9 @@ def _transition_contract_invariant_rows() -> list[dict[str, object]]:
         _row("inflight_recoverable_degraded_exit_cannot_pass_transition_gate", not transition_is_chain_compatible(entry_role="transition_object", entry_class="inflight_stable", exit_class="recoverable_degraded"), "recoverable_degraded", "not allowed for inflight_stable transition object"),
         _row("inflight_weak_without_chain_handoff_rejected", not bool(inflight_bad["transition_chain_compatible"]), inflight_bad, "weak local rollout is not sufficient"),
         _row("recovery_to_inflight_passes_transition_gate", bool(recovery_good["transition_chain_compatible"]), recovery_good, "recoverable_degraded transition object can restore inflight_stable"),
+        _row("recovery_self_transition_requires_measurable_progress", bool(recovery_progress["transition_chain_compatible"]) and bool(recovery_progress["recovery_progress_valid"]), recovery_progress, "recoverable_degraded can remain recoverable only with measured progress"),
+        _row("recovery_self_transition_without_progress_rejected", not bool(recovery_no_progress["transition_chain_compatible"]), recovery_no_progress, "recoverable_degraded self transition without progress rejected"),
+        _row("recovery_to_boundary_near_is_route_not_full_pass", recovery_boundary["exit_class"] == "boundary_near" and not bool(recovery_boundary["transition_chain_compatible"]), recovery_boundary, "boundary_near from recoverable_degraded remains a route/weak condition"),
     ]
 
 
@@ -664,6 +713,8 @@ def _docs_code_consistency_rows(repo_root: Path) -> list[dict[str, object]]:
         "r8_coverage_medoid_selection": "coverage-aware medoid",
         "r8_no_synthetic_controller_in_clustering": "without averaging Q/R or synthesising new controllers",
         "r8_speed_bin_coverage_preservation": "speed-bin collapse is a library-coverage failure",
+        "recovery_self_transition_progress_gate": "recoverable_degraded -> recoverable_degraded",
+        "recovery_boundary_route_not_full_pass": "recoverable_degraded -> boundary_near",
     }
     for check_id, fragment in combined_requirements.items():
         rows.append(_row(check_id, fragment in combined, fragment if fragment in combined else "missing", fragment))

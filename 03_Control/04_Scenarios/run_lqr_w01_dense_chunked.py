@@ -1340,6 +1340,7 @@ def _r5_transition_training_tables(frame: pd.DataFrame) -> tuple[pd.DataFrame, p
         clipped_updraft_gain = _clip01(float(group["_updraft_gain"].mean()) / 1.0)
         clipped_lift_dwell = _clip01(float(group["_lift_dwell"].mean()) / 0.10)
         clipped_rollout_duration = _clip01(float(group["_rollout_duration"].mean()) / 0.10)
+        turn_primitive = str(base["primitive_id"]) in {"mild_turn_left", "mild_turn_right"}
         turn_success_count = int(group["_turn_intent_correct"].sum())
         turn_intent_success_lcb = _wilson_lower_bound(turn_success_count, total)
         turn_intent_score_mean = _clip01(float(group["_turn_intent_score"].mean()))

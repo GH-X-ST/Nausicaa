@@ -5,6 +5,7 @@ import numpy as np
 
 from state_contract import STATE_INDEX, STATE_NAMES
 from state_sampling import (
+    archive_state_sample_for_family,
     archive_state_sample_for_row,
     archive_state_sample_row,
     measured_log_schema_row,
@@ -67,6 +68,29 @@ def test_inflight_samples_include_rates_and_surface_states() -> None:
     assert np.linalg.norm(
         state[[STATE_INDEX["delta_a"], STATE_INDEX["delta_e"], STATE_INDEX["delta_r"]]]
     ) > 0.0
+
+
+def test_inflight_sampler_uses_widened_velocity_envelopes() -> None:
+    bounds = {
+        "inflight_nominal": ((3.0, 8.2), (-0.35, 0.35), (-0.25, 0.25)),
+        "inflight_lift_region": ((3.2, 8.0), (-0.30, 0.30), (-0.22, 0.22)),
+        "inflight_boundary_near": ((3.0, 8.0), (-0.35, 0.35), (-0.25, 0.25)),
+        "inflight_recovery_edge": ((2.2, 5.2), (-0.45, 0.45), (-0.35, 0.35)),
+    }
+    for family, ((u_min, u_max), (v_min, v_max), (w_min, w_max)) in bounds.items():
+        for index in range(48):
+            sample = archive_state_sample_for_family(
+                start_state_family=family,
+                paired_start_key=f"{family}_{index}",
+                sample_index=index,
+                seed=37,
+                W_layer="W1",
+                environment_mode="annular_gp",
+            )
+            state = sample.state_vector
+            assert u_min <= state[STATE_INDEX["u"]] <= u_max
+            assert v_min <= state[STATE_INDEX["v"]] <= v_max
+            assert w_min <= state[STATE_INDEX["w"]] <= w_max
 
 
 def test_measured_log_compatibility_shape_without_real_logs(tmp_path) -> None:

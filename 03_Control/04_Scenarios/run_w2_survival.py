@@ -83,8 +83,8 @@ from state_sampling import (  # noqa: E402
 )
 
 
-W2_SURVIVAL_VERSION = "w2_fixed_lqr_survival_replay_v411"
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
+W2_SURVIVAL_VERSION = "w2_fixed_lqr_survival_replay_v520_diagnostic_only"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 DEFAULT_W01_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 DEFAULT_W01_INPUT_ROOT: Path | None = None
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")

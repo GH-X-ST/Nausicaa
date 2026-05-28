@@ -50,3 +50,6 @@ pythonpath = [
     "03_Control/03_Primitives",
     "03_Control/04_Scenarios",
 ]
+markers = [
+    "slow: pipeline/archive integration tests that execute miniature dense, replay, or validation workflows",
+]

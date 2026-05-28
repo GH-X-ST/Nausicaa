@@ -45,11 +45,21 @@ interpreter stays the same.
 Required active validation baseline:
 
 ```powershell
-.\.venv\Scripts\python.exe -m py_compile 03_Control/02_Inner_Loop/*.py 03_Control/03_Primitives/*.py 03_Control/04_Scenarios/*.py
+$files = Get-ChildItem -Path 03_Control/02_Inner_Loop,03_Control/03_Primitives,03_Control/04_Scenarios -Filter *.py -File | ForEach-Object { $_.FullName }
+.\.venv\Scripts\python.exe -m py_compile @files
 .\.venv\Scripts\python.exe -m pytest -q 03_Control/tests --basetemp .codex_run_logs\pytest_tmp -o cache_dir=.codex_run_logs\pytest_cache
 .\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_v411_source_audit.py --dry-run --no-write-archive
 .\.venv\Scripts\python.exe 03_Control/04_Scenarios/run_v53_algorithm_contract_audit.py
 git diff --check
+```
+
+The default pytest command is now the fast regression tier. Slow
+pipeline/archive integration tests are marked `slow` and skipped unless
+explicitly requested. Run them only before dense evidence regeneration or when
+touching archive/replay orchestration:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q 03_Control/tests --run-slow -m slow --basetemp .codex_run_logs\pytest_tmp -o cache_dir=.codex_run_logs\pytest_cache
 ```
 
 `run_active_contract_audit.py` and W01/W2/W3-only audit names are retained only
@@ -58,8 +68,8 @@ audit and the current transition-aware algorithm contract audit directly. The cu
 workflow is controlled by `docs/Glider_Control_Project_Plan.md`: R5 is robust
 primitive synthesis, R6/W2 is archived diagnostic-only, R7 is frozen W3
 validation, R8 is the five-case coverage-aware medoid post-W3 library-size
-study, R9 is an internal reduced fixed-case preflight that writes an initial
-governor handoff for R10, R10 is environment-only changed-case governor tuning,
+study, R9 is internal reduced fixed-case preflight/ablation only and is not
+thesis-facing evidence, R10 is environment-only changed-case governor tuning,
 and R11 is strict held-out changed-case validation.
 
 Use the repo-local pytest temp/cache paths above so validation does not depend
