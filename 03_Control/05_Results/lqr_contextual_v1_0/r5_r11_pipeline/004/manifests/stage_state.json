@@ -1,0 +1,79 @@
+{
+  "blocked_reason": "",
+  "docs_alignment_baseline": {
+    "docs/Daily_Schedule.txt": {
+      "byte_count": 27791,
+      "modified_time_utc": "2026-05-28T08:54:15.681516+00:00",
+      "path": "docs/Daily_Schedule.txt",
+      "readable": true,
+      "sha256": "e87b597ea6c10ad1bc68a40094d14ce8212b105d82ced5756a9ff4c38f51906d"
+    },
+    "docs/Glider_Control_Project_Plan.md": {
+      "byte_count": 76159,
+      "modified_time_utc": "2026-05-28T08:54:15.510640+00:00",
+      "path": "docs/Glider_Control_Project_Plan.md",
+      "readable": true,
+      "sha256": "17a2d90acb08f9f6f19b832a459ff6797eb3999b24f582e895dd7bff44741064"
+    },
+    "docs/MATLAB Coding.txt": {
+      "byte_count": 8042,
+      "modified_time_utc": "2026-05-28T08:41:51.394135+00:00",
+      "path": "docs/MATLAB Coding.txt",
+      "readable": true,
+      "sha256": "744b85a9ebb7b720111f5847c9de124cf555ca7fe5d0fd80cdf17b02328f2aa8"
+    },
+    "docs/PR.txt": {
+      "byte_count": 10270,
+      "modified_time_utc": "2026-05-28T08:54:15.829046+00:00",
+      "path": "docs/PR.txt",
+      "readable": true,
+      "sha256": "6d29a00f25b5908cf3c70fc9117ef3f767f51c804cf1745c4a07191db0b8d1c4"
+    },
+    "docs/Python Coding Instruction.txt": {
+      "byte_count": 16461,
+      "modified_time_utc": "2026-05-28T08:55:15.686223+00:00",
+      "path": "docs/Python Coding Instruction.txt",
+      "readable": true,
+      "sha256": "e64117b45052009731d6c91e395e18bac53a67641197aac94af26db76d43e737"
+    },
+    "docs/Python Coding to CODEX.txt": {
+      "byte_count": 10827,
+      "modified_time_utc": "2026-05-28T08:41:21.847846+00:00",
+      "path": "docs/Python Coding to CODEX.txt",
+      "readable": true,
+      "sha256": "602144fceae8f7650c1ac2bd900bd692665c4809255917b61a45643fb61c2f48"
+    },
+    "docs/Skills.md": {
+      "byte_count": 18075,
+      "modified_time_utc": "2026-05-28T08:54:15.383308+00:00",
+      "path": "docs/Skills.md",
+      "readable": true,
+      "sha256": "4d7f01fbd6811e9aa77fd29af564637b069f68066ae674a6b3c267f268d8f0a5"
+    },
+    "docs/housekeeping_and_naming_rules.md": {
+      "byte_count": 12593,
+      "modified_time_utc": "2026-05-28T08:41:22.009132+00:00",
+      "path": "docs/housekeeping_and_naming_rules.md",
+      "readable": true,
+      "sha256": "455964775678ff39c76be2a8cd1ca1af251c0e68c31b325eff52bf4a50b5d9dc"
+    }
+  },
+  "docs_changed_during_run": false,
+  "pipeline_version": "v55_r5_r7_r11_pipeline_r6_archived_with_repeated_docs_guard",
+  "run_id": 4,
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/r5_r11_pipeline/004",
+  "stages": {
+    "R5": {
+      "r5_transition_selected_for_r7": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904/metrics/r5_transition_selected_for_r7.csv",
+      "r5_transition_training_manifest": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904/manifests/r5_transition_training_manifest.json",
+      "run_manifest": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904/manifests/run_manifest.json",
+      "run_root": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904",
+      "status": "complete",
+      "table_manifest": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904/manifests/table_manifest.json",
+      "variant_registry_csv": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904/metrics/primitive_variant_registry.csv",
+      "variant_registry_json": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904/manifests/primitive_variant_registry.json"
+    }
+  },
+  "status": "complete",
+  "updated_utc": "2026-05-28T09:22:41.118538+00:00"
+}

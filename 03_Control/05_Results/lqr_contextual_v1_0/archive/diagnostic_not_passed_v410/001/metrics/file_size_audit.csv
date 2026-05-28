@@ -1,9 +1,9 @@
 byte_count,push_allowed,relative_path,size_mb
-10268,True,archived_result_roots.csv,0.009792327880859375
-556,True,file_size_audit.csv,0.000530242919921875
+11894,True,archived_result_roots.csv,0.011343002319335938
+551,True,file_size_audit.csv,0.0005254745483398438
 3046,True,manifest.json,0.0029048919677734375
 3046,True,manifests/diagnostic_not_passed_manifest.json,0.0029048919677734375
-3104018,True,metrics/active_retired_control_inventory.csv,2.9602222442626953
-555,True,metrics/file_size_audit.csv,0.0005292892456054688
-1054,True,metrics/required_docs_audit.csv,0.0010051727294921875
+3231989,True,metrics/active_retired_control_inventory.csv,3.0822649002075195
+556,True,metrics/file_size_audit.csv,0.000530242919921875
+1056,True,metrics/required_docs_audit.csv,0.001007080078125
 296,True,reports/diagnostic_not_passed_report.md,0.00028228759765625
