@@ -10,7 +10,7 @@ Launch is an entry regime, not a separate controller family. The active primitiv
 
 Every primitive is treated as a transition object. R5 is robust transition-aware primitive / transition-object Q/R plus primitive attitude/bank reference-bias training across five entry start families with exact dense proportions per primitive/candidate/environment: 40 `launch_gate`, 25 `inflight_nominal`, 15 `inflight_lift_region`, 10 `inflight_boundary_near`, and 10 `inflight_recovery_edge`. The dense evaluation target remains `8 * 32 * 3 * 100 = 76,800` rows, but row count alone is not a pass condition. Candidate 0 is nominal, candidates 1-7 are named physical anchors with small interpretable attitude/bank reference biases, and candidates 8-31 are deterministic Latin-hypercube log multipliers over the seven grouped LQR weights plus bounded pitch and bank reference biases. In-flight start-state velocity envelopes cover most of the local-speed scheduling grid: nominal `u=3.0--8.2`, lift-region `u=3.2--8.0`, boundary-near `u=3.0--8.0`, and recovery-edge `u=2.2--5.2` m/s, with wider lateral/vertical body-velocity perturbations logged by the sampler. Speed-bin selection is for local model scheduling only; active primitives must not chase speed as a hard reference. R5 writes `r5_transition_candidate_training_summary.csv`, `r5_transition_selected_for_r7.csv`, `r5_transition_pareto_front.csv`, and `r5_transition_training_manifest.json`, then freezes only selected transition objects for R7 while keeping the full candidate bundle as audit evidence.
 
-R7 is held-out transition validation of the frozen R5-selected transition objects. No primitive may pass R7 solely on local rollout success; no primitive may pass R5 or R7 from dense row count or aggregate primitive success across entry classes. For recovery starts, `recoverable_degraded -> recoverable_degraded` is only a conditional route pass when attitude/rate risk improves, front/side boundary time margin does not collapse, floor margin does not collapse, and hard-failure risk remains low; `recoverable_degraded -> boundary_near` is reported as route/weak evidence, not a full pass. A controller can survive for one `primitive_id + entry_class` and fail for another. R8 compresses transition objects grouped by `primitive_id` and `transition_entry_class` using coverage-aware medoid selection without averaging Q/R, K, references, or controller IDs. R8 must also preserve distinct W3-surviving local LQR speed-bin coverage within each primitive/entry-class group up to the case representative budget; speed-bin collapse is a library-coverage failure, not an LQR-principle failure.
+R7 is held-out transition validation of the frozen R5-selected transition objects. No primitive may pass R7 solely on local rollout success; no primitive may pass R5 or R7 from dense row count or aggregate primitive success across entry classes. R7 uses entry-class-specific labels: `survived` is reserved for strict high-probability `inflight_stable` evidence, `route_usable` keeps `launch_gate` evidence when transition probability is at least 0.45 with near-zero hard failure and keeps `boundary_near` evidence when transition probability is at least 0.40 with hard failure below limit, and `recovery_route_usable` keeps `recoverable_degraded` evidence when it has nonzero recovery progress in both W3 modes with low hard failure. For recovery starts, `recoverable_degraded -> recoverable_degraded` remains a conditional route pass when attitude/rate risk improves, front/side boundary time margin does not collapse, floor margin does not collapse, and hard-failure risk remains low; `recoverable_degraded -> boundary_near` is reported as route/weak evidence, not a full pass. A controller can be strict-surviving for one `primitive_id + entry_class`, route-usable for another, and fail for another. R8 compresses W3-eligible transition objects (`survived`, `route_usable`, and `recovery_route_usable`) grouped by `primitive_id` and `transition_entry_class` using coverage-aware medoid selection without averaging Q/R, K, references, or controller IDs. R8 must also preserve distinct W3-eligible local LQR speed-bin coverage within each primitive/entry-class group up to the case representative budget; speed-bin collapse is a library-coverage failure, not an LQR-principle failure.
 
 The governor classifies the current state, filters representatives by validated `transition_entry_class`, rejects high hard-failure risk, scores transition probability plus updraft gain plus flight time plus residual-memory correction, executes the best transition object, and updates case-local residual memory. Step 0 has `current_state_class = launch_gate`, so it selects only transition objects validated for `entry_class = launch_gate`; there is no launch-specific primitive family route.
 
@@ -528,7 +528,7 @@ R7 W3 frozen holdout sweep
     that fail transition compatibility under randomisation.
 
 Post-W3 library-size cross-study
-    Cluster and merge only the W3-surviving library to obtain the final compact
+    Cluster and merge only the W3-eligible library to obtain the final compact
     robust library for the governor and realistic in-flight computation.
 ```
 
@@ -1054,7 +1054,7 @@ W2     optional diagnostic replay of the fixed R5 library under hardware-aware
 W3     replay the frozen R5 library under held-out domain randomisation of
        updraft, fan layout/count, glider plant, latency, command timing, and
        actuator delay; no LQR retuning
-post-W3 library-size cross-study/merge  compress only the W3-surviving library into the final compact set
+post-W3 library-size cross-study/merge  compress only the W3-eligible library into the final compact set
 future hardware shakedown  use only frozen primitive-controller variants whose claim status permits hardware-facing evidence collection
 ```
 
@@ -1314,7 +1314,7 @@ matched simulation result
 
 ## 16. Archive compression and clustering
 
-Clustering and merging occur only after frozen W3 survival replay. They are for compression, explanation, representative examples, future hardware-candidate shortlists, and figures. Clustering is not the online controller and must not be used after R5 W0/W1 to preselect a small library before W3. In the active workflow, clustering compresses W3-surviving LQR controller/outcome evidence and must not mix retired PD-like evidence, optional W2-only diagnostic evidence, or entry-role-incompatible evidence into active clusters.
+Clustering and merging occur only after frozen W3 survival replay. They are for compression, explanation, representative examples, future hardware-candidate shortlists, and figures. Clustering is not the online controller and must not be used after R5 W0/W1 to preselect a small library before W3. In the active workflow, clustering compresses W3-eligible LQR controller/outcome evidence and must not mix retired PD-like evidence, optional W2-only diagnostic evidence, or entry-role-incompatible evidence into active clusters.
 
 Cluster within physically meaningful strata:
 

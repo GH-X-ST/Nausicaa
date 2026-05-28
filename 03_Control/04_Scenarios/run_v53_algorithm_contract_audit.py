@@ -195,11 +195,11 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r7_row_scheduler_uses_r5_selected_transition_entry_class", "_start_family_for_r5_selected_entry_class" in w3_row_source and "r5_selected_transition_entry_class" in w3_row_source, "R5 selected transition-entry W3 scheduler source", "start family selected from r5_transition_selected_for_r7 transition_entry_class"))
     r8_representatives_source = inspect.getsource(_representatives_for_case)
     r8_selection_source = inspect.getsource(_coverage_medoid_selection)
-    rows.append(_row("r8_library_cases_group_by_primitive_and_transition_entry", 'groupby(["primitive_id", "transition_entry_class"]' in r8_representatives_source, "active grouping source", 'survived.groupby(["primitive_id", "transition_entry_class"])'))
+    rows.append(_row("r8_library_cases_group_by_primitive_and_transition_entry", 'groupby(["primitive_id", "transition_entry_class"]' in r8_representatives_source, "active grouping source", 'W3-eligible frame grouped by ["primitive_id", "transition_entry_class"]'))
     rows.append(_row("r8_selection_applies_hard_safety_filter_first", "_hard_safety_filtered_group" in r8_selection_source, "coverage selection source", "_hard_safety_filtered_group before scoring"))
-    rows.append(_row("r8_compressed_cases_use_coverage_medoid_policy", _r8_compressed_cases_use_coverage_medoid_policy(), _r8_library_selection_policies(), "heavy/balanced/light/super_light use coverage_medoid; no_cluster keeps all W3 survivors"))
+    rows.append(_row("r8_compressed_cases_use_coverage_medoid_policy", _r8_compressed_cases_use_coverage_medoid_policy(), _r8_library_selection_policies(), "heavy/balanced/light/super_light use coverage_medoid; no_cluster keeps all W3-eligible transition objects"))
     rows.append(_row("r8_heavy_medoid_prefers_worst_case_coverage", _r8_heavy_medoid_prefers_worst_case_coverage(), "synthetic coverage-medoid selection", "select existing variant with stronger worst-case coverage"))
-    rows.append(_row("r8_medoid_preserves_speed_bin_coverage_when_budget_allows", _r8_speed_bin_medoid_preserves_distinct_bins(), "synthetic speed-bin medoid selection", "compressed R8 cases preserve distinct W3-surviving local LQR speed bins up to case budget"))
+    rows.append(_row("r8_medoid_preserves_speed_bin_coverage_when_budget_allows", _r8_speed_bin_medoid_preserves_distinct_bins(), "synthetic speed-bin medoid selection", "compressed R8 cases preserve distinct W3-eligible local LQR speed bins up to case budget"))
     rows.append(_row("r8_representative_score_uses_updraft_gain_not_net_energy", _r8_score_uses_updraft_gain_not_net_energy(), "updraft-gain score check", "net energy residual must not improve representative score"))
     rows.append(_row("five_library_size_cases", set(LIBRARY_SIZE_CASE_IDS) == {"heavy_cluster", "balanced_cluster", "light_cluster", "super_light_cluster", "no_cluster_no_merge"}, LIBRARY_SIZE_CASE_IDS, "heavy/balanced/light/super_light/no_cluster"))
     rows.append(_row("r9_reduced_internal_preflight_blocks_exact", _block_tuples(R9_BLOCKS) == (("no_updraft", "W0", "dry_air", 1), ("single_fan", "W2", "annular_gp_single", 1), ("four_fan", "W2", "annular_gp_four", 1)), _block_tuples(R9_BLOCKS), "1 no-updraft, 1 single-fan, 1 four-fan internal preflight cases"))
@@ -530,7 +530,7 @@ def _r8_compressed_cases_use_coverage_medoid_policy() -> bool:
     compressed_case_ids = {"heavy_cluster", "balanced_cluster", "light_cluster", "super_light_cluster"}
     return all("coverage_medoid" in policies.get(case_id, "") for case_id in compressed_case_ids) and policies.get(
         "no_cluster_no_merge", ""
-    ) == "all_w3_survivors_no_clustering_no_merging"
+    ) == "all_w3_eligible_transition_objects_no_clustering_no_merging"
 
 
 def _r8_heavy_medoid_prefers_worst_case_coverage() -> bool:

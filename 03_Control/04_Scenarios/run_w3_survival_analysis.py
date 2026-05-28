@@ -33,10 +33,19 @@ from transition_labels import transition_contract_row, transition_row_fields  # 
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
-W3_ANALYSIS_VERSION = "w3_variant_survival_analysis_v411"
+W3_ANALYSIS_VERSION = "w3_variant_survival_analysis_v412_route_usable"
 DEFAULT_W3_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival/013")
 W3_ENVIRONMENT_MODES = ("w3_randomised_single", "w3_randomised_four")
-STATUS_VOCABULARY = ("survived", "downgraded", "eliminated", "blocked", "not_run")
+STATUS_VOCABULARY = (
+    "survived",
+    "route_usable",
+    "recovery_route_usable",
+    "downgraded",
+    "eliminated",
+    "blocked",
+    "not_run",
+)
+ELIGIBLE_W3_STATUSES = ("survived", "route_usable", "recovery_route_usable")
 BLOCKED_CLAIMS = (
     "W3_robustness_proof",
     "hardware_readiness",
@@ -53,6 +62,11 @@ class W3SurvivalAnalysisConfig:
     input_root: Path = DEFAULT_W3_ROOT
     survived_transition_success_rate_min: float = 0.60
     survived_hard_failure_rate_max: float = 0.40
+    launch_route_transition_success_rate_min: float = 0.45
+    launch_route_hard_failure_rate_max: float = 0.05
+    boundary_route_transition_success_rate_min: float = 0.40
+    boundary_route_hard_failure_rate_max: float = 0.20
+    recovery_route_hard_failure_rate_max: float = 0.10
     downgraded_transition_success_rate_min: float = 0.30
     downgraded_hard_failure_rate_max: float = 0.65
 
@@ -104,6 +118,9 @@ def run_w3_survival_analysis(config: W3SurvivalAnalysisConfig) -> dict[str, obje
         "input_root": input_root.as_posix(),
         "survivor_registry": (input_root / "manifests" / "w3_survivor_registry.json").as_posix(),
         "survivor_count": int(registry["survivor_count"]),
+        "strong_survivor_count": int(registry["strong_survivor_count"]),
+        "route_usable_count": int(registry["route_usable_count"]),
+        "recovery_route_usable_count": int(registry["recovery_route_usable_count"]),
         "downgraded_count": int(registry["downgraded_count"]),
         "eliminated_count": int(registry["eliminated_count"]),
     }
@@ -240,6 +257,7 @@ def _variant_summary(frame: pd.DataFrame, *, config: W3SurvivalAnalysisConfig) -
         transition_success_rate = float(transition_success_count / max(1, len(compatible)))
         useful_count = transition_success_count
         status, reason = _status_for_variant(
+            transition_entry_class=transition_entry_class,
             both_modes_positive=both_modes_positive,
             useful_count=useful_count,
             compatible_row_count=len(compatible),
@@ -252,7 +270,7 @@ def _variant_summary(frame: pd.DataFrame, *, config: W3SurvivalAnalysisConfig) -
             {
                 "transition_object_id": transition_object_id,
                 "w3_variant_status": status,
-                "eligible_for_post_w3_library_size_study": status == "survived",
+                "eligible_for_post_w3_library_size_study": status in ELIGIBLE_W3_STATUSES,
                 "compatible_row_count": int(len(compatible)),
                 "incompatible_row_count": incompatible_count,
                 "continuation_valid_count": int(_continuation_series(compatible).sum()),
@@ -341,6 +359,7 @@ def _base_variant_row(first: pd.Series, variant_id: str, *, transition_entry_cla
 
 def _status_for_variant(
     *,
+    transition_entry_class: str,
     both_modes_positive: bool,
     useful_count: int,
     compatible_row_count: int,
@@ -350,12 +369,35 @@ def _status_for_variant(
 ) -> tuple[str, str]:
     if compatible_row_count <= 0:
         return "not_run", "no_compatible_rows"
+    entry_class = str(transition_entry_class)
     if (
-        both_modes_positive
+        entry_class == "inflight_stable"
+        and both_modes_positive
         and float(transition_success_rate) >= float(config.survived_transition_success_rate_min)
         and hard_failure_rate <= float(config.survived_hard_failure_rate_max)
     ):
-        return "survived", "transition_compatible_in_both_W3_modes_and_hard_failure_rate_within_survival_limit"
+        return "survived", "inflight_stable_high_probability_transition_survivor"
+    if (
+        entry_class == "launch_gate"
+        and both_modes_positive
+        and float(transition_success_rate) >= float(config.launch_route_transition_success_rate_min)
+        and hard_failure_rate <= float(config.launch_route_hard_failure_rate_max)
+    ):
+        return "route_usable", "launch_gate_route_usable_nonzero_handoff_low_hard_failure"
+    if (
+        entry_class == "boundary_near"
+        and both_modes_positive
+        and float(transition_success_rate) >= float(config.boundary_route_transition_success_rate_min)
+        and hard_failure_rate <= float(config.boundary_route_hard_failure_rate_max)
+    ):
+        return "route_usable", "boundary_near_route_usable_low_hard_failure"
+    if (
+        entry_class == "recoverable_degraded"
+        and both_modes_positive
+        and useful_count > 0
+        and hard_failure_rate <= float(config.recovery_route_hard_failure_rate_max)
+    ):
+        return "recovery_route_usable", "recoverable_degraded_route_usable_nonzero_progress_low_hard_failure"
     if (
         useful_count > 0
         and float(transition_success_rate) >= float(config.downgraded_transition_success_rate_min)
@@ -437,7 +479,10 @@ def _survivor_registry(
     variant_summary: pd.DataFrame,
     config: W3SurvivalAnalysisConfig,
 ) -> dict[str, object]:
-    survivors = variant_summary[variant_summary["w3_variant_status"] == "survived"]
+    strong_survivors = variant_summary[variant_summary["w3_variant_status"] == "survived"]
+    eligible = variant_summary[variant_summary["eligible_for_post_w3_library_size_study"].astype(bool)]
+    route_usable = variant_summary[variant_summary["w3_variant_status"] == "route_usable"]
+    recovery_route_usable = variant_summary[variant_summary["w3_variant_status"] == "recovery_route_usable"]
     downgraded = variant_summary[variant_summary["w3_variant_status"] == "downgraded"]
     eliminated = variant_summary[variant_summary["w3_variant_status"] == "eliminated"]
     blocked = variant_summary[variant_summary["w3_variant_status"] == "blocked"]
@@ -460,16 +505,23 @@ def _survivor_registry(
         "positive_continuation": "transition_chain_compatible_true",
         "terminal_useful": "episode_terminal_useful_true_or_boundary_use_class_episode_terminal_useful",
         "hard_failure": "transition_exit_class_hard_failure_or_legacy_hard_failure",
-        "survived": "both_W3_modes_transition_compatible_for_this_entry_class_and_transition_success_rate_above_min_and_hard_failure_rate_less_or_equal_survived_limit",
-        "registry_pass": "requires_nonzero_transition_object_survivors_and_launch_gate_entry_survivor_for_every_active_primitive_family",
+        "survived": "inflight_stable_only_strict_high_probability_survivor",
+        "route_usable": "launch_gate_or_boundary_near_entry_has_both_W3_modes_positive_transition_evidence_and_low_hard_failure_rate",
+        "recovery_route_usable": "recoverable_degraded_entry_has_nonzero_transition_progress_in_both_W3_modes_and_low_hard_failure_rate",
+        "registry_pass": "requires_nonzero_eligible_transition_objects_and_launch_gate_entry_eligible_object_for_every_active_primitive_family",
         "downgraded": "partial_transition_compatible_evidence_and_hard_failure_rate_less_or_equal_downgraded_limit",
         "survived_transition_success_rate_min": float(config.survived_transition_success_rate_min),
         "survived_hard_failure_rate_max": float(config.survived_hard_failure_rate_max),
+        "launch_route_transition_success_rate_min": float(config.launch_route_transition_success_rate_min),
+        "launch_route_hard_failure_rate_max": float(config.launch_route_hard_failure_rate_max),
+        "boundary_route_transition_success_rate_min": float(config.boundary_route_transition_success_rate_min),
+        "boundary_route_hard_failure_rate_max": float(config.boundary_route_hard_failure_rate_max),
+        "recovery_route_hard_failure_rate_max": float(config.recovery_route_hard_failure_rate_max),
         "downgraded_transition_success_rate_min": float(config.downgraded_transition_success_rate_min),
         "downgraded_hard_failure_rate_max": float(config.downgraded_hard_failure_rate_max),
     }
     role_summary = _role_survival_summary(variant_summary)
-    registry_status, registry_blocked_reason = _registry_status_from_survivors(survivors)
+    registry_status, registry_blocked_reason = _registry_status_from_survivors(eligible)
     return {
         "registry_version": W3_ANALYSIS_VERSION,
         "project_title_version": PROJECT_TITLE_VERSION,
@@ -480,14 +532,18 @@ def _survivor_registry(
         "source_table_manifest_sha256": file_sha256(input_root / "manifests" / "table_manifest.json"),
         "status": registry_status,
         "blocked_reason": registry_blocked_reason,
-        "survivor_count": int(len(survivors)),
-        "launch_gate_entry_survivor_count": int(_transition_entry_survivor_count(survivors, "launch_gate")),
-        "inflight_stable_entry_survivor_count": int(_transition_entry_survivor_count(survivors, "inflight_stable")),
-        "boundary_near_entry_survivor_count": int(_transition_entry_survivor_count(survivors, "boundary_near")),
-        "recoverable_degraded_entry_survivor_count": int(_transition_entry_survivor_count(survivors, "recoverable_degraded")),
+        "survivor_count": int(len(eligible)),
+        "strong_survivor_count": int(len(strong_survivors)),
+        "route_usable_count": int(len(route_usable)),
+        "recovery_route_usable_count": int(len(recovery_route_usable)),
+        "eligible_transition_object_count": int(len(eligible)),
+        "launch_gate_entry_survivor_count": int(_transition_entry_survivor_count(eligible, "launch_gate")),
+        "inflight_stable_entry_survivor_count": int(_transition_entry_survivor_count(eligible, "inflight_stable")),
+        "boundary_near_entry_survivor_count": int(_transition_entry_survivor_count(eligible, "boundary_near")),
+        "recoverable_degraded_entry_survivor_count": int(_transition_entry_survivor_count(eligible, "recoverable_degraded")),
         "required_active_primitive_ids": list(ACTIVE_PRIMITIVE_IDS),
-        "surviving_launch_gate_entry_primitive_ids": _surviving_launch_gate_entry_ids(survivors),
-        "missing_launch_gate_entry_primitive_ids": _missing_launch_gate_entry_ids(survivors),
+        "surviving_launch_gate_entry_primitive_ids": _surviving_launch_gate_entry_ids(eligible),
+        "missing_launch_gate_entry_primitive_ids": _missing_launch_gate_entry_ids(eligible),
         "role_survival_summary": role_summary,
         "downgraded_count": int(len(downgraded)),
         "eliminated_count": int(len(eliminated)),
@@ -498,7 +554,10 @@ def _survivor_registry(
         "transition_contract": transition_contract_row(),
         "claim_status": "simulation_only_W3_variant_survival_analysis",
         "blocked_claims": list(BLOCKED_CLAIMS),
-        "survivors": _records_for_registry(survivors),
+        "survivors": _records_for_registry(eligible),
+        "strong_survivors": _records_for_registry(strong_survivors),
+        "route_usable": _records_for_registry(route_usable),
+        "recovery_route_usable": _records_for_registry(recovery_route_usable),
         "downgraded": _records_for_registry(downgraded),
         "eliminated": _records_for_registry(eliminated),
     }
@@ -628,8 +687,11 @@ def _write_reports(*, input_root: Path, registry: dict[str, object]) -> None:
         f"- Source W3 root: `{registry['source_w3_root']}`",
         f"- Status: `{registry['status']}`",
         f"- Blocked reason: `{registry.get('blocked_reason', '')}`",
-        f"- Survivors: `{registry['survivor_count']}`",
-        f"- Launch-gate entry survivors: `{registry.get('launch_gate_entry_survivor_count', 0)}`",
+        f"- Eligible transition objects: `{registry['survivor_count']}`",
+        f"- Strict inflight survivors: `{registry.get('strong_survivor_count', 0)}`",
+        f"- Route-usable objects: `{registry.get('route_usable_count', 0)}`",
+        f"- Recovery-route-usable objects: `{registry.get('recovery_route_usable_count', 0)}`",
+        f"- Launch-gate entry eligible objects: `{registry.get('launch_gate_entry_survivor_count', 0)}`",
         f"- Missing launch-gate entry families: `{','.join(registry.get('missing_launch_gate_entry_primitive_ids', []))}`",
         f"- Downgraded: `{registry['downgraded_count']}`",
         f"- Eliminated: `{registry['eliminated_count']}`",
@@ -644,7 +706,7 @@ def _write_reports(*, input_root: Path, registry: dict[str, object]) -> None:
         "# L9 W3 Move-On Check",
         "",
         f"- W3 survivor registry exists: `{True}`",
-        f"- W3 survivors available: `{registry['status'] == 'w3_survivors_available'}`",
+        f"- W3 eligible transition objects available: `{registry['status'] == 'w3_survivors_available'}`",
         f"- Post-W3 clustering allowed: `{registry['status'] == 'w3_survivors_available'}`",
         "- No Q/R, K, reference, horizon, entry role, controller ID, or primitive-variant ID mutation occurred.",
         "- Blocked claims remain hardware readiness, transfer, mission success, and formal LQR-tree/funnel/ROA guarantees.",
@@ -780,6 +842,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--input-root", type=Path, default=DEFAULT_W3_ROOT)
     parser.add_argument("--survived-transition-success-rate-min", type=float, default=0.60)
     parser.add_argument("--survived-hard-failure-rate-max", type=float, default=0.40)
+    parser.add_argument("--launch-route-transition-success-rate-min", type=float, default=0.45)
+    parser.add_argument("--launch-route-hard-failure-rate-max", type=float, default=0.05)
+    parser.add_argument("--boundary-route-transition-success-rate-min", type=float, default=0.40)
+    parser.add_argument("--boundary-route-hard-failure-rate-max", type=float, default=0.20)
+    parser.add_argument("--recovery-route-hard-failure-rate-max", type=float, default=0.10)
     parser.add_argument("--downgraded-transition-success-rate-min", type=float, default=0.30)
     parser.add_argument("--downgraded-hard-failure-rate-max", type=float, default=0.65)
     return parser.parse_args(argv)
@@ -792,6 +859,11 @@ def main(argv: list[str] | None = None) -> int:
             input_root=args.input_root,
             survived_transition_success_rate_min=args.survived_transition_success_rate_min,
             survived_hard_failure_rate_max=args.survived_hard_failure_rate_max,
+            launch_route_transition_success_rate_min=args.launch_route_transition_success_rate_min,
+            launch_route_hard_failure_rate_max=args.launch_route_hard_failure_rate_max,
+            boundary_route_transition_success_rate_min=args.boundary_route_transition_success_rate_min,
+            boundary_route_hard_failure_rate_max=args.boundary_route_hard_failure_rate_max,
+            recovery_route_hard_failure_rate_max=args.recovery_route_hard_failure_rate_max,
             downgraded_transition_success_rate_min=args.downgraded_transition_success_rate_min,
             downgraded_hard_failure_rate_max=args.downgraded_hard_failure_rate_max,
         )

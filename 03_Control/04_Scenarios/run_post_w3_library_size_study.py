@@ -63,7 +63,7 @@ LIBRARY_SIZE_CASES: tuple[dict[str, object], ...] = (
         "library_size_case_id": "no_cluster_no_merge",
         "library_size_human_label": "no-clustering/no-merging",
         "max_representatives_per_group": 1_000_000,
-        "selection_policy": "all_w3_survivors_no_clustering_no_merging",
+        "selection_policy": "all_w3_eligible_transition_objects_no_clustering_no_merging",
     },
 )
 LIBRARY_SIZE_CASE_IDS = tuple(str(case["library_size_case_id"]) for case in LIBRARY_SIZE_CASES)
@@ -101,7 +101,7 @@ def run_post_w3_library_size_study(config: PostW3LibrarySizeStudyConfig) -> dict
 
     registry = _read_json(config.input_root / "manifests" / "w3_survivor_registry.json")
     variant_summary = pd.read_csv(filesystem_path(config.input_root / "metrics" / "w3_variant_survival_summary.csv"))
-    survived = variant_summary[variant_summary["w3_variant_status"].astype(str) == "survived"].copy()
+    survived = _eligible_w3_transition_objects(variant_summary)
     blocked_reason = _survived_frame_blocked_reason(survived)
     if blocked_reason:
         _write_blocked_outputs(run_root, config, blocked_reason)
@@ -194,8 +194,9 @@ def discover_latest_w3_root_for_post_w3(discovery_root: Path = DEFAULT_W3_DISCOV
         if _input_blocked_reason(candidate):
             continue
         try:
-            survived = pd.read_csv(filesystem_path(candidate / "metrics" / "w3_variant_survival_summary.csv"))
-            survived = survived[survived["w3_variant_status"].astype(str) == "survived"].copy()
+            survived = _eligible_w3_transition_objects(
+                pd.read_csv(filesystem_path(candidate / "metrics" / "w3_variant_survival_summary.csv"))
+            )
         except Exception:
             continue
         if _survived_frame_blocked_reason(survived):
@@ -213,6 +214,17 @@ def _resolve_w3_input_root(input_root: Path | None) -> Path:
     if discovered is not None:
         return discovered
     return DEFAULT_W3_DISCOVERY_ROOT / "__missing_eligible_w3_root__"
+
+
+def _eligible_w3_transition_objects(variant_summary: pd.DataFrame) -> pd.DataFrame:
+    """Return W3 objects allowed into R8 while preserving their status labels."""
+
+    if variant_summary.empty:
+        return variant_summary.copy()
+    if "eligible_for_post_w3_library_size_study" in variant_summary.columns:
+        eligible = variant_summary["eligible_for_post_w3_library_size_study"].astype(str).str.lower().isin({"true", "1", "yes"})
+        return variant_summary[eligible].copy()
+    return variant_summary[variant_summary["w3_variant_status"].astype(str) == "survived"].copy()
 
 
 def _input_blocked_reason(input_root: Path) -> str:
@@ -1039,7 +1051,7 @@ def _library_payload(
         "selection_algorithm": "coverage_aware_behavior_qr_medoid_greedy_marginal",
         "hard_safety_filter_policy": "prefer hard_failure_rate_below_0p75_within_primitive_transition_entry_group",
         "coverage_objective": "smallest_existing_transition_compatible_variant_set_covering_useful_entry_exit_transitions_with_low_hard_failure_risk",
-        "speed_bin_coverage_policy": "preserve distinct W3-surviving local LQR speed bins within each primitive_id + transition_entry_class group up to the library-size case budget",
+        "speed_bin_coverage_policy": "preserve distinct W3-eligible local LQR speed bins within each primitive_id + transition_entry_class group up to the library-size case budget",
         "transition_contract": transition_contract_row(),
         "claim_status": "simulation_only_post_w3_library_size_case",
         "no_controller_mutation": True,
@@ -1125,7 +1137,7 @@ def _speed_bin_coverage_audit(survived: pd.DataFrame, representatives: list[dict
                     "max_representatives_per_group": int(max_per_group),
                     "speed_bin_coverage_status": status,
                     "speed_bin_coverage_policy": (
-                        "preserve distinct W3-surviving local LQR speed bins within each "
+                        "preserve distinct W3-eligible local LQR speed bins within each "
                         "primitive_id + transition_entry_class group up to the library-size case budget"
                     ),
                 }
@@ -1236,9 +1248,9 @@ def _write_report(run_root: Path, manifest: dict[str, object]) -> None:
         f"- Library-size cases: `{','.join(LIBRARY_SIZE_CASE_IDS)}`",
         "- Human label retained for no_cluster_no_merge: `no-clustering/no-merging`",
         "- Selection: `coverage-aware behavior/Q-R medoid selection with greedy marginal coverage fill`",
-        "- Speed-bin coverage: R8 preserves distinct W3-surviving local LQR speed bins within each primitive/entry-class group up to the case budget and writes `speed_bin_coverage_audit.csv`.",
+        "- Speed-bin coverage: R8 preserves distinct W3-eligible local LQR speed bins within each primitive/entry-class group up to the case budget and writes `speed_bin_coverage_audit.csv`.",
         "- Hard safety filter: within each primitive/entry-role group, prefer survivors with `hard_failure_rate < 0.75`; if all candidates exceed that threshold the group is retained for explicit downstream blocking/audit.",
-        "- Medoids are existing W3-surviving variants; no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation is performed.",
+        "- Medoids are existing W3-eligible variants; no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation is performed.",
         "- Claim boundary: simulation-only; no hardware-readiness, transfer, mission, or memory-improvement claim.",
         "",
     ]

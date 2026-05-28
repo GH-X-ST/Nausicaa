@@ -3,7 +3,7 @@
 - Status: `complete`
 - Blocked reason: ``
 - Project title version: `LQR-Stabilised Contextual Primitive v5.20`
-- Docs hashes: `{"docs/Daily_Schedule.txt":"e87b597ea6c10ad1bc68a40094d14ce8212b105d82ced5756a9ff4c38f51906d","docs/Glider_Control_Project_Plan.md":"17a2d90acb08f9f6f19b832a459ff6797eb3999b24f582e895dd7bff44741064","docs/MATLAB Coding.txt":"744b85a9ebb7b720111f5847c9de124cf555ca7fe5d0fd80cdf17b02328f2aa8","docs/PR.txt":"6d29a00f25b5908cf3c70fc9117ef3f767f51c804cf1745c4a07191db0b8d1c4","docs/Python Coding Instruction.txt":"e64117b45052009731d6c91e395e18bac53a67641197aac94af26db76d43e737","docs/Python Coding to CODEX.txt":"602144fceae8f7650c1ac2bd900bd692665c4809255917b61a45643fb61c2f48","docs/Skills.md":"4d7f01fbd6811e9aa77fd29af564637b069f68066ae674a6b3c267f268d8f0a5","docs/housekeeping_and_naming_rules.md":"455964775678ff39c76be2a8cd1ca1af251c0e68c31b325eff52bf4a50b5d9dc"}`
+- Docs hashes: `{"docs/Daily_Schedule.txt":"89910171973d78b584df24c2c5e70f72cdecd1390df6342f073e0c4775152d05","docs/Glider_Control_Project_Plan.md":"7ef20744866fe2f684132d715ef0ef09777bb0473b4ea52b9daced63f15cf2d5","docs/MATLAB Coding.txt":"3ffe533f8862ccc0a3c5f9c813f48f238407ab4602eaa6cec052d375d9e9b57d","docs/PR.txt":"a6a41d786408cf2abe12085356b17bcef07bc090391284a7d0b0b4feaf2b6c59","docs/Python Coding Instruction.txt":"046a4213433f911ec3fa1b2ae7274298afcc51339f45a76a42f8611ecb4c1931","docs/Python Coding to CODEX.txt":"55ef9d5f17d6411372b8b49b46078c1be4a7818ffe54ade9da96c2de750c8eca","docs/Skills.md":"60f555dab53edd769c0c0440f7b9b24d86e8a13473b10e295080e0bc683cb5f1","docs/housekeeping_and_naming_rules.md":"307c7ba662fe11ca0cd9d8466c3800f71b7719eb9293d32f14854bb2589e5c88"}`
 - R5 decision: `R5_TRANSITION_AWARE_DENSE_PASSED_FOR_REVIEW`
 - R5 run root: `03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904`
 - R5 rows written: `76800` / `76800`
@@ -16,7 +16,7 @@
 
 Stages:
 - `R5`: `complete` root `03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904`
-- `R7`: `not_run` root ``
+- `R7`: `complete` root `03_Control/05_Results/lqr_contextual_v1_0/w3_survival/020`
 - `R8`: `not_run` root ``
 - `R10`: `not_run` root ``
 - `R11`: `not_run` root ``

@@ -1,0 +1,23 @@
+{
+  "runner_version": "w3_fixed_lqr_survival_replay_v414_turn_metrics_diagnostic_only",
+  "status": "complete",
+  "run_id": 20,
+  "chunk_index": 10,
+  "chunk_count": 64,
+  "row_start": 10000,
+  "row_stop": 11000,
+  "row_count": 1000,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "partition_path": "w3_survival_rows/c00010.csv.gz",
+  "byte_count": 2535509,
+  "checksum_sha256": "e959cf13b036b34bfbf4cbe39105ea4cc6ea471c8d19dbeeed6cc447b2b0acc9",
+  "duration_s": 105.00822424888611,
+  "table_name": "w3_survival_rows",
+  "primitive_timing_contract": {
+    "finite_horizon_s": 0.1,
+    "controller_input_slots_per_primitive": 5,
+    "controller_input_update_period_s": 0.02,
+    "primitive_timing_contract_version": "v411_0p10s_5slot_20ms"
+  }
+}

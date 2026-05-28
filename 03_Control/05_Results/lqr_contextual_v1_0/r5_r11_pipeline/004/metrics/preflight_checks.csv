@@ -4,3 +4,17 @@ timestamp_utc,stage_id,check_id,passed,observed,required
 2026-05-28T09:01:48.935605+00:00,R5,controller_input_slots_exact_5,True,5,5
 2026-05-28T09:01:48.935605+00:00,R5,controller_update_period_exact_0p020s,True,0.02,0.02
 2026-05-28T09:01:48.935605+00:00,R5,primitive_timing_contract_v411,True,v411_0p10s_5slot_20ms,v411_0p10s_5slot_20ms
+2026-05-28T09:38:39.806926+00:00,PIPELINE,source_audit_ready,True,ready,ready
+2026-05-28T09:38:39.833931+00:00,R7,primitive_horizon_exact_0p100s,True,0.1,0.1
+2026-05-28T09:38:39.833931+00:00,R7,controller_input_slots_exact_5,True,5,5
+2026-05-28T09:38:39.833931+00:00,R7,controller_update_period_exact_0p020s,True,0.02,0.02
+2026-05-28T09:38:39.833931+00:00,R7,primitive_timing_contract_v411,True,v411_0p10s_5slot_20ms,v411_0p10s_5slot_20ms
+2026-05-28T09:38:39.833931+00:00,R7,previous_stage_R5_passed,True,True,True
+2026-05-28T09:38:39.833931+00:00,R7,R5_frozen_bundle_root_available,True,03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904,nonempty
+2026-05-28T10:16:07.682746+00:00,PIPELINE,source_audit_ready,True,ready,ready
+2026-05-28T10:16:07.707292+00:00,R7,primitive_horizon_exact_0p100s,True,0.1,0.1
+2026-05-28T10:16:07.707292+00:00,R7,controller_input_slots_exact_5,True,5,5
+2026-05-28T10:16:07.707292+00:00,R7,controller_update_period_exact_0p020s,True,0.02,0.02
+2026-05-28T10:16:07.707292+00:00,R7,primitive_timing_contract_v411,True,v411_0p10s_5slot_20ms,v411_0p10s_5slot_20ms
+2026-05-28T10:16:07.707292+00:00,R7,previous_stage_R5_passed,True,True,True
+2026-05-28T10:16:07.707292+00:00,R7,R5_frozen_bundle_root_available,True,03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904,nonempty

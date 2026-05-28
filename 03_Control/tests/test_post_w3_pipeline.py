@@ -52,8 +52,11 @@ def test_w3_analysis_separates_terminal_and_continuation_evidence(tmp_path: Path
     assert registry["survivor_count"] == 11
     survived = summary[summary["primitive_variant_id"] == "primvar_glide_inflight"]
     terminal_safe = summary[summary["primitive_variant_id"] == "primvar_lift_terminal"]
+    launch = summary[summary["transition_entry_class"] == "launch_gate"]
     assert survived["w3_variant_status"].iloc[0] == "survived"
     assert terminal_safe["w3_variant_status"].iloc[0] == "survived"
+    assert set(launch["w3_variant_status"]) == {"route_usable"}
+    assert launch["eligible_for_post_w3_library_size_study"].all()
     assert int(terminal_safe["incompatible_row_count"].iloc[0]) == 1
     assert int(terminal_safe["continuation_valid_count"].iloc[0]) == 0
     assert int(terminal_safe["episode_terminal_useful_count"].iloc[0]) == 2
@@ -113,7 +116,7 @@ def test_post_w3_library_size_study_writes_five_cases_without_mutation(tmp_path:
         *(f"primvar_{primitive_id}_launch_gate" for primitive_id in ACTIVE_PRIMITIVE_IDS),
     }
     for representative in representatives:
-        assert representative["w3_variant_status"] == "survived"
+        assert representative["w3_variant_status"] in {"survived", "route_usable", "recovery_route_usable"}
         assert representative["mutation_status"].startswith("references_existing_frozen_transition_object")
         assert representative["library_size_case_id"] == "no_cluster_no_merge"
         assert representative["selection_algorithm"] == "coverage_aware_behavior_qr_medoid_greedy_marginal"
