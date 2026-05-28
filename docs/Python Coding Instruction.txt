@@ -20,6 +20,8 @@ Residual memory is a small case-local modifier: `predicted_updraft_gain = librar
 
 Core comparison is no memory versus residual-memory histories such as h5, h20, and h100, with safe-explore only as optional ablation. Hardware readiness, real-flight transfer, mission success, autonomy, and memory-improvement claims require R11 and later real-flight evidence.
 
+R9 is deliberately smaller than R10/R11. Its active quick-preflight matrix uses all five library-size cases, the fixed no-updraft/single-fan/four-fan blocks, and only `no_memory_baseline` plus `directional_3d_residual_memory_h20`, giving 30 final held-out launches and 300 history launches. Do not expand R9 back to the full h5/h20/h100/safe-explore matrix unless it is explicitly labelled diagnostic.
+
 <!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
 
 ## Purpose

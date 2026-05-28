@@ -68,9 +68,11 @@ audit and the current transition-aware algorithm contract audit directly. The cu
 workflow is controlled by `docs/Glider_Control_Project_Plan.md`: R5 is robust
 primitive synthesis, R6/W2 is archived diagnostic-only, R7 is frozen W3
 validation, R8 is the five-case coverage-aware medoid post-W3 library-size
-study, R9 is internal reduced fixed-case preflight/ablation only and is not
+study, R9 is internal quick fixed-case preflight/ablation only and is not
 thesis-facing evidence, R10 is environment-only changed-case governor tuning,
-and R11 is strict held-out changed-case validation.
+and R11 is strict held-out changed-case validation. R9 defaults to all five
+library-size cases, no-updraft/single-fan/four-fan fixed blocks, no-memory plus
+h20 residual memory only, 30 final held-out launches, and 300 history launches.
 
 Use the repo-local pytest temp/cache paths above so validation does not depend
 on the Windows user temp directory. Local `.venv` and `.codex_run_logs`

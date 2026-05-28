@@ -76,7 +76,7 @@ Python control-simulation pipeline
 - Reframes the repair around robust randomized R5 dry-air plus annular-GP synthesis, where primitive-local references and LQR Q/R are tuned with local-speed scheduled linearisation before freezing the controller bundle.
 - Makes W2 optional diagnostic evidence only, applies W3-style plant/implementation perturbations even to R5 dry-air rows, and keeps W3 as the frozen held-out validation stage with seed separation, active-fan-count variation, plant-instance perturbation, and left/right aileron asymmetry captured in the audit boundary.
 - Simplifies launch handling: launch is a `launch_gate` entry regime for the same eight active manoeuvre families, while retired `launch_capture_*` IDs remain archive aliases only; post-W3 compression keeps the heavy/balanced/light/super-light/no-clustering cases.
-- Late validation now uses the simplified no-memory versus residual-memory h5/h20/h100 core comparison, controlled final-launch pairing, R10 governor tuning, R11 held-out validation, and R9 only as internal preflight/ablation material.
+- Late validation now uses the simplified no-memory versus residual-memory h5/h20/h100 core comparison for R10/R11, controlled final-launch pairing, R10 governor tuning, R11 held-out validation, and R9 only as a quick internal preflight using no-memory plus h20 memory.
 - No memory improvement, hardware readiness, real-flight transfer, mission success, or full autonomy claim is made until strict R11 gates pass.
 ```
 

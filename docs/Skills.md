@@ -180,7 +180,7 @@ checksums and table manifests
 no giant in-memory final table
 ```
 
-For R9/R10/R11 repeated-launch validation, worker parallelism is across independent final held-out schedule rows. Each worker must run that row's history launches sequentially before its final launch; do not parallelise within a memory-history chain. R10/R11 full validation uses a 20 s per-episode simulation safety budget, not a primitive-count cap; R9 is a reduced internal preflight with a 10 s episode budget. Any primitive-count cap is diagnostic only. History and final launch selected-primitive trajectory evidence must be retained for thesis plotting; exhaustive all-candidate score rows should be compacted by default.
+For R9/R10/R11 repeated-launch validation, worker parallelism is across independent final held-out schedule rows. Each worker must run that row's history launches sequentially before its final launch; do not parallelise within a memory-history chain. R10/R11 full validation uses a 20 s per-episode simulation safety budget, not a primitive-count cap. R9 is a quick internal preflight with a 10 s episode budget, all five library-size cases, the three fixed blocks no-updraft/single-fan/four-fan, and only `no_memory_baseline` plus `directional_3d_residual_memory_h20`, giving 30 final held-out launches and 300 history launches. Any primitive-count cap is diagnostic only. History and final launch selected-primitive trajectory evidence must be retained for thesis plotting; exhaustive all-candidate score rows should be compacted by default.
 
 Default local dense-run policy:
 

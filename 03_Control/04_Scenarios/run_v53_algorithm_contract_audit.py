@@ -72,6 +72,7 @@ from run_repeated_launch_learning_curve import (  # noqa: E402
     HISTORY_LENGTHS,
     LAUNCH_SCORE_VERSION,
     POLICY_HISTORY_CONDITIONS,
+    R9_POLICY_HISTORY_CONDITIONS,
     R10_ACTIVE_FAN_COUNT_SEQUENCE,
     R9_BLOCKS,
     R9_EXPECTED_FINAL_HELDOUT_LAUNCHES,
@@ -207,8 +208,9 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r10_is_governor_learning_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level == "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level, "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate"))
     rows.append(_row("r11_is_strict_heldout_validation", R11_PROTOCOL.validation_evidence_level == "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation", R11_PROTOCOL.validation_evidence_level, "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation"))
     rows.append(_row("r11_gates_full_safe_success", R11_PROTOCOL.min_full_safe_success_rate == 0.99, R11_PROTOCOL.min_full_safe_success_rate, 0.99))
-    rows.append(_row("r9_expected_final_launches", R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION, R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*5*3"))
-    rows.append(_row("r9_expected_history_launches_internal_preflight", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + 20), R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*3*(h5+h20+h100+safe_h20)"))
+    rows.append(_row("r9_quick_preflight_policy_history_conditions", R9_POLICY_HISTORY_CONDITIONS == ("no_memory_baseline", "directional_3d_residual_memory_h20"), R9_POLICY_HISTORY_CONDITIONS, "no_memory_baseline + directional_3d_residual_memory_h20"))
+    rows.append(_row("r9_expected_final_launches_quick_preflight", R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R9_POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION == 30, R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*2*3=30"))
+    rows.append(_row("r9_expected_history_launches_quick_preflight", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * 20 == 300, R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*3*h20=300"))
     rows.append(_row("r10_r11_expected_final_launches", R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION, R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*5*120"))
     rows.append(_row("r10_r11_expected_history_launches_core_matrix", R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + 20), R10_EXPECTED_HISTORY_LAUNCHES, "library_cases*120*(h5+h20+h100+safe_h20)"))
     rows.append(_row("five_policy_history_conditions_core", len(POLICY_HISTORY_CONDITIONS) == 5, len(POLICY_HISTORY_CONDITIONS), 5))
@@ -715,6 +717,8 @@ def _docs_code_consistency_rows(repo_root: Path) -> list[dict[str, object]]:
         "r8_speed_bin_coverage_preservation": "speed-bin collapse is a library-coverage failure",
         "recovery_self_transition_progress_gate": "recoverable_degraded -> recoverable_degraded",
         "recovery_boundary_route_not_full_pass": "recoverable_degraded -> boundary_near",
+        "r9_quick_preflight_30_final": "30 final held-out launches",
+        "r9_quick_preflight_300_history": "300 history launches",
     }
     for check_id, fragment in combined_requirements.items():
         rows.append(_row(check_id, fragment in combined, fragment if fragment in combined else "missing", fragment))

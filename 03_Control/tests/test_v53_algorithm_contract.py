@@ -25,10 +25,9 @@ from run_repeated_launch_learning_curve import (
     ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
     BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
     EMPTY_FROZEN_PRIOR_BASELINE_ID,
-    HISTORY_LENGTHS,
-    SAFE_EXPLORE_ABLATION_HISTORY_LENGTH,
     LIBRARY_SIZE_CASE_IDS,
     POLICY_HISTORY_CONDITIONS,
+    R9_POLICY_HISTORY_CONDITIONS,
     R9_BLOCKS,
     R9_EXPECTED_FINAL_HELDOUT_LAUNCHES,
     R9_EXPECTED_HISTORY_LAUNCHES,
@@ -67,12 +66,9 @@ def test_v53_stage_contract_is_r5_r7_r8_r10_r11_with_r6_archived_and_r9_internal
 def test_v53_r9_is_reduced_internal_preflight_and_can_seed_r10_governor() -> None:
     assert tuple(block.case_count for block in R9_BLOCKS) == (1, 1, 1)
     assert R9_OUTER_CASES_PER_CONDITION == 3
-    assert R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * 3
-    assert R9_EXPECTED_HISTORY_LAUNCHES == (
-        len(LIBRARY_SIZE_CASE_IDS)
-        * 3
-        * (sum(HISTORY_LENGTHS) + SAFE_EXPLORE_ABLATION_HISTORY_LENGTH)
-    )
+    assert R9_POLICY_HISTORY_CONDITIONS == ("no_memory_baseline", "directional_3d_residual_memory_h20")
+    assert R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R9_POLICY_HISTORY_CONDITIONS) * 3 == 30
+    assert R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 3 * 20 == 300
 
     tuned, decisions = _tuned_governor_config_from_metrics(
         base_config=DEFAULT_GOVERNOR_CONFIG,
@@ -229,7 +225,7 @@ def test_v53_memory_scope_is_per_final_case_and_final_launches_are_paired() -> N
     outer_cases = _outer_case_schedule(protocol=R9_PROTOCOL, seed=90, smoke_outer_cases_per_block=1)
     final_schedule = []
     for case_id in LIBRARY_SIZE_CASE_IDS:
-        for policy_id in POLICY_HISTORY_CONDITIONS:
+        for policy_id in R9_POLICY_HISTORY_CONDITIONS:
             for outer in outer_cases:
                 final_schedule.append(
                     {
@@ -246,7 +242,7 @@ def test_v53_memory_scope_is_per_final_case_and_final_launches_are_paired() -> N
     assert pairing_rows
     assert all(row["pairing_passed"] for row in pairing_rows)
     assert all(row["library_case_count"] == len(LIBRARY_SIZE_CASE_IDS) for row in pairing_rows)
-    assert all(row["policy_count"] == len(POLICY_HISTORY_CONDITIONS) for row in pairing_rows)
+    assert all(row["policy_count"] == len(R9_POLICY_HISTORY_CONDITIONS) for row in pairing_rows)
 
     memory_final = next(row for row in final_schedule if row["policy_id"] == "directional_3d_residual_memory_h20")
     history = _history_row_for_final(memory_final, 0)

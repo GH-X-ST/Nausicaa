@@ -61,7 +61,7 @@ from run_post_w3_library_size_study import (  # noqa: E402
     run_post_w3_library_size_study,
 )
 from run_repeated_launch_learning_curve import (  # noqa: E402
-    POLICY_HISTORY_CONDITIONS,
+    R9_POLICY_HISTORY_CONDITIONS,
     R9_EXPECTED_FINAL_HELDOUT_LAUNCHES,
     R9_EXPECTED_HISTORY_LAUNCHES,
     RepeatedLaunchValidationConfig,
@@ -719,7 +719,7 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "r9_initial_governor_config_for_r10_exists", (run_root / "manifests" / "initial_governor_config_for_r10.json").is_file(), (run_root / "manifests" / "initial_governor_config_for_r10.json").as_posix(), "exists"),
             _check_row(stage_id, "r9_initial_governor_config_selected_for_r10", _read_json_if_exists(run_root / "manifests" / "initial_governor_config_for_r10.json").get("status") == "selected_for_r10_initialisation", _read_json_if_exists(run_root / "manifests" / "initial_governor_config_for_r10.json").get("status", ""), "selected_for_r10_initialisation"),
             _check_row(stage_id, "all_active_library_size_cases", set(manifest.get("library_size_case_ids", [])) == set(LIBRARY_SIZE_CASE_IDS), manifest.get("library_size_case_ids", []), list(LIBRARY_SIZE_CASE_IDS)),
-            _check_row(stage_id, "fourteen_policy_history_conditions", set(manifest.get("policy_history_conditions", [])) == set(POLICY_HISTORY_CONDITIONS), manifest.get("policy_history_condition_count", 0), 14),
+            _check_row(stage_id, "r9_quick_preflight_two_policy_history_conditions", set(manifest.get("policy_history_conditions", [])) == set(R9_POLICY_HISTORY_CONDITIONS), manifest.get("policy_history_condition_count", 0), len(R9_POLICY_HISTORY_CONDITIONS)),
             _check_row(stage_id, "first_decision_launch_gate_audits_present", _validation_launch_gate_audit_passed(run_root), "audit", "passed"),
             _file_size_check(stage_id, run_root),
         ]

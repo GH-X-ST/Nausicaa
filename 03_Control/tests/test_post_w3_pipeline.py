@@ -32,8 +32,7 @@ from run_post_w3_library_size_study import (
     run_post_w3_library_size_study,
 )
 from run_repeated_launch_learning_curve import (
-    HISTORY_LENGTHS,
-    POLICY_HISTORY_CONDITIONS,
+    R9_POLICY_HISTORY_CONDITIONS,
     R9_EXPECTED_FINAL_HELDOUT_LAUNCHES,
     R9_EXPECTED_HISTORY_LAUNCHES,
     RepeatedLaunchValidationConfig,
@@ -332,8 +331,8 @@ def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_count
     assert len(r11_final) == R10_EXPECTED_FINAL_HELDOUT_LAUNCHES
     assert len(r11_history) == R10_EXPECTED_HISTORY_LAUNCHES
     assert set(r9_final["library_size_case_id"]) == set(LIBRARY_SIZE_CASE_IDS)
-    assert set(r9_final["policy_id"]) == set(POLICY_HISTORY_CONDITIONS)
-    assert set(r9_final["history_length"]) == {0, *HISTORY_LENGTHS}
+    assert set(r9_final["policy_id"]) == set(R9_POLICY_HISTORY_CONDITIONS)
+    assert set(r9_final["history_length"]) == {0, 20}
     assert set(r10_final["environment_block_id"]) == {
         "nominal_single_fan_perturbations",
         "nominal_four_fan_perturbations",

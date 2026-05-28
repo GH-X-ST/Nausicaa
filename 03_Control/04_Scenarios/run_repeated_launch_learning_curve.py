@@ -90,10 +90,15 @@ POLICY_HISTORY_CONDITIONS = (
     "directional_3d_residual_memory_h100",
     "safe_explore_then_exploit_h20",
 )
+R9_POLICY_HISTORY_CONDITIONS = (
+    "no_memory_baseline",
+    "directional_3d_residual_memory_h20",
+)
+R9_HISTORY_LENGTH_SUM = 20
 R9_PREFLIGHT_CASES_PER_BLOCK = 1
 R9_OUTER_CASES_PER_CONDITION = 3 * R9_PREFLIGHT_CASES_PER_BLOCK
-R9_EXPECTED_FINAL_HELDOUT_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION
-R9_EXPECTED_HISTORY_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM
+R9_EXPECTED_FINAL_HELDOUT_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * len(R9_POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION
+R9_EXPECTED_HISTORY_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * R9_HISTORY_LENGTH_SUM
 DEFAULT_LIBRARY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/001")
 DEFAULT_OUTCOME_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/outcome_model/003")
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/repeated_launch_validation")
@@ -225,6 +230,7 @@ class ValidationProtocol:
     expected_history_launches: int
     blocks: tuple[ValidationBlockSpec, ...]
     final_schedule_prefix: str
+    policy_history_conditions: tuple[str, ...] = POLICY_HISTORY_CONDITIONS
     reduced_diagnostic: bool = False
     requires_no_glider_latency_variation_audit: bool = False
     gate_profile: str = "strict_final_validation"
@@ -246,6 +252,7 @@ R9_PROTOCOL = ValidationProtocol(
     expected_history_launches=R9_EXPECTED_HISTORY_LAUNCHES,
     blocks=R9_BLOCKS,
     final_schedule_prefix="r9_fixed",
+    policy_history_conditions=R9_POLICY_HISTORY_CONDITIONS,
     gate_profile="internal_reduced_fixed_case_preflight_for_r10_initialisation",
     max_hard_failure_rate=0.20,
     max_no_viable_rate=0.30,
@@ -906,7 +913,7 @@ def _final_heldout_schedule(*, outer_cases: list[dict[str, object]], protocol: V
     rows: list[dict[str, object]] = []
     episode_index = 0
     for case_id in LIBRARY_SIZE_CASE_IDS:
-        for policy_id in POLICY_HISTORY_CONDITIONS:
+        for policy_id in protocol.policy_history_conditions:
             for outer in outer_cases:
                 rows.append(
                     {
@@ -925,7 +932,11 @@ def _final_heldout_schedule(*, outer_cases: list[dict[str, object]], protocol: V
 
 def _history_launch_schedule(*, outer_cases: list[dict[str, object]], protocol: ValidationProtocol) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    history_policies = [policy for policy in POLICY_HISTORY_CONDITIONS if policy.startswith(MEMORY_POLICY_PREFIX) or policy.startswith(SAFE_EXPLORE_POLICY_PREFIX)]
+    history_policies = [
+        policy
+        for policy in protocol.policy_history_conditions
+        if policy.startswith(MEMORY_POLICY_PREFIX) or policy.startswith(SAFE_EXPLORE_POLICY_PREFIX)
+    ]
     for case_id in LIBRARY_SIZE_CASE_IDS:
         for policy_id in history_policies:
             history_length = int(_policy_condition(policy_id)["history_length"])
@@ -2780,7 +2791,7 @@ def _pass_fail_summary(
         _gate_row("final_heldout_launch_count", len(final_schedule) == protocol.expected_final_heldout_launches, len(final_schedule), protocol.expected_final_heldout_launches),
         _gate_row("history_launch_count", len(history_schedule) == protocol.expected_history_launches, len(history_schedule), protocol.expected_history_launches),
         _gate_row("library_size_case_count", set(row["library_size_case_id"] for row in final_schedule) == set(LIBRARY_SIZE_CASE_IDS), len(set(row["library_size_case_id"] for row in final_schedule)), len(LIBRARY_SIZE_CASE_IDS)),
-        _gate_row("policy_history_condition_count", set(row["policy_id"] for row in final_schedule) == set(POLICY_HISTORY_CONDITIONS), len(set(row["policy_id"] for row in final_schedule)), len(POLICY_HISTORY_CONDITIONS)),
+        _gate_row("policy_history_condition_count", set(row["policy_id"] for row in final_schedule) == set(protocol.policy_history_conditions), len(set(row["policy_id"] for row in final_schedule)), len(protocol.policy_history_conditions)),
         _gate_row("pairing_audit", all(bool(row["pairing_passed"]) for row in pairing_rows), sum(bool(row["pairing_passed"]) for row in pairing_rows), len(pairing_rows)),
         _gate_row("primitive_count_cap_disabled_for_full_validation", int(max_primitives_per_launch) <= 0, int(max_primitives_per_launch), "0_or_negative_disabled"),
         _gate_row("max_episode_time_budget_positive", float(max_episode_time_s) >= float(PRIMITIVE_FINITE_HORIZON_S), float(max_episode_time_s), f">={PRIMITIVE_FINITE_HORIZON_S}"),
@@ -3177,9 +3188,15 @@ def _write_manifest(
         "library_root": Path(config.library_root).as_posix(),
         "outcome_root": Path(config.outcome_root).as_posix(),
         "source_w2_root": "" if config.source_w2_root is None else Path(config.source_w2_root).as_posix(),
-        "history_lengths": list(HISTORY_LENGTHS),
-        "policy_history_conditions": list(POLICY_HISTORY_CONDITIONS),
-        "policy_history_condition_count": len(POLICY_HISTORY_CONDITIONS),
+        "history_lengths": sorted(
+            {
+                int(_policy_condition(policy_id)["history_length"])
+                for policy_id in protocol.policy_history_conditions
+                if int(_policy_condition(policy_id)["history_length"]) > 0
+            }
+        ),
+        "policy_history_conditions": list(protocol.policy_history_conditions),
+        "policy_history_condition_count": len(protocol.policy_history_conditions),
         "library_size_case_ids": list(LIBRARY_SIZE_CASE_IDS),
         "outer_cases_per_condition": int(protocol.outer_cases_per_condition),
         "expected_final_heldout_launches": int(protocol.expected_final_heldout_launches),
