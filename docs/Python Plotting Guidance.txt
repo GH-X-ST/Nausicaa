@@ -198,8 +198,8 @@ For the current R9 repair, include figures or tables for:
 - launch-gate admissible candidate count;
 - viable first-decision candidate count;
 - rejection reason distribution;
-- selected launch-capture primitive family;
-- transition-to-inflight success;
+- selected manoeuvre family with `entry_class = launch_gate`;
+- launch_gate -> compatible exit-class transition success;
 - no-viable primitive rate before and after repair.
 
 Do not plot the blocked R9 result as a pass result. Mark it as `diagnostic_not_passed`.

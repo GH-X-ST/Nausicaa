@@ -25,6 +25,7 @@ from run_outcome_model_build import OutcomeModelBuildConfig, run_outcome_model_b
 from run_post_w3_cluster_merge import run_post_w3_cluster_merge
 from run_post_w3_library_size_study import (
     LIBRARY_SIZE_CASE_IDS,
+    PROJECT_TITLE_VERSION as POST_W3_PROJECT_TITLE_VERSION,
     PostW3LibrarySizeStudyConfig,
     _coverage_medoid_selection,
     run_post_w3_library_size_study,
@@ -435,7 +436,7 @@ def _write_tiny_w3_root(root: Path) -> Path:
                 "status": "complete",
                 "input_root": (root.parent.parent / "w2_survival" / "015").as_posix(),
                 "row_count": len(rows),
-                "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
+                "project_title_version": POST_W3_PROJECT_TITLE_VERSION,
                 "primitive_timing_contract": {
                     "finite_horizon_s": 0.1,
                     "controller_input_slots_per_primitive": 5,
@@ -460,7 +461,7 @@ def _write_tiny_w3_root(root: Path) -> Path:
         json.dumps(
             {
                 "source_w01_root": (root.parent.parent / "w01_dense" / "015").as_posix(),
-                "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
+                "project_title_version": POST_W3_PROJECT_TITLE_VERSION,
                 "status": "w2_dense_survival_pass",
             },
             indent=2,

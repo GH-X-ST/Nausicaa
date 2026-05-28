@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from run_lqr_w01_dense_chunked import (
+    PROJECT_TITLE_VERSION,
     _r5_transition_training_tables,
     _wilson_lower_bound,
     _wilson_upper_bound,
@@ -62,7 +63,7 @@ def test_r7_refuses_r5_root_without_selected_transition_manifest(tmp_path: Path)
     (r5_root / "manifests" / "run_manifest.json").write_text(
         json.dumps(
             {
-                "project_title_version": "LQR-Stabilised Contextual Primitive v5.3",
+                "project_title_version": PROJECT_TITLE_VERSION,
                 "w01_dense_evidence_complete": True,
                 "method_evidence_level": "w01_dense_evidence_complete",
                 "W2_required_for_move_on": False,

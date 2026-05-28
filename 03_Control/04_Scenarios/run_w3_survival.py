@@ -66,7 +66,7 @@ from transition_labels import transition_contract_row, transition_row_fields  # 
 
 
 W3_SURVIVAL_VERSION = "w3_fixed_lqr_survival_replay_v411"
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 DEFAULT_R5_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 DEFAULT_W2_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")

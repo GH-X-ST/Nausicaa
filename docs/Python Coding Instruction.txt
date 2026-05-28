@@ -53,13 +53,20 @@ W2 is GP-corrected annular-Gaussian only
 W3 is randomised GP-corrected annular-Gaussian only
 ```
 
-W labels are fidelity/evidence layers, not online branches. Single-fan, four-fan, fan-position, active-fan-count, and fan-power cases are environment instances, not separate algorithms. In R5, dry-air rows keep the W0 no-updraft environment but still use W3-style plant and implementation perturbations; the absence of updraft must not imply a nominal-only glider or latency/actuator case.
+W labels are fidelity/evidence layers, not online branches. Single-fan, four-fan, fan-position, active-fan-count, and fan-power cases are environment instances, not separate algorithms. In R5, dry-air rows keep the W0 no-updraft environment but still use W3-style plant and implementation perturbations; the absence of updraft must not imply a nominal-only glider or latency/actuator case. Plant perturbations must match the active `plant_instance.py` implementation: mass scale, CG-offset strip moment-arm shift, diagonal inertia scaling, strip `cd0` scaling, and flap-scale surface calibration, with cross-inertia logged as not perturbed.
 
 ## Primitive-local LQR variant learning
 
 The LQR stabiliser is part of the primitive, not an external controller bank. Represent the active library item as a primitive-controller transition object with `primitive_variant_id`, `primitive_id`, `transition_entry_class`, `controller_id`, reference state/command, finite horizon, Q/R JSON, gain checksum, exit checks, metrics, failure labels, and claim status.
 
 W0/W1 dense generation develops a rich primitive-controller variant library and tunes the primitive-local LQR inside every generated variant. Preserve all W0/W1 variants and evidence rows; do not reduce them to a 12--24 retained shortlist. W2 is diagnostic-only. R7/W3 replays fixed variants to eliminate or downgrade failures without regenerating or retuning LQR controllers, and no primitive may pass R7 solely from local rollout success. Clustering and merging occur only after R7. The mixed primitive-start distribution includes launch and in-flight starts; do not reject an in-flight-only primitive solely because it cannot start from the broad launch gate. Late validation uses frozen post-W3 variants and must not hide Q/R or gain retuning.
+
+Active LQR synthesis uses local-speed scheduled operating-point linearisation. Do not reintroduce optimizer-CSV trim seeds, bare global `linearise_trim()` calls, or forced convergence to a single 6.5 m/s trim speed. The code schedules over speed bins from 2.0 to 9.0 m/s; operating points below the feasible straight-trim seed range are local operating-point linearisations, not claims of steady trim.
+
+The Q/R and reference-bias table is deterministic candidate generation, not an
+online optimiser and not a global optimality proof.  Code and reports should
+call the chosen controllers R5-selected or transition-validated LQR variants
+after the evidence gates pass.
 
 
 ## Core standard

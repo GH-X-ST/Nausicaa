@@ -53,6 +53,7 @@ from implementation_instance import implementation_instance_for_layer, implement
 from frozen_w01_controller_bundle import load_frozen_w01_controller_bundle, write_frozen_w01_controller_bundle  # noqa: E402
 from latency import DEFAULT_LATENCY_ENVELOPE, latency_case_config  # noqa: E402
 from lqr_controller import ACTIVE_TIMING_AWARE_ROLE, controller_is_active_timing_aware_w01, synthesize_lqr_controller  # noqa: E402
+from lqr_linearisation import LQR_LOCAL_OPERATING_SPEED_GRID_M_S, local_speed_from_state_vector, lqr_speed_bin_id, nearest_lqr_operating_speed_m_s  # noqa: E402
 from lqr_tuning import candidate_weight_specs, lqr_tuning_schedule, tuning_schedule_row  # noqa: E402
 from plant_instance import plant_instance_for_layer, plant_instance_row  # noqa: E402
 from prim_cat import ACTIVE_PRIMITIVE_IDS, active_primitive_catalogue  # noqa: E402
@@ -80,8 +81,8 @@ from state_sampling import archive_state_sample_for_family, archive_state_sample
 from transition_labels import transition_contract_row, transition_row_fields  # noqa: E402
 
 
-W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v53"
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
+W01_RUNNER_VERSION = "run_lqr_w01_dense_chunked_v520"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 W01_TABLE_NAME = "w01_primitive_rows"
 R5_LAUNCH_GATE_ENTRY_DIAGNOSIS_CSV = "r5_launch_gate_entry_diagnosis.csv"
 R5_LEGACY_LAUNCH_CAPTURE_DIAGNOSIS_CSV = "r5_launch_capture_diagnosis.csv"
@@ -430,31 +431,36 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
 
 def _build_variant_registry(
     candidate_count: int,
-) -> tuple[dict[tuple[str, int], tuple[object, object, PrimitiveControllerVariant, str]], tuple[PrimitiveControllerVariant, ...]]:
-    variants_by_key: dict[tuple[str, int], tuple[object, object, PrimitiveControllerVariant, str]] = {}
+) -> tuple[dict[tuple[str, int, float], tuple[object, object, PrimitiveControllerVariant, str]], tuple[PrimitiveControllerVariant, ...]]:
+    variants_by_key: dict[tuple[str, int, float], tuple[object, object, PrimitiveControllerVariant, str]] = {}
     variants: list[PrimitiveControllerVariant] = []
     for primitive in active_primitive_catalogue():
         specs = candidate_weight_specs(primitive_id=primitive.primitive_id, candidate_count=candidate_count)
         for candidate_index, weight_spec in enumerate(specs):
-            controller = synthesize_lqr_controller(primitive, weight_spec=weight_spec)
-            variant = primitive_controller_variant(
-                primitive=primitive,
-                controller=controller,
-                candidate_index=int(candidate_index),
-                candidate_weight_label=weight_spec.weight_label,
-            )
-            variants_by_key[(primitive.primitive_id, int(candidate_index))] = (
-                primitive,
-                controller,
-                variant,
-                weight_spec.weight_label,
-            )
-            variants.append(variant)
+            for local_speed in LQR_LOCAL_OPERATING_SPEED_GRID_M_S:
+                controller = synthesize_lqr_controller(
+                    primitive,
+                    weight_spec=weight_spec,
+                    local_reference_speed_m_s=float(local_speed),
+                )
+                variant = primitive_controller_variant(
+                    primitive=primitive,
+                    controller=controller,
+                    candidate_index=int(candidate_index),
+                    candidate_weight_label=weight_spec.weight_label,
+                )
+                variants_by_key[(primitive.primitive_id, int(candidate_index), float(local_speed))] = (
+                    primitive,
+                    controller,
+                    variant,
+                    weight_spec.weight_label,
+                )
+                variants.append(variant)
     return variants_by_key, tuple(variants)
 
 
 def _frozen_bundle_source_records(
-    variants_by_key: dict[tuple[str, int], tuple[object, object, PrimitiveControllerVariant, str]],
+    variants_by_key: dict[tuple[str, int, float], tuple[object, object, PrimitiveControllerVariant, str]],
     variants: tuple[PrimitiveControllerVariant, ...],
 ):
     controller_by_variant_id = {
@@ -469,7 +475,7 @@ def _frozen_bundle_source_records(
 
 def _selected_frozen_bundle_source_records(
     *,
-    variants_by_key: dict[tuple[str, int], tuple[object, object, PrimitiveControllerVariant, str]],
+    variants_by_key: dict[tuple[str, int, float], tuple[object, object, PrimitiveControllerVariant, str]],
     variants: tuple[PrimitiveControllerVariant, ...],
     selected_variant_ids: tuple[str, ...],
 ):
@@ -501,7 +507,7 @@ def _write_chunk(
     *,
     run_root: Path,
     config: W01DenseRunConfig,
-    variants_by_key: dict[tuple[str, int], tuple[object, object, PrimitiveControllerVariant, str]],
+    variants_by_key: dict[tuple[str, int, float], tuple[object, object, PrimitiveControllerVariant, str]],
 ):
     started = time.time()
     rows = [
@@ -570,7 +576,7 @@ def _execute_pending_chunks(
     *,
     run_root: Path,
     config: W01DenseRunConfig,
-    variants_by_key: dict[tuple[str, int], tuple[object, object, PrimitiveControllerVariant, str]],
+    variants_by_key: dict[tuple[str, int, float], tuple[object, object, PrimitiveControllerVariant, str]],
     selected_worker_count: int,
 ):
     if not chunks:
@@ -634,12 +640,11 @@ def _row_for_index(
     *,
     row_index: int,
     config: W01DenseRunConfig,
-    variants_by_key: dict[tuple[str, int], tuple[object, object, PrimitiveControllerVariant, str]],
+    variants_by_key: dict[tuple[str, int, float], tuple[object, object, PrimitiveControllerVariant, str]],
 ) -> dict[str, object]:
     schedule = _row_schedule_for_index(row_index, config)
     primitive_id = schedule.primitive_id
     candidate_index = int(schedule.candidate_index)
-    primitive, controller, variant, weight_label = variants_by_key[(primitive_id, int(candidate_index))]
     W_layer = schedule.W_layer
     environment_mode = schedule.environment_mode
     if schedule.schedule_mode == SMOKE_SCHEDULE_MODE:
@@ -658,6 +663,8 @@ def _row_for_index(
             W_layer=W_layer,
             environment_mode=environment_mode,
         )
+    local_speed = nearest_lqr_operating_speed_m_s(local_speed_from_state_vector(sample.state_vector))
+    primitive, controller, variant, weight_label = variants_by_key[(primitive_id, int(candidate_index), float(local_speed))]
     randomisation_config = _r5_randomisation_config(
         environment_mode=environment_mode,
         paired_start_index=int(schedule.paired_start_index),
@@ -809,6 +816,10 @@ def _row_for_index(
             "entry_role_compatible": bool(compatible),
             "candidate_index": int(candidate_index),
             "candidate_weight_label": weight_label,
+            "local_lqr_reference_speed_m_s": float(local_speed),
+            "local_lqr_speed_bin_id": lqr_speed_bin_id(local_speed),
+            "local_lqr_scheduling_policy": "nearest_cached_local_operating_speed_grid",
+            "local_lqr_speed_grid_m_s": json.dumps(list(LQR_LOCAL_OPERATING_SPEED_GRID_M_S), separators=(",", ":")),
             "environment_mode": environment_mode,
             "environment_instance_id": environment.environment_id,
             "surrogate_blocked_reason": binding.blocked_reason,

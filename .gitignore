@@ -8,6 +8,7 @@ __pycache__/
 
 # Local validation scratch folders
 .codex_run_logs/
+.codex_tmp/
 _tmp_*/
 
 # Private local instruction/context files shared with the assistant, not publication artifacts.

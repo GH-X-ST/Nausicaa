@@ -15,7 +15,7 @@ from dense_archive_table_io import (
     read_table_partition,
 )
 from lqr_controller import LQRController, gain_checksum_sha256, matrix_checksum_sha256
-from lqr_linearisation import LQR_STATE_MASK
+from lqr_linearisation import LQR_LOCAL_OPERATING_SPEED_GRID_M_S, LQR_STATE_MASK, lqr_speed_bin_id
 from primitive_variant_registry import PrimitiveControllerVariant
 
 
@@ -625,6 +625,7 @@ def _normalise_variant_payload(payload: object) -> dict[str, object]:
         "state_feedback_delay_s",
         "command_delay_s",
         "augmented_closed_loop_spectral_radius",
+        "local_lqr_reference_speed_m_s",
     ):
         row[key] = _float(row.get(key), 0.0)
     for key in (
@@ -638,10 +639,26 @@ def _normalise_variant_payload(payload: object) -> dict[str, object]:
     ):
         row[key] = _int(row.get(key), 0)
     row.setdefault("primitive_timing_contract_version", "legacy_not_recorded")
+    row.setdefault(
+        "local_lqr_reference_speed_m_s",
+        _reference_speed_m_s(row.get("reference_state_vector", "[]")),
+    )
+    row.setdefault("local_lqr_speed_bin_id", lqr_speed_bin_id(row["local_lqr_reference_speed_m_s"]))
+    row.setdefault("local_lqr_speed_grid_m_s", json.dumps(list(LQR_LOCAL_OPERATING_SPEED_GRID_M_S), separators=(",", ":")))
     return {
         field_name: row[field_name]
         for field_name in PrimitiveControllerVariant.__dataclass_fields__
     }
+
+
+def _reference_speed_m_s(reference_state_vector: object) -> float:
+    try:
+        values = [float(value) for value in json.loads(str(reference_state_vector))]
+        if len(values) >= 9:
+            return float((values[6] ** 2 + values[7] ** 2 + values[8] ** 2) ** 0.5)
+    except Exception:
+        pass
+    return 0.0
 
 
 def _first_nonempty(*values: object) -> str:

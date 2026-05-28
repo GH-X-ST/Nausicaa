@@ -219,6 +219,46 @@ trim and RK4 smoke capability
 control-oriented model audit utilities
 ```
 
+Active code reality:
+
+```text
+baseline model file       03_Control/02_Inner_Loop/glider.py
+dynamics file             03_Control/02_Inner_Loop/flight_dynamics.py
+mass-property constants   03_Control/02_Inner_Loop/A_model_parameters/mass_properties_estimate.py
+runtime plant variation   03_Control/03_Primitives/plant_instance.py
+```
+
+The active baseline glider is a simplified rigid-body strip-aerodynamics model,
+not CFD, not aeroelastic, and not a flight-identified aerodynamic database.  The
+state is the canonical 15-state vector:
+
+```text
+x_w, y_w, z_w, phi, theta, psi, u, v, w, p, q, r, delta_a, delta_e, delta_r
+```
+
+The baseline as-built constants used by code are:
+
+```text
+mass_kg                 0.13356
+R_CG_BUILD_M            [0.126, 0.0, -0.008940123518632263] m
+INERTIA_B               [[0.0027016173, 0, 0.0000476285],
+                         [0, 0.0024588056, 0],
+                         [0.0000476285, 0, 0.0050785298]] kg m^2
+```
+
+The active aerodynamic model sums strip forces and moments from a finite-wing
+section model: finite-wing lift slope, parabolic induced drag, hard-coded
+surface `cd0` / `alpha0` / efficiency assumptions, thin-airfoil flap
+effectiveness, a smooth post-stall blend around 12 deg, and lumped fuselage drag
+at the CG.  These are analytical or engineering-code assumptions.  They are not
+loaded from measured aerodynamic correction tables.
+
+Plant randomisation, where enabled by the W layer, is applied by
+`plant_instance.py` to the already-adapted aircraft model.  W3 plant instances
+currently apply mass scale, diagonal inertia scaling, CG offset by shifting strip
+moment arms, strip `cd0` scaling, and flap-scale surface-calibration scaling.
+Cross-inertia terms are retained from the baseline and are not perturbed.
+
 Audit:
 
 ```text
@@ -243,6 +283,31 @@ command onset / transport delay
 actuator first-order lag
 nominal and conservative timing cases
 latency metadata and audit fields
+```
+
+Active timing constants are held in `03_Control/03_Primitives/latency.py` under
+`measured_vicon_one_pole_command_response_v1`:
+
+```text
+command_dt_s                  0.020
+actuator onset latency        0.073 s
+nominal half response         0.108 s
+conservative actuator bound   0.151 s
+Vicon nominal latency         0.0149 s
+Vicon p95 latency             0.0169 s
+Vicon filter delay            0.0080 s
+Vicon filter model            one_pole, 20 Hz
+```
+
+The plant integrates first-order actuator surface states.  Direction-specific
+surface limits are retained in the command/latency contract; saturation must be
+audited from the unclipped raw command rather than hidden by command clipping.
+The active aggregate surface limits are:
+
+```text
+delta_a   +22 / -26 deg
+delta_e   +22 / -30 deg
+delta_r   +28 / -35 deg
 ```
 
 Audit:
@@ -390,7 +455,7 @@ primitive_id                   active primitive ID
 reference_state_vector         x_ref in the canonical 15-state order
 reference_command_vector       u_ref in command/surface order
 linearisation_id               deterministic identifier for A, B, x_ref, u_ref
-linearisation_source           trim / local operating point / short nominal primitive reference
+linearisation_source           explicit trim or local speed operating point
 Q_weight_json                  state penalty weights, with units/comments
 R_weight_json                  command penalty weights, with units/comments
 K_gain_matrix                  LQR feedback gain
@@ -401,6 +466,32 @@ controller_claim_status        simulation_only / hardware_shakedown / real_fligh
 ```
 
 Do not tune the raw gain matrix directly. Tune the LQR weight parameterisation using the active R5 structured log-space Q/R method: candidate 0 is nominal, candidates 1--7 are interpretable physical anchors, and candidates 8--31 are deterministic Latin-hypercube log multipliers over `q_attitude`, `q_velocity`, `q_rates`, `q_surfaces`, `r_aileron`, `r_elevator`, and `r_rudder`. Tuning is part of R5 primitive synthesis and produces transition objects, not a separate LQR bank. R5 must select candidates by entry-specific transition quality before R7; dense row count, local accepted rows, or aggregate success across entry classes are not sufficient.
+
+This is an empirical robust-selection procedure, not a proof of global LQR
+optimality for the nonlinear glider task.  Write about the selected controllers
+as R5-trained or R5-selected primitive-local LQR variants.  Do not claim that
+the Q/R table is mathematically optimal; it is a deterministic design-of-
+experiments lookup surface that becomes credible only after transition evidence
+and held-out R7 validation.
+
+Active LQR synthesis must use local-speed scheduled operating-point
+linearisation.  Bare `linearise_trim()` calls and optimizer-CSV trim seeds are
+not active-method inputs.  The current local operating speed grid is:
+
+```text
+2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5,
+6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0 m/s
+```
+
+The feasible straight-trim seed grid is:
+
+```text
+4.8, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0 m/s
+```
+
+Operating points below the feasible trim range are local model points generated
+from the nearest feasible trim and velocity-scaled to the requested local speed;
+they are not claimed to be steady trim conditions.
 
 Primitive-library learning policy:
 
@@ -1009,8 +1100,9 @@ updraft width/spread
 local uncertainty / residual descriptor
 launch state
 latency and actuator response
-mass / CG / inertia
-surface calibration scale
+mass scale / CG-offset moment-arm shift / diagonal inertia scale
+strip cd0 scale
+flap-scale surface calibration
 ```
 
 W3 is the accepted frozen holdout validation stage. It consumes the frozen R5 robust-synthesis library directly, or an explicitly traceable copy of that library, and uses held-out seeds/environment instances that were not used to tune Q/R or references. In addition to environment randomisation, W3 should include implementation and glider-plant randomisation as first-class logged inputs rather than hidden changes inside the dynamics code. Required W3 randomisation groups are:
@@ -1037,10 +1129,10 @@ implementation randomisation
 glider plant randomisation
     mass scale
     centre-of-gravity offset in x/y/z
-    Ixx / Iyy / Izz scale
-    cross-inertia perturbation if supported by the model
-    aerodynamic coefficient scale where justified
-    surface calibration scale
+    global inertia scale plus Ixx / Iyy / Izz diagonal scale
+    strip cd0 aerodynamic coefficient scale
+    flap-scale surface calibration scale
+    cross-inertia status logged as not_perturbed
 ```
 
 For four-fan W3 randomisation, active fan count must be explicitly scheduled and logged across 1, 2, 3, and 4 active fans rather than left to an implicit random mask. Single-fan W3 rows use one active fan. The active fan count audit must be written so fan-number coverage is visible before post-W3 compression.
@@ -1050,6 +1142,9 @@ Current implementation notes that must remain true:
 ```text
 left/right aileron asymmetry is applied to the per-strip control mix
 centre-of-gravity offset is applied by shifting aerodynamic moment arms
+plant aero coefficient scale currently scales strip cd0, not a full aero database
+surface calibration scale currently scales flap effectiveness
+cross-inertia terms are not perturbed by W3 plant_instance
 W3 still does not retune Q/R, K, reference, horizon, transition entry, controller ID, or primitive variant ID
 ```
 
@@ -1065,7 +1160,7 @@ actuator_randomisation_seed
 
 If a randomisation component cannot be represented honestly by the available surrogate or dynamics model, the row or component must be labelled as approximate or blocked rather than silently treated as exact.
 
-W3 uses the randomised GP-corrected annular-Gaussian surrogate and is the main simulation test that the method is not tied to one fan layout. W3 must not regenerate, retune, or mutate LQR weights, references, gains, horizons, or entry sets in place. W3 output should be a pass/fail/weak label under uncertainty, not just a trajectory plot. W3 stresses frozen R5 variants under held-out randomised updraft parameters, fan positions, fan number, glider mass, CG, inertia tensor, aerodynamic efficiency, latency jitter, command timing, and actuator delay. The W3 survivors are then passed to post-W3 library-size cross-study.
+W3 uses the randomised GP-corrected annular-Gaussian surrogate and is the main simulation test that the method is not tied to one fan layout. W3 must not regenerate, retune, or mutate LQR weights, references, gains, horizons, or entry sets in place. W3 output should be a pass/fail/weak label under uncertainty, not just a trajectory plot. W3 stresses frozen R5 variants under held-out randomised updraft parameters, fan positions, fan number, glider mass scale, CG offset, diagonal inertia scaling, strip `cd0` scale, flap-scale surface calibration, latency jitter, command timing, and actuator delay. The W3 survivors are then passed to post-W3 library-size cross-study.
 
 ### 12.5 Real flight
 
@@ -1082,7 +1177,7 @@ Use small, meaningful runs first. Dense runs are allowed only after the foundati
 | model audit smoke | 100--500 rows | 50 | check glider model, panel-wise wind, latency, command timing, actuator lag, wind, and storage |
 | LQR synthesis smoke | 1--2 controllers per primitive | 1 primitive family | check trim/local reference, linearisation, Riccati solve, gain audit, and blocked labels |
 | contextual primitive smoke | 1k--3k rows | 500 | check LQR primitive interfaces, mixed start-state sampling, x-y terminal labels, and W0/W1 row schema |
-| R5 W0/W1 robust randomized primitive synthesis | active primitive catalogue x 32--128 variants x 100--300 paired tests, with W3-style randomized training blocks | active primitive catalogue x 16 variants x 50 tests | tune a primitive-local LQR for every generated variant and preserve the rich frozen library for W3 holdout; after the launch-aware repair this means 14 primitives unless the catalogue is explicitly changed |
+| R5 W0/W1 robust randomized primitive synthesis | active primitive catalogue x 32--128 variants x 100--300 paired tests, with W3-style randomized training blocks | active primitive catalogue x 16 variants x 50 tests | tune a primitive-local LQR for every generated variant and preserve the rich frozen library for W3 holdout; the active simplified catalogue has 8 primitive families, so the current 32-candidate/3-environment/100-test target is 76,800 rows |
 | optional W2 annular-GP diagnostic sweep | 20k--60k rows if requested | 10k | replay the fixed R5 library in single-fan and four-fan annular-GP with panel-wise wind and timing realism; diagnostic labels only, no required move-on gate, no retuning |
 | R7 W3 frozen held-out domain-randomised survival sweep | 30k--100k rows | 15k | replay frozen R5 variants under held-out updraft, fan-layout/count, plant, latency, command-timing, and actuator-delay randomisation; eliminate/downgrade failures without retuning |
 | post-W3 library-size cross-study | all W3 survivors plus labelled weak/failure evidence | compact representative subset | compare heavy, balanced, light, super-light, and no-clustering/no-merging library-size conditions before accepting any online validation library |

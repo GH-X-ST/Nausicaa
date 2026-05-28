@@ -80,11 +80,13 @@ def linearise_trim(
     if aircraft is None:
         aircraft = adapt_glider(build_nausicaa_glider())
     if target is None:
-        target = TrimTarget(speed_m_s=6.5)
+        raise ValueError("linearise_trim requires an explicit TrimTarget; no active global trim speed is allowed.")
     if target.wind_model is not None:
         raise ValueError("linearise_trim currently audits the zero-wind trim only.")
     if trim_result is None:
         trim_result = solve_straight_trim(aircraft=aircraft, target=target)
+    if not bool(trim_result.converged):
+        raise ValueError(f"straight_trim_not_converged_for_speed_{float(target.speed_m_s):.3f}_m_s")
 
     x_trim = np.asarray(trim_result.x_trim, dtype=float).reshape(15)
     # Trimmed surface states define the steady command vector
@@ -117,6 +119,46 @@ def linearise_trim(
         b=_dense(b_num),
         x_trim=x_trim,
         u_trim=u_trim,
+        f_trim=_dense(f_num).reshape(15),
+        state_names=STATE_NAMES,
+        input_names=INPUT_NAMES,
+    )
+
+
+def linearise_operating_point(
+    *,
+    aircraft: AircraftModel | None = None,
+    x_operating: np.ndarray,
+    u_operating: np.ndarray,
+    target: TrimTarget,
+) -> LinearModel:
+    """Linearise the active as-built plant at an explicit local operating point."""
+
+    if aircraft is None:
+        aircraft = adapt_glider(build_nausicaa_glider())
+    if target.wind_model is not None:
+        raise ValueError("linearise_operating_point currently audits the zero-wind local model only.")
+    x_op = np.asarray(x_operating, dtype=float).reshape(15)
+    u_op = np.asarray(u_operating, dtype=float).reshape(3)
+    dynamics = build_symbolic_dynamics(
+        aircraft=aircraft,
+        rho=float(target.rho_kg_m3),
+        actuator_tau_s=target.actuator_tau_s,
+        wind_mode="none",
+    )
+    a_sym = ca.jacobian(dynamics.x_dot, dynamics.x)
+    b_sym = ca.jacobian(dynamics.x_dot, dynamics.u_cmd)
+    lin_fun = ca.Function(
+        "local_operating_point_linearisation",
+        [dynamics.x, dynamics.u_cmd],
+        [a_sym, b_sym, dynamics.x_dot],
+    )
+    a_num, b_num, f_num = lin_fun(ca.DM(x_op), ca.DM(u_op))
+    return LinearModel(
+        a=_dense(a_num),
+        b=_dense(b_num),
+        x_trim=x_op,
+        u_trim=u_op,
         f_trim=_dense(f_num).reshape(15),
         state_names=STATE_NAMES,
         input_names=INPUT_NAMES,

@@ -31,7 +31,7 @@ from primitive_timing_contract import PRIMITIVE_TIMING_CONTRACT_VERSION, primiti
 from transition_labels import transition_contract_row, transition_row_fields  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 W3_ANALYSIS_VERSION = "w3_variant_survival_analysis_v411"
 DEFAULT_W3_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival/013")
 W3_ENVIRONMENT_MODES = ("w3_randomised_single", "w3_randomised_four")

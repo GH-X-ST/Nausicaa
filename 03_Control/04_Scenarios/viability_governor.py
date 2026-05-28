@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+from lqr_linearisation import lqr_speed_bin_id
 from primitive_timing_contract import PRIMITIVE_FINITE_HORIZON_S
 from transition_labels import classify_state, entry_classes_for_state_class, transition_is_chain_compatible
 
@@ -12,6 +13,7 @@ REJECTION_REASONS = (
     "transition_entry_class_incompatible",
     "transition_success_probability_zero",
     "transition_predicted_exit_class_incompatible",
+    "local_speed_bin_incompatible",
     "context_vertical_safety_violation",
     "timing_payload_checksum_missing",
     "known_hard_failure_boundary_high",
@@ -216,6 +218,8 @@ def governor_candidate_row(
                 outcome.get("transition_entry_class", ""),
             )
         ),
+        "candidate_local_lqr_speed_bin_id": _candidate_speed_bin(representative=representative, outcome=outcome),
+        "context_local_lqr_speed_bin_id": _context_speed_bin(context),
         "controller_id": str(representative.get("controller_id", "")),
         "library_size_case_id": library_size_case_id,
         "library_size_human_label": str(
@@ -307,6 +311,10 @@ def governor_rejection_reason(
         return "transition_entry_class_incompatible"
     if str(context.get("start_state_family", "")) and entry_class == "launch_gate" and start_state_family != "launch_gate":
         return "entry_role_incompatible_start_family"
+    candidate_speed_bin = _candidate_speed_bin(representative=representative, outcome=outcome)
+    context_speed_bin = _context_speed_bin(context)
+    if candidate_speed_bin and context_speed_bin and candidate_speed_bin != context_speed_bin:
+        return "local_speed_bin_incompatible"
     if _float(context.get("floor_margin_m", 0.0)) < 0.0 or _float(context.get("ceiling_margin_m", 0.0)) < 0.0:
         return "context_vertical_safety_violation"
     if not _has_timing_payload(representative):
@@ -430,6 +438,28 @@ def _candidate_entry_class(*, representative: dict[str, object], outcome: dict[s
         pair = str(source.get("transition_pair", "")).strip()
         if "->" in pair:
             return pair.split("->", 1)[0].strip()
+    return ""
+
+
+def _candidate_speed_bin(*, representative: dict[str, object], outcome: dict[str, object]) -> str:
+    for source in (representative, outcome):
+        value = str(source.get("local_lqr_speed_bin_id", source.get("variant_local_lqr_speed_bin_id", ""))).strip()
+        if value:
+            return value
+        speed = source.get("local_lqr_reference_speed_m_s", source.get("variant_local_lqr_reference_speed_m_s", ""))
+        if str(speed).strip() and str(speed).strip().lower() != "nan":
+            return lqr_speed_bin_id(_float(speed, default=0.0))
+    return ""
+
+
+def _context_speed_bin(context: dict[str, object]) -> str:
+    value = str(context.get("local_lqr_speed_bin_id", context.get("current_local_lqr_speed_bin_id", ""))).strip()
+    if value:
+        return value
+    for key in ("current_speed_m_s", "flight_speed_m_s", "speed_m_s"):
+        raw = context.get(key, "")
+        if str(raw).strip() and str(raw).strip().lower() != "nan":
+            return lqr_speed_bin_id(_float(raw, default=0.0))
     return ""
 
 

@@ -212,7 +212,22 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("history_lengths_core_exact", HISTORY_LENGTHS == (5, 20, 100), HISTORY_LENGTHS, (5, 20, 100)))
     rows.append(_row("empty_prior_baseline_name", EMPTY_FROZEN_PRIOR_BASELINE_ID == "empty_frozen_prior_baseline", EMPTY_FROZEN_PRIOR_BASELINE_ID, "empty_frozen_prior_baseline"))
     rows.append(_row("governor_wall_guard_0p10cm", abs(DEFAULT_GOVERNOR_CONFIG.minimum_wall_margin_m - 0.001) <= 1e-12, DEFAULT_GOVERNOR_CONFIG.minimum_wall_margin_m, 0.001))
-    rows.append(_row("no_speed_rejection_reason", not any("speed" in reason for reason in REJECTION_REASONS), REJECTION_REASONS, "no speed rejection reason"))
+    forbidden_speed_boundary_reasons = tuple(
+        reason
+        for reason in REJECTION_REASONS
+        if "speed_margin" in reason
+        or "context_speed" in reason
+        or "minimum_speed" in reason
+        or "low_speed" in reason
+    )
+    rows.append(
+        _row(
+            "no_physical_speed_boundary_rejection_reason",
+            not forbidden_speed_boundary_reasons,
+            REJECTION_REASONS,
+            "no speed-margin or low-speed physical hard gate; local_speed_bin_incompatible is controller-scheduling compatibility only",
+        )
+    )
     rows.append(_row("active_governor_uses_updraft_gain_weight", hasattr(DEFAULT_GOVERNOR_CONFIG, "updraft_gain_weight") and hasattr(DEFAULT_GOVERNOR_CONFIG, "terminal_updraft_gain_weight"), DEFAULT_GOVERNOR_CONFIG.config_id, "updraft_gain_weight fields"))
     legacy_config = governor_config_from_row({"config_id": "legacy", "energy_weight": 0.12, "terminal_energy_weight": 0.34})
     rows.append(_row("legacy_energy_weight_maps_to_updraft_gain_weight", legacy_config.updraft_gain_weight == 0.12 and legacy_config.terminal_updraft_gain_weight == 0.34, {"updraft": legacy_config.updraft_gain_weight, "terminal": legacy_config.terminal_updraft_gain_weight}, {"updraft": 0.12, "terminal": 0.34}))
@@ -760,7 +775,7 @@ def _stringify(value: object) -> str:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the v5.3 active algorithm contract audit before R5 regeneration.")
+    parser = argparse.ArgumentParser(description="Run the v5.20 active algorithm contract audit before R5 regeneration.")
     parser.add_argument("--repo-root", type=Path, default=Path("."))
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-id", type=int, default=1)

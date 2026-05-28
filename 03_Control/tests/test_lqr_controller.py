@@ -7,6 +7,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from linearisation import linearise_trim
 from lqr_controller import (
     ACTIVE_TIMING_AWARE_ROLE,
     LQR_SYNTHESIS_SOLVED,
@@ -24,9 +25,10 @@ from lqr_controller import (
     synthesis_audit_row,
     timing_augmented_lqr_design_row,
 )
-from lqr_linearisation import LQR_STATE_MASK, ZERO_POSITION_GAIN_STATES
+from lqr_linearisation import LQR_LOCAL_OPERATING_SPEED_GRID_M_S, LQR_STATE_MASK, ZERO_POSITION_GAIN_STATES
 from prim_cat import ACTIVE_PRIMITIVE_IDS, primitive_by_id
 from state_contract import STATE_INDEX
+from trim_solver import TrimTarget
 
 
 def test_lqr_controller_audit_contract_for_all_primitives() -> None:
@@ -93,6 +95,58 @@ def test_blocked_lqr_controller_cannot_emit_executable_zero_command() -> None:
 
     with pytest.raises(RuntimeError, match="blocked LQR controller"):
         lqr_command_for_state(controller=controller, state_vector=np.zeros(15))
+
+
+def test_active_trim_and_lqr_require_local_speed_not_global_default() -> None:
+    with pytest.raises(ValueError, match="explicit TrimTarget"):
+        linearise_trim()
+
+    assert LQR_LOCAL_OPERATING_SPEED_GRID_M_S == (
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+    )
+    launch_speed_controller = lqr_controller_for_primitive_id("glide", local_reference_speed_m_s=3.0)
+    inflight_speed_controller = lqr_controller_for_primitive_id("glide", local_reference_speed_m_s=6.5)
+    launch_ref_speed = float(np.linalg.norm(np.asarray(launch_speed_controller.reference_state_vector)[6:9]))
+    inflight_ref_speed = float(np.linalg.norm(np.asarray(inflight_speed_controller.reference_state_vector)[6:9]))
+
+    assert np.isclose(launch_ref_speed, 3.0)
+    assert np.isclose(inflight_ref_speed, 6.5)
+    assert not np.isclose(launch_ref_speed, 6.5)
+    assert launch_speed_controller.linearisation_source == "gain_scheduled_local_speed_operating_point_v1"
+    assert launch_speed_controller.linearisation_id != inflight_speed_controller.linearisation_id
+    assert linearise_trim(target=TrimTarget(speed_m_s=4.8)).f_trim.shape == (15,)
+
+
+def test_lqr_command_reports_saturation_from_unclipped_raw_surface_request() -> None:
+    base = lqr_controller_for_primitive_id("glide")
+    controller = replace(
+        base,
+        controller_design_role="unit_test_non_timing_controller",
+        reference_command_vector=(0.0, float(np.deg2rad(-90.0)), 0.0),
+        k_gain_matrix=tuple(tuple(0.0 for _ in range(15)) for _ in range(3)),
+    )
+    state = np.asarray(controller.reference_state_vector, dtype=float)
+
+    command = lqr_command_for_state(controller=controller, state_vector=state)
+
+    assert command.saturation_applied is True
+    assert np.isclose(command.raw_command_rad[1], np.deg2rad(-90.0))
+    assert np.isclose(command.command_rad[1], np.deg2rad(-30.0))
+    assert command.command_norm[1] == -1.0
 
 
 def test_timing_aware_controller_ids_are_distinct_from_superseded_baseline() -> None:

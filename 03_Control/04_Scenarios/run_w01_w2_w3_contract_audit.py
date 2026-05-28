@@ -73,7 +73,7 @@ def run_w01_w2_w3_contract_audit(repo_root: Path | str = Path(".")) -> list[Audi
     The original W01/W2/W3 audit predates the R5 -> R7 -> R8 -> R10 -> R11
     -> R11 workflow and treated later-stage tokens, medoid clustering, and
     generated evidence folders as stale by construction. Keep the entrypoint
-    for old tests/scripts, but gate active logic through the current v5.3
+    for old tests/scripts, but gate active logic through the current v5.20
     contract audit so archived/generated evidence cannot block a fresh R5 run.
     """
 

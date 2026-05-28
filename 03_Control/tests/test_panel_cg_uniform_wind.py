@@ -5,11 +5,12 @@ import numpy as np
 from flight_dynamics import adapt_glider, evaluate_state
 from glider import build_nausicaa_glider
 from linearisation import linearise_trim
+from trim_solver import TrimTarget
 
 
 def test_uniform_wind_panel_and_cg_modes_match() -> None:
     aircraft = adapt_glider(build_nausicaa_glider())
-    model = linearise_trim(aircraft=aircraft)
+    model = linearise_trim(aircraft=aircraft, target=TrimTarget(speed_m_s=4.8))
     wind = np.array([0.2, -0.1, 0.05], dtype=float)
     panel = evaluate_state(
         model.x_trim,

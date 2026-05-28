@@ -5,11 +5,12 @@ import numpy as np
 from flight_dynamics import adapt_glider, state_derivative
 from glider import build_nausicaa_glider
 from linearisation import STATE_INDEX, linearise_trim
+from trim_solver import TrimTarget
 
 
 def test_symbolic_linearisation_matches_finite_difference_selected_entries() -> None:
     aircraft = adapt_glider(build_nausicaa_glider())
-    model = linearise_trim(aircraft=aircraft)
+    model = linearise_trim(aircraft=aircraft, target=TrimTarget(speed_m_s=4.8))
     eps = 1e-6
     for state_name in ("u", "w", "q", "delta_e"):
         idx = STATE_INDEX[state_name]

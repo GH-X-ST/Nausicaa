@@ -4,6 +4,7 @@ import hashlib
 import json
 import sys
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -13,9 +14,10 @@ INNER_LOOP_ROOT = CONTROL_ROOT / "02_Inner_Loop"
 if str(INNER_LOOP_ROOT) not in sys.path:
     sys.path.insert(0, str(INNER_LOOP_ROOT))
 
-from linearisation import LinearModel, linearise_trim  # noqa: E402
+from linearisation import LinearModel, linearise_operating_point, linearise_trim  # noqa: E402
 from prim_cat import PrimitiveDefinition  # noqa: E402
 from state_contract import STATE_INDEX, STATE_NAMES, STATE_SIZE  # noqa: E402
+from trim_solver import TrimTarget  # noqa: E402
 
 
 # =============================================================================
@@ -32,6 +34,37 @@ from state_contract import STATE_INDEX, STATE_NAMES, STATE_SIZE  # noqa: E402
 # 1) LQR Linearisation Contract
 # =============================================================================
 LQR_LINEARISATION_VERSION = "reduced_order_lqr_linearisation_v1"
+LQR_LOCAL_OPERATING_POINT_VERSION = "gain_scheduled_local_speed_operating_point_v1"
+LQR_LOCAL_OPERATING_SPEED_GRID_M_S = (
+    2.0,
+    2.5,
+    3.0,
+    3.5,
+    4.0,
+    4.5,
+    5.0,
+    5.5,
+    6.0,
+    6.5,
+    7.0,
+    7.5,
+    8.0,
+    8.5,
+    9.0,
+)
+LQR_FEASIBLE_TRIM_SPEED_GRID_M_S = (
+    4.8,
+    5.0,
+    5.5,
+    6.0,
+    6.5,
+    7.0,
+    7.5,
+    8.0,
+    8.5,
+    9.0,
+)
+LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S = 5.0
 LQR_STATE_MASK = (
     "phi",
     "theta",
@@ -86,23 +119,26 @@ class LQRLinearisation:
 def build_lqr_reference(
     primitive: PrimitiveDefinition,
     *,
-    trim_model: LinearModel | None = None,
+    trim_model: LinearModel,
+    local_reference_speed_m_s: float,
     reference_pitch_bias_rad: float = 0.0,
     reference_bank_bias_rad: float = 0.0,
     reference_speed_bias_m_s: float = 0.0,
 ) -> LQRReference:
     """Return a local reference state and nominal command for one primitive.
 
-    The first LQR implementation intentionally anchors every primitive to the
-    retained straight-flight trim and applies only small primitive-specific
-    attitude/rate references. This keeps the synthesis auditable and avoids
-    reintroducing hand-shaped feedback laws.
+    The active LQR implementation is gain-scheduled by local entry speed.  It
+    never uses the old global 6.5 m/s trim as an implicit target; the reference
+    speed comes from the selected local operating point and only receives the
+    small audited tuning bias below.
     """
 
-    model = trim_model or linearise_trim()
+    model = trim_model
     x_ref = np.asarray(model.x_trim, dtype=float).reshape(STATE_SIZE).copy()
     u_ref = np.asarray(model.u_trim, dtype=float).reshape(3).copy()
-    note = "straight_trim_reference"
+    requested_speed = float(local_reference_speed_m_s)
+    x_ref = _state_with_body_speed_preserving_alpha(x_ref, requested_speed)
+    note = f"local_speed_operating_reference_{requested_speed:.3f}_m_s"
 
     if primitive.primitive_id == "glide":
         x_ref[STATE_INDEX["theta"]] += -0.03
@@ -132,6 +168,8 @@ def build_lqr_reference(
         x_ref[STATE_INDEX["phi"]] = 0.0
         x_ref[STATE_INDEX["theta"]] += 0.03
         note = "trim_with_safe_exit_recovery_bias"
+    # Archive compatibility only. These retired launch_capture_* IDs are not
+    # returned by the active primitive catalogue and must not enter new evidence.
     elif primitive.primitive_id == "launch_capture_glide_stabilise":
         x_ref[STATE_INDEX["phi"]] = 0.0
         x_ref[STATE_INDEX["theta"]] += -0.04
@@ -163,7 +201,8 @@ def build_lqr_reference(
     if pitch_bias or bank_bias or speed_bias:
         x_ref[STATE_INDEX["theta"]] += pitch_bias
         x_ref[STATE_INDEX["phi"]] += bank_bias
-        x_ref[STATE_INDEX["u"]] += speed_bias
+        biased_speed = max(0.1, float(np.linalg.norm(x_ref[6:9])) + speed_bias)
+        x_ref = _state_with_body_speed_preserving_alpha(x_ref, biased_speed)
         note = (
             f"{note}_plus_tuned_reference_bias"
             f"_pitch_{pitch_bias:+.4f}_bank_{bank_bias:+.4f}_speed_{speed_bias:+.4f}"
@@ -181,7 +220,7 @@ def build_lqr_reference(
         reference_id=reference_id,
         reference_state_vector=tuple(float(value) for value in x_ref),
         reference_command_vector=tuple(float(value) for value in u_ref),
-        linearisation_source="straight_trim_plus_primitive_reference_bias",
+        linearisation_source=LQR_LOCAL_OPERATING_POINT_VERSION,
         reference_note=note,
     )
 
@@ -193,16 +232,25 @@ def build_lqr_linearisation(
     primitive: PrimitiveDefinition,
     *,
     trim_model: LinearModel | None = None,
+    local_reference_speed_m_s: float | None = None,
     reference_pitch_bias_rad: float = 0.0,
     reference_bank_bias_rad: float = 0.0,
     reference_speed_bias_m_s: float = 0.0,
 ) -> LQRLinearisation:
     """Build the active full/reduced linear model used for LQR synthesis."""
 
-    model = trim_model or linearise_trim()
+    if local_reference_speed_m_s is None and trim_model is None:
+        raise ValueError("build_lqr_linearisation_requires_local_reference_speed_m_s")
+    requested_speed = (
+        float(local_reference_speed_m_s)
+        if local_reference_speed_m_s is not None
+        else float(np.linalg.norm(np.asarray(trim_model.x_trim, dtype=float)[6:9]))
+    )
+    model = trim_model or local_linear_model_for_speed(requested_speed)
     reference = build_lqr_reference(
         primitive,
         trim_model=model,
+        local_reference_speed_m_s=requested_speed,
         reference_pitch_bias_rad=reference_pitch_bias_rad,
         reference_bank_bias_rad=reference_bank_bias_rad,
         reference_speed_bias_m_s=reference_speed_bias_m_s,
@@ -244,6 +292,67 @@ def build_lqr_linearisation(
         reduced_state_size=len(LQR_STATE_MASK),
         finite_ab_check=finite_status,
     )
+
+
+def nearest_lqr_operating_speed_m_s(speed_m_s: float) -> float:
+    """Return the scheduled local speed-grid point closest to the current state."""
+
+    speed = float(speed_m_s)
+    if not np.isfinite(speed):
+        raise ValueError("local operating speed must be finite.")
+    grid = np.asarray(LQR_LOCAL_OPERATING_SPEED_GRID_M_S, dtype=float)
+    return float(grid[int(np.argmin(np.abs(grid - speed)))])
+
+
+def lqr_speed_bin_id(speed_m_s: float) -> str:
+    """Return the stable audit label for a local LQR speed bin."""
+
+    speed = nearest_lqr_operating_speed_m_s(float(speed_m_s))
+    return f"speed_bin_{speed:.1f}_m_s".replace(".", "p")
+
+
+def local_speed_from_state_vector(state_vector: np.ndarray) -> float:
+    """Return the body-frame speed magnitude used for local LQR scheduling."""
+
+    state = np.asarray(state_vector, dtype=float).reshape(STATE_SIZE)
+    return float(np.linalg.norm(state[6:9]))
+
+
+@lru_cache(maxsize=64)
+def local_linear_model_for_speed(speed_m_s: float) -> LinearModel:
+    """Return a cached local operating-point linear model for one speed-grid point."""
+
+    operating_speed = nearest_lqr_operating_speed_m_s(float(speed_m_s))
+    base_trim_speed = _nearest_feasible_trim_speed_m_s(operating_speed)
+    base = _feasible_trim_model_for_speed(base_trim_speed)
+    x_op = _state_with_body_speed_preserving_alpha(np.asarray(base.x_trim, dtype=float), operating_speed)
+    target = TrimTarget(speed_m_s=operating_speed)
+    return linearise_operating_point(
+        x_operating=x_op,
+        u_operating=np.asarray(base.u_trim, dtype=float),
+        target=target,
+    )
+
+
+@lru_cache(maxsize=32)
+def _feasible_trim_model_for_speed(speed_m_s: float) -> LinearModel:
+    speed = _nearest_feasible_trim_speed_m_s(float(speed_m_s))
+    return linearise_trim(target=TrimTarget(speed_m_s=speed))
+
+
+def _nearest_feasible_trim_speed_m_s(speed_m_s: float) -> float:
+    grid = np.asarray(LQR_FEASIBLE_TRIM_SPEED_GRID_M_S, dtype=float)
+    return float(grid[int(np.argmin(np.abs(grid - float(speed_m_s))))])
+
+
+def _state_with_body_speed_preserving_alpha(state: np.ndarray, speed_m_s: float) -> np.ndarray:
+    result = np.asarray(state, dtype=float).reshape(STATE_SIZE).copy()
+    speed = float(speed_m_s)
+    alpha = float(np.arctan2(result[STATE_INDEX["w"]], result[STATE_INDEX["u"]]))
+    result[STATE_INDEX["u"]] = speed * float(np.cos(alpha))
+    result[STATE_INDEX["v"]] = 0.0
+    result[STATE_INDEX["w"]] = speed * float(np.sin(alpha))
+    return result
 
 
 def controllability_rank(a_matrix: np.ndarray, b_matrix: np.ndarray) -> int:

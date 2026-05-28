@@ -9,8 +9,9 @@ import numpy as np
 from scipy import linalg
 
 from command_contract import clip_normalised_command, normalised_command_to_surface_rad
-from latency import AGGREGATE_LIMITS, angle_to_command_norm, latency_case_config
+from latency import AGGREGATE_LIMITS, SurfaceLimit, latency_case_config
 from lqr_linearisation import (
+    LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S,
     LQR_STATE_MASK,
     LQRLinearisation,
     build_lqr_linearisation,
@@ -176,6 +177,8 @@ def default_lqr_weight_spec(primitive_id: str, *, tuning_stage: str = "W0_W1") -
         "mild_turn_right": (5.0, 2.0, 2.1, 0.18, 0.9, 1.1, 1.0),
         "energy_retaining_bank": (4.8, 2.8, 1.8, 0.15, 1.0, 0.9, 1.2),
         "safe_exit_or_recovery_handoff": (6.0, 2.0, 2.4, 0.20, 1.1, 0.8, 1.2),
+        # Archive compatibility only: active evidence generation obtains
+        # primitives through primitive_by_id(), which rejects these retired IDs.
         "launch_capture_glide_stabilise": (5.2, 2.4, 2.0, 0.18, 1.2, 0.9, 1.3),
         "launch_capture_lift_seek": (5.0, 2.8, 2.0, 0.18, 1.1, 0.9, 1.2),
         "launch_capture_energy_build": (4.8, 3.0, 1.9, 0.16, 1.1, 0.8, 1.2),
@@ -201,6 +204,7 @@ def lqr_controller_for_primitive_id(
     primitive_id: str,
     *,
     weight_label: str = "nominal",
+    local_reference_speed_m_s: float = LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S,
 ) -> LQRController:
     weight_spec = default_lqr_weight_spec(primitive_id)
     if weight_label != "nominal":
@@ -210,13 +214,18 @@ def lqr_controller_for_primitive_id(
                 "weight_label": str(weight_label),
             }
         )
-    return synthesize_lqr_controller(primitive_by_id(primitive_id), weight_spec=weight_spec)
+    return synthesize_lqr_controller(
+        primitive_by_id(primitive_id),
+        weight_spec=weight_spec,
+        local_reference_speed_m_s=float(local_reference_speed_m_s),
+    )
 
 
 def synthesize_lqr_controller(
     primitive: PrimitiveDefinition,
     *,
     weight_spec: LQRWeightSpec | None = None,
+    local_reference_speed_m_s: float,
     rollout_dt_s: float = ROLLOUT_DT_S,
     latency_case: str = "nominal",
 ) -> LQRController:
@@ -233,6 +242,7 @@ def synthesize_lqr_controller(
     weights = weight_spec or default_lqr_weight_spec(primitive.primitive_id)
     linearisation = build_lqr_linearisation(
         primitive,
+        local_reference_speed_m_s=float(local_reference_speed_m_s),
         reference_pitch_bias_rad=float(weights.reference_pitch_bias_rad),
         reference_bank_bias_rad=float(weights.reference_bank_bias_rad),
         reference_speed_bias_m_s=float(weights.reference_speed_bias_m_s),
@@ -401,6 +411,7 @@ def synthesize_baseline_trim_lqr_controller(
     primitive: PrimitiveDefinition,
     *,
     weight_spec: LQRWeightSpec | None = None,
+    local_reference_speed_m_s: float = LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S,
     rollout_dt_s: float = ROLLOUT_DT_S,
 ) -> LQRController:
     """Synthesize the superseded non-augmented trim/local baseline LQR."""
@@ -408,6 +419,7 @@ def synthesize_baseline_trim_lqr_controller(
     weights = weight_spec or default_lqr_weight_spec(primitive.primitive_id)
     linearisation = build_lqr_linearisation(
         primitive,
+        local_reference_speed_m_s=float(local_reference_speed_m_s),
         reference_pitch_bias_rad=float(weights.reference_pitch_bias_rad),
         reference_bank_bias_rad=float(weights.reference_bank_bias_rad),
         reference_speed_bias_m_s=float(weights.reference_speed_bias_m_s),
@@ -745,11 +757,20 @@ def compare_timing_aware_vs_baseline_nominal(
     primitive: PrimitiveDefinition,
     *,
     weight_spec: LQRWeightSpec | None = None,
+    local_reference_speed_m_s: float = LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S,
 ) -> dict[str, object]:
     """Return a deterministic command-path comparison under nominal timing assumptions."""
 
-    timing_aware = synthesize_lqr_controller(primitive, weight_spec=weight_spec)
-    baseline = synthesize_baseline_trim_lqr_controller(primitive, weight_spec=weight_spec)
+    timing_aware = synthesize_lqr_controller(
+        primitive,
+        weight_spec=weight_spec,
+        local_reference_speed_m_s=float(local_reference_speed_m_s),
+    )
+    baseline = synthesize_baseline_trim_lqr_controller(
+        primitive,
+        weight_spec=weight_spec,
+        local_reference_speed_m_s=float(local_reference_speed_m_s),
+    )
     state = np.asarray(timing_aware.reference_state_vector, dtype=float).copy()
     state[STATE_INDEX["theta"]] += np.deg2rad(1.0)
     state[STATE_INDEX["q"]] += 0.02
@@ -775,12 +796,20 @@ def compare_timing_aware_vs_baseline_nominal(
 
 
 def synthesis_audit_row(primitive: PrimitiveDefinition) -> dict[str, object]:
-    controller = synthesize_lqr_controller(primitive)
+    controller = synthesize_lqr_controller(
+        primitive,
+        local_reference_speed_m_s=LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S,
+    )
     row = lqr_controller_metadata_row(controller)
     row.update(
         {
             f"linearisation_{key}": value
-            for key, value in lqr_linearisation_row(build_lqr_linearisation(primitive)).items()
+            for key, value in lqr_linearisation_row(
+                build_lqr_linearisation(
+                    primitive,
+                    local_reference_speed_m_s=LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S,
+                )
+            ).items()
         }
     )
     return row
@@ -1146,11 +1175,43 @@ def _reference_command_check(command_rad: tuple[float, float, float]) -> tuple[s
 def _surface_rad_to_unclipped_norm(command_rad: np.ndarray) -> np.ndarray:
     return np.asarray(
         [
-            angle_to_command_norm(value, AGGREGATE_LIMITS[name])
+            _angle_to_command_norm_unclipped(value, AGGREGATE_LIMITS[name])
             for value, name in zip(command_rad, ("delta_a", "delta_e", "delta_r"), strict=True)
         ],
         dtype=float,
     )
+
+
+def _angle_to_command_norm_unclipped(angle_rad: float, limit: SurfaceLimit) -> float:
+    """Map a requested surface angle to command units without hiding saturation."""
+
+    angle_deg = float(np.rad2deg(angle_rad))
+    if abs(angle_deg) <= 1e-12:
+        return 0.0
+
+    candidates: list[float] = []
+    positive_deg = float(limit.positive_deg)
+    negative_deg = float(limit.negative_deg)
+    if abs(positive_deg) > 1e-12:
+        positive_ratio = angle_deg / positive_deg
+        if positive_ratio >= 0.0:
+            candidates.append(float(positive_ratio))
+    if abs(negative_deg) > 1e-12:
+        negative_ratio = angle_deg / negative_deg
+        if negative_ratio >= 0.0:
+            candidates.append(float(-negative_ratio))
+    if candidates:
+        return min(
+            candidates,
+            key=lambda value: abs(abs(value) - 1.0) if abs(value) > 1.0 else abs(value),
+        )
+
+    endpoint = (
+        positive_deg
+        if abs(angle_deg - positive_deg) <= abs(angle_deg - negative_deg)
+        else negative_deg
+    )
+    return 1.0 if endpoint == positive_deg else -1.0
 
 
 def _q_weight_payload(weights: LQRWeightSpec) -> dict[str, object]:

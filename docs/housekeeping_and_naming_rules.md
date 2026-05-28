@@ -242,7 +242,7 @@ above_100mb
 push_allowed
 ```
 
-Archive, W2/W3 survival, post-W3 library-size cross-study, outcome-model, and episode-smoke outputs must keep continuation-valid targets separate from episode-terminal-useful targets. X/y boundary exits may be retained as terminal episode evidence; they must not be relabelled as continuation success. W0/W1 outputs must not be compressed into a small retained shortlist before W2/W3.
+Archive, optional W2 diagnostic, R7/W3 survival, post-W3 library-size cross-study, outcome-model, and episode-smoke outputs must keep continuation-valid targets separate from episode-terminal-useful targets. X/y boundary exits may be retained as terminal episode evidence; they must not be relabelled as continuation success. R5 W0/W1 outputs must not be compressed into a small retained shortlist before R7/W3.
 
 ---
 

@@ -33,7 +33,7 @@ from primitive_timing_contract import (  # noqa: E402
 from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 SOURCE_AUDIT_VERSION = "v53_transition_entry_8_family_source_audit"
 REQUIRED_DOCS = (
     "Glider_Control_Project_Plan.md",

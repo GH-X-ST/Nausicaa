@@ -32,7 +32,12 @@ Use this mission framing:
 
 The final evaluation treats each physical launch as an episode. The glider starts from a fixed nominal launch gate, the actual initial state is measured, local flow-context features are computed, the viability governor selects among post-W3 validated short primitives, and the flight log updates a directional 3D residual lift belief for later launches.
 
-Method wording should treat the LQR stabiliser as part of each primitive. The active library item is a primitive-controller variant: entry set, reference, finite horizon, local time-invariant LQR Q/R/K, exit checks, metrics, and failure labels. W0/W1 dense generation tunes each primitive-local LQR and preserves a rich library; W2 and W3 replay fixed variants to remove cases that fail under higher-fidelity and domain-randomised conditions; post-W3 library-size cross-study produce the compact robust library used by the governor. Late validation freezes the selected library-size condition, governor, selector, and memory logic before full-loop randomised simulation and real repeated launches. Do not describe W0/W1 as an external controller-bank step or move clustering before W2/W3.
+Method wording should treat the LQR stabiliser as part of each primitive. The active library item is a primitive-controller variant: entry set, reference, finite horizon, local time-invariant LQR Q/R/K, exit checks, metrics, and failure labels. W0/W1 dense generation tunes each primitive-local LQR and preserves a rich library; optional W2 diagnostic replay and R7/W3 held-out replay remove or downgrade cases that fail under higher-fidelity and domain-randomised conditions; post-W3 library-size cross-study produces the compact robust library used by the governor. Late validation freezes the selected library-size condition, governor, selector, and memory logic before full-loop randomised simulation and real repeated launches. Do not describe W0/W1 as an external controller-bank step or move clustering before R7/W3.
+
+Do not write that the LQR tuning is globally optimal. The active claim is
+narrower: R5 evaluates a deterministic Q/R plus reference-bias candidate surface
+and selects empirically robust transition objects, then R7 tests those fixed
+objects under held-out randomisation.
 
 ## What the thesis is not
 
@@ -191,4 +196,6 @@ Before finalising a paragraph, ask:
 
 ### R9 launch-gate repair wording
 
-When discussing the current blocked simulation evidence, state that R9 revealed a launch-gate coverage limitation: the post-W3 library did not yet provide enough launch-capable primitive diversity for the first decision. The repair is a dedicated LQR-only launch-capture primitive subset that transitions the glider from the physical release gate into the in-flight primitive envelope. This should be presented as a project-aligned primitive-library repair, not as LQR-tree, funnel-library, TVLQR, or a new controller family.
+When discussing the current blocked simulation evidence, state that R9 revealed a transition-compatibility limitation: locally surviving primitives were not being judged strongly enough by their entry-class -> exit-class handoff. The repair is not a separate launch-capture controller family. Launch is now a `launch_gate` entry regime for the same eight manoeuvre families, and R7 must reject or downgrade any primitive-entry transition that cannot hand off to a compatible exit class. This should be presented as a project-aligned transition-library repair, not as LQR-tree, funnel-library, TVLQR, or a new controller family.
+
+When describing the plant model, state that the active simulation uses a simplified as-built rigid-body strip-aerodynamics model with generated deterministic mass/inertia constants, semi-empirical strip aerodynamics, local-speed scheduled LQR linearisation, first-order actuator states, and measured-style Vicon/command latency constants. Do not imply CFD, aeroelastic modelling, or flight-identified aerodynamic correction tables unless those are later added and audited.

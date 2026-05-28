@@ -9,6 +9,7 @@ from typing import Iterable
 import pandas as pd
 
 from dense_archive_table_io import filesystem_path
+from lqr_linearisation import LQR_LOCAL_OPERATING_SPEED_GRID_M_S, lqr_speed_bin_id
 from lqr_controller import LQRController
 from prim_cat import PrimitiveDefinition
 from primitive_timing_contract import (
@@ -135,6 +136,9 @@ class PrimitiveControllerVariant:
     metrics: str
     failure_labels: str
     claim_status: str
+    local_lqr_reference_speed_m_s: float = 0.0
+    local_lqr_speed_bin_id: str = ""
+    local_lqr_speed_grid_m_s: str = ""
     variant_registry_version: str = VARIANT_REGISTRY_VERSION
     exit_check_version: str = EXIT_CHECK_VERSION
 
@@ -207,6 +211,7 @@ def primitive_controller_variant(
     k_json = json.dumps(controller.k_gain_matrix, separators=(",", ":"))
     reference_state_json = json.dumps(list(controller.reference_state_vector), separators=(",", ":"))
     reference_command_json = json.dumps(list(controller.reference_command_vector), separators=(",", ":"))
+    local_reference_speed_m_s = _reference_speed_m_s(reference_state_json)
     checksum = controller.lqr_gain_checksum
     variant_id = _variant_id(
         primitive_id=primitive.primitive_id,
@@ -290,6 +295,9 @@ def primitive_controller_variant(
         metrics=";".join(primitive.metrics_to_record),
         failure_labels=";".join(primitive.failure_labels),
         claim_status=primitive.claim_status,
+        local_lqr_reference_speed_m_s=float(local_reference_speed_m_s),
+        local_lqr_speed_bin_id=lqr_speed_bin_id(local_reference_speed_m_s),
+        local_lqr_speed_grid_m_s=json.dumps(list(LQR_LOCAL_OPERATING_SPEED_GRID_M_S), separators=(",", ":")),
     )
 
 
@@ -367,6 +375,10 @@ def _normalise_row(row: dict[str, object]) -> dict[str, object]:
     out.setdefault("primitive_timing_contract_version", "legacy_not_recorded")
     out.setdefault("candidate_index", "")
     out.setdefault("candidate_weight_label", "")
+    if "local_lqr_reference_speed_m_s" not in out:
+        out["local_lqr_reference_speed_m_s"] = _reference_speed_m_s(str(out.get("reference_state_vector", "[]")))
+    out.setdefault("local_lqr_speed_bin_id", lqr_speed_bin_id(float(out["local_lqr_reference_speed_m_s"])))
+    out.setdefault("local_lqr_speed_grid_m_s", json.dumps(list(LQR_LOCAL_OPERATING_SPEED_GRID_M_S), separators=(",", ":")))
     out.setdefault("timing_aware_synthesis_level", "trim_local_reduced_order_lqr_no_delay_augmentation")
     out.setdefault("timing_effects_in_synthesis", "sampled_data_stability_and_nominal_latency_actuator_smoke_only")
     out.setdefault("timing_effects_in_rollout", "feedback_delay_command_timing_actuator_lag_applied_in_w01_rollout")
@@ -399,6 +411,7 @@ def _normalise_row(row: dict[str, object]) -> dict[str, object]:
         "command_delay_s",
         "augmented_closed_loop_spectral_radius",
         "controller_input_update_period_s",
+        "local_lqr_reference_speed_m_s",
     ):
         out[key] = float(out[key])
     for key in (
@@ -412,6 +425,16 @@ def _normalise_row(row: dict[str, object]) -> dict[str, object]:
     ):
         out[key] = int(out[key])
     return out
+
+
+def _reference_speed_m_s(reference_state_vector: str) -> float:
+    try:
+        values = [float(value) for value in json.loads(str(reference_state_vector))]
+        if len(values) >= 9:
+            return float((values[6] ** 2 + values[7] ** 2 + values[8] ** 2) ** 0.5)
+    except Exception:
+        pass
+    return 0.0
 
 
 def _variant_id(

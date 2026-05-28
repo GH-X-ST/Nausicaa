@@ -127,3 +127,46 @@ def test_governor_rejects_zero_transition_success() -> None:
         )
         == "transition_success_probability_zero"
     )
+
+
+def test_governor_rejects_transition_object_from_wrong_lqr_speed_bin() -> None:
+    representative = {
+        "compact_library_id": "lib_v0",
+        "primitive_variant_id": "v0",
+        "entry_role": "transition_object",
+        "transition_entry_class": "launch_gate",
+        "local_lqr_speed_bin_id": "speed_bin_5p0_m_s",
+        "controller_id": "c0",
+        "K_gain_checksum": "k",
+        "augmented_A_checksum": "a",
+        "augmented_B_checksum": "b",
+        "augmented_gain_checksum": "g",
+        "finite_horizon_s": 0.1,
+        "controller_input_slots_per_primitive": 5,
+        "controller_input_update_period_s": 0.02,
+        "primitive_timing_contract_version": "v411_0p10s_5slot_20ms",
+    }
+    outcome = {
+        "transition_success_probability": 1.0,
+        "transition_exit_classes_seen": "post_launch_degraded",
+        "hard_failure_risk": 0.0,
+        "sample_count": 10,
+    }
+    context = {
+        "start_state_family": "launch_gate",
+        "current_state_class": "launch_gate",
+        "current_speed_m_s": 3.0,
+        "floor_margin_m": 0.5,
+        "ceiling_margin_m": 1.0,
+        "latency_case": "nominal",
+    }
+
+    assert (
+        governor_rejection_reason(
+            representative=representative,
+            outcome=outcome,
+            context=context,
+            governor_mode="continuation_mode",
+        )
+        == "local_speed_bin_incompatible"
+    )

@@ -26,7 +26,7 @@ from primitive_timing_contract import primitive_timing_contract_row  # noqa: E40
 from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS, POST_W3_LIBRARY_STUDY_VERSION  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 OUTCOME_MODEL_VERSION = "v53_context_conditioned_library_size_outcome_model_v2"
 DEFAULT_COMPACT_LIBRARY = Path(
     "03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/001/manifests/post_w3_library_size_study_manifest.json"
@@ -51,7 +51,7 @@ class OutcomeModelBuildConfig:
 
 
 def run_outcome_model_build(config: OutcomeModelBuildConfig) -> dict[str, object]:
-    """Build the v5.3 interpretable W3-derived outcome model table."""
+    """Build the v5.20 interpretable W3-derived outcome model table."""
 
     run_root = Path(config.output_root) / f"{int(config.run_id):03d}"
     for subdir in ("manifests", "metrics", "reports"):
@@ -310,7 +310,7 @@ def _write_blocked_outputs(run_root: Path, config: OutcomeModelBuildConfig, bloc
 
 def _write_report(run_root: Path, manifest: dict[str, object]) -> None:
     report = [
-        "# v5.3 Outcome Model Report",
+        "# v5.20 Outcome Model Report",
         "",
         f"- Status: `{manifest['status']}`",
         f"- Representatives: `{manifest['representative_count']}`",
@@ -361,7 +361,7 @@ def _write_csv(path: Path, frame: pd.DataFrame) -> None:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build v5.3 library-size-case W3-derived outcome model.")
+    parser = argparse.ArgumentParser(description="Build v5.20 library-size-case W3-derived outcome model.")
     parser.add_argument("--compact-library", dest="compact_library_path", type=Path, default=DEFAULT_COMPACT_LIBRARY)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-id", type=int, default=2)

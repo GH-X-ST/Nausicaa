@@ -46,6 +46,7 @@ from run_lqr_w01_dense_chunked import (  # noqa: E402
     L6_RICH_SIDE_CANDIDATE_COUNT,
     L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE,
     L6_RICH_SIDE_ROW_COUNT,
+    OFFICIAL_W01_ENVIRONMENT_CASES,
     R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW,
     W01_DRY_SCHEDULE_ONLY,
     W01DenseRunConfig,
@@ -73,7 +74,7 @@ from run_w3_survival_analysis import W3SurvivalAnalysisConfig, run_w3_survival_a
 from prim_cat import ACTIVE_PRIMITIVE_IDS  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 PIPELINE_VERSION = "v55_r5_r7_r11_pipeline_r6_archived_with_repeated_docs_guard"
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/r5_r11_pipeline")
 DEFAULT_REPEATED_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/repeated_launch_validation")
@@ -636,7 +637,17 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
                 _check_row(stage_id, "stage_status_dry_run_schedule", result.get("status") == "dry_run_schedule", result.get("status", ""), "dry_run_schedule"),
                 _check_row(stage_id, "method_evidence_level_dry_schedule_only", manifest.get("method_evidence_level") == W01_DRY_SCHEDULE_ONLY, manifest.get("method_evidence_level", ""), W01_DRY_SCHEDULE_ONLY),
                 _check_row(stage_id, "dry_schedule_rows_requested_active_dense_target", int(manifest.get("rows_requested", 0)) == L6_RICH_SIDE_ROW_COUNT, manifest.get("rows_requested", 0), L6_RICH_SIDE_ROW_COUNT),
-                _check_row(stage_id, "dry_schedule_no_stale_76800_target", int(manifest.get("rows_requested", 0)) != 76800, manifest.get("rows_requested", 0), "not_76800"),
+                _check_row(
+                    stage_id,
+                    "dry_schedule_dense_target_derived_from_active_catalogue",
+                    int(manifest.get("rows_requested", 0))
+                    == len(ACTIVE_PRIMITIVE_IDS)
+                    * L6_RICH_SIDE_CANDIDATE_COUNT
+                    * len(OFFICIAL_W01_ENVIRONMENT_CASES)
+                    * L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE,
+                    manifest.get("rows_requested", 0),
+                    f"{len(ACTIVE_PRIMITIVE_IDS)}*{L6_RICH_SIDE_CANDIDATE_COUNT}*{len(OFFICIAL_W01_ENVIRONMENT_CASES)}*{L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE}",
+                ),
                 _check_row(stage_id, "dry_schedule_candidate_count_32", int(manifest.get("candidate_count", 0)) == 32, manifest.get("candidate_count", 0), 32),
                 _check_row(stage_id, "dry_schedule_paired_tests_per_candidate_100", int(manifest.get("paired_tests_per_candidate", 0)) == 100, manifest.get("paired_tests_per_candidate", 0), 100),
                 _check_row(stage_id, "dry_schedule_active_primitive_count_8", int(manifest.get("active_primitive_count", 0)) == 8, manifest.get("active_primitive_count", 0), 8),
@@ -858,7 +869,7 @@ def _write_pipeline_report(run_root: Path, context: dict[str, object], *, status
     r5_run_root = str(r5_stage.get("run_root", ""))
     docs_hashes = _latest_docs_hashes_for_report(run_root)
     lines = [
-        "# v5.3 Transition-Aware Dense Pipeline Report",
+        "# v5.20 Transition-Aware Dense Pipeline Report",
         "",
         f"- Status: `{status}`",
         f"- Blocked reason: `{blocked_reason}`",

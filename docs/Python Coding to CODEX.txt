@@ -44,6 +44,14 @@ Fan layout, fan power, W layer, and reachable primitive chains are fidelity/evid
 
 Primitive-local LQR variants are part of the active method. The LQR stabiliser is embedded inside each primitive. W0/W1 dense generation develops a rich primitive-controller library and tunes each variant's local LQR using the panel-wise glider model, feedback latency, command timing, and actuator lag. W2 is diagnostic-only. R7/W3 replays fixed variants to eliminate or downgrade failures without retuning, and no primitive may pass R7 solely from local rollout success. Clustering and merging occur only after R7 and must not be moved earlier. Any future redesigned controller is a separate W0/W1 learning cycle, not an in-place holdout mutation.
 
+Active model wording must match code. The baseline glider is a simplified as-built rigid-body strip model driven by generated mass/inertia constants, finite-wing strip aerodynamics, lumped fuselage drag, first-order actuator states, and Vicon/command latency constants. LQR synthesis is local-speed scheduled over explicit speed bins and must not use optimizer CSV output or an implicit global 6.5 m/s trim. W3 plant perturbation means the fields implemented in `plant_instance.py`: mass scale, CG-offset moment-arm shift, diagonal inertia scale, strip `cd0` scale, and flap-scale surface calibration; cross-inertia is not perturbed.
+
+When editing tuning code, preserve the current interpretation: Q/R and
+reference-bias values are deterministic R5 candidates, then R5 selects
+transition objects from evidence and R7 validates them under held-out
+randomisation. Do not describe the lookup surface as an online optimiser or a
+global optimum.
+
 Transition entry classes should be explicit when they affect evidence: `launch_gate`, `inflight_stable`, `boundary_near`, and `recoverable_degraded`. Launch-gate failure for one transition object is not, by itself, a blocker for the same controller's in-flight transition object.
 
 

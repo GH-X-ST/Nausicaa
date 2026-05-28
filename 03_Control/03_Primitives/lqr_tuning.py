@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 import numpy as np
 
 from lqr_controller import LQR_SYNTHESIS_SOLVED, LQRWeightSpec, default_lqr_weight_spec, synthesize_lqr_controller
+from lqr_linearisation import LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S
 from prim_cat import PrimitiveDefinition, active_primitive_catalogue
 
 
@@ -276,6 +277,7 @@ def tuning_candidates_for_primitive(
     primitive: PrimitiveDefinition,
     *,
     candidate_count: int = 16,
+    local_reference_speed_m_s: float = LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S,
 ) -> tuple[LQRTuningCandidate, ...]:
     rows = []
     for index, weight_spec in enumerate(
@@ -284,7 +286,11 @@ def tuning_candidates_for_primitive(
             candidate_count=candidate_count,
         )
     ):
-        controller = synthesize_lqr_controller(primitive, weight_spec=weight_spec)
+        controller = synthesize_lqr_controller(
+            primitive,
+            weight_spec=weight_spec,
+            local_reference_speed_m_s=float(local_reference_speed_m_s),
+        )
         rows.append(
             LQRTuningCandidate(
                 primitive_id=primitive.primitive_id,

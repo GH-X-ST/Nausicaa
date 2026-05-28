@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
-from pathlib import Path
 
 import casadi as ca
 import numpy as np
@@ -18,7 +16,7 @@ from flight_dynamics import (
 # SECTION MAP
 # =============================================================================
 # 1) Trim dataclasses
-# 2) Baseline trim seed
+# 2) As-built trim seed
 # 3) Wind packing
 # 4) Straight-flight trim solve
 # =============================================================================
@@ -56,33 +54,19 @@ class TrimResult:
 
 
 # =============================================================================
-# 2) Baseline Trim Seed
+# 2) As-Built Trim Seed
 # =============================================================================
-def _baseline_results_path() -> Path:
-    # Baseline seed values come from the current design-result CSV
-    return (
-        Path(__file__).resolve().parents[2]
-        / "02_Glider_Design"
-        / "C_results"
-        / "nausicaa_results.csv"
-    )
+def _as_built_trim_seed(target: TrimTarget) -> tuple[float, float, float]:
+    """Return a deterministic seed from the active as-built model, not design CSVs."""
 
-
-def _load_baseline_seed() -> tuple[float, float, float]:
-    metric_map: dict[str, float] = {}
-    with _baseline_results_path().open(newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
-            try:
-                metric_map[row["Metric"]] = float(row["Value"])
-            except ValueError:
-                continue
-    alpha0 = np.deg2rad(metric_map["alpha_trim_deg"])
-    delta_e0 = np.deg2rad(metric_map["delta_e_trim_deg"])
-    speed0 = metric_map["v_nom_mps"]
-    sink0 = metric_map["sink_rate_mps"]
-    # Flight-path angle is positive upward in the public z-up frame
-    gamma0 = -np.arcsin(np.clip(sink0 / speed0, -1.0, 1.0))
+    speed = float(target.speed_m_s)
+    alpha0 = np.deg2rad(np.clip(8.0 - 0.55 * (speed - 3.0), 3.5, 8.5))
+    # Flight-path angle is positive upward in the public z-up frame.  A small
+    # sink seed helps IPOPT find the gliding trim without importing stale
+    # optimiser results from the airframe design stage.
+    gamma0 = np.deg2rad(-4.5)
     theta0 = alpha0 + gamma0
+    delta_e0 = np.deg2rad(np.clip(-2.0 + 0.18 * (speed - 5.0), -4.0, 0.5))
     return alpha0, theta0, delta_e0
 
 
@@ -162,7 +146,7 @@ def solve_straight_trim(
             "ipopt.sb": "yes",
         },
     )
-    alpha0, theta0, delta_e0 = _load_baseline_seed()
+    alpha0, theta0, delta_e0 = _as_built_trim_seed(target)
     solution = solver(
         x0=ca.DM([alpha0, theta0, delta_e0]),
         lbx=ca.DM(

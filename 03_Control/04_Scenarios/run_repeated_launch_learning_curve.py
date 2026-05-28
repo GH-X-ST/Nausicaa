@@ -73,7 +73,7 @@ from transition_labels import (
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, GovernorConfig, governor_config_to_row  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 VALIDATION_VERSION = "repeated_launch_fixed_case_rollout_preflight_v7"
 GOVERNOR_TUNING_HANDOFF_VERSION = "governor_tuning_handoff_v2"
 HISTORY_LENGTHS = (5, 20, 100)

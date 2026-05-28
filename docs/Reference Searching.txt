@@ -115,4 +115,4 @@ risk if cited
 replacement needed: yes/no
 ```
 
-For the current R9 launch-gate repair, also search for literature on launch transients, launch capture, mode switching between launch and in-flight primitive sets, and safe first-action selection in constrained aerial robots. Use this only to support the project-aligned launch-capture primitive subset; do not reframe the project as LQR-tree, funnel-library, TVLQR, or generic autopilot work.
+For the current transition-aware repair, also search for literature on launch transients, entry-regime classification, motion-primitive handoff/transition validation, and safe first-action selection in constrained aerial robots. Use this to support launch as an entry regime inside the same eight manoeuvre families; do not reframe the project as a separate launch-capture controller family, LQR-tree, funnel-library, TVLQR, or generic autopilot work.

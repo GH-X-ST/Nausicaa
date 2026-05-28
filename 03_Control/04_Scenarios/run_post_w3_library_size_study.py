@@ -28,7 +28,7 @@ from primitive_timing_contract import primitive_timing_contract_row, primitive_t
 from transition_labels import transition_contract_row  # noqa: E402
 
 
-PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
+PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 POST_W3_LIBRARY_STUDY_VERSION = "post_w3_library_size_study_v53_coverage_medoid_v1"
 DEFAULT_W3_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")
 DEFAULT_INPUT_ROOT: Path | None = None
@@ -83,7 +83,7 @@ class PostW3LibrarySizeStudyConfig:
 
 
 def run_post_w3_library_size_study(config: PostW3LibrarySizeStudyConfig) -> dict[str, object]:
-    """Build the five v5.3 post-W3 library-size cases from W3 survivors."""
+    """Build the five v5.20 post-W3 library-size cases from W3 survivors."""
 
     config = PostW3LibrarySizeStudyConfig(
         input_root=_resolve_w3_input_root(config.input_root),
@@ -1060,7 +1060,7 @@ def _write_blocked_outputs(run_root: Path, config: PostW3LibrarySizeStudyConfig,
 
 def _write_report(run_root: Path, manifest: dict[str, object]) -> None:
     lines = [
-        "# v5.3 Post-W3 Library-Size Study",
+        "# v5.20 Post-W3 Library-Size Study",
         "",
         f"- Status: `{manifest.get('status', '')}`",
         f"- Library-size cases: `{','.join(LIBRARY_SIZE_CASE_IDS)}`",
@@ -1120,7 +1120,7 @@ def _write_csv(path: Path, frame: pd.DataFrame) -> None:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build v5.3 five-case post-W3 library-size study.")
+    parser = argparse.ArgumentParser(description="Build v5.20 five-case post-W3 library-size study.")
     parser.add_argument("--input-root", type=Path, default=DEFAULT_INPUT_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-id", type=int, default=1)

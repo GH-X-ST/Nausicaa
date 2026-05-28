@@ -108,4 +108,4 @@ Better:
 This week produced a 480k-row primitive outcome archive, a context-feature audit, and a blocked-claim note for real-flight transfer.
 ```
 
-For the current R9 launch-gate blocker, weekly reports should state whether the launch-capture primitive family or launch-gate-capable subset has been added, whether the compressed-library outcome lookup has been fixed, whether memory/exploration selection-change metrics are computed from actual matched selections, and whether evidence has been regenerated from R5.
+For the current transition-aware blocker, weekly reports should state whether launch is handled as a `launch_gate` entry regime for the same eight manoeuvre families, whether R7 rejects local successes that do not provide compatible entry-class -> exit-class handoff, whether the compressed-library outcome lookup is transition-object aware, whether memory/exploration selection-change metrics are computed from actual matched selections, and whether evidence has been regenerated from R5 after the model/controller repair.

@@ -6,6 +6,7 @@ from dataclasses import replace
 import pytest
 
 from lqr_controller import synthesize_lqr_controller
+from lqr_linearisation import LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S
 from lqr_tuning import W01_TUNING_METHOD_VERSION, candidate_weight_specs, tuning_candidates_for_primitive
 from prim_cat import ACTIVE_PRIMITIVE_IDS, primitive_by_id
 from primitive_variant_registry import (
@@ -55,9 +56,17 @@ def test_w01_qr_generator_is_structured_32_candidate_transition_training() -> No
 
 def test_reference_bias_changes_controller_identity_and_is_serialised() -> None:
     primitive = primitive_by_id("glide")
-    nominal = synthesize_lqr_controller(primitive, weight_spec=candidate_weight_specs(primitive_id="glide", candidate_count=1)[0])
+    nominal = synthesize_lqr_controller(
+        primitive,
+        weight_spec=candidate_weight_specs(primitive_id="glide", candidate_count=1)[0],
+        local_reference_speed_m_s=LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S,
+    )
     biased_spec = candidate_weight_specs(primitive_id="glide", candidate_count=2)[1]
-    biased = synthesize_lqr_controller(primitive, weight_spec=biased_spec)
+    biased = synthesize_lqr_controller(
+        primitive,
+        weight_spec=biased_spec,
+        local_reference_speed_m_s=LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S,
+    )
     q_payload = json.loads(biased.lqr_Q_weights_json)
 
     assert nominal.controller_id != biased.controller_id
@@ -72,6 +81,7 @@ def test_variant_registry_schema_stable_ids_and_checksum_validation() -> None:
     controller = synthesize_lqr_controller(
         primitive,
         weight_spec=candidate_weight_specs(primitive_id="glide", candidate_count=1)[0],
+        local_reference_speed_m_s=LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S,
     )
     variant_a = primitive_controller_variant(primitive=primitive, controller=controller)
     variant_b = primitive_controller_variant(primitive=primitive, controller=controller)
@@ -80,6 +90,9 @@ def test_variant_registry_schema_stable_ids_and_checksum_validation() -> None:
     assert variant_a.primitive_variant_id == variant_b.primitive_variant_id
     assert variant_a.primitive_variant_id.startswith("primvar_glide_transition_object_")
     assert variant_a.K_gain_checksum == controller.lqr_gain_checksum
+    assert variant_a.local_lqr_reference_speed_m_s == pytest.approx(LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S)
+    assert variant_a.local_lqr_speed_bin_id == "speed_bin_5p0_m_s"
+    assert "9.0" in variant_a.local_lqr_speed_grid_m_s
     assert variant_a.controller_design_role == "active_timing_aware_w01"
     assert variant_a.timing_augmentation_type == "actuator_surface_state_command_fifo_predictor_compensated"
     assert variant_a.timing_design_version == "predictor_compensated_augmented_discrete_lqr_v1"
@@ -120,7 +133,10 @@ def test_transition_object_entry_role_accepts_all_active_start_families() -> Non
 
 def test_blocked_variant_metadata_is_retained() -> None:
     primitive = primitive_by_id("glide")
-    controller = synthesize_lqr_controller(primitive)
+    controller = synthesize_lqr_controller(
+        primitive,
+        local_reference_speed_m_s=LQR_DEFAULT_AUDIT_REFERENCE_SPEED_M_S,
+    )
     blocked = replace(
         controller,
         lqr_synthesis_status="blocked_lqr_synthesis",

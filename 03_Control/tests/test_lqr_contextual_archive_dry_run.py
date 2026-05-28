@@ -7,7 +7,7 @@ import pandas as pd
 
 from dense_archive_table_io import load_table_manifest, read_table_partition
 from prim_cat import ACTIVE_PRIMITIVE_IDS
-from run_lqr_w01_dense_chunked import W01DenseRunConfig, run_lqr_w01_dense_chunked
+from run_lqr_w01_dense_chunked import PROJECT_TITLE_VERSION, W01DenseRunConfig, run_lqr_w01_dense_chunked
 
 
 def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Path) -> None:
@@ -77,7 +77,7 @@ def test_w01_tiny_smoke_covers_primitives_start_families_and_layers(tmp_path: Pa
 
     run_manifest = json.loads((run_root / "manifests" / "run_manifest.json").read_text(encoding="ascii"))
     assert run_manifest["schedule_mode"] == "balanced_paired"
-    assert run_manifest["project_title_version"] == "LQR-Stabilised Contextual Primitive v5.3"
+    assert run_manifest["project_title_version"] == PROJECT_TITLE_VERSION
     assert run_manifest["method_evidence_level"] == "w01_smoke_or_preflight_only"
     assert run_manifest["w01_dense_evidence_complete"] is False
     assert run_manifest["w01_dense_required_for_w3"] is True
