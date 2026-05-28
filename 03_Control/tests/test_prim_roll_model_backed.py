@@ -234,7 +234,7 @@ def test_model_backed_wall_exit_is_retained_as_terminal_useful_not_continuation_
 
     assert evidence.outcome_class in {"weak", "failed"}
     assert evidence.outcome_class != "boundary_terminal"
-    assert evidence.failure_label == "xy_boundary_terminal"
+    assert evidence.failure_label in {"controlled_xy_boundary_terminal", "xy_boundary_terminal"}
     assert evidence.episode_terminal_status == "episode_terminal_useful"
     assert evidence.continuation_status == "not_continuation_valid"
     assert evidence.continuation_valid is False
@@ -242,6 +242,29 @@ def test_model_backed_wall_exit_is_retained_as_terminal_useful_not_continuation_
     assert evidence.boundary_use_class == "episode_terminal_useful"
     assert evidence.terminal_use_trainable is True
     assert evidence.minimum_wall_margin_m < 0.0
+
+
+def test_model_backed_controlled_xy_exit_is_safe_terminal_even_with_energy_loss() -> None:
+    state = _state(x_w_m=6.55)
+    context, wind = _context_and_wind(state)
+
+    evidence = simulate_primitive_rollout(
+        rollout_id="model_rollout_controlled_xy_terminal",
+        initial_state=state,
+        context=context,
+        primitive=primitive_by_id("glide"),
+        config=RolloutConfig(W_layer="W0", rollout_backend="model_backed_lqr"),
+        wind_field=None,
+        controller=_controller("glide"),
+    )
+    row = rollout_evidence_row(evidence)
+
+    assert evidence.termination_cause == "wall_boundary_exit_retained"
+    assert evidence.failure_label == "controlled_xy_boundary_terminal"
+    assert evidence.boundary_use_class == "episode_terminal_useful"
+    assert evidence.episode_terminal_useful is True
+    assert evidence.continuation_valid is False
+    assert row["failure_label"] == "controlled_xy_boundary_terminal"
 
 
 def test_retired_feedback_rollout_backends_are_rejected() -> None:

@@ -45,6 +45,28 @@ def test_launch_post_launch_handoff_is_chain_compatible() -> None:
     assert transition["transition_chain_compatible"] is True
 
 
+def test_controlled_xy_boundary_exit_is_safe_terminal_not_hard_failure() -> None:
+    transition = classify_transition(
+        {
+            "entry_role": "transition_object",
+            "start_state_family": "inflight_nominal",
+            "outcome_class": "weak",
+            "continuation_valid": False,
+            "episode_terminal_useful": True,
+            "boundary_use_class": "episode_terminal_useful",
+            "termination_cause": "wall_boundary_exit_retained",
+            "failure_label": "controlled_xy_boundary_terminal",
+            "minimum_wall_margin_m": -0.05,
+            "floor_margin_m": 1.0,
+            "ceiling_margin_m": 1.0,
+        }
+    )
+
+    assert transition["exit_class"] == "safe_terminal"
+    assert transition["transition_chain_compatible"] is True
+    assert transition["hard_failure_probability"] == 0.0
+
+
 def test_local_weak_inflight_rollout_is_not_sufficient() -> None:
     transition = classify_transition(
         {

@@ -329,6 +329,9 @@ def test_v53_score_rewards_final_path_updraft_and_time_without_speed_or_energy_l
     assert more_updraft["launch_score"] > score["launch_score"]
     assert longer["launch_score"] > score["launch_score"]
     assert more_loss["launch_score"] == pytest.approx(score["launch_score"])
+    controlled_terminal = _launch_score_fields({**base, "terminal_useful": True, "min_wall_margin_m": -0.05})
+    assert controlled_terminal["base_failure_penalty_reason"] == "none"
+    assert controlled_terminal["safety_multiplier"] == pytest.approx(1.0)
 
     final_score = _launch_score_fields_for_role({**base, "launch_role": "final_heldout"})
     history_score = _launch_score_fields_for_role({**base, "launch_role": "history"})

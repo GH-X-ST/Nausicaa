@@ -1,0 +1,16 @@
+gate_id,passed,observed,required
+final_heldout_launch_count,True,30.0,30
+history_launch_count,True,300.0,300
+library_size_case_count,True,5.0,5
+policy_history_condition_count,True,2.0,2
+pairing_audit,True,3.0,3
+primitive_count_cap_disabled_for_full_validation,True,0.0,0_or_negative_disabled
+max_episode_time_budget_positive,True,10.0,>=0.1
+launch_inflight_recovery_sequence_policy,True,330.0,330
+hard_failure_rate_within_stage_profile,False,0.7333333333333333,0.2
+floor_or_ceiling_violation_rate_zero,False,0.3333333333333333,0.0
+no_viable_primitive_rate_within_stage_profile,True,0.0,0.3
+safe_success_rate_within_stage_profile,True,0.26666666666666666,0.2
+terminal_or_lift_capture_within_stage_profile,True,0.6666666666666666,0.3
+selected_primitive_family_count_ge_5,False,4.0,5
+selected_variant_count_ge_10,True,12.0,10

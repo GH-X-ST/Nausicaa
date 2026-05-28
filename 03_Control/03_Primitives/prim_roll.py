@@ -87,6 +87,9 @@ EVIDENCE_ROLE_BY_BACKEND = {
     "model_backed_lqr": "lqr_rollout_candidate",
     "blocked_lqr": "blocked_lqr_synthesis",
 }
+CONTROLLED_XY_TERMINAL_MAX_ABS_ROLL_RAD = np.deg2rad(60.0)
+CONTROLLED_XY_TERMINAL_MAX_ABS_PITCH_RAD = np.deg2rad(45.0)
+CONTROLLED_XY_TERMINAL_MAX_BODY_RATE_RAD_S = 2.0
 ROLLOUT_EVIDENCE_COLUMNS = (
     "rollout_id",
     "episode_id",
@@ -1013,6 +1016,7 @@ def _simulate_dynamics_rollout(
         minimum_wall_margin_m=min_wall_margin_m,
         floor_margin_m=min_floor_margin_m,
         ceiling_margin_m=min_ceiling_margin_m,
+        final_state=x,
         trajectory_status=trajectory_status,
         current_termination=termination_cause,
         current_failure=failure_label,
@@ -1603,6 +1607,7 @@ def _classify_model_backed_outcome(
     minimum_wall_margin_m: float,
     floor_margin_m: float,
     ceiling_margin_m: float,
+    final_state: np.ndarray,
     trajectory_status: str,
     current_termination: str,
     current_failure: str,
@@ -1614,6 +1619,8 @@ def _classify_model_backed_outcome(
     if ceiling_margin_m < 0.0:
         return "failed", "ceiling_margin_stop", "ceiling_violation"
     if minimum_wall_margin_m < 0.0:
+        if _controlled_xy_boundary_terminal(final_state):
+            return "weak", "wall_boundary_exit_retained", "controlled_xy_boundary_terminal"
         outcome = (
             "weak"
             if terminal_evidence_is_useful(
@@ -1622,10 +1629,38 @@ def _classify_model_backed_outcome(
             )
             else "failed"
         )
-        return outcome, "wall_boundary_exit_retained", "xy_boundary_terminal"
+        if outcome == "weak":
+            return outcome, "wall_boundary_exit_retained", "xy_boundary_terminal"
+        return outcome, "wall_boundary_exit_uncontrolled", "uncontrolled_xy_boundary_exit"
     if energy_residual_m >= 0.02:
         return "accepted", "controlled_finish", "success"
     return "weak", "weak_energy_result", "model_boundary_only"
+
+
+def _controlled_xy_boundary_terminal(final_state: np.ndarray) -> bool:
+    """Return whether an x-y arena exit is a controlled terminal, not a crash."""
+
+    try:
+        state = np.asarray(final_state, dtype=float).reshape(STATE_SIZE)
+        if not np.all(np.isfinite(state)):
+            return False
+        margins = position_margin_m(state[:3], TRUE_SAFE_BOUNDS)
+    except Exception:
+        return False
+    if float(margins["min_wall_margin_m"]) >= 0.0:
+        return False
+    if float(margins["floor_margin_m"]) < 0.0 or float(margins["ceiling_margin_m"]) < 0.0:
+        return False
+    max_body_rate = max(
+        abs(float(state[STATE_INDEX["p"]])),
+        abs(float(state[STATE_INDEX["q"]])),
+        abs(float(state[STATE_INDEX["r"]])),
+    )
+    return bool(
+        abs(float(state[STATE_INDEX["phi"]])) <= CONTROLLED_XY_TERMINAL_MAX_ABS_ROLL_RAD
+        and abs(float(state[STATE_INDEX["theta"]])) <= CONTROLLED_XY_TERMINAL_MAX_ABS_PITCH_RAD
+        and max_body_rate <= CONTROLLED_XY_TERMINAL_MAX_BODY_RATE_RAD_S
+    )
 
 
 def _smoke_energy_residual(

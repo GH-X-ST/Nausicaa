@@ -163,6 +163,7 @@ PHYSICAL_HARD_FAILURE_LABELS = {
     "corrupt_integration",
     "physically_impossible_initial_state",
     "true_safety_violation",
+    "uncontrolled_xy_boundary_exit",
 }
 DEFAULT_VALIDATION_MAX_EPISODE_TIME_S = 20.0
 R9_PREFLIGHT_MAX_EPISODE_TIME_S = 10.0
@@ -2064,7 +2065,9 @@ def _launch_score_fields(row: dict[str, object]) -> dict[str, object]:
     no_viable_at_launch = bool(no_viable and selected_steps <= 0)
     no_viable_after_launch = bool(no_viable and selected_steps > 0)
     min_wall_margin = _float_value(row.get("min_wall_margin_m", 0.0))
-    wall_boundary_issue = bool(min_wall_margin < 0.0 and not hard_failure and not floor_or_ceiling)
+    terminal_useful = _truthy(row.get("terminal_useful", False))
+    controlled_terminal_exit = bool(terminal_useful and not hard_failure and not floor_or_ceiling)
+    wall_boundary_issue = bool(min_wall_margin < 0.0 and not hard_failure and not floor_or_ceiling and not controlled_terminal_exit)
     base_penalty, penalty_reason = _base_failure_penalty(
         hard_failure=hard_failure,
         floor_or_ceiling=floor_or_ceiling,
@@ -2074,7 +2077,7 @@ def _launch_score_fields(row: dict[str, object]) -> dict[str, object]:
     )
     outcome_multiplier = _outcome_multiplier(
         safe_success=_truthy(row.get("safe_success", False)),
-        terminal_useful=_truthy(row.get("terminal_useful", False)),
+        terminal_useful=terminal_useful,
         lift_capture=_truthy(row.get("lift_capture", False)),
         hard_failure=hard_failure,
     )

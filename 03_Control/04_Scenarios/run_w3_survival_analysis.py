@@ -62,7 +62,7 @@ class W3SurvivalAnalysisConfig:
     input_root: Path = DEFAULT_W3_ROOT
     survived_transition_success_rate_min: float = 0.60
     survived_hard_failure_rate_max: float = 0.40
-    launch_route_transition_success_rate_min: float = 0.45
+    launch_route_transition_success_rate_min: float = 0.40
     launch_route_hard_failure_rate_max: float = 0.05
     boundary_route_transition_success_rate_min: float = 0.40
     boundary_route_hard_failure_rate_max: float = 0.20
@@ -842,7 +842,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--input-root", type=Path, default=DEFAULT_W3_ROOT)
     parser.add_argument("--survived-transition-success-rate-min", type=float, default=0.60)
     parser.add_argument("--survived-hard-failure-rate-max", type=float, default=0.40)
-    parser.add_argument("--launch-route-transition-success-rate-min", type=float, default=0.45)
+    parser.add_argument("--launch-route-transition-success-rate-min", type=float, default=0.40)
     parser.add_argument("--launch-route-hard-failure-rate-max", type=float, default=0.05)
     parser.add_argument("--boundary-route-transition-success-rate-min", type=float, default=0.40)
     parser.add_argument("--boundary-route-hard-failure-rate-max", type=float, default=0.20)

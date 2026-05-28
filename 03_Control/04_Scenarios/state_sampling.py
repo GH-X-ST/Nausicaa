@@ -9,6 +9,13 @@ import pandas as pd
 
 from state_contract import STATE_INDEX, STATE_NAMES, STATE_SIZE, as_state_vector
 
+LAUNCH_GATE_ROLL_LIMIT_DEG = 20.0
+LAUNCH_GATE_PITCH_MIN_DEG = -10.0
+LAUNCH_GATE_PITCH_MAX_DEG = 20.0
+LAUNCH_GATE_YAW_LIMIT_DEG = 20.0
+LAUNCH_GATE_SPEED_MIN_M_S = 3.0
+LAUNCH_GATE_SPEED_MAX_M_S = 8.0
+
 
 # =============================================================================
 # SECTION MAP
@@ -187,10 +194,16 @@ def state_is_launch_gate_compliant(state: np.ndarray) -> bool:
         1.2 <= x[STATE_INDEX["x_w"]] <= 1.4
         and 1.8 <= x[STATE_INDEX["y_w"]] <= 2.2
         and 1.5 <= x[STATE_INDEX["z_w"]] <= 1.9
-        and np.deg2rad(-45.0) <= x[STATE_INDEX["phi"]] <= np.deg2rad(45.0)
-        and np.deg2rad(-45.0) <= x[STATE_INDEX["theta"]] <= np.deg2rad(45.0)
-        and np.deg2rad(-30.0) <= x[STATE_INDEX["psi"]] <= np.deg2rad(30.0)
-        and 3.0 <= speed <= 8.0
+        and np.deg2rad(-LAUNCH_GATE_ROLL_LIMIT_DEG)
+        <= x[STATE_INDEX["phi"]]
+        <= np.deg2rad(LAUNCH_GATE_ROLL_LIMIT_DEG)
+        and np.deg2rad(LAUNCH_GATE_PITCH_MIN_DEG)
+        <= x[STATE_INDEX["theta"]]
+        <= np.deg2rad(LAUNCH_GATE_PITCH_MAX_DEG)
+        and np.deg2rad(-LAUNCH_GATE_YAW_LIMIT_DEG)
+        <= x[STATE_INDEX["psi"]]
+        <= np.deg2rad(LAUNCH_GATE_YAW_LIMIT_DEG)
+        and LAUNCH_GATE_SPEED_MIN_M_S <= speed <= LAUNCH_GATE_SPEED_MAX_M_S
     )
 
 
@@ -199,10 +212,16 @@ def _launch_gate_state(rng: np.random.Generator) -> np.ndarray:
     state[STATE_INDEX["x_w"]] = float(rng.uniform(1.2, 1.4))
     state[STATE_INDEX["y_w"]] = float(rng.uniform(1.8, 2.2))
     state[STATE_INDEX["z_w"]] = float(rng.uniform(1.5, 1.9))
-    state[STATE_INDEX["phi"]] = float(np.deg2rad(rng.uniform(-45.0, 45.0)))
-    state[STATE_INDEX["theta"]] = float(np.deg2rad(rng.uniform(-45.0, 45.0)))
-    state[STATE_INDEX["psi"]] = float(np.deg2rad(rng.uniform(-30.0, 30.0)))
-    speed = float(rng.uniform(3.0, 8.0))
+    state[STATE_INDEX["phi"]] = float(
+        np.deg2rad(rng.uniform(-LAUNCH_GATE_ROLL_LIMIT_DEG, LAUNCH_GATE_ROLL_LIMIT_DEG))
+    )
+    state[STATE_INDEX["theta"]] = float(
+        np.deg2rad(rng.uniform(LAUNCH_GATE_PITCH_MIN_DEG, LAUNCH_GATE_PITCH_MAX_DEG))
+    )
+    state[STATE_INDEX["psi"]] = float(
+        np.deg2rad(rng.uniform(-LAUNCH_GATE_YAW_LIMIT_DEG, LAUNCH_GATE_YAW_LIMIT_DEG))
+    )
+    speed = float(rng.uniform(LAUNCH_GATE_SPEED_MIN_M_S, LAUNCH_GATE_SPEED_MAX_M_S))
     v_side = float(rng.uniform(-0.08, 0.08) * speed)
     w_body = float(rng.uniform(-0.04, 0.04) * speed)
     state[STATE_INDEX["u"]] = float(np.sqrt(max(speed * speed - v_side * v_side - w_body * w_body, 0.0)))

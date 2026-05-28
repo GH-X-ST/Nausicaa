@@ -5,6 +5,12 @@ import numpy as np
 
 from state_contract import STATE_INDEX, STATE_NAMES
 from state_sampling import (
+    LAUNCH_GATE_PITCH_MAX_DEG,
+    LAUNCH_GATE_PITCH_MIN_DEG,
+    LAUNCH_GATE_ROLL_LIMIT_DEG,
+    LAUNCH_GATE_SPEED_MAX_M_S,
+    LAUNCH_GATE_SPEED_MIN_M_S,
+    LAUNCH_GATE_YAW_LIMIT_DEG,
     archive_state_sample_for_family,
     archive_state_sample_for_row,
     archive_state_sample_row,
@@ -57,6 +63,37 @@ def test_mixed_start_sampler_has_required_40_60_schedule_and_bounds() -> None:
     assert {sample.state_envelope_label for sample in samples}.issubset(
         {"approved_launch_gate", "local_primitive_envelope", "lift_region", "boundary_near", "recovery_edge"}
     )
+
+
+def test_launch_gate_sampler_uses_realistic_attitude_envelope() -> None:
+    for index in range(80):
+        sample = archive_state_sample_for_family(
+            start_state_family="launch_gate",
+            paired_start_key=f"launch_gate_{index}",
+            sample_index=index,
+            seed=41,
+            W_layer="W1",
+            environment_mode="annular_gp",
+        )
+        state = sample.state_vector
+        speed = float(np.linalg.norm(state[[STATE_INDEX["u"], STATE_INDEX["v"], STATE_INDEX["w"]]]))
+
+        assert state_is_launch_gate_compliant(state)
+        assert -LAUNCH_GATE_ROLL_LIMIT_DEG <= np.rad2deg(state[STATE_INDEX["phi"]]) <= LAUNCH_GATE_ROLL_LIMIT_DEG
+        assert LAUNCH_GATE_PITCH_MIN_DEG <= np.rad2deg(state[STATE_INDEX["theta"]]) <= LAUNCH_GATE_PITCH_MAX_DEG
+        assert -LAUNCH_GATE_YAW_LIMIT_DEG <= np.rad2deg(state[STATE_INDEX["psi"]]) <= LAUNCH_GATE_YAW_LIMIT_DEG
+        assert LAUNCH_GATE_SPEED_MIN_M_S <= speed <= LAUNCH_GATE_SPEED_MAX_M_S
+
+    old_extreme_launch = np.zeros(len(STATE_NAMES), dtype=float)
+    old_extreme_launch[STATE_INDEX["x_w"]] = 1.3
+    old_extreme_launch[STATE_INDEX["y_w"]] = 2.0
+    old_extreme_launch[STATE_INDEX["z_w"]] = 1.7
+    old_extreme_launch[STATE_INDEX["phi"]] = np.deg2rad(35.0)
+    old_extreme_launch[STATE_INDEX["theta"]] = np.deg2rad(30.0)
+    old_extreme_launch[STATE_INDEX["psi"]] = np.deg2rad(25.0)
+    old_extreme_launch[STATE_INDEX["u"]] = 5.0
+
+    assert state_is_launch_gate_compliant(old_extreme_launch) is False
 
 
 def test_inflight_samples_include_rates_and_surface_states() -> None:

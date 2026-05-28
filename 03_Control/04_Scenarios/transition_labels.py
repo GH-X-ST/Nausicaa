@@ -360,11 +360,16 @@ def _exit_class_from_row(
     boundary = str(row.get("boundary_use_class", "")).lower()
     failure = str(row.get("failure_label", "")).lower()
     termination = str(row.get("termination_cause", "")).lower()
-    terminal = _truthy(row.get("episode_terminal_useful", False)) or boundary == "episode_terminal_useful"
+    terminal = (
+        _truthy(row.get("episode_terminal_useful", False))
+        or boundary == "episode_terminal_useful"
+        or failure == "controlled_xy_boundary_terminal"
+    )
     continuation = _truthy(row.get("continuation_valid", False)) or outcome == "accepted"
     if (
         outcome in {"failed", "blocked", "rejected"}
         or boundary == "hard_failure"
+        or failure == "uncontrolled_xy_boundary_exit"
         or "hard_failure" in failure
         or "hard_failure" in termination
         or _float(row.get("floor_margin_m", 0.0)) < 0.0

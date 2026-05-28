@@ -17,6 +17,7 @@ HARD_FAILURE_LABELS = {
     "corrupt_integration",
     "physically_impossible_initial_state",
     "true_safety_violation",
+    "uncontrolled_xy_boundary_exit",
 }
 
 
@@ -52,7 +53,8 @@ def evidence_use_labels(
     outcome = str(outcome_class)
     failure = str(failure_label)
     termination = str(termination_cause)
-    is_xy_terminal = failure == "xy_boundary_terminal" or termination in {
+    is_controlled_xy_terminal = failure == "controlled_xy_boundary_terminal"
+    is_xy_terminal = failure in {"xy_boundary_terminal", "controlled_xy_boundary_terminal"} or termination in {
         "wall_boundary_exit_retained",
         "lateral_boundary_exit_retained",
     }
@@ -61,9 +63,13 @@ def evidence_use_labels(
     terminal_useful = (
         is_xy_terminal
         and trajectory_status == "finite_model_backed"
-        and terminal_evidence_is_useful(
-            energy_residual_m=energy_residual_m,
-            lift_dwell_time_s=lift_dwell_time_s,
+        and not is_hard_failure
+        and (
+            is_controlled_xy_terminal
+            or terminal_evidence_is_useful(
+                energy_residual_m=energy_residual_m,
+                lift_dwell_time_s=lift_dwell_time_s,
+            )
         )
     )
     continuation_valid = outcome in {"accepted", "weak"} and not is_xy_terminal
