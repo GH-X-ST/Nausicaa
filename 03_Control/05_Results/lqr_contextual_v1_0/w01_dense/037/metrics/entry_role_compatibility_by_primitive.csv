@@ -1,0 +1,9 @@
+primitive_id,entry_role,entry_role_compatible,row_count
+energy_retaining_bank,transition_object,True,9600
+glide,transition_object,True,9600
+lift_dwell_arc,transition_object,True,9600
+lift_entry,transition_object,True,9600
+mild_turn_left,transition_object,True,9600
+mild_turn_right,transition_object,True,9600
+recovery,transition_object,True,9600
+safe_exit_or_recovery_handoff,transition_object,True,9600

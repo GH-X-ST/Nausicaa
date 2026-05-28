@@ -1307,8 +1307,6 @@ def _r5_transition_training_tables(frame: pd.DataFrame) -> tuple[pd.DataFrame, p
         "primitive_id",
         "primitive_family",
         "entry_role",
-        "primitive_variant_id",
-        "controller_id",
         "candidate_index",
         "candidate_weight_label",
         "transition_entry_class",
@@ -1368,6 +1366,8 @@ def _r5_transition_training_tables(frame: pd.DataFrame) -> tuple[pd.DataFrame, p
         rows.append(
             {
                 **base,
+                "primitive_variant_id": _r5_candidate_transition_group_id(base),
+                "controller_id": _r5_candidate_transition_group_id(base),
                 "reference_pitch_bias_rad": float(group["reference_pitch_bias_rad"].iloc[0]),
                 "reference_bank_bias_rad": float(group["reference_bank_bias_rad"].iloc[0]),
                 "reference_speed_bias_m_s": float(group["reference_speed_bias_m_s"].iloc[0]),
@@ -1411,10 +1411,69 @@ def _r5_transition_training_tables(frame: pd.DataFrame) -> tuple[pd.DataFrame, p
         return summary, summary.copy(), summary.copy(), ["r5_transition_candidate_training_summary_empty"]
     summary = _mark_pareto_front(summary)
     summary = _mark_selected_for_r7(summary)
-    selected = summary[summary["selected_for_r7"].astype(bool)].copy()
+    selected = _expand_selected_r5_transition_variants(
+        summary[summary["selected_for_r7"].astype(bool)].copy(),
+        work,
+    )
     pareto = summary[summary["pareto_front"].astype(bool)].copy()
     blockers = _r5_transition_training_blockers(summary, selected)
     return summary, selected, pareto, blockers
+
+
+def _r5_candidate_transition_group_id(base: dict[str, object]) -> str:
+    primitive_id = str(base.get("primitive_id", "")).strip() or "unknown_primitive"
+    candidate_index = int(base.get("candidate_index", -1))
+    entry_class = str(base.get("transition_entry_class", "")).strip() or "unknown_entry"
+    return f"candidate_transition_{primitive_id}_c{candidate_index:03d}_{entry_class}"
+
+
+def _expand_selected_r5_transition_variants(selected: pd.DataFrame, work: pd.DataFrame) -> pd.DataFrame:
+    """Expand selected candidate-level rows to concrete speed-bin controller variants.
+
+    R5 scores Q/R and primitive-reference candidates at the transition-entry level.
+    The active controller bundle, however, stores one concrete LQR controller per
+    local speed bin.  R7 must therefore receive real `primitive_variant_id`
+    records, not the candidate-level accounting row used for robust selection.
+    """
+
+    if selected.empty:
+        return selected
+    expanded_rows: list[dict[str, object]] = []
+    optional_columns = (
+        "local_lqr_reference_speed_m_s",
+        "local_lqr_speed_bin_id",
+        "local_lqr_scheduling_policy",
+        "local_lqr_speed_grid_m_s",
+    )
+    for row in selected.to_dict(orient="records"):
+        mask = (
+            work["primitive_id"].astype(str).eq(str(row.get("primitive_id", "")))
+            & work["candidate_index"].astype(int).eq(int(row.get("candidate_index", -1)))
+            & work["transition_entry_class"].astype(str).eq(str(row.get("transition_entry_class", "")))
+        )
+        variants = work.loc[mask].copy()
+        if variants.empty:
+            expanded_rows.append(row)
+            continue
+        variant_columns = ["primitive_variant_id", "controller_id"]
+        for column in optional_columns:
+            if column in variants.columns:
+                variant_columns.append(column)
+        variants = variants[variant_columns].drop_duplicates().sort_values(variant_columns, kind="mergesort")
+        candidate_level_id = str(row.get("primitive_variant_id", ""))
+        selected_speed_bin_variant_count = int(len(variants))
+        for _, variant in variants.iterrows():
+            expanded = dict(row)
+            expanded["candidate_level_selection_id"] = candidate_level_id
+            expanded["candidate_level_row_count"] = int(row.get("row_count", 0) or 0)
+            expanded["selected_speed_bin_variant_count"] = selected_speed_bin_variant_count
+            expanded["primitive_variant_id"] = str(variant.get("primitive_variant_id", ""))
+            expanded["controller_id"] = str(variant.get("controller_id", ""))
+            for column in optional_columns:
+                if column in variant.index:
+                    expanded[column] = variant.get(column, "")
+            expanded_rows.append(expanded)
+    return pd.DataFrame(expanded_rows)
 
 
 def _normalise_r5_training_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -1916,6 +1975,25 @@ def _finalise_regime_counts(frame: pd.DataFrame) -> pd.DataFrame:
         & (result["entry_role_rejection_count"] == 0)
         & result["credible_launch_gate_outcome"].astype(bool)
     )
+    launch_entry_mask = (
+        (result["start_state_family"].astype(str) == "launch_gate")
+        & result["active_primitive_family"].astype(bool)
+        & (result["transition_entry_class"].astype(str) == "launch_gate")
+    )
+    for primitive_id, rows in result.loc[launch_entry_mask].groupby("primitive_id", dropna=False, sort=True):
+        indices = rows.index
+        aggregate_total = int(rows["total_rows"].sum())
+        aggregate_entry_rejections = int(rows["entry_role_rejection_count"].sum())
+        aggregate_credible = bool(
+            int((rows["accepted_count"] + rows["weak_count"] + rows["continuation_valid_count"] + rows["terminal_useful_count"]).sum()) > 0
+            and int(rows["hard_failure_count"].sum()) < aggregate_total
+            and int((rows["blocked_count"] + rows["rejected_count"]).sum()) < aggregate_total
+        )
+        aggregate_expected = bool(aggregate_total == expected_launch_rows)
+        result.loc[indices, "expected_full_dense_launch_gate_rows_present"] = aggregate_expected
+        result.loc[indices, "r5_launch_entry_gate_passed"] = bool(
+            aggregate_expected and aggregate_entry_rejections == 0 and aggregate_credible
+        )
     return result.sort_values(list(R5_REGIME_GROUP_COLUMNS)).reset_index(drop=True)
 
 
@@ -2764,7 +2842,11 @@ def _launch_gate_coverage_blockers(*, run_root: Path, row_count: int) -> list[st
         hard_failure = int(pd.to_numeric(rows["hard_failure_count"], errors="coerce").fillna(0).sum())
         blocked = int(pd.to_numeric(rows["blocked_count"], errors="coerce").fillna(0).sum())
         rejected = int(pd.to_numeric(rows["rejected_count"], errors="coerce").fillna(0).sum())
-        passed = rows["r5_launch_entry_gate_passed"].astype(str).str.lower().isin({"true", "1"}).any()
+        aggregate_credible = bool(
+            accepted + weak + continuation + terminal > 0
+            and hard_failure < total_rows
+            and blocked + rejected < total_rows
+        )
         if total_rows != expected_rows:
             blockers.append(f"{primitive_id}:launch_gate_row_count_{total_rows}_expected_{expected_rows}")
         if entry_classes != {"launch_gate"}:
@@ -2777,7 +2859,7 @@ def _launch_gate_coverage_blockers(*, run_root: Path, row_count: int) -> list[st
             blockers.append(f"{primitive_id}:all_launch_gate_rows_hard_failure")
         if blocked + rejected >= total_rows:
             blockers.append(f"{primitive_id}:all_launch_gate_rows_blocked_or_rejected")
-        if not passed:
+        if not aggregate_credible:
             blockers.append(f"{primitive_id}:r5_launch_entry_gate_not_passed")
     return blockers
 
