@@ -87,6 +87,9 @@ def build_lqr_reference(
     primitive: PrimitiveDefinition,
     *,
     trim_model: LinearModel | None = None,
+    reference_pitch_bias_rad: float = 0.0,
+    reference_bank_bias_rad: float = 0.0,
+    reference_speed_bias_m_s: float = 0.0,
 ) -> LQRReference:
     """Return a local reference state and nominal command for one primitive.
 
@@ -154,6 +157,18 @@ def build_lqr_reference(
         x_ref[STATE_INDEX["theta"]] += 0.035
         note = "trim_with_launch_capture_safe_handoff_bias"
 
+    pitch_bias = float(reference_pitch_bias_rad)
+    bank_bias = float(reference_bank_bias_rad)
+    speed_bias = float(reference_speed_bias_m_s)
+    if pitch_bias or bank_bias or speed_bias:
+        x_ref[STATE_INDEX["theta"]] += pitch_bias
+        x_ref[STATE_INDEX["phi"]] += bank_bias
+        x_ref[STATE_INDEX["u"]] += speed_bias
+        note = (
+            f"{note}_plus_tuned_reference_bias"
+            f"_pitch_{pitch_bias:+.4f}_bank_{bank_bias:+.4f}_speed_{speed_bias:+.4f}"
+        )
+
     reference_id = _stable_id(
         "lqr_ref",
         primitive.primitive_id,
@@ -178,11 +193,20 @@ def build_lqr_linearisation(
     primitive: PrimitiveDefinition,
     *,
     trim_model: LinearModel | None = None,
+    reference_pitch_bias_rad: float = 0.0,
+    reference_bank_bias_rad: float = 0.0,
+    reference_speed_bias_m_s: float = 0.0,
 ) -> LQRLinearisation:
     """Build the active full/reduced linear model used for LQR synthesis."""
 
     model = trim_model or linearise_trim()
-    reference = build_lqr_reference(primitive, trim_model=model)
+    reference = build_lqr_reference(
+        primitive,
+        trim_model=model,
+        reference_pitch_bias_rad=reference_pitch_bias_rad,
+        reference_bank_bias_rad=reference_bank_bias_rad,
+        reference_speed_bias_m_s=reference_speed_bias_m_s,
+    )
     a_full = np.asarray(model.a, dtype=float).reshape(STATE_SIZE, STATE_SIZE)
     b_full = np.asarray(model.b, dtype=float).reshape(STATE_SIZE, 3)
     finite_status = (

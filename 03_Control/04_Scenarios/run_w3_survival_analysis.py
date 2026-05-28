@@ -50,10 +50,10 @@ BLOCKED_CLAIMS = (
 @dataclass(frozen=True)
 class W3SurvivalAnalysisConfig:
     input_root: Path = DEFAULT_W3_ROOT
-    survived_transition_success_rate_min: float = 0.50
-    survived_hard_failure_rate_max: float = 0.55
-    downgraded_transition_success_rate_min: float = 0.25
-    downgraded_hard_failure_rate_max: float = 0.75
+    survived_transition_success_rate_min: float = 0.60
+    survived_hard_failure_rate_max: float = 0.40
+    downgraded_transition_success_rate_min: float = 0.30
+    downgraded_hard_failure_rate_max: float = 0.65
 
 
 def run_w3_survival_analysis(config: W3SurvivalAnalysisConfig) -> dict[str, object]:
@@ -754,10 +754,10 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build W3 variant-level survival registry.")
     parser.add_argument("--input-root", type=Path, default=DEFAULT_W3_ROOT)
-    parser.add_argument("--survived-transition-success-rate-min", type=float, default=0.50)
-    parser.add_argument("--survived-hard-failure-rate-max", type=float, default=0.55)
-    parser.add_argument("--downgraded-transition-success-rate-min", type=float, default=0.25)
-    parser.add_argument("--downgraded-hard-failure-rate-max", type=float, default=0.75)
+    parser.add_argument("--survived-transition-success-rate-min", type=float, default=0.60)
+    parser.add_argument("--survived-hard-failure-rate-max", type=float, default=0.40)
+    parser.add_argument("--downgraded-transition-success-rate-min", type=float, default=0.30)
+    parser.add_argument("--downgraded-hard-failure-rate-max", type=float, default=0.65)
     return parser.parse_args(argv)
 
 

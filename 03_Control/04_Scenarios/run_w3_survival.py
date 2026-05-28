@@ -7,7 +7,7 @@ import shutil
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Iterable
 
@@ -79,6 +79,8 @@ REQUIRED_R5_ANNULAR_GP_TRAINING_CASES = (
 )
 ACCEPTED_W2_SOURCE_STATUSES = ("w2_dense_survival_pass",)
 R5_INPUT_KIND = "r5_frozen_bundle_direct"
+R5_SELECTED_FOR_R7_CSV = "r5_transition_selected_for_r7.csv"
+R5_TRANSITION_TRAINING_MANIFEST_JSON = "r5_transition_training_manifest.json"
 LEGACY_W2_INPUT_KIND = "legacy_w2_survivor_registry_diagnostic"
 UNKNOWN_INPUT_KIND = "unknown_input_root"
 SURVIVAL_STATUS_VOCABULARY = ("blocked", "ready_for_fixed_lqr_replay", "complete", "not_run")
@@ -124,6 +126,13 @@ class W3ChunkSpec:
     row_stop: int
     storage_format: str
     compression_level: int
+
+
+@dataclass(frozen=True)
+class W3ReplayRecord:
+    record: FrozenW01ControllerRecord
+    transition_entry_class: str = ""
+    r5_selection_row: dict[str, object] = field(default_factory=dict)
 
 
 def discover_latest_r5_root_for_w3(discovery_root: Path = DEFAULT_R5_DISCOVERY_ROOT) -> Path | None:
@@ -337,11 +346,15 @@ def _resolve_w3_input_root(input_root: Path | None) -> Path:
 def _r5_root_is_default_w3_eligible(root: Path) -> bool:
     manifest_path = filesystem_path(root / "manifests" / "run_manifest.json")
     bundle_path = filesystem_path(root / "manifests" / "frozen_w01_controller_bundle.json")
-    if not manifest_path.is_file() or not bundle_path.is_file():
+    training_path = filesystem_path(root / "manifests" / R5_TRANSITION_TRAINING_MANIFEST_JSON)
+    selected_path = filesystem_path(root / "metrics" / R5_SELECTED_FOR_R7_CSV)
+    if not manifest_path.is_file() or not bundle_path.is_file() or not training_path.is_file() or not selected_path.is_file():
         return False
     try:
         manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+        training = json.loads(training_path.read_text(encoding="ascii"))
         bundle = load_frozen_w01_controller_bundle(bundle_path)
+        selected = pd.read_csv(selected_path)
     except Exception:
         return False
     timing = manifest.get("primitive_timing_contract", {})
@@ -352,9 +365,11 @@ def _r5_root_is_default_w3_eligible(root: Path) -> bool:
         and str(timing.get("primitive_timing_contract_version", "")) == PRIMITIVE_TIMING_CONTRACT_VERSION
         and bool(manifest.get("w01_dense_evidence_complete", False))
         and str(manifest.get("method_evidence_level", "")) == "w01_dense_evidence_complete"
-        and str(manifest.get("R7_W3_direct_source", "")) == "frozen_R5_W0_W1_controller_bundle"
+        and str(manifest.get("R7_W3_direct_source", "")) == "r5_transition_selected_for_r7_frozen_controller_bundle"
+        and str(training.get("status", "")) == "passed"
         and set(REQUIRED_R5_ANNULAR_GP_TRAINING_CASES).issubset(official_w1)
         and ready_count > 0
+        and not selected.empty
     )
 
 
@@ -397,11 +412,18 @@ def _input_blocked_reason(input_root: Path) -> str:
     if input_kind == R5_INPUT_KIND:
         r5_manifest = Path(input_root) / "manifests" / "run_manifest.json"
         bundle_path = Path(input_root) / "manifests" / "frozen_w01_controller_bundle.json"
+        training_path = Path(input_root) / "manifests" / R5_TRANSITION_TRAINING_MANIFEST_JSON
+        selected_path = Path(input_root) / "metrics" / R5_SELECTED_FOR_R7_CSV
         if not filesystem_path(r5_manifest).is_file():
             return "missing_R5_run_manifest"
         if not filesystem_path(bundle_path).is_file():
             return "missing_frozen_w01_controller_bundle_from_R5_root"
+        if not filesystem_path(training_path).is_file():
+            return "missing_r5_transition_training_manifest"
+        if not filesystem_path(selected_path).is_file():
+            return "missing_r5_transition_selected_for_r7"
         source = json.loads(filesystem_path(r5_manifest).read_text(encoding="ascii"))
+        training = json.loads(filesystem_path(training_path).read_text(encoding="ascii"))
         timing = source.get("primitive_timing_contract", {})
         if str(source.get("project_title_version", "")) != PROJECT_TITLE_VERSION:
             return "R5_source_not_v5_project_title"
@@ -413,8 +435,19 @@ def _input_blocked_reason(input_root: Path) -> str:
             return "R5_source_method_evidence_level_not_dense"
         if bool(source.get("W2_required_for_move_on", False)):
             return "R5_source_still_requires_archived_W2"
-        if str(source.get("R7_W3_direct_source", "")) != "frozen_R5_W0_W1_controller_bundle":
+        if str(source.get("R7_W3_direct_source", "")) != "r5_transition_selected_for_r7_frozen_controller_bundle":
             return "R5_source_missing_direct_W3_contract"
+        if str(training.get("status", "")) != "passed":
+            return "R5_transition_training_not_passed"
+        try:
+            selected = pd.read_csv(filesystem_path(selected_path))
+        except pd.errors.EmptyDataError:
+            return "R5_transition_selection_empty"
+        if selected.empty:
+            return "R5_transition_selection_empty"
+        required_columns = {"primitive_variant_id", "transition_entry_class", "selected_for_r7"}
+        if not required_columns.issubset(set(selected.columns)):
+            return "R5_transition_selection_missing_required_columns"
         official_w1 = set(source.get("official_W_layers", {}).get("W1", []))
         if not set(REQUIRED_R5_ANNULAR_GP_TRAINING_CASES).issubset(official_w1):
             return "R5_source_missing_annular_gp_randomised_W1_training_cases"
@@ -451,15 +484,31 @@ def _input_blocked_reason(input_root: Path) -> str:
     return ""
 
 
-def _input_records(input_root: Path, bundle) -> tuple[FrozenW01ControllerRecord, ...]:
+def _input_records(input_root: Path, bundle) -> tuple[W3ReplayRecord, ...]:
     if _source_input_kind(input_root) == R5_INPUT_KIND:
-        return tuple(
-            sorted(
-                (record for record in bundle.records if record.bundle_status == FROZEN_CONTROLLER_READY),
-                key=lambda record: record.variant.primitive_variant_id,
+        return _selected_r5_replay_records(input_root, bundle)
+    return tuple(W3ReplayRecord(record=record) for record in _surviving_records(input_root, bundle))
+
+
+def _selected_r5_replay_records(input_root: Path, bundle) -> tuple[W3ReplayRecord, ...]:
+    selected = pd.read_csv(filesystem_path(input_root / "metrics" / R5_SELECTED_FOR_R7_CSV))
+    if "selected_for_r7" in selected.columns:
+        selected = selected[selected["selected_for_r7"].astype(str).str.lower().isin({"true", "1", "yes"})].copy()
+    by_variant_id = bundle.records_by_variant_id
+    records: list[W3ReplayRecord] = []
+    for row in selected.sort_values(["primitive_id", "transition_entry_class", "selected_rank", "candidate_index"]).to_dict(orient="records"):
+        variant_id = str(row.get("primitive_variant_id", ""))
+        record = by_variant_id.get(variant_id)
+        if record is None or record.bundle_status != FROZEN_CONTROLLER_READY:
+            continue
+        records.append(
+            W3ReplayRecord(
+                record=record,
+                transition_entry_class=str(row.get("transition_entry_class", "")),
+                r5_selection_row=dict(row),
             )
         )
-    return _surviving_records(input_root, bundle)
+    return tuple(records)
 
 
 def _surviving_records(input_root: Path, bundle) -> tuple[FrozenW01ControllerRecord, ...]:
@@ -484,7 +533,7 @@ def _write_chunk(
     *,
     run_root: Path,
     config: W3SurvivalConfig,
-    records: tuple[FrozenW01ControllerRecord, ...],
+    records: tuple[W3ReplayRecord, ...],
     fixture_label: str,
 ):
     started = time.time()
@@ -539,7 +588,7 @@ def _execute_pending_chunks(
     *,
     run_root: Path,
     config: W3SurvivalConfig,
-    records: tuple[FrozenW01ControllerRecord, ...],
+    records: tuple[W3ReplayRecord, ...],
     fixture_label: str,
     selected_worker_count: int,
 ):
@@ -586,16 +635,18 @@ def _row_for_index(
     *,
     row_index: int,
     config: W3SurvivalConfig,
-    records: tuple[FrozenW01ControllerRecord, ...],
+    records: tuple[W3ReplayRecord, ...],
     fixture_label: str,
 ) -> dict[str, object]:
-    record = records[int(row_index) % len(records)]
+    replay_record = records[int(row_index) % len(records)]
+    record = replay_record.record
     grouped_index = int(row_index) // len(records)
     environment_mode = W3_ENVIRONMENT_CASES[grouped_index % len(W3_ENVIRONMENT_CASES)]
     paired_start_index = grouped_index // len(W3_ENVIRONMENT_CASES)
-    start_family = start_family_for_entry_role_index(
-        entry_role=record.variant.entry_role,
-        index=int(paired_start_index),
+    start_family = _start_family_for_r5_selected_entry_class(
+        transition_entry_class=replay_record.transition_entry_class,
+        fallback_entry_role=record.variant.entry_role,
+        paired_start_index=int(paired_start_index),
     )
     paired_start_key = f"w3_paired_{int(paired_start_index):07d}_{start_family}"
     scheduled_active_fan_count = _scheduled_active_fan_count(
@@ -706,6 +757,11 @@ def _row_for_index(
             if _source_input_kind(Path(config.input_root)) == LEGACY_W2_INPUT_KIND
             else "",
             "source_evidence_label": fixture_label,
+            "r5_selected_transition_entry_class": str(replay_record.transition_entry_class),
+            "r5_transition_training_score": _selection_float(replay_record, "r5_transition_training_score"),
+            "r5_transition_success_lcb": _selection_float(replay_record, "transition_success_lcb"),
+            "r5_transition_hard_failure_ucb": _selection_float(replay_record, "hard_failure_ucb"),
+            "r5_selected_rank": str(replay_record.r5_selection_row.get("selected_rank", "")),
             "primitive_variant_id": variant.primitive_variant_id,
             "entry_role": variant.entry_role,
             "entry_role_compatible": bool(compatible),
@@ -723,6 +779,31 @@ def _row_for_index(
         }
     )
     return row
+
+
+def _start_family_for_r5_selected_entry_class(
+    *,
+    transition_entry_class: str,
+    fallback_entry_role: str,
+    paired_start_index: int,
+) -> str:
+    entry_class = str(transition_entry_class)
+    if entry_class == "launch_gate":
+        return "launch_gate"
+    if entry_class == "inflight_stable":
+        return ("inflight_nominal", "inflight_lift_region")[int(paired_start_index) % 2]
+    if entry_class == "boundary_near":
+        return "inflight_boundary_near"
+    if entry_class == "recoverable_degraded":
+        return "inflight_recovery_edge"
+    return start_family_for_entry_role_index(entry_role=fallback_entry_role, index=int(paired_start_index))
+
+
+def _selection_float(replay_record: W3ReplayRecord, key: str) -> float:
+    try:
+        return float(replay_record.r5_selection_row.get(key, 0.0))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _scheduled_active_fan_count(*, environment_mode: str, paired_start_index: int) -> int:
@@ -884,6 +965,7 @@ def _write_run_manifest(
     input_root = Path(config.input_root)
     source_input_kind = _source_input_kind(input_root)
     source_r5_manifest = _read_json_or_empty(input_root / "manifests" / "run_manifest.json")
+    source_r5_training_manifest = _read_json_or_empty(input_root / "manifests" / R5_TRANSITION_TRAINING_MANIFEST_JSON)
     source_w2_manifest = _read_json_or_empty(input_root / "manifests" / "w2_survival_manifest.json")
     source_w01_root = input_root.as_posix() if source_input_kind == R5_INPUT_KIND else str(source_w2_manifest.get("source_w01_root", ""))
     source_w2_root = input_root.as_posix() if source_input_kind == LEGACY_W2_INPUT_KIND else ""
@@ -893,13 +975,18 @@ def _write_run_manifest(
         "status": status,
         "run_id": int(config.run_id),
         "input_root": input_root.as_posix(),
-        "input_contract": "R5 frozen controller bundle direct for W3 held-out validation; legacy W2 survivor roots are diagnostic fixtures only",
+        "input_contract": "R5 selected transition-object frozen controller bundle for W3 held-out validation; legacy W2 survivor roots are diagnostic fixtures only",
         "source_input_kind": source_input_kind,
         "source_w01_root": source_w01_root,
         "source_w2_root": source_w2_root,
         "source_r5_status": str(source_r5_manifest.get("status", "")),
         "source_r5_method_evidence_level": str(source_r5_manifest.get("method_evidence_level", "")),
         "source_r5_w01_dense_evidence_complete": bool(source_r5_manifest.get("w01_dense_evidence_complete", False)),
+        "source_r5_transition_training_status": str(source_r5_training_manifest.get("status", "")),
+        "source_r5_selected_transition_object_count": int(
+            source_r5_training_manifest.get("selected_transition_object_count", 0) or 0
+        ),
+        "source_r5_selected_for_r7_csv": f"metrics/{R5_SELECTED_FOR_R7_CSV}" if source_input_kind == R5_INPUT_KIND else "",
         "source_w2_status": str(source_w2_manifest.get("status", "")),
         "source_w2_dense_survival_evidence_complete": bool(
             source_w2_manifest.get("w2_dense_survival_evidence_complete", False)

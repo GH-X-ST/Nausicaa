@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import shutil
 import sys
 import time
 from collections import Counter, defaultdict
@@ -11,6 +12,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
 
+import numpy as np
 import pandas as pd
 
 
@@ -83,6 +85,46 @@ PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.3"
 W01_TABLE_NAME = "w01_primitive_rows"
 R5_LAUNCH_GATE_ENTRY_DIAGNOSIS_CSV = "r5_launch_gate_entry_diagnosis.csv"
 R5_LEGACY_LAUNCH_CAPTURE_DIAGNOSIS_CSV = "r5_launch_capture_diagnosis.csv"
+R5_TRANSITION_TRAINING_VERSION = "r5_transition_robust_qr_reference_training_v2"
+R5_TRANSITION_CANDIDATE_TRAINING_SUMMARY_CSV = "r5_transition_candidate_training_summary.csv"
+R5_TRANSITION_SELECTED_FOR_R7_CSV = "r5_transition_selected_for_r7.csv"
+R5_TRANSITION_PARETO_FRONT_CSV = "r5_transition_pareto_front.csv"
+R5_TRANSITION_TRAINING_MANIFEST_JSON = "r5_transition_training_manifest.json"
+R5_ALL_CANDIDATE_FROZEN_BUNDLE_JSON = "frozen_w01_controller_bundle_all_candidates.json"
+R5_SELECTED_TRANSITIONS_PER_PRIMITIVE_ENTRY = 6
+R5_REQUIRED_SELECTED_ENTRY_CLASSES_FOR_R7 = ("launch_gate", "inflight_stable")
+R5_TRANSITION_TRAINING_THRESHOLDS = {
+    "launch_gate": {
+        "success_lcb_min": 0.35,
+        "hard_failure_ucb_max": 0.45,
+        "useful_environment_count_min": 3,
+    },
+    "inflight_stable": {
+        "success_lcb_min": 0.35,
+        "hard_failure_ucb_max": 0.45,
+        "useful_environment_count_min": 3,
+    },
+    "boundary_near": {
+        "success_lcb_min": 0.20,
+        "hard_failure_ucb_max": 0.55,
+        "useful_environment_count_min": 2,
+    },
+    "recoverable_degraded": {
+        "success_lcb_min": 0.20,
+        "hard_failure_ucb_max": 0.55,
+        "useful_environment_count_min": 2,
+    },
+}
+R5_TRANSITION_TRAINING_SCORE_FORMULA = (
+    "0.55*success_lcb + 0.20*worst_env_success_lcb + 0.10*clipped_updraft_gain "
+    "+ 0.05*clipped_lift_dwell + 0.05*clipped_rollout_duration "
+    "- 0.35*hard_failure_ucb - 0.10*saturation_mean"
+)
+R5_REFERENCE_BIAS_COLUMNS = (
+    "reference_pitch_bias_rad",
+    "reference_bank_bias_rad",
+    "reference_speed_bias_m_s",
+)
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
 L6_FALLBACK_ROW_COUNT = 19_200
 L6_RICH_SIDE_CANDIDATE_COUNT = 32
@@ -280,10 +322,12 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
         _write_empty_table_manifest(run_root, config.run_id, storage_format)
         _write_runtime_summary(run_root, config, row_count=0, status="dry_run_schedule", started=time.time(), ended=time.time())
         _write_empty_metrics(run_root)
+        _write_empty_transition_training_outputs(run_root)
         write_frozen_w01_controller_bundle(
             run_root=run_root,
             source_records=_frozen_bundle_source_records(variants_by_key, variants),
         )
+        _snapshot_all_candidate_frozen_bundle(run_root)
         _write_file_size_audit(run_root)
         _write_reports(run_root, status="dry_run_schedule", row_count=0)
         _write_file_size_audit(run_root)
@@ -350,8 +394,23 @@ def run_lqr_w01_dense_chunked(config: W01DenseRunConfig) -> dict[str, object]:
         run_root=run_root,
         source_records=_frozen_bundle_source_records(variants_by_key, variants),
     )
+    _snapshot_all_candidate_frozen_bundle(run_root)
     ended = time.time()
     row_count = _write_dense_metrics_from_partitions(run_root, completed_partitions, storage_format)
+    training_result = _write_r5_transition_training_outputs_from_partitions(
+        run_root=run_root,
+        partitions=completed_partitions,
+        storage_format=storage_format,
+    )
+    selected_variant_ids = tuple(str(item) for item in training_result.get("selected_primitive_variant_ids", []))
+    write_frozen_w01_controller_bundle(
+        run_root=run_root,
+        source_records=_selected_frozen_bundle_source_records(
+            variants_by_key=variants_by_key,
+            variants=variants,
+            selected_variant_ids=selected_variant_ids,
+        ),
+    )
     _refresh_run_manifest_after_execution(run_root=run_root, config=config, row_count=row_count)
     _write_chunk_summary(run_root, sorted(chunk_records, key=lambda item: int(item.get("chunk_index", -1))))
     _write_runtime_summary(
@@ -406,6 +465,35 @@ def _frozen_bundle_source_records(
         (variant, controller_by_variant_id[variant.primitive_variant_id])
         for variant in variants
     )
+
+
+def _selected_frozen_bundle_source_records(
+    *,
+    variants_by_key: dict[tuple[str, int], tuple[object, object, PrimitiveControllerVariant, str]],
+    variants: tuple[PrimitiveControllerVariant, ...],
+    selected_variant_ids: tuple[str, ...],
+):
+    selected = set(str(item) for item in selected_variant_ids)
+    if not selected:
+        return ()
+    controller_by_variant_id = {
+        variant.primitive_variant_id: controller
+        for _, controller, variant, _ in variants_by_key.values()
+    }
+    return tuple(
+        (variant, controller_by_variant_id[variant.primitive_variant_id])
+        for variant in variants
+        if str(variant.primitive_variant_id) in selected
+    )
+
+
+def _snapshot_all_candidate_frozen_bundle(run_root: Path) -> None:
+    source = filesystem_path(run_root / "manifests" / "frozen_w01_controller_bundle.json")
+    if not source.is_file():
+        return
+    target = filesystem_path(run_root / "manifests" / R5_ALL_CANDIDATE_FROZEN_BUNDLE_JSON)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, target)
 
 
 def _write_chunk(
@@ -1153,6 +1241,496 @@ def _write_empty_metrics(run_root: Path) -> None:
     _write_launch_gate_audit_tables(run_root, _empty_r5_diagnosis_frame())
 
 
+def _write_empty_transition_training_outputs(run_root: Path) -> None:
+    summary_columns = _r5_transition_training_summary_columns()
+    _write_csv(run_root / "metrics" / R5_TRANSITION_CANDIDATE_TRAINING_SUMMARY_CSV, pd.DataFrame(columns=summary_columns))
+    _write_csv(run_root / "metrics" / R5_TRANSITION_SELECTED_FOR_R7_CSV, pd.DataFrame(columns=summary_columns))
+    _write_csv(run_root / "metrics" / R5_TRANSITION_PARETO_FRONT_CSV, pd.DataFrame(columns=summary_columns))
+    _write_json(
+        run_root / "manifests" / R5_TRANSITION_TRAINING_MANIFEST_JSON,
+        _r5_transition_training_manifest_payload(
+            status="incomplete",
+            selected=pd.DataFrame(columns=summary_columns),
+            blockers=["no_rollout_evidence_written"],
+            row_count=0,
+        ),
+    )
+
+
+def _write_r5_transition_training_outputs_from_partitions(
+    *,
+    run_root: Path,
+    partitions: Iterable[object],
+    storage_format: str,
+) -> dict[str, object]:
+    frame = _read_completed_frame(run_root, partitions, storage_format)
+    if frame.empty:
+        _write_empty_transition_training_outputs(run_root)
+        return {"status": "incomplete", "selected_primitive_variant_ids": []}
+    summary, selected, pareto, blockers = _r5_transition_training_tables(frame)
+    _write_csv(run_root / "metrics" / R5_TRANSITION_CANDIDATE_TRAINING_SUMMARY_CSV, summary)
+    _write_csv(run_root / "metrics" / R5_TRANSITION_SELECTED_FOR_R7_CSV, selected)
+    _write_csv(run_root / "metrics" / R5_TRANSITION_PARETO_FRONT_CSV, pareto)
+    status = "passed" if not blockers else "blocked"
+    _write_json(
+        run_root / "manifests" / R5_TRANSITION_TRAINING_MANIFEST_JSON,
+        _r5_transition_training_manifest_payload(
+            status=status,
+            selected=selected,
+            blockers=blockers,
+            row_count=int(len(frame)),
+        ),
+    )
+    selected_variant_ids = sorted(set(selected.get("primitive_variant_id", pd.Series(dtype=str)).astype(str)))
+    return {
+        "status": status,
+        "selected_primitive_variant_ids": selected_variant_ids,
+        "blockers": blockers,
+    }
+
+
+def _r5_transition_training_tables(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
+    work = _normalise_r5_training_frame(frame)
+    rows: list[dict[str, object]] = []
+    group_columns = (
+        "primitive_id",
+        "primitive_family",
+        "entry_role",
+        "primitive_variant_id",
+        "controller_id",
+        "candidate_index",
+        "candidate_weight_label",
+        "transition_entry_class",
+    )
+    for group_key, group in work.groupby(list(group_columns), dropna=False, sort=True):
+        base = dict(zip(group_columns, group_key, strict=True))
+        entry_class = str(base["transition_entry_class"])
+        total = int(len(group))
+        success_count = int(group["_transition_success"].sum())
+        hard_count = int(group["_hard_failure"].sum())
+        expected_rows = _expected_r5_rows_for_transition_entry(entry_class)
+        per_environment_counts = _int_count_json(group, "environment_mode")
+        exit_distribution = _int_count_json(group, "transition_exit_class")
+        env_success_rates: list[float] = []
+        env_success_lcbs: list[float] = []
+        useful_environment_count = 0
+        for _, env_group in group.groupby("environment_mode", dropna=False, sort=True):
+            env_success = int(env_group["_transition_success"].sum())
+            env_total = int(len(env_group))
+            env_success_rates.append(float(env_success / max(1, env_total)))
+            env_success_lcbs.append(_wilson_lower_bound(env_success, env_total))
+            if env_success > 0:
+                useful_environment_count += 1
+        success_lcb = _wilson_lower_bound(success_count, total)
+        hard_failure_ucb = _wilson_upper_bound(hard_count, total)
+        worst_env_success_rate = min(env_success_rates) if env_success_rates else 0.0
+        worst_env_success_lcb = min(env_success_lcbs) if env_success_lcbs else 0.0
+        saturation_mean = _clip01(float(group["_saturation"].mean()))
+        clipped_updraft_gain = _clip01(float(group["_updraft_gain"].mean()) / 1.0)
+        clipped_lift_dwell = _clip01(float(group["_lift_dwell"].mean()) / 0.10)
+        clipped_rollout_duration = _clip01(float(group["_rollout_duration"].mean()) / 0.10)
+        thresholds = _r5_transition_thresholds(entry_class)
+        row_complete = bool(expected_rows > 0 and total >= expected_rows)
+        timing_compliant = bool(group["_timing_compliant"].all())
+        eligible_blockers: list[str] = []
+        if expected_rows <= 0:
+            eligible_blockers.append("unsupported_transition_entry_class")
+        if not row_complete:
+            eligible_blockers.append(f"incomplete_rows_expected_{expected_rows}_actual_{total}")
+        if not timing_compliant:
+            eligible_blockers.append("timing_contract_noncompliant")
+        if success_lcb < float(thresholds["success_lcb_min"]):
+            eligible_blockers.append("success_lcb_below_threshold")
+        if hard_failure_ucb > float(thresholds["hard_failure_ucb_max"]):
+            eligible_blockers.append("hard_failure_ucb_above_threshold")
+        if useful_environment_count < int(thresholds["useful_environment_count_min"]):
+            eligible_blockers.append("insufficient_useful_environment_count")
+        robust_score = (
+            0.55 * success_lcb
+            + 0.20 * worst_env_success_lcb
+            + 0.10 * clipped_updraft_gain
+            + 0.05 * clipped_lift_dwell
+            + 0.05 * clipped_rollout_duration
+            - 0.35 * hard_failure_ucb
+            - 0.10 * saturation_mean
+        )
+        rows.append(
+            {
+                **base,
+                "reference_pitch_bias_rad": float(group["reference_pitch_bias_rad"].iloc[0]),
+                "reference_bank_bias_rad": float(group["reference_bank_bias_rad"].iloc[0]),
+                "reference_speed_bias_m_s": float(group["reference_speed_bias_m_s"].iloc[0]),
+                "row_count": total,
+                "expected_row_count": int(expected_rows),
+                "rows_complete_for_entry_class": bool(row_complete),
+                "per_environment_row_count_json": per_environment_counts,
+                "transition_success_count": success_count,
+                "transition_success_rate": float(success_count / max(1, total)),
+                "transition_success_lcb": float(success_lcb),
+                "hard_failure_count": hard_count,
+                "hard_failure_rate": float(hard_count / max(1, total)),
+                "hard_failure_ucb": float(hard_failure_ucb),
+                "worst_environment_success_rate": float(worst_env_success_rate),
+                "worst_environment_success_lcb": float(worst_env_success_lcb),
+                "useful_environment_count": int(useful_environment_count),
+                "updraft_gain_proxy_mean_m": float(group["_updraft_gain"].mean()),
+                "clipped_updraft_gain": float(clipped_updraft_gain),
+                "lift_dwell_mean_s": float(group["_lift_dwell"].mean()),
+                "clipped_lift_dwell": float(clipped_lift_dwell),
+                "rollout_duration_mean_s": float(group["_rollout_duration"].mean()),
+                "clipped_rollout_duration": float(clipped_rollout_duration),
+                "saturation_mean": float(saturation_mean),
+                "transition_exit_class_distribution_json": exit_distribution,
+                "timing_compliant": bool(timing_compliant),
+                "success_lcb_threshold": float(thresholds["success_lcb_min"]),
+                "hard_failure_ucb_threshold": float(thresholds["hard_failure_ucb_max"]),
+                "useful_environment_count_threshold": int(thresholds["useful_environment_count_min"]),
+                "r5_transition_training_score": float(robust_score),
+                "r5_training_eligible": bool(not eligible_blockers),
+                "r5_training_blockers": ";".join(eligible_blockers),
+                "selected_for_r7": False,
+                "selected_rank": "",
+                "r5_training_status": "eligible_not_selected" if not eligible_blockers else "ineligible",
+                "r5_transition_training_version": R5_TRANSITION_TRAINING_VERSION,
+                "r5_transition_training_score_formula": R5_TRANSITION_TRAINING_SCORE_FORMULA,
+            }
+        )
+    summary = pd.DataFrame(rows, columns=_r5_transition_training_summary_columns())
+    if summary.empty:
+        return summary, summary.copy(), summary.copy(), ["r5_transition_candidate_training_summary_empty"]
+    summary = _mark_pareto_front(summary)
+    summary = _mark_selected_for_r7(summary)
+    selected = summary[summary["selected_for_r7"].astype(bool)].copy()
+    pareto = summary[summary["pareto_front"].astype(bool)].copy()
+    blockers = _r5_transition_training_blockers(summary, selected)
+    return summary, selected, pareto, blockers
+
+
+def _normalise_r5_training_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    work = frame.copy()
+    for column in (
+        "primitive_id",
+        "primitive_family",
+        "entry_role",
+        "primitive_variant_id",
+        "controller_id",
+        "candidate_weight_label",
+        "transition_entry_class",
+        "transition_exit_class",
+        "environment_mode",
+    ):
+        if column not in work.columns:
+            work[column] = ""
+        work[column] = work[column].fillna("").astype(str)
+    if "candidate_index" not in work.columns:
+        work["candidate_index"] = -1
+    work["candidate_index"] = pd.to_numeric(work["candidate_index"], errors="coerce").fillna(-1).astype(int)
+    work["_transition_success"] = _bool_series(work.get("transition_chain_compatible", pd.Series(False, index=work.index)))
+    hard = work["transition_exit_class"].astype(str).eq("hard_failure")
+    if "boundary_use_class" in work.columns:
+        hard = hard | work["boundary_use_class"].fillna("").astype(str).eq("hard_failure")
+    if "outcome_class" in work.columns:
+        hard = hard | work["outcome_class"].fillna("").astype(str).isin({"failed", "blocked", "rejected"})
+    work["_hard_failure"] = hard
+    work["_updraft_gain"] = _numeric_series_first(
+        work,
+        (
+            "trajectory_integrated_updraft_gain_m",
+            "transition_updraft_gain_proxy_m",
+            "updraft_gain_proxy_m",
+            "expected_updraft_gain_proxy_m",
+        ),
+    ).clip(lower=0.0)
+    work["_lift_dwell"] = _numeric_series_first(work, ("lift_dwell_time_s", "lift_dwell_s")).clip(lower=0.0)
+    work["_rollout_duration"] = _numeric_series_first(
+        work,
+        ("rollout_duration_s", "transition_flight_time_s", "flight_time_s"),
+    ).clip(lower=0.0)
+    work["_saturation"] = _numeric_series_first(
+        work,
+        ("saturation_fraction", "surface_saturation_fraction", "command_saturation_fraction"),
+    ).clip(lower=0.0, upper=1.0)
+    work["_timing_compliant"] = (
+        _numeric_series_first(work, ("finite_horizon_s",)).sub(0.1).abs().le(1e-9)
+        & _numeric_series_first(work, ("controller_input_slots_per_primitive",)).round().astype(int).eq(5)
+        & _numeric_series_first(work, ("controller_input_update_period_s",)).sub(CONTROLLER_INPUT_UPDATE_PERIOD_S).abs().le(1e-12)
+    )
+    _add_reference_bias_columns(work)
+    return work
+
+
+def _add_reference_bias_columns(work: pd.DataFrame) -> None:
+    json_column = ""
+    for candidate in ("variant_Q_weight_json", "lqr_Q_weights_json", "Q_weight_json"):
+        if candidate in work.columns:
+            json_column = candidate
+            break
+    parsed: pd.Series
+    if json_column:
+        parsed = work[json_column].fillna("").astype(str).map(_safe_json_object)
+    else:
+        parsed = pd.Series([{} for _ in range(len(work))], index=work.index)
+    for column in R5_REFERENCE_BIAS_COLUMNS:
+        if column in work.columns:
+            existing = pd.to_numeric(work[column], errors="coerce")
+        else:
+            existing = pd.Series(np.nan, index=work.index, dtype=float)
+        from_json = parsed.map(lambda payload, key=column: float(payload.get(key, 0.0) or 0.0))
+        work[column] = existing.fillna(from_json).fillna(0.0).astype(float)
+
+
+def _safe_json_object(text: str) -> dict[str, object]:
+    try:
+        payload = json.loads(str(text))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _r5_transition_training_summary_columns() -> list[str]:
+    return [
+        "primitive_id",
+        "primitive_family",
+        "entry_role",
+        "primitive_variant_id",
+        "controller_id",
+        "candidate_index",
+        "candidate_weight_label",
+        "reference_pitch_bias_rad",
+        "reference_bank_bias_rad",
+        "reference_speed_bias_m_s",
+        "transition_entry_class",
+        "row_count",
+        "expected_row_count",
+        "rows_complete_for_entry_class",
+        "per_environment_row_count_json",
+        "transition_success_count",
+        "transition_success_rate",
+        "transition_success_lcb",
+        "hard_failure_count",
+        "hard_failure_rate",
+        "hard_failure_ucb",
+        "worst_environment_success_rate",
+        "worst_environment_success_lcb",
+        "useful_environment_count",
+        "updraft_gain_proxy_mean_m",
+        "clipped_updraft_gain",
+        "lift_dwell_mean_s",
+        "clipped_lift_dwell",
+        "rollout_duration_mean_s",
+        "clipped_rollout_duration",
+        "saturation_mean",
+        "transition_exit_class_distribution_json",
+        "timing_compliant",
+        "success_lcb_threshold",
+        "hard_failure_ucb_threshold",
+        "useful_environment_count_threshold",
+        "r5_transition_training_score",
+        "r5_training_eligible",
+        "r5_training_blockers",
+        "pareto_front",
+        "selected_for_r7",
+        "selected_rank",
+        "r5_training_status",
+        "r5_transition_training_version",
+        "r5_transition_training_score_formula",
+    ]
+
+
+def _r5_transition_thresholds(entry_class: str) -> dict[str, float | int]:
+    return dict(
+        R5_TRANSITION_TRAINING_THRESHOLDS.get(
+            str(entry_class),
+            {
+                "success_lcb_min": 1.0,
+                "hard_failure_ucb_max": 0.0,
+                "useful_environment_count_min": 3,
+            },
+        )
+    )
+
+
+def _expected_r5_rows_for_transition_entry(entry_class: str) -> int:
+    per_environment = {
+        "launch_gate": 40,
+        "inflight_stable": 40,
+        "boundary_near": 10,
+        "recoverable_degraded": 10,
+    }.get(str(entry_class), 0)
+    return int(per_environment * len(OFFICIAL_W01_ENVIRONMENT_CASES))
+
+
+def _mark_selected_for_r7(summary: pd.DataFrame) -> pd.DataFrame:
+    result = summary.copy()
+    result["selected_for_r7"] = False
+    result["selected_rank"] = ""
+    result["r5_training_status"] = result["r5_training_status"].astype(str)
+    eligible = result[result["r5_training_eligible"].astype(bool)].copy()
+    if eligible.empty:
+        return result
+    sort_columns = [
+        "primitive_id",
+        "transition_entry_class",
+        "r5_transition_training_score",
+        "transition_success_lcb",
+        "hard_failure_ucb",
+        "candidate_index",
+    ]
+    eligible = eligible.sort_values(
+        sort_columns,
+        ascending=[True, True, False, False, True, True],
+        kind="mergesort",
+    )
+    selected_indices: list[int] = []
+    selected_rank_by_index: dict[int, int] = {}
+    for _, group in eligible.groupby(["primitive_id", "transition_entry_class"], dropna=False, sort=True):
+        for rank, index in enumerate(group.head(R5_SELECTED_TRANSITIONS_PER_PRIMITIVE_ENTRY).index, start=1):
+            selected_indices.append(int(index))
+            selected_rank_by_index[int(index)] = int(rank)
+    if selected_indices:
+        result.loc[selected_indices, "selected_for_r7"] = True
+        result.loc[selected_indices, "selected_rank"] = [str(selected_rank_by_index[int(index)]) for index in selected_indices]
+        result.loc[selected_indices, "r5_training_status"] = "selected_for_r7"
+    return result
+
+
+def _mark_pareto_front(summary: pd.DataFrame) -> pd.DataFrame:
+    result = summary.copy()
+    result["pareto_front"] = False
+    if result.empty:
+        return result
+    for _, group in result.groupby(["primitive_id", "transition_entry_class"], dropna=False, sort=True):
+        group = group.copy()
+        for index, row in group.iterrows():
+            dominates = (
+                (group["transition_success_lcb"] >= float(row["transition_success_lcb"]))
+                & (group["hard_failure_ucb"] <= float(row["hard_failure_ucb"]))
+                & (group["r5_transition_training_score"] >= float(row["r5_transition_training_score"]))
+                & (
+                    (group["transition_success_lcb"] > float(row["transition_success_lcb"]))
+                    | (group["hard_failure_ucb"] < float(row["hard_failure_ucb"]))
+                    | (group["r5_transition_training_score"] > float(row["r5_transition_training_score"]))
+                )
+            )
+            if not bool(dominates.any()):
+                result.loc[index, "pareto_front"] = True
+    return result
+
+
+def _r5_transition_training_blockers(summary: pd.DataFrame, selected: pd.DataFrame) -> list[str]:
+    blockers: list[str] = []
+    if summary.empty:
+        return ["r5_transition_candidate_training_summary_empty"]
+    if selected.empty:
+        blockers.append("r5_transition_selected_for_r7_empty")
+    for primitive_id in ACTIVE_PRIMITIVE_IDS:
+        primitive_rows = selected[selected.get("primitive_id", pd.Series(dtype=str)).astype(str) == str(primitive_id)]
+        for entry_class in R5_REQUIRED_SELECTED_ENTRY_CLASSES_FOR_R7:
+            entry_rows = primitive_rows[
+                primitive_rows.get("transition_entry_class", pd.Series(dtype=str)).astype(str) == str(entry_class)
+            ]
+            if entry_rows.empty:
+                blockers.append(f"missing_selected_{entry_class}_transition_object_for_{primitive_id}")
+    return blockers
+
+
+def _r5_transition_training_manifest_payload(
+    *,
+    status: str,
+    selected: pd.DataFrame,
+    blockers: list[str],
+    row_count: int,
+) -> dict[str, object]:
+    selected_count = int(len(selected))
+    selected_variant_count = int(
+        selected.get("primitive_variant_id", pd.Series(dtype=str)).astype(str).nunique()
+    ) if not selected.empty else 0
+    selected_by_entry = (
+        {
+            str(row["transition_entry_class"]): int(row["row_count"])
+            for row in selected.groupby("transition_entry_class", dropna=False).size().reset_index(name="row_count").to_dict(orient="records")
+        }
+        if not selected.empty and "transition_entry_class" in selected.columns
+        else {}
+    )
+    return {
+        "r5_transition_training_version": R5_TRANSITION_TRAINING_VERSION,
+        "status": str(status),
+        "row_count": int(row_count),
+        "candidate_training_summary_csv": f"metrics/{R5_TRANSITION_CANDIDATE_TRAINING_SUMMARY_CSV}",
+        "selected_for_r7_csv": f"metrics/{R5_TRANSITION_SELECTED_FOR_R7_CSV}",
+        "pareto_front_csv": f"metrics/{R5_TRANSITION_PARETO_FRONT_CSV}",
+        "all_candidate_frozen_bundle": f"manifests/{R5_ALL_CANDIDATE_FROZEN_BUNDLE_JSON}",
+        "active_downstream_frozen_bundle": "manifests/frozen_w01_controller_bundle.json",
+        "selected_transition_object_count": selected_count,
+        "selected_unique_primitive_variant_count": selected_variant_count,
+        "selected_count_by_entry_class": selected_by_entry,
+        "required_selected_entry_classes_for_every_active_primitive": list(R5_REQUIRED_SELECTED_ENTRY_CLASSES_FOR_R7),
+        "max_selected_candidates_per_primitive_entry": int(R5_SELECTED_TRANSITIONS_PER_PRIMITIVE_ENTRY),
+        "thresholds": R5_TRANSITION_TRAINING_THRESHOLDS,
+        "score_formula": R5_TRANSITION_TRAINING_SCORE_FORMULA,
+        "controller_tuning_surface": "structured_log_qr_plus_small_primitive_reference_bias",
+        "reference_bias_columns": list(R5_REFERENCE_BIAS_COLUMNS),
+        "blockers": list(blockers),
+        "dense_row_count_alone_can_pass_r5": False,
+        "local_accepted_rows_alone_can_pass_r5": False,
+        "aggregate_primitive_success_across_entry_classes_can_pass_r5": False,
+        "r7_must_consume_selected_transition_manifest": True,
+        "no_claims": [
+            "hardware_readiness",
+            "real_flight_transfer",
+            "mission_success",
+            "autonomy",
+            "memory_improvement",
+        ],
+    }
+
+
+def _wilson_lower_bound(successes: int, total: int, z: float = 1.28) -> float:
+    if int(total) <= 0:
+        return 0.0
+    p = float(successes) / float(total)
+    denom = 1.0 + float(z) * float(z) / float(total)
+    centre = p + float(z) * float(z) / (2.0 * float(total))
+    margin = float(z) * math.sqrt((p * (1.0 - p) + float(z) * float(z) / (4.0 * float(total))) / float(total))
+    return max(0.0, float((centre - margin) / denom))
+
+
+def _wilson_upper_bound(successes: int, total: int, z: float = 1.28) -> float:
+    if int(total) <= 0:
+        return 0.0
+    p = float(successes) / float(total)
+    denom = 1.0 + float(z) * float(z) / float(total)
+    centre = p + float(z) * float(z) / (2.0 * float(total))
+    margin = float(z) * math.sqrt((p * (1.0 - p) + float(z) * float(z) / (4.0 * float(total))) / float(total))
+    return min(1.0, float((centre + margin) / denom))
+
+
+def _bool_series(series: pd.Series) -> pd.Series:
+    return series.fillna(False).astype(str).str.strip().str.lower().isin({"true", "1", "yes", "y"})
+
+
+def _numeric_series_first(frame: pd.DataFrame, columns: tuple[str, ...]) -> pd.Series:
+    for column in columns:
+        if column in frame.columns:
+            return pd.to_numeric(frame[column], errors="coerce").fillna(0.0)
+    return pd.Series(0.0, index=frame.index, dtype=float)
+
+
+def _clip01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
+def _int_count_json(frame: pd.DataFrame, column: str) -> str:
+    if column not in frame.columns:
+        return "{}"
+    payload = {
+        str(key): int(value)
+        for key, value in frame[column].fillna("").astype(str).value_counts(dropna=False).sort_index().items()
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
 def _write_csv(path: Path, frame: pd.DataFrame) -> None:
     filesystem_path(path).parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(filesystem_path(path), index=False)
@@ -1534,6 +2112,7 @@ def _write_reports(run_root: Path, *, status: str, row_count: int) -> None:
     entry_role_counts = _entry_role_compatibility_counts_for_report(run_root)
     history_backed_fifo_count = _timing_state_count_for_report(run_root, "history_backed_fifo")
     ready_frozen_controller_count = _ready_frozen_controller_count(run_root)
+    transition_training_manifest = _read_json_or_empty(run_root / "manifests" / R5_TRANSITION_TRAINING_MANIFEST_JSON)
     claim_report = "\n".join(
         [
             "# W01 Claim Boundary",
@@ -1563,6 +2142,8 @@ def _write_reports(run_root: Path, *, status: str, row_count: int) -> None:
             f"- Entry-role compatibility by primitive: `{json.dumps(entry_role_counts, sort_keys=True)}`",
             f"- History-backed FIFO count: `{history_backed_fifo_count}`",
             f"- Ready frozen controller count: `{ready_frozen_controller_count}`",
+            f"- R5 transition training status: `{transition_training_manifest.get('status', 'missing')}`",
+            f"- R5 selected transition objects for R7: `{transition_training_manifest.get('selected_transition_object_count', 0)}`",
             "- Retired controller-picking, compact-library, integration, hardware, transfer, and mission-success claims remain blocked.",
             "",
         ]
@@ -1585,7 +2166,8 @@ def _write_reports(run_root: Path, *, status: str, row_count: int) -> None:
             f"- Entry-role compatibility by primitive: `{json.dumps(entry_role_counts, sort_keys=True)}`",
             f"- History-backed FIFO count: `{history_backed_fifo_count}`",
             f"- Ready frozen controller count: `{ready_frozen_controller_count}`",
-            f"- Rich-side W01 fixed-library cleared for W2 planning: `{not move_on_blockers and run_class == 'rich_side_l6_candidate'}`",
+            f"- R5 transition training status: `{transition_training_manifest.get('status', 'missing')}`",
+            f"- Selected transition-object bundle cleared for R7 planning: `{not move_on_blockers and run_class == 'rich_side_l6_candidate'}`",
             "",
             "Blockers before heavy W01:",
             "",
@@ -1917,6 +2499,16 @@ def _read_csv_or_empty(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _read_json_or_empty(path: Path) -> dict[str, object]:
+    fs_path = filesystem_path(path)
+    if not fs_path.is_file():
+        return {}
+    try:
+        return json.loads(fs_path.read_text(encoding="ascii"))
+    except Exception:
+        return {}
+
+
 def _largest_file_audit_row(run_root: Path) -> dict[str, object]:
     path = filesystem_path(run_root / "metrics" / "file_size_audit.csv")
     if not path.is_file():
@@ -2026,6 +2618,7 @@ def _rich_side_gate_blockers(*, run_root: Path, row_count: int) -> list[str]:
                 blockers.append("w01_rows_include_superseded_baseline_controller_ids")
     blockers.extend(_coverage_gate_blockers(run_root=run_root, row_count=row_count))
     blockers.extend(_launch_gate_coverage_blockers(run_root=run_root, row_count=row_count))
+    blockers.extend(_r5_transition_training_gate_blockers(run_root=run_root, row_count=row_count))
     blockers.extend(_active_timing_state_gate_blockers(run_root=run_root))
     blockers.extend(_frozen_bundle_gate_blockers(run_root=run_root))
     blockers.extend(_file_size_gate_blockers(run_root=run_root))
@@ -2059,6 +2652,47 @@ def _coverage_gate_blockers(*, run_root: Path, row_count: int) -> list[str]:
     if int(row_count) >= L6_RICH_SIDE_ROW_COUNT and start_counts != expected:
         blockers.append("start_family_mix_not_exact_40_25_15_10_10")
     return blockers
+
+
+def _r5_transition_training_gate_blockers(*, run_root: Path, row_count: int) -> list[str]:
+    if int(row_count) < int(L6_RICH_SIDE_ROW_COUNT):
+        return []
+    manifest_path = filesystem_path(run_root / "manifests" / R5_TRANSITION_TRAINING_MANIFEST_JSON)
+    summary_path = filesystem_path(run_root / "metrics" / R5_TRANSITION_CANDIDATE_TRAINING_SUMMARY_CSV)
+    selected_path = filesystem_path(run_root / "metrics" / R5_TRANSITION_SELECTED_FOR_R7_CSV)
+    blockers: list[str] = []
+    if not manifest_path.is_file():
+        blockers.append("missing_r5_transition_training_manifest")
+    else:
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+            if str(manifest.get("status", "")) != "passed":
+                blockers.append("r5_transition_training_not_passed")
+            blockers.extend(str(item) for item in manifest.get("blockers", []) if str(item))
+        except Exception as exc:
+            blockers.append(f"r5_transition_training_manifest_unreadable:{type(exc).__name__}")
+    if not summary_path.is_file():
+        blockers.append("missing_r5_transition_candidate_training_summary")
+    if not selected_path.is_file():
+        blockers.append("missing_r5_transition_selected_for_r7")
+    else:
+        try:
+            selected = pd.read_csv(selected_path)
+        except pd.errors.EmptyDataError:
+            selected = pd.DataFrame()
+        except Exception as exc:
+            return [*sorted(set(blockers)), f"r5_transition_selected_for_r7_unreadable:{type(exc).__name__}"]
+        if selected.empty:
+            blockers.append("r5_transition_selected_for_r7_empty")
+        elif {"primitive_id", "transition_entry_class"}.issubset(set(selected.columns)):
+            for primitive_id in ACTIVE_PRIMITIVE_IDS:
+                primitive_rows = selected[selected["primitive_id"].astype(str) == str(primitive_id)]
+                for entry_class in R5_REQUIRED_SELECTED_ENTRY_CLASSES_FOR_R7:
+                    if primitive_rows[primitive_rows["transition_entry_class"].astype(str) == str(entry_class)].empty:
+                        blockers.append(f"missing_selected_{entry_class}_transition_object_for_{primitive_id}")
+        else:
+            blockers.append("r5_transition_selected_for_r7_missing_required_columns")
+    return sorted(set(blockers))
 
 
 def _launch_gate_coverage_blockers(*, run_root: Path, row_count: int) -> list[str]:
@@ -2152,9 +2786,20 @@ def _r5_launch_aware_decision_and_blockers(*, run_root: Path, status: str, row_c
 
 def _r5_launch_aware_manifest_fields(*, run_root: Path, status: str, row_count: int) -> dict[str, object]:
     decision, blockers = _r5_launch_aware_decision_and_blockers(run_root=run_root, status=status, row_count=row_count)
+    training_manifest = _read_json_or_empty(run_root / "manifests" / R5_TRANSITION_TRAINING_MANIFEST_JSON)
     return {
         "r5_launch_aware_decision": decision,
         "r5_launch_aware_gate_blockers": blockers,
+        "r5_transition_training_version": R5_TRANSITION_TRAINING_VERSION,
+        "r5_transition_training_status": str(training_manifest.get("status", "missing")),
+        "r5_transition_training_manifest": f"manifests/{R5_TRANSITION_TRAINING_MANIFEST_JSON}",
+        "r5_transition_candidate_training_summary": f"metrics/{R5_TRANSITION_CANDIDATE_TRAINING_SUMMARY_CSV}",
+        "r5_transition_selected_for_r7": f"metrics/{R5_TRANSITION_SELECTED_FOR_R7_CSV}",
+        "r5_transition_pareto_front": f"metrics/{R5_TRANSITION_PARETO_FRONT_CSV}",
+        "r5_selected_transition_object_count": int(training_manifest.get("selected_transition_object_count", 0) or 0),
+        "r5_selected_unique_primitive_variant_count": int(training_manifest.get("selected_unique_primitive_variant_count", 0) or 0),
+        "r5_transition_training_score_formula": R5_TRANSITION_TRAINING_SCORE_FORMULA,
+        "R7_W3_direct_source": "r5_transition_selected_for_r7_frozen_controller_bundle",
         "r5_regime_labels": [
             LAUNCH_CAPTURE_REGIME_LABEL,
             INFLIGHT_REGIME_LABEL,
@@ -2162,7 +2807,7 @@ def _r5_launch_aware_manifest_fields(*, run_root: Path, status: str, row_count: 
         ],
         "r5_regime_separation_gate": "transition_entry_rows_judged_by_start_family_and_entry_class_for_the_same_8_primitives",
         "transition_contract": transition_contract_row(),
-        "transition_success_policy": "local_rollout_success_is_diagnostic_only_transition_compatibility_is_required_downstream",
+        "transition_success_policy": "R5_selects_entry_specific_transition_objects_by_robust_QR_training_before_R7",
         "retired_launch_capture_primitive_ids_active": False,
         "active_primitive_count": int(len(ACTIVE_PRIMITIVE_IDS)),
         "expected_launch_gate_rows_per_active_primitive": _expected_launch_gate_rows_per_active_primitive(),
@@ -2520,6 +3165,15 @@ def _run_manifest(
         "per_start_family_row_counts": schedule_counts["start_state_family"],
         "r5_launch_aware_decision": R5_LAUNCH_AWARE_DENSE_INCOMPLETE_RESUME_REQUIRED,
         "r5_launch_aware_gate_blockers": ["rollout_evidence_not_yet_completed"],
+        "r5_transition_training_version": R5_TRANSITION_TRAINING_VERSION,
+        "r5_transition_training_status": "not_run",
+        "r5_transition_training_manifest": f"manifests/{R5_TRANSITION_TRAINING_MANIFEST_JSON}",
+        "r5_transition_candidate_training_summary": f"metrics/{R5_TRANSITION_CANDIDATE_TRAINING_SUMMARY_CSV}",
+        "r5_transition_selected_for_r7": f"metrics/{R5_TRANSITION_SELECTED_FOR_R7_CSV}",
+        "r5_transition_pareto_front": f"metrics/{R5_TRANSITION_PARETO_FRONT_CSV}",
+        "r5_selected_transition_object_count": 0,
+        "r5_selected_unique_primitive_variant_count": 0,
+        "r5_transition_training_score_formula": R5_TRANSITION_TRAINING_SCORE_FORMULA,
         "r5_regime_labels": [
             LAUNCH_CAPTURE_REGIME_LABEL,
             INFLIGHT_REGIME_LABEL,
@@ -2544,12 +3198,12 @@ def _run_manifest(
         },
         "R6_W2_active_pipeline_gate": False,
         "R6_W2_archived_diagnostic_only": True,
-        "R7_W3_direct_source": "frozen_R5_W0_W1_controller_bundle",
+        "R7_W3_direct_source": "r5_transition_selected_for_r7_frozen_controller_bundle",
         "W2_generated": False,
         "W3_generated": False,
         "entry_role_regime_separation_policy": "all_8_active_primitives_scheduled_across_launch_inflight_boundary_recovery_entry_regimes",
         "transition_contract": transition_contract_row(),
-        "transition_success_policy": "R5_reports_transition_coverage_without_claiming_local_rollout_success_as_sufficient",
+        "transition_success_policy": "R5_selects_entry_specific_transition_objects_by_robust_QR_training_before_R7",
         "transition_entry_start_family_mix": START_FAMILY_MIX,
         "mixed_primitive_start_sampling": True,
         "no_small_library_selection": True,
@@ -2622,6 +3276,8 @@ def _result_payload(run_root: Path, *, status: str) -> dict[str, object]:
         "table_manifest": (run_root / "manifests" / "table_manifest.json").as_posix(),
         "variant_registry_csv": (run_root / "metrics" / "primitive_variant_registry.csv").as_posix(),
         "variant_registry_json": (run_root / "manifests" / "primitive_variant_registry.json").as_posix(),
+        "r5_transition_selected_for_r7": (run_root / "metrics" / R5_TRANSITION_SELECTED_FOR_R7_CSV).as_posix(),
+        "r5_transition_training_manifest": (run_root / "manifests" / R5_TRANSITION_TRAINING_MANIFEST_JSON).as_posix(),
     }
 
 

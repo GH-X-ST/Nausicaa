@@ -1,4 +1,4 @@
-﻿# Glider Control Project Plan
+# Glider Control Project Plan
 
 <!-- R9_LAUNCH_GATE_ALIGNMENT_START -->
 
@@ -8,9 +8,9 @@ The active thesis workflow is `R5 -> R7 -> R8 -> R10 -> R11 -> Reality`. R9 rema
 
 Launch is an entry regime, not a separate controller family. The active primitive catalogue has exactly eight manoeuvre families: `glide`, `recovery`, `lift_entry`, `lift_dwell_arc`, `mild_turn_left`, `mild_turn_right`, `energy_retaining_bank`, and `safe_exit_or_recovery_handoff`. Retired `launch_capture_*` IDs are archive aliases only and must not appear in active evidence.
 
-Every primitive is treated as a transition object. R5 learns transition-aware primitive variants across five entry start families with exact dense proportions per primitive/candidate/environment: 40 `launch_gate`, 25 `inflight_nominal`, 15 `inflight_lift_region`, 10 `inflight_boundary_near`, and 10 `inflight_recovery_edge`. The dense target is `8 * 32 * 3 * 100 = 76,800` rows.
+Every primitive is treated as a transition object. R5 is robust transition-aware primitive / transition-object Q/R plus primitive-reference-bias training across five entry start families with exact dense proportions per primitive/candidate/environment: 40 `launch_gate`, 25 `inflight_nominal`, 15 `inflight_lift_region`, 10 `inflight_boundary_near`, and 10 `inflight_recovery_edge`. The dense evaluation target remains `8 * 32 * 3 * 100 = 76,800` rows, but row count alone is not a pass condition. Candidate 0 is nominal, candidates 1-7 are named physical anchors with small interpretable reference biases, and candidates 8-31 are deterministic Latin-hypercube log multipliers over the seven grouped LQR weights plus bounded pitch, bank, and speed reference biases. R5 writes `r5_transition_candidate_training_summary.csv`, `r5_transition_selected_for_r7.csv`, `r5_transition_pareto_front.csv`, and `r5_transition_training_manifest.json`, then freezes only selected transition objects for R7 while keeping the full candidate bundle as audit evidence.
 
-R7 is the hard transition gate. No primitive may pass R7 solely on local rollout success. A controller can survive for one `primitive_id + entry_class` and fail for another. R8 compresses transition objects grouped by `primitive_id` and `transition_entry_class` using coverage-aware medoid selection without averaging Q/R, K, references, or controller IDs.
+R7 is held-out transition validation of the frozen R5-selected transition objects. No primitive may pass R7 solely on local rollout success; no primitive may pass R5 or R7 from dense row count or aggregate primitive success across entry classes. A controller can survive for one `primitive_id + entry_class` and fail for another. R8 compresses transition objects grouped by `primitive_id` and `transition_entry_class` using coverage-aware medoid selection without averaging Q/R, K, references, or controller IDs.
 
 The governor classifies the current state, filters representatives by validated `transition_entry_class`, rejects high hard-failure risk, scores transition probability plus updraft gain plus flight time plus residual-memory correction, executes the best transition object, and updates case-local residual memory. Step 0 has `current_state_class = launch_gate`, so it selects only transition objects validated for `entry_class = launch_gate`; there is no launch-specific primitive family route.
 
@@ -400,7 +400,7 @@ lqr_synthesis_status           solved / blocked / approximate
 controller_claim_status        simulation_only / hardware_shakedown / real_flight_evidence / not_tested
 ```
 
-Do not tune the raw gain matrix directly. Tune the LQR weight parameterisation, normally log-scaled diagonal entries of `Q` and `R`, plus only a small number of primitive-level reference, horizon, or entry-set parameters where required. Tuning is part of R5 primitive synthesis: it produces primitive-controller variants rather than a separate LQR bank. The first implementation should be auditable and rich enough for frozen W3 holdout to remove weak variants later: start from physically interpretable baseline Q/R weights, generate role-aware variants per primitive, and record every variant with stable IDs and failure labels.
+Do not tune the raw gain matrix directly. Tune the LQR weight parameterisation using the active R5 structured log-space Q/R method: candidate 0 is nominal, candidates 1--7 are interpretable physical anchors, and candidates 8--31 are deterministic Latin-hypercube log multipliers over `q_attitude`, `q_velocity`, `q_rates`, `q_surfaces`, `r_aileron`, `r_elevator`, and `r_rudder`. Tuning is part of R5 primitive synthesis and produces transition objects, not a separate LQR bank. R5 must select candidates by entry-specific transition quality before R7; dense row count, local accepted rows, or aggregate success across entry classes are not sufficient.
 
 Primitive-library learning policy:
 
@@ -409,11 +409,17 @@ R5 W0/W1 robust randomized synthesis
     Generate and tune a rich primitive-controller library from mixed primitive-start
     states and W3-style randomized training conditions. W0 includes dry/near-dry
     baselines. W1 includes supported randomized single-fan, four-fan, and active
-    fan-count cases. Tune each primitive-local LQR inside its own variant. Use
+    fan-count cases. Tune each primitive-local LQR inside its own transition
+    object using the structured 32-candidate Q/R plus primitive-reference-bias method. Summarise every
+    primitive_id + candidate_index + transition_entry_class by Wilson transition
+    success and hard-failure bounds, worst-environment success, updraft-gain
+    proxy, lift dwell, rollout duration, and saturation. Keep the full candidate
+    bundle as audit evidence, but freeze only the selected transition objects for
+    R7. Use
     the panel-wise glider model, feedback-latency lag, command timing model,
     actuator lag model, left/right aileron asymmetry, and CG-offset model from
     this stage where enabled. Preserve all variants, blocked cases, weak cases,
-    and x-y terminal outcomes; do not select a 12--24 shortlist.
+    and x-y terminal outcomes; do not select by aggregate local rollout success.
 
 Optional W2 diagnostic sweep
     Replay the fixed R5 library under the single-fan and four-fan GP-corrected
@@ -422,10 +428,11 @@ Optional W2 diagnostic sweep
     not provide accepted move-on evidence.
 
 R7 W3 frozen holdout sweep
-    Replay the frozen R5 library under held-out domain randomisation of the
+    Replay exactly the frozen R5-selected transition objects under held-out domain randomisation of the
     updraft surrogate, fan positions and fan number, glider model, and
     timing/latency/actuator model. Do not regenerate or retune LQR controllers.
-    Remove, downgrade, or label variants that fail under randomisation.
+    Remove, downgrade, or label primitive_id + transition_entry_class objects
+    that fail transition compatibility under randomisation.
 
 Post-W3 library-size cross-study
     Cluster and merge only the W3-surviving library to obtain the final compact

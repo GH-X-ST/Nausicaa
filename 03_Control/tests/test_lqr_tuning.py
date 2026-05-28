@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 import pytest
 
 from lqr_controller import synthesize_lqr_controller
-from lqr_tuning import candidate_weight_specs, tuning_candidates_for_primitive
+from lqr_tuning import W01_TUNING_METHOD_VERSION, candidate_weight_specs, tuning_candidates_for_primitive
 from prim_cat import ACTIVE_PRIMITIVE_IDS, primitive_by_id
 from primitive_variant_registry import (
     ENTRY_ROLE_BY_PRIMITIVE_ID,
@@ -26,6 +27,44 @@ def test_w01_candidate_generation_keeps_multiple_variants_per_primitive() -> Non
     assert len(candidates) == 3
     assert len({candidate.controller_id for candidate in candidates}) == 3
     assert {candidate.tuning_stage for candidate in candidates} == {"W01"}
+
+
+def test_w01_qr_generator_is_structured_32_candidate_transition_training() -> None:
+    assert W01_TUNING_METHOD_VERSION == "w01_transition_robust_qr_reference_v4"
+    for primitive_id in ACTIVE_PRIMITIVE_IDS:
+        specs = candidate_weight_specs(primitive_id=primitive_id, candidate_count=32)
+        labels = [spec.weight_label for spec in specs]
+
+        assert len(specs) == 32
+        assert labels[0].endswith("_robust_anchor_nominal_ref_nominal_000")
+        assert labels[1].endswith("_robust_anchor_attitude_heavy_ref_pitch_up_001")
+        assert labels[7].endswith("_robust_anchor_balanced_agile_ref_right_bias_007")
+        assert all("_robust_lhs_logqr_refbias_" in label for label in labels[8:])
+        assert not any("launch_capture" in label for label in labels)
+        assert len({spec.weight_label for spec in specs}) == 32
+        assert specs[0].reference_pitch_bias_rad == 0.0
+        assert specs[0].reference_bank_bias_rad == 0.0
+        assert specs[0].reference_speed_bias_m_s == 0.0
+        assert any(
+            abs(spec.reference_pitch_bias_rad) > 0.0
+            or abs(spec.reference_bank_bias_rad) > 0.0
+            or abs(spec.reference_speed_bias_m_s) > 0.0
+            for spec in specs[1:]
+        )
+
+
+def test_reference_bias_changes_controller_identity_and_is_serialised() -> None:
+    primitive = primitive_by_id("glide")
+    nominal = synthesize_lqr_controller(primitive, weight_spec=candidate_weight_specs(primitive_id="glide", candidate_count=1)[0])
+    biased_spec = candidate_weight_specs(primitive_id="glide", candidate_count=2)[1]
+    biased = synthesize_lqr_controller(primitive, weight_spec=biased_spec)
+    q_payload = json.loads(biased.lqr_Q_weights_json)
+
+    assert nominal.controller_id != biased.controller_id
+    assert nominal.linearisation_id != biased.linearisation_id
+    assert q_payload["reference_pitch_bias_rad"] == biased_spec.reference_pitch_bias_rad
+    assert q_payload["reference_bank_bias_rad"] == biased_spec.reference_bank_bias_rad
+    assert q_payload["reference_speed_bias_m_s"] == biased_spec.reference_speed_bias_m_s
 
 
 def test_variant_registry_schema_stable_ids_and_checksum_validation() -> None:

@@ -62,6 +62,9 @@ class LQRWeightSpec:
     r_aileron: float
     r_elevator: float
     r_rudder: float
+    reference_pitch_bias_rad: float = 0.0
+    reference_bank_bias_rad: float = 0.0
+    reference_speed_bias_m_s: float = 0.0
     tuning_stage: str = "W0_W1"
     weight_label: str = "nominal"
 
@@ -228,7 +231,12 @@ def synthesize_lqr_controller(
     if not np.isclose(float(rollout_dt_s), CONTROLLER_INPUT_UPDATE_PERIOD_S, rtol=0.0, atol=1e-12):
         raise ValueError("rollout_dt_s_not_v411_0p020s")
     weights = weight_spec or default_lqr_weight_spec(primitive.primitive_id)
-    linearisation = build_lqr_linearisation(primitive)
+    linearisation = build_lqr_linearisation(
+        primitive,
+        reference_pitch_bias_rad=float(weights.reference_pitch_bias_rad),
+        reference_bank_bias_rad=float(weights.reference_bank_bias_rad),
+        reference_speed_bias_m_s=float(weights.reference_speed_bias_m_s),
+    )
     a_full = np.asarray(linearisation.a_full, dtype=float)
     b_full = np.asarray(linearisation.b_full, dtype=float)
     a_reduced = np.asarray(linearisation.a_reduced, dtype=float)
@@ -398,7 +406,12 @@ def synthesize_baseline_trim_lqr_controller(
     """Synthesize the superseded non-augmented trim/local baseline LQR."""
 
     weights = weight_spec or default_lqr_weight_spec(primitive.primitive_id)
-    linearisation = build_lqr_linearisation(primitive)
+    linearisation = build_lqr_linearisation(
+        primitive,
+        reference_pitch_bias_rad=float(weights.reference_pitch_bias_rad),
+        reference_bank_bias_rad=float(weights.reference_bank_bias_rad),
+        reference_speed_bias_m_s=float(weights.reference_speed_bias_m_s),
+    )
     a_full = np.asarray(linearisation.a_full, dtype=float)
     b_full = np.asarray(linearisation.b_full, dtype=float)
     a_reduced = np.asarray(linearisation.a_reduced, dtype=float)
@@ -1142,12 +1155,15 @@ def _surface_rad_to_unclipped_norm(command_rad: np.ndarray) -> np.ndarray:
 
 def _q_weight_payload(weights: LQRWeightSpec) -> dict[str, object]:
     return {
-        "grouping": "diagonal_grouped_log_scaled",
+        "grouping": "diagonal_grouped_log_scaled_with_reference_bias",
         "state_mask": list(LQR_STATE_MASK),
         "q_attitude": float(weights.q_attitude),
         "q_velocity": float(weights.q_velocity),
         "q_rates": float(weights.q_rates),
         "q_surfaces": float(weights.q_surfaces),
+        "reference_pitch_bias_rad": float(weights.reference_pitch_bias_rad),
+        "reference_bank_bias_rad": float(weights.reference_bank_bias_rad),
+        "reference_speed_bias_m_s": float(weights.reference_speed_bias_m_s),
     }
 
 

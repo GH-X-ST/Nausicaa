@@ -50,6 +50,10 @@ def test_w01_dry_run_writes_compact_manifests_and_no_partitions(tmp_path: Path) 
     assert (run_root / "reports" / "r5_launch_gate_entry_diagnosis.md").is_file()
     assert (run_root / "metrics" / "r5_launch_capture_diagnosis.csv").is_file()
     assert (run_root / "metrics" / "r5_launch_gate_entry_diagnosis.csv").is_file()
+    assert (run_root / "metrics" / "r5_transition_candidate_training_summary.csv").is_file()
+    assert (run_root / "metrics" / "r5_transition_selected_for_r7.csv").is_file()
+    assert (run_root / "metrics" / "r5_transition_pareto_front.csv").is_file()
+    assert (run_root / "manifests" / "r5_transition_training_manifest.json").is_file()
     l6_report = (run_root / "reports" / "l6_move_on_check.md").read_text(encoding="ascii")
     assert "predictor_compensated_augmented_discrete_lqr_v1" in l6_report
     assert "no_rollout_evidence_written" in l6_report
