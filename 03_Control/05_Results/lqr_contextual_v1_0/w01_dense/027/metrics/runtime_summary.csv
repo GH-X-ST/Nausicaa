@@ -1,2 +1,0 @@
-run_id,status,rows_requested,row_count,duration_s,runtime_storage_contract,max_generated_file_size_mb,claim_boundary,method_evidence_level
-27,complete,134400,134400,567.9485549926758,"chunked, resumable, compressed, worker-enabled, checksum-manifested, and no generated file above 100 MB",100.0,simulation_only_R5_robust_randomised_W0_W1_synthesis_training_no_heldout_W3_or_validation_claim,w01_dense_evidence_complete

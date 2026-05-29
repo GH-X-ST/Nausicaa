@@ -1,3 +1,0 @@
-relative_path,byte_count,size_mb,above_75mb,above_100mb,push_allowed
-manifests/repeated_launch_fixed_case_manifest.json,631,0.0006017684936523438,False,False,True
-metrics/pass_fail_gate_summary.csv,131,0.00012493133544921875,False,False,True

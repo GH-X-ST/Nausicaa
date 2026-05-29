@@ -1,7 +1,0 @@
-w2_survival_status,failure_label,termination_cause,row_count
-downgraded,xy_boundary_terminal,wall_boundary_exit_retained,5504
-eliminated,speed_low,speed_floor,832
-eliminated,terminal_recovery_limited,terminal_recovery_limited,21568
-eliminated,xy_boundary_terminal,wall_boundary_exit_retained,896
-survived,model_boundary_only,weak_energy_result,26240
-survived,success,controlled_finish,34560

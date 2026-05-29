@@ -1,8 +1,0 @@
-w2_survival_status,failure_label,termination_cause,row_count
-blocked,entry_role_not_launch_capable,entry_role_incompatible_start,23040
-downgraded,xy_boundary_terminal,wall_boundary_exit_retained,2560
-eliminated,speed_low,speed_floor,384
-eliminated,terminal_recovery_limited,terminal_recovery_limited,3584
-eliminated,xy_boundary_terminal,wall_boundary_exit_retained,512
-survived,model_boundary_only,weak_energy_result,10880
-survived,success,controlled_finish,10240

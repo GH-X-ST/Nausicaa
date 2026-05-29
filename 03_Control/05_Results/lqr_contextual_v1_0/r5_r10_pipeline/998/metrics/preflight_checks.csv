@@ -1,6 +1,0 @@
-timestamp_utc,stage_id,check_id,passed,observed,required
-2026-05-26T19:23:29.748947+00:00,PIPELINE,source_audit_ready,True,ready,ready
-2026-05-26T19:23:29.772608+00:00,R5,primitive_horizon_exact_0p100s,True,0.1,0.1
-2026-05-26T19:23:29.772608+00:00,R5,controller_input_slots_exact_5,True,5,5
-2026-05-26T19:23:29.772608+00:00,R5,controller_update_period_exact_0p020s,True,0.02,0.02
-2026-05-26T19:23:29.772608+00:00,R5,primitive_timing_contract_v411,True,v411_0p10s_5slot_20ms,v411_0p10s_5slot_20ms

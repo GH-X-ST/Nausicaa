@@ -1,6 +1,0 @@
-entry_role,start_state_family,row_count,entry_role_rejection_count,entry_role_rejection_rate
-transition_object,inflight_boundary_near,7680,0,0.0
-transition_object,inflight_lift_region,11520,0,0.0
-transition_object,inflight_nominal,19200,0,0.0
-transition_object,inflight_recovery_edge,7680,0,0.0
-transition_object,launch_gate,30720,0,0.0

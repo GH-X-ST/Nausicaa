@@ -1,5 +1,0 @@
-boundary_use_class,continuation_valid,episode_terminal_useful,w2_survival_status,row_count
-blocked,False,False,blocked,23040
-continuation_valid,True,False,survived,3160
-episode_terminal_useful,False,True,downgraded,12526
-hard_failure,False,False,eliminated,12474

@@ -1,8 +1,0 @@
-relative_path,byte_count,size_mb,above_75mb,above_100mb,push_allowed
-_stderr.log,0,0.0,False,False,True
-_stdout.log,0,0.0,False,False,True
-manifests/repeated_launch_fixed_case_manifest.json,5969,0.005692481994628906,False,False,True
-metrics/final_heldout_launch_schedule.csv,95292,0.09087753295898438,False,False,True
-metrics/history_launch_schedule.csv,2510769,2.394455909729004,False,False,True
-metrics/outer_case_schedule.csv,1392,0.0013275146484375,False,False,True
-metrics/pass_fail_gate_summary.csv,397,0.00037860870361328125,False,False,True

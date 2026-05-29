@@ -1,3 +1,0 @@
-chunk_index,status,row_start,row_stop,row_count,partition_path,manifest_path,byte_count,checksum_sha256,duration_s
-0,complete,0,80,80,w2_survival_rows/c00000.csv.gz,chunk_manifests/w2_survival_rows/c00000.json,102842,30bc9130e9e0e801ed4cce1df3063dcacdf2cb769a82f50942391e62b5204e23,8.57787799835205
-1,complete,80,160,80,w2_survival_rows/c00001.csv.gz,chunk_manifests/w2_survival_rows/c00001.json,103821,1e93494bfe5a2c70b2dfc4a8f7634a3e1ecbadbfb02d06609eaf6398d8f01cb9,1.5373785495758057

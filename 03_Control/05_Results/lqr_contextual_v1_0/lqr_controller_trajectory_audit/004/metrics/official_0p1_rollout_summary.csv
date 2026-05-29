@@ -1,9 +1,0 @@
-case_id,candidate_index,candidate_weight_label,outcome_class,termination_cause,failure_label,rollout_duration_s,energy_residual_m,minimum_floor_margin_m,minimum_wall_margin_m,saturation_fraction,max_abs_command_norm
-glide_launch_dry,1,glide_robust_anchor_attitude_heavy_ref_pitch_up_001,accepted,controlled_finish,success,0.1,0.052486029118343325,1.421116366815847,0.07567769288477844,0.4,0.9813262164284772
-lift_entry_single,0,lift_entry_robust_anchor_nominal_ref_nominal_000,accepted,controlled_finish,success,0.1,0.08100524407837284,1.9922217965240514,1.3851641724167925,0.0,0.35146919876630284
-lift_dwell_four,0,lift_dwell_arc_robust_anchor_nominal_ref_nominal_000,accepted,controlled_finish,success,0.1,0.04926842730845804,1.9066910150989274,1.372621634497387,1.0,1.0
-mild_left_nominal,1,mild_turn_left_robust_anchor_attitude_heavy_ref_pitch_up_001,weak,weak_energy_result,model_boundary_only,0.1,-0.11755592672699455,0.999679910220952,0.9240401137334517,0.8,1.0
-mild_right_nominal,1,mild_turn_right_robust_anchor_attitude_heavy_ref_pitch_up_001,accepted,controlled_finish,success,0.1,0.08304441612838742,2.344828067824114,0.9951584596965525,1.0,1.0
-energy_bank_four,0,energy_retaining_bank_robust_anchor_nominal_ref_nominal_000,weak,weak_energy_result,model_boundary_only,0.1,0.016678597145230345,1.816546129310042,1.2788835231881546,0.0,0.988478342591105
-recovery_edge_dry,3,recovery_robust_anchor_rate_damped_ref_damped_level_003,weak,weak_energy_result,model_boundary_only,0.1,-0.02599644309628424,2.364649059476192,0.6062622559433097,0.6,1.0
-safe_exit_boundary_single,1,safe_exit_or_recovery_handoff_robust_anchor_attitude_heavy_ref_pitch_up_001,accepted,controlled_finish,success,0.1,0.03590228197283141,2.1561279714847443,0.15854692255005318,1.0,1.0

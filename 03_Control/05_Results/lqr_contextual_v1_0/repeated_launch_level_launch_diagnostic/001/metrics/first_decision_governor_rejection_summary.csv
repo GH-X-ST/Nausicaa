@@ -1,3 +1,0 @@
-library_size_case_id,policy_id,launch_role,rejection_reason,row_count
-no_cluster_no_merge,no_memory_baseline,final_heldout,transition_entry_class_incompatible,11
-no_cluster_no_merge,no_memory_baseline,final_heldout,,44

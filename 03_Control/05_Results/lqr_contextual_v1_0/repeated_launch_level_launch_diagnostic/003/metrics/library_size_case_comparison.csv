@@ -1,2 +1,0 @@
-library_size_case_id,launch_count,safe_success_rate,full_safe_success_rate,hard_failure_rate,no_viable_primitive_rate,mean_launch_score
-no_cluster_no_merge,3,1.0,0.0,0.0,0.0,104.43123524760112

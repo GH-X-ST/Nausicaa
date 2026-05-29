@@ -1,6 +1,0 @@
-stage_id,status,stage_run_root,blocked_reason,duration_s,docs_alignment_status
-R5,passed,03_Control/05_Results/lqr_contextual_v1_0/w01_dense/019,,219.012,aligned
-R6,passed,03_Control/05_Results/lqr_contextual_v1_0/w2_survival/016,,256.473,aligned
-R7,passed,03_Control/05_Results/lqr_contextual_v1_0/w3_survival/014,,70.461,aligned
-R8,passed,03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/001,,0.452,aligned
-R9,blocked,03_Control/05_Results/lqr_contextual_v1_0/repeated_launch_validation/001,failed_gate:pass_gate_true,1192.71,aligned
