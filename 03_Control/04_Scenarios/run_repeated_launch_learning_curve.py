@@ -256,9 +256,20 @@ RECOVERY_ROUTE_MARGIN_M = 0.25
 RECOVERY_EDGE_MAX_ABS_ROLL_RAD = math.radians(35.0)
 RECOVERY_EDGE_MAX_ABS_PITCH_RAD = math.radians(22.0)
 RECOVERY_EDGE_MAX_BODY_RATE_RAD_S = 0.65
-LAUNCH_SCORE_VERSION = "r10_r11_updraft_gain_multiplicative_launch_score_v4"
+LAUNCH_SCORE_VERSION = "r10_r11_front_wall_mission_updraft_terminal_energy_score_v2"
 SPECIFIC_ENERGY_GRAVITY_M_S2 = 9.80665
-SCORING_TARGET_EPISODE_TIME_S = 1.5
+MISSION_FRONT_WALL_X_TOL_M = 1e-6
+MISSION_COMPLETION_SCORE = 100.0
+MISSION_LIFT_CAPTURE_BASE_SCORE = 30.0
+MISSION_SAFE_ROLLOUT_BASE_SCORE = 10.0
+UPDRAFT_GAIN_SCORE_PER_M = 20.0
+UPDRAFT_GAIN_SCORE_CAP = 40.0
+LIFT_DWELL_SCORE_PER_S = 5.0
+LIFT_DWELL_SCORE_CAP = 20.0
+TERMINAL_SPECIFIC_ENERGY_REFERENCE_M = TRUE_SAFE_BOUNDS.z_w_m[0]
+TERMINAL_SPECIFIC_ENERGY_SCORE_PER_M = 10.0
+TERMINAL_SPECIFIC_ENERGY_SCORE_CAP = 20.0
+WRONG_WALL_EXIT_PENALTY = -50.0
 LOW_LAUNCH_SPEED_DRY_AIR_THRESHOLD_M_S = 5.0
 DRY_AIR_ENERGY_DEPLETION_MIN_FLIGHT_TIME_S = 0.5
 PHYSICAL_HARD_FAILURE_LABELS = {
@@ -1765,9 +1776,10 @@ def _candidate_path_belief_features_fn(
     belief: DirectionalResidualLiftBelief,
     state: np.ndarray,
     current_history_launch_index: int,
+    use_residual_memory: bool,
 ) -> Callable[[dict[str, object], dict[str, object]], dict[str, object]]:
     state_vector = as_state_vector(state)
-    cell_lookup = directional_residual_lift_cell_lookup(belief)
+    cell_lookup = directional_residual_lift_cell_lookup(belief) if use_residual_memory else {}
 
     def features_for_candidate(representative: dict[str, object], outcome: dict[str, object]) -> dict[str, object]:
         return _candidate_path_belief_features(
@@ -1777,6 +1789,7 @@ def _candidate_path_belief_features_fn(
             representative=representative,
             outcome=outcome,
             current_history_launch_index=current_history_launch_index,
+            use_residual_memory=use_residual_memory,
         )
 
     return features_for_candidate
@@ -1790,8 +1803,9 @@ def _candidate_path_belief_features(
     representative: dict[str, object],
     outcome: dict[str, object],
     current_history_launch_index: int,
+    use_residual_memory: bool,
 ) -> dict[str, object]:
-    """Return a conservative path-specific residual-memory correction for one candidate."""
+    """Return candidate path geometry plus optional residual-memory correction."""
 
     reference_state = _candidate_reference_state_vector(representative, outcome)
     path_speed_m_s = _candidate_path_speed_m_s(state=state, representative=representative, reference_state=reference_state)
@@ -1825,21 +1839,22 @@ def _candidate_path_belief_features(
         x_w_m = _clamp_to_bounds(x0 + math.cos(displacement_direction) * distance_m, TRUE_SAFE_BOUNDS.x_w_m)
         y_w_m = _clamp_to_bounds(y0 + math.sin(displacement_direction) * distance_m, TRUE_SAFE_BOUNDS.y_w_m)
         z_w_m = _clamp_to_bounds(z0 + vertical_speed_m_s * probe_time_s, TRUE_SAFE_BOUNDS.z_w_m)
-        last_features = query_directional_residual_lift_features(
-            belief,
-            x_w_m=x_w_m,
-            y_w_m=y_w_m,
-            z_w_m=z_w_m,
-            direction_rad=probe_direction,
-            cell_lookup=cell_lookup,
-            current_history_launch_index=current_history_launch_index,
-        )
-        probe_confidence = _candidate_path_probe_confidence(last_features)
-        weighted_lift += weight * probe_confidence * _float_value(last_features.get("belief_local_lift_residual_m_s", 0.0))
-        weighted_updraft += weight * probe_confidence * _float_value(last_features.get("belief_local_updraft_gain_residual_m", 0.0))
-        weighted_dwell += weight * probe_confidence * _float_value(last_features.get("belief_local_dwell_residual_s", 0.0))
-        confidence += weight * probe_confidence
-        observation_count += int(_float_value(last_features.get("belief_observation_count", 0)))
+        if use_residual_memory:
+            last_features = query_directional_residual_lift_features(
+                belief,
+                x_w_m=x_w_m,
+                y_w_m=y_w_m,
+                z_w_m=z_w_m,
+                direction_rad=probe_direction,
+                cell_lookup=cell_lookup,
+                current_history_launch_index=current_history_launch_index,
+            )
+            probe_confidence = _candidate_path_probe_confidence(last_features)
+            weighted_lift += weight * probe_confidence * _float_value(last_features.get("belief_local_lift_residual_m_s", 0.0))
+            weighted_updraft += weight * probe_confidence * _float_value(last_features.get("belief_local_updraft_gain_residual_m", 0.0))
+            weighted_dwell += weight * probe_confidence * _float_value(last_features.get("belief_local_dwell_residual_s", 0.0))
+            confidence += weight * probe_confidence
+            observation_count += int(_float_value(last_features.get("belief_observation_count", 0)))
         exit_x = x_w_m
         exit_y = y_w_m
         exit_z = z_w_m
@@ -1858,7 +1873,11 @@ def _candidate_path_belief_features(
     confidence = _clip(confidence, 0.0, 1.0)
     exit_margins = position_margin_m(np.array([exit_x, exit_y, exit_z], dtype=float), TRUE_SAFE_BOUNDS)
     return {
-        "belief_version": f"{belief.belief_version}+{OUTER_LOOP_MEMORY_POLICY_VERSION}",
+        "belief_version": (
+            f"{belief.belief_version}+{OUTER_LOOP_MEMORY_POLICY_VERSION}"
+            if use_residual_memory
+            else "candidate_path_geometry_only_no_residual_memory"
+        ),
         "belief_local_lift_m_s": float(capped_lift),
         "belief_local_lift_residual_m_s": float(capped_lift),
         "belief_local_updraft_gain_proxy_m": max(float(capped_updraft), 0.0),
@@ -1878,7 +1897,8 @@ def _candidate_path_belief_features(
         "belief_z_bin": int(_float_value(last_features.get("belief_z_bin", 0))),
         "belief_update_count": int(belief.update_count),
         "belief_current_history_launch_index": int(current_history_launch_index),
-        "belief_memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION,
+        "belief_memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION if use_residual_memory else "",
+        "belief_candidate_path_residual_memory_active": bool(use_residual_memory),
         "belief_candidate_path_probe_count": int(len(CANDIDATE_PATH_MEMORY_PROBES)),
         "belief_candidate_path_lookahead_s": float(CANDIDATE_PATH_MEMORY_LOOKAHEAD_S),
         "belief_candidate_path_confidence": float(confidence),
@@ -2023,7 +2043,6 @@ def _prepare_realtime_governor_decision(
 
     belief_started = time.perf_counter()
     belief_features = None
-    candidate_belief_features = None
     current_history_launch_index = _adaptation_launch_index(scheduled)
     if bool(policy["uses_memory"]):
         belief_features = query_directional_residual_lift_features(
@@ -2034,11 +2053,12 @@ def _prepare_realtime_governor_decision(
             direction_rad=float(state[STATE_INDEX["psi"]]),
             current_history_launch_index=current_history_launch_index,
         )
-        candidate_belief_features = _candidate_path_belief_features_fn(
-            belief=belief,
-            state=state,
-            current_history_launch_index=current_history_launch_index,
-        )
+    candidate_belief_features = _candidate_path_belief_features_fn(
+        belief=belief,
+        state=state,
+        current_history_launch_index=current_history_launch_index,
+        use_residual_memory=bool(policy["uses_memory"]),
+    )
     belief_query_duration_s = time.perf_counter() - belief_started
 
     selection_started = time.perf_counter()
@@ -2050,6 +2070,7 @@ def _prepare_realtime_governor_decision(
         policy_id=str(policy["policy_id"]),
         belief_features=belief_features,
         candidate_belief_features=candidate_belief_features,
+        adaptive_memory_active=bool(policy["uses_memory"]),
         governor_config=governor_config,
     )
     selection_duration_s = time.perf_counter() - selection_started
@@ -2434,6 +2455,16 @@ def _context_payload(
         "plant_W_layer": plant_layer,
         "implementation_W_layer": implementation_layer,
         "full_w3_randomisation_block": bool(full_w3_randomisation),
+        "current_x_w_m": float(state[STATE_INDEX["x_w"]]),
+        "current_y_w_m": float(state[STATE_INDEX["y_w"]]),
+        "current_z_w_m": float(state[STATE_INDEX["z_w"]]),
+        "mission_x_min_w_m": float(TRUE_SAFE_BOUNDS.x_w_m[0]),
+        "front_wall_target_x_w_m": float(TRUE_SAFE_BOUNDS.x_w_m[1]),
+        "mission_terminal_y_min_m": float(TRUE_SAFE_BOUNDS.y_w_m[0]),
+        "mission_terminal_y_max_m": float(TRUE_SAFE_BOUNDS.y_w_m[1]),
+        "mission_terminal_z_min_m": float(TRUE_SAFE_BOUNDS.z_w_m[0]),
+        "mission_terminal_z_max_m": float(TRUE_SAFE_BOUNDS.z_w_m[1]),
+        "mission_terminal_specific_energy_reference_m": float(TERMINAL_SPECIFIC_ENERGY_REFERENCE_M),
         "wall_margin_m": float(context.wall_margin_m),
         "all_wall_margin_m": float(context.all_wall_margin_m),
         "front_wall_margin_m": float(context.front_wall_margin_m),
@@ -2641,6 +2672,15 @@ def _episode_row_from_sequence(
         "belief_update_count_before": int(belief_before.update_count),
         "belief_update_count_after": int(belief_after.update_count),
     }
+    row.update(
+        _outer_loop_mission_fields_from_primitives(
+            primitive_rows,
+            hard_failure=hard_failure,
+            floor_or_ceiling=floor_or_ceiling,
+            no_viable=no_viable,
+            expected_low_energy_sink=expected_low_energy_sink,
+        )
+    )
     row.update(_launch_score_fields_for_role(row))
     return row
 
@@ -2738,6 +2778,15 @@ def _episode_row_from_rollout(
         "belief_update_count_before": int(belief_before.update_count),
         "belief_update_count_after": int(belief_after.update_count),
     }
+    row.update(
+        _outer_loop_mission_fields_from_primitives(
+            [rollout_row],
+            hard_failure=hard_failure,
+            floor_or_ceiling=floor_or_ceiling,
+            no_viable=False,
+            expected_low_energy_sink=expected_low_energy_sink,
+        )
+    )
     row.update(_launch_score_fields_for_role(row))
     return row
 
@@ -2802,6 +2851,15 @@ def _episode_row_from_blocked(
         "belief_update_count_before": 0,
         "belief_update_count_after": 0,
     }
+    row.update(
+        _outer_loop_mission_fields_from_primitives(
+            [],
+            hard_failure=False,
+            floor_or_ceiling=False,
+            no_viable=True,
+            expected_low_energy_sink=False,
+        )
+    )
     row.update(_launch_score_fields_for_role(row))
     return row
 
@@ -3039,6 +3097,166 @@ def _state_vector_from_json(value: object) -> np.ndarray | None:
         return None
 
 
+def _outer_loop_mission_fields_from_primitives(
+    primitive_rows: list[dict[str, object]],
+    *,
+    hard_failure: bool,
+    floor_or_ceiling: bool,
+    no_viable: bool,
+    expected_low_energy_sink: bool,
+) -> dict[str, object]:
+    last_row = primitive_rows[-1] if primitive_rows else {}
+    exit_position = _exit_position_from_rollout_row(last_row)
+    terminal_energy, terminal_energy_source = _terminal_specific_energy_from_rollout_row(last_row)
+    terminal_energy_reserve = (
+        float(terminal_energy) - float(TERMINAL_SPECIFIC_ENERGY_REFERENCE_M)
+        if math.isfinite(float(terminal_energy))
+        else float("nan")
+    )
+    wall_exit = _rollout_row_is_wall_boundary_exit(last_row)
+    wall_face = _wall_exit_face(exit_position, wall_exit=wall_exit)
+    front_wall_terminal = bool(
+        wall_exit
+        and wall_face == "front_wall_x_max"
+        and _truthy(last_row.get("episode_terminal_useful", False))
+        and not hard_failure
+        and not floor_or_ceiling
+        and not no_viable
+        and not expected_low_energy_sink
+        and _exit_position_inside_terminal_yz(exit_position)
+    )
+    wrong_wall_exit = bool(wall_exit and not front_wall_terminal)
+    mission_success = bool(front_wall_terminal)
+    return {
+        "mission_score_version": LAUNCH_SCORE_VERSION,
+        "mission_success": mission_success,
+        "front_wall_terminal_success": front_wall_terminal,
+        "wrong_wall_exit": wrong_wall_exit,
+        "terminal_wall_face": wall_face,
+        "front_wall_target_x_w_m": float(TRUE_SAFE_BOUNDS.x_w_m[1]),
+        "mission_terminal_y_min_m": float(TRUE_SAFE_BOUNDS.y_w_m[0]),
+        "mission_terminal_y_max_m": float(TRUE_SAFE_BOUNDS.y_w_m[1]),
+        "mission_terminal_z_min_m": float(TRUE_SAFE_BOUNDS.z_w_m[0]),
+        "mission_terminal_z_max_m": float(TRUE_SAFE_BOUNDS.z_w_m[1]),
+        "final_exit_x_w_m": float(exit_position[0]) if exit_position is not None else float("nan"),
+        "final_exit_y_w_m": float(exit_position[1]) if exit_position is not None else float("nan"),
+        "final_exit_z_w_m": float(exit_position[2]) if exit_position is not None else float("nan"),
+        "terminal_specific_energy_m": float(terminal_energy),
+        "terminal_specific_energy_reference_m": float(TERMINAL_SPECIFIC_ENERGY_REFERENCE_M),
+        "terminal_specific_energy_reserve_m": float(terminal_energy_reserve),
+        "terminal_specific_energy_source": terminal_energy_source,
+        "mission_outcome_label": _mission_outcome_label(
+            mission_success=mission_success,
+            wrong_wall_exit=wrong_wall_exit,
+            hard_failure=hard_failure,
+            floor_or_ceiling=floor_or_ceiling,
+            no_viable=no_viable,
+            expected_low_energy_sink=expected_low_energy_sink,
+            lift_capture=any(_float_value(row.get("lift_dwell_time_s", 0.0)) > 0.0 for row in primitive_rows),
+        ),
+    }
+
+
+def _exit_position_from_rollout_row(row: dict[str, object]) -> np.ndarray | None:
+    state = _state_vector_from_json(row.get("exit_state_vector", ""))
+    if state is not None:
+        return np.asarray(state[:3], dtype=float)
+    keys = ("exit_x_w", "exit_y_w", "exit_z_w")
+    if all(key in row for key in keys):
+        try:
+            return np.asarray([float(row[key]) for key in keys], dtype=float)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _terminal_specific_energy_from_rollout_row(row: dict[str, object]) -> tuple[float, str]:
+    if not row:
+        return float("nan"), "unavailable"
+    state = _state_vector_from_json(row.get("exit_state_vector", ""))
+    if state is not None:
+        return float(_specific_energy_m(state)), "exit_state_specific_energy_height_plus_speed"
+    position = _exit_position_from_rollout_row(row)
+    if position is not None:
+        return float(position[2]), "exit_position_height_only_fallback"
+    return float("nan"), "unavailable"
+
+
+def _rollout_row_is_wall_boundary_exit(row: dict[str, object]) -> bool:
+    if not row:
+        return False
+    cause = str(row.get("termination_cause", ""))
+    label = str(row.get("failure_label", ""))
+    boundary_class = str(row.get("boundary_use_class", ""))
+    return bool(
+        "wall" in cause
+        or "xy_boundary" in label
+        or label == "uncontrolled_xy_boundary_exit"
+        or boundary_class == "episode_terminal_useful"
+        and _float_value(row.get("minimum_wall_margin_m", 0.0)) < 0.0
+    )
+
+
+def _wall_exit_face(exit_position: np.ndarray | None, *, wall_exit: bool) -> str:
+    if not wall_exit:
+        return "none"
+    if exit_position is None:
+        return "unknown_xy_wall"
+    x_w, y_w, _z_w = [float(value) for value in exit_position[:3]]
+    x_min, x_max = TRUE_SAFE_BOUNDS.x_w_m
+    y_min, y_max = TRUE_SAFE_BOUNDS.y_w_m
+    tol = MISSION_FRONT_WALL_X_TOL_M
+    if x_w >= float(x_max) - tol:
+        return "front_wall_x_max"
+    if x_w <= float(x_min) + tol:
+        return "rear_wall_x_min"
+    if y_w <= float(y_min) + tol:
+        return "side_wall_y_min"
+    if y_w >= float(y_max) - tol:
+        return "side_wall_y_max"
+    return "unknown_xy_wall"
+
+
+def _exit_position_inside_terminal_yz(exit_position: np.ndarray | None) -> bool:
+    if exit_position is None:
+        return False
+    _x_w, y_w, z_w = [float(value) for value in exit_position[:3]]
+    y_min, y_max = TRUE_SAFE_BOUNDS.y_w_m
+    z_min, z_max = TRUE_SAFE_BOUNDS.z_w_m
+    tol = MISSION_FRONT_WALL_X_TOL_M
+    return bool(
+        float(y_min) - tol <= y_w <= float(y_max) + tol
+        and float(z_min) - tol <= z_w <= float(z_max) + tol
+    )
+
+
+def _mission_outcome_label(
+    *,
+    mission_success: bool,
+    wrong_wall_exit: bool,
+    hard_failure: bool,
+    floor_or_ceiling: bool,
+    no_viable: bool,
+    expected_low_energy_sink: bool,
+    lift_capture: bool,
+) -> str:
+    if mission_success:
+        return "front_wall_terminal_success"
+    if expected_low_energy_sink:
+        return "expected_low_energy_dry_air_sink_not_scored"
+    if floor_or_ceiling:
+        return "floor_or_ceiling_violation"
+    if hard_failure:
+        return "hard_failure"
+    if no_viable:
+        return "no_viable_primitive"
+    if wrong_wall_exit:
+        return "wrong_wall_exit"
+    if lift_capture:
+        return "lift_capture_without_front_wall_terminal"
+    return "no_front_wall_terminal"
+
+
 def _launch_score_fields(row: dict[str, object]) -> dict[str, object]:
     selected_steps = int(_float_value(row.get("selected_primitive_step_count", 0)))
     episode_time_s = _float_value(
@@ -3052,54 +3270,76 @@ def _launch_score_fields(row: dict[str, object]) -> dict[str, object]:
     no_viable = _truthy(row.get("no_viable_primitive", False))
     no_viable_at_launch = bool(no_viable and selected_steps <= 0)
     no_viable_after_launch = bool(no_viable and selected_steps > 0)
-    min_wall_margin = _float_value(row.get("min_wall_margin_m", 0.0))
-    terminal_useful = _truthy(row.get("terminal_useful", False))
-    controlled_terminal_exit = bool(terminal_useful and not hard_failure and not floor_or_ceiling)
-    wall_boundary_issue = bool(min_wall_margin < 0.0 and not hard_failure and not floor_or_ceiling and not controlled_terminal_exit)
+    front_wall_terminal = _truthy(row.get("front_wall_terminal_success", row.get("mission_success", False)))
+    mission_success = _truthy(row.get("mission_success", front_wall_terminal))
+    wrong_wall_exit = _truthy(row.get("wrong_wall_exit", False))
+    expected_low_energy_sink = _truthy(row.get("expected_low_energy_dry_air_sink", False))
     base_penalty, penalty_reason = _base_failure_penalty(
         hard_failure=hard_failure,
         floor_or_ceiling=floor_or_ceiling,
         no_viable_at_launch=no_viable_at_launch,
         no_viable_after_launch=no_viable_after_launch,
-        wall_boundary_issue=wall_boundary_issue,
+        wrong_wall_exit=wrong_wall_exit,
+        expected_low_energy_sink=expected_low_energy_sink,
     )
-    outcome_multiplier = _outcome_multiplier(
+    lift_capture = _truthy(row.get("lift_capture", False))
+    mission_component = _mission_completion_component(
+        mission_success=mission_success,
+        lift_capture=lift_capture,
         safe_success=_truthy(row.get("safe_success", False)),
-        terminal_useful=terminal_useful,
-        lift_capture=_truthy(row.get("lift_capture", False)),
-        hard_failure=hard_failure,
+        penalty_reason=penalty_reason,
     )
-    safety_multiplier = _safety_multiplier(
-        hard_failure=hard_failure,
-        floor_or_ceiling=floor_or_ceiling,
-        wall_boundary_issue=wall_boundary_issue,
+    updraft_gain_bonus = _clip(
+        UPDRAFT_GAIN_SCORE_PER_M * max(_float_value(row.get("updraft_specific_energy_gain_proxy_m", 0.0)), 0.0),
+        0.0,
+        UPDRAFT_GAIN_SCORE_CAP,
     )
-    viability_multiplier = _viability_multiplier(
-        no_viable_at_launch=no_viable_at_launch,
-        no_viable_after_launch=no_viable_after_launch,
+    lift_dwell_bonus = _clip(
+        LIFT_DWELL_SCORE_PER_S * max(_float_value(row.get("lift_dwell_time_s", 0.0)), 0.0),
+        0.0,
+        LIFT_DWELL_SCORE_CAP,
     )
-    updraft_gain_factor = _clip(1.0 + _float_value(row.get("updraft_specific_energy_gain_proxy_m", 0.0)) / 1.0, 1.00, 1.75)
-    flight_time_factor = _clip(episode_time_s / SCORING_TARGET_EPISODE_TIME_S, 0.10, 1.25)
-    multiplicative_component = (
-        100.0
-        * outcome_multiplier
-        * safety_multiplier
-        * viability_multiplier
-        * updraft_gain_factor
-        * flight_time_factor
+    terminal_specific_energy = _float_value(row.get("terminal_specific_energy_m", float("nan")), default=float("nan"))
+    terminal_specific_energy_reserve = (
+        terminal_specific_energy - float(TERMINAL_SPECIFIC_ENERGY_REFERENCE_M)
+        if math.isfinite(float(terminal_specific_energy))
+        else float("nan")
+    )
+    terminal_specific_energy_bonus = _terminal_specific_energy_bonus(
+        mission_success=mission_success,
+        terminal_specific_energy_m=terminal_specific_energy,
+    )
+    additive_component = (
+        0.0
+        if penalty_reason != "none"
+        else float(mission_component + updraft_gain_bonus + lift_dwell_bonus + terminal_specific_energy_bonus)
     )
     return {
         "launch_score_version": LAUNCH_SCORE_VERSION,
+        "mission_score_version": LAUNCH_SCORE_VERSION,
+        "mission_success": bool(mission_success),
+        "front_wall_terminal_success": bool(front_wall_terminal),
+        "wrong_wall_exit": bool(wrong_wall_exit),
+        "terminal_wall_face": str(row.get("terminal_wall_face", "")),
+        "mission_outcome_label": str(row.get("mission_outcome_label", "")),
         "episode_flight_time_s": float(episode_time_s),
+        "airborne_time_reward_status": "audit_only_not_rewarded",
         "base_failure_penalty": float(base_penalty),
         "base_failure_penalty_reason": penalty_reason,
-        "outcome_multiplier": float(outcome_multiplier),
-        "safety_multiplier": float(safety_multiplier),
-        "viability_multiplier": float(viability_multiplier),
-        "updraft_gain_factor": float(updraft_gain_factor),
-        "flight_time_factor": float(flight_time_factor),
-        "launch_score_multiplicative_component": float(multiplicative_component),
-        "launch_score": float(base_penalty + multiplicative_component),
+        "mission_completion_component": float(mission_component),
+        "updraft_gain_bonus": float(updraft_gain_bonus),
+        "lift_dwell_bonus": float(lift_dwell_bonus),
+        "terminal_specific_energy_m": float(terminal_specific_energy),
+        "terminal_specific_energy_reference_m": float(TERMINAL_SPECIFIC_ENERGY_REFERENCE_M),
+        "terminal_specific_energy_reserve_m": float(terminal_specific_energy_reserve),
+        "terminal_specific_energy_bonus": float(terminal_specific_energy_bonus),
+        "terminal_specific_energy_bonus_status": (
+            "front_wall_terminal_only"
+            if mission_success
+            else "not_applied_without_front_wall_terminal"
+        ),
+        "launch_score_additive_component": float(additive_component),
+        "launch_score": float(base_penalty + additive_component),
     }
 
 
@@ -3117,15 +3357,25 @@ def _launch_score_fields_for_role(row: dict[str, object]) -> dict[str, object]:
     )
     return {
         "launch_score_version": LAUNCH_SCORE_VERSION,
+        "mission_score_version": LAUNCH_SCORE_VERSION,
+        "mission_success": False,
+        "front_wall_terminal_success": False,
+        "wrong_wall_exit": False,
+        "terminal_wall_face": "not_scored_history_launch",
+        "mission_outcome_label": "not_scored_history_launch",
         "episode_flight_time_s": float(episode_time_s),
+        "airborne_time_reward_status": "audit_only_not_rewarded",
         "base_failure_penalty": float("nan"),
         "base_failure_penalty_reason": "not_scored_history_launch",
-        "outcome_multiplier": float("nan"),
-        "safety_multiplier": float("nan"),
-        "viability_multiplier": float("nan"),
-        "updraft_gain_factor": float("nan"),
-        "flight_time_factor": float("nan"),
-        "launch_score_multiplicative_component": float("nan"),
+        "mission_completion_component": float("nan"),
+        "updraft_gain_bonus": float("nan"),
+        "lift_dwell_bonus": float("nan"),
+        "terminal_specific_energy_m": float("nan"),
+        "terminal_specific_energy_reference_m": float(TERMINAL_SPECIFIC_ENERGY_REFERENCE_M),
+        "terminal_specific_energy_reserve_m": float("nan"),
+        "terminal_specific_energy_bonus": float("nan"),
+        "terminal_specific_energy_bonus_status": "not_scored_history_launch",
+        "launch_score_additive_component": float("nan"),
         "launch_score": float("nan"),
         "launch_score_scope": "history_launch_memory_update_not_outer_loop_score",
     }
@@ -3137,8 +3387,11 @@ def _base_failure_penalty(
     floor_or_ceiling: bool,
     no_viable_at_launch: bool,
     no_viable_after_launch: bool,
-    wall_boundary_issue: bool,
+    wrong_wall_exit: bool,
+    expected_low_energy_sink: bool,
 ) -> tuple[float, str]:
+    if expected_low_energy_sink:
+        return 0.0, "expected_low_energy_dry_air_sink_not_scored"
     if hard_failure:
         return -100.0, "hard_failure"
     if floor_or_ceiling:
@@ -3147,39 +3400,38 @@ def _base_failure_penalty(
         return -70.0, "no_viable_primitive_at_launch"
     if no_viable_after_launch:
         return -40.0, "no_viable_primitive_after_launch"
-    if wall_boundary_issue:
-        return -30.0, "wall_boundary_issue_not_hard_failure"
+    if wrong_wall_exit:
+        return WRONG_WALL_EXIT_PENALTY, "wrong_wall_exit"
     return 0.0, "none"
 
 
-def _outcome_multiplier(*, safe_success: bool, terminal_useful: bool, lift_capture: bool, hard_failure: bool) -> float:
-    if safe_success and terminal_useful:
-        return 1.00
-    if safe_success and lift_capture:
-        return 0.90
+def _mission_completion_component(
+    *,
+    mission_success: bool,
+    lift_capture: bool,
+    safe_success: bool,
+    penalty_reason: str,
+) -> float:
+    if penalty_reason != "none":
+        return 0.0
+    if mission_success:
+        return MISSION_COMPLETION_SCORE
+    if lift_capture:
+        return MISSION_LIFT_CAPTURE_BASE_SCORE
     if safe_success:
-        return 0.75
-    if terminal_useful and not hard_failure:
-        return 0.50
-    if lift_capture and not hard_failure:
-        return 0.35
-    return 0.10
+        return MISSION_SAFE_ROLLOUT_BASE_SCORE
+    return 0.0
 
 
-def _safety_multiplier(*, hard_failure: bool, floor_or_ceiling: bool, wall_boundary_issue: bool) -> float:
-    if hard_failure or floor_or_ceiling:
+def _terminal_specific_energy_bonus(*, mission_success: bool, terminal_specific_energy_m: float) -> float:
+    if not mission_success or not math.isfinite(float(terminal_specific_energy_m)):
         return 0.0
-    if wall_boundary_issue:
-        return 0.60
-    return 1.0
-
-
-def _viability_multiplier(*, no_viable_at_launch: bool, no_viable_after_launch: bool) -> float:
-    if no_viable_at_launch:
-        return 0.0
-    if no_viable_after_launch:
-        return 0.50
-    return 1.0
+    reserve_m = float(terminal_specific_energy_m) - float(TERMINAL_SPECIFIC_ENERGY_REFERENCE_M)
+    return _clip(
+        TERMINAL_SPECIFIC_ENERGY_SCORE_PER_M * max(reserve_m, 0.0),
+        0.0,
+        TERMINAL_SPECIFIC_ENERGY_SCORE_CAP,
+    )
 
 
 def _clip(value: float, lower: float, upper: float) -> float:
@@ -3614,6 +3866,9 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
                 expected_low_energy_dry_air_sink_rate=("expected_low_energy_dry_air_sink", "mean"),
                 claim_bearing_episode_rate=("claim_bearing_episode", "mean"),
                 no_viable_primitive_rate=("no_viable_primitive", "mean"),
+                mission_success_rate=("mission_success", "mean"),
+                front_wall_terminal_success_rate=("front_wall_terminal_success", "mean"),
+                wrong_wall_exit_rate=("wrong_wall_exit", "mean"),
                 terminal_useful_rate=("terminal_useful", "mean"),
                 lift_capture_rate=("lift_capture", "mean"),
                 mean_lift_dwell_time_s=("lift_dwell_time_s", "mean"),
@@ -3622,6 +3877,9 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
                 mean_positive_specific_energy_gain_m=("positive_specific_energy_gain_m", "mean"),
                 mean_updraft_specific_energy_gain_proxy_m=("updraft_specific_energy_gain_proxy_m", "mean"),
                 mean_gross_specific_energy_loss_m=("gross_specific_energy_loss_m", "mean"),
+                mean_terminal_specific_energy_m=("terminal_specific_energy_m", "mean"),
+                mean_terminal_specific_energy_reserve_m=("terminal_specific_energy_reserve_m", "mean"),
+                mean_terminal_specific_energy_bonus=("terminal_specific_energy_bonus", "mean"),
                 mean_episode_flight_time_s=("episode_flight_time_s", "mean"),
                 mean_initial_launch_speed_m_s=("initial_launch_speed_m_s", "mean"),
                 mean_launch_score=("launch_score", "mean"),
@@ -3659,6 +3917,9 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
                 physical_hard_failure_rate=("physical_hard_failure", "mean"),
                 expected_low_energy_dry_air_sink_rate=("expected_low_energy_dry_air_sink", "mean"),
                 no_viable_primitive_rate=("no_viable_primitive", "mean"),
+                mission_success_rate=("mission_success", "mean"),
+                front_wall_terminal_success_rate=("front_wall_terminal_success", "mean"),
+                wrong_wall_exit_rate=("wrong_wall_exit", "mean"),
                 mean_launch_score=("launch_score", "mean"),
             )
             .reset_index()
@@ -3673,6 +3934,9 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
                 full_safe_success_rate=("full_safe_success", "mean"),
                 claim_bearing_episode_rate=("claim_bearing_episode", "mean"),
                 expected_low_energy_dry_air_sink_rate=("expected_low_energy_dry_air_sink", "mean"),
+                mission_success_rate=("mission_success", "mean"),
+                front_wall_terminal_success_rate=("front_wall_terminal_success", "mean"),
+                wrong_wall_exit_rate=("wrong_wall_exit", "mean"),
                 mean_launch_score=("launch_score", "mean"),
             )
             .reset_index()
@@ -3805,6 +4069,10 @@ def _paired_score_delta_row(row: dict[str, object], baseline_row: dict[str, obje
         "launch_score": _float_value(row.get("launch_score", 0.0)),
         "baseline_launch_score": _float_value(baseline_row.get("launch_score", 0.0)),
         "paired_delta_launch_score": _float_value(row.get("launch_score", 0.0)) - _float_value(baseline_row.get("launch_score", 0.0)),
+        "mission_success_delta": int(_truthy(row.get("mission_success", False))) - int(_truthy(baseline_row.get("mission_success", False))),
+        "front_wall_terminal_success_delta": int(_truthy(row.get("front_wall_terminal_success", False)))
+        - int(_truthy(baseline_row.get("front_wall_terminal_success", False))),
+        "wrong_wall_exit_delta": int(_truthy(row.get("wrong_wall_exit", False))) - int(_truthy(baseline_row.get("wrong_wall_exit", False))),
         "safe_success_delta": int(_truthy(row.get("safe_success", False))) - int(_truthy(baseline_row.get("safe_success", False))),
         "hard_failure_delta": int(_truthy(row.get("hard_failure", False))) - int(_truthy(baseline_row.get("hard_failure", False))),
         "floor_or_ceiling_violation_delta": int(_truthy(row.get("floor_or_ceiling_violation", False)))
@@ -3816,6 +4084,10 @@ def _paired_score_delta_row(row: dict[str, object], baseline_row: dict[str, obje
         - _float_value(baseline_row.get("positive_specific_energy_gain_m", 0.0)),
         "updraft_specific_energy_gain_proxy_m_delta": _float_value(row.get("updraft_specific_energy_gain_proxy_m", 0.0))
         - _float_value(baseline_row.get("updraft_specific_energy_gain_proxy_m", 0.0)),
+        "terminal_specific_energy_m_delta": _float_value(row.get("terminal_specific_energy_m", 0.0))
+        - _float_value(baseline_row.get("terminal_specific_energy_m", 0.0)),
+        "terminal_specific_energy_bonus_delta": _float_value(row.get("terminal_specific_energy_bonus", 0.0))
+        - _float_value(baseline_row.get("terminal_specific_energy_bonus", 0.0)),
         "gross_specific_energy_loss_m_delta": _float_value(row.get("gross_specific_energy_loss_m", 0.0))
         - _float_value(baseline_row.get("gross_specific_energy_loss_m", 0.0)),
         "episode_flight_time_s_delta": _float_value(row.get("episode_flight_time_s", 0.0))
@@ -3842,11 +4114,16 @@ def _paired_score_delta_summary(delta_rows: pd.DataFrame) -> pd.DataFrame:
             win_rate=("win", "mean"),
             loss_rate=("loss", "mean"),
             safety_regression_rate=("safety_regression", "mean"),
+            mission_success_delta_mean=("mission_success_delta", "mean"),
+            front_wall_terminal_success_delta_mean=("front_wall_terminal_success_delta", "mean"),
+            wrong_wall_exit_delta_mean=("wrong_wall_exit_delta", "mean"),
             memory_changed_selection_rate=("memory_changed_selection", "mean"),
             exploration_changed_selection_rate=("exploration_changed_selection", "mean"),
             mean_net_specific_energy_delta_m_delta=("net_specific_energy_delta_m_delta", "mean"),
             mean_positive_specific_energy_gain_m_delta=("positive_specific_energy_gain_m_delta", "mean"),
             mean_updraft_specific_energy_gain_proxy_m_delta=("updraft_specific_energy_gain_proxy_m_delta", "mean"),
+            mean_terminal_specific_energy_m_delta=("terminal_specific_energy_m_delta", "mean"),
+            mean_terminal_specific_energy_bonus_delta=("terminal_specific_energy_bonus_delta", "mean"),
             mean_gross_specific_energy_loss_m_delta=("gross_specific_energy_loss_m_delta", "mean"),
             mean_episode_flight_time_s_delta=("episode_flight_time_s_delta", "mean"),
         )
@@ -3964,6 +4241,18 @@ def _pass_fail_summary(
                     >= float(protocol.min_terminal_or_lift_capture_rate),
                     max(_mean_bool(claim_rows, "terminal_useful"), _mean_bool(claim_rows, "lift_capture")),
                     protocol.min_terminal_or_lift_capture_rate,
+                ),
+                _gate_row(
+                    "front_wall_mission_success_rate_diagnostic",
+                    True,
+                    _mean_bool(claim_rows, "mission_success"),
+                    "diagnostic_only_score_target_not_current_pass_gate",
+                ),
+                _gate_row(
+                    "wrong_wall_exit_rate_diagnostic",
+                    True,
+                    _mean_bool(claim_rows, "wrong_wall_exit"),
+                    "diagnostic_only_penalised_by_launch_score",
                 ),
                 _gate_row(
                     "selected_primitive_family_count_diagnostic",
@@ -4148,6 +4437,8 @@ def _write_governor_tuning_outputs(
         "no_viable_primitive_rate": _mean_bool(final.to_dict(orient="records"), "no_viable_primitive") if not final.empty else 1.0,
         "safe_success_rate": _mean_bool(final.to_dict(orient="records"), "safe_success") if not final.empty else 0.0,
         "full_safe_success_rate": _mean_bool(final.to_dict(orient="records"), "full_safe_success") if not final.empty else 0.0,
+        "mission_success_rate": _mean_bool(final.to_dict(orient="records"), "mission_success") if not final.empty else 0.0,
+        "wrong_wall_exit_rate": _mean_bool(final.to_dict(orient="records"), "wrong_wall_exit") if not final.empty else 0.0,
         "terminal_or_lift_capture_rate": max(
             _mean_bool(final.to_dict(orient="records"), "terminal_useful") if not final.empty else 0.0,
             _mean_bool(final.to_dict(orient="records"), "lift_capture") if not final.empty else 0.0,
@@ -4286,13 +4577,23 @@ def _tuned_governor_config_from_metrics(
 
     if safe_success_rate < float(protocol.min_safe_success_rate) and hard_failure_rate <= float(protocol.max_hard_failure_rate):
         update(
+            "mission_front_progress_weight",
+            min(0.45, float(values["mission_front_progress_weight"]) + 0.04),
+            "safe_success_below_stage_profile_increase_front_wall_progress_preference",
+        )
+        update(
+            "mission_front_terminal_weight",
+            min(0.90, float(values["mission_front_terminal_weight"]) + 0.05),
+            "safe_success_below_stage_profile_increase_front_wall_terminal_preference",
+        )
+        update(
             "belief_weight",
             min(0.20, float(values["belief_weight"]) + 0.01),
             "safe_success_below_stage_profile_increase_memory_residual_sensitivity",
         )
 
     values["minimum_wall_margin_m"] = float(base_config.minimum_wall_margin_m)
-    values["config_id"] = f"v53_{protocol.stage_id.lower()}_tuned_viability_governor"
+    values["config_id"] = f"v53_{protocol.stage_id.lower()}_tuned_mission_governor"
     if not decisions:
         decisions.append(
             {
@@ -4485,7 +4786,11 @@ def _write_manifest(
         "boundary_recovery_required_entry_class": "boundary_near_or_recoverable_degraded",
         "terminal_safe_exit_required_entry_class": "recoverable_degraded",
         "transition_contract": transition_contract_row(),
-        "active_governor_path": "transition_viability_governor_v1",
+        "active_governor_path": "mission_aligned_transition_viability_governor_v1",
+        "active_governor_mission_terms": (
+            "candidate-path front-wall progress, front-wall terminal proxy, progress-gated terminal total "
+            "specific-energy proxy, wrong-boundary penalty, updraft/lift utility, residual memory, and unchanged safety filters"
+        ),
         "boundary_near_status": "route_state_not_automatic_failure",
         "changed_case_active_fan_count_policy": "balanced_0_1_2_3_4_for_active_fan_number_variation"
         if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
@@ -4509,7 +4814,18 @@ def _write_manifest(
         ),
         "legacy_recovery_threshold_alias_status": "superseded_by_transition_labels_contract",
         "launch_score_version": LAUNCH_SCORE_VERSION,
-        "launch_score_target_episode_time_s": float(SCORING_TARGET_EPISODE_TIME_S),
+        "launch_score_policy": "additive_front_wall_mission_updraft_lift_terminal_specific_energy_score_no_airborne_time_reward",
+        "launch_score_airborne_time_reward_status": "episode_flight_time_s_retained_for_audit_only",
+        "launch_score_front_wall_target_x_w_m": float(TRUE_SAFE_BOUNDS.x_w_m[1]),
+        "launch_score_terminal_y_w_bounds_m": list(TRUE_SAFE_BOUNDS.y_w_m),
+        "launch_score_terminal_z_w_bounds_m": list(TRUE_SAFE_BOUNDS.z_w_m),
+        "launch_score_mission_completion_score": float(MISSION_COMPLETION_SCORE),
+        "launch_score_updraft_gain_bonus_cap": float(UPDRAFT_GAIN_SCORE_CAP),
+        "launch_score_lift_dwell_bonus_cap": float(LIFT_DWELL_SCORE_CAP),
+        "launch_score_terminal_specific_energy_reference_m": float(TERMINAL_SPECIFIC_ENERGY_REFERENCE_M),
+        "launch_score_terminal_specific_energy_bonus_cap": float(TERMINAL_SPECIFIC_ENERGY_SCORE_CAP),
+        "launch_score_terminal_specific_energy_bonus_status": "applied_only_after_front_wall_terminal_success",
+        "launch_score_wrong_wall_exit_penalty": float(WRONG_WALL_EXIT_PENALTY),
         "launch_score_gravity_m_s2": float(SPECIFIC_ENERGY_GRAVITY_M_S2),
         "low_launch_speed_dry_air_sink_policy": (
             "raw primitive floor_violation is retained, but dry-air or scheduled-zero-fan floor stop after a low-speed launch "
@@ -4563,11 +4879,11 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Gate profile: `{protocol.gate_profile}`",
         f"- Safety thresholds: hard failure <= `{protocol.max_hard_failure_rate}`, no-viable <= `{protocol.max_no_viable_rate}`, safe success >= `{protocol.min_safe_success_rate}`, full safe success >= `{protocol.min_full_safe_success_rate}`, terminal/lift >= `{protocol.min_terminal_or_lift_capture_rate}`.",
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
-        "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, updraft gain, flight time, and residual memory.",
+        "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, front-wall progress, front-wall terminal proxy, progress-gated terminal total specific-energy proxy, updraft gain, lift dwell, and residual memory.",
         f"- Residual memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` applies capped, recency-weighted candidate-path residual memory and shielded uncertainty exploration after viability filtering.",
         "- The adaptive selector uses one baseline shield at every launch; there is no branch that treats a held-out final launch as a known final mission.",
         "- Boundary-near is a route state, not automatic failure; hard_failure is the failure class.",
-        f"- Launch score: `{LAUNCH_SCORE_VERSION}`; rewards safe valid flight time and updraft-gain proxy, while net/gross energy drift remains audit-only.",
+        f"- Launch score: `{LAUNCH_SCORE_VERSION}`; rewards front-wall terminal mission completion plus capped updraft/lift evidence and terminal total specific energy reserve. Airborne time and generic net/gross energy drift remain audit-only.",
         "- Dry-air or scheduled-zero-fan low-launch-speed floor stops keep the raw primitive `floor_violation` audit label, but are interpreted as expected energy depletion rather than governor or memory failure.",
         "- Claim boundary: simulation-only; no hardware, real-flight transfer, mission, autonomy, or memory-improvement claim.",
         "",

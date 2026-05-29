@@ -73,6 +73,7 @@ from run_repeated_launch_learning_curve import (
 )
 from state_contract import STATE_INDEX
 from run_w3_survival import R5_INPUT_KIND, W3_ACTIVE_FAN_COUNT_SEQUENCE, W3_ENVIRONMENT_CASES
+from episode_selector import select_compact_representative
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, REJECTION_REASONS, governor_candidate_row
 
 
@@ -92,9 +93,14 @@ def test_v53_stage_contract_is_r5_r7_r8_r10_r11_with_r6_archived_and_r9_internal
 def test_v53_r9_is_reduced_internal_preflight_and_can_seed_r10_governor() -> None:
     assert tuple(block.case_count for block in R9_BLOCKS) == (1, 1, 1)
     assert R9_OUTER_CASES_PER_CONDITION == 3
-    assert R9_POLICY_HISTORY_CONDITIONS == ("no_memory_baseline", "directional_3d_residual_memory_h20")
-    assert R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R9_POLICY_HISTORY_CONDITIONS) * 3 == 30
-    assert R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 3 * 20 == 300
+    assert R9_POLICY_HISTORY_CONDITIONS == (
+        "no_memory_baseline",
+        "directional_3d_residual_memory_h3",
+        "directional_3d_residual_memory_h10",
+        "directional_3d_residual_memory_h30",
+    )
+    assert R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R9_POLICY_HISTORY_CONDITIONS) * 3 == 60
+    assert R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 3 * (3 + 10 + 30) == 645
 
     tuned, decisions = _tuned_governor_config_from_metrics(
         base_config=DEFAULT_GOVERNOR_CONFIG,
@@ -107,7 +113,7 @@ def test_v53_r9_is_reduced_internal_preflight_and_can_seed_r10_governor() -> Non
         protocol=R9_PROTOCOL,
     )
 
-    assert tuned.config_id == "v53_r9_tuned_viability_governor"
+    assert tuned.config_id == "v53_r9_tuned_mission_governor"
     assert tuned.minimum_wall_margin_m == DEFAULT_GOVERNOR_CONFIG.minimum_wall_margin_m
     assert tuned.maximum_hard_failure_risk < DEFAULT_GOVERNOR_CONFIG.maximum_hard_failure_risk
     assert tuned.exploration_bonus_weight < DEFAULT_GOVERNOR_CONFIG.exploration_bonus_weight
@@ -304,7 +310,7 @@ def test_v53_memory_scope_is_per_final_case_and_final_launches_are_paired() -> N
     assert all(row["library_case_count"] == len(LIBRARY_SIZE_CASE_IDS) for row in pairing_rows)
     assert all(row["policy_count"] == len(R9_POLICY_HISTORY_CONDITIONS) for row in pairing_rows)
 
-    memory_final = next(row for row in final_schedule if row["policy_id"] == "directional_3d_residual_memory_h20")
+    memory_final = next(row for row in final_schedule if row["policy_id"] == "directional_3d_residual_memory_h30")
     history = _history_row_for_final(memory_final, 0)
     assert history["library_size_case_id"] == memory_final["library_size_case_id"]
     assert history["policy_id"] == memory_final["policy_id"]
@@ -361,9 +367,166 @@ def test_v53_governor_has_no_speed_boundary_and_wall_guard_is_0p10cm() -> None:
     assert row["rejection_reason"] == ""
 
 
-def test_v53_score_rewards_final_path_updraft_and_time_without_speed_or_energy_loss_penalty() -> None:
+def test_v53_governor_soft_score_tracks_front_wall_mission_utility() -> None:
+    timing_payload = {
+        "finite_horizon_s": 0.1,
+        "controller_input_slots_per_primitive": 5,
+        "controller_input_update_period_s": 0.02,
+        "primitive_timing_contract_version": "v411_0p10s_5slot_20ms",
+    }
+    representative = {
+        "compact_library_id": "launch",
+        "primitive_variant_id": "launch",
+        "primitive_id": "glide",
+        "entry_role": "transition_object",
+        "transition_entry_class": "launch_gate",
+        "controller_id": "ctrl_launch",
+        "K_gain_checksum": "k",
+        "augmented_A_checksum": "a",
+        "augmented_B_checksum": "b",
+        "augmented_gain_checksum": "g",
+        **timing_payload,
+    }
+    outcome = {
+        "continuation_probability": 0.5,
+        "transition_success_probability": 0.5,
+        "transition_exit_classes_seen": "post_launch_degraded",
+        "terminal_useful_probability": 0.0,
+        "hard_failure_risk": 0.1,
+    }
+    context = {
+        "context_id": "mission_soft_score",
+        "start_state_family": "launch_gate",
+        "current_x_w_m": 1.3,
+        "current_y_w_m": 2.2,
+        "current_z_w_m": 1.1,
+        "mission_x_min_w_m": 1.2,
+        "front_wall_target_x_w_m": 6.6,
+        "mission_terminal_y_min_m": 0.0,
+        "mission_terminal_y_max_m": 4.4,
+        "mission_terminal_z_min_m": 0.4,
+        "mission_terminal_z_max_m": 3.5,
+        "mission_terminal_specific_energy_reference_m": 0.4,
+        "governor_wall_margin_m": 0.5,
+        "wall_margin_m": 0.5,
+        "floor_margin_m": 0.7,
+        "ceiling_margin_m": 2.4,
+        "latency_case": "nominal",
+    }
+
+    def row(exit_x: float, *, exit_y: float = 2.2, exit_z: float = 1.4, speed: float = 5.0, residual: float = 0.0) -> dict[str, object]:
+        return governor_candidate_row(
+            representative=representative,
+            outcome=outcome,
+            context=context,
+            governor_mode="continuation_mode",
+            belief_features={
+                "belief_local_updraft_gain_residual_m": residual,
+                "belief_candidate_path_exit_x_w_m": exit_x,
+                "belief_candidate_path_exit_y_w_m": exit_y,
+                "belief_candidate_path_exit_z_w_m": exit_z,
+                "belief_candidate_path_speed_m_s": speed,
+            },
+        )
+
+    short = row(3.0)
+    forward = row(5.0)
+    energetic = row(5.0, exit_z=2.0, speed=6.5)
+    wrong_wall = row(3.0, exit_y=0.0)
+    memory = row(5.0, residual=0.2)
+
+    assert forward["mission_front_wall_progress_fraction"] > short["mission_front_wall_progress_fraction"]
+    assert forward["base_score_without_memory"] > short["base_score_without_memory"]
+    assert energetic["mission_terminal_energy_progress_proxy_m"] > forward["mission_terminal_energy_progress_proxy_m"]
+    assert energetic["base_score_without_memory"] > forward["base_score_without_memory"]
+    assert wrong_wall["mission_wrong_boundary_proxy"] == pytest.approx(1.0)
+    assert wrong_wall["base_score_without_memory"] < short["base_score_without_memory"]
+    assert memory["memory_score_component"] == pytest.approx(DEFAULT_GOVERNOR_CONFIG.belief_weight * 0.2)
+
+
+def test_v53_no_memory_baseline_still_uses_candidate_path_mission_geometry() -> None:
+    timing_payload = {
+        "finite_horizon_s": 0.1,
+        "controller_input_slots_per_primitive": 5,
+        "controller_input_update_period_s": 0.02,
+        "primitive_timing_contract_version": "v411_0p10s_5slot_20ms",
+    }
+    representatives = []
+    outcomes = {}
+    for variant_id in ("short", "far"):
+        representatives.append(
+            {
+                "compact_library_id": variant_id,
+                "primitive_variant_id": variant_id,
+                "primitive_id": "glide",
+                "entry_role": "transition_object",
+                "transition_entry_class": "launch_gate",
+                "controller_id": f"ctrl_{variant_id}",
+                "K_gain_checksum": "k",
+                "augmented_A_checksum": "a",
+                "augmented_B_checksum": "b",
+                "augmented_gain_checksum": "g",
+                **timing_payload,
+            }
+        )
+        outcomes[variant_id] = {
+            "continuation_probability": 0.5,
+            "transition_success_probability": 0.5,
+            "transition_exit_classes_seen": "post_launch_degraded",
+            "terminal_useful_probability": 0.0,
+            "hard_failure_risk": 0.1,
+        }
+
+    def candidate_path_features(representative: dict[str, object], outcome: dict[str, object]) -> dict[str, object]:
+        variant_id = str(representative["primitive_variant_id"])
+        return {
+            "belief_candidate_path_residual_memory_active": False,
+            "belief_candidate_path_exit_x_w_m": 5.0 if variant_id == "far" else 3.0,
+            "belief_candidate_path_exit_y_w_m": 2.2,
+            "belief_candidate_path_exit_z_w_m": 1.4,
+            "belief_candidate_path_speed_m_s": 5.0,
+        }
+
+    selected, rows = select_compact_representative(
+        representatives=representatives,
+        outcome_rows_by_variant_id=outcomes,
+        context={
+            "context_id": "no_memory_mission_geometry",
+            "start_state_family": "launch_gate",
+            "current_x_w_m": 1.3,
+            "current_y_w_m": 2.2,
+            "current_z_w_m": 1.1,
+            "mission_x_min_w_m": 1.2,
+            "front_wall_target_x_w_m": 6.6,
+            "mission_terminal_y_min_m": 0.0,
+            "mission_terminal_y_max_m": 4.4,
+            "mission_terminal_z_min_m": 0.4,
+            "mission_terminal_z_max_m": 3.5,
+            "governor_wall_margin_m": 0.5,
+            "wall_margin_m": 0.5,
+            "floor_margin_m": 0.7,
+            "ceiling_margin_m": 2.4,
+            "latency_case": "nominal",
+        },
+        governor_mode="continuation_mode",
+        candidate_belief_features=candidate_path_features,
+        adaptive_memory_active=False,
+    )
+
+    by_variant = {str(row["primitive_variant_id"]): row for row in rows}
+    assert selected is not None
+    assert selected["primitive_variant_id"] == "far"
+    assert by_variant["far"]["mission_front_wall_progress_fraction"] > by_variant["short"]["mission_front_wall_progress_fraction"]
+    assert by_variant["far"]["memory_score_component"] == pytest.approx(0.0)
+    assert by_variant["far"]["memory_shield_status"] == "not_active_no_candidate_path_memory"
+
+
+def test_v53_score_rewards_front_wall_mission_and_updraft_without_time_or_energy_loss_penalty() -> None:
     base = {
         "safe_success": True,
+        "mission_success": False,
+        "front_wall_terminal_success": False,
+        "wrong_wall_exit": False,
         "terminal_useful": False,
         "lift_capture": True,
         "hard_failure": False,
@@ -386,12 +549,34 @@ def test_v53_score_rewards_final_path_updraft_and_time_without_speed_or_energy_l
     more_updraft = _launch_score_fields({**base, "updraft_specific_energy_gain_proxy_m": 0.8})
     longer = _launch_score_fields({**base, "episode_rollout_duration_s": 1.5})
     more_loss = _launch_score_fields({**base, "gross_specific_energy_loss_m": 99.0, "net_specific_energy_delta_m": -99.0})
+    front_wall = _launch_score_fields(
+        {
+            **base,
+            "mission_success": True,
+            "front_wall_terminal_success": True,
+            "terminal_useful": True,
+            "terminal_specific_energy_m": 1.0,
+        }
+    )
+    front_wall_more_terminal_energy = _launch_score_fields(
+        {
+            **base,
+            "mission_success": True,
+            "front_wall_terminal_success": True,
+            "terminal_useful": True,
+            "terminal_specific_energy_m": 3.0,
+        }
+    )
+    wrong_wall = _launch_score_fields({**base, "wrong_wall_exit": True, "terminal_wall_face": "side_wall_y_max"})
     assert more_updraft["launch_score"] > score["launch_score"]
-    assert longer["launch_score"] > score["launch_score"]
+    assert longer["launch_score"] == pytest.approx(score["launch_score"])
     assert more_loss["launch_score"] == pytest.approx(score["launch_score"])
-    controlled_terminal = _launch_score_fields({**base, "terminal_useful": True, "min_wall_margin_m": -0.05})
-    assert controlled_terminal["base_failure_penalty_reason"] == "none"
-    assert controlled_terminal["safety_multiplier"] == pytest.approx(1.0)
+    assert front_wall["launch_score"] > score["launch_score"]
+    assert front_wall_more_terminal_energy["launch_score"] > front_wall["launch_score"]
+    assert front_wall_more_terminal_energy["terminal_specific_energy_bonus"] > front_wall["terminal_specific_energy_bonus"]
+    assert wrong_wall["base_failure_penalty_reason"] == "wrong_wall_exit"
+    assert wrong_wall["launch_score"] == pytest.approx(-50.0)
+    assert score["airborne_time_reward_status"] == "audit_only_not_rewarded"
 
     final_score = _launch_score_fields_for_role({**base, "launch_role": "final_heldout"})
     history_score = _launch_score_fields_for_role({**base, "launch_role": "history"})
@@ -404,8 +589,8 @@ def test_v53_r10_and_r11_changed_case_randomisation_semantics_match() -> None:
     assert tuple(block.block_id for block in R10_PROTOCOL.blocks) == (
         R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     )
-    assert R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * 140
-    assert R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 140 * (5 + 20 + 100 + 20)
+    assert R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * 50
+    assert R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 50 * (3 + 10 + 30)
 
     assert tuple(block.block_id for block in R11_PROTOCOL.blocks) == (
         R11_L0_DRY_AIR_FIXED_BLOCK_ID,
@@ -417,8 +602,8 @@ def test_v53_r10_and_r11_changed_case_randomisation_semantics_match() -> None:
         R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
         R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     )
-    assert R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * 160
-    assert R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 160 * (5 + 20 + 100 + 20)
+    assert R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * 80
+    assert R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 80 * (3 + 10 + 30)
 
     assert _scheduled_active_fan_count_for_outer_case(
         protocol=R11_PROTOCOL,

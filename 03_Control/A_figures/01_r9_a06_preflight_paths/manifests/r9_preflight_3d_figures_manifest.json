@@ -1,0 +1,84 @@
+{
+  "claim_status": "r9_preflight_visualisation_only_no_memory_improvement_claim",
+  "environment_blocks": [
+    "no_updraft",
+    "single_fan",
+    "four_fan"
+  ],
+  "figsize_height_in": 5.625,
+  "figsize_width_in": 10.8,
+  "figure_count": 9,
+  "figure_file_prefix": "r9_a06",
+  "figure_run_version": "r9_preflight_3d_paths_v2",
+  "figures": [
+    "03_Control/A_figures/01_r9_a06_preflight_paths/figures/r9_a06_no_updraft_history_paths_3d.png",
+    "03_Control/A_figures/01_r9_a06_preflight_paths/figures/r9_a06_no_updraft_history_h30_paths_3d.png",
+    "03_Control/A_figures/01_r9_a06_preflight_paths/figures/r9_a06_no_updraft_final_paired_paths_3d.png",
+    "03_Control/A_figures/01_r9_a06_preflight_paths/figures/r9_a06_single_fan_history_paths_3d.png",
+    "03_Control/A_figures/01_r9_a06_preflight_paths/figures/r9_a06_single_fan_history_h30_paths_3d.png",
+    "03_Control/A_figures/01_r9_a06_preflight_paths/figures/r9_a06_single_fan_final_paired_paths_3d.png",
+    "03_Control/A_figures/01_r9_a06_preflight_paths/figures/r9_a06_four_fan_history_paths_3d.png",
+    "03_Control/A_figures/01_r9_a06_preflight_paths/figures/r9_a06_four_fan_history_h30_paths_3d.png",
+    "03_Control/A_figures/01_r9_a06_preflight_paths/figures/r9_a06_four_fan_final_paired_paths_3d.png"
+  ],
+  "final_policy_order": [
+    "no_memory_baseline",
+    "directional_3d_residual_memory_h3",
+    "directional_3d_residual_memory_h10",
+    "directional_3d_residual_memory_h30"
+  ],
+  "history_policy_id": "directional_3d_residual_memory_h10",
+  "history_policy_ids": [
+    "directional_3d_residual_memory_h10",
+    "directional_3d_residual_memory_h30"
+  ],
+  "input_root": "03_Control/05_Results/R9_test/A06",
+  "library_size_case_id": "balanced_cluster",
+  "plot_frame_boundary_name": "true_safe",
+  "plot_frame_x_w_m": [
+    1.2,
+    6.6
+  ],
+  "plot_frame_y_w_m": [
+    0.0,
+    4.4
+  ],
+  "plot_frame_z_w_m": [
+    0.4,
+    3.5
+  ],
+  "primitive_marker": "o",
+  "run_root": "03_Control/A_figures/01_r9_a06_preflight_paths",
+  "status": "complete",
+  "tracker_limit_boundary_name": "tracker_limit",
+  "tracker_limit_x_w_m": [
+    0.0,
+    8.0
+  ],
+  "tracker_limit_y_w_m": [
+    0.0,
+    4.8
+  ],
+  "tracker_limit_z_w_m": [
+    0.0,
+    3.5
+  ],
+  "true_safe_boundary_name": "true_safe",
+  "true_safe_x_w_m": [
+    1.2,
+    6.6
+  ],
+  "true_safe_y_w_m": [
+    0.0,
+    4.4
+  ],
+  "true_safe_z_w_m": [
+    0.4,
+    3.5
+  ],
+  "updraft_grid_nx": 56,
+  "updraft_grid_ny": 36,
+  "updraft_grid_nz": 30,
+  "updraft_iso_surface_method": "marching_cubes",
+  "updraft_style_reference": "01_Thermal/four_fan_gp_3D.py centre slices plus isosurfaces"
+}

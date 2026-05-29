@@ -73,6 +73,17 @@ thesis-facing evidence, R10 is single-block full-domain arena-wide governor
 tuning, and R11 is strict held-out eight-block fidelity-ladder validation. R9 defaults to all five
 library-size cases, no-updraft/single-fan/four-fan fixed blocks, no-memory plus
 h3/h10/h30 recency-weighted candidate-path residual memory, 60 final held-out launches, and 645 history launches.
+The R9/R10/R11 governor uses the same candidate-path geometry for no-memory and
+memory policies: forward progress to `x_w = 6.6 m`, front-wall terminal proxy,
+progress-gated terminal total specific-energy proxy, wrong-boundary avoidance,
+and then updraft/lift plus optional residual-memory correction after unchanged
+safety and transition-entry filters.
+R9/R10/R11 final launch scoring uses the current front-wall mission score:
+front-wall terminal success at `x_w = 6.6 m` with y/z inside the true safe
+bounds is the main success component, updraft-gain and lift-dwell terms remain
+capped lift-usefulness evidence, terminal total specific-energy reserve is
+rewarded only after front-wall success, and airborne time/net/gross energy drift
+remain audit-only fields.
 R9/R10/R11 also write a repeated-launch real-time scheduler profile: context
 construction, memory query, and compact-library selection are measured against
 a preferred 20 ms controller-slot budget and a hard 0.100 s primitive-boundary

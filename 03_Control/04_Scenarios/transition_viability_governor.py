@@ -20,7 +20,7 @@ from viability_governor import (
 )
 
 
-ACTIVE_GOVERNOR_PATH = "transition_viability_governor_v1"
+ACTIVE_GOVERNOR_PATH = "mission_aligned_transition_viability_governor_v1"
 
 
 __all__ = [

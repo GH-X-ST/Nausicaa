@@ -166,10 +166,11 @@ def run_r9_preflight_3d_figures(config: R9PreflightFigureConfig) -> dict[str, ob
 
     figure_rows: list[dict[str, object]] = []
     history_policy_ids = _ordered_unique((str(config.history_policy_id), H30_HISTORY_POLICY))
+    figure_prefix = _figure_file_prefix(input_root)
     for environment_block_id in ENVIRONMENT_BLOCKS:
-        history_path = run_root / "figures" / f"r9_a05_{environment_block_id}_history_paths_3d.png"
-        history_h30_path = run_root / "figures" / f"r9_a05_{environment_block_id}_history_h30_paths_3d.png"
-        final_path = run_root / "figures" / f"r9_a05_{environment_block_id}_final_paired_paths_3d.png"
+        history_path = run_root / "figures" / f"{figure_prefix}_{environment_block_id}_history_paths_3d.png"
+        history_h30_path = run_root / "figures" / f"{figure_prefix}_{environment_block_id}_history_h30_paths_3d.png"
+        final_path = run_root / "figures" / f"{figure_prefix}_{environment_block_id}_final_paired_paths_3d.png"
         history_meta = _plot_history_paths(
             primitive_log=primitive_log,
             episode_summary=episode_summary,
@@ -212,6 +213,7 @@ def run_r9_preflight_3d_figures(config: R9PreflightFigureConfig) -> dict[str, ob
         "status": "complete",
         "input_root": input_root.as_posix(),
         "run_root": run_root.as_posix(),
+        "figure_file_prefix": figure_prefix,
         "library_size_case_id": str(config.library_size_case_id),
         "history_policy_id": str(config.history_policy_id),
         "history_policy_ids": history_policy_ids,
@@ -266,6 +268,13 @@ def _history_policy_short_label(policy_id: str) -> str:
     if text.endswith("_h3"):
         return "h3"
     return text
+
+
+def _figure_file_prefix(input_root: Path) -> str:
+    run_name = Path(input_root).name.strip().lower()
+    if run_name.startswith("a") and run_name[1:].isdigit():
+        return f"r9_{run_name}"
+    return "r9_preflight"
 
 
 def _plot_history_paths(
@@ -927,7 +936,10 @@ def _policy_safe_success(summary: pd.DataFrame, policy_id: str) -> bool:
     rows = summary[summary["policy_id"].astype(str) == str(policy_id)]
     if rows.empty:
         return False
-    return bool(rows.iloc[0].get("safe_success", False))
+    row = rows.iloc[0]
+    if "mission_success" in rows.columns:
+        return bool(row.get("mission_success", False))
+    return bool(row.get("safe_success", False))
 
 
 def _add_legend(ax) -> None:
@@ -1007,7 +1019,7 @@ def _write_report(run_root: Path, manifest: dict[str, object], figure_frame: pd.
     lines = [
         "# R9 Preflight 3D Figures",
         "",
-        "This run visualises fixed-case R9 A05 behaviour using the shared four-fan 3D plotting baseline.",
+        f"This run visualises fixed-case R9 behaviour from `{manifest['input_root']}` using the shared four-fan 3D plotting baseline.",
         "The updraft context uses low-resolution 3D centre slices and transparent isosurfaces, "
         "following the `01_Thermal/four_fan_gp_3D.py` visual style.",
         "",

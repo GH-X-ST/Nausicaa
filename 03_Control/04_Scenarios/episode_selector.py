@@ -31,6 +31,7 @@ def select_compact_representative(
     policy_id: str = "",
     belief_features: dict[str, float] | None = None,
     candidate_belief_features: CandidateBeliefFeaturesFn | None = None,
+    adaptive_memory_active: bool | None = None,
     governor_config: GovernorConfig | None = None,
 ) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
     """Return the highest-scoring viable compact representative and all candidate rows."""
@@ -84,7 +85,7 @@ def select_compact_representative(
         viable_rows=viable,
         baseline_selected=baseline_selected,
         memory_selected=memory_selected,
-        memory_active=candidate_belief_features is not None,
+        memory_active=bool(candidate_belief_features is not None if adaptive_memory_active is None else adaptive_memory_active),
     )
     selected_score = float(selected.get("total_score_with_memory_and_exploration", selected.get("score", float("-inf"))))
     for row in candidate_rows:

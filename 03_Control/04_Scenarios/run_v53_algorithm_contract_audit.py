@@ -181,7 +181,7 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     rows.append(_row("stage_order_r5_r7_r8_r10_r11", STAGE_ORDER == ("R5", "R7", "R8", "R10", "R11"), STAGE_ORDER, ("R5", "R7", "R8", "R10", "R11")))
     rows.append(_row("r6_archived_only", ARCHIVED_STAGES == ("R6",), ARCHIVED_STAGES, ("R6",)))
-    rows.append(_row("active_governor_path_transition_viability", ACTIVE_GOVERNOR_PATH == "transition_viability_governor_v1", ACTIVE_GOVERNOR_PATH, "transition_viability_governor_v1"))
+    rows.append(_row("active_governor_path_mission_aligned_transition_viability", ACTIVE_GOVERNOR_PATH == "mission_aligned_transition_viability_governor_v1", ACTIVE_GOVERNOR_PATH, "mission_aligned_transition_viability_governor_v1"))
     rows.append(_row("transition_state_classes_exact", STATE_CLASSES == ("launch_gate", "post_launch_degraded", "inflight_stable", "boundary_near", "recoverable_degraded", "safe_terminal", "hard_failure"), STATE_CLASSES, "seven compact transition classes"))
     expected_entry_contract = {
         "launch_gate": ("post_launch_degraded", "inflight_stable"),
@@ -266,6 +266,7 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
         )
     )
     rows.append(_row("active_governor_uses_updraft_gain_weight", hasattr(DEFAULT_GOVERNOR_CONFIG, "updraft_gain_weight") and hasattr(DEFAULT_GOVERNOR_CONFIG, "terminal_updraft_gain_weight"), DEFAULT_GOVERNOR_CONFIG.config_id, "updraft_gain_weight fields"))
+    rows.append(_row("active_governor_uses_front_wall_mission_terms", hasattr(DEFAULT_GOVERNOR_CONFIG, "mission_front_progress_weight") and hasattr(DEFAULT_GOVERNOR_CONFIG, "mission_terminal_energy_weight"), DEFAULT_GOVERNOR_CONFIG.config_id, "front-wall progress and terminal-energy proxy fields"))
     legacy_config = governor_config_from_row({"config_id": "legacy", "energy_weight": 0.12, "terminal_energy_weight": 0.34})
     rows.append(_row("legacy_energy_weight_maps_to_updraft_gain_weight", legacy_config.updraft_gain_weight == 0.12 and legacy_config.terminal_updraft_gain_weight == 0.34, {"updraft": legacy_config.updraft_gain_weight, "terminal": legacy_config.terminal_updraft_gain_weight}, {"updraft": 0.12, "terminal": 0.34}))
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import math
 
 from lqr_linearisation import lqr_speed_bin_id
 from primitive_timing_contract import PRIMITIVE_FINITE_HORIZON_S
@@ -44,10 +45,14 @@ class GovernorConfig:
     terminal_hard_failure_weight: float
     terminal_updraft_gain_weight: float
     terminal_lift_dwell_weight: float
+    mission_front_progress_weight: float = 0.28
+    mission_front_terminal_weight: float = 0.70
+    mission_terminal_energy_weight: float = 0.035
+    mission_wrong_boundary_penalty_weight: float = 0.35
 
 
 DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
-    config_id="v53_viability_filtered_safe_exploration_governor_wall_0p10cm",
+    config_id="v53_mission_aligned_safe_exploration_governor_wall_0p10cm",
     minimum_wall_margin_m=0.001,
     maximum_hard_failure_risk=0.75,
     continuation_weight=1.00,
@@ -65,7 +70,22 @@ DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
     terminal_hard_failure_weight=-0.75,
     terminal_updraft_gain_weight=0.05,
     terminal_lift_dwell_weight=0.04,
+    mission_front_progress_weight=0.28,
+    mission_front_terminal_weight=0.70,
+    mission_terminal_energy_weight=0.035,
+    mission_wrong_boundary_penalty_weight=0.35,
 )
+
+MISSION_DEFAULT_X_MIN_W_M = 1.2
+MISSION_DEFAULT_FRONT_WALL_X_W_M = 6.6
+MISSION_DEFAULT_Y_MIN_W_M = 0.0
+MISSION_DEFAULT_Y_MAX_W_M = 4.4
+MISSION_DEFAULT_Z_MIN_W_M = 0.4
+MISSION_DEFAULT_Z_MAX_W_M = 3.5
+MISSION_FRONT_WALL_TOL_M = 0.05
+MISSION_BOUNDARY_TOL_M = 0.02
+MISSION_TERMINAL_ENERGY_PROXY_CAP_M = 3.0
+SPECIFIC_ENERGY_GRAVITY_M_S2 = 9.80665
 
 
 @dataclass(frozen=True)
@@ -156,6 +176,7 @@ def governor_candidate_row(
     belief_uncertainty = _float(belief_features.get("belief_uncertainty", 1.0), default=1.0)
     belief_observation_count = int(_float(belief_features.get("belief_observation_count", 0.0)))
     history_length = int(_float(context.get("history_length", belief_features.get("history_length", belief_observation_count))))
+    mission = _candidate_mission_alignment_features(context=context, belief_features=belief_features)
     base_score = governor_score(
         governor_mode=governor_mode,
         continuation_probability=continuation_probability,
@@ -165,6 +186,10 @@ def governor_candidate_row(
         expected_lift_dwell_time_s=dwell,
         wall_margin_m=wall_margin,
         belief_local_lift_m_s=0.0,
+        mission_front_progress_fraction=mission["mission_front_wall_progress_fraction"],
+        mission_front_terminal_proxy=mission["mission_front_wall_terminal_proxy"],
+        mission_terminal_energy_proxy_m=mission["mission_terminal_energy_progress_proxy_m"],
+        mission_wrong_boundary_proxy=mission["mission_wrong_boundary_proxy"],
         governor_config=cfg,
     )
     score_with_memory = governor_score(
@@ -176,9 +201,20 @@ def governor_candidate_row(
         expected_lift_dwell_time_s=dwell,
         wall_margin_m=wall_margin,
         belief_local_lift_m_s=belief_updraft_gain_residual,
+        mission_front_progress_fraction=mission["mission_front_wall_progress_fraction"],
+        mission_front_terminal_proxy=mission["mission_front_wall_terminal_proxy"],
+        mission_terminal_energy_proxy_m=mission["mission_terminal_energy_progress_proxy_m"],
+        mission_wrong_boundary_proxy=mission["mission_wrong_boundary_proxy"],
         governor_config=cfg,
     )
     memory_component = float(score_with_memory) - float(base_score)
+    mission_score_component = _mission_score_component(
+        mission_front_progress_fraction=mission["mission_front_wall_progress_fraction"],
+        mission_front_terminal_proxy=mission["mission_front_wall_terminal_proxy"],
+        mission_terminal_energy_proxy_m=mission["mission_terminal_energy_progress_proxy_m"],
+        mission_wrong_boundary_proxy=mission["mission_wrong_boundary_proxy"],
+        governor_config=cfg,
+    )
     viable = bool(rejection_reason == "")
     exploration_component = _safe_exploration_bonus(
         viable=viable,
@@ -231,6 +267,8 @@ def governor_candidate_row(
         "base_score_without_memory": float(base_score if rejection_reason == "" else float("-inf")),
         "memory_score_component": float(memory_component if viable else 0.0),
         "memory_residual_score_component": float(memory_component if viable else 0.0),
+        "mission_score_component": float(mission_score_component if viable else 0.0),
+        **mission,
         "exploration_score_component": float(exploration_component if viable else 0.0),
         "score_with_memory": float(score_with_memory if rejection_reason == "" else float("-inf")),
         "total_score_with_memory_and_exploration": float(total_score if viable else float("-inf")),
@@ -274,6 +312,9 @@ def governor_candidate_row(
         "belief_memory_policy_version": str(belief_features.get("belief_memory_policy_version", "")),
         "belief_candidate_path_probe_count": int(_float(belief_features.get("belief_candidate_path_probe_count", 0.0))),
         "belief_candidate_path_lookahead_s": _float(belief_features.get("belief_candidate_path_lookahead_s", 0.0)),
+        "belief_candidate_path_residual_memory_active": bool(
+            belief_features.get("belief_candidate_path_residual_memory_active", False)
+        ),
         "belief_candidate_path_confidence": _float(belief_features.get("belief_candidate_path_confidence", 0.0)),
         "belief_candidate_path_updraft_residual_uncapped_m": _float(
             belief_features.get("belief_candidate_path_updraft_residual_uncapped_m", belief_updraft_gain_residual)
@@ -387,11 +428,22 @@ def governor_score(
     expected_lift_dwell_time_s: float,
     wall_margin_m: float,
     belief_local_lift_m_s: float = 0.0,
+    mission_front_progress_fraction: float = 0.0,
+    mission_front_terminal_proxy: float = 0.0,
+    mission_terminal_energy_proxy_m: float = 0.0,
+    mission_wrong_boundary_proxy: float = 0.0,
     governor_config: GovernorConfig | None = None,
 ) -> float:
     """Return an interpretable deterministic selector score."""
 
     cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
+    mission_component = _mission_score_component(
+        mission_front_progress_fraction=mission_front_progress_fraction,
+        mission_front_terminal_proxy=mission_front_terminal_proxy,
+        mission_terminal_energy_proxy_m=mission_terminal_energy_proxy_m,
+        mission_wrong_boundary_proxy=mission_wrong_boundary_proxy,
+        governor_config=cfg,
+    )
     if governor_mode == "terminal_episode_mode":
         return (
             cfg.terminal_mode_bias
@@ -401,6 +453,7 @@ def governor_score(
             + cfg.terminal_updraft_gain_weight * float(expected_updraft_gain_proxy_m)
             + cfg.terminal_lift_dwell_weight * float(expected_lift_dwell_time_s)
             + cfg.belief_weight * float(belief_local_lift_m_s)
+            + mission_component
         )
     return (
         cfg.continuation_mode_bias
@@ -410,6 +463,7 @@ def governor_score(
         + cfg.updraft_gain_weight * float(expected_updraft_gain_proxy_m)
         + cfg.lift_dwell_weight * float(expected_lift_dwell_time_s)
         + cfg.belief_weight * float(belief_local_lift_m_s)
+        + mission_component
     )
 
 
@@ -425,6 +479,103 @@ def _config_from_thresholds(thresholds: GovernorThresholds | None) -> GovernorCo
 
 def _governor_wall_margin(context: dict[str, object]) -> float:
     return _float(context.get("governor_wall_margin_m", context.get("wall_margin_m", 0.0)))
+
+
+def _candidate_mission_alignment_features(
+    *,
+    context: dict[str, object],
+    belief_features: dict[str, object],
+) -> dict[str, float | bool | str]:
+    current_x = _finite_float(context.get("current_x_w_m", context.get("x_w_m", MISSION_DEFAULT_X_MIN_W_M)), MISSION_DEFAULT_X_MIN_W_M)
+    current_y = _finite_float(context.get("current_y_w_m", context.get("y_w_m", 0.5 * (MISSION_DEFAULT_Y_MIN_W_M + MISSION_DEFAULT_Y_MAX_W_M))), 0.5 * (MISSION_DEFAULT_Y_MIN_W_M + MISSION_DEFAULT_Y_MAX_W_M))
+    current_z = _finite_float(context.get("current_z_w_m", context.get("z_w_m", MISSION_DEFAULT_Z_MIN_W_M)), MISSION_DEFAULT_Z_MIN_W_M)
+    front_x = _finite_float(
+        context.get("front_wall_target_x_w_m", context.get("mission_front_wall_target_x_w_m", MISSION_DEFAULT_FRONT_WALL_X_W_M)),
+        MISSION_DEFAULT_FRONT_WALL_X_W_M,
+    )
+    x_min = _finite_float(context.get("mission_x_min_w_m", MISSION_DEFAULT_X_MIN_W_M), MISSION_DEFAULT_X_MIN_W_M)
+    y_min = _finite_float(context.get("mission_terminal_y_min_m", MISSION_DEFAULT_Y_MIN_W_M), MISSION_DEFAULT_Y_MIN_W_M)
+    y_max = _finite_float(context.get("mission_terminal_y_max_m", MISSION_DEFAULT_Y_MAX_W_M), MISSION_DEFAULT_Y_MAX_W_M)
+    z_min = _finite_float(context.get("mission_terminal_z_min_m", MISSION_DEFAULT_Z_MIN_W_M), MISSION_DEFAULT_Z_MIN_W_M)
+    z_max = _finite_float(context.get("mission_terminal_z_max_m", MISSION_DEFAULT_Z_MAX_W_M), MISSION_DEFAULT_Z_MAX_W_M)
+    exit_x = _finite_float(belief_features.get("belief_candidate_path_exit_x_w_m", current_x), current_x)
+    exit_y = _finite_float(belief_features.get("belief_candidate_path_exit_y_w_m", current_y), current_y)
+    exit_z = _finite_float(belief_features.get("belief_candidate_path_exit_z_w_m", current_z), current_z)
+    path_speed = _finite_float(belief_features.get("belief_candidate_path_speed_m_s", 0.0), 0.0)
+    remaining_x = max(float(front_x) - float(current_x), 1e-6)
+    progress = _clip((float(exit_x) - float(current_x)) / remaining_x, 0.0, 1.0)
+    front_terminal = float(
+        float(exit_x) >= float(front_x) - MISSION_FRONT_WALL_TOL_M
+        and float(y_min) - MISSION_FRONT_WALL_TOL_M <= float(exit_y) <= float(y_max) + MISSION_FRONT_WALL_TOL_M
+        and float(z_min) - MISSION_FRONT_WALL_TOL_M <= float(exit_z) <= float(z_max) + MISSION_FRONT_WALL_TOL_M
+    )
+    side_or_rear_boundary = bool(
+        float(exit_x) <= float(x_min) + MISSION_BOUNDARY_TOL_M
+        or float(exit_y) <= float(y_min) + MISSION_BOUNDARY_TOL_M
+        or float(exit_y) >= float(y_max) - MISSION_BOUNDARY_TOL_M
+    )
+    vertical_boundary = bool(
+        float(exit_z) <= float(z_min) + MISSION_BOUNDARY_TOL_M
+        or float(exit_z) >= float(z_max) - MISSION_BOUNDARY_TOL_M
+    )
+    wrong_boundary = float(
+        (side_or_rear_boundary or vertical_boundary)
+        and float(exit_x) < float(front_x) - MISSION_FRONT_WALL_TOL_M
+    )
+    specific_energy = (
+        float(exit_z) + float(path_speed) * float(path_speed) / (2.0 * SPECIFIC_ENERGY_GRAVITY_M_S2)
+        if float(path_speed) > 0.0
+        else float(exit_z)
+    )
+    energy_reference = _finite_float(
+        context.get("mission_terminal_specific_energy_reference_m", context.get("terminal_specific_energy_reference_m", z_min)),
+        z_min,
+    )
+    energy_reserve = _clip(float(specific_energy) - float(energy_reference), 0.0, MISSION_TERMINAL_ENERGY_PROXY_CAP_M)
+    energy_progress_proxy = float(energy_reserve) * max(float(progress), float(front_terminal))
+    return {
+        "mission_policy_version": "candidate_path_front_wall_energy_governor_v1",
+        "mission_front_wall_target_x_w_m": float(front_x),
+        "mission_candidate_path_current_x_w_m": float(current_x),
+        "mission_candidate_path_current_y_w_m": float(current_y),
+        "mission_candidate_path_current_z_w_m": float(current_z),
+        "mission_candidate_path_exit_x_w_m": float(exit_x),
+        "mission_candidate_path_exit_y_w_m": float(exit_y),
+        "mission_candidate_path_exit_z_w_m": float(exit_z),
+        "mission_candidate_path_speed_m_s": float(path_speed),
+        "mission_front_wall_progress_fraction": float(progress),
+        "mission_front_wall_terminal_proxy": float(front_terminal),
+        "mission_wrong_boundary_proxy": float(wrong_boundary),
+        "mission_candidate_total_specific_energy_proxy_m": float(specific_energy),
+        "mission_terminal_energy_reserve_proxy_m": float(energy_reserve),
+        "mission_terminal_energy_progress_proxy_m": float(energy_progress_proxy),
+    }
+
+
+def _mission_score_component(
+    *,
+    mission_front_progress_fraction: float,
+    mission_front_terminal_proxy: float,
+    mission_terminal_energy_proxy_m: float,
+    mission_wrong_boundary_proxy: float,
+    governor_config: GovernorConfig,
+) -> float:
+    return float(
+        governor_config.mission_front_progress_weight * _clip(float(mission_front_progress_fraction), 0.0, 1.0)
+        + governor_config.mission_front_terminal_weight * _clip(float(mission_front_terminal_proxy), 0.0, 1.0)
+        + governor_config.mission_terminal_energy_weight
+        * _clip(float(mission_terminal_energy_proxy_m), 0.0, MISSION_TERMINAL_ENERGY_PROXY_CAP_M)
+        - governor_config.mission_wrong_boundary_penalty_weight * _clip(float(mission_wrong_boundary_proxy), 0.0, 1.0)
+    )
+
+
+def _clip(value: float, lower: float, upper: float) -> float:
+    return float(min(max(float(value), float(lower)), float(upper)))
+
+
+def _finite_float(value: object, default: float) -> float:
+    result = _float(value, default)
+    return float(result) if math.isfinite(float(result)) else float(default)
 
 
 def _has_timing_payload(representative: dict[str, object]) -> bool:
