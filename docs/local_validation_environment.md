@@ -70,7 +70,10 @@ primitive synthesis, R6/W2 is archived diagnostic-only, R7 is frozen W3
 validation, R8 is the five-case coverage-aware medoid post-W3 library-size
 study, R9 is internal quick fixed-case preflight/ablation only and is not
 thesis-facing evidence, R10 is single-block full-domain arena-wide governor
-tuning, and R11 is strict held-out eight-block fidelity-ladder validation. R9 defaults to all five
+tuning, and R11 is strict held-out eight-block fidelity-ladder validation. R10
+tunes mission/risk weights plus memory sensitivity, shield margins, exploration
+thresholds, residual caps, confidence observations, and recency half-life; R11
+freezes that handoff for validation. R9 defaults to all five
 library-size cases, no-updraft/single-fan/four-fan fixed blocks, no-memory plus
 h3/h10/h30 recency-weighted candidate-path residual memory, 60 final held-out launches, and 645 history launches.
 The R9/R10/R11 governor uses the same candidate-path geometry for no-memory and

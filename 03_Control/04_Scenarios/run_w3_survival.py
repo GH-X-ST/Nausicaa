@@ -38,7 +38,6 @@ from dense_archive_table_io import (  # noqa: E402
 )
 from env_ctx import build_environment_context, environment_context_row  # noqa: E402
 from env_instance import (  # noqa: E402
-    EnvironmentRandomisationConfig,
     environment_instance_for_mode,
     environment_instance_row,
     environment_metadata_from_instance,
@@ -61,6 +60,18 @@ from primitive_timing_contract import (  # noqa: E402
     PRIMITIVE_TIMING_CONTRACT_VERSION,
     primitive_timing_contract_row,
 )
+from robust_evidence_distribution import (  # noqa: E402
+    R7_EVIDENCE_BLOCKS,
+    ROBUST_ACTIVE_FAN_COUNT_SEQUENCE,
+    ROBUST_EVIDENCE_DISTRIBUTION_VERSION,
+    evidence_block_by_id,
+    evidence_block_for_index,
+    evidence_block_ids,
+    evidence_block_manifest_rows,
+    randomisation_config_for_block,
+    scheduled_active_fan_count,
+    unique_environment_modes,
+)
 from state_sampling import archive_state_sample_for_family, archive_state_sample_row  # noqa: E402
 from transition_labels import transition_contract_row, transition_row_fields, turn_intent_row_fields  # noqa: E402
 
@@ -71,8 +82,9 @@ DEFAULT_R5_DISCOVERY_ROOT = Path("03_Control/05_Results/R5_dense")
 DEFAULT_W2_DISCOVERY_ROOT = Path("03_Control/05_Results/R6_archived")
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R7_survival")
 W3_TABLE_NAME = "w3_survival_rows"
-W3_ENVIRONMENT_CASES = ("dry_air", "w3_randomised_single", "w3_randomised_four")
-W3_ACTIVE_FAN_COUNT_SEQUENCE = (1, 2, 3, 4)
+W3_ENVIRONMENT_CASES = unique_environment_modes(R7_EVIDENCE_BLOCKS)
+R7_EVIDENCE_BLOCK_IDS = evidence_block_ids(R7_EVIDENCE_BLOCKS)
+W3_ACTIVE_FAN_COUNT_SEQUENCE = ROBUST_ACTIVE_FAN_COUNT_SEQUENCE
 REQUIRED_R5_ANNULAR_GP_TRAINING_CASES = (
     "w1_annular_gp_randomised_single",
     "w1_annular_gp_randomised_four",
@@ -244,7 +256,7 @@ def run_w3_survival(config: W3SurvivalConfig) -> dict[str, object]:
         )
         return _result_payload(run_root, "blocked")
 
-    row_count = int(config.rows) if config.rows is not None else len(records) * len(W3_ENVIRONMENT_CASES) * int(config.paired_tests_per_variant)
+    row_count = int(config.rows) if config.rows is not None else len(records) * len(R7_EVIDENCE_BLOCKS) * int(config.paired_tests_per_variant)
     schedule = _chunk_schedule(config, row_count=row_count, storage_format=storage_format)
     if config.stop_after_chunks is not None:
         schedule = schedule[: max(0, int(config.stop_after_chunks))]
@@ -642,17 +654,18 @@ def _row_for_index(
     replay_record = records[int(row_index) % len(records)]
     record = replay_record.record
     grouped_index = int(row_index) // len(records)
-    environment_mode = W3_ENVIRONMENT_CASES[grouped_index % len(W3_ENVIRONMENT_CASES)]
-    environment_layer = _environment_layer_for_mode(environment_mode)
-    paired_start_index = grouped_index // len(W3_ENVIRONMENT_CASES)
+    evidence_block = evidence_block_for_index(R7_EVIDENCE_BLOCKS, grouped_index)
+    environment_mode = str(evidence_block.environment_mode)
+    environment_layer = str(evidence_block.W_layer)
+    paired_start_index = grouped_index // len(R7_EVIDENCE_BLOCKS)
     start_family = _start_family_for_r5_selected_entry_class(
         transition_entry_class=replay_record.transition_entry_class,
         fallback_entry_role=record.variant.entry_role,
         paired_start_index=int(paired_start_index),
     )
     paired_start_key = f"w3_paired_{int(paired_start_index):07d}_{start_family}"
-    scheduled_active_fan_count = _scheduled_active_fan_count(
-        environment_mode=environment_mode,
+    scheduled_active_count = _scheduled_active_fan_count(
+        evidence_block_id=str(evidence_block.block_id),
         paired_start_index=int(paired_start_index),
     )
     sample = archive_state_sample_for_family(
@@ -667,9 +680,7 @@ def _row_for_index(
         environment_layer,
         environment_mode,
         int(config.seed) + int(row_index),
-        randomisation_config=EnvironmentRandomisationConfig(
-            active_fan_count=scheduled_active_fan_count if environment_mode == "w3_randomised_four" else None
-        ),
+        randomisation_config=randomisation_config_for_block(evidence_block, int(paired_start_index)),
     )
     metadata = environment_metadata_from_instance(environment)
     binding = resolve_surrogate_binding(environment_layer, metadata, randomisation_seed=int(config.seed) + int(row_index))
@@ -786,9 +797,17 @@ def _row_for_index(
             "environment_mode": environment_mode,
             "environment_validation_layer": environment_layer,
             "scheduled_active_fan_count": int(sum(bool(value) for value in environment.active_fan_mask)),
+            "r7_scheduled_active_fan_count_by_block": int(scheduled_active_count),
+            "r7_evidence_distribution_version": ROBUST_EVIDENCE_DISTRIBUTION_VERSION,
+            "r7_evidence_block_id": str(evidence_block.block_id),
+            "r7_evidence_block_label": str(evidence_block.human_label),
+            "r7_evidence_stage_role": str(evidence_block.stage_role),
+            "r7_uncertainty_tier": str(evidence_block.uncertainty_tier),
+            "r7_active_fan_count_policy": str(evidence_block.active_fan_count_policy),
+            "r7_fan_position_policy": str(evidence_block.fan_position_policy),
             "fixed_lqr_replay_only": True,
             "mutates_Q_R_K_reference_horizon_entry_set_or_entry_role": False,
-            "w3_environment_contract": "dry_air_plus_randomised_single_and_four_annular_gp_survival_replay_only",
+            "w3_environment_contract": "anchor_plus_r10_uncertainty_family_fixed_lqr_survival_replay_only",
             "baseline_controller_active": False,
             "claim_boundary": (
                 "test_fixture_not_method_evidence"
@@ -825,12 +844,9 @@ def _selection_float(replay_record: W3ReplayRecord, key: str) -> float:
         return 0.0
 
 
-def _scheduled_active_fan_count(*, environment_mode: str, paired_start_index: int) -> int:
-    if str(environment_mode) == "dry_air":
-        return 0
-    if str(environment_mode) == "w3_randomised_four":
-        return int(W3_ACTIVE_FAN_COUNT_SEQUENCE[int(paired_start_index) % len(W3_ACTIVE_FAN_COUNT_SEQUENCE)])
-    return 1
+def _scheduled_active_fan_count(*, evidence_block_id: str, paired_start_index: int) -> int:
+    block = evidence_block_by_id(R7_EVIDENCE_BLOCKS, evidence_block_id)
+    return scheduled_active_fan_count(block, paired_start_index)
 
 
 def _environment_layer_for_mode(environment_mode: str) -> str:
@@ -1035,6 +1051,10 @@ def _write_run_manifest(
             else status
         ),
         "paired_tests_per_variant": int(config.paired_tests_per_variant),
+        "r7_evidence_distribution_version": ROBUST_EVIDENCE_DISTRIBUTION_VERSION,
+        "r7_evidence_block_count": int(len(R7_EVIDENCE_BLOCKS)),
+        "r7_evidence_block_ids": list(R7_EVIDENCE_BLOCK_IDS),
+        "r7_evidence_blocks": evidence_block_manifest_rows(R7_EVIDENCE_BLOCKS),
         "candidate_chunk_size": int(config.candidate_chunk_size),
         "chunk_count": int(len(schedule)),
         "selected_worker_count": int(selected_worker_count),
@@ -1064,10 +1084,14 @@ def _write_randomisation_manifest(*, run_root: Path, config: W3SurvivalConfig, r
         {
             "version": "w3_randomisation_manifest_v1",
             "row_count": int(row_count),
+            "r7_evidence_distribution_version": ROBUST_EVIDENCE_DISTRIBUTION_VERSION,
+            "r7_evidence_block_count": int(len(R7_EVIDENCE_BLOCKS)),
+            "r7_evidence_block_ids": list(R7_EVIDENCE_BLOCK_IDS),
+            "r7_evidence_blocks": evidence_block_manifest_rows(R7_EVIDENCE_BLOCKS),
             "environment_modes": list(W3_ENVIRONMENT_CASES),
             "seed": int(config.seed),
             "randomisation_source": "env_instance_W3_single_layer_composed_annular_gp_modes",
-            "active_fan_count_policy": "dry_air_zero_fans_w3_randomised_single_fixed_one_w3_randomised_four_balanced_1_2_3_4",
+            "active_fan_count_policy": "anchor_controls_plus_uncertainty_blocks_with_balanced_0_1_2_3_4_active_fan_count_where_applicable",
             "w3_randomised_four_active_fan_count_sequence": list(W3_ACTIVE_FAN_COUNT_SEQUENCE),
             "duplicate_strength_width_centre_wrapper": "disabled",
             "active_strength_source": "fan_power_scales",
@@ -1103,6 +1127,11 @@ def _write_metrics_from_partitions(run_root: Path, partitions: Iterable[object])
             "start_state_family",
             "timing_state_source",
             "source_evidence_label",
+            "r7_evidence_block_id",
+            "r7_uncertainty_tier",
+            "r7_evidence_stage_role",
+            "r7_active_fan_count_policy",
+            "r7_fan_position_policy",
             "scheduled_active_fan_count",
             "transition_entry_class",
             "transition_exit_class",

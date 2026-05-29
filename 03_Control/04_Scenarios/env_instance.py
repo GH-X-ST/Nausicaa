@@ -42,6 +42,9 @@ class EnvironmentRandomisationConfig:
     uncertainty_scale_range: tuple[float, float] = (1.0, 1.5)
     launch_perturbation_policy: str = "launch_distribution_sampler"
     latency_model_uncertainty_policy: str = "nominal_or_conservative_case"
+    fan_layout_seed: int | None = None
+    active_fan_seed: int | None = None
+    fan_parameter_seed: int | None = None
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,26 @@ def environment_instance_for_mode(
     mode = str(environment_mode)
     rng = np.random.default_rng(int(seed))
     cfg = randomisation_config or EnvironmentRandomisationConfig()
+    split_seeded_randomisation = any(
+        value is not None
+        for value in (cfg.fan_layout_seed, cfg.active_fan_seed, cfg.fan_parameter_seed)
+    )
+    if split_seeded_randomisation:
+        layout_rng = np.random.default_rng(int(cfg.fan_layout_seed if cfg.fan_layout_seed is not None else seed))
+        active_rng = np.random.default_rng(
+            int(
+                cfg.active_fan_seed
+                if cfg.active_fan_seed is not None
+                else (cfg.fan_layout_seed if cfg.fan_layout_seed is not None else seed)
+            )
+        )
+        parameter_rng = np.random.default_rng(
+            int(cfg.fan_parameter_seed if cfg.fan_parameter_seed is not None else seed)
+        )
+    else:
+        layout_rng = rng
+        active_rng = rng
+        parameter_rng = rng
 
     if layer == "W0":
         if mode != "dry_air":
@@ -155,10 +178,10 @@ def environment_instance_for_mode(
         "w3_randomised_four",
     }
     if layer == "W3" or mode in randomised_modes:
-        positions = _randomised_fan_positions(rng, positions, cfg)
+        positions = _randomised_fan_positions(layout_rng, positions, cfg)
         power_scales = tuple(
             float(value)
-            for value in rng.uniform(
+            for value in parameter_rng.uniform(
                 cfg.fan_power_scale_range[0],
                 cfg.fan_power_scale_range[1],
                 size=fan_count,
@@ -166,17 +189,17 @@ def environment_instance_for_mode(
         )
         if fan_count > 1:
             active_mask = _active_fan_mask(
-                rng,
+                active_rng,
                 fan_count,
                 active_fan_count=cfg.active_fan_count,
             )
         # Annular-GP randomisation uses one active strength channel: per-fan power.
         # A second global amplitude or centre shift would duplicate fan strength/position.
         amplitude_scale = 1.0
-        width_scale = float(rng.uniform(cfg.width_scale_range[0], cfg.width_scale_range[1]))
+        width_scale = float(parameter_rng.uniform(cfg.width_scale_range[0], cfg.width_scale_range[1]))
         centre_shift = (0.0, 0.0)
         uncertainty_scale = float(
-            rng.uniform(
+            parameter_rng.uniform(
                 cfg.uncertainty_scale_range[0],
                 cfg.uncertainty_scale_range[1],
             )

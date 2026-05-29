@@ -566,10 +566,12 @@ def test_governor_uses_updraft_gain_config_names_and_missing_evidence_rejection(
             "config_id": "legacy",
             "energy_weight": 0.12,
             "terminal_energy_weight": 0.34,
+            "exploration_switch_allow_cross_family": "true",
         }
     )
     assert legacy.updraft_gain_weight == pytest.approx(0.12)
     assert legacy.terminal_updraft_gain_weight == pytest.approx(0.34)
+    assert legacy.exploration_switch_allow_cross_family is True
 
     timing_payload = {
         "finite_horizon_s": 0.1,

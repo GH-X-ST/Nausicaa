@@ -22,11 +22,13 @@ from run_lqr_w01_dense_chunked import (
     L6_RICH_SIDE_ROW_COUNT,
     OFFICIAL_W01_ENVIRONMENT_CASES,
     R5_ACTIVE_FAN_COUNT_SEQUENCE,
+    R5_EVIDENCE_BLOCKS,
+    R5_EVIDENCE_BLOCK_IDS,
     W01DenseRunConfig,
     _row_schedule_for_index as _r5_row_schedule_for_index,
     rich_side_dense_row_count,
 )
-from run_post_w3_library_size_study import _coverage_medoid_selection, _representative_score
+from run_post_w3_library_size_study import _coverage_medoid_selection, _profile_subset, _representative_score
 from run_r5_r10_pipeline import ARCHIVED_STAGES, STAGE_ORDER
 from run_v53_algorithm_contract_audit import AlgorithmContractAuditConfig, run_v53_algorithm_contract_audit
 from run_repeated_launch_learning_curve import (
@@ -72,9 +74,9 @@ from run_repeated_launch_learning_curve import (
     validation_route_for_primitive_step,
 )
 from state_contract import STATE_INDEX
-from run_w3_survival import R5_INPUT_KIND, W3_ACTIVE_FAN_COUNT_SEQUENCE, W3_ENVIRONMENT_CASES
+from run_w3_survival import R5_INPUT_KIND, R7_EVIDENCE_BLOCK_IDS, W3_ACTIVE_FAN_COUNT_SEQUENCE, W3_ENVIRONMENT_CASES
 from episode_selector import select_compact_representative
-from viability_governor import DEFAULT_GOVERNOR_CONFIG, REJECTION_REASONS, governor_candidate_row
+from viability_governor import DEFAULT_GOVERNOR_CONFIG, REJECTION_REASONS, governor_candidate_row, governor_config_from_row
 
 
 def test_v53_stage_contract_is_r5_r7_r8_r10_r11_with_r6_archived_and_r9_internal() -> None:
@@ -120,7 +122,50 @@ def test_v53_r9_is_reduced_internal_preflight_and_can_seed_r10_governor() -> Non
     assert tuned.minimum_wall_margin_m == DEFAULT_GOVERNOR_CONFIG.minimum_wall_margin_m
     assert tuned.maximum_hard_failure_risk < DEFAULT_GOVERNOR_CONFIG.maximum_hard_failure_risk
     assert tuned.exploration_bonus_weight < DEFAULT_GOVERNOR_CONFIG.exploration_bonus_weight
-    assert {row["parameter"] for row in decisions} >= {"maximum_hard_failure_risk", "exploration_bonus_weight"}
+    assert tuned.memory_switch_min_confidence > DEFAULT_GOVERNOR_CONFIG.memory_switch_min_confidence
+    assert tuned.candidate_path_memory_residual_cap_m < DEFAULT_GOVERNOR_CONFIG.candidate_path_memory_residual_cap_m
+    assert {row["parameter"] for row in decisions} >= {
+        "maximum_hard_failure_risk",
+        "exploration_bonus_weight",
+        "memory_switch_min_confidence",
+        "candidate_path_memory_residual_cap_m",
+    }
+
+
+def test_v53_r10_tuning_can_relax_memory_shield_from_selector_opportunity_evidence() -> None:
+    tuned, decisions = _tuned_governor_config_from_metrics(
+        base_config=DEFAULT_GOVERNOR_CONFIG,
+        metrics={
+            "hard_failure_rate": 0.0,
+            "no_viable_primitive_rate": 0.0,
+            "safe_success_rate": 0.0,
+            "mission_success_rate": 0.0,
+            "wrong_wall_exit_rate": 0.2,
+            "terminal_or_lift_capture_rate": 0.0,
+            "memory_switch_opportunity_count": 12,
+            "memory_switch_acceptance_rate": 0.0,
+            "mean_candidate_path_confidence": 0.20,
+            "max_memory_correction_delta": 0.0,
+        },
+        protocol=R10_PROTOCOL,
+    )
+
+    assert tuned.config_id == "v53_r10_tuned_mission_governor"
+    assert tuned.memory_switch_min_confidence < DEFAULT_GOVERNOR_CONFIG.memory_switch_min_confidence
+    assert tuned.memory_switch_min_score_margin < DEFAULT_GOVERNOR_CONFIG.memory_switch_min_score_margin
+    assert tuned.memory_switch_max_base_score_drop > DEFAULT_GOVERNOR_CONFIG.memory_switch_max_base_score_drop
+    assert tuned.candidate_path_memory_full_confidence_observations < (
+        DEFAULT_GOVERNOR_CONFIG.candidate_path_memory_full_confidence_observations
+    )
+    assert tuned.belief_weight > DEFAULT_GOVERNOR_CONFIG.belief_weight
+    assert tuned.mission_wrong_boundary_penalty_weight > DEFAULT_GOVERNOR_CONFIG.mission_wrong_boundary_penalty_weight
+    assert {row["parameter"] for row in decisions} >= {
+        "memory_switch_min_confidence",
+        "memory_switch_min_score_margin",
+        "memory_switch_max_base_score_drop",
+        "candidate_path_memory_full_confidence_observations",
+        "mission_wrong_boundary_penalty_weight",
+    }
 
 
 def test_v53_repeated_launch_outer_loop_has_realtime_scheduler_profile_contract() -> None:
@@ -161,16 +206,18 @@ def test_v53_r5_dense_schedule_is_transition_entry_separated_and_uses_current_ra
     assert len(ACTIVE_PRIMITIVE_IDS) == 8
     assert len(LAUNCH_CAPTURE_PRIMITIVE_IDS) == 6
     assert not set(LAUNCH_CAPTURE_PRIMITIVE_IDS).intersection(set(ACTIVE_PRIMITIVE_IDS))
-    assert rich_side_dense_row_count() == 76800
-    assert L6_RICH_SIDE_ROW_COUNT == 76800
+    assert rich_side_dense_row_count() == 102400
+    assert L6_RICH_SIDE_ROW_COUNT == 102400
     assert L6_RICH_SIDE_CANDIDATE_COUNT == 32
-    assert L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE == 100
+    assert L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE == 50
+    assert len(R5_EVIDENCE_BLOCKS) == 8
+    assert len(R5_EVIDENCE_BLOCK_IDS) == 8
     assert OFFICIAL_W01_ENVIRONMENT_CASES == (
         ("W0", "dry_air"),
         ("W1", "w1_annular_gp_randomised_single"),
         ("W1", "w1_annular_gp_randomised_four"),
     )
-    assert R5_ACTIVE_FAN_COUNT_SEQUENCE == (1, 2, 3, 4)
+    assert R5_ACTIVE_FAN_COUNT_SEQUENCE == (0, 1, 2, 3, 4)
 
     config = W01DenseRunConfig(
         run_id=0,
@@ -180,6 +227,7 @@ def test_v53_r5_dense_schedule_is_transition_entry_separated_and_uses_current_ra
     )
     family_counts: dict[str, int] = {}
     environment_counts: dict[tuple[str, str], int] = {}
+    evidence_block_counts: dict[str, int] = {}
     for row_index in range(L6_RICH_SIDE_ROW_COUNT):
         schedule = _r5_row_schedule_for_index(row_index, config)
         role = ENTRY_ROLE_BY_PRIMITIVE_ID[schedule.primitive_id]
@@ -187,25 +235,29 @@ def test_v53_r5_dense_schedule_is_transition_entry_separated_and_uses_current_ra
         family_counts[schedule.start_state_family] = family_counts.get(schedule.start_state_family, 0) + 1
         key = (schedule.W_layer, schedule.environment_mode)
         environment_counts[key] = environment_counts.get(key, 0) + 1
+        evidence_block_counts[schedule.evidence_block_id] = evidence_block_counts.get(schedule.evidence_block_id, 0) + 1
 
     assert family_counts == {
-        "launch_gate": 30720,
-        "inflight_nominal": 19200,
-        "inflight_lift_region": 11520,
-        "inflight_boundary_near": 7680,
-        "inflight_recovery_edge": 7680,
+        "launch_gate": 40960,
+        "inflight_nominal": 25600,
+        "inflight_lift_region": 15360,
+        "inflight_boundary_near": 10240,
+        "inflight_recovery_edge": 10240,
     }
     assert environment_counts == {
-        ("W0", "dry_air"): 25600,
+        ("W0", "dry_air"): 12800,
         ("W1", "w1_annular_gp_randomised_single"): 25600,
-        ("W1", "w1_annular_gp_randomised_four"): 25600,
+        ("W1", "w1_annular_gp_randomised_four"): 64000,
     }
+    assert set(evidence_block_counts) == set(R5_EVIDENCE_BLOCK_IDS)
+    assert set(evidence_block_counts.values()) == {12800}
 
 
 def test_v53_r7_and_r8_contracts_are_direct_holdout_and_updraft_scored() -> None:
     assert R5_INPUT_KIND == "r5_frozen_bundle_direct"
     assert W3_ENVIRONMENT_CASES == ("dry_air", "w3_randomised_single", "w3_randomised_four")
-    assert W3_ACTIVE_FAN_COUNT_SEQUENCE == (1, 2, 3, 4)
+    assert W3_ACTIVE_FAN_COUNT_SEQUENCE == (0, 1, 2, 3, 4)
+    assert len(R7_EVIDENCE_BLOCK_IDS) == 8
 
     frame = pd.DataFrame(
         [
@@ -231,6 +283,31 @@ def test_v53_r7_and_r8_contracts_are_direct_holdout_and_updraft_scored() -> None
     )
     low_updraft_high_net_energy, high_updraft_low_net_energy = list(_representative_score(frame))
     assert high_updraft_low_net_energy > low_updraft_high_net_energy
+
+    coverage_frame = pd.DataFrame(
+        [
+            {
+                "r7_evidence_block_id": "r7_random_arena_wide",
+                "r7_uncertainty_tier": "arena_wide_full_randomisation",
+                "r7_active_fan_count_policy": "balanced_0_1_2_3_4_with_arena_wide_fan_position_generalisation",
+                "r7_fan_position_policy": "independent_uniform_xy_bounds",
+                "transition_pair": "launch_gate_to_inflight_stable",
+                "transition_exit_class": "continuation_valid",
+            },
+            {
+                "r7_evidence_block_id": "r7_anchor_dry_air",
+                "r7_uncertainty_tier": "anchor_dry_air",
+                "r7_active_fan_count_policy": "fixed_zero_active_fans",
+                "r7_fan_position_policy": "no_fan_positions",
+                "transition_pair": "launch_gate_to_hard_failure",
+                "transition_exit_class": "hard_failure",
+            },
+        ]
+    )
+    assert len(_profile_subset(coverage_frame, "r7_block:r7_random_arena_wide")) == 1
+    assert len(_profile_subset(coverage_frame, "tier:arena_wide_full_randomisation")) == 1
+    assert len(_profile_subset(coverage_frame, "transition:launch_gate_to_inflight_stable")) == 1
+    assert len(_profile_subset(coverage_frame, "exit:hard_failure")) == 1
 
 
 def test_v53_r8_coverage_medoid_prefers_worst_case_coverage_over_average_rank() -> None:
@@ -331,6 +408,15 @@ def test_v53_governor_has_no_speed_boundary_and_wall_guard_is_0p10cm() -> None:
     assert DEFAULT_GOVERNOR_CONFIG.minimum_wall_margin_m == pytest.approx(0.001)
     assert not any("speed" in reason for reason in REJECTION_REASONS)
     assert not any("speed" in key for key in asdict(DEFAULT_GOVERNOR_CONFIG))
+    parsed = governor_config_from_row(
+        {
+            "config_id": "r10_handoff",
+            "memory_switch_min_confidence": "0.35",
+            "exploration_switch_allow_cross_family": "false",
+        }
+    )
+    assert parsed.memory_switch_min_confidence == pytest.approx(0.35)
+    assert parsed.exploration_switch_allow_cross_family is False
 
     timing_payload = {
         "finite_horizon_s": 0.1,
@@ -663,8 +749,11 @@ def test_v53_r10_and_r11_changed_case_randomisation_semantics_match() -> None:
         assert R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M == pytest.approx(0.5)
         assert _uses_full_w3_randomisation_block(protocol=protocol, environment_block_id=block_id)
         assert history["environment_seed"] != broad["environment_seed"]
+        assert history["environment_parameter_seed"] != broad["environment_parameter_seed"]
+        assert history["environment_layout_seed"] == broad["environment_layout_seed"]
+        assert history["environment_active_fan_seed"] == broad["environment_active_fan_seed"]
         assert history["plant_implementation_seed"] == broad["plant_implementation_seed"]
-        assert history["scheduled_active_fan_count"] != broad["scheduled_active_fan_count"]
+        assert history["scheduled_active_fan_count"] == broad["scheduled_active_fan_count"]
 
     for fixed_block_id in (
         R11_L0_DRY_AIR_FIXED_BLOCK_ID,
@@ -678,23 +767,46 @@ def test_v53_r10_and_r11_changed_case_randomisation_semantics_match() -> None:
         )
         history = _history_row_for_final({**outer, "episode_id": "fixed_contract", "launch_role": "final_heldout"}, 0)
         assert history["environment_seed"] == outer["environment_seed"]
+        assert history["environment_parameter_seed"] == outer["environment_parameter_seed"]
+        assert history["environment_layout_seed"] == outer["environment_layout_seed"]
+        assert history["environment_active_fan_seed"] == outer["environment_active_fan_seed"]
         assert history["plant_implementation_seed"] == outer["plant_implementation_seed"]
+        assert history["scheduled_active_fan_count"] == outer["scheduled_active_fan_count"]
 
-    for varying_block_id in (
+    for varying_parameter_block_id in (
         R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
-        R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
-        R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
         R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
         R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     ):
         outer = next(
             row
             for row in _outer_case_schedule(protocol=R11_PROTOCOL, seed=110)
-            if row["environment_block_id"] == varying_block_id
+            if row["environment_block_id"] == varying_parameter_block_id
         )
         history = _history_row_for_final({**outer, "episode_id": "varying_contract", "launch_role": "final_heldout"}, 0)
         assert history["environment_seed"] != outer["environment_seed"]
+        assert history["environment_parameter_seed"] != outer["environment_parameter_seed"]
+        assert history["environment_layout_seed"] == outer["environment_layout_seed"]
+        assert history["environment_active_fan_seed"] == outer["environment_active_fan_seed"]
         assert history["plant_implementation_seed"] == outer["plant_implementation_seed"]
+        assert history["scheduled_active_fan_count"] == outer["scheduled_active_fan_count"]
+
+    for fixed_episode_block_id in (
+        R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
+        R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+    ):
+        outer = next(
+            row
+            for row in _outer_case_schedule(protocol=R11_PROTOCOL, seed=110)
+            if row["environment_block_id"] == fixed_episode_block_id
+        )
+        history = _history_row_for_final({**outer, "episode_id": "fixed_episode_contract", "launch_role": "final_heldout"}, 0)
+        assert history["environment_seed"] == outer["environment_seed"]
+        assert history["environment_parameter_seed"] == outer["environment_parameter_seed"]
+        assert history["environment_layout_seed"] == outer["environment_layout_seed"]
+        assert history["environment_active_fan_seed"] == outer["environment_active_fan_seed"]
+        assert history["plant_implementation_seed"] == outer["plant_implementation_seed"]
+        assert history["scheduled_active_fan_count"] == outer["scheduled_active_fan_count"]
 
 
 def test_v53_r10_r11_case7_uses_w3_plant_and_implementation_randomisation() -> None:

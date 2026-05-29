@@ -93,6 +93,7 @@ def select_compact_representative(
         baseline_selected=baseline_selected,
         memory_selected=memory_selected,
         memory_active=bool(candidate_belief_features is not None if adaptive_memory_active is None else adaptive_memory_active),
+        governor_config=cfg,
     )
     selected_score = float(selected.get("total_score_with_memory_and_exploration", selected.get("score", float("-inf"))))
     for row in candidate_rows:
@@ -110,7 +111,9 @@ def _baseline_shielded_memory_selection(
     baseline_selected: dict[str, object],
     memory_selected: dict[str, object],
     memory_active: bool,
+    governor_config: GovernorConfig | None = None,
 ) -> dict[str, object]:
+    cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     baseline_variant_id = str(baseline_selected.get("primitive_variant_id", ""))
     memory_variant_id = str(memory_selected.get("primitive_variant_id", ""))
     if not memory_active:
@@ -120,6 +123,7 @@ def _baseline_shielded_memory_selection(
             memory_selected=memory_selected,
             accepted=True,
             status="not_active_no_candidate_path_memory",
+            governor_config=cfg,
         )
         return memory_selected
     if memory_variant_id == baseline_variant_id:
@@ -129,11 +133,13 @@ def _baseline_shielded_memory_selection(
             memory_selected=memory_selected,
             accepted=True,
             status="baseline_and_memory_winner_match",
+            governor_config=cfg,
         )
         return memory_selected
     accepted, status = _memory_switch_acceptance_status(
         baseline_selected=baseline_selected,
         memory_selected=memory_selected,
+        governor_config=cfg,
     )
     _mark_memory_shield_rows(
         viable_rows,
@@ -141,6 +147,7 @@ def _baseline_shielded_memory_selection(
         memory_selected=memory_selected,
         accepted=accepted,
         status=status,
+        governor_config=cfg,
     )
     return memory_selected if accepted else baseline_selected
 
@@ -149,7 +156,9 @@ def _memory_switch_acceptance_status(
     *,
     baseline_selected: dict[str, object],
     memory_selected: dict[str, object],
+    governor_config: GovernorConfig | None = None,
 ) -> tuple[bool, str]:
+    cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     confidence = _float(memory_selected.get("belief_candidate_path_confidence", 0.0))
     uncertainty = _float(memory_selected.get("belief_uncertainty", 1.0), default=1.0)
     exploration_component = _float(memory_selected.get("exploration_score_component", 0.0))
@@ -170,48 +179,50 @@ def _memory_switch_acceptance_status(
     path_margin_non_regressive = _candidate_path_margin_non_regressive(
         baseline_selected=baseline_selected,
         memory_selected=memory_selected,
+        governor_config=cfg,
     )
     exploration_family_safe = _exploration_family_switch_allowed(
         baseline_selected=baseline_selected,
         memory_selected=memory_selected,
+        governor_config=cfg,
     )
     memory_non_regressive = (
-        base_score_delta >= -MEMORY_SWITCH_MAX_BASE_SCORE_DROP
-        and transition_delta >= -MEMORY_SWITCH_MAX_TRANSITION_SUCCESS_DROP
-        and hard_failure_delta <= MEMORY_SWITCH_MAX_HARD_FAILURE_RISK_INCREASE
+        base_score_delta >= -float(cfg.memory_switch_max_base_score_drop)
+        and transition_delta >= -float(cfg.memory_switch_max_transition_success_drop)
+        and hard_failure_delta <= float(cfg.memory_switch_max_hard_failure_risk_increase)
         and path_margin_non_regressive
     )
     if (
-        confidence >= MEMORY_SWITCH_MIN_CONFIDENCE
-        and score_margin >= MEMORY_SWITCH_MIN_SCORE_MARGIN
+        confidence >= float(cfg.memory_switch_min_confidence)
+        and score_margin >= float(cfg.memory_switch_min_score_margin)
         and memory_non_regressive
     ):
         return True, "accepted_confident_non_regressive_memory_switch"
     exploration_non_regressive = (
-        base_score_delta >= -EXPLORATION_SWITCH_MAX_BASE_SCORE_DROP
-        and transition_delta >= -EXPLORATION_SWITCH_MAX_TRANSITION_SUCCESS_DROP
-        and hard_failure_delta <= EXPLORATION_SWITCH_MAX_HARD_FAILURE_RISK_INCREASE
+        base_score_delta >= -float(cfg.exploration_switch_max_base_score_drop)
+        and transition_delta >= -float(cfg.exploration_switch_max_transition_success_drop)
+        and hard_failure_delta <= float(cfg.exploration_switch_max_hard_failure_risk_increase)
         and path_margin_non_regressive
     )
     if (
         exploration_component > 0.0
-        and uncertainty >= EXPLORATION_SWITCH_MIN_UNCERTAINTY
-        and score_margin >= EXPLORATION_SWITCH_MIN_SCORE_MARGIN
+        and uncertainty >= float(cfg.exploration_switch_min_uncertainty)
+        and score_margin >= float(cfg.exploration_switch_min_score_margin)
         and exploration_non_regressive
         and exploration_family_safe
     ):
         return True, "accepted_shielded_uncertainty_directed_exploration_switch"
-    if confidence < MEMORY_SWITCH_MIN_CONFIDENCE and exploration_component <= 0.0:
+    if confidence < float(cfg.memory_switch_min_confidence) and exploration_component <= 0.0:
         return False, "rejected_low_candidate_path_memory_confidence"
-    if exploration_component > 0.0 and uncertainty < EXPLORATION_SWITCH_MIN_UNCERTAINTY:
+    if exploration_component > 0.0 and uncertainty < float(cfg.exploration_switch_min_uncertainty):
         return False, "rejected_exploration_uncertainty_too_low"
-    if score_margin < min(MEMORY_SWITCH_MIN_SCORE_MARGIN, EXPLORATION_SWITCH_MIN_SCORE_MARGIN):
+    if score_margin < min(float(cfg.memory_switch_min_score_margin), float(cfg.exploration_switch_min_score_margin)):
         return False, "rejected_adaptive_score_margin_too_small"
-    if base_score_delta < -MEMORY_SWITCH_MAX_BASE_SCORE_DROP:
+    if base_score_delta < -float(cfg.memory_switch_max_base_score_drop):
         return False, "rejected_base_score_drop_too_large"
-    if transition_delta < -MEMORY_SWITCH_MAX_TRANSITION_SUCCESS_DROP:
+    if transition_delta < -float(cfg.memory_switch_max_transition_success_drop):
         return False, "rejected_transition_success_regression"
-    if hard_failure_delta > MEMORY_SWITCH_MAX_HARD_FAILURE_RISK_INCREASE:
+    if hard_failure_delta > float(cfg.memory_switch_max_hard_failure_risk_increase):
         return False, "rejected_hard_failure_risk_regression"
     if not path_margin_non_regressive:
         return False, "rejected_candidate_path_exit_margin_regression"
@@ -227,7 +238,9 @@ def _mark_memory_shield_rows(
     memory_selected: dict[str, object],
     accepted: bool,
     status: str,
+    governor_config: GovernorConfig | None = None,
 ) -> None:
+    cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     baseline_variant_id = str(baseline_selected.get("primitive_variant_id", ""))
     memory_variant_id = str(memory_selected.get("primitive_variant_id", ""))
     score_margin = _score(memory_selected, "total_score_with_memory_and_exploration") - _score(
@@ -261,6 +274,7 @@ def _mark_memory_shield_rows(
     exploration_family_safe = _exploration_family_switch_allowed(
         baseline_selected=baseline_selected,
         memory_selected=memory_selected,
+        governor_config=cfg,
     )
     for row in rows:
         row["memory_shield_policy_version"] = BASELINE_SHIELDED_MEMORY_POLICY_VERSION
@@ -279,37 +293,56 @@ def _mark_memory_shield_rows(
         row["memory_shield_baseline_path_exit_margin_m"] = float(baseline_path_margin)
         row["memory_shield_memory_path_exit_margin_m"] = float(memory_path_margin)
         row["memory_shield_path_exit_margin_delta_m"] = float(path_margin_delta)
-        row["memory_shield_max_path_exit_margin_drop_m"] = float(ADAPTIVE_SWITCH_MAX_PATH_EXIT_MARGIN_DROP_M)
-        row["memory_shield_min_path_exit_margin_m"] = float(ADAPTIVE_SWITCH_MIN_PATH_EXIT_MARGIN_M)
+        row["memory_shield_max_path_exit_margin_drop_m"] = float(cfg.adaptive_switch_max_path_exit_margin_drop_m)
+        row["memory_shield_min_path_exit_margin_m"] = float(cfg.adaptive_switch_min_path_exit_margin_m)
         row["memory_shield_candidate_path_confidence"] = float(confidence)
         row["memory_shield_candidate_path_uncertainty"] = float(uncertainty)
         row["memory_shield_exploration_score_component"] = float(exploration_component)
         row["memory_shield_baseline_memory_score_component"] = float(baseline_memory_component)
         row["memory_shield_memory_candidate_memory_score_component"] = float(memory_candidate_memory_component)
         row["memory_shield_exploration_cross_family_allowed"] = bool(exploration_family_safe)
-        row["memory_shield_min_confidence"] = float(MEMORY_SWITCH_MIN_CONFIDENCE)
-        row["memory_shield_min_score_margin"] = float(MEMORY_SWITCH_MIN_SCORE_MARGIN)
-        row["memory_shield_exploration_min_uncertainty"] = float(EXPLORATION_SWITCH_MIN_UNCERTAINTY)
+        row["memory_shield_min_confidence"] = float(cfg.memory_switch_min_confidence)
+        row["memory_shield_min_score_margin"] = float(cfg.memory_switch_min_score_margin)
+        row["memory_shield_memory_max_base_score_drop"] = float(cfg.memory_switch_max_base_score_drop)
+        row["memory_shield_memory_max_transition_success_drop"] = float(cfg.memory_switch_max_transition_success_drop)
+        row["memory_shield_memory_max_hard_failure_risk_increase"] = float(
+            cfg.memory_switch_max_hard_failure_risk_increase
+        )
+        row["memory_shield_exploration_min_uncertainty"] = float(cfg.exploration_switch_min_uncertainty)
+        row["memory_shield_exploration_min_score_margin"] = float(cfg.exploration_switch_min_score_margin)
+        row["memory_shield_exploration_max_base_score_drop"] = float(cfg.exploration_switch_max_base_score_drop)
+        row["memory_shield_exploration_max_transition_success_drop"] = float(
+            cfg.exploration_switch_max_transition_success_drop
+        )
+        row["memory_shield_exploration_max_hard_failure_risk_increase"] = float(
+            cfg.exploration_switch_max_hard_failure_risk_increase
+        )
 
 
 def _candidate_path_margin_non_regressive(
     *,
     baseline_selected: dict[str, object],
     memory_selected: dict[str, object],
+    governor_config: GovernorConfig | None = None,
 ) -> bool:
+    cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     baseline_margin = _candidate_path_exit_margin(baseline_selected)
     memory_margin = _candidate_path_exit_margin(memory_selected)
-    if baseline_margin >= ADAPTIVE_SWITCH_MIN_PATH_EXIT_MARGIN_M and memory_margin < ADAPTIVE_SWITCH_MIN_PATH_EXIT_MARGIN_M:
+    if baseline_margin >= float(cfg.adaptive_switch_min_path_exit_margin_m) and memory_margin < float(
+        cfg.adaptive_switch_min_path_exit_margin_m
+    ):
         return False
-    return bool(memory_margin + ADAPTIVE_SWITCH_MAX_PATH_EXIT_MARGIN_DROP_M >= baseline_margin)
+    return bool(memory_margin + float(cfg.adaptive_switch_max_path_exit_margin_drop_m) >= baseline_margin)
 
 
 def _exploration_family_switch_allowed(
     *,
     baseline_selected: dict[str, object],
     memory_selected: dict[str, object],
+    governor_config: GovernorConfig | None = None,
 ) -> bool:
-    if EXPLORATION_SWITCH_ALLOW_CROSS_FAMILY:
+    cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
+    if bool(cfg.exploration_switch_allow_cross_family):
         return True
     return _primitive_family(baseline_selected) == _primitive_family(memory_selected)
 
@@ -538,6 +571,17 @@ def selector_decision_row(
         "governor_config_id": cfg.config_id,
         "governor_belief_weight": float(cfg.belief_weight),
         "governor_maximum_hard_failure_risk": float(cfg.maximum_hard_failure_risk),
+        "governor_memory_switch_min_confidence": float(cfg.memory_switch_min_confidence),
+        "governor_memory_switch_min_score_margin": float(cfg.memory_switch_min_score_margin),
+        "governor_exploration_switch_min_uncertainty": float(cfg.exploration_switch_min_uncertainty),
+        "governor_adaptive_switch_max_path_exit_margin_drop_m": float(
+            cfg.adaptive_switch_max_path_exit_margin_drop_m
+        ),
+        "governor_candidate_path_memory_residual_cap_m": float(cfg.candidate_path_memory_residual_cap_m),
+        "governor_candidate_path_memory_specific_energy_residual_cap_m": float(
+            cfg.candidate_path_memory_specific_energy_residual_cap_m
+        ),
+        "governor_residual_memory_launch_recency_half_life": float(cfg.residual_memory_launch_recency_half_life),
         "wall_margin_m": float(context.get("wall_margin_m", 0.0)),
         "governor_wall_margin_m": float(context.get("governor_wall_margin_m", context.get("wall_margin_m", 0.0))),
         "candidate_count": int(candidate_count),
@@ -598,6 +642,15 @@ def selector_decision_row(
         ),
         "selected_memory_shield_exploration_cross_family_allowed": (
             False if selected is None else bool(selected.get("memory_shield_exploration_cross_family_allowed", False))
+        ),
+        "selected_memory_shield_min_confidence": (
+            0.0 if selected is None else float(selected.get("memory_shield_min_confidence", 0.0))
+        ),
+        "selected_memory_shield_min_score_margin": (
+            0.0 if selected is None else float(selected.get("memory_shield_min_score_margin", 0.0))
+        ),
+        "selected_memory_shield_exploration_min_uncertainty": (
+            0.0 if selected is None else float(selected.get("memory_shield_exploration_min_uncertainty", 0.0))
         ),
         "claim_status": "simulation_only_selector_decision",
     }

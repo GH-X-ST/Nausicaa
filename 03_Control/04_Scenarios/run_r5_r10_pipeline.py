@@ -46,7 +46,7 @@ from run_lqr_w01_dense_chunked import (  # noqa: E402
     L6_RICH_SIDE_CANDIDATE_COUNT,
     L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE,
     L6_RICH_SIDE_ROW_COUNT,
-    OFFICIAL_W01_ENVIRONMENT_CASES,
+    R5_EVIDENCE_BLOCKS,
     R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW,
     W01_DRY_SCHEDULE_ONLY,
     W01DenseRunConfig,
@@ -673,18 +673,18 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
                     int(manifest.get("rows_requested", 0))
                     == len(ACTIVE_PRIMITIVE_IDS)
                     * L6_RICH_SIDE_CANDIDATE_COUNT
-                    * len(OFFICIAL_W01_ENVIRONMENT_CASES)
+                    * len(R5_EVIDENCE_BLOCKS)
                     * L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE,
                     manifest.get("rows_requested", 0),
-                    f"{len(ACTIVE_PRIMITIVE_IDS)}*{L6_RICH_SIDE_CANDIDATE_COUNT}*{len(OFFICIAL_W01_ENVIRONMENT_CASES)}*{L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE}",
+                    f"{len(ACTIVE_PRIMITIVE_IDS)}*{L6_RICH_SIDE_CANDIDATE_COUNT}*{len(R5_EVIDENCE_BLOCKS)}*{L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE}",
                 ),
                 _check_row(stage_id, "dry_schedule_candidate_count_32", int(manifest.get("candidate_count", 0)) == 32, manifest.get("candidate_count", 0), 32),
-                _check_row(stage_id, "dry_schedule_paired_tests_per_candidate_100", int(manifest.get("paired_tests_per_candidate", 0)) == 100, manifest.get("paired_tests_per_candidate", 0), 100),
+                _check_row(stage_id, "dry_schedule_paired_tests_per_candidate_50", int(manifest.get("paired_tests_per_candidate", 0)) == L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE, manifest.get("paired_tests_per_candidate", 0), L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE),
                 _check_row(stage_id, "dry_schedule_active_primitive_count_8", int(manifest.get("active_primitive_count", 0)) == 8, manifest.get("active_primitive_count", 0), 8),
                 _check_row(stage_id, "dry_schedule_retired_launch_capture_not_active", not bool(manifest.get("retired_launch_capture_primitive_ids_active", True)), manifest.get("retired_launch_capture_primitive_ids_active", ""), False),
                 _check_row(stage_id, "dry_schedule_all_start_state_regimes", set(start_counts) == required_start_families, sorted(start_counts), sorted(required_start_families)),
                 _check_row(stage_id, "dry_schedule_r6_archived", bool(manifest.get("R6_W2_archived_diagnostic_only", False)), manifest.get("R6_W2_archived_diagnostic_only", False), True),
-                _check_row(stage_id, "dry_schedule_w3_direct_source", manifest.get("R7_W3_direct_source") == "frozen_R5_W0_W1_controller_bundle", manifest.get("R7_W3_direct_source", ""), "frozen_R5_W0_W1_controller_bundle"),
+                _check_row(stage_id, "dry_schedule_w3_direct_source", manifest.get("R7_W3_direct_source") == "r5_transition_selected_for_r7_frozen_controller_bundle", manifest.get("R7_W3_direct_source", ""), "r5_transition_selected_for_r7_frozen_controller_bundle"),
                 _file_size_check(stage_id, run_root),
             ]
         return [
@@ -693,7 +693,7 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "w01_dense_evidence_complete_true", bool(manifest.get("w01_dense_evidence_complete", False)), manifest.get("w01_dense_evidence_complete", False), True),
             _check_row(stage_id, "actual_row_count_active_dense_target", int(manifest.get("actual_row_count", 0)) == L6_RICH_SIDE_ROW_COUNT, manifest.get("actual_row_count", 0), L6_RICH_SIDE_ROW_COUNT),
             _check_row(stage_id, "candidate_count_32", int(manifest.get("candidate_count", 0)) == 32, manifest.get("candidate_count", 0), 32),
-            _check_row(stage_id, "paired_tests_per_candidate_100", int(manifest.get("paired_tests_per_candidate", 0)) == 100, manifest.get("paired_tests_per_candidate", 0), 100),
+            _check_row(stage_id, "paired_tests_per_candidate_50", int(manifest.get("paired_tests_per_candidate", 0)) == L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE, manifest.get("paired_tests_per_candidate", 0), L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE),
             _check_row(stage_id, "active_primitive_count_8", int(manifest.get("active_primitive_count", 0)) == 8, manifest.get("active_primitive_count", 0), 8),
             _check_row(stage_id, "retired_launch_capture_not_active", not bool(manifest.get("retired_launch_capture_primitive_ids_active", True)), manifest.get("retired_launch_capture_primitive_ids_active", ""), False),
             _check_row(stage_id, "r5_launch_aware_decision_passed_for_review", manifest.get("r5_launch_aware_decision") == R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW, manifest.get("r5_launch_aware_decision", ""), R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW),

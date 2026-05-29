@@ -30,7 +30,7 @@ from transition_labels import transition_contract_row  # noqa: E402
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
-POST_W3_LIBRARY_STUDY_VERSION = "post_w3_library_size_study_v53_coverage_speed_bin_medoid_v2"
+POST_W3_LIBRARY_STUDY_VERSION = "post_w3_library_size_study_v54_uncertainty_block_coverage_medoid"
 DEFAULT_W3_DISCOVERY_ROOT = Path("03_Control/05_Results/R7_survival")
 DEFAULT_INPUT_ROOT: Path | None = None
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R8_library_size_study")
@@ -347,6 +347,10 @@ def _robustness_profile_frame(input_root: Path) -> pd.DataFrame:
                 "robustness_environment_modes_seen": _unique_join(group, "environment_mode"),
                 "robustness_start_families_seen": _unique_join(group, "start_state_family"),
                 "robustness_active_fan_counts_seen": _unique_join(group, "scheduled_active_fan_count"),
+                "robustness_evidence_blocks_seen": _unique_join(group, "r7_evidence_block_id"),
+                "robustness_uncertainty_tiers_seen": _unique_join(group, "r7_uncertainty_tier"),
+                "robustness_active_fan_policies_seen": _unique_join(group, "r7_active_fan_count_policy"),
+                "robustness_fan_position_policies_seen": _unique_join(group, "r7_fan_position_policy"),
                 "robustness_speed_bins_seen": _unique_join(group, "local_lqr_speed_bin_id"),
                 "updraft_gain_proxy_mean_m": _mean_or_zero(group, "updraft_specific_energy_gain_proxy_m"),
                 "positive_specific_energy_gain_mean_m": _mean_positive_energy_gain(group),
@@ -412,6 +416,10 @@ def _speed_from_row(row: dict[str, object] | pd.Series) -> float:
 def _profile_labels(frame: pd.DataFrame) -> list[str]:
     labels: list[str] = []
     for column, prefix in (
+        ("r7_evidence_block_id", "r7_block"),
+        ("r7_uncertainty_tier", "tier"),
+        ("r7_active_fan_count_policy", "fan_policy"),
+        ("r7_fan_position_policy", "fan_position_policy"),
         ("environment_mode", "env"),
         ("start_state_family", "start"),
         ("scheduled_active_fan_count", "active_fan_count"),
@@ -456,9 +464,15 @@ def _profile_subset(group: pd.DataFrame, label: str) -> pd.DataFrame:
         return pd.DataFrame()
     column = {
         "env": "environment_mode",
+        "r7_block": "r7_evidence_block_id",
+        "tier": "r7_uncertainty_tier",
+        "fan_policy": "r7_active_fan_count_policy",
+        "fan_position_policy": "r7_fan_position_policy",
         "start": "start_state_family",
         "active_fan_count": "scheduled_active_fan_count",
         "speed_bin": "local_lqr_speed_bin_id",
+        "transition": "transition_pair",
+        "exit": "transition_exit_class",
     }.get(prefix)
     if column is None or column not in group.columns:
         return pd.DataFrame()
@@ -999,6 +1013,10 @@ def _representative_row(
         "robustness_environment_modes_seen": str(row.get("robustness_environment_modes_seen", "")),
         "robustness_start_families_seen": str(row.get("robustness_start_families_seen", "")),
         "robustness_active_fan_counts_seen": str(row.get("robustness_active_fan_counts_seen", "")),
+        "robustness_evidence_blocks_seen": str(row.get("robustness_evidence_blocks_seen", "")),
+        "robustness_uncertainty_tiers_seen": str(row.get("robustness_uncertainty_tiers_seen", "")),
+        "robustness_active_fan_policies_seen": str(row.get("robustness_active_fan_policies_seen", "")),
+        "robustness_fan_position_policies_seen": str(row.get("robustness_fan_position_policies_seen", "")),
         "robustness_speed_bins_seen": str(row.get("robustness_speed_bins_seen", "")),
         "continuation_valid_count": int(float(row.get("continuation_valid_count", 0))),
         "continuation_valid_rate": float(row.get("continuation_valid_rate", 0.0)),
@@ -1053,8 +1071,9 @@ def _library_payload(
         "selection_policy": str(case["selection_policy"]),
         "selection_algorithm": "coverage_aware_behavior_qr_medoid_greedy_marginal",
         "hard_safety_filter_policy": "prefer hard_failure_rate_below_0p75_within_primitive_transition_entry_group",
-        "coverage_objective": "smallest_existing_transition_compatible_variant_set_covering_useful_entry_exit_transitions_with_low_hard_failure_risk",
+        "coverage_objective": "smallest_existing_transition_compatible_variant set covering useful entry/exit transitions, local speed bins, and R7 uncertainty blocks with low hard-failure risk",
         "speed_bin_coverage_policy": "preserve distinct W3-eligible local LQR speed bins within each primitive_id + transition_entry_class group up to the library-size case budget",
+        "uncertainty_coverage_policy": "preserve R7 evidence block, uncertainty tier, active-fan policy, and fan-position policy coverage through robustness labels before medoid compression",
         "transition_contract": transition_contract_row(),
         "claim_status": "simulation_only_post_w3_library_size_case",
         "no_controller_mutation": True,
@@ -1174,6 +1193,10 @@ def _coverage_medoid_selection_audit(representatives: list[dict[str, object]]) -
         "robustness_environment_modes_seen",
         "robustness_start_families_seen",
         "robustness_active_fan_counts_seen",
+        "robustness_evidence_blocks_seen",
+        "robustness_uncertainty_tiers_seen",
+        "robustness_active_fan_policies_seen",
+        "robustness_fan_position_policies_seen",
         "robustness_speed_bins_seen",
         "local_lqr_speed_bin_id",
         "local_lqr_reference_speed_m_s",

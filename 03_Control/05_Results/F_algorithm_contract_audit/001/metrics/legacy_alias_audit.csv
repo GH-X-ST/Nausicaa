@@ -1,7 +1,7 @@
 intentional_status,legacy_alias,passed,real_active_logic
-legacy_alias_intentional_not_active_score,expected_energy_residual_m,True,expected_updraft_gain_proxy_m is the governor soft reward; expected_energy_residual_m is net-energy audit compatibility only.
-legacy_alias_intentional_not_total_energy_memory,belief_local_energy_residual_m,True,belief_local_updraft_gain_residual_m is the active memory residual; energy residual wording is a compatibility alias.
+not_representative_score_active_for_memory_residual_audit,expected_energy_residual_m,True,expected_updraft_gain_proxy_m remains the representative soft reward; expected_energy_residual_m is used for specific-energy residual-memory comparison and compatibility audit output.
+active_specific_energy_memory_with_compatibility_alias,belief_local_energy_residual_m,True,belief_local_specific_energy_residual_m and belief_candidate_path_memory_utility_m are the active total-specific-energy-dominant memory fields; updraft residual remains auxiliary.
 legacy_config_reader_only,energy_weight / terminal_energy_weight,True,updraft_gain_weight / terminal_updraft_gain_weight are active config fields; legacy names are accepted only when reading old frozen configs.
 legacy_telemetry_only,minimum_speed_m_s / speed_margin_m_s,True,"Speed may appear in old logs or telemetry only; it is not an active governor rejection, recovery trigger, score factor, or audit gate."
 stale_path_alias_blocked_in_active_source,post_w3_cluster,True,"Use the active five-case post-W3 library-size study: heavy, balanced, light, super_light, and no_cluster_no_merge."
-legacy_stage_alias_not_pass_gate,R6 / W2 replay,True,R6 is archived diagnostic-only; active chain is R5 -> R7 -> R8 -> R9 -> R10 -> R11.
+legacy_stage_alias_not_pass_gate,R6 / W2 replay,True,"R6 is archived diagnostic-only; active thesis chain is R5 -> R7 -> R8 -> R10 -> R11 -> Reality, with R9 internal preflight only."

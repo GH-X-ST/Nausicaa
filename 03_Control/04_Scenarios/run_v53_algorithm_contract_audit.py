@@ -46,6 +46,8 @@ from run_lqr_w01_dense_chunked import (  # noqa: E402
     L6_RICH_SIDE_ROW_COUNT,
     OFFICIAL_W01_ENVIRONMENT_CASES,
     R5_ACTIVE_FAN_COUNT_SEQUENCE,
+    R5_EVIDENCE_BLOCKS,
+    R5_EVIDENCE_BLOCK_IDS,
     R5_TRANSITION_TRAINING_SCORE_FORMULA,
     W01DenseRunConfig,
     _row_schedule_for_index as _r5_row_schedule_for_index,
@@ -113,6 +115,7 @@ from run_repeated_launch_learning_curve import (  # noqa: E402
 from run_v411_source_audit import _active_source_blockers, build_control_inventory  # noqa: E402
 from run_w3_survival import (  # noqa: E402
     R5_INPUT_KIND,
+    R7_EVIDENCE_BLOCK_IDS,
     W3_ACTIVE_FAN_COUNT_SEQUENCE,
     W3_ENVIRONMENT_CASES,
     _row_for_index as _w3_row_for_index,
@@ -196,20 +199,23 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.extend(_transition_contract_invariant_rows())
     rows.append(_row("active_primitive_catalogue_has_8_variants", len(ACTIVE_PRIMITIVE_IDS) == 8, len(ACTIVE_PRIMITIVE_IDS), 8))
     rows.append(_row("launch_capture_aliases_retired_not_active", len(LAUNCH_CAPTURE_PRIMITIVE_IDS) == 6 and not set(LAUNCH_CAPTURE_PRIMITIVE_IDS).intersection(set(ACTIVE_PRIMITIVE_IDS)), {"active": list(ACTIVE_PRIMITIVE_IDS), "retired": list(LAUNCH_CAPTURE_PRIMITIVE_IDS)}, "retired launch_capture aliases disjoint from active primitives"))
-    rows.append(_row("r5_dense_target_dynamic_8x32x3x100", L6_RICH_SIDE_ROW_COUNT == rich_side_dense_row_count() == 76800, {"row_count": L6_RICH_SIDE_ROW_COUNT, "candidate_count": L6_RICH_SIDE_CANDIDATE_COUNT, "paired_tests": L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE}, "8*32*3*100=76800"))
+    rows.append(_row("r5_dense_target_dynamic_8x32x8x50", L6_RICH_SIDE_ROW_COUNT == rich_side_dense_row_count() == 102400, {"row_count": L6_RICH_SIDE_ROW_COUNT, "candidate_count": L6_RICH_SIDE_CANDIDATE_COUNT, "paired_tests": L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE, "evidence_block_count": len(R5_EVIDENCE_BLOCKS)}, "8*32*8*50=102400"))
     rows.append(_row("r5_qr_reference_tuning_method_transition_robust", W01_TUNING_METHOD_VERSION == "w01_transition_robust_reference_v8", W01_TUNING_METHOD_VERSION, "w01_transition_robust_reference_v8"))
     rows.append(_row("r5_qr_reference_generator_exact_32_structured_candidates", _qr_generator_contract_passes(), "structured Q/R plus attitude/bank reference-bias candidate generator", "candidate 0 nominal, 1-7 physical anchors, 8-31 LHS log Q/R plus small attitude/bank reference bias; speed is scheduling-only; turn metrics are audit-only"))
     rows.append(_row("r5_selection_score_has_no_turn_expression_bonus", "turn_intent" not in R5_TRANSITION_TRAINING_SCORE_FORMULA and "turn_primitive" not in R5_TRANSITION_TRAINING_SCORE_FORMULA, R5_TRANSITION_TRAINING_SCORE_FORMULA, "transition robustness score excludes turn expression bonus"))
     rows.append(_row("r5_official_environment_cases_annular_gp_only", OFFICIAL_W01_ENVIRONMENT_CASES == (("W0", "dry_air"), ("W1", "w1_annular_gp_randomised_single"), ("W1", "w1_annular_gp_randomised_four")), OFFICIAL_W01_ENVIRONMENT_CASES, "W0 dry plus W1 annular-GP single/four"))
-    rows.append(_row("r5_active_fan_count_sequence_balanced_1_2_3_4", R5_ACTIVE_FAN_COUNT_SEQUENCE == (1, 2, 3, 4), R5_ACTIVE_FAN_COUNT_SEQUENCE, (1, 2, 3, 4)))
+    rows.append(_row("r5_evidence_blocks_anchor_plus_uncertainty_family", len(R5_EVIDENCE_BLOCK_IDS) == 8 and {"r5_anchor_dry_air", "r5_anchor_single_fan_fixed", "r5_anchor_four_fan_fixed", "r5_random_arena_wide"}.issubset(set(R5_EVIDENCE_BLOCK_IDS)), R5_EVIDENCE_BLOCK_IDS, "8 R5 blocks with dry/single/four anchors plus randomized uncertainty-family blocks"))
+    rows.append(_row("r5_active_fan_count_sequence_balanced_0_1_2_3_4", R5_ACTIVE_FAN_COUNT_SEQUENCE == (0, 1, 2, 3, 4), R5_ACTIVE_FAN_COUNT_SEQUENCE, (0, 1, 2, 3, 4)))
     r5_schedule = _r5_schedule_role_audit()
     rows.append(_row("r5_schedule_has_no_cross_entry_role_start_family", int(r5_schedule["mismatch_count"]) == 0, r5_schedule, "all scheduled rows transition-object compatible"))
     rows.append(_row("r5_transition_entry_start_family_counts", r5_schedule["family_counts"] == _expected_r5_family_counts(), r5_schedule["family_counts"], _expected_r5_family_counts()))
-    rows.append(_row("r5_environment_case_counts_balanced", r5_schedule["environment_case_counts"] == {"W0|dry_air": 25600, "W1|w1_annular_gp_randomised_four": 25600, "W1|w1_annular_gp_randomised_single": 25600}, r5_schedule["environment_case_counts"], "25600 rows per W0/W1 environment case"))
+    rows.append(_row("r5_environment_case_counts_reflect_block_ladder", r5_schedule["environment_case_counts"] == {"W0|dry_air": 12800, "W1|w1_annular_gp_randomised_four": 64000, "W1|w1_annular_gp_randomised_single": 25600}, r5_schedule["environment_case_counts"], "R5 block ladder: 1 dry block, 2 single-fan blocks, 5 four-fan blocks"))
+    rows.append(_row("r5_evidence_block_counts_balanced", r5_schedule["evidence_block_counts"] == {block_id: 12800 for block_id in R5_EVIDENCE_BLOCK_IDS}, r5_schedule["evidence_block_counts"], "12800 rows per R5 evidence block"))
     w3_row_source = inspect.getsource(_w3_row_for_index)
     rows.append(_row("r7_uses_direct_r5_frozen_bundle_not_active_w2_gate", R5_INPUT_KIND == "r5_frozen_bundle_direct", R5_INPUT_KIND, "r5_frozen_bundle_direct"))
     rows.append(_row("r7_environment_cases_dry_air_annular_gp_single_four", W3_ENVIRONMENT_CASES == ("dry_air", "w3_randomised_single", "w3_randomised_four"), W3_ENVIRONMENT_CASES, ("dry_air", "w3_randomised_single", "w3_randomised_four")))
-    rows.append(_row("r7_active_fan_count_sequence_balanced_1_2_3_4", W3_ACTIVE_FAN_COUNT_SEQUENCE == (1, 2, 3, 4), W3_ACTIVE_FAN_COUNT_SEQUENCE, (1, 2, 3, 4)))
+    rows.append(_row("r7_evidence_blocks_anchor_plus_uncertainty_family", len(R7_EVIDENCE_BLOCK_IDS) == 8 and {"r7_anchor_dry_air", "r7_anchor_single_fan_fixed", "r7_anchor_four_fan_fixed", "r7_random_arena_wide"}.issubset(set(R7_EVIDENCE_BLOCK_IDS)), R7_EVIDENCE_BLOCK_IDS, "8 R7 blocks with dry/single/four anchors plus held-out uncertainty-family blocks"))
+    rows.append(_row("r7_active_fan_count_sequence_balanced_0_1_2_3_4", W3_ACTIVE_FAN_COUNT_SEQUENCE == (0, 1, 2, 3, 4), W3_ACTIVE_FAN_COUNT_SEQUENCE, (0, 1, 2, 3, 4)))
     rows.append(_row("r7_row_scheduler_uses_r5_selected_transition_entry_class", "_start_family_for_r5_selected_entry_class" in w3_row_source and "r5_selected_transition_entry_class" in w3_row_source, "R5 selected transition-entry W3 scheduler source", "start family selected from r5_transition_selected_for_r7 transition_entry_class"))
     r8_representatives_source = inspect.getsource(_representatives_for_case)
     r8_selection_source = inspect.getsource(_coverage_medoid_selection)
@@ -316,10 +322,10 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     for protocol, full_domain_block_id in ((R10_PROTOCOL, R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID), (R11_PROTOCOL, R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID)):
         no_variation_audit = pd.DataFrame(_no_variation_audit_rows(_final_heldout_schedule(outer_cases=_outer_case_schedule(protocol=protocol, seed=91), protocol=protocol)))
         case7 = no_variation_audit[no_variation_audit["environment_block_id"].astype(str).eq(full_domain_block_id)]
-        rows.append(_row(f"{protocol.stage_id.lower()}_full_domain_declared_full_w3_exception", not case7.empty and bool(case7["full_w3_randomisation_exception"].all()) and bool(case7["variation_audit_passed"].all()), case7.to_dict(orient="records")[:1], "full-domain block is explicit full-W3 perturbation exception"))
+        rows.append(_row(f"{protocol.stage_id.lower()}_full_domain_fixed_within_outer_case", not case7.empty and bool(case7["glider_model_fixed"].all()) and bool(case7["fan_layout_fixed_within_outer_case"].all()) and bool(case7["active_fan_count_fixed_within_outer_case"].all()) and bool(case7["variation_audit_passed"].all()), case7.to_dict(orient="records")[:1], "full-domain block samples W3 perturbations across outer cases but fixes layout/count/plant within each outer case"))
         outer = next(row for row in _outer_case_schedule(protocol=protocol, seed=91) if row["environment_block_id"] == full_domain_block_id)
         history = _history_row_for_final({**outer, "episode_id": "audit", "launch_role": "final_heldout"}, 0)
-        rows.append(_row(f"{protocol.stage_id.lower()}_history_varies_environment_but_not_plant_seed", int(history["environment_seed"]) != int(outer["environment_seed"]) and int(history["plant_implementation_seed"]) == int(outer["plant_implementation_seed"]), {"outer": outer, "history": history}, "history shifts environment/launch seed while plant/implementation seed stays fixed per outer case"))
+        rows.append(_row(f"{protocol.stage_id.lower()}_history_varies_only_launch_and_updraft_parameters", int(history["environment_seed"]) != int(outer["environment_seed"]) and int(history["environment_layout_seed"]) == int(outer["environment_layout_seed"]) and int(history["environment_active_fan_seed"]) == int(outer["environment_active_fan_seed"]) and history["scheduled_active_fan_count"] == outer["scheduled_active_fan_count"] and int(history["plant_implementation_seed"]) == int(outer["plant_implementation_seed"]), {"outer": outer, "history": history}, "history shifts launch and mild updraft parameter seed while fan layout/count and plant/implementation stay fixed per outer case"))
     rows.append(_row("changed_case_active_fan_count_sequence", R10_ACTIVE_FAN_COUNT_SEQUENCE == (0, 1, 2, 3, 4), R10_ACTIVE_FAN_COUNT_SEQUENCE, (0, 1, 2, 3, 4)))
     return rows
 
@@ -481,6 +487,7 @@ def _r5_schedule_role_audit() -> dict[str, object]:
     family_counts: dict[str, int] = {}
     role_family_counts: dict[str, int] = {}
     environment_case_counts: dict[str, int] = {}
+    evidence_block_counts: dict[str, int] = {}
     primitive_counts: dict[str, int] = {}
     mismatches: list[dict[str, object]] = []
     for row_index in range(int(L6_RICH_SIDE_ROW_COUNT)):
@@ -493,6 +500,7 @@ def _r5_schedule_role_audit() -> dict[str, object]:
         role_family_counts[role_family_key] = role_family_counts.get(role_family_key, 0) + 1
         environment_key = f"{schedule.W_layer}|{schedule.environment_mode}"
         environment_case_counts[environment_key] = environment_case_counts.get(environment_key, 0) + 1
+        evidence_block_counts[schedule.evidence_block_id] = evidence_block_counts.get(schedule.evidence_block_id, 0) + 1
         primitive_counts[primitive_id] = primitive_counts.get(primitive_id, 0) + 1
         if not start_family_is_compatible(entry_role=entry_role, start_state_family=family):
             if len(mismatches) < 10:
@@ -511,6 +519,7 @@ def _r5_schedule_role_audit() -> dict[str, object]:
         "family_counts": dict(sorted(family_counts.items())),
         "role_family_counts": dict(sorted(role_family_counts.items())),
         "environment_case_counts": dict(sorted(environment_case_counts.items())),
+        "evidence_block_counts": dict(sorted(evidence_block_counts.items())),
         "primitive_count_range": (
             min(primitive_counts.values()) if primitive_counts else 0,
             max(primitive_counts.values()) if primitive_counts else 0,
@@ -520,11 +529,11 @@ def _r5_schedule_role_audit() -> dict[str, object]:
 
 def _expected_r5_family_counts() -> dict[str, int]:
     return {
-        "inflight_boundary_near": 7680,
-        "inflight_lift_region": 11520,
-        "inflight_nominal": 19200,
-        "inflight_recovery_edge": 7680,
-        "launch_gate": 30720,
+        "inflight_boundary_near": 10240,
+        "inflight_lift_region": 15360,
+        "inflight_nominal": 25600,
+        "inflight_recovery_edge": 10240,
+        "launch_gate": 40960,
     }
 
 
@@ -766,8 +775,9 @@ def _docs_code_consistency_rows(repo_root: Path) -> list[dict[str, object]]:
         "r9_quick_preflight_60_final": "60 final held-out launches",
         "r9_quick_preflight_645_history": "645 history launches",
         "r10_single_hard_training_distribution": "R10 is governor/residual-memory tuning on one hard training distribution",
+        "r10_tunes_memory_shield_exploration_handoff": "R10 may tune memory sensitivity, shield margins, exploration thresholds",
         "r11_eight_block_fidelity_ladder": "R11 is held-out validation on an eight-block fidelity ladder",
-        "plant_implementation_fixed_per_outer_case": "sampled once per outer case and held fixed",
+        "plant_implementation_fixed_per_outer_case": "plant/implementation are fixed across history/final launches",
         "outer_loop_realtime_scheduler_profile": "preferred 20 ms controller-slot budget and a hard 0.100 s primitive-boundary budget",
         "memory_opportunity_audit": "memory_opportunity_summary.csv",
     }

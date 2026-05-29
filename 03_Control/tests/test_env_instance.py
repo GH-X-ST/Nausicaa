@@ -162,3 +162,36 @@ def test_r10_arena_wide_fan_position_policy_samples_inside_tracker_footprint() -
         for second in instance.fan_positions_m[index + 1 :]:
             assert float(np.linalg.norm(np.asarray(first) - np.asarray(second))) >= 1.0
     assert any(abs(x - nominal_x) > 0.20 or abs(y - nominal_y) > 0.20 for (x, y), (nominal_x, nominal_y) in zip(instance.fan_positions_m, ((3.0, 3.6), (5.4, 3.6), (3.0, 1.2), (5.4, 1.2)), strict=True))
+
+
+def test_split_environment_randomisation_seeds_keep_layout_and_count_fixed_while_parameters_vary() -> None:
+    first = environment_instance_for_mode(
+        "W3",
+        "w3_randomised_four",
+        501,
+        randomisation_config=EnvironmentRandomisationConfig(
+            active_fan_count=2,
+            fan_position_policy="independent_uniform_xy_bounds",
+            fan_layout_seed=11,
+            active_fan_seed=12,
+            fan_parameter_seed=13,
+        ),
+    )
+    second = environment_instance_for_mode(
+        "W3",
+        "w3_randomised_four",
+        502,
+        randomisation_config=EnvironmentRandomisationConfig(
+            active_fan_count=2,
+            fan_position_policy="independent_uniform_xy_bounds",
+            fan_layout_seed=11,
+            active_fan_seed=12,
+            fan_parameter_seed=14,
+        ),
+    )
+
+    assert first.fan_positions_m == second.fan_positions_m
+    assert first.active_fan_mask == second.active_fan_mask
+    assert first.fan_power_scales != second.fan_power_scales
+    assert first.updraft_width_scale != second.updraft_width_scale
+    assert first.local_uncertainty_scale != second.local_uncertainty_scale

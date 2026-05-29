@@ -77,6 +77,18 @@ from primitive_timing_contract import (  # noqa: E402
     CONTROLLER_INPUT_UPDATE_PERIOD_S,
     primitive_timing_contract_row,
 )
+from robust_evidence_distribution import (  # noqa: E402
+    R5_EVIDENCE_BLOCKS,
+    ROBUST_ACTIVE_FAN_COUNT_SEQUENCE,
+    ROBUST_EVIDENCE_DISTRIBUTION_VERSION,
+    evidence_block_by_id,
+    evidence_block_for_index,
+    evidence_block_ids,
+    evidence_block_manifest_rows,
+    randomisation_config_for_block,
+    scheduled_active_fan_count,
+    unique_environment_cases,
+)
 from state_sampling import archive_state_sample_for_family, archive_state_sample_for_row, archive_state_sample_row, start_state_family_for_row  # noqa: E402
 from transition_labels import transition_contract_row, transition_row_fields, turn_intent_row_fields  # noqa: E402
 
@@ -130,22 +142,22 @@ R5_REFERENCE_BIAS_COLUMNS = (
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R5_dense")
 L6_FALLBACK_ROW_COUNT = 19_200
 L6_RICH_SIDE_CANDIDATE_COUNT = 32
-L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE = 100
+L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE = 50
 
 
 def rich_side_dense_row_count(
     *,
     primitive_count: int | None = None,
     candidate_count: int = L6_RICH_SIDE_CANDIDATE_COUNT,
-    environment_case_count: int = 3,
+    environment_case_count: int | None = None,
     paired_tests_per_candidate: int = L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE,
 ) -> int:
-    """Return the active rich-side W0/W1 dense target for the primitive catalogue."""
+    """Return the active rich-side R5 dense target for the primitive catalogue."""
 
     return (
         int(len(ACTIVE_PRIMITIVE_IDS) if primitive_count is None else primitive_count)
         * int(candidate_count)
-        * int(environment_case_count)
+        * int(len(R5_EVIDENCE_BLOCKS) if environment_case_count is None else environment_case_count)
         * int(paired_tests_per_candidate)
     )
 
@@ -171,12 +183,9 @@ REQUIRED_DOCS = (
     "Daily_Schedule.txt",
     "PR.txt",
 )
-OFFICIAL_W01_ENVIRONMENT_CASES = (
-    ("W0", "dry_air"),
-    ("W1", "w1_annular_gp_randomised_single"),
-    ("W1", "w1_annular_gp_randomised_four"),
-)
-R5_ACTIVE_FAN_COUNT_SEQUENCE = (1, 2, 3, 4)
+OFFICIAL_W01_ENVIRONMENT_CASES = unique_environment_cases(R5_EVIDENCE_BLOCKS)
+R5_EVIDENCE_BLOCK_IDS = evidence_block_ids(R5_EVIDENCE_BLOCKS)
+R5_ACTIVE_FAN_COUNT_SEQUENCE = ROBUST_ACTIVE_FAN_COUNT_SEQUENCE
 CLAIM_BOUNDARY = (
     "simulation_only_R5_robust_randomised_W0_W1_synthesis_training_no_heldout_W3_or_validation_claim"
 )
@@ -270,6 +279,12 @@ class W01RowSchedule:
     candidate_index: int
     W_layer: str
     environment_mode: str
+    evidence_block_id: str
+    evidence_block_label: str
+    evidence_stage_role: str
+    uncertainty_tier: str
+    active_fan_count_policy: str
+    fan_position_policy: str
     start_state_family: str
     paired_start_key: str
     paired_start_index: int
@@ -649,6 +664,7 @@ def _row_for_index(
     candidate_index = int(schedule.candidate_index)
     W_layer = schedule.W_layer
     environment_mode = schedule.environment_mode
+    evidence_block = evidence_block_by_id(R5_EVIDENCE_BLOCKS, schedule.evidence_block_id)
     if schedule.schedule_mode == SMOKE_SCHEDULE_MODE:
         sample = archive_state_sample_for_row(
             int(row_index),
@@ -668,7 +684,7 @@ def _row_for_index(
     local_speed = nearest_lqr_operating_speed_m_s(local_speed_from_state_vector(sample.state_vector))
     primitive, controller, variant, weight_label = variants_by_key[(primitive_id, int(candidate_index), float(local_speed))]
     randomisation_config = _r5_randomisation_config(
-        environment_mode=environment_mode,
+        evidence_block_id=str(schedule.evidence_block_id),
         paired_start_index=int(schedule.paired_start_index),
     )
     environment = environment_instance_for_mode(
@@ -830,7 +846,17 @@ def _row_for_index(
             "plant_instance_status": plant_audit_status,
             "W_layer_official_role": _official_w01_role(W_layer=W_layer, environment_mode=environment_mode),
             "scheduled_active_fan_count": int(sum(bool(value) for value in environment.active_fan_mask)),
-            "r5_training_randomisation_role": _r5_training_randomisation_role(environment_mode),
+            "r5_scheduled_active_fan_count_by_block": int(
+                scheduled_active_fan_count(evidence_block, int(schedule.paired_start_index))
+            ),
+            "r5_evidence_distribution_version": ROBUST_EVIDENCE_DISTRIBUTION_VERSION,
+            "r5_evidence_block_id": str(schedule.evidence_block_id),
+            "r5_evidence_block_label": str(schedule.evidence_block_label),
+            "r5_evidence_stage_role": str(schedule.evidence_stage_role),
+            "r5_uncertainty_tier": str(schedule.uncertainty_tier),
+            "r5_active_fan_count_policy": str(schedule.active_fan_count_policy),
+            "r5_fan_position_policy": str(schedule.fan_position_policy),
+            "r5_training_randomisation_role": _r5_training_randomisation_role(evidence_block),
             "implementation_plant_instance_layer_for_synthesis": _r5_implementation_plant_layer(
                 W_layer=W_layer,
                 environment_mode=environment_mode,
@@ -858,14 +884,9 @@ def _row_for_index(
     return row
 
 
-def _r5_randomisation_config(*, environment_mode: str, paired_start_index: int) -> EnvironmentRandomisationConfig | None:
-    if str(environment_mode) == "w1_annular_gp_randomised_four":
-        return EnvironmentRandomisationConfig(
-            active_fan_count=int(R5_ACTIVE_FAN_COUNT_SEQUENCE[int(paired_start_index) % len(R5_ACTIVE_FAN_COUNT_SEQUENCE)])
-        )
-    if str(environment_mode) == "w1_annular_gp_randomised_single":
-        return EnvironmentRandomisationConfig(active_fan_count=1)
-    return None
+def _r5_randomisation_config(*, evidence_block_id: str, paired_start_index: int) -> EnvironmentRandomisationConfig | None:
+    block = evidence_block_by_id(R5_EVIDENCE_BLOCKS, evidence_block_id)
+    return randomisation_config_for_block(block, paired_start_index)
 
 
 def _r5_implementation_plant_layer(*, W_layer: str, environment_mode: str) -> str:
@@ -878,14 +899,8 @@ def _r5_implementation_plant_layer(*, W_layer: str, environment_mode: str) -> st
     return str(W_layer).upper()
 
 
-def _r5_training_randomisation_role(environment_mode: str) -> str:
-    if str(environment_mode) == "dry_air":
-        return "dry_baseline_training_case"
-    if str(environment_mode) == "w1_annular_gp_randomised_single":
-        return "robust_annular_gp_randomised_single_fan_training_case"
-    if str(environment_mode) == "w1_annular_gp_randomised_four":
-        return "robust_annular_gp_randomised_multi_fan_training_case_with_active_fan_count_1_2_3_4"
-    return "unknown_training_case"
+def _r5_training_randomisation_role(block) -> str:
+    return f"{block.stage_role}:{block.uncertainty_tier}:{block.active_fan_count_policy}"
 
 
 def _official_w01_role(*, W_layer: str, environment_mode: str) -> str:
@@ -897,21 +912,28 @@ def _official_w01_role(*, W_layer: str, environment_mode: str) -> str:
 def _row_schedule_for_index(row_index: int, config: W01DenseRunConfig) -> W01RowSchedule:
     if str(config.schedule_mode) == SMOKE_SCHEDULE_MODE:
         primitive_id = ACTIVE_PRIMITIVE_IDS[int(row_index) % len(ACTIVE_PRIMITIVE_IDS)]
-        candidate_index = (int(row_index) // len(ACTIVE_PRIMITIVE_IDS)) % int(config.candidate_count)
-        W_layer, environment_mode = OFFICIAL_W01_ENVIRONMENT_CASES[int(row_index) % len(OFFICIAL_W01_ENVIRONMENT_CASES)]
+        grouped_index = int(row_index) // len(ACTIVE_PRIMITIVE_IDS)
+        candidate_index = grouped_index % int(config.candidate_count)
+        block = evidence_block_for_index(R5_EVIDENCE_BLOCKS, grouped_index)
         family = _role_aware_start_family(
             primitive_id=str(primitive_id),
-            role_local_index=int(row_index) // len(ACTIVE_PRIMITIVE_IDS),
+            role_local_index=grouped_index,
         )
         return W01RowSchedule(
             row_index=int(row_index),
             primitive_id=str(primitive_id),
             candidate_index=int(candidate_index),
-            W_layer=str(W_layer),
-            environment_mode=str(environment_mode),
+            W_layer=str(block.W_layer),
+            environment_mode=str(block.environment_mode),
+            evidence_block_id=str(block.block_id),
+            evidence_block_label=str(block.human_label),
+            evidence_stage_role=str(block.stage_role),
+            uncertainty_tier=str(block.uncertainty_tier),
+            active_fan_count_policy=str(block.active_fan_count_policy),
+            fan_position_policy=str(block.fan_position_policy),
             start_state_family=str(family),
-            paired_start_key=f"smoke_role_start_{int(row_index) // len(ACTIVE_PRIMITIVE_IDS):07d}_{family}",
-            paired_start_index=int(row_index) // len(ACTIVE_PRIMITIVE_IDS),
+            paired_start_key=f"smoke_role_start_{grouped_index:07d}_{family}",
+            paired_start_index=int(grouped_index),
             schedule_mode=SMOKE_SCHEDULE_MODE,
         )
 
@@ -919,21 +941,25 @@ def _row_schedule_for_index(row_index: int, config: W01DenseRunConfig) -> W01Row
         primitive_index = int(row_index) % len(ACTIVE_PRIMITIVE_IDS)
         primitive_id = ACTIVE_PRIMITIVE_IDS[primitive_index]
         grouped_index = int(row_index) // len(ACTIVE_PRIMITIVE_IDS)
-        candidate_environment_count = int(config.candidate_count) * len(OFFICIAL_W01_ENVIRONMENT_CASES)
-        paired_start_index = grouped_index // max(1, candidate_environment_count)
-        candidate_environment_index = grouped_index % max(1, candidate_environment_count)
-        candidate_index = candidate_environment_index // len(OFFICIAL_W01_ENVIRONMENT_CASES)
-        W_layer, environment_mode = OFFICIAL_W01_ENVIRONMENT_CASES[
-            candidate_environment_index % len(OFFICIAL_W01_ENVIRONMENT_CASES)
-        ]
-        role_local_index = int(candidate_environment_index) * int(config.paired_tests_per_candidate) + int(paired_start_index)
+        candidate_block_count = int(config.candidate_count) * len(R5_EVIDENCE_BLOCKS)
+        paired_start_index = grouped_index // max(1, candidate_block_count)
+        candidate_block_index = grouped_index % max(1, candidate_block_count)
+        candidate_index = candidate_block_index // len(R5_EVIDENCE_BLOCKS)
+        block = evidence_block_for_index(R5_EVIDENCE_BLOCKS, candidate_block_index)
+        role_local_index = int(candidate_block_index) * int(config.paired_tests_per_candidate) + int(paired_start_index)
         family = _role_aware_start_family(primitive_id=str(primitive_id), role_local_index=role_local_index)
         return W01RowSchedule(
             row_index=int(row_index),
             primitive_id=str(primitive_id),
             candidate_index=int(candidate_index),
-            W_layer=str(W_layer),
-            environment_mode=str(environment_mode),
+            W_layer=str(block.W_layer),
+            environment_mode=str(block.environment_mode),
+            evidence_block_id=str(block.block_id),
+            evidence_block_label=str(block.human_label),
+            evidence_stage_role=str(block.stage_role),
+            uncertainty_tier=str(block.uncertainty_tier),
+            active_fan_count_policy=str(block.active_fan_count_policy),
+            fan_position_policy=str(block.fan_position_policy),
             start_state_family=str(family),
             paired_start_key=f"paired_role_start_{int(role_local_index):07d}_{family}",
             paired_start_index=int(role_local_index),
@@ -943,10 +969,10 @@ def _row_schedule_for_index(row_index: int, config: W01DenseRunConfig) -> W01Row
     primitive_index = int(row_index) % len(ACTIVE_PRIMITIVE_IDS)
     primitive_id = ACTIVE_PRIMITIVE_IDS[primitive_index]
     grouped_index = int(row_index) // len(ACTIVE_PRIMITIVE_IDS)
-    candidate_index = grouped_index % int(config.candidate_count)
-    W_layer, environment_mode = OFFICIAL_W01_ENVIRONMENT_CASES[grouped_index % len(OFFICIAL_W01_ENVIRONMENT_CASES)]
+    candidate_index = (grouped_index // len(R5_EVIDENCE_BLOCKS)) % int(config.candidate_count)
+    block = evidence_block_for_index(R5_EVIDENCE_BLOCKS, grouped_index)
     family = _role_aware_start_family(primitive_id=str(primitive_id), role_local_index=int(grouped_index))
-    full_cycle = len(ACTIVE_PRIMITIVE_IDS) * int(config.candidate_count) * len(OFFICIAL_W01_ENVIRONMENT_CASES)
+    full_cycle = len(ACTIVE_PRIMITIVE_IDS) * int(config.candidate_count) * len(R5_EVIDENCE_BLOCKS)
     cycle_index = int(row_index) // max(1, full_cycle)
     family_slot = int(row_index) % 20
     paired_start_index = int(grouped_index if config.paired_tests_per_candidate is None else cycle_index * 20 + family_slot)
@@ -955,8 +981,14 @@ def _row_schedule_for_index(row_index: int, config: W01DenseRunConfig) -> W01Row
         row_index=int(row_index),
         primitive_id=str(primitive_id),
         candidate_index=int(candidate_index),
-        W_layer=str(W_layer),
-        environment_mode=str(environment_mode),
+        W_layer=str(block.W_layer),
+        environment_mode=str(block.environment_mode),
+        evidence_block_id=str(block.block_id),
+        evidence_block_label=str(block.human_label),
+        evidence_stage_role=str(block.stage_role),
+        uncertainty_tier=str(block.uncertainty_tier),
+        active_fan_count_policy=str(block.active_fan_count_policy),
+        fan_position_policy=str(block.fan_position_policy),
         start_state_family=str(family),
         paired_start_key=paired_start_key,
         paired_start_index=paired_start_index,
@@ -1671,7 +1703,7 @@ def _expected_r5_rows_for_transition_entry(entry_class: str) -> int:
         "boundary_near": 10,
         "recoverable_degraded": 10,
     }.get(str(entry_class), 0)
-    return int(per_environment * len(OFFICIAL_W01_ENVIRONMENT_CASES))
+    return int(per_environment * len(R5_EVIDENCE_BLOCKS))
 
 
 def _mark_selected_for_r7(summary: pd.DataFrame) -> pd.DataFrame:
@@ -2098,7 +2130,7 @@ def _unique_group_count(frame: pd.DataFrame, mask: pd.Series) -> int:
 def _expected_launch_gate_rows_per_active_primitive() -> int:
     return int(
         L6_RICH_SIDE_CANDIDATE_COUNT
-        * len(OFFICIAL_W01_ENVIRONMENT_CASES)
+        * len(R5_EVIDENCE_BLOCKS)
         * 40
     )
 
@@ -2351,6 +2383,7 @@ def _write_l7_completeness_audit(
     candidate_counts = _coverage_counts(run_root, "candidate_index")
     start_counts = _coverage_counts(run_root, "start_state_family")
     environment_counts = _coverage_counts(run_root, "environment_mode")
+    evidence_block_counts = _coverage_counts(run_root, "r5_evidence_block_id")
     boundary_counts = _coverage_counts(run_root, "boundary_use_class")
     synthesis_rows = _read_metric_preview(run_root / "metrics" / "variant_synthesis_summary.csv", limit=12)
     cleared = bool(not move_on_blockers and run_class == "rich_side_l6_candidate")
@@ -2370,7 +2403,7 @@ def _write_l7_completeness_audit(
             f"- Largest file: `{largest.get('relative_path', '')}` at `{largest.get('size_mb', '')}` MB",
             f"- Above 75 MB present: `{largest.get('above_75mb', '')}`",
             f"- Above 100 MB present: `{largest.get('above_100mb', '')}`",
-            f"- W1 annular-GP randomised single/four mixed in one root: `{ {'w1_annular_gp_randomised_single', 'w1_annular_gp_randomised_four'}.issubset(set(environment_counts)) }`",
+            f"- R5 anchor plus uncertainty-family evidence blocks present: `{set(evidence_block_counts) >= set(R5_EVIDENCE_BLOCK_IDS)}`",
             f"- Fixed R5 library cleared for future W3 frozen held-out replay: `{cleared}`",
             "",
             "Coverage summaries:",
@@ -2379,6 +2412,7 @@ def _write_l7_completeness_audit(
             f"- Candidate indices present: `{len(candidate_counts)}`",
             f"- Start families: `{json.dumps(start_counts, sort_keys=True)}`",
             f"- Environments: `{json.dumps(environment_counts, sort_keys=True)}`",
+            f"- Evidence blocks: `{json.dumps(evidence_block_counts, sort_keys=True)}`",
             f"- Boundary use: `{json.dumps(boundary_counts, sort_keys=True)}`",
             "",
             "Timing-aware synthesis preview:",
@@ -3155,7 +3189,7 @@ def _w01_method_evidence_fields(
         else max(
             1,
             int(config.rows)
-            // max(1, len(ACTIVE_PRIMITIVE_IDS) * int(config.candidate_count) * len(OFFICIAL_W01_ENVIRONMENT_CASES)),
+            // max(1, len(ACTIVE_PRIMITIVE_IDS) * int(config.candidate_count) * len(R5_EVIDENCE_BLOCKS)),
         )
     )
     primitive_family_coverage_complete = set(primitive_counts) >= set(ACTIVE_PRIMITIVE_IDS) and all(
@@ -3240,7 +3274,7 @@ def _run_manifest(
     paired_tests = (
         int(config.paired_tests_per_candidate)
         if config.paired_tests_per_candidate is not None
-        else max(1, int(config.rows) // max(1, len(variants) * len(OFFICIAL_W01_ENVIRONMENT_CASES)))
+        else max(1, int(config.rows) // max(1, len(variants) * len(R5_EVIDENCE_BLOCKS)))
     )
     schedule_row = tuning_schedule_row(
         lqr_tuning_schedule(
@@ -3300,6 +3334,11 @@ def _run_manifest(
         "per_candidate_row_counts": schedule_counts["candidate_index"],
         "per_W_layer_row_counts": schedule_counts["W_layer"],
         "per_environment_mode_row_counts": schedule_counts["environment_mode"],
+        "per_r5_evidence_block_row_counts": schedule_counts["r5_evidence_block_id"],
+        "per_r5_uncertainty_tier_row_counts": schedule_counts["r5_uncertainty_tier"],
+        "per_r5_evidence_stage_role_row_counts": schedule_counts["r5_evidence_stage_role"],
+        "per_r5_active_fan_count_policy_row_counts": schedule_counts["r5_active_fan_count_policy"],
+        "per_r5_fan_position_policy_row_counts": schedule_counts["r5_fan_position_policy"],
         "per_start_family_row_counts": schedule_counts["start_state_family"],
         "r5_launch_aware_decision": R5_LAUNCH_AWARE_DENSE_INCOMPLETE_RESUME_REQUIRED,
         "r5_launch_aware_gate_blockers": ["rollout_evidence_not_yet_completed"],
@@ -3326,13 +3365,19 @@ def _run_manifest(
         "cross_layer_minimum_paired_start_cycle": int(CROSS_LAYER_START_FAMILY_CYCLE),
         "start_family_mix_exact_or_blocked": bool(not cross_layer_blockers),
         "official_W_layers": {"W0": ["dry_air"], "W1": ["w1_annular_gp_randomised_single", "w1_annular_gp_randomised_four"]},
+        "r5_evidence_distribution_version": ROBUST_EVIDENCE_DISTRIBUTION_VERSION,
+        "r5_evidence_block_count": int(len(R5_EVIDENCE_BLOCKS)),
+        "r5_evidence_block_ids": list(R5_EVIDENCE_BLOCK_IDS),
+        "r5_evidence_blocks": evidence_block_manifest_rows(R5_EVIDENCE_BLOCKS),
         "r5_training_randomisation_policy": {
-            "W0": "dry_air_baseline",
-            "W1_single": "single_layer_annular_gp_fan_position_power_width_and_implementation_plant_randomised_training_case",
-            "W1_multi": "single_layer_annular_gp_fan_position_power_width_active_fan_count_and_implementation_plant_randomised_training_case",
+            "policy": "small anchors plus R10/R11-style randomized uncertainty-family training blocks",
+            "W0": "dry_air_anchor",
+            "W1_single": "fixed_anchor_plus_local_random_single_fan_uncertainty",
+            "W1_multi": "fixed_anchor_plus_parameter_active_count_local_position_and_arena_wide_randomisation",
             "duplicate_strength_width_centre_wrapper": "disabled_for_annular_gp_training",
             "axisymmetric_gaussian_plume": "diagnostic_only_not_active_pass_evidence",
             "active_fan_count_sequence": list(R5_ACTIVE_FAN_COUNT_SEQUENCE),
+            "paired_tests_per_candidate_per_evidence_block": int(paired_tests),
         },
         "R6_W2_active_pipeline_gate": False,
         "R6_W2_archived_diagnostic_only": True,
@@ -3368,6 +3413,11 @@ def _schedule_count_summary(config: W01DenseRunConfig) -> dict[str, dict[str, in
         "candidate_index": Counter(),
         "W_layer": Counter(),
         "environment_mode": Counter(),
+        "r5_evidence_block_id": Counter(),
+        "r5_uncertainty_tier": Counter(),
+        "r5_evidence_stage_role": Counter(),
+        "r5_active_fan_count_policy": Counter(),
+        "r5_fan_position_policy": Counter(),
         "start_state_family": Counter(),
     }
     for row_index in range(int(config.rows)):
@@ -3376,6 +3426,11 @@ def _schedule_count_summary(config: W01DenseRunConfig) -> dict[str, dict[str, in
         counters["candidate_index"][str(row.candidate_index)] += 1
         counters["W_layer"][row.W_layer] += 1
         counters["environment_mode"][row.environment_mode] += 1
+        counters["r5_evidence_block_id"][row.evidence_block_id] += 1
+        counters["r5_uncertainty_tier"][row.uncertainty_tier] += 1
+        counters["r5_evidence_stage_role"][row.evidence_stage_role] += 1
+        counters["r5_active_fan_count_policy"][row.active_fan_count_policy] += 1
+        counters["r5_fan_position_policy"][row.fan_position_policy] += 1
         counters["start_state_family"][row.start_state_family] += 1
     return {
         key: {str(item): int(count) for item, count in sorted(counter.items())}

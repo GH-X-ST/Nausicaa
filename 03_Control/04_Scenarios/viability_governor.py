@@ -49,6 +49,25 @@ class GovernorConfig:
     mission_front_terminal_weight: float = 0.70
     mission_terminal_energy_weight: float = 0.035
     mission_wrong_boundary_penalty_weight: float = 0.35
+    memory_switch_min_confidence: float = 0.45
+    memory_switch_min_score_margin: float = 0.005
+    memory_switch_max_base_score_drop: float = 0.03
+    memory_switch_max_transition_success_drop: float = 0.02
+    memory_switch_max_hard_failure_risk_increase: float = 0.0
+    exploration_switch_min_uncertainty: float = 0.55
+    exploration_switch_min_score_margin: float = 0.0
+    exploration_switch_max_base_score_drop: float = 0.01
+    exploration_switch_max_transition_success_drop: float = 0.0
+    exploration_switch_max_hard_failure_risk_increase: float = 0.0
+    exploration_switch_allow_cross_family: bool = False
+    adaptive_switch_max_path_exit_margin_drop_m: float = 0.05
+    adaptive_switch_min_path_exit_margin_m: float = 0.02
+    candidate_path_memory_residual_cap_m: float = 0.75
+    candidate_path_memory_specific_energy_residual_cap_m: float = 1.00
+    candidate_path_memory_utility_specific_energy_weight: float = 0.75
+    candidate_path_memory_utility_updraft_weight: float = 0.25
+    candidate_path_memory_full_confidence_observations: float = 3.0
+    residual_memory_launch_recency_half_life: float = 4.0
 
 
 DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
@@ -75,6 +94,8 @@ DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
     mission_terminal_energy_weight=0.035,
     mission_wrong_boundary_penalty_weight=0.35,
 )
+
+BOOL_GOVERNOR_CONFIG_FIELDS = {"exploration_switch_allow_cross_family"}
 
 MISSION_DEFAULT_X_MIN_W_M = 1.2
 MISSION_DEFAULT_FRONT_WALL_X_W_M = 6.6
@@ -110,7 +131,7 @@ def governor_config_from_row(row: dict[str, object]) -> GovernorConfig:
     values["config_id"] = str(values["config_id"])
     for key, value in list(values.items()):
         if key != "config_id":
-            values[key] = float(value)
+            values[key] = _bool_value(value) if key in BOOL_GOVERNOR_CONFIG_FIELDS else float(value)
     return GovernorConfig(**values)
 
 
@@ -703,6 +724,17 @@ def _safe_exploration_bonus(
         return 0.0
     attenuation = 1.0 / max(1.0, float(history_length + 1) ** 0.5)
     return float(governor_config.exploration_bonus_weight) * max(0.0, float(belief_uncertainty)) * attenuation
+
+
+def _bool_value(value: object) -> bool:
+    if isinstance(value, bool):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off", "", "none", "nan"}:
+        return False
+    return bool(value)
 
 
 def _float(value: object, default: float = 0.0) -> float:

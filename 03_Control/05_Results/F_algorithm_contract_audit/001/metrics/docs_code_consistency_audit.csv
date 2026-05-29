@@ -1,44 +1,58 @@
 check_id,observed,passed,required
-doc_readable:docs/Daily_Schedule.txt,24380,True,readable
-doc_readable:docs/Glider_Control_Project_Plan.md,82361,True,readable
-doc_readable:docs/Literature_Review.txt,9062,True,readable
-doc_readable:docs/Logbook.txt,6710,True,readable
-doc_readable:docs/MATLAB Coding.txt,6969,True,readable
-doc_readable:docs/PR.txt,8209,True,readable
-doc_readable:docs/Progrewss Report.txt,6466,True,readable
-doc_readable:docs/Pseudocode Writing Instructions.txt,7727,True,readable
-doc_readable:docs/Python Coding Instruction.txt,13720,True,readable
-doc_readable:docs/Python Coding to CODEX.txt,8401,True,readable
-doc_readable:docs/Python Plotting Guidance.txt,8640,True,readable
-doc_readable:docs/Reference Searching.txt,7983,True,readable
-doc_readable:docs/Skills.md,15587,True,readable
-doc_readable:docs/Thesis.txt,9349,True,readable
-doc_readable:docs/housekeeping_and_naming_rules.md,11262,True,readable
-doc_readable:docs/local_validation_environment.md,3253,True,readable
-stage_semantics:docs/Daily_Schedule.txt,[],True,current R5/R7/R8/R9/R10/R11 semantics
-stage_semantics:docs/Glider_Control_Project_Plan.md,[],True,current R5/R7/R8/R9/R10/R11 semantics
-stage_semantics:docs/Literature_Review.txt,[],True,current R5/R7/R8/R9/R10/R11 semantics
-stage_semantics:docs/Logbook.txt,[],True,current R5/R7/R8/R9/R10/R11 semantics
-stage_semantics:docs/MATLAB Coding.txt,[],True,current R5/R7/R8/R9/R10/R11 semantics
-stage_semantics:docs/PR.txt,[],True,current R5/R7/R8/R9/R10/R11 semantics
-stage_semantics:docs/Progrewss Report.txt,[],True,current R5/R7/R8/R9/R10/R11 semantics
-stage_semantics:docs/Pseudocode Writing Instructions.txt,[],True,current R5/R7/R8/R9/R10/R11 semantics
-stage_semantics:docs/Python Coding Instruction.txt,[],True,current R5/R7/R8/R9/R10/R11 semantics
-stage_semantics:docs/Python Coding to CODEX.txt,[],True,current R5/R7/R8/R9/R10/R11 semantics
-stage_semantics:docs/Python Plotting Guidance.txt,[],True,current R5/R7/R8/R9/R10/R11 semantics
-stage_semantics:docs/Reference Searching.txt,[],True,current R5/R7/R8/R9/R10/R11 semantics
-stage_semantics:docs/Skills.md,[],True,current R5/R7/R8/R9/R10/R11 semantics
-stage_semantics:docs/Thesis.txt,[],True,current R5/R7/R8/R9/R10/R11 semantics
-stage_semantics:docs/housekeeping_and_naming_rules.md,[],True,current R5/R7/R8/R9/R10/R11 semantics
+doc_readable:docs/Daily_Schedule.txt,37027,True,readable
+doc_readable:docs/Glider_Control_Project_Plan.md,92859,True,readable
+doc_readable:docs/Literature_Review.txt,18610,True,readable
+doc_readable:docs/Logbook.txt,16254,True,readable
+doc_readable:docs/MATLAB Coding.txt,16512,True,readable
+doc_readable:docs/PR.txt,23206,True,readable
+doc_readable:docs/Progrewss Report.txt,16113,True,readable
+doc_readable:docs/Pseudocode Writing Instructions.txt,17255,True,readable
+doc_readable:docs/Python Coding Instruction.txt,25449,True,readable
+doc_readable:docs/Python Coding to CODEX.txt,19066,True,readable
+doc_readable:docs/Python Plotting Guidance.txt,18309,True,readable
+doc_readable:docs/Reference Searching.txt,17541,True,readable
+doc_readable:docs/Skills.md,30644,True,readable
+doc_readable:docs/Thesis.txt,20115,True,readable
+doc_readable:docs/housekeeping_and_naming_rules.md,21099,True,readable
+doc_readable:docs/local_validation_environment.md,5366,True,readable
+stage_semantics:docs/Daily_Schedule.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+stage_semantics:docs/Glider_Control_Project_Plan.md,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+stage_semantics:docs/Literature_Review.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+stage_semantics:docs/Logbook.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+stage_semantics:docs/MATLAB Coding.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+stage_semantics:docs/PR.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+stage_semantics:docs/Progrewss Report.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+stage_semantics:docs/Pseudocode Writing Instructions.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+stage_semantics:docs/Python Coding Instruction.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+stage_semantics:docs/Python Coding to CODEX.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+stage_semantics:docs/Python Plotting Guidance.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+stage_semantics:docs/Reference Searching.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+stage_semantics:docs/Skills.md,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+stage_semantics:docs/Thesis.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+stage_semantics:docs/housekeeping_and_naming_rules.md,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
+active_thesis_workflow_transition_aware,R5 -> R7 -> R8 -> R10 -> R11 -> Reality,True,R5 -> R7 -> R8 -> R10 -> R11 -> Reality
+r9_internal_only,R9 remains internal preflight only,True,R9 remains internal preflight only
+transition_object_core,Every primitive is treated as a transition object,True,Every primitive is treated as a transition object
+r7_not_local_success_only,No primitive may pass R7 solely on local rollout success,True,No primitive may pass R7 solely on local rollout success
 memory_scoped_per_final_row,Memory is reinitialised per final test row,True,Memory is reinitialised per final test row
 final_score_only_final_heldout_path,Final scoring is computed only from the final held-out rollout path,True,Final scoring is computed only from the final held-out rollout path
 full_safe_success_gate,full_safe_success,True,full_safe_success
 updraft_gain_active_weight,updraft_gain_weight,True,updraft_gain_weight
-wall_guard_0p10cm,0.001 m` (0.10 cm),True,0.001 m` (0.10 cm)
 no_speed_active_gate,Low speed is not an active governor rejection reason,True,Low speed is not an active governor rejection reason
 energy_loss_not_hard_failure,Energy loss is also not a hard-failure reason,True,Energy loss is also not a hard-failure reason
 sample_count_coverage,sample_count,True,sample_count
 r11_consumes_r10_frozen_config,frozen governor config written by R10,True,frozen governor config written by R10
 r8_coverage_medoid_selection,coverage-aware medoid,True,coverage-aware medoid
 r8_no_synthetic_controller_in_clustering,without averaging Q/R or synthesising new controllers,True,without averaging Q/R or synthesising new controllers
+r8_speed_bin_coverage_preservation,speed-bin collapse is a library-coverage failure,True,speed-bin collapse is a library-coverage failure
+recovery_self_transition_progress_gate,recoverable_degraded -> recoverable_degraded,True,recoverable_degraded -> recoverable_degraded
+recovery_boundary_route_not_full_pass,recoverable_degraded -> boundary_near,True,recoverable_degraded -> boundary_near
+r9_quick_preflight_60_final,60 final held-out launches,True,60 final held-out launches
+r9_quick_preflight_645_history,645 history launches,True,645 history launches
+r10_single_hard_training_distribution,R10 is governor/residual-memory tuning on one hard training distribution,True,R10 is governor/residual-memory tuning on one hard training distribution
+r10_tunes_memory_shield_exploration_handoff,"R10 may tune memory sensitivity, shield margins, exploration thresholds",True,"R10 may tune memory sensitivity, shield margins, exploration thresholds"
+r11_eight_block_fidelity_ladder,R11 is held-out validation on an eight-block fidelity ladder,True,R11 is held-out validation on an eight-block fidelity ladder
+plant_implementation_fixed_per_outer_case,plant/implementation are fixed across history/final launches,True,plant/implementation are fixed across history/final launches
+outer_loop_realtime_scheduler_profile,preferred 20 ms controller-slot budget and a hard 0.100 s primitive-boundary budget,True,preferred 20 ms controller-slot budget and a hard 0.100 s primitive-boundary budget
+memory_opportunity_audit,memory_opportunity_summary.csv,True,memory_opportunity_summary.csv
 energy_alias_legacy_only,expected_energy_residual_m+legacy,True,expected_energy_residual_m documented as legacy alias

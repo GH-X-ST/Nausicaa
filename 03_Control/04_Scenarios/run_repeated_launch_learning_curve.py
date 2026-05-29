@@ -81,7 +81,7 @@ from viability_governor import DEFAULT_GOVERNOR_CONFIG, GovernorConfig, governor
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 VALIDATION_VERSION = "repeated_launch_fixed_case_rollout_preflight_v7"
-GOVERNOR_TUNING_HANDOFF_VERSION = "governor_tuning_handoff_v2"
+GOVERNOR_TUNING_HANDOFF_VERSION = "governor_tuning_handoff_v3"
 HISTORY_LENGTHS = (3, 10, 30)
 SAFE_EXPLORE_ABLATION_HISTORY_LENGTH = 10
 HISTORY_LENGTH_SUM = sum(HISTORY_LENGTHS)
@@ -189,6 +189,10 @@ R11_FIDELITY_LADDER_BLOCK_IDS = (
     R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
 )
 CHANGED_CASE_VALIDATION_STAGE_IDS = {"R10", "R11"}
+R10_R11_REALISTIC_REPEATED_LAUNCH_BLOCK_IDS = (
+    R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    *R11_FIDELITY_LADDER_BLOCK_IDS,
+)
 R10_FULL_DOMAIN_RANDOMISATION_BLOCK_IDS = (
     R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
@@ -258,6 +262,12 @@ R10_FIXED_ENVIRONMENT_BETWEEN_HISTORY_BLOCK_IDS = (
     R11_L0_DRY_AIR_FIXED_BLOCK_ID,
     R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
     R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+)
+R10_UPDRAFT_PARAMETER_VARIATION_BETWEEN_HISTORY_BLOCK_IDS = (
+    R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
+    R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
+    R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
 )
 R10_NOMINAL_FAN_PARAMETER_BLOCK_IDS = (
     R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
@@ -607,6 +617,7 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
     _write_real_time_scheduler_audit_from_partitions(run_root, partitions, storage_format)
     _write_memory_opportunity_audit_from_partitions(run_root, partitions, storage_format)
     episode_rows = _read_partitioned_rows(run_root, partitions, "episode_summary")
+    selector_rows = _read_partitioned_rows(run_root, partitions, "selector_decision_log")
     pairing_rows = _pairing_audit_rows(final_schedule)
     no_variation_rows = _no_variation_audit_rows(final_schedule) if protocol.requires_no_glider_latency_variation_audit else []
     _write_csv(run_root / "metrics" / "pairing_audit.csv", pd.DataFrame(pairing_rows))
@@ -625,9 +636,9 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
     )
     _write_csv(run_root / "metrics" / "pass_fail_gate_summary.csv", pd.DataFrame(pass_summary))
     if protocol.stage_id == "R9":
-        _write_governor_tuning_outputs(run_root, config, protocol, pass_summary, episode_rows)
+        _write_governor_tuning_outputs(run_root, config, protocol, pass_summary, episode_rows, selector_rows)
     if protocol.stage_id == "R10":
-        _write_governor_tuning_outputs(run_root, config, protocol, pass_summary, episode_rows)
+        _write_governor_tuning_outputs(run_root, config, protocol, pass_summary, episode_rows, selector_rows)
     status = "smoke_run" if int(config.smoke_outer_cases_per_block) > 0 else "complete"
     _write_manifest(
         run_root=run_root,
@@ -997,7 +1008,12 @@ def _run_final_schedule_row(
     policy = _policy_condition(str(final_row["policy_id"]))
     representatives = libraries[str(final_row["library_size_case_id"])]["representatives"]
     case_outcomes = outcome_rows_by_case.get(str(final_row["library_size_case_id"]), {})
-    belief = _initial_belief_for_policy(policy=policy, final_row=final_row)
+    base_governor_config = config.governor_config or DEFAULT_GOVERNOR_CONFIG
+    belief = _initial_belief_for_policy(
+        policy=policy,
+        final_row=final_row,
+        governor_config=base_governor_config,
+    )
     launch_results: list[dict[str, object]] = []
     for hist_index in range(int(policy["history_length"])):
         history_row = _history_row_for_final(final_row, hist_index)
@@ -1064,12 +1080,15 @@ def _history_trace_identity(result: dict[str, object]) -> dict[str, object]:
         "history_launch_index": int(_float_value(scheduled.get("history_launch_index", 0))),
         "launch_state_seed": int(_float_value(scheduled.get("launch_state_seed", 0))),
         "environment_seed": int(_float_value(scheduled.get("environment_seed", 0))),
+        "environment_layout_seed": int(_float_value(scheduled.get("environment_layout_seed", scheduled.get("environment_seed", 0)))),
+        "environment_active_fan_seed": int(_float_value(scheduled.get("environment_active_fan_seed", scheduled.get("environment_seed", 0)))),
+        "environment_parameter_seed": int(_float_value(scheduled.get("environment_parameter_seed", scheduled.get("environment_seed", 0)))),
         "plant_implementation_seed": int(_float_value(scheduled.get("plant_implementation_seed", 0))),
         "environment_block_local_index": int(
             _float_value(scheduled.get("environment_block_local_index", scheduled.get("outer_case_index", 0)))
         ),
         "scheduled_active_fan_count": int(_float_value(scheduled["scheduled_active_fan_count"]))
-        if scheduled.get("scheduled_active_fan_count") is not None
+        if str(scheduled.get("scheduled_active_fan_count", "")).strip() not in {"", "nan", "None"}
         else "",
         "history_log_mode": str(result.get("history_log_mode", "")),
         "history_debug_log_retained": bool(result.get("debug_log_retained", True)),
@@ -1312,6 +1331,9 @@ def _outer_case_schedule(
         for local_index in range(case_count):
             launch_seed = int(seed) * 100000 + outer_index * 37 + 11
             env_seed = int(seed) * 200000 + outer_index * 41 + 17
+            environment_layout_seed = env_seed + 1
+            environment_active_fan_seed = env_seed + 2
+            environment_parameter_seed = env_seed + 3
             plant_implementation_seed = int(seed) * 300000 + outer_index * 43 + 23
             scheduled_active_fan_count = _scheduled_active_fan_count_for_outer_case(
                 protocol=protocol,
@@ -1358,9 +1380,15 @@ def _outer_case_schedule(
                         else ""
                     ),
                     "launch_state_seed": launch_seed,
-                    "environment_seed": env_seed,
+                    "environment_seed": environment_parameter_seed,
+                    "environment_layout_seed": environment_layout_seed,
+                    "environment_active_fan_seed": environment_active_fan_seed,
+                    "environment_parameter_seed": environment_parameter_seed,
                     "plant_implementation_seed": plant_implementation_seed,
                     "between_episode_environment_variation": _block_varies_environment_between_history_episodes(block.block_id),
+                    "between_episode_environment_parameter_variation": _block_varies_environment_parameters_between_history_episodes(block.block_id),
+                    "between_episode_fan_layout_variation": False,
+                    "between_episode_active_fan_count_variation": False,
                     "plant_implementation_variation_scope": (
                         "fixed_per_outer_case"
                         if block.block_id in R10_FULL_DOMAIN_RANDOMISATION_BLOCK_IDS
@@ -1410,21 +1438,19 @@ def _history_launch_schedule(*, outer_cases: list[dict[str, object]], protocol: 
             history_length = int(_policy_condition(policy_id)["history_length"])
             for outer in outer_cases:
                 for history_index in range(history_length):
-                    rows.append(
-                        {
-                            **outer,
-                            "episode_id": (
-                                f"{protocol.stage_id.lower()}_{case_id}_{policy_id}_"
-                                f"hist_{int(outer['outer_case_index']):04d}_{history_index:03d}"
-                            ),
-                            "launch_role": "history",
-                            "history_launch_index": history_index,
-                            "adaptation_launch_index": history_index,
-                            "library_size_case_id": case_id,
-                            "policy_id": policy_id,
-                            "history_length": history_length,
-                        }
-                    )
+                    final_like_row = {
+                        **outer,
+                        "episode_id": (
+                            f"{protocol.stage_id.lower()}_{case_id}_{policy_id}_"
+                            f"final_{int(outer['outer_case_index']):04d}"
+                        ),
+                        "launch_role": "final_heldout",
+                        "library_size_case_id": case_id,
+                        "policy_id": policy_id,
+                        "history_length": history_length,
+                        "adaptation_launch_index": history_length,
+                    }
+                    rows.append(_history_row_for_final(final_like_row, history_index))
     return rows
 
 
@@ -1434,13 +1460,6 @@ def _history_row_for_final(final_row: dict[str, object], history_index: int) -> 
     environment_seed = int(final_row["environment_seed"])
     if _block_varies_environment_between_history_episodes(block_id):
         environment_seed += seed_shift
-    local_index = int(final_row.get("environment_block_local_index", final_row.get("outer_case_index", 0)))
-    if _block_varies_active_fan_count_between_history_episodes(block_id):
-        local_index += int(history_index) + 1
-    scheduled_active_fan_count = _scheduled_active_fan_count_for_block_id(
-        environment_block_id=block_id,
-        environment_block_local_index=local_index,
-    )
     row = {
         **final_row,
         "episode_id": f"{final_row['episode_id']}_hist_{int(history_index):03d}",
@@ -1449,20 +1468,32 @@ def _history_row_for_final(final_row: dict[str, object], history_index: int) -> 
         "adaptation_launch_index": int(history_index),
         "launch_state_seed": int(final_row["launch_state_seed"]) + seed_shift,
         "environment_seed": environment_seed,
+        "environment_layout_seed": int(final_row.get("environment_layout_seed", final_row["environment_seed"])),
+        "environment_active_fan_seed": int(final_row.get("environment_active_fan_seed", final_row["environment_seed"])),
+        "environment_parameter_seed": environment_seed,
+        "between_episode_environment_variation": _block_varies_environment_between_history_episodes(block_id),
+        "between_episode_environment_parameter_variation": _block_varies_environment_parameters_between_history_episodes(block_id),
+        "between_episode_fan_layout_variation": False,
+        "between_episode_active_fan_count_variation": False,
         "common_final_launch_key": str(final_row["common_final_launch_key"]),
     }
-    if scheduled_active_fan_count is not None:
-        row["scheduled_active_fan_count"] = int(scheduled_active_fan_count)
     return row
 
 
 def _block_varies_environment_between_history_episodes(environment_block_id: str) -> bool:
     block_id = str(environment_block_id)
+    if block_id in R10_R11_REALISTIC_REPEATED_LAUNCH_BLOCK_IDS:
+        return _block_varies_environment_parameters_between_history_episodes(block_id)
     return block_id not in R10_FIXED_ENVIRONMENT_BETWEEN_HISTORY_BLOCK_IDS
 
 
+def _block_varies_environment_parameters_between_history_episodes(environment_block_id: str) -> bool:
+    return str(environment_block_id) in R10_UPDRAFT_PARAMETER_VARIATION_BETWEEN_HISTORY_BLOCK_IDS
+
+
 def _block_varies_active_fan_count_between_history_episodes(environment_block_id: str) -> bool:
-    return str(environment_block_id) in R10_ACTIVE_FAN_COUNT_VARIATION_BLOCK_IDS
+    del environment_block_id
+    return False
 
 
 def _scheduled_active_fan_count_for_context(
@@ -1502,9 +1533,15 @@ def _policy_condition(policy_id: str) -> dict[str, object]:
     raise KeyError(f"unknown policy_id: {policy_id}")
 
 
-def _initial_belief_for_policy(*, policy: dict[str, object], final_row: dict[str, object]) -> DirectionalResidualLiftBelief:
+def _initial_belief_for_policy(
+    *,
+    policy: dict[str, object],
+    final_row: dict[str, object],
+    governor_config: GovernorConfig | None = None,
+) -> DirectionalResidualLiftBelief:
+    cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     belief = initial_directional_residual_lift_belief(
-        launch_recency_half_life=RESIDUAL_MEMORY_LAUNCH_RECENCY_HALF_LIFE,
+        launch_recency_half_life=float(cfg.residual_memory_launch_recency_half_life),
     )
     del final_row
     return belief
@@ -1846,7 +1883,9 @@ def _candidate_path_belief_features_fn(
     state: np.ndarray,
     current_history_launch_index: int,
     use_residual_memory: bool,
+    governor_config: GovernorConfig | None = None,
 ) -> Callable[[dict[str, object], dict[str, object]], dict[str, object]]:
+    cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     state_vector = as_state_vector(state)
     cell_lookup = directional_residual_lift_cell_lookup(belief) if use_residual_memory else {}
 
@@ -1859,6 +1898,7 @@ def _candidate_path_belief_features_fn(
             outcome=outcome,
             current_history_launch_index=current_history_launch_index,
             use_residual_memory=use_residual_memory,
+            governor_config=cfg,
         )
 
     return features_for_candidate
@@ -1873,9 +1913,11 @@ def _candidate_path_belief_features(
     outcome: dict[str, object],
     current_history_launch_index: int,
     use_residual_memory: bool,
+    governor_config: GovernorConfig | None = None,
 ) -> dict[str, object]:
     """Return candidate path geometry plus optional residual-memory correction."""
 
+    cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     reference_state = _candidate_reference_state_vector(representative, outcome)
     path_speed_m_s = _candidate_path_speed_m_s(state=state, representative=representative, reference_state=reference_state)
     vertical_speed_m_s = _candidate_path_vertical_speed_m_s(state=state, reference_state=reference_state)
@@ -1919,7 +1961,7 @@ def _candidate_path_belief_features(
                 cell_lookup=cell_lookup,
                 current_history_launch_index=current_history_launch_index,
             )
-            probe_confidence = _candidate_path_probe_confidence(last_features)
+            probe_confidence = _candidate_path_probe_confidence(last_features, governor_config=cfg)
             weighted_lift += weight * probe_confidence * _float_value(last_features.get("belief_local_lift_residual_m_s", 0.0))
             weighted_updraft += weight * probe_confidence * _float_value(last_features.get("belief_local_updraft_gain_residual_m", 0.0))
             weighted_specific_energy += weight * probe_confidence * _float_value(
@@ -1937,23 +1979,28 @@ def _candidate_path_belief_features(
         exit_direction = probe_direction
     capped_updraft = _clip(
         weighted_updraft,
-        -float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
-        float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
+        -float(cfg.candidate_path_memory_residual_cap_m),
+        float(cfg.candidate_path_memory_residual_cap_m),
     )
     capped_lift = _clip(
         weighted_lift,
-        -float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
-        float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
+        -float(cfg.candidate_path_memory_residual_cap_m),
+        float(cfg.candidate_path_memory_residual_cap_m),
     )
     capped_dwell = _clip(weighted_dwell, -1.0, 1.0)
     capped_specific_energy = _clip(
         weighted_specific_energy,
-        -float(CANDIDATE_PATH_MEMORY_SPECIFIC_ENERGY_RESIDUAL_CAP_M),
-        float(CANDIDATE_PATH_MEMORY_SPECIFIC_ENERGY_RESIDUAL_CAP_M),
+        -float(cfg.candidate_path_memory_specific_energy_residual_cap_m),
+        float(cfg.candidate_path_memory_specific_energy_residual_cap_m),
     )
+    specific_energy_weight = float(cfg.candidate_path_memory_utility_specific_energy_weight)
+    updraft_weight = float(cfg.candidate_path_memory_utility_updraft_weight)
+    weight_sum = max(1e-9, abs(specific_energy_weight) + abs(updraft_weight))
+    specific_energy_weight = specific_energy_weight / weight_sum
+    updraft_weight = updraft_weight / weight_sum
     memory_utility = (
-        float(CANDIDATE_PATH_MEMORY_UTILITY_SPECIFIC_ENERGY_WEIGHT) * float(capped_specific_energy)
-        + float(CANDIDATE_PATH_MEMORY_UTILITY_UPDRAFT_WEIGHT) * float(capped_updraft)
+        float(specific_energy_weight) * float(capped_specific_energy)
+        + float(updraft_weight) * float(capped_updraft)
     )
     confidence = _clip(confidence, 0.0, 1.0)
     exit_margins = position_margin_m(np.array([exit_x, exit_y, exit_z], dtype=float), TRUE_SAFE_BOUNDS)
@@ -1978,7 +2025,7 @@ def _candidate_path_belief_features(
         "belief_launch_recency_weight": float(last_features.get("belief_launch_recency_weight", 0.0) or 0.0),
         "belief_history_launch_age": int(_float_value(last_features.get("belief_history_launch_age", 0))),
         "belief_last_history_launch_index": int(_float_value(last_features.get("belief_last_history_launch_index", -1))),
-        "belief_launch_recency_half_life": float(RESIDUAL_MEMORY_LAUNCH_RECENCY_HALF_LIFE),
+        "belief_launch_recency_half_life": float(cfg.residual_memory_launch_recency_half_life),
         "belief_direction_bin": int(_float_value(last_features.get("belief_direction_bin", 0))),
         "belief_z_bin": int(_float_value(last_features.get("belief_z_bin", 0))),
         "belief_update_count": int(belief.update_count),
@@ -1989,13 +2036,15 @@ def _candidate_path_belief_features(
         "belief_candidate_path_lookahead_s": float(CANDIDATE_PATH_MEMORY_LOOKAHEAD_S),
         "belief_candidate_path_confidence": float(confidence),
         "belief_candidate_path_updraft_residual_uncapped_m": float(weighted_updraft),
-        "belief_candidate_path_updraft_residual_cap_m": float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
+        "belief_candidate_path_updraft_residual_cap_m": float(cfg.candidate_path_memory_residual_cap_m),
         "belief_candidate_path_specific_energy_residual_uncapped_m": float(weighted_specific_energy),
         "belief_candidate_path_specific_energy_residual_cap_m": float(
-            CANDIDATE_PATH_MEMORY_SPECIFIC_ENERGY_RESIDUAL_CAP_M
+            cfg.candidate_path_memory_specific_energy_residual_cap_m
         ),
         "belief_candidate_path_memory_utility_m": float(memory_utility),
-        "belief_candidate_path_memory_utility_policy": "specific_energy_0p75_plus_updraft_0p25",
+        "belief_candidate_path_memory_utility_policy": (
+            f"specific_energy_{specific_energy_weight:.2f}_plus_updraft_{updraft_weight:.2f}"
+        ),
         "belief_candidate_path_reference_bank_rad": float(reference_bank_rad),
         "belief_candidate_path_heading_offset_rad": float(heading_offset_rad),
         "belief_candidate_path_speed_m_s": float(path_speed_m_s),
@@ -2087,12 +2136,17 @@ def _candidate_path_heading_offset_rad(*, reference_bank_rad: float, path_speed_
     )
 
 
-def _candidate_path_probe_confidence(features: dict[str, object]) -> float:
+def _candidate_path_probe_confidence(
+    features: dict[str, object],
+    *,
+    governor_config: GovernorConfig | None = None,
+) -> float:
+    cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     effective_observation_count = _float_value(
         features.get("belief_effective_observation_count", features.get("belief_observation_count", 0.0))
     )
     return _clip(
-        effective_observation_count / float(CANDIDATE_PATH_MEMORY_FULL_CONFIDENCE_OBSERVATIONS),
+        effective_observation_count / max(1e-9, float(cfg.candidate_path_memory_full_confidence_observations)),
         0.0,
         1.0,
     )
@@ -2150,6 +2204,7 @@ def _prepare_realtime_governor_decision(
         state=state,
         current_history_launch_index=current_history_launch_index,
         use_residual_memory=bool(policy["uses_memory"]),
+        governor_config=governor_config,
     )
     belief_query_duration_s = time.perf_counter() - belief_started
 
@@ -2483,6 +2538,9 @@ def _context_payload(
     env_layer = str(scheduled["W_layer"])
     mode = str(scheduled["environment_mode"])
     seed = int(scheduled["environment_seed"])
+    environment_layout_seed = int(scheduled.get("environment_layout_seed", seed))
+    environment_active_fan_seed = int(scheduled.get("environment_active_fan_seed", seed))
+    environment_parameter_seed = int(scheduled.get("environment_parameter_seed", seed))
     plant_implementation_seed = int(scheduled.get("plant_implementation_seed", seed))
     scheduled_active_fan_count = _scheduled_active_fan_count_for_context(
         protocol=protocol,
@@ -2549,8 +2607,18 @@ def _context_payload(
         "fan_position_xy_bounds_m": str(scheduled.get("fan_position_xy_bounds_m", "")),
         "fan_position_safety_radius_m": str(scheduled.get("fan_position_safety_radius_m", "")),
         "environment_seed": seed,
+        "environment_layout_seed": environment_layout_seed,
+        "environment_active_fan_seed": environment_active_fan_seed,
+        "environment_parameter_seed": environment_parameter_seed,
         "plant_implementation_seed": plant_implementation_seed,
         "between_episode_environment_variation": bool(scheduled.get("between_episode_environment_variation", False)),
+        "between_episode_environment_parameter_variation": bool(
+            scheduled.get("between_episode_environment_parameter_variation", False)
+        ),
+        "between_episode_fan_layout_variation": bool(scheduled.get("between_episode_fan_layout_variation", False)),
+        "between_episode_active_fan_count_variation": bool(
+            scheduled.get("between_episode_active_fan_count_variation", False)
+        ),
         "plant_implementation_variation_scope": str(scheduled.get("plant_implementation_variation_scope", "")),
         "start_state_family": str(start_state_family),
         "primitive_step_index": int(primitive_step_index),
@@ -2619,12 +2687,14 @@ def _environment_randomisation_config_for_context(
     scheduled_active_fan_count: int | None,
 ) -> EnvironmentRandomisationConfig | None:
     block_id = str(scheduled.get("environment_block_id", ""))
+    seed_kwargs = _environment_randomisation_seed_kwargs(scheduled)
     if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS and block_id in R10_ARENA_WIDE_FAN_POSITION_BLOCK_IDS:
         return EnvironmentRandomisationConfig(
             active_fan_count=scheduled_active_fan_count,
             fan_position_policy="independent_uniform_xy_bounds",
             fan_position_xy_bounds_m=R10_ARENA_WIDE_FAN_POSITION_XY_BOUNDS_M,
             fan_position_safety_radius_m=R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M,
+            **seed_kwargs,
         )
     if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS and block_id in R10_NOMINAL_FAN_PARAMETER_BLOCK_IDS:
         return EnvironmentRandomisationConfig(
@@ -2634,20 +2704,32 @@ def _environment_randomisation_config_for_context(
             amplitude_scale_range=(1.0, 1.0),
             width_scale_range=(1.0, 1.0),
             uncertainty_scale_range=(1.0, 1.0),
+            **seed_kwargs,
         )
     if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS and block_id in R10_FIXED_BASE_POSITION_BLOCK_IDS:
         return EnvironmentRandomisationConfig(
             active_fan_count=scheduled_active_fan_count,
             fan_position_policy="fixed_base_positions",
+            **seed_kwargs,
         )
     if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS and block_id in R10_SHIFTED_FAN_POSITION_BLOCK_IDS:
         return EnvironmentRandomisationConfig(
             active_fan_count=scheduled_active_fan_count,
             fan_position_policy="common_shift",
+            **seed_kwargs,
         )
     if scheduled_active_fan_count is not None:
-        return EnvironmentRandomisationConfig(active_fan_count=scheduled_active_fan_count)
+        return EnvironmentRandomisationConfig(active_fan_count=scheduled_active_fan_count, **seed_kwargs)
     return None
+
+
+def _environment_randomisation_seed_kwargs(scheduled: dict[str, object]) -> dict[str, int]:
+    seed = int(scheduled.get("environment_seed", 0))
+    return {
+        "fan_layout_seed": int(scheduled.get("environment_layout_seed", seed)),
+        "active_fan_seed": int(scheduled.get("environment_active_fan_seed", seed)),
+        "fan_parameter_seed": int(scheduled.get("environment_parameter_seed", seed)),
+    }
 
 
 def _governor_config_for_policy(policy: dict[str, object], *, base_config: GovernorConfig = DEFAULT_GOVERNOR_CONFIG) -> GovernorConfig:
@@ -4691,6 +4773,23 @@ def _pass_fail_summary(
                 ),
             ]
         )
+        if protocol.stage_id == "R10":
+            rows.extend(
+                [
+                    _gate_row(
+                        "r10_learning_stage_uses_final_reject_rate_not_candidate_reject_rate",
+                        True,
+                        _mean_bool(claim_rows, "no_viable_primitive"),
+                        "bounded_final_no_viable_rate_plus_tuning_handoff_diagnostics",
+                    ),
+                    _gate_row(
+                        "r10_memory_improvement_is_tuning_signal_not_final_claim_gate",
+                        True,
+                        "governor_config_selection.csv_and_memory_opportunity_summary.csv",
+                        "R11_or_reality_required_for_memory_improvement_claim",
+                    ),
+                ]
+            )
         if protocol.min_full_safe_success_rate is not None:
             rows.append(
                 _gate_row(
@@ -4757,22 +4856,22 @@ def _no_variation_audit_rows(final_schedule: list[dict[str, object]]) -> list[di
     rows = []
     for key, group in pd.DataFrame(final_schedule).groupby("outer_case_index"):
         environment_block_id = str(group["environment_block_id"].iloc[0]) if "environment_block_id" in group.columns and not group.empty else ""
-        full_w3_randomisation = environment_block_id in R10_FULL_DOMAIN_RANDOMISATION_BLOCK_IDS
         rows.append(
             {
                 "outer_case_index": int(key),
                 "environment_block_id": environment_block_id,
                 "variation_audit_passed": True,
-                "glider_model_fixed": not full_w3_randomisation,
-                "latency_model_fixed": not full_w3_randomisation,
-                "actuator_model_fixed": not full_w3_randomisation,
-                "mass_cg_inertia_surface_calibration_not_varied": not full_w3_randomisation,
-                "full_w3_randomisation_exception": bool(full_w3_randomisation),
-                "variation_policy": (
-                    "explicit_full_w3_randomisation_case_7"
-                    if full_w3_randomisation
-                    else "fixed_glider_latency_actuator_changed_environment_only"
+                "glider_model_fixed": True,
+                "latency_model_fixed": True,
+                "actuator_model_fixed": True,
+                "mass_cg_inertia_surface_calibration_not_varied": True,
+                "full_w3_randomisation_exception": False,
+                "fan_layout_fixed_within_outer_case": True,
+                "active_fan_count_fixed_within_outer_case": True,
+                "updraft_parameter_noise_allowed": _block_varies_environment_parameters_between_history_episodes(
+                    environment_block_id
                 ),
+                "variation_policy": "fixed_layout_count_and_plant_per_outer_case_parameter_noise_only",
                 "row_count": int(len(group)),
             }
         )
@@ -4846,12 +4945,19 @@ def _write_governor_tuning_outputs(
     protocol: ValidationProtocol,
     pass_summary: list[dict[str, object]],
     episode_rows: list[dict[str, object]],
+    selector_rows: list[dict[str, object]] | None = None,
 ) -> None:
     final = pd.DataFrame([row for row in episode_rows if str(row.get("launch_role", "")) == "final_heldout"])
+    final_episode_ids = {
+        str(row.get("episode_id", ""))
+        for row in final.to_dict(orient="records")
+        if str(row.get("episode_id", "")).strip()
+    }
     metrics = {
         "final_launch_count": int(len(final)),
         "hard_failure_rate": _mean_bool(final.to_dict(orient="records"), "hard_failure") if not final.empty else 1.0,
         "no_viable_primitive_rate": _mean_bool(final.to_dict(orient="records"), "no_viable_primitive") if not final.empty else 1.0,
+        "final_reject_rate": _mean_bool(final.to_dict(orient="records"), "no_viable_primitive") if not final.empty else 1.0,
         "safe_success_rate": _mean_bool(final.to_dict(orient="records"), "safe_success") if not final.empty else 0.0,
         "full_safe_success_rate": _mean_bool(final.to_dict(orient="records"), "full_safe_success") if not final.empty else 0.0,
         "mission_success_rate": _mean_bool(final.to_dict(orient="records"), "mission_success") if not final.empty else 0.0,
@@ -4861,6 +4967,12 @@ def _write_governor_tuning_outputs(
             _mean_bool(final.to_dict(orient="records"), "lift_capture") if not final.empty else 0.0,
         ),
     }
+    metrics.update(
+        _governor_tuning_memory_metrics(
+            selector_rows or [],
+            final_episode_ids=final_episode_ids,
+        )
+    )
     base_config = config.governor_config or DEFAULT_GOVERNOR_CONFIG
     selected_config, tuning_rows = _tuned_governor_config_from_metrics(
         base_config=base_config,
@@ -4907,6 +5019,77 @@ def _write_governor_tuning_outputs(
     _write_csv(run_root / "metrics" / "governor_config_tuning_decisions.csv", pd.DataFrame(tuning_rows))
 
 
+def _governor_tuning_memory_metrics(
+    selector_rows: list[dict[str, object]],
+    *,
+    final_episode_ids: set[str],
+) -> dict[str, object]:
+    if not selector_rows:
+        return {
+            "selector_decision_count": 0,
+            "memory_switch_opportunity_count": 0,
+            "accepted_memory_switch_count": 0,
+            "rejected_memory_switch_count": 0,
+            "memory_switch_acceptance_rate": 0.0,
+            "mean_memory_correction_delta": 0.0,
+            "max_memory_correction_delta": 0.0,
+            "mean_base_score_gap_to_baseline": 0.0,
+            "mean_memory_opportunity_ratio": 0.0,
+            "mean_candidate_path_confidence": 0.0,
+            "mean_candidate_path_uncertainty": 0.0,
+            "mean_adaptive_score_margin": 0.0,
+            "mean_exploration_score_component": 0.0,
+        }
+    frame = pd.DataFrame(selector_rows)
+    if final_episode_ids and "episode_id" in frame.columns:
+        frame = frame[frame["episode_id"].astype(str).isin(final_episode_ids)].copy()
+    if frame.empty:
+        return _governor_tuning_memory_metrics([], final_episode_ids=set())
+    policy = frame.get("policy_id", pd.Series("", index=frame.index)).astype(str)
+    baseline_variant = frame.get("selected_memory_shield_baseline_variant_id", pd.Series("", index=frame.index)).astype(str)
+    memory_variant = frame.get("selected_memory_shield_memory_variant_id", pd.Series("", index=frame.index)).astype(str)
+    opportunity = (
+        policy.str.contains(MEMORY_POLICY_PREFIX, regex=False)
+        & baseline_variant.ne("")
+        & memory_variant.ne("")
+        & baseline_variant.ne(memory_variant)
+    )
+    status = frame.get("selected_memory_shield_status", pd.Series("", index=frame.index)).astype(str)
+    accepted = opportunity & status.str.startswith("accepted")
+    rejected = opportunity & status.str.startswith("rejected")
+    opportunity_frame = frame[opportunity].copy()
+
+    def mean_column(column: str) -> float:
+        if opportunity_frame.empty or column not in opportunity_frame.columns:
+            return 0.0
+        values = pd.to_numeric(opportunity_frame[column], errors="coerce").fillna(0.0)
+        return float(values.mean())
+
+    def max_column(column: str) -> float:
+        if opportunity_frame.empty or column not in opportunity_frame.columns:
+            return 0.0
+        values = pd.to_numeric(opportunity_frame[column], errors="coerce").fillna(0.0)
+        return float(values.max())
+
+    opportunity_count = int(opportunity.sum())
+    accepted_count = int(accepted.sum())
+    return {
+        "selector_decision_count": int(len(frame)),
+        "memory_switch_opportunity_count": opportunity_count,
+        "accepted_memory_switch_count": accepted_count,
+        "rejected_memory_switch_count": int(rejected.sum()),
+        "memory_switch_acceptance_rate": float(accepted_count / max(1, opportunity_count)),
+        "mean_memory_correction_delta": mean_column("selected_memory_shield_memory_correction_delta"),
+        "max_memory_correction_delta": max_column("selected_memory_shield_memory_correction_delta"),
+        "mean_base_score_gap_to_baseline": mean_column("selected_memory_shield_base_score_gap_to_baseline"),
+        "mean_memory_opportunity_ratio": mean_column("selected_memory_shield_memory_opportunity_ratio"),
+        "mean_candidate_path_confidence": mean_column("selected_memory_shield_candidate_path_confidence"),
+        "mean_candidate_path_uncertainty": mean_column("selected_memory_shield_candidate_path_uncertainty"),
+        "mean_adaptive_score_margin": mean_column("selected_memory_shield_score_margin"),
+        "mean_exploration_score_component": mean_column("selected_memory_shield_exploration_score_component"),
+    }
+
+
 def _tuned_governor_config_from_metrics(
     *,
     base_config: GovernorConfig,
@@ -4935,7 +5118,13 @@ def _tuned_governor_config_from_metrics(
     hard_failure_rate = _float_metric(metrics.get("hard_failure_rate", 1.0), default=1.0)
     no_viable_rate = _float_metric(metrics.get("no_viable_primitive_rate", 1.0), default=1.0)
     safe_success_rate = _float_metric(metrics.get("safe_success_rate", 0.0), default=0.0)
+    mission_success_rate = _float_metric(metrics.get("mission_success_rate", 0.0), default=0.0)
+    wrong_wall_exit_rate = _float_metric(metrics.get("wrong_wall_exit_rate", 0.0), default=0.0)
     terminal_or_lift_rate = _float_metric(metrics.get("terminal_or_lift_capture_rate", 0.0), default=0.0)
+    memory_opportunity_count = int(_float_metric(metrics.get("memory_switch_opportunity_count", 0), default=0.0))
+    memory_acceptance_rate = _float_metric(metrics.get("memory_switch_acceptance_rate", 0.0), default=0.0)
+    mean_candidate_path_confidence = _float_metric(metrics.get("mean_candidate_path_confidence", 0.0), default=0.0)
+    max_memory_correction_delta = _float_metric(metrics.get("max_memory_correction_delta", 0.0), default=0.0)
 
     if hard_failure_rate > float(protocol.max_hard_failure_rate):
         update(
@@ -4957,6 +5146,51 @@ def _tuned_governor_config_from_metrics(
             "exploration_bonus_weight",
             max(0.0, float(values["exploration_bonus_weight"]) * 0.50),
             "hard_failure_rate_above_stage_profile_reduce_exploration_bonus",
+        )
+        update(
+            "memory_switch_min_confidence",
+            min(0.75, float(values["memory_switch_min_confidence"]) + 0.05),
+            "hard_failure_rate_above_stage_profile_require_stronger_memory_confidence",
+        )
+        update(
+            "memory_switch_min_score_margin",
+            min(0.025, float(values["memory_switch_min_score_margin"]) + 0.0025),
+            "hard_failure_rate_above_stage_profile_require_stronger_memory_score_margin",
+        )
+        update(
+            "memory_switch_max_base_score_drop",
+            max(0.01, float(values["memory_switch_max_base_score_drop"]) * 0.75),
+            "hard_failure_rate_above_stage_profile_tighten_baseline_non_regression",
+        )
+        update(
+            "memory_switch_max_transition_success_drop",
+            max(0.0, float(values["memory_switch_max_transition_success_drop"]) * 0.50),
+            "hard_failure_rate_above_stage_profile_tighten_transition_non_regression",
+        )
+        update(
+            "exploration_switch_min_uncertainty",
+            min(0.80, float(values["exploration_switch_min_uncertainty"]) + 0.05),
+            "hard_failure_rate_above_stage_profile_make_exploration_more_selective",
+        )
+        update(
+            "exploration_switch_max_base_score_drop",
+            max(0.0, float(values["exploration_switch_max_base_score_drop"]) * 0.50),
+            "hard_failure_rate_above_stage_profile_reduce_exploration_base_score_drop",
+        )
+        update(
+            "adaptive_switch_max_path_exit_margin_drop_m",
+            max(0.02, float(values["adaptive_switch_max_path_exit_margin_drop_m"]) * 0.75),
+            "hard_failure_rate_above_stage_profile_tighten_path_exit_margin_shield",
+        )
+        update(
+            "candidate_path_memory_residual_cap_m",
+            max(0.35, float(values["candidate_path_memory_residual_cap_m"]) * 0.85),
+            "hard_failure_rate_above_stage_profile_cap_memory_residual_effect",
+        )
+        update(
+            "candidate_path_memory_specific_energy_residual_cap_m",
+            max(0.50, float(values["candidate_path_memory_specific_energy_residual_cap_m"]) * 0.85),
+            "hard_failure_rate_above_stage_profile_cap_specific_energy_residual_effect",
         )
     elif no_viable_rate > float(protocol.max_no_viable_rate):
         update(
@@ -4991,6 +5225,17 @@ def _tuned_governor_config_from_metrics(
             float(values["lift_dwell_weight"]) + 0.005,
             "terminal_or_lift_capture_below_stage_profile_increase_lift_dwell_preference",
         )
+        new_updraft_memory_weight = min(0.40, float(values["candidate_path_memory_utility_updraft_weight"]) + 0.05)
+        update(
+            "candidate_path_memory_utility_updraft_weight",
+            new_updraft_memory_weight,
+            "terminal_or_lift_capture_below_stage_profile_make_memory_more_lift_aware",
+        )
+        update(
+            "candidate_path_memory_utility_specific_energy_weight",
+            max(0.60, 1.0 - new_updraft_memory_weight),
+            "terminal_or_lift_capture_below_stage_profile_keep_memory_specific_energy_dominant",
+        )
 
     if safe_success_rate < float(protocol.min_safe_success_rate) and hard_failure_rate <= float(protocol.max_hard_failure_rate):
         update(
@@ -5007,6 +5252,74 @@ def _tuned_governor_config_from_metrics(
             "belief_weight",
             min(0.20, float(values["belief_weight"]) + 0.01),
             "safe_success_below_stage_profile_increase_memory_residual_sensitivity",
+        )
+
+    if mission_success_rate < float(protocol.min_safe_success_rate) and wrong_wall_exit_rate > 0.0:
+        update(
+            "mission_wrong_boundary_penalty_weight",
+            min(0.60, float(values["mission_wrong_boundary_penalty_weight"]) + 0.05),
+            "mission_success_low_with_wrong_wall_exits_increase_wrong_boundary_penalty",
+        )
+
+    if memory_opportunity_count > 0 and hard_failure_rate <= float(protocol.max_hard_failure_rate):
+        if memory_acceptance_rate < 0.05:
+            update(
+                "memory_switch_min_confidence",
+                max(0.25, float(values["memory_switch_min_confidence"]) - 0.05),
+                "memory_opportunities_seen_but_switch_acceptance_low_relax_confidence_gate",
+            )
+            update(
+                "memory_switch_min_score_margin",
+                max(0.0, float(values["memory_switch_min_score_margin"]) * 0.50),
+                "memory_opportunities_seen_but_switch_acceptance_low_relax_score_margin",
+            )
+            update(
+                "memory_switch_max_base_score_drop",
+                min(0.06, float(values["memory_switch_max_base_score_drop"]) + 0.01),
+                "memory_opportunities_seen_but_switch_acceptance_low_allow_small_baseline_tradeoff",
+            )
+            update(
+                "memory_switch_max_transition_success_drop",
+                min(0.04, float(values["memory_switch_max_transition_success_drop"]) + 0.005),
+                "memory_opportunities_seen_but_switch_acceptance_low_allow_small_transition_tradeoff",
+            )
+            update(
+                "adaptive_switch_max_path_exit_margin_drop_m",
+                min(0.08, float(values["adaptive_switch_max_path_exit_margin_drop_m"]) + 0.01),
+                "memory_opportunities_seen_but_switch_acceptance_low_allow_small_path_margin_tradeoff",
+            )
+        if mean_candidate_path_confidence < float(values["memory_switch_min_confidence"]):
+            update(
+                "candidate_path_memory_full_confidence_observations",
+                max(1.5, float(values["candidate_path_memory_full_confidence_observations"]) - 0.5),
+                "memory_opportunities_low_confidence_make_case_local_evidence_reach_confidence_sooner",
+            )
+        if max_memory_correction_delta < 0.01 and safe_success_rate < float(protocol.min_safe_success_rate):
+            update(
+                "belief_weight",
+                min(0.25, float(values["belief_weight"]) + 0.02),
+                "memory_opportunities_small_correction_and_low_success_increase_residual_sensitivity",
+            )
+            update(
+                "candidate_path_memory_residual_cap_m",
+                min(1.00, float(values["candidate_path_memory_residual_cap_m"]) + 0.10),
+                "memory_opportunities_small_correction_allow_larger_updraft_residual_when_safe",
+            )
+            update(
+                "candidate_path_memory_specific_energy_residual_cap_m",
+                min(1.40, float(values["candidate_path_memory_specific_energy_residual_cap_m"]) + 0.10),
+                "memory_opportunities_small_correction_allow_larger_specific_energy_residual_when_safe",
+            )
+    elif memory_opportunity_count == 0 and hard_failure_rate <= float(protocol.max_hard_failure_rate) and safe_success_rate < float(protocol.min_safe_success_rate):
+        update(
+            "exploration_bonus_weight",
+            min(0.04, float(values["exploration_bonus_weight"]) + 0.005),
+            "no_memory_switch_opportunities_and_low_success_increase_same_family_uncertainty_exploration",
+        )
+        update(
+            "exploration_switch_min_uncertainty",
+            max(0.45, float(values["exploration_switch_min_uncertainty"]) - 0.05),
+            "no_memory_switch_opportunities_and_low_success_relax_exploration_uncertainty_gate",
         )
 
     values["minimum_wall_margin_m"] = float(base_config.minimum_wall_margin_m)
@@ -5078,6 +5391,7 @@ def _write_manifest(
     source_record_load: FrozenControllerRecordLoadResult | None = None,
     duration_s: float = 0.0,
 ) -> None:
+    governor_config = config.governor_config or DEFAULT_GOVERNOR_CONFIG
     payload = {
         "manifest_version": protocol.manifest_version,
         "project_title_version": PROJECT_TITLE_VERSION,
@@ -5136,18 +5450,26 @@ def _write_manifest(
             "seven current-to-exit path probes; accepted only through a baseline shield with no final-launch special case"
         ),
         "candidate_path_memory_lookahead_s": float(CANDIDATE_PATH_MEMORY_LOOKAHEAD_S),
-        "candidate_path_memory_residual_cap_m": float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
-        "candidate_path_memory_specific_energy_residual_cap_m": float(CANDIDATE_PATH_MEMORY_SPECIFIC_ENERGY_RESIDUAL_CAP_M),
-        "candidate_path_memory_utility_specific_energy_weight": float(CANDIDATE_PATH_MEMORY_UTILITY_SPECIFIC_ENERGY_WEIGHT),
-        "candidate_path_memory_utility_updraft_weight": float(CANDIDATE_PATH_MEMORY_UTILITY_UPDRAFT_WEIGHT),
+        "candidate_path_memory_residual_cap_m": float(governor_config.candidate_path_memory_residual_cap_m),
+        "candidate_path_memory_specific_energy_residual_cap_m": float(
+            governor_config.candidate_path_memory_specific_energy_residual_cap_m
+        ),
+        "candidate_path_memory_utility_specific_energy_weight": float(
+            governor_config.candidate_path_memory_utility_specific_energy_weight
+        ),
+        "candidate_path_memory_utility_updraft_weight": float(
+            governor_config.candidate_path_memory_utility_updraft_weight
+        ),
         "candidate_path_memory_probe_count": int(len(CANDIDATE_PATH_MEMORY_PROBES)),
-        "candidate_path_memory_full_confidence_observations": float(CANDIDATE_PATH_MEMORY_FULL_CONFIDENCE_OBSERVATIONS),
-        "residual_memory_launch_recency_half_life": float(RESIDUAL_MEMORY_LAUNCH_RECENCY_HALF_LIFE),
+        "candidate_path_memory_full_confidence_observations": float(
+            governor_config.candidate_path_memory_full_confidence_observations
+        ),
+        "residual_memory_launch_recency_half_life": float(governor_config.residual_memory_launch_recency_half_life),
         "memory_opportunity_audit": "metrics/memory_opportunity_summary.csv",
         "safe_exploration_policy": "always_available_for_memory_policies_after_viability_filter_and_baseline_shield_no_final_run_branch",
         "thesis_facing_workflow": THESIS_FACING_WORKFLOW,
         "governor_config_override_active": config.governor_config is not None,
-        "governor_config": governor_config_to_row(config.governor_config or DEFAULT_GOVERNOR_CONFIG),
+        "governor_config": governor_config_to_row(governor_config),
         "r9_initial_governor_config_for_r10": (
             (run_root / "manifests" / "initial_governor_config_for_r10.json").as_posix()
             if protocol.stage_id == "R9"
@@ -5230,7 +5552,9 @@ def _write_manifest(
         if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
         else "",
         "changed_case_plant_implementation_variation_scope": (
-            "full-domain blocks sample plant/implementation per outer case; history launches vary environment/fan/launch only"
+            "full-domain blocks sample plant/implementation per outer case; history launches keep fan layout, "
+            "active count, and plant fixed while launch state varies and only mild updraft parameters vary in "
+            "R10 L7 plus R11 L3/L6/L7"
             if str(protocol.stage_id) in CHANGED_CASE_VALIDATION_STAGE_IDS
             else "not_applicable"
         ),
