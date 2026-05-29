@@ -1,0 +1,9 @@
+chunk_index,status,row_start,row_stop,row_count,partition_path,manifest_path,byte_count,checksum_sha256,duration_s
+0,scheduled,0,250,250,tables/w01_primitive_rows/c00000.csv.gz,chunk_manifests/w01_primitive_rows/c00000.json,0,,0.0
+1,scheduled,250,500,250,tables/w01_primitive_rows/c00001.csv.gz,chunk_manifests/w01_primitive_rows/c00001.json,0,,0.0
+2,scheduled,500,750,250,tables/w01_primitive_rows/c00002.csv.gz,chunk_manifests/w01_primitive_rows/c00002.json,0,,0.0
+3,scheduled,750,1000,250,tables/w01_primitive_rows/c00003.csv.gz,chunk_manifests/w01_primitive_rows/c00003.json,0,,0.0
+4,scheduled,1000,1250,250,tables/w01_primitive_rows/c00004.csv.gz,chunk_manifests/w01_primitive_rows/c00004.json,0,,0.0
+5,scheduled,1250,1500,250,tables/w01_primitive_rows/c00005.csv.gz,chunk_manifests/w01_primitive_rows/c00005.json,0,,0.0
+6,scheduled,1500,1750,250,tables/w01_primitive_rows/c00006.csv.gz,chunk_manifests/w01_primitive_rows/c00006.json,0,,0.0
+7,scheduled,1750,2000,250,tables/w01_primitive_rows/c00007.csv.gz,chunk_manifests/w01_primitive_rows/c00007.json,0,,0.0

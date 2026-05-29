@@ -1,0 +1,5 @@
+value,row_count
+blocked,180
+hard_failure,121
+episode_terminal_useful,86
+continuation_valid,13

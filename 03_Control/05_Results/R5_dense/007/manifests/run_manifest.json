@@ -1,0 +1,141 @@
+{
+  "runner_version": "run_lqr_w01_dense_chunked_v1",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v4.4",
+  "run_stage": "W01_dense_primitive_variant_generation",
+  "run_id": 7,
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/007",
+  "rows_requested": 76800,
+  "seed": 7,
+  "candidate_chunk_size": 800,
+  "candidate_count": 32,
+  "paired_tests_per_candidate": 100,
+  "rich_side_l6_row_threshold": 76800,
+  "fallback_l6_row_threshold": 19200,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "dry_run_schedule": true,
+  "resume": true,
+  "repair_incomplete": false,
+  "selected_worker_count": 8,
+  "worker_decision": {
+    "requested": "8",
+    "selected_worker_count": 8,
+    "max_workers": 8,
+    "os_cpu_count": 20,
+    "memory_total_gb": 31.668304443359375,
+    "memory_safety_margin_gb": 8.0,
+    "estimated_worker_memory_gb": 2.0,
+    "fallback_reason": "none"
+  },
+  "chunk_count": 96,
+  "schedule_mode": "balanced_paired",
+  "paired_start_policy": "common_random_start_key_reused_across_primitives_candidates_and_w01_environments",
+  "per_primitive_row_counts": {
+    "energy_retaining_bank": 9600,
+    "glide": 9600,
+    "lift_dwell_arc": 9600,
+    "lift_entry": 9600,
+    "mild_turn_left": 9600,
+    "mild_turn_right": 9600,
+    "recovery": 9600,
+    "safe_exit_or_recovery_handoff": 9600
+  },
+  "per_candidate_row_counts": {
+    "0": 2400,
+    "1": 2400,
+    "10": 2400,
+    "11": 2400,
+    "12": 2400,
+    "13": 2400,
+    "14": 2400,
+    "15": 2400,
+    "16": 2400,
+    "17": 2400,
+    "18": 2400,
+    "19": 2400,
+    "2": 2400,
+    "20": 2400,
+    "21": 2400,
+    "22": 2400,
+    "23": 2400,
+    "24": 2400,
+    "25": 2400,
+    "26": 2400,
+    "27": 2400,
+    "28": 2400,
+    "29": 2400,
+    "3": 2400,
+    "30": 2400,
+    "31": 2400,
+    "4": 2400,
+    "5": 2400,
+    "6": 2400,
+    "7": 2400,
+    "8": 2400,
+    "9": 2400
+  },
+  "per_W_layer_row_counts": {
+    "W0": 25600,
+    "W1": 51200
+  },
+  "per_environment_mode_row_counts": {
+    "dry_air": 25600,
+    "gaussian_four": 25600,
+    "gaussian_single": 25600
+  },
+  "per_start_family_row_counts": {
+    "inflight_boundary_near": 7680,
+    "inflight_lift_region": 11520,
+    "inflight_nominal": 19200,
+    "inflight_recovery_edge": 7680,
+    "launch_gate": 30720
+  },
+  "official_W_layers": {
+    "W0": [
+      "dry_air"
+    ],
+    "W1": [
+      "gaussian_single",
+      "gaussian_four"
+    ]
+  },
+  "W2_generated": false,
+  "W3_generated": false,
+  "mixed_primitive_start_sampling": {
+    "launch_gate": 0.4,
+    "inflight_nominal": 0.25,
+    "inflight_lift_region": 0.15,
+    "inflight_boundary_near": 0.1,
+    "inflight_recovery_edge": 0.1
+  },
+  "no_small_library_selection": true,
+  "no_clustering_before_W2_W3": true,
+  "W2_W3_replay_only": true,
+  "panelwise_timing_actuator_effects_active_from_W01": true,
+  "PD_PID_fallback_allowed": false,
+  "timing_aware_synthesis_level": "predictor_compensated_augmented_discrete_lqr",
+  "active_controller_design_role": "active_timing_aware_w01",
+  "timing_augmentation_type": "actuator_surface_state_command_fifo_predictor_compensated",
+  "timing_effects_in_rollout": "panel_wind_feedback_delay_command_timing_actuator_lag_with_plant_and_implementation_instances",
+  "claim_status": "cleaned_and_restructured_for_corrected_W0_W1_rich_primitive_controller_dense_generation_readiness_only",
+  "blocked_claims": [
+    "W0_W1_dense_evidence_complete",
+    "W2_survival_complete",
+    "W3_robustness_complete",
+    "post_W3_compact_library_ready",
+    "governor_validation",
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success"
+  ],
+  "tuning_schedule": {
+    "primitive_count": 8,
+    "candidate_count": 32,
+    "paired_tests_per_candidate": 100,
+    "planned_rows": 76800,
+    "fallback_mode": false,
+    "hard_gates_json": "[\"finite_state\",\"entry_role_compatible\",\"safe_volume\",\"floor_ceiling_margin\",\"minimum_speed\",\"surface_limits\",\"valid_lqr_synthesis\",\"sampled_data_stability\",\"surrogate_ready\"]",
+    "soft_objective_terms_json": "[\"energy_residual_m\",\"lift_dwell_time_s\",\"wall_margin_m\",\"saturation_fraction\",\"uncertainty_m_s\",\"terminal_use_label\"]",
+    "method_version": "w01_grouped_qr_primitive_variant_v1"
+  }
+}

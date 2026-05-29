@@ -1,0 +1,122 @@
+{
+  "runner_version": "run_lqr_w01_dense_chunked_v1",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v4.3",
+  "run_stage": "W01_dense_primitive_variant_generation",
+  "run_id": 5,
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/005",
+  "rows_requested": 2000,
+  "seed": 5,
+  "candidate_chunk_size": 250,
+  "candidate_count": 16,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "dry_run_schedule": true,
+  "resume": true,
+  "repair_incomplete": false,
+  "selected_worker_count": 8,
+  "worker_decision": {
+    "requested": "8",
+    "selected_worker_count": 8,
+    "max_workers": 8,
+    "os_cpu_count": 20,
+    "memory_total_gb": 31.668304443359375,
+    "memory_safety_margin_gb": 8.0,
+    "estimated_worker_memory_gb": 2.0,
+    "fallback_reason": "none"
+  },
+  "chunk_count": 8,
+  "schedule_mode": "balanced_paired",
+  "paired_start_policy": "common_random_start_key_reused_across_primitives_candidates_and_w01_environments",
+  "per_primitive_row_counts": {
+    "energy_retaining_bank": 250,
+    "glide": 250,
+    "lift_dwell_arc": 250,
+    "lift_entry": 250,
+    "mild_turn_left": 250,
+    "mild_turn_right": 250,
+    "recovery": 250,
+    "safe_exit_or_recovery_handoff": 250
+  },
+  "per_candidate_row_counts": {
+    "0": 128,
+    "1": 128,
+    "10": 120,
+    "11": 120,
+    "12": 120,
+    "13": 120,
+    "14": 120,
+    "15": 120,
+    "2": 128,
+    "3": 128,
+    "4": 128,
+    "5": 128,
+    "6": 128,
+    "7": 128,
+    "8": 128,
+    "9": 128
+  },
+  "per_W_layer_row_counts": {
+    "W0": 672,
+    "W1": 1328
+  },
+  "per_environment_mode_row_counts": {
+    "dry_air": 672,
+    "gaussian_four": 664,
+    "gaussian_single": 664
+  },
+  "per_start_family_row_counts": {
+    "inflight_boundary_near": 200,
+    "inflight_lift_region": 300,
+    "inflight_nominal": 500,
+    "inflight_recovery_edge": 200,
+    "launch_gate": 800
+  },
+  "official_W_layers": {
+    "W0": [
+      "dry_air"
+    ],
+    "W1": [
+      "gaussian_single",
+      "gaussian_four"
+    ]
+  },
+  "W2_generated": false,
+  "W3_generated": false,
+  "mixed_primitive_start_sampling": {
+    "launch_gate": 0.4,
+    "inflight_nominal": 0.25,
+    "inflight_lift_region": 0.15,
+    "inflight_boundary_near": 0.1,
+    "inflight_recovery_edge": 0.1
+  },
+  "no_small_library_selection": true,
+  "no_clustering_before_W2_W3": true,
+  "W2_W3_replay_only": true,
+  "panelwise_timing_actuator_effects_active_from_W01": true,
+  "PD_PID_fallback_allowed": false,
+  "timing_aware_synthesis_level": "predictor_compensated_augmented_discrete_lqr",
+  "active_controller_design_role": "active_timing_aware_w01",
+  "timing_augmentation_type": "actuator_surface_state_command_fifo_predictor_compensated",
+  "timing_effects_in_rollout": "panel_wind_feedback_delay_command_timing_actuator_lag_with_plant_and_implementation_instances",
+  "claim_status": "cleaned_and_restructured_for_corrected_W0_W1_rich_primitive_controller_dense_generation_readiness_only",
+  "blocked_claims": [
+    "W0_W1_dense_evidence_complete",
+    "W2_survival_complete",
+    "W3_robustness_complete",
+    "post_W3_compact_library_ready",
+    "governor_validation",
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success"
+  ],
+  "tuning_schedule": {
+    "primitive_count": 8,
+    "candidate_count": 16,
+    "paired_tests_per_candidate": 15,
+    "planned_rows": 5760,
+    "fallback_mode": false,
+    "hard_gates_json": "[\"finite_state\",\"entry_role_compatible\",\"safe_volume\",\"floor_ceiling_margin\",\"minimum_speed\",\"surface_limits\",\"valid_lqr_synthesis\",\"sampled_data_stability\",\"surrogate_ready\"]",
+    "soft_objective_terms_json": "[\"energy_residual_m\",\"lift_dwell_time_s\",\"wall_margin_m\",\"saturation_fraction\",\"uncertainty_m_s\",\"terminal_use_label\"]",
+    "method_version": "w01_grouped_qr_primitive_variant_v1"
+  }
+}

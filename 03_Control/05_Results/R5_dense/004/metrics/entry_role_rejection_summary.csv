@@ -1,0 +1,14 @@
+entry_role,start_state_family,row_count,entry_role_rejection_count,entry_role_rejection_rate
+inflight_only,inflight_boundary_near,8,0,0.0
+inflight_only,inflight_lift_region,16,0,0.0
+inflight_only,inflight_nominal,24,0,0.0
+inflight_only,inflight_recovery_edge,12,0,0.0
+inflight_only,launch_gate,40,40,1.0
+launch_capable,inflight_boundary_near,4,0,0.0
+launch_capable,inflight_nominal,8,0,0.0
+launch_capable,launch_gate,8,0,0.0
+terminal_or_recovery,inflight_boundary_near,4,0,0.0
+terminal_or_recovery,inflight_lift_region,8,8,1.0
+terminal_or_recovery,inflight_nominal,8,8,1.0
+terminal_or_recovery,inflight_recovery_edge,4,0,0.0
+terminal_or_recovery,launch_gate,16,16,1.0
