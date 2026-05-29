@@ -60,7 +60,7 @@ DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
     hard_failure_weight=-0.80,
     updraft_gain_weight=0.04,
     lift_dwell_weight=0.03,
-    belief_weight=0.05,
+    belief_weight=0.08,
     exploration_bonus_weight=0.02,
     no_viable_penalty=-1.0,
     terminal_mode_bias=0.0,
@@ -164,6 +164,15 @@ def governor_candidate_row(
             belief_features.get("belief_local_energy_residual_m", 0.0),
         )
     )
+    belief_specific_energy_residual = _float(
+        belief_features.get(
+            "belief_candidate_path_memory_utility_m",
+            belief_features.get(
+                "belief_local_specific_energy_residual_m",
+                belief_features.get("belief_local_energy_residual_m", belief_updraft_gain_residual),
+            ),
+        )
+    )
     belief_updraft_gain = _float(
         belief_features.get(
             "belief_local_updraft_gain_proxy_m",
@@ -200,7 +209,7 @@ def governor_candidate_row(
         expected_updraft_gain_proxy_m=score_updraft_gain,
         expected_lift_dwell_time_s=dwell,
         wall_margin_m=wall_margin,
-        belief_local_lift_m_s=belief_updraft_gain_residual,
+        belief_local_lift_m_s=belief_specific_energy_residual,
         mission_front_progress_fraction=mission["mission_front_wall_progress_fraction"],
         mission_front_terminal_proxy=mission["mission_front_wall_terminal_proxy"],
         mission_terminal_energy_proxy_m=mission["mission_terminal_energy_progress_proxy_m"],
@@ -291,8 +300,9 @@ def governor_candidate_row(
         "belief_local_lift_residual_m_s": belief_local,
         "belief_local_updraft_gain_proxy_m": belief_updraft_gain,
         "belief_local_updraft_gain_residual_m": belief_updraft_gain_residual,
-        "belief_local_energy_residual_m": belief_updraft_gain_residual,
-        "belief_energy_residual_alias_status": "legacy_alias_for_updraft_gain_residual_not_total_energy",
+        "belief_local_energy_residual_m": belief_specific_energy_residual,
+        "belief_local_specific_energy_residual_m": belief_specific_energy_residual,
+        "belief_energy_residual_alias_status": "active_total_specific_energy_memory_utility",
         "belief_local_dwell_residual_s": belief_dwell,
         "belief_mean_lift_m_s": belief_mean,
         "belief_max_lift_m_s": belief_max,
@@ -318,6 +328,15 @@ def governor_candidate_row(
         "belief_candidate_path_confidence": _float(belief_features.get("belief_candidate_path_confidence", 0.0)),
         "belief_candidate_path_updraft_residual_uncapped_m": _float(
             belief_features.get("belief_candidate_path_updraft_residual_uncapped_m", belief_updraft_gain_residual)
+        ),
+        "belief_candidate_path_specific_energy_residual_uncapped_m": _float(
+            belief_features.get("belief_candidate_path_specific_energy_residual_uncapped_m", belief_specific_energy_residual)
+        ),
+        "belief_candidate_path_specific_energy_residual_cap_m": _float(
+            belief_features.get("belief_candidate_path_specific_energy_residual_cap_m", 0.0)
+        ),
+        "belief_candidate_path_memory_utility_m": _float(
+            belief_features.get("belief_candidate_path_memory_utility_m", belief_specific_energy_residual)
         ),
         "belief_candidate_path_updraft_residual_cap_m": _float(belief_features.get("belief_candidate_path_updraft_residual_cap_m", 0.0)),
         "belief_candidate_path_reference_bank_rad": _float(belief_features.get("belief_candidate_path_reference_bank_rad", 0.0)),

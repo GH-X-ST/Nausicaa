@@ -64,6 +64,7 @@ from primitive_timing_contract import (  # noqa: E402
     PRIMITIVE_FINITE_HORIZON_S,
     primitive_timing_contract_row,
 )
+from lqr_linearisation import local_speed_from_state_vector, lqr_speed_bin_id  # noqa: E402
 from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS  # noqa: E402
 from state_contract import STATE_INDEX, as_state_vector  # noqa: E402
 from state_sampling import archive_state_sample_for_family  # noqa: E402
@@ -137,15 +138,29 @@ DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE = 10
 REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION = "predictive_next_primitive_scheduler_profile_v1"
 REAL_TIME_PREFERRED_DECISION_BUDGET_S = CONTROLLER_INPUT_UPDATE_PERIOD_S
 REAL_TIME_HARD_DECISION_BUDGET_S = PRIMITIVE_FINITE_HORIZON_S
-OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_baseline_shielded_recency_safe_exploration_memory_v1_4"
+OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_baseline_shielded_recency_safe_exploration_memory_v1_5"
 CANDIDATE_PATH_MEMORY_LOOKAHEAD_S = 5.0 * PRIMITIVE_FINITE_HORIZON_S
 CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M = 0.75
+CANDIDATE_PATH_MEMORY_SPECIFIC_ENERGY_RESIDUAL_CAP_M = 1.00
+CANDIDATE_PATH_MEMORY_UTILITY_SPECIFIC_ENERGY_WEIGHT = 0.75
+CANDIDATE_PATH_MEMORY_UTILITY_UPDRAFT_WEIGHT = 0.25
 CANDIDATE_PATH_MEMORY_FULL_CONFIDENCE_OBSERVATIONS = 3.0
 RESIDUAL_MEMORY_LAUNCH_RECENCY_HALF_LIFE = 4.0
 CANDIDATE_PATH_MEMORY_HEADING_OFFSET_CAP_RAD = math.radians(35.0)
-CANDIDATE_PATH_MEMORY_PROBES = ((0.0, 0.20), (0.5, 0.35), (1.0, 0.45))
+CANDIDATE_PATH_MEMORY_PROBES = (
+    (0.0, 0.08),
+    (0.17, 0.12),
+    (0.33, 0.16),
+    (0.50, 0.20),
+    (0.67, 0.18),
+    (0.83, 0.14),
+    (1.0, 0.12),
+)
 THESIS_FACING_WORKFLOW = "R5 -> R7 -> R8 -> R10 -> R11 -> Reality"
 R9_THESIS_REPORTING_STATUS = "internal_preflight_excluded_from_thesis_workflow_narrative"
+REAL_FLIGHT_REQUIRED_LIBRARY_CASE_IDS = ("heavy_cluster", "balanced_cluster")
+REAL_FLIGHT_OPTIONAL_LIBRARY_CASE_IDS = ("light_cluster", "super_light_cluster")
+OFFLINE_UNRESTRICTED_LIBRARY_CASE_IDS = ("no_cluster_no_merge",)
 LAUNCH_SEQUENCE_POLICY_ID = "state_class_transition_entry_governor_no_launch_specific_family"
 FIRST_PRIMITIVE_START_FAMILY = "launch_gate"
 POST_LAUNCH_START_FAMILY = "inflight_nominal"
@@ -359,6 +374,7 @@ class ValidationProtocol:
     requires_no_glider_latency_variation_audit: bool = False
     gate_profile: str = "strict_final_validation"
     max_hard_failure_rate: float = 0.01
+    max_floor_or_ceiling_violation_rate: float = 0.0
     max_no_viable_rate: float = 0.02
     min_safe_success_rate: float = 0.99
     min_full_safe_success_rate: float | None = None
@@ -589,6 +605,7 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
 
     _write_first_decision_audits_from_partitions(run_root, partitions, storage_format)
     _write_real_time_scheduler_audit_from_partitions(run_root, partitions, storage_format)
+    _write_memory_opportunity_audit_from_partitions(run_root, partitions, storage_format)
     episode_rows = _read_partitioned_rows(run_root, partitions, "episode_summary")
     pairing_rows = _pairing_audit_rows(final_schedule)
     no_variation_rows = _no_variation_audit_rows(final_schedule) if protocol.requires_no_glider_latency_variation_audit else []
@@ -848,6 +865,7 @@ def _iter_launch_result_batches(
     selected_workers: int,
 ) -> Iterable[list[dict[str, object]]]:
     if int(selected_workers) <= 1:
+        _warm_up_realtime_context_cache(protocol)
         for final_row in final_schedule:
             yield _run_final_schedule_row(
                 final_row,
@@ -903,6 +921,49 @@ def _initialise_validation_worker(
     _WORKER_RECORDS_BY_VARIANT = records_by_variant
     _WORKER_CONFIG = config
     _WORKER_PROTOCOL = protocol
+    _warm_up_realtime_context_cache(protocol)
+
+
+def _warm_up_realtime_context_cache(protocol: ValidationProtocol) -> None:
+    """Prepare one context path outside the profiled primitive-boundary budget."""
+
+    try:
+        sample = archive_state_sample_for_family(
+            start_state_family=FIRST_PRIMITIVE_START_FAMILY,
+            paired_start_key=f"{protocol.stage_id.lower()}_scheduler_warmup",
+            sample_index=0,
+            seed=0,
+            W_layer="W2",
+            environment_mode="annular_gp_single",
+        )
+        scheduled = {
+            "W_layer": "W2",
+            "environment_mode": "annular_gp_single",
+            "environment_seed": 0,
+            "plant_implementation_seed": 0,
+            "environment_block_id": "scheduler_warmup",
+            "outer_case_type": "scheduler_warmup",
+            "scheduled_fan_layout_count": "",
+            "fan_layout_policy": "scheduler_warmup",
+            "fan_position_policy": "scheduler_warmup",
+            "fan_position_xy_bounds_m": "",
+            "fan_position_safety_radius_m": "",
+            "library_size_case_id": "scheduler_warmup",
+            "history_length": 0,
+            "adaptation_launch_index": 0,
+            "policy_id": "scheduler_warmup",
+        }
+        _context_payload(
+            state=as_state_vector(sample.state_vector),
+            scheduled=scheduled,
+            episode_id=f"{protocol.stage_id.lower()}_scheduler_warmup",
+            protocol=protocol,
+            start_state_family=FIRST_PRIMITIVE_START_FAMILY,
+            primitive_step_index=0,
+            route=validation_route_for_primitive_step(0, state=as_state_vector(sample.state_vector)),
+        )
+    except Exception:
+        return
 
 
 def _run_final_schedule_row_worker(final_row: dict[str, object]) -> list[dict[str, object]]:
@@ -1071,6 +1132,10 @@ def _history_memory_trace_rows(result: dict[str, object]) -> list[dict[str, obje
             "lift_residual_mean_m_s": _mean_float(memory_rows, "lift_residual_m_s"),
             "updraft_gain_residual_sum_m": float(sum(_float_value(row.get("updraft_gain_residual_m", 0.0)) for row in memory_rows)),
             "updraft_gain_residual_mean_m": _mean_float(memory_rows, "updraft_gain_residual_m"),
+            "specific_energy_residual_sum_m": float(
+                sum(_float_value(row.get("specific_energy_residual_m", 0.0)) for row in memory_rows)
+            ),
+            "specific_energy_residual_mean_m": _mean_float(memory_rows, "specific_energy_residual_m"),
             "dwell_residual_sum_s": float(sum(_float_value(row.get("dwell_residual_s", 0.0)) for row in memory_rows)),
             "dwell_residual_mean_s": _mean_float(memory_rows, "dwell_residual_s"),
         }
@@ -1676,6 +1741,10 @@ def _run_one_launch(
                 outcome=outcome,
             ),
             dwell_residual_s=float(rollout_row.get("lift_dwell_time_s", 0.0)) - float(outcome.get("expected_lift_dwell_time_s", 0.0)),
+            specific_energy_residual_m=_specific_energy_residual_for_memory_update(
+                rollout_row=rollout_row,
+                outcome=outcome,
+            ),
             history_launch_index=_adaptation_launch_index(scheduled),
         )
         belief_before_update = belief_after
@@ -1821,6 +1890,7 @@ def _candidate_path_belief_features(
     psi0 = float(state[STATE_INDEX["psi"]])
     weighted_lift = 0.0
     weighted_updraft = 0.0
+    weighted_specific_energy = 0.0
     weighted_dwell = 0.0
     confidence = 0.0
     observation_count = 0
@@ -1852,6 +1922,12 @@ def _candidate_path_belief_features(
             probe_confidence = _candidate_path_probe_confidence(last_features)
             weighted_lift += weight * probe_confidence * _float_value(last_features.get("belief_local_lift_residual_m_s", 0.0))
             weighted_updraft += weight * probe_confidence * _float_value(last_features.get("belief_local_updraft_gain_residual_m", 0.0))
+            weighted_specific_energy += weight * probe_confidence * _float_value(
+                last_features.get(
+                    "belief_local_specific_energy_residual_m",
+                    last_features.get("belief_local_energy_residual_m", 0.0),
+                )
+            )
             weighted_dwell += weight * probe_confidence * _float_value(last_features.get("belief_local_dwell_residual_s", 0.0))
             confidence += weight * probe_confidence
             observation_count += int(_float_value(last_features.get("belief_observation_count", 0)))
@@ -1870,6 +1946,15 @@ def _candidate_path_belief_features(
         float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
     )
     capped_dwell = _clip(weighted_dwell, -1.0, 1.0)
+    capped_specific_energy = _clip(
+        weighted_specific_energy,
+        -float(CANDIDATE_PATH_MEMORY_SPECIFIC_ENERGY_RESIDUAL_CAP_M),
+        float(CANDIDATE_PATH_MEMORY_SPECIFIC_ENERGY_RESIDUAL_CAP_M),
+    )
+    memory_utility = (
+        float(CANDIDATE_PATH_MEMORY_UTILITY_SPECIFIC_ENERGY_WEIGHT) * float(capped_specific_energy)
+        + float(CANDIDATE_PATH_MEMORY_UTILITY_UPDRAFT_WEIGHT) * float(capped_updraft)
+    )
     confidence = _clip(confidence, 0.0, 1.0)
     exit_margins = position_margin_m(np.array([exit_x, exit_y, exit_z], dtype=float), TRUE_SAFE_BOUNDS)
     return {
@@ -1882,7 +1967,8 @@ def _candidate_path_belief_features(
         "belief_local_lift_residual_m_s": float(capped_lift),
         "belief_local_updraft_gain_proxy_m": max(float(capped_updraft), 0.0),
         "belief_local_updraft_gain_residual_m": float(capped_updraft),
-        "belief_local_energy_residual_m": float(capped_updraft),
+        "belief_local_energy_residual_m": float(memory_utility),
+        "belief_local_specific_energy_residual_m": float(capped_specific_energy),
         "belief_local_dwell_residual_s": float(capped_dwell),
         "belief_uncertainty": float(1.0 - confidence),
         "belief_observation_count": int(observation_count),
@@ -1904,6 +1990,12 @@ def _candidate_path_belief_features(
         "belief_candidate_path_confidence": float(confidence),
         "belief_candidate_path_updraft_residual_uncapped_m": float(weighted_updraft),
         "belief_candidate_path_updraft_residual_cap_m": float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
+        "belief_candidate_path_specific_energy_residual_uncapped_m": float(weighted_specific_energy),
+        "belief_candidate_path_specific_energy_residual_cap_m": float(
+            CANDIDATE_PATH_MEMORY_SPECIFIC_ENERGY_RESIDUAL_CAP_M
+        ),
+        "belief_candidate_path_memory_utility_m": float(memory_utility),
+        "belief_candidate_path_memory_utility_policy": "specific_energy_0p75_plus_updraft_0p25",
         "belief_candidate_path_reference_bank_rad": float(reference_bank_rad),
         "belief_candidate_path_heading_offset_rad": float(heading_offset_rad),
         "belief_candidate_path_speed_m_s": float(path_speed_m_s),
@@ -2074,6 +2166,7 @@ def _prepare_realtime_governor_decision(
         governor_config=governor_config,
     )
     selection_duration_s = time.perf_counter() - selection_started
+    prefilter_source = selected if selected is not None else (candidate_rows[0] if candidate_rows else {})
 
     scheduler_fields = _real_time_scheduler_decision_fields(
         primitive_step_index=primitive_step_index,
@@ -2083,6 +2176,23 @@ def _prepare_realtime_governor_decision(
         selection_duration_s=selection_duration_s,
         candidate_count=len(candidate_rows),
         viable_count=sum(1 for row in candidate_rows if bool(row.get("viable", False))),
+    )
+    scheduler_fields.update(
+        {
+            "decision_total_library_candidate_count": int(
+                prefilter_source.get("selector_total_candidate_count", len(representatives))
+            ),
+            "decision_entry_filtered_candidate_count": int(
+                prefilter_source.get("selector_entry_filtered_candidate_count", len(candidate_rows))
+            ),
+            "decision_prefilter_skipped_candidate_count": int(
+                prefilter_source.get("selector_skipped_candidate_count", max(0, len(representatives) - len(candidate_rows)))
+            ),
+            "decision_prefilter_status": str(prefilter_source.get("selector_prefilter_status", "")),
+            "decision_prefilter_version": str(prefilter_source.get("selector_prefilter_version", "")),
+            "decision_allowed_entry_classes": str(prefilter_source.get("selector_allowed_entry_classes", "")),
+            "decision_allowed_speed_bins": str(prefilter_source.get("selector_allowed_speed_bins", "")),
+        }
     )
     for row in candidate_rows:
         row.update(scheduler_fields)
@@ -2458,6 +2568,8 @@ def _context_payload(
         "current_x_w_m": float(state[STATE_INDEX["x_w"]]),
         "current_y_w_m": float(state[STATE_INDEX["y_w"]]),
         "current_z_w_m": float(state[STATE_INDEX["z_w"]]),
+        "current_speed_m_s": float(local_speed_from_state_vector(state)),
+        "current_local_lqr_speed_bin_id": lqr_speed_bin_id(local_speed_from_state_vector(state)),
         "mission_x_min_w_m": float(TRUE_SAFE_BOUNDS.x_w_m[0]),
         "front_wall_target_x_w_m": float(TRUE_SAFE_BOUNDS.x_w_m[1]),
         "mission_terminal_y_min_m": float(TRUE_SAFE_BOUNDS.y_w_m[0]),
@@ -3070,6 +3182,18 @@ def _updraft_gain_residual_for_memory_update(
     return float(observed - expected)
 
 
+def _specific_energy_residual_for_memory_update(
+    *,
+    rollout_row: dict[str, object],
+    outcome: dict[str, object],
+) -> float:
+    """Compare observed primitive total specific-energy change with the frozen prediction."""
+
+    observed = _float_value(rollout_row.get("energy_residual_m", 0.0))
+    expected = _float_value(outcome.get("expected_energy_residual_m", 0.0))
+    return float(observed - expected)
+
+
 def _specific_energy_m(state: np.ndarray) -> float:
     x = as_state_vector(state)
     speed = float(np.linalg.norm(x[[STATE_INDEX["u"], STATE_INDEX["v"], STATE_INDEX["w"]]]))
@@ -3474,7 +3598,14 @@ def _belief_snapshot_compact(
         "belief_local_energy_residual_m": float(
             features.get(
                 "belief_local_energy_residual_m",
-                features.get("belief_local_updraft_gain_residual_m", 0.0),
+                features.get("belief_local_specific_energy_residual_m", features.get("belief_local_updraft_gain_residual_m", 0.0)),
+            )
+            or 0.0
+        ),
+        "belief_local_specific_energy_residual_m": float(
+            features.get(
+                "belief_local_specific_energy_residual_m",
+                features.get("belief_local_energy_residual_m", 0.0),
             )
             or 0.0
         ),
@@ -3792,6 +3923,56 @@ def _write_real_time_scheduler_audit_from_partitions(
     frame["_prepared"] = prepared.astype(bool)
 
     audit_rows = [_real_time_scheduler_summary_row("overall", frame)]
+    if "library_size_case_id" in frame.columns:
+        library_case = frame["library_size_case_id"].astype(str)
+        real_flight_required = frame[library_case.isin(REAL_FLIGHT_REQUIRED_LIBRARY_CASE_IDS)]
+        optional_extended = frame[library_case.isin(REAL_FLIGHT_OPTIONAL_LIBRARY_CASE_IDS)]
+        offline_no_cluster = frame[library_case.isin(OFFLINE_UNRESTRICTED_LIBRARY_CASE_IDS)]
+        if not real_flight_required.empty:
+            audit_rows.append(_real_time_scheduler_summary_row("real_flight_required:heavy_balanced", real_flight_required))
+        if not optional_extended.empty:
+            audit_rows.append(_real_time_scheduler_summary_row("real_flight_optional_extended:light_super_light", optional_extended))
+        if not offline_no_cluster.empty:
+            audit_rows.append(
+                _real_time_scheduler_summary_row(
+                    "offline_comparison:unrestricted:not_real_flight_candidate:no_cluster_no_merge",
+                    offline_no_cluster,
+                )
+            )
+        if "scheduler_decision_source" in frame.columns:
+            source = frame["scheduler_decision_source"].astype(str)
+            required_inflight = frame[
+                library_case.isin(REAL_FLIGHT_REQUIRED_LIBRARY_CASE_IDS)
+                & source.ne("initial_launch_precomputed_before_release")
+            ]
+            optional_inflight = frame[
+                library_case.isin(REAL_FLIGHT_OPTIONAL_LIBRARY_CASE_IDS)
+                & source.ne("initial_launch_precomputed_before_release")
+            ]
+            pre_release = frame[source.eq("initial_launch_precomputed_before_release")]
+            if not required_inflight.empty:
+                audit_rows.append(
+                    _real_time_scheduler_summary_row(
+                        "real_flight_required:heavy_balanced:inflight_boundary_decisions",
+                        required_inflight,
+                    )
+                )
+            if not optional_inflight.empty:
+                audit_rows.append(
+                    _real_time_scheduler_summary_row(
+                        "real_flight_optional_extended:light_super_light:inflight_boundary_decisions",
+                        optional_inflight,
+                    )
+                )
+            if not pre_release.empty:
+                audit_rows.append(
+                    _real_time_scheduler_summary_row(
+                        "pre_release_initial_decisions:not_inflight_boundary_compute",
+                        pre_release,
+                    )
+                )
+        for case_id, group in frame.groupby("library_size_case_id", dropna=False):
+            audit_rows.append(_real_time_scheduler_summary_row(f"library_size_case_id:{case_id}", group))
     if "launch_role" in frame.columns:
         for launch_role, group in frame.groupby("launch_role", dropna=False):
             audit_rows.append(_real_time_scheduler_summary_row(f"launch_role:{launch_role}", group))
@@ -3801,29 +3982,259 @@ def _write_real_time_scheduler_audit_from_partitions(
     _write_csv(run_root / "metrics" / "real_time_scheduler_audit.csv", pd.DataFrame(audit_rows))
 
 
+def _write_memory_opportunity_audit_from_partitions(
+    run_root: Path,
+    partitions: Iterable[TablePartition],
+    storage_format: str,
+) -> None:
+    rows: list[dict[str, object]] = []
+    for partition in partitions:
+        if partition.table_name != "selector_decision_log":
+            continue
+        frame = read_table_partition(
+            run_root / "tables" / partition.relative_path,
+            storage_format=storage_format,
+        )
+        if not frame.empty:
+            rows.extend(frame.to_dict(orient="records"))
+    if not rows:
+        empty = pd.DataFrame(
+            [
+                {
+                    "audit_scope": "overall",
+                    "decision_count": 0,
+                    "audit_status": "no_selector_decision_rows",
+                    "memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION,
+                }
+            ]
+        )
+        _write_csv(run_root / "metrics" / "memory_opportunity_summary.csv", empty)
+        _write_csv(run_root / "metrics" / "memory_opportunity_decision_log.csv", pd.DataFrame())
+        return
+
+    frame = pd.DataFrame(rows)
+    frame["_memory_policy"] = frame.get("policy_id", pd.Series("", index=frame.index)).astype(str).str.contains(
+        MEMORY_POLICY_PREFIX,
+        regex=False,
+    )
+    frame["_baseline_variant"] = frame.get("selected_memory_shield_baseline_variant_id", pd.Series("", index=frame.index)).astype(str)
+    frame["_memory_variant"] = frame.get("selected_memory_shield_memory_variant_id", pd.Series("", index=frame.index)).astype(str)
+    frame["_memory_switch_available"] = (
+        frame["_memory_policy"]
+        & frame["_baseline_variant"].ne("")
+        & frame["_memory_variant"].ne("")
+        & frame["_baseline_variant"].ne(frame["_memory_variant"])
+    )
+    frame["_shield_status"] = frame.get("selected_memory_shield_status", pd.Series("", index=frame.index)).astype(str)
+    frame["_accepted_switch"] = frame["_memory_switch_available"] & frame["_shield_status"].str.startswith("accepted")
+    frame["_rejected_switch"] = frame["_memory_switch_available"] & frame["_shield_status"].str.startswith("rejected")
+    for column in (
+        "selected_memory_shield_score_margin",
+        "selected_memory_shield_memory_correction_delta",
+        "selected_memory_shield_base_score_gap_to_baseline",
+        "selected_memory_shield_memory_opportunity_ratio",
+        "selected_memory_shield_candidate_path_confidence",
+        "selected_memory_shield_candidate_path_uncertainty",
+        "selected_memory_shield_exploration_score_component",
+        "selected_memory_shield_path_exit_margin_delta_m",
+    ):
+        if column not in frame.columns:
+            frame[column] = 0.0
+        frame[column] = pd.to_numeric(frame[column], errors="coerce").fillna(0.0)
+
+    decision_columns = [
+        column
+        for column in (
+            "library_size_case_id",
+            "policy_id",
+            "history_length",
+            "launch_role",
+            "outer_case_index",
+            "outer_case_type",
+            "environment_block_id",
+            "episode_id",
+            "primitive_step_index",
+            "start_state_family",
+            "route_required_entry_class",
+            "selected_primitive_id",
+            "selected_primitive_variant_id",
+            "selected_memory_shield_status",
+            "selected_memory_shield_accepted",
+            "selected_memory_shield_baseline_variant_id",
+            "selected_memory_shield_memory_variant_id",
+            "selected_memory_shield_score_margin",
+            "selected_memory_shield_memory_correction_delta",
+            "selected_memory_shield_base_score_gap_to_baseline",
+            "selected_memory_shield_memory_opportunity_ratio",
+            "selected_memory_shield_candidate_path_confidence",
+            "selected_memory_shield_candidate_path_uncertainty",
+            "selected_memory_shield_exploration_score_component",
+            "selected_memory_shield_path_exit_margin_delta_m",
+        )
+        if column in frame.columns
+    ]
+    decision_log = frame[decision_columns].copy()
+    decision_log["memory_opportunity_policy"] = (
+        "decision_level_baseline_vs_candidate_path_memory_gap_audit"
+    )
+    decision_log["memory_policy_version"] = OUTER_LOOP_MEMORY_POLICY_VERSION
+    _write_csv(run_root / "metrics" / "memory_opportunity_decision_log.csv", decision_log)
+
+    group_columns = [
+        column
+        for column in ("launch_role", "environment_block_id", "policy_id", "library_size_case_id")
+        if column in frame.columns
+    ]
+    summary_rows = [_memory_opportunity_summary_row("overall", frame)]
+    if group_columns:
+        for values, group in frame.groupby(group_columns, dropna=False):
+            if not isinstance(values, tuple):
+                values = (values,)
+            label = ",".join(f"{column}:{value}" for column, value in zip(group_columns, values))
+            summary_rows.append(_memory_opportunity_summary_row(label, group))
+    _write_csv(run_root / "metrics" / "memory_opportunity_summary.csv", pd.DataFrame(summary_rows))
+
+
+def _memory_opportunity_summary_row(audit_scope: str, frame: pd.DataFrame) -> dict[str, object]:
+    count = int(len(frame))
+    memory_policy = frame["_memory_policy"].astype(bool) if "_memory_policy" in frame else pd.Series(False, index=frame.index)
+    switch_available = (
+        frame["_memory_switch_available"].astype(bool)
+        if "_memory_switch_available" in frame
+        else pd.Series(False, index=frame.index)
+    )
+    accepted = frame["_accepted_switch"].astype(bool) if "_accepted_switch" in frame else pd.Series(False, index=frame.index)
+    rejected = frame["_rejected_switch"].astype(bool) if "_rejected_switch" in frame else pd.Series(False, index=frame.index)
+    correction = frame.get("selected_memory_shield_memory_correction_delta", pd.Series(0.0, index=frame.index))
+    gap = frame.get("selected_memory_shield_base_score_gap_to_baseline", pd.Series(0.0, index=frame.index))
+    ratio = frame.get("selected_memory_shield_memory_opportunity_ratio", pd.Series(0.0, index=frame.index))
+    confidence = frame.get("selected_memory_shield_candidate_path_confidence", pd.Series(0.0, index=frame.index))
+    uncertainty = frame.get("selected_memory_shield_candidate_path_uncertainty", pd.Series(0.0, index=frame.index))
+    score_margin = frame.get("selected_memory_shield_score_margin", pd.Series(0.0, index=frame.index))
+    return {
+        "audit_scope": str(audit_scope),
+        "decision_count": count,
+        "memory_policy_decision_count": int(memory_policy.sum()),
+        "memory_switch_available_count": int(switch_available.sum()),
+        "accepted_memory_switch_count": int(accepted.sum()),
+        "rejected_memory_switch_count": int(rejected.sum()),
+        "mean_memory_correction_delta": float(correction.mean()) if count else 0.0,
+        "max_memory_correction_delta": float(correction.max()) if count else 0.0,
+        "mean_base_score_gap_to_baseline": float(gap.mean()) if count else 0.0,
+        "mean_memory_opportunity_ratio": float(ratio.mean()) if count else 0.0,
+        "opportunity_ratio_ge_1_count": int((ratio >= 1.0).sum()) if count else 0,
+        "mean_candidate_path_confidence": float(confidence.mean()) if count else 0.0,
+        "mean_candidate_path_uncertainty": float(uncertainty.mean()) if count else 0.0,
+        "mean_adaptive_score_margin": float(score_margin.mean()) if count else 0.0,
+        "memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION,
+        "audit_status": "profiled",
+    }
+
+
 def _real_time_scheduler_summary_row(audit_scope: str, frame: pd.DataFrame) -> dict[str, object]:
     count = int(len(frame))
     duration = pd.to_numeric(frame["_duration"], errors="coerce").fillna(0.0)
     preferred = frame["_preferred"].astype(bool)
     hard = frame["_hard"].astype(bool)
     prepared = frame["_prepared"].astype(bool)
+    evaluated_candidates = pd.to_numeric(
+        frame.get("decision_candidate_count", pd.Series(0.0, index=frame.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    total_candidates = pd.to_numeric(
+        frame.get("decision_total_library_candidate_count", evaluated_candidates),
+        errors="coerce",
+    ).fillna(0.0)
+    skipped_candidates = pd.to_numeric(
+        frame.get("decision_prefilter_skipped_candidate_count", pd.Series(0.0, index=frame.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    requirement = _real_time_timing_requirement_for_scope(audit_scope)
+    hard_rate = float(hard.mean()) if count else 0.0
     return {
         "audit_scope": str(audit_scope),
+        **requirement,
         "selector_decision_count": count,
         "prepared_before_boundary_count": int(prepared.sum()),
         "prepared_before_boundary_rate": float(prepared.mean()) if count else 0.0,
         "preferred_20ms_slot_met_count": int(preferred.sum()),
         "preferred_20ms_slot_met_rate": float(preferred.mean()) if count else 0.0,
         "hard_100ms_boundary_met_count": int(hard.sum()),
-        "hard_100ms_boundary_met_rate": float(hard.mean()) if count else 0.0,
+        "hard_100ms_boundary_met_rate": hard_rate,
+        "hard_100ms_requirement_passed": _real_time_requirement_passed(requirement, hard_rate, count),
         "max_decision_total_duration_s": float(duration.max()) if count else 0.0,
         "p99_decision_total_duration_s": float(duration.quantile(0.99)) if count else 0.0,
         "mean_decision_total_duration_s": float(duration.mean()) if count else 0.0,
+        "mean_evaluated_candidate_count": float(evaluated_candidates.mean()) if count else 0.0,
+        "max_evaluated_candidate_count": int(evaluated_candidates.max()) if count else 0,
+        "mean_total_library_candidate_count": float(total_candidates.mean()) if count else 0.0,
+        "max_total_library_candidate_count": int(total_candidates.max()) if count else 0,
+        "mean_prefilter_skipped_candidate_count": float(skipped_candidates.mean()) if count else 0.0,
         "preferred_decision_budget_s": float(REAL_TIME_PREFERRED_DECISION_BUDGET_S),
         "hard_decision_budget_s": float(REAL_TIME_HARD_DECISION_BUDGET_S),
         "audit_status": "profiled",
         "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
     }
+
+
+def _real_time_timing_requirement_for_scope(audit_scope: str) -> dict[str, object]:
+    scope = str(audit_scope)
+    if scope.startswith("real_flight_required:heavy_balanced:inflight_boundary_decisions"):
+        return {
+            "timing_requirement_tier": "required_real_flight_candidate",
+            "timing_requirement_policy": "all_inflight_decisions_must_meet_100ms_for_heavy_and_balanced",
+            "hard_100ms_required_rate": 1.0,
+        }
+    if scope.startswith("real_flight_required:heavy_balanced"):
+        return {
+            "timing_requirement_tier": "required_real_flight_candidate_aggregate",
+            "timing_requirement_policy": "aggregate_includes_pre_release_report_inflight_scope_for_gate",
+            "hard_100ms_required_rate": "",
+        }
+    if scope.startswith("real_flight_optional_extended:light_super_light"):
+        return {
+            "timing_requirement_tier": "optional_extended_library_diagnostic",
+            "timing_requirement_policy": "limited_100ms_violations_allowed_report_rate_not_real_flight_gate",
+            "hard_100ms_required_rate": "",
+        }
+    if "no_cluster_no_merge" in scope:
+        return {
+            "timing_requirement_tier": "offline_unrestricted_comparison",
+            "timing_requirement_policy": "no_real_flight_timing_restriction",
+            "hard_100ms_required_rate": "",
+        }
+    if scope.startswith("pre_release_initial_decisions"):
+        return {
+            "timing_requirement_tier": "pre_release_preparation",
+            "timing_requirement_policy": "not_an_inflight_boundary_compute_gate",
+            "hard_100ms_required_rate": "",
+        }
+    if scope.startswith("library_size_case_id:heavy_cluster") or scope.startswith("library_size_case_id:balanced_cluster"):
+        return {
+            "timing_requirement_tier": "required_real_flight_candidate_case_diagnostic",
+            "timing_requirement_policy": "case_scope_includes_pre_release_report_required_inflight_scope_for_gate",
+            "hard_100ms_required_rate": "",
+        }
+    if scope.startswith("library_size_case_id:light_cluster") or scope.startswith("library_size_case_id:super_light_cluster"):
+        return {
+            "timing_requirement_tier": "optional_extended_library_diagnostic",
+            "timing_requirement_policy": "limited_100ms_violations_allowed_report_rate_not_real_flight_gate",
+            "hard_100ms_required_rate": "",
+        }
+    return {
+        "timing_requirement_tier": "aggregate_diagnostic",
+        "timing_requirement_policy": "reported_only_mixed_scope",
+        "hard_100ms_required_rate": "",
+    }
+
+
+def _real_time_requirement_passed(requirement: dict[str, object], hard_rate: float, count: int) -> object:
+    required = requirement.get("hard_100ms_required_rate", "")
+    if required == "":
+        return ""
+    if int(count) <= 0:
+        return False
+    return bool(float(hard_rate) >= float(required))
 
 
 def _sum_rows(rows: list[dict[str, object]], group_columns: list[str]) -> pd.DataFrame:
@@ -4222,7 +4633,13 @@ def _pass_fail_summary(
                     _mean_bool(claim_rows, "hard_failure"),
                     protocol.max_hard_failure_rate,
                 ),
-                _gate_row("floor_or_ceiling_violation_rate_zero", _mean_bool(claim_rows, "floor_or_ceiling_violation") == 0.0, _mean_bool(claim_rows, "floor_or_ceiling_violation"), 0.0),
+                _gate_row(
+                    "floor_or_ceiling_violation_rate_within_stage_profile",
+                    _mean_bool(claim_rows, "floor_or_ceiling_violation")
+                    <= float(protocol.max_floor_or_ceiling_violation_rate),
+                    _mean_bool(claim_rows, "floor_or_ceiling_violation"),
+                    protocol.max_floor_or_ceiling_violation_rate,
+                ),
                 _gate_row(
                     "no_viable_primitive_rate_within_stage_profile",
                     _mean_bool(claim_rows, "no_viable_primitive") <= float(protocol.max_no_viable_rate),
@@ -4715,13 +5132,18 @@ def _write_manifest(
         "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
         "outer_loop_memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION,
         "outer_loop_memory_policy": (
-            "candidate-specific path residual correction plus uncertainty-directed exploration over current, midpoint, "
-            "and expected exit probes; accepted only through a baseline shield with no final-launch special case"
+            "candidate-specific specific-energy-dominant residual correction plus uncertainty-directed exploration over "
+            "seven current-to-exit path probes; accepted only through a baseline shield with no final-launch special case"
         ),
         "candidate_path_memory_lookahead_s": float(CANDIDATE_PATH_MEMORY_LOOKAHEAD_S),
         "candidate_path_memory_residual_cap_m": float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
+        "candidate_path_memory_specific_energy_residual_cap_m": float(CANDIDATE_PATH_MEMORY_SPECIFIC_ENERGY_RESIDUAL_CAP_M),
+        "candidate_path_memory_utility_specific_energy_weight": float(CANDIDATE_PATH_MEMORY_UTILITY_SPECIFIC_ENERGY_WEIGHT),
+        "candidate_path_memory_utility_updraft_weight": float(CANDIDATE_PATH_MEMORY_UTILITY_UPDRAFT_WEIGHT),
+        "candidate_path_memory_probe_count": int(len(CANDIDATE_PATH_MEMORY_PROBES)),
         "candidate_path_memory_full_confidence_observations": float(CANDIDATE_PATH_MEMORY_FULL_CONFIDENCE_OBSERVATIONS),
         "residual_memory_launch_recency_half_life": float(RESIDUAL_MEMORY_LAUNCH_RECENCY_HALF_LIFE),
+        "memory_opportunity_audit": "metrics/memory_opportunity_summary.csv",
         "safe_exploration_policy": "always_available_for_memory_policies_after_viability_filter_and_baseline_shield_no_final_run_branch",
         "thesis_facing_workflow": THESIS_FACING_WORKFLOW,
         "governor_config_override_active": config.governor_config is not None,
@@ -4880,7 +5302,8 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Safety thresholds: hard failure <= `{protocol.max_hard_failure_rate}`, no-viable <= `{protocol.max_no_viable_rate}`, safe success >= `{protocol.min_safe_success_rate}`, full safe success >= `{protocol.min_full_safe_success_rate}`, terminal/lift >= `{protocol.min_terminal_or_lift_capture_rate}`.",
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
         "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, front-wall progress, front-wall terminal proxy, progress-gated terminal total specific-energy proxy, updraft gain, lift dwell, and residual memory.",
-        f"- Residual memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` applies capped, recency-weighted candidate-path residual memory and shielded uncertainty exploration after viability filtering.",
+        f"- Residual memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` applies capped, recency-weighted, specific-energy-dominant candidate-path residual memory over seven path probes plus shielded uncertainty exploration after viability filtering.",
+        "- Memory opportunity audit: `memory_opportunity_summary.csv` and `memory_opportunity_decision_log.csv` report baseline-vs-memory candidate gaps, correction deltas, shield status, and accepted/rejected switch reasons.",
         "- The adaptive selector uses one baseline shield at every launch; there is no branch that treats a held-out final launch as a known final mission.",
         "- Boundary-near is a route state, not automatic failure; hard_failure is the failure class.",
         f"- Launch score: `{LAUNCH_SCORE_VERSION}`; rewards front-wall terminal mission completion plus capped updraft/lift evidence and terminal total specific energy reserve. Airborne time and generic net/gross energy drift remain audit-only.",

@@ -85,8 +85,11 @@ def test_v53_stage_contract_is_r5_r7_r8_r10_r11_with_r6_archived_and_r9_internal
     assert R9_PROTOCOL.gate_profile == "internal_reduced_fixed_case_preflight_for_r10_initialisation"
     assert R10_PROTOCOL.validation_evidence_level == "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate"
     assert R10_PROTOCOL.gate_profile == "relaxed_changed_case_viability_governor_learning_not_final_validation"
+    assert R10_PROTOCOL.max_hard_failure_rate == pytest.approx(0.20)
+    assert R10_PROTOCOL.max_floor_or_ceiling_violation_rate == pytest.approx(0.20)
     assert R11_PROTOCOL.validation_evidence_level == "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation"
     assert R11_PROTOCOL.gate_profile == "strict_final_heldout_validation"
+    assert R11_PROTOCOL.max_floor_or_ceiling_violation_rate == pytest.approx(0.0)
     assert R11_PROTOCOL.min_full_safe_success_rate == pytest.approx(0.99)
 
 

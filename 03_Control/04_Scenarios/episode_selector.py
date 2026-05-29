@@ -3,10 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from context_conditioned_outcome import context_conditioned_outcome, lookup_outcome_for_identity
+from lqr_linearisation import LQR_LOCAL_OPERATING_SPEED_GRID_M_S, lqr_speed_bin_id
+from transition_labels import entry_classes_for_state_class
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, GOVERNOR_MODES, GovernorConfig, governor_candidate_row
 
 CandidateBeliefFeaturesFn = Callable[[dict[str, object], dict[str, object]], dict[str, object] | None]
-BASELINE_SHIELDED_MEMORY_POLICY_VERSION = "baseline_shielded_candidate_path_memory_safe_exploration_v1_4"
+BASELINE_SHIELDED_MEMORY_POLICY_VERSION = "baseline_shielded_candidate_path_memory_safe_exploration_v1_5"
+REAL_TIME_COMPATIBILITY_PREFILTER_VERSION = "transition_entry_and_speed_bin_shortlist_v2"
+SPEED_BIN_NEIGHBOUR_WINDOW = 0
 MEMORY_SWITCH_MIN_CONFIDENCE = 0.45
 MEMORY_SWITCH_MIN_SCORE_MARGIN = 0.005
 MEMORY_SWITCH_MAX_BASE_SCORE_DROP = 0.03
@@ -39,8 +43,9 @@ def select_compact_representative(
     if governor_mode not in GOVERNOR_MODES:
         raise ValueError("governor_mode must be continuation_mode or terminal_episode_mode.")
     cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
+    prefilter = _prefilter_representatives(representatives, context)
     candidate_rows = []
-    for representative in representatives:
+    for representative in prefilter["representatives"]:
         outcome = _outcome_for_representative(
             representative,
             outcome_rows_by_variant_id,
@@ -61,6 +66,8 @@ def select_compact_representative(
                 governor_config=cfg,
             )
         )
+    for row in candidate_rows:
+        row.update(_prefilter_audit_fields(prefilter))
     _add_rank_diagnostics(candidate_rows)
     viable = [row for row in candidate_rows if bool(row.get("viable", False))]
     if not viable:
@@ -243,6 +250,14 @@ def _mark_memory_shield_rows(
     confidence = _float(memory_selected.get("belief_candidate_path_confidence", 0.0))
     uncertainty = _float(memory_selected.get("belief_uncertainty", 1.0), default=1.0)
     exploration_component = _float(memory_selected.get("exploration_score_component", 0.0))
+    baseline_memory_component = _float(baseline_selected.get("memory_score_component", 0.0))
+    memory_candidate_memory_component = _float(memory_selected.get("memory_score_component", 0.0))
+    memory_correction_delta = memory_candidate_memory_component - baseline_memory_component
+    base_score_gap = _score(baseline_selected, "base_score_without_memory") - _score(
+        memory_selected,
+        "base_score_without_memory",
+    )
+    opportunity_ratio = memory_correction_delta / max(abs(base_score_gap), 1e-9)
     exploration_family_safe = _exploration_family_switch_allowed(
         baseline_selected=baseline_selected,
         memory_selected=memory_selected,
@@ -255,6 +270,9 @@ def _mark_memory_shield_rows(
         row["memory_shield_memory_variant_id"] = memory_variant_id
         row["memory_shield_selected_variant_id"] = memory_variant_id if accepted else baseline_variant_id
         row["memory_shield_score_margin"] = float(score_margin)
+        row["memory_shield_memory_correction_delta"] = float(memory_correction_delta)
+        row["memory_shield_base_score_gap_to_baseline"] = float(base_score_gap)
+        row["memory_shield_memory_opportunity_ratio"] = float(opportunity_ratio)
         row["memory_shield_base_score_delta"] = float(base_score_delta)
         row["memory_shield_transition_success_delta"] = float(transition_delta)
         row["memory_shield_hard_failure_risk_delta"] = float(hard_failure_delta)
@@ -266,6 +284,8 @@ def _mark_memory_shield_rows(
         row["memory_shield_candidate_path_confidence"] = float(confidence)
         row["memory_shield_candidate_path_uncertainty"] = float(uncertainty)
         row["memory_shield_exploration_score_component"] = float(exploration_component)
+        row["memory_shield_baseline_memory_score_component"] = float(baseline_memory_component)
+        row["memory_shield_memory_candidate_memory_score_component"] = float(memory_candidate_memory_component)
         row["memory_shield_exploration_cross_family_allowed"] = bool(exploration_family_safe)
         row["memory_shield_min_confidence"] = float(MEMORY_SWITCH_MIN_CONFIDENCE)
         row["memory_shield_min_score_margin"] = float(MEMORY_SWITCH_MIN_SCORE_MARGIN)
@@ -340,6 +360,152 @@ def _outcome_for_representative(
     )
 
 
+def _prefilter_representatives(
+    representatives: list[dict[str, object]],
+    context: dict[str, object],
+) -> dict[str, object]:
+    allowed_entry_classes = _allowed_entry_classes_for_context(context)
+    entry_filtered = [
+        representative
+        for representative in representatives
+        if _entry_class_allowed(representative, allowed_entry_classes)
+    ]
+    allowed_speed_bins = _allowed_speed_bins_for_context(context)
+    speed_filtered = [
+        representative
+        for representative in entry_filtered
+        if _speed_bin_allowed(representative, allowed_speed_bins)
+    ]
+    if allowed_speed_bins and entry_filtered and not speed_filtered:
+        nearest_speed_bins = _nearest_populated_speed_bins(entry_filtered, allowed_speed_bins)
+        selected = [
+            representative
+            for representative in entry_filtered
+            if _speed_bin_allowed(representative, nearest_speed_bins)
+        ]
+        status = "active_entry_class_nearest_populated_speed_bin_fallback"
+        allowed_speed_bins = nearest_speed_bins
+    else:
+        selected = speed_filtered if allowed_speed_bins else entry_filtered
+        status = "active_entry_class_and_speed_window" if allowed_speed_bins else "active_entry_class_only"
+    return {
+        "representatives": selected,
+        "total_candidate_count": int(len(representatives)),
+        "entry_filtered_candidate_count": int(len(entry_filtered)),
+        "evaluated_candidate_count": int(len(selected)),
+        "skipped_candidate_count": int(max(0, len(representatives) - len(selected))),
+        "allowed_entry_classes": ";".join(sorted(allowed_entry_classes)),
+        "allowed_speed_bins": ";".join(sorted(allowed_speed_bins)),
+        "status": status,
+    }
+
+
+def _allowed_entry_classes_for_context(context: dict[str, object]) -> set[str]:
+    state_class = str(context.get("current_state_class", context.get("transition_current_state_class", ""))).strip()
+    if not state_class:
+        state_class = str(context.get("route_required_entry_class", "")).strip()
+    if not state_class:
+        return set()
+    return set(entry_classes_for_state_class(state_class))
+
+
+def _entry_class_allowed(representative: dict[str, object], allowed_entry_classes: set[str]) -> bool:
+    if not allowed_entry_classes:
+        return True
+    entry_class = _representative_entry_class(representative)
+    return not entry_class or entry_class in allowed_entry_classes
+
+
+def _representative_entry_class(representative: dict[str, object]) -> str:
+    value = str(representative.get("transition_entry_class", "")).strip()
+    if value:
+        return value
+    pair = str(representative.get("transition_pair", "")).strip()
+    if "->" in pair:
+        return pair.split("->", 1)[0].strip()
+    return ""
+
+
+def _allowed_speed_bins_for_context(context: dict[str, object]) -> set[str]:
+    context_speed_bin = str(context.get("current_local_lqr_speed_bin_id", context.get("local_lqr_speed_bin_id", ""))).strip()
+    if not context_speed_bin:
+        speed = context.get("current_speed_m_s", context.get("flight_speed_m_s", context.get("speed_m_s", "")))
+        if str(speed).strip():
+            context_speed_bin = lqr_speed_bin_id(_float(speed))
+    if not context_speed_bin:
+        return set()
+    grid = [lqr_speed_bin_id(float(value)) for value in LQR_LOCAL_OPERATING_SPEED_GRID_M_S]
+    if context_speed_bin not in grid:
+        return {context_speed_bin}
+    index = grid.index(context_speed_bin)
+    lower = max(0, index - int(SPEED_BIN_NEIGHBOUR_WINDOW))
+    upper = min(len(grid), index + int(SPEED_BIN_NEIGHBOUR_WINDOW) + 1)
+    return set(grid[lower:upper])
+
+
+def _speed_bin_allowed(representative: dict[str, object], allowed_speed_bins: set[str]) -> bool:
+    if not allowed_speed_bins:
+        return True
+    candidate_speed_bin = _representative_speed_bin(representative)
+    return not candidate_speed_bin or candidate_speed_bin in allowed_speed_bins
+
+
+def _nearest_populated_speed_bins(
+    representatives: list[dict[str, object]],
+    allowed_speed_bins: set[str],
+) -> set[str]:
+    target_speeds = [_speed_from_bin_id(speed_bin) for speed_bin in allowed_speed_bins]
+    target_speeds = [speed for speed in target_speeds if speed is not None]
+    populated = sorted(
+        {
+            speed
+            for speed in (_speed_from_bin_id(_representative_speed_bin(representative)) for representative in representatives)
+            if speed is not None
+        }
+    )
+    if not populated or not target_speeds:
+        return set()
+    target = sum(target_speeds) / float(len(target_speeds))
+    nearest = min(populated, key=lambda speed: abs(float(speed) - float(target)))
+    return {lqr_speed_bin_id(float(nearest))}
+
+
+def _representative_speed_bin(representative: dict[str, object]) -> str:
+    value = str(representative.get("local_lqr_speed_bin_id", representative.get("variant_local_lqr_speed_bin_id", ""))).strip()
+    if value:
+        return value
+    speed = representative.get("local_lqr_reference_speed_m_s", representative.get("variant_local_lqr_reference_speed_m_s", ""))
+    if str(speed).strip():
+        return lqr_speed_bin_id(_float(speed))
+    return ""
+
+
+def _speed_from_bin_id(speed_bin_id: str) -> float | None:
+    text = str(speed_bin_id).strip()
+    prefix = "speed_bin_"
+    suffix = "_m_s"
+    if not text.startswith(prefix) or not text.endswith(suffix):
+        return None
+    value = text[len(prefix) : -len(suffix)].replace("p", ".")
+    try:
+        return _float(value)
+    except Exception:
+        return None
+
+
+def _prefilter_audit_fields(prefilter: dict[str, object]) -> dict[str, object]:
+    return {
+        "selector_prefilter_version": REAL_TIME_COMPATIBILITY_PREFILTER_VERSION,
+        "selector_prefilter_status": str(prefilter.get("status", "")),
+        "selector_total_candidate_count": int(prefilter.get("total_candidate_count", 0)),
+        "selector_entry_filtered_candidate_count": int(prefilter.get("entry_filtered_candidate_count", 0)),
+        "selector_evaluated_candidate_count": int(prefilter.get("evaluated_candidate_count", 0)),
+        "selector_skipped_candidate_count": int(prefilter.get("skipped_candidate_count", 0)),
+        "selector_allowed_entry_classes": str(prefilter.get("allowed_entry_classes", "")),
+        "selector_allowed_speed_bins": str(prefilter.get("allowed_speed_bins", "")),
+    }
+
+
 def selector_decision_row(
     *,
     episode_id: str,
@@ -376,6 +542,14 @@ def selector_decision_row(
         "governor_wall_margin_m": float(context.get("governor_wall_margin_m", context.get("wall_margin_m", 0.0))),
         "candidate_count": int(candidate_count),
         "viable_count": int(viable_count),
+        "selector_prefilter_version": "" if selected is None else str(selected.get("selector_prefilter_version", "")),
+        "selector_prefilter_status": "" if selected is None else str(selected.get("selector_prefilter_status", "")),
+        "selector_total_candidate_count": int(candidate_count) if selected is None else int(selected.get("selector_total_candidate_count", candidate_count)),
+        "selector_entry_filtered_candidate_count": int(candidate_count) if selected is None else int(selected.get("selector_entry_filtered_candidate_count", candidate_count)),
+        "selector_evaluated_candidate_count": int(candidate_count) if selected is None else int(selected.get("selector_evaluated_candidate_count", candidate_count)),
+        "selector_skipped_candidate_count": 0 if selected is None else int(selected.get("selector_skipped_candidate_count", 0)),
+        "selector_allowed_entry_classes": "" if selected is None else str(selected.get("selector_allowed_entry_classes", "")),
+        "selector_allowed_speed_bins": "" if selected is None else str(selected.get("selector_allowed_speed_bins", "")),
         "decision_status": "selected_compact_representative" if selected else "blocked_no_viable_representative",
         "selected_compact_library_id": "" if selected is None else str(selected.get("compact_library_id", "")),
         "selected_primitive_variant_id": "" if selected is None else str(selected.get("primitive_variant_id", "")),
@@ -389,8 +563,38 @@ def selector_decision_row(
         "selected_memory_shield_accepted": False if selected is None else bool(selected.get("memory_shield_accepted", False)),
         "selected_memory_shield_baseline_variant_id": "" if selected is None else str(selected.get("memory_shield_baseline_variant_id", "")),
         "selected_memory_shield_memory_variant_id": "" if selected is None else str(selected.get("memory_shield_memory_variant_id", "")),
+        "selected_memory_shield_score_margin": (
+            0.0 if selected is None else float(selected.get("memory_shield_score_margin", 0.0))
+        ),
+        "selected_memory_shield_memory_correction_delta": (
+            0.0 if selected is None else float(selected.get("memory_shield_memory_correction_delta", 0.0))
+        ),
+        "selected_memory_shield_base_score_gap_to_baseline": (
+            0.0 if selected is None else float(selected.get("memory_shield_base_score_gap_to_baseline", 0.0))
+        ),
+        "selected_memory_shield_memory_opportunity_ratio": (
+            0.0 if selected is None else float(selected.get("memory_shield_memory_opportunity_ratio", 0.0))
+        ),
+        "selected_memory_shield_base_score_delta": (
+            0.0 if selected is None else float(selected.get("memory_shield_base_score_delta", 0.0))
+        ),
+        "selected_memory_shield_transition_success_delta": (
+            0.0 if selected is None else float(selected.get("memory_shield_transition_success_delta", 0.0))
+        ),
+        "selected_memory_shield_hard_failure_risk_delta": (
+            0.0 if selected is None else float(selected.get("memory_shield_hard_failure_risk_delta", 0.0))
+        ),
         "selected_memory_shield_path_exit_margin_delta_m": (
             0.0 if selected is None else float(selected.get("memory_shield_path_exit_margin_delta_m", 0.0))
+        ),
+        "selected_memory_shield_candidate_path_confidence": (
+            0.0 if selected is None else float(selected.get("memory_shield_candidate_path_confidence", 0.0))
+        ),
+        "selected_memory_shield_candidate_path_uncertainty": (
+            1.0 if selected is None else float(selected.get("memory_shield_candidate_path_uncertainty", 1.0))
+        ),
+        "selected_memory_shield_exploration_score_component": (
+            0.0 if selected is None else float(selected.get("memory_shield_exploration_score_component", 0.0))
         ),
         "selected_memory_shield_exploration_cross_family_allowed": (
             False if selected is None else bool(selected.get("memory_shield_exploration_cross_family_allowed", False))

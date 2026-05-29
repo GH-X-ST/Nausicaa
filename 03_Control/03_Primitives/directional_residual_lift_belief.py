@@ -22,6 +22,7 @@ class DirectionalResidualObservation:
     lift_residual_m_s: float
     updraft_gain_residual_m: float
     dwell_residual_s: float
+    specific_energy_residual_m: float = 0.0
     observation_weight: float = 1.0
     history_launch_index: int = 0
 
@@ -37,6 +38,7 @@ class DirectionalResidualCell:
     updraft_gain_residual_mean_m: float
     dwell_residual_mean_s: float
     uncertainty: float
+    specific_energy_residual_mean_m: float = 0.0
     last_update_count: int = 0
     last_history_launch_index: int = 0
 
@@ -51,7 +53,7 @@ class DirectionalResidualLiftBelief:
     update_count: int = 0
     recency_decay: float = 0.97
     launch_recency_half_life: float = 4.0
-    belief_version: str = "directional_residual_lift_belief_v411"
+    belief_version: str = "directional_residual_lift_belief_v412_energy_residual"
 
 
 def initial_directional_residual_lift_belief(
@@ -91,6 +93,7 @@ def update_directional_residual_lift_belief(
             updraft_gain_residual_mean_m=float(observation.updraft_gain_residual_m),
             dwell_residual_mean_s=float(observation.dwell_residual_s),
             uncertainty=1.0 / math.sqrt(float(count)),
+            specific_energy_residual_mean_m=float(observation.specific_energy_residual_m),
             last_update_count=int(belief.update_count) + 1,
             last_history_launch_index=int(observation.history_launch_index),
         )
@@ -112,6 +115,11 @@ def update_directional_residual_lift_belief(
                 alpha,
             ),
             dwell_residual_mean_s=_blend(prior.dwell_residual_mean_s, observation.dwell_residual_s, alpha),
+            specific_energy_residual_mean_m=_blend(
+                prior.specific_energy_residual_mean_m,
+                observation.specific_energy_residual_m,
+                alpha,
+            ),
             uncertainty=1.0 / math.sqrt(float(count)),
             last_update_count=int(belief.update_count) + 1,
             last_history_launch_index=int(observation.history_launch_index),
@@ -143,6 +151,7 @@ def query_directional_residual_lift_features(
             "belief_local_updraft_gain_proxy_m": 0.0,
             "belief_local_updraft_gain_residual_m": 0.0,
             "belief_local_energy_residual_m": 0.0,
+            "belief_local_specific_energy_residual_m": 0.0,
             "belief_local_dwell_residual_s": 0.0,
             "belief_uncertainty": 1.0,
             "belief_observation_count": 0,
@@ -172,7 +181,8 @@ def query_directional_residual_lift_features(
         "belief_local_lift_residual_m_s": float(cell.lift_residual_mean_m_s),
         "belief_local_updraft_gain_proxy_m": max(float(cell.updraft_gain_residual_mean_m), 0.0),
         "belief_local_updraft_gain_residual_m": float(cell.updraft_gain_residual_mean_m),
-        "belief_local_energy_residual_m": float(cell.updraft_gain_residual_mean_m),
+        "belief_local_energy_residual_m": float(cell.specific_energy_residual_mean_m),
+        "belief_local_specific_energy_residual_m": float(cell.specific_energy_residual_mean_m),
         "belief_local_dwell_residual_s": float(cell.dwell_residual_mean_s),
         "belief_uncertainty": float(cell.uncertainty),
         "belief_observation_count": int(cell.observation_count),
@@ -225,6 +235,8 @@ def directional_residual_observation_from_rows(
         ),
         dwell_residual_s=float(observed_row.get("lift_dwell_time_s", 0.0))
         - float(expected_row.get("expected_lift_dwell_time_s", 0.0)),
+        specific_energy_residual_m=float(observed_row.get("energy_residual_m", 0.0))
+        - float(expected_row.get("expected_energy_residual_m", 0.0)),
     )
 
 
@@ -238,7 +250,7 @@ def belief_snapshot_row(belief: DirectionalResidualLiftBelief, label: str = "") 
     cell_rows = []
     for cell in belief.cells:
         row = asdict(cell)
-        row["energy_residual_mean_m"] = row["updraft_gain_residual_mean_m"]
+        row["energy_residual_mean_m"] = row["specific_energy_residual_mean_m"]
         cell_rows.append(row)
     payload["cells_json"] = json.dumps(cell_rows, separators=(",", ":"))
     payload.pop("cells")

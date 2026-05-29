@@ -106,6 +106,7 @@ R10_PROTOCOL = ValidationProtocol(
     requires_no_glider_latency_variation_audit=True,
     gate_profile="relaxed_changed_case_viability_governor_learning_not_final_validation",
     max_hard_failure_rate=0.20,
+    max_floor_or_ceiling_violation_rate=0.20,
     max_no_viable_rate=0.30,
     min_safe_success_rate=0.20,
     min_terminal_or_lift_capture_rate=0.30,

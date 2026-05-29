@@ -314,6 +314,7 @@ def _directional_observation_from_row(row: dict[str, object]) -> DirectionalResi
             )
         ),
         dwell_residual_s=_float(row.get("lift_dwell_time_s", 0.0)),
+        specific_energy_residual_m=_float(row.get("energy_residual_m", 0.0)),
     )
 
 

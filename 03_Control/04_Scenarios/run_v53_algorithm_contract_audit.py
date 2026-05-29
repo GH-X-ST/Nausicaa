@@ -236,7 +236,9 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r10_r11_arena_wide_fan_positions_nonoverlap_radius_0p5m", R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M == 0.5, R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M, "0.5 m radius; centers must be at least 1.0 m apart"))
     rows.append(_row("r9_is_internal_reduced_preflight", R9_PROTOCOL.validation_evidence_level == "internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence", R9_PROTOCOL.validation_evidence_level, "internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence"))
     rows.append(_row("r10_is_governor_learning_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level == "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level, "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate"))
+    rows.append(_row("r10_relaxed_failure_gate_allows_bounded_floor_ceiling_violations", R10_PROTOCOL.max_hard_failure_rate == 0.20 and R10_PROTOCOL.max_floor_or_ceiling_violation_rate == 0.20, {"hard_failure": R10_PROTOCOL.max_hard_failure_rate, "floor_or_ceiling": R10_PROTOCOL.max_floor_or_ceiling_violation_rate}, "R10 tuning gate allows bounded failures under full-domain randomisation"))
     rows.append(_row("r11_is_strict_heldout_validation", R11_PROTOCOL.validation_evidence_level == "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation", R11_PROTOCOL.validation_evidence_level, "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation"))
+    rows.append(_row("r11_strict_floor_ceiling_gate_zero", R11_PROTOCOL.max_floor_or_ceiling_violation_rate == 0.0, R11_PROTOCOL.max_floor_or_ceiling_violation_rate, 0.0))
     rows.append(_row("r11_gates_full_safe_success", R11_PROTOCOL.min_full_safe_success_rate == 0.99, R11_PROTOCOL.min_full_safe_success_rate, 0.99))
     rows.append(_row("r9_quick_preflight_policy_history_conditions", R9_POLICY_HISTORY_CONDITIONS == ("no_memory_baseline", "directional_3d_residual_memory_h3", "directional_3d_residual_memory_h10", "directional_3d_residual_memory_h30"), R9_POLICY_HISTORY_CONDITIONS, "no_memory_baseline + h3/h10/h30"))
     rows.append(_row("r9_expected_final_launches_quick_preflight", R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R9_POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION == 60, R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*3=60"))
@@ -767,6 +769,7 @@ def _docs_code_consistency_rows(repo_root: Path) -> list[dict[str, object]]:
         "r11_eight_block_fidelity_ladder": "R11 is held-out validation on an eight-block fidelity ladder",
         "plant_implementation_fixed_per_outer_case": "sampled once per outer case and held fixed",
         "outer_loop_realtime_scheduler_profile": "preferred 20 ms controller-slot budget and a hard 0.100 s primitive-boundary budget",
+        "memory_opportunity_audit": "memory_opportunity_summary.csv",
     }
     for check_id, fragment in combined_requirements.items():
         rows.append(_row(check_id, fragment in combined, fragment if fragment in combined else "missing", fragment))
@@ -785,13 +788,13 @@ def _legacy_alias_rows() -> list[dict[str, object]]:
     aliases = [
         {
             "legacy_alias": "expected_energy_residual_m",
-            "real_active_logic": "expected_updraft_gain_proxy_m is the governor soft reward; expected_energy_residual_m is net-energy audit compatibility only.",
-            "intentional_status": "legacy_alias_intentional_not_active_score",
+            "real_active_logic": "expected_updraft_gain_proxy_m remains the representative soft reward; expected_energy_residual_m is used for specific-energy residual-memory comparison and compatibility audit output.",
+            "intentional_status": "not_representative_score_active_for_memory_residual_audit",
         },
         {
             "legacy_alias": "belief_local_energy_residual_m",
-            "real_active_logic": "belief_local_updraft_gain_residual_m is the active memory residual; energy residual wording is a compatibility alias.",
-            "intentional_status": "legacy_alias_intentional_not_total_energy_memory",
+            "real_active_logic": "belief_local_specific_energy_residual_m and belief_candidate_path_memory_utility_m are the active total-specific-energy-dominant memory fields; updraft residual remains auxiliary.",
+            "intentional_status": "active_specific_energy_memory_with_compatibility_alias",
         },
         {
             "legacy_alias": "energy_weight / terminal_energy_weight",
