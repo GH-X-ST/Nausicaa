@@ -1,0 +1,9 @@
+case_id,candidate_index,candidate_weight_label,outcome_class,termination_cause,failure_label,rollout_duration_s,energy_residual_m,minimum_floor_margin_m,minimum_wall_margin_m,saturation_fraction,max_abs_command_norm
+same_start_glide,0,glide_robust_anchor_nominal_ref_nominal_000,weak,weak_energy_result,model_boundary_only,0.1,-0.06875524137570199,1.7312447586242983,0.8,0.6,1.0
+same_start_recovery,6,recovery_robust_anchor_balanced_robust_ref_left_bias_006,weak,weak_energy_result,model_boundary_only,0.1,-0.06875524137570199,1.7312447586242983,0.8,0.8,1.0
+same_start_lift_entry,6,lift_entry_robust_anchor_balanced_robust_ref_left_bias_006,weak,weak_energy_result,model_boundary_only,0.1,-0.06875524137570199,1.7312447586242983,0.8,0.8,1.0
+same_start_lift_dwell_arc,6,lift_dwell_arc_robust_anchor_balanced_robust_ref_left_bias_006,weak,weak_energy_result,model_boundary_only,0.1,-0.06875524137570199,1.7312447586242983,0.8,0.6,1.0
+same_start_mild_turn_left,7,mild_turn_left_robust_anchor_balanced_agile_ref_right_bias_007,weak,weak_energy_result,model_boundary_only,0.1,-0.06875524137570199,1.7312447586242983,0.8,0.8,1.0
+same_start_mild_turn_right,6,mild_turn_right_robust_anchor_balanced_robust_ref_left_bias_006,weak,weak_energy_result,model_boundary_only,0.1,-0.06875524137570199,1.7312447586242983,0.8,0.6,1.0
+same_start_energy_retaining_bank,0,energy_retaining_bank_robust_anchor_nominal_ref_nominal_000,weak,weak_energy_result,model_boundary_only,0.1,-0.06875524137570199,1.7312447586242983,0.8,0.6,1.0
+same_start_safe_exit_or_recovery_handoff,6,safe_exit_or_recovery_handoff_robust_anchor_balanced_robust_ref_left_bias_006,weak,weak_energy_result,model_boundary_only,0.1,-0.06875524137570199,1.7312447586242983,0.8,0.8,1.0

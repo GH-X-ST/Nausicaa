@@ -1,0 +1,56 @@
+check_id,observed,passed,required
+stage_order_r5_r7_r8_r9_r10_r11,"[""R5"", ""R7"", ""R8"", ""R9"", ""R10"", ""R11""]",True,"[""R5"", ""R7"", ""R8"", ""R9"", ""R10"", ""R11""]"
+r6_archived_only,"[""R6""]",True,"[""R6""]"
+active_primitive_catalogue_has_14_variants,14,True,14
+launch_capture_catalogue_has_6_stable_ids,"[""launch_capture_glide_stabilise"", ""launch_capture_lift_seek"", ""launch_capture_energy_build"", ""launch_capture_shallow_left"", ""launch_capture_shallow_right"", ""launch_capture_safe_handoff""]",True,six launch_capture_* primitives marked launch_capable
+r5_dense_target_dynamic_14x32x3x100,"{""candidate_count"": 32, ""paired_tests"": 100, ""row_count"": 134400}",True,14*32*3*100=134400
+r5_official_environment_cases_annular_gp_only,"[[""W0"", ""dry_air""], [""W1"", ""w1_annular_gp_randomised_single""], [""W1"", ""w1_annular_gp_randomised_four""]]",True,W0 dry plus W1 annular-GP single/four
+r5_active_fan_count_sequence_balanced_1_2_3_4,"[1, 2, 3, 4]",True,"[1, 2, 3, 4]"
+r5_schedule_has_no_cross_entry_role_start_family,"{""environment_case_counts"": {""W0|dry_air"": 44800, ""W1|w1_annular_gp_randomised_four"": 44800, ""W1|w1_annular_gp_randomised_single"": 44800}, ""family_counts"": {""inflight_boundary_near"": 9600, ""inflight_lift_region"": 21600, ""inflight_nominal"": 36000, ""inflight_recovery_edge"": 9600, ""launch_gate"": 57600}, ""mismatch_count"": 0, ""mismatch_examples"": [], ""primitive_count_range"": [9600, 9600], ""role_family_counts"": {""inflight_only|inflight_lift_region"": 21600, ""inflight_only|inflight_nominal"": 36000, ""launch_capable|launch_gate"": 57600, ""terminal_or_recovery|inflight_boundary_near"": 9600, ""terminal_or_recovery|inflight_recovery_edge"": 9600}, ""row_count"": 134400}",True,all scheduled rows role-compatible
+r5_role_separated_start_family_counts,"{""inflight_boundary_near"": 9600, ""inflight_lift_region"": 21600, ""inflight_nominal"": 36000, ""inflight_recovery_edge"": 9600, ""launch_gate"": 57600}",True,"{""inflight_boundary_near"": 9600, ""inflight_lift_region"": 21600, ""inflight_nominal"": 36000, ""inflight_recovery_edge"": 9600, ""launch_gate"": 57600}"
+r5_environment_case_counts_balanced,"{""W0|dry_air"": 44800, ""W1|w1_annular_gp_randomised_four"": 44800, ""W1|w1_annular_gp_randomised_single"": 44800}",True,44800 rows per W0/W1 environment case
+r7_uses_direct_r5_frozen_bundle_not_active_w2_gate,r5_frozen_bundle_direct,True,r5_frozen_bundle_direct
+r7_environment_cases_annular_gp_single_four,"[""w3_randomised_single"", ""w3_randomised_four""]",True,"[""w3_randomised_single"", ""w3_randomised_four""]"
+r7_active_fan_count_sequence_balanced_1_2_3_4,"[1, 2, 3, 4]",True,"[1, 2, 3, 4]"
+r7_row_scheduler_uses_variant_entry_role_for_start_family,role-aware W3 scheduler source,True,start_family_for_entry_role_index(entry_role=record.variant.entry_role)
+r8_library_cases_group_by_primitive_and_entry_role,active grouping source,True,"survived.groupby([""primitive_id"", ""entry_role""])"
+r8_selection_applies_hard_safety_filter_first,coverage selection source,True,_hard_safety_filtered_group before scoring
+r8_compressed_cases_use_coverage_medoid_policy,"{""balanced_cluster"": ""coverage_medoid_greedy_marginal_top_3_per_primitive_entry_role"", ""heavy_cluster"": ""coverage_medoid_best_worst_case_per_primitive_entry_role"", ""light_cluster"": ""coverage_medoid_greedy_marginal_top_6_per_primitive_entry_role"", ""no_cluster_no_merge"": ""all_w3_survivors_no_clustering_no_merging"", ""super_light_cluster"": ""coverage_medoid_greedy_marginal_top_12_per_primitive_entry_role""}",True,heavy/balanced/light/super_light use coverage_medoid; no_cluster keeps all W3 survivors
+r8_heavy_medoid_prefers_worst_case_coverage,synthetic coverage-medoid selection,True,select existing variant with stronger worst-case coverage
+r8_representative_score_uses_updraft_gain_not_net_energy,updraft-gain score check,True,net energy residual must not improve representative score
+five_library_size_cases,"[""heavy_cluster"", ""balanced_cluster"", ""light_cluster"", ""super_light_cluster"", ""no_cluster_no_merge""]",True,heavy/balanced/light/super_light/no_cluster
+r9_reduced_internal_preflight_blocks_exact,"[[""no_updraft"", ""W0"", ""dry_air"", 1], [""single_fan"", ""W2"", ""annular_gp_single"", 1], [""four_fan"", ""W2"", ""annular_gp_four"", 1]]",True,"1 no-updraft, 1 single-fan, 1 four-fan internal preflight cases"
+r10_r11_changed_case_blocks_exact,"[[""nominal_single_fan_perturbations"", ""W3"", ""w3_randomised_single"", 20], [""nominal_four_fan_perturbations"", ""W3"", ""w3_randomised_four"", 20], [""shifted_single_fan_positions"", ""W3"", ""w3_randomised_single"", 20], [""shifted_four_fan_positions"", ""W3"", ""w3_randomised_four"", 20], [""active_fan_number_variation"", ""W3"", ""w3_randomised_four"", 20], [""arena_wide_fan_position_generalisation"", ""W3"", ""w3_randomised_four"", 20]]",True,"six changed-case blocks, 20 each"
+r9_is_internal_reduced_preflight,internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence,True,internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence
+r10_is_governor_learning_not_final_claim_gate,changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate,True,changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate
+r11_is_strict_heldout_validation,strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation,True,strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation
+r11_gates_full_safe_success,0.99,True,0.99
+r9_expected_final_launches,210,True,library_cases*14*3
+r9_expected_history_launches,5550,True,library_cases*3*(185+185)
+r10_r11_expected_final_launches,8400,True,library_cases*14*120
+r10_r11_expected_history_launches,222000,True,library_cases*120*(185+185)
+fourteen_policy_history_conditions,14,True,14
+history_lengths_exact,"[0, 5, 10, 20, 50, 100]",True,"[0, 5, 10, 20, 50, 100]"
+empty_prior_baseline_name,empty_frozen_prior_baseline,True,empty_frozen_prior_baseline
+governor_wall_guard_0p10cm,0.001,True,0.001
+no_speed_rejection_reason,"[""entry_role_incompatible_start_family"", ""context_wall_margin_low"", ""context_vertical_safety_violation"", ""timing_payload_checksum_missing"", ""known_hard_failure_boundary_high"", ""missing_outcome_evidence_for_candidate"", ""continuation_probability_zero"", ""terminal_and_continuation_probability_zero"", ""primitive_not_in_compact_library"", ""unsupported_feedback_or_latency_case""]",True,no speed rejection reason
+active_governor_uses_updraft_gain_weight,v53_viability_filtered_safe_exploration_governor_wall_0p10cm,True,updraft_gain_weight fields
+legacy_energy_weight_maps_to_updraft_gain_weight,"{""terminal"": 0.34, ""updraft"": 0.12}",True,"{""terminal"": 0.34, ""updraft"": 0.12}"
+launch_score_has_no_speed_energy_loss_or_wall_margin_factor,"[""base_failure_penalty"", ""base_failure_penalty_reason"", ""episode_flight_time_s"", ""flight_time_factor"", ""launch_score"", ""launch_score_multiplicative_component"", ""launch_score_version"", ""outcome_multiplier"", ""safety_multiplier"", ""updraft_gain_factor"", ""viability_multiplier""]",True,"[""energy_loss_factor"", ""net_energy_factor"", ""speed_factor"", ""speed_margin_factor"", ""wall_margin_factor""]"
+history_launches_not_outer_loop_scored,history_launch_memory_update_not_outer_loop_score,True,history_launch_memory_update_not_outer_loop_score
+final_heldout_launches_are_outer_loop_scored,final_heldout_outer_loop_score,True,final_heldout_outer_loop_score
+launch_score_version_mentions_r9_r10_r11,r9_r10_r11_updraft_gain_multiplicative_launch_score_v3,True,r9_r10_r11
+outer_loop_final_launches_controlled_paired,"{""belief_reinitialised"": true, ""history_scoped"": true, ""pairing_passed"": true, ""pairing_row_count"": 3}",True,"same final launch key, start seed, and environment seed across policies/library cases"
+outer_loop_history_memory_scoped_to_same_final_case,"{""belief_reinitialised"": true, ""history_scoped"": true, ""pairing_passed"": true, ""pairing_row_count"": 3}",True,history rows keep library/policy/common final key and use shifted seeds
+outer_loop_belief_reinitialised_per_final_row,"{""belief_reinitialised"": true, ""history_scoped"": true, ""pairing_passed"": true, ""pairing_row_count"": 3}",True,fresh belief per final schedule row
+first_primitive_is_launch_capable_route,"{""launch_sequence_phase"": ""first_0p10s_launch_capture"", ""route_reason"": ""first_0p10s_launch_window"", ""route_required_entry_role"": ""launch_capable"", ""start_state_family"": ""launch_gate""}",True,launch_capable
+later_nominal_route_is_inflight_only,"{""launch_sequence_phase"": ""post_launch_inflight"", ""route_reason"": ""state_unavailable_default_nominal_continuation"", ""route_required_entry_role"": ""inflight_only"", ""start_state_family"": ""inflight_nominal""}",True,inflight_only
+r10_nominal_fan_positions_fixed,fixed_base_positions,True,fixed_base_positions
+r10_four_fan_non_active_block_fixed_to_4,4,True,4
+r10_active_fan_variation_policy,balanced_1_2_3_4_for_active_fan_number_variation,True,balanced_1_2_3_4_for_active_fan_number_variation
+r10_arena_wide_varies_fan_positions_and_active_count,"{""active_count"": ""balanced_1_2_3_4_with_arena_wide_fan_position_generalisation"", ""fan_position"": ""independent_uniform_xy_bounds""}",True,independent positions plus balanced 1/2/3/4 active fan count
+r11_nominal_fan_positions_fixed,fixed_base_positions,True,fixed_base_positions
+r11_four_fan_non_active_block_fixed_to_4,4,True,4
+r11_active_fan_variation_policy,balanced_1_2_3_4_for_active_fan_number_variation,True,balanced_1_2_3_4_for_active_fan_number_variation
+r11_arena_wide_varies_fan_positions_and_active_count,"{""active_count"": ""balanced_1_2_3_4_with_arena_wide_fan_position_generalisation"", ""fan_position"": ""independent_uniform_xy_bounds""}",True,independent positions plus balanced 1/2/3/4 active fan count
+changed_case_active_fan_count_sequence,"[1, 2, 3, 4]",True,"[1, 2, 3, 4]"

@@ -1,0 +1,61 @@
+{
+  "status": "complete",
+  "run_root": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\lqr_contextual_v1_0\\lqr_controller_trajectory_audit\\turn_sign_same_launch_001",
+  "initial_state": {
+    "x_w": 1.3,
+    "y_w": 2.2,
+    "z_w": 1.75,
+    "psi_deg": 0.0,
+    "speed_m_s": 5.5
+  },
+  "summary": [
+    {
+      "primitive_id": "glide",
+      "duration_s": 0.8,
+      "x_delta_m": 4.442744023368601,
+      "y_delta_m": -0.005501938988108801,
+      "z_delta_m": -0.44428980703588294,
+      "yaw_delta_deg": -0.5916841174517349,
+      "roll_final_deg": -1.0974968158751135,
+      "pitch_final_deg": 0.8243907614811685,
+      "speed_final_m_s": 5.6452770672371395,
+      "minimum_wall_margin_m": 0.20991640880688278,
+      "minimum_floor_margin_m": 0.905710192964117,
+      "max_abs_aileron_norm": 0.07510010264850465,
+      "max_abs_elevator_norm": 0.3418317818103716,
+      "max_abs_rudder_norm": 0.06199718327489924
+    },
+    {
+      "primitive_id": "mild_turn_left",
+      "duration_s": 0.8,
+      "x_delta_m": 4.398065586819166,
+      "y_delta_m": -0.2446506810452358,
+      "z_delta_m": -0.4277637098312541,
+      "yaw_delta_deg": -6.669248207144009,
+      "roll_final_deg": -9.388802791523805,
+      "pitch_final_deg": -0.7001712294687719,
+      "speed_final_m_s": 5.623117198228138,
+      "minimum_wall_margin_m": 0.20991640880688278,
+      "minimum_floor_margin_m": 0.9222362901687459,
+      "max_abs_aileron_norm": 1.0,
+      "max_abs_elevator_norm": 0.3712818767154457,
+      "max_abs_rudder_norm": 1.0
+    },
+    {
+      "primitive_id": "mild_turn_right",
+      "duration_s": 0.8,
+      "x_delta_m": 4.398571888680408,
+      "y_delta_m": 0.20518877198838537,
+      "z_delta_m": -0.4157777497110551,
+      "yaw_delta_deg": 4.500470947262718,
+      "roll_final_deg": 8.08801585985893,
+      "pitch_final_deg": -0.07156890637038918,
+      "speed_final_m_s": 5.598893235052446,
+      "minimum_wall_margin_m": 0.20991640880688278,
+      "minimum_floor_margin_m": 0.9342222502889449,
+      "max_abs_aileron_norm": 1.0,
+      "max_abs_elevator_norm": 0.23684241943095363,
+      "max_abs_rudder_norm": 0.8769842040642223
+    }
+  ]
+}
