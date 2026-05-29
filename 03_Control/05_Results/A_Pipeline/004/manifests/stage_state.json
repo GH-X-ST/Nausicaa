@@ -1,0 +1,103 @@
+{
+  "blocked_reason": "",
+  "docs_alignment_baseline": {
+    "docs/Daily_Schedule.txt": {
+      "byte_count": 28473,
+      "modified_time_utc": "2026-05-28T10:39:24.733808+00:00",
+      "path": "docs/Daily_Schedule.txt",
+      "readable": true,
+      "sha256": "89910171973d78b584df24c2c5e70f72cdecd1390df6342f073e0c4775152d05"
+    },
+    "docs/Glider_Control_Project_Plan.md": {
+      "byte_count": 76752,
+      "modified_time_utc": "2026-05-28T10:39:24.864911+00:00",
+      "path": "docs/Glider_Control_Project_Plan.md",
+      "readable": true,
+      "sha256": "7ef20744866fe2f684132d715ef0ef09777bb0473b4ea52b9daced63f15cf2d5"
+    },
+    "docs/MATLAB Coding.txt": {
+      "byte_count": 8639,
+      "modified_time_utc": "2026-05-28T10:38:14.018369+00:00",
+      "path": "docs/MATLAB Coding.txt",
+      "readable": true,
+      "sha256": "3ffe533f8862ccc0a3c5f9c813f48f238407ab4602eaa6cec052d375d9e9b57d"
+    },
+    "docs/PR.txt": {
+      "byte_count": 10866,
+      "modified_time_utc": "2026-05-28T10:37:30.506336+00:00",
+      "path": "docs/PR.txt",
+      "readable": true,
+      "sha256": "a6a41d786408cf2abe12085356b17bcef07bc090391284a7d0b0b4feaf2b6c59"
+    },
+    "docs/Python Coding Instruction.txt": {
+      "byte_count": 17057,
+      "modified_time_utc": "2026-05-28T10:38:13.600427+00:00",
+      "path": "docs/Python Coding Instruction.txt",
+      "readable": true,
+      "sha256": "046a4213433f911ec3fa1b2ae7274298afcc51339f45a76a42f8611ecb4c1931"
+    },
+    "docs/Python Coding to CODEX.txt": {
+      "byte_count": 11423,
+      "modified_time_utc": "2026-05-28T10:38:13.835766+00:00",
+      "path": "docs/Python Coding to CODEX.txt",
+      "readable": true,
+      "sha256": "55ef9d5f17d6411372b8b49b46078c1be4a7818ffe54ade9da96c2de750c8eca"
+    },
+    "docs/Skills.md": {
+      "byte_count": 18671,
+      "modified_time_utc": "2026-05-28T10:38:14.167897+00:00",
+      "path": "docs/Skills.md",
+      "readable": true,
+      "sha256": "60f555dab53edd769c0c0440f7b9b24d86e8a13473b10e295080e0bc683cb5f1"
+    },
+    "docs/housekeeping_and_naming_rules.md": {
+      "byte_count": 13189,
+      "modified_time_utc": "2026-05-28T10:38:13.408928+00:00",
+      "path": "docs/housekeeping_and_naming_rules.md",
+      "readable": true,
+      "sha256": "307c7ba662fe11ca0cd9d8466c3800f71b7719eb9293d32f14854bb2589e5c88"
+    }
+  },
+  "docs_changed_during_run": false,
+  "pipeline_version": "v55_r5_r7_r11_pipeline_r6_archived_with_repeated_docs_guard",
+  "run_id": 4,
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/r5_r11_pipeline/004",
+  "stages": {
+    "R5": {
+      "r5_transition_selected_for_r7": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904/metrics/r5_transition_selected_for_r7.csv",
+      "r5_transition_training_manifest": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904/manifests/r5_transition_training_manifest.json",
+      "run_manifest": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904/manifests/run_manifest.json",
+      "run_root": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904",
+      "status": "complete",
+      "table_manifest": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904/manifests/table_manifest.json",
+      "variant_registry_csv": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904/metrics/primitive_variant_registry.csv",
+      "variant_registry_json": "03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904/manifests/primitive_variant_registry.json"
+    },
+    "R7": {
+      "analysis_status": "w3_survivors_available",
+      "manifest": "03_Control/05_Results/lqr_contextual_v1_0/w3_survival/020/manifests/w3_survival_manifest.json",
+      "run_root": "03_Control/05_Results/lqr_contextual_v1_0/w3_survival/020",
+      "status": "complete",
+      "survivor_count": 1595,
+      "survivor_registry": "03_Control/05_Results/lqr_contextual_v1_0/w3_survival/020/manifests/w3_survivor_registry.json"
+    },
+    "R8": {
+      "library_size_case_ids": [
+        "heavy_cluster",
+        "balanced_cluster",
+        "light_cluster",
+        "super_light_cluster",
+        "no_cluster_no_merge"
+      ],
+      "manifest": "03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/1000/manifests/post_w3_library_size_study_manifest.json",
+      "outcome_model_table": "03_Control/05_Results/lqr_contextual_v1_0/outcome_model/006/metrics/outcome_model_table.csv",
+      "outcome_run_root": "03_Control/05_Results/lqr_contextual_v1_0/outcome_model/006",
+      "outcome_status": "complete",
+      "representative_count": 2230,
+      "run_root": "03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/1000",
+      "status": "complete"
+    }
+  },
+  "status": "complete",
+  "updated_utc": "2026-05-28T11:00:52.856059+00:00"
+}

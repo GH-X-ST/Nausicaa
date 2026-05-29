@@ -1,0 +1,120 @@
+{
+  "R7_R8_R10_R11_deliberately_not_run_when_stop_after_stage_R5": false,
+  "active_primitive_count": 8,
+  "archived_stages": [
+    "R6"
+  ],
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "full_autonomy",
+    "memory_improvement"
+  ],
+  "blocked_reason": "",
+  "config": {
+    "allow_stage_smoke": false,
+    "candidate_chunk_size": 800,
+    "compression_level": 1,
+    "continue_on_stage_failure": false,
+    "dry_run_schedule": false,
+    "max_workers": 8,
+    "output_root": "03_Control/05_Results/lqr_contextual_v1_0/r5_r11_pipeline",
+    "r10_mode": "full",
+    "repair_incomplete": true,
+    "resume": false,
+    "run_id": 5,
+    "start_stage": "R5",
+    "stop_after_stage": "R11",
+    "storage_format": "auto",
+    "workers": "8"
+  },
+  "docs_alignment_baseline": {
+    "docs/Daily_Schedule.txt": {
+      "byte_count": 31736,
+      "modified_time_utc": "2026-05-28T14:00:08.643128+00:00",
+      "path": "docs/Daily_Schedule.txt",
+      "readable": true,
+      "sha256": "9a8acced3c6d058e2b71a6553db1406d394018b89b1a89094184497a73514631"
+    },
+    "docs/Glider_Control_Project_Plan.md": {
+      "byte_count": 80520,
+      "modified_time_utc": "2026-05-28T13:59:58.087168+00:00",
+      "path": "docs/Glider_Control_Project_Plan.md",
+      "readable": true,
+      "sha256": "db4b1d9e501cedd54cf9e4de4359b2c946cac1d6e7aec0359d03ddafbbe03452"
+    },
+    "docs/MATLAB Coding.txt": {
+      "byte_count": 11568,
+      "modified_time_utc": "2026-05-28T14:06:14.251748+00:00",
+      "path": "docs/MATLAB Coding.txt",
+      "readable": true,
+      "sha256": "ec9ff661ec8c5bca6761e96b6d3eab19c4d195bb7512d6b8c085754d713bd1df"
+    },
+    "docs/PR.txt": {
+      "byte_count": 14739,
+      "modified_time_utc": "2026-05-28T14:00:26.930702+00:00",
+      "path": "docs/PR.txt",
+      "readable": true,
+      "sha256": "30085cedfc0eda2178e90416263079fdfd71150aae438c1417512a65a6570f70"
+    },
+    "docs/Python Coding Instruction.txt": {
+      "byte_count": 19941,
+      "modified_time_utc": "2026-05-28T14:06:14.263740+00:00",
+      "path": "docs/Python Coding Instruction.txt",
+      "readable": true,
+      "sha256": "a42cdad64e05cce0a501a323e2dc6b0d3d606daf3ea314e8eb352b7a938ea371"
+    },
+    "docs/Python Coding to CODEX.txt": {
+      "byte_count": 14302,
+      "modified_time_utc": "2026-05-28T14:06:14.267740+00:00",
+      "path": "docs/Python Coding to CODEX.txt",
+      "readable": true,
+      "sha256": "0bb32930bda2715bf16b9973a59f1f545610d0e442518063f22fea2882f714d2"
+    },
+    "docs/Skills.md": {
+      "byte_count": 22205,
+      "modified_time_utc": "2026-05-28T14:06:14.279740+00:00",
+      "path": "docs/Skills.md",
+      "readable": true,
+      "sha256": "b52da8bd1e8ea93eb3594ac4c68a60018839cc3d016c42cc4538b309db90b060"
+    },
+    "docs/housekeeping_and_naming_rules.md": {
+      "byte_count": 16130,
+      "modified_time_utc": "2026-05-28T14:06:14.233227+00:00",
+      "path": "docs/housekeeping_and_naming_rules.md",
+      "readable": true,
+      "sha256": "5dabb37372383a71859c3dc052d33e3f64814a67d10ad72e1fa130a40b827f47"
+    }
+  },
+  "docs_changed_during_run": false,
+  "execution_scope": "R5_R7_R8_R10_R11_chain",
+  "full_run_policy": "R5_then_R7_R8_R10_R11_only_after_previous_stage_passes_R6_archived_diagnostic_only_R9_internal_preflight_only",
+  "pipeline_version": "v55_r5_r7_r11_pipeline_r6_archived_with_repeated_docs_guard",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v5.20",
+  "r5_expected_dense_rows": 76800,
+  "r5_only_scope": false,
+  "r8_thesis_role": "post_R7_library_compression_and_library_size_cross_study",
+  "r9_thesis_role": "internal_preflight_excluded_from_thesis_workflow_narrative",
+  "retired_launch_capture_primitive_ids_active": false,
+  "run_id": 5,
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/r5_r11_pipeline/005",
+  "stage_order": [
+    "R5",
+    "R7",
+    "R8",
+    "R10",
+    "R11"
+  ],
+  "stage_role_map": {
+    "R10": "viability_governor_changed_case_tuning",
+    "R11": "viability_governor_strict_heldout_validation",
+    "R5": "primitive_learning_dense_synthesis",
+    "R6": "archived_diagnostic_only",
+    "R7": "primitive_validation_frozen_w3_holdout",
+    "R8": "post_w3_clustering_and_library_size_study",
+    "R9": "internal_preflight_ablation_only_not_active_pipeline_gate"
+  },
+  "status": "running",
+  "thesis_facing_workflow": "R5 -> R7 -> R8 -> R10 -> R11 -> Reality"
+}

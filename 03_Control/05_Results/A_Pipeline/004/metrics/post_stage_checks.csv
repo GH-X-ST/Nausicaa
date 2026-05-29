@@ -1,0 +1,48 @@
+timestamp_utc,stage_id,check_id,passed,observed,required
+2026-05-28T09:22:40.976530+00:00,R5,stage_status_not_diagnostic,True,complete,complete
+2026-05-28T09:22:40.976530+00:00,R5,method_evidence_level_w01_dense,True,w01_dense_evidence_complete,w01_dense_evidence_complete
+2026-05-28T09:22:40.976530+00:00,R5,w01_dense_evidence_complete_true,True,True,True
+2026-05-28T09:22:40.976530+00:00,R5,actual_row_count_active_dense_target,True,76800,76800
+2026-05-28T09:22:40.976530+00:00,R5,candidate_count_32,True,32,32
+2026-05-28T09:22:40.976530+00:00,R5,paired_tests_per_candidate_100,True,100,100
+2026-05-28T09:22:40.976530+00:00,R5,active_primitive_count_8,True,8,8
+2026-05-28T09:22:40.976530+00:00,R5,retired_launch_capture_not_active,True,False,False
+2026-05-28T09:22:40.976530+00:00,R5,r5_launch_aware_decision_passed_for_review,True,R5_TRANSITION_AWARE_DENSE_PASSED_FOR_REVIEW,R5_TRANSITION_AWARE_DENSE_PASSED_FOR_REVIEW
+2026-05-28T09:22:41.011831+00:00,R5,launch_gate_candidate_availability_audit,True,audit,passed
+2026-05-28T09:22:41.011831+00:00,R5,w3_replay_only,True,True,True
+2026-05-28T09:22:41.011831+00:00,R5,w2_not_required_for_move_on,True,False,False
+2026-05-28T09:22:41.011831+00:00,R5,r6_archived_diagnostic_only,True,True,True
+2026-05-28T09:22:41.011831+00:00,R5,no_clustering_before_w3,True,True,True
+2026-05-28T09:22:41.011831+00:00,R5,selected_worker_count_8,True,8,8
+2026-05-28T09:22:41.011831+00:00,R5,frozen_bundle_exists,True,03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904/manifests/frozen_w01_controller_bundle.json,exists
+2026-05-28T09:22:41.012838+00:00,R5,table_manifest_exists,True,03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904/manifests/table_manifest.json,exists
+2026-05-28T09:22:41.060398+00:00,R5,no_generated_file_above_100mb,True,73.96,<=100.0
+2026-05-28T09:57:26.505117+00:00,R7,w3_replay_complete,True,complete,complete
+2026-05-28T09:57:26.505117+00:00,R7,w3_analysis_survivors_available,False,blocked_no_launch_gate_entry_w3_survivors,w3_survivors_available
+2026-05-28T09:57:26.505117+00:00,R7,method_evidence_level_w3_dense,True,w3_dense_survival_pass,w3_dense_survival_pass
+2026-05-28T09:57:26.505117+00:00,R7,fixed_lqr_replay_only,True,True,True
+2026-05-28T09:57:26.505117+00:00,R7,source_input_kind_r5,True,r5_frozen_bundle_direct,r5_frozen_bundle_direct
+2026-05-28T09:57:26.505117+00:00,R7,no_w3_retuning,True,False,False
+2026-05-28T09:57:26.505117+00:00,R7,not_fixture_evidence,True,False,False
+2026-05-28T09:57:26.505117+00:00,R7,w3_survivor_count_positive,True,527,>0
+2026-05-28T09:57:26.505117+00:00,R7,w3_launch_gate_entry_survivor_count_positive,False,0,>0
+2026-05-28T09:57:26.505117+00:00,R7,w3_all_active_families_have_launch_gate_entry_survivors,False,[],"[""glide"", ""recovery"", ""lift_entry"", ""lift_dwell_arc"", ""mild_turn_left"", ""mild_turn_right"", ""energy_retaining_bank"", ""safe_exit_or_recovery_handoff""]"
+2026-05-28T09:57:26.530116+00:00,R7,no_generated_file_above_100mb,True,5.009,<=100.0
+2026-05-28T10:36:07.673926+00:00,R7,w3_replay_complete,True,complete,complete
+2026-05-28T10:36:07.673926+00:00,R7,w3_analysis_survivors_available,True,w3_survivors_available,w3_survivors_available
+2026-05-28T10:36:07.673926+00:00,R7,method_evidence_level_w3_dense,True,w3_dense_survival_pass,w3_dense_survival_pass
+2026-05-28T10:36:07.673926+00:00,R7,fixed_lqr_replay_only,True,True,True
+2026-05-28T10:36:07.673926+00:00,R7,source_input_kind_r5,True,r5_frozen_bundle_direct,r5_frozen_bundle_direct
+2026-05-28T10:36:07.673926+00:00,R7,no_w3_retuning,True,False,False
+2026-05-28T10:36:07.673926+00:00,R7,not_fixture_evidence,True,False,False
+2026-05-28T10:36:07.673926+00:00,R7,w3_survivor_count_positive,True,1595,>0
+2026-05-28T10:36:07.673926+00:00,R7,w3_launch_gate_entry_survivor_count_positive,True,528,>0
+2026-05-28T10:36:07.673926+00:00,R7,w3_all_active_families_have_launch_gate_entry_survivors,True,"[""energy_retaining_bank"", ""glide"", ""lift_dwell_arc"", ""lift_entry"", ""mild_turn_left"", ""mild_turn_right"", ""recovery"", ""safe_exit_or_recovery_handoff""]","[""glide"", ""recovery"", ""lift_entry"", ""lift_dwell_arc"", ""mild_turn_left"", ""mild_turn_right"", ""energy_retaining_bank"", ""safe_exit_or_recovery_handoff""]"
+2026-05-28T10:36:07.711690+00:00,R7,no_generated_file_above_100mb,True,10.011,<=100.0
+2026-05-28T11:00:52.790368+00:00,R8,post_w3_study_complete,True,complete,complete
+2026-05-28T11:00:52.790368+00:00,R8,outcome_model_complete,True,complete,complete
+2026-05-28T11:00:52.791366+00:00,R8,all_active_library_size_cases_present,True,"[""balanced_cluster"", ""heavy_cluster"", ""light_cluster"", ""no_cluster_no_merge"", ""super_light_cluster""]","[""balanced_cluster"", ""heavy_cluster"", ""light_cluster"", ""no_cluster_no_merge"", ""super_light_cluster""]"
+2026-05-28T11:00:52.791366+00:00,R8,outcome_all_active_library_size_cases_present,True,"[""balanced_cluster"", ""heavy_cluster"", ""light_cluster"", ""no_cluster_no_merge"", ""super_light_cluster""]","[""heavy_cluster"", ""balanced_cluster"", ""light_cluster"", ""super_light_cluster"", ""no_cluster_no_merge""]"
+2026-05-28T11:00:52.803500+00:00,R8,launch_gate_candidate_availability_audit,True,audit,passed
+2026-05-28T11:00:52.809401+00:00,R8,no_generated_file_above_100mb,True,11.17,<=100.0
+2026-05-28T11:00:52.811406+00:00,R8,no_generated_file_above_100mb,True,2.214,<=100.0

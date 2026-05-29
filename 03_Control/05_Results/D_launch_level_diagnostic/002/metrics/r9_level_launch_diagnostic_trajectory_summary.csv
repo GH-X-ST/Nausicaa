@@ -1,0 +1,4 @@
+environment_block_id,safe_success,full_safe_success,hard_failure,terminal_useful,termination_cause,selected_primitive_step_count,episode_rollout_duration_s,start_x_m,start_y_m,start_z_m,end_x_m,end_y_m,end_z_m,min_logged_z_m,max_logged_z_m
+four_fan,True,False,False,True,wall_boundary_exit_retained,12,1.16,1.3,2.0,1.7,6.677374555818523,3.0356959314221847,2.0284202471202932,1.7,2.116966100787384
+no_updraft,True,False,False,True,wall_boundary_exit_retained,10,1.0,1.3,2.0,1.7,6.612297614512175,2.233731221590355,1.3738722339625853,1.3738722339625853,1.7179706318029828
+single_fan,True,False,False,True,wall_boundary_exit_retained,11,1.0799999999999998,1.3,2.0,1.7,6.682144082593934,2.0459990452384846,1.7564792007317744,1.6876339954804604,1.987288113330081
