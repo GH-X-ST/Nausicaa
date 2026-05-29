@@ -221,6 +221,11 @@ R10_NO_UPDRAFT_BLOCK_IDS = (
     NO_UPDRAFT_CHANGED_CASE_BLOCK_ID,
     R11_L0_DRY_AIR_FIXED_BLOCK_ID,
 )
+DRY_AIR_ENERGY_DEPLETION_BLOCK_IDS = (
+    "no_updraft",
+    NO_UPDRAFT_CHANGED_CASE_BLOCK_ID,
+    R11_L0_DRY_AIR_FIXED_BLOCK_ID,
+)
 R10_ARENA_WIDE_FAN_POSITION_BLOCK_IDS = (
     R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
@@ -246,6 +251,8 @@ RECOVERY_EDGE_MAX_BODY_RATE_RAD_S = 0.65
 LAUNCH_SCORE_VERSION = "r10_r11_updraft_gain_multiplicative_launch_score_v4"
 SPECIFIC_ENERGY_GRAVITY_M_S2 = 9.80665
 SCORING_TARGET_EPISODE_TIME_S = 1.5
+LOW_LAUNCH_SPEED_DRY_AIR_THRESHOLD_M_S = 5.0
+DRY_AIR_ENERGY_DEPLETION_MIN_FLIGHT_TIME_S = 0.5
 PHYSICAL_HARD_FAILURE_LABELS = {
     "floor_violation",
     "ceiling_violation",
@@ -2280,8 +2287,8 @@ def _episode_row_from_sequence(
     belief_after: DirectionalResidualLiftBelief,
     blocked_reason: str = "",
 ) -> dict[str, object]:
-    hard_failure = any(_rollout_row_is_hard_failure(row) for row in primitive_rows)
-    floor_or_ceiling = any(_rollout_row_is_floor_or_ceiling_violation(row) for row in primitive_rows)
+    physical_hard_failure = any(_rollout_row_is_hard_failure(row) for row in primitive_rows)
+    physical_floor_or_ceiling = any(_rollout_row_is_floor_or_ceiling_violation(row) for row in primitive_rows)
     terminal_useful = any(_truthy(row.get("episode_terminal_useful", False)) for row in primitive_rows)
     terminal_useful_safe_exit_only = any(_rollout_row_is_terminal_safe_exit_only(row) for row in primitive_rows)
     lift_capture = any(_float_value(row.get("lift_dwell_time_s", 0.0)) > 0.0 for row in primitive_rows)
@@ -2302,6 +2309,19 @@ def _episode_row_from_sequence(
         or str(blocked_reason) == "episode_time_budget_reached"
     )
     episode_duration_s = _episode_rollout_duration_s(primitive_rows)
+    initial_launch_speed_m_s = _initial_launch_speed_m_s(primitive_rows)
+    expected_low_energy_sink = _expected_low_energy_dry_air_sink(
+        scheduled=scheduled,
+        primitive_rows=primitive_rows,
+        physical_floor_or_ceiling=physical_floor_or_ceiling,
+        no_viable=no_viable,
+        terminal_useful=terminal_useful,
+        lift_capture=lift_capture,
+        episode_duration_s=episode_duration_s,
+        initial_launch_speed_m_s=initial_launch_speed_m_s,
+    )
+    hard_failure = bool(physical_hard_failure and not expected_low_energy_sink)
+    floor_or_ceiling = bool(physical_floor_or_ceiling and not expected_low_energy_sink)
     safe_success = bool(sequence_compliant and last_continuation_or_terminal and not hard_failure and not floor_or_ceiling and not no_viable)
     row = {
         **_schedule_identity_row(scheduled),
@@ -2322,6 +2342,17 @@ def _episode_row_from_sequence(
         "termination_cause": str(blocked_reason or last_row.get("termination_cause", "")),
         "hard_failure": bool(hard_failure),
         "floor_or_ceiling_violation": bool(floor_or_ceiling),
+        "physical_hard_failure": bool(physical_hard_failure),
+        "physical_floor_or_ceiling_violation": bool(physical_floor_or_ceiling),
+        "expected_low_energy_dry_air_sink": bool(expected_low_energy_sink),
+        "episode_interpretation_label": _episode_interpretation_label(
+            expected_low_energy_dry_air_sink=expected_low_energy_sink,
+            hard_failure=hard_failure,
+            floor_or_ceiling=floor_or_ceiling,
+            no_viable=no_viable,
+        ),
+        "claim_bearing_episode": bool(not expected_low_energy_sink),
+        "initial_launch_speed_m_s": float(initial_launch_speed_m_s),
         "no_viable_primitive": no_viable,
         "safe_success": safe_success,
         "full_safe_success": bool(safe_success and not terminal_useful_safe_exit_only),
@@ -2358,6 +2389,24 @@ def _episode_row_from_rollout(
     belief_before: DirectionalResidualLiftBelief,
     belief_after: DirectionalResidualLiftBelief,
 ) -> dict[str, object]:
+    physical_hard_failure = _rollout_row_is_hard_failure(rollout_row)
+    physical_floor_or_ceiling = _rollout_row_is_floor_or_ceiling_violation(rollout_row)
+    terminal_useful = bool(rollout_row.get("episode_terminal_useful", False))
+    lift_capture = bool(float(rollout_row.get("lift_dwell_time_s", 0.0)) > 0.0)
+    episode_duration_s = float(_episode_rollout_duration_s([rollout_row]))
+    initial_launch_speed_m_s = _initial_launch_speed_m_s([rollout_row])
+    expected_low_energy_sink = _expected_low_energy_dry_air_sink(
+        scheduled=scheduled,
+        primitive_rows=[rollout_row],
+        physical_floor_or_ceiling=physical_floor_or_ceiling,
+        no_viable=False,
+        terminal_useful=terminal_useful,
+        lift_capture=lift_capture,
+        episode_duration_s=episode_duration_s,
+        initial_launch_speed_m_s=initial_launch_speed_m_s,
+    )
+    hard_failure = bool(physical_hard_failure and not expected_low_energy_sink)
+    floor_or_ceiling = bool(physical_floor_or_ceiling and not expected_low_energy_sink)
     row = {
         **_schedule_identity_row(scheduled),
         "launch_role": str(scheduled["launch_role"]),
@@ -2381,24 +2430,35 @@ def _episode_row_from_rollout(
             == _required_entry_role_for_start_family(str(context_row.get("start_state_family", "")))
         ),
         "termination_cause": str(rollout_row.get("termination_cause", "")),
-        "hard_failure": _rollout_row_is_hard_failure(rollout_row),
-        "floor_or_ceiling_violation": _rollout_row_is_floor_or_ceiling_violation(rollout_row),
+        "hard_failure": hard_failure,
+        "floor_or_ceiling_violation": floor_or_ceiling,
+        "physical_hard_failure": bool(physical_hard_failure),
+        "physical_floor_or_ceiling_violation": bool(physical_floor_or_ceiling),
+        "expected_low_energy_dry_air_sink": bool(expected_low_energy_sink),
+        "episode_interpretation_label": _episode_interpretation_label(
+            expected_low_energy_dry_air_sink=expected_low_energy_sink,
+            hard_failure=hard_failure,
+            floor_or_ceiling=floor_or_ceiling,
+            no_viable=False,
+        ),
+        "claim_bearing_episode": bool(not expected_low_energy_sink),
+        "initial_launch_speed_m_s": float(initial_launch_speed_m_s),
         "no_viable_primitive": False,
         "safe_success": bool(
             (_truthy(rollout_row.get("continuation_valid", False)) or _truthy(rollout_row.get("episode_terminal_useful", False)))
-            and not _rollout_row_is_hard_failure(rollout_row)
-            and not _rollout_row_is_floor_or_ceiling_violation(rollout_row)
+            and not hard_failure
+            and not floor_or_ceiling
         ),
         "full_safe_success": bool(
             (_truthy(rollout_row.get("continuation_valid", False)) or _truthy(rollout_row.get("episode_terminal_useful", False)))
-            and not _rollout_row_is_hard_failure(rollout_row)
-            and not _rollout_row_is_floor_or_ceiling_violation(rollout_row)
+            and not hard_failure
+            and not floor_or_ceiling
             and not _rollout_row_is_terminal_safe_exit_only(rollout_row)
         ),
-        "terminal_useful": bool(rollout_row.get("episode_terminal_useful", False)),
+        "terminal_useful": bool(terminal_useful),
         "terminal_useful_safe_exit_only": bool(_rollout_row_is_terminal_safe_exit_only(rollout_row)),
-        "lift_capture": bool(float(rollout_row.get("lift_dwell_time_s", 0.0)) > 0.0),
-        "episode_rollout_duration_s": float(_episode_rollout_duration_s([rollout_row])),
+        "lift_capture": bool(lift_capture),
+        "episode_rollout_duration_s": float(episode_duration_s),
         "lift_dwell_time_s": float(rollout_row.get("lift_dwell_time_s", 0.0)),
         "energy_residual_m": float(rollout_row.get("energy_residual_m", 0.0)),
         **_episode_specific_energy_summary([rollout_row]),
@@ -2443,6 +2503,12 @@ def _episode_row_from_blocked(
         "termination_cause": reason,
         "hard_failure": False,
         "floor_or_ceiling_violation": False,
+        "physical_hard_failure": False,
+        "physical_floor_or_ceiling_violation": False,
+        "expected_low_energy_dry_air_sink": False,
+        "episode_interpretation_label": "no_viable_primitive",
+        "claim_bearing_episode": True,
+        "initial_launch_speed_m_s": float("nan"),
         "no_viable_primitive": True,
         "safe_success": False,
         "full_safe_success": False,
@@ -2561,6 +2627,65 @@ def _rollout_row_is_terminal_safe_exit_only(row: dict[str, object]) -> bool:
         or "xy_boundary" in label
         or "boundary_terminal" in label
     )
+
+
+def _initial_launch_speed_m_s(primitive_rows: list[dict[str, object]]) -> float:
+    if not primitive_rows:
+        return float("nan")
+    first = primitive_rows[0]
+    u = _float_value(first.get("initial_u", 0.0))
+    v = _float_value(first.get("initial_v", 0.0))
+    w = _float_value(first.get("initial_w", 0.0))
+    return float(math.sqrt(u * u + v * v + w * w))
+
+
+def _expected_low_energy_dry_air_sink(
+    *,
+    scheduled: dict[str, object],
+    primitive_rows: list[dict[str, object]],
+    physical_floor_or_ceiling: bool,
+    no_viable: bool,
+    terminal_useful: bool,
+    lift_capture: bool,
+    episode_duration_s: float,
+    initial_launch_speed_m_s: float,
+) -> bool:
+    if not primitive_rows:
+        return False
+    dry_air_case = bool(
+        str(scheduled.get("environment_mode", "")) == "dry_air"
+        or str(scheduled.get("environment_block_id", "")) in DRY_AIR_ENERGY_DEPLETION_BLOCK_IDS
+    )
+    if not dry_air_case:
+        return False
+    if not physical_floor_or_ceiling or no_viable or terminal_useful or lift_capture:
+        return False
+    last = primitive_rows[-1]
+    return bool(
+        str(last.get("termination_cause", "")) == "floor_margin_stop"
+        and str(last.get("failure_label", "")) == "floor_violation"
+        and float(episode_duration_s) >= DRY_AIR_ENERGY_DEPLETION_MIN_FLIGHT_TIME_S
+        and math.isfinite(float(initial_launch_speed_m_s))
+        and float(initial_launch_speed_m_s) < LOW_LAUNCH_SPEED_DRY_AIR_THRESHOLD_M_S
+    )
+
+
+def _episode_interpretation_label(
+    *,
+    expected_low_energy_dry_air_sink: bool,
+    hard_failure: bool,
+    floor_or_ceiling: bool,
+    no_viable: bool,
+) -> str:
+    if expected_low_energy_dry_air_sink:
+        return "expected_low_energy_dry_air_sink_not_governor_failure"
+    if no_viable:
+        return "no_viable_primitive"
+    if hard_failure:
+        return "claim_bearing_hard_failure"
+    if floor_or_ceiling:
+        return "claim_bearing_floor_or_ceiling_violation"
+    return "claim_bearing_rollout"
 
 
 def _episode_rollout_duration_s(primitive_rows: list[dict[str, object]]) -> float:
@@ -3208,7 +3333,11 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
                 safe_success_rate=("safe_success", "mean"),
                 full_safe_success_rate=("full_safe_success", "mean"),
                 hard_failure_rate=("hard_failure", "mean"),
+                physical_hard_failure_rate=("physical_hard_failure", "mean"),
                 floor_or_ceiling_violation_rate=("floor_or_ceiling_violation", "mean"),
+                physical_floor_or_ceiling_violation_rate=("physical_floor_or_ceiling_violation", "mean"),
+                expected_low_energy_dry_air_sink_rate=("expected_low_energy_dry_air_sink", "mean"),
+                claim_bearing_episode_rate=("claim_bearing_episode", "mean"),
                 no_viable_primitive_rate=("no_viable_primitive", "mean"),
                 terminal_useful_rate=("terminal_useful", "mean"),
                 lift_capture_rate=("lift_capture", "mean"),
@@ -3219,6 +3348,7 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
                 mean_updraft_specific_energy_gain_proxy_m=("updraft_specific_energy_gain_proxy_m", "mean"),
                 mean_gross_specific_energy_loss_m=("gross_specific_energy_loss_m", "mean"),
                 mean_episode_flight_time_s=("episode_flight_time_s", "mean"),
+                mean_initial_launch_speed_m_s=("initial_launch_speed_m_s", "mean"),
                 mean_launch_score=("launch_score", "mean"),
                 median_launch_score=("launch_score", "median"),
                 mean_min_wall_margin_m=("min_wall_margin_m", "mean"),
@@ -3251,6 +3381,8 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
                 safe_success_rate=("safe_success", "mean"),
                 full_safe_success_rate=("full_safe_success", "mean"),
                 hard_failure_rate=("hard_failure", "mean"),
+                physical_hard_failure_rate=("physical_hard_failure", "mean"),
+                expected_low_energy_dry_air_sink_rate=("expected_low_energy_dry_air_sink", "mean"),
                 no_viable_primitive_rate=("no_viable_primitive", "mean"),
                 mean_launch_score=("launch_score", "mean"),
             )
@@ -3264,6 +3396,8 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
                 launch_count=("episode_id", "count"),
                 safe_success_rate=("safe_success", "mean"),
                 full_safe_success_rate=("full_safe_success", "mean"),
+                claim_bearing_episode_rate=("claim_bearing_episode", "mean"),
+                expected_low_energy_dry_air_sink_rate=("expected_low_energy_dry_air_sink", "mean"),
                 mean_launch_score=("launch_score", "mean"),
             )
             .reset_index()
@@ -3279,6 +3413,14 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
         else pd.DataFrame()
     )
     _write_csv(run_root / "metrics" / "termination_summary.csv", term)
+    interpretation = (
+        frame.groupby(["launch_role", "episode_interpretation_label"], dropna=False)
+        .size()
+        .reset_index(name="row_count")
+        if not frame.empty and "episode_interpretation_label" in frame.columns
+        else pd.DataFrame()
+    )
+    _write_csv(run_root / "metrics" / "episode_interpretation_summary.csv", interpretation)
     for required_name in TABLE_NAMES:
         _write_csv(
             run_root / "metrics" / f"{required_name}.csv",
@@ -3494,8 +3636,9 @@ def _pass_fail_summary(
                 "reduced_diagnostic_not_target_R10",
                 "full_R10_validation_required",
             )
-        )
+    )
     if final_rows:
+        claim_rows = [row for row in final_rows if _truthy(row.get("claim_bearing_episode", True))]
         selected_primitives = _selected_set(final_rows, "selected_primitive_id")
         selected_variants = _selected_set(final_rows, "selected_primitive_variant_id")
         sequence_compliant_count = sum(
@@ -3510,29 +3653,41 @@ def _pass_fail_summary(
                     len(episode_rows),
                 ),
                 _gate_row(
+                    "claim_bearing_final_launch_count_positive",
+                    len(claim_rows) > 0,
+                    len(claim_rows),
+                    ">0_after_expected_low_energy_dry_air_sink_exclusion",
+                ),
+                _gate_row(
+                    "expected_low_energy_dry_air_sink_labeled",
+                    True,
+                    sum(1 for row in final_rows if _truthy(row.get("expected_low_energy_dry_air_sink", False))),
+                    "diagnostic_not_claim_bearing_governor_failure",
+                ),
+                _gate_row(
                     "hard_failure_rate_within_stage_profile",
-                    _mean_bool(final_rows, "hard_failure") <= float(protocol.max_hard_failure_rate),
-                    _mean_bool(final_rows, "hard_failure"),
+                    _mean_bool(claim_rows, "hard_failure") <= float(protocol.max_hard_failure_rate),
+                    _mean_bool(claim_rows, "hard_failure"),
                     protocol.max_hard_failure_rate,
                 ),
-                _gate_row("floor_or_ceiling_violation_rate_zero", _mean_bool(final_rows, "floor_or_ceiling_violation") == 0.0, _mean_bool(final_rows, "floor_or_ceiling_violation"), 0.0),
+                _gate_row("floor_or_ceiling_violation_rate_zero", _mean_bool(claim_rows, "floor_or_ceiling_violation") == 0.0, _mean_bool(claim_rows, "floor_or_ceiling_violation"), 0.0),
                 _gate_row(
                     "no_viable_primitive_rate_within_stage_profile",
-                    _mean_bool(final_rows, "no_viable_primitive") <= float(protocol.max_no_viable_rate),
-                    _mean_bool(final_rows, "no_viable_primitive"),
+                    _mean_bool(claim_rows, "no_viable_primitive") <= float(protocol.max_no_viable_rate),
+                    _mean_bool(claim_rows, "no_viable_primitive"),
                     protocol.max_no_viable_rate,
                 ),
                 _gate_row(
                     "safe_success_rate_within_stage_profile",
-                    _mean_bool(final_rows, "safe_success") >= float(protocol.min_safe_success_rate),
-                    _mean_bool(final_rows, "safe_success"),
+                    _mean_bool(claim_rows, "safe_success") >= float(protocol.min_safe_success_rate),
+                    _mean_bool(claim_rows, "safe_success"),
                     protocol.min_safe_success_rate,
                 ),
                 _gate_row(
                     "terminal_or_lift_capture_within_stage_profile",
-                    max(_mean_bool(final_rows, "terminal_useful"), _mean_bool(final_rows, "lift_capture"))
+                    max(_mean_bool(claim_rows, "terminal_useful"), _mean_bool(claim_rows, "lift_capture"))
                     >= float(protocol.min_terminal_or_lift_capture_rate),
-                    max(_mean_bool(final_rows, "terminal_useful"), _mean_bool(final_rows, "lift_capture")),
+                    max(_mean_bool(claim_rows, "terminal_useful"), _mean_bool(claim_rows, "lift_capture")),
                     protocol.min_terminal_or_lift_capture_rate,
                 ),
                 _gate_row("selected_primitive_family_count_ge_5", len(selected_primitives) >= 5, len(selected_primitives), 5),
@@ -3543,8 +3698,8 @@ def _pass_fail_summary(
             rows.append(
                 _gate_row(
                     "full_safe_success_rate_within_stage_profile",
-                    _mean_bool(final_rows, "full_safe_success") >= float(protocol.min_full_safe_success_rate),
-                    _mean_bool(final_rows, "full_safe_success"),
+                    _mean_bool(claim_rows, "full_safe_success") >= float(protocol.min_full_safe_success_rate),
+                    _mean_bool(claim_rows, "full_safe_success"),
                     protocol.min_full_safe_success_rate,
                 )
             )
@@ -4055,6 +4210,12 @@ def _write_manifest(
         "launch_score_version": LAUNCH_SCORE_VERSION,
         "launch_score_target_episode_time_s": float(SCORING_TARGET_EPISODE_TIME_S),
         "launch_score_gravity_m_s2": float(SPECIFIC_ENERGY_GRAVITY_M_S2),
+        "low_launch_speed_dry_air_sink_policy": (
+            "raw primitive floor_violation is retained, but dry-air floor stop after a low-speed launch "
+            "is labelled expected_low_energy_dry_air_sink and excluded from governor/memory claim-bearing gates"
+        ),
+        "low_launch_speed_dry_air_threshold_m_s": float(LOW_LAUNCH_SPEED_DRY_AIR_THRESHOLD_M_S),
+        "dry_air_energy_depletion_min_flight_time_s": float(DRY_AIR_ENERGY_DEPLETION_MIN_FLIGHT_TIME_S),
         "duration_s": float(duration_s),
         "pass_gate": _overall_pass(pass_summary),
         "claim_status": "simulation_only_repeated_launch_validation",
@@ -4104,6 +4265,7 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, updraft gain, flight time, and residual memory.",
         "- Boundary-near is a route state, not automatic failure; hard_failure is the failure class.",
         f"- Launch score: `{LAUNCH_SCORE_VERSION}`; rewards safe valid flight time and updraft-gain proxy, while net/gross energy drift remains audit-only.",
+        "- Dry-air low-launch-speed floor stops keep the raw primitive `floor_violation` audit label, but are interpreted as expected energy depletion rather than governor or memory failure.",
         "- Claim boundary: simulation-only; no hardware, real-flight transfer, mission, autonomy, or memory-improvement claim.",
         "",
         "Gate summary:",
@@ -4159,6 +4321,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--source-w2-root", type=Path, default=None)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-id", type=int, default=1)
+    parser.add_argument("--run-label", default="")
     parser.add_argument("--seed", type=int, default=90)
     parser.add_argument("--storage-format", choices=("auto", "parquet", "csv_gz", "csv"), default="auto")
     parser.add_argument("--compression-level", type=int, default=1)
@@ -4189,6 +4352,7 @@ def main(argv: list[str] | None = None) -> int:
             source_w2_root=args.source_w2_root,
             output_root=args.output_root,
             run_id=args.run_id,
+            run_label=args.run_label,
             seed=args.seed,
             storage_format=args.storage_format,
             compression_level=args.compression_level,
