@@ -1,0 +1,5 @@
+parameter,old_value,new_value,reason,stage_id
+maximum_hard_failure_risk,0.75,0.65,hard_failure_rate_above_stage_profile_tighten_admission,R10
+hard_failure_weight,-0.8,-1.0,hard_failure_rate_above_stage_profile_penalise_risk_more,R10
+terminal_hard_failure_weight,-0.75,-0.9375,hard_failure_rate_above_stage_profile_penalise_terminal_risk_more,R10
+exploration_bonus_weight,0.02,0.01,hard_failure_rate_above_stage_profile_reduce_exploration_bonus,R10
