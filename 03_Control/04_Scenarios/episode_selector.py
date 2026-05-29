@@ -6,7 +6,7 @@ from context_conditioned_outcome import context_conditioned_outcome, lookup_outc
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, GOVERNOR_MODES, GovernorConfig, governor_candidate_row
 
 CandidateBeliefFeaturesFn = Callable[[dict[str, object], dict[str, object]], dict[str, object] | None]
-BASELINE_SHIELDED_MEMORY_POLICY_VERSION = "baseline_shielded_candidate_path_memory_safe_exploration_v1_2"
+BASELINE_SHIELDED_MEMORY_POLICY_VERSION = "baseline_shielded_candidate_path_memory_safe_exploration_v1_4"
 MEMORY_SWITCH_MIN_CONFIDENCE = 0.45
 MEMORY_SWITCH_MIN_SCORE_MARGIN = 0.005
 MEMORY_SWITCH_MAX_BASE_SCORE_DROP = 0.03
@@ -17,6 +17,9 @@ EXPLORATION_SWITCH_MIN_SCORE_MARGIN = 0.0
 EXPLORATION_SWITCH_MAX_BASE_SCORE_DROP = 0.01
 EXPLORATION_SWITCH_MAX_TRANSITION_SUCCESS_DROP = 0.0
 EXPLORATION_SWITCH_MAX_HARD_FAILURE_RISK_INCREASE = 0.0
+EXPLORATION_SWITCH_ALLOW_CROSS_FAMILY = False
+ADAPTIVE_SWITCH_MAX_PATH_EXIT_MARGIN_DROP_M = 0.05
+ADAPTIVE_SWITCH_MIN_PATH_EXIT_MARGIN_M = 0.02
 
 
 def select_compact_representative(
@@ -156,10 +159,19 @@ def _memory_switch_acceptance_status(
     hard_failure_delta = _float(memory_selected.get("hard_failure_risk", 1.0)) - _float(
         baseline_selected.get("hard_failure_risk", 1.0)
     )
+    path_margin_non_regressive = _candidate_path_margin_non_regressive(
+        baseline_selected=baseline_selected,
+        memory_selected=memory_selected,
+    )
+    exploration_family_safe = _exploration_family_switch_allowed(
+        baseline_selected=baseline_selected,
+        memory_selected=memory_selected,
+    )
     memory_non_regressive = (
         base_score_delta >= -MEMORY_SWITCH_MAX_BASE_SCORE_DROP
         and transition_delta >= -MEMORY_SWITCH_MAX_TRANSITION_SUCCESS_DROP
         and hard_failure_delta <= MEMORY_SWITCH_MAX_HARD_FAILURE_RISK_INCREASE
+        and path_margin_non_regressive
     )
     if (
         confidence >= MEMORY_SWITCH_MIN_CONFIDENCE
@@ -171,12 +183,14 @@ def _memory_switch_acceptance_status(
         base_score_delta >= -EXPLORATION_SWITCH_MAX_BASE_SCORE_DROP
         and transition_delta >= -EXPLORATION_SWITCH_MAX_TRANSITION_SUCCESS_DROP
         and hard_failure_delta <= EXPLORATION_SWITCH_MAX_HARD_FAILURE_RISK_INCREASE
+        and path_margin_non_regressive
     )
     if (
         exploration_component > 0.0
         and uncertainty >= EXPLORATION_SWITCH_MIN_UNCERTAINTY
         and score_margin >= EXPLORATION_SWITCH_MIN_SCORE_MARGIN
         and exploration_non_regressive
+        and exploration_family_safe
     ):
         return True, "accepted_shielded_uncertainty_directed_exploration_switch"
     if confidence < MEMORY_SWITCH_MIN_CONFIDENCE and exploration_component <= 0.0:
@@ -191,6 +205,10 @@ def _memory_switch_acceptance_status(
         return False, "rejected_transition_success_regression"
     if hard_failure_delta > MEMORY_SWITCH_MAX_HARD_FAILURE_RISK_INCREASE:
         return False, "rejected_hard_failure_risk_regression"
+    if not path_margin_non_regressive:
+        return False, "rejected_candidate_path_exit_margin_regression"
+    if exploration_component > 0.0 and not exploration_family_safe:
+        return False, "rejected_exploration_cross_family_without_memory_confidence"
     return False, "rejected_adaptive_switch_guard_not_satisfied"
 
 
@@ -218,9 +236,16 @@ def _mark_memory_shield_rows(
     hard_failure_delta = _float(memory_selected.get("hard_failure_risk", 1.0)) - _float(
         baseline_selected.get("hard_failure_risk", 1.0)
     )
+    baseline_path_margin = _candidate_path_exit_margin(baseline_selected)
+    memory_path_margin = _candidate_path_exit_margin(memory_selected)
+    path_margin_delta = memory_path_margin - baseline_path_margin
     confidence = _float(memory_selected.get("belief_candidate_path_confidence", 0.0))
     uncertainty = _float(memory_selected.get("belief_uncertainty", 1.0), default=1.0)
     exploration_component = _float(memory_selected.get("exploration_score_component", 0.0))
+    exploration_family_safe = _exploration_family_switch_allowed(
+        baseline_selected=baseline_selected,
+        memory_selected=memory_selected,
+    )
     for row in rows:
         row["memory_shield_policy_version"] = BASELINE_SHIELDED_MEMORY_POLICY_VERSION
         row["memory_shield_status"] = str(status)
@@ -232,12 +257,65 @@ def _mark_memory_shield_rows(
         row["memory_shield_base_score_delta"] = float(base_score_delta)
         row["memory_shield_transition_success_delta"] = float(transition_delta)
         row["memory_shield_hard_failure_risk_delta"] = float(hard_failure_delta)
+        row["memory_shield_baseline_path_exit_margin_m"] = float(baseline_path_margin)
+        row["memory_shield_memory_path_exit_margin_m"] = float(memory_path_margin)
+        row["memory_shield_path_exit_margin_delta_m"] = float(path_margin_delta)
+        row["memory_shield_max_path_exit_margin_drop_m"] = float(ADAPTIVE_SWITCH_MAX_PATH_EXIT_MARGIN_DROP_M)
+        row["memory_shield_min_path_exit_margin_m"] = float(ADAPTIVE_SWITCH_MIN_PATH_EXIT_MARGIN_M)
         row["memory_shield_candidate_path_confidence"] = float(confidence)
         row["memory_shield_candidate_path_uncertainty"] = float(uncertainty)
         row["memory_shield_exploration_score_component"] = float(exploration_component)
+        row["memory_shield_exploration_cross_family_allowed"] = bool(exploration_family_safe)
         row["memory_shield_min_confidence"] = float(MEMORY_SWITCH_MIN_CONFIDENCE)
         row["memory_shield_min_score_margin"] = float(MEMORY_SWITCH_MIN_SCORE_MARGIN)
         row["memory_shield_exploration_min_uncertainty"] = float(EXPLORATION_SWITCH_MIN_UNCERTAINTY)
+
+
+def _candidate_path_margin_non_regressive(
+    *,
+    baseline_selected: dict[str, object],
+    memory_selected: dict[str, object],
+) -> bool:
+    baseline_margin = _candidate_path_exit_margin(baseline_selected)
+    memory_margin = _candidate_path_exit_margin(memory_selected)
+    if baseline_margin >= ADAPTIVE_SWITCH_MIN_PATH_EXIT_MARGIN_M and memory_margin < ADAPTIVE_SWITCH_MIN_PATH_EXIT_MARGIN_M:
+        return False
+    return bool(memory_margin + ADAPTIVE_SWITCH_MAX_PATH_EXIT_MARGIN_DROP_M >= baseline_margin)
+
+
+def _exploration_family_switch_allowed(
+    *,
+    baseline_selected: dict[str, object],
+    memory_selected: dict[str, object],
+) -> bool:
+    if EXPLORATION_SWITCH_ALLOW_CROSS_FAMILY:
+        return True
+    return _primitive_family(baseline_selected) == _primitive_family(memory_selected)
+
+
+def _primitive_family(row: dict[str, object]) -> str:
+    primitive_id = str(row.get("primitive_id", ""))
+    if primitive_id:
+        return primitive_id
+    variant_id = str(row.get("primitive_variant_id", ""))
+    if variant_id.startswith("primvar_"):
+        variant_id = variant_id[len("primvar_") :]
+    marker = "_transition_object"
+    if marker in variant_id:
+        return variant_id.split(marker, maxsplit=1)[0]
+    return variant_id
+
+
+def _candidate_path_exit_margin(row: dict[str, object]) -> float:
+    wall_margin = _float(row.get("belief_candidate_path_exit_wall_margin_m", float("nan")), default=float("nan"))
+    min_margin = _float(row.get("belief_candidate_path_exit_min_margin_m", float("nan")), default=float("nan"))
+    if wall_margin != wall_margin and min_margin != min_margin:
+        return float(row.get("governor_wall_margin_m", row.get("wall_margin_m", 0.0)) or 0.0)
+    if wall_margin != wall_margin:
+        return float(min_margin)
+    if min_margin != min_margin:
+        return float(wall_margin)
+    return float(min(wall_margin, min_margin))
 
 
 def _outcome_for_representative(
@@ -310,6 +388,12 @@ def selector_decision_row(
         "selected_memory_shield_accepted": False if selected is None else bool(selected.get("memory_shield_accepted", False)),
         "selected_memory_shield_baseline_variant_id": "" if selected is None else str(selected.get("memory_shield_baseline_variant_id", "")),
         "selected_memory_shield_memory_variant_id": "" if selected is None else str(selected.get("memory_shield_memory_variant_id", "")),
+        "selected_memory_shield_path_exit_margin_delta_m": (
+            0.0 if selected is None else float(selected.get("memory_shield_path_exit_margin_delta_m", 0.0))
+        ),
+        "selected_memory_shield_exploration_cross_family_allowed": (
+            False if selected is None else bool(selected.get("memory_shield_exploration_cross_family_allowed", False))
+        ),
         "claim_status": "simulation_only_selector_decision",
     }
 

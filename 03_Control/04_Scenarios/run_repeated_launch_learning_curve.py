@@ -137,7 +137,7 @@ DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE = 10
 REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION = "predictive_next_primitive_scheduler_profile_v1"
 REAL_TIME_PREFERRED_DECISION_BUDGET_S = CONTROLLER_INPUT_UPDATE_PERIOD_S
 REAL_TIME_HARD_DECISION_BUDGET_S = PRIMITIVE_FINITE_HORIZON_S
-OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_baseline_shielded_recency_safe_exploration_memory_v1_2"
+OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_baseline_shielded_recency_safe_exploration_memory_v1_4"
 CANDIDATE_PATH_MEMORY_LOOKAHEAD_S = 5.0 * PRIMITIVE_FINITE_HORIZON_S
 CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M = 0.75
 CANDIDATE_PATH_MEMORY_FULL_CONFIDENCE_OBSERVATIONS = 3.0
@@ -1856,6 +1856,7 @@ def _candidate_path_belief_features(
     )
     capped_dwell = _clip(weighted_dwell, -1.0, 1.0)
     confidence = _clip(confidence, 0.0, 1.0)
+    exit_margins = position_margin_m(np.array([exit_x, exit_y, exit_z], dtype=float), TRUE_SAFE_BOUNDS)
     return {
         "belief_version": f"{belief.belief_version}+{OUTER_LOOP_MEMORY_POLICY_VERSION}",
         "belief_local_lift_m_s": float(capped_lift),
@@ -1890,6 +1891,8 @@ def _candidate_path_belief_features(
         "belief_candidate_path_exit_y_w_m": float(exit_y),
         "belief_candidate_path_exit_z_w_m": float(exit_z),
         "belief_candidate_path_exit_direction_rad": float(exit_direction),
+        "belief_candidate_path_exit_wall_margin_m": float(exit_margins["min_wall_margin_m"]),
+        "belief_candidate_path_exit_min_margin_m": float(exit_margins["min_margin_m"]),
     }
 
 

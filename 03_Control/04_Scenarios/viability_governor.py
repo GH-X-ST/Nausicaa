@@ -286,6 +286,12 @@ def governor_candidate_row(
         "belief_candidate_path_exit_y_w_m": _float(belief_features.get("belief_candidate_path_exit_y_w_m", 0.0)),
         "belief_candidate_path_exit_z_w_m": _float(belief_features.get("belief_candidate_path_exit_z_w_m", 0.0)),
         "belief_candidate_path_exit_direction_rad": _float(belief_features.get("belief_candidate_path_exit_direction_rad", 0.0)),
+        "belief_candidate_path_exit_wall_margin_m": _float(
+            belief_features.get("belief_candidate_path_exit_wall_margin_m", 0.0)
+        ),
+        "belief_candidate_path_exit_min_margin_m": _float(
+            belief_features.get("belief_candidate_path_exit_min_margin_m", 0.0)
+        ),
         "continuation_probability": continuation_probability,
         "transition_success_probability": transition_success_probability,
         "transition_chain_compatible_rate": _float(
