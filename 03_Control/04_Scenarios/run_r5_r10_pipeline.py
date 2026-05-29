@@ -1363,7 +1363,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--storage-format", default="auto", choices=("auto", "parquet", "csv_gz", "csv"))
     parser.add_argument("--compression-level", type=int, default=1)
     parser.add_argument("--candidate-chunk-size", type=int, default=800)
-    parser.add_argument("--r10-mode", default="full", choices=("full", "reduced_diagnostic_50"))
+    parser.add_argument("--r10-mode", default="full", choices=("full", "reduced_diagnostic_10", "reduced_diagnostic_50"))
     parser.add_argument("--allow-stage-smoke", type=_parse_bool, default=False)
     parser.add_argument("--continue-on-stage-failure", type=_parse_bool, default=False)
     args = parser.parse_args(argv)

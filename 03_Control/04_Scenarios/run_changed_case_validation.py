@@ -43,9 +43,9 @@ from viability_governor import GovernorConfig, governor_config_from_row  # noqa:
 
 R10_VALIDATION_VERSION = "full_domain_randomisation_governor_tuning_v8"
 R11_VALIDATION_VERSION = "heldout_fidelity_ladder_validation_v2"
-R10_OUTER_CASES_PER_CONDITION = 140
-R11_OUTER_CASES_PER_CONDITION = 160
-R10_REDUCED_OUTER_CASES_PER_CONDITION = 50
+R10_OUTER_CASES_PER_CONDITION = 50
+R11_OUTER_CASES_PER_CONDITION = 80
+R10_REDUCED_OUTER_CASES_PER_CONDITION = 10
 R10_EXPECTED_FINAL_HELDOUT_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION
 R10_EXPECTED_HISTORY_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM
 R11_EXPECTED_FINAL_HELDOUT_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R11_OUTER_CASES_PER_CONDITION
@@ -69,14 +69,14 @@ R10_BLOCKS: tuple[ValidationBlockSpec, ...] = (
 )
 
 R11_BLOCKS: tuple[ValidationBlockSpec, ...] = (
-    ValidationBlockSpec(R11_L0_DRY_AIR_FIXED_BLOCK_ID, "R11 L0 dry air fixed", "W0", "dry_air", 20, "l0_dry_air_fixed"),
-    ValidationBlockSpec(R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID, "R11 L1 single fan fixed nominal", "W2", "annular_gp_single", 20, "l1_single_fan_fixed_nominal"),
-    ValidationBlockSpec(R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID, "R11 L2 four fan fixed nominal", "W2", "annular_gp_four", 20, "l2_four_fan_fixed_nominal"),
-    ValidationBlockSpec(R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID, "R11 L3 fan parameter uncertainty", "W3", "w3_randomised_four", 20, "l3_fan_parameter_uncertainty"),
-    ValidationBlockSpec(R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID, "R11 L4 local fan position uncertainty", "W3", "w3_randomised_four", 20, "l4_local_fan_position_uncertainty"),
-    ValidationBlockSpec(R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID, "R11 L5 active fan count uncertainty", "W3", "w3_randomised_four", 20, "l5_active_fan_count_uncertainty"),
-    ValidationBlockSpec(R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID, "R11 L6 environment-only full uncertainty", "W3", "w3_randomised_four", 20, "l6_environment_only_full_uncertainty"),
-    ValidationBlockSpec(R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID, "R11 L7 full-domain randomisation arena-wide", "W3", "w3_randomised_four", 20, "l7_full_domain_randomisation_arena_wide"),
+    ValidationBlockSpec(R11_L0_DRY_AIR_FIXED_BLOCK_ID, "R11 L0 dry air fixed", "W0", "dry_air", 10, "l0_dry_air_fixed"),
+    ValidationBlockSpec(R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID, "R11 L1 single fan fixed nominal", "W2", "annular_gp_single", 10, "l1_single_fan_fixed_nominal"),
+    ValidationBlockSpec(R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID, "R11 L2 four fan fixed nominal", "W2", "annular_gp_four", 10, "l2_four_fan_fixed_nominal"),
+    ValidationBlockSpec(R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID, "R11 L3 fan parameter uncertainty", "W3", "w3_randomised_four", 10, "l3_fan_parameter_uncertainty"),
+    ValidationBlockSpec(R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID, "R11 L4 local fan position uncertainty", "W3", "w3_randomised_four", 10, "l4_local_fan_position_uncertainty"),
+    ValidationBlockSpec(R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID, "R11 L5 active fan count uncertainty", "W3", "w3_randomised_four", 10, "l5_active_fan_count_uncertainty"),
+    ValidationBlockSpec(R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID, "R11 L6 environment-only full uncertainty", "W3", "w3_randomised_four", 10, "l6_environment_only_full_uncertainty"),
+    ValidationBlockSpec(R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID, "R11 L7 full-domain randomisation arena-wide", "W3", "w3_randomised_four", 10, "l7_full_domain_randomisation_arena_wide"),
 )
 
 R10_REDUCED_BLOCKS: tuple[ValidationBlockSpec, ...] = tuple(
@@ -180,7 +180,7 @@ class HeldoutChangedCaseValidationConfig(ChangedCaseValidationConfig):
 def run_changed_case_validation(config: ChangedCaseValidationConfig) -> dict[str, object]:
     """Run full R10 changed-case validation, or an explicitly reduced diagnostic schedule."""
 
-    protocol = R10_REDUCED_PROTOCOL if str(config.r10_mode) == "reduced_diagnostic_50" else R10_PROTOCOL
+    protocol = R10_REDUCED_PROTOCOL if str(config.r10_mode) in {"reduced_diagnostic_10", "reduced_diagnostic_50"} else R10_PROTOCOL
     governor_config = _resolve_governor_config(config)
     return run_repeated_launch_validation(
         ValidationRunConfig(
@@ -268,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-episode-time-s", type=float, default=DEFAULT_VALIDATION_MAX_EPISODE_TIME_S)
     parser.add_argument("--smoke-outer-cases-per-block", type=int, default=0)
     parser.add_argument("--dry-run-schedule", action="store_true")
-    parser.add_argument("--r10-mode", default="full", choices=("full", "reduced_diagnostic_50"))
+    parser.add_argument("--r10-mode", default="full", choices=("full", "reduced_diagnostic_10", "reduced_diagnostic_50"))
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--max-workers", type=int, default=None)
     parser.add_argument("--worker-backend", choices=("thread", "process"), default="process")

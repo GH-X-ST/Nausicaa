@@ -74,6 +74,7 @@ from run_repeated_launch_learning_curve import (  # noqa: E402
     BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
     EMPTY_FROZEN_PRIOR_BASELINE_ID,
     HISTORY_LENGTHS,
+    HISTORY_LENGTH_SUM,
     LAUNCH_SCORE_VERSION,
     NO_UPDRAFT_CHANGED_CASE_BLOCK_ID,
     POLICY_HISTORY_CONDITIONS,
@@ -220,16 +221,16 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r8_representative_score_uses_updraft_gain_not_net_energy", _r8_score_uses_updraft_gain_not_net_energy(), "updraft-gain score check", "net energy residual must not improve representative score"))
     rows.append(_row("five_library_size_cases", set(LIBRARY_SIZE_CASE_IDS) == {"heavy_cluster", "balanced_cluster", "light_cluster", "super_light_cluster", "no_cluster_no_merge"}, LIBRARY_SIZE_CASE_IDS, "heavy/balanced/light/super_light/no_cluster"))
     rows.append(_row("r9_reduced_internal_preflight_blocks_exact", _block_tuples(R9_BLOCKS) == (("no_updraft", "W0", "dry_air", 1), ("single_fan", "W2", "annular_gp_single", 1), ("four_fan", "W2", "annular_gp_four", 1)), _block_tuples(R9_BLOCKS), "1 no-updraft, 1 single-fan, 1 four-fan internal preflight cases"))
-    rows.append(_row("r10_single_l7_training_block_exact", _block_tuples(R10_BLOCKS) == ((R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID, "W3", "w3_randomised_four", 140),), _block_tuples(R10_BLOCKS), "one hard L7 full-domain randomisation training block with 140 outer cases"))
+    rows.append(_row("r10_single_l7_training_block_exact", _block_tuples(R10_BLOCKS) == ((R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID, "W3", "w3_randomised_four", 50),), _block_tuples(R10_BLOCKS), "one hard L7 full-domain randomisation training block with 50 outer cases"))
     expected_r11_blocks = (
-        (R11_L0_DRY_AIR_FIXED_BLOCK_ID, "W0", "dry_air", 20),
-        (R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID, "W2", "annular_gp_single", 20),
-        (R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID, "W2", "annular_gp_four", 20),
-        (R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 20),
-        (R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 20),
-        (R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 20),
-        (R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 20),
-        (R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID, "W3", "w3_randomised_four", 20),
+        (R11_L0_DRY_AIR_FIXED_BLOCK_ID, "W0", "dry_air", 10),
+        (R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID, "W2", "annular_gp_single", 10),
+        (R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID, "W2", "annular_gp_four", 10),
+        (R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 10),
+        (R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 10),
+        (R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 10),
+        (R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 10),
+        (R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID, "W3", "w3_randomised_four", 10),
     )
     rows.append(_row("r11_fidelity_ladder_blocks_exact", _block_tuples(R11_BLOCKS) == expected_r11_blocks, _block_tuples(R11_BLOCKS), "L0 dry, L1 single fixed, L2 four fixed, L3 fan params, L4 local position, L5 active count, L6 environment-only, L7 full-domain"))
     rows.append(_row("r10_r11_arena_wide_fan_positions_nonoverlap_radius_0p5m", R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M == 0.5, R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M, "0.5 m radius; centers must be at least 1.0 m apart"))
@@ -240,10 +241,10 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r9_quick_preflight_policy_history_conditions", R9_POLICY_HISTORY_CONDITIONS == ("no_memory_baseline", "directional_3d_residual_memory_h3", "directional_3d_residual_memory_h10", "directional_3d_residual_memory_h30"), R9_POLICY_HISTORY_CONDITIONS, "no_memory_baseline + h3/h10/h30"))
     rows.append(_row("r9_expected_final_launches_quick_preflight", R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R9_POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION == 60, R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*3=60"))
     rows.append(_row("r9_expected_history_launches_quick_preflight", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM == 645, R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*3*(h3+h10+h30)=645"))
-    rows.append(_row("r10_expected_final_launches_l7_training", R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION, R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*140"))
-    rows.append(_row("r10_expected_history_launches_l7_training", R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM, R10_EXPECTED_HISTORY_LAUNCHES, "library_cases*140*(h3+h10+h30)"))
-    rows.append(_row("r11_expected_final_launches_fidelity_ladder", R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R11_OUTER_CASES_PER_CONDITION, R11_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*160"))
-    rows.append(_row("r11_expected_history_launches_fidelity_ladder", R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R11_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM, R11_EXPECTED_HISTORY_LAUNCHES, "library_cases*160*(h3+h10+h30)"))
+    rows.append(_row("r10_expected_final_launches_l7_training", R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION, R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*50"))
+    rows.append(_row("r10_expected_history_launches_l7_training", R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM, R10_EXPECTED_HISTORY_LAUNCHES, "library_cases*50*(h3+h10+h30)"))
+    rows.append(_row("r11_expected_final_launches_fidelity_ladder", R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R11_OUTER_CASES_PER_CONDITION, R11_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*80"))
+    rows.append(_row("r11_expected_history_launches_fidelity_ladder", R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R11_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM, R11_EXPECTED_HISTORY_LAUNCHES, "library_cases*80*(h3+h10+h30)"))
     rows.append(_row("four_policy_history_conditions_core", len(POLICY_HISTORY_CONDITIONS) == 4, len(POLICY_HISTORY_CONDITIONS), 4))
     rows.append(_row("history_lengths_core_exact", HISTORY_LENGTHS == (3, 10, 30), HISTORY_LENGTHS, (3, 10, 30)))
     rows.append(_row("empty_prior_baseline_name", EMPTY_FROZEN_PRIOR_BASELINE_ID == "empty_frozen_prior_baseline", EMPTY_FROZEN_PRIOR_BASELINE_ID, "empty_frozen_prior_baseline"))
@@ -759,8 +760,8 @@ def _docs_code_consistency_rows(repo_root: Path) -> list[dict[str, object]]:
         "r8_speed_bin_coverage_preservation": "speed-bin collapse is a library-coverage failure",
         "recovery_self_transition_progress_gate": "recoverable_degraded -> recoverable_degraded",
         "recovery_boundary_route_not_full_pass": "recoverable_degraded -> boundary_near",
-        "r9_quick_preflight_30_final": "30 final held-out launches",
-        "r9_quick_preflight_300_history": "300 history launches",
+        "r9_quick_preflight_60_final": "60 final held-out launches",
+        "r9_quick_preflight_645_history": "645 history launches",
         "r10_single_hard_training_distribution": "R10 is governor/residual-memory tuning on one hard training distribution",
         "r11_eight_block_fidelity_ladder": "R11 is held-out validation on an eight-block fidelity ladder",
         "plant_implementation_fixed_per_outer_case": "sampled once per outer case and held fixed",
