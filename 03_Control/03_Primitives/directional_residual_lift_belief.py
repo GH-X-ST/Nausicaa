@@ -23,6 +23,7 @@ class DirectionalResidualObservation:
     updraft_gain_residual_m: float
     dwell_residual_s: float
     observation_weight: float = 1.0
+    history_launch_index: int = 0
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class DirectionalResidualCell:
     dwell_residual_mean_s: float
     uncertainty: float
     last_update_count: int = 0
+    last_history_launch_index: int = 0
 
 
 @dataclass(frozen=True)
@@ -48,6 +50,7 @@ class DirectionalResidualLiftBelief:
     cells: tuple[DirectionalResidualCell, ...] = ()
     update_count: int = 0
     recency_decay: float = 0.97
+    launch_recency_half_life: float = 4.0
     belief_version: str = "directional_residual_lift_belief_v411"
 
 
@@ -57,12 +60,14 @@ def initial_directional_residual_lift_belief(
     y_edges_m: Iterable[float] = DEFAULT_XY_BINS_M,
     z_edges_m: Iterable[float] = DEFAULT_Z_BINS_M,
     direction_bin_count: int = DIRECTION_BIN_COUNT,
+    launch_recency_half_life: float = 4.0,
 ) -> DirectionalResidualLiftBelief:
     return DirectionalResidualLiftBelief(
         x_edges_m=tuple(float(value) for value in x_edges_m),
         y_edges_m=tuple(float(value) for value in y_edges_m),
         z_edges_m=tuple(float(value) for value in z_edges_m),
         direction_bin_count=int(direction_bin_count),
+        launch_recency_half_life=float(launch_recency_half_life),
     )
 
 
@@ -87,10 +92,15 @@ def update_directional_residual_lift_belief(
             dwell_residual_mean_s=float(observation.dwell_residual_s),
             uncertainty=1.0 / math.sqrt(float(count)),
             last_update_count=int(belief.update_count) + 1,
+            last_history_launch_index=int(observation.history_launch_index),
         )
     else:
         count = int(prior.observation_count) + 1
-        effective_prior_count = max(0.0, float(prior.observation_count) * float(belief.recency_decay))
+        launch_age = max(0, int(observation.history_launch_index) - int(prior.last_history_launch_index))
+        effective_prior_count = max(
+            0.0,
+            float(prior.observation_count) * _launch_recency_weight(belief, launch_age),
+        )
         alpha = weight / (effective_prior_count + weight)
         cells[key] = replace(
             prior,
@@ -104,6 +114,7 @@ def update_directional_residual_lift_belief(
             dwell_residual_mean_s=_blend(prior.dwell_residual_mean_s, observation.dwell_residual_s, alpha),
             uncertainty=1.0 / math.sqrt(float(count)),
             last_update_count=int(belief.update_count) + 1,
+            last_history_launch_index=int(observation.history_launch_index),
         )
     return replace(
         belief,
@@ -120,6 +131,7 @@ def query_directional_residual_lift_features(
     z_w_m: float,
     direction_rad: float,
     cell_lookup: dict[tuple[int, int, int, int], DirectionalResidualCell] | None = None,
+    current_history_launch_index: int | None = None,
 ) -> dict[str, float | int | str]:
     key = _cell_key_for_values(belief, x_w_m=x_w_m, y_w_m=y_w_m, z_w_m=z_w_m, direction_rad=direction_rad)
     cells = cell_lookup if cell_lookup is not None else directional_residual_lift_cell_lookup(belief)
@@ -137,12 +149,24 @@ def query_directional_residual_lift_features(
             "belief_effective_observation_count": 0.0,
             "belief_recency_weight": 0.0,
             "belief_observation_age": 0,
+            "belief_launch_recency_weight": 0.0,
+            "belief_history_launch_age": 0,
+            "belief_last_history_launch_index": -1,
+            "belief_current_history_launch_index": -1 if current_history_launch_index is None else int(current_history_launch_index),
+            "belief_launch_recency_half_life": float(belief.launch_recency_half_life),
             "belief_direction_bin": int(key[3]),
             "belief_z_bin": int(key[2]),
             "belief_update_count": int(belief.update_count),
         }
     age = max(0, int(belief.update_count) - int(cell.last_update_count))
-    recency_weight = float(belief.recency_decay) ** float(age)
+    update_recency_weight = float(belief.recency_decay) ** float(age)
+    history_launch_age = (
+        0
+        if current_history_launch_index is None
+        else max(0, int(current_history_launch_index) - int(cell.last_history_launch_index))
+    )
+    launch_recency_weight = _launch_recency_weight(belief, history_launch_age)
+    recency_weight = float(update_recency_weight) * float(launch_recency_weight)
     return {
         "belief_version": belief.belief_version,
         "belief_local_lift_residual_m_s": float(cell.lift_residual_mean_m_s),
@@ -155,6 +179,11 @@ def query_directional_residual_lift_features(
         "belief_effective_observation_count": float(cell.observation_count) * float(recency_weight),
         "belief_recency_weight": float(recency_weight),
         "belief_observation_age": int(age),
+        "belief_launch_recency_weight": float(launch_recency_weight),
+        "belief_history_launch_age": int(history_launch_age),
+        "belief_last_history_launch_index": int(cell.last_history_launch_index),
+        "belief_current_history_launch_index": -1 if current_history_launch_index is None else int(current_history_launch_index),
+        "belief_launch_recency_half_life": float(belief.launch_recency_half_life),
         "belief_direction_bin": int(cell.direction_bin),
         "belief_z_bin": int(cell.z_bin),
         "belief_update_count": int(belief.update_count),
@@ -247,6 +276,11 @@ def _cell_key_for_values(
 
 def _cell_key(cell: DirectionalResidualCell) -> tuple[int, int, int, int]:
     return (int(cell.x_bin), int(cell.y_bin), int(cell.z_bin), int(cell.direction_bin))
+
+
+def _launch_recency_weight(belief: DirectionalResidualLiftBelief, launch_age: int) -> float:
+    half_life = max(1e-9, float(belief.launch_recency_half_life))
+    return float(0.5 ** (max(0, int(launch_age)) / half_life))
 
 
 def _bin_index(value: float, edges: tuple[float, ...]) -> int:

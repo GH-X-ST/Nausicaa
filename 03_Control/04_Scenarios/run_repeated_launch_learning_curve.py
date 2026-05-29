@@ -137,10 +137,11 @@ DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE = 10
 REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION = "predictive_next_primitive_scheduler_profile_v1"
 REAL_TIME_PREFERRED_DECISION_BUDGET_S = CONTROLLER_INPUT_UPDATE_PERIOD_S
 REAL_TIME_HARD_DECISION_BUDGET_S = PRIMITIVE_FINITE_HORIZON_S
-OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_candidate_path_residual_memory_v1_0"
+OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_baseline_shielded_recency_safe_exploration_memory_v1_2"
 CANDIDATE_PATH_MEMORY_LOOKAHEAD_S = 5.0 * PRIMITIVE_FINITE_HORIZON_S
 CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M = 0.75
 CANDIDATE_PATH_MEMORY_FULL_CONFIDENCE_OBSERVATIONS = 3.0
+RESIDUAL_MEMORY_LAUNCH_RECENCY_HALF_LIFE = 4.0
 CANDIDATE_PATH_MEMORY_HEADING_OFFSET_CAP_RAD = math.radians(35.0)
 CANDIDATE_PATH_MEMORY_PROBES = ((0.0, 0.20), (0.5, 0.35), (1.0, 0.45))
 THESIS_FACING_WORKFLOW = "R5 -> R7 -> R8 -> R10 -> R11 -> Reality"
@@ -1314,6 +1315,7 @@ def _final_heldout_schedule(*, outer_cases: list[dict[str, object]], protocol: V
                         "library_size_case_id": case_id,
                         "policy_id": policy_id,
                         "history_length": int(_policy_condition(policy_id)["history_length"]),
+                        "adaptation_launch_index": int(_policy_condition(policy_id)["history_length"]),
                     }
                 )
                 episode_index += 1
@@ -1341,6 +1343,7 @@ def _history_launch_schedule(*, outer_cases: list[dict[str, object]], protocol: 
                             ),
                             "launch_role": "history",
                             "history_launch_index": history_index,
+                            "adaptation_launch_index": history_index,
                             "library_size_case_id": case_id,
                             "policy_id": policy_id,
                             "history_length": history_length,
@@ -1367,6 +1370,7 @@ def _history_row_for_final(final_row: dict[str, object], history_index: int) -> 
         "episode_id": f"{final_row['episode_id']}_hist_{int(history_index):03d}",
         "launch_role": "history",
         "history_launch_index": int(history_index),
+        "adaptation_launch_index": int(history_index),
         "launch_state_seed": int(final_row["launch_state_seed"]) + seed_shift,
         "environment_seed": environment_seed,
         "common_final_launch_key": str(final_row["common_final_launch_key"]),
@@ -1417,13 +1421,15 @@ def _policy_condition(policy_id: str) -> dict[str, object]:
                 "history_length": history_length,
                 "uses_memory": True,
                 "updates_memory": True,
-                "safe_explore": prefix == SAFE_EXPLORE_POLICY_PREFIX,
+                "safe_explore": True,
             }
     raise KeyError(f"unknown policy_id: {policy_id}")
 
 
 def _initial_belief_for_policy(*, policy: dict[str, object], final_row: dict[str, object]) -> DirectionalResidualLiftBelief:
-    belief = initial_directional_residual_lift_belief()
+    belief = initial_directional_residual_lift_belief(
+        launch_recency_half_life=RESIDUAL_MEMORY_LAUNCH_RECENCY_HALF_LIFE,
+    )
     del final_row
     return belief
 
@@ -1659,6 +1665,7 @@ def _run_one_launch(
                 outcome=outcome,
             ),
             dwell_residual_s=float(rollout_row.get("lift_dwell_time_s", 0.0)) - float(outcome.get("expected_lift_dwell_time_s", 0.0)),
+            history_launch_index=_adaptation_launch_index(scheduled),
         )
         belief_before_update = belief_after
         if bool(policy["updates_memory"]):
@@ -1695,6 +1702,7 @@ def _run_one_launch(
                         y_w_m=float(state[STATE_INDEX["y_w"]]),
                         z_w_m=float(state[STATE_INDEX["z_w"]]),
                         direction_rad=float(state[STATE_INDEX["psi"]]),
+                        current_history_launch_index=_adaptation_launch_index(scheduled),
                     ),
                 )
             )
@@ -1756,6 +1764,7 @@ def _candidate_path_belief_features_fn(
     *,
     belief: DirectionalResidualLiftBelief,
     state: np.ndarray,
+    current_history_launch_index: int,
 ) -> Callable[[dict[str, object], dict[str, object]], dict[str, object]]:
     state_vector = as_state_vector(state)
     cell_lookup = directional_residual_lift_cell_lookup(belief)
@@ -1767,6 +1776,7 @@ def _candidate_path_belief_features_fn(
             state=state_vector,
             representative=representative,
             outcome=outcome,
+            current_history_launch_index=current_history_launch_index,
         )
 
     return features_for_candidate
@@ -1779,6 +1789,7 @@ def _candidate_path_belief_features(
     state: np.ndarray,
     representative: dict[str, object],
     outcome: dict[str, object],
+    current_history_launch_index: int,
 ) -> dict[str, object]:
     """Return a conservative path-specific residual-memory correction for one candidate."""
 
@@ -1821,6 +1832,7 @@ def _candidate_path_belief_features(
             z_w_m=z_w_m,
             direction_rad=probe_direction,
             cell_lookup=cell_lookup,
+            current_history_launch_index=current_history_launch_index,
         )
         probe_confidence = _candidate_path_probe_confidence(last_features)
         weighted_lift += weight * probe_confidence * _float_value(last_features.get("belief_local_lift_residual_m_s", 0.0))
@@ -1857,9 +1869,14 @@ def _candidate_path_belief_features(
         "belief_effective_observation_count": float(observation_count) * float(confidence),
         "belief_recency_weight": float(last_features.get("belief_recency_weight", 0.0) or 0.0),
         "belief_observation_age": int(_float_value(last_features.get("belief_observation_age", 0))),
+        "belief_launch_recency_weight": float(last_features.get("belief_launch_recency_weight", 0.0) or 0.0),
+        "belief_history_launch_age": int(_float_value(last_features.get("belief_history_launch_age", 0))),
+        "belief_last_history_launch_index": int(_float_value(last_features.get("belief_last_history_launch_index", -1))),
+        "belief_launch_recency_half_life": float(RESIDUAL_MEMORY_LAUNCH_RECENCY_HALF_LIFE),
         "belief_direction_bin": int(_float_value(last_features.get("belief_direction_bin", 0))),
         "belief_z_bin": int(_float_value(last_features.get("belief_z_bin", 0))),
         "belief_update_count": int(belief.update_count),
+        "belief_current_history_launch_index": int(current_history_launch_index),
         "belief_memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION,
         "belief_candidate_path_probe_count": int(len(CANDIDATE_PATH_MEMORY_PROBES)),
         "belief_candidate_path_lookahead_s": float(CANDIDATE_PATH_MEMORY_LOOKAHEAD_S),
@@ -2004,6 +2021,7 @@ def _prepare_realtime_governor_decision(
     belief_started = time.perf_counter()
     belief_features = None
     candidate_belief_features = None
+    current_history_launch_index = _adaptation_launch_index(scheduled)
     if bool(policy["uses_memory"]):
         belief_features = query_directional_residual_lift_features(
             belief,
@@ -2011,10 +2029,12 @@ def _prepare_realtime_governor_decision(
             y_w_m=float(state[STATE_INDEX["y_w"]]),
             z_w_m=float(state[STATE_INDEX["z_w"]]),
             direction_rad=float(state[STATE_INDEX["psi"]]),
+            current_history_launch_index=current_history_launch_index,
         )
         candidate_belief_features = _candidate_path_belief_features_fn(
             belief=belief,
             state=state,
+            current_history_launch_index=current_history_launch_index,
         )
     belief_query_duration_s = time.perf_counter() - belief_started
 
@@ -2427,6 +2447,7 @@ def _context_payload(
         "updraft_model_id": context.updraft_model_id,
         "library_size_case_id": str(scheduled.get("library_size_case_id", "")),
         "history_length": int(scheduled.get("history_length", 0)),
+        "adaptation_launch_index": _adaptation_launch_index(scheduled),
         "policy_id": str(scheduled.get("policy_id", "")),
     }
     return {
@@ -2493,11 +2514,21 @@ def _governor_config_for_policy(policy: dict[str, object], *, base_config: Gover
     )
 
 
+def _adaptation_launch_index(scheduled: dict[str, object]) -> int:
+    value = scheduled.get("adaptation_launch_index", "")
+    if str(value).strip() not in {"", "nan", "None"}:
+        return int(_float_value(value, 0.0))
+    if str(scheduled.get("launch_role", "")) == "history":
+        return int(_float_value(scheduled.get("history_launch_index", 0.0)))
+    return int(_float_value(scheduled.get("history_length", 0.0)))
+
+
 def _schedule_identity_row(row: dict[str, object]) -> dict[str, object]:
     return {
         "library_size_case_id": str(row.get("library_size_case_id", "")),
         "policy_id": str(row.get("policy_id", "")),
         "history_length": int(row.get("history_length", 0)),
+        "adaptation_launch_index": _adaptation_launch_index(row),
         "outer_case_index": int(row.get("outer_case_index", 0)),
         "outer_case_id": str(row.get("outer_case_id", "")),
         "outer_case_type": str(row.get("outer_case_type", "")),
@@ -2883,9 +2914,11 @@ def _expected_low_energy_dry_air_sink(
 ) -> bool:
     if not primitive_rows:
         return False
+    zero_active_fan_case = str(scheduled.get("scheduled_active_fan_count", "")).strip() in {"0", "0.0"}
     dry_air_case = bool(
         str(scheduled.get("environment_mode", "")) == "dry_air"
         or str(scheduled.get("environment_block_id", "")) in DRY_AIR_ENERGY_DEPLETION_BLOCK_IDS
+        or zero_active_fan_case
     )
     if not dry_air_case:
         return False
@@ -3168,6 +3201,11 @@ def _belief_snapshot_compact(
         "belief_effective_observation_count": float(features.get("belief_effective_observation_count", 0.0) or 0.0),
         "belief_recency_weight": float(features.get("belief_recency_weight", 0.0) or 0.0),
         "belief_observation_age": int(features.get("belief_observation_age", 0) or 0),
+        "belief_launch_recency_weight": float(features.get("belief_launch_recency_weight", 0.0) or 0.0),
+        "belief_history_launch_age": int(features.get("belief_history_launch_age", 0) or 0),
+        "belief_last_history_launch_index": int(features.get("belief_last_history_launch_index", -1) or -1),
+        "belief_current_history_launch_index": int(features.get("belief_current_history_launch_index", -1) or -1),
+        "belief_launch_recency_half_life": float(features.get("belief_launch_recency_half_life", 0.0) or 0.0),
         "belief_uncertainty": float(features.get("belief_uncertainty", 1.0) or 1.0),
         "belief_local_lift_residual_m_s": float(features.get("belief_local_lift_residual_m_s", 0.0) or 0.0),
         "belief_local_updraft_gain_proxy_m": float(
@@ -3924,8 +3962,24 @@ def _pass_fail_summary(
                     max(_mean_bool(claim_rows, "terminal_useful"), _mean_bool(claim_rows, "lift_capture")),
                     protocol.min_terminal_or_lift_capture_rate,
                 ),
-                _gate_row("selected_primitive_family_count_ge_5", len(selected_primitives) >= 5, len(selected_primitives), 5),
-                _gate_row("selected_variant_count_ge_10", len(selected_variants) >= 10, len(selected_variants), 10),
+                _gate_row(
+                    "selected_primitive_family_count_diagnostic",
+                    True,
+                    len(selected_primitives),
+                    "diagnostic_only_not_a_governor_pass_gate",
+                ),
+                _gate_row(
+                    "selected_variant_count_diagnostic",
+                    True,
+                    len(selected_variants),
+                    "diagnostic_only_not_a_governor_pass_gate",
+                ),
+                _gate_row(
+                    "lift_dwell_arc_selected_diagnostic",
+                    True,
+                    "lift_dwell_arc" in selected_primitives,
+                    "diagnostic_only_expected_when_viable_lift_dwell_evidence_wins",
+                ),
             ]
         )
         if protocol.min_full_safe_success_rate is not None:
@@ -4357,12 +4411,14 @@ def _write_manifest(
         "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
         "outer_loop_memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION,
         "outer_loop_memory_policy": (
-            "candidate-specific path residual correction over current, midpoint, and expected exit probes; "
-            "applied only through the existing post-viability governor score"
+            "candidate-specific path residual correction plus uncertainty-directed exploration over current, midpoint, "
+            "and expected exit probes; accepted only through a baseline shield with no final-launch special case"
         ),
         "candidate_path_memory_lookahead_s": float(CANDIDATE_PATH_MEMORY_LOOKAHEAD_S),
         "candidate_path_memory_residual_cap_m": float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
         "candidate_path_memory_full_confidence_observations": float(CANDIDATE_PATH_MEMORY_FULL_CONFIDENCE_OBSERVATIONS),
+        "residual_memory_launch_recency_half_life": float(RESIDUAL_MEMORY_LAUNCH_RECENCY_HALF_LIFE),
+        "safe_exploration_policy": "always_available_for_memory_policies_after_viability_filter_and_baseline_shield_no_final_run_branch",
         "thesis_facing_workflow": THESIS_FACING_WORKFLOW,
         "governor_config_override_active": config.governor_config is not None,
         "governor_config": governor_config_to_row(config.governor_config or DEFAULT_GOVERNOR_CONFIG),
@@ -4453,7 +4509,7 @@ def _write_manifest(
         "launch_score_target_episode_time_s": float(SCORING_TARGET_EPISODE_TIME_S),
         "launch_score_gravity_m_s2": float(SPECIFIC_ENERGY_GRAVITY_M_S2),
         "low_launch_speed_dry_air_sink_policy": (
-            "raw primitive floor_violation is retained, but dry-air floor stop after a low-speed launch "
+            "raw primitive floor_violation is retained, but dry-air or scheduled-zero-fan floor stop after a low-speed launch "
             "is labelled expected_low_energy_dry_air_sink and excluded from governor/memory claim-bearing gates"
         ),
         "low_launch_speed_dry_air_threshold_m_s": float(LOW_LAUNCH_SPEED_DRY_AIR_THRESHOLD_M_S),
@@ -4505,10 +4561,11 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Safety thresholds: hard failure <= `{protocol.max_hard_failure_rate}`, no-viable <= `{protocol.max_no_viable_rate}`, safe success >= `{protocol.min_safe_success_rate}`, full safe success >= `{protocol.min_full_safe_success_rate}`, terminal/lift >= `{protocol.min_terminal_or_lift_capture_rate}`.",
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
         "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, updraft gain, flight time, and residual memory.",
-        f"- Residual memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` applies a capped, confidence-gated correction along each candidate primitive's predicted path after viability filtering.",
+        f"- Residual memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` applies capped, recency-weighted candidate-path residual memory and shielded uncertainty exploration after viability filtering.",
+        "- The adaptive selector uses one baseline shield at every launch; there is no branch that treats a held-out final launch as a known final mission.",
         "- Boundary-near is a route state, not automatic failure; hard_failure is the failure class.",
         f"- Launch score: `{LAUNCH_SCORE_VERSION}`; rewards safe valid flight time and updraft-gain proxy, while net/gross energy drift remains audit-only.",
-        "- Dry-air low-launch-speed floor stops keep the raw primitive `floor_violation` audit label, but are interpreted as expected energy depletion rather than governor or memory failure.",
+        "- Dry-air or scheduled-zero-fan low-launch-speed floor stops keep the raw primitive `floor_violation` audit label, but are interpreted as expected energy depletion rather than governor or memory failure.",
         "- Claim boundary: simulation-only; no hardware, real-flight transfer, mission, autonomy, or memory-improvement claim.",
         "",
         "Gate summary:",

@@ -6,6 +6,17 @@ from context_conditioned_outcome import context_conditioned_outcome, lookup_outc
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, GOVERNOR_MODES, GovernorConfig, governor_candidate_row
 
 CandidateBeliefFeaturesFn = Callable[[dict[str, object], dict[str, object]], dict[str, object] | None]
+BASELINE_SHIELDED_MEMORY_POLICY_VERSION = "baseline_shielded_candidate_path_memory_safe_exploration_v1_2"
+MEMORY_SWITCH_MIN_CONFIDENCE = 0.45
+MEMORY_SWITCH_MIN_SCORE_MARGIN = 0.005
+MEMORY_SWITCH_MAX_BASE_SCORE_DROP = 0.03
+MEMORY_SWITCH_MAX_TRANSITION_SUCCESS_DROP = 0.02
+MEMORY_SWITCH_MAX_HARD_FAILURE_RISK_INCREASE = 0.0
+EXPLORATION_SWITCH_MIN_UNCERTAINTY = 0.55
+EXPLORATION_SWITCH_MIN_SCORE_MARGIN = 0.0
+EXPLORATION_SWITCH_MAX_BASE_SCORE_DROP = 0.01
+EXPLORATION_SWITCH_MAX_TRANSITION_SUCCESS_DROP = 0.0
+EXPLORATION_SWITCH_MAX_HARD_FAILURE_RISK_INCREASE = 0.0
 
 
 def select_compact_representative(
@@ -50,7 +61,15 @@ def select_compact_representative(
     viable = [row for row in candidate_rows if bool(row.get("viable", False))]
     if not viable:
         return None, candidate_rows
-    selected = sorted(
+    baseline_selected = sorted(
+        viable,
+        key=lambda row: (
+            -float(row.get("base_score_without_memory", float("-inf"))),
+            str(row.get("primitive_id", "")),
+            str(row.get("primitive_variant_id", "")),
+        ),
+    )[0]
+    memory_selected = sorted(
         viable,
         key=lambda row: (
             -float(row.get("total_score_with_memory_and_exploration", row.get("score", float("-inf")))),
@@ -58,6 +77,12 @@ def select_compact_representative(
             str(row.get("primitive_variant_id", "")),
         ),
     )[0]
+    selected = _baseline_shielded_memory_selection(
+        viable_rows=viable,
+        baseline_selected=baseline_selected,
+        memory_selected=memory_selected,
+        memory_active=candidate_belief_features is not None,
+    )
     selected_score = float(selected.get("total_score_with_memory_and_exploration", selected.get("score", float("-inf"))))
     for row in candidate_rows:
         row["score_margin_to_selected"] = (
@@ -66,6 +91,153 @@ def select_compact_representative(
             else float("inf")
         )
     return selected, candidate_rows
+
+
+def _baseline_shielded_memory_selection(
+    *,
+    viable_rows: list[dict[str, object]],
+    baseline_selected: dict[str, object],
+    memory_selected: dict[str, object],
+    memory_active: bool,
+) -> dict[str, object]:
+    baseline_variant_id = str(baseline_selected.get("primitive_variant_id", ""))
+    memory_variant_id = str(memory_selected.get("primitive_variant_id", ""))
+    if not memory_active:
+        _mark_memory_shield_rows(
+            viable_rows,
+            baseline_selected=baseline_selected,
+            memory_selected=memory_selected,
+            accepted=True,
+            status="not_active_no_candidate_path_memory",
+        )
+        return memory_selected
+    if memory_variant_id == baseline_variant_id:
+        _mark_memory_shield_rows(
+            viable_rows,
+            baseline_selected=baseline_selected,
+            memory_selected=memory_selected,
+            accepted=True,
+            status="baseline_and_memory_winner_match",
+        )
+        return memory_selected
+    accepted, status = _memory_switch_acceptance_status(
+        baseline_selected=baseline_selected,
+        memory_selected=memory_selected,
+    )
+    _mark_memory_shield_rows(
+        viable_rows,
+        baseline_selected=baseline_selected,
+        memory_selected=memory_selected,
+        accepted=accepted,
+        status=status,
+    )
+    return memory_selected if accepted else baseline_selected
+
+
+def _memory_switch_acceptance_status(
+    *,
+    baseline_selected: dict[str, object],
+    memory_selected: dict[str, object],
+) -> tuple[bool, str]:
+    confidence = _float(memory_selected.get("belief_candidate_path_confidence", 0.0))
+    uncertainty = _float(memory_selected.get("belief_uncertainty", 1.0), default=1.0)
+    exploration_component = _float(memory_selected.get("exploration_score_component", 0.0))
+    score_margin = _score(memory_selected, "total_score_with_memory_and_exploration") - _score(
+        baseline_selected,
+        "total_score_with_memory_and_exploration",
+    )
+    base_score_delta = _score(memory_selected, "base_score_without_memory") - _score(
+        baseline_selected,
+        "base_score_without_memory",
+    )
+    transition_delta = _float(memory_selected.get("transition_success_probability", 0.0)) - _float(
+        baseline_selected.get("transition_success_probability", 0.0)
+    )
+    hard_failure_delta = _float(memory_selected.get("hard_failure_risk", 1.0)) - _float(
+        baseline_selected.get("hard_failure_risk", 1.0)
+    )
+    memory_non_regressive = (
+        base_score_delta >= -MEMORY_SWITCH_MAX_BASE_SCORE_DROP
+        and transition_delta >= -MEMORY_SWITCH_MAX_TRANSITION_SUCCESS_DROP
+        and hard_failure_delta <= MEMORY_SWITCH_MAX_HARD_FAILURE_RISK_INCREASE
+    )
+    if (
+        confidence >= MEMORY_SWITCH_MIN_CONFIDENCE
+        and score_margin >= MEMORY_SWITCH_MIN_SCORE_MARGIN
+        and memory_non_regressive
+    ):
+        return True, "accepted_confident_non_regressive_memory_switch"
+    exploration_non_regressive = (
+        base_score_delta >= -EXPLORATION_SWITCH_MAX_BASE_SCORE_DROP
+        and transition_delta >= -EXPLORATION_SWITCH_MAX_TRANSITION_SUCCESS_DROP
+        and hard_failure_delta <= EXPLORATION_SWITCH_MAX_HARD_FAILURE_RISK_INCREASE
+    )
+    if (
+        exploration_component > 0.0
+        and uncertainty >= EXPLORATION_SWITCH_MIN_UNCERTAINTY
+        and score_margin >= EXPLORATION_SWITCH_MIN_SCORE_MARGIN
+        and exploration_non_regressive
+    ):
+        return True, "accepted_shielded_uncertainty_directed_exploration_switch"
+    if confidence < MEMORY_SWITCH_MIN_CONFIDENCE and exploration_component <= 0.0:
+        return False, "rejected_low_candidate_path_memory_confidence"
+    if exploration_component > 0.0 and uncertainty < EXPLORATION_SWITCH_MIN_UNCERTAINTY:
+        return False, "rejected_exploration_uncertainty_too_low"
+    if score_margin < min(MEMORY_SWITCH_MIN_SCORE_MARGIN, EXPLORATION_SWITCH_MIN_SCORE_MARGIN):
+        return False, "rejected_adaptive_score_margin_too_small"
+    if base_score_delta < -MEMORY_SWITCH_MAX_BASE_SCORE_DROP:
+        return False, "rejected_base_score_drop_too_large"
+    if transition_delta < -MEMORY_SWITCH_MAX_TRANSITION_SUCCESS_DROP:
+        return False, "rejected_transition_success_regression"
+    if hard_failure_delta > MEMORY_SWITCH_MAX_HARD_FAILURE_RISK_INCREASE:
+        return False, "rejected_hard_failure_risk_regression"
+    return False, "rejected_adaptive_switch_guard_not_satisfied"
+
+
+def _mark_memory_shield_rows(
+    rows: list[dict[str, object]],
+    *,
+    baseline_selected: dict[str, object],
+    memory_selected: dict[str, object],
+    accepted: bool,
+    status: str,
+) -> None:
+    baseline_variant_id = str(baseline_selected.get("primitive_variant_id", ""))
+    memory_variant_id = str(memory_selected.get("primitive_variant_id", ""))
+    score_margin = _score(memory_selected, "total_score_with_memory_and_exploration") - _score(
+        baseline_selected,
+        "total_score_with_memory_and_exploration",
+    )
+    base_score_delta = _score(memory_selected, "base_score_without_memory") - _score(
+        baseline_selected,
+        "base_score_without_memory",
+    )
+    transition_delta = _float(memory_selected.get("transition_success_probability", 0.0)) - _float(
+        baseline_selected.get("transition_success_probability", 0.0)
+    )
+    hard_failure_delta = _float(memory_selected.get("hard_failure_risk", 1.0)) - _float(
+        baseline_selected.get("hard_failure_risk", 1.0)
+    )
+    confidence = _float(memory_selected.get("belief_candidate_path_confidence", 0.0))
+    uncertainty = _float(memory_selected.get("belief_uncertainty", 1.0), default=1.0)
+    exploration_component = _float(memory_selected.get("exploration_score_component", 0.0))
+    for row in rows:
+        row["memory_shield_policy_version"] = BASELINE_SHIELDED_MEMORY_POLICY_VERSION
+        row["memory_shield_status"] = str(status)
+        row["memory_shield_accepted"] = bool(accepted)
+        row["memory_shield_baseline_variant_id"] = baseline_variant_id
+        row["memory_shield_memory_variant_id"] = memory_variant_id
+        row["memory_shield_selected_variant_id"] = memory_variant_id if accepted else baseline_variant_id
+        row["memory_shield_score_margin"] = float(score_margin)
+        row["memory_shield_base_score_delta"] = float(base_score_delta)
+        row["memory_shield_transition_success_delta"] = float(transition_delta)
+        row["memory_shield_hard_failure_risk_delta"] = float(hard_failure_delta)
+        row["memory_shield_candidate_path_confidence"] = float(confidence)
+        row["memory_shield_candidate_path_uncertainty"] = float(uncertainty)
+        row["memory_shield_exploration_score_component"] = float(exploration_component)
+        row["memory_shield_min_confidence"] = float(MEMORY_SWITCH_MIN_CONFIDENCE)
+        row["memory_shield_min_score_margin"] = float(MEMORY_SWITCH_MIN_SCORE_MARGIN)
+        row["memory_shield_exploration_min_uncertainty"] = float(EXPLORATION_SWITCH_MIN_UNCERTAINTY)
 
 
 def _outcome_for_representative(
@@ -133,6 +305,11 @@ def selector_decision_row(
         "selected_transition_entry_class": "" if selected is None else str(selected.get("transition_entry_class", "")),
         "selected_controller_id": "" if selected is None else str(selected.get("controller_id", "")),
         "selected_score": float("-inf") if selected is None else float(selected.get("score", float("-inf"))),
+        "selected_memory_shield_policy_version": "" if selected is None else str(selected.get("memory_shield_policy_version", "")),
+        "selected_memory_shield_status": "" if selected is None else str(selected.get("memory_shield_status", "")),
+        "selected_memory_shield_accepted": False if selected is None else bool(selected.get("memory_shield_accepted", False)),
+        "selected_memory_shield_baseline_variant_id": "" if selected is None else str(selected.get("memory_shield_baseline_variant_id", "")),
+        "selected_memory_shield_memory_variant_id": "" if selected is None else str(selected.get("memory_shield_memory_variant_id", "")),
         "claim_status": "simulation_only_selector_decision",
     }
 
@@ -173,3 +350,15 @@ def _add_rank_diagnostics(rows: list[dict[str, object]]) -> None:
         row["rank_with_memory_and_exploration"] = int(rank_explore.get(variant_id, 0))
         row["rank_change_due_to_memory"] = int(rank_without.get(variant_id, 0) - rank_with.get(variant_id, 0))
         row["rank_change_due_to_exploration"] = int(rank_with.get(variant_id, 0) - rank_explore.get(variant_id, 0))
+
+
+def _score(row: dict[str, object], column: str) -> float:
+    return _float(row.get(column, float("-inf")), default=float("-inf"))
+
+
+def _float(value: object, default: float = 0.0) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    return result

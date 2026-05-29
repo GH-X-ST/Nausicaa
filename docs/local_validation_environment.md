@@ -72,7 +72,7 @@ study, R9 is internal quick fixed-case preflight/ablation only and is not
 thesis-facing evidence, R10 is single-block full-domain arena-wide governor
 tuning, and R11 is strict held-out eight-block fidelity-ladder validation. R9 defaults to all five
 library-size cases, no-updraft/single-fan/four-fan fixed blocks, no-memory plus
-h20 residual memory only, 30 final held-out launches, and 300 history launches.
+h3/h10/h30 recency-weighted candidate-path residual memory, 60 final held-out launches, and 645 history launches.
 R9/R10/R11 also write a repeated-launch real-time scheduler profile: context
 construction, memory query, and compact-library selection are measured against
 a preferred 20 ms controller-slot budget and a hard 0.100 s primitive-boundary

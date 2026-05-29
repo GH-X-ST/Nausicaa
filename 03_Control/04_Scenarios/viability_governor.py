@@ -227,14 +227,20 @@ def governor_candidate_row(
         "viable": viable,
         "rejection_reason": rejection_reason,
         "score": float(total_score if viable else float("-inf")),
-        "exploit_score_component": float(base_score if viable else float("-inf")),
+        "base_library_score_component": float(base_score if viable else float("-inf")),
         "base_score_without_memory": float(base_score if rejection_reason == "" else float("-inf")),
         "memory_score_component": float(memory_component if viable else 0.0),
         "memory_residual_score_component": float(memory_component if viable else 0.0),
         "exploration_score_component": float(exploration_component if viable else 0.0),
         "score_with_memory": float(score_with_memory if rejection_reason == "" else float("-inf")),
         "total_score_with_memory_and_exploration": float(total_score if viable else float("-inf")),
-        "safe_exploration_status": "applied_after_viability_filter" if viable else "not_applied_rejected_before_exploration",
+        "safe_exploration_status": (
+            "applied_after_viability_filter_uncertainty_bonus_requires_baseline_shield"
+            if viable and float(exploration_component) > 0.0
+            else "applied_after_viability_filter_zero_or_disabled"
+            if viable
+            else "not_applied_rejected_before_exploration"
+        ),
         "score_margin_to_selected": 0.0,
         "rank_without_memory": 0,
         "rank_with_memory": 0,
@@ -257,6 +263,11 @@ def governor_candidate_row(
         "belief_effective_observation_count": _float(belief_features.get("belief_effective_observation_count", belief_observation_count)),
         "belief_recency_weight": _float(belief_features.get("belief_recency_weight", 0.0)),
         "belief_observation_age": int(_float(belief_features.get("belief_observation_age", 0.0))),
+        "belief_launch_recency_weight": _float(belief_features.get("belief_launch_recency_weight", 0.0)),
+        "belief_history_launch_age": int(_float(belief_features.get("belief_history_launch_age", 0.0))),
+        "belief_last_history_launch_index": int(_float(belief_features.get("belief_last_history_launch_index", -1.0))),
+        "belief_current_history_launch_index": int(_float(belief_features.get("belief_current_history_launch_index", -1.0))),
+        "belief_launch_recency_half_life": _float(belief_features.get("belief_launch_recency_half_life", 0.0)),
         "belief_direction_bin": int(_float(belief_features.get("belief_direction_bin", 0.0))),
         "belief_z_bin": int(_float(belief_features.get("belief_z_bin", 0.0))),
         "belief_update_count": int(_float(belief_features.get("belief_update_count", 0.0))),
