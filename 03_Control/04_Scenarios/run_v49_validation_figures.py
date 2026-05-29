@@ -30,8 +30,8 @@ from dense_archive_table_io import file_sha256, filesystem_path  # noqa: E402
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.9"
 FIGURE_RUN_VERSION = "v49_paired_full_loop_validation_figures_v1"
-DEFAULT_INPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/full_loop_validation/004")
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/figures/v49_validation")
+DEFAULT_INPUT_ROOT = Path("03_Control/05_Results/R11_validation/004")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/Z_archive/v49_validation_figures")
 FIGURE_NAMES = (
     "policy_terminal_hard_failure_bar.png",
     "memory_lambda_comparison.png",

@@ -76,9 +76,9 @@ from prim_cat import ACTIVE_PRIMITIVE_IDS  # noqa: E402
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 PIPELINE_VERSION = "v55_r5_r7_r11_pipeline_r6_archived_with_repeated_docs_guard"
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/r5_r11_pipeline")
-DEFAULT_REPEATED_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/repeated_launch_validation")
-DEFAULT_CHANGED_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/changed_case_validation")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/A_Pipeline")
+DEFAULT_REPEATED_OUTPUT_ROOT = Path("03_Control/05_Results/R9_test")
+DEFAULT_CHANGED_OUTPUT_ROOT = Path("03_Control/05_Results/R10_learn")
 DEFAULT_HELDOUT_CHANGED_OUTPUT_ROOT = DEFAULT_R11_OUTPUT_ROOT
 CONTROLLING_DOCS = (
     Path("docs/Glider_Control_Project_Plan.md"),
@@ -741,7 +741,7 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "r9_initial_governor_config_for_r10_exists", (run_root / "manifests" / "initial_governor_config_for_r10.json").is_file(), (run_root / "manifests" / "initial_governor_config_for_r10.json").as_posix(), "exists"),
             _check_row(stage_id, "r9_initial_governor_config_selected_for_r10", _read_json_if_exists(run_root / "manifests" / "initial_governor_config_for_r10.json").get("status") == "selected_for_r10_initialisation", _read_json_if_exists(run_root / "manifests" / "initial_governor_config_for_r10.json").get("status", ""), "selected_for_r10_initialisation"),
             _check_row(stage_id, "all_active_library_size_cases", set(manifest.get("library_size_case_ids", [])) == set(LIBRARY_SIZE_CASE_IDS), manifest.get("library_size_case_ids", []), list(LIBRARY_SIZE_CASE_IDS)),
-            _check_row(stage_id, "r9_quick_preflight_two_policy_history_conditions", set(manifest.get("policy_history_conditions", [])) == set(R9_POLICY_HISTORY_CONDITIONS), manifest.get("policy_history_condition_count", 0), len(R9_POLICY_HISTORY_CONDITIONS)),
+            _check_row(stage_id, "r9_quick_preflight_memory_ladder_conditions", set(manifest.get("policy_history_conditions", [])) == set(R9_POLICY_HISTORY_CONDITIONS), manifest.get("policy_history_condition_count", 0), len(R9_POLICY_HISTORY_CONDITIONS)),
             _check_row(stage_id, "first_decision_launch_gate_audits_present", _validation_launch_gate_audit_passed(run_root), "audit", "passed"),
             _file_size_check(stage_id, run_root),
         ]
@@ -1041,6 +1041,8 @@ def _official_run_label_conflicts(*, config: R5R10PipelineConfig, run_id: int, r
             targets.append(W3_OUTPUT_ROOT / stage_label)
         if "R8" in selected:
             targets.extend((POST_W3_OUTPUT_ROOT / stage_label, OUTCOME_OUTPUT_ROOT / stage_label))
+        if "R9" in selected:
+            targets.append(DEFAULT_REPEATED_OUTPUT_ROOT / stage_label)
         if "R10" in selected:
             targets.append(DEFAULT_CHANGED_OUTPUT_ROOT / stage_label)
         if "R11" in selected:

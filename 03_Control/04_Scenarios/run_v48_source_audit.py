@@ -25,13 +25,13 @@ from dense_archive_table_io import file_sha256, filesystem_path, load_table_mani
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.8"
 SOURCE_AUDIT_VERSION = "v48_full_loop_source_audit_v1"
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/full_loop_validation/001")
-DEFAULT_W01_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense/015")
-DEFAULT_W2_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival/015")
-DEFAULT_W3_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival/013")
-DEFAULT_POST_W3_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/post_w3_cluster/001")
-DEFAULT_OUTCOME_SMOKE_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/outcome_model/001")
-DEFAULT_GOVERNOR_SMOKE_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/governor_smoke/001")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R11_validation/001")
+DEFAULT_W01_ROOT = Path("03_Control/05_Results/R5_dense/015")
+DEFAULT_W2_ROOT = Path("03_Control/05_Results/R6_archived/015")
+DEFAULT_W3_ROOT = Path("03_Control/05_Results/R7_survival/013")
+DEFAULT_POST_W3_ROOT = Path("03_Control/05_Results/R8_library_size_study/001")
+DEFAULT_OUTCOME_SMOKE_ROOT = Path("03_Control/05_Results/R8_outcome/001")
+DEFAULT_GOVERNOR_SMOKE_ROOT = Path("03_Control/05_Results/B_runtime_smoke/001")
 BLOCKED_CLAIMS = (
     "hardware_readiness",
     "real_flight_transfer",

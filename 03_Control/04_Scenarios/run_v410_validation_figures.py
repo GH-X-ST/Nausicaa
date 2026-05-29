@@ -28,8 +28,8 @@ from dense_archive_table_io import file_sha256, filesystem_path  # noqa: E402
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.10"
-DEFAULT_CALIBRATION_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/governor_calibration/001")
-DEFAULT_HELDOUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/full_loop_validation/006")
+DEFAULT_CALIBRATION_ROOT = Path("03_Control/05_Results/R10_learn/001")
+DEFAULT_HELDOUT_ROOT = Path("03_Control/05_Results/R11_validation/006")
 
 
 def run_v410_validation_figures(calibration_root: Path = DEFAULT_CALIBRATION_ROOT, heldout_root: Path = DEFAULT_HELDOUT_ROOT) -> dict[str, object]:

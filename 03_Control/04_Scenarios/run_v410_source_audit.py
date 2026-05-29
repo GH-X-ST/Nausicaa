@@ -45,8 +45,8 @@ from run_v48_source_audit import (  # noqa: E402
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.10"
 SOURCE_AUDIT_VERSION = "v410_governor_calibration_source_audit_v1"
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/full_loop_validation/006")
-DEFAULT_FULL_LOOP_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/full_loop_validation/005")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R11_validation/006")
+DEFAULT_FULL_LOOP_ROOT = Path("03_Control/05_Results/R11_validation/005")
 BLOCKED_CLAIMS = tuple(
     dict.fromkeys(
         [

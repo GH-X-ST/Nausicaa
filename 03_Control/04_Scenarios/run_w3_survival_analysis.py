@@ -34,7 +34,7 @@ from transition_labels import transition_contract_row, transition_row_fields  # 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 W3_ANALYSIS_VERSION = "r7_variant_survival_analysis_v413_dry_air_route_usable"
-DEFAULT_W3_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival/013")
+DEFAULT_W3_ROOT = Path("03_Control/05_Results/R7_survival/A01")
 W3_ENVIRONMENT_MODES = ("dry_air", "w3_randomised_single", "w3_randomised_four")
 STATUS_VOCABULARY = (
     "survived",
@@ -148,7 +148,7 @@ def _input_blocked_reason(input_root: Path) -> str:
         return "W3_fixture_root_not_method_evidence"
     if str(manifest.get("method_evidence_level", "")) not in {"w3_dense_survival_pass", "complete"}:
         return "W3_source_not_dense_survival_evidence"
-    if "w3_survival" not in input_root.as_posix():
+    if "w3_survival" not in input_root.as_posix() and "R7_survival" not in input_root.as_posix():
         return "input_root_is_not_w3_survival_root"
     return ""
 

@@ -127,7 +127,7 @@ R5_REFERENCE_BIAS_COLUMNS = (
     "reference_roll_rate_bias_rad_s",
     "reference_speed_bias_m_s",
 )
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R5_dense")
 L6_FALLBACK_ROW_COUNT = 19_200
 L6_RICH_SIDE_CANDIDATE_COUNT = 32
 L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE = 100

@@ -67,9 +67,9 @@ from transition_labels import transition_contract_row, transition_row_fields, tu
 
 W3_SURVIVAL_VERSION = "r7_fixed_lqr_survival_replay_v415_includes_dry_air"
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
-DEFAULT_R5_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w01_dense")
-DEFAULT_W2_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w2_survival")
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")
+DEFAULT_R5_DISCOVERY_ROOT = Path("03_Control/05_Results/R5_dense")
+DEFAULT_W2_DISCOVERY_ROOT = Path("03_Control/05_Results/R6_archived")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R7_survival")
 W3_TABLE_NAME = "w3_survival_rows"
 W3_ENVIRONMENT_CASES = ("dry_air", "w3_randomised_single", "w3_randomised_four")
 W3_ACTIVE_FAN_COUNT_SEQUENCE = (1, 2, 3, 4)

@@ -70,7 +70,7 @@ from state_sampling import archive_state_sample_for_family  # noqa: E402
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.9"
 FULL_LOOP_VERSION = "v49_paired_full_loop_memory_validation_v1"
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/full_loop_validation")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R11_validation")
 PAIRED_SCHEDULE_VERSION = "v49_common_random_paired_episode_schedule_v1"
 STATIC_MAP_PRIOR_VERSION = "v49_surrogate_grid_static_lift_prior_v1"
 PHYSICAL_HARD_FAILURE_LABELS = {

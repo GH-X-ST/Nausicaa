@@ -1,0 +1,38 @@
+usage: run_lqr_w01_dense_chunked.py [-h] --run-id RUN_ID [--rows ROWS]
+                                    [--seed SEED]
+                                    [--candidate-chunk-size CANDIDATE_CHUNK_SIZE]
+                                    [--workers WORKERS]
+                                    [--max-workers MAX_WORKERS]
+                                    [--storage-format {auto,parquet,csv_gz,csv}]
+                                    [--compression-level COMPRESSION_LEVEL]
+                                    [--resume] [--no-resume]
+                                    [--repair-incomplete] [--dry-run-schedule]
+                                    [--stop-after-chunks STOP_AFTER_CHUNKS]
+                                    [--continue-on-chunk-failure]
+                                    [--output-root OUTPUT_ROOT]
+                                    [--candidate-count CANDIDATE_COUNT]
+                                    [--paired-tests-per-candidate PAIRED_TESTS_PER_CANDIDATE]
+                                    [--schedule-mode {balanced_paired,smoke_row_index}]
+
+Run the W01 primitive-controller dense preflight.
+
+options:
+  -h, --help            show this help message and exit
+  --run-id RUN_ID
+  --rows ROWS
+  --seed SEED
+  --candidate-chunk-size CANDIDATE_CHUNK_SIZE, --chunk-size CANDIDATE_CHUNK_SIZE
+  --workers WORKERS
+  --max-workers MAX_WORKERS
+  --storage-format {auto,parquet,csv_gz,csv}
+  --compression-level COMPRESSION_LEVEL
+  --resume
+  --no-resume
+  --repair-incomplete
+  --dry-run-schedule
+  --stop-after-chunks STOP_AFTER_CHUNKS
+  --continue-on-chunk-failure
+  --output-root OUTPUT_ROOT
+  --candidate-count CANDIDATE_COUNT
+  --paired-tests-per-candidate PAIRED_TESTS_PER_CANDIDATE
+  --schedule-mode {balanced_paired,smoke_row_index}

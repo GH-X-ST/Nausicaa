@@ -31,9 +31,9 @@ from transition_labels import transition_contract_row  # noqa: E402
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 POST_W3_LIBRARY_STUDY_VERSION = "post_w3_library_size_study_v53_coverage_speed_bin_medoid_v2"
-DEFAULT_W3_DISCOVERY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival")
+DEFAULT_W3_DISCOVERY_ROOT = Path("03_Control/05_Results/R7_survival")
 DEFAULT_INPUT_ROOT: Path | None = None
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R8_library_size_study")
 LIBRARY_SIZE_CASES: tuple[dict[str, object], ...] = (
     {
         "library_size_case_id": "heavy_cluster",
@@ -231,7 +231,7 @@ def _eligible_w3_transition_objects(variant_summary: pd.DataFrame) -> pd.DataFra
 
 def _input_blocked_reason(input_root: Path) -> str:
     root = Path(input_root)
-    if "w3_survival" not in root.as_posix():
+    if "w3_survival" not in root.as_posix() and "R7_survival" not in root.as_posix():
         return "input_root_is_not_W3_survival_root"
     registry_path = filesystem_path(root / "manifests" / "w3_survivor_registry.json")
     summary_path = filesystem_path(root / "metrics" / "w3_variant_survival_summary.csv")

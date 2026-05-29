@@ -72,7 +72,7 @@ from state_sampling import archive_state_sample_for_family  # noqa: E402
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 AUDIT_VERSION = "lqr_controller_trajectory_audit_v2_continuous_command_history"
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/lqr_controller_trajectory_audit")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/E_lqr_trajectory_audit")
 DEFAULT_DURATION_S = 0.80
 DEFAULT_CANDIDATE_INDICES = (0, 1, 3, 5, 6, 7)
 

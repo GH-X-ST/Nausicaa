@@ -41,8 +41,8 @@ from viability_governor import DEFAULT_GOVERNOR_CONFIG, GovernorConfig, governor
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.10"
 CALIBRATION_VERSION = "v410_outer_loop_governor_calibration_v1"
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/governor_calibration")
-DEFAULT_COMPACT_LIBRARY = Path("03_Control/05_Results/lqr_contextual_v1_0/post_w3_cluster/001/manifests/final_compact_primitive_library.json")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R10_learn")
+DEFAULT_COMPACT_LIBRARY = Path("03_Control/05_Results/R8_library_size_study/A01/manifests/balanced_cluster_primitive_library.json")
 CALIBRATION_SUBRUN_DIR = "cal"
 MAX_REPO_RELATIVE_PATH_CHARS = 140
 

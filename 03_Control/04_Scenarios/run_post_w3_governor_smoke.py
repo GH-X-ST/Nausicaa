@@ -31,10 +31,10 @@ from state_sampling import archive_state_sample_for_family  # noqa: E402
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.7"
 GOVERNOR_SMOKE_VERSION = "post_w3_outcome_governor_smoke_v1"
 DEFAULT_COMPACT_LIBRARY = Path(
-    "03_Control/05_Results/lqr_contextual_v1_0/post_w3_cluster/001/manifests/final_compact_primitive_library.json"
+    "03_Control/05_Results/R8_library_size_study/A01/manifests/balanced_cluster_primitive_library.json"
 )
-DEFAULT_OUTCOME_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/outcome_model")
-DEFAULT_GOVERNOR_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/governor_smoke")
+DEFAULT_OUTCOME_ROOT = Path("03_Control/05_Results/R8_outcome")
+DEFAULT_GOVERNOR_ROOT = Path("03_Control/05_Results/B_runtime_smoke")
 BLOCKED_CLAIMS = (
     "full_loop_validation_success",
     "hardware_readiness",

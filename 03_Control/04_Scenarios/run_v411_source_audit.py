@@ -45,8 +45,8 @@ REQUIRED_DOCS = (
     "Daily_Schedule.txt",
     "PR.txt",
 )
-RESULT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0")
-ARCHIVE_ROOT = RESULT_ROOT / "archive" / "diagnostic_not_passed_v410" / "001"
+RESULT_ROOT = Path("03_Control/05_Results")
+ARCHIVE_ROOT = RESULT_ROOT / "Z_archive" / "diagnostic_not_passed_v410" / "001"
 ACTIVE_DIRS = ("02_Inner_Loop", "03_Primitives", "04_Scenarios")
 RETIRED_NAME_FRAGMENTS = (
     "v48",

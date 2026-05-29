@@ -54,8 +54,8 @@ R10_REDUCED_EXPECTED_FINAL_HELDOUT_LAUNCHES = (
     len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_REDUCED_OUTER_CASES_PER_CONDITION
 )
 R10_REDUCED_EXPECTED_HISTORY_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * R10_REDUCED_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/changed_case_validation")
-DEFAULT_R11_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/heldout_changed_case_validation")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R10_learn")
+DEFAULT_R11_OUTPUT_ROOT = Path("03_Control/05_Results/R11_validation")
 
 R10_BLOCKS: tuple[ValidationBlockSpec, ...] = (
     ValidationBlockSpec(

@@ -27,8 +27,8 @@ from dense_archive_table_io import file_sha256, filesystem_path  # noqa: E402
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.7"
 POST_W3_VERSION = "post_w3_compact_representative_library_v1"
-DEFAULT_INPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/w3_survival/013")
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/post_w3_cluster")
+DEFAULT_INPUT_ROOT = Path("03_Control/05_Results/R7_survival/A01")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R8_library_size_study")
 BLOCKED_CLAIMS = (
     "hardware_readiness",
     "real_flight_transfer",
@@ -147,7 +147,7 @@ def run_post_w3_cluster_merge(
 
 def _input_blocked_reason(input_root: Path) -> str:
     path = input_root.as_posix()
-    if "w3_survival" not in path:
+    if "w3_survival" not in path and "R7_survival" not in path:
         return "input_root_is_not_W3_survival_root"
     registry_path = filesystem_path(input_root / "manifests" / "w3_survivor_registry.json")
     summary_path = filesystem_path(input_root / "metrics" / "w3_variant_survival_summary.csv")

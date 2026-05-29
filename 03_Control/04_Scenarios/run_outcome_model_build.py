@@ -29,9 +29,9 @@ from run_post_w3_library_size_study import LIBRARY_SIZE_CASE_IDS, POST_W3_LIBRAR
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 OUTCOME_MODEL_VERSION = "v53_context_conditioned_library_size_outcome_model_v2"
 DEFAULT_COMPACT_LIBRARY = Path(
-    "03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/001/manifests/post_w3_library_size_study_manifest.json"
+    "03_Control/05_Results/R8_library_size_study/A01/manifests/post_w3_library_size_study_manifest.json"
 )
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/outcome_model")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R8_outcome")
 BLOCKED_CLAIMS = (
     "hardware_readiness",
     "real_flight_transfer",

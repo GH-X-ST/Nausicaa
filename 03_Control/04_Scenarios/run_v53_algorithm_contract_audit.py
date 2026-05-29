@@ -120,7 +120,7 @@ from viability_governor import DEFAULT_GOVERNOR_CONFIG, REJECTION_REASONS, gover
 
 
 AUDIT_VERSION = "v53_algorithm_contract_audit_v1"
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/algorithm_contract_audit")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/F_algorithm_contract_audit")
 DOCS_ALIGNMENT_MARKER = "<!-- R9_LAUNCH_GATE_ALIGNMENT_START -->"
 BASE_DOCS_CODE_CONSISTENCY_FILES = (
     Path("docs/Glider_Control_Project_Plan.md"),
@@ -237,15 +237,15 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r10_is_governor_learning_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level == "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level, "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate"))
     rows.append(_row("r11_is_strict_heldout_validation", R11_PROTOCOL.validation_evidence_level == "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation", R11_PROTOCOL.validation_evidence_level, "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation"))
     rows.append(_row("r11_gates_full_safe_success", R11_PROTOCOL.min_full_safe_success_rate == 0.99, R11_PROTOCOL.min_full_safe_success_rate, 0.99))
-    rows.append(_row("r9_quick_preflight_policy_history_conditions", R9_POLICY_HISTORY_CONDITIONS == ("no_memory_baseline", "directional_3d_residual_memory_h20"), R9_POLICY_HISTORY_CONDITIONS, "no_memory_baseline + directional_3d_residual_memory_h20"))
-    rows.append(_row("r9_expected_final_launches_quick_preflight", R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R9_POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION == 30, R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*2*3=30"))
-    rows.append(_row("r9_expected_history_launches_quick_preflight", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * 20 == 300, R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*3*h20=300"))
-    rows.append(_row("r10_expected_final_launches_l7_training", R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION, R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*5*140"))
-    rows.append(_row("r10_expected_history_launches_l7_training", R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + 20), R10_EXPECTED_HISTORY_LAUNCHES, "library_cases*140*(h5+h20+h100+safe_h20)"))
-    rows.append(_row("r11_expected_final_launches_fidelity_ladder", R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R11_OUTER_CASES_PER_CONDITION, R11_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*5*160"))
-    rows.append(_row("r11_expected_history_launches_fidelity_ladder", R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R11_OUTER_CASES_PER_CONDITION * (sum(HISTORY_LENGTHS) + 20), R11_EXPECTED_HISTORY_LAUNCHES, "library_cases*160*(h5+h20+h100+safe_h20)"))
-    rows.append(_row("five_policy_history_conditions_core", len(POLICY_HISTORY_CONDITIONS) == 5, len(POLICY_HISTORY_CONDITIONS), 5))
-    rows.append(_row("history_lengths_core_exact", HISTORY_LENGTHS == (5, 20, 100), HISTORY_LENGTHS, (5, 20, 100)))
+    rows.append(_row("r9_quick_preflight_policy_history_conditions", R9_POLICY_HISTORY_CONDITIONS == ("no_memory_baseline", "directional_3d_residual_memory_h3", "directional_3d_residual_memory_h10", "directional_3d_residual_memory_h30"), R9_POLICY_HISTORY_CONDITIONS, "no_memory_baseline + h3/h10/h30"))
+    rows.append(_row("r9_expected_final_launches_quick_preflight", R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R9_POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION == 60, R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*3=60"))
+    rows.append(_row("r9_expected_history_launches_quick_preflight", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM == 645, R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*3*(h3+h10+h30)=645"))
+    rows.append(_row("r10_expected_final_launches_l7_training", R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION, R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*140"))
+    rows.append(_row("r10_expected_history_launches_l7_training", R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM, R10_EXPECTED_HISTORY_LAUNCHES, "library_cases*140*(h3+h10+h30)"))
+    rows.append(_row("r11_expected_final_launches_fidelity_ladder", R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R11_OUTER_CASES_PER_CONDITION, R11_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*160"))
+    rows.append(_row("r11_expected_history_launches_fidelity_ladder", R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R11_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM, R11_EXPECTED_HISTORY_LAUNCHES, "library_cases*160*(h3+h10+h30)"))
+    rows.append(_row("four_policy_history_conditions_core", len(POLICY_HISTORY_CONDITIONS) == 4, len(POLICY_HISTORY_CONDITIONS), 4))
+    rows.append(_row("history_lengths_core_exact", HISTORY_LENGTHS == (3, 10, 30), HISTORY_LENGTHS, (3, 10, 30)))
     rows.append(_row("empty_prior_baseline_name", EMPTY_FROZEN_PRIOR_BASELINE_ID == "empty_frozen_prior_baseline", EMPTY_FROZEN_PRIOR_BASELINE_ID, "empty_frozen_prior_baseline"))
     rows.append(_row("governor_wall_guard_0p10cm", abs(DEFAULT_GOVERNOR_CONFIG.minimum_wall_margin_m - 0.001) <= 1e-12, DEFAULT_GOVERNOR_CONFIG.minimum_wall_margin_m, 0.001))
     forbidden_speed_boundary_reasons = tuple(
@@ -678,7 +678,7 @@ def _outer_loop_pairing_and_memory_audit() -> dict[str, object]:
     outer_cases = _outer_case_schedule(protocol=R9_PROTOCOL, seed=90, smoke_outer_cases_per_block=1)
     final_schedule = _final_heldout_schedule(outer_cases=outer_cases, protocol=R9_PROTOCOL)
     pairing_rows = _pairing_audit_rows(final_schedule)
-    memory_final = next(row for row in final_schedule if str(row["policy_id"]) == "directional_3d_residual_memory_h20")
+    memory_final = next(row for row in final_schedule if str(row["policy_id"]) == "directional_3d_residual_memory_h10")
     history = _history_row_for_final(memory_final, 0)
     policy = _policy_condition(str(memory_final["policy_id"]))
     belief_a = _initial_belief_for_policy(policy=policy, final_row=memory_final)

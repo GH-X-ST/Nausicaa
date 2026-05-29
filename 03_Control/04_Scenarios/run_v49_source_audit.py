@@ -40,11 +40,11 @@ from run_v48_source_audit import (  # noqa: E402
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v4.9"
 SOURCE_AUDIT_VERSION = "v49_paired_full_loop_source_audit_v1"
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/full_loop_validation/003")
-DEFAULT_OUTCOME_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/outcome_model/002")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R11_validation/003")
+DEFAULT_OUTCOME_ROOT = Path("03_Control/05_Results/R8_outcome/002")
 DEFAULT_FULL_LOOP_INFRASTRUCTURE_ROOTS = (
-    Path("03_Control/05_Results/lqr_contextual_v1_0/full_loop_validation/001"),
-    Path("03_Control/05_Results/lqr_contextual_v1_0/full_loop_validation/002"),
+    Path("03_Control/05_Results/R11_validation/001"),
+    Path("03_Control/05_Results/R11_validation/002"),
 )
 BLOCKED_CLAIMS = tuple(
     dict.fromkeys(

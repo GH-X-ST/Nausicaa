@@ -80,32 +80,33 @@ from viability_governor import DEFAULT_GOVERNOR_CONFIG, GovernorConfig, governor
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 VALIDATION_VERSION = "repeated_launch_fixed_case_rollout_preflight_v7"
 GOVERNOR_TUNING_HANDOFF_VERSION = "governor_tuning_handoff_v2"
-HISTORY_LENGTHS = (5, 20, 100)
-SAFE_EXPLORE_ABLATION_HISTORY_LENGTH = 20
-HISTORY_LENGTH_SUM = sum(HISTORY_LENGTHS) + SAFE_EXPLORE_ABLATION_HISTORY_LENGTH
+HISTORY_LENGTHS = (3, 10, 30)
+SAFE_EXPLORE_ABLATION_HISTORY_LENGTH = 10
+HISTORY_LENGTH_SUM = sum(HISTORY_LENGTHS)
 EMPTY_FROZEN_PRIOR_BASELINE_ID = "empty_frozen_prior_baseline"
 BASELINE_POLICY_IDS = ("no_memory_baseline",)
 MEMORY_POLICY_PREFIX = "directional_3d_residual_memory"
 SAFE_EXPLORE_POLICY_PREFIX = "safe_explore_then_exploit"
 POLICY_HISTORY_CONDITIONS = (
     "no_memory_baseline",
-    "directional_3d_residual_memory_h5",
-    "directional_3d_residual_memory_h20",
-    "directional_3d_residual_memory_h100",
-    "safe_explore_then_exploit_h20",
+    "directional_3d_residual_memory_h3",
+    "directional_3d_residual_memory_h10",
+    "directional_3d_residual_memory_h30",
 )
 R9_POLICY_HISTORY_CONDITIONS = (
     "no_memory_baseline",
-    "directional_3d_residual_memory_h20",
+    "directional_3d_residual_memory_h3",
+    "directional_3d_residual_memory_h10",
+    "directional_3d_residual_memory_h30",
 )
-R9_HISTORY_LENGTH_SUM = 20
+R9_HISTORY_LENGTH_SUM = sum(HISTORY_LENGTHS)
 R9_PREFLIGHT_CASES_PER_BLOCK = 1
 R9_OUTER_CASES_PER_CONDITION = 3 * R9_PREFLIGHT_CASES_PER_BLOCK
 R9_EXPECTED_FINAL_HELDOUT_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * len(R9_POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION
 R9_EXPECTED_HISTORY_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * R9_HISTORY_LENGTH_SUM
-DEFAULT_LIBRARY_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/001")
-DEFAULT_OUTCOME_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/outcome_model/003")
-DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/lqr_contextual_v1_0/repeated_launch_validation")
+DEFAULT_LIBRARY_ROOT = Path("03_Control/05_Results/R8_library_size_study/A01")
+DEFAULT_OUTCOME_ROOT = Path("03_Control/05_Results/R8_outcome/A01")
+DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R9_test")
 TABLE_NAMES = (
     "episode_summary",
     "primitive_execution_log",
