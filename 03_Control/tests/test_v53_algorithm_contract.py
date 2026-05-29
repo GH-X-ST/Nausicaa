@@ -35,9 +35,13 @@ from run_repeated_launch_learning_curve import (
     ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
     BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
     EMPTY_FROZEN_PRIOR_BASELINE_ID,
+    GOVERNOR_CALIBRATION_SEARCH_POLICY,
     NO_UPDRAFT_CHANGED_CASE_BLOCK_ID,
     LIBRARY_SIZE_CASE_IDS,
+    ONLINE_MEMORY_SCOPE,
+    OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION,
     POLICY_HISTORY_CONDITIONS,
+    R10_GLOBAL_CALIBRATION_SCOPE,
     R9_POLICY_HISTORY_CONDITIONS,
     R9_BLOCKS,
     R9_EXPECTED_FINAL_HELDOUT_LAUNCHES,
@@ -71,6 +75,7 @@ from run_repeated_launch_learning_curve import (
     R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
     R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
     R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    R11_GOVERNOR_HANDOFF_SCOPE,
     validation_route_for_primitive_step,
 )
 from state_contract import STATE_INDEX
@@ -402,6 +407,13 @@ def test_v53_memory_scope_is_per_final_case_and_final_launches_are_paired() -> N
     assert _policy_condition("no_memory_baseline")["uses_memory"] is False
     assert _policy_condition(EMPTY_FROZEN_PRIOR_BASELINE_ID)["uses_memory"] is True
     assert _policy_condition(EMPTY_FROZEN_PRIOR_BASELINE_ID)["updates_memory"] is False
+    assert OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION == (
+        "case_local_online_memory_plus_r10_global_deterministic_calibration_v1"
+    )
+    assert ONLINE_MEMORY_SCOPE == "case_local_reset_per_final_schedule_row"
+    assert R10_GLOBAL_CALIBRATION_SCOPE == "aggregate_all_r10_final_heldout_rows_and_selector_opportunity_diagnostics"
+    assert R11_GOVERNOR_HANDOFF_SCOPE == "single_frozen_r10_governor_config_used_for_r11_validation"
+    assert GOVERNOR_CALIBRATION_SEARCH_POLICY == "deterministic_bounded_rule_update_no_profile_ladder_no_black_box_search"
 
 
 def test_v53_governor_has_no_speed_boundary_and_wall_guard_is_0p10cm() -> None:

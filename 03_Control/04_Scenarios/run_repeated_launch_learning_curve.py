@@ -81,7 +81,7 @@ from viability_governor import DEFAULT_GOVERNOR_CONFIG, GovernorConfig, governor
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
 VALIDATION_VERSION = "repeated_launch_fixed_case_rollout_preflight_v7"
-GOVERNOR_TUNING_HANDOFF_VERSION = "governor_tuning_handoff_v3"
+GOVERNOR_TUNING_HANDOFF_VERSION = "governor_tuning_handoff_v4"
 HISTORY_LENGTHS = (3, 10, 30)
 SAFE_EXPLORE_ABLATION_HISTORY_LENGTH = 10
 HISTORY_LENGTH_SUM = sum(HISTORY_LENGTHS)
@@ -139,6 +139,13 @@ REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION = "predictive_next_primitive_scheduler_pr
 REAL_TIME_PREFERRED_DECISION_BUDGET_S = CONTROLLER_INPUT_UPDATE_PERIOD_S
 REAL_TIME_HARD_DECISION_BUDGET_S = PRIMITIVE_FINITE_HORIZON_S
 OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_baseline_shielded_recency_safe_exploration_memory_v1_5"
+OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION = (
+    "case_local_online_memory_plus_r10_global_deterministic_calibration_v1"
+)
+ONLINE_MEMORY_SCOPE = "case_local_reset_per_final_schedule_row"
+R10_GLOBAL_CALIBRATION_SCOPE = "aggregate_all_r10_final_heldout_rows_and_selector_opportunity_diagnostics"
+R11_GOVERNOR_HANDOFF_SCOPE = "single_frozen_r10_governor_config_used_for_r11_validation"
+GOVERNOR_CALIBRATION_SEARCH_POLICY = "deterministic_bounded_rule_update_no_profile_ladder_no_black_box_search"
 CANDIDATE_PATH_MEMORY_LOOKAHEAD_S = 5.0 * PRIMITIVE_FINITE_HORIZON_S
 CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M = 0.75
 CANDIDATE_PATH_MEMORY_SPECIFIC_ENERGY_RESIDUAL_CAP_M = 1.00
@@ -4973,6 +4980,21 @@ def _write_governor_tuning_outputs(
             final_episode_ids=final_episode_ids,
         )
     )
+    metrics.update(
+        {
+            "governor_learning_strategy_version": OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION,
+            "online_memory_scope": ONLINE_MEMORY_SCOPE,
+            "global_calibration_scope": (
+                R10_GLOBAL_CALIBRATION_SCOPE
+                if protocol.stage_id == "R10"
+                else "r9_reduced_preflight_initialisation_only"
+            ),
+            "cross_case_memory_carryover_allowed": False,
+            "governor_calibration_search_policy": GOVERNOR_CALIBRATION_SEARCH_POLICY,
+            "r11_handoff_scope": R11_GOVERNOR_HANDOFF_SCOPE if protocol.stage_id == "R10" else "",
+            "r11_handoff_config_count": 1 if protocol.stage_id == "R10" else 0,
+        }
+    )
     base_config = config.governor_config or DEFAULT_GOVERNOR_CONFIG
     selected_config, tuning_rows = _tuned_governor_config_from_metrics(
         base_config=base_config,
@@ -5000,6 +5022,15 @@ def _write_governor_tuning_outputs(
         "stage_id": protocol.stage_id,
         "target_stage": target_stage,
         "selection_policy": selection_policy,
+        "governor_learning_strategy_version": OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION,
+        "online_memory_scope": ONLINE_MEMORY_SCOPE,
+        "global_calibration_scope": metrics["global_calibration_scope"],
+        "cross_case_memory_carryover_allowed": False,
+        "governor_calibration_search_policy": GOVERNOR_CALIBRATION_SEARCH_POLICY,
+        "aggregate_evidence_scope": metrics["global_calibration_scope"],
+        "r10_aggregate_evidence_scope": R10_GLOBAL_CALIBRATION_SCOPE if protocol.stage_id == "R10" else "",
+        "r11_handoff_scope": R11_GOVERNOR_HANDOFF_SCOPE if protocol.stage_id == "R10" else "",
+        "r11_handoff_config_count": metrics["r11_handoff_config_count"],
         "source_run_root": run_root.as_posix(),
         "governor_config": governor_config_to_row(selected_config),
         "selection_metrics": metrics,
@@ -5449,6 +5480,18 @@ def _write_manifest(
             "candidate-specific specific-energy-dominant residual correction plus uncertainty-directed exploration over "
             "seven current-to-exit path probes; accepted only through a baseline shield with no final-launch special case"
         ),
+        "governor_learning_strategy_version": OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION,
+        "online_memory_scope": ONLINE_MEMORY_SCOPE,
+        "cross_case_memory_carryover_allowed": False,
+        "global_governor_calibration_scope": (
+            R10_GLOBAL_CALIBRATION_SCOPE
+            if protocol.stage_id == "R10"
+            else "r9_reduced_preflight_initialisation_only"
+            if protocol.stage_id == "R9"
+            else "not_applicable_validation_uses_frozen_governor"
+        ),
+        "governor_calibration_search_policy": GOVERNOR_CALIBRATION_SEARCH_POLICY,
+        "r11_governor_handoff_scope": R11_GOVERNOR_HANDOFF_SCOPE if protocol.stage_id == "R10" else "",
         "candidate_path_memory_lookahead_s": float(CANDIDATE_PATH_MEMORY_LOOKAHEAD_S),
         "candidate_path_memory_residual_cap_m": float(governor_config.candidate_path_memory_residual_cap_m),
         "candidate_path_memory_specific_energy_residual_cap_m": float(
@@ -5627,6 +5670,8 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
         "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, front-wall progress, front-wall terminal proxy, progress-gated terminal total specific-energy proxy, updraft gain, lift dwell, and residual memory.",
         f"- Residual memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` applies capped, recency-weighted, specific-energy-dominant candidate-path residual memory over seven path probes plus shielded uncertainty exploration after viability filtering.",
+        f"- Governor learning strategy: `{OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION}` keeps online memory `{ONLINE_MEMORY_SCOPE}`; R10 calibration scope is `{R10_GLOBAL_CALIBRATION_SCOPE}` and R11 uses `{R11_GOVERNOR_HANDOFF_SCOPE}`.",
+        f"- Calibration search policy: `{GOVERNOR_CALIBRATION_SEARCH_POLICY}`.",
         "- Memory opportunity audit: `memory_opportunity_summary.csv` and `memory_opportunity_decision_log.csv` report baseline-vs-memory candidate gaps, correction deltas, shield status, and accepted/rejected switch reasons.",
         "- The adaptive selector uses one baseline shield at every launch; there is no branch that treats a held-out final launch as a known final mission.",
         "- Boundary-near is a route state, not automatic failure; hard_failure is the failure class.",

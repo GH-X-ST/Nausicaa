@@ -75,13 +75,18 @@ from run_repeated_launch_learning_curve import (  # noqa: E402
     ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
     BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
     EMPTY_FROZEN_PRIOR_BASELINE_ID,
+    GOVERNOR_CALIBRATION_SEARCH_POLICY,
     HISTORY_LENGTHS,
     HISTORY_LENGTH_SUM,
     LAUNCH_SCORE_VERSION,
     NO_UPDRAFT_CHANGED_CASE_BLOCK_ID,
+    ONLINE_MEMORY_SCOPE,
+    OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION,
     POLICY_HISTORY_CONDITIONS,
     R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    R10_GLOBAL_CALIBRATION_SCOPE,
     R9_POLICY_HISTORY_CONDITIONS,
+    R11_GOVERNOR_HANDOFF_SCOPE,
     R10_ACTIVE_FAN_COUNT_SEQUENCE,
     R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M,
     R11_L0_DRY_AIR_FIXED_BLOCK_ID,
@@ -305,6 +310,11 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("outer_loop_final_launches_controlled_paired", bool(pairing_audit["pairing_passed"]), pairing_audit, "same final launch key, start seed, and environment seed across policies/library cases"))
     rows.append(_row("outer_loop_history_memory_scoped_to_same_final_case", bool(pairing_audit["history_scoped"]), pairing_audit, "history rows keep library/policy/common final key and use shifted seeds"))
     rows.append(_row("outer_loop_belief_reinitialised_per_final_row", bool(pairing_audit["belief_reinitialised"]), pairing_audit, "fresh belief per final schedule row"))
+    rows.append(_row("outer_loop_governor_learning_strategy_two_level", OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION == "case_local_online_memory_plus_r10_global_deterministic_calibration_v1", OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION, "case-local online memory plus R10 aggregate deterministic calibration"))
+    rows.append(_row("online_memory_scope_case_local_reset", ONLINE_MEMORY_SCOPE == "case_local_reset_per_final_schedule_row", ONLINE_MEMORY_SCOPE, "case_local_reset_per_final_schedule_row"))
+    rows.append(_row("r10_global_calibration_scope_all_cases", R10_GLOBAL_CALIBRATION_SCOPE == "aggregate_all_r10_final_heldout_rows_and_selector_opportunity_diagnostics", R10_GLOBAL_CALIBRATION_SCOPE, "aggregate all R10 final held-out rows plus selector opportunity diagnostics"))
+    rows.append(_row("r11_single_frozen_handoff_scope", R11_GOVERNOR_HANDOFF_SCOPE == "single_frozen_r10_governor_config_used_for_r11_validation", R11_GOVERNOR_HANDOFF_SCOPE, "single frozen R10 config"))
+    rows.append(_row("governor_calibration_no_profile_ladder_or_black_box", GOVERNOR_CALIBRATION_SEARCH_POLICY == "deterministic_bounded_rule_update_no_profile_ladder_no_black_box_search", GOVERNOR_CALIBRATION_SEARCH_POLICY, "deterministic bounded update; no profile ladder or black-box search"))
 
     route0 = validation_route_for_primitive_step(0)
     route1 = validation_route_for_primitive_step(1)
@@ -760,6 +770,10 @@ def _docs_code_consistency_rows(repo_root: Path) -> list[dict[str, object]]:
         "transition_object_core": "Every primitive is treated as a transition object",
         "r7_not_local_success_only": "No primitive may pass R7 solely on local rollout success",
         "memory_scoped_per_final_row": "Memory is reinitialised per final test row",
+        "two_level_governor_learning_strategy": "The learning strategy is two-level",
+        "case_local_online_memory_scope": "case-local and reset per final test row",
+        "r10_global_deterministic_calibration": "R10 performs deterministic global calibration",
+        "r10_no_profile_ladder_or_black_box": "no profile ladder, Bayesian optimisation, neural tuning, or black-box search",
         "final_score_only_final_heldout_path": "Final scoring is computed only from the final held-out rollout path",
         "full_safe_success_gate": "full_safe_success",
         "updraft_gain_active_weight": "updraft_gain_weight",
