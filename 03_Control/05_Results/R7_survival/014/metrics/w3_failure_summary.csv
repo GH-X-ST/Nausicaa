@@ -1,0 +1,11 @@
+summary_axis,value,row_count
+failure_label,entry_role_not_launch_capable,4608
+failure_label,model_boundary_only,2020
+failure_label,speed_low,64
+failure_label,success,1636
+failure_label,terminal_recovery_limited,1400
+failure_label,xy_boundary_terminal,512
+outcome_class,accepted,1636
+outcome_class,blocked,4608
+outcome_class,failed,1464
+outcome_class,weak,2532

@@ -1,0 +1,4 @@
+relative_path,byte_count,size_mb,above_75mb,above_100mb,push_allowed,dense_table_partition
+manifests/outcome_model_manifest.json,1510,0.0014400482177734375,False,False,True,False
+metrics/outcome_model_summary.csv,417065,0.39774417877197266,False,False,True,False
+metrics/outcome_model_table.csv,417065,0.39774417877197266,False,False,True,False

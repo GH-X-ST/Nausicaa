@@ -1,0 +1,3 @@
+relative_path,byte_count,size_mb,above_75mb,above_100mb,push_allowed
+manifests/post_w3_library_size_study_manifest.json,713,0.0006799697875976562,False,False,True
+metrics/library_size_case_summary.csv,2,1.9073486328125e-06,False,False,True

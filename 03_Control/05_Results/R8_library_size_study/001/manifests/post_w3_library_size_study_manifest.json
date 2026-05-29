@@ -1,0 +1,64 @@
+{
+  "manifest_version": "post_w3_library_size_study_v411",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v5.0",
+  "status": "complete",
+  "run_id": 1,
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/001",
+  "source_w3_root": "03_Control/05_Results/lqr_contextual_v1_0/w3_survival/014",
+  "source_w3_registry_status": "w3_survivors_available",
+  "source_w3_survivor_count": 256,
+  "library_size_case_ids": [
+    "heavy_cluster",
+    "balanced_cluster",
+    "light_cluster",
+    "no_cluster_no_merge"
+  ],
+  "library_size_cases": [
+    {
+      "library_size_case_id": "heavy_cluster",
+      "library_size_human_label": "heavy clustering and merging",
+      "representative_count": 8,
+      "selection_policy": "top_score_per_primitive_entry_role",
+      "library_manifest": "manifests/heavy_cluster_primitive_library.json",
+      "library_table": "metrics/heavy_cluster_representative_library.csv"
+    },
+    {
+      "library_size_case_id": "balanced_cluster",
+      "library_size_human_label": "balanced clustering and merging",
+      "representative_count": 24,
+      "selection_policy": "top_score_then_diverse_per_primitive_entry_role",
+      "library_manifest": "manifests/balanced_cluster_primitive_library.json",
+      "library_table": "metrics/balanced_cluster_representative_library.csv"
+    },
+    {
+      "library_size_case_id": "light_cluster",
+      "library_size_human_label": "light clustering and merging",
+      "representative_count": 48,
+      "selection_policy": "broad_top_score_then_diverse_per_primitive_entry_role",
+      "library_manifest": "manifests/light_cluster_primitive_library.json",
+      "library_table": "metrics/light_cluster_representative_library.csv"
+    },
+    {
+      "library_size_case_id": "no_cluster_no_merge",
+      "library_size_human_label": "no-clustering/no-merging",
+      "representative_count": 256,
+      "selection_policy": "all_w3_survivors_no_clustering_no_merging",
+      "library_manifest": "manifests/no_cluster_no_merge_primitive_library.json",
+      "library_table": "metrics/no_cluster_no_merge_representative_library.csv"
+    }
+  ],
+  "primitive_timing_contract": {
+    "finite_horizon_s": 0.1,
+    "controller_input_slots_per_primitive": 5,
+    "controller_input_update_period_s": 0.02,
+    "primitive_timing_contract_version": "v411_0p10s_5slot_20ms"
+  },
+  "claim_status": "simulation_only_post_w3_library_size_study",
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "memory_improvement",
+    "full_loop_validation_success"
+  ]
+}

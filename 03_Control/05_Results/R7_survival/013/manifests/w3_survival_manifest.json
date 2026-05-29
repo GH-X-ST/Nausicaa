@@ -1,0 +1,50 @@
+{
+  "version": "w3_fixed_lqr_survival_replay_v2_chunked",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v4.5",
+  "status": "complete",
+  "run_id": 13,
+  "input_root": "03_Control/05_Results/lqr_contextual_v1_0/w2_survival/015",
+  "input_contract": "W2 survival root with survivor registry and frozen bundle; raw W01 variants are not accepted",
+  "row_count": 51200,
+  "survivor_count": 256,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "paired_tests_per_variant": 100,
+  "candidate_chunk_size": 800,
+  "chunk_count": 64,
+  "selected_worker_count": 8,
+  "worker_decision": {
+    "requested": "8",
+    "selected_worker_count": 8,
+    "max_workers": 8,
+    "os_cpu_count": 20,
+    "memory_total_gb": 31.668304443359375,
+    "memory_safety_margin_gb": 8.0,
+    "estimated_worker_memory_gb": 2.0,
+    "fallback_reason": "none"
+  },
+  "dry_run_schedule": false,
+  "resume": true,
+  "repair_incomplete": true,
+  "source_evidence_label": "",
+  "test_fixture_not_method_evidence": false,
+  "fixed_lqr_replay_only": true,
+  "mutates_Q_R_K_reference_horizon_entry_set_or_entry_role": false,
+  "forbidden_mutations": "Q/R,K,reference,horizon,entry_set,entry_role",
+  "status_vocabulary": [
+    "blocked",
+    "ready_for_fixed_lqr_replay",
+    "complete",
+    "not_run"
+  ],
+  "redesign_policy": "new_ids_return_to_W01",
+  "blocked_reason": "",
+  "blocked_claims": [
+    "W3_robustness_complete",
+    "post_W3_compact_library_ready",
+    "governor_validation",
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success"
+  ]
+}

@@ -1,0 +1,9 @@
+summary_axis,value,row_count
+failure_label,model_boundary_only,13358
+failure_label,speed_low,633
+failure_label,success,12597
+failure_label,terminal_recovery_limited,15012
+failure_label,xy_boundary_terminal,3200
+outcome_class,accepted,12597
+outcome_class,failed,16403
+outcome_class,weak,15800

@@ -1,0 +1,16 @@
+relative_path,byte_count,size_mb,above_75mb,above_100mb,push_allowed
+manifests/balanced_cluster_primitive_library.json,133664,0.127471923828125,False,False,True
+manifests/heavy_cluster_primitive_library.json,45337,0.043236732482910156,False,False,True
+manifests/light_cluster_primitive_library.json,265050,0.25277137756347656,False,False,True
+manifests/no_cluster_no_merge_primitive_library.json,1416291,1.3506803512573242,False,False,True
+manifests/post_w3_library_size_study_manifest.json,3215,0.0030660629272460938,False,False,True
+manifests/super_light_cluster_primitive_library.json,532853,0.5081682205200195,False,False,True
+metrics/balanced_cluster_representative_library.csv,72947,0.06956768035888672,False,False,True
+metrics/heavy_cluster_representative_library.csv,24834,0.023683547973632812,False,False,True
+metrics/launch_gate_candidate_availability.csv,597,0.0005693435668945312,False,False,True
+metrics/launch_gate_entry_role_audit.csv,4671,0.004454612731933594,False,False,True
+metrics/library_size_case_summary.csv,1074,0.0010242462158203125,False,False,True
+metrics/light_cluster_representative_library.csv,144027,0.13735485076904297,False,False,True
+metrics/no_cluster_no_merge_representative_library.csv,772561,0.7367715835571289,False,False,True
+metrics/post_w3_representative_library_all_cases.csv,1301934,1.2416210174560547,False,False,True
+metrics/super_light_cluster_representative_library.csv,291193,0.27770328521728516,False,False,True

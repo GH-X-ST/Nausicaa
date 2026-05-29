@@ -1,0 +1,11 @@
+{
+  "version": "w3_randomisation_manifest_v1",
+  "row_count": 51200,
+  "environment_modes": [
+    "w3_randomised_single",
+    "w3_randomised_four"
+  ],
+  "seed": 30,
+  "randomisation_source": "env_instance_W3_randomised_annular_gp_modes",
+  "W3_randomisation_changes_timing_terms_where_configured": true
+}

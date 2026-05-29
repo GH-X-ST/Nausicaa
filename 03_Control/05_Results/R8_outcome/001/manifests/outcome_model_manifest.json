@@ -1,0 +1,19 @@
+{
+  "manifest_version": "post_w3_outcome_governor_smoke_v1",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v4.7",
+  "status": "complete",
+  "run_id": 1,
+  "compact_library_path": "03_Control/05_Results/lqr_contextual_v1_0/post_w3_cluster/001/manifests/final_compact_primitive_library.json",
+  "source_scope": "W3_derived_simulation_evidence_only",
+  "representative_count": 29,
+  "source_compact_library_id": "post_w3_compact_representative_library_v1",
+  "claim_status": "simulation_only_outcome_model_smoke",
+  "blocked_claims": [
+    "full_loop_validation_success",
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "memory_governor_performance_improvement",
+    "compact_library_real_flight_approval"
+  ]
+}

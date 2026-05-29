@@ -1,0 +1,23 @@
+{
+  "manifest_version": "v48_interpretable_w3_compact_outcome_model_v1",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v4.8",
+  "status": "complete",
+  "run_id": 2,
+  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/outcome_model/002",
+  "compact_library_path": "03_Control/05_Results/lqr_contextual_v1_0/post_w3_cluster/001/manifests/final_compact_primitive_library.json",
+  "source_compact_library_version": "post_w3_compact_representative_library_v1",
+  "representative_count": 29,
+  "outcome_row_count": 29,
+  "prediction_source": "W3_summary_interpretable",
+  "continuation_and_terminal_evidence_separate": true,
+  "controller_mutation_allowed": false,
+  "claim_status": "simulation_only_outcome_model_for_full_loop_validation",
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "memory_improves_performance_without_full_loop_evidence",
+    "formal_LQR_tree_funnel_region_of_attraction",
+    "post_hoc_controller_retuning"
+  ]
+}
