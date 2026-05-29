@@ -1,0 +1,13 @@
+timestamp_utc,stage_id,check_id,passed,observed,required
+2026-05-28T14:35:37.959204+00:00,R5,stage_status_dry_run_schedule,True,dry_run_schedule,dry_run_schedule
+2026-05-28T14:35:37.959204+00:00,R5,method_evidence_level_dry_schedule_only,True,w01_dry_schedule_only,w01_dry_schedule_only
+2026-05-28T14:35:37.959204+00:00,R5,dry_schedule_rows_requested_active_dense_target,True,76800,76800
+2026-05-28T14:35:37.959204+00:00,R5,dry_schedule_dense_target_derived_from_active_catalogue,True,76800,8*32*3*100
+2026-05-28T14:35:37.959204+00:00,R5,dry_schedule_candidate_count_32,True,32,32
+2026-05-28T14:35:37.959204+00:00,R5,dry_schedule_paired_tests_per_candidate_100,True,100,100
+2026-05-28T14:35:37.959204+00:00,R5,dry_schedule_active_primitive_count_8,True,8,8
+2026-05-28T14:35:37.959204+00:00,R5,dry_schedule_retired_launch_capture_not_active,True,False,False
+2026-05-28T14:35:37.959204+00:00,R5,dry_schedule_all_start_state_regimes,True,"[""inflight_boundary_near"", ""inflight_lift_region"", ""inflight_nominal"", ""inflight_recovery_edge"", ""launch_gate""]","[""inflight_boundary_near"", ""inflight_lift_region"", ""inflight_nominal"", ""inflight_recovery_edge"", ""launch_gate""]"
+2026-05-28T14:35:37.959204+00:00,R5,dry_schedule_r6_archived,True,True,True
+2026-05-28T14:35:37.959204+00:00,R5,dry_schedule_w3_direct_source,False,r5_transition_selected_for_r7_frozen_controller_bundle,frozen_R5_W0_W1_controller_bundle
+2026-05-28T14:35:37.967204+00:00,R5,no_generated_file_above_100mb,True,73.96,<=100.0

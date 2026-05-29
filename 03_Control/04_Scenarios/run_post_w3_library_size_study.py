@@ -81,6 +81,7 @@ class PostW3LibrarySizeStudyConfig:
     input_root: Path | None = DEFAULT_INPUT_ROOT
     output_root: Path = DEFAULT_OUTPUT_ROOT
     run_id: int = 1
+    run_label: str = ""
 
 
 def run_post_w3_library_size_study(config: PostW3LibrarySizeStudyConfig) -> dict[str, object]:
@@ -90,8 +91,9 @@ def run_post_w3_library_size_study(config: PostW3LibrarySizeStudyConfig) -> dict
         input_root=_resolve_w3_input_root(config.input_root),
         output_root=config.output_root,
         run_id=config.run_id,
+        run_label=config.run_label,
     )
-    run_root = Path(config.output_root) / f"{int(config.run_id):03d}"
+    run_root = Path(config.output_root) / _run_folder_name(config.run_id, config.run_label)
     for subdir in ("manifests", "metrics", "reports"):
         filesystem_path(run_root / subdir).mkdir(parents=True, exist_ok=True)
     blocked_reason = _input_blocked_reason(config.input_root)
@@ -1040,6 +1042,7 @@ def _library_payload(
         "library_version": POST_W3_LIBRARY_STUDY_VERSION,
         "project_title_version": PROJECT_TITLE_VERSION,
         "run_id": int(config.run_id),
+        "run_label": str(config.run_label).strip(),
         "library_size_case_id": str(case["library_size_case_id"]),
         "library_size_human_label": str(case["library_size_human_label"]),
         "source_w3_root": str(registry.get("source_w3_root", config.input_root.as_posix())),
@@ -1205,6 +1208,7 @@ def _study_manifest(
         "project_title_version": PROJECT_TITLE_VERSION,
         "status": "complete",
         "run_id": int(config.run_id),
+        "run_label": str(config.run_label).strip(),
         "run_root": run_root.as_posix(),
         "source_w3_root": config.input_root.as_posix(),
         "source_w3_registry_status": str(registry.get("status", "")),
@@ -1228,6 +1232,7 @@ def _write_blocked_outputs(run_root: Path, config: PostW3LibrarySizeStudyConfig,
         "project_title_version": PROJECT_TITLE_VERSION,
         "status": "blocked",
         "run_id": int(config.run_id),
+        "run_label": str(config.run_label).strip(),
         "run_root": run_root.as_posix(),
         "source_w3_root": config.input_root.as_posix(),
         "blocked_reason": blocked_reason,
@@ -1295,6 +1300,11 @@ def _read_json(path: Path) -> dict[str, object]:
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     filesystem_path(path).parent.mkdir(parents=True, exist_ok=True)
     filesystem_path(path).write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="ascii")
+
+
+def _run_folder_name(run_id: int, run_label: str = "") -> str:
+    label = str(run_label).strip()
+    return label if label else f"{int(run_id):03d}"
 
 
 def _write_csv(path: Path, frame: pd.DataFrame) -> None:

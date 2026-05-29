@@ -232,6 +232,7 @@ SMOKE_SCHEDULE_MODE = "smoke_row_index"
 class W01DenseRunConfig:
     run_id: int
     output_root: Path = DEFAULT_OUTPUT_ROOT
+    run_label: str = ""
     rows: int = 400
     seed: int = 1
     candidate_chunk_size: int = 100
@@ -3264,6 +3265,7 @@ def _run_manifest(
         "project_title_version": PROJECT_TITLE_VERSION,
         "run_stage": "R5_W0_W1_robust_randomised_primitive_synthesis",
         "run_id": int(config.run_id),
+        "run_label": str(config.run_label).strip(),
         "run_root": run_root.as_posix(),
         "rows_requested": int(config.rows),
         "seed": int(config.seed),
@@ -3397,7 +3399,12 @@ def _ensure_run_root(config: W01DenseRunConfig, run_root: Path) -> None:
 
 
 def _run_root(config: W01DenseRunConfig) -> Path:
-    return Path(config.output_root) / f"{int(config.run_id):03d}"
+    return Path(config.output_root) / _run_folder_name(config.run_id, config.run_label)
+
+
+def _run_folder_name(run_id: int, run_label: str = "") -> str:
+    label = str(run_label).strip()
+    return label if label else f"{int(run_id):03d}"
 
 
 def _rollout_id(run_id: int, row_index: int) -> str:

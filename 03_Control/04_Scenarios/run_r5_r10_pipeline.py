@@ -106,6 +106,8 @@ BLOCKED_CLAIMS = (
 class R5R10PipelineConfig:
     output_root: Path = DEFAULT_OUTPUT_ROOT
     run_id: int | None = None
+    run_label: str = ""
+    stage_run_label: str = ""
     start_stage: str = "R5"
     stop_after_stage: str = ""
     resume: bool = True
@@ -188,7 +190,14 @@ def read_docs_alignment_snapshot(checkpoint: str, stage_id: str, decision_contex
 
 def run_r5_r10_pipeline(config: R5R10PipelineConfig) -> dict[str, object]:
     run_id = int(config.run_id) if config.run_id is not None else _next_run_id(config.output_root)
-    run_root = Path(config.output_root) / f"{run_id:03d}"
+    run_root = Path(config.output_root) / _run_folder_name(run_id, config.run_label)
+    conflicts = _official_run_label_conflicts(config=config, run_id=run_id, run_root=run_root)
+    if conflicts and not config.resume:
+        return {
+            "status": "blocked",
+            "run_root": run_root.as_posix(),
+            "blocked_reason": "official_run_label_already_exists:" + ",".join(path.as_posix() for path in conflicts),
+        }
     for subdir in ("manifests", "metrics", "reports"):
         filesystem_path(run_root / subdir).mkdir(parents=True, exist_ok=True)
 
@@ -200,6 +209,8 @@ def run_r5_r10_pipeline(config: R5R10PipelineConfig) -> dict[str, object]:
 
     context: dict[str, object] = {
         "run_id": run_id,
+        "run_label": str(config.run_label).strip(),
+        "stage_run_label": str(config.stage_run_label).strip(),
         "run_root": run_root.as_posix(),
         "stages": previous_state.get("stages", {}) if isinstance(previous_state.get("stages"), dict) else {},
         "blocked_reason": "",
@@ -461,10 +472,11 @@ def _run_stage_with_gates(
 
 def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str, object]) -> dict[str, object]:
     if stage_id == "R5":
-        stage_run_id = _next_run_id(W01_OUTPUT_ROOT)
+        stage_run_id = _stage_run_id(config, W01_OUTPUT_ROOT)
         return run_lqr_w01_dense_chunked(
             W01DenseRunConfig(
                 run_id=stage_run_id,
+                run_label=config.stage_run_label,
                 rows=L6_RICH_SIDE_ROW_COUNT,
                 candidate_count=L6_RICH_SIDE_CANDIDATE_COUNT,
                 paired_tests_per_candidate=L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE,
@@ -481,10 +493,11 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
         )
     if stage_id == "R7":
         r5_root = Path(str(context["stages"]["R5"]["run_root"]))
-        stage_run_id = _next_run_id(W3_OUTPUT_ROOT)
+        stage_run_id = _stage_run_id(config, W3_OUTPUT_ROOT)
         replay = run_w3_survival(
             W3SurvivalConfig(
                 run_id=stage_run_id,
+                run_label=config.stage_run_label,
                 input_root=r5_root,
                 paired_tests_per_variant=20,
                 candidate_chunk_size=int(config.candidate_chunk_size),
@@ -507,18 +520,24 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
         return replay
     if stage_id == "R8":
         r7_root = Path(str(context["stages"]["R7"]["run_root"]))
-        study_id = _next_run_id(POST_W3_OUTPUT_ROOT)
+        study_id = _stage_run_id(config, POST_W3_OUTPUT_ROOT)
         study = run_post_w3_library_size_study(
-            PostW3LibrarySizeStudyConfig(input_root=r7_root, output_root=POST_W3_OUTPUT_ROOT, run_id=study_id)
+            PostW3LibrarySizeStudyConfig(
+                input_root=r7_root,
+                output_root=POST_W3_OUTPUT_ROOT,
+                run_id=study_id,
+                run_label=config.stage_run_label,
+            )
         )
         if study.get("status") != "complete":
             return study
-        outcome_id = _next_run_id(OUTCOME_OUTPUT_ROOT)
+        outcome_id = _stage_run_id(config, OUTCOME_OUTPUT_ROOT)
         outcome = run_outcome_model_build(
             OutcomeModelBuildConfig(
                 compact_library_path=Path(str(study["manifest"])),
                 output_root=OUTCOME_OUTPUT_ROOT,
                 run_id=outcome_id,
+                run_label=config.stage_run_label,
                 library_size_case_id="balanced_cluster",
             )
         )
@@ -529,13 +548,14 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
     if stage_id == "R9":
         r8_root = Path(str(context["stages"]["R8"]["run_root"]))
         outcome_root = Path(str(context["stages"]["R8"]["outcome_run_root"]))
-        stage_run_id = _next_run_id(DEFAULT_REPEATED_OUTPUT_ROOT)
+        stage_run_id = _stage_run_id(config, DEFAULT_REPEATED_OUTPUT_ROOT)
         return run_repeated_launch_learning_curve(
             RepeatedLaunchValidationConfig(
                 library_root=r8_root,
                 outcome_root=outcome_root,
                 output_root=DEFAULT_REPEATED_OUTPUT_ROOT,
                 run_id=stage_run_id,
+                run_label=config.stage_run_label,
                 storage_format=config.storage_format,
                 compression_level=int(config.compression_level),
                 candidate_chunk_size=_validation_chunk_size(config.candidate_chunk_size),
@@ -550,13 +570,14 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
         r8_root = Path(str(context["stages"]["R8"]["run_root"]))
         outcome_root = Path(str(context["stages"]["R8"]["outcome_run_root"]))
         governor_config_path = _r9_initial_governor_config_path(context)
-        stage_run_id = _next_run_id(DEFAULT_CHANGED_OUTPUT_ROOT)
+        stage_run_id = _stage_run_id(config, DEFAULT_CHANGED_OUTPUT_ROOT)
         return run_changed_case_validation(
             ChangedCaseValidationConfig(
                 library_root=r8_root,
                 outcome_root=outcome_root,
                 output_root=DEFAULT_CHANGED_OUTPUT_ROOT,
                 run_id=stage_run_id,
+                run_label=config.stage_run_label,
                 storage_format=config.storage_format,
                 compression_level=int(config.compression_level),
                 candidate_chunk_size=_validation_chunk_size(config.candidate_chunk_size),
@@ -573,13 +594,14 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
         r8_root = Path(str(context["stages"]["R8"]["run_root"]))
         outcome_root = Path(str(context["stages"]["R8"]["outcome_run_root"]))
         governor_config_path = _r10_frozen_governor_config_path(context)
-        stage_run_id = _next_run_id(DEFAULT_HELDOUT_CHANGED_OUTPUT_ROOT)
+        stage_run_id = _stage_run_id(config, DEFAULT_HELDOUT_CHANGED_OUTPUT_ROOT)
         return run_heldout_changed_case_validation(
             HeldoutChangedCaseValidationConfig(
                 library_root=r8_root,
                 outcome_root=outcome_root,
                 output_root=DEFAULT_HELDOUT_CHANGED_OUTPUT_ROOT,
                 run_id=stage_run_id,
+                run_label=config.stage_run_label,
                 storage_format=config.storage_format,
                 compression_level=int(config.compression_level),
                 candidate_chunk_size=_validation_chunk_size(config.candidate_chunk_size),
@@ -814,6 +836,8 @@ def _write_pipeline_manifest(run_root: Path, config: R5R10PipelineConfig, contex
         "project_title_version": PROJECT_TITLE_VERSION,
         "status": context.get("status", "running"),
         "run_id": context.get("run_id"),
+        "run_label": str(config.run_label).strip(),
+        "stage_run_label": str(config.stage_run_label).strip(),
         "run_root": run_root.as_posix(),
         "config": _json_ready(asdict(config)),
         "stage_order": list(STAGE_ORDER),
@@ -990,6 +1014,38 @@ def _selected_stages(start_stage: str, stop_after_stage: str) -> tuple[str, ...]
     if stop_index < start_index:
         raise ValueError("stop_after_stage cannot precede start_stage")
     return STAGE_ORDER[start_index : stop_index + 1]
+
+
+def _run_folder_name(run_id: int, run_label: str = "") -> str:
+    label = str(run_label).strip()
+    return label if label else f"{int(run_id):03d}"
+
+
+def _stage_run_id(config: R5R10PipelineConfig, output_root: Path) -> int:
+    if str(config.stage_run_label).strip() and config.run_id is not None:
+        return int(config.run_id)
+    return _next_run_id(output_root)
+
+
+def _official_run_label_conflicts(*, config: R5R10PipelineConfig, run_id: int, run_root: Path) -> list[Path]:
+    labels_active = bool(str(config.run_label).strip() or str(config.stage_run_label).strip())
+    if not labels_active:
+        return []
+    stage_label = str(config.stage_run_label).strip()
+    selected = set(_selected_stages(config.start_stage, config.stop_after_stage))
+    targets: list[Path] = [run_root]
+    if stage_label:
+        if "R5" in selected:
+            targets.append(W01_OUTPUT_ROOT / stage_label)
+        if "R7" in selected:
+            targets.append(W3_OUTPUT_ROOT / stage_label)
+        if "R8" in selected:
+            targets.extend((POST_W3_OUTPUT_ROOT / stage_label, OUTCOME_OUTPUT_ROOT / stage_label))
+        if "R10" in selected:
+            targets.append(DEFAULT_CHANGED_OUTPUT_ROOT / stage_label)
+        if "R11" in selected:
+            targets.append(DEFAULT_HELDOUT_CHANGED_OUTPUT_ROOT / stage_label)
+    return [Path(path) for path in targets if filesystem_path(path).exists()]
 
 
 def _next_run_id(output_root: Path) -> int:
@@ -1291,6 +1347,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the full R5-R10 evidence pipeline with repeated docs alignment.")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-id", type=int, default=None)
+    parser.add_argument("--run-label", default="")
+    parser.add_argument("--stage-run-label", default="")
     parser.add_argument("--start-stage", default="R5", choices=STAGE_ORDER)
     parser.add_argument("--stop-after-stage", default="", choices=("", *STAGE_ORDER))
     parser.add_argument("--resume", dest="resume", action="store_true", default=True)
@@ -1311,6 +1369,8 @@ def main(argv: list[str] | None = None) -> int:
         R5R10PipelineConfig(
             output_root=args.output_root,
             run_id=args.run_id,
+            run_label=args.run_label,
+            stage_run_label=args.stage_run_label,
             start_stage=args.start_stage,
             stop_after_stage=args.stop_after_stage,
             resume=args.resume,

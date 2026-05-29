@@ -100,6 +100,7 @@ class W3SurvivalConfig:
     run_id: int
     input_root: Path | None = None
     output_root: Path = DEFAULT_OUTPUT_ROOT
+    run_label: str = ""
     rows: int | None = None
     seed: int = 30
     paired_tests_per_variant: int = 20
@@ -222,7 +223,7 @@ def run_w3_survival(config: W3SurvivalConfig) -> dict[str, object]:
     if not math.isclose(float(config.rollout_dt_s), CONTROLLER_INPUT_UPDATE_PERIOD_S, rel_tol=0.0, abs_tol=1e-12):
         raise ValueError("rollout_dt_s_not_v411_0p020s")
     storage_format = resolve_storage_format(config.storage_format)
-    run_root = Path(config.output_root) / f"{int(config.run_id):03d}"
+    run_root = Path(config.output_root) / _run_folder_name(config.run_id, config.run_label)
     for subdir in ("manifests", "metrics", "reports", "chunk_manifests", "tables"):
         filesystem_path(run_root / subdir).mkdir(parents=True, exist_ok=True)
 
@@ -1000,6 +1001,7 @@ def _write_run_manifest(
         "project_title_version": PROJECT_TITLE_VERSION,
         "status": status,
         "run_id": int(config.run_id),
+        "run_label": str(config.run_label).strip(),
         "input_root": input_root.as_posix(),
         "input_contract": "R5 selected transition-object frozen controller bundle for W3 held-out validation; legacy W2 survivor roots are diagnostic fixtures only",
         "source_input_kind": source_input_kind,
@@ -1156,6 +1158,11 @@ def _write_empty_table_manifest(run_root: Path, run_id: int, storage_format: str
         run_root / "manifests" / "table_manifest.json",
         TableManifest(run_id=int(run_id), root=run_root.as_posix(), storage_format=storage_format, tables=()),
     )
+
+
+def _run_folder_name(run_id: int, run_label: str = "") -> str:
+    label = str(run_label).strip()
+    return label if label else f"{int(run_id):03d}"
 
 
 def _write_chunk_summary(run_root: Path, records: list[dict[str, object]]) -> None:

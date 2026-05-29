@@ -47,13 +47,14 @@ class OutcomeModelBuildConfig:
     compact_library_path: Path = DEFAULT_COMPACT_LIBRARY
     output_root: Path = DEFAULT_OUTPUT_ROOT
     run_id: int = 3
+    run_label: str = ""
     library_size_case_id: str = "balanced_cluster"
 
 
 def run_outcome_model_build(config: OutcomeModelBuildConfig) -> dict[str, object]:
     """Build the v5.20 interpretable W3-derived outcome model table."""
 
-    run_root = Path(config.output_root) / f"{int(config.run_id):03d}"
+    run_root = Path(config.output_root) / _run_folder_name(config.run_id, config.run_label)
     for subdir in ("manifests", "metrics", "reports"):
         filesystem_path(run_root / subdir).mkdir(parents=True, exist_ok=True)
     blocked_reason = _blocked_reason(config.compact_library_path)
@@ -80,6 +81,7 @@ def run_outcome_model_build(config: OutcomeModelBuildConfig) -> dict[str, object
         "project_title_version": PROJECT_TITLE_VERSION,
         "status": "complete",
         "run_id": int(config.run_id),
+        "run_label": str(config.run_label).strip(),
         "run_root": run_root.as_posix(),
         "compact_library_path": config.compact_library_path.as_posix(),
         "source_compact_library_version": ",".join(sorted({str(library.get("library_version", "")) for library in libraries})),
@@ -299,6 +301,7 @@ def _write_blocked_outputs(run_root: Path, config: OutcomeModelBuildConfig, bloc
             "project_title_version": PROJECT_TITLE_VERSION,
             "status": "blocked",
             "run_id": int(config.run_id),
+            "run_label": str(config.run_label).strip(),
             "blocked_reason": blocked_reason,
             "claim_status": "blocked_before_full_loop_validation",
             "blocked_claims": list(BLOCKED_CLAIMS),
@@ -353,6 +356,11 @@ def _read_json(path: Path) -> dict[str, object]:
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     filesystem_path(path).parent.mkdir(parents=True, exist_ok=True)
     filesystem_path(path).write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="ascii")
+
+
+def _run_folder_name(run_id: int, run_label: str = "") -> str:
+    label = str(run_label).strip()
+    return label if label else f"{int(run_id):03d}"
 
 
 def _write_csv(path: Path, frame: pd.DataFrame) -> None:

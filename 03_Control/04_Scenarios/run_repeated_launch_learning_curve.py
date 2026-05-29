@@ -282,6 +282,7 @@ class RepeatedLaunchValidationConfig:
     outcome_root: Path = DEFAULT_OUTCOME_ROOT
     output_root: Path = DEFAULT_OUTPUT_ROOT
     run_id: int = 1
+    run_label: str = ""
     source_w2_root: Path | None = None
     seed: int = 90
     storage_format: str = "auto"
@@ -346,6 +347,7 @@ class ValidationRunConfig:
     outcome_root: Path
     output_root: Path
     run_id: int
+    run_label: str
     source_w2_root: Path | None
     seed: int
     storage_format: str
@@ -370,6 +372,7 @@ def run_repeated_launch_learning_curve(config: RepeatedLaunchValidationConfig) -
             outcome_root=config.outcome_root,
             output_root=config.output_root,
             run_id=config.run_id,
+            run_label=config.run_label,
             source_w2_root=config.source_w2_root,
             seed=config.seed,
             storage_format=config.storage_format,
@@ -391,7 +394,7 @@ def run_repeated_launch_learning_curve(config: RepeatedLaunchValidationConfig) -
 def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: ValidationProtocol) -> dict[str, object]:
     """Run or schedule repeated-launch validation with true primitive rollout rows."""
 
-    run_root = Path(config.output_root) / f"{int(config.run_id):03d}"
+    run_root = Path(config.output_root) / _run_folder_name(config.run_id, config.run_label)
     for subdir in ("manifests", "metrics", "reports", "tables"):
         filesystem_path(run_root / subdir).mkdir(parents=True, exist_ok=True)
     storage_format = resolve_storage_format(config.storage_format)
@@ -3608,6 +3611,7 @@ def _write_manifest(
         "project_title_version": PROJECT_TITLE_VERSION,
         "status": status,
         "run_id": int(config.run_id),
+        "run_label": str(config.run_label).strip(),
         "run_root": run_root.as_posix(),
         "stage_id": protocol.stage_id,
         "library_root": Path(config.library_root).as_posix(),
@@ -3745,6 +3749,7 @@ def _write_blocked_outputs(
         "status": "blocked",
         "stage_id": protocol.stage_id,
         "run_id": int(config.run_id),
+        "run_label": str(config.run_label).strip(),
         "run_root": run_root.as_posix(),
         "blocked_reason": blocked_reason,
         "pass_gate": False,
@@ -3807,6 +3812,11 @@ def _read_json(path: Path) -> dict[str, object]:
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     filesystem_path(path).parent.mkdir(parents=True, exist_ok=True)
     filesystem_path(path).write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="ascii")
+
+
+def _run_folder_name(run_id: int, run_label: str = "") -> str:
+    label = str(run_label).strip()
+    return label if label else f"{int(run_id):03d}"
 
 
 def _write_csv(path: Path, frame: pd.DataFrame) -> None:

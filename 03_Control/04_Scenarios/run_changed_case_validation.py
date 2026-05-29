@@ -154,6 +154,7 @@ class ChangedCaseValidationConfig:
     outcome_root: Path = DEFAULT_OUTCOME_ROOT
     output_root: Path = DEFAULT_OUTPUT_ROOT
     run_id: int = 1
+    run_label: str = ""
     source_w2_root: Path | None = None
     seed: int = 110
     storage_format: str = "auto"
@@ -187,6 +188,7 @@ def run_changed_case_validation(config: ChangedCaseValidationConfig) -> dict[str
             outcome_root=config.outcome_root,
             output_root=config.output_root,
             run_id=config.run_id,
+            run_label=config.run_label,
             source_w2_root=config.source_w2_root,
             seed=config.seed,
             storage_format=config.storage_format,
@@ -215,6 +217,7 @@ def run_heldout_changed_case_validation(config: HeldoutChangedCaseValidationConf
             outcome_root=config.outcome_root,
             output_root=config.output_root,
             run_id=config.run_id,
+            run_label=config.run_label,
             source_w2_root=config.source_w2_root,
             seed=config.seed,
             storage_format=config.storage_format,

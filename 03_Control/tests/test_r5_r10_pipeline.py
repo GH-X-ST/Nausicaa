@@ -66,3 +66,37 @@ def test_terminate_blocked_decision_includes_docs_alignment_fields(tmp_path: Pat
     assert decision["docs_changed_during_run"].iloc[-1] in (False, "False")
     assert decision["docs_alignment_checkpoint"].iloc[-1] == "before_terminate_blocked"
     assert "controlling_hashes" in decision.columns
+
+
+def test_official_run_label_targets_direct_sibling_stage_roots(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(pipeline, "W01_OUTPUT_ROOT", tmp_path / "w01_dense")
+    monkeypatch.setattr(pipeline, "W3_OUTPUT_ROOT", tmp_path / "w3_survival")
+    monkeypatch.setattr(pipeline, "POST_W3_OUTPUT_ROOT", tmp_path / "post_w3_library_size_study")
+    monkeypatch.setattr(pipeline, "OUTCOME_OUTPUT_ROOT", tmp_path / "outcome_model")
+    monkeypatch.setattr(pipeline, "DEFAULT_CHANGED_OUTPUT_ROOT", tmp_path / "changed_case_validation")
+    monkeypatch.setattr(pipeline, "DEFAULT_HELDOUT_CHANGED_OUTPUT_ROOT", tmp_path / "heldout_changed_case_validation")
+
+    config = pipeline.R5R10PipelineConfig(
+        output_root=tmp_path / "r5_r11_pipeline",
+        run_id=1,
+        run_label="A01",
+        stage_run_label="A01",
+        start_stage="R5",
+        stop_after_stage="R11",
+    )
+    run_root = tmp_path / "r5_r11_pipeline" / "A01"
+    expected_roots = {
+        run_root,
+        tmp_path / "w01_dense" / "A01",
+        tmp_path / "w3_survival" / "A01",
+        tmp_path / "post_w3_library_size_study" / "A01",
+        tmp_path / "outcome_model" / "A01",
+        tmp_path / "changed_case_validation" / "A01",
+        tmp_path / "heldout_changed_case_validation" / "A01",
+    }
+    for root in expected_roots:
+        root.mkdir(parents=True)
+
+    conflicts = set(pipeline._official_run_label_conflicts(config=config, run_id=1, run_root=run_root))
+    assert conflicts == expected_roots
+    assert pipeline._stage_run_id(config, tmp_path / "w01_dense") == 1
