@@ -1,0 +1,17 @@
+{
+  "runner_version": "run_lqr_w01_dense_chunked_v1",
+  "status": "complete",
+  "run_id": 15,
+  "chunk_index": 24,
+  "chunk_count": 96,
+  "row_start": 19200,
+  "row_stop": 20000,
+  "row_count": 800,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "partition_path": "w01_primitive_rows/c00024.csv.gz",
+  "byte_count": 1035035,
+  "checksum_sha256": "3aa7d45e0f3804a58602e1df3533ec6c4362049a0aba4f1bbc8004c07b169d26",
+  "duration_s": 16.24624991416931,
+  "table_name": "w01_primitive_rows"
+}
