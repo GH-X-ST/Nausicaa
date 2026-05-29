@@ -1,0 +1,2 @@
+environment_block_id,launch_count,safe_success_rate,full_safe_success_rate,mean_launch_score
+r10_l7_full_domain_randomisation_arena_wide_training,20,1.0,1.0,7.5

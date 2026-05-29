@@ -119,6 +119,8 @@ class R5R10PipelineConfig:
     compression_level: int = 1
     candidate_chunk_size: int = 800
     r10_mode: str = "full"
+    history_log_mode: str = "auto"
+    history_debug_sample_stride: int = 10
     allow_stage_smoke: bool = False
     continue_on_stage_failure: bool = False
 
@@ -564,6 +566,8 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
                 workers=_validation_worker_count(config.workers),
                 max_workers=config.max_workers,
                 worker_backend="process",
+                history_log_mode=config.history_log_mode,
+                history_debug_sample_stride=config.history_debug_sample_stride,
             )
         )
     if stage_id == "R10":
@@ -588,6 +592,8 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
                 max_workers=config.max_workers,
                 governor_config_path=governor_config_path,
                 worker_backend="process",
+                history_log_mode=config.history_log_mode,
+                history_debug_sample_stride=config.history_debug_sample_stride,
             )
         )
     if stage_id == "R11":
@@ -611,6 +617,8 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
                 max_workers=config.max_workers,
                 governor_config_path=governor_config_path,
                 worker_backend="process",
+                history_log_mode=config.history_log_mode,
+                history_debug_sample_stride=config.history_debug_sample_stride,
             )
         )
     raise KeyError(f"unknown stage_id: {stage_id}")
@@ -1364,6 +1372,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--compression-level", type=int, default=1)
     parser.add_argument("--candidate-chunk-size", type=int, default=800)
     parser.add_argument("--r10-mode", default="full", choices=("full", "reduced_diagnostic_10", "reduced_diagnostic_50"))
+    parser.add_argument("--history-log-mode", default="auto", choices=("auto", "plot_summary", "sampled_debug", "full_debug"))
+    parser.add_argument("--history-debug-sample-stride", type=int, default=10)
     parser.add_argument("--allow-stage-smoke", type=_parse_bool, default=False)
     parser.add_argument("--continue-on-stage-failure", type=_parse_bool, default=False)
     args = parser.parse_args(argv)
@@ -1384,6 +1394,8 @@ def main(argv: list[str] | None = None) -> int:
             compression_level=args.compression_level,
             candidate_chunk_size=args.candidate_chunk_size,
             r10_mode=args.r10_mode,
+            history_log_mode=args.history_log_mode,
+            history_debug_sample_stride=args.history_debug_sample_stride,
             allow_stage_smoke=args.allow_stage_smoke,
             continue_on_stage_failure=args.continue_on_stage_failure,
         )

@@ -1,0 +1,16 @@
+comparison_type,library_size_case_id,policy_id,baseline_policy_id,history_length,paired_launch_count,mean_paired_delta_launch_score,median_paired_delta_launch_score,win_rate,loss_rate,safety_regression_rate,memory_changed_selection_rate,exploration_changed_selection_rate,mean_net_specific_energy_delta_m_delta,mean_positive_specific_energy_gain_m_delta,mean_updraft_specific_energy_gain_proxy_m_delta,mean_gross_specific_energy_loss_m_delta,mean_episode_flight_time_s_delta
+memory_vs_no_memory,balanced_cluster,directional_3d_residual_memory_h10,no_memory_baseline,10,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+memory_vs_no_memory,balanced_cluster,directional_3d_residual_memory_h3,no_memory_baseline,3,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+memory_vs_no_memory,balanced_cluster,directional_3d_residual_memory_h30,no_memory_baseline,30,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+memory_vs_no_memory,heavy_cluster,directional_3d_residual_memory_h10,no_memory_baseline,10,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+memory_vs_no_memory,heavy_cluster,directional_3d_residual_memory_h3,no_memory_baseline,3,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+memory_vs_no_memory,heavy_cluster,directional_3d_residual_memory_h30,no_memory_baseline,30,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+memory_vs_no_memory,light_cluster,directional_3d_residual_memory_h10,no_memory_baseline,10,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+memory_vs_no_memory,light_cluster,directional_3d_residual_memory_h3,no_memory_baseline,3,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+memory_vs_no_memory,light_cluster,directional_3d_residual_memory_h30,no_memory_baseline,30,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+memory_vs_no_memory,no_cluster_no_merge,directional_3d_residual_memory_h10,no_memory_baseline,10,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+memory_vs_no_memory,no_cluster_no_merge,directional_3d_residual_memory_h3,no_memory_baseline,3,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+memory_vs_no_memory,no_cluster_no_merge,directional_3d_residual_memory_h30,no_memory_baseline,30,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+memory_vs_no_memory,super_light_cluster,directional_3d_residual_memory_h10,no_memory_baseline,10,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+memory_vs_no_memory,super_light_cluster,directional_3d_residual_memory_h3,no_memory_baseline,3,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+memory_vs_no_memory,super_light_cluster,directional_3d_residual_memory_h30,no_memory_baseline,30,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0

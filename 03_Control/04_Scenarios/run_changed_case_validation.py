@@ -170,6 +170,8 @@ class ChangedCaseValidationConfig:
     worker_backend: str = "process"
     governor_config: GovernorConfig | None = None
     governor_config_path: Path | None = None
+    history_log_mode: str = "auto"
+    history_debug_sample_stride: int = 10
 
 
 @dataclass(frozen=True)
@@ -202,6 +204,8 @@ def run_changed_case_validation(config: ChangedCaseValidationConfig) -> dict[str
             max_workers=config.max_workers,
             worker_backend=config.worker_backend,
             governor_config=governor_config,
+            history_log_mode=config.history_log_mode,
+            history_debug_sample_stride=config.history_debug_sample_stride,
         ),
         protocol=protocol,
     )
@@ -231,6 +235,8 @@ def run_heldout_changed_case_validation(config: HeldoutChangedCaseValidationConf
             max_workers=config.max_workers,
             worker_backend=config.worker_backend,
             governor_config=governor_config,
+            history_log_mode=config.history_log_mode,
+            history_debug_sample_stride=config.history_debug_sample_stride,
         ),
         protocol=R11_PROTOCOL,
     )
@@ -273,6 +279,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-workers", type=int, default=None)
     parser.add_argument("--worker-backend", choices=("thread", "process"), default="process")
     parser.add_argument("--governor-config-path", type=Path, default=None)
+    parser.add_argument("--history-log-mode", choices=("auto", "plot_summary", "sampled_debug", "full_debug"), default="auto")
+    parser.add_argument("--history-debug-sample-stride", type=int, default=10)
     args = parser.parse_args(argv)
 
     result = run_changed_case_validation(
@@ -295,6 +303,8 @@ def main(argv: list[str] | None = None) -> int:
             max_workers=args.max_workers,
             worker_backend=args.worker_backend,
             governor_config_path=args.governor_config_path,
+            history_log_mode=args.history_log_mode,
+            history_debug_sample_stride=args.history_debug_sample_stride,
         )
     )
     print(result)

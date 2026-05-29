@@ -107,9 +107,22 @@ R9_EXPECTED_HISTORY_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_C
 DEFAULT_LIBRARY_ROOT = Path("03_Control/05_Results/R8_library_size_study/A01")
 DEFAULT_OUTCOME_ROOT = Path("03_Control/05_Results/R8_outcome/A01")
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R9_test")
+LEGACY_RESULT_ROOT_NAMES = {"lqr_contextual_v1_0", "lqr_contextual_v_1_0"}
+RENAMED_STAGE_ROOTS = {
+    "w01_dense": "R5_dense",
+    "w2_survival": "R6_archived",
+    "w3_survival": "R7_survival",
+    "outcome_model": "R8_outcome",
+    "post_w3_library_size_study": "R8_library_size_study",
+    "changed_case_validation": "R10_learn",
+    "repeated_launch_validation": "R11_validation",
+}
 TABLE_NAMES = (
     "episode_summary",
     "primitive_execution_log",
+    "history_plot_trace",
+    "history_memory_trace",
+    "history_selector_summary",
     "candidate_score_log",
     "selector_decision_log",
     "memory_residual_update_log",
@@ -118,6 +131,8 @@ TABLE_NAMES = (
 SCHEDULE_INLINE_ROW_LIMIT = 50_000
 SCHEDULE_PARTITION_ROW_COUNT = 50_000
 CANDIDATE_SCORE_TOP_K_PER_DECISION = 10
+HISTORY_LOG_MODES = ("auto", "plot_summary", "sampled_debug", "full_debug")
+DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE = 10
 REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION = "predictive_next_primitive_scheduler_profile_v1"
 REAL_TIME_PREFERRED_DECISION_BUDGET_S = CONTROLLER_INPUT_UPDATE_PERIOD_S
 REAL_TIME_HARD_DECISION_BUDGET_S = PRIMITIVE_FINITE_HORIZON_S
@@ -297,6 +312,8 @@ class RepeatedLaunchValidationConfig:
     max_workers: int | None = None
     worker_backend: str = "process"
     governor_config: GovernorConfig | None = None
+    history_log_mode: str = "auto"
+    history_debug_sample_stride: int = DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE
 
 
 @dataclass(frozen=True)
@@ -362,6 +379,20 @@ class ValidationRunConfig:
     max_workers: int | None
     worker_backend: str
     governor_config: GovernorConfig | None = None
+    history_log_mode: str = "auto"
+    history_debug_sample_stride: int = DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE
+
+
+@dataclass(frozen=True)
+class FrozenControllerRecordLoadResult:
+    records_by_variant: dict[str, object]
+    resolved_root: Path | None
+    resolved_reason: str
+    attempted_roots: tuple[Path, ...]
+    attempted_reasons: tuple[str, ...]
+    record_count: int
+    bundle_variant_count: int
+    bundle_ready_count: int
 
 
 def run_repeated_launch_learning_curve(config: RepeatedLaunchValidationConfig) -> dict[str, object]:
@@ -387,6 +418,8 @@ def run_repeated_launch_learning_curve(config: RepeatedLaunchValidationConfig) -
             max_workers=config.max_workers,
             worker_backend=config.worker_backend,
             governor_config=config.governor_config,
+            history_log_mode=config.history_log_mode,
+            history_debug_sample_stride=config.history_debug_sample_stride,
         ),
         protocol=R9_PROTOCOL,
     )
@@ -475,9 +508,16 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
             "history_launch_count": len(history_schedule),
         }
 
-    records_by_variant = _load_records_by_variant(config, libraries)
+    source_record_load = _load_records_by_variant(config, libraries)
+    records_by_variant = source_record_load.records_by_variant
     if not records_by_variant:
-        _write_blocked_outputs(run_root, config, protocol, "missing_frozen_controller_records_for_rollout")
+        _write_blocked_outputs(
+            run_root,
+            config,
+            protocol,
+            "missing_frozen_controller_records_for_rollout",
+            source_record_load=source_record_load,
+        )
         return {"status": "blocked", "blocked_reason": "missing_frozen_controller_records_for_rollout", "run_root": run_root.as_posix()}
     outcome_rows_by_case = _outcome_rows_by_case(outcome_rows)
     selected_workers = _selected_worker_count(config)
@@ -554,6 +594,7 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
         pass_summary=pass_summary,
         final_schedule=final_schedule,
         history_schedule=history_schedule,
+        source_record_load=source_record_load,
         duration_s=time.time() - started,
     )
     _write_file_size_audit(run_root)
@@ -644,35 +685,93 @@ def _outcome_rows_by_case(outcome_rows: dict[str, dict[str, object]]) -> dict[st
     return rows_by_case
 
 
-def _load_records_by_variant(config: ValidationRunConfig, libraries: dict[str, dict[str, object]]) -> dict[str, object]:
-    candidates = []
-    if config.source_w2_root is not None:
-        candidates.append(Path(config.source_w2_root))
-    for payload in libraries.values():
-        if payload.get("source_w2_root"):
-            candidates.append(Path(str(payload["source_w2_root"])))
-        if payload.get("source_w01_root"):
-            candidates.append(Path(str(payload["source_w01_root"])))
-        if payload.get("source_r5_root"):
-            candidates.append(Path(str(payload["source_r5_root"])))
-        for row in list(payload.get("representatives", [])):
-            if row.get("source_w2_root"):
-                candidates.append(Path(str(row["source_w2_root"])))
-            if row.get("source_w01_root"):
-                candidates.append(Path(str(row["source_w01_root"])))
-            if row.get("source_r5_root"):
-                candidates.append(Path(str(row["source_r5_root"])))
-    for root in candidates:
+def _load_records_by_variant(config: ValidationRunConfig, libraries: dict[str, dict[str, object]]) -> FrozenControllerRecordLoadResult:
+    candidates = _frozen_controller_source_candidates(config, libraries)
+    attempted_roots = tuple(root for root, _reason in candidates)
+    attempted_reasons = tuple(reason for _root, reason in candidates)
+    for root, reason in candidates:
         bundle_path = filesystem_path(root / "manifests" / "frozen_w01_controller_bundle.json")
         if not bundle_path.is_file():
             continue
         bundle = load_frozen_w01_controller_bundle(root / "manifests" / "frozen_w01_controller_bundle.json")
-        return {
+        records = {
             record.primitive_variant_id: record
             for record in bundle.records
             if str(record.bundle_status) == FROZEN_CONTROLLER_READY
         }
-    return {}
+        return FrozenControllerRecordLoadResult(
+            records_by_variant=records,
+            resolved_root=Path(root),
+            resolved_reason=reason,
+            attempted_roots=attempted_roots,
+            attempted_reasons=attempted_reasons,
+            record_count=len(records),
+            bundle_variant_count=int(bundle.variant_count),
+            bundle_ready_count=int(bundle.ready_count),
+        )
+    return FrozenControllerRecordLoadResult(
+        records_by_variant={},
+        resolved_root=None,
+        resolved_reason="",
+        attempted_roots=attempted_roots,
+        attempted_reasons=attempted_reasons,
+        record_count=0,
+        bundle_variant_count=0,
+        bundle_ready_count=0,
+    )
+
+
+def _frozen_controller_source_candidates(
+    config: ValidationRunConfig,
+    libraries: dict[str, dict[str, object]],
+) -> tuple[tuple[Path, str], ...]:
+    roots: list[tuple[Path, str]] = []
+
+    def append_root(value: object, reason: str) -> None:
+        text = str(value).strip() if value is not None else ""
+        if not text:
+            return
+        root = Path(text)
+        roots.append((root, reason))
+        relocated = _relocated_result_root(root)
+        if relocated != root:
+            roots.append((relocated, f"{reason}:relocated_result_root"))
+
+    if config.source_w2_root is not None:
+        append_root(config.source_w2_root, "config_source_w2_root")
+    for payload in libraries.values():
+        append_root(payload.get("source_w2_root"), "library_source_w2_root")
+        append_root(payload.get("source_w01_root"), "library_source_w01_root")
+        append_root(payload.get("source_r5_root"), "library_source_r5_root")
+        for row in list(payload.get("representatives", [])):
+            append_root(row.get("source_w2_root"), "representative_source_w2_root")
+            append_root(row.get("source_w01_root"), "representative_source_w01_root")
+            append_root(row.get("source_r5_root"), "representative_source_r5_root")
+
+    deduped: list[tuple[Path, str]] = []
+    seen: set[str] = set()
+    for root, reason in roots:
+        key = root.as_posix().casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((root, reason))
+    return tuple(deduped)
+
+
+def _relocated_result_root(root: Path) -> Path:
+    parts = list(root.parts)
+    lowered = [part.lower() for part in parts]
+    for index, part in enumerate(lowered):
+        if part not in LEGACY_RESULT_ROOT_NAMES:
+            continue
+        if index + 1 >= len(parts):
+            return root
+        replacement = RENAMED_STAGE_ROOTS.get(lowered[index + 1])
+        if replacement is None:
+            return root
+        return Path(*parts[:index]) / replacement / Path(*parts[index + 2 :])
+    return root
 
 
 def _selected_worker_count(config: ValidationRunConfig) -> int:
@@ -680,6 +779,36 @@ def _selected_worker_count(config: ValidationRunConfig) -> int:
     if config.max_workers is None:
         return requested
     return max(1, min(requested, int(config.max_workers)))
+
+
+def _resolved_history_log_mode(config: ValidationRunConfig, protocol: ValidationProtocol) -> str:
+    requested = str(config.history_log_mode or "auto").strip().lower()
+    if requested not in HISTORY_LOG_MODES:
+        raise ValueError(f"history_log_mode must be one of: {', '.join(HISTORY_LOG_MODES)}")
+    if requested != "auto":
+        return requested
+    if str(protocol.stage_id) == "R9" or bool(protocol.reduced_diagnostic) or int(config.smoke_outer_cases_per_block) > 0:
+        return "full_debug"
+    return "plot_summary"
+
+
+def _history_debug_log_retained(
+    scheduled: dict[str, object],
+    *,
+    config: ValidationRunConfig,
+    protocol: ValidationProtocol,
+) -> bool:
+    if str(scheduled.get("launch_role", "")) != "history":
+        return True
+    mode = _resolved_history_log_mode(config, protocol)
+    if mode == "full_debug":
+        return True
+    if mode != "sampled_debug":
+        return False
+    stride = max(1, int(config.history_debug_sample_stride or DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE))
+    history_index = int(scheduled.get("history_launch_index", 0))
+    history_length = max(1, int(scheduled.get("history_length", 1)))
+    return history_index == 0 or history_index == history_length - 1 or history_index % stride == 0
 
 
 def _iter_launch_result_batches(
@@ -785,6 +914,7 @@ def _run_final_schedule_row(
     launch_results: list[dict[str, object]] = []
     for hist_index in range(int(policy["history_length"])):
         history_row = _history_row_for_final(final_row, hist_index)
+        retain_history_debug = _history_debug_log_retained(history_row, config=config, protocol=protocol)
         history_result = _run_one_launch(
             scheduled=history_row,
             policy=policy,
@@ -794,6 +924,7 @@ def _run_final_schedule_row(
             belief=belief,
             config=config,
             protocol=protocol,
+            retain_debug_logs=retain_history_debug,
         )
         belief = history_result["belief_after"]
         launch_results.append(_launch_result_for_parent(history_result))
@@ -806,20 +937,145 @@ def _run_final_schedule_row(
         belief=belief,
         config=config,
         protocol=protocol,
+        retain_debug_logs=True,
     )
     launch_results.append(_launch_result_for_parent(final_result))
     return launch_results
 
 
 def _launch_result_for_parent(result: dict[str, object]) -> dict[str, object]:
+    debug_log_retained = bool(result.get("debug_log_retained", True))
+    is_history = _result_launch_role(result) == "history"
     return {
         "episode_rows": result["episode_rows"],
         "primitive_rows": result["primitive_rows"],
-        "candidate_rows": result["candidate_rows"],
-        "selector_rows": result["selector_rows"],
-        "memory_rows": result["memory_rows"],
-        "belief_rows": result["belief_rows"],
+        "history_plot_rows": _history_plot_trace_rows(result) if is_history else [],
+        "history_memory_rows": _history_memory_trace_rows(result) if is_history else [],
+        "history_selector_rows": _history_selector_summary_rows(result) if is_history else [],
+        "candidate_rows": result["candidate_rows"] if debug_log_retained else [],
+        "selector_rows": result["selector_rows"] if debug_log_retained else [],
+        "memory_rows": result["memory_rows"] if debug_log_retained else [],
+        "belief_rows": result["belief_rows"] if debug_log_retained else [],
     }
+
+
+def _result_launch_role(result: dict[str, object]) -> str:
+    scheduled = dict(result.get("scheduled", {}))
+    if scheduled.get("launch_role"):
+        return str(scheduled.get("launch_role", ""))
+    for row in list(result.get("episode_rows", [])):
+        if row.get("launch_role"):
+            return str(row.get("launch_role", ""))
+    return ""
+
+
+def _history_trace_identity(result: dict[str, object]) -> dict[str, object]:
+    scheduled = dict(result.get("scheduled", {}))
+    row = {
+        **_schedule_identity_row(scheduled),
+        "launch_role": "history",
+        "history_launch_index": int(_float_value(scheduled.get("history_launch_index", 0))),
+        "launch_state_seed": int(_float_value(scheduled.get("launch_state_seed", 0))),
+        "environment_seed": int(_float_value(scheduled.get("environment_seed", 0))),
+        "plant_implementation_seed": int(_float_value(scheduled.get("plant_implementation_seed", 0))),
+        "environment_block_local_index": int(
+            _float_value(scheduled.get("environment_block_local_index", scheduled.get("outer_case_index", 0)))
+        ),
+        "scheduled_active_fan_count": int(_float_value(scheduled["scheduled_active_fan_count"]))
+        if scheduled.get("scheduled_active_fan_count") is not None
+        else "",
+        "history_log_mode": str(result.get("history_log_mode", "")),
+        "history_debug_log_retained": bool(result.get("debug_log_retained", True)),
+    }
+    return row
+
+
+def _history_plot_trace_rows(result: dict[str, object]) -> list[dict[str, object]]:
+    episode_rows = list(result.get("episode_rows", []))
+    primitive_rows = list(result.get("primitive_rows", []))
+    if not episode_rows:
+        return []
+    episode = dict(episode_rows[0])
+    return [
+        {
+            **_history_trace_identity(result),
+            "plot_trace_policy": "all_history_selected_primitives_retained_in_primitive_execution_log",
+            "primitive_execution_log_scope": "selected_primitives_only_plot_ready",
+            "selected_primitive_step_count": int(episode.get("selected_primitive_step_count", len(primitive_rows))),
+            "selected_primitive_id_sequence": str(episode.get("selected_primitive_id", "")),
+            "selected_primitive_variant_id_sequence": str(episode.get("selected_primitive_variant_id", "")),
+            "selected_entry_role_sequence": str(episode.get("selected_entry_role_sequence", "")),
+            "selected_start_state_family_sequence": str(episode.get("selected_start_state_family_sequence", "")),
+            "selected_route_reason_sequence": str(episode.get("selected_route_reason_sequence", "")),
+            "transition_exit_class_sequence": ";".join(_sequence_values(primitive_rows, "transition_exit_class")),
+            "termination_cause": str(episode.get("termination_cause", "")),
+            "safe_success": bool(_truthy(episode.get("safe_success", False))),
+            "full_safe_success": bool(_truthy(episode.get("full_safe_success", False))),
+            "terminal_useful": bool(_truthy(episode.get("terminal_useful", False))),
+            "lift_capture": bool(_truthy(episode.get("lift_capture", False))),
+            "episode_rollout_duration_s": float(_float_value(episode.get("episode_rollout_duration_s", 0.0))),
+            "lift_dwell_time_s": float(_float_value(episode.get("lift_dwell_time_s", 0.0))),
+            "energy_residual_m": float(_float_value(episode.get("energy_residual_m", 0.0))),
+            "positive_specific_energy_gain_m": float(_float_value(episode.get("positive_specific_energy_gain_m", 0.0))),
+            "updraft_specific_energy_gain_proxy_m": float(_float_value(episode.get("updraft_specific_energy_gain_proxy_m", 0.0))),
+            "min_wall_margin_m": float(_float_value(episode.get("min_wall_margin_m", 0.0))),
+        }
+    ]
+
+
+def _history_memory_trace_rows(result: dict[str, object]) -> list[dict[str, object]]:
+    episode_rows = list(result.get("episode_rows", []))
+    memory_rows = list(result.get("memory_rows", []))
+    if not episode_rows:
+        return []
+    episode = dict(episode_rows[0])
+    updated = [row for row in memory_rows if str(row.get("update_status", "")) == "updated"]
+    return [
+        {
+            **_history_trace_identity(result),
+            "memory_trace_policy": "one_compact_row_per_history_launch_with_update_aggregates",
+            "memory_update_row_count": int(len(memory_rows)),
+            "memory_updated_count": int(len(updated)),
+            "memory_not_updated_count": int(len(memory_rows) - len(updated)),
+            "belief_update_count_before": int(episode.get("belief_update_count_before", 0)),
+            "belief_update_count_after": int(episode.get("belief_update_count_after", 0)),
+            "belief_observation_count": int(episode.get("belief_observation_count", 0)),
+            "belief_uncertainty": float(_float_value(episode.get("belief_uncertainty", 1.0))),
+            "lift_residual_sum_m_s": float(sum(_float_value(row.get("lift_residual_m_s", 0.0)) for row in memory_rows)),
+            "lift_residual_mean_m_s": _mean_float(memory_rows, "lift_residual_m_s"),
+            "updraft_gain_residual_sum_m": float(sum(_float_value(row.get("updraft_gain_residual_m", 0.0)) for row in memory_rows)),
+            "updraft_gain_residual_mean_m": _mean_float(memory_rows, "updraft_gain_residual_m"),
+            "dwell_residual_sum_s": float(sum(_float_value(row.get("dwell_residual_s", 0.0)) for row in memory_rows)),
+            "dwell_residual_mean_s": _mean_float(memory_rows, "dwell_residual_s"),
+        }
+    ]
+
+
+def _history_selector_summary_rows(result: dict[str, object]) -> list[dict[str, object]]:
+    episode_rows = list(result.get("episode_rows", []))
+    selector_rows = list(result.get("selector_rows", []))
+    if not episode_rows:
+        return []
+    duration = [_float_value(row.get("decision_total_duration_s", 0.0)) for row in selector_rows]
+    candidate_count = [int(_float_value(row.get("candidate_count", row.get("decision_candidate_count", 0)))) for row in selector_rows]
+    viable_count = [int(_float_value(row.get("viable_count", row.get("decision_viable_count", 0)))) for row in selector_rows]
+    return [
+        {
+            **_history_trace_identity(result),
+            "selector_summary_policy": "launch_level_counts_for_history_debug_compaction",
+            "selector_decision_count": int(len(selector_rows)),
+            "candidate_count_total": int(sum(candidate_count)),
+            "viable_count_total": int(sum(viable_count)),
+            "governor_rejection_count_total": int(sum(max(0, c - v) for c, v in zip(candidate_count, viable_count))),
+            "blocked_no_viable_decision_count": int(sum(str(row.get("decision_status", "")) == "blocked_no_viable_representative" for row in selector_rows)),
+            "prepared_before_boundary_count": int(sum(_truthy(row.get("scheduler_prepared_before_primitive_boundary", False)) for row in selector_rows)),
+            "preferred_20ms_slot_met_count": int(sum(_truthy(row.get("preferred_20ms_slot_met", False)) for row in selector_rows)),
+            "hard_100ms_boundary_met_count": int(sum(_truthy(row.get("hard_100ms_boundary_met", False)) for row in selector_rows)),
+            "decision_total_duration_sum_s": float(sum(duration)),
+            "decision_total_duration_mean_s": float(sum(duration) / max(1, len(duration))),
+            "decision_total_duration_max_s": float(max(duration) if duration else 0.0),
+        }
+    ]
 
 
 def _scheduled_active_fan_count_for_outer_case(
@@ -1168,6 +1424,7 @@ def _run_one_launch(
     belief: DirectionalResidualLiftBelief,
     config: ValidationRunConfig,
     protocol: ValidationProtocol,
+    retain_debug_logs: bool = True,
 ) -> dict[str, object]:
     episode_id = str(scheduled["episode_id"])
     sample = archive_state_sample_for_family(
@@ -1245,15 +1502,16 @@ def _run_one_launch(
             row["route_required_entry_role"] = str(route["route_required_entry_role"])
             row["route_required_entry_class"] = str(route.get("route_required_entry_class", ""))
             row["route_reason"] = str(route["route_reason"])
-        candidate_rows_all.extend(
-            _compact_candidate_score_rows(
-                candidate_rows,
-                selected=selected,
-                scheduled=scheduled,
-                primitive_step_index=primitive_step_index,
-                top_k=CANDIDATE_SCORE_TOP_K_PER_DECISION,
+        if retain_debug_logs:
+            candidate_rows_all.extend(
+                _compact_candidate_score_rows(
+                    candidate_rows,
+                    selected=selected,
+                    scheduled=scheduled,
+                    primitive_step_index=primitive_step_index,
+                    top_k=CANDIDATE_SCORE_TOP_K_PER_DECISION,
+                )
             )
-        )
         selector_row = {
             **selector_decision_row(
                 episode_id=episode_id,
@@ -1276,14 +1534,15 @@ def _run_one_launch(
             "route_reason": str(route["route_reason"]),
         }
         selector_rows.append(selector_row)
-        belief_rows.append(
-            _belief_snapshot_compact(
-                belief=belief_after,
-                scheduled=scheduled,
-                phase=f"before_primitive_step_{primitive_step_index}",
-                features=belief_features or {},
+        if retain_debug_logs:
+            belief_rows.append(
+                _belief_snapshot_compact(
+                    belief=belief_after,
+                    scheduled=scheduled,
+                    phase=f"before_primitive_step_{primitive_step_index}",
+                    features=belief_features or {},
+                )
             )
-        )
         if selected is None:
             blocked_reason = "no_viable_primitive" if primitive_step_index == 0 else "no_viable_continuation_primitive"
             break
@@ -1410,20 +1669,21 @@ def _run_one_launch(
         except Exception:
             blocked_reason = "invalid_exit_state_vector"
             break
-        belief_rows.append(
-            _belief_snapshot_compact(
-                belief=belief_after,
-                scheduled=scheduled,
-                phase=f"after_primitive_step_{primitive_step_index}",
-                features=query_directional_residual_lift_features(
-                    belief_after,
-                    x_w_m=float(state[STATE_INDEX["x_w"]]),
-                    y_w_m=float(state[STATE_INDEX["y_w"]]),
-                    z_w_m=float(state[STATE_INDEX["z_w"]]),
-                    direction_rad=float(state[STATE_INDEX["psi"]]),
-                ),
+        if retain_debug_logs:
+            belief_rows.append(
+                _belief_snapshot_compact(
+                    belief=belief_after,
+                    scheduled=scheduled,
+                    phase=f"after_primitive_step_{primitive_step_index}",
+                    features=query_directional_residual_lift_features(
+                        belief_after,
+                        x_w_m=float(state[STATE_INDEX["x_w"]]),
+                        y_w_m=float(state[STATE_INDEX["y_w"]]),
+                        z_w_m=float(state[STATE_INDEX["z_w"]]),
+                        direction_rad=float(state[STATE_INDEX["psi"]]),
+                    ),
+                )
             )
-        )
         exit_class = str(rollout_row.get("transition_exit_class", "hard_failure"))
         hard_failure = exit_class == "hard_failure" or _rollout_row_is_hard_failure(rollout_row)
         if hard_failure or exit_class == "safe_terminal":
@@ -1472,6 +1732,9 @@ def _run_one_launch(
         "memory_rows": memory_rows,
         "belief_rows": belief_rows,
         "belief_after": belief_after,
+        "scheduled": scheduled,
+        "debug_log_retained": bool(retain_debug_logs),
+        "history_log_mode": _resolved_history_log_mode(config, protocol),
     }
 
 
@@ -2581,6 +2844,12 @@ def _float_value(value: object, default: float = 0.0) -> float:
     return result if math.isfinite(result) else float(default)
 
 
+def _mean_float(rows: list[dict[str, object]], column: str) -> float:
+    if not rows:
+        return 0.0
+    return float(sum(_float_value(row.get(column, 0.0)) for row in rows) / max(1, len(rows)))
+
+
 def _sequence_values(rows: list[dict[str, object]], column: str) -> list[str]:
     values: list[str] = []
     for row in rows:
@@ -2617,6 +2886,9 @@ def _launch_sequence_compliant(rows: list[dict[str, object]]) -> bool:
 def _append_launch_result(buffers: dict[str, list[dict[str, object]]], result: dict[str, object]) -> None:
     buffers["episode_summary"].extend(result["episode_rows"])
     buffers["primitive_execution_log"].extend(result["primitive_rows"])
+    buffers["history_plot_trace"].extend(result["history_plot_rows"])
+    buffers["history_memory_trace"].extend(result["history_memory_rows"])
+    buffers["history_selector_summary"].extend(result["history_selector_rows"])
     buffers["candidate_score_log"].extend(result["candidate_rows"])
     buffers["selector_decision_log"].extend(result["selector_rows"])
     buffers["memory_residual_update_log"].extend(result["memory_rows"])
@@ -3007,7 +3279,7 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
         else pd.DataFrame()
     )
     _write_csv(run_root / "metrics" / "termination_summary.csv", term)
-    for required_name in ("candidate_score_log", "selector_decision_log", "memory_residual_update_log", "belief_snapshot_log", "primitive_execution_log", "episode_summary"):
+    for required_name in TABLE_NAMES:
         _write_csv(
             run_root / "metrics" / f"{required_name}.csv",
             pd.DataFrame([{"table_name": required_name, "row_level_log": f"tables/{required_name}/", "storage": "partitioned"}]),
@@ -3596,6 +3868,40 @@ def _float_metric(value: object, *, default: float) -> float:
     return result if math.isfinite(result) else float(default)
 
 
+def _frozen_controller_source_manifest_fields(source_record_load: FrozenControllerRecordLoadResult | None) -> dict[str, object]:
+    if source_record_load is None:
+        return {
+            "frozen_controller_records_source_root": "",
+            "frozen_controller_records_source_reason": "",
+            "frozen_controller_records_loaded_count": 0,
+            "frozen_controller_bundle_variant_count": 0,
+            "frozen_controller_bundle_ready_count": 0,
+            "frozen_controller_source_candidate_roots": [],
+            "frozen_controller_source_candidate_reasons": [],
+            "stale_source_path_relocation_policy": (
+                "legacy lqr_contextual_v1_0 result roots are resolved to renamed 05_Results stage roots at read time; "
+                "old result manifests are not rewritten"
+            ),
+            "stale_source_path_relocation_used": False,
+        }
+    return {
+        "frozen_controller_records_source_root": ""
+        if source_record_load.resolved_root is None
+        else Path(source_record_load.resolved_root).as_posix(),
+        "frozen_controller_records_source_reason": str(source_record_load.resolved_reason),
+        "frozen_controller_records_loaded_count": int(source_record_load.record_count),
+        "frozen_controller_bundle_variant_count": int(source_record_load.bundle_variant_count),
+        "frozen_controller_bundle_ready_count": int(source_record_load.bundle_ready_count),
+        "frozen_controller_source_candidate_roots": [Path(root).as_posix() for root in source_record_load.attempted_roots],
+        "frozen_controller_source_candidate_reasons": list(source_record_load.attempted_reasons),
+        "stale_source_path_relocation_policy": (
+            "legacy lqr_contextual_v1_0 result roots are resolved to renamed 05_Results stage roots at read time; "
+            "old result manifests are not rewritten"
+        ),
+        "stale_source_path_relocation_used": "relocated_result_root" in str(source_record_load.resolved_reason),
+    }
+
+
 def _write_manifest(
     *,
     run_root: Path,
@@ -3605,6 +3911,7 @@ def _write_manifest(
     pass_summary: list[dict[str, object]],
     final_schedule: list[dict[str, object]],
     history_schedule: list[dict[str, object]],
+    source_record_load: FrozenControllerRecordLoadResult | None = None,
     duration_s: float = 0.0,
 ) -> None:
     payload = {
@@ -3618,6 +3925,7 @@ def _write_manifest(
         "library_root": Path(config.library_root).as_posix(),
         "outcome_root": Path(config.outcome_root).as_posix(),
         "source_w2_root": "" if config.source_w2_root is None else Path(config.source_w2_root).as_posix(),
+        **_frozen_controller_source_manifest_fields(source_record_load),
         "history_lengths": sorted(
             {
                 int(_policy_condition(policy_id)["history_length"])
@@ -3683,14 +3991,31 @@ def _write_manifest(
         "candidate_score_log_policy": "compact_topk_selected_family_rejection_summary",
         "candidate_score_top_k_per_decision": int(CANDIDATE_SCORE_TOP_K_PER_DECISION),
         "full_candidate_score_log_default": False,
+        "history_log_mode_requested": str(config.history_log_mode),
+        "history_log_mode_resolved": _resolved_history_log_mode(config, protocol),
+        "history_debug_sample_stride": int(config.history_debug_sample_stride),
+        "history_debug_retention_policy": (
+            "R9_reduced_smoke_full_debug_else_R10_R11_history_plot_summary_unless_explicitly_overridden"
+            if str(config.history_log_mode) == "auto"
+            else "explicit_user_selected_history_log_mode"
+        ),
         "history_launch_plot_evidence_retained": True,
         "history_launch_retained_tables": [
             "episode_summary",
             "primitive_execution_log",
+            "history_plot_trace",
+            "history_memory_trace",
+            "history_selector_summary",
+        ],
+        "history_launch_verbose_debug_tables": [
+            "candidate_score_log",
             "selector_decision_log",
             "memory_residual_update_log",
             "belief_snapshot_log",
         ],
+        "history_launch_verbose_debug_default": _resolved_history_log_mode(config, protocol) == "full_debug",
+        "history_launch_verbose_debug_sampled": _resolved_history_log_mode(config, protocol) == "sampled_debug",
+        "final_launch_verbose_debug_tables_retained": True,
         "final_launch_plot_evidence_retained": True,
         "smoke_outer_cases_per_block": int(config.smoke_outer_cases_per_block),
         "smoke_run_not_full_gate_evidence": bool(int(config.smoke_outer_cases_per_block) > 0),
@@ -3743,6 +4068,7 @@ def _write_blocked_outputs(
     config: ValidationRunConfig,
     protocol: ValidationProtocol,
     blocked_reason: str,
+    source_record_load: FrozenControllerRecordLoadResult | None = None,
 ) -> None:
     manifest = {
         "manifest_version": protocol.manifest_version,
@@ -3754,6 +4080,7 @@ def _write_blocked_outputs(
         "run_root": run_root.as_posix(),
         "blocked_reason": blocked_reason,
         "pass_gate": False,
+        **_frozen_controller_source_manifest_fields(source_record_load),
         "claim_status": "simulation_only_blocked_repeated_launch_validation",
         "blocked_claims": list(BLOCKED_CLAIMS),
     }
@@ -3848,6 +4175,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--max-workers", type=int, default=None)
     parser.add_argument("--worker-backend", choices=("thread", "process"), default="process")
+    parser.add_argument("--history-log-mode", choices=HISTORY_LOG_MODES, default="auto")
+    parser.add_argument("--history-debug-sample-stride", type=int, default=DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE)
     return parser.parse_args(argv)
 
 
@@ -3871,6 +4200,8 @@ def main(argv: list[str] | None = None) -> int:
             workers=args.workers,
             max_workers=args.max_workers,
             worker_backend=args.worker_backend,
+            history_log_mode=args.history_log_mode,
+            history_debug_sample_stride=args.history_debug_sample_stride,
         )
     )
     print(json.dumps(result, indent=2, sort_keys=True))
