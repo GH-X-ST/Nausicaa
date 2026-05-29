@@ -8,7 +8,7 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 import numpy as np
 import pandas as pd
@@ -40,6 +40,7 @@ from arena_contract import TRUE_SAFE_BOUNDS, position_margin_m  # noqa: E402
 from directional_residual_lift_belief import (  # noqa: E402
     DirectionalResidualLiftBelief,
     DirectionalResidualObservation,
+    directional_residual_lift_cell_lookup,
     initial_directional_residual_lift_belief,
     query_directional_residual_lift_features,
     update_directional_residual_lift_belief,
@@ -136,6 +137,12 @@ DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE = 10
 REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION = "predictive_next_primitive_scheduler_profile_v1"
 REAL_TIME_PREFERRED_DECISION_BUDGET_S = CONTROLLER_INPUT_UPDATE_PERIOD_S
 REAL_TIME_HARD_DECISION_BUDGET_S = PRIMITIVE_FINITE_HORIZON_S
+OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_candidate_path_residual_memory_v1_0"
+CANDIDATE_PATH_MEMORY_LOOKAHEAD_S = 5.0 * PRIMITIVE_FINITE_HORIZON_S
+CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M = 0.75
+CANDIDATE_PATH_MEMORY_FULL_CONFIDENCE_OBSERVATIONS = 3.0
+CANDIDATE_PATH_MEMORY_HEADING_OFFSET_CAP_RAD = math.radians(35.0)
+CANDIDATE_PATH_MEMORY_PROBES = ((0.0, 0.20), (0.5, 0.35), (1.0, 0.45))
 THESIS_FACING_WORKFLOW = "R5 -> R7 -> R8 -> R10 -> R11 -> Reality"
 R9_THESIS_REPORTING_STATUS = "internal_preflight_excluded_from_thesis_workflow_narrative"
 LAUNCH_SEQUENCE_POLICY_ID = "state_class_transition_entry_governor_no_launch_specific_family"
@@ -1745,6 +1752,224 @@ def _run_one_launch(
     }
 
 
+def _candidate_path_belief_features_fn(
+    *,
+    belief: DirectionalResidualLiftBelief,
+    state: np.ndarray,
+) -> Callable[[dict[str, object], dict[str, object]], dict[str, object]]:
+    state_vector = as_state_vector(state)
+    cell_lookup = directional_residual_lift_cell_lookup(belief)
+
+    def features_for_candidate(representative: dict[str, object], outcome: dict[str, object]) -> dict[str, object]:
+        return _candidate_path_belief_features(
+            belief=belief,
+            cell_lookup=cell_lookup,
+            state=state_vector,
+            representative=representative,
+            outcome=outcome,
+        )
+
+    return features_for_candidate
+
+
+def _candidate_path_belief_features(
+    *,
+    belief: DirectionalResidualLiftBelief,
+    cell_lookup: dict[tuple[int, int, int, int], object],
+    state: np.ndarray,
+    representative: dict[str, object],
+    outcome: dict[str, object],
+) -> dict[str, object]:
+    """Return a conservative path-specific residual-memory correction for one candidate."""
+
+    reference_state = _candidate_reference_state_vector(representative, outcome)
+    path_speed_m_s = _candidate_path_speed_m_s(state=state, representative=representative, reference_state=reference_state)
+    vertical_speed_m_s = _candidate_path_vertical_speed_m_s(state=state, reference_state=reference_state)
+    reference_bank_rad = _candidate_reference_bank_rad(representative=representative, reference_state=reference_state)
+    heading_offset_rad = _candidate_path_heading_offset_rad(
+        reference_bank_rad=reference_bank_rad,
+        path_speed_m_s=path_speed_m_s,
+    )
+    x0 = float(state[STATE_INDEX["x_w"]])
+    y0 = float(state[STATE_INDEX["y_w"]])
+    z0 = float(state[STATE_INDEX["z_w"]])
+    psi0 = float(state[STATE_INDEX["psi"]])
+    weighted_lift = 0.0
+    weighted_updraft = 0.0
+    weighted_dwell = 0.0
+    confidence = 0.0
+    observation_count = 0
+    last_features: dict[str, object] = {}
+    exit_x = x0
+    exit_y = y0
+    exit_z = z0
+    exit_direction = psi0
+    for fraction, weight in CANDIDATE_PATH_MEMORY_PROBES:
+        fraction = float(fraction)
+        weight = float(weight)
+        probe_time_s = float(CANDIDATE_PATH_MEMORY_LOOKAHEAD_S) * fraction
+        probe_direction = psi0 + heading_offset_rad * fraction
+        displacement_direction = psi0 + 0.5 * heading_offset_rad * fraction
+        distance_m = path_speed_m_s * probe_time_s
+        x_w_m = _clamp_to_bounds(x0 + math.cos(displacement_direction) * distance_m, TRUE_SAFE_BOUNDS.x_w_m)
+        y_w_m = _clamp_to_bounds(y0 + math.sin(displacement_direction) * distance_m, TRUE_SAFE_BOUNDS.y_w_m)
+        z_w_m = _clamp_to_bounds(z0 + vertical_speed_m_s * probe_time_s, TRUE_SAFE_BOUNDS.z_w_m)
+        last_features = query_directional_residual_lift_features(
+            belief,
+            x_w_m=x_w_m,
+            y_w_m=y_w_m,
+            z_w_m=z_w_m,
+            direction_rad=probe_direction,
+            cell_lookup=cell_lookup,
+        )
+        probe_confidence = _candidate_path_probe_confidence(last_features)
+        weighted_lift += weight * probe_confidence * _float_value(last_features.get("belief_local_lift_residual_m_s", 0.0))
+        weighted_updraft += weight * probe_confidence * _float_value(last_features.get("belief_local_updraft_gain_residual_m", 0.0))
+        weighted_dwell += weight * probe_confidence * _float_value(last_features.get("belief_local_dwell_residual_s", 0.0))
+        confidence += weight * probe_confidence
+        observation_count += int(_float_value(last_features.get("belief_observation_count", 0)))
+        exit_x = x_w_m
+        exit_y = y_w_m
+        exit_z = z_w_m
+        exit_direction = probe_direction
+    capped_updraft = _clip(
+        weighted_updraft,
+        -float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
+        float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
+    )
+    capped_lift = _clip(
+        weighted_lift,
+        -float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
+        float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
+    )
+    capped_dwell = _clip(weighted_dwell, -1.0, 1.0)
+    confidence = _clip(confidence, 0.0, 1.0)
+    return {
+        "belief_version": f"{belief.belief_version}+{OUTER_LOOP_MEMORY_POLICY_VERSION}",
+        "belief_local_lift_m_s": float(capped_lift),
+        "belief_local_lift_residual_m_s": float(capped_lift),
+        "belief_local_updraft_gain_proxy_m": max(float(capped_updraft), 0.0),
+        "belief_local_updraft_gain_residual_m": float(capped_updraft),
+        "belief_local_energy_residual_m": float(capped_updraft),
+        "belief_local_dwell_residual_s": float(capped_dwell),
+        "belief_uncertainty": float(1.0 - confidence),
+        "belief_observation_count": int(observation_count),
+        "belief_effective_observation_count": float(observation_count) * float(confidence),
+        "belief_recency_weight": float(last_features.get("belief_recency_weight", 0.0) or 0.0),
+        "belief_observation_age": int(_float_value(last_features.get("belief_observation_age", 0))),
+        "belief_direction_bin": int(_float_value(last_features.get("belief_direction_bin", 0))),
+        "belief_z_bin": int(_float_value(last_features.get("belief_z_bin", 0))),
+        "belief_update_count": int(belief.update_count),
+        "belief_memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION,
+        "belief_candidate_path_probe_count": int(len(CANDIDATE_PATH_MEMORY_PROBES)),
+        "belief_candidate_path_lookahead_s": float(CANDIDATE_PATH_MEMORY_LOOKAHEAD_S),
+        "belief_candidate_path_confidence": float(confidence),
+        "belief_candidate_path_updraft_residual_uncapped_m": float(weighted_updraft),
+        "belief_candidate_path_updraft_residual_cap_m": float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
+        "belief_candidate_path_reference_bank_rad": float(reference_bank_rad),
+        "belief_candidate_path_heading_offset_rad": float(heading_offset_rad),
+        "belief_candidate_path_speed_m_s": float(path_speed_m_s),
+        "belief_candidate_path_exit_x_w_m": float(exit_x),
+        "belief_candidate_path_exit_y_w_m": float(exit_y),
+        "belief_candidate_path_exit_z_w_m": float(exit_z),
+        "belief_candidate_path_exit_direction_rad": float(exit_direction),
+    }
+
+
+def _candidate_reference_state_vector(
+    representative: dict[str, object],
+    outcome: dict[str, object],
+) -> list[float]:
+    for source in (representative, outcome):
+        raw = source.get("reference_state_vector", "")
+        if raw in ("", None):
+            continue
+        try:
+            values = json.loads(str(raw)) if isinstance(raw, str) else list(raw)  # type: ignore[arg-type]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        try:
+            vector = [float(value) for value in values]
+        except (TypeError, ValueError):
+            continue
+        if len(vector) > max(STATE_INDEX["r"], STATE_INDEX["w"]):
+            return vector
+    return []
+
+
+def _candidate_path_speed_m_s(
+    *,
+    state: np.ndarray,
+    representative: dict[str, object],
+    reference_state: list[float],
+) -> float:
+    reference_speed = _float_value(representative.get("local_lqr_reference_speed_m_s", float("nan")), default=float("nan"))
+    if math.isfinite(reference_speed) and reference_speed > 0.0:
+        return _clip(reference_speed, 1.5, 9.0)
+    if reference_state:
+        u_ref = reference_state[STATE_INDEX["u"]]
+        v_ref = reference_state[STATE_INDEX["v"]]
+        w_ref = reference_state[STATE_INDEX["w"]]
+        speed = math.sqrt(u_ref * u_ref + v_ref * v_ref + w_ref * w_ref)
+        if math.isfinite(speed) and speed > 0.0:
+            return _clip(speed, 1.5, 9.0)
+    u = float(state[STATE_INDEX["u"]])
+    v = float(state[STATE_INDEX["v"]])
+    w = float(state[STATE_INDEX["w"]])
+    return _clip(math.sqrt(u * u + v * v + w * w), 1.5, 9.0)
+
+
+def _candidate_path_vertical_speed_m_s(*, state: np.ndarray, reference_state: list[float]) -> float:
+    if reference_state:
+        return _clip(reference_state[STATE_INDEX["w"]], -0.8, 0.8)
+    return _clip(float(state[STATE_INDEX["w"]]), -0.8, 0.8)
+
+
+def _candidate_reference_bank_rad(
+    *,
+    representative: dict[str, object],
+    reference_state: list[float],
+) -> float:
+    if reference_state:
+        bank = float(reference_state[STATE_INDEX["phi"]])
+        if abs(bank) > 1e-6:
+            return _clip(bank, -0.45, 0.45)
+    primitive_id = str(representative.get("primitive_id", ""))
+    default_bank = {
+        "mild_turn_left": -0.20,
+        "mild_turn_right": 0.20,
+        "lift_dwell_arc": 0.22,
+        "energy_retaining_bank": 0.16,
+    }.get(primitive_id, 0.0)
+    return float(default_bank)
+
+
+def _candidate_path_heading_offset_rad(*, reference_bank_rad: float, path_speed_m_s: float) -> float:
+    if abs(float(reference_bank_rad)) < 1e-9:
+        return 0.0
+    yaw_rate_rad_s = SPECIFIC_ENERGY_GRAVITY_M_S2 * math.tan(_clip(reference_bank_rad, -0.45, 0.45)) / max(1.5, float(path_speed_m_s))
+    return _clip(
+        yaw_rate_rad_s * float(CANDIDATE_PATH_MEMORY_LOOKAHEAD_S),
+        -float(CANDIDATE_PATH_MEMORY_HEADING_OFFSET_CAP_RAD),
+        float(CANDIDATE_PATH_MEMORY_HEADING_OFFSET_CAP_RAD),
+    )
+
+
+def _candidate_path_probe_confidence(features: dict[str, object]) -> float:
+    effective_observation_count = _float_value(
+        features.get("belief_effective_observation_count", features.get("belief_observation_count", 0.0))
+    )
+    return _clip(
+        effective_observation_count / float(CANDIDATE_PATH_MEMORY_FULL_CONFIDENCE_OBSERVATIONS),
+        0.0,
+        1.0,
+    )
+
+
+def _clamp_to_bounds(value: float, bounds: tuple[float, float]) -> float:
+    return _clip(float(value), float(bounds[0]), float(bounds[1]))
+
+
 def _prepare_realtime_governor_decision(
     *,
     state: np.ndarray,
@@ -1778,6 +2003,7 @@ def _prepare_realtime_governor_decision(
 
     belief_started = time.perf_counter()
     belief_features = None
+    candidate_belief_features = None
     if bool(policy["uses_memory"]):
         belief_features = query_directional_residual_lift_features(
             belief,
@@ -1785,6 +2011,10 @@ def _prepare_realtime_governor_decision(
             y_w_m=float(state[STATE_INDEX["y_w"]]),
             z_w_m=float(state[STATE_INDEX["z_w"]]),
             direction_rad=float(state[STATE_INDEX["psi"]]),
+        )
+        candidate_belief_features = _candidate_path_belief_features_fn(
+            belief=belief,
+            state=state,
         )
     belief_query_duration_s = time.perf_counter() - belief_started
 
@@ -1796,6 +2026,7 @@ def _prepare_realtime_governor_decision(
         governor_mode=governor_mode,
         policy_id=str(policy["policy_id"]),
         belief_features=belief_features,
+        candidate_belief_features=candidate_belief_features,
         governor_config=governor_config,
     )
     selection_duration_s = time.perf_counter() - selection_started
@@ -2934,6 +3165,9 @@ def _belief_snapshot_compact(
         "belief_update_count": int(belief.update_count),
         "belief_cell_count": int(len(belief.cells)),
         "belief_observation_count": int(features.get("belief_observation_count", 0) or 0),
+        "belief_effective_observation_count": float(features.get("belief_effective_observation_count", 0.0) or 0.0),
+        "belief_recency_weight": float(features.get("belief_recency_weight", 0.0) or 0.0),
+        "belief_observation_age": int(features.get("belief_observation_age", 0) or 0),
         "belief_uncertainty": float(features.get("belief_uncertainty", 1.0) or 1.0),
         "belief_local_lift_residual_m_s": float(features.get("belief_local_lift_residual_m_s", 0.0) or 0.0),
         "belief_local_updraft_gain_proxy_m": float(
@@ -4121,6 +4355,14 @@ def _write_manifest(
         "real_time_hard_decision_budget_s": float(REAL_TIME_HARD_DECISION_BUDGET_S),
         "real_time_scheduler_audit": "metrics/real_time_scheduler_audit.csv",
         "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
+        "outer_loop_memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION,
+        "outer_loop_memory_policy": (
+            "candidate-specific path residual correction over current, midpoint, and expected exit probes; "
+            "applied only through the existing post-viability governor score"
+        ),
+        "candidate_path_memory_lookahead_s": float(CANDIDATE_PATH_MEMORY_LOOKAHEAD_S),
+        "candidate_path_memory_residual_cap_m": float(CANDIDATE_PATH_MEMORY_RESIDUAL_CAP_M),
+        "candidate_path_memory_full_confidence_observations": float(CANDIDATE_PATH_MEMORY_FULL_CONFIDENCE_OBSERVATIONS),
         "thesis_facing_workflow": THESIS_FACING_WORKFLOW,
         "governor_config_override_active": config.governor_config is not None,
         "governor_config": governor_config_to_row(config.governor_config or DEFAULT_GOVERNOR_CONFIG),
@@ -4263,6 +4505,7 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Safety thresholds: hard failure <= `{protocol.max_hard_failure_rate}`, no-viable <= `{protocol.max_no_viable_rate}`, safe success >= `{protocol.min_safe_success_rate}`, full safe success >= `{protocol.min_full_safe_success_rate}`, terminal/lift >= `{protocol.min_terminal_or_lift_capture_rate}`.",
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
         "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, updraft gain, flight time, and residual memory.",
+        f"- Residual memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` applies a capped, confidence-gated correction along each candidate primitive's predicted path after viability filtering.",
         "- Boundary-near is a route state, not automatic failure; hard_failure is the failure class.",
         f"- Launch score: `{LAUNCH_SCORE_VERSION}`; rewards safe valid flight time and updraft-gain proxy, while net/gross energy drift remains audit-only.",
         "- Dry-air low-launch-speed floor stops keep the raw primitive `floor_violation` audit label, but are interpreted as expected energy depletion rather than governor or memory failure.",

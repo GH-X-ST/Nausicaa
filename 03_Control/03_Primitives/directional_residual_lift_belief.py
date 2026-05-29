@@ -36,6 +36,7 @@ class DirectionalResidualCell:
     updraft_gain_residual_mean_m: float
     dwell_residual_mean_s: float
     uncertainty: float
+    last_update_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class DirectionalResidualLiftBelief:
     direction_bin_count: int = DIRECTION_BIN_COUNT
     cells: tuple[DirectionalResidualCell, ...] = ()
     update_count: int = 0
+    recency_decay: float = 0.97
     belief_version: str = "directional_residual_lift_belief_v411"
 
 
@@ -84,10 +86,12 @@ def update_directional_residual_lift_belief(
             updraft_gain_residual_mean_m=float(observation.updraft_gain_residual_m),
             dwell_residual_mean_s=float(observation.dwell_residual_s),
             uncertainty=1.0 / math.sqrt(float(count)),
+            last_update_count=int(belief.update_count) + 1,
         )
     else:
         count = int(prior.observation_count) + 1
-        alpha = weight / (float(prior.observation_count) + weight)
+        effective_prior_count = max(0.0, float(prior.observation_count) * float(belief.recency_decay))
+        alpha = weight / (effective_prior_count + weight)
         cells[key] = replace(
             prior,
             observation_count=count,
@@ -99,6 +103,7 @@ def update_directional_residual_lift_belief(
             ),
             dwell_residual_mean_s=_blend(prior.dwell_residual_mean_s, observation.dwell_residual_s, alpha),
             uncertainty=1.0 / math.sqrt(float(count)),
+            last_update_count=int(belief.update_count) + 1,
         )
     return replace(
         belief,
@@ -114,9 +119,10 @@ def query_directional_residual_lift_features(
     y_w_m: float,
     z_w_m: float,
     direction_rad: float,
+    cell_lookup: dict[tuple[int, int, int, int], DirectionalResidualCell] | None = None,
 ) -> dict[str, float | int | str]:
     key = _cell_key_for_values(belief, x_w_m=x_w_m, y_w_m=y_w_m, z_w_m=z_w_m, direction_rad=direction_rad)
-    cells = {_cell_key(cell): cell for cell in belief.cells}
+    cells = cell_lookup if cell_lookup is not None else directional_residual_lift_cell_lookup(belief)
     cell = cells.get(key)
     if cell is None:
         return {
@@ -128,10 +134,15 @@ def query_directional_residual_lift_features(
             "belief_local_dwell_residual_s": 0.0,
             "belief_uncertainty": 1.0,
             "belief_observation_count": 0,
+            "belief_effective_observation_count": 0.0,
+            "belief_recency_weight": 0.0,
+            "belief_observation_age": 0,
             "belief_direction_bin": int(key[3]),
             "belief_z_bin": int(key[2]),
             "belief_update_count": int(belief.update_count),
         }
+    age = max(0, int(belief.update_count) - int(cell.last_update_count))
+    recency_weight = float(belief.recency_decay) ** float(age)
     return {
         "belief_version": belief.belief_version,
         "belief_local_lift_residual_m_s": float(cell.lift_residual_mean_m_s),
@@ -141,10 +152,19 @@ def query_directional_residual_lift_features(
         "belief_local_dwell_residual_s": float(cell.dwell_residual_mean_s),
         "belief_uncertainty": float(cell.uncertainty),
         "belief_observation_count": int(cell.observation_count),
+        "belief_effective_observation_count": float(cell.observation_count) * float(recency_weight),
+        "belief_recency_weight": float(recency_weight),
+        "belief_observation_age": int(age),
         "belief_direction_bin": int(cell.direction_bin),
         "belief_z_bin": int(cell.z_bin),
         "belief_update_count": int(belief.update_count),
     }
+
+
+def directional_residual_lift_cell_lookup(
+    belief: DirectionalResidualLiftBelief,
+) -> dict[tuple[int, int, int, int], DirectionalResidualCell]:
+    return {_cell_key(cell): cell for cell in belief.cells}
 
 
 def directional_residual_observation_from_rows(

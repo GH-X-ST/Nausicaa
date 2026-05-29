@@ -1,0 +1,11 @@
+library_size_case_id,rejection_reason,row_count
+balanced_cluster,transition_entry_class_incompatible,423
+balanced_cluster,,1791
+heavy_cluster,transition_entry_class_incompatible,423
+heavy_cluster,,1128
+light_cluster,transition_entry_class_incompatible,423
+light_cluster,,1874
+no_cluster_no_merge,transition_entry_class_incompatible,441
+no_cluster_no_merge,,2075
+super_light_cluster,transition_entry_class_incompatible,424
+super_light_cluster,,1961

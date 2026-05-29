@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from context_conditioned_outcome import context_conditioned_outcome, lookup_outcome_for_identity
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, GOVERNOR_MODES, GovernorConfig, governor_candidate_row
+
+CandidateBeliefFeaturesFn = Callable[[dict[str, object], dict[str, object]], dict[str, object] | None]
 
 
 def select_compact_representative(
@@ -12,6 +16,7 @@ def select_compact_representative(
     governor_mode: str,
     policy_id: str = "",
     belief_features: dict[str, float] | None = None,
+    candidate_belief_features: CandidateBeliefFeaturesFn | None = None,
     governor_config: GovernorConfig | None = None,
 ) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
     """Return the highest-scoring viable compact representative and all candidate rows."""
@@ -27,6 +32,9 @@ def select_compact_representative(
             context=context,
             governor_mode=governor_mode,
         )
+        features = belief_features
+        if candidate_belief_features is not None:
+            features = candidate_belief_features(representative, outcome) or belief_features
         candidate_rows.append(
             governor_candidate_row(
                 representative=representative,
@@ -34,7 +42,7 @@ def select_compact_representative(
                 context=context,
                 governor_mode=governor_mode,
                 policy_id=policy_id,
-                belief_features=belief_features,
+                belief_features=features,
                 governor_config=cfg,
             )
         )
