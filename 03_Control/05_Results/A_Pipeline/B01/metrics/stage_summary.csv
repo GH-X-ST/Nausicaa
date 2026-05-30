@@ -1,0 +1,2 @@
+stage_id,status,stage_run_root,blocked_reason,duration_s,docs_alignment_status
+R5,blocked,03_Control/05_Results/R5_dense/B01,"failed_gate:r5_launch_aware_decision_passed_for_review,launch_gate_candidate_availability_audit",2244.297,aligned
