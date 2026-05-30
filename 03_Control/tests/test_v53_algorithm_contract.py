@@ -194,6 +194,10 @@ def test_v53_repeated_launch_outer_loop_has_realtime_scheduler_profile_contract(
     assert fast["hard_100ms_boundary_met"] is True
     assert fast["decision_candidate_count"] == 24
     assert fast["decision_viable_count"] == 6
+    assert fast["decision_controller_compute_duration_s"] == pytest.approx(0.006)
+    assert fast["decision_diagnostic_logging_duration_s"] == pytest.approx(0.0)
+    assert fast["decision_controller_timing_scope"] == "context_plus_belief_plus_compact_selector_no_table_flush"
+    assert fast["real_time_claim_status"] == "controller_compute_profile_excludes_table_flush_and_posthoc_diagnostics"
 
     slow = _real_time_scheduler_decision_fields(
         primitive_step_index=2,
@@ -709,6 +713,8 @@ def test_v53_memory_is_bounded_objective_after_viability_not_near_tie_only() -> 
                 "memory_switch_min_confidence": 0.1,
                 "memory_switch_min_score_margin": 0.0,
                 "memory_switch_max_base_score_drop": 0.05,
+                "memory_cost_benefit_score_cap": 0.20,
+                "memory_cost_benefit_progress_cost_weight": 0.25,
             }
         ),
     )
@@ -720,12 +726,15 @@ def test_v53_memory_is_bounded_objective_after_viability_not_near_tie_only() -> 
     assert by_variant["memory_objective"]["memory_score_component"] > 0.0
     assert by_variant["far_gap"]["raw_memory_score_component"] > by_variant["memory_objective"]["raw_memory_score_component"]
     assert by_variant["far_gap"]["memory_objective_residual_confidence_gate"] > 0.0
-    assert by_variant["far_gap"]["memory_score_component"] == pytest.approx(0.20)
+    assert by_variant["far_gap"]["memory_score_component"] <= 0.20 + 1e-9
     assert by_variant["far_gap"]["total_score_with_memory_and_exploration"] < (
         by_variant["memory_objective"]["total_score_with_memory_and_exploration"]
     )
+    assert by_variant["memory_objective"]["memory_cost_benefit_total_benefit"] > (
+        by_variant["memory_objective"]["memory_cost_benefit_total_cost"]
+    )
     assert by_variant["memory_objective"]["memory_shield_status"] == (
-        "accepted_confident_non_regressive_memory_objective_switch"
+        "accepted_cost_benefit_spatial_flow_memory_switch"
     )
 
 
@@ -819,6 +828,8 @@ def test_v53_flow_region_attraction_can_shape_safe_mission_compatible_candidate_
                 "flow_region_attraction_min_confidence": 0.1,
                 "flow_region_attraction_max_base_score_drop": 0.09,
                 "flow_region_attraction_min_front_progress_ratio": 0.50,
+                "memory_cost_benefit_score_cap": 0.20,
+                "memory_cost_benefit_progress_cost_weight": 0.25,
             }
         ),
     )
@@ -826,11 +837,13 @@ def test_v53_flow_region_attraction_can_shape_safe_mission_compatible_candidate_
     by_variant = {str(row["primitive_variant_id"]): row for row in rows}
     assert selected is not None
     assert selected["primitive_variant_id"] == "flow_region"
-    assert by_variant["flow_region"]["memory_near_tie_factor"] == pytest.approx(0.0)
-    assert by_variant["flow_region"]["memory_flow_region_attraction_score_component"] > 0.0
-    assert by_variant["poor_progress"]["memory_flow_region_attraction_score_component"] == pytest.approx(0.0)
+    assert by_variant["flow_region"]["memory_cost_benefit_known_flow_benefit_m"] > 0.0
+    assert by_variant["flow_region"]["memory_score_component"] > 0.0
+    assert by_variant["poor_progress"]["total_score_with_memory_and_exploration"] < (
+        by_variant["flow_region"]["total_score_with_memory_and_exploration"]
+    )
     assert by_variant["flow_region"]["memory_shield_status"] == (
-        "accepted_confident_non_regressive_flow_region_attraction_switch"
+        "accepted_cost_benefit_spatial_flow_memory_switch"
     )
 
 
@@ -930,6 +943,9 @@ def test_v53_information_gain_can_select_safe_under_observed_front_progress_cand
                 "memory_information_gain_max_base_score_drop": 0.14,
                 "memory_information_gain_min_front_progress_ratio": 0.50,
                 "memory_information_gain_allow_cross_family": True,
+                "memory_cost_benefit_information_gain_weight": 0.20,
+                "memory_cost_benefit_score_cap": 0.12,
+                "memory_cost_benefit_progress_cost_weight": 0.25,
             }
         ),
     )
@@ -938,9 +954,11 @@ def test_v53_information_gain_can_select_safe_under_observed_front_progress_cand
     assert selected is not None
     assert selected["primitive_variant_id"] == "information_gain"
     assert by_variant["information_gain"]["memory_information_gain_score_component"] > 0.0
-    assert by_variant["poor_progress"]["memory_information_gain_score_component"] == pytest.approx(0.0)
+    assert by_variant["poor_progress"]["total_score_with_memory_and_exploration"] < (
+        by_variant["information_gain"]["total_score_with_memory_and_exploration"]
+    )
     assert by_variant["information_gain"]["memory_shield_status"] == (
-        "accepted_shielded_information_gain_memory_switch"
+        "accepted_cost_benefit_spatial_flow_memory_switch"
     )
 
 
@@ -1047,6 +1065,9 @@ def test_v53_route_flow_belief_can_select_safe_short_horizon_flow_route() -> Non
                 "memory_route_min_confidence": 0.10,
                 "memory_route_max_base_score_drop": 0.22,
                 "memory_route_min_front_progress_ratio": 0.40,
+                "memory_cost_benefit_score_cap": 0.35,
+                "memory_cost_benefit_information_gain_weight": 0.08,
+                "memory_cost_benefit_progress_cost_weight": 0.25,
             }
         ),
     )
@@ -1055,9 +1076,11 @@ def test_v53_route_flow_belief_can_select_safe_short_horizon_flow_route() -> Non
     assert selected is not None
     assert selected["primitive_variant_id"] == "route_flow"
     assert by_variant["route_flow"]["memory_route_score_component"] > 0.0
-    assert by_variant["poor_route"]["memory_route_score_component"] == pytest.approx(0.0)
+    assert by_variant["poor_route"]["total_score_with_memory_and_exploration"] < (
+        by_variant["route_flow"]["total_score_with_memory_and_exploration"]
+    )
     assert by_variant["route_flow"]["memory_shield_status"] == (
-        "accepted_shielded_short_horizon_route_memory_switch"
+        "accepted_cost_benefit_spatial_flow_memory_switch"
     )
 
 

@@ -164,6 +164,8 @@ class R9PreflightFigureConfig:
     run_label: str = DEFAULT_RUN_LABEL
     library_size_case_id: str = DEFAULT_LIBRARY_SIZE_CASE
     history_policy_id: str = DEFAULT_HISTORY_POLICY
+    environment_block_ids: tuple[str, ...] = ENVIRONMENT_BLOCKS
+    outer_case_indices: tuple[int, ...] = ()
     updraft_nx: int = DEFAULT_UPDRAFT_NX
     updraft_ny: int = DEFAULT_UPDRAFT_NY
     updraft_nz: int = DEFAULT_UPDRAFT_NZ
@@ -175,51 +177,75 @@ def run_r9_preflight_3d_figures(config: R9PreflightFigureConfig) -> dict[str, ob
     for subdir in ("figures", "metrics", "manifests", "reports"):
         (run_root / subdir).mkdir(parents=True, exist_ok=True)
 
-    primitive_log = _read_csv(input_root / "tables" / "primitive_execution_log" / "c00000.csv.gz")
-    episode_summary = _read_csv(input_root / "tables" / "episode_summary" / "c00000.csv.gz")
+    primitive_log = _read_result_table(input_root, "primitive_execution_log")
+    episode_summary = _read_result_table(input_root, "episode_summary")
     outer_schedule = _read_csv(input_root / "metrics" / "outer_case_schedule.csv")
 
     figure_rows: list[dict[str, object]] = []
     history_policy_ids = _ordered_unique((str(config.history_policy_id), H30_HISTORY_POLICY))
     figure_prefix = _figure_file_prefix(input_root)
-    for environment_block_id in ENVIRONMENT_BLOCKS:
-        history_path = run_root / "figures" / f"{figure_prefix}_{environment_block_id}_history_paths_3d.png"
-        history_h30_path = run_root / "figures" / f"{figure_prefix}_{environment_block_id}_history_h30_paths_3d.png"
-        final_path = run_root / "figures" / f"{figure_prefix}_{environment_block_id}_final_paired_paths_3d.png"
-        history_meta = _plot_history_paths(
-            primitive_log=primitive_log,
-            episode_summary=episode_summary,
+    for environment_block_id in config.environment_block_ids:
+        case_indices = _resolve_outer_case_indices(
             outer_schedule=outer_schedule,
-            output_path=history_path,
             environment_block_id=environment_block_id,
-            config=config,
-            history_policy_id=history_policy_ids[0],
+            requested_indices=config.outer_case_indices,
         )
-        history_h30_meta = None
-        if H30_HISTORY_POLICY in history_policy_ids[1:]:
-            history_h30_meta = _plot_history_paths(
+        include_case_suffix = bool(config.outer_case_indices) or len(case_indices) > 1
+        for outer_case_index in case_indices:
+            block_file_id = _figure_block_file_component(environment_block_id)
+            case_suffix = f"_case{int(outer_case_index):04d}" if include_case_suffix else ""
+            history_path = (
+                run_root
+                / "figures"
+                / f"{figure_prefix}_{block_file_id}{case_suffix}_history_paths_3d.png"
+            )
+            history_h30_path = (
+                run_root
+                / "figures"
+                / f"{figure_prefix}_{block_file_id}{case_suffix}_history_h30_paths_3d.png"
+            )
+            final_path = (
+                run_root
+                / "figures"
+                / f"{figure_prefix}_{block_file_id}{case_suffix}_final_paired_paths_3d.png"
+            )
+            history_meta = _plot_history_paths(
                 primitive_log=primitive_log,
                 episode_summary=episode_summary,
                 outer_schedule=outer_schedule,
-                output_path=history_h30_path,
+                output_path=history_path,
                 environment_block_id=environment_block_id,
+                outer_case_index=outer_case_index,
                 config=config,
-                history_policy_id=H30_HISTORY_POLICY,
+                history_policy_id=history_policy_ids[0],
             )
-        elif history_policy_ids[0] == H30_HISTORY_POLICY:
-            history_h30_meta = history_meta
-        final_meta = _plot_final_paired_paths(
-            primitive_log=primitive_log,
-            episode_summary=episode_summary,
-            outer_schedule=outer_schedule,
-            output_path=final_path,
-            environment_block_id=environment_block_id,
-            config=config,
-        )
-        figure_rows.append(history_meta)
-        if history_h30_meta is not None and history_h30_meta is not history_meta:
-            figure_rows.append(history_h30_meta)
-        figure_rows.append(final_meta)
+            history_h30_meta = None
+            if H30_HISTORY_POLICY in history_policy_ids[1:]:
+                history_h30_meta = _plot_history_paths(
+                    primitive_log=primitive_log,
+                    episode_summary=episode_summary,
+                    outer_schedule=outer_schedule,
+                    output_path=history_h30_path,
+                    environment_block_id=environment_block_id,
+                    outer_case_index=outer_case_index,
+                    config=config,
+                    history_policy_id=H30_HISTORY_POLICY,
+                )
+            elif history_policy_ids[0] == H30_HISTORY_POLICY:
+                history_h30_meta = history_meta
+            final_meta = _plot_final_paired_paths(
+                primitive_log=primitive_log,
+                episode_summary=episode_summary,
+                outer_schedule=outer_schedule,
+                output_path=final_path,
+                environment_block_id=environment_block_id,
+                outer_case_index=outer_case_index,
+                config=config,
+            )
+            figure_rows.append(history_meta)
+            if history_h30_meta is not None and history_h30_meta is not history_meta:
+                figure_rows.append(history_h30_meta)
+            figure_rows.append(final_meta)
 
     figure_frame = pd.DataFrame(figure_rows)
     figure_frame.to_csv(run_root / "metrics" / "r9_preflight_figure_summary.csv", index=False)
@@ -232,7 +258,8 @@ def run_r9_preflight_3d_figures(config: R9PreflightFigureConfig) -> dict[str, ob
         "library_size_case_id": str(config.library_size_case_id),
         "history_policy_id": str(config.history_policy_id),
         "history_policy_ids": history_policy_ids,
-        "environment_blocks": list(ENVIRONMENT_BLOCKS),
+        "environment_blocks": list(config.environment_block_ids),
+        "outer_case_indices": [int(v) for v in config.outer_case_indices],
         "final_policy_order": list(FINAL_POLICY_ORDER),
         "figsize_width_in": float(R9_FIGSIZE_3D[0]),
         "figsize_height_in": float(R9_FIGSIZE_3D[1]),
@@ -289,7 +316,45 @@ def _figure_file_prefix(input_root: Path) -> str:
     run_name = Path(input_root).name.strip().lower()
     if run_name.startswith("a") and run_name[1:].isdigit():
         return f"r9_{run_name}"
-    return "r9_preflight"
+    safe_name = "".join(ch if ch.isalnum() else "_" for ch in run_name).strip("_")
+    if safe_name.startswith("c") and len(safe_name) >= 3 and safe_name[1:3].isdigit():
+        digits = []
+        for ch in safe_name[1:]:
+            if not ch.isdigit():
+                break
+            digits.append(ch)
+        return f"r10_c{''.join(digits)}"
+    return safe_name or "r9_preflight"
+
+
+def _figure_block_file_component(environment_block_id: str) -> str:
+    text = str(environment_block_id).strip().lower()
+    aliases = {
+        "targeted_memory_opportunity_arena_wide_four_fan": "targeted_four_fan",
+    }
+    if text in aliases:
+        return aliases[text]
+    safe = "".join(ch if ch.isalnum() else "_" for ch in text).strip("_")
+    return safe[:48] or "environment"
+
+
+def _resolve_outer_case_indices(
+    *,
+    outer_schedule: pd.DataFrame,
+    environment_block_id: str,
+    requested_indices: tuple[int, ...],
+) -> tuple[int, ...]:
+    if requested_indices:
+        return tuple(int(v) for v in requested_indices)
+    if "outer_case_index" not in outer_schedule.columns:
+        return (0,)
+    schedule = outer_schedule[
+        outer_schedule["environment_block_id"].astype(str) == str(environment_block_id)
+    ]
+    if schedule.empty:
+        return (0,)
+    values = sorted(int(float(v)) for v in schedule["outer_case_index"].dropna().unique())
+    return tuple(values) or (0,)
 
 
 def _plot_history_paths(
@@ -299,6 +364,7 @@ def _plot_history_paths(
     outer_schedule: pd.DataFrame,
     output_path: Path,
     environment_block_id: str,
+    outer_case_index: int,
     config: R9PreflightFigureConfig,
     history_policy_id: str,
 ) -> dict[str, object]:
@@ -307,6 +373,7 @@ def _plot_history_paths(
         & (primitive_log["environment_block_id"].astype(str) == str(environment_block_id))
         & (primitive_log["policy_id"].astype(str) == str(history_policy_id))
     ].copy()
+    subset = _filter_outer_case(subset, outer_case_index)
     history = subset[subset["launch_role"].astype(str) == "history"]
     final = subset[subset["launch_role"].astype(str) == "final_heldout"]
 
@@ -315,6 +382,7 @@ def _plot_history_paths(
         ax=ax,
         outer_schedule=outer_schedule,
         environment_block_id=environment_block_id,
+        outer_case_index=outer_case_index,
         config=config,
     )
     history_episode_ids = sorted(history["episode_id"].astype(str).unique())
@@ -352,25 +420,33 @@ def _plot_history_paths(
             zorder=16,
         )
 
-    final_points = _episode_points(final)
-    if final_points.shape[0] >= 2:
+    final_label_used = False
+    for episode_id in sorted(final["episode_id"].astype(str).unique()):
+        episode_rows = final[final["episode_id"].astype(str) == episode_id]
+        final_points = _episode_points(episode_rows)
+        if final_points.shape[0] < 2:
+            continue
         ax.plot(
             final_points[:, 0],
             final_points[:, 1],
             final_points[:, 2],
             color=FINAL_HISTORY_COLOR,
             linewidth=HISTORY_FINAL_LINE_WIDTH,
-            label=f"final {_history_policy_short_label(history_policy_id)}",
+            label=(
+                f"final {_history_policy_short_label(history_policy_id)}"
+                if not final_label_used
+                else None
+            ),
             zorder=25,
         )
         _draw_primitive_markers(
             ax,
-            final,
+            episode_rows,
             color=FINAL_HISTORY_COLOR,
             marker_size=PRIMITIVE_MARKER_SIZE_FINAL,
             alpha=0.74,
             zorder=27,
-            include_labels=True,
+            include_labels=not final_label_used,
         )
         ax.scatter(
             [final_points[-1, 0]],
@@ -381,12 +457,14 @@ def _plot_history_paths(
             depthshade=False,
             zorder=26,
         )
+        final_label_used = True
 
     _add_legend(ax)
     _save_figure(fig, output_path)
     return {
         "figure_type": "history_paths",
         "environment_block_id": str(environment_block_id),
+        "outer_case_index": int(outer_case_index),
         "figure_path": output_path.as_posix(),
         "history_episode_count": int(len(history_episode_ids)),
         "history_policy_id": str(history_policy_id),
@@ -402,6 +480,7 @@ def _plot_final_paired_paths(
     outer_schedule: pd.DataFrame,
     output_path: Path,
     environment_block_id: str,
+    outer_case_index: int,
     config: R9PreflightFigureConfig,
 ) -> dict[str, object]:
     subset = primitive_log[
@@ -409,80 +488,89 @@ def _plot_final_paired_paths(
         & (primitive_log["environment_block_id"].astype(str) == str(environment_block_id))
         & (primitive_log["launch_role"].astype(str) == "final_heldout")
     ].copy()
+    subset = _filter_outer_case(subset, outer_case_index)
     summary = episode_summary[
         (episode_summary["library_size_case_id"].astype(str) == str(config.library_size_case_id))
         & (episode_summary["environment_block_id"].astype(str) == str(environment_block_id))
         & (episode_summary["launch_role"].astype(str) == "final_heldout")
     ].copy()
+    summary = _filter_outer_case(summary, outer_case_index)
 
     fig, ax = _new_baseline_axis()
     updraft_meta = _draw_updraft_context(
         ax=ax,
         outer_schedule=outer_schedule,
         environment_block_id=environment_block_id,
+        outer_case_index=outer_case_index,
         config=config,
     )
     plotted_count = 0
     for policy_id in FINAL_POLICY_ORDER:
         rows = subset[subset["policy_id"].astype(str) == str(policy_id)]
-        points = _episode_points(rows)
-        if points.shape[0] < 2:
-            continue
+        episode_ids = sorted(rows["episode_id"].astype(str).unique())
         label = FINAL_POLICY_LABELS.get(policy_id, policy_id)
         color = FINAL_POLICY_COLORS.get(policy_id, "#333333")
-        ax.plot(
-            points[:, 0],
-            points[:, 1],
-            points[:, 2],
-            color=color,
-            linestyle=FINAL_POLICY_LINESTYLES.get(policy_id, "-"),
-            linewidth=FINAL_POLICY_LINE_WIDTH,
-            alpha=0.84,
-            label=label,
-            zorder=25,
-        )
-        _draw_primitive_markers(
-            ax,
-            rows,
-            color=color,
-            marker_size=PRIMITIVE_MARKER_SIZE_FINAL,
-            alpha=0.72,
-            zorder=27,
-            include_labels=True,
-        )
-        marker = "o" if _policy_safe_success(summary, policy_id) else "x"
-        marker_size = FINAL_POLICY_MARKER_SIZES.get(policy_id, 28)
-        if marker == "o":
-            ax.scatter(
-                [points[-1, 0]],
-                [points[-1, 1]],
-                [points[-1, 2]],
-                facecolors="none",
-                edgecolors=color,
-                linewidths=1.35,
-                marker=marker,
-                s=marker_size,
-                depthshade=False,
-                zorder=26,
-            )
-        else:
-            ax.scatter(
-                [points[-1, 0]],
-                [points[-1, 1]],
-                [points[-1, 2]],
+        label_used = False
+        for episode_id in episode_ids:
+            episode_rows = rows[rows["episode_id"].astype(str) == episode_id]
+            points = _episode_points(episode_rows)
+            if points.shape[0] < 2:
+                continue
+            ax.plot(
+                points[:, 0],
+                points[:, 1],
+                points[:, 2],
                 color=color,
-                marker=marker,
-                s=marker_size,
-                depthshade=False,
-                zorder=26,
+                linestyle=FINAL_POLICY_LINESTYLES.get(policy_id, "-"),
+                linewidth=FINAL_POLICY_LINE_WIDTH,
+                alpha=0.84,
+                label=label if not label_used else None,
+                zorder=25,
             )
-        plotted_count += 1
+            _draw_primitive_markers(
+                ax,
+                episode_rows,
+                color=color,
+                marker_size=PRIMITIVE_MARKER_SIZE_FINAL,
+                alpha=0.72,
+                zorder=27,
+                include_labels=not label_used,
+            )
+            marker = "o" if _policy_safe_success(summary, policy_id) else "x"
+            marker_size = FINAL_POLICY_MARKER_SIZES.get(policy_id, 28)
+            if marker == "o":
+                ax.scatter(
+                    [points[-1, 0]],
+                    [points[-1, 1]],
+                    [points[-1, 2]],
+                    facecolors="none",
+                    edgecolors=color,
+                    linewidths=1.35,
+                    marker=marker,
+                    s=marker_size,
+                    depthshade=False,
+                    zorder=26,
+                )
+            else:
+                ax.scatter(
+                    [points[-1, 0]],
+                    [points[-1, 1]],
+                    [points[-1, 2]],
+                    color=color,
+                    marker=marker,
+                    s=marker_size,
+                    depthshade=False,
+                    zorder=26,
+                )
+            plotted_count += 1
+            label_used = True
 
     _add_legend(ax)
     _save_figure(fig, output_path)
     return {
         "figure_type": "final_paired_paths",
         "environment_block_id": str(environment_block_id),
+        "outer_case_index": int(outer_case_index),
         "figure_path": output_path.as_posix(),
         "final_policy_count": int(plotted_count),
         **updraft_meta,
@@ -581,11 +669,16 @@ def _draw_updraft_context(
     ax,
     outer_schedule: pd.DataFrame,
     environment_block_id: str,
+    outer_case_index: int,
     config: R9PreflightFigureConfig,
 ) -> dict[str, object]:
     schedule = outer_schedule[
         outer_schedule["environment_block_id"].astype(str) == str(environment_block_id)
     ]
+    if "outer_case_index" in schedule.columns:
+        schedule = schedule[
+            schedule["outer_case_index"].map(lambda value: int(float(value)) == int(outer_case_index))
+        ]
     if schedule.empty:
         return {"updraft_context_status": "missing_outer_schedule", "updraft_max_m_s": 0.0}
     row = schedule.iloc[0]
@@ -1030,6 +1123,29 @@ def _read_csv(path: Path) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
+def _read_result_table(input_root: Path, table_name: str) -> pd.DataFrame:
+    table_dir = input_root / "tables" / table_name
+    if table_dir.exists():
+        files = sorted(table_dir.glob("*.csv")) + sorted(table_dir.glob("*.csv.gz"))
+        if files:
+            frames = [pd.read_csv(path) for path in files]
+            return pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+    metric_path = input_root / "metrics" / f"{table_name}.csv"
+    if metric_path.exists():
+        return pd.read_csv(metric_path)
+    legacy_path = input_root / "tables" / table_name / "c00000.csv.gz"
+    if legacy_path.exists():
+        return pd.read_csv(legacy_path)
+    raise FileNotFoundError(table_dir)
+
+
+def _filter_outer_case(frame: pd.DataFrame, outer_case_index: int) -> pd.DataFrame:
+    if frame.empty or "outer_case_index" not in frame.columns:
+        return frame.copy()
+    mask = frame["outer_case_index"].map(lambda value: int(float(value)) == int(outer_case_index))
+    return frame[mask].copy()
+
+
 def _write_report(run_root: Path, manifest: dict[str, object], figure_frame: pd.DataFrame) -> None:
     lines = [
         "# R9 Preflight 3D Figures",
@@ -1055,8 +1171,12 @@ def _write_report(run_root: Path, manifest: dict[str, object], figure_frame: pd.
         "",
     ]
     for _, row in figure_frame.iterrows():
+        case_text = ""
+        if "outer_case_index" in row and pd.notna(row["outer_case_index"]):
+            case_text = f" / case {int(float(row['outer_case_index']))}"
         lines.append(
-            f"- `{row['figure_path']}`: {row['figure_type']} / {row['environment_block_id']}"
+            f"- `{row['figure_path']}`: {row['figure_type']} / "
+            f"{row['environment_block_id']}{case_text}"
         )
     lines.append("")
     (run_root / "reports" / "r9_preflight_3d_figures_report.md").write_text(
@@ -1072,6 +1192,16 @@ def _parse_args() -> R9PreflightFigureConfig:
     parser.add_argument("--run-label", default=DEFAULT_RUN_LABEL)
     parser.add_argument("--library-size-case-id", default=DEFAULT_LIBRARY_SIZE_CASE)
     parser.add_argument("--history-policy-id", default=DEFAULT_HISTORY_POLICY)
+    parser.add_argument(
+        "--environment-block-ids",
+        default=",".join(ENVIRONMENT_BLOCKS),
+        help="Comma-separated environment_block_id list to plot.",
+    )
+    parser.add_argument(
+        "--outer-case-indices",
+        default="",
+        help="Optional comma-separated outer_case_index list. Defaults to all cases in each block.",
+    )
     parser.add_argument("--updraft-nx", type=int, default=DEFAULT_UPDRAFT_NX)
     parser.add_argument("--updraft-ny", type=int, default=DEFAULT_UPDRAFT_NY)
     parser.add_argument("--updraft-nz", type=int, default=DEFAULT_UPDRAFT_NZ)
@@ -1082,10 +1212,27 @@ def _parse_args() -> R9PreflightFigureConfig:
         run_label=str(args.run_label),
         library_size_case_id=str(args.library_size_case_id),
         history_policy_id=str(args.history_policy_id),
+        environment_block_ids=_parse_environment_block_ids(str(args.environment_block_ids)),
+        outer_case_indices=_parse_outer_case_indices(str(args.outer_case_indices)),
         updraft_nx=int(args.updraft_nx),
         updraft_ny=int(args.updraft_ny),
         updraft_nz=int(args.updraft_nz),
     )
+
+
+def _parse_environment_block_ids(value: str) -> tuple[str, ...]:
+    block_ids = tuple(part.strip() for part in str(value).split(",") if part.strip())
+    return block_ids or ENVIRONMENT_BLOCKS
+
+
+def _parse_outer_case_indices(value: str) -> tuple[int, ...]:
+    indices: list[int] = []
+    for part in str(value).split(","):
+        text = part.strip()
+        if not text:
+            continue
+        indices.append(int(text))
+    return tuple(indices)
 
 
 if __name__ == "__main__":

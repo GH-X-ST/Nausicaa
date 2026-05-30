@@ -16,7 +16,9 @@ CODEX_*.md
 docs/CODEX_*.md
 !docs/CODEX_R9_launch_gate_coverage_repair_guidance.md
 
-# Evidence outputs are intentionally visible for open, repeatable review.
-# Temporary write files remain local.
+# Generated evidence/result outputs stay local; commit code, docs, manifests, and
+# small hand-written fixtures only when explicitly intended.
+!03_Control/05_Results/.gitkeep
+03_Control/05_Results/**
 !03_Control/05_Results/.gitkeep
 03_Control/05_Results/**/*.tmp

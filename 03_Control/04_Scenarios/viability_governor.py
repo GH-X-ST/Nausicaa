@@ -91,6 +91,12 @@ class GovernorConfig:
     memory_route_min_front_progress_ratio: float = 0.40
     memory_route_horizon_primitives: float = 4.0
     memory_route_discount: float = 0.82
+    memory_cost_benefit_weight: float = 1.0
+    memory_cost_benefit_score_cap: float = 0.35
+    memory_cost_benefit_information_gain_weight: float = 0.08
+    memory_cost_benefit_progress_cost_weight: float = 0.25
+    memory_cost_benefit_risk_cost_weight: float = 0.60
+    memory_cost_benefit_margin_cost_weight: float = 0.20
 
 
 DEFAULT_GOVERNOR_CONFIG = GovernorConfig(

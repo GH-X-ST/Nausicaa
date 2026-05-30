@@ -142,7 +142,7 @@ DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE = 10
 REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION = "predictive_next_primitive_scheduler_profile_v1"
 REAL_TIME_PREFERRED_DECISION_BUDGET_S = CONTROLLER_INPUT_UPDATE_PERIOD_S
 REAL_TIME_HARD_DECISION_BUDGET_S = PRIMITIVE_FINITE_HORIZON_S
-OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_route_flow_belief_memory_v4_0"
+OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_cost_benefit_spatial_flow_memory_v4_1"
 OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION = (
     "case_local_online_memory_plus_r10_global_deterministic_calibration_v1"
 )
@@ -166,6 +166,12 @@ CANDIDATE_PATH_MEMORY_PROBES = (
     (0.67, 0.18),
     (0.83, 0.14),
     (1.0, 0.12),
+)
+REAL_TIME_FLOW_BELIEF_QUERY_RADIUS_M = FLOW_BELIEF_GRID_RESOLUTION_M
+REAL_TIME_CANDIDATE_PATH_MEMORY_PROBES = (
+    (0.0, 0.18),
+    (0.50, 0.42),
+    (1.0, 0.40),
 )
 FLOW_BELIEF_REACHABLE_ATTRACTION_LOOKAHEAD_M = 0.80
 FLOW_BELIEF_REACHABLE_ATTRACTION_AZIMUTH_HALF_ANGLE_RAD = math.radians(35.0)
@@ -192,6 +198,14 @@ FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES = (
     (0.80, math.radians(35.0), 0.0, 0.040),
     (0.80, math.radians(35.0), math.radians(20.0), 0.030),
 )
+REAL_TIME_FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES = (
+    (0.35, 0.0, 0.0, 0.24),
+    (0.80, -math.radians(35.0), 0.0, 0.16),
+    (0.80, 0.0, -math.radians(20.0), 0.14),
+    (0.80, 0.0, 0.0, 0.26),
+    (0.80, 0.0, math.radians(20.0), 0.14),
+    (0.80, math.radians(35.0), 0.0, 0.16),
+)
 FLOW_BELIEF_ROUTE_PROBE_FRACTIONS = (
     (0.25, 0.0, 0.0, 0.26),
     (0.50, -math.radians(18.0), 0.0, 0.12),
@@ -200,6 +214,12 @@ FLOW_BELIEF_ROUTE_PROBE_FRACTIONS = (
     (0.75, 0.0, -math.radians(12.0), 0.08),
     (0.75, 0.0, 0.0, 0.12),
     (0.75, 0.0, math.radians(12.0), 0.08),
+)
+REAL_TIME_FLOW_BELIEF_ROUTE_PROBE_FRACTIONS = (
+    (0.50, 0.0, 0.0, 0.46),
+    (0.75, -math.radians(18.0), 0.0, 0.18),
+    (0.75, 0.0, 0.0, 0.18),
+    (0.75, math.radians(18.0), 0.0, 0.18),
 )
 FLOW_BELIEF_HISTORY_UPDATE_SPACING_M = FLOW_BELIEF_GRID_RESOLUTION_M
 FLOW_BELIEF_HISTORY_UPDATE_MAX_SAMPLES_PER_PRIMITIVE = 128
@@ -2003,21 +2023,27 @@ def _candidate_path_belief_features_fn(
     current_history_launch_index: int,
     use_residual_memory: bool,
     governor_config: GovernorConfig | None = None,
+    real_time_controller_mode: bool = False,
 ) -> Callable[[dict[str, object], dict[str, object]], dict[str, object]]:
     cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     state_vector = as_state_vector(state)
     cell_lookup = directional_residual_lift_cell_lookup(belief) if use_residual_memory else {}
+    query_cache: dict[tuple[int, int, int, int, int, int], dict[str, object]] = {}
 
     def features_for_candidate(representative: dict[str, object], outcome: dict[str, object]) -> dict[str, object]:
+        memory_query_mode = str(representative.get("__memory_query_mode", "full"))
+        full_memory_query = bool(use_residual_memory and memory_query_mode == "full")
         return _candidate_path_belief_features(
             belief=belief,
             cell_lookup=cell_lookup,
+            query_cache=query_cache,
             state=state_vector,
             representative=representative,
             outcome=outcome,
             current_history_launch_index=current_history_launch_index,
-            use_residual_memory=use_residual_memory,
+            use_residual_memory=full_memory_query,
             governor_config=cfg,
+            real_time_controller_mode=real_time_controller_mode,
         )
 
     return features_for_candidate
@@ -2257,16 +2283,30 @@ def _candidate_path_belief_features(
     *,
     belief: DirectionalResidualLiftBelief,
     cell_lookup: dict[tuple[int, int, int, int], DirectionalResidualCell],
+    query_cache: dict[tuple[int, int, int, int, int, int], dict[str, object]] | None = None,
     state: np.ndarray,
     representative: dict[str, object],
     outcome: dict[str, object],
     current_history_launch_index: int,
     use_residual_memory: bool,
     governor_config: GovernorConfig | None = None,
+    real_time_controller_mode: bool = False,
 ) -> dict[str, object]:
     """Return candidate path geometry plus optional spatial flow-belief correction."""
 
     cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
+    path_probes = REAL_TIME_CANDIDATE_PATH_MEMORY_PROBES if real_time_controller_mode else CANDIDATE_PATH_MEMORY_PROBES
+    query_radius_m = REAL_TIME_FLOW_BELIEF_QUERY_RADIUS_M if real_time_controller_mode else FLOW_BELIEF_QUERY_RADIUS_M
+    reachable_probe_set = (
+        REAL_TIME_FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES
+        if real_time_controller_mode
+        else FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES
+    )
+    route_probe_set = (
+        REAL_TIME_FLOW_BELIEF_ROUTE_PROBE_FRACTIONS
+        if real_time_controller_mode
+        else FLOW_BELIEF_ROUTE_PROBE_FRACTIONS
+    )
     reference_state = _candidate_reference_state_vector(representative, outcome)
     path_speed_m_s = _candidate_path_speed_m_s(state=state, representative=representative, reference_state=reference_state)
     vertical_speed_m_s = _candidate_path_vertical_speed_m_s(state=state, reference_state=reference_state)
@@ -2293,7 +2333,7 @@ def _candidate_path_belief_features(
     exit_y = y0
     exit_z = z0
     exit_direction = psi0
-    for fraction, weight in CANDIDATE_PATH_MEMORY_PROBES:
+    for fraction, weight in path_probes:
         fraction = float(fraction)
         weight = float(weight)
         probe_time_s = float(CANDIDATE_PATH_MEMORY_LOOKAHEAD_S) * fraction
@@ -2304,7 +2344,7 @@ def _candidate_path_belief_features(
         y_w_m = _clamp_to_bounds(y0 + math.sin(displacement_direction) * distance_m, TRUE_SAFE_BOUNDS.y_w_m)
         z_w_m = _clamp_to_bounds(z0 + vertical_speed_m_s * probe_time_s, TRUE_SAFE_BOUNDS.z_w_m)
         if use_residual_memory:
-            last_features = query_spatial_flow_belief_features(
+            last_features = _cached_spatial_flow_belief_features(
                 belief,
                 x_w_m=x_w_m,
                 y_w_m=y_w_m,
@@ -2312,7 +2352,8 @@ def _candidate_path_belief_features(
                 direction_rad=probe_direction,
                 cell_lookup=cell_lookup,
                 current_history_launch_index=current_history_launch_index,
-                query_radius_m=FLOW_BELIEF_QUERY_RADIUS_M,
+                query_radius_m=query_radius_m,
+                query_cache=query_cache,
             )
             probe_confidence = _candidate_path_probe_confidence(last_features, governor_config=cfg)
             weighted_lift += weight * probe_confidence * _float_value(last_features.get("belief_local_lift_residual_m_s", 0.0))
@@ -2369,6 +2410,7 @@ def _candidate_path_belief_features(
         _candidate_reachable_flow_attraction(
             belief=belief,
             cell_lookup=cell_lookup,
+            query_cache=query_cache,
             exit_x=exit_x,
             exit_y=exit_y,
             exit_z=exit_z,
@@ -2378,6 +2420,8 @@ def _candidate_path_belief_features(
             governor_config=cfg,
             specific_energy_weight=specific_energy_weight,
             updraft_weight=updraft_weight,
+            query_radius_m=query_radius_m,
+            probe_set=reachable_probe_set,
         )
         if use_residual_memory
         else _empty_reachable_flow_attraction()
@@ -2386,6 +2430,7 @@ def _candidate_path_belief_features(
         _candidate_route_flow_value(
             belief=belief,
             cell_lookup=cell_lookup,
+            query_cache=query_cache,
             x0=x0,
             exit_x=exit_x,
             exit_y=exit_y,
@@ -2397,6 +2442,8 @@ def _candidate_path_belief_features(
             governor_config=cfg,
             specific_energy_weight=specific_energy_weight,
             updraft_weight=updraft_weight,
+            query_radius_m=query_radius_m,
+            probe_set=route_probe_set,
         )
         if use_residual_memory
         else _empty_route_flow_value()
@@ -2456,7 +2503,7 @@ def _candidate_path_belief_features(
         "belief_current_history_launch_index": int(current_history_launch_index),
         "belief_memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION if use_residual_memory else "",
         "belief_candidate_path_residual_memory_active": bool(use_residual_memory),
-        "belief_candidate_path_probe_count": int(len(CANDIDATE_PATH_MEMORY_PROBES)),
+        "belief_candidate_path_probe_count": int(len(path_probes)),
         "belief_candidate_path_lookahead_s": float(CANDIDATE_PATH_MEMORY_LOOKAHEAD_S),
         "belief_candidate_path_confidence": float(confidence),
         "belief_candidate_path_updraft_residual_uncapped_m": float(weighted_updraft),
@@ -2471,7 +2518,15 @@ def _candidate_path_belief_features(
             f"spatial_flow_map_specific_energy_{specific_energy_weight:.2f}_plus_updraft_{updraft_weight:.2f}_plus_reachable_attraction"
         ),
         "belief_flow_map_grid_resolution_m": float(FLOW_BELIEF_GRID_RESOLUTION_M),
-        "belief_flow_map_query_radius_m": float(FLOW_BELIEF_QUERY_RADIUS_M),
+        "belief_flow_map_query_radius_m": float(query_radius_m),
+        "belief_flow_map_controller_query_mode": (
+            "real_time_compact_controller_probe_set"
+            if real_time_controller_mode
+            else "full_diagnostic_probe_set"
+        ),
+        "belief_flow_map_controller_path_probe_count": int(len(path_probes)),
+        "belief_flow_map_controller_reachable_probe_count": int(len(reachable_probe_set)),
+        "belief_flow_map_controller_route_probe_count": int(len(route_probe_set)),
         "belief_flow_map_reachable_attraction_m": float(reachable_attraction["capped_attraction_m"]),
         "belief_flow_map_reachable_attraction_raw_m": float(reachable_attraction["raw_attraction_m"]),
         "belief_flow_map_reachable_attraction_cap_m": float(FLOW_BELIEF_REACHABLE_ATTRACTION_CAP_M),
@@ -2489,7 +2544,9 @@ def _candidate_path_belief_features(
         "belief_flow_map_reachable_attraction_elevation_half_angle_rad": float(
             FLOW_BELIEF_REACHABLE_ATTRACTION_ELEVATION_HALF_ANGLE_RAD
         ),
-        "belief_flow_map_reachable_attraction_geometry": "sparse_3d_cone_2_range_3_azimuth_3_elevation_stencil",
+        "belief_flow_map_reachable_attraction_geometry": (
+            "compact_real_time_sparse_3d_cone" if real_time_controller_mode else "full_sparse_3d_cone_2_range_3_azimuth_3_elevation_stencil"
+        ),
         "belief_flow_map_candidate_path_uncertainty": float(path_uncertainty),
         "belief_flow_map_memory_guided_exploration_uncertainty": float(map_guided_uncertainty),
         "belief_flow_map_information_gain": float(information_gain["information_gain"]),
@@ -2498,7 +2555,7 @@ def _candidate_path_belief_features(
         "belief_flow_map_information_gain_progress_gate": float(information_gain["progress_gate"]),
         "belief_flow_map_information_gain_safe_gate": float(information_gain["safe_gate"]),
         "belief_flow_map_information_gain_query_count": int(
-            (len(CANDIDATE_PATH_MEMORY_PROBES) + int(reachable_attraction["query_count"]))
+            (len(path_probes) + int(reachable_attraction["query_count"]))
             if use_residual_memory
             else 0
         ),
@@ -2614,10 +2671,60 @@ def _candidate_path_heading_offset_rad(*, reference_bank_rad: float, path_speed_
     )
 
 
+def _cached_spatial_flow_belief_features(
+    belief: DirectionalResidualLiftBelief,
+    *,
+    x_w_m: float,
+    y_w_m: float,
+    z_w_m: float,
+    direction_rad: float,
+    cell_lookup: dict[tuple[int, int, int, int], DirectionalResidualCell] | dict[tuple[int, int, int, int], object],
+    current_history_launch_index: int,
+    query_radius_m: float,
+    query_cache: dict[tuple[int, int, int, int, int, int], dict[str, object]] | None,
+) -> dict[str, object]:
+    if query_cache is None:
+        return query_spatial_flow_belief_features(
+            belief,
+            x_w_m=x_w_m,
+            y_w_m=y_w_m,
+            z_w_m=z_w_m,
+            direction_rad=direction_rad,
+            cell_lookup=cell_lookup,  # type: ignore[arg-type]
+            current_history_launch_index=current_history_launch_index,
+            query_radius_m=query_radius_m,
+        )
+    resolution = max(1e-9, float(FLOW_BELIEF_GRID_RESOLUTION_M))
+    key = (
+        int(round(float(x_w_m) / resolution)),
+        int(round(float(y_w_m) / resolution)),
+        int(round(float(z_w_m) / resolution)),
+        int(round(float(direction_rad) / 0.08726646259971647)),
+        int(current_history_launch_index),
+        int(round(float(query_radius_m) / resolution)),
+    )
+    cached = query_cache.get(key)
+    if cached is not None:
+        return dict(cached)
+    features = query_spatial_flow_belief_features(
+        belief,
+        x_w_m=x_w_m,
+        y_w_m=y_w_m,
+        z_w_m=z_w_m,
+        direction_rad=direction_rad,
+        cell_lookup=cell_lookup,  # type: ignore[arg-type]
+        current_history_launch_index=current_history_launch_index,
+        query_radius_m=query_radius_m,
+    )
+    query_cache[key] = dict(features)
+    return features
+
+
 def _candidate_reachable_flow_attraction(
     *,
     belief: DirectionalResidualLiftBelief,
     cell_lookup: dict[tuple[int, int, int, int], object],
+    query_cache: dict[tuple[int, int, int, int, int, int], dict[str, object]] | None = None,
     exit_x: float,
     exit_y: float,
     exit_z: float,
@@ -2627,6 +2734,8 @@ def _candidate_reachable_flow_attraction(
     governor_config: GovernorConfig,
     specific_energy_weight: float,
     updraft_weight: float,
+    query_radius_m: float = FLOW_BELIEF_QUERY_RADIUS_M,
+    probe_set: tuple[tuple[float, float, float, float], ...] = FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES,
 ) -> dict[str, float | int]:
     """Return a bounded attraction toward confident useful flow just beyond the candidate exit."""
 
@@ -2642,7 +2751,7 @@ def _candidate_reachable_flow_attraction(
     uncertainty_weighted_sum = 0.0
     uncertainty_weight_sum = 0.0
     low_confidence_query_count = 0
-    for distance_m, azimuth_offset_rad, elevation_offset_rad, probe_weight in FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES:
+    for distance_m, azimuth_offset_rad, elevation_offset_rad, probe_weight in probe_set:
         distance_m = float(distance_m)
         if distance_m > float(FLOW_BELIEF_REACHABLE_ATTRACTION_LOOKAHEAD_M):
             continue
@@ -2663,7 +2772,7 @@ def _candidate_reachable_flow_attraction(
         probe_z = float(exit_z) + math.sin(float(elevation_offset_rad)) * float(distance_m)
         if not _point_inside_true_safe_bounds(probe_x, probe_y, probe_z):
             continue
-        features = query_spatial_flow_belief_features(
+        features = _cached_spatial_flow_belief_features(
             belief,
             x_w_m=probe_x,
             y_w_m=probe_y,
@@ -2671,7 +2780,8 @@ def _candidate_reachable_flow_attraction(
             direction_rad=probe_direction,
             cell_lookup=cell_lookup,
             current_history_launch_index=current_history_launch_index,
-            query_radius_m=FLOW_BELIEF_QUERY_RADIUS_M,
+            query_radius_m=query_radius_m,
+            query_cache=query_cache,
         )
         query_count += 1
         confidence = _candidate_path_probe_confidence(features, governor_config=governor_config)
@@ -2767,6 +2877,7 @@ def _candidate_route_flow_value(
     *,
     belief: DirectionalResidualLiftBelief,
     cell_lookup: dict[tuple[int, int, int, int], object],
+    query_cache: dict[tuple[int, int, int, int, int, int], dict[str, object]] | None = None,
     x0: float,
     exit_x: float,
     exit_y: float,
@@ -2778,6 +2889,8 @@ def _candidate_route_flow_value(
     governor_config: GovernorConfig,
     specific_energy_weight: float,
     updraft_weight: float,
+    query_radius_m: float = FLOW_BELIEF_QUERY_RADIUS_M,
+    probe_set: tuple[tuple[float, float, float, float], ...] = FLOW_BELIEF_ROUTE_PROBE_FRACTIONS,
 ) -> dict[str, float | int]:
     """Estimate short-horizon route value beyond the first primitive with sparse map probes."""
 
@@ -2800,7 +2913,7 @@ def _candidate_route_flow_value(
     best_y = float(exit_y)
     best_z = float(exit_z)
     probe_count = 0
-    for fraction, azimuth_offset_rad, elevation_offset_rad, probe_weight in FLOW_BELIEF_ROUTE_PROBE_FRACTIONS:
+    for fraction, azimuth_offset_rad, elevation_offset_rad, probe_weight in probe_set:
         fraction = _clip(float(fraction), 0.0, 1.0)
         azimuth_offset_rad = _clip(
             float(azimuth_offset_rad),
@@ -2822,7 +2935,7 @@ def _candidate_route_flow_value(
         if safe <= 0.0:
             weight_sum += float(probe_weight)
             continue
-        features = query_spatial_flow_belief_features(
+        features = _cached_spatial_flow_belief_features(
             belief,
             x_w_m=probe_x,
             y_w_m=probe_y,
@@ -2830,7 +2943,8 @@ def _candidate_route_flow_value(
             direction_rad=route_direction,
             cell_lookup=cell_lookup,
             current_history_launch_index=current_history_launch_index,
-            query_radius_m=FLOW_BELIEF_QUERY_RADIUS_M,
+            query_radius_m=query_radius_m,
+            query_cache=query_cache,
         )
         probe_count += 1
         confidence = _candidate_path_probe_confidence(features, governor_config=governor_config)
@@ -3030,7 +3144,7 @@ def _prepare_realtime_governor_decision(
             z_w_m=float(state[STATE_INDEX["z_w"]]),
             direction_rad=float(state[STATE_INDEX["psi"]]),
             current_history_launch_index=current_history_launch_index,
-            query_radius_m=FLOW_BELIEF_QUERY_RADIUS_M,
+            query_radius_m=REAL_TIME_FLOW_BELIEF_QUERY_RADIUS_M,
         )
     candidate_belief_features = _candidate_path_belief_features_fn(
         belief=belief,
@@ -3038,6 +3152,7 @@ def _prepare_realtime_governor_decision(
         current_history_launch_index=current_history_launch_index,
         use_residual_memory=bool(policy["uses_memory"]),
         governor_config=governor_config,
+        real_time_controller_mode=True,
     )
     belief_query_duration_s = time.perf_counter() - belief_started
 
@@ -3116,8 +3231,8 @@ def _real_time_scheduler_decision_fields(
     }
     return {
         "real_time_outer_loop_scheduler_version": REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION,
-        "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
-        "scheduler_policy": "prepare_next_decision_before_primitive_boundary_and_commit_without_resetting_command_timing",
+        "real_time_claim_status": "controller_compute_profile_excludes_table_flush_and_posthoc_diagnostics",
+        "scheduler_policy": "prepare_next_decision_before_primitive_boundary_with_compact_controller_probe_set",
         "scheduler_decision_source": str(scheduler_decision_source),
         "scheduler_commit_status": "prepared_pending_commit" if prepared_before_boundary else "computed_at_boundary",
         "scheduler_prepared_before_primitive_boundary": bool(prepared_before_boundary),
@@ -3125,6 +3240,9 @@ def _real_time_scheduler_decision_fields(
         "decision_belief_query_duration_s": float(belief_query_duration_s),
         "decision_selection_duration_s": float(selection_duration_s),
         "decision_total_duration_s": float(total_duration_s),
+        "decision_controller_compute_duration_s": float(total_duration_s),
+        "decision_diagnostic_logging_duration_s": 0.0,
+        "decision_controller_timing_scope": "context_plus_belief_plus_compact_selector_no_table_flush",
         "decision_candidate_count": int(candidate_count),
         "decision_viable_count": int(viable_count),
         "preferred_decision_budget_s": float(REAL_TIME_PREFERRED_DECISION_BUDGET_S),
@@ -4809,7 +4927,7 @@ def _write_real_time_scheduler_audit_from_partitions(
                         "audit_scope": "overall",
                         "selector_decision_count": 0,
                         "audit_status": "no_selector_decision_rows",
-                        "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
+                        "real_time_claim_status": "controller_compute_profile_excludes_table_flush_and_posthoc_diagnostics",
                     }
                 ]
             ),
@@ -4817,7 +4935,12 @@ def _write_real_time_scheduler_audit_from_partitions(
         return
 
     frame = pd.DataFrame(rows)
-    duration = pd.to_numeric(frame.get("decision_total_duration_s", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+    duration_source_column = (
+        "decision_controller_compute_duration_s"
+        if "decision_controller_compute_duration_s" in frame.columns
+        else "decision_total_duration_s"
+    )
+    duration = pd.to_numeric(frame.get(duration_source_column, pd.Series(dtype=float)), errors="coerce").fillna(0.0)
     preferred = frame.get("preferred_20ms_slot_met", pd.Series(dtype=bool)).map(_truthy) if "preferred_20ms_slot_met" in frame else pd.Series(False, index=frame.index)
     hard = frame.get("hard_100ms_boundary_met", pd.Series(dtype=bool)).map(_truthy) if "hard_100ms_boundary_met" in frame else pd.Series(False, index=frame.index)
     prepared = (
@@ -4826,6 +4949,7 @@ def _write_real_time_scheduler_audit_from_partitions(
         else pd.Series(False, index=frame.index)
     )
     frame["_duration"] = duration
+    frame["_duration_source_column"] = str(duration_source_column)
     frame["_preferred"] = preferred.astype(bool)
     frame["_hard"] = hard.astype(bool)
     frame["_prepared"] = prepared.astype(bool)
@@ -4971,6 +5095,11 @@ def _write_memory_opportunity_audit_from_partitions(
         "selected_flow_map_information_gain_low_confidence_query_count",
         "selected_memory_route_score_component",
         "selected_memory_route_gate",
+        "selected_memory_cost_benefit_known_flow_benefit_m",
+        "selected_memory_cost_benefit_information_benefit",
+        "selected_memory_cost_benefit_total_benefit",
+        "selected_memory_cost_benefit_total_cost",
+        "selected_memory_cost_benefit_net_value",
         "selected_flow_map_route_exploitation_m",
         "selected_flow_map_route_information_gain",
         "selected_flow_map_route_confidence",
@@ -5036,6 +5165,11 @@ def _write_memory_opportunity_audit_from_partitions(
             "selected_memory_route_score_component",
             "selected_memory_route_gate",
             "selected_memory_route_horizon_primitives",
+            "selected_memory_cost_benefit_known_flow_benefit_m",
+            "selected_memory_cost_benefit_information_benefit",
+            "selected_memory_cost_benefit_total_benefit",
+            "selected_memory_cost_benefit_total_cost",
+            "selected_memory_cost_benefit_net_value",
             "selected_flow_map_route_policy",
             "selected_flow_map_route_exploitation_m",
             "selected_flow_map_route_information_gain",
@@ -5093,6 +5227,18 @@ def _memory_opportunity_summary_row(audit_scope: str, frame: pd.DataFrame) -> di
     route_exploitation = frame.get("selected_flow_map_route_exploitation_m", pd.Series(0.0, index=frame.index))
     route_information_gain = frame.get("selected_flow_map_route_information_gain", pd.Series(0.0, index=frame.index))
     route_confidence = frame.get("selected_flow_map_route_confidence", pd.Series(0.0, index=frame.index))
+    cost_benefit_benefit = frame.get(
+        "selected_memory_cost_benefit_total_benefit",
+        pd.Series(0.0, index=frame.index),
+    )
+    cost_benefit_cost = frame.get(
+        "selected_memory_cost_benefit_total_cost",
+        pd.Series(0.0, index=frame.index),
+    )
+    cost_benefit_net = frame.get(
+        "selected_memory_cost_benefit_net_value",
+        pd.Series(0.0, index=frame.index),
+    )
     return {
         "audit_scope": str(audit_scope),
         "decision_count": count,
@@ -5118,6 +5264,10 @@ def _memory_opportunity_summary_row(audit_scope: str, frame: pd.DataFrame) -> di
         "mean_route_flow_exploitation_m": float(route_exploitation.mean()) if count else 0.0,
         "mean_route_flow_information_gain": float(route_information_gain.mean()) if count else 0.0,
         "mean_route_flow_confidence": float(route_confidence.mean()) if count else 0.0,
+        "mean_memory_cost_benefit_total_benefit": float(cost_benefit_benefit.mean()) if count else 0.0,
+        "mean_memory_cost_benefit_total_cost": float(cost_benefit_cost.mean()) if count else 0.0,
+        "mean_memory_cost_benefit_net_value": float(cost_benefit_net.mean()) if count else 0.0,
+        "memory_cost_benefit_positive_count": int((cost_benefit_net > 0.0).sum()) if count else 0,
         "mean_adaptive_score_margin": float(score_margin.mean()) if count else 0.0,
         "memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION,
         "audit_status": "profiled",
@@ -5130,6 +5280,11 @@ def _real_time_scheduler_summary_row(audit_scope: str, frame: pd.DataFrame) -> d
     preferred = frame["_preferred"].astype(bool)
     hard = frame["_hard"].astype(bool)
     prepared = frame["_prepared"].astype(bool)
+    duration_source = (
+        str(frame["_duration_source_column"].iloc[0])
+        if "_duration_source_column" in frame and count
+        else "decision_total_duration_s"
+    )
     evaluated_candidates = pd.to_numeric(
         frame.get("decision_candidate_count", pd.Series(0.0, index=frame.index)),
         errors="coerce",
@@ -5158,6 +5313,8 @@ def _real_time_scheduler_summary_row(audit_scope: str, frame: pd.DataFrame) -> d
         "max_decision_total_duration_s": float(duration.max()) if count else 0.0,
         "p99_decision_total_duration_s": float(duration.quantile(0.99)) if count else 0.0,
         "mean_decision_total_duration_s": float(duration.mean()) if count else 0.0,
+        "timing_duration_source_column": duration_source,
+        "timing_boundary_scope": "controller_compute_excludes_table_flush_and_posthoc_diagnostics",
         "mean_evaluated_candidate_count": float(evaluated_candidates.mean()) if count else 0.0,
         "max_evaluated_candidate_count": int(evaluated_candidates.max()) if count else 0,
         "mean_total_library_candidate_count": float(total_candidates.mean()) if count else 0.0,
@@ -5166,7 +5323,7 @@ def _real_time_scheduler_summary_row(audit_scope: str, frame: pd.DataFrame) -> d
         "preferred_decision_budget_s": float(REAL_TIME_PREFERRED_DECISION_BUDGET_S),
         "hard_decision_budget_s": float(REAL_TIME_HARD_DECISION_BUDGET_S),
         "audit_status": "profiled",
-        "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
+        "real_time_claim_status": "controller_compute_profile_excludes_table_flush_and_posthoc_diagnostics",
     }
 
 
@@ -6484,22 +6641,22 @@ def _write_manifest(
         "worker_backend": str(config.worker_backend),
         "parallel_execution_policy": "parallelise_across_independent_final_schedule_rows_history_sequential_inside_worker_parent_writes_partitions",
         "real_time_outer_loop_scheduler_version": REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION,
-        "real_time_outer_loop_scheduler_policy": "prepare_next_decision_before_primitive_boundary_profile_context_belief_selector_wallclock",
+        "real_time_outer_loop_scheduler_policy": "prepare_next_decision_before_boundary_with_compact_controller_probe_set",
         "real_time_preferred_decision_budget_s": float(REAL_TIME_PREFERRED_DECISION_BUDGET_S),
         "real_time_hard_decision_budget_s": float(REAL_TIME_HARD_DECISION_BUDGET_S),
         "real_time_scheduler_audit": "metrics/real_time_scheduler_audit.csv",
-        "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
+        "real_time_claim_status": "controller_compute_profile_excludes_table_flush_and_posthoc_diagnostics",
         "outer_loop_memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION,
         "outer_loop_memory_policy": (
             "case-local 0.1 m 3D spatial updraft-utility belief map with dense executed-primitive updates "
-            "at 0.1 m spacing and launch-index recency decay; candidate paths query the accumulated map using "
-            "a 0.2 m neighbourhood over seven current-to-exit probes plus a bounded 0.8 m / 35 deg azimuth / "
-            "20 deg elevation sparse 3D reachable-flow attraction cone capped at 0.25 m plus a bounded sparse "
-            "short-horizon route-flow probe set from the candidate exit; residual path utility, reachable-flow "
-            "attraction, and route-flow exploitation are confidence-gated, while under-observed path/cone/route "
-            "probes add bounded information gain for safe map-building; all memory terms act only among "
-            "already-viable front-progress-compatible candidates; "
-            "accepted only through unchanged viability filters and the baseline shield with no final-launch special case"
+            "at 0.1 m spacing and launch-index recency decay; full diagnostics can query the accumulated map "
+            "using a 0.2 m neighbourhood over seven current-to-exit probes, while the online controller uses "
+            "a compact 0.1 m query-radius probe set before the 0.100 s boundary. Both use a bounded 0.8 m / "
+            "35 deg azimuth / 20 deg elevation sparse 3D reachable-flow attraction cone capped at 0.25 m plus a bounded sparse "
+            "short-horizon route-flow probe set from the candidate exit; those queries are collapsed into one "
+            "cost-benefit memory value: remembered flow benefit plus small information value minus frozen "
+            "mission-score, front-progress, risk, and path-margin costs; accepted only through unchanged "
+            "viability filters and the baseline shield with no final-launch special case"
         ),
         "governor_learning_strategy_version": OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION,
         "online_memory_scope": ONLINE_MEMORY_SCOPE,
@@ -6525,11 +6682,13 @@ def _write_manifest(
             governor_config.candidate_path_memory_utility_updraft_weight
         ),
         "candidate_path_memory_probe_count": int(len(CANDIDATE_PATH_MEMORY_PROBES)),
+        "real_time_candidate_path_memory_probe_count": int(len(REAL_TIME_CANDIDATE_PATH_MEMORY_PROBES)),
         "candidate_path_memory_full_confidence_observations": float(
             governor_config.candidate_path_memory_full_confidence_observations
         ),
         "flow_belief_grid_resolution_m": float(FLOW_BELIEF_GRID_RESOLUTION_M),
         "flow_belief_query_radius_m": float(FLOW_BELIEF_QUERY_RADIUS_M),
+        "flow_belief_real_time_query_radius_m": float(REAL_TIME_FLOW_BELIEF_QUERY_RADIUS_M),
         "flow_belief_history_update_spacing_m": float(FLOW_BELIEF_HISTORY_UPDATE_SPACING_M),
         "flow_belief_history_update_max_samples_per_primitive": int(
             FLOW_BELIEF_HISTORY_UPDATE_MAX_SAMPLES_PER_PRIMITIVE
@@ -6546,9 +6705,13 @@ def _write_manifest(
         ),
         "flow_belief_reachable_attraction_geometry": "sparse_3d_cone_2_range_3_azimuth_3_elevation_stencil",
         "flow_belief_reachable_attraction_probe_count": int(len(FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES)),
+        "flow_belief_real_time_reachable_attraction_probe_count": int(
+            len(REAL_TIME_FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES)
+        ),
         "flow_belief_reachable_attraction_cap_m": float(FLOW_BELIEF_REACHABLE_ATTRACTION_CAP_M),
         "flow_belief_route_horizon_primitives": int(round(float(governor_config.memory_route_horizon_primitives))),
         "flow_belief_route_probe_count": int(len(FLOW_BELIEF_ROUTE_PROBE_FRACTIONS)),
+        "flow_belief_real_time_route_probe_count": int(len(REAL_TIME_FLOW_BELIEF_ROUTE_PROBE_FRACTIONS)),
         "flow_belief_route_policy": "bounded_sparse_short_horizon_route_flow_probes_from_candidate_exit",
         "memory_route_planning_weight": float(governor_config.memory_route_planning_weight),
         "memory_route_information_gain_weight": float(governor_config.memory_route_information_gain_weight),
@@ -6557,6 +6720,16 @@ def _write_manifest(
         "memory_route_max_base_score_drop": float(governor_config.memory_route_max_base_score_drop),
         "memory_route_min_front_progress_ratio": float(governor_config.memory_route_min_front_progress_ratio),
         "memory_route_discount": float(governor_config.memory_route_discount),
+        "memory_cost_benefit_weight": float(governor_config.memory_cost_benefit_weight),
+        "memory_cost_benefit_score_cap": float(governor_config.memory_cost_benefit_score_cap),
+        "memory_cost_benefit_information_gain_weight": float(
+            governor_config.memory_cost_benefit_information_gain_weight
+        ),
+        "memory_cost_benefit_progress_cost_weight": float(
+            governor_config.memory_cost_benefit_progress_cost_weight
+        ),
+        "memory_cost_benefit_risk_cost_weight": float(governor_config.memory_cost_benefit_risk_cost_weight),
+        "memory_cost_benefit_margin_cost_weight": float(governor_config.memory_cost_benefit_margin_cost_weight),
         "memory_objective_score_cap": float(governor_config.memory_objective_score_cap),
         "memory_objective_min_confidence": float(governor_config.memory_objective_min_confidence),
         "memory_objective_max_base_score_drop": float(governor_config.memory_objective_max_base_score_drop),
@@ -6585,7 +6758,7 @@ def _write_manifest(
         ),
         "flow_belief_update_policy": (
             FLOW_BELIEF_HISTORY_UPDATE_POLICY
-            + "_plus_candidate_path_query_reachable_flow_route_value_and_information_gain"
+            + "_plus_candidate_path_query_reachable_flow_route_value_cost_benefit_memory"
         ),
         "residual_memory_launch_recency_half_life": float(governor_config.residual_memory_launch_recency_half_life),
         "memory_opportunity_audit": "metrics/memory_opportunity_summary.csv",
@@ -6753,7 +6926,7 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Safety thresholds: hard failure <= `{protocol.max_hard_failure_rate}`, no-viable <= `{protocol.max_no_viable_rate}`, safe success >= `{protocol.min_safe_success_rate}`, full safe success >= `{protocol.min_full_safe_success_rate}`, terminal/lift >= `{protocol.min_terminal_or_lift_capture_rate}`.",
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
         "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, front-wall progress, front-wall terminal proxy, progress-gated terminal total specific-energy proxy, updraft gain, lift dwell, and residual memory.",
-        f"- Memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` maintains a case-local 0.1 m 3D updraft-utility belief map; each flown primitive writes dense executed-segment residual samples at 0.1 m spacing with launch-index recency decay, and each candidate path queries the accumulated map through a 0.2 m neighbourhood over seven probes, a bounded 0.8 m / 35 deg azimuth / 20 deg elevation sparse 3D reachable-flow attraction cone capped at 0.25 m, and a bounded sparse short-horizon route-flow probe set from the candidate exit. Residual path utility, reachable-flow attraction, and route-flow exploitation use known useful flow, while under-observed path/cone/route probes add bounded information gain for safe map building; all terms apply only among already-viable front-progress-compatible candidates and are accepted only through the baseline shield after viability filtering.",
+        f"- Memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` maintains a case-local 0.1 m 3D updraft-utility belief map; each flown primitive writes dense executed-segment residual samples at 0.1 m spacing with launch-index recency decay. Full diagnostics can query the accumulated map through a 0.2 m neighbourhood over seven probes, while the in-flight controller uses a compact 0.1 m query-radius probe set before the 0.100 s boundary. Both use bounded current-to-exit, reachable-cone, and short-horizon route-flow probes from the candidate exit. The selector collapses those map queries into one cost-benefit memory value: remembered flow benefit plus small information value minus frozen mission-score, front-progress, risk, and path-margin costs. The value acts only among already-viable candidates and is accepted only through the baseline shield after viability filtering.",
         f"- Governor learning strategy: `{OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION}` keeps online memory `{ONLINE_MEMORY_SCOPE}`; R10 calibration scope is `{R10_GLOBAL_CALIBRATION_SCOPE}` and R11 uses `{R11_GOVERNOR_HANDOFF_SCOPE}`.",
         f"- Calibration search policy: `{GOVERNOR_CALIBRATION_SEARCH_POLICY}`.",
         "- Memory opportunity audit: `memory_opportunity_summary.csv` and `memory_opportunity_decision_log.csv` report baseline-vs-memory candidate gaps, correction deltas, shield status, and accepted/rejected switch reasons.",
