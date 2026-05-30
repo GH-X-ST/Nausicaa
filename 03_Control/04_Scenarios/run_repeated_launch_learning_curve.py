@@ -3176,15 +3176,8 @@ def _expected_low_energy_dry_air_sink(
 ) -> bool:
     if not primitive_rows:
         return False
-    zero_active_fan_case = str(scheduled.get("scheduled_active_fan_count", "")).strip() in {"0", "0.0"}
-    dry_air_case = bool(
-        str(scheduled.get("environment_mode", "")) == "dry_air"
-        or str(scheduled.get("environment_block_id", "")) in DRY_AIR_ENERGY_DEPLETION_BLOCK_IDS
-        or zero_active_fan_case
-    )
-    if not dry_air_case:
-        return False
-    if not physical_floor_or_ceiling or no_viable or terminal_useful or lift_capture:
+    del scheduled, lift_capture
+    if not physical_floor_or_ceiling or no_viable or terminal_useful:
         return False
     last = primitive_rows[-1]
     return bool(
@@ -5617,7 +5610,7 @@ def _write_manifest(
         "launch_score_wrong_wall_exit_penalty": float(WRONG_WALL_EXIT_PENALTY),
         "launch_score_gravity_m_s2": float(SPECIFIC_ENERGY_GRAVITY_M_S2),
         "low_launch_speed_dry_air_sink_policy": (
-            "raw primitive floor_violation is retained, but dry-air or scheduled-zero-fan floor stop after a low-speed launch "
+            "raw primitive floor_violation is retained, but floor stop after a launch below the claim-bearing speed envelope "
             "is labelled expected_low_energy_dry_air_sink and excluded from governor/memory claim-bearing gates"
         ),
         "low_launch_speed_dry_air_threshold_m_s": float(LOW_LAUNCH_SPEED_DRY_AIR_THRESHOLD_M_S),

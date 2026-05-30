@@ -37,6 +37,8 @@ from run_changed_case_validation import (  # noqa: E402
     HeldoutChangedCaseValidationConfig,
     R10_EXPECTED_FINAL_HELDOUT_LAUNCHES,
     R10_EXPECTED_HISTORY_LAUNCHES,
+    R11_EXPECTED_FINAL_HELDOUT_LAUNCHES,
+    R11_EXPECTED_HISTORY_LAUNCHES,
     run_changed_case_validation,
     run_heldout_changed_case_validation,
 )
@@ -50,6 +52,7 @@ from run_lqr_w01_dense_chunked import (  # noqa: E402
     R5_LAUNCH_AWARE_DENSE_PASSED_FOR_REVIEW,
     W01_DRY_SCHEDULE_ONLY,
     W01DenseRunConfig,
+    _expected_launch_gate_rows_per_active_primitive,
     run_lqr_w01_dense_chunked,
 )
 from run_outcome_model_build import DEFAULT_OUTPUT_ROOT as OUTCOME_OUTPUT_ROOT  # noqa: E402
@@ -119,6 +122,7 @@ class R5R10PipelineConfig:
     compression_level: int = 1
     candidate_chunk_size: int = 800
     r10_mode: str = "full"
+    r10_governor_config_path: Path | None = None
     history_log_mode: str = "auto"
     history_debug_sample_stride: int = 10
     allow_stage_smoke: bool = False
@@ -573,7 +577,7 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
     if stage_id == "R10":
         r8_root = Path(str(context["stages"]["R8"]["run_root"]))
         outcome_root = Path(str(context["stages"]["R8"]["outcome_run_root"]))
-        governor_config_path = _r9_initial_governor_config_path(context)
+        governor_config_path = config.r10_governor_config_path or _r9_initial_governor_config_path(context)
         stage_run_id = _stage_run_id(config, DEFAULT_CHANGED_OUTPUT_ROOT)
         return run_changed_case_validation(
             ChangedCaseValidationConfig(
@@ -779,8 +783,8 @@ def _stage_post_checks(stage_id: str, result: dict[str, object], context: dict[s
             _check_row(stage_id, "strict_heldout_protocol", manifest.get("validation_protocol") == "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation", manifest.get("validation_protocol", ""), "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation"),
             _check_row(stage_id, "pass_gate_true", bool(manifest.get("pass_gate", False)), manifest.get("pass_gate", False), True),
             _check_row(stage_id, "r11_consumed_r10_frozen_governor_config", bool(manifest.get("governor_config_override_active", False)), manifest.get("governor_config_override_active", False), True),
-            _check_row(stage_id, "final_heldout_launch_count_exact", int(manifest.get("actual_final_heldout_launches", 0)) == R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, manifest.get("actual_final_heldout_launches", 0), R10_EXPECTED_FINAL_HELDOUT_LAUNCHES),
-            _check_row(stage_id, "history_launch_count_exact", int(manifest.get("actual_history_launches", 0)) == R10_EXPECTED_HISTORY_LAUNCHES, manifest.get("actual_history_launches", 0), R10_EXPECTED_HISTORY_LAUNCHES),
+            _check_row(stage_id, "final_heldout_launch_count_exact", int(manifest.get("actual_final_heldout_launches", 0)) == R11_EXPECTED_FINAL_HELDOUT_LAUNCHES, manifest.get("actual_final_heldout_launches", 0), R11_EXPECTED_FINAL_HELDOUT_LAUNCHES),
+            _check_row(stage_id, "history_launch_count_exact", int(manifest.get("actual_history_launches", 0)) == R11_EXPECTED_HISTORY_LAUNCHES, manifest.get("actual_history_launches", 0), R11_EXPECTED_HISTORY_LAUNCHES),
             _check_row(stage_id, "r11_no_model_latency_variation_audit", _r10_variation_audit_passed(run_root), "audit", "passed"),
             _check_row(stage_id, "first_decision_launch_gate_audits_present", _validation_launch_gate_audit_passed(run_root), "audit", "passed"),
             _file_size_check(stage_id, run_root),
@@ -1152,7 +1156,7 @@ def _r5_launch_gate_audit_passed(run_root: Path) -> bool:
     launch = frame[frame["start_state_family"].astype(str) == "launch_gate"].copy()
     if int(launch["primitive_id"].astype(str).nunique()) < len(ACTIVE_PRIMITIVE_IDS):
         return False
-    expected_per_primitive = 32 * 3 * 40
+    expected_per_primitive = _expected_launch_gate_rows_per_active_primitive()
     for primitive_id in ACTIVE_PRIMITIVE_IDS:
         rows = launch[launch["primitive_id"].astype(str) == str(primitive_id)]
         if rows.empty:
@@ -1372,6 +1376,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--compression-level", type=int, default=1)
     parser.add_argument("--candidate-chunk-size", type=int, default=800)
     parser.add_argument("--r10-mode", default="full", choices=("full", "reduced_diagnostic_10", "reduced_diagnostic_50"))
+    parser.add_argument("--r10-governor-config-path", type=Path, default=None)
     parser.add_argument("--history-log-mode", default="auto", choices=("auto", "plot_summary", "sampled_debug", "full_debug"))
     parser.add_argument("--history-debug-sample-stride", type=int, default=10)
     parser.add_argument("--allow-stage-smoke", type=_parse_bool, default=False)
@@ -1394,6 +1399,7 @@ def main(argv: list[str] | None = None) -> int:
             compression_level=args.compression_level,
             candidate_chunk_size=args.candidate_chunk_size,
             r10_mode=args.r10_mode,
+            r10_governor_config_path=args.r10_governor_config_path,
             history_log_mode=args.history_log_mode,
             history_debug_sample_stride=args.history_debug_sample_stride,
             allow_stage_smoke=args.allow_stage_smoke,

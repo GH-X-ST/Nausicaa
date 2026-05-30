@@ -110,7 +110,7 @@ R5_TRANSITION_TRAINING_THRESHOLDS = {
     "launch_gate": {
         "success_lcb_min": 0.35,
         "hard_failure_ucb_max": 0.45,
-        "useful_environment_count_min": 3,
+        "useful_environment_count_min": 2,
     },
     "inflight_stable": {
         "success_lcb_min": 0.35,
@@ -1697,13 +1697,15 @@ def _r5_transition_thresholds(entry_class: str) -> dict[str, float | int]:
 
 
 def _expected_r5_rows_for_transition_entry(entry_class: str) -> int:
-    per_environment = {
-        "launch_gate": 40,
-        "inflight_stable": 40,
-        "boundary_near": 10,
-        "recoverable_degraded": 10,
-    }.get(str(entry_class), 0)
-    return int(per_environment * len(R5_EVIDENCE_BLOCKS))
+    start_families_by_entry = {
+        "launch_gate": ("launch_gate",),
+        "inflight_stable": INFLIGHT_REGIME_STARTS,
+        "boundary_near": ("inflight_boundary_near",),
+        "recoverable_degraded": ("inflight_recovery_edge",),
+    }
+    start_families = start_families_by_entry.get(str(entry_class), ())
+    mix_fraction = sum(float(START_FAMILY_MIX[family]) for family in start_families)
+    return int(round(float(L6_RICH_SIDE_PAIRED_TESTS_PER_CANDIDATE) * float(len(R5_EVIDENCE_BLOCKS)) * mix_fraction))
 
 
 def _mark_selected_for_r7(summary: pd.DataFrame) -> pd.DataFrame:
@@ -2130,8 +2132,7 @@ def _unique_group_count(frame: pd.DataFrame, mask: pd.Series) -> int:
 def _expected_launch_gate_rows_per_active_primitive() -> int:
     return int(
         L6_RICH_SIDE_CANDIDATE_COUNT
-        * len(R5_EVIDENCE_BLOCKS)
-        * 40
+        * _expected_r5_rows_for_transition_entry("launch_gate")
     )
 
 

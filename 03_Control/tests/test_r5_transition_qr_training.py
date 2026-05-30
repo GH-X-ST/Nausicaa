@@ -7,11 +7,15 @@ import pandas as pd
 
 from run_lqr_w01_dense_chunked import (
     PROJECT_TITLE_VERSION,
+    _expected_launch_gate_rows_per_active_primitive,
+    _expected_r5_rows_for_transition_entry,
     _r5_transition_training_tables,
     _wilson_lower_bound,
     _wilson_upper_bound,
 )
+from run_r5_r10_pipeline import _r5_launch_gate_audit_passed
 from run_w3_survival import W3SurvivalConfig, run_w3_survival
+from prim_cat import ACTIVE_PRIMITIVE_IDS
 
 
 def test_wilson_bounds_are_conservative() -> None:
@@ -19,6 +23,43 @@ def test_wilson_bounds_are_conservative() -> None:
     assert _wilson_lower_bound(0, 10) == 0.0
     assert _wilson_upper_bound(0, 10) > 0.0
     assert _wilson_upper_bound(10, 10) == 1.0
+
+
+def test_r5_expected_transition_rows_follow_dense_percentage_mix() -> None:
+    assert _expected_r5_rows_for_transition_entry("launch_gate") == 160
+    assert _expected_r5_rows_for_transition_entry("inflight_stable") == 160
+    assert _expected_r5_rows_for_transition_entry("boundary_near") == 40
+    assert _expected_r5_rows_for_transition_entry("recoverable_degraded") == 40
+    assert _expected_launch_gate_rows_per_active_primitive() == 5120
+
+
+def test_r5_pipeline_launch_gate_audit_uses_dense_percentage_mix(tmp_path: Path) -> None:
+    metrics = tmp_path / "metrics"
+    metrics.mkdir(parents=True)
+    expected = _expected_launch_gate_rows_per_active_primitive()
+    pd.DataFrame(
+        [
+            {
+                "start_state_family": "launch_gate",
+                "transition_entry_class": "launch_gate",
+                "primitive_id": primitive_id,
+                "entry_role": "transition_object",
+                "total_rows": expected,
+                "entry_role_rejection_count": 0,
+                "accepted_count": 1,
+                "weak_count": 0,
+                "continuation_valid_count": 1,
+                "terminal_useful_count": 0,
+                "hard_failure_count": 0,
+                "blocked_count": 0,
+                "rejected_count": 0,
+                "r5_launch_entry_gate_passed": True,
+            }
+            for primitive_id in ACTIVE_PRIMITIVE_IDS
+        ]
+    ).to_csv(metrics / "r5_launch_gate_entry_diagnosis.csv", index=False)
+
+    assert _r5_launch_gate_audit_passed(tmp_path)
 
 
 def test_r5_transition_training_selects_entry_classes_independently() -> None:
@@ -31,7 +72,7 @@ def test_r5_transition_training_selects_entry_classes_independently() -> None:
                 environment_mode=environment_mode,
             )
             for environment_mode in ("dry_air", "w1_annular_gp_randomised_single", "w1_annular_gp_randomised_four")
-            for _ in range(40)
+            for _ in range(60)
         ]
         + [
             _training_row(
@@ -41,7 +82,7 @@ def test_r5_transition_training_selects_entry_classes_independently() -> None:
                 environment_mode=environment_mode,
             )
             for environment_mode in ("dry_air", "w1_annular_gp_randomised_single", "w1_annular_gp_randomised_four")
-            for _ in range(40)
+            for _ in range(60)
         ]
     )
 
