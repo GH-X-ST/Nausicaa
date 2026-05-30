@@ -142,7 +142,7 @@ DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE = 10
 REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION = "predictive_next_primitive_scheduler_profile_v1"
 REAL_TIME_PREFERRED_DECISION_BUDGET_S = CONTROLLER_INPUT_UPDATE_PERIOD_S
 REAL_TIME_HARD_DECISION_BUDGET_S = PRIMITIVE_FINITE_HORIZON_S
-OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_spatial_flow_belief_safe_explore_exploit_memory_v2_1"
+OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_spatial_flow_belief_safe_explore_exploit_memory_v2_2"
 OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION = (
     "case_local_online_memory_plus_r10_global_deterministic_calibration_v1"
 )
@@ -179,6 +179,9 @@ FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES = (
     (0.80, 0.0, 0.14),
     (0.80, 0.55, 0.10),
 )
+FLOW_BELIEF_HISTORY_UPDATE_SPACING_M = FLOW_BELIEF_GRID_RESOLUTION_M
+FLOW_BELIEF_HISTORY_UPDATE_MAX_SAMPLES_PER_PRIMITIVE = 128
+FLOW_BELIEF_HISTORY_UPDATE_POLICY = "dense_executed_segment_samples_at_0p1m_grid_spacing_with_launch_recency_decay"
 THESIS_FACING_WORKFLOW = "R5 -> R7 -> R8 -> R10 -> R11 -> Reality"
 R9_THESIS_REPORTING_STATUS = "internal_preflight_excluded_from_thesis_workflow_narrative"
 REAL_FLIGHT_REQUIRED_LIBRARY_CASE_IDS = ("heavy_cluster", "balanced_cluster")
@@ -1841,10 +1844,13 @@ def _run_one_launch(
                     "policy_id": str(policy["policy_id"]),
                     "primitive_step_index": int(primitive_step_index),
                     "update_status": update_status,
-                    "memory_update_policy": "spatial_path_distributed_0p1m_flow_utility_map",
+                    "memory_update_policy": FLOW_BELIEF_HISTORY_UPDATE_POLICY,
                     "memory_path_sample_index": int(observation_row["sample_index"]),
                     "memory_path_sample_count": int(observation_row["sample_count"]),
                     "memory_path_sample_fraction": float(observation_row["sample_fraction"]),
+                    "memory_path_sample_spacing_m": float(FLOW_BELIEF_HISTORY_UPDATE_SPACING_M),
+                    "memory_path_sample_max_per_primitive": int(FLOW_BELIEF_HISTORY_UPDATE_MAX_SAMPLES_PER_PRIMITIVE),
+                    "memory_path_sample_source": str(observation_row["sample_source"]),
                     **asdict(observation),
                     "belief_update_count_before": int(before_one.update_count),
                     "belief_update_count_after": int(belief_after.update_count),
@@ -1960,7 +1966,7 @@ def _memory_observations_for_rollout_segment(
     rollout_row: dict[str, object],
     outcome: dict[str, object],
 ) -> list[dict[str, object]]:
-    """Distribute one primitive-level utility residual along the flown 3D segment."""
+    """Distribute one primitive-level utility residual densely along the executed 3D segment."""
 
     start = as_state_vector(start_state)
     if exit_state is None:
@@ -1975,7 +1981,18 @@ def _memory_observations_for_rollout_segment(
         dtype=float,
     )
     distance_m = float(np.linalg.norm(exit_xyz - start_xyz))
-    sample_count = int(max(1, min(12, math.ceil(distance_m / max(FLOW_BELIEF_GRID_RESOLUTION_M, 1e-9)) + 1)))
+    if distance_m <= 1e-6:
+        sample_count = 1
+    else:
+        sample_count = int(
+            max(
+                2,
+                min(
+                    FLOW_BELIEF_HISTORY_UPDATE_MAX_SAMPLES_PER_PRIMITIVE,
+                    math.ceil(distance_m / max(FLOW_BELIEF_HISTORY_UPDATE_SPACING_M, 1e-9)) + 1,
+                ),
+            )
+        )
     lift_residual = _lift_residual_for_memory_update(context_row, rollout_row=rollout_row, outcome=outcome)
     updraft_residual = _updraft_gain_residual_for_memory_update(context_row, rollout_row=rollout_row, outcome=outcome)
     dwell_residual = float(rollout_row.get("lift_dwell_time_s", 0.0)) - float(outcome.get("expected_lift_dwell_time_s", 0.0))
@@ -1993,6 +2010,7 @@ def _memory_observations_for_rollout_segment(
                 "sample_index": int(sample_index),
                 "sample_count": int(sample_count),
                 "sample_fraction": float(fraction),
+                "sample_source": "executed_primitive_start_to_exit_segment_dense_arc_length",
                 "observation": DirectionalResidualObservation(
                     x_w_m=float(xyz[0]),
                     y_w_m=float(xyz[1]),
@@ -5789,9 +5807,10 @@ def _write_manifest(
         "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
         "outer_loop_memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION,
         "outer_loop_memory_policy": (
-            "case-local 0.1 m 3D spatial updraft-utility belief map with path-distributed primitive updates; "
-            "candidate paths query a 0.2 m neighbourhood over seven current-to-exit probes plus a bounded "
-            "0.8 m / 35 deg half-angle reachable-flow attraction cone capped at 0.25 m, then use "
+            "case-local 0.1 m 3D spatial updraft-utility belief map with dense executed-primitive updates "
+            "at 0.1 m spacing and launch-index recency decay; candidate paths query the accumulated map using "
+            "a 0.2 m neighbourhood over seven current-to-exit probes plus a bounded 0.8 m / 35 deg half-angle "
+            "reachable-flow attraction cone capped at 0.25 m, then use "
             "specific-energy/updraft utility as a near-tie "
             "modifier plus memory-guided uncertainty exploration; "
             "accepted only through unchanged viability filters and the baseline shield with no final-launch special case"
@@ -5825,10 +5844,17 @@ def _write_manifest(
         ),
         "flow_belief_grid_resolution_m": float(FLOW_BELIEF_GRID_RESOLUTION_M),
         "flow_belief_query_radius_m": float(FLOW_BELIEF_QUERY_RADIUS_M),
+        "flow_belief_history_update_spacing_m": float(FLOW_BELIEF_HISTORY_UPDATE_SPACING_M),
+        "flow_belief_history_update_max_samples_per_primitive": int(
+            FLOW_BELIEF_HISTORY_UPDATE_MAX_SAMPLES_PER_PRIMITIVE
+        ),
+        "flow_belief_history_update_policy": FLOW_BELIEF_HISTORY_UPDATE_POLICY,
         "flow_belief_reachable_attraction_lookahead_m": float(FLOW_BELIEF_REACHABLE_ATTRACTION_LOOKAHEAD_M),
         "flow_belief_reachable_attraction_half_angle_rad": float(FLOW_BELIEF_REACHABLE_ATTRACTION_HALF_ANGLE_RAD),
         "flow_belief_reachable_attraction_cap_m": float(FLOW_BELIEF_REACHABLE_ATTRACTION_CAP_M),
-        "flow_belief_update_policy": "path_distributed_primitive_residuals_into_0p1m_3d_updraft_utility_cells_plus_reachable_flow_attraction",
+        "flow_belief_update_policy": (
+            FLOW_BELIEF_HISTORY_UPDATE_POLICY + "_plus_candidate_path_query_and_reachable_flow_attraction"
+        ),
         "residual_memory_launch_recency_half_life": float(governor_config.residual_memory_launch_recency_half_life),
         "memory_opportunity_audit": "metrics/memory_opportunity_summary.csv",
         "safe_exploration_policy": "always_available_for_memory_policies_after_viability_filter_and_baseline_shield_no_final_run_branch",
@@ -5991,7 +6017,7 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Safety thresholds: hard failure <= `{protocol.max_hard_failure_rate}`, no-viable <= `{protocol.max_no_viable_rate}`, safe success >= `{protocol.min_safe_success_rate}`, full safe success >= `{protocol.min_full_safe_success_rate}`, terminal/lift >= `{protocol.min_terminal_or_lift_capture_rate}`.",
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
         "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, front-wall progress, front-wall terminal proxy, progress-gated terminal total specific-energy proxy, updraft gain, lift dwell, and residual memory.",
-        f"- Memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` maintains a case-local 0.1 m 3D updraft-utility belief map; each flown primitive writes path-distributed residual samples, and each candidate path queries a 0.2 m neighbourhood over seven probes plus a bounded 0.8 m / 35 deg half-angle reachable-flow attraction cone capped at 0.25 m before applying near-tie memory and shielded uncertainty exploration after viability filtering.",
+        f"- Memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` maintains a case-local 0.1 m 3D updraft-utility belief map; each flown primitive writes dense executed-segment residual samples at 0.1 m spacing with launch-index recency decay, and each candidate path queries the accumulated map through a 0.2 m neighbourhood over seven probes plus a bounded 0.8 m / 35 deg half-angle reachable-flow attraction cone capped at 0.25 m before applying near-tie memory and shielded uncertainty exploration after viability filtering.",
         f"- Governor learning strategy: `{OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION}` keeps online memory `{ONLINE_MEMORY_SCOPE}`; R10 calibration scope is `{R10_GLOBAL_CALIBRATION_SCOPE}` and R11 uses `{R11_GOVERNOR_HANDOFF_SCOPE}`.",
         f"- Calibration search policy: `{GOVERNOR_CALIBRATION_SEARCH_POLICY}`.",
         "- Memory opportunity audit: `memory_opportunity_summary.csv` and `memory_opportunity_decision_log.csv` report baseline-vs-memory candidate gaps, correction deltas, shield status, and accepted/rejected switch reasons.",

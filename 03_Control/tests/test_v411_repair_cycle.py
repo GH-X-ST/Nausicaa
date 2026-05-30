@@ -36,6 +36,8 @@ from run_repeated_launch_learning_curve import HISTORY_LENGTHS, RepeatedLaunchVa
 from run_repeated_launch_learning_curve import (
     BOUNDARY_RECOVERY_START_FAMILY,
     FIRST_PRIMITIVE_START_FAMILY,
+    FLOW_BELIEF_HISTORY_UPDATE_MAX_SAMPLES_PER_PRIMITIVE,
+    FLOW_BELIEF_HISTORY_UPDATE_SPACING_M,
     LAUNCH_SEQUENCE_POLICY_ID,
     POST_LAUNCH_START_FAMILY,
     TERMINAL_SAFE_EXIT_START_FAMILY,
@@ -349,6 +351,31 @@ def test_v411_rollout_memory_update_samples_primitive_path_on_0p1m_map() -> None
     assert sum(float(row["observation"].observation_weight) for row in rows) == pytest.approx(1.0)
     assert rows[0]["observation"].x_w_m == pytest.approx(1.2)
     assert rows[-1]["observation"].x_w_m == pytest.approx(1.45)
+    assert all(row["sample_source"] == "executed_primitive_start_to_exit_segment_dense_arc_length" for row in rows)
+
+    long_exit = start.copy()
+    long_exit[STATE_INDEX["x_w"]] = 3.2
+    long_rows = _memory_observations_for_rollout_segment(
+        start_state=start,
+        exit_state=long_exit,
+        scheduled={"history_launch_index": 5, "launch_role": "history"},
+        context_row={},
+        rollout_row={
+            "w_wing_mean_m_s": 0.3,
+            "trajectory_integrated_updraft_gain_m": 0.4,
+            "lift_dwell_time_s": 0.2,
+            "energy_residual_m": 0.6,
+        },
+        outcome={
+            "expected_lift_dwell_time_s": 0.0,
+            "expected_updraft_gain_proxy_m": 0.0,
+            "expected_energy_residual_m": 0.0,
+        },
+    )
+    expected_dense_count = int(math.ceil(2.0 / FLOW_BELIEF_HISTORY_UPDATE_SPACING_M) + 1)
+    assert len(long_rows) == min(FLOW_BELIEF_HISTORY_UPDATE_MAX_SAMPLES_PER_PRIMITIVE, expected_dense_count)
+    assert len(long_rows) > 12
+    assert sum(float(row["observation"].observation_weight) for row in long_rows) == pytest.approx(1.0)
 
 
 def test_v411_spatial_flow_belief_attraction_rewards_reachable_downstream_lift() -> None:

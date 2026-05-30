@@ -13,92 +13,92 @@
     {
       "path": "docs/Daily_Schedule.txt",
       "readable": true,
-      "byte_count": 37826,
-      "sha256": "ab249fd1f219340c0bf54592deb061ee99d9462dfb2eb82035de7697f7009bc0"
+      "byte_count": 37959,
+      "sha256": "24aea89c7ec747061c1829b8e9f57f0c9d0aa411fb363bf076fca7404ab92719"
     },
     {
       "path": "docs/Glider_Control_Project_Plan.md",
       "readable": true,
-      "byte_count": 94288,
-      "sha256": "1c0dc4231e8c5f76f4c6f0134680ef2198e38f09e73598adcf4e5d15f3858c22"
+      "byte_count": 94504,
+      "sha256": "653b4530806b3d0c55e0c27493b833b6e39a9b63178907fa0277c994f0f325f0"
     },
     {
       "path": "docs/Literature_Review.txt",
       "readable": true,
-      "byte_count": 19344,
-      "sha256": "320b2f7451ffd7421b807279966d744e70160fa788f93a68807f080a4adfbbe0"
+      "byte_count": 19477,
+      "sha256": "b9e4a2eb50db5eed5acf06033504d7b66bd39c628bbb1866160077dbf483a0a8"
     },
     {
       "path": "docs/Logbook.txt",
       "readable": true,
-      "byte_count": 16993,
-      "sha256": "25396eef667623ee398a5330d7cceee1113503cc5e14ecb3a56e41982075eb0b"
+      "byte_count": 17126,
+      "sha256": "5deec8e013ea0bde7082c70efe23c75accc20efdd1a077d60ff0d561c5dbd5ac"
     },
     {
       "path": "docs/MATLAB Coding.txt",
       "readable": true,
-      "byte_count": 18438,
-      "sha256": "c8194098e0d5fb1c288acda8f38421d016d286d337aa48a2730c46ff0e9da083"
+      "byte_count": 18571,
+      "sha256": "d990010df3866a30bb8f468cfc8ff53a1df96cc55a2adf6d73b34dd7306d5ffd"
     },
     {
       "path": "docs/PR.txt",
       "readable": true,
-      "byte_count": 24021,
-      "sha256": "2492d703fe41e90637fd3be8373bf1df89ed917350f2205d0d9cfd45dfd72077"
+      "byte_count": 24154,
+      "sha256": "6885e941906011b65790da14467a43661ae5b9d02e9e758054986e785b982f45"
     },
     {
       "path": "docs/Progrewss Report.txt",
       "readable": true,
-      "byte_count": 16901,
-      "sha256": "48a034d963badc1ffdff7221c8617a630cbee9dc346ef3ee1542a5a0f507dee0"
+      "byte_count": 17034,
+      "sha256": "8bb1a1708a407b3444e0f91d313d7e4bf51bb445aa8e69ed0ef88aabbea71324"
     },
     {
       "path": "docs/Pseudocode Writing Instructions.txt",
       "readable": true,
-      "byte_count": 18009,
-      "sha256": "47e221bc08043215842e26f8c368b2c5fc929c15bcd10ad60ce6f5f7ef76476c"
+      "byte_count": 18142,
+      "sha256": "cd4a5a0316312ce28f13bc23eb44a989feafa4f634592877206c0b519c9f26dc"
     },
     {
       "path": "docs/Python Coding Instruction.txt",
       "readable": true,
-      "byte_count": 26079,
-      "sha256": "ebdb37f313cb71cf099953e985847a78ec5256835153a75157ce348b28fbb783"
+      "byte_count": 26212,
+      "sha256": "ebcf53e781e86e6f79bca710a4121e2883e9f351875e5386e9dcba3706869385"
     },
     {
       "path": "docs/Python Coding to CODEX.txt",
       "readable": true,
-      "byte_count": 19810,
-      "sha256": "9d44c8a25c70ddea0c183dffb7530ef5e673a4a477be1748d24433f5c5fda22a"
+      "byte_count": 19943,
+      "sha256": "dd1e501eafa39cb822e3a4bf06560143eda675f3a4d9003ddbbebd5b62ca3f0e"
     },
     {
       "path": "docs/Python Plotting Guidance.txt",
       "readable": true,
-      "byte_count": 19005,
-      "sha256": "2b86441611a63cd09c033adf010b5853bfafde3f4bbcce6397f8061623aa4a2f"
+      "byte_count": 19138,
+      "sha256": "e42527168a54dba76e75fdff16ba222dd933bc68fa987daa22e48f9cb65e3a7c"
     },
     {
       "path": "docs/Reference Searching.txt",
       "readable": true,
-      "byte_count": 18323,
-      "sha256": "045a2ec14b2cded0a88fca3dda3532e75096b5fe22a7ba63627ad4e5743121d4"
+      "byte_count": 18456,
+      "sha256": "d6587387f7f5cbbe4fa7ae10ae6ad6fe5acbad1f1620f296057b26966f483220"
     },
     {
       "path": "docs/Skills.md",
       "readable": true,
-      "byte_count": 31846,
-      "sha256": "a2d5bba8b671873986556c5ac90da0139b9cad9d9b749adb94ee1a86b66f165f"
+      "byte_count": 32062,
+      "sha256": "f677ae984a7ce0946d8e09ab791149efca437317e7210a37d447c86e308176c0"
     },
     {
       "path": "docs/Thesis.txt",
       "readable": true,
-      "byte_count": 20861,
-      "sha256": "16bdae790f649d5de52954301b76754b1838d4ab99bd3dc10447ee747c918f3e"
+      "byte_count": 20994,
+      "sha256": "799830f977c936249b7fcbaea9deb3d5302e1f375d6e4d2e4211e108d4aee136"
     },
     {
       "path": "docs/housekeeping_and_naming_rules.md",
       "readable": true,
-      "byte_count": 21692,
-      "sha256": "11b9b7d23fe5cdf30727fd45263dd34554eee86b18475b59035e1682561f5f2a"
+      "byte_count": 21825,
+      "sha256": "ce102a9413fc3be9a0bb79bbf16852aa4de7f433e8401e05546ec56e1dbb2062"
     },
     {
       "path": "docs/local_validation_environment.md",
