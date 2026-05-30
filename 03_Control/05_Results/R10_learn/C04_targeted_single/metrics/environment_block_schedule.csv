@@ -1,0 +1,2 @@
+block_id,human_label,W_layer,environment_mode,case_count,environment_change_family
+r11_l1_single_fan_fixed_nominal,targeted single-fan fixed nominal memory challenge,W2,annular_gp_single,2,targeted_single_fan_fixed_nominal_memory_challenge

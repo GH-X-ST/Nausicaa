@@ -49,9 +49,9 @@ class GovernorConfig:
     mission_front_terminal_weight: float = 0.70
     mission_terminal_energy_weight: float = 0.035
     mission_wrong_boundary_penalty_weight: float = 0.35
-    memory_switch_min_confidence: float = 0.45
-    memory_switch_min_score_margin: float = 0.005
-    memory_switch_max_base_score_drop: float = 0.03
+    memory_switch_min_confidence: float = 0.15
+    memory_switch_min_score_margin: float = 0.001
+    memory_switch_max_base_score_drop: float = 0.12
     memory_near_tie_base_score_margin: float = 0.03
     memory_switch_max_transition_success_drop: float = 0.02
     memory_switch_max_hard_failure_risk_increase: float = 0.0
@@ -69,11 +69,14 @@ class GovernorConfig:
     candidate_path_memory_utility_updraft_weight: float = 0.25
     candidate_path_memory_full_confidence_observations: float = 3.0
     residual_memory_launch_recency_half_life: float = 4.0
-    flow_region_attraction_weight: float = 0.45
-    flow_region_attraction_score_cap: float = 0.06
-    flow_region_attraction_min_confidence: float = 0.35
-    flow_region_attraction_max_base_score_drop: float = 0.09
-    flow_region_attraction_min_front_progress_ratio: float = 0.65
+    memory_objective_score_cap: float = 0.20
+    memory_objective_min_confidence: float = 0.15
+    memory_objective_max_base_score_drop: float = 0.18
+    flow_region_attraction_weight: float = 1.20
+    flow_region_attraction_score_cap: float = 0.18
+    flow_region_attraction_min_confidence: float = 0.15
+    flow_region_attraction_max_base_score_drop: float = 0.18
+    flow_region_attraction_min_front_progress_ratio: float = 0.45
 
 
 DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
@@ -85,7 +88,7 @@ DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
     hard_failure_weight=-0.80,
     updraft_gain_weight=0.04,
     lift_dwell_weight=0.03,
-    belief_weight=0.08,
+    belief_weight=0.45,
     exploration_bonus_weight=0.02,
     no_viable_penalty=-1.0,
     terminal_mode_bias=0.0,

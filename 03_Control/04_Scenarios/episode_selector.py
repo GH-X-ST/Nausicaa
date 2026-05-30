@@ -8,7 +8,7 @@ from transition_labels import entry_classes_for_state_class
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, GOVERNOR_MODES, GovernorConfig, governor_candidate_row
 
 CandidateBeliefFeaturesFn = Callable[[dict[str, object], dict[str, object]], dict[str, object] | None]
-BASELINE_SHIELDED_MEMORY_POLICY_VERSION = "baseline_shielded_spatial_flow_belief_flow_region_attraction_v2_2"
+BASELINE_SHIELDED_MEMORY_POLICY_VERSION = "baseline_shielded_spatial_flow_belief_aggressive_objective_v2_3"
 REAL_TIME_COMPATIBILITY_PREFILTER_VERSION = "transition_entry_and_speed_bin_shortlist_v2"
 SPEED_BIN_NEIGHBOUR_WINDOW = 0
 MEMORY_SWITCH_MIN_CONFIDENCE = 0.45
@@ -80,25 +80,25 @@ def select_compact_representative(
         ),
     )[0]
     memory_active = bool(candidate_belief_features is not None if adaptive_memory_active is None else adaptive_memory_active)
-    _apply_near_tie_memory_modifier(
+    _apply_bounded_memory_objective(
         viable_rows=viable,
         baseline_selected=baseline_selected,
         memory_active=memory_active,
         governor_config=cfg,
     )
     _add_rank_diagnostics(candidate_rows)
-    memory_selected = sorted(
+    memory_ranked = sorted(
         viable,
         key=lambda row: (
             -float(row.get("total_score_with_memory_and_exploration", row.get("score", float("-inf")))),
             str(row.get("primitive_id", "")),
             str(row.get("primitive_variant_id", "")),
         ),
-    )[0]
+    )
     selected = _baseline_shielded_memory_selection(
         viable_rows=viable,
         baseline_selected=baseline_selected,
-        memory_selected=memory_selected,
+        memory_ranked=memory_ranked,
         memory_active=memory_active,
         governor_config=cfg,
     )
@@ -116,12 +116,13 @@ def _baseline_shielded_memory_selection(
     *,
     viable_rows: list[dict[str, object]],
     baseline_selected: dict[str, object],
-    memory_selected: dict[str, object],
+    memory_ranked: list[dict[str, object]],
     memory_active: bool,
     governor_config: GovernorConfig | None = None,
 ) -> dict[str, object]:
     cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     baseline_variant_id = str(baseline_selected.get("primitive_variant_id", ""))
+    memory_selected = memory_ranked[0] if memory_ranked else baseline_selected
     memory_variant_id = str(memory_selected.get("primitive_variant_id", ""))
     if not memory_active:
         _mark_memory_shield_rows(
@@ -133,46 +134,56 @@ def _baseline_shielded_memory_selection(
             governor_config=cfg,
         )
         return memory_selected
-    if memory_variant_id == baseline_variant_id:
-        _mark_memory_shield_rows(
-            viable_rows,
+    first_rejected: tuple[dict[str, object], str] | None = None
+    for candidate in memory_ranked:
+        memory_variant_id = str(candidate.get("primitive_variant_id", ""))
+        if memory_variant_id == baseline_variant_id:
+            _mark_memory_shield_rows(
+                viable_rows,
+                baseline_selected=baseline_selected,
+                memory_selected=baseline_selected,
+                accepted=True,
+                status="baseline_and_memory_winner_match",
+                governor_config=cfg,
+            )
+            return baseline_selected
+        accepted, status = _memory_switch_acceptance_status(
             baseline_selected=baseline_selected,
-            memory_selected=memory_selected,
-            accepted=True,
-            status="baseline_and_memory_winner_match",
+            memory_selected=candidate,
             governor_config=cfg,
         )
-        return memory_selected
-    accepted, status = _memory_switch_acceptance_status(
-        baseline_selected=baseline_selected,
-        memory_selected=memory_selected,
-        governor_config=cfg,
-    )
+        if accepted:
+            _mark_memory_shield_rows(
+                viable_rows,
+                baseline_selected=baseline_selected,
+                memory_selected=candidate,
+                accepted=True,
+                status=status,
+                governor_config=cfg,
+            )
+            return candidate
+        if first_rejected is None:
+            first_rejected = (candidate, status)
+    memory_selected, status = first_rejected or (baseline_selected, "baseline_and_memory_winner_match")
     _mark_memory_shield_rows(
         viable_rows,
         baseline_selected=baseline_selected,
         memory_selected=memory_selected,
-        accepted=accepted,
+        accepted=False,
         status=status,
         governor_config=cfg,
     )
-    return memory_selected if accepted else baseline_selected
+    return baseline_selected
 
 
-def _apply_near_tie_memory_modifier(
+def _apply_bounded_memory_objective(
     *,
     viable_rows: list[dict[str, object]],
     baseline_selected: dict[str, object],
     memory_active: bool,
     governor_config: GovernorConfig | None = None,
 ) -> None:
-    """Apply bounded memory without turning the selector into a planner.
-
-    Residual/path memory remains a near-tie modifier around the frozen-model
-    winner. Positive reachable-flow attraction is allowed over a slightly wider
-    safe mission-compatible band, so repeated launches can bias the next
-    primitive toward a nearby learned useful-flow region.
-    """
+    """Apply bounded flow-belief objective shaping after viability filtering."""
 
     cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     baseline_score = _score(baseline_selected, "base_score_without_memory")
@@ -186,8 +197,17 @@ def _apply_near_tie_memory_modifier(
         raw_memory_component = _float(row.get("memory_score_component", 0.0))
         raw_residual_component = _raw_residual_memory_component(row, governor_config=cfg)
         base_gap = max(0.0, float(baseline_score) - float(base_score))
-        near_tie_factor = _clip(1.0 - base_gap / near_tie_margin, 0.0, 1.0) if memory_active else 0.0
-        near_tie_component = float(raw_residual_component) * float(near_tie_factor)
+        residual_confidence = _float(row.get("belief_candidate_path_confidence", 0.0))
+        residual_gate = (
+            _clip(residual_confidence / max(1e-9, float(cfg.memory_objective_min_confidence)), 0.0, 1.0)
+            if memory_active
+            else 0.0
+        )
+        residual_component = _clip(
+            float(raw_residual_component) * float(residual_gate),
+            -float(cfg.memory_objective_score_cap),
+            float(cfg.memory_objective_score_cap),
+        )
         flow_region_component, flow_region_gate = _flow_region_attraction_component(
             row,
             baseline_selected=baseline_selected,
@@ -195,7 +215,11 @@ def _apply_near_tie_memory_modifier(
             memory_active=memory_active,
             governor_config=cfg,
         )
-        effective_memory_component = float(near_tie_component) + float(flow_region_component)
+        effective_memory_component = _clip(
+            float(residual_component) + float(flow_region_component),
+            -float(cfg.memory_objective_score_cap),
+            float(cfg.memory_objective_score_cap),
+        )
         exploration_component = _float(row.get("exploration_score_component", 0.0)) if memory_active else 0.0
         adjusted_score_with_memory = float(base_score) + float(effective_memory_component)
         adjusted_total_score = float(adjusted_score_with_memory) + float(exploration_component)
@@ -207,14 +231,19 @@ def _apply_near_tie_memory_modifier(
         row["memory_near_tie_active"] = bool(memory_active)
         row["memory_near_tie_base_score_margin"] = float(near_tie_margin)
         row["memory_near_tie_base_score_gap_to_best"] = float(base_gap)
-        row["memory_near_tie_factor"] = float(near_tie_factor)
+        row["memory_near_tie_factor"] = float(residual_gate)
         row["memory_near_tie_raw_memory_component"] = float(raw_memory_component)
         row["memory_near_tie_raw_residual_component"] = float(raw_residual_component)
-        row["memory_near_tie_effective_memory_component"] = float(near_tie_component)
+        row["memory_near_tie_effective_memory_component"] = float(residual_component)
+        row["memory_objective_policy"] = "aggressive_bounded_flow_belief_objective_after_viability_filter"
+        row["memory_objective_residual_confidence_gate"] = float(residual_gate)
+        row["memory_objective_score_cap"] = float(cfg.memory_objective_score_cap)
+        row["memory_objective_min_confidence"] = float(cfg.memory_objective_min_confidence)
+        row["memory_objective_max_base_score_drop"] = float(cfg.memory_objective_max_base_score_drop)
         row["memory_flow_region_attraction_score_component"] = float(flow_region_component)
         row["memory_flow_region_attraction_gate"] = float(flow_region_gate)
         row["memory_flow_region_attraction_policy"] = (
-            "local_reachable_flow_region_bias_after_viability_filter_with_front_progress_gate"
+            "aggressive_reachable_flow_region_objective_after_viability_filter_with_front_progress_gate"
         )
         row["memory_flow_region_attraction_max_base_score_drop"] = float(
             cfg.flow_region_attraction_max_base_score_drop
@@ -260,17 +289,14 @@ def _flow_region_attraction_component(
     progress_ratio = float(candidate_progress) / float(baseline_progress)
     if progress_ratio < float(governor_config.flow_region_attraction_min_front_progress_ratio):
         return 0.0, 0.0
-    base_gap_gate = _clip(
-        1.0 - float(base_gap) / max(1e-9, float(governor_config.flow_region_attraction_max_base_score_drop)),
-        0.0,
-        1.0,
-    )
+    del base_gap
     confidence_gate = _clip(
-        confidence / max(1e-9, float(governor_config.memory_switch_min_confidence)),
+        confidence / max(1e-9, float(governor_config.flow_region_attraction_min_confidence)),
         0.0,
         1.0,
     )
-    combined_gate = float(base_gap_gate) * float(confidence_gate)
+    progress_gate = _clip(float(progress_ratio), 0.0, 1.0)
+    combined_gate = float(confidence_gate) * float(progress_gate)
     uncapped = float(governor_config.flow_region_attraction_weight) * float(attraction_m) * float(combined_gate)
     return (
         _clip(uncapped, 0.0, float(governor_config.flow_region_attraction_score_cap)),
@@ -287,9 +313,10 @@ def _memory_switch_acceptance_status(
     cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     flow_region_component = _float(memory_selected.get("memory_flow_region_attraction_score_component", 0.0))
     flow_region_confidence = _float(memory_selected.get("belief_flow_map_reachable_attraction_confidence", 0.0))
+    memory_component = _float(memory_selected.get("memory_score_component", 0.0))
     confidence = max(
         _float(memory_selected.get("belief_candidate_path_confidence", 0.0)),
-        flow_region_confidence if flow_region_component > 0.0 else 0.0,
+        flow_region_confidence if flow_region_component > 0.0 or memory_component > 0.0 else 0.0,
     )
     uncertainty = _float(memory_selected.get("belief_uncertainty", 1.0), default=1.0)
     exploration_component = _float(memory_selected.get("exploration_score_component", 0.0))
@@ -317,11 +344,11 @@ def _memory_switch_acceptance_status(
         memory_selected=memory_selected,
         governor_config=cfg,
     )
-    allowed_base_score_drop = (
-        float(cfg.flow_region_attraction_max_base_score_drop)
-        if flow_region_component > 0.0 and flow_region_confidence >= float(cfg.flow_region_attraction_min_confidence)
-        else float(cfg.memory_switch_max_base_score_drop)
-    )
+    allowed_base_score_drop = float(cfg.memory_switch_max_base_score_drop)
+    if memory_component > 0.0 and confidence >= float(cfg.memory_objective_min_confidence):
+        allowed_base_score_drop = max(allowed_base_score_drop, float(cfg.memory_objective_max_base_score_drop))
+    if flow_region_component > 0.0 and flow_region_confidence >= float(cfg.flow_region_attraction_min_confidence):
+        allowed_base_score_drop = max(allowed_base_score_drop, float(cfg.flow_region_attraction_max_base_score_drop))
     memory_non_regressive = (
         base_score_delta >= -float(allowed_base_score_drop)
         and transition_delta >= -float(cfg.memory_switch_max_transition_success_drop)
@@ -335,6 +362,8 @@ def _memory_switch_acceptance_status(
     ):
         if flow_region_component > 0.0:
             return True, "accepted_confident_non_regressive_flow_region_attraction_switch"
+        if memory_component > 0.0:
+            return True, "accepted_confident_non_regressive_memory_objective_switch"
         return True, "accepted_confident_non_regressive_memory_switch"
     exploration_non_regressive = (
         base_score_delta >= -float(cfg.exploration_switch_max_base_score_drop)
@@ -445,6 +474,9 @@ def _mark_memory_shield_rows(
         row["memory_shield_memory_candidate_memory_score_component"] = float(memory_candidate_memory_component)
         row["memory_shield_flow_region_attraction_score_component"] = float(flow_region_component)
         row["memory_shield_flow_region_attraction_confidence"] = float(flow_region_confidence)
+        row["memory_shield_memory_objective_score_cap"] = float(cfg.memory_objective_score_cap)
+        row["memory_shield_memory_objective_min_confidence"] = float(cfg.memory_objective_min_confidence)
+        row["memory_shield_memory_objective_max_base_score_drop"] = float(cfg.memory_objective_max_base_score_drop)
         row["memory_shield_flow_region_max_base_score_drop"] = float(cfg.flow_region_attraction_max_base_score_drop)
         row["memory_shield_exploration_cross_family_allowed"] = bool(exploration_family_safe)
         row["memory_shield_min_confidence"] = float(cfg.memory_switch_min_confidence)
@@ -728,6 +760,9 @@ def selector_decision_row(
             cfg.candidate_path_memory_specific_energy_residual_cap_m
         ),
         "governor_residual_memory_launch_recency_half_life": float(cfg.residual_memory_launch_recency_half_life),
+        "governor_memory_objective_score_cap": float(cfg.memory_objective_score_cap),
+        "governor_memory_objective_min_confidence": float(cfg.memory_objective_min_confidence),
+        "governor_memory_objective_max_base_score_drop": float(cfg.memory_objective_max_base_score_drop),
         "governor_flow_region_attraction_weight": float(cfg.flow_region_attraction_weight),
         "governor_flow_region_attraction_score_cap": float(cfg.flow_region_attraction_score_cap),
         "governor_flow_region_attraction_min_confidence": float(cfg.flow_region_attraction_min_confidence),
@@ -776,6 +811,15 @@ def selector_decision_row(
         ),
         "selected_memory_near_tie_factor": (
             0.0 if selected is None else float(selected.get("memory_near_tie_factor", 0.0))
+        ),
+        "selected_memory_objective_residual_confidence_gate": (
+            0.0 if selected is None else float(selected.get("memory_objective_residual_confidence_gate", 0.0))
+        ),
+        "selected_memory_objective_score_cap": (
+            0.0 if selected is None else float(selected.get("memory_objective_score_cap", 0.0))
+        ),
+        "selected_memory_objective_max_base_score_drop": (
+            0.0 if selected is None else float(selected.get("memory_objective_max_base_score_drop", 0.0))
         ),
         "selected_raw_memory_score_component": (
             0.0 if selected is None else float(selected.get("raw_memory_score_component", 0.0))

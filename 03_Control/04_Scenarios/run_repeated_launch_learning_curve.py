@@ -142,7 +142,7 @@ DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE = 10
 REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION = "predictive_next_primitive_scheduler_profile_v1"
 REAL_TIME_PREFERRED_DECISION_BUDGET_S = CONTROLLER_INPUT_UPDATE_PERIOD_S
 REAL_TIME_HARD_DECISION_BUDGET_S = PRIMITIVE_FINITE_HORIZON_S
-OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_spatial_flow_belief_safe_explore_exploit_memory_v2_2"
+OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_spatial_flow_belief_aggressive_safe_objective_memory_v2_3"
 OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION = (
     "case_local_online_memory_plus_r10_global_deterministic_calibration_v1"
 )
@@ -5742,7 +5742,7 @@ def _tuned_governor_config_from_metrics(
         )
         update(
             "memory_switch_min_confidence",
-            min(0.75, float(values["memory_switch_min_confidence"]) + 0.05),
+            min(0.55, float(values["memory_switch_min_confidence"]) + 0.05),
             "hard_failure_rate_above_stage_profile_require_stronger_memory_confidence",
         )
         update(
@@ -5752,8 +5752,23 @@ def _tuned_governor_config_from_metrics(
         )
         update(
             "memory_switch_max_base_score_drop",
-            max(0.01, float(values["memory_switch_max_base_score_drop"]) * 0.75),
+            max(0.04, float(values["memory_switch_max_base_score_drop"]) * 0.75),
             "hard_failure_rate_above_stage_profile_tighten_baseline_non_regression",
+        )
+        update(
+            "memory_objective_score_cap",
+            max(0.08, float(values["memory_objective_score_cap"]) * 0.75),
+            "hard_failure_rate_above_stage_profile_cap_aggressive_memory_objective",
+        )
+        update(
+            "memory_objective_min_confidence",
+            min(0.45, float(values["memory_objective_min_confidence"]) + 0.05),
+            "hard_failure_rate_above_stage_profile_require_stronger_memory_objective_confidence",
+        )
+        update(
+            "memory_objective_max_base_score_drop",
+            max(0.06, float(values["memory_objective_max_base_score_drop"]) * 0.75),
+            "hard_failure_rate_above_stage_profile_tighten_memory_objective_baseline_tradeoff",
         )
         update(
             "memory_switch_max_transition_success_drop",
@@ -5787,12 +5802,12 @@ def _tuned_governor_config_from_metrics(
         )
         update(
             "flow_region_attraction_weight",
-            max(0.20, float(values["flow_region_attraction_weight"]) * 0.80),
+            max(0.45, float(values["flow_region_attraction_weight"]) * 0.80),
             "hard_failure_rate_above_stage_profile_reduce_reachable_flow_attraction_weight",
         )
         update(
             "flow_region_attraction_score_cap",
-            max(0.03, float(values["flow_region_attraction_score_cap"]) * 0.85),
+            max(0.06, float(values["flow_region_attraction_score_cap"]) * 0.85),
             "hard_failure_rate_above_stage_profile_cap_reachable_flow_attraction_score",
         )
         update(
@@ -5802,7 +5817,7 @@ def _tuned_governor_config_from_metrics(
         )
         update(
             "flow_region_attraction_max_base_score_drop",
-            max(0.04, float(values["flow_region_attraction_max_base_score_drop"]) * 0.75),
+            max(0.06, float(values["flow_region_attraction_max_base_score_drop"]) * 0.75),
             "hard_failure_rate_above_stage_profile_tighten_reachable_flow_base_score_drop",
         )
     elif no_viable_rate > float(protocol.max_no_viable_rate):
@@ -5863,7 +5878,7 @@ def _tuned_governor_config_from_metrics(
         )
         update(
             "belief_weight",
-            min(0.20, float(values["belief_weight"]) + 0.01),
+            min(0.75, float(values["belief_weight"]) + 0.05),
             "safe_success_below_stage_profile_increase_memory_residual_sensitivity",
         )
 
@@ -5878,7 +5893,7 @@ def _tuned_governor_config_from_metrics(
         if memory_acceptance_rate < 0.05:
             update(
                 "memory_switch_min_confidence",
-                max(0.25, float(values["memory_switch_min_confidence"]) - 0.05),
+                max(0.08, float(values["memory_switch_min_confidence"]) - 0.05),
                 "memory_opportunities_seen_but_switch_acceptance_low_relax_confidence_gate",
             )
             update(
@@ -5888,7 +5903,7 @@ def _tuned_governor_config_from_metrics(
             )
             update(
                 "memory_switch_max_base_score_drop",
-                min(0.06, float(values["memory_switch_max_base_score_drop"]) + 0.01),
+                min(0.20, float(values["memory_switch_max_base_score_drop"]) + 0.02),
                 "memory_opportunities_seen_but_switch_acceptance_low_allow_small_baseline_tradeoff",
             )
             update(
@@ -5903,18 +5918,28 @@ def _tuned_governor_config_from_metrics(
             )
             update(
                 "flow_region_attraction_min_confidence",
-                max(0.20, float(values["flow_region_attraction_min_confidence"]) - 0.05),
+                max(0.08, float(values["flow_region_attraction_min_confidence"]) - 0.05),
                 "memory_opportunities_seen_but_switch_acceptance_low_relax_reachable_flow_confidence",
             )
             update(
                 "flow_region_attraction_max_base_score_drop",
-                min(0.12, float(values["flow_region_attraction_max_base_score_drop"]) + 0.015),
+                min(0.25, float(values["flow_region_attraction_max_base_score_drop"]) + 0.025),
                 "memory_opportunities_seen_but_switch_acceptance_low_allow_reachable_flow_safe_region_bias",
             )
             update(
                 "flow_region_attraction_weight",
-                min(0.60, float(values["flow_region_attraction_weight"]) + 0.05),
+                min(1.80, float(values["flow_region_attraction_weight"]) + 0.15),
                 "memory_opportunities_seen_but_switch_acceptance_low_increase_reachable_flow_attraction_weight",
+            )
+            update(
+                "memory_objective_min_confidence",
+                max(0.08, float(values["memory_objective_min_confidence"]) - 0.05),
+                "memory_opportunities_seen_but_switch_acceptance_low_relax_aggressive_memory_objective_confidence",
+            )
+            update(
+                "memory_objective_max_base_score_drop",
+                min(0.25, float(values["memory_objective_max_base_score_drop"]) + 0.025),
+                "memory_opportunities_seen_but_switch_acceptance_low_allow_aggressive_memory_safe_region_tradeoff",
             )
         if mean_candidate_path_confidence < float(values["memory_switch_min_confidence"]):
             update(
@@ -5925,8 +5950,13 @@ def _tuned_governor_config_from_metrics(
         if max_memory_correction_delta < 0.01 and safe_success_rate < float(protocol.min_safe_success_rate):
             update(
                 "belief_weight",
-                min(0.25, float(values["belief_weight"]) + 0.02),
+                min(0.90, float(values["belief_weight"]) + 0.08),
                 "memory_opportunities_small_correction_and_low_success_increase_residual_sensitivity",
+            )
+            update(
+                "memory_objective_score_cap",
+                min(0.30, float(values["memory_objective_score_cap"]) + 0.04),
+                "memory_opportunities_small_correction_allow_larger_bounded_memory_objective",
             )
             update(
                 "candidate_path_memory_residual_cap_m",
@@ -5940,7 +5970,7 @@ def _tuned_governor_config_from_metrics(
             )
             update(
                 "flow_region_attraction_score_cap",
-                min(0.09, float(values["flow_region_attraction_score_cap"]) + 0.01),
+                min(0.25, float(values["flow_region_attraction_score_cap"]) + 0.03),
                 "memory_opportunities_small_correction_allow_larger_reachable_flow_attraction_when_safe",
             )
     elif memory_opportunity_count == 0 and hard_failure_rate <= float(protocol.max_hard_failure_rate) and safe_success_rate < float(protocol.min_safe_success_rate):
@@ -6082,9 +6112,9 @@ def _write_manifest(
             "case-local 0.1 m 3D spatial updraft-utility belief map with dense executed-primitive updates "
             "at 0.1 m spacing and launch-index recency decay; candidate paths query the accumulated map using "
             "a 0.2 m neighbourhood over seven current-to-exit probes plus a bounded 0.8 m / 35 deg azimuth / "
-            "20 deg elevation sparse 3D reachable-flow attraction cone capped at 0.25 m; residual path utility remains a near-tie modifier, "
-            "while positive high-confidence reachable-flow attraction can bias a wider safe front-progress-compatible "
-            "candidate band; "
+            "20 deg elevation sparse 3D reachable-flow attraction cone capped at 0.25 m; residual path utility and "
+            "reachable-flow attraction are confidence-gated, capped primary memory-objective terms among already-viable "
+            "front-progress-compatible candidates; "
             "accepted only through unchanged viability filters and the baseline shield with no final-launch special case"
         ),
         "governor_learning_strategy_version": OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION,
@@ -6133,6 +6163,9 @@ def _write_manifest(
         "flow_belief_reachable_attraction_geometry": "sparse_3d_cone_2_range_3_azimuth_3_elevation_stencil",
         "flow_belief_reachable_attraction_probe_count": int(len(FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES)),
         "flow_belief_reachable_attraction_cap_m": float(FLOW_BELIEF_REACHABLE_ATTRACTION_CAP_M),
+        "memory_objective_score_cap": float(governor_config.memory_objective_score_cap),
+        "memory_objective_min_confidence": float(governor_config.memory_objective_min_confidence),
+        "memory_objective_max_base_score_drop": float(governor_config.memory_objective_max_base_score_drop),
         "flow_region_attraction_weight": float(governor_config.flow_region_attraction_weight),
         "flow_region_attraction_score_cap": float(governor_config.flow_region_attraction_score_cap),
         "flow_region_attraction_min_confidence": float(governor_config.flow_region_attraction_min_confidence),
@@ -6311,7 +6344,7 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Safety thresholds: hard failure <= `{protocol.max_hard_failure_rate}`, no-viable <= `{protocol.max_no_viable_rate}`, safe success >= `{protocol.min_safe_success_rate}`, full safe success >= `{protocol.min_full_safe_success_rate}`, terminal/lift >= `{protocol.min_terminal_or_lift_capture_rate}`.",
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
         "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, front-wall progress, front-wall terminal proxy, progress-gated terminal total specific-energy proxy, updraft gain, lift dwell, and residual memory.",
-        f"- Memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` maintains a case-local 0.1 m 3D updraft-utility belief map; each flown primitive writes dense executed-segment residual samples at 0.1 m spacing with launch-index recency decay, and each candidate path queries the accumulated map through a 0.2 m neighbourhood over seven probes plus a bounded 0.8 m / 35 deg azimuth / 20 deg elevation sparse 3D reachable-flow attraction cone capped at 0.25 m. Residual path utility remains a near-tie modifier, while positive high-confidence reachable-flow attraction can bias a wider safe front-progress-compatible candidate band after viability filtering.",
+        f"- Memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` maintains a case-local 0.1 m 3D updraft-utility belief map; each flown primitive writes dense executed-segment residual samples at 0.1 m spacing with launch-index recency decay, and each candidate path queries the accumulated map through a 0.2 m neighbourhood over seven probes plus a bounded 0.8 m / 35 deg azimuth / 20 deg elevation sparse 3D reachable-flow attraction cone capped at 0.25 m. Residual path utility and reachable-flow attraction are confidence-gated, capped primary memory-objective terms among already-viable front-progress-compatible candidates, then accepted only through the baseline shield after viability filtering.",
         f"- Governor learning strategy: `{OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION}` keeps online memory `{ONLINE_MEMORY_SCOPE}`; R10 calibration scope is `{R10_GLOBAL_CALIBRATION_SCOPE}` and R11 uses `{R11_GOVERNOR_HANDOFF_SCOPE}`.",
         f"- Calibration search policy: `{GOVERNOR_CALIBRATION_SEARCH_POLICY}`.",
         "- Memory opportunity audit: `memory_opportunity_summary.csv` and `memory_opportunity_decision_log.csv` report baseline-vs-memory candidate gaps, correction deltas, shield status, and accepted/rejected switch reasons.",

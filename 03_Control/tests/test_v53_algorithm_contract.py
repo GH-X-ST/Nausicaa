@@ -159,16 +159,18 @@ def test_v53_r10_tuning_can_relax_memory_shield_from_selector_opportunity_eviden
     assert tuned.memory_switch_min_confidence < DEFAULT_GOVERNOR_CONFIG.memory_switch_min_confidence
     assert tuned.memory_switch_min_score_margin < DEFAULT_GOVERNOR_CONFIG.memory_switch_min_score_margin
     assert tuned.memory_switch_max_base_score_drop > DEFAULT_GOVERNOR_CONFIG.memory_switch_max_base_score_drop
-    assert tuned.candidate_path_memory_full_confidence_observations < (
-        DEFAULT_GOVERNOR_CONFIG.candidate_path_memory_full_confidence_observations
-    )
     assert tuned.belief_weight > DEFAULT_GOVERNOR_CONFIG.belief_weight
+    assert tuned.memory_objective_min_confidence < DEFAULT_GOVERNOR_CONFIG.memory_objective_min_confidence
+    assert tuned.memory_objective_max_base_score_drop > DEFAULT_GOVERNOR_CONFIG.memory_objective_max_base_score_drop
+    assert tuned.memory_objective_score_cap > DEFAULT_GOVERNOR_CONFIG.memory_objective_score_cap
     assert tuned.mission_wrong_boundary_penalty_weight > DEFAULT_GOVERNOR_CONFIG.mission_wrong_boundary_penalty_weight
     assert {row["parameter"] for row in decisions} >= {
         "memory_switch_min_confidence",
         "memory_switch_min_score_margin",
         "memory_switch_max_base_score_drop",
-        "candidate_path_memory_full_confidence_observations",
+        "memory_objective_min_confidence",
+        "memory_objective_max_base_score_drop",
+        "memory_objective_score_cap",
         "mission_wrong_boundary_penalty_weight",
     }
 
@@ -622,7 +624,7 @@ def test_v53_no_memory_baseline_still_uses_candidate_path_mission_geometry() -> 
     assert by_variant["far"]["memory_shield_status"] == "not_active_no_candidate_path_memory"
 
 
-def test_v53_memory_is_near_tie_modifier_not_unbounded_override() -> None:
+def test_v53_memory_is_bounded_objective_after_viability_not_near_tie_only() -> None:
     timing_payload = {
         "finite_horizon_s": 0.1,
         "controller_input_slots_per_primitive": 5,
@@ -631,7 +633,7 @@ def test_v53_memory_is_near_tie_modifier_not_unbounded_override() -> None:
     }
     representatives = []
     outcomes = {}
-    for variant_id in ("baseline", "near_tie", "far_gap"):
+    for variant_id in ("baseline", "memory_objective", "far_gap"):
         representatives.append(
             {
                 "compact_library_id": "launch",
@@ -658,8 +660,8 @@ def test_v53_memory_is_near_tie_modifier_not_unbounded_override() -> None:
     def candidate_path_features(representative: dict[str, object], outcome: dict[str, object]) -> dict[str, object]:
         del outcome
         variant_id = str(representative["primitive_variant_id"])
-        exit_x = {"baseline": 5.0, "near_tie": 4.95, "far_gap": 3.0}[variant_id]
-        residual = {"baseline": 0.0, "near_tie": 0.2, "far_gap": 5.0}[variant_id]
+        exit_x = {"baseline": 5.0, "memory_objective": 4.8, "far_gap": 3.0}[variant_id]
+        residual = {"baseline": 0.0, "memory_objective": 0.4, "far_gap": 5.0}[variant_id]
         return {
             "belief_candidate_path_residual_memory_active": True,
             "belief_candidate_path_exit_x_w_m": exit_x,
@@ -676,7 +678,7 @@ def test_v53_memory_is_near_tie_modifier_not_unbounded_override() -> None:
         representatives=representatives,
         outcome_rows_by_variant_id=outcomes,
         context={
-            "context_id": "near_tie_memory_contract",
+            "context_id": "bounded_memory_objective_contract",
             "start_state_family": "launch_gate",
             "current_x_w_m": 1.3,
             "current_y_w_m": 2.2,
@@ -698,24 +700,33 @@ def test_v53_memory_is_near_tie_modifier_not_unbounded_override() -> None:
         adaptive_memory_active=True,
         governor_config=governor_config_from_row(
             {
-                "config_id": "near_tie_memory_test",
+                "config_id": "bounded_memory_objective_test",
                 "belief_weight": 1.0,
                 "memory_near_tie_base_score_margin": 0.03,
+                "memory_objective_score_cap": 0.20,
+                "memory_objective_min_confidence": 0.1,
+                "memory_objective_max_base_score_drop": 0.18,
                 "memory_switch_min_confidence": 0.1,
                 "memory_switch_min_score_margin": 0.0,
+                "memory_switch_max_base_score_drop": 0.05,
             }
         ),
     )
 
     by_variant = {str(row["primitive_variant_id"]): row for row in rows}
     assert selected is not None
-    assert selected["primitive_variant_id"] == "near_tie"
-    assert by_variant["near_tie"]["memory_near_tie_factor"] > 0.0
-    assert by_variant["near_tie"]["memory_score_component"] > 0.0
-    assert by_variant["far_gap"]["raw_memory_score_component"] > by_variant["near_tie"]["raw_memory_score_component"]
-    assert by_variant["far_gap"]["memory_near_tie_factor"] == pytest.approx(0.0)
-    assert by_variant["far_gap"]["memory_score_component"] == pytest.approx(0.0)
-    assert by_variant["near_tie"]["memory_shield_status"] == "accepted_confident_non_regressive_memory_switch"
+    assert selected["primitive_variant_id"] == "memory_objective"
+    assert by_variant["memory_objective"]["memory_objective_residual_confidence_gate"] > 0.0
+    assert by_variant["memory_objective"]["memory_score_component"] > 0.0
+    assert by_variant["far_gap"]["raw_memory_score_component"] > by_variant["memory_objective"]["raw_memory_score_component"]
+    assert by_variant["far_gap"]["memory_objective_residual_confidence_gate"] > 0.0
+    assert by_variant["far_gap"]["memory_score_component"] == pytest.approx(0.20)
+    assert by_variant["far_gap"]["total_score_with_memory_and_exploration"] < (
+        by_variant["memory_objective"]["total_score_with_memory_and_exploration"]
+    )
+    assert by_variant["memory_objective"]["memory_shield_status"] == (
+        "accepted_confident_non_regressive_memory_objective_switch"
+    )
 
 
 def test_v53_flow_region_attraction_can_shape_safe_mission_compatible_candidate_band() -> None:
