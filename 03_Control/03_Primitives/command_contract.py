@@ -36,6 +36,7 @@ CONTROL_SIGN_CONVENTION = {
     "positive_elevator": "positive pitch moment, nose up",
     "positive_rudder": "positive yaw moment, nose right",
 }
+EXECUTABLE_COMMAND_QUANTISATION = "fixed_20_percent_lattice"
 
 
 # =============================================================================
@@ -62,6 +63,15 @@ def clip_normalised_command(u_norm: np.ndarray) -> np.ndarray:
 
     command = as_normalised_command_vector(u_norm)
     return np.clip(command, NORMALISED_COMMAND_MIN, NORMALISED_COMMAND_MAX)
+
+
+def quantise_normalised_command_vector(u_norm: np.ndarray) -> np.ndarray:
+    """Return the executable 20 percent lattice command vector."""
+
+    clipped = clip_normalised_command(u_norm)
+    levels = np.asarray(COMMAND_LEVELS, dtype=float).reshape(1, -1)
+    nearest = np.argmin(np.abs(clipped.reshape(-1, 1) - levels), axis=1)
+    return COMMAND_LEVELS[nearest].astype(float, copy=True)
 
 
 def as_surface_command_rad(delta_cmd_rad: np.ndarray) -> np.ndarray:
@@ -161,9 +171,11 @@ def command_contract_row() -> dict[str, object]:
         "surface_state_names": ",".join(SURFACE_STATE_NAMES),
         "normalised_command_min": NORMALISED_COMMAND_MIN,
         "normalised_command_max": NORMALISED_COMMAND_MAX,
+        "executable_command_quantisation": EXECUTABLE_COMMAND_QUANTISATION,
         "normalised_to_radian_bridge": "normalised_command_to_surface_rad",
         "radian_to_normalised_bridge": "surface_rad_to_normalised_command",
         "raw_normalised_commands_enter_state_derivative": False,
+        "continuous_lqr_commands_enter_state_derivative": False,
         "command_levels": ",".join(f"{value:g}" for value in COMMAND_LEVELS),
         "aggregate_limits": str(limits),
         **CONTROL_SIGN_CONVENTION,

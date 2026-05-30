@@ -66,6 +66,20 @@ def test_latency_adjusted_command_sample_keeps_command_path_delay_separate() -> 
     )
 
 
+def test_latency_adjusted_command_sample_returns_executable_lattice() -> None:
+    times_s = np.array([0.0, 0.1])
+    commands = np.array([[0.13, -0.29, 0.91], [0.0, 0.0, 0.0]])
+
+    sample = latency_adjusted_command_sample(
+        times_s,
+        commands,
+        0.16,
+        latency_case_config("nominal"),
+    )
+
+    assert np.allclose(sample, [0.2, -0.2, 1.0])
+
+
 def test_actuator_tau_for_case_preserves_tau_semantics() -> None:
     fallback_tau = (0.06, 0.07, 0.08)
 

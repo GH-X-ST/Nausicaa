@@ -8,6 +8,7 @@ import pytest
 from env_ctx import EnvironmentMetadata, build_environment_context
 from env_surrogate import resolve_surrogate_binding, wind_field_for_binding
 from implementation_instance import implementation_instance_for_layer
+from latency import COMMAND_LEVELS
 from lqr_controller import lqr_controller_for_primitive_id
 from plant_instance import plant_instance_for_layer
 from prim_cat import primitive_by_id
@@ -322,6 +323,27 @@ def test_latency_mechanisms_are_applied_and_logged() -> None:
     assert nominal.actuator_lag_applied is True
     assert nominal.latency_execution_status == "full_state_command_actuator_latency"
     assert np.isfinite(nominal.max_abs_command_norm)
+
+
+def test_model_backed_command_history_is_executable_lattice() -> None:
+    state = _state()
+    context, wind = _context_and_wind(state)
+
+    evidence = simulate_primitive_rollout(
+        rollout_id="quantized_history",
+        initial_state=state,
+        context=context,
+        primitive=primitive_by_id("lift_dwell_arc"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_lqr"),
+        wind_field=wind,
+        controller=_controller("lift_dwell_arc"),
+    )
+    row = rollout_evidence_row(evidence)
+    commands = np.asarray(json.loads(str(row["command_norm_history_json"])), dtype=float)
+
+    assert commands.shape[1] == 3
+    for value in commands.reshape(-1):
+        assert np.any(np.isclose(value, COMMAND_LEVELS))
 
 
 def test_command_timing_history_can_continue_across_primitive_rollouts() -> None:

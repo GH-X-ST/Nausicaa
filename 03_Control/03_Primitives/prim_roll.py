@@ -7,7 +7,11 @@ from functools import lru_cache
 import numpy as np
 
 from arena_contract import TRUE_SAFE_BOUNDS, position_margin_m
-from command_contract import normalised_command_to_surface_rad, surface_rad_to_normalised_command
+from command_contract import (
+    normalised_command_to_surface_rad,
+    quantise_normalised_command_vector,
+    surface_rad_to_normalised_command,
+)
 from env_ctx import (
     EnvironmentContext,
     context_feature_vector_json,
@@ -867,8 +871,10 @@ def _simulate_dynamics_rollout(
             ),
             resolved_controller,
         )
-        reference_command_norm = surface_rad_to_normalised_command(
-            np.asarray(resolved_controller.reference_command_vector, dtype=float)
+        reference_command_norm = quantise_normalised_command_vector(
+            surface_rad_to_normalised_command(
+                np.asarray(resolved_controller.reference_command_vector, dtype=float)
+            )
         )
         restored_times_s, restored_command_norm_history = _initial_command_history_from_config(config)
         if (
@@ -884,10 +890,18 @@ def _simulate_dynamics_rollout(
             command_norm_history = [reference_command_norm.copy()]
         else:
             command_times_s = [absolute_start_time_s]
-            command_norm_history = [np.asarray(initial_command.command_norm, dtype=float)]
+            command_norm_history = [
+                quantise_normalised_command_vector(initial_command.command_norm)
+            ]
         saturation_count = int(initial_command.saturation_applied)
-        max_abs_command_norm = float(np.max(np.abs(initial_command.command_norm)))
-        max_abs_surface_rad = float(np.max(np.abs(initial_command.command_rad)))
+        max_abs_command_norm = float(np.max(np.abs(command_norm_history[-1])))
+        max_abs_surface_rad = float(
+            np.max(
+                np.abs(
+                    normalised_command_to_surface_rad(command_norm_history[-1])
+                )
+            )
+        )
     else:
         raise ValueError("model-backed rollout requires rollout_backend='model_backed_lqr'.")
 
@@ -951,7 +965,9 @@ def _simulate_dynamics_rollout(
                 resolved_controller,
             )
             timing_state_source = control_command.timing_state_source
-            desired_command_norm = np.asarray(control_command.command_norm, dtype=float)
+            desired_command_norm = quantise_normalised_command_vector(
+                control_command.command_norm
+            )
             if absolute_time_s > command_times_s[-1]:
                 command_times_s.append(absolute_time_s)
                 command_norm_history.append(desired_command_norm.copy())
@@ -1548,7 +1564,12 @@ def _timing_state_from_command_history(
     if fifo_steps <= 0:
         return initialised_timing_state_for_controller(controller, state)
     times = np.asarray(command_times_s, dtype=float)
-    commands_norm = np.asarray(command_norm_history, dtype=float).reshape(-1, 3)
+    commands_norm = np.vstack(
+        [
+            quantise_normalised_command_vector(row)
+            for row in np.asarray(command_norm_history, dtype=float).reshape(-1, 3)
+        ]
+    )
     commands_rad = np.vstack(
         [normalised_command_to_surface_rad(row) for row in commands_norm]
     )
@@ -1773,7 +1794,10 @@ def _initial_command_history_from_config(config: RolloutConfig) -> tuple[list[fl
     try:
         times = [float(value) for value in json.loads(str(config.initial_command_history_times_s_json or "[]"))]
         commands_raw = json.loads(str(config.initial_command_norm_history_json or "[]"))
-        commands = [np.asarray(row, dtype=float).reshape(3) for row in commands_raw]
+        commands = [
+            quantise_normalised_command_vector(np.asarray(row, dtype=float).reshape(3))
+            for row in commands_raw
+        ]
     except Exception:
         return [], []
     if not times or len(times) != len(commands):
@@ -1795,7 +1819,10 @@ def _compact_command_history(
     count = min(len(times), len(commands))
     start_index = max(0, count - COMMAND_HISTORY_EXPORT_LIMIT)
     compact_times = [float(value) for value in times[start_index:count]]
-    compact_commands = [np.asarray(row, dtype=float).reshape(3) for row in commands[start_index:count]]
+    compact_commands = [
+        quantise_normalised_command_vector(np.asarray(row, dtype=float).reshape(3))
+        for row in commands[start_index:count]
+    ]
     return compact_times, compact_commands
 
 

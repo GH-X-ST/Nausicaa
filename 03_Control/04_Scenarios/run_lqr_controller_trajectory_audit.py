@@ -26,7 +26,11 @@ def _bootstrap_import_paths() -> None:
 _bootstrap_import_paths()
 
 from arena_contract import TRUE_SAFE_BOUNDS, position_margin_m  # noqa: E402
-from command_contract import normalised_command_to_surface_rad, surface_rad_to_normalised_command  # noqa: E402
+from command_contract import (  # noqa: E402
+    normalised_command_to_surface_rad,
+    quantise_normalised_command_vector,
+    surface_rad_to_normalised_command,
+)
 from dense_archive_table_io import filesystem_path  # noqa: E402
 from env_ctx import build_environment_context  # noqa: E402
 from env_instance import environment_instance_for_mode, environment_metadata_from_instance  # noqa: E402
@@ -71,7 +75,7 @@ from state_sampling import archive_state_sample_for_family  # noqa: E402
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
-AUDIT_VERSION = "lqr_controller_trajectory_audit_v2_continuous_command_history"
+AUDIT_VERSION = "lqr_controller_trajectory_audit_v3_executable_lattice_command_history"
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/E_lqr_trajectory_audit")
 DEFAULT_DURATION_S = 0.80
 DEFAULT_CANDIDATE_INDICES = (0, 1, 3, 5, 6, 7)
@@ -352,8 +356,10 @@ def _run_case_trace(
                     ),
                     controller,
                 )
-                reference_command_norm = surface_rad_to_normalised_command(
-                    np.asarray(controller.reference_command_vector, dtype=float)
+                reference_command_norm = quantise_normalised_command_vector(
+                    surface_rad_to_normalised_command(
+                        np.asarray(controller.reference_command_vector, dtype=float)
+                    )
                 )
                 command_delay_s = float(latency.command_onset_delay_s + latency.command_transport_delay_s)
                 if mechanism_flags["command_delay_applied"]:
@@ -361,7 +367,9 @@ def _run_case_trace(
                     command_norm_history = [reference_command_norm.copy()]
                 else:
                     command_times_s = [float(times_s[-1])]
-                    command_norm_history = [np.asarray(initial_command.command_norm, dtype=float)]
+                    command_norm_history = [
+                        quantise_normalised_command_vector(initial_command.command_norm)
+                    ]
 
         assert context is not None
         assert controller is not None
@@ -393,7 +401,9 @@ def _run_case_trace(
             ),
             controller,
         )
-        desired_command_norm = np.asarray(control_command.command_norm, dtype=float)
+        desired_command_norm = quantise_normalised_command_vector(
+            control_command.command_norm
+        )
         if time_s > command_times_s[-1]:
             command_times_s.append(time_s)
             command_norm_history.append(desired_command_norm.copy())

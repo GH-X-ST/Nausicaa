@@ -515,10 +515,15 @@ def latency_adjusted_command_sample(
     query_time_s: float,
     config: LatencyCaseConfig,
 ) -> np.ndarray:
-    """Return delayed normalised commands before clipping or surface conversion."""
+    """Return delayed executable-lattice commands before surface conversion."""
 
     delay_s = float(config.command_onset_delay_s + config.command_transport_delay_s)
-    return delayed_command_sample(times_s, commands_norm, float(query_time_s) - delay_s)
+    commands = np.asarray(commands_norm, dtype=float).reshape(-1, 3)
+    quantised = np.asarray(
+        [[quantise_command_norm(value) for value in row] for row in commands],
+        dtype=float,
+    )
+    return delayed_command_sample(times_s, quantised, float(query_time_s) - delay_s)
 
 
 def _validate_history(

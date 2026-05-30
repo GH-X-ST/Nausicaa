@@ -15,6 +15,7 @@ from command_contract import (
     clip_normalised_command,
     normalised_command_dataframe_row,
     normalised_command_to_surface_rad,
+    quantise_normalised_command_vector,
     surface_rad_to_normalised_command,
 )
 from flight_dynamics import adapt_glider, state_derivative
@@ -106,6 +107,12 @@ def test_normalised_command_validation_and_clipping() -> None:
         as_normalised_command_vector([0.0, np.inf, 0.0])
 
 
+def test_executable_command_quantisation_uses_20_percent_lattice() -> None:
+    command = quantise_normalised_command_vector([-0.91, -0.11, 0.71])
+
+    assert np.allclose(command, [-1.0, -0.2, 0.8])
+
+
 def test_normalised_to_radian_command_bridge_matches_latency_limits() -> None:
     normalised = np.array([1.0, -1.0, 1.0])
     expected = np.array(
@@ -154,6 +161,8 @@ def test_control_sign_convention_is_recorded() -> None:
     assert row["command_interface_to_state_derivative"] == "delta_cmd_rad"
     assert row["normalised_to_radian_bridge"] == "normalised_command_to_surface_rad"
     assert row["raw_normalised_commands_enter_state_derivative"] is False
+    assert row["continuous_lqr_commands_enter_state_derivative"] is False
+    assert row["executable_command_quantisation"] == "fixed_20_percent_lattice"
     assert row["normalised_command_min"] == -1.0
     assert row["normalised_command_max"] == 1.0
     assert "delta_a" in row["aggregate_limits"]

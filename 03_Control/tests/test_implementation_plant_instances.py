@@ -31,6 +31,10 @@ def test_implementation_instance_is_deterministic_and_changes_surface_and_tau() 
         apply_surface_implementation(command, first),
         apply_surface_implementation(command, nominal),
     )
+    assert not np.allclose(
+        apply_surface_implementation(np.zeros(3), first),
+        np.zeros(3),
+    )
     asymmetric = apply_aileron_asymmetry_to_aircraft(adapt_glider(build_nausicaa_glider()), first)
     nominal_aircraft = apply_aileron_asymmetry_to_aircraft(adapt_glider(build_nausicaa_glider()), nominal)
     assert not np.allclose(asymmetric.control_mix, nominal_aircraft.control_mix)
