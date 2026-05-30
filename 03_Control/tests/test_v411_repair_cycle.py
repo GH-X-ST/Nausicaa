@@ -18,6 +18,7 @@ from directional_residual_lift_belief import (
     query_directional_residual_lift_features,
     query_spatial_flow_belief_features,
     update_directional_residual_lift_belief,
+    update_directional_residual_lift_belief_batch,
 )
 from context_conditioned_outcome import CONTEXT_CONDITIONED_OUTCOME_MODEL_VERSION, context_conditioned_outcome
 from episode_selector import select_compact_representative
@@ -44,6 +45,9 @@ from run_repeated_launch_learning_curve import (
     _candidate_path_belief_features,
     _episode_row_from_sequence,
     _episode_specific_energy_summary,
+    _history_memory_trace_rows,
+    _memory_update_compact_row,
+    _memory_update_detail_rows,
     _launch_score_fields,
     _memory_observations_for_rollout_segment,
     _paired_safe_explore_delta_rows,
@@ -376,6 +380,148 @@ def test_v411_rollout_memory_update_samples_primitive_path_on_0p1m_map() -> None
     assert len(long_rows) == min(FLOW_BELIEF_HISTORY_UPDATE_MAX_SAMPLES_PER_PRIMITIVE, expected_dense_count)
     assert len(long_rows) > 12
     assert sum(float(row["observation"].observation_weight) for row in long_rows) == pytest.approx(1.0)
+
+
+def test_v411_batch_memory_update_matches_sequential_dense_updates() -> None:
+    observations = [
+        DirectionalResidualObservation(
+            x_w_m=2.0,
+            y_w_m=2.0,
+            z_w_m=1.2,
+            direction_rad=0.0,
+            lift_residual_m_s=0.2,
+            updraft_gain_residual_m=0.3,
+            dwell_residual_s=0.1,
+            specific_energy_residual_m=0.4,
+            observation_weight=0.5,
+            history_launch_index=3,
+        ),
+        DirectionalResidualObservation(
+            x_w_m=2.08,
+            y_w_m=2.0,
+            z_w_m=1.2,
+            direction_rad=0.0,
+            lift_residual_m_s=0.4,
+            updraft_gain_residual_m=0.5,
+            dwell_residual_s=0.2,
+            specific_energy_residual_m=0.8,
+            observation_weight=0.5,
+            history_launch_index=3,
+        ),
+    ]
+    sequential = initial_directional_residual_lift_belief()
+    for observation in observations:
+        sequential = update_directional_residual_lift_belief(sequential, observation)
+    batched = update_directional_residual_lift_belief_batch(
+        initial_directional_residual_lift_belief(),
+        observations,
+    )
+
+    assert batched.update_count == sequential.update_count
+    assert len(batched.cells) == len(sequential.cells)
+    for batch_cell, sequential_cell in zip(batched.cells, sequential.cells):
+        assert batch_cell.observation_count == sequential_cell.observation_count
+        assert batch_cell.last_update_count == sequential_cell.last_update_count
+        assert batch_cell.lift_residual_mean_m_s == pytest.approx(sequential_cell.lift_residual_mean_m_s)
+        assert batch_cell.updraft_gain_residual_mean_m == pytest.approx(sequential_cell.updraft_gain_residual_mean_m)
+        assert batch_cell.specific_energy_residual_mean_m == pytest.approx(
+            sequential_cell.specific_energy_residual_mean_m
+        )
+
+
+def test_v411_history_memory_trace_uses_compact_weighted_dense_sample_summary() -> None:
+    start = np.zeros(STATE_SIZE, dtype=float)
+    start[STATE_INDEX["x_w"]] = 1.2
+    start[STATE_INDEX["y_w"]] = 2.0
+    start[STATE_INDEX["z_w"]] = 1.2
+    exit_state = start.copy()
+    exit_state[STATE_INDEX["x_w"]] = 1.55
+    scheduled = {
+        "launch_role": "history",
+        "policy_id": "spatial_flow_belief_memory_h10",
+        "policy_family": "spatial_flow_belief_memory",
+        "history_length": 10,
+        "history_launch_index": 4,
+        "adaptation_launch_index": 4,
+        "launch_state_seed": 100,
+        "environment_seed": 200,
+        "plant_implementation_seed": 300,
+        "outer_case_index": 0,
+        "outer_case_id": "case0",
+        "outer_case_type": "test",
+        "environment_block_id": "test_block",
+        "common_final_launch_key": "case0",
+        "episode_id": "history_case0_h04",
+        "library_size_case_id": "balanced_cluster",
+    }
+    observations = _memory_observations_for_rollout_segment(
+        start_state=start,
+        exit_state=exit_state,
+        scheduled=scheduled,
+        context_row={},
+        rollout_row={
+            "w_wing_mean_m_s": 0.2,
+            "trajectory_integrated_updraft_gain_m": 0.3,
+            "lift_dwell_time_s": 0.4,
+            "energy_residual_m": 0.5,
+        },
+        outcome={
+            "expected_lift_dwell_time_s": 0.0,
+            "expected_updraft_gain_proxy_m": 0.0,
+            "expected_energy_residual_m": 0.0,
+        },
+    )
+    compact = _memory_update_compact_row(
+        scheduled=scheduled,
+        policy={"policy_id": "spatial_flow_belief_memory_h10"},
+        primitive_step_index=2,
+        observations=observations,
+        update_status="updated",
+        belief_before_update=initial_directional_residual_lift_belief(),
+        belief_after_update=update_directional_residual_lift_belief_batch(
+            initial_directional_residual_lift_belief(),
+            (row["observation"] for row in observations),
+        ),
+    )
+    detail = _memory_update_detail_rows(
+        scheduled=scheduled,
+        policy={"policy_id": "spatial_flow_belief_memory_h10"},
+        primitive_step_index=2,
+        observations=observations,
+        update_status="updated",
+        belief_before_update=initial_directional_residual_lift_belief(),
+        belief_after_update=update_directional_residual_lift_belief_batch(
+            initial_directional_residual_lift_belief(),
+            (row["observation"] for row in observations),
+        ),
+    )
+
+    assert compact["memory_update_log_scope"] == "compact_primitive_summary_no_dense_sample_rows"
+    assert compact["memory_dense_sample_rows_retained"] is False
+    assert compact["memory_path_sample_count"] == len(observations)
+    assert len(detail) == len(observations)
+
+    trace = _history_memory_trace_rows(
+        {
+            "scheduled": scheduled,
+            "history_log_mode": "plot_summary",
+            "debug_log_retained": False,
+            "memory_rows": [compact],
+            "episode_rows": [
+                {
+                    "belief_update_count_before": 0,
+                    "belief_update_count_after": compact["belief_update_count_after"],
+                    "belief_observation_count": len(observations),
+                    "belief_uncertainty": 0.5,
+                }
+            ],
+        }
+    )[0]
+    assert trace["memory_update_row_count"] == 1
+    assert trace["memory_dense_sample_count_total"] == len(observations)
+    assert trace["memory_observation_weight_sum"] == pytest.approx(1.0)
+    assert trace["updraft_gain_residual_sum_m"] == pytest.approx(0.3)
+    assert trace["specific_energy_residual_mean_m"] == pytest.approx(0.5)
 
 
 def test_v411_spatial_flow_belief_attraction_rewards_reachable_downstream_lift() -> None:

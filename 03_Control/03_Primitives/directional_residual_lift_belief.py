@@ -93,57 +93,73 @@ def update_directional_residual_lift_belief(
     belief: DirectionalResidualLiftBelief,
     observation: DirectionalResidualObservation,
 ) -> DirectionalResidualLiftBelief:
-    key = _cell_key_for_observation(belief, observation)
+    return update_directional_residual_lift_belief_batch(belief, (observation,))
+
+
+def update_directional_residual_lift_belief_batch(
+    belief: DirectionalResidualLiftBelief,
+    observations: Iterable[DirectionalResidualObservation],
+) -> DirectionalResidualLiftBelief:
+    """Apply many dense path observations while rebuilding the sorted cell tuple once."""
+
     cells = {_cell_key(cell): cell for cell in belief.cells}
-    prior = cells.get(key)
-    weight = max(1e-9, float(observation.observation_weight))
-    if prior is None:
-        count = 1
-        cells[key] = DirectionalResidualCell(
-            x_bin=key[0],
-            y_bin=key[1],
-            z_bin=key[2],
-            direction_bin=key[3],
-            observation_count=count,
-            lift_residual_mean_m_s=float(observation.lift_residual_m_s),
-            updraft_gain_residual_mean_m=float(observation.updraft_gain_residual_m),
-            dwell_residual_mean_s=float(observation.dwell_residual_s),
-            uncertainty=1.0 / math.sqrt(float(count)),
-            specific_energy_residual_mean_m=float(observation.specific_energy_residual_m),
-            last_update_count=int(belief.update_count) + 1,
-            last_history_launch_index=int(observation.history_launch_index),
-        )
-    else:
-        count = int(prior.observation_count) + 1
-        launch_age = max(0, int(observation.history_launch_index) - int(prior.last_history_launch_index))
-        effective_prior_count = max(
-            0.0,
-            float(prior.observation_count) * _launch_recency_weight(belief, launch_age),
-        )
-        alpha = weight / (effective_prior_count + weight)
-        cells[key] = replace(
-            prior,
-            observation_count=count,
-            lift_residual_mean_m_s=_blend(prior.lift_residual_mean_m_s, observation.lift_residual_m_s, alpha),
-            updraft_gain_residual_mean_m=_blend(
-                prior.updraft_gain_residual_mean_m,
-                observation.updraft_gain_residual_m,
-                alpha,
-            ),
-            dwell_residual_mean_s=_blend(prior.dwell_residual_mean_s, observation.dwell_residual_s, alpha),
-            specific_energy_residual_mean_m=_blend(
-                prior.specific_energy_residual_mean_m,
-                observation.specific_energy_residual_m,
-                alpha,
-            ),
-            uncertainty=1.0 / math.sqrt(float(count)),
-            last_update_count=int(belief.update_count) + 1,
-            last_history_launch_index=int(observation.history_launch_index),
-        )
+    update_count = int(belief.update_count)
+    changed = False
+    for observation in observations:
+        key = _cell_key_for_observation(belief, observation)
+        prior = cells.get(key)
+        weight = max(1e-9, float(observation.observation_weight))
+        update_count += 1
+        changed = True
+        if prior is None:
+            count = 1
+            cells[key] = DirectionalResidualCell(
+                x_bin=key[0],
+                y_bin=key[1],
+                z_bin=key[2],
+                direction_bin=key[3],
+                observation_count=count,
+                lift_residual_mean_m_s=float(observation.lift_residual_m_s),
+                updraft_gain_residual_mean_m=float(observation.updraft_gain_residual_m),
+                dwell_residual_mean_s=float(observation.dwell_residual_s),
+                uncertainty=1.0 / math.sqrt(float(count)),
+                specific_energy_residual_mean_m=float(observation.specific_energy_residual_m),
+                last_update_count=int(update_count),
+                last_history_launch_index=int(observation.history_launch_index),
+            )
+        else:
+            count = int(prior.observation_count) + 1
+            launch_age = max(0, int(observation.history_launch_index) - int(prior.last_history_launch_index))
+            effective_prior_count = max(
+                0.0,
+                float(prior.observation_count) * _launch_recency_weight(belief, launch_age),
+            )
+            alpha = weight / (effective_prior_count + weight)
+            cells[key] = replace(
+                prior,
+                observation_count=count,
+                lift_residual_mean_m_s=_blend(prior.lift_residual_mean_m_s, observation.lift_residual_m_s, alpha),
+                updraft_gain_residual_mean_m=_blend(
+                    prior.updraft_gain_residual_mean_m,
+                    observation.updraft_gain_residual_m,
+                    alpha,
+                ),
+                dwell_residual_mean_s=_blend(prior.dwell_residual_mean_s, observation.dwell_residual_s, alpha),
+                specific_energy_residual_mean_m=_blend(
+                    prior.specific_energy_residual_mean_m,
+                    observation.specific_energy_residual_m,
+                    alpha,
+                ),
+                uncertainty=1.0 / math.sqrt(float(count)),
+                last_update_count=int(update_count),
+                last_history_launch_index=int(observation.history_launch_index),
+            )
+    if not changed:
+        return belief
     return replace(
         belief,
         cells=tuple(sorted(cells.values(), key=_cell_key)),
-        update_count=int(belief.update_count) + 1,
+        update_count=int(update_count),
     )
 
 

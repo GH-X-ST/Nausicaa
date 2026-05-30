@@ -47,7 +47,7 @@ from directional_residual_lift_belief import (  # noqa: E402
     initial_directional_residual_lift_belief,
     query_directional_residual_lift_features,
     query_spatial_flow_belief_features,
-    update_directional_residual_lift_belief,
+    update_directional_residual_lift_belief_batch,
 )
 from env_ctx import build_environment_context  # noqa: E402
 from env_instance import (  # noqa: E402
@@ -1162,29 +1162,63 @@ def _history_memory_trace_rows(result: dict[str, object]) -> list[dict[str, obje
         return []
     episode = dict(episode_rows[0])
     updated = [row for row in memory_rows if str(row.get("update_status", "")) == "updated"]
+    dense_sample_count = int(sum(int(_float_value(row.get("memory_path_sample_count", 1))) for row in memory_rows))
+    observation_weight_sum = _memory_row_weight_sum(memory_rows)
     return [
         {
             **_history_trace_identity(result),
-            "memory_trace_policy": "one_compact_row_per_history_launch_with_update_aggregates",
+            "memory_trace_policy": "one_compact_row_per_history_launch_with_weighted_update_aggregates",
             "memory_update_row_count": int(len(memory_rows)),
+            "memory_update_log_scope_sequence": ";".join(_sequence_values(memory_rows, "memory_update_log_scope")),
+            "memory_dense_sample_count_total": int(dense_sample_count),
+            "memory_observation_weight_sum": float(observation_weight_sum),
             "memory_updated_count": int(len(updated)),
             "memory_not_updated_count": int(len(memory_rows) - len(updated)),
             "belief_update_count_before": int(episode.get("belief_update_count_before", 0)),
             "belief_update_count_after": int(episode.get("belief_update_count_after", 0)),
             "belief_observation_count": int(episode.get("belief_observation_count", 0)),
             "belief_uncertainty": float(_float_value(episode.get("belief_uncertainty", 1.0))),
-            "lift_residual_sum_m_s": float(sum(_float_value(row.get("lift_residual_m_s", 0.0)) for row in memory_rows)),
-            "lift_residual_mean_m_s": _mean_float(memory_rows, "lift_residual_m_s"),
-            "updraft_gain_residual_sum_m": float(sum(_float_value(row.get("updraft_gain_residual_m", 0.0)) for row in memory_rows)),
-            "updraft_gain_residual_mean_m": _mean_float(memory_rows, "updraft_gain_residual_m"),
-            "specific_energy_residual_sum_m": float(
-                sum(_float_value(row.get("specific_energy_residual_m", 0.0)) for row in memory_rows)
+            "lift_residual_sum_m_s": _memory_weighted_sum(memory_rows, "lift_residual_m_s", "lift_residual_weighted_sum_m_s"),
+            "lift_residual_mean_m_s": _memory_weighted_mean(memory_rows, "lift_residual_m_s", "lift_residual_weighted_sum_m_s"),
+            "updraft_gain_residual_sum_m": _memory_weighted_sum(memory_rows, "updraft_gain_residual_m", "updraft_gain_residual_weighted_sum_m"),
+            "updraft_gain_residual_mean_m": _memory_weighted_mean(memory_rows, "updraft_gain_residual_m", "updraft_gain_residual_weighted_sum_m"),
+            "specific_energy_residual_sum_m": _memory_weighted_sum(
+                memory_rows,
+                "specific_energy_residual_m",
+                "specific_energy_residual_weighted_sum_m",
             ),
-            "specific_energy_residual_mean_m": _mean_float(memory_rows, "specific_energy_residual_m"),
-            "dwell_residual_sum_s": float(sum(_float_value(row.get("dwell_residual_s", 0.0)) for row in memory_rows)),
-            "dwell_residual_mean_s": _mean_float(memory_rows, "dwell_residual_s"),
+            "specific_energy_residual_mean_m": _memory_weighted_mean(
+                memory_rows,
+                "specific_energy_residual_m",
+                "specific_energy_residual_weighted_sum_m",
+            ),
+            "dwell_residual_sum_s": _memory_weighted_sum(memory_rows, "dwell_residual_s", "dwell_residual_weighted_sum_s"),
+            "dwell_residual_mean_s": _memory_weighted_mean(memory_rows, "dwell_residual_s", "dwell_residual_weighted_sum_s"),
         }
     ]
+
+
+def _memory_row_weight(row: dict[str, object]) -> float:
+    return _float_value(row.get("observation_weight_sum", row.get("observation_weight", 1.0)), default=1.0)
+
+
+def _memory_row_weight_sum(rows: list[dict[str, object]]) -> float:
+    return float(sum(_memory_row_weight(row) for row in rows))
+
+
+def _memory_weighted_sum(rows: list[dict[str, object]], value_key: str, weighted_key: str) -> float:
+    if not rows:
+        return 0.0
+    if any(str(row.get(weighted_key, "")).strip() not in {"", "nan", "None"} for row in rows):
+        return float(sum(_float_value(row.get(weighted_key, 0.0)) for row in rows))
+    return float(sum(_float_value(row.get(value_key, 0.0)) * _memory_row_weight(row) for row in rows))
+
+
+def _memory_weighted_mean(rows: list[dict[str, object]], value_key: str, weighted_key: str) -> float:
+    weight_sum = _memory_row_weight_sum(rows)
+    if weight_sum <= 0.0:
+        return 0.0
+    return float(_memory_weighted_sum(rows, value_key, weighted_key) / weight_sum)
 
 
 def _history_selector_summary_rows(result: dict[str, object]) -> list[dict[str, object]]:
@@ -1830,31 +1864,36 @@ def _run_one_launch(
             outcome=outcome,
         )
         belief_before_update = belief_after
-        update_status = "not_updated_policy"
-        for observation_row in observations:
-            observation = observation_row["observation"]
-            before_one = belief_after
-            if bool(policy["updates_memory"]):
-                belief_after = update_directional_residual_lift_belief(belief_after, observation)
-                update_status = "updated"
+        update_status = "not_updated_no_observations" if not observations else "not_updated_policy"
+        if bool(policy["updates_memory"]) and observations:
+            belief_after = update_directional_residual_lift_belief_batch(
+                belief_after,
+                (row["observation"] for row in observations),
+            )
+            update_status = "updated"
+        if retain_debug_logs:
+            memory_rows.extend(
+                _memory_update_detail_rows(
+                    scheduled=scheduled,
+                    policy=policy,
+                    primitive_step_index=primitive_step_index,
+                    observations=observations,
+                    update_status=update_status,
+                    belief_before_update=belief_before_update,
+                    belief_after_update=belief_after,
+                )
+            )
+        elif observations:
             memory_rows.append(
-                {
-                    **_schedule_identity_row(scheduled),
-                    "launch_role": str(scheduled["launch_role"]),
-                    "policy_id": str(policy["policy_id"]),
-                    "primitive_step_index": int(primitive_step_index),
-                    "update_status": update_status,
-                    "memory_update_policy": FLOW_BELIEF_HISTORY_UPDATE_POLICY,
-                    "memory_path_sample_index": int(observation_row["sample_index"]),
-                    "memory_path_sample_count": int(observation_row["sample_count"]),
-                    "memory_path_sample_fraction": float(observation_row["sample_fraction"]),
-                    "memory_path_sample_spacing_m": float(FLOW_BELIEF_HISTORY_UPDATE_SPACING_M),
-                    "memory_path_sample_max_per_primitive": int(FLOW_BELIEF_HISTORY_UPDATE_MAX_SAMPLES_PER_PRIMITIVE),
-                    "memory_path_sample_source": str(observation_row["sample_source"]),
-                    **asdict(observation),
-                    "belief_update_count_before": int(before_one.update_count),
-                    "belief_update_count_after": int(belief_after.update_count),
-                }
+                _memory_update_compact_row(
+                    scheduled=scheduled,
+                    policy=policy,
+                    primitive_step_index=primitive_step_index,
+                    observations=observations,
+                    update_status=update_status,
+                    belief_before_update=belief_before_update,
+                    belief_after_update=belief_after,
+                )
             )
         if exit_state_for_memory is None:
             blocked_reason = "invalid_exit_state_vector"
@@ -2026,6 +2065,165 @@ def _memory_observations_for_rollout_segment(
             }
         )
     return rows
+
+
+def _memory_update_detail_rows(
+    *,
+    scheduled: dict[str, object],
+    policy: dict[str, object],
+    primitive_step_index: int,
+    observations: list[dict[str, object]],
+    update_status: str,
+    belief_before_update: DirectionalResidualLiftBelief,
+    belief_after_update: DirectionalResidualLiftBelief,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    start_update_count = int(belief_before_update.update_count)
+    updated = str(update_status) == "updated"
+    for local_index, observation_row in enumerate(observations):
+        observation = observation_row["observation"]
+        if not isinstance(observation, DirectionalResidualObservation):
+            continue
+        before_count = start_update_count + int(local_index) if updated else start_update_count
+        after_count = start_update_count + int(local_index) + 1 if updated else start_update_count
+        rows.append(
+            {
+                **_memory_update_common_fields(
+                    scheduled=scheduled,
+                    policy=policy,
+                    primitive_step_index=primitive_step_index,
+                    update_status=update_status,
+                    belief_before_update_count=before_count,
+                    belief_after_update_count=after_count,
+                ),
+                "memory_update_log_scope": "dense_sample_debug",
+                "memory_dense_sample_rows_retained": True,
+                "memory_path_sample_index": int(observation_row["sample_index"]),
+                "memory_path_sample_count": int(observation_row["sample_count"]),
+                "memory_path_sample_fraction": float(observation_row["sample_fraction"]),
+                "memory_path_sample_spacing_m": float(FLOW_BELIEF_HISTORY_UPDATE_SPACING_M),
+                "memory_path_sample_max_per_primitive": int(FLOW_BELIEF_HISTORY_UPDATE_MAX_SAMPLES_PER_PRIMITIVE),
+                "memory_path_sample_source": str(observation_row["sample_source"]),
+                **asdict(observation),
+                **_memory_observation_weighted_fields(observation),
+            }
+        )
+    if rows:
+        rows[-1]["belief_update_count_after_batch"] = int(belief_after_update.update_count)
+    return rows
+
+
+def _memory_update_compact_row(
+    *,
+    scheduled: dict[str, object],
+    policy: dict[str, object],
+    primitive_step_index: int,
+    observations: list[dict[str, object]],
+    update_status: str,
+    belief_before_update: DirectionalResidualLiftBelief,
+    belief_after_update: DirectionalResidualLiftBelief,
+) -> dict[str, object]:
+    observation_values = [
+        row["observation"]
+        for row in observations
+        if isinstance(row.get("observation"), DirectionalResidualObservation)
+    ]
+    weight_sum = float(sum(float(obs.observation_weight) for obs in observation_values))
+    weight_denominator = max(1e-9, weight_sum)
+    sample_fractions = [float(row.get("sample_fraction", 0.0)) for row in observations]
+    sample_sources = sorted({str(row.get("sample_source", "")) for row in observations if str(row.get("sample_source", ""))})
+    return {
+        **_memory_update_common_fields(
+            scheduled=scheduled,
+            policy=policy,
+            primitive_step_index=primitive_step_index,
+            update_status=update_status,
+            belief_before_update_count=int(belief_before_update.update_count),
+            belief_after_update_count=int(belief_after_update.update_count),
+        ),
+        "memory_update_log_scope": "compact_primitive_summary_no_dense_sample_rows",
+        "memory_dense_sample_rows_retained": False,
+        "memory_dense_sample_logging_policy": "dense_rows_suppressed_for_history_plot_summary",
+        "memory_path_sample_index": -1,
+        "memory_path_sample_count": int(len(observation_values)),
+        "memory_path_sample_fraction": float(sum(sample_fractions) / max(1, len(sample_fractions))),
+        "memory_path_sample_fraction_min": float(min(sample_fractions) if sample_fractions else 0.0),
+        "memory_path_sample_fraction_max": float(max(sample_fractions) if sample_fractions else 0.0),
+        "memory_path_sample_spacing_m": float(FLOW_BELIEF_HISTORY_UPDATE_SPACING_M),
+        "memory_path_sample_max_per_primitive": int(FLOW_BELIEF_HISTORY_UPDATE_MAX_SAMPLES_PER_PRIMITIVE),
+        "memory_path_sample_source": ";".join(sample_sources),
+        "observation_weight_sum": float(weight_sum),
+        "history_launch_index": int(observation_values[-1].history_launch_index) if observation_values else 0,
+        "lift_residual_m_s": float(
+            sum(float(obs.lift_residual_m_s) * float(obs.observation_weight) for obs in observation_values)
+            / weight_denominator
+        ),
+        "updraft_gain_residual_m": float(
+            sum(float(obs.updraft_gain_residual_m) * float(obs.observation_weight) for obs in observation_values)
+            / weight_denominator
+        ),
+        "dwell_residual_s": float(
+            sum(float(obs.dwell_residual_s) * float(obs.observation_weight) for obs in observation_values)
+            / weight_denominator
+        ),
+        "specific_energy_residual_m": float(
+            sum(float(obs.specific_energy_residual_m) * float(obs.observation_weight) for obs in observation_values)
+            / weight_denominator
+        ),
+        "lift_residual_weighted_sum_m_s": float(
+            sum(float(obs.lift_residual_m_s) * float(obs.observation_weight) for obs in observation_values)
+        ),
+        "updraft_gain_residual_weighted_sum_m": float(
+            sum(float(obs.updraft_gain_residual_m) * float(obs.observation_weight) for obs in observation_values)
+        ),
+        "dwell_residual_weighted_sum_s": float(
+            sum(float(obs.dwell_residual_s) * float(obs.observation_weight) for obs in observation_values)
+        ),
+        "specific_energy_residual_weighted_sum_m": float(
+            sum(float(obs.specific_energy_residual_m) * float(obs.observation_weight) for obs in observation_values)
+        ),
+        "x_w_m_min": float(min((obs.x_w_m for obs in observation_values), default=0.0)),
+        "x_w_m_max": float(max((obs.x_w_m for obs in observation_values), default=0.0)),
+        "y_w_m_min": float(min((obs.y_w_m for obs in observation_values), default=0.0)),
+        "y_w_m_max": float(max((obs.y_w_m for obs in observation_values), default=0.0)),
+        "z_w_m_min": float(min((obs.z_w_m for obs in observation_values), default=0.0)),
+        "z_w_m_max": float(max((obs.z_w_m for obs in observation_values), default=0.0)),
+        "direction_rad_mean": float(
+            sum(float(obs.direction_rad) * float(obs.observation_weight) for obs in observation_values)
+            / weight_denominator
+        ),
+    }
+
+
+def _memory_update_common_fields(
+    *,
+    scheduled: dict[str, object],
+    policy: dict[str, object],
+    primitive_step_index: int,
+    update_status: str,
+    belief_before_update_count: int,
+    belief_after_update_count: int,
+) -> dict[str, object]:
+    return {
+        **_schedule_identity_row(scheduled),
+        "launch_role": str(scheduled["launch_role"]),
+        "policy_id": str(policy["policy_id"]),
+        "primitive_step_index": int(primitive_step_index),
+        "update_status": str(update_status),
+        "memory_update_policy": FLOW_BELIEF_HISTORY_UPDATE_POLICY,
+        "belief_update_count_before": int(belief_before_update_count),
+        "belief_update_count_after": int(belief_after_update_count),
+    }
+
+
+def _memory_observation_weighted_fields(observation: DirectionalResidualObservation) -> dict[str, float]:
+    weight = float(observation.observation_weight)
+    return {
+        "lift_residual_weighted_sum_m_s": float(observation.lift_residual_m_s) * weight,
+        "updraft_gain_residual_weighted_sum_m": float(observation.updraft_gain_residual_m) * weight,
+        "dwell_residual_weighted_sum_s": float(observation.dwell_residual_s) * weight,
+        "specific_energy_residual_weighted_sum_m": float(observation.specific_energy_residual_m) * weight,
+    }
 
 
 def _candidate_path_belief_features(
@@ -5849,6 +6047,7 @@ def _write_manifest(
             FLOW_BELIEF_HISTORY_UPDATE_MAX_SAMPLES_PER_PRIMITIVE
         ),
         "flow_belief_history_update_policy": FLOW_BELIEF_HISTORY_UPDATE_POLICY,
+        "flow_belief_history_update_execution_policy": "dense_observations_applied_in_one_batch_per_executed_primitive",
         "flow_belief_reachable_attraction_lookahead_m": float(FLOW_BELIEF_REACHABLE_ATTRACTION_LOOKAHEAD_M),
         "flow_belief_reachable_attraction_half_angle_rad": float(FLOW_BELIEF_REACHABLE_ATTRACTION_HALF_ANGLE_RAD),
         "flow_belief_reachable_attraction_cap_m": float(FLOW_BELIEF_REACHABLE_ATTRACTION_CAP_M),
@@ -5892,6 +6091,10 @@ def _write_manifest(
             else "explicit_user_selected_history_log_mode"
         ),
         "history_launch_plot_evidence_retained": True,
+        "history_memory_dense_sample_log_policy": (
+            "plot_summary_keeps_compact_weighted_per_primitive_memory_summaries_"
+            "full_dense_sample_rows_retained_for_final_launches_r9_reduced_smoke_or_sampled_debug"
+        ),
         "history_launch_retained_tables": [
             "episode_summary",
             "primitive_execution_log",
