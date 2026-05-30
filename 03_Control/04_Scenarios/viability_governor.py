@@ -366,8 +366,44 @@ def governor_candidate_row(
         "belief_candidate_path_memory_utility_m": _float(
             belief_features.get("belief_candidate_path_memory_utility_m", belief_specific_energy_residual)
         ),
+        "belief_candidate_path_memory_utility_without_attraction_m": _float(
+            belief_features.get("belief_candidate_path_memory_utility_without_attraction_m", belief_specific_energy_residual)
+        ),
         "belief_flow_map_grid_resolution_m": _float(belief_features.get("belief_flow_map_grid_resolution_m", 0.0)),
         "belief_flow_map_query_radius_m": _float(belief_features.get("belief_flow_map_query_radius_m", 0.0)),
+        "belief_flow_map_reachable_attraction_m": _float(
+            belief_features.get("belief_flow_map_reachable_attraction_m", 0.0)
+        ),
+        "belief_flow_map_reachable_attraction_raw_m": _float(
+            belief_features.get("belief_flow_map_reachable_attraction_raw_m", 0.0)
+        ),
+        "belief_flow_map_reachable_attraction_cap_m": _float(
+            belief_features.get("belief_flow_map_reachable_attraction_cap_m", 0.0)
+        ),
+        "belief_flow_map_reachable_attraction_confidence": _float(
+            belief_features.get("belief_flow_map_reachable_attraction_confidence", 0.0)
+        ),
+        "belief_flow_map_reachable_attraction_query_count": int(
+            _float(belief_features.get("belief_flow_map_reachable_attraction_query_count", 0.0))
+        ),
+        "belief_flow_map_reachable_attraction_observation_count": int(
+            _float(belief_features.get("belief_flow_map_reachable_attraction_observation_count", 0.0))
+        ),
+        "belief_flow_map_reachable_attraction_best_x_w_m": _float(
+            belief_features.get("belief_flow_map_reachable_attraction_best_x_w_m", 0.0)
+        ),
+        "belief_flow_map_reachable_attraction_best_y_w_m": _float(
+            belief_features.get("belief_flow_map_reachable_attraction_best_y_w_m", 0.0)
+        ),
+        "belief_flow_map_reachable_attraction_best_z_w_m": _float(
+            belief_features.get("belief_flow_map_reachable_attraction_best_z_w_m", 0.0)
+        ),
+        "belief_flow_map_reachable_attraction_lookahead_m": _float(
+            belief_features.get("belief_flow_map_reachable_attraction_lookahead_m", 0.0)
+        ),
+        "belief_flow_map_reachable_attraction_half_angle_rad": _float(
+            belief_features.get("belief_flow_map_reachable_attraction_half_angle_rad", 0.0)
+        ),
         "belief_flow_map_candidate_path_uncertainty": _float(
             belief_features.get("belief_flow_map_candidate_path_uncertainty", belief_uncertainty)
         ),

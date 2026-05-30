@@ -3,70 +3,70 @@
   "project_title_version": "LQR-Stabilised Contextual Primitive v5.20",
   "status": "diagnostic_not_passed",
   "archive_root": "03_Control/05_Results/Z_archive/diagnostic_not_passed_v410/001",
-  "superseded_result_root_count": 68,
+  "superseded_result_root_count": 69,
   "required_docs": [
     {
       "doc_name": "Glider_Control_Project_Plan.md",
       "relative_path": "docs/Glider_Control_Project_Plan.md",
       "readable": true,
-      "byte_count": 95042,
-      "sha256": "96f0eb82b4f5b50fd4c11a1adb563af40a9ca662dd703b486eb69b9cc3b919e4"
+      "byte_count": 94214,
+      "sha256": "182febc5e63a87477d1eef8997625397741e2bf035bdb13f61545705a867bcf0"
     },
     {
       "doc_name": "Skills.md",
       "relative_path": "docs/Skills.md",
       "readable": true,
-      "byte_count": 31176,
-      "sha256": "2f826b9b2d3516c2377a683f74c14d00859ccf1e2ef1211ade8849d36ba4c8c1"
+      "byte_count": 31772,
+      "sha256": "63014bf776a4df9faa011441d6bf8583f2e958aba80c7fec96dad572fb74f993"
     },
     {
       "doc_name": "Python Coding Instruction.txt",
       "relative_path": "docs/Python Coding Instruction.txt",
       "readable": true,
-      "byte_count": 25848,
-      "sha256": "565a1ae34173edf340ba5e20a8ee43cd70085256b1a70ee235ddb1ad428189c2"
+      "byte_count": 26042,
+      "sha256": "3f18dfac5947e1b2e1bae7ec741dd9193526e4055e5dc8a47446ed4bfff9ac04"
     },
     {
       "doc_name": "Python Coding to CODEX.txt",
       "relative_path": "docs/Python Coding to CODEX.txt",
       "readable": true,
-      "byte_count": 19465,
-      "sha256": "d51f234476cc2f3acb80f89aaaea999bfcdcf9582bb1ed0c4d7bb6db294f34ea"
+      "byte_count": 19773,
+      "sha256": "f846efd5bd535985a52278330b3a4a8964b840d841080a70ed62a30450f34c09"
     },
     {
       "doc_name": "MATLAB Coding.txt",
       "relative_path": "docs/MATLAB Coding.txt",
       "readable": true,
-      "byte_count": 18044,
-      "sha256": "08895fdff2ccdac889dd1eddfdda3e21778fb45b6b29a3daaeb3e72086d06489"
+      "byte_count": 18401,
+      "sha256": "a054a55a37a62b71d2a44705fee6d6570987f1e5eea10ab65c1ba119e86c1ee6"
     },
     {
       "doc_name": "housekeeping_and_naming_rules.md",
       "relative_path": "docs/housekeeping_and_naming_rules.md",
       "readable": true,
-      "byte_count": 21498,
-      "sha256": "1ef1a987493856521f77327f07e1eb1eb50eb8cd76b6e52d7de5977747e01d9e"
+      "byte_count": 21655,
+      "sha256": "f6a3b972c282be991f8edd9e4bcf10b6bb74b20a579da4b30bacf705d93c2c7b"
     },
     {
       "doc_name": "Daily_Schedule.txt",
       "relative_path": "docs/Daily_Schedule.txt",
       "readable": true,
-      "byte_count": 37426,
-      "sha256": "5b67cd6662847efdc815dff625b14ecdfc0052bd1b7d5997ee456cd3444faf6b"
+      "byte_count": 37789,
+      "sha256": "27b0a6fa98277377d23f3f31b588fe1a0fc53a872b6ac3bc1bf4f06c61f9bd29"
     },
     {
       "doc_name": "PR.txt",
       "relative_path": "docs/PR.txt",
       "readable": true,
-      "byte_count": 23656,
-      "sha256": "1ef0fb79f749ff359687e01512715db9f9554d5a0fff18b430696c0193f69259"
+      "byte_count": 23984,
+      "sha256": "918c6062c50f17db86951fc8a83c1657e16dff84d1dd26f67426122b55996973"
     }
   ],
   "inventory_counts": {
     "active_foundation": 72,
     "active_repair_cycle": 179,
     "retired_not_active": 366,
-    "generated_result": 5390,
+    "generated_result": 5454,
     "test_fixture": 235
   },
   "archived_result_roots_csv": "03_Control/05_Results/Z_archive/diagnostic_not_passed_v410/001/archived_result_roots.csv",

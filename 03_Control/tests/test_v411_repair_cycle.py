@@ -12,6 +12,7 @@ from directional_residual_lift_belief import (
     DirectionalResidualObservation,
     FLOW_BELIEF_GRID_RESOLUTION_M,
     FLOW_BELIEF_QUERY_RADIUS_M,
+    directional_residual_lift_cell_lookup,
     directional_residual_observation_from_rows,
     initial_directional_residual_lift_belief,
     query_directional_residual_lift_features,
@@ -38,6 +39,7 @@ from run_repeated_launch_learning_curve import (
     LAUNCH_SEQUENCE_POLICY_ID,
     POST_LAUNCH_START_FAMILY,
     TERMINAL_SAFE_EXIT_START_FAMILY,
+    _candidate_path_belief_features,
     _episode_row_from_sequence,
     _episode_specific_energy_summary,
     _launch_score_fields,
@@ -245,7 +247,10 @@ def test_v411_directional_memory_and_safe_exploration_after_filtering() -> None:
     )
     assert selected is not None
     viable = {row["primitive_variant_id"]: row for row in rows}
-    assert viable["good"]["safe_exploration_status"] == "applied_after_viability_filter"
+    assert (
+        viable["good"]["safe_exploration_status"]
+        == "applied_after_viability_filter_uncertainty_bonus_requires_baseline_shield"
+    )
     assert viable["good"]["exploration_score_component"] > 0.0
     assert viable["bad"]["safe_exploration_status"] == "not_applied_rejected_before_exploration"
     assert viable["bad"]["exploration_score_component"] == 0.0
@@ -344,6 +349,46 @@ def test_v411_rollout_memory_update_samples_primitive_path_on_0p1m_map() -> None
     assert sum(float(row["observation"].observation_weight) for row in rows) == pytest.approx(1.0)
     assert rows[0]["observation"].x_w_m == pytest.approx(1.2)
     assert rows[-1]["observation"].x_w_m == pytest.approx(1.45)
+
+
+def test_v411_spatial_flow_belief_attraction_rewards_reachable_downstream_lift() -> None:
+    belief = initial_directional_residual_lift_belief()
+    belief = update_directional_residual_lift_belief(
+        belief,
+        DirectionalResidualObservation(
+            x_w_m=2.30,
+            y_w_m=2.00,
+            z_w_m=1.20,
+            direction_rad=0.0,
+            lift_residual_m_s=0.5,
+            updraft_gain_residual_m=0.4,
+            dwell_residual_s=0.1,
+            specific_energy_residual_m=0.8,
+            history_launch_index=1,
+        ),
+    )
+    state = np.zeros(STATE_SIZE, dtype=float)
+    state[STATE_INDEX["x_w"]] = 1.20
+    state[STATE_INDEX["y_w"]] = 2.00
+    state[STATE_INDEX["z_w"]] = 1.20
+    state[STATE_INDEX["psi"]] = 0.0
+    state[STATE_INDEX["u"]] = 1.50
+
+    features = _candidate_path_belief_features(
+        belief=belief,
+        cell_lookup=directional_residual_lift_cell_lookup(belief),
+        state=state,
+        representative={"primitive_id": "glide"},
+        outcome={},
+        current_history_launch_index=1,
+        use_residual_memory=True,
+    )
+
+    assert features["belief_candidate_path_memory_utility_without_attraction_m"] == pytest.approx(0.0)
+    assert features["belief_flow_map_reachable_attraction_m"] > 0.0
+    assert features["belief_flow_map_reachable_attraction_confidence"] > 0.0
+    assert features["belief_flow_map_reachable_attraction_query_count"] > 0
+    assert features["belief_candidate_path_memory_utility_m"] > 0.0
 
 
 def test_r9_r10_launch_sequence_routes_launch_inflight_and_state_recovery_selection() -> None:
@@ -512,30 +557,11 @@ def test_r9_r10_launch_sequence_routes_launch_inflight_and_state_recovery_select
     assert second_selected["transition_entry_class"] == "inflight_stable"
     assert boundary_selected["transition_entry_class"] == "boundary_near"
     assert recovery_selected["transition_entry_class"] == "recoverable_degraded"
-    assert {row["transition_entry_class"]: row["viable"] for row in first_rows} == {
-        "launch_gate": True,
-        "inflight_stable": False,
-        "boundary_near": False,
-        "recoverable_degraded": False,
-    }
-    assert {row["transition_entry_class"]: row["viable"] for row in second_rows} == {
-        "launch_gate": False,
-        "inflight_stable": True,
-        "boundary_near": False,
-        "recoverable_degraded": False,
-    }
-    assert {row["transition_entry_class"]: row["viable"] for row in boundary_rows} == {
-        "launch_gate": False,
-        "inflight_stable": False,
-        "boundary_near": True,
-        "recoverable_degraded": False,
-    }
-    assert {row["transition_entry_class"]: row["viable"] for row in recovery_rows} == {
-        "launch_gate": False,
-        "inflight_stable": False,
-        "boundary_near": False,
-        "recoverable_degraded": True,
-    }
+    assert {row["transition_entry_class"] for row in first_rows} == {"launch_gate"}
+    assert {row["transition_entry_class"] for row in second_rows} == {"inflight_stable"}
+    assert {row["transition_entry_class"] for row in boundary_rows} == {"boundary_near"}
+    assert {row["transition_entry_class"] for row in recovery_rows} == {"recoverable_degraded"}
+    assert all(row["viable"] for row in first_rows + second_rows + boundary_rows + recovery_rows)
 
 
 def test_governor_uses_heading_aware_margin_not_rear_wall_minimum() -> None:
@@ -1060,7 +1086,7 @@ def test_v411_case_ids_histories_and_retired_gate(tmp_path: Path) -> None:
         "super_light_cluster",
         "no_cluster_no_merge",
     )
-    assert HISTORY_LENGTHS == (5, 20, 100)
+    assert HISTORY_LENGTHS == (3, 10, 30)
     result = run_post_w3_cluster_merge(
         input_root=tmp_path / "missing_w3",
         output_root=tmp_path / "post_w3_cluster",

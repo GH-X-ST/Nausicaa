@@ -1,19 +1,19 @@
 check_id,observed,passed,required
-doc_readable:docs/Daily_Schedule.txt,37707,True,readable
-doc_readable:docs/Glider_Control_Project_Plan.md,94007,True,readable
-doc_readable:docs/Literature_Review.txt,19225,True,readable
-doc_readable:docs/Logbook.txt,16874,True,readable
-doc_readable:docs/MATLAB Coding.txt,18319,True,readable
-doc_readable:docs/PR.txt,23902,True,readable
-doc_readable:docs/Progrewss Report.txt,16782,True,readable
-doc_readable:docs/Pseudocode Writing Instructions.txt,17890,True,readable
-doc_readable:docs/Python Coding Instruction.txt,25960,True,readable
-doc_readable:docs/Python Coding to CODEX.txt,19691,True,readable
-doc_readable:docs/Python Plotting Guidance.txt,18886,True,readable
-doc_readable:docs/Reference Searching.txt,18204,True,readable
-doc_readable:docs/Skills.md,31565,True,readable
-doc_readable:docs/Thesis.txt,20742,True,readable
-doc_readable:docs/housekeeping_and_naming_rules.md,21573,True,readable
+doc_readable:docs/Daily_Schedule.txt,37826,True,readable
+doc_readable:docs/Glider_Control_Project_Plan.md,94288,True,readable
+doc_readable:docs/Literature_Review.txt,19344,True,readable
+doc_readable:docs/Logbook.txt,16993,True,readable
+doc_readable:docs/MATLAB Coding.txt,18438,True,readable
+doc_readable:docs/PR.txt,24021,True,readable
+doc_readable:docs/Progrewss Report.txt,16901,True,readable
+doc_readable:docs/Pseudocode Writing Instructions.txt,18009,True,readable
+doc_readable:docs/Python Coding Instruction.txt,26079,True,readable
+doc_readable:docs/Python Coding to CODEX.txt,19810,True,readable
+doc_readable:docs/Python Plotting Guidance.txt,19005,True,readable
+doc_readable:docs/Reference Searching.txt,18323,True,readable
+doc_readable:docs/Skills.md,31846,True,readable
+doc_readable:docs/Thesis.txt,20861,True,readable
+doc_readable:docs/housekeeping_and_naming_rules.md,21692,True,readable
 doc_readable:docs/local_validation_environment.md,5361,True,readable
 stage_semantics:docs/Daily_Schedule.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
 stage_semantics:docs/Glider_Control_Project_Plan.md,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
