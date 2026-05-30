@@ -142,7 +142,7 @@ DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE = 10
 REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION = "predictive_next_primitive_scheduler_profile_v1"
 REAL_TIME_PREFERRED_DECISION_BUDGET_S = CONTROLLER_INPUT_UPDATE_PERIOD_S
 REAL_TIME_HARD_DECISION_BUDGET_S = PRIMITIVE_FINITE_HORIZON_S
-OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_spatial_flow_belief_aggressive_safe_objective_memory_v2_3"
+OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_spatial_flow_belief_safe_information_gain_memory_v2_4"
 OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION = (
     "case_local_online_memory_plus_r10_global_deterministic_calibration_v1"
 )
@@ -217,6 +217,7 @@ R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID = "r11_l4_local_fan_position_unce
 R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID = "r11_l5_active_fan_count_uncertainty"
 R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID = "r11_l6_environment_only_full_uncertainty"
 R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID = "r11_l7_full_domain_randomisation_arena_wide"
+TARGETED_MEMORY_OPPORTUNITY_BLOCK_ID = "targeted_memory_opportunity_arena_wide_four_fan"
 R11_FIDELITY_LADDER_BLOCK_IDS = (
     R11_L0_DRY_AIR_FIXED_BLOCK_ID,
     R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
@@ -230,6 +231,7 @@ R11_FIDELITY_LADDER_BLOCK_IDS = (
 CHANGED_CASE_VALIDATION_STAGE_IDS = {"R10", "R11"}
 R10_R11_REALISTIC_REPEATED_LAUNCH_BLOCK_IDS = (
     R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    TARGETED_MEMORY_OPPORTUNITY_BLOCK_ID,
     *R11_FIDELITY_LADDER_BLOCK_IDS,
 )
 R10_FULL_DOMAIN_RANDOMISATION_BLOCK_IDS = (
@@ -246,6 +248,7 @@ R10_FOUR_FAN_GEOMETRY_BLOCK_IDS = (
     ACTIVE_FAN_NUMBER_VARIATION_BLOCK_ID,
     BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
     R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    TARGETED_MEMORY_OPPORTUNITY_BLOCK_ID,
     R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
     R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
     R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
@@ -279,6 +282,7 @@ R10_ACTIVE_FAN_COUNT_VARIATION_BLOCK_IDS = (
 R10_FIXED_FOUR_ACTIVE_BLOCK_IDS = (
     "nominal_four_fan_perturbations",
     "shifted_four_fan_positions",
+    TARGETED_MEMORY_OPPORTUNITY_BLOCK_ID,
     R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
     R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
     R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
@@ -294,6 +298,7 @@ DRY_AIR_ENERGY_DEPLETION_BLOCK_IDS = (
 )
 R10_ARENA_WIDE_FAN_POSITION_BLOCK_IDS = (
     R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+    TARGETED_MEMORY_OPPORTUNITY_BLOCK_ID,
     BROAD_FAN_POSITION_GENERALISATION_BLOCK_ID,
     R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
 )
@@ -1308,10 +1313,10 @@ def _active_fan_count_policy_for_outer_case(
         return "balanced_0_1_2_3_4_for_active_fan_number_variation"
     if block_id == R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID:
         return "balanced_0_1_2_3_4_for_environment_only_full_uncertainty"
-    if block_id in R10_ARENA_WIDE_FAN_POSITION_BLOCK_IDS:
-        return "balanced_0_1_2_3_4_with_arena_wide_fan_position_generalisation"
     if block_id in R10_FIXED_FOUR_ACTIVE_BLOCK_IDS:
         return "fixed_4_for_four_fan_geometry_non_active_count_block"
+    if block_id in R10_ARENA_WIDE_FAN_POSITION_BLOCK_IDS:
+        return "balanced_0_1_2_3_4_with_arena_wide_fan_position_generalisation"
     if block_id in R10_SINGLE_FAN_GEOMETRY_BLOCK_IDS:
         return "single_fan_geometry_implicit_one_active_fan"
     return "environment_default"
@@ -2270,6 +2275,9 @@ def _candidate_path_belief_features(
     weighted_specific_energy = 0.0
     weighted_dwell = 0.0
     confidence = 0.0
+    weighted_uncertainty = 0.0
+    uncertainty_weight_sum = 0.0
+    low_confidence_probe_count = 0
     observation_count = 0
     last_features: dict[str, object] = {}
     exit_x = x0
@@ -2308,6 +2316,10 @@ def _candidate_path_belief_features(
             )
             weighted_dwell += weight * probe_confidence * _float_value(last_features.get("belief_local_dwell_residual_s", 0.0))
             confidence += weight * probe_confidence
+            weighted_uncertainty += weight * _clip(1.0 - probe_confidence, 0.0, 1.0)
+            uncertainty_weight_sum += weight
+            if probe_confidence < 0.5:
+                low_confidence_probe_count += 1
             observation_count += int(_float_value(last_features.get("belief_observation_count", 0)))
         exit_x = x_w_m
         exit_y = y_w_m
@@ -2339,6 +2351,11 @@ def _candidate_path_belief_features(
         + float(updraft_weight) * float(capped_updraft)
     )
     confidence = _clip(confidence, 0.0, 1.0)
+    path_uncertainty = (
+        _clip(weighted_uncertainty / max(1e-9, uncertainty_weight_sum), 0.0, 1.0)
+        if use_residual_memory
+        else 0.0
+    )
     reachable_attraction = (
         _candidate_reachable_flow_attraction(
             belief=belief,
@@ -2368,6 +2385,15 @@ def _candidate_path_belief_features(
         exit_y=exit_y,
         exit_z=exit_z,
     )
+    information_gain = _flow_map_information_gain(
+        path_uncertainty=path_uncertainty,
+        reachable_uncertainty=float(reachable_attraction["mean_uncertainty"]),
+        x0=x0,
+        exit_x=exit_x,
+        exit_y=exit_y,
+        exit_z=exit_z,
+    )
+    map_guided_uncertainty = max(float(map_guided_uncertainty), float(information_gain["information_gain"]))
     exit_margins = position_margin_m(np.array([exit_x, exit_y, exit_z], dtype=float), TRUE_SAFE_BOUNDS)
     return {
         "belief_version": (
@@ -2431,10 +2457,25 @@ def _candidate_path_belief_features(
             FLOW_BELIEF_REACHABLE_ATTRACTION_ELEVATION_HALF_ANGLE_RAD
         ),
         "belief_flow_map_reachable_attraction_geometry": "sparse_3d_cone_2_range_3_azimuth_3_elevation_stencil",
-        "belief_flow_map_candidate_path_uncertainty": float(1.0 - confidence),
+        "belief_flow_map_candidate_path_uncertainty": float(path_uncertainty),
         "belief_flow_map_memory_guided_exploration_uncertainty": float(map_guided_uncertainty),
+        "belief_flow_map_information_gain": float(information_gain["information_gain"]),
+        "belief_flow_map_information_gain_path_uncertainty": float(path_uncertainty),
+        "belief_flow_map_information_gain_reachable_uncertainty": float(reachable_attraction["mean_uncertainty"]),
+        "belief_flow_map_information_gain_progress_gate": float(information_gain["progress_gate"]),
+        "belief_flow_map_information_gain_safe_gate": float(information_gain["safe_gate"]),
+        "belief_flow_map_information_gain_query_count": int(
+            (len(CANDIDATE_PATH_MEMORY_PROBES) + int(reachable_attraction["query_count"]))
+            if use_residual_memory
+            else 0
+        ),
+        "belief_flow_map_information_gain_low_confidence_query_count": int(
+            (low_confidence_probe_count + int(reachable_attraction["low_confidence_query_count"]))
+            if use_residual_memory
+            else 0
+        ),
         "belief_flow_map_exploration_scale": 1.0,
-        "belief_flow_map_policy": "0p1m_spatial_updraft_utility_map_with_path_updates_and_reachable_flow_attraction",
+        "belief_flow_map_policy": "0p1m_spatial_updraft_utility_map_with_path_updates_reachable_attraction_and_information_gain",
         "belief_candidate_path_reference_bank_rad": float(reference_bank_rad),
         "belief_candidate_path_heading_offset_rad": float(heading_offset_rad),
         "belief_candidate_path_speed_m_s": float(path_speed_m_s),
@@ -2551,6 +2592,9 @@ def _candidate_reachable_flow_attraction(
     best_y = float(exit_y)
     best_z = float(exit_z)
     query_count = 0
+    uncertainty_weighted_sum = 0.0
+    uncertainty_weight_sum = 0.0
+    low_confidence_query_count = 0
     for distance_m, azimuth_offset_rad, elevation_offset_rad, probe_weight in FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES:
         distance_m = float(distance_m)
         if distance_m > float(FLOW_BELIEF_REACHABLE_ATTRACTION_LOOKAHEAD_M):
@@ -2584,6 +2628,24 @@ def _candidate_reachable_flow_attraction(
         )
         query_count += 1
         confidence = _candidate_path_probe_confidence(features, governor_config=governor_config)
+        distance_discount = 1.0 - 0.35 * _clip(
+            distance_m / max(1e-9, float(FLOW_BELIEF_REACHABLE_ATTRACTION_LOOKAHEAD_M)),
+            0.0,
+            1.0,
+        )
+        azimuth_discount = max(0.0, math.cos(float(azimuth_offset_rad)))
+        elevation_discount = max(0.0, math.cos(float(elevation_offset_rad)))
+        information_weight = (
+            float(probe_weight)
+            * float(distance_discount)
+            * float(azimuth_discount)
+            * float(elevation_discount)
+        )
+        if information_weight > 0.0:
+            uncertainty_weighted_sum += information_weight * _clip(1.0 - confidence, 0.0, 1.0)
+            uncertainty_weight_sum += information_weight
+            if confidence < 0.5:
+                low_confidence_query_count += 1
         if confidence <= 0.0:
             continue
         specific_energy = _clip(
@@ -2604,13 +2666,6 @@ def _candidate_reachable_flow_attraction(
         utility = float(specific_energy_weight) * float(specific_energy) + float(updraft_weight) * float(updraft)
         if utility <= 0.0:
             continue
-        distance_discount = 1.0 - 0.35 * _clip(
-            distance_m / max(1e-9, float(FLOW_BELIEF_REACHABLE_ATTRACTION_LOOKAHEAD_M)),
-            0.0,
-            1.0,
-        )
-        azimuth_discount = max(0.0, math.cos(float(azimuth_offset_rad)))
-        elevation_discount = max(0.0, math.cos(float(elevation_offset_rad)))
         score = (
             float(utility)
             * float(confidence)
@@ -2627,12 +2682,19 @@ def _candidate_reachable_flow_attraction(
             best_y = float(probe_y)
             best_z = float(probe_z)
     capped_score = _clip(float(best_score), 0.0, float(FLOW_BELIEF_REACHABLE_ATTRACTION_CAP_M))
+    mean_uncertainty = _clip(
+        uncertainty_weighted_sum / max(1e-9, uncertainty_weight_sum),
+        0.0,
+        1.0,
+    )
     return {
         "raw_attraction_m": float(best_score),
         "capped_attraction_m": float(capped_score),
         "confidence": float(best_confidence),
         "query_count": int(query_count),
         "observation_count": int(best_observation_count),
+        "mean_uncertainty": float(mean_uncertainty),
+        "low_confidence_query_count": int(low_confidence_query_count),
         "best_x_w_m": float(best_x),
         "best_y_w_m": float(best_y),
         "best_z_w_m": float(best_z),
@@ -2646,9 +2708,37 @@ def _empty_reachable_flow_attraction() -> dict[str, float | int]:
         "confidence": 0.0,
         "query_count": 0,
         "observation_count": 0,
+        "mean_uncertainty": 0.0,
+        "low_confidence_query_count": 0,
         "best_x_w_m": 0.0,
         "best_y_w_m": 0.0,
         "best_z_w_m": 0.0,
+    }
+
+
+def _flow_map_information_gain(
+    *,
+    path_uncertainty: float,
+    reachable_uncertainty: float,
+    x0: float,
+    exit_x: float,
+    exit_y: float,
+    exit_z: float,
+) -> dict[str, float]:
+    """Return bounded information value for entering under-observed safe map regions."""
+
+    path_term = _clip(float(path_uncertainty), 0.0, 1.0)
+    reachable_term = _clip(float(reachable_uncertainty), 0.0, 1.0)
+    uncertainty = 0.45 * float(path_term) + 0.55 * float(reachable_term)
+    front_x = float(TRUE_SAFE_BOUNDS.x_w_m[1])
+    remaining_x = max(0.2, front_x - float(x0))
+    progress_gate = _clip((float(exit_x) - float(x0)) / remaining_x, 0.0, 1.0)
+    safe_gate = 1.0 if _point_inside_true_safe_bounds(exit_x, exit_y, exit_z) else 0.0
+    mission_gate = 0.25 + 0.75 * float(progress_gate)
+    return {
+        "information_gain": float(uncertainty) * float(mission_gate) * float(safe_gate),
+        "progress_gate": float(progress_gate),
+        "safe_gate": float(safe_gate),
     }
 
 
@@ -4663,6 +4753,8 @@ def _write_memory_opportunity_audit_from_partitions(
         "selected_memory_shield_candidate_path_confidence",
         "selected_memory_shield_candidate_path_uncertainty",
         "selected_memory_shield_exploration_score_component",
+        "selected_memory_shield_information_gain_score_component",
+        "selected_memory_shield_information_gain",
         "selected_memory_shield_path_exit_margin_delta_m",
         "selected_flow_map_grid_resolution_m",
         "selected_flow_map_query_radius_m",
@@ -4672,6 +4764,11 @@ def _write_memory_opportunity_audit_from_partitions(
         "selected_flow_map_reachable_attraction_observation_count",
         "selected_flow_map_candidate_path_uncertainty",
         "selected_flow_map_memory_guided_exploration_uncertainty",
+        "selected_flow_map_information_gain",
+        "selected_flow_map_information_gain_path_uncertainty",
+        "selected_flow_map_information_gain_reachable_uncertainty",
+        "selected_flow_map_information_gain_query_count",
+        "selected_flow_map_information_gain_low_confidence_query_count",
     ):
         if column not in frame.columns:
             frame[column] = 0.0
@@ -4709,6 +4806,8 @@ def _write_memory_opportunity_audit_from_partitions(
             "selected_memory_shield_candidate_path_confidence",
             "selected_memory_shield_candidate_path_uncertainty",
             "selected_memory_shield_exploration_score_component",
+            "selected_memory_shield_information_gain_score_component",
+            "selected_memory_shield_information_gain",
             "selected_memory_shield_path_exit_margin_delta_m",
             "selected_flow_map_grid_resolution_m",
             "selected_flow_map_query_radius_m",
@@ -4718,6 +4817,11 @@ def _write_memory_opportunity_audit_from_partitions(
             "selected_flow_map_reachable_attraction_observation_count",
             "selected_flow_map_candidate_path_uncertainty",
             "selected_flow_map_memory_guided_exploration_uncertainty",
+            "selected_flow_map_information_gain",
+            "selected_flow_map_information_gain_path_uncertainty",
+            "selected_flow_map_information_gain_reachable_uncertainty",
+            "selected_flow_map_information_gain_query_count",
+            "selected_flow_map_information_gain_low_confidence_query_count",
         )
         if column in frame.columns
     ]
@@ -4760,6 +4864,11 @@ def _memory_opportunity_summary_row(audit_scope: str, frame: pd.DataFrame) -> di
     uncertainty = frame.get("selected_memory_shield_candidate_path_uncertainty", pd.Series(0.0, index=frame.index))
     score_margin = frame.get("selected_memory_shield_score_margin", pd.Series(0.0, index=frame.index))
     attraction = frame.get("selected_flow_map_reachable_attraction_m", pd.Series(0.0, index=frame.index))
+    information_gain = frame.get("selected_flow_map_information_gain", pd.Series(0.0, index=frame.index))
+    information_component = frame.get(
+        "selected_memory_shield_information_gain_score_component",
+        pd.Series(0.0, index=frame.index),
+    )
     return {
         "audit_scope": str(audit_scope),
         "decision_count": count,
@@ -4776,6 +4885,10 @@ def _memory_opportunity_summary_row(audit_scope: str, frame: pd.DataFrame) -> di
         "mean_candidate_path_uncertainty": float(uncertainty.mean()) if count else 0.0,
         "mean_reachable_flow_attraction_m": float(attraction.mean()) if count else 0.0,
         "reachable_flow_attraction_positive_count": int((attraction > 0.0).sum()) if count else 0,
+        "mean_flow_map_information_gain": float(information_gain.mean()) if count else 0.0,
+        "flow_map_information_gain_positive_count": int((information_gain > 0.0).sum()) if count else 0,
+        "mean_information_gain_score_component": float(information_component.mean()) if count else 0.0,
+        "information_gain_score_component_positive_count": int((information_component > 0.0).sum()) if count else 0,
         "mean_adaptive_score_margin": float(score_margin.mean()) if count else 0.0,
         "memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION,
         "audit_status": "profiled",
@@ -5820,6 +5933,21 @@ def _tuned_governor_config_from_metrics(
             max(0.06, float(values["flow_region_attraction_max_base_score_drop"]) * 0.75),
             "hard_failure_rate_above_stage_profile_tighten_reachable_flow_base_score_drop",
         )
+        update(
+            "memory_information_gain_weight",
+            max(0.06, float(values["memory_information_gain_weight"]) * 0.75),
+            "hard_failure_rate_above_stage_profile_reduce_information_gain_weight",
+        )
+        update(
+            "memory_information_gain_score_cap",
+            max(0.04, float(values["memory_information_gain_score_cap"]) * 0.75),
+            "hard_failure_rate_above_stage_profile_cap_information_gain_score",
+        )
+        update(
+            "memory_information_gain_max_base_score_drop",
+            max(0.04, float(values["memory_information_gain_max_base_score_drop"]) * 0.75),
+            "hard_failure_rate_above_stage_profile_tighten_information_gain_base_score_drop",
+        )
     elif no_viable_rate > float(protocol.max_no_viable_rate):
         update(
             "maximum_hard_failure_risk",
@@ -5941,6 +6069,21 @@ def _tuned_governor_config_from_metrics(
                 min(0.25, float(values["memory_objective_max_base_score_drop"]) + 0.025),
                 "memory_opportunities_seen_but_switch_acceptance_low_allow_aggressive_memory_safe_region_tradeoff",
             )
+            update(
+                "memory_information_gain_weight",
+                min(0.35, float(values["memory_information_gain_weight"]) + 0.04),
+                "memory_opportunities_seen_but_switch_acceptance_low_increase_information_gain_weight",
+            )
+            update(
+                "memory_information_gain_score_cap",
+                min(0.20, float(values["memory_information_gain_score_cap"]) + 0.025),
+                "memory_opportunities_seen_but_switch_acceptance_low_allow_information_gain_bias",
+            )
+            update(
+                "memory_information_gain_max_base_score_drop",
+                min(0.22, float(values["memory_information_gain_max_base_score_drop"]) + 0.02),
+                "memory_opportunities_seen_but_switch_acceptance_low_allow_information_gain_safe_region_tradeoff",
+            )
         if mean_candidate_path_confidence < float(values["memory_switch_min_confidence"]):
             update(
                 "candidate_path_memory_full_confidence_observations",
@@ -5972,6 +6115,16 @@ def _tuned_governor_config_from_metrics(
                 "flow_region_attraction_score_cap",
                 min(0.25, float(values["flow_region_attraction_score_cap"]) + 0.03),
                 "memory_opportunities_small_correction_allow_larger_reachable_flow_attraction_when_safe",
+            )
+            update(
+                "memory_information_gain_weight",
+                min(0.40, float(values["memory_information_gain_weight"]) + 0.05),
+                "memory_opportunities_small_correction_allow_larger_information_gain_when_safe",
+            )
+            update(
+                "memory_information_gain_score_cap",
+                min(0.24, float(values["memory_information_gain_score_cap"]) + 0.03),
+                "memory_opportunities_small_correction_raise_information_gain_cap_when_safe",
             )
     elif memory_opportunity_count == 0 and hard_failure_rate <= float(protocol.max_hard_failure_rate) and safe_success_rate < float(protocol.min_safe_success_rate):
         update(
@@ -6113,7 +6266,8 @@ def _write_manifest(
             "at 0.1 m spacing and launch-index recency decay; candidate paths query the accumulated map using "
             "a 0.2 m neighbourhood over seven current-to-exit probes plus a bounded 0.8 m / 35 deg azimuth / "
             "20 deg elevation sparse 3D reachable-flow attraction cone capped at 0.25 m; residual path utility and "
-            "reachable-flow attraction are confidence-gated, capped primary memory-objective terms among already-viable "
+            "reachable-flow attraction are confidence-gated, while under-observed candidate path and cone probes add "
+            "a bounded information-gain term for safe map-building; all memory terms act only among already-viable "
             "front-progress-compatible candidates; "
             "accepted only through unchanged viability filters and the baseline shield with no final-launch special case"
         ),
@@ -6175,8 +6329,23 @@ def _write_manifest(
         "flow_region_attraction_min_front_progress_ratio": float(
             governor_config.flow_region_attraction_min_front_progress_ratio
         ),
+        "memory_information_gain_weight": float(governor_config.memory_information_gain_weight),
+        "memory_information_gain_score_cap": float(governor_config.memory_information_gain_score_cap),
+        "memory_information_gain_min_uncertainty": float(
+            governor_config.memory_information_gain_min_uncertainty
+        ),
+        "memory_information_gain_max_base_score_drop": float(
+            governor_config.memory_information_gain_max_base_score_drop
+        ),
+        "memory_information_gain_min_front_progress_ratio": float(
+            governor_config.memory_information_gain_min_front_progress_ratio
+        ),
+        "memory_information_gain_allow_cross_family": bool(
+            governor_config.memory_information_gain_allow_cross_family
+        ),
         "flow_belief_update_policy": (
-            FLOW_BELIEF_HISTORY_UPDATE_POLICY + "_plus_candidate_path_query_and_reachable_flow_attraction"
+            FLOW_BELIEF_HISTORY_UPDATE_POLICY
+            + "_plus_candidate_path_query_reachable_flow_attraction_and_information_gain"
         ),
         "residual_memory_launch_recency_half_life": float(governor_config.residual_memory_launch_recency_half_life),
         "memory_opportunity_audit": "metrics/memory_opportunity_summary.csv",
@@ -6344,7 +6513,7 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Safety thresholds: hard failure <= `{protocol.max_hard_failure_rate}`, no-viable <= `{protocol.max_no_viable_rate}`, safe success >= `{protocol.min_safe_success_rate}`, full safe success >= `{protocol.min_full_safe_success_rate}`, terminal/lift >= `{protocol.min_terminal_or_lift_capture_rate}`.",
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
         "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, front-wall progress, front-wall terminal proxy, progress-gated terminal total specific-energy proxy, updraft gain, lift dwell, and residual memory.",
-        f"- Memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` maintains a case-local 0.1 m 3D updraft-utility belief map; each flown primitive writes dense executed-segment residual samples at 0.1 m spacing with launch-index recency decay, and each candidate path queries the accumulated map through a 0.2 m neighbourhood over seven probes plus a bounded 0.8 m / 35 deg azimuth / 20 deg elevation sparse 3D reachable-flow attraction cone capped at 0.25 m. Residual path utility and reachable-flow attraction are confidence-gated, capped primary memory-objective terms among already-viable front-progress-compatible candidates, then accepted only through the baseline shield after viability filtering.",
+        f"- Memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` maintains a case-local 0.1 m 3D updraft-utility belief map; each flown primitive writes dense executed-segment residual samples at 0.1 m spacing with launch-index recency decay, and each candidate path queries the accumulated map through a 0.2 m neighbourhood over seven probes plus a bounded 0.8 m / 35 deg azimuth / 20 deg elevation sparse 3D reachable-flow attraction cone capped at 0.25 m. Residual path utility and reachable-flow attraction exploit known useful flow, while under-observed path/cone probes add a bounded information-gain term for safe map building; all terms apply only among already-viable front-progress-compatible candidates and are accepted only through the baseline shield after viability filtering.",
         f"- Governor learning strategy: `{OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION}` keeps online memory `{ONLINE_MEMORY_SCOPE}`; R10 calibration scope is `{R10_GLOBAL_CALIBRATION_SCOPE}` and R11 uses `{R11_GOVERNOR_HANDOFF_SCOPE}`.",
         f"- Calibration search policy: `{GOVERNOR_CALIBRATION_SEARCH_POLICY}`.",
         "- Memory opportunity audit: `memory_opportunity_summary.csv` and `memory_opportunity_decision_log.csv` report baseline-vs-memory candidate gaps, correction deltas, shield status, and accepted/rejected switch reasons.",

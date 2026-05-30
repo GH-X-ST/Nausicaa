@@ -1,0 +1,9 @@
+launch_role,termination_cause,row_count
+final_heldout,floor_margin_stop,1
+final_heldout,wall_boundary_exit_retained,83
+final_heldout,wall_boundary_exit_uncontrolled,16
+history,ceiling_margin_stop,1
+history,floor_margin_stop,156
+history,no_viable_continuation_primitive,88
+history,wall_boundary_exit_retained,795
+history,wall_boundary_exit_uncontrolled,35

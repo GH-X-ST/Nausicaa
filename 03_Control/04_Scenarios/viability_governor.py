@@ -77,6 +77,12 @@ class GovernorConfig:
     flow_region_attraction_min_confidence: float = 0.15
     flow_region_attraction_max_base_score_drop: float = 0.18
     flow_region_attraction_min_front_progress_ratio: float = 0.45
+    memory_information_gain_weight: float = 0.18
+    memory_information_gain_score_cap: float = 0.12
+    memory_information_gain_min_uncertainty: float = 0.35
+    memory_information_gain_max_base_score_drop: float = 0.14
+    memory_information_gain_min_front_progress_ratio: float = 0.45
+    memory_information_gain_allow_cross_family: bool = True
 
 
 DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
@@ -104,7 +110,7 @@ DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
     mission_wrong_boundary_penalty_weight=0.35,
 )
 
-BOOL_GOVERNOR_CONFIG_FIELDS = {"exploration_switch_allow_cross_family"}
+BOOL_GOVERNOR_CONFIG_FIELDS = {"exploration_switch_allow_cross_family", "memory_information_gain_allow_cross_family"}
 
 MISSION_DEFAULT_X_MIN_W_M = 1.2
 MISSION_DEFAULT_FRONT_WALL_X_W_M = 6.6
@@ -429,6 +435,27 @@ def governor_candidate_row(
         ),
         "belief_flow_map_memory_guided_exploration_uncertainty": _float(
             belief_features.get("belief_flow_map_memory_guided_exploration_uncertainty", belief_uncertainty)
+        ),
+        "belief_flow_map_information_gain": _float(
+            belief_features.get("belief_flow_map_information_gain", 0.0)
+        ),
+        "belief_flow_map_information_gain_path_uncertainty": _float(
+            belief_features.get("belief_flow_map_information_gain_path_uncertainty", 0.0)
+        ),
+        "belief_flow_map_information_gain_reachable_uncertainty": _float(
+            belief_features.get("belief_flow_map_information_gain_reachable_uncertainty", 0.0)
+        ),
+        "belief_flow_map_information_gain_progress_gate": _float(
+            belief_features.get("belief_flow_map_information_gain_progress_gate", 0.0)
+        ),
+        "belief_flow_map_information_gain_safe_gate": _float(
+            belief_features.get("belief_flow_map_information_gain_safe_gate", 0.0)
+        ),
+        "belief_flow_map_information_gain_query_count": int(
+            _float(belief_features.get("belief_flow_map_information_gain_query_count", 0.0))
+        ),
+        "belief_flow_map_information_gain_low_confidence_query_count": int(
+            _float(belief_features.get("belief_flow_map_information_gain_low_confidence_query_count", 0.0))
         ),
         "belief_flow_map_exploration_scale": _float(
             belief_features.get("belief_flow_map_exploration_scale", 0.0)

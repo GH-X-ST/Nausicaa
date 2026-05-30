@@ -1,0 +1,9 @@
+relative_path,byte_count,size_mb,above_75mb,above_100mb,push_allowed
+manifests/targeted_memory_diagnostic_manifest.json,16557,0.01578998565673828,False,False,True
+metrics/active_fan_count_schedule_audit.csv,2,1.9073486328125e-06,False,False,True
+metrics/environment_block_schedule.csv,273,0.00026035308837890625,False,False,True
+metrics/final_heldout_launch_schedule.csv,39049,0.037240028381347656,False,False,True
+metrics/history_launch_schedule.csv,414506,0.39530372619628906,False,False,True
+metrics/outer_case_schedule.csv,2504,0.00238800048828125,False,False,True
+metrics/pass_fail_gate_summary.csv,523,0.0004987716674804688,False,False,True
+metrics/real_time_scheduler_audit.csv,169,0.00016117095947265625,False,False,True

@@ -1,0 +1,2 @@
+table_name,row_level_log,storage
+primitive_execution_log,tables/primitive_execution_log/,partitioned

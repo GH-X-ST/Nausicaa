@@ -25,6 +25,7 @@ from run_repeated_launch_learning_curve import (  # noqa: E402
     POLICY_HISTORY_CONDITIONS,
     R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
     R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+    TARGETED_MEMORY_OPPORTUNITY_BLOCK_ID,
     ValidationBlockSpec,
     ValidationProtocol,
     ValidationRunConfig,
@@ -77,6 +78,15 @@ def _target_block_spec(target_block: str, outer_cases: int) -> ValidationBlockSp
             "annular_gp_four",
             int(outer_cases),
             "targeted_four_fan_fixed_nominal_memory_challenge",
+        )
+    if target_block == "arena_wide_four_fan_opportunity":
+        return ValidationBlockSpec(
+            TARGETED_MEMORY_OPPORTUNITY_BLOCK_ID,
+            "targeted arena-wide four-fan memory-opportunity challenge",
+            "W3",
+            "w3_randomised_four",
+            int(outer_cases),
+            "targeted_arena_wide_four_fan_memory_opportunity_challenge",
         )
     raise ValueError(f"unknown_target_block:{target_block}")
 
@@ -145,7 +155,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-id", type=int, default=1)
     parser.add_argument("--run-label", default="")
     parser.add_argument("--seed", type=int, default=110)
-    parser.add_argument("--target-block", choices=("single_fan_fixed", "four_fan_fixed"), default="single_fan_fixed")
+    parser.add_argument(
+        "--target-block",
+        choices=("single_fan_fixed", "four_fan_fixed", "arena_wide_four_fan_opportunity"),
+        default="single_fan_fixed",
+    )
     parser.add_argument("--outer-cases", type=int, default=2)
     parser.add_argument("--max-episode-time-s", type=float, default=4.0)
     parser.add_argument("--storage-format", default="auto", choices=("auto", "parquet", "csv_gz", "csv"))
