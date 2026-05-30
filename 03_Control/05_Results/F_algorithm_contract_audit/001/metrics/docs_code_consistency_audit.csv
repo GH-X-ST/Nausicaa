@@ -1,20 +1,20 @@
 check_id,observed,passed,required
-doc_readable:docs/Daily_Schedule.txt,37027,True,readable
-doc_readable:docs/Glider_Control_Project_Plan.md,92859,True,readable
-doc_readable:docs/Literature_Review.txt,18610,True,readable
-doc_readable:docs/Logbook.txt,16254,True,readable
-doc_readable:docs/MATLAB Coding.txt,16512,True,readable
-doc_readable:docs/PR.txt,23206,True,readable
-doc_readable:docs/Progrewss Report.txt,16113,True,readable
-doc_readable:docs/Pseudocode Writing Instructions.txt,17255,True,readable
-doc_readable:docs/Python Coding Instruction.txt,25449,True,readable
-doc_readable:docs/Python Coding to CODEX.txt,19066,True,readable
-doc_readable:docs/Python Plotting Guidance.txt,18309,True,readable
-doc_readable:docs/Reference Searching.txt,17541,True,readable
-doc_readable:docs/Skills.md,30644,True,readable
-doc_readable:docs/Thesis.txt,20115,True,readable
-doc_readable:docs/housekeeping_and_naming_rules.md,21099,True,readable
-doc_readable:docs/local_validation_environment.md,5366,True,readable
+doc_readable:docs/Daily_Schedule.txt,37707,True,readable
+doc_readable:docs/Glider_Control_Project_Plan.md,94007,True,readable
+doc_readable:docs/Literature_Review.txt,19225,True,readable
+doc_readable:docs/Logbook.txt,16874,True,readable
+doc_readable:docs/MATLAB Coding.txt,18319,True,readable
+doc_readable:docs/PR.txt,23902,True,readable
+doc_readable:docs/Progrewss Report.txt,16782,True,readable
+doc_readable:docs/Pseudocode Writing Instructions.txt,17890,True,readable
+doc_readable:docs/Python Coding Instruction.txt,25960,True,readable
+doc_readable:docs/Python Coding to CODEX.txt,19691,True,readable
+doc_readable:docs/Python Plotting Guidance.txt,18886,True,readable
+doc_readable:docs/Reference Searching.txt,18204,True,readable
+doc_readable:docs/Skills.md,31565,True,readable
+doc_readable:docs/Thesis.txt,20742,True,readable
+doc_readable:docs/housekeeping_and_naming_rules.md,21573,True,readable
+doc_readable:docs/local_validation_environment.md,5361,True,readable
 stage_semantics:docs/Daily_Schedule.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
 stage_semantics:docs/Glider_Control_Project_Plan.md,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
 stage_semantics:docs/Literature_Review.txt,[],True,current R5/R7/R8/R10/R11 semantics with R9 internal only
@@ -35,6 +35,10 @@ r9_internal_only,R9 remains internal preflight only,True,R9 remains internal pre
 transition_object_core,Every primitive is treated as a transition object,True,Every primitive is treated as a transition object
 r7_not_local_success_only,No primitive may pass R7 solely on local rollout success,True,No primitive may pass R7 solely on local rollout success
 memory_scoped_per_final_row,Memory is reinitialised per final test row,True,Memory is reinitialised per final test row
+two_level_governor_learning_strategy,The learning strategy is two-level,True,The learning strategy is two-level
+case_local_online_memory_scope,case-local and reset per final test row,True,case-local and reset per final test row
+r10_global_deterministic_calibration,R10 performs deterministic global calibration,True,R10 performs deterministic global calibration
+r10_no_profile_ladder_or_black_box,"no profile ladder, Bayesian optimisation, neural tuning, or black-box search",True,"no profile ladder, Bayesian optimisation, neural tuning, or black-box search"
 final_score_only_final_heldout_path,Final scoring is computed only from the final held-out rollout path,True,Final scoring is computed only from the final held-out rollout path
 full_safe_success_gate,full_safe_success,True,full_safe_success
 updraft_gain_active_weight,updraft_gain_weight,True,updraft_gain_weight
@@ -49,7 +53,7 @@ recovery_self_transition_progress_gate,recoverable_degraded -> recoverable_degra
 recovery_boundary_route_not_full_pass,recoverable_degraded -> boundary_near,True,recoverable_degraded -> boundary_near
 r9_quick_preflight_60_final,60 final held-out launches,True,60 final held-out launches
 r9_quick_preflight_645_history,645 history launches,True,645 history launches
-r10_single_hard_training_distribution,R10 is governor/residual-memory tuning on one hard training distribution,True,R10 is governor/residual-memory tuning on one hard training distribution
+r10_single_hard_training_distribution,R10 is governor/spatial-memory tuning on one hard training distribution,True,R10 is governor/spatial-memory tuning on one hard training distribution
 r10_tunes_memory_shield_exploration_handoff,"R10 may tune memory sensitivity, shield margins, exploration thresholds",True,"R10 may tune memory sensitivity, shield margins, exploration thresholds"
 r11_eight_block_fidelity_ladder,R11 is held-out validation on an eight-block fidelity ladder,True,R11 is held-out validation on an eight-block fidelity ladder
 plant_implementation_fixed_per_outer_case,plant/implementation are fixed across history/final launches,True,plant/implementation are fixed across history/final launches

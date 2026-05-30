@@ -205,6 +205,11 @@ def governor_candidate_row(
     belief_mean = _float(belief_features.get("belief_mean_lift_m_s", belief_local))
     belief_max = _float(belief_features.get("belief_max_lift_m_s", belief_local))
     belief_uncertainty = _float(belief_features.get("belief_uncertainty", 1.0), default=1.0)
+    belief_exploration_scale = (
+        _float(belief_features.get("belief_flow_map_exploration_scale", 0.0), default=0.0)
+        if "belief_flow_map_exploration_scale" in belief_features
+        else None
+    )
     belief_observation_count = int(_float(belief_features.get("belief_observation_count", 0.0)))
     history_length = int(_float(context.get("history_length", belief_features.get("history_length", belief_observation_count))))
     mission = _candidate_mission_alignment_features(context=context, belief_features=belief_features)
@@ -252,6 +257,7 @@ def governor_candidate_row(
         belief_uncertainty=belief_uncertainty,
         history_length=history_length,
         governor_config=cfg,
+        exploration_scale=belief_exploration_scale,
     )
     total_score = float(score_with_memory) + float(exploration_component)
     library_size_case_id = str(
@@ -360,6 +366,18 @@ def governor_candidate_row(
         "belief_candidate_path_memory_utility_m": _float(
             belief_features.get("belief_candidate_path_memory_utility_m", belief_specific_energy_residual)
         ),
+        "belief_flow_map_grid_resolution_m": _float(belief_features.get("belief_flow_map_grid_resolution_m", 0.0)),
+        "belief_flow_map_query_radius_m": _float(belief_features.get("belief_flow_map_query_radius_m", 0.0)),
+        "belief_flow_map_candidate_path_uncertainty": _float(
+            belief_features.get("belief_flow_map_candidate_path_uncertainty", belief_uncertainty)
+        ),
+        "belief_flow_map_memory_guided_exploration_uncertainty": _float(
+            belief_features.get("belief_flow_map_memory_guided_exploration_uncertainty", belief_uncertainty)
+        ),
+        "belief_flow_map_exploration_scale": _float(
+            belief_features.get("belief_flow_map_exploration_scale", 0.0)
+        ),
+        "belief_flow_map_policy": str(belief_features.get("belief_flow_map_policy", "")),
         "belief_candidate_path_updraft_residual_cap_m": _float(belief_features.get("belief_candidate_path_updraft_residual_cap_m", 0.0)),
         "belief_candidate_path_reference_bank_rad": _float(belief_features.get("belief_candidate_path_reference_bank_rad", 0.0)),
         "belief_candidate_path_heading_offset_rad": _float(belief_features.get("belief_candidate_path_heading_offset_rad", 0.0)),
@@ -720,10 +738,14 @@ def _safe_exploration_bonus(
     belief_uncertainty: float,
     history_length: int,
     governor_config: GovernorConfig,
+    exploration_scale: float | None = None,
 ) -> float:
     if not viable:
         return 0.0
-    attenuation = 1.0 / max(1.0, float(history_length + 1) ** 0.5)
+    if exploration_scale is None:
+        attenuation = 1.0 / max(1.0, float(history_length + 1) ** 0.5)
+    else:
+        attenuation = _clip(float(exploration_scale), 0.0, 1.0)
     return float(governor_config.exploration_bonus_weight) * max(0.0, float(belief_uncertainty)) * attenuation
 
 

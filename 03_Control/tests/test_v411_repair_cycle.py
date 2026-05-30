@@ -10,9 +10,12 @@ import pytest
 
 from directional_residual_lift_belief import (
     DirectionalResidualObservation,
+    FLOW_BELIEF_GRID_RESOLUTION_M,
+    FLOW_BELIEF_QUERY_RADIUS_M,
     directional_residual_observation_from_rows,
     initial_directional_residual_lift_belief,
     query_directional_residual_lift_features,
+    query_spatial_flow_belief_features,
     update_directional_residual_lift_belief,
 )
 from context_conditioned_outcome import CONTEXT_CONDITIONED_OUTCOME_MODEL_VERSION, context_conditioned_outcome
@@ -38,6 +41,7 @@ from run_repeated_launch_learning_curve import (
     _episode_row_from_sequence,
     _episode_specific_energy_summary,
     _launch_score_fields,
+    _memory_observations_for_rollout_segment,
     _paired_safe_explore_delta_rows,
     _paired_score_delta_rows,
     _paired_score_delta_summary,
@@ -255,6 +259,91 @@ def test_v411_directional_memory_and_safe_exploration_after_filtering() -> None:
         assert "directional_residual_memory_missing_canonical_coordinate" in str(exc)
     else:
         raise AssertionError("old non-canonical coordinate fields must not silently pass")
+
+
+def test_v411_spatial_flow_belief_uses_0p1m_grid_and_neighbour_query() -> None:
+    belief = initial_directional_residual_lift_belief()
+    assert FLOW_BELIEF_GRID_RESOLUTION_M == pytest.approx(0.1)
+    assert FLOW_BELIEF_QUERY_RADIUS_M == pytest.approx(0.20)
+    assert belief.x_edges_m[1] - belief.x_edges_m[0] == pytest.approx(0.1)
+    assert belief.y_edges_m[1] - belief.y_edges_m[0] == pytest.approx(0.1)
+    assert belief.z_edges_m[1] - belief.z_edges_m[0] == pytest.approx(0.1)
+
+    belief = update_directional_residual_lift_belief(
+        belief,
+        DirectionalResidualObservation(
+            x_w_m=2.00,
+            y_w_m=2.00,
+            z_w_m=1.20,
+            direction_rad=0.0,
+            lift_residual_m_s=0.4,
+            updraft_gain_residual_m=0.3,
+            dwell_residual_s=0.1,
+            specific_energy_residual_m=0.5,
+            history_launch_index=2,
+        ),
+    )
+    nearby = query_spatial_flow_belief_features(
+        belief,
+        x_w_m=2.08,
+        y_w_m=2.02,
+        z_w_m=1.21,
+        direction_rad=1.0,
+        current_history_launch_index=2,
+    )
+    far = query_spatial_flow_belief_features(
+        belief,
+        x_w_m=3.00,
+        y_w_m=3.00,
+        z_w_m=2.00,
+        direction_rad=1.0,
+        current_history_launch_index=2,
+    )
+
+    assert nearby["belief_spatial_flow_map_active"] is True
+    assert nearby["belief_spatial_neighbor_cell_count"] >= 1
+    assert nearby["belief_observation_count"] >= 1
+    assert nearby["belief_local_updraft_gain_proxy_m"] > 0.0
+    assert nearby["belief_local_specific_energy_residual_m"] > 0.0
+    assert far["belief_observation_count"] == 0
+    assert far["belief_local_specific_energy_residual_m"] == pytest.approx(0.0)
+
+
+def test_v411_rollout_memory_update_samples_primitive_path_on_0p1m_map() -> None:
+    start = np.zeros(STATE_SIZE, dtype=float)
+    start[STATE_INDEX["x_w"]] = 1.2
+    start[STATE_INDEX["y_w"]] = 2.0
+    start[STATE_INDEX["z_w"]] = 1.2
+    start[STATE_INDEX["psi"]] = 0.0
+    exit_state = start.copy()
+    exit_state[STATE_INDEX["x_w"]] = 1.45
+    exit_state[STATE_INDEX["y_w"]] = 2.05
+    exit_state[STATE_INDEX["z_w"]] = 1.25
+
+    rows = _memory_observations_for_rollout_segment(
+        start_state=start,
+        exit_state=exit_state,
+        scheduled={"history_launch_index": 4, "launch_role": "history"},
+        context_row={},
+        rollout_row={
+            "w_wing_mean_m_s": 0.3,
+            "trajectory_integrated_updraft_gain_m": 0.4,
+            "lift_dwell_time_s": 0.2,
+            "energy_residual_m": 0.6,
+        },
+        outcome={
+            "expected_lift_dwell_time_s": 0.0,
+            "expected_updraft_gain_proxy_m": 0.0,
+            "expected_energy_residual_m": 0.0,
+        },
+    )
+
+    assert len(rows) >= 3
+    assert rows[0]["sample_fraction"] == pytest.approx(0.0)
+    assert rows[-1]["sample_fraction"] == pytest.approx(1.0)
+    assert sum(float(row["observation"].observation_weight) for row in rows) == pytest.approx(1.0)
+    assert rows[0]["observation"].x_w_m == pytest.approx(1.2)
+    assert rows[-1]["observation"].x_w_m == pytest.approx(1.45)
 
 
 def test_r9_r10_launch_sequence_routes_launch_inflight_and_state_recovery_selection() -> None:
@@ -835,7 +924,7 @@ def test_r9_r10_launch_score_uses_specific_energy_loss_and_paired_deltas() -> No
                 "library_size_case_id": "balanced_cluster",
                 "common_final_launch_key": "paired_001",
                 "outer_case_index": 1,
-                "policy_id": "directional_3d_residual_memory_h20",
+                "policy_id": "spatial_flow_belief_memory_h20",
                 "history_length": 20,
                 "launch_score": 25.0,
                 "safe_success": True,
@@ -872,7 +961,7 @@ def test_r9_r10_launch_score_uses_specific_energy_loss_and_paired_deltas() -> No
     summary = _paired_score_delta_summary(pd.concat([memory_delta, explore_delta], ignore_index=True))
 
     assert set(memory_delta["comparison_type"]) == {"memory_vs_no_memory"}
-    assert float(memory_delta.loc[memory_delta["policy_id"] == "directional_3d_residual_memory_h20", "paired_delta_launch_score"].iloc[0]) == 15.0
+    assert float(memory_delta.loc[memory_delta["policy_id"] == "spatial_flow_belief_memory_h20", "paired_delta_launch_score"].iloc[0]) == 15.0
     assert set(explore_delta["comparison_type"]) == {"safe_explore_vs_matching_memory"}
     assert float(explore_delta["paired_delta_launch_score"].iloc[0]) == 5.0
     assert not summary.empty

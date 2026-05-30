@@ -251,7 +251,7 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r11_is_strict_heldout_validation", R11_PROTOCOL.validation_evidence_level == "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation", R11_PROTOCOL.validation_evidence_level, "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation"))
     rows.append(_row("r11_strict_floor_ceiling_gate_zero", R11_PROTOCOL.max_floor_or_ceiling_violation_rate == 0.0, R11_PROTOCOL.max_floor_or_ceiling_violation_rate, 0.0))
     rows.append(_row("r11_gates_full_safe_success", R11_PROTOCOL.min_full_safe_success_rate == 0.99, R11_PROTOCOL.min_full_safe_success_rate, 0.99))
-    rows.append(_row("r9_quick_preflight_policy_history_conditions", R9_POLICY_HISTORY_CONDITIONS == ("no_memory_baseline", "directional_3d_residual_memory_h3", "directional_3d_residual_memory_h10", "directional_3d_residual_memory_h30"), R9_POLICY_HISTORY_CONDITIONS, "no_memory_baseline + h3/h10/h30"))
+    rows.append(_row("r9_quick_preflight_policy_history_conditions", R9_POLICY_HISTORY_CONDITIONS == ("no_memory_baseline", "spatial_flow_belief_memory_h3", "spatial_flow_belief_memory_h10", "spatial_flow_belief_memory_h30"), R9_POLICY_HISTORY_CONDITIONS, "no_memory_baseline + h3/h10/h30"))
     rows.append(_row("r9_expected_final_launches_quick_preflight", R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R9_POLICY_HISTORY_CONDITIONS) * R9_OUTER_CASES_PER_CONDITION == 60, R9_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*3=60"))
     rows.append(_row("r9_expected_history_launches_quick_preflight", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM == 645, R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*3*(h3+h10+h30)=645"))
     rows.append(_row("r10_expected_final_launches_l7_training", R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION, R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*50"))
@@ -701,7 +701,7 @@ def _outer_loop_pairing_and_memory_audit() -> dict[str, object]:
     outer_cases = _outer_case_schedule(protocol=R9_PROTOCOL, seed=90, smoke_outer_cases_per_block=1)
     final_schedule = _final_heldout_schedule(outer_cases=outer_cases, protocol=R9_PROTOCOL)
     pairing_rows = _pairing_audit_rows(final_schedule)
-    memory_final = next(row for row in final_schedule if str(row["policy_id"]) == "directional_3d_residual_memory_h10")
+    memory_final = next(row for row in final_schedule if str(row["policy_id"]) == "spatial_flow_belief_memory_h10")
     history = _history_row_for_final(memory_final, 0)
     policy = _policy_condition(str(memory_final["policy_id"]))
     belief_a = _initial_belief_for_policy(policy=policy, final_row=memory_final)
@@ -788,7 +788,7 @@ def _docs_code_consistency_rows(repo_root: Path) -> list[dict[str, object]]:
         "recovery_boundary_route_not_full_pass": "recoverable_degraded -> boundary_near",
         "r9_quick_preflight_60_final": "60 final held-out launches",
         "r9_quick_preflight_645_history": "645 history launches",
-        "r10_single_hard_training_distribution": "R10 is governor/residual-memory tuning on one hard training distribution",
+        "r10_single_hard_training_distribution": "R10 is governor/spatial-memory tuning on one hard training distribution",
         "r10_tunes_memory_shield_exploration_handoff": "R10 may tune memory sensitivity, shield margins, exploration thresholds",
         "r11_eight_block_fidelity_ladder": "R11 is held-out validation on an eight-block fidelity ladder",
         "plant_implementation_fixed_per_outer_case": "plant/implementation are fixed across history/final launches",
@@ -812,7 +812,7 @@ def _legacy_alias_rows() -> list[dict[str, object]]:
     aliases = [
         {
             "legacy_alias": "expected_energy_residual_m",
-            "real_active_logic": "expected_updraft_gain_proxy_m remains the representative soft reward; expected_energy_residual_m is used for specific-energy residual-memory comparison and compatibility audit output.",
+            "real_active_logic": "expected_updraft_gain_proxy_m remains the representative soft reward; expected_energy_residual_m is used for specific-energy spatial-memory comparison and compatibility audit output.",
             "intentional_status": "not_representative_score_active_for_memory_residual_audit",
         },
         {

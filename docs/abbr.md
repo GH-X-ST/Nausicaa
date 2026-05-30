@@ -16,7 +16,7 @@ primvar   primitive-controller variant
 ctrl      controller
 gov       viability governor
 sel       selector
-mem       directional residual lift memory
+mem       spatial flow-belief memory
 ep        episode
 rf        real flight
 sr        sim-real replay

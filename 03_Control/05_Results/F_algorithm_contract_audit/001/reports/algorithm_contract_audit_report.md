@@ -11,7 +11,7 @@
 
 ## Intentional Legacy Aliases
 
-- `expected_energy_residual_m`: expected_updraft_gain_proxy_m remains the representative soft reward; expected_energy_residual_m is used for specific-energy residual-memory comparison and compatibility audit output. Status: `not_representative_score_active_for_memory_residual_audit`.
+- `expected_energy_residual_m`: expected_updraft_gain_proxy_m remains the representative soft reward; expected_energy_residual_m is used for specific-energy spatial-memory comparison and compatibility audit output. Status: `not_representative_score_active_for_memory_residual_audit`.
 - `belief_local_energy_residual_m`: belief_local_specific_energy_residual_m and belief_candidate_path_memory_utility_m are the active total-specific-energy-dominant memory fields; updraft residual remains auxiliary. Status: `active_specific_energy_memory_with_compatibility_alias`.
 - `energy_weight / terminal_energy_weight`: updraft_gain_weight / terminal_updraft_gain_weight are active config fields; legacy names are accepted only when reading old frozen configs. Status: `legacy_config_reader_only`.
 - `minimum_speed_m_s / speed_margin_m_s`: Speed may appear in old logs or telemetry only; it is not an active governor rejection, recovery trigger, score factor, or audit gate. Status: `legacy_telemetry_only`.

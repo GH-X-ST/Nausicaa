@@ -8,7 +8,7 @@ from transition_labels import entry_classes_for_state_class
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, GOVERNOR_MODES, GovernorConfig, governor_candidate_row
 
 CandidateBeliefFeaturesFn = Callable[[dict[str, object], dict[str, object]], dict[str, object] | None]
-BASELINE_SHIELDED_MEMORY_POLICY_VERSION = "baseline_shielded_near_tie_candidate_path_memory_safe_exploration_v1_6"
+BASELINE_SHIELDED_MEMORY_POLICY_VERSION = "baseline_shielded_spatial_flow_belief_safe_explore_exploit_v2_0"
 REAL_TIME_COMPATIBILITY_PREFILTER_VERSION = "transition_entry_and_speed_bin_shortlist_v2"
 SPEED_BIN_NEIGHBOUR_WINDOW = 0
 MEMORY_SWITCH_MIN_CONFIDENCE = 0.45
@@ -701,6 +701,20 @@ def selector_decision_row(
         ),
         "selected_memory_shield_exploration_score_component": (
             0.0 if selected is None else float(selected.get("memory_shield_exploration_score_component", 0.0))
+        ),
+        "selected_flow_map_grid_resolution_m": (
+            0.0 if selected is None else float(selected.get("belief_flow_map_grid_resolution_m", 0.0))
+        ),
+        "selected_flow_map_query_radius_m": (
+            0.0 if selected is None else float(selected.get("belief_flow_map_query_radius_m", 0.0))
+        ),
+        "selected_flow_map_candidate_path_uncertainty": (
+            0.0 if selected is None else float(selected.get("belief_flow_map_candidate_path_uncertainty", 0.0))
+        ),
+        "selected_flow_map_memory_guided_exploration_uncertainty": (
+            0.0
+            if selected is None
+            else float(selected.get("belief_flow_map_memory_guided_exploration_uncertainty", 0.0))
         ),
         "selected_memory_shield_exploration_cross_family_allowed": (
             False if selected is None else bool(selected.get("memory_shield_exploration_cross_family_allowed", False))

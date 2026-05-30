@@ -105,9 +105,9 @@ def test_v53_r9_is_reduced_internal_preflight_and_can_seed_r10_governor() -> Non
     assert R9_OUTER_CASES_PER_CONDITION == 3
     assert R9_POLICY_HISTORY_CONDITIONS == (
         "no_memory_baseline",
-        "directional_3d_residual_memory_h3",
-        "directional_3d_residual_memory_h10",
-        "directional_3d_residual_memory_h30",
+        "spatial_flow_belief_memory_h3",
+        "spatial_flow_belief_memory_h10",
+        "spatial_flow_belief_memory_h30",
     )
     assert R9_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R9_POLICY_HISTORY_CONDITIONS) * 3 == 60
     assert R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 3 * (3 + 10 + 30) == 645
@@ -395,7 +395,7 @@ def test_v53_memory_scope_is_per_final_case_and_final_launches_are_paired() -> N
     assert all(row["library_case_count"] == len(LIBRARY_SIZE_CASE_IDS) for row in pairing_rows)
     assert all(row["policy_count"] == len(R9_POLICY_HISTORY_CONDITIONS) for row in pairing_rows)
 
-    memory_final = next(row for row in final_schedule if row["policy_id"] == "directional_3d_residual_memory_h30")
+    memory_final = next(row for row in final_schedule if row["policy_id"] == "spatial_flow_belief_memory_h30")
     history = _history_row_for_final(memory_final, 0)
     assert history["library_size_case_id"] == memory_final["library_size_case_id"]
     assert history["policy_id"] == memory_final["policy_id"]

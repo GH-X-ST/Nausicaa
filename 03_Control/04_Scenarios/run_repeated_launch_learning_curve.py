@@ -40,9 +40,12 @@ from arena_contract import TRUE_SAFE_BOUNDS, position_margin_m  # noqa: E402
 from directional_residual_lift_belief import (  # noqa: E402
     DirectionalResidualLiftBelief,
     DirectionalResidualObservation,
+    FLOW_BELIEF_GRID_RESOLUTION_M,
+    FLOW_BELIEF_QUERY_RADIUS_M,
     directional_residual_lift_cell_lookup,
     initial_directional_residual_lift_belief,
     query_directional_residual_lift_features,
+    query_spatial_flow_belief_features,
     update_directional_residual_lift_belief,
 )
 from env_ctx import build_environment_context  # noqa: E402
@@ -87,19 +90,19 @@ SAFE_EXPLORE_ABLATION_HISTORY_LENGTH = 10
 HISTORY_LENGTH_SUM = sum(HISTORY_LENGTHS)
 EMPTY_FROZEN_PRIOR_BASELINE_ID = "empty_frozen_prior_baseline"
 BASELINE_POLICY_IDS = ("no_memory_baseline",)
-MEMORY_POLICY_PREFIX = "directional_3d_residual_memory"
+MEMORY_POLICY_PREFIX = "spatial_flow_belief_memory"
 SAFE_EXPLORE_POLICY_PREFIX = "safe_explore_then_exploit"
 POLICY_HISTORY_CONDITIONS = (
     "no_memory_baseline",
-    "directional_3d_residual_memory_h3",
-    "directional_3d_residual_memory_h10",
-    "directional_3d_residual_memory_h30",
+    "spatial_flow_belief_memory_h3",
+    "spatial_flow_belief_memory_h10",
+    "spatial_flow_belief_memory_h30",
 )
 R9_POLICY_HISTORY_CONDITIONS = (
     "no_memory_baseline",
-    "directional_3d_residual_memory_h3",
-    "directional_3d_residual_memory_h10",
-    "directional_3d_residual_memory_h30",
+    "spatial_flow_belief_memory_h3",
+    "spatial_flow_belief_memory_h10",
+    "spatial_flow_belief_memory_h30",
 )
 R9_HISTORY_LENGTH_SUM = sum(HISTORY_LENGTHS)
 R9_PREFLIGHT_CASES_PER_BLOCK = 1
@@ -138,7 +141,7 @@ DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE = 10
 REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION = "predictive_next_primitive_scheduler_profile_v1"
 REAL_TIME_PREFERRED_DECISION_BUDGET_S = CONTROLLER_INPUT_UPDATE_PERIOD_S
 REAL_TIME_HARD_DECISION_BUDGET_S = PRIMITIVE_FINITE_HORIZON_S
-OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_baseline_shielded_near_tie_recency_safe_exploration_memory_v1_6"
+OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_spatial_flow_belief_safe_explore_exploit_memory_v2_0"
 OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION = (
     "case_local_online_memory_plus_r10_global_deterministic_calibration_v1"
 )
@@ -1796,51 +1799,48 @@ def _run_one_launch(
             context=context_payload["row"],
             governor_mode=governor_mode,
         )
-        observation = DirectionalResidualObservation(
-            x_w_m=float(state[STATE_INDEX["x_w"]]),
-            y_w_m=float(state[STATE_INDEX["y_w"]]),
-            z_w_m=float(state[STATE_INDEX["z_w"]]),
-            direction_rad=float(state[STATE_INDEX["psi"]]),
-            lift_residual_m_s=_lift_residual_for_memory_update(
-                context_payload["row"],
-                rollout_row=rollout_row,
-                outcome=outcome,
-            ),
-            updraft_gain_residual_m=_updraft_gain_residual_for_memory_update(
-                context_payload["row"],
-                rollout_row=rollout_row,
-                outcome=outcome,
-            ),
-            dwell_residual_s=float(rollout_row.get("lift_dwell_time_s", 0.0)) - float(outcome.get("expected_lift_dwell_time_s", 0.0)),
-            specific_energy_residual_m=_specific_energy_residual_for_memory_update(
-                rollout_row=rollout_row,
-                outcome=outcome,
-            ),
-            history_launch_index=_adaptation_launch_index(scheduled),
+        try:
+            exit_state_for_memory = as_state_vector(
+                np.asarray(json.loads(str(rollout_row.get("exit_state_vector", "[]"))), dtype=float)
+            )
+        except Exception:
+            exit_state_for_memory = None
+        observations = _memory_observations_for_rollout_segment(
+            start_state=state,
+            exit_state=exit_state_for_memory,
+            scheduled=scheduled,
+            context_row=context_payload["row"],
+            rollout_row=rollout_row,
+            outcome=outcome,
         )
         belief_before_update = belief_after
-        if bool(policy["updates_memory"]):
-            belief_after = update_directional_residual_lift_belief(belief_after, observation)
-            update_status = "updated"
-        else:
-            update_status = "not_updated_policy"
-        memory_rows.append(
-            {
-                **_schedule_identity_row(scheduled),
-                "launch_role": str(scheduled["launch_role"]),
-                "policy_id": str(policy["policy_id"]),
-                "primitive_step_index": int(primitive_step_index),
-                "update_status": update_status,
-                **asdict(observation),
-                "belief_update_count_before": int(belief_before_update.update_count),
-                "belief_update_count_after": int(belief_after.update_count),
-            }
-        )
-        try:
-            state = as_state_vector(np.asarray(json.loads(str(rollout_row.get("exit_state_vector", "[]"))), dtype=float))
-        except Exception:
+        update_status = "not_updated_policy"
+        for observation_row in observations:
+            observation = observation_row["observation"]
+            before_one = belief_after
+            if bool(policy["updates_memory"]):
+                belief_after = update_directional_residual_lift_belief(belief_after, observation)
+                update_status = "updated"
+            memory_rows.append(
+                {
+                    **_schedule_identity_row(scheduled),
+                    "launch_role": str(scheduled["launch_role"]),
+                    "policy_id": str(policy["policy_id"]),
+                    "primitive_step_index": int(primitive_step_index),
+                    "update_status": update_status,
+                    "memory_update_policy": "spatial_path_distributed_0p1m_flow_utility_map",
+                    "memory_path_sample_index": int(observation_row["sample_index"]),
+                    "memory_path_sample_count": int(observation_row["sample_count"]),
+                    "memory_path_sample_fraction": float(observation_row["sample_fraction"]),
+                    **asdict(observation),
+                    "belief_update_count_before": int(before_one.update_count),
+                    "belief_update_count_after": int(belief_after.update_count),
+                }
+            )
+        if exit_state_for_memory is None:
             blocked_reason = "invalid_exit_state_vector"
             break
+        state = exit_state_for_memory
         if retain_debug_logs:
             belief_rows.append(
                 _belief_snapshot_compact(
@@ -1938,6 +1938,65 @@ def _candidate_path_belief_features_fn(
     return features_for_candidate
 
 
+def _memory_observations_for_rollout_segment(
+    *,
+    start_state: np.ndarray,
+    exit_state: np.ndarray | None,
+    scheduled: dict[str, object],
+    context_row: dict[str, object],
+    rollout_row: dict[str, object],
+    outcome: dict[str, object],
+) -> list[dict[str, object]]:
+    """Distribute one primitive-level utility residual along the flown 3D segment."""
+
+    start = as_state_vector(start_state)
+    if exit_state is None:
+        return []
+    exit_vector = as_state_vector(exit_state)
+    start_xyz = np.array(
+        [start[STATE_INDEX["x_w"]], start[STATE_INDEX["y_w"]], start[STATE_INDEX["z_w"]]],
+        dtype=float,
+    )
+    exit_xyz = np.array(
+        [exit_vector[STATE_INDEX["x_w"]], exit_vector[STATE_INDEX["y_w"]], exit_vector[STATE_INDEX["z_w"]]],
+        dtype=float,
+    )
+    distance_m = float(np.linalg.norm(exit_xyz - start_xyz))
+    sample_count = int(max(1, min(12, math.ceil(distance_m / max(FLOW_BELIEF_GRID_RESOLUTION_M, 1e-9)) + 1)))
+    lift_residual = _lift_residual_for_memory_update(context_row, rollout_row=rollout_row, outcome=outcome)
+    updraft_residual = _updraft_gain_residual_for_memory_update(context_row, rollout_row=rollout_row, outcome=outcome)
+    dwell_residual = float(rollout_row.get("lift_dwell_time_s", 0.0)) - float(outcome.get("expected_lift_dwell_time_s", 0.0))
+    specific_energy_residual = _specific_energy_residual_for_memory_update(rollout_row=rollout_row, outcome=outcome)
+    if distance_m > 1e-6:
+        segment_direction = math.atan2(float(exit_xyz[1] - start_xyz[1]), float(exit_xyz[0] - start_xyz[0]))
+    else:
+        segment_direction = float(start[STATE_INDEX["psi"]])
+    rows: list[dict[str, object]] = []
+    for sample_index in range(sample_count):
+        fraction = 0.0 if sample_count <= 1 else float(sample_index) / float(sample_count - 1)
+        xyz = (1.0 - fraction) * start_xyz + fraction * exit_xyz
+        rows.append(
+            {
+                "sample_index": int(sample_index),
+                "sample_count": int(sample_count),
+                "sample_fraction": float(fraction),
+                "observation": DirectionalResidualObservation(
+                    x_w_m=float(xyz[0]),
+                    y_w_m=float(xyz[1]),
+                    z_w_m=float(xyz[2]),
+                    direction_rad=float(segment_direction),
+                    lift_residual_m_s=float(lift_residual),
+                    updraft_gain_residual_m=float(updraft_residual),
+                    dwell_residual_s=float(dwell_residual),
+                    specific_energy_residual_m=float(specific_energy_residual),
+                    observation_weight=1.0 / float(sample_count),
+                    history_launch_index=_adaptation_launch_index(scheduled),
+                ),
+            }
+        )
+    return rows
+
+
 def _candidate_path_belief_features(
     *,
     belief: DirectionalResidualLiftBelief,
@@ -1949,7 +2008,7 @@ def _candidate_path_belief_features(
     use_residual_memory: bool,
     governor_config: GovernorConfig | None = None,
 ) -> dict[str, object]:
-    """Return candidate path geometry plus optional residual-memory correction."""
+    """Return candidate path geometry plus optional spatial flow-belief correction."""
 
     cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
     reference_state = _candidate_reference_state_vector(representative, outcome)
@@ -1986,7 +2045,7 @@ def _candidate_path_belief_features(
         y_w_m = _clamp_to_bounds(y0 + math.sin(displacement_direction) * distance_m, TRUE_SAFE_BOUNDS.y_w_m)
         z_w_m = _clamp_to_bounds(z0 + vertical_speed_m_s * probe_time_s, TRUE_SAFE_BOUNDS.z_w_m)
         if use_residual_memory:
-            last_features = query_directional_residual_lift_features(
+            last_features = query_spatial_flow_belief_features(
                 belief,
                 x_w_m=x_w_m,
                 y_w_m=y_w_m,
@@ -1994,6 +2053,7 @@ def _candidate_path_belief_features(
                 direction_rad=probe_direction,
                 cell_lookup=cell_lookup,
                 current_history_launch_index=current_history_launch_index,
+                query_radius_m=FLOW_BELIEF_QUERY_RADIUS_M,
             )
             probe_confidence = _candidate_path_probe_confidence(last_features, governor_config=cfg)
             weighted_lift += weight * probe_confidence * _float_value(last_features.get("belief_local_lift_residual_m_s", 0.0))
@@ -2037,6 +2097,13 @@ def _candidate_path_belief_features(
         + float(updraft_weight) * float(capped_updraft)
     )
     confidence = _clip(confidence, 0.0, 1.0)
+    map_guided_uncertainty = _memory_guided_exploration_uncertainty(
+        confidence=confidence,
+        x0=x0,
+        exit_x=exit_x,
+        exit_y=exit_y,
+        exit_z=exit_z,
+    )
     exit_margins = position_margin_m(np.array([exit_x, exit_y, exit_z], dtype=float), TRUE_SAFE_BOUNDS)
     return {
         "belief_version": (
@@ -2051,7 +2118,7 @@ def _candidate_path_belief_features(
         "belief_local_energy_residual_m": float(memory_utility),
         "belief_local_specific_energy_residual_m": float(capped_specific_energy),
         "belief_local_dwell_residual_s": float(capped_dwell),
-        "belief_uncertainty": float(1.0 - confidence),
+        "belief_uncertainty": float(map_guided_uncertainty),
         "belief_observation_count": int(observation_count),
         "belief_effective_observation_count": float(observation_count) * float(confidence),
         "belief_recency_weight": float(last_features.get("belief_recency_weight", 0.0) or 0.0),
@@ -2077,8 +2144,14 @@ def _candidate_path_belief_features(
         ),
         "belief_candidate_path_memory_utility_m": float(memory_utility),
         "belief_candidate_path_memory_utility_policy": (
-            f"specific_energy_{specific_energy_weight:.2f}_plus_updraft_{updraft_weight:.2f}"
+            f"spatial_flow_map_specific_energy_{specific_energy_weight:.2f}_plus_updraft_{updraft_weight:.2f}"
         ),
+        "belief_flow_map_grid_resolution_m": float(FLOW_BELIEF_GRID_RESOLUTION_M),
+        "belief_flow_map_query_radius_m": float(FLOW_BELIEF_QUERY_RADIUS_M),
+        "belief_flow_map_candidate_path_uncertainty": float(1.0 - confidence),
+        "belief_flow_map_memory_guided_exploration_uncertainty": float(map_guided_uncertainty),
+        "belief_flow_map_exploration_scale": 1.0,
+        "belief_flow_map_policy": "0p1m_spatial_updraft_utility_map_with_path_distributed_updates",
         "belief_candidate_path_reference_bank_rad": float(reference_bank_rad),
         "belief_candidate_path_heading_offset_rad": float(heading_offset_rad),
         "belief_candidate_path_speed_m_s": float(path_speed_m_s),
@@ -2186,6 +2259,28 @@ def _candidate_path_probe_confidence(
     )
 
 
+def _memory_guided_exploration_uncertainty(
+    *,
+    confidence: float,
+    x0: float,
+    exit_x: float,
+    exit_y: float,
+    exit_z: float,
+) -> float:
+    unknown = _clip(1.0 - float(confidence), 0.0, 1.0)
+    front_x = float(TRUE_SAFE_BOUNDS.x_w_m[1])
+    remaining_x = max(0.2, float(front_x) - float(x0))
+    progress_gate = _clip((float(exit_x) - float(x0)) / remaining_x, 0.0, 1.0)
+    mission_relevance_gate = 0.25 + 0.75 * float(progress_gate)
+    inside_safe_box = (
+        float(TRUE_SAFE_BOUNDS.x_w_m[0]) <= float(exit_x) <= float(TRUE_SAFE_BOUNDS.x_w_m[1])
+        and float(TRUE_SAFE_BOUNDS.y_w_m[0]) <= float(exit_y) <= float(TRUE_SAFE_BOUNDS.y_w_m[1])
+        and float(TRUE_SAFE_BOUNDS.z_w_m[0]) <= float(exit_z) <= float(TRUE_SAFE_BOUNDS.z_w_m[1])
+    )
+    safety_gate = 1.0 if inside_safe_box else 0.0
+    return float(unknown) * float(mission_relevance_gate) * float(safety_gate)
+
+
 def _clamp_to_bounds(value: float, bounds: tuple[float, float]) -> float:
     return _clip(float(value), float(bounds[0]), float(bounds[1]))
 
@@ -2225,13 +2320,14 @@ def _prepare_realtime_governor_decision(
     belief_features = None
     current_history_launch_index = _adaptation_launch_index(scheduled)
     if bool(policy["uses_memory"]):
-        belief_features = query_directional_residual_lift_features(
+        belief_features = query_spatial_flow_belief_features(
             belief,
             x_w_m=float(state[STATE_INDEX["x_w"]]),
             y_w_m=float(state[STATE_INDEX["y_w"]]),
             z_w_m=float(state[STATE_INDEX["z_w"]]),
             direction_rad=float(state[STATE_INDEX["psi"]]),
             current_history_launch_index=current_history_launch_index,
+            query_radius_m=FLOW_BELIEF_QUERY_RADIUS_M,
         )
     candidate_belief_features = _candidate_path_belief_features_fn(
         belief=belief,
@@ -4151,6 +4247,10 @@ def _write_memory_opportunity_audit_from_partitions(
         "selected_memory_shield_candidate_path_uncertainty",
         "selected_memory_shield_exploration_score_component",
         "selected_memory_shield_path_exit_margin_delta_m",
+        "selected_flow_map_grid_resolution_m",
+        "selected_flow_map_query_radius_m",
+        "selected_flow_map_candidate_path_uncertainty",
+        "selected_flow_map_memory_guided_exploration_uncertainty",
     ):
         if column not in frame.columns:
             frame[column] = 0.0
@@ -4189,6 +4289,10 @@ def _write_memory_opportunity_audit_from_partitions(
             "selected_memory_shield_candidate_path_uncertainty",
             "selected_memory_shield_exploration_score_component",
             "selected_memory_shield_path_exit_margin_delta_m",
+            "selected_flow_map_grid_resolution_m",
+            "selected_flow_map_query_radius_m",
+            "selected_flow_map_candidate_path_uncertainty",
+            "selected_flow_map_memory_guided_exploration_uncertainty",
         )
         if column in frame.columns
     ]
@@ -5507,9 +5611,10 @@ def _write_manifest(
         "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
         "outer_loop_memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION,
         "outer_loop_memory_policy": (
-            "candidate-specific specific-energy-dominant residual correction over seven current-to-exit path probes, "
-            "scaled as a near-tie modifier around the frozen no-memory winner, plus uncertainty-directed exploration; "
-            "accepted only through a baseline shield with no final-launch special case"
+            "case-local 0.1 m 3D spatial updraft-utility belief map with path-distributed primitive updates; "
+            "candidate paths query a 0.2 m neighbourhood over seven current-to-exit probes, then use bounded "
+            "specific-energy/updraft utility as a near-tie modifier plus memory-guided uncertainty exploration; "
+            "accepted only through unchanged viability filters and the baseline shield with no final-launch special case"
         ),
         "governor_learning_strategy_version": OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION,
         "online_memory_scope": ONLINE_MEMORY_SCOPE,
@@ -5538,6 +5643,9 @@ def _write_manifest(
         "candidate_path_memory_full_confidence_observations": float(
             governor_config.candidate_path_memory_full_confidence_observations
         ),
+        "flow_belief_grid_resolution_m": float(FLOW_BELIEF_GRID_RESOLUTION_M),
+        "flow_belief_query_radius_m": float(FLOW_BELIEF_QUERY_RADIUS_M),
+        "flow_belief_update_policy": "path_distributed_primitive_residuals_into_0p1m_3d_updraft_utility_cells",
         "residual_memory_launch_recency_half_life": float(governor_config.residual_memory_launch_recency_half_life),
         "memory_opportunity_audit": "metrics/memory_opportunity_summary.csv",
         "safe_exploration_policy": "always_available_for_memory_policies_after_viability_filter_and_baseline_shield_no_final_run_branch",
@@ -5700,7 +5808,7 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Safety thresholds: hard failure <= `{protocol.max_hard_failure_rate}`, no-viable <= `{protocol.max_no_viable_rate}`, safe success >= `{protocol.min_safe_success_rate}`, full safe success >= `{protocol.min_full_safe_success_rate}`, terminal/lift >= `{protocol.min_terminal_or_lift_capture_rate}`.",
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
         "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, front-wall progress, front-wall terminal proxy, progress-gated terminal total specific-energy proxy, updraft gain, lift dwell, and residual memory.",
-        f"- Residual memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` applies capped, recency-weighted, specific-energy-dominant candidate-path residual memory over seven path probes as a near-tie modifier around the frozen no-memory winner, plus shielded uncertainty exploration after viability filtering.",
+        f"- Memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` maintains a case-local 0.1 m 3D updraft-utility belief map; each flown primitive writes path-distributed residual samples, and each candidate path queries a 0.2 m neighbourhood over seven probes before applying bounded near-tie memory and shielded uncertainty exploration after viability filtering.",
         f"- Governor learning strategy: `{OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION}` keeps online memory `{ONLINE_MEMORY_SCOPE}`; R10 calibration scope is `{R10_GLOBAL_CALIBRATION_SCOPE}` and R11 uses `{R11_GOVERNOR_HANDOFF_SCOPE}`.",
         f"- Calibration search policy: `{GOVERNOR_CALIBRATION_SEARCH_POLICY}`.",
         "- Memory opportunity audit: `memory_opportunity_summary.csv` and `memory_opportunity_decision_log.csv` report baseline-vs-memory candidate gaps, correction deltas, shield status, and accepted/rejected switch reasons.",

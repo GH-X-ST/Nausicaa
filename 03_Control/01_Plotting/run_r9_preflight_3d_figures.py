@@ -70,8 +70,8 @@ DEFAULT_INPUT_ROOT = Path("03_Control/05_Results/R9_test/A05")
 DEFAULT_OUTPUT_ROOT = Path("03_Control/A_figures")
 DEFAULT_RUN_LABEL = "01_r9_a05_preflight_paths"
 DEFAULT_LIBRARY_SIZE_CASE = "balanced_cluster"
-DEFAULT_HISTORY_POLICY = "directional_3d_residual_memory_h10"
-H30_HISTORY_POLICY = "directional_3d_residual_memory_h30"
+DEFAULT_HISTORY_POLICY = "spatial_flow_belief_memory_h10"
+H30_HISTORY_POLICY = "spatial_flow_belief_memory_h30"
 ENVIRONMENT_BLOCKS = ("no_updraft", "single_fan", "four_fan")
 R9_FIGSIZE_3D = (10.8, 5.625)
 R9_AXES_POSITION = [0.20, -0.08, 0.98, 1.14]
@@ -79,30 +79,45 @@ R9_LEGEND_FONTSIZE = 12.5
 R9_LEGEND_ANCHOR = (0.67, 1.05)
 FINAL_POLICY_ORDER = (
     "no_memory_baseline",
+    "spatial_flow_belief_memory_h3",
+    "spatial_flow_belief_memory_h10",
+    "spatial_flow_belief_memory_h30",
     "directional_3d_residual_memory_h3",
     "directional_3d_residual_memory_h10",
     "directional_3d_residual_memory_h30",
 )
 FINAL_POLICY_LABELS = {
     "no_memory_baseline": "no memory",
+    "spatial_flow_belief_memory_h3": "h3 memory",
+    "spatial_flow_belief_memory_h10": "h10 memory",
+    "spatial_flow_belief_memory_h30": "h30 memory",
     "directional_3d_residual_memory_h3": "h3 memory",
     "directional_3d_residual_memory_h10": "h10 memory",
     "directional_3d_residual_memory_h30": "h30 memory",
 }
 FINAL_POLICY_COLORS = {
     "no_memory_baseline": "#24476f",
+    "spatial_flow_belief_memory_h3": "#2e7d32",
+    "spatial_flow_belief_memory_h10": "#d97706",
+    "spatial_flow_belief_memory_h30": "#7e57c2",
     "directional_3d_residual_memory_h3": "#2e7d32",
     "directional_3d_residual_memory_h10": "#d97706",
     "directional_3d_residual_memory_h30": "#7e57c2",
 }
 FINAL_POLICY_LINESTYLES = {
     "no_memory_baseline": "-",
+    "spatial_flow_belief_memory_h3": ":",
+    "spatial_flow_belief_memory_h10": "--",
+    "spatial_flow_belief_memory_h30": "-.",
     "directional_3d_residual_memory_h3": ":",
     "directional_3d_residual_memory_h10": "--",
     "directional_3d_residual_memory_h30": "-.",
 }
 FINAL_POLICY_MARKER_SIZES = {
     "no_memory_baseline": 46,
+    "spatial_flow_belief_memory_h3": 34,
+    "spatial_flow_belief_memory_h10": 24,
+    "spatial_flow_belief_memory_h30": 15,
     "directional_3d_residual_memory_h3": 34,
     "directional_3d_residual_memory_h10": 24,
     "directional_3d_residual_memory_h30": 15,

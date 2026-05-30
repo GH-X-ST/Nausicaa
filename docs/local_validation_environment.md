@@ -75,11 +75,11 @@ tunes mission/risk weights plus memory sensitivity, shield margins, exploration
 thresholds, residual caps, confidence observations, and recency half-life; R11
 freezes that handoff for validation. R9 defaults to all five
 library-size cases, no-updraft/single-fan/four-fan fixed blocks, no-memory plus
-h3/h10/h30 recency-weighted candidate-path residual memory, 60 final held-out launches, and 645 history launches.
+h3/h10/h30 recency-weighted spatial flow-belief memory, 60 final held-out launches, and 645 history launches.
 The R9/R10/R11 governor uses the same candidate-path geometry for no-memory and
 memory policies: forward progress to `x_w = 6.6 m`, front-wall terminal proxy,
 progress-gated terminal total specific-energy proxy, wrong-boundary avoidance,
-and then updraft/lift plus optional residual-memory correction after unchanged
+and then updraft/lift plus optional spatial-memory correction after unchanged
 safety and transition-entry filters.
 R9/R10/R11 final launch scoring uses the current front-wall mission score:
 front-wall terminal success at `x_w = 6.6 m` with y/z inside the true safe
