@@ -138,7 +138,7 @@ DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE = 10
 REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION = "predictive_next_primitive_scheduler_profile_v1"
 REAL_TIME_PREFERRED_DECISION_BUDGET_S = CONTROLLER_INPUT_UPDATE_PERIOD_S
 REAL_TIME_HARD_DECISION_BUDGET_S = PRIMITIVE_FINITE_HORIZON_S
-OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_baseline_shielded_recency_safe_exploration_memory_v1_5"
+OUTER_LOOP_MEMORY_POLICY_VERSION = "outer_loop_baseline_shielded_near_tie_recency_safe_exploration_memory_v1_6"
 OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION = (
     "case_local_online_memory_plus_r10_global_deterministic_calibration_v1"
 )
@@ -1336,7 +1336,12 @@ def _outer_case_schedule(
         if int(smoke_outer_cases_per_block) > 0:
             case_count = min(case_count, int(smoke_outer_cases_per_block))
         for local_index in range(case_count):
-            launch_seed = int(seed) * 100000 + outer_index * 37 + 11
+            paired_start_index = _paired_start_condition_index(
+                protocol=protocol,
+                environment_block_local_index=local_index,
+                outer_case_index=outer_index,
+            )
+            launch_seed = int(seed) * 100000 + paired_start_index * 37 + 11
             env_seed = int(seed) * 200000 + outer_index * 41 + 17
             environment_layout_seed = env_seed + 1
             environment_active_fan_seed = env_seed + 2
@@ -1392,6 +1397,11 @@ def _outer_case_schedule(
                     "environment_active_fan_seed": environment_active_fan_seed,
                     "environment_parameter_seed": environment_parameter_seed,
                     "plant_implementation_seed": plant_implementation_seed,
+                    "paired_start_condition_index": int(paired_start_index),
+                    "paired_start_condition_key": (
+                        f"{protocol.final_schedule_prefix}_paired_start_{int(paired_start_index):04d}"
+                    ),
+                    "paired_start_condition_policy": _paired_start_condition_policy(protocol=protocol),
                     "between_episode_environment_variation": _block_varies_environment_between_history_episodes(block.block_id),
                     "between_episode_environment_parameter_variation": _block_varies_environment_parameters_between_history_episodes(block.block_id),
                     "between_episode_fan_layout_variation": False,
@@ -1409,6 +1419,23 @@ def _outer_case_schedule(
             )
             outer_index += 1
     return rows
+
+
+def _paired_start_condition_index(
+    *,
+    protocol: ValidationProtocol,
+    environment_block_local_index: int,
+    outer_case_index: int,
+) -> int:
+    if str(protocol.stage_id) == "R11":
+        return int(environment_block_local_index)
+    return int(outer_case_index)
+
+
+def _paired_start_condition_policy(*, protocol: ValidationProtocol) -> str:
+    if str(protocol.stage_id) == "R11":
+        return "same_local_case_index_launch_seed_reused_across_l0_l7_library_tiers_and_memory_policies"
+    return "outer_case_unique_launch_seed"
 
 
 def _final_heldout_schedule(*, outer_cases: list[dict[str, object]], protocol: ValidationProtocol) -> list[dict[str, object]]:
@@ -1569,8 +1596,8 @@ def _run_one_launch(
     episode_id = str(scheduled["episode_id"])
     sample = archive_state_sample_for_family(
         start_state_family=FIRST_PRIMITIVE_START_FAMILY,
-        paired_start_key=str(scheduled["common_final_launch_key"]),
-        sample_index=int(scheduled["outer_case_index"]),
+        paired_start_key=str(scheduled.get("paired_start_condition_key", scheduled["common_final_launch_key"])),
+        sample_index=int(scheduled.get("paired_start_condition_index", scheduled["outer_case_index"])),
         seed=int(scheduled["launch_state_seed"]),
         W_layer=str(scheduled["W_layer"]),
         environment_mode=str(scheduled["environment_mode"]),
@@ -4113,6 +4140,11 @@ def _write_memory_opportunity_audit_from_partitions(
     for column in (
         "selected_memory_shield_score_margin",
         "selected_memory_shield_memory_correction_delta",
+        "selected_memory_near_tie_base_score_margin",
+        "selected_memory_near_tie_base_score_gap_to_best",
+        "selected_memory_near_tie_factor",
+        "selected_raw_memory_score_component",
+        "selected_effective_memory_score_component",
         "selected_memory_shield_base_score_gap_to_baseline",
         "selected_memory_shield_memory_opportunity_ratio",
         "selected_memory_shield_candidate_path_confidence",
@@ -4146,6 +4178,11 @@ def _write_memory_opportunity_audit_from_partitions(
             "selected_memory_shield_memory_variant_id",
             "selected_memory_shield_score_margin",
             "selected_memory_shield_memory_correction_delta",
+            "selected_memory_near_tie_base_score_margin",
+            "selected_memory_near_tie_base_score_gap_to_best",
+            "selected_memory_near_tie_factor",
+            "selected_raw_memory_score_component",
+            "selected_effective_memory_score_component",
             "selected_memory_shield_base_score_gap_to_baseline",
             "selected_memory_shield_memory_opportunity_ratio",
             "selected_memory_shield_candidate_path_confidence",
@@ -5470,8 +5507,9 @@ def _write_manifest(
         "real_time_claim_status": "offline_wallclock_profile_only_not_hardware_realtime_claim",
         "outer_loop_memory_policy_version": OUTER_LOOP_MEMORY_POLICY_VERSION,
         "outer_loop_memory_policy": (
-            "candidate-specific specific-energy-dominant residual correction plus uncertainty-directed exploration over "
-            "seven current-to-exit path probes; accepted only through a baseline shield with no final-launch special case"
+            "candidate-specific specific-energy-dominant residual correction over seven current-to-exit path probes, "
+            "scaled as a near-tie modifier around the frozen no-memory winner, plus uncertainty-directed exploration; "
+            "accepted only through a baseline shield with no final-launch special case"
         ),
         "governor_learning_strategy_version": OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION,
         "online_memory_scope": ONLINE_MEMORY_SCOPE,
@@ -5662,7 +5700,7 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Safety thresholds: hard failure <= `{protocol.max_hard_failure_rate}`, no-viable <= `{protocol.max_no_viable_rate}`, safe success >= `{protocol.min_safe_success_rate}`, full safe success >= `{protocol.min_full_safe_success_rate}`, terminal/lift >= `{protocol.min_terminal_or_lift_capture_rate}`.",
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
         "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, front-wall progress, front-wall terminal proxy, progress-gated terminal total specific-energy proxy, updraft gain, lift dwell, and residual memory.",
-        f"- Residual memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` applies capped, recency-weighted, specific-energy-dominant candidate-path residual memory over seven path probes plus shielded uncertainty exploration after viability filtering.",
+        f"- Residual memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` applies capped, recency-weighted, specific-energy-dominant candidate-path residual memory over seven path probes as a near-tie modifier around the frozen no-memory winner, plus shielded uncertainty exploration after viability filtering.",
         f"- Governor learning strategy: `{OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION}` keeps online memory `{ONLINE_MEMORY_SCOPE}`; R10 calibration scope is `{R10_GLOBAL_CALIBRATION_SCOPE}` and R11 uses `{R11_GOVERNOR_HANDOFF_SCOPE}`.",
         f"- Calibration search policy: `{GOVERNOR_CALIBRATION_SEARCH_POLICY}`.",
         "- Memory opportunity audit: `memory_opportunity_summary.csv` and `memory_opportunity_decision_log.csv` report baseline-vs-memory candidate gaps, correction deltas, shield status, and accepted/rejected switch reasons.",

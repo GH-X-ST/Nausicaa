@@ -1,5 +1,5 @@
 {
-  "blocked_reason": "failed_gate:pass_gate_true,r11_validation_gate_hard_failure_rate_within_stage_profile,r11_validation_gate_floor_or_ceiling_violation_rate_within_stage_profile,r11_validation_gate_no_viable_primitive_rate_within_stage_profile,r11_validation_gate_safe_success_rate_within_stage_profile,r11_validation_gate_terminal_or_lift_capture_within_stage_profile,r11_validation_gate_full_safe_success_rate_within_stage_profile",
+  "blocked_reason": "docs_changed_reaudit_required:hash_changed:docs/Daily_Schedule.txt;byte_count_changed:docs/Daily_Schedule.txt;hash_changed:docs/Glider_Control_Project_Plan.md;byte_count_changed:docs/Glider_Control_Project_Plan.md;hash_changed:docs/MATLAB Coding.txt;byte_count_changed:docs/MATLAB Coding.txt;hash_changed:docs/PR.txt;byte_count_changed:docs/PR.txt;hash_changed:docs/Python Coding Instruction.txt;byte_count_changed:docs/Python Coding Instruction.txt;hash_changed:docs/Python Coding to CODEX.txt;byte_count_changed:docs/Python Coding to CODEX.txt;hash_changed:docs/Skills.md;byte_count_changed:docs/Skills.md;hash_changed:docs/housekeeping_and_naming_rules.md;byte_count_changed:docs/housekeeping_and_naming_rules.md",
   "docs_alignment_baseline": {
     "docs/Daily_Schedule.txt": {
       "byte_count": 37426,
@@ -58,7 +58,7 @@
       "sha256": "155fb97fc139e6e1f14941447f5896d19810d75b80454700440eee0833a380f6"
     }
   },
-  "docs_changed_during_run": false,
+  "docs_changed_during_run": true,
   "pipeline_version": "v55_r5_r7_r11_pipeline_r6_archived_with_repeated_docs_guard",
   "run_id": 6,
   "run_root": "03_Control/05_Results/A_Pipeline/B02",
@@ -106,5 +106,5 @@
     }
   },
   "status": "blocked",
-  "updated_utc": "2026-05-30T06:16:51.963477+00:00"
+  "updated_utc": "2026-05-30T10:47:57.214461+00:00"
 }

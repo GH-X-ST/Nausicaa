@@ -622,6 +622,102 @@ def test_v53_no_memory_baseline_still_uses_candidate_path_mission_geometry() -> 
     assert by_variant["far"]["memory_shield_status"] == "not_active_no_candidate_path_memory"
 
 
+def test_v53_memory_is_near_tie_modifier_not_unbounded_override() -> None:
+    timing_payload = {
+        "finite_horizon_s": 0.1,
+        "controller_input_slots_per_primitive": 5,
+        "controller_input_update_period_s": 0.02,
+        "primitive_timing_contract_version": "v411_0p10s_5slot_20ms",
+    }
+    representatives = []
+    outcomes = {}
+    for variant_id in ("baseline", "near_tie", "far_gap"):
+        representatives.append(
+            {
+                "compact_library_id": "launch",
+                "primitive_variant_id": variant_id,
+                "primitive_id": "glide",
+                "entry_role": "transition_object",
+                "transition_entry_class": "launch_gate",
+                "controller_id": f"ctrl_{variant_id}",
+                "K_gain_checksum": "k",
+                "augmented_A_checksum": "a",
+                "augmented_B_checksum": "b",
+                "augmented_gain_checksum": "g",
+                **timing_payload,
+            }
+        )
+        outcomes[variant_id] = {
+            "continuation_probability": 0.5,
+            "transition_success_probability": 0.5,
+            "transition_exit_classes_seen": "post_launch_degraded",
+            "terminal_useful_probability": 0.0,
+            "hard_failure_risk": 0.1,
+        }
+
+    def candidate_path_features(representative: dict[str, object], outcome: dict[str, object]) -> dict[str, object]:
+        del outcome
+        variant_id = str(representative["primitive_variant_id"])
+        exit_x = {"baseline": 5.0, "near_tie": 4.95, "far_gap": 3.0}[variant_id]
+        residual = {"baseline": 0.0, "near_tie": 0.2, "far_gap": 5.0}[variant_id]
+        return {
+            "belief_candidate_path_residual_memory_active": True,
+            "belief_candidate_path_exit_x_w_m": exit_x,
+            "belief_candidate_path_exit_y_w_m": 2.2,
+            "belief_candidate_path_exit_z_w_m": 1.4,
+            "belief_candidate_path_speed_m_s": 5.0,
+            "belief_candidate_path_memory_utility_m": residual,
+            "belief_local_specific_energy_residual_m": residual,
+            "belief_candidate_path_confidence": 1.0,
+            "belief_uncertainty": 0.0,
+        }
+
+    selected, rows = select_compact_representative(
+        representatives=representatives,
+        outcome_rows_by_variant_id=outcomes,
+        context={
+            "context_id": "near_tie_memory_contract",
+            "start_state_family": "launch_gate",
+            "current_x_w_m": 1.3,
+            "current_y_w_m": 2.2,
+            "current_z_w_m": 1.1,
+            "mission_x_min_w_m": 1.2,
+            "front_wall_target_x_w_m": 6.6,
+            "mission_terminal_y_min_m": 0.0,
+            "mission_terminal_y_max_m": 4.4,
+            "mission_terminal_z_min_m": 0.4,
+            "mission_terminal_z_max_m": 3.5,
+            "governor_wall_margin_m": 0.5,
+            "wall_margin_m": 0.5,
+            "floor_margin_m": 0.7,
+            "ceiling_margin_m": 2.4,
+            "latency_case": "nominal",
+        },
+        governor_mode="continuation_mode",
+        candidate_belief_features=candidate_path_features,
+        adaptive_memory_active=True,
+        governor_config=governor_config_from_row(
+            {
+                "config_id": "near_tie_memory_test",
+                "belief_weight": 1.0,
+                "memory_near_tie_base_score_margin": 0.03,
+                "memory_switch_min_confidence": 0.1,
+                "memory_switch_min_score_margin": 0.0,
+            }
+        ),
+    )
+
+    by_variant = {str(row["primitive_variant_id"]): row for row in rows}
+    assert selected is not None
+    assert selected["primitive_variant_id"] == "near_tie"
+    assert by_variant["near_tie"]["memory_near_tie_factor"] > 0.0
+    assert by_variant["near_tie"]["memory_score_component"] > 0.0
+    assert by_variant["far_gap"]["raw_memory_score_component"] > by_variant["near_tie"]["raw_memory_score_component"]
+    assert by_variant["far_gap"]["memory_near_tie_factor"] == pytest.approx(0.0)
+    assert by_variant["far_gap"]["memory_score_component"] == pytest.approx(0.0)
+    assert by_variant["near_tie"]["memory_shield_status"] == "accepted_confident_non_regressive_memory_switch"
+
+
 def test_v53_score_rewards_front_wall_mission_and_updraft_without_time_or_energy_loss_penalty() -> None:
     base = {
         "safe_success": True,
@@ -703,8 +799,10 @@ def test_v53_r10_and_r11_changed_case_randomisation_semantics_match() -> None:
         R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
         R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     )
-    assert R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * 80
-    assert R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 80 * (3 + 10 + 30)
+    assert R11_PROTOCOL.outer_cases_per_condition == 8 * 50
+    assert all(int(block.case_count) == 50 for block in R11_PROTOCOL.blocks)
+    assert R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * 400
+    assert R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 400 * (3 + 10 + 30)
 
     assert _scheduled_active_fan_count_for_outer_case(
         protocol=R11_PROTOCOL,
@@ -819,6 +917,38 @@ def test_v53_r10_and_r11_changed_case_randomisation_semantics_match() -> None:
         assert history["environment_active_fan_seed"] == outer["environment_active_fan_seed"]
         assert history["plant_implementation_seed"] == outer["plant_implementation_seed"]
         assert history["scheduled_active_fan_count"] == outer["scheduled_active_fan_count"]
+
+    r11_schedule = _outer_case_schedule(protocol=R11_PROTOCOL, seed=110)
+    by_local_index: dict[int, list[dict[str, object]]] = {}
+    for row in r11_schedule:
+        by_local_index.setdefault(int(row["environment_block_local_index"]), []).append(row)
+    assert set(by_local_index) == set(range(50))
+    for local_index, rows in by_local_index.items():
+        assert len(rows) == 8
+        assert {row["environment_block_id"] for row in rows} == {
+            R11_L0_DRY_AIR_FIXED_BLOCK_ID,
+            R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID,
+            R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID,
+            R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID,
+            R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID,
+            R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID,
+            R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
+            R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
+        }
+        assert {row["launch_state_seed"] for row in rows} == {
+            110 * 100000 + local_index * 37 + 11
+        }
+        assert {row["paired_start_condition_index"] for row in rows} == {local_index}
+        assert {row["paired_start_condition_key"] for row in rows} == {
+            f"r11_heldout_paired_start_{local_index:04d}"
+        }
+        history_rows = [
+            _history_row_for_final({**row, "episode_id": "paired_contract", "launch_role": "final_heldout"}, 7)
+            for row in rows
+        ]
+        assert {row["launch_state_seed"] for row in history_rows} == {
+            110 * 100000 + local_index * 37 + 11 + 1000000 + 7 * 101
+        }
 
 
 def test_v53_r10_r11_case7_uses_w3_plant_and_implementation_randomisation() -> None:

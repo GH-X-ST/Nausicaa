@@ -52,6 +52,7 @@ class GovernorConfig:
     memory_switch_min_confidence: float = 0.45
     memory_switch_min_score_margin: float = 0.005
     memory_switch_max_base_score_drop: float = 0.03
+    memory_near_tie_base_score_margin: float = 0.03
     memory_switch_max_transition_success_drop: float = 0.02
     memory_switch_max_hard_failure_risk_increase: float = 0.0
     exploration_switch_min_uncertainty: float = 0.55

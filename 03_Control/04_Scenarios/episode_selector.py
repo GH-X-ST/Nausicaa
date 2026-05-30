@@ -8,7 +8,7 @@ from transition_labels import entry_classes_for_state_class
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, GOVERNOR_MODES, GovernorConfig, governor_candidate_row
 
 CandidateBeliefFeaturesFn = Callable[[dict[str, object], dict[str, object]], dict[str, object] | None]
-BASELINE_SHIELDED_MEMORY_POLICY_VERSION = "baseline_shielded_candidate_path_memory_safe_exploration_v1_5"
+BASELINE_SHIELDED_MEMORY_POLICY_VERSION = "baseline_shielded_near_tie_candidate_path_memory_safe_exploration_v1_6"
 REAL_TIME_COMPATIBILITY_PREFILTER_VERSION = "transition_entry_and_speed_bin_shortlist_v2"
 SPEED_BIN_NEIGHBOUR_WINDOW = 0
 MEMORY_SWITCH_MIN_CONFIDENCE = 0.45
@@ -68,7 +68,6 @@ def select_compact_representative(
         )
     for row in candidate_rows:
         row.update(_prefilter_audit_fields(prefilter))
-    _add_rank_diagnostics(candidate_rows)
     viable = [row for row in candidate_rows if bool(row.get("viable", False))]
     if not viable:
         return None, candidate_rows
@@ -80,6 +79,14 @@ def select_compact_representative(
             str(row.get("primitive_variant_id", "")),
         ),
     )[0]
+    memory_active = bool(candidate_belief_features is not None if adaptive_memory_active is None else adaptive_memory_active)
+    _apply_near_tie_memory_modifier(
+        viable_rows=viable,
+        baseline_selected=baseline_selected,
+        memory_active=memory_active,
+        governor_config=cfg,
+    )
+    _add_rank_diagnostics(candidate_rows)
     memory_selected = sorted(
         viable,
         key=lambda row: (
@@ -92,7 +99,7 @@ def select_compact_representative(
         viable_rows=viable,
         baseline_selected=baseline_selected,
         memory_selected=memory_selected,
-        memory_active=bool(candidate_belief_features is not None if adaptive_memory_active is None else adaptive_memory_active),
+        memory_active=memory_active,
         governor_config=cfg,
     )
     selected_score = float(selected.get("total_score_with_memory_and_exploration", selected.get("score", float("-inf"))))
@@ -150,6 +157,46 @@ def _baseline_shielded_memory_selection(
         governor_config=cfg,
     )
     return memory_selected if accepted else baseline_selected
+
+
+def _apply_near_tie_memory_modifier(
+    *,
+    viable_rows: list[dict[str, object]],
+    baseline_selected: dict[str, object],
+    memory_active: bool,
+    governor_config: GovernorConfig | None = None,
+) -> None:
+    """Let memory act as a bounded tie-breaker around the frozen-model winner."""
+
+    cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
+    baseline_score = _score(baseline_selected, "base_score_without_memory")
+    near_tie_margin = max(
+        float(cfg.memory_near_tie_base_score_margin),
+        float(cfg.memory_switch_min_score_margin),
+        1e-9,
+    )
+    for row in viable_rows:
+        base_score = _score(row, "base_score_without_memory")
+        raw_memory_component = _float(row.get("memory_score_component", 0.0))
+        base_gap = max(0.0, float(baseline_score) - float(base_score))
+        near_tie_factor = _clip(1.0 - base_gap / near_tie_margin, 0.0, 1.0) if memory_active else 0.0
+        effective_memory_component = float(raw_memory_component) * float(near_tie_factor)
+        exploration_component = _float(row.get("exploration_score_component", 0.0)) if memory_active else 0.0
+        adjusted_score_with_memory = float(base_score) + float(effective_memory_component)
+        adjusted_total_score = float(adjusted_score_with_memory) + float(exploration_component)
+        row["raw_memory_score_component"] = float(raw_memory_component)
+        row["memory_score_component"] = float(effective_memory_component)
+        row["memory_residual_score_component"] = float(effective_memory_component)
+        row["memory_near_tie_policy_version"] = BASELINE_SHIELDED_MEMORY_POLICY_VERSION
+        row["memory_near_tie_active"] = bool(memory_active)
+        row["memory_near_tie_base_score_margin"] = float(near_tie_margin)
+        row["memory_near_tie_base_score_gap_to_best"] = float(base_gap)
+        row["memory_near_tie_factor"] = float(near_tie_factor)
+        row["memory_near_tie_raw_memory_component"] = float(raw_memory_component)
+        row["memory_near_tie_effective_memory_component"] = float(effective_memory_component)
+        row["score_with_memory"] = float(adjusted_score_with_memory)
+        row["total_score_with_memory_and_exploration"] = float(adjusted_total_score)
+        row["score"] = float(adjusted_total_score)
 
 
 def _memory_switch_acceptance_status(
@@ -613,6 +660,21 @@ def selector_decision_row(
         "selected_memory_shield_memory_correction_delta": (
             0.0 if selected is None else float(selected.get("memory_shield_memory_correction_delta", 0.0))
         ),
+        "selected_memory_near_tie_base_score_margin": (
+            0.0 if selected is None else float(selected.get("memory_near_tie_base_score_margin", 0.0))
+        ),
+        "selected_memory_near_tie_base_score_gap_to_best": (
+            0.0 if selected is None else float(selected.get("memory_near_tie_base_score_gap_to_best", 0.0))
+        ),
+        "selected_memory_near_tie_factor": (
+            0.0 if selected is None else float(selected.get("memory_near_tie_factor", 0.0))
+        ),
+        "selected_raw_memory_score_component": (
+            0.0 if selected is None else float(selected.get("raw_memory_score_component", 0.0))
+        ),
+        "selected_effective_memory_score_component": (
+            0.0 if selected is None else float(selected.get("memory_score_component", 0.0))
+        ),
         "selected_memory_shield_base_score_gap_to_baseline": (
             0.0 if selected is None else float(selected.get("memory_shield_base_score_gap_to_baseline", 0.0))
         ),
@@ -696,6 +758,10 @@ def _add_rank_diagnostics(rows: list[dict[str, object]]) -> None:
 
 def _score(row: dict[str, object], column: str) -> float:
     return _float(row.get(column, float("-inf")), default=float("-inf"))
+
+
+def _clip(value: float, lower: float, upper: float) -> float:
+    return float(min(max(float(value), float(lower)), float(upper)))
 
 
 def _float(value: object, default: float = 0.0) -> float:

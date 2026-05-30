@@ -234,14 +234,14 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r9_reduced_internal_preflight_blocks_exact", _block_tuples(R9_BLOCKS) == (("no_updraft", "W0", "dry_air", 1), ("single_fan", "W2", "annular_gp_single", 1), ("four_fan", "W2", "annular_gp_four", 1)), _block_tuples(R9_BLOCKS), "1 no-updraft, 1 single-fan, 1 four-fan internal preflight cases"))
     rows.append(_row("r10_single_l7_training_block_exact", _block_tuples(R10_BLOCKS) == ((R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID, "W3", "w3_randomised_four", 50),), _block_tuples(R10_BLOCKS), "one hard L7 full-domain randomisation training block with 50 outer cases"))
     expected_r11_blocks = (
-        (R11_L0_DRY_AIR_FIXED_BLOCK_ID, "W0", "dry_air", 10),
-        (R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID, "W2", "annular_gp_single", 10),
-        (R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID, "W2", "annular_gp_four", 10),
-        (R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 10),
-        (R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 10),
-        (R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 10),
-        (R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 10),
-        (R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID, "W3", "w3_randomised_four", 10),
+        (R11_L0_DRY_AIR_FIXED_BLOCK_ID, "W0", "dry_air", 50),
+        (R11_L1_SINGLE_FAN_FIXED_NOMINAL_BLOCK_ID, "W2", "annular_gp_single", 50),
+        (R11_L2_FOUR_FAN_FIXED_NOMINAL_BLOCK_ID, "W2", "annular_gp_four", 50),
+        (R11_L3_FAN_PARAMETER_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 50),
+        (R11_L4_LOCAL_FAN_POSITION_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 50),
+        (R11_L5_ACTIVE_FAN_COUNT_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 50),
+        (R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID, "W3", "w3_randomised_four", 50),
+        (R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID, "W3", "w3_randomised_four", 50),
     )
     rows.append(_row("r11_fidelity_ladder_blocks_exact", _block_tuples(R11_BLOCKS) == expected_r11_blocks, _block_tuples(R11_BLOCKS), "L0 dry, L1 single fixed, L2 four fixed, L3 fan params, L4 local position, L5 active count, L6 environment-only, L7 full-domain"))
     rows.append(_row("r10_r11_arena_wide_fan_positions_nonoverlap_radius_0p5m", R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M == 0.5, R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M, "0.5 m radius; centers must be at least 1.0 m apart"))
@@ -256,8 +256,8 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r9_expected_history_launches_quick_preflight", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM == 645, R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*3*(h3+h10+h30)=645"))
     rows.append(_row("r10_expected_final_launches_l7_training", R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION, R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*50"))
     rows.append(_row("r10_expected_history_launches_l7_training", R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM, R10_EXPECTED_HISTORY_LAUNCHES, "library_cases*50*(h3+h10+h30)"))
-    rows.append(_row("r11_expected_final_launches_fidelity_ladder", R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R11_OUTER_CASES_PER_CONDITION, R11_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*80"))
-    rows.append(_row("r11_expected_history_launches_fidelity_ladder", R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R11_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM, R11_EXPECTED_HISTORY_LAUNCHES, "library_cases*80*(h3+h10+h30)"))
+    rows.append(_row("r11_expected_final_launches_fidelity_ladder", R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R11_OUTER_CASES_PER_CONDITION, R11_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*400"))
+    rows.append(_row("r11_expected_history_launches_fidelity_ladder", R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R11_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM, R11_EXPECTED_HISTORY_LAUNCHES, "library_cases*400*(h3+h10+h30)"))
     rows.append(_row("four_policy_history_conditions_core", len(POLICY_HISTORY_CONDITIONS) == 4, len(POLICY_HISTORY_CONDITIONS), 4))
     rows.append(_row("history_lengths_core_exact", HISTORY_LENGTHS == (3, 10, 30), HISTORY_LENGTHS, (3, 10, 30)))
     rows.append(_row("empty_prior_baseline_name", EMPTY_FROZEN_PRIOR_BASELINE_ID == "empty_frozen_prior_baseline", EMPTY_FROZEN_PRIOR_BASELINE_ID, "empty_frozen_prior_baseline"))
