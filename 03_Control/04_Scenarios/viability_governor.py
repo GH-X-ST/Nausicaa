@@ -83,6 +83,14 @@ class GovernorConfig:
     memory_information_gain_max_base_score_drop: float = 0.14
     memory_information_gain_min_front_progress_ratio: float = 0.45
     memory_information_gain_allow_cross_family: bool = True
+    memory_route_planning_weight: float = 0.75
+    memory_route_information_gain_weight: float = 0.25
+    memory_route_score_cap: float = 0.26
+    memory_route_min_confidence: float = 0.12
+    memory_route_max_base_score_drop: float = 0.22
+    memory_route_min_front_progress_ratio: float = 0.40
+    memory_route_horizon_primitives: float = 4.0
+    memory_route_discount: float = 0.82
 
 
 DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
@@ -461,6 +469,40 @@ def governor_candidate_row(
             belief_features.get("belief_flow_map_exploration_scale", 0.0)
         ),
         "belief_flow_map_policy": str(belief_features.get("belief_flow_map_policy", "")),
+        "belief_flow_map_route_policy": str(belief_features.get("belief_flow_map_route_policy", "")),
+        "belief_flow_map_route_horizon_primitives": int(
+            _float(belief_features.get("belief_flow_map_route_horizon_primitives", 0.0))
+        ),
+        "belief_flow_map_route_probe_count": int(
+            _float(belief_features.get("belief_flow_map_route_probe_count", 0.0))
+        ),
+        "belief_flow_map_route_exploitation_m": _float(
+            belief_features.get("belief_flow_map_route_exploitation_m", 0.0)
+        ),
+        "belief_flow_map_route_information_gain": _float(
+            belief_features.get("belief_flow_map_route_information_gain", 0.0)
+        ),
+        "belief_flow_map_route_confidence": _float(
+            belief_features.get("belief_flow_map_route_confidence", 0.0)
+        ),
+        "belief_flow_map_route_uncertainty": _float(
+            belief_features.get("belief_flow_map_route_uncertainty", 0.0)
+        ),
+        "belief_flow_map_route_front_progress": _float(
+            belief_features.get("belief_flow_map_route_front_progress", 0.0)
+        ),
+        "belief_flow_map_route_safe_fraction": _float(
+            belief_features.get("belief_flow_map_route_safe_fraction", 0.0)
+        ),
+        "belief_flow_map_route_best_x_w_m": _float(
+            belief_features.get("belief_flow_map_route_best_x_w_m", 0.0)
+        ),
+        "belief_flow_map_route_best_y_w_m": _float(
+            belief_features.get("belief_flow_map_route_best_y_w_m", 0.0)
+        ),
+        "belief_flow_map_route_best_z_w_m": _float(
+            belief_features.get("belief_flow_map_route_best_z_w_m", 0.0)
+        ),
         "belief_candidate_path_updraft_residual_cap_m": _float(belief_features.get("belief_candidate_path_updraft_residual_cap_m", 0.0)),
         "belief_candidate_path_reference_bank_rad": _float(belief_features.get("belief_candidate_path_reference_bank_rad", 0.0)),
         "belief_candidate_path_heading_offset_rad": _float(belief_features.get("belief_candidate_path_heading_offset_rad", 0.0)),

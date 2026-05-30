@@ -789,7 +789,7 @@ def _docs_code_consistency_rows(repo_root: Path) -> list[dict[str, object]]:
         "r9_quick_preflight_60_final": "60 final held-out launches",
         "r9_quick_preflight_645_history": "645 history launches",
         "r10_single_hard_training_distribution": "R10 is governor/spatial-memory tuning on one hard training distribution",
-        "r10_tunes_memory_shield_exploration_handoff": "R10 may tune memory sensitivity, memory-objective cap/confidence/tradeoff limits, reachable-flow attraction weight/cap, information-gain weight/cap/tradeoff limits, shield margins, exploration thresholds",
+        "r10_tunes_memory_shield_exploration_handoff": "R10 may tune memory sensitivity, memory-objective cap/confidence/tradeoff limits, reachable-flow attraction weight/cap, information-gain weight/cap/tradeoff limits, route-flow planning weight/cap/confidence/tradeoff limits, shield margins, exploration thresholds",
         "r11_eight_block_fidelity_ladder": "R11 is held-out validation on an eight-block fidelity ladder",
         "plant_implementation_fixed_per_outer_case": "plant/implementation are fixed across history/final launches",
         "outer_loop_realtime_scheduler_profile": "preferred 20 ms controller-slot budget and a hard 0.100 s primitive-boundary budget",

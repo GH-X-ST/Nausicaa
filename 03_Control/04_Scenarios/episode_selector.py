@@ -8,7 +8,7 @@ from transition_labels import entry_classes_for_state_class
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, GOVERNOR_MODES, GovernorConfig, governor_candidate_row
 
 CandidateBeliefFeaturesFn = Callable[[dict[str, object], dict[str, object]], dict[str, object] | None]
-BASELINE_SHIELDED_MEMORY_POLICY_VERSION = "baseline_shielded_spatial_flow_belief_aggressive_information_gain_objective_v2_4"
+BASELINE_SHIELDED_MEMORY_POLICY_VERSION = "baseline_shielded_route_flow_belief_memory_governor_v4_0"
 REAL_TIME_COMPATIBILITY_PREFILTER_VERSION = "transition_entry_and_speed_bin_shortlist_v2"
 SPEED_BIN_NEIGHBOUR_WINDOW = 0
 MEMORY_SWITCH_MIN_CONFIDENCE = 0.45
@@ -221,10 +221,21 @@ def _apply_bounded_memory_objective(
             memory_active=memory_active,
             governor_config=cfg,
         )
+        route_component, route_gate = _route_memory_component(
+            row,
+            baseline_selected=baseline_selected,
+            memory_active=memory_active,
+            governor_config=cfg,
+        )
         effective_memory_component = _clip(
-            float(residual_component) + float(flow_region_component) + float(information_gain_component),
+            float(residual_component)
+            + float(flow_region_component)
+            + float(information_gain_component)
+            + float(route_component),
             -float(cfg.memory_objective_score_cap),
-            float(cfg.memory_objective_score_cap) + float(cfg.memory_information_gain_score_cap),
+            float(cfg.memory_objective_score_cap)
+            + float(cfg.memory_information_gain_score_cap)
+            + float(cfg.memory_route_score_cap),
         )
         exploration_component = _float(row.get("exploration_score_component", 0.0)) if memory_active else 0.0
         adjusted_score_with_memory = float(base_score) + float(effective_memory_component)
@@ -273,6 +284,17 @@ def _apply_bounded_memory_objective(
         row["memory_information_gain_min_front_progress_ratio"] = float(
             cfg.memory_information_gain_min_front_progress_ratio
         )
+        row["memory_route_score_component"] = float(route_component)
+        row["memory_route_gate"] = float(route_gate)
+        row["memory_route_policy"] = "bounded_short_horizon_route_flow_belief_after_viability_filter"
+        row["memory_route_planning_weight"] = float(cfg.memory_route_planning_weight)
+        row["memory_route_information_gain_weight"] = float(cfg.memory_route_information_gain_weight)
+        row["memory_route_score_cap"] = float(cfg.memory_route_score_cap)
+        row["memory_route_min_confidence"] = float(cfg.memory_route_min_confidence)
+        row["memory_route_max_base_score_drop"] = float(cfg.memory_route_max_base_score_drop)
+        row["memory_route_min_front_progress_ratio"] = float(cfg.memory_route_min_front_progress_ratio)
+        row["memory_route_horizon_primitives"] = int(round(float(cfg.memory_route_horizon_primitives)))
+        row["memory_route_discount"] = float(cfg.memory_route_discount)
         row["score_with_memory"] = float(adjusted_score_with_memory)
         row["total_score_with_memory_and_exploration"] = float(adjusted_total_score)
         row["score"] = float(adjusted_total_score)
@@ -359,6 +381,50 @@ def _information_gain_component(
     )
 
 
+def _route_memory_component(
+    row: dict[str, object],
+    *,
+    baseline_selected: dict[str, object],
+    memory_active: bool,
+    governor_config: GovernorConfig,
+) -> tuple[float, float]:
+    if not memory_active:
+        return 0.0, 0.0
+    route_exploitation = _float(row.get("belief_flow_map_route_exploitation_m", 0.0))
+    route_information_gain = max(0.0, _float(row.get("belief_flow_map_route_information_gain", 0.0)))
+    route_confidence = _float(row.get("belief_flow_map_route_confidence", 0.0))
+    route_progress = _float(row.get("belief_flow_map_route_front_progress", 0.0))
+    route_safe_fraction = _float(row.get("belief_flow_map_route_safe_fraction", 0.0))
+    if route_safe_fraction <= 0.0:
+        return 0.0, 0.0
+    baseline_progress = max(1e-9, _float(baseline_selected.get("mission_front_wall_progress_fraction", 0.0)))
+    candidate_progress = _float(row.get("mission_front_wall_progress_fraction", 0.0))
+    progress_ratio = max(float(route_progress), float(candidate_progress)) / float(baseline_progress)
+    if progress_ratio < float(governor_config.memory_route_min_front_progress_ratio):
+        return 0.0, 0.0
+    confidence_gate = _clip(
+        float(route_confidence) / max(1e-9, float(governor_config.memory_route_min_confidence)),
+        0.0,
+        1.0,
+    )
+    progress_gate = _clip(float(progress_ratio), 0.0, 1.0)
+    safe_gate = _clip(float(route_safe_fraction), 0.0, 1.0)
+    combined_gate = float(confidence_gate) * float(progress_gate) * float(safe_gate)
+    route_value = (
+        float(route_exploitation)
+        + float(governor_config.memory_route_information_gain_weight) * float(route_information_gain)
+    )
+    uncapped = float(governor_config.memory_route_planning_weight) * float(route_value) * float(combined_gate)
+    return (
+        _clip(
+            uncapped,
+            -float(governor_config.memory_route_score_cap),
+            float(governor_config.memory_route_score_cap),
+        ),
+        combined_gate,
+    )
+
+
 def _memory_switch_acceptance_status(
     *,
     baseline_selected: dict[str, object],
@@ -370,10 +436,13 @@ def _memory_switch_acceptance_status(
     flow_region_confidence = _float(memory_selected.get("belief_flow_map_reachable_attraction_confidence", 0.0))
     information_gain_component = _float(memory_selected.get("memory_information_gain_score_component", 0.0))
     information_gain = _float(memory_selected.get("belief_flow_map_information_gain", 0.0))
+    route_component = _float(memory_selected.get("memory_route_score_component", 0.0))
+    route_confidence = _float(memory_selected.get("belief_flow_map_route_confidence", 0.0))
     memory_component = _float(memory_selected.get("memory_score_component", 0.0))
     confidence = max(
         _float(memory_selected.get("belief_candidate_path_confidence", 0.0)),
         flow_region_confidence if flow_region_component > 0.0 or memory_component > 0.0 else 0.0,
+        route_confidence if route_component > 0.0 else 0.0,
     )
     uncertainty = _float(memory_selected.get("belief_uncertainty", 1.0), default=1.0)
     exploration_component = _float(memory_selected.get("exploration_score_component", 0.0))
@@ -413,6 +482,8 @@ def _memory_switch_acceptance_status(
         allowed_base_score_drop = max(allowed_base_score_drop, float(cfg.flow_region_attraction_max_base_score_drop))
     if information_gain_component > 0.0 and information_gain >= float(cfg.memory_information_gain_min_uncertainty):
         allowed_base_score_drop = max(allowed_base_score_drop, float(cfg.memory_information_gain_max_base_score_drop))
+    if route_component > 0.0 and route_confidence >= float(cfg.memory_route_min_confidence):
+        allowed_base_score_drop = max(allowed_base_score_drop, float(cfg.memory_route_max_base_score_drop))
     memory_non_regressive = (
         base_score_delta >= -float(allowed_base_score_drop)
         and transition_delta >= -float(cfg.memory_switch_max_transition_success_drop)
@@ -425,6 +496,13 @@ def _memory_switch_acceptance_status(
         and hard_failure_delta <= float(cfg.memory_switch_max_hard_failure_risk_increase)
         and path_margin_non_regressive
     )
+    if (
+        route_component > 0.0
+        and route_confidence >= float(cfg.memory_route_min_confidence)
+        and score_margin >= float(cfg.memory_switch_min_score_margin)
+        and memory_non_regressive
+    ):
+        return True, "accepted_shielded_short_horizon_route_memory_switch"
     if (
         information_gain_component > 0.0
         and information_gain >= float(cfg.memory_information_gain_min_uncertainty)
@@ -465,6 +543,8 @@ def _memory_switch_acceptance_status(
         return False, "rejected_low_candidate_path_memory_confidence"
     if information_gain_component > 0.0 and information_gain < float(cfg.memory_information_gain_min_uncertainty):
         return False, "rejected_information_gain_uncertainty_too_low"
+    if route_component > 0.0 and route_confidence < float(cfg.memory_route_min_confidence):
+        return False, "rejected_route_memory_confidence_too_low"
     if information_gain_component > 0.0 and not information_gain_family_safe:
         return False, "rejected_information_gain_cross_family_without_permission"
     if exploration_component > 0.0 and uncertainty < float(cfg.exploration_switch_min_uncertainty):
@@ -517,9 +597,14 @@ def _mark_memory_shield_rows(
     flow_region_confidence = _float(memory_selected.get("belief_flow_map_reachable_attraction_confidence", 0.0))
     information_gain_component = _float(memory_selected.get("memory_information_gain_score_component", 0.0))
     information_gain = _float(memory_selected.get("belief_flow_map_information_gain", 0.0))
+    route_component = _float(memory_selected.get("memory_route_score_component", 0.0))
+    route_confidence = _float(memory_selected.get("belief_flow_map_route_confidence", 0.0))
+    route_information_gain = _float(memory_selected.get("belief_flow_map_route_information_gain", 0.0))
+    route_exploitation = _float(memory_selected.get("belief_flow_map_route_exploitation_m", 0.0))
     confidence = max(
         _float(memory_selected.get("belief_candidate_path_confidence", 0.0)),
         flow_region_confidence if flow_region_component > 0.0 else 0.0,
+        route_confidence if route_component > 0.0 else 0.0,
     )
     uncertainty = _float(memory_selected.get("belief_uncertainty", 1.0), default=1.0)
     exploration_component = _float(memory_selected.get("exploration_score_component", 0.0))
@@ -569,10 +654,17 @@ def _mark_memory_shield_rows(
         row["memory_shield_flow_region_attraction_confidence"] = float(flow_region_confidence)
         row["memory_shield_information_gain_score_component"] = float(information_gain_component)
         row["memory_shield_information_gain"] = float(information_gain)
+        row["memory_shield_route_score_component"] = float(route_component)
+        row["memory_shield_route_exploitation_m"] = float(route_exploitation)
+        row["memory_shield_route_information_gain"] = float(route_information_gain)
+        row["memory_shield_route_confidence"] = float(route_confidence)
         row["memory_shield_memory_objective_score_cap"] = float(cfg.memory_objective_score_cap)
         row["memory_shield_memory_objective_min_confidence"] = float(cfg.memory_objective_min_confidence)
         row["memory_shield_memory_objective_max_base_score_drop"] = float(cfg.memory_objective_max_base_score_drop)
         row["memory_shield_flow_region_max_base_score_drop"] = float(cfg.flow_region_attraction_max_base_score_drop)
+        row["memory_shield_route_max_base_score_drop"] = float(cfg.memory_route_max_base_score_drop)
+        row["memory_shield_route_min_confidence"] = float(cfg.memory_route_min_confidence)
+        row["memory_shield_route_score_cap"] = float(cfg.memory_route_score_cap)
         row["memory_shield_exploration_cross_family_allowed"] = bool(exploration_family_safe)
         row["memory_shield_information_gain_cross_family_allowed"] = bool(information_gain_family_safe)
         row["memory_shield_information_gain_min_uncertainty"] = float(cfg.memory_information_gain_min_uncertainty)
@@ -898,6 +990,14 @@ def selector_decision_row(
         "governor_memory_information_gain_allow_cross_family": bool(
             cfg.memory_information_gain_allow_cross_family
         ),
+        "governor_memory_route_planning_weight": float(cfg.memory_route_planning_weight),
+        "governor_memory_route_information_gain_weight": float(cfg.memory_route_information_gain_weight),
+        "governor_memory_route_score_cap": float(cfg.memory_route_score_cap),
+        "governor_memory_route_min_confidence": float(cfg.memory_route_min_confidence),
+        "governor_memory_route_max_base_score_drop": float(cfg.memory_route_max_base_score_drop),
+        "governor_memory_route_min_front_progress_ratio": float(cfg.memory_route_min_front_progress_ratio),
+        "governor_memory_route_horizon_primitives": int(round(float(cfg.memory_route_horizon_primitives))),
+        "governor_memory_route_discount": float(cfg.memory_route_discount),
         "wall_margin_m": float(context.get("wall_margin_m", 0.0)),
         "governor_wall_margin_m": float(context.get("governor_wall_margin_m", context.get("wall_margin_m", 0.0))),
         "candidate_count": int(candidate_count),
@@ -965,6 +1065,15 @@ def selector_decision_row(
         "selected_memory_information_gain_gate": (
             0.0 if selected is None else float(selected.get("memory_information_gain_gate", 0.0))
         ),
+        "selected_memory_route_score_component": (
+            0.0 if selected is None else float(selected.get("memory_route_score_component", 0.0))
+        ),
+        "selected_memory_route_gate": (
+            0.0 if selected is None else float(selected.get("memory_route_gate", 0.0))
+        ),
+        "selected_memory_route_horizon_primitives": (
+            0 if selected is None else int(float(selected.get("memory_route_horizon_primitives", 0)))
+        ),
         "selected_memory_shield_base_score_gap_to_baseline": (
             0.0 if selected is None else float(selected.get("memory_shield_base_score_gap_to_baseline", 0.0))
         ),
@@ -1007,6 +1116,18 @@ def selector_decision_row(
         ),
         "selected_memory_shield_information_gain": (
             0.0 if selected is None else float(selected.get("memory_shield_information_gain", 0.0))
+        ),
+        "selected_memory_shield_route_score_component": (
+            0.0 if selected is None else float(selected.get("memory_shield_route_score_component", 0.0))
+        ),
+        "selected_memory_shield_route_exploitation_m": (
+            0.0 if selected is None else float(selected.get("memory_shield_route_exploitation_m", 0.0))
+        ),
+        "selected_memory_shield_route_information_gain": (
+            0.0 if selected is None else float(selected.get("memory_shield_route_information_gain", 0.0))
+        ),
+        "selected_memory_shield_route_confidence": (
+            0.0 if selected is None else float(selected.get("memory_shield_route_confidence", 0.0))
         ),
         "selected_flow_map_grid_resolution_m": (
             0.0 if selected is None else float(selected.get("belief_flow_map_grid_resolution_m", 0.0))
@@ -1059,6 +1180,24 @@ def selector_decision_row(
             0
             if selected is None
             else int(float(selected.get("belief_flow_map_information_gain_low_confidence_query_count", 0)))
+        ),
+        "selected_flow_map_route_policy": (
+            "" if selected is None else str(selected.get("belief_flow_map_route_policy", ""))
+        ),
+        "selected_flow_map_route_exploitation_m": (
+            0.0 if selected is None else float(selected.get("belief_flow_map_route_exploitation_m", 0.0))
+        ),
+        "selected_flow_map_route_information_gain": (
+            0.0 if selected is None else float(selected.get("belief_flow_map_route_information_gain", 0.0))
+        ),
+        "selected_flow_map_route_confidence": (
+            0.0 if selected is None else float(selected.get("belief_flow_map_route_confidence", 0.0))
+        ),
+        "selected_flow_map_route_front_progress": (
+            0.0 if selected is None else float(selected.get("belief_flow_map_route_front_progress", 0.0))
+        ),
+        "selected_flow_map_route_safe_fraction": (
+            0.0 if selected is None else float(selected.get("belief_flow_map_route_safe_fraction", 0.0))
         ),
         "selected_memory_shield_exploration_cross_family_allowed": (
             False if selected is None else bool(selected.get("memory_shield_exploration_cross_family_allowed", False))
