@@ -1,0 +1,700 @@
+{
+  "runner_version": "run_lqr_w01_dense_chunked_v524",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v5.20",
+  "run_stage": "R5_W0_W1_robust_randomised_primitive_synthesis",
+  "run_id": 906,
+  "run_label": "B01",
+  "run_root": "03_Control/05_Results/R5_dense/B01",
+  "rows_requested": 102400,
+  "seed": 1,
+  "latency_case": "nominal",
+  "rollout_dt_s": 0.02,
+  "primitive_timing_contract": {
+    "finite_horizon_s": 0.1,
+    "controller_input_slots_per_primitive": 5,
+    "controller_input_update_period_s": 0.02,
+    "primitive_timing_contract_version": "v411_0p10s_5slot_20ms"
+  },
+  "primitive_timing_contract_status": "compliant",
+  "required_docs_gate_status": "passed",
+  "required_docs": [
+    {
+      "doc_name": "Glider_Control_Project_Plan.md",
+      "relative_path": "docs/Glider_Control_Project_Plan.md",
+      "readable": true,
+      "byte_count": 95037,
+      "contains_text": true
+    },
+    {
+      "doc_name": "Skills.md",
+      "relative_path": "docs/Skills.md",
+      "readable": true,
+      "byte_count": 31171,
+      "contains_text": true
+    },
+    {
+      "doc_name": "Python Coding Instruction.txt",
+      "relative_path": "docs/Python Coding Instruction.txt",
+      "readable": true,
+      "byte_count": 25843,
+      "contains_text": true
+    },
+    {
+      "doc_name": "Python Coding to CODEX.txt",
+      "relative_path": "docs/Python Coding to CODEX.txt",
+      "readable": true,
+      "byte_count": 19460,
+      "contains_text": true
+    },
+    {
+      "doc_name": "MATLAB Coding.txt",
+      "relative_path": "docs/MATLAB Coding.txt",
+      "readable": true,
+      "byte_count": 18039,
+      "contains_text": true
+    },
+    {
+      "doc_name": "housekeeping_and_naming_rules.md",
+      "relative_path": "docs/housekeeping_and_naming_rules.md",
+      "readable": true,
+      "byte_count": 21493,
+      "contains_text": true
+    },
+    {
+      "doc_name": "Daily_Schedule.txt",
+      "relative_path": "docs/Daily_Schedule.txt",
+      "readable": true,
+      "byte_count": 37421,
+      "contains_text": true
+    },
+    {
+      "doc_name": "PR.txt",
+      "relative_path": "docs/PR.txt",
+      "readable": true,
+      "byte_count": 23651,
+      "contains_text": true
+    }
+  ],
+  "missing_required_docs": [],
+  "method_evidence_level": "w01_dense_evidence_complete",
+  "w01_dense_evidence_complete": true,
+  "w01_dense_required_for_w3": true,
+  "w01_dense_required_for_w2": false,
+  "minimum_rows_required_for_dense_claim": 102400,
+  "actual_row_count": 102400,
+  "candidate_count": 32,
+  "paired_tests_per_candidate": 50,
+  "start_family_mix_complete": true,
+  "primitive_family_coverage_complete": true,
+  "method_evidence_blockers": [],
+  "candidate_chunk_size": 800,
+  "rich_side_l6_row_threshold": 102400,
+  "fallback_l6_row_threshold": 19200,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "dry_run_schedule": false,
+  "resume": true,
+  "repair_incomplete": true,
+  "selected_worker_count": 8,
+  "worker_decision": {
+    "requested": "8",
+    "selected_worker_count": 8,
+    "max_workers": 8,
+    "os_cpu_count": 20,
+    "memory_total_gb": 31.668304443359375,
+    "memory_safety_margin_gb": 8.0,
+    "estimated_worker_memory_gb": 2.0,
+    "fallback_reason": "none"
+  },
+  "chunk_count": 128,
+  "schedule_mode": "balanced_paired",
+  "paired_start_policy": "common_random_start_key_reused_within_transition_entry_start_family_regimes",
+  "per_primitive_row_counts": {
+    "energy_retaining_bank": 12800,
+    "glide": 12800,
+    "lift_dwell_arc": 12800,
+    "lift_entry": 12800,
+    "mild_turn_left": 12800,
+    "mild_turn_right": 12800,
+    "recovery": 12800,
+    "safe_exit_or_recovery_handoff": 12800
+  },
+  "per_candidate_row_counts": {
+    "0": 3200,
+    "1": 3200,
+    "10": 3200,
+    "11": 3200,
+    "12": 3200,
+    "13": 3200,
+    "14": 3200,
+    "15": 3200,
+    "16": 3200,
+    "17": 3200,
+    "18": 3200,
+    "19": 3200,
+    "2": 3200,
+    "20": 3200,
+    "21": 3200,
+    "22": 3200,
+    "23": 3200,
+    "24": 3200,
+    "25": 3200,
+    "26": 3200,
+    "27": 3200,
+    "28": 3200,
+    "29": 3200,
+    "3": 3200,
+    "30": 3200,
+    "31": 3200,
+    "4": 3200,
+    "5": 3200,
+    "6": 3200,
+    "7": 3200,
+    "8": 3200,
+    "9": 3200
+  },
+  "per_W_layer_row_counts": {
+    "W0": 12800,
+    "W1": 89600
+  },
+  "per_environment_mode_row_counts": {
+    "dry_air": 12800,
+    "w1_annular_gp_randomised_four": 64000,
+    "w1_annular_gp_randomised_single": 25600
+  },
+  "per_r5_evidence_block_row_counts": {
+    "r5_anchor_dry_air": 12800,
+    "r5_anchor_four_fan_fixed": 12800,
+    "r5_anchor_single_fan_fixed": 12800,
+    "r5_random_active_fan_count": 12800,
+    "r5_random_arena_wide": 12800,
+    "r5_random_four_fan_parameter": 12800,
+    "r5_random_local_fan_position": 12800,
+    "r5_random_single_fan_local": 12800
+  },
+  "per_r5_uncertainty_tier_row_counts": {
+    "active_fan_count_uncertainty": 12800,
+    "anchor_dry_air": 12800,
+    "anchor_fixed_four_fan": 12800,
+    "anchor_fixed_single_fan": 12800,
+    "arena_wide_full_randomisation": 12800,
+    "four_fan_parameter_uncertainty": 12800,
+    "local_fan_position_uncertainty": 12800,
+    "single_fan_local_uncertainty": 12800
+  },
+  "per_r5_evidence_stage_role_row_counts": {
+    "control_anchor": 38400,
+    "uncertainty_family_training": 64000
+  },
+  "per_r5_active_fan_count_policy_row_counts": {
+    "balanced_0_1_2_3_4_for_active_fan_number_variation": 12800,
+    "balanced_0_1_2_3_4_with_arena_wide_fan_position_generalisation": 12800,
+    "fixed_four_active_fans": 38400,
+    "fixed_one_active_fan": 25600,
+    "fixed_zero_active_fans": 12800
+  },
+  "per_r5_fan_position_policy_row_counts": {
+    "common_shift": 25600,
+    "fixed_base_positions": 51200,
+    "independent_uniform_xy_bounds": 12800,
+    "no_fan_positions": 12800
+  },
+  "per_start_family_row_counts": {
+    "inflight_boundary_near": 10240,
+    "inflight_lift_region": 15360,
+    "inflight_nominal": 25600,
+    "inflight_recovery_edge": 10240,
+    "launch_gate": 40960
+  },
+  "r5_launch_aware_decision": "R5_TRANSITION_AWARE_DENSE_BLOCKED_FIX_REQUIRED",
+  "r5_launch_aware_gate_blockers": [
+    "glide:launch_gate_row_count_5120_expected_10240",
+    "recovery:launch_gate_row_count_5120_expected_10240",
+    "lift_entry:launch_gate_row_count_5120_expected_10240",
+    "lift_dwell_arc:launch_gate_row_count_5120_expected_10240",
+    "mild_turn_left:launch_gate_row_count_5120_expected_10240",
+    "mild_turn_right:launch_gate_row_count_5120_expected_10240",
+    "energy_retaining_bank:launch_gate_row_count_5120_expected_10240",
+    "safe_exit_or_recovery_handoff:launch_gate_row_count_5120_expected_10240",
+    "missing_selected_inflight_stable_transition_object_for_energy_retaining_bank",
+    "missing_selected_inflight_stable_transition_object_for_glide",
+    "missing_selected_inflight_stable_transition_object_for_lift_dwell_arc",
+    "missing_selected_inflight_stable_transition_object_for_lift_entry",
+    "missing_selected_inflight_stable_transition_object_for_mild_turn_left",
+    "missing_selected_inflight_stable_transition_object_for_mild_turn_right",
+    "missing_selected_inflight_stable_transition_object_for_recovery",
+    "missing_selected_inflight_stable_transition_object_for_safe_exit_or_recovery_handoff",
+    "missing_selected_launch_gate_transition_object_for_energy_retaining_bank",
+    "missing_selected_launch_gate_transition_object_for_glide",
+    "missing_selected_launch_gate_transition_object_for_lift_dwell_arc",
+    "missing_selected_launch_gate_transition_object_for_lift_entry",
+    "missing_selected_launch_gate_transition_object_for_mild_turn_left",
+    "missing_selected_launch_gate_transition_object_for_mild_turn_right",
+    "missing_selected_launch_gate_transition_object_for_recovery",
+    "missing_selected_launch_gate_transition_object_for_safe_exit_or_recovery_handoff",
+    "r5_transition_selected_for_r7_empty",
+    "r5_transition_training_not_passed",
+    "frozen_w01_controller_bundle_empty"
+  ],
+  "r5_transition_training_version": "r5_transition_robust_qr_reference_training_v5_no_turn_expression_objective",
+  "r5_transition_training_status": "blocked",
+  "r5_transition_training_manifest": "manifests/r5_transition_training_manifest.json",
+  "r5_transition_candidate_training_summary": "metrics/r5_transition_candidate_training_summary.csv",
+  "r5_transition_selected_for_r7": "metrics/r5_transition_selected_for_r7.csv",
+  "r5_transition_pareto_front": "metrics/r5_transition_pareto_front.csv",
+  "r5_selected_transition_object_count": 0,
+  "r5_selected_unique_primitive_variant_count": 0,
+  "r5_transition_training_score_formula": "0.55*success_lcb + 0.20*worst_env_success_lcb + 0.10*clipped_updraft_gain + 0.05*clipped_lift_dwell + 0.05*clipped_rollout_duration - 0.35*hard_failure_ucb - 0.10*saturation_mean",
+  "r5_regime_labels": [
+    "launch_entry_evidence_for_8_families",
+    "inflight_entry_evidence_for_8_families",
+    "boundary_or_recovery_entry_evidence_for_8_families"
+  ],
+  "r5_regime_separation_gate": "transition_entry_rows_judged_by_start_family_and_entry_class_for_the_same_8_primitives",
+  "retired_launch_capture_primitive_ids_active": false,
+  "active_primitive_count": 8,
+  "expected_launch_gate_rows_per_active_primitive": 10240,
+  "cross_layer_smoke_status": "cross_layer_smoke_start_family_complete",
+  "cross_layer_smoke_blockers": [],
+  "cross_layer_minimum_paired_start_cycle": 100,
+  "start_family_mix_exact_or_blocked": true,
+  "official_W_layers": {
+    "W0": [
+      "dry_air"
+    ],
+    "W1": [
+      "w1_annular_gp_randomised_single",
+      "w1_annular_gp_randomised_four"
+    ]
+  },
+  "r5_evidence_distribution_version": "anchor_plus_r10_uncertainty_family_v1",
+  "r5_evidence_block_count": 8,
+  "r5_evidence_block_ids": [
+    "r5_anchor_dry_air",
+    "r5_anchor_single_fan_fixed",
+    "r5_anchor_four_fan_fixed",
+    "r5_random_single_fan_local",
+    "r5_random_four_fan_parameter",
+    "r5_random_active_fan_count",
+    "r5_random_local_fan_position",
+    "r5_random_arena_wide"
+  ],
+  "r5_evidence_blocks": [
+    {
+      "block_id": "r5_anchor_dry_air",
+      "human_label": "R5 dry-air anchor",
+      "W_layer": "W0",
+      "environment_mode": "dry_air",
+      "uncertainty_tier": "anchor_dry_air",
+      "stage_role": "control_anchor",
+      "active_fan_count_policy": "fixed_zero_active_fans",
+      "fan_position_policy": "no_fan_positions",
+      "fixed_active_fan_count": 0,
+      "active_fan_count_sequence": [],
+      "fan_power_scale_range": [
+        1.0,
+        1.0
+      ],
+      "width_scale_range": [
+        1.0,
+        1.0
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.0
+      ],
+      "fan_position_shift_range_m": [
+        -0.2,
+        0.2
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 0
+    },
+    {
+      "block_id": "r5_anchor_single_fan_fixed",
+      "human_label": "R5 fixed single-fan anchor",
+      "W_layer": "W1",
+      "environment_mode": "w1_annular_gp_randomised_single",
+      "uncertainty_tier": "anchor_fixed_single_fan",
+      "stage_role": "control_anchor",
+      "active_fan_count_policy": "fixed_one_active_fan",
+      "fan_position_policy": "fixed_base_positions",
+      "fixed_active_fan_count": 1,
+      "active_fan_count_sequence": [],
+      "fan_power_scale_range": [
+        1.0,
+        1.0
+      ],
+      "width_scale_range": [
+        1.0,
+        1.0
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.0
+      ],
+      "fan_position_shift_range_m": [
+        0.0,
+        0.0
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 1
+    },
+    {
+      "block_id": "r5_anchor_four_fan_fixed",
+      "human_label": "R5 fixed four-fan anchor",
+      "W_layer": "W1",
+      "environment_mode": "w1_annular_gp_randomised_four",
+      "uncertainty_tier": "anchor_fixed_four_fan",
+      "stage_role": "control_anchor",
+      "active_fan_count_policy": "fixed_four_active_fans",
+      "fan_position_policy": "fixed_base_positions",
+      "fixed_active_fan_count": 4,
+      "active_fan_count_sequence": [],
+      "fan_power_scale_range": [
+        1.0,
+        1.0
+      ],
+      "width_scale_range": [
+        1.0,
+        1.0
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.0
+      ],
+      "fan_position_shift_range_m": [
+        0.0,
+        0.0
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 2
+    },
+    {
+      "block_id": "r5_random_single_fan_local",
+      "human_label": "R5 randomized single-fan local uncertainty",
+      "W_layer": "W1",
+      "environment_mode": "w1_annular_gp_randomised_single",
+      "uncertainty_tier": "single_fan_local_uncertainty",
+      "stage_role": "uncertainty_family_training",
+      "active_fan_count_policy": "fixed_one_active_fan",
+      "fan_position_policy": "common_shift",
+      "fixed_active_fan_count": 1,
+      "active_fan_count_sequence": [],
+      "fan_power_scale_range": [
+        0.85,
+        1.15
+      ],
+      "width_scale_range": [
+        0.85,
+        1.15
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.5
+      ],
+      "fan_position_shift_range_m": [
+        -0.2,
+        0.2
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 3
+    },
+    {
+      "block_id": "r5_random_four_fan_parameter",
+      "human_label": "R5 four-fan parameter uncertainty",
+      "W_layer": "W1",
+      "environment_mode": "w1_annular_gp_randomised_four",
+      "uncertainty_tier": "four_fan_parameter_uncertainty",
+      "stage_role": "uncertainty_family_training",
+      "active_fan_count_policy": "fixed_four_active_fans",
+      "fan_position_policy": "fixed_base_positions",
+      "fixed_active_fan_count": 4,
+      "active_fan_count_sequence": [],
+      "fan_power_scale_range": [
+        0.85,
+        1.15
+      ],
+      "width_scale_range": [
+        0.85,
+        1.15
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.5
+      ],
+      "fan_position_shift_range_m": [
+        -0.2,
+        0.2
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 4
+    },
+    {
+      "block_id": "r5_random_active_fan_count",
+      "human_label": "R5 active fan-count uncertainty",
+      "W_layer": "W1",
+      "environment_mode": "w1_annular_gp_randomised_four",
+      "uncertainty_tier": "active_fan_count_uncertainty",
+      "stage_role": "uncertainty_family_training",
+      "active_fan_count_policy": "balanced_0_1_2_3_4_for_active_fan_number_variation",
+      "fan_position_policy": "fixed_base_positions",
+      "fixed_active_fan_count": null,
+      "active_fan_count_sequence": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "fan_power_scale_range": [
+        0.85,
+        1.15
+      ],
+      "width_scale_range": [
+        0.85,
+        1.15
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.5
+      ],
+      "fan_position_shift_range_m": [
+        -0.2,
+        0.2
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 5
+    },
+    {
+      "block_id": "r5_random_local_fan_position",
+      "human_label": "R5 local fan-position uncertainty",
+      "W_layer": "W1",
+      "environment_mode": "w1_annular_gp_randomised_four",
+      "uncertainty_tier": "local_fan_position_uncertainty",
+      "stage_role": "uncertainty_family_training",
+      "active_fan_count_policy": "fixed_four_active_fans",
+      "fan_position_policy": "common_shift",
+      "fixed_active_fan_count": 4,
+      "active_fan_count_sequence": [],
+      "fan_power_scale_range": [
+        0.85,
+        1.15
+      ],
+      "width_scale_range": [
+        0.85,
+        1.15
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.5
+      ],
+      "fan_position_shift_range_m": [
+        -0.2,
+        0.2
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 6
+    },
+    {
+      "block_id": "r5_random_arena_wide",
+      "human_label": "R5 arena-wide full randomisation",
+      "W_layer": "W1",
+      "environment_mode": "w1_annular_gp_randomised_four",
+      "uncertainty_tier": "arena_wide_full_randomisation",
+      "stage_role": "uncertainty_family_training",
+      "active_fan_count_policy": "balanced_0_1_2_3_4_with_arena_wide_fan_position_generalisation",
+      "fan_position_policy": "independent_uniform_xy_bounds",
+      "fixed_active_fan_count": null,
+      "active_fan_count_sequence": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "fan_power_scale_range": [
+        0.85,
+        1.15
+      ],
+      "width_scale_range": [
+        0.85,
+        1.15
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.5
+      ],
+      "fan_position_shift_range_m": [
+        -0.2,
+        0.2
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 7
+    }
+  ],
+  "r5_training_randomisation_policy": {
+    "policy": "small anchors plus R10/R11-style randomized uncertainty-family training blocks",
+    "W0": "dry_air_anchor",
+    "W1_single": "fixed_anchor_plus_local_random_single_fan_uncertainty",
+    "W1_multi": "fixed_anchor_plus_parameter_active_count_local_position_and_arena_wide_randomisation",
+    "duplicate_strength_width_centre_wrapper": "disabled_for_annular_gp_training",
+    "axisymmetric_gaussian_plume": "diagnostic_only_not_active_pass_evidence",
+    "active_fan_count_sequence": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "paired_tests_per_candidate_per_evidence_block": 50
+  },
+  "R6_W2_active_pipeline_gate": false,
+  "R6_W2_archived_diagnostic_only": true,
+  "R7_W3_direct_source": "r5_transition_selected_for_r7_frozen_controller_bundle",
+  "W2_generated": false,
+  "W3_generated": false,
+  "entry_role_regime_separation_policy": "all_8_active_primitives_scheduled_across_launch_inflight_boundary_recovery_entry_regimes",
+  "transition_contract": {
+    "transition_label_version": "transition_labels_v3_recovery_progress",
+    "state_classes": "launch_gate;post_launch_degraded;inflight_stable;boundary_near;recoverable_degraded;safe_terminal;hard_failure",
+    "active_primitive_role_policy": "launch_is_entry_regime_not_primitive_family",
+    "launch_gate_required_exit_classes": "post_launch_degraded;inflight_stable",
+    "inflight_stable_required_exit_classes": "inflight_stable;boundary_near;safe_terminal",
+    "boundary_near_required_exit_classes": "inflight_stable;safe_terminal",
+    "recoverable_degraded_required_exit_classes": "inflight_stable;recoverable_degraded;safe_terminal",
+    "recoverable_degraded_self_exit_requires_progress": true,
+    "recovery_progress_min_risk_reduction": 0.05,
+    "recovery_progress_max_floor_margin_loss_m": 0.03,
+    "recovery_progress_max_boundary_time_loss_s": 0.05,
+    "boundary_near_is_route_state_not_failure": true,
+    "boundary_near_static_wall_margin_m": 0.25,
+    "boundary_near_front_time_margin_s": 0.45,
+    "boundary_near_side_time_margin_s": 0.35,
+    "boundary_near_time_margin_uses_front_and_side_not_rear": true,
+    "hard_failure_is_only_failure_class": true
+  },
+  "transition_success_policy": "R5_selects_entry_specific_transition_objects_by_robust_QR_training_before_R7",
+  "transition_entry_start_family_mix": {
+    "launch_gate": 0.4,
+    "inflight_nominal": 0.25,
+    "inflight_lift_region": 0.15,
+    "inflight_boundary_near": 0.1,
+    "inflight_recovery_edge": 0.1
+  },
+  "mixed_primitive_start_sampling": true,
+  "no_small_library_selection": true,
+  "no_clustering_before_W3": true,
+  "W3_replay_only": true,
+  "W2_required_for_move_on": false,
+  "w3_frozen_holdout_required": true,
+  "panelwise_timing_actuator_effects_active_from_W01": true,
+  "PD_PID_fallback_allowed": false,
+  "timing_aware_synthesis_level": "predictor_compensated_augmented_discrete_lqr",
+  "active_controller_design_role": "active_timing_aware_w01",
+  "timing_augmentation_type": "actuator_surface_state_command_fifo_predictor_compensated",
+  "timing_effects_in_rollout": "panel_wind_feedback_delay_command_timing_actuator_lag_with_plant_and_implementation_instances",
+  "claim_status": "simulation_only_R5_robust_randomised_W0_W1_synthesis_training_no_heldout_W3_or_validation_claim",
+  "blocked_claims": [
+    "W0_W1_dense_evidence_complete",
+    "R6_W2_archived_diagnostic",
+    "W3_robustness_complete",
+    "post_W3_library_size_study_ready",
+    "governor_validation",
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success"
+  ],
+  "later_validation_stages_not_written_by_r5_runner": true,
+  "tuning_schedule": {
+    "primitive_count": 8,
+    "candidate_count": 32,
+    "paired_tests_per_candidate": 50,
+    "planned_rows": 38400,
+    "fallback_mode": false,
+    "hard_gates_json": "[\"finite_state\",\"entry_role_compatible\",\"safe_volume\",\"floor_ceiling_margin\",\"surface_limits\",\"valid_lqr_synthesis\",\"sampled_data_stability\",\"surrogate_ready\"]",
+    "soft_objective_terms_json": "[\"transition_success_lcb\",\"hard_failure_ucb\",\"trajectory_integrated_updraft_gain_m\",\"lift_dwell_time_s\",\"rollout_duration_s\",\"saturation_fraction\",\"attitude_bank_reference_bias_sweep_coverage\",\"turn_intent_audit_metrics_not_selection_objective\"]",
+    "method_version": "w01_transition_robust_reference_v8"
+  },
+  "later_validation_stages_deliberately_not_run_in_v53_r5_only_pass": true
+}
