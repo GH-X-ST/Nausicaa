@@ -168,16 +168,29 @@ CANDIDATE_PATH_MEMORY_PROBES = (
     (1.0, 0.12),
 )
 FLOW_BELIEF_REACHABLE_ATTRACTION_LOOKAHEAD_M = 0.80
-FLOW_BELIEF_REACHABLE_ATTRACTION_HALF_ANGLE_RAD = math.radians(35.0)
+FLOW_BELIEF_REACHABLE_ATTRACTION_AZIMUTH_HALF_ANGLE_RAD = math.radians(35.0)
+FLOW_BELIEF_REACHABLE_ATTRACTION_ELEVATION_HALF_ANGLE_RAD = math.radians(20.0)
+FLOW_BELIEF_REACHABLE_ATTRACTION_HALF_ANGLE_RAD = FLOW_BELIEF_REACHABLE_ATTRACTION_AZIMUTH_HALF_ANGLE_RAD
 FLOW_BELIEF_REACHABLE_ATTRACTION_CAP_M = 0.25
 FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES = (
-    (0.35, 0.0, 0.20),
-    (0.55, -0.45, 0.14),
-    (0.55, 0.0, 0.18),
-    (0.55, 0.45, 0.14),
-    (0.80, -0.55, 0.10),
-    (0.80, 0.0, 0.14),
-    (0.80, 0.55, 0.10),
+    (0.35, -math.radians(35.0), -math.radians(20.0), 0.040),
+    (0.35, -math.radians(35.0), 0.0, 0.055),
+    (0.35, -math.radians(35.0), math.radians(20.0), 0.040),
+    (0.35, 0.0, -math.radians(20.0), 0.055),
+    (0.35, 0.0, 0.0, 0.085),
+    (0.35, 0.0, math.radians(20.0), 0.055),
+    (0.35, math.radians(35.0), -math.radians(20.0), 0.040),
+    (0.35, math.radians(35.0), 0.0, 0.055),
+    (0.35, math.radians(35.0), math.radians(20.0), 0.040),
+    (0.80, -math.radians(35.0), -math.radians(20.0), 0.030),
+    (0.80, -math.radians(35.0), 0.0, 0.040),
+    (0.80, -math.radians(35.0), math.radians(20.0), 0.030),
+    (0.80, 0.0, -math.radians(20.0), 0.040),
+    (0.80, 0.0, 0.0, 0.060),
+    (0.80, 0.0, math.radians(20.0), 0.040),
+    (0.80, math.radians(35.0), -math.radians(20.0), 0.030),
+    (0.80, math.radians(35.0), 0.0, 0.040),
+    (0.80, math.radians(35.0), math.radians(20.0), 0.030),
 )
 FLOW_BELIEF_HISTORY_UPDATE_SPACING_M = FLOW_BELIEF_GRID_RESOLUTION_M
 FLOW_BELIEF_HISTORY_UPDATE_MAX_SAMPLES_PER_PRIMITIVE = 128
@@ -2411,6 +2424,13 @@ def _candidate_path_belief_features(
         "belief_flow_map_reachable_attraction_best_z_w_m": float(reachable_attraction["best_z_w_m"]),
         "belief_flow_map_reachable_attraction_lookahead_m": float(FLOW_BELIEF_REACHABLE_ATTRACTION_LOOKAHEAD_M),
         "belief_flow_map_reachable_attraction_half_angle_rad": float(FLOW_BELIEF_REACHABLE_ATTRACTION_HALF_ANGLE_RAD),
+        "belief_flow_map_reachable_attraction_azimuth_half_angle_rad": float(
+            FLOW_BELIEF_REACHABLE_ATTRACTION_AZIMUTH_HALF_ANGLE_RAD
+        ),
+        "belief_flow_map_reachable_attraction_elevation_half_angle_rad": float(
+            FLOW_BELIEF_REACHABLE_ATTRACTION_ELEVATION_HALF_ANGLE_RAD
+        ),
+        "belief_flow_map_reachable_attraction_geometry": "sparse_3d_cone_2_range_3_azimuth_3_elevation_stencil",
         "belief_flow_map_candidate_path_uncertainty": float(1.0 - confidence),
         "belief_flow_map_memory_guided_exploration_uncertainty": float(map_guided_uncertainty),
         "belief_flow_map_exploration_scale": 1.0,
@@ -2531,19 +2551,25 @@ def _candidate_reachable_flow_attraction(
     best_y = float(exit_y)
     best_z = float(exit_z)
     query_count = 0
-    for distance_m, angle_offset_rad, probe_weight in FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES:
+    for distance_m, azimuth_offset_rad, elevation_offset_rad, probe_weight in FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES:
         distance_m = float(distance_m)
         if distance_m > float(FLOW_BELIEF_REACHABLE_ATTRACTION_LOOKAHEAD_M):
             continue
-        angle_offset_rad = _clip(
-            float(angle_offset_rad),
-            -float(FLOW_BELIEF_REACHABLE_ATTRACTION_HALF_ANGLE_RAD),
-            float(FLOW_BELIEF_REACHABLE_ATTRACTION_HALF_ANGLE_RAD),
+        azimuth_offset_rad = _clip(
+            float(azimuth_offset_rad),
+            -float(FLOW_BELIEF_REACHABLE_ATTRACTION_AZIMUTH_HALF_ANGLE_RAD),
+            float(FLOW_BELIEF_REACHABLE_ATTRACTION_AZIMUTH_HALF_ANGLE_RAD),
         )
-        probe_direction = float(exit_direction) + float(angle_offset_rad)
-        probe_x = float(exit_x) + math.cos(probe_direction) * distance_m
-        probe_y = float(exit_y) + math.sin(probe_direction) * distance_m
-        probe_z = float(exit_z)
+        elevation_offset_rad = _clip(
+            float(elevation_offset_rad),
+            -float(FLOW_BELIEF_REACHABLE_ATTRACTION_ELEVATION_HALF_ANGLE_RAD),
+            float(FLOW_BELIEF_REACHABLE_ATTRACTION_ELEVATION_HALF_ANGLE_RAD),
+        )
+        probe_direction = float(exit_direction) + float(azimuth_offset_rad)
+        horizontal_distance_m = float(distance_m) * math.cos(float(elevation_offset_rad))
+        probe_x = float(exit_x) + math.cos(probe_direction) * horizontal_distance_m
+        probe_y = float(exit_y) + math.sin(probe_direction) * horizontal_distance_m
+        probe_z = float(exit_z) + math.sin(float(elevation_offset_rad)) * float(distance_m)
         if not _point_inside_true_safe_bounds(probe_x, probe_y, probe_z):
             continue
         features = query_spatial_flow_belief_features(
@@ -2583,8 +2609,16 @@ def _candidate_reachable_flow_attraction(
             0.0,
             1.0,
         )
-        angle_discount = max(0.0, math.cos(float(angle_offset_rad)))
-        score = float(utility) * float(confidence) * float(distance_discount) * float(angle_discount) * float(probe_weight)
+        azimuth_discount = max(0.0, math.cos(float(azimuth_offset_rad)))
+        elevation_discount = max(0.0, math.cos(float(elevation_offset_rad)))
+        score = (
+            float(utility)
+            * float(confidence)
+            * float(distance_discount)
+            * float(azimuth_discount)
+            * float(elevation_discount)
+            * float(probe_weight)
+        )
         if score > best_score:
             best_score = float(score)
             best_confidence = float(confidence)
@@ -5751,6 +5785,26 @@ def _tuned_governor_config_from_metrics(
             max(0.50, float(values["candidate_path_memory_specific_energy_residual_cap_m"]) * 0.85),
             "hard_failure_rate_above_stage_profile_cap_specific_energy_residual_effect",
         )
+        update(
+            "flow_region_attraction_weight",
+            max(0.20, float(values["flow_region_attraction_weight"]) * 0.80),
+            "hard_failure_rate_above_stage_profile_reduce_reachable_flow_attraction_weight",
+        )
+        update(
+            "flow_region_attraction_score_cap",
+            max(0.03, float(values["flow_region_attraction_score_cap"]) * 0.85),
+            "hard_failure_rate_above_stage_profile_cap_reachable_flow_attraction_score",
+        )
+        update(
+            "flow_region_attraction_min_confidence",
+            min(0.65, float(values["flow_region_attraction_min_confidence"]) + 0.05),
+            "hard_failure_rate_above_stage_profile_require_stronger_reachable_flow_confidence",
+        )
+        update(
+            "flow_region_attraction_max_base_score_drop",
+            max(0.04, float(values["flow_region_attraction_max_base_score_drop"]) * 0.75),
+            "hard_failure_rate_above_stage_profile_tighten_reachable_flow_base_score_drop",
+        )
     elif no_viable_rate > float(protocol.max_no_viable_rate):
         update(
             "maximum_hard_failure_risk",
@@ -5847,6 +5901,21 @@ def _tuned_governor_config_from_metrics(
                 min(0.08, float(values["adaptive_switch_max_path_exit_margin_drop_m"]) + 0.01),
                 "memory_opportunities_seen_but_switch_acceptance_low_allow_small_path_margin_tradeoff",
             )
+            update(
+                "flow_region_attraction_min_confidence",
+                max(0.20, float(values["flow_region_attraction_min_confidence"]) - 0.05),
+                "memory_opportunities_seen_but_switch_acceptance_low_relax_reachable_flow_confidence",
+            )
+            update(
+                "flow_region_attraction_max_base_score_drop",
+                min(0.12, float(values["flow_region_attraction_max_base_score_drop"]) + 0.015),
+                "memory_opportunities_seen_but_switch_acceptance_low_allow_reachable_flow_safe_region_bias",
+            )
+            update(
+                "flow_region_attraction_weight",
+                min(0.60, float(values["flow_region_attraction_weight"]) + 0.05),
+                "memory_opportunities_seen_but_switch_acceptance_low_increase_reachable_flow_attraction_weight",
+            )
         if mean_candidate_path_confidence < float(values["memory_switch_min_confidence"]):
             update(
                 "candidate_path_memory_full_confidence_observations",
@@ -5868,6 +5937,11 @@ def _tuned_governor_config_from_metrics(
                 "candidate_path_memory_specific_energy_residual_cap_m",
                 min(1.40, float(values["candidate_path_memory_specific_energy_residual_cap_m"]) + 0.10),
                 "memory_opportunities_small_correction_allow_larger_specific_energy_residual_when_safe",
+            )
+            update(
+                "flow_region_attraction_score_cap",
+                min(0.09, float(values["flow_region_attraction_score_cap"]) + 0.01),
+                "memory_opportunities_small_correction_allow_larger_reachable_flow_attraction_when_safe",
             )
     elif memory_opportunity_count == 0 and hard_failure_rate <= float(protocol.max_hard_failure_rate) and safe_success_rate < float(protocol.min_safe_success_rate):
         update(
@@ -6007,10 +6081,10 @@ def _write_manifest(
         "outer_loop_memory_policy": (
             "case-local 0.1 m 3D spatial updraft-utility belief map with dense executed-primitive updates "
             "at 0.1 m spacing and launch-index recency decay; candidate paths query the accumulated map using "
-            "a 0.2 m neighbourhood over seven current-to-exit probes plus a bounded 0.8 m / 35 deg half-angle "
-            "reachable-flow attraction cone capped at 0.25 m, then use "
-            "specific-energy/updraft utility as a near-tie "
-            "modifier plus memory-guided uncertainty exploration; "
+            "a 0.2 m neighbourhood over seven current-to-exit probes plus a bounded 0.8 m / 35 deg azimuth / "
+            "20 deg elevation sparse 3D reachable-flow attraction cone capped at 0.25 m; residual path utility remains a near-tie modifier, "
+            "while positive high-confidence reachable-flow attraction can bias a wider safe front-progress-compatible "
+            "candidate band; "
             "accepted only through unchanged viability filters and the baseline shield with no final-launch special case"
         ),
         "governor_learning_strategy_version": OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION,
@@ -6050,7 +6124,24 @@ def _write_manifest(
         "flow_belief_history_update_execution_policy": "dense_observations_applied_in_one_batch_per_executed_primitive",
         "flow_belief_reachable_attraction_lookahead_m": float(FLOW_BELIEF_REACHABLE_ATTRACTION_LOOKAHEAD_M),
         "flow_belief_reachable_attraction_half_angle_rad": float(FLOW_BELIEF_REACHABLE_ATTRACTION_HALF_ANGLE_RAD),
+        "flow_belief_reachable_attraction_azimuth_half_angle_rad": float(
+            FLOW_BELIEF_REACHABLE_ATTRACTION_AZIMUTH_HALF_ANGLE_RAD
+        ),
+        "flow_belief_reachable_attraction_elevation_half_angle_rad": float(
+            FLOW_BELIEF_REACHABLE_ATTRACTION_ELEVATION_HALF_ANGLE_RAD
+        ),
+        "flow_belief_reachable_attraction_geometry": "sparse_3d_cone_2_range_3_azimuth_3_elevation_stencil",
+        "flow_belief_reachable_attraction_probe_count": int(len(FLOW_BELIEF_REACHABLE_ATTRACTION_PROBES)),
         "flow_belief_reachable_attraction_cap_m": float(FLOW_BELIEF_REACHABLE_ATTRACTION_CAP_M),
+        "flow_region_attraction_weight": float(governor_config.flow_region_attraction_weight),
+        "flow_region_attraction_score_cap": float(governor_config.flow_region_attraction_score_cap),
+        "flow_region_attraction_min_confidence": float(governor_config.flow_region_attraction_min_confidence),
+        "flow_region_attraction_max_base_score_drop": float(
+            governor_config.flow_region_attraction_max_base_score_drop
+        ),
+        "flow_region_attraction_min_front_progress_ratio": float(
+            governor_config.flow_region_attraction_min_front_progress_ratio
+        ),
         "flow_belief_update_policy": (
             FLOW_BELIEF_HISTORY_UPDATE_POLICY + "_plus_candidate_path_query_and_reachable_flow_attraction"
         ),
@@ -6220,7 +6311,7 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Safety thresholds: hard failure <= `{protocol.max_hard_failure_rate}`, no-viable <= `{protocol.max_no_viable_rate}`, safe success >= `{protocol.min_safe_success_rate}`, full safe success >= `{protocol.min_full_safe_success_rate}`, terminal/lift >= `{protocol.min_terminal_or_lift_capture_rate}`.",
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
         "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, front-wall progress, front-wall terminal proxy, progress-gated terminal total specific-energy proxy, updraft gain, lift dwell, and residual memory.",
-        f"- Memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` maintains a case-local 0.1 m 3D updraft-utility belief map; each flown primitive writes dense executed-segment residual samples at 0.1 m spacing with launch-index recency decay, and each candidate path queries the accumulated map through a 0.2 m neighbourhood over seven probes plus a bounded 0.8 m / 35 deg half-angle reachable-flow attraction cone capped at 0.25 m before applying near-tie memory and shielded uncertainty exploration after viability filtering.",
+        f"- Memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` maintains a case-local 0.1 m 3D updraft-utility belief map; each flown primitive writes dense executed-segment residual samples at 0.1 m spacing with launch-index recency decay, and each candidate path queries the accumulated map through a 0.2 m neighbourhood over seven probes plus a bounded 0.8 m / 35 deg azimuth / 20 deg elevation sparse 3D reachable-flow attraction cone capped at 0.25 m. Residual path utility remains a near-tie modifier, while positive high-confidence reachable-flow attraction can bias a wider safe front-progress-compatible candidate band after viability filtering.",
         f"- Governor learning strategy: `{OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION}` keeps online memory `{ONLINE_MEMORY_SCOPE}`; R10 calibration scope is `{R10_GLOBAL_CALIBRATION_SCOPE}` and R11 uses `{R11_GOVERNOR_HANDOFF_SCOPE}`.",
         f"- Calibration search policy: `{GOVERNOR_CALIBRATION_SEARCH_POLICY}`.",
         "- Memory opportunity audit: `memory_opportunity_summary.csv` and `memory_opportunity_decision_log.csv` report baseline-vs-memory candidate gaps, correction deltas, shield status, and accepted/rejected switch reasons.",

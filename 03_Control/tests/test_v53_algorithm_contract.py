@@ -718,6 +718,111 @@ def test_v53_memory_is_near_tie_modifier_not_unbounded_override() -> None:
     assert by_variant["near_tie"]["memory_shield_status"] == "accepted_confident_non_regressive_memory_switch"
 
 
+def test_v53_flow_region_attraction_can_shape_safe_mission_compatible_candidate_band() -> None:
+    timing_payload = {
+        "finite_horizon_s": 0.1,
+        "controller_input_slots_per_primitive": 5,
+        "controller_input_update_period_s": 0.02,
+        "primitive_timing_contract_version": "v411_0p10s_5slot_20ms",
+    }
+    representatives = []
+    outcomes = {}
+    for variant_id in ("baseline", "flow_region", "poor_progress"):
+        representatives.append(
+            {
+                "compact_library_id": "launch",
+                "primitive_variant_id": variant_id,
+                "primitive_id": "glide",
+                "entry_role": "transition_object",
+                "transition_entry_class": "launch_gate",
+                "controller_id": f"ctrl_{variant_id}",
+                "K_gain_checksum": "k",
+                "augmented_A_checksum": "a",
+                "augmented_B_checksum": "b",
+                "augmented_gain_checksum": "g",
+                **timing_payload,
+            }
+        )
+        outcomes[variant_id] = {
+            "continuation_probability": 0.5,
+            "transition_success_probability": 0.5,
+            "transition_exit_classes_seen": "post_launch_degraded",
+            "terminal_useful_probability": 0.0,
+            "hard_failure_risk": 0.1,
+        }
+
+    def candidate_path_features(representative: dict[str, object], outcome: dict[str, object]) -> dict[str, object]:
+        del outcome
+        variant_id = str(representative["primitive_variant_id"])
+        exit_x = {"baseline": 5.0, "flow_region": 4.3, "poor_progress": 3.0}[variant_id]
+        attraction = {"baseline": 0.0, "flow_region": 0.25, "poor_progress": 0.25}[variant_id]
+        return {
+            "belief_candidate_path_residual_memory_active": True,
+            "belief_candidate_path_exit_x_w_m": exit_x,
+            "belief_candidate_path_exit_y_w_m": 2.2,
+            "belief_candidate_path_exit_z_w_m": 1.4,
+            "belief_candidate_path_speed_m_s": 5.0,
+            "belief_candidate_path_memory_utility_without_attraction_m": 0.0,
+            "belief_candidate_path_memory_utility_m": attraction,
+            "belief_local_specific_energy_residual_m": 0.0,
+            "belief_candidate_path_confidence": 0.0,
+            "belief_flow_map_reachable_attraction_m": attraction,
+            "belief_flow_map_reachable_attraction_confidence": 1.0,
+            "belief_uncertainty": 0.0,
+        }
+
+    selected, rows = select_compact_representative(
+        representatives=representatives,
+        outcome_rows_by_variant_id=outcomes,
+        context={
+            "context_id": "flow_region_memory_contract",
+            "start_state_family": "launch_gate",
+            "current_x_w_m": 1.3,
+            "current_y_w_m": 2.2,
+            "current_z_w_m": 1.1,
+            "mission_x_min_w_m": 1.2,
+            "front_wall_target_x_w_m": 6.6,
+            "mission_terminal_y_min_m": 0.0,
+            "mission_terminal_y_max_m": 4.4,
+            "mission_terminal_z_min_m": 0.4,
+            "mission_terminal_z_max_m": 3.5,
+            "governor_wall_margin_m": 0.5,
+            "wall_margin_m": 0.5,
+            "floor_margin_m": 0.7,
+            "ceiling_margin_m": 2.4,
+            "latency_case": "nominal",
+        },
+        governor_mode="continuation_mode",
+        candidate_belief_features=candidate_path_features,
+        adaptive_memory_active=True,
+        governor_config=governor_config_from_row(
+            {
+                "config_id": "flow_region_attraction_test",
+                "belief_weight": 0.0,
+                "memory_near_tie_base_score_margin": 0.01,
+                "memory_switch_min_confidence": 0.1,
+                "memory_switch_min_score_margin": 0.0,
+                "memory_switch_max_base_score_drop": 0.01,
+                "flow_region_attraction_weight": 0.45,
+                "flow_region_attraction_score_cap": 0.08,
+                "flow_region_attraction_min_confidence": 0.1,
+                "flow_region_attraction_max_base_score_drop": 0.09,
+                "flow_region_attraction_min_front_progress_ratio": 0.50,
+            }
+        ),
+    )
+
+    by_variant = {str(row["primitive_variant_id"]): row for row in rows}
+    assert selected is not None
+    assert selected["primitive_variant_id"] == "flow_region"
+    assert by_variant["flow_region"]["memory_near_tie_factor"] == pytest.approx(0.0)
+    assert by_variant["flow_region"]["memory_flow_region_attraction_score_component"] > 0.0
+    assert by_variant["poor_progress"]["memory_flow_region_attraction_score_component"] == pytest.approx(0.0)
+    assert by_variant["flow_region"]["memory_shield_status"] == (
+        "accepted_confident_non_regressive_flow_region_attraction_switch"
+    )
+
+
 def test_v53_score_rewards_front_wall_mission_and_updraft_without_time_or_energy_loss_penalty() -> None:
     base = {
         "safe_success": True,

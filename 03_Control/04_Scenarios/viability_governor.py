@@ -69,6 +69,11 @@ class GovernorConfig:
     candidate_path_memory_utility_updraft_weight: float = 0.25
     candidate_path_memory_full_confidence_observations: float = 3.0
     residual_memory_launch_recency_half_life: float = 4.0
+    flow_region_attraction_weight: float = 0.45
+    flow_region_attraction_score_cap: float = 0.06
+    flow_region_attraction_min_confidence: float = 0.35
+    flow_region_attraction_max_base_score_drop: float = 0.09
+    flow_region_attraction_min_front_progress_ratio: float = 0.65
 
 
 DEFAULT_GOVERNOR_CONFIG = GovernorConfig(
@@ -403,6 +408,18 @@ def governor_candidate_row(
         ),
         "belief_flow_map_reachable_attraction_half_angle_rad": _float(
             belief_features.get("belief_flow_map_reachable_attraction_half_angle_rad", 0.0)
+        ),
+        "belief_flow_map_reachable_attraction_azimuth_half_angle_rad": _float(
+            belief_features.get(
+                "belief_flow_map_reachable_attraction_azimuth_half_angle_rad",
+                belief_features.get("belief_flow_map_reachable_attraction_half_angle_rad", 0.0),
+            )
+        ),
+        "belief_flow_map_reachable_attraction_elevation_half_angle_rad": _float(
+            belief_features.get("belief_flow_map_reachable_attraction_elevation_half_angle_rad", 0.0)
+        ),
+        "belief_flow_map_reachable_attraction_geometry": str(
+            belief_features.get("belief_flow_map_reachable_attraction_geometry", "")
         ),
         "belief_flow_map_candidate_path_uncertainty": _float(
             belief_features.get("belief_flow_map_candidate_path_uncertainty", belief_uncertainty)

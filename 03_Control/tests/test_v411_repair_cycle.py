@@ -561,6 +561,13 @@ def test_v411_spatial_flow_belief_attraction_rewards_reachable_downstream_lift()
     assert features["belief_flow_map_reachable_attraction_m"] > 0.0
     assert features["belief_flow_map_reachable_attraction_confidence"] > 0.0
     assert features["belief_flow_map_reachable_attraction_query_count"] > 0
+    assert features["belief_flow_map_reachable_attraction_query_count"] <= 18
+    assert features["belief_flow_map_reachable_attraction_geometry"] == (
+        "sparse_3d_cone_2_range_3_azimuth_3_elevation_stencil"
+    )
+    assert features["belief_flow_map_reachable_attraction_elevation_half_angle_rad"] == pytest.approx(
+        math.radians(20.0)
+    )
     assert features["belief_candidate_path_memory_utility_m"] > 0.0
 
 

@@ -1,0 +1,276 @@
+{
+  "manifest_version": "governor_tuning_handoff_v4",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v5.20",
+  "status": "not_selected_r10_gate_failed",
+  "stage_id": "R10",
+  "target_stage": "R11",
+  "selection_policy": "robust_first_freeze_only_after_full_r10_pass_gate",
+  "governor_learning_strategy_version": "case_local_online_memory_plus_r10_global_deterministic_calibration_v1",
+  "online_memory_scope": "case_local_reset_per_final_schedule_row",
+  "global_calibration_scope": "aggregate_all_r10_final_heldout_rows_and_selector_opportunity_diagnostics",
+  "cross_case_memory_carryover_allowed": false,
+  "governor_calibration_search_policy": "deterministic_bounded_rule_update_no_profile_ladder_no_black_box_search",
+  "aggregate_evidence_scope": "aggregate_all_r10_final_heldout_rows_and_selector_opportunity_diagnostics",
+  "r10_aggregate_evidence_scope": "aggregate_all_r10_final_heldout_rows_and_selector_opportunity_diagnostics",
+  "r11_handoff_scope": "single_frozen_r10_governor_config_used_for_r11_validation",
+  "r11_handoff_config_count": 1,
+  "source_run_root": "03_Control/05_Results/R10_learn/C02",
+  "governor_config": {
+    "config_id": "v53_r10_tuned_mission_governor",
+    "minimum_wall_margin_m": 0.001,
+    "maximum_hard_failure_risk": 0.65,
+    "continuation_weight": 1.0,
+    "terminal_weight": -0.3,
+    "hard_failure_weight": -1.0,
+    "updraft_gain_weight": 0.05,
+    "lift_dwell_weight": 0.034999999999999996,
+    "belief_weight": 0.08,
+    "exploration_bonus_weight": 0.01,
+    "no_viable_penalty": -1.0,
+    "terminal_mode_bias": 0.0,
+    "continuation_mode_bias": 0.0,
+    "terminal_continuation_weight": 0.25,
+    "terminal_terminal_weight": 1.1,
+    "terminal_hard_failure_weight": -0.9375,
+    "terminal_updraft_gain_weight": 0.060000000000000005,
+    "terminal_lift_dwell_weight": 0.04,
+    "mission_front_progress_weight": 0.28,
+    "mission_front_terminal_weight": 0.7,
+    "mission_terminal_energy_weight": 0.035,
+    "mission_wrong_boundary_penalty_weight": 0.39999999999999997,
+    "memory_switch_min_confidence": 0.5,
+    "memory_switch_min_score_margin": 0.0075,
+    "memory_switch_max_base_score_drop": 0.0225,
+    "memory_near_tie_base_score_margin": 0.03,
+    "memory_switch_max_transition_success_drop": 0.01,
+    "memory_switch_max_hard_failure_risk_increase": 0.0,
+    "exploration_switch_min_uncertainty": 0.6000000000000001,
+    "exploration_switch_min_score_margin": 0.0,
+    "exploration_switch_max_base_score_drop": 0.005,
+    "exploration_switch_max_transition_success_drop": 0.0,
+    "exploration_switch_max_hard_failure_risk_increase": 0.0,
+    "exploration_switch_allow_cross_family": false,
+    "adaptive_switch_max_path_exit_margin_drop_m": 0.037500000000000006,
+    "adaptive_switch_min_path_exit_margin_m": 0.02,
+    "candidate_path_memory_residual_cap_m": 0.6375,
+    "candidate_path_memory_specific_energy_residual_cap_m": 0.85,
+    "candidate_path_memory_utility_specific_energy_weight": 0.7,
+    "candidate_path_memory_utility_updraft_weight": 0.3,
+    "candidate_path_memory_full_confidence_observations": 3.0,
+    "residual_memory_launch_recency_half_life": 4.0,
+    "flow_region_attraction_weight": 0.36000000000000004,
+    "flow_region_attraction_score_cap": 0.051,
+    "flow_region_attraction_min_confidence": 0.39999999999999997,
+    "flow_region_attraction_max_base_score_drop": 0.0675,
+    "flow_region_attraction_min_front_progress_ratio": 0.65,
+    "claim_status": "simulation_only_frozen_governor_config"
+  },
+  "selection_metrics": {
+    "final_launch_count": 200,
+    "hard_failure_rate": 0.08,
+    "no_viable_primitive_rate": 0.08,
+    "final_reject_rate": 0.08,
+    "safe_success_rate": 0.64,
+    "full_safe_success_rate": 0.0,
+    "mission_success_rate": 0.64,
+    "wrong_wall_exit_rate": 0.08,
+    "terminal_or_lift_capture_rate": 0.7,
+    "selector_decision_count": 2144,
+    "memory_switch_opportunity_count": 53,
+    "accepted_memory_switch_count": 1,
+    "rejected_memory_switch_count": 52,
+    "memory_switch_acceptance_rate": 0.018867924528301886,
+    "mean_memory_correction_delta": 5.448662086689921e-06,
+    "max_memory_correction_delta": 0.0001290381684074,
+    "mean_base_score_gap_to_baseline": 1.3154122505186007e-05,
+    "mean_memory_opportunity_ratio": 1557.1235317133148,
+    "mean_candidate_path_confidence": 0.05496463546413406,
+    "mean_candidate_path_uncertainty": 0.9203935461095342,
+    "mean_adaptive_score_margin": 4.37961244611857e-05,
+    "mean_exploration_score_component": 0.018407870922190636,
+    "governor_learning_strategy_version": "case_local_online_memory_plus_r10_global_deterministic_calibration_v1",
+    "online_memory_scope": "case_local_reset_per_final_schedule_row",
+    "global_calibration_scope": "aggregate_all_r10_final_heldout_rows_and_selector_opportunity_diagnostics",
+    "cross_case_memory_carryover_allowed": false,
+    "governor_calibration_search_policy": "deterministic_bounded_rule_update_no_profile_ladder_no_black_box_search",
+    "r11_handoff_scope": "single_frozen_r10_governor_config_used_for_r11_validation",
+    "r11_handoff_config_count": 1,
+    "input_governor_config_id": "v53_mission_aligned_safe_exploration_governor_wall_0p10cm",
+    "governor_config_id": "v53_r10_tuned_mission_governor"
+  },
+  "tuning_decisions": [
+    {
+      "parameter": "maximum_hard_failure_risk",
+      "old_value": 0.75,
+      "new_value": 0.65,
+      "reason": "hard_failure_rate_above_stage_profile_tighten_admission",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "hard_failure_weight",
+      "old_value": -0.8,
+      "new_value": -1.0,
+      "reason": "hard_failure_rate_above_stage_profile_penalise_risk_more",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "terminal_hard_failure_weight",
+      "old_value": -0.75,
+      "new_value": -0.9375,
+      "reason": "hard_failure_rate_above_stage_profile_penalise_terminal_risk_more",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "exploration_bonus_weight",
+      "old_value": 0.02,
+      "new_value": 0.01,
+      "reason": "hard_failure_rate_above_stage_profile_reduce_exploration_bonus",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "memory_switch_min_confidence",
+      "old_value": 0.45,
+      "new_value": 0.5,
+      "reason": "hard_failure_rate_above_stage_profile_require_stronger_memory_confidence",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "memory_switch_min_score_margin",
+      "old_value": 0.005,
+      "new_value": 0.0075,
+      "reason": "hard_failure_rate_above_stage_profile_require_stronger_memory_score_margin",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "memory_switch_max_base_score_drop",
+      "old_value": 0.03,
+      "new_value": 0.0225,
+      "reason": "hard_failure_rate_above_stage_profile_tighten_baseline_non_regression",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "memory_switch_max_transition_success_drop",
+      "old_value": 0.02,
+      "new_value": 0.01,
+      "reason": "hard_failure_rate_above_stage_profile_tighten_transition_non_regression",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "exploration_switch_min_uncertainty",
+      "old_value": 0.55,
+      "new_value": 0.6000000000000001,
+      "reason": "hard_failure_rate_above_stage_profile_make_exploration_more_selective",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "exploration_switch_max_base_score_drop",
+      "old_value": 0.01,
+      "new_value": 0.005,
+      "reason": "hard_failure_rate_above_stage_profile_reduce_exploration_base_score_drop",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "adaptive_switch_max_path_exit_margin_drop_m",
+      "old_value": 0.05,
+      "new_value": 0.037500000000000006,
+      "reason": "hard_failure_rate_above_stage_profile_tighten_path_exit_margin_shield",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "candidate_path_memory_residual_cap_m",
+      "old_value": 0.75,
+      "new_value": 0.6375,
+      "reason": "hard_failure_rate_above_stage_profile_cap_memory_residual_effect",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "candidate_path_memory_specific_energy_residual_cap_m",
+      "old_value": 1.0,
+      "new_value": 0.85,
+      "reason": "hard_failure_rate_above_stage_profile_cap_specific_energy_residual_effect",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "flow_region_attraction_weight",
+      "old_value": 0.45,
+      "new_value": 0.36000000000000004,
+      "reason": "hard_failure_rate_above_stage_profile_reduce_reachable_flow_attraction_weight",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "flow_region_attraction_score_cap",
+      "old_value": 0.06,
+      "new_value": 0.051,
+      "reason": "hard_failure_rate_above_stage_profile_cap_reachable_flow_attraction_score",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "flow_region_attraction_min_confidence",
+      "old_value": 0.35,
+      "new_value": 0.39999999999999997,
+      "reason": "hard_failure_rate_above_stage_profile_require_stronger_reachable_flow_confidence",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "flow_region_attraction_max_base_score_drop",
+      "old_value": 0.09,
+      "new_value": 0.0675,
+      "reason": "hard_failure_rate_above_stage_profile_tighten_reachable_flow_base_score_drop",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "updraft_gain_weight",
+      "old_value": 0.04,
+      "new_value": 0.05,
+      "reason": "terminal_or_lift_capture_below_stage_profile_increase_updraft_gain_preference",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "terminal_updraft_gain_weight",
+      "old_value": 0.05,
+      "new_value": 0.060000000000000005,
+      "reason": "terminal_or_lift_capture_below_stage_profile_increase_terminal_updraft_gain_preference",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "lift_dwell_weight",
+      "old_value": 0.03,
+      "new_value": 0.034999999999999996,
+      "reason": "terminal_or_lift_capture_below_stage_profile_increase_lift_dwell_preference",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "candidate_path_memory_utility_updraft_weight",
+      "old_value": 0.25,
+      "new_value": 0.3,
+      "reason": "terminal_or_lift_capture_below_stage_profile_make_memory_more_lift_aware",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "candidate_path_memory_utility_specific_energy_weight",
+      "old_value": 0.75,
+      "new_value": 0.7,
+      "reason": "terminal_or_lift_capture_below_stage_profile_keep_memory_specific_energy_dominant",
+      "stage_id": "R10"
+    },
+    {
+      "parameter": "mission_wrong_boundary_penalty_weight",
+      "old_value": 0.35,
+      "new_value": 0.39999999999999997,
+      "reason": "mission_success_low_with_wrong_wall_exits_increase_wrong_boundary_penalty",
+      "stage_id": "R10"
+    }
+  ],
+  "controller_mutation_allowed": false,
+  "primitive_retuning_allowed": false,
+  "thesis_facing_workflow": "R5 -> R7 -> R8 -> R10 -> R11 -> Reality",
+  "thesis_reporting_status": "changed_case_governor_tuning_not_final_claim_gate",
+  "claim_status": "simulation_only_governor_tuning_handoff_not_memory_improvement_claim",
+  "blocked_claims": [
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success",
+    "full_autonomy",
+    "memory_improvement"
+  ]
+}
