@@ -1,0 +1,2 @@
+environment_block_id,launch_count,safe_success_rate,full_safe_success_rate,claim_bearing_episode_rate,expected_low_energy_dry_air_sink_rate,mission_success_rate,front_wall_terminal_success_rate,wrong_wall_exit_rate,mean_launch_score
+r10_l7_full_domain_randomisation_arena_wide_training,1000,0.652,0.0,0.772,0.228,0.644,0.644,0.086,69.12502653112948
