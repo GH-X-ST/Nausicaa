@@ -91,7 +91,7 @@ R9/R10/R11 also write a repeated-launch real-time scheduler profile: context
 construction, memory query, and compact-library selection are measured against
 a preferred 20 ms controller-slot budget and a hard 0.100 s primitive-boundary
 budget, with next decisions prepared before primitive-boundary commit where
-possible. This is an offline wall-clock audit, not a hardware real-time claim.
+possible. This is an offline wall-clock audit, not a hardware real-time claim. The current compact controller-row selector timing boundary matches the active code path: full spatial-belief query plus compact controller-row library selection is in the timed controller path, while full candidate-row expansion, table flushing, and post-hoc diagnostics are outside it. Latest targeted C16 sanity check: 40 final launches, 430 history launches, 0 hard failures, 0 no-viable events, 13/13 accepted memory switches, and required heavy/balanced in-flight decisions at 144/144 under 0.100 s with max 0.0937 s; this is targeted diagnostic evidence only, not full R10/R11 validation.
 
 Use the repo-local pytest temp/cache paths above so validation does not depend
 on the Windows user temp directory. Local `.venv` and `.codex_run_logs`

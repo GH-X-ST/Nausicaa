@@ -39,12 +39,16 @@ def select_compact_representative(
     candidate_belief_features: CandidateBeliefFeaturesFn | None = None,
     adaptive_memory_active: bool | None = None,
     governor_config: GovernorConfig | None = None,
+    candidate_row_mode: str = "diagnostic",
 ) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
     """Return the highest-scoring viable compact representative and all candidate rows."""
 
     if governor_mode not in GOVERNOR_MODES:
         raise ValueError("governor_mode must be continuation_mode or terminal_episode_mode.")
+    if candidate_row_mode not in {"diagnostic", "controller"}:
+        raise ValueError("candidate_row_mode must be diagnostic or controller.")
     cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
+    include_diagnostics = str(candidate_row_mode) == "diagnostic"
     prefilter = _prefilter_representatives(representatives, context)
     candidate_rows = []
     candidate_sources: dict[str, tuple[dict[str, object], dict[str, object]]] = {}
@@ -74,6 +78,7 @@ def select_compact_representative(
                 policy_id=policy_id,
                 belief_features=features,
                 governor_config=cfg,
+                include_diagnostics=include_diagnostics,
             )
         )
     for row in candidate_rows:
@@ -102,6 +107,7 @@ def select_compact_representative(
             prefilter=prefilter,
             baseline_selected=baseline_selected,
             governor_config=cfg,
+            include_diagnostics=include_diagnostics,
         )
         viable = [row for row in candidate_rows if bool(row.get("viable", False))]
         baseline_selected = sorted(
@@ -173,6 +179,7 @@ def _refresh_memory_shortlist_rows(
     prefilter: dict[str, object],
     baseline_selected: dict[str, object],
     governor_config: GovernorConfig,
+    include_diagnostics: bool = True,
 ) -> None:
     shortlist = _memory_shortlist_variant_ids(
         candidate_rows,
@@ -207,6 +214,7 @@ def _refresh_memory_shortlist_rows(
             policy_id=policy_id,
             belief_features=features,
             governor_config=governor_config,
+            include_diagnostics=include_diagnostics,
         )
         refreshed_row.update(_prefilter_audit_fields(prefilter))
         refreshed_row["memory_shortlist_selected"] = True

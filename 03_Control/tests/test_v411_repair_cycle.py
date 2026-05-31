@@ -13,10 +13,12 @@ from directional_residual_lift_belief import (
     FLOW_BELIEF_GRID_RESOLUTION_M,
     FLOW_BELIEF_QUERY_RADIUS_M,
     directional_residual_lift_cell_lookup,
+    directional_residual_lift_spatial_cell_lookup,
     directional_residual_observation_from_rows,
     initial_directional_residual_lift_belief,
     query_directional_residual_lift_features,
     query_spatial_flow_belief_features,
+    query_spatial_flow_belief_features_fast,
     update_directional_residual_lift_belief,
     update_directional_residual_lift_belief_batch,
 )
@@ -563,12 +565,63 @@ def test_v411_spatial_flow_belief_attraction_rewards_reachable_downstream_lift()
     assert features["belief_flow_map_reachable_attraction_query_count"] > 0
     assert features["belief_flow_map_reachable_attraction_query_count"] <= 18
     assert features["belief_flow_map_reachable_attraction_geometry"] == (
-        "sparse_3d_cone_2_range_3_azimuth_3_elevation_stencil"
+        "full_sparse_3d_cone_2_range_3_azimuth_3_elevation_stencil"
     )
     assert features["belief_flow_map_reachable_attraction_elevation_half_angle_rad"] == pytest.approx(
         math.radians(20.0)
     )
     assert features["belief_candidate_path_memory_utility_m"] > 0.0
+
+
+def test_v411_fast_spatial_flow_query_matches_full_query() -> None:
+    belief = initial_directional_residual_lift_belief()
+    observations = [
+        DirectionalResidualObservation(
+            x_w_m=2.00 + 0.05 * index,
+            y_w_m=1.20 + 0.03 * (index % 3),
+            z_w_m=1.00 + 0.04 * (index % 4),
+            direction_rad=0.1 * index,
+            lift_residual_m_s=0.02 * index,
+            updraft_gain_residual_m=0.03 * index,
+            dwell_residual_s=0.01 * index,
+            specific_energy_residual_m=0.04 * index,
+            history_launch_index=index % 5,
+        )
+        for index in range(12)
+    ]
+    belief = update_directional_residual_lift_belief_batch(belief, observations)
+    cell_lookup = directional_residual_lift_cell_lookup(belief)
+    spatial_lookup = directional_residual_lift_spatial_cell_lookup(belief)
+
+    slow = query_spatial_flow_belief_features(
+        belief,
+        x_w_m=2.18,
+        y_w_m=1.25,
+        z_w_m=1.08,
+        direction_rad=0.2,
+        cell_lookup=cell_lookup,
+        current_history_launch_index=7,
+        query_radius_m=FLOW_BELIEF_QUERY_RADIUS_M,
+    )
+    fast = query_spatial_flow_belief_features_fast(
+        belief,
+        x_w_m=2.18,
+        y_w_m=1.25,
+        z_w_m=1.08,
+        direction_rad=0.2,
+        cell_lookup=cell_lookup,
+        spatial_cell_lookup=spatial_lookup,
+        current_history_launch_index=7,
+        query_radius_m=FLOW_BELIEF_QUERY_RADIUS_M,
+    )
+
+    assert fast.keys() == slow.keys()
+    for key, expected in slow.items():
+        actual = fast[key]
+        if isinstance(expected, float):
+            assert actual == pytest.approx(expected), key
+        else:
+            assert actual == expected, key
 
 
 def test_r9_r10_launch_sequence_routes_launch_inflight_and_state_recovery_selection() -> None:

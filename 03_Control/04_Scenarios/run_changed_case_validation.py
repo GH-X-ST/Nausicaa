@@ -162,7 +162,7 @@ class ChangedCaseValidationConfig:
     seed: int = 110
     storage_format: str = "auto"
     compression_level: int = 1
-    candidate_chunk_size: int = 20_000
+    candidate_chunk_size: int = 50_000
     dry_run_schedule: bool = False
     max_primitives_per_launch: int = 0
     max_episode_time_s: float = DEFAULT_VALIDATION_MAX_EPISODE_TIME_S
@@ -268,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=110)
     parser.add_argument("--storage-format", default="auto", choices=("auto", "parquet", "csv_gz", "csv"))
     parser.add_argument("--compression-level", type=int, default=1)
-    parser.add_argument("--candidate-chunk-size", type=int, default=20_000)
+    parser.add_argument("--candidate-chunk-size", type=int, default=50_000)
     parser.add_argument(
         "--max-primitives-per-launch",
         type=int,

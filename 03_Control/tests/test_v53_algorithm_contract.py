@@ -196,7 +196,10 @@ def test_v53_repeated_launch_outer_loop_has_realtime_scheduler_profile_contract(
     assert fast["decision_viable_count"] == 6
     assert fast["decision_controller_compute_duration_s"] == pytest.approx(0.006)
     assert fast["decision_diagnostic_logging_duration_s"] == pytest.approx(0.0)
-    assert fast["decision_controller_timing_scope"] == "context_plus_belief_plus_compact_selector_no_table_flush"
+    assert (
+        fast["decision_controller_timing_scope"]
+        == "context_plus_belief_plus_full_memory_controller_selector_no_table_flush"
+    )
     assert fast["real_time_claim_status"] == "controller_compute_profile_excludes_table_flush_and_posthoc_diagnostics"
 
     slow = _real_time_scheduler_decision_fields(

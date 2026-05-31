@@ -174,6 +174,7 @@ def governor_candidate_row(
     belief_features: dict[str, float] | None = None,
     thresholds: GovernorThresholds | None = None,
     governor_config: GovernorConfig | None = None,
+    include_diagnostics: bool = True,
 ) -> dict[str, object]:
     """Evaluate one compact-library representative in one local context."""
 
@@ -294,6 +295,98 @@ def governor_candidate_row(
             outcome.get("library_size_case_id", context.get("library_size_case_id", "unknown_library_size_case")),
         )
     )
+    if not include_diagnostics:
+        row = {
+            "policy_id": str(policy_id),
+            "context_id": str(context.get("context_id", "")),
+            "W_layer": str(context.get("W_layer", "")),
+            "environment_mode": str(context.get("environment_mode", "")),
+            "start_state_family": str(context.get("start_state_family", "")),
+            "launch_sequence_policy": str(context.get("launch_sequence_policy", "")),
+            "launch_sequence_phase": str(context.get("launch_sequence_phase", "")),
+            "route_required_entry_role": str(context.get("route_required_entry_role", "")),
+            "route_required_entry_class": str(context.get("route_required_entry_class", "")),
+            "route_reason": str(context.get("route_reason", "")),
+            "governor_mode": str(governor_mode),
+            "governor_config_id": cfg.config_id,
+            "compact_library_id": str(representative.get("compact_library_id", "")),
+            "primitive_variant_id": str(representative.get("primitive_variant_id", "")),
+            "primitive_id": str(representative.get("primitive_id", "")),
+            "entry_role": str(representative.get("entry_role", "")),
+            "transition_entry_class": str(
+                representative.get(
+                    "transition_entry_class",
+                    outcome.get("transition_entry_class", ""),
+                )
+            ),
+            "candidate_local_lqr_speed_bin_id": _candidate_speed_bin(representative=representative, outcome=outcome),
+            "context_local_lqr_speed_bin_id": _context_speed_bin(context),
+            "controller_id": str(representative.get("controller_id", "")),
+            "library_size_case_id": library_size_case_id,
+            "library_size_human_label": str(
+                representative.get("library_size_human_label", outcome.get("library_size_human_label", ""))
+            ),
+            "viable": viable,
+            "rejection_reason": rejection_reason,
+            "score": float(total_score if viable else float("-inf")),
+            "base_library_score_component": float(base_score if viable else float("-inf")),
+            "base_score_without_memory": float(base_score if rejection_reason == "" else float("-inf")),
+            "memory_score_component": float(memory_component if viable else 0.0),
+            "memory_residual_score_component": float(memory_component if viable else 0.0),
+            "mission_score_component": float(mission_score_component if viable else 0.0),
+            **mission,
+            "exploration_score_component": float(exploration_component if viable else 0.0),
+            "score_with_memory": float(score_with_memory if rejection_reason == "" else float("-inf")),
+            "total_score_with_memory_and_exploration": float(total_score if viable else float("-inf")),
+            "safe_exploration_status": (
+                "applied_after_viability_filter_uncertainty_bonus_requires_baseline_shield"
+                if viable and float(exploration_component) > 0.0
+                else "applied_after_viability_filter_zero_or_disabled"
+                if viable
+                else "not_applied_rejected_before_exploration"
+            ),
+            "score_margin_to_selected": 0.0,
+            "rank_without_memory": 0,
+            "rank_with_memory": 0,
+            "rank_with_memory_and_exploration": 0,
+            "rank_change_due_to_memory": 0,
+            "rank_change_due_to_exploration": 0,
+            "history_length": history_length,
+            "belief_version": str(belief_features.get("belief_version", "")),
+            "belief_local_lift_m_s": belief_local,
+            "belief_local_lift_residual_m_s": belief_local,
+            "belief_local_updraft_gain_proxy_m": belief_updraft_gain,
+            "belief_local_updraft_gain_residual_m": belief_updraft_gain_residual,
+            "belief_local_energy_residual_m": belief_specific_energy_residual,
+            "belief_local_specific_energy_residual_m": belief_specific_energy_residual,
+            "belief_uncertainty": belief_uncertainty,
+            "belief_observation_count": belief_observation_count,
+            "continuation_probability": continuation_probability,
+            "transition_success_probability": transition_success_probability,
+            "transition_chain_compatible_rate": _float(
+                outcome.get("transition_chain_compatible_rate", transition_success_probability)
+            ),
+            "terminal_useful_probability": terminal_probability,
+            "hard_failure_risk": hard_failure_risk,
+            "expected_net_specific_energy_delta_m": expected_net_specific_energy_delta_m,
+            "expected_updraft_gain_proxy_m": updraft_gain,
+            "score_updraft_gain_proxy_m": score_updraft_gain,
+            "expected_lift_dwell_time_s": dwell,
+            "wall_margin_m": _float(context.get("wall_margin_m", wall_margin)),
+            "all_wall_margin_m": _float(context.get("all_wall_margin_m", context.get("wall_margin_m", 0.0))),
+            "front_wall_margin_m": _float(context.get("front_wall_margin_m", context.get("wall_margin_m", 0.0))),
+            "left_wall_margin_m": _float(context.get("left_wall_margin_m", context.get("wall_margin_m", 0.0))),
+            "right_wall_margin_m": _float(context.get("right_wall_margin_m", context.get("wall_margin_m", 0.0))),
+            "rear_wall_margin_m": _float(context.get("rear_wall_margin_m", context.get("wall_margin_m", 0.0))),
+            "governor_wall_margin_m": wall_margin,
+            "floor_margin_m": _float(context.get("floor_margin_m", 0.0)),
+            "ceiling_margin_m": _float(context.get("ceiling_margin_m", 0.0)),
+            "claim_status": "simulation_only_viability_governor_candidate_controller_row",
+        }
+        for key, value in belief_features.items():
+            if str(key).startswith("belief_") and key not in row:
+                row[str(key)] = value
+        return row
     return {
         "policy_id": str(policy_id),
         "context_id": str(context.get("context_id", "")),

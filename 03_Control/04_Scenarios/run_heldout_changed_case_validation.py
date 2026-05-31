@@ -35,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=111)
     parser.add_argument("--storage-format", default="auto", choices=("auto", "parquet", "csv_gz", "csv"))
     parser.add_argument("--compression-level", type=int, default=1)
-    parser.add_argument("--candidate-chunk-size", type=int, default=20_000)
+    parser.add_argument("--candidate-chunk-size", type=int, default=50_000)
     parser.add_argument(
         "--max-primitives-per-launch",
         type=int,

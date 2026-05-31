@@ -16,6 +16,7 @@ primvar   primitive-controller variant
 ctrl      controller
 gov       viability governor
 sel       selector
+ctrlrow   compact controller-row selector fast path
 mem       spatial flow-belief memory
 ep        episode
 rf        real flight

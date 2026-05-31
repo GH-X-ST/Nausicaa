@@ -19,6 +19,5 @@ docs/CODEX_*.md
 # Generated evidence/result outputs stay local; commit code, docs, manifests, and
 # small hand-written fixtures only when explicitly intended.
 !03_Control/05_Results/.gitkeep
-03_Control/05_Results/**
 !03_Control/05_Results/.gitkeep
 03_Control/05_Results/**/*.tmp

@@ -1083,7 +1083,7 @@ def _validation_worker_count(workers: int | str) -> int:
 
 
 def _validation_chunk_size(candidate_chunk_size: int | str) -> int:
-    return max(20_000, int(candidate_chunk_size))
+    return max(50_000, int(candidate_chunk_size))
 
 
 def _r9_initial_governor_config_path(context: dict[str, object]) -> Path | None:

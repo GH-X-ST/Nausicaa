@@ -1,0 +1,2 @@
+table_name,row_level_log,storage
+memory_residual_update_log,tables/memory_residual_update_log/,partitioned

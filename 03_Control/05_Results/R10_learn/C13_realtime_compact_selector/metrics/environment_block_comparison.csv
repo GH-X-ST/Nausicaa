@@ -1,0 +1,2 @@
+environment_block_id,launch_count,safe_success_rate,full_safe_success_rate,claim_bearing_episode_rate,expected_low_energy_dry_air_sink_rate,mission_success_rate,front_wall_terminal_success_rate,wrong_wall_exit_rate,mean_launch_score
+targeted_memory_opportunity_arena_wide_four_fan,40,1.0,0.0,1.0,0.0,1.0,1.0,0.0,129.30452546714199
