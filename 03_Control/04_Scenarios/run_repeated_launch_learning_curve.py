@@ -101,6 +101,16 @@ POLICY_HISTORY_CONDITIONS = (
     "spatial_flow_belief_memory_h10",
     "spatial_flow_belief_memory_h30",
 )
+LAUNCH_SPEED_BIN_DEFINITIONS = (
+    ("v0_lt_4_0_m_s", None, 4.0, "initial_launch_speed_m_s < 4.0"),
+    ("v0_4_0_to_5_0_m_s", 4.0, 5.0, "4.0 <= initial_launch_speed_m_s < 5.0"),
+    ("v0_5_0_to_6_0_m_s", 5.0, 6.0, "5.0 <= initial_launch_speed_m_s < 6.0"),
+    ("v0_6_0_to_7_0_m_s", 6.0, 7.0, "6.0 <= initial_launch_speed_m_s < 7.0"),
+    ("v0_ge_7_0_m_s", 7.0, None, "initial_launch_speed_m_s >= 7.0"),
+)
+START_ENERGY_FEASIBILITY_SPEED_THRESHOLD_M_S = 5.0
+LOW_START_ENERGY_GROUP_ID = "low_start_energy_v0_lt_5_0_m_s"
+HIGH_START_ENERGY_GROUP_ID = "high_start_energy_v0_ge_5_0_m_s"
 R9_POLICY_HISTORY_CONDITIONS = (
     "no_memory_baseline",
     "spatial_flow_belief_memory_h3",
@@ -5420,13 +5430,224 @@ def _sum_rows(rows: list[dict[str, object]], group_columns: list[str]) -> pd.Dat
     return frame.groupby(group_columns, dropna=False)[numeric].sum().reset_index()
 
 
+def _launch_speed_bin_fields(initial_launch_speed_m_s: object) -> dict[str, object]:
+    speed = _float_value(initial_launch_speed_m_s, default=float("nan"))
+    if not math.isfinite(speed):
+        return {
+            "launch_speed_bin_id": "unknown_initial_launch_speed",
+            "launch_speed_bin_min_m_s": "",
+            "launch_speed_bin_max_m_s": "",
+            "launch_speed_bin_label": "unknown initial_launch_speed_m_s",
+            "start_energy_group_id": "unknown_start_energy",
+            "start_energy_group_label": "unknown initial launch speed",
+            "start_energy_feasibility_threshold_m_s": START_ENERGY_FEASIBILITY_SPEED_THRESHOLD_M_S,
+            "start_energy_group_basis": "initial_launch_speed_m_s",
+        }
+    for bin_id, lower, upper, label in LAUNCH_SPEED_BIN_DEFINITIONS:
+        lower_passed = lower is None or speed >= float(lower)
+        upper_passed = upper is None or speed < float(upper)
+        if lower_passed and upper_passed:
+            speed_bin_id = bin_id
+            speed_bin_min = "" if lower is None else float(lower)
+            speed_bin_max = "" if upper is None else float(upper)
+            speed_bin_label = label
+            break
+    else:
+        speed_bin_id = "unknown_initial_launch_speed"
+        speed_bin_min = ""
+        speed_bin_max = ""
+        speed_bin_label = "unknown initial_launch_speed_m_s"
+    if speed < START_ENERGY_FEASIBILITY_SPEED_THRESHOLD_M_S:
+        energy_group_id = LOW_START_ENERGY_GROUP_ID
+        energy_group_label = f"initial_launch_speed_m_s < {START_ENERGY_FEASIBILITY_SPEED_THRESHOLD_M_S:.1f}"
+    else:
+        energy_group_id = HIGH_START_ENERGY_GROUP_ID
+        energy_group_label = f"initial_launch_speed_m_s >= {START_ENERGY_FEASIBILITY_SPEED_THRESHOLD_M_S:.1f}"
+    return {
+        "launch_speed_bin_id": speed_bin_id,
+        "launch_speed_bin_min_m_s": speed_bin_min,
+        "launch_speed_bin_max_m_s": speed_bin_max,
+        "launch_speed_bin_label": speed_bin_label,
+        "start_energy_group_id": energy_group_id,
+        "start_energy_group_label": energy_group_label,
+        "start_energy_feasibility_threshold_m_s": START_ENERGY_FEASIBILITY_SPEED_THRESHOLD_M_S,
+        "start_energy_group_basis": "initial_launch_speed_m_s",
+    }
+
+
+def _with_launch_speed_analysis_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    out = frame.copy()
+    if "initial_launch_speed_m_s" not in out.columns:
+        out["initial_launch_speed_m_s"] = float("nan")
+    bin_rows = [_launch_speed_bin_fields(value) for value in out["initial_launch_speed_m_s"].tolist()]
+    bins = pd.DataFrame(bin_rows, index=out.index)
+    for column in bins.columns:
+        out[column] = bins[column]
+    return out
+
+
+def _launch_condition_success_summary(final: pd.DataFrame, group_columns: list[str]) -> pd.DataFrame:
+    if final.empty:
+        return pd.DataFrame()
+    frame = _with_launch_speed_analysis_columns(final)
+    for column in group_columns:
+        if column not in frame.columns:
+            frame[column] = "not_applicable"
+    bool_columns = [
+        "mission_success",
+        "safe_success",
+        "full_safe_success",
+        "front_wall_terminal_success",
+        "wrong_wall_exit",
+        "expected_low_energy_dry_air_sink",
+        "claim_bearing_episode",
+        "no_viable_primitive",
+        "hard_failure",
+        "floor_or_ceiling_violation",
+        "physical_hard_failure",
+        "physical_floor_or_ceiling_violation",
+        "terminal_useful",
+        "lift_capture",
+        "memory_changed_selection",
+        "exploration_changed_selection",
+    ]
+    for column in bool_columns:
+        if column in frame.columns:
+            frame[column] = frame[column].map(_truthy).astype(float)
+    numeric_columns = [
+        "initial_launch_speed_m_s",
+        "launch_score",
+        "episode_flight_time_s",
+        "lift_dwell_time_s",
+        "terminal_specific_energy_m",
+        "terminal_specific_energy_reserve_m",
+        "terminal_specific_energy_bonus",
+        "positive_specific_energy_gain_m",
+        "updraft_specific_energy_gain_proxy_m",
+        "net_specific_energy_delta_m",
+        "gross_specific_energy_loss_m",
+    ]
+    for column in numeric_columns:
+        if column in frame.columns:
+            frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    agg: dict[str, tuple[str, str]] = {"launch_count": ("episode_id", "count")}
+    for column in bool_columns:
+        if column in frame.columns:
+            agg[f"{column}_count"] = (column, "sum")
+            agg[f"{column}_rate"] = (column, "mean")
+    if "initial_launch_speed_m_s" in frame.columns:
+        agg["mean_initial_launch_speed_m_s"] = ("initial_launch_speed_m_s", "mean")
+        agg["min_initial_launch_speed_m_s"] = ("initial_launch_speed_m_s", "min")
+        agg["max_initial_launch_speed_m_s"] = ("initial_launch_speed_m_s", "max")
+    if "launch_score" in frame.columns:
+        agg["mean_launch_score"] = ("launch_score", "mean")
+        agg["median_launch_score"] = ("launch_score", "median")
+    for column in numeric_columns:
+        if column in frame.columns and column not in {"initial_launch_speed_m_s", "launch_score"}:
+            agg[f"mean_{column}"] = (column, "mean")
+    return frame.groupby(group_columns, dropna=False).agg(**agg).reset_index()
+
+
+def _paired_score_delta_group_summary(delta_rows: pd.DataFrame, group_columns: list[str]) -> pd.DataFrame:
+    if delta_rows.empty:
+        return pd.DataFrame()
+    frame = delta_rows.copy()
+    for column in group_columns:
+        if column not in frame.columns:
+            frame[column] = "not_applicable"
+    frame["win"] = pd.to_numeric(frame["paired_delta_launch_score"], errors="coerce").fillna(0.0) > 0.0
+    frame["loss"] = pd.to_numeric(frame["paired_delta_launch_score"], errors="coerce").fillna(0.0) < 0.0
+    for column in ("memory_changed_selection", "exploration_changed_selection", "safety_regression"):
+        if column in frame.columns:
+            frame[column] = frame[column].map(_truthy).astype(float)
+    numeric_columns = [
+        "paired_delta_launch_score",
+        "mission_success_delta",
+        "front_wall_terminal_success_delta",
+        "wrong_wall_exit_delta",
+        "safe_success_delta",
+        "hard_failure_delta",
+        "floor_or_ceiling_violation_delta",
+        "no_viable_primitive_delta",
+        "net_specific_energy_delta_m_delta",
+        "positive_specific_energy_gain_m_delta",
+        "updraft_specific_energy_gain_proxy_m_delta",
+        "terminal_specific_energy_m_delta",
+        "terminal_specific_energy_bonus_delta",
+        "gross_specific_energy_loss_m_delta",
+        "episode_flight_time_s_delta",
+    ]
+    for column in numeric_columns:
+        if column in frame.columns:
+            frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    return (
+        frame.groupby(group_columns, dropna=False)
+        .agg(
+            paired_launch_count=("paired_delta_launch_score", "count"),
+            mean_paired_delta_launch_score=("paired_delta_launch_score", "mean"),
+            median_paired_delta_launch_score=("paired_delta_launch_score", "median"),
+            win_rate=("win", "mean"),
+            loss_rate=("loss", "mean"),
+            safety_regression_rate=("safety_regression", "mean"),
+            mission_success_delta_mean=("mission_success_delta", "mean"),
+            front_wall_terminal_success_delta_mean=("front_wall_terminal_success_delta", "mean"),
+            wrong_wall_exit_delta_mean=("wrong_wall_exit_delta", "mean"),
+            safe_success_delta_mean=("safe_success_delta", "mean"),
+            hard_failure_delta_mean=("hard_failure_delta", "mean"),
+            floor_or_ceiling_violation_delta_mean=("floor_or_ceiling_violation_delta", "mean"),
+            no_viable_primitive_delta_mean=("no_viable_primitive_delta", "mean"),
+            memory_changed_selection_rate=("memory_changed_selection", "mean"),
+            exploration_changed_selection_rate=("exploration_changed_selection", "mean"),
+            mean_net_specific_energy_delta_m_delta=("net_specific_energy_delta_m_delta", "mean"),
+            mean_positive_specific_energy_gain_m_delta=("positive_specific_energy_gain_m_delta", "mean"),
+            mean_updraft_specific_energy_gain_proxy_m_delta=("updraft_specific_energy_gain_proxy_m_delta", "mean"),
+            mean_terminal_specific_energy_m_delta=("terminal_specific_energy_m_delta", "mean"),
+            mean_terminal_specific_energy_bonus_delta=("terminal_specific_energy_bonus_delta", "mean"),
+            mean_gross_specific_energy_loss_m_delta=("gross_specific_energy_loss_m_delta", "mean"),
+            mean_episode_flight_time_s_delta=("episode_flight_time_s_delta", "mean"),
+        )
+        .reset_index()
+    )
+
+
 def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, object]], protocol: ValidationProtocol) -> None:
     frame = pd.DataFrame(episode_rows)
     final = frame[frame["launch_role"].astype(str) == "final_heldout"] if not frame.empty else pd.DataFrame()
     if not final.empty:
         final = _with_launch_score_columns(final)
         final = _with_selection_change_flags(final)
+        final = _with_launch_speed_analysis_columns(final)
     _write_csv(run_root / "metrics" / "final_launch_score.csv", final)
+    speed_group_columns = [
+        "environment_block_id",
+        "library_size_case_id",
+        "policy_id",
+        "history_length",
+        "launch_speed_bin_id",
+        "launch_speed_bin_min_m_s",
+        "launch_speed_bin_max_m_s",
+        "launch_speed_bin_label",
+    ]
+    energy_group_columns = [
+        "environment_block_id",
+        "library_size_case_id",
+        "policy_id",
+        "history_length",
+        "start_energy_group_id",
+        "start_energy_group_label",
+        "start_energy_group_basis",
+        "start_energy_feasibility_threshold_m_s",
+    ]
+    _write_csv(
+        run_root / "metrics" / "speed_bin_policy_ladder_summary.csv",
+        _launch_condition_success_summary(final, speed_group_columns),
+    )
+    _write_csv(
+        run_root / "metrics" / "start_energy_group_policy_ladder_summary.csv",
+        _launch_condition_success_summary(final, energy_group_columns),
+    )
     if final.empty:
         comparison = pd.DataFrame()
     else:
@@ -5477,9 +5698,46 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
     safe_explore_delta = _paired_safe_explore_delta_rows(final)
     _write_csv(run_root / "metrics" / "paired_memory_score_delta.csv", memory_delta)
     _write_csv(run_root / "metrics" / "paired_safe_explore_score_delta.csv", safe_explore_delta)
+    paired_delta = pd.concat([memory_delta, safe_explore_delta], ignore_index=True)
     _write_csv(
         run_root / "metrics" / "paired_score_delta_summary.csv",
-        _paired_score_delta_summary(pd.concat([memory_delta, safe_explore_delta], ignore_index=True)),
+        _paired_score_delta_summary(paired_delta),
+    )
+    _write_csv(
+        run_root / "metrics" / "paired_score_delta_by_speed_bin_summary.csv",
+        _paired_score_delta_group_summary(
+            paired_delta,
+            [
+                "comparison_type",
+                "environment_block_id",
+                "library_size_case_id",
+                "policy_id",
+                "baseline_policy_id",
+                "history_length",
+                "launch_speed_bin_id",
+                "launch_speed_bin_min_m_s",
+                "launch_speed_bin_max_m_s",
+                "launch_speed_bin_label",
+            ],
+        ),
+    )
+    _write_csv(
+        run_root / "metrics" / "paired_score_delta_by_start_energy_group_summary.csv",
+        _paired_score_delta_group_summary(
+            paired_delta,
+            [
+                "comparison_type",
+                "environment_block_id",
+                "library_size_case_id",
+                "policy_id",
+                "baseline_policy_id",
+                "history_length",
+                "start_energy_group_id",
+                "start_energy_group_label",
+                "start_energy_group_basis",
+                "start_energy_feasibility_threshold_m_s",
+            ],
+        ),
     )
     if final.empty:
         library = pd.DataFrame()
@@ -5634,6 +5892,7 @@ def _paired_score_delta_row(row: dict[str, object], baseline_row: dict[str, obje
             and not _truthy(baseline_row.get("no_viable_primitive", False))
         )
     )
+    fields = _launch_speed_bin_fields(row.get("initial_launch_speed_m_s", baseline_row.get("initial_launch_speed_m_s", "")))
     return {
         "comparison_type": str(comparison_type),
         "library_size_case_id": str(row.get("library_size_case_id", "")),
@@ -5643,6 +5902,16 @@ def _paired_score_delta_row(row: dict[str, object], baseline_row: dict[str, obje
         "policy_id": str(row.get("policy_id", "")),
         "baseline_policy_id": str(baseline_policy_id),
         "history_length": int(_float_value(row.get("history_length", 0))),
+        "initial_launch_speed_m_s": _float_value(row.get("initial_launch_speed_m_s", baseline_row.get("initial_launch_speed_m_s", 0.0))),
+        "baseline_initial_launch_speed_m_s": _float_value(baseline_row.get("initial_launch_speed_m_s", row.get("initial_launch_speed_m_s", 0.0))),
+        "launch_speed_bin_id": fields["launch_speed_bin_id"],
+        "launch_speed_bin_min_m_s": fields["launch_speed_bin_min_m_s"],
+        "launch_speed_bin_max_m_s": fields["launch_speed_bin_max_m_s"],
+        "launch_speed_bin_label": fields["launch_speed_bin_label"],
+        "start_energy_group_id": fields["start_energy_group_id"],
+        "start_energy_group_label": fields["start_energy_group_label"],
+        "start_energy_group_basis": fields["start_energy_group_basis"],
+        "start_energy_feasibility_threshold_m_s": fields["start_energy_feasibility_threshold_m_s"],
         "launch_score": _float_value(row.get("launch_score", 0.0)),
         "baseline_launch_score": _float_value(baseline_row.get("launch_score", 0.0)),
         "paired_delta_launch_score": _float_value(row.get("launch_score", 0.0)) - _float_value(baseline_row.get("launch_score", 0.0)),
@@ -6952,6 +7221,7 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         "- Boundary-near is a route state, not automatic failure; hard_failure is the failure class.",
         f"- Launch score: `{LAUNCH_SCORE_VERSION}`; rewards front-wall terminal mission completion plus capped updraft/lift evidence and terminal total specific energy reserve. Airborne time and generic net/gross energy drift remain audit-only.",
         "- Dry-air or scheduled-zero-fan low-launch-speed floor stops keep the raw primitive `floor_violation` audit label, but are interpreted as expected energy depletion rather than governor or memory failure.",
+        f"- Start-energy audit: `speed_bin_policy_ladder_summary.csv` reports mission/safety rates by environment ladder, library tier, policy, repeated-launch history length, and initial-speed bin. `start_energy_group_policy_ladder_summary.csv` separates low-start-energy launches from high-start-energy launches using `{START_ENERGY_FEASIBILITY_SPEED_THRESHOLD_M_S:.1f} m/s` as a fixed post-hoc reporting threshold; paired score-delta summaries are split the same way.",
         "- Claim boundary: simulation-only; no hardware, real-flight transfer, mission, autonomy, or memory-improvement claim.",
         "",
         "Gate summary:",

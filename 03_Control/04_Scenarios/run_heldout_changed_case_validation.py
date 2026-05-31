@@ -32,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-root", type=Path, default=DEFAULT_R11_OUTPUT_ROOT)
     parser.add_argument("--source-w2-root", type=Path, default=None)
     parser.add_argument("--run-id", type=int, default=1)
+    parser.add_argument("--run-label", default="")
     parser.add_argument("--seed", type=int, default=111)
     parser.add_argument("--storage-format", default="auto", choices=("auto", "parquet", "csv_gz", "csv"))
     parser.add_argument("--compression-level", type=int, default=1)
@@ -60,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
             output_root=args.output_root,
             source_w2_root=args.source_w2_root,
             run_id=args.run_id,
+            run_label=args.run_label,
             seed=args.seed,
             storage_format=args.storage_format,
             compression_level=args.compression_level,
