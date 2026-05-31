@@ -21,6 +21,8 @@ mem       spatial flow-belief memory
 ep        episode
 rf        real flight
 sr        sim-real replay
+h         repeated-launch history length for memory, e.g. h0/h3/h10/h30
+v0        initial launch speed
 nom       nominal
 rand      randomised
 sum       summary
