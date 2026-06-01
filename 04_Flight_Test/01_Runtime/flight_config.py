@@ -16,6 +16,7 @@ DEFAULT_VICON_POSITION_OFFSET_M = (
     OPERATIONAL_REGION_CENTER_M[1],
     OPERATIONAL_REGION_CENTER_M[2],
 )
+DEFAULT_VICON_ATTITUDE_SIGNS = (1.0, -1.0, -1.0)
 DEFAULT_REAL_FLIGHT_LIBRARY_TIER = "heavy_cluster"
 REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON = (
     "heavy_cluster_selected_for_first_real_flight_from_combined_r11_d01_d02_validation;"
@@ -47,11 +48,13 @@ class FlightRuntimeConfig:
     post_exit_neutral_tail_s: float = 0.30
     retry_cooldown_s: float = 2.0
     stale_vicon_timeout_s: float = 0.120
-    derivative_cutoff_hz: float = 20.0
+    derivative_cutoff_hz: float = 8.0
+    body_rate_limit_rad_s: float = 3.0
     actuator_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06)
     vicon_position_offset_m: tuple[float, float, float] = DEFAULT_VICON_POSITION_OFFSET_M
     vicon_yaw_alignment_deg: float = 0.0
-    vicon_frame_description: str = "full_xyz_position_offset_with_horizontal_yaw_alignment"
+    vicon_attitude_signs: tuple[float, float, float] = DEFAULT_VICON_ATTITUDE_SIGNS
+    vicon_frame_description: str = "full_xyz_position_offset_with_pitch_yaw_sign_correction"
     output_root: Path = RESULT_ROOT
     library_manifest_root: Path = FROZEN_INPUT_ROOT / "R8_library_size_study" / "B02" / "manifests"
     outcome_table_path: Path = FROZEN_INPUT_ROOT / "R8_outcome" / "B02" / "metrics" / "outcome_model_table.csv"

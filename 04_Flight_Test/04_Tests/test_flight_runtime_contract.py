@@ -82,6 +82,100 @@ def test_vicon_transform_applies_full_xyz_offset() -> None:
     assert np.isclose(state[STATE_INDEX["z_w"]], 2.37)
 
 
+def test_vicon_transform_applies_recovered_pitch_yaw_signs() -> None:
+    adapter = NausicaaViconStateAdapter(
+        derivative_cutoff_hz=0.0,
+        arena_transform=ViconArenaFrameTransform(attitude_signs=(1.0, -1.0, -1.0)),
+    )
+
+    state = adapter.update(
+        NausicaaViconSample(0.0, (0.0, 0.0, 0.0), euler_rad=(0.10, -0.20, -0.30)),
+        command_norm=[0.0, 0.0, 0.0],
+    )
+
+    assert np.isclose(state[STATE_INDEX["phi"]], 0.10)
+    assert np.isclose(state[STATE_INDEX["theta"]], 0.20)
+    assert np.isclose(state[STATE_INDEX["psi"]], 0.30)
+
+
+def test_vicon_adapter_body_rates_are_rotation_delta_based_and_bounded() -> None:
+    adapter = NausicaaViconStateAdapter(
+        derivative_cutoff_hz=0.0,
+        body_rate_limit_rad_s=2.0,
+    )
+    adapter.update(
+        NausicaaViconSample(0.0, (0.0, 0.0, 0.0), euler_rad=(0.0, 0.0, 0.0)),
+        command_norm=[0.0, 0.0, 0.0],
+    )
+
+    state = adapter.update(
+        NausicaaViconSample(0.1, (0.0, 0.0, 0.0), euler_rad=(0.1, 0.0, 0.0)),
+        command_norm=[0.0, 0.0, 0.0],
+    )
+
+    assert np.isclose(state[STATE_INDEX["p"]], 1.0, atol=1e-6)
+    assert np.isclose(state[STATE_INDEX["q"]], 0.0, atol=1e-6)
+    assert np.isclose(state[STATE_INDEX["r"]], 0.0, atol=1e-6)
+
+    clipped = adapter.update(
+        NausicaaViconSample(0.11, (0.0, 0.0, 0.0), euler_rad=(1.1, 0.0, 0.0)),
+        command_norm=[0.0, 0.0, 0.0],
+    )
+
+    assert abs(float(clipped[STATE_INDEX["p"]])) <= 2.0 + 1e-9
+    adapter.reset_angular_rate_filter()
+    assert np.isfinite(adapter.update(
+        NausicaaViconSample(0.12, (0.0, 0.0, 0.0), euler_rad=(1.1, 0.0, 0.0)),
+        command_norm=[0.0, 0.0, 0.0],
+    )[STATE_INDEX["p"]])
+
+
+def test_vicon_adapter_prefers_frame_synchronous_timing_over_host_jitter() -> None:
+    adapter = NausicaaViconStateAdapter(derivative_cutoff_hz=0.0)
+    adapter.update(
+        NausicaaViconSample(
+            1000.0,
+            (0.0, 0.0, 0.0),
+            euler_rad=(0.0, 0.0, 0.0),
+            frame_number=10,
+            frame_rate_hz=200.0,
+        ),
+        command_norm=[0.0, 0.0, 0.0],
+    )
+
+    state = adapter.update(
+        NausicaaViconSample(
+            1000.001,
+            (1.0, 0.0, 0.0),
+            euler_rad=(0.0, 0.0, 0.0),
+            frame_number=30,
+            frame_rate_hz=200.0,
+        ),
+        command_norm=[0.0, 0.0, 0.0],
+    )
+    status = adapter.estimator_status()
+
+    assert np.isclose(state[STATE_INDEX["u"]], 10.0)
+    assert status["dt_source"] == "vicon_frame_time"
+    assert status["frame_delta"] == 20
+    assert np.isclose(status["dt_s"], 0.1)
+
+    duplicate = adapter.update(
+        NausicaaViconSample(
+            1000.002,
+            (99.0, 0.0, 0.0),
+            euler_rad=(0.0, 0.0, 0.0),
+            frame_number=30,
+            frame_rate_hz=200.0,
+        ),
+        command_norm=[0.0, 0.0, 0.0],
+    )
+    duplicate_status = adapter.estimator_status()
+
+    assert duplicate_status["dt_source"] == "duplicate_or_reordered_vicon_frame"
+    assert np.isclose(duplicate[STATE_INDEX["u"]], 10.0)
+
+
 def test_launch_gate_uses_r5_release_bounds() -> None:
     state = np.zeros(15)
     state[STATE_INDEX["x_w"]] = 1.3
@@ -247,6 +341,7 @@ def test_experiment_sequence_counts_only_valid_throws_and_persists_memory(tmp_pa
         vicon_poll_period_s=0.005,
         vicon_position_offset_m=(3.9, 2.2, 1.95),
         vicon_yaw_alignment_deg=0.0,
+        vicon_attitude_signs=(1.0, -1.0, -1.0),
     )
     assert result["valid_throw_count"] == 2
     assert result["invalid_attempt_count"] == 0
@@ -274,6 +369,7 @@ def test_experiment_sequence_invalid_start_does_not_count_or_update_memory(tmp_p
         vicon_poll_period_s=0.005,
         vicon_position_offset_m=(1000.0, 2.2, 1.95),
         vicon_yaw_alignment_deg=0.0,
+        vicon_attitude_signs=(1.0, -1.0, -1.0),
     )
     assert result["valid_throw_count"] == 0
     assert result["invalid_attempt_count"] >= 1

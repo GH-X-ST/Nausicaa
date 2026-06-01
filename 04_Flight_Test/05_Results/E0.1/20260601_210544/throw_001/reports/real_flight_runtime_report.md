@@ -1,0 +1,23 @@
+# Real Flight Runtime Report
+- Mode: `armed`
+- Run root: `C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/E0.1/20260601_210544/throw_001`
+- Experiment case: `E0.1`
+- Valid throw: `True`
+- Launch gate approved: `True`
+- Launch speed (m/s): `6.355`
+- Flight cancelled: `False`
+- Cancellation reason: ``
+- Exit gate triggered: `True`
+- Termination reason: `exit_gate_front_wall`
+- State samples: `290`
+- Controller decisions: `18`
+- Packets sent: `887`
+- Neutral failsafe commands: `800`
+- Serial write errors: `0`
+- Serial write timeouts: `0`
+- Post-exit neutral packets: `15`
+- Latest visible fan count: `0`
+- Fan expected count OK: `True`
+- Memory update observations: `0`
+- Memory cells: `0`
+- Max decision time (s): `0.000931`

@@ -154,3 +154,9 @@ at the centre of that region, so raw Vicon `(0, 0, 0)` maps to controller world
 
 The default axis convention is still `+X` forward, `+Y` left, and `+Z` up. If
 the Vicon axes are yaw-rotated relative to the arena, use `--vicon-yaw-deg`.
+The current `Nausicaa` rigid-body orientation check showed pitch and yaw signs
+reversed relative to the controller convention, so the runtime applies
+`attitude_signs = (1, -1, -1)` for `(phi, theta, psi)`: roll is unchanged,
+physical nose-up becomes positive `theta`, and physical nose-right becomes
+positive `psi`. Re-run `run_vicon_orientation_check.py` after any Vicon
+rigid-body re-registration.

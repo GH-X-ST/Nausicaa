@@ -90,6 +90,11 @@ Do not fly if any sign check fails. The most critical crash-prevention check is:
 
 nose-up physical pitch -> positive theta.
 
+The current runtime applies the recovered attitude correction
+`VICON_ATTITUDE_SIGNS = (1, -1, -1)`, so roll is unchanged while pitch and yaw
+are flipped before the controller sees the state. Re-run this checker after the
+fix and only continue if pitch-up and yaw-right now pass.
+
 
 How To Start One Experiment Case
 --------------------------------

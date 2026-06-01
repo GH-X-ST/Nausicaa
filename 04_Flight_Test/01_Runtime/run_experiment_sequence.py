@@ -27,9 +27,9 @@ from run_real_flight import run_real_flight
 # =============================================================================
 CURRENT_EXPERIMENT_CASE = "E0.1"
 CURRENT_SESSION_LABEL = ""  # Empty means a new timestamped result folder.
-TARGET_VALID_THROWS_OVERRIDE: int | None = 5
-PRE_ARM_VICON_INACTIVE_DELAY_S = 5.0
-COOLDOWN_AFTER_VALID_THROW_S = 20.0
+TARGET_VALID_THROWS_OVERRIDE: int | None = 3
+PRE_ARM_VICON_INACTIVE_DELAY_S = 3.0
+COOLDOWN_AFTER_VALID_THROW_S = 5.0
 RETRY_AFTER_INVALID_START_S = 2.0
 MAX_INVALID_ATTEMPTS: int | None = None
 SERIAL_PORT = "COM11"
@@ -43,6 +43,8 @@ VICON_POLL_PERIOD_S = 1.0 / VICON_TRACKING_RATE_HZ
 # Paste the calibration script's recommended full x/y/z offset here.
 VICON_POSITION_OFFSET_M = (4.122059988726226, 2.3212064296862036, 0.1403991257236011)
 VICON_YAW_ALIGNMENT_DEG = 0.0
+# Recovered from 20260601_205149 orientation check: pitch and yaw were reversed.
+VICON_ATTITUDE_SIGNS = (1.0, -1.0, -1.0)
 # =============================================================================
 
 
@@ -63,6 +65,7 @@ def run_experiment_sequence(
     vicon_poll_period_s: float,
     vicon_position_offset_m: tuple[float, float, float],
     vicon_yaw_alignment_deg: float,
+    vicon_attitude_signs: tuple[float, float, float],
     pre_arm_delay_s: float = 0.0,
 ) -> dict[str, object]:
     case = get_experiment_case(case_id)
@@ -88,6 +91,7 @@ def run_experiment_sequence(
         retry_cooldown_s=retry_cooldown_s,
         vicon_position_offset_m=vicon_position_offset_m,
         vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
+        vicon_attitude_signs=vicon_attitude_signs,
         output_root=session_root,
     )
     controller = FrozenFlightController(base_config)
@@ -106,6 +110,7 @@ def run_experiment_sequence(
             "retry_after_invalid_start_s": float(retry_cooldown_s),
             "vicon_tracking_rate_hz": float(1.0 / vicon_poll_period_s),
             "vicon_poll_period_s": float(vicon_poll_period_s),
+            "vicon_attitude_signs_phi_theta_psi": tuple(float(value) for value in vicon_attitude_signs),
             "between_throw_policy": (
                 "pre_arm_and_cooldown_stream_neutral_only_without_vicon_reads;"
                 "next_throw_reopens_lazy_vicon_launch_gate_wait"
@@ -163,6 +168,7 @@ def run_experiment_sequence(
                 retry_cooldown_s=retry_cooldown_s,
                 vicon_position_offset_m=vicon_position_offset_m,
                 vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
+                vicon_attitude_signs=vicon_attitude_signs,
                 output_root=output_root,
             )
             summary = run_real_flight(
@@ -227,6 +233,7 @@ def run_experiment_sequence(
                 "pre_arm_vicon_inactive_delay_s": float(pre_arm_delay_s),
                 "vicon_tracking_rate_hz": float(1.0 / vicon_poll_period_s),
                 "vicon_poll_period_s": float(vicon_poll_period_s),
+                "vicon_attitude_signs_phi_theta_psi": tuple(float(value) for value in vicon_attitude_signs),
                 "between_throw_policy": (
                     "pre_arm_and_cooldown_streamed_neutral_only_without_vicon_reads;"
                     "each_throw_started_with_lazy_vicon_launch_gate_wait"
@@ -350,6 +357,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--vicon-tracking-rate-hz", type=float, default=VICON_TRACKING_RATE_HZ)
     parser.add_argument("--vicon-offset-m", nargs=3, type=float, default=None)
     parser.add_argument("--vicon-yaw-deg", type=float, default=VICON_YAW_ALIGNMENT_DEG)
+    parser.add_argument("--vicon-attitude-signs", nargs=3, type=float, default=VICON_ATTITUDE_SIGNS)
     return parser.parse_args()
 
 
@@ -372,6 +380,7 @@ def main() -> None:
         vicon_poll_period_s=1.0 / float(args.vicon_tracking_rate_hz),
         vicon_position_offset_m=tuple(args.vicon_offset_m) if args.vicon_offset_m is not None else VICON_POSITION_OFFSET_M,
         vicon_yaw_alignment_deg=float(args.vicon_yaw_deg),
+        vicon_attitude_signs=tuple(args.vicon_attitude_signs),
     )
     print(json.dumps(result, indent=2, sort_keys=True))
 

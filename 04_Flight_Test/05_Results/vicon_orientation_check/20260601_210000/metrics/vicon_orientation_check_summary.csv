@@ -1,0 +1,11 @@
+step_id,kind,signal_name,observed_delta,observed_delta_deg,unit,expected_direction,minimum_required_delta,passed,sample_count,failure_reason
+neutral,reference,,0.0,,,reference,0.0,True,513,
+move_forward,translation,x_w,0.9082915378638003,,m,+,0.15,True,516,
+move_left,translation,y_w,0.9355746006059484,,m,+,0.15,True,497,
+move_up,translation,z_w,0.5991149315619344,,m,+,0.15,True,535,
+pitch_up,attitude,theta,0.7435781881896134,42.60389192124932,rad,+,0.13962634015954636,True,407,
+pitch_down,attitude,theta,-0.5677330997425075,-32.52871050512549,rad,-,0.13962634015954636,True,518,
+roll_right,attitude,phi,0.8434323914505983,48.325116334745225,rad,+,0.13962634015954636,True,527,
+roll_left,attitude,phi,-0.6508588318148771,-37.29146412180753,rad,-,0.13962634015954636,True,526,
+yaw_right,attitude,psi,0.7409631658949567,42.45406218043288,rad,+,0.13962634015954636,True,534,
+yaw_left,attitude,psi,-0.4591871316099102,-26.30948464796613,rad,-,0.13962634015954636,True,535,

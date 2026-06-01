@@ -22,6 +22,7 @@ class ViconFrameStatus:
     reason: str
     frame_number: int = -1
     vicon_latency_s: float = 0.0
+    frame_rate_hz: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -70,9 +71,15 @@ class LiveNausicaaViconRigidBody:
         try:
             self.client.GetFrame()
             frame_number = int(self.client.GetFrameNumber())
+            frame_rate_hz = _safe_vicon_frame_rate_hz(self.client)
             root, root_status = self._resolve_root_segment()
             if not root:
-                return None, ViconFrameStatus(False, root_status, frame_number=frame_number)
+                return None, ViconFrameStatus(
+                    False,
+                    root_status,
+                    frame_number=frame_number,
+                    frame_rate_hz=frame_rate_hz,
+                )
             translation, translation_occluded = self.client.GetSegmentGlobalTranslation(
                 self.subject_name,
                 root,
@@ -86,7 +93,12 @@ class LiveNausicaaViconRigidBody:
                 root,
             )
             if bool(translation_occluded) or bool(euler_occluded) or bool(quaternion_occluded):
-                return None, ViconFrameStatus(False, "vicon_subject_occluded", frame_number=frame_number)
+                return None, ViconFrameStatus(
+                    False,
+                    "vicon_subject_occluded",
+                    frame_number=frame_number,
+                    frame_rate_hz=frame_rate_hz,
+                )
             latency_s = float(self.client.GetLatencyTotal())
             timestamp_s = time.perf_counter() - latency_s
             sample = NausicaaViconSample(
@@ -95,8 +107,16 @@ class LiveNausicaaViconRigidBody:
                 euler_rad=tuple(float(value) for value in euler),
                 quaternion_xyzw=tuple(float(value) for value in quaternion),
                 vicon_latency_s=latency_s,
+                frame_number=frame_number,
+                frame_rate_hz=frame_rate_hz,
             )
-            return sample, ViconFrameStatus(True, "ok", frame_number=frame_number, vicon_latency_s=latency_s)
+            return sample, ViconFrameStatus(
+                True,
+                "ok",
+                frame_number=frame_number,
+                vicon_latency_s=latency_s,
+                frame_rate_hz=frame_rate_hz,
+            )
         except Exception as exc:
             return None, ViconFrameStatus(False, f"vicon_read_failed:{type(exc).__name__}:{exc}")
 
@@ -190,8 +210,15 @@ class ReplayNausicaaViconRigidBody:
             euler_rad=(0.0, 0.0, 0.0),
             quaternion_xyzw=(0.0, 0.0, 0.0, 1.0),
             vicon_latency_s=0.0,
+            frame_number=self.index,
+            frame_rate_hz=1.0 / self.dt_s if self.dt_s > 0.0 else 0.0,
         )
-        return sample, ViconFrameStatus(True, "replay", frame_number=self.index)
+        return sample, ViconFrameStatus(
+            True,
+            "replay",
+            frame_number=self.index,
+            frame_rate_hz=1.0 / self.dt_s if self.dt_s > 0.0 else 0.0,
+        )
 
     def read_fans(self, fan_subject_names: tuple[str, ...] = ("Fan_1", "Fan_2", "Fan_3", "Fan_4")) -> tuple[FanViconSample, ...]:
         positions = {
@@ -221,3 +248,11 @@ class ReplayNausicaaViconRigidBody:
 def state_speed_m_s(state: np.ndarray) -> float:
     velocity = np.asarray(state, dtype=float)[6:9]
     return float(np.linalg.norm(velocity))
+
+
+def _safe_vicon_frame_rate_hz(client: object) -> float:
+    try:
+        frame_rate_hz = float(client.GetFrameRate())
+    except Exception:
+        return 0.0
+    return frame_rate_hz if np.isfinite(frame_rate_hz) and frame_rate_hz > 0.0 else 0.0

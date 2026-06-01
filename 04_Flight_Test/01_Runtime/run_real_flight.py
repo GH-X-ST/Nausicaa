@@ -13,6 +13,7 @@ from flight_config import (
     CONTROLLER_ROOT,
     DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
     DEFAULT_VICON_POSITION_OFFSET_M,
+    DEFAULT_VICON_ATTITUDE_SIGNS,
     REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON,
     FlightRuntimeConfig,
     default_run_label,
@@ -35,7 +36,7 @@ if str(CONTROLLER_ROOT) not in sys.path:
     sys.path.insert(0, str(CONTROLLER_ROOT))
 
 from real_flight_io import NausicaaViconStateAdapter, ViconArenaFrameTransform  # noqa: E402
-from state_contract import state_dataframe_row  # noqa: E402
+from state_contract import STATE_INDEX, state_dataframe_row  # noqa: E402
 
 
 def run_real_flight(
@@ -50,10 +51,12 @@ def run_real_flight(
     controller = controller or FrozenFlightController(config)
     adapter = NausicaaViconStateAdapter(
         derivative_cutoff_hz=config.derivative_cutoff_hz,
+        body_rate_limit_rad_s=config.body_rate_limit_rad_s,
         actuator_tau_s=config.actuator_tau_s,
         arena_transform=ViconArenaFrameTransform(
             position_offset_m=config.vicon_position_offset_m,
             yaw_alignment_rad=float(np.deg2rad(config.vicon_yaw_alignment_deg)),
+            attitude_signs=config.vicon_attitude_signs,
         ),
     )
     tx = NanoSerialTx(config.serial_port, config.serial_baud) if mode in {"armed", "packet-smoke"} else FakeNanoSerialTx()
@@ -86,15 +89,20 @@ def run_real_flight(
                 "vicon_poll_hz": float(1.0 / config.vicon_poll_period_s),
                 "serial_command_repeat_hz": float(1.0 / config.serial_period_s),
                 "governor_decision_hz": float(1.0 / config.governor_period_s),
+                "derivative_cutoff_hz": float(config.derivative_cutoff_hz),
+                "body_rate_limit_rad_s": float(config.body_rate_limit_rad_s),
                 "rate_policy": (
                     "Vicon is polled at the tracking rate; serial packets are still repeated "
-                    "at the firmware-safe command period; governor selection remains 10 Hz."
+                    "at the firmware-safe command period; governor selection remains 10 Hz; "
+                    "active-flight angular-rate history is reset at launch."
                 ),
             },
             "vicon_arena_frame_transform": {
                 "description": config.vicon_frame_description,
                 "position_offset_m": tuple(float(value) for value in config.vicon_position_offset_m),
                 "yaw_alignment_deg": float(config.vicon_yaw_alignment_deg),
+                "attitude_signs_phi_theta_psi": tuple(float(value) for value in config.vicon_attitude_signs),
+                "attitude_sign_reason": "recovered_vicon_orientation_check_20260601_205149_pitch_and_yaw_reversed",
             },
             "experiment_case": {
                 "case_id": config.experiment_case_id,
@@ -213,6 +221,7 @@ def run_real_flight(
                 continue
 
             latest_state = adapter.update(sample, command_norm=controller.last_command_norm())
+            estimator = adapter.estimator_status()
             _append_fan_positions(
                 logger=logger,
                 vicon=vicon,
@@ -229,7 +238,9 @@ def run_real_flight(
                 {
                     "t_host_s": time.perf_counter(),
                     "frame_number": status.frame_number,
+                    "vicon_frame_rate_hz": status.frame_rate_hz,
                     "vicon_latency_s": status.vicon_latency_s,
+                    **{f"estimator_{key}": value for key, value in estimator.items()},
                     **state_dataframe_row(latest_state),
                     **asdict(safety),
                     **{f"exit_gate_{key}": value for key, value in asdict(exit_gate).items()},
@@ -424,6 +435,7 @@ def _await_launch_gate(
             continue
 
         state = adapter.update(sample, command_norm=controller.last_command_norm())
+        estimator = adapter.estimator_status()
         _append_fan_positions(
             logger=logger,
             vicon=vicon,
@@ -470,7 +482,9 @@ def _await_launch_gate(
             {
                 "t_host_s": time.perf_counter(),
                 "frame_number": status.frame_number,
+                "vicon_frame_rate_hz": status.frame_rate_hz,
                 "vicon_latency_s": status.vicon_latency_s,
+                **{f"estimator_{key}": value for key, value in estimator.items()},
                 "launch_gate_consecutive_approved": consecutive_approved,
                 "trigger_policy": "positive_x_launch_plane_crossing",
                 "launch_trigger_x_w_m": float(LAUNCH_TRIGGER_X_W_M),
@@ -500,6 +514,10 @@ def _await_launch_gate(
 
         if trigger_approved and consecutive_approved >= required_consecutive:
             summary["launch_gate_approved"] = True
+            adapter.reset_angular_rate_filter()
+            if launch_state is not None:
+                launch_state = launch_state.copy()
+                launch_state[STATE_INDEX["p"] : STATE_INDEX["r"] + 1] = 0.0
             _append_runtime_event(
                 logger,
                 "launch_gate_approved_start_active_record",
@@ -734,6 +752,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--vicon-host", default="192.168.0.100:801")
     parser.add_argument("--vicon-offset-m", nargs=3, type=float, default=None)
     parser.add_argument("--vicon-yaw-deg", type=float, default=0.0)
+    parser.add_argument("--vicon-attitude-signs", nargs=3, type=float, default=DEFAULT_VICON_ATTITUDE_SIGNS)
     parser.add_argument("--duration-s", type=float, default=20.0)
     parser.add_argument("--launch-wait-timeout-s", type=float, default=8.0)
     parser.add_argument("--launch-gate-frames", type=int, default=1)
@@ -751,6 +770,7 @@ def main() -> None:
         vicon_host=args.vicon_host,
         vicon_position_offset_m=tuple(args.vicon_offset_m) if args.vicon_offset_m is not None else DEFAULT_VICON_POSITION_OFFSET_M,
         vicon_yaw_alignment_deg=float(args.vicon_yaw_deg),
+        vicon_attitude_signs=tuple(args.vicon_attitude_signs),
         max_duration_s=float(args.duration_s),
         launch_wait_timeout_s=float(args.launch_wait_timeout_s),
         launch_gate_required_consecutive_frames=int(args.launch_gate_frames),
