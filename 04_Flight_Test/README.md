@@ -51,6 +51,38 @@ Run armed closed-loop flight only after the Vicon and serial smoke tests pass:
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.py --mode armed --serial-port COM11 --duration-s 20 --run-label F01
 ```
 
+In armed mode, the controller first waits in an armed-ready state and sends
+neutral commands. Active control and the flight record start only when the
+measured state passes the same R5 launch gate used by simulation:
+
+- `x_w in [1.2, 1.4] m`
+- `y_w in [1.8, 2.2] m`
+- `z_w in [1.5, 1.9] m`
+- roll within `+-20 deg`
+- pitch within `[-10, +20] deg`
+- yaw within `+-20 deg`
+- body-speed magnitude in `[3.0, 8.0] m/s`
+
+If this gate is not detected before `--launch-wait-timeout-s`, the flight record
+is cancelled and no active controller-decision log is written.
+
+The active flight record terminates at the first exit from the validated
+operational region:
+
+- `x_w in [1.2, 6.6] m`
+- `y_w in [0.0, 4.4] m`
+- `z_w in [0.4, 3.5] m`
+
+After an exit, the controller does not attempt a separate recovery or level-trim
+mode. It sends neutral commands for a short post-exit tail and closes the active
+record.
+
+If the Vicon origin or yaw alignment changes, override the arena transform:
+
+```powershell
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.py --mode vicon-smoke --vicon-offset-m 3.9 2.2 1.95 --vicon-yaw-deg 0 --duration-s 5 --run-label F_vicon_frame_check
+```
+
 ## Flight Defaults
 
 - Vicon host: `192.168.0.100:801`
@@ -59,6 +91,35 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.p
 - Serial baud: `1000000`
 - Controller period: `0.100 s`
 - Serial packet period: `0.020 s`
-- Default library tier: `balanced_cluster`
-- Selectable real-flight tier: `heavy_cluster`
+- Launch wait timeout: `8.0 s`
+- Launch gate debounce: `1` approved frame
+- Post-exit neutral tail: `0.30 s`
+- Default library tier: `heavy_cluster`
+- Selectable real-flight fallback tier: `balanced_cluster`
 - Servo command authority: full `[-1.0, 1.0]`; the old `0.70` cap is not used here.
+
+## Deployment Library Tier
+
+The first real-flight experiment uses `heavy_cluster` as the single active
+deployment tier. R11 already compares all five library tiers, so the flight test
+does not repeat the full clustering ladder. `heavy_cluster` is selected because
+combined R11 D01+D02 validation gives the strongest real-flight candidate
+tradeoff: higher mission success and mean score than `balanced_cluster`, lower
+wrong-wall and hard-failure rates, and the cleanest bounded memory response
+among the real-time candidate tiers.
+
+`balanced_cluster` remains a fallback if additional primitive diversity is
+needed during smoke testing. This selection is a deployment tradeoff, not a
+claim that one compact library dominates every speed bin, environment ladder,
+or repeated-launch policy.
+
+## Vicon Arena Frame
+
+The controller world frame uses the operational region
+`x_w in [1.2, 6.6] m`, `y_w in [0.0, 4.4] m`, and
+`z_w in [0.4, 3.5] m`. The real-flight default assumes the raw Vicon origin is
+at the centre of that region, so raw Vicon `(0, 0, 0)` maps to controller world
+`(3.9, 2.2, 1.95) m`.
+
+The default axis convention is still `+X` forward, `+Y` left, and `+Z` up. If
+the Vicon axes are yaw-rotated relative to the arena, use `--vicon-yaw-deg`.

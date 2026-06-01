@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from flight_config import CONTROLLER_ROOT
+from flight_config import CONTROLLER_ROOT, OPERATIONAL_REGION_CENTER_M
 
 if str(CONTROLLER_ROOT) not in sys.path:
     sys.path.insert(0, str(CONTROLLER_ROOT))
@@ -112,12 +112,13 @@ class ReplayNausicaaViconRigidBody:
     def read_latest(self) -> tuple[NausicaaViconSample, ViconFrameStatus]:
         t = self.index * self.dt_s
         self.index += 1
-        x = 1.2 + self.speed_m_s * t
-        y = 2.2
-        z = 1.7 + 0.02 * math.sin(2.0 * math.pi * 0.5 * t)
+        x_w = 1.2 + self.speed_m_s * t
+        y_w = 2.2
+        z_w = 1.7 + 0.02 * math.sin(2.0 * math.pi * 0.5 * t)
+        raw_position = np.asarray([x_w, y_w, z_w], dtype=float) - np.asarray(OPERATIONAL_REGION_CENTER_M, dtype=float)
         sample = NausicaaViconSample(
             timestamp_s=t,
-            position_m=(x, y, z),
+            position_m=tuple(float(value) for value in raw_position),
             euler_rad=(0.0, 0.0, 0.0),
             quaternion_xyzw=(0.0, 0.0, 0.0, 1.0),
             vicon_latency_s=0.0,

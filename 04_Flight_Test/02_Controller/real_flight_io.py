@@ -114,6 +114,24 @@ class NausicaaViconSample:
     vicon_latency_s: float = 0.0
 
 
+@dataclass(frozen=True)
+class ViconArenaFrameTransform:
+    """Map Vicon rigid-body pose into the controller world frame."""
+
+    position_offset_m: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    yaw_alignment_rad: float = 0.0
+
+    def position_to_world(self, raw_position_m: np.ndarray) -> np.ndarray:
+        raw = np.asarray(raw_position_m, dtype=float).reshape(3)
+        offset = np.asarray(self.position_offset_m, dtype=float).reshape(3)
+        return _yaw_rotation_matrix(float(self.yaw_alignment_rad)) @ raw + offset
+
+    def euler_to_world(self, raw_euler_rad: np.ndarray) -> np.ndarray:
+        euler = np.asarray(raw_euler_rad, dtype=float).reshape(3).copy()
+        euler[2] = _wrap_to_pi_scalar(float(euler[2]) + float(self.yaw_alignment_rad))
+        return euler
+
+
 class NausicaaViconStateAdapter:
     """Pack one rigid-body Vicon stream into the canonical flight state."""
 
@@ -122,11 +140,13 @@ class NausicaaViconStateAdapter:
         *,
         derivative_cutoff_hz: float = 20.0,
         actuator_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06),
+        arena_transform: ViconArenaFrameTransform | None = None,
     ) -> None:
         self.derivative_cutoff_hz = float(derivative_cutoff_hz)
         self.actuator_tau_s = np.asarray(actuator_tau_s, dtype=float).reshape(3)
         if not np.all(np.isfinite(self.actuator_tau_s)) or np.any(self.actuator_tau_s <= 0.0):
             raise ValueError("actuator_tau_s must contain finite positive values.")
+        self.arena_transform = arena_transform or ViconArenaFrameTransform()
         self._previous_timestamp_s: float | None = None
         self._previous_position_m: np.ndarray | None = None
         self._previous_euler_rad: np.ndarray | None = None
@@ -141,8 +161,10 @@ class NausicaaViconStateAdapter:
         command_norm: np.ndarray | None = None,
     ) -> np.ndarray:
         timestamp_s = float(sample.timestamp_s)
-        position_m = np.asarray(sample.position_m, dtype=float).reshape(3)
-        euler_rad = _resolve_euler_rad(sample)
+        raw_position_m = np.asarray(sample.position_m, dtype=float).reshape(3)
+        raw_euler_rad = _resolve_euler_rad(sample)
+        position_m = self.arena_transform.position_to_world(raw_position_m)
+        euler_rad = self.arena_transform.euler_to_world(raw_euler_rad)
         if not np.isfinite(timestamp_s) or not np.all(np.isfinite(position_m)) or not np.all(np.isfinite(euler_rad)):
             raise ValueError("Vicon sample must contain finite timestamp, position, and attitude.")
 
@@ -233,6 +255,18 @@ def _low_pass_update(previous: np.ndarray, raw: np.ndarray, dt_s: float, cutoff_
     )
 
 
+def _yaw_rotation_matrix(yaw_rad: float) -> np.ndarray:
+    c_yaw, s_yaw = np.cos(float(yaw_rad)), np.sin(float(yaw_rad))
+    return np.asarray(
+        [
+            [c_yaw, -s_yaw, 0.0],
+            [s_yaw, c_yaw, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=float,
+    )
+
+
 def _c_wb_numpy(phi: float, theta: float, psi: float) -> np.ndarray:
     c_phi, s_phi = np.cos(phi), np.sin(phi)
     c_theta, s_theta = np.cos(theta), np.sin(theta)
@@ -278,6 +312,10 @@ def _body_rates_from_euler_rates(euler_rate_rad_s: np.ndarray, euler_rad: np.nda
         dtype=float,
     )
     return np.linalg.solve(transform, np.asarray(euler_rate_rad_s, dtype=float).reshape(3))
+
+
+def _wrap_to_pi_scalar(value: float) -> float:
+    return float((float(value) + np.pi) % (2.0 * np.pi) - np.pi)
 
 
 def _wrap_to_pi(angle_rad: np.ndarray) -> np.ndarray:

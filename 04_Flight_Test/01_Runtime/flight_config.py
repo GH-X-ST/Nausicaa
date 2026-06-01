@@ -10,12 +10,19 @@ RUNTIME_ROOT = FLIGHT_TEST_ROOT / "01_Runtime"
 CONTROLLER_ROOT = FLIGHT_TEST_ROOT / "02_Controller"
 FROZEN_INPUT_ROOT = FLIGHT_TEST_ROOT / "03_Frozen_Inputs"
 RESULT_ROOT = FLIGHT_TEST_ROOT / "05_Results"
+OPERATIONAL_REGION_CENTER_M = (3.9, 2.2, 1.95)
+DEFAULT_REAL_FLIGHT_LIBRARY_TIER = "heavy_cluster"
+REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON = (
+    "heavy_cluster_selected_for_first_real_flight_from_combined_r11_d01_d02_validation;"
+    "best_real_flight_candidate_safety_mission_score_and_cleanest_bounded_memory_response;"
+    "balanced_cluster_is_diversity_fallback"
+)
 
 
 @dataclass(frozen=True)
 class FlightRuntimeConfig:
     run_label: str
-    library_tier: str = "balanced_cluster"
+    library_tier: str = DEFAULT_REAL_FLIGHT_LIBRARY_TIER
     serial_port: str = "COM11"
     serial_baud: int = 1_000_000
     vicon_host: str = "192.168.0.100:801"
@@ -23,9 +30,15 @@ class FlightRuntimeConfig:
     governor_period_s: float = 0.100
     serial_period_s: float = 0.020
     max_duration_s: float = 20.0
+    launch_wait_timeout_s: float = 8.0
+    launch_gate_required_consecutive_frames: int = 1
+    post_exit_neutral_tail_s: float = 0.30
     stale_vicon_timeout_s: float = 0.120
     derivative_cutoff_hz: float = 20.0
     actuator_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06)
+    vicon_position_offset_m: tuple[float, float, float] = OPERATIONAL_REGION_CENTER_M
+    vicon_yaw_alignment_deg: float = 0.0
+    vicon_frame_description: str = "raw_vicon_origin_at_operational_region_centre"
     output_root: Path = RESULT_ROOT
     library_manifest_root: Path = FROZEN_INPUT_ROOT / "R8_library_size_study" / "B02" / "manifests"
     outcome_table_path: Path = FROZEN_INPUT_ROOT / "R8_outcome" / "B02" / "metrics" / "outcome_model_table.csv"
