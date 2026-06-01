@@ -1,0 +1,665 @@
+from __future__ import annotations
+
+import json
+import math
+from dataclasses import asdict, dataclass, replace
+from typing import Iterable
+
+import numpy as np
+
+
+FLOW_BELIEF_GRID_RESOLUTION_M = 0.1
+FLOW_BELIEF_QUERY_RADIUS_M = 0.20
+FLOW_BELIEF_ARENA_X_BOUNDS_M = (1.2, 6.6)
+FLOW_BELIEF_ARENA_Y_BOUNDS_M = (0.0, 4.4)
+FLOW_BELIEF_ARENA_Z_BOUNDS_M = (0.4, 3.5)
+DIRECTION_BIN_COUNT = 1
+DEFAULT_X_BINS_M = tuple(
+    round(float(FLOW_BELIEF_ARENA_X_BOUNDS_M[0]) + index * FLOW_BELIEF_GRID_RESOLUTION_M, 10)
+    for index in range(int(round((FLOW_BELIEF_ARENA_X_BOUNDS_M[1] - FLOW_BELIEF_ARENA_X_BOUNDS_M[0]) / FLOW_BELIEF_GRID_RESOLUTION_M)) + 1)
+)
+DEFAULT_Y_BINS_M = tuple(
+    round(float(FLOW_BELIEF_ARENA_Y_BOUNDS_M[0]) + index * FLOW_BELIEF_GRID_RESOLUTION_M, 10)
+    for index in range(int(round((FLOW_BELIEF_ARENA_Y_BOUNDS_M[1] - FLOW_BELIEF_ARENA_Y_BOUNDS_M[0]) / FLOW_BELIEF_GRID_RESOLUTION_M)) + 1)
+)
+DEFAULT_Z_BINS_M = tuple(
+    round(float(FLOW_BELIEF_ARENA_Z_BOUNDS_M[0]) + index * FLOW_BELIEF_GRID_RESOLUTION_M, 10)
+    for index in range(int(round((FLOW_BELIEF_ARENA_Z_BOUNDS_M[1] - FLOW_BELIEF_ARENA_Z_BOUNDS_M[0]) / FLOW_BELIEF_GRID_RESOLUTION_M)) + 1)
+)
+DEFAULT_XY_BINS_M = DEFAULT_X_BINS_M
+
+
+@dataclass(frozen=True)
+class DirectionalResidualObservation:
+    x_w_m: float
+    y_w_m: float
+    z_w_m: float
+    direction_rad: float
+    lift_residual_m_s: float
+    updraft_gain_residual_m: float
+    dwell_residual_s: float
+    specific_energy_residual_m: float = 0.0
+    observation_weight: float = 1.0
+    history_launch_index: int = 0
+
+
+@dataclass(frozen=True)
+class DirectionalResidualCell:
+    x_bin: int
+    y_bin: int
+    z_bin: int
+    direction_bin: int
+    observation_count: int
+    lift_residual_mean_m_s: float
+    updraft_gain_residual_mean_m: float
+    dwell_residual_mean_s: float
+    uncertainty: float
+    specific_energy_residual_mean_m: float = 0.0
+    last_update_count: int = 0
+    last_history_launch_index: int = 0
+
+
+@dataclass(frozen=True)
+class DirectionalResidualLiftBelief:
+    x_edges_m: tuple[float, ...] = DEFAULT_X_BINS_M
+    y_edges_m: tuple[float, ...] = DEFAULT_Y_BINS_M
+    z_edges_m: tuple[float, ...] = DEFAULT_Z_BINS_M
+    direction_bin_count: int = DIRECTION_BIN_COUNT
+    cells: tuple[DirectionalResidualCell, ...] = ()
+    update_count: int = 0
+    recency_decay: float = 0.97
+    launch_recency_half_life: float = 4.0
+    belief_version: str = "spatial_updraft_utility_belief_v1_0p10m_grid"
+
+
+def initial_directional_residual_lift_belief(
+    *,
+    x_edges_m: Iterable[float] = DEFAULT_X_BINS_M,
+    y_edges_m: Iterable[float] = DEFAULT_Y_BINS_M,
+    z_edges_m: Iterable[float] = DEFAULT_Z_BINS_M,
+    direction_bin_count: int = DIRECTION_BIN_COUNT,
+    launch_recency_half_life: float = 4.0,
+) -> DirectionalResidualLiftBelief:
+    return DirectionalResidualLiftBelief(
+        x_edges_m=tuple(float(value) for value in x_edges_m),
+        y_edges_m=tuple(float(value) for value in y_edges_m),
+        z_edges_m=tuple(float(value) for value in z_edges_m),
+        direction_bin_count=int(direction_bin_count),
+        launch_recency_half_life=float(launch_recency_half_life),
+    )
+
+
+def update_directional_residual_lift_belief(
+    belief: DirectionalResidualLiftBelief,
+    observation: DirectionalResidualObservation,
+) -> DirectionalResidualLiftBelief:
+    return update_directional_residual_lift_belief_batch(belief, (observation,))
+
+
+def update_directional_residual_lift_belief_batch(
+    belief: DirectionalResidualLiftBelief,
+    observations: Iterable[DirectionalResidualObservation],
+) -> DirectionalResidualLiftBelief:
+    """Apply many dense path observations while rebuilding the sorted cell tuple once."""
+
+    cells = {_cell_key(cell): cell for cell in belief.cells}
+    update_count = int(belief.update_count)
+    changed = False
+    for observation in observations:
+        key = _cell_key_for_observation(belief, observation)
+        prior = cells.get(key)
+        weight = max(1e-9, float(observation.observation_weight))
+        update_count += 1
+        changed = True
+        if prior is None:
+            count = 1
+            cells[key] = DirectionalResidualCell(
+                x_bin=key[0],
+                y_bin=key[1],
+                z_bin=key[2],
+                direction_bin=key[3],
+                observation_count=count,
+                lift_residual_mean_m_s=float(observation.lift_residual_m_s),
+                updraft_gain_residual_mean_m=float(observation.updraft_gain_residual_m),
+                dwell_residual_mean_s=float(observation.dwell_residual_s),
+                uncertainty=1.0 / math.sqrt(float(count)),
+                specific_energy_residual_mean_m=float(observation.specific_energy_residual_m),
+                last_update_count=int(update_count),
+                last_history_launch_index=int(observation.history_launch_index),
+            )
+        else:
+            count = int(prior.observation_count) + 1
+            launch_age = max(0, int(observation.history_launch_index) - int(prior.last_history_launch_index))
+            effective_prior_count = max(
+                0.0,
+                float(prior.observation_count) * _launch_recency_weight(belief, launch_age),
+            )
+            alpha = weight / (effective_prior_count + weight)
+            cells[key] = replace(
+                prior,
+                observation_count=count,
+                lift_residual_mean_m_s=_blend(prior.lift_residual_mean_m_s, observation.lift_residual_m_s, alpha),
+                updraft_gain_residual_mean_m=_blend(
+                    prior.updraft_gain_residual_mean_m,
+                    observation.updraft_gain_residual_m,
+                    alpha,
+                ),
+                dwell_residual_mean_s=_blend(prior.dwell_residual_mean_s, observation.dwell_residual_s, alpha),
+                specific_energy_residual_mean_m=_blend(
+                    prior.specific_energy_residual_mean_m,
+                    observation.specific_energy_residual_m,
+                    alpha,
+                ),
+                uncertainty=1.0 / math.sqrt(float(count)),
+                last_update_count=int(update_count),
+                last_history_launch_index=int(observation.history_launch_index),
+            )
+    if not changed:
+        return belief
+    return replace(
+        belief,
+        cells=tuple(sorted(cells.values(), key=_cell_key)),
+        update_count=int(update_count),
+    )
+
+
+def query_directional_residual_lift_features(
+    belief: DirectionalResidualLiftBelief,
+    *,
+    x_w_m: float,
+    y_w_m: float,
+    z_w_m: float,
+    direction_rad: float,
+    cell_lookup: dict[tuple[int, int, int, int], DirectionalResidualCell] | None = None,
+    current_history_launch_index: int | None = None,
+) -> dict[str, float | int | str]:
+    key = _cell_key_for_values(belief, x_w_m=x_w_m, y_w_m=y_w_m, z_w_m=z_w_m, direction_rad=direction_rad)
+    cells = cell_lookup if cell_lookup is not None else directional_residual_lift_cell_lookup(belief)
+    cell = cells.get(key)
+    if cell is None:
+        return {
+            "belief_version": belief.belief_version,
+            "belief_local_lift_residual_m_s": 0.0,
+            "belief_local_updraft_gain_proxy_m": 0.0,
+            "belief_local_updraft_gain_residual_m": 0.0,
+            "belief_local_energy_residual_m": 0.0,
+            "belief_local_specific_energy_residual_m": 0.0,
+            "belief_local_dwell_residual_s": 0.0,
+            "belief_uncertainty": 1.0,
+            "belief_observation_count": 0,
+            "belief_effective_observation_count": 0.0,
+            "belief_recency_weight": 0.0,
+            "belief_observation_age": 0,
+            "belief_launch_recency_weight": 0.0,
+            "belief_history_launch_age": 0,
+            "belief_last_history_launch_index": -1,
+            "belief_current_history_launch_index": -1 if current_history_launch_index is None else int(current_history_launch_index),
+            "belief_launch_recency_half_life": float(belief.launch_recency_half_life),
+            "belief_direction_bin": int(key[3]),
+            "belief_z_bin": int(key[2]),
+            "belief_update_count": int(belief.update_count),
+        }
+    age = max(0, int(belief.update_count) - int(cell.last_update_count))
+    update_recency_weight = float(belief.recency_decay) ** float(age)
+    history_launch_age = (
+        0
+        if current_history_launch_index is None
+        else max(0, int(current_history_launch_index) - int(cell.last_history_launch_index))
+    )
+    launch_recency_weight = _launch_recency_weight(belief, history_launch_age)
+    recency_weight = float(update_recency_weight) * float(launch_recency_weight)
+    return {
+        "belief_version": belief.belief_version,
+        "belief_local_lift_residual_m_s": float(cell.lift_residual_mean_m_s),
+        "belief_local_updraft_gain_proxy_m": max(float(cell.updraft_gain_residual_mean_m), 0.0),
+        "belief_local_updraft_gain_residual_m": float(cell.updraft_gain_residual_mean_m),
+        "belief_local_energy_residual_m": float(cell.specific_energy_residual_mean_m),
+        "belief_local_specific_energy_residual_m": float(cell.specific_energy_residual_mean_m),
+        "belief_local_dwell_residual_s": float(cell.dwell_residual_mean_s),
+        "belief_uncertainty": float(cell.uncertainty),
+        "belief_observation_count": int(cell.observation_count),
+        "belief_effective_observation_count": float(cell.observation_count) * float(recency_weight),
+        "belief_recency_weight": float(recency_weight),
+        "belief_observation_age": int(age),
+        "belief_launch_recency_weight": float(launch_recency_weight),
+        "belief_history_launch_age": int(history_launch_age),
+        "belief_last_history_launch_index": int(cell.last_history_launch_index),
+        "belief_current_history_launch_index": -1 if current_history_launch_index is None else int(current_history_launch_index),
+        "belief_launch_recency_half_life": float(belief.launch_recency_half_life),
+        "belief_direction_bin": int(cell.direction_bin),
+        "belief_z_bin": int(cell.z_bin),
+        "belief_update_count": int(belief.update_count),
+    }
+
+
+def query_spatial_flow_belief_features(
+    belief: DirectionalResidualLiftBelief,
+    *,
+    x_w_m: float,
+    y_w_m: float,
+    z_w_m: float,
+    direction_rad: float,
+    cell_lookup: dict[tuple[int, int, int, int], DirectionalResidualCell] | None = None,
+    current_history_launch_index: int | None = None,
+    query_radius_m: float = FLOW_BELIEF_QUERY_RADIUS_M,
+) -> dict[str, float | int | str]:
+    """Query a local 3D updraft-utility neighbourhood rather than one exact cell."""
+
+    key = _cell_key_for_values(belief, x_w_m=x_w_m, y_w_m=y_w_m, z_w_m=z_w_m, direction_rad=direction_rad)
+    cells = cell_lookup if cell_lookup is not None else directional_residual_lift_cell_lookup(belief)
+    radius = max(1e-9, float(query_radius_m))
+    x_radius_bins = max(0, int(math.ceil(radius / max(_bin_width(belief.x_edges_m), 1e-9))))
+    y_radius_bins = max(0, int(math.ceil(radius / max(_bin_width(belief.y_edges_m), 1e-9))))
+    z_radius_bins = max(0, int(math.ceil(radius / max(_bin_width(belief.z_edges_m), 1e-9))))
+    weighted_lift = 0.0
+    weighted_updraft = 0.0
+    weighted_dwell = 0.0
+    weighted_specific_energy = 0.0
+    weight_sum = 0.0
+    raw_observation_count = 0
+    effective_observation_count = 0.0
+    neighbour_cell_count = 0
+    last_cell: DirectionalResidualCell | None = None
+    for x_bin in range(max(0, key[0] - x_radius_bins), min(len(belief.x_edges_m) - 1, key[0] + x_radius_bins + 1)):
+        for y_bin in range(max(0, key[1] - y_radius_bins), min(len(belief.y_edges_m) - 1, key[1] + y_radius_bins + 1)):
+            for z_bin in range(max(0, key[2] - z_radius_bins), min(len(belief.z_edges_m) - 1, key[2] + z_radius_bins + 1)):
+                for direction_bin in range(int(belief.direction_bin_count)):
+                    cell = cells.get((x_bin, y_bin, z_bin, direction_bin))
+                    if cell is None:
+                        continue
+                    distance = _cell_distance_m(
+                        belief,
+                        x_bin=x_bin,
+                        y_bin=y_bin,
+                        z_bin=z_bin,
+                        x_w_m=x_w_m,
+                        y_w_m=y_w_m,
+                        z_w_m=z_w_m,
+                    )
+                    if distance > radius:
+                        continue
+                    recency = _cell_recency_weight(
+                        belief,
+                        cell,
+                        current_history_launch_index=current_history_launch_index,
+                    )
+                    spatial_weight = max(0.0, 1.0 - distance / radius)
+                    combined_weight = float(spatial_weight) * float(recency)
+                    if combined_weight <= 0.0:
+                        continue
+                    weighted_lift += combined_weight * float(cell.lift_residual_mean_m_s)
+                    weighted_updraft += combined_weight * float(cell.updraft_gain_residual_mean_m)
+                    weighted_dwell += combined_weight * float(cell.dwell_residual_mean_s)
+                    weighted_specific_energy += combined_weight * float(cell.specific_energy_residual_mean_m)
+                    weight_sum += combined_weight
+                    neighbour_cell_count += 1
+                    raw_observation_count += int(cell.observation_count)
+                    effective_observation_count += float(cell.observation_count) * combined_weight
+                    if last_cell is None or int(cell.last_update_count) > int(last_cell.last_update_count):
+                        last_cell = cell
+    if weight_sum <= 0.0 or last_cell is None:
+        missing = query_directional_residual_lift_features(
+            belief,
+            x_w_m=x_w_m,
+            y_w_m=y_w_m,
+            z_w_m=z_w_m,
+            direction_rad=direction_rad,
+            cell_lookup=cell_lookup,
+            current_history_launch_index=current_history_launch_index,
+        )
+        missing.update(
+            {
+                "belief_spatial_flow_map_active": True,
+                "belief_grid_resolution_m": float(_bin_width(belief.x_edges_m)),
+                "belief_spatial_query_radius_m": float(radius),
+                "belief_spatial_neighbor_cell_count": 0,
+                "belief_spatial_query_policy": "0p1m_grid_inverse_distance_neighbourhood",
+            }
+        )
+        return missing
+    mean_lift = weighted_lift / weight_sum
+    mean_updraft = weighted_updraft / weight_sum
+    mean_dwell = weighted_dwell / weight_sum
+    mean_specific_energy = weighted_specific_energy / weight_sum
+    confidence = min(1.0, effective_observation_count / 3.0)
+    age = max(0, int(belief.update_count) - int(last_cell.last_update_count))
+    history_launch_age = (
+        0
+        if current_history_launch_index is None
+        else max(0, int(current_history_launch_index) - int(last_cell.last_history_launch_index))
+    )
+    launch_recency_weight = _launch_recency_weight(belief, history_launch_age)
+    recency_weight = float(belief.recency_decay) ** float(age) * float(launch_recency_weight)
+    return {
+        "belief_version": belief.belief_version,
+        "belief_local_lift_residual_m_s": float(mean_lift),
+        "belief_local_updraft_gain_proxy_m": max(float(mean_updraft), 0.0),
+        "belief_local_updraft_gain_residual_m": float(mean_updraft),
+        "belief_local_energy_residual_m": float(mean_specific_energy),
+        "belief_local_specific_energy_residual_m": float(mean_specific_energy),
+        "belief_local_dwell_residual_s": float(mean_dwell),
+        "belief_uncertainty": float(1.0 - confidence),
+        "belief_observation_count": int(raw_observation_count),
+        "belief_effective_observation_count": float(effective_observation_count),
+        "belief_recency_weight": float(recency_weight),
+        "belief_observation_age": int(age),
+        "belief_launch_recency_weight": float(launch_recency_weight),
+        "belief_history_launch_age": int(history_launch_age),
+        "belief_last_history_launch_index": int(last_cell.last_history_launch_index),
+        "belief_current_history_launch_index": -1 if current_history_launch_index is None else int(current_history_launch_index),
+        "belief_launch_recency_half_life": float(belief.launch_recency_half_life),
+        "belief_direction_bin": int(key[3]),
+        "belief_z_bin": int(key[2]),
+        "belief_update_count": int(belief.update_count),
+        "belief_spatial_flow_map_active": True,
+        "belief_grid_resolution_m": float(_bin_width(belief.x_edges_m)),
+        "belief_spatial_query_radius_m": float(radius),
+        "belief_spatial_neighbor_cell_count": int(neighbour_cell_count),
+        "belief_spatial_query_policy": "0p1m_grid_inverse_distance_neighbourhood",
+    }
+
+
+def query_spatial_flow_belief_features_fast(
+    belief: DirectionalResidualLiftBelief,
+    *,
+    x_w_m: float,
+    y_w_m: float,
+    z_w_m: float,
+    direction_rad: float,
+    spatial_cell_lookup: dict[tuple[int, int, int], tuple[DirectionalResidualCell, ...]] | None = None,
+    cell_lookup: dict[tuple[int, int, int, int], DirectionalResidualCell] | None = None,
+    current_history_launch_index: int | None = None,
+    query_radius_m: float = FLOW_BELIEF_QUERY_RADIUS_M,
+) -> dict[str, float | int | str]:
+    """Sparse equivalent of `query_spatial_flow_belief_features`.
+
+    The full query semantics are unchanged: same 3D radius, same distance and
+    recency weighting, and same returned fields. The only difference is that
+    empty direction bins are skipped by indexing observed cells by spatial bin.
+    """
+
+    key = _cell_key_for_values(belief, x_w_m=x_w_m, y_w_m=y_w_m, z_w_m=z_w_m, direction_rad=direction_rad)
+    spatial_cells = (
+        spatial_cell_lookup
+        if spatial_cell_lookup is not None
+        else directional_residual_lift_spatial_cell_lookup(belief)
+    )
+    radius = max(1e-9, float(query_radius_m))
+    x_radius_bins = max(0, int(math.ceil(radius / max(_bin_width(belief.x_edges_m), 1e-9))))
+    y_radius_bins = max(0, int(math.ceil(radius / max(_bin_width(belief.y_edges_m), 1e-9))))
+    z_radius_bins = max(0, int(math.ceil(radius / max(_bin_width(belief.z_edges_m), 1e-9))))
+    weighted_lift = 0.0
+    weighted_updraft = 0.0
+    weighted_dwell = 0.0
+    weighted_specific_energy = 0.0
+    weight_sum = 0.0
+    raw_observation_count = 0
+    effective_observation_count = 0.0
+    neighbour_cell_count = 0
+    last_cell: DirectionalResidualCell | None = None
+    for x_bin in range(max(0, key[0] - x_radius_bins), min(len(belief.x_edges_m) - 1, key[0] + x_radius_bins + 1)):
+        for y_bin in range(max(0, key[1] - y_radius_bins), min(len(belief.y_edges_m) - 1, key[1] + y_radius_bins + 1)):
+            for z_bin in range(max(0, key[2] - z_radius_bins), min(len(belief.z_edges_m) - 1, key[2] + z_radius_bins + 1)):
+                for cell in spatial_cells.get((x_bin, y_bin, z_bin), ()):
+                    distance = _cell_distance_m(
+                        belief,
+                        x_bin=x_bin,
+                        y_bin=y_bin,
+                        z_bin=z_bin,
+                        x_w_m=x_w_m,
+                        y_w_m=y_w_m,
+                        z_w_m=z_w_m,
+                    )
+                    if distance > radius:
+                        continue
+                    recency = _cell_recency_weight(
+                        belief,
+                        cell,
+                        current_history_launch_index=current_history_launch_index,
+                    )
+                    spatial_weight = max(0.0, 1.0 - distance / radius)
+                    combined_weight = float(spatial_weight) * float(recency)
+                    if combined_weight <= 0.0:
+                        continue
+                    weighted_lift += combined_weight * float(cell.lift_residual_mean_m_s)
+                    weighted_updraft += combined_weight * float(cell.updraft_gain_residual_mean_m)
+                    weighted_dwell += combined_weight * float(cell.dwell_residual_mean_s)
+                    weighted_specific_energy += combined_weight * float(cell.specific_energy_residual_mean_m)
+                    weight_sum += combined_weight
+                    neighbour_cell_count += 1
+                    raw_observation_count += int(cell.observation_count)
+                    effective_observation_count += float(cell.observation_count) * combined_weight
+                    if last_cell is None or int(cell.last_update_count) > int(last_cell.last_update_count):
+                        last_cell = cell
+    exact_cell_lookup = cell_lookup if cell_lookup is not None else None
+    if weight_sum <= 0.0 or last_cell is None:
+        missing = query_directional_residual_lift_features(
+            belief,
+            x_w_m=x_w_m,
+            y_w_m=y_w_m,
+            z_w_m=z_w_m,
+            direction_rad=direction_rad,
+            cell_lookup=exact_cell_lookup,
+            current_history_launch_index=current_history_launch_index,
+        )
+        missing.update(
+            {
+                "belief_spatial_flow_map_active": True,
+                "belief_grid_resolution_m": float(_bin_width(belief.x_edges_m)),
+                "belief_spatial_query_radius_m": float(radius),
+                "belief_spatial_neighbor_cell_count": 0,
+                "belief_spatial_query_policy": "0p1m_grid_inverse_distance_neighbourhood",
+            }
+        )
+        return missing
+    mean_lift = weighted_lift / weight_sum
+    mean_updraft = weighted_updraft / weight_sum
+    mean_dwell = weighted_dwell / weight_sum
+    mean_specific_energy = weighted_specific_energy / weight_sum
+    confidence = min(1.0, effective_observation_count / 3.0)
+    age = max(0, int(belief.update_count) - int(last_cell.last_update_count))
+    history_launch_age = (
+        0
+        if current_history_launch_index is None
+        else max(0, int(current_history_launch_index) - int(last_cell.last_history_launch_index))
+    )
+    launch_recency_weight = _launch_recency_weight(belief, history_launch_age)
+    recency_weight = float(belief.recency_decay) ** float(age) * float(launch_recency_weight)
+    return {
+        "belief_version": belief.belief_version,
+        "belief_local_lift_residual_m_s": float(mean_lift),
+        "belief_local_updraft_gain_proxy_m": max(float(mean_updraft), 0.0),
+        "belief_local_updraft_gain_residual_m": float(mean_updraft),
+        "belief_local_energy_residual_m": float(mean_specific_energy),
+        "belief_local_specific_energy_residual_m": float(mean_specific_energy),
+        "belief_local_dwell_residual_s": float(mean_dwell),
+        "belief_uncertainty": float(1.0 - confidence),
+        "belief_observation_count": int(raw_observation_count),
+        "belief_effective_observation_count": float(effective_observation_count),
+        "belief_recency_weight": float(recency_weight),
+        "belief_observation_age": int(age),
+        "belief_launch_recency_weight": float(launch_recency_weight),
+        "belief_history_launch_age": int(history_launch_age),
+        "belief_last_history_launch_index": int(last_cell.last_history_launch_index),
+        "belief_current_history_launch_index": -1 if current_history_launch_index is None else int(current_history_launch_index),
+        "belief_launch_recency_half_life": float(belief.launch_recency_half_life),
+        "belief_direction_bin": int(key[3]),
+        "belief_z_bin": int(key[2]),
+        "belief_update_count": int(belief.update_count),
+        "belief_spatial_flow_map_active": True,
+        "belief_grid_resolution_m": float(_bin_width(belief.x_edges_m)),
+        "belief_spatial_query_radius_m": float(radius),
+        "belief_spatial_neighbor_cell_count": int(neighbour_cell_count),
+        "belief_spatial_query_policy": "0p1m_grid_inverse_distance_neighbourhood",
+    }
+
+
+def directional_residual_lift_cell_lookup(
+    belief: DirectionalResidualLiftBelief,
+) -> dict[tuple[int, int, int, int], DirectionalResidualCell]:
+    return {_cell_key(cell): cell for cell in belief.cells}
+
+
+def directional_residual_lift_spatial_cell_lookup(
+    belief: DirectionalResidualLiftBelief,
+) -> dict[tuple[int, int, int], tuple[DirectionalResidualCell, ...]]:
+    grouped: dict[tuple[int, int, int], list[DirectionalResidualCell]] = {}
+    for cell in belief.cells:
+        grouped.setdefault((int(cell.x_bin), int(cell.y_bin), int(cell.z_bin)), []).append(cell)
+    return {key: tuple(value) for key, value in grouped.items()}
+
+
+def directional_residual_observation_from_rows(
+    *,
+    expected_row: dict[str, object],
+    observed_row: dict[str, object],
+    direction_rad: float,
+) -> DirectionalResidualObservation:
+    """Build one spatial-memory observation from expected and observed rollout rows."""
+
+    return DirectionalResidualObservation(
+        x_w_m=_required_float(observed_row, "initial_x_w", "x_w_m"),
+        y_w_m=_required_float(observed_row, "initial_y_w", "y_w_m"),
+        z_w_m=_required_float(observed_row, "initial_z_w", "z_w_m"),
+        direction_rad=float(direction_rad),
+        lift_residual_m_s=float(observed_row.get("w_wing_mean_m_s", 0.0))
+        - float(expected_row.get("w_wing_mean_m_s", 0.0)),
+        updraft_gain_residual_m=float(
+            observed_row.get(
+                "trajectory_integrated_updraft_gain_m",
+                observed_row.get("updraft_specific_energy_gain_proxy_m", max(float(observed_row.get("energy_residual_m", 0.0)), 0.0)),
+            )
+        )
+        - float(
+            expected_row.get(
+                "expected_updraft_gain_proxy_m",
+                max(float(expected_row.get("expected_energy_residual_m", 0.0)), 0.0),
+            )
+        ),
+        dwell_residual_s=float(observed_row.get("lift_dwell_time_s", 0.0))
+        - float(expected_row.get("expected_lift_dwell_time_s", 0.0)),
+        specific_energy_residual_m=float(observed_row.get("energy_residual_m", 0.0))
+        - float(expected_row.get("expected_energy_residual_m", 0.0)),
+    )
+
+
+def belief_snapshot_row(belief: DirectionalResidualLiftBelief, label: str = "") -> dict[str, object]:
+    payload = asdict(belief)
+    payload["snapshot_label"] = str(label)
+    payload["x_edges_m"] = json.dumps(list(belief.x_edges_m), separators=(",", ":"))
+    payload["y_edges_m"] = json.dumps(list(belief.y_edges_m), separators=(",", ":"))
+    payload["z_edges_m"] = json.dumps(list(belief.z_edges_m), separators=(",", ":"))
+    payload["cell_count"] = len(belief.cells)
+    cell_rows = []
+    for cell in belief.cells:
+        row = asdict(cell)
+        row["energy_residual_mean_m"] = row["specific_energy_residual_mean_m"]
+        cell_rows.append(row)
+    payload["cells_json"] = json.dumps(cell_rows, separators=(",", ":"))
+    payload.pop("cells")
+    return payload
+
+
+def _cell_key_for_observation(
+    belief: DirectionalResidualLiftBelief,
+    observation: DirectionalResidualObservation,
+) -> tuple[int, int, int, int]:
+    return _cell_key_for_values(
+        belief,
+        x_w_m=observation.x_w_m,
+        y_w_m=observation.y_w_m,
+        z_w_m=observation.z_w_m,
+        direction_rad=observation.direction_rad,
+    )
+
+
+def _cell_key_for_values(
+    belief: DirectionalResidualLiftBelief,
+    *,
+    x_w_m: float,
+    y_w_m: float,
+    z_w_m: float,
+    direction_rad: float,
+) -> tuple[int, int, int, int]:
+    return (
+        _bin_index(float(x_w_m), belief.x_edges_m),
+        _bin_index(float(y_w_m), belief.y_edges_m),
+        _bin_index(float(z_w_m), belief.z_edges_m),
+        _direction_bin(float(direction_rad), int(belief.direction_bin_count)),
+    )
+
+
+def _cell_key(cell: DirectionalResidualCell) -> tuple[int, int, int, int]:
+    return (int(cell.x_bin), int(cell.y_bin), int(cell.z_bin), int(cell.direction_bin))
+
+
+def _cell_recency_weight(
+    belief: DirectionalResidualLiftBelief,
+    cell: DirectionalResidualCell,
+    *,
+    current_history_launch_index: int | None,
+) -> float:
+    age = max(0, int(belief.update_count) - int(cell.last_update_count))
+    update_recency_weight = float(belief.recency_decay) ** float(age)
+    history_launch_age = (
+        0
+        if current_history_launch_index is None
+        else max(0, int(current_history_launch_index) - int(cell.last_history_launch_index))
+    )
+    return float(update_recency_weight) * float(_launch_recency_weight(belief, history_launch_age))
+
+
+def _launch_recency_weight(belief: DirectionalResidualLiftBelief, launch_age: int) -> float:
+    half_life = max(1e-9, float(belief.launch_recency_half_life))
+    return float(0.5 ** (max(0, int(launch_age)) / half_life))
+
+
+def _bin_index(value: float, edges: tuple[float, ...]) -> int:
+    if len(edges) < 2:
+        raise ValueError("belief bin edges must contain at least two values")
+    return int(np.clip(np.searchsorted(np.asarray(edges, dtype=float), value, side="right") - 1, 0, len(edges) - 2))
+
+
+def _bin_width(edges: tuple[float, ...]) -> float:
+    if len(edges) < 2:
+        return FLOW_BELIEF_GRID_RESOLUTION_M
+    return float(abs(float(edges[1]) - float(edges[0])))
+
+
+def _bin_center(edges: tuple[float, ...], index: int) -> float:
+    index = int(np.clip(index, 0, max(0, len(edges) - 2)))
+    return 0.5 * (float(edges[index]) + float(edges[index + 1]))
+
+
+def _cell_distance_m(
+    belief: DirectionalResidualLiftBelief,
+    *,
+    x_bin: int,
+    y_bin: int,
+    z_bin: int,
+    x_w_m: float,
+    y_w_m: float,
+    z_w_m: float,
+) -> float:
+    dx = _bin_center(belief.x_edges_m, x_bin) - float(x_w_m)
+    dy = _bin_center(belief.y_edges_m, y_bin) - float(y_w_m)
+    dz = _bin_center(belief.z_edges_m, z_bin) - float(z_w_m)
+    return float(math.sqrt(dx * dx + dy * dy + dz * dz))
+
+
+def _direction_bin(direction_rad: float, count: int) -> int:
+    if count <= 0:
+        raise ValueError("direction_bin_count must be positive")
+    wrapped = float(direction_rad) % (2.0 * math.pi)
+    return int(min(count - 1, math.floor(wrapped / (2.0 * math.pi) * count)))
+
+
+def _blend(old: float, new: float, alpha: float) -> float:
+    return float(old) + float(alpha) * (float(new) - float(old))
+
+
+def _required_float(row: dict[str, object], *names: str) -> float:
+    for name in names:
+        if name in row and row[name] not in ("", None):
+            return float(row[name])
+    raise ValueError("directional_residual_memory_missing_canonical_coordinate:" + ",".join(names))
