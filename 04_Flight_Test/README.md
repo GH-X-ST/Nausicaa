@@ -114,6 +114,7 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.p
 - Serial port: `COM11`
 - Serial baud: `1000000`
 - Vicon tracking poll period: `0.005 s` / `200 Hz`
+- Vicon derivative/state filter: one-pole `8 Hz`
 - Controller period: `0.100 s`
 - Serial packet period: `0.020 s`
 - Launch wait timeout: `8.0 s`
@@ -122,6 +123,9 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.p
 - Default library tier: `heavy_cluster`
 - Selectable real-flight fallback tier: `balanced_cluster`
 - Servo command authority: full `[-1.0, 1.0]`; the old `0.70` cap is not used here.
+- Measured full-authority endpoints in the duplicated controller contract:
+  aggregate `delta_a +19.3/-21.5 deg`, `delta_e +23.7/-32.0 deg`,
+  and `delta_r +/-33.0 deg`.
 
 ## Deployment Library Tier
 

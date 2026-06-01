@@ -5,6 +5,7 @@ import numpy as np
 from flight_dynamics import adapt_glider
 from glider import build_nausicaa_glider
 from implementation_instance import (
+    _clip_surface_rad,
     apply_aileron_asymmetry_to_aircraft,
     adjusted_actuator_tau_s,
     apply_surface_implementation,
@@ -38,6 +39,14 @@ def test_implementation_instance_is_deterministic_and_changes_surface_and_tau() 
     asymmetric = apply_aileron_asymmetry_to_aircraft(adapt_glider(build_nausicaa_glider()), first)
     nominal_aircraft = apply_aileron_asymmetry_to_aircraft(adapt_glider(build_nausicaa_glider()), nominal)
     assert not np.allclose(asymmetric.control_mix, nominal_aircraft.control_mix)
+
+
+def test_surface_implementation_never_exceeds_full_authority_clip() -> None:
+    oversized = np.asarray([10.0, -10.0, 10.0], dtype=float)
+    clipped = _clip_surface_rad(oversized, surface_limit_scale=1.5)
+    full_scale = _clip_surface_rad(oversized, surface_limit_scale=1.0)
+
+    assert np.allclose(clipped, full_scale)
 
 
 def test_plant_instance_is_deterministic_and_changes_aircraft_model() -> None:

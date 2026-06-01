@@ -146,7 +146,7 @@ class NausicaaViconStateAdapter:
     def __init__(
         self,
         *,
-        derivative_cutoff_hz: float = 20.0,
+        derivative_cutoff_hz: float = 8.0,
         body_rate_limit_rad_s: float = 3.0,
         actuator_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06),
         arena_transform: ViconArenaFrameTransform | None = None,

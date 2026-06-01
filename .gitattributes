@@ -2,7 +2,3 @@
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
-
-# Generated evidence logs that can exceed GitHub's 100 MB regular blob limit.
-03_Control/05_Results/**/metrics/memory_opportunity_decision_log.csv filter=lfs diff=lfs merge=lfs -text
-04_Flight_Test/05_Results/**/metrics/memory_opportunity_decision_log.csv filter=lfs diff=lfs merge=lfs -text

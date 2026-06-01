@@ -7,9 +7,12 @@ from state_contract import STATE_INDEX, STATE_NAMES
 from state_sampling import (
     LAUNCH_GATE_PITCH_MAX_DEG,
     LAUNCH_GATE_PITCH_MIN_DEG,
+    LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S,
+    LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S,
     LAUNCH_GATE_ROLL_LIMIT_DEG,
     LAUNCH_GATE_SPEED_MAX_M_S,
     LAUNCH_GATE_SPEED_MIN_M_S,
+    LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S,
     LAUNCH_GATE_YAW_LIMIT_DEG,
     archive_state_sample_for_family,
     archive_state_sample_for_row,
@@ -83,6 +86,21 @@ def test_launch_gate_sampler_uses_realistic_attitude_envelope() -> None:
         assert LAUNCH_GATE_PITCH_MIN_DEG <= np.rad2deg(state[STATE_INDEX["theta"]]) <= LAUNCH_GATE_PITCH_MAX_DEG
         assert -LAUNCH_GATE_YAW_LIMIT_DEG <= np.rad2deg(state[STATE_INDEX["psi"]]) <= LAUNCH_GATE_YAW_LIMIT_DEG
         assert LAUNCH_GATE_SPEED_MIN_M_S <= speed <= LAUNCH_GATE_SPEED_MAX_M_S
+        assert -LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S <= state[STATE_INDEX["p"]] <= LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S
+        assert -LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S <= state[STATE_INDEX["q"]] <= LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S
+        assert -LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S <= state[STATE_INDEX["r"]] <= LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S
+
+    rate_sample = archive_state_sample_for_family(
+        start_state_family="launch_gate",
+        paired_start_key="launch_gate_rate_nonzero",
+        sample_index=1001,
+        seed=41,
+        W_layer="W1",
+        environment_mode="annular_gp",
+    )
+    assert np.linalg.norm(
+        rate_sample.state_vector[[STATE_INDEX["p"], STATE_INDEX["q"], STATE_INDEX["r"]]]
+    ) > 0.0
 
     old_extreme_launch = np.zeros(len(STATE_NAMES), dtype=float)
     old_extreme_launch[STATE_INDEX["x_w"]] = 1.3
@@ -94,6 +112,15 @@ def test_launch_gate_sampler_uses_realistic_attitude_envelope() -> None:
     old_extreme_launch[STATE_INDEX["u"]] = 5.0
 
     assert state_is_launch_gate_compliant(old_extreme_launch) is False
+
+    excessive_rate_launch = np.zeros(len(STATE_NAMES), dtype=float)
+    excessive_rate_launch[STATE_INDEX["x_w"]] = 1.3
+    excessive_rate_launch[STATE_INDEX["y_w"]] = 2.0
+    excessive_rate_launch[STATE_INDEX["z_w"]] = 1.7
+    excessive_rate_launch[STATE_INDEX["u"]] = 5.0
+    excessive_rate_launch[STATE_INDEX["p"]] = LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S + 0.01
+
+    assert state_is_launch_gate_compliant(excessive_rate_launch) is False
 
 
 def test_inflight_samples_include_rates_and_surface_states() -> None:

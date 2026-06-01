@@ -12,10 +12,10 @@ addpath(fileparts(mfilename("fullpath")));
 % ==========================================================================
 cfg = defaultOverallLatencyConfig("latency");
 
-% The 20 Hz one-pole Vicon filter is the measured low-delay feedback candidate from the motion test.
+% The 8 Hz one-pole Vicon filter matches the real-flight derivative filter.
 cfg.viconStateFilterEnabled = true;
-cfg.viconStateFilterCutoffHz = 20.0;
-cfg.runLabel = string(datetime("now", "Format", "yyyyMMdd_HHmmss")) + "_latency_bang_bang_filter20hz";
+cfg.viconStateFilterCutoffHz = 8.0;
+cfg.runLabel = string(datetime("now", "Format", "yyyyMMdd_HHmmss")) + "_latency_bang_bang_filter8hz";
 
 cfg.neutralLeadSeconds = 2.0;
 cfg.neutralTailSeconds = 2.0;

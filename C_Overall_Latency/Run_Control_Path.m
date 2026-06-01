@@ -161,7 +161,7 @@ config.surfaceOrder = getStringRow(config, "surfaceOrder", config.surfaceNames);
 config.receiverChannelSurfaceOrder = getStringRow(config, "receiverChannelSurfaceOrder", ["Aileron_R", "Aileron_L", "Rudder", "Elevator"]);
 config.surfaceEulerAxes = getStringRow(config, "surfaceEulerAxes", ["X", "X", "Z", "X"]);
 config.servoSigns = getNumericRow(config, "servoSigns", [1, -1, 1, -1]);
-config.surfaceRangeDeg = getNumericRow(config, "surfaceRangeDeg", [30, 30, 30, 30]);
+config.surfaceRangeDeg = getNumericRow(config, "surfaceRangeDeg", [26.8, 29.5, 33.0, 32.0]);
 config.servoCommandLimitNorm = getNumericRow(config, "servoCommandLimitNorm", [0.70, 0.70, 0.70, 0.70]);
 config.benchDeflectionCalibrationLimitNorm = getNumericRow(config, "benchDeflectionCalibrationLimitNorm", [1.00, 1.00, 1.00, 1.00]);
 config.viconHostName = getText(config, "viconHostName", "192.168.0.100:801");
@@ -180,7 +180,7 @@ config.saveCsv = getLogical(config, "saveCsv", true);
 config.makePlots = getLogical(config, "makePlots", false);
 config.serialTimeoutSeconds = getPositiveScalar(config, "serialTimeoutSeconds", 0.05);
 config.viconStateFilterEnabled = getLogical(config, "viconStateFilterEnabled", false);
-config.viconStateFilterCutoffHz = getPositiveScalar(config, "viconStateFilterCutoffHz", 20.0);
+config.viconStateFilterCutoffHz = getPositiveScalar(config, "viconStateFilterCutoffHz", 8.0);
 config.aeroCommandOrder = ["delta_a_cmd", "delta_e_cmd", "delta_r_cmd"];
 
 surfaceCount = numel(config.surfaceOrder);

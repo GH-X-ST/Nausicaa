@@ -37,7 +37,7 @@ LATENCY_EXECUTION_STATUSES = (
     "command_delay_plus_actuator_lag",
     "full_state_command_actuator_latency",
 )
-TIMING_MODEL_VERSION = "measured_vicon_one_pole_command_response_v1"
+TIMING_MODEL_VERSION = "measured_vicon_one_pole_command_response_v2_8hz_state_filter"
 
 
 @dataclass(frozen=True)
@@ -49,7 +49,7 @@ class SurfaceLimit:
 
 @dataclass(frozen=True)
 class LatencyEnvelope:
-    # Command-response values use the latest accepted 20 Hz one-pole filtered runs.
+    # Command-response values use the latest accepted one-pole filtered runs.
     onset_latency_s: float = 0.073
     half_response_low_s: float = 0.098
     half_response_nominal_s: float = 0.108
@@ -60,8 +60,8 @@ class LatencyEnvelope:
     # Vicon latency and filter delay are state-feedback terms, not actuator lag.
     vicon_latency_nominal_s: float = 0.0149
     vicon_latency_p95_s: float = 0.0169
-    vicon_filter_delay_s: float = 0.0080
-    vicon_filter_cutoff_hz: float = 20.0
+    vicon_filter_delay_s: float = 0.0200
+    vicon_filter_cutoff_hz: float = 8.0
     vicon_filter_model: str = "one_pole"
     command_dt_s: float = 0.02
 
@@ -94,15 +94,15 @@ class LatencyCaseConfig:
 # =============================================================================
 # Direction-specific surface limits are stored in degrees for audit tables
 SURFACE_LIMITS = {
-    "Aileron_L": SurfaceLimit("Aileron_L", 22.0, -26.0),
-    "Aileron_R": SurfaceLimit("Aileron_R", -22.0, 26.0),
-    "Rudder": SurfaceLimit("Rudder", 28.0, -35.0),
-    "Elevator": SurfaceLimit("Elevator", 22.0, -30.0),
+    "Aileron_L": SurfaceLimit("Aileron_L", 26.8, -21.5),
+    "Aileron_R": SurfaceLimit("Aileron_R", 29.5, -19.3),
+    "Rudder": SurfaceLimit("Rudder", 33.0, -33.0),
+    "Elevator": SurfaceLimit("Elevator", 23.7, -32.0),
 }
 AGGREGATE_LIMITS = {
-    "delta_a": SurfaceLimit("delta_a_eff", 22.0, -26.0),
-    "delta_e": SurfaceLimit("delta_e_eff", 22.0, -30.0),
-    "delta_r": SurfaceLimit("delta_r_eff", 28.0, -35.0),
+    "delta_a": SurfaceLimit("delta_a_eff", 19.3, -21.5),
+    "delta_e": SurfaceLimit("delta_e_eff", 23.7, -32.0),
+    "delta_r": SurfaceLimit("delta_r_eff", 33.0, -33.0),
 }
 
 
@@ -557,8 +557,8 @@ def _finite_query_time(query_time_s: float) -> float:
 # 4) Command Conversion Helpers
 # =============================================================================
 def angle_to_command_norm(angle_rad: float, limit: SurfaceLimit) -> float:
-    # Endpoint signs are physical surface signs; the right aileron intentionally
-    # maps negative command to positive physical deflection.
+    # Endpoint signs are physical surface signs. Aggregate-to-physical mixing
+    # handles aileron opposition before this conversion is used for audits.
     angle_deg = float(np.rad2deg(angle_rad))
     if abs(angle_deg) <= 1e-12:
         return 0.0
@@ -604,7 +604,7 @@ def aggregate_targets_to_surface_degrees(target_rad: np.ndarray) -> dict[str, fl
     r_norm = angle_to_command_norm(delta_r, AGGREGATE_LIMITS["delta_r"])
     return {
         "aileron_l_deg": float(np.rad2deg(command_norm_to_angle(a_norm, SURFACE_LIMITS["Aileron_L"]))),
-        "aileron_r_deg": float(np.rad2deg(command_norm_to_angle(a_norm, SURFACE_LIMITS["Aileron_R"]))),
+        "aileron_r_deg": float(np.rad2deg(command_norm_to_angle(-a_norm, SURFACE_LIMITS["Aileron_R"]))),
         "elevator_deg": float(np.rad2deg(command_norm_to_angle(e_norm, SURFACE_LIMITS["Elevator"]))),
         "rudder_deg": float(np.rad2deg(command_norm_to_angle(r_norm, SURFACE_LIMITS["Rudder"]))),
     }

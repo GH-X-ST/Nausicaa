@@ -145,7 +145,7 @@ def run_vicon_orientation_check(
     logger = FlightLogger(run_root)
     reader = LiveNausicaaViconRigidBody(host=vicon_host, subject_name=subject_name)
     adapter = NausicaaViconStateAdapter(
-        derivative_cutoff_hz=20.0,
+        derivative_cutoff_hz=8.0,
         arena_transform=ViconArenaFrameTransform(
             position_offset_m=vicon_position_offset_m,
             yaw_alignment_rad=float(np.deg2rad(vicon_yaw_alignment_deg)),

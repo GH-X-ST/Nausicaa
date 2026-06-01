@@ -145,7 +145,7 @@ def test_lqr_command_reports_saturation_from_unclipped_raw_surface_request() -> 
 
     assert command.saturation_applied is True
     assert np.isclose(command.raw_command_rad[1], np.deg2rad(-90.0))
-    assert np.isclose(command.command_rad[1], np.deg2rad(-30.0))
+    assert np.isclose(command.command_rad[1], np.deg2rad(-32.0))
     assert command.command_norm[1] == -1.0
 
 

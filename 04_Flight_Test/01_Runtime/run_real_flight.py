@@ -185,6 +185,7 @@ def run_real_flight(
             summary["completed"] = False
             return summary
         latest_state = launched_state
+        pending_launch_decision_state = launched_state.copy()
         summary["valid_throw"] = True
         summary["launch_speed_m_s"] = float(np.linalg.norm(latest_state[6:9]))
         started = time.perf_counter()
@@ -276,11 +277,23 @@ def run_real_flight(
                 break
 
             if loop_elapsed_s + 1e-12 >= next_governor_s:
-                latest_decision = controller.decide(latest_state, primitive_step_index=primitive_step_index)
+                decision_state = (
+                    pending_launch_decision_state
+                    if primitive_step_index == 0 and pending_launch_decision_state is not None
+                    else latest_state
+                )
+                if primitive_step_index == 0 and pending_launch_decision_state is not None:
+                    _append_runtime_event(
+                        logger,
+                        "first_decision_uses_approved_launch_state",
+                        source="launch_gate_interpolated_or_window_state",
+                    )
+                    pending_launch_decision_state = None
+                latest_decision = controller.decide(decision_state, primitive_step_index=primitive_step_index)
                 decision_records.append(
                     {
                         "t_s": float(loop_elapsed_s),
-                        "state": latest_state.copy(),
+                        "state": decision_state.copy(),
                         "expected_energy_residual_m": float(latest_decision.expected_energy_residual_m),
                         "primitive_variant_id": latest_decision.primitive_variant_id,
                     }
@@ -514,10 +527,6 @@ def _await_launch_gate(
 
         if trigger_approved and consecutive_approved >= required_consecutive:
             summary["launch_gate_approved"] = True
-            adapter.reset_angular_rate_filter()
-            if launch_state is not None:
-                launch_state = launch_state.copy()
-                launch_state[STATE_INDEX["p"] : STATE_INDEX["r"] + 1] = 0.0
             _append_runtime_event(
                 logger,
                 "launch_gate_approved_start_active_record",

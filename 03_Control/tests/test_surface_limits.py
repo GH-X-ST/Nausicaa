@@ -13,10 +13,10 @@ from latency import (
 
 def test_calibrated_surface_endpoint_signs_are_preserved() -> None:
     expected = {
-        "Aileron_L": ((+1.0, +22.0), (-1.0, -26.0)),
-        "Aileron_R": ((+1.0, -22.0), (-1.0, +26.0)),
-        "Rudder": ((+1.0, +28.0), (-1.0, -35.0)),
-        "Elevator": ((+1.0, +22.0), (-1.0, -30.0)),
+        "Aileron_L": ((+1.0, +26.8), (-1.0, -21.5)),
+        "Aileron_R": ((+1.0, +29.5), (-1.0, -19.3)),
+        "Rudder": ((+1.0, +33.0), (-1.0, -33.0)),
+        "Elevator": ((+1.0, +23.7), (-1.0, -32.0)),
     }
     for surface_name, cases in expected.items():
         for command_norm, angle_deg in cases:
@@ -27,11 +27,11 @@ def test_calibrated_surface_endpoint_signs_are_preserved() -> None:
 
 
 def test_inverse_surface_mapping_handles_right_aileron_signs() -> None:
-    assert angle_to_command_norm(np.deg2rad(+26.0), SURFACE_LIMITS["Aileron_R"]) == -1.0
-    assert angle_to_command_norm(np.deg2rad(-22.0), SURFACE_LIMITS["Aileron_R"]) == +1.0
+    assert angle_to_command_norm(np.deg2rad(+29.5), SURFACE_LIMITS["Aileron_R"]) == +1.0
+    assert angle_to_command_norm(np.deg2rad(-19.3), SURFACE_LIMITS["Aileron_R"]) == -1.0
 
 
-def test_positive_aggregate_aileron_expands_to_left_down_right_up() -> None:
+def test_positive_aggregate_aileron_expands_to_left_up_right_down() -> None:
     target = np.array([np.deg2rad(12.0), 0.0, 0.0], dtype=float)
     surfaces = aggregate_targets_to_surface_degrees(target)
 

@@ -167,7 +167,7 @@ def test_latency_case_configs_and_audit_fields() -> None:
 
     nominal = latency_case_config("nominal")
     conservative = latency_case_config("conservative")
-    assert nominal.state_feedback_delay_s == pytest.approx(0.0229)
+    assert nominal.state_feedback_delay_s == pytest.approx(0.0349)
     assert nominal.command_onset_delay_s == pytest.approx(0.073)
     assert nominal.command_transport_delay_s == 0.0
     assert nominal.actuator_t50_s == pytest.approx(0.108)

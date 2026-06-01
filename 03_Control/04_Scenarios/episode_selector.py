@@ -9,8 +9,8 @@ from viability_governor import DEFAULT_GOVERNOR_CONFIG, GOVERNOR_MODES, Governor
 
 CandidateBeliefFeaturesFn = Callable[[dict[str, object], dict[str, object]], dict[str, object] | None]
 BASELINE_SHIELDED_MEMORY_POLICY_VERSION = "cost_benefit_spatial_flow_memory_governor_v4_1"
-REAL_TIME_COMPATIBILITY_PREFILTER_VERSION = "transition_entry_and_speed_bin_shortlist_v2"
-SPEED_BIN_NEIGHBOUR_WINDOW = 0
+REAL_TIME_COMPATIBILITY_PREFILTER_VERSION = "transition_entry_and_speed_bin_shortlist_v3_neighbour_bin"
+SPEED_BIN_NEIGHBOUR_WINDOW = 1
 MEMORY_COST_BENEFIT_SHORTLIST_TOP_K = 4
 MEMORY_COST_BENEFIT_SHORTLIST_SCORE_GAP = 0.35
 MEMORY_SWITCH_MIN_CONFIDENCE = 0.45

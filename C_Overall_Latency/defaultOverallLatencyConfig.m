@@ -37,7 +37,7 @@ cfg.receiverChannelSurfaceOrder = ["Aileron_R", "Aileron_L", "Rudder", "Elevator
 % Euler axes and servo signs are hardware sign-check assumptions saved with runData.
 cfg.surfaceEulerAxes = ["X", "X", "Z", "X"];
 cfg.servoSigns = [1, -1, 1, -1];
-cfg.surfaceRangeDeg = [30.0, 30.0, 30.0, 30.0];
+cfg.surfaceRangeDeg = [26.8, 29.5, 33.0, 32.0];
 cfg.servoCommandLimitNorm = [0.70, 0.70, 0.70, 0.70];
 cfg.benchDeflectionCalibrationLimitNorm = [1.00, 1.00, 1.00, 1.00];
 
@@ -47,7 +47,7 @@ cfg.benchDeflectionCalibrationLimitNorm = [1.00, 1.00, 1.00, 1.00];
 cfg.commandDtSeconds = 0.02;
 cfg.neutralDurationSeconds = 5.0;
 cfg.viconStateFilterEnabled = false;
-cfg.viconStateFilterCutoffHz = 20.0;
+cfg.viconStateFilterCutoffHz = 8.0;
 cfg.randomSeed = 2;
 cfg.saveCsv = true;
 cfg.makePlots = false;

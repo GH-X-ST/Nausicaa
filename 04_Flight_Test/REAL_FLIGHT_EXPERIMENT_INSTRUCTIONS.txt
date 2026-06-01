@@ -119,7 +119,8 @@ between-throw cooldown, Vicon is inactive and the Nano receives neutral commands
 only. After the pre-arm delay, the console prints that Vicon launch-gate
 tracking is active; this is the time to throw through the start gate.
 During launch wait and active flight, the runtime polls Vicon at 200 Hz while
-keeping the governor at 10 Hz and the serial command repeat at 50 Hz.
+using an 8 Hz derivative/state filter, keeping the governor at 10 Hz and the
+serial command repeat at 50 Hz.
 
 The console prints the case ID, memory mode, target valid throw count, latest
 completed throw, launch speed, termination reason, controller decision count,
@@ -138,6 +139,9 @@ roll in +/-20 deg
 pitch in [-10, +20] deg
 yaw in +/-20 deg
 speed in [3, 8] m/s
+p roll rate in [-0.35, +0.35] rad/s
+q pitch rate in [-0.25, +0.25] rad/s
+r yaw rate in [-0.25, +0.25] rad/s
 
 The runtime also computes the interpolated x_w = 1.3 m launch-plane crossing as
 a fallback and diagnostic, but the intended real-flight trigger is the first

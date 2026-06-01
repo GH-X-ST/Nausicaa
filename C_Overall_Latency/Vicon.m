@@ -594,7 +594,7 @@ classdef Vicon < handle
             config.frameWaitTimeoutSeconds = double(Vicon.getFieldOrDefault(config, "frameWaitTimeoutSeconds", 2.0));
             config.sdkDllPath = string(Vicon.getFieldOrDefault(config, "sdkDllPath", ""));
             config.stateFilterEnabled = logical(Vicon.getFieldOrDefault(config, "stateFilterEnabled", false));
-            config.stateFilterCutoffHz = double(Vicon.getFieldOrDefault(config, "stateFilterCutoffHz", 20.0));
+            config.stateFilterCutoffHz = double(Vicon.getFieldOrDefault(config, "stateFilterCutoffHz", 8.0));
             if ~isfinite(config.stateFilterCutoffHz) || config.stateFilterCutoffHz <= 0
                 error("Vicon:InvalidFilterConfig", "stateFilterCutoffHz must be positive and finite.");
             end

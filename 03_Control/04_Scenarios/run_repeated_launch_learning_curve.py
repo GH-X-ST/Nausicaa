@@ -148,6 +148,8 @@ TABLE_NAMES = (
 )
 SCHEDULE_INLINE_ROW_LIMIT = 50_000
 SCHEDULE_PARTITION_ROW_COUNT = 50_000
+MEMORY_OPPORTUNITY_DECISION_LOG_INLINE_ROW_LIMIT = 50_000
+MEMORY_OPPORTUNITY_DECISION_LOG_PARTITION_ROW_COUNT = 25_000
 CANDIDATE_SCORE_TOP_K_PER_DECISION = 10
 HISTORY_LOG_MODES = ("auto", "plot_summary", "sampled_debug", "full_debug")
 DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE = 10
@@ -700,7 +702,13 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
 
     _write_first_decision_audits_from_partitions(run_root, partitions, storage_format)
     _write_real_time_scheduler_audit_from_partitions(run_root, partitions, storage_format)
-    _write_memory_opportunity_audit_from_partitions(run_root, partitions, storage_format)
+    _write_memory_opportunity_audit_from_partitions(
+        run_root,
+        partitions,
+        storage_format,
+        run_id=int(config.run_id),
+        compression_level=int(config.compression_level),
+    )
     episode_rows = _read_partitioned_rows(run_root, partitions, "episode_summary")
     selector_rows = _read_partitioned_rows(run_root, partitions, "selector_decision_log")
     pairing_rows = _pairing_audit_rows(final_schedule)
@@ -4795,16 +4803,38 @@ def _write_schedule_metric(
     storage_format: str,
     compression_level: int,
 ) -> None:
-    frame = pd.DataFrame(rows)
+    _write_metric_table_with_large_file_guard(
+        run_root=run_root,
+        table_name=table_name,
+        frame=pd.DataFrame(rows),
+        run_id=run_id,
+        storage_format=storage_format,
+        compression_level=compression_level,
+        inline_row_limit=SCHEDULE_INLINE_ROW_LIMIT,
+        partition_row_count=SCHEDULE_PARTITION_ROW_COUNT,
+    )
+
+
+def _write_metric_table_with_large_file_guard(
+    *,
+    run_root: Path,
+    table_name: str,
+    frame: pd.DataFrame,
+    run_id: int,
+    storage_format: str,
+    compression_level: int,
+    inline_row_limit: int,
+    partition_row_count: int,
+) -> None:
     metrics_path = run_root / "metrics" / f"{table_name}.csv"
-    if len(frame) <= SCHEDULE_INLINE_ROW_LIMIT:
+    if len(frame) <= int(inline_row_limit):
         _write_csv(metrics_path, frame)
         return
 
     partitions: list[TablePartition] = []
     extension = table_extension(storage_format)
-    for partition_index, start in enumerate(range(0, len(frame), SCHEDULE_PARTITION_ROW_COUNT)):
-        chunk = frame.iloc[start : start + SCHEDULE_PARTITION_ROW_COUNT].copy()
+    for partition_index, start in enumerate(range(0, len(frame), int(partition_row_count))):
+        chunk = frame.iloc[start : start + int(partition_row_count)].copy()
         path = run_root / "tables" / table_name / f"c{partition_index:05d}.{extension}"
         partitions.append(
             write_table_partition(
@@ -4835,6 +4865,7 @@ def _write_schedule_metric(
                     "partition_count": int(len(partitions)),
                     "row_count": int(len(frame)),
                     "manifest": manifest_path.relative_to(run_root).as_posix(),
+                    "partition_row_count": int(partition_row_count),
                     "file_size_policy": "partitioned_to_avoid_large_git_blobs",
                 }
             ]
@@ -5044,6 +5075,9 @@ def _write_memory_opportunity_audit_from_partitions(
     run_root: Path,
     partitions: Iterable[TablePartition],
     storage_format: str,
+    *,
+    run_id: int = 1,
+    compression_level: int = 1,
 ) -> None:
     rows: list[dict[str, object]] = []
     for partition in partitions:
@@ -5210,7 +5244,16 @@ def _write_memory_opportunity_audit_from_partitions(
         "decision_level_baseline_vs_candidate_path_memory_gap_audit"
     )
     decision_log["memory_policy_version"] = OUTER_LOOP_MEMORY_POLICY_VERSION
-    _write_csv(run_root / "metrics" / "memory_opportunity_decision_log.csv", decision_log)
+    _write_metric_table_with_large_file_guard(
+        run_root=run_root,
+        table_name="memory_opportunity_decision_log",
+        frame=decision_log,
+        run_id=run_id,
+        storage_format=storage_format,
+        compression_level=compression_level,
+        inline_row_limit=MEMORY_OPPORTUNITY_DECISION_LOG_INLINE_ROW_LIMIT,
+        partition_row_count=MEMORY_OPPORTUNITY_DECISION_LOG_PARTITION_ROW_COUNT,
+    )
 
     group_columns = [
         column
@@ -7216,7 +7259,7 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` maintains a case-local 0.1 m 3D updraft-utility belief map; each flown primitive writes dense executed-segment residual samples at 0.1 m spacing with launch-index recency decay. The in-flight controller and full diagnostics query the accumulated map through the same 0.2 m neighbourhood over seven probes. The timed in-flight boundary uses a compact controller-row selector fast path before the 0.100 s boundary, while table flushing, full candidate-row expansion, and post-hoc candidate/memory diagnostics stay outside that boundary. Both use bounded current-to-exit, reachable-cone, and short-horizon route-flow probes from the candidate exit. The selector collapses those map queries into one cost-benefit memory value: remembered flow benefit plus small information value minus frozen mission-score, front-progress, risk, and path-margin costs. The value acts only among already-viable candidates and is accepted only through the baseline shield after viability filtering.",
         f"- Governor learning strategy: `{OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION}` keeps online memory `{ONLINE_MEMORY_SCOPE}`; R10 calibration scope is `{R10_GLOBAL_CALIBRATION_SCOPE}` and R11 uses `{R11_GOVERNOR_HANDOFF_SCOPE}`.",
         f"- Calibration search policy: `{GOVERNOR_CALIBRATION_SEARCH_POLICY}`.",
-        "- Memory opportunity audit: `memory_opportunity_summary.csv` and `memory_opportunity_decision_log.csv` report baseline-vs-memory candidate gaps, correction deltas, shield status, and accepted/rejected switch reasons.",
+        "- Memory opportunity audit: `memory_opportunity_summary.csv` and `memory_opportunity_decision_log.csv` report baseline-vs-memory candidate gaps, correction deltas, shield status, and accepted/rejected switch reasons; large decision logs are partitioned under `tables/memory_opportunity_decision_log/` with the metrics CSV kept as a small index.",
         "- The adaptive selector uses one baseline shield at every launch; there is no branch that treats a held-out final launch as a known final mission.",
         "- Boundary-near is a route state, not automatic failure; hard_failure is the failure class.",
         f"- Launch score: `{LAUNCH_SCORE_VERSION}`; rewards front-wall terminal mission completion plus capped updraft/lift evidence and terminal total specific energy reserve. Airborne time and generic net/gross energy drift remain audit-only.",

@@ -496,22 +496,10 @@ def _floor_margin_m(state: np.ndarray) -> float:
 
 def _front_side_boundary_time_margin_s(state: np.ndarray) -> float:
     try:
-        margins = heading_aligned_wall_margins_m(
-            state[[STATE_INDEX["x_w"], STATE_INDEX["y_w"], STATE_INDEX["z_w"]]],
-            float(state[STATE_INDEX["psi"]]),
-            TRUE_SAFE_BOUNDS,
-        )
-        speed_m_s = float(np.linalg.norm(state[[STATE_INDEX["u"], STATE_INDEX["v"], STATE_INDEX["w"]]]))
+        times = _front_side_boundary_times_s(state)
     except Exception:
         return 0.0
-    if speed_m_s < BOUNDARY_NEAR_MIN_SPEED_FOR_TIME_MARGIN_M_S:
-        return float(RECOVERY_PROGRESS_TIME_MARGIN_CAP_S)
-    front_time_s = float(margins["front_wall_margin_m"]) / max(speed_m_s, 1e-9)
-    side_time_s = min(
-        float(margins["left_wall_margin_m"]),
-        float(margins["right_wall_margin_m"]),
-    ) / max(speed_m_s, 1e-9)
-    return float(max(0.0, min(RECOVERY_PROGRESS_TIME_MARGIN_CAP_S, front_time_s, side_time_s)))
+    return float(max(0.0, min(RECOVERY_PROGRESS_TIME_MARGIN_CAP_S, times["front_time_s"], times["side_time_s"])))
 
 
 def _state_vector(state: Any) -> np.ndarray:
@@ -524,25 +512,80 @@ def _time_to_boundary_is_near(state: np.ndarray) -> bool:
     """Return true when front/side boundary arrival is too close for handoff."""
 
     try:
-        margins = heading_aligned_wall_margins_m(
-            state[[STATE_INDEX["x_w"], STATE_INDEX["y_w"], STATE_INDEX["z_w"]]],
-            float(state[STATE_INDEX["psi"]]),
-            TRUE_SAFE_BOUNDS,
-        )
-        speed_m_s = float(np.linalg.norm(state[[STATE_INDEX["u"], STATE_INDEX["v"], STATE_INDEX["w"]]]))
+        times = _front_side_boundary_times_s(state)
     except Exception:
         return True
-    if speed_m_s < BOUNDARY_NEAR_MIN_SPEED_FOR_TIME_MARGIN_M_S:
-        return False
-    front_time_s = float(margins["front_wall_margin_m"]) / max(speed_m_s, 1e-9)
-    side_time_s = min(
-        float(margins["left_wall_margin_m"]),
-        float(margins["right_wall_margin_m"]),
-    ) / max(speed_m_s, 1e-9)
     return bool(
-        front_time_s <= BOUNDARY_NEAR_FRONT_TIME_MARGIN_S
-        or side_time_s <= BOUNDARY_NEAR_SIDE_TIME_MARGIN_S
+        times["front_time_s"] <= BOUNDARY_NEAR_FRONT_TIME_MARGIN_S
+        or times["side_time_s"] <= BOUNDARY_NEAR_SIDE_TIME_MARGIN_S
     )
+
+
+def _front_side_boundary_times_s(state: np.ndarray) -> dict[str, float]:
+    x = as_state_vector(np.asarray(state, dtype=float).reshape(STATE_SIZE))
+    speed_m_s = float(np.linalg.norm(x[[STATE_INDEX["u"], STATE_INDEX["v"], STATE_INDEX["w"]]]))
+    if speed_m_s < BOUNDARY_NEAR_MIN_SPEED_FOR_TIME_MARGIN_M_S:
+        return {
+            "front_time_s": float(RECOVERY_PROGRESS_TIME_MARGIN_CAP_S),
+            "side_time_s": float(RECOVERY_PROGRESS_TIME_MARGIN_CAP_S),
+        }
+
+    position = x[[STATE_INDEX["x_w"], STATE_INDEX["y_w"], STATE_INDEX["z_w"]]]
+    margins = position_margin_m(position, TRUE_SAFE_BOUNDS)
+    velocity_xy = _world_horizontal_velocity_m_s(x)
+    heading = float(x[STATE_INDEX["psi"]])
+    forward = np.asarray([math.cos(heading), math.sin(heading)], dtype=float)
+    faces = (
+        (float(margins["x_min_margin_m"]), np.asarray([-1.0, 0.0], dtype=float)),
+        (float(margins["x_max_margin_m"]), np.asarray([1.0, 0.0], dtype=float)),
+        (float(margins["y_min_margin_m"]), np.asarray([0.0, -1.0], dtype=float)),
+        (float(margins["y_max_margin_m"]), np.asarray([0.0, 1.0], dtype=float)),
+    )
+    front_times: list[float] = []
+    side_times: list[float] = []
+    for margin_m, normal in faces:
+        if margin_m < 0.0:
+            return {"front_time_s": 0.0, "side_time_s": 0.0}
+        closing_speed_m_s = float(np.dot(velocity_xy, normal))
+        if closing_speed_m_s <= 1e-6:
+            continue
+        heading_alignment = float(np.dot(normal, forward))
+        time_s = margin_m / closing_speed_m_s
+        if heading_alignment > 0.5:
+            front_times.append(time_s)
+        elif abs(heading_alignment) <= 0.5:
+            side_times.append(time_s)
+    return {
+        "front_time_s": float(min(front_times or [RECOVERY_PROGRESS_TIME_MARGIN_CAP_S])),
+        "side_time_s": float(min(side_times or [RECOVERY_PROGRESS_TIME_MARGIN_CAP_S])),
+    }
+
+
+def _world_horizontal_velocity_m_s(state: np.ndarray) -> np.ndarray:
+    phi = float(state[STATE_INDEX["phi"]])
+    theta = float(state[STATE_INDEX["theta"]])
+    psi = float(state[STATE_INDEX["psi"]])
+    c_phi, s_phi = math.cos(phi), math.sin(phi)
+    c_theta, s_theta = math.cos(theta), math.sin(theta)
+    c_psi, s_psi = math.cos(psi), math.sin(psi)
+    c_wb = np.asarray(
+        [
+            [
+                c_theta * c_psi,
+                s_phi * s_theta * c_psi - c_phi * s_psi,
+                c_phi * s_theta * c_psi + s_phi * s_psi,
+            ],
+            [
+                c_theta * s_psi,
+                s_phi * s_theta * s_psi + c_phi * c_psi,
+                c_phi * s_theta * s_psi - s_phi * c_psi,
+            ],
+            [-s_theta, s_phi * c_theta, c_phi * c_theta],
+        ],
+        dtype=float,
+    )
+    body_velocity = state[[STATE_INDEX["u"], STATE_INDEX["v"], STATE_INDEX["w"]]]
+    return (c_wb @ body_velocity)[:2]
 
 
 def _json_state(value: Any) -> np.ndarray | None:

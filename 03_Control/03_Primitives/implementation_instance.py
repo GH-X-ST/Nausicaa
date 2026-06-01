@@ -86,9 +86,9 @@ def implementation_instance_for_layer(
             elevator_effectiveness_scale=float(rng.uniform(0.85, 1.15)),
             rudder_effectiveness_scale=float(rng.uniform(0.85, 1.15)),
             surface_neutral_bias_rad=tuple(float(value) for value in rng.uniform(-0.015, 0.015, size=3)),
-            surface_limit_scale=float(rng.uniform(0.90, 1.05)),
+            surface_limit_scale=float(rng.uniform(0.90, 1.00)),
             left_right_aileron_asymmetry_scale=float(rng.uniform(0.95, 1.05)),
-            command_quantisation_mode="none",
+            command_quantisation_mode="fixed_20_percent_lattice",
             implementation_adjustment_status="randomised_applied",
             implementation_adjustment_limitations="left-right aileron asymmetry applied to per-strip control mix",
         )
@@ -205,7 +205,7 @@ def apply_aileron_asymmetry_to_aircraft(aircraft, instance: ImplementationInstan
 
 
 def _clip_surface_rad(command_rad: np.ndarray, *, surface_limit_scale: float) -> np.ndarray:
-    scale = max(float(surface_limit_scale), 1e-6)
+    scale = float(np.clip(float(surface_limit_scale), 1e-6, 1.0))
     clipped = np.asarray(command_rad, dtype=float).reshape(3).copy()
     for index, name in enumerate(SURFACE_STATE_NAMES):
         limit = AGGREGATE_LIMITS[name]

@@ -15,6 +15,9 @@ LAUNCH_GATE_PITCH_MAX_DEG = 20.0
 LAUNCH_GATE_YAW_LIMIT_DEG = 20.0
 LAUNCH_GATE_SPEED_MIN_M_S = 3.0
 LAUNCH_GATE_SPEED_MAX_M_S = 8.0
+LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S = 0.35
+LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S = 0.25
+LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S = 0.25
 
 
 # =============================================================================
@@ -42,7 +45,7 @@ class ArchiveStateSample:
     synthetic_time_since_launch_s: float
     state_sampling_seed: int
     launch_gate_compliant: bool
-    state_sampling_version: str = "mixed_primitive_start_v1"
+    state_sampling_version: str = "mixed_primitive_start_v2_rate_aware"
     measured_log_source: str = ""
     measured_log_row_index: int | str = ""
 
@@ -204,6 +207,15 @@ def state_is_launch_gate_compliant(state: np.ndarray) -> bool:
         <= x[STATE_INDEX["psi"]]
         <= np.deg2rad(LAUNCH_GATE_YAW_LIMIT_DEG)
         and LAUNCH_GATE_SPEED_MIN_M_S <= speed <= LAUNCH_GATE_SPEED_MAX_M_S
+        and -LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S
+        <= x[STATE_INDEX["p"]]
+        <= LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S
+        and -LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S
+        <= x[STATE_INDEX["q"]]
+        <= LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S
+        and -LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S
+        <= x[STATE_INDEX["r"]]
+        <= LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S
     )
 
 
@@ -227,6 +239,15 @@ def _launch_gate_state(rng: np.random.Generator) -> np.ndarray:
     state[STATE_INDEX["u"]] = float(np.sqrt(max(speed * speed - v_side * v_side - w_body * w_body, 0.0)))
     state[STATE_INDEX["v"]] = v_side
     state[STATE_INDEX["w"]] = w_body
+    state[STATE_INDEX["p"]] = float(
+        rng.uniform(-LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S, LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S)
+    )
+    state[STATE_INDEX["q"]] = float(
+        rng.uniform(-LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S, LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S)
+    )
+    state[STATE_INDEX["r"]] = float(
+        rng.uniform(-LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S, LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S)
+    )
     return state
 
 

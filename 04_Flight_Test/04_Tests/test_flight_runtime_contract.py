@@ -14,9 +14,15 @@ for path in (RUNTIME, CONTROLLER):
 
 from flight_config import FlightRuntimeConfig  # noqa: E402
 from frozen_flight_controller import FrozenFlightController  # noqa: E402
+from frozen_flight_controller import (  # noqa: E402
+    _governor_mode_for_route,
+    _live_context_row,
+    _validation_route_for_primitive_step,
+)
 from experiment_cases import EXPERIMENT_CASES, get_experiment_case  # noqa: E402
 from exit_gate import evaluate_exit_gate  # noqa: E402
 from launch_gate import (  # noqa: E402
+    LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S,
     LAUNCH_TRIGGER_X_W_M,
     evaluate_launch_gate,
     evaluate_launch_plane_gate,
@@ -33,11 +39,91 @@ from run_real_flight import run_real_flight  # noqa: E402
 from run_experiment_sequence import run_experiment_sequence  # noqa: E402
 from run_surface_sign_check import SURFACE_CHECK_SEQUENCE, run_surface_sign_check  # noqa: E402
 from state_contract import STATE_INDEX  # noqa: E402
+from episode_selector import select_compact_representative  # noqa: E402
+from transition_labels import classify_state  # noqa: E402
 from vicon_rigid_body import ReplayNausicaaViconRigidBody  # noqa: E402
 
 
 def _code(value: float) -> int:
     return int(np.rint((float(value) + 1.0) * 0.5 * 65535.0))
+
+
+def _state(
+    *,
+    x_w: float = 2.0,
+    y_w: float = 2.2,
+    z_w: float = 1.6,
+    phi: float = 0.0,
+    theta: float = 0.0,
+    psi: float = 0.0,
+    u: float = 6.5,
+    v: float = 0.0,
+    w: float = 0.0,
+    p: float = 0.0,
+    q: float = 0.0,
+    r: float = 0.0,
+) -> np.ndarray:
+    state = np.zeros(15, dtype=float)
+    values = {
+        "x_w": x_w,
+        "y_w": y_w,
+        "z_w": z_w,
+        "phi": phi,
+        "theta": theta,
+        "psi": psi,
+        "u": u,
+        "v": v,
+        "w": w,
+        "p": p,
+        "q": q,
+        "r": r,
+    }
+    for name, value in values.items():
+        state[STATE_INDEX[name]] = float(value)
+    return state
+
+
+def test_boundary_near_uses_side_closing_speed_not_total_forward_speed() -> None:
+    central_forward = _state(x_w=2.0, y_w=2.1, z_w=1.55, psi=0.0, u=6.6, v=0.0)
+
+    assert classify_state(central_forward, primitive_step_index=1, allow_post_launch_degraded=True) == "inflight_stable"
+
+    side_closing = _state(x_w=2.0, y_w=2.1, z_w=1.55, psi=0.0, u=6.6, v=-6.6)
+
+    assert classify_state(side_closing, primitive_step_index=1, allow_post_launch_degraded=True) == "boundary_near"
+
+
+def test_launch_selector_uses_neighbouring_speed_bins_for_safe_fallbacks(tmp_path: Path) -> None:
+    config = FlightRuntimeConfig(run_label="selector_regression", output_root=tmp_path)
+    controller = FrozenFlightController(config)
+    launch_state = _state(x_w=1.3, y_w=2.05, z_w=1.65, psi=0.0, u=6.6)
+    route = _validation_route_for_primitive_step(0, state=launch_state)
+    context = _live_context_row(
+        launch_state,
+        library_tier=config.library_tier,
+        primitive_step_index=0,
+        route=route,
+        memory_enabled=False,
+        memory_launch_index=0,
+    )
+
+    selected, candidates = select_compact_representative(
+        representatives=controller.representatives,
+        outcome_rows_by_variant_id=controller.outcomes,
+        context=context,
+        governor_mode=_governor_mode_for_route(route),
+        policy_id="selector_regression",
+        belief_features=None,
+        candidate_belief_features=None,
+        adaptive_memory_active=False,
+        governor_config=controller.governor_config,
+        candidate_row_mode="diagnostic",
+    )
+    viable_ids = {str(row.get("primitive_id", "")) for row in candidates if bool(row.get("viable", False))}
+
+    assert selected is not None
+    assert len(viable_ids) > 1
+    assert "glide" in viable_ids
 
 
 def test_full_authority_packet_has_no_0p70_cap() -> None:
@@ -190,6 +276,12 @@ def test_launch_gate_uses_r5_release_bounds() -> None:
     assert rejected.approved is False
     assert rejected.reason == "x_w_outside_launch_gate"
 
+    state[STATE_INDEX["x_w"]] = 1.3
+    state[STATE_INDEX["p"]] = LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S + 0.01
+    rejected = evaluate_launch_gate(state)
+    assert rejected.approved is False
+    assert rejected.reason == "roll_rate_outside_launch_gate"
+
 
 def test_launch_plane_crossing_interpolates_entry_state() -> None:
     previous = np.zeros(15)
@@ -208,6 +300,13 @@ def test_launch_plane_crossing_interpolates_entry_state() -> None:
     assert launch_state is not None
     assert np.isclose(launch_state[STATE_INDEX["x_w"]], LAUNCH_TRIGGER_X_W_M)
     assert evaluate_launch_plane_gate(launch_state).approved is True
+
+    current[STATE_INDEX["q"]] = 1.0
+    launch_state = interpolate_launch_plane_state(previous, current)
+    assert launch_state is not None
+    rejected = evaluate_launch_plane_gate(launch_state)
+    assert rejected.approved is False
+    assert rejected.reason == "pitch_rate_outside_launch_gate"
 
 
 def test_exit_gate_uses_true_operational_region() -> None:
