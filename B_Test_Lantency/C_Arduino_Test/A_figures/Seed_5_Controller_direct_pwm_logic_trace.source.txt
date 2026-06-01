@@ -1,0 +1,16 @@
+caption: Measured direct-PWM logic-analyser trace showing the regenerated servo PWM waveforms for the representative transition, with time zero aligned to the first measured Aileron L pulse.
+input files:
+  - C:\Users\GH-X-ST\OneDrive - Imperial College London\Year 4\Final Year Project\01 - Github\Nausicaa\B_Test_Lantency\C_Arduino_Test\Seed_5_Controller_ArduinoLogger\output_capture.csv
+  - C:\Users\GH-X-ST\OneDrive - Imperial College London\Year 4\Final Year Project\01 - Github\Nausicaa\B_Test_Lantency\C_Arduino_Test\Seed_5_Controller_ArduinoLogger\e2e_output_events.csv
+filtering rules:
+  - The visible waveform is the measured command whose timing vector is closest to mean offsets over all valid matched output transitions.
+  - With --direct-sequence, the requested command is used intentionally.
+  - Timing-event markers are intentionally omitted; timing statistics are reported separately in tables.
+  - Plots decoded measured PWM pulse starts and widths from -2 ms to 35 ms around the first measured Aileron L pulse.
+  - Each row is truncated by DIRECT_PWM_FIGURE_STYLE['trace_styles'][surface]['end_ms'].
+sample count: 15833
+environment_id: not_applicable
+latency case: direct PWM generation
+policy name: measured logic-analyser redraw
+run ID: Seed_5_Controller_ArduinoLogger
+file size: 62559 bytes

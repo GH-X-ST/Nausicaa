@@ -1,0 +1,16 @@
+caption: Measured PPM-to-receiver regeneration trace showing the 50 Hz D2 reference, trainer PPM pulses, and receiver PWM responses for the representative transition, with time zero aligned to the first measured 50 Hz D2 reference pulse.
+input files:
+  - C:\Users\GH-X-ST\OneDrive - Imperial College London\Year 4\Final Year Project\01 - Github\Nausicaa\B_Test_Lantency\D_Transmitter_Test\Seed_5_Nano_Transmitter_TransmitterLogger\post_transition_e2e_events.csv
+  - C:\Users\GH-X-ST\OneDrive - Imperial College London\Year 4\Final Year Project\01 - Github\Nausicaa\B_Test_Lantency\D_Transmitter_Test\Seed_5_Nano_Transmitter_TransmitterLogger\Seed_5_Nano_Transmitter_sigrok_logic_state.csv
+filtering rules:
+  - The visible waveform is the measured command whose timing vector is closest to mean offsets over all events with trainer and receiver transitions.
+  - With --ppm-sequence, the requested command is used intentionally.
+  - Timing-event markers are intentionally omitted; timing statistics are reported separately in tables.
+  - Includes the measured 50 Hz D2 reference pulse train as a timing reference row.
+  - Plots compact measured sigrok logic-state transitions from -2 ms to 35 ms around the first measured 50 Hz D2 reference pulse.
+sample count: 102562
+environment_id: not_applicable
+latency case: PPM-to-receiver PWM regeneration
+policy name: measured logic-analyser redraw
+run ID: Seed_5_Nano_Transmitter_TransmitterLogger
+file size: 89041 bytes
