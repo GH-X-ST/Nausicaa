@@ -1,0 +1,9 @@
+sequence,step_name,delta_a_norm,delta_e_norm,delta_r_norm,physical_surface_norm,packet_surface_norm,receiver_channel_codes,packet_hex,expected_motion
+0,neutral,0.0,0.0,0.0,"[0.0,0.0,0.0,0.0]","[0.0,-0.0,0.0,-0.0]","[32768,32768,32768,32768]",560400000000000080008000800080,All control surfaces should return to neutral.
+1,positive_aileron,0.4,0.0,0.0,"[0.4,-0.4,0.0,0.0]","[0.4,0.4,0.0,-0.0]","[45874,45874,32768,32768]",5604000100000032b332b300800080,"Ailerons should move in opposition for positive roll: left aileron up, right aileron down if the airframe convention matches the model."
+2,negative_aileron,-0.4,0.0,0.0,"[-0.4,0.4,0.0,0.0]","[-0.4,-0.4,0.0,-0.0]","[19660,19660,32768,32768]",56040002000000cc4ccc4c00800080,Ailerons should move in the opposite direction from the positive-aileron step.
+3,positive_elevator,0.0,0.4,0.0,"[0.0,0.0,0.0,0.4]","[0.0,-0.0,0.0,-0.4]","[32768,32768,32768,19660]",56040003000000008000800080cc4c,Elevator should deflect for nose-up positive pitch command.
+4,negative_elevator,0.0,-0.4,0.0,"[0.0,0.0,0.0,-0.4]","[0.0,-0.0,0.0,0.4]","[32768,32768,32768,45874]",5604000400000000800080008032b3,Elevator should deflect opposite to the positive-elevator step.
+5,positive_rudder,0.0,0.0,0.4,"[0.0,0.0,0.4,0.0]","[0.0,-0.0,0.4,-0.0]","[32768,32768,45874,32768]",560400050000000080008032b30080,Rudder should deflect for nose-right positive yaw command.
+6,negative_rudder,0.0,0.0,-0.4,"[0.0,0.0,-0.4,0.0]","[0.0,-0.0,-0.4,-0.0]","[32768,32768,19660,32768]",5604000600000000800080cc4c0080,Rudder should deflect opposite to the positive-rudder step.
+7,neutral_end,0.0,0.0,0.0,"[0.0,0.0,0.0,0.0]","[0.0,-0.0,0.0,-0.0]","[32768,32768,32768,32768]",560400070000000080008000800080,All control surfaces should return to neutral.

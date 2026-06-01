@@ -8,10 +8,12 @@ This folder contains the self-contained real-flight runtime. The live loop is:
 Vicon rigid body Nausicaa -> canonical 15-state -> heavy-cluster frozen governor
 -> 20 percent command lattice -> Nano33 IoT packet -> transmitter/receiver/servos.
 
-The real-flight experiment launcher lets the operator start one case once. It
-then waits for a valid launch gate, records one throw, sends neutral after exit,
-waits for cooldown, and automatically re-arms for the next throw. Failed launch
-starts are ignored: they do not count as valid throws and do not update memory.
+The real-flight experiment launcher lets the operator start one case once. Before
+each throw it holds neutral for a short pre-arm delay with Vicon inactive, then
+starts Vicon launch-gate tracking, records one gate-passed throw, sends neutral
+after exit, waits for cooldown, and automatically re-arms for the next throw.
+Failed launch starts are ignored: they do not count as valid throws and do not
+update memory.
 
 
 Before Any Throw
@@ -22,11 +24,32 @@ Before Any Throw
 3. If fan tracking is used, confirm fan rigid bodies are named exactly:
    Fan_1, Fan_2, Fan_3, Fan_4
 4. Confirm the Vicon origin and yaw alignment match the runtime settings.
-   The default assumes raw Vicon origin is at the operational-region centre:
-   x_w=3.9 m, y_w=2.2 m, z_w=1.95 m.
+   The runtime applies the calibrated full x/y/z offset to map raw Vicon
+   position into the controller frame.
 5. Install pyserial in the active Python environment if needed:
    C:\ProgramData\miniforge3\python.exe -m pip install pyserial
 6. Run the surface sign check before closed-loop flight.
+
+
+Vicon Frame Calibration
+-----------------------
+Before throwing, calibrate the Vicon-to-arena offset. Hold the glider still at a
+known physical arena coordinate, edit KNOWN_ARENA_POINT_M at the top of:
+
+04_Flight_Test\01_Runtime\run_vicon_frame_calibration.py
+
+Then run:
+
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_vicon_frame_calibration.py
+
+The script prints the raw Vicon mean, current transformed mean, current error,
+and recommended VICON_POSITION_OFFSET_M. Paste the recommended offset into
+run_experiment_sequence.py if the axis directions are correct:
+
+VICON_POSITION_OFFSET_M = (...)
+
+If moving the glider in physical +x, +y, or +z causes the wrong transformed
+coordinate to change, the axis mapping must be corrected before flight.
 
 
 Surface Sign Check
@@ -49,6 +72,25 @@ If any surface moves the wrong way, stop. Do not fly until servo sign, receiver
 channel order, and packet mapping are fixed.
 
 
+Vicon Orientation Check
+-----------------------
+Before any closed-loop throw, confirm that the Vicon rigid body orientation
+matches the controller body-frame convention:
+
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_vicon_orientation_check.py
+
+The script guides neutral hold, +x/+y/+z translations, pitch up/down, roll
+right/left, and yaw right/left. Each step starts after a 10 s countdown, so the
+operator can reposition the glider without pressing Enter. It writes samples and
+a pass/fail summary under:
+
+04_Flight_Test\05_Results\vicon_orientation_check\<run_label>
+
+Do not fly if any sign check fails. The most critical crash-prevention check is:
+
+nose-up physical pitch -> positive theta.
+
+
 How To Start One Experiment Case
 --------------------------------
 Open:
@@ -67,6 +109,13 @@ Then run:
 
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_experiment_sequence.py
 
+The current E0.1 shakedown pre-arm delay is 5 s. During this delay and during the 20 s
+between-throw cooldown, Vicon is inactive and the Nano receives neutral commands
+only. After the pre-arm delay, the console prints that Vicon launch-gate
+tracking is active; this is the time to throw through the start gate.
+During launch wait and active flight, the runtime polls Vicon at 200 Hz while
+keeping the governor at 10 Hz and the serial command repeat at 50 Hz.
+
 The console prints the case ID, memory mode, target valid throw count, latest
 completed throw, launch speed, termination reason, controller decision count,
 max decision time, fan count, and memory cell count.
@@ -74,8 +123,8 @@ max decision time, fan count, and memory cell count.
 
 Launch Gate Rule
 ----------------
-A throw becomes active only if the measured release state passes the same launch
-gate used in simulation:
+A throw becomes active at the first measured state that satisfies the complete
+R5 launch window:
 
 x_w in [1.2, 1.4] m
 y_w in [1.8, 2.2] m
@@ -84,6 +133,10 @@ roll in +/-20 deg
 pitch in [-10, +20] deg
 yaw in +/-20 deg
 speed in [3, 8] m/s
+
+The runtime also computes the interpolated x_w = 1.3 m launch-plane crossing as
+a fallback and diagnostic, but the intended real-flight trigger is the first
+full-window-valid sample.
 
 If the launch gate times out, the attempt is stored under invalid_attempts, but
 it does not count as a throw and does not update memory.

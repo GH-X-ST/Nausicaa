@@ -11,31 +11,37 @@ from pathlib import Path
 from experiment_cases import EXPERIMENT_CASES, experiment_case_manifest, get_experiment_case
 from flight_config import (
     DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
-    OPERATIONAL_REGION_CENTER_M,
     RESULT_ROOT,
     FlightRuntimeConfig,
 )
 from flight_logger import FlightLogger
 from frozen_flight_controller import FrozenFlightController
+from nano_serial import FakeNanoSerialTx, NanoSerialTx
 from run_real_flight import run_real_flight
 
 
 # =============================================================================
-# EDIT THESE BEFORE STARTING A REAL EXPERIMENT BLOCK
+# CLICK-AND-GO SETTINGS FOR THE NEXT REAL EXPERIMENT BLOCK
+# Current setup: E0.1 dry-air shakedown, 5 valid throws, hardware armed on COM11.
+# Failed launch-gate attempts are ignored and do not count as throws.
 # =============================================================================
 CURRENT_EXPERIMENT_CASE = "E0.1"
-CURRENT_SESSION_LABEL = ""  # Empty means timestamped session label.
-TARGET_VALID_THROWS_OVERRIDE: int | None = None
-COOLDOWN_AFTER_VALID_THROW_S = 60.0
+CURRENT_SESSION_LABEL = ""  # Empty means a new timestamped result folder.
+TARGET_VALID_THROWS_OVERRIDE: int | None = 5
+PRE_ARM_VICON_INACTIVE_DELAY_S = 5.0
+COOLDOWN_AFTER_VALID_THROW_S = 20.0
 RETRY_AFTER_INVALID_START_S = 2.0
 MAX_INVALID_ATTEMPTS: int | None = None
 SERIAL_PORT = "COM11"
 VICON_HOST = "192.168.0.100:801"
-MODE = "armed"  # Use "dry-run" for hardware-free tests.
+MODE = "armed"  # Hardware output enabled. Use "dry-run" for hardware-free tests.
 MAX_ACTIVE_FLIGHT_DURATION_S = 20.0
-LAUNCH_WAIT_TIMEOUT_S = 8.0
+LAUNCH_WAIT_TIMEOUT_S = 120.0
 POST_EXIT_NEUTRAL_TAIL_S = 0.30
-VICON_POSITION_OFFSET_M = OPERATIONAL_REGION_CENTER_M
+VICON_TRACKING_RATE_HZ = 200.0
+VICON_POLL_PERIOD_S = 1.0 / VICON_TRACKING_RATE_HZ
+# Paste the calibration script's recommended full x/y/z offset here.
+VICON_POSITION_OFFSET_M = (4.122059988726226, 2.3212064296862036, 0.1403991257236011)
 VICON_YAW_ALIGNMENT_DEG = 0.0
 # =============================================================================
 
@@ -54,8 +60,10 @@ def run_experiment_sequence(
     max_duration_s: float,
     launch_wait_timeout_s: float,
     post_exit_neutral_tail_s: float,
+    vicon_poll_period_s: float,
     vicon_position_offset_m: tuple[float, float, float],
     vicon_yaw_alignment_deg: float,
+    pre_arm_delay_s: float = 0.0,
 ) -> dict[str, object]:
     case = get_experiment_case(case_id)
     target = int(target_valid_throws if target_valid_throws is not None else case.target_valid_throws)
@@ -76,6 +84,7 @@ def run_experiment_sequence(
         max_duration_s=max_duration_s,
         launch_wait_timeout_s=launch_wait_timeout_s,
         post_exit_neutral_tail_s=post_exit_neutral_tail_s,
+        vicon_poll_period_s=vicon_poll_period_s,
         retry_cooldown_s=retry_cooldown_s,
         vicon_position_offset_m=vicon_position_offset_m,
         vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
@@ -92,8 +101,15 @@ def run_experiment_sequence(
             "library_tier": DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
             "case_registry": experiment_case_manifest(),
             "memory_policy": controller.memory_summary(),
+            "pre_arm_vicon_inactive_delay_s": float(pre_arm_delay_s),
             "cooldown_after_valid_throw_s": float(cooldown_s),
             "retry_after_invalid_start_s": float(retry_cooldown_s),
+            "vicon_tracking_rate_hz": float(1.0 / vicon_poll_period_s),
+            "vicon_poll_period_s": float(vicon_poll_period_s),
+            "between_throw_policy": (
+                "pre_arm_and_cooldown_stream_neutral_only_without_vicon_reads;"
+                "next_throw_reopens_lazy_vicon_launch_gate_wait"
+            ),
         },
     )
     valid_count = 0
@@ -101,6 +117,7 @@ def run_experiment_sequence(
     attempt_index = 0
     print(f"[START] case={case.case_id} {case.case_name}")
     print(f"[START] memory_enabled={case.memory_enabled} layout={case.layout_id} target_valid_throws={target}")
+    print("[START] between throws: Vicon is inactive during cooldown; neutral is held until the next launch-gate wait.")
     try:
         while valid_count < target:
             if max_invalid_attempts is not None and invalid_count >= int(max_invalid_attempts):
@@ -112,6 +129,18 @@ def run_experiment_sequence(
                 f"[ARM] case={case.case_id} valid={valid_count}/{target} "
                 f"next_throw={next_valid_throw_index:03d} invalid_attempts={invalid_count}"
             )
+            print("[ARM] pre-arm delay: Vicon inactive, neutral held; prepare throw now.")
+            _cooldown(
+                pre_arm_delay_s,
+                label="pre_arm_vicon_inactive_before_launch_gate",
+                mode=mode,
+                serial_port=serial_port,
+                controller=controller,
+                serial_period_s=base_config.serial_period_s,
+                serial_baud=base_config.serial_baud,
+            )
+            print("[ARM] Vicon launch-gate tracking active now; throw through the start gate.")
+            print("[ARM] NoFrame/missing-subject states are ignored safely until the gate passes.")
             run_label = f"throw_{next_valid_throw_index:03d}"
             output_root = session_root
             if invalid_count >= 0:
@@ -130,6 +159,7 @@ def run_experiment_sequence(
                 max_duration_s=max_duration_s,
                 launch_wait_timeout_s=launch_wait_timeout_s,
                 post_exit_neutral_tail_s=post_exit_neutral_tail_s,
+                vicon_poll_period_s=vicon_poll_period_s,
                 retry_cooldown_s=retry_cooldown_s,
                 vicon_position_offset_m=vicon_position_offset_m,
                 vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
@@ -153,7 +183,17 @@ def run_experiment_sequence(
                     f"memory_cells={summary.get('memory_cell_count', 0)}"
                 )
                 if valid_count < target:
-                    _cooldown(cooldown_s, label="cooldown_before_rearm", mode=mode)
+                    print("[RECOVERY] completed throw; Vicon is now inactive during cooldown, neutral command is held.")
+                    _cooldown(
+                        cooldown_s,
+                        label="cooldown_before_rearm",
+                        mode=mode,
+                        serial_port=serial_port,
+                        controller=controller,
+                        serial_period_s=base_config.serial_period_s,
+                        serial_baud=base_config.serial_baud,
+                    )
+                    print("[REARM] cooldown complete; next throw will use the same lazy Vicon launch-gate wait.")
             else:
                 invalid_count += 1
                 invalid_root = session_root / "invalid_attempts"
@@ -163,7 +203,17 @@ def run_experiment_sequence(
                     f"[INVALID] case={case.case_id} attempt={invalid_count:03d} "
                     f"reason={summary.get('cancellation_reason', '')} valid={valid_count}/{target}"
                 )
-                _cooldown(retry_cooldown_s, label="retry_after_invalid_start", mode=mode)
+                print("[RETRY] invalid start ignored; Vicon remains inactive during retry cooldown.")
+                _cooldown(
+                    retry_cooldown_s,
+                    label="retry_after_invalid_start",
+                    mode=mode,
+                    serial_port=serial_port,
+                    controller=controller,
+                    serial_period_s=base_config.serial_period_s,
+                    serial_baud=base_config.serial_baud,
+                )
+                print("[REARM] retry cooldown complete; waiting again for a valid launch gate.")
     finally:
         session_logger.write_manifest(
             "experiment_sequence_final_summary.json",
@@ -174,6 +224,13 @@ def run_experiment_sequence(
                 "valid_throw_count": valid_count,
                 "invalid_attempt_count": invalid_count,
                 "controller_memory": controller.memory_summary(),
+                "pre_arm_vicon_inactive_delay_s": float(pre_arm_delay_s),
+                "vicon_tracking_rate_hz": float(1.0 / vicon_poll_period_s),
+                "vicon_poll_period_s": float(vicon_poll_period_s),
+                "between_throw_policy": (
+                    "pre_arm_and_cooldown_streamed_neutral_only_without_vicon_reads;"
+                    "each_throw_started_with_lazy_vicon_launch_gate_wait"
+                ),
             },
         )
         session_logger.close()
@@ -218,18 +275,61 @@ def _move_invalid_attempt(source: Path, target: Path) -> None:
     source.replace(target)
 
 
-def _cooldown(duration_s: float, *, label: str, mode: str) -> None:
+def _cooldown(
+    duration_s: float,
+    *,
+    label: str,
+    mode: str,
+    serial_port: str,
+    controller: FrozenFlightController,
+    serial_period_s: float,
+    serial_baud: int,
+) -> None:
     duration = max(0.0, float(duration_s))
     if duration <= 0.0:
         return
-    remaining = int(round(duration))
-    while remaining > 0:
-        print(f"[WAIT] {label}: {remaining}s")
-        sleep_s = 1.0 if mode == "armed" else min(0.02, duration)
-        time.sleep(sleep_s)
-        remaining -= 1
-        if mode != "armed":
-            break
+    tx = NanoSerialTx(serial_port, serial_baud) if mode == "armed" else FakeNanoSerialTx()
+    started = time.perf_counter()
+    next_status_s = 0.0
+    packet_count = 0
+    try:
+        tx.open()
+        tx.write_line("SET_NEUTRAL")
+        print(f"[WAIT] {label}: Vicon inactive; streaming neutral only.")
+        while True:
+            elapsed_s = time.perf_counter() - started
+            if elapsed_s >= duration:
+                break
+            remaining_s = max(0.0, duration - elapsed_s)
+            if elapsed_s + 1e-12 >= next_status_s:
+                print(f"[WAIT] {label}: {remaining_s:.0f}s, Vicon inactive, holding neutral")
+                next_status_s = elapsed_s + 1.0
+            tx.write_packet(controller.neutral_packet())
+            packet_count += 1
+            sleep_s = max(0.0, min(float(serial_period_s), duration - (time.perf_counter() - started)))
+            if mode == "armed":
+                time.sleep(sleep_s)
+            else:
+                if sleep_s > 0.0:
+                    time.sleep(min(0.02, sleep_s))
+                break
+    except Exception as exc:
+        print(f"[WAIT] {label}: neutral hold failed ({type(exc).__name__}: {exc}); sleeping without command stream.")
+        while time.perf_counter() - started < duration:
+            remaining_s = max(0.0, duration - (time.perf_counter() - started))
+            if (time.perf_counter() - started) + 1e-12 >= next_status_s:
+                print(f"[WAIT] {label}: {remaining_s:.0f}s")
+                next_status_s = (time.perf_counter() - started) + 1.0
+            time.sleep(1.0 if mode == "armed" else min(0.02, remaining_s))
+            if mode != "armed":
+                break
+    finally:
+        try:
+            tx.write_line("SET_NEUTRAL")
+        except Exception:
+            pass
+        tx.close()
+    print(f"[WAIT] {label}: complete, neutral_packets={packet_count}")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -240,12 +340,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--serial-port", default=SERIAL_PORT)
     parser.add_argument("--vicon-host", default=VICON_HOST)
     parser.add_argument("--target-valid-throws", type=int, default=TARGET_VALID_THROWS_OVERRIDE)
+    parser.add_argument("--pre-arm-delay-s", type=float, default=PRE_ARM_VICON_INACTIVE_DELAY_S)
     parser.add_argument("--cooldown-s", type=float, default=COOLDOWN_AFTER_VALID_THROW_S)
     parser.add_argument("--retry-cooldown-s", type=float, default=RETRY_AFTER_INVALID_START_S)
     parser.add_argument("--max-invalid-attempts", type=int, default=MAX_INVALID_ATTEMPTS)
     parser.add_argument("--duration-s", type=float, default=MAX_ACTIVE_FLIGHT_DURATION_S)
     parser.add_argument("--launch-wait-timeout-s", type=float, default=LAUNCH_WAIT_TIMEOUT_S)
     parser.add_argument("--post-exit-neutral-tail-s", type=float, default=POST_EXIT_NEUTRAL_TAIL_S)
+    parser.add_argument("--vicon-tracking-rate-hz", type=float, default=VICON_TRACKING_RATE_HZ)
     parser.add_argument("--vicon-offset-m", nargs=3, type=float, default=None)
     parser.add_argument("--vicon-yaw-deg", type=float, default=VICON_YAW_ALIGNMENT_DEG)
     return parser.parse_args()
@@ -260,12 +362,14 @@ def main() -> None:
         serial_port=args.serial_port,
         vicon_host=args.vicon_host,
         target_valid_throws=args.target_valid_throws,
+        pre_arm_delay_s=args.pre_arm_delay_s,
         cooldown_s=args.cooldown_s,
         retry_cooldown_s=args.retry_cooldown_s,
         max_invalid_attempts=args.max_invalid_attempts,
         max_duration_s=args.duration_s,
         launch_wait_timeout_s=args.launch_wait_timeout_s,
         post_exit_neutral_tail_s=args.post_exit_neutral_tail_s,
+        vicon_poll_period_s=1.0 / float(args.vicon_tracking_rate_hz),
         vicon_position_offset_m=tuple(args.vicon_offset_m) if args.vicon_offset_m is not None else VICON_POSITION_OFFSET_M,
         vicon_yaw_alignment_deg=float(args.vicon_yaw_deg),
     )

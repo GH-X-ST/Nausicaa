@@ -1,0 +1,10 @@
+{
+  "authority": "full_normalised_minus1_to_plus1_with_20_percent_lattice",
+  "command_repeat_period_s": 0.02,
+  "firmware_timeout_awareness": "commands_are_repeated_during_dwell_to_avoid_250ms_firmware_timeout",
+  "mode": "dry-run",
+  "packet_count": 598,
+  "run_label": "surface_sign_check_20260601_182259",
+  "serial_port": "COM11",
+  "telemetry_count": 0
+}

@@ -61,8 +61,6 @@ class LiveNausicaaViconRigidBody:
             ViconDataStream.Client.AxisMapping.ELeft,
             ViconDataStream.Client.AxisMapping.EUp,
         )
-        root = client.GetSubjectRootSegmentName(self.subject_name)
-        self.root_segment_name = str(root)
         self.client = client
         return self
 
@@ -72,17 +70,20 @@ class LiveNausicaaViconRigidBody:
         try:
             self.client.GetFrame()
             frame_number = int(self.client.GetFrameNumber())
+            root, root_status = self._resolve_root_segment()
+            if not root:
+                return None, ViconFrameStatus(False, root_status, frame_number=frame_number)
             translation, translation_occluded = self.client.GetSegmentGlobalTranslation(
                 self.subject_name,
-                self.root_segment_name,
+                root,
             )
             euler, euler_occluded = self.client.GetSegmentGlobalRotationEulerXYZ(
                 self.subject_name,
-                self.root_segment_name,
+                root,
             )
             quaternion, quaternion_occluded = self.client.GetSegmentGlobalRotationQuaternion(
                 self.subject_name,
-                self.root_segment_name,
+                root,
             )
             if bool(translation_occluded) or bool(euler_occluded) or bool(quaternion_occluded):
                 return None, ViconFrameStatus(False, "vicon_subject_occluded", frame_number=frame_number)
@@ -98,6 +99,24 @@ class LiveNausicaaViconRigidBody:
             return sample, ViconFrameStatus(True, "ok", frame_number=frame_number, vicon_latency_s=latency_s)
         except Exception as exc:
             return None, ViconFrameStatus(False, f"vicon_read_failed:{type(exc).__name__}:{exc}")
+
+    def _resolve_root_segment(self) -> tuple[str, str]:
+        if self.client is None:
+            return "", "vicon_reader_not_open"
+        if self.root_segment_name:
+            return self.root_segment_name, "ok"
+        try:
+            subject_names = tuple(str(name) for name in self.client.GetSubjectNames())
+        except Exception as exc:
+            return "", f"vicon_subject_list_unavailable:{type(exc).__name__}:{exc}"
+        if self.subject_name not in subject_names:
+            available = ",".join(subject_names) if subject_names else "<none>"
+            return "", f"vicon_subject_missing:{self.subject_name};available={available}"
+        try:
+            self.root_segment_name = str(self.client.GetSubjectRootSegmentName(self.subject_name))
+        except Exception as exc:
+            return "", f"vicon_subject_root_unavailable:{self.subject_name}:{type(exc).__name__}:{exc}"
+        return self.root_segment_name, "ok"
 
     def read_fans(self, fan_subject_names: tuple[str, ...] = ("Fan_1", "Fan_2", "Fan_3", "Fan_4")) -> tuple[FanViconSample, ...]:
         if self.client is None:
@@ -157,7 +176,14 @@ class ReplayNausicaaViconRigidBody:
         x_w = 1.2 + self.speed_m_s * t
         y_w = 2.2
         z_w = 1.7 + 0.02 * math.sin(2.0 * math.pi * 0.5 * t)
-        raw_position = np.asarray([x_w, y_w, z_w], dtype=float) - np.asarray(OPERATIONAL_REGION_CENTER_M, dtype=float)
+        raw_position = np.asarray(
+            [
+                x_w - OPERATIONAL_REGION_CENTER_M[0],
+                y_w - OPERATIONAL_REGION_CENTER_M[1],
+                z_w - OPERATIONAL_REGION_CENTER_M[2],
+            ],
+            dtype=float,
+        )
         sample = NausicaaViconSample(
             timestamp_s=t,
             position_m=tuple(float(value) for value in raw_position),

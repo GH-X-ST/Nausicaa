@@ -1,0 +1,50 @@
+{
+  "current_position_offset_m": [
+    3.9,
+    2.2,
+    0.0
+  ],
+  "current_transform_error_m": [
+    -0.19910784055577824,
+    -0.10388440218073969,
+    -0.14020472478987828
+  ],
+  "current_transformed_mean_m": [
+    1.0008921594442217,
+    1.4961155978192604,
+    0.05979527521012174
+  ],
+  "current_yaw_alignment_deg": 0.0,
+  "invalid_reasons": {
+    "vicon_subject_occluded": 1
+  },
+  "known_arena_point_m": [
+    1.2,
+    1.6,
+    0.2
+  ],
+  "raw_calibration_offset_m": [
+    4.099107840555777,
+    2.3038844021807394,
+    0.14020472478987828
+  ],
+  "raw_vicon_mean_m": [
+    -2.899107840555777,
+    -0.7038844021807392,
+    0.05979527521012174
+  ],
+  "raw_vicon_std_m": [
+    0.0010643018226218711,
+    0.0007435218240207678,
+    0.0018215744769518117
+  ],
+  "raw_z_error_m": -0.14020472478987828,
+  "recommended_runtime_position_offset_m": [
+    4.099107840555777,
+    2.3038844021807394,
+    0.0
+  ],
+  "run_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/vicon_frame_calibration/20260601_192941",
+  "status": "ok",
+  "valid_sample_count": 150
+}

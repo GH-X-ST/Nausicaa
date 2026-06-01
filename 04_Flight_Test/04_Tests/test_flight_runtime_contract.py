@@ -16,7 +16,12 @@ from flight_config import FlightRuntimeConfig  # noqa: E402
 from frozen_flight_controller import FrozenFlightController  # noqa: E402
 from experiment_cases import EXPERIMENT_CASES, get_experiment_case  # noqa: E402
 from exit_gate import evaluate_exit_gate  # noqa: E402
-from launch_gate import evaluate_launch_gate  # noqa: E402
+from launch_gate import (  # noqa: E402
+    LAUNCH_TRIGGER_X_W_M,
+    evaluate_launch_gate,
+    evaluate_launch_plane_gate,
+    interpolate_launch_plane_state,
+)
 from real_flight_io import (  # noqa: E402
     NausicaaViconSample,
     NausicaaViconStateAdapter,
@@ -61,20 +66,20 @@ def test_vicon_rigid_body_adapter_uses_command_history_surfaces() -> None:
     assert state[STATE_INDEX["delta_a"]] > 0.0
 
 
-def test_vicon_origin_at_operational_region_centre_maps_to_controller_frame() -> None:
+def test_vicon_transform_applies_full_xyz_offset() -> None:
     adapter = NausicaaViconStateAdapter(
         derivative_cutoff_hz=0.0,
         arena_transform=ViconArenaFrameTransform(position_offset_m=(3.9, 2.2, 1.95)),
     )
 
     state = adapter.update(
-        NausicaaViconSample(0.0, (0.0, 0.0, 0.0), euler_rad=(0.0, 0.0, 0.0)),
+        NausicaaViconSample(0.0, (0.0, 0.0, 0.42), euler_rad=(0.0, 0.0, 0.0)),
         command_norm=[0.0, 0.0, 0.0],
     )
 
     assert np.isclose(state[STATE_INDEX["x_w"]], 3.9)
     assert np.isclose(state[STATE_INDEX["y_w"]], 2.2)
-    assert np.isclose(state[STATE_INDEX["z_w"]], 1.95)
+    assert np.isclose(state[STATE_INDEX["z_w"]], 2.37)
 
 
 def test_launch_gate_uses_r5_release_bounds() -> None:
@@ -90,6 +95,25 @@ def test_launch_gate_uses_r5_release_bounds() -> None:
     rejected = evaluate_launch_gate(state)
     assert rejected.approved is False
     assert rejected.reason == "x_w_outside_launch_gate"
+
+
+def test_launch_plane_crossing_interpolates_entry_state() -> None:
+    previous = np.zeros(15)
+    current = np.zeros(15)
+    previous[STATE_INDEX["x_w"]] = 1.1
+    current[STATE_INDEX["x_w"]] = 1.5
+    previous[STATE_INDEX["y_w"]] = 2.0
+    current[STATE_INDEX["y_w"]] = 2.0
+    previous[STATE_INDEX["z_w"]] = 1.7
+    current[STATE_INDEX["z_w"]] = 1.7
+    previous[STATE_INDEX["u"]] = 5.0
+    current[STATE_INDEX["u"]] = 5.0
+
+    launch_state = interpolate_launch_plane_state(previous, current)
+
+    assert launch_state is not None
+    assert np.isclose(launch_state[STATE_INDEX["x_w"]], LAUNCH_TRIGGER_X_W_M)
+    assert evaluate_launch_plane_gate(launch_state).approved is True
 
 
 def test_exit_gate_uses_true_operational_region() -> None:
@@ -220,6 +244,7 @@ def test_experiment_sequence_counts_only_valid_throws_and_persists_memory(tmp_pa
         max_duration_s=0.22,
         launch_wait_timeout_s=0.20,
         post_exit_neutral_tail_s=0.0,
+        vicon_poll_period_s=0.005,
         vicon_position_offset_m=(3.9, 2.2, 1.95),
         vicon_yaw_alignment_deg=0.0,
     )
@@ -246,6 +271,7 @@ def test_experiment_sequence_invalid_start_does_not_count_or_update_memory(tmp_p
         max_duration_s=0.05,
         launch_wait_timeout_s=0.001,
         post_exit_neutral_tail_s=0.0,
+        vicon_poll_period_s=0.005,
         vicon_position_offset_m=(1000.0, 2.2, 1.95),
         vicon_yaw_alignment_deg=0.0,
     )
@@ -265,5 +291,5 @@ def test_surface_sign_check_uses_same_packet_contract(tmp_path: Path, monkeypatc
         dwell_s=0.0,
         run_label="pytest_surface",
     )
-    assert result["packet_count"] == len(SURFACE_CHECK_SEQUENCE) + 1
+    assert result["packet_count"] >= len(SURFACE_CHECK_SEQUENCE) + 1
     assert (tmp_path / "surface_sign_check" / "pytest_surface" / "metrics" / "surface_sign_check.csv").exists()

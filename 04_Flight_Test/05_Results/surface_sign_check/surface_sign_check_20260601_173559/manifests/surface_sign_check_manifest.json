@@ -1,0 +1,7 @@
+{
+  "authority": "full_normalised_minus1_to_plus1_with_20_percent_lattice",
+  "mode": "dry-run",
+  "packet_count": 9,
+  "run_label": "surface_sign_check_20260601_173559",
+  "serial_port": "COM11"
+}

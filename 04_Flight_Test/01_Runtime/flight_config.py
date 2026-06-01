@@ -11,6 +11,11 @@ CONTROLLER_ROOT = FLIGHT_TEST_ROOT / "02_Controller"
 FROZEN_INPUT_ROOT = FLIGHT_TEST_ROOT / "03_Frozen_Inputs"
 RESULT_ROOT = FLIGHT_TEST_ROOT / "05_Results"
 OPERATIONAL_REGION_CENTER_M = (3.9, 2.2, 1.95)
+DEFAULT_VICON_POSITION_OFFSET_M = (
+    OPERATIONAL_REGION_CENTER_M[0],
+    OPERATIONAL_REGION_CENTER_M[1],
+    OPERATIONAL_REGION_CENTER_M[2],
+)
 DEFAULT_REAL_FLIGHT_LIBRARY_TIER = "heavy_cluster"
 REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON = (
     "heavy_cluster_selected_for_first_real_flight_from_combined_r11_d01_d02_validation;"
@@ -35,6 +40,7 @@ class FlightRuntimeConfig:
     vicon_subject_name: str = "Nausicaa"
     governor_period_s: float = 0.100
     serial_period_s: float = 0.020
+    vicon_poll_period_s: float = 0.005
     max_duration_s: float = 20.0
     launch_wait_timeout_s: float = 8.0
     launch_gate_required_consecutive_frames: int = 1
@@ -43,9 +49,9 @@ class FlightRuntimeConfig:
     stale_vicon_timeout_s: float = 0.120
     derivative_cutoff_hz: float = 20.0
     actuator_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06)
-    vicon_position_offset_m: tuple[float, float, float] = OPERATIONAL_REGION_CENTER_M
+    vicon_position_offset_m: tuple[float, float, float] = DEFAULT_VICON_POSITION_OFFSET_M
     vicon_yaw_alignment_deg: float = 0.0
-    vicon_frame_description: str = "raw_vicon_origin_at_operational_region_centre"
+    vicon_frame_description: str = "full_xyz_position_offset_with_horizontal_yaw_alignment"
     output_root: Path = RESULT_ROOT
     library_manifest_root: Path = FROZEN_INPUT_ROOT / "R8_library_size_study" / "B02" / "manifests"
     outcome_table_path: Path = FROZEN_INPUT_ROOT / "R8_outcome" / "B02" / "metrics" / "outcome_model_table.csv"

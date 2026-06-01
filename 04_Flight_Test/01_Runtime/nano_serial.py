@@ -15,7 +15,7 @@ class SerialLike(Protocol):
 class NanoSerialTx:
     port: str
     baud: int = 1_000_000
-    timeout_s: float = 0.001
+    timeout_s: float = 0.020
     _serial: SerialLike | None = field(default=None, init=False, repr=False)
 
     def open(self) -> "NanoSerialTx":
@@ -34,6 +34,11 @@ class NanoSerialTx:
         if self._serial is None:
             raise RuntimeError("serial transmitter is not open.")
         return int(self._serial.write(packet))
+
+    def write_line(self, text: str) -> int:
+        if self._serial is None:
+            raise RuntimeError("serial transmitter is not open.")
+        return int(self._serial.write((str(text) + "\n").encode("ascii")))
 
     def read_telemetry_line(self) -> str:
         if self._serial is None:
@@ -60,6 +65,11 @@ class FakeNanoSerialTx:
     def write_packet(self, packet: bytes) -> int:
         self.packets.append(bytes(packet))
         return len(packet)
+
+    def write_line(self, text: str) -> int:
+        payload = (str(text) + "\n").encode("ascii")
+        self.packets.append(payload)
+        return len(payload)
 
     def read_telemetry_line(self) -> str:
         return ""

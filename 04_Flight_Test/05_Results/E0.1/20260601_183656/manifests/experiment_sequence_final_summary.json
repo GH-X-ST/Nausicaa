@@ -1,0 +1,23 @@
+{
+  "case": {
+    "case_id": "E0.1",
+    "case_name": "Dry-air shakedown before E1",
+    "evidence_role": "shakedown_only",
+    "expected_visible_fan_max": 0,
+    "expected_visible_fan_min": 0,
+    "layout_id": "E0_dry_air_shakedown",
+    "memory_enabled": false,
+    "target_valid_throws": 5
+  },
+  "controller_memory": {
+    "memory_cell_count": 0,
+    "memory_enabled": false,
+    "memory_launch_index": 0,
+    "memory_policy": "disabled",
+    "memory_update_count": 0
+  },
+  "invalid_attempt_count": 0,
+  "session_label": "20260601_183656",
+  "target_valid_throws": 5,
+  "valid_throw_count": 0
+}

@@ -12,7 +12,7 @@ import numpy as np
 from flight_config import (
     CONTROLLER_ROOT,
     DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
-    OPERATIONAL_REGION_CENTER_M,
+    DEFAULT_VICON_POSITION_OFFSET_M,
     REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON,
     FlightRuntimeConfig,
     default_run_label,
@@ -20,7 +20,13 @@ from flight_config import (
 from flight_logger import FlightLogger
 from frozen_flight_controller import FrozenFlightController
 from exit_gate import evaluate_exit_gate, exit_gate_bounds_manifest
-from launch_gate import evaluate_launch_gate, launch_gate_bounds_manifest
+from launch_gate import (
+    LAUNCH_TRIGGER_X_W_M,
+    evaluate_launch_gate,
+    evaluate_launch_plane_gate,
+    interpolate_launch_plane_state,
+    launch_gate_bounds_manifest,
+)
 from nano_serial import FakeNanoSerialTx, NanoSerialTx
 from safety_monitor import evaluate_safety
 from vicon_rigid_body import FanViconSample, LiveNausicaaViconRigidBody, ReplayNausicaaViconRigidBody
@@ -54,7 +60,7 @@ def run_real_flight(
     vicon = (
         LiveNausicaaViconRigidBody(host=config.vicon_host, subject_name=config.vicon_subject_name)
         if mode in {"armed", "vicon-smoke"}
-        else ReplayNausicaaViconRigidBody(dt_s=config.serial_period_s)
+        else ReplayNausicaaViconRigidBody(dt_s=config.vicon_poll_period_s)
     )
     logger.write_manifest(
         "real_flight_runtime_manifest.json",
@@ -76,6 +82,15 @@ def run_real_flight(
             "launch_gate_required_consecutive_frames": int(config.launch_gate_required_consecutive_frames),
             "exit_gate_bounds": exit_gate_bounds_manifest(),
             "post_exit_neutral_tail_s": float(config.post_exit_neutral_tail_s),
+            "runtime_rates": {
+                "vicon_poll_hz": float(1.0 / config.vicon_poll_period_s),
+                "serial_command_repeat_hz": float(1.0 / config.serial_period_s),
+                "governor_decision_hz": float(1.0 / config.governor_period_s),
+                "rate_policy": (
+                    "Vicon is polled at the tracking rate; serial packets are still repeated "
+                    "at the firmware-safe command period; governor selection remains 10 Hz."
+                ),
+            },
             "vicon_arena_frame_transform": {
                 "description": config.vicon_frame_description,
                 "position_offset_m": tuple(float(value) for value in config.vicon_position_offset_m),
@@ -105,6 +120,8 @@ def run_real_flight(
         "controller_decision_count": 0,
         "packet_count": 0,
         "neutral_failsafe_count": 0,
+        "serial_write_error_count": 0,
+        "serial_write_timeout_count": 0,
         "max_decision_time_s": 0.0,
         "launch_speed_m_s": 0.0,
         "launch_gate_approved": False,
@@ -148,9 +165,14 @@ def run_real_flight(
             expected_visible_fan_range=expected_visible_fan_range,
         )
         if launched_state is None:
-            tx.write_packet(controller.neutral_packet())
-            summary["packet_count"] += 1
-            summary["neutral_failsafe_count"] += 1
+            if _write_packet_safe(
+                tx,
+                controller.neutral_packet(),
+                logger=logger,
+                summary=summary,
+                event="launch_gate_cancel_neutral",
+            ):
+                summary["neutral_failsafe_count"] += 1
             summary["flight_cancelled"] = True
             summary["completed"] = False
             return summary
@@ -166,16 +188,28 @@ def run_real_flight(
             sample, status = vicon.read_latest()
             if sample is None or not status.valid:
                 packet = controller.neutral_packet()
-                tx.write_packet(packet)
-                summary["packet_count"] += 1
-                summary["neutral_failsafe_count"] += 1
+                if loop_elapsed_s + 1e-12 >= next_serial_s:
+                    if _write_packet_safe(
+                        tx,
+                        packet,
+                        logger=logger,
+                        summary=summary,
+                        event="vicon_invalid_neutral_command",
+                    ):
+                        summary["neutral_failsafe_count"] += 1
+                    next_serial_s += float(config.serial_period_s)
                 _append_runtime_event(
                     logger,
                     "vicon_invalid_neutral_command",
                     reason=status.reason,
                 )
-                if mode == "armed":
-                    time.sleep(config.serial_period_s)
+                if mode in {"armed", "vicon-smoke"}:
+                    _sleep_until_next_runtime_poll(
+                        config=config,
+                        started=started,
+                        next_serial_s=next_serial_s,
+                        next_governor_s=next_governor_s,
+                    )
                 continue
 
             latest_state = adapter.update(sample, command_norm=controller.last_command_norm())
@@ -257,12 +291,22 @@ def run_real_flight(
 
             if loop_elapsed_s + 1e-12 >= next_serial_s:
                 packet = controller.packet_for_last_command()
-                tx.write_packet(packet)
-                summary["packet_count"] += 1
+                _write_packet_safe(
+                    tx,
+                    packet,
+                    logger=logger,
+                    summary=summary,
+                    event="active_command_packet",
+                )
                 next_serial_s += float(config.serial_period_s)
 
             if mode in {"armed", "vicon-smoke"}:
-                time.sleep(max(0.0, min(config.serial_period_s, next_serial_s - (time.perf_counter() - started))))
+                _sleep_until_next_runtime_poll(
+                    config=config,
+                    started=started,
+                    next_serial_s=next_serial_s,
+                    next_governor_s=next_governor_s,
+                )
 
         if bool(summary["launch_gate_approved"]):
             if latest_decision is not None and latest_state is not None and not terminal_record_appended:
@@ -282,10 +326,14 @@ def run_real_flight(
         return summary
     finally:
         if latest_state is not None:
-            try:
-                tx.write_packet(controller.neutral_packet())
-            except Exception:
-                pass
+            _write_packet_safe(
+                tx,
+                controller.neutral_packet(),
+                logger=logger,
+                summary=summary,
+                event="final_neutral_packet",
+                quiet=True,
+            )
         tx.close()
         vicon.close()
         logger.write_manifest("real_flight_runtime_summary.json", summary)
@@ -307,6 +355,8 @@ def run_real_flight(
                 f"- Controller decisions: `{summary['controller_decision_count']}`",
                 f"- Packets sent: `{summary['packet_count']}`",
                 f"- Neutral failsafe commands: `{summary['neutral_failsafe_count']}`",
+                f"- Serial write errors: `{summary['serial_write_error_count']}`",
+                f"- Serial write timeouts: `{summary['serial_write_timeout_count']}`",
                 f"- Post-exit neutral packets: `{summary['post_exit_neutral_packets']}`",
                 f"- Latest visible fan count: `{summary['fan_visible_count_latest']}`",
                 f"- Fan expected count OK: `{summary['fan_expected_count_ok_latest']}`",
@@ -335,30 +385,42 @@ def _await_launch_gate(
     consecutive_approved = 0
     required_consecutive = max(1, int(config.launch_gate_required_consecutive_frames))
     latest_gate_reason = "not_evaluated"
+    next_invalid_log_s = 0.0
+    next_console_status_s = 0.0
+    previous_state: np.ndarray | None = None
 
     while (time.perf_counter() - started) <= float(config.launch_wait_timeout_s):
         elapsed_s = time.perf_counter() - started
         sample, status = vicon.read_latest()
         if sample is None or not status.valid:
             latest_gate_reason = status.reason
+            if elapsed_s + 1e-12 >= next_console_status_s:
+                print(
+                    f"[LAUNCH_WAIT] t={elapsed_s:.1f}s "
+                    f"Vicon invalid: {status.reason}; holding neutral"
+                )
+                next_console_status_s = elapsed_s + 1.0
             next_serial_s = _send_neutral_if_due(
                 tx=tx,
                 controller=controller,
+                logger=logger,
                 summary=summary,
                 elapsed_s=elapsed_s,
                 next_serial_s=next_serial_s,
                 serial_period_s=float(config.serial_period_s),
             )
-            logger.append_metric_row(
-                "prelaunch_events.csv",
-                {
-                    "t_host_s": time.perf_counter(),
-                    "event": "vicon_invalid_waiting_for_launch",
-                    "reason": status.reason,
-                },
-            )
-            if mode == "armed":
-                time.sleep(config.serial_period_s)
+            if elapsed_s + 1e-12 >= next_invalid_log_s:
+                logger.append_metric_row(
+                    "prelaunch_events.csv",
+                    {
+                        "t_host_s": time.perf_counter(),
+                        "event": "vicon_invalid_waiting_for_launch",
+                        "reason": status.reason,
+                    },
+                )
+                next_invalid_log_s = elapsed_s + 0.50
+            if mode in {"armed", "vicon-smoke"}:
+                time.sleep(float(config.vicon_poll_period_s))
             continue
 
         state = adapter.update(sample, command_norm=controller.last_command_norm())
@@ -370,9 +432,39 @@ def _await_launch_gate(
             expected_visible_fan_range=expected_visible_fan_range,
             summary=summary,
         )
-        gate = evaluate_launch_gate(state)
+        full_window_gate = evaluate_launch_gate(state)
+        launch_plane_state = interpolate_launch_plane_state(previous_state, state)
+        crossed_launch_plane = launch_plane_state is not None
+        plane_gate = (
+            evaluate_launch_plane_gate(launch_plane_state)
+            if crossed_launch_plane and launch_plane_state is not None
+            else None
+        )
+        if full_window_gate.approved:
+            gate = full_window_gate
+            trigger_approved = True
+            trigger_source = "valid_r5_launch_window"
+            launch_state = state
+        elif plane_gate is not None:
+            gate = plane_gate
+            trigger_approved = bool(plane_gate.approved)
+            trigger_source = "valid_interpolated_launch_plane" if trigger_approved else "crossed_plane_rejected"
+            launch_state = launch_plane_state if trigger_approved else None
+        else:
+            gate = full_window_gate
+            trigger_approved = False
+            trigger_source = "tracking"
+            launch_state = None
         latest_gate_reason = gate.reason
-        consecutive_approved = consecutive_approved + 1 if gate.approved else 0
+        consecutive_approved = consecutive_approved + 1 if trigger_approved else 0
+        if elapsed_s + 1e-12 >= next_console_status_s:
+            speed_m_s = float(np.linalg.norm(state[6:9]))
+            print(
+                f"[LAUNCH_WAIT] t={elapsed_s:.1f}s trigger={trigger_source} gate={gate.reason} "
+                f"approved={trigger_approved} consecutive={consecutive_approved}/{required_consecutive} "
+                f"x={state[0]:.2f} y={state[1]:.2f} z={state[2]:.2f} speed={speed_m_s:.2f}m/s"
+            )
+            next_console_status_s = elapsed_s + 1.0
         logger.append_metric_row(
             "prelaunch_state_samples.csv",
             {
@@ -380,6 +472,17 @@ def _await_launch_gate(
                 "frame_number": status.frame_number,
                 "vicon_latency_s": status.vicon_latency_s,
                 "launch_gate_consecutive_approved": consecutive_approved,
+                "trigger_policy": "positive_x_launch_plane_crossing",
+                "launch_trigger_x_w_m": float(LAUNCH_TRIGGER_X_W_M),
+                "crossed_launch_plane": bool(crossed_launch_plane),
+                "trigger_approved": bool(trigger_approved),
+                "trigger_source": trigger_source,
+                "full_window_reason": full_window_gate.reason,
+                "full_window_approved": bool(full_window_gate.approved),
+                "interpolated_plane_reason": plane_gate.reason if plane_gate is not None else "",
+                "interpolated_plane_approved": bool(plane_gate.approved) if plane_gate is not None else False,
+                "diagnostic_box_reason": full_window_gate.reason,
+                "diagnostic_box_approved": bool(full_window_gate.approved),
                 **asdict(gate),
                 **state_dataframe_row(state),
             },
@@ -388,24 +491,30 @@ def _await_launch_gate(
         next_serial_s = _send_neutral_if_due(
             tx=tx,
             controller=controller,
+            logger=logger,
             summary=summary,
             elapsed_s=elapsed_s,
             next_serial_s=next_serial_s,
             serial_period_s=float(config.serial_period_s),
         )
 
-        if consecutive_approved >= required_consecutive:
+        if trigger_approved and consecutive_approved >= required_consecutive:
             summary["launch_gate_approved"] = True
             _append_runtime_event(
                 logger,
                 "launch_gate_approved_start_active_record",
                 required_consecutive_frames=required_consecutive,
+                launch_trigger_x_w_m=float(LAUNCH_TRIGGER_X_W_M),
+                trigger_policy="first_valid_r5_launch_window_with_interpolated_plane_fallback",
+                trigger_source=trigger_source,
                 **asdict(gate),
             )
-            return state
+            return launch_state.copy() if launch_state is not None else state.copy()
 
-        if mode == "armed":
-            time.sleep(config.serial_period_s)
+        previous_state = state.copy()
+
+        if mode in {"armed", "vicon-smoke"}:
+            time.sleep(float(config.vicon_poll_period_s))
 
     summary["cancellation_reason"] = f"launch_gate_timeout:{latest_gate_reason}"
     _append_runtime_event(
@@ -480,6 +589,7 @@ def _send_neutral_if_due(
     *,
     tx: NanoSerialTx | FakeNanoSerialTx,
     controller: FrozenFlightController,
+    logger: FlightLogger,
     summary: dict[str, object],
     elapsed_s: float,
     next_serial_s: float,
@@ -487,9 +597,14 @@ def _send_neutral_if_due(
 ) -> float:
     if elapsed_s + 1e-12 < float(next_serial_s):
         return float(next_serial_s)
-    tx.write_packet(controller.neutral_packet())
-    summary["packet_count"] = int(summary["packet_count"]) + 1
-    summary["neutral_failsafe_count"] = int(summary["neutral_failsafe_count"]) + 1
+    if _write_packet_safe(
+        tx,
+        controller.neutral_packet(),
+        logger=logger,
+        summary=summary,
+        event="launch_wait_neutral_packet",
+    ):
+        summary["neutral_failsafe_count"] = int(summary["neutral_failsafe_count"]) + 1
     return float(next_serial_s) + float(serial_period_s)
 
 
@@ -505,10 +620,15 @@ def _send_neutral_tail(
 ) -> None:
     packet_count = max(1, int(np.ceil(float(config.post_exit_neutral_tail_s) / float(config.serial_period_s))))
     for _ in range(packet_count):
-        tx.write_packet(controller.neutral_packet())
-        summary["packet_count"] = int(summary["packet_count"]) + 1
-        summary["neutral_failsafe_count"] = int(summary["neutral_failsafe_count"]) + 1
-        summary["post_exit_neutral_packets"] = int(summary["post_exit_neutral_packets"]) + 1
+        if _write_packet_safe(
+            tx,
+            controller.neutral_packet(),
+            logger=logger,
+            summary=summary,
+            event="post_exit_neutral_tail_packet",
+        ):
+            summary["neutral_failsafe_count"] = int(summary["neutral_failsafe_count"]) + 1
+            summary["post_exit_neutral_packets"] = int(summary["post_exit_neutral_packets"]) + 1
         if mode in {"armed", "vicon-smoke"}:
             time.sleep(float(config.serial_period_s))
     _append_runtime_event(
@@ -529,6 +649,51 @@ def _append_runtime_event(logger: FlightLogger, event: str, **details: object) -
             "details_json": json.dumps(details, sort_keys=True, separators=(",", ":")),
         },
     )
+
+
+def _sleep_until_next_runtime_poll(
+    *,
+    config: FlightRuntimeConfig,
+    started: float,
+    next_serial_s: float,
+    next_governor_s: float,
+) -> None:
+    elapsed_s = time.perf_counter() - float(started)
+    waits = [float(config.vicon_poll_period_s)]
+    for next_event_s in (float(next_serial_s), float(next_governor_s)):
+        wait_s = next_event_s - elapsed_s
+        if wait_s > 0.0:
+            waits.append(wait_s)
+    time.sleep(max(0.0, min(waits)))
+
+
+def _write_packet_safe(
+    tx: NanoSerialTx | FakeNanoSerialTx,
+    packet: bytes,
+    *,
+    logger: FlightLogger,
+    summary: dict[str, object],
+    event: str,
+    quiet: bool = False,
+) -> bool:
+    try:
+        tx.write_packet(packet)
+    except Exception as exc:
+        summary["serial_write_error_count"] = int(summary.get("serial_write_error_count", 0)) + 1
+        if "Timeout" in type(exc).__name__:
+            summary["serial_write_timeout_count"] = int(summary.get("serial_write_timeout_count", 0)) + 1
+        _append_runtime_event(
+            logger,
+            "serial_write_failed",
+            source_event=str(event),
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        if not quiet:
+            print(f"[SERIAL] write failed during {event}: {type(exc).__name__}: {exc}")
+        return False
+    summary["packet_count"] = int(summary["packet_count"]) + 1
+    return True
 
 
 def _run_packet_smoke(
@@ -573,6 +738,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--launch-wait-timeout-s", type=float, default=8.0)
     parser.add_argument("--launch-gate-frames", type=int, default=1)
     parser.add_argument("--post-exit-neutral-tail-s", type=float, default=0.30)
+    parser.add_argument("--vicon-tracking-rate-hz", type=float, default=200.0)
     return parser.parse_args()
 
 
@@ -583,12 +749,13 @@ def main() -> None:
         library_tier=args.library_tier,
         serial_port=args.serial_port,
         vicon_host=args.vicon_host,
-        vicon_position_offset_m=tuple(args.vicon_offset_m) if args.vicon_offset_m is not None else OPERATIONAL_REGION_CENTER_M,
+        vicon_position_offset_m=tuple(args.vicon_offset_m) if args.vicon_offset_m is not None else DEFAULT_VICON_POSITION_OFFSET_M,
         vicon_yaw_alignment_deg=float(args.vicon_yaw_deg),
         max_duration_s=float(args.duration_s),
         launch_wait_timeout_s=float(args.launch_wait_timeout_s),
         launch_gate_required_consecutive_frames=int(args.launch_gate_frames),
         post_exit_neutral_tail_s=float(args.post_exit_neutral_tail_s),
+        vicon_poll_period_s=1.0 / float(args.vicon_tracking_rate_hz),
     )
     summary = run_real_flight(config, mode=str(args.mode))
     print(f"run_root={summary['run_root']}")

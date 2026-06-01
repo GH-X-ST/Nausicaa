@@ -1,0 +1,9 @@
+sequence,step_name,delta_a_norm,delta_e_norm,delta_r_norm,physical_surface_norm,packet_surface_norm,receiver_channel_codes,packet_hex,repeat_packet_count,expected_motion
+0,neutral,0.0,0.0,0.0,"[0.0,0.0,0.0,0.0]","[0.0,-0.0,0.0,-0.0]","[32768,32768,32768,32768]",5604005d0000000080008000800080,94,All control surfaces should return to neutral.
+1,positive_aileron,0.4,0.0,0.0,"[0.4,-0.4,0.0,0.0]","[0.4,0.4,0.0,-0.0]","[45874,45874,32768,32768]",5604004504000032b332b300800080,94,"Viewed from behind the glider: left aileron trailing edge UP, right aileron trailing edge DOWN."
+2,negative_aileron,-0.4,0.0,0.0,"[-0.4,0.4,0.0,0.0]","[-0.4,-0.4,0.0,-0.0]","[19660,19660,32768,32768]",5604002d080000cc4ccc4c00800080,94,"Viewed from behind the glider: left aileron trailing edge DOWN, right aileron trailing edge UP."
+3,positive_elevator,0.0,0.4,0.0,"[0.0,0.0,0.0,0.4]","[0.0,-0.0,0.0,-0.4]","[32768,32768,32768,19660]",560400150c0000008000800080cc4c,94,Elevator trailing edge UP; this is the nose-up pitch command.
+4,negative_elevator,0.0,-0.4,0.0,"[0.0,0.0,0.0,-0.4]","[0.0,-0.0,0.0,0.4]","[32768,32768,32768,45874]",560400fd0f000000800080008032b3,94,Elevator trailing edge DOWN; this is the nose-down pitch command.
+5,positive_rudder,0.0,0.0,0.4,"[0.0,0.0,0.4,0.0]","[0.0,-0.0,0.4,-0.0]","[32768,32768,45874,32768]",560400e51300000080008032b30080,94,Viewed from behind the glider: rudder trailing edge RIGHT; this is the nose-right yaw command.
+6,negative_rudder,0.0,0.0,-0.4,"[0.0,0.0,-0.4,0.0]","[0.0,-0.0,-0.4,-0.0]","[32768,32768,19660,32768]",560400cd17000000800080cc4c0080,94,Viewed from behind the glider: rudder trailing edge LEFT; this is the nose-left yaw command.
+7,neutral_end,0.0,0.0,0.0,"[0.0,0.0,0.0,0.0]","[0.0,-0.0,0.0,-0.0]","[32768,32768,32768,32768]",560400b51b00000080008000800080,94,All control surfaces should return to neutral.

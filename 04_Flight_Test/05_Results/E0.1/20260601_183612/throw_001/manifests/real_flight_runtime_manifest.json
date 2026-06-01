@@ -1,0 +1,126 @@
+{
+  "config": {
+    "actuator_tau_s": [
+      0.06,
+      0.06,
+      0.06
+    ],
+    "attempt_index": 1,
+    "controller_bundle_path": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/R5_dense/B02/manifests/frozen_w01_controller_bundle.json",
+    "derivative_cutoff_hz": 20.0,
+    "experiment_case_id": "E0.1",
+    "experiment_case_name": "Dry-air shakedown before E1",
+    "experiment_layout_id": "E0_dry_air_shakedown",
+    "experiment_memory_enabled": false,
+    "governor_config_path": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/R10_learn/D01/manifests/frozen_governor_config_for_r11.json",
+    "governor_period_s": 0.1,
+    "launch_gate_required_consecutive_frames": 1,
+    "launch_wait_timeout_s": 8.0,
+    "library_manifest_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/R8_library_size_study/B02/manifests",
+    "library_tier": "heavy_cluster",
+    "max_duration_s": 20.0,
+    "outcome_table_path": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/R8_outcome/B02/metrics/outcome_model_table.csv",
+    "output_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/E0.1/20260601_183612",
+    "post_exit_neutral_tail_s": 0.3,
+    "retry_cooldown_s": 2.0,
+    "run_label": "throw_001",
+    "serial_baud": 1000000,
+    "serial_period_s": 0.02,
+    "serial_port": "COM11",
+    "stale_vicon_timeout_s": 0.12,
+    "throw_index": 1,
+    "vicon_frame_description": "raw_vicon_origin_at_operational_region_centre",
+    "vicon_host": "192.168.0.100:801",
+    "vicon_position_offset_m": [
+      3.9,
+      2.2,
+      1.95
+    ],
+    "vicon_subject_name": "Nausicaa",
+    "vicon_yaw_alignment_deg": 0.0
+  },
+  "control_boundary": "vicon_rigid_body_to_canonical_state_to_frozen_governor_to_quantised_packet",
+  "deployment_library_tier_policy": {
+    "balanced_cluster_role": "fallback_if_additional_primitive_diversity_is_needed",
+    "default_real_flight_library_tier": "heavy_cluster",
+    "selection_reason": "heavy_cluster_selected_for_first_real_flight_from_combined_r11_d01_d02_validation;best_real_flight_candidate_safety_mission_score_and_cleanest_bounded_memory_response;balanced_cluster_is_diversity_fallback"
+  },
+  "exit_gate_bounds": {
+    "policy": "terminate_active_flight_at_first_true_safe_box_exit_then_send_neutral",
+    "x_w_m": [
+      1.2,
+      6.6
+    ],
+    "y_w_m": [
+      0.0,
+      4.4
+    ],
+    "z_w_m": [
+      0.4,
+      3.5
+    ]
+  },
+  "expected_visible_fan_range": [
+    0,
+    0
+  ],
+  "experiment_case": {
+    "attempt_index": 1,
+    "case_id": "E0.1",
+    "case_name": "Dry-air shakedown before E1",
+    "layout_id": "E0_dry_air_shakedown",
+    "memory_enabled": false,
+    "throw_index": 1
+  },
+  "latency_quantification_enabled": false,
+  "launch_gate_bounds": {
+    "pitch_deg": [
+      -10.0,
+      20.0
+    ],
+    "roll_deg": [
+      -20.0,
+      20.0
+    ],
+    "source": "03_Control/04_Scenarios/state_sampling.py::state_is_launch_gate_compliant",
+    "speed_m_s": [
+      3.0,
+      8.0
+    ],
+    "x_w_m": [
+      1.2,
+      1.4
+    ],
+    "y_w_m": [
+      1.8,
+      2.2
+    ],
+    "yaw_deg": [
+      -20.0,
+      20.0
+    ],
+    "z_w_m": [
+      1.5,
+      1.9
+    ]
+  },
+  "launch_gate_required_consecutive_frames": 1,
+  "launch_trigger_policy": "wait_for_r5_launch_gate_before_active_record",
+  "launch_wait_timeout_s": 8.0,
+  "mode": "armed",
+  "post_exit_neutral_tail_s": 0.3,
+  "servo_command_limit_norm": [
+    -1.0,
+    1.0
+  ],
+  "surface_marker_tracking_enabled": false,
+  "vicon_arena_frame_transform": {
+    "description": "raw_vicon_origin_at_operational_region_centre",
+    "position_offset_m": [
+      3.9,
+      2.2,
+      1.95
+    ],
+    "yaw_alignment_deg": 0.0
+  }
+}

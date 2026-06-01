@@ -1,0 +1,11 @@
+# Vicon Frame Calibration Report
+- Known arena point (m): `(1.2, 1.6, 0.2)`
+- Valid samples: `150`
+- Raw Vicon mean (m): `(-2.8989451534210855, -0.7038297983070053, 0.060069202115704705)`
+- Raw Vicon std (m): `(0.0010710903390100072, 0.000742297296505696, 0.0018366799620176495)`
+- Current transformed mean (m): `(1.0010548465789157, 1.4961702016929959, 0.060069202115704705)`
+- Current transform error (m): `(-0.1989451534210842, -0.10382979830700423, -0.1399307978842953)`
+- Raw calibration offset (m): `(4.098945153421085, 2.3038297983070053, 0.1399307978842953)`
+- Recommended runtime position offset (m): `(4.098945153421085, 2.3038297983070053, 0.0)`
+- Raw z error (m): `-0.1399307978842953`
+- Current yaw alignment (deg): `0.0`
