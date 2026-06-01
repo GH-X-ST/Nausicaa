@@ -21,6 +21,7 @@ from run_changed_case_validation import (  # noqa: E402
     DEFAULT_R11_OUTPUT_ROOT,
     DEFAULT_VALIDATION_MAX_EPISODE_TIME_S,
     HeldoutChangedCaseValidationConfig,
+    R11_OUTER_CASES_PER_LADDER,
     run_heldout_changed_case_validation,
 )
 
@@ -45,6 +46,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--max-episode-time-s", type=float, default=DEFAULT_VALIDATION_MAX_EPISODE_TIME_S)
     parser.add_argument("--smoke-outer-cases-per-block", type=int, default=0)
+    parser.add_argument(
+        "--outer-cases-per-ladder",
+        type=int,
+        default=R11_OUTER_CASES_PER_LADDER,
+        help="Held-out R11 paired local cases per ladder. Default 50 reproduces D01; use 70 for a richer D02 repeat.",
+    )
     parser.add_argument("--dry-run-schedule", action="store_true")
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--max-workers", type=int, default=None)
@@ -70,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
             max_primitives_per_launch=args.max_primitives_per_launch,
             max_episode_time_s=args.max_episode_time_s,
             smoke_outer_cases_per_block=args.smoke_outer_cases_per_block,
+            outer_cases_per_ladder=args.outer_cases_per_ladder,
             workers=args.workers,
             max_workers=args.max_workers,
             worker_backend=args.worker_backend,

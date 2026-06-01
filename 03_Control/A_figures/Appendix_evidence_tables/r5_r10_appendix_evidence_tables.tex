@@ -7,6 +7,7 @@
 \noindent\footnotesize
 These tables summarise the dense primitive-synthesis stage used before any repeated-launch memory is introduced.
 The controller designs are fixed transition-aware LQR primitives executed through the real-flight-aligned actuator, command-lattice, and latency model.
+Where a success or failure rate has a direct numerator and denominator, the cell reports count/$n$ (percentage) rather than a percentage alone.
 R5 is therefore evidence about whether the primitive library contains physically executable manoeuvres and whether each primitive family contributes useful candidates for later survival screening.
 
 \begin{longtblr}[
@@ -57,9 +58,9 @@ R5 is therefore evidence about whether the primitive library contains physically
   & 198
   & 165
   & \textcolor{ICLRed}{11}
-  & 67.8
+  & 8675/12800 (67.8)
   & \textcolor{ICLRed}{52.8}
-  & 0.0
+  & 2/12800 (0.0)
   & 0.02
   & 0.03
   & 64.7
@@ -71,9 +72,9 @@ R5 is therefore evidence about whether the primitive library contains physically
   & 198
   & 165
   & \textcolor{ICLRed}{11}
-  & 67.8
+  & 8674/12800 (67.8)
   & 53.3
-  & 0.0
+  & 0/12800 (0.0)
   & 0.02
   & 0.03
   & \textcolor{ICLBlue}{58.1}
@@ -85,9 +86,9 @@ R5 is therefore evidence about whether the primitive library contains physically
   & 197
   & 164
   & \textcolor{ICLRed}{11}
-  & 67.8
+  & 8682/12800 (67.8)
   & 52.9
-  & 0.0
+  & 0/12800 (0.0)
   & 0.02
   & 0.03
   & 63.3
@@ -99,9 +100,9 @@ R5 is therefore evidence about whether the primitive library contains physically
   & 198
   & 154
   & \textcolor{ICLRed}{11}
-  & 67.8
+  & 8673/12800 (67.8)
   & 52.9
-  & 0.0
+  & 1/12800 (0.0)
   & 0.02
   & 0.03
   & \textcolor{ICLRed}{66.6}
@@ -113,9 +114,9 @@ R5 is therefore evidence about whether the primitive library contains physically
   & 198
   & \textcolor{ICLBlue}{187}
   & \textcolor{ICLRed}{11}
-  & \textcolor{ICLRed}{67.6}
+  & \textcolor{ICLRed}{8658/12800 (67.6)}
   & 52.9
-  & 0.0
+  & 1/12800 (0.0)
   & 0.02
   & 0.03
   & 65.8
@@ -127,9 +128,9 @@ R5 is therefore evidence about whether the primitive library contains physically
   & 197
   & 164
   & \textcolor{ICLRed}{11}
-  & \textcolor{ICLBlue}{67.9}
+  & \textcolor{ICLBlue}{8694/12800 (67.9)}
   & \textcolor{ICLBlue}{53.4}
-  & 0.0
+  & 0/12800 (0.0)
   & 0.02
   & 0.03
   & 65.4
@@ -141,9 +142,9 @@ R5 is therefore evidence about whether the primitive library contains physically
   & \textcolor{ICLRed}{196}
   & \textcolor{ICLRed}{143}
   & \textcolor{ICLRed}{11}
-  & 67.8
+  & 8673/12800 (67.8)
   & 53.1
-  & 0.0
+  & 1/12800 (0.0)
   & 0.02
   & 0.03
   & 63.7
@@ -155,9 +156,9 @@ R5 is therefore evidence about whether the primitive library contains physically
   & \textcolor{ICLBlue}{205}
   & 150
   & \textcolor{ICLBlue}{13}
-  & 67.8
+  & 8681/12800 (67.8)
   & 53.1
-  & 0.0
+  & 0/12800 (0.0)
   & 0.02
   & 0.03
   & 63.1
@@ -208,8 +209,8 @@ R5 is therefore evidence about whether the primitive library contains physically
   & \textcolor{ICLBlue}{11}
   & \textcolor{ICLRed}{3.0}
   & \textcolor{ICLBlue}{8.0}
-  & 68.6
-  & 0.0
+  & 14383/20960 (68.6)
+  & 0/20960 (0.0)
   & 0.411 \\
 
   In-flight stable
@@ -219,8 +220,8 @@ R5 is therefore evidence about whether the primitive library contains physically
   & \textcolor{ICLBlue}{11}
   & \textcolor{ICLRed}{3.0}
   & \textcolor{ICLBlue}{8.0}
-  & \textcolor{ICLBlue}{94.9}
-  & 0.0
+  & \textcolor{ICLBlue}{80179/84480 (94.9)}
+  & 0/84480 (0.0)
   & \textcolor{ICLBlue}{0.709} \\
 
   Launch gate
@@ -230,8 +231,8 @@ R5 is therefore evidence about whether the primitive library contains physically
   & \textcolor{ICLBlue}{11}
   & \textcolor{ICLRed}{3.0}
   & \textcolor{ICLBlue}{8.0}
-  & 61.5
-  & 0.0
+  & 51931/84480 (61.5)
+  & 0/84480 (0.0)
   & 0.412 \\
 
   Recoverable Degraded
@@ -241,8 +242,8 @@ R5 is therefore evidence about whether the primitive library contains physically
   & \textcolor{ICLRed}{7}
   & \textcolor{ICLBlue}{2.0}
   & \textcolor{ICLRed}{5.0}
-  & \textcolor{ICLRed}{30.0}
-  & 0.0
+  & \textcolor{ICLRed}{84/280 (30.0)}
+  & 0/280 (0.0)
   & \textcolor{ICLRed}{0.117} \\
 \bottomrule
 \end{longtblr}
@@ -253,6 +254,7 @@ R5 is therefore evidence about whether the primitive library contains physically
 These tables report the fixed-controller survival replay used after dense synthesis.
 The B-series evidence uses the current R7 survival stage; earlier R6 archived folders are historical diagnostics and are not the claim-bearing source for R8.
 No LQR controller is retuned here: R7 only replays the frozen R5 candidates under broader environment and implementation variation, then passes eligible transition objects to compression.
+Count-backed survival rates are reported as count/$n$ (percentage) so the reader can see both the evidence size and the estimated rate.
 
 \begin{longtblr}[
   caption = {R7 fixed-controller survival replay by primitive family. Rows show how many transition objects remain eligible for library compression and whether survival failures remain physically explainable.},
@@ -298,10 +300,10 @@ No LQR controller is retuned here: R7 only replays the frozen R5 candidates unde
   & 198
   & 198
   & 31680
-  & 68.4
-  & \textcolor{ICLRed}{81.7}
-  & \textcolor{ICLBlue}{18.3}
-  & 0.0
+  & 21674/31680 (68.4)
+  & \textcolor{ICLRed}{25872/31680 (81.7)}
+  & \textcolor{ICLBlue}{5808/31680 (18.3)}
+  & 0/31680 (0.0)
   & 0.50
   & \textcolor{ICLBlue}{0.80}
   & -0.02
@@ -311,10 +313,10 @@ No LQR controller is retuned here: R7 only replays the frozen R5 candidates unde
   & 198
   & 198
   & 31680
-  & 68.4
-  & \textcolor{ICLRed}{81.7}
-  & \textcolor{ICLBlue}{18.3}
-  & 0.0
+  & 21661/31680 (68.4)
+  & \textcolor{ICLRed}{25872/31680 (81.7)}
+  & \textcolor{ICLBlue}{5808/31680 (18.3)}
+  & 0/31680 (0.0)
   & 0.50
   & \textcolor{ICLBlue}{0.80}
   & -0.02
@@ -324,10 +326,10 @@ No LQR controller is retuned here: R7 only replays the frozen R5 candidates unde
   & 197
   & 197
   & 31520
-  & 68.4
-  & 81.9
-  & 18.1
-  & 0.0
+  & 21573/31520 (68.4)
+  & 25800/31520 (81.9)
+  & 5720/31520 (18.1)
+  & 0/31520 (0.0)
   & 0.50
   & \textcolor{ICLBlue}{0.80}
   & -0.02
@@ -337,10 +339,10 @@ No LQR controller is retuned here: R7 only replays the frozen R5 candidates unde
   & 198
   & 198
   & 31680
-  & 68.5
-  & \textcolor{ICLRed}{81.7}
-  & \textcolor{ICLBlue}{18.3}
-  & 0.0
+  & 21696/31680 (68.5)
+  & \textcolor{ICLRed}{25872/31680 (81.7)}
+  & \textcolor{ICLBlue}{5808/31680 (18.3)}
+  & 0/31680 (0.0)
   & 0.50
   & \textcolor{ICLBlue}{0.80}
   & -0.02
@@ -350,10 +352,10 @@ No LQR controller is retuned here: R7 only replays the frozen R5 candidates unde
   & 198
   & 198
   & 31680
-  & 68.4
-  & \textcolor{ICLRed}{81.7}
-  & \textcolor{ICLBlue}{18.3}
-  & 0.0
+  & 21666/31680 (68.4)
+  & \textcolor{ICLRed}{25872/31680 (81.7)}
+  & \textcolor{ICLBlue}{5808/31680 (18.3)}
+  & 0/31680 (0.0)
   & 0.50
   & \textcolor{ICLBlue}{0.80}
   & -0.02
@@ -363,10 +365,10 @@ No LQR controller is retuned here: R7 only replays the frozen R5 candidates unde
   & 197
   & 197
   & 31520
-  & \textcolor{ICLBlue}{68.5}
-  & 81.9
-  & 18.1
-  & 0.0
+  & \textcolor{ICLBlue}{21599/31520 (68.5)}
+  & 25800/31520 (81.9)
+  & 5720/31520 (18.1)
+  & 0/31520 (0.0)
   & 0.50
   & \textcolor{ICLBlue}{0.80}
   & -0.02
@@ -376,10 +378,10 @@ No LQR controller is retuned here: R7 only replays the frozen R5 candidates unde
   & 196
   & \textcolor{ICLRed}{196}
   & \textcolor{ICLRed}{31360}
-  & 68.5
-  & 82.0
-  & 18.0
-  & 0.0
+  & 21489/31360 (68.5)
+  & 25728/31360 (82.0)
+  & 5632/31360 (18.0)
+  & 0/31360 (0.0)
   & 0.50
   & \textcolor{ICLBlue}{0.80}
   & -0.02
@@ -389,10 +391,10 @@ No LQR controller is retuned here: R7 only replays the frozen R5 candidates unde
   & 205
   & \textcolor{ICLBlue}{205}
   & \textcolor{ICLBlue}{32800}
-  & \textcolor{ICLRed}{66.5}
-  & \textcolor{ICLBlue}{82.3}
-  & \textcolor{ICLRed}{17.7}
-  & 0.0
+  & \textcolor{ICLRed}{21818/32800 (66.5)}
+  & \textcolor{ICLBlue}{26992/32800 (82.3)}
+  & \textcolor{ICLRed}{5808/32800 (17.7)}
+  & 0/32800 (0.0)
   & 0.50
   & \textcolor{ICLRed}{0.76}
   & -0.02
@@ -469,6 +471,7 @@ No LQR controller is retuned here: R7 only replays the frozen R5 candidates unde
 \noindent\footnotesize
 These tables report how the R7 survival set is compressed into online primitive-library tiers.
 Compression is coverage-aware: the medoid selection keeps primitive-family, transition-entry-class, and local speed-bin evidence instead of selecting only the highest nominal score.
+Count-backed coverage rates are reported as count/$n$ (percentage); model probabilities without a direct per-table denominator remain reported as percentages.
 The outcome model remains simulation-only evidence used by the outer-loop governor; it does not mutate the frozen primitive controllers.
 
 \begin{longtblr}[
@@ -516,7 +519,7 @@ The outcome model remains simulation-only evidence used by the outer-loop govern
   & \textcolor{ICLBlue}{63.5}
   & 8
   & 4
-  & 100.0
+  & 25/25 (100.0)
   & \textcolor{ICLRed}{1.0}
   & 66.8
   & 66.8
@@ -529,7 +532,7 @@ The outcome model remains simulation-only evidence used by the outer-loop govern
   & 21.2
   & 8
   & 4
-  & 100.0
+  & 25/25 (100.0)
   & 3.0
   & \textcolor{ICLRed}{66.2}
   & \textcolor{ICLRed}{66.2}
@@ -542,7 +545,7 @@ The outcome model remains simulation-only evidence used by the outer-loop govern
   & 10.6
   & 8
   & 4
-  & 100.0
+  & 25/25 (100.0)
   & 6.0
   & 66.2
   & 66.2
@@ -555,7 +558,7 @@ The outcome model remains simulation-only evidence used by the outer-loop govern
   & 5.4
   & 8
   & 4
-  & 100.0
+  & 25/25 (100.0)
   & \textcolor{ICLBlue}{10.8}
   & 67.1
   & 67.1
@@ -568,7 +571,7 @@ The outcome model remains simulation-only evidence used by the outer-loop govern
   & \textcolor{ICLRed}{1.0}
   & 8
   & 4
-  & 100.0
+  & 25/25 (100.0)
   & \textcolor{ICLBlue}{10.8}
   & \textcolor{ICLBlue}{68.2}
   & \textcolor{ICLBlue}{68.2}
@@ -819,6 +822,7 @@ The outcome model remains simulation-only evidence used by the outer-loop govern
 \noindent\footnotesize
 These tables report the R10 full-domain governor-learning run.
 R10 uses the frozen R8 library and learns only through the outer-loop governor: case-local repeated-launch flow belief is updated online, then aggregate R10 evidence freezes one bounded governor configuration for R11.
+Where a rate has a clear numerator and denominator, the cell reports count/$n$ (percentage) so that unequal speed-bin sample sizes remain visible.
 No primitive controller is retrained and no fan-layout-specific branch is introduced.
 
 \begin{longtblr}[
@@ -877,13 +881,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Heavy
   & $h=0$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{90.9}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLRed}{10/11 (90.9)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 12.8
   & 0.0
   & 1.21
@@ -896,13 +900,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{90.9}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLRed}{10/11 (90.9)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 12.8
   & 0.0
   & 1.21
@@ -915,13 +919,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{90.9}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLRed}{10/11 (90.9)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 12.8
   & 0.0
   & \textcolor{ICLRed}{1.21}
@@ -934,13 +938,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{90.9}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLRed}{10/11 (90.9)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 12.8
   & 0.0
   & 1.21
@@ -953,13 +957,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Balanced
   & $h=0$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{90.9}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLRed}{10/11 (90.9)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 12.5
   & 0.0
   & 1.24
@@ -972,13 +976,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{90.9}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLRed}{10/11 (90.9)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 12.5
   & 0.0
   & 1.24
@@ -991,13 +995,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{90.9}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLRed}{10/11 (90.9)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 12.6
   & 0.0
   & 1.24
@@ -1010,13 +1014,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{90.9}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLRed}{10/11 (90.9)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 12.6
   & 0.0
   & 1.25
@@ -1029,13 +1033,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Light
   & $h=0$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & 81.8
-  & 9.1
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & 9/11 (81.8)
+  & 1/11 (9.1)
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 8.8
   & 0.0
   & 1.25
@@ -1048,13 +1052,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & 81.8
-  & 9.1
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & 9/11 (81.8)
+  & 1/11 (9.1)
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 8.8
   & 0.0
   & 1.25
@@ -1067,13 +1071,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & 81.8
-  & 9.1
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & 9/11 (81.8)
+  & 1/11 (9.1)
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 8.8
   & 0.0
   & 1.25
@@ -1086,13 +1090,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & 81.8
-  & 9.1
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & 9/11 (81.8)
+  & 1/11 (9.1)
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 8.8
   & 0.0
   & 1.25
@@ -1105,13 +1109,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Super-light
   & $h=0$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & 81.8
-  & 9.1
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & 9/11 (81.8)
+  & 1/11 (9.1)
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 8.8
   & 0.0
   & 1.24
@@ -1124,13 +1128,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & 81.8
-  & 9.1
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & 9/11 (81.8)
+  & 1/11 (9.1)
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 8.8
   & 0.0
   & 1.24
@@ -1143,13 +1147,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & 81.8
-  & 9.1
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & 9/11 (81.8)
+  & 1/11 (9.1)
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 8.8
   & 0.0
   & 1.24
@@ -1162,13 +1166,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & 81.8
-  & 9.1
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & 9/11 (81.8)
+  & 1/11 (9.1)
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 8.8
   & 0.0
   & 1.24
@@ -1181,13 +1185,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} No-cluster
   & $h=0$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & 81.8
-  & 9.1
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & 9/11 (81.8)
+  & 1/11 (9.1)
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 8.8
   & 0.0
   & 1.24
@@ -1200,13 +1204,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & 81.8
-  & 9.1
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & 9/11 (81.8)
+  & 1/11 (9.1)
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 8.8
   & 0.0
   & 1.24
@@ -1219,13 +1223,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & 81.8
-  & 9.1
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & 9/11 (81.8)
+  & 1/11 (9.1)
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 8.9
   & 0.0
   & 1.23
@@ -1238,13 +1242,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 11
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLRed}{9.1}
-  & \textcolor{ICLBlue}{0.0}
-  & 81.8
-  & 9.1
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLRed}{1/11 (9.1)}
+  & \textcolor{ICLBlue}{0/11 (0.0)}
+  & 9/11 (81.8)
+  & 1/11 (9.1)
+  & \textcolor{ICLBlue}{0/11 (0.0)}
   & 8.9
   & 0.0
   & 1.24
@@ -1258,13 +1262,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Heavy
   & $h=0$
   & 6
-  & 33.3
-  & 33.3
-  & 33.3
-  & \textcolor{ICLBlue}{0.0}
-  & 33.3
-  & \textcolor{ICLRed}{33.3}
-  & \textcolor{ICLBlue}{0.0}
+  & 2/6 (33.3)
+  & 2/6 (33.3)
+  & 2/6 (33.3)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 2/6 (33.3)
+  & \textcolor{ICLRed}{2/6 (33.3)}
+  & \textcolor{ICLBlue}{0/6 (0.0)}
   & 30.1
   & 0.0
   & 1.75
@@ -1277,13 +1281,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 6
-  & 33.3
-  & 33.3
-  & 33.3
-  & \textcolor{ICLBlue}{0.0}
-  & 33.3
-  & \textcolor{ICLRed}{33.3}
-  & \textcolor{ICLBlue}{0.0}
+  & 2/6 (33.3)
+  & 2/6 (33.3)
+  & 2/6 (33.3)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 2/6 (33.3)
+  & \textcolor{ICLRed}{2/6 (33.3)}
+  & \textcolor{ICLBlue}{0/6 (0.0)}
   & 30.1
   & 0.0
   & 1.76
@@ -1296,13 +1300,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 6
-  & 33.3
-  & 33.3
-  & 33.3
-  & \textcolor{ICLBlue}{0.0}
-  & 33.3
-  & \textcolor{ICLRed}{33.3}
-  & \textcolor{ICLBlue}{0.0}
+  & 2/6 (33.3)
+  & 2/6 (33.3)
+  & 2/6 (33.3)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 2/6 (33.3)
+  & \textcolor{ICLRed}{2/6 (33.3)}
+  & \textcolor{ICLBlue}{0/6 (0.0)}
   & 30.1
   & 0.0
   & 1.76
@@ -1315,13 +1319,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 6
-  & 33.3
-  & 33.3
-  & 33.3
-  & \textcolor{ICLBlue}{0.0}
-  & 33.3
-  & \textcolor{ICLRed}{33.3}
-  & \textcolor{ICLBlue}{0.0}
+  & 2/6 (33.3)
+  & 2/6 (33.3)
+  & 2/6 (33.3)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 2/6 (33.3)
+  & \textcolor{ICLRed}{2/6 (33.3)}
+  & \textcolor{ICLBlue}{0/6 (0.0)}
   & 30.1
   & 0.0
   & 1.76
@@ -1334,13 +1338,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Balanced
   & $h=0$
   & 6
-  & 16.7
-  & 33.3
-  & 16.7
-  & \textcolor{ICLRed}{33.3}
-  & 33.3
-  & 16.7
-  & 16.7
+  & 1/6 (16.7)
+  & 2/6 (33.3)
+  & 1/6 (16.7)
+  & \textcolor{ICLRed}{2/6 (33.3)}
+  & 2/6 (33.3)
+  & 1/6 (16.7)
+  & 1/6 (16.7)
   & \textcolor{ICLRed}{-11.7}
   & \textcolor{ICLRed}{-20.0}
   & 1.80
@@ -1353,13 +1357,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 6
-  & 16.7
-  & 33.3
-  & 16.7
-  & \textcolor{ICLRed}{33.3}
-  & 33.3
-  & 16.7
-  & 16.7
+  & 1/6 (16.7)
+  & 2/6 (33.3)
+  & 1/6 (16.7)
+  & \textcolor{ICLRed}{2/6 (33.3)}
+  & 2/6 (33.3)
+  & 1/6 (16.7)
+  & 1/6 (16.7)
   & \textcolor{ICLRed}{-11.7}
   & \textcolor{ICLRed}{-20.0}
   & 1.80
@@ -1372,13 +1376,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 6
-  & 16.7
-  & 33.3
-  & 16.7
-  & \textcolor{ICLRed}{33.3}
-  & 33.3
-  & 16.7
-  & 16.7
+  & 1/6 (16.7)
+  & 2/6 (33.3)
+  & 1/6 (16.7)
+  & \textcolor{ICLRed}{2/6 (33.3)}
+  & 2/6 (33.3)
+  & 1/6 (16.7)
+  & 1/6 (16.7)
   & \textcolor{ICLRed}{-11.7}
   & \textcolor{ICLRed}{-20.0}
   & 1.80
@@ -1391,13 +1395,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 6
-  & 16.7
-  & 33.3
-  & 16.7
-  & \textcolor{ICLRed}{33.3}
-  & 33.3
-  & 16.7
-  & 16.7
+  & 1/6 (16.7)
+  & 2/6 (33.3)
+  & 1/6 (16.7)
+  & \textcolor{ICLRed}{2/6 (33.3)}
+  & 2/6 (33.3)
+  & 1/6 (16.7)
+  & 1/6 (16.7)
   & \textcolor{ICLRed}{-11.7}
   & \textcolor{ICLRed}{-20.0}
   & 1.80
@@ -1410,13 +1414,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Light
   & $h=0$
   & 6
-  & 33.3
-  & 50.0
-  & 33.3
-  & \textcolor{ICLRed}{33.3}
-  & 33.3
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 2/6 (33.3)
+  & 3/6 (50.0)
+  & 2/6 (33.3)
+  & \textcolor{ICLRed}{2/6 (33.3)}
+  & 2/6 (33.3)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 1/6 (16.7)
   & 13.0
   & 0.0
   & 1.87
@@ -1429,13 +1433,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 6
-  & 33.3
-  & 50.0
-  & 33.3
-  & \textcolor{ICLRed}{33.3}
-  & 33.3
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 2/6 (33.3)
+  & 3/6 (50.0)
+  & 2/6 (33.3)
+  & \textcolor{ICLRed}{2/6 (33.3)}
+  & 2/6 (33.3)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 1/6 (16.7)
   & 13.0
   & 0.0
   & 1.87
@@ -1448,13 +1452,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 6
-  & 33.3
-  & 50.0
-  & 33.3
-  & \textcolor{ICLRed}{33.3}
-  & 33.3
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 2/6 (33.3)
+  & 3/6 (50.0)
+  & 2/6 (33.3)
+  & \textcolor{ICLRed}{2/6 (33.3)}
+  & 2/6 (33.3)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 1/6 (16.7)
   & 13.0
   & 0.0
   & 1.87
@@ -1467,13 +1471,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 6
-  & 33.3
-  & 50.0
-  & 33.3
-  & \textcolor{ICLRed}{33.3}
-  & 33.3
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 2/6 (33.3)
+  & 3/6 (50.0)
+  & 2/6 (33.3)
+  & \textcolor{ICLRed}{2/6 (33.3)}
+  & 2/6 (33.3)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 1/6 (16.7)
   & 13.0
   & 0.0
   & 1.87
@@ -1486,13 +1490,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Super-light
   & $h=0$
   & 6
-  & 66.7
-  & 66.7
-  & 66.7
-  & \textcolor{ICLBlue}{0.0}
-  & 33.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & 4/6 (66.7)
+  & 4/6 (66.7)
+  & 4/6 (66.7)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 2/6 (33.3)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & \textcolor{ICLBlue}{0/6 (0.0)}
   & 83.2
   & 113.9
   & 1.91
@@ -1505,13 +1509,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 6
-  & 66.7
-  & 66.7
-  & 66.7
-  & \textcolor{ICLBlue}{0.0}
-  & 33.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & 4/6 (66.7)
+  & 4/6 (66.7)
+  & 4/6 (66.7)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 2/6 (33.3)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & \textcolor{ICLBlue}{0/6 (0.0)}
   & 83.2
   & 113.9
   & 1.91
@@ -1524,13 +1528,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 6
-  & 66.7
-  & 66.7
-  & 66.7
-  & \textcolor{ICLBlue}{0.0}
-  & 33.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & 4/6 (66.7)
+  & 4/6 (66.7)
+  & 4/6 (66.7)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 2/6 (33.3)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & \textcolor{ICLBlue}{0/6 (0.0)}
   & 83.2
   & 113.9
   & 1.91
@@ -1543,13 +1547,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 6
-  & 50.0
-  & 50.0
-  & 50.0
-  & \textcolor{ICLBlue}{0.0}
-  & 33.3
-  & 16.7
-  & \textcolor{ICLBlue}{0.0}
+  & 3/6 (50.0)
+  & 3/6 (50.0)
+  & 3/6 (50.0)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 2/6 (33.3)
+  & 1/6 (16.7)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
   & 58.6
   & 60.0
   & 1.90
@@ -1562,13 +1566,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} No-cluster
   & $h=0$
   & 6
-  & 50.0
-  & 50.0
-  & 50.0
-  & \textcolor{ICLBlue}{0.0}
-  & 33.3
-  & 16.7
-  & \textcolor{ICLBlue}{0.0}
+  & 3/6 (50.0)
+  & 3/6 (50.0)
+  & 3/6 (50.0)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 2/6 (33.3)
+  & 1/6 (16.7)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
   & 58.3
   & 60.0
   & 1.94
@@ -1581,13 +1585,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 6
-  & 66.7
-  & 66.7
-  & 66.7
-  & \textcolor{ICLBlue}{0.0}
-  & 33.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & 4/6 (66.7)
+  & 4/6 (66.7)
+  & 4/6 (66.7)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 2/6 (33.3)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & \textcolor{ICLBlue}{0/6 (0.0)}
   & 83.2
   & 113.9
   & 1.98
@@ -1600,13 +1604,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 6
-  & 66.7
-  & 66.7
-  & 66.7
-  & \textcolor{ICLBlue}{0.0}
-  & 33.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & 4/6 (66.7)
+  & 4/6 (66.7)
+  & 4/6 (66.7)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 2/6 (33.3)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & \textcolor{ICLBlue}{0/6 (0.0)}
   & 83.2
   & 113.9
   & 1.98
@@ -1619,13 +1623,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 6
-  & 66.7
-  & 66.7
-  & 66.7
-  & \textcolor{ICLBlue}{0.0}
-  & 33.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & 4/6 (66.7)
+  & 4/6 (66.7)
+  & 4/6 (66.7)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & 2/6 (33.3)
+  & \textcolor{ICLBlue}{0/6 (0.0)}
+  & \textcolor{ICLBlue}{0/6 (0.0)}
   & 83.0
   & 114.0
   & 1.95
@@ -1639,13 +1643,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Heavy
   & $h=0$
   & 7
-  & 85.7
-  & 85.7
-  & 85.7
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 14.3
+  & 6/7 (85.7)
+  & 6/7 (85.7)
+  & 6/7 (85.7)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & 1/7 (14.3)
   & 91.2
   & 120.0
   & 2.34
@@ -1658,13 +1662,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 7
-  & 85.7
-  & 85.7
-  & 85.7
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 14.3
+  & 6/7 (85.7)
+  & 6/7 (85.7)
+  & 6/7 (85.7)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & 1/7 (14.3)
   & 91.2
   & 120.0
   & 2.34
@@ -1677,13 +1681,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 7
-  & 85.7
-  & 85.7
-  & 85.7
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 14.3
+  & 6/7 (85.7)
+  & 6/7 (85.7)
+  & 6/7 (85.7)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & 1/7 (14.3)
   & 91.3
   & 120.0
   & 2.34
@@ -1696,13 +1700,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 7
-  & 85.7
-  & 85.7
-  & 85.7
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 14.3
+  & 6/7 (85.7)
+  & 6/7 (85.7)
+  & 6/7 (85.7)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & 1/7 (14.3)
   & 91.2
   & 120.0
   & 2.32
@@ -1715,13 +1719,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Balanced
   & $h=0$
   & 7
-  & 71.4
-  & 71.4
-  & 71.4
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{28.6}
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLRed}{2/7 (28.6)}
   & 57.6
   & 120.0
   & 2.35
@@ -1734,13 +1738,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 7
-  & 71.4
-  & 71.4
-  & 71.4
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{28.6}
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLRed}{2/7 (28.6)}
   & 57.6
   & 120.0
   & 2.35
@@ -1753,13 +1757,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 7
-  & 71.4
-  & 71.4
-  & 71.4
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{28.6}
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLRed}{2/7 (28.6)}
   & 57.5
   & 120.0
   & 2.35
@@ -1772,13 +1776,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 7
-  & 71.4
-  & 71.4
-  & 71.4
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{28.6}
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLRed}{2/7 (28.6)}
   & 57.5
   & 120.0
   & 2.34
@@ -1791,13 +1795,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Light
   & $h=0$
   & 7
-  & 71.4
-  & 71.4
-  & 71.4
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{28.6}
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLRed}{2/7 (28.6)}
   & 57.5
   & 120.0
   & 2.35
@@ -1810,13 +1814,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 7
-  & 71.4
-  & 71.4
-  & 71.4
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{28.6}
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLRed}{2/7 (28.6)}
   & 57.5
   & 120.0
   & 2.35
@@ -1829,13 +1833,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 7
-  & 71.4
-  & 71.4
-  & 71.4
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{28.6}
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLRed}{2/7 (28.6)}
   & 57.5
   & 120.0
   & 2.35
@@ -1848,13 +1852,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 7
-  & 71.4
-  & 71.4
-  & 71.4
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{28.6}
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLRed}{2/7 (28.6)}
   & 57.5
   & 120.0
   & 2.35
@@ -1867,13 +1871,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Super-light
   & $h=0$
   & 7
-  & 71.4
-  & 71.4
-  & 71.4
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{28.6}
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLRed}{2/7 (28.6)}
   & 57.6
   & 120.0
   & 2.35
@@ -1886,13 +1890,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 7
-  & 71.4
-  & 71.4
-  & 71.4
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{28.6}
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLRed}{2/7 (28.6)}
   & 57.7
   & 120.0
   & 2.35
@@ -1905,13 +1909,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 7
-  & 71.4
-  & 71.4
-  & 71.4
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{28.6}
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLRed}{2/7 (28.6)}
   & 57.4
   & 120.0
   & 2.34
@@ -1924,13 +1928,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 7
-  & 71.4
-  & 71.4
-  & 71.4
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{28.6}
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLRed}{2/7 (28.6)}
   & 57.5
   & 120.0
   & 2.34
@@ -1943,13 +1947,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} No-cluster
   & $h=0$
   & 7
-  & 85.7
-  & 85.7
-  & 85.7
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 14.3
+  & 6/7 (85.7)
+  & 6/7 (85.7)
+  & 6/7 (85.7)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & 1/7 (14.3)
   & 91.1
   & 120.0
   & 2.37
@@ -1962,13 +1966,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 7
-  & 71.4
-  & 71.4
-  & 71.4
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{28.6}
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLRed}{2/7 (28.6)}
   & 57.4
   & 120.0
   & 2.35
@@ -1981,13 +1985,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 7
-  & 71.4
-  & 71.4
-  & 71.4
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLRed}{28.6}
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 5/7 (71.4)
+  & 1/7 (14.3)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLRed}{2/7 (28.6)}
   & 57.4
   & 120.0
   & 2.35
@@ -2000,13 +2004,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 7
-  & 85.7
-  & 85.7
-  & 85.7
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 14.3
+  & 6/7 (85.7)
+  & 6/7 (85.7)
+  & 6/7 (85.7)
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & \textcolor{ICLBlue}{0/7 (0.0)}
+  & 1/7 (14.3)
   & 91.5
   & 120.0
   & 2.37
@@ -2020,13 +2024,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Heavy
   & $h=0$
   & 14
-  & \textcolor{ICLBlue}{100.0}
-  & \textcolor{ICLBlue}{100.0}
-  & \textcolor{ICLBlue}{100.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLBlue}{14/14 (100.0)}
+  & \textcolor{ICLBlue}{14/14 (100.0)}
+  & \textcolor{ICLBlue}{14/14 (100.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
   & \textcolor{ICLBlue}{124.3}
   & 120.4
   & 3.31
@@ -2039,13 +2043,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 14
-  & \textcolor{ICLBlue}{100.0}
-  & \textcolor{ICLBlue}{100.0}
-  & \textcolor{ICLBlue}{100.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLBlue}{14/14 (100.0)}
+  & \textcolor{ICLBlue}{14/14 (100.0)}
+  & \textcolor{ICLBlue}{14/14 (100.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
   & 124.3
   & 120.4
   & 3.31
@@ -2058,13 +2062,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 14
-  & \textcolor{ICLBlue}{100.0}
-  & \textcolor{ICLBlue}{100.0}
-  & \textcolor{ICLBlue}{100.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLBlue}{14/14 (100.0)}
+  & \textcolor{ICLBlue}{14/14 (100.0)}
+  & \textcolor{ICLBlue}{14/14 (100.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
   & 124.3
   & 120.4
   & 3.31
@@ -2077,13 +2081,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 14
-  & \textcolor{ICLBlue}{100.0}
-  & \textcolor{ICLBlue}{100.0}
-  & \textcolor{ICLBlue}{100.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
+  & \textcolor{ICLBlue}{14/14 (100.0)}
+  & \textcolor{ICLBlue}{14/14 (100.0)}
+  & \textcolor{ICLBlue}{14/14 (100.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
   & 124.3
   & 120.4
   & 3.31
@@ -2096,13 +2100,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Balanced
   & $h=0$
   & 14
-  & 92.9
-  & 92.9
-  & 92.9
-  & 7.1
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 7.1
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 1/14 (7.1)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 1/14 (7.1)
   & 107.7
   & 120.1
   & 3.40
@@ -2115,13 +2119,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 14
-  & 92.9
-  & 92.9
-  & 92.9
-  & 7.1
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 7.1
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 1/14 (7.1)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 1/14 (7.1)
   & 107.7
   & 120.1
   & 3.40
@@ -2134,13 +2138,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 14
-  & 92.9
-  & 92.9
-  & 92.9
-  & 7.1
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 7.1
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 1/14 (7.1)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 1/14 (7.1)
   & 107.7
   & 120.1
   & 3.40
@@ -2153,13 +2157,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 14
-  & 92.9
-  & 92.9
-  & 92.9
-  & 7.1
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 7.1
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 1/14 (7.1)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 1/14 (7.1)
   & 107.7
   & 120.1
   & 3.40
@@ -2172,13 +2176,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Light
   & $h=0$
   & 14
-  & 92.9
-  & 92.9
-  & 92.9
-  & 7.1
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 7.1
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 1/14 (7.1)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 1/14 (7.1)
   & 107.7
   & 120.1
   & 3.40
@@ -2191,13 +2195,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 14
-  & 92.9
-  & 92.9
-  & 92.9
-  & 7.1
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 7.1
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 1/14 (7.1)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 1/14 (7.1)
   & 107.7
   & 120.1
   & 3.40
@@ -2210,13 +2214,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 14
-  & 92.9
-  & 92.9
-  & 92.9
-  & 7.1
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 7.1
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 1/14 (7.1)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 1/14 (7.1)
   & 107.7
   & 120.1
   & 3.40
@@ -2229,13 +2233,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 14
-  & 92.9
-  & 92.9
-  & 92.9
-  & 7.1
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 7.1
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 1/14 (7.1)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 1/14 (7.1)
   & 107.7
   & 120.1
   & 3.40
@@ -2248,13 +2252,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Super-light
   & $h=0$
   & 14
-  & 85.7
-  & 85.7
-  & 85.7
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 14.3
+  & 12/14 (85.7)
+  & 12/14 (85.7)
+  & 12/14 (85.7)
+  & 2/14 (14.3)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 2/14 (14.3)
   & 91.1
   & 120.0
   & 3.38
@@ -2267,13 +2271,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 14
-  & 85.7
-  & 85.7
-  & 85.7
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 14.3
+  & 12/14 (85.7)
+  & 12/14 (85.7)
+  & 12/14 (85.7)
+  & 2/14 (14.3)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 2/14 (14.3)
   & 91.2
   & 120.0
   & 3.39
@@ -2286,13 +2290,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 14
-  & 85.7
-  & 85.7
-  & 85.7
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 14.3
+  & 12/14 (85.7)
+  & 12/14 (85.7)
+  & 12/14 (85.7)
+  & 2/14 (14.3)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 2/14 (14.3)
   & 91.2
   & 120.0
   & 3.39
@@ -2305,13 +2309,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 14
-  & 85.7
-  & 85.7
-  & 85.7
-  & 14.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 14.3
+  & 12/14 (85.7)
+  & 12/14 (85.7)
+  & 12/14 (85.7)
+  & 2/14 (14.3)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 2/14 (14.3)
   & 91.2
   & 120.0
   & 3.39
@@ -2324,13 +2328,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} No-cluster
   & $h=0$
   & 14
-  & 92.9
-  & 92.9
-  & 92.9
-  & 7.1
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 7.1
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 1/14 (7.1)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 1/14 (7.1)
   & 107.7
   & 120.1
   & 3.40
@@ -2343,13 +2347,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 14
-  & 92.9
-  & 92.9
-  & 92.9
-  & 7.1
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 7.1
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 1/14 (7.1)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 1/14 (7.1)
   & 107.7
   & 120.1
   & 3.40
@@ -2362,13 +2366,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 14
-  & 92.9
-  & 92.9
-  & 92.9
-  & 7.1
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 7.1
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 1/14 (7.1)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 1/14 (7.1)
   & 107.7
   & 120.1
   & 3.39
@@ -2381,13 +2385,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 14
-  & 92.9
-  & 92.9
-  & 92.9
-  & 7.1
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 7.1
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 13/14 (92.9)
+  & 1/14 (7.1)
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & \textcolor{ICLBlue}{0/14 (0.0)}
+  & 1/14 (7.1)
   & 107.7
   & 120.1
   & 3.41
@@ -2401,13 +2405,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Heavy
   & $h=0$
   & 12
-  & 91.7
-  & 91.7
-  & 91.7
-  & 8.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 8.3
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 1/12 (8.3)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 1/12 (8.3)
   & 106.2
   & \textcolor{ICLBlue}{123.8}
   & 4.02
@@ -2420,13 +2424,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 12
-  & 91.7
-  & 91.7
-  & 91.7
-  & 8.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 8.3
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 1/12 (8.3)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 1/12 (8.3)
   & 106.2
   & \textcolor{ICLBlue}{123.8}
   & 4.02
@@ -2439,13 +2443,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 12
-  & 91.7
-  & 91.7
-  & 91.7
-  & 8.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 8.3
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 1/12 (8.3)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 1/12 (8.3)
   & 106.2
   & \textcolor{ICLBlue}{123.8}
   & 4.02
@@ -2458,13 +2462,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 12
-  & 91.7
-  & 91.7
-  & 91.7
-  & 8.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 8.3
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 1/12 (8.3)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 1/12 (8.3)
   & 106.2
   & \textcolor{ICLBlue}{123.8}
   & 4.02
@@ -2477,13 +2481,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Balanced
   & $h=0$
   & 12
-  & 83.3
-  & 83.3
-  & 83.3
-  & 16.7
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 2/12 (16.7)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 2/12 (16.7)
   & 87.4
   & 123.0
   & 4.06
@@ -2496,13 +2500,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 12
-  & 83.3
-  & 83.3
-  & 83.3
-  & 16.7
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 2/12 (16.7)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 2/12 (16.7)
   & 87.4
   & 123.0
   & 4.06
@@ -2515,13 +2519,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 12
-  & 83.3
-  & 83.3
-  & 83.3
-  & 16.7
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 2/12 (16.7)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 2/12 (16.7)
   & 87.4
   & 123.0
   & 4.06
@@ -2534,13 +2538,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 12
-  & 83.3
-  & 83.3
-  & 83.3
-  & 16.7
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 2/12 (16.7)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 2/12 (16.7)
   & 87.4
   & 123.0
   & \textcolor{ICLBlue}{4.06}
@@ -2553,13 +2557,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Light
   & $h=0$
   & 12
-  & 83.3
-  & 83.3
-  & 83.3
-  & 16.7
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 2/12 (16.7)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 2/12 (16.7)
   & 87.1
   & 123.0
   & 4.04
@@ -2572,13 +2576,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 12
-  & 83.3
-  & 83.3
-  & 83.3
-  & 16.7
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 2/12 (16.7)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 2/12 (16.7)
   & 87.1
   & 123.0
   & 4.04
@@ -2591,13 +2595,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 12
-  & 83.3
-  & 83.3
-  & 83.3
-  & 16.7
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 2/12 (16.7)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 2/12 (16.7)
   & 87.1
   & 123.0
   & 4.04
@@ -2610,13 +2614,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 12
-  & 83.3
-  & 83.3
-  & 83.3
-  & 16.7
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 2/12 (16.7)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 2/12 (16.7)
   & 87.1
   & 123.0
   & 4.04
@@ -2629,13 +2633,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} Super-light
   & $h=0$
   & 12
-  & 83.3
-  & 83.3
-  & 83.3
-  & 16.7
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 2/12 (16.7)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 2/12 (16.7)
   & 87.2
   & 123.0
   & 4.06
@@ -2648,13 +2652,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 12
-  & 83.3
-  & 83.3
-  & 83.3
-  & 16.7
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 2/12 (16.7)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 2/12 (16.7)
   & 87.2
   & 123.0
   & 4.06
@@ -2667,13 +2671,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 12
-  & 83.3
-  & 83.3
-  & 83.3
-  & 16.7
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 2/12 (16.7)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 2/12 (16.7)
   & 87.2
   & 123.0
   & 4.06
@@ -2686,13 +2690,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 12
-  & 83.3
-  & 83.3
-  & 83.3
-  & 16.7
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 16.7
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 10/12 (83.3)
+  & 2/12 (16.7)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 2/12 (16.7)
   & 87.2
   & 123.0
   & 4.06
@@ -2705,13 +2709,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & \SetCell[r=4]{l,m} No-cluster
   & $h=0$
   & 12
-  & 91.7
-  & 91.7
-  & 91.7
-  & 8.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 8.3
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 1/12 (8.3)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 1/12 (8.3)
   & 106.5
   & 123.7
   & 4.04
@@ -2724,13 +2728,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=3$
   & 12
-  & 91.7
-  & 91.7
-  & 91.7
-  & 8.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 8.3
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 1/12 (8.3)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 1/12 (8.3)
   & 106.5
   & 123.8
   & 4.04
@@ -2743,13 +2747,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=10$
   & 12
-  & 91.7
-  & 91.7
-  & 91.7
-  & 8.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 8.3
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 1/12 (8.3)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 1/12 (8.3)
   & 106.5
   & 123.7
   & 4.04
@@ -2762,13 +2766,13 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   & 
   & $h=30$
   & 12
-  & 91.7
-  & 91.7
-  & 91.7
-  & 8.3
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 8.3
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 11/12 (91.7)
+  & 1/12 (8.3)
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & \textcolor{ICLBlue}{0/12 (0.0)}
+  & 1/12 (8.3)
   & 106.5
   & 123.8
   & 4.04
@@ -2824,280 +2828,280 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
   Heavy
   & $h=0$
   & 50
-  & 68.0
-  & 68.0
+  & 34/50 (68.0)
+  & 34/50 (68.0)
   & 79.5
   & --
   & --
   & --
   & --
-  & \textcolor{ICLRed}{0.0}
+  & \textcolor{ICLRed}{0/50 (0.0)}
   & \textcolor{ICLRed}{0}
   & \textcolor{ICLRed}{1.000} \\
 
   Heavy
   & $h=3$
   & 50
-  & 68.0
-  & 68.0
+  & 34/50 (68.0)
+  & 34/50 (68.0)
   & 79.5
   & 0.0
-  & 2.0
-  & \textcolor{ICLBlue}{4.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 6.0
+  & 1/50 (2.0)
+  & \textcolor{ICLBlue}{2/50 (4.0)}
+  & \textcolor{ICLBlue}{0/50 (0.0)}
+  & 3/50 (6.0)
   & 303
   & 0.061 \\
 
   Heavy
   & $h=10$
   & 50
-  & 68.0
-  & 68.0
+  & 34/50 (68.0)
+  & 34/50 (68.0)
   & 79.5
   & 0.0
-  & 4.0
-  & \textcolor{ICLBlue}{4.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 12.0
+  & 2/50 (4.0)
+  & \textcolor{ICLBlue}{2/50 (4.0)}
+  & \textcolor{ICLBlue}{0/50 (0.0)}
+  & 6/50 (12.0)
   & 806
   & 0.037 \\
 
   Heavy
   & $h=30$
   & 50
-  & 68.0
-  & 68.0
+  & 34/50 (68.0)
+  & 34/50 (68.0)
   & 79.5
   & 0.0
-  & 4.0
-  & \textcolor{ICLBlue}{4.0}
-  & \textcolor{ICLBlue}{0.0}
-  & 18.0
+  & 2/50 (4.0)
+  & \textcolor{ICLBlue}{2/50 (4.0)}
+  & \textcolor{ICLBlue}{0/50 (0.0)}
+  & 9/50 (18.0)
   & \textcolor{ICLBlue}{2262}
   & 0.022 \\
 
   Balanced
   & $h=0$
   & 50
-  & \textcolor{ICLRed}{60.0}
-  & \textcolor{ICLRed}{62.0}
+  & \textcolor{ICLRed}{30/50 (60.0)}
+  & \textcolor{ICLRed}{31/50 (62.0)}
   & 60.5
   & --
   & --
   & --
   & --
-  & \textcolor{ICLRed}{0.0}
+  & \textcolor{ICLRed}{0/50 (0.0)}
   & \textcolor{ICLRed}{0}
   & \textcolor{ICLRed}{1.000} \\
 
   Balanced
   & $h=3$
   & 50
-  & \textcolor{ICLRed}{60.0}
-  & \textcolor{ICLRed}{62.0}
+  & \textcolor{ICLRed}{30/50 (60.0)}
+  & \textcolor{ICLRed}{31/50 (62.0)}
   & \textcolor{ICLRed}{60.5}
   & -0.0
-  & \textcolor{ICLRed}{0.0}
-  & 6.0
-  & \textcolor{ICLBlue}{0.0}
-  & 10.0
+  & \textcolor{ICLRed}{0/50 (0.0)}
+  & 3/50 (6.0)
+  & \textcolor{ICLBlue}{0/50 (0.0)}
+  & 5/50 (10.0)
   & 303
   & 0.061 \\
 
   Balanced
   & $h=10$
   & 50
-  & \textcolor{ICLRed}{60.0}
-  & \textcolor{ICLRed}{62.0}
+  & \textcolor{ICLRed}{30/50 (60.0)}
+  & \textcolor{ICLRed}{31/50 (62.0)}
   & 60.6
   & 0.0
-  & 4.0
-  & 6.0
-  & \textcolor{ICLBlue}{0.0}
-  & 16.0
+  & 2/50 (4.0)
+  & 3/50 (6.0)
+  & \textcolor{ICLBlue}{0/50 (0.0)}
+  & 8/50 (16.0)
   & 813
   & 0.037 \\
 
   Balanced
   & $h=30$
   & 50
-  & \textcolor{ICLRed}{60.0}
-  & \textcolor{ICLRed}{62.0}
+  & \textcolor{ICLRed}{30/50 (60.0)}
+  & \textcolor{ICLRed}{31/50 (62.0)}
   & 60.6
   & 0.0
-  & 4.0
-  & 10.0
-  & \textcolor{ICLBlue}{0.0}
-  & 24.0
+  & 2/50 (4.0)
+  & 5/50 (10.0)
+  & \textcolor{ICLBlue}{0/50 (0.0)}
+  & 12/50 (24.0)
   & 2246
   & 0.022 \\
 
   Light
   & $h=0$
   & 50
-  & 62.0
-  & 64.0
+  & 31/50 (62.0)
+  & 32/50 (64.0)
   & 62.6
   & --
   & --
   & --
   & --
-  & \textcolor{ICLRed}{0.0}
+  & \textcolor{ICLRed}{0/50 (0.0)}
   & \textcolor{ICLRed}{0}
   & \textcolor{ICLRed}{1.000} \\
 
   Light
   & $h=3$
   & 50
-  & 62.0
-  & 64.0
+  & 31/50 (62.0)
+  & 32/50 (64.0)
   & 62.6
   & 0.0
-  & 8.0
-  & 10.0
-  & \textcolor{ICLBlue}{0.0}
-  & 32.0
+  & 4/50 (8.0)
+  & 5/50 (10.0)
+  & \textcolor{ICLBlue}{0/50 (0.0)}
+  & 16/50 (32.0)
   & 300
   & 0.061 \\
 
   Light
   & $h=10$
   & 50
-  & 62.0
-  & 64.0
+  & 31/50 (62.0)
+  & 32/50 (64.0)
   & 62.6
   & 0.0
-  & 6.0
-  & 12.0
-  & \textcolor{ICLBlue}{0.0}
-  & 36.0
+  & 3/50 (6.0)
+  & 6/50 (12.0)
+  & \textcolor{ICLBlue}{0/50 (0.0)}
+  & 18/50 (36.0)
   & 827
   & 0.037 \\
 
   Light
   & $h=30$
   & 50
-  & 62.0
-  & 64.0
+  & 31/50 (62.0)
+  & 32/50 (64.0)
   & 62.6
   & 0.0
-  & 8.0
-  & 8.0
-  & \textcolor{ICLBlue}{0.0}
-  & 32.0
+  & 4/50 (8.0)
+  & 4/50 (8.0)
+  & \textcolor{ICLBlue}{0/50 (0.0)}
+  & 16/50 (32.0)
   & 2254
   & \textcolor{ICLBlue}{0.022} \\
 
   Super-light
   & $h=0$
   & 50
-  & 64.0
-  & 64.0
+  & 32/50 (64.0)
+  & 32/50 (64.0)
   & 66.4
   & --
   & --
   & --
   & --
-  & \textcolor{ICLRed}{0.0}
+  & \textcolor{ICLRed}{0/50 (0.0)}
   & \textcolor{ICLRed}{0}
   & \textcolor{ICLRed}{1.000} \\
 
   Super-light
   & $h=3$
   & 50
-  & 64.0
-  & 64.0
+  & 32/50 (64.0)
+  & 32/50 (64.0)
   & 66.4
   & 0.0
-  & 12.0
-  & 10.0
-  & \textcolor{ICLBlue}{0.0}
-  & 40.0
+  & 6/50 (12.0)
+  & 5/50 (10.0)
+  & \textcolor{ICLBlue}{0/50 (0.0)}
+  & 20/50 (40.0)
   & 299
   & 0.061 \\
 
   Super-light
   & $h=10$
   & 50
-  & 64.0
-  & 64.0
+  & 32/50 (64.0)
+  & 32/50 (64.0)
   & 66.4
   & -0.0
-  & 12.0
-  & 12.0
-  & \textcolor{ICLBlue}{0.0}
-  & 44.0
+  & 6/50 (12.0)
+  & 6/50 (12.0)
+  & \textcolor{ICLBlue}{0/50 (0.0)}
+  & 22/50 (44.0)
   & 809
   & 0.037 \\
 
   Super-light
   & $h=30$
   & 50
-  & 62.0
-  & \textcolor{ICLRed}{62.0}
+  & 31/50 (62.0)
+  & \textcolor{ICLRed}{31/50 (62.0)}
   & 63.5
   & \textcolor{ICLRed}{-2.9}
-  & 16.0
-  & 12.0
-  & \textcolor{ICLRed}{2.0}
-  & 52.0
+  & 8/50 (16.0)
+  & 6/50 (12.0)
+  & \textcolor{ICLRed}{1/50 (2.0)}
+  & 26/50 (52.0)
   & 2244
   & 0.022 \\
 
   No-cluster
   & $h=0$
   & 50
-  & 68.0
-  & 68.0
+  & 34/50 (68.0)
+  & 34/50 (68.0)
   & 77.4
   & --
   & --
   & --
   & --
-  & \textcolor{ICLRed}{0.0}
+  & \textcolor{ICLRed}{0/50 (0.0)}
   & \textcolor{ICLRed}{0}
   & \textcolor{ICLRed}{1.000} \\
 
   No-cluster
   & $h=3$
   & 50
-  & 68.0
-  & 68.0
+  & 34/50 (68.0)
+  & 34/50 (68.0)
   & 75.7
   & -1.7
-  & 14.0
-  & 12.0
-  & \textcolor{ICLRed}{2.0}
-  & 46.0
+  & 7/50 (14.0)
+  & 6/50 (12.0)
+  & \textcolor{ICLRed}{1/50 (2.0)}
+  & 23/50 (46.0)
   & 299
   & 0.061 \\
 
   No-cluster
   & $h=10$
   & 50
-  & 68.0
-  & 68.0
+  & 34/50 (68.0)
+  & 34/50 (68.0)
   & 75.7
   & -1.7
-  & \textcolor{ICLBlue}{18.0}
-  & 8.0
-  & \textcolor{ICLRed}{2.0}
-  & 46.0
+  & \textcolor{ICLBlue}{9/50 (18.0)}
+  & 4/50 (8.0)
+  & \textcolor{ICLRed}{1/50 (2.0)}
+  & 23/50 (46.0)
   & 813
   & 0.037 \\
 
   No-cluster
   & $h=30$
   & 50
-  & \textcolor{ICLBlue}{70.0}
-  & \textcolor{ICLBlue}{70.0}
+  & \textcolor{ICLBlue}{35/50 (70.0)}
+  & \textcolor{ICLBlue}{35/50 (70.0)}
   & \textcolor{ICLBlue}{80.4}
   & \textcolor{ICLBlue}{3.0}
-  & \textcolor{ICLBlue}{18.0}
-  & \textcolor{ICLRed}{14.0}
-  & \textcolor{ICLBlue}{0.0}
-  & \textcolor{ICLBlue}{64.0}
+  & \textcolor{ICLBlue}{9/50 (18.0)}
+  & \textcolor{ICLRed}{7/50 (14.0)}
+  & \textcolor{ICLBlue}{0/50 (0.0)}
+  & \textcolor{ICLBlue}{32/50 (64.0)}
   & 2221
   & 0.022 \\
 \bottomrule
@@ -3187,8 +3191,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Overall diagnostic
   & 10362
-  & 52.6
-  & 92.5
+  & 5452/10362 (52.6)
+  & 9587/10362 (92.5)
   & 0.04
   & 0.26
   & \textcolor{ICLRed}{5.55}
@@ -3198,8 +3202,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Heavy/balanced real-flight tiers
   & 4157
-  & 65.2
-  & 99.4
+  & 2712/4157 (65.2)
+  & 4132/4157 (99.4)
   & 0.03
   & 0.08
   & \textcolor{ICLRed}{5.55}
@@ -3209,8 +3213,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Light/super-light diagnostics
   & 4147
-  & 55.6
-  & 95.9
+  & 2304/4147 (55.6)
+  & 3975/4147 (95.9)
   & 0.03
   & 0.16
   & 0.29
@@ -3220,8 +3224,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Offline Comparison:Unrestricted:Not Real Flight Candidate:No Cluster No Merge
   & 2058
-  & \textcolor{ICLRed}{21.2}
-  & \textcolor{ICLRed}{71.9}
+  & \textcolor{ICLRed}{436/2058 (21.2)}
+  & \textcolor{ICLRed}{1480/2058 (71.9)}
   & 0.08
   & 0.40
   & 0.57
@@ -3231,8 +3235,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Real Flight Required:Heavy Balanced:Inflight Boundary Decisions
   & 3757
-  & 68.4
-  & \textcolor{ICLBlue}{99.8}
+  & 2570/3757 (68.4)
+  & \textcolor{ICLBlue}{3751/3757 (99.8)}
   & 0.02
   & 0.08
   & \textcolor{ICLBlue}{0.12}
@@ -3242,8 +3246,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Real Flight Optional Extended:Light Super Light:Inflight Boundary Decisions
   & 3747
-  & 58.8
-  & 97.3
+  & 2202/3747 (58.8)
+  & 3644/3747 (97.3)
   & 0.03
   & 0.14
   & 0.29
@@ -3253,8 +3257,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Pre Release Initial Decisions:Not Inflight Boundary Compute
   & 1000
-  & 26.7
-  & 76.6
+  & 267/1000 (26.7)
+  & 766/1000 (76.6)
   & \textcolor{ICLRed}{0.11}
   & \textcolor{ICLRed}{0.47}
   & \textcolor{ICLRed}{5.55}
@@ -3264,8 +3268,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Library Size Case Id:Balanced Cluster
   & 2082
-  & 73.2
-  & 99.6
+  & 1523/2082 (73.2)
+  & 2074/2082 (99.6)
   & \textcolor{ICLBlue}{0.02}
   & 0.08
   & 0.17
@@ -3275,8 +3279,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Library Size Case Id:Heavy Cluster
   & 2075
-  & 57.3
-  & 99.2
+  & 1189/2075 (57.3)
+  & 2058/2075 (99.2)
   & 0.04
   & 0.09
   & \textcolor{ICLRed}{5.55}
@@ -3286,8 +3290,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Library Size Case Id:Light Cluster
   & 2071
-  & 62.1
-  & 98.2
+  & 1286/2071 (62.1)
+  & 2034/2071 (98.2)
   & 0.02
   & 0.12
   & 0.18
@@ -3297,8 +3301,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Library Size Case Id:No Cluster No Merge
   & 2058
-  & \textcolor{ICLRed}{21.2}
-  & \textcolor{ICLRed}{71.9}
+  & \textcolor{ICLRed}{436/2058 (21.2)}
+  & \textcolor{ICLRed}{1480/2058 (71.9)}
   & 0.08
   & 0.40
   & 0.57
@@ -3308,8 +3312,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Library Size Case Id:Super Light Cluster
   & 2076
-  & 49.0
-  & 93.5
+  & 1018/2076 (49.0)
+  & 1941/2076 (93.5)
   & 0.03
   & 0.18
   & 0.29
@@ -3319,8 +3323,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Launch Role:Final Heldout
   & 10362
-  & 52.6
-  & 92.5
+  & 5452/10362 (52.6)
+  & 9587/10362 (92.5)
   & 0.04
   & 0.26
   & \textcolor{ICLRed}{5.55}
@@ -3330,8 +3334,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Policy Id:No Memory Baseline
   & 2586
-  & \textcolor{ICLBlue}{91.6}
-  & 99.7
+  & \textcolor{ICLBlue}{2368/2586 (91.6)}
+  & 2578/2586 (99.7)
   & 0.03
   & \textcolor{ICLBlue}{0.03}
   & \textcolor{ICLRed}{5.55}
@@ -3341,8 +3345,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Policy Id:Spatial Flow Belief Memory H10
   & 2594
-  & 41.8
-  & 91.8
+  & 1085/2594 (41.8)
+  & 2381/2594 (91.8)
   & 0.04
   & 0.23
   & 0.35
@@ -3352,8 +3356,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Policy Id:Spatial Flow Belief Memory H3
   & 2593
-  & 51.8
-  & 93.0
+  & 1344/2593 (51.8)
+  & 2411/2593 (93.0)
   & 0.03
   & 0.19
   & 0.26
@@ -3363,8 +3367,8 @@ No primitive controller is retrained and no fan-layout-specific branch is introd
 
   Policy Id:Spatial Flow Belief Memory H30
   & 2589
-  & 25.3
-  & 85.6
+  & 655/2589 (25.3)
+  & 2217/2589 (85.6)
   & 0.06
   & 0.39
   & 0.57
@@ -3495,15 +3499,15 @@ It separates the online controller contract from offline thesis logging: the pri
   & Use paired full-domain randomisation to freeze one bounded governor configuration for held-out validation. \\
 
   R11 held-out validation
-  & D01; 8000 final launches; 86000 history launches
-  & Validate the frozen R10 governor across the held-out L0--L7 environment-fidelity ladder. \\
+  & D01+D02; 19200 final launches; 206400 history launches
+  & Validate the frozen R10 governor across independent randomized held-out L0--L7 repeats; raw runs stay separate and are aggregated only in post-analysis. \\
 
   Repeated-launch histories
   & $h=0$, $h=3$, $h=10$, $h=30$
   & Compare no memory with online memory updated from the previous launches in the same physical case. \\
 
   R11 paired starts
-  & 50 paired local cases per ladder (400 ladder cases total)
+  & 120 paired local cases per ladder across reported repeats (960 ladder cases total)
   & Reuse launch-state seeds across ladders, library tiers, and memory policies so speed-conditioned comparisons are fair. \\
 
   Primitive timing contract

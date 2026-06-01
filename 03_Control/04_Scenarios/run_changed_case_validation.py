@@ -180,6 +180,7 @@ class ChangedCaseValidationConfig:
 @dataclass(frozen=True)
 class HeldoutChangedCaseValidationConfig(ChangedCaseValidationConfig):
     output_root: Path = DEFAULT_R11_OUTPUT_ROOT
+    outer_cases_per_ladder: int = R11_OUTER_CASES_PER_LADDER
 
 
 def run_changed_case_validation(config: ChangedCaseValidationConfig) -> dict[str, object]:
@@ -218,6 +219,7 @@ def run_heldout_changed_case_validation(config: HeldoutChangedCaseValidationConf
     """Run strict R11 held-out changed-case validation after R10 governor tuning."""
 
     governor_config = _resolve_governor_config(config)
+    protocol = _r11_protocol_for_outer_cases_per_ladder(config.outer_cases_per_ladder)
     return run_repeated_launch_validation(
         ValidationRunConfig(
             library_root=config.library_root,
@@ -241,7 +243,56 @@ def run_heldout_changed_case_validation(config: HeldoutChangedCaseValidationConf
             history_log_mode=config.history_log_mode,
             history_debug_sample_stride=config.history_debug_sample_stride,
         ),
-        protocol=R11_PROTOCOL,
+        protocol=protocol,
+    )
+
+
+def _r11_protocol_for_outer_cases_per_ladder(outer_cases_per_ladder: int) -> ValidationProtocol:
+    """Return the R11 protocol, preserving the 50-case default and allowing richer validation repeats."""
+
+    cases_per_ladder = int(outer_cases_per_ladder)
+    if cases_per_ladder <= 0:
+        raise ValueError("outer_cases_per_ladder_must_be_positive")
+    if cases_per_ladder == R11_OUTER_CASES_PER_LADDER:
+        return R11_PROTOCOL
+
+    blocks = tuple(
+        ValidationBlockSpec(
+            block.block_id,
+            block.human_label,
+            block.W_layer,
+            block.environment_mode,
+            cases_per_ladder,
+            block.environment_change_family,
+        )
+        for block in R11_BLOCKS
+    )
+    outer_cases_per_condition = len(blocks) * cases_per_ladder
+    expected_final_heldout_launches = (
+        len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * outer_cases_per_condition
+    )
+    expected_history_launches = len(LIBRARY_SIZE_CASE_IDS) * outer_cases_per_condition * HISTORY_LENGTH_SUM
+    return ValidationProtocol(
+        stage_id=R11_PROTOCOL.stage_id,
+        manifest_name=R11_PROTOCOL.manifest_name,
+        report_name=R11_PROTOCOL.report_name,
+        manifest_version=f"heldout_fidelity_ladder_validation_v3_paired_{cases_per_ladder}_per_ladder",
+        validation_evidence_level=R11_PROTOCOL.validation_evidence_level,
+        outer_cases_per_condition=outer_cases_per_condition,
+        expected_final_heldout_launches=expected_final_heldout_launches,
+        expected_history_launches=expected_history_launches,
+        blocks=blocks,
+        final_schedule_prefix=R11_PROTOCOL.final_schedule_prefix,
+        policy_history_conditions=R11_PROTOCOL.policy_history_conditions,
+        reduced_diagnostic=R11_PROTOCOL.reduced_diagnostic,
+        requires_no_glider_latency_variation_audit=R11_PROTOCOL.requires_no_glider_latency_variation_audit,
+        gate_profile=R11_PROTOCOL.gate_profile,
+        max_hard_failure_rate=R11_PROTOCOL.max_hard_failure_rate,
+        max_floor_or_ceiling_violation_rate=R11_PROTOCOL.max_floor_or_ceiling_violation_rate,
+        max_no_viable_rate=R11_PROTOCOL.max_no_viable_rate,
+        min_safe_success_rate=R11_PROTOCOL.min_safe_success_rate,
+        min_full_safe_success_rate=R11_PROTOCOL.min_full_safe_success_rate,
+        min_terminal_or_lift_capture_rate=R11_PROTOCOL.min_terminal_or_lift_capture_rate,
     )
 
 

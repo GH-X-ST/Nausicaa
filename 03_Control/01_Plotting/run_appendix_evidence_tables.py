@@ -80,6 +80,8 @@ class ColumnSpec:
     fmt: str = "text"
     higher_is_better: bool | None = None
     raw_latex: bool = False
+    count_key: str | None = None
+    denom_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -88,16 +90,17 @@ class SpeedMetric:
     header: str
     fmt: str
     higher_is_better: bool
+    count_source: str | None = None
 
 
 SPEED_METRICS = (
-    SpeedMetric("mission_success_rate", r"Target", "pct", True),
-    SpeedMetric("safe_success_rate", r"Safe", "pct", True),
-    SpeedMetric("front_wall_terminal_success_rate", r"Front", "pct", True),
-    SpeedMetric("wrong_wall_exit_rate", r"Side", "pct", False),
-    SpeedMetric("expected_low_energy_dry_air_sink_rate", r"Sink", "pct", False),
-    SpeedMetric("no_viable_primitive_rate", r"NoPr", "pct", False),
-    SpeedMetric("hard_failure_rate", r"Hard", "pct", False),
+    SpeedMetric("mission_success_rate", r"Target", "pct", True, "mission_success_count"),
+    SpeedMetric("safe_success_rate", r"Safe", "pct", True, "safe_success_count"),
+    SpeedMetric("front_wall_terminal_success_rate", r"Front", "pct", True, "front_wall_terminal_success_count"),
+    SpeedMetric("wrong_wall_exit_rate", r"Side", "pct", False, "wrong_wall_exit_count"),
+    SpeedMetric("expected_low_energy_dry_air_sink_rate", r"Sink", "pct", False, "expected_low_energy_dry_air_sink_count"),
+    SpeedMetric("no_viable_primitive_rate", r"NoPr", "pct", False, "no_viable_primitive_count"),
+    SpeedMetric("hard_failure_rate", r"Hard", "pct", False, "hard_failure_count"),
     SpeedMetric("mean_launch_score", r"$\bar{J}$", "score", True),
     SpeedMetric("median_launch_score", r"$\tilde{J}$", "score", True),
     SpeedMetric("mean_terminal_specific_energy_m", r"$E_T$", "energy", True),
@@ -217,6 +220,7 @@ def _r5_tables(r5_root: Path) -> list[str]:
         r"\noindent\footnotesize",
         r"These tables summarise the dense primitive-synthesis stage used before any repeated-launch memory is introduced.",
         r"The controller designs are fixed transition-aware LQR primitives executed through the real-flight-aligned actuator, command-lattice, and latency model.",
+        r"Where a success or failure rate has a direct numerator and denominator, the cell reports count/$n$ (percentage) rather than a percentage alone.",
         r"R5 is therefore evidence about whether the primitive library contains physically executable manoeuvres and whether each primitive family contributes useful candidates for later survival screening.",
         "",
     ]
@@ -235,9 +239,9 @@ def _r5_tables(r5_root: Path) -> list[str]:
                 ColumnSpec("selected_transition_objects", "R7 rows", "int", True),
                 ColumnSpec("selected_unique_variants", "Variants", "int", True),
                 ColumnSpec("selected_speed_bin_count", "Speeds", "int", True),
-                ColumnSpec("transition_success_rate", "Success", "pct", True),
+                ColumnSpec("transition_success_rate", "Success", "pct", True, count_key="transition_success_count", denom_key="rollout_rows"),
                 ColumnSpec("worst_environment_success_rate", "Worst env.", "pct", True),
-                ColumnSpec("hard_failure_rate", "Hard", "pct", False),
+                ColumnSpec("hard_failure_rate", "Hard", "pct", False, count_key="hard_failure_count", denom_key="rollout_rows"),
                 ColumnSpec("updraft_gain_proxy_mean_m", r"$E_u$", "energy", True),
                 ColumnSpec("lift_dwell_mean_s", r"$t_L$", "time", True),
                 ColumnSpec("saturation_mean", "Sat.", "pct", False),
@@ -263,8 +267,8 @@ def _r5_tables(r5_root: Path) -> list[str]:
                 ColumnSpec("selected_speed_bin_count", "Speeds", "int", True),
                 ColumnSpec("min_reference_speed_m_s", r"$v_{\min}$", "float1", False),
                 ColumnSpec("max_reference_speed_m_s", r"$v_{\max}$", "float1", True),
-                ColumnSpec("transition_success_rate", "Success", "pct", True),
-                ColumnSpec("hard_failure_rate", "Hard", "pct", False),
+                ColumnSpec("transition_success_rate", "Success", "pct", True, count_key="transition_success_count", denom_key="rollout_rows"),
+                ColumnSpec("hard_failure_rate", "Hard", "pct", False, count_key="hard_failure_count", denom_key="rollout_rows"),
                 ColumnSpec("r5_transition_training_score", "Score", "float3", True),
             ),
             weights=(4.00, 1.35, 1.35, 1.15, 1.10, 1.05, 1.05, 1.60, 1.40, 2.15),
@@ -284,10 +288,10 @@ def _r7_tables(r7_root: Path) -> list[str]:
             eligible_for_r8=("eligible_for_post_w3_library_size_study", _sum_bool),
             compatible_rows=("compatible_row_count", "sum"),
             incompatible_rows=("incompatible_row_count", "sum"),
-            continuation_valid_rate=("continuation_valid_rate", "mean"),
-            terminal_useful_rate=("episode_terminal_useful_rate", "mean"),
-            transition_chain_compatible_rate=("transition_chain_compatible_rate", "mean"),
-            hard_failure_rate=("hard_failure_rate", "mean"),
+            continuation_valid_count=("continuation_valid_count", "sum"),
+            episode_terminal_useful_count=("episode_terminal_useful_count", "sum"),
+            transition_chain_compatible_count=("transition_chain_compatible_count", "sum"),
+            hard_failure_count=("hard_failure_count", "sum"),
             floor_margin_min_m=("floor_margin_min_m", "min"),
             ceiling_margin_min_m=("ceiling_margin_min_m", "min"),
             energy_residual_mean_m=("energy_residual_mean_m", "mean"),
@@ -295,6 +299,11 @@ def _r7_tables(r7_root: Path) -> list[str]:
         )
         .reset_index()
     )
+    grouped["replay_rows"] = grouped["compatible_rows"] + grouped["incompatible_rows"]
+    grouped["transition_chain_compatible_rate"] = _safe_div(grouped["transition_chain_compatible_count"], grouped["replay_rows"])
+    grouped["continuation_valid_rate"] = _safe_div(grouped["continuation_valid_count"], grouped["replay_rows"])
+    grouped["terminal_useful_rate"] = _safe_div(grouped["episode_terminal_useful_count"], grouped["replay_rows"])
+    grouped["hard_failure_rate"] = _safe_div(grouped["hard_failure_count"], grouped["replay_rows"])
     grouped["primitive_label"] = grouped["primitive_id"].map(PRIMITIVE_LABELS).fillna(grouped["primitive_id"])
     grouped = grouped.sort_values("primitive_label")
 
@@ -312,6 +321,7 @@ def _r7_tables(r7_root: Path) -> list[str]:
         r"These tables report the fixed-controller survival replay used after dense synthesis.",
         r"The B-series evidence uses the current R7 survival stage; earlier R6 archived folders are historical diagnostics and are not the claim-bearing source for R8.",
         r"No LQR controller is retuned here: R7 only replays the frozen R5 candidates under broader environment and implementation variation, then passes eligible transition objects to compression.",
+        r"Count-backed survival rates are reported as count/$n$ (percentage) so the reader can see both the evidence size and the estimated rate.",
         "",
     ]
     lines.extend(
@@ -327,10 +337,10 @@ def _r7_tables(r7_root: Path) -> list[str]:
                 ColumnSpec("replayed_transition_objects", "Replayed", "int"),
                 ColumnSpec("eligible_for_r8", "R8 elig.", "int", True),
                 ColumnSpec("compatible_rows", "Compat.", "int", True),
-                ColumnSpec("transition_chain_compatible_rate", "Chain", "pct", True),
-                ColumnSpec("continuation_valid_rate", "Cont.", "pct", True),
-                ColumnSpec("terminal_useful_rate", "Term.", "pct", True),
-                ColumnSpec("hard_failure_rate", "Hard", "pct", False),
+                ColumnSpec("transition_chain_compatible_rate", "Chain", "pct", True, count_key="transition_chain_compatible_count", denom_key="replay_rows"),
+                ColumnSpec("continuation_valid_rate", "Cont.", "pct", True, count_key="continuation_valid_count", denom_key="replay_rows"),
+                ColumnSpec("terminal_useful_rate", "Term.", "pct", True, count_key="episode_terminal_useful_count", denom_key="replay_rows"),
+                ColumnSpec("hard_failure_rate", "Hard", "pct", False, count_key="hard_failure_count", denom_key="replay_rows"),
                 ColumnSpec("floor_margin_min_m", "Floor", "energy", True),
                 ColumnSpec("ceiling_margin_min_m", "Ceil.", "energy", True),
                 ColumnSpec("energy_residual_mean_m", r"$\Delta E$", "energy", True),
@@ -428,6 +438,7 @@ def _r8_tables(r8_root: Path, outcome_root: Path) -> list[str]:
         r"\noindent\footnotesize",
         r"These tables report how the R7 survival set is compressed into online primitive-library tiers.",
         r"Compression is coverage-aware: the medoid selection keeps primitive-family, transition-entry-class, and local speed-bin evidence instead of selecting only the highest nominal score.",
+        r"Count-backed coverage rates are reported as count/$n$ (percentage); model probabilities without a direct per-table denominator remain reported as percentages.",
         r"The outcome model remains simulation-only evidence used by the outer-loop governor; it does not mutate the frozen primitive controllers.",
         "",
     ]
@@ -445,7 +456,7 @@ def _r8_tables(r8_root: Path, outcome_root: Path) -> list[str]:
                 ColumnSpec("compression_ratio", "Comp.", "float1", True),
                 ColumnSpec("primitive_family_count", "Families", "int", True),
                 ColumnSpec("transition_entry_class_count", "Entries", "int", True),
-                ColumnSpec("speed_coverage_pass_rate", "Speed cov.", "pct", True),
+                ColumnSpec("speed_coverage_pass_rate", "Speed cov.", "pct", True, count_key="speed_coverage_passed", denom_key="speed_audit_rows"),
                 ColumnSpec("selected_speed_bin_count", "Sel. speeds", "float1", True),
                 ColumnSpec("transition_success_probability", "Success", "pct", True),
                 ColumnSpec("continuation_probability", "Cont.", "pct", True),
@@ -498,6 +509,7 @@ def _r10_tables(r10_root: Path) -> list[str]:
         r"\noindent\footnotesize",
         r"These tables report the R10 full-domain governor-learning run.",
         r"R10 uses the frozen R8 library and learns only through the outer-loop governor: case-local repeated-launch flow belief is updated online, then aggregate R10 evidence freezes one bounded governor configuration for R11.",
+        r"Where a rate has a clear numerator and denominator, the cell reports count/$n$ (percentage) so that unequal speed-bin sample sizes remain visible.",
         r"No primitive controller is retrained and no fan-layout-specific branch is introduced.",
         "",
     ]
@@ -513,6 +525,7 @@ def _r10_tables(r10_root: Path) -> list[str]:
             [
                 "library_size_case_id",
                 "policy_id",
+                "paired_launch_count",
                 "mean_paired_delta_launch_score",
                 "win_rate",
                 "loss_rate",
@@ -524,6 +537,14 @@ def _r10_tables(r10_root: Path) -> list[str]:
     )
     memory_policy["library_label"] = memory_policy["library_size_case_id"].map(LIBRARY_LABELS)
     memory_policy["policy_label"] = memory_policy["policy_id"].map(POLICY_LABELS)
+    memory_policy["mission_success_count"] = memory_policy["mission_success_rate"] * memory_policy["launch_count"]
+    memory_policy["safe_success_count"] = memory_policy["safe_success_rate"] * memory_policy["launch_count"]
+    memory_policy["win_count"] = memory_policy["win_rate"] * memory_policy["paired_launch_count"]
+    memory_policy["loss_count"] = memory_policy["loss_rate"] * memory_policy["paired_launch_count"]
+    memory_policy["safety_regression_count"] = memory_policy["safety_regression_rate"] * memory_policy["paired_launch_count"]
+    memory_policy["memory_changed_selection_count"] = (
+        memory_policy["memory_changed_selection_rate"] * memory_policy["launch_count"]
+    )
     memory_policy = _order_by_case(memory_policy)
     memory_policy["policy_order"] = memory_policy["policy_id"].map({key: i for i, key in enumerate(POLICY_ORDER)})
     memory_policy = memory_policy.sort_values(["case_order", "policy_order"])
@@ -540,14 +561,14 @@ def _r10_tables(r10_root: Path) -> list[str]:
                 ColumnSpec("library_label", "Library tier"),
                 ColumnSpec("policy_label", "$h$", raw_latex=True),
                 ColumnSpec("launch_count", "$n$", "int"),
-                ColumnSpec("mission_success_rate", "Target", "pct", True),
-                ColumnSpec("safe_success_rate", "Safe", "pct", True),
+                ColumnSpec("mission_success_rate", "Target", "pct", True, count_key="mission_success_count", denom_key="launch_count"),
+                ColumnSpec("safe_success_rate", "Safe", "pct", True, count_key="safe_success_count", denom_key="launch_count"),
                 ColumnSpec("mean_launch_score", r"$\bar{J}$", "score", True),
                 ColumnSpec("mean_paired_delta_launch_score", r"$\Delta J$", "score", True),
-                ColumnSpec("win_rate", "Win", "pct", True),
-                ColumnSpec("loss_rate", "Loss", "pct", False),
-                ColumnSpec("safety_regression_rate", "Regress", "pct", False),
-                ColumnSpec("memory_changed_selection_rate", "Mem. sel.", "pct", True),
+                ColumnSpec("win_rate", "Win", "pct", True, count_key="win_count", denom_key="paired_launch_count"),
+                ColumnSpec("loss_rate", "Loss", "pct", False, count_key="loss_count", denom_key="paired_launch_count"),
+                ColumnSpec("safety_regression_rate", "Regress", "pct", False, count_key="safety_regression_count", denom_key="paired_launch_count"),
+                ColumnSpec("memory_changed_selection_rate", "Mem. sel.", "pct", True, count_key="memory_changed_selection_count", denom_key="launch_count"),
                 ColumnSpec("belief_observation_count", "Obs.", "int", True),
                 ColumnSpec("belief_uncertainty", "Uncert.", "float3", False),
             ),
@@ -598,8 +619,8 @@ def _r10_tables(r10_root: Path) -> list[str]:
             columns=(
                 ColumnSpec("audit_label", "Timing scope"),
                 ColumnSpec("selector_decision_count", "Decisions", "int"),
-                ColumnSpec("preferred_20ms_slot_met_rate", "20 ms", "pct", True),
-                ColumnSpec("hard_100ms_boundary_met_rate", "100 ms", "pct", True),
+                ColumnSpec("preferred_20ms_slot_met_rate", "20 ms", "pct", True, count_key="preferred_20ms_slot_met_count", denom_key="selector_decision_count"),
+                ColumnSpec("hard_100ms_boundary_met_rate", "100 ms", "pct", True, count_key="hard_100ms_boundary_met_count", denom_key="selector_decision_count"),
                 ColumnSpec("mean_decision_total_duration_s", "Mean", "time", False),
                 ColumnSpec("p99_decision_total_duration_s", "p99", "time", False),
                 ColumnSpec("max_decision_total_duration_s", "Max", "time", False),
@@ -622,15 +643,21 @@ def _reproducibility_tables(args: argparse.Namespace) -> list[str]:
     r8_manifest = _read_json(args.r8_library_root / "manifests" / "post_w3_library_size_study_manifest.json")
     r10_manifest = _read_json(args.r10_root / "manifests" / "environment_changed_case_manifest.json")
     r10_governor = _read_json(args.r10_root / "manifests" / "frozen_governor_config_for_r11.json")
-    r11_manifest = _read_json(args.r11_root / "manifests" / "heldout_environment_validation_manifest.json")
+    r11_roots = [args.r11_root] + list(args.extra_r11_root or [])
+    r11_manifests = [_read_json(root / "manifests" / "heldout_environment_validation_manifest.json") for root in r11_roots]
     timing = _read_csv(args.r5_root / "metrics" / "timing_contract_audit.csv")
     timing_row = timing.iloc[0].to_dict() if not timing.empty else {}
     primitive_contract = r5_manifest.get("primitive_timing_contract", {})
     history_values = [0] + [int(h) for h in r10_manifest.get("history_lengths", [3, 10, 30])]
     r8_tiers = ", ".join(LIBRARY_LABELS.get(str(x), str(x)) for x in r8_manifest.get("library_size_case_ids", []))
-    r11_expected_final = _finite_float(r11_manifest.get("expected_final_heldout_launches"))
+    r11_expected_final = sum(
+        int(_finite_float(manifest.get("expected_final_heldout_launches")) or 0) for manifest in r11_manifests
+    )
     paired_cases_per_ladder = int(round(r11_expected_final / (8 * 5 * 4))) if r11_expected_final else "--"
     r11_outer_total = int(round(r11_expected_final / (5 * 4))) if r11_expected_final else "--"
+    r11_run_labels = "+".join(str(manifest.get("run_label", root.name)) for manifest, root in zip(r11_manifests, r11_roots))
+    r11_actual_final = sum(int(_finite_float(manifest.get("actual_final_heldout_launches")) or 0) for manifest in r11_manifests)
+    r11_actual_history = sum(int(_finite_float(manifest.get("actual_history_launches")) or 0) for manifest in r11_manifests)
 
     rows = pd.DataFrame(
         [
@@ -656,8 +683,8 @@ def _reproducibility_tables(args: argparse.Namespace) -> list[str]:
             },
             {
                 "setting": "R11 held-out validation",
-                "value": f"{r11_manifest.get('run_label', 'D01')}; {r11_manifest.get('actual_final_heldout_launches', '--')} final launches; {r11_manifest.get('actual_history_launches', '--')} history launches",
-                "purpose": "Validate the frozen R10 governor across the held-out L0--L7 environment-fidelity ladder.",
+                "value": f"{r11_run_labels}; {r11_actual_final} final launches; {r11_actual_history} history launches",
+                "purpose": "Validate the frozen R10 governor across independent randomized held-out L0--L7 repeats; raw runs stay separate and are aggregated only in post-analysis.",
             },
             {
                 "setting": "Repeated-launch histories",
@@ -666,7 +693,7 @@ def _reproducibility_tables(args: argparse.Namespace) -> list[str]:
             },
             {
                 "setting": "R11 paired starts",
-                "value": f"{paired_cases_per_ladder} paired local cases per ladder ({r11_outer_total} ladder cases total)",
+                "value": f"{paired_cases_per_ladder} paired local cases per ladder across reported repeats ({r11_outer_total} ladder cases total)",
                 "purpose": "Reuse launch-state seeds across ladders, library tiers, and memory policies so speed-conditioned comparisons are fair.",
             },
             {
@@ -779,7 +806,7 @@ def _speed_cluster_policy_table(frame: pd.DataFrame, *, stage: str, caption: str
                 cells.append(POLICY_LABELS[policy_id])
                 cells.append(_format_count(row.iloc[0].get("launch_count", "")))
                 for metric in SPEED_METRICS:
-                    cells.append(_format_speed_metric(row.iloc[0].get(metric.source, math.nan), metric, extrema))
+                    cells.append(_format_speed_metric(row.iloc[0], metric, extrema))
                 lines.append("\n  " + "\n  & ".join(cells) + r" \\")
                 speed_started = True
                 library_started = True
@@ -871,7 +898,7 @@ def _generic_table(
         r"\midrule",
     ]
     for _, row in frame.iterrows():
-        cells = [_format_cell(row.get(column.key, math.nan), column, extrema) for column in columns]
+        cells = [_format_cell(row, column, extrema) for column in columns]
         lines.append("\n  " + "\n  & ".join(cells) + r" \\")
     lines.extend([r"\bottomrule", r"\end{longtblr}"])
     return lines
@@ -926,11 +953,12 @@ def _speed_metric_extrema(frame: pd.DataFrame) -> dict[str, tuple[float, float]]
     return extrema
 
 
-def _format_speed_metric(value: object, metric: SpeedMetric, extrema: dict[str, tuple[float, float]]) -> str:
+def _format_speed_metric(row: pd.Series, metric: SpeedMetric, extrema: dict[str, tuple[float, float]]) -> str:
+    value = row.get(metric.source, math.nan)
     number = _finite_float(value)
     if number is None:
         return "--"
-    text = _format_number(number, metric.fmt)
+    text = _format_count_rate(row, rate=number, count_key=metric.count_source, denom_key="launch_count") if metric.fmt == "pct" and metric.count_source else _format_number(number, metric.fmt)
     limits = extrema.get(metric.source)
     if limits is None or math.isclose(limits[0], limits[1], rel_tol=0.0, abs_tol=1e-12):
         return text
@@ -941,7 +969,8 @@ def _format_speed_metric(value: object, metric: SpeedMetric, extrema: dict[str, 
     return _colour_if_extreme(number, text, best, worst)
 
 
-def _format_cell(value: object, column: ColumnSpec, extrema: dict[str, tuple[float, float]]) -> str:
+def _format_cell(row: pd.Series, column: ColumnSpec, extrema: dict[str, tuple[float, float]]) -> str:
+    value = row.get(column.key, math.nan)
     if column.fmt == "text":
         if _is_missing(value):
             return "--"
@@ -950,7 +979,10 @@ def _format_cell(value: object, column: ColumnSpec, extrema: dict[str, tuple[flo
     number = _finite_float(value)
     if number is None:
         return "--"
-    text = _format_number(number, column.fmt)
+    if column.fmt == "pct" and column.count_key and column.denom_key:
+        text = _format_count_rate(row, rate=number, count_key=column.count_key, denom_key=column.denom_key)
+    else:
+        text = _format_number(number, column.fmt)
     limits = extrema.get(column.key)
     if limits is None or column.higher_is_better is None or math.isclose(limits[0], limits[1], rel_tol=0.0, abs_tol=1e-12):
         return text
@@ -959,6 +991,14 @@ def _format_cell(value: object, column: ColumnSpec, extrema: dict[str, tuple[flo
     if _format_number(best, column.fmt) == _format_number(worst, column.fmt):
         return text
     return _colour_if_extreme(number, text, best, worst)
+
+
+def _format_count_rate(row: pd.Series, *, rate: float, count_key: str | None, denom_key: str | None) -> str:
+    count = _finite_float(row.get(count_key, math.nan)) if count_key else None
+    total = _finite_float(row.get(denom_key, math.nan)) if denom_key else None
+    if count is None or total is None:
+        return _format_number(rate, "pct")
+    return f"{int(round(count))}/{int(round(total))} ({100.0 * rate:.1f})"
 
 
 def _format_number(number: float, fmt: str) -> str:
@@ -1150,6 +1190,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--r8-outcome-root", type=Path, default=DEFAULT_R8_OUTCOME_ROOT)
     parser.add_argument("--r10-root", type=Path, default=DEFAULT_R10_ROOT)
     parser.add_argument("--r11-root", type=Path, default=DEFAULT_R11_ROOT)
+    parser.add_argument(
+        "--extra-r11-root",
+        type=Path,
+        action="append",
+        help="Additional R11 validation root to include in the reproducibility summary.",
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     return parser.parse_args()
 
