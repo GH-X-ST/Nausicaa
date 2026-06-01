@@ -23,6 +23,12 @@ REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON = (
 class FlightRuntimeConfig:
     run_label: str
     library_tier: str = DEFAULT_REAL_FLIGHT_LIBRARY_TIER
+    experiment_case_id: str = ""
+    experiment_case_name: str = ""
+    experiment_memory_enabled: bool = False
+    experiment_layout_id: str = ""
+    throw_index: int = 0
+    attempt_index: int = 0
     serial_port: str = "COM11"
     serial_baud: int = 1_000_000
     vicon_host: str = "192.168.0.100:801"
@@ -33,6 +39,7 @@ class FlightRuntimeConfig:
     launch_wait_timeout_s: float = 8.0
     launch_gate_required_consecutive_frames: int = 1
     post_exit_neutral_tail_s: float = 0.30
+    retry_cooldown_s: float = 2.0
     stale_vicon_timeout_s: float = 0.120
     derivative_cutoff_hz: float = 20.0
     actuator_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06)

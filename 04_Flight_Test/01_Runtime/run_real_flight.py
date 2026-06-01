@@ -23,7 +23,7 @@ from exit_gate import evaluate_exit_gate, exit_gate_bounds_manifest
 from launch_gate import evaluate_launch_gate, launch_gate_bounds_manifest
 from nano_serial import FakeNanoSerialTx, NanoSerialTx
 from safety_monitor import evaluate_safety
-from vicon_rigid_body import LiveNausicaaViconRigidBody, ReplayNausicaaViconRigidBody
+from vicon_rigid_body import FanViconSample, LiveNausicaaViconRigidBody, ReplayNausicaaViconRigidBody
 
 if str(CONTROLLER_ROOT) not in sys.path:
     sys.path.insert(0, str(CONTROLLER_ROOT))
@@ -32,9 +32,16 @@ from real_flight_io import NausicaaViconStateAdapter, ViconArenaFrameTransform  
 from state_contract import state_dataframe_row  # noqa: E402
 
 
-def run_real_flight(config: FlightRuntimeConfig, *, mode: str) -> dict[str, object]:
-    logger = FlightLogger(config.run_root)
-    controller = FrozenFlightController(config)
+def run_real_flight(
+    config: FlightRuntimeConfig,
+    *,
+    mode: str,
+    controller: FrozenFlightController | None = None,
+    run_root: Path | None = None,
+    expected_visible_fan_range: tuple[int, int] | None = None,
+) -> dict[str, object]:
+    logger = FlightLogger(Path(run_root) if run_root is not None else config.run_root)
+    controller = controller or FrozenFlightController(config)
     adapter = NausicaaViconStateAdapter(
         derivative_cutoff_hz=config.derivative_cutoff_hz,
         actuator_tau_s=config.actuator_tau_s,
@@ -74,22 +81,42 @@ def run_real_flight(config: FlightRuntimeConfig, *, mode: str) -> dict[str, obje
                 "position_offset_m": tuple(float(value) for value in config.vicon_position_offset_m),
                 "yaw_alignment_deg": float(config.vicon_yaw_alignment_deg),
             },
+            "experiment_case": {
+                "case_id": config.experiment_case_id,
+                "case_name": config.experiment_case_name,
+                "layout_id": config.experiment_layout_id,
+                "memory_enabled": bool(config.experiment_memory_enabled),
+                "throw_index": int(config.throw_index),
+                "attempt_index": int(config.attempt_index),
+            },
+            "expected_visible_fan_range": expected_visible_fan_range,
         },
     )
     summary = {
         "mode": mode,
-        "run_root": config.run_root.as_posix(),
+        "run_root": (Path(run_root) if run_root is not None else config.run_root).as_posix(),
+        "experiment_case_id": config.experiment_case_id,
+        "experiment_case_name": config.experiment_case_name,
+        "experiment_layout_id": config.experiment_layout_id,
+        "throw_index": int(config.throw_index),
+        "attempt_index": int(config.attempt_index),
+        "valid_throw": False,
         "state_sample_count": 0,
         "controller_decision_count": 0,
         "packet_count": 0,
         "neutral_failsafe_count": 0,
         "max_decision_time_s": 0.0,
+        "launch_speed_m_s": 0.0,
         "launch_gate_approved": False,
         "flight_cancelled": False,
         "cancellation_reason": "",
         "exit_gate_triggered": False,
         "termination_reason": "",
         "post_exit_neutral_packets": 0,
+        "fan_visible_count_latest": 0,
+        "fan_expected_count_ok_latest": False,
+        "memory_update_observation_count": 0,
+        "memory_cell_count": 0,
         "completed": False,
     }
     primitive_step_index = 0
@@ -98,6 +125,8 @@ def run_real_flight(config: FlightRuntimeConfig, *, mode: str) -> dict[str, obje
     started = time.perf_counter()
     next_governor_s = 0.0
     next_serial_s = 0.0
+    decision_records: list[dict[str, object]] = []
+    terminal_record_appended = False
 
     try:
         tx.open()
@@ -116,6 +145,7 @@ def run_real_flight(config: FlightRuntimeConfig, *, mode: str) -> dict[str, obje
             logger=logger,
             mode=mode,
             summary=summary,
+            expected_visible_fan_range=expected_visible_fan_range,
         )
         if launched_state is None:
             tx.write_packet(controller.neutral_packet())
@@ -125,6 +155,8 @@ def run_real_flight(config: FlightRuntimeConfig, *, mode: str) -> dict[str, obje
             summary["completed"] = False
             return summary
         latest_state = launched_state
+        summary["valid_throw"] = True
+        summary["launch_speed_m_s"] = float(np.linalg.norm(latest_state[6:9]))
         started = time.perf_counter()
         next_governor_s = 0.0
         next_serial_s = 0.0
@@ -147,6 +179,14 @@ def run_real_flight(config: FlightRuntimeConfig, *, mode: str) -> dict[str, obje
                 continue
 
             latest_state = adapter.update(sample, command_norm=controller.last_command_norm())
+            _append_fan_positions(
+                logger=logger,
+                vicon=vicon,
+                adapter=adapter,
+                phase="active",
+                expected_visible_fan_range=expected_visible_fan_range,
+                summary=summary,
+            )
             safety = evaluate_safety(latest_state)
             exit_gate = evaluate_exit_gate(latest_state)
             summary["state_sample_count"] += 1
@@ -162,6 +202,16 @@ def run_real_flight(config: FlightRuntimeConfig, *, mode: str) -> dict[str, obje
                 },
             )
             if not exit_gate.inside:
+                if latest_decision is not None:
+                    decision_records.append(
+                        {
+                            "t_s": float(loop_elapsed_s),
+                            "state": latest_state.copy(),
+                            "expected_energy_residual_m": float(latest_decision.expected_energy_residual_m),
+                            "primitive_variant_id": latest_decision.primitive_variant_id,
+                        }
+                    )
+                    terminal_record_appended = True
                 _send_neutral_tail(
                     config=config,
                     tx=tx,
@@ -182,6 +232,14 @@ def run_real_flight(config: FlightRuntimeConfig, *, mode: str) -> dict[str, obje
 
             if loop_elapsed_s + 1e-12 >= next_governor_s:
                 latest_decision = controller.decide(latest_state, primitive_step_index=primitive_step_index)
+                decision_records.append(
+                    {
+                        "t_s": float(loop_elapsed_s),
+                        "state": latest_state.copy(),
+                        "expected_energy_residual_m": float(latest_decision.expected_energy_residual_m),
+                        "primitive_variant_id": latest_decision.primitive_variant_id,
+                    }
+                )
                 primitive_step_index += 1
                 next_governor_s += float(config.governor_period_s)
                 summary["controller_decision_count"] += 1
@@ -206,6 +264,20 @@ def run_real_flight(config: FlightRuntimeConfig, *, mode: str) -> dict[str, obje
             if mode in {"armed", "vicon-smoke"}:
                 time.sleep(max(0.0, min(config.serial_period_s, next_serial_s - (time.perf_counter() - started))))
 
+        if bool(summary["launch_gate_approved"]):
+            if latest_decision is not None and latest_state is not None and not terminal_record_appended:
+                decision_records.append(
+                    {
+                        "t_s": float(time.perf_counter() - started),
+                        "state": latest_state.copy(),
+                        "expected_energy_residual_m": float(latest_decision.expected_energy_residual_m),
+                        "primitive_variant_id": latest_decision.primitive_variant_id,
+                    }
+                )
+            memory_summary = controller.update_memory_from_decision_records(decision_records)
+            summary["memory_update_observation_count"] = int(memory_summary.observation_count)
+            summary["memory_cell_count"] = int(memory_summary.updated_cell_count)
+            logger.append_metric_row("memory_update_summary.csv", asdict(memory_summary))
         summary["completed"] = True
         return summary
     finally:
@@ -222,8 +294,11 @@ def run_real_flight(config: FlightRuntimeConfig, *, mode: str) -> dict[str, obje
             [
                 "# Real Flight Runtime Report",
                 f"- Mode: `{mode}`",
-                f"- Run root: `{config.run_root.as_posix()}`",
+                f"- Run root: `{summary['run_root']}`",
+                f"- Experiment case: `{summary['experiment_case_id']}`",
+                f"- Valid throw: `{summary['valid_throw']}`",
                 f"- Launch gate approved: `{summary['launch_gate_approved']}`",
+                f"- Launch speed (m/s): `{float(summary['launch_speed_m_s']):.3f}`",
                 f"- Flight cancelled: `{summary['flight_cancelled']}`",
                 f"- Cancellation reason: `{summary['cancellation_reason']}`",
                 f"- Exit gate triggered: `{summary['exit_gate_triggered']}`",
@@ -233,6 +308,10 @@ def run_real_flight(config: FlightRuntimeConfig, *, mode: str) -> dict[str, obje
                 f"- Packets sent: `{summary['packet_count']}`",
                 f"- Neutral failsafe commands: `{summary['neutral_failsafe_count']}`",
                 f"- Post-exit neutral packets: `{summary['post_exit_neutral_packets']}`",
+                f"- Latest visible fan count: `{summary['fan_visible_count_latest']}`",
+                f"- Fan expected count OK: `{summary['fan_expected_count_ok_latest']}`",
+                f"- Memory update observations: `{summary['memory_update_observation_count']}`",
+                f"- Memory cells: `{summary['memory_cell_count']}`",
                 f"- Max decision time (s): `{float(summary['max_decision_time_s']):.6f}`",
             ],
         )
@@ -249,6 +328,7 @@ def _await_launch_gate(
     logger: FlightLogger,
     mode: str,
     summary: dict[str, object],
+    expected_visible_fan_range: tuple[int, int] | None,
 ) -> np.ndarray | None:
     started = time.perf_counter()
     next_serial_s = 0.0
@@ -282,6 +362,14 @@ def _await_launch_gate(
             continue
 
         state = adapter.update(sample, command_norm=controller.last_command_norm())
+        _append_fan_positions(
+            logger=logger,
+            vicon=vicon,
+            adapter=adapter,
+            phase="prelaunch",
+            expected_visible_fan_range=expected_visible_fan_range,
+            summary=summary,
+        )
         gate = evaluate_launch_gate(state)
         latest_gate_reason = gate.reason
         consecutive_approved = consecutive_approved + 1 if gate.approved else 0
@@ -327,6 +415,65 @@ def _await_launch_gate(
         launch_wait_timeout_s=float(config.launch_wait_timeout_s),
     )
     return None
+
+
+def _append_fan_positions(
+    *,
+    logger: FlightLogger,
+    vicon: LiveNausicaaViconRigidBody | ReplayNausicaaViconRigidBody,
+    adapter: NausicaaViconStateAdapter,
+    phase: str,
+    expected_visible_fan_range: tuple[int, int] | None,
+    summary: dict[str, object],
+) -> None:
+    if not hasattr(vicon, "read_fans"):
+        return
+    try:
+        fans = vicon.read_fans()
+    except Exception as exc:
+        logger.append_metric_row(
+            "fan_positions.csv",
+            {
+                "t_host_s": time.perf_counter(),
+                "phase": phase,
+                "fan_subject": "",
+                "visible": False,
+                "reason": f"fan_tracker_failed:{type(exc).__name__}",
+                "x_w": "",
+                "y_w": "",
+                "z_w": "",
+                "visible_count": 0,
+                "expected_count_ok": False,
+            },
+        )
+        return
+    visible_count = sum(1 for fan in fans if fan.visible)
+    if expected_visible_fan_range is None:
+        expected_ok = True
+    else:
+        expected_ok = int(expected_visible_fan_range[0]) <= visible_count <= int(expected_visible_fan_range[1])
+    summary["fan_visible_count_latest"] = int(visible_count)
+    summary["fan_expected_count_ok_latest"] = bool(expected_ok)
+    for fan in fans:
+        world = ("", "", "")
+        if fan.visible and fan.position_m is not None:
+            position = adapter.arena_transform.position_to_world(np.asarray(fan.position_m, dtype=float))
+            world = tuple(float(value) for value in position)
+        logger.append_metric_row(
+            "fan_positions.csv",
+            {
+                "t_host_s": time.perf_counter(),
+                "phase": phase,
+                "fan_subject": fan.subject_name,
+                "visible": bool(fan.visible),
+                "reason": fan.reason,
+                "x_w": world[0],
+                "y_w": world[1],
+                "z_w": world[2],
+                "visible_count": int(visible_count),
+                "expected_count_ok": bool(expected_ok),
+            },
+        )
 
 
 def _send_neutral_if_due(

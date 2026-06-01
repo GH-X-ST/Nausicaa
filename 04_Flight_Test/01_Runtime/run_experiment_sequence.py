@@ -1,0 +1,276 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from dataclasses import asdict
+from datetime import datetime
+from pathlib import Path
+
+from experiment_cases import EXPERIMENT_CASES, experiment_case_manifest, get_experiment_case
+from flight_config import (
+    DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
+    OPERATIONAL_REGION_CENTER_M,
+    RESULT_ROOT,
+    FlightRuntimeConfig,
+)
+from flight_logger import FlightLogger
+from frozen_flight_controller import FrozenFlightController
+from run_real_flight import run_real_flight
+
+
+# =============================================================================
+# EDIT THESE BEFORE STARTING A REAL EXPERIMENT BLOCK
+# =============================================================================
+CURRENT_EXPERIMENT_CASE = "E0.1"
+CURRENT_SESSION_LABEL = ""  # Empty means timestamped session label.
+TARGET_VALID_THROWS_OVERRIDE: int | None = None
+COOLDOWN_AFTER_VALID_THROW_S = 60.0
+RETRY_AFTER_INVALID_START_S = 2.0
+MAX_INVALID_ATTEMPTS: int | None = None
+SERIAL_PORT = "COM11"
+VICON_HOST = "192.168.0.100:801"
+MODE = "armed"  # Use "dry-run" for hardware-free tests.
+MAX_ACTIVE_FLIGHT_DURATION_S = 20.0
+LAUNCH_WAIT_TIMEOUT_S = 8.0
+POST_EXIT_NEUTRAL_TAIL_S = 0.30
+VICON_POSITION_OFFSET_M = OPERATIONAL_REGION_CENTER_M
+VICON_YAW_ALIGNMENT_DEG = 0.0
+# =============================================================================
+
+
+def run_experiment_sequence(
+    *,
+    case_id: str,
+    session_label: str,
+    mode: str,
+    serial_port: str,
+    vicon_host: str,
+    target_valid_throws: int | None,
+    cooldown_s: float,
+    retry_cooldown_s: float,
+    max_invalid_attempts: int | None,
+    max_duration_s: float,
+    launch_wait_timeout_s: float,
+    post_exit_neutral_tail_s: float,
+    vicon_position_offset_m: tuple[float, float, float],
+    vicon_yaw_alignment_deg: float,
+) -> dict[str, object]:
+    case = get_experiment_case(case_id)
+    target = int(target_valid_throws if target_valid_throws is not None else case.target_valid_throws)
+    if target <= 0:
+        raise ValueError("target valid throws must be positive.")
+    session = session_label or datetime.now().strftime("%Y%m%d_%H%M%S")
+    session_root = RESULT_ROOT / case.case_id / session
+    session_logger = FlightLogger(session_root)
+    base_config = FlightRuntimeConfig(
+        run_label="controller_session",
+        library_tier=DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
+        experiment_case_id=case.case_id,
+        experiment_case_name=case.case_name,
+        experiment_memory_enabled=case.memory_enabled,
+        experiment_layout_id=case.layout_id,
+        serial_port=serial_port,
+        vicon_host=vicon_host,
+        max_duration_s=max_duration_s,
+        launch_wait_timeout_s=launch_wait_timeout_s,
+        post_exit_neutral_tail_s=post_exit_neutral_tail_s,
+        retry_cooldown_s=retry_cooldown_s,
+        vicon_position_offset_m=vicon_position_offset_m,
+        vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
+        output_root=session_root,
+    )
+    controller = FrozenFlightController(base_config)
+    session_logger.write_manifest(
+        "experiment_sequence_manifest.json",
+        {
+            "case": asdict(case),
+            "session_label": session,
+            "target_valid_throws": target,
+            "mode": mode,
+            "library_tier": DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
+            "case_registry": experiment_case_manifest(),
+            "memory_policy": controller.memory_summary(),
+            "cooldown_after_valid_throw_s": float(cooldown_s),
+            "retry_after_invalid_start_s": float(retry_cooldown_s),
+        },
+    )
+    valid_count = 0
+    invalid_count = 0
+    attempt_index = 0
+    print(f"[START] case={case.case_id} {case.case_name}")
+    print(f"[START] memory_enabled={case.memory_enabled} layout={case.layout_id} target_valid_throws={target}")
+    try:
+        while valid_count < target:
+            if max_invalid_attempts is not None and invalid_count >= int(max_invalid_attempts):
+                print(f"[STOP] max invalid attempts reached: {invalid_count}")
+                break
+            attempt_index += 1
+            next_valid_throw_index = valid_count + 1
+            print(
+                f"[ARM] case={case.case_id} valid={valid_count}/{target} "
+                f"next_throw={next_valid_throw_index:03d} invalid_attempts={invalid_count}"
+            )
+            run_label = f"throw_{next_valid_throw_index:03d}"
+            output_root = session_root
+            if invalid_count >= 0:
+                pass
+            config = FlightRuntimeConfig(
+                run_label=run_label,
+                library_tier=DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
+                experiment_case_id=case.case_id,
+                experiment_case_name=case.case_name,
+                experiment_memory_enabled=case.memory_enabled,
+                experiment_layout_id=case.layout_id,
+                throw_index=next_valid_throw_index,
+                attempt_index=attempt_index,
+                serial_port=serial_port,
+                vicon_host=vicon_host,
+                max_duration_s=max_duration_s,
+                launch_wait_timeout_s=launch_wait_timeout_s,
+                post_exit_neutral_tail_s=post_exit_neutral_tail_s,
+                retry_cooldown_s=retry_cooldown_s,
+                vicon_position_offset_m=vicon_position_offset_m,
+                vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
+                output_root=output_root,
+            )
+            summary = run_real_flight(
+                config,
+                mode=mode,
+                controller=controller,
+                expected_visible_fan_range=(case.expected_visible_fan_min, case.expected_visible_fan_max),
+            )
+            if bool(summary.get("valid_throw", False)):
+                valid_count += 1
+                session_logger.append_metric_row("experiment_sequence_summary.csv", _session_row(case, summary, valid_count, invalid_count))
+                print(
+                    f"[DONE] case={case.case_id} throw={valid_count:03d}/{target} "
+                    f"speed={float(summary.get('launch_speed_m_s', 0.0)):.2f}m/s "
+                    f"term={summary.get('termination_reason', '') or 'duration'} "
+                    f"decisions={summary.get('controller_decision_count', 0)} "
+                    f"max_dt={float(summary.get('max_decision_time_s', 0.0)):.4f}s "
+                    f"memory_cells={summary.get('memory_cell_count', 0)}"
+                )
+                if valid_count < target:
+                    _cooldown(cooldown_s, label="cooldown_before_rearm", mode=mode)
+            else:
+                invalid_count += 1
+                invalid_root = session_root / "invalid_attempts"
+                _move_invalid_attempt(session_root / run_label, invalid_root / f"attempt_{invalid_count:03d}")
+                session_logger.append_metric_row("experiment_sequence_summary.csv", _session_row(case, summary, valid_count, invalid_count))
+                print(
+                    f"[INVALID] case={case.case_id} attempt={invalid_count:03d} "
+                    f"reason={summary.get('cancellation_reason', '')} valid={valid_count}/{target}"
+                )
+                _cooldown(retry_cooldown_s, label="retry_after_invalid_start", mode=mode)
+    finally:
+        session_logger.write_manifest(
+            "experiment_sequence_final_summary.json",
+            {
+                "case": asdict(case),
+                "session_label": session,
+                "target_valid_throws": target,
+                "valid_throw_count": valid_count,
+                "invalid_attempt_count": invalid_count,
+                "controller_memory": controller.memory_summary(),
+            },
+        )
+        session_logger.close()
+    print(f"[COMPLETE] case={case.case_id} valid={valid_count}/{target} invalid_attempts={invalid_count}")
+    return {
+        "case_id": case.case_id,
+        "session_root": session_root.as_posix(),
+        "valid_throw_count": valid_count,
+        "invalid_attempt_count": invalid_count,
+        "memory": controller.memory_summary(),
+    }
+
+
+def _session_row(case, summary: dict[str, object], valid_count: int, invalid_count: int) -> dict[str, object]:
+    return {
+        "case_id": case.case_id,
+        "case_name": case.case_name,
+        "layout_id": case.layout_id,
+        "memory_enabled": case.memory_enabled,
+        "valid_throw_count": int(valid_count),
+        "invalid_attempt_count": int(invalid_count),
+        "latest_run_root": summary.get("run_root", ""),
+        "latest_valid_throw": bool(summary.get("valid_throw", False)),
+        "latest_launch_speed_m_s": float(summary.get("launch_speed_m_s", 0.0)),
+        "latest_termination_reason": summary.get("termination_reason", ""),
+        "latest_controller_decisions": int(summary.get("controller_decision_count", 0)),
+        "latest_max_decision_time_s": float(summary.get("max_decision_time_s", 0.0)),
+        "latest_visible_fan_count": int(summary.get("fan_visible_count_latest", 0)),
+        "latest_fan_expected_count_ok": bool(summary.get("fan_expected_count_ok_latest", False)),
+        "latest_memory_update_observation_count": int(summary.get("memory_update_observation_count", 0)),
+        "latest_memory_cell_count": int(summary.get("memory_cell_count", 0)),
+        "latest_cancellation_reason": summary.get("cancellation_reason", ""),
+    }
+
+
+def _move_invalid_attempt(source: Path, target: Path) -> None:
+    if not source.exists():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        return
+    source.replace(target)
+
+
+def _cooldown(duration_s: float, *, label: str, mode: str) -> None:
+    duration = max(0.0, float(duration_s))
+    if duration <= 0.0:
+        return
+    remaining = int(round(duration))
+    while remaining > 0:
+        print(f"[WAIT] {label}: {remaining}s")
+        sleep_s = 1.0 if mode == "armed" else min(0.02, duration)
+        time.sleep(sleep_s)
+        remaining -= 1
+        if mode != "armed":
+            break
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run an operator-facing repeated real-flight experiment case.")
+    parser.add_argument("--case-id", default=CURRENT_EXPERIMENT_CASE, choices=tuple(sorted(EXPERIMENT_CASES)))
+    parser.add_argument("--session-label", default=CURRENT_SESSION_LABEL)
+    parser.add_argument("--mode", choices=("dry-run", "vicon-smoke", "armed"), default=MODE)
+    parser.add_argument("--serial-port", default=SERIAL_PORT)
+    parser.add_argument("--vicon-host", default=VICON_HOST)
+    parser.add_argument("--target-valid-throws", type=int, default=TARGET_VALID_THROWS_OVERRIDE)
+    parser.add_argument("--cooldown-s", type=float, default=COOLDOWN_AFTER_VALID_THROW_S)
+    parser.add_argument("--retry-cooldown-s", type=float, default=RETRY_AFTER_INVALID_START_S)
+    parser.add_argument("--max-invalid-attempts", type=int, default=MAX_INVALID_ATTEMPTS)
+    parser.add_argument("--duration-s", type=float, default=MAX_ACTIVE_FLIGHT_DURATION_S)
+    parser.add_argument("--launch-wait-timeout-s", type=float, default=LAUNCH_WAIT_TIMEOUT_S)
+    parser.add_argument("--post-exit-neutral-tail-s", type=float, default=POST_EXIT_NEUTRAL_TAIL_S)
+    parser.add_argument("--vicon-offset-m", nargs=3, type=float, default=None)
+    parser.add_argument("--vicon-yaw-deg", type=float, default=VICON_YAW_ALIGNMENT_DEG)
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = _parse_args()
+    result = run_experiment_sequence(
+        case_id=args.case_id,
+        session_label=args.session_label,
+        mode=args.mode,
+        serial_port=args.serial_port,
+        vicon_host=args.vicon_host,
+        target_valid_throws=args.target_valid_throws,
+        cooldown_s=args.cooldown_s,
+        retry_cooldown_s=args.retry_cooldown_s,
+        max_invalid_attempts=args.max_invalid_attempts,
+        max_duration_s=args.duration_s,
+        launch_wait_timeout_s=args.launch_wait_timeout_s,
+        post_exit_neutral_tail_s=args.post_exit_neutral_tail_s,
+        vicon_position_offset_m=tuple(args.vicon_offset_m) if args.vicon_offset_m is not None else VICON_POSITION_OFFSET_M,
+        vicon_yaw_alignment_deg=float(args.vicon_yaw_deg),
+    )
+    print(json.dumps(result, indent=2, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

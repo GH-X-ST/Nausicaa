@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 
 from flight_config import CONTROLLER_ROOT, FlightRuntimeConfig
+from real_flight_memory import MemoryUpdateSummary, RealFlightMemoryState
 
 if str(CONTROLLER_ROOT) not in sys.path:
     sys.path.insert(0, str(CONTROLLER_ROOT))
@@ -48,6 +49,11 @@ class FlightControllerDecision:
     current_state_class: str
     candidate_count: int
     viable_count: int
+    expected_energy_residual_m: float
+    expected_updraft_gain_proxy_m: float
+    expected_lift_dwell_time_s: float
+    memory_enabled: bool
+    memory_cell_count: int
     decision_time_s: float
     packet_bytes: bytes
 
@@ -64,6 +70,7 @@ class FrozenFlightController:
         self._command_fifo_by_controller_id: dict[str, list[np.ndarray]] = {}
         self._last_command_norm = np.zeros(3, dtype=float)
         self.sequence = 0
+        self.memory_state = RealFlightMemoryState(enabled=bool(config.experiment_memory_enabled))
 
     def decide(self, state_vector: np.ndarray, *, primitive_step_index: int) -> FlightControllerDecision:
         started = time.perf_counter()
@@ -75,16 +82,26 @@ class FrozenFlightController:
             library_tier=self.config.library_tier,
             primitive_step_index=primitive_step_index,
             route=route,
+            memory_enabled=bool(self.memory_state.enabled),
+            memory_launch_index=int(self.memory_state.launch_index),
         )
         selected, candidate_rows = select_compact_representative(
             representatives=self.representatives,
             outcome_rows_by_variant_id=self.outcomes,
             context=context,
             governor_mode=governor_mode,
-            policy_id="real_flight_no_cross_case_memory",
+            policy_id="real_flight_case_local_memory" if self.memory_state.enabled else "real_flight_no_cross_case_memory",
             belief_features=None,
-            candidate_belief_features=None,
-            adaptive_memory_active=False,
+            candidate_belief_features=(
+                lambda representative, outcome: self.memory_state.candidate_features(
+                    representative,
+                    outcome,
+                    current_state=state,
+                )
+            )
+            if self.memory_state.enabled
+            else None,
+            adaptive_memory_active=bool(self.memory_state.enabled),
             governor_config=self.governor_config,
             candidate_row_mode="controller",
         )
@@ -125,6 +142,11 @@ class FrozenFlightController:
             current_state_class=str(route["current_state_class"]),
             candidate_count=len(candidate_rows),
             viable_count=sum(1 for row in candidate_rows if bool(row.get("viable", False))),
+            expected_energy_residual_m=_safe_float(selected.get("expected_energy_residual_m", 0.0)),
+            expected_updraft_gain_proxy_m=_safe_float(selected.get("expected_updraft_gain_proxy_m", 0.0)),
+            expected_lift_dwell_time_s=_safe_float(selected.get("expected_lift_dwell_time_s", 0.0)),
+            memory_enabled=bool(self.memory_state.enabled),
+            memory_cell_count=int(self.memory_state.cell_count()),
             decision_time_s=time.perf_counter() - started,
             packet_bytes=packet.packet_bytes,
         )
@@ -142,6 +164,20 @@ class FrozenFlightController:
         packet = encode_arduino_command_packet(self._last_command_norm, sequence=self.sequence)
         self.sequence += 1
         return packet.packet_bytes
+
+    def update_memory_from_decision_records(self, records: list[dict[str, object]]) -> MemoryUpdateSummary:
+        return self.memory_state.update_from_decision_records(records)
+
+    def memory_summary(self) -> dict[str, object]:
+        return {
+            "memory_enabled": bool(self.memory_state.enabled),
+            "memory_launch_index": int(self.memory_state.launch_index),
+            "memory_update_count": int(self.memory_state.belief.update_count),
+            "memory_cell_count": int(self.memory_state.cell_count()),
+            "memory_policy": "case_local_real_flight_specific_energy_residual_map"
+            if self.memory_state.enabled
+            else "disabled",
+        }
 
     def _neutral_decision(
         self,
@@ -169,6 +205,11 @@ class FrozenFlightController:
             current_state_class=str(route.get("current_state_class", "")),
             candidate_count=int(candidate_count),
             viable_count=int(viable_count),
+            expected_energy_residual_m=0.0,
+            expected_updraft_gain_proxy_m=0.0,
+            expected_lift_dwell_time_s=0.0,
+            memory_enabled=bool(self.memory_state.enabled),
+            memory_cell_count=int(self.memory_state.cell_count()),
             decision_time_s=time.perf_counter() - started,
             packet_bytes=packet.packet_bytes,
         )
@@ -271,6 +312,14 @@ def _json_array(value: object) -> object:
     return value
 
 
+def _safe_float(value: object, default: float = 0.0) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    return result if np.isfinite(result) else float(default)
+
+
 def _validation_route_for_primitive_step(primitive_step_index: int, *, state: np.ndarray) -> dict[str, object]:
     if int(primitive_step_index) == 0:
         state_class = "launch_gate"
@@ -307,6 +356,8 @@ def _live_context_row(
     library_tier: str,
     primitive_step_index: int,
     route: dict[str, object],
+    memory_enabled: bool,
+    memory_launch_index: int,
 ) -> dict[str, object]:
     position = state[[STATE_INDEX["x_w"], STATE_INDEX["y_w"], STATE_INDEX["z_w"]]]
     margins = position_margin_m(position, TRUE_SAFE_BOUNDS)
@@ -364,9 +415,9 @@ def _live_context_row(
         "fan_count": 0,
         "updraft_model_id": "real_flight_unknown_flow",
         "library_size_case_id": str(library_tier),
-        "history_length": 0,
-        "adaptation_launch_index": 0,
-        "policy_id": "real_flight_no_cross_case_memory",
+        "history_length": int(memory_launch_index) if memory_enabled else 0,
+        "adaptation_launch_index": int(memory_launch_index) if memory_enabled else 0,
+        "policy_id": "real_flight_case_local_memory" if memory_enabled else "real_flight_no_cross_case_memory",
     }
 
 

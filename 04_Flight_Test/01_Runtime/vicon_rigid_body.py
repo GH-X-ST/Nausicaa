@@ -24,6 +24,15 @@ class ViconFrameStatus:
     vicon_latency_s: float = 0.0
 
 
+@dataclass(frozen=True)
+class FanViconSample:
+    subject_name: str
+    visible: bool
+    reason: str
+    position_m: tuple[float, float, float] | None = None
+    frame_number: int = -1
+
+
 class LiveNausicaaViconRigidBody:
     """Minimal Vicon rigid-body reader for one subject named Nausicaa."""
 
@@ -32,6 +41,7 @@ class LiveNausicaaViconRigidBody:
         self.subject_name = str(subject_name)
         self.client = None
         self.root_segment_name = ""
+        self._fan_root_segments: dict[str, str] = {}
 
     def open(self) -> "LiveNausicaaViconRigidBody":
         try:
@@ -89,6 +99,38 @@ class LiveNausicaaViconRigidBody:
         except Exception as exc:
             return None, ViconFrameStatus(False, f"vicon_read_failed:{type(exc).__name__}:{exc}")
 
+    def read_fans(self, fan_subject_names: tuple[str, ...] = ("Fan_1", "Fan_2", "Fan_3", "Fan_4")) -> tuple[FanViconSample, ...]:
+        if self.client is None:
+            raise RuntimeError("Vicon reader is not open.")
+        rows: list[FanViconSample] = []
+        try:
+            frame_number = int(self.client.GetFrameNumber())
+        except Exception:
+            frame_number = -1
+        for subject_name in fan_subject_names:
+            subject = str(subject_name)
+            try:
+                root = self._fan_root_segments.get(subject)
+                if not root:
+                    root = str(self.client.GetSubjectRootSegmentName(subject))
+                    self._fan_root_segments[subject] = root
+                translation, occluded = self.client.GetSegmentGlobalTranslation(subject, root)
+                if bool(occluded):
+                    rows.append(FanViconSample(subject, False, "fan_subject_occluded", frame_number=frame_number))
+                    continue
+                rows.append(
+                    FanViconSample(
+                        subject_name=subject,
+                        visible=True,
+                        reason="ok",
+                        position_m=tuple(float(value) / 1000.0 for value in translation),
+                        frame_number=frame_number,
+                    )
+                )
+            except Exception as exc:
+                rows.append(FanViconSample(subject, False, f"fan_read_failed:{type(exc).__name__}", frame_number=frame_number))
+        return tuple(rows)
+
     def close(self) -> None:
         if self.client is not None:
             try:
@@ -124,6 +166,27 @@ class ReplayNausicaaViconRigidBody:
             vicon_latency_s=0.0,
         )
         return sample, ViconFrameStatus(True, "replay", frame_number=self.index)
+
+    def read_fans(self, fan_subject_names: tuple[str, ...] = ("Fan_1", "Fan_2", "Fan_3", "Fan_4")) -> tuple[FanViconSample, ...]:
+        positions = {
+            "Fan_1": (-1.2, -0.6, -1.20),
+            "Fan_2": (-1.2, 0.6, -1.20),
+            "Fan_3": (0.6, -0.6, -1.20),
+            "Fan_4": (0.6, 0.6, -1.20),
+        }
+        rows = []
+        for subject_name in fan_subject_names:
+            raw = positions.get(str(subject_name))
+            rows.append(
+                FanViconSample(
+                    subject_name=str(subject_name),
+                    visible=raw is not None,
+                    reason="replay" if raw is not None else "fan_not_in_replay",
+                    position_m=raw,
+                    frame_number=self.index,
+                )
+            )
+        return tuple(rows)
 
     def close(self) -> None:
         pass

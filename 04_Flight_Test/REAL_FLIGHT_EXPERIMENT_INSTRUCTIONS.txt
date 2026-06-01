@@ -1,0 +1,152 @@
+Nausicaa Real-Flight Experiment Instructions
+============================================
+
+Purpose
+-------
+This folder contains the self-contained real-flight runtime. The live loop is:
+
+Vicon rigid body Nausicaa -> canonical 15-state -> heavy-cluster frozen governor
+-> 20 percent command lattice -> Nano33 IoT packet -> transmitter/receiver/servos.
+
+The real-flight experiment launcher lets the operator start one case once. It
+then waits for a valid launch gate, records one throw, sends neutral after exit,
+waits for cooldown, and automatically re-arms for the next throw. Failed launch
+starts are ignored: they do not count as valid throws and do not update memory.
+
+
+Before Any Throw
+----------------
+1. Power the receiver, transmitter path, Nano33 IoT, and Vicon system.
+2. In Vicon, confirm the glider rigid body is named exactly:
+   Nausicaa
+3. If fan tracking is used, confirm fan rigid bodies are named exactly:
+   Fan_1, Fan_2, Fan_3, Fan_4
+4. Confirm the Vicon origin and yaw alignment match the runtime settings.
+   The default assumes raw Vicon origin is at the operational-region centre:
+   x_w=3.9 m, y_w=2.2 m, z_w=1.95 m.
+5. Install pyserial in the active Python environment if needed:
+   C:\ProgramData\miniforge3\python.exe -m pip install pyserial
+6. Run the surface sign check before closed-loop flight.
+
+
+Surface Sign Check
+------------------
+Run:
+
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_surface_sign_check.py --mode armed --serial-port COM11
+
+Watch each printed command and confirm the physical surface motion:
+1. neutral: all surfaces neutral.
+2. positive_aileron: left and right ailerons move in opposition for positive roll.
+3. negative_aileron: opposite of positive aileron.
+4. positive_elevator: elevator moves for nose-up positive pitch.
+5. negative_elevator: opposite of positive elevator.
+6. positive_rudder: rudder moves for nose-right positive yaw.
+7. negative_rudder: opposite of positive rudder.
+8. neutral_end: all surfaces neutral.
+
+If any surface moves the wrong way, stop. Do not fly until servo sign, receiver
+channel order, and packet mapping are fixed.
+
+
+How To Start One Experiment Case
+--------------------------------
+Open:
+
+04_Flight_Test\01_Runtime\run_experiment_sequence.py
+
+At the top of the file, edit:
+
+CURRENT_EXPERIMENT_CASE = "E0.1"
+CURRENT_SESSION_LABEL = ""
+SERIAL_PORT = "COM11"
+VICON_HOST = "192.168.0.100:801"
+MODE = "armed"
+
+Then run:
+
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_experiment_sequence.py
+
+The console prints the case ID, memory mode, target valid throw count, latest
+completed throw, launch speed, termination reason, controller decision count,
+max decision time, fan count, and memory cell count.
+
+
+Launch Gate Rule
+----------------
+A throw becomes active only if the measured release state passes the same launch
+gate used in simulation:
+
+x_w in [1.2, 1.4] m
+y_w in [1.8, 2.2] m
+z_w in [1.5, 1.9] m
+roll in +/-20 deg
+pitch in [-10, +20] deg
+yaw in +/-20 deg
+speed in [3, 8] m/s
+
+If the launch gate times out, the attempt is stored under invalid_attempts, but
+it does not count as a throw and does not update memory.
+
+
+Fan Layout Rule
+---------------
+Never move fan positions during one flight.
+Never move fan positions inside one memory episode.
+Move fans only between separate layout episodes.
+
+Fan markers are logged for evidence and sanity checking. They do not create
+fan-layout-specific controller branches.
+
+
+Experiment Checklist
+--------------------
+E0.1 - Dry-air shakedown, 5 valid throws.
+  Fan markers: none expected.
+  Purpose: confirm launch gate, Vicon transform, neutral recovery, and logging.
+
+E0.2 - Four-fan shakedown, 5 valid throws.
+  Fan markers: Fan_1 to Fan_4 expected.
+  Purpose: confirm fan tracking and closed-loop logging with fans active.
+
+E1.1 - Dry air, no memory.
+E1.2 - Dry air, memory enabled.
+  Fan markers: none expected.
+  Purpose: dry-air baseline and launch-speed dependence.
+
+E2.1 - Single fan fixed, no memory.
+E2.2 - Single fan fixed, memory enabled.
+  Fan markers: one fan expected.
+  Purpose: clearest real updraft memory-learning evidence.
+
+E3.1 - Four fan fixed, no memory.
+E3.2 - Four fan fixed, memory enabled.
+  Fan markers: four fans expected.
+  Purpose: main multi-updraft exploitation evidence.
+
+E4a.1/E4a.2 - Hard shifted layout 1, no memory / memory.
+E4b.1/E4b.2 - Hard shifted layout 2, no memory / memory.
+E4c.1/E4c.2 - Hard shifted layout 3, no memory / memory.
+  Fan markers: four fans expected.
+  Purpose: unseen but fixed difficult layouts.
+
+E5a.1/E5a.2 - Random layout 1, no memory / memory.
+E5b.1/E5b.2 - Random layout 2, no memory / memory.
+E5c.1/E5c.2 - Random layout 3, no memory / memory.
+E5d.1/E5d.2 - Random layout 4, no memory / memory.
+  Fan markers: one to four fans expected.
+  Purpose: broader unseen-layout generalisation.
+
+
+Result Folders
+--------------
+Each case is stored separately:
+
+04_Flight_Test\05_Results\<case_id>\<session_label>\throw_001
+04_Flight_Test\05_Results\<case_id>\<session_label>\throw_002
+...
+04_Flight_Test\05_Results\<case_id>\<session_label>\invalid_attempts\attempt_001
+
+Use the case-level experiment_sequence_summary.csv for a quick run overview.
+Use each throw folder for detailed state, fan, command, controller, and memory
+logs.

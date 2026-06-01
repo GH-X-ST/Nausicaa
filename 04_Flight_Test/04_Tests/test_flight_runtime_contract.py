@@ -14,6 +14,7 @@ for path in (RUNTIME, CONTROLLER):
 
 from flight_config import FlightRuntimeConfig  # noqa: E402
 from frozen_flight_controller import FrozenFlightController  # noqa: E402
+from experiment_cases import EXPERIMENT_CASES, get_experiment_case  # noqa: E402
 from exit_gate import evaluate_exit_gate  # noqa: E402
 from launch_gate import evaluate_launch_gate  # noqa: E402
 from real_flight_io import (  # noqa: E402
@@ -24,7 +25,10 @@ from real_flight_io import (  # noqa: E402
     encode_arduino_command_packet,
 )
 from run_real_flight import run_real_flight  # noqa: E402
+from run_experiment_sequence import run_experiment_sequence  # noqa: E402
+from run_surface_sign_check import SURFACE_CHECK_SEQUENCE, run_surface_sign_check  # noqa: E402
 from state_contract import STATE_INDEX  # noqa: E402
+from vicon_rigid_body import ReplayNausicaaViconRigidBody  # noqa: E402
 
 
 def _code(value: float) -> int:
@@ -159,3 +163,107 @@ def test_active_record_terminates_at_exit_gate_and_sends_neutral_tail(tmp_path: 
     assert summary["termination_reason"] == "exit_gate_front_wall"
     assert summary["post_exit_neutral_packets"] >= 1
     assert (tmp_path / "T_exit" / "metrics" / "state_samples.csv").exists()
+
+
+def test_experiment_case_registry_contains_requested_cases() -> None:
+    requested = {
+        "E0.1",
+        "E0.2",
+        "E1.1",
+        "E1.2",
+        "E2.1",
+        "E2.2",
+        "E3.1",
+        "E3.2",
+        "E4a.1",
+        "E4a.2",
+        "E4b.1",
+        "E4b.2",
+        "E4c.1",
+        "E4c.2",
+        "E5a.1",
+        "E5a.2",
+        "E5b.1",
+        "E5b.2",
+        "E5c.1",
+        "E5c.2",
+        "E5d.1",
+        "E5d.2",
+    }
+    assert requested.issubset(EXPERIMENT_CASES)
+    assert get_experiment_case("E2.2").memory_enabled is True
+    assert get_experiment_case("E1.1").memory_enabled is False
+
+
+def test_replay_fan_tracker_handles_zero_one_and_four_subjects() -> None:
+    replay = ReplayNausicaaViconRigidBody().open()
+    replay.read_latest()
+    assert sum(1 for fan in replay.read_fans(("Missing_Fan",)) if fan.visible) == 0
+    assert sum(1 for fan in replay.read_fans(("Fan_1",)) if fan.visible) == 1
+    assert sum(1 for fan in replay.read_fans(("Fan_1", "Fan_2", "Fan_3", "Fan_4")) if fan.visible) == 4
+
+
+def test_experiment_sequence_counts_only_valid_throws_and_persists_memory(tmp_path: Path, monkeypatch) -> None:
+    import run_experiment_sequence as sequence_module
+
+    monkeypatch.setattr(sequence_module, "RESULT_ROOT", tmp_path)
+    result = run_experiment_sequence(
+        case_id="E2.2",
+        session_label="pytest_memory",
+        mode="dry-run",
+        serial_port="COM_TEST",
+        vicon_host="mock",
+        target_valid_throws=2,
+        cooldown_s=0.0,
+        retry_cooldown_s=0.0,
+        max_invalid_attempts=2,
+        max_duration_s=0.22,
+        launch_wait_timeout_s=0.20,
+        post_exit_neutral_tail_s=0.0,
+        vicon_position_offset_m=(3.9, 2.2, 1.95),
+        vicon_yaw_alignment_deg=0.0,
+    )
+    assert result["valid_throw_count"] == 2
+    assert result["invalid_attempt_count"] == 0
+    assert int(result["memory"]["memory_launch_index"]) >= 1
+    assert (tmp_path / "E2.2" / "pytest_memory" / "throw_001" / "metrics" / "memory_update_summary.csv").exists()
+
+
+def test_experiment_sequence_invalid_start_does_not_count_or_update_memory(tmp_path: Path, monkeypatch) -> None:
+    import run_experiment_sequence as sequence_module
+
+    monkeypatch.setattr(sequence_module, "RESULT_ROOT", tmp_path)
+    result = run_experiment_sequence(
+        case_id="E2.2",
+        session_label="pytest_invalid",
+        mode="dry-run",
+        serial_port="COM_TEST",
+        vicon_host="mock",
+        target_valid_throws=1,
+        cooldown_s=0.0,
+        retry_cooldown_s=0.0,
+        max_invalid_attempts=1,
+        max_duration_s=0.05,
+        launch_wait_timeout_s=0.001,
+        post_exit_neutral_tail_s=0.0,
+        vicon_position_offset_m=(1000.0, 2.2, 1.95),
+        vicon_yaw_alignment_deg=0.0,
+    )
+    assert result["valid_throw_count"] == 0
+    assert result["invalid_attempt_count"] >= 1
+    assert int(result["memory"]["memory_launch_index"]) == 0
+    assert (tmp_path / "E2.2" / "pytest_invalid" / "invalid_attempts" / "attempt_001").exists()
+
+
+def test_surface_sign_check_uses_same_packet_contract(tmp_path: Path, monkeypatch) -> None:
+    import run_surface_sign_check as sign_module
+
+    monkeypatch.setattr(sign_module, "RESULT_ROOT", tmp_path)
+    result = run_surface_sign_check(
+        serial_port="COM_TEST",
+        mode="dry-run",
+        dwell_s=0.0,
+        run_label="pytest_surface",
+    )
+    assert result["packet_count"] == len(SURFACE_CHECK_SEQUENCE) + 1
+    assert (tmp_path / "surface_sign_check" / "pytest_surface" / "metrics" / "surface_sign_check.csv").exists()

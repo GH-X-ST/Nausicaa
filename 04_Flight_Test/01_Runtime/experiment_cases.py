@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class ExperimentCase:
+    case_id: str
+    case_name: str
+    layout_id: str
+    memory_enabled: bool
+    expected_visible_fan_min: int
+    expected_visible_fan_max: int
+    target_valid_throws: int
+    evidence_role: str
+
+
+def _case(
+    case_id: str,
+    case_name: str,
+    *,
+    layout_id: str,
+    memory_enabled: bool,
+    expected_visible_fan_min: int,
+    expected_visible_fan_max: int,
+    target_valid_throws: int,
+    evidence_role: str = "real_flight_evidence",
+) -> ExperimentCase:
+    return ExperimentCase(
+        case_id=case_id,
+        case_name=case_name,
+        layout_id=layout_id,
+        memory_enabled=memory_enabled,
+        expected_visible_fan_min=expected_visible_fan_min,
+        expected_visible_fan_max=expected_visible_fan_max,
+        target_valid_throws=target_valid_throws,
+        evidence_role=evidence_role,
+    )
+
+
+EXPERIMENT_CASES: dict[str, ExperimentCase] = {
+    "E0.1": _case(
+        "E0.1",
+        "Dry-air shakedown before E1",
+        layout_id="E0_dry_air_shakedown",
+        memory_enabled=False,
+        expected_visible_fan_min=0,
+        expected_visible_fan_max=0,
+        target_valid_throws=5,
+        evidence_role="shakedown_only",
+    ),
+    "E0.2": _case(
+        "E0.2",
+        "Four-fan tracked-layout shakedown before E1",
+        layout_id="E0_four_fan_shakedown",
+        memory_enabled=True,
+        expected_visible_fan_min=4,
+        expected_visible_fan_max=4,
+        target_valid_throws=5,
+        evidence_role="shakedown_only",
+    ),
+    "E1.1": _case("E1.1", "Dry air, no memory", layout_id="E1_dry_air", memory_enabled=False, expected_visible_fan_min=0, expected_visible_fan_max=0, target_valid_throws=30),
+    "E1.2": _case("E1.2", "Dry air, memory enabled", layout_id="E1_dry_air", memory_enabled=True, expected_visible_fan_min=0, expected_visible_fan_max=0, target_valid_throws=30),
+    "E2.1": _case("E2.1", "Single fan fixed, no memory", layout_id="E2_single_fan_fixed", memory_enabled=False, expected_visible_fan_min=1, expected_visible_fan_max=1, target_valid_throws=30),
+    "E2.2": _case("E2.2", "Single fan fixed, memory enabled", layout_id="E2_single_fan_fixed", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=1, target_valid_throws=90),
+    "E3.1": _case("E3.1", "Four fan fixed, no memory", layout_id="E3_four_fan_fixed", memory_enabled=False, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30),
+    "E3.2": _case("E3.2", "Four fan fixed, memory enabled", layout_id="E3_four_fan_fixed", memory_enabled=True, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=90),
+    "E4a.1": _case("E4a.1", "Hard shifted fan layout 1, no memory", layout_id="E4a_hard_shifted_layout_1", memory_enabled=False, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30),
+    "E4a.2": _case("E4a.2", "Hard shifted fan layout 1, memory enabled", layout_id="E4a_hard_shifted_layout_1", memory_enabled=True, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=60),
+    "E4b.1": _case("E4b.1", "Hard shifted fan layout 2, no memory", layout_id="E4b_hard_shifted_layout_2", memory_enabled=False, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30),
+    "E4b.2": _case("E4b.2", "Hard shifted fan layout 2, memory enabled", layout_id="E4b_hard_shifted_layout_2", memory_enabled=True, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=60),
+    "E4c.1": _case("E4c.1", "Hard shifted fan layout 3, no memory", layout_id="E4c_hard_shifted_layout_3", memory_enabled=False, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30),
+    "E4c.2": _case("E4c.2", "Hard shifted fan layout 3, memory enabled", layout_id="E4c_hard_shifted_layout_3", memory_enabled=True, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=60),
+    "E5a.1": _case("E5a.1", "Random fan layout 1, no memory", layout_id="E5a_random_layout_1", memory_enabled=False, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
+    "E5a.2": _case("E5a.2", "Random fan layout 1, memory enabled", layout_id="E5a_random_layout_1", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=45),
+    "E5b.1": _case("E5b.1", "Random fan layout 2, no memory", layout_id="E5b_random_layout_2", memory_enabled=False, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
+    "E5b.2": _case("E5b.2", "Random fan layout 2, memory enabled", layout_id="E5b_random_layout_2", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=45),
+    "E5c.1": _case("E5c.1", "Random fan layout 3, no memory", layout_id="E5c_random_layout_3", memory_enabled=False, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
+    "E5c.2": _case("E5c.2", "Random fan layout 3, memory enabled", layout_id="E5c_random_layout_3", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=45),
+    "E5d.1": _case("E5d.1", "Random fan layout 4, no memory", layout_id="E5d_random_layout_4", memory_enabled=False, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
+    "E5d.2": _case("E5d.2", "Random fan layout 4, memory enabled", layout_id="E5d_random_layout_4", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=45),
+}
+
+
+def get_experiment_case(case_id: str) -> ExperimentCase:
+    key = str(case_id)
+    try:
+        return EXPERIMENT_CASES[key]
+    except KeyError as exc:
+        known = ", ".join(sorted(EXPERIMENT_CASES))
+        raise ValueError(f"unknown experiment case {key!r}. Known cases: {known}") from exc
+
+
+def experiment_case_manifest() -> list[dict[str, object]]:
+    return [
+        {
+            "case_id": case.case_id,
+            "case_name": case.case_name,
+            "layout_id": case.layout_id,
+            "memory_enabled": case.memory_enabled,
+            "expected_visible_fan_min": case.expected_visible_fan_min,
+            "expected_visible_fan_max": case.expected_visible_fan_max,
+            "target_valid_throws": case.target_valid_throws,
+            "evidence_role": case.evidence_role,
+        }
+        for case in EXPERIMENT_CASES.values()
+    ]

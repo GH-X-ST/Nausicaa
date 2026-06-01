@@ -51,6 +51,25 @@ Run armed closed-loop flight only after the Vicon and serial smoke tests pass:
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.py --mode armed --serial-port COM11 --duration-s 20 --run-label F01
 ```
 
+Before closed-loop flight, verify servo sign and receiver-channel order:
+
+```powershell
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_surface_sign_check.py --mode armed --serial-port COM11
+```
+
+For repeated experiment blocks, edit `CURRENT_EXPERIMENT_CASE` at the top of
+`01_Runtime\run_experiment_sequence.py`, then run:
+
+```powershell
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_experiment_sequence.py
+```
+
+The sequence launcher stores results under
+`05_Results/<case_id>/<session_label>/throw_001`, waits 60 s after each valid
+throw, and automatically re-arms. Failed launch-gate attempts are stored under
+`invalid_attempts`, do not count as throws, and do not update memory. The full
+operator checklist is in `REAL_FLIGHT_EXPERIMENT_INSTRUCTIONS.txt`.
+
 In armed mode, the controller first waits in an armed-ready state and sends
 neutral commands. Active control and the flight record start only when the
 measured state passes the same R5 launch gate used by simulation:
@@ -112,6 +131,12 @@ among the real-time candidate tiers.
 needed during smoke testing. This selection is a deployment tradeoff, not a
 claim that one compact library dominates every speed bin, environment ladder,
 or repeated-launch policy.
+
+Memory-enabled experiment cases keep one case-local 0.1 m flow-belief map
+across valid throws only. No-memory cases keep `adaptive_memory_active=False`.
+Fan Vicon rigid bodies named `Fan_1` to `Fan_4` are logged for evidence and
+sanity checking, but fan positions do not create fan-layout-specific controller
+branches.
 
 ## Vicon Arena Frame
 
