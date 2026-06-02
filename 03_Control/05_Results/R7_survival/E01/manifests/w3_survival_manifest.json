@@ -1,0 +1,439 @@
+{
+  "version": "r7_fixed_lqr_survival_replay_v415_includes_dry_air",
+  "project_title_version": "LQR-Stabilised Contextual Primitive v5.20",
+  "status": "complete",
+  "run_id": 21,
+  "run_label": "E01",
+  "input_root": "03_Control/05_Results/R5_dense/E01",
+  "input_contract": "R5 selected transition-object frozen controller bundle for W3 held-out validation; legacy W2 survivor roots are diagnostic fixtures only",
+  "source_input_kind": "r5_frozen_bundle_direct",
+  "source_w01_root": "03_Control/05_Results/R5_dense/E01",
+  "source_w2_root": "",
+  "source_r5_status": "",
+  "source_r5_method_evidence_level": "w01_dense_evidence_complete",
+  "source_r5_w01_dense_evidence_complete": true,
+  "source_r5_transition_training_status": "passed",
+  "source_r5_selected_transition_object_count": 1867,
+  "source_r5_selected_for_r7_csv": "metrics/r5_transition_selected_for_r7.csv",
+  "source_w2_status": "",
+  "source_w2_dense_survival_evidence_complete": false,
+  "source_w2_required_for_move_on": false,
+  "row_count": 298720,
+  "survivor_count": 1867,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "rollout_dt_s": 0.02,
+  "primitive_timing_contract": {
+    "finite_horizon_s": 0.1,
+    "controller_input_slots_per_primitive": 5,
+    "controller_input_update_period_s": 0.02,
+    "primitive_timing_contract_version": "v411_0p10s_5slot_20ms"
+  },
+  "primitive_timing_contract_status": "compliant",
+  "method_evidence_level": "w3_dense_survival_pass",
+  "paired_tests_per_variant": 20,
+  "r7_evidence_distribution_version": "anchor_plus_r10_uncertainty_family_v1",
+  "r7_evidence_block_count": 8,
+  "r7_evidence_block_ids": [
+    "r7_anchor_dry_air",
+    "r7_anchor_single_fan_fixed",
+    "r7_anchor_four_fan_fixed",
+    "r7_random_single_fan_local",
+    "r7_random_four_fan_parameter",
+    "r7_random_active_fan_count",
+    "r7_random_local_fan_position",
+    "r7_random_arena_wide"
+  ],
+  "r7_evidence_blocks": [
+    {
+      "block_id": "r7_anchor_dry_air",
+      "human_label": "R7 dry-air anchor",
+      "W_layer": "W0",
+      "environment_mode": "dry_air",
+      "uncertainty_tier": "anchor_dry_air",
+      "stage_role": "heldout_control_anchor",
+      "active_fan_count_policy": "fixed_zero_active_fans",
+      "fan_position_policy": "no_fan_positions",
+      "fixed_active_fan_count": 0,
+      "active_fan_count_sequence": [],
+      "fan_power_scale_range": [
+        1.0,
+        1.0
+      ],
+      "width_scale_range": [
+        1.0,
+        1.0
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.0
+      ],
+      "fan_position_shift_range_m": [
+        -0.2,
+        0.2
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 0
+    },
+    {
+      "block_id": "r7_anchor_single_fan_fixed",
+      "human_label": "R7 fixed single-fan anchor",
+      "W_layer": "W3",
+      "environment_mode": "w3_randomised_single",
+      "uncertainty_tier": "anchor_fixed_single_fan",
+      "stage_role": "heldout_control_anchor",
+      "active_fan_count_policy": "fixed_one_active_fan",
+      "fan_position_policy": "fixed_base_positions",
+      "fixed_active_fan_count": 1,
+      "active_fan_count_sequence": [],
+      "fan_power_scale_range": [
+        1.0,
+        1.0
+      ],
+      "width_scale_range": [
+        1.0,
+        1.0
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.0
+      ],
+      "fan_position_shift_range_m": [
+        0.0,
+        0.0
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 1
+    },
+    {
+      "block_id": "r7_anchor_four_fan_fixed",
+      "human_label": "R7 fixed four-fan anchor",
+      "W_layer": "W3",
+      "environment_mode": "w3_randomised_four",
+      "uncertainty_tier": "anchor_fixed_four_fan",
+      "stage_role": "heldout_control_anchor",
+      "active_fan_count_policy": "fixed_four_active_fans",
+      "fan_position_policy": "fixed_base_positions",
+      "fixed_active_fan_count": 4,
+      "active_fan_count_sequence": [],
+      "fan_power_scale_range": [
+        1.0,
+        1.0
+      ],
+      "width_scale_range": [
+        1.0,
+        1.0
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.0
+      ],
+      "fan_position_shift_range_m": [
+        0.0,
+        0.0
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 2
+    },
+    {
+      "block_id": "r7_random_single_fan_local",
+      "human_label": "R7 randomized single-fan local uncertainty",
+      "W_layer": "W3",
+      "environment_mode": "w3_randomised_single",
+      "uncertainty_tier": "single_fan_local_uncertainty",
+      "stage_role": "heldout_uncertainty_validation",
+      "active_fan_count_policy": "fixed_one_active_fan",
+      "fan_position_policy": "common_shift",
+      "fixed_active_fan_count": 1,
+      "active_fan_count_sequence": [],
+      "fan_power_scale_range": [
+        0.85,
+        1.15
+      ],
+      "width_scale_range": [
+        0.85,
+        1.15
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.5
+      ],
+      "fan_position_shift_range_m": [
+        -0.2,
+        0.2
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 3
+    },
+    {
+      "block_id": "r7_random_four_fan_parameter",
+      "human_label": "R7 four-fan parameter uncertainty",
+      "W_layer": "W3",
+      "environment_mode": "w3_randomised_four",
+      "uncertainty_tier": "four_fan_parameter_uncertainty",
+      "stage_role": "heldout_uncertainty_validation",
+      "active_fan_count_policy": "fixed_four_active_fans",
+      "fan_position_policy": "fixed_base_positions",
+      "fixed_active_fan_count": 4,
+      "active_fan_count_sequence": [],
+      "fan_power_scale_range": [
+        0.85,
+        1.15
+      ],
+      "width_scale_range": [
+        0.85,
+        1.15
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.5
+      ],
+      "fan_position_shift_range_m": [
+        -0.2,
+        0.2
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 4
+    },
+    {
+      "block_id": "r7_random_active_fan_count",
+      "human_label": "R7 active fan-count uncertainty",
+      "W_layer": "W3",
+      "environment_mode": "w3_randomised_four",
+      "uncertainty_tier": "active_fan_count_uncertainty",
+      "stage_role": "heldout_uncertainty_validation",
+      "active_fan_count_policy": "balanced_0_1_2_3_4_for_active_fan_number_variation",
+      "fan_position_policy": "fixed_base_positions",
+      "fixed_active_fan_count": null,
+      "active_fan_count_sequence": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "fan_power_scale_range": [
+        0.85,
+        1.15
+      ],
+      "width_scale_range": [
+        0.85,
+        1.15
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.5
+      ],
+      "fan_position_shift_range_m": [
+        -0.2,
+        0.2
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 5
+    },
+    {
+      "block_id": "r7_random_local_fan_position",
+      "human_label": "R7 local fan-position uncertainty",
+      "W_layer": "W3",
+      "environment_mode": "w3_randomised_four",
+      "uncertainty_tier": "local_fan_position_uncertainty",
+      "stage_role": "heldout_uncertainty_validation",
+      "active_fan_count_policy": "fixed_four_active_fans",
+      "fan_position_policy": "common_shift",
+      "fixed_active_fan_count": 4,
+      "active_fan_count_sequence": [],
+      "fan_power_scale_range": [
+        0.85,
+        1.15
+      ],
+      "width_scale_range": [
+        0.85,
+        1.15
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.5
+      ],
+      "fan_position_shift_range_m": [
+        -0.2,
+        0.2
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 6
+    },
+    {
+      "block_id": "r7_random_arena_wide",
+      "human_label": "R7 arena-wide full randomisation",
+      "W_layer": "W3",
+      "environment_mode": "w3_randomised_four",
+      "uncertainty_tier": "arena_wide_full_randomisation",
+      "stage_role": "heldout_uncertainty_validation",
+      "active_fan_count_policy": "balanced_0_1_2_3_4_with_arena_wide_fan_position_generalisation",
+      "fan_position_policy": "independent_uniform_xy_bounds",
+      "fixed_active_fan_count": null,
+      "active_fan_count_sequence": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "fan_power_scale_range": [
+        0.85,
+        1.15
+      ],
+      "width_scale_range": [
+        0.85,
+        1.15
+      ],
+      "uncertainty_scale_range": [
+        1.0,
+        1.5
+      ],
+      "fan_position_shift_range_m": [
+        -0.2,
+        0.2
+      ],
+      "fan_position_xy_bounds_m": [
+        [
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          4.8
+        ]
+      ],
+      "fan_position_safety_radius_m": 0.5,
+      "order_index": 7
+    }
+  ],
+  "candidate_chunk_size": 800,
+  "chunk_count": 374,
+  "selected_worker_count": 8,
+  "worker_decision": {
+    "requested": "8",
+    "selected_worker_count": 8,
+    "max_workers": 8,
+    "os_cpu_count": 20,
+    "memory_total_gb": 31.668304443359375,
+    "memory_safety_margin_gb": 8.0,
+    "estimated_worker_memory_gb": 2.0,
+    "fallback_reason": "none"
+  },
+  "dry_run_schedule": false,
+  "resume": true,
+  "repair_incomplete": true,
+  "source_evidence_label": "",
+  "test_fixture_not_method_evidence": false,
+  "fixed_lqr_replay_only": true,
+  "mutates_Q_R_K_reference_horizon_entry_set_or_entry_role": false,
+  "entry_role_regime_separation_policy": "role_aware_start_family_schedule_launch_inflight_recovery_not_mixed",
+  "transition_contract": {
+    "transition_label_version": "transition_labels_v3_recovery_progress",
+    "state_classes": "launch_gate;post_launch_degraded;inflight_stable;boundary_near;recoverable_degraded;safe_terminal;hard_failure",
+    "active_primitive_role_policy": "launch_is_entry_regime_not_primitive_family",
+    "launch_gate_required_exit_classes": "post_launch_degraded;inflight_stable",
+    "inflight_stable_required_exit_classes": "inflight_stable;boundary_near;safe_terminal",
+    "boundary_near_required_exit_classes": "inflight_stable;safe_terminal",
+    "recoverable_degraded_required_exit_classes": "inflight_stable;recoverable_degraded;safe_terminal",
+    "recoverable_degraded_self_exit_requires_progress": true,
+    "recovery_progress_min_risk_reduction": 0.05,
+    "recovery_progress_max_floor_margin_loss_m": 0.03,
+    "recovery_progress_max_boundary_time_loss_s": 0.05,
+    "boundary_near_is_route_state_not_failure": true,
+    "boundary_near_static_wall_margin_m": 0.25,
+    "boundary_near_front_time_margin_s": 0.45,
+    "boundary_near_side_time_margin_s": 0.35,
+    "boundary_near_time_margin_uses_front_and_side_not_rear": true,
+    "hard_failure_is_only_failure_class": true
+  },
+  "transition_success_policy": "R7_survival_requires_transition_compatibility_not_local_rollout_success_only",
+  "forbidden_mutations": "Q/R,K,reference,horizon,entry_set,entry_role",
+  "status_vocabulary": [
+    "blocked",
+    "ready_for_fixed_lqr_replay",
+    "complete",
+    "not_run"
+  ],
+  "redesign_policy": "new_ids_return_to_W01",
+  "blocked_reason": "",
+  "blocked_claims": [
+    "W3_robustness_complete",
+    "post_W3_library_size_study_ready",
+    "governor_validation",
+    "hardware_readiness",
+    "real_flight_transfer",
+    "mission_success"
+  ]
+}
