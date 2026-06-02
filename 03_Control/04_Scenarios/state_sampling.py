@@ -196,7 +196,7 @@ def state_is_launch_gate_compliant(state: np.ndarray) -> bool:
     return bool(
         1.2 <= x[STATE_INDEX["x_w"]] <= 1.4
         and 1.8 <= x[STATE_INDEX["y_w"]] <= 2.2
-        and 1.5 <= x[STATE_INDEX["z_w"]] <= 1.9
+        and 1.4 <= x[STATE_INDEX["z_w"]] <= 1.9
         and np.deg2rad(-LAUNCH_GATE_ROLL_LIMIT_DEG)
         <= x[STATE_INDEX["phi"]]
         <= np.deg2rad(LAUNCH_GATE_ROLL_LIMIT_DEG)
@@ -223,7 +223,7 @@ def _launch_gate_state(rng: np.random.Generator) -> np.ndarray:
     state = np.zeros(STATE_SIZE, dtype=float)
     state[STATE_INDEX["x_w"]] = float(rng.uniform(1.2, 1.4))
     state[STATE_INDEX["y_w"]] = float(rng.uniform(1.8, 2.2))
-    state[STATE_INDEX["z_w"]] = float(rng.uniform(1.5, 1.9))
+    state[STATE_INDEX["z_w"]] = float(rng.uniform(1.4, 1.9))
     state[STATE_INDEX["phi"]] = float(
         np.deg2rad(rng.uniform(-LAUNCH_GATE_ROLL_LIMIT_DEG, LAUNCH_GATE_ROLL_LIMIT_DEG))
     )

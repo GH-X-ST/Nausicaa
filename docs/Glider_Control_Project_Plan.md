@@ -625,7 +625,7 @@ An episode is one simulated or physical launch. The physical evaluation uses a f
 ```text
 x_w   in [1.2, 1.4] m
 y_w   in [1.8, 2.2] m
-z_w   in [1.5, 1.9] m
+z_w   in [1.4, 1.9] m
 psi   in [-20, 20] deg
 phi   in [-20, 20] deg
 theta in [-10, 20] deg
@@ -695,7 +695,7 @@ inflight_recovery_edge      10%   high-attitude, high-rate, or recovery-margin s
 
 Launch-gate samples are now rate-aware. Future R5/R7/R8/R10/R11 evidence should
 use the same release envelope as real flight: `x_w in [1.2, 1.4] m`,
-`y_w in [1.8, 2.2] m`, `z_w in [1.5, 1.9] m`, roll within `+/-20 deg`,
+`y_w in [1.8, 2.2] m`, `z_w in [1.4, 1.9] m`, roll within `+/-20 deg`,
 pitch in `[-10, +20] deg`, yaw within `+/-20 deg`, speed in `[3, 8] m/s`,
 and bounded release body rates `p in [-0.35, 0.35] rad/s`,
 `q in [-0.25, 0.25] rad/s`, and `r in [-0.25, 0.25] rad/s`. Real-flight

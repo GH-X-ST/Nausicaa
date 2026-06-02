@@ -76,7 +76,7 @@ first measured state satisfies the complete R5 launch window:
 
 - `x_w in [1.2, 1.4] m`
 - `y_w in [1.8, 2.2] m`
-- `z_w in [1.5, 1.9] m`
+- `z_w in [1.4, 1.9] m`
 - roll within `+-20 deg`
 - pitch within `[-10, +20] deg`
 - yaw within `+-20 deg`

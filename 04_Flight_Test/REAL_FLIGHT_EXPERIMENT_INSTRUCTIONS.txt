@@ -134,7 +134,7 @@ R5 launch window:
 
 x_w in [1.2, 1.4] m
 y_w in [1.8, 2.2] m
-z_w in [1.5, 1.9] m
+z_w in [1.4, 1.9] m
 roll in +/-20 deg
 pitch in [-10, +20] deg
 yaw in +/-20 deg
