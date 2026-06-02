@@ -22,6 +22,7 @@ from flight_logger import FlightLogger
 from frozen_flight_controller import FrozenFlightController
 from exit_gate import evaluate_exit_gate, exit_gate_bounds_manifest
 from launch_gate import (
+    LAUNCH_GATE_X_W_M,
     LAUNCH_TRIGGER_X_W_M,
     evaluate_launch_gate,
     evaluate_launch_plane_gate,
@@ -94,6 +95,7 @@ def run_real_flight(
             ),
             "launch_wait_timeout_s": float(config.launch_wait_timeout_s),
             "launch_gate_required_consecutive_frames": int(config.launch_gate_required_consecutive_frames),
+            "rejected_launch_attempt_min_speed_m_s": float(config.rejected_launch_attempt_min_speed_m_s),
             "exit_gate_bounds": exit_gate_bounds_manifest(),
             "post_exit_neutral_tail_s": float(config.post_exit_neutral_tail_s),
             "runtime_rates": {
@@ -524,6 +526,7 @@ def _await_launch_gate(
         rate_confidence = float(estimator.get("rate_confidence", 0.0))
         rate_confidence_ok = bool(rate_confidence >= rate_confidence_min)
         base_trigger_approved = bool(trigger_approved)
+        previous_consecutive_approved = int(consecutive_approved)
         if trigger_approved and not rate_confidence_ok:
             trigger_approved = False
             trigger_source = f"{trigger_source}_rate_confidence_wait"
@@ -593,6 +596,40 @@ def _await_launch_gate(
                 **asdict(gate),
             )
             return launch_state.copy() if launch_state is not None else state.copy()
+
+        rejected_crossing_speed_m_s = (
+            float(np.linalg.norm(launch_plane_state[6:9])) if launch_plane_state is not None else 0.0
+        )
+        passed_launch_window_after_partial_approval = bool(
+            previous_consecutive_approved > 0
+            and not trigger_approved
+            and float(state[STATE_INDEX["x_w"]]) > float(LAUNCH_GATE_X_W_M[1])
+        )
+        rejected_launch_attempt = bool(
+            launch_plane_state is not None
+            and not trigger_approved
+            and rejected_crossing_speed_m_s >= float(config.rejected_launch_attempt_min_speed_m_s)
+        )
+        if rejected_launch_attempt or passed_launch_window_after_partial_approval:
+            speed_for_reason = (
+                rejected_crossing_speed_m_s if launch_plane_state is not None else float(np.linalg.norm(state[6:9]))
+            )
+            summary["cancellation_reason"] = f"rejected_launch_attempt:{latest_gate_reason}"
+            gate_details = asdict(gate)
+            gate_reason = gate_details.pop("reason", latest_gate_reason)
+            _append_runtime_event(
+                logger,
+                "flight_record_rejected_launch_attempt",
+                cancellation_reason=summary["cancellation_reason"],
+                launch_gate_reason=gate_reason,
+                launch_attempt_speed_m_s=speed_for_reason,
+                rejected_launch_attempt_min_speed_m_s=float(config.rejected_launch_attempt_min_speed_m_s),
+                trigger_source=trigger_source,
+                previous_consecutive_approved=previous_consecutive_approved,
+                required_consecutive_frames=required_consecutive,
+                **gate_details,
+            )
+            return None
 
         previous_state = state.copy()
 

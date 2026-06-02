@@ -83,10 +83,13 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_experiment_se
 ```
 
 The sequence launcher stores results under
-`05_Results/<case_id>/<session_label>/throw_001`, waits 20 s after each valid
-throw, and automatically re-arms. Failed launch-gate attempts are stored under
-`invalid_attempts`, do not count as throws, and do not update memory. The full
-operator checklist is in `REAL_FLIGHT_EXPERIMENT_INSTRUCTIONS.txt`.
+`05_Results/<case_id>/<session_label>/throw_001`, waits 5 s after each valid
+throw or failed launch attempt, and automatically re-arms. Failed launch-gate
+attempts are stored under `invalid_attempts`, do not count as throws, and do not
+update memory. A launch-plane crossing faster than 2 m/s that fails the formal
+launch gate is treated as a finished invalid attempt rather than waiting for the
+full launch-timeout period. The full operator checklist is in
+`REAL_FLIGHT_EXPERIMENT_INSTRUCTIONS.txt`.
 
 In armed mode, the controller first waits in an armed-ready state and sends
 neutral commands. Active control and the flight record start only when the
@@ -103,7 +106,7 @@ first measured state satisfies the complete R5 launch window:
 - pitch rate `q in [-1.2, +1.2] rad/s`
 - yaw rate `r in [-1.8, +1.8] rad/s`
 - SO(3) body-rate observer confidence at least `0.65`
-- `3` consecutive approved frames
+- `2` consecutive approved frames
 
 The `x_w = 1.3 m` launch-plane crossing is still computed as a fallback and
 diagnostic, but the real-flight start trigger is the first full-window-valid
@@ -143,7 +146,7 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.p
 - Controller period: `0.100 s`
 - Serial packet period: `0.020 s`
 - Launch wait timeout: `8.0 s`
-- Launch gate debounce: `3` consecutive approved frames
+- Launch gate debounce: `2` consecutive approved frames
 - Post-exit neutral tail: `0.30 s`
 - Default library tier: `balanced_cluster`
 - Selectable real-flight fallback tier: `heavy_cluster`
@@ -209,7 +212,7 @@ Angular rates are estimated only after this attitude correction has been
 applied. The runtime builds a corrected body-to-world rotation matrix and feeds
 that into a small SO(3) rotation-window observer. The launch gate therefore
 requires both the normal R5 launch bounds and a body-rate observer confidence of
-at least `0.65` for `3` consecutive approved frames before active control starts.
+at least `0.65` for `2` consecutive approved frames before active control starts.
 One-frame Vicon rotation spikes are downweighted by local consistency, while
 sustained high angular rates are kept as real motion and judged by the launch
 rate bounds.

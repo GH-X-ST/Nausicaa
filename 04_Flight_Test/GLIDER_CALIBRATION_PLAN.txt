@@ -24,7 +24,16 @@ p roll rate in [-1.2, +1.2] rad/s
 q pitch rate in [-1.2, +1.2] rad/s
 r yaw rate in [-1.8, +1.8] rad/s
 SO(3) body-rate observer confidence >= 0.65
-3 consecutive approved frames
+2 consecutive approved frames
+
+The closed-loop experiment runner uses the same 2-frame gate. This keeps one
+frame of protection against Vicon/velocity noise while remaining practical for
+fast throws that pass quickly through the narrow x launch window.
+
+If a throw crosses the launch plane faster than 2 m/s but fails the formal
+launch gate, the calibration recorder marks that as an invalid attempt and
+re-arms after the retry cooldown. It does not wait for the full launch-timeout
+period.
 
 
 Block A: Neutral Glide Characterisation
@@ -39,6 +48,20 @@ Use:
 
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block neutral_30
 
+Five-throw shakedown before committing to all 30:
+
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py
+
+The current top-of-file runner settings are configured for this same shakedown:
+
+CALIBRATION_BLOCK = "neutral_30"
+TARGET_VALID_THROWS_OVERRIDE = 5
+
+To run the full 30-throw neutral block later, set `TARGET_VALID_THROWS_OVERRIDE`
+to `None` or pass:
+
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block neutral_30 --target-valid-throws 30
+
 What this estimates:
 
 - natural sink rate
@@ -52,8 +75,9 @@ What this estimates:
 
 Block B: Single-Axis 0.2-Lattice Control-Effectiveness Ladder
 -------------------------------------------------------------
-Run 30 valid dry-air pulse throws. Each throw applies one pulse on one axis,
-then returns to neutral until exit.
+Run 30 dry-air pulse command cases, with 3 valid throws per case. This gives
+90 valid pulse throws if the full block is completed. Each throw applies one
+pulse on one axis, then returns to neutral until exit.
 
 Command lattice:
 
@@ -80,6 +104,10 @@ Axis order:
 Use:
 
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_30
+
+This default repeats each command case 3 times before advancing to the next
+command. Invalid launch-gate attempts do not count. To run a one-pass emergency
+scan only, explicitly add `--target-valid-throws 1`.
 
 What this estimates:
 

@@ -1,0 +1,17 @@
+{
+  "block_id": "neutral_30",
+  "cases": [
+    {
+      "case_id": "C0_neutral",
+      "case_name": "Dry-air open-loop neutral glide characterisation",
+      "command_axis": "neutral",
+      "command_value": 0.0,
+      "pulse_duration_s": 0.0,
+      "pulse_start_s": 0.0,
+      "target_valid_throws": 5
+    }
+  ],
+  "session_label": "20260602_225953",
+  "total_invalid_attempt_count": 2,
+  "total_valid_throw_count": 5
+}

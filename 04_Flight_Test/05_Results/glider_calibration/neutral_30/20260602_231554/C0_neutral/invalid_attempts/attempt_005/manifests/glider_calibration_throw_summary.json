@@ -1,0 +1,16 @@
+{
+  "cancellation_reason": "rejected_launch_attempt:y_w_outside_launch_gate",
+  "case_id": "C0_neutral",
+  "case_name": "Dry-air open-loop neutral glide characterisation",
+  "completed": false,
+  "exit_gate_triggered": false,
+  "flight_cancelled": true,
+  "launch_gate_approved": false,
+  "launch_speed_m_s": 0.0,
+  "packet_count": 125,
+  "run_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/glider_calibration/neutral_30/20260602_231554/C0_neutral/throw_008",
+  "serial_write_error_count": 0,
+  "state_sample_count": 0,
+  "termination_reason": "",
+  "valid_throw": false
+}

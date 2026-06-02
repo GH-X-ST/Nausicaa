@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -527,6 +528,27 @@ def test_flight_record_cancels_when_launch_gate_never_passes(tmp_path: Path) -> 
     assert not (tmp_path / "T_cancel" / "metrics" / "state_samples.csv").exists()
 
 
+def test_flight_record_rejects_crossed_launch_attempt_without_waiting_for_timeout(tmp_path: Path) -> None:
+    config = FlightRuntimeConfig(
+        run_label="T_rejected_crossing",
+        output_root=tmp_path,
+        max_duration_s=0.12,
+        launch_wait_timeout_s=10.0,
+        post_exit_neutral_tail_s=0.0,
+        vicon_position_offset_m=(3.7, 2.2, 1.0),
+    )
+
+    started = time.perf_counter()
+    summary = run_real_flight(config, mode="dry-run")
+    elapsed_s = time.perf_counter() - started
+
+    assert summary["flight_cancelled"] is True
+    assert summary["valid_throw"] is False
+    assert str(summary["cancellation_reason"]).startswith("rejected_launch_attempt:")
+    assert elapsed_s < 1.0
+    assert not (tmp_path / "T_rejected_crossing" / "metrics" / "state_samples.csv").exists()
+
+
 def test_glider_calibration_case_registry_uses_neutral_and_0p2_lattice() -> None:
     neutral_cases = calibration_cases_for_block("neutral_30")
     pulse_cases = calibration_cases_for_block("pulse_ladder_30")
@@ -557,7 +579,7 @@ def test_glider_calibration_case_registry_uses_neutral_and_0p2_lattice() -> None
     for case in pulse_cases:
         assert case.pulse_start_s == PULSE_START_DELAY_S
         assert case.pulse_duration_s == PULSE_DURATION_BY_ABS_COMMAND[round(abs(case.command_value), 1)]
-        assert case.target_valid_throws == 1
+        assert case.target_valid_throws == 3
 
 
 def test_glider_calibration_pulse_command_is_single_axis_then_neutral() -> None:
@@ -596,7 +618,7 @@ def test_active_record_terminates_at_exit_gate_and_sends_neutral_tail(tmp_path: 
     assert (tmp_path / "T_exit" / "metrics" / "state_samples.csv").exists()
 
 
-def test_launch_gate_default_debounces_three_consecutive_approved_frames(tmp_path: Path) -> None:
+def test_launch_gate_default_debounces_two_consecutive_approved_frames(tmp_path: Path) -> None:
     config = FlightRuntimeConfig(
         run_label="T_launch_debounce",
         output_root=tmp_path,
@@ -604,7 +626,7 @@ def test_launch_gate_default_debounces_three_consecutive_approved_frames(tmp_pat
         post_exit_neutral_tail_s=0.0,
     )
 
-    assert config.launch_gate_required_consecutive_frames == 3
+    assert config.launch_gate_required_consecutive_frames == 2
 
     summary = run_real_flight(config, mode="dry-run")
 
@@ -620,7 +642,7 @@ def test_launch_gate_default_debounces_three_consecutive_approved_frames(tmp_pat
 
     assert 1 in approved_counts
     assert 2 in approved_counts
-    assert max(approved_counts) == 3
+    assert max(approved_counts) == 2
     assert (tmp_path / "T_launch_debounce" / "metrics" / "state_samples.csv").exists()
 
 

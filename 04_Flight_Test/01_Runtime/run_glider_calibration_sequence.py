@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -13,7 +13,6 @@ import numpy as np
 from exit_gate import evaluate_exit_gate, exit_gate_bounds_manifest
 from flight_config import (
     CONTROLLER_ROOT,
-    DEFAULT_VICON_ATTITUDE_SIGNS,
     FlightRuntimeConfig,
     RESULT_ROOT,
 )
@@ -40,25 +39,34 @@ from state_contract import state_dataframe_row  # noqa: E402
 
 
 # =============================================================================
-# CLICK-AND-GO CALIBRATION SETTINGS
+# CLICK-AND-GO CALIBRATION SETTINGS FOR THE NEXT GLIDER MODEL CHECK
+# Current setup: dry-air calibration, hardware armed on COM11.
+# Failed launch-gate attempts are ignored and do not count as throws.
 # =============================================================================
-CALIBRATION_BLOCK = "neutral_30"  # neutral_30 or pulse_ladder_30
+CALIBRATION_BLOCK = "pulse_ladder_30"  # neutral_30 or pulse_ladder_30
 CURRENT_SESSION_LABEL = ""  # Empty means timestamped folder.
+TARGET_VALID_THROWS_OVERRIDE: int | None = None  # None uses block defaults below.
 SERIAL_PORT = "COM11"
 VICON_HOST = "192.168.0.100:801"
 MODE = "armed"  # Use dry-run for hardware-free tests.
 PRE_ARM_DELAY_S = 3.0
 COOLDOWN_AFTER_VALID_THROW_S = 5.0
-RETRY_AFTER_INVALID_START_S = 2.0
+RETRY_AFTER_INVALID_START_S = 5.0
 LAUNCH_WAIT_TIMEOUT_S = 120.0
 MAX_ACTIVE_FLIGHT_DURATION_S = 20.0
 POST_EXIT_NEUTRAL_TAIL_S = 0.30
 VICON_TRACKING_RATE_HZ = 200.0
+CALIBRATION_LAUNCH_GATE_REQUIRED_CONSECUTIVE_FRAMES = 2
+CALIBRATION_REJECTED_LAUNCH_ATTEMPT_MIN_SPEED_M_S = 2.0
+# Keep these arena-frame values matched to run_experiment_sequence.py.
+# Paste the calibration script's recommended full x/y/z offset here.
 VICON_POSITION_OFFSET_M = (4.136158795250567, 2.4114272057075916, 0.03414746062731508)
 VICON_YAW_ALIGNMENT_DEG = 0.0
-VICON_ATTITUDE_SIGNS = DEFAULT_VICON_ATTITUDE_SIGNS
+# Recovered from 20260601_205149 orientation check: pitch and yaw were reversed.
+VICON_ATTITUDE_SIGNS = (1.0, -1.0, -1.0)
 
 NEUTRAL_VALID_THROWS = 30
+PULSE_VALID_THROWS_PER_CASE = 3
 PULSE_START_DELAY_S = 0.25
 PULSE_DURATION_BY_ABS_COMMAND = {
     0.2: 0.25,
@@ -114,7 +122,7 @@ def calibration_cases_for_block(block_id: str) -> list[CalibrationCase]:
                         command_value=float(value),
                         pulse_start_s=PULSE_START_DELAY_S,
                         pulse_duration_s=float(PULSE_DURATION_BY_ABS_COMMAND[abs_value]),
-                        target_valid_throws=1,
+                        target_valid_throws=PULSE_VALID_THROWS_PER_CASE,
                     )
                 )
         return cases
@@ -138,8 +146,14 @@ def run_calibration_sequence(
     vicon_position_offset_m: tuple[float, float, float],
     vicon_yaw_alignment_deg: float,
     vicon_attitude_signs: tuple[float, float, float],
+    target_valid_throws: int | None = None,
 ) -> dict[str, object]:
     cases = calibration_cases_for_block(block_id)
+    if target_valid_throws is not None:
+        override = int(target_valid_throws)
+        if override <= 0:
+            raise ValueError("target_valid_throws must be positive when provided.")
+        cases = [replace(case, target_valid_throws=override) for case in cases]
     session = session_label or datetime.now().strftime("%Y%m%d_%H%M%S")
     session_root = RESULT_ROOT / "glider_calibration" / str(block_id) / session
     session_logger = FlightLogger(session_root)
@@ -165,6 +179,7 @@ def run_calibration_sequence(
             "mode": mode,
             "case_count": len(cases),
             "cases": [asdict(case) for case in cases],
+            "target_valid_throws_override": target_valid_throws,
             "launch_gate_bounds": launch_gate_bounds_manifest(
                 body_rate_limits_rad_s=base_config.launch_gate_body_rate_limits_rad_s
             ),
@@ -176,6 +191,8 @@ def run_calibration_sequence(
             "pre_arm_delay_s": float(pre_arm_delay_s),
             "cooldown_after_valid_throw_s": float(cooldown_s),
             "retry_after_invalid_start_s": float(retry_cooldown_s),
+            "launch_gate_required_consecutive_frames": int(base_config.launch_gate_required_consecutive_frames),
+            "rejected_launch_attempt_min_speed_m_s": float(CALIBRATION_REJECTED_LAUNCH_ATTEMPT_MIN_SPEED_M_S),
             "vicon_tracking_rate_hz": float(vicon_tracking_rate_hz),
             "vicon_position_offset_m": tuple(float(value) for value in vicon_position_offset_m),
             "vicon_attitude_signs": tuple(float(value) for value in vicon_attitude_signs),
@@ -202,7 +219,14 @@ def run_calibration_sequence(
                     serial_baud=base_config.serial_baud,
                     serial_period_s=base_config.serial_period_s,
                 )
-                run_label = f"{case.case_id}/throw_{next_throw:03d}"
+                preferred_run_root = session_root / case.case_id / f"throw_{next_throw:03d}"
+                run_root = _available_run_root(preferred_run_root)
+                if run_root != preferred_run_root:
+                    print(
+                        f"[CAL_WARN] preferred run folder is still present; "
+                        f"recording this attempt in {run_root.name}"
+                    )
+                run_label = f"{case.case_id}/{run_root.name}"
                 config = _base_config(
                     run_label=run_label,
                     mode=mode,
@@ -221,7 +245,7 @@ def run_calibration_sequence(
                     config=config,
                     case=case,
                     mode=mode,
-                    run_root=session_root / case.case_id / f"throw_{next_throw:03d}",
+                    run_root=run_root,
                 )
                 if bool(summary.get("valid_throw", False)):
                     valid_count += 1
@@ -248,7 +272,7 @@ def run_calibration_sequence(
                     invalid_count += 1
                     total_invalid += 1
                     invalid_root = session_root / case.case_id / "invalid_attempts" / f"attempt_{invalid_count:03d}"
-                    _move_if_exists(session_root / case.case_id / f"throw_{next_throw:03d}", invalid_root)
+                    _move_if_exists(run_root, invalid_root)
                     session_logger.append_metric_row(
                         "glider_calibration_sequence_summary.csv",
                         _sequence_row(block_id, case, summary, valid_count, invalid_count),
@@ -563,6 +587,22 @@ def _await_launch_gate(
                 **asdict(gate),
             )
             return launch_state.copy() if launch_state is not None else state.copy()
+        if launch_plane_state is not None and not approved:
+            launch_attempt_speed = float(np.linalg.norm(launch_plane_state[6:9]))
+            if launch_attempt_speed >= float(CALIBRATION_REJECTED_LAUNCH_ATTEMPT_MIN_SPEED_M_S):
+                summary["cancellation_reason"] = f"rejected_launch_attempt:{latest_reason}"
+                gate_details = asdict(gate)
+                gate_reason = gate_details.pop("reason", latest_reason)
+                _append_event(
+                    logger,
+                    "calibration_record_rejected_launch_attempt",
+                    cancellation_reason=summary["cancellation_reason"],
+                    launch_gate_reason=gate_reason,
+                    launch_attempt_speed_m_s=launch_attempt_speed,
+                    trigger_source=trigger_source,
+                    **gate_details,
+                )
+                return None
         previous_state = state.copy()
         if mode in {"armed", "vicon-smoke"}:
             time.sleep(float(config.vicon_poll_period_s))
@@ -716,6 +756,7 @@ def _base_config(
         max_duration_s=max_duration_s,
         launch_wait_timeout_s=launch_wait_timeout_s,
         post_exit_neutral_tail_s=post_exit_neutral_tail_s,
+        launch_gate_required_consecutive_frames=CALIBRATION_LAUNCH_GATE_REQUIRED_CONSECUTIVE_FRAMES,
         vicon_poll_period_s=1.0 / float(vicon_tracking_rate_hz),
         vicon_position_offset_m=vicon_position_offset_m,
         vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
@@ -767,13 +808,40 @@ def _command_label(value: float) -> str:
     return f"{float(value):+.1f}".replace("+", "pos").replace("-", "neg").replace(".", "p")
 
 
-def _move_if_exists(source: Path, target: Path) -> None:
+def _available_run_root(preferred: Path) -> Path:
+    if not preferred.exists():
+        return preferred
+    for retry_index in range(1, 1000):
+        candidate = preferred.with_name(f"{preferred.name}_retry_{retry_index:03d}")
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"Could not find a free run folder beside {preferred}")
+
+
+def _move_if_exists(source: Path, target: Path) -> bool:
     if not source.exists():
-        return
+        return False
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
-        return
-    source.replace(target)
+        print(f"[CAL_WARN] invalid archive target already exists; leaving source in place: {target}")
+        return False
+    attempts = 5
+    last_error: OSError | None = None
+    for attempt_index in range(1, attempts + 1):
+        try:
+            source.replace(target)
+            return True
+        except OSError as exc:
+            last_error = exc
+            if attempt_index < attempts:
+                time.sleep(0.25)
+    if last_error is not None:
+        print(
+            f"[CAL_WARN] invalid attempt archive failed after {attempts} tries; "
+            f"leaving source in place: {source} -> {target} "
+            f"({type(last_error).__name__}: {last_error})"
+        )
+    return False
 
 
 def _parse_args() -> argparse.Namespace:
@@ -793,6 +861,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--vicon-offset-m", nargs=3, type=float, default=None)
     parser.add_argument("--vicon-yaw-deg", type=float, default=VICON_YAW_ALIGNMENT_DEG)
     parser.add_argument("--vicon-attitude-signs", nargs=3, type=float, default=VICON_ATTITUDE_SIGNS)
+    parser.add_argument(
+        "--target-valid-throws",
+        type=int,
+        default=TARGET_VALID_THROWS_OVERRIDE,
+        help="Optional one-off override for valid throws per calibration case. Defaults to the top-of-file setting.",
+    )
     return parser.parse_args()
 
 
@@ -814,6 +888,7 @@ def main() -> None:
         vicon_position_offset_m=tuple(args.vicon_offset_m) if args.vicon_offset_m is not None else VICON_POSITION_OFFSET_M,
         vicon_yaw_alignment_deg=float(args.vicon_yaw_deg),
         vicon_attitude_signs=tuple(float(value) for value in args.vicon_attitude_signs),
+        target_valid_throws=args.target_valid_throws,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
 

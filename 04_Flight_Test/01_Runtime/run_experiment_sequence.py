@@ -30,7 +30,7 @@ CURRENT_SESSION_LABEL = ""  # Empty means a new timestamped result folder.
 TARGET_VALID_THROWS_OVERRIDE: int | None = 2
 PRE_ARM_VICON_INACTIVE_DELAY_S = 3.0
 COOLDOWN_AFTER_VALID_THROW_S = 5.0
-RETRY_AFTER_INVALID_START_S = 2.0
+RETRY_AFTER_INVALID_START_S = 5.0
 MAX_INVALID_ATTEMPTS: int | None = None
 SERIAL_PORT = "COM11"
 VICON_HOST = "192.168.0.100:801"
@@ -155,10 +155,17 @@ def run_experiment_sequence(
             )
             print("[ARM] Vicon launch-gate tracking active now; throw through the start gate.")
             print("[ARM] NoFrame/missing-subject states are ignored safely until the gate passes.")
-            run_label = f"throw_{next_valid_throw_index:03d}"
             output_root = session_root
             if invalid_count >= 0:
                 pass
+            preferred_run_root = session_root / f"throw_{next_valid_throw_index:03d}"
+            run_root = _available_run_root(preferred_run_root)
+            if run_root != preferred_run_root:
+                print(
+                    f"[WARN] preferred run folder is still present; "
+                    f"recording this attempt in {run_root.name}"
+                )
+            run_label = run_root.name
             config = FlightRuntimeConfig(
                 run_label=run_label,
                 library_tier=DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
@@ -214,7 +221,7 @@ def run_experiment_sequence(
             else:
                 invalid_count += 1
                 invalid_root = session_root / "invalid_attempts"
-                _move_invalid_attempt(session_root / run_label, invalid_root / f"attempt_{invalid_count:03d}")
+                _move_invalid_attempt(run_root, invalid_root / f"attempt_{invalid_count:03d}")
                 session_logger.append_metric_row("experiment_sequence_summary.csv", _session_row(case, summary, valid_count, invalid_count))
                 print(
                     f"[INVALID] case={case.case_id} attempt={invalid_count:03d} "
@@ -289,13 +296,40 @@ def _session_row(case, summary: dict[str, object], valid_count: int, invalid_cou
     }
 
 
-def _move_invalid_attempt(source: Path, target: Path) -> None:
+def _available_run_root(preferred: Path) -> Path:
+    if not preferred.exists():
+        return preferred
+    for retry_index in range(1, 1000):
+        candidate = preferred.with_name(f"{preferred.name}_retry_{retry_index:03d}")
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"Could not find a free run folder beside {preferred}")
+
+
+def _move_invalid_attempt(source: Path, target: Path) -> bool:
     if not source.exists():
-        return
+        return False
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
-        return
-    source.replace(target)
+        print(f"[WARN] invalid archive target already exists; leaving source in place: {target}")
+        return False
+    attempts = 5
+    last_error: OSError | None = None
+    for attempt_index in range(1, attempts + 1):
+        try:
+            source.replace(target)
+            return True
+        except OSError as exc:
+            last_error = exc
+            if attempt_index < attempts:
+                time.sleep(0.25)
+    if last_error is not None:
+        print(
+            f"[WARN] invalid attempt archive failed after {attempts} tries; "
+            f"leaving source in place: {source} -> {target} "
+            f"({type(last_error).__name__}: {last_error})"
+        )
+    return False
 
 
 def _cooldown(
