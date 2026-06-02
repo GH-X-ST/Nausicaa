@@ -61,6 +61,9 @@ from run_repeated_launch_learning_curve import (  # noqa: E402
 FIGURE_RUN_VERSION = "r11_balanced_same_start_ladder_case_paths_v1"
 DEFAULT_R11_ROOT = Path("03_Control/05_Results/R11_validation/E01")
 DEFAULT_OUTPUT_ROOT = Path("03_Control/A_figures/R11_E01_balanced_paths")
+DEFAULT_NEUTRAL_ROLLOUT_PATH = Path(
+    "03_Control/A_figures/R11_E01_balanced_neutral_baseline/metrics/neutral_rollout_by_case.csv"
+)
 DEFAULT_LIBRARY_SIZE_CASE = "balanced_cluster"
 DEFAULT_POLICY_IDS = (
     "no_memory_baseline",
@@ -71,12 +74,15 @@ DEFAULT_POLICY_IDS = (
 DEFAULT_UPDRAFT_NX = 44
 DEFAULT_UPDRAFT_NY = 28
 DEFAULT_UPDRAFT_NZ = 24
+NEUTRAL_LABEL = "open-loop neutral"
+NEUTRAL_COLOR = "#111111"
 
 
 @dataclass(frozen=True)
 class R11BalancedLadderFigureConfig:
     r11_root: Path = DEFAULT_R11_ROOT
     output_root: Path = DEFAULT_OUTPUT_ROOT
+    neutral_rollout_path: Path | None = DEFAULT_NEUTRAL_ROLLOUT_PATH
     library_size_case_id: str = DEFAULT_LIBRARY_SIZE_CASE
     paired_start_index: int | None = None
     policy_ids: tuple[str, ...] = DEFAULT_POLICY_IDS
@@ -104,6 +110,10 @@ def run_r11_balanced_ladder_case_figures(config: R11BalancedLadderFigureConfig) 
         outer_case_indices=tuple(int(v) for v in selected_cases["outer_case_index"]),
         config=config,
     )
+    neutral_frame = _read_neutral_rollout_rows(
+        neutral_rollout_path=config.neutral_rollout_path,
+        outer_case_indices=tuple(int(v) for v in selected_cases["outer_case_index"]),
+    )
     summary = final_score[
         (final_score["library_size_case_id"].astype(str) == str(config.library_size_case_id))
         & (final_score["outer_case_index"].isin(selected_cases["outer_case_index"]))
@@ -121,6 +131,7 @@ def run_r11_balanced_ladder_case_figures(config: R11BalancedLadderFigureConfig) 
         figure_path = output_root / "figures" / f"r11_e01_bal_s{paired_index:02d}_{ladder_id}.png"
         metadata = _plot_ladder_case(
             primitive_log=primitive_log,
+            neutral_frame=neutral_frame,
             summary=summary,
             case_row=case_row,
             output_path=figure_path,
@@ -145,6 +156,7 @@ def run_r11_balanced_ladder_case_figures(config: R11BalancedLadderFigureConfig) 
         "status": "complete",
         "r11_root": r11_root.as_posix(),
         "output_root": output_root.as_posix(),
+        "neutral_rollout_path": "" if config.neutral_rollout_path is None else Path(config.neutral_rollout_path).as_posix(),
         "library_size_case_id": str(config.library_size_case_id),
         "paired_start_condition_index": int(paired_index),
         "policy_ids": list(config.policy_ids),
@@ -290,9 +302,30 @@ def _read_selected_primitive_rows(
     return pd.concat(frames, ignore_index=True)
 
 
+def _read_neutral_rollout_rows(
+    *,
+    neutral_rollout_path: Path | None,
+    outer_case_indices: tuple[int, ...],
+) -> pd.DataFrame:
+    if neutral_rollout_path is None:
+        return pd.DataFrame()
+    path = Path(neutral_rollout_path)
+    if not path.exists():
+        return pd.DataFrame()
+    selected = set(int(v) for v in outer_case_indices)
+    frame = pd.read_csv(path)
+    if frame.empty:
+        return frame
+    mask = frame["outer_case_index"].astype(int).isin(selected)
+    if "neutral_status" in frame.columns:
+        mask &= frame["neutral_status"].astype(str).eq("complete")
+    return frame.loc[mask].copy()
+
+
 def _plot_ladder_case(
     *,
     primitive_log: pd.DataFrame,
+    neutral_frame: pd.DataFrame,
     summary: pd.DataFrame,
     case_row: dict[str, object],
     output_path: Path,
@@ -311,6 +344,53 @@ def _plot_ladder_case(
 
     fig, ax = _new_baseline_axis()
     env_meta = _draw_updraft_context_from_case(ax=ax, case_row=case_row, config=config)
+    neutral_rows = neutral_frame[
+        (neutral_frame.get("outer_case_index", pd.Series(dtype=int)).astype(int) == outer_case_index)
+        & (neutral_frame.get("environment_block_id", pd.Series(dtype=str)).astype(str) == block_id)
+    ].copy()
+    neutral_plotted = False
+    neutral_success = False
+    if not neutral_rows.empty:
+        neutral_row = neutral_rows.iloc[0].to_dict()
+        neutral_path = _path_from_json(str(neutral_row.get("path_points_json", "")))
+        neutral_success = _truthy(neutral_row.get("mission_success", False))
+        if neutral_path.shape[0] >= 2:
+            ax.plot(
+                neutral_path[:, 0],
+                neutral_path[:, 1],
+                neutral_path[:, 2],
+                color=NEUTRAL_COLOR,
+                linestyle=":",
+                linewidth=1.75,
+                alpha=0.92,
+                label=NEUTRAL_LABEL,
+                zorder=23,
+            )
+            if neutral_success:
+                ax.scatter(
+                    [neutral_path[-1, 0]],
+                    [neutral_path[-1, 1]],
+                    [neutral_path[-1, 2]],
+                    facecolors="none",
+                    edgecolors=NEUTRAL_COLOR,
+                    linewidths=1.35,
+                    marker="o",
+                    s=46,
+                    depthshade=False,
+                    zorder=24,
+                )
+            else:
+                ax.scatter(
+                    [neutral_path[-1, 0]],
+                    [neutral_path[-1, 1]],
+                    [neutral_path[-1, 2]],
+                    color=NEUTRAL_COLOR,
+                    marker="x",
+                    s=46,
+                    depthshade=False,
+                    zorder=24,
+                )
+            neutral_plotted = True
     plotted_count = 0
     for policy_id in FINAL_POLICY_ORDER:
         if policy_id not in config.policy_ids:
@@ -372,12 +452,20 @@ def _plot_ladder_case(
                     zorder=26,
                 )
             plotted_count += 1
-    title = _case_title(case_row=case_row, env_meta=env_meta, summary=summary_subset)
+    title = _case_title(
+        case_row=case_row,
+        env_meta=env_meta,
+        summary=summary_subset,
+        neutral_plotted=neutral_plotted,
+        neutral_success=neutral_success,
+    )
     ax.set_title(title, fontsize=10, pad=12)
     _add_legend(ax)
     _save_figure(fig, output_path)
     return {
         "final_policy_count": int(plotted_count),
+        "neutral_open_loop_plotted": bool(neutral_plotted),
+        "neutral_open_loop_mission_success": bool(neutral_success),
         **env_meta,
     }
 
@@ -490,6 +578,8 @@ def _case_title(
     case_row: dict[str, object],
     env_meta: dict[str, object],
     summary: pd.DataFrame,
+    neutral_plotted: bool = False,
+    neutral_success: bool = False,
 ) -> str:
     label = str(case_row.get("environment_block_label", case_row.get("environment_block_id", "")))
     speed = float(pd.to_numeric(summary.get("initial_launch_speed_m_s", pd.Series([np.nan])), errors="coerce").mean())
@@ -497,10 +587,32 @@ def _case_title(
     active = env_meta.get("active_fan_count", 0)
     total = env_meta.get("fan_count", 0)
     wmax = float(env_meta.get("updraft_max_m_s", 0.0))
+    neutral_text = f" | open={_bool01(neutral_success)}" if neutral_plotted else ""
     return (
         f"{label} | start {int(case_row.get('paired_start_condition_index', -1))} | "
         f"v0={speed:.2f} m/s | fans {active}/{total} | wmax={wmax:.2f} m/s | mission {mission_rate:.2f}"
+        f"{neutral_text}"
     )
+
+
+def _path_from_json(value: str) -> np.ndarray:
+    try:
+        arr = np.asarray(json.loads(value), dtype=float)
+    except Exception:
+        return np.empty((0, 3), dtype=float)
+    if arr.ndim != 2 or arr.shape[1] != 3:
+        return np.empty((0, 3), dtype=float)
+    return arr
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "1.0", "true", "yes", "y"}
+
+
+def _bool01(value: object) -> str:
+    return "1" if _truthy(value) else "0"
 
 
 def _jsonable_tuple(value: object) -> object:
@@ -549,21 +661,24 @@ def _write_report(
         f"- R11 root: `{manifest['r11_root']}`",
         f"- Library tier: `{manifest['library_size_case_id']}`",
         f"- Paired start condition index: `{manifest['paired_start_condition_index']}`",
+        f"- Neutral open-loop source: `{manifest.get('neutral_rollout_path', '')}`",
         f"- Figure count: `{len(figure_rows)}`",
         "",
         "The fan layout and updraft parameters are reconstructed from each R11 outer-case row using the stored layout, active-count, and parameter seeds.",
         "",
-        "| Ladder | Outer case | Active fans | Updraft max (m/s) | Figure |",
-        "|---|---:|---:|---:|---|",
+        "| Ladder | Outer case | Active fans | Updraft max (m/s) | Open-loop plotted | Open-loop target | Figure |",
+        "|---|---:|---:|---:|---:|---:|---|",
     ]
     for row in figure_rows:
         lines.append(
-            "| {block} | {case} | {active}/{total} | {wmax:.3f} | `{fig}` |".format(
+            "| {block} | {case} | {active}/{total} | {wmax:.3f} | {open_plot} | {open_success} | `{fig}` |".format(
                 block=row.get("environment_block_id", ""),
                 case=int(row.get("outer_case_index", -1)),
                 active=int(row.get("active_fan_count", 0)),
                 total=int(row.get("fan_count", 0)),
                 wmax=float(row.get("updraft_max_m_s", 0.0)),
+                open_plot=_bool01(row.get("neutral_open_loop_plotted", False)),
+                open_success=_bool01(row.get("neutral_open_loop_mission_success", False)),
                 fig=row.get("figure_path", ""),
             )
         )
@@ -577,6 +692,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--r11-root", type=Path, default=DEFAULT_R11_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
+    parser.add_argument("--neutral-rollout", type=Path, default=DEFAULT_NEUTRAL_ROLLOUT_PATH)
     parser.add_argument("--library-size-case-id", default=DEFAULT_LIBRARY_SIZE_CASE)
     parser.add_argument("--paired-start-index", type=int, default=None)
     parser.add_argument("--updraft-nx", type=int, default=DEFAULT_UPDRAFT_NX)
@@ -587,6 +703,7 @@ def main(argv: list[str] | None = None) -> int:
         R11BalancedLadderFigureConfig(
             r11_root=args.r11_root,
             output_root=args.output_root,
+            neutral_rollout_path=args.neutral_rollout,
             library_size_case_id=args.library_size_case_id,
             paired_start_index=args.paired_start_index,
             updraft_nx=args.updraft_nx,

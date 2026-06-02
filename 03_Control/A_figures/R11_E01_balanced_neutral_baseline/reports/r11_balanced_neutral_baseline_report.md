@@ -8,6 +8,8 @@
 
 `no_memory_baseline` is still closed-loop governor/LQR control. The neutral baseline here is a separate zero-command plant rollout from the same R11 final launch states.
 
+The open-loop layer is run once per unique R11 final outer case. This is the correct comparison unit because all library tiers and memory policies reuse the same final launch state within that outer case.
+
 | Ladder | Policy | n | Neutral mission | Controlled mission | Mission delta | Neutral score | Controlled score | Score delta |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | r11_l0_dry_air_fixed | no_memory_baseline | 50 | 0.680 | 0.780 | +0.100 | 57.33 | 90.03 | +32.70 |

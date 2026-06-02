@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -45,12 +46,14 @@ LIBRARY_LABELS = {
 }
 
 POLICY_ORDER = (
+    "true_neutral_open_loop",
     "no_memory_baseline",
     "spatial_flow_belief_memory_h3",
     "spatial_flow_belief_memory_h10",
     "spatial_flow_belief_memory_h30",
 )
 POLICY_LABELS = {
+    "true_neutral_open_loop": "Open",
     "no_memory_baseline": "$h=0$",
     "spatial_flow_belief_memory_h3": "$h=3$",
     "spatial_flow_belief_memory_h10": "$h=10$",
@@ -134,7 +137,118 @@ def main() -> None:
     tex = build_appendix_tables(frame, source_label=source_label)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(tex, encoding="ascii")
+    _write_optional_summary_outputs(frame, args)
     print(args.output)
+
+
+def _write_optional_summary_outputs(frame: pd.DataFrame, args: argparse.Namespace) -> None:
+    summary_output = args.summary_output
+    comparison_output = args.open_loop_comparison_output
+    if args.neutral_rollout:
+        output_stem = args.output.with_suffix("")
+        if summary_output is None:
+            summary_output = output_stem.with_name(output_stem.name + "_summary.csv")
+        if comparison_output is None:
+            comparison_output = output_stem.with_name(output_stem.name + "_open_loop_comparison.csv")
+    if summary_output is not None:
+        summary_output.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_csv(summary_output, index=False)
+    if comparison_output is not None:
+        comparison = _open_loop_comparison_from_summary(frame)
+        comparison_output.parent.mkdir(parents=True, exist_ok=True)
+        comparison.to_csv(comparison_output, index=False)
+
+
+def _open_loop_comparison_from_summary(frame: pd.DataFrame) -> pd.DataFrame:
+    if "true_neutral_open_loop" not in set(frame["policy_id"].astype(str)):
+        return pd.DataFrame()
+    open_loop = frame[frame["policy_id"].astype(str).eq("true_neutral_open_loop")].copy()
+    controlled = frame[~frame["policy_id"].astype(str).eq("true_neutral_open_loop")].copy()
+    join_columns = ["environment_block_id", "library_size_case_id", "launch_speed_bin_id"]
+    baseline_columns = join_columns + [
+        "launch_count",
+        "mission_success_rate",
+        "safe_success_rate",
+        "front_wall_terminal_success_rate",
+        "wrong_wall_exit_rate",
+        "expected_low_energy_dry_air_sink_rate",
+        "hard_failure_rate",
+        "mean_launch_score",
+        "median_launch_score",
+        "mean_terminal_specific_energy_m",
+        "mean_terminal_specific_energy_reserve_m",
+        "mean_positive_specific_energy_gain_m",
+    ]
+    available_baseline = [column for column in baseline_columns if column in open_loop.columns]
+    baseline = open_loop[available_baseline].rename(
+        columns={
+            "launch_count": "open_loop_launch_count",
+            "mission_success_rate": "open_loop_mission_success_rate",
+            "safe_success_rate": "open_loop_safe_success_rate",
+            "front_wall_terminal_success_rate": "open_loop_front_wall_terminal_success_rate",
+            "wrong_wall_exit_rate": "open_loop_wrong_wall_exit_rate",
+            "expected_low_energy_dry_air_sink_rate": "open_loop_expected_low_energy_dry_air_sink_rate",
+            "hard_failure_rate": "open_loop_hard_failure_rate",
+            "mean_launch_score": "open_loop_mean_launch_score",
+            "median_launch_score": "open_loop_median_launch_score",
+            "mean_terminal_specific_energy_m": "open_loop_mean_terminal_specific_energy_m",
+            "mean_terminal_specific_energy_reserve_m": "open_loop_mean_terminal_specific_energy_reserve_m",
+            "mean_positive_specific_energy_gain_m": "open_loop_mean_positive_specific_energy_gain_m",
+        }
+    )
+    merged = controlled.merge(baseline, on=join_columns, how="left")
+    if merged.empty:
+        return merged
+    for metric in (
+        "mission_success_rate",
+        "safe_success_rate",
+        "front_wall_terminal_success_rate",
+        "wrong_wall_exit_rate",
+        "expected_low_energy_dry_air_sink_rate",
+        "hard_failure_rate",
+        "mean_launch_score",
+        "median_launch_score",
+        "mean_terminal_specific_energy_m",
+        "mean_terminal_specific_energy_reserve_m",
+        "mean_positive_specific_energy_gain_m",
+    ):
+        baseline_name = f"open_loop_{metric}"
+        if metric in merged.columns and baseline_name in merged.columns:
+            merged[f"delta_control_minus_open_loop_{metric}"] = (
+                pd.to_numeric(merged[metric], errors="coerce")
+                - pd.to_numeric(merged[baseline_name], errors="coerce")
+            )
+    output_columns = [
+        "environment_block_id",
+        "launch_speed_bin_id",
+        "library_size_case_id",
+        "policy_id",
+        "history_length",
+        "launch_count",
+        "open_loop_launch_count",
+        "mission_success_rate",
+        "open_loop_mission_success_rate",
+        "delta_control_minus_open_loop_mission_success_rate",
+        "safe_success_rate",
+        "open_loop_safe_success_rate",
+        "delta_control_minus_open_loop_safe_success_rate",
+        "wrong_wall_exit_rate",
+        "open_loop_wrong_wall_exit_rate",
+        "delta_control_minus_open_loop_wrong_wall_exit_rate",
+        "hard_failure_rate",
+        "open_loop_hard_failure_rate",
+        "delta_control_minus_open_loop_hard_failure_rate",
+        "mean_launch_score",
+        "open_loop_mean_launch_score",
+        "delta_control_minus_open_loop_mean_launch_score",
+        "median_launch_score",
+        "open_loop_median_launch_score",
+        "delta_control_minus_open_loop_median_launch_score",
+        "mean_terminal_specific_energy_m",
+        "open_loop_mean_terminal_specific_energy_m",
+        "delta_control_minus_open_loop_mean_terminal_specific_energy_m",
+    ]
+    return merged[[column for column in output_columns if column in merged.columns]]
 
 
 def build_appendix_tables(frame: pd.DataFrame, *, source_label: str) -> str:
@@ -157,10 +271,11 @@ def build_appendix_tables(frame: pd.DataFrame, *, source_label: str) -> str:
         r"When multiple validation repeats are supplied, the tables aggregate independent randomized held-out repeats that use the same frozen R10 governor; the raw runs are not modified.",
         r"The same paired launch starts are reused across environment ladders, library tiers, and memory policies within each repeat, so rows can be compared directly within the same speed bin.",
         r"Speed-bin rows are conditional diagnostics under randomized launch sampling, not equal-count stratified tests.",
+        r"The open-loop row applies the same launch state and environment but sends neutral control throughout the flight. It is a shared baseline repeated under each library tier only to make within-table comparison direct; it does not use a primitive library.",
         r"The no-memory baseline is $h=0$; $h=3$, $h=10$, and $h=30$ use the previous 3, 10, or 30 launches to update the online spatial flow-belief map.",
         r"$n$ is the number of held-out launches in the row. Count-backed rate cells are reported as count/$n$ (percentage). Target is successful arrival at the front-wall target region; Safe is retained safe termination without hard boundary failure; Front is any front-wall terminal exit; Side is wrong-wall exit; Sink is a physically low-energy floor stop; NoPr is no viable continuation primitive; Hard is a claim-bearing hard failure.",
         r"$\bar{J}$ and $\tilde{J}$ are the mean and median mission scores. $E_T$ is terminal specific energy, $E_R$ is terminal energy reserve, $E_+$ is positive specific-energy gain, $E_u$ is updraft energy-gain proxy, and $t_L$ is lift dwell time.",
-        r"Blue marks the best value and red marks the worst value within each environment-ladder table for each metric column; lower is better for Side, Sink, NoPr, and Hard, while higher is better for the remaining metrics.",
+        r"Blue marks the best value and red marks the worst value within each environment-ladder table for each metric column; lower is better for Side, Sink, NoPr, and Hard, while higher is better for the remaining metrics. NoPr is not applicable to the open-loop row and is reported as zero because no primitive selection is attempted.",
         "",
     ]
     for ladder_id in LADDER_ORDER:
@@ -177,16 +292,23 @@ def _load_input_frame(args: argparse.Namespace) -> tuple[pd.DataFrame, str]:
     final_scores = [Path(path) for path in (args.final_score or [])]
     if run_roots or final_scores:
         score_paths = final_scores + [root / "metrics" / "final_launch_score.csv" for root in run_roots]
-        frame = _summary_from_final_launch_scores(score_paths)
+        frame = _summary_from_final_launch_scores(score_paths, neutral_rollout_paths=args.neutral_rollout)
         output = args.output
         if output == DEFAULT_OUTPUT and len(score_paths) > 1:
             args.output = DEFAULT_COMBINED_OUTPUT
-        source_label = "; ".join(str(path).replace("\\", "/") for path in score_paths)
+        source_paths = score_paths + list(args.neutral_rollout or [])
+        source_label = "; ".join(str(path).replace("\\", "/") for path in source_paths)
         return frame, source_label
+    if args.neutral_rollout:
+        raise ValueError("--neutral-rollout requires --run-root or --final-score so open-loop rows can be paired to launch metadata")
     return pd.read_csv(args.input), str(args.input).replace("\\", "/")
 
 
-def _summary_from_final_launch_scores(score_paths: list[Path]) -> pd.DataFrame:
+def _summary_from_final_launch_scores(
+    score_paths: list[Path],
+    *,
+    neutral_rollout_paths: list[Path] | None = None,
+) -> pd.DataFrame:
     if not score_paths:
         raise ValueError("no_final_launch_score_inputs")
     frames: list[pd.DataFrame] = []
@@ -199,6 +321,8 @@ def _summary_from_final_launch_scores(score_paths: list[Path]) -> pd.DataFrame:
         frame["validation_run_label"] = run_label
         frames.append(frame)
     raw = pd.concat(frames, ignore_index=True)
+    if neutral_rollout_paths:
+        raw = _append_open_loop_neutral_rows(raw, neutral_rollout_paths)
     group_columns = [
         "environment_block_id",
         "library_size_case_id",
@@ -253,6 +377,196 @@ def _summary_from_final_launch_scores(score_paths: list[Path]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _append_open_loop_neutral_rows(raw: pd.DataFrame, neutral_rollout_paths: list[Path]) -> pd.DataFrame:
+    neutral_frames: list[pd.DataFrame] = []
+    raw_run_labels = sorted(str(value) for value in raw["validation_run_label"].dropna().unique())
+    for path in neutral_rollout_paths:
+        if not path.exists():
+            raise FileNotFoundError(path)
+        frame = pd.read_csv(path)
+        if frame.empty:
+            continue
+        run_label = _infer_neutral_run_label(path)
+        if run_label is None:
+            if len(raw_run_labels) != 1:
+                raise ValueError(
+                    f"cannot infer validation run label for {path}; provide one neutral file per labelled run path"
+                )
+            run_label = raw_run_labels[0]
+        frame = frame.copy()
+        frame["validation_run_label"] = run_label
+        neutral_frames.append(frame)
+    if not neutral_frames:
+        return raw
+
+    neutral = pd.concat(neutral_frames, ignore_index=True)
+    neutral_status = neutral["neutral_status"] if "neutral_status" in neutral.columns else pd.Series("complete", index=neutral.index)
+    neutral = neutral[neutral_status.astype(str).eq("complete")].copy()
+    if neutral.empty:
+        return raw
+
+    join_columns = ["validation_run_label", "environment_block_id", "outer_case_index"]
+    for column in join_columns:
+        if column not in neutral.columns:
+            raise ValueError(f"neutral rollout input is missing {column}")
+        if column not in raw.columns:
+            raise ValueError(f"final launch score input is missing {column}")
+
+    metadata_columns = [
+        "validation_run_label",
+        "environment_block_id",
+        "outer_case_index",
+        "outer_case_id",
+        "outer_case_type",
+        "common_final_launch_key",
+        "initial_launch_speed_m_s",
+        "launch_speed_bin_id",
+        "launch_speed_bin_min_m_s",
+        "launch_speed_bin_max_m_s",
+        "launch_speed_bin_label",
+        "start_energy_group_id",
+        "start_energy_group_label",
+        "start_energy_feasibility_threshold_m_s",
+        "start_energy_group_basis",
+        "terminal_specific_energy_reference_m",
+    ]
+    available_metadata = [column for column in metadata_columns if column in raw.columns]
+    representative = (
+        raw.sort_values(["validation_run_label", "environment_block_id", "outer_case_index"])
+        .groupby(join_columns, dropna=False, sort=False)[available_metadata]
+        .first()
+        .reset_index(drop=True)
+    )
+
+    neutral_with_meta = neutral.merge(
+        representative,
+        on=join_columns,
+        how="left",
+        suffixes=("", "_controller"),
+    )
+    missing = neutral_with_meta["launch_speed_bin_id"].isna() if "launch_speed_bin_id" in neutral_with_meta.columns else pd.Series(True)
+    if bool(missing.any()):
+        missing_count = int(missing.sum())
+        raise ValueError(f"{missing_count} neutral rows could not be paired to final launch metadata")
+
+    libraries = [str(value) for value in raw["library_size_case_id"].dropna().unique()]
+    rows: list[pd.DataFrame] = []
+    for library_id in libraries:
+        synthetic = pd.DataFrame(index=neutral_with_meta.index)
+        synthetic["validation_run_label"] = neutral_with_meta["validation_run_label"]
+        synthetic["library_size_case_id"] = library_id
+        synthetic["policy_id"] = "true_neutral_open_loop"
+        synthetic["history_length"] = -1
+        synthetic["adaptation_launch_index"] = -1
+        synthetic["outer_case_index"] = neutral_with_meta["outer_case_index"]
+        for column in (
+            "outer_case_id",
+            "outer_case_type",
+            "environment_block_id",
+            "common_final_launch_key",
+            "launch_speed_bin_id",
+            "launch_speed_bin_min_m_s",
+            "launch_speed_bin_max_m_s",
+            "launch_speed_bin_label",
+            "start_energy_group_id",
+            "start_energy_group_label",
+            "start_energy_feasibility_threshold_m_s",
+            "start_energy_group_basis",
+        ):
+            if column in neutral_with_meta.columns:
+                synthetic[column] = neutral_with_meta[column]
+
+        synthetic["episode_id"] = [
+            f"open_loop_neutral_{run}_{block}_{int(idx):04d}_{library_id}"
+            for run, block, idx in zip(
+                neutral_with_meta["validation_run_label"],
+                neutral_with_meta["environment_block_id"],
+                neutral_with_meta["outer_case_index"],
+            )
+        ]
+        synthetic["launch_role"] = "final_heldout_open_loop_neutral"
+        synthetic["policy_family"] = "open_loop_neutral"
+        synthetic["safe_explore_active"] = False
+        synthetic["selected_primitive_variant_id"] = "none_open_loop_neutral"
+        synthetic["selected_primitive_id"] = "none_open_loop_neutral"
+        synthetic["selected_controller_id"] = "neutral_command"
+        synthetic["selected_primitive_step_count"] = 0
+        synthetic["launch_sequence_policy"] = "open_loop_neutral_no_primitive_selection"
+        synthetic["termination_cause"] = neutral_with_meta["termination_cause"]
+        synthetic["trajectory_status"] = neutral_with_meta.get("trajectory_status", "finite_neutral_rollout")
+        synthetic["initial_launch_speed_m_s"] = pd.to_numeric(neutral_with_meta["initial_launch_speed_m_s"], errors="coerce")
+        synthetic["hard_failure"] = _bool_series(neutral_with_meta["hard_failure"])
+        synthetic["floor_or_ceiling_violation"] = _bool_series(neutral_with_meta["floor_or_ceiling_violation"])
+        synthetic["physical_hard_failure"] = synthetic["hard_failure"]
+        synthetic["physical_floor_or_ceiling_violation"] = synthetic["floor_or_ceiling_violation"]
+        synthetic["expected_low_energy_dry_air_sink"] = neutral_with_meta["termination_cause"].astype(str).eq("floor_margin_stop")
+        synthetic["claim_bearing_episode"] = True
+        synthetic["no_viable_primitive"] = False
+        synthetic["safe_success"] = _bool_series(neutral_with_meta.get("safe_geometric", pd.Series(True, index=neutral_with_meta.index)))
+        synthetic["full_safe_success"] = synthetic["safe_success"]
+        synthetic["terminal_useful"] = _bool_series(neutral_with_meta["mission_success"])
+        synthetic["terminal_useful_safe_exit_only"] = synthetic["terminal_useful"]
+        synthetic["lift_capture"] = False
+        synthetic["episode_rollout_duration_s"] = pd.to_numeric(neutral_with_meta["episode_flight_time_s"], errors="coerce")
+        synthetic["episode_flight_time_s"] = synthetic["episode_rollout_duration_s"]
+        synthetic["lift_dwell_time_s"] = math.nan
+        synthetic["energy_residual_m"] = pd.to_numeric(neutral_with_meta["net_specific_energy_delta_m"], errors="coerce")
+        synthetic["episode_specific_energy_start_m"] = pd.to_numeric(neutral_with_meta["start_specific_energy_m"], errors="coerce")
+        synthetic["episode_specific_energy_end_m"] = pd.to_numeric(neutral_with_meta["terminal_specific_energy_m"], errors="coerce")
+        synthetic["net_specific_energy_delta_m"] = pd.to_numeric(neutral_with_meta["net_specific_energy_delta_m"], errors="coerce")
+        synthetic["gross_specific_energy_gain_m"] = synthetic["net_specific_energy_delta_m"].clip(lower=0.0)
+        synthetic["gross_specific_energy_loss_m"] = (-synthetic["net_specific_energy_delta_m"]).clip(lower=0.0)
+        synthetic["positive_specific_energy_gain_m"] = synthetic["net_specific_energy_delta_m"].clip(lower=0.0)
+        synthetic["updraft_specific_energy_gain_proxy_m"] = math.nan
+        synthetic["updraft_gain_proxy_source"] = "not_available_for_open_loop_neutral_postprocess"
+        synthetic["min_wall_margin_m"] = pd.to_numeric(neutral_with_meta["min_wall_margin_m"], errors="coerce")
+        synthetic["governor_rejection_count"] = 0
+        synthetic["belief_observation_count"] = 0
+        synthetic["belief_uncertainty"] = math.nan
+        synthetic["memory_changed_selection"] = False
+        synthetic["exploration_changed_selection"] = False
+        synthetic["environment_instance_id"] = neutral_with_meta.get("environment_instance_id", "")
+        synthetic["claim_status"] = "open_loop_neutral_postprocess_baseline"
+        synthetic["belief_update_count_before"] = 0
+        synthetic["belief_update_count_after"] = 0
+        synthetic["mission_success"] = _bool_series(neutral_with_meta["mission_success"])
+        synthetic["front_wall_terminal_success"] = _bool_series(neutral_with_meta["front_wall_terminal_success"])
+        synthetic["wrong_wall_exit"] = _bool_series(neutral_with_meta["wrong_wall_exit"])
+        synthetic["terminal_wall_face"] = neutral_with_meta.get("terminal_wall_face", "")
+        synthetic["final_exit_x_w_m"] = pd.to_numeric(neutral_with_meta["final_exit_x_w_m"], errors="coerce")
+        synthetic["final_exit_y_w_m"] = pd.to_numeric(neutral_with_meta["final_exit_y_w_m"], errors="coerce")
+        synthetic["final_exit_z_w_m"] = pd.to_numeric(neutral_with_meta["final_exit_z_w_m"], errors="coerce")
+        synthetic["terminal_specific_energy_m"] = pd.to_numeric(neutral_with_meta["terminal_specific_energy_m"], errors="coerce")
+        reference = pd.to_numeric(
+            neutral_with_meta.get("terminal_specific_energy_reference_m", pd.Series(0.4, index=neutral_with_meta.index)),
+            errors="coerce",
+        ).fillna(0.4)
+        synthetic["terminal_specific_energy_reference_m"] = reference
+        synthetic["terminal_specific_energy_reserve_m"] = synthetic["terminal_specific_energy_m"] - reference
+        synthetic["terminal_specific_energy_source"] = "neutral_rollout_exit_state_specific_energy"
+        synthetic["mission_outcome_label"] = neutral_with_meta.get("trajectory_status", "finite_neutral_rollout")
+        synthetic["episode_interpretation_label"] = neutral_with_meta.get("trajectory_status", "finite_neutral_rollout")
+        synthetic["launch_score"] = pd.to_numeric(neutral_with_meta["neutral_diagnostic_score"], errors="coerce")
+        synthetic["launch_score_scope"] = "open_loop_neutral_postprocess_score"
+        synthetic["terminal_specific_energy_bonus"] = math.nan
+        rows.append(synthetic)
+
+    synthetic_raw = pd.concat(rows, ignore_index=True)
+    aligned_columns = list(dict.fromkeys(list(raw.columns) + list(synthetic_raw.columns)))
+    return pd.concat(
+        [raw.reindex(columns=aligned_columns), synthetic_raw.reindex(columns=aligned_columns)],
+        ignore_index=True,
+    )
+
+
+def _infer_neutral_run_label(path: Path) -> str | None:
+    for part in path.parts:
+        match = re.search(r"R11_([A-Z]\d{2})", part)
+        if match:
+            return match.group(1)
+    return None
+
+
 def _add_boolean_count_rate(row: dict[str, object], group: pd.DataFrame, source: str, prefix: str) -> None:
     if source not in group.columns:
         row[f"{prefix}_count"] = 0
@@ -291,11 +605,12 @@ def _bool_series(series: pd.Series) -> pd.Series:
 
 def _ladder_table(ladder_id: str, frame: pd.DataFrame) -> list[str]:
     table_id = ladder_id.replace("r11_", "").replace("_", "-")
+    policy_order = tuple(policy_id for policy_id in POLICY_ORDER if policy_id in set(frame["policy_id"].astype(str)))
     caption = (
         f"Held-out repeated-launch validation under {LADDER_LABELS[ladder_id]}. "
         "Rows condition performance on launch speed, primitive-library compression, and the number of previous launches used by the memory-assisted governor."
     )
-    label = f"tab:r11-d01-{table_id}-speed-cluster-policy"
+    label = f"tab:r11-heldout-{table_id}-speed-cluster-policy"
     metric_extrema = _metric_extrema(frame)
     lines = [
         r"\begin{longtblr}[",
@@ -328,11 +643,22 @@ def _ladder_table(ladder_id: str, frame: pd.DataFrame) -> list[str]:
             if library_frame.empty:
                 continue
             library_started = False
-            for policy_id in POLICY_ORDER:
+            for policy_id in policy_order:
                 row = library_frame[library_frame["policy_id"].astype(str) == policy_id]
                 if row.empty:
                     continue
-                lines.append(_table_row(row.iloc[0], speed_id, library_id, policy_id, metric_extrema, speed_started, library_started))
+                lines.append(
+                    _table_row(
+                        row.iloc[0],
+                        speed_id,
+                        library_id,
+                        policy_id,
+                        metric_extrema,
+                        speed_started,
+                        library_started,
+                        len(policy_order),
+                    )
+                )
                 speed_started = True
                 library_started = True
                 row_counter += 1
@@ -370,14 +696,15 @@ def _table_row(
     metric_extrema: dict[str, tuple[float, float]],
     speed_started: bool,
     library_started: bool,
+    policy_count: int,
 ) -> str:
     cells = []
     if not speed_started:
-        cells.append(rf"\SetCell[r=20]{{l,m}} {SPEED_LABELS[speed_id]}")
+        cells.append(rf"\SetCell[r={len(LIBRARY_ORDER) * policy_count}]{{l,m}} {SPEED_LABELS[speed_id]}")
     else:
         cells.append("")
     if not library_started:
-        cells.append(rf"\SetCell[r=4]{{l,m}} {LIBRARY_LABELS[library_id]}")
+        cells.append(rf"\SetCell[r={policy_count}]{{l,m}} {LIBRARY_LABELS[library_id]}")
     else:
         cells.append("")
     cells.append(POLICY_LABELS[policy_id])
@@ -475,6 +802,25 @@ def _parse_args() -> argparse.Namespace:
         type=Path,
         action="append",
         help="Direct final_launch_score.csv input. May be supplied multiple times.",
+    )
+    parser.add_argument(
+        "--neutral-rollout",
+        type=Path,
+        action="append",
+        help=(
+            "neutral_rollout_by_case.csv from the true open-loop diagnostic. "
+            "When supplied with final scores, open-loop rows are paired to the same outer cases and repeated under each library tier."
+        ),
+    )
+    parser.add_argument(
+        "--summary-output",
+        type=Path,
+        help="Optional CSV output for the grouped table data. Defaults beside --output when --neutral-rollout is supplied.",
+    )
+    parser.add_argument(
+        "--open-loop-comparison-output",
+        type=Path,
+        help="Optional CSV output for controller-minus-open-loop grouped deltas.",
     )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     return parser.parse_args()
