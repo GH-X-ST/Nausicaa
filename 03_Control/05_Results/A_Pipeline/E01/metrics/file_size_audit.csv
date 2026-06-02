@@ -1,0 +1,11 @@
+relative_path,byte_count,size_mb,above_75mb,above_100mb,push_allowed
+manifests/pipeline_manifest.json,4717,0.004498481750488281,False,False,True
+manifests/stage_state.json,4506,0.0042972564697265625,False,False,True
+metrics/decision_log.csv,3035,0.0028944015502929688,False,False,True
+metrics/docs_alignment_audit.csv,57965,0.05527973175048828,False,False,True
+metrics/file_size_audit.csv,794,0.0007572174072265625,False,False,True
+metrics/post_stage_checks.csv,4165,0.003972053527832031,False,False,True
+metrics/preflight_checks.csv,1662,0.0015850067138671875,False,False,True
+metrics/repair_log.csv,2925,0.0027894973754882812,False,False,True
+metrics/stage_summary.csv,287,0.00027370452880859375,False,False,True
+reports/pipeline_report.md,2038,0.0019435882568359375,False,False,True

@@ -1,0 +1,4 @@
+stage_id,status,stage_run_root,blocked_reason,duration_s,docs_alignment_status
+R5,passed,03_Control/05_Results/R5_dense/E01,,1782.056,aligned
+R7,passed,03_Control/05_Results/R7_survival/E01,,4281.069,aligned
+R8,passed,03_Control/05_Results/R8_library_size_study/E01,,363.629,aligned

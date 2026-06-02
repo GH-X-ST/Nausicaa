@@ -1,0 +1,103 @@
+{
+  "blocked_reason": "",
+  "docs_alignment_baseline": {
+    "docs/Daily_Schedule.txt": {
+      "byte_count": 41049,
+      "modified_time_utc": "2026-06-01T22:34:43.374847+00:00",
+      "path": "docs/Daily_Schedule.txt",
+      "readable": true,
+      "sha256": "98306dc7c3bc09e046cc132a63c9a3fb3d7e9d4de0a47923d1b2a6eaa7129861"
+    },
+    "docs/Glider_Control_Project_Plan.md": {
+      "byte_count": 100607,
+      "modified_time_utc": "2026-06-01T22:51:21.937842+00:00",
+      "path": "docs/Glider_Control_Project_Plan.md",
+      "readable": true,
+      "sha256": "859465e5af068b878d3a819fa060397ecc04fd0ab886b28f3a17036806011b01"
+    },
+    "docs/MATLAB Coding.txt": {
+      "byte_count": 20645,
+      "modified_time_utc": "2026-06-01T21:52:51.501535+00:00",
+      "path": "docs/MATLAB Coding.txt",
+      "readable": true,
+      "sha256": "4c4ed2ae637a1475c08d58e565142be2dbb3c3d0e346000473bb590ab6545ed7"
+    },
+    "docs/PR.txt": {
+      "byte_count": 26268,
+      "modified_time_utc": "2026-06-01T21:53:30.362962+00:00",
+      "path": "docs/PR.txt",
+      "readable": true,
+      "sha256": "eed476ef516391eb06fc9d28f2051dcab057bb09e48f0583f27ae836ec3f745a"
+    },
+    "docs/Python Coding Instruction.txt": {
+      "byte_count": 28286,
+      "modified_time_utc": "2026-06-01T21:53:30.370961+00:00",
+      "path": "docs/Python Coding Instruction.txt",
+      "readable": true,
+      "sha256": "dbeeaa50e6b973122d4d5be19068f95855c8cc895e16555bb9d15fd1b4179ca2"
+    },
+    "docs/Python Coding to CODEX.txt": {
+      "byte_count": 22017,
+      "modified_time_utc": "2026-06-01T21:53:30.371961+00:00",
+      "path": "docs/Python Coding to CODEX.txt",
+      "readable": true,
+      "sha256": "d796fd28f612aaded89fdf4a524b3f619436984eafd52688c4c10d164f3371da"
+    },
+    "docs/Skills.md": {
+      "byte_count": 36164,
+      "modified_time_utc": "2026-06-01T21:52:51.512536+00:00",
+      "path": "docs/Skills.md",
+      "readable": true,
+      "sha256": "b613b7c68bfdaf8116e68b8fdc6196e7ec19de76ab9dbd9142a116b76445322b"
+    },
+    "docs/housekeeping_and_naming_rules.md": {
+      "byte_count": 23899,
+      "modified_time_utc": "2026-06-01T21:52:51.499533+00:00",
+      "path": "docs/housekeeping_and_naming_rules.md",
+      "readable": true,
+      "sha256": "6d69adca8d2247874ff34bbc238b2ecce16292608cdee61f284f3893003b2984"
+    }
+  },
+  "docs_changed_during_run": false,
+  "pipeline_version": "v55_r5_r7_r11_pipeline_r6_archived_with_repeated_docs_guard",
+  "run_id": 6,
+  "run_root": "03_Control/05_Results/A_Pipeline/E01",
+  "stages": {
+    "R5": {
+      "r5_transition_selected_for_r7": "03_Control/05_Results/R5_dense/E01/metrics/r5_transition_selected_for_r7.csv",
+      "r5_transition_training_manifest": "03_Control/05_Results/R5_dense/E01/manifests/r5_transition_training_manifest.json",
+      "run_manifest": "03_Control/05_Results/R5_dense/E01/manifests/run_manifest.json",
+      "run_root": "03_Control/05_Results/R5_dense/E01",
+      "status": "complete",
+      "table_manifest": "03_Control/05_Results/R5_dense/E01/manifests/table_manifest.json",
+      "variant_registry_csv": "03_Control/05_Results/R5_dense/E01/metrics/primitive_variant_registry.csv",
+      "variant_registry_json": "03_Control/05_Results/R5_dense/E01/manifests/primitive_variant_registry.json"
+    },
+    "R7": {
+      "analysis_status": "w3_survivors_available",
+      "manifest": "03_Control/05_Results/R7_survival/E01/manifests/w3_survival_manifest.json",
+      "run_root": "03_Control/05_Results/R7_survival/E01",
+      "status": "complete",
+      "survivor_count": 1867,
+      "survivor_registry": "03_Control/05_Results/R7_survival/E01/manifests/w3_survivor_registry.json"
+    },
+    "R8": {
+      "library_size_case_ids": [
+        "heavy_cluster",
+        "balanced_cluster",
+        "light_cluster",
+        "super_light_cluster",
+        "no_cluster_no_merge"
+      ],
+      "manifest": "03_Control/05_Results/R8_library_size_study/E01/manifests/post_w3_library_size_study_manifest.json",
+      "outcome_model_table": "03_Control/05_Results/R8_outcome/E01/metrics/outcome_model_table.csv",
+      "outcome_run_root": "03_Control/05_Results/R8_outcome/E01",
+      "outcome_status": "complete",
+      "representative_count": 2571,
+      "run_root": "03_Control/05_Results/R8_library_size_study/E01",
+      "status": "complete"
+    }
+  },
+  "status": "complete",
+  "updated_utc": "2026-06-02T00:47:19.980359+00:00"
+}
