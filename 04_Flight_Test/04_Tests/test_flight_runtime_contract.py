@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import sys
 from pathlib import Path
 
@@ -380,6 +381,34 @@ def test_active_record_terminates_at_exit_gate_and_sends_neutral_tail(tmp_path: 
     assert summary["termination_reason"] == "exit_gate_front_wall"
     assert summary["post_exit_neutral_packets"] >= 1
     assert (tmp_path / "T_exit" / "metrics" / "state_samples.csv").exists()
+
+
+def test_launch_gate_default_debounces_three_consecutive_approved_frames(tmp_path: Path) -> None:
+    config = FlightRuntimeConfig(
+        run_label="T_launch_debounce",
+        output_root=tmp_path,
+        max_duration_s=0.12,
+        post_exit_neutral_tail_s=0.0,
+    )
+
+    assert config.launch_gate_required_consecutive_frames == 3
+
+    summary = run_real_flight(config, mode="dry-run")
+
+    assert summary["launch_gate_approved"] is True
+    prelaunch_path = tmp_path / "T_launch_debounce" / "metrics" / "prelaunch_state_samples.csv"
+    with prelaunch_path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    approved_counts = [
+        int(row["launch_gate_consecutive_approved"])
+        for row in rows
+        if row["trigger_approved"].lower() == "true"
+    ]
+
+    assert 1 in approved_counts
+    assert 2 in approved_counts
+    assert max(approved_counts) == 3
+    assert (tmp_path / "T_launch_debounce" / "metrics" / "state_samples.csv").exists()
 
 
 def test_experiment_case_registry_contains_requested_cases() -> None:

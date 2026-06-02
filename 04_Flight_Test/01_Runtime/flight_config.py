@@ -19,8 +19,8 @@ DEFAULT_VICON_POSITION_OFFSET_M = (
 DEFAULT_VICON_ATTITUDE_SIGNS = (1.0, -1.0, -1.0)
 DEFAULT_REAL_FLIGHT_LIBRARY_TIER = "heavy_cluster"
 REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON = (
-    "heavy_cluster_selected_for_first_real_flight_from_combined_r11_d01_d02_validation;"
-    "best_real_flight_candidate_safety_mission_score_and_cleanest_bounded_memory_response;"
+    "heavy_cluster_selected_for_first_real_flight_from_e01_real_flight_aligned_validation;"
+    "deployment_tier_keeps_the_smallest_claim_bearing_library_with_defensible_high_energy_validation;"
     "balanced_cluster_is_diversity_fallback"
 )
 
@@ -44,7 +44,7 @@ class FlightRuntimeConfig:
     vicon_poll_period_s: float = 0.005
     max_duration_s: float = 20.0
     launch_wait_timeout_s: float = 8.0
-    launch_gate_required_consecutive_frames: int = 1
+    launch_gate_required_consecutive_frames: int = 3
     post_exit_neutral_tail_s: float = 0.30
     retry_cooldown_s: float = 2.0
     stale_vicon_timeout_s: float = 0.120
@@ -56,13 +56,13 @@ class FlightRuntimeConfig:
     vicon_attitude_signs: tuple[float, float, float] = DEFAULT_VICON_ATTITUDE_SIGNS
     vicon_frame_description: str = "full_xyz_position_offset_with_pitch_yaw_sign_correction"
     output_root: Path = RESULT_ROOT
-    library_manifest_root: Path = FROZEN_INPUT_ROOT / "R8_library_size_study" / "B02" / "manifests"
-    outcome_table_path: Path = FROZEN_INPUT_ROOT / "R8_outcome" / "B02" / "metrics" / "outcome_model_table.csv"
+    library_manifest_root: Path = FROZEN_INPUT_ROOT / "R8_library_size_study" / "E01" / "manifests"
+    outcome_table_path: Path = FROZEN_INPUT_ROOT / "R8_outcome" / "E01" / "metrics" / "outcome_model_table.csv"
     controller_bundle_path: Path = (
-        FROZEN_INPUT_ROOT / "R5_dense" / "B02" / "manifests" / "frozen_w01_controller_bundle.json"
+        FROZEN_INPUT_ROOT / "R5_dense" / "E01" / "manifests" / "frozen_w01_controller_bundle.json"
     )
     governor_config_path: Path = (
-        FROZEN_INPUT_ROOT / "R10_learn" / "D01" / "manifests" / "frozen_governor_config_for_r11.json"
+        FROZEN_INPUT_ROOT / "R10_learn" / "E01" / "manifests" / "frozen_governor_config_for_r11.json"
     )
 
     @property

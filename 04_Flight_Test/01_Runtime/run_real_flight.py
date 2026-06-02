@@ -764,7 +764,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--vicon-attitude-signs", nargs=3, type=float, default=DEFAULT_VICON_ATTITUDE_SIGNS)
     parser.add_argument("--duration-s", type=float, default=20.0)
     parser.add_argument("--launch-wait-timeout-s", type=float, default=8.0)
-    parser.add_argument("--launch-gate-frames", type=int, default=1)
+    parser.add_argument("--launch-gate-frames", type=int, default=3)
     parser.add_argument("--post-exit-neutral-tail-s", type=float, default=0.30)
     parser.add_argument("--vicon-tracking-rate-hz", type=float, default=200.0)
     return parser.parse_args()

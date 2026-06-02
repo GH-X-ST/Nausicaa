@@ -118,7 +118,7 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.p
 - Controller period: `0.100 s`
 - Serial packet period: `0.020 s`
 - Launch wait timeout: `8.0 s`
-- Launch gate debounce: `1` approved frame
+- Launch gate debounce: `3` consecutive approved frames
 - Post-exit neutral tail: `0.30 s`
 - Default library tier: `heavy_cluster`
 - Selectable real-flight fallback tier: `balanced_cluster`
@@ -132,10 +132,10 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.p
 The first real-flight experiment uses `heavy_cluster` as the single active
 deployment tier. R11 already compares all five library tiers, so the flight test
 does not repeat the full clustering ladder. `heavy_cluster` is selected because
-combined R11 D01+D02 validation gives the strongest real-flight candidate
-tradeoff: higher mission success and mean score than `balanced_cluster`, lower
-wrong-wall and hard-failure rates, and the cleanest bounded memory response
-among the real-time candidate tiers.
+E01 real-flight-aligned validation preserves a compact deployment library with
+defensible high-energy performance and bounded memory behaviour. The R11 E01
+result is defensible rather than strict-pass, and shows that starts below
+5.0 m/s remain the dominant failure mode.
 
 `balanced_cluster` remains a fallback if additional primitive diversity is
 needed during smoke testing. This selection is a deployment tradeoff, not a
