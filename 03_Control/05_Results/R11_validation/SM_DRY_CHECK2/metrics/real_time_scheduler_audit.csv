@@ -1,0 +1,2 @@
+audit_scope,selector_decision_count,audit_status,real_time_claim_status
+overall,0,no_selector_decision_rows,controller_compute_profile_excludes_table_flush_and_posthoc_diagnostics
