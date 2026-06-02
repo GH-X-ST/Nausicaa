@@ -1,0 +1,3 @@
+relative_path,byte_count,size_mb,above_75mb,above_100mb,push_allowed
+manifests/environment_changed_case_manifest.json,1185,0.0011301040649414062,False,False,True
+metrics/pass_fail_gate_summary.csv,127,0.00012111663818359375,False,False,True

@@ -1,0 +1,2 @@
+gate_id,passed,observed,required
+blocked_before_execution,False,missing_post_w3_library_size_study_manifest,unblocked_inputs
