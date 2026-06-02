@@ -53,6 +53,7 @@ class FlightRuntimeConfig:
     body_rate_limit_rad_s: float = 6.0
     body_rate_observer_window_frames: int = 7
     launch_gate_rate_confidence_min: float = 0.65
+    launch_gate_body_rate_limits_rad_s: tuple[float, float, float] = (1.2, 1.2, 1.8)
     actuator_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06)
     vicon_position_offset_m: tuple[float, float, float] = DEFAULT_VICON_POSITION_OFFSET_M
     vicon_yaw_alignment_deg: float = 0.0

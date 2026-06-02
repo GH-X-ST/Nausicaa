@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import sys
 from pathlib import Path
 
@@ -39,6 +40,12 @@ from real_flight_io import (  # noqa: E402
 )
 from run_real_flight import run_real_flight  # noqa: E402
 from run_experiment_sequence import run_experiment_sequence  # noqa: E402
+from run_glider_calibration_sequence import (  # noqa: E402
+    PULSE_DURATION_BY_ABS_COMMAND,
+    PULSE_START_DELAY_S,
+    _command_for_case,
+    calibration_cases_for_block,
+)
 from run_vicon_orientation_check import _evaluate_steps, _sample_rate_summary  # noqa: E402
 from run_surface_sign_check import SURFACE_CHECK_SEQUENCE, run_surface_sign_check  # noqa: E402
 from state_contract import STATE_INDEX  # noqa: E402
@@ -433,7 +440,7 @@ def test_launch_plane_crossing_interpolates_entry_state() -> None:
     assert np.isclose(launch_state[STATE_INDEX["x_w"]], LAUNCH_TRIGGER_X_W_M)
     assert evaluate_launch_plane_gate(launch_state).approved is True
 
-    current[STATE_INDEX["q"]] = 1.0
+    current[STATE_INDEX["q"]] = 2.6
     launch_state = interpolate_launch_plane_state(previous, current)
     assert launch_state is not None
     rejected = evaluate_launch_plane_gate(launch_state)
@@ -520,6 +527,58 @@ def test_flight_record_cancels_when_launch_gate_never_passes(tmp_path: Path) -> 
     assert not (tmp_path / "T_cancel" / "metrics" / "state_samples.csv").exists()
 
 
+def test_glider_calibration_case_registry_uses_neutral_and_0p2_lattice() -> None:
+    neutral_cases = calibration_cases_for_block("neutral_30")
+    pulse_cases = calibration_cases_for_block("pulse_ladder_30")
+
+    assert len(neutral_cases) == 1
+    assert neutral_cases[0].case_id == "C0_neutral"
+    assert neutral_cases[0].target_valid_throws == 30
+    assert neutral_cases[0].is_neutral is True
+
+    assert len(pulse_cases) == 30
+    assert {case.command_axis for case in pulse_cases} == {"delta_e", "delta_a", "delta_r"}
+    for axis in ("delta_e", "delta_a", "delta_r"):
+        axis_cases = [case for case in pulse_cases if case.command_axis == axis]
+        assert len(axis_cases) == 10
+        assert [case.command_value for case in axis_cases] == [
+            0.2,
+            -0.2,
+            0.4,
+            -0.4,
+            0.6,
+            -0.6,
+            0.8,
+            -0.8,
+            1.0,
+            -1.0,
+        ]
+
+    for case in pulse_cases:
+        assert case.pulse_start_s == PULSE_START_DELAY_S
+        assert case.pulse_duration_s == PULSE_DURATION_BY_ABS_COMMAND[round(abs(case.command_value), 1)]
+        assert case.target_valid_throws == 1
+
+
+def test_glider_calibration_pulse_command_is_single_axis_then_neutral() -> None:
+    case = next(
+        item
+        for item in calibration_cases_for_block("pulse_ladder_30")
+        if item.command_axis == "delta_e" and np.isclose(item.command_value, 0.6)
+    )
+
+    before = _command_for_case(case, case.pulse_start_s - 1e-3)
+    during = _command_for_case(case, case.pulse_start_s + 0.5 * case.pulse_duration_s)
+    after = _command_for_case(case, case.pulse_start_s + case.pulse_duration_s + 1e-3)
+
+    np.testing.assert_allclose(before, [0.0, 0.0, 0.0])
+    np.testing.assert_allclose(during, [0.0, 0.6, 0.0])
+    np.testing.assert_allclose(after, [0.0, 0.0, 0.0])
+
+    neutral = calibration_cases_for_block("neutral_30")[0]
+    np.testing.assert_allclose(_command_for_case(neutral, 10.0), [0.0, 0.0, 0.0])
+
+
 def test_active_record_terminates_at_exit_gate_and_sends_neutral_tail(tmp_path: Path) -> None:
     config = FlightRuntimeConfig(
         run_label="T_exit",
@@ -587,6 +646,18 @@ def test_launch_gate_rejects_low_rate_confidence_even_when_bounds_pass(tmp_path:
     assert any(row["rate_confidence_ok"].lower() == "false" for row in rows)
 
 
+def test_launch_gate_uses_formal_realistic_rate_limits() -> None:
+    state = _state(x_w=1.3, y_w=2.0, z_w=1.65, u=6.0, p=1.0, q=0.8, r=1.4)
+
+    assert FlightRuntimeConfig(run_label="formal").launch_gate_body_rate_limits_rad_s == (1.2, 1.2, 1.8)
+    assert evaluate_launch_gate(state).approved is True
+    assert evaluate_launch_plane_gate(state).approved is True
+
+    rejected = _state(x_w=1.3, y_w=2.0, z_w=1.65, u=6.0, p=1.21, q=0.8, r=1.4)
+    assert evaluate_launch_gate(rejected).approved is False
+    assert evaluate_launch_gate(rejected).reason == "roll_rate_outside_launch_gate"
+
+
 def test_experiment_case_registry_contains_requested_cases() -> None:
     requested = {
         "E0.1",
@@ -634,6 +705,51 @@ def test_replay_fan_tracker_handles_zero_one_and_four_subjects() -> None:
     assert sum(1 for fan in replay.read_fans(("Missing_Fan",)) if fan.visible) == 0
     assert sum(1 for fan in replay.read_fans(("Fan_1",)) if fan.visible) == 1
     assert sum(1 for fan in replay.read_fans(("Fan_1", "Fan_2", "Fan_3", "Fan_4")) if fan.visible) == 4
+
+
+def test_experiment_sequence_propagates_formal_rate_gate_to_throw_runtime(tmp_path: Path, monkeypatch) -> None:
+    import run_experiment_sequence as sequence_module
+
+    monkeypatch.setattr(sequence_module, "RESULT_ROOT", tmp_path)
+    result = run_experiment_sequence(
+        case_id="E0.1",
+        session_label="pytest_e0_gate",
+        mode="dry-run",
+        serial_port="COM_TEST",
+        vicon_host="mock",
+        target_valid_throws=1,
+        cooldown_s=0.0,
+        retry_cooldown_s=0.0,
+        max_invalid_attempts=1,
+        max_duration_s=0.12,
+        launch_wait_timeout_s=0.20,
+        post_exit_neutral_tail_s=0.0,
+        vicon_poll_period_s=0.005,
+        vicon_position_offset_m=(3.9, 2.2, 1.95),
+        vicon_yaw_alignment_deg=0.0,
+        vicon_attitude_signs=(1.0, -1.0, -1.0),
+    )
+
+    assert result["valid_throw_count"] == 1
+    session_manifest = json.loads(
+        (tmp_path / "E0.1" / "pytest_e0_gate" / "manifests" / "experiment_sequence_manifest.json").read_text()
+    )
+    throw_manifest = json.loads(
+        (
+            tmp_path
+            / "E0.1"
+            / "pytest_e0_gate"
+            / "throw_001"
+            / "manifests"
+            / "real_flight_runtime_manifest.json"
+        ).read_text()
+    )
+
+    assert session_manifest["launch_gate_body_rate_limits_rad_s"] == [1.2, 1.2, 1.8]
+    assert throw_manifest["config"]["launch_gate_body_rate_limits_rad_s"] == [1.2, 1.2, 1.8]
+    assert throw_manifest["launch_gate_bounds"]["p_rad_s"] == [-1.2, 1.2]
+    assert throw_manifest["launch_gate_bounds"]["q_rad_s"] == [-1.2, 1.2]
+    assert throw_manifest["launch_gate_bounds"]["r_rad_s"] == [-1.8, 1.8]
 
 
 def test_experiment_sequence_counts_only_valid_throws_and_persists_memory(tmp_path: Path, monkeypatch) -> None:

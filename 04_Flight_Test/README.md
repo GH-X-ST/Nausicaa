@@ -61,6 +61,20 @@ The surface check sweeps aileron, elevator, and rudder through the full 20
 percent command lattice `[-1.0, -0.8, ..., +0.8, +1.0]` with live console
 progress while packets are repeated to the Nano33 IoT transmitter.
 
+For dry-air glider model calibration before regenerating controller evidence,
+use the neutral and single-axis pulse workflow described in
+`GLIDER_CALIBRATION_PLAN.txt`:
+
+```powershell
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block neutral_30
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_30
+```
+
+This calibration workflow uses the same Vicon state adapter, launch gate,
+Arduino packet path, and 20 percent command lattice as the real-flight runtime,
+but deliberately does not call the governor, memory, primitive selector, or LQR
+controller.
+
 For repeated experiment blocks, edit `CURRENT_EXPERIMENT_CASE` at the top of
 `01_Runtime\run_experiment_sequence.py`, then run:
 
@@ -80,11 +94,16 @@ first measured state satisfies the complete R5 launch window:
 
 - `x_w in [1.2, 1.4] m`
 - `y_w in [1.8, 2.2] m`
-- `z_w in [1.4, 1.9] m`
+- `z_w in [1.3, 1.8] m`
 - roll within `+-20 deg`
 - pitch within `[-10, +20] deg`
 - yaw within `+-20 deg`
 - body-speed magnitude in `[3.0, 8.0] m/s`
+- roll rate `p in [-1.2, +1.2] rad/s`
+- pitch rate `q in [-1.2, +1.2] rad/s`
+- yaw rate `r in [-1.8, +1.8] rad/s`
+- SO(3) body-rate observer confidence at least `0.65`
+- `3` consecutive approved frames
 
 The `x_w = 1.3 m` launch-plane crossing is still computed as a fallback and
 diagnostic, but the real-flight start trigger is the first full-window-valid

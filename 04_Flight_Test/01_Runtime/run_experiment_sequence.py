@@ -113,6 +113,10 @@ def run_experiment_sequence(
             "vicon_tracking_rate_hz": float(1.0 / vicon_poll_period_s),
             "vicon_poll_period_s": float(vicon_poll_period_s),
             "vicon_attitude_signs_phi_theta_psi": tuple(float(value) for value in vicon_attitude_signs),
+            "launch_gate_body_rate_limits_rad_s": tuple(
+                float(value) for value in base_config.launch_gate_body_rate_limits_rad_s
+            ),
+            "launch_gate_body_rate_limits_policy": "formal_evidence_default",
             "between_throw_policy": (
                 "pre_arm_and_cooldown_stream_neutral_only_without_vicon_reads;"
                 "next_throw_reopens_lazy_vicon_launch_gate_wait"
@@ -175,6 +179,7 @@ def run_experiment_sequence(
                 vicon_position_offset_m=vicon_position_offset_m,
                 vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
                 vicon_attitude_signs=vicon_attitude_signs,
+                launch_gate_body_rate_limits_rad_s=base_config.launch_gate_body_rate_limits_rad_s,
                 output_root=output_root,
             )
             summary = run_real_flight(
@@ -240,6 +245,10 @@ def run_experiment_sequence(
                 "vicon_tracking_rate_hz": float(1.0 / vicon_poll_period_s),
                 "vicon_poll_period_s": float(vicon_poll_period_s),
                 "vicon_attitude_signs_phi_theta_psi": tuple(float(value) for value in vicon_attitude_signs),
+                "launch_gate_body_rate_limits_rad_s": tuple(
+                    float(value) for value in base_config.launch_gate_body_rate_limits_rad_s
+                ),
+                "launch_gate_body_rate_limits_policy": "formal_evidence_default",
                 "between_throw_policy": (
                     "pre_arm_and_cooldown_streamed_neutral_only_without_vicon_reads;"
                     "each_throw_started_with_lazy_vicon_launch_gate_wait"

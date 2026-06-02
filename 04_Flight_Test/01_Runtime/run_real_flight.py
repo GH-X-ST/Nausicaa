@@ -89,7 +89,9 @@ def run_real_flight(
             "latency_quantification_enabled": False,
             "servo_command_limit_norm": [-1.0, 1.0],
             "launch_trigger_policy": "wait_for_r5_launch_gate_before_active_record",
-            "launch_gate_bounds": launch_gate_bounds_manifest(),
+            "launch_gate_bounds": launch_gate_bounds_manifest(
+                body_rate_limits_rad_s=config.launch_gate_body_rate_limits_rad_s
+            ),
             "launch_wait_timeout_s": float(config.launch_wait_timeout_s),
             "launch_gate_required_consecutive_frames": int(config.launch_gate_required_consecutive_frames),
             "exit_gate_bounds": exit_gate_bounds_manifest(),
@@ -490,11 +492,17 @@ def _await_launch_gate(
             expected_visible_fan_range=expected_visible_fan_range,
             summary=summary,
         )
-        full_window_gate = evaluate_launch_gate(state)
+        full_window_gate = evaluate_launch_gate(
+            state,
+            body_rate_limits_rad_s=config.launch_gate_body_rate_limits_rad_s,
+        )
         launch_plane_state = interpolate_launch_plane_state(previous_state, state)
         crossed_launch_plane = launch_plane_state is not None
         plane_gate = (
-            evaluate_launch_plane_gate(launch_plane_state)
+            evaluate_launch_plane_gate(
+                launch_plane_state,
+                body_rate_limits_rad_s=config.launch_gate_body_rate_limits_rad_s,
+            )
             if crossed_launch_plane and launch_plane_state is not None
             else None
         )

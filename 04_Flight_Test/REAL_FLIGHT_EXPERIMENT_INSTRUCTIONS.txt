@@ -146,14 +146,14 @@ R5 launch window:
 
 x_w in [1.2, 1.4] m
 y_w in [1.8, 2.2] m
-z_w in [1.4, 1.9] m
+z_w in [1.3, 1.8] m
 roll in +/-20 deg
 pitch in [-10, +20] deg
 yaw in +/-20 deg
 speed in [3, 8] m/s
-p roll rate in [-0.35, +0.35] rad/s
-q pitch rate in [-0.25, +0.25] rad/s
-r yaw rate in [-0.25, +0.25] rad/s
+p roll rate in [-1.2, +1.2] rad/s
+q pitch rate in [-1.2, +1.2] rad/s
+r yaw rate in [-1.8, +1.8] rad/s
 SO(3) body-rate observer confidence >= 0.65
 3 consecutive approved frames
 

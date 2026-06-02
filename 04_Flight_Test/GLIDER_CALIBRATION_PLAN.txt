@@ -1,0 +1,145 @@
+Glider Calibration Plan
+=======================
+
+Purpose
+-------
+Collect dry-air data before regenerating the simulation/control evidence. These
+throws are calibration data, not closed-loop thesis evidence.
+
+The calibration workflow uses the same Vicon rigid-body state adapter, launch
+gate, 20 percent command lattice, Arduino packet format, receiver channel order,
+and servo-sign convention as the real-flight runtime. It does not run the
+governor, memory, primitive selector, or closed-loop LQR controller.
+
+Active launch gate for this calibration:
+
+x_w in [1.2, 1.4] m
+y_w in [1.8, 2.2] m
+z_w in [1.3, 1.8] m
+roll in +/-20 deg
+pitch in [-10, +20] deg
+yaw in +/-20 deg
+speed in [3, 8] m/s
+p roll rate in [-1.2, +1.2] rad/s
+q pitch rate in [-1.2, +1.2] rad/s
+r yaw rate in [-1.8, +1.8] rad/s
+SO(3) body-rate observer confidence >= 0.65
+3 consecutive approved frames
+
+
+Block A: Neutral Glide Characterisation
+---------------------------------------
+Run 30 valid dry-air open-loop neutral throws.
+
+Command:
+
+[delta_a, delta_e, delta_r] = [0, 0, 0]
+
+Use:
+
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block neutral_30
+
+What this estimates:
+
+- natural sink rate
+- glide ratio
+- speed decay
+- natural roll / pitch / yaw drift
+- launch speed and launch body-rate distribution
+- exit-wall distribution
+- dry-air model mismatch without controller intervention
+
+
+Block B: Single-Axis 0.2-Lattice Control-Effectiveness Ladder
+-------------------------------------------------------------
+Run 30 valid dry-air pulse throws. Each throw applies one pulse on one axis,
+then returns to neutral until exit.
+
+Command lattice:
+
+-1.0, -0.8, -0.6, -0.4, -0.2, 0.0, +0.2, +0.4, +0.6, +0.8, +1.0
+
+Pulse start:
+
+0.25 s after launch gate approval
+
+Pulse durations:
+
+abs(command) = 0.2 -> 0.25 s
+abs(command) = 0.4 -> 0.20 s
+abs(command) = 0.6 -> 0.15 s
+abs(command) = 0.8 -> 0.12 s
+abs(command) = 1.0 -> 0.10 s
+
+Axis order:
+
+1. Elevator: +0.2, -0.2, +0.4, -0.4, +0.6, -0.6, +0.8, -0.8, +1.0, -1.0
+2. Aileron:  +0.2, -0.2, +0.4, -0.4, +0.6, -0.6, +0.8, -0.8, +1.0, -1.0
+3. Rudder:   +0.2, -0.2, +0.4, -0.4, +0.6, -0.6, +0.8, -0.8, +1.0, -1.0
+
+Use:
+
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_30
+
+What this estimates:
+
+- elevator pitch/sink effectiveness across the command lattice
+- aileron roll/yaw coupling across the command lattice
+- rudder yaw/roll coupling across the command lattice
+- actuator response timing under real airflow
+- nonlinear control effectiveness from +/-0.2 to +/-1.0
+
+
+Abort Rules
+-----------
+Stop the current axis or command level if any throw shows:
+
+- roll beyond 45 deg
+- pitch above +35 deg or below -25 deg
+- yaw snap beyond 45 deg in about 0.5 s
+- rapid floor trajectory
+- visible loss of control
+- tracking loss that prevents interpretation
+
+If a high-amplitude pulse is unsafe, do not continue to larger amplitudes for
+that axis.
+
+
+Output Layout
+-------------
+Results are stored under:
+
+04_Flight_Test/05_Results/glider_calibration/<block>/<session>/
+
+Each valid throw writes:
+
+- manifests/glider_calibration_throw_manifest.json
+- manifests/glider_calibration_throw_summary.json
+- metrics/prelaunch_state_samples.csv
+- metrics/state_samples.csv
+- metrics/command_schedule.csv
+- metrics/runtime_events.csv
+- metrics/serial_events.csv if serial write failures occur
+
+Invalid launch-gate attempts are moved to:
+
+<case_id>/invalid_attempts/attempt_XXX/
+
+Invalid attempts do not count as valid calibration throws.
+
+
+Before Running
+--------------
+1. Run Vicon orientation check.
+2. Run surface sign check.
+3. Confirm fans are off.
+4. Confirm Arduino transmitter is on the expected serial port.
+5. Confirm launch gate values above are visible in the runtime manifest after
+   the first throw starts.
+
+
+After Running
+-------------
+Do not run closed-loop governor again from these data alone. First inspect the
+neutral and pulse response, update the simulation/model assumptions, regenerate
+R5/R7/R8/R10/R11 evidence as needed, then re-freeze deployment inputs.
