@@ -114,7 +114,9 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.p
 - Serial port: `COM11`
 - Serial baud: `1000000`
 - Vicon tracking poll period: `0.005 s` / `200 Hz`
-- Vicon derivative/state filter: one-pole `8 Hz`
+- Vicon velocity filter: one-pole `8 Hz`
+- Vicon body-rate observer: corrected SO(3) rotation-window observer
+- Launch body-rate observer confidence: `>=0.65`
 - Controller period: `0.100 s`
 - Serial packet period: `0.020 s`
 - Launch wait timeout: `8.0 s`
@@ -163,4 +165,15 @@ reversed relative to the controller convention, so the runtime applies
 `attitude_signs = (1, -1, -1)` for `(phi, theta, psi)`: roll is unchanged,
 physical nose-up becomes positive `theta`, and physical nose-right becomes
 positive `psi`. Re-run `run_vicon_orientation_check.py` after any Vicon
-rigid-body re-registration.
+rigid-body re-registration. The checker now verifies both pose signs and the
+SO(3) observer rate signs: pitch-up motion should produce positive `q`,
+right-roll motion positive `p`, and nose-right yaw motion positive `r`.
+
+Angular rates are estimated only after this attitude correction has been
+applied. The runtime builds a corrected body-to-world rotation matrix and feeds
+that into a small SO(3) rotation-window observer. The launch gate therefore
+requires both the normal R5 launch bounds and a body-rate observer confidence of
+at least `0.65` for `3` consecutive approved frames before active control starts.
+One-frame Vicon rotation spikes are downweighted by local consistency, while
+sustained high angular rates are kept as real motion and judged by the launch
+rate bounds.

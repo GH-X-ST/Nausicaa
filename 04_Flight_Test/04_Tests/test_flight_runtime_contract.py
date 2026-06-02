@@ -32,12 +32,14 @@ from launch_gate import (  # noqa: E402
 from real_flight_io import (  # noqa: E402
     NausicaaViconSample,
     NausicaaViconStateAdapter,
+    SO3AngularRateObserver,
     ViconArenaFrameTransform,
     aggregate_to_physical_surface_norm,
     encode_arduino_command_packet,
 )
 from run_real_flight import run_real_flight  # noqa: E402
 from run_experiment_sequence import run_experiment_sequence  # noqa: E402
+from run_vicon_orientation_check import _evaluate_steps  # noqa: E402
 from run_surface_sign_check import SURFACE_CHECK_SEQUENCE, run_surface_sign_check  # noqa: E402
 from state_contract import STATE_INDEX  # noqa: E402
 from episode_selector import select_compact_representative  # noqa: E402
@@ -199,10 +201,13 @@ def test_vicon_adapter_body_rates_are_rotation_delta_based_and_bounded() -> None
         NausicaaViconSample(0.1, (0.0, 0.0, 0.0), euler_rad=(0.1, 0.0, 0.0)),
         command_norm=[0.0, 0.0, 0.0],
     )
+    status = adapter.estimator_status()
 
     assert np.isclose(state[STATE_INDEX["p"]], 1.0, atol=1e-6)
     assert np.isclose(state[STATE_INDEX["q"]], 0.0, atol=1e-6)
     assert np.isclose(state[STATE_INDEX["r"]], 0.0, atol=1e-6)
+    assert status["observer_mode"] == "so3_window"
+    assert status["rate_confidence"] == 0.25
 
     clipped = adapter.update(
         NausicaaViconSample(0.11, (0.0, 0.0, 0.0), euler_rad=(1.1, 0.0, 0.0)),
@@ -215,6 +220,100 @@ def test_vicon_adapter_body_rates_are_rotation_delta_based_and_bounded() -> None
         NausicaaViconSample(0.12, (0.0, 0.0, 0.0), euler_rad=(1.1, 0.0, 0.0)),
         command_norm=[0.0, 0.0, 0.0],
     )[STATE_INDEX["p"]])
+
+
+def test_so3_observer_rejects_one_frame_spike_but_keeps_sustained_rate() -> None:
+    observer = SO3AngularRateObserver(window_frames=7, cutoff_hz=0.0, rate_limit_rad_s=6.0)
+    for _ in range(6):
+        rate, status = observer.update(np.eye(3), dt_s=0.01)
+
+    assert np.isclose(rate[0], 0.0)
+    assert status["rate_confidence"] >= 0.65
+
+    spike_rotation = np.asarray(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, np.cos(0.5), -np.sin(0.5)],
+            [0.0, np.sin(0.5), np.cos(0.5)],
+        ],
+        dtype=float,
+    )
+    rate, status = observer.update(spike_rotation, dt_s=0.01)
+
+    assert status["spike_rejected"] is True
+    assert status["rate_confidence"] < 0.65
+    assert abs(float(rate[0])) < 1.0
+
+    sustained = SO3AngularRateObserver(window_frames=7, cutoff_hz=0.0, rate_limit_rad_s=6.0)
+    for index in range(10):
+        angle = 0.02 * index
+        rotation = np.asarray(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, np.cos(angle), -np.sin(angle)],
+                [0.0, np.sin(angle), np.cos(angle)],
+            ],
+            dtype=float,
+        )
+        rate, status = sustained.update(rotation, dt_s=0.01)
+
+    assert status["spike_rejected"] is False
+    assert status["rate_confidence"] >= 0.65
+    assert np.isclose(rate[0], 2.0, atol=0.25)
+
+
+def test_vicon_rate_observer_uses_corrected_attitude_before_so3_rate() -> None:
+    adapter = NausicaaViconStateAdapter(
+        derivative_cutoff_hz=0.0,
+        body_rate_limit_rad_s=6.0,
+        arena_transform=ViconArenaFrameTransform(attitude_signs=(1.0, -1.0, -1.0)),
+    )
+    for index in range(6):
+        raw_yaw = -0.02 * index
+        state = adapter.update(
+            NausicaaViconSample(
+                0.01 * index,
+                (0.0, 0.0, 0.0),
+                euler_rad=(0.0, 0.0, raw_yaw),
+                frame_number=index + 1,
+                frame_rate_hz=100.0,
+            ),
+            command_norm=[0.0, 0.0, 0.0],
+        )
+    status = adapter.estimator_status()
+
+    assert np.isclose(state[STATE_INDEX["psi"]], 0.10)
+    assert state[STATE_INDEX["r"]] > 1.0
+    assert status["rate_confidence"] >= 0.65
+    assert status["attitude_transform_applied"] is True
+
+
+def test_vicon_orientation_check_summary_includes_rate_sign_and_confidence() -> None:
+    neutral = [_state(p=0.0, q=0.0, r=0.0) for _ in range(12)]
+    roll_right = [_state(phi=0.25, p=0.25, q=0.0, r=0.0) for _ in range(12)]
+    statuses = [
+        {
+            "rate_confidence": 0.9,
+            "spike_rejected": False,
+            "observer_mode": "so3_window",
+            "rate_window_frames": 7,
+        }
+        for _ in range(12)
+    ]
+
+    rows = _evaluate_steps(
+        {"neutral": neutral, "roll_right": roll_right},
+        {"neutral": statuses, "roll_right": statuses},
+    )
+    roll_row = next(row for row in rows if row["step_id"] == "roll_right")
+    neutral_row = next(row for row in rows if row["step_id"] == "neutral")
+
+    assert neutral_row["passed"] is True
+    assert roll_row["passed"] is True
+    assert roll_row["rate_signal_name"] == "p"
+    assert float(roll_row["observed_rate"]) > 0.0
+    assert roll_row["rate_passed"] is True
+    assert roll_row["rate_confidence_passed"] is True
 
 
 def test_vicon_adapter_prefers_frame_synchronous_timing_over_host_jitter() -> None:
@@ -409,6 +508,28 @@ def test_launch_gate_default_debounces_three_consecutive_approved_frames(tmp_pat
     assert 2 in approved_counts
     assert max(approved_counts) == 3
     assert (tmp_path / "T_launch_debounce" / "metrics" / "state_samples.csv").exists()
+
+
+def test_launch_gate_rejects_low_rate_confidence_even_when_bounds_pass(tmp_path: Path) -> None:
+    config = FlightRuntimeConfig(
+        run_label="T_launch_confidence",
+        output_root=tmp_path,
+        max_duration_s=0.12,
+        launch_wait_timeout_s=0.08,
+        post_exit_neutral_tail_s=0.0,
+        launch_gate_rate_confidence_min=0.99,
+    )
+
+    summary = run_real_flight(config, mode="dry-run")
+
+    assert summary["flight_cancelled"] is True
+    assert summary["launch_gate_approved"] is False
+    prelaunch_path = tmp_path / "T_launch_confidence" / "metrics" / "prelaunch_state_samples.csv"
+    with prelaunch_path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert any(row["base_trigger_approved_before_rate_confidence"].lower() == "true" for row in rows)
+    assert any(row["rate_confidence_ok"].lower() == "false" for row in rows)
 
 
 def test_experiment_case_registry_contains_requested_cases() -> None:

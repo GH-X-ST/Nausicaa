@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
@@ -147,7 +148,8 @@ class NausicaaViconStateAdapter:
         self,
         *,
         derivative_cutoff_hz: float = 8.0,
-        body_rate_limit_rad_s: float = 3.0,
+        body_rate_limit_rad_s: float = 6.0,
+        body_rate_observer_window_frames: int = 7,
         actuator_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06),
         arena_transform: ViconArenaFrameTransform | None = None,
     ) -> None:
@@ -159,13 +161,16 @@ class NausicaaViconStateAdapter:
         if not np.all(np.isfinite(self.actuator_tau_s)) or np.any(self.actuator_tau_s <= 0.0):
             raise ValueError("actuator_tau_s must contain finite positive values.")
         self.arena_transform = arena_transform or ViconArenaFrameTransform()
+        self._body_rate_observer = SO3AngularRateObserver(
+            window_frames=body_rate_observer_window_frames,
+            cutoff_hz=self.derivative_cutoff_hz,
+            rate_limit_rad_s=self.body_rate_limit_rad_s,
+        )
         self._previous_timestamp_s: float | None = None
         self._previous_frame_number: int | None = None
         self._previous_position_m: np.ndarray | None = None
         self._previous_euler_rad: np.ndarray | None = None
-        self._previous_c_wb: np.ndarray | None = None
         self._filtered_world_velocity_m_s = np.zeros(3)
-        self._filtered_body_rate_rad_s = np.zeros(3)
         self._surface_state_rad = np.zeros(3)
         self._last_estimator_status: dict[str, object] = {
             "dt_s": 0.0,
@@ -173,12 +178,17 @@ class NausicaaViconStateAdapter:
             "frame_delta": 0,
             "frame_rate_hz": 0.0,
             "body_rate_limited": False,
+            "rate_confidence": 0.0,
+            "rate_window_frames": 0,
+            "spike_rejected": False,
+            "observer_mode": "not_initialised",
+            "attitude_transform_applied": True,
         }
 
     def reset_angular_rate_filter(self) -> None:
-        """Clear prelaunch angular-rate history before active flight starts."""
+        """Reset the SO(3) angular-rate observer."""
 
-        self._filtered_body_rate_rad_s = np.zeros(3)
+        self._body_rate_observer.reset()
 
     def estimator_status(self) -> dict[str, object]:
         return dict(self._last_estimator_status)
@@ -202,29 +212,11 @@ class NausicaaViconStateAdapter:
             sample,
             timestamp_s,
         )
-        if dt_s > 0.0 and self._previous_position_m is not None and self._previous_c_wb is not None:
+        if dt_s > 0.0 and self._previous_position_m is not None:
             raw_world_velocity = (position_m - self._previous_position_m) / dt_s
-            raw_body_rate = _body_rates_from_rotation_delta(
-                self._previous_c_wb,
-                c_wb,
-                dt_s,
-            )
-            unclipped_body_rate = raw_body_rate.copy()
-            raw_body_rate = np.clip(
-                raw_body_rate,
-                -self.body_rate_limit_rad_s,
-                self.body_rate_limit_rad_s,
-            )
-            body_rate_limited = bool(np.any(np.abs(unclipped_body_rate - raw_body_rate) > 1e-9))
             self._filtered_world_velocity_m_s = _low_pass_update(
                 self._filtered_world_velocity_m_s,
                 raw_world_velocity,
-                dt_s,
-                self.derivative_cutoff_hz,
-            )
-            self._filtered_body_rate_rad_s = _low_pass_update(
-                self._filtered_body_rate_rad_s,
-                raw_body_rate,
                 dt_s,
                 self.derivative_cutoff_hz,
             )
@@ -236,22 +228,18 @@ class NausicaaViconStateAdapter:
                 self._surface_state_rad = self._surface_state_rad + alpha * (
                     target_surface_rad - self._surface_state_rad
                 )
+            body_rates, observer_status = self._body_rate_observer.update(c_wb, dt_s=dt_s)
         elif command_norm is not None:
-            body_rate_limited = False
+            body_rates, observer_status = self._body_rate_observer.update(c_wb, dt_s=0.0)
             self._surface_state_rad = normalised_command_to_surface_rad(
                 quantise_normalised_command_vector(command_norm)
             )
         else:
-            body_rate_limited = False
+            body_rates, observer_status = self._body_rate_observer.update(c_wb, dt_s=0.0)
 
         body_velocity = _body_velocity_from_world_up(
             self._filtered_world_velocity_m_s,
             euler_rad,
-        )
-        body_rates = np.clip(
-            self._filtered_body_rate_rad_s,
-            -self.body_rate_limit_rad_s,
-            self.body_rate_limit_rad_s,
         )
         state = np.zeros(STATE_SIZE, dtype=float)
         state[STATE_INDEX["x_w"] : STATE_INDEX["z_w"] + 1] = position_m
@@ -260,17 +248,18 @@ class NausicaaViconStateAdapter:
         state[STATE_INDEX["p"] : STATE_INDEX["r"] + 1] = body_rates
         state[STATE_INDEX["delta_a"] : STATE_INDEX["delta_r"] + 1] = self._surface_state_rad
 
-        self._previous_timestamp_s = timestamp_s
-        self._previous_frame_number = _sample_frame_number(sample)
-        self._previous_position_m = position_m
-        self._previous_euler_rad = euler_rad
-        self._previous_c_wb = c_wb
+        if dt_s > 0.0 or self._previous_position_m is None:
+            self._previous_timestamp_s = timestamp_s
+            self._previous_frame_number = _sample_frame_number(sample)
+            self._previous_position_m = position_m
+            self._previous_euler_rad = euler_rad
         self._last_estimator_status = {
             "dt_s": float(dt_s),
             "dt_source": str(dt_source),
             "frame_delta": int(frame_delta),
             "frame_rate_hz": float(frame_rate_hz),
-            "body_rate_limited": bool(body_rate_limited),
+            **observer_status,
+            "attitude_transform_applied": True,
         }
         return as_state_vector(state)
 
@@ -295,6 +284,136 @@ class NausicaaViconStateAdapter:
             if dt_s > 0.0 and np.isfinite(dt_s):
                 return dt_s, "host_time_fallback", 0, frame_rate_hz
         return 0.0, "not_initialised", 0, frame_rate_hz
+
+
+class SO3AngularRateObserver:
+    """Confidence-aware body-rate observer over corrected SO(3) rotations."""
+
+    def __init__(
+        self,
+        *,
+        window_frames: int = 7,
+        cutoff_hz: float = 8.0,
+        rate_limit_rad_s: float = 6.0,
+    ) -> None:
+        self.window_frames = max(3, int(window_frames))
+        self.cutoff_hz = float(cutoff_hz)
+        self.rate_limit_rad_s = float(rate_limit_rad_s)
+        if not np.isfinite(self.rate_limit_rad_s) or self.rate_limit_rad_s <= 0.0:
+            raise ValueError("rate_limit_rad_s must be finite and positive.")
+        self._previous_c_wb: np.ndarray | None = None
+        self._raw_rate_window: deque[np.ndarray] = deque(maxlen=self.window_frames)
+        self._filtered_rate_rad_s = np.zeros(3)
+        self._pose_frame_count = 0
+        self._last_status = self._status("not_initialised")
+
+    def reset(self) -> None:
+        self._previous_c_wb = None
+        self._raw_rate_window.clear()
+        self._filtered_rate_rad_s = np.zeros(3)
+        self._pose_frame_count = 0
+        self._last_status = self._status("reset")
+
+    def update(self, c_wb: np.ndarray, *, dt_s: float) -> tuple[np.ndarray, dict[str, object]]:
+        current = np.asarray(c_wb, dtype=float).reshape(3, 3)
+        if self._previous_c_wb is None:
+            self._previous_c_wb = current
+            self._pose_frame_count = 1
+            self._last_status = self._status("warming_first_frame")
+            return self._filtered_rate_rad_s.copy(), dict(self._last_status)
+        if not np.isfinite(dt_s) or float(dt_s) <= 0.0:
+            self._last_status = self._status("duplicate_or_zero_dt")
+            return self._filtered_rate_rad_s.copy(), dict(self._last_status)
+
+        raw_rate = _body_rates_from_rotation_delta(self._previous_c_wb, current, float(dt_s))
+        self._previous_c_wb = current
+        self._pose_frame_count += 1
+        raw_rate = np.asarray(raw_rate, dtype=float).reshape(3)
+        if not np.all(np.isfinite(raw_rate)):
+            self._last_status = self._status("nonfinite_rate_rejected")
+            return self._filtered_rate_rad_s.copy(), dict(self._last_status)
+
+        clipped_raw_rate = np.clip(raw_rate, -self.rate_limit_rad_s, self.rate_limit_rad_s)
+        body_rate_limited = bool(np.any(np.abs(clipped_raw_rate - raw_rate) > 1e-9))
+        self._raw_rate_window.append(clipped_raw_rate)
+        robust_rate, spike_rejected, residual_norm = self._robust_window_rate(clipped_raw_rate)
+        if spike_rejected:
+            candidate_rate = robust_rate
+        elif len(self._raw_rate_window) < 5:
+            candidate_rate = clipped_raw_rate
+        else:
+            candidate_rate = 0.75 * clipped_raw_rate + 0.25 * self._filtered_rate_rad_s
+
+        self._filtered_rate_rad_s = _low_pass_update(
+            self._filtered_rate_rad_s,
+            candidate_rate,
+            float(dt_s),
+            self.cutoff_hz,
+        )
+        self._filtered_rate_rad_s = np.clip(
+            self._filtered_rate_rad_s,
+            -self.rate_limit_rad_s,
+            self.rate_limit_rad_s,
+        )
+        mode = "so3_window_spike_downweighted" if spike_rejected else "so3_window"
+        self._last_status = self._status(
+            mode,
+            body_rate_limited=body_rate_limited,
+            spike_rejected=spike_rejected,
+            raw_body_rate_norm=float(np.linalg.norm(raw_rate)),
+            residual_norm_rad_s=float(residual_norm),
+        )
+        return self._filtered_rate_rad_s.copy(), dict(self._last_status)
+
+    def _robust_window_rate(self, current_rate: np.ndarray) -> tuple[np.ndarray, bool, float]:
+        rates = np.asarray(tuple(self._raw_rate_window), dtype=float)
+        if rates.shape[0] < 5:
+            return np.asarray(current_rate, dtype=float), False, 0.0
+        robust_center = np.median(rates, axis=0)
+        deviations = np.linalg.norm(rates - robust_center.reshape(1, 3), axis=1)
+        robust_scale = float(np.median(deviations)) + 1e-6
+        residual_norm = float(np.linalg.norm(np.asarray(current_rate, dtype=float) - robust_center))
+        spike_rejected = bool(residual_norm > max(1.5, 6.0 * robust_scale))
+        return robust_center, spike_rejected, residual_norm
+
+    def _status(
+        self,
+        mode: str,
+        *,
+        body_rate_limited: bool = False,
+        spike_rejected: bool = False,
+        raw_body_rate_norm: float = 0.0,
+        residual_norm_rad_s: float = 0.0,
+    ) -> dict[str, object]:
+        return {
+            "body_rate_limited": bool(body_rate_limited),
+            "rate_confidence": float(self._confidence(spike_rejected=spike_rejected)),
+            "rate_window_frames": int(min(self._pose_frame_count, self.window_frames)),
+            "spike_rejected": bool(spike_rejected),
+            "observer_mode": str(mode),
+            "raw_body_rate_norm_rad_s": float(raw_body_rate_norm),
+            "body_rate_residual_norm_rad_s": float(residual_norm_rad_s),
+        }
+
+    def _confidence(self, *, spike_rejected: bool) -> float:
+        frame_count = int(self._pose_frame_count)
+        if frame_count <= 1:
+            confidence = 0.0
+        elif frame_count == 2:
+            confidence = 0.25
+        elif frame_count == 3:
+            confidence = 0.45
+        elif frame_count == 4:
+            confidence = 0.60
+        elif frame_count == 5:
+            confidence = 0.80
+        elif frame_count < self.window_frames:
+            confidence = 0.90
+        else:
+            confidence = 0.95
+        if spike_rejected:
+            confidence = min(confidence, 0.50)
+        return float(confidence)
 
 
 # =============================================================================

@@ -52,6 +52,7 @@ def run_real_flight(
     adapter = NausicaaViconStateAdapter(
         derivative_cutoff_hz=config.derivative_cutoff_hz,
         body_rate_limit_rad_s=config.body_rate_limit_rad_s,
+        body_rate_observer_window_frames=config.body_rate_observer_window_frames,
         actuator_tau_s=config.actuator_tau_s,
         arena_transform=ViconArenaFrameTransform(
             position_offset_m=config.vicon_position_offset_m,
@@ -91,10 +92,12 @@ def run_real_flight(
                 "governor_decision_hz": float(1.0 / config.governor_period_s),
                 "derivative_cutoff_hz": float(config.derivative_cutoff_hz),
                 "body_rate_limit_rad_s": float(config.body_rate_limit_rad_s),
+                "body_rate_observer_window_frames": int(config.body_rate_observer_window_frames),
+                "launch_gate_rate_confidence_min": float(config.launch_gate_rate_confidence_min),
                 "rate_policy": (
                     "Vicon is polled at the tracking rate; serial packets are still repeated "
                     "at the firmware-safe command period; governor selection remains 10 Hz; "
-                    "active-flight angular-rate history is reset at launch."
+                    "prelaunch SO3 angular-rate observer remains warm through launch approval."
                 ),
             },
             "vicon_arena_frame_transform": {
@@ -412,6 +415,7 @@ def _await_launch_gate(
     next_invalid_log_s = 0.0
     next_console_status_s = 0.0
     previous_state: np.ndarray | None = None
+    rate_confidence_min = float(config.launch_gate_rate_confidence_min)
 
     while (time.perf_counter() - started) <= float(config.launch_wait_timeout_s):
         elapsed_s = time.perf_counter() - started
@@ -480,13 +484,23 @@ def _await_launch_gate(
             trigger_approved = False
             trigger_source = "tracking"
             launch_state = None
-        latest_gate_reason = gate.reason
+        rate_confidence = float(estimator.get("rate_confidence", 0.0))
+        rate_confidence_ok = bool(rate_confidence >= rate_confidence_min)
+        base_trigger_approved = bool(trigger_approved)
+        if trigger_approved and not rate_confidence_ok:
+            trigger_approved = False
+            trigger_source = f"{trigger_source}_rate_confidence_wait"
+            launch_state = None
+            latest_gate_reason = "rate_confidence_below_launch_gate"
+        else:
+            latest_gate_reason = gate.reason
         consecutive_approved = consecutive_approved + 1 if trigger_approved else 0
         if elapsed_s + 1e-12 >= next_console_status_s:
             speed_m_s = float(np.linalg.norm(state[6:9]))
             print(
                 f"[LAUNCH_WAIT] t={elapsed_s:.1f}s trigger={trigger_source} gate={gate.reason} "
                 f"approved={trigger_approved} consecutive={consecutive_approved}/{required_consecutive} "
+                f"rate_conf={rate_confidence:.2f}/{rate_confidence_min:.2f} "
                 f"x={state[0]:.2f} y={state[1]:.2f} z={state[2]:.2f} speed={speed_m_s:.2f}m/s"
             )
             next_console_status_s = elapsed_s + 1.0
@@ -502,6 +516,9 @@ def _await_launch_gate(
                 "trigger_policy": "positive_x_launch_plane_crossing",
                 "launch_trigger_x_w_m": float(LAUNCH_TRIGGER_X_W_M),
                 "crossed_launch_plane": bool(crossed_launch_plane),
+                "base_trigger_approved_before_rate_confidence": bool(base_trigger_approved),
+                "rate_confidence_ok": bool(rate_confidence_ok),
+                "launch_gate_rate_confidence_min": float(rate_confidence_min),
                 "trigger_approved": bool(trigger_approved),
                 "trigger_source": trigger_source,
                 "full_window_reason": full_window_gate.reason,
@@ -534,6 +551,8 @@ def _await_launch_gate(
                 launch_trigger_x_w_m=float(LAUNCH_TRIGGER_X_W_M),
                 trigger_policy="first_valid_r5_launch_window_with_interpolated_plane_fallback",
                 trigger_source=trigger_source,
+                rate_confidence=rate_confidence,
+                launch_gate_rate_confidence_min=rate_confidence_min,
                 **asdict(gate),
             )
             return launch_state.copy() if launch_state is not None else state.copy()

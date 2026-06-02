@@ -49,7 +49,9 @@ class FlightRuntimeConfig:
     retry_cooldown_s: float = 2.0
     stale_vicon_timeout_s: float = 0.120
     derivative_cutoff_hz: float = 8.0
-    body_rate_limit_rad_s: float = 3.0
+    body_rate_limit_rad_s: float = 6.0
+    body_rate_observer_window_frames: int = 7
+    launch_gate_rate_confidence_min: float = 0.65
     actuator_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06)
     vicon_position_offset_m: tuple[float, float, float] = DEFAULT_VICON_POSITION_OFFSET_M
     vicon_yaw_alignment_deg: float = 0.0

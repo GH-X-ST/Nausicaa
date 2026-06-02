@@ -31,6 +31,8 @@ STEP_DURATION_S = 3.0
 STEP_COUNTDOWN_S = 10.0
 MIN_TRANSLATION_DELTA_M = 0.15
 MIN_ATTITUDE_DELTA_DEG = 8.0
+MIN_ANGULAR_RATE_RAD_S = 0.10
+MIN_RATE_CONFIDENCE = 0.65
 # =============================================================================
 
 
@@ -42,6 +44,9 @@ class OrientationStep:
     signal_name: str
     expected_sign: int
     min_delta: float
+    rate_signal_name: str = ""
+    rate_expected_sign: int = 0
+    min_rate: float = 0.0
 
 
 ORIENTATION_STEPS = (
@@ -79,51 +84,69 @@ ORIENTATION_STEPS = (
     ),
     OrientationStep(
         "pitch_up",
-        "Hold the body nearly fixed and pitch nose up.",
+        "Start near level during countdown; during collection smoothly pitch nose up.",
         "attitude",
         "theta",
         +1,
         np.deg2rad(MIN_ATTITUDE_DELTA_DEG),
+        "q",
+        +1,
+        MIN_ANGULAR_RATE_RAD_S,
     ),
     OrientationStep(
         "pitch_down",
-        "Hold the body nearly fixed and pitch nose down.",
+        "Start near level during countdown; during collection smoothly pitch nose down.",
         "attitude",
         "theta",
         -1,
         np.deg2rad(MIN_ATTITUDE_DELTA_DEG),
+        "q",
+        -1,
+        MIN_ANGULAR_RATE_RAD_S,
     ),
     OrientationStep(
         "roll_right",
-        "Viewed from behind, roll right wing down / left wing up.",
+        "Start near level during countdown; during collection roll right wing down / left wing up.",
         "attitude",
         "phi",
         +1,
         np.deg2rad(MIN_ATTITUDE_DELTA_DEG),
+        "p",
+        +1,
+        MIN_ANGULAR_RATE_RAD_S,
     ),
     OrientationStep(
         "roll_left",
-        "Viewed from behind, roll left wing down / right wing up.",
+        "Start near level during countdown; during collection roll left wing down / right wing up.",
         "attitude",
         "phi",
         -1,
         np.deg2rad(MIN_ATTITUDE_DELTA_DEG),
+        "p",
+        -1,
+        MIN_ANGULAR_RATE_RAD_S,
     ),
     OrientationStep(
         "yaw_right",
-        "Viewed from above, yaw nose right.",
+        "Start aligned during countdown; during collection yaw nose right.",
         "attitude",
         "psi",
         +1,
         np.deg2rad(MIN_ATTITUDE_DELTA_DEG),
+        "r",
+        +1,
+        MIN_ANGULAR_RATE_RAD_S,
     ),
     OrientationStep(
         "yaw_left",
-        "Viewed from above, yaw nose left.",
+        "Start aligned during countdown; during collection yaw nose left.",
         "attitude",
         "psi",
         -1,
         np.deg2rad(MIN_ATTITUDE_DELTA_DEG),
+        "r",
+        -1,
+        MIN_ANGULAR_RATE_RAD_S,
     ),
 )
 
@@ -163,6 +186,8 @@ def run_vicon_orientation_check(
             "sample_rate_hz": float(sample_rate_hz),
             "step_duration_s": float(step_duration_s),
             "step_countdown_s": float(step_countdown_s),
+            "minimum_angular_rate_rad_s": float(MIN_ANGULAR_RATE_RAD_S),
+            "minimum_rate_confidence": float(MIN_RATE_CONFIDENCE),
             "expected_controller_convention": {
                 "positive_x_w": "glider moves toward the front wall",
                 "positive_y_w": "glider moves left",
@@ -170,6 +195,9 @@ def run_vicon_orientation_check(
                 "positive_theta": "nose-up pitch",
                 "positive_phi": "right wing down / left wing up roll",
                 "positive_psi": "nose-right yaw",
+                "positive_q": "nose-up pitch rate",
+                "positive_p": "right wing down / left wing up roll rate",
+                "positive_r": "nose-right yaw rate",
             },
         },
     )
@@ -181,6 +209,7 @@ def run_vicon_orientation_check(
 
     all_samples: dict[str, list[np.ndarray]] = {}
     raw_samples_by_step: dict[str, list[np.ndarray]] = {}
+    estimator_status_by_step: dict[str, list[dict[str, object]]] = {}
     invalid_reasons: dict[str, int] = {}
 
     try:
@@ -189,7 +218,7 @@ def run_vicon_orientation_check(
             print()
             print(f"[STEP] {step.step_id}: {step.instruction}")
             _countdown(step_countdown_s)
-            samples, raw_samples = _collect_step(
+            samples, raw_samples, estimator_statuses = _collect_step(
                 reader=reader,
                 adapter=adapter,
                 logger=logger,
@@ -200,11 +229,12 @@ def run_vicon_orientation_check(
             )
             all_samples[step.step_id] = samples
             raw_samples_by_step[step.step_id] = raw_samples
+            estimator_status_by_step[step.step_id] = estimator_statuses
             print(f"[STEP] collected {len(samples)} valid samples")
     finally:
         reader.close()
 
-    result_rows = _evaluate_steps(all_samples)
+    result_rows = _evaluate_steps(all_samples, estimator_status_by_step)
     for row in result_rows:
         logger.append_metric_row("vicon_orientation_check_summary.csv", row)
     passed = all(bool(row["passed"]) for row in result_rows if row["step_id"] != "neutral")
@@ -228,9 +258,15 @@ def run_vicon_orientation_check(
         if row["step_id"] == "neutral":
             continue
         status = "PASS" if row["passed"] else "FAIL"
+        rate_text = ""
+        if row.get("rate_signal_name"):
+            rate_text = (
+                f", rate={float(row['observed_rate']):.3f} rad/s "
+                f"conf={float(row['rate_confidence_median']):.2f}"
+            )
         print(
             f"[{status}] {row['step_id']}: {row['observed_delta']:.3f} "
-            f"{row['unit']} expected {row['expected_direction']}"
+            f"{row['unit']} expected {row['expected_direction']}{rate_text}"
         )
     print(f"[RESULT] report: {run_root / 'reports' / 'vicon_orientation_check_report.md'}")
     return result
@@ -263,9 +299,10 @@ def _collect_step(
     duration_s: float,
     poll_period_s: float,
     invalid_reasons: dict[str, int],
-) -> tuple[list[np.ndarray], list[np.ndarray]]:
+) -> tuple[list[np.ndarray], list[np.ndarray], list[dict[str, object]]]:
     samples: list[np.ndarray] = []
     raw_samples: list[np.ndarray] = []
+    estimator_statuses: list[dict[str, object]] = []
     started = time.perf_counter()
     next_print_s = 0.0
     while (time.perf_counter() - started) <= duration_s:
@@ -283,6 +320,7 @@ def _collect_step(
         estimator = adapter.estimator_status()
         samples.append(state.copy())
         raw_samples.append(raw_position.copy())
+        estimator_statuses.append(dict(estimator))
         logger.append_metric_row(
             "vicon_orientation_check_samples.csv",
             {
@@ -299,11 +337,25 @@ def _collect_step(
             },
         )
         time.sleep(poll_period_s)
-    return samples, raw_samples
+    return samples, raw_samples, estimator_statuses
 
 
-def _evaluate_steps(samples_by_step: dict[str, list[np.ndarray]]) -> list[dict[str, object]]:
+def _evaluate_steps(
+    samples_by_step: dict[str, list[np.ndarray]],
+    estimator_status_by_step: dict[str, list[dict[str, object]]],
+) -> list[dict[str, object]]:
     neutral = _mean_state(samples_by_step.get("neutral", []))
+    neutral_rate_summary = _rate_summary(
+        step=ORIENTATION_STEPS[0],
+        samples=samples_by_step.get("neutral", []),
+        estimator_statuses=estimator_status_by_step.get("neutral", []),
+    )
+    neutral_rate_abs = _neutral_rate_abs_p95(samples_by_step.get("neutral", []))
+    neutral_rate_passed = bool(
+        neutral is not None
+        and neutral_rate_abs <= 2.0 * MIN_ANGULAR_RATE_RAD_S
+        and float(neutral_rate_summary["rate_confidence_median"]) >= MIN_RATE_CONFIDENCE
+    )
     rows: list[dict[str, object]] = [
         {
             "step_id": "neutral",
@@ -314,9 +366,11 @@ def _evaluate_steps(samples_by_step: dict[str, list[np.ndarray]]) -> list[dict[s
             "unit": "",
             "expected_direction": "reference",
             "minimum_required_delta": 0.0,
-            "passed": bool(neutral is not None),
+            **neutral_rate_summary,
+            "neutral_rate_abs_p95_rad_s": float(neutral_rate_abs),
+            "passed": bool(neutral is not None and neutral_rate_passed),
             "sample_count": len(samples_by_step.get("neutral", [])),
-            "failure_reason": "" if neutral is not None else "no_valid_neutral_samples",
+            "failure_reason": _neutral_failure_reason(neutral, neutral_rate_passed),
         }
     ]
     for step in ORIENTATION_STEPS:
@@ -339,7 +393,15 @@ def _evaluate_steps(samples_by_step: dict[str, list[np.ndarray]]) -> list[dict[s
         else:
             rows.append(_failed_row(step, "unknown_step_kind", sample_count))
             continue
-        passed = (float(step.expected_sign) * float(delta)) >= float(step.min_delta)
+        rate_summary = _rate_summary(
+            step=step,
+            samples=samples,
+            estimator_statuses=estimator_status_by_step.get(step.step_id, []),
+        )
+        delta_passed = (float(step.expected_sign) * float(delta)) >= float(step.min_delta)
+        rate_passed = bool(rate_summary["rate_passed"]) if step.rate_signal_name else True
+        confidence_passed = bool(rate_summary["rate_confidence_passed"])
+        passed = bool(delta_passed and rate_passed and confidence_passed)
         rows.append(
             {
                 "step_id": step.step_id,
@@ -350,9 +412,11 @@ def _evaluate_steps(samples_by_step: dict[str, list[np.ndarray]]) -> list[dict[s
                 "unit": unit,
                 "expected_direction": "+" if step.expected_sign > 0 else "-",
                 "minimum_required_delta": float(step.min_delta),
+                **rate_summary,
+                "neutral_rate_abs_p95_rad_s": "",
                 "passed": bool(passed),
                 "sample_count": int(sample_count),
-                "failure_reason": "" if passed else "wrong_sign_or_too_small_delta",
+                "failure_reason": "" if passed else _step_failure_reason(delta_passed, rate_passed, confidence_passed),
             }
         )
     return rows
@@ -379,10 +443,114 @@ def _failed_row(step: OrientationStep, reason: str, sample_count: int) -> dict[s
         "unit": "",
         "expected_direction": "+" if step.expected_sign > 0 else "-",
         "minimum_required_delta": float(step.min_delta),
+        **_empty_rate_summary(step),
+        "neutral_rate_abs_p95_rad_s": "",
         "passed": False,
         "sample_count": int(sample_count),
         "failure_reason": str(reason),
     }
+
+
+def _rate_summary(
+    *,
+    step: OrientationStep,
+    samples: list[np.ndarray],
+    estimator_statuses: list[dict[str, object]],
+) -> dict[str, object]:
+    confidence_values = [
+        float(status.get("rate_confidence", 0.0))
+        for status in estimator_statuses
+        if np.isfinite(float(status.get("rate_confidence", 0.0)))
+    ]
+    confidence_median = float(np.median(confidence_values)) if confidence_values else 0.0
+    confidence_passed = bool(confidence_median >= MIN_RATE_CONFIDENCE)
+    spike_values = [bool(status.get("spike_rejected", False)) for status in estimator_statuses]
+    spike_fraction = float(np.mean(spike_values)) if spike_values else 0.0
+    observer_mode_latest = str(estimator_statuses[-1].get("observer_mode", "")) if estimator_statuses else ""
+    window_frames_latest = int(estimator_statuses[-1].get("rate_window_frames", 0)) if estimator_statuses else 0
+
+    if not step.rate_signal_name:
+        return {
+            "rate_signal_name": "",
+            "observed_rate": "",
+            "observed_rate_deg_s": "",
+            "minimum_required_rate": "",
+            "rate_expected_direction": "",
+            "rate_passed": True,
+            "rate_confidence_median": confidence_median,
+            "rate_confidence_min": float(MIN_RATE_CONFIDENCE),
+            "rate_confidence_passed": confidence_passed,
+            "spike_rejected_fraction": spike_fraction,
+            "estimator_observer_mode_latest": observer_mode_latest,
+            "rate_window_frames_latest": window_frames_latest,
+        }
+    if not samples:
+        return _empty_rate_summary(step)
+    values = np.vstack(samples)
+    rate_index = STATE_INDEX[step.rate_signal_name]
+    raw_rates = np.asarray(values[:, rate_index], dtype=float)
+    signed_rates = float(step.rate_expected_sign) * raw_rates
+    observed_along_expected = float(np.percentile(signed_rates, 75.0))
+    observed_rate = float(step.rate_expected_sign) * observed_along_expected
+    rate_passed = bool(observed_along_expected >= float(step.min_rate))
+    return {
+        "rate_signal_name": step.rate_signal_name,
+        "observed_rate": observed_rate,
+        "observed_rate_deg_s": float(np.rad2deg(observed_rate)),
+        "minimum_required_rate": float(step.min_rate),
+        "rate_expected_direction": "+" if step.rate_expected_sign > 0 else "-",
+        "rate_passed": rate_passed,
+        "rate_confidence_median": confidence_median,
+        "rate_confidence_min": float(MIN_RATE_CONFIDENCE),
+        "rate_confidence_passed": confidence_passed,
+        "spike_rejected_fraction": spike_fraction,
+        "estimator_observer_mode_latest": observer_mode_latest,
+        "rate_window_frames_latest": window_frames_latest,
+    }
+
+
+def _empty_rate_summary(step: OrientationStep) -> dict[str, object]:
+    return {
+        "rate_signal_name": step.rate_signal_name,
+        "observed_rate": "",
+        "observed_rate_deg_s": "",
+        "minimum_required_rate": float(step.min_rate) if step.rate_signal_name else "",
+        "rate_expected_direction": "+" if step.rate_expected_sign > 0 else "-" if step.rate_expected_sign < 0 else "",
+        "rate_passed": False if step.rate_signal_name else True,
+        "rate_confidence_median": 0.0,
+        "rate_confidence_min": float(MIN_RATE_CONFIDENCE),
+        "rate_confidence_passed": False,
+        "spike_rejected_fraction": 0.0,
+        "estimator_observer_mode_latest": "",
+        "rate_window_frames_latest": 0,
+    }
+
+
+def _neutral_rate_abs_p95(samples: list[np.ndarray]) -> float:
+    if not samples:
+        return float("inf")
+    values = np.vstack(samples)
+    rates = values[:, STATE_INDEX["p"] : STATE_INDEX["r"] + 1]
+    return float(np.percentile(np.linalg.norm(rates, axis=1), 95.0))
+
+
+def _neutral_failure_reason(neutral: np.ndarray | None, neutral_rate_passed: bool) -> str:
+    if neutral is None:
+        return "no_valid_neutral_samples"
+    if not neutral_rate_passed:
+        return "neutral_rate_or_confidence_unstable"
+    return ""
+
+
+def _step_failure_reason(delta_passed: bool, rate_passed: bool, confidence_passed: bool) -> str:
+    reasons = []
+    if not delta_passed:
+        reasons.append("wrong_sign_or_too_small_delta")
+    if not rate_passed:
+        reasons.append("wrong_sign_or_too_small_rate")
+    if not confidence_passed:
+        reasons.append("rate_confidence_below_threshold")
+    return ";".join(reasons)
 
 
 def _report_lines(*, result_rows: list[dict[str, object]], result: dict[str, object]) -> list[str]:
@@ -398,9 +566,12 @@ def _report_lines(*, result_rows: list[dict[str, object]], result: dict[str, obj
         "- nose up -> theta positive",
         "- right wing down / left wing up -> phi positive",
         "- nose right -> psi positive",
+        "- nose-up motion -> q positive",
+        "- right-roll motion -> p positive",
+        "- nose-right motion -> r positive",
         "",
-        "| Step | Signal | Observed | Expected | Pass |",
-        "|---|---:|---:|---:|---:|",
+        "| Step | Signal | Observed | Rate | Confidence | Pass |",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     for row in result_rows:
         if row["step_id"] == "neutral":
@@ -410,9 +581,14 @@ def _report_lines(*, result_rows: list[dict[str, object]], result: dict[str, obj
             observed_text = f"{float(row.get('observed_delta_deg', 0.0)):.2f} deg"
         else:
             observed_text = f"{float(observed):.3f} m"
+        if row.get("rate_signal_name"):
+            rate_text = f"{float(row.get('observed_rate_deg_s', 0.0)):.2f} deg/s"
+        else:
+            rate_text = "-"
+        confidence_text = f"{float(row.get('rate_confidence_median', 0.0)):.2f}"
         lines.append(
             f"| `{row['step_id']}` | `{row['signal_name']}` | {observed_text} | "
-            f"`{row['expected_direction']}` | `{row['passed']}` |"
+            f"{rate_text} | {confidence_text} | `{row['passed']}` |"
         )
     return lines
 
