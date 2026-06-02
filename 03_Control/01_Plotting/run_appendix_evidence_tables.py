@@ -10,13 +10,13 @@ from typing import Iterable
 import pandas as pd
 
 
-DEFAULT_R5_ROOT = Path("03_Control/05_Results/R5_dense/B02")
-DEFAULT_R7_ROOT = Path("03_Control/05_Results/R7_survival/B02")
-DEFAULT_R8_LIBRARY_ROOT = Path("03_Control/05_Results/R8_library_size_study/B02")
-DEFAULT_R8_OUTCOME_ROOT = Path("03_Control/05_Results/R8_outcome/B02")
-DEFAULT_R10_ROOT = Path("03_Control/05_Results/R10_learn/D01")
-DEFAULT_R11_ROOT = Path("03_Control/05_Results/R11_validation/D01")
-DEFAULT_OUTPUT = Path("03_Control/A_figures/Appendix_evidence_tables/r5_r10_appendix_evidence_tables.tex")
+DEFAULT_R5_ROOT = Path("03_Control/05_Results/R5_dense/E01")
+DEFAULT_R7_ROOT = Path("03_Control/05_Results/R7_survival/E01")
+DEFAULT_R8_LIBRARY_ROOT = Path("03_Control/05_Results/R8_library_size_study/E01")
+DEFAULT_R8_OUTCOME_ROOT = Path("03_Control/05_Results/R8_outcome/E01")
+DEFAULT_R10_ROOT = Path("03_Control/05_Results/R10_learn/E01")
+DEFAULT_R11_ROOT = Path("03_Control/05_Results/R11_validation/E01")
+DEFAULT_OUTPUT = Path("03_Control/A_figures/E01_appendix_evidence_tables/e01_evidence_chain_appendix_tables.tex")
 
 SPEED_ORDER = (
     "v0_lt_4_0_m_s",
@@ -663,12 +663,12 @@ def _reproducibility_tables(args: argparse.Namespace) -> list[str]:
         [
             {
                 "setting": "R5 dense primitive synthesis",
-                "value": f"{r5_manifest.get('run_label', 'B02')}; {r5_manifest.get('actual_row_count', '--')} rollout rows; seed {r5_manifest.get('seed', '--')}",
+                "value": f"{r5_manifest.get('run_label', 'E01')}; {r5_manifest.get('actual_row_count', '--')} rollout rows; seed {r5_manifest.get('seed', '--')}",
                 "purpose": "Build the frozen transition-aware LQR primitive candidates under the executable actuator and latency model.",
             },
             {
                 "setting": "R7 survival replay",
-                "value": f"{r7_manifest.get('run_label', 'B02')}; {r7_manifest.get('survivor_count', '--')} eligible transition objects",
+                "value": f"{r7_manifest.get('run_label', 'E01')}; {r7_manifest.get('survivor_count', '--')} eligible transition objects",
                 "purpose": "Replay the frozen R5 controllers under broader environment and implementation variation without retuning.",
             },
             {
@@ -678,7 +678,7 @@ def _reproducibility_tables(args: argparse.Namespace) -> list[str]:
             },
             {
                 "setting": "R10 governor learning",
-                "value": f"{r10_manifest.get('run_label', 'D01')}; {r10_manifest.get('actual_final_heldout_launches', '--')} final launches; {r10_manifest.get('actual_history_launches', '--')} history launches",
+                "value": f"{r10_manifest.get('run_label', 'E01')}; {r10_manifest.get('actual_final_heldout_launches', '--')} final launches; {r10_manifest.get('actual_history_launches', '--')} history launches",
                 "purpose": "Use paired full-domain randomisation to freeze one bounded governor configuration for held-out validation.",
             },
             {

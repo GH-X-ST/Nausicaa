@@ -8,10 +8,10 @@ from pathlib import Path
 import pandas as pd
 
 
-DEFAULT_INPUT = Path("03_Control/05_Results/R11_validation/D01/metrics/speed_bin_policy_ladder_summary.csv")
-DEFAULT_OUTPUT = Path("03_Control/A_figures/R11_D01_appendix_tables/r11_d01_speed_cluster_policy_appendix_tables.tex")
+DEFAULT_INPUT = Path("03_Control/05_Results/R11_validation/E01/metrics/speed_bin_policy_ladder_summary.csv")
+DEFAULT_OUTPUT = Path("03_Control/A_figures/R11_E01_appendix_tables/r11_e01_speed_cluster_policy_appendix_tables.tex")
 DEFAULT_COMBINED_OUTPUT = Path(
-    "03_Control/A_figures/R11_D01_D02_appendix_tables/r11_d01_d02_speed_cluster_policy_appendix_tables.tex"
+    "03_Control/A_figures/R11_E01_appendix_tables/r11_e01_speed_cluster_policy_appendix_tables.tex"
 )
 
 SPEED_ORDER = (
