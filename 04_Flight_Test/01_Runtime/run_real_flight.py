@@ -48,6 +48,8 @@ def run_real_flight(
     expected_visible_fan_range: tuple[int, int] | None = None,
 ) -> dict[str, object]:
     logger = FlightLogger(Path(run_root) if run_root is not None else config.run_root)
+    if config.controller_mode not in {"closed_loop", "open_loop_neutral"}:
+        raise ValueError("controller_mode must be 'closed_loop' or 'open_loop_neutral'.")
     controller = controller or FrozenFlightController(config)
     adapter = NausicaaViconStateAdapter(
         derivative_cutoff_hz=config.derivative_cutoff_hz,
@@ -74,9 +76,15 @@ def run_real_flight(
             "deployment_library_tier_policy": {
                 "default_real_flight_library_tier": DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
                 "selection_reason": REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON,
-                "balanced_cluster_role": "fallback_if_additional_primitive_diversity_is_needed",
+                "heavy_cluster_role": "compact_fallback_if_runtime_or_library_size_needs_priority",
             },
             "control_boundary": "vicon_rigid_body_to_canonical_state_to_frozen_governor_to_quantised_packet",
+            "controller_mode": config.controller_mode,
+            "open_loop_neutral_definition": (
+                "launch_gate_and_state_logging_active_but_no_governor_decisions_no_memory_updates_zero_command_only"
+                if config.controller_mode == "open_loop_neutral"
+                else "not_active"
+            ),
             "surface_marker_tracking_enabled": False,
             "latency_quantification_enabled": False,
             "servo_command_limit_norm": [-1.0, 1.0],
@@ -111,6 +119,7 @@ def run_real_flight(
                 "case_id": config.experiment_case_id,
                 "case_name": config.experiment_case_name,
                 "layout_id": config.experiment_layout_id,
+                "controller_mode": config.controller_mode,
                 "memory_enabled": bool(config.experiment_memory_enabled),
                 "throw_index": int(config.throw_index),
                 "attempt_index": int(config.attempt_index),
@@ -124,6 +133,7 @@ def run_real_flight(
         "experiment_case_id": config.experiment_case_id,
         "experiment_case_name": config.experiment_case_name,
         "experiment_layout_id": config.experiment_layout_id,
+        "controller_mode": config.controller_mode,
         "throw_index": int(config.throw_index),
         "attempt_index": int(config.attempt_index),
         "valid_throw": False,
@@ -131,6 +141,7 @@ def run_real_flight(
         "controller_decision_count": 0,
         "packet_count": 0,
         "neutral_failsafe_count": 0,
+        "open_loop_neutral_packet_count": 0,
         "serial_write_error_count": 0,
         "serial_write_timeout_count": 0,
         "max_decision_time_s": 0.0,
@@ -279,7 +290,7 @@ def run_real_flight(
                 )
                 break
 
-            if loop_elapsed_s + 1e-12 >= next_governor_s:
+            if config.controller_mode == "closed_loop" and loop_elapsed_s + 1e-12 >= next_governor_s:
                 decision_state = (
                     pending_launch_decision_state
                     if primitive_step_index == 0 and pending_launch_decision_state is not None
@@ -317,13 +328,19 @@ def run_real_flight(
                 )
 
             if loop_elapsed_s + 1e-12 >= next_serial_s:
-                packet = controller.packet_for_last_command()
+                if config.controller_mode == "open_loop_neutral":
+                    packet = controller.neutral_packet()
+                    event = "active_open_loop_neutral_packet"
+                    summary["open_loop_neutral_packet_count"] = int(summary["open_loop_neutral_packet_count"]) + 1
+                else:
+                    packet = controller.packet_for_last_command()
+                    event = "active_command_packet"
                 _write_packet_safe(
                     tx,
                     packet,
                     logger=logger,
                     summary=summary,
-                    event="active_command_packet",
+                    event=event,
                 )
                 next_serial_s += float(config.serial_period_s)
 
@@ -335,7 +352,7 @@ def run_real_flight(
                     next_governor_s=next_governor_s,
                 )
 
-        if bool(summary["launch_gate_approved"]):
+        if bool(summary["launch_gate_approved"]) and config.controller_mode == "closed_loop":
             if latest_decision is not None and latest_state is not None and not terminal_record_appended:
                 decision_records.append(
                     {
@@ -349,6 +366,16 @@ def run_real_flight(
             summary["memory_update_observation_count"] = int(memory_summary.observation_count)
             summary["memory_cell_count"] = int(memory_summary.updated_cell_count)
             logger.append_metric_row("memory_update_summary.csv", asdict(memory_summary))
+        elif bool(summary["launch_gate_approved"]):
+            logger.append_metric_row(
+                "memory_update_summary.csv",
+                {
+                    "controller_mode": config.controller_mode,
+                    "memory_update_status": "skipped_open_loop_neutral",
+                    "observation_count": 0,
+                    "updated_cell_count": 0,
+                },
+            )
         summary["completed"] = True
         return summary
     finally:
@@ -371,6 +398,7 @@ def run_real_flight(
                 f"- Mode: `{mode}`",
                 f"- Run root: `{summary['run_root']}`",
                 f"- Experiment case: `{summary['experiment_case_id']}`",
+                f"- Controller mode: `{summary['controller_mode']}`",
                 f"- Valid throw: `{summary['valid_throw']}`",
                 f"- Launch gate approved: `{summary['launch_gate_approved']}`",
                 f"- Launch speed (m/s): `{float(summary['launch_speed_m_s']):.3f}`",
@@ -382,6 +410,7 @@ def run_real_flight(
                 f"- Controller decisions: `{summary['controller_decision_count']}`",
                 f"- Packets sent: `{summary['packet_count']}`",
                 f"- Neutral failsafe commands: `{summary['neutral_failsafe_count']}`",
+                f"- Open-loop neutral packets: `{summary['open_loop_neutral_packet_count']}`",
                 f"- Serial write errors: `{summary['serial_write_error_count']}`",
                 f"- Serial write timeouts: `{summary['serial_write_timeout_count']}`",
                 f"- Post-exit neutral packets: `{summary['post_exit_neutral_packets']}`",
@@ -776,6 +805,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", choices=("dry-run", "packet-smoke", "vicon-smoke", "armed"), default="dry-run")
     parser.add_argument("--run-label", default="")
     parser.add_argument("--library-tier", choices=("balanced_cluster", "heavy_cluster"), default=DEFAULT_REAL_FLIGHT_LIBRARY_TIER)
+    parser.add_argument("--controller-mode", choices=("closed_loop", "open_loop_neutral"), default="closed_loop")
     parser.add_argument("--serial-port", default="COM11")
     parser.add_argument("--vicon-host", default="192.168.0.100:801")
     parser.add_argument("--vicon-offset-m", nargs=3, type=float, default=None)
@@ -794,6 +824,7 @@ def main() -> None:
     config = FlightRuntimeConfig(
         run_label=args.run_label or default_run_label(),
         library_tier=args.library_tier,
+        controller_mode=args.controller_mode,
         serial_port=args.serial_port,
         vicon_host=args.vicon_host,
         vicon_position_offset_m=tuple(args.vicon_offset_m) if args.vicon_offset_m is not None else DEFAULT_VICON_POSITION_OFFSET_M,

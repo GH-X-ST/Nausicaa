@@ -22,7 +22,7 @@ from real_flight_io import ViconArenaFrameTransform  # noqa: E402
 # =============================================================================
 # EDIT THIS TO THE PHYSICAL POINT WHERE YOU HOLD THE GLIDER
 # =============================================================================
-KNOWN_ARENA_POINT_M = (1.2, 1.6, 0.2)
+KNOWN_ARENA_POINT_M = (1.2, 1.6, 0.1)
 CURRENT_POSITION_OFFSET_M = DEFAULT_VICON_POSITION_OFFSET_M
 CURRENT_YAW_ALIGNMENT_DEG = 0.0
 VICON_HOST = "192.168.0.100:801"

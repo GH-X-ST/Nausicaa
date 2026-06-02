@@ -27,7 +27,7 @@ from run_real_flight import run_real_flight
 # =============================================================================
 CURRENT_EXPERIMENT_CASE = "E0.1"
 CURRENT_SESSION_LABEL = ""  # Empty means a new timestamped result folder.
-TARGET_VALID_THROWS_OVERRIDE: int | None = 3
+TARGET_VALID_THROWS_OVERRIDE: int | None = 2
 PRE_ARM_VICON_INACTIVE_DELAY_S = 3.0
 COOLDOWN_AFTER_VALID_THROW_S = 5.0
 RETRY_AFTER_INVALID_START_S = 2.0
@@ -41,7 +41,7 @@ POST_EXIT_NEUTRAL_TAIL_S = 0.30
 VICON_TRACKING_RATE_HZ = 200.0
 VICON_POLL_PERIOD_S = 1.0 / VICON_TRACKING_RATE_HZ
 # Paste the calibration script's recommended full x/y/z offset here.
-VICON_POSITION_OFFSET_M = (4.122059988726226, 2.3212064296862036, 0.1403991257236011)
+VICON_POSITION_OFFSET_M = (4.136158795250567, 2.4114272057075916, 0.03414746062731508)
 VICON_YAW_ALIGNMENT_DEG = 0.0
 # Recovered from 20260601_205149 orientation check: pitch and yaw were reversed.
 VICON_ATTITUDE_SIGNS = (1.0, -1.0, -1.0)
@@ -78,6 +78,7 @@ def run_experiment_sequence(
     base_config = FlightRuntimeConfig(
         run_label="controller_session",
         library_tier=DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
+        controller_mode=case.controller_mode,
         experiment_case_id=case.case_id,
         experiment_case_name=case.case_name,
         experiment_memory_enabled=case.memory_enabled,
@@ -103,6 +104,7 @@ def run_experiment_sequence(
             "target_valid_throws": target,
             "mode": mode,
             "library_tier": DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
+            "controller_mode": case.controller_mode,
             "case_registry": experiment_case_manifest(),
             "memory_policy": controller.memory_summary(),
             "pre_arm_vicon_inactive_delay_s": float(pre_arm_delay_s),
@@ -121,7 +123,10 @@ def run_experiment_sequence(
     invalid_count = 0
     attempt_index = 0
     print(f"[START] case={case.case_id} {case.case_name}")
-    print(f"[START] memory_enabled={case.memory_enabled} layout={case.layout_id} target_valid_throws={target}")
+    print(
+        f"[START] controller_mode={case.controller_mode} memory_enabled={case.memory_enabled} "
+        f"layout={case.layout_id} target_valid_throws={target}"
+    )
     print("[START] between throws: Vicon is inactive during cooldown; neutral is held until the next launch-gate wait.")
     try:
         while valid_count < target:
@@ -153,6 +158,7 @@ def run_experiment_sequence(
             config = FlightRuntimeConfig(
                 run_label=run_label,
                 library_tier=DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
+                controller_mode=case.controller_mode,
                 experiment_case_id=case.case_id,
                 experiment_case_name=case.case_name,
                 experiment_memory_enabled=case.memory_enabled,
@@ -256,6 +262,7 @@ def _session_row(case, summary: dict[str, object], valid_count: int, invalid_cou
         "case_id": case.case_id,
         "case_name": case.case_name,
         "layout_id": case.layout_id,
+        "controller_mode": case.controller_mode,
         "memory_enabled": case.memory_enabled,
         "valid_throw_count": int(valid_count),
         "invalid_attempt_count": int(invalid_count),

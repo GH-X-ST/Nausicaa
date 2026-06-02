@@ -17,11 +17,11 @@ DEFAULT_VICON_POSITION_OFFSET_M = (
     OPERATIONAL_REGION_CENTER_M[2],
 )
 DEFAULT_VICON_ATTITUDE_SIGNS = (1.0, -1.0, -1.0)
-DEFAULT_REAL_FLIGHT_LIBRARY_TIER = "heavy_cluster"
+DEFAULT_REAL_FLIGHT_LIBRARY_TIER = "balanced_cluster"
 REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON = (
-    "heavy_cluster_selected_for_first_real_flight_from_e01_real_flight_aligned_validation;"
-    "deployment_tier_keeps_the_smallest_claim_bearing_library_with_defensible_high_energy_validation;"
-    "balanced_cluster_is_diversity_fallback"
+    "balanced_cluster_selected_for_first_real_flight_from_e01_real_flight_aligned_validation;"
+    "deployment_tier_prioritises_transition_diversity_and_defensible_high_energy_validation_after_real_flight_safety_updates;"
+    "heavy_cluster_is_compact_runtime_fallback"
 )
 
 
@@ -29,6 +29,7 @@ REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON = (
 class FlightRuntimeConfig:
     run_label: str
     library_tier: str = DEFAULT_REAL_FLIGHT_LIBRARY_TIER
+    controller_mode: str = "closed_loop"
     experiment_case_id: str = ""
     experiment_case_name: str = ""
     experiment_memory_enabled: bool = False

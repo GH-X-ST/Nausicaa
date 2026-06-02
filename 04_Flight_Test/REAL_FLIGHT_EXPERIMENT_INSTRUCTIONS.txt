@@ -5,7 +5,7 @@ Purpose
 -------
 This folder contains the self-contained real-flight runtime. The live loop is:
 
-Vicon rigid body Nausicaa -> canonical 15-state -> heavy-cluster frozen governor
+Vicon rigid body Nausicaa -> canonical 15-state -> balanced-cluster frozen governor
 -> 20 percent command lattice -> Nano33 IoT packet -> transmitter/receiver/servos.
 
 The real-flight experiment launcher lets the operator start one case once. Before
@@ -58,14 +58,16 @@ Run:
 
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_surface_sign_check.py --mode armed --serial-port COM11
 
+The script sweeps aileron, elevator, and rudder through the full 20 percent
+command lattice [-1.0, -0.8, ..., +0.8, +1.0] while printing live progress.
 Watch each printed command and confirm the physical surface motion:
 1. neutral: all surfaces neutral.
-2. positive_aileron: left and right ailerons move in opposition for positive roll.
-3. negative_aileron: opposite of positive aileron.
-4. positive_elevator: elevator moves for nose-up positive pitch.
-5. negative_elevator: opposite of positive elevator.
-6. positive_rudder: rudder moves for nose-right positive yaw.
-7. negative_rudder: opposite of positive rudder.
+2. positive aileron values: left and right ailerons move in opposition for positive roll.
+3. negative aileron values: opposite of positive aileron.
+4. positive elevator values: elevator moves for nose-up positive pitch.
+5. negative elevator values: opposite of positive elevator.
+6. positive rudder values: rudder moves for nose-right positive yaw.
+7. negative rudder values: opposite of positive rudder.
 8. neutral_end: all surfaces neutral.
 
 If any surface moves the wrong way, stop. Do not fly until servo sign, receiver
@@ -98,6 +100,7 @@ nose-up motion -> positive q
 right-wing-down roll motion -> positive p
 nose-right yaw motion -> positive r
 rate confidence >= 0.65
+measured Vicon sample rate close to the requested 200 Hz
 
 The current runtime applies the recovered attitude correction
 `VICON_ATTITUDE_SIGNS = (1, -1, -1)`, so roll is unchanged while pitch and yaw
@@ -131,9 +134,9 @@ During launch wait and active flight, the runtime polls Vicon at 200 Hz while
 using an 8 Hz velocity filter and a corrected SO(3) body-rate observer, keeping
 the governor at 10 Hz and the serial command repeat at 50 Hz.
 
-The console prints the case ID, memory mode, target valid throw count, latest
-completed throw, launch speed, termination reason, controller decision count,
-max decision time, fan count, and memory cell count.
+The console prints the case ID, controller mode, memory mode, target valid
+throw count, latest completed throw, launch speed, termination reason,
+controller decision count, max decision time, fan count, and memory cell count.
 
 
 Launch Gate Rule
@@ -185,33 +188,46 @@ E0.2 - Four-fan shakedown, 5 valid throws.
   Fan markers: Fan_1 to Fan_4 expected.
   Purpose: confirm fan tracking and closed-loop logging with fans active.
 
+Case suffix rule:
+  .0 = open-loop neutral baseline.
+  .1 = closed-loop controller, no memory.
+  .2 = closed-loop controller, memory enabled.
+
+E1.0 - Dry air, open-loop neutral baseline, 10 valid throws.
 E1.1 - Dry air, no memory.
 E1.2 - Dry air, memory enabled.
   Fan markers: none expected.
   Purpose: dry-air baseline and launch-speed dependence.
 
+E2.0 - Single fan fixed, open-loop neutral baseline, 10 valid throws.
 E2.1 - Single fan fixed, no memory.
 E2.2 - Single fan fixed, memory enabled.
   Fan markers: one fan expected.
   Purpose: clearest real updraft memory-learning evidence.
 
+E3.0 - Four fan fixed, open-loop neutral baseline, 10 valid throws.
 E3.1 - Four fan fixed, no memory.
 E3.2 - Four fan fixed, memory enabled.
   Fan markers: four fans expected.
   Purpose: main multi-updraft exploitation evidence.
 
-E4a.1/E4a.2 - Hard shifted layout 1, no memory / memory.
-E4b.1/E4b.2 - Hard shifted layout 2, no memory / memory.
-E4c.1/E4c.2 - Hard shifted layout 3, no memory / memory.
+E4a.0/E4a.1/E4a.2 - Hard shifted layout 1, open-loop / no memory / memory.
+E4b.0/E4b.1/E4b.2 - Hard shifted layout 2, open-loop / no memory / memory.
+E4c.0/E4c.1/E4c.2 - Hard shifted layout 3, open-loop / no memory / memory.
   Fan markers: four fans expected.
   Purpose: unseen but fixed difficult layouts.
 
-E5a.1/E5a.2 - Random layout 1, no memory / memory.
-E5b.1/E5b.2 - Random layout 2, no memory / memory.
-E5c.1/E5c.2 - Random layout 3, no memory / memory.
-E5d.1/E5d.2 - Random layout 4, no memory / memory.
+E5a.0/E5a.1/E5a.2 - Random layout 1, open-loop / no memory / memory.
+E5b.0/E5b.1/E5b.2 - Random layout 2, open-loop / no memory / memory.
+E5c.0/E5c.1/E5c.2 - Random layout 3, open-loop / no memory / memory.
+E5d.0/E5d.1/E5d.2 - Random layout 4, open-loop / no memory / memory.
   Fan markers: one to four fans expected.
   Purpose: broader unseen-layout generalisation.
+
+Open-loop neutral cases use the same launch gate, Vicon logging, fan logging,
+serial path, exit gate, and result folder layout as controlled cases. After
+launch approval, they send only neutral commands, make zero governor decisions,
+and do not update memory.
 
 
 Result Folders

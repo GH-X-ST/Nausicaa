@@ -57,6 +57,10 @@ Before closed-loop flight, verify servo sign and receiver-channel order:
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_surface_sign_check.py --mode armed --serial-port COM11
 ```
 
+The surface check sweeps aileron, elevator, and rudder through the full 20
+percent command lattice `[-1.0, -0.8, ..., +0.8, +1.0]` with live console
+progress while packets are repeated to the Nano33 IoT transmitter.
+
 For repeated experiment blocks, edit `CURRENT_EXPERIMENT_CASE` at the top of
 `01_Runtime\run_experiment_sequence.py`, then run:
 
@@ -122,8 +126,8 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.p
 - Launch wait timeout: `8.0 s`
 - Launch gate debounce: `3` consecutive approved frames
 - Post-exit neutral tail: `0.30 s`
-- Default library tier: `heavy_cluster`
-- Selectable real-flight fallback tier: `balanced_cluster`
+- Default library tier: `balanced_cluster`
+- Selectable real-flight fallback tier: `heavy_cluster`
 - Servo command authority: full `[-1.0, 1.0]`; the old `0.70` cap is not used here.
 - Measured full-authority endpoints in the duplicated controller contract:
   aggregate `delta_a +19.3/-21.5 deg`, `delta_e +23.7/-32.0 deg`,
@@ -131,24 +135,35 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.p
 
 ## Deployment Library Tier
 
-The first real-flight experiment uses `heavy_cluster` as the single active
+The first real-flight experiment uses `balanced_cluster` as the single active
 deployment tier. R11 already compares all five library tiers, so the flight test
-does not repeat the full clustering ladder. `heavy_cluster` is selected because
-E01 real-flight-aligned validation preserves a compact deployment library with
-defensible high-energy performance and bounded memory behaviour. The R11 E01
-result is defensible rather than strict-pass, and shows that starts below
-5.0 m/s remain the dominant failure mode.
+does not repeat the full clustering ladder. `balanced_cluster` is selected
+because E01 real-flight-aligned validation favours the broader transition
+diversity needed after the launch-rate, actuator-limit, and boundary-safety
+updates, while remaining defensible for high-energy starts with bounded memory
+behaviour. The R11 E01 result is defensible rather than strict-pass, and shows
+that starts below 5.0 m/s remain the dominant failure mode.
 
-`balanced_cluster` remains a fallback if additional primitive diversity is
-needed during smoke testing. This selection is a deployment tradeoff, not a
+`heavy_cluster` remains a compact fallback if runtime or library size becomes
+the limiting deployment concern. This selection is a deployment tradeoff, not a
 claim that one compact library dominates every speed bin, environment ladder,
 or repeated-launch policy.
 
 Memory-enabled experiment cases keep one case-local 0.1 m flow-belief map
 across valid throws only. No-memory cases keep `adaptive_memory_active=False`.
+Open-loop `.0` experiment cases are true neutral baselines: they still use the
+same launch gate, Vicon state logger, fan tracker, serial packet path, exit
+gate, and result folders, but after launch approval they send only neutral
+commands, do not call the governor, and do not update memory.
 Fan Vicon rigid bodies named `Fan_1` to `Fan_4` are logged for evidence and
 sanity checking, but fan positions do not create fan-layout-specific controller
 branches.
+
+Experiment case suffixes are:
+
+- `.0`: open-loop neutral baseline.
+- `.1`: closed-loop balanced-cluster controller with no memory.
+- `.2`: closed-loop balanced-cluster controller with case-local memory enabled.
 
 ## Vicon Arena Frame
 
@@ -167,7 +182,9 @@ physical nose-up becomes positive `theta`, and physical nose-right becomes
 positive `psi`. Re-run `run_vicon_orientation_check.py` after any Vicon
 rigid-body re-registration. The checker now verifies both pose signs and the
 SO(3) observer rate signs: pitch-up motion should produce positive `q`,
-right-roll motion positive `p`, and nose-right yaw motion positive `r`.
+right-roll motion positive `p`, and nose-right yaw motion positive `r`. It also
+checks the measured Vicon sample rate and fails the preflight check if the
+effective stream rate drops well below the requested `200 Hz`.
 
 Angular rates are estimated only after this attitude correction has been
 applied. The runtime builds a corrected body-to-world rotation matrix and feeds

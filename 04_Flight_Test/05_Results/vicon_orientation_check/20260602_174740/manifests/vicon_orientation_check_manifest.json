@@ -1,0 +1,31 @@
+{
+  "expected_controller_convention": {
+    "positive_p": "right wing down / left wing up roll rate",
+    "positive_phi": "right wing down / left wing up roll",
+    "positive_psi": "nose-right yaw",
+    "positive_q": "nose-up pitch rate",
+    "positive_r": "nose-right yaw rate",
+    "positive_theta": "nose-up pitch",
+    "positive_x_w": "glider moves toward the front wall",
+    "positive_y_w": "glider moves left",
+    "positive_z_w": "glider moves upward"
+  },
+  "minimum_angular_rate_rad_s": 0.1,
+  "minimum_rate_confidence": 0.65,
+  "sample_rate_hz": 200.0,
+  "step_countdown_s": 10.0,
+  "step_duration_s": 3.0,
+  "subject_name": "Nausicaa",
+  "vicon_attitude_signs_phi_theta_psi": [
+    1.0,
+    -1.0,
+    -1.0
+  ],
+  "vicon_host": "192.168.0.100:801",
+  "vicon_position_offset_m": [
+    4.122059988726226,
+    2.3212064296862036,
+    0.1403991257236011
+  ],
+  "vicon_yaw_alignment_deg": 0.0
+}

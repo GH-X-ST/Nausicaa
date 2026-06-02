@@ -13,7 +13,7 @@ for path in (RUNTIME, CONTROLLER):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from flight_config import FlightRuntimeConfig  # noqa: E402
+from flight_config import DEFAULT_REAL_FLIGHT_LIBRARY_TIER, FlightRuntimeConfig  # noqa: E402
 from frozen_flight_controller import FrozenFlightController  # noqa: E402
 from frozen_flight_controller import (  # noqa: E402
     _governor_mode_for_route,
@@ -39,7 +39,7 @@ from real_flight_io import (  # noqa: E402
 )
 from run_real_flight import run_real_flight  # noqa: E402
 from run_experiment_sequence import run_experiment_sequence  # noqa: E402
-from run_vicon_orientation_check import _evaluate_steps  # noqa: E402
+from run_vicon_orientation_check import _evaluate_steps, _sample_rate_summary  # noqa: E402
 from run_surface_sign_check import SURFACE_CHECK_SEQUENCE, run_surface_sign_check  # noqa: E402
 from state_contract import STATE_INDEX  # noqa: E402
 from episode_selector import select_compact_representative  # noqa: E402
@@ -84,6 +84,14 @@ def _state(
     for name, value in values.items():
         state[STATE_INDEX[name]] = float(value)
     return state
+
+
+def test_real_flight_default_library_tier_is_balanced_cluster() -> None:
+    config = FlightRuntimeConfig(run_label="default_tier_regression")
+
+    assert DEFAULT_REAL_FLIGHT_LIBRARY_TIER == "balanced_cluster"
+    assert config.library_tier == "balanced_cluster"
+    assert config.library_manifest_path.name == "balanced_cluster_primitive_library.json"
 
 
 def test_boundary_near_uses_side_closing_speed_not_total_forward_speed() -> None:
@@ -304,6 +312,12 @@ def test_vicon_orientation_check_summary_includes_rate_sign_and_confidence() -> 
     rows = _evaluate_steps(
         {"neutral": neutral, "roll_right": roll_right},
         {"neutral": statuses, "roll_right": statuses},
+        {
+            "neutral": [{"frame_number": index, "frame_rate_hz": 200.0, "t_host_s": index / 200.0} for index in range(12)],
+            "roll_right": [{"frame_number": index, "frame_rate_hz": 200.0, "t_host_s": index / 200.0} for index in range(12)],
+        },
+        requested_sample_rate_hz=200.0,
+        step_duration_s=0.06,
     )
     roll_row = next(row for row in rows if row["step_id"] == "roll_right")
     neutral_row = next(row for row in rows if row["step_id"] == "neutral")
@@ -314,6 +328,24 @@ def test_vicon_orientation_check_summary_includes_rate_sign_and_confidence() -> 
     assert float(roll_row["observed_rate"]) > 0.0
     assert roll_row["rate_passed"] is True
     assert roll_row["rate_confidence_passed"] is True
+    assert roll_row["sample_rate_passed"] is True
+
+
+def test_vicon_orientation_check_sample_rate_summary_flags_slow_stream() -> None:
+    fast = _sample_rate_summary(
+        [{"frame_number": index, "frame_rate_hz": 200.0, "t_host_s": index / 200.0} for index in range(20)],
+        requested_sample_rate_hz=200.0,
+        step_duration_s=0.10,
+    )
+    slow = _sample_rate_summary(
+        [{"frame_number": index, "frame_rate_hz": 50.0, "t_host_s": index / 50.0} for index in range(20)],
+        requested_sample_rate_hz=200.0,
+        step_duration_s=0.40,
+    )
+
+    assert fast["sample_rate_passed"] is True
+    assert slow["sample_rate_passed"] is False
+    assert float(slow["measured_sample_rate_hz"]) < 160.0
 
 
 def test_vicon_adapter_prefers_frame_synchronous_timing_over_host_jitter() -> None:
@@ -448,6 +480,29 @@ def test_dry_run_writes_local_result_tree(tmp_path: Path) -> None:
     assert (tmp_path / "T01" / "metrics" / "state_samples.csv").exists()
 
 
+def test_open_loop_neutral_dry_run_records_state_without_controller_or_memory(tmp_path: Path) -> None:
+    config = FlightRuntimeConfig(
+        run_label="T_open_loop",
+        output_root=tmp_path,
+        controller_mode="open_loop_neutral",
+        experiment_case_id="E1.0",
+        experiment_case_name="Dry air, open-loop neutral",
+        max_duration_s=0.12,
+        post_exit_neutral_tail_s=0.0,
+    )
+
+    summary = run_real_flight(config, mode="dry-run")
+
+    assert summary["completed"] is True
+    assert summary["valid_throw"] is True
+    assert summary["controller_mode"] == "open_loop_neutral"
+    assert summary["controller_decision_count"] == 0
+    assert summary["open_loop_neutral_packet_count"] > 0
+    assert summary["memory_update_observation_count"] == 0
+    assert not (tmp_path / "T_open_loop" / "metrics" / "controller_decisions.csv").exists()
+    assert (tmp_path / "T_open_loop" / "metrics" / "state_samples.csv").exists()
+
+
 def test_flight_record_cancels_when_launch_gate_never_passes(tmp_path: Path) -> None:
     config = FlightRuntimeConfig(
         run_label="T_cancel",
@@ -536,30 +591,41 @@ def test_experiment_case_registry_contains_requested_cases() -> None:
     requested = {
         "E0.1",
         "E0.2",
+        "E1.0",
         "E1.1",
         "E1.2",
+        "E2.0",
         "E2.1",
         "E2.2",
+        "E3.0",
         "E3.1",
         "E3.2",
+        "E4a.0",
         "E4a.1",
         "E4a.2",
+        "E4b.0",
         "E4b.1",
         "E4b.2",
+        "E4c.0",
         "E4c.1",
         "E4c.2",
+        "E5a.0",
         "E5a.1",
         "E5a.2",
+        "E5b.0",
         "E5b.1",
         "E5b.2",
+        "E5c.0",
         "E5c.1",
         "E5c.2",
+        "E5d.0",
         "E5d.1",
         "E5d.2",
     }
     assert requested.issubset(EXPERIMENT_CASES)
     assert get_experiment_case("E2.2").memory_enabled is True
     assert get_experiment_case("E1.1").memory_enabled is False
+    assert get_experiment_case("E3.0").controller_mode == "open_loop_neutral"
 
 
 def test_replay_fan_tracker_handles_zero_one_and_four_subjects() -> None:

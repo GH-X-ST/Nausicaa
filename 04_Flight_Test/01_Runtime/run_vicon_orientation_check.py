@@ -33,6 +33,7 @@ MIN_TRANSLATION_DELTA_M = 0.15
 MIN_ATTITUDE_DELTA_DEG = 8.0
 MIN_ANGULAR_RATE_RAD_S = 0.10
 MIN_RATE_CONFIDENCE = 0.65
+MIN_MEASURED_SAMPLE_RATE_RATIO = 0.80
 # =============================================================================
 
 
@@ -210,6 +211,7 @@ def run_vicon_orientation_check(
     all_samples: dict[str, list[np.ndarray]] = {}
     raw_samples_by_step: dict[str, list[np.ndarray]] = {}
     estimator_status_by_step: dict[str, list[dict[str, object]]] = {}
+    frame_status_by_step: dict[str, list[dict[str, object]]] = {}
     invalid_reasons: dict[str, int] = {}
 
     try:
@@ -218,7 +220,7 @@ def run_vicon_orientation_check(
             print()
             print(f"[STEP] {step.step_id}: {step.instruction}")
             _countdown(step_countdown_s)
-            samples, raw_samples, estimator_statuses = _collect_step(
+            samples, raw_samples, estimator_statuses, frame_statuses = _collect_step(
                 reader=reader,
                 adapter=adapter,
                 logger=logger,
@@ -230,11 +232,18 @@ def run_vicon_orientation_check(
             all_samples[step.step_id] = samples
             raw_samples_by_step[step.step_id] = raw_samples
             estimator_status_by_step[step.step_id] = estimator_statuses
+            frame_status_by_step[step.step_id] = frame_statuses
             print(f"[STEP] collected {len(samples)} valid samples")
     finally:
         reader.close()
 
-    result_rows = _evaluate_steps(all_samples, estimator_status_by_step)
+    result_rows = _evaluate_steps(
+        all_samples,
+        estimator_status_by_step,
+        frame_status_by_step,
+        requested_sample_rate_hz=float(sample_rate_hz),
+        step_duration_s=float(step_duration_s),
+    )
     for row in result_rows:
         logger.append_metric_row("vicon_orientation_check_summary.csv", row)
     passed = all(bool(row["passed"]) for row in result_rows if row["step_id"] != "neutral")
@@ -264,9 +273,13 @@ def run_vicon_orientation_check(
                 f", rate={float(row['observed_rate']):.3f} rad/s "
                 f"conf={float(row['rate_confidence_median']):.2f}"
             )
+        sample_rate_text = (
+            f", measured_hz={float(row['measured_sample_rate_hz']):.1f} "
+            f"stream_hz={float(row['vicon_stream_frame_rate_hz_median']):.1f}"
+        )
         print(
             f"[{status}] {row['step_id']}: {row['observed_delta']:.3f} "
-            f"{row['unit']} expected {row['expected_direction']}{rate_text}"
+            f"{row['unit']} expected {row['expected_direction']}{rate_text}{sample_rate_text}"
         )
     print(f"[RESULT] report: {run_root / 'reports' / 'vicon_orientation_check_report.md'}")
     return result
@@ -299,10 +312,11 @@ def _collect_step(
     duration_s: float,
     poll_period_s: float,
     invalid_reasons: dict[str, int],
-) -> tuple[list[np.ndarray], list[np.ndarray], list[dict[str, object]]]:
+) -> tuple[list[np.ndarray], list[np.ndarray], list[dict[str, object]], list[dict[str, object]]]:
     samples: list[np.ndarray] = []
     raw_samples: list[np.ndarray] = []
     estimator_statuses: list[dict[str, object]] = []
+    frame_statuses: list[dict[str, object]] = []
     started = time.perf_counter()
     next_print_s = 0.0
     while (time.perf_counter() - started) <= duration_s:
@@ -321,6 +335,13 @@ def _collect_step(
         samples.append(state.copy())
         raw_samples.append(raw_position.copy())
         estimator_statuses.append(dict(estimator))
+        frame_statuses.append(
+            {
+                "frame_number": int(status.frame_number),
+                "frame_rate_hz": float(status.frame_rate_hz),
+                "t_host_s": time.perf_counter(),
+            }
+        )
         logger.append_metric_row(
             "vicon_orientation_check_samples.csv",
             {
@@ -337,14 +358,24 @@ def _collect_step(
             },
         )
         time.sleep(poll_period_s)
-    return samples, raw_samples, estimator_statuses
+    return samples, raw_samples, estimator_statuses, frame_statuses
 
 
 def _evaluate_steps(
     samples_by_step: dict[str, list[np.ndarray]],
     estimator_status_by_step: dict[str, list[dict[str, object]]],
+    frame_status_by_step: dict[str, list[dict[str, object]]] | None = None,
+    *,
+    requested_sample_rate_hz: float = SAMPLE_RATE_HZ,
+    step_duration_s: float = STEP_DURATION_S,
 ) -> list[dict[str, object]]:
+    frame_status_by_step = frame_status_by_step or {}
     neutral = _mean_state(samples_by_step.get("neutral", []))
+    neutral_sample_rate_summary = _sample_rate_summary(
+        frame_status_by_step.get("neutral", []),
+        requested_sample_rate_hz=requested_sample_rate_hz,
+        step_duration_s=step_duration_s,
+    )
     neutral_rate_summary = _rate_summary(
         step=ORIENTATION_STEPS[0],
         samples=samples_by_step.get("neutral", []),
@@ -367,10 +398,11 @@ def _evaluate_steps(
             "expected_direction": "reference",
             "minimum_required_delta": 0.0,
             **neutral_rate_summary,
+            **neutral_sample_rate_summary,
             "neutral_rate_abs_p95_rad_s": float(neutral_rate_abs),
-            "passed": bool(neutral is not None and neutral_rate_passed),
+            "passed": bool(neutral is not None and neutral_rate_passed and neutral_sample_rate_summary["sample_rate_passed"]),
             "sample_count": len(samples_by_step.get("neutral", [])),
-            "failure_reason": _neutral_failure_reason(neutral, neutral_rate_passed),
+            "failure_reason": _neutral_failure_reason(neutral, neutral_rate_passed, bool(neutral_sample_rate_summary["sample_rate_passed"])),
         }
     ]
     for step in ORIENTATION_STEPS:
@@ -398,10 +430,16 @@ def _evaluate_steps(
             samples=samples,
             estimator_statuses=estimator_status_by_step.get(step.step_id, []),
         )
+        sample_rate_summary = _sample_rate_summary(
+            frame_status_by_step.get(step.step_id, []),
+            requested_sample_rate_hz=requested_sample_rate_hz,
+            step_duration_s=step_duration_s,
+        )
         delta_passed = (float(step.expected_sign) * float(delta)) >= float(step.min_delta)
         rate_passed = bool(rate_summary["rate_passed"]) if step.rate_signal_name else True
         confidence_passed = bool(rate_summary["rate_confidence_passed"])
-        passed = bool(delta_passed and rate_passed and confidence_passed)
+        sample_rate_passed = bool(sample_rate_summary["sample_rate_passed"])
+        passed = bool(delta_passed and rate_passed and confidence_passed and sample_rate_passed)
         rows.append(
             {
                 "step_id": step.step_id,
@@ -413,10 +451,11 @@ def _evaluate_steps(
                 "expected_direction": "+" if step.expected_sign > 0 else "-",
                 "minimum_required_delta": float(step.min_delta),
                 **rate_summary,
+                **sample_rate_summary,
                 "neutral_rate_abs_p95_rad_s": "",
                 "passed": bool(passed),
                 "sample_count": int(sample_count),
-                "failure_reason": "" if passed else _step_failure_reason(delta_passed, rate_passed, confidence_passed),
+                "failure_reason": "" if passed else _step_failure_reason(delta_passed, rate_passed, confidence_passed, sample_rate_passed),
             }
         )
     return rows
@@ -444,6 +483,7 @@ def _failed_row(step: OrientationStep, reason: str, sample_count: int) -> dict[s
         "expected_direction": "+" if step.expected_sign > 0 else "-",
         "minimum_required_delta": float(step.min_delta),
         **_empty_rate_summary(step),
+        **_empty_sample_rate_summary(),
         "neutral_rate_abs_p95_rad_s": "",
         "passed": False,
         "sample_count": int(sample_count),
@@ -526,6 +566,69 @@ def _empty_rate_summary(step: OrientationStep) -> dict[str, object]:
     }
 
 
+def _sample_rate_summary(
+    frame_statuses: list[dict[str, object]],
+    *,
+    requested_sample_rate_hz: float,
+    step_duration_s: float,
+) -> dict[str, object]:
+    if not frame_statuses:
+        summary = _empty_sample_rate_summary()
+        summary["requested_sample_rate_hz"] = float(requested_sample_rate_hz)
+        return summary
+    frame_rates = [
+        float(row.get("frame_rate_hz", 0.0))
+        for row in frame_statuses
+        if np.isfinite(float(row.get("frame_rate_hz", 0.0))) and float(row.get("frame_rate_hz", 0.0)) > 0.0
+    ]
+    stream_rate_median = float(np.median(frame_rates)) if frame_rates else 0.0
+    host_times = [
+        float(row.get("t_host_s", 0.0))
+        for row in frame_statuses
+        if np.isfinite(float(row.get("t_host_s", 0.0)))
+    ]
+    if len(host_times) >= 2:
+        measured_by_host = float((len(host_times) - 1) / max(1e-9, max(host_times) - min(host_times)))
+    else:
+        measured_by_host = float(len(frame_statuses) / max(1e-9, float(step_duration_s)))
+    frame_numbers = [
+        int(row.get("frame_number", -1))
+        for row in frame_statuses
+        if int(row.get("frame_number", -1)) >= 0
+    ]
+    if len(frame_numbers) >= 2 and stream_rate_median > 0.0:
+        frame_delta = int(max(frame_numbers) - min(frame_numbers))
+        elapsed_frame_s = float(frame_delta) / stream_rate_median if stream_rate_median > 0.0 else 0.0
+        measured_by_frame = float((len(frame_numbers) - 1) / max(1e-9, elapsed_frame_s)) if elapsed_frame_s > 0.0 else 0.0
+    else:
+        measured_by_frame = 0.0
+    measured_rate_hz = measured_by_frame if measured_by_frame > 0.0 else measured_by_host
+    minimum_rate_hz = float(requested_sample_rate_hz) * MIN_MEASURED_SAMPLE_RATE_RATIO
+    stream_rate_passed = stream_rate_median <= 0.0 or stream_rate_median >= minimum_rate_hz
+    measured_rate_passed = measured_rate_hz >= minimum_rate_hz
+    return {
+        "requested_sample_rate_hz": float(requested_sample_rate_hz),
+        "minimum_sample_rate_hz": float(minimum_rate_hz),
+        "measured_sample_rate_hz": float(measured_rate_hz),
+        "measured_sample_rate_hz_by_host": float(measured_by_host),
+        "measured_sample_rate_hz_by_frame": float(measured_by_frame),
+        "vicon_stream_frame_rate_hz_median": float(stream_rate_median),
+        "sample_rate_passed": bool(stream_rate_passed and measured_rate_passed),
+    }
+
+
+def _empty_sample_rate_summary() -> dict[str, object]:
+    return {
+        "requested_sample_rate_hz": 0.0,
+        "minimum_sample_rate_hz": 0.0,
+        "measured_sample_rate_hz": 0.0,
+        "measured_sample_rate_hz_by_host": 0.0,
+        "measured_sample_rate_hz_by_frame": 0.0,
+        "vicon_stream_frame_rate_hz_median": 0.0,
+        "sample_rate_passed": False,
+    }
+
+
 def _neutral_rate_abs_p95(samples: list[np.ndarray]) -> float:
     if not samples:
         return float("inf")
@@ -534,15 +637,17 @@ def _neutral_rate_abs_p95(samples: list[np.ndarray]) -> float:
     return float(np.percentile(np.linalg.norm(rates, axis=1), 95.0))
 
 
-def _neutral_failure_reason(neutral: np.ndarray | None, neutral_rate_passed: bool) -> str:
+def _neutral_failure_reason(neutral: np.ndarray | None, neutral_rate_passed: bool, sample_rate_passed: bool) -> str:
     if neutral is None:
         return "no_valid_neutral_samples"
     if not neutral_rate_passed:
         return "neutral_rate_or_confidence_unstable"
+    if not sample_rate_passed:
+        return "sample_rate_below_threshold"
     return ""
 
 
-def _step_failure_reason(delta_passed: bool, rate_passed: bool, confidence_passed: bool) -> str:
+def _step_failure_reason(delta_passed: bool, rate_passed: bool, confidence_passed: bool, sample_rate_passed: bool) -> str:
     reasons = []
     if not delta_passed:
         reasons.append("wrong_sign_or_too_small_delta")
@@ -550,6 +655,8 @@ def _step_failure_reason(delta_passed: bool, rate_passed: bool, confidence_passe
         reasons.append("wrong_sign_or_too_small_rate")
     if not confidence_passed:
         reasons.append("rate_confidence_below_threshold")
+    if not sample_rate_passed:
+        reasons.append("sample_rate_below_threshold")
     return ";".join(reasons)
 
 
@@ -570,8 +677,8 @@ def _report_lines(*, result_rows: list[dict[str, object]], result: dict[str, obj
         "- right-roll motion -> p positive",
         "- nose-right motion -> r positive",
         "",
-        "| Step | Signal | Observed | Rate | Confidence | Pass |",
-        "|---|---:|---:|---:|---:|---:|",
+        "| Step | Signal | Observed | Rate | Confidence | Measured Hz | Pass |",
+        "|---|---:|---:|---:|---:|---:|---:|",
     ]
     for row in result_rows:
         if row["step_id"] == "neutral":
@@ -586,9 +693,10 @@ def _report_lines(*, result_rows: list[dict[str, object]], result: dict[str, obj
         else:
             rate_text = "-"
         confidence_text = f"{float(row.get('rate_confidence_median', 0.0)):.2f}"
+        sample_rate_text = f"{float(row.get('measured_sample_rate_hz', 0.0)):.1f}"
         lines.append(
             f"| `{row['step_id']}` | `{row['signal_name']}` | {observed_text} | "
-            f"{rate_text} | {confidence_text} | `{row['passed']}` |"
+            f"{rate_text} | {confidence_text} | {sample_rate_text} | `{row['passed']}` |"
         )
     return lines
 

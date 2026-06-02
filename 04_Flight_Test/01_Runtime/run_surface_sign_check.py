@@ -17,21 +17,60 @@ if str(CONTROLLER_ROOT) not in sys.path:
 from real_flight_io import encode_arduino_command_packet  # noqa: E402
 
 
-SURFACE_CHECK_SEQUENCE = (
-    ("neutral", (0.0, 0.0, 0.0), "All control surfaces should return to neutral."),
-    ("positive_aileron", (0.4, 0.0, 0.0), "Viewed from behind the glider: left aileron trailing edge UP, right aileron trailing edge DOWN."),
-    ("negative_aileron", (-0.4, 0.0, 0.0), "Viewed from behind the glider: left aileron trailing edge DOWN, right aileron trailing edge UP."),
-    ("positive_elevator", (0.0, 0.4, 0.0), "Elevator trailing edge UP; this is the nose-up pitch command."),
-    ("negative_elevator", (0.0, -0.4, 0.0), "Elevator trailing edge DOWN; this is the nose-down pitch command."),
-    ("positive_rudder", (0.0, 0.0, 0.4), "Viewed from behind the glider: rudder trailing edge RIGHT; this is the nose-right yaw command."),
-    ("negative_rudder", (0.0, 0.0, -0.4), "Viewed from behind the glider: rudder trailing edge LEFT; this is the nose-left yaw command."),
-    ("neutral_end", (0.0, 0.0, 0.0), "All control surfaces should return to neutral."),
-)
+COMMAND_LATTICE_20_PERCENT = tuple(round(-1.0 + 0.2 * index, 1) for index in range(11))
 DEFAULT_MODE = "armed"
 DEFAULT_SERIAL_PORT = "COM11"
 DEFAULT_DWELL_S = 2.0
 DEFAULT_PRINT_TELEMETRY = False
 COMMAND_REPEAT_PERIOD_S = 0.020
+LIVE_PRINT_PERIOD_S = 0.25
+
+
+def _expected_motion(axis_name: str, value: float) -> str:
+    command = float(value)
+    if abs(command) < 1e-12:
+        return "All relevant surfaces should be neutral for this axis step."
+    if axis_name == "aileron":
+        if command > 0.0:
+            return "Viewed from behind: left aileron trailing edge UP, right aileron trailing edge DOWN."
+        return "Viewed from behind: left aileron trailing edge DOWN, right aileron trailing edge UP."
+    if axis_name == "elevator":
+        if command > 0.0:
+            return "Elevator trailing edge UP; this is the nose-up pitch command."
+        return "Elevator trailing edge DOWN; this is the nose-down pitch command."
+    if axis_name == "rudder":
+        if command > 0.0:
+            return "Viewed from behind: rudder trailing edge RIGHT; this is the nose-right yaw command."
+        return "Viewed from behind: rudder trailing edge LEFT; this is the nose-left yaw command."
+    return "Unknown axis; stop and inspect the script."
+
+
+def _axis_command(axis_name: str, value: float) -> tuple[float, float, float]:
+    command = float(value)
+    if axis_name == "aileron":
+        return (command, 0.0, 0.0)
+    if axis_name == "elevator":
+        return (0.0, command, 0.0)
+    if axis_name == "rudder":
+        return (0.0, 0.0, command)
+    raise ValueError(f"unknown axis_name: {axis_name}")
+
+
+def _build_surface_check_sequence() -> tuple[tuple[str, tuple[float, float, float], str], ...]:
+    sequence: list[tuple[str, tuple[float, float, float], str]] = [
+        ("neutral_start", (0.0, 0.0, 0.0), "All control surfaces should return to neutral."),
+    ]
+    for axis_name in ("aileron", "elevator", "rudder"):
+        sequence.append((f"{axis_name}_neutral_before_sweep", (0.0, 0.0, 0.0), "All control surfaces should return to neutral."))
+        for command_value in COMMAND_LATTICE_20_PERCENT:
+            step_name = f"{axis_name}_{command_value:+.1f}"
+            sequence.append((step_name, _axis_command(axis_name, command_value), _expected_motion(axis_name, command_value)))
+        sequence.append((f"{axis_name}_neutral_after_sweep", (0.0, 0.0, 0.0), "All control surfaces should return to neutral."))
+    sequence.append(("neutral_end", (0.0, 0.0, 0.0), "All control surfaces should return to neutral."))
+    return tuple(sequence)
+
+
+SURFACE_CHECK_SEQUENCE = _build_surface_check_sequence()
 
 
 def run_surface_sign_check(
@@ -51,7 +90,10 @@ def run_surface_sign_check(
             print(f"[ARMED] Hardware output enabled on {serial_port}. Ctrl+C stops the check; neutral is sent on exit.")
         else:
             print("[DRY-RUN] No hardware commands will be sent.")
-        print(f"[CONFIG] dwell_s={float(dwell_s):.2f}, repeat_period_s={COMMAND_REPEAT_PERIOD_S:.3f}, telemetry_print={print_telemetry}")
+        print(
+            f"[CONFIG] dwell_s={float(dwell_s):.2f}, repeat_period_s={COMMAND_REPEAT_PERIOD_S:.3f}, "
+            f"telemetry_print={print_telemetry}, lattice={COMMAND_LATTICE_20_PERCENT}"
+        )
         tx.open()
         for text_command, wait_s in (("HELLO", 0.75), ("SET_NEUTRAL", 0.25)):
             print(f"[SETUP] {text_command}")
@@ -61,13 +103,25 @@ def run_surface_sign_check(
             telemetry_count += local_telemetry
             print(f"        telemetry_lines={local_telemetry}")
         for sequence, (step_name, command, expected_motion) in enumerate(SURFACE_CHECK_SEQUENCE):
-            print(f"[{sequence:02d}] {step_name}: command={command}")
+            print(f"[{sequence:02d}/{len(SURFACE_CHECK_SEQUENCE) - 1:02d}] {step_name}: command={command}")
             print(f"     EXPECTED: {expected_motion}")
             started = time.perf_counter()
             local_packets = 0
             local_telemetry = 0
+            next_live_print_s = 0.0
             packet = encode_arduino_command_packet(np.asarray(command, dtype=float), sequence=sequence)
-            while time.perf_counter() - started <= max(0.0, float(dwell_s)):
+            dwell_duration_s = max(0.0, float(dwell_s))
+            while True:
+                elapsed_s = time.perf_counter() - started
+                if local_packets > 0 and elapsed_s >= dwell_duration_s:
+                    break
+                if elapsed_s + 1e-12 >= next_live_print_s:
+                    print(
+                        f"     LIVE: t={elapsed_s:.2f}/{float(dwell_s):.2f}s "
+                        f"cmd=({command[0]:+.1f},{command[1]:+.1f},{command[2]:+.1f}) "
+                        f"packets={local_packets}"
+                    )
+                    next_live_print_s = elapsed_s + LIVE_PRINT_PERIOD_S
                 packet = encode_arduino_command_packet(np.asarray(command, dtype=float), sequence=sequence * 1000 + local_packets)
                 tx.write_packet(packet.packet_bytes)
                 packet_count += 1
@@ -75,7 +129,7 @@ def run_surface_sign_check(
                 drained = _drain_telemetry(tx, logger, 0.0, label=step_name, print_telemetry=print_telemetry)
                 telemetry_count += drained
                 local_telemetry += drained
-                sleep_s = COMMAND_REPEAT_PERIOD_S if mode == "armed" else min(COMMAND_REPEAT_PERIOD_S, max(0.0, float(dwell_s)))
+                sleep_s = COMMAND_REPEAT_PERIOD_S if mode == "armed" else min(COMMAND_REPEAT_PERIOD_S, dwell_duration_s)
                 if sleep_s <= 0.0:
                     break
                 time.sleep(sleep_s)
