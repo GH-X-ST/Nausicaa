@@ -14,6 +14,7 @@ from state_sampling import (
     LAUNCH_GATE_SPEED_MIN_M_S,
     LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S,
     LAUNCH_GATE_YAW_LIMIT_DEG,
+    LAUNCH_GATE_Z_W_M,
     archive_state_sample_for_family,
     archive_state_sample_for_row,
     archive_state_sample_row,
@@ -86,6 +87,7 @@ def test_launch_gate_sampler_uses_realistic_attitude_envelope() -> None:
         assert LAUNCH_GATE_PITCH_MIN_DEG <= np.rad2deg(state[STATE_INDEX["theta"]]) <= LAUNCH_GATE_PITCH_MAX_DEG
         assert -LAUNCH_GATE_YAW_LIMIT_DEG <= np.rad2deg(state[STATE_INDEX["psi"]]) <= LAUNCH_GATE_YAW_LIMIT_DEG
         assert LAUNCH_GATE_SPEED_MIN_M_S <= speed <= LAUNCH_GATE_SPEED_MAX_M_S
+        assert LAUNCH_GATE_Z_W_M[0] <= state[STATE_INDEX["z_w"]] <= LAUNCH_GATE_Z_W_M[1]
         assert -LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S <= state[STATE_INDEX["p"]] <= LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S
         assert -LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S <= state[STATE_INDEX["q"]] <= LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S
         assert -LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S <= state[STATE_INDEX["r"]] <= LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S
@@ -112,6 +114,11 @@ def test_launch_gate_sampler_uses_realistic_attitude_envelope() -> None:
     old_extreme_launch[STATE_INDEX["u"]] = 5.0
 
     assert state_is_launch_gate_compliant(old_extreme_launch) is False
+
+    assert LAUNCH_GATE_Z_W_M == (1.3, 1.8)
+    assert LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S == 1.2
+    assert LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S == 1.2
+    assert LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S == 1.8
 
     excessive_rate_launch = np.zeros(len(STATE_NAMES), dtype=float)
     excessive_rate_launch[STATE_INDEX["x_w"]] = 1.3

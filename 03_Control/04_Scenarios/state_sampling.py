@@ -15,9 +15,10 @@ LAUNCH_GATE_PITCH_MAX_DEG = 20.0
 LAUNCH_GATE_YAW_LIMIT_DEG = 20.0
 LAUNCH_GATE_SPEED_MIN_M_S = 3.0
 LAUNCH_GATE_SPEED_MAX_M_S = 8.0
-LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S = 0.35
-LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S = 0.25
-LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S = 0.25
+LAUNCH_GATE_Z_W_M = (1.3, 1.8)
+LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S = 1.2
+LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S = 1.2
+LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S = 1.8
 
 
 # =============================================================================
@@ -196,7 +197,7 @@ def state_is_launch_gate_compliant(state: np.ndarray) -> bool:
     return bool(
         1.2 <= x[STATE_INDEX["x_w"]] <= 1.4
         and 1.8 <= x[STATE_INDEX["y_w"]] <= 2.2
-        and 1.4 <= x[STATE_INDEX["z_w"]] <= 1.9
+        and LAUNCH_GATE_Z_W_M[0] <= x[STATE_INDEX["z_w"]] <= LAUNCH_GATE_Z_W_M[1]
         and np.deg2rad(-LAUNCH_GATE_ROLL_LIMIT_DEG)
         <= x[STATE_INDEX["phi"]]
         <= np.deg2rad(LAUNCH_GATE_ROLL_LIMIT_DEG)
@@ -223,7 +224,7 @@ def _launch_gate_state(rng: np.random.Generator) -> np.ndarray:
     state = np.zeros(STATE_SIZE, dtype=float)
     state[STATE_INDEX["x_w"]] = float(rng.uniform(1.2, 1.4))
     state[STATE_INDEX["y_w"]] = float(rng.uniform(1.8, 2.2))
-    state[STATE_INDEX["z_w"]] = float(rng.uniform(1.4, 1.9))
+    state[STATE_INDEX["z_w"]] = float(rng.uniform(*LAUNCH_GATE_Z_W_M))
     state[STATE_INDEX["phi"]] = float(
         np.deg2rad(rng.uniform(-LAUNCH_GATE_ROLL_LIMIT_DEG, LAUNCH_GATE_ROLL_LIMIT_DEG))
     )
