@@ -44,6 +44,9 @@ from A_model_parameters.neutral_dry_air_calibration import (  # noqa: E402
     CALIBRATION_ID as NEUTRAL_DRY_AIR_CALIBRATION_ID,
     CD0_STRIP_SCALE as NEUTRAL_DRY_AIR_CD0_STRIP_SCALE,
     DRAG_AREA_FUSE_SCALE as NEUTRAL_DRY_AIR_DRAG_AREA_FUSE_SCALE,
+    DELTA_A_TRIM_RAD as NEUTRAL_DRY_AIR_DELTA_A_TRIM_RAD,
+    DELTA_E_TRIM_RAD as NEUTRAL_DRY_AIR_DELTA_E_TRIM_RAD,
+    DELTA_R_TRIM_RAD as NEUTRAL_DRY_AIR_DELTA_R_TRIM_RAD,
     EFFICIENCY_STRIP_SCALE as NEUTRAL_DRY_AIR_EFFICIENCY_STRIP_SCALE,
     HELDOUT_POLICY as NEUTRAL_DRY_AIR_HELDOUT_POLICY,
     HELDOUT_SEED as NEUTRAL_DRY_AIR_HELDOUT_SEED,
@@ -56,6 +59,7 @@ DEFAULT_OUTPUT_ROOT = REPO_ROOT / "03_Control" / "05_Results" / "glider_model_ca
 DEFAULT_HELDOUT_COUNT = 5
 DEFAULT_HELDOUT_SEED = 603
 DEFAULT_REPLAY_DT_S = 0.005
+DEFAULT_ALIGNMENT_WINDOW_S = 0.15
 DEFAULT_WORKERS = 8
 RIDGE_ALPHA = 1.0e-6
 LAUNCH_NOMINAL_X_M = 0.5 * (LAUNCH_GATE_X_W_M[0] + LAUNCH_GATE_X_W_M[1])
@@ -73,6 +77,9 @@ CURRENT_MODEL_CALIBRATION = {
     "cd0_strip_scale": float(NEUTRAL_DRY_AIR_CD0_STRIP_SCALE),
     "drag_area_fuse_scale": float(NEUTRAL_DRY_AIR_DRAG_AREA_FUSE_SCALE),
     "efficiency_strip_scale": float(NEUTRAL_DRY_AIR_EFFICIENCY_STRIP_SCALE),
+    "delta_a_trim_rad": float(NEUTRAL_DRY_AIR_DELTA_A_TRIM_RAD),
+    "delta_e_trim_rad": float(NEUTRAL_DRY_AIR_DELTA_E_TRIM_RAD),
+    "delta_r_trim_rad": float(NEUTRAL_DRY_AIR_DELTA_R_TRIM_RAD),
 }
 
 VALID_THROW_FIELDS = [
@@ -343,6 +350,75 @@ MEASURED_LAUNCH_REPLAY_FIELDS = [
     "max_abs_sim_r_rad_s",
 ]
 
+ALIGNED_MOTION_REPLAY_FIELDS = [
+    "split",
+    "session_label",
+    "calibration_profile_hash",
+    "case_id",
+    "case_name",
+    "throw_id",
+    "command_axis",
+    "command_value",
+    "pulse_start_s",
+    "pulse_duration_s",
+    "replay_status",
+    "replay_policy",
+    "replay_dt_s",
+    "alignment_window_s",
+    "alignment_elapsed_s",
+    "alignment_sample_count",
+    "alignment_method",
+    "replay_command_source",
+    "actual_termination_group",
+    "sim_first_exit_reason",
+    "sim_first_exit_time_s",
+    "duration_s",
+    "x0_m",
+    "y0_m",
+    "z0_m",
+    "u0_m_s",
+    "v0_m_s",
+    "w0_m_s",
+    "p0_rad_s",
+    "q0_rad_s",
+    "r0_rad_s",
+    "phi0_deg",
+    "theta0_deg",
+    "psi0_deg",
+    "actual_x_end_m",
+    "actual_y_end_m",
+    "actual_z_end_m",
+    "sim_x_end_m",
+    "sim_y_end_m",
+    "sim_z_end_m",
+    "actual_dx_m",
+    "sim_dx_m",
+    "dx_residual_actual_minus_sim_m",
+    "actual_dy_m",
+    "sim_dy_m",
+    "dy_residual_actual_minus_sim_m",
+    "actual_altitude_loss_m",
+    "sim_altitude_loss_m",
+    "altitude_loss_residual_actual_minus_sim_m",
+    "actual_sink_rate_m_s",
+    "sim_sink_rate_m_s",
+    "sink_rate_residual_actual_minus_sim_m_s",
+    "actual_glide_ratio_x_over_altloss",
+    "sim_glide_ratio_x_over_altloss",
+    "glide_ratio_residual_actual_minus_sim",
+    "actual_final_phi_deg",
+    "sim_final_phi_deg",
+    "actual_final_theta_deg",
+    "sim_final_theta_deg",
+    "actual_final_psi_deg",
+    "sim_final_psi_deg",
+    "max_abs_sim_phi_deg",
+    "max_abs_sim_theta_deg",
+    "max_abs_sim_p_rad_s",
+    "max_abs_sim_q_rad_s",
+    "max_abs_sim_r_rad_s",
+]
+
 
 def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -445,7 +521,7 @@ def _session_summary_path(path: Path) -> Path:
 
 
 def resolve_session_roots(path: Path) -> list[Path]:
-    """Resolve either one session root or all completed neutral sessions below a directory."""
+    """Resolve either one session root or all completed calibration sessions below a directory."""
     if _session_summary_path(path).exists():
         return [path]
     candidates: list[Path] = []
@@ -453,7 +529,7 @@ def resolve_session_roots(path: Path) -> list[Path]:
         for summary_path in path.rglob("manifests/glider_calibration_sequence_final_summary.json"):
             session_root = summary_path.parents[1]
             summary = _load_json(summary_path)
-            if summary.get("block_id") == "neutral_30" and summary.get("total_valid_throw_count", 0):
+            if int(summary.get("total_valid_throw_count", 0) or 0) > 0:
                 candidates.append(session_root)
     if not candidates:
         raise FileNotFoundError(
@@ -788,6 +864,38 @@ def measured_launch_replay_diagnostics(
     return rows
 
 
+def aligned_motion_replay_diagnostics(
+    valid_rows: list[dict[str, Any]],
+    *,
+    replay_dt_s: float = DEFAULT_REPLAY_DT_S,
+    alignment_window_s: float = DEFAULT_ALIGNMENT_WINDOW_S,
+    workers: int = DEFAULT_WORKERS,
+) -> list[dict[str, Any]]:
+    """Replay from a state aligned to the first short segment of measured motion.
+
+    This diagnostic separates model mismatch from launch-frame derivative noise.
+    It is not a deployment validation metric because it conditions on the first
+    measured flight segment before predicting the remaining trajectory.
+    """
+
+    worker_count = max(1, int(workers))
+    if worker_count > 1 and len(valid_rows) > 1:
+        payloads = [(row, float(replay_dt_s), float(alignment_window_s)) for row in valid_rows]
+        with ProcessPoolExecutor(max_workers=worker_count, initializer=_initialise_replay_worker) as executor:
+            return list(executor.map(_aligned_motion_replay_worker, payloads))
+
+    aircraft = adapt_glider(build_nausicaa_glider())
+    rows: list[dict[str, Any]] = []
+    for row in valid_rows:
+        throw_dir_value = row.get("_throw_dir", "")
+        throw_dir = Path(str(throw_dir_value)) if throw_dir_value else None
+        if throw_dir is None or not throw_dir.exists():
+            rows.append(_blocked_aligned_replay_row(row, "missing_throw_dir", replay_dt_s, alignment_window_s))
+            continue
+        rows.append(_simulate_aligned_motion_replay(row, throw_dir, aircraft, replay_dt_s, alignment_window_s))
+    return rows
+
+
 def _initialise_replay_worker() -> None:
     global _REPLAY_WORKER_AIRCRAFT
     _REPLAY_WORKER_AIRCRAFT = adapt_glider(build_nausicaa_glider())
@@ -803,6 +911,18 @@ def _measured_launch_replay_worker(payload: tuple[dict[str, Any], float]) -> dic
     if throw_dir is None or not throw_dir.exists():
         return _blocked_replay_row(row, "missing_throw_dir", replay_dt_s)
     return _simulate_measured_launch_replay(row, throw_dir, aircraft, replay_dt_s)
+
+
+def _aligned_motion_replay_worker(payload: tuple[dict[str, Any], float, float]) -> dict[str, Any]:
+    row, replay_dt_s, alignment_window_s = payload
+    aircraft = _REPLAY_WORKER_AIRCRAFT
+    if aircraft is None:
+        aircraft = adapt_glider(build_nausicaa_glider())
+    throw_dir_value = row.get("_throw_dir", "")
+    throw_dir = Path(str(throw_dir_value)) if throw_dir_value else None
+    if throw_dir is None or not throw_dir.exists():
+        return _blocked_aligned_replay_row(row, "missing_throw_dir", replay_dt_s, alignment_window_s)
+    return _simulate_aligned_motion_replay(row, throw_dir, aircraft, replay_dt_s, alignment_window_s)
 
 
 def _simulate_measured_launch_replay(
@@ -942,6 +1062,154 @@ def _simulate_measured_launch_replay(
     }
 
 
+def _simulate_aligned_motion_replay(
+    row: dict[str, Any],
+    throw_dir: Path,
+    aircraft: Any,
+    replay_dt_s: float,
+    alignment_window_s: float,
+) -> dict[str, Any]:
+    sample_rows = _read_csv(throw_dir / "metrics" / "state_samples.csv")
+    if not sample_rows:
+        return _blocked_aligned_replay_row(row, "missing_state_samples", replay_dt_s, alignment_window_s)
+    aligned = _aligned_state_from_sample_rows(sample_rows, alignment_window_s)
+    if aligned["status"] != "ok":
+        return _blocked_aligned_replay_row(row, str(aligned["status"]), replay_dt_s, alignment_window_s)
+    x0 = np.asarray(aligned["state"], dtype=float)
+    if not np.all(np.isfinite(x0)):
+        return _blocked_aligned_replay_row(row, "nonfinite_aligned_state", replay_dt_s, alignment_window_s)
+
+    t_first = _float(sample_rows[0], "t_s", 0.0)
+    t_last = _float(sample_rows[-1], "t_s", t_first)
+    alignment_elapsed_s = float(aligned["alignment_elapsed_s"])
+    duration_s = max(0.0, t_last - t_first - alignment_elapsed_s)
+    if not math.isfinite(duration_s) or duration_s <= 0.0:
+        return _blocked_aligned_replay_row(row, "invalid_aligned_duration", replay_dt_s, alignment_window_s)
+
+    manifest = _throw_manifest(throw_dir)
+    actuator_tau_s = _actuator_tau_from_manifest(manifest)
+    command_schedule, command_source = _load_replay_command_schedule(throw_dir, row)
+    x = x0.copy()
+    t_s = 0.0
+    command_index = _advance_command_index(command_schedule, 0, alignment_elapsed_s)
+    first_exit_reason = ""
+    first_exit_time_s = float("nan")
+    max_abs_phi = abs(float(x[3]))
+    max_abs_theta = abs(float(x[4]))
+    max_abs_p = abs(float(x[9]))
+    max_abs_q = abs(float(x[10]))
+    max_abs_r = abs(float(x[11]))
+
+    while t_s < duration_s - 1e-12:
+        dt_s = min(float(replay_dt_s), duration_s - t_s)
+        absolute_replay_time_s = alignment_elapsed_s + t_s
+        command_index = _advance_command_index(command_schedule, command_index, absolute_replay_time_s)
+        command = command_schedule[command_index][1]
+        try:
+            x = _rk4_step_measured_launch(
+                x=x,
+                command=command,
+                aircraft=aircraft,
+                actuator_tau_s=actuator_tau_s,
+                dt_s=dt_s,
+            )
+        except Exception:
+            return _blocked_aligned_replay_row(row, "state_derivative_failed", replay_dt_s, alignment_window_s)
+        t_s += dt_s
+        if not np.all(np.isfinite(x)):
+            return _blocked_aligned_replay_row(row, "nonfinite_replay_state", replay_dt_s, alignment_window_s)
+        max_abs_phi = max(max_abs_phi, abs(float(x[3])))
+        max_abs_theta = max(max_abs_theta, abs(float(x[4])))
+        max_abs_p = max(max_abs_p, abs(float(x[9])))
+        max_abs_q = max(max_abs_q, abs(float(x[10])))
+        max_abs_r = max(max_abs_r, abs(float(x[11])))
+        if not first_exit_reason:
+            reason = _true_safe_exit_reason(x)
+            if reason:
+                first_exit_reason = reason
+                first_exit_time_s = t_s
+
+    actual_final = _state_vector_from_sample_row(sample_rows[-1])
+    actual_dx = float(actual_final[0] - x0[0])
+    actual_dy = float(actual_final[1] - x0[1])
+    actual_altitude_loss = float(x0[2] - actual_final[2])
+    actual_sink_rate = _ratio(actual_altitude_loss, duration_s)
+    actual_glide = _ratio(actual_dx, actual_altitude_loss)
+    sim_dx = float(x[0] - x0[0])
+    sim_dy = float(x[1] - x0[1])
+    sim_altitude_loss = float(x0[2] - x[2])
+    sim_sink_rate = _ratio(sim_altitude_loss, duration_s)
+    sim_glide = _ratio(sim_dx, sim_altitude_loss)
+
+    return {
+        "session_label": row.get("session_label", ""),
+        "calibration_profile_hash": row.get("calibration_profile_hash", ""),
+        "case_id": row.get("case_id", ""),
+        "case_name": row.get("case_name", ""),
+        "throw_id": row.get("throw_id", ""),
+        "command_axis": row.get("command_axis", ""),
+        "command_value": row.get("command_value", ""),
+        "pulse_start_s": row.get("pulse_start_s", ""),
+        "pulse_duration_s": row.get("pulse_duration_s", ""),
+        "replay_status": "ok",
+        "replay_policy": "dry_air_current_model_aligned_first_motion_window_same_command_history_remaining_duration",
+        "replay_dt_s": float(replay_dt_s),
+        "alignment_window_s": float(alignment_window_s),
+        "alignment_elapsed_s": alignment_elapsed_s,
+        "alignment_sample_count": int(aligned["alignment_sample_count"]),
+        "alignment_method": aligned["alignment_method"],
+        "replay_command_source": command_source,
+        "actual_termination_group": row.get("termination_group", ""),
+        "sim_first_exit_reason": first_exit_reason or "none_before_actual_remaining_duration",
+        "sim_first_exit_time_s": first_exit_time_s,
+        "duration_s": duration_s,
+        "x0_m": float(x0[0]),
+        "y0_m": float(x0[1]),
+        "z0_m": float(x0[2]),
+        "u0_m_s": float(x0[6]),
+        "v0_m_s": float(x0[7]),
+        "w0_m_s": float(x0[8]),
+        "p0_rad_s": float(x0[9]),
+        "q0_rad_s": float(x0[10]),
+        "r0_rad_s": float(x0[11]),
+        "phi0_deg": math.degrees(float(x0[3])),
+        "theta0_deg": math.degrees(float(x0[4])),
+        "psi0_deg": math.degrees(float(x0[5])),
+        "actual_x_end_m": float(actual_final[0]),
+        "actual_y_end_m": float(actual_final[1]),
+        "actual_z_end_m": float(actual_final[2]),
+        "sim_x_end_m": float(x[0]),
+        "sim_y_end_m": float(x[1]),
+        "sim_z_end_m": float(x[2]),
+        "actual_dx_m": actual_dx,
+        "sim_dx_m": sim_dx,
+        "dx_residual_actual_minus_sim_m": actual_dx - sim_dx,
+        "actual_dy_m": actual_dy,
+        "sim_dy_m": sim_dy,
+        "dy_residual_actual_minus_sim_m": actual_dy - sim_dy,
+        "actual_altitude_loss_m": actual_altitude_loss,
+        "sim_altitude_loss_m": sim_altitude_loss,
+        "altitude_loss_residual_actual_minus_sim_m": actual_altitude_loss - sim_altitude_loss,
+        "actual_sink_rate_m_s": actual_sink_rate,
+        "sim_sink_rate_m_s": sim_sink_rate,
+        "sink_rate_residual_actual_minus_sim_m_s": actual_sink_rate - sim_sink_rate,
+        "actual_glide_ratio_x_over_altloss": actual_glide,
+        "sim_glide_ratio_x_over_altloss": sim_glide,
+        "glide_ratio_residual_actual_minus_sim": actual_glide - sim_glide,
+        "actual_final_phi_deg": math.degrees(float(actual_final[3])),
+        "sim_final_phi_deg": math.degrees(float(x[3])),
+        "actual_final_theta_deg": math.degrees(float(actual_final[4])),
+        "sim_final_theta_deg": math.degrees(float(x[4])),
+        "actual_final_psi_deg": math.degrees(float(actual_final[5])),
+        "sim_final_psi_deg": math.degrees(float(x[5])),
+        "max_abs_sim_phi_deg": math.degrees(max_abs_phi),
+        "max_abs_sim_theta_deg": math.degrees(max_abs_theta),
+        "max_abs_sim_p_rad_s": max_abs_p,
+        "max_abs_sim_q_rad_s": max_abs_q,
+        "max_abs_sim_r_rad_s": max_abs_r,
+    }
+
+
 def _blocked_replay_row(row: dict[str, Any], status: str, replay_dt_s: float) -> dict[str, Any]:
     return {
         "session_label": row.get("session_label", ""),
@@ -961,9 +1229,153 @@ def _blocked_replay_row(row: dict[str, Any], status: str, replay_dt_s: float) ->
     }
 
 
+def _blocked_aligned_replay_row(
+    row: dict[str, Any],
+    status: str,
+    replay_dt_s: float,
+    alignment_window_s: float,
+) -> dict[str, Any]:
+    blocked = _blocked_replay_row(row, status, replay_dt_s)
+    blocked.update(
+        {
+            "replay_policy": "dry_air_current_model_aligned_first_motion_window_same_command_history_remaining_duration",
+            "alignment_window_s": float(alignment_window_s),
+            "alignment_elapsed_s": "",
+            "alignment_sample_count": "",
+            "alignment_method": "",
+        }
+    )
+    return blocked
+
+
 def _state_vector_from_sample_row(row: dict[str, Any]) -> np.ndarray:
     names = ("x_w", "y_w", "z_w", "phi", "theta", "psi", "u", "v", "w", "p", "q", "r", "delta_a", "delta_e", "delta_r")
     return np.array([_float(row, name) for name in names], dtype=float)
+
+
+def _aligned_state_from_sample_rows(sample_rows: list[dict[str, Any]], alignment_window_s: float) -> dict[str, Any]:
+    if len(sample_rows) < 3:
+        return {"status": "too_few_state_samples"}
+    t0 = _float(sample_rows[0], "t_s", 0.0)
+    rel_times = np.asarray([_float(row, "t_s", t0) - t0 for row in sample_rows], dtype=float)
+    if not np.all(np.isfinite(rel_times)):
+        return {"status": "nonfinite_sample_time"}
+    target_time = max(0.0, float(alignment_window_s))
+    target_candidates = np.where(rel_times >= target_time)[0]
+    if len(target_candidates):
+        target_index = int(target_candidates[0])
+    else:
+        target_index = len(sample_rows) - 1
+    alignment_elapsed_s = float(rel_times[target_index])
+    if alignment_elapsed_s < 0.05:
+        return {"status": "alignment_window_too_short"}
+    window_indices = np.where((rel_times >= -1e-12) & (rel_times <= alignment_elapsed_s + 1e-12))[0]
+    if len(window_indices) < 3:
+        return {"status": "too_few_alignment_samples"}
+
+    target_state = _state_vector_from_sample_row(sample_rows[target_index])
+    if not np.all(np.isfinite(target_state)):
+        return {"status": "nonfinite_alignment_target_state"}
+
+    t = rel_times[window_indices]
+    world_velocity = np.asarray(
+        [
+            _least_squares_slope(t, [_float(sample_rows[int(index)], name) for index in window_indices])
+            for name in ("x_w", "y_w", "z_w")
+        ],
+        dtype=float,
+    )
+    if not np.all(np.isfinite(world_velocity)):
+        return {"status": "nonfinite_alignment_velocity"}
+
+    start_state = _state_vector_from_sample_row(sample_rows[0])
+    if not np.all(np.isfinite(start_state[:6])):
+        return {"status": "nonfinite_alignment_start_attitude"}
+
+    aligned_state = target_state.copy()
+    aligned_state[6:9] = _body_velocity_from_world_up(world_velocity, aligned_state[3:6])
+    aligned_state[9:12] = _body_rates_from_rotation_delta(
+        _c_wb_numpy(float(start_state[3]), float(start_state[4]), float(start_state[5])),
+        _c_wb_numpy(float(aligned_state[3]), float(aligned_state[4]), float(aligned_state[5])),
+        alignment_elapsed_s,
+    )
+    return {
+        "status": "ok",
+        "state": aligned_state,
+        "alignment_elapsed_s": alignment_elapsed_s,
+        "alignment_sample_count": int(len(window_indices)),
+        "alignment_method": "target_pose_plus_regressed_world_velocity_and_so3_rate_over_first_window",
+    }
+
+
+def _least_squares_slope(t_s: np.ndarray, values: list[float]) -> float:
+    t = np.asarray(t_s, dtype=float)
+    y = np.asarray(values, dtype=float)
+    valid = np.isfinite(t) & np.isfinite(y)
+    if int(np.sum(valid)) < 2:
+        return float("nan")
+    t = t[valid]
+    y = y[valid]
+    t_centered = t - float(np.mean(t))
+    denominator = float(np.sum(t_centered * t_centered))
+    if denominator < 1e-12:
+        return float("nan")
+    return float(np.sum(t_centered * (y - float(np.mean(y)))) / denominator)
+
+
+def _body_velocity_from_world_up(world_velocity_m_s: np.ndarray, euler_rad: np.ndarray) -> np.ndarray:
+    velocity_internal = np.asarray(world_velocity_m_s, dtype=float).reshape(3).copy()
+    velocity_internal[2] *= -1.0
+    c_wb = _c_wb_numpy(*np.asarray(euler_rad, dtype=float).reshape(3))
+    return c_wb.T @ velocity_internal
+
+
+def _c_wb_numpy(phi: float, theta: float, psi: float) -> np.ndarray:
+    c_phi = np.cos(phi)
+    s_phi = np.sin(phi)
+    c_theta = np.cos(theta)
+    s_theta = np.sin(theta)
+    c_psi = np.cos(psi)
+    s_psi = np.sin(psi)
+    return np.asarray(
+        [
+            [
+                c_theta * c_psi,
+                s_phi * s_theta * c_psi - c_phi * s_psi,
+                c_phi * s_theta * c_psi + s_phi * s_psi,
+            ],
+            [
+                c_theta * s_psi,
+                s_phi * s_theta * s_psi + c_phi * c_psi,
+                c_phi * s_theta * s_psi - s_phi * c_psi,
+            ],
+            [-s_theta, s_phi * c_theta, c_phi * c_theta],
+        ],
+        dtype=float,
+    )
+
+
+def _body_rates_from_rotation_delta(previous_c_wb: np.ndarray, current_c_wb: np.ndarray, dt_s: float) -> np.ndarray:
+    if not np.isfinite(dt_s) or dt_s <= 0.0:
+        return np.zeros(3)
+    previous = np.asarray(previous_c_wb, dtype=float).reshape(3, 3)
+    current = np.asarray(current_c_wb, dtype=float).reshape(3, 3)
+    relative_body_rotation = previous.T @ current
+    trace_term = float(np.clip((np.trace(relative_body_rotation) - 1.0) * 0.5, -1.0, 1.0))
+    angle = float(np.arccos(trace_term))
+    vee = np.asarray(
+        [
+            relative_body_rotation[2, 1] - relative_body_rotation[1, 2],
+            relative_body_rotation[0, 2] - relative_body_rotation[2, 0],
+            relative_body_rotation[1, 0] - relative_body_rotation[0, 1],
+        ],
+        dtype=float,
+    )
+    if angle < 1e-6:
+        rotation_vector = 0.5 * vee
+    else:
+        rotation_vector = (angle / (2.0 * np.sin(angle))) * vee
+    return rotation_vector / float(dt_s)
 
 
 def _actuator_tau_from_manifest(manifest: dict[str, Any]) -> tuple[float, float, float]:
@@ -1239,6 +1651,8 @@ def write_report(
     aggregate_rows: list[dict[str, Any]],
     empirical_validation_rows: list[dict[str, Any]],
     measured_replay_rows: list[dict[str, Any]],
+    aligned_replay_rows: list[dict[str, Any]],
+    alignment_window_s: float,
 ) -> None:
     report_path.parent.mkdir(parents=True, exist_ok=True)
     termination_counts: dict[str, int] = {}
@@ -1263,9 +1677,9 @@ def write_report(
         f"- invalid launch attempts: `{len(invalid_rows)}`",
         f"- termination counts: `{termination_counts}`",
         "",
-        "## Neutral-Glide Calibration Targets",
+        "## Calibration Data Targets",
         "",
-        "These values are evidence targets for a later grey-box fit. They do not by themselves update the simulator.",
+        "These values are evidence targets for later grey-box fitting. They do not by themselves update the simulator.",
         "The empirical diagnostic fits `dx`, `dy`, `sink_rate`, and `duration` from launch-conditioned features; glide ratio is reported only as a derived residual from predicted distance and altitude loss.",
         "",
         f"- mean sink rate: `{_format_value(agg('sink_rate_m_s'))}` m/s",
@@ -1297,6 +1711,19 @@ def write_report(
         f"- mean replay sink-rate residual: `{_format_value(_replay_mean(measured_replay_rows, 'sink_rate_residual_actual_minus_sim_m_s'))}` m/s",
         f"- replay dy residual MAE: `{_format_value(_replay_mae(measured_replay_rows, 'dy_residual_actual_minus_sim_m'))}` m",
         "",
+        "## First-Motion-Aligned Simulation Replay",
+        "",
+        "Each valid throw is also replayed from a state aligned to the first short segment of measured motion. This diagnostic uses the target pose after the alignment window, regresses world velocity over the window, estimates body rate from the SO(3) rotation change, then predicts only the remaining trajectory.",
+        "",
+        f"- alignment window: `{alignment_window_s}` s",
+        f"- aligned replay rows: `{len(aligned_replay_rows)}`",
+        f"- successful aligned replay rows: `{sum(1 for row in aligned_replay_rows if row.get('replay_status') == 'ok')}`",
+        f"- mean aligned dx residual: `{_format_value(_replay_mean(aligned_replay_rows, 'dx_residual_actual_minus_sim_m'))}` m",
+        f"- mean aligned dy residual: `{_format_value(_replay_mean(aligned_replay_rows, 'dy_residual_actual_minus_sim_m'))}` m",
+        f"- mean aligned altitude-loss residual: `{_format_value(_replay_mean(aligned_replay_rows, 'altitude_loss_residual_actual_minus_sim_m'))}` m",
+        f"- mean aligned sink-rate residual: `{_format_value(_replay_mean(aligned_replay_rows, 'sink_rate_residual_actual_minus_sim_m_s'))}` m/s",
+        f"- aligned dy residual MAE: `{_format_value(_replay_mae(aligned_replay_rows, 'dy_residual_actual_minus_sim_m'))}` m",
+        "",
         "## Current Dry-Air Model Calibration",
         "",
         f"- calibration active: `{CURRENT_MODEL_CALIBRATION['neutral_dry_air_calibration_active']}`",
@@ -1307,6 +1734,9 @@ def write_report(
         f"- cd0 strip scale: `{CURRENT_MODEL_CALIBRATION['cd0_strip_scale']}`",
         f"- fuselage drag-area scale: `{CURRENT_MODEL_CALIBRATION['drag_area_fuse_scale']}`",
         f"- strip efficiency scale: `{CURRENT_MODEL_CALIBRATION['efficiency_strip_scale']}`",
+        f"- aileron neutral trim: `{CURRENT_MODEL_CALIBRATION['delta_a_trim_rad']}` rad",
+        f"- elevator neutral trim: `{CURRENT_MODEL_CALIBRATION['delta_e_trim_rad']}` rad",
+        f"- rudder neutral trim: `{CURRENT_MODEL_CALIBRATION['delta_r_trim_rad']}` rad",
         "",
         "## Recommended Calibration Order",
         "",
@@ -1326,6 +1756,7 @@ def write_report(
         "- `metrics/empirical_fit_coefficients.csv`",
         "- `metrics/empirical_heldout_validation.csv`",
         "- `metrics/measured_launch_replay_residuals.csv`",
+        "- `metrics/aligned_motion_replay_residuals.csv`",
         "- `metrics/invalid_attempt_summary.csv`",
         "- `manifests/calibration_prep_manifest.json`",
         "",
@@ -1373,10 +1804,11 @@ def run_calibration_prep(
     heldout_count: int = DEFAULT_HELDOUT_COUNT,
     heldout_seed: int = DEFAULT_HELDOUT_SEED,
     replay_dt_s: float = DEFAULT_REPLAY_DT_S,
+    alignment_window_s: float = DEFAULT_ALIGNMENT_WINDOW_S,
     workers: int = DEFAULT_WORKERS,
 ) -> Path:
     session_roots = resolve_session_roots(session_root)
-    label = run_label or f"neutral_{len(session_roots)}sessions_prep"
+    label = run_label or f"calibration_{len(session_roots)}sessions_prep"
     output_dir = output_root / label
 
     valid_rows: list[dict[str, Any]] = []
@@ -1405,7 +1837,15 @@ def run_calibration_prep(
         replay_dt_s=replay_dt_s,
         workers=workers,
     )
+    aligned_replay_rows = aligned_motion_replay_diagnostics(
+        valid_rows,
+        replay_dt_s=replay_dt_s,
+        alignment_window_s=alignment_window_s,
+        workers=workers,
+    )
     for index, row in enumerate(measured_replay_rows):
+        row["split"] = "heldout" if index in heldout_indices else "train"
+    for index, row in enumerate(aligned_replay_rows):
         row["split"] = "heldout" if index in heldout_indices else "train"
 
     _write_csv(output_dir / "metrics" / "neutral_throw_summary.csv", valid_rows, VALID_THROW_FIELDS)
@@ -1423,6 +1863,11 @@ def run_calibration_prep(
         output_dir / "metrics" / "measured_launch_replay_residuals.csv",
         measured_replay_rows,
         MEASURED_LAUNCH_REPLAY_FIELDS,
+    )
+    _write_csv(
+        output_dir / "metrics" / "aligned_motion_replay_residuals.csv",
+        aligned_replay_rows,
+        ALIGNED_MOTION_REPLAY_FIELDS,
     )
 
     manifest = {
@@ -1446,6 +1891,8 @@ def run_calibration_prep(
         "measured_launch_replay_dt_s": float(replay_dt_s),
         "measured_launch_replay_workers": int(workers),
         "measured_launch_replay_policy": "dry_air_current_model_exact_measured_launch_state_same_command_history_same_duration",
+        "aligned_motion_replay_alignment_window_s": float(alignment_window_s),
+        "aligned_motion_replay_policy": "dry_air_current_model_aligned_first_motion_window_same_command_history_remaining_duration",
         "current_model_calibration": dict(CURRENT_MODEL_CALIBRATION),
         "empirical_feature_names": list(EMPIRICAL_FEATURES),
         "empirical_target_names": list(EMPIRICAL_TARGETS),
@@ -1466,6 +1913,8 @@ def run_calibration_prep(
         aggregate_rows,
         empirical_validation_rows,
         measured_replay_rows,
+        aligned_replay_rows,
+        alignment_window_s,
     )
     return output_dir
 
@@ -1480,7 +1929,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=DEFAULT_SESSION_SEARCH_ROOT,
         help=(
             "Completed session root, or a directory containing session roots. Defaults to searching "
-            "04_Flight_Test/05_Results for all completed neutral_30 sessions in either old or short layout."
+            "04_Flight_Test/05_Results for all completed glider-calibration sessions with valid throws."
         ),
     )
     parser.add_argument(
@@ -1492,13 +1941,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--run-label",
         default=None,
-        help="Optional output run label. Defaults to 'neutral_<session_count>sessions_prep'.",
+        help="Optional output run label. Defaults to 'calibration_<session_count>sessions_prep'.",
     )
     parser.add_argument(
         "--heldout-count",
         type=int,
         default=DEFAULT_HELDOUT_COUNT,
-        help="Number of neutral throws to reserve for empirical held-out residual diagnostics.",
+        help="Number of calibration throws to reserve for empirical held-out residual diagnostics.",
     )
     parser.add_argument(
         "--heldout-seed",
@@ -1513,10 +1962,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Fixed RK4 step for measured-launch dry-air simulation replay.",
     )
     parser.add_argument(
+        "--alignment-window-s",
+        type=float,
+        default=DEFAULT_ALIGNMENT_WINDOW_S,
+        help="First-motion alignment window for the additional aligned replay diagnostic.",
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=DEFAULT_WORKERS,
-        help="Parallel workers for measured-launch replay diagnostics. Defaults to 8.",
+        help="Parallel workers for replay diagnostics. Defaults to 8.",
     )
     return parser
 
@@ -1530,6 +1985,7 @@ def main() -> None:
         heldout_count=args.heldout_count,
         heldout_seed=args.heldout_seed,
         replay_dt_s=args.replay_dt_s,
+        alignment_window_s=args.alignment_window_s,
         workers=args.workers,
     )
     print(f"[DONE] calibration prep written to {output_dir}")

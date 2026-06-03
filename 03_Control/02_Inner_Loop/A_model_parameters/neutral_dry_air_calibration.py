@@ -1,8 +1,8 @@
-"""Neutral dry-air calibration constants from measured real-launch replay.
+"""Neutral dry-air calibration constants from real open-loop launch replay.
 
-The constants below are a first grey-box correction from the 80 valid neutral
-throws collected across five launch sessions. They deliberately change only
-simple aerodynamic loss terms before any pulse/control-effectiveness fitting.
+The constants below come from the neutral_30 open-loop throws only, using a
+0.20 s first-motion alignment window. They deliberately change only simple
+bare-airframe loss terms before any pulse/control-effectiveness fitting.
 """
 
 from __future__ import annotations
@@ -19,19 +19,21 @@ from __future__ import annotations
 # 1) Calibration Metadata
 # =============================================================================
 CALIBRATION_ACTIVE = True
-CALIBRATION_ID = "neutral_dry_air_measured_launch_replay_N04"
-SOURCE_PREP_RUN = "03_Control/05_Results/glider_model_calibration_prep/N03_neutral_80_measured_launch_replay"
+CALIBRATION_ID = "neutral_dry_air_aligned_0p20_N07"
+SOURCE_PREP_RUN = "03_Control/05_Results/glider_model_calibration_prep/N07_neutral_aligned_0p20_longitudinal_fit"
 SOURCE_THROW_COUNT = 80
 HELDOUT_POLICY = "randomised_stratified_by_session_label"
-HELDOUT_SEED = 604
+HELDOUT_SEED = 606
 
 # =============================================================================
 # 2) Active Aerodynamic Correction
 # =============================================================================
-# The real neutral glider sank faster and travelled less far than the symmetric
-# baseline when replayed from the exact measured launch states. These factors
-# increase profile/lumped drag and modestly reduce induced-drag efficiency.
-CD0_STRIP_SCALE = 6.0
-DRAG_AREA_FUSE_SCALE = 10.0
-EFFICIENCY_STRIP_SCALE = 0.75
-
+# Fitted from aligned replay with static neutral trims disabled. Free trim
+# fitting improved training residuals but worsened held-out lateral error, so
+# trims remain zero until physical trim/asymmetry is confirmed separately.
+CD0_STRIP_SCALE = 3.0
+DRAG_AREA_FUSE_SCALE = 5.0
+EFFICIENCY_STRIP_SCALE = 0.31
+DELTA_A_TRIM_RAD = 0.0
+DELTA_E_TRIM_RAD = 0.0
+DELTA_R_TRIM_RAD = 0.0

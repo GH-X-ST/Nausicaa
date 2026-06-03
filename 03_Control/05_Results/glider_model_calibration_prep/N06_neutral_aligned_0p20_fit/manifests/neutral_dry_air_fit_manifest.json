@@ -1,0 +1,60 @@
+{
+  "fit_id": "N06_neutral_aligned_0p20_fit",
+  "fit_scope": "neutral_30_open_loop_only",
+  "valid_throw_count": 80,
+  "heldout_policy": "randomised_stratified_by_session_label",
+  "heldout_indices": [
+    4,
+    12,
+    33,
+    64,
+    74
+  ],
+  "heldout_throw_keys": [
+    {
+      "index": 4,
+      "session_label": "20260602_225953",
+      "throw_id": "v005"
+    },
+    {
+      "index": 12,
+      "session_label": "20260602_231554",
+      "throw_id": "v008"
+    },
+    {
+      "index": 33,
+      "session_label": "20260603_134313",
+      "throw_id": "v004"
+    },
+    {
+      "index": 64,
+      "session_label": "20260603_143411",
+      "throw_id": "v005"
+    },
+    {
+      "index": 74,
+      "session_label": "20260603_144119",
+      "throw_id": "v005"
+    }
+  ],
+  "alignment_window_s": 0.2,
+  "replay_dt_s": 0.005,
+  "workers": 8,
+  "best_parameters": {
+    "cd0_strip_scale": 2.5,
+    "drag_area_fuse_scale": 1.0,
+    "efficiency_strip_scale": 0.31000000000000005,
+    "delta_a_trim_rad": -0.1,
+    "delta_e_trim_rad": 0.045,
+    "delta_r_trim_rad": -0.16
+  },
+  "active_calibration_before_fit": {
+    "cd0_strip_scale": 6.0,
+    "drag_area_fuse_scale": 10.0,
+    "efficiency_strip_scale": 0.75,
+    "delta_a_trim_rad": 0.0,
+    "delta_e_trim_rad": 0.0,
+    "delta_r_trim_rad": 0.0
+  },
+  "generated_at": "2026-06-03T17:27:31"
+}
