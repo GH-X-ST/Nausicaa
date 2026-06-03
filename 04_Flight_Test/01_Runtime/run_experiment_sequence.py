@@ -8,6 +8,7 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
+from calibration_profile import ACTIVE_CALIBRATION_PROFILE, calibration_profile_for_runtime_values
 from experiment_cases import EXPERIMENT_CASES, experiment_case_manifest, get_experiment_case
 from flight_config import (
     DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
@@ -40,11 +41,9 @@ LAUNCH_WAIT_TIMEOUT_S = 120.0
 POST_EXIT_NEUTRAL_TAIL_S = 0.30
 VICON_TRACKING_RATE_HZ = 200.0
 VICON_POLL_PERIOD_S = 1.0 / VICON_TRACKING_RATE_HZ
-# Paste the calibration script's recommended full x/y/z offset here.
-VICON_POSITION_OFFSET_M = (4.136158795250567, 2.4114272057075916, 0.03414746062731508)
-VICON_YAW_ALIGNMENT_DEG = 0.0
-# Recovered from 20260601_205149 orientation check: pitch and yaw were reversed.
-VICON_ATTITUDE_SIGNS = (1.0, -1.0, -1.0)
+VICON_POSITION_OFFSET_M = ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m
+VICON_YAW_ALIGNMENT_DEG = ACTIVE_CALIBRATION_PROFILE.vicon_yaw_alignment_deg
+VICON_ATTITUDE_SIGNS = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_signs
 # =============================================================================
 
 
@@ -72,6 +71,19 @@ def run_experiment_sequence(
     target = int(target_valid_throws if target_valid_throws is not None else case.target_valid_throws)
     if target <= 0:
         raise ValueError("target valid throws must be positive.")
+    calibration_profile = calibration_profile_for_runtime_values(
+        profile_id=ACTIVE_CALIBRATION_PROFILE.profile_id,
+        profile_version=ACTIVE_CALIBRATION_PROFILE.profile_version,
+        vicon_position_offset_m=vicon_position_offset_m,
+        vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
+        vicon_attitude_signs=vicon_attitude_signs,
+        requested_vicon_tracking_rate_hz=1.0 / float(vicon_poll_period_s),
+    )
+    calibration_source = (
+        "active_calibration_profile"
+        if calibration_profile.profile_hash() == ACTIVE_CALIBRATION_PROFILE.profile_hash()
+        else "manual_runtime_vicon_transform"
+    )
     session = session_label or datetime.now().strftime("%Y%m%d_%H%M%S")
     session_root = RESULT_ROOT / case.case_id / session
     session_logger = FlightLogger(session_root)
@@ -93,6 +105,9 @@ def run_experiment_sequence(
         vicon_position_offset_m=vicon_position_offset_m,
         vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
         vicon_attitude_signs=vicon_attitude_signs,
+        calibration_profile_id=calibration_profile.profile_id,
+        calibration_profile_hash=calibration_profile.profile_hash(),
+        vicon_calibration_source=calibration_source,
         output_root=session_root,
     )
     controller = FrozenFlightController(base_config)
@@ -112,6 +127,7 @@ def run_experiment_sequence(
             "retry_after_invalid_start_s": float(retry_cooldown_s),
             "vicon_tracking_rate_hz": float(1.0 / vicon_poll_period_s),
             "vicon_poll_period_s": float(vicon_poll_period_s),
+            "calibration_profile": calibration_profile.to_manifest(),
             "vicon_attitude_signs_phi_theta_psi": tuple(float(value) for value in vicon_attitude_signs),
             "launch_gate_body_rate_limits_rad_s": tuple(
                 float(value) for value in base_config.launch_gate_body_rate_limits_rad_s
@@ -186,6 +202,9 @@ def run_experiment_sequence(
                 vicon_position_offset_m=vicon_position_offset_m,
                 vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
                 vicon_attitude_signs=vicon_attitude_signs,
+                calibration_profile_id=calibration_profile.profile_id,
+                calibration_profile_hash=calibration_profile.profile_hash(),
+                vicon_calibration_source=calibration_source,
                 launch_gate_body_rate_limits_rad_s=base_config.launch_gate_body_rate_limits_rad_s,
                 output_root=output_root,
             )
@@ -251,6 +270,7 @@ def run_experiment_sequence(
                 "pre_arm_vicon_inactive_delay_s": float(pre_arm_delay_s),
                 "vicon_tracking_rate_hz": float(1.0 / vicon_poll_period_s),
                 "vicon_poll_period_s": float(vicon_poll_period_s),
+                "calibration_profile": calibration_profile.to_manifest(),
                 "vicon_attitude_signs_phi_theta_psi": tuple(float(value) for value in vicon_attitude_signs),
                 "launch_gate_body_rate_limits_rad_s": tuple(
                     float(value) for value in base_config.launch_gate_body_rate_limits_rad_s

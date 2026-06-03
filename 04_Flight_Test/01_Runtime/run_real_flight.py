@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
+from calibration_profile import ACTIVE_CALIBRATION_PROFILE, calibration_profile_for_runtime_values
 from flight_config import (
     CONTROLLER_ROOT,
     DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
@@ -48,6 +49,7 @@ def run_real_flight(
     run_root: Path | None = None,
     expected_visible_fan_range: tuple[int, int] | None = None,
 ) -> dict[str, object]:
+    _validate_closed_loop_deployment_evidence(config=config, mode=mode)
     logger = FlightLogger(Path(run_root) if run_root is not None else config.run_root)
     if config.controller_mode not in {"closed_loop", "open_loop_neutral"}:
         raise ValueError("controller_mode must be 'closed_loop' or 'open_loop_neutral'.")
@@ -81,6 +83,17 @@ def run_real_flight(
             },
             "control_boundary": "vicon_rigid_body_to_canonical_state_to_frozen_governor_to_quantised_packet",
             "controller_mode": config.controller_mode,
+            "calibration_profile": {
+                "profile_id": config.calibration_profile_id,
+                "profile_hash": config.calibration_profile_hash,
+                "vicon_calibration_source": config.vicon_calibration_source,
+                "active_profile_manifest": ACTIVE_CALIBRATION_PROFILE.to_manifest(),
+            },
+            "deployment_evidence_guard": {
+                "required_for_armed_closed_loop": bool(config.deployment_evidence_required_for_armed_closed_loop),
+                "manifest_path": Path(config.deployment_evidence_manifest_path).as_posix(),
+                "status": _deployment_guard_status(config=config, mode=mode),
+            },
             "open_loop_neutral_definition": (
                 "launch_gate_and_state_logging_active_but_no_governor_decisions_no_memory_updates_zero_command_only"
                 if config.controller_mode == "open_loop_neutral"
@@ -771,6 +784,53 @@ def _append_runtime_event(logger: FlightLogger, event: str, **details: object) -
     )
 
 
+def _deployment_guard_status(*, config: FlightRuntimeConfig, mode: str) -> str:
+    if mode != "armed" or config.controller_mode != "closed_loop":
+        return "not_required_for_this_mode"
+    return "passed"
+
+
+def _validate_closed_loop_deployment_evidence(*, config: FlightRuntimeConfig, mode: str) -> None:
+    if (
+        mode != "armed"
+        or config.controller_mode != "closed_loop"
+        or not bool(config.deployment_evidence_required_for_armed_closed_loop)
+    ):
+        return
+    manifest_path = Path(config.deployment_evidence_manifest_path)
+    if not manifest_path.exists():
+        raise RuntimeError(
+            "Refusing armed closed-loop flight: deployment evidence manifest is missing. "
+            f"Expected {manifest_path}. Regenerate/freeze R5/R7/R8/R10/R11 for the active "
+            "calibration profile, or run open-loop/calibration mode only."
+        )
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+    except Exception as exc:
+        raise RuntimeError(
+            f"Refusing armed closed-loop flight: deployment evidence manifest could not be read: {manifest_path}"
+        ) from exc
+    manifest_hash = str(manifest.get("calibration_profile_hash", ""))
+    if manifest_hash != str(config.calibration_profile_hash):
+        raise RuntimeError(
+            "Refusing armed closed-loop flight: frozen evidence calibration profile hash does not match "
+            f"the active runtime profile. manifest={manifest_hash or '<missing>'} "
+            f"runtime={config.calibration_profile_hash}"
+        )
+    if manifest.get("evidence_regenerated_after_calibration") is not True:
+        raise RuntimeError(
+            "Refusing armed closed-loop flight: deployment evidence manifest does not confirm "
+            "R5/R7/R8/R10/R11 regeneration after calibration."
+        )
+    required_keys = ("r5_label", "r7_label", "r8_label", "r10_label", "r11_label")
+    missing = [key for key in required_keys if not str(manifest.get(key, "")).strip()]
+    if missing:
+        raise RuntimeError(
+            "Refusing armed closed-loop flight: deployment evidence manifest is incomplete; "
+            f"missing {', '.join(missing)}."
+        )
+
+
 def _sleep_until_next_runtime_poll(
     *,
     config: FlightRuntimeConfig,
@@ -853,12 +913,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--controller-mode", choices=("closed_loop", "open_loop_neutral"), default="closed_loop")
     parser.add_argument("--serial-port", default="COM11")
     parser.add_argument("--vicon-host", default="192.168.0.100:801")
+    parser.add_argument("--calibration-profile", choices=("active",), default=None)
     parser.add_argument("--vicon-offset-m", nargs=3, type=float, default=None)
-    parser.add_argument("--vicon-yaw-deg", type=float, default=0.0)
-    parser.add_argument("--vicon-attitude-signs", nargs=3, type=float, default=DEFAULT_VICON_ATTITUDE_SIGNS)
+    parser.add_argument("--vicon-yaw-deg", type=float, default=None)
+    parser.add_argument("--vicon-attitude-signs", nargs=3, type=float, default=None)
     parser.add_argument("--duration-s", type=float, default=20.0)
     parser.add_argument("--launch-wait-timeout-s", type=float, default=8.0)
-    parser.add_argument("--launch-gate-frames", type=int, default=3)
+    parser.add_argument("--launch-gate-frames", type=int, default=FlightRuntimeConfig.launch_gate_required_consecutive_frames)
     parser.add_argument("--post-exit-neutral-tail-s", type=float, default=0.30)
     parser.add_argument("--vicon-tracking-rate-hz", type=float, default=200.0)
     return parser.parse_args()
@@ -866,15 +927,51 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
+    if args.mode == "armed" and args.vicon_offset_m is None and args.calibration_profile != "active":
+        raise SystemExit(
+            "Refusing armed flight without an explicit calibrated Vicon profile. "
+            "Use --calibration-profile active, or pass --vicon-offset-m X Y Z explicitly."
+        )
+    if args.calibration_profile == "active" and (
+        args.vicon_offset_m is not None or args.vicon_yaw_deg is not None or args.vicon_attitude_signs is not None
+    ):
+        raise SystemExit(
+            "--calibration-profile active already supplies Vicon offset/yaw/signs; "
+            "remove manual Vicon transform arguments or omit --calibration-profile."
+        )
+    if args.calibration_profile == "active":
+        calibration_profile = ACTIVE_CALIBRATION_PROFILE
+    else:
+        offset = tuple(args.vicon_offset_m) if args.vicon_offset_m is not None else DEFAULT_VICON_POSITION_OFFSET_M
+        yaw_deg = float(args.vicon_yaw_deg) if args.vicon_yaw_deg is not None else 0.0
+        attitude_signs = (
+            tuple(float(value) for value in args.vicon_attitude_signs)
+            if args.vicon_attitude_signs is not None
+            else DEFAULT_VICON_ATTITUDE_SIGNS
+        )
+        profile_id = "manual_cli_vicon_transform" if args.vicon_offset_m is not None else "default_runtime_transform"
+        calibration_profile = calibration_profile_for_runtime_values(
+            profile_id=profile_id,
+            vicon_position_offset_m=offset,
+            vicon_yaw_alignment_deg=yaw_deg,
+            vicon_attitude_signs=attitude_signs,
+            requested_vicon_tracking_rate_hz=float(args.vicon_tracking_rate_hz),
+            launch_gate_required_consecutive_frames=int(args.launch_gate_frames),
+        )
     config = FlightRuntimeConfig(
         run_label=args.run_label or default_run_label(),
         library_tier=args.library_tier,
         controller_mode=args.controller_mode,
         serial_port=args.serial_port,
         vicon_host=args.vicon_host,
-        vicon_position_offset_m=tuple(args.vicon_offset_m) if args.vicon_offset_m is not None else DEFAULT_VICON_POSITION_OFFSET_M,
-        vicon_yaw_alignment_deg=float(args.vicon_yaw_deg),
-        vicon_attitude_signs=tuple(args.vicon_attitude_signs),
+        vicon_position_offset_m=calibration_profile.vicon_position_offset_m,
+        vicon_yaw_alignment_deg=float(calibration_profile.vicon_yaw_alignment_deg),
+        vicon_attitude_signs=calibration_profile.vicon_attitude_signs,
+        calibration_profile_id=calibration_profile.profile_id,
+        calibration_profile_hash=calibration_profile.profile_hash(),
+        vicon_calibration_source=(
+            "active_calibration_profile" if args.calibration_profile == "active" else calibration_profile.profile_id
+        ),
         max_duration_s=float(args.duration_s),
         launch_wait_timeout_s=float(args.launch_wait_timeout_s),
         launch_gate_required_consecutive_frames=int(args.launch_gate_frames),

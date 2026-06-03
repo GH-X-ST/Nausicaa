@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from calibration_profile import ACTIVE_CALIBRATION_PROFILE
+
 
 FLIGHT_TEST_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_ROOT = FLIGHT_TEST_ROOT / "01_Runtime"
@@ -11,12 +13,8 @@ CONTROLLER_ROOT = FLIGHT_TEST_ROOT / "02_Controller"
 FROZEN_INPUT_ROOT = FLIGHT_TEST_ROOT / "03_Frozen_Inputs"
 RESULT_ROOT = FLIGHT_TEST_ROOT / "05_Results"
 OPERATIONAL_REGION_CENTER_M = (3.9, 2.2, 1.95)
-DEFAULT_VICON_POSITION_OFFSET_M = (
-    OPERATIONAL_REGION_CENTER_M[0],
-    OPERATIONAL_REGION_CENTER_M[1],
-    OPERATIONAL_REGION_CENTER_M[2],
-)
-DEFAULT_VICON_ATTITUDE_SIGNS = (1.0, -1.0, -1.0)
+DEFAULT_VICON_POSITION_OFFSET_M = ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m
+DEFAULT_VICON_ATTITUDE_SIGNS = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_signs
 DEFAULT_REAL_FLIGHT_LIBRARY_TIER = "balanced_cluster"
 REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON = (
     "balanced_cluster_selected_for_first_real_flight_from_e01_real_flight_aligned_validation;"
@@ -57,9 +55,14 @@ class FlightRuntimeConfig:
     rejected_launch_attempt_min_speed_m_s: float = 2.0
     actuator_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06)
     vicon_position_offset_m: tuple[float, float, float] = DEFAULT_VICON_POSITION_OFFSET_M
-    vicon_yaw_alignment_deg: float = 0.0
+    vicon_yaw_alignment_deg: float = ACTIVE_CALIBRATION_PROFILE.vicon_yaw_alignment_deg
     vicon_attitude_signs: tuple[float, float, float] = DEFAULT_VICON_ATTITUDE_SIGNS
     vicon_frame_description: str = "full_xyz_position_offset_with_pitch_yaw_sign_correction"
+    calibration_profile_id: str = ACTIVE_CALIBRATION_PROFILE.profile_id
+    calibration_profile_hash: str = ACTIVE_CALIBRATION_PROFILE.profile_hash()
+    vicon_calibration_source: str = "active_calibration_profile"
+    deployment_evidence_manifest_path: Path = FROZEN_INPUT_ROOT / "deployment_evidence_manifest.json"
+    deployment_evidence_required_for_armed_closed_loop: bool = True
     output_root: Path = RESULT_ROOT
     library_manifest_root: Path = FROZEN_INPUT_ROOT / "R8_library_size_study" / "E01" / "manifests"
     outcome_table_path: Path = FROZEN_INPUT_ROOT / "R8_outcome" / "E01" / "metrics" / "outcome_model_table.csv"

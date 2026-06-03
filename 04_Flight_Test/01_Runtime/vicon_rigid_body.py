@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from flight_config import CONTROLLER_ROOT, OPERATIONAL_REGION_CENTER_M
+from flight_config import CONTROLLER_ROOT, DEFAULT_VICON_POSITION_OFFSET_M
 
 if str(CONTROLLER_ROOT) not in sys.path:
     sys.path.insert(0, str(CONTROLLER_ROOT))
@@ -196,14 +196,8 @@ class ReplayNausicaaViconRigidBody:
         x_w = 1.2 + self.speed_m_s * t
         y_w = 2.2
         z_w = 1.7 + 0.02 * math.sin(2.0 * math.pi * 0.5 * t)
-        raw_position = np.asarray(
-            [
-                x_w - OPERATIONAL_REGION_CENTER_M[0],
-                y_w - OPERATIONAL_REGION_CENTER_M[1],
-                z_w - OPERATIONAL_REGION_CENTER_M[2],
-            ],
-            dtype=float,
-        )
+        offset = np.asarray(DEFAULT_VICON_POSITION_OFFSET_M, dtype=float)
+        raw_position = np.asarray([x_w, y_w, z_w], dtype=float) - offset
         sample = NausicaaViconSample(
             timestamp_s=t,
             position_m=tuple(float(value) for value in raw_position),
@@ -221,15 +215,17 @@ class ReplayNausicaaViconRigidBody:
         )
 
     def read_fans(self, fan_subject_names: tuple[str, ...] = ("Fan_1", "Fan_2", "Fan_3", "Fan_4")) -> tuple[FanViconSample, ...]:
-        positions = {
-            "Fan_1": (-1.2, -0.6, -1.20),
-            "Fan_2": (-1.2, 0.6, -1.20),
-            "Fan_3": (0.6, -0.6, -1.20),
-            "Fan_4": (0.6, 0.6, -1.20),
+        offset = np.asarray(DEFAULT_VICON_POSITION_OFFSET_M, dtype=float)
+        arena_positions = {
+            "Fan_1": (2.7, 1.6, 0.75),
+            "Fan_2": (2.7, 2.8, 0.75),
+            "Fan_3": (4.5, 1.6, 0.75),
+            "Fan_4": (4.5, 2.8, 0.75),
         }
         rows = []
         for subject_name in fan_subject_names:
-            raw = positions.get(str(subject_name))
+            arena_position = arena_positions.get(str(subject_name))
+            raw = None if arena_position is None else tuple(float(value) for value in np.asarray(arena_position) - offset)
             rows.append(
                 FanViconSample(
                     subject_name=str(subject_name),

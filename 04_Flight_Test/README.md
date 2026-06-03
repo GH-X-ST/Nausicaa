@@ -36,7 +36,7 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.p
 Run a Vicon-only smoke test:
 
 ```powershell
-C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.py --mode vicon-smoke --duration-s 5 --run-label F_vicon_smoke
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.py --mode vicon-smoke --calibration-profile active --duration-s 5 --run-label F_vicon_smoke
 ```
 
 Run a serial packet smoke test:
@@ -48,8 +48,15 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.p
 Run armed closed-loop flight only after the Vicon and serial smoke tests pass:
 
 ```powershell
-C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.py --mode armed --serial-port COM11 --duration-s 20 --run-label F01
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.py --mode armed --calibration-profile active --serial-port COM11 --duration-s 20 --run-label F01
 ```
+
+Direct armed mode refuses to run without either `--calibration-profile active`
+or an explicit `--vicon-offset-m X Y Z`. Armed closed-loop mode also refuses to
+run unless `03_Frozen_Inputs\deployment_evidence_manifest.json` confirms that
+R5/R7/R8/R10/R11 were regenerated and frozen for the active calibration profile
+hash. Open-loop neutral and calibration-data collection are not blocked by this
+closed-loop evidence guard.
 
 Before closed-loop flight, verify servo sign and receiver-channel order:
 
@@ -92,8 +99,10 @@ full launch-timeout period. The full operator checklist is in
 `REAL_FLIGHT_EXPERIMENT_INSTRUCTIONS.txt`.
 
 In armed mode, the controller first waits in an armed-ready state and sends
-neutral commands. Active control and the flight record start only when the
-first measured state satisfies the complete R5 launch window:
+neutral commands. Active control and the flight record start only after the
+launch trigger is approved for `2` consecutive frames with sufficient SO(3)
+body-rate confidence. The normal trigger is a measured state inside the
+complete R5 launch window:
 
 - `x_w in [1.2, 1.4] m`
 - `y_w in [1.8, 2.2] m`
@@ -108,10 +117,11 @@ first measured state satisfies the complete R5 launch window:
 - SO(3) body-rate observer confidence at least `0.65`
 - `2` consecutive approved frames
 
-The `x_w = 1.3 m` launch-plane crossing is still computed as a fallback and
-diagnostic, but the real-flight start trigger is the first full-window-valid
-sample. This avoids rejecting a good throw merely because the exact boundary
-interpolation is slightly too fast or too high.
+The runtime also evaluates the interpolated `x_w = 1.3 m` launch-plane crossing
+with the same y/z, attitude, speed, body-rate, and confidence checks. Under the
+current `2`-frame debounce, practical approval normally comes from full-window
+samples, while the interpolated plane remains a fallback and audit trail for
+fast crossings.
 
 If this gate is not detected before `--launch-wait-timeout-s`, the flight record
 is cancelled and no active controller-decision log is written.
@@ -130,7 +140,7 @@ record.
 If the Vicon origin or yaw alignment changes, override the arena transform:
 
 ```powershell
-C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.py --mode vicon-smoke --vicon-offset-m 3.9 2.2 1.95 --vicon-yaw-deg 0 --duration-s 5 --run-label F_vicon_frame_check
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.py --mode vicon-smoke --calibration-profile active --duration-s 5 --run-label F_vicon_frame_check
 ```
 
 ## Flight Defaults
@@ -191,9 +201,10 @@ Experiment case suffixes are:
 
 The controller world frame uses the operational region
 `x_w in [1.2, 6.6] m`, `y_w in [0.0, 4.4] m`, and
-`z_w in [0.4, 3.5] m`. The real-flight default assumes the raw Vicon origin is
-at the centre of that region, so raw Vicon `(0, 0, 0)` maps to controller world
-`(3.9, 2.2, 1.95) m`.
+`z_w in [0.4, 3.5] m`. The real-flight default is the active calibrated Vicon
+profile, not the old arena-centre placeholder. The current active offset is
+`(4.136158795250567, 2.4114272057075916, 0.03414746062731508) m`, with
+`attitude_signs = (1, -1, -1)`.
 
 The default axis convention is still `+X` forward, `+Y` left, and `+Z` up. If
 the Vicon axes are yaw-rotated relative to the arena, use `--vicon-yaw-deg`.
@@ -207,6 +218,10 @@ SO(3) observer rate signs: pitch-up motion should produce positive `q`,
 right-roll motion positive `p`, and nose-right yaw motion positive `r`. It also
 checks the measured Vicon sample rate and fails the preflight check if the
 effective stream rate drops well below the requested `200 Hz`.
+
+Every real-flight and glider-calibration manifest records the calibration
+profile hash. This hash is the link between the Vicon transform used during
+data collection and the frozen evidence chain used for closed-loop deployment.
 
 Angular rates are estimated only after this attitude correction has been
 applied. The runtime builds a corrected body-to-world rotation matrix and feeds

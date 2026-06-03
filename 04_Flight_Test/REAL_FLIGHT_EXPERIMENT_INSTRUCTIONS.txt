@@ -24,8 +24,8 @@ Before Any Throw
 3. If fan tracking is used, confirm fan rigid bodies are named exactly:
    Fan_1, Fan_2, Fan_3, Fan_4
 4. Confirm the Vicon origin and yaw alignment match the runtime settings.
-   The runtime applies the calibrated full x/y/z offset to map raw Vicon
-   position into the controller frame.
+   The runtime applies the active calibrated full x/y/z offset to map raw
+   Vicon position into the controller frame.
 5. Install pyserial in the active Python environment if needed:
    C:\ProgramData\miniforge3\python.exe -m pip install pyserial
 6. Run the surface sign check before closed-loop flight.
@@ -43,10 +43,10 @@ Then run:
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_vicon_frame_calibration.py
 
 The script prints the raw Vicon mean, current transformed mean, current error,
-and recommended VICON_POSITION_OFFSET_M. Paste the recommended offset into
-run_experiment_sequence.py if the axis directions are correct:
-
-VICON_POSITION_OFFSET_M = (...)
+and recommended `VICON_POSITION_OFFSET_M`. After changing the offset, update
+the active calibration profile in `01_Runtime\calibration_profile.py` so the
+experiment launcher, calibration launcher, direct runtime, and manifest hash all
+use the same transform.
 
 If moving the glider in physical +x, +y, or +z causes the wrong transformed
 coordinate to change, the axis mapping must be corrected before flight.
@@ -126,6 +126,13 @@ Then run:
 
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_experiment_sequence.py
 
+For direct armed `run_real_flight.py` calls, pass `--calibration-profile active`
+or an explicit `--vicon-offset-m X Y Z`; direct armed mode refuses a silent
+default offset. Armed closed-loop mode also refuses to start unless the frozen
+deployment evidence manifest confirms R5/R7/R8/R10/R11 were regenerated for the
+active calibration profile hash. Open-loop neutral and calibration-data
+collection are not blocked by this closed-loop deployment guard.
+
 The current E0.1 shakedown pre-arm delay is 3 s. During this delay and during the 5 s
 between-throw cooldown, Vicon is inactive and the Nano receives neutral commands
 only. After the pre-arm delay, the console prints that Vicon launch-gate
@@ -146,7 +153,8 @@ controller decision count, max decision time, fan count, and memory cell count.
 Launch Gate Rule
 ----------------
 A throw becomes active at the first measured state that satisfies the complete
-R5 launch window:
+R5 launch window for `2` consecutive approved frames with sufficient SO(3)
+body-rate confidence:
 
 x_w in [1.2, 1.4] m
 y_w in [1.8, 2.2] m
@@ -161,12 +169,13 @@ r yaw rate in [-1.8, +1.8] rad/s
 SO(3) body-rate observer confidence >= 0.65
 2 consecutive approved frames
 
-The runtime also computes the interpolated x_w = 1.3 m launch-plane crossing as
-a fallback and diagnostic, but the intended real-flight trigger is the first
-full-window-valid sample with sufficient angular-rate confidence. The rate
-observer stays warm during prelaunch neutral tracking; it is not reset at the
-start of active control. This prevents one noisy Vicon frame from starting the
-controller.
+The runtime also evaluates the interpolated x_w = 1.3 m launch-plane crossing
+with the same y/z, attitude, speed, body-rate, and confidence checks. Under the
+current 2-frame debounce, practical approval normally comes from full-window
+samples, while the interpolated plane remains a fallback and audit trail for
+fast crossings. The rate observer stays warm during prelaunch neutral tracking;
+it is not reset at the start of active control. This prevents one noisy Vicon
+frame from starting the controller.
 
 If the launch gate times out, the attempt is stored under invalid_attempts, but
 it does not count as a throw and does not update memory.

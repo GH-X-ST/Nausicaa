@@ -50,12 +50,14 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibr
 
 Five-throw shakedown before committing to all 30:
 
-C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block neutral_30 --target-valid-throws 5
 
-The current top-of-file runner settings are configured for this same shakedown:
+The current top-of-file runner settings are configured for the full pulse
+ladder, not the neutral shakedown:
 
-CALIBRATION_BLOCK = "neutral_30"
-TARGET_VALID_THROWS_OVERRIDE = 5
+CALIBRATION_BLOCK = "pulse_ladder_30"
+TARGET_VALID_THROWS_OVERRIDE = None
+PULSE_VALID_THROWS_PER_CASE = 3
 
 To run the full 30-throw neutral block later, set `TARGET_VALID_THROWS_OVERRIDE`
 to `None` or pass:
@@ -118,9 +120,11 @@ What this estimates:
 - nonlinear control effectiveness from +/-0.2 to +/-1.0
 
 
-Abort Rules
------------
-Stop the current axis or command level if any throw shows:
+Manual Operator Stop Rules
+--------------------------
+The calibration script intentionally does not auto-abort the planned pulse
+before the normal exit gate. The operator should stop the current axis or
+command level manually if any throw shows:
 
 - roll beyond 45 deg
 - pitch above +35 deg or below -25 deg
@@ -148,6 +152,13 @@ Each valid throw writes:
 - metrics/command_schedule.csv
 - metrics/runtime_events.csv
 - metrics/serial_events.csv if serial write failures occur
+
+The calibration sequence and throw manifests include the active Vicon
+calibration profile hash. The command CSV explicitly separates normalized
+aggregate command, physical surface command, servo-signed packet command, and
+receiver-channel codes. The state CSV marks `delta_a`, `delta_e`, and `delta_r`
+as estimated actuator states from command history and the actuator model, not
+measured control-surface marker deflections.
 
 Invalid launch-gate attempts are moved to:
 

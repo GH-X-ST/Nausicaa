@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / "01_Runtime"
@@ -15,6 +16,7 @@ for path in (RUNTIME, CONTROLLER):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from calibration_profile import ACTIVE_CALIBRATION_PROFILE  # noqa: E402
 from flight_config import DEFAULT_REAL_FLIGHT_LIBRARY_TIER, FlightRuntimeConfig  # noqa: E402
 from frozen_flight_controller import FrozenFlightController  # noqa: E402
 from frozen_flight_controller import (  # noqa: E402
@@ -46,6 +48,7 @@ from run_glider_calibration_sequence import (  # noqa: E402
     PULSE_START_DELAY_S,
     _command_for_case,
     calibration_cases_for_block,
+    run_calibration_sequence,
 )
 from run_vicon_orientation_check import _evaluate_steps, _sample_rate_summary  # noqa: E402
 from run_surface_sign_check import SURFACE_CHECK_SEQUENCE, run_surface_sign_check  # noqa: E402
@@ -100,6 +103,40 @@ def test_real_flight_default_library_tier_is_balanced_cluster() -> None:
     assert DEFAULT_REAL_FLIGHT_LIBRARY_TIER == "balanced_cluster"
     assert config.library_tier == "balanced_cluster"
     assert config.library_manifest_path.name == "balanced_cluster_primitive_library.json"
+    assert config.vicon_position_offset_m == ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m
+    assert config.calibration_profile_hash == ACTIVE_CALIBRATION_PROFILE.profile_hash()
+
+
+def test_direct_armed_cli_refuses_without_calibrated_profile(monkeypatch) -> None:
+    import run_real_flight as runtime_module
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_real_flight.py",
+            "--mode",
+            "armed",
+            "--controller-mode",
+            "open_loop_neutral",
+            "--duration-s",
+            "0.01",
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="explicit calibrated Vicon profile"):
+        runtime_module.main()
+
+
+def test_armed_closed_loop_requires_matching_deployment_evidence_manifest(tmp_path: Path) -> None:
+    config = FlightRuntimeConfig(
+        run_label="T_guard",
+        output_root=tmp_path,
+        deployment_evidence_manifest_path=tmp_path / "missing_deployment_manifest.json",
+    )
+
+    with pytest.raises(RuntimeError, match="deployment evidence manifest is missing"):
+        run_real_flight(config, mode="armed")
 
 
 def test_boundary_near_uses_side_closing_speed_not_total_forward_speed() -> None:
@@ -601,6 +638,52 @@ def test_glider_calibration_pulse_command_is_single_axis_then_neutral() -> None:
     np.testing.assert_allclose(_command_for_case(neutral, 10.0), [0.0, 0.0, 0.0])
 
 
+def test_glider_calibration_logs_profile_hash_schema_and_continuous_sequence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import run_glider_calibration_sequence as calibration_module
+
+    monkeypatch.setattr(calibration_module, "RESULT_ROOT", tmp_path)
+    result = run_calibration_sequence(
+        block_id="neutral_30",
+        session_label="pytest_cal_schema",
+        mode="dry-run",
+        serial_port="COM_TEST",
+        vicon_host="mock",
+        pre_arm_delay_s=0.0,
+        cooldown_s=0.0,
+        retry_cooldown_s=0.0,
+        launch_wait_timeout_s=0.20,
+        max_duration_s=0.12,
+        post_exit_neutral_tail_s=0.0,
+        vicon_tracking_rate_hz=200.0,
+        vicon_position_offset_m=ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m,
+        vicon_yaw_alignment_deg=ACTIVE_CALIBRATION_PROFILE.vicon_yaw_alignment_deg,
+        vicon_attitude_signs=ACTIVE_CALIBRATION_PROFILE.vicon_attitude_signs,
+        target_valid_throws=1,
+    )
+
+    assert result["total_valid_throw_count"] == 1
+    run_root = tmp_path / "glider_calibration" / "neutral_30" / "pytest_cal_schema" / "C0_neutral" / "throw_001"
+    manifest = json.loads((run_root / "manifests" / "glider_calibration_throw_manifest.json").read_text())
+    summary = json.loads((run_root / "manifests" / "glider_calibration_throw_summary.json").read_text())
+    with (run_root / "metrics" / "command_schedule.csv").open(newline="") as handle:
+        command_rows = list(csv.DictReader(handle))
+    with (run_root / "metrics" / "state_samples.csv").open(newline="") as handle:
+        state_rows = list(csv.DictReader(handle))
+
+    assert manifest["calibration_profile"]["profile_hash"] == ACTIVE_CALIBRATION_PROFILE.profile_hash()
+    assert "calibration_csv_schema" in manifest
+    assert int(summary["active_packet_sequence_start"]) > 0
+    assert int(command_rows[0]["packet_sequence"]) >= int(summary["active_packet_sequence_start"])
+    assert command_rows[0]["aggregate_command_units"] == "normalized_aggregate_command"
+    assert command_rows[0]["physical_surface_units"] == "normalized_physical_surface_command"
+    assert command_rows[0]["packet_surface_units"] == "normalized_servo_signed_packet_surface_command"
+    assert command_rows[0]["receiver_channel_units"] == "uint16_after_receiver_channel_order"
+    assert state_rows[0]["surface_state_source"] == "estimated_actuator_state_not_measured_surface_marker"
+
+
 def test_active_record_terminates_at_exit_gate_and_sends_neutral_tail(tmp_path: Path) -> None:
     config = FlightRuntimeConfig(
         run_label="T_exit",
@@ -747,7 +830,7 @@ def test_experiment_sequence_propagates_formal_rate_gate_to_throw_runtime(tmp_pa
         launch_wait_timeout_s=0.20,
         post_exit_neutral_tail_s=0.0,
         vicon_poll_period_s=0.005,
-        vicon_position_offset_m=(3.9, 2.2, 1.95),
+        vicon_position_offset_m=ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m,
         vicon_yaw_alignment_deg=0.0,
         vicon_attitude_signs=(1.0, -1.0, -1.0),
     )
@@ -792,7 +875,7 @@ def test_experiment_sequence_counts_only_valid_throws_and_persists_memory(tmp_pa
         launch_wait_timeout_s=0.20,
         post_exit_neutral_tail_s=0.0,
         vicon_poll_period_s=0.005,
-        vicon_position_offset_m=(3.9, 2.2, 1.95),
+        vicon_position_offset_m=ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m,
         vicon_yaw_alignment_deg=0.0,
         vicon_attitude_signs=(1.0, -1.0, -1.0),
     )
@@ -820,7 +903,11 @@ def test_experiment_sequence_invalid_start_does_not_count_or_update_memory(tmp_p
         launch_wait_timeout_s=0.001,
         post_exit_neutral_tail_s=0.0,
         vicon_poll_period_s=0.005,
-        vicon_position_offset_m=(1000.0, 2.2, 1.95),
+        vicon_position_offset_m=(
+            1000.0,
+            ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m[1],
+            ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m[2],
+        ),
         vicon_yaw_alignment_deg=0.0,
         vicon_attitude_signs=(1.0, -1.0, -1.0),
     )

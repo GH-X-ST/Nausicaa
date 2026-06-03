@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
+from calibration_profile import ACTIVE_CALIBRATION_PROFILE, calibration_profile_for_runtime_values
 from exit_gate import evaluate_exit_gate, exit_gate_bounds_manifest
 from flight_config import (
     CONTROLLER_ROOT,
@@ -32,6 +33,8 @@ if str(CONTROLLER_ROOT) not in sys.path:
 
 from real_flight_io import (  # noqa: E402
     NausicaaViconStateAdapter,
+    PHYSICAL_SURFACE_ORDER,
+    RECEIVER_CHANNEL_SURFACE_ORDER,
     ViconArenaFrameTransform,
     encode_arduino_command_packet,
 )
@@ -58,12 +61,9 @@ POST_EXIT_NEUTRAL_TAIL_S = 0.30
 VICON_TRACKING_RATE_HZ = 200.0
 CALIBRATION_LAUNCH_GATE_REQUIRED_CONSECUTIVE_FRAMES = 2
 CALIBRATION_REJECTED_LAUNCH_ATTEMPT_MIN_SPEED_M_S = 2.0
-# Keep these arena-frame values matched to run_experiment_sequence.py.
-# Paste the calibration script's recommended full x/y/z offset here.
-VICON_POSITION_OFFSET_M = (4.136158795250567, 2.4114272057075916, 0.03414746062731508)
-VICON_YAW_ALIGNMENT_DEG = 0.0
-# Recovered from 20260601_205149 orientation check: pitch and yaw were reversed.
-VICON_ATTITUDE_SIGNS = (1.0, -1.0, -1.0)
+VICON_POSITION_OFFSET_M = ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m
+VICON_YAW_ALIGNMENT_DEG = ACTIVE_CALIBRATION_PROFILE.vicon_yaw_alignment_deg
+VICON_ATTITUDE_SIGNS = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_signs
 
 NEUTRAL_VALID_THROWS = 30
 PULSE_VALID_THROWS_PER_CASE = 3
@@ -154,6 +154,21 @@ def run_calibration_sequence(
         if override <= 0:
             raise ValueError("target_valid_throws must be positive when provided.")
         cases = [replace(case, target_valid_throws=override) for case in cases]
+    calibration_profile = calibration_profile_for_runtime_values(
+        profile_id=ACTIVE_CALIBRATION_PROFILE.profile_id,
+        profile_version=ACTIVE_CALIBRATION_PROFILE.profile_version,
+        vicon_position_offset_m=vicon_position_offset_m,
+        vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
+        vicon_attitude_signs=vicon_attitude_signs,
+        requested_vicon_tracking_rate_hz=float(vicon_tracking_rate_hz),
+        launch_gate_required_consecutive_frames=CALIBRATION_LAUNCH_GATE_REQUIRED_CONSECUTIVE_FRAMES,
+        rejected_launch_attempt_min_speed_m_s=CALIBRATION_REJECTED_LAUNCH_ATTEMPT_MIN_SPEED_M_S,
+    )
+    calibration_source = (
+        "active_calibration_profile"
+        if calibration_profile.profile_hash() == ACTIVE_CALIBRATION_PROFILE.profile_hash()
+        else "manual_runtime_vicon_transform"
+    )
     session = session_label or datetime.now().strftime("%Y%m%d_%H%M%S")
     session_root = RESULT_ROOT / "glider_calibration" / str(block_id) / session
     session_logger = FlightLogger(session_root)
@@ -170,6 +185,9 @@ def run_calibration_sequence(
         vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
         vicon_attitude_signs=vicon_attitude_signs,
         output_root=session_root,
+        calibration_profile_id=calibration_profile.profile_id,
+        calibration_profile_hash=calibration_profile.profile_hash(),
+        vicon_calibration_source=calibration_source,
     )
     session_logger.write_manifest(
         "glider_calibration_sequence_manifest.json",
@@ -194,6 +212,8 @@ def run_calibration_sequence(
             "launch_gate_required_consecutive_frames": int(base_config.launch_gate_required_consecutive_frames),
             "rejected_launch_attempt_min_speed_m_s": float(CALIBRATION_REJECTED_LAUNCH_ATTEMPT_MIN_SPEED_M_S),
             "vicon_tracking_rate_hz": float(vicon_tracking_rate_hz),
+            "calibration_profile": calibration_profile.to_manifest(),
+            "calibration_csv_schema": _calibration_csv_schema_manifest(),
             "vicon_position_offset_m": tuple(float(value) for value in vicon_position_offset_m),
             "vicon_attitude_signs": tuple(float(value) for value in vicon_attitude_signs),
         },
@@ -239,6 +259,9 @@ def run_calibration_sequence(
                     vicon_position_offset_m=vicon_position_offset_m,
                     vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
                     vicon_attitude_signs=vicon_attitude_signs,
+                    calibration_profile_id=calibration_profile.profile_id,
+                    calibration_profile_hash=calibration_profile.profile_hash(),
+                    vicon_calibration_source=calibration_source,
                     output_root=session_root,
                 )
                 summary = run_single_calibration_throw(
@@ -297,6 +320,7 @@ def run_calibration_sequence(
                 "session_label": session,
                 "total_valid_throw_count": total_valid,
                 "total_invalid_attempt_count": total_invalid,
+                "calibration_profile": calibration_profile.to_manifest(),
                 "cases": [asdict(case) for case in cases],
             },
         )
@@ -340,6 +364,12 @@ def run_single_calibration_throw(
         {
             "mode": mode,
             "config": asdict(config),
+            "calibration_profile": {
+                "profile_id": config.calibration_profile_id,
+                "profile_hash": config.calibration_profile_hash,
+                "vicon_calibration_source": config.vicon_calibration_source,
+            },
+            "calibration_csv_schema": _calibration_csv_schema_manifest(),
             "calibration_case": asdict(case),
             "launch_gate_bounds": launch_gate_bounds_manifest(
                 body_rate_limits_rad_s=config.launch_gate_body_rate_limits_rad_s
@@ -366,13 +396,15 @@ def run_single_calibration_throw(
         "packet_count": 0,
         "serial_write_error_count": 0,
         "launch_speed_m_s": 0.0,
+        "calibration_profile_id": config.calibration_profile_id,
+        "calibration_profile_hash": config.calibration_profile_hash,
         "completed": False,
     }
     sequence = 0
     try:
         tx.open()
         vicon.open()
-        launch_state = _await_launch_gate(
+        launch_state, sequence = _await_launch_gate(
             config=config,
             tx=tx,
             vicon=vicon,
@@ -386,6 +418,7 @@ def run_single_calibration_throw(
             summary["flight_cancelled"] = True
             return summary
         summary["valid_throw"] = True
+        summary["active_packet_sequence_start"] = int(sequence)
         summary["launch_speed_m_s"] = float(np.linalg.norm(launch_state[6:9]))
         started = time.perf_counter()
         next_serial_s = 0.0
@@ -414,6 +447,8 @@ def run_single_calibration_throw(
                         "exit_gate_inside": safety.inside,
                         "exit_gate_reason": safety.reason,
                         "exit_gate_min_margin_m": safety.min_margin_m,
+                        "surface_state_source": "estimated_actuator_state_not_measured_surface_marker",
+                        "surface_state_units": "rad",
                     },
                 )
                 summary["state_sample_count"] = int(summary["state_sample_count"]) + 1
@@ -424,10 +459,14 @@ def run_single_calibration_throw(
                     break
                 command = _command_for_case(case, elapsed_s)
             if elapsed_s + 1e-12 >= next_serial_s:
-                packet = encode_arduino_command_packet(command, sequence=sequence)
+                packet_sequence = int(sequence)
+                packet = encode_arduino_command_packet(command, sequence=packet_sequence)
                 sequence += 1
                 _write_packet(tx, packet.packet_bytes, logger=logger, summary=summary, event="calibration_command")
                 last_command = np.asarray(packet.aggregate_command_norm, dtype=float)
+                physical = tuple(float(value) for value in packet.physical_surface_norm)
+                packet_surface = tuple(float(value) for value in packet.packet_surface_norm)
+                receiver_codes = tuple(int(value) for value in packet.receiver_channel_codes)
                 logger.append_metric_row(
                     "command_schedule.csv",
                     {
@@ -437,9 +476,28 @@ def run_single_calibration_throw(
                         "command_axis": case.command_axis,
                         "scheduled_command_value": case.command_value,
                         "pulse_active": _pulse_active(case, elapsed_s),
+                        "packet_sequence": packet_sequence,
+                        "aggregate_command_units": "normalized_aggregate_command",
                         "delta_a_cmd_norm": last_command[0],
                         "delta_e_cmd_norm": last_command[1],
                         "delta_r_cmd_norm": last_command[2],
+                        "physical_surface_units": "normalized_physical_surface_command",
+                        "physical_surface_order": ",".join(PHYSICAL_SURFACE_ORDER),
+                        "aileron_l_physical_surface_norm": physical[0],
+                        "aileron_r_physical_surface_norm": physical[1],
+                        "rudder_physical_surface_norm": physical[2],
+                        "elevator_physical_surface_norm": physical[3],
+                        "packet_surface_units": "normalized_servo_signed_packet_surface_command",
+                        "aileron_l_packet_surface_norm": packet_surface[0],
+                        "aileron_r_packet_surface_norm": packet_surface[1],
+                        "rudder_packet_surface_norm": packet_surface[2],
+                        "elevator_packet_surface_norm": packet_surface[3],
+                        "receiver_channel_units": "uint16_after_receiver_channel_order",
+                        "receiver_channel_order": ",".join(RECEIVER_CHANNEL_SURFACE_ORDER),
+                        "receiver_ch1_aileron_r_code": receiver_codes[0],
+                        "receiver_ch2_aileron_l_code": receiver_codes[1],
+                        "receiver_ch3_rudder_code": receiver_codes[2],
+                        "receiver_ch4_elevator_code": receiver_codes[3],
                         "packet_bytes": packet.packet_bytes,
                     },
                 )
@@ -478,7 +536,7 @@ def _await_launch_gate(
     summary: dict[str, object],
     mode: str,
     sequence: int,
-) -> np.ndarray | None:
+) -> tuple[np.ndarray | None, int]:
     started = time.perf_counter()
     previous_state: np.ndarray | None = None
     consecutive = 0
@@ -586,7 +644,7 @@ def _await_launch_gate(
                 trigger_source=trigger_source,
                 **asdict(gate),
             )
-            return launch_state.copy() if launch_state is not None else state.copy()
+            return (launch_state.copy() if launch_state is not None else state.copy()), sequence
         if launch_plane_state is not None and not approved:
             launch_attempt_speed = float(np.linalg.norm(launch_plane_state[6:9]))
             if launch_attempt_speed >= float(CALIBRATION_REJECTED_LAUNCH_ATTEMPT_MIN_SPEED_M_S):
@@ -602,13 +660,13 @@ def _await_launch_gate(
                     trigger_source=trigger_source,
                     **gate_details,
                 )
-                return None
+                return None, sequence
         previous_state = state.copy()
         if mode in {"armed", "vicon-smoke"}:
             time.sleep(float(config.vicon_poll_period_s))
     summary["cancellation_reason"] = f"launch_gate_timeout:{latest_reason}"
     _append_event(logger, "calibration_record_cancelled_before_launch", reason=summary["cancellation_reason"])
-    return None
+    return None, sequence
 
 
 def _command_for_case(case: CalibrationCase, elapsed_s: float) -> np.ndarray:
@@ -742,6 +800,9 @@ def _base_config(
     vicon_yaw_alignment_deg: float,
     vicon_attitude_signs: tuple[float, float, float],
     output_root: Path,
+    calibration_profile_id: str = ACTIVE_CALIBRATION_PROFILE.profile_id,
+    calibration_profile_hash: str = ACTIVE_CALIBRATION_PROFILE.profile_hash(),
+    vicon_calibration_source: str = "active_calibration_profile",
 ) -> FlightRuntimeConfig:
     del mode
     return FlightRuntimeConfig(
@@ -761,8 +822,35 @@ def _base_config(
         vicon_position_offset_m=vicon_position_offset_m,
         vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
         vicon_attitude_signs=vicon_attitude_signs,
+        calibration_profile_id=calibration_profile_id,
+        calibration_profile_hash=calibration_profile_hash,
+        vicon_calibration_source=vicon_calibration_source,
         output_root=output_root,
     )
+
+
+def _calibration_csv_schema_manifest() -> dict[str, object]:
+    return {
+        "command_schedule.csv": {
+            "aggregate_command_units": "normalized aggregate command [delta_a, delta_e, delta_r] in [-1, 1]",
+            "physical_surface_units": (
+                "normalized physical surface command in PHYSICAL_SURFACE_ORDER before servo signs"
+            ),
+            "physical_surface_order": list(PHYSICAL_SURFACE_ORDER),
+            "packet_surface_units": (
+                "normalized servo-signed surface command in PHYSICAL_SURFACE_ORDER after servo signs"
+            ),
+            "receiver_channel_units": "uint16 receiver-channel command after receiver channel reorder",
+            "receiver_channel_order": list(RECEIVER_CHANNEL_SURFACE_ORDER),
+            "packet_sequence": "monotone packet sequence shared from prelaunch neutral into active calibration",
+            "packet_bytes": "15-byte Nano33 IoT transmitter packet, hex-encoded by CSV logger",
+        },
+        "state_samples.csv": {
+            "surface_state_source": "estimated actuator state from command history and actuator model",
+            "surface_state_not_measured_by": "Vicon control-surface marker tracking",
+            "surface_state_units": "rad",
+        },
+    }
 
 
 def _sequence_row(
@@ -784,6 +872,7 @@ def _sequence_row(
         "invalid_count_for_case": invalid_count,
         "latest_valid_throw": bool(summary.get("valid_throw", False)),
         "latest_run_root": summary.get("run_root", ""),
+        "calibration_profile_hash": summary.get("calibration_profile_hash", ""),
         "launch_speed_m_s": summary.get("launch_speed_m_s", 0.0),
         "termination_reason": summary.get("termination_reason", ""),
         "state_sample_count": summary.get("state_sample_count", 0),
