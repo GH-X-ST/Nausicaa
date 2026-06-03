@@ -554,7 +554,8 @@ def _await_launch_gate(
                 f"[LAUNCH_WAIT] t={elapsed_s:.1f}s trigger={trigger_source} gate={gate.reason} "
                 f"approved={trigger_approved} consecutive={consecutive_approved}/{required_consecutive} "
                 f"rate_conf={rate_confidence:.2f}/{rate_confidence_min:.2f} "
-                f"x={state[0]:.2f} y={state[1]:.2f} z={state[2]:.2f} speed={speed_m_s:.2f}m/s"
+                f"x={state[0]:.2f} y={state[1]:.2f} z={state[2]:.2f} speed={speed_m_s:.2f}m/s "
+                f"v={gate.v_m_s:.2f} w={gate.w_m_s:.2f}"
             )
             next_console_status_s = elapsed_s + 1.0
         logger.append_metric_row(

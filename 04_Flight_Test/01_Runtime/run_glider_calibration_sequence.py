@@ -658,7 +658,8 @@ def _await_launch_gate(
         if elapsed_s + 1e-12 >= next_status_s:
             print(
                 f"[CAL_LAUNCH_WAIT] t={elapsed_s:.1f}s trigger={trigger_source} gate={gate.reason} "
-                f"approved={approved} consecutive={consecutive}/{required} rate_conf={rate_conf:.2f}/{rate_conf_min:.2f}"
+                f"approved={approved} consecutive={consecutive}/{required} "
+                f"rate_conf={rate_conf:.2f}/{rate_conf_min:.2f} v={gate.v_m_s:.2f} w={gate.w_m_s:.2f}"
             )
             next_status_s = elapsed_s + 1.0
         next_serial_s, sequence = _neutral_if_due(

@@ -15,6 +15,8 @@ LAUNCH_GATE_PITCH_MAX_DEG = 20.0
 LAUNCH_GATE_YAW_LIMIT_DEG = 20.0
 LAUNCH_GATE_SPEED_MIN_M_S = 3.0
 LAUNCH_GATE_SPEED_MAX_M_S = 8.0
+LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S = 1.5
+LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S = 0.5
 LAUNCH_GATE_Z_W_M = (1.3, 1.8)
 LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S = 1.2
 LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S = 1.2
@@ -46,7 +48,7 @@ class ArchiveStateSample:
     synthetic_time_since_launch_s: float
     state_sampling_seed: int
     launch_gate_compliant: bool
-    state_sampling_version: str = "mixed_primitive_start_v2_rate_aware"
+    state_sampling_version: str = "mixed_primitive_start_v3_launch_vw_bound"
     measured_log_source: str = ""
     measured_log_row_index: int | str = ""
 
@@ -208,6 +210,12 @@ def state_is_launch_gate_compliant(state: np.ndarray) -> bool:
         <= x[STATE_INDEX["psi"]]
         <= np.deg2rad(LAUNCH_GATE_YAW_LIMIT_DEG)
         and LAUNCH_GATE_SPEED_MIN_M_S <= speed <= LAUNCH_GATE_SPEED_MAX_M_S
+        and -LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S
+        <= x[STATE_INDEX["v"]]
+        <= LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S
+        and -LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S
+        <= x[STATE_INDEX["w"]]
+        <= LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S
         and -LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S
         <= x[STATE_INDEX["p"]]
         <= LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S
@@ -235,8 +243,15 @@ def _launch_gate_state(rng: np.random.Generator) -> np.ndarray:
         np.deg2rad(rng.uniform(-LAUNCH_GATE_YAW_LIMIT_DEG, LAUNCH_GATE_YAW_LIMIT_DEG))
     )
     speed = float(rng.uniform(LAUNCH_GATE_SPEED_MIN_M_S, LAUNCH_GATE_SPEED_MAX_M_S))
-    v_side = float(rng.uniform(-0.08, 0.08) * speed)
-    w_body = float(rng.uniform(-0.04, 0.04) * speed)
+    v_side = float(
+        rng.uniform(-LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S, LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S)
+    )
+    w_body = float(
+        rng.uniform(
+            -LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S,
+            LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S,
+        )
+    )
     state[STATE_INDEX["u"]] = float(np.sqrt(max(speed * speed - v_side * v_side - w_body * w_body, 0.0)))
     state[STATE_INDEX["v"]] = v_side
     state[STATE_INDEX["w"]] = w_body

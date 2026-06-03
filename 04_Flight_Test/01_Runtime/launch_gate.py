@@ -20,6 +20,8 @@ LAUNCH_GATE_PITCH_MAX_DEG = 20.0
 LAUNCH_GATE_YAW_LIMIT_DEG = 20.0
 LAUNCH_GATE_SPEED_MIN_M_S = 3.0
 LAUNCH_GATE_SPEED_MAX_M_S = 8.0
+LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S = 1.5
+LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S = 0.5
 LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S = 1.2
 LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S = 1.2
 LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S = 1.8
@@ -45,6 +47,8 @@ class LaunchGateStatus:
     theta_deg: float
     psi_deg: float
     speed_m_s: float
+    v_m_s: float
+    w_m_s: float
     p_rad_s: float
     q_rad_s: float
     r_rad_s: float
@@ -66,6 +70,8 @@ def evaluate_launch_gate(
     theta = float(x[STATE_INDEX["theta"]])
     psi = float(x[STATE_INDEX["psi"]])
     speed = float(np.linalg.norm(x[STATE_INDEX["u"] : STATE_INDEX["w"] + 1]))
+    v_body = float(x[STATE_INDEX["v"]])
+    w_body = float(x[STATE_INDEX["w"]])
     p = float(x[STATE_INDEX["p"]])
     q = float(x[STATE_INDEX["q"]])
     r = float(x[STATE_INDEX["r"]])
@@ -87,14 +93,22 @@ def evaluate_launch_gate(
             "yaw_outside_launch_gate",
         ),
         (LAUNCH_GATE_SPEED_MIN_M_S <= speed <= LAUNCH_GATE_SPEED_MAX_M_S, "speed_outside_launch_gate"),
+        (
+            -LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S <= v_body <= LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S,
+            "side_velocity_outside_launch_gate",
+        ),
+        (
+            -LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S <= w_body <= LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S,
+            "vertical_body_velocity_outside_launch_gate",
+        ),
         (-p_limit <= p <= p_limit, "roll_rate_outside_launch_gate"),
         (-q_limit <= q <= q_limit, "pitch_rate_outside_launch_gate"),
         (-r_limit <= r <= r_limit, "yaw_rate_outside_launch_gate"),
     )
     for passed, reason in checks:
         if not bool(passed):
-            return _status(False, reason, x_w, y_w, z_w, phi, theta, psi, speed, p, q, r)
-    return _status(True, "approved_launch_gate", x_w, y_w, z_w, phi, theta, psi, speed, p, q, r)
+            return _status(False, reason, x_w, y_w, z_w, phi, theta, psi, speed, v_body, w_body, p, q, r)
+    return _status(True, "approved_launch_gate", x_w, y_w, z_w, phi, theta, psi, speed, v_body, w_body, p, q, r)
 
 
 def interpolate_launch_plane_state(
@@ -143,6 +157,8 @@ def evaluate_launch_plane_gate(
     theta = float(x[STATE_INDEX["theta"]])
     psi = float(x[STATE_INDEX["psi"]])
     speed = float(np.linalg.norm(x[STATE_INDEX["u"] : STATE_INDEX["w"] + 1]))
+    v_body = float(x[STATE_INDEX["v"]])
+    w_body = float(x[STATE_INDEX["w"]])
     p = float(x[STATE_INDEX["p"]])
     q = float(x[STATE_INDEX["q"]])
     r = float(x[STATE_INDEX["r"]])
@@ -163,14 +179,22 @@ def evaluate_launch_plane_gate(
             "yaw_outside_launch_gate",
         ),
         (LAUNCH_GATE_SPEED_MIN_M_S <= speed <= LAUNCH_GATE_SPEED_MAX_M_S, "speed_outside_launch_gate"),
+        (
+            -LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S <= v_body <= LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S,
+            "side_velocity_outside_launch_gate",
+        ),
+        (
+            -LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S <= w_body <= LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S,
+            "vertical_body_velocity_outside_launch_gate",
+        ),
         (-p_limit <= p <= p_limit, "roll_rate_outside_launch_gate"),
         (-q_limit <= q <= q_limit, "pitch_rate_outside_launch_gate"),
         (-r_limit <= r <= r_limit, "yaw_rate_outside_launch_gate"),
     )
     for passed, reason in checks:
         if not bool(passed):
-            return _status(False, reason, x_w, y_w, z_w, phi, theta, psi, speed, p, q, r)
-    return _status(True, "approved_launch_plane_gate", x_w, y_w, z_w, phi, theta, psi, speed, p, q, r)
+            return _status(False, reason, x_w, y_w, z_w, phi, theta, psi, speed, v_body, w_body, p, q, r)
+    return _status(True, "approved_launch_plane_gate", x_w, y_w, z_w, phi, theta, psi, speed, v_body, w_body, p, q, r)
 
 
 def launch_gate_bounds_manifest(
@@ -190,6 +214,11 @@ def launch_gate_bounds_manifest(
         "pitch_deg": [LAUNCH_GATE_PITCH_MIN_DEG, LAUNCH_GATE_PITCH_MAX_DEG],
         "yaw_deg": [-LAUNCH_GATE_YAW_LIMIT_DEG, LAUNCH_GATE_YAW_LIMIT_DEG],
         "speed_m_s": [LAUNCH_GATE_SPEED_MIN_M_S, LAUNCH_GATE_SPEED_MAX_M_S],
+        "v_m_s": [-LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S, LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S],
+        "w_m_s": [
+            -LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S,
+            LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S,
+        ],
         "p_rad_s": [-p_limit, p_limit],
         "q_rad_s": [-q_limit, q_limit],
         "r_rad_s": [-r_limit, r_limit],
@@ -206,6 +235,8 @@ def _status(
     theta: float,
     psi: float,
     speed: float,
+    v_body: float,
+    w_body: float,
     p: float,
     q: float,
     r: float,
@@ -220,6 +251,8 @@ def _status(
         theta_deg=float(np.rad2deg(theta)),
         psi_deg=float(np.rad2deg(psi)),
         speed_m_s=float(speed),
+        v_m_s=float(v_body),
+        w_m_s=float(w_body),
         p_rad_s=float(p),
         q_rad_s=float(q),
         r_rad_s=float(r),

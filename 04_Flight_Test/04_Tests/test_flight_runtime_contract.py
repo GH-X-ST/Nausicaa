@@ -27,8 +27,10 @@ from frozen_flight_controller import (  # noqa: E402
 from experiment_cases import EXPERIMENT_CASES, get_experiment_case  # noqa: E402
 from exit_gate import evaluate_exit_gate  # noqa: E402
 from launch_gate import (  # noqa: E402
+    LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S,
     LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S,
     LAUNCH_TRIGGER_X_W_M,
+    LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S,
     evaluate_launch_gate,
     evaluate_launch_plane_gate,
     interpolate_launch_plane_state,
@@ -469,7 +471,11 @@ def test_launch_gate_uses_r5_release_bounds() -> None:
     state[STATE_INDEX["y_w"]] = 2.0
     state[STATE_INDEX["z_w"]] = 1.7
     state[STATE_INDEX["u"]] = 5.0
+    state[STATE_INDEX["v"]] = LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S
+    state[STATE_INDEX["w"]] = LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S
 
+    assert LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S == 1.5
+    assert LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S == 0.5
     assert evaluate_launch_gate(state).approved is True
 
     state[STATE_INDEX["x_w"]] = 1.5
@@ -482,6 +488,18 @@ def test_launch_gate_uses_r5_release_bounds() -> None:
     rejected = evaluate_launch_gate(state)
     assert rejected.approved is False
     assert rejected.reason == "roll_rate_outside_launch_gate"
+
+    state[STATE_INDEX["p"]] = 0.0
+    state[STATE_INDEX["v"]] = LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S + 0.01
+    rejected = evaluate_launch_gate(state)
+    assert rejected.approved is False
+    assert rejected.reason == "side_velocity_outside_launch_gate"
+
+    state[STATE_INDEX["v"]] = 0.0
+    state[STATE_INDEX["w"]] = -(LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S + 0.01)
+    rejected = evaluate_launch_gate(state)
+    assert rejected.approved is False
+    assert rejected.reason == "vertical_body_velocity_outside_launch_gate"
 
 
 def test_launch_plane_crossing_interpolates_entry_state() -> None:
