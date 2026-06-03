@@ -1,0 +1,36 @@
+{
+  "run_label": "N01",
+  "source_root": "04_Flight_Test/05_Results/glider_calibration/neutral_30",
+  "output_root": "03_Control/05_Results/glider_neutral_empirical_calibration/N01",
+  "random_seed": 603,
+  "valid_throw_count": 60,
+  "train_count": 55,
+  "holdout_count": 5,
+  "holdout_throws": [
+    "20260602_231554/throw_008",
+    "20260602_231554/throw_014",
+    "20260602_231554/throw_015",
+    "20260602_231554/throw_020",
+    "20260603_134313/throw_003"
+  ],
+  "calibration_type": "neutral_empirical_linear_model_no_aero_mutation",
+  "features": [
+    "launch_speed_m_s",
+    "z0_m",
+    "theta0_rad",
+    "q0_rad_s",
+    "p0_rad_s",
+    "r0_rad_s"
+  ],
+  "targets": [
+    "sink_rate_m_s",
+    "dx_m",
+    "dy_m",
+    "duration_s",
+    "glide_ratio_x_over_altloss"
+  ],
+  "termination_counts": {
+    "exit_gate_floor": 53,
+    "exit_gate_front_wall": 7
+  }
+}

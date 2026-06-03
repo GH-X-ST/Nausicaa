@@ -19,9 +19,7 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SESSION_SEARCH_ROOT = (
-    REPO_ROOT / "04_Flight_Test" / "05_Results" / "glider_calibration" / "neutral_30"
-)
+DEFAULT_SESSION_SEARCH_ROOT = REPO_ROOT / "04_Flight_Test" / "05_Results"
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "03_Control" / "05_Results" / "glider_model_calibration_prep"
 
 VALID_THROW_FIELDS = [
@@ -179,10 +177,11 @@ def resolve_session_root(path: Path) -> Path:
         return path
     candidates: list[Path] = []
     if path.exists():
-        for child in path.iterdir():
-            summary = _load_json(_session_summary_path(child))
-            if summary.get("total_valid_throw_count", 0):
-                candidates.append(child)
+        for summary_path in path.rglob("manifests/glider_calibration_sequence_final_summary.json"):
+            session_root = summary_path.parents[1]
+            summary = _load_json(summary_path)
+            if summary.get("block_id") == "neutral_30" and summary.get("total_valid_throw_count", 0):
+                candidates.append(session_root)
     if not candidates:
         raise FileNotFoundError(
             f"No completed glider calibration session found under {path}. "
@@ -209,7 +208,8 @@ def _throw_manifest(throw_dir: Path) -> dict[str, Any]:
 def _valid_throw_dirs(session_root: Path) -> list[Path]:
     throw_dirs: list[Path] = []
     for case_dir in _case_dirs(session_root):
-        for throw_dir in sorted(case_dir.glob("throw_*")):
+        candidate_dirs = list(case_dir.glob("throw_*")) + list(case_dir.glob("v[0-9]*"))
+        for throw_dir in sorted(candidate_dirs):
             summary = _throw_summary(throw_dir)
             if summary.get("valid_throw") is True:
                 throw_dirs.append(throw_dir)
@@ -219,9 +219,12 @@ def _valid_throw_dirs(session_root: Path) -> list[Path]:
 def _invalid_attempt_dirs(session_root: Path) -> list[Path]:
     attempt_dirs: list[Path] = []
     for case_dir in _case_dirs(session_root):
-        invalid_root = case_dir / "invalid_attempts"
-        if invalid_root.exists():
-            attempt_dirs.extend(sorted(invalid_root.glob("attempt_*")))
+        old_invalid_root = case_dir / "invalid_attempts"
+        if old_invalid_root.exists():
+            attempt_dirs.extend(sorted(old_invalid_root.glob("attempt_*")))
+        new_invalid_root = case_dir / "bad"
+        if new_invalid_root.exists():
+            attempt_dirs.extend(sorted(new_invalid_root.glob("i[0-9]*")))
     return attempt_dirs
 
 
@@ -483,7 +486,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--session-root",
         type=Path,
         default=DEFAULT_SESSION_SEARCH_ROOT,
-        help="Completed session root, or a directory containing session roots. Defaults to neutral_30 search root.",
+        help=(
+            "Completed session root, or a directory containing session roots. Defaults to searching "
+            "04_Flight_Test/05_Results for the latest neutral_30 session in either old or short layout."
+        ),
     )
     parser.add_argument(
         "--output-root",
