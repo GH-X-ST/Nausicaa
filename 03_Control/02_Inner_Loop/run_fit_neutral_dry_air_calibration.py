@@ -38,7 +38,7 @@ from glider import build_nausicaa_glider  # noqa: E402
 
 DEFAULT_SESSION_SEARCH_ROOT = REPO_ROOT / "04_Flight_Test" / "05_Results"
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "03_Control" / "05_Results" / "glider_model_calibration_prep"
-DEFAULT_RUN_LABEL = "N06_neutral_aligned_0p20_fit"
+DEFAULT_RUN_LABEL = "N09_neutral_valid_only_aligned_0p20_fit"
 DEFAULT_ALIGNMENT_WINDOW_S = 0.20
 DEFAULT_REPLAY_DT_S = 0.005
 DEFAULT_HELDOUT_COUNT = 5
