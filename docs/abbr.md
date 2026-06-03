@@ -21,6 +21,8 @@ mem       spatial flow-belief memory
 ep        episode
 rf        real flight
 sr        sim-real replay
+cal       real-flight calibration data collection
+sysid     system identification / model calibration
 h         repeated-launch history length for memory, e.g. h0/h3/h10/h30
 v0        initial launch speed
 nom       nominal

@@ -52,11 +52,11 @@ Five-throw shakedown before committing to all 30:
 
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block neutral_30 --target-valid-throws 5
 
-The current top-of-file runner settings are configured for the focused
-aileron/rudder supplemental pulse block, not the neutral shakedown:
+The current top-of-file runner settings are configured for short neutral
+calibration repeats:
 
-CALIBRATION_BLOCK = "pulse_supplement_aileron_rudder_high"
-TARGET_VALID_THROWS_OVERRIDE = None
+CALIBRATION_BLOCK = "neutral_30"
+TARGET_VALID_THROWS_OVERRIDE = 10
 PULSE_VALID_THROWS_PER_CASE = 3
 
 To run the full 30-throw neutral block later, set `TARGET_VALID_THROWS_OVERRIDE`
@@ -73,6 +73,15 @@ What this estimates:
 - launch speed and launch body-rate distribution
 - exit-wall distribution
 - dry-air model mismatch without controller intervention
+
+Neutral dry-air fitting is done before any pulse/control-effectiveness fitting.
+The active model calibration uses only neutral open-loop throws and starts the
+sim-real comparison from the measured state after a 0.20 s first-motion
+alignment window. Held-out throws are selected with a randomised
+session-stratified split so the validation set is not fixed to one launch
+session. The active calibration changes only simple bare-airframe loss terms and
+keeps `DELTA_A_TRIM_RAD`, `DELTA_E_TRIM_RAD`, and `DELTA_R_TRIM_RAD` at zero
+until physical trim/asymmetry is confirmed separately.
 
 
 Block B: Single-Axis 0.2-Lattice Control-Effectiveness Ladder
@@ -217,6 +226,12 @@ Invalid launch-gate attempts are moved to:
 <case_storage_id>/bad/iXXX/
 
 Invalid attempts do not count as valid calibration throws.
+
+Session and physical-build boundaries matter. If the airframe is adjusted
+between blocks, for example by straightening the vertical tailplane, treat the
+new session as a new physical-build condition. Do not silently pool pre-fix and
+post-fix data when fitting model parameters; either use only the post-fix data
+or keep an explicit session/profile/build tag in the analysis.
 
 
 Before Running

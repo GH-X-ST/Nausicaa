@@ -53,6 +53,45 @@ If moving the glider in physical +x, +y, or +z causes the wrong transformed
 coordinate to change, the axis mapping must be corrected before flight.
 
 
+Glider Calibration Blocks
+-------------------------
+Use these blocks when collecting dry-air data for model calibration. They are
+not closed-loop thesis evidence and do not call the governor, memory, primitive
+selector, or LQR controller.
+
+Neutral open-loop dry-air fitting comes first:
+
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block neutral_30 --target-valid-throws 30
+
+The active `03_Control` neutral calibration uses only neutral open-loop throws,
+replays simulation from the measured state after a 0.20 s first-motion
+alignment window, and selects held-out cases with a randomised
+session-stratified split. It changes only simple bare-airframe loss terms and
+keeps neutral control-surface trims at zero until physical trim/asymmetry is
+confirmed separately.
+
+Only after neutral dry-air mismatch is understood, run pulse data:
+
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_30
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_supplement_aileron_rudder_high
+
+`pulse_ladder_30` uses one single-axis command at a time, starts the pulse
+0.25 s after launch approval, holds every nonzero command for 0.40 s, then
+returns to neutral. The supplemental block tests only aileron and rudder at
+high authority (`+/-0.6`, `+/-0.8`, `+/-1.0`) for 0.60 s.
+
+Calibration outputs use short Git-trackable paths:
+
+04_Flight_Test\05_Results\cal\n30\<session>\c0_neu\v001
+04_Flight_Test\05_Results\cal\p30\<session>\<case_storage_id>\v001
+04_Flight_Test\05_Results\cal\ar_hi\<session>\<case_storage_id>\v001
+04_Flight_Test\05_Results\cal\<block>\<session>\<case_storage_id>\bad\i001
+
+If the airframe is physically adjusted between blocks, for example by
+straightening the vertical tailplane, treat later throws as a new physical-build
+condition. Do not silently pool pre-fix and post-fix data during sysID.
+
+
 Surface Sign Check
 ------------------
 Run:

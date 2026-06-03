@@ -1,0 +1,47 @@
+{
+  "block_id": "neutral_30",
+  "block_storage_id": "n30",
+  "calibration_profile": {
+    "body_rate_limit_rad_s": 6.0,
+    "body_rate_observer_window_frames": 7,
+    "derivative_cutoff_hz": 8.0,
+    "launch_gate_body_rate_limits_rad_s": [
+      1.2,
+      1.2,
+      1.8
+    ],
+    "launch_gate_rate_confidence_min": 0.65,
+    "launch_gate_required_consecutive_frames": 2,
+    "profile_hash": "9f555fdcda2d0ce636b50fa993aeea8a507a200d0bd52f1fe11b7953d2095510",
+    "profile_id": "nausicaa_real_flight_vicon_calibration_20260603_185340",
+    "profile_version": "1.0",
+    "rejected_launch_attempt_min_speed_m_s": 2.0,
+    "requested_vicon_tracking_rate_hz": 200.0,
+    "vicon_attitude_signs": [
+      1.0,
+      -1.0,
+      -1.0
+    ],
+    "vicon_position_offset_m": [
+      3.912561157643868,
+      2.430125153483199,
+      0.0380633081971309
+    ],
+    "vicon_yaw_alignment_deg": 0.0
+  },
+  "cases": [
+    {
+      "case_id": "C0_neutral",
+      "case_name": "Dry-air open-loop neutral glide characterisation",
+      "case_storage_id": "c0_neu",
+      "command_axis": "neutral",
+      "command_value": 0.0,
+      "pulse_duration_s": 0.0,
+      "pulse_start_s": 0.0,
+      "target_valid_throws": 10
+    }
+  ],
+  "session_label": "20260603_194447",
+  "total_invalid_attempt_count": 12,
+  "total_valid_throw_count": 10
+}

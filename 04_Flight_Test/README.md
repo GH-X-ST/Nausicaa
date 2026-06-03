@@ -76,6 +76,7 @@ use the neutral and single-axis pulse workflow described in
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_vicon_frame_calibration.py
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block neutral_30
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_30
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_supplement_aileron_rudder_high
 ```
 
 Frame calibration updates `01_Runtime\calibration_profile.py`; start the glider
@@ -86,6 +87,17 @@ This calibration workflow uses the same Vicon state adapter, launch gate,
 Arduino packet path, and 20 percent command lattice as the real-flight runtime,
 but deliberately does not call the governor, memory, primitive selector, or LQR
 controller.
+
+The active neutral dry-air model calibration in `03_Control` uses only neutral
+open-loop real throws, starts sim-real replay from the measured state after a
+`0.20 s` first-motion alignment window, and selects held-out throws with a
+randomised session-stratified split. The current fitted correction is recorded
+in `03_Control\02_Inner_Loop\A_model_parameters\neutral_dry_air_calibration.py`
+as `neutral_dry_air_aligned_0p20_N07`. It changes only simple bare-airframe
+loss terms (`CD0_STRIP_SCALE`, `DRAG_AREA_FUSE_SCALE`,
+`EFFICIENCY_STRIP_SCALE`) and keeps neutral control-surface trims at zero until
+physical trim/asymmetry is confirmed separately. Pulse data are not fitted until
+the neutral open-loop dry-air model is defensible.
 
 For repeated experiment blocks, edit `CURRENT_EXPERIMENT_CASE` at the top of
 `01_Runtime\run_experiment_sequence.py`, then run:
@@ -209,7 +221,7 @@ The controller world frame uses the operational region
 `x_w in [1.2, 6.6] m`, `y_w in [0.0, 4.4] m`, and
 `z_w in [0.4, 3.5] m`. The real-flight default is the active calibrated Vicon
 profile, not the old arena-centre placeholder. The current active offset is
-`(4.136158795250567, 2.4114272057075916, 0.03414746062731508) m`, with
+`(3.912561157643868, 2.430125153483199, 0.0380633081971309) m`, with
 `attitude_signs = (1, -1, -1)`.
 
 The default axis convention is still `+X` forward, `+Y` left, and `+Z` up. If
