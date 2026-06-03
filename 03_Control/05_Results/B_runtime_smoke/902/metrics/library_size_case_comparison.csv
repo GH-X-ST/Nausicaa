@@ -1,6 +1,0 @@
-library_size_case_id,launch_count,safe_success_rate,full_safe_success_rate,hard_failure_rate,no_viable_primitive_rate,mean_launch_score
-balanced_cluster,4,1.0,1.0,0.0,0.0,7.5
-heavy_cluster,4,1.0,1.0,0.0,0.0,7.5
-light_cluster,4,1.0,1.0,0.0,0.0,7.5
-no_cluster_no_merge,4,1.0,1.0,0.0,0.0,7.5
-super_light_cluster,4,1.0,1.0,0.0,0.0,7.5

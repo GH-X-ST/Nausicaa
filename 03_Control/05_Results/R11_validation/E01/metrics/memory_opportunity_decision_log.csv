@@ -1,2 +1,0 @@
-table_name,row_level_log,storage,partition_count,row_count,manifest,partition_row_count,file_size_policy
-memory_opportunity_decision_log,tables/memory_opportunity_decision_log/,csv_gz,4,87390,manifests/memory_opportunity_decision_log_manifest.json,25000,partitioned_to_avoid_large_git_blobs

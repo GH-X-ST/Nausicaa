@@ -1,3 +1,0 @@
-t_host_s,event,reason
-212793.127996,vicon_invalid_waiting_for_launch,vicon_subject_occluded
-212913.6739423,vicon_invalid_waiting_for_launch,vicon_read_failed:DataStreamException:NotConnected

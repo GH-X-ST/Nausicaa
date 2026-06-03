@@ -1,6 +1,0 @@
-library_size_case_id,launch_count,safe_success_rate,full_safe_success_rate,hard_failure_rate,physical_hard_failure_rate,expected_low_energy_dry_air_sink_rate,no_viable_primitive_rate,mission_success_rate,front_wall_terminal_success_rate,wrong_wall_exit_rate,mean_launch_score
-balanced_cluster,40,0.8,0.0,0.0,0.1,0.1,0.1,0.8,0.8,0.0,100.5305532078584
-heavy_cluster,40,0.8,0.0,0.1,0.1,0.0,0.1,0.8,0.8,0.0,90.62728276218051
-light_cluster,40,0.8,0.0,0.0,0.0,0.0,0.2,0.8,0.8,0.0,96.58517380023257
-no_cluster_no_merge,40,0.8,0.0,0.0,0.1,0.1,0.1,0.8,0.8,0.0,100.6570540333381
-super_light_cluster,40,0.8,0.0,0.0,0.0,0.0,0.2,0.8,0.8,0.0,96.66508714218553

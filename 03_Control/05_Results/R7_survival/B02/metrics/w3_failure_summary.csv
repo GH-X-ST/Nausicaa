@@ -1,7 +1,0 @@
-summary_axis,value,row_count
-failure_label,controlled_xy_boundary_terminal,46101
-failure_label,model_boundary_only,149344
-failure_label,success,58464
-failure_label,xy_boundary_terminal,11
-outcome_class,accepted,58464
-outcome_class,weak,195456

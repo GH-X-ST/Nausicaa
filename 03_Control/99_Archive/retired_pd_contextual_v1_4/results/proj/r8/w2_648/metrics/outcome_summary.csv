@@ -1,6 +1,0 @@
-outcome_class,continuation_status,episode_terminal_status,boundary_use_class,row_count
-accepted,continuation_success,not_terminal,continuation_valid,180
-boundary_terminal,not_continuation_valid,boundary_terminal,episode_terminal_useful_or_trainable,177
-failed,continuation_failed,not_terminal,hard_failure_or_rejected,382
-rejected,continuation_failed,not_terminal,hard_failure_or_rejected,222
-weak,continuation_weak,not_terminal,continuation_valid,39

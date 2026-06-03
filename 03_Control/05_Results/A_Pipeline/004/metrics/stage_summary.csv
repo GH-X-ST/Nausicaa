@@ -1,5 +1,0 @@
-stage_id,status,stage_run_root,blocked_reason,duration_s,docs_alignment_status
-R5,passed,03_Control/05_Results/lqr_contextual_v1_0/w01_dense/904,,1252.133,aligned
-R7,blocked,03_Control/05_Results/lqr_contextual_v1_0/w3_survival/019,"failed_gate:w3_analysis_survivors_available,w3_launch_gate_entry_survivor_count_positive,w3_all_active_families_have_launch_gate_entry_survivors",1126.678,aligned
-R7,passed,03_Control/05_Results/lqr_contextual_v1_0/w3_survival/020,,1200.015,aligned
-R8,passed,03_Control/05_Results/lqr_contextual_v1_0/post_w3_library_size_study/1000,,437.547,aligned

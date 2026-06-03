@@ -1,5 +1,0 @@
-summary_axis,value,row_count
-boundary_use_class,blocked,23040
-boundary_use_class,continuation_valid,2632
-boundary_use_class,episode_terminal_useful,14592
-boundary_use_class,hard_failure,10936

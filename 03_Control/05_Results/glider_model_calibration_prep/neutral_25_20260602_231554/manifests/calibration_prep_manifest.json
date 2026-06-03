@@ -1,9 +1,0 @@
-{
-  "source_session_root": "04_Flight_Test/05_Results/glider_calibration/neutral_30/20260602_231554",
-  "output_dir": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/glider_model_calibration_prep/neutral_25_20260602_231554",
-  "session_label": "20260602_231554",
-  "valid_throw_count": 25,
-  "invalid_attempt_count": 21,
-  "generated_at": "2026-06-02T23:28:24",
-  "calibration_stage": "offline_prep_only_no_model_mutation"
-}

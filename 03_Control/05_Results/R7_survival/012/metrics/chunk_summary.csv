@@ -1,2 +1,0 @@
-chunk_index,status,row_start,row_stop,row_count,partition_path,manifest_path,byte_count,checksum_sha256,duration_s
-0,complete,0,160,160,w3_survival_rows/c00000.csv.gz,chunk_manifests/w3_survival_rows/c00000.json,326493,aebbd0eb8ea81407c006e1d5aabe9cbb45ccc3e4577135a7bd2bd08f976199a6,21.73826265335083

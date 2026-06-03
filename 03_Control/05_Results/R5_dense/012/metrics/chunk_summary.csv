@@ -1,4 +1,0 @@
-chunk_index,status,row_start,row_stop,row_count,partition_path,manifest_path,byte_count,checksum_sha256,duration_s
-0,complete,0,80,80,w01_primitive_rows/c00000.csv.gz,chunk_manifests/w01_primitive_rows/c00000.json,106146,b30ac9728a35dadf1138a367edd31cdf217734d29547152b26e148149cda32f1,1.2860102653503418
-1,complete,80,160,80,w01_primitive_rows/c00001.csv.gz,chunk_manifests/w01_primitive_rows/c00001.json,106864,9afe193cd6135e916efc896fb0fce0cf31821018daf366ea8e062ace2041938b,0.9836347103118896
-2,complete,160,240,80,w01_primitive_rows/c00002.csv.gz,chunk_manifests/w01_primitive_rows/c00002.json,106238,a47e53cbd32d6634a59da84892b19135b9152ad114c0d57db006cdaf8e046577,1.0039021968841553

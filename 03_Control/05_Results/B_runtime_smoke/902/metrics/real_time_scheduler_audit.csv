@@ -1,7 +1,0 @@
-audit_scope,selector_decision_count,prepared_before_boundary_count,prepared_before_boundary_rate,preferred_20ms_slot_met_count,preferred_20ms_slot_met_rate,hard_100ms_boundary_met_count,hard_100ms_boundary_met_rate,max_decision_total_duration_s,p99_decision_total_duration_s,mean_decision_total_duration_s,preferred_decision_budget_s,hard_decision_budget_s,audit_status,real_time_claim_status
-overall,20,20,1.0,15,0.75,19,0.95,5.446524800000589,4.424322330000589,0.2909071549999226,0.02,0.1,profiled,offline_wallclock_profile_only_not_hardware_realtime_claim
-launch_role:final_heldout,20,20,1.0,15,0.75,19,0.95,5.446524800000589,4.424322330000589,0.2909071549999226,0.02,0.1,profiled,offline_wallclock_profile_only_not_hardware_realtime_claim
-policy_id:directional_3d_residual_memory_h10,5,5,1.0,4,0.8,5,1.0,0.0537551999996139,0.05217512399958643,0.0176137999997081,0.02,0.1,profiled,offline_wallclock_profile_only_not_hardware_realtime_claim
-policy_id:directional_3d_residual_memory_h3,5,5,1.0,4,0.8,5,1.0,0.0576256000003922,0.05579401200036945,0.0169738399996276,0.02,0.1,profiled,offline_wallclock_profile_only_not_hardware_realtime_claim
-policy_id:directional_3d_residual_memory_h30,5,5,1.0,4,0.8,5,1.0,0.0640673999996579,0.06210587999965351,0.019799860000057318,0.02,0.1,profiled,offline_wallclock_profile_only_not_hardware_realtime_claim
-policy_id:no_memory_baseline,5,5,1.0,3,0.6,4,0.8,5.446524800000589,5.23132428000059,1.1092411200002972,0.02,0.1,profiled,offline_wallclock_profile_only_not_hardware_realtime_claim

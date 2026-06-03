@@ -1,9 +1,0 @@
-relative_path,byte_count,size_mb,above_75mb,above_100mb,push_allowed
-manifests/heldout_environment_validation_manifest.json,18245,0.01739978790283203,False,False,True
-metrics/active_fan_count_schedule_audit.csv,855,0.0008153915405273438,False,False,True
-metrics/environment_block_schedule.csv,1062,0.0010128021240234375,False,False,True
-metrics/final_heldout_launch_schedule.csv,259889,0.2478494644165039,False,False,True
-metrics/history_launch_schedule.csv,2813926,2.6835689544677734,False,False,True
-metrics/outer_case_schedule.csv,11764,0.011219024658203125,False,False,True
-metrics/pass_fail_gate_summary.csv,445,0.00042438507080078125,False,False,True
-metrics/real_time_scheduler_audit.csv,182,0.0001735687255859375,False,False,True

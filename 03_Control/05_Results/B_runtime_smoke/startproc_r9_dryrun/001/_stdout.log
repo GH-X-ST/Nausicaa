@@ -1,6 +1,0 @@
-{
-  "final_heldout_launch_count": 210,
-  "history_launch_count": 5550,
-  "run_root": "03_Control/05_Results/lqr_contextual_v1_0/runtime_smoke/startproc_r9_dryrun/001",
-  "status": "dry_run_schedule"
-}

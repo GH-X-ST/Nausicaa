@@ -1,2 +1,0 @@
-table_name,row_level_log,storage
-episode_summary,tables/episode_summary/,partitioned

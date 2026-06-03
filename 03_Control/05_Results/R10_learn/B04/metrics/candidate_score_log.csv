@@ -1,2 +1,0 @@
-table_name,row_level_log,storage
-candidate_score_log,tables/candidate_score_log/,partitioned

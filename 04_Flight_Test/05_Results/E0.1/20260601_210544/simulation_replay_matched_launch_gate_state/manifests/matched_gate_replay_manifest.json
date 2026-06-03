@@ -1,7 +1,0 @@
-{
-  "status": "complete",
-  "matched_throw_count": 5,
-  "source_real_session": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/E0.1/20260601_210544",
-  "output_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/E0.1/20260601_210544/simulation_replay_matched_launch_gate_state",
-  "launch_state_source": "last row of prelaunch_state_samples.csv before launch gate approval"
-}

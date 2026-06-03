@@ -1,2 +1,0 @@
-table_name,row_level_log,storage,partition_count,row_count,manifest,file_size_policy
-history_launch_schedule,tables/history_launch_schedule/,csv_gz,3,120400,manifests/history_launch_schedule_manifest.json,partitioned_to_avoid_large_git_blobs

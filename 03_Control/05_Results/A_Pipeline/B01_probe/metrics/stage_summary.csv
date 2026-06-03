@@ -1,2 +1,0 @@
-stage_id,status,stage_run_root,blocked_reason,duration_s,docs_alignment_status
-R5,passed,03_Control/05_Results/R5_dense/B01_probe,,44.742,aligned

@@ -1,2 +1,0 @@
-status,row_count,active_timing_aware_variant_count,state_feedback_delay_s_values,command_delay_s_values,actuator_tau_s_values,command_delay_steps_values,predictor_horizon_steps_values,timing_state_sources,history_backed_fifo_required_for_l6,full_delayed_state_feedback_claim
-dry_run_schedule,0,16,0.0229,0.073,"[0.05049432643111373,0.05049432643111373,0.05049432643111373]",4,2,,True,False

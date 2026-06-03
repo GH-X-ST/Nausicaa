@@ -1,3 +1,0 @@
-chunk_index,status,row_start,row_stop,row_count,partition_path,manifest_path,byte_count,checksum_sha256,duration_s
-0,skipped,0,40,40,w01_primitive_rows/c00000.csv.gz,chunk_manifests/w01_primitive_rows/c00000.json,70438,1489367657ddf2a3519ec85b847d5ef8822958c07fdb93c85f7970cb86fb381d,0.0
-1,skipped,40,80,40,w01_primitive_rows/c00001.csv.gz,chunk_manifests/w01_primitive_rows/c00001.json,70973,3aea401d99a180ec112aefffe6ef87bb53f0cd5a6e698075ca244f418b14a71f,0.0

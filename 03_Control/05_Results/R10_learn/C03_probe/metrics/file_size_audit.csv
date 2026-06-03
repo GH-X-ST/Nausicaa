@@ -1,9 +1,0 @@
-relative_path,byte_count,size_mb,above_75mb,above_100mb,push_allowed
-manifests/environment_changed_case_manifest.json,15653,0.014927864074707031,False,False,True
-metrics/active_fan_count_schedule_audit.csv,277,0.00026416778564453125,False,False,True
-metrics/environment_block_schedule.csv,276,0.000263214111328125,False,False,True
-metrics/final_heldout_launch_schedule.csv,18379,0.01752758026123047,False,False,True
-metrics/history_launch_schedule.csv,190321,0.1815042495727539,False,False,True
-metrics/outer_case_schedule.csv,1597,0.0015230178833007812,False,False,True
-metrics/pass_fail_gate_summary.csv,529,0.0005044937133789062,False,False,True
-metrics/real_time_scheduler_audit.csv,169,0.00016117095947265625,False,False,True

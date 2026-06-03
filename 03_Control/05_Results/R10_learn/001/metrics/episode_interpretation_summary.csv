@@ -1,9 +1,0 @@
-launch_role,episode_interpretation_label,row_count
-final_heldout,claim_bearing_hard_failure,4
-final_heldout,claim_bearing_rollout,160
-final_heldout,expected_low_energy_dry_air_sink_not_governor_failure,8
-final_heldout,no_viable_primitive,28
-history,claim_bearing_hard_failure,362
-history,claim_bearing_rollout,1570
-history,expected_low_energy_dry_air_sink_not_governor_failure,91
-history,no_viable_primitive,127

@@ -1,4 +1,0 @@
-entry_role,start_state_family,row_count,entry_role_rejection_count,entry_role_rejection_rate
-inflight_only,launch_gate,150,150,1.0
-launch_capable,launch_gate,30,0,0.0
-terminal_or_recovery,launch_gate,60,60,1.0
