@@ -68,6 +68,8 @@ class FrozenFlightController:
         self.controllers = _load_controller_payloads(config.controller_bundle_path)
         self.governor_config = _load_governor_config(config.governor_config_path)
         self._command_fifo_by_controller_id: dict[str, list[np.ndarray]] = {}
+        self._active_payload: dict[str, Any] | None = None
+        self._active_variant_id = ""
         self._last_command_norm = np.zeros(3, dtype=float)
         self.sequence = 0
         self.memory_state = RealFlightMemoryState(enabled=bool(config.experiment_memory_enabled))
@@ -125,6 +127,8 @@ class FrozenFlightController:
                 candidate_count=len(candidate_rows),
                 viable_count=sum(1 for row in candidate_rows if bool(row.get("viable", False))),
             )
+        self._active_payload = payload
+        self._active_variant_id = variant_id
         command_norm, command_rad = self._command_for_payload(payload, state)
         packet = encode_arduino_command_packet(command_norm, sequence=self.sequence)
         self.sequence += 1
@@ -165,6 +169,17 @@ class FrozenFlightController:
         self.sequence += 1
         return packet.packet_bytes
 
+    def packet_for_active_slot_command(self, state_vector: np.ndarray) -> bytes:
+        """Return a 20 ms slot command for the currently selected primitive."""
+
+        if self._active_payload is None:
+            return self.neutral_packet()
+        command_norm, _ = self._command_for_payload(self._active_payload, as_state_vector(state_vector))
+        packet = encode_arduino_command_packet(command_norm, sequence=self.sequence)
+        self.sequence += 1
+        self._last_command_norm = np.asarray(packet.aggregate_command_norm, dtype=float)
+        return packet.packet_bytes
+
     def update_memory_from_decision_records(self, records: list[dict[str, object]]) -> MemoryUpdateSummary:
         return self.memory_state.update_from_decision_records(records)
 
@@ -189,6 +204,8 @@ class FrozenFlightController:
         candidate_count: int,
         viable_count: int,
     ) -> FlightControllerDecision:
+        self._active_payload = None
+        self._active_variant_id = ""
         packet = encode_arduino_command_packet(np.zeros(3), sequence=self.sequence)
         self.sequence += 1
         self._last_command_norm = np.zeros(3, dtype=float)

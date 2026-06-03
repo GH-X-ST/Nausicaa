@@ -20,6 +20,7 @@ from state_sampling import (
     archive_state_sample_for_family,
     archive_state_sample_for_row,
     archive_state_sample_row,
+    measured_launch_state_sample_rows,
     measured_log_schema_row,
     measured_log_state_sample_rows,
     state_is_launch_gate_compliant,
@@ -125,7 +126,7 @@ def test_launch_gate_sampler_uses_realistic_attitude_envelope() -> None:
 
     assert LAUNCH_GATE_Z_W_M == (1.3, 1.8)
     assert LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S == 1.5
-    assert LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S == 0.5
+    assert LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S == 0.7
     assert LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S == 1.2
     assert LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S == 1.2
     assert LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S == 1.8
@@ -206,3 +207,25 @@ def test_measured_log_compatibility_shape_without_real_logs(tmp_path) -> None:
     assert rows[0].paired_start_key == "real_000"
     assert rows[0].launch_gate_compliant is False
     assert "x_w" in schema["required_state_columns"]
+
+
+def test_measured_launch_state_sampler_uses_first_active_real_state(tmp_path) -> None:
+    path = tmp_path / "metrics" / "state_samples.csv"
+    path.parent.mkdir()
+    data = {name: [0.0, 99.0] for name in STATE_NAMES}
+    data["x_w"] = [1.3, 99.0]
+    data["y_w"] = [2.0, 99.0]
+    data["z_w"] = [1.6, 99.0]
+    data["u"] = [5.5, 99.0]
+    data["v"] = [0.4, 99.0]
+    data["w"] = [0.6, 99.0]
+    pd.DataFrame(data).to_csv(path, index=False)
+
+    rows = measured_launch_state_sample_rows(tmp_path)
+
+    assert len(rows) == 1
+    assert rows[0].start_state_family == "launch_gate"
+    assert rows[0].state_sample_source == "measured_real_launch_first_active_state"
+    assert rows[0].state_envelope_label == "approved_launch_gate"
+    assert rows[0].launch_gate_compliant is True
+    assert rows[0].state_vector[STATE_INDEX["w"]] == 0.6

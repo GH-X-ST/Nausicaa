@@ -99,6 +99,11 @@ def run_real_flight(
                 if config.controller_mode == "open_loop_neutral"
                 else "not_active"
             ),
+            "closed_loop_command_execution_policy": (
+                "governor_selects_primitive_at_10hz_lqr_slot_command_recomputed_from_latest_vicon_state_at_50hz"
+                if config.controller_mode == "closed_loop"
+                else "not_active"
+            ),
             "surface_marker_tracking_enabled": False,
             "latency_quantification_enabled": False,
             "servo_command_limit_norm": [-1.0, 1.0],
@@ -115,6 +120,7 @@ def run_real_flight(
                 "vicon_poll_hz": float(1.0 / config.vicon_poll_period_s),
                 "serial_command_repeat_hz": float(1.0 / config.serial_period_s),
                 "governor_decision_hz": float(1.0 / config.governor_period_s),
+                "closed_loop_slot_command_hz": float(1.0 / config.serial_period_s),
                 "derivative_cutoff_hz": float(config.derivative_cutoff_hz),
                 "body_rate_limit_rad_s": float(config.body_rate_limit_rad_s),
                 "body_rate_observer_window_frames": int(config.body_rate_observer_window_frames),
@@ -159,6 +165,7 @@ def run_real_flight(
         "packet_count": 0,
         "neutral_failsafe_count": 0,
         "open_loop_neutral_packet_count": 0,
+        "slot_command_update_count": 0,
         "serial_write_error_count": 0,
         "serial_write_timeout_count": 0,
         "max_decision_time_s": 0.0,
@@ -177,6 +184,7 @@ def run_real_flight(
     }
     primitive_step_index = 0
     latest_decision = None
+    pending_slot_packet: bytes | None = None
     latest_state = None
     started = time.perf_counter()
     next_governor_s = 0.0
@@ -321,6 +329,7 @@ def run_real_flight(
                     )
                     pending_launch_decision_state = None
                 latest_decision = controller.decide(decision_state, primitive_step_index=primitive_step_index)
+                pending_slot_packet = latest_decision.packet_bytes
                 decision_records.append(
                     {
                         "t_s": float(loop_elapsed_s),
@@ -350,8 +359,14 @@ def run_real_flight(
                     event = "active_open_loop_neutral_packet"
                     summary["open_loop_neutral_packet_count"] = int(summary["open_loop_neutral_packet_count"]) + 1
                 else:
-                    packet = controller.packet_for_last_command()
-                    event = "active_command_packet"
+                    if pending_slot_packet is not None:
+                        packet = pending_slot_packet
+                        pending_slot_packet = None
+                        event = "active_command_packet_primitive_entry_slot"
+                    else:
+                        packet = controller.packet_for_active_slot_command(latest_state)
+                        event = "active_command_packet_slot_update"
+                    summary["slot_command_update_count"] = int(summary["slot_command_update_count"]) + 1
                 _write_packet_safe(
                     tx,
                     packet,
@@ -428,6 +443,7 @@ def run_real_flight(
                 f"- Packets sent: `{summary['packet_count']}`",
                 f"- Neutral failsafe commands: `{summary['neutral_failsafe_count']}`",
                 f"- Open-loop neutral packets: `{summary['open_loop_neutral_packet_count']}`",
+                f"- Closed-loop slot command updates: `{summary['slot_command_update_count']}`",
                 f"- Serial write errors: `{summary['serial_write_error_count']}`",
                 f"- Serial write timeouts: `{summary['serial_write_timeout_count']}`",
                 f"- Post-exit neutral packets: `{summary['post_exit_neutral_packets']}`",

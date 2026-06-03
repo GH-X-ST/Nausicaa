@@ -37,6 +37,7 @@ for path in (PRIMITIVE_ROOT, SCENARIO_ROOT):
 from launch_gate import LAUNCH_GATE_X_W_M, LAUNCH_GATE_Y_W_M, LAUNCH_GATE_Z_W_M  # noqa: E402
 from arena_contract import TRUE_SAFE_BOUNDS, position_margin_m  # noqa: E402
 from command_contract import normalised_command_to_surface_rad  # noqa: E402
+from latency import latency_case_config  # noqa: E402
 from flight_dynamics import adapt_glider, state_derivative  # noqa: E402
 from glider import build_nausicaa_glider  # noqa: E402
 from A_model_parameters.neutral_dry_air_calibration import (  # noqa: E402
@@ -60,6 +61,7 @@ DEFAULT_HELDOUT_COUNT = 5
 DEFAULT_HELDOUT_SEED = 603
 DEFAULT_REPLAY_DT_S = 0.005
 DEFAULT_ALIGNMENT_WINDOW_S = 0.10
+DEFAULT_REPLAY_COMMAND_ONSET_DELAY_S = float(latency_case_config("nominal").command_onset_delay_s)
 DEFAULT_WORKERS = 8
 RIDGE_ALPHA = 1.0e-6
 LAUNCH_NOMINAL_X_M = 0.5 * (LAUNCH_GATE_X_W_M[0] + LAUNCH_GATE_X_W_M[1])
@@ -300,6 +302,7 @@ MEASURED_LAUNCH_REPLAY_FIELDS = [
     "replay_policy",
     "replay_dt_s",
     "replay_command_source",
+    "replay_command_onset_delay_s",
     "actual_termination_group",
     "sim_first_exit_reason",
     "sim_first_exit_time_s",
@@ -369,6 +372,7 @@ ALIGNED_MOTION_REPLAY_FIELDS = [
     "alignment_sample_count",
     "alignment_method",
     "replay_command_source",
+    "replay_command_onset_delay_s",
     "actual_termination_group",
     "sim_first_exit_reason",
     "sim_first_exit_time_s",
@@ -945,7 +949,12 @@ def _simulate_measured_launch_replay(
 
     manifest = _throw_manifest(throw_dir)
     actuator_tau_s = _actuator_tau_from_manifest(manifest)
-    command_schedule, command_source = _load_replay_command_schedule(throw_dir, row)
+    command_onset_delay_s = DEFAULT_REPLAY_COMMAND_ONSET_DELAY_S
+    command_schedule, command_source = _load_replay_command_schedule(
+        throw_dir,
+        row,
+        command_onset_delay_s=command_onset_delay_s,
+    )
     x = x0.copy()
     t_s = 0.0
     command_index = 0
@@ -1011,6 +1020,7 @@ def _simulate_measured_launch_replay(
         "replay_policy": "dry_air_current_model_exact_measured_launch_state_same_command_history_same_duration",
         "replay_dt_s": float(replay_dt_s),
         "replay_command_source": command_source,
+        "replay_command_onset_delay_s": command_onset_delay_s,
         "actual_termination_group": row.get("termination_group", ""),
         "sim_first_exit_reason": first_exit_reason or "none_before_actual_duration",
         "sim_first_exit_time_s": first_exit_time_s,
@@ -1088,7 +1098,12 @@ def _simulate_aligned_motion_replay(
 
     manifest = _throw_manifest(throw_dir)
     actuator_tau_s = _actuator_tau_from_manifest(manifest)
-    command_schedule, command_source = _load_replay_command_schedule(throw_dir, row)
+    command_onset_delay_s = DEFAULT_REPLAY_COMMAND_ONSET_DELAY_S
+    command_schedule, command_source = _load_replay_command_schedule(
+        throw_dir,
+        row,
+        command_onset_delay_s=command_onset_delay_s,
+    )
     x = x0.copy()
     t_s = 0.0
     command_index = _advance_command_index(command_schedule, 0, alignment_elapsed_s)
@@ -1159,6 +1174,7 @@ def _simulate_aligned_motion_replay(
         "alignment_sample_count": int(aligned["alignment_sample_count"]),
         "alignment_method": aligned["alignment_method"],
         "replay_command_source": command_source,
+        "replay_command_onset_delay_s": command_onset_delay_s,
         "actual_termination_group": row.get("termination_group", ""),
         "sim_first_exit_reason": first_exit_reason or "none_before_actual_remaining_duration",
         "sim_first_exit_time_s": first_exit_time_s,
@@ -1225,6 +1241,7 @@ def _blocked_replay_row(row: dict[str, Any], status: str, replay_dt_s: float) ->
         "replay_policy": "dry_air_current_model_exact_measured_launch_state_same_command_history_same_duration",
         "replay_dt_s": float(replay_dt_s),
         "replay_command_source": "",
+        "replay_command_onset_delay_s": DEFAULT_REPLAY_COMMAND_ONSET_DELAY_S,
         "actual_termination_group": row.get("termination_group", ""),
     }
 
@@ -1389,6 +1406,8 @@ def _actuator_tau_from_manifest(manifest: dict[str, Any]) -> tuple[float, float,
 def _load_replay_command_schedule(
     throw_dir: Path,
     row: dict[str, Any],
+    *,
+    command_onset_delay_s: float,
 ) -> tuple[list[tuple[float, np.ndarray]], str]:
     schedule_rows = _read_csv(throw_dir / "metrics" / "command_schedule.csv")
     schedule: list[tuple[float, np.ndarray]] = []
@@ -1410,9 +1429,43 @@ def _load_replay_command_schedule(
             )
         )
     if schedule:
-        return sorted(schedule, key=lambda item: item[0]), "command_schedule_csv_normalised_aggregate_to_radians"
+        return (
+            _apply_replay_command_onset_delay(
+                sorted(schedule, key=lambda item: item[0]),
+                command_onset_delay_s,
+            ),
+            "command_schedule_csv_normalised_aggregate_to_radians_with_nominal_onset_delay",
+        )
 
-    return _case_metadata_command_schedule(row), "case_metadata_pulse_normalised_aggregate_to_radians"
+    return (
+        _apply_replay_command_onset_delay(
+            _case_metadata_command_schedule(row),
+            command_onset_delay_s,
+        ),
+        "case_metadata_pulse_normalised_aggregate_to_radians_with_nominal_onset_delay",
+    )
+
+
+def _apply_replay_command_onset_delay(
+    schedule: list[tuple[float, np.ndarray]],
+    command_onset_delay_s: float,
+) -> list[tuple[float, np.ndarray]]:
+    if not schedule:
+        return [(0.0, normalised_command_to_surface_rad(np.zeros(3, dtype=float)))]
+    onset = max(0.0, float(command_onset_delay_s))
+    if onset <= 0.0:
+        return [(float(time_s), command.copy()) for time_s, command in schedule]
+    neutral = normalised_command_to_surface_rad(np.zeros(3, dtype=float))
+    first_time_s, first_command = schedule[0]
+    if float(first_time_s) <= 1e-12:
+        delayed = [(0.0, first_command.copy())]
+        remaining = schedule[1:]
+    else:
+        delayed = [(0.0, neutral)]
+        remaining = schedule
+    for time_s, command in remaining:
+        delayed.append((max(0.0, float(time_s) + onset), command.copy()))
+    return sorted(delayed, key=lambda item: item[0])
 
 
 def _case_metadata_command_schedule(row: dict[str, Any]) -> list[tuple[float, np.ndarray]]:

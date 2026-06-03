@@ -16,7 +16,7 @@ LAUNCH_GATE_YAW_LIMIT_DEG = 20.0
 LAUNCH_GATE_SPEED_MIN_M_S = 3.0
 LAUNCH_GATE_SPEED_MAX_M_S = 8.0
 LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S = 1.5
-LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S = 0.5
+LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S = 0.7
 LAUNCH_GATE_Z_W_M = (1.3, 1.8)
 LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S = 1.2
 LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S = 1.2
@@ -48,7 +48,7 @@ class ArchiveStateSample:
     synthetic_time_since_launch_s: float
     state_sampling_seed: int
     launch_gate_compliant: bool
-    state_sampling_version: str = "mixed_primitive_start_v3_launch_vw_bound"
+    state_sampling_version: str = "mixed_primitive_start_v4_launch_vw_0p7_measured_log"
     measured_log_source: str = ""
     measured_log_row_index: int | str = ""
 
@@ -400,6 +400,50 @@ def measured_log_state_sample_rows(path: Path) -> list[ArchiveStateSample]:
             )
         )
     return rows
+
+
+def measured_launch_state_sample_rows(path: Path) -> list[ArchiveStateSample]:
+    """Return exact first-active measured launch states from real-flight logs."""
+
+    source = Path(path)
+    if source.is_dir():
+        paths = sorted(source.rglob("metrics/state_samples.csv"))
+    else:
+        paths = [source]
+    samples: list[ArchiveStateSample] = []
+    for csv_path in paths:
+        frame = pd.read_csv(csv_path)
+        required = set(STATE_NAMES)
+        missing = required - set(frame.columns)
+        if missing:
+            raise ValueError(f"measured launch log is missing state columns: {sorted(missing)}")
+        if frame.empty:
+            continue
+        row = frame.iloc[0]
+        state = np.asarray([float(row[name]) for name in STATE_NAMES], dtype=float)
+        compliant = state_is_launch_gate_compliant(state)
+        samples.append(
+            ArchiveStateSample(
+                state_vector=as_state_vector(state),
+                start_state_family="launch_gate",
+                state_sample_source="measured_real_launch_first_active_state",
+                paired_start_key=f"measured_launch_{len(samples):07d}",
+                state_envelope_label=(
+                    "approved_launch_gate"
+                    if compliant
+                    else "measured_launch_outside_current_gate"
+                ),
+                previous_primitive_status="launch_start",
+                state_sample_detail="real_calibration_first_active_state_exact",
+                synthetic_previous_primitive_id="",
+                synthetic_time_since_launch_s=0.0,
+                state_sampling_seed=-1,
+                launch_gate_compliant=compliant,
+                measured_log_source=csv_path.as_posix(),
+                measured_log_row_index=0,
+            )
+        )
+    return samples
 
 
 def measured_log_schema_row() -> dict[str, object]:

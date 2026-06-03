@@ -12,7 +12,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / "01_Runtime"
 CONTROLLER = ROOT / "02_Controller"
-for path in (RUNTIME, CONTROLLER):
+SCENARIOS = ROOT.parent / "03_Control" / "04_Scenarios"
+for path in (RUNTIME, CONTROLLER, SCENARIOS):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
@@ -34,6 +35,10 @@ from launch_gate import (  # noqa: E402
     evaluate_launch_gate,
     evaluate_launch_plane_gate,
     interpolate_launch_plane_state,
+)
+from state_sampling import (  # noqa: E402
+    LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S as SIM_LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S,
+    LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S as SIM_LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S,
 )
 from real_flight_io import (  # noqa: E402
     NausicaaViconSample,
@@ -475,7 +480,9 @@ def test_launch_gate_uses_r5_release_bounds() -> None:
     state[STATE_INDEX["w"]] = LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S
 
     assert LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S == 1.5
-    assert LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S == 0.5
+    assert LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S == 0.7
+    assert SIM_LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S == LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S
+    assert SIM_LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S == LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S
     assert evaluate_launch_gate(state).approved is True
 
     state[STATE_INDEX["x_w"]] = 1.5
