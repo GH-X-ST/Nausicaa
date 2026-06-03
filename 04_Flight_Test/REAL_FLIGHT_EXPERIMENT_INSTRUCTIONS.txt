@@ -43,10 +43,11 @@ Then run:
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_vicon_frame_calibration.py
 
 The script prints the raw Vicon mean, current transformed mean, current error,
-and recommended `VICON_POSITION_OFFSET_M`. After changing the offset, update
-the active calibration profile in `01_Runtime\calibration_profile.py` so the
+recommended `VICON_POSITION_OFFSET_M`, updates the active calibration profile in
+`01_Runtime\calibration_profile.py`, and reports the new profile hash. Start the
+next runtime script as a new process so it reloads the updated profile. The
 experiment launcher, calibration launcher, direct runtime, and manifest hash all
-use the same transform.
+then use the same transform.
 
 If moving the glider in physical +x, +y, or +z causes the wrong transformed
 coordinate to change, the axis mapping must be corrected before flight.

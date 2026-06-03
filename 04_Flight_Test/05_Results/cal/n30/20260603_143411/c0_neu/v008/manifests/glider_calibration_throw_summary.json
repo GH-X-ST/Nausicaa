@@ -1,0 +1,20 @@
+{
+  "active_packet_sequence_start": 84,
+  "calibration_profile_hash": "6a98a210147a67cc11ff623781cd0353ee5a411a51e4a8196adb354a7056c62e",
+  "calibration_profile_id": "nausicaa_real_flight_vicon_calibration_20260603_131504",
+  "cancellation_reason": "",
+  "case_id": "C0_neutral",
+  "case_name": "Dry-air open-loop neutral glide characterisation",
+  "completed": true,
+  "exit_gate_triggered": true,
+  "flight_cancelled": false,
+  "launch_gate_approved": true,
+  "launch_speed_m_s": 5.2012047658081295,
+  "packet_count": 152,
+  "post_exit_neutral_packets": 15,
+  "run_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/glider_calibration/neutral_30/20260603_143411/C0_neutral/throw_008",
+  "serial_write_error_count": 0,
+  "state_sample_count": 206,
+  "termination_reason": "exit_gate_floor",
+  "valid_throw": true
+}

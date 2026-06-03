@@ -1,0 +1,20 @@
+{
+  "active_packet_sequence_start": 258,
+  "calibration_profile_hash": "6a98a210147a67cc11ff623781cd0353ee5a411a51e4a8196adb354a7056c62e",
+  "calibration_profile_id": "nausicaa_real_flight_vicon_calibration_20260603_131504",
+  "cancellation_reason": "",
+  "case_id": "C1_aileron_neg1p0",
+  "case_name": "aileron pulse -1.0",
+  "completed": true,
+  "exit_gate_triggered": true,
+  "flight_cancelled": false,
+  "launch_gate_approved": true,
+  "launch_speed_m_s": 4.487419986328014,
+  "packet_count": 320,
+  "post_exit_neutral_packets": 15,
+  "run_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/glider_calibration/pulse_ladder_30/20260603_140315/C1_aileron_neg1p0/throw_001",
+  "serial_write_error_count": 0,
+  "state_sample_count": 183,
+  "termination_reason": "exit_gate_floor",
+  "valid_throw": true
+}

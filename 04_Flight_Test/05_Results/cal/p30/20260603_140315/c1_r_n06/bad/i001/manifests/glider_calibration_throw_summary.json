@@ -1,0 +1,18 @@
+{
+  "calibration_profile_hash": "6a98a210147a67cc11ff623781cd0353ee5a411a51e4a8196adb354a7056c62e",
+  "calibration_profile_id": "nausicaa_real_flight_vicon_calibration_20260603_131504",
+  "cancellation_reason": "rejected_launch_attempt:pitch_rate_outside_launch_gate",
+  "case_id": "C1_rudder_neg0p6",
+  "case_name": "rudder pulse -0.6",
+  "completed": false,
+  "exit_gate_triggered": false,
+  "flight_cancelled": true,
+  "launch_gate_approved": false,
+  "launch_speed_m_s": 0.0,
+  "packet_count": 67,
+  "run_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/glider_calibration/pulse_ladder_30/20260603_140315/C1_rudder_neg0p6/throw_002",
+  "serial_write_error_count": 0,
+  "state_sample_count": 0,
+  "termination_reason": "",
+  "valid_throw": false
+}

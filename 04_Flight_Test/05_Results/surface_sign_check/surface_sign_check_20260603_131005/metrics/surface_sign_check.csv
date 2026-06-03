@@ -1,0 +1,6 @@
+sequence,step_name,delta_a_norm,delta_e_norm,delta_r_norm,physical_surface_norm,packet_surface_norm,receiver_channel_codes,packet_hex,repeat_packet_count,expected_motion
+0,neutral_start,0.0,0.0,0.0,"[0.0,0.0,0.0,0.0]","[0.0,-0.0,0.0,-0.0]","[32768,32768,32768,32768]",5604005d0000000080008000800080,94,All control surfaces should return to neutral.
+1,aileron_neutral_before_sweep,0.0,0.0,0.0,"[0.0,0.0,0.0,0.0]","[0.0,-0.0,0.0,-0.0]","[32768,32768,32768,32768]",560400450400000080008000800080,94,All control surfaces should return to neutral.
+2,aileron_-1.0,-1.0,0.0,0.0,"[-1.0,1.0,0.0,0.0]","[-1.0,-1.0,0.0,-0.0]","[0,0,32768,32768]",5604002d0800000000000000800080,94,"Viewed from behind: left aileron trailing edge DOWN, right aileron trailing edge UP."
+3,aileron_-0.8,-0.8,0.0,0.0,"[-0.8,0.8,0.0,0.0]","[-0.8,-0.8,0.0,-0.0]","[6553,6553,32768,32768]",560400140c00009919991900800080,93,"Viewed from behind: left aileron trailing edge DOWN, right aileron trailing edge UP."
+4,aileron_-0.6,-0.6,0.0,0.0,"[-0.6,0.6,0.0,0.0]","[-0.6,-0.6,0.0,-0.0]","[13107,13107,32768,32768]",560400fd0f00003333333300800080,94,"Viewed from behind: left aileron trailing edge DOWN, right aileron trailing edge UP."

@@ -1,0 +1,73 @@
+{
+  "active_profile_update": {
+    "body_rate_limit_rad_s": 6.0,
+    "body_rate_observer_window_frames": 7,
+    "derivative_cutoff_hz": 8.0,
+    "launch_gate_body_rate_limits_rad_s": [
+      1.2,
+      1.2,
+      1.8
+    ],
+    "launch_gate_rate_confidence_min": 0.65,
+    "launch_gate_required_consecutive_frames": 2,
+    "profile_hash": "8182a45a7c14e8f9b79e5db9a2e6df87469e08c6b136e6e0c9f1624af9aecb79",
+    "profile_id": "nausicaa_real_flight_vicon_calibration_20260603_131450",
+    "profile_path": "c:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/01_Runtime/calibration_profile.py",
+    "profile_version": "1.0",
+    "rejected_launch_attempt_min_speed_m_s": 2.0,
+    "requested_vicon_tracking_rate_hz": 200.0,
+    "vicon_attitude_signs": [
+      1.0,
+      -1.0,
+      -1.0
+    ],
+    "vicon_position_offset_m": [
+      4.152041130679533,
+      2.46181438091039,
+      0.034154968583472264
+    ],
+    "vicon_yaw_alignment_deg": 0.0
+  },
+  "current_position_offset_m": [
+    4.136158795250567,
+    2.4114272057075916,
+    0.03414746062731508
+  ],
+  "current_transform_error_m": [
+    -0.015882335428965888,
+    -0.05038717520279756,
+    -7.507956157143392e-06
+  ],
+  "current_transformed_mean_m": [
+    1.184117664571034,
+    1.5496128247972025,
+    0.09999249204384286
+  ],
+  "current_yaw_alignment_deg": 0.0,
+  "invalid_reasons": {
+    "vicon_subject_occluded": 1
+  },
+  "known_arena_point_m": [
+    1.2,
+    1.6,
+    0.1
+  ],
+  "raw_vicon_mean_m": [
+    -2.9520411306795324,
+    -0.8618143809103898,
+    0.06584503141652774
+  ],
+  "raw_vicon_std_m": [
+    9.96254849128335e-05,
+    0.0001070646204335088,
+    0.0002165980644307193
+  ],
+  "recommended_position_offset_m": [
+    4.152041130679533,
+    2.46181438091039,
+    0.034154968583472264
+  ],
+  "run_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/vicon_frame_calibration/20260603_131450",
+  "status": "ok",
+  "valid_sample_count": 150
+}

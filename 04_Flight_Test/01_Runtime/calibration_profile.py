@@ -32,9 +32,9 @@ class FlightCalibrationProfile:
 
 
 ACTIVE_CALIBRATION_PROFILE = FlightCalibrationProfile(
-    profile_id="nausicaa_real_flight_vicon_calibration_20260602",
+    profile_id="nausicaa_real_flight_vicon_calibration_20260603_131504",
     profile_version="1.0",
-    vicon_position_offset_m=(4.136158795250567, 2.4114272057075916, 0.03414746062731508),
+    vicon_position_offset_m=(4.152039683430518, 2.461843553515413, 0.03420135378702735),
     vicon_yaw_alignment_deg=0.0,
     vicon_attitude_signs=(1.0, -1.0, -1.0),
     requested_vicon_tracking_rate_hz=200.0,

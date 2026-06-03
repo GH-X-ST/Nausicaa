@@ -73,9 +73,14 @@ use the neutral and single-axis pulse workflow described in
 `GLIDER_CALIBRATION_PLAN.txt`:
 
 ```powershell
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_vicon_frame_calibration.py
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block neutral_30
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_30
 ```
+
+Frame calibration updates `01_Runtime\calibration_profile.py`; start the glider
+calibration sequence as a separate new process so it reloads the updated
+profile. It does not auto-start calibration throws.
 
 This calibration workflow uses the same Vicon state adapter, launch gate,
 Arduino packet path, and 20 percent command lattice as the real-flight runtime,
@@ -140,6 +145,7 @@ record.
 If the Vicon origin or yaw alignment changes, override the arena transform:
 
 ```powershell
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_vicon_frame_calibration.py
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.py --mode vicon-smoke --calibration-profile active --duration-s 5 --run-label F_vicon_frame_check
 ```
 

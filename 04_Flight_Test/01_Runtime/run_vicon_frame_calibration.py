@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import time
 from datetime import datetime
@@ -8,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
+from calibration_profile import ACTIVE_CALIBRATION_PROFILE, calibration_profile_for_runtime_values
 from flight_config import DEFAULT_VICON_POSITION_OFFSET_M, RESULT_ROOT
 from flight_logger import FlightLogger
 from vicon_rigid_body import LiveNausicaaViconRigidBody
@@ -29,7 +31,54 @@ VICON_HOST = "192.168.0.100:801"
 VICON_SUBJECT_NAME = "Nausicaa"
 CALIBRATION_SAMPLE_COUNT = 150
 CALIBRATION_TIMEOUT_S = 15.0
+CALIBRATION_PROFILE_PATH = Path(__file__).with_name("calibration_profile.py")
 # =============================================================================
+
+
+def _format_float_tuple(values: tuple[float, float, float]) -> str:
+    return "(" + ", ".join(repr(float(value)) for value in values) + ")"
+
+
+def _update_active_calibration_profile_file(
+    *,
+    profile_path: Path,
+    recommended_offset_m: tuple[float, float, float],
+    profile_id: str,
+    profile_version: str,
+) -> dict[str, object]:
+    profile = calibration_profile_for_runtime_values(
+        profile_id=profile_id,
+        profile_version=profile_version,
+        vicon_position_offset_m=recommended_offset_m,
+        vicon_yaw_alignment_deg=ACTIVE_CALIBRATION_PROFILE.vicon_yaw_alignment_deg,
+        vicon_attitude_signs=ACTIVE_CALIBRATION_PROFILE.vicon_attitude_signs,
+        requested_vicon_tracking_rate_hz=ACTIVE_CALIBRATION_PROFILE.requested_vicon_tracking_rate_hz,
+        derivative_cutoff_hz=ACTIVE_CALIBRATION_PROFILE.derivative_cutoff_hz,
+        body_rate_limit_rad_s=ACTIVE_CALIBRATION_PROFILE.body_rate_limit_rad_s,
+        body_rate_observer_window_frames=ACTIVE_CALIBRATION_PROFILE.body_rate_observer_window_frames,
+        launch_gate_required_consecutive_frames=ACTIVE_CALIBRATION_PROFILE.launch_gate_required_consecutive_frames,
+        launch_gate_rate_confidence_min=ACTIVE_CALIBRATION_PROFILE.launch_gate_rate_confidence_min,
+        launch_gate_body_rate_limits_rad_s=ACTIVE_CALIBRATION_PROFILE.launch_gate_body_rate_limits_rad_s,
+        rejected_launch_attempt_min_speed_m_s=ACTIVE_CALIBRATION_PROFILE.rejected_launch_attempt_min_speed_m_s,
+    )
+    text = profile_path.read_text(encoding="utf-8")
+    replacements = (
+        (r'profile_id="[^"]+"', f'profile_id="{profile.profile_id}"'),
+        (r'profile_version="[^"]+"', f'profile_version="{profile.profile_version}"'),
+        (
+            r"vicon_position_offset_m=\([^)]*\),",
+            f"vicon_position_offset_m={_format_float_tuple(profile.vicon_position_offset_m)},",
+        ),
+    )
+    for pattern, replacement in replacements:
+        text, count = re.subn(pattern, lambda _match: replacement, text, count=1)
+        if count != 1:
+            raise RuntimeError(f"Could not update active calibration profile field matching: {pattern}")
+
+    profile_path.write_text(text, encoding="utf-8")
+    manifest = profile.to_manifest()
+    manifest["profile_path"] = profile_path.as_posix()
+    return manifest
 
 
 def run_vicon_frame_calibration(
@@ -42,6 +91,10 @@ def run_vicon_frame_calibration(
     sample_count: int,
     timeout_s: float,
     run_label: str,
+    update_active_profile: bool = True,
+    profile_id: str = "",
+    profile_version: str = "1.0",
+    profile_path: Path = CALIBRATION_PROFILE_PATH,
 ) -> dict[str, object]:
     logger = FlightLogger(RESULT_ROOT / "vicon_frame_calibration" / run_label)
     reader = LiveNausicaaViconRigidBody(host=vicon_host, subject_name=subject_name)
@@ -143,6 +196,14 @@ def run_vicon_frame_calibration(
         "current_yaw_alignment_deg": float(current_yaw_alignment_deg),
         "run_root": (RESULT_ROOT / "vicon_frame_calibration" / run_label).as_posix(),
     }
+    if update_active_profile:
+        resolved_profile_id = profile_id or f"nausicaa_real_flight_vicon_calibration_{run_label}"
+        result["active_profile_update"] = _update_active_calibration_profile_file(
+            profile_path=profile_path,
+            recommended_offset_m=tuple(float(value) for value in recommended_offset),
+            profile_id=resolved_profile_id,
+            profile_version=profile_version,
+        )
     logger.write_manifest("vicon_frame_calibration_manifest.json", result)
     logger.write_report(
         "vicon_frame_calibration_report.md",
@@ -166,8 +227,14 @@ def run_vicon_frame_calibration(
     print(f"  current error m:          {result['current_transform_error_m']}")
     print(f"  recommended offset m:     {result['recommended_position_offset_m']}")
     print()
-    print("Paste this into run_experiment_sequence.py if the axis directions are correct:")
-    print(f"VICON_POSITION_OFFSET_M = {result['recommended_position_offset_m']}")
+    if update_active_profile:
+        update = result["active_profile_update"]
+        print(f"[CALIBRATE] active profile updated: {update['profile_path']}")
+        print(f"[CALIBRATE] profile id: {update['profile_id']}")
+        print(f"[CALIBRATE] profile hash: {update['profile_hash']}")
+        print("[CALIBRATE] start the next runtime script as a new process so it reloads the profile.")
+    else:
+        print("[CALIBRATE] active profile update skipped by --no-update-active-profile")
     return result
 
 
@@ -181,6 +248,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-count", type=int, default=CALIBRATION_SAMPLE_COUNT)
     parser.add_argument("--timeout-s", type=float, default=CALIBRATION_TIMEOUT_S)
     parser.add_argument("--run-label", default="")
+    parser.add_argument(
+        "--no-update-active-profile",
+        action="store_true",
+        help="Diagnostic only: do not write the measured offset into calibration_profile.py.",
+    )
+    parser.add_argument("--profile-id", default="")
+    parser.add_argument("--profile-version", default="1.0")
     return parser.parse_args()
 
 
@@ -196,6 +270,9 @@ def main() -> None:
         sample_count=int(args.sample_count),
         timeout_s=float(args.timeout_s),
         run_label=run_label,
+        update_active_profile=not bool(args.no_update_active_profile),
+        profile_id=str(args.profile_id),
+        profile_version=str(args.profile_version),
     )
 
 

@@ -46,7 +46,7 @@ from state_contract import state_dataframe_row  # noqa: E402
 # Current setup: dry-air calibration, hardware armed on COM11.
 # Failed launch-gate attempts are ignored and do not count as throws.
 # =============================================================================
-CALIBRATION_BLOCK = "pulse_ladder_30"  # neutral_30 or pulse_ladder_30
+CALIBRATION_BLOCK = "pulse_supplement_aileron_rudder_high"  # neutral_30, pulse_ladder_30, or pulse_supplement_aileron_rudder_high
 CURRENT_SESSION_LABEL = ""  # Empty means timestamped folder.
 TARGET_VALID_THROWS_OVERRIDE: int | None = None  # None uses block defaults below.
 SERIAL_PORT = "COM11"
@@ -67,14 +67,16 @@ VICON_ATTITUDE_SIGNS = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_signs
 
 NEUTRAL_VALID_THROWS = 30
 PULSE_VALID_THROWS_PER_CASE = 3
+SUPPLEMENT_VALID_THROWS_PER_CASE = 3
 PULSE_START_DELAY_S = 0.25
 PULSE_DURATION_BY_ABS_COMMAND = {
-    0.2: 0.25,
-    0.4: 0.20,
-    0.6: 0.15,
-    0.8: 0.12,
-    1.0: 0.10,
+    0.2: 0.40,
+    0.4: 0.40,
+    0.6: 0.40,
+    0.8: 0.40,
+    1.0: 0.40,
 }
+SUPPLEMENT_PULSE_DURATION_S = 0.60
 # =============================================================================
 
 
@@ -126,7 +128,28 @@ def calibration_cases_for_block(block_id: str) -> list[CalibrationCase]:
                     )
                 )
         return cases
-    raise ValueError("CALIBRATION_BLOCK must be 'neutral_30' or 'pulse_ladder_30'.")
+    if block == "pulse_supplement_aileron_rudder_high":
+        cases = []
+        axis_order = (("aileron", "delta_a"), ("rudder", "delta_r"))
+        command_values = (0.6, -0.6, 0.8, -0.8, 1.0, -1.0)
+        for axis_label, axis_name in axis_order:
+            for value in command_values:
+                cases.append(
+                    CalibrationCase(
+                        case_id=f"C2_{axis_label}_{_command_label(value)}",
+                        case_name=f"{axis_label} supplemental high-authority pulse {value:+.1f}",
+                        command_axis=axis_name,
+                        command_value=float(value),
+                        pulse_start_s=PULSE_START_DELAY_S,
+                        pulse_duration_s=SUPPLEMENT_PULSE_DURATION_S,
+                        target_valid_throws=SUPPLEMENT_VALID_THROWS_PER_CASE,
+                    )
+                )
+        return cases
+    raise ValueError(
+        "CALIBRATION_BLOCK must be 'neutral_30', 'pulse_ladder_30', "
+        "or 'pulse_supplement_aileron_rudder_high'."
+    )
 
 
 def run_calibration_sequence(
@@ -170,7 +193,8 @@ def run_calibration_sequence(
         else "manual_runtime_vicon_transform"
     )
     session = session_label or datetime.now().strftime("%Y%m%d_%H%M%S")
-    session_root = RESULT_ROOT / "glider_calibration" / str(block_id) / session
+    block_storage_id = _block_storage_id(block_id)
+    session_root = RESULT_ROOT / "cal" / block_storage_id / session
     session_logger = FlightLogger(session_root)
     base_config = _base_config(
         run_label="calibration_session",
@@ -193,10 +217,11 @@ def run_calibration_sequence(
         "glider_calibration_sequence_manifest.json",
         {
             "block_id": block_id,
+            "block_storage_id": block_storage_id,
             "session_label": session,
             "mode": mode,
             "case_count": len(cases),
-            "cases": [asdict(case) for case in cases],
+            "cases": [_case_manifest(case) for case in cases],
             "target_valid_throws_override": target_valid_throws,
             "launch_gate_bounds": launch_gate_bounds_manifest(
                 body_rate_limits_rad_s=base_config.launch_gate_body_rate_limits_rad_s
@@ -214,6 +239,7 @@ def run_calibration_sequence(
             "vicon_tracking_rate_hz": float(vicon_tracking_rate_hz),
             "calibration_profile": calibration_profile.to_manifest(),
             "calibration_csv_schema": _calibration_csv_schema_manifest(),
+            "result_storage_policy": _result_storage_policy_manifest(block_id),
             "vicon_position_offset_m": tuple(float(value) for value in vicon_position_offset_m),
             "vicon_attitude_signs": tuple(float(value) for value in vicon_attitude_signs),
         },
@@ -227,6 +253,7 @@ def run_calibration_sequence(
             invalid_count = 0
             while valid_count < int(case.target_valid_throws):
                 next_throw = valid_count + 1
+                case_storage_id = _case_storage_id(case)
                 print(
                     f"[CAL] block={block_id} case={case.case_id} valid={valid_count}/{case.target_valid_throws} "
                     f"next_throw={next_throw:03d} invalid={invalid_count}"
@@ -239,7 +266,7 @@ def run_calibration_sequence(
                     serial_baud=base_config.serial_baud,
                     serial_period_s=base_config.serial_period_s,
                 )
-                preferred_run_root = session_root / case.case_id / f"throw_{next_throw:03d}"
+                preferred_run_root = session_root / case_storage_id / f"v{next_throw:03d}"
                 run_root = _available_run_root(preferred_run_root)
                 if run_root != preferred_run_root:
                     print(
@@ -294,7 +321,7 @@ def run_calibration_sequence(
                 else:
                     invalid_count += 1
                     total_invalid += 1
-                    invalid_root = session_root / case.case_id / "invalid_attempts" / f"attempt_{invalid_count:03d}"
+                    invalid_root = session_root / case_storage_id / "bad" / f"i{invalid_count:03d}"
                     _move_if_exists(run_root, invalid_root)
                     session_logger.append_metric_row(
                         "glider_calibration_sequence_summary.csv",
@@ -317,11 +344,12 @@ def run_calibration_sequence(
             "glider_calibration_sequence_final_summary.json",
             {
                 "block_id": block_id,
+                "block_storage_id": block_storage_id,
                 "session_label": session,
                 "total_valid_throw_count": total_valid,
                 "total_invalid_attempt_count": total_invalid,
                 "calibration_profile": calibration_profile.to_manifest(),
-                "cases": [asdict(case) for case in cases],
+                "cases": [_case_manifest(case) for case in cases],
             },
         )
         session_logger.close()
@@ -371,6 +399,13 @@ def run_single_calibration_throw(
             },
             "calibration_csv_schema": _calibration_csv_schema_manifest(),
             "calibration_case": asdict(case),
+            "case_storage_id": _case_storage_id(case),
+            "result_storage_policy": {
+                "policy": "short_git_trackable_paths_with_full_human_ids_in_manifests_and_csv",
+                "case_storage_id": _case_storage_id(case),
+                "valid_throw_folder": "v001",
+                "invalid_attempt_folder": "bad/i001",
+            },
             "launch_gate_bounds": launch_gate_bounds_manifest(
                 body_rate_limits_rad_s=config.launch_gate_body_rate_limits_rad_s
             ),
@@ -385,6 +420,7 @@ def run_single_calibration_throw(
     summary: dict[str, object] = {
         "run_root": run_root.as_posix(),
         "case_id": case.case_id,
+        "case_storage_id": _case_storage_id(case),
         "case_name": case.case_name,
         "valid_throw": False,
         "flight_cancelled": False,
@@ -862,7 +898,9 @@ def _sequence_row(
 ) -> dict[str, object]:
     return {
         "block_id": block_id,
+        "block_storage_id": _block_storage_id(block_id),
         "case_id": case.case_id,
+        "case_storage_id": _case_storage_id(case),
         "case_name": case.case_name,
         "command_axis": case.command_axis,
         "command_value": case.command_value,
@@ -895,6 +933,55 @@ def _append_event(logger: FlightLogger, event: str, **details: object) -> None:
 
 def _command_label(value: float) -> str:
     return f"{float(value):+.1f}".replace("+", "pos").replace("-", "neg").replace(".", "p")
+
+
+def _short_command_label(value: float) -> str:
+    sign = "p" if float(value) >= 0.0 else "n"
+    magnitude = int(round(abs(float(value)) * 10.0))
+    return f"{sign}{magnitude:02d}"
+
+
+def _block_storage_id(block_id: str) -> str:
+    short_ids = {
+        "neutral_30": "n30",
+        "pulse_ladder_30": "p30",
+        "pulse_supplement_aileron_rudder_high": "ar_hi",
+    }
+    if block_id in short_ids:
+        return short_ids[block_id]
+    safe = "".join(ch if ch.isalnum() else "_" for ch in str(block_id).lower()).strip("_")
+    return safe[:24] or "block"
+
+
+def _case_storage_id(case: CalibrationCase) -> str:
+    if case.is_neutral:
+        return "c0_neu"
+    axis_ids = {
+        "delta_e": "e",
+        "delta_a": "a",
+        "delta_r": "r",
+    }
+    block_prefix = "c2" if case.case_id.startswith("C2_") else "c1"
+    axis_id = axis_ids.get(case.command_axis, "cmd")
+    return f"{block_prefix}_{axis_id}_{_short_command_label(case.command_value)}"
+
+
+def _result_storage_policy_manifest(block_id: str) -> dict[str, object]:
+    return {
+        "policy": "short_git_trackable_paths_with_full_human_ids_in_manifests_and_csv",
+        "root_template": "04_Flight_Test/05_Results/cal/<block_storage_id>/<session>/<case_storage_id>/v001",
+        "invalid_attempt_template": (
+            "04_Flight_Test/05_Results/cal/<block_storage_id>/<session>/<case_storage_id>/bad/i001"
+        ),
+        "block_id": block_id,
+        "block_storage_id": _block_storage_id(block_id),
+    }
+
+
+def _case_manifest(case: CalibrationCase) -> dict[str, object]:
+    data = asdict(case)
+    data["case_storage_id"] = _case_storage_id(case)
+    return data
 
 
 def _available_run_root(preferred: Path) -> Path:
@@ -935,7 +1022,11 @@ def _move_if_exists(source: Path, target: Path) -> bool:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run dry-air glider calibration throws.")
-    parser.add_argument("--block", choices=("neutral_30", "pulse_ladder_30"), default=CALIBRATION_BLOCK)
+    parser.add_argument(
+        "--block",
+        choices=("neutral_30", "pulse_ladder_30", "pulse_supplement_aileron_rudder_high"),
+        default=CALIBRATION_BLOCK,
+    )
     parser.add_argument("--session-label", default=CURRENT_SESSION_LABEL)
     parser.add_argument("--mode", choices=("dry-run", "vicon-smoke", "armed"), default=MODE)
     parser.add_argument("--serial-port", default=SERIAL_PORT)

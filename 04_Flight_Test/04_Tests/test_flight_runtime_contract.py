@@ -46,12 +46,16 @@ from run_experiment_sequence import run_experiment_sequence  # noqa: E402
 from run_glider_calibration_sequence import (  # noqa: E402
     PULSE_DURATION_BY_ABS_COMMAND,
     PULSE_START_DELAY_S,
+    SUPPLEMENT_PULSE_DURATION_S,
+    _block_storage_id,
+    _case_storage_id,
     _command_for_case,
     calibration_cases_for_block,
     run_calibration_sequence,
 )
 from run_vicon_orientation_check import _evaluate_steps, _sample_rate_summary  # noqa: E402
 from run_surface_sign_check import SURFACE_CHECK_SEQUENCE, run_surface_sign_check  # noqa: E402
+from run_vicon_frame_calibration import _update_active_calibration_profile_file  # noqa: E402
 from state_contract import STATE_INDEX  # noqa: E402
 from episode_selector import select_compact_representative  # noqa: E402
 from transition_labels import classify_state  # noqa: E402
@@ -105,6 +109,26 @@ def test_real_flight_default_library_tier_is_balanced_cluster() -> None:
     assert config.library_manifest_path.name == "balanced_cluster_primitive_library.json"
     assert config.vicon_position_offset_m == ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m
     assert config.calibration_profile_hash == ACTIVE_CALIBRATION_PROFILE.profile_hash()
+
+
+def test_vicon_frame_calibration_can_update_active_profile_file(tmp_path: Path) -> None:
+    profile_path = tmp_path / "calibration_profile.py"
+    profile_path.write_text((RUNTIME / "calibration_profile.py").read_text(encoding="utf-8"), encoding="utf-8")
+
+    update = _update_active_calibration_profile_file(
+        profile_path=profile_path,
+        recommended_offset_m=(1.0, 2.0, 3.0),
+        profile_id="pytest_vicon_calibration",
+        profile_version="9.0",
+    )
+    text = profile_path.read_text(encoding="utf-8")
+
+    assert 'profile_id="pytest_vicon_calibration"' in text
+    assert 'profile_version="9.0"' in text
+    assert "vicon_position_offset_m=(1.0, 2.0, 3.0)," in text
+    assert update["profile_id"] == "pytest_vicon_calibration"
+    assert isinstance(update["profile_hash"], str)
+    assert len(str(update["profile_hash"])) == 64
 
 
 def test_direct_armed_cli_refuses_without_calibrated_profile(monkeypatch) -> None:
@@ -589,6 +613,7 @@ def test_flight_record_rejects_crossed_launch_attempt_without_waiting_for_timeou
 def test_glider_calibration_case_registry_uses_neutral_and_0p2_lattice() -> None:
     neutral_cases = calibration_cases_for_block("neutral_30")
     pulse_cases = calibration_cases_for_block("pulse_ladder_30")
+    supplement_cases = calibration_cases_for_block("pulse_supplement_aileron_rudder_high")
 
     assert len(neutral_cases) == 1
     assert neutral_cases[0].case_id == "C0_neutral"
@@ -616,6 +641,17 @@ def test_glider_calibration_case_registry_uses_neutral_and_0p2_lattice() -> None
     for case in pulse_cases:
         assert case.pulse_start_s == PULSE_START_DELAY_S
         assert case.pulse_duration_s == PULSE_DURATION_BY_ABS_COMMAND[round(abs(case.command_value), 1)]
+        assert case.target_valid_throws == 3
+
+    assert len(supplement_cases) == 12
+    assert {case.command_axis for case in supplement_cases} == {"delta_a", "delta_r"}
+    for axis in ("delta_a", "delta_r"):
+        axis_cases = [case for case in supplement_cases if case.command_axis == axis]
+        assert len(axis_cases) == 6
+        assert [case.command_value for case in axis_cases] == [0.6, -0.6, 0.8, -0.8, 1.0, -1.0]
+    for case in supplement_cases:
+        assert case.pulse_start_s == PULSE_START_DELAY_S
+        assert case.pulse_duration_s == SUPPLEMENT_PULSE_DURATION_S
         assert case.target_valid_throws == 3
 
 
@@ -665,7 +701,7 @@ def test_glider_calibration_logs_profile_hash_schema_and_continuous_sequence(
     )
 
     assert result["total_valid_throw_count"] == 1
-    run_root = tmp_path / "glider_calibration" / "neutral_30" / "pytest_cal_schema" / "C0_neutral" / "throw_001"
+    run_root = tmp_path / "cal" / "n30" / "pytest_cal_schema" / "c0_neu" / "v001"
     manifest = json.loads((run_root / "manifests" / "glider_calibration_throw_manifest.json").read_text())
     summary = json.loads((run_root / "manifests" / "glider_calibration_throw_summary.json").read_text())
     with (run_root / "metrics" / "command_schedule.csv").open(newline="") as handle:
@@ -674,6 +710,8 @@ def test_glider_calibration_logs_profile_hash_schema_and_continuous_sequence(
         state_rows = list(csv.DictReader(handle))
 
     assert manifest["calibration_profile"]["profile_hash"] == ACTIVE_CALIBRATION_PROFILE.profile_hash()
+    assert manifest["case_storage_id"] == "c0_neu"
+    assert result["session_root"].endswith("/cal/n30/pytest_cal_schema")
     assert "calibration_csv_schema" in manifest
     assert int(summary["active_packet_sequence_start"]) > 0
     assert int(command_rows[0]["packet_sequence"]) >= int(summary["active_packet_sequence_start"])
@@ -682,6 +720,29 @@ def test_glider_calibration_logs_profile_hash_schema_and_continuous_sequence(
     assert command_rows[0]["packet_surface_units"] == "normalized_servo_signed_packet_surface_command"
     assert command_rows[0]["receiver_channel_units"] == "uint16_after_receiver_channel_order"
     assert state_rows[0]["surface_state_source"] == "estimated_actuator_state_not_measured_surface_marker"
+
+
+def test_glider_calibration_storage_ids_keep_git_paths_short() -> None:
+    block_id = "pulse_supplement_aileron_rudder_high"
+    case = max(calibration_cases_for_block(block_id), key=lambda item: len(item.case_id))
+    relative_path = (
+        Path("04_Flight_Test")
+        / "05_Results"
+        / "cal"
+        / _block_storage_id(block_id)
+        / "20260603_000000"
+        / _case_storage_id(case)
+        / "bad"
+        / "i001"
+        / "manifests"
+        / "glider_calibration_throw_manifest.json"
+    )
+
+    assert relative_path.as_posix() == (
+        "04_Flight_Test/05_Results/cal/ar_hi/20260603_000000/"
+        "c2_a_p06/bad/i001/manifests/glider_calibration_throw_manifest.json"
+    )
+    assert len(relative_path.as_posix()) < 130
 
 
 def test_active_record_terminates_at_exit_gate_and_sends_neutral_tail(tmp_path: Path) -> None:

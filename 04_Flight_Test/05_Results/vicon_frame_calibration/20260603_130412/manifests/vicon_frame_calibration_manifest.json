@@ -1,0 +1,44 @@
+{
+  "current_position_offset_m": [
+    4.136158795250567,
+    2.4114272057075916,
+    0.03414746062731508
+  ],
+  "current_transform_error_m": [
+    -0.015864241127221845,
+    -0.05042159858165163,
+    0.00010200148062892989
+  ],
+  "current_transformed_mean_m": [
+    1.184135758872778,
+    1.5495784014183485,
+    0.10010200148062894
+  ],
+  "current_yaw_alignment_deg": 0.0,
+  "invalid_reasons": {
+    "vicon_subject_missing:Nausicaa;available=FlapperDrone": 1
+  },
+  "known_arena_point_m": [
+    1.2,
+    1.6,
+    0.1
+  ],
+  "raw_vicon_mean_m": [
+    -2.952023036377789,
+    -0.8618488042892434,
+    0.06595454085331383
+  ],
+  "raw_vicon_std_m": [
+    8.479091040275119e-05,
+    0.00010627212730615175,
+    0.0001528074364200933
+  ],
+  "recommended_position_offset_m": [
+    4.152023036377789,
+    2.4618488042892435,
+    0.03404545914668618
+  ],
+  "run_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/vicon_frame_calibration/20260603_130412",
+  "status": "ok",
+  "valid_sample_count": 150
+}

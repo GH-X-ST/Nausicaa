@@ -52,10 +52,10 @@ Five-throw shakedown before committing to all 30:
 
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block neutral_30 --target-valid-throws 5
 
-The current top-of-file runner settings are configured for the full pulse
-ladder, not the neutral shakedown:
+The current top-of-file runner settings are configured for the focused
+aileron/rudder supplemental pulse block, not the neutral shakedown:
 
-CALIBRATION_BLOCK = "pulse_ladder_30"
+CALIBRATION_BLOCK = "pulse_supplement_aileron_rudder_high"
 TARGET_VALID_THROWS_OVERRIDE = None
 PULSE_VALID_THROWS_PER_CASE = 3
 
@@ -91,11 +91,10 @@ Pulse start:
 
 Pulse durations:
 
-abs(command) = 0.2 -> 0.25 s
-abs(command) = 0.4 -> 0.20 s
-abs(command) = 0.6 -> 0.15 s
-abs(command) = 0.8 -> 0.12 s
-abs(command) = 1.0 -> 0.10 s
+All nonzero command amplitudes are held for 0.40 s. This fixed-duration pulse
+keeps amplitude as the main independent variable for calibration, gives a
+stronger observable response than the earlier 0.20 s pulse, and still returns to
+neutral instead of handing control to the governor or a recovery controller.
 
 Axis order:
 
@@ -120,6 +119,41 @@ What this estimates:
 - nonlinear control effectiveness from +/-0.2 to +/-1.0
 
 
+Block C: Focused Aileron/Rudder High-Authority Supplement
+---------------------------------------------------------
+The completed 0.40 s full pulse ladder showed clear elevator response, usable
+rudder response mainly at high amplitudes, and weak/inconsistent aileron
+response. This supplement targets only the weak axes instead of repeating the
+full ladder.
+
+Run 12 dry-air pulse command cases, with 3 valid throws per case. This gives 36
+valid supplemental throws.
+
+Axes:
+
+1. Aileron
+2. Rudder
+
+Command amplitudes:
+
++/-0.6, +/-0.8, +/-1.0
+
+Pulse start:
+
+0.25 s after launch gate approval
+
+Pulse duration:
+
+0.60 s for every supplemental command
+
+Use:
+
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_supplement_aileron_rudder_high
+
+The pulse still returns to neutral after 0.60 s. Do not hand control to the
+governor or a recovery controller inside this calibration block.
+
+
 Manual Operator Stop Rules
 --------------------------
 The calibration script intentionally does not auto-abort the planned pulse
@@ -141,7 +175,25 @@ Output Layout
 -------------
 Results are stored under:
 
-04_Flight_Test/05_Results/glider_calibration/<block>/<session>/
+04_Flight_Test/05_Results/cal/<block_storage_id>/<session>/
+
+The storage IDs are deliberately short so the generated evidence can be added
+to Git even when the repository lives under a long OneDrive path:
+
+- neutral_30 -> n30
+- pulse_ladder_30 -> p30
+- pulse_supplement_aileron_rudder_high -> ar_hi
+
+Each case also uses a short storage ID, for example:
+
+- C0_neutral -> c0_neu
+- C1_elevator_pos0p2 -> c1_e_p02
+- C1_aileron_neg1p0 -> c1_a_n10
+- C2_rudder_pos0p8 -> c2_r_p08
+
+The full block ID, case ID, case name, command axis, command value, and
+calibration profile hash are still written inside the CSV rows and manifests.
+Only the physical folder names are shortened.
 
 Each valid throw writes:
 
@@ -162,18 +214,25 @@ measured control-surface marker deflections.
 
 Invalid launch-gate attempts are moved to:
 
-<case_id>/invalid_attempts/attempt_XXX/
+<case_storage_id>/bad/iXXX/
 
 Invalid attempts do not count as valid calibration throws.
 
 
 Before Running
 --------------
-1. Run Vicon orientation check.
-2. Run surface sign check.
-3. Confirm fans are off.
-4. Confirm Arduino transmitter is on the expected serial port.
-5. Confirm launch gate values above are visible in the runtime manifest after
+1. Run Vicon frame calibration:
+
+   C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_vicon_frame_calibration.py
+
+   This updates `01_Runtime\calibration_profile.py` by default. The glider
+   calibration sequence reads that profile when it starts, so start it as a
+   separate new process after the frame calibration finishes.
+2. Run Vicon orientation check.
+3. Run surface sign check.
+4. Confirm fans are off.
+5. Confirm Arduino transmitter is on the expected serial port.
+6. Confirm launch gate values above are visible in the runtime manifest after
    the first throw starts.
 
 
