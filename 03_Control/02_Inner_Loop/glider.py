@@ -9,6 +9,12 @@ from A_model_parameters.mass_properties_estimate import (
     MASS_KG as ESTIMATED_MASS_KG,
     R_CG_BUILD_M as ESTIMATED_R_CG_BUILD_M,
 )
+from A_model_parameters.neutral_dry_air_calibration import (
+    CALIBRATION_ACTIVE as NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE,
+    CD0_STRIP_SCALE as NEUTRAL_DRY_AIR_CD0_STRIP_SCALE,
+    DRAG_AREA_FUSE_SCALE as NEUTRAL_DRY_AIR_DRAG_AREA_FUSE_SCALE,
+    EFFICIENCY_STRIP_SCALE as NEUTRAL_DRY_AIR_EFFICIENCY_STRIP_SCALE,
+)
 
 
 # =============================================================================
@@ -302,6 +308,9 @@ def build_nausicaa_glider() -> Glider:
             vtail_root_le_z_from_fuselage_rod_m - z_cg_from_fuselage_rod_m,
         ]
     )
+    cd0_scale = NEUTRAL_DRY_AIR_CD0_STRIP_SCALE if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 1.0
+    efficiency_scale = NEUTRAL_DRY_AIR_EFFICIENCY_STRIP_SCALE if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 1.0
+    drag_area_fuse_scale = NEUTRAL_DRY_AIR_DRAG_AREA_FUSE_SCALE if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 1.0
     wing = LiftingSurface(
         name="wing",
         code=WING,
@@ -312,9 +321,9 @@ def build_nausicaa_glider() -> Glider:
         strip_count=6,
         symmetric=True,
         vertical=False,
-        cd0=0.018,
+        cd0=0.018 * cd0_scale,
         alpha0=0.001,
-        induced_drag_efficiency=0.82,
+        induced_drag_efficiency=0.82 * efficiency_scale,
         control_surface=ControlSurface(
             name="aileron",
             chord_fraction=0.30,
@@ -334,9 +343,9 @@ def build_nausicaa_glider() -> Glider:
         strip_count=4,
         symmetric=True,
         vertical=False,
-        cd0=0.020,
+        cd0=0.020 * cd0_scale,
         alpha0=0.0,
-        induced_drag_efficiency=0.78,
+        induced_drag_efficiency=0.78 * efficiency_scale,
         control_surface=ControlSurface(
             name="elevator",
             chord_fraction=0.30,
@@ -356,9 +365,9 @@ def build_nausicaa_glider() -> Glider:
         strip_count=4,
         symmetric=False,
         vertical=True,
-        cd0=0.020,
+        cd0=0.020 * cd0_scale,
         alpha0=0.0,
-        induced_drag_efficiency=0.75,
+        induced_drag_efficiency=0.75 * efficiency_scale,
         control_surface=ControlSurface(
             name="rudder",
             chord_fraction=0.35,
@@ -376,7 +385,7 @@ def build_nausicaa_glider() -> Glider:
         s_ref_m2=wing_span_m * wing_chord_m,
         b_ref_m=wing_span_m,
         c_ref_m=wing_chord_m,
-        drag_area_fuse_m2=4.89753346075483e-05,
+        drag_area_fuse_m2=4.89753346075483e-05 * drag_area_fuse_scale,
         surfaces=surfaces,
         r_strip_b=strip_table["r_strip_b"],
         area_strip_m2=strip_table["area_strip_m2"],

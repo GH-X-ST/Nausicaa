@@ -1,0 +1,92 @@
+{
+  "source_session_roots": [
+    "04_Flight_Test/05_Results/cal/n30/20260602_225953",
+    "04_Flight_Test/05_Results/cal/n30/20260602_231554",
+    "04_Flight_Test/05_Results/cal/n30/20260603_134313",
+    "04_Flight_Test/05_Results/cal/n30/20260603_143411",
+    "04_Flight_Test/05_Results/cal/n30/20260603_144119"
+  ],
+  "output_dir": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/glider_model_calibration_prep/N04_neutral_80_calibrated_measured_launch_replay",
+  "session_count": 5,
+  "valid_throw_count": 80,
+  "invalid_attempt_count": 43,
+  "heldout_count": 5,
+  "heldout_seed": 604,
+  "heldout_selection_policy": "randomised_stratified_by_session_label",
+  "heldout_throw_keys": [
+    {
+      "index": 4,
+      "session_label": "20260602_225953",
+      "throw_id": "v005",
+      "case_id": "C0_neutral"
+    },
+    {
+      "index": 25,
+      "session_label": "20260602_231554",
+      "throw_id": "v021",
+      "case_id": "C0_neutral"
+    },
+    {
+      "index": 51,
+      "session_label": "20260603_134313",
+      "throw_id": "v022",
+      "case_id": "C0_neutral"
+    },
+    {
+      "index": 63,
+      "session_label": "20260603_143411",
+      "throw_id": "v004",
+      "case_id": "C0_neutral"
+    },
+    {
+      "index": 77,
+      "session_label": "20260603_144119",
+      "throw_id": "v008",
+      "case_id": "C0_neutral"
+    }
+  ],
+  "measured_launch_replay_dt_s": 0.005,
+  "measured_launch_replay_workers": 8,
+  "measured_launch_replay_policy": "dry_air_current_model_exact_measured_launch_state_same_command_history_same_duration",
+  "current_model_calibration": {
+    "neutral_dry_air_calibration_active": true,
+    "neutral_dry_air_calibration_id": "neutral_dry_air_measured_launch_replay_N04",
+    "source_prep_run": "03_Control/05_Results/glider_model_calibration_prep/N03_neutral_80_measured_launch_replay",
+    "source_throw_count": 80,
+    "heldout_policy": "randomised_stratified_by_session_label",
+    "heldout_seed": 604,
+    "cd0_strip_scale": 6.0,
+    "drag_area_fuse_scale": 10.0,
+    "efficiency_strip_scale": 0.75
+  },
+  "empirical_feature_names": [
+    "x0_m",
+    "y0_m",
+    "z0_m",
+    "launch_x_offset_m",
+    "launch_y_offset_m",
+    "launch_z_offset_m",
+    "u0_m_s",
+    "v0_m_s",
+    "w0_m_s",
+    "p0_rad_s",
+    "q0_rad_s",
+    "r0_rad_s",
+    "phi0_deg",
+    "theta0_deg",
+    "psi0_deg",
+    "speed0_m_s",
+    "horizontal_speed0_m_s",
+    "flight_path_angle_proxy0_deg",
+    "sideslip_proxy0_deg"
+  ],
+  "empirical_target_names": [
+    "dx_m",
+    "dy_m",
+    "sink_rate_m_s",
+    "duration_s"
+  ],
+  "derived_glide_ratio_policy": "computed_from_dx_pred_divided_by_sink_rate_pred_times_duration_pred",
+  "generated_at": "2026-06-03T16:44:43",
+  "calibration_stage": "offline_current_model_replay_no_controller_library_regeneration"
+}

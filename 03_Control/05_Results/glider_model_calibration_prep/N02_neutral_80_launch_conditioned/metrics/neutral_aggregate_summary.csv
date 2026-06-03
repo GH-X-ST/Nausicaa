@@ -1,0 +1,16 @@
+metric,count,mean,median,std,min,max,role_for_model_calibration
+launch_speed_m_s,80,5.318273152,5.293144225,0.5943009896,3.932095619,6.824543586,stratify model error versus launch energy; do not fit directly
+sink_rate_m_s,80,0.8495454038,0.8470188317,0.1306454015,0.3762365573,1.222376006,primary neutral-glide target for drag/lift/trim consistency
+glide_ratio_x_over_altloss,80,3.964128281,3.893933745,1.075184111,1.872083653,10.4708772,derived consistency check from distance and altitude loss; not direct fit target
+dy_m,80,0.3887230348,0.3183881327,0.5856222478,-0.7405214583,2.053326191,lateral trim/asymmetry diagnostic before fitting aileron/rudder effects
+launch_y_offset_m,80,0.1086578744,0.1035396034,0.04736078894,0.0169220509,0.2018575932,manual-launch lateral offset feature; include in empirical residual model
+launch_z_offset_m,80,-0.01713613782,-0.01616454301,0.08245822167,-0.2128721851,0.217765775,manual-launch height offset feature; include in empirical residual model
+flight_path_angle_proxy0_deg,80,-1.146147844,-1.320522294,3.326366348,-9.255905493,6.901608812,launch-condition feature for sink/distance residuals
+sideslip_proxy0_deg,80,13.10972089,13.04187265,5.75883653,-4.063568443,31.16200304,launch-condition feature for lateral/yaw residuals
+max_abs_phi_deg,80,16.57921595,15.73816442,9.375897418,3.838002602,55.24541884,attitude envelope check; should not be used alone as fit objective
+max_abs_theta_deg,80,25.34430408,24.89554453,6.513207017,11.22647014,43.88044055,pitch/CG/static-margin diagnostic before controller retuning
+max_abs_p_rad_s,80,1.334090898,1.248558432,0.6789359866,0.3084325254,3.806408522,roll-rate envelope diagnostic for future damping/control derivative fit
+max_abs_q_rad_s,80,1.564876118,1.535373086,0.261505515,1.003861484,2.301034337,pitch-rate envelope diagnostic for future damping/control derivative fit
+max_abs_r_rad_s,80,0.7142571697,0.6091911979,0.3666973506,0.1596595159,1.747838942,yaw-rate envelope diagnostic for future damping/control derivative fit
+mean_rate_confidence,80,0.9459165238,0.95,0.007645841412,0.9172413793,0.95,state-estimator evidence quality; exclude low-confidence throws from fitting
+spike_downweighted_fraction,80,0.009074391456,0,0.01699075869,0,0.07279693487,state-estimator health diagnostic
