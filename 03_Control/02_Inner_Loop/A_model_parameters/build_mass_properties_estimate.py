@@ -52,6 +52,16 @@ AS_BUILT_HTAIL_TOP_Z_M = 0.0045
 AS_BUILT_VTAIL_BOTTOM_Z_M = -0.0050
 AS_BUILT_FUSELAGE_NOSE_X_FROM_WING_LE_M = -0.100
 
+# Removable nose ballast used for the current post-stall launch diagnostic.
+# Build-frame x is positive aft of the wing LE, so a mass ahead of the LE has
+# negative x. The measured ballast is on the centreline with no z offset.
+NOSE_BALLAST_MASS_KG = 0.015
+NOSE_BALLAST_X_FROM_WING_LE_M = -0.075
+NOSE_BALLAST_Y_M = 0.0
+NOSE_BALLAST_Z_M = 0.0
+BALLASTED_TARGET_MASS_KG = AS_BUILT_MASS_KG + NOSE_BALLAST_MASS_KG
+BALLASTED_TARGET_X_CG_FROM_WING_LE_M = 0.1055
+
 WING_THICKNESS_M = 0.0060
 HTAIL_THICKNESS_M = 0.0030
 VTAIL_THICKNESS_M = 0.0030
@@ -150,8 +160,8 @@ VICON_MARKER_RADIUS_M = 0.0075
 VICON_WING_LE_MARKER_Z_M = -0.012
 VICON_WINGTIP_MARKER_X_FROM_WING_LE_M = 0.045
 
-CALIBRATION_RESIDUAL_TARGET_MASS_KG = AS_BUILT_MASS_KG
-CALIBRATION_RESIDUAL_TARGET_X_CG_M = AS_BUILT_X_CG_FROM_WING_LE_M
+CALIBRATION_RESIDUAL_TARGET_MASS_KG = BALLASTED_TARGET_MASS_KG
+CALIBRATION_RESIDUAL_TARGET_X_CG_M = BALLASTED_TARGET_X_CG_FROM_WING_LE_M
 
 
 @dataclass(frozen=True)
@@ -1460,6 +1470,20 @@ def vicon_marker_elements() -> list[MassElement]:
     ]
 
 
+def nose_ballast_element() -> MassElement:
+    return point_mass(
+        "nose_ballast",
+        NOSE_BALLAST_MASS_KG,
+        np.array(
+            [
+                NOSE_BALLAST_X_FROM_WING_LE_M,
+                NOSE_BALLAST_Y_M,
+                NOSE_BALLAST_Z_M,
+            ]
+        ),
+    )
+
+
 def calibration_residual_element(elements: list[MassElement]) -> MassElement:
     subtotal = combine_named_elements("subtotal_before_calibration_residual", elements)
     residual_mass_kg = CALIBRATION_RESIDUAL_TARGET_MASS_KG - subtotal.mass_kg
@@ -1504,6 +1528,7 @@ def build_baseline_elements() -> list[MassElement]:
         + tail_pushrod_elements()
     )
     elements += vicon_marker_elements()
+    elements.append(nose_ballast_element())
     # The residual is the final calibration term: it matches the complete
     # manufactured mass and x_CG after all measured components are included.
     elements.append(calibration_residual_element(elements))
