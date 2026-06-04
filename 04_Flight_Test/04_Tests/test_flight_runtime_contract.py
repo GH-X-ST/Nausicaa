@@ -18,6 +18,7 @@ for path in (RUNTIME, CONTROLLER, SCENARIOS):
         sys.path.insert(0, str(path))
 
 from calibration_profile import ACTIVE_CALIBRATION_PROFILE  # noqa: E402
+from command_contract import normalised_command_to_surface_rad  # noqa: E402
 from flight_config import DEFAULT_REAL_FLIGHT_LIBRARY_TIER, FlightRuntimeConfig  # noqa: E402
 from frozen_flight_controller import FrozenFlightController  # noqa: E402
 from frozen_flight_controller import (  # noqa: E402
@@ -110,6 +111,38 @@ def _state(
     for name, value in values.items():
         state[STATE_INDEX[name]] = float(value)
     return state
+
+
+def _fifo_order_sensitive_payload() -> tuple[dict[str, object], np.ndarray, list[np.ndarray]]:
+    controller = FrozenFlightController(FlightRuntimeConfig(run_label="pytest_fifo_probe"))
+    fifo_history = [
+        normalised_command_to_surface_rad(np.asarray(row, dtype=float))
+        for row in (
+            (-0.8, -0.4, 0.2),
+            (-0.2, 0.0, 0.4),
+            (0.2, 0.4, -0.2),
+            (0.8, 0.6, -0.4),
+        )
+    ]
+    for payload in sorted(controller.controllers.values(), key=lambda item: str(item.get("controller_id", ""))):
+        delay_steps = int(float(payload.get("command_delay_steps", 0)))
+        if delay_steps != len(fifo_history):
+            continue
+        controller_id = str(payload.get("controller_id", ""))
+        state = np.asarray(payload["reference_state_vector"], dtype=float).reshape(15).copy()
+        state[STATE_INDEX["phi"]] += 0.20
+        state[STATE_INDEX["theta"]] += -0.10
+        state[STATE_INDEX["p"]] += 0.30
+        state[STATE_INDEX["q"]] += -0.20
+
+        controller._command_fifo_by_controller_id[controller_id] = [row.copy() for row in fifo_history]
+        old_to_new_norm, _ = controller._command_for_payload(payload, state)
+        controller._command_fifo_by_controller_id[controller_id] = [row.copy() for row in reversed(fifo_history)]
+        reversed_norm, _ = controller._command_for_payload(payload, state)
+        if not np.allclose(old_to_new_norm, reversed_norm):
+            controller._command_fifo_by_controller_id.pop(controller_id, None)
+            return payload, state, fifo_history
+    pytest.fail("frozen controller bundle has no FIFO-order-sensitive payload")
 
 
 def test_real_flight_default_library_tier_is_balanced_cluster() -> None:
@@ -613,6 +646,45 @@ def test_frozen_controller_loads_and_returns_quantised_command() -> None:
     assert decision.candidate_count > 0
     assert all(value in {-1.0, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.0} for value in decision.command_norm)
     assert len(decision.packet_bytes) == 15
+
+
+def test_frozen_controller_pushes_command_fifo_old_to_new() -> None:
+    controller = FrozenFlightController(FlightRuntimeConfig(run_label="pytest_fifo_order"))
+    commands = [
+        np.asarray([float(index), float(index) + 0.1, -float(index)], dtype=float)
+        for index in range(5)
+    ]
+
+    for command in commands:
+        controller._push_command_fifo("fifo_contract", command, delay_steps=4)
+
+    fifo = np.vstack(controller._command_fifo_by_controller_id["fifo_contract"])
+    np.testing.assert_allclose(fifo, np.vstack(commands[1:]))
+    assert not np.allclose(fifo, np.vstack(list(reversed(commands[1:]))))
+
+
+def test_frozen_controller_live_fifo_push_matches_explicit_old_to_new_command() -> None:
+    payload, state, fifo_history = _fifo_order_sensitive_payload()
+    controller_id = str(payload.get("controller_id", ""))
+
+    explicit = FrozenFlightController(FlightRuntimeConfig(run_label="pytest_fifo_explicit"))
+    explicit._command_fifo_by_controller_id[controller_id] = [row.copy() for row in fifo_history]
+    expected_norm, expected_rad = explicit._command_for_payload(payload, state)
+
+    live = FrozenFlightController(FlightRuntimeConfig(run_label="pytest_fifo_live"))
+    for row in fifo_history:
+        live._push_command_fifo(controller_id, row, delay_steps=len(fifo_history))
+    live_norm, live_rad = live._command_for_payload(payload, state)
+
+    reversed_controller = FrozenFlightController(FlightRuntimeConfig(run_label="pytest_fifo_reversed"))
+    reversed_controller._command_fifo_by_controller_id[controller_id] = [
+        row.copy() for row in reversed(fifo_history)
+    ]
+    reversed_norm, _ = reversed_controller._command_for_payload(payload, state)
+
+    np.testing.assert_allclose(live_norm, expected_norm)
+    np.testing.assert_allclose(live_rad, expected_rad)
+    assert not np.allclose(reversed_norm, expected_norm)
 
 
 def test_dry_run_writes_local_result_tree(tmp_path: Path) -> None:

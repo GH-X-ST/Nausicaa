@@ -269,8 +269,10 @@ class FrozenFlightController:
         if delay_steps <= 0 or not controller_id:
             return
         fifo = self._command_fifo_by_controller_id.setdefault(controller_id, [])
-        fifo.insert(0, np.asarray(command_rad, dtype=float).reshape(3))
-        del fifo[delay_steps:]
+        # Old-to-new order matches the augmented LQR delay-line state: index 0
+        # is the delayed/applied command and the newest request is at the tail.
+        fifo.append(np.asarray(command_rad, dtype=float).reshape(3))
+        del fifo[:-delay_steps]
 
 
 def _load_representatives(path: Path) -> list[dict[str, object]]:
