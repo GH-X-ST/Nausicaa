@@ -1,0 +1,160 @@
+{
+  "fit_id": "n30_staged_bias_fit_rich_v1",
+  "fit_version": "N09_staged_lateral_longitudinal_aero_bias",
+  "fit_scope": "neutral_30_open_loop_lateral_longitudinal_aero_bias_fit",
+  "valid_throw_count": 80,
+  "session_root": "04_Flight_Test\\05_Results\\cal\\n30",
+  "heldout_policy": "randomised_stratified_by_session_label",
+  "heldout_indices": [
+    7,
+    9,
+    11,
+    17,
+    25,
+    28,
+    30,
+    33,
+    42,
+    45,
+    53,
+    57,
+    64,
+    66,
+    74,
+    75
+  ],
+  "heldout_throw_keys": [
+    {
+      "index": 7,
+      "session_label": "20260603_215603",
+      "throw_id": "v008"
+    },
+    {
+      "index": 9,
+      "session_label": "20260603_215603",
+      "throw_id": "v010"
+    },
+    {
+      "index": 11,
+      "session_label": "20260603_220741",
+      "throw_id": "v002"
+    },
+    {
+      "index": 17,
+      "session_label": "20260603_220741",
+      "throw_id": "v008"
+    },
+    {
+      "index": 25,
+      "session_label": "20260603_221447",
+      "throw_id": "v006"
+    },
+    {
+      "index": 28,
+      "session_label": "20260603_221447",
+      "throw_id": "v009"
+    },
+    {
+      "index": 30,
+      "session_label": "20260603_222247",
+      "throw_id": "v001"
+    },
+    {
+      "index": 33,
+      "session_label": "20260603_222247",
+      "throw_id": "v004"
+    },
+    {
+      "index": 42,
+      "session_label": "20260603_222819",
+      "throw_id": "v003"
+    },
+    {
+      "index": 45,
+      "session_label": "20260603_222819",
+      "throw_id": "v006"
+    },
+    {
+      "index": 53,
+      "session_label": "20260603_223204",
+      "throw_id": "v004"
+    },
+    {
+      "index": 57,
+      "session_label": "20260603_223204",
+      "throw_id": "v008"
+    },
+    {
+      "index": 64,
+      "session_label": "20260603_223824",
+      "throw_id": "v005"
+    },
+    {
+      "index": 66,
+      "session_label": "20260603_223824",
+      "throw_id": "v007"
+    },
+    {
+      "index": 74,
+      "session_label": "20260603_224414",
+      "throw_id": "v005"
+    },
+    {
+      "index": 75,
+      "session_label": "20260603_224414",
+      "throw_id": "v006"
+    }
+  ],
+  "alignment_window_s": 0.1,
+  "replay_dt_s": 0.005,
+  "workers": 8,
+  "fit_workflow": "staged",
+  "fit_aero_moment_bias": true,
+  "fit_neutral_trim": false,
+  "coordinate_passes": 3,
+  "rerun_command": [
+    "python",
+    "03_Control/02_Inner_Loop/run_fit_neutral_dry_air_calibration.py",
+    "--session-root",
+    "04_Flight_Test\\05_Results\\cal\\n30",
+    "--run-label",
+    "n30_staged_bias_fit_rich_v1",
+    "--heldout-count",
+    "16",
+    "--heldout-seed",
+    "606",
+    "--replay-dt-s",
+    "0.005",
+    "--alignment-window-s",
+    "0.1",
+    "--workers",
+    "8",
+    "--coordinate-passes",
+    "3",
+    "--fit-workflow",
+    "staged",
+    "--fit-aero-moment-bias",
+    "--no-fit-neutral-trim"
+  ],
+  "best_parameters": {
+    "cd0_strip_scale": 2.0,
+    "drag_area_fuse_scale": 0.2,
+    "efficiency_strip_scale": 1.3600000000000003,
+    "roll_moment_bias_coeff": -0.02,
+    "yaw_moment_bias_coeff": 0.0,
+    "delta_a_trim_rad": 0.0,
+    "delta_e_trim_rad": 0.0,
+    "delta_r_trim_rad": 0.0
+  },
+  "active_calibration_before_fit": {
+    "cd0_strip_scale": 3.0,
+    "drag_area_fuse_scale": 5.0,
+    "efficiency_strip_scale": 0.31,
+    "roll_moment_bias_coeff": 0.0,
+    "yaw_moment_bias_coeff": 0.0,
+    "delta_a_trim_rad": 0.0,
+    "delta_e_trim_rad": 0.0,
+    "delta_r_trim_rad": 0.0
+  },
+  "generated_at": "2026-06-04T00:27:19"
+}

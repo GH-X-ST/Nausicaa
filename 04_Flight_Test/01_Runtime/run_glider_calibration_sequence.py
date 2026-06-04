@@ -20,6 +20,7 @@ from flight_config import (
 from flight_logger import FlightLogger
 from launch_gate import (
     LAUNCH_TRIGGER_X_W_M,
+    LaunchGateStatus,
     evaluate_launch_gate,
     evaluate_launch_plane_gate,
     interpolate_launch_plane_state,
@@ -46,9 +47,9 @@ from state_contract import state_dataframe_row  # noqa: E402
 # Current setup: dry-air calibration, hardware armed on COM11.
 # Failed launch-gate attempts are ignored and do not count as throws.
 # =============================================================================
-CALIBRATION_BLOCK = "neutral_30"  # neutral_30, pulse_ladder_30, or pulse_supplement_aileron_rudder_high
+CALIBRATION_BLOCK = "pulse_ladder_30"  # neutral_30, pulse_ladder_30, or pulse_supplement_aileron_rudder_high
 CURRENT_SESSION_LABEL = ""  # Empty means timestamped folder.
-TARGET_VALID_THROWS_OVERRIDE: int | None = 10  # None uses block defaults below.
+TARGET_VALID_THROWS_OVERRIDE: int | None = None  # None uses block defaults below.
 SERIAL_PORT = "COM11"
 VICON_HOST = "192.168.0.100:801"
 MODE = "armed"  # Use dry-run for hardware-free tests.
@@ -68,15 +69,16 @@ VICON_ATTITUDE_SIGNS = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_signs
 NEUTRAL_VALID_THROWS = 30
 PULSE_VALID_THROWS_PER_CASE = 3
 SUPPLEMENT_VALID_THROWS_PER_CASE = 3
-PULSE_START_DELAY_S = 0.25
+PULSE_START_DELAY_S = 0.15
+SUSTAINED_CONTROL_EFFECT_DURATION_S = 60.0
 PULSE_DURATION_BY_ABS_COMMAND = {
-    0.2: 0.40,
-    0.4: 0.40,
-    0.6: 0.40,
-    0.8: 0.40,
-    1.0: 0.40,
+    0.2: SUSTAINED_CONTROL_EFFECT_DURATION_S,
+    0.4: SUSTAINED_CONTROL_EFFECT_DURATION_S,
+    0.6: SUSTAINED_CONTROL_EFFECT_DURATION_S,
+    0.8: SUSTAINED_CONTROL_EFFECT_DURATION_S,
+    1.0: SUSTAINED_CONTROL_EFFECT_DURATION_S,
 }
-SUPPLEMENT_PULSE_DURATION_S = 0.60
+SUPPLEMENT_PULSE_DURATION_S = SUSTAINED_CONTROL_EFFECT_DURATION_S
 # =============================================================================
 
 
@@ -119,7 +121,7 @@ def calibration_cases_for_block(block_id: str) -> list[CalibrationCase]:
                 cases.append(
                     CalibrationCase(
                         case_id=f"C1_{axis_label}_{_command_label(value)}",
-                        case_name=f"{axis_label} pulse {value:+.1f}",
+                        case_name=f"{axis_label} sustained control effect {value:+.1f}",
                         command_axis=axis_name,
                         command_value=float(value),
                         pulse_start_s=PULSE_START_DELAY_S,
@@ -137,7 +139,7 @@ def calibration_cases_for_block(block_id: str) -> list[CalibrationCase]:
                 cases.append(
                     CalibrationCase(
                         case_id=f"C2_{axis_label}_{_command_label(value)}",
-                        case_name=f"{axis_label} supplemental high-authority pulse {value:+.1f}",
+                        case_name=f"{axis_label} supplemental sustained high-authority control effect {value:+.1f}",
                         command_axis=axis_name,
                         command_value=float(value),
                         pulse_start_s=PULSE_START_DELAY_S,
@@ -228,7 +230,7 @@ def run_calibration_sequence(
             ),
             "exit_gate_bounds": exit_gate_bounds_manifest(),
             "pulse_policy": (
-                "single_axis_0p2_lattice_pulse_after_launch_then_neutral;"
+                "single_axis_0p2_lattice_sustained_from_0p15s_after_launch_until_exit_then_neutral;"
                 "no_closed_loop_governor_no_memory_no_combined_axis_commands"
             ),
             "pre_arm_delay_s": float(pre_arm_delay_s),
@@ -254,9 +256,10 @@ def run_calibration_sequence(
             while valid_count < int(case.target_valid_throws):
                 next_throw = valid_count + 1
                 case_storage_id = _case_storage_id(case)
+                command_label = "neutral" if case.is_neutral else f"{case.command_axis}={case.command_value:+.1f}"
                 print(
-                    f"[CAL] block={block_id} case={case.case_id} valid={valid_count}/{case.target_valid_throws} "
-                    f"next_throw={next_throw:03d} invalid={invalid_count}"
+                    f"[CAL_NEXT] block={block_id} case={case.case_id} command={command_label} "
+                    f"next_valid_throw={next_throw:03d}/{case.target_valid_throws:03d} invalid={invalid_count}"
                 )
                 _neutral_cooldown(
                     pre_arm_delay_s,
@@ -306,7 +309,9 @@ def run_calibration_sequence(
                     )
                     print(
                         f"[CAL_DONE] case={case.case_id} valid={valid_count}/{case.target_valid_throws} "
-                        f"speed={float(summary.get('launch_speed_m_s', 0.0)):.2f} "
+                        f"u={float(summary.get('launch_u_m_s', 0.0)):.2f} "
+                        f"v={float(summary.get('launch_v_m_s', 0.0)):.2f} "
+                        f"w={float(summary.get('launch_w_m_s', 0.0)):.2f} "
                         f"term={summary.get('termination_reason', '')}"
                     )
                     if valid_count < int(case.target_valid_throws):
@@ -432,6 +437,9 @@ def run_single_calibration_throw(
         "packet_count": 0,
         "serial_write_error_count": 0,
         "launch_speed_m_s": 0.0,
+        "launch_u_m_s": 0.0,
+        "launch_v_m_s": 0.0,
+        "launch_w_m_s": 0.0,
         "calibration_profile_id": config.calibration_profile_id,
         "calibration_profile_hash": config.calibration_profile_hash,
         "completed": False,
@@ -456,6 +464,9 @@ def run_single_calibration_throw(
         summary["valid_throw"] = True
         summary["active_packet_sequence_start"] = int(sequence)
         summary["launch_speed_m_s"] = float(np.linalg.norm(launch_state[6:9]))
+        summary["launch_u_m_s"] = float(launch_state[6])
+        summary["launch_v_m_s"] = float(launch_state[7])
+        summary["launch_w_m_s"] = float(launch_state[8])
         started = time.perf_counter()
         next_serial_s = 0.0
         last_command = np.zeros(3, dtype=float)
@@ -577,18 +588,22 @@ def _await_launch_gate(
     previous_state: np.ndarray | None = None
     consecutive = 0
     next_serial_s = 0.0
-    next_status_s = 0.0
     latest_reason = "not_evaluated"
     required = max(1, int(config.launch_gate_required_consecutive_frames))
     rate_conf_min = float(config.launch_gate_rate_confidence_min)
+    vicon_missing = False
+    last_vicon_invalid_reason = ""
+    case_id = str(summary.get("case_id", ""))
+    print(f"[CAL_LAUNCH_READY] case={case_id} throw through the launch plane.")
     while time.perf_counter() - started <= float(config.launch_wait_timeout_s):
         elapsed_s = time.perf_counter() - started
         sample, status = vicon.read_latest()
         if sample is None or not status.valid:
             latest_reason = status.reason
-            if elapsed_s + 1e-12 >= next_status_s:
-                print(f"[CAL_LAUNCH_WAIT] t={elapsed_s:.1f}s Vicon invalid: {status.reason}")
-                next_status_s = elapsed_s + 1.0
+            if (not vicon_missing) or str(status.reason) != last_vicon_invalid_reason:
+                print(f"[CAL_VICON] cannot detect object: {status.reason}")
+                vicon_missing = True
+                last_vicon_invalid_reason = str(status.reason)
             next_serial_s, sequence = _neutral_if_due(
                 tx=tx,
                 logger=logger,
@@ -601,6 +616,10 @@ def _await_launch_gate(
             if mode in {"armed", "vicon-smoke"}:
                 time.sleep(float(config.vicon_poll_period_s))
             continue
+        if vicon_missing:
+            print("[CAL_VICON] object detected; waiting for launch gate.")
+            vicon_missing = False
+            last_vicon_invalid_reason = ""
         state = adapter.update(sample, command_norm=np.zeros(3))
         estimator = adapter.estimator_status()
         full_gate = evaluate_launch_gate(state, body_rate_limits_rad_s=config.launch_gate_body_rate_limits_rad_s)
@@ -655,13 +674,6 @@ def _await_launch_gate(
                 **state_dataframe_row(state),
             },
         )
-        if elapsed_s + 1e-12 >= next_status_s:
-            print(
-                f"[CAL_LAUNCH_WAIT] t={elapsed_s:.1f}s trigger={trigger_source} gate={gate.reason} "
-                f"approved={approved} consecutive={consecutive}/{required} "
-                f"rate_conf={rate_conf:.2f}/{rate_conf_min:.2f} v={gate.v_m_s:.2f} w={gate.w_m_s:.2f}"
-            )
-            next_status_s = elapsed_s + 1.0
         next_serial_s, sequence = _neutral_if_due(
             tx=tx,
             logger=logger,
@@ -673,6 +685,11 @@ def _await_launch_gate(
         )
         if approved and consecutive >= required:
             summary["launch_gate_approved"] = True
+            print(
+                f"[CAL_LAUNCH_OK] source={trigger_source} "
+                f"u={gate.u_m_s:.2f} v={gate.v_m_s:.2f} w={gate.w_m_s:.2f} "
+                f"rate_conf={rate_conf:.2f}/{rate_conf_min:.2f}; starting record."
+            )
             _append_event(
                 logger,
                 "launch_gate_approved_start_calibration_record",
@@ -686,6 +703,14 @@ def _await_launch_gate(
             launch_attempt_speed = float(np.linalg.norm(launch_plane_state[6:9]))
             if launch_attempt_speed >= float(CALIBRATION_REJECTED_LAUNCH_ATTEMPT_MIN_SPEED_M_S):
                 summary["cancellation_reason"] = f"rejected_launch_attempt:{latest_reason}"
+                failure = _format_launch_gate_live_failure(
+                    latest_reason,
+                    gate,
+                    rate_conf,
+                    rate_conf_min,
+                    config.launch_gate_body_rate_limits_rad_s,
+                )
+                print(f"[CAL_LAUNCH_FAIL] source={trigger_source} {failure}")
                 gate_details = asdict(gate)
                 gate_reason = gate_details.pop("reason", latest_reason)
                 _append_event(
@@ -702,8 +727,62 @@ def _await_launch_gate(
         if mode in {"armed", "vicon-smoke"}:
             time.sleep(float(config.vicon_poll_period_s))
     summary["cancellation_reason"] = f"launch_gate_timeout:{latest_reason}"
+    print(f"[CAL_LAUNCH_TIMEOUT] no valid launch within {config.launch_wait_timeout_s:.1f}s; last_reason={latest_reason}")
     _append_event(logger, "calibration_record_cancelled_before_launch", reason=summary["cancellation_reason"])
     return None, sequence
+
+
+def _format_launch_gate_live_failure(
+    reason: str,
+    gate: LaunchGateStatus,
+    rate_confidence: float,
+    rate_confidence_min: float,
+    body_rate_limits_rad_s: tuple[float, float, float],
+) -> str:
+    bounds = launch_gate_bounds_manifest(body_rate_limits_rad_s=body_rate_limits_rad_s)
+    reason_text = str(reason)
+    if reason_text == "rate_confidence_below_launch_gate":
+        detail = f"rate_conf={rate_confidence:.2f} required>={rate_confidence_min:.2f}"
+    else:
+        detail = _launch_gate_reason_value_detail(reason_text, gate, bounds)
+    return (
+        f"reason={reason_text} {detail}; "
+        f"x={gate.x_w_m:.2f} y={gate.y_w_m:.2f} z={gate.z_w_m:.2f} "
+        f"u={gate.u_m_s:.2f} v={gate.v_m_s:.2f} w={gate.w_m_s:.2f} "
+        f"roll={gate.phi_deg:.1f} pitch={gate.theta_deg:.1f} yaw={gate.psi_deg:.1f} "
+        f"rate_conf={rate_confidence:.2f}/{rate_confidence_min:.2f}"
+    )
+
+
+def _launch_gate_reason_value_detail(
+    reason: str,
+    gate: LaunchGateStatus,
+    bounds: dict[str, object],
+) -> str:
+    fields: dict[str, tuple[str, float, str, str]] = {
+        "x_w_outside_launch_gate": ("x", gate.x_w_m, "m", "x_w_m"),
+        "y_w_outside_launch_gate": ("y", gate.y_w_m, "m", "y_w_m"),
+        "z_w_outside_launch_gate": ("z", gate.z_w_m, "m", "z_w_m"),
+        "roll_outside_launch_gate": ("roll", gate.phi_deg, "deg", "roll_deg"),
+        "pitch_outside_launch_gate": ("pitch", gate.theta_deg, "deg", "pitch_deg"),
+        "yaw_outside_launch_gate": ("yaw", gate.psi_deg, "deg", "yaw_deg"),
+        "forward_speed_outside_launch_gate": ("u", gate.u_m_s, "m/s", "u_m_s"),
+        "side_velocity_outside_launch_gate": ("v", gate.v_m_s, "m/s", "v_m_s"),
+        "vertical_body_velocity_outside_launch_gate": ("w", gate.w_m_s, "m/s", "w_m_s"),
+        "roll_rate_outside_launch_gate": ("p", gate.p_rad_s, "rad/s", "p_rad_s"),
+        "pitch_rate_outside_launch_gate": ("q", gate.q_rad_s, "rad/s", "q_rad_s"),
+        "yaw_rate_outside_launch_gate": ("r", gate.r_rad_s, "rad/s", "r_rad_s"),
+    }
+    field = fields.get(str(reason))
+    if field is None:
+        return "value=not_available"
+    label, value, unit, bounds_key = field
+    range_value = bounds.get(bounds_key)
+    if not isinstance(range_value, list) or len(range_value) != 2:
+        return f"{label}={value:.2f}{unit}"
+    low = float(range_value[0])
+    high = float(range_value[1])
+    return f"{label}={value:.2f}{unit} allowed={low:.2f}..{high:.2f}{unit}"
 
 
 def _command_for_case(case: CalibrationCase, elapsed_s: float) -> np.ndarray:
@@ -913,6 +992,9 @@ def _sequence_row(
         "latest_run_root": summary.get("run_root", ""),
         "calibration_profile_hash": summary.get("calibration_profile_hash", ""),
         "launch_speed_m_s": summary.get("launch_speed_m_s", 0.0),
+        "launch_u_m_s": summary.get("launch_u_m_s", 0.0),
+        "launch_v_m_s": summary.get("launch_v_m_s", 0.0),
+        "launch_w_m_s": summary.get("launch_w_m_s", 0.0),
         "termination_reason": summary.get("termination_reason", ""),
         "state_sample_count": summary.get("state_sample_count", 0),
         "packet_count": summary.get("packet_count", 0),

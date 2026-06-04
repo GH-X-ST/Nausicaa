@@ -88,16 +88,17 @@ Arduino packet path, and 20 percent command lattice as the real-flight runtime,
 but deliberately does not call the governor, memory, primitive selector, or LQR
 controller.
 
-The active neutral dry-air model calibration in `03_Control` uses only neutral
-open-loop real throws, starts sim-real replay from the measured state after a
-`0.20 s` first-motion alignment window, and selects held-out throws with a
-randomised session-stratified split. The current fitted correction is recorded
-in `03_Control\02_Inner_Loop\A_model_parameters\neutral_dry_air_calibration.py`
-as `neutral_dry_air_aligned_0p20_N07`. It changes only simple bare-airframe
-loss terms (`CD0_STRIP_SCALE`, `DRAG_AREA_FUSE_SCALE`,
-`EFFICIENCY_STRIP_SCALE`) and keeps neutral control-surface trims at zero until
-physical trim/asymmetry is confirmed separately. Pulse data are not fitted until
-the neutral open-loop dry-air model is defensible.
+The current `03_Control` neutral SysID entry point is
+`run_fit_neutral_dry_air_calibration.py`. It uses only neutral open-loop real
+throws, starts sim-real replay from the measured state after a `0.10 s`
+first-motion alignment window, selects held-out throws with a randomised
+session-stratified split, runs with 8 workers, and can use a staged search over
+simple loss scales plus Cm0/Cl0/Cn0-style aerodynamic moment-bias diagnostics.
+Neutral control-surface trims stay disabled by default. The active checked-in
+constants are still `neutral_dry_air_aligned_0p20_N07`; the richer
+`n30_staged_coupled_moment_bias_rich_v2` run did not pass the promotion gate,
+so pulse data are not fitted until the neutral open-loop dry-air mismatch is
+resolved.
 
 For repeated experiment blocks, edit `CURRENT_EXPERIMENT_CASE` at the top of
 `01_Runtime\run_experiment_sequence.py`, then run:

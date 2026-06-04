@@ -13,10 +13,12 @@ LAUNCH_GATE_ROLL_LIMIT_DEG = 20.0
 LAUNCH_GATE_PITCH_MIN_DEG = -10.0
 LAUNCH_GATE_PITCH_MAX_DEG = 20.0
 LAUNCH_GATE_YAW_LIMIT_DEG = 20.0
-LAUNCH_GATE_SPEED_MIN_M_S = 3.0
-LAUNCH_GATE_SPEED_MAX_M_S = 8.0
+LAUNCH_GATE_FORWARD_SPEED_MIN_M_S = 4.0
+LAUNCH_GATE_FORWARD_SPEED_MAX_M_S = 8.0
+LAUNCH_GATE_SPEED_MIN_M_S = LAUNCH_GATE_FORWARD_SPEED_MIN_M_S
+LAUNCH_GATE_SPEED_MAX_M_S = LAUNCH_GATE_FORWARD_SPEED_MAX_M_S
 LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S = 1.5
-LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S = 0.7
+LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S = 0.9
 LAUNCH_GATE_Z_W_M = (1.3, 1.8)
 LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S = 1.2
 LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S = 1.2
@@ -48,7 +50,7 @@ class ArchiveStateSample:
     synthetic_time_since_launch_s: float
     state_sampling_seed: int
     launch_gate_compliant: bool
-    state_sampling_version: str = "mixed_primitive_start_v4_launch_vw_0p7_measured_log"
+    state_sampling_version: str = "mixed_primitive_start_v6_launch_u_vw0p9_measured_log"
     measured_log_source: str = ""
     measured_log_row_index: int | str = ""
 
@@ -195,7 +197,7 @@ def state_is_launch_gate_compliant(state: np.ndarray) -> bool:
     """Return whether a state lies inside the approved physical release gate."""
 
     x = as_state_vector(state)
-    speed = float(np.linalg.norm(x[6:9]))
+    u_body = float(x[STATE_INDEX["u"]])
     return bool(
         1.2 <= x[STATE_INDEX["x_w"]] <= 1.4
         and 1.8 <= x[STATE_INDEX["y_w"]] <= 2.2
@@ -209,7 +211,7 @@ def state_is_launch_gate_compliant(state: np.ndarray) -> bool:
         and np.deg2rad(-LAUNCH_GATE_YAW_LIMIT_DEG)
         <= x[STATE_INDEX["psi"]]
         <= np.deg2rad(LAUNCH_GATE_YAW_LIMIT_DEG)
-        and LAUNCH_GATE_SPEED_MIN_M_S <= speed <= LAUNCH_GATE_SPEED_MAX_M_S
+        and LAUNCH_GATE_FORWARD_SPEED_MIN_M_S <= u_body <= LAUNCH_GATE_FORWARD_SPEED_MAX_M_S
         and -LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S
         <= x[STATE_INDEX["v"]]
         <= LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S
@@ -242,7 +244,9 @@ def _launch_gate_state(rng: np.random.Generator) -> np.ndarray:
     state[STATE_INDEX["psi"]] = float(
         np.deg2rad(rng.uniform(-LAUNCH_GATE_YAW_LIMIT_DEG, LAUNCH_GATE_YAW_LIMIT_DEG))
     )
-    speed = float(rng.uniform(LAUNCH_GATE_SPEED_MIN_M_S, LAUNCH_GATE_SPEED_MAX_M_S))
+    u_body = float(
+        rng.uniform(LAUNCH_GATE_FORWARD_SPEED_MIN_M_S, LAUNCH_GATE_FORWARD_SPEED_MAX_M_S)
+    )
     v_side = float(
         rng.uniform(-LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S, LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S)
     )
@@ -252,7 +256,7 @@ def _launch_gate_state(rng: np.random.Generator) -> np.ndarray:
             LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S,
         )
     )
-    state[STATE_INDEX["u"]] = float(np.sqrt(max(speed * speed - v_side * v_side - w_body * w_body, 0.0)))
+    state[STATE_INDEX["u"]] = u_body
     state[STATE_INDEX["v"]] = v_side
     state[STATE_INDEX["w"]] = w_body
     state[STATE_INDEX["p"]] = float(

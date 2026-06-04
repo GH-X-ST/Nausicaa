@@ -19,6 +19,7 @@ class FlightLogger:
 
     def write_manifest(self, name: str, payload: dict[str, Any]) -> None:
         path = self.manifest_root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(_json_ready(payload), indent=2, sort_keys=True), encoding="ascii")
 
     def append_metric_row(self, name: str, row: dict[str, Any]) -> None:

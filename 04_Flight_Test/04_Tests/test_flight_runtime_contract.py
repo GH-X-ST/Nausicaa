@@ -28,6 +28,8 @@ from frozen_flight_controller import (  # noqa: E402
 from experiment_cases import EXPERIMENT_CASES, get_experiment_case  # noqa: E402
 from exit_gate import evaluate_exit_gate  # noqa: E402
 from launch_gate import (  # noqa: E402
+    LAUNCH_GATE_FORWARD_SPEED_MAX_M_S,
+    LAUNCH_GATE_FORWARD_SPEED_MIN_M_S,
     LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S,
     LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S,
     LAUNCH_TRIGGER_X_W_M,
@@ -37,6 +39,8 @@ from launch_gate import (  # noqa: E402
     interpolate_launch_plane_state,
 )
 from state_sampling import (  # noqa: E402
+    LAUNCH_GATE_FORWARD_SPEED_MAX_M_S as SIM_LAUNCH_GATE_FORWARD_SPEED_MAX_M_S,
+    LAUNCH_GATE_FORWARD_SPEED_MIN_M_S as SIM_LAUNCH_GATE_FORWARD_SPEED_MIN_M_S,
     LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S as SIM_LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S,
     LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S as SIM_LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S,
 )
@@ -53,6 +57,7 @@ from run_experiment_sequence import run_experiment_sequence  # noqa: E402
 from run_glider_calibration_sequence import (  # noqa: E402
     PULSE_DURATION_BY_ABS_COMMAND,
     PULSE_START_DELAY_S,
+    SUSTAINED_CONTROL_EFFECT_DURATION_S,
     SUPPLEMENT_PULSE_DURATION_S,
     _block_storage_id,
     _case_storage_id,
@@ -480,7 +485,11 @@ def test_launch_gate_uses_r5_release_bounds() -> None:
     state[STATE_INDEX["w"]] = LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S
 
     assert LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S == 1.5
-    assert LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S == 0.7
+    assert LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S == 0.9
+    assert LAUNCH_GATE_FORWARD_SPEED_MIN_M_S == 4.0
+    assert LAUNCH_GATE_FORWARD_SPEED_MAX_M_S == 8.0
+    assert SIM_LAUNCH_GATE_FORWARD_SPEED_MIN_M_S == LAUNCH_GATE_FORWARD_SPEED_MIN_M_S
+    assert SIM_LAUNCH_GATE_FORWARD_SPEED_MAX_M_S == LAUNCH_GATE_FORWARD_SPEED_MAX_M_S
     assert SIM_LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S == LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S
     assert SIM_LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S == LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S
     assert evaluate_launch_gate(state).approved is True
@@ -640,6 +649,11 @@ def test_glider_calibration_case_registry_uses_neutral_and_0p2_lattice() -> None
     pulse_cases = calibration_cases_for_block("pulse_ladder_30")
     supplement_cases = calibration_cases_for_block("pulse_supplement_aileron_rudder_high")
 
+    assert PULSE_START_DELAY_S == 0.15
+    assert set(PULSE_DURATION_BY_ABS_COMMAND) == {0.2, 0.4, 0.6, 0.8, 1.0}
+    assert set(PULSE_DURATION_BY_ABS_COMMAND.values()) == {SUSTAINED_CONTROL_EFFECT_DURATION_S}
+    assert SUPPLEMENT_PULSE_DURATION_S == SUSTAINED_CONTROL_EFFECT_DURATION_S
+
     assert len(neutral_cases) == 1
     assert neutral_cases[0].case_id == "C0_neutral"
     assert neutral_cases[0].target_valid_throws == 30
@@ -680,7 +694,7 @@ def test_glider_calibration_case_registry_uses_neutral_and_0p2_lattice() -> None
         assert case.target_valid_throws == 3
 
 
-def test_glider_calibration_pulse_command_is_single_axis_then_neutral() -> None:
+def test_glider_calibration_control_effect_command_is_single_axis_and_sustained() -> None:
     case = next(
         item
         for item in calibration_cases_for_block("pulse_ladder_30")
@@ -688,11 +702,13 @@ def test_glider_calibration_pulse_command_is_single_axis_then_neutral() -> None:
     )
 
     before = _command_for_case(case, case.pulse_start_s - 1e-3)
-    during = _command_for_case(case, case.pulse_start_s + 0.5 * case.pulse_duration_s)
+    onset = _command_for_case(case, case.pulse_start_s)
+    sustained = _command_for_case(case, case.pulse_start_s + 5.0)
     after = _command_for_case(case, case.pulse_start_s + case.pulse_duration_s + 1e-3)
 
     np.testing.assert_allclose(before, [0.0, 0.0, 0.0])
-    np.testing.assert_allclose(during, [0.0, 0.6, 0.0])
+    np.testing.assert_allclose(onset, [0.0, 0.6, 0.0])
+    np.testing.assert_allclose(sustained, [0.0, 0.6, 0.0])
     np.testing.assert_allclose(after, [0.0, 0.0, 0.0])
 
     neutral = calibration_cases_for_block("neutral_30")[0]

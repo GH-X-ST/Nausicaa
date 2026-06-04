@@ -51,8 +51,10 @@ from A_model_parameters.neutral_dry_air_calibration import (  # noqa: E402
     EFFICIENCY_STRIP_SCALE as NEUTRAL_DRY_AIR_EFFICIENCY_STRIP_SCALE,
     HELDOUT_POLICY as NEUTRAL_DRY_AIR_HELDOUT_POLICY,
     HELDOUT_SEED as NEUTRAL_DRY_AIR_HELDOUT_SEED,
+    ROLL_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_ROLL_MOMENT_BIAS_COEFF,
     SOURCE_PREP_RUN as NEUTRAL_DRY_AIR_SOURCE_PREP_RUN,
     SOURCE_THROW_COUNT as NEUTRAL_DRY_AIR_SOURCE_THROW_COUNT,
+    YAW_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_YAW_MOMENT_BIAS_COEFF,
 )
 
 DEFAULT_SESSION_SEARCH_ROOT = REPO_ROOT / "04_Flight_Test" / "05_Results"
@@ -79,6 +81,8 @@ CURRENT_MODEL_CALIBRATION = {
     "cd0_strip_scale": float(NEUTRAL_DRY_AIR_CD0_STRIP_SCALE),
     "drag_area_fuse_scale": float(NEUTRAL_DRY_AIR_DRAG_AREA_FUSE_SCALE),
     "efficiency_strip_scale": float(NEUTRAL_DRY_AIR_EFFICIENCY_STRIP_SCALE),
+    "roll_moment_bias_coeff": float(NEUTRAL_DRY_AIR_ROLL_MOMENT_BIAS_COEFF),
+    "yaw_moment_bias_coeff": float(NEUTRAL_DRY_AIR_YAW_MOMENT_BIAS_COEFF),
     "delta_a_trim_rad": float(NEUTRAL_DRY_AIR_DELTA_A_TRIM_RAD),
     "delta_e_trim_rad": float(NEUTRAL_DRY_AIR_DELTA_E_TRIM_RAD),
     "delta_r_trim_rad": float(NEUTRAL_DRY_AIR_DELTA_R_TRIM_RAD),
@@ -1787,6 +1791,8 @@ def write_report(
         f"- cd0 strip scale: `{CURRENT_MODEL_CALIBRATION['cd0_strip_scale']}`",
         f"- fuselage drag-area scale: `{CURRENT_MODEL_CALIBRATION['drag_area_fuse_scale']}`",
         f"- strip efficiency scale: `{CURRENT_MODEL_CALIBRATION['efficiency_strip_scale']}`",
+        f"- roll moment bias coefficient: `{CURRENT_MODEL_CALIBRATION['roll_moment_bias_coeff']}`",
+        f"- yaw moment bias coefficient: `{CURRENT_MODEL_CALIBRATION['yaw_moment_bias_coeff']}`",
         f"- aileron neutral trim: `{CURRENT_MODEL_CALIBRATION['delta_a_trim_rad']}` rad",
         f"- elevator neutral trim: `{CURRENT_MODEL_CALIBRATION['delta_e_trim_rad']}` rad",
         f"- rudder neutral trim: `{CURRENT_MODEL_CALIBRATION['delta_r_trim_rad']}` rad",

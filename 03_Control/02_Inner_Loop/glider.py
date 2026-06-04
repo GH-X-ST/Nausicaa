@@ -12,8 +12,14 @@ from A_model_parameters.mass_properties_estimate import (
 from A_model_parameters.neutral_dry_air_calibration import (
     CALIBRATION_ACTIVE as NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE,
     CD0_STRIP_SCALE as NEUTRAL_DRY_AIR_CD0_STRIP_SCALE,
+    DELTA_A_TRIM_RAD as NEUTRAL_DRY_AIR_DELTA_A_TRIM_RAD,
+    DELTA_E_TRIM_RAD as NEUTRAL_DRY_AIR_DELTA_E_TRIM_RAD,
+    DELTA_R_TRIM_RAD as NEUTRAL_DRY_AIR_DELTA_R_TRIM_RAD,
     DRAG_AREA_FUSE_SCALE as NEUTRAL_DRY_AIR_DRAG_AREA_FUSE_SCALE,
     EFFICIENCY_STRIP_SCALE as NEUTRAL_DRY_AIR_EFFICIENCY_STRIP_SCALE,
+    PITCH_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_PITCH_MOMENT_BIAS_COEFF,
+    ROLL_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_ROLL_MOMENT_BIAS_COEFF,
+    YAW_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_YAW_MOMENT_BIAS_COEFF,
 )
 
 
@@ -92,6 +98,10 @@ class Glider:
     alpha0_strip: np.ndarray
     efficiency_strip: np.ndarray
     flap_scale_strip: np.ndarray
+    neutral_surface_trim_rad: np.ndarray
+    roll_moment_bias_coeff: float
+    pitch_moment_bias_coeff: float
+    yaw_moment_bias_coeff: float
     surface_code: np.ndarray
 
 
@@ -311,6 +321,27 @@ def build_nausicaa_glider() -> Glider:
     cd0_scale = NEUTRAL_DRY_AIR_CD0_STRIP_SCALE if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 1.0
     efficiency_scale = NEUTRAL_DRY_AIR_EFFICIENCY_STRIP_SCALE if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 1.0
     drag_area_fuse_scale = NEUTRAL_DRY_AIR_DRAG_AREA_FUSE_SCALE if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 1.0
+    roll_moment_bias_coeff = (
+        NEUTRAL_DRY_AIR_ROLL_MOMENT_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    pitch_moment_bias_coeff = (
+        NEUTRAL_DRY_AIR_PITCH_MOMENT_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    yaw_moment_bias_coeff = (
+        NEUTRAL_DRY_AIR_YAW_MOMENT_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    neutral_surface_trim_rad = (
+        np.array(
+            [
+                NEUTRAL_DRY_AIR_DELTA_A_TRIM_RAD,
+                NEUTRAL_DRY_AIR_DELTA_E_TRIM_RAD,
+                NEUTRAL_DRY_AIR_DELTA_R_TRIM_RAD,
+            ],
+            dtype=float,
+        )
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else np.zeros(3, dtype=float)
+    )
     wing = LiftingSurface(
         name="wing",
         code=WING,
@@ -398,5 +429,9 @@ def build_nausicaa_glider() -> Glider:
         alpha0_strip=strip_table["alpha0_strip"],
         efficiency_strip=strip_table["efficiency_strip"],
         flap_scale_strip=strip_table["flap_scale_strip"],
+        neutral_surface_trim_rad=neutral_surface_trim_rad,
+        roll_moment_bias_coeff=float(roll_moment_bias_coeff),
+        pitch_moment_bias_coeff=float(pitch_moment_bias_coeff),
+        yaw_moment_bias_coeff=float(yaw_moment_bias_coeff),
         surface_code=strip_table["surface_code"].astype(int),
     )

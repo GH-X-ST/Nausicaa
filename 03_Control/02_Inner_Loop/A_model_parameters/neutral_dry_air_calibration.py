@@ -1,8 +1,9 @@
 """Neutral dry-air calibration constants from real open-loop launch replay.
 
-The constants below come from the neutral_30 open-loop throws only, using a
-0.20 s first-motion alignment window. They deliberately change only simple
-bare-airframe loss terms before any pulse/control-effectiveness fitting.
+The active constants below remain the older accepted N07 neutral fit. Newer
+staged 0.10 s replay diagnostics can fit simple loss scales plus Cm0/Cl0/Cn0
+moment-bias terms, but the latest rich n30 run did not pass the acceptance gate,
+so those candidates are not promoted here.
 """
 
 from __future__ import annotations
@@ -28,12 +29,16 @@ HELDOUT_SEED = 606
 # =============================================================================
 # 2) Active Aerodynamic Correction
 # =============================================================================
-# Fitted from aligned replay with static neutral trims disabled. Free trim
-# fitting improved training residuals but worsened held-out lateral error, so
-# trims remain zero until physical trim/asymmetry is confirmed separately.
+# Fitted from aligned replay with static neutral trims disabled. Surface trims
+# remain zero unless a physical servo/surface zero offset is measured. As-built
+# moment asymmetry should first enter through explicit aerodynamic moment-bias
+# coefficients.
 CD0_STRIP_SCALE = 3.0
 DRAG_AREA_FUSE_SCALE = 5.0
 EFFICIENCY_STRIP_SCALE = 0.31
+ROLL_MOMENT_BIAS_COEFF = 0.0
+PITCH_MOMENT_BIAS_COEFF = 0.0
+YAW_MOMENT_BIAS_COEFF = 0.0
 DELTA_A_TRIM_RAD = 0.0
 DELTA_E_TRIM_RAD = 0.0
 DELTA_R_TRIM_RAD = 0.0

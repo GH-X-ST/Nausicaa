@@ -43,6 +43,9 @@ class AircraftModel:
     mass_kg: float
     inertia_b: np.ndarray
     inertia_inv_b: np.ndarray
+    s_ref_m2: float
+    b_ref_m: float
+    c_ref_m: float
     r_strip_b: np.ndarray
     area_strip_m2: np.ndarray
     chord_strip_m: np.ndarray
@@ -54,6 +57,10 @@ class AircraftModel:
     alpha0_strip: np.ndarray
     efficiency_strip: np.ndarray
     flap_scale_strip: np.ndarray
+    neutral_surface_trim_rad: np.ndarray
+    roll_moment_bias_coeff: float
+    pitch_moment_bias_coeff: float
+    yaw_moment_bias_coeff: float
     drag_area_fuse_m2: float
     strip_count: int
 
@@ -260,6 +267,9 @@ def adapt_glider(glider: Glider) -> AircraftModel:
         mass_kg=float(glider.mass_kg),
         inertia_b=inertia_b,
         inertia_inv_b=np.linalg.inv(inertia_b),
+        s_ref_m2=float(glider.s_ref_m2),
+        b_ref_m=float(glider.b_ref_m),
+        c_ref_m=float(glider.c_ref_m),
         r_strip_b=np.asarray(glider.r_strip_b, dtype=float),
         area_strip_m2=np.asarray(glider.area_strip_m2, dtype=float),
         chord_strip_m=np.asarray(glider.chord_strip_m, dtype=float),
@@ -271,6 +281,10 @@ def adapt_glider(glider: Glider) -> AircraftModel:
         alpha0_strip=np.asarray(glider.alpha0_strip, dtype=float),
         efficiency_strip=np.asarray(glider.efficiency_strip, dtype=float),
         flap_scale_strip=np.asarray(glider.flap_scale_strip, dtype=float),
+        neutral_surface_trim_rad=np.asarray(glider.neutral_surface_trim_rad, dtype=float).reshape(3),
+        roll_moment_bias_coeff=float(glider.roll_moment_bias_coeff),
+        pitch_moment_bias_coeff=float(glider.pitch_moment_bias_coeff),
+        yaw_moment_bias_coeff=float(glider.yaw_moment_bias_coeff),
         drag_area_fuse_m2=float(glider.drag_area_fuse_m2),
         strip_count=int(glider.r_strip_b.shape[0]),
     )
@@ -323,7 +337,7 @@ def _evaluate_aero_numeric(
     r_cg_w_up = np.array([x_w, y_w, z_w], dtype=float)
     v_b = np.array([u, v, w], dtype=float)
     omega_b = np.array([p, q, r], dtype=float)
-    delta = np.array([delta_a, delta_e, delta_r], dtype=float)
+    delta = np.array([delta_a, delta_e, delta_r], dtype=float) + aircraft.neutral_surface_trim_rad
     c_wb = _c_wb_numpy(phi, theta, psi)
     c_bw = c_wb.T
     r_cg_w = _world_up_to_internal_vector(r_cg_w_up)
@@ -384,6 +398,16 @@ def _evaluate_aero_numeric(
     m_aero_b = np.sum(m_strip_b, axis=0)
     v_air_cg_b = v_b - wind_cg_b
     speed_cg = np.linalg.norm(v_air_cg_b)
+    q_bar_cg = 0.5 * rho * speed_cg**2
+    m_bias_b = np.array(
+        [
+            q_bar_cg * aircraft.s_ref_m2 * aircraft.b_ref_m * aircraft.roll_moment_bias_coeff,
+            q_bar_cg * aircraft.s_ref_m2 * aircraft.c_ref_m * aircraft.pitch_moment_bias_coeff,
+            q_bar_cg * aircraft.s_ref_m2 * aircraft.b_ref_m * aircraft.yaw_moment_bias_coeff,
+        ],
+        dtype=float,
+    )
+    m_aero_b = m_aero_b + m_bias_b
     if speed_cg > EPS:
         # Fuselage drag is lumped at the CG, so it contributes force but no moment.
         f_fuse_b = (
@@ -583,7 +607,7 @@ def _state_derivative_symbolic(
     p = x[9]
     q = x[10]
     r = x[11]
-    delta = ca.reshape(x[12:15], 3, 1)
+    delta = ca.reshape(x[12:15], 3, 1) + ca.DM(aircraft.neutral_surface_trim_rad).reshape((3, 1))
     v_b = ca.vertcat(u, v, w)
     omega_b = ca.vertcat(p, q, r)
     c_wb = _c_wb_ca(phi, theta, psi)
@@ -630,6 +654,21 @@ def _state_derivative_symbolic(
         m_aero_b += ca.cross(r_strip_b, f_strip_b)
     v_air_cg_b = v_b - wind_cg_b
     speed_cg = _ca_norm(v_air_cg_b)
+    q_bar_cg = 0.5 * rho * speed_cg**2
+    m_aero_b += ca.vertcat(
+        q_bar_cg
+        * aircraft.s_ref_m2
+        * aircraft.b_ref_m
+        * aircraft.roll_moment_bias_coeff,
+        q_bar_cg
+        * aircraft.s_ref_m2
+        * aircraft.c_ref_m
+        * aircraft.pitch_moment_bias_coeff,
+        q_bar_cg
+        * aircraft.s_ref_m2
+        * aircraft.b_ref_m
+        * aircraft.yaw_moment_bias_coeff,
+    )
     f_fuse_b = (
         -0.5
         * rho

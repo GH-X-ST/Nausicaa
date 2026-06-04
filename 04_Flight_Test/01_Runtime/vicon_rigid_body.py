@@ -193,7 +193,9 @@ class ReplayNausicaaViconRigidBody:
     def read_latest(self) -> tuple[NausicaaViconSample, ViconFrameStatus]:
         t = self.index * self.dt_s
         self.index += 1
-        x_w = 1.2 + self.speed_m_s * t
+        # Start before the launch box so the velocity/rate filters are warm
+        # before the dry-run trajectory reaches the real approval gate.
+        x_w = 1.0 + self.speed_m_s * t
         y_w = 2.2
         z_w = 1.7 + 0.02 * math.sin(2.0 * math.pi * 0.5 * t)
         offset = np.asarray(DEFAULT_VICON_POSITION_OFFSET_M, dtype=float)

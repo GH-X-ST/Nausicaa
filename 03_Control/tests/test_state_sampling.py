@@ -8,6 +8,8 @@ from state_sampling import (
     LAUNCH_GATE_PITCH_MAX_DEG,
     LAUNCH_GATE_PITCH_MIN_DEG,
     LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S,
+    LAUNCH_GATE_FORWARD_SPEED_MAX_M_S,
+    LAUNCH_GATE_FORWARD_SPEED_MIN_M_S,
     LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S,
     LAUNCH_GATE_ROLL_LIMIT_DEG,
     LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S,
@@ -83,13 +85,16 @@ def test_launch_gate_sampler_uses_realistic_attitude_envelope() -> None:
             environment_mode="annular_gp",
         )
         state = sample.state_vector
-        speed = float(np.linalg.norm(state[[STATE_INDEX["u"], STATE_INDEX["v"], STATE_INDEX["w"]]]))
 
         assert state_is_launch_gate_compliant(state)
         assert -LAUNCH_GATE_ROLL_LIMIT_DEG <= np.rad2deg(state[STATE_INDEX["phi"]]) <= LAUNCH_GATE_ROLL_LIMIT_DEG
         assert LAUNCH_GATE_PITCH_MIN_DEG <= np.rad2deg(state[STATE_INDEX["theta"]]) <= LAUNCH_GATE_PITCH_MAX_DEG
         assert -LAUNCH_GATE_YAW_LIMIT_DEG <= np.rad2deg(state[STATE_INDEX["psi"]]) <= LAUNCH_GATE_YAW_LIMIT_DEG
-        assert LAUNCH_GATE_SPEED_MIN_M_S <= speed <= LAUNCH_GATE_SPEED_MAX_M_S
+        assert (
+            LAUNCH_GATE_FORWARD_SPEED_MIN_M_S
+            <= state[STATE_INDEX["u"]]
+            <= LAUNCH_GATE_FORWARD_SPEED_MAX_M_S
+        )
         assert -LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S <= state[STATE_INDEX["v"]] <= LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S
         assert (
             -LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S
@@ -125,8 +130,10 @@ def test_launch_gate_sampler_uses_realistic_attitude_envelope() -> None:
     assert state_is_launch_gate_compliant(old_extreme_launch) is False
 
     assert LAUNCH_GATE_Z_W_M == (1.3, 1.8)
+    assert LAUNCH_GATE_FORWARD_SPEED_MIN_M_S == 4.0
+    assert LAUNCH_GATE_FORWARD_SPEED_MAX_M_S == 8.0
     assert LAUNCH_GATE_SIDE_VELOCITY_LIMIT_M_S == 1.5
-    assert LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S == 0.7
+    assert LAUNCH_GATE_VERTICAL_BODY_VELOCITY_LIMIT_M_S == 0.9
     assert LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S == 1.2
     assert LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S == 1.2
     assert LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S == 1.8

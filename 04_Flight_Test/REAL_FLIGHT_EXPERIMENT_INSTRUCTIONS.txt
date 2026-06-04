@@ -63,22 +63,25 @@ Neutral open-loop dry-air fitting comes first:
 
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block neutral_30 --target-valid-throws 30
 
-The active `03_Control` neutral calibration uses only neutral open-loop throws,
-replays simulation from the measured state after a 0.20 s first-motion
-alignment window, and selects held-out cases with a randomised
-session-stratified split. It changes only simple bare-airframe loss terms and
-keeps neutral control-surface trims at zero until physical trim/asymmetry is
-confirmed separately.
+The current `03_Control` neutral SysID workflow uses only neutral open-loop
+throws, replays simulation from the measured state after a 0.10 s first-motion
+alignment window, selects held-out cases with a randomised session-stratified
+split, runs with 8 workers, and can stage simple loss-scale fitting before
+Cm0/Cl0/Cn0-style aerodynamic moment-bias diagnostics. Neutral control-surface
+trims remain disabled by default. The active checked-in constants remain the
+older N07 fit because the richer n30 staged run did not pass the promotion
+gate.
 
 Only after neutral dry-air mismatch is understood, run pulse data:
 
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_30
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_supplement_aileron_rudder_high
 
-`pulse_ladder_30` uses one single-axis command at a time, starts the pulse
-0.25 s after launch approval, holds every nonzero command for 0.40 s, then
-returns to neutral. The supplemental block tests only aileron and rudder at
-high authority (`+/-0.6`, `+/-0.8`, `+/-1.0`) for 0.60 s.
+`pulse_ladder_30` uses one single-axis command at a time, starts the command
+0.15 s after launch approval, and sustains every nonzero command until wall or
+floor exit through a long 60 s command window. The supplemental block tests
+only aileron and rudder at high authority (`+/-0.6`, `+/-0.8`, `+/-1.0`) with
+the same sustained-command rule.
 
 Calibration outputs use short Git-trackable paths:
 
@@ -202,7 +205,9 @@ z_w in [1.3, 1.8] m
 roll in +/-20 deg
 pitch in [-10, +20] deg
 yaw in +/-20 deg
-speed in [3, 8] m/s
+u forward body speed in [4.0, 8.0] m/s
+v side body velocity in [-1.5, +1.5] m/s
+w vertical body velocity in [-0.9, +0.9] m/s
 p roll rate in [-1.2, +1.2] rad/s
 q pitch rate in [-1.2, +1.2] rad/s
 r yaw rate in [-1.8, +1.8] rad/s
@@ -210,8 +215,8 @@ SO(3) body-rate observer confidence >= 0.65
 2 consecutive approved frames
 
 The runtime also evaluates the interpolated x_w = 1.3 m launch-plane crossing
-with the same y/z, attitude, speed, body-rate, and confidence checks. Under the
-current 2-frame debounce, practical approval normally comes from full-window
+with the same y/z, attitude, body-axis velocity, body-rate, and confidence
+checks. Under the current 2-frame debounce, practical approval normally comes from full-window
 samples, while the interpolated plane remains a fallback and audit trail for
 fast crossings. The rate observer stays warm during prelaunch neutral tracking;
 it is not reset at the start of active control. This prevents one noisy Vicon
