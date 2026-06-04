@@ -96,15 +96,17 @@ workflow. Both use only neutral open-loop real throws, start sim-real replay
 from the measured state after a `0.10 s` first-motion alignment window, select
 held-out throws with a randomised session-stratified split, and run with 8
 workers by default. Neutral control-surface trims stay disabled by default.
-The aero-residual workflow fits stage evidence independently: attached Cm is
-diagnostic only, transition Cm is split into before/after first post-stall
-exposure and remains diagnostic only, then compact neutral post-stall
-alpha-RBF residual surfaces are fit for CL/CD/Cm, alpha-dependent Cmq, and
-lateral-directional CY/Cl/Cn terms using beta, p_hat, and r_hat features. The
-transition blender only tunes the activation start/full alpha for those
-surfaces. Post-stall samples are balanced by throw so one long stalled launch
-cannot dominate the fit. Only the post-stall surface coefficients and residual
-blender are applied to replay by default.
+The aero-residual workflow is grouped iterative by default: attached Cm remains
+diagnostic only, attached-flow lateral-directional CY/Cl/Cn derivatives are fit
+as first-class beta, p_hat, and r_hat model terms, transition-window CY/Cl/Cn
+deltas are multiplied by `4*smoothstep*(1-smoothstep)`, and compact neutral
+post-stall alpha-RBF residual surfaces are fit for CL/CD/Cm, alpha-dependent
+Cmq, and separated-flow CY/Cl/Cn coupling. The runner then cross-adjusts
+physical coefficient groups through train replay and writes
+`metrics/neutral_aero_residual_group_iteration_history.csv`. Post-stall samples
+are balanced by throw so one long stalled launch cannot dominate the residual
+seed. A candidate is labelled diagnostic-only unless held-out replay improves
+or preserves `dx`, `dy`, altitude loss, sink rate, roll, pitch, and yaw.
 Use `--no-fit-lateral-surfaces` as an explicit ablation when testing whether
 longitudinal/post-stall improvements are being hidden by underdetermined
 lateral coefficients.
@@ -125,7 +127,7 @@ neutral open-loop dry-air mismatch is resolved.
 For direct force/moment evidence, also inspect
 `metrics/neutral_aero_residual_stage_fit_summary.csv`, which reports the
 independent attached, transition-before-post-stall, transition-after-post-stall,
-and post-stall residual fits.
+and post-stall residual seeds before grouped replay refinement.
 
 For repeated experiment blocks, edit `CURRENT_EXPERIMENT_CASE` at the top of
 `01_Runtime\run_experiment_sequence.py`, then run:

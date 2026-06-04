@@ -1,0 +1,60 @@
+parameter,value,applied_to_replay,description
+post_stall_surface_replay_scale,0,True,Train-replay-selected multiplier applied to all fitted alpha-RBF post-stall surface coefficients.
+attached_cm_bias_coeff,0.09355282348,False,Attached-regime Cm residual. Report-only by default.
+transition_cm_bias_coeff,0.0499261345,False,All-transition aggregate Cm diagnostic. Not applied to replay.
+transition_before_post_stall_cm_bias_coeff,0.05650229386,False,Transition Cm diagnostic before first post-stall exposure in each throw.
+transition_after_post_stall_cm_bias_coeff,0.02846562847,False,Transition Cm diagnostic after the throw has already entered post-stall.
+post_stall_lift_residual_coeff,0,False,Legacy scalar CL residual. Disabled when alpha-RBF post-stall surface fit is active.
+post_stall_drag_residual_coeff,0,False,Legacy scalar CD residual. Disabled when alpha-RBF post-stall surface fit is active.
+post_stall_pitch_moment_coeff,0,False,Legacy scalar Cm residual. Disabled when alpha-RBF post-stall surface fit is active.
+post_stall_pitch_damping_coeff,0,True,Positive-AoA Cmq-style residual using q_hat = q c / (2V). Opt-in because it is derivative-sensitive.
+post_stall_residual_blend_start_alpha_deg,12,True,Residual activation start alpha fitted after attached and post-stall coefficients.
+post_stall_residual_blend_full_alpha_deg,19,True,Residual activation full-alpha point fitted from transition behaviour while preserving post-stall full activation.
+post_stall_lift_rbf_20_coeff,0.291583005,True,Neutral post-stall CL residual alpha-RBF coefficient at 20 deg AoA.
+post_stall_lift_rbf_45_coeff,-1.205786356,True,Neutral post-stall CL residual alpha-RBF coefficient at 45 deg AoA.
+post_stall_lift_rbf_70_coeff,1.5,True,Neutral post-stall CL residual alpha-RBF coefficient at 70 deg AoA.
+post_stall_drag_rbf_20_coeff,0.07235284582,True,Neutral post-stall CD residual alpha-RBF coefficient at 20 deg AoA.
+post_stall_drag_rbf_45_coeff,-0.08927899594,True,Neutral post-stall CD residual alpha-RBF coefficient at 45 deg AoA.
+post_stall_drag_rbf_70_coeff,1.421768124,True,Neutral post-stall CD residual alpha-RBF coefficient at 70 deg AoA.
+post_stall_pitch_moment_rbf_20_coeff,-0.02105205163,True,Neutral post-stall Cm residual alpha-RBF coefficient at 20 deg AoA.
+post_stall_pitch_moment_rbf_45_coeff,0.2946121002,True,Neutral post-stall Cm residual alpha-RBF coefficient at 45 deg AoA.
+post_stall_pitch_moment_rbf_70_coeff,-1.5,True,Neutral post-stall Cm residual alpha-RBF coefficient at 70 deg AoA.
+post_stall_pitch_damping_rbf_20_coeff,1.803078191,True,Neutral post-stall Cmq residual alpha-RBF coefficient at 20 deg AoA.
+post_stall_pitch_damping_rbf_45_coeff,3.578661499,True,Neutral post-stall Cmq residual alpha-RBF coefficient at 45 deg AoA.
+post_stall_pitch_damping_rbf_70_coeff,0.2045435326,True,Neutral post-stall Cmq residual alpha-RBF coefficient at 70 deg AoA.
+post_stall_side_force_bias_rbf_20_coeff,0.2464683541,True,Neutral post-stall CY residual coefficient multiplying bias at 20 deg AoA.
+post_stall_side_force_bias_rbf_45_coeff,-0.3010731796,True,Neutral post-stall CY residual coefficient multiplying bias at 45 deg AoA.
+post_stall_side_force_bias_rbf_70_coeff,1.694171839,True,Neutral post-stall CY residual coefficient multiplying bias at 70 deg AoA.
+post_stall_side_force_beta_rbf_20_coeff,-0.1184174098,True,Neutral post-stall CY residual coefficient multiplying beta at 20 deg AoA.
+post_stall_side_force_beta_rbf_45_coeff,-0.00356206422,True,Neutral post-stall CY residual coefficient multiplying beta at 45 deg AoA.
+post_stall_side_force_beta_rbf_70_coeff,-1.554315282,True,Neutral post-stall CY residual coefficient multiplying beta at 70 deg AoA.
+post_stall_side_force_p_hat_rbf_20_coeff,-0.9006003593,True,Neutral post-stall CY residual coefficient multiplying p_hat at 20 deg AoA.
+post_stall_side_force_p_hat_rbf_45_coeff,-1.322341495,True,Neutral post-stall CY residual coefficient multiplying p_hat at 45 deg AoA.
+post_stall_side_force_p_hat_rbf_70_coeff,-0.3430508847,True,Neutral post-stall CY residual coefficient multiplying p_hat at 70 deg AoA.
+post_stall_side_force_r_hat_rbf_20_coeff,-3.953081961,True,Neutral post-stall CY residual coefficient multiplying r_hat at 20 deg AoA.
+post_stall_side_force_r_hat_rbf_45_coeff,-2.96266252,True,Neutral post-stall CY residual coefficient multiplying r_hat at 45 deg AoA.
+post_stall_side_force_r_hat_rbf_70_coeff,0.2826722188,True,Neutral post-stall CY residual coefficient multiplying r_hat at 70 deg AoA.
+post_stall_roll_moment_bias_rbf_20_coeff,0.007903422344,True,Neutral post-stall Cl residual coefficient multiplying bias at 20 deg AoA.
+post_stall_roll_moment_bias_rbf_45_coeff,-0.002106036106,True,Neutral post-stall Cl residual coefficient multiplying bias at 45 deg AoA.
+post_stall_roll_moment_bias_rbf_70_coeff,-0.1155101202,True,Neutral post-stall Cl residual coefficient multiplying bias at 70 deg AoA.
+post_stall_roll_moment_beta_rbf_20_coeff,0.05328122915,True,Neutral post-stall Cl residual coefficient multiplying beta at 20 deg AoA.
+post_stall_roll_moment_beta_rbf_45_coeff,-0.03037205698,True,Neutral post-stall Cl residual coefficient multiplying beta at 45 deg AoA.
+post_stall_roll_moment_beta_rbf_70_coeff,0.04754423197,True,Neutral post-stall Cl residual coefficient multiplying beta at 70 deg AoA.
+post_stall_roll_moment_p_hat_rbf_20_coeff,0.3480880387,True,Neutral post-stall Cl residual coefficient multiplying p_hat at 20 deg AoA.
+post_stall_roll_moment_p_hat_rbf_45_coeff,0.1023908779,True,Neutral post-stall Cl residual coefficient multiplying p_hat at 45 deg AoA.
+post_stall_roll_moment_p_hat_rbf_70_coeff,0.001812436663,True,Neutral post-stall Cl residual coefficient multiplying p_hat at 70 deg AoA.
+post_stall_roll_moment_r_hat_rbf_20_coeff,-0.07023533576,True,Neutral post-stall Cl residual coefficient multiplying r_hat at 20 deg AoA.
+post_stall_roll_moment_r_hat_rbf_45_coeff,-0.3422096819,True,Neutral post-stall Cl residual coefficient multiplying r_hat at 45 deg AoA.
+post_stall_roll_moment_r_hat_rbf_70_coeff,-0.02131714852,True,Neutral post-stall Cl residual coefficient multiplying r_hat at 70 deg AoA.
+post_stall_yaw_moment_bias_rbf_20_coeff,-0.01393986542,True,Neutral post-stall Cn residual coefficient multiplying bias at 20 deg AoA.
+post_stall_yaw_moment_bias_rbf_45_coeff,0.02399366912,True,Neutral post-stall Cn residual coefficient multiplying bias at 45 deg AoA.
+post_stall_yaw_moment_bias_rbf_70_coeff,-0.2038271303,True,Neutral post-stall Cn residual coefficient multiplying bias at 70 deg AoA.
+post_stall_yaw_moment_beta_rbf_20_coeff,-0.01306696345,True,Neutral post-stall Cn residual coefficient multiplying beta at 20 deg AoA.
+post_stall_yaw_moment_beta_rbf_45_coeff,-0.004846589065,True,Neutral post-stall Cn residual coefficient multiplying beta at 45 deg AoA.
+post_stall_yaw_moment_beta_rbf_70_coeff,0.1460279577,True,Neutral post-stall Cn residual coefficient multiplying beta at 70 deg AoA.
+post_stall_yaw_moment_p_hat_rbf_20_coeff,0.1158862817,True,Neutral post-stall Cn residual coefficient multiplying p_hat at 20 deg AoA.
+post_stall_yaw_moment_p_hat_rbf_45_coeff,0.1317361312,True,Neutral post-stall Cn residual coefficient multiplying p_hat at 45 deg AoA.
+post_stall_yaw_moment_p_hat_rbf_70_coeff,0.01167447025,True,Neutral post-stall Cn residual coefficient multiplying p_hat at 70 deg AoA.
+post_stall_yaw_moment_r_hat_rbf_20_coeff,0.3495525018,True,Neutral post-stall Cn residual coefficient multiplying r_hat at 20 deg AoA.
+post_stall_yaw_moment_r_hat_rbf_45_coeff,0.04266087003,True,Neutral post-stall Cn residual coefficient multiplying r_hat at 45 deg AoA.
+post_stall_yaw_moment_r_hat_rbf_70_coeff,-0.02078770381,True,Neutral post-stall Cn residual coefficient multiplying r_hat at 70 deg AoA.

@@ -59,9 +59,31 @@ class AircraftModel:
     efficiency_strip: np.ndarray
     flap_scale_strip: np.ndarray
     neutral_surface_trim_rad: np.ndarray
+    side_force_bias_coeff: float
+    side_force_beta_coeff: float
+    side_force_p_hat_coeff: float
+    side_force_r_hat_coeff: float
     roll_moment_bias_coeff: float
+    roll_moment_beta_coeff: float
+    roll_moment_p_hat_coeff: float
+    roll_moment_r_hat_coeff: float
     pitch_moment_bias_coeff: float
     yaw_moment_bias_coeff: float
+    yaw_moment_beta_coeff: float
+    yaw_moment_p_hat_coeff: float
+    yaw_moment_r_hat_coeff: float
+    transition_side_force_bias_coeff: float
+    transition_side_force_beta_coeff: float
+    transition_side_force_p_hat_coeff: float
+    transition_side_force_r_hat_coeff: float
+    transition_roll_moment_bias_coeff: float
+    transition_roll_moment_beta_coeff: float
+    transition_roll_moment_p_hat_coeff: float
+    transition_roll_moment_r_hat_coeff: float
+    transition_yaw_moment_bias_coeff: float
+    transition_yaw_moment_beta_coeff: float
+    transition_yaw_moment_p_hat_coeff: float
+    transition_yaw_moment_r_hat_coeff: float
     post_stall_lift_residual_coeff: float
     post_stall_drag_residual_coeff: float
     post_stall_pitch_moment_coeff: float
@@ -298,9 +320,31 @@ def adapt_glider(glider: Glider) -> AircraftModel:
         efficiency_strip=np.asarray(glider.efficiency_strip, dtype=float),
         flap_scale_strip=np.asarray(glider.flap_scale_strip, dtype=float),
         neutral_surface_trim_rad=np.asarray(glider.neutral_surface_trim_rad, dtype=float).reshape(3),
+        side_force_bias_coeff=float(glider.side_force_bias_coeff),
+        side_force_beta_coeff=float(glider.side_force_beta_coeff),
+        side_force_p_hat_coeff=float(glider.side_force_p_hat_coeff),
+        side_force_r_hat_coeff=float(glider.side_force_r_hat_coeff),
         roll_moment_bias_coeff=float(glider.roll_moment_bias_coeff),
+        roll_moment_beta_coeff=float(glider.roll_moment_beta_coeff),
+        roll_moment_p_hat_coeff=float(glider.roll_moment_p_hat_coeff),
+        roll_moment_r_hat_coeff=float(glider.roll_moment_r_hat_coeff),
         pitch_moment_bias_coeff=float(glider.pitch_moment_bias_coeff),
         yaw_moment_bias_coeff=float(glider.yaw_moment_bias_coeff),
+        yaw_moment_beta_coeff=float(glider.yaw_moment_beta_coeff),
+        yaw_moment_p_hat_coeff=float(glider.yaw_moment_p_hat_coeff),
+        yaw_moment_r_hat_coeff=float(glider.yaw_moment_r_hat_coeff),
+        transition_side_force_bias_coeff=float(glider.transition_side_force_bias_coeff),
+        transition_side_force_beta_coeff=float(glider.transition_side_force_beta_coeff),
+        transition_side_force_p_hat_coeff=float(glider.transition_side_force_p_hat_coeff),
+        transition_side_force_r_hat_coeff=float(glider.transition_side_force_r_hat_coeff),
+        transition_roll_moment_bias_coeff=float(glider.transition_roll_moment_bias_coeff),
+        transition_roll_moment_beta_coeff=float(glider.transition_roll_moment_beta_coeff),
+        transition_roll_moment_p_hat_coeff=float(glider.transition_roll_moment_p_hat_coeff),
+        transition_roll_moment_r_hat_coeff=float(glider.transition_roll_moment_r_hat_coeff),
+        transition_yaw_moment_bias_coeff=float(glider.transition_yaw_moment_bias_coeff),
+        transition_yaw_moment_beta_coeff=float(glider.transition_yaw_moment_beta_coeff),
+        transition_yaw_moment_p_hat_coeff=float(glider.transition_yaw_moment_p_hat_coeff),
+        transition_yaw_moment_r_hat_coeff=float(glider.transition_yaw_moment_r_hat_coeff),
         post_stall_lift_residual_coeff=float(glider.post_stall_lift_residual_coeff),
         post_stall_drag_residual_coeff=float(glider.post_stall_drag_residual_coeff),
         post_stall_pitch_moment_coeff=float(glider.post_stall_pitch_moment_coeff),
@@ -489,12 +533,49 @@ def _evaluate_aero_numeric(
         aircraft.post_stall_residual_blend_start_alpha_rad,
         aircraft.post_stall_residual_blend_full_alpha_rad,
     )
+    transition_lateral_weight = float(4.0 * post_stall_residual_activation * (1.0 - post_stall_residual_activation))
     surface_basis = post_stall_residual_activation * residual_surface_basis_numpy(alpha_cg, aircraft)
     lift_surface_coeff = float(np.dot(aircraft.post_stall_lift_surface_coeff, surface_basis))
     drag_surface_coeff = float(np.dot(aircraft.post_stall_drag_surface_coeff, surface_basis))
     pitch_surface_coeff = float(np.dot(aircraft.post_stall_pitch_moment_surface_coeff, surface_basis))
     pitch_damping_surface_coeff = float(np.dot(aircraft.post_stall_pitch_damping_surface_coeff, surface_basis))
     lateral_features = np.asarray([1.0, beta_cg, roll_rate_hat, yaw_rate_hat], dtype=float)
+    attached_side_force_coeff = float(
+        aircraft.side_force_bias_coeff
+        + aircraft.side_force_beta_coeff * beta_cg
+        + aircraft.side_force_p_hat_coeff * roll_rate_hat
+        + aircraft.side_force_r_hat_coeff * yaw_rate_hat
+    )
+    attached_roll_moment_coeff = float(
+        aircraft.roll_moment_bias_coeff
+        + aircraft.roll_moment_beta_coeff * beta_cg
+        + aircraft.roll_moment_p_hat_coeff * roll_rate_hat
+        + aircraft.roll_moment_r_hat_coeff * yaw_rate_hat
+    )
+    attached_yaw_moment_coeff = float(
+        aircraft.yaw_moment_bias_coeff
+        + aircraft.yaw_moment_beta_coeff * beta_cg
+        + aircraft.yaw_moment_p_hat_coeff * roll_rate_hat
+        + aircraft.yaw_moment_r_hat_coeff * yaw_rate_hat
+    )
+    transition_side_force_coeff = float(
+        aircraft.transition_side_force_bias_coeff
+        + aircraft.transition_side_force_beta_coeff * beta_cg
+        + aircraft.transition_side_force_p_hat_coeff * roll_rate_hat
+        + aircraft.transition_side_force_r_hat_coeff * yaw_rate_hat
+    )
+    transition_roll_moment_coeff = float(
+        aircraft.transition_roll_moment_bias_coeff
+        + aircraft.transition_roll_moment_beta_coeff * beta_cg
+        + aircraft.transition_roll_moment_p_hat_coeff * roll_rate_hat
+        + aircraft.transition_roll_moment_r_hat_coeff * yaw_rate_hat
+    )
+    transition_yaw_moment_coeff = float(
+        aircraft.transition_yaw_moment_bias_coeff
+        + aircraft.transition_yaw_moment_beta_coeff * beta_cg
+        + aircraft.transition_yaw_moment_p_hat_coeff * roll_rate_hat
+        + aircraft.transition_yaw_moment_r_hat_coeff * yaw_rate_hat
+    )
     side_force_surface_coeff = float(
         lateral_features @ np.asarray(aircraft.post_stall_side_force_surface_coeff, dtype=float) @ surface_basis
     )
@@ -529,14 +610,24 @@ def _evaluate_aero_numeric(
         f_aero_b = f_aero_b + (
             q_bar_cg
             * aircraft.s_ref_m2
-            * side_force_surface_coeff
+            * (
+                attached_side_force_coeff
+                + transition_lateral_weight * transition_side_force_coeff
+                + side_force_surface_coeff
+            )
             * np.array([0.0, 1.0, 0.0], dtype=float)
         )
     m_bias_b = np.array(
         [
-            q_bar_cg * aircraft.s_ref_m2 * aircraft.b_ref_m * aircraft.roll_moment_bias_coeff,
+            q_bar_cg
+            * aircraft.s_ref_m2
+            * aircraft.b_ref_m
+            * (attached_roll_moment_coeff + transition_lateral_weight * transition_roll_moment_coeff),
             q_bar_cg * aircraft.s_ref_m2 * aircraft.c_ref_m * aircraft.pitch_moment_bias_coeff,
-            q_bar_cg * aircraft.s_ref_m2 * aircraft.b_ref_m * aircraft.yaw_moment_bias_coeff,
+            q_bar_cg
+            * aircraft.s_ref_m2
+            * aircraft.b_ref_m
+            * (attached_yaw_moment_coeff + transition_lateral_weight * transition_yaw_moment_coeff),
         ],
         dtype=float,
     )
@@ -584,6 +675,7 @@ def _evaluate_aero_numeric(
         "roll_rate_hat": roll_rate_hat,
         "yaw_rate_hat": yaw_rate_hat,
         "post_stall_residual_activation": post_stall_residual_activation,
+        "transition_lateral_weight": transition_lateral_weight,
         "post_stall_pitch_activation": post_stall_residual_activation,
         "post_stall_residual_surface_basis": surface_basis,
         "post_stall_lift_surface_coeff": lift_surface_coeff,
@@ -593,6 +685,12 @@ def _evaluate_aero_numeric(
         "post_stall_side_force_surface_coeff": side_force_surface_coeff,
         "post_stall_roll_moment_surface_coeff": roll_surface_coeff,
         "post_stall_yaw_moment_surface_coeff": yaw_surface_coeff,
+        "attached_side_force_coeff": attached_side_force_coeff,
+        "attached_roll_moment_coeff": attached_roll_moment_coeff,
+        "attached_yaw_moment_coeff": attached_yaw_moment_coeff,
+        "transition_side_force_coeff": transition_side_force_coeff,
+        "transition_roll_moment_coeff": transition_roll_moment_coeff,
+        "transition_yaw_moment_coeff": transition_yaw_moment_coeff,
         "beta_rad": beta_cg,
         "gamma_rad": gamma_rad,
         "sink_rate_m_s": sink_rate_m_s,
@@ -840,6 +938,7 @@ def _state_derivative_symbolic(
     roll_rate_hat = omega_b[0] * aircraft.b_ref_m / (2.0 * speed_cg)
     yaw_rate_hat = omega_b[2] * aircraft.b_ref_m / (2.0 * speed_cg)
     post_stall_residual_activation = _post_stall_residual_activation_ca(alpha_cg, aircraft)
+    transition_lateral_weight = 4.0 * post_stall_residual_activation * (1.0 - post_stall_residual_activation)
     residual_basis = post_stall_residual_activation * _residual_surface_basis_ca(alpha_cg, aircraft)
     lift_surface_coeff = ca.dot(_ca_column(aircraft.post_stall_lift_surface_coeff), residual_basis)
     drag_surface_coeff = ca.dot(_ca_column(aircraft.post_stall_drag_surface_coeff), residual_basis)
@@ -852,6 +951,42 @@ def _state_derivative_symbolic(
         residual_basis,
     )
     lateral_features = ca.vertcat(1.0, beta_cg, roll_rate_hat, yaw_rate_hat)
+    attached_side_force_coeff = (
+        aircraft.side_force_bias_coeff
+        + aircraft.side_force_beta_coeff * beta_cg
+        + aircraft.side_force_p_hat_coeff * roll_rate_hat
+        + aircraft.side_force_r_hat_coeff * yaw_rate_hat
+    )
+    attached_roll_moment_coeff = (
+        aircraft.roll_moment_bias_coeff
+        + aircraft.roll_moment_beta_coeff * beta_cg
+        + aircraft.roll_moment_p_hat_coeff * roll_rate_hat
+        + aircraft.roll_moment_r_hat_coeff * yaw_rate_hat
+    )
+    attached_yaw_moment_coeff = (
+        aircraft.yaw_moment_bias_coeff
+        + aircraft.yaw_moment_beta_coeff * beta_cg
+        + aircraft.yaw_moment_p_hat_coeff * roll_rate_hat
+        + aircraft.yaw_moment_r_hat_coeff * yaw_rate_hat
+    )
+    transition_side_force_coeff = (
+        aircraft.transition_side_force_bias_coeff
+        + aircraft.transition_side_force_beta_coeff * beta_cg
+        + aircraft.transition_side_force_p_hat_coeff * roll_rate_hat
+        + aircraft.transition_side_force_r_hat_coeff * yaw_rate_hat
+    )
+    transition_roll_moment_coeff = (
+        aircraft.transition_roll_moment_bias_coeff
+        + aircraft.transition_roll_moment_beta_coeff * beta_cg
+        + aircraft.transition_roll_moment_p_hat_coeff * roll_rate_hat
+        + aircraft.transition_roll_moment_r_hat_coeff * yaw_rate_hat
+    )
+    transition_yaw_moment_coeff = (
+        aircraft.transition_yaw_moment_bias_coeff
+        + aircraft.transition_yaw_moment_beta_coeff * beta_cg
+        + aircraft.transition_yaw_moment_p_hat_coeff * roll_rate_hat
+        + aircraft.transition_yaw_moment_r_hat_coeff * yaw_rate_hat
+    )
     side_force_surface_coeff = ca.dot(
         lateral_features,
         ca.DM(aircraft.post_stall_side_force_surface_coeff) @ residual_basis,
@@ -882,14 +1017,23 @@ def _state_derivative_symbolic(
                 + drag_surface_coeff
             )
             * drag_dir_cg_b
-            + side_force_surface_coeff * ca.DM([0.0, 1.0, 0.0])
+            + (
+                attached_side_force_coeff
+                + transition_lateral_weight * transition_side_force_coeff
+                + side_force_surface_coeff
+            )
+            * ca.DM([0.0, 1.0, 0.0])
         )
     )
     m_aero_b += ca.vertcat(
         q_bar_cg
         * aircraft.s_ref_m2
         * aircraft.b_ref_m
-        * (aircraft.roll_moment_bias_coeff + roll_surface_coeff),
+        * (
+            attached_roll_moment_coeff
+            + transition_lateral_weight * transition_roll_moment_coeff
+            + roll_surface_coeff
+        ),
         q_bar_cg
         * aircraft.s_ref_m2
         * aircraft.c_ref_m
@@ -906,7 +1050,11 @@ def _state_derivative_symbolic(
         q_bar_cg
         * aircraft.s_ref_m2
         * aircraft.b_ref_m
-        * (aircraft.yaw_moment_bias_coeff + yaw_surface_coeff),
+        * (
+            attached_yaw_moment_coeff
+            + transition_lateral_weight * transition_yaw_moment_coeff
+            + yaw_surface_coeff
+        ),
     )
     f_fuse_b = (
         -0.5

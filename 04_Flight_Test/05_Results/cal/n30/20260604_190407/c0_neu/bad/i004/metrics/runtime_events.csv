@@ -1,0 +1,2 @@
+t_host_s,event,details_json
+77569.2357724,calibration_record_cancelled_before_launch,"{""reason"":""launch_gate_timeout:vicon_subject_occluded""}"

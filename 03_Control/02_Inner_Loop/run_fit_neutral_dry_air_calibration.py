@@ -12,6 +12,7 @@ import csv
 import json
 import math
 import sys
+import warnings
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
 from datetime import datetime
@@ -856,6 +857,37 @@ def bounded_parameter_value(parameter: str, value: float) -> float:
         return float(np.clip(value, 0.2, 2.0))
     if parameter in {"roll_moment_bias_coeff", "yaw_moment_bias_coeff"}:
         return float(np.clip(value, -0.10, 0.10))
+    if parameter in {
+        "side_force_bias_coeff",
+        "transition_side_force_bias_coeff",
+        "transition_roll_moment_bias_coeff",
+        "transition_yaw_moment_bias_coeff",
+    }:
+        return float(np.clip(value, -0.25, 0.25))
+    if parameter in {
+        "side_force_beta_coeff",
+        "side_force_p_hat_coeff",
+        "side_force_r_hat_coeff",
+        "transition_side_force_beta_coeff",
+        "transition_side_force_p_hat_coeff",
+        "transition_side_force_r_hat_coeff",
+    }:
+        return float(np.clip(value, -3.0, 3.0))
+    if parameter in {
+        "roll_moment_beta_coeff",
+        "roll_moment_p_hat_coeff",
+        "roll_moment_r_hat_coeff",
+        "yaw_moment_beta_coeff",
+        "yaw_moment_p_hat_coeff",
+        "yaw_moment_r_hat_coeff",
+        "transition_roll_moment_beta_coeff",
+        "transition_roll_moment_p_hat_coeff",
+        "transition_roll_moment_r_hat_coeff",
+        "transition_yaw_moment_beta_coeff",
+        "transition_yaw_moment_p_hat_coeff",
+        "transition_yaw_moment_r_hat_coeff",
+    }:
+        return float(np.clip(value, -1.0, 1.0))
     if parameter == "pitch_moment_bias_coeff":
         return float(np.clip(value, -0.35, 0.35))
     if parameter in {"post_stall_lift_residual_coeff", "post_stall_drag_residual_coeff"}:
@@ -899,13 +931,15 @@ def evaluate_candidates(
 
 def evaluate_candidate_payload(payload: tuple[dict[str, float], list[dict[str, Any]], float, float, str]) -> dict[str, Any]:
     candidate, rows, replay_dt_s, alignment_window_s, objective_mode = payload
-    replay_rows = simulate_rows(
-        rows,
-        candidate,
-        replay_dt_s=replay_dt_s,
-        alignment_window_s=alignment_window_s,
-        workers=1,
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        replay_rows = simulate_rows(
+            rows,
+            candidate,
+            replay_dt_s=replay_dt_s,
+            alignment_window_s=alignment_window_s,
+            workers=1,
+        )
     return {"parameters": dict(candidate), "summary": objective_summary(replay_rows, objective_mode=objective_mode)}
 
 
@@ -926,6 +960,7 @@ def simulate_rows(
 
 def simulate_row_payload(payload: tuple[dict[str, Any], dict[str, float], float, float]) -> dict[str, Any]:
     row, parameters, replay_dt_s, alignment_window_s = payload
+    warnings.filterwarnings("ignore", category=RuntimeWarning)
     throw_dir = Path(str(row.get("_throw_dir", "")))
     if not throw_dir.exists():
         return blocked_row(row, "missing_throw_dir", alignment_window_s)
@@ -1035,6 +1070,28 @@ def active_post_stall_surface_parameters() -> dict[str, float]:
         "post_stall_residual_blend_full_alpha_deg": float(
             getattr(active_calibration, "POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG", 20.0)
         ),
+        "side_force_bias_coeff": float(getattr(active_calibration, "SIDE_FORCE_BIAS_COEFF", 0.0)),
+        "side_force_beta_coeff": float(getattr(active_calibration, "SIDE_FORCE_BETA_COEFF", 0.0)),
+        "side_force_p_hat_coeff": float(getattr(active_calibration, "SIDE_FORCE_P_HAT_COEFF", 0.0)),
+        "side_force_r_hat_coeff": float(getattr(active_calibration, "SIDE_FORCE_R_HAT_COEFF", 0.0)),
+        "roll_moment_beta_coeff": float(getattr(active_calibration, "ROLL_MOMENT_BETA_COEFF", 0.0)),
+        "roll_moment_p_hat_coeff": float(getattr(active_calibration, "ROLL_MOMENT_P_HAT_COEFF", 0.0)),
+        "roll_moment_r_hat_coeff": float(getattr(active_calibration, "ROLL_MOMENT_R_HAT_COEFF", 0.0)),
+        "yaw_moment_beta_coeff": float(getattr(active_calibration, "YAW_MOMENT_BETA_COEFF", 0.0)),
+        "yaw_moment_p_hat_coeff": float(getattr(active_calibration, "YAW_MOMENT_P_HAT_COEFF", 0.0)),
+        "yaw_moment_r_hat_coeff": float(getattr(active_calibration, "YAW_MOMENT_R_HAT_COEFF", 0.0)),
+        "transition_side_force_bias_coeff": float(getattr(active_calibration, "TRANSITION_SIDE_FORCE_BIAS_COEFF", 0.0)),
+        "transition_side_force_beta_coeff": float(getattr(active_calibration, "TRANSITION_SIDE_FORCE_BETA_COEFF", 0.0)),
+        "transition_side_force_p_hat_coeff": float(getattr(active_calibration, "TRANSITION_SIDE_FORCE_P_HAT_COEFF", 0.0)),
+        "transition_side_force_r_hat_coeff": float(getattr(active_calibration, "TRANSITION_SIDE_FORCE_R_HAT_COEFF", 0.0)),
+        "transition_roll_moment_bias_coeff": float(getattr(active_calibration, "TRANSITION_ROLL_MOMENT_BIAS_COEFF", 0.0)),
+        "transition_roll_moment_beta_coeff": float(getattr(active_calibration, "TRANSITION_ROLL_MOMENT_BETA_COEFF", 0.0)),
+        "transition_roll_moment_p_hat_coeff": float(getattr(active_calibration, "TRANSITION_ROLL_MOMENT_P_HAT_COEFF", 0.0)),
+        "transition_roll_moment_r_hat_coeff": float(getattr(active_calibration, "TRANSITION_ROLL_MOMENT_R_HAT_COEFF", 0.0)),
+        "transition_yaw_moment_bias_coeff": float(getattr(active_calibration, "TRANSITION_YAW_MOMENT_BIAS_COEFF", 0.0)),
+        "transition_yaw_moment_beta_coeff": float(getattr(active_calibration, "TRANSITION_YAW_MOMENT_BETA_COEFF", 0.0)),
+        "transition_yaw_moment_p_hat_coeff": float(getattr(active_calibration, "TRANSITION_YAW_MOMENT_P_HAT_COEFF", 0.0)),
+        "transition_yaw_moment_r_hat_coeff": float(getattr(active_calibration, "TRANSITION_YAW_MOMENT_R_HAT_COEFF", 0.0)),
     }
     centres_deg = tuple(float(value) for value in getattr(active_calibration, "POST_STALL_RBF_ALPHA_CENTERS_DEG", (20.0, 45.0, 70.0)))
     for prefix, values in (
@@ -1091,8 +1148,54 @@ def calibrated_aircraft(parameters: dict[str, float]) -> Any:
             dtype=float,
         ),
         roll_moment_bias_coeff=float(parameters["roll_moment_bias_coeff"]),
+        side_force_bias_coeff=float(parameters.get("side_force_bias_coeff", base.side_force_bias_coeff)),
+        side_force_beta_coeff=float(parameters.get("side_force_beta_coeff", base.side_force_beta_coeff)),
+        side_force_p_hat_coeff=float(parameters.get("side_force_p_hat_coeff", base.side_force_p_hat_coeff)),
+        side_force_r_hat_coeff=float(parameters.get("side_force_r_hat_coeff", base.side_force_r_hat_coeff)),
+        roll_moment_beta_coeff=float(parameters.get("roll_moment_beta_coeff", base.roll_moment_beta_coeff)),
+        roll_moment_p_hat_coeff=float(parameters.get("roll_moment_p_hat_coeff", base.roll_moment_p_hat_coeff)),
+        roll_moment_r_hat_coeff=float(parameters.get("roll_moment_r_hat_coeff", base.roll_moment_r_hat_coeff)),
         pitch_moment_bias_coeff=float(parameters["pitch_moment_bias_coeff"]),
         yaw_moment_bias_coeff=float(parameters["yaw_moment_bias_coeff"]),
+        yaw_moment_beta_coeff=float(parameters.get("yaw_moment_beta_coeff", base.yaw_moment_beta_coeff)),
+        yaw_moment_p_hat_coeff=float(parameters.get("yaw_moment_p_hat_coeff", base.yaw_moment_p_hat_coeff)),
+        yaw_moment_r_hat_coeff=float(parameters.get("yaw_moment_r_hat_coeff", base.yaw_moment_r_hat_coeff)),
+        transition_side_force_bias_coeff=float(
+            parameters.get("transition_side_force_bias_coeff", base.transition_side_force_bias_coeff)
+        ),
+        transition_side_force_beta_coeff=float(
+            parameters.get("transition_side_force_beta_coeff", base.transition_side_force_beta_coeff)
+        ),
+        transition_side_force_p_hat_coeff=float(
+            parameters.get("transition_side_force_p_hat_coeff", base.transition_side_force_p_hat_coeff)
+        ),
+        transition_side_force_r_hat_coeff=float(
+            parameters.get("transition_side_force_r_hat_coeff", base.transition_side_force_r_hat_coeff)
+        ),
+        transition_roll_moment_bias_coeff=float(
+            parameters.get("transition_roll_moment_bias_coeff", base.transition_roll_moment_bias_coeff)
+        ),
+        transition_roll_moment_beta_coeff=float(
+            parameters.get("transition_roll_moment_beta_coeff", base.transition_roll_moment_beta_coeff)
+        ),
+        transition_roll_moment_p_hat_coeff=float(
+            parameters.get("transition_roll_moment_p_hat_coeff", base.transition_roll_moment_p_hat_coeff)
+        ),
+        transition_roll_moment_r_hat_coeff=float(
+            parameters.get("transition_roll_moment_r_hat_coeff", base.transition_roll_moment_r_hat_coeff)
+        ),
+        transition_yaw_moment_bias_coeff=float(
+            parameters.get("transition_yaw_moment_bias_coeff", base.transition_yaw_moment_bias_coeff)
+        ),
+        transition_yaw_moment_beta_coeff=float(
+            parameters.get("transition_yaw_moment_beta_coeff", base.transition_yaw_moment_beta_coeff)
+        ),
+        transition_yaw_moment_p_hat_coeff=float(
+            parameters.get("transition_yaw_moment_p_hat_coeff", base.transition_yaw_moment_p_hat_coeff)
+        ),
+        transition_yaw_moment_r_hat_coeff=float(
+            parameters.get("transition_yaw_moment_r_hat_coeff", base.transition_yaw_moment_r_hat_coeff)
+        ),
         post_stall_lift_residual_coeff=float(
             parameters.get("post_stall_lift_residual_coeff", base.post_stall_lift_residual_coeff)
         ),

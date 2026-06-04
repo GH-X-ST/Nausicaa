@@ -34,7 +34,29 @@ from A_model_parameters.neutral_dry_air_calibration import (
     POST_STALL_SIDE_FORCE_RBF_COEFFS as NEUTRAL_DRY_AIR_POST_STALL_SIDE_FORCE_RBF_COEFFS,
     POST_STALL_YAW_MOMENT_RBF_COEFFS as NEUTRAL_DRY_AIR_POST_STALL_YAW_MOMENT_RBF_COEFFS,
     ROLL_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_ROLL_MOMENT_BIAS_COEFF,
+    ROLL_MOMENT_BETA_COEFF as NEUTRAL_DRY_AIR_ROLL_MOMENT_BETA_COEFF,
+    ROLL_MOMENT_P_HAT_COEFF as NEUTRAL_DRY_AIR_ROLL_MOMENT_P_HAT_COEFF,
+    ROLL_MOMENT_R_HAT_COEFF as NEUTRAL_DRY_AIR_ROLL_MOMENT_R_HAT_COEFF,
+    SIDE_FORCE_BETA_COEFF as NEUTRAL_DRY_AIR_SIDE_FORCE_BETA_COEFF,
+    SIDE_FORCE_BIAS_COEFF as NEUTRAL_DRY_AIR_SIDE_FORCE_BIAS_COEFF,
+    SIDE_FORCE_P_HAT_COEFF as NEUTRAL_DRY_AIR_SIDE_FORCE_P_HAT_COEFF,
+    SIDE_FORCE_R_HAT_COEFF as NEUTRAL_DRY_AIR_SIDE_FORCE_R_HAT_COEFF,
+    TRANSITION_ROLL_MOMENT_BETA_COEFF as NEUTRAL_DRY_AIR_TRANSITION_ROLL_MOMENT_BETA_COEFF,
+    TRANSITION_ROLL_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_TRANSITION_ROLL_MOMENT_BIAS_COEFF,
+    TRANSITION_ROLL_MOMENT_P_HAT_COEFF as NEUTRAL_DRY_AIR_TRANSITION_ROLL_MOMENT_P_HAT_COEFF,
+    TRANSITION_ROLL_MOMENT_R_HAT_COEFF as NEUTRAL_DRY_AIR_TRANSITION_ROLL_MOMENT_R_HAT_COEFF,
+    TRANSITION_SIDE_FORCE_BETA_COEFF as NEUTRAL_DRY_AIR_TRANSITION_SIDE_FORCE_BETA_COEFF,
+    TRANSITION_SIDE_FORCE_BIAS_COEFF as NEUTRAL_DRY_AIR_TRANSITION_SIDE_FORCE_BIAS_COEFF,
+    TRANSITION_SIDE_FORCE_P_HAT_COEFF as NEUTRAL_DRY_AIR_TRANSITION_SIDE_FORCE_P_HAT_COEFF,
+    TRANSITION_SIDE_FORCE_R_HAT_COEFF as NEUTRAL_DRY_AIR_TRANSITION_SIDE_FORCE_R_HAT_COEFF,
+    TRANSITION_YAW_MOMENT_BETA_COEFF as NEUTRAL_DRY_AIR_TRANSITION_YAW_MOMENT_BETA_COEFF,
+    TRANSITION_YAW_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_TRANSITION_YAW_MOMENT_BIAS_COEFF,
+    TRANSITION_YAW_MOMENT_P_HAT_COEFF as NEUTRAL_DRY_AIR_TRANSITION_YAW_MOMENT_P_HAT_COEFF,
+    TRANSITION_YAW_MOMENT_R_HAT_COEFF as NEUTRAL_DRY_AIR_TRANSITION_YAW_MOMENT_R_HAT_COEFF,
+    YAW_MOMENT_BETA_COEFF as NEUTRAL_DRY_AIR_YAW_MOMENT_BETA_COEFF,
     YAW_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_YAW_MOMENT_BIAS_COEFF,
+    YAW_MOMENT_P_HAT_COEFF as NEUTRAL_DRY_AIR_YAW_MOMENT_P_HAT_COEFF,
+    YAW_MOMENT_R_HAT_COEFF as NEUTRAL_DRY_AIR_YAW_MOMENT_R_HAT_COEFF,
 )
 
 
@@ -114,9 +136,31 @@ class Glider:
     efficiency_strip: np.ndarray
     flap_scale_strip: np.ndarray
     neutral_surface_trim_rad: np.ndarray
+    side_force_bias_coeff: float
+    side_force_beta_coeff: float
+    side_force_p_hat_coeff: float
+    side_force_r_hat_coeff: float
     roll_moment_bias_coeff: float
+    roll_moment_beta_coeff: float
+    roll_moment_p_hat_coeff: float
+    roll_moment_r_hat_coeff: float
     pitch_moment_bias_coeff: float
     yaw_moment_bias_coeff: float
+    yaw_moment_beta_coeff: float
+    yaw_moment_p_hat_coeff: float
+    yaw_moment_r_hat_coeff: float
+    transition_side_force_bias_coeff: float
+    transition_side_force_beta_coeff: float
+    transition_side_force_p_hat_coeff: float
+    transition_side_force_r_hat_coeff: float
+    transition_roll_moment_bias_coeff: float
+    transition_roll_moment_beta_coeff: float
+    transition_roll_moment_p_hat_coeff: float
+    transition_roll_moment_r_hat_coeff: float
+    transition_yaw_moment_bias_coeff: float
+    transition_yaw_moment_beta_coeff: float
+    transition_yaw_moment_p_hat_coeff: float
+    transition_yaw_moment_r_hat_coeff: float
     post_stall_lift_residual_coeff: float
     post_stall_drag_residual_coeff: float
     post_stall_pitch_moment_coeff: float
@@ -351,14 +395,60 @@ def build_nausicaa_glider() -> Glider:
     cd0_scale = NEUTRAL_DRY_AIR_CD0_STRIP_SCALE if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 1.0
     efficiency_scale = NEUTRAL_DRY_AIR_EFFICIENCY_STRIP_SCALE if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 1.0
     drag_area_fuse_scale = NEUTRAL_DRY_AIR_DRAG_AREA_FUSE_SCALE if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 1.0
+    side_force_bias_coeff = NEUTRAL_DRY_AIR_SIDE_FORCE_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    side_force_beta_coeff = NEUTRAL_DRY_AIR_SIDE_FORCE_BETA_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    side_force_p_hat_coeff = NEUTRAL_DRY_AIR_SIDE_FORCE_P_HAT_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    side_force_r_hat_coeff = NEUTRAL_DRY_AIR_SIDE_FORCE_R_HAT_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
     roll_moment_bias_coeff = (
         NEUTRAL_DRY_AIR_ROLL_MOMENT_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
     )
+    roll_moment_beta_coeff = NEUTRAL_DRY_AIR_ROLL_MOMENT_BETA_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    roll_moment_p_hat_coeff = NEUTRAL_DRY_AIR_ROLL_MOMENT_P_HAT_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    roll_moment_r_hat_coeff = NEUTRAL_DRY_AIR_ROLL_MOMENT_R_HAT_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
     pitch_moment_bias_coeff = (
         NEUTRAL_DRY_AIR_PITCH_MOMENT_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
     )
     yaw_moment_bias_coeff = (
         NEUTRAL_DRY_AIR_YAW_MOMENT_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    yaw_moment_beta_coeff = NEUTRAL_DRY_AIR_YAW_MOMENT_BETA_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    yaw_moment_p_hat_coeff = NEUTRAL_DRY_AIR_YAW_MOMENT_P_HAT_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    yaw_moment_r_hat_coeff = NEUTRAL_DRY_AIR_YAW_MOMENT_R_HAT_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    transition_side_force_bias_coeff = (
+        NEUTRAL_DRY_AIR_TRANSITION_SIDE_FORCE_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    transition_side_force_beta_coeff = (
+        NEUTRAL_DRY_AIR_TRANSITION_SIDE_FORCE_BETA_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    transition_side_force_p_hat_coeff = (
+        NEUTRAL_DRY_AIR_TRANSITION_SIDE_FORCE_P_HAT_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    transition_side_force_r_hat_coeff = (
+        NEUTRAL_DRY_AIR_TRANSITION_SIDE_FORCE_R_HAT_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    transition_roll_moment_bias_coeff = (
+        NEUTRAL_DRY_AIR_TRANSITION_ROLL_MOMENT_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    transition_roll_moment_beta_coeff = (
+        NEUTRAL_DRY_AIR_TRANSITION_ROLL_MOMENT_BETA_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    transition_roll_moment_p_hat_coeff = (
+        NEUTRAL_DRY_AIR_TRANSITION_ROLL_MOMENT_P_HAT_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    transition_roll_moment_r_hat_coeff = (
+        NEUTRAL_DRY_AIR_TRANSITION_ROLL_MOMENT_R_HAT_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    transition_yaw_moment_bias_coeff = (
+        NEUTRAL_DRY_AIR_TRANSITION_YAW_MOMENT_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    transition_yaw_moment_beta_coeff = (
+        NEUTRAL_DRY_AIR_TRANSITION_YAW_MOMENT_BETA_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    transition_yaw_moment_p_hat_coeff = (
+        NEUTRAL_DRY_AIR_TRANSITION_YAW_MOMENT_P_HAT_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    transition_yaw_moment_r_hat_coeff = (
+        NEUTRAL_DRY_AIR_TRANSITION_YAW_MOMENT_R_HAT_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
     )
     post_stall_lift_residual_coeff = (
         NEUTRAL_DRY_AIR_POST_STALL_LIFT_RESIDUAL_COEFF
@@ -530,9 +620,31 @@ def build_nausicaa_glider() -> Glider:
         efficiency_strip=strip_table["efficiency_strip"],
         flap_scale_strip=strip_table["flap_scale_strip"],
         neutral_surface_trim_rad=neutral_surface_trim_rad,
+        side_force_bias_coeff=float(side_force_bias_coeff),
+        side_force_beta_coeff=float(side_force_beta_coeff),
+        side_force_p_hat_coeff=float(side_force_p_hat_coeff),
+        side_force_r_hat_coeff=float(side_force_r_hat_coeff),
         roll_moment_bias_coeff=float(roll_moment_bias_coeff),
+        roll_moment_beta_coeff=float(roll_moment_beta_coeff),
+        roll_moment_p_hat_coeff=float(roll_moment_p_hat_coeff),
+        roll_moment_r_hat_coeff=float(roll_moment_r_hat_coeff),
         pitch_moment_bias_coeff=float(pitch_moment_bias_coeff),
         yaw_moment_bias_coeff=float(yaw_moment_bias_coeff),
+        yaw_moment_beta_coeff=float(yaw_moment_beta_coeff),
+        yaw_moment_p_hat_coeff=float(yaw_moment_p_hat_coeff),
+        yaw_moment_r_hat_coeff=float(yaw_moment_r_hat_coeff),
+        transition_side_force_bias_coeff=float(transition_side_force_bias_coeff),
+        transition_side_force_beta_coeff=float(transition_side_force_beta_coeff),
+        transition_side_force_p_hat_coeff=float(transition_side_force_p_hat_coeff),
+        transition_side_force_r_hat_coeff=float(transition_side_force_r_hat_coeff),
+        transition_roll_moment_bias_coeff=float(transition_roll_moment_bias_coeff),
+        transition_roll_moment_beta_coeff=float(transition_roll_moment_beta_coeff),
+        transition_roll_moment_p_hat_coeff=float(transition_roll_moment_p_hat_coeff),
+        transition_roll_moment_r_hat_coeff=float(transition_roll_moment_r_hat_coeff),
+        transition_yaw_moment_bias_coeff=float(transition_yaw_moment_bias_coeff),
+        transition_yaw_moment_beta_coeff=float(transition_yaw_moment_beta_coeff),
+        transition_yaw_moment_p_hat_coeff=float(transition_yaw_moment_p_hat_coeff),
+        transition_yaw_moment_r_hat_coeff=float(transition_yaw_moment_r_hat_coeff),
         post_stall_lift_residual_coeff=float(post_stall_lift_residual_coeff),
         post_stall_drag_residual_coeff=float(post_stall_drag_residual_coeff),
         post_stall_pitch_moment_coeff=float(post_stall_pitch_moment_coeff),

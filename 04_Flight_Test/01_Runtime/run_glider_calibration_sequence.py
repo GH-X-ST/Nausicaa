@@ -47,9 +47,9 @@ from state_contract import state_dataframe_row  # noqa: E402
 # Current setup: dry-air calibration, hardware armed on COM11.
 # Failed launch-gate attempts are ignored and do not count as throws.
 # =============================================================================
-CALIBRATION_BLOCK = "neutral_30"  # neutral_30, pulse_ladder_30, or pulse_supplement_aileron_rudder_high
+CALIBRATION_BLOCK = "neutral_30"  # neutral_30, pulse_ladder_aileron_30, pulse_ladder_elevator_30, or pulse_ladder_rudder_30
 CURRENT_SESSION_LABEL = ""  # Empty means timestamped folder.
-TARGET_VALID_THROWS_OVERRIDE: int | None = 10  # None uses block defaults below.
+TARGET_VALID_THROWS_OVERRIDE: int | None = None  # None uses block defaults below.
 SERIAL_PORT = "COM11"
 VICON_HOST = "192.168.0.100:801"
 MODE = "armed"  # Use dry-run for hardware-free tests.
@@ -69,7 +69,6 @@ VICON_ATTITUDE_OFFSET_RAD = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_offset_rad
 
 NEUTRAL_VALID_THROWS = 30
 PULSE_VALID_THROWS_PER_CASE = 3
-SUPPLEMENT_VALID_THROWS_PER_CASE = 3
 PULSE_START_DELAY_S = 0.15
 SUSTAINED_CONTROL_EFFECT_DURATION_S = 60.0
 PULSE_DURATION_BY_ABS_COMMAND = {
@@ -79,7 +78,11 @@ PULSE_DURATION_BY_ABS_COMMAND = {
     0.8: SUSTAINED_CONTROL_EFFECT_DURATION_S,
     1.0: SUSTAINED_CONTROL_EFFECT_DURATION_S,
 }
-SUPPLEMENT_PULSE_DURATION_S = SUSTAINED_CONTROL_EFFECT_DURATION_S
+PULSE_LADDER_BLOCK_AXES = {
+    "pulse_ladder_aileron_30": ("aileron", "delta_a"),
+    "pulse_ladder_elevator_30": ("elevator", "delta_e"),
+    "pulse_ladder_rudder_30": ("rudder", "delta_r"),
+}
 # =============================================================================
 
 
@@ -112,46 +115,27 @@ def calibration_cases_for_block(block_id: str) -> list[CalibrationCase]:
                 target_valid_throws=NEUTRAL_VALID_THROWS,
             )
         ]
-    if block == "pulse_ladder_30":
+    if block in PULSE_LADDER_BLOCK_AXES:
         cases: list[CalibrationCase] = []
-        axis_order = (("elevator", "delta_e"), ("aileron", "delta_a"), ("rudder", "delta_r"))
+        axis_label, axis_name = PULSE_LADDER_BLOCK_AXES[block]
         command_values = (0.2, -0.2, 0.4, -0.4, 0.6, -0.6, 0.8, -0.8, 1.0, -1.0)
-        for axis_label, axis_name in axis_order:
-            for value in command_values:
-                abs_value = round(abs(float(value)), 1)
-                cases.append(
-                    CalibrationCase(
-                        case_id=f"C1_{axis_label}_{_command_label(value)}",
-                        case_name=f"{axis_label} sustained control effect {value:+.1f}",
-                        command_axis=axis_name,
-                        command_value=float(value),
-                        pulse_start_s=PULSE_START_DELAY_S,
-                        pulse_duration_s=float(PULSE_DURATION_BY_ABS_COMMAND[abs_value]),
-                        target_valid_throws=PULSE_VALID_THROWS_PER_CASE,
-                    )
+        for value in command_values:
+            abs_value = round(abs(float(value)), 1)
+            cases.append(
+                CalibrationCase(
+                    case_id=f"C1_{axis_label}_{_command_label(value)}",
+                    case_name=f"{axis_label} sustained control effect {value:+.1f}",
+                    command_axis=axis_name,
+                    command_value=float(value),
+                    pulse_start_s=PULSE_START_DELAY_S,
+                    pulse_duration_s=float(PULSE_DURATION_BY_ABS_COMMAND[abs_value]),
+                    target_valid_throws=PULSE_VALID_THROWS_PER_CASE,
                 )
-        return cases
-    if block == "pulse_supplement_aileron_rudder_high":
-        cases = []
-        axis_order = (("aileron", "delta_a"), ("rudder", "delta_r"))
-        command_values = (0.6, -0.6, 0.8, -0.8, 1.0, -1.0)
-        for axis_label, axis_name in axis_order:
-            for value in command_values:
-                cases.append(
-                    CalibrationCase(
-                        case_id=f"C2_{axis_label}_{_command_label(value)}",
-                        case_name=f"{axis_label} supplemental sustained high-authority control effect {value:+.1f}",
-                        command_axis=axis_name,
-                        command_value=float(value),
-                        pulse_start_s=PULSE_START_DELAY_S,
-                        pulse_duration_s=SUPPLEMENT_PULSE_DURATION_S,
-                        target_valid_throws=SUPPLEMENT_VALID_THROWS_PER_CASE,
-                    )
-                )
+            )
         return cases
     raise ValueError(
-        "CALIBRATION_BLOCK must be 'neutral_30', 'pulse_ladder_30', "
-        "or 'pulse_supplement_aileron_rudder_high'."
+        "CALIBRATION_BLOCK must be 'neutral_30', 'pulse_ladder_aileron_30', "
+        "'pulse_ladder_elevator_30', or 'pulse_ladder_rudder_30'."
     )
 
 
@@ -1036,8 +1020,9 @@ def _short_command_label(value: float) -> str:
 def _block_storage_id(block_id: str) -> str:
     short_ids = {
         "neutral_30": "n30",
-        "pulse_ladder_30": "p30",
-        "pulse_supplement_aileron_rudder_high": "ar_hi",
+        "pulse_ladder_aileron_30": "pa30",
+        "pulse_ladder_elevator_30": "pe30",
+        "pulse_ladder_rudder_30": "pr30",
     }
     if block_id in short_ids:
         return short_ids[block_id]
@@ -1053,9 +1038,8 @@ def _case_storage_id(case: CalibrationCase) -> str:
         "delta_a": "a",
         "delta_r": "r",
     }
-    block_prefix = "c2" if case.case_id.startswith("C2_") else "c1"
     axis_id = axis_ids.get(case.command_axis, "cmd")
-    return f"{block_prefix}_{axis_id}_{_short_command_label(case.command_value)}"
+    return f"c1_{axis_id}_{_short_command_label(case.command_value)}"
 
 
 def _result_storage_policy_manifest(block_id: str) -> dict[str, object]:
@@ -1116,7 +1100,12 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run dry-air glider calibration throws.")
     parser.add_argument(
         "--block",
-        choices=("neutral_30", "pulse_ladder_30", "pulse_supplement_aileron_rudder_high"),
+        choices=(
+            "neutral_30",
+            "pulse_ladder_aileron_30",
+            "pulse_ladder_elevator_30",
+            "pulse_ladder_rudder_30",
+        ),
         default=CALIBRATION_BLOCK,
     )
     parser.add_argument("--session-label", default=CURRENT_SESSION_LABEL)

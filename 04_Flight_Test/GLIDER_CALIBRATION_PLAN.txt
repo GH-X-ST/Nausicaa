@@ -81,21 +81,24 @@ The current model calibration workflow uses only neutral open-loop throws and
 starts the sim-real comparison from the measured state after a 0.10 s
 first-motion alignment window. Held-out throws are selected with a randomised
 session-stratified split so the validation set is not fixed to one launch
-session. The staged fitter can use 8 workers. The trajectory-residual SysID
-path keeps attached Cm and transition Cm offsets diagnostic-only, then fits
-compact neutral post-stall alpha-RBF residual surfaces for CL/CD/Cm plus
-alpha-dependent Cmq and lateral-directional CY/Cl/Cn terms using beta, p_hat,
-and r_hat features. Post-stall samples are balanced by throw, and the residual
-activation blender is tuned from transition evidence. Keep
-`DELTA_A_TRIM_RAD`, `DELTA_E_TRIM_RAD`, and `DELTA_R_TRIM_RAD` at zero by
-default. Use `--no-fit-lateral-surfaces` as an explicit ablation if the
-longitudinal/post-stall candidate improves but fitted lateral coefficients
-damage roll or yaw held-out replay. Do not promote attached Cm0 or shorten the
-0.10 s alignment window unless it is explicitly labelled as a diagnostic
-sensitivity run. The active
-checked-in constants remain the older N07 fit until a held-out replay candidate
-improves pitch/q and lateral trajectory behaviour without damaging x, altitude
-loss, or sink.
+session. The trajectory-residual SysID path is grouped iterative by default and
+uses 8 workers: attached Cm and transition Cm offsets remain diagnostic-only,
+attached-flow CY/Cl/Cn derivatives are fitted in beta, p_hat, and r_hat,
+transition-window CY/Cl/Cn deltas are multiplied by
+`4*smoothstep*(1-smoothstep)`, and compact neutral post-stall alpha-RBF
+residual surfaces are fitted for CL/CD/Cm, alpha-dependent Cmq, and
+separated-flow CY/Cl/Cn coupling. Post-stall samples are balanced by throw, and
+physical coefficient groups are cross-adjusted by replay coordinate refinement.
+The workflow writes `neutral_aero_residual_group_iteration_history.csv` and
+labels a candidate diagnostic-only unless held-out replay improves or preserves
+dx, dy, altitude loss, sink, roll, pitch, and yaw. Keep `DELTA_A_TRIM_RAD`,
+`DELTA_E_TRIM_RAD`, and `DELTA_R_TRIM_RAD` at zero by default. Use
+`--fit-workflow residual_only`, `--no-fit-attached-lateral-coupling`,
+`--no-fit-transition-lateral-coupling`, or `--no-fit-lateral-surfaces` only as
+explicit ablations. Do not promote attached Cm0 or shorten the 0.10 s alignment
+window unless it is explicitly labelled as a diagnostic sensitivity run. The
+active checked-in constants remain the older N07 fit until a held-out replay
+candidate passes the full metric gate.
 
 
 Block B: Single-Axis 0.2-Lattice Control-Effectiveness Ladder

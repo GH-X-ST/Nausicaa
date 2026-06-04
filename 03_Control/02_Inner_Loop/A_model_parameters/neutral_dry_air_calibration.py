@@ -39,6 +39,34 @@ EFFICIENCY_STRIP_SCALE = 0.31
 ROLL_MOMENT_BIAS_COEFF = 0.0
 PITCH_MOMENT_BIAS_COEFF = 0.0
 YAW_MOMENT_BIAS_COEFF = 0.0
+# Attached-flow lateral-directional residual derivatives. These are first-class
+# terms because hand launches can have nonzero beta, p, and r before the
+# post-stall residual surfaces are active.
+SIDE_FORCE_BIAS_COEFF = 0.0
+SIDE_FORCE_BETA_COEFF = 0.0
+SIDE_FORCE_P_HAT_COEFF = 0.0
+SIDE_FORCE_R_HAT_COEFF = 0.0
+ROLL_MOMENT_BETA_COEFF = 0.0
+ROLL_MOMENT_P_HAT_COEFF = 0.0
+ROLL_MOMENT_R_HAT_COEFF = 0.0
+YAW_MOMENT_BETA_COEFF = 0.0
+YAW_MOMENT_P_HAT_COEFF = 0.0
+YAW_MOMENT_R_HAT_COEFF = 0.0
+# Transition-only lateral deltas. They are multiplied by a bounded
+# transition-window weight between residual blend start/full alpha, so they do
+# not contaminate attached flow or full post-stall flow.
+TRANSITION_SIDE_FORCE_BIAS_COEFF = 0.0
+TRANSITION_SIDE_FORCE_BETA_COEFF = 0.0
+TRANSITION_SIDE_FORCE_P_HAT_COEFF = 0.0
+TRANSITION_SIDE_FORCE_R_HAT_COEFF = 0.0
+TRANSITION_ROLL_MOMENT_BIAS_COEFF = 0.0
+TRANSITION_ROLL_MOMENT_BETA_COEFF = 0.0
+TRANSITION_ROLL_MOMENT_P_HAT_COEFF = 0.0
+TRANSITION_ROLL_MOMENT_R_HAT_COEFF = 0.0
+TRANSITION_YAW_MOMENT_BIAS_COEFF = 0.0
+TRANSITION_YAW_MOMENT_BETA_COEFF = 0.0
+TRANSITION_YAW_MOMENT_P_HAT_COEFF = 0.0
+TRANSITION_YAW_MOMENT_R_HAT_COEFF = 0.0
 # Post-stall residual coefficients are separate from the attached-flow strip
 # model. The residual blender is calibrated separately from the coefficient
 # values so transition evidence cannot move attached-flow parameters.
