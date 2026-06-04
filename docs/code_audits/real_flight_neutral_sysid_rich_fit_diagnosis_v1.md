@@ -94,11 +94,12 @@ replay-diagnosis capability, not a new active dry-air correction.
 
 ## Control-Effect Audit
 
-No completed `pulse_ladder_30` dataset was found under the calibration result
-root during this audit. The runtime design is suitable for collecting visible
-control-effect evidence:
+No completed per-axis pulse ladder dataset was found under the calibration
+result root during this audit. The runtime design is suitable for collecting
+visible control-effect evidence:
 
-- `pulse_ladder_30` covers elevator, aileron, and rudder.
+- `pulse_ladder_elevator_30`, `pulse_ladder_aileron_30`, and
+  `pulse_ladder_rudder_30` cover the three axes separately.
 - Commands are `+/-0.2`, `+/-0.4`, `+/-0.6`, `+/-0.8`, and `+/-1.0`.
 - Each command case targets 3 valid throws.
 - Each command starts 0.15 s after launch approval.
@@ -121,8 +122,8 @@ Before claiming a new neutral model:
    incidence, elevator neutral geometry, and pitch-moment sign convention.
 3. Keep pre-fix and post-fix airframe throws separated by session/profile/build
    tag if the vertical tail, CG, or control surfaces are physically adjusted.
-4. Collect `pulse_ladder_30` only as control-response evidence until the
-   neutral model passes the held-out promotion gate.
+4. Collect the relevant per-axis pulse ladder only as control-response evidence
+   until the neutral model passes the held-out promotion gate.
 
 No hardware-readiness, mission-success, real-flight transfer, control-
 effectiveness fit, or autonomy claim is made by this audit.

@@ -1039,7 +1039,8 @@ def _case_storage_id(case: CalibrationCase) -> str:
         "delta_r": "r",
     }
     axis_id = axis_ids.get(case.command_axis, "cmd")
-    return f"c1_{axis_id}_{_short_command_label(case.command_value)}"
+    prefix = "c2" if str(case.case_id).startswith("C2_") else "c1"
+    return f"{prefix}_{axis_id}_{_short_command_label(case.command_value)}"
 
 
 def _result_storage_policy_manifest(block_id: str) -> dict[str, object]:

@@ -82,23 +82,33 @@ starts the sim-real comparison from the measured state after a 0.10 s
 first-motion alignment window. Held-out throws are selected with a randomised
 session-stratified split so the validation set is not fixed to one launch
 session. The trajectory-residual SysID path is grouped iterative by default and
-uses 8 workers: attached Cm and transition Cm offsets remain diagnostic-only,
-attached-flow CY/Cl/Cn derivatives are fitted in beta, p_hat, and r_hat,
-transition-window CY/Cl/Cn deltas are multiplied by
-`4*smoothstep*(1-smoothstep)`, and compact neutral post-stall alpha-RBF
-residual surfaces are fitted for CL/CD/Cm, alpha-dependent Cmq, and
-separated-flow CY/Cl/Cn coupling. Post-stall samples are balanced by throw, and
-physical coefficient groups are cross-adjusted by replay coordinate refinement.
-The workflow writes `neutral_aero_residual_group_iteration_history.csv` and
-labels a candidate diagnostic-only unless held-out replay improves or preserves
-dx, dy, altitude loss, sink, roll, pitch, and yaw. Keep `DELTA_A_TRIM_RAD`,
-`DELTA_E_TRIM_RAD`, and `DELTA_R_TRIM_RAD` at zero by default. Use
-`--fit-workflow residual_only`, `--no-fit-attached-lateral-coupling`,
-`--no-fit-transition-lateral-coupling`, or `--no-fit-lateral-surfaces` only as
-explicit ablations. Do not promote attached Cm0 or shorten the 0.10 s alignment
+uses 8 workers. The primary claim-bearing candidate is longitudinal-only:
+attached Cm and transition Cm offsets remain diagnostic-only, post-stall fitting
+uses compact scalar CL/CD/Cm/Cmq residuals, and the transition fit mainly tunes
+the residual blend start/full alpha. Lateral residuals are reported, but
+accurate lateral SysID is not claimed by the default run. Replay-aligned starts
+closer to the lateral-only reference `phi0=psi0=v0=p0=r0=0` receive higher
+coefficient-fit confidence than edge-of-gate lateral launches; `u`, `w`,
+`theta`, and `q` are not part of this confidence score. The optional secondary
+lateral diagnostic freezes the longitudinal candidate, ignores that confidence
+weighting, fits only `CY_beta`, `Cl_p`, and `Cn_r`, and is accepted only if
+held-out dy, roll, and yaw improve without degrading dx, altitude loss, sink, or
+pitch. Transition lateral deltas, post-stall CY/Cl/Cn surfaces, and post-stall
+alpha-RBF longitudinal surfaces remain explicit diagnostics requiring opt-in
+flags. Post-stall samples are balanced by throw, physical coefficient groups are
+cross-adjusted by replay coordinate refinement, and
+`neutral_aero_residual_group_iteration_history.csv` records the grouped replay
+history. Keep `DELTA_A_TRIM_RAD`, `DELTA_E_TRIM_RAD`, and `DELTA_R_TRIM_RAD` at
+zero by default. Use `--fit-workflow residual_only`,
+`--fit-attached-lateral-coupling`, `--fit-transition-lateral-coupling`,
+`--fit-post-stall-surfaces`, or
+`--fit-lateral-surfaces` only as explicit diagnostics/ablations. Do not promote
+attached Cm0 or shorten the 0.10 s alignment
 window unless it is explicitly labelled as a diagnostic sensitivity run. The
 active checked-in constants remain the older N07 fit until a held-out replay
-candidate passes the full metric gate.
+candidate passes the primary longitudinal replay gate; lateral terms require the
+separate secondary diagnostic gate before they can be discussed as more than
+residual evidence.
 
 
 Block B: Single-Axis 0.2-Lattice Control-Effectiveness Ladder
@@ -129,13 +139,15 @@ Axis order:
 2. Aileron:  +0.2, -0.2, +0.4, -0.4, +0.6, -0.6, +0.8, -0.8, +1.0, -1.0
 3. Rudder:   +0.2, -0.2, +0.4, -0.4, +0.6, -0.6, +0.8, -0.8, +1.0, -1.0
 
-Use:
+Use the per-axis block needed for the next control-effect check:
 
-C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_30
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_elevator_30
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_aileron_30
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_rudder_30
 
-This default repeats each command case 3 times before advancing to the next
-command. Invalid launch-gate attempts do not count. To run a one-pass emergency
-scan only, explicitly add `--target-valid-throws 1`.
+Each per-axis block repeats each command case 3 times before advancing to the
+next command. Invalid launch-gate attempts do not count. To run a one-pass
+emergency scan only, explicitly add `--target-valid-throws 1`.
 
 What this estimates:
 
@@ -146,40 +158,10 @@ What this estimates:
 - visible single-axis response from +/-0.2 to +/-1.0
 
 
-Block C: Focused Aileron/Rudder High-Authority Supplement
----------------------------------------------------------
-Run this only if the sustained full ladder shows weak aileron/rudder response
-relative to launch scatter. The supplement targets only the weak axes instead
-of repeating the full ladder.
-
-Run 12 dry-air sustained command cases, with 3 valid throws per case. This
-gives 36 valid supplemental throws.
-
-Axes:
-
-1. Aileron
-2. Rudder
-
-Command amplitudes:
-
-+/-0.6, +/-0.8, +/-1.0
-
-Command start:
-
-0.15 s after launch gate approval
-
-Command duration:
-
-Sustained until normal wall/floor exit through the same long 60 s command
-window.
-
-Use:
-
-C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_supplement_aileron_rudder_high
-
-The runtime still returns to neutral after exit and the post-exit neutral tail.
-Do not hand control to the governor or a recovery controller inside this
-calibration block.
+The runtime intentionally does not expose a combined pulse ladder or a
+supplement block. If aileron/rudder response remains weak, rerun the relevant
+per-axis block with an explicit smaller target or collect another full per-axis
+block, then keep the analysis labelled by axis.
 
 
 Manual Operator Stop Rules
@@ -209,15 +191,16 @@ The storage IDs are deliberately short so the generated evidence can be added
 to Git even when the repository lives under a long OneDrive path:
 
 - neutral_30 -> n30
-- pulse_ladder_30 -> p30
-- pulse_supplement_aileron_rudder_high -> ar_hi
+- pulse_ladder_elevator_30 -> pe30
+- pulse_ladder_aileron_30 -> pa30
+- pulse_ladder_rudder_30 -> pr30
 
 Each case also uses a short storage ID, for example:
 
 - C0_neutral -> c0_neu
 - C1_elevator_pos0p2 -> c1_e_p02
 - C1_aileron_neg1p0 -> c1_a_n10
-- C2_rudder_pos0p8 -> c2_r_p08
+- C1_rudder_pos0p8 -> c1_r_p08
 
 The full block ID, case ID, case name, command axis, command value, and
 calibration profile hash are still written inside the CSV rows and manifests.

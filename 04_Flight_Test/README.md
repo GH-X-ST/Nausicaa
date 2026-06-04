@@ -75,8 +75,9 @@ use the neutral and single-axis pulse workflow described in
 ```powershell
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_vicon_frame_calibration.py
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block neutral_30
-C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_30
-C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_supplement_aileron_rudder_high
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_elevator_30
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_aileron_30
+C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_rudder_30
 ```
 
 Frame calibration updates `01_Runtime\calibration_profile.py`; start the glider
@@ -96,20 +97,26 @@ workflow. Both use only neutral open-loop real throws, start sim-real replay
 from the measured state after a `0.10 s` first-motion alignment window, select
 held-out throws with a randomised session-stratified split, and run with 8
 workers by default. Neutral control-surface trims stay disabled by default.
-The aero-residual workflow is grouped iterative by default: attached Cm remains
-diagnostic only, attached-flow lateral-directional CY/Cl/Cn derivatives are fit
-as first-class beta, p_hat, and r_hat model terms, transition-window CY/Cl/Cn
-deltas are multiplied by `4*smoothstep*(1-smoothstep)`, and compact neutral
-post-stall alpha-RBF residual surfaces are fit for CL/CD/Cm, alpha-dependent
-Cmq, and separated-flow CY/Cl/Cn coupling. The runner then cross-adjusts
-physical coefficient groups through train replay and writes
-`metrics/neutral_aero_residual_group_iteration_history.csv`. Post-stall samples
-are balanced by throw so one long stalled launch cannot dominate the residual
-seed. A candidate is labelled diagnostic-only unless held-out replay improves
-or preserves `dx`, `dy`, altitude loss, sink rate, roll, pitch, and yaw.
-Use `--no-fit-lateral-surfaces` as an explicit ablation when testing whether
-longitudinal/post-stall improvements are being hidden by underdetermined
-lateral coefficients.
+The aero-residual workflow is grouped iterative by default, but its primary
+claim-bearing candidate is longitudinal-only: attached Cm remains diagnostic
+only, post-stall fitting uses compact scalar CL/CD/Cm/Cmq residuals rather than
+multi-centre surfaces, and transition fitting mainly tunes the residual blend
+start/full alpha. Lateral residuals are reported without claiming accurate
+lateral SysID. Replay-aligned starts closer to the lateral-only reference
+`phi0=psi0=v0=p0=r0=0` receive higher coefficient-fit confidence than
+edge-of-gate lateral launches; `u`, `w`, `theta`, and `q` are excluded from that
+confidence score. The optional secondary lateral diagnostic freezes the primary
+longitudinal candidate, ignores launch-confidence weighting, fits only
+`CY_beta`, `Cl_p`, and `Cn_r`, and is accepted only if held-out dy, roll, and yaw
+improve without degrading dx, altitude loss, sink, or pitch. Transition lateral
+deltas, post-stall CY/Cl/Cn surfaces, and rich post-stall alpha-RBF
+longitudinal surfaces remain explicit diagnostics requiring opt-in flags. The
+runner cross-adjusts enabled physical coefficient groups through train replay
+and writes `metrics/neutral_aero_residual_group_iteration_history.csv`.
+Post-stall samples are balanced by throw so one long stalled launch cannot
+dominate the residual seed.
+Use richer lateral/surface flags only as explicit diagnostics when the compact
+default has already passed or clearly identified the remaining failure.
 Shorter alignment windows and attached `Cm0` promotion are diagnostic runs, not
 the default acceptance path, because launch-contact and early Vicon derivative
 transients can otherwise move normal-flight parameters.

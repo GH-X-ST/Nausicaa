@@ -58,7 +58,6 @@ from run_glider_calibration_sequence import (  # noqa: E402
     PULSE_DURATION_BY_ABS_COMMAND,
     PULSE_START_DELAY_S,
     SUSTAINED_CONTROL_EFFECT_DURATION_S,
-    SUPPLEMENT_PULSE_DURATION_S,
     _block_storage_id,
     _case_storage_id,
     _command_for_case,
@@ -689,24 +688,25 @@ def test_flight_record_rejects_crossed_launch_attempt_without_waiting_for_timeou
 
 def test_glider_calibration_case_registry_uses_neutral_and_0p2_lattice() -> None:
     neutral_cases = calibration_cases_for_block("neutral_30")
-    pulse_cases = calibration_cases_for_block("pulse_ladder_30")
-    supplement_cases = calibration_cases_for_block("pulse_supplement_aileron_rudder_high")
+    pulse_blocks = {
+        "pulse_ladder_elevator_30": "delta_e",
+        "pulse_ladder_aileron_30": "delta_a",
+        "pulse_ladder_rudder_30": "delta_r",
+    }
 
     assert PULSE_START_DELAY_S == 0.15
     assert set(PULSE_DURATION_BY_ABS_COMMAND) == {0.2, 0.4, 0.6, 0.8, 1.0}
     assert set(PULSE_DURATION_BY_ABS_COMMAND.values()) == {SUSTAINED_CONTROL_EFFECT_DURATION_S}
-    assert SUPPLEMENT_PULSE_DURATION_S == SUSTAINED_CONTROL_EFFECT_DURATION_S
 
     assert len(neutral_cases) == 1
     assert neutral_cases[0].case_id == "C0_neutral"
     assert neutral_cases[0].target_valid_throws == 30
     assert neutral_cases[0].is_neutral is True
 
-    assert len(pulse_cases) == 30
-    assert {case.command_axis for case in pulse_cases} == {"delta_e", "delta_a", "delta_r"}
-    for axis in ("delta_e", "delta_a", "delta_r"):
-        axis_cases = [case for case in pulse_cases if case.command_axis == axis]
+    for block_id, axis in pulse_blocks.items():
+        axis_cases = calibration_cases_for_block(block_id)
         assert len(axis_cases) == 10
+        assert {case.command_axis for case in axis_cases} == {axis}
         assert [case.command_value for case in axis_cases] == [
             0.2,
             -0.2,
@@ -719,28 +719,16 @@ def test_glider_calibration_case_registry_uses_neutral_and_0p2_lattice() -> None
             1.0,
             -1.0,
         ]
-
-    for case in pulse_cases:
-        assert case.pulse_start_s == PULSE_START_DELAY_S
-        assert case.pulse_duration_s == PULSE_DURATION_BY_ABS_COMMAND[round(abs(case.command_value), 1)]
-        assert case.target_valid_throws == 3
-
-    assert len(supplement_cases) == 12
-    assert {case.command_axis for case in supplement_cases} == {"delta_a", "delta_r"}
-    for axis in ("delta_a", "delta_r"):
-        axis_cases = [case for case in supplement_cases if case.command_axis == axis]
-        assert len(axis_cases) == 6
-        assert [case.command_value for case in axis_cases] == [0.6, -0.6, 0.8, -0.8, 1.0, -1.0]
-    for case in supplement_cases:
-        assert case.pulse_start_s == PULSE_START_DELAY_S
-        assert case.pulse_duration_s == SUPPLEMENT_PULSE_DURATION_S
-        assert case.target_valid_throws == 3
+        for case in axis_cases:
+            assert case.pulse_start_s == PULSE_START_DELAY_S
+            assert case.pulse_duration_s == PULSE_DURATION_BY_ABS_COMMAND[round(abs(case.command_value), 1)]
+            assert case.target_valid_throws == 3
 
 
 def test_glider_calibration_control_effect_command_is_single_axis_and_sustained() -> None:
     case = next(
         item
-        for item in calibration_cases_for_block("pulse_ladder_30")
+        for item in calibration_cases_for_block("pulse_ladder_elevator_30")
         if item.command_axis == "delta_e" and np.isclose(item.command_value, 0.6)
     )
 
@@ -808,8 +796,8 @@ def test_glider_calibration_logs_profile_hash_schema_and_continuous_sequence(
 
 
 def test_glider_calibration_storage_ids_keep_git_paths_short() -> None:
-    block_id = "pulse_supplement_aileron_rudder_high"
-    case = max(calibration_cases_for_block(block_id), key=lambda item: len(item.case_id))
+    block_id = "pulse_ladder_aileron_30"
+    case = next(item for item in calibration_cases_for_block(block_id) if np.isclose(item.command_value, 1.0))
     relative_path = (
         Path("04_Flight_Test")
         / "05_Results"
@@ -824,8 +812,8 @@ def test_glider_calibration_storage_ids_keep_git_paths_short() -> None:
     )
 
     assert relative_path.as_posix() == (
-        "04_Flight_Test/05_Results/cal/ar_hi/20260603_000000/"
-        "c2_a_p06/bad/i001/manifests/glider_calibration_throw_manifest.json"
+        "04_Flight_Test/05_Results/cal/pa30/20260603_000000/"
+        "c1_a_p10/bad/i001/manifests/glider_calibration_throw_manifest.json"
     )
     assert len(relative_path.as_posix()) < 130
 

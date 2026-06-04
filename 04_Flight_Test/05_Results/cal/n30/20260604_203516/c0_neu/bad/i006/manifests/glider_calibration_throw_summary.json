@@ -1,0 +1,22 @@
+{
+  "calibration_profile_hash": "8a22b0f0a0175a71a8fa139500e213a7c151606335470517696dae70c1481acd",
+  "calibration_profile_id": "nausicaa_vicon_position_20260603_232209+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude",
+  "cancellation_reason": "rejected_launch_attempt:side_velocity_outside_launch_gate",
+  "case_id": "C0_neutral",
+  "case_name": "Dry-air open-loop neutral glide characterisation",
+  "case_storage_id": "c0_neu",
+  "completed": false,
+  "exit_gate_triggered": false,
+  "flight_cancelled": true,
+  "launch_gate_approved": false,
+  "launch_speed_m_s": 0.0,
+  "launch_u_m_s": 0.0,
+  "launch_v_m_s": 0.0,
+  "launch_w_m_s": 0.0,
+  "packet_count": 281,
+  "run_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal/n30/20260604_203516/c0_neu/v007",
+  "serial_write_error_count": 0,
+  "state_sample_count": 0,
+  "termination_reason": "",
+  "valid_throw": false
+}
