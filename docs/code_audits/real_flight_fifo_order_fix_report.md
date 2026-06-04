@@ -9,6 +9,11 @@ augmented LQR and simulation delay-line convention. The FIFO is now stored in
 old-to-new order: index 0 is the delayed/applied command state and the newest
 requested command is kept at the tail.
 
+With this fix, the known simulation/real-flight command-interface mismatch is
+closed: closed-loop primitive decisions remain on the 0.100 s governor period,
+slot commands are recomputed at the 0.020 s packet period, and the runtime
+command-delay state now matches the augmented controller state ordering.
+
 ## Change
 
 - Fixed `FrozenFlightController._push_command_fifo` so new 20 ms slot commands
@@ -30,3 +35,9 @@ The runtime FIFO remains scoped by `controller_id`. Simulation rollouts can
 preserve a global command history across primitive boundaries, so cross-primitive
 FIFO continuity should be audited separately before making final closed-loop
 real-flight readiness claims.
+
+State-feedback latency is structurally handled by the frozen controller
+predictor using the nominal Vicon/filter latency envelope. This is not a known
+code-order mismatch after the FIFO fix, but the live Vicon/estimator latency
+should still be measured in preflight checks before treating the closed-loop
+deployment as fully validated.

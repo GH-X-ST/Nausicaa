@@ -1,9 +1,10 @@
 """Neutral dry-air calibration constants from real open-loop launch replay.
 
 The active constants below remain the older accepted N07 neutral fit. Newer
-staged 0.10 s replay diagnostics can fit simple loss scales plus Cm0/Cl0/Cn0
-moment-bias terms, but the latest rich n30 run did not pass the acceptance gate,
-so those candidates are not promoted here.
+staged 0.10 s replay diagnostics now fit regime-separated longitudinal pitch
+moment terms before compact post-stall lift/drag cleanup. Lateral terms remain
+zero by default and are only claim-bearing if a separate held-out diagnostic
+gate accepts them.
 """
 
 from __future__ import annotations
@@ -37,11 +38,15 @@ CD0_STRIP_SCALE = 3.0
 DRAG_AREA_FUSE_SCALE = 5.0
 EFFICIENCY_STRIP_SCALE = 0.31
 ROLL_MOMENT_BIAS_COEFF = 0.0
+# Legacy global Cm offset. Kept for compatibility with older candidate files;
+# the current residual SysID uses the regime-separated pitch terms below.
 PITCH_MOMENT_BIAS_COEFF = 0.0
+ATTACHED_PITCH_MOMENT_BIAS_COEFF = 0.0
+TRANSITION_PITCH_MOMENT_BIAS_COEFF = 0.0
 YAW_MOMENT_BIAS_COEFF = 0.0
-# Attached-flow lateral-directional residual derivatives. These are first-class
-# terms because hand launches can have nonzero beta, p, and r before the
-# post-stall residual surfaces are active.
+# Attached-flow lateral-directional residual derivatives. They are kept as
+# explicit compatibility/diagnostic fields, but the default neutral SysID claim
+# path leaves them frozen at zero.
 SIDE_FORCE_BIAS_COEFF = 0.0
 SIDE_FORCE_BETA_COEFF = 0.0
 SIDE_FORCE_P_HAT_COEFF = 0.0
@@ -53,8 +58,8 @@ YAW_MOMENT_BETA_COEFF = 0.0
 YAW_MOMENT_P_HAT_COEFF = 0.0
 YAW_MOMENT_R_HAT_COEFF = 0.0
 # Transition-only lateral deltas. They are multiplied by a bounded
-# transition-window weight between residual blend start/full alpha, so they do
-# not contaminate attached flow or full post-stall flow.
+# transition-window weight between residual blend start/full alpha, but remain
+# disabled unless a diagnostic run explicitly enables them.
 TRANSITION_SIDE_FORCE_BIAS_COEFF = 0.0
 TRANSITION_SIDE_FORCE_BETA_COEFF = 0.0
 TRANSITION_SIDE_FORCE_P_HAT_COEFF = 0.0
@@ -67,9 +72,9 @@ TRANSITION_YAW_MOMENT_BIAS_COEFF = 0.0
 TRANSITION_YAW_MOMENT_BETA_COEFF = 0.0
 TRANSITION_YAW_MOMENT_P_HAT_COEFF = 0.0
 TRANSITION_YAW_MOMENT_R_HAT_COEFF = 0.0
-# Post-stall residual coefficients are separate from the attached-flow strip
-# model. The residual blender is calibrated separately from the coefficient
-# values so transition evidence cannot move attached-flow parameters.
+# Compact post-stall longitudinal residual coefficients are separate from the
+# attached-flow strip model. The residual blender is calibrated separately from
+# coefficient values so transition evidence cannot move attached-flow terms.
 POST_STALL_LIFT_RESIDUAL_COEFF = 0.0
 POST_STALL_DRAG_RESIDUAL_COEFF = 0.0
 POST_STALL_PITCH_MOMENT_COEFF = 0.0

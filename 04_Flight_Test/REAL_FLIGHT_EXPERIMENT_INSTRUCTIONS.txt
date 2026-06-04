@@ -70,12 +70,12 @@ split, and run with 8 workers by default. Use
 `run_fit_neutral_aero_residual_calibration.py` for the Vicon trajectory ->
 force/moment residual -> regime-split coefficient fit -> held-out replay
 workflow. Neutral control-surface trims remain disabled by default.
-The aero-residual workflow is grouped iterative by default, but its primary
-claim-bearing candidate is longitudinal-only: attached Cm remains diagnostic
-only, post-stall fitting uses compact scalar CL/CD/Cm/Cmq residuals rather than
-multi-centre surfaces, and transition fitting mainly tunes the residual blend
-start/full alpha. Lateral residuals are reported without claiming accurate
-lateral SysID. Replay-aligned starts closer to the lateral-only reference
+The aero-residual workflow is `cm_regime_staged` by default, and its primary
+claim-bearing candidate is longitudinal-only. It fits attached Cm, transition
+Cm, post-stall Cm/Cmq, transition blend timing, and optional compact post-stall
+CL/CD cleanup as separate held-out-gated stages instead of using one global Cm
+offset. Lateral residuals are reported without claiming accurate lateral SysID.
+Replay-aligned starts closer to the lateral-only reference
 `phi0=psi0=v0=p0=r0=0` receive higher coefficient-fit confidence than
 edge-of-gate lateral launches; `u`, `w`, `theta`, and `q` are excluded from that
 confidence score. The optional secondary lateral diagnostic freezes the primary
@@ -84,15 +84,14 @@ longitudinal candidate, ignores launch-confidence weighting, fits only
 improve without degrading dx, altitude loss, sink, or pitch. Transition lateral
 deltas, post-stall CY/Cl/Cn surfaces, and rich post-stall alpha-RBF
 longitudinal surfaces remain explicit diagnostics requiring opt-in flags. The
-runner cross-adjusts enabled physical coefficient groups through train replay
-and writes `metrics\neutral_aero_residual_group_iteration_history.csv`.
-Post-stall samples are balanced by throw so one long stalled launch cannot
-dominate the residual seed.
+runner writes `metrics\neutral_aero_residual_cm_stage_history.csv` for staged
+Cm decisions and `metrics\neutral_aero_residual_stage_replay_errors.csv` for
+train/held-out attached, transition, and post-stall replay MAE.
 Use richer lateral/surface flags only as explicit diagnostics when the compact
 default has already passed or clearly identified the remaining failure.
-Shorter alignment windows and attached Cm0 promotion are diagnostic runs, not
-the default acceptance path, because launch-contact and early Vicon derivative
-transients can otherwise move normal-flight parameters.
+Shorter alignment windows are diagnostic runs, not the default acceptance path,
+because launch-contact and early Vicon derivative transients can otherwise move
+normal-flight parameters.
 
 For regime-specific diagnosis, open
 `metrics\neutral_aero_residual_stage_replay_errors.csv` in the fit output. It
@@ -106,7 +105,7 @@ that gate.
 For direct force/moment evidence, also inspect
 `metrics\neutral_aero_residual_stage_fit_summary.csv`, which reports the
 independent attached, transition-before-post-stall, transition-after-post-stall,
-and post-stall residual seeds before grouped replay refinement.
+and post-stall residual seeds before staged replay validation.
 
 Only after neutral dry-air mismatch is understood, run pulse data:
 

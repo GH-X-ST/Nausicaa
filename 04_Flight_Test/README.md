@@ -11,6 +11,12 @@ The flight runtime tracks only the rigid body named `Nausicaa`. It does not use
 control-surface Vicon markers, latency-identification events, response-fraction
 analysis, or bench deflection diagnostics inside the in-flight loop.
 
+Closed-loop primitive selection runs at the `0.100 s` governor boundary, while
+active slot commands are recomputed and sent every `0.020 s`. The frozen
+controller command-delay FIFO is stored in the same old-to-new order as the
+augmented LQR delay-line state: index 0 is the delayed/applied command and the
+newest requested command is at the tail.
+
 ## Layout
 
 - `01_Runtime`: live Python runtime, Vicon reader, serial transmitter, logger, and safety monitor.
@@ -87,7 +93,8 @@ profile. It does not auto-start calibration throws.
 This calibration workflow uses the same Vicon state adapter, launch gate,
 Arduino packet path, and 20 percent command lattice as the real-flight runtime,
 but deliberately does not call the governor, memory, primitive selector, or LQR
-controller.
+controller. It also bypasses the closed-loop command-delay FIFO, so FIFO-order
+alignment does not change previously collected calibration throws.
 
 The current `03_Control` neutral SysID entry points are
 `run_fit_neutral_dry_air_calibration.py` for replay-based checks and
@@ -97,12 +104,12 @@ workflow. Both use only neutral open-loop real throws, start sim-real replay
 from the measured state after a `0.10 s` first-motion alignment window, select
 held-out throws with a randomised session-stratified split, and run with 8
 workers by default. Neutral control-surface trims stay disabled by default.
-The aero-residual workflow is grouped iterative by default, but its primary
-claim-bearing candidate is longitudinal-only: attached Cm remains diagnostic
-only, post-stall fitting uses compact scalar CL/CD/Cm/Cmq residuals rather than
-multi-centre surfaces, and transition fitting mainly tunes the residual blend
-start/full alpha. Lateral residuals are reported without claiming accurate
-lateral SysID. Replay-aligned starts closer to the lateral-only reference
+The aero-residual workflow is `cm_regime_staged` by default, and its primary
+claim-bearing candidate is longitudinal-only. It fits attached Cm, transition
+Cm, post-stall Cm/Cmq, transition blend timing, and optional compact post-stall
+CL/CD cleanup as separate held-out-gated stages instead of using one global Cm
+offset. Lateral residuals are reported without claiming accurate lateral SysID.
+Replay-aligned starts closer to the lateral-only reference
 `phi0=psi0=v0=p0=r0=0` receive higher coefficient-fit confidence than
 edge-of-gate lateral launches; `u`, `w`, `theta`, and `q` are excluded from that
 confidence score. The optional secondary lateral diagnostic freezes the primary
@@ -111,15 +118,14 @@ longitudinal candidate, ignores launch-confidence weighting, fits only
 improve without degrading dx, altitude loss, sink, or pitch. Transition lateral
 deltas, post-stall CY/Cl/Cn surfaces, and rich post-stall alpha-RBF
 longitudinal surfaces remain explicit diagnostics requiring opt-in flags. The
-runner cross-adjusts enabled physical coefficient groups through train replay
-and writes `metrics/neutral_aero_residual_group_iteration_history.csv`.
-Post-stall samples are balanced by throw so one long stalled launch cannot
-dominate the residual seed.
+runner writes `metrics/neutral_aero_residual_cm_stage_history.csv` for staged
+Cm decisions and `metrics/neutral_aero_residual_stage_replay_errors.csv` for
+train/held-out attached, transition, and post-stall replay MAE.
 Use richer lateral/surface flags only as explicit diagnostics when the compact
 default has already passed or clearly identified the remaining failure.
-Shorter alignment windows and attached `Cm0` promotion are diagnostic runs, not
-the default acceptance path, because launch-contact and early Vicon derivative
-transients can otherwise move normal-flight parameters.
+Shorter alignment windows are diagnostic runs, not the default acceptance path,
+because launch-contact and early Vicon derivative transients can otherwise move
+normal-flight parameters.
 
 For regime-specific diagnosis, use
 `metrics/neutral_aero_residual_stage_replay_errors.csv` from the aero residual
@@ -134,7 +140,7 @@ neutral open-loop dry-air mismatch is resolved.
 For direct force/moment evidence, also inspect
 `metrics/neutral_aero_residual_stage_fit_summary.csv`, which reports the
 independent attached, transition-before-post-stall, transition-after-post-stall,
-and post-stall residual seeds before grouped replay refinement.
+and post-stall residual seeds before staged replay validation.
 
 For repeated experiment blocks, edit `CURRENT_EXPERIMENT_CASE` at the top of
 `01_Runtime\run_experiment_sequence.py`, then run:
@@ -212,6 +218,12 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.p
 - Launch body-rate observer confidence: `>=0.65`
 - Controller period: `0.100 s`
 - Serial packet period: `0.020 s`
+- Closed-loop slot command update: `0.020 s`
+- Frozen controller command-delay FIFO: old-to-new, matching the augmented LQR
+  delay-line state.
+- Nominal state-feedback delay model: frozen controllers use predictor
+  compensation for the measured Vicon/filter latency envelope; preflight checks
+  should still confirm the live Vicon latency remains close to that envelope.
 - Launch wait timeout: `8.0 s`
 - Launch gate debounce: `2` consecutive approved frames
 - Post-exit neutral tail: `0.30 s`

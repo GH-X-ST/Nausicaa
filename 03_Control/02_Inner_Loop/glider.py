@@ -17,6 +17,7 @@ from A_model_parameters.neutral_dry_air_calibration import (
     DELTA_R_TRIM_RAD as NEUTRAL_DRY_AIR_DELTA_R_TRIM_RAD,
     DRAG_AREA_FUSE_SCALE as NEUTRAL_DRY_AIR_DRAG_AREA_FUSE_SCALE,
     EFFICIENCY_STRIP_SCALE as NEUTRAL_DRY_AIR_EFFICIENCY_STRIP_SCALE,
+    ATTACHED_PITCH_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_ATTACHED_PITCH_MOMENT_BIAS_COEFF,
     PITCH_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_PITCH_MOMENT_BIAS_COEFF,
     POST_STALL_DRAG_RESIDUAL_COEFF as NEUTRAL_DRY_AIR_POST_STALL_DRAG_RESIDUAL_COEFF,
     POST_STALL_LIFT_RESIDUAL_COEFF as NEUTRAL_DRY_AIR_POST_STALL_LIFT_RESIDUAL_COEFF,
@@ -45,6 +46,7 @@ from A_model_parameters.neutral_dry_air_calibration import (
     TRANSITION_ROLL_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_TRANSITION_ROLL_MOMENT_BIAS_COEFF,
     TRANSITION_ROLL_MOMENT_P_HAT_COEFF as NEUTRAL_DRY_AIR_TRANSITION_ROLL_MOMENT_P_HAT_COEFF,
     TRANSITION_ROLL_MOMENT_R_HAT_COEFF as NEUTRAL_DRY_AIR_TRANSITION_ROLL_MOMENT_R_HAT_COEFF,
+    TRANSITION_PITCH_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_TRANSITION_PITCH_MOMENT_BIAS_COEFF,
     TRANSITION_SIDE_FORCE_BETA_COEFF as NEUTRAL_DRY_AIR_TRANSITION_SIDE_FORCE_BETA_COEFF,
     TRANSITION_SIDE_FORCE_BIAS_COEFF as NEUTRAL_DRY_AIR_TRANSITION_SIDE_FORCE_BIAS_COEFF,
     TRANSITION_SIDE_FORCE_P_HAT_COEFF as NEUTRAL_DRY_AIR_TRANSITION_SIDE_FORCE_P_HAT_COEFF,
@@ -145,6 +147,8 @@ class Glider:
     roll_moment_p_hat_coeff: float
     roll_moment_r_hat_coeff: float
     pitch_moment_bias_coeff: float
+    attached_pitch_moment_bias_coeff: float
+    transition_pitch_moment_bias_coeff: float
     yaw_moment_bias_coeff: float
     yaw_moment_beta_coeff: float
     yaw_moment_p_hat_coeff: float
@@ -408,6 +412,12 @@ def build_nausicaa_glider() -> Glider:
     pitch_moment_bias_coeff = (
         NEUTRAL_DRY_AIR_PITCH_MOMENT_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
     )
+    attached_pitch_moment_bias_coeff = (
+        NEUTRAL_DRY_AIR_ATTACHED_PITCH_MOMENT_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
+    transition_pitch_moment_bias_coeff = (
+        NEUTRAL_DRY_AIR_TRANSITION_PITCH_MOMENT_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
+    )
     yaw_moment_bias_coeff = (
         NEUTRAL_DRY_AIR_YAW_MOMENT_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
     )
@@ -629,6 +639,8 @@ def build_nausicaa_glider() -> Glider:
         roll_moment_p_hat_coeff=float(roll_moment_p_hat_coeff),
         roll_moment_r_hat_coeff=float(roll_moment_r_hat_coeff),
         pitch_moment_bias_coeff=float(pitch_moment_bias_coeff),
+        attached_pitch_moment_bias_coeff=float(attached_pitch_moment_bias_coeff),
+        transition_pitch_moment_bias_coeff=float(transition_pitch_moment_bias_coeff),
         yaw_moment_bias_coeff=float(yaw_moment_bias_coeff),
         yaw_moment_beta_coeff=float(yaw_moment_beta_coeff),
         yaw_moment_p_hat_coeff=float(yaw_moment_p_hat_coeff),

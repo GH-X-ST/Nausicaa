@@ -47,7 +47,7 @@ from state_contract import state_dataframe_row  # noqa: E402
 # Current setup: dry-air calibration, hardware armed on COM11.
 # Failed launch-gate attempts are ignored and do not count as throws.
 # =============================================================================
-CALIBRATION_BLOCK = "neutral_30"  # neutral_30, pulse_ladder_aileron_30, pulse_ladder_elevator_30, or pulse_ladder_rudder_30
+CALIBRATION_BLOCK = "pulse_ladder_rudder_30"  # neutral_30, pulse_ladder_aileron_30, pulse_ladder_elevator_30, or pulse_ladder_rudder_30
 CURRENT_SESSION_LABEL = ""  # Empty means timestamped folder.
 TARGET_VALID_THROWS_OVERRIDE: int | None = None  # None uses block defaults below.
 SERIAL_PORT = "COM11"

@@ -88,8 +88,10 @@ surface offsets.
 
 Do not update `neutral_dry_air_calibration.py` with the new rich-run
 parameters. The active checked-in constants remain the older accepted
-`neutral_dry_air_aligned_0p20_N07` values. The code now supports explicit
-Cm0/Cl0/Cn0 moment-bias diagnostics and coupled staged search, but this is a
+`neutral_dry_air_aligned_0p20_N07` values. Later code now uses a
+regime-separated longitudinal `cm_regime_staged` path for attached Cm,
+transition Cm, post-stall Cm/Cmq, blend timing, and optional compact post-stall
+CL/CD cleanup; lateral fitting remains a small diagnostic candidate. This is a
 replay-diagnosis capability, not a new active dry-air correction.
 
 ## Control-Effect Audit

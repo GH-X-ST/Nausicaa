@@ -68,6 +68,8 @@ class AircraftModel:
     roll_moment_p_hat_coeff: float
     roll_moment_r_hat_coeff: float
     pitch_moment_bias_coeff: float
+    attached_pitch_moment_bias_coeff: float
+    transition_pitch_moment_bias_coeff: float
     yaw_moment_bias_coeff: float
     yaw_moment_beta_coeff: float
     yaw_moment_p_hat_coeff: float
@@ -329,6 +331,8 @@ def adapt_glider(glider: Glider) -> AircraftModel:
         roll_moment_p_hat_coeff=float(glider.roll_moment_p_hat_coeff),
         roll_moment_r_hat_coeff=float(glider.roll_moment_r_hat_coeff),
         pitch_moment_bias_coeff=float(glider.pitch_moment_bias_coeff),
+        attached_pitch_moment_bias_coeff=float(glider.attached_pitch_moment_bias_coeff),
+        transition_pitch_moment_bias_coeff=float(glider.transition_pitch_moment_bias_coeff),
         yaw_moment_bias_coeff=float(glider.yaw_moment_bias_coeff),
         yaw_moment_beta_coeff=float(glider.yaw_moment_beta_coeff),
         yaw_moment_p_hat_coeff=float(glider.yaw_moment_p_hat_coeff),
@@ -439,6 +443,14 @@ def post_stall_pitch_activation_numpy(alpha_rad: float) -> float:
     return post_stall_residual_activation_numpy(alpha_rad)
 
 
+def pitch_moment_regime_weights_numpy(post_stall_activation: float) -> tuple[float, float, float]:
+    post_raw = float(np.clip(post_stall_activation, 0.0, 1.0))
+    attached_raw = 1.0 - post_raw
+    transition_raw = 4.0 * post_raw * (1.0 - post_raw)
+    total = max(attached_raw + transition_raw + post_raw, EPS)
+    return attached_raw / total, transition_raw / total, post_raw / total
+
+
 def residual_surface_basis_numpy(alpha_rad: float, aircraft: AircraftModel) -> np.ndarray:
     centres = np.asarray(aircraft.post_stall_residual_surface_alpha_centers_rad, dtype=float)
     width = max(float(aircraft.post_stall_residual_surface_width_rad), EPS)
@@ -533,6 +545,11 @@ def _evaluate_aero_numeric(
         aircraft.post_stall_residual_blend_start_alpha_rad,
         aircraft.post_stall_residual_blend_full_alpha_rad,
     )
+    (
+        attached_pitch_moment_weight,
+        transition_pitch_moment_weight,
+        post_stall_pitch_moment_weight,
+    ) = pitch_moment_regime_weights_numpy(post_stall_residual_activation)
     transition_lateral_weight = float(4.0 * post_stall_residual_activation * (1.0 - post_stall_residual_activation))
     surface_basis = post_stall_residual_activation * residual_surface_basis_numpy(alpha_cg, aircraft)
     lift_surface_coeff = float(np.dot(aircraft.post_stall_lift_surface_coeff, surface_basis))
@@ -623,7 +640,14 @@ def _evaluate_aero_numeric(
             * aircraft.s_ref_m2
             * aircraft.b_ref_m
             * (attached_roll_moment_coeff + transition_lateral_weight * transition_roll_moment_coeff),
-            q_bar_cg * aircraft.s_ref_m2 * aircraft.c_ref_m * aircraft.pitch_moment_bias_coeff,
+            q_bar_cg
+            * aircraft.s_ref_m2
+            * aircraft.c_ref_m
+            * (
+                aircraft.pitch_moment_bias_coeff
+                + attached_pitch_moment_weight * aircraft.attached_pitch_moment_bias_coeff
+                + transition_pitch_moment_weight * aircraft.transition_pitch_moment_bias_coeff
+            ),
             q_bar_cg
             * aircraft.s_ref_m2
             * aircraft.b_ref_m
@@ -636,7 +660,7 @@ def _evaluate_aero_numeric(
         * aircraft.s_ref_m2
         * aircraft.c_ref_m
         * (
-            post_stall_residual_activation
+            post_stall_pitch_moment_weight
             * (aircraft.post_stall_pitch_moment_coeff + aircraft.post_stall_pitch_damping_coeff * pitch_rate_hat)
             + pitch_surface_coeff
             + pitch_damping_surface_coeff * pitch_rate_hat
@@ -676,7 +700,10 @@ def _evaluate_aero_numeric(
         "yaw_rate_hat": yaw_rate_hat,
         "post_stall_residual_activation": post_stall_residual_activation,
         "transition_lateral_weight": transition_lateral_weight,
-        "post_stall_pitch_activation": post_stall_residual_activation,
+        "attached_pitch_moment_weight": attached_pitch_moment_weight,
+        "transition_pitch_moment_weight": transition_pitch_moment_weight,
+        "post_stall_pitch_moment_weight": post_stall_pitch_moment_weight,
+        "post_stall_pitch_activation": post_stall_pitch_moment_weight,
         "post_stall_residual_surface_basis": surface_basis,
         "post_stall_lift_surface_coeff": lift_surface_coeff,
         "post_stall_drag_surface_coeff": drag_surface_coeff,
@@ -851,6 +878,14 @@ def _post_stall_residual_activation_ca(alpha_rad: ca.SX, aircraft: AircraftModel
     return t_clipped * t_clipped * (3.0 - 2.0 * t_clipped)
 
 
+def _pitch_moment_regime_weights_ca(post_stall_activation: ca.SX) -> tuple[ca.SX, ca.SX, ca.SX]:
+    post_raw = post_stall_activation
+    attached_raw = 1.0 - post_raw
+    transition_raw = 4.0 * post_raw * (1.0 - post_raw)
+    total = attached_raw + transition_raw + post_raw + EPS
+    return attached_raw / total, transition_raw / total, post_raw / total
+
+
 def _residual_surface_basis_ca(alpha_rad: ca.SX, aircraft: AircraftModel) -> ca.SX:
     values = []
     width = max(float(aircraft.post_stall_residual_surface_width_rad), EPS)
@@ -938,6 +973,11 @@ def _state_derivative_symbolic(
     roll_rate_hat = omega_b[0] * aircraft.b_ref_m / (2.0 * speed_cg)
     yaw_rate_hat = omega_b[2] * aircraft.b_ref_m / (2.0 * speed_cg)
     post_stall_residual_activation = _post_stall_residual_activation_ca(alpha_cg, aircraft)
+    (
+        attached_pitch_moment_weight,
+        transition_pitch_moment_weight,
+        post_stall_pitch_moment_weight,
+    ) = _pitch_moment_regime_weights_ca(post_stall_residual_activation)
     transition_lateral_weight = 4.0 * post_stall_residual_activation * (1.0 - post_stall_residual_activation)
     residual_basis = post_stall_residual_activation * _residual_surface_basis_ca(alpha_cg, aircraft)
     lift_surface_coeff = ca.dot(_ca_column(aircraft.post_stall_lift_surface_coeff), residual_basis)
@@ -1039,7 +1079,9 @@ def _state_derivative_symbolic(
         * aircraft.c_ref_m
         * (
             aircraft.pitch_moment_bias_coeff
-            + post_stall_residual_activation
+            + attached_pitch_moment_weight * aircraft.attached_pitch_moment_bias_coeff
+            + transition_pitch_moment_weight * aircraft.transition_pitch_moment_bias_coeff
+            + post_stall_pitch_moment_weight
             * (
                 aircraft.post_stall_pitch_moment_coeff
                 + aircraft.post_stall_pitch_damping_coeff * pitch_rate_hat

@@ -1,0 +1,191 @@
+{
+  "calibration_case": {
+    "case_id": "C1_rudder_neg1p0",
+    "case_name": "rudder sustained control effect -1.0",
+    "command_axis": "delta_r",
+    "command_value": -1.0,
+    "pulse_duration_s": 60.0,
+    "pulse_start_s": 0.15,
+    "target_valid_throws": 3
+  },
+  "calibration_csv_schema": {
+    "command_schedule.csv": {
+      "aggregate_command_units": "normalized aggregate command [delta_a, delta_e, delta_r] in [-1, 1]",
+      "packet_bytes": "15-byte Nano33 IoT transmitter packet, hex-encoded by CSV logger",
+      "packet_sequence": "monotone packet sequence shared from prelaunch neutral into active calibration",
+      "packet_surface_units": "normalized servo-signed surface command in PHYSICAL_SURFACE_ORDER after servo signs",
+      "physical_surface_order": [
+        "Aileron_L",
+        "Aileron_R",
+        "Rudder",
+        "Elevator"
+      ],
+      "physical_surface_units": "normalized physical surface command in PHYSICAL_SURFACE_ORDER before servo signs",
+      "receiver_channel_order": [
+        "Aileron_R",
+        "Aileron_L",
+        "Rudder",
+        "Elevator"
+      ],
+      "receiver_channel_units": "uint16 receiver-channel command after receiver channel reorder"
+    },
+    "state_samples.csv": {
+      "surface_state_not_measured_by": "Vicon control-surface marker tracking",
+      "surface_state_source": "estimated actuator state from command history and actuator model",
+      "surface_state_units": "rad"
+    }
+  },
+  "calibration_profile": {
+    "profile_hash": "8a22b0f0a0175a71a8fa139500e213a7c151606335470517696dae70c1481acd",
+    "profile_id": "nausicaa_vicon_position_20260603_232209+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude",
+    "vicon_calibration_source": "manual_runtime_vicon_transform"
+  },
+  "case_storage_id": "c1_r_n10",
+  "config": {
+    "actuator_tau_s": [
+      0.06,
+      0.06,
+      0.06
+    ],
+    "attempt_index": 0,
+    "body_rate_limit_rad_s": 6.0,
+    "body_rate_observer_window_frames": 7,
+    "calibration_profile_hash": "8a22b0f0a0175a71a8fa139500e213a7c151606335470517696dae70c1481acd",
+    "calibration_profile_id": "nausicaa_vicon_position_20260603_232209+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude",
+    "controller_bundle_path": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/R5_dense/E01/manifests/frozen_w01_controller_bundle.json",
+    "controller_mode": "open_loop_neutral",
+    "deployment_evidence_manifest_path": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/deployment_evidence_manifest.json",
+    "deployment_evidence_required_for_armed_closed_loop": true,
+    "derivative_cutoff_hz": 8.0,
+    "experiment_case_id": "glider_calibration",
+    "experiment_case_name": "dry_air_glider_model_calibration",
+    "experiment_layout_id": "dry_air_no_fans",
+    "experiment_memory_enabled": false,
+    "governor_config_path": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/R10_learn/E01/manifests/frozen_governor_config_for_r11.json",
+    "governor_period_s": 0.1,
+    "launch_gate_body_rate_limits_rad_s": [
+      1.2,
+      1.2,
+      1.8
+    ],
+    "launch_gate_rate_confidence_min": 0.65,
+    "launch_gate_required_consecutive_frames": 2,
+    "launch_wait_timeout_s": 120.0,
+    "library_manifest_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/R8_library_size_study/E01/manifests",
+    "library_tier": "balanced_cluster",
+    "max_duration_s": 20.0,
+    "outcome_table_path": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/R8_outcome/E01/metrics/outcome_model_table.csv",
+    "output_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal/pr30/20260604_224711",
+    "post_exit_neutral_tail_s": 0.3,
+    "rejected_launch_attempt_min_speed_m_s": 2.0,
+    "retry_cooldown_s": 5.0,
+    "run_label": "C1_rudder_neg1p0/v001",
+    "serial_baud": 1000000,
+    "serial_period_s": 0.02,
+    "serial_port": "COM11",
+    "stale_vicon_timeout_s": 0.12,
+    "throw_index": 0,
+    "vicon_attitude_offset_rad": [
+      0.0007439979282497512,
+      7.203523529364376e-05,
+      0.0006251279824196487
+    ],
+    "vicon_attitude_signs": [
+      1.0,
+      -1.0,
+      -1.0
+    ],
+    "vicon_calibration_source": "manual_runtime_vicon_transform",
+    "vicon_frame_description": "full_xyz_position_and_roll_pitch_yaw_attitude_offset_correction",
+    "vicon_host": "192.168.0.100:801",
+    "vicon_poll_period_s": 0.005,
+    "vicon_position_offset_m": [
+      3.9085570805120877,
+      2.4963799346478033,
+      0.03709411857233755
+    ],
+    "vicon_subject_name": "Nausicaa",
+    "vicon_yaw_alignment_deg": 0.0
+  },
+  "control_policy": "single_axis_0p2_lattice_pulse_after_launch_then_neutral",
+  "exit_gate_bounds": {
+    "policy": "terminate_active_flight_at_first_true_safe_box_exit_then_send_neutral",
+    "x_w_m": [
+      1.2,
+      6.6
+    ],
+    "y_w_m": [
+      0.0,
+      4.4
+    ],
+    "z_w_m": [
+      0.4,
+      3.5
+    ]
+  },
+  "launch_gate_bounds": {
+    "diagnostic_x_window_m": [
+      1.2,
+      1.4
+    ],
+    "launch_trigger_x_w_m": 1.2999999999999998,
+    "p_rad_s": [
+      -1.2,
+      1.2
+    ],
+    "pitch_deg": [
+      -10.0,
+      20.0
+    ],
+    "q_rad_s": [
+      -1.2,
+      1.2
+    ],
+    "r_rad_s": [
+      -1.8,
+      1.8
+    ],
+    "real_flight_trigger_policy": "first_valid_r5_launch_window_with_interpolated_launch_plane_fallback",
+    "roll_deg": [
+      -20.0,
+      20.0
+    ],
+    "source": "03_Control/04_Scenarios/state_sampling.py::state_is_launch_gate_compliant",
+    "speed_m_s": "diagnostic_only_total_body_speed",
+    "u_m_s": [
+      4.0,
+      8.0
+    ],
+    "v_m_s": [
+      -1.5,
+      1.5
+    ],
+    "w_m_s": [
+      -0.9,
+      0.9
+    ],
+    "x_w_m": [
+      1.2,
+      1.4
+    ],
+    "y_w_m": [
+      1.8,
+      2.2
+    ],
+    "yaw_deg": [
+      -20.0,
+      20.0
+    ],
+    "z_w_m": [
+      1.3,
+      1.8
+    ]
+  },
+  "mode": "armed",
+  "result_storage_policy": {
+    "case_storage_id": "c1_r_n10",
+    "invalid_attempt_folder": "bad/i001",
+    "policy": "short_git_trackable_paths_with_full_human_ids_in_manifests_and_csv",
+    "valid_throw_folder": "v001"
+  }
+}

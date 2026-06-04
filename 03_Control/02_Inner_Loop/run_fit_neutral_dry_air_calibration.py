@@ -63,6 +63,8 @@ FIT_PARAMETER_FIELDS = [
     "efficiency_strip_scale",
     "roll_moment_bias_coeff",
     "pitch_moment_bias_coeff",
+    "attached_pitch_moment_bias_coeff",
+    "transition_pitch_moment_bias_coeff",
     "yaw_moment_bias_coeff",
     "delta_a_trim_rad",
     "delta_e_trim_rad",
@@ -277,6 +279,12 @@ def run_fit(
         "efficiency_strip_scale": float(active_calibration.EFFICIENCY_STRIP_SCALE),
         "roll_moment_bias_coeff": float(getattr(active_calibration, "ROLL_MOMENT_BIAS_COEFF", 0.0)),
         "pitch_moment_bias_coeff": float(getattr(active_calibration, "PITCH_MOMENT_BIAS_COEFF", 0.0)),
+        "attached_pitch_moment_bias_coeff": float(
+            getattr(active_calibration, "ATTACHED_PITCH_MOMENT_BIAS_COEFF", 0.0)
+        ),
+        "transition_pitch_moment_bias_coeff": float(
+            getattr(active_calibration, "TRANSITION_PITCH_MOMENT_BIAS_COEFF", 0.0)
+        ),
         "yaw_moment_bias_coeff": float(getattr(active_calibration, "YAW_MOMENT_BIAS_COEFF", 0.0)),
         "delta_a_trim_rad": float(getattr(active_calibration, "DELTA_A_TRIM_RAD", 0.0)),
         "delta_e_trim_rad": float(getattr(active_calibration, "DELTA_E_TRIM_RAD", 0.0)),
@@ -888,7 +896,11 @@ def bounded_parameter_value(parameter: str, value: float) -> float:
         "transition_yaw_moment_r_hat_coeff",
     }:
         return float(np.clip(value, -1.0, 1.0))
-    if parameter == "pitch_moment_bias_coeff":
+    if parameter in {
+        "pitch_moment_bias_coeff",
+        "attached_pitch_moment_bias_coeff",
+        "transition_pitch_moment_bias_coeff",
+    }:
         return float(np.clip(value, -0.35, 0.35))
     if parameter in {"post_stall_lift_residual_coeff", "post_stall_drag_residual_coeff"}:
         return float(np.clip(value, -1.0, 1.0))
@@ -1156,6 +1168,12 @@ def calibrated_aircraft(parameters: dict[str, float]) -> Any:
         roll_moment_p_hat_coeff=float(parameters.get("roll_moment_p_hat_coeff", base.roll_moment_p_hat_coeff)),
         roll_moment_r_hat_coeff=float(parameters.get("roll_moment_r_hat_coeff", base.roll_moment_r_hat_coeff)),
         pitch_moment_bias_coeff=float(parameters["pitch_moment_bias_coeff"]),
+        attached_pitch_moment_bias_coeff=float(
+            parameters.get("attached_pitch_moment_bias_coeff", base.attached_pitch_moment_bias_coeff)
+        ),
+        transition_pitch_moment_bias_coeff=float(
+            parameters.get("transition_pitch_moment_bias_coeff", base.transition_pitch_moment_bias_coeff)
+        ),
         yaw_moment_bias_coeff=float(parameters["yaw_moment_bias_coeff"]),
         yaw_moment_beta_coeff=float(parameters.get("yaw_moment_beta_coeff", base.yaw_moment_beta_coeff)),
         yaw_moment_p_hat_coeff=float(parameters.get("yaw_moment_p_hat_coeff", base.yaw_moment_p_hat_coeff)),

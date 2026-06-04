@@ -39,13 +39,14 @@ from A_model_parameters import neutral_dry_air_calibration as active_calibration
 from flight_dynamics import STALL_BLEND_ALPHA_RAD, evaluate_state, post_stall_residual_activation_numpy  # noqa: E402
 
 
-FIT_VERSION = "N18_compact_neutral_launch_fit"
-DEFAULT_FIT_WORKFLOW = "grouped_iterative"
+FIT_VERSION = "N19_regime_separated_longitudinal_cm"
+DEFAULT_FIT_WORKFLOW = "cm_regime_staged"
 DEFAULT_SESSION_ROOT = REPO_ROOT / "04_Flight_Test" / "05_Results" / "cal" / "n30"
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "03_Control" / "05_Results" / "glider_model_calibration_prep"
 DEFAULT_RUN_LABEL = "n30_neutral_aero_residual_fit"
 DEFAULT_WORKERS = 8
-DEFAULT_HELDOUT_COUNT = 10
+DEFAULT_HELDOUT_COUNT = 0
+DEFAULT_HELDOUT_FRACTION = 0.15
 DEFAULT_HELDOUT_SEED = 606
 DEFAULT_ALIGNMENT_WINDOW_S = 0.10
 DEFAULT_DERIVATIVE_WINDOW_S = 0.040
@@ -66,6 +67,12 @@ DEFAULT_LAUNCH_CONFIDENCE_MIN_WEIGHT = 0.25
 DEFAULT_LAUNCH_CONFIDENCE_EXPONENT = 1.5
 DEFAULT_GROUP_ITERATIONS = 3
 DEFAULT_GROUP_IMPROVEMENT_TOL = 1.0e-3
+DEFAULT_APPLY_ATTACHED_CM_BIAS = False
+DEFAULT_FIT_TRANSITION_PITCH_MOMENT = False
+DEFAULT_FIT_POST_STALL_LIFT_DRAG = True
+DEFAULT_FIT_POST_STALL_PITCH_MOMENT = True
+DEFAULT_FIT_POST_STALL_LONGITUDINAL = True
+DEFAULT_FIT_TRANSITION_BLENDER = True
 DEFAULT_FIT_POST_STALL_SURFACES = False
 DEFAULT_FIT_POST_STALL_DAMPING = True
 DEFAULT_FIT_ATTACHED_LATERAL_COUPLING = False
@@ -134,6 +141,10 @@ TRANSITION_LATERAL_PARAMETER_KEYS = (
 GROUP_SCALE_CANDIDATES = (-0.25, 0.0, 0.25, 0.5, 0.75, 1.0, 1.25)
 GROUPED_FIT_GROUP_ORDER = (
     "attached_longitudinal",
+    "transition_pitch_moment",
+    "post_stall_pitch_moment",
+    "post_stall_pitch_damping",
+    "post_stall_lift_drag",
     "attached_lateral",
     "post_stall_longitudinal",
     "transition_lateral",
@@ -265,6 +276,29 @@ GROUP_ITERATION_FIELDS = [
     "final_psi_mae_deg",
     "group_scales_json",
 ]
+CM_STAGE_HISTORY_FIELDS = [
+    "stage_index",
+    "stage_id",
+    "fit_parameter_group",
+    "accepted",
+    "acceptance_reason",
+    "train_objective_before",
+    "train_objective_after",
+    "heldout_objective_before",
+    "heldout_objective_after",
+    "heldout_dx_mae_before_m",
+    "heldout_dx_mae_after_m",
+    "heldout_altitude_loss_mae_before_m",
+    "heldout_altitude_loss_mae_after_m",
+    "heldout_sink_mae_before_m_s",
+    "heldout_sink_mae_after_m_s",
+    "heldout_pitch_mae_before_deg",
+    "heldout_pitch_mae_after_deg",
+    "attached_sample_fraction",
+    "transition_sample_fraction",
+    "post_stall_sample_fraction",
+    "parameter_updates_json",
+]
 REPLAY_VALIDATION_FIELDS = ["model_id", *replay_fit.REPLAY_RESIDUAL_FIELDS]
 FILTERED_THROW_FIELDS = [
     "row_index",
@@ -310,6 +344,7 @@ def main() -> None:
         output_root=args.output_root,
         run_label=args.run_label,
         heldout_count=args.heldout_count,
+        heldout_fraction=args.heldout_fraction,
         heldout_seed=args.heldout_seed,
         alignment_window_s=args.alignment_window_s,
         derivative_window_s=args.derivative_window_s,
@@ -326,6 +361,11 @@ def main() -> None:
         aligned_v_abs_max_m_s=args.aligned_v_abs_max_m_s,
         aligned_w_abs_max_m_s=args.aligned_w_abs_max_m_s,
         apply_attached_cm_bias=args.apply_attached_cm_bias,
+        fit_transition_pitch_moment=args.fit_transition_pitch_moment,
+        fit_post_stall_lift_drag=args.fit_post_stall_lift_drag,
+        fit_post_stall_pitch_moment=args.fit_post_stall_pitch_moment,
+        fit_post_stall_longitudinal=args.fit_post_stall_longitudinal,
+        fit_transition_blender=args.fit_transition_blender,
         fit_post_stall_surfaces=args.fit_post_stall_surfaces,
         fit_post_stall_damping=args.fit_post_stall_damping,
         fit_attached_lateral_coupling=args.fit_attached_lateral_coupling,
@@ -344,7 +384,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--session-root", type=Path, default=DEFAULT_SESSION_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--run-label", default=DEFAULT_RUN_LABEL)
-    parser.add_argument("--heldout-count", type=int, default=DEFAULT_HELDOUT_COUNT)
+    parser.add_argument(
+        "--heldout-count",
+        type=int,
+        default=DEFAULT_HELDOUT_COUNT,
+        help="Held-out throw count. Use 0 to choose round(heldout_fraction * filtered_valid_count).",
+    )
+    parser.add_argument("--heldout-fraction", type=float, default=DEFAULT_HELDOUT_FRACTION)
     parser.add_argument("--heldout-seed", type=int, default=DEFAULT_HELDOUT_SEED)
     parser.add_argument("--alignment-window-s", type=float, default=DEFAULT_ALIGNMENT_WINDOW_S)
     parser.add_argument("--derivative-window-s", type=float, default=DEFAULT_DERIVATIVE_WINDOW_S)
@@ -354,9 +400,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
     parser.add_argument(
         "--fit-workflow",
-        choices=("grouped_iterative", "residual_only"),
+        choices=("cm_regime_staged", "grouped_iterative", "residual_only"),
         default=DEFAULT_FIT_WORKFLOW,
-        help="Use grouped replay coordinate refinement by default; residual_only keeps the pre-grouped residual-surface path.",
+        help=(
+            "cm_regime_staged is the default claim workflow. grouped_iterative keeps the older block-scale "
+            "coordinate refinement; residual_only applies the direct residual coefficients."
+        ),
     )
     parser.add_argument("--group-iterations", type=int, default=DEFAULT_GROUP_ITERATIONS)
     parser.add_argument("--group-improvement-tol", type=float, default=DEFAULT_GROUP_IMPROVEMENT_TOL)
@@ -373,8 +422,38 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--apply-attached-cm-bias",
         action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Apply attached-regime Cm residual as Cm0. Disabled by default so high-AoA launch data cannot move normal-flight Cm0.",
+        default=DEFAULT_APPLY_ATTACHED_CM_BIAS,
+        help="Apply attached-regime Cm residual to the attached-weighted pitch-moment term.",
+    )
+    parser.add_argument(
+        "--fit-transition-pitch-moment",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_FIT_TRANSITION_PITCH_MOMENT,
+        help="Apply the transition-weighted Cm residual term. The staged workflow enables this only at its transition stage.",
+    )
+    parser.add_argument(
+        "--fit-post-stall-lift-drag",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_FIT_POST_STALL_LIFT_DRAG,
+        help="Apply compact scalar post-stall CL/CD residuals when post-stall longitudinal fitting is enabled.",
+    )
+    parser.add_argument(
+        "--fit-post-stall-pitch-moment",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_FIT_POST_STALL_PITCH_MOMENT,
+        help="Apply compact scalar post-stall Cm residuals when post-stall longitudinal fitting is enabled.",
+    )
+    parser.add_argument(
+        "--fit-post-stall-longitudinal",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_FIT_POST_STALL_LONGITUDINAL,
+        help="Apply compact scalar post-stall CL/CD/Cm/Cmq residuals. Disable for attached/transition-only ablations.",
+    )
+    parser.add_argument(
+        "--fit-transition-blender",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_FIT_TRANSITION_BLENDER,
+        help="Apply fitted residual activation start/full alpha. Disable when freezing transition-blend timing.",
     )
     parser.add_argument(
         "--fit-post-stall-surfaces",
@@ -430,6 +509,7 @@ def run_fit(
     output_root: Path,
     run_label: str,
     heldout_count: int,
+    heldout_fraction: float,
     heldout_seed: int,
     alignment_window_s: float,
     derivative_window_s: float,
@@ -446,6 +526,11 @@ def run_fit(
     aligned_v_abs_max_m_s: float,
     aligned_w_abs_max_m_s: float,
     apply_attached_cm_bias: bool,
+    fit_transition_pitch_moment: bool,
+    fit_post_stall_lift_drag: bool,
+    fit_post_stall_pitch_moment: bool,
+    fit_post_stall_longitudinal: bool,
+    fit_transition_blender: bool,
     fit_post_stall_surfaces: bool,
     fit_post_stall_damping: bool,
     fit_attached_lateral_coupling: bool,
@@ -471,9 +556,13 @@ def run_fit(
             "Need at least 4 neutral throws after aligned replay-start filtering; "
             f"loaded {len(loaded_rows)} and kept {len(valid_rows)}."
         )
+    requested_heldout_count = int(heldout_count)
+    if requested_heldout_count <= 0:
+        requested_heldout_count = int(round(float(heldout_fraction) * len(valid_rows)))
+    requested_heldout_count = int(np.clip(requested_heldout_count, 1, max(1, len(valid_rows) - 1)))
     heldout_indices = prep.stratified_heldout_indices(
         valid_rows,
-        heldout_count=heldout_count,
+        heldout_count=requested_heldout_count,
         heldout_seed=heldout_seed,
         group_key="session_label",
     )
@@ -509,19 +598,28 @@ def run_fit(
         fit_lateral_surfaces=fit_lateral_surfaces,
         lateral_use_confidence_weights=True,
     )
-    surface_scale_rows = select_surface_scale_rows(
-        base_parameters=base_parameters,
-        fit_result=fit_result,
-        train_rows=train_rows,
-        replay_dt_s=replay_dt_s,
-        alignment_window_s=alignment_window_s,
-        workers=workers,
-        apply_attached_cm_bias=apply_attached_cm_bias,
-        fit_post_stall_surfaces=fit_post_stall_surfaces,
-        fit_post_stall_damping=fit_post_stall_damping,
-        fit_attached_lateral_coupling=fit_attached_lateral_coupling,
-        fit_transition_lateral_coupling=fit_transition_lateral_coupling,
-        fit_lateral_surfaces=fit_lateral_surfaces,
+    surface_scale_rows = (
+        []
+        if fit_workflow == "cm_regime_staged"
+        else select_surface_scale_rows(
+            base_parameters=base_parameters,
+            fit_result=fit_result,
+            train_rows=train_rows,
+            replay_dt_s=replay_dt_s,
+            alignment_window_s=alignment_window_s,
+            workers=workers,
+            apply_attached_cm_bias=apply_attached_cm_bias,
+            fit_transition_pitch_moment=fit_transition_pitch_moment,
+            fit_post_stall_lift_drag=fit_post_stall_lift_drag,
+            fit_post_stall_pitch_moment=fit_post_stall_pitch_moment,
+            fit_post_stall_longitudinal=fit_post_stall_longitudinal,
+            fit_transition_blender=fit_transition_blender,
+            fit_post_stall_surfaces=fit_post_stall_surfaces,
+            fit_post_stall_damping=fit_post_stall_damping,
+            fit_attached_lateral_coupling=fit_attached_lateral_coupling,
+            fit_transition_lateral_coupling=fit_transition_lateral_coupling,
+            fit_lateral_surfaces=fit_lateral_surfaces,
+        )
     )
     selected_surface_scale = selected_surface_scale_from_rows(surface_scale_rows)
     fit_result["surface_scale_selection"] = {
@@ -533,6 +631,11 @@ def run_fit(
         base_parameters,
         fit_result,
         apply_attached_cm_bias=apply_attached_cm_bias,
+        fit_transition_pitch_moment=fit_transition_pitch_moment,
+        fit_post_stall_lift_drag=fit_post_stall_lift_drag,
+        fit_post_stall_pitch_moment=fit_post_stall_pitch_moment,
+        fit_post_stall_longitudinal=fit_post_stall_longitudinal,
+        fit_transition_blender=fit_transition_blender,
         fit_post_stall_surfaces=fit_post_stall_surfaces,
         fit_post_stall_damping=fit_post_stall_damping,
         fit_attached_lateral_coupling=fit_attached_lateral_coupling,
@@ -541,7 +644,29 @@ def run_fit(
         surface_scale=selected_surface_scale,
     )
     group_iteration_rows: list[dict[str, Any]] = []
-    if fit_workflow == "grouped_iterative":
+    cm_stage_history_rows: list[dict[str, Any]] = []
+    if fit_workflow == "cm_regime_staged":
+        candidate_parameters, cm_stage_history_rows = cm_regime_staged_refinement(
+            base_parameters=base_parameters,
+            train_rows=train_rows,
+            heldout_rows=heldout_rows,
+            replay_dt_s=replay_dt_s,
+            alignment_window_s=alignment_window_s,
+            derivative_window_s=derivative_window_s,
+            min_speed_m_s=min_speed_m_s,
+            ridge_lambda=ridge_lambda,
+            workers=workers,
+            fit_post_stall_damping=fit_post_stall_damping,
+            fit_transition_blender=fit_transition_blender,
+            fit_post_stall_lift_drag=fit_post_stall_lift_drag,
+            fit_post_stall_surfaces=fit_post_stall_surfaces,
+        )
+        fit_result["cm_regime_staged"] = {
+            "enabled": True,
+            "history_csv": "metrics/neutral_aero_residual_cm_stage_history.csv",
+            "stage_count": len(cm_stage_history_rows),
+        }
+    elif fit_workflow == "grouped_iterative":
         candidate_parameters, group_iteration_rows = grouped_iterative_refinement(
             base_parameters=base_parameters,
             fit_result=fit_result,
@@ -550,6 +675,11 @@ def run_fit(
             alignment_window_s=alignment_window_s,
             workers=workers,
             apply_attached_cm_bias=apply_attached_cm_bias,
+            fit_transition_pitch_moment=fit_transition_pitch_moment,
+            fit_post_stall_lift_drag=fit_post_stall_lift_drag,
+            fit_post_stall_pitch_moment=fit_post_stall_pitch_moment,
+            fit_post_stall_longitudinal=fit_post_stall_longitudinal,
+            fit_transition_blender=fit_transition_blender,
             fit_post_stall_surfaces=fit_post_stall_surfaces,
             fit_post_stall_damping=fit_post_stall_damping,
             fit_attached_lateral_coupling=fit_attached_lateral_coupling,
@@ -602,6 +732,11 @@ def run_fit(
     coefficient_rows = coefficient_output_rows(
         fit_result,
         apply_attached_cm_bias,
+        fit_transition_pitch_moment,
+        fit_post_stall_lift_drag,
+        fit_post_stall_pitch_moment,
+        fit_post_stall_longitudinal,
+        fit_transition_blender,
         fit_post_stall_surfaces,
         fit_post_stall_damping,
         fit_attached_lateral_coupling,
@@ -620,6 +755,11 @@ def run_fit(
             False,
             False,
             False,
+            False,
+            False,
+            False,
+            False,
+            False,
             True,
             False,
             False,
@@ -631,6 +771,7 @@ def run_fit(
     write_csv(output_dir / "metrics" / "neutral_aero_residual_filtered_throws.csv", filtered_throw_rows, FILTERED_THROW_FIELDS)
     write_csv(output_dir / "metrics" / "neutral_aero_residual_surface_scale_selection.csv", surface_scale_rows, SURFACE_SCALE_SELECTION_FIELDS)
     write_csv(output_dir / "metrics" / "neutral_aero_residual_group_iteration_history.csv", group_iteration_rows, GROUP_ITERATION_FIELDS)
+    write_csv(output_dir / "metrics" / "neutral_aero_residual_cm_stage_history.csv", cm_stage_history_rows, CM_STAGE_HISTORY_FIELDS)
     write_csv(output_dir / "metrics" / "neutral_aero_residual_replay_validation.csv", validation_rows, REPLAY_VALIDATION_FIELDS)
     write_csv(output_dir / "metrics" / "neutral_aero_residual_stage_replay_errors.csv", stage_replay_rows, STAGE_REPLAY_SUMMARY_FIELDS)
     write_manifest(
@@ -657,6 +798,11 @@ def run_fit(
         aligned_v_abs_max_m_s=aligned_v_abs_max_m_s,
         aligned_w_abs_max_m_s=aligned_w_abs_max_m_s,
         apply_attached_cm_bias=apply_attached_cm_bias,
+        fit_transition_pitch_moment=fit_transition_pitch_moment,
+        fit_post_stall_lift_drag=fit_post_stall_lift_drag,
+        fit_post_stall_pitch_moment=fit_post_stall_pitch_moment,
+        fit_post_stall_longitudinal=fit_post_stall_longitudinal,
+        fit_transition_blender=fit_transition_blender,
         fit_post_stall_damping=fit_post_stall_damping,
         fit_post_stall_surfaces=fit_post_stall_surfaces,
         fit_attached_lateral_coupling=fit_attached_lateral_coupling,
@@ -669,6 +815,7 @@ def run_fit(
         fit_result=fit_result,
         lateral_diagnostic_result=lateral_diagnostic_result,
         group_iteration_rows=group_iteration_rows,
+        cm_stage_history_rows=cm_stage_history_rows,
         acceptance_summary=acceptance_summary,
         lateral_diagnostic_acceptance=lateral_diagnostic_acceptance,
     )
@@ -676,7 +823,7 @@ def run_fit(
         output_dir,
         run_label=run_label,
         session_root=session_root,
-        heldout_count=heldout_count,
+        heldout_count=len(heldout_indices),
         heldout_seed=heldout_seed,
         alignment_window_s=alignment_window_s,
         derivative_window_s=derivative_window_s,
@@ -695,6 +842,11 @@ def run_fit(
         aligned_v_abs_max_m_s=aligned_v_abs_max_m_s,
         aligned_w_abs_max_m_s=aligned_w_abs_max_m_s,
         apply_attached_cm_bias=apply_attached_cm_bias,
+        fit_transition_pitch_moment=fit_transition_pitch_moment,
+        fit_post_stall_lift_drag=fit_post_stall_lift_drag,
+        fit_post_stall_pitch_moment=fit_post_stall_pitch_moment,
+        fit_post_stall_longitudinal=fit_post_stall_longitudinal,
+        fit_transition_blender=fit_transition_blender,
         fit_post_stall_damping=fit_post_stall_damping,
         fit_post_stall_surfaces=fit_post_stall_surfaces,
         fit_attached_lateral_coupling=fit_attached_lateral_coupling,
@@ -704,6 +856,7 @@ def run_fit(
         fit_result=fit_result,
         lateral_diagnostic_result=lateral_diagnostic_result,
         group_iteration_rows=group_iteration_rows,
+        cm_stage_history_rows=cm_stage_history_rows,
         acceptance_summary=acceptance_summary,
         lateral_diagnostic_acceptance=lateral_diagnostic_acceptance,
         regime_summary=regime_summary,
@@ -731,6 +884,12 @@ def active_parameter_dict() -> dict[str, float]:
         "roll_moment_p_hat_coeff": float(getattr(active_calibration, "ROLL_MOMENT_P_HAT_COEFF", 0.0)),
         "roll_moment_r_hat_coeff": float(getattr(active_calibration, "ROLL_MOMENT_R_HAT_COEFF", 0.0)),
         "pitch_moment_bias_coeff": float(getattr(active_calibration, "PITCH_MOMENT_BIAS_COEFF", 0.0)),
+        "attached_pitch_moment_bias_coeff": float(
+            getattr(active_calibration, "ATTACHED_PITCH_MOMENT_BIAS_COEFF", 0.0)
+        ),
+        "transition_pitch_moment_bias_coeff": float(
+            getattr(active_calibration, "TRANSITION_PITCH_MOMENT_BIAS_COEFF", 0.0)
+        ),
         "post_stall_lift_residual_coeff": float(getattr(active_calibration, "POST_STALL_LIFT_RESIDUAL_COEFF", 0.0)),
         "post_stall_drag_residual_coeff": float(getattr(active_calibration, "POST_STALL_DRAG_RESIDUAL_COEFF", 0.0)),
         "post_stall_pitch_moment_coeff": float(getattr(active_calibration, "POST_STALL_PITCH_MOMENT_COEFF", 0.0)),
@@ -2146,6 +2305,21 @@ def residual_blend_activation_deg(alpha_deg: float, start_alpha_deg: float, full
     return float(t * t * (3.0 - 2.0 * t))
 
 
+def pitch_moment_regime_weights_from_activation(activation: float) -> tuple[float, float, float]:
+    post_raw = float(np.clip(activation, 0.0, 1.0))
+    attached_raw = 1.0 - post_raw
+    transition_raw = 4.0 * post_raw * (1.0 - post_raw)
+    total = max(attached_raw + transition_raw + post_raw, 1.0e-12)
+    return attached_raw / total, transition_raw / total, post_raw / total
+
+
+def pitch_moment_regime_weights_deg(alpha_deg: float, coeffs: dict[str, float]) -> tuple[float, float, float]:
+    activation = residual_blend_activation_from_coeffs(float(alpha_deg), coeffs)
+    if not math.isfinite(activation):
+        return float("nan"), float("nan"), float("nan")
+    return pitch_moment_regime_weights_from_activation(activation)
+
+
 def fit_activated_scalar_residual(samples: list[dict[str, float]], key: str, *, ridge_lambda: float) -> float:
     valid = [
         sample
@@ -2285,25 +2459,26 @@ def cm_fit_residual_for_sample(sample: dict[str, Any], coeffs: dict[str, float])
     if not math.isfinite(cm):
         return float("nan")
     fitted = 0.0
-    stage_fit_group = str(sample.get("stage_fit_group", ""))
-    if stage_fit_group == "attached":
-        fitted += float(coeffs.get("attached_cm_bias_coeff", 0.0))
-    elif str(sample.get("regime", "")) in {"transition", "post_stall"}:
-        alpha_deg = float(sample.get("alpha_deg", float("nan")))
-        activation = residual_blend_activation_from_coeffs(alpha_deg, coeffs)
-        q_hat = float(sample.get("q_hat", float("nan")))
-        fitted_surface = surface_rbf_prediction(coeffs, "post_stall_pitch_moment_rbf", alpha_deg)
-        damping_surface = surface_rbf_prediction(coeffs, "post_stall_pitch_damping_rbf", alpha_deg)
-        if math.isfinite(activation):
-            fitted += activation * float(coeffs.get("post_stall_pitch_moment_coeff", 0.0))
-        if math.isfinite(fitted_surface):
-            fitted += fitted_surface
-        if math.isfinite(activation):
-            if math.isfinite(q_hat):
-                fitted += (
-                    float(coeffs.get("post_stall_pitch_damping_coeff", 0.0)) * activation
-                    + (damping_surface if math.isfinite(damping_surface) else 0.0)
-                ) * q_hat
+    alpha_deg = float(sample.get("alpha_deg", float("nan")))
+    if not math.isfinite(alpha_deg):
+        return float("nan")
+    attached_weight, transition_weight, post_weight = pitch_moment_regime_weights_deg(alpha_deg, coeffs)
+    if math.isfinite(attached_weight):
+        fitted += attached_weight * float(coeffs.get("attached_cm_bias_coeff", 0.0))
+    if math.isfinite(transition_weight):
+        fitted += transition_weight * float(coeffs.get("transition_cm_bias_coeff", 0.0))
+    q_hat = float(sample.get("q_hat", float("nan")))
+    fitted_surface = surface_rbf_prediction(coeffs, "post_stall_pitch_moment_rbf", alpha_deg)
+    damping_surface = surface_rbf_prediction(coeffs, "post_stall_pitch_damping_rbf", alpha_deg)
+    if math.isfinite(post_weight):
+        fitted += post_weight * float(coeffs.get("post_stall_pitch_moment_coeff", 0.0))
+    if math.isfinite(fitted_surface):
+        fitted += fitted_surface
+    if math.isfinite(post_weight) and math.isfinite(q_hat):
+        fitted += (
+            float(coeffs.get("post_stall_pitch_damping_coeff", 0.0)) * post_weight
+            + (damping_surface if math.isfinite(damping_surface) else 0.0)
+        ) * q_hat
     return cm - fitted
 
 
@@ -2321,28 +2496,61 @@ def candidate_from_fit(
     fit_result: dict[str, Any],
     *,
     apply_attached_cm_bias: bool,
+    fit_post_stall_longitudinal: bool,
+    fit_transition_blender: bool,
     fit_post_stall_surfaces: bool,
     fit_post_stall_damping: bool,
     fit_attached_lateral_coupling: bool,
     fit_transition_lateral_coupling: bool,
     fit_lateral_surfaces: bool,
+    fit_transition_pitch_moment: bool = False,
+    fit_post_stall_lift_drag: bool | None = None,
+    fit_post_stall_pitch_moment: bool | None = None,
     surface_scale: float = 1.0,
     group_scales: dict[str, float] | None = None,
 ) -> dict[str, float]:
     coeffs = fit_result.get("coefficients", zero_coefficients())
     candidate = dict(base)
     scales = dict(group_scales or {})
+    if fit_post_stall_lift_drag is None:
+        fit_post_stall_lift_drag = bool(fit_post_stall_longitudinal)
+    if fit_post_stall_pitch_moment is None:
+        fit_post_stall_pitch_moment = bool(fit_post_stall_longitudinal)
     attached_longitudinal_scale = float(scales.get("attached_longitudinal", 1.0))
+    transition_pitch_moment_scale = float(scales.get("transition_pitch_moment", 1.0))
     attached_lateral_scale = float(scales.get("attached_lateral", 1.0))
-    post_stall_longitudinal_scale = float(scales.get("post_stall_longitudinal", surface_scale))
+    post_stall_longitudinal_scale = (
+        float(scales.get("post_stall_longitudinal", surface_scale)) if bool(fit_post_stall_longitudinal) else 0.0
+    )
+    post_stall_lift_drag_scale = (
+        float(scales.get("post_stall_lift_drag", post_stall_longitudinal_scale))
+        if bool(fit_post_stall_longitudinal and fit_post_stall_lift_drag)
+        else 0.0
+    )
+    post_stall_pitch_moment_scale = (
+        float(scales.get("post_stall_pitch_moment", post_stall_longitudinal_scale))
+        if bool(fit_post_stall_longitudinal and fit_post_stall_pitch_moment)
+        else 0.0
+    )
+    post_stall_pitch_damping_scale = (
+        float(scales.get("post_stall_pitch_damping", post_stall_longitudinal_scale))
+        if bool(fit_post_stall_longitudinal and fit_post_stall_damping)
+        else 0.0
+    )
     post_stall_lateral_scale = float(scales.get("post_stall_lateral", surface_scale))
     transition_lateral_scale = float(scales.get("transition_lateral", 1.0))
-    transition_blender_scale = float(scales.get("transition_blender", 1.0))
+    transition_blender_scale = float(scales.get("transition_blender", 1.0)) if bool(fit_transition_blender) else 0.0
     if apply_attached_cm_bias:
-        candidate["pitch_moment_bias_coeff"] = replay_fit.bounded_parameter_value(
-            "pitch_moment_bias_coeff",
-            candidate["pitch_moment_bias_coeff"]
+        candidate["attached_pitch_moment_bias_coeff"] = replay_fit.bounded_parameter_value(
+            "attached_pitch_moment_bias_coeff",
+            float(candidate.get("attached_pitch_moment_bias_coeff", 0.0))
             + attached_longitudinal_scale * float(coeffs.get("attached_cm_bias_coeff", 0.0)),
+        )
+    if fit_transition_pitch_moment:
+        candidate["transition_pitch_moment_bias_coeff"] = replay_fit.bounded_parameter_value(
+            "transition_pitch_moment_bias_coeff",
+            float(candidate.get("transition_pitch_moment_bias_coeff", 0.0))
+            + transition_pitch_moment_scale * float(coeffs.get("transition_cm_bias_coeff", 0.0)),
         )
     if fit_attached_lateral_coupling:
         for key in active_attached_lateral_parameter_keys():
@@ -2359,26 +2567,22 @@ def candidate_from_fit(
     candidate["post_stall_lift_residual_coeff"] = replay_fit.bounded_parameter_value(
         "post_stall_lift_residual_coeff",
         candidate["post_stall_lift_residual_coeff"]
-        + post_stall_longitudinal_scale * float(coeffs.get("post_stall_lift_residual_coeff", 0.0)),
+        + post_stall_lift_drag_scale * float(coeffs.get("post_stall_lift_residual_coeff", 0.0)),
     )
     candidate["post_stall_drag_residual_coeff"] = replay_fit.bounded_parameter_value(
         "post_stall_drag_residual_coeff",
         candidate["post_stall_drag_residual_coeff"]
-        + post_stall_longitudinal_scale * float(coeffs.get("post_stall_drag_residual_coeff", 0.0)),
+        + post_stall_lift_drag_scale * float(coeffs.get("post_stall_drag_residual_coeff", 0.0)),
     )
     candidate["post_stall_pitch_moment_coeff"] = replay_fit.bounded_parameter_value(
         "post_stall_pitch_moment_coeff",
         candidate["post_stall_pitch_moment_coeff"]
-        + post_stall_longitudinal_scale * float(coeffs.get("post_stall_pitch_moment_coeff", 0.0)),
+        + post_stall_pitch_moment_scale * float(coeffs.get("post_stall_pitch_moment_coeff", 0.0)),
     )
     candidate["post_stall_pitch_damping_coeff"] = replay_fit.bounded_parameter_value(
         "post_stall_pitch_damping_coeff",
         candidate["post_stall_pitch_damping_coeff"]
-        + (
-            post_stall_longitudinal_scale * float(coeffs.get("post_stall_pitch_damping_coeff", 0.0))
-            if fit_post_stall_damping
-            else 0.0
-        ),
+        + post_stall_pitch_damping_scale * float(coeffs.get("post_stall_pitch_damping_coeff", 0.0)),
     )
     if fit_post_stall_surfaces:
         for prefix in (
@@ -2429,6 +2633,11 @@ def select_surface_scale_rows(
     alignment_window_s: float,
     workers: int,
     apply_attached_cm_bias: bool,
+    fit_transition_pitch_moment: bool,
+    fit_post_stall_lift_drag: bool,
+    fit_post_stall_pitch_moment: bool,
+    fit_post_stall_longitudinal: bool,
+    fit_transition_blender: bool,
     fit_post_stall_surfaces: bool,
     fit_post_stall_damping: bool,
     fit_attached_lateral_coupling: bool,
@@ -2443,6 +2652,11 @@ def select_surface_scale_rows(
             base_parameters,
             fit_result,
             apply_attached_cm_bias=apply_attached_cm_bias,
+            fit_transition_pitch_moment=fit_transition_pitch_moment,
+            fit_post_stall_lift_drag=fit_post_stall_lift_drag,
+            fit_post_stall_pitch_moment=fit_post_stall_pitch_moment,
+            fit_post_stall_longitudinal=fit_post_stall_longitudinal,
+            fit_transition_blender=fit_transition_blender,
             fit_post_stall_surfaces=fit_post_stall_surfaces,
             fit_post_stall_damping=fit_post_stall_damping,
             fit_attached_lateral_coupling=fit_attached_lateral_coupling,
@@ -2490,6 +2704,304 @@ def selected_surface_scale_from_rows(rows: list[dict[str, Any]]) -> float:
     return 1.0
 
 
+def cm_regime_staged_refinement(
+    *,
+    base_parameters: dict[str, float],
+    train_rows: list[dict[str, Any]],
+    heldout_rows: list[dict[str, Any]],
+    replay_dt_s: float,
+    alignment_window_s: float,
+    derivative_window_s: float,
+    min_speed_m_s: float,
+    ridge_lambda: float,
+    workers: int,
+    fit_post_stall_damping: bool,
+    fit_transition_blender: bool,
+    fit_post_stall_lift_drag: bool,
+    fit_post_stall_surfaces: bool,
+) -> tuple[dict[str, float], list[dict[str, Any]]]:
+    current = dict(base_parameters)
+    history: list[dict[str, Any]] = []
+    train_before = replay_longitudinal_summary(
+        train_rows,
+        current,
+        replay_dt_s=replay_dt_s,
+        alignment_window_s=alignment_window_s,
+        workers=workers,
+    )
+    heldout_before = replay_longitudinal_summary(
+        heldout_rows,
+        current,
+        replay_dt_s=replay_dt_s,
+        alignment_window_s=alignment_window_s,
+        workers=workers,
+    )
+    baseline_residuals = residual_rows(
+        train_rows,
+        split="train",
+        parameters=current,
+        alignment_window_s=alignment_window_s,
+        derivative_window_s=derivative_window_s,
+        min_speed_m_s=min_speed_m_s,
+        workers=workers,
+    )
+    history.append(
+        cm_stage_history_row(
+            stage_index=0,
+            stage_id="stage0_baseline",
+            fit_parameter_group="none",
+            accepted=True,
+            reason="baseline_active",
+            train_before=train_before,
+            train_after=train_before,
+            heldout_before=heldout_before,
+            heldout_after=heldout_before,
+            residuals=baseline_residuals,
+            before_parameters=current,
+            after_parameters=current,
+        )
+    )
+    stages = [
+        ("stage1_attached_cm", "attached_pitch_moment", "attached"),
+        ("stage2_transition_cm", "transition_pitch_moment", "transition"),
+        ("stage3_post_stall_cm", "post_stall_pitch_moment", "post_stall_cm"),
+    ]
+    if bool(fit_post_stall_damping):
+        stages.append(("stage4_post_stall_cmq", "post_stall_pitch_damping", "post_stall_cmq"))
+    if bool(fit_transition_blender):
+        stages.append(("stage5_transition_blend", "transition_blend_start_full", "transition_blend"))
+    if bool(fit_post_stall_lift_drag):
+        stages.append(("stage6_post_stall_lift_drag", "post_stall_lift_drag", "post_stall_lift_drag"))
+
+    for stage_index, (stage_id, group_name, action) in enumerate(stages, start=1):
+        residuals = residual_rows(
+            train_rows,
+            split="train",
+            parameters=current,
+            alignment_window_s=alignment_window_s,
+            derivative_window_s=derivative_window_s,
+            min_speed_m_s=min_speed_m_s,
+            workers=workers,
+        )
+        fit_stage = fit_pitch_residual_coefficients(
+            residuals,
+            ridge_lambda=ridge_lambda,
+            fit_post_stall_surfaces=bool(fit_post_stall_surfaces and action == "post_stall_lift_drag"),
+            fit_post_stall_damping=bool(action == "post_stall_cmq"),
+            fit_attached_lateral_coupling=False,
+            fit_transition_lateral_coupling=False,
+            fit_lateral_surfaces=False,
+            lateral_use_confidence_weights=True,
+        )
+        if action == "transition_blend":
+            proposed = transition_blend_grid_candidate(
+                current,
+                train_rows=train_rows,
+                replay_dt_s=replay_dt_s,
+                alignment_window_s=alignment_window_s,
+                workers=workers,
+            )
+        else:
+            proposed = candidate_from_fit(
+                current,
+                fit_stage,
+                apply_attached_cm_bias=action == "attached",
+                fit_transition_pitch_moment=action == "transition",
+                fit_post_stall_lift_drag=action == "post_stall_lift_drag",
+                fit_post_stall_pitch_moment=action == "post_stall_cm",
+                fit_post_stall_longitudinal=action in {"post_stall_cm", "post_stall_cmq", "post_stall_lift_drag"},
+                fit_transition_blender=False,
+                fit_post_stall_surfaces=bool(fit_post_stall_surfaces and action == "post_stall_lift_drag"),
+                fit_post_stall_damping=action == "post_stall_cmq",
+                fit_attached_lateral_coupling=False,
+                fit_transition_lateral_coupling=False,
+                fit_lateral_surfaces=False,
+            )
+        train_current = replay_longitudinal_summary(
+            train_rows,
+            current,
+            replay_dt_s=replay_dt_s,
+            alignment_window_s=alignment_window_s,
+            workers=workers,
+        )
+        heldout_current = replay_longitudinal_summary(
+            heldout_rows,
+            current,
+            replay_dt_s=replay_dt_s,
+            alignment_window_s=alignment_window_s,
+            workers=workers,
+        )
+        train_proposed = replay_longitudinal_summary(
+            train_rows,
+            proposed,
+            replay_dt_s=replay_dt_s,
+            alignment_window_s=alignment_window_s,
+            workers=workers,
+        )
+        heldout_proposed = replay_longitudinal_summary(
+            heldout_rows,
+            proposed,
+            replay_dt_s=replay_dt_s,
+            alignment_window_s=alignment_window_s,
+            workers=workers,
+        )
+        accepted, reason = longitudinal_stage_acceptance(heldout_current, heldout_proposed)
+        next_parameters = proposed if accepted else current
+        history.append(
+            cm_stage_history_row(
+                stage_index=stage_index,
+                stage_id=stage_id,
+                fit_parameter_group=group_name,
+                accepted=accepted,
+                reason=reason,
+                train_before=train_current,
+                train_after=train_proposed,
+                heldout_before=heldout_current,
+                heldout_after=heldout_proposed,
+                residuals=residuals,
+                before_parameters=current,
+                after_parameters=next_parameters,
+            )
+        )
+        current = next_parameters
+    return current, history
+
+
+def replay_longitudinal_summary(
+    rows: list[dict[str, Any]],
+    parameters: dict[str, float],
+    *,
+    replay_dt_s: float,
+    alignment_window_s: float,
+    workers: int,
+) -> dict[str, float]:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        replay_rows = replay_fit.simulate_rows(
+            rows,
+            parameters,
+            replay_dt_s=replay_dt_s,
+            alignment_window_s=alignment_window_s,
+            workers=workers,
+        )
+    return replay_fit.objective_summary(replay_rows, objective_mode="longitudinal")
+
+
+def longitudinal_stage_acceptance(before: dict[str, float], after: dict[str, float]) -> tuple[bool, str]:
+    keys = ("dx_mae_m", "altitude_loss_mae_m", "sink_mae_m_s", "final_theta_mae_deg")
+    passed = []
+    for key in keys:
+        before_value = finite_value(before.get(key))
+        after_value = finite_value(after.get(key))
+        passed.append(math.isfinite(before_value) and math.isfinite(after_value) and after_value <= before_value + 1.0e-9)
+    if all(passed):
+        return True, "heldout_longitudinal_improved_or_preserved"
+    return False, "rejected_by_heldout_longitudinal_gate"
+
+
+def transition_blend_grid_candidate(
+    current: dict[str, float],
+    *,
+    train_rows: list[dict[str, Any]],
+    replay_dt_s: float,
+    alignment_window_s: float,
+    workers: int,
+) -> dict[str, float]:
+    best = dict(current)
+    best_summary = replay_longitudinal_summary(
+        train_rows,
+        best,
+        replay_dt_s=replay_dt_s,
+        alignment_window_s=alignment_window_s,
+        workers=workers,
+    )
+    best_objective = finite_value(best_summary.get("objective"))
+    for start_deg in (10.0, 12.0, 14.0):
+        for full_deg in (18.0, 20.0, 22.0):
+            if full_deg <= start_deg + 1.0:
+                continue
+            candidate = dict(current)
+            candidate["post_stall_residual_blend_start_alpha_deg"] = replay_fit.bounded_parameter_value(
+                "post_stall_residual_blend_start_alpha_deg",
+                start_deg,
+            )
+            candidate["post_stall_residual_blend_full_alpha_deg"] = replay_fit.bounded_parameter_value(
+                "post_stall_residual_blend_full_alpha_deg",
+                full_deg,
+            )
+            summary = replay_longitudinal_summary(
+                train_rows,
+                candidate,
+                replay_dt_s=replay_dt_s,
+                alignment_window_s=alignment_window_s,
+                workers=workers,
+            )
+            objective = finite_value(summary.get("objective"))
+            if math.isfinite(objective) and objective < best_objective - 1.0e-9:
+                best = candidate
+                best_objective = objective
+    return best
+
+
+def cm_stage_history_row(
+    *,
+    stage_index: int,
+    stage_id: str,
+    fit_parameter_group: str,
+    accepted: bool,
+    reason: str,
+    train_before: dict[str, float],
+    train_after: dict[str, float],
+    heldout_before: dict[str, float],
+    heldout_after: dict[str, float],
+    residuals: list[dict[str, Any]],
+    before_parameters: dict[str, float],
+    after_parameters: dict[str, float],
+) -> dict[str, Any]:
+    fractions = regime_sample_fractions(residuals)
+    return {
+        "stage_index": int(stage_index),
+        "stage_id": str(stage_id),
+        "fit_parameter_group": str(fit_parameter_group),
+        "accepted": bool(accepted),
+        "acceptance_reason": str(reason),
+        "train_objective_before": finite_value(train_before.get("objective")),
+        "train_objective_after": finite_value(train_after.get("objective")),
+        "heldout_objective_before": finite_value(heldout_before.get("objective")),
+        "heldout_objective_after": finite_value(heldout_after.get("objective")),
+        "heldout_dx_mae_before_m": finite_value(heldout_before.get("dx_mae_m")),
+        "heldout_dx_mae_after_m": finite_value(heldout_after.get("dx_mae_m")),
+        "heldout_altitude_loss_mae_before_m": finite_value(heldout_before.get("altitude_loss_mae_m")),
+        "heldout_altitude_loss_mae_after_m": finite_value(heldout_after.get("altitude_loss_mae_m")),
+        "heldout_sink_mae_before_m_s": finite_value(heldout_before.get("sink_mae_m_s")),
+        "heldout_sink_mae_after_m_s": finite_value(heldout_after.get("sink_mae_m_s")),
+        "heldout_pitch_mae_before_deg": finite_value(heldout_before.get("final_theta_mae_deg")),
+        "heldout_pitch_mae_after_deg": finite_value(heldout_after.get("final_theta_mae_deg")),
+        "attached_sample_fraction": fractions.get("attached", 0.0),
+        "transition_sample_fraction": fractions.get("transition", 0.0),
+        "post_stall_sample_fraction": fractions.get("post_stall", 0.0),
+        "parameter_updates_json": json.dumps(parameter_updates(before_parameters, after_parameters), sort_keys=True),
+    }
+
+
+def regime_sample_fractions(rows: list[dict[str, Any]]) -> dict[str, float]:
+    valid = [row for row in rows if row.get("residual_status") == "ok"]
+    total = max(len(valid), 1)
+    return {
+        regime: sum(1 for row in valid if row.get("regime") == regime) / total
+        for regime in ("attached", "transition", "post_stall")
+    }
+
+
+def parameter_updates(before: dict[str, float], after: dict[str, float]) -> dict[str, float]:
+    keys = sorted(set(before) | set(after))
+    return {
+        key: float(after.get(key, 0.0))
+        for key in keys
+        if abs(float(after.get(key, 0.0)) - float(before.get(key, 0.0))) > 1.0e-12
+    }
+
+
 def grouped_iterative_refinement(
     *,
     base_parameters: dict[str, float],
@@ -2499,6 +3011,11 @@ def grouped_iterative_refinement(
     alignment_window_s: float,
     workers: int,
     apply_attached_cm_bias: bool,
+    fit_transition_pitch_moment: bool,
+    fit_post_stall_lift_drag: bool,
+    fit_post_stall_pitch_moment: bool,
+    fit_post_stall_longitudinal: bool,
+    fit_transition_blender: bool,
     fit_post_stall_surfaces: bool,
     fit_post_stall_damping: bool,
     fit_attached_lateral_coupling: bool,
@@ -2510,11 +3027,21 @@ def grouped_iterative_refinement(
 ) -> tuple[dict[str, float], list[dict[str, Any]]]:
     group_scales = {
         "attached_longitudinal": 1.0 if apply_attached_cm_bias else 0.0,
+        "transition_pitch_moment": 1.0 if fit_transition_pitch_moment else 0.0,
+        "post_stall_pitch_moment": float(initial_surface_scale)
+        if fit_post_stall_longitudinal and fit_post_stall_pitch_moment
+        else 0.0,
+        "post_stall_pitch_damping": float(initial_surface_scale)
+        if fit_post_stall_longitudinal and fit_post_stall_damping
+        else 0.0,
+        "post_stall_lift_drag": float(initial_surface_scale)
+        if fit_post_stall_longitudinal and fit_post_stall_lift_drag
+        else 0.0,
         "attached_lateral": 1.0 if fit_attached_lateral_coupling else 0.0,
-        "post_stall_longitudinal": float(initial_surface_scale),
+        "post_stall_longitudinal": float(initial_surface_scale) if fit_post_stall_longitudinal else 0.0,
         "post_stall_lateral": float(initial_surface_scale) if fit_lateral_surfaces else 0.0,
         "transition_lateral": 1.0 if fit_transition_lateral_coupling else 0.0,
-        "transition_blender": 1.0,
+        "transition_blender": 1.0 if fit_transition_blender else 0.0,
     }
     enabled_groups = [
         group
@@ -2522,6 +3049,11 @@ def grouped_iterative_refinement(
         if group_enabled(
             group,
             apply_attached_cm_bias=apply_attached_cm_bias,
+            fit_transition_pitch_moment=fit_transition_pitch_moment,
+            fit_post_stall_lift_drag=fit_post_stall_lift_drag,
+            fit_post_stall_pitch_moment=fit_post_stall_pitch_moment,
+            fit_post_stall_longitudinal=fit_post_stall_longitudinal,
+            fit_transition_blender=fit_transition_blender,
             fit_attached_lateral_coupling=fit_attached_lateral_coupling,
             fit_transition_lateral_coupling=fit_transition_lateral_coupling,
             fit_lateral_surfaces=fit_lateral_surfaces,
@@ -2531,6 +3063,11 @@ def grouped_iterative_refinement(
         base_parameters,
         fit_result,
         apply_attached_cm_bias=apply_attached_cm_bias,
+        fit_transition_pitch_moment=fit_transition_pitch_moment,
+        fit_post_stall_lift_drag=fit_post_stall_lift_drag,
+        fit_post_stall_pitch_moment=fit_post_stall_pitch_moment,
+        fit_post_stall_longitudinal=fit_post_stall_longitudinal,
+        fit_transition_blender=fit_transition_blender,
         fit_post_stall_surfaces=fit_post_stall_surfaces,
         fit_post_stall_damping=fit_post_stall_damping,
         fit_attached_lateral_coupling=fit_attached_lateral_coupling,
@@ -2577,6 +3114,11 @@ def grouped_iterative_refinement(
                 alignment_window_s=alignment_window_s,
                 workers=workers,
                 apply_attached_cm_bias=apply_attached_cm_bias,
+                fit_transition_pitch_moment=fit_transition_pitch_moment,
+                fit_post_stall_lift_drag=fit_post_stall_lift_drag,
+                fit_post_stall_pitch_moment=fit_post_stall_pitch_moment,
+                fit_post_stall_longitudinal=fit_post_stall_longitudinal,
+                fit_transition_blender=fit_transition_blender,
                 fit_post_stall_surfaces=fit_post_stall_surfaces,
                 fit_post_stall_damping=fit_post_stall_damping,
                 fit_attached_lateral_coupling=fit_attached_lateral_coupling,
@@ -2607,6 +3149,11 @@ def grouped_iterative_refinement(
         base_parameters,
         fit_result,
         apply_attached_cm_bias=apply_attached_cm_bias,
+        fit_transition_pitch_moment=fit_transition_pitch_moment,
+        fit_post_stall_lift_drag=fit_post_stall_lift_drag,
+        fit_post_stall_pitch_moment=fit_post_stall_pitch_moment,
+        fit_post_stall_longitudinal=fit_post_stall_longitudinal,
+        fit_transition_blender=fit_transition_blender,
         fit_post_stall_surfaces=fit_post_stall_surfaces,
         fit_post_stall_damping=fit_post_stall_damping,
         fit_attached_lateral_coupling=fit_attached_lateral_coupling,
@@ -2658,6 +3205,10 @@ def secondary_lateral_diagnostic_candidate(
     )
     lateral_only_scales = {
         "attached_longitudinal": 0.0,
+        "transition_pitch_moment": 0.0,
+        "post_stall_pitch_moment": 0.0,
+        "post_stall_pitch_damping": 0.0,
+        "post_stall_lift_drag": 0.0,
         "attached_lateral": 1.0,
         "post_stall_longitudinal": 0.0,
         "post_stall_lateral": 0.0,
@@ -2668,6 +3219,8 @@ def secondary_lateral_diagnostic_candidate(
         primary_parameters,
         fit_result,
         apply_attached_cm_bias=False,
+        fit_post_stall_longitudinal=False,
+        fit_transition_blender=False,
         fit_post_stall_surfaces=False,
         fit_post_stall_damping=False,
         fit_attached_lateral_coupling=True,
@@ -2694,22 +3247,32 @@ def group_enabled(
     group: str,
     *,
     apply_attached_cm_bias: bool,
+    fit_post_stall_longitudinal: bool,
+    fit_transition_blender: bool,
     fit_attached_lateral_coupling: bool,
     fit_transition_lateral_coupling: bool,
     fit_lateral_surfaces: bool,
 ) -> bool:
     if group == "attached_longitudinal":
         return bool(apply_attached_cm_bias)
+    if group == "transition_pitch_moment":
+        return bool(fit_transition_pitch_moment)
+    if group == "post_stall_pitch_moment":
+        return bool(fit_post_stall_longitudinal and fit_post_stall_pitch_moment)
+    if group == "post_stall_pitch_damping":
+        return bool(fit_post_stall_longitudinal and fit_post_stall_damping)
+    if group == "post_stall_lift_drag":
+        return bool(fit_post_stall_longitudinal and fit_post_stall_lift_drag)
     if group == "attached_lateral":
         return bool(fit_attached_lateral_coupling)
     if group == "post_stall_longitudinal":
-        return True
+        return bool(fit_post_stall_longitudinal)
     if group == "post_stall_lateral":
         return bool(fit_lateral_surfaces)
     if group == "transition_lateral":
         return bool(fit_transition_lateral_coupling)
     if group == "transition_blender":
-        return True
+        return bool(fit_transition_blender)
     return False
 
 
@@ -2729,6 +3292,11 @@ def evaluate_group_scale_candidates(
     alignment_window_s: float,
     workers: int,
     apply_attached_cm_bias: bool,
+    fit_transition_pitch_moment: bool,
+    fit_post_stall_lift_drag: bool,
+    fit_post_stall_pitch_moment: bool,
+    fit_post_stall_longitudinal: bool,
+    fit_transition_blender: bool,
     fit_post_stall_surfaces: bool,
     fit_post_stall_damping: bool,
     fit_attached_lateral_coupling: bool,
@@ -2748,6 +3316,11 @@ def evaluate_group_scale_candidates(
             base_parameters,
             fit_result,
             apply_attached_cm_bias=apply_attached_cm_bias,
+            fit_transition_pitch_moment=fit_transition_pitch_moment,
+            fit_post_stall_lift_drag=fit_post_stall_lift_drag,
+            fit_post_stall_pitch_moment=fit_post_stall_pitch_moment,
+            fit_post_stall_longitudinal=fit_post_stall_longitudinal,
+            fit_transition_blender=fit_transition_blender,
             fit_post_stall_surfaces=fit_post_stall_surfaces,
             fit_post_stall_damping=fit_post_stall_damping,
             fit_attached_lateral_coupling=fit_attached_lateral_coupling,
@@ -2993,6 +3566,11 @@ def summarize_stage_replay_samples(rows: list[dict[str, Any]]) -> list[dict[str,
 def coefficient_output_rows(
     fit_result: dict[str, Any],
     apply_attached_cm_bias: bool,
+    fit_transition_pitch_moment: bool,
+    fit_post_stall_lift_drag: bool,
+    fit_post_stall_pitch_moment: bool,
+    fit_post_stall_longitudinal: bool,
+    fit_transition_blender: bool,
     fit_post_stall_surfaces: bool,
     fit_post_stall_damping: bool,
     fit_attached_lateral_coupling: bool,
@@ -3006,20 +3584,20 @@ def coefficient_output_rows(
             "value": float(
                 fit_result.get("surface_scale_selection", {}).get("selected_surface_scale", 1.0)
             ),
-            "applied_to_replay": True,
-            "description": "Train-replay-selected multiplier applied to the fitted compact post-stall correction group.",
+            "applied_to_replay": bool(fit_post_stall_longitudinal),
+            "description": "Train-replay-selected multiplier used by non-staged post-stall ablations.",
         },
         {
             "parameter": "attached_cm_bias_coeff",
             "value": float(coeffs.get("attached_cm_bias_coeff", 0.0)),
             "applied_to_replay": bool(apply_attached_cm_bias),
-            "description": "Attached-regime Cm residual. Report-only by default.",
+            "description": "Attached-flow Cm residual applied through attached_pitch_moment_bias_coeff when enabled.",
         },
         {
             "parameter": "transition_cm_bias_coeff",
             "value": float(coeffs.get("transition_cm_bias_coeff", 0.0)),
-            "applied_to_replay": False,
-            "description": "All-transition aggregate Cm diagnostic. Not applied to replay.",
+            "applied_to_replay": bool(fit_transition_pitch_moment),
+            "description": "Transition-window Cm residual applied through transition_pitch_moment_bias_coeff when enabled.",
         },
         {
             "parameter": "transition_before_post_stall_cm_bias_coeff",
@@ -3036,37 +3614,37 @@ def coefficient_output_rows(
         {
             "parameter": "post_stall_lift_residual_coeff",
             "value": float(coeffs.get("post_stall_lift_residual_coeff", 0.0)),
-            "applied_to_replay": not bool(fit_post_stall_surfaces),
+            "applied_to_replay": bool(fit_post_stall_longitudinal and fit_post_stall_lift_drag and not fit_post_stall_surfaces),
             "description": "Compact scalar post-stall CL residual. Default promoted post-stall lift correction.",
         },
         {
             "parameter": "post_stall_drag_residual_coeff",
             "value": float(coeffs.get("post_stall_drag_residual_coeff", 0.0)),
-            "applied_to_replay": not bool(fit_post_stall_surfaces),
+            "applied_to_replay": bool(fit_post_stall_longitudinal and fit_post_stall_lift_drag and not fit_post_stall_surfaces),
             "description": "Compact scalar post-stall CD residual. Default promoted post-stall drag correction.",
         },
         {
             "parameter": "post_stall_pitch_moment_coeff",
             "value": float(coeffs.get("post_stall_pitch_moment_coeff", 0.0)),
-            "applied_to_replay": not bool(fit_post_stall_surfaces),
-            "description": "Compact scalar post-stall Cm residual. Default promoted post-stall pitch-moment correction.",
+            "applied_to_replay": bool(fit_post_stall_longitudinal and fit_post_stall_pitch_moment and not fit_post_stall_surfaces),
+            "description": "Compact scalar post-stall Cm residual applied only through the post-stall pitch weight.",
         },
         {
             "parameter": "post_stall_pitch_damping_coeff",
             "value": float(coeffs.get("post_stall_pitch_damping_coeff", 0.0)),
-            "applied_to_replay": bool(fit_post_stall_damping),
+            "applied_to_replay": bool(fit_post_stall_longitudinal and fit_post_stall_damping),
             "description": "Positive-AoA Cmq-style residual using q_hat = q c / (2V). Opt-in because it is derivative-sensitive.",
         },
         {
             "parameter": "post_stall_residual_blend_start_alpha_deg",
             "value": float(coeffs.get("post_stall_residual_blend_start_alpha_deg", STALL_ALPHA_DEG)),
-            "applied_to_replay": True,
+            "applied_to_replay": bool(fit_transition_blender),
             "description": "Residual activation start alpha fitted after attached and post-stall coefficients.",
         },
         {
             "parameter": "post_stall_residual_blend_full_alpha_deg",
             "value": float(coeffs.get("post_stall_residual_blend_full_alpha_deg", POST_STALL_ALPHA_DEG)),
-            "applied_to_replay": True,
+            "applied_to_replay": bool(fit_transition_blender),
             "description": "Residual activation full-alpha point fitted from transition behaviour while preserving post-stall full activation.",
         },
     ]
@@ -3232,25 +3810,26 @@ def cm_fit_residual(row: dict[str, Any], fit_result: dict[str, Any]) -> float:
         return float("nan")
     coeffs = fit_result.get("coefficients", zero_coefficients())
     fitted = 0.0
-    stage_fit_group = str(row.get("stage_fit_group", ""))
-    if stage_fit_group == "attached":
-        fitted += float(coeffs.get("attached_cm_bias_coeff", 0.0))
-    elif row.get("regime") in {"transition", "post_stall"}:
-        alpha_deg = finite_value(row.get("alpha_deg"))
-        activation = residual_blend_activation_from_coeffs(alpha_deg, coeffs)
-        q_hat = finite_value(row.get("q_hat"))
-        fitted_surface = surface_rbf_prediction(coeffs, "post_stall_pitch_moment_rbf", alpha_deg)
-        damping_surface = surface_rbf_prediction(coeffs, "post_stall_pitch_damping_rbf", alpha_deg)
-        if math.isfinite(activation):
-            fitted += activation * float(coeffs.get("post_stall_pitch_moment_coeff", 0.0))
-        if math.isfinite(fitted_surface):
-            fitted += fitted_surface
-        if math.isfinite(activation):
-            if math.isfinite(q_hat):
-                fitted += (
-                    float(coeffs.get("post_stall_pitch_damping_coeff", 0.0)) * activation
-                    + (damping_surface if math.isfinite(damping_surface) else 0.0)
-                ) * q_hat
+    alpha_deg = finite_value(row.get("alpha_deg"))
+    if not math.isfinite(alpha_deg):
+        return float("nan")
+    attached_weight, transition_weight, post_weight = pitch_moment_regime_weights_deg(alpha_deg, coeffs)
+    if math.isfinite(attached_weight):
+        fitted += attached_weight * float(coeffs.get("attached_cm_bias_coeff", 0.0))
+    if math.isfinite(transition_weight):
+        fitted += transition_weight * float(coeffs.get("transition_cm_bias_coeff", 0.0))
+    q_hat = finite_value(row.get("q_hat"))
+    fitted_surface = surface_rbf_prediction(coeffs, "post_stall_pitch_moment_rbf", alpha_deg)
+    damping_surface = surface_rbf_prediction(coeffs, "post_stall_pitch_damping_rbf", alpha_deg)
+    if math.isfinite(post_weight):
+        fitted += post_weight * float(coeffs.get("post_stall_pitch_moment_coeff", 0.0))
+    if math.isfinite(fitted_surface):
+        fitted += fitted_surface
+    if math.isfinite(post_weight) and math.isfinite(q_hat):
+        fitted += (
+            float(coeffs.get("post_stall_pitch_damping_coeff", 0.0)) * post_weight
+            + (damping_surface if math.isfinite(damping_surface) else 0.0)
+        ) * q_hat
     return cm - fitted
 
 
@@ -3315,6 +3894,11 @@ def write_manifest(
     aligned_v_abs_max_m_s: float,
     aligned_w_abs_max_m_s: float,
     apply_attached_cm_bias: bool,
+    fit_transition_pitch_moment: bool,
+    fit_post_stall_lift_drag: bool,
+    fit_post_stall_pitch_moment: bool,
+    fit_post_stall_longitudinal: bool,
+    fit_transition_blender: bool,
     fit_post_stall_surfaces: bool,
     fit_post_stall_damping: bool,
     fit_attached_lateral_coupling: bool,
@@ -3327,13 +3911,14 @@ def write_manifest(
     fit_result: dict[str, Any],
     lateral_diagnostic_result: dict[str, Any],
     group_iteration_rows: list[dict[str, Any]],
+    cm_stage_history_rows: list[dict[str, Any]],
     acceptance_summary: dict[str, Any],
     lateral_diagnostic_acceptance: dict[str, Any],
 ) -> None:
     manifest = {
         "fit_id": str(run_label),
         "fit_version": FIT_VERSION,
-        "fit_scope": "neutral_open_loop_vicon_6dof_force_moment_residual_grouped_iterative_fit",
+        "fit_scope": "neutral_open_loop_vicon_6dof_force_moment_residual_regime_staged_fit",
         "session_root": str(session_root),
         "loaded_throw_count": int(loaded_throw_count),
         "valid_throw_count": len(valid_rows),
@@ -3361,6 +3946,11 @@ def write_manifest(
         "group_iterations": int(group_iterations),
         "group_improvement_tol": float(group_improvement_tol),
         "apply_attached_cm_bias": bool(apply_attached_cm_bias),
+        "fit_transition_pitch_moment": bool(fit_transition_pitch_moment),
+        "fit_post_stall_lift_drag": bool(fit_post_stall_lift_drag),
+        "fit_post_stall_pitch_moment": bool(fit_post_stall_pitch_moment),
+        "fit_post_stall_longitudinal": bool(fit_post_stall_longitudinal),
+        "fit_transition_blender": bool(fit_transition_blender),
         "fit_post_stall_surfaces": bool(fit_post_stall_surfaces),
         "fit_post_stall_damping": bool(fit_post_stall_damping),
         "fit_attached_lateral_coupling": bool(fit_attached_lateral_coupling),
@@ -3368,13 +3958,14 @@ def write_manifest(
         "fit_lateral_surfaces": bool(fit_lateral_surfaces),
         "fit_secondary_lateral_diagnostic": bool(fit_secondary_lateral_diagnostic),
         "group_iteration_history_count": len(group_iteration_rows),
+        "cm_stage_history_count": len(cm_stage_history_rows),
         "stage_fit_policy": {
             "primary": "claim-bearing candidate is longitudinal-only by default; lateral residuals are reported but not claimed",
-            "attached": "attached Cm remains diagnostic-only unless explicitly applied; primary attached lateral coupling is disabled by default",
-            "transition": "blend start/full alpha fit; transition lateral deltas are disabled by default",
-            "post_stall": "compact scalar CL/CD/Cm/Cmq residuals by default; alpha-RBF and lateral surfaces are explicit diagnostics",
+            "attached": "attached Cm is applied only through attached_pitch_moment_bias_coeff in the staged workflow",
+            "transition": "transition Cm is applied only through transition_pitch_moment_bias_coeff; blend start/full is tested after Cm stages",
+            "post_stall": "post-stall Cm/Cmq use post-stall pitch weights; CL/CD cleanup is a later compact stage",
             "secondary_lateral_diagnostic": "optional frozen-longitudinal CY_beta/Cl_p/Cn_r diagnostic, accepted only by held-out lateral improvement without longitudinal degradation",
-            "grouped_replay": "block-coordinate replay refinement over enabled physical coefficient groups; held-out replay remains the acceptance gate",
+            "staged_replay": "cm_regime_staged fits attached, transition, post-stall, blend, then optional CL/CD cleanup with held-out gates at each stage",
         },
         "base_parameters": dict(base_parameters),
         "candidate_parameters": dict(candidate_parameters),
@@ -3403,6 +3994,11 @@ def write_manifest(
             aligned_v_abs_max_m_s=aligned_v_abs_max_m_s,
             aligned_w_abs_max_m_s=aligned_w_abs_max_m_s,
             apply_attached_cm_bias=apply_attached_cm_bias,
+            fit_transition_pitch_moment=fit_transition_pitch_moment,
+            fit_post_stall_lift_drag=fit_post_stall_lift_drag,
+            fit_post_stall_pitch_moment=fit_post_stall_pitch_moment,
+            fit_post_stall_longitudinal=fit_post_stall_longitudinal,
+            fit_transition_blender=fit_transition_blender,
             fit_post_stall_surfaces=fit_post_stall_surfaces,
             fit_post_stall_damping=fit_post_stall_damping,
             fit_attached_lateral_coupling=fit_attached_lateral_coupling,
@@ -3438,6 +4034,11 @@ def fit_rerun_command(
     aligned_v_abs_max_m_s: float,
     aligned_w_abs_max_m_s: float,
     apply_attached_cm_bias: bool,
+    fit_transition_pitch_moment: bool,
+    fit_post_stall_lift_drag: bool,
+    fit_post_stall_pitch_moment: bool,
+    fit_post_stall_longitudinal: bool,
+    fit_transition_blender: bool,
     fit_post_stall_surfaces: bool,
     fit_post_stall_damping: bool,
     fit_attached_lateral_coupling: bool,
@@ -3485,6 +4086,17 @@ def fit_rerun_command(
     ]
     command.append("--filter-aligned-launch-state" if filter_aligned_launch_state else "--no-filter-aligned-launch-state")
     command.append("--apply-attached-cm-bias" if apply_attached_cm_bias else "--no-apply-attached-cm-bias")
+    command.append(
+        "--fit-transition-pitch-moment" if fit_transition_pitch_moment else "--no-fit-transition-pitch-moment"
+    )
+    command.append("--fit-post-stall-lift-drag" if fit_post_stall_lift_drag else "--no-fit-post-stall-lift-drag")
+    command.append(
+        "--fit-post-stall-pitch-moment" if fit_post_stall_pitch_moment else "--no-fit-post-stall-pitch-moment"
+    )
+    command.append(
+        "--fit-post-stall-longitudinal" if fit_post_stall_longitudinal else "--no-fit-post-stall-longitudinal"
+    )
+    command.append("--fit-transition-blender" if fit_transition_blender else "--no-fit-transition-blender")
     command.append("--fit-post-stall-surfaces" if fit_post_stall_surfaces else "--no-fit-post-stall-surfaces")
     command.append("--fit-post-stall-damping" if fit_post_stall_damping else "--no-fit-post-stall-damping")
     command.append(
@@ -3602,6 +4214,11 @@ def write_report(
     aligned_v_abs_max_m_s: float,
     aligned_w_abs_max_m_s: float,
     apply_attached_cm_bias: bool,
+    fit_transition_pitch_moment: bool,
+    fit_post_stall_lift_drag: bool,
+    fit_post_stall_pitch_moment: bool,
+    fit_post_stall_longitudinal: bool,
+    fit_transition_blender: bool,
     fit_post_stall_surfaces: bool,
     fit_post_stall_damping: bool,
     fit_attached_lateral_coupling: bool,
@@ -3611,6 +4228,7 @@ def write_report(
     fit_result: dict[str, Any],
     lateral_diagnostic_result: dict[str, Any],
     group_iteration_rows: list[dict[str, Any]],
+    cm_stage_history_rows: list[dict[str, Any]],
     acceptance_summary: dict[str, Any],
     lateral_diagnostic_acceptance: dict[str, Any],
     regime_summary: list[dict[str, Any]],
@@ -3649,6 +4267,11 @@ def write_report(
             aligned_v_abs_max_m_s=aligned_v_abs_max_m_s,
             aligned_w_abs_max_m_s=aligned_w_abs_max_m_s,
             apply_attached_cm_bias=apply_attached_cm_bias,
+            fit_transition_pitch_moment=fit_transition_pitch_moment,
+            fit_post_stall_lift_drag=fit_post_stall_lift_drag,
+            fit_post_stall_pitch_moment=fit_post_stall_pitch_moment,
+            fit_post_stall_longitudinal=fit_post_stall_longitudinal,
+            fit_transition_blender=fit_transition_blender,
             fit_post_stall_surfaces=fit_post_stall_surfaces,
             fit_post_stall_damping=fit_post_stall_damping,
             fit_attached_lateral_coupling=fit_attached_lateral_coupling,
@@ -3662,7 +4285,7 @@ def write_report(
     lines = [
         "# Neutral Aero Residual Regime Fit",
         "",
-        "This run uses only neutral open-loop real throws. It estimates 6-DoF force/moment residuals from Vicon state trajectories, fits a claim-bearing longitudinal candidate by default, reports lateral residuals without claiming accurate lateral SysID, and validates the primary candidate by held-out dry-air replay. The optional secondary lateral diagnostic freezes the longitudinal candidate and fits only `CY_beta`, `Cl_p`, and `Cn_r`; rich transition lateral deltas, post-stall lateral surfaces, and post-stall alpha-RBF longitudinal surfaces are diagnostic-only unless explicitly enabled.",
+        "This run uses only neutral open-loop real throws. It estimates 6-DoF force/moment residuals from Vicon state trajectories, fits a claim-bearing longitudinal candidate by default, reports lateral residuals without claiming accurate lateral SysID, and validates the primary candidate by held-out dry-air replay. The default `cm_regime_staged` workflow fits attached Cm, transition Cm, post-stall Cm/Cmq, transition blend, and optional post-stall CL/CD cleanup in separate held-out-gated stages. The optional secondary lateral diagnostic freezes the longitudinal candidate and fits only `CY_beta`, `Cl_p`, and `Cn_r`; rich transition lateral deltas, post-stall lateral surfaces, and post-stall alpha-RBF longitudinal surfaces are diagnostic-only unless explicitly enabled.",
         "",
         "## Rerun Recipe",
         "",
@@ -3679,6 +4302,11 @@ def write_report(
         f"- aligned launch filter: `{filter_aligned_launch_state}`",
         f"- aligned launch filter bounds: `u=[{aligned_u_min_m_s:.2f}, {aligned_u_max_m_s:.2f}]` m/s, `|v|<={aligned_v_abs_max_m_s:.2f}` m/s, `|w|<={aligned_w_abs_max_m_s:.2f}` m/s",
         f"- apply attached Cm bias: `{apply_attached_cm_bias}`",
+        f"- fit transition Cm bias: `{fit_transition_pitch_moment}`",
+        f"- fit post-stall CL/CD cleanup: `{fit_post_stall_lift_drag}`",
+        f"- fit post-stall Cm bias: `{fit_post_stall_pitch_moment}`",
+        f"- fit compact post-stall longitudinal residuals: `{fit_post_stall_longitudinal}`",
+        f"- fit transition blender: `{fit_transition_blender}`",
         f"- fit post-stall alpha-RBF surfaces: `{fit_post_stall_surfaces}`",
         f"- fit post-stall damping: `{fit_post_stall_damping}`",
         f"- fit attached lateral coupling: `{fit_attached_lateral_coupling}`",
@@ -3728,6 +4356,12 @@ def write_report(
         "- grouped history CSV: `metrics/neutral_aero_residual_group_iteration_history.csv`",
         grouped_iteration_report_lines(group_iteration_rows),
         "",
+        "## Regime-Staged Cm Workflow",
+        "",
+        f"- staged history rows: `{len(cm_stage_history_rows)}`",
+        "- staged history CSV: `metrics/neutral_aero_residual_cm_stage_history.csv`",
+        cm_stage_history_report_lines(cm_stage_history_rows),
+        "",
         "## Secondary Lateral Diagnostic",
         "",
         f"- enabled: `{bool(lateral_diagnostic_result.get('enabled', False))}`",
@@ -3769,7 +4403,10 @@ def write_report(
         "",
         f"- legacy scalar post-stall CL residual: baseline `{base_parameters['post_stall_lift_residual_coeff']:.6g}`, candidate `{candidate_parameters['post_stall_lift_residual_coeff']:.6g}`",
         f"- legacy scalar post-stall CD residual: baseline `{base_parameters['post_stall_drag_residual_coeff']:.6g}`, candidate `{candidate_parameters['post_stall_drag_residual_coeff']:.6g}`",
-        f"- legacy scalar post-stall Cm residual: baseline `{base_parameters['post_stall_pitch_moment_coeff']:.6g}`, candidate `{candidate_parameters['post_stall_pitch_moment_coeff']:.6g}`",
+        f"- legacy global Cm bias: baseline `{base_parameters['pitch_moment_bias_coeff']:.6g}`, candidate `{candidate_parameters['pitch_moment_bias_coeff']:.6g}`",
+        f"- attached Cm bias: baseline `{base_parameters['attached_pitch_moment_bias_coeff']:.6g}`, candidate `{candidate_parameters['attached_pitch_moment_bias_coeff']:.6g}`",
+        f"- transition Cm bias: baseline `{base_parameters['transition_pitch_moment_bias_coeff']:.6g}`, candidate `{candidate_parameters['transition_pitch_moment_bias_coeff']:.6g}`",
+        f"- post-stall Cm bias: baseline `{base_parameters['post_stall_pitch_moment_coeff']:.6g}`, candidate `{candidate_parameters['post_stall_pitch_moment_coeff']:.6g}`",
         candidate_surface_report_lines(base_parameters, candidate_parameters),
         candidate_lateral_coupling_report_lines(base_parameters, candidate_parameters),
         f"- baseline post-stall Cmq: `{base_parameters['post_stall_pitch_damping_coeff']:.6g}`",
@@ -3987,6 +4624,24 @@ def grouped_iteration_report_lines(rows: list[dict[str, Any]]) -> str:
             f"  - pass `{row.get('pass_index', '')}`, group `{row.get('group', '')}`, "
             f"scale `{replay_fit.format_value(row.get('candidate_scale', ''))}`, "
             f"objective `{finite_value(row.get('objective')):.4f}`"
+        )
+    return "\n".join(lines)
+
+
+def cm_stage_history_report_lines(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "- regime-staged Cm workflow disabled"
+    lines = ["- staged decisions:"]
+    for row in rows:
+        lines.append(
+            (
+                f"  - `{row.get('stage_id', '')}` `{row.get('fit_parameter_group', '')}`: "
+                f"accepted `{bool(row.get('accepted', False))}`, "
+                f"held-out pitch `{finite_value(row.get('heldout_pitch_mae_before_deg')):.3f}` -> "
+                f"`{finite_value(row.get('heldout_pitch_mae_after_deg')):.3f}` deg, "
+                f"altitude-loss `{finite_value(row.get('heldout_altitude_loss_mae_before_m')):.4f}` -> "
+                f"`{finite_value(row.get('heldout_altitude_loss_mae_after_m')):.4f}` m"
+            )
         )
     return "\n".join(lines)
 

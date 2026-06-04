@@ -18,11 +18,21 @@ from A_model_parameters import mass_properties_estimate  # noqa: E402
 
 
 def test_default_neutral_sysid_is_longitudinal_primary_with_lateral_diagnostic() -> None:
+    assert sysid.DEFAULT_FIT_WORKFLOW == "cm_regime_staged"
     assert sysid.DEFAULT_FIT_ATTACHED_LATERAL_COUPLING is False
     assert sysid.DEFAULT_FIT_TRANSITION_LATERAL_COUPLING is False
     assert sysid.DEFAULT_FIT_LATERAL_SURFACES is False
     assert sysid.DEFAULT_FIT_POST_STALL_SURFACES is False
     assert sysid.DEFAULT_FIT_SECONDARY_LATERAL_DIAGNOSTIC is True
+
+
+def test_pitch_moment_regime_weights_are_normalized_and_localized() -> None:
+    assert sysid.pitch_moment_regime_weights_from_activation(0.0) == pytest.approx((1.0, 0.0, 0.0))
+    assert sysid.pitch_moment_regime_weights_from_activation(1.0) == pytest.approx((0.0, 0.0, 1.0))
+    attached, transition, post = sysid.pitch_moment_regime_weights_from_activation(0.5)
+    assert attached + transition + post == pytest.approx(1.0)
+    assert transition > attached
+    assert transition > post
 
 
 def test_launch_confidence_uses_only_lateral_launch_contamination() -> None:
@@ -65,6 +75,8 @@ def test_lateral_candidate_application_is_limited_to_minimal_terms() -> None:
         base,
         {"coefficients": coeffs},
         apply_attached_cm_bias=False,
+        fit_post_stall_longitudinal=False,
+        fit_transition_blender=False,
         fit_post_stall_surfaces=False,
         fit_post_stall_damping=False,
         fit_attached_lateral_coupling=True,
@@ -84,6 +96,68 @@ def test_lateral_candidate_application_is_limited_to_minimal_terms() -> None:
     assert candidate["roll_moment_beta_coeff"] == pytest.approx(base["roll_moment_beta_coeff"])
     assert candidate["yaw_moment_beta_coeff"] == pytest.approx(base["yaw_moment_beta_coeff"])
     assert candidate["post_stall_lift_residual_coeff"] == pytest.approx(base["post_stall_lift_residual_coeff"])
+
+
+def test_attached_cm_bias_maps_to_attached_regime_parameter_only() -> None:
+    base = sysid.active_parameter_dict()
+    coeffs = sysid.zero_coefficients()
+    coeffs["attached_cm_bias_coeff"] = 0.08
+    candidate = sysid.candidate_from_fit(
+        base,
+        {"coefficients": coeffs},
+        apply_attached_cm_bias=True,
+        fit_post_stall_longitudinal=False,
+        fit_transition_blender=False,
+        fit_post_stall_surfaces=False,
+        fit_post_stall_damping=False,
+        fit_attached_lateral_coupling=False,
+        fit_transition_lateral_coupling=False,
+        fit_lateral_surfaces=False,
+    )
+
+    assert candidate["attached_pitch_moment_bias_coeff"] == pytest.approx(
+        base["attached_pitch_moment_bias_coeff"] + 0.08
+    )
+    assert candidate["pitch_moment_bias_coeff"] == pytest.approx(base["pitch_moment_bias_coeff"])
+    assert candidate["transition_pitch_moment_bias_coeff"] == pytest.approx(base["transition_pitch_moment_bias_coeff"])
+
+
+def test_post_stall_and_transition_groups_can_be_frozen() -> None:
+    base = sysid.active_parameter_dict()
+    coeffs = sysid.zero_coefficients()
+    coeffs.update(
+        {
+            "post_stall_lift_residual_coeff": 0.4,
+            "post_stall_drag_residual_coeff": 0.5,
+            "post_stall_pitch_moment_coeff": 0.6,
+            "post_stall_pitch_damping_coeff": 0.7,
+            "post_stall_residual_blend_start_alpha_deg": 9.0,
+            "post_stall_residual_blend_full_alpha_deg": 18.0,
+        }
+    )
+    candidate = sysid.candidate_from_fit(
+        base,
+        {"coefficients": coeffs},
+        apply_attached_cm_bias=False,
+        fit_post_stall_longitudinal=False,
+        fit_transition_blender=False,
+        fit_post_stall_surfaces=False,
+        fit_post_stall_damping=True,
+        fit_attached_lateral_coupling=False,
+        fit_transition_lateral_coupling=False,
+        fit_lateral_surfaces=False,
+    )
+
+    assert candidate["post_stall_lift_residual_coeff"] == pytest.approx(base["post_stall_lift_residual_coeff"])
+    assert candidate["post_stall_drag_residual_coeff"] == pytest.approx(base["post_stall_drag_residual_coeff"])
+    assert candidate["post_stall_pitch_moment_coeff"] == pytest.approx(base["post_stall_pitch_moment_coeff"])
+    assert candidate["post_stall_pitch_damping_coeff"] == pytest.approx(base["post_stall_pitch_damping_coeff"])
+    assert candidate["post_stall_residual_blend_start_alpha_deg"] == pytest.approx(
+        base["post_stall_residual_blend_start_alpha_deg"]
+    )
+    assert candidate["post_stall_residual_blend_full_alpha_deg"] == pytest.approx(
+        base["post_stall_residual_blend_full_alpha_deg"]
+    )
 
 
 def test_mass_properties_match_ballasted_glider_measurement() -> None:
