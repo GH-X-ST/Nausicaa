@@ -72,10 +72,19 @@ force/moment residual -> regime-split coefficient fit -> held-out replay
 workflow. Neutral control-surface trims remain disabled by default.
 The aero-residual workflow fits stage evidence independently: attached Cm is
 diagnostic only, transition Cm is split into before/after first post-stall
-exposure and remains diagnostic only, then post-stall CL/CD/Cm residuals are
-fit and the residual blender is tuned from transition evidence. Only the
-post-stall residual coefficients and residual blender are applied to replay by
-default.
+exposure and remains diagnostic only, then compact neutral post-stall
+alpha-RBF residual surfaces are fit for CL/CD/Cm, alpha-dependent Cmq, and
+lateral-directional CY/Cl/Cn terms using beta, p_hat, and r_hat features. The
+transition blender only tunes the activation start/full alpha for those
+surfaces. Post-stall samples are balanced by throw so one long stalled launch
+cannot dominate the fit. Only the post-stall surface coefficients and residual
+blender are applied to replay by default.
+Use `--no-fit-lateral-surfaces` as an explicit ablation when checking whether
+longitudinal improvements are being masked by underdetermined lateral
+coefficients.
+Shorter alignment windows and attached Cm0 promotion are diagnostic runs, not
+the default acceptance path, because launch-contact and early Vicon derivative
+transients can otherwise move normal-flight parameters.
 
 For regime-specific diagnosis, open
 `metrics\neutral_aero_residual_stage_replay_errors.csv` in the fit output. It

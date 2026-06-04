@@ -98,10 +98,19 @@ held-out throws with a randomised session-stratified split, and run with 8
 workers by default. Neutral control-surface trims stay disabled by default.
 The aero-residual workflow fits stage evidence independently: attached Cm is
 diagnostic only, transition Cm is split into before/after first post-stall
-exposure and remains diagnostic only, then post-stall CL/CD/Cm residuals are
-fit and the residual blender is tuned from transition evidence. Only the
-post-stall residual coefficients and residual blender are applied to replay by
-default.
+exposure and remains diagnostic only, then compact neutral post-stall
+alpha-RBF residual surfaces are fit for CL/CD/Cm, alpha-dependent Cmq, and
+lateral-directional CY/Cl/Cn terms using beta, p_hat, and r_hat features. The
+transition blender only tunes the activation start/full alpha for those
+surfaces. Post-stall samples are balanced by throw so one long stalled launch
+cannot dominate the fit. Only the post-stall surface coefficients and residual
+blender are applied to replay by default.
+Use `--no-fit-lateral-surfaces` as an explicit ablation when testing whether
+longitudinal/post-stall improvements are being hidden by underdetermined
+lateral coefficients.
+Shorter alignment windows and attached `Cm0` promotion are diagnostic runs, not
+the default acceptance path, because launch-contact and early Vicon derivative
+transients can otherwise move normal-flight parameters.
 
 For regime-specific diagnosis, use
 `metrics/neutral_aero_residual_stage_replay_errors.csv` from the aero residual
@@ -146,7 +155,9 @@ complete R5 launch window:
 - roll within `+-20 deg`
 - pitch within `[-10, +20] deg`
 - yaw within `+-20 deg`
-- body-speed magnitude in `[3.0, 8.0] m/s`
+- forward body speed `u in [4.0, 8.0] m/s`
+- side body velocity `v in [-1.5, +1.5] m/s`
+- vertical body velocity `w in [-0.9, +0.9] m/s`
 - roll rate `p in [-1.2, +1.2] rad/s`
 - pitch rate `q in [-1.2, +1.2] rad/s`
 - yaw rate `r in [-1.8, +1.8] rad/s`

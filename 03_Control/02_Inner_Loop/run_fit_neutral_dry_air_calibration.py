@@ -138,6 +138,7 @@ PARAMETER_GRID = {
 
 LATERAL_MOMENT_BIAS_PAIR_GRID = [-0.06, -0.04, -0.02, 0.0, 0.02, 0.04, 0.06]
 LATERAL_TRIM_PAIR_GRID = [-0.18, -0.12, -0.06, 0.0, 0.06, 0.12, 0.18]
+LATERAL_SURFACE_FEATURES = ("bias", "beta", "p_hat", "r_hat")
 LONGITUDINAL_COUPLED_GRID = {
     "cd0_strip_scale": [2.0, 3.0, 4.0, 5.0, 6.0],
     "drag_area_fuse_scale": [0.2, 1.0, 3.0, 5.0, 7.5, 10.0],
@@ -280,6 +281,7 @@ def run_fit(
         "delta_e_trim_rad": float(getattr(active_calibration, "DELTA_E_TRIM_RAD", 0.0)),
         "delta_r_trim_rad": float(getattr(active_calibration, "DELTA_R_TRIM_RAD", 0.0)),
     }
+    current.update(active_post_stall_surface_parameters())
 
     current, history = run_parameter_search(
         current,
@@ -862,6 +864,14 @@ def bounded_parameter_value(parameter: str, value: float) -> float:
         return float(np.clip(value, -1.0, 1.0))
     if parameter == "post_stall_pitch_damping_coeff":
         return float(np.clip(value, -4.0, 4.0))
+    if "pitch_damping_rbf" in parameter:
+        return float(np.clip(value, -4.0, 4.0))
+    if any(token in parameter for token in ("_p_hat_", "_r_hat_")):
+        return float(np.clip(value, -4.0, 4.0))
+    if parameter.startswith(("post_stall_side_force_", "post_stall_roll_moment_", "post_stall_yaw_moment_")):
+        return float(np.clip(value, -2.0, 2.0))
+    if "_rbf_" in parameter:
+        return float(np.clip(value, -1.5, 1.5))
     if parameter == "post_stall_residual_blend_start_alpha_deg":
         return float(np.clip(value, 6.0, 18.0))
     if parameter == "post_stall_residual_blend_full_alpha_deg":
@@ -1013,11 +1023,60 @@ def simulate_row_payload(payload: tuple[dict[str, Any], dict[str, float], float,
     }
 
 
+def active_post_stall_surface_parameters() -> dict[str, float]:
+    parameters = {
+        "post_stall_lift_residual_coeff": float(getattr(active_calibration, "POST_STALL_LIFT_RESIDUAL_COEFF", 0.0)),
+        "post_stall_drag_residual_coeff": float(getattr(active_calibration, "POST_STALL_DRAG_RESIDUAL_COEFF", 0.0)),
+        "post_stall_pitch_moment_coeff": float(getattr(active_calibration, "POST_STALL_PITCH_MOMENT_COEFF", 0.0)),
+        "post_stall_pitch_damping_coeff": float(getattr(active_calibration, "POST_STALL_PITCH_DAMPING_COEFF", 0.0)),
+        "post_stall_residual_blend_start_alpha_deg": float(
+            getattr(active_calibration, "POST_STALL_RESIDUAL_BLEND_START_ALPHA_DEG", 12.0)
+        ),
+        "post_stall_residual_blend_full_alpha_deg": float(
+            getattr(active_calibration, "POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG", 20.0)
+        ),
+    }
+    centres_deg = tuple(float(value) for value in getattr(active_calibration, "POST_STALL_RBF_ALPHA_CENTERS_DEG", (20.0, 45.0, 70.0)))
+    for prefix, values in (
+        ("post_stall_lift_rbf", getattr(active_calibration, "POST_STALL_LIFT_RBF_COEFFS", (0.0, 0.0, 0.0))),
+        ("post_stall_drag_rbf", getattr(active_calibration, "POST_STALL_DRAG_RBF_COEFFS", (0.0, 0.0, 0.0))),
+        (
+            "post_stall_pitch_moment_rbf",
+            getattr(active_calibration, "POST_STALL_PITCH_MOMENT_RBF_COEFFS", (0.0, 0.0, 0.0)),
+        ),
+        (
+            "post_stall_pitch_damping_rbf",
+            getattr(active_calibration, "POST_STALL_PITCH_DAMPING_RBF_COEFFS", (0.0, 0.0, 0.0)),
+        ),
+    ):
+        value_list = list(values)
+        for index, centre_deg in enumerate(centres_deg):
+            parameters[surface_rbf_parameter_name(prefix, centre_deg)] = (
+                float(value_list[index]) if index < len(value_list) else 0.0
+            )
+    for prefix, values in (
+        ("post_stall_side_force", getattr(active_calibration, "POST_STALL_SIDE_FORCE_RBF_COEFFS", ())),
+        ("post_stall_roll_moment", getattr(active_calibration, "POST_STALL_ROLL_MOMENT_RBF_COEFFS", ())),
+        ("post_stall_yaw_moment", getattr(active_calibration, "POST_STALL_YAW_MOMENT_RBF_COEFFS", ())),
+    ):
+        matrix = np.asarray(values, dtype=float)
+        expected_shape = (len(LATERAL_SURFACE_FEATURES), len(centres_deg))
+        if matrix.shape != expected_shape:
+            matrix = np.zeros(expected_shape, dtype=float)
+        for feature_index, feature in enumerate(LATERAL_SURFACE_FEATURES):
+            for centre_index, centre_deg in enumerate(centres_deg):
+                parameters[lateral_surface_parameter_name(prefix, feature, centre_deg)] = float(
+                    matrix[feature_index, centre_index]
+                )
+    return parameters
+
+
 def calibrated_aircraft(parameters: dict[str, float]) -> Any:
     base = adapt_glider(build_nausicaa_glider())
     cd0_ratio = parameters["cd0_strip_scale"] / float(active_calibration.CD0_STRIP_SCALE)
     drag_ratio = parameters["drag_area_fuse_scale"] / float(active_calibration.DRAG_AREA_FUSE_SCALE)
     efficiency_ratio = parameters["efficiency_strip_scale"] / float(active_calibration.EFFICIENCY_STRIP_SCALE)
+    rbf_centres_deg = tuple(float(value) for value in getattr(active_calibration, "POST_STALL_RBF_ALPHA_CENTERS_DEG", (20.0, 45.0, 70.0)))
     return replace(
         base,
         cd0_strip=np.asarray(base.cd0_strip, dtype=float) * cd0_ratio,
@@ -1062,7 +1121,96 @@ def calibrated_aircraft(parameters: dict[str, float]) -> Any:
                 )
             )
         ),
+        post_stall_residual_surface_alpha_centers_rad=np.deg2rad(np.asarray(rbf_centres_deg, dtype=float)),
+        post_stall_residual_surface_width_rad=np.deg2rad(
+            float(getattr(active_calibration, "POST_STALL_RBF_ALPHA_WIDTH_DEG", 15.0))
+        ),
+        post_stall_lift_surface_coeff=surface_rbf_coefficients_from_parameters(
+            parameters,
+            "post_stall_lift_rbf",
+            rbf_centres_deg,
+            base.post_stall_lift_surface_coeff,
+        ),
+        post_stall_drag_surface_coeff=surface_rbf_coefficients_from_parameters(
+            parameters,
+            "post_stall_drag_rbf",
+            rbf_centres_deg,
+            base.post_stall_drag_surface_coeff,
+        ),
+        post_stall_pitch_moment_surface_coeff=surface_rbf_coefficients_from_parameters(
+            parameters,
+            "post_stall_pitch_moment_rbf",
+            rbf_centres_deg,
+            base.post_stall_pitch_moment_surface_coeff,
+        ),
+        post_stall_pitch_damping_surface_coeff=surface_rbf_coefficients_from_parameters(
+            parameters,
+            "post_stall_pitch_damping_rbf",
+            rbf_centres_deg,
+            base.post_stall_pitch_damping_surface_coeff,
+        ),
+        post_stall_side_force_surface_coeff=lateral_surface_matrix_from_parameters(
+            parameters,
+            "post_stall_side_force",
+            rbf_centres_deg,
+            base.post_stall_side_force_surface_coeff,
+        ),
+        post_stall_roll_moment_surface_coeff=lateral_surface_matrix_from_parameters(
+            parameters,
+            "post_stall_roll_moment",
+            rbf_centres_deg,
+            base.post_stall_roll_moment_surface_coeff,
+        ),
+        post_stall_yaw_moment_surface_coeff=lateral_surface_matrix_from_parameters(
+            parameters,
+            "post_stall_yaw_moment",
+            rbf_centres_deg,
+            base.post_stall_yaw_moment_surface_coeff,
+        ),
     )
+
+
+def surface_rbf_coefficients_from_parameters(
+    parameters: dict[str, float],
+    prefix: str,
+    centres_deg: tuple[float, ...],
+    default_values: np.ndarray,
+) -> np.ndarray:
+    values = np.asarray(default_values, dtype=float).reshape(-1)
+    if values.size != len(centres_deg):
+        values = np.zeros(len(centres_deg), dtype=float)
+    out = values.copy()
+    for index, centre_deg in enumerate(centres_deg):
+        out[index] = float(parameters.get(surface_rbf_parameter_name(prefix, centre_deg), out[index]))
+    return out
+
+
+def surface_rbf_parameter_name(prefix: str, centre_deg: float) -> str:
+    centre_label = f"{float(centre_deg):g}".replace(".", "p").replace("-", "m")
+    return f"{prefix}_{centre_label}_coeff"
+
+
+def lateral_surface_matrix_from_parameters(
+    parameters: dict[str, float],
+    prefix: str,
+    centres_deg: tuple[float, ...],
+    default_values: np.ndarray,
+) -> np.ndarray:
+    values = np.asarray(default_values, dtype=float)
+    expected_shape = (len(LATERAL_SURFACE_FEATURES), len(centres_deg))
+    if values.shape != expected_shape:
+        values = np.zeros(expected_shape, dtype=float)
+    out = values.copy()
+    for feature_index, feature in enumerate(LATERAL_SURFACE_FEATURES):
+        for centre_index, centre_deg in enumerate(centres_deg):
+            key = lateral_surface_parameter_name(prefix, feature, centre_deg)
+            out[feature_index, centre_index] = float(parameters.get(key, out[feature_index, centre_index]))
+    return out
+
+
+def lateral_surface_parameter_name(prefix: str, feature: str, centre_deg: float) -> str:
+    centre_label = f"{float(centre_deg):g}".replace(".", "p").replace("-", "m")
+    return f"{prefix}_{feature}_rbf_{centre_label}_coeff"
 
 
 def rk4_step(x: np.ndarray, command: np.ndarray, aircraft: Any, actuator_tau_s: tuple[float, float, float], dt_s: float) -> np.ndarray:

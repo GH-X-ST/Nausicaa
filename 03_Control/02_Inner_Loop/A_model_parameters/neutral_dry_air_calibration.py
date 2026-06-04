@@ -48,6 +48,33 @@ POST_STALL_PITCH_MOMENT_COEFF = 0.0
 POST_STALL_PITCH_DAMPING_COEFF = 0.0
 POST_STALL_RESIDUAL_BLEND_START_ALPHA_DEG = 12.0
 POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG = 20.0
+# Compact neutral SysID residual-surface basis. These coefficients are kept at
+# zero in the active calibration until held-out replay passes the promotion gate.
+POST_STALL_RBF_ALPHA_CENTERS_DEG = (20.0, 45.0, 70.0)
+POST_STALL_RBF_ALPHA_WIDTH_DEG = 15.0
+POST_STALL_LIFT_RBF_COEFFS = (0.0, 0.0, 0.0)
+POST_STALL_DRAG_RBF_COEFFS = (0.0, 0.0, 0.0)
+POST_STALL_PITCH_MOMENT_RBF_COEFFS = (0.0, 0.0, 0.0)
+POST_STALL_PITCH_DAMPING_RBF_COEFFS = (0.0, 0.0, 0.0)
+# Rows are bias, beta, p_hat, r_hat; columns are the alpha RBF centres above.
+POST_STALL_SIDE_FORCE_RBF_COEFFS = (
+    (0.0, 0.0, 0.0),
+    (0.0, 0.0, 0.0),
+    (0.0, 0.0, 0.0),
+    (0.0, 0.0, 0.0),
+)
+POST_STALL_ROLL_MOMENT_RBF_COEFFS = (
+    (0.0, 0.0, 0.0),
+    (0.0, 0.0, 0.0),
+    (0.0, 0.0, 0.0),
+    (0.0, 0.0, 0.0),
+)
+POST_STALL_YAW_MOMENT_RBF_COEFFS = (
+    (0.0, 0.0, 0.0),
+    (0.0, 0.0, 0.0),
+    (0.0, 0.0, 0.0),
+    (0.0, 0.0, 0.0),
+)
 DELTA_A_TRIM_RAD = 0.0
 DELTA_E_TRIM_RAD = 0.0
 DELTA_R_TRIM_RAD = 0.0

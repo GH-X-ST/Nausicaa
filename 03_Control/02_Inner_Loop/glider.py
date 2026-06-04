@@ -22,8 +22,17 @@ from A_model_parameters.neutral_dry_air_calibration import (
     POST_STALL_LIFT_RESIDUAL_COEFF as NEUTRAL_DRY_AIR_POST_STALL_LIFT_RESIDUAL_COEFF,
     POST_STALL_PITCH_DAMPING_COEFF as NEUTRAL_DRY_AIR_POST_STALL_PITCH_DAMPING_COEFF,
     POST_STALL_PITCH_MOMENT_COEFF as NEUTRAL_DRY_AIR_POST_STALL_PITCH_MOMENT_COEFF,
+    POST_STALL_DRAG_RBF_COEFFS as NEUTRAL_DRY_AIR_POST_STALL_DRAG_RBF_COEFFS,
+    POST_STALL_LIFT_RBF_COEFFS as NEUTRAL_DRY_AIR_POST_STALL_LIFT_RBF_COEFFS,
+    POST_STALL_PITCH_DAMPING_RBF_COEFFS as NEUTRAL_DRY_AIR_POST_STALL_PITCH_DAMPING_RBF_COEFFS,
+    POST_STALL_PITCH_MOMENT_RBF_COEFFS as NEUTRAL_DRY_AIR_POST_STALL_PITCH_MOMENT_RBF_COEFFS,
+    POST_STALL_RBF_ALPHA_CENTERS_DEG as NEUTRAL_DRY_AIR_POST_STALL_RBF_ALPHA_CENTERS_DEG,
+    POST_STALL_RBF_ALPHA_WIDTH_DEG as NEUTRAL_DRY_AIR_POST_STALL_RBF_ALPHA_WIDTH_DEG,
     POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG as NEUTRAL_DRY_AIR_POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG,
     POST_STALL_RESIDUAL_BLEND_START_ALPHA_DEG as NEUTRAL_DRY_AIR_POST_STALL_RESIDUAL_BLEND_START_ALPHA_DEG,
+    POST_STALL_ROLL_MOMENT_RBF_COEFFS as NEUTRAL_DRY_AIR_POST_STALL_ROLL_MOMENT_RBF_COEFFS,
+    POST_STALL_SIDE_FORCE_RBF_COEFFS as NEUTRAL_DRY_AIR_POST_STALL_SIDE_FORCE_RBF_COEFFS,
+    POST_STALL_YAW_MOMENT_RBF_COEFFS as NEUTRAL_DRY_AIR_POST_STALL_YAW_MOMENT_RBF_COEFFS,
     ROLL_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_ROLL_MOMENT_BIAS_COEFF,
     YAW_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_YAW_MOMENT_BIAS_COEFF,
 )
@@ -114,6 +123,15 @@ class Glider:
     post_stall_pitch_damping_coeff: float
     post_stall_residual_blend_start_alpha_rad: float
     post_stall_residual_blend_full_alpha_rad: float
+    post_stall_residual_surface_alpha_centers_rad: np.ndarray
+    post_stall_residual_surface_width_rad: float
+    post_stall_lift_surface_coeff: np.ndarray
+    post_stall_drag_surface_coeff: np.ndarray
+    post_stall_pitch_moment_surface_coeff: np.ndarray
+    post_stall_pitch_damping_surface_coeff: np.ndarray
+    post_stall_side_force_surface_coeff: np.ndarray
+    post_stall_roll_moment_surface_coeff: np.ndarray
+    post_stall_yaw_moment_surface_coeff: np.ndarray
     surface_code: np.ndarray
 
 
@@ -372,6 +390,46 @@ def build_nausicaa_glider() -> Glider:
         if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
         else 20.0
     )
+    post_stall_residual_surface_alpha_centers_rad = np.deg2rad(
+        np.asarray(NEUTRAL_DRY_AIR_POST_STALL_RBF_ALPHA_CENTERS_DEG, dtype=float)
+    )
+    post_stall_residual_surface_width_rad = np.deg2rad(float(NEUTRAL_DRY_AIR_POST_STALL_RBF_ALPHA_WIDTH_DEG))
+    post_stall_lift_surface_coeff = (
+        np.asarray(NEUTRAL_DRY_AIR_POST_STALL_LIFT_RBF_COEFFS, dtype=float)
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else np.zeros_like(post_stall_residual_surface_alpha_centers_rad)
+    )
+    post_stall_drag_surface_coeff = (
+        np.asarray(NEUTRAL_DRY_AIR_POST_STALL_DRAG_RBF_COEFFS, dtype=float)
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else np.zeros_like(post_stall_residual_surface_alpha_centers_rad)
+    )
+    post_stall_pitch_moment_surface_coeff = (
+        np.asarray(NEUTRAL_DRY_AIR_POST_STALL_PITCH_MOMENT_RBF_COEFFS, dtype=float)
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else np.zeros_like(post_stall_residual_surface_alpha_centers_rad)
+    )
+    post_stall_pitch_damping_surface_coeff = (
+        np.asarray(NEUTRAL_DRY_AIR_POST_STALL_PITCH_DAMPING_RBF_COEFFS, dtype=float)
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else np.zeros_like(post_stall_residual_surface_alpha_centers_rad)
+    )
+    lateral_surface_shape = (4, post_stall_residual_surface_alpha_centers_rad.size)
+    post_stall_side_force_surface_coeff = (
+        np.asarray(NEUTRAL_DRY_AIR_POST_STALL_SIDE_FORCE_RBF_COEFFS, dtype=float)
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else np.zeros(lateral_surface_shape, dtype=float)
+    ).reshape(lateral_surface_shape)
+    post_stall_roll_moment_surface_coeff = (
+        np.asarray(NEUTRAL_DRY_AIR_POST_STALL_ROLL_MOMENT_RBF_COEFFS, dtype=float)
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else np.zeros(lateral_surface_shape, dtype=float)
+    ).reshape(lateral_surface_shape)
+    post_stall_yaw_moment_surface_coeff = (
+        np.asarray(NEUTRAL_DRY_AIR_POST_STALL_YAW_MOMENT_RBF_COEFFS, dtype=float)
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else np.zeros(lateral_surface_shape, dtype=float)
+    ).reshape(lateral_surface_shape)
     neutral_surface_trim_rad = (
         np.array(
             [
@@ -481,5 +539,17 @@ def build_nausicaa_glider() -> Glider:
         post_stall_pitch_damping_coeff=float(post_stall_pitch_damping_coeff),
         post_stall_residual_blend_start_alpha_rad=float(post_stall_residual_blend_start_alpha_rad),
         post_stall_residual_blend_full_alpha_rad=float(post_stall_residual_blend_full_alpha_rad),
+        post_stall_residual_surface_alpha_centers_rad=np.asarray(
+            post_stall_residual_surface_alpha_centers_rad,
+            dtype=float,
+        ),
+        post_stall_residual_surface_width_rad=float(post_stall_residual_surface_width_rad),
+        post_stall_lift_surface_coeff=np.asarray(post_stall_lift_surface_coeff, dtype=float),
+        post_stall_drag_surface_coeff=np.asarray(post_stall_drag_surface_coeff, dtype=float),
+        post_stall_pitch_moment_surface_coeff=np.asarray(post_stall_pitch_moment_surface_coeff, dtype=float),
+        post_stall_pitch_damping_surface_coeff=np.asarray(post_stall_pitch_damping_surface_coeff, dtype=float),
+        post_stall_side_force_surface_coeff=np.asarray(post_stall_side_force_surface_coeff, dtype=float),
+        post_stall_roll_moment_surface_coeff=np.asarray(post_stall_roll_moment_surface_coeff, dtype=float),
+        post_stall_yaw_moment_surface_coeff=np.asarray(post_stall_yaw_moment_surface_coeff, dtype=float),
         surface_code=strip_table["surface_code"].astype(int),
     )

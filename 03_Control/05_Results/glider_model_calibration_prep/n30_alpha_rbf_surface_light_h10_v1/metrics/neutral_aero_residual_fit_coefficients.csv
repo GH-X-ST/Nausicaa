@@ -1,0 +1,20 @@
+parameter,value,applied_to_replay,description
+attached_cm_bias_coeff,0.02194362112,False,Attached-regime Cm residual. Report-only by default.
+transition_cm_bias_coeff,0.0564034777,False,All-transition aggregate Cm diagnostic. Not applied to replay.
+transition_before_post_stall_cm_bias_coeff,0.05798492121,False,Transition Cm diagnostic before first post-stall exposure in each throw.
+transition_after_post_stall_cm_bias_coeff,-0.105133387,False,Transition Cm diagnostic after the throw has already entered post-stall.
+post_stall_lift_residual_coeff,0,False,Legacy scalar CL residual. Disabled when alpha-RBF post-stall surface fit is active.
+post_stall_drag_residual_coeff,0,False,Legacy scalar CD residual. Disabled when alpha-RBF post-stall surface fit is active.
+post_stall_pitch_moment_coeff,0,False,Legacy scalar Cm residual. Disabled when alpha-RBF post-stall surface fit is active.
+post_stall_pitch_damping_coeff,0,False,Positive-AoA Cmq-style residual using q_hat = q c / (2V). Opt-in because it is derivative-sensitive.
+post_stall_residual_blend_start_alpha_deg,11,True,Residual activation start alpha fitted after attached and post-stall coefficients.
+post_stall_residual_blend_full_alpha_deg,20,True,Residual activation full-alpha point fitted from transition behaviour while preserving post-stall full activation.
+post_stall_lift_rbf_20_coeff,0.3582423966,True,Neutral post-stall CL residual alpha-RBF coefficient at 20 deg AoA.
+post_stall_lift_rbf_45_coeff,-0.3107146186,True,Neutral post-stall CL residual alpha-RBF coefficient at 45 deg AoA.
+post_stall_lift_rbf_70_coeff,-0.1545002446,True,Neutral post-stall CL residual alpha-RBF coefficient at 70 deg AoA.
+post_stall_drag_rbf_20_coeff,0.1120440946,True,Neutral post-stall CD residual alpha-RBF coefficient at 20 deg AoA.
+post_stall_drag_rbf_45_coeff,0.0161128875,True,Neutral post-stall CD residual alpha-RBF coefficient at 45 deg AoA.
+post_stall_drag_rbf_70_coeff,-0.8184940637,True,Neutral post-stall CD residual alpha-RBF coefficient at 70 deg AoA.
+post_stall_pitch_moment_rbf_20_coeff,-0.005250287204,True,Neutral post-stall Cm residual alpha-RBF coefficient at 20 deg AoA.
+post_stall_pitch_moment_rbf_45_coeff,-0.136605778,True,Neutral post-stall Cm residual alpha-RBF coefficient at 45 deg AoA.
+post_stall_pitch_moment_rbf_70_coeff,-0.218807038,True,Neutral post-stall Cm residual alpha-RBF coefficient at 70 deg AoA.
