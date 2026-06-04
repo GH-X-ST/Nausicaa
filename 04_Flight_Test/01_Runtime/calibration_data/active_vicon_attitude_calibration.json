@@ -1,0 +1,16 @@
+{
+  "calibration_type": "vicon_attitude",
+  "profile_id": "nausicaa_real_flight_vicon_calibration_20260604_125825_attitude",
+  "profile_version": "1.0",
+  "vicon_attitude_offset_rad": [
+    0.0007439979282497511,
+    7.203523529364375e-05,
+    0.0006251279824196487
+  ],
+  "vicon_attitude_signs": [
+    1.0,
+    -1.0,
+    -1.0
+  ],
+  "vicon_yaw_alignment_deg": 0.0
+}

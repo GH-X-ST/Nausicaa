@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 from dataclasses import asdict
@@ -44,6 +45,7 @@ VICON_POLL_PERIOD_S = 1.0 / VICON_TRACKING_RATE_HZ
 VICON_POSITION_OFFSET_M = ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m
 VICON_YAW_ALIGNMENT_DEG = ACTIVE_CALIBRATION_PROFILE.vicon_yaw_alignment_deg
 VICON_ATTITUDE_SIGNS = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_signs
+VICON_ATTITUDE_OFFSET_RAD = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_offset_rad
 # =============================================================================
 
 
@@ -65,6 +67,7 @@ def run_experiment_sequence(
     vicon_position_offset_m: tuple[float, float, float],
     vicon_yaw_alignment_deg: float,
     vicon_attitude_signs: tuple[float, float, float],
+    vicon_attitude_offset_rad: tuple[float, float, float],
     pre_arm_delay_s: float = 0.0,
 ) -> dict[str, object]:
     case = get_experiment_case(case_id)
@@ -77,6 +80,7 @@ def run_experiment_sequence(
         vicon_position_offset_m=vicon_position_offset_m,
         vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
         vicon_attitude_signs=vicon_attitude_signs,
+        vicon_attitude_offset_rad=vicon_attitude_offset_rad,
         requested_vicon_tracking_rate_hz=1.0 / float(vicon_poll_period_s),
     )
     calibration_source = (
@@ -105,6 +109,7 @@ def run_experiment_sequence(
         vicon_position_offset_m=vicon_position_offset_m,
         vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
         vicon_attitude_signs=vicon_attitude_signs,
+        vicon_attitude_offset_rad=vicon_attitude_offset_rad,
         calibration_profile_id=calibration_profile.profile_id,
         calibration_profile_hash=calibration_profile.profile_hash(),
         vicon_calibration_source=calibration_source,
@@ -129,6 +134,7 @@ def run_experiment_sequence(
             "vicon_poll_period_s": float(vicon_poll_period_s),
             "calibration_profile": calibration_profile.to_manifest(),
             "vicon_attitude_signs_phi_theta_psi": tuple(float(value) for value in vicon_attitude_signs),
+            "vicon_attitude_offset_rad_phi_theta_psi": tuple(float(value) for value in vicon_attitude_offset_rad),
             "launch_gate_body_rate_limits_rad_s": tuple(
                 float(value) for value in base_config.launch_gate_body_rate_limits_rad_s
             ),
@@ -202,6 +208,7 @@ def run_experiment_sequence(
                 vicon_position_offset_m=vicon_position_offset_m,
                 vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
                 vicon_attitude_signs=vicon_attitude_signs,
+                vicon_attitude_offset_rad=vicon_attitude_offset_rad,
                 calibration_profile_id=calibration_profile.profile_id,
                 calibration_profile_hash=calibration_profile.profile_hash(),
                 vicon_calibration_source=calibration_source,
@@ -272,6 +279,7 @@ def run_experiment_sequence(
                 "vicon_poll_period_s": float(vicon_poll_period_s),
                 "calibration_profile": calibration_profile.to_manifest(),
                 "vicon_attitude_signs_phi_theta_psi": tuple(float(value) for value in vicon_attitude_signs),
+                "vicon_attitude_offset_rad_phi_theta_psi": tuple(float(value) for value in vicon_attitude_offset_rad),
                 "launch_gate_body_rate_limits_rad_s": tuple(
                     float(value) for value in base_config.launch_gate_body_rate_limits_rad_s
                 ),
@@ -428,6 +436,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--vicon-offset-m", nargs=3, type=float, default=None)
     parser.add_argument("--vicon-yaw-deg", type=float, default=VICON_YAW_ALIGNMENT_DEG)
     parser.add_argument("--vicon-attitude-signs", nargs=3, type=float, default=VICON_ATTITUDE_SIGNS)
+    parser.add_argument(
+        "--vicon-attitude-offset-deg",
+        nargs=3,
+        type=float,
+        default=tuple(float(math.degrees(value)) for value in VICON_ATTITUDE_OFFSET_RAD),
+    )
     return parser.parse_args()
 
 
@@ -451,6 +465,7 @@ def main() -> None:
         vicon_position_offset_m=tuple(args.vicon_offset_m) if args.vicon_offset_m is not None else VICON_POSITION_OFFSET_M,
         vicon_yaw_alignment_deg=float(args.vicon_yaw_deg),
         vicon_attitude_signs=tuple(args.vicon_attitude_signs),
+        vicon_attitude_offset_rad=tuple(float(math.radians(value)) for value in args.vicon_attitude_offset_deg),
     )
     print(json.dumps(result, indent=2, sort_keys=True))
 

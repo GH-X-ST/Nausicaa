@@ -65,6 +65,7 @@ CALIBRATION_REJECTED_LAUNCH_ATTEMPT_MIN_SPEED_M_S = 2.0
 VICON_POSITION_OFFSET_M = ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m
 VICON_YAW_ALIGNMENT_DEG = ACTIVE_CALIBRATION_PROFILE.vicon_yaw_alignment_deg
 VICON_ATTITUDE_SIGNS = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_signs
+VICON_ATTITUDE_OFFSET_RAD = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_offset_rad
 
 NEUTRAL_VALID_THROWS = 30
 PULSE_VALID_THROWS_PER_CASE = 3
@@ -171,6 +172,7 @@ def run_calibration_sequence(
     vicon_position_offset_m: tuple[float, float, float],
     vicon_yaw_alignment_deg: float,
     vicon_attitude_signs: tuple[float, float, float],
+    vicon_attitude_offset_rad: tuple[float, float, float],
     target_valid_throws: int | None = None,
 ) -> dict[str, object]:
     cases = calibration_cases_for_block(block_id)
@@ -185,6 +187,7 @@ def run_calibration_sequence(
         vicon_position_offset_m=vicon_position_offset_m,
         vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
         vicon_attitude_signs=vicon_attitude_signs,
+        vicon_attitude_offset_rad=vicon_attitude_offset_rad,
         requested_vicon_tracking_rate_hz=float(vicon_tracking_rate_hz),
         launch_gate_required_consecutive_frames=CALIBRATION_LAUNCH_GATE_REQUIRED_CONSECUTIVE_FRAMES,
         rejected_launch_attempt_min_speed_m_s=CALIBRATION_REJECTED_LAUNCH_ATTEMPT_MIN_SPEED_M_S,
@@ -210,6 +213,7 @@ def run_calibration_sequence(
         vicon_position_offset_m=vicon_position_offset_m,
         vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
         vicon_attitude_signs=vicon_attitude_signs,
+        vicon_attitude_offset_rad=vicon_attitude_offset_rad,
         output_root=session_root,
         calibration_profile_id=calibration_profile.profile_id,
         calibration_profile_hash=calibration_profile.profile_hash(),
@@ -244,6 +248,7 @@ def run_calibration_sequence(
             "result_storage_policy": _result_storage_policy_manifest(block_id),
             "vicon_position_offset_m": tuple(float(value) for value in vicon_position_offset_m),
             "vicon_attitude_signs": tuple(float(value) for value in vicon_attitude_signs),
+            "vicon_attitude_offset_rad_phi_theta_psi": tuple(float(value) for value in vicon_attitude_offset_rad),
         },
     )
 
@@ -289,6 +294,7 @@ def run_calibration_sequence(
                     vicon_position_offset_m=vicon_position_offset_m,
                     vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
                     vicon_attitude_signs=vicon_attitude_signs,
+                    vicon_attitude_offset_rad=vicon_attitude_offset_rad,
                     calibration_profile_id=calibration_profile.profile_id,
                     calibration_profile_hash=calibration_profile.profile_hash(),
                     vicon_calibration_source=calibration_source,
@@ -390,6 +396,7 @@ def run_single_calibration_throw(
             position_offset_m=config.vicon_position_offset_m,
             yaw_alignment_rad=float(np.deg2rad(config.vicon_yaw_alignment_deg)),
             attitude_signs=config.vicon_attitude_signs,
+            attitude_offset_rad=config.vicon_attitude_offset_rad,
         ),
     )
     logger.write_manifest(
@@ -915,6 +922,7 @@ def _base_config(
     vicon_position_offset_m: tuple[float, float, float],
     vicon_yaw_alignment_deg: float,
     vicon_attitude_signs: tuple[float, float, float],
+    vicon_attitude_offset_rad: tuple[float, float, float],
     output_root: Path,
     calibration_profile_id: str = ACTIVE_CALIBRATION_PROFILE.profile_id,
     calibration_profile_hash: str = ACTIVE_CALIBRATION_PROFILE.profile_hash(),
@@ -938,6 +946,7 @@ def _base_config(
         vicon_position_offset_m=vicon_position_offset_m,
         vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
         vicon_attitude_signs=vicon_attitude_signs,
+        vicon_attitude_offset_rad=vicon_attitude_offset_rad,
         calibration_profile_id=calibration_profile_id,
         calibration_profile_hash=calibration_profile_hash,
         vicon_calibration_source=vicon_calibration_source,
@@ -1125,6 +1134,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--vicon-yaw-deg", type=float, default=VICON_YAW_ALIGNMENT_DEG)
     parser.add_argument("--vicon-attitude-signs", nargs=3, type=float, default=VICON_ATTITUDE_SIGNS)
     parser.add_argument(
+        "--vicon-attitude-offset-deg",
+        nargs=3,
+        type=float,
+        default=tuple(float(np.rad2deg(value)) for value in VICON_ATTITUDE_OFFSET_RAD),
+    )
+    parser.add_argument(
         "--target-valid-throws",
         type=int,
         default=TARGET_VALID_THROWS_OVERRIDE,
@@ -1151,6 +1166,7 @@ def main() -> None:
         vicon_position_offset_m=tuple(args.vicon_offset_m) if args.vicon_offset_m is not None else VICON_POSITION_OFFSET_M,
         vicon_yaw_alignment_deg=float(args.vicon_yaw_deg),
         vicon_attitude_signs=tuple(float(value) for value in args.vicon_attitude_signs),
+        vicon_attitude_offset_rad=tuple(float(np.deg2rad(value)) for value in args.vicon_attitude_offset_deg),
         target_valid_throws=args.target_valid_throws,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

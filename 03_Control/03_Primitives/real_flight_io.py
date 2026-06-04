@@ -123,6 +123,7 @@ class ViconArenaFrameTransform:
     position_offset_m: tuple[float, float, float] = (0.0, 0.0, 0.0)
     yaw_alignment_rad: float = 0.0
     attitude_signs: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    attitude_offset_rad: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
     def position_to_world(self, raw_position_m: np.ndarray) -> np.ndarray:
         raw = np.asarray(raw_position_m, dtype=float).reshape(3)
@@ -134,8 +135,10 @@ class ViconArenaFrameTransform:
         signs = np.asarray(self.attitude_signs, dtype=float).reshape(3)
         if not np.all(np.isin(signs, [-1.0, 1.0])):
             raise ValueError("attitude_signs must contain only +1 or -1.")
+        offset = np.asarray(self.attitude_offset_rad, dtype=float).reshape(3)
         euler = signs * euler
         euler[2] = float(euler[2]) + float(self.yaw_alignment_rad)
+        euler = euler + offset
         euler = np.asarray([_wrap_to_pi_scalar(value) for value in euler], dtype=float)
         return euler
 

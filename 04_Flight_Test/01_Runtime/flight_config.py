@@ -15,6 +15,7 @@ RESULT_ROOT = FLIGHT_TEST_ROOT / "05_Results"
 OPERATIONAL_REGION_CENTER_M = (3.9, 2.2, 1.95)
 DEFAULT_VICON_POSITION_OFFSET_M = ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m
 DEFAULT_VICON_ATTITUDE_SIGNS = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_signs
+DEFAULT_VICON_ATTITUDE_OFFSET_RAD = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_offset_rad
 DEFAULT_REAL_FLIGHT_LIBRARY_TIER = "balanced_cluster"
 REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON = (
     "balanced_cluster_selected_for_first_real_flight_from_e01_real_flight_aligned_validation;"
@@ -57,7 +58,8 @@ class FlightRuntimeConfig:
     vicon_position_offset_m: tuple[float, float, float] = DEFAULT_VICON_POSITION_OFFSET_M
     vicon_yaw_alignment_deg: float = ACTIVE_CALIBRATION_PROFILE.vicon_yaw_alignment_deg
     vicon_attitude_signs: tuple[float, float, float] = DEFAULT_VICON_ATTITUDE_SIGNS
-    vicon_frame_description: str = "full_xyz_position_offset_with_pitch_yaw_sign_correction"
+    vicon_attitude_offset_rad: tuple[float, float, float] = DEFAULT_VICON_ATTITUDE_OFFSET_RAD
+    vicon_frame_description: str = "full_xyz_position_and_roll_pitch_yaw_attitude_offset_correction"
     calibration_profile_id: str = ACTIVE_CALIBRATION_PROFILE.profile_id
     calibration_profile_hash: str = ACTIVE_CALIBRATION_PROFILE.profile_hash()
     vicon_calibration_source: str = "active_calibration_profile"

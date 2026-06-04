@@ -11,7 +11,13 @@ import numpy as np
 
 from flight_config import CONTROLLER_ROOT, RESULT_ROOT
 from flight_logger import FlightLogger
-from run_experiment_sequence import VICON_ATTITUDE_SIGNS, VICON_HOST, VICON_POSITION_OFFSET_M, VICON_YAW_ALIGNMENT_DEG
+from run_experiment_sequence import (
+    VICON_ATTITUDE_OFFSET_RAD,
+    VICON_ATTITUDE_SIGNS,
+    VICON_HOST,
+    VICON_POSITION_OFFSET_M,
+    VICON_YAW_ALIGNMENT_DEG,
+)
 from vicon_rigid_body import LiveNausicaaViconRigidBody
 
 if str(CONTROLLER_ROOT) not in sys.path:
@@ -159,6 +165,7 @@ def run_vicon_orientation_check(
     vicon_position_offset_m: tuple[float, float, float],
     vicon_yaw_alignment_deg: float,
     vicon_attitude_signs: tuple[float, float, float],
+    vicon_attitude_offset_rad: tuple[float, float, float],
     sample_rate_hz: float,
     step_duration_s: float,
     step_countdown_s: float,
@@ -174,6 +181,7 @@ def run_vicon_orientation_check(
             position_offset_m=vicon_position_offset_m,
             yaw_alignment_rad=float(np.deg2rad(vicon_yaw_alignment_deg)),
             attitude_signs=vicon_attitude_signs,
+            attitude_offset_rad=vicon_attitude_offset_rad,
         ),
     )
     logger.write_manifest(
@@ -184,6 +192,7 @@ def run_vicon_orientation_check(
             "vicon_position_offset_m": tuple(float(value) for value in vicon_position_offset_m),
             "vicon_yaw_alignment_deg": float(vicon_yaw_alignment_deg),
             "vicon_attitude_signs_phi_theta_psi": tuple(float(value) for value in vicon_attitude_signs),
+            "vicon_attitude_offset_rad_phi_theta_psi": tuple(float(value) for value in vicon_attitude_offset_rad),
             "sample_rate_hz": float(sample_rate_hz),
             "step_duration_s": float(step_duration_s),
             "step_countdown_s": float(step_countdown_s),
@@ -708,6 +717,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--vicon-offset-m", nargs=3, type=float, default=VICON_POSITION_OFFSET_M)
     parser.add_argument("--vicon-yaw-deg", type=float, default=VICON_YAW_ALIGNMENT_DEG)
     parser.add_argument("--vicon-attitude-signs", nargs=3, type=float, default=VICON_ATTITUDE_SIGNS)
+    parser.add_argument(
+        "--vicon-attitude-offset-deg",
+        nargs=3,
+        type=float,
+        default=tuple(float(np.rad2deg(value)) for value in VICON_ATTITUDE_OFFSET_RAD),
+    )
     parser.add_argument("--sample-rate-hz", type=float, default=SAMPLE_RATE_HZ)
     parser.add_argument("--step-duration-s", type=float, default=STEP_DURATION_S)
     parser.add_argument("--step-countdown-s", type=float, default=STEP_COUNTDOWN_S)
@@ -724,6 +739,7 @@ def main() -> None:
         vicon_position_offset_m=tuple(args.vicon_offset_m),
         vicon_yaw_alignment_deg=float(args.vicon_yaw_deg),
         vicon_attitude_signs=tuple(args.vicon_attitude_signs),
+        vicon_attitude_offset_rad=tuple(float(np.deg2rad(value)) for value in args.vicon_attitude_offset_deg),
         sample_rate_hz=float(args.sample_rate_hz),
         step_duration_s=float(args.step_duration_s),
         step_countdown_s=float(args.step_countdown_s),

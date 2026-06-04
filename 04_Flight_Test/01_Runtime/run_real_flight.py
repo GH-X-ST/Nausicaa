@@ -13,8 +13,9 @@ from calibration_profile import ACTIVE_CALIBRATION_PROFILE, calibration_profile_
 from flight_config import (
     CONTROLLER_ROOT,
     DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
-    DEFAULT_VICON_POSITION_OFFSET_M,
+    DEFAULT_VICON_ATTITUDE_OFFSET_RAD,
     DEFAULT_VICON_ATTITUDE_SIGNS,
+    DEFAULT_VICON_POSITION_OFFSET_M,
     REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON,
     FlightRuntimeConfig,
     default_run_label,
@@ -63,6 +64,7 @@ def run_real_flight(
             position_offset_m=config.vicon_position_offset_m,
             yaw_alignment_rad=float(np.deg2rad(config.vicon_yaw_alignment_deg)),
             attitude_signs=config.vicon_attitude_signs,
+            attitude_offset_rad=config.vicon_attitude_offset_rad,
         ),
     )
     tx = NanoSerialTx(config.serial_port, config.serial_baud) if mode in {"armed", "packet-smoke"} else FakeNanoSerialTx()
@@ -136,6 +138,7 @@ def run_real_flight(
                 "position_offset_m": tuple(float(value) for value in config.vicon_position_offset_m),
                 "yaw_alignment_deg": float(config.vicon_yaw_alignment_deg),
                 "attitude_signs_phi_theta_psi": tuple(float(value) for value in config.vicon_attitude_signs),
+                "attitude_offset_rad_phi_theta_psi": tuple(float(value) for value in config.vicon_attitude_offset_rad),
                 "attitude_sign_reason": "recovered_vicon_orientation_check_20260601_205149_pitch_and_yaw_reversed",
             },
             "experiment_case": {
@@ -934,6 +937,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--vicon-offset-m", nargs=3, type=float, default=None)
     parser.add_argument("--vicon-yaw-deg", type=float, default=None)
     parser.add_argument("--vicon-attitude-signs", nargs=3, type=float, default=None)
+    parser.add_argument("--vicon-attitude-offset-deg", nargs=3, type=float, default=None)
     parser.add_argument("--duration-s", type=float, default=20.0)
     parser.add_argument("--launch-wait-timeout-s", type=float, default=8.0)
     parser.add_argument("--launch-gate-frames", type=int, default=FlightRuntimeConfig.launch_gate_required_consecutive_frames)
@@ -950,10 +954,13 @@ def main() -> None:
             "Use --calibration-profile active, or pass --vicon-offset-m X Y Z explicitly."
         )
     if args.calibration_profile == "active" and (
-        args.vicon_offset_m is not None or args.vicon_yaw_deg is not None or args.vicon_attitude_signs is not None
+        args.vicon_offset_m is not None
+        or args.vicon_yaw_deg is not None
+        or args.vicon_attitude_signs is not None
+        or args.vicon_attitude_offset_deg is not None
     ):
         raise SystemExit(
-            "--calibration-profile active already supplies Vicon offset/yaw/signs; "
+            "--calibration-profile active already supplies Vicon offset/yaw/signs/attitude offset; "
             "remove manual Vicon transform arguments or omit --calibration-profile."
         )
     if args.calibration_profile == "active":
@@ -966,12 +973,18 @@ def main() -> None:
             if args.vicon_attitude_signs is not None
             else DEFAULT_VICON_ATTITUDE_SIGNS
         )
+        attitude_offset_rad = (
+            tuple(float(np.deg2rad(value)) for value in args.vicon_attitude_offset_deg)
+            if args.vicon_attitude_offset_deg is not None
+            else DEFAULT_VICON_ATTITUDE_OFFSET_RAD
+        )
         profile_id = "manual_cli_vicon_transform" if args.vicon_offset_m is not None else "default_runtime_transform"
         calibration_profile = calibration_profile_for_runtime_values(
             profile_id=profile_id,
             vicon_position_offset_m=offset,
             vicon_yaw_alignment_deg=yaw_deg,
             vicon_attitude_signs=attitude_signs,
+            vicon_attitude_offset_rad=attitude_offset_rad,
             requested_vicon_tracking_rate_hz=float(args.vicon_tracking_rate_hz),
             launch_gate_required_consecutive_frames=int(args.launch_gate_frames),
         )
@@ -984,6 +997,7 @@ def main() -> None:
         vicon_position_offset_m=calibration_profile.vicon_position_offset_m,
         vicon_yaw_alignment_deg=float(calibration_profile.vicon_yaw_alignment_deg),
         vicon_attitude_signs=calibration_profile.vicon_attitude_signs,
+        vicon_attitude_offset_rad=calibration_profile.vicon_attitude_offset_rad,
         calibration_profile_id=calibration_profile.profile_id,
         calibration_profile_hash=calibration_profile.profile_hash(),
         vicon_calibration_source=(

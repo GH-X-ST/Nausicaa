@@ -1,0 +1,18 @@
+# Vicon Frame Calibration Report
+- Calibration mode: `attitude`
+- Known arena point (m): `(1.2, 1.6, 0.1)`
+- Valid samples: `150`
+- Raw Vicon mean (m): `(-1.265403025956823, -0.8402294031654414, 0.05528440835394621)`
+- Raw Vicon std (m): `(3.93093925064025e-05, 2.7397431199525703e-05, 4.884527632365814e-05)`
+- Raw Vicon Euler mean (rad): `(-0.0007439979282497063, 7.203523529371284e-05, 0.000625127982419756)`
+- Raw Vicon Euler std (rad): `(0.00031717851456623065, 0.00043050737632081934, 0.00020788624333650094)`
+- Current transformed mean (m): `(2.6431540545552648, 1.656150531482363, 0.09237852692628373)`
+- Current transform error (m): `(1.4431540545552648, 0.05615053148236293, -0.007621473073716273)`
+- Current attitude mean (rad): `(-0.00020151368578954254, 0.014805972590097662, 0.06967031263373642)`
+- Current attitude error (rad): `(-0.0002015136857895783, 0.014805972590097749, 0.06967031263373658)`
+- Recommended position offset (m): `(2.4654030259568227, 2.4402294031654415, 0.04471559164605379)`
+- Recommended attitude offset (rad): `(0.0007439979282497511, 7.203523529364375e-05, 0.0006251279824196487)`
+- Recommended attitude offset (deg): `(0.04262794125518778, 0.004127314958557619, 0.0358171950481742)`
+- Active profile position update requested: `False`
+- Active profile attitude update requested: `True`
+- Current yaw alignment (deg): `0.0`

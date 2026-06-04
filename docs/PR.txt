@@ -26,7 +26,7 @@ R10 and R11 have separate roles. R10 is governor/spatial-memory tuning on one ha
 
 <!-- R9_LAUNCH_GATE_ALIGNMENT_END -->
 
-Then write a short GitHub push or PR comment in this style:
+Then return a short GitHub push or PR comment directly in the chatbox in one copy-and-paste-ready version. Do not create a separate `.md` PR file unless the user explicitly asks for a file. Keep the response as one title block plus one body block in this style:
 
 - Language or area.
 - High-level intent.

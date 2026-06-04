@@ -1,0 +1,129 @@
+{
+  "active_profile_attitude_update_requested": true,
+  "active_profile_position_update_requested": false,
+  "active_profile_update": {
+    "attitude_calibration_path": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/01_Runtime/calibration_data/active_vicon_attitude_calibration.json",
+    "body_rate_limit_rad_s": 6.0,
+    "body_rate_observer_window_frames": 7,
+    "derivative_cutoff_hz": 8.0,
+    "launch_gate_body_rate_limits_rad_s": [
+      1.2,
+      1.2,
+      1.8
+    ],
+    "launch_gate_rate_confidence_min": 0.65,
+    "launch_gate_required_consecutive_frames": 2,
+    "position_calibration_path": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/01_Runtime/calibration_data/active_vicon_position_calibration.json",
+    "profile_hash": "6dae15c598d60a01e9b036a73106e3e34a4a1ba58506a598f1b41a0406ec57f1",
+    "profile_id": "nausicaa_real_flight_vicon_calibration_20260604_125825",
+    "profile_version": "1.0",
+    "rejected_launch_attempt_min_speed_m_s": 2.0,
+    "requested_vicon_tracking_rate_hz": 200.0,
+    "updated_vicon_attitude_offset_rad": true,
+    "updated_vicon_position_offset_m": false,
+    "vicon_attitude_offset_rad": [
+      0.0007439979282497511,
+      7.203523529364375e-05,
+      0.0006251279824196487
+    ],
+    "vicon_attitude_signs": [
+      1.0,
+      -1.0,
+      -1.0
+    ],
+    "vicon_position_offset_m": [
+      3.9085570805120877,
+      2.4963799346478033,
+      0.03709411857233755
+    ],
+    "vicon_yaw_alignment_deg": 0.0
+  },
+  "calibration_mode": "attitude",
+  "current_attitude_offset_rad": [
+    0.0005424842424601728,
+    0.014878007825391393,
+    0.07029544061615622
+  ],
+  "current_attitude_signs_phi_theta_psi": [
+    1.0,
+    -1.0,
+    -1.0
+  ],
+  "current_position_offset_m": [
+    3.9085570805120877,
+    2.4963799346478033,
+    0.03709411857233755
+  ],
+  "current_transform_error_m": [
+    1.4431540545552648,
+    0.05615053148236293,
+    -0.007621473073716273
+  ],
+  "current_transformed_attitude_error_rad": [
+    -0.0002015136857895783,
+    0.014805972590097749,
+    0.06967031263373658
+  ],
+  "current_transformed_attitude_mean_rad": [
+    -0.00020151368578954254,
+    0.014805972590097662,
+    0.06967031263373642
+  ],
+  "current_transformed_mean_m": [
+    2.6431540545552648,
+    1.656150531482363,
+    0.09237852692628373
+  ],
+  "current_yaw_alignment_deg": 0.0,
+  "invalid_reasons": {
+    "vicon_subject_occluded": 1
+  },
+  "known_arena_attitude_deg": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "known_arena_point_m": [
+    1.2,
+    1.6,
+    0.1
+  ],
+  "raw_vicon_euler_mean_rad": [
+    -0.0007439979282497063,
+    7.203523529371284e-05,
+    0.000625127982419756
+  ],
+  "raw_vicon_euler_std_rad": [
+    0.00031717851456623065,
+    0.00043050737632081934,
+    0.00020788624333650094
+  ],
+  "raw_vicon_mean_m": [
+    -1.265403025956823,
+    -0.8402294031654414,
+    0.05528440835394621
+  ],
+  "raw_vicon_std_m": [
+    3.93093925064025e-05,
+    2.7397431199525703e-05,
+    4.884527632365814e-05
+  ],
+  "recommended_attitude_offset_deg": [
+    0.04262794125518778,
+    0.004127314958557619,
+    0.0358171950481742
+  ],
+  "recommended_attitude_offset_rad": [
+    0.0007439979282497511,
+    7.203523529364375e-05,
+    0.0006251279824196487
+  ],
+  "recommended_position_offset_m": [
+    2.4654030259568227,
+    2.4402294031654415,
+    0.04471559164605379
+  ],
+  "run_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/vicon_frame_calibration/20260604_125825",
+  "status": "ok",
+  "valid_sample_count": 150
+}

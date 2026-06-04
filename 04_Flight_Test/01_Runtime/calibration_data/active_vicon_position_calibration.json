@@ -1,0 +1,11 @@
+{
+  "calibration_type": "vicon_position",
+  "profile_id": "nausicaa_vicon_position_20260603_232209",
+  "profile_version": "1.0",
+  "vicon_position_offset_m": [
+    3.9085570805120877,
+    2.4963799346478033,
+    0.03709411857233755
+  ],
+  "requested_vicon_tracking_rate_hz": 200.0
+}

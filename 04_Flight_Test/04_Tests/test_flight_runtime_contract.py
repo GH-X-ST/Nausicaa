@@ -67,7 +67,7 @@ from run_glider_calibration_sequence import (  # noqa: E402
 )
 from run_vicon_orientation_check import _evaluate_steps, _sample_rate_summary  # noqa: E402
 from run_surface_sign_check import SURFACE_CHECK_SEQUENCE, run_surface_sign_check  # noqa: E402
-from run_vicon_frame_calibration import _update_active_calibration_profile_file  # noqa: E402
+from run_vicon_frame_calibration import _update_active_vicon_calibration_files  # noqa: E402
 from state_contract import STATE_INDEX  # noqa: E402
 from episode_selector import select_compact_representative  # noqa: E402
 from transition_labels import classify_state  # noqa: E402
@@ -123,22 +123,62 @@ def test_real_flight_default_library_tier_is_balanced_cluster() -> None:
     assert config.calibration_profile_hash == ACTIVE_CALIBRATION_PROFILE.profile_hash()
 
 
-def test_vicon_frame_calibration_can_update_active_profile_file(tmp_path: Path) -> None:
-    profile_path = tmp_path / "calibration_profile.py"
-    profile_path.write_text((RUNTIME / "calibration_profile.py").read_text(encoding="utf-8"), encoding="utf-8")
+def test_vicon_frame_calibration_can_update_active_position_only(tmp_path: Path) -> None:
+    position_path = tmp_path / "active_vicon_position_calibration.json"
+    attitude_path = tmp_path / "active_vicon_attitude_calibration.json"
 
-    update = _update_active_calibration_profile_file(
-        profile_path=profile_path,
+    update = _update_active_vicon_calibration_files(
+        position_calibration_path=position_path,
+        attitude_calibration_path=attitude_path,
         recommended_offset_m=(1.0, 2.0, 3.0),
+        recommended_attitude_offset_rad=(0.1, -0.2, 0.3),
+        yaw_alignment_deg=0.0,
+        attitude_signs=(1.0, -1.0, -1.0),
+        update_position=True,
+        update_attitude=False,
         profile_id="pytest_vicon_calibration",
         profile_version="9.0",
     )
-    text = profile_path.read_text(encoding="utf-8")
+    position_payload = json.loads(position_path.read_text(encoding="utf-8"))
 
-    assert 'profile_id="pytest_vicon_calibration"' in text
-    assert 'profile_version="9.0"' in text
-    assert "vicon_position_offset_m=(1.0, 2.0, 3.0)," in text
+    assert position_payload["profile_id"] == "pytest_vicon_calibration_position"
+    assert position_payload["profile_version"] == "9.0"
+    assert position_payload["vicon_position_offset_m"] == [1.0, 2.0, 3.0]
+    assert not attitude_path.exists()
+    assert update["updated_vicon_position_offset_m"] is True
+    assert update["updated_vicon_attitude_offset_rad"] is False
     assert update["profile_id"] == "pytest_vicon_calibration"
+    assert isinstance(update["profile_hash"], str)
+    assert len(str(update["profile_hash"])) == 64
+
+
+def test_vicon_frame_calibration_can_update_active_attitude_only(tmp_path: Path) -> None:
+    position_path = tmp_path / "active_vicon_position_calibration.json"
+    attitude_path = tmp_path / "active_vicon_attitude_calibration.json"
+
+    update = _update_active_vicon_calibration_files(
+        position_calibration_path=position_path,
+        attitude_calibration_path=attitude_path,
+        recommended_offset_m=(1.0, 2.0, 3.0),
+        recommended_attitude_offset_rad=(0.1, -0.2, 0.3),
+        yaw_alignment_deg=4.0,
+        attitude_signs=(1.0, -1.0, -1.0),
+        update_position=False,
+        update_attitude=True,
+        profile_id="pytest_vicon_attitude_calibration",
+        profile_version="9.1",
+    )
+    attitude_payload = json.loads(attitude_path.read_text(encoding="utf-8"))
+
+    assert not position_path.exists()
+    assert attitude_payload["profile_id"] == "pytest_vicon_attitude_calibration_attitude"
+    assert attitude_payload["profile_version"] == "9.1"
+    assert attitude_payload["vicon_yaw_alignment_deg"] == 4.0
+    assert attitude_payload["vicon_attitude_signs"] == [1.0, -1.0, -1.0]
+    assert attitude_payload["vicon_attitude_offset_rad"] == [0.1, -0.2, 0.3]
+    assert update["updated_vicon_position_offset_m"] is False
+    assert update["updated_vicon_attitude_offset_rad"] is True
+    assert update["profile_id"] == "pytest_vicon_attitude_calibration"
     assert isinstance(update["profile_hash"], str)
     assert len(str(update["profile_hash"])) == 64
 
@@ -263,7 +303,10 @@ def test_vicon_transform_applies_full_xyz_offset() -> None:
 def test_vicon_transform_applies_recovered_pitch_yaw_signs() -> None:
     adapter = NausicaaViconStateAdapter(
         derivative_cutoff_hz=0.0,
-        arena_transform=ViconArenaFrameTransform(attitude_signs=(1.0, -1.0, -1.0)),
+        arena_transform=ViconArenaFrameTransform(
+            attitude_signs=(1.0, -1.0, -1.0),
+            attitude_offset_rad=(0.01, -0.02, 0.03),
+        ),
     )
 
     state = adapter.update(
@@ -271,9 +314,9 @@ def test_vicon_transform_applies_recovered_pitch_yaw_signs() -> None:
         command_norm=[0.0, 0.0, 0.0],
     )
 
-    assert np.isclose(state[STATE_INDEX["phi"]], 0.10)
-    assert np.isclose(state[STATE_INDEX["theta"]], 0.20)
-    assert np.isclose(state[STATE_INDEX["psi"]], 0.30)
+    assert np.isclose(state[STATE_INDEX["phi"]], 0.11)
+    assert np.isclose(state[STATE_INDEX["theta"]], 0.18)
+    assert np.isclose(state[STATE_INDEX["psi"]], 0.33)
 
 
 def test_vicon_adapter_body_rates_are_rotation_delta_based_and_bounded() -> None:
@@ -738,6 +781,7 @@ def test_glider_calibration_logs_profile_hash_schema_and_continuous_sequence(
         vicon_position_offset_m=ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m,
         vicon_yaw_alignment_deg=ACTIVE_CALIBRATION_PROFILE.vicon_yaw_alignment_deg,
         vicon_attitude_signs=ACTIVE_CALIBRATION_PROFILE.vicon_attitude_signs,
+        vicon_attitude_offset_rad=ACTIVE_CALIBRATION_PROFILE.vicon_attitude_offset_rad,
         target_valid_throws=1,
     )
 
@@ -935,6 +979,7 @@ def test_experiment_sequence_propagates_formal_rate_gate_to_throw_runtime(tmp_pa
         vicon_position_offset_m=ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m,
         vicon_yaw_alignment_deg=0.0,
         vicon_attitude_signs=(1.0, -1.0, -1.0),
+        vicon_attitude_offset_rad=ACTIVE_CALIBRATION_PROFILE.vicon_attitude_offset_rad,
     )
 
     assert result["valid_throw_count"] == 1
@@ -980,6 +1025,7 @@ def test_experiment_sequence_counts_only_valid_throws_and_persists_memory(tmp_pa
         vicon_position_offset_m=ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m,
         vicon_yaw_alignment_deg=0.0,
         vicon_attitude_signs=(1.0, -1.0, -1.0),
+        vicon_attitude_offset_rad=ACTIVE_CALIBRATION_PROFILE.vicon_attitude_offset_rad,
     )
     assert result["valid_throw_count"] == 2
     assert result["invalid_attempt_count"] == 0
@@ -1012,6 +1058,7 @@ def test_experiment_sequence_invalid_start_does_not_count_or_update_memory(tmp_p
         ),
         vicon_yaw_alignment_deg=0.0,
         vicon_attitude_signs=(1.0, -1.0, -1.0),
+        vicon_attitude_offset_rad=ACTIVE_CALIBRATION_PROFILE.vicon_attitude_offset_rad,
     )
     assert result["valid_throw_count"] == 0
     assert result["invalid_attempt_count"] >= 1
