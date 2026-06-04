@@ -39,6 +39,12 @@ EFFICIENCY_STRIP_SCALE = 0.31
 ROLL_MOMENT_BIAS_COEFF = 0.0
 PITCH_MOMENT_BIAS_COEFF = 0.0
 YAW_MOMENT_BIAS_COEFF = 0.0
+# Post-stall residual coefficients are separate from the attached-flow strip
+# model. They are smoothly activated across the 12-20 deg transition band.
+POST_STALL_LIFT_RESIDUAL_COEFF = 0.0
+POST_STALL_DRAG_RESIDUAL_COEFF = 0.0
+POST_STALL_PITCH_MOMENT_COEFF = 0.0
+POST_STALL_PITCH_DAMPING_COEFF = 0.0
 DELTA_A_TRIM_RAD = 0.0
 DELTA_E_TRIM_RAD = 0.0
 DELTA_R_TRIM_RAD = 0.0

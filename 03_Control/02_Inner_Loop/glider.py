@@ -18,6 +18,10 @@ from A_model_parameters.neutral_dry_air_calibration import (
     DRAG_AREA_FUSE_SCALE as NEUTRAL_DRY_AIR_DRAG_AREA_FUSE_SCALE,
     EFFICIENCY_STRIP_SCALE as NEUTRAL_DRY_AIR_EFFICIENCY_STRIP_SCALE,
     PITCH_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_PITCH_MOMENT_BIAS_COEFF,
+    POST_STALL_DRAG_RESIDUAL_COEFF as NEUTRAL_DRY_AIR_POST_STALL_DRAG_RESIDUAL_COEFF,
+    POST_STALL_LIFT_RESIDUAL_COEFF as NEUTRAL_DRY_AIR_POST_STALL_LIFT_RESIDUAL_COEFF,
+    POST_STALL_PITCH_DAMPING_COEFF as NEUTRAL_DRY_AIR_POST_STALL_PITCH_DAMPING_COEFF,
+    POST_STALL_PITCH_MOMENT_COEFF as NEUTRAL_DRY_AIR_POST_STALL_PITCH_MOMENT_COEFF,
     ROLL_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_ROLL_MOMENT_BIAS_COEFF,
     YAW_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_YAW_MOMENT_BIAS_COEFF,
 )
@@ -102,6 +106,10 @@ class Glider:
     roll_moment_bias_coeff: float
     pitch_moment_bias_coeff: float
     yaw_moment_bias_coeff: float
+    post_stall_lift_residual_coeff: float
+    post_stall_drag_residual_coeff: float
+    post_stall_pitch_moment_coeff: float
+    post_stall_pitch_damping_coeff: float
     surface_code: np.ndarray
 
 
@@ -330,6 +338,26 @@ def build_nausicaa_glider() -> Glider:
     yaw_moment_bias_coeff = (
         NEUTRAL_DRY_AIR_YAW_MOMENT_BIAS_COEFF if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE else 0.0
     )
+    post_stall_lift_residual_coeff = (
+        NEUTRAL_DRY_AIR_POST_STALL_LIFT_RESIDUAL_COEFF
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else 0.0
+    )
+    post_stall_drag_residual_coeff = (
+        NEUTRAL_DRY_AIR_POST_STALL_DRAG_RESIDUAL_COEFF
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else 0.0
+    )
+    post_stall_pitch_moment_coeff = (
+        NEUTRAL_DRY_AIR_POST_STALL_PITCH_MOMENT_COEFF
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else 0.0
+    )
+    post_stall_pitch_damping_coeff = (
+        NEUTRAL_DRY_AIR_POST_STALL_PITCH_DAMPING_COEFF
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else 0.0
+    )
     neutral_surface_trim_rad = (
         np.array(
             [
@@ -375,7 +403,7 @@ def build_nausicaa_glider() -> Glider:
         symmetric=True,
         vertical=False,
         cd0=0.020 * cd0_scale,
-        alpha0=0.0,
+        alpha0=np.deg2rad(-3.0),
         induced_drag_efficiency=0.78 * efficiency_scale,
         control_surface=ControlSurface(
             name="elevator",
@@ -433,5 +461,9 @@ def build_nausicaa_glider() -> Glider:
         roll_moment_bias_coeff=float(roll_moment_bias_coeff),
         pitch_moment_bias_coeff=float(pitch_moment_bias_coeff),
         yaw_moment_bias_coeff=float(yaw_moment_bias_coeff),
+        post_stall_lift_residual_coeff=float(post_stall_lift_residual_coeff),
+        post_stall_drag_residual_coeff=float(post_stall_drag_residual_coeff),
+        post_stall_pitch_moment_coeff=float(post_stall_pitch_moment_coeff),
+        post_stall_pitch_damping_coeff=float(post_stall_pitch_damping_coeff),
         surface_code=strip_table["surface_code"].astype(int),
     )

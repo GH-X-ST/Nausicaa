@@ -32,6 +32,7 @@ EPS = 1e-9
 STALL_BLEND_ALPHA_RAD = np.deg2rad(12.0)
 STALL_BLEND_WIDTH_RAD = np.deg2rad(3.0)
 POST_STALL_DRAG_GAIN = 1.8
+POST_STALL_RESIDUAL_FULL_ALPHA_RAD = np.deg2rad(20.0)
 
 
 # =============================================================================
@@ -61,6 +62,10 @@ class AircraftModel:
     roll_moment_bias_coeff: float
     pitch_moment_bias_coeff: float
     yaw_moment_bias_coeff: float
+    post_stall_lift_residual_coeff: float
+    post_stall_drag_residual_coeff: float
+    post_stall_pitch_moment_coeff: float
+    post_stall_pitch_damping_coeff: float
     drag_area_fuse_m2: float
     strip_count: int
 
@@ -285,6 +290,10 @@ def adapt_glider(glider: Glider) -> AircraftModel:
         roll_moment_bias_coeff=float(glider.roll_moment_bias_coeff),
         pitch_moment_bias_coeff=float(glider.pitch_moment_bias_coeff),
         yaw_moment_bias_coeff=float(glider.yaw_moment_bias_coeff),
+        post_stall_lift_residual_coeff=float(glider.post_stall_lift_residual_coeff),
+        post_stall_drag_residual_coeff=float(glider.post_stall_drag_residual_coeff),
+        post_stall_pitch_moment_coeff=float(glider.post_stall_pitch_moment_coeff),
+        post_stall_pitch_damping_coeff=float(glider.post_stall_pitch_damping_coeff),
         drag_area_fuse_m2=float(glider.drag_area_fuse_m2),
         strip_count=int(glider.r_strip_b.shape[0]),
     )
@@ -323,6 +332,23 @@ def _sample_numeric_wind(
     wind_strip_w = np.asarray(wind_strip_w_up, dtype=float).copy()
     wind_strip_w[:, 2] *= -1.0
     return wind_cg_w, wind_strip_w
+
+
+def post_stall_residual_activation_numpy(alpha_rad: float) -> float:
+    # Residual terms are inactive in attached flow, then smoothly activate
+    # through the uncertain transition band rather than fitting transition-only
+    # coefficients.
+    t = np.clip(
+        (float(alpha_rad) - STALL_BLEND_ALPHA_RAD)
+        / max(POST_STALL_RESIDUAL_FULL_ALPHA_RAD - STALL_BLEND_ALPHA_RAD, EPS),
+        0.0,
+        1.0,
+    )
+    return float(t * t * (3.0 - 2.0 * t))
+
+
+def post_stall_pitch_activation_numpy(alpha_rad: float) -> float:
+    return post_stall_residual_activation_numpy(alpha_rad)
 
 
 def _evaluate_aero_numeric(
@@ -399,6 +425,26 @@ def _evaluate_aero_numeric(
     v_air_cg_b = v_b - wind_cg_b
     speed_cg = np.linalg.norm(v_air_cg_b)
     q_bar_cg = 0.5 * rho * speed_cg**2
+    alpha_cg = np.arctan2(v_air_cg_b[2], v_air_cg_b[0])
+    pitch_rate_hat = 0.0
+    if speed_cg > EPS:
+        pitch_rate_hat = float(omega_b[1] * aircraft.c_ref_m / (2.0 * speed_cg))
+    post_stall_residual_activation = post_stall_residual_activation_numpy(alpha_cg)
+    if speed_cg > EPS:
+        v_plane_cg_b = np.array([v_air_cg_b[0], 0.0, v_air_cg_b[2]], dtype=float)
+        speed_plane_cg = np.linalg.norm(v_plane_cg_b)
+        if speed_plane_cg > EPS:
+            drag_dir_cg_b = -v_plane_cg_b / speed_plane_cg
+            lift_dir_cg_b = np.array([-drag_dir_cg_b[2], 0.0, drag_dir_cg_b[0]], dtype=float)
+            f_aero_b = f_aero_b + (
+                q_bar_cg
+                * aircraft.s_ref_m2
+                * post_stall_residual_activation
+                * (
+                    aircraft.post_stall_lift_residual_coeff * lift_dir_cg_b
+                    + aircraft.post_stall_drag_residual_coeff * drag_dir_cg_b
+                )
+            )
     m_bias_b = np.array(
         [
             q_bar_cg * aircraft.s_ref_m2 * aircraft.b_ref_m * aircraft.roll_moment_bias_coeff,
@@ -406,6 +452,16 @@ def _evaluate_aero_numeric(
             q_bar_cg * aircraft.s_ref_m2 * aircraft.b_ref_m * aircraft.yaw_moment_bias_coeff,
         ],
         dtype=float,
+    )
+    m_bias_b[1] += (
+        q_bar_cg
+        * aircraft.s_ref_m2
+        * aircraft.c_ref_m
+        * post_stall_residual_activation
+        * (
+            aircraft.post_stall_pitch_moment_coeff
+            + aircraft.post_stall_pitch_damping_coeff * pitch_rate_hat
+        )
     )
     m_aero_b = m_aero_b + m_bias_b
     if speed_cg > EPS:
@@ -419,7 +475,6 @@ def _evaluate_aero_numeric(
     v_air_w = c_wb @ v_air_cg_b
     v_air_w_up = _internal_to_world_up_vector(v_air_w)
     r_dot_w = _internal_to_world_up_vector(c_wb @ v_b)
-    alpha_cg = np.arctan2(v_air_cg_b[2], v_air_cg_b[0])
     beta_cg = np.arcsin(np.clip(v_air_cg_b[1] / max(speed_cg, EPS), -1.0, 1.0))
     gamma_rad = np.arctan2(
         v_air_w_up[2],
@@ -436,6 +491,9 @@ def _evaluate_aero_numeric(
         "v_air_cg_b": v_air_cg_b,
         "speed_m_s": speed_cg,
         "alpha_rad": alpha_cg,
+        "pitch_rate_hat": pitch_rate_hat,
+        "post_stall_residual_activation": post_stall_residual_activation,
+        "post_stall_pitch_activation": post_stall_residual_activation,
         "beta_rad": beta_cg,
         "gamma_rad": gamma_rad,
         "sink_rate_m_s": sink_rate_m_s,
@@ -588,6 +646,14 @@ def _symbolic_wind_vectors(
     return wind_cg_w, wind_strip_w
 
 
+def _post_stall_residual_activation_ca(alpha_rad: ca.SX) -> ca.SX:
+    t = (alpha_rad - STALL_BLEND_ALPHA_RAD) / (
+        POST_STALL_RESIDUAL_FULL_ALPHA_RAD - STALL_BLEND_ALPHA_RAD
+    )
+    t_clipped = ca.fmin(1.0, ca.fmax(0.0, t))
+    return t_clipped * t_clipped * (3.0 - 2.0 * t_clipped)
+
+
 def _state_derivative_symbolic(
     x: ca.SX,
     u_cmd: ca.SX,
@@ -655,6 +721,22 @@ def _state_derivative_symbolic(
     v_air_cg_b = v_b - wind_cg_b
     speed_cg = _ca_norm(v_air_cg_b)
     q_bar_cg = 0.5 * rho * speed_cg**2
+    alpha_cg = ca.atan2(v_air_cg_b[2], v_air_cg_b[0])
+    pitch_rate_hat = omega_b[1] * aircraft.c_ref_m / (2.0 * speed_cg)
+    post_stall_residual_activation = _post_stall_residual_activation_ca(alpha_cg)
+    v_plane_cg_b = ca.vertcat(v_air_cg_b[0], 0.0, v_air_cg_b[2])
+    speed_plane_cg = _ca_norm(v_plane_cg_b)
+    drag_dir_cg_b = -v_plane_cg_b / speed_plane_cg
+    lift_dir_cg_b = ca.vertcat(-drag_dir_cg_b[2], 0.0, drag_dir_cg_b[0])
+    f_aero_b += (
+        q_bar_cg
+        * aircraft.s_ref_m2
+        * post_stall_residual_activation
+        * (
+            aircraft.post_stall_lift_residual_coeff * lift_dir_cg_b
+            + aircraft.post_stall_drag_residual_coeff * drag_dir_cg_b
+        )
+    )
     m_aero_b += ca.vertcat(
         q_bar_cg
         * aircraft.s_ref_m2
@@ -663,7 +745,14 @@ def _state_derivative_symbolic(
         q_bar_cg
         * aircraft.s_ref_m2
         * aircraft.c_ref_m
-        * aircraft.pitch_moment_bias_coeff,
+        * (
+            aircraft.pitch_moment_bias_coeff
+            + post_stall_residual_activation
+            * (
+                aircraft.post_stall_pitch_moment_coeff
+                + aircraft.post_stall_pitch_damping_coeff * pitch_rate_hat
+            )
+        ),
         q_bar_cg
         * aircraft.s_ref_m2
         * aircraft.b_ref_m

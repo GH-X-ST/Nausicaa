@@ -856,6 +856,12 @@ def bounded_parameter_value(parameter: str, value: float) -> float:
         return float(np.clip(value, -0.10, 0.10))
     if parameter == "pitch_moment_bias_coeff":
         return float(np.clip(value, -0.35, 0.35))
+    if parameter in {"post_stall_lift_residual_coeff", "post_stall_drag_residual_coeff"}:
+        return float(np.clip(value, -1.0, 1.0))
+    if parameter == "post_stall_pitch_moment_coeff":
+        return float(np.clip(value, -1.0, 1.0))
+    if parameter == "post_stall_pitch_damping_coeff":
+        return float(np.clip(value, -4.0, 4.0))
     return float(np.clip(value, -0.18, 0.18))
 
 
@@ -1024,6 +1030,18 @@ def calibrated_aircraft(parameters: dict[str, float]) -> Any:
         roll_moment_bias_coeff=float(parameters["roll_moment_bias_coeff"]),
         pitch_moment_bias_coeff=float(parameters["pitch_moment_bias_coeff"]),
         yaw_moment_bias_coeff=float(parameters["yaw_moment_bias_coeff"]),
+        post_stall_lift_residual_coeff=float(
+            parameters.get("post_stall_lift_residual_coeff", base.post_stall_lift_residual_coeff)
+        ),
+        post_stall_drag_residual_coeff=float(
+            parameters.get("post_stall_drag_residual_coeff", base.post_stall_drag_residual_coeff)
+        ),
+        post_stall_pitch_moment_coeff=float(
+            parameters.get("post_stall_pitch_moment_coeff", base.post_stall_pitch_moment_coeff)
+        ),
+        post_stall_pitch_damping_coeff=float(
+            parameters.get("post_stall_pitch_damping_coeff", base.post_stall_pitch_damping_coeff)
+        ),
     )
 
 

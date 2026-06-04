@@ -1,0 +1,7 @@
+parameter,value,applied_to_replay,description
+attached_cm_bias_coeff,0.02679029805,False,Attached-regime Cm residual. Report-only by default.
+transition_cm_bias_coeff,0.03402744643,False,Transition-regime diagnostic Cm residual.
+post_stall_lift_residual_coeff,0.06058858935,True,Positive-AoA whole-aircraft CL residual.
+post_stall_drag_residual_coeff,-0.05904210843,True,Positive-AoA whole-aircraft CD residual.
+post_stall_pitch_moment_coeff,-0.05961884201,True,Positive-AoA post-stall Cm residual.
+post_stall_pitch_damping_coeff,4.700759696,True,Positive-AoA Cmq-style residual using q_hat = q c / (2V). Opt-in because it is derivative-sensitive.

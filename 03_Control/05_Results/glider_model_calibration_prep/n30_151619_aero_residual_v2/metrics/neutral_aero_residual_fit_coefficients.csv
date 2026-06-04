@@ -1,0 +1,5 @@
+parameter,value,applied_to_replay,description
+attached_cm_bias_coeff,0.03419528231,False,Attached-regime Cm residual. Report-only by default.
+transition_cm_bias_coeff,0.1062534207,False,Transition-regime diagnostic Cm residual.
+post_stall_pitch_moment_coeff,-0.131730906,True,Positive-AoA post-stall Cm residual.
+post_stall_pitch_damping_coeff,0,False,Positive-AoA Cmq-style residual using q_hat = q c / (2V). Opt-in because it is derivative-sensitive.
