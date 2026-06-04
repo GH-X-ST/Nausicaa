@@ -54,7 +54,10 @@ DEFAULT_REPLAY_DT_S = 0.005
 DEFAULT_RIDGE_LAMBDA = 1.0e-3
 DEFAULT_MIN_SPEED_M_S = 1.5
 DEFAULT_FILTER_ALIGNED_LAUNCH_STATE = True
-DEFAULT_ALIGNED_U_MIN_M_S = 4.0
+# Replay starts 0.10 s after first motion, so u may have decayed from the
+# hardware launch-gate value. Keep this as a relaxed post-alignment sanity
+# bound, not a second copy of the real launch gate.
+DEFAULT_ALIGNED_U_MIN_M_S = 3.0
 DEFAULT_ALIGNED_U_MAX_M_S = 8.0
 DEFAULT_ALIGNED_V_ABS_MAX_M_S = 1.5
 DEFAULT_ALIGNED_W_ABS_MAX_M_S = 0.9
@@ -413,7 +416,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--filter-aligned-launch-state",
         action=argparse.BooleanOptionalAction,
         default=DEFAULT_FILTER_ALIGNED_LAUNCH_STATE,
-        help="Exclude throws whose replay-aligned initial body velocity no longer satisfies the launch envelope.",
+        help=(
+            "Exclude throws whose replay-aligned start is outside the post-alignment sanity envelope. "
+            "The lower u bound is intentionally relaxed relative to the real launch gate because replay "
+            "starts after the alignment delay."
+        ),
     )
     parser.add_argument("--aligned-u-min-m-s", type=float, default=DEFAULT_ALIGNED_U_MIN_M_S)
     parser.add_argument("--aligned-u-max-m-s", type=float, default=DEFAULT_ALIGNED_U_MAX_M_S)
@@ -742,6 +749,8 @@ def run_fit(
         fit_attached_lateral_coupling,
         fit_transition_lateral_coupling,
         fit_lateral_surfaces,
+        base_parameters=base_parameters,
+        candidate_parameters=candidate_parameters,
     )
 
     write_csv(output_dir / "metrics" / "neutral_aero_residual_samples.csv", all_residuals, AERO_RESIDUAL_FIELDS)
@@ -1029,7 +1038,7 @@ def filter_aligned_launch_rows(
                             v0_m_s = float(state[7])
                             w0_m_s = float(state[8])
                             checks = [
-                                (float(u_min_m_s) <= u0_m_s <= float(u_max_m_s), "aligned_u_outside_launch_gate"),
+                                (float(u_min_m_s) <= u0_m_s <= float(u_max_m_s), "aligned_u_outside_replay_filter"),
                                 (abs(v0_m_s) <= float(v_abs_max_m_s), "aligned_v_outside_launch_gate"),
                                 (abs(w0_m_s) <= float(w_abs_max_m_s), "aligned_w_outside_launch_gate"),
                             ]
@@ -3576,8 +3585,24 @@ def coefficient_output_rows(
     fit_attached_lateral_coupling: bool,
     fit_transition_lateral_coupling: bool,
     fit_lateral_surfaces: bool,
+    *,
+    base_parameters: dict[str, float] | None = None,
+    candidate_parameters: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     coeffs = fit_result.get("coefficients", zero_coefficients())
+    base = dict(base_parameters or {})
+    candidate = dict(candidate_parameters or {})
+
+    def output_value(candidate_key: str, fit_key: str | None = None) -> float:
+        if candidate_key in candidate:
+            return float(candidate.get(candidate_key, 0.0))
+        return float(coeffs.get(fit_key or candidate_key, 0.0))
+
+    def changed(candidate_key: str, fallback: bool) -> bool:
+        if candidate_key not in candidate:
+            return bool(fallback)
+        return abs(float(candidate.get(candidate_key, 0.0)) - float(base.get(candidate_key, 0.0))) > 1.0e-12
+
     rows = [
         {
             "parameter": "post_stall_surface_replay_scale",
@@ -3589,15 +3614,15 @@ def coefficient_output_rows(
         },
         {
             "parameter": "attached_cm_bias_coeff",
-            "value": float(coeffs.get("attached_cm_bias_coeff", 0.0)),
-            "applied_to_replay": bool(apply_attached_cm_bias),
-            "description": "Attached-flow Cm residual applied through attached_pitch_moment_bias_coeff when enabled.",
+            "value": output_value("attached_pitch_moment_bias_coeff", "attached_cm_bias_coeff"),
+            "applied_to_replay": changed("attached_pitch_moment_bias_coeff", apply_attached_cm_bias),
+            "description": "Attached-flow Cm value applied through attached_pitch_moment_bias_coeff when accepted.",
         },
         {
             "parameter": "transition_cm_bias_coeff",
-            "value": float(coeffs.get("transition_cm_bias_coeff", 0.0)),
-            "applied_to_replay": bool(fit_transition_pitch_moment),
-            "description": "Transition-window Cm residual applied through transition_pitch_moment_bias_coeff when enabled.",
+            "value": output_value("transition_pitch_moment_bias_coeff", "transition_cm_bias_coeff"),
+            "applied_to_replay": changed("transition_pitch_moment_bias_coeff", fit_transition_pitch_moment),
+            "description": "Transition-window Cm value applied through transition_pitch_moment_bias_coeff when accepted.",
         },
         {
             "parameter": "transition_before_post_stall_cm_bias_coeff",
@@ -3613,47 +3638,62 @@ def coefficient_output_rows(
         },
         {
             "parameter": "post_stall_lift_residual_coeff",
-            "value": float(coeffs.get("post_stall_lift_residual_coeff", 0.0)),
-            "applied_to_replay": bool(fit_post_stall_longitudinal and fit_post_stall_lift_drag and not fit_post_stall_surfaces),
-            "description": "Compact scalar post-stall CL residual. Default promoted post-stall lift correction.",
+            "value": output_value("post_stall_lift_residual_coeff"),
+            "applied_to_replay": changed(
+                "post_stall_lift_residual_coeff",
+                bool(fit_post_stall_longitudinal and fit_post_stall_lift_drag and not fit_post_stall_surfaces),
+            ),
+            "description": "Compact scalar post-stall CL value applied when the staged replay gate accepts lift cleanup.",
         },
         {
             "parameter": "post_stall_drag_residual_coeff",
-            "value": float(coeffs.get("post_stall_drag_residual_coeff", 0.0)),
-            "applied_to_replay": bool(fit_post_stall_longitudinal and fit_post_stall_lift_drag and not fit_post_stall_surfaces),
-            "description": "Compact scalar post-stall CD residual. Default promoted post-stall drag correction.",
+            "value": output_value("post_stall_drag_residual_coeff"),
+            "applied_to_replay": changed(
+                "post_stall_drag_residual_coeff",
+                bool(fit_post_stall_longitudinal and fit_post_stall_lift_drag and not fit_post_stall_surfaces),
+            ),
+            "description": "Compact scalar post-stall CD value applied when the staged replay gate accepts drag cleanup.",
         },
         {
             "parameter": "post_stall_pitch_moment_coeff",
-            "value": float(coeffs.get("post_stall_pitch_moment_coeff", 0.0)),
-            "applied_to_replay": bool(fit_post_stall_longitudinal and fit_post_stall_pitch_moment and not fit_post_stall_surfaces),
-            "description": "Compact scalar post-stall Cm residual applied only through the post-stall pitch weight.",
+            "value": output_value("post_stall_pitch_moment_coeff"),
+            "applied_to_replay": changed(
+                "post_stall_pitch_moment_coeff",
+                bool(fit_post_stall_longitudinal and fit_post_stall_pitch_moment and not fit_post_stall_surfaces),
+            ),
+            "description": "Compact scalar post-stall Cm value applied only through the post-stall pitch weight when accepted.",
         },
         {
             "parameter": "post_stall_pitch_damping_coeff",
-            "value": float(coeffs.get("post_stall_pitch_damping_coeff", 0.0)),
-            "applied_to_replay": bool(fit_post_stall_longitudinal and fit_post_stall_damping),
-            "description": "Positive-AoA Cmq-style residual using q_hat = q c / (2V). Opt-in because it is derivative-sensitive.",
+            "value": output_value("post_stall_pitch_damping_coeff"),
+            "applied_to_replay": changed(
+                "post_stall_pitch_damping_coeff",
+                bool(fit_post_stall_longitudinal and fit_post_stall_damping),
+            ),
+            "description": "Positive-AoA Cmq-style value using q_hat = q c / (2V), applied only when accepted.",
         },
         {
             "parameter": "post_stall_residual_blend_start_alpha_deg",
-            "value": float(coeffs.get("post_stall_residual_blend_start_alpha_deg", STALL_ALPHA_DEG)),
-            "applied_to_replay": bool(fit_transition_blender),
-            "description": "Residual activation start alpha fitted after attached and post-stall coefficients.",
+            "value": output_value("post_stall_residual_blend_start_alpha_deg"),
+            "applied_to_replay": changed("post_stall_residual_blend_start_alpha_deg", fit_transition_blender),
+            "description": "Residual activation start alpha applied after the staged blend gate accepts it.",
         },
         {
             "parameter": "post_stall_residual_blend_full_alpha_deg",
-            "value": float(coeffs.get("post_stall_residual_blend_full_alpha_deg", POST_STALL_ALPHA_DEG)),
-            "applied_to_replay": bool(fit_transition_blender),
-            "description": "Residual activation full-alpha point fitted from transition behaviour while preserving post-stall full activation.",
+            "value": output_value("post_stall_residual_blend_full_alpha_deg"),
+            "applied_to_replay": changed("post_stall_residual_blend_full_alpha_deg", fit_transition_blender),
+            "description": "Residual activation full-alpha point applied after the staged blend gate accepts it.",
         },
     ]
     for key in ATTACHED_LATERAL_PARAMETER_KEYS:
         rows.append(
             {
                 "parameter": key,
-                "value": float(coeffs.get(key, 0.0)),
-                "applied_to_replay": bool(fit_attached_lateral_coupling and key in active_attached_lateral_parameter_keys()),
+                "value": output_value(key),
+                "applied_to_replay": changed(
+                    key,
+                    bool(fit_attached_lateral_coupling and key in active_attached_lateral_parameter_keys()),
+                ),
                 "description": (
                     "Compact attached lateral residual term. Default primary fit leaves attached lateral terms report-only; "
                     "the secondary diagnostic applies only CY_beta, Cl_p, and Cn_r."
@@ -3664,8 +3704,11 @@ def coefficient_output_rows(
         rows.append(
             {
                 "parameter": key,
-                "value": float(coeffs.get(key, 0.0)),
-                "applied_to_replay": bool(fit_transition_lateral_coupling and key in active_transition_lateral_parameter_keys()),
+                "value": output_value(key),
+                "applied_to_replay": changed(
+                    key,
+                    bool(fit_transition_lateral_coupling and key in active_transition_lateral_parameter_keys()),
+                ),
                 "description": (
                     "Compact transition-window lateral delta multiplied by 4*smoothstep*(1-smoothstep). "
                     "Disabled by default; only CY_beta, Cl_p, and Cn_r are fit when enabled."
@@ -3683,8 +3726,8 @@ def coefficient_output_rows(
             rows.append(
                 {
                     "parameter": key,
-                    "value": float(coeffs.get(key, 0.0)),
-                    "applied_to_replay": bool(fit_post_stall_surfaces),
+                    "value": output_value(key),
+                    "applied_to_replay": changed(key, fit_post_stall_surfaces),
                     "description": (
                         f"Diagnostic rich post-stall {coefficient_name} alpha-RBF coefficient "
                         f"at {centre_deg:g} deg AoA. Disabled in the compact default."
@@ -3702,8 +3745,8 @@ def coefficient_output_rows(
                 rows.append(
                     {
                         "parameter": key,
-                        "value": float(coeffs.get(key, 0.0)),
-                        "applied_to_replay": bool(fit_lateral_surfaces),
+                        "value": output_value(key),
+                        "applied_to_replay": changed(key, fit_lateral_surfaces),
                         "description": (
                             f"Neutral post-stall {coefficient_name} residual coefficient multiplying "
                             f"{feature} at {centre_deg:g} deg AoA."

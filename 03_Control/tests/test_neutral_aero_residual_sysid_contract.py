@@ -24,6 +24,8 @@ def test_default_neutral_sysid_is_longitudinal_primary_with_lateral_diagnostic()
     assert sysid.DEFAULT_FIT_LATERAL_SURFACES is False
     assert sysid.DEFAULT_FIT_POST_STALL_SURFACES is False
     assert sysid.DEFAULT_FIT_SECONDARY_LATERAL_DIAGNOSTIC is True
+    assert sysid.DEFAULT_ALIGNED_U_MIN_M_S == pytest.approx(3.0)
+    assert sysid.DEFAULT_ALIGNED_U_MAX_M_S == pytest.approx(8.0)
 
 
 def test_pitch_moment_regime_weights_are_normalized_and_localized() -> None:

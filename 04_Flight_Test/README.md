@@ -103,7 +103,11 @@ force/moment residual -> regime-split coefficient fit -> held-out replay
 workflow. Both use only neutral open-loop real throws, start sim-real replay
 from the measured state after a `0.10 s` first-motion alignment window, select
 held-out throws with a randomised session-stratified split, and run with 8
-workers by default. Neutral control-surface trims stay disabled by default.
+workers by default. The replay-aligned post-analysis sanity filter uses
+`3.0 <= u <= 8.0` m/s, `|v| <= 1.5` m/s, and `|w| <= 0.9` m/s; this relaxed
+lower `u` bound is not a real launch-gate change, only recognition that replay
+starts after the 0.10 s alignment delay. Neutral control-surface trims stay
+disabled by default.
 The aero-residual workflow is `cm_regime_staged` by default, and its primary
 claim-bearing candidate is longitudinal-only. It fits attached Cm, transition
 Cm, post-stall Cm/Cmq, transition blend timing, and optional compact post-stall

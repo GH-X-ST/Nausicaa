@@ -69,7 +69,11 @@ alignment window, select held-out cases with a randomised session-stratified
 split, and run with 8 workers by default. Use
 `run_fit_neutral_aero_residual_calibration.py` for the Vicon trajectory ->
 force/moment residual -> regime-split coefficient fit -> held-out replay
-workflow. Neutral control-surface trims remain disabled by default.
+workflow. The replay-aligned post-analysis sanity filter uses
+`3.0 <= u <= 8.0` m/s, `|v| <= 1.5` m/s, and `|w| <= 0.9` m/s; this relaxed
+lower `u` bound does not change the real launch gate, because replay starts
+after the 0.10 s alignment delay. Neutral control-surface trims remain disabled
+by default.
 The aero-residual workflow is `cm_regime_staged` by default, and its primary
 claim-bearing candidate is longitudinal-only. It fits attached Cm, transition
 Cm, post-stall Cm/Cmq, transition blend timing, and optional compact post-stall

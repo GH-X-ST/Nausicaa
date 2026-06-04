@@ -83,6 +83,10 @@ first-motion alignment window. Held-out throws are selected with a randomised
 session-stratified split; leaving `--heldout-count 0` selects about 15 percent
 of replay-filtered valid throws. The trajectory-residual SysID path uses
 `--fit-workflow cm_regime_staged` by default and runs with 8 workers. The
+replay-aligned post-analysis sanity filter uses `3.0 <= u <= 8.0` m/s,
+`|v| <= 1.5` m/s, and `|w| <= 0.9` m/s; this is deliberately looser than the
+real `u >= 4.0` launch gate because replay starts after the 0.10 s alignment
+delay. The
 primary claim-bearing candidate is longitudinal-only and fits true
 regime-separated pitch-moment terms: attached Cm first, transition Cm second,
 post-stall Cm/Cmq third, then a small transition blend grid around 10/12/14 deg
