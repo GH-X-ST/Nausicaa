@@ -22,6 +22,8 @@ from A_model_parameters.neutral_dry_air_calibration import (
     POST_STALL_LIFT_RESIDUAL_COEFF as NEUTRAL_DRY_AIR_POST_STALL_LIFT_RESIDUAL_COEFF,
     POST_STALL_PITCH_DAMPING_COEFF as NEUTRAL_DRY_AIR_POST_STALL_PITCH_DAMPING_COEFF,
     POST_STALL_PITCH_MOMENT_COEFF as NEUTRAL_DRY_AIR_POST_STALL_PITCH_MOMENT_COEFF,
+    POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG as NEUTRAL_DRY_AIR_POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG,
+    POST_STALL_RESIDUAL_BLEND_START_ALPHA_DEG as NEUTRAL_DRY_AIR_POST_STALL_RESIDUAL_BLEND_START_ALPHA_DEG,
     ROLL_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_ROLL_MOMENT_BIAS_COEFF,
     YAW_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_YAW_MOMENT_BIAS_COEFF,
 )
@@ -110,6 +112,8 @@ class Glider:
     post_stall_drag_residual_coeff: float
     post_stall_pitch_moment_coeff: float
     post_stall_pitch_damping_coeff: float
+    post_stall_residual_blend_start_alpha_rad: float
+    post_stall_residual_blend_full_alpha_rad: float
     surface_code: np.ndarray
 
 
@@ -358,6 +362,16 @@ def build_nausicaa_glider() -> Glider:
         if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
         else 0.0
     )
+    post_stall_residual_blend_start_alpha_rad = np.deg2rad(
+        NEUTRAL_DRY_AIR_POST_STALL_RESIDUAL_BLEND_START_ALPHA_DEG
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else 12.0
+    )
+    post_stall_residual_blend_full_alpha_rad = np.deg2rad(
+        NEUTRAL_DRY_AIR_POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else 20.0
+    )
     neutral_surface_trim_rad = (
         np.array(
             [
@@ -465,5 +479,7 @@ def build_nausicaa_glider() -> Glider:
         post_stall_drag_residual_coeff=float(post_stall_drag_residual_coeff),
         post_stall_pitch_moment_coeff=float(post_stall_pitch_moment_coeff),
         post_stall_pitch_damping_coeff=float(post_stall_pitch_damping_coeff),
+        post_stall_residual_blend_start_alpha_rad=float(post_stall_residual_blend_start_alpha_rad),
+        post_stall_residual_blend_full_alpha_rad=float(post_stall_residual_blend_full_alpha_rad),
         surface_code=strip_table["surface_code"].astype(int),
     )

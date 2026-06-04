@@ -88,17 +88,35 @@ Arduino packet path, and 20 percent command lattice as the real-flight runtime,
 but deliberately does not call the governor, memory, primitive selector, or LQR
 controller.
 
-The current `03_Control` neutral SysID entry point is
-`run_fit_neutral_dry_air_calibration.py`. It uses only neutral open-loop real
-throws, starts sim-real replay from the measured state after a `0.10 s`
-first-motion alignment window, selects held-out throws with a randomised
-session-stratified split, runs with 8 workers, and can use a staged search over
-simple loss scales plus Cm0/Cl0/Cn0-style aerodynamic moment-bias diagnostics.
-Neutral control-surface trims stay disabled by default. The active checked-in
-constants are still `neutral_dry_air_aligned_0p20_N07`; the richer
-`n30_staged_coupled_moment_bias_rich_v2` run did not pass the promotion gate,
-so pulse data are not fitted until the neutral open-loop dry-air mismatch is
-resolved.
+The current `03_Control` neutral SysID entry points are
+`run_fit_neutral_dry_air_calibration.py` for replay-based checks and
+`run_fit_neutral_aero_residual_calibration.py` for the Vicon trajectory ->
+force/moment residual -> regime-split coefficient fit -> held-out replay
+workflow. Both use only neutral open-loop real throws, start sim-real replay
+from the measured state after a `0.10 s` first-motion alignment window, select
+held-out throws with a randomised session-stratified split, and run with 8
+workers by default. Neutral control-surface trims stay disabled by default.
+The aero-residual workflow fits stage evidence independently: attached Cm is
+diagnostic only, transition Cm is split into before/after first post-stall
+exposure and remains diagnostic only, then post-stall CL/CD/Cm residuals are
+fit and the residual blender is tuned from transition evidence. Only the
+post-stall residual coefficients and residual blender are applied to replay by
+default.
+
+For regime-specific diagnosis, use
+`metrics/neutral_aero_residual_stage_replay_errors.csv` from the aero residual
+fit. It reports sample-aligned replay MAE for normal/attached, transition, and
+post-stall measured-alpha regimes, separately for train and held-out throws:
+`dx`, `dy`, altitude loss, sink rate, roll, pitch, and yaw. The CSV regime name
+for normal attached flow is `attached`. Use this table to see where the model
+is wrong; still accept a candidate only if the full-throw held-out replay
+validation does not damage the trajectory. The active checked-in constants are
+still `neutral_dry_air_aligned_0p20_N07`; pulse data are not fitted until the
+neutral open-loop dry-air mismatch is resolved.
+For direct force/moment evidence, also inspect
+`metrics/neutral_aero_residual_stage_fit_summary.csv`, which reports the
+independent attached, transition-before-post-stall, transition-after-post-stall,
+and post-stall residual fits.
 
 For repeated experiment blocks, edit `CURRENT_EXPERIMENT_CASE` at the top of
 `01_Runtime\run_experiment_sequence.py`, then run:

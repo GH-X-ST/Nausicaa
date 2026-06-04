@@ -862,6 +862,10 @@ def bounded_parameter_value(parameter: str, value: float) -> float:
         return float(np.clip(value, -1.0, 1.0))
     if parameter == "post_stall_pitch_damping_coeff":
         return float(np.clip(value, -4.0, 4.0))
+    if parameter == "post_stall_residual_blend_start_alpha_deg":
+        return float(np.clip(value, 6.0, 18.0))
+    if parameter == "post_stall_residual_blend_full_alpha_deg":
+        return float(np.clip(value, 14.0, 24.0))
     return float(np.clip(value, -0.18, 0.18))
 
 
@@ -1041,6 +1045,22 @@ def calibrated_aircraft(parameters: dict[str, float]) -> Any:
         ),
         post_stall_pitch_damping_coeff=float(
             parameters.get("post_stall_pitch_damping_coeff", base.post_stall_pitch_damping_coeff)
+        ),
+        post_stall_residual_blend_start_alpha_rad=np.deg2rad(
+            float(
+                parameters.get(
+                    "post_stall_residual_blend_start_alpha_deg",
+                    np.rad2deg(base.post_stall_residual_blend_start_alpha_rad),
+                )
+            )
+        ),
+        post_stall_residual_blend_full_alpha_rad=np.deg2rad(
+            float(
+                parameters.get(
+                    "post_stall_residual_blend_full_alpha_deg",
+                    np.rad2deg(base.post_stall_residual_blend_full_alpha_rad),
+                )
+            )
         ),
     )
 

@@ -40,11 +40,14 @@ ROLL_MOMENT_BIAS_COEFF = 0.0
 PITCH_MOMENT_BIAS_COEFF = 0.0
 YAW_MOMENT_BIAS_COEFF = 0.0
 # Post-stall residual coefficients are separate from the attached-flow strip
-# model. They are smoothly activated across the 12-20 deg transition band.
+# model. The residual blender is calibrated separately from the coefficient
+# values so transition evidence cannot move attached-flow parameters.
 POST_STALL_LIFT_RESIDUAL_COEFF = 0.0
 POST_STALL_DRAG_RESIDUAL_COEFF = 0.0
 POST_STALL_PITCH_MOMENT_COEFF = 0.0
 POST_STALL_PITCH_DAMPING_COEFF = 0.0
+POST_STALL_RESIDUAL_BLEND_START_ALPHA_DEG = 12.0
+POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG = 20.0
 DELTA_A_TRIM_RAD = 0.0
 DELTA_E_TRIM_RAD = 0.0
 DELTA_R_TRIM_RAD = 0.0

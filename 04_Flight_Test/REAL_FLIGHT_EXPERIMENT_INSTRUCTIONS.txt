@@ -63,14 +63,33 @@ Neutral open-loop dry-air fitting comes first:
 
 C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block neutral_30 --target-valid-throws 30
 
-The current `03_Control` neutral SysID workflow uses only neutral open-loop
-throws, replays simulation from the measured state after a 0.10 s first-motion
-alignment window, selects held-out cases with a randomised session-stratified
-split, runs with 8 workers, and can stage simple loss-scale fitting before
-Cm0/Cl0/Cn0-style aerodynamic moment-bias diagnostics. Neutral control-surface
-trims remain disabled by default. The active checked-in constants remain the
-older N07 fit because the richer n30 staged run did not pass the promotion
-gate.
+The current `03_Control` neutral SysID workflows use only neutral open-loop
+throws, replay simulation from the measured state after a 0.10 s first-motion
+alignment window, select held-out cases with a randomised session-stratified
+split, and run with 8 workers by default. Use
+`run_fit_neutral_aero_residual_calibration.py` for the Vicon trajectory ->
+force/moment residual -> regime-split coefficient fit -> held-out replay
+workflow. Neutral control-surface trims remain disabled by default.
+The aero-residual workflow fits stage evidence independently: attached Cm is
+diagnostic only, transition Cm is split into before/after first post-stall
+exposure and remains diagnostic only, then post-stall CL/CD/Cm residuals are
+fit and the residual blender is tuned from transition evidence. Only the
+post-stall residual coefficients and residual blender are applied to replay by
+default.
+
+For regime-specific diagnosis, open
+`metrics\neutral_aero_residual_stage_replay_errors.csv` in the fit output. It
+reports train and held-out replay MAE for normal/attached, transition, and
+post-stall measured-alpha regimes: dx, dy, altitude loss, sink rate, roll,
+pitch, and yaw. The CSV regime name for normal attached flow is `attached`.
+Use that table to identify which flight regime still fails, but keep the
+full-throw held-out replay validation as the candidate acceptance gate. The
+active checked-in constants remain the older N07 fit until a candidate passes
+that gate.
+For direct force/moment evidence, also inspect
+`metrics\neutral_aero_residual_stage_fit_summary.csv`, which reports the
+independent attached, transition-before-post-stall, transition-after-post-stall,
+and post-stall residual fits.
 
 Only after neutral dry-air mismatch is understood, run pulse data:
 
