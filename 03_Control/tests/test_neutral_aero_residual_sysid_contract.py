@@ -261,6 +261,16 @@ def test_post_stall_and_transition_groups_can_be_frozen() -> None:
     )
 
 
+def test_compact_joint_sweep_tests_delayed_full_stall_blend() -> None:
+    assert (12.0, 24.0) in sysid.COMPACT_JOINT_SWEEP_BLEND_GRID_DEG
+    assert (14.0, 24.0) in sysid.COMPACT_JOINT_SWEEP_BLEND_GRID_DEG
+
+
+def test_post_stall_pitch_damping_upper_bound_is_released_for_diagnostics() -> None:
+    assert sysid.replay_fit.bounded_parameter_value("post_stall_pitch_damping_coeff", 9.0) == pytest.approx(8.0)
+    assert sysid.replay_fit.bounded_parameter_value("post_stall_pitch_damping_coeff", -9.0) == pytest.approx(-4.0)
+
+
 def test_mass_properties_match_ballasted_glider_measurement() -> None:
     assert mass_properties_estimate.MASS_KG == pytest.approx(0.14856)
     assert mass_properties_estimate.R_CG_BUILD_M[0] == pytest.approx(0.1055)

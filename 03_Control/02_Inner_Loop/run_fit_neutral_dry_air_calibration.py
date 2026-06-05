@@ -913,7 +913,7 @@ def bounded_parameter_value(parameter: str, value: float) -> float:
     if parameter == "post_stall_pitch_moment_coeff":
         return float(np.clip(value, -1.0, 1.0))
     if parameter == "post_stall_pitch_damping_coeff":
-        return float(np.clip(value, -4.0, 4.0))
+        return float(np.clip(value, -4.0, 8.0))
     if "pitch_damping_rbf" in parameter:
         return float(np.clip(value, -4.0, 4.0))
     if any(token in parameter for token in ("_p_hat_", "_r_hat_")):
