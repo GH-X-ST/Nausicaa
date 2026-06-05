@@ -74,6 +74,9 @@ LAUNCH_CONFIDENCE_R_ABS_MAX_RAD_S = 1.8
 DERIVATIVE_FIT_MIN_QBAR_PA = 2.0
 DERIVATIVE_FIT_MIN_SURFACE_RAD = 0.02
 DERIVATIVE_FIT_COEFF_ABS_BOUND = 12.0
+SURFACE_AERO_NORMAL_ALPHA_MAX_DEG = 12.0
+SURFACE_AERO_TRANSITION_ALPHA_MAX_DEG = 22.0
+SURFACE_AERO_ALPHA_REGIMES = ("normal", "transition", "post_stall")
 
 COMMAND_AXIS_TO_SURFACE = {
     "delta_a": "aileron",
@@ -338,6 +341,32 @@ REPLAY_ERROR_SUMMARY_FIELDS = [
     "claim_boundary",
 ]
 
+REGIME_LADDER_ERROR_FIELDS = [
+    "candidate_id",
+    "split",
+    "surface_axis",
+    "alpha_regime",
+    "command_abs",
+    "replay_count",
+    "positive_count",
+    "negative_count",
+    "mean_actual_max_abs_alpha_deg",
+    "max_actual_max_abs_alpha_deg",
+    "mean_actual_alpha_gt_20_s",
+    "mean_actual_alpha_gt_30_s",
+    "dx_mae_m",
+    "dy_mae_m",
+    "altitude_loss_mae_m",
+    "final_phi_mae_deg",
+    "final_theta_mae_deg",
+    "final_psi_mae_deg",
+    "primary_metric",
+    "actual_antisymmetric_response",
+    "sim_antisymmetric_response",
+    "primary_antisym_residual",
+    "claim_boundary",
+]
+
 SURFACE_AERO_COUPLING_SPECS = (
     {
         "parameter": "CY_delta_a_residual",
@@ -450,6 +479,53 @@ SURFACE_AERO_COUPLING_CANDIDATE_FAMILIES = {
         "CY_delta_a_residual",
         "CY_delta_r_residual",
     ),
+    "C6_alpha_regime_primary_derivatives": (
+        "Cl_delta_a_residual@normal",
+        "Cl_delta_a_residual@transition",
+        "Cl_delta_a_residual@post_stall",
+        "Cm_delta_e_residual@normal",
+        "Cm_delta_e_residual@transition",
+        "Cm_delta_e_residual@post_stall",
+        "Cn_delta_r_residual@normal",
+        "Cn_delta_r_residual@transition",
+    ),
+    "C7_c6_plus_alpha_regime_aileron_yaw": (
+        "Cl_delta_a_residual@normal",
+        "Cl_delta_a_residual@transition",
+        "Cl_delta_a_residual@post_stall",
+        "Cm_delta_e_residual@normal",
+        "Cm_delta_e_residual@transition",
+        "Cm_delta_e_residual@post_stall",
+        "Cn_delta_r_residual@normal",
+        "Cn_delta_r_residual@transition",
+        "Cn_delta_a_residual@normal",
+        "Cn_delta_a_residual@transition",
+        "Cn_delta_a_residual@post_stall",
+    ),
+    "C8_c7_plus_alpha_regime_aileron_side_force": (
+        "Cl_delta_a_residual@normal",
+        "Cl_delta_a_residual@transition",
+        "Cl_delta_a_residual@post_stall",
+        "Cm_delta_e_residual@normal",
+        "Cm_delta_e_residual@transition",
+        "Cm_delta_e_residual@post_stall",
+        "Cn_delta_r_residual@normal",
+        "Cn_delta_r_residual@transition",
+        "Cn_delta_a_residual@normal",
+        "Cn_delta_a_residual@transition",
+        "Cn_delta_a_residual@post_stall",
+        "CY_delta_a_residual@normal",
+        "CY_delta_a_residual@transition",
+        "CY_delta_a_residual@post_stall",
+    ),
+}
+
+ALPHA_REGIME_SCHEDULED_PARAMETERS = {
+    "Cl_delta_a_residual",
+    "Cn_delta_a_residual",
+    "Cm_delta_e_residual",
+    "Cn_delta_r_residual",
+    "CY_delta_a_residual",
 }
 
 
@@ -547,6 +623,7 @@ def run_study(
         for row in candidate_rows
     ]
     replay_error_summary_rows = replay_error_summary(replay_by_candidate, effectiveness_by_candidate)
+    regime_ladder_error_rows = regime_ladder_error_summary(replay_by_candidate)
     symmetric_rows = [
         {
             **row,
@@ -568,6 +645,7 @@ def run_study(
     write_csv(output_dir / "control_surface_replay_metrics.csv", replay_rows, REPLAY_FIELDS)
     write_csv(output_dir / "control_surface_replay_metrics_candidate_sweep.csv", candidate_sweep_replay_rows, REPLAY_FIELDS)
     write_csv(output_dir / "control_surface_replay_error_summary.csv", replay_error_summary_rows, REPLAY_ERROR_SUMMARY_FIELDS)
+    write_csv(output_dir / "control_surface_regime_ladder_error_summary.csv", regime_ladder_error_rows, REGIME_LADDER_ERROR_FIELDS)
     write_csv(output_dir / "control_surface_effectiveness_summary.csv", effectiveness_rows, EFFECTIVENESS_FIELDS)
     write_csv(output_dir / "control_surface_launch_confidence_summary.csv", launch_confidence_rows, LAUNCH_CONFIDENCE_SUMMARY_FIELDS)
     write_csv(
@@ -588,6 +666,7 @@ def run_study(
         replay_rows=replay_rows,
         candidate_sweep_replay_rows=candidate_sweep_replay_rows,
         replay_error_summary_rows=replay_error_summary_rows,
+        regime_ladder_error_rows=regime_ladder_error_rows,
         effectiveness_rows=effectiveness_rows,
         launch_confidence_rows=launch_confidence_rows,
         aero_coupling_rows=aero_coupling_rows,
@@ -610,6 +689,7 @@ def run_study(
         replay_rows=replay_rows,
         candidate_sweep_replay_rows=candidate_sweep_replay_rows,
         replay_error_summary_rows=replay_error_summary_rows,
+        regime_ladder_error_rows=regime_ladder_error_rows,
         effectiveness_rows=effectiveness_rows,
         launch_confidence_rows=launch_confidence_rows,
         aero_coupling_rows=aero_coupling_rows,
@@ -1072,8 +1152,8 @@ def surface_aero_coupling_v_dot(x: np.ndarray, aircraft: Any, derivative_coeffs:
         qbar
         * aircraft.s_ref_m2
         * (
-            float(derivative_coeffs.get("CY_delta_a_residual", 0.0)) * delta_a
-            + float(derivative_coeffs.get("CY_delta_r_residual", 0.0)) * delta_r
+            surface_aero_coefficient(derivative_coeffs, "CY_delta_a_residual", state) * delta_a
+            + surface_aero_coefficient(derivative_coeffs, "CY_delta_r_residual", state) * delta_r
         )
     )
     return np.array([0.0, side_force_b / aircraft.mass_kg, 0.0], dtype=float)
@@ -1092,25 +1172,56 @@ def surface_aero_coupling_omega_dot(x: np.ndarray, aircraft: Any, derivative_coe
             * aircraft.s_ref_m2
             * aircraft.b_ref_m
             * (
-                float(derivative_coeffs.get("Cl_delta_a_residual", 0.0)) * delta_a
-                + float(derivative_coeffs.get("Cl_delta_r_residual", 0.0)) * delta_r
+                surface_aero_coefficient(derivative_coeffs, "Cl_delta_a_residual", state) * delta_a
+                + surface_aero_coefficient(derivative_coeffs, "Cl_delta_r_residual", state) * delta_r
             ),
             qbar
             * aircraft.s_ref_m2
             * aircraft.c_ref_m
-            * float(derivative_coeffs.get("Cm_delta_e_residual", 0.0))
+            * surface_aero_coefficient(derivative_coeffs, "Cm_delta_e_residual", state)
             * delta_e,
             qbar
             * aircraft.s_ref_m2
             * aircraft.b_ref_m
             * (
-                float(derivative_coeffs.get("Cn_delta_a_residual", 0.0)) * delta_a
-                + float(derivative_coeffs.get("Cn_delta_r_residual", 0.0)) * delta_r
+                surface_aero_coefficient(derivative_coeffs, "Cn_delta_a_residual", state) * delta_a
+                + surface_aero_coefficient(derivative_coeffs, "Cn_delta_r_residual", state) * delta_r
             ),
         ],
         dtype=float,
     )
     return aircraft.inertia_inv_b @ moment_b
+
+
+def surface_aero_coefficient(derivative_coeffs: dict[str, float], parameter: str, state: np.ndarray) -> float:
+    regime = alpha_regime_from_state(state)
+    value = to_float(derivative_coeffs.get(f"{parameter}@{regime}"))
+    if not math.isfinite(value) and regime == "post_stall" and "_delta_r_" in parameter:
+        value = to_float(derivative_coeffs.get(f"{parameter}@transition"))
+    if not math.isfinite(value):
+        value = to_float(derivative_coeffs.get(parameter, 0.0), 0.0)
+    return float(value) if math.isfinite(value) else 0.0
+
+
+def alpha_regime_from_state(state: np.ndarray) -> str:
+    values = np.asarray(state, dtype=float).reshape(-1)
+    if values.size < 9:
+        return "transition"
+    u = float(values[6])
+    w = float(values[8])
+    alpha_abs_deg = abs(math.degrees(math.atan2(w, max(abs(u), 1e-9))))
+    return alpha_regime_from_abs_deg(alpha_abs_deg)
+
+
+def alpha_regime_from_abs_deg(alpha_abs_deg: float) -> str:
+    value = abs(to_float(alpha_abs_deg))
+    if not math.isfinite(value):
+        return "transition"
+    if value < SURFACE_AERO_NORMAL_ALPHA_MAX_DEG:
+        return "normal"
+    if value < SURFACE_AERO_TRANSITION_ALPHA_MAX_DEG:
+        return "transition"
+    return "post_stall"
 
 
 def response_metrics_from_rows(rows: list[dict[str, Any]], start_s: float, end_s: float) -> dict[str, float]:
@@ -1479,6 +1590,90 @@ def replay_error_summary(
     return rows
 
 
+def regime_ladder_error_summary(replay_by_candidate: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    magnitudes_by_surface: dict[str, list[float]] = {}
+    for replay_rows in replay_by_candidate.values():
+        for surface in ("aileron", "elevator", "rudder"):
+            values = {
+                round(to_float(row.get("command_abs")), 6)
+                for row in replay_rows
+                if row.get("replay_status") == "ok"
+                and row.get("surface_axis") == surface
+                and math.isfinite(to_float(row.get("command_abs")))
+            }
+            existing = set(magnitudes_by_surface.get(surface, []))
+            magnitudes_by_surface[surface] = sorted(existing | values)
+
+    candidate_order = [
+        candidate_id
+        for candidate_id in SURFACE_AERO_COUPLING_CANDIDATE_FAMILIES
+        if candidate_id in replay_by_candidate
+    ]
+    candidate_order.extend(candidate_id for candidate_id in replay_by_candidate if candidate_id not in candidate_order)
+
+    for candidate_id in candidate_order:
+        replay_rows = [row for row in replay_by_candidate.get(candidate_id, []) if row.get("replay_status") == "ok"]
+        for split in ("all", "train", "heldout"):
+            split_rows = [row for row in replay_rows if split == "all" or row.get("split") == split]
+            for surface in ("aileron", "elevator", "rudder"):
+                surface_magnitudes = magnitudes_by_surface.get(surface, [])
+                for regime in SURFACE_AERO_ALPHA_REGIMES:
+                    for magnitude in surface_magnitudes:
+                        group_rows = [
+                            row
+                            for row in split_rows
+                            if row.get("surface_axis") == surface
+                            and abs(to_float(row.get("command_abs")) - magnitude) < 1e-9
+                            and alpha_regime_from_abs_deg(to_float(row.get("actual_max_abs_alpha_deg"))) == regime
+                        ]
+                        positive = [row for row in group_rows if to_float(row.get("command_value")) > 0.0]
+                        negative = [row for row in group_rows if to_float(row.get("command_value")) < 0.0]
+                        primary_metric = PRIMARY_METRICS_BY_SURFACE[surface][0]
+                        if positive and negative:
+                            primary = effectiveness_metric_row(split, surface, magnitude, primary_metric, positive, negative)
+                            actual_antisym = primary["actual_antisymmetric_response"]
+                            sim_antisym = primary["sim_antisymmetric_response"]
+                            primary_residual = abs(to_float(primary["antisymmetric_residual_actual_minus_sim"]))
+                        else:
+                            actual_antisym = float("nan")
+                            sim_antisym = float("nan")
+                            primary_residual = float("nan")
+                        alpha_values = [to_float(row.get("actual_max_abs_alpha_deg")) for row in group_rows]
+                        rows.append(
+                            {
+                                "candidate_id": candidate_id,
+                                "split": split,
+                                "surface_axis": surface,
+                                "alpha_regime": regime,
+                                "command_abs": magnitude,
+                                "replay_count": len(group_rows),
+                                "positive_count": len(positive),
+                                "negative_count": len(negative),
+                                "mean_actual_max_abs_alpha_deg": safe_mean(alpha_values),
+                                "max_actual_max_abs_alpha_deg": safe_max(alpha_values),
+                                "mean_actual_alpha_gt_20_s": safe_mean([to_float(row.get("actual_alpha_gt_20_s")) for row in group_rows]),
+                                "mean_actual_alpha_gt_30_s": safe_mean([to_float(row.get("actual_alpha_gt_30_s")) for row in group_rows]),
+                                "dx_mae_m": mae(group_rows, "dx_residual_actual_minus_sim_m"),
+                                "dy_mae_m": mae(group_rows, "dy_residual_actual_minus_sim_m"),
+                                "altitude_loss_mae_m": mae(group_rows, "altitude_loss_residual_actual_minus_sim_m"),
+                                "final_phi_mae_deg": mae(group_rows, "final_phi_residual_actual_minus_sim_deg"),
+                                "final_theta_mae_deg": mae(group_rows, "final_theta_residual_actual_minus_sim_deg"),
+                                "final_psi_mae_deg": mae(group_rows, "final_psi_residual_actual_minus_sim_deg"),
+                                "primary_metric": primary_metric,
+                                "actual_antisymmetric_response": actual_antisym,
+                                "sim_antisymmetric_response": sim_antisym,
+                                "primary_antisym_residual": primary_residual,
+                                "claim_boundary": (
+                                    "frozen neutral replay"
+                                    if candidate_id == "C0_frozen_neutral"
+                                    else "diagnostic alpha-regime command-ladder replay summary only; not promoted"
+                                ),
+                            }
+                        )
+    return rows
+
+
 def optional_surface_aero_coupling_fit(replay_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     aircraft = adapt_glider(build_nausicaa_glider())
     samples: list[dict[str, Any]] = []
@@ -1531,6 +1726,45 @@ def optional_surface_aero_coupling_fit(replay_rows: list[dict[str, Any]]) -> lis
                 "claim_boundary": "surface/coupling derivative residual diagnostic only",
             }
         )
+        if parameter not in ALPHA_REGIME_SCHEDULED_PARAMETERS:
+            continue
+        for regime in SURFACE_AERO_ALPHA_REGIMES:
+            if surface == "rudder" and regime == "post_stall":
+                continue
+            regime_samples = [sample for sample in fit_samples if sample.get("alpha_regime") == regime]
+            if not regime_samples:
+                continue
+            train = [sample for sample in regime_samples if sample.get("split") == "train"]
+            heldout = [sample for sample in regime_samples if sample.get("split") == "heldout"]
+            coefficient = weighted_surface_derivative_fit(train, state_index=state_index, residual_key=residual_key)
+            bounded = float(np.clip(coefficient, -DERIVATIVE_FIT_COEFF_ABS_BOUND, DERIVATIVE_FIT_COEFF_ABS_BOUND)) if math.isfinite(coefficient) else float("nan")
+            train_baseline = weighted_derivative_mae(train, state_index=state_index, residual_key=residual_key, coefficient=0.0)
+            train_candidate = weighted_derivative_mae(train, state_index=state_index, residual_key=residual_key, coefficient=bounded)
+            heldout_baseline = weighted_derivative_mae(heldout, state_index=state_index, residual_key=residual_key, coefficient=0.0)
+            heldout_candidate = weighted_derivative_mae(heldout, state_index=state_index, residual_key=residual_key, coefficient=bounded)
+            rows.append(
+                {
+                    "candidate_id": "D1_alpha_regime_derivative_fit_basis",
+                    "parameter": f"{parameter}@{regime}",
+                    "surface_axis": surface,
+                    "command_axis": spec["command_axis"],
+                    "moment_axis": spec["moment_axis"],
+                    "fit_role": f"{spec['fit_role']}_alpha_regime_{regime}",
+                    "coefficient_per_rad": coefficient,
+                    "bounded_coefficient_per_rad": bounded,
+                    "train_sample_count": len(train),
+                    "heldout_sample_count": len(heldout),
+                    "train_baseline_mae_coeff": train_baseline,
+                    "train_candidate_mae_coeff": train_candidate,
+                    "heldout_baseline_mae_coeff": heldout_baseline,
+                    "heldout_candidate_mae_coeff": heldout_candidate,
+                    "heldout_improved": bool(all_finite(heldout_baseline, heldout_candidate) and heldout_candidate < heldout_baseline),
+                    "mean_launch_confidence_weight": safe_mean([to_float(sample.get("launch_confidence_weight")) for sample in regime_samples]),
+                    "physical_sign_status": "alpha_regime_signed_residual_derivative_diagnostic_only",
+                    "promotion_gate_status": "not_promoted_alpha_regime_diagnostic_only",
+                    "claim_boundary": "alpha-regime surface/coupling derivative residual diagnostic only",
+                }
+            )
     return rows
 
 
@@ -1589,11 +1823,14 @@ def derivative_fit_samples_for_replay_row(row: dict[str, Any], aircraft: Any) ->
         coeff_den_chord = qbar * aircraft.s_ref_m2 * aircraft.c_ref_m
         if coeff_den_force <= 0.0 or coeff_den_span <= 0.0 or coeff_den_chord <= 0.0:
             continue
+        alpha_abs_deg = abs(math.degrees(math.atan2(float(state[8]), max(abs(float(state[6])), 1e-9))))
         out.append(
             {
                 "split": row.get("split", ""),
                 "surface_axis": row.get("surface_axis", ""),
                 "launch_confidence_weight": row.get("launch_confidence_weight", 1.0),
+                "alpha_abs_deg": alpha_abs_deg,
+                "alpha_regime": alpha_regime_from_abs_deg(alpha_abs_deg),
                 "state_12": float(state[12]),
                 "state_13": float(state[13]),
                 "state_14": float(state[14]),
@@ -1991,6 +2228,7 @@ def build_manifest(
     replay_rows: list[dict[str, Any]],
     candidate_sweep_replay_rows: list[dict[str, Any]],
     replay_error_summary_rows: list[dict[str, Any]],
+    regime_ladder_error_rows: list[dict[str, Any]],
     effectiveness_rows: list[dict[str, Any]],
     launch_confidence_rows: list[dict[str, Any]],
     aero_coupling_rows: list[dict[str, Any]],
@@ -2033,6 +2271,9 @@ def build_manifest(
             "launch_confidence_reference": "same lateral-contamination strategy as neutral SysID: phi0=psi0=v0=p0=r0=0",
             "derivative_fit_min_qbar_pa": DERIVATIVE_FIT_MIN_QBAR_PA,
             "derivative_fit_min_surface_rad": DERIVATIVE_FIT_MIN_SURFACE_RAD,
+            "surface_aero_normal_alpha_max_deg": SURFACE_AERO_NORMAL_ALPHA_MAX_DEG,
+            "surface_aero_transition_alpha_max_deg": SURFACE_AERO_TRANSITION_ALPHA_MAX_DEG,
+            "rudder_post_stall_schedule": "uses transition coefficient fallback; no independent rudder post-stall coefficient is fitted",
         },
         "train_heldout_split_method": "launch-level one held-out launch per sign within each surface/magnitude ladder pair when available",
         "heldout_seed": int(heldout_seed),
@@ -2051,6 +2292,7 @@ def build_manifest(
             "replay_metrics": "control_surface_replay_metrics.csv",
             "candidate_sweep_replay_metrics": "control_surface_replay_metrics_candidate_sweep.csv",
             "replay_error_summary": "control_surface_replay_error_summary.csv",
+            "regime_ladder_error_summary": "control_surface_regime_ladder_error_summary.csv",
             "effectiveness_summary": "control_surface_effectiveness_summary.csv",
             "launch_confidence_summary": "control_surface_launch_confidence_summary.csv",
             "symmetric_contamination_summary": "control_surface_symmetric_contamination_summary.csv",
@@ -2065,6 +2307,7 @@ def build_manifest(
         "filtering_summary_groups": len(filtering_summary_rows),
         "candidate_families": {candidate_id: list(parameters) for candidate_id, parameters in SURFACE_AERO_COUPLING_CANDIDATE_FAMILIES.items()},
         "replay_error_summary_rows": len(replay_error_summary_rows),
+        "regime_ladder_error_summary_rows": len(regime_ladder_error_rows),
         "effectiveness_summary_rows": len(effectiveness_rows),
         "launch_confidence_summary_rows": len(launch_confidence_rows),
         "optional_surface_aero_coupling_fit_rows": len(aero_coupling_rows),
@@ -2079,6 +2322,7 @@ def write_report(
     replay_rows: list[dict[str, Any]],
     candidate_sweep_replay_rows: list[dict[str, Any]],
     replay_error_summary_rows: list[dict[str, Any]],
+    regime_ladder_error_rows: list[dict[str, Any]],
     effectiveness_rows: list[dict[str, Any]],
     launch_confidence_rows: list[dict[str, Any]],
     aero_coupling_rows: list[dict[str, Any]],
@@ -2127,59 +2371,67 @@ def write_report(
         "",
         "## 5. Candidate Replay Error Summary",
         "",
-        "The candidate comparison fits only launch-confidence-weighted residual surface aero/coupling derivatives. Surface-scale fitting is not part of the default fit because measured surface magnitudes are already used; scaling remains an optional legacy appendix only.",
+        "The candidate comparison fits only launch-confidence-weighted residual surface aero/coupling derivatives. Surface-scale fitting is not part of the default fit because measured surface magnitudes are already used; scaling remains an optional legacy appendix only. C6-C8 add a diagnostic alpha-regime schedule using normal, transition, and post-stall bins; rudder post-stall shares the transition coefficient because the kept data have no held-out rudder post-stall support.",
         "",
         f"- successful candidate-family replays: `{len(successful_candidate_sweep_replays)}` / `{len(candidate_sweep_replay_rows)}`",
         "",
         replay_error_report_lines(replay_error_summary_rows),
         "",
-        "## 6. Launch-Confidence Diagnostic",
+        "## 6. Alpha-Regime Command-Ladder Replay Error",
+        "",
+        "Replay error is also reported as an explicit candidate/surface/alpha-regime/20 percent command ladder. Regime is assigned from measured response-window `actual_max_abs_alpha_deg`: normal `<12 deg`, transition `12-22 deg`, and post-stall `>=22 deg`. Empty cells are retained in `control_surface_regime_ladder_error_summary.csv` with `replay_count=0` so missing support is visible.",
+        "",
+        regime_ladder_report_lines(regime_ladder_error_rows),
+        "",
+        "## 7. Launch-Confidence Diagnostic",
         "",
         "Launch confidence is a diagnostic weight and grouping variable, not a new acceptance gate. It reuses the neutral SysID lateral-contamination strategy with reference `phi0=psi0=v0=p0=r0=0`, so the study can test whether real-vs-replay mismatch is launch-condition driven.",
         "",
         launch_confidence_report_lines(launch_confidence_rows),
         "",
-        "## 7. Aileron Effectiveness",
+        "## 8. Aileron Effectiveness",
         "",
         effectiveness_report_lines(effectiveness_rows, "aileron"),
         "",
-        "## 8. Elevator Effectiveness",
+        "## 9. Elevator Effectiveness",
         "",
         effectiveness_report_lines(effectiveness_rows, "elevator"),
         "",
-        "## 9. Rudder Effectiveness",
+        "## 10. Rudder Effectiveness",
         "",
         effectiveness_report_lines(effectiveness_rows, "rudder"),
         "",
-        "## 10. Cross-Coupling Observations",
+        "## 11. Cross-Coupling Observations",
         "",
         "Aileron yaw response and rudder roll response are reported as diagnostic coupling evidence. They are not promoted as lateral transition aerodynamic derivatives by this study.",
         "",
-        "## 11. Symmetric Launch/Trim Contamination",
+        "## 12. Symmetric Launch/Trim Contamination",
         "",
         "Symmetric response is separated from antisymmetric response. Large symmetric terms are interpreted as launch, trim, hardware, or model-mismatch contamination rather than hidden inside a surface effectiveness scale.",
         "",
         symmetric_report_lines(effectiveness_rows),
         "",
-        "## 12. Optional Surface/Aero Fit Result",
+        "## 13. Optional Surface/Aero Fit Result",
         "",
         optional_candidate_report_lines(optional_candidates, optional_heldout),
         "",
         surface_aero_coupling_report_lines(aero_coupling_rows),
         "",
-        "## 13. Promotion Decision",
+        "## 14. Promotion Decision",
         "",
         "No model parameter is promoted by this analysis. A surface-only update would require held-out deflection improvement, neutral replay preservation, interpretable signs/magnitudes, and closed-loop smoke evidence.",
         "",
-        "## 14. Limitations",
+        "## 15. Limitations",
         "",
         "- Launch-condition contamination remains visible in the symmetric response.",
         "- Deflection data are sustained pulse-ladder throws, not a broad aero excitation design.",
         "- Candidate derivative rows are diagnostic summaries, not checked-in plant changes.",
+        "- Alpha-regime candidate rows are diagnostic; they do not establish a validated surface-effectiveness schedule.",
+        "- Regime-ladder rows are evidence reporting cells, not independent pass gates.",
         "- S1/S2 surface-scale rows are disabled by default because measured surface magnitudes are already used.",
         "- R5/R7/R8/R10/R11 semantics are unchanged.",
         "",
-        "## 15. Reproducibility Commands",
+        "## 16. Reproducibility Commands",
         "",
         "```powershell",
         "python 03_Control/02_Inner_Loop/run_control_surface_effectiveness_study.py",
@@ -2229,6 +2481,48 @@ def launch_confidence_report_lines(rows: list[dict[str, Any]]) -> str:
             f"(delta `{format_value(row.get('high_minus_all_abs_residual'))}`), "
             f"weighted `{format_value(row.get('confidence_weighted_abs_antisym_residual'))}` "
             f"(delta `{format_value(row.get('weighted_minus_all_abs_residual'))}`)"
+        )
+    return "\n".join(lines)
+
+
+def regime_ladder_report_lines(rows: list[dict[str, Any]]) -> str:
+    heldout = [
+        row
+        for row in rows
+        if row.get("split") == "heldout" and int(row.get("replay_count", 0) or 0) > 0
+    ]
+    if not heldout:
+        return "- no held-out regime/command replay cells available"
+    lines = [
+        "- held-out non-empty cells; lower is better:",
+        "`candidate | surface | regime | |cmd| | n | dx | dy | altitude | phi | theta | psi | primary`",
+    ]
+    candidate_order = {candidate_id: index for index, candidate_id in enumerate(SURFACE_AERO_COUPLING_CANDIDATE_FAMILIES)}
+    surface_order = {"aileron": 0, "elevator": 1, "rudder": 2}
+    regime_order = {regime: index for index, regime in enumerate(SURFACE_AERO_ALPHA_REGIMES)}
+    for row in sorted(
+        heldout,
+        key=lambda item: (
+            candidate_order.get(str(item.get("candidate_id")), 999),
+            surface_order.get(str(item.get("surface_axis")), 999),
+            regime_order.get(str(item.get("alpha_regime")), 999),
+            to_float(item.get("command_abs")),
+        ),
+    ):
+        lines.append(
+            "- "
+            f"`{row.get('candidate_id')} | "
+            f"{row.get('surface_axis')} | "
+            f"{row.get('alpha_regime')} | "
+            f"{format_value(row.get('command_abs'))} | "
+            f"{row.get('replay_count')} | "
+            f"{format_value(row.get('dx_mae_m'))} | "
+            f"{format_value(row.get('dy_mae_m'))} | "
+            f"{format_value(row.get('altitude_loss_mae_m'))} | "
+            f"{format_value(row.get('final_phi_mae_deg'))} | "
+            f"{format_value(row.get('final_theta_mae_deg'))} | "
+            f"{format_value(row.get('final_psi_mae_deg'))} | "
+            f"{format_value(row.get('primary_antisym_residual'))}`"
         )
     return "\n".join(lines)
 
@@ -2325,7 +2619,8 @@ def surface_aero_coupling_report_lines(rows: list[dict[str, Any]]) -> str:
     if not rows:
         return "- Surface aero/coupling derivative diagnostic was not run."
     lines = [
-        "- The derivative diagnostic fits residual control force/moment coefficients from measured acceleration with launch-confidence weighting; it is not replay-promoted."
+        "- The derivative diagnostic fits residual control force/moment coefficients from measured acceleration with launch-confidence weighting; it is not replay-promoted.",
+        "- `@normal`, `@transition`, and `@post_stall` rows are alpha-regime diagnostics. Rudder post-stall is intentionally not fitted independently and falls back to transition in scheduled replay candidates.",
     ]
     for row in rows:
         lines.append(
@@ -2738,6 +3033,11 @@ def response_mean(rows: list[dict[str, Any]], key: str, *, confidence_weighted: 
 def safe_min(values: list[float]) -> float:
     finite = [to_float(value) for value in values if math.isfinite(to_float(value))]
     return min(finite) if finite else float("nan")
+
+
+def safe_max(values: list[float]) -> float:
+    finite = [to_float(value) for value in values if math.isfinite(to_float(value))]
+    return max(finite) if finite else float("nan")
 
 
 def safe_max_abs(values: list[float]) -> float:

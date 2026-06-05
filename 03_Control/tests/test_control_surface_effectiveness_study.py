@@ -7,6 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 
@@ -219,6 +220,88 @@ def test_surface_aero_coupling_candidate_families_are_constrained() -> None:
     assert "Cn_delta_a_residual" in families["C2_c1_plus_aileron_adverse_yaw"]
     assert "CY_delta_a_residual" in families["C4_c1_plus_surface_side_force"]
     assert "Cl_delta_r_residual" not in families["C5_c2_plus_surface_side_force"]
+
+
+def test_alpha_regime_candidates_share_rudder_post_stall_with_transition() -> None:
+    families = study.surface_aero_coupling_candidate_coefficients(
+        {
+            "Cl_delta_a_residual@post_stall": 0.1,
+            "Cm_delta_e_residual@post_stall": -0.2,
+            "Cn_delta_r_residual@transition": 0.3,
+        }
+    )
+    state = np.zeros(15)
+    state[6] = 1.0
+    state[8] = 1.0
+
+    assert "Cn_delta_r_residual@post_stall" not in families["C6_alpha_regime_primary_derivatives"]
+    assert study.alpha_regime_from_state(state) == "post_stall"
+    assert study.surface_aero_coefficient(
+        families["C6_alpha_regime_primary_derivatives"],
+        "Cn_delta_r_residual",
+        state,
+    ) == pytest.approx(0.3)
+
+
+def test_regime_ladder_error_summary_reports_surface_regime_ladder() -> None:
+    replay_rows = [
+        {
+            "replay_status": "ok",
+            "split": "heldout",
+            "surface_axis": "aileron",
+            "command_abs": 0.2,
+            "command_value": 0.2,
+            "actual_max_abs_alpha_deg": 15.0,
+            "actual_alpha_gt_20_s": 0.0,
+            "actual_alpha_gt_30_s": 0.0,
+            "dx_residual_actual_minus_sim_m": 0.2,
+            "dy_residual_actual_minus_sim_m": -0.4,
+            "altitude_loss_residual_actual_minus_sim_m": 0.1,
+            "final_phi_residual_actual_minus_sim_deg": -5.0,
+            "final_theta_residual_actual_minus_sim_deg": 2.0,
+            "final_psi_residual_actual_minus_sim_deg": 3.0,
+            "actual_peak_p_rad_s": 4.0,
+            "sim_peak_p_rad_s": 3.0,
+        },
+        {
+            "replay_status": "ok",
+            "split": "heldout",
+            "surface_axis": "aileron",
+            "command_abs": 0.2,
+            "command_value": -0.2,
+            "actual_max_abs_alpha_deg": 16.0,
+            "actual_alpha_gt_20_s": 0.0,
+            "actual_alpha_gt_30_s": 0.0,
+            "dx_residual_actual_minus_sim_m": -0.4,
+            "dy_residual_actual_minus_sim_m": 0.2,
+            "altitude_loss_residual_actual_minus_sim_m": -0.3,
+            "final_phi_residual_actual_minus_sim_deg": 7.0,
+            "final_theta_residual_actual_minus_sim_deg": -4.0,
+            "final_psi_residual_actual_minus_sim_deg": -1.0,
+            "actual_peak_p_rad_s": -2.0,
+            "sim_peak_p_rad_s": -1.0,
+        },
+    ]
+
+    rows = study.regime_ladder_error_summary({"C0_frozen_neutral": replay_rows})
+    row = next(
+        item
+        for item in rows
+        if item["split"] == "heldout"
+        and item["surface_axis"] == "aileron"
+        and item["alpha_regime"] == "transition"
+        and item["command_abs"] == pytest.approx(0.2)
+    )
+
+    assert row["replay_count"] == 2
+    assert row["positive_count"] == 1
+    assert row["negative_count"] == 1
+    assert row["dx_mae_m"] == pytest.approx(0.3)
+    assert row["dy_mae_m"] == pytest.approx(0.3)
+    assert row["altitude_loss_mae_m"] == pytest.approx(0.2)
+    assert row["final_phi_mae_deg"] == pytest.approx(6.0)
+    assert row["primary_metric"] == "peak_p_rad_s"
+    assert row["primary_antisym_residual"] == pytest.approx(1.0)
 
 
 def test_short_response_window_returns_nan_metrics_without_crashing() -> None:
