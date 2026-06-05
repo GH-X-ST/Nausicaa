@@ -74,23 +74,34 @@ workflow. The replay-aligned post-analysis sanity filter uses
 lower `u` bound does not change the real launch gate, because replay starts
 after the 0.10 s alignment delay. Neutral control-surface trims remain disabled
 by default.
-The aero-residual workflow is `cm_regime_staged` by default, and its primary
-claim-bearing candidate is longitudinal-only. It fits attached Cm, transition
+The conservative claim-bearing aero-residual workflow is `cm_regime_staged`,
+and its primary candidate is longitudinal-only. It fits attached Cm, transition
 Cm, post-stall Cm/Cmq, transition blend timing, and optional compact post-stall
 CL/CD cleanup as separate held-out-gated stages instead of using one global Cm
-offset. Lateral residuals are reported without claiming accurate lateral SysID.
+offset. The `compact_joint_sweep` workflow is a from-active exploration mode:
+it discovers signs/ranges, then jointly beam-sweeps the same compact
+longitudinal terms plus a very small lateral/coupling set. It reports strict,
+balanced, and diagnostic candidate classes, but still does not auto-promote
+active constants. Lateral residuals are reported without claiming accurate
+lateral SysID.
 Replay-aligned starts closer to the lateral-only reference
 `phi0=psi0=v0=p0=r0=0` receive higher coefficient-fit confidence than
 edge-of-gate lateral launches; `u`, `w`, `theta`, and `q` are excluded from that
-confidence score. The optional secondary lateral diagnostic freezes the primary
-longitudinal candidate, ignores launch-confidence weighting, fits only
-`CY_beta`, `Cl_p`, and `Cn_r`, and is accepted only if held-out dy, roll, and yaw
-improve without degrading dx, altitude loss, sink, or pitch. Transition lateral
-deltas, post-stall CY/Cl/Cn surfaces, and rich post-stall alpha-RBF
-longitudinal surfaces remain explicit diagnostics requiring opt-in flags. The
-runner writes `metrics\neutral_aero_residual_cm_stage_history.csv` for staged
-Cm decisions and `metrics\neutral_aero_residual_stage_replay_errors.csv` for
-train/held-out attached, transition, and post-stall replay MAE.
+confidence score. Lateral and coupling fits use separate excitation-aware
+confidence: moderate beta/p/r excitation is useful, while extreme launch
+contamination is downweighted. The optional secondary lateral diagnostic
+freezes the primary longitudinal candidate, uses excitation-aware lateral
+weighting, fits only `CY_beta`, `Cl_p`, and `Cn_r`, and is accepted only if
+held-out dy, roll, and yaw improve without degrading dx, altitude loss, sink, or
+pitch. Transition lateral deltas, post-stall CY/Cl/Cn surfaces, and rich
+post-stall alpha-RBF longitudinal surfaces remain explicit diagnostics
+requiring opt-in flags. The runner writes
+`metrics\neutral_aero_residual_cm_stage_history.csv` for staged Cm decisions,
+`metrics\neutral_aero_residual_joint_sweep_candidates.csv`,
+`metrics\neutral_aero_residual_joint_sweep_pareto.csv`, and
+`metrics\neutral_aero_residual_joint_sweep_selected.csv` for compact joint
+sweep trade-offs, and `metrics\neutral_aero_residual_stage_replay_errors.csv`
+for train/held-out attached, transition, and post-stall replay MAE.
 Use richer lateral/surface flags only as explicit diagnostics when the compact
 default has already passed or clearly identified the remaining failure.
 Shorter alignment windows are diagnostic runs, not the default acceptance path,

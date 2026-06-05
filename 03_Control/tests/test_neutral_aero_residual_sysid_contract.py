@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import inspect
 import sys
 from pathlib import Path
 
@@ -26,6 +27,10 @@ def test_default_neutral_sysid_is_longitudinal_primary_with_lateral_diagnostic()
     assert sysid.DEFAULT_FIT_SECONDARY_LATERAL_DIAGNOSTIC is True
     assert sysid.DEFAULT_ALIGNED_U_MIN_M_S == pytest.approx(3.0)
     assert sysid.DEFAULT_ALIGNED_U_MAX_M_S == pytest.approx(8.0)
+    parser = sysid.build_arg_parser()
+    args = parser.parse_args(["--fit-workflow", "compact_joint_sweep", "--workers", "8"])
+    assert args.fit_workflow == "compact_joint_sweep"
+    assert args.workers == 8
 
 
 def test_pitch_moment_regime_weights_are_normalized_and_localized() -> None:
@@ -57,6 +62,100 @@ def test_launch_confidence_uses_only_lateral_launch_contamination() -> None:
     laterally_messy[11] = 1.8  # r
     assert sysid.launch_quality_score_from_state(laterally_messy) == pytest.approx(1.0)
     assert sysid.launch_confidence_weight_from_state(laterally_messy) < 1.0
+
+
+def test_lateral_excitation_confidence_keeps_moderate_excitation_and_downweights_extreme_launch() -> None:
+    clean_low_excitation = {
+        "beta_rad": 0.0,
+        "p_hat": 0.0,
+        "r_hat": 0.0,
+        "launch_lateral_score": 0.0,
+    }
+    clean_moderate_excitation = {
+        "beta_rad": math.radians(8.0),
+        "p_hat": 0.12,
+        "r_hat": 0.12,
+        "launch_lateral_score": 0.2,
+    }
+    contaminated_extreme = {
+        "beta_rad": math.radians(18.0),
+        "p_hat": 0.35,
+        "r_hat": 0.35,
+        "launch_lateral_score": 1.4,
+    }
+    weights = sysid.lateral_excitation_confidence_weights(
+        [clean_low_excitation, clean_moderate_excitation, contaminated_extreme]
+    )
+    assert weights[1] > weights[0]
+    assert weights[2] < weights[1]
+
+
+def test_resolved_heldout_count_uses_fraction_after_filtering() -> None:
+    assert sysid.resolved_heldout_count(filtered_valid_count=74, heldout_count=0, heldout_fraction=0.15) == 11
+    assert sysid.resolved_heldout_count(filtered_valid_count=74, heldout_count=9, heldout_fraction=0.15) == 9
+    assert sysid.resolved_heldout_count(filtered_valid_count=4, heldout_count=99, heldout_fraction=0.15) == 3
+
+
+def test_compact_joint_sweep_parameters_are_deltas_from_active_except_blend() -> None:
+    base = sysid.active_parameter_dict()
+    base["attached_pitch_moment_bias_coeff"] = 0.01
+    params = sysid.compact_joint_sweep_parameters(
+        base,
+        {
+            "attached_pitch_moment_bias_coeff": 0.02,
+            "post_stall_residual_blend_start_alpha_deg": 14.0,
+            "post_stall_residual_blend_full_alpha_deg": 22.0,
+        },
+    )
+    assert params["attached_pitch_moment_bias_coeff"] == pytest.approx(0.03)
+    assert params["post_stall_residual_blend_start_alpha_deg"] == pytest.approx(14.0)
+    assert params["post_stall_residual_blend_full_alpha_deg"] == pytest.approx(22.0)
+
+
+def test_compact_joint_sweep_selected_rows_have_required_classes() -> None:
+    base = sysid.active_parameter_dict()
+    states = []
+    for idx, (candidate_id, dy, roll, yaw, pitch, lateral_count) in enumerate(
+        [
+            ("longitudinal", 1.0, 20.0, 20.0, 5.0, 0),
+            ("strict", 0.8, 18.0, 15.0, 5.2, 1),
+            ("diagnostic", 0.4, 10.0, 8.0, 8.0, 2),
+        ]
+    ):
+        params = dict(base)
+        if lateral_count:
+            params["side_force_beta_coeff"] = -0.1 * lateral_count
+        states.append(
+            {
+                "candidate_id": candidate_id,
+                "parameters": params,
+                "updates": sysid.parameter_updates(base, params),
+                "sweep_stage": "test",
+                "split": "heldout",
+                "summary": {
+                    "dx_mae_m": 0.2,
+                    "dy_mae_m": dy,
+                    "altitude_loss_mae_m": 0.2,
+                    "sink_mae_m_s": 0.2,
+                    "final_phi_mae_deg": roll,
+                    "final_theta_mae_deg": pitch,
+                    "final_psi_mae_deg": yaw,
+                },
+                "score": float(idx + 1),
+                "longitudinal_score": 5.0 + idx,
+                "lateral_score": dy + roll / 12.0 + yaw / 18.0,
+            }
+        )
+    rows, models = sysid.compact_joint_sweep_selected_rows(states, base)
+    classes = {row["selection_class"] for row in rows}
+    assert {"strict_best", "balanced_best", "diagnostic_best"} <= classes
+    assert {name for name, _ in models} == classes
+
+
+def test_compact_joint_sweep_replay_path_does_not_hardcode_single_worker() -> None:
+    source = inspect.getsource(sysid.compact_joint_sweep_evaluate_states)
+    assert "max_workers=int(workers)" in source
+    assert "workers=1" not in source
 
 
 def test_lateral_candidate_application_is_limited_to_minimal_terms() -> None:

@@ -81,8 +81,11 @@ The current model calibration workflow uses only neutral open-loop throws and
 starts the sim-real comparison from the measured state after a 0.10 s
 first-motion alignment window. Held-out throws are selected with a randomised
 session-stratified split; leaving `--heldout-count 0` selects about 15 percent
-of replay-filtered valid throws. The trajectory-residual SysID path uses
-`--fit-workflow cm_regime_staged` by default and runs with 8 workers. The
+of replay-filtered valid throws. The trajectory-residual SysID path runs with
+8 workers. Use `--fit-workflow cm_regime_staged` for the conservative
+claim-bearing staged fit, or `--fit-workflow compact_joint_sweep` for the
+from-active compact joint sweep across longitudinal, small lateral, and
+coupling terms. The
 replay-aligned post-analysis sanity filter uses `3.0 <= u <= 8.0` m/s,
 `|v| <= 1.5` m/s, and `|w| <= 0.9` m/s; this is deliberately looser than the
 real `u >= 4.0` launch gate because replay starts after the 0.10 s alignment
@@ -100,13 +103,22 @@ Lateral residuals are reported, but accurate lateral SysID is not claimed by the
 default run. Replay-aligned starts closer to the lateral-only reference
 `phi0=psi0=v0=p0=r0=0` receive higher coefficient-fit confidence than
 edge-of-gate lateral launches; `u`, `w`, `theta`, and `q` are not part of this
-confidence score. The optional secondary lateral diagnostic freezes the
-longitudinal candidate, ignores that confidence weighting, fits only
-`CY_beta`, `Cl_p`, and `Cn_r`, and is accepted only if held-out dy, roll, and
-yaw improve without degrading dx, altitude loss, sink, or pitch. Transition
-lateral deltas, post-stall CY/Cl/Cn surfaces, and post-stall alpha-RBF
-longitudinal surfaces remain explicit diagnostics requiring opt-in flags.
+confidence score. Lateral/coupling fits use a separate excitation-aware
+confidence that keeps useful moderate beta/p/r excitation while downweighting
+extreme launch contamination. The optional secondary lateral diagnostic freezes
+the longitudinal candidate, uses that excitation-aware lateral weighting, fits
+only `CY_beta`, `Cl_p`, and `Cn_r`, and is accepted only if held-out dy, roll,
+and yaw improve without degrading dx, altitude loss, sink, or pitch. The
+compact joint sweep starts from `active_parameter_dict()`, discovers signs and
+ranges, beam-prunes candidates, and writes strict, balanced, and diagnostic
+candidate classes without automatically promoting constants. Transition lateral
+deltas, post-stall CY/Cl/Cn surfaces, and post-stall alpha-RBF longitudinal
+surfaces remain explicit diagnostics requiring opt-in flags.
 `neutral_aero_residual_cm_stage_history.csv` records the staged Cm decisions,
+`neutral_aero_residual_joint_sweep_candidates.csv`,
+`neutral_aero_residual_joint_sweep_pareto.csv`, and
+`neutral_aero_residual_joint_sweep_selected.csv` record compact joint-sweep
+trade-offs,
 and `neutral_aero_residual_stage_replay_errors.csv` records train/held-out
 attached, transition, and post-stall replay MAE. Keep `DELTA_A_TRIM_RAD`,
 `DELTA_E_TRIM_RAD`, and `DELTA_R_TRIM_RAD` at zero by default. Use

@@ -1,0 +1,1 @@
+iteration,pass_index,group,candidate_scale,selected,objective,dx_mae_m,dy_mae_m,altitude_loss_mae_m,sink_rate_mae_m_s,final_theta_mae_deg,final_phi_mae_deg,final_psi_mae_deg,group_scales_json
