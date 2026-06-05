@@ -94,6 +94,7 @@ class R11BalancedLadderFigureConfig:
 def run_r11_balanced_ladder_case_figures(config: R11BalancedLadderFigureConfig) -> dict[str, object]:
     r11_root = Path(config.r11_root)
     output_root = Path(config.output_root)
+    run_label_slug = _run_label_slug_from_root(r11_root)
     for subdir in ("figures", "metrics", "manifests", "reports"):
         (output_root / subdir).mkdir(parents=True, exist_ok=True)
 
@@ -128,7 +129,7 @@ def run_r11_balanced_ladder_case_figures(config: R11BalancedLadderFigureConfig) 
         case_row = rows.iloc[0].to_dict()
         outer_case_index = int(case_row["outer_case_index"])
         ladder_id = _short_ladder_id(block_id)
-        figure_path = output_root / "figures" / f"r11_e01_bal_s{paired_index:02d}_{ladder_id}.png"
+        figure_path = output_root / "figures" / f"r11_{run_label_slug}_bal_s{paired_index:02d}_{ladder_id}.png"
         metadata = _plot_ladder_case(
             primitive_log=primitive_log,
             neutral_frame=neutral_frame,
@@ -154,6 +155,7 @@ def run_r11_balanced_ladder_case_figures(config: R11BalancedLadderFigureConfig) 
     manifest = {
         "figure_run_version": FIGURE_RUN_VERSION,
         "status": "complete",
+        "run_label": run_label_slug.upper(),
         "r11_root": r11_root.as_posix(),
         "output_root": output_root.as_posix(),
         "neutral_rollout_path": "" if config.neutral_rollout_path is None else Path(config.neutral_rollout_path).as_posix(),
@@ -615,6 +617,12 @@ def _bool01(value: object) -> str:
     return "1" if _truthy(value) else "0"
 
 
+def _run_label_slug_from_root(r11_root: Path) -> str:
+    label = str(Path(r11_root).name).strip().lower()
+    safe = "".join(ch if ch.isalnum() else "_" for ch in label).strip("_")
+    return safe or "run"
+
+
 def _jsonable_tuple(value: object) -> object:
     if isinstance(value, tuple):
         return [_jsonable_tuple(item) for item in value]
@@ -654,8 +662,9 @@ def _write_report(
     figure_rows: list[dict[str, object]],
     manifest: dict[str, object],
 ) -> None:
+    run_label = str(manifest.get("run_label", "R11"))
     lines = [
-        "# R11 E01 Balanced-Cluster Same-Start Ladder Figures",
+        f"# R11 {run_label} Balanced-Cluster Same-Start Ladder Figures",
         "",
         f"- Figure run version: `{FIGURE_RUN_VERSION}`",
         f"- R11 root: `{manifest['r11_root']}`",

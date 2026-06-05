@@ -1,0 +1,32 @@
+{
+  "figure_run_version": "r11_balanced_same_start_ladder_case_paths_v1",
+  "status": "complete",
+  "run_label": "E02",
+  "r11_root": "03_Control/05_Results/R11_validation/E02",
+  "output_root": "03_Control/A_figures/R11_E02_balanced_ladder_case_paths",
+  "neutral_rollout_path": "03_Control/A_figures/R11_E02_balanced_neutral_baseline/metrics/neutral_rollout_by_case.csv",
+  "library_size_case_id": "balanced_cluster",
+  "paired_start_condition_index": 0,
+  "policy_ids": [
+    "no_memory_baseline",
+    "spatial_flow_belief_memory_h3",
+    "spatial_flow_belief_memory_h10",
+    "spatial_flow_belief_memory_h30"
+  ],
+  "updraft_grid": {
+    "nx": 44,
+    "ny": 28,
+    "nz": 24
+  },
+  "environment_source": "outer_case_schedule seeds plus run_repeated_launch_learning_curve _environment_randomisation_config_for_context",
+  "figures": [
+    "03_Control/A_figures/R11_E02_balanced_ladder_case_paths/figures/r11_e02_bal_s00_l0.png",
+    "03_Control/A_figures/R11_E02_balanced_ladder_case_paths/figures/r11_e02_bal_s00_l1.png",
+    "03_Control/A_figures/R11_E02_balanced_ladder_case_paths/figures/r11_e02_bal_s00_l2.png",
+    "03_Control/A_figures/R11_E02_balanced_ladder_case_paths/figures/r11_e02_bal_s00_l3.png",
+    "03_Control/A_figures/R11_E02_balanced_ladder_case_paths/figures/r11_e02_bal_s00_l4.png",
+    "03_Control/A_figures/R11_E02_balanced_ladder_case_paths/figures/r11_e02_bal_s00_l5.png",
+    "03_Control/A_figures/R11_E02_balanced_ladder_case_paths/figures/r11_e02_bal_s00_l6.png",
+    "03_Control/A_figures/R11_E02_balanced_ladder_case_paths/figures/r11_e02_bal_s00_l7.png"
+  ]
+}

@@ -25,7 +25,12 @@ from lqr_controller import (
     synthesis_audit_row,
     timing_augmented_lqr_design_row,
 )
-from lqr_linearisation import LQR_LOCAL_OPERATING_SPEED_GRID_M_S, LQR_STATE_MASK, ZERO_POSITION_GAIN_STATES
+from lqr_linearisation import (
+    LQR_LOCAL_OPERATING_SPEED_GRID_M_S,
+    LQR_STATE_MASK,
+    ZERO_POSITION_GAIN_STATES,
+    local_linear_model_for_speed,
+)
 from prim_cat import ACTIVE_PRIMITIVE_IDS, primitive_by_id
 from state_contract import STATE_INDEX
 from trim_solver import TrimTarget
@@ -129,6 +134,15 @@ def test_active_trim_and_lqr_require_local_speed_not_global_default() -> None:
     assert launch_speed_controller.linearisation_source == "gain_scheduled_passive_speed_operating_point_v2"
     assert launch_speed_controller.linearisation_id != inflight_speed_controller.linearisation_id
     assert linearise_trim(target=TrimTarget(speed_m_s=4.8)).f_trim.shape == (15,)
+
+
+def test_local_lqr_speed_grid_models_are_available_for_active_calibrated_plant() -> None:
+    for speed_m_s in LQR_LOCAL_OPERATING_SPEED_GRID_M_S:
+        model = local_linear_model_for_speed(float(speed_m_s))
+        assert model.a.shape == (15, 15)
+        assert model.b.shape == (15, 3)
+        assert np.all(np.isfinite(model.a))
+        assert np.all(np.isfinite(model.b))
 
 
 def test_lqr_command_reports_saturation_from_unclipped_raw_surface_request() -> None:

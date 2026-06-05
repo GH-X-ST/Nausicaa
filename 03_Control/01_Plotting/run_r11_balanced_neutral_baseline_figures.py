@@ -1,4 +1,4 @@
-"""Compare R11 E01 balanced-cluster control against true neutral rollouts.
+"""Compare an R11 balanced-cluster control run against true neutral rollouts.
 
 This is a diagnostic-only sim2real sanity check.  The official R11
 ``no_memory_baseline`` policy is still a closed-loop governor/LQR policy, so it
@@ -114,6 +114,7 @@ class NeutralDiagnosticConfig:
 def run_r11_balanced_neutral_baseline_figures(config: NeutralDiagnosticConfig) -> dict[str, object]:
     r11_root = Path(config.r11_root)
     output_root = Path(config.output_root)
+    run_label_slug = _run_label_slug_from_root(r11_root)
     for subdir in ("figures", "metrics", "manifests", "reports"):
         (output_root / subdir).mkdir(parents=True, exist_ok=True)
 
@@ -166,7 +167,7 @@ def run_r11_balanced_neutral_baseline_figures(config: NeutralDiagnosticConfig) -
         figure_path = (
             output_root
             / "figures"
-            / f"r11_e01_bal_neutral_s{paired_index:02d}_{_short_ladder_id(block_id)}.png"
+            / f"r11_{run_label_slug}_bal_neutral_s{paired_index:02d}_{_short_ladder_id(block_id)}.png"
         )
         metadata = _plot_neutral_ladder_case(
             primitive_log=primitive_log,
@@ -193,6 +194,7 @@ def run_r11_balanced_neutral_baseline_figures(config: NeutralDiagnosticConfig) -
     manifest = {
         "diagnostic_version": DIAGNOSTIC_VERSION,
         "status": "complete",
+        "run_label": run_label_slug.upper(),
         "r11_root": r11_root.as_posix(),
         "output_root": output_root.as_posix(),
         "library_size_case_id": str(config.library_size_case_id),
@@ -771,6 +773,12 @@ def _bool01(value: object) -> str:
     return "1" if _truthy(value) else "0"
 
 
+def _run_label_slug_from_root(r11_root: Path) -> str:
+    label = str(Path(r11_root).name).strip().lower()
+    safe = "".join(ch if ch.isalnum() else "_" for ch in label).strip("_")
+    return safe or "run"
+
+
 def _write_report(
     *,
     output_root: Path,
@@ -778,8 +786,9 @@ def _write_report(
     comparison_frame: pd.DataFrame,
     figure_rows: list[dict[str, object]],
 ) -> None:
+    run_label = str(manifest.get("run_label", "R11"))
     lines = [
-        "# R11 E01 Balanced-Cluster Neutral-Intervention Diagnostic",
+        f"# R11 {run_label} Balanced-Cluster Neutral-Intervention Diagnostic",
         "",
         f"- Diagnostic version: `{DIAGNOSTIC_VERSION}`",
         f"- R11 root: `{manifest['r11_root']}`",
