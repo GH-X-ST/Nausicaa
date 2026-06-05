@@ -108,27 +108,24 @@ workers by default. The replay-aligned post-analysis sanity filter uses
 lower `u` bound is not a real launch-gate change, only recognition that replay
 starts after the 0.10 s alignment delay. Neutral control-surface trims stay
 disabled by default.
-The conservative claim-bearing aero-residual workflow is `cm_regime_staged`,
-and its primary candidate is longitudinal-only. It fits attached Cm, transition
-Cm, post-stall Cm/Cmq, transition blend timing, and optional compact post-stall
-CL/CD cleanup as separate held-out-gated stages instead of using one global Cm
-offset. The `compact_joint_sweep` workflow is a from-active exploration mode:
-it discovers signs/ranges, then jointly beam-sweeps the same compact
-longitudinal terms plus a very small lateral/coupling set. It reports strict,
-balanced, and diagnostic candidate classes, but still does not auto-promote
-active constants. Lateral residuals are reported without claiming accurate
-lateral SysID.
+The conservative staged aero-residual workflow is `cm_regime_staged`. It fits
+attached Cm, transition Cm, post-stall Cm/Cmq, transition blend timing, and
+optional compact post-stall CL/CD cleanup as separate held-out-gated stages
+instead of using one global Cm offset. The active stop-point now uses the
+selected `compact_joint_sweep` replay row: the same compact longitudinal terms
+plus selected compact coupling terms. These coupling terms are replay-alignment
+terms, not a full lateral aero SysID claim.
 Replay-aligned starts closer to the lateral-only reference
 `phi0=psi0=v0=p0=r0=0` receive higher coefficient-fit confidence than
 edge-of-gate lateral launches; `u`, `w`, `theta`, and `q` are excluded from that
 confidence score. Lateral and coupling fits use separate excitation-aware
 confidence: moderate beta/p/r excitation is useful, while extreme launch
 contamination is downweighted. The optional secondary lateral diagnostic
-freezes the primary longitudinal candidate, uses excitation-aware lateral
+freezes the compact candidate, uses excitation-aware lateral
 weighting, fits only `CY_beta`, `Cl_p`, and `Cn_r`, and is accepted only if
 held-out dy, roll, and yaw improve without degrading dx, altitude loss, sink, or
-pitch. Transition lateral deltas, post-stall CY/Cl/Cn surfaces, and rich
-post-stall alpha-RBF longitudinal surfaces remain explicit diagnostics
+pitch. Stronger transition lateral deltas, post-stall CY/Cl/Cn surfaces, and
+richer post-stall alpha-RBF longitudinal surfaces remain explicit diagnostics
 requiring opt-in flags. The runner writes
 `metrics/neutral_aero_residual_cm_stage_history.csv` for staged Cm decisions,
 `metrics/neutral_aero_residual_joint_sweep_candidates.csv`,
@@ -148,10 +145,14 @@ fit. It reports sample-aligned replay MAE for normal/attached, transition, and
 post-stall measured-alpha regimes, separately for train and held-out throws:
 `dx`, `dy`, altitude loss, sink rate, roll, pitch, and yaw. The CSV regime name
 for normal attached flow is `attached`. Use this table to see where the model
-is wrong; still accept a candidate only if the full-throw held-out replay
+is wrong; accept active constants only if the full-throw held-out replay
 validation does not damage the trajectory. The active checked-in constants are
-still `neutral_dry_air_aligned_0p20_N07`; pulse data are not fitted until the
-neutral open-loop dry-air mismatch is resolved.
+now `neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_v1`, promoted
+as selected compact residual replay alignment with compact coupling terms. The old theory-only
+baseline is retained only as
+`03_Control/02_Inner_Loop/A_model_parameters/neutral_dry_air_theory_baseline_comparison.json`;
+simulation and real-flight runtime import only the active calibration module.
+Pulse data are not fitted into the active model.
 For direct force/moment evidence, also inspect
 `metrics/neutral_aero_residual_stage_fit_summary.csv`, which reports the
 independent attached, transition-before-post-stall, transition-after-post-stall,

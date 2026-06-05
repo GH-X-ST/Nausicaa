@@ -86,13 +86,15 @@ surface offsets.
 
 ## Active Calibration Decision
 
-Do not update `neutral_dry_air_calibration.py` with the new rich-run
-parameters. The active checked-in constants remain the older accepted
-`neutral_dry_air_aligned_0p20_N07` values. Later code now uses a
-regime-separated longitudinal `cm_regime_staged` path for attached Cm,
-transition Cm, post-stall Cm/Cmq, blend timing, and optional compact post-stall
-CL/CD cleanup; lateral fitting remains a small diagnostic candidate. This is a
-replay-diagnosis capability, not a new active dry-air correction.
+Historical note: this section records the decision at the time of this audit,
+before the later n30 compact residual-calibrated replay model was promoted.
+
+At the time of this historical audit, the rich-run parameters were not promoted
+and the active checked-in constants were still the older accepted
+`neutral_dry_air_aligned_0p20_N07` values. Later code now uses the selected
+compact n30 replay row with attached Cm, transition Cm, post-stall Cm/Cmq,
+12--22 deg blend timing, and selected compact coupling terms. This audit was
+replay-diagnosis evidence, not the current active dry-air correction.
 
 ## Control-Effect Audit
 

@@ -82,38 +82,38 @@ starts the sim-real comparison from the measured state after a 0.10 s
 first-motion alignment window. Held-out throws are selected with a randomised
 session-stratified split; leaving `--heldout-count 0` selects about 15 percent
 of replay-filtered valid throws. The trajectory-residual SysID path runs with
-8 workers. Use `--fit-workflow cm_regime_staged` for the conservative
-claim-bearing staged fit, or `--fit-workflow compact_joint_sweep` for the
-from-active compact joint sweep across longitudinal, small lateral, and
+8 workers. Use `--fit-workflow cm_regime_staged` for the conservative staged
+fit, or `--fit-workflow compact_joint_sweep` for the from-active compact joint
+sweep across longitudinal, small lateral, and coupling terms. The current
+stop-point promotes the selected compact replay row to the shared
+simulation/real-flight model: longitudinal residual terms plus selected compact
 coupling terms. The
 replay-aligned post-analysis sanity filter uses `3.0 <= u <= 8.0` m/s,
 `|v| <= 1.5` m/s, and `|w| <= 0.9` m/s; this is deliberately looser than the
 real `u >= 4.0` launch gate because replay starts after the 0.10 s alignment
-delay. The
-primary claim-bearing candidate is longitudinal-only and fits true
-regime-separated pitch-moment terms: attached Cm first, transition Cm second,
-post-stall Cm/Cmq third, then a small transition blend grid around 10/12/14 deg
-start and 18/20/22 deg full alpha, with compact post-stall CL/CD cleanup only
-after the moment stages. Each stage is accepted only if held-out dx, altitude
-loss, sink, and pitch improve or are preserved. The active model still keeps
-the legacy global Cm term for compatibility, but new neutral SysID candidates
-write attached and transition moment corrections into
+delay. The active compact candidate fits true regime-separated pitch-moment
+terms plus selected compact coupling terms: attached Cm first, transition Cm
+second, post-stall Cm/Cmq third, then a small transition blend grid around
+10/12/14 deg start and 20/22/24 deg full alpha, with compact post-stall CL/CD
+cleanup only after the moment stages. The active model still keeps the legacy
+global Cm term for compatibility, but new neutral SysID candidates write
+attached and transition moment corrections into
 `attached_pitch_moment_bias_coeff` and `transition_pitch_moment_bias_coeff`.
-Lateral residuals are reported, but accurate lateral SysID is not claimed by the
-default run. Replay-aligned starts closer to the lateral-only reference
+The selected compact coupling terms are replay-alignment terms, not a full
+lateral aero SysID claim. Replay-aligned starts closer to the lateral-only reference
 `phi0=psi0=v0=p0=r0=0` receive higher coefficient-fit confidence than
 edge-of-gate lateral launches; `u`, `w`, `theta`, and `q` are not part of this
 confidence score. Lateral/coupling fits use a separate excitation-aware
 confidence that keeps useful moderate beta/p/r excitation while downweighting
 extreme launch contamination. The optional secondary lateral diagnostic freezes
-the longitudinal candidate, uses that excitation-aware lateral weighting, fits
+the compact candidate, uses that excitation-aware lateral weighting, fits
 only `CY_beta`, `Cl_p`, and `Cn_r`, and is accepted only if held-out dy, roll,
 and yaw improve without degrading dx, altitude loss, sink, or pitch. The
 compact joint sweep starts from `active_parameter_dict()`, discovers signs and
 ranges, beam-prunes candidates, and writes strict, balanced, and diagnostic
-candidate classes without automatically promoting constants. Transition lateral
-deltas, post-stall CY/Cl/Cn surfaces, and post-stall alpha-RBF longitudinal
-surfaces remain explicit diagnostics requiring opt-in flags.
+candidate classes. Stronger transition lateral deltas, post-stall CY/Cl/Cn
+surfaces, and richer post-stall alpha-RBF longitudinal surfaces remain explicit
+diagnostics requiring opt-in flags.
 `neutral_aero_residual_cm_stage_history.csv` records the staged Cm decisions,
 `neutral_aero_residual_joint_sweep_candidates.csv`,
 `neutral_aero_residual_joint_sweep_pareto.csv`, and
@@ -127,9 +127,15 @@ attached, transition, and post-stall replay MAE. Keep `DELTA_A_TRIM_RAD`,
 `--fit-post-stall-surfaces`, or `--fit-lateral-surfaces` only as explicit
 diagnostics/ablations. Do not shorten the 0.10 s alignment window unless it is
 explicitly labelled as a diagnostic sensitivity run. The active checked-in
-constants remain the older N07 fit until a held-out replay candidate passes the
-primary longitudinal replay gate; lateral terms require the separate secondary
-diagnostic gate before they can be discussed as more than residual evidence.
+constants are now `neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_v1`,
+promoted as selected compact residual replay alignment with compact coupling
+terms.
+The old theory-only baseline is retained only as
+`03_Control/02_Inner_Loop/A_model_parameters/neutral_dry_air_theory_baseline_comparison.json`;
+simulation and real-flight runtime import only the active calibration module.
+The promoted compact coupling terms should be discussed as replay-alignment
+terms; stronger lateral terms still require a separate diagnostic gate before
+being discussed as more than residual evidence.
 
 
 Block B: Single-Axis 0.2-Lattice Control-Effectiveness Ladder

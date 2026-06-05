@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import inspect
 import sys
@@ -16,6 +17,7 @@ if str(INNER_LOOP) not in sys.path:
 
 import run_fit_neutral_aero_residual_calibration as sysid  # noqa: E402
 from A_model_parameters import mass_properties_estimate  # noqa: E402
+from A_model_parameters import neutral_dry_air_calibration as active_calibration  # noqa: E402
 
 
 def test_default_neutral_sysid_is_longitudinal_primary_with_lateral_diagnostic() -> None:
@@ -269,6 +271,41 @@ def test_compact_joint_sweep_tests_delayed_full_stall_blend() -> None:
 def test_post_stall_pitch_damping_upper_bound_is_released_for_diagnostics() -> None:
     assert sysid.replay_fit.bounded_parameter_value("post_stall_pitch_damping_coeff", 9.0) == pytest.approx(8.0)
     assert sysid.replay_fit.bounded_parameter_value("post_stall_pitch_damping_coeff", -9.0) == pytest.approx(-4.0)
+
+
+def test_active_calibration_is_promoted_compact_coupled_replay_model() -> None:
+    assert active_calibration.CALIBRATION_ID == "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_v1"
+    assert active_calibration.CLAIM_BOUNDARY == (
+        "compact_residual_calibrated_replay_alignment_with_selected_coupling_terms"
+    )
+    assert active_calibration.SOURCE_SELECTED_CANDIDATE == "joint_0270_post_stall_Cn_p_1.5"
+    assert active_calibration.ATTACHED_PITCH_MOMENT_BIAS_COEFF == pytest.approx(0.11309832420327923)
+    assert active_calibration.TRANSITION_PITCH_MOMENT_BIAS_COEFF == pytest.approx(0.05711558897899738)
+    assert active_calibration.POST_STALL_PITCH_MOMENT_COEFF == pytest.approx(0.07585874586245771)
+    assert active_calibration.POST_STALL_PITCH_DAMPING_COEFF == pytest.approx(4.0)
+    assert active_calibration.POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG == pytest.approx(22.0)
+    assert active_calibration.SIDE_FORCE_BETA_COEFF == pytest.approx(-1.9802669025044202)
+    assert active_calibration.TRANSITION_SIDE_FORCE_R_HAT_COEFF == pytest.approx(-3.0)
+    assert active_calibration.TRANSITION_YAW_MOMENT_P_HAT_COEFF == pytest.approx(-0.1461483136170422)
+    assert np.asarray(active_calibration.POST_STALL_YAW_MOMENT_RBF_COEFFS, dtype=float)[2, 0] == pytest.approx(
+        -0.07119920085255141
+    )
+
+
+def test_theory_baseline_is_comparison_only_data_artifact() -> None:
+    comparison_path = (
+        INNER_LOOP / "A_model_parameters" / "neutral_dry_air_theory_baseline_comparison.json"
+    )
+    with comparison_path.open("r", encoding="utf-8") as handle:
+        comparison = json.load(handle)
+
+    assert comparison_path.suffix == ".json"
+    assert comparison["artifact_role"] == "comparison_only_not_runtime_imported"
+    assert comparison["calibration_active"] is False
+    assert comparison["claim_boundary"] == "reference_baseline_only_no_sim_or_real_runtime_call"
+    assert comparison["runtime_model_module"].endswith("neutral_dry_air_calibration.py")
+    assert comparison["constants"]["attached_pitch_moment_bias_coeff"] == pytest.approx(0.0)
+    assert comparison["constants"]["post_stall_pitch_damping_coeff"] == pytest.approx(0.0)
 
 
 def test_mass_properties_match_ballasted_glider_measurement() -> None:
