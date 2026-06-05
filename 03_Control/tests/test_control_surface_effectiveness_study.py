@@ -113,6 +113,114 @@ def test_antisymmetric_and_symmetric_formulas_are_pairwise() -> None:
     assert row["sim_symmetric_response"] == pytest.approx(1.0)
 
 
+def test_confidence_weighted_effectiveness_uses_launch_weights() -> None:
+    positive = [
+        {"actual_peak_p_rad_s": 10.0, "sim_peak_p_rad_s": 8.0, "launch_confidence_weight": 0.1},
+        {"actual_peak_p_rad_s": 0.0, "sim_peak_p_rad_s": 0.0, "launch_confidence_weight": 0.9},
+    ]
+    negative = [{"actual_peak_p_rad_s": -2.0, "sim_peak_p_rad_s": -1.0, "launch_confidence_weight": 1.0}]
+
+    row = study.effectiveness_metric_row(
+        "confidence_weighted_all",
+        "aileron",
+        0.2,
+        "peak_p_rad_s",
+        positive,
+        negative,
+        confidence_weighted=True,
+    )
+
+    assert row["actual_positive_mean"] == pytest.approx(1.0)
+    assert row["actual_antisymmetric_response"] == pytest.approx(1.5)
+
+
+def test_launch_confidence_scores_clean_and_asymmetric_starts() -> None:
+    clean = study.launch_confidence_from_inventory_row(
+        {
+            "u0_m_s": 5.0,
+            "v0_m_s": 0.0,
+            "w0_m_s": 0.0,
+            "phi0_deg": 0.0,
+            "theta0_deg": 0.0,
+            "psi0_deg": 0.0,
+            "p0_rad_s": 0.0,
+            "q0_rad_s": 0.0,
+            "r0_rad_s": 0.0,
+            "mean_rate_confidence": 0.95,
+            "response_spike_fraction": 0.0,
+        }
+    )
+    asymmetric = study.launch_confidence_from_inventory_row(
+        {
+            "u0_m_s": 3.2,
+            "v0_m_s": 1.4,
+            "w0_m_s": 0.8,
+            "phi0_deg": 14.0,
+            "theta0_deg": 20.0,
+            "psi0_deg": 14.0,
+            "p0_rad_s": 1.1,
+            "q0_rad_s": 1.0,
+            "r0_rad_s": 1.7,
+            "mean_rate_confidence": 0.55,
+            "response_spike_fraction": 0.2,
+        }
+    )
+
+    assert clean["launch_confidence_label"] == "high"
+    assert asymmetric["launch_confidence_label"] == "low"
+
+
+def test_surface_derivative_fit_uses_launch_confidence_weights() -> None:
+    samples = [
+        {"state_12": 1.0, "moment_coeff_residual_0": 4.0, "launch_confidence_weight": 0.1},
+        {"state_12": 1.0, "moment_coeff_residual_0": 2.0, "launch_confidence_weight": 0.9},
+    ]
+
+    coeff = study.weighted_surface_derivative_fit(samples, state_index=12, moment_index=0)
+    baseline = study.weighted_derivative_mae(samples, state_index=12, moment_index=0, coefficient=0.0)
+    candidate = study.weighted_derivative_mae(samples, state_index=12, moment_index=0, coefficient=coeff)
+
+    assert coeff == pytest.approx(2.2)
+    assert candidate < baseline
+
+
+def test_surface_derivative_fit_accepts_side_force_residual_key() -> None:
+    samples = [
+        {"state_12": 1.0, "force_coeff_residual_y": 6.0, "launch_confidence_weight": 0.25},
+        {"state_12": 1.0, "force_coeff_residual_y": 2.0, "launch_confidence_weight": 0.75},
+    ]
+
+    coeff = study.weighted_surface_derivative_fit(samples, state_index=12, residual_key="force_coeff_residual_y")
+    baseline = study.weighted_derivative_mae(samples, state_index=12, residual_key="force_coeff_residual_y", coefficient=0.0)
+    candidate = study.weighted_derivative_mae(samples, state_index=12, residual_key="force_coeff_residual_y", coefficient=coeff)
+
+    assert coeff == pytest.approx(3.0)
+    assert candidate < baseline
+
+
+def test_surface_aero_coupling_candidate_families_are_constrained() -> None:
+    coefficients = {
+        "Cl_delta_a_residual": 0.1,
+        "Cm_delta_e_residual": -0.2,
+        "Cn_delta_r_residual": 0.3,
+        "Cn_delta_a_residual": -0.4,
+        "CY_delta_a_residual": 0.5,
+        "CY_delta_r_residual": -0.6,
+    }
+
+    families = study.surface_aero_coupling_candidate_coefficients(coefficients)
+
+    assert families["C0_frozen_neutral"] == {}
+    assert set(families["C1_primary_moment_derivatives"]) == {
+        "Cl_delta_a_residual",
+        "Cm_delta_e_residual",
+        "Cn_delta_r_residual",
+    }
+    assert "Cn_delta_a_residual" in families["C2_c1_plus_aileron_adverse_yaw"]
+    assert "CY_delta_a_residual" in families["C4_c1_plus_surface_side_force"]
+    assert "Cl_delta_r_residual" not in families["C5_c2_plus_surface_side_force"]
+
+
 def test_short_response_window_returns_nan_metrics_without_crashing() -> None:
     rows = [{"t_s": "0.0", "x_w": "0", "y_w": "0", "z_w": "1", "phi": "0", "theta": "0", "psi": "0", "u": "5", "v": "0", "w": "0", "p": "0", "q": "0", "r": "0"}]
 

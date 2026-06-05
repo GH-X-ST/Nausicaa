@@ -39,7 +39,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from command_contract import normalised_command_to_surface_rad  # noqa: E402
-from flight_dynamics import adapt_glider  # noqa: E402
+from flight_dynamics import adapt_glider, state_derivative  # noqa: E402
 from glider import build_nausicaa_glider  # noqa: E402
 import run_real_glider_calibration_prep as prep  # noqa: E402
 from A_model_parameters import neutral_dry_air_calibration as active_calibration  # noqa: E402
@@ -62,6 +62,18 @@ MAX_RESPONSE_SPIKE_FRACTION = 0.20
 DEEP_POST_STALL_ALPHA_DEG = 30.0
 COMMAND_MATCH_TOL = 1e-6
 COMMAND_TIMING_TOL_S = 0.10
+LAUNCH_CONFIDENCE_HIGH_THRESHOLD = 0.75
+LAUNCH_CONFIDENCE_MEDIUM_THRESHOLD = 0.55
+LAUNCH_CONFIDENCE_MIN_WEIGHT = 0.25
+LAUNCH_CONFIDENCE_EXPONENT = 1.5
+LAUNCH_CONFIDENCE_ROLL_ABS_MAX_DEG = 20.0
+LAUNCH_CONFIDENCE_YAW_ABS_MAX_DEG = 20.0
+LAUNCH_CONFIDENCE_V_ABS_MAX_M_S = 1.5
+LAUNCH_CONFIDENCE_P_ABS_MAX_RAD_S = 1.2
+LAUNCH_CONFIDENCE_R_ABS_MAX_RAD_S = 1.8
+DERIVATIVE_FIT_MIN_QBAR_PA = 2.0
+DERIVATIVE_FIT_MIN_SURFACE_RAD = 0.02
+DERIVATIVE_FIT_COEFF_ABS_BOUND = 12.0
 
 COMMAND_AXIS_TO_SURFACE = {
     "delta_a": "aileron",
@@ -143,6 +155,11 @@ INVENTORY_FIELDS = [
     "r0_rad_s",
     "mean_rate_confidence",
     "min_rate_confidence",
+    "launch_confidence_score",
+    "launch_confidence_label",
+    "launch_confidence_weight",
+    "launch_lateral_contamination_score",
+    "launch_confidence_reasons",
     "response_spike_fraction",
     "response_body_rate_limited_fraction",
     "max_abs_alpha_deg",
@@ -168,7 +185,30 @@ FILTER_SUMMARY_FIELDS = [
     "filter_reason_counts",
 ]
 
+LAUNCH_CONFIDENCE_SUMMARY_FIELDS = [
+    "group",
+    "split",
+    "surface_axis",
+    "command_abs",
+    "replay_count",
+    "high_confidence_count",
+    "medium_confidence_count",
+    "low_confidence_count",
+    "mean_launch_confidence_score",
+    "mean_launch_lateral_contamination_score",
+    "primary_metric",
+    "all_abs_antisym_residual",
+    "high_confidence_abs_antisym_residual",
+    "confidence_weighted_abs_antisym_residual",
+    "high_minus_all_abs_residual",
+    "weighted_minus_all_abs_residual",
+    "replay_dx_mae_m",
+    "replay_dy_mae_m",
+    "replay_altitude_loss_mae_m",
+]
+
 REPLAY_FIELDS = [
+    "candidate_id",
     "split",
     "dataset_root",
     "session_label",
@@ -179,6 +219,11 @@ REPLAY_FIELDS = [
     "command_axis",
     "command_value",
     "command_abs",
+    "launch_confidence_score",
+    "launch_confidence_label",
+    "launch_confidence_weight",
+    "launch_lateral_contamination_score",
+    "launch_confidence_reasons",
     "replay_status",
     "replay_policy",
     "replay_dt_s",
@@ -256,6 +301,157 @@ OPTIONAL_HELDOUT_FIELDS = [
     "promotion_gate_status",
 ]
 
+OPTIONAL_AERO_COUPLING_FIT_FIELDS = [
+    "candidate_id",
+    "parameter",
+    "surface_axis",
+    "command_axis",
+    "moment_axis",
+    "fit_role",
+    "coefficient_per_rad",
+    "bounded_coefficient_per_rad",
+    "train_sample_count",
+    "heldout_sample_count",
+    "train_baseline_mae_coeff",
+    "train_candidate_mae_coeff",
+    "heldout_baseline_mae_coeff",
+    "heldout_candidate_mae_coeff",
+    "heldout_improved",
+    "mean_launch_confidence_weight",
+    "physical_sign_status",
+    "promotion_gate_status",
+    "claim_boundary",
+]
+
+REPLAY_ERROR_SUMMARY_FIELDS = [
+    "candidate_id",
+    "split",
+    "surface_axis",
+    "replay_count",
+    "dx_mae_m",
+    "dy_mae_m",
+    "altitude_loss_mae_m",
+    "final_phi_mae_deg",
+    "final_theta_mae_deg",
+    "final_psi_mae_deg",
+    "primary_antisym_residual",
+    "claim_boundary",
+]
+
+SURFACE_AERO_COUPLING_SPECS = (
+    {
+        "parameter": "CY_delta_a_residual",
+        "surface_axis": "aileron",
+        "command_axis": "delta_a",
+        "state_index": 12,
+        "fit_type": "side_force",
+        "moment_axis": "side_force_y",
+        "fit_role": "aileron_side_force",
+        "reference": "area",
+    },
+    {
+        "parameter": "Cl_delta_a_residual",
+        "surface_axis": "aileron",
+        "command_axis": "delta_a",
+        "state_index": 12,
+        "fit_type": "moment",
+        "moment_index": 0,
+        "moment_axis": "roll",
+        "fit_role": "aileron_roll_effectiveness",
+        "reference": "span",
+    },
+    {
+        "parameter": "Cn_delta_a_residual",
+        "surface_axis": "aileron",
+        "command_axis": "delta_a",
+        "state_index": 12,
+        "fit_type": "moment",
+        "moment_index": 2,
+        "moment_axis": "yaw",
+        "fit_role": "aileron_yaw_coupling",
+        "reference": "span",
+    },
+    {
+        "parameter": "Cm_delta_e_residual",
+        "surface_axis": "elevator",
+        "command_axis": "delta_e",
+        "state_index": 13,
+        "fit_type": "moment",
+        "moment_index": 1,
+        "moment_axis": "pitch",
+        "fit_role": "elevator_pitch_effectiveness",
+        "reference": "chord",
+    },
+    {
+        "parameter": "CY_delta_r_residual",
+        "surface_axis": "rudder",
+        "command_axis": "delta_r",
+        "state_index": 14,
+        "fit_type": "side_force",
+        "moment_axis": "side_force_y",
+        "fit_role": "rudder_side_force",
+        "reference": "area",
+    },
+    {
+        "parameter": "Cn_delta_r_residual",
+        "surface_axis": "rudder",
+        "command_axis": "delta_r",
+        "state_index": 14,
+        "fit_type": "moment",
+        "moment_index": 2,
+        "moment_axis": "yaw",
+        "fit_role": "rudder_yaw_effectiveness",
+        "reference": "span",
+    },
+    {
+        "parameter": "Cl_delta_r_residual",
+        "surface_axis": "rudder",
+        "command_axis": "delta_r",
+        "state_index": 14,
+        "fit_type": "moment",
+        "moment_index": 0,
+        "moment_axis": "roll",
+        "fit_role": "rudder_roll_coupling",
+        "reference": "span",
+    },
+)
+
+SURFACE_AERO_COUPLING_CANDIDATE_FAMILIES = {
+    "C0_frozen_neutral": (),
+    "C1_primary_moment_derivatives": (
+        "Cl_delta_a_residual",
+        "Cm_delta_e_residual",
+        "Cn_delta_r_residual",
+    ),
+    "C2_c1_plus_aileron_adverse_yaw": (
+        "Cl_delta_a_residual",
+        "Cm_delta_e_residual",
+        "Cn_delta_r_residual",
+        "Cn_delta_a_residual",
+    ),
+    "C3_c1_plus_rudder_roll": (
+        "Cl_delta_a_residual",
+        "Cm_delta_e_residual",
+        "Cn_delta_r_residual",
+        "Cl_delta_r_residual",
+    ),
+    "C4_c1_plus_surface_side_force": (
+        "Cl_delta_a_residual",
+        "Cm_delta_e_residual",
+        "Cn_delta_r_residual",
+        "CY_delta_a_residual",
+        "CY_delta_r_residual",
+    ),
+    "C5_c2_plus_surface_side_force": (
+        "Cl_delta_a_residual",
+        "Cm_delta_e_residual",
+        "Cn_delta_r_residual",
+        "Cn_delta_a_residual",
+        "CY_delta_a_residual",
+        "CY_delta_r_residual",
+    ),
+}
+
 
 def main() -> None:
     args = build_arg_parser().parse_args()
@@ -294,8 +490,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--surface-fit-diagnostics",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Write diagnostic S1/S2 candidate estimates without promotion.",
+        default=False,
+        help="Optionally write legacy S1/S2 metric-space surface-scale estimates; disabled by default.",
     )
     return parser
 
@@ -324,8 +520,33 @@ def run_study(
     )
     assign_launch_level_split(inventory_rows, heldout_seed=heldout_seed)
     kept_rows = [row for row in inventory_rows if row.get("filter_status") == "kept"]
-    replay_rows = replay_kept_rows(kept_rows, replay_dt_s=replay_dt_s)
+    replay_rows = replay_kept_rows(kept_rows, replay_dt_s=replay_dt_s, candidate_id="C0_frozen_neutral")
     effectiveness_rows = summarize_effectiveness(replay_rows)
+    launch_confidence_rows = launch_confidence_summary(replay_rows, effectiveness_rows)
+    aero_coupling_rows = optional_surface_aero_coupling_fit(replay_rows)
+    aero_coupling_coefficients = surface_aero_coupling_coefficients(aero_coupling_rows)
+    candidate_coefficients = surface_aero_coupling_candidate_coefficients(aero_coupling_coefficients)
+    replay_by_candidate = {"C0_frozen_neutral": replay_rows}
+    effectiveness_by_candidate = {"C0_frozen_neutral": effectiveness_rows}
+    for candidate_id, coeffs in candidate_coefficients.items():
+        if candidate_id == "C0_frozen_neutral":
+            continue
+        candidate_replay_rows = replay_kept_rows(
+            kept_rows,
+            replay_dt_s=replay_dt_s,
+            candidate_id=candidate_id,
+            replay_policy=f"{candidate_id}_launch_confidence_weighted_surface_aero_coupling_replay",
+            derivative_coeffs=coeffs,
+        )
+        replay_by_candidate[candidate_id] = candidate_replay_rows
+        effectiveness_by_candidate[candidate_id] = summarize_effectiveness(candidate_replay_rows)
+    candidate_sweep_replay_rows = [
+        row
+        for candidate_id, candidate_rows in replay_by_candidate.items()
+        if candidate_id != "C0_frozen_neutral"
+        for row in candidate_rows
+    ]
+    replay_error_summary_rows = replay_error_summary(replay_by_candidate, effectiveness_by_candidate)
     symmetric_rows = [
         {
             **row,
@@ -339,12 +560,16 @@ def run_study(
         effectiveness_rows,
         run_diagnostics=run_surface_fit_diagnostics,
     )
+    append_surface_aero_coupling_candidate(optional_candidates, optional_heldout, aero_coupling_rows)
     filtering_summary_rows = filtering_summary(inventory_rows)
 
     write_csv(output_dir / "control_surface_inventory.csv", inventory_rows, INVENTORY_FIELDS)
     write_csv(output_dir / "control_surface_filtering_summary.csv", filtering_summary_rows, FILTER_SUMMARY_FIELDS)
     write_csv(output_dir / "control_surface_replay_metrics.csv", replay_rows, REPLAY_FIELDS)
+    write_csv(output_dir / "control_surface_replay_metrics_candidate_sweep.csv", candidate_sweep_replay_rows, REPLAY_FIELDS)
+    write_csv(output_dir / "control_surface_replay_error_summary.csv", replay_error_summary_rows, REPLAY_ERROR_SUMMARY_FIELDS)
     write_csv(output_dir / "control_surface_effectiveness_summary.csv", effectiveness_rows, EFFECTIVENESS_FIELDS)
+    write_csv(output_dir / "control_surface_launch_confidence_summary.csv", launch_confidence_rows, LAUNCH_CONFIDENCE_SUMMARY_FIELDS)
     write_csv(
         output_dir / "control_surface_symmetric_contamination_summary.csv",
         symmetric_rows,
@@ -352,15 +577,20 @@ def run_study(
     )
     write_csv(output_dir / "optional_surface_fit_candidates.csv", optional_candidates, OPTIONAL_CANDIDATE_FIELDS)
     write_csv(output_dir / "optional_surface_fit_heldout_summary.csv", optional_heldout, OPTIONAL_HELDOUT_FIELDS)
+    write_csv(output_dir / "optional_surface_aero_coupling_fit.csv", aero_coupling_rows, OPTIONAL_AERO_COUPLING_FIT_FIELDS)
 
-    figures = write_figures(output_dir / "figures", inventory_rows, replay_rows, effectiveness_rows, optional_heldout)
+    figures = write_figures(output_dir / "figures", inventory_rows, replay_rows, effectiveness_rows, launch_confidence_rows, optional_heldout)
     manifest = build_manifest(
         input_root=input_root,
         dataset_roots=dataset_roots,
         output_dir=output_dir,
         inventory_rows=inventory_rows,
         replay_rows=replay_rows,
+        candidate_sweep_replay_rows=candidate_sweep_replay_rows,
+        replay_error_summary_rows=replay_error_summary_rows,
         effectiveness_rows=effectiveness_rows,
+        launch_confidence_rows=launch_confidence_rows,
+        aero_coupling_rows=aero_coupling_rows,
         filtering_summary_rows=filtering_summary_rows,
         optional_candidates=optional_candidates,
         optional_heldout=optional_heldout,
@@ -378,7 +608,11 @@ def run_study(
         output_dir / "control_surface_effectiveness_report.md",
         inventory_rows=inventory_rows,
         replay_rows=replay_rows,
+        candidate_sweep_replay_rows=candidate_sweep_replay_rows,
+        replay_error_summary_rows=replay_error_summary_rows,
         effectiveness_rows=effectiveness_rows,
+        launch_confidence_rows=launch_confidence_rows,
+        aero_coupling_rows=aero_coupling_rows,
         optional_candidates=optional_candidates,
         optional_heldout=optional_heldout,
         filtering_summary_rows=filtering_summary_rows,
@@ -513,6 +747,11 @@ def inventory_row_from_throw(
         "r0_rad_s": r0,
         "mean_rate_confidence": safe_mean(confidence),
         "min_rate_confidence": safe_min(confidence),
+        "launch_confidence_score": float("nan"),
+        "launch_confidence_label": "unknown",
+        "launch_confidence_weight": 0.0,
+        "launch_lateral_contamination_score": float("nan"),
+        "launch_confidence_reasons": "",
         "response_spike_fraction": ratio(sum(response_spikes), len(response_spikes)),
         "response_body_rate_limited_fraction": ratio(sum(response_limited), len(response_limited)),
         "max_abs_alpha_deg": max_abs_alpha_deg,
@@ -520,9 +759,12 @@ def inventory_row_from_throw(
         "split": "excluded",
         "notes": inventory_notes(summary, config),
     }
+    row.update(launch_confidence_from_inventory_row(row))
     kept, reasons = filter_inventory_row(row, min_response_window_s=min_response_window_s)
     row["filter_status"] = "kept" if kept else "filtered"
     row["filter_reasons"] = ";".join(reasons)
+    if not kept:
+        row["launch_confidence_weight"] = 0.0
     return row
 
 
@@ -587,31 +829,55 @@ def assign_launch_level_split(rows: list[dict[str, Any]], *, heldout_seed: int) 
             row["split"] = "heldout" if index in heldout else "train"
 
 
-def replay_kept_rows(rows: list[dict[str, Any]], *, replay_dt_s: float) -> list[dict[str, Any]]:
+def replay_kept_rows(
+    rows: list[dict[str, Any]],
+    *,
+    replay_dt_s: float,
+    candidate_id: str = "C0_frozen_neutral",
+    replay_policy: str = "frozen_active_neutral_model_exact_measured_launch_state_same_command_history_same_duration",
+    derivative_coeffs: dict[str, float] | None = None,
+) -> list[dict[str, Any]]:
     aircraft = adapt_glider(build_nausicaa_glider())
     replay_rows: list[dict[str, Any]] = []
     for row in rows:
-        replay_rows.append(replay_throw(row, aircraft=aircraft, replay_dt_s=replay_dt_s))
+        replay_rows.append(
+            replay_throw(
+                row,
+                aircraft=aircraft,
+                replay_dt_s=replay_dt_s,
+                candidate_id=candidate_id,
+                replay_policy=replay_policy,
+                derivative_coeffs=derivative_coeffs,
+            )
+        )
     return replay_rows
 
 
-def replay_throw(row: dict[str, Any], *, aircraft: Any, replay_dt_s: float) -> dict[str, Any]:
+def replay_throw(
+    row: dict[str, Any],
+    *,
+    aircraft: Any,
+    replay_dt_s: float,
+    candidate_id: str,
+    replay_policy: str,
+    derivative_coeffs: dict[str, float] | None = None,
+) -> dict[str, Any]:
     throw_dir = Path(str(row.get("_throw_dir", "")))
     sample_rows = read_csv(throw_dir / "metrics" / "state_samples.csv")
     if not sample_rows:
-        return blocked_replay_row(row, "missing_state_samples", replay_dt_s)
+        return blocked_replay_row(row, "missing_state_samples", replay_dt_s, candidate_id=candidate_id)
     try:
         actual_state0 = prep._state_vector_from_sample_row(sample_rows[0])
     except Exception:
-        return blocked_replay_row(row, "nonfinite_initial_state", replay_dt_s)
+        return blocked_replay_row(row, "nonfinite_initial_state", replay_dt_s, candidate_id=candidate_id)
     if not np.all(np.isfinite(actual_state0)):
-        return blocked_replay_row(row, "nonfinite_initial_state", replay_dt_s)
+        return blocked_replay_row(row, "nonfinite_initial_state", replay_dt_s, candidate_id=candidate_id)
 
     t0 = to_float(sample_rows[0].get("t_s"), 0.0)
     t1 = to_float(sample_rows[-1].get("t_s"), t0)
     duration_s = max(0.0, t1 - t0)
     if not math.isfinite(duration_s) or duration_s <= 0.0:
-        return blocked_replay_row(row, "invalid_duration", replay_dt_s)
+        return blocked_replay_row(row, "invalid_duration", replay_dt_s, candidate_id=candidate_id)
 
     manifest = load_json(throw_dir / "manifests" / "glider_calibration_throw_manifest.json")
     actuator_tau_s = prep._actuator_tau_from_manifest(manifest)
@@ -628,9 +894,10 @@ def replay_throw(row: dict[str, Any], *, aircraft: Any, replay_dt_s: float) -> d
         actuator_tau_s=actuator_tau_s,
         duration_s=duration_s,
         replay_dt_s=replay_dt_s,
+        derivative_coeffs=derivative_coeffs,
     )
     if sim_status != "ok":
-        return blocked_replay_row(row, sim_status, replay_dt_s)
+        return blocked_replay_row(row, sim_status, replay_dt_s, candidate_id=candidate_id)
 
     response_start_s = to_float(row.get("usable_window_start_s"))
     response_end_s = to_float(row.get("usable_window_end_s"))
@@ -645,11 +912,11 @@ def replay_throw(row: dict[str, Any], *, aircraft: Any, replay_dt_s: float) -> d
     sim_dy = float(sim_final[1] - actual_state0[1])
     sim_altitude_loss = float(actual_state0[2] - sim_final[2])
 
-    out = base_replay_row(row, replay_dt_s)
+    out = base_replay_row(row, replay_dt_s, candidate_id=candidate_id)
     out.update(
         {
             "replay_status": "ok",
-            "replay_policy": "frozen_active_neutral_model_exact_measured_launch_state_same_command_history_same_duration",
+            "replay_policy": replay_policy,
             "replay_command_source": command_source,
             "replay_command_onset_delay_s": command_onset_delay_s,
             "duration_s": duration_s,
@@ -701,6 +968,7 @@ def simulate_trace(
     actuator_tau_s: tuple[float, float, float],
     duration_s: float,
     replay_dt_s: float,
+    derivative_coeffs: dict[str, float] | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
     x = np.asarray(x0, dtype=float).copy()
     trace = [metric_row_from_state(0.0, x)]
@@ -712,13 +980,23 @@ def simulate_trace(
         command_index = prep._advance_command_index(command_schedule, command_index, t_s)
         command = command_schedule[command_index][1]
         try:
-            x = prep._rk4_step_measured_launch(
-                x=x,
-                command=command,
-                aircraft=aircraft,
-                actuator_tau_s=actuator_tau_s,
-                dt_s=dt_s,
-            )
+            if derivative_coeffs:
+                x = rk4_step_surface_aero_coupling(
+                    x=x,
+                    command=command,
+                    aircraft=aircraft,
+                    actuator_tau_s=actuator_tau_s,
+                    dt_s=dt_s,
+                    derivative_coeffs=derivative_coeffs,
+                )
+            else:
+                x = prep._rk4_step_measured_launch(
+                    x=x,
+                    command=command,
+                    aircraft=aircraft,
+                    actuator_tau_s=actuator_tau_s,
+                    dt_s=dt_s,
+                )
         except Exception:
             return trace, "state_derivative_failed"
         t_s += dt_s
@@ -726,6 +1004,113 @@ def simulate_trace(
             return trace, "nonfinite_replay_state"
         trace.append(metric_row_from_state(t_s, x))
     return trace, "ok"
+
+
+def rk4_step_surface_aero_coupling(
+    *,
+    x: np.ndarray,
+    command: np.ndarray,
+    aircraft: Any,
+    actuator_tau_s: tuple[float, float, float],
+    dt_s: float,
+    derivative_coeffs: dict[str, float],
+) -> np.ndarray:
+    k1 = state_derivative_with_surface_aero_coupling(x, command, aircraft, actuator_tau_s, derivative_coeffs)
+    k2 = state_derivative_with_surface_aero_coupling(
+        x + 0.5 * dt_s * k1,
+        command,
+        aircraft,
+        actuator_tau_s,
+        derivative_coeffs,
+    )
+    k3 = state_derivative_with_surface_aero_coupling(
+        x + 0.5 * dt_s * k2,
+        command,
+        aircraft,
+        actuator_tau_s,
+        derivative_coeffs,
+    )
+    k4 = state_derivative_with_surface_aero_coupling(
+        x + dt_s * k3,
+        command,
+        aircraft,
+        actuator_tau_s,
+        derivative_coeffs,
+    )
+    return x + (dt_s / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+
+
+def state_derivative_with_surface_aero_coupling(
+    x: np.ndarray,
+    command: np.ndarray,
+    aircraft: Any,
+    actuator_tau_s: tuple[float, float, float],
+    derivative_coeffs: dict[str, float],
+) -> np.ndarray:
+    x_dot = state_derivative(
+        x,
+        command,
+        aircraft,
+        wind_model=None,
+        actuator_tau_s=actuator_tau_s,
+        wind_mode="panel",
+    )
+    x_dot = np.asarray(x_dot, dtype=float).reshape(15)
+    x_dot[6:9] += surface_aero_coupling_v_dot(x, aircraft, derivative_coeffs)
+    x_dot[9:12] += surface_aero_coupling_omega_dot(x, aircraft, derivative_coeffs)
+    return x_dot
+
+
+def surface_aero_coupling_v_dot(x: np.ndarray, aircraft: Any, derivative_coeffs: dict[str, float]) -> np.ndarray:
+    state = np.asarray(x, dtype=float).reshape(15)
+    speed_m_s = float(np.linalg.norm(state[6:9]))
+    qbar = 0.5 * 1.225 * speed_m_s * speed_m_s
+    if not math.isfinite(qbar) or qbar <= 0.0:
+        return np.zeros(3)
+    delta_a, _, delta_r = [float(value) for value in state[12:15]]
+    side_force_b = (
+        qbar
+        * aircraft.s_ref_m2
+        * (
+            float(derivative_coeffs.get("CY_delta_a_residual", 0.0)) * delta_a
+            + float(derivative_coeffs.get("CY_delta_r_residual", 0.0)) * delta_r
+        )
+    )
+    return np.array([0.0, side_force_b / aircraft.mass_kg, 0.0], dtype=float)
+
+
+def surface_aero_coupling_omega_dot(x: np.ndarray, aircraft: Any, derivative_coeffs: dict[str, float]) -> np.ndarray:
+    state = np.asarray(x, dtype=float).reshape(15)
+    speed_m_s = float(np.linalg.norm(state[6:9]))
+    qbar = 0.5 * 1.225 * speed_m_s * speed_m_s
+    if not math.isfinite(qbar) or qbar <= 0.0:
+        return np.zeros(3)
+    delta_a, delta_e, delta_r = [float(value) for value in state[12:15]]
+    moment_b = np.array(
+        [
+            qbar
+            * aircraft.s_ref_m2
+            * aircraft.b_ref_m
+            * (
+                float(derivative_coeffs.get("Cl_delta_a_residual", 0.0)) * delta_a
+                + float(derivative_coeffs.get("Cl_delta_r_residual", 0.0)) * delta_r
+            ),
+            qbar
+            * aircraft.s_ref_m2
+            * aircraft.c_ref_m
+            * float(derivative_coeffs.get("Cm_delta_e_residual", 0.0))
+            * delta_e,
+            qbar
+            * aircraft.s_ref_m2
+            * aircraft.b_ref_m
+            * (
+                float(derivative_coeffs.get("Cn_delta_a_residual", 0.0)) * delta_a
+                + float(derivative_coeffs.get("Cn_delta_r_residual", 0.0)) * delta_r
+            ),
+        ],
+        dtype=float,
+    )
+    return aircraft.inertia_inv_b @ moment_b
 
 
 def response_metrics_from_rows(rows: list[dict[str, Any]], start_s: float, end_s: float) -> dict[str, float]:
@@ -775,11 +1160,24 @@ def response_metrics_from_rows(rows: list[dict[str, Any]], start_s: float, end_s
 
 def summarize_effectiveness(replay_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for split in ("all", "train", "heldout"):
+    split_specs = [
+        ("all", None, False),
+        ("train", "train", False),
+        ("heldout", "heldout", False),
+        ("high_confidence_all", None, False),
+        ("high_confidence_train", "train", False),
+        ("high_confidence_heldout", "heldout", False),
+        ("confidence_weighted_all", None, True),
+        ("confidence_weighted_train", "train", True),
+        ("confidence_weighted_heldout", "heldout", True),
+    ]
+    for split, base_split, confidence_weighted in split_specs:
         split_rows = [
             row
             for row in replay_rows
-            if row.get("replay_status") == "ok" and (split == "all" or row.get("split") == split)
+            if row.get("replay_status") == "ok"
+            and (base_split is None or row.get("split") == base_split)
+            and (not split.startswith("high_confidence_") or row.get("launch_confidence_label") == "high")
         ]
         for surface in ("aileron", "elevator", "rudder"):
             magnitudes = sorted({round(to_float(row.get("command_abs")), 6) for row in split_rows if row.get("surface_axis") == surface})
@@ -794,7 +1192,17 @@ def summarize_effectiveness(replay_rows: list[dict[str, Any]]) -> list[dict[str,
                 if not positive or not negative:
                     continue
                 for metric in PRIMARY_METRICS_BY_SURFACE[surface]:
-                    rows.append(effectiveness_metric_row(split, surface, magnitude, metric, positive, negative))
+                    rows.append(
+                        effectiveness_metric_row(
+                            split,
+                            surface,
+                            magnitude,
+                            metric,
+                            positive,
+                            negative,
+                            confidence_weighted=confidence_weighted,
+                        )
+                    )
     return rows
 
 
@@ -805,11 +1213,12 @@ def effectiveness_metric_row(
     metric: str,
     positive: list[dict[str, Any]],
     negative: list[dict[str, Any]],
+    confidence_weighted: bool = False,
 ) -> dict[str, Any]:
-    actual_pos = safe_mean([to_float(row.get(f"actual_{metric}")) for row in positive])
-    actual_neg = safe_mean([to_float(row.get(f"actual_{metric}")) for row in negative])
-    sim_pos = safe_mean([to_float(row.get(f"sim_{metric}")) for row in positive])
-    sim_neg = safe_mean([to_float(row.get(f"sim_{metric}")) for row in negative])
+    actual_pos = response_mean(positive, f"actual_{metric}", confidence_weighted=confidence_weighted)
+    actual_neg = response_mean(negative, f"actual_{metric}", confidence_weighted=confidence_weighted)
+    sim_pos = response_mean(positive, f"sim_{metric}", confidence_weighted=confidence_weighted)
+    sim_neg = response_mean(negative, f"sim_{metric}", confidence_weighted=confidence_weighted)
     actual_antisym = 0.5 * (actual_pos - actual_neg) if all_finite(actual_pos, actual_neg) else float("nan")
     actual_sym = 0.5 * (actual_pos + actual_neg) if all_finite(actual_pos, actual_neg) else float("nan")
     sim_antisym = 0.5 * (sim_pos - sim_neg) if all_finite(sim_pos, sim_neg) else float("nan")
@@ -968,6 +1377,292 @@ def candidate_not_run(candidate_id: str, reason: str) -> dict[str, Any]:
     }
 
 
+def append_surface_aero_coupling_candidate(
+    candidates: list[dict[str, Any]],
+    heldout_rows: list[dict[str, Any]],
+    aero_coupling_rows: list[dict[str, Any]],
+) -> None:
+    improved = sum(1 for row in aero_coupling_rows if bool(row.get("heldout_improved")))
+    evaluated = [row for row in aero_coupling_rows if int(row.get("heldout_sample_count", 0) or 0) > 0]
+    candidates.append(
+        {
+            "candidate_id": "D0_launch_confidence_weighted_derivative_fit_basis",
+            "status": "diagnostic_derivative_level_fit_not_promoted",
+            "promoted": False,
+            "delta_a_effectiveness_scale": "",
+            "delta_e_effectiveness_scale": "",
+            "delta_r_effectiveness_scale": "",
+            "delta_a_neutral_bias_rad": 0.0,
+            "delta_e_neutral_bias_rad": 0.0,
+            "delta_r_neutral_bias_rad": 0.0,
+            "aileron_left_right_asymmetry": 1.0,
+            "actuator_time_constant_scale": 1.0,
+            "command_delay_offset_s": 0.0,
+            "evidence_summary": (
+                "confidence-weighted derivative-level residual force/moment fit; "
+                f"held-out derivative residual improved {improved}/{len(evaluated)} coefficients"
+            ),
+            "claim_boundary": "diagnostic surface-aero/coupling derivative estimate; no checked-in model change",
+        }
+    )
+    for row in aero_coupling_rows:
+        heldout_rows.append(
+            {
+                "candidate_id": row.get("candidate_id", "D0_launch_confidence_weighted_derivative_fit_basis"),
+                "surface_axis": row.get("surface_axis", ""),
+                "metric": row.get("parameter", ""),
+                "heldout_count": row.get("heldout_sample_count", 0),
+                "baseline_abs_error": row.get("heldout_baseline_mae_coeff", float("nan")),
+                "candidate_abs_error": row.get("heldout_candidate_mae_coeff", float("nan")),
+                "improved": bool(row.get("heldout_improved")),
+                "promotion_gate_status": row.get("promotion_gate_status", "not_promoted_derivative_diagnostic_only"),
+            }
+        )
+
+
+def surface_aero_coupling_coefficients(rows: list[dict[str, Any]]) -> dict[str, float]:
+    coeffs: dict[str, float] = {}
+    for row in rows:
+        parameter = str(row.get("parameter", ""))
+        value = to_float(row.get("bounded_coefficient_per_rad"))
+        if parameter and math.isfinite(value):
+            coeffs[parameter] = value
+    return coeffs
+
+
+def surface_aero_coupling_candidate_coefficients(coefficients: dict[str, float]) -> dict[str, dict[str, float]]:
+    families: dict[str, dict[str, float]] = {}
+    for candidate_id, names in SURFACE_AERO_COUPLING_CANDIDATE_FAMILIES.items():
+        families[candidate_id] = {
+            name: float(coefficients.get(name, 0.0))
+            for name in names
+            if math.isfinite(to_float(coefficients.get(name, 0.0)))
+        }
+    return families
+
+
+def replay_error_summary(
+    replay_by_candidate: dict[str, list[dict[str, Any]]],
+    effectiveness_by_candidate: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for candidate_id, replay_rows in replay_by_candidate.items():
+        effectiveness_rows = effectiveness_by_candidate.get(candidate_id, [])
+        for split in ("all", "train", "heldout"):
+            split_rows = [
+                row
+                for row in replay_rows
+                if row.get("replay_status") == "ok" and (split == "all" or row.get("split") == split)
+            ]
+            for surface in ("all", "aileron", "elevator", "rudder"):
+                surface_rows = split_rows if surface == "all" else [row for row in split_rows if row.get("surface_axis") == surface]
+                rows.append(
+                    {
+                        "candidate_id": candidate_id,
+                        "split": split,
+                        "surface_axis": surface,
+                        "replay_count": len(surface_rows),
+                        "dx_mae_m": mae(surface_rows, "dx_residual_actual_minus_sim_m"),
+                        "dy_mae_m": mae(surface_rows, "dy_residual_actual_minus_sim_m"),
+                        "altitude_loss_mae_m": mae(surface_rows, "altitude_loss_residual_actual_minus_sim_m"),
+                        "final_phi_mae_deg": mae(surface_rows, "final_phi_residual_actual_minus_sim_deg"),
+                        "final_theta_mae_deg": mae(surface_rows, "final_theta_residual_actual_minus_sim_deg"),
+                        "final_psi_mae_deg": mae(surface_rows, "final_psi_residual_actual_minus_sim_deg"),
+                        "primary_antisym_residual": mean_abs_primary_antisym_residual(effectiveness_rows, split, surface, "all"),
+                        "claim_boundary": (
+                            "frozen neutral replay"
+                            if candidate_id == "C0_frozen_neutral"
+                            else "diagnostic launch-confidence-weighted surface aero/coupling replay only; not promoted"
+                        ),
+                    }
+                )
+    return rows
+
+
+def optional_surface_aero_coupling_fit(replay_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    aircraft = adapt_glider(build_nausicaa_glider())
+    samples: list[dict[str, Any]] = []
+    for replay_row in replay_rows:
+        if replay_row.get("replay_status") != "ok":
+            continue
+        samples.extend(derivative_fit_samples_for_replay_row(replay_row, aircraft))
+
+    rows: list[dict[str, Any]] = []
+    for spec in SURFACE_AERO_COUPLING_SPECS:
+        parameter = str(spec["parameter"])
+        surface = str(spec["surface_axis"])
+        state_index = int(spec["state_index"])
+        residual_key = residual_key_for_surface_aero_spec(spec)
+        fit_samples = [
+            sample
+            for sample in samples
+            if sample.get("surface_axis") == surface
+            and abs(to_float(sample.get(f"state_{state_index}"))) >= DERIVATIVE_FIT_MIN_SURFACE_RAD
+            and math.isfinite(to_float(sample.get(residual_key)))
+        ]
+        train = [sample for sample in fit_samples if sample.get("split") == "train"]
+        heldout = [sample for sample in fit_samples if sample.get("split") == "heldout"]
+        coefficient = weighted_surface_derivative_fit(train, state_index=state_index, residual_key=residual_key)
+        bounded = float(np.clip(coefficient, -DERIVATIVE_FIT_COEFF_ABS_BOUND, DERIVATIVE_FIT_COEFF_ABS_BOUND)) if math.isfinite(coefficient) else float("nan")
+        train_baseline = weighted_derivative_mae(train, state_index=state_index, residual_key=residual_key, coefficient=0.0)
+        train_candidate = weighted_derivative_mae(train, state_index=state_index, residual_key=residual_key, coefficient=bounded)
+        heldout_baseline = weighted_derivative_mae(heldout, state_index=state_index, residual_key=residual_key, coefficient=0.0)
+        heldout_candidate = weighted_derivative_mae(heldout, state_index=state_index, residual_key=residual_key, coefficient=bounded)
+        rows.append(
+            {
+                "candidate_id": "D0_launch_confidence_weighted_derivative_fit_basis",
+                "parameter": parameter,
+                "surface_axis": surface,
+                "command_axis": spec["command_axis"],
+                "moment_axis": spec["moment_axis"],
+                "fit_role": spec["fit_role"],
+                "coefficient_per_rad": coefficient,
+                "bounded_coefficient_per_rad": bounded,
+                "train_sample_count": len(train),
+                "heldout_sample_count": len(heldout),
+                "train_baseline_mae_coeff": train_baseline,
+                "train_candidate_mae_coeff": train_candidate,
+                "heldout_baseline_mae_coeff": heldout_baseline,
+                "heldout_candidate_mae_coeff": heldout_candidate,
+                "heldout_improved": bool(all_finite(heldout_baseline, heldout_candidate) and heldout_candidate < heldout_baseline),
+                "mean_launch_confidence_weight": safe_mean([to_float(sample.get("launch_confidence_weight")) for sample in fit_samples]),
+                "physical_sign_status": "signed_residual_derivative_diagnostic_only",
+                "promotion_gate_status": "not_promoted_no_replay_neutral_or_closed_loop_gate",
+                "claim_boundary": "surface/coupling derivative residual diagnostic only",
+            }
+        )
+    return rows
+
+
+def derivative_fit_samples_for_replay_row(row: dict[str, Any], aircraft: Any) -> list[dict[str, Any]]:
+    throw_dir = Path(str(row.get("throw_dir", row.get("_throw_dir", ""))))
+    sample_rows = read_csv(throw_dir / "metrics" / "state_samples.csv")
+    if len(sample_rows) < 3:
+        return []
+    response_start_s = to_float(row.get("response_window_start_s"))
+    response_end_s = to_float(row.get("response_window_end_s"))
+    if not all_finite(response_start_s, response_end_s) or response_end_s <= response_start_s:
+        return []
+    times = np.asarray([to_float(sample.get("t_s")) for sample in sample_rows], dtype=float)
+    states = np.asarray([prep._state_vector_from_sample_row(sample) for sample in sample_rows], dtype=float)
+    if states.ndim != 2 or states.shape[1] < 15:
+        return []
+    manifest = load_json(throw_dir / "manifests" / "glider_calibration_throw_manifest.json")
+    actuator_tau_s = prep._actuator_tau_from_manifest(manifest)
+    out: list[dict[str, Any]] = []
+    for index in range(1, len(sample_rows) - 1):
+        time_s = float(times[index])
+        if not math.isfinite(time_s) or time_s < response_start_s or time_s > response_end_s:
+            continue
+        dt_s = float(times[index + 1] - times[index - 1])
+        if not math.isfinite(dt_s) or dt_s <= 1e-6:
+            continue
+        state = states[index]
+        if not np.all(np.isfinite(state[:15])):
+            continue
+        measured_v_dot = (states[index + 1, 6:9] - states[index - 1, 6:9]) / dt_s
+        measured_omega_dot = (states[index + 1, 9:12] - states[index - 1, 9:12]) / dt_s
+        if not np.all(np.isfinite(measured_v_dot)) or not np.all(np.isfinite(measured_omega_dot)):
+            continue
+        try:
+            base_dot = state_derivative(
+                state,
+                state[12:15],
+                aircraft,
+                wind_model=None,
+                actuator_tau_s=actuator_tau_s,
+                wind_mode="panel",
+            )
+        except Exception:
+            continue
+        if not np.all(np.isfinite(base_dot[6:12])):
+            continue
+        v_b = state[6:9]
+        speed_m_s = float(np.linalg.norm(v_b))
+        qbar = 0.5 * 1.225 * speed_m_s * speed_m_s
+        if not math.isfinite(qbar) or qbar < DERIVATIVE_FIT_MIN_QBAR_PA:
+            continue
+        moment_residual = aircraft.inertia_b @ (measured_omega_dot - base_dot[9:12])
+        force_residual_y = aircraft.mass_kg * float(measured_v_dot[1] - base_dot[7])
+        coeff_den_force = qbar * aircraft.s_ref_m2
+        coeff_den_span = qbar * aircraft.s_ref_m2 * aircraft.b_ref_m
+        coeff_den_chord = qbar * aircraft.s_ref_m2 * aircraft.c_ref_m
+        if coeff_den_force <= 0.0 or coeff_den_span <= 0.0 or coeff_den_chord <= 0.0:
+            continue
+        out.append(
+            {
+                "split": row.get("split", ""),
+                "surface_axis": row.get("surface_axis", ""),
+                "launch_confidence_weight": row.get("launch_confidence_weight", 1.0),
+                "state_12": float(state[12]),
+                "state_13": float(state[13]),
+                "state_14": float(state[14]),
+                "force_coeff_residual_y": float(force_residual_y / coeff_den_force),
+                "moment_coeff_residual_0": float(moment_residual[0] / coeff_den_span),
+                "moment_coeff_residual_1": float(moment_residual[1] / coeff_den_chord),
+                "moment_coeff_residual_2": float(moment_residual[2] / coeff_den_span),
+            }
+        )
+    return out
+
+
+def residual_key_for_surface_aero_spec(spec: dict[str, Any]) -> str:
+    if spec.get("fit_type") == "side_force":
+        return "force_coeff_residual_y"
+    return f"moment_coeff_residual_{int(spec['moment_index'])}"
+
+
+def residual_key_from_args(*, residual_key: str | None = None, moment_index: int | None = None) -> str:
+    if residual_key:
+        return residual_key
+    if moment_index is None:
+        raise ValueError("Either residual_key or moment_index is required.")
+    return f"moment_coeff_residual_{int(moment_index)}"
+
+
+def weighted_surface_derivative_fit(
+    samples: list[dict[str, Any]],
+    *,
+    state_index: int,
+    residual_key: str | None = None,
+    moment_index: int | None = None,
+) -> float:
+    y_key = residual_key_from_args(residual_key=residual_key, moment_index=moment_index)
+    numerator = 0.0
+    denominator = 0.0
+    for sample in samples:
+        x_value = to_float(sample.get(f"state_{state_index}"))
+        y_value = to_float(sample.get(y_key))
+        weight = to_float(sample.get("launch_confidence_weight"), 1.0)
+        if not all_finite(x_value, y_value, weight) or weight <= 0.0:
+            continue
+        numerator += weight * x_value * y_value
+        denominator += weight * x_value * x_value
+    return numerator / denominator if denominator > 1e-12 else float("nan")
+
+
+def weighted_derivative_mae(
+    samples: list[dict[str, Any]],
+    *,
+    state_index: int,
+    residual_key: str | None = None,
+    moment_index: int | None = None,
+    coefficient: float,
+) -> float:
+    y_key = residual_key_from_args(residual_key=residual_key, moment_index=moment_index)
+    numerator = 0.0
+    denominator = 0.0
+    for sample in samples:
+        x_value = to_float(sample.get(f"state_{state_index}"))
+        y_value = to_float(sample.get(y_key))
+        weight = to_float(sample.get("launch_confidence_weight"), 1.0)
+        if not all_finite(x_value, y_value, weight, coefficient) or weight <= 0.0:
+            continue
+        numerator += weight * abs(y_value - float(coefficient) * x_value)
+        denominator += weight
+    return numerator / denominator if denominator > 1e-12 else float("nan")
+
+
 def filtering_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     groups: list[tuple[str, list[dict[str, Any]], str, Any]] = [("all", rows, "all", "all")]
     for surface in ("aileron", "elevator", "rudder"):
@@ -997,11 +1692,87 @@ def filtering_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return summary_rows
 
 
+def launch_confidence_summary(replay_rows: list[dict[str, Any]], effectiveness_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ok_rows = [row for row in replay_rows if row.get("replay_status") == "ok"]
+    groups: list[tuple[str, str, Any, list[dict[str, Any]]]] = [("all", "all", "all", ok_rows)]
+    for surface in ("aileron", "elevator", "rudder"):
+        surface_rows = [row for row in ok_rows if row.get("surface_axis") == surface]
+        groups.append((surface, surface, "all", surface_rows))
+        magnitudes = sorted({round(to_float(row.get("command_abs")), 6) for row in surface_rows if math.isfinite(to_float(row.get("command_abs")))})
+        for magnitude in magnitudes:
+            groups.append(
+                (
+                    f"{surface}_{magnitude:g}",
+                    surface,
+                    magnitude,
+                    [row for row in surface_rows if abs(to_float(row.get("command_abs")) - magnitude) < 1e-9],
+                )
+            )
+
+    rows: list[dict[str, Any]] = []
+    for split in ("all", "train", "heldout"):
+        for group_name, surface, magnitude, group_rows in groups:
+            split_rows = [row for row in group_rows if split == "all" or row.get("split") == split]
+            all_residual = mean_abs_primary_antisym_residual(effectiveness_rows, split, surface, magnitude)
+            high_residual = mean_abs_primary_antisym_residual(effectiveness_rows, f"high_confidence_{split}", surface, magnitude)
+            weighted_residual = mean_abs_primary_antisym_residual(effectiveness_rows, f"confidence_weighted_{split}", surface, magnitude)
+            rows.append(
+                {
+                    "group": group_name,
+                    "split": split,
+                    "surface_axis": surface,
+                    "command_abs": magnitude,
+                    "replay_count": len(split_rows),
+                    "high_confidence_count": sum(1 for row in split_rows if row.get("launch_confidence_label") == "high"),
+                    "medium_confidence_count": sum(1 for row in split_rows if row.get("launch_confidence_label") == "medium"),
+                    "low_confidence_count": sum(1 for row in split_rows if row.get("launch_confidence_label") == "low"),
+                    "mean_launch_confidence_score": safe_mean([to_float(row.get("launch_confidence_score")) for row in split_rows]),
+                    "mean_launch_lateral_contamination_score": safe_mean(
+                        [to_float(row.get("launch_lateral_contamination_score")) for row in split_rows]
+                    ),
+                    "primary_metric": "mean_primary" if surface == "all" else PRIMARY_METRICS_BY_SURFACE[str(surface)][0],
+                    "all_abs_antisym_residual": all_residual,
+                    "high_confidence_abs_antisym_residual": high_residual,
+                    "confidence_weighted_abs_antisym_residual": weighted_residual,
+                    "high_minus_all_abs_residual": high_residual - all_residual if all_finite(high_residual, all_residual) else float("nan"),
+                    "weighted_minus_all_abs_residual": weighted_residual - all_residual if all_finite(weighted_residual, all_residual) else float("nan"),
+                    "replay_dx_mae_m": mae(split_rows, "dx_residual_actual_minus_sim_m"),
+                    "replay_dy_mae_m": mae(split_rows, "dy_residual_actual_minus_sim_m"),
+                    "replay_altitude_loss_mae_m": mae(split_rows, "altitude_loss_residual_actual_minus_sim_m"),
+                }
+            )
+    return rows
+
+
+def mean_abs_primary_antisym_residual(
+    effectiveness_rows: list[dict[str, Any]],
+    split: str,
+    surface: str,
+    magnitude: Any,
+) -> float:
+    values: list[float] = []
+    for row in effectiveness_rows:
+        row_surface = str(row.get("surface_axis", ""))
+        if row.get("split") != split:
+            continue
+        if surface != "all" and row_surface != surface:
+            continue
+        if magnitude != "all" and abs(to_float(row.get("command_abs")) - to_float(magnitude)) > 1e-9:
+            continue
+        if row.get("metric") != PRIMARY_METRICS_BY_SURFACE.get(row_surface, ("",))[0]:
+            continue
+        residual = abs(to_float(row.get("antisymmetric_residual_actual_minus_sim")))
+        if math.isfinite(residual):
+            values.append(residual)
+    return safe_mean(values)
+
+
 def write_figures(
     figure_dir: Path,
     inventory_rows: list[dict[str, Any]],
     replay_rows: list[dict[str, Any]],
     effectiveness_rows: list[dict[str, Any]],
+    launch_confidence_rows: list[dict[str, Any]],
     optional_heldout: list[dict[str, Any]],
 ) -> list[str]:
     figure_dir.mkdir(parents=True, exist_ok=True)
@@ -1011,6 +1782,7 @@ def write_figures(
         write_surface_effectiveness_plot(figure_dir, effectiveness_rows, "elevator"),
         write_surface_effectiveness_plot(figure_dir, effectiveness_rows, "rudder"),
         write_symmetric_contamination_plot(figure_dir, effectiveness_rows),
+        write_launch_confidence_plot(figure_dir, launch_confidence_rows),
         write_heldout_summary_plot(figure_dir, optional_heldout),
     ]
     paths.extend(write_representative_replay_plots(figure_dir, replay_rows))
@@ -1088,6 +1860,41 @@ def write_symmetric_contamination_plot(figure_dir: Path, rows: list[dict[str, An
     ax.set_xticklabels(labels, rotation=35, ha="right")
     fig.tight_layout()
     path = figure_dir / "symmetric_contamination.png"
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+    return path
+
+
+def write_launch_confidence_plot(figure_dir: Path, rows: list[dict[str, Any]]) -> Path:
+    subset = [
+        row
+        for row in rows
+        if row.get("split") == "all"
+        and row.get("surface_axis") in {"aileron", "elevator", "rudder"}
+        and row.get("command_abs") == "all"
+    ]
+    labels = [str(row.get("surface_axis")) for row in subset]
+    all_residual = [to_float(row.get("all_abs_antisym_residual")) for row in subset]
+    high_residual = [to_float(row.get("high_confidence_abs_antisym_residual")) for row in subset]
+    weighted_residual = [to_float(row.get("confidence_weighted_abs_antisym_residual")) for row in subset]
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    if labels:
+        x = np.arange(len(labels))
+        ax.bar(x - 0.24, all_residual, width=0.24, label="all kept")
+        ax.bar(x, high_residual, width=0.24, label="high confidence")
+        ax.bar(x + 0.24, weighted_residual, width=0.24, label="confidence weighted")
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.legend()
+    else:
+        ax.text(0.5, 0.5, "No launch-confidence summary rows", ha="center", va="center")
+        ax.set_axis_off()
+    ax.set_title("Launch-Confidence Effectiveness Residual Check")
+    ax.set_ylabel("mean abs primary antisymmetric residual")
+    ax.grid(True, axis="y", alpha=0.25)
+    fig.tight_layout()
+    path = figure_dir / "launch_confidence_effectiveness_residuals.png"
     fig.savefig(path, dpi=160)
     plt.close(fig)
     return path
@@ -1182,7 +1989,11 @@ def build_manifest(
     output_dir: Path,
     inventory_rows: list[dict[str, Any]],
     replay_rows: list[dict[str, Any]],
+    candidate_sweep_replay_rows: list[dict[str, Any]],
+    replay_error_summary_rows: list[dict[str, Any]],
     effectiveness_rows: list[dict[str, Any]],
+    launch_confidence_rows: list[dict[str, Any]],
+    aero_coupling_rows: list[dict[str, Any]],
     filtering_summary_rows: list[dict[str, Any]],
     optional_candidates: list[dict[str, Any]],
     optional_heldout: list[dict[str, Any]],
@@ -1215,6 +2026,13 @@ def build_manifest(
             "abs_w0_max_m_s": RELAXED_ABS_W_MAX_M_S,
             "max_response_spike_fraction": MAX_RESPONSE_SPIKE_FRACTION,
             "deep_post_stall_alpha_deg": DEEP_POST_STALL_ALPHA_DEG,
+            "launch_confidence_high_threshold": LAUNCH_CONFIDENCE_HIGH_THRESHOLD,
+            "launch_confidence_medium_threshold": LAUNCH_CONFIDENCE_MEDIUM_THRESHOLD,
+            "launch_confidence_min_weight": LAUNCH_CONFIDENCE_MIN_WEIGHT,
+            "launch_confidence_exponent": LAUNCH_CONFIDENCE_EXPONENT,
+            "launch_confidence_reference": "same lateral-contamination strategy as neutral SysID: phi0=psi0=v0=p0=r0=0",
+            "derivative_fit_min_qbar_pa": DERIVATIVE_FIT_MIN_QBAR_PA,
+            "derivative_fit_min_surface_rad": DERIVATIVE_FIT_MIN_SURFACE_RAD,
         },
         "train_heldout_split_method": "launch-level one held-out launch per sign within each surface/magnitude ladder pair when available",
         "heldout_seed": int(heldout_seed),
@@ -1225,22 +2043,31 @@ def build_manifest(
             "train": sum(1 for row in inventory_rows if row.get("split") == "train"),
             "heldout": sum(1 for row in inventory_rows if row.get("split") == "heldout"),
             "successful_replays": sum(1 for row in replay_rows if row.get("replay_status") == "ok"),
+            "successful_candidate_sweep_replays": sum(1 for row in candidate_sweep_replay_rows if row.get("replay_status") == "ok"),
         },
         "output_files": {
             "inventory": "control_surface_inventory.csv",
             "filtering_summary": "control_surface_filtering_summary.csv",
             "replay_metrics": "control_surface_replay_metrics.csv",
+            "candidate_sweep_replay_metrics": "control_surface_replay_metrics_candidate_sweep.csv",
+            "replay_error_summary": "control_surface_replay_error_summary.csv",
             "effectiveness_summary": "control_surface_effectiveness_summary.csv",
+            "launch_confidence_summary": "control_surface_launch_confidence_summary.csv",
             "symmetric_contamination_summary": "control_surface_symmetric_contamination_summary.csv",
             "optional_surface_fit_candidates": "optional_surface_fit_candidates.csv",
             "optional_surface_fit_heldout_summary": "optional_surface_fit_heldout_summary.csv",
+            "optional_surface_aero_coupling_fit": "optional_surface_aero_coupling_fit.csv",
             "report": "control_surface_effectiveness_report.md",
             "figures": figures,
         },
         "promotion_decision": "not_promoted" if not promoted else "promoted",
         "claim_boundary": "control-surface effectiveness diagnostics and residual-calibrated replay alignment only; no broad aero SysID",
         "filtering_summary_groups": len(filtering_summary_rows),
+        "candidate_families": {candidate_id: list(parameters) for candidate_id, parameters in SURFACE_AERO_COUPLING_CANDIDATE_FAMILIES.items()},
+        "replay_error_summary_rows": len(replay_error_summary_rows),
         "effectiveness_summary_rows": len(effectiveness_rows),
+        "launch_confidence_summary_rows": len(launch_confidence_rows),
+        "optional_surface_aero_coupling_fit_rows": len(aero_coupling_rows),
         "optional_heldout_rows": len(optional_heldout),
     }
 
@@ -1250,7 +2077,11 @@ def write_report(
     *,
     inventory_rows: list[dict[str, Any]],
     replay_rows: list[dict[str, Any]],
+    candidate_sweep_replay_rows: list[dict[str, Any]],
+    replay_error_summary_rows: list[dict[str, Any]],
     effectiveness_rows: list[dict[str, Any]],
+    launch_confidence_rows: list[dict[str, Any]],
+    aero_coupling_rows: list[dict[str, Any]],
     optional_candidates: list[dict[str, Any]],
     optional_heldout: list[dict[str, Any]],
     filtering_summary_rows: list[dict[str, Any]],
@@ -1259,6 +2090,7 @@ def write_report(
     kept = [row for row in inventory_rows if row.get("filter_status") == "kept"]
     filtered = [row for row in inventory_rows if row.get("filter_status") != "kept"]
     successful_replays = [row for row in replay_rows if row.get("replay_status") == "ok"]
+    successful_candidate_sweep_replays = [row for row in candidate_sweep_replay_rows if row.get("replay_status") == "ok"]
     lines = [
         "# Real-Flight Control Surface Effectiveness Study v3.0",
         "",
@@ -1293,44 +2125,61 @@ def write_report(
         f"- replay dy MAE: `{format_value(mae(successful_replays, 'dy_residual_actual_minus_sim_m'))}` m",
         f"- replay altitude-loss MAE: `{format_value(mae(successful_replays, 'altitude_loss_residual_actual_minus_sim_m'))}` m",
         "",
-        "## 5. Aileron Effectiveness",
+        "## 5. Candidate Replay Error Summary",
+        "",
+        "The candidate comparison fits only launch-confidence-weighted residual surface aero/coupling derivatives. Surface-scale fitting is not part of the default fit because measured surface magnitudes are already used; scaling remains an optional legacy appendix only.",
+        "",
+        f"- successful candidate-family replays: `{len(successful_candidate_sweep_replays)}` / `{len(candidate_sweep_replay_rows)}`",
+        "",
+        replay_error_report_lines(replay_error_summary_rows),
+        "",
+        "## 6. Launch-Confidence Diagnostic",
+        "",
+        "Launch confidence is a diagnostic weight and grouping variable, not a new acceptance gate. It reuses the neutral SysID lateral-contamination strategy with reference `phi0=psi0=v0=p0=r0=0`, so the study can test whether real-vs-replay mismatch is launch-condition driven.",
+        "",
+        launch_confidence_report_lines(launch_confidence_rows),
+        "",
+        "## 7. Aileron Effectiveness",
         "",
         effectiveness_report_lines(effectiveness_rows, "aileron"),
         "",
-        "## 6. Elevator Effectiveness",
+        "## 8. Elevator Effectiveness",
         "",
         effectiveness_report_lines(effectiveness_rows, "elevator"),
         "",
-        "## 7. Rudder Effectiveness",
+        "## 9. Rudder Effectiveness",
         "",
         effectiveness_report_lines(effectiveness_rows, "rudder"),
         "",
-        "## 8. Cross-Coupling Observations",
+        "## 10. Cross-Coupling Observations",
         "",
         "Aileron yaw response and rudder roll response are reported as diagnostic coupling evidence. They are not promoted as lateral transition aerodynamic derivatives by this study.",
         "",
-        "## 9. Symmetric Launch/Trim Contamination",
+        "## 11. Symmetric Launch/Trim Contamination",
         "",
         "Symmetric response is separated from antisymmetric response. Large symmetric terms are interpreted as launch, trim, hardware, or model-mismatch contamination rather than hidden inside a surface effectiveness scale.",
         "",
         symmetric_report_lines(effectiveness_rows),
         "",
-        "## 10. Optional Surface-Only Fit Result",
+        "## 12. Optional Surface/Aero Fit Result",
         "",
         optional_candidate_report_lines(optional_candidates, optional_heldout),
         "",
-        "## 11. Promotion Decision",
+        surface_aero_coupling_report_lines(aero_coupling_rows),
+        "",
+        "## 13. Promotion Decision",
         "",
         "No model parameter is promoted by this analysis. A surface-only update would require held-out deflection improvement, neutral replay preservation, interpretable signs/magnitudes, and closed-loop smoke evidence.",
         "",
-        "## 12. Limitations",
+        "## 14. Limitations",
         "",
         "- Launch-condition contamination remains visible in the symmetric response.",
         "- Deflection data are sustained pulse-ladder throws, not a broad aero excitation design.",
-        "- Optional S1/S2 rows are diagnostic summaries, not checked-in plant changes.",
+        "- Candidate derivative rows are diagnostic summaries, not checked-in plant changes.",
+        "- S1/S2 surface-scale rows are disabled by default because measured surface magnitudes are already used.",
         "- R5/R7/R8/R10/R11 semantics are unchanged.",
         "",
-        "## 13. Reproducibility Commands",
+        "## 15. Reproducibility Commands",
         "",
         "```powershell",
         "python 03_Control/02_Inner_Loop/run_control_surface_effectiveness_study.py",
@@ -1349,6 +2198,80 @@ def filter_summary_lines(rows: list[dict[str, Any]]) -> str:
         f"`{all_row.get('filtered_throw_count', 0)}` filtered; "
         f"reason counts `{all_row.get('filter_reason_counts', '{}')}`"
     )
+
+
+def launch_confidence_report_lines(rows: list[dict[str, Any]]) -> str:
+    all_row = next((row for row in rows if row.get("split") == "all" and row.get("group") == "all"), {})
+    lines = [
+        (
+            f"- all successful replays: `{all_row.get('replay_count', 0)}` total, "
+            f"`{all_row.get('high_confidence_count', 0)}` high-confidence, "
+            f"`{all_row.get('medium_confidence_count', 0)}` medium-confidence, "
+            f"`{all_row.get('low_confidence_count', 0)}` low-confidence; "
+            f"mean confidence weight `{format_value(all_row.get('mean_launch_confidence_score'))}`, "
+            f"mean lateral-contamination score `{format_value(all_row.get('mean_launch_lateral_contamination_score'))}`"
+        ),
+        "- primary antisymmetric residual check; lower is better, negative delta means the confidence subset reduced mismatch:",
+    ]
+    for surface in ("aileron", "elevator", "rudder"):
+        row = next(
+            (
+                item
+                for item in rows
+                if item.get("split") == "all" and item.get("surface_axis") == surface and item.get("command_abs") == "all"
+            ),
+            {},
+        )
+        lines.append(
+            "- "
+            f"{surface}: all `{format_value(row.get('all_abs_antisym_residual'))}`, "
+            f"high-confidence `{format_value(row.get('high_confidence_abs_antisym_residual'))}` "
+            f"(delta `{format_value(row.get('high_minus_all_abs_residual'))}`), "
+            f"weighted `{format_value(row.get('confidence_weighted_abs_antisym_residual'))}` "
+            f"(delta `{format_value(row.get('weighted_minus_all_abs_residual'))}`)"
+        )
+    return "\n".join(lines)
+
+
+def replay_error_report_lines(rows: list[dict[str, Any]]) -> str:
+    lines = [
+        "- replay MAE comparison; lower is better:",
+        (
+            "`candidate | split | surface | dx | dy | altitude | phi | theta | psi | primary antisym`"
+        ),
+    ]
+    candidate_order = [
+        candidate_id
+        for candidate_id in SURFACE_AERO_COUPLING_CANDIDATE_FAMILIES
+        if any(row.get("candidate_id") == candidate_id for row in rows)
+    ]
+    for candidate_id in candidate_order:
+        for split in ("all", "heldout"):
+            for surface in ("all", "aileron", "elevator", "rudder"):
+                row = next(
+                    (
+                        item
+                        for item in rows
+                        if item.get("candidate_id") == candidate_id
+                        and item.get("split") == split
+                        and item.get("surface_axis") == surface
+                    ),
+                    {},
+                )
+                if not row:
+                    continue
+                lines.append(
+                    "- "
+                    f"`{candidate_id} | {split} | {surface} | "
+                    f"{format_value(row.get('dx_mae_m'))} | "
+                    f"{format_value(row.get('dy_mae_m'))} | "
+                    f"{format_value(row.get('altitude_loss_mae_m'))} | "
+                    f"{format_value(row.get('final_phi_mae_deg'))} | "
+                    f"{format_value(row.get('final_theta_mae_deg'))} | "
+                    f"{format_value(row.get('final_psi_mae_deg'))} | "
+                    f"{format_value(row.get('primary_antisym_residual'))}`"
+                )
+    return "\n".join(lines)
 
 
 def effectiveness_report_lines(rows: list[dict[str, Any]], surface: str) -> str:
@@ -1389,8 +2312,29 @@ def optional_candidate_report_lines(candidates: list[dict[str, Any]], heldout_ro
         f"- `{row.get('candidate_id')}`: `{row.get('status')}`, promoted `{row.get('promoted')}`"
         for row in candidates
     ]
-    improved = sum(1 for row in heldout_rows if bool(row.get("improved")))
-    lines.append(f"- S1 held-out metric diagnostics improved `{improved}` / `{len(heldout_rows)}` rows, but remain not promoted.")
+    s1_rows = [row for row in heldout_rows if row.get("candidate_id") == "S1_surface_effectiveness_scales"]
+    if s1_rows:
+        improved = sum(1 for row in s1_rows if bool(row.get("improved")))
+        lines.append(f"- S1 held-out metric diagnostics improved `{improved}` / `{len(s1_rows)}` rows, but remain not promoted.")
+    else:
+        lines.append("- S1/S2 surface-scale diagnostics are disabled by default because measured surface magnitudes are used.")
+    return "\n".join(lines)
+
+
+def surface_aero_coupling_report_lines(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "- Surface aero/coupling derivative diagnostic was not run."
+    lines = [
+        "- The derivative diagnostic fits residual control force/moment coefficients from measured acceleration with launch-confidence weighting; it is not replay-promoted."
+    ]
+    for row in rows:
+        lines.append(
+            "- "
+            f"`{row.get('parameter')}`: coeff `{format_value(row.get('bounded_coefficient_per_rad'))}`, "
+            f"held-out baseline `{format_value(row.get('heldout_baseline_mae_coeff'))}`, "
+            f"candidate `{format_value(row.get('heldout_candidate_mae_coeff'))}`, "
+            f"improved `{row.get('heldout_improved')}`"
+        )
     return "\n".join(lines)
 
 
@@ -1454,8 +2398,9 @@ def load_json(path: Path) -> dict[str, Any]:
         return json.load(handle)
 
 
-def base_replay_row(row: dict[str, Any], replay_dt_s: float) -> dict[str, Any]:
+def base_replay_row(row: dict[str, Any], replay_dt_s: float, *, candidate_id: str = "C0_frozen_neutral") -> dict[str, Any]:
     return {
+        "candidate_id": candidate_id,
         "split": row.get("split", ""),
         "dataset_root": row.get("dataset_root", ""),
         "session_label": row.get("session_label", ""),
@@ -1467,6 +2412,11 @@ def base_replay_row(row: dict[str, Any], replay_dt_s: float) -> dict[str, Any]:
         "command_axis": row.get("command_axis", ""),
         "command_value": row.get("command_value", ""),
         "command_abs": row.get("command_abs", ""),
+        "launch_confidence_score": row.get("launch_confidence_score", ""),
+        "launch_confidence_label": row.get("launch_confidence_label", ""),
+        "launch_confidence_weight": row.get("launch_confidence_weight", ""),
+        "launch_lateral_contamination_score": row.get("launch_lateral_contamination_score", ""),
+        "launch_confidence_reasons": row.get("launch_confidence_reasons", ""),
         "replay_status": "",
         "replay_policy": "",
         "replay_dt_s": float(replay_dt_s),
@@ -1475,8 +2425,14 @@ def base_replay_row(row: dict[str, Any], replay_dt_s: float) -> dict[str, Any]:
     }
 
 
-def blocked_replay_row(row: dict[str, Any], status: str, replay_dt_s: float) -> dict[str, Any]:
-    out = base_replay_row(row, replay_dt_s)
+def blocked_replay_row(
+    row: dict[str, Any],
+    status: str,
+    replay_dt_s: float,
+    *,
+    candidate_id: str = "C0_frozen_neutral",
+) -> dict[str, Any]:
+    out = base_replay_row(row, replay_dt_s, candidate_id=candidate_id)
     out["replay_status"] = status
     out["replay_policy"] = "blocked_before_replay"
     return out
@@ -1616,6 +2572,40 @@ def launch_quality_from_state(phi: float, theta: float, psi: float, u: float, v:
     return ";".join(flags) if flags else "clean"
 
 
+def launch_confidence_from_inventory_row(row: dict[str, Any]) -> dict[str, Any]:
+    components = [
+        ("roll_angle", math.radians(to_float(row.get("phi0_deg"))) / max(math.radians(LAUNCH_CONFIDENCE_ROLL_ABS_MAX_DEG), 1e-9)),
+        ("yaw_angle", math.radians(to_float(row.get("psi0_deg"))) / max(math.radians(LAUNCH_CONFIDENCE_YAW_ABS_MAX_DEG), 1e-9)),
+        ("lateral_velocity", to_float(row.get("v0_m_s")) / max(LAUNCH_CONFIDENCE_V_ABS_MAX_M_S, 1e-9)),
+        ("roll_rate", to_float(row.get("p0_rad_s")) / max(LAUNCH_CONFIDENCE_P_ABS_MAX_RAD_S, 1e-9)),
+        ("yaw_rate", to_float(row.get("r0_rad_s")) / max(LAUNCH_CONFIDENCE_R_ABS_MAX_RAD_S, 1e-9)),
+    ]
+    finite_components = [(name, abs(value)) for name, value in components if math.isfinite(value)]
+    if len(finite_components) != len(components):
+        lateral_score = float("nan")
+        weight = 1.0
+        reasons = [f"missing_{name}" for name, value in components if not math.isfinite(value)]
+    else:
+        lateral_score = float(np.sqrt(np.mean([value * value for _, value in finite_components])))
+        weight = math.exp(-float(LAUNCH_CONFIDENCE_EXPONENT) * lateral_score**2)
+        weight = float(np.clip(weight, LAUNCH_CONFIDENCE_MIN_WEIGHT, 1.0))
+        reasons = [name for name, value in finite_components if value >= 0.45]
+
+    if weight >= LAUNCH_CONFIDENCE_HIGH_THRESHOLD:
+        label = "high"
+    elif weight >= LAUNCH_CONFIDENCE_MEDIUM_THRESHOLD:
+        label = "medium"
+    else:
+        label = "low"
+    return {
+        "launch_confidence_score": weight,
+        "launch_confidence_label": label,
+        "launch_confidence_weight": weight,
+        "launch_lateral_contamination_score": lateral_score,
+        "launch_confidence_reasons": ";".join(reasons),
+    }
+
+
 def tracking_quality_flag(confidence: list[float], response_spikes: list[bool]) -> str:
     mean_conf = safe_mean(confidence)
     spike_fraction = ratio(sum(response_spikes), len(response_spikes))
@@ -1728,6 +2718,21 @@ def all_finite(*values: float) -> bool:
 def safe_mean(values: list[float]) -> float:
     finite = [to_float(value) for value in values if math.isfinite(to_float(value))]
     return mean(finite) if finite else float("nan")
+
+
+def response_mean(rows: list[dict[str, Any]], key: str, *, confidence_weighted: bool = False) -> float:
+    if not confidence_weighted:
+        return safe_mean([to_float(row.get(key)) for row in rows])
+    numerator = 0.0
+    denominator = 0.0
+    for row in rows:
+        value = to_float(row.get(key))
+        weight = to_float(row.get("launch_confidence_weight"))
+        if not all_finite(value, weight) or weight <= 0.0:
+            continue
+        numerator += value * weight
+        denominator += weight
+    return numerator / denominator if denominator > 0.0 else float("nan")
 
 
 def safe_min(values: list[float]) -> float:

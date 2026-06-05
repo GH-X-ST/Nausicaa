@@ -1,4 +1,5 @@
 candidate_id,status,promoted,delta_a_effectiveness_scale,delta_e_effectiveness_scale,delta_r_effectiveness_scale,delta_a_neutral_bias_rad,delta_e_neutral_bias_rad,delta_r_neutral_bias_rad,aileron_left_right_asymmetry,actuator_time_constant_scale,command_delay_offset_s,evidence_summary,claim_boundary
 S0_frozen_neutral,evaluated_frozen_active_neutral_model,False,1,1,1,0,0,0,1,1,0,baseline replay only; no surface update,residual-calibrated replay alignment only
-S1_surface_effectiveness_scales,diagnostic_metric_space_estimate_not_promoted,False,1.018600032,0.3255633154,0.4892300284,0,0,0,1,1,0,train antisymmetric response ratio only; not replayed as a plant change,diagnostic surface-only candidate; no checked-in model change
-S2_scales_plus_neutral_biases,not_run_neutral_bias_not_fit_from_symmetric_contamination,False,,,,,,,,,,symmetric response is reported as contamination and is not hidden as a bias fit,diagnostic only; no model update
+S1_surface_effectiveness_scales,not_run_disabled_by_cli,False,,,,,,,,,,disabled_by_cli,diagnostic only; no model update
+S2_scales_plus_neutral_biases,not_run_disabled_by_cli,False,,,,,,,,,,disabled_by_cli,diagnostic only; no model update
+D0_launch_confidence_weighted_derivative_fit_basis,diagnostic_derivative_level_fit_not_promoted,False,,,,0,0,0,1,1,0,confidence-weighted derivative-level residual force/moment fit; held-out derivative residual improved 6/7 coefficients,diagnostic surface-aero/coupling derivative estimate; no checked-in model change
